@@ -8,6 +8,7 @@
 /SCREEN.md             @ingki3
 /COMPONENTS.md         @ingki3
 /PLAN.md               @ingki3
+/EVAL.md               @ingki3
 
 # 결정적 로직의 골든 테스트 (P2a에서 생김)
 /server/internal/router/testdata/    @ingki3
