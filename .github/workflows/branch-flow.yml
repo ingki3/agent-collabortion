@@ -1,0 +1,22 @@
+name: branch-flow
+
+# 브랜치 흐름 강제: feature → PR → dev → PR → main
+# main으로 향하는 PR은 head가 dev일 때만 통과한다. main 보호 규칙의 필수 체크로 등록되어 있다.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  source-is-dev:
+    runs-on: ubuntu-latest
+    steps:
+      - name: PR to main must come from dev
+        env:
+          HEAD: ${{ github.head_ref }}
+        run: |
+          if [ "$HEAD" != "dev" ]; then
+            echo "::error::PR to main must originate from 'dev' (got '$HEAD'). Flow: feature -> dev -> main."
+            exit 1
+          fi
+          echo "ok: $HEAD -> main"

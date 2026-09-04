@@ -1,0 +1,22 @@
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# secrets / local config
+.env
+.env.*
+!.env.example
+
+# build artifacts (monorepo 스트림별 — P0-a 골격에서 갱신)
+node_modules/
+dist/
+build/
+coverage/
+*.log
+bin/
+tmp/
+
+# Orca / agent worktrees
+.worktrees/
