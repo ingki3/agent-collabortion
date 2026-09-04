@@ -10,6 +10,7 @@
 | [`SCREEN.md`](SCREEN.md) | 화면 설계 v0.3 — S1~S17 |
 | [`COMPONENTS.md`](COMPONENTS.md) | 재사용 컴포넌트 카탈로그 v0.4 (`agent-collaboration.pen`) |
 | [`PLAN.md`](PLAN.md) | 개발 계획 v0.5 — 단계·게이트·컷·에이전트 오케스트레이션 |
+| [`EVAL.md`](EVAL.md) | 테스트 시나리오 ↔ 정확한 예상 동작 v0.1 — 게이트별 통과 조건, 골든 테스트의 원본 |
 
 이전 버전과 리뷰: `prd/` `screen/` `design/` `plan/`.
 
