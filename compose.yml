@@ -1,0 +1,16 @@
+# docker compose 플러그인이 있는 환경용. 없으면 `make db`가 docker run으로 같은 것을 띄운다.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: colab-pg
+    environment:
+      POSTGRES_USER: colab
+      POSTGRES_PASSWORD: colab
+      POSTGRES_DB: colab
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

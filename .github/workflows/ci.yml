@@ -1,0 +1,38 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: false  # 외부 의존성이 생기고 go.sum이 있을 때 켠다
+      - name: vet
+        run: for m in contracts server daemon cli; do (cd $m && go vet ./...) || exit 1; done
+      - name: test
+        run: for m in contracts server daemon cli; do (cd $m && go test ./...) || exit 1; done
+      - name: build
+        run: make build
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build

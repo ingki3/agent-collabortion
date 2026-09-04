@@ -1,0 +1,25 @@
+/*
+ * Design tokens — COMPONENTS.md / agent-collaboration.pen 변수와 1:1.
+ * P0-a W 작업: 19색 + 글리프 + soft/solid 규칙을 여기와 Badge 컴포넌트로 옮긴다.
+ * 이 파일은 자리만 잡는다. 값은 .pen SetVariables 결과를 그대로 가져온다.
+ */
+:root {
+  --font: Inter, system-ui, -apple-system, sans-serif;
+
+  --bg: #ffffff;
+  --surface: #fafafa;
+  --line: #e4e4e7;
+  --ink: #18181b;
+  --ink-2: #52525b;
+  --ink-3: #71717a;
+
+  /* 6 lane/task states — soft fill + -text pair. 값은 .pen에서 확정 */
+  --s-run: #dbeafe;   --s-run-text: #1d4ed8;
+  --s-wait: #fef3c7;  --s-wait-text: #b45309;
+  --s-block: #fee2e2; --s-block-text: #b91c1c;
+  --s-pause: #f4f4f5; --s-pause-text: #52525b;
+  --s-done: #dcfce7;  --s-done-text: #15803d;
+  --s-fail: #fee2e2;  --s-fail-text: #991b1b;
+}
+
+html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); }
