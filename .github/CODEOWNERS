@@ -1,0 +1,14 @@
+# PLAN.md §10.3 — 계약 파일과 테스트 파일은 구현 PR에서 건드리지 못한다.
+# 여기 묶인 경로의 변경은 Director 승인이 필요하다.
+# (ruleset에 require_code_owner_review를 켜면 강제된다. 에이전트 계정이 분리되기 전까지는 문서 역할.)
+
+/contracts/            @ingki3
+/.github/              @ingki3
+/PRD.md                @ingki3
+/SCREEN.md             @ingki3
+/COMPONENTS.md         @ingki3
+/PLAN.md               @ingki3
+
+# 결정적 로직의 골든 테스트 (P2a에서 생김)
+/server/internal/router/testdata/    @ingki3
+/server/internal/state/testdata/     @ingki3
