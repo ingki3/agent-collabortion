@@ -23,6 +23,9 @@ func main() {
 	log := obs.NewLogger("server")
 	addr := envOr("COLAB_SERVER_ADDR", ":8080")
 	serverURL := envOr("COLAB_SERVER_URL", "http://localhost:8080")
+	// Invite links open in the web UI, which may live on another origin than
+	// the API (`make dev`: web :3000, server :8080). Defaults to the server.
+	webURL := envOr("COLAB_WEB_URL", serverURL)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -53,7 +56,7 @@ func main() {
 			os.Exit(1)
 		}
 		defer pool.Close()
-		srv := httpapi.NewServer(httpapi.Deps{DB: pool, Clock: clock.Real{}, Log: log, ServerURL: serverURL})
+		srv := httpapi.NewServer(httpapi.Deps{DB: pool, Clock: clock.Real{}, Log: log, ServerURL: serverURL, WebURL: webURL})
 		srv.SecureCookies = os.Getenv("COLAB_SECURE_COOKIES") == "1"
 		handler = srv.Handler()
 		go scheduler(ctx, srv, log)

@@ -24,6 +24,10 @@ var (
 	// keys harness.md §6 requires (runtime_kind, session_id). Rejected before the
 	// lane CHECK (0004) can turn it into a 500.
 	ErrInvalidSessionRef = errors.New("tasks: runtime_session_ref needs runtime_kind and session_id")
+	ErrLaneNotFound      = errors.New("tasks: lane not found")
+	// ErrLaneNotCancellable — cancelLane on a lane that is not running/queued
+	// (openapi cancelLane: already-terminal lanes answer 409).
+	ErrLaneNotCancellable = errors.New("tasks: lane is not running or queued")
 )
 
 type Service struct {
@@ -265,6 +269,14 @@ func (s *Service) requeueLocked(ctx context.Context, tx pgx.Tx, t *Row, reason c
 	if Terminal(t.Status) {
 		return nil
 	}
+	// E10-04: once a person cancelled the lane, no attempt is requeued — a
+	// daemon that dies or reports failed after the cancel command still ends
+	// the task as cancelled (no new task).
+	if requested, err := cancelRequested(ctx, tx, t.ID, t.Attempt); err != nil {
+		return err
+	} else if requested {
+		return s.cancelLocked(ctx, tx, t, string(reason), now)
+	}
 	if err := s.Tokens.Revoke(ctx, tx, t.ID, t.Attempt, "requeue"); err != nil {
 		return err
 	}
@@ -422,7 +434,18 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 				return fmt.Errorf("tasks: runtime_session_ref: %w", err)
 			}
 		}
-		switch f.Outcome {
+		decided := f.Outcome
+		if decided != "completed" {
+			// A cancel command was issued for this attempt (cancelLane): the
+			// daemon's failed/paused report after it is the cancel taking
+			// effect, not a retryable failure (E10-04: no requeue).
+			if requested, err := cancelRequested(ctx, tx, t.ID, attempt); err != nil {
+				return err
+			} else if requested {
+				decided = "cancelled"
+			}
+		}
+		switch decided {
 		case "completed":
 			if _, err := Transition(t.Status, Completed); err != nil {
 				return err
@@ -442,20 +465,11 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			}
 			t.Status, t.FinishedAt = Completed, &now
 		case "cancelled":
-			if _, err := Transition(t.Status, Cancelled); err != nil {
+			if err := s.cancelLocked(ctx, tx, t, f.StopReason, now); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, `UPDATE task SET status = 'cancelled', finished_at = $2, stop_reason = $3, heartbeat_at = NULL, updated_at = $2 WHERE id = $1`,
-				t.ID, now, f.StopReason); err != nil {
-				return err
-			}
-			if err := s.Tokens.Revoke(ctx, tx, t.ID, attempt, "cancelled"); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'failed', finished_at = $2, updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
-				return err
-			}
-			t.Status, t.FinishedAt = Cancelled, &now
+			final = t.Status
+			return nil
 		case "paused_budget":
 			if _, err := Transition(t.Status, Paused); err != nil {
 				return err
@@ -523,4 +537,131 @@ func collectIDs(rows pgx.Rows, err error) ([]uuid.UUID, error) {
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+// CancelLane is cancelLane (openapi, FR-3.4 "중단", E10-04). The lane must be
+// running or queued. Its current task is cancelled at once when nothing holds
+// it yet (queued/deferred); a dispatched/preparing/running attempt gets a
+// daemon `cancel` command {after_current_tool: true, reason: director}
+// (daemon-protocol §4.3) and ends when the daemon's finish arrives — the
+// command is consumed by that finish and re-sent on every response until
+// then. The feed records "사람이 중단함" either way. Returns the task and
+// whether it was cancelled immediately.
+func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*Row, bool, error) {
+	now := s.Clock.Now()
+	var out *Row
+	immediate := false
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		var laneStatus string
+		err := tx.QueryRow(ctx, `SELECT status FROM lane WHERE id = $1 FOR UPDATE`, laneID).Scan(&laneStatus)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrLaneNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("tasks: lock lane: %w", err)
+		}
+		if laneStatus != "running" && laneStatus != "queued" {
+			return ErrLaneNotCancellable
+		}
+		var taskID uuid.UUID
+		err = tx.QueryRow(ctx, `
+			SELECT id FROM task WHERE lane_id = $1 AND status IN ('deferred', 'queued', 'dispatched', 'preparing', 'running')
+			ORDER BY created_at DESC LIMIT 1`, laneID).Scan(&taskID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrLaneNotCancellable
+		}
+		if err != nil {
+			return fmt.Errorf("tasks: current task: %w", err)
+		}
+		t, err := lockTask(ctx, tx, taskID)
+		if err != nil {
+			return err
+		}
+		// A second "중단" while the first cancel is still pending: the command
+		// already rides every response (§4.3); nothing to add.
+		if requested, err := cancelRequested(ctx, tx, t.ID, t.Attempt); err != nil {
+			return err
+		} else if requested {
+			out = t
+			return nil
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO task_event (task_id, attempt, seq, class, verb, object_ref, outcome, payload, created_at)
+			VALUES ($1, $2, (SELECT COALESCE(max(seq) + 1, $3::int) FROM task_event WHERE task_id = $1 AND attempt = $2 AND seq >= $3::int),
+			        'status', 'cancel', to_jsonb($4::text), 'ok', $5, $6)`,
+			t.ID, t.Attempt, serverSeqBase, "director",
+			map[string]any{"command": "lane cancel", "note": "사람이 중단함", "requested_by": byUserID.String(), "reason": "director"}, now); err != nil {
+			return fmt.Errorf("tasks: cancel feed event: %w", err)
+		}
+		switch t.Status {
+		case Dispatched, Preparing, Running:
+			if t.RuntimeID != nil {
+				if err := tokens.QueueCommand(ctx, tx, *t.RuntimeID, contracts.Command{
+					Type: contracts.CmdCancel, TaskID: t.ID.String(), Attempt: t.Attempt, AfterCurrentTool: true, Reason: "director",
+				}); err != nil {
+					return err
+				}
+				out = t
+				return nil
+			}
+		}
+		if err := s.cancelLocked(ctx, tx, t, "director", now); err != nil {
+			return err
+		}
+		immediate = true
+		out = t
+		return nil
+	})
+	return out, immediate, err
+}
+
+// serverSeqBase mirrors router.ServerSeqBase (the router package imports
+// tasks, so the constant is repeated here): server-recorded status events
+// live above the daemon's seq range.
+const serverSeqBase = 1 << 30
+
+// cancelRequested reports whether a cancel command was issued for (task, attempt).
+func cancelRequested(ctx context.Context, q db.DBTX, taskID uuid.UUID, attempt int) (bool, error) {
+	var ok bool
+	err := q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM daemon_command WHERE task_id = $1 AND attempt = $2 AND type = 'cancel')`, taskID, attempt).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("tasks: cancel requested: %w", err)
+	}
+	return ok, nil
+}
+
+// cancelLocked ends the task as cancelled (failure_kind cancelled — openapi
+// cancelLane), records the attempt, revokes its token and marks the lane
+// failed(cancelled). No requeue.
+func (s *Service) cancelLocked(ctx context.Context, tx pgx.Tx, t *Row, stopReason string, now time.Time) error {
+	if _, err := Transition(t.Status, Cancelled); err != nil {
+		return err
+	}
+	var stop *string
+	if stopReason != "" {
+		stop = &stopReason
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE task SET status = 'cancelled', failure_kind = 'cancelled', paused_reason = NULL, finished_at = $2, stop_reason = $3,
+		       heartbeat_at = NULL, updated_at = $2 WHERE id = $1`, t.ID, now, stop); err != nil {
+		return fmt.Errorf("tasks: cancel: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO task_attempt (task_id, attempt, runtime_id, finished_at, outcome, failure_kind, stop_reason)
+		VALUES ($1, $2, $3, $4, 'cancelled', 'cancelled', $5)
+		ON CONFLICT (task_id, attempt) DO UPDATE SET finished_at = COALESCE(task_attempt.finished_at, EXCLUDED.finished_at),
+		  outcome = 'cancelled', failure_kind = 'cancelled', stop_reason = COALESCE(task_attempt.stop_reason, EXCLUDED.stop_reason)`,
+		t.ID, t.Attempt, t.RuntimeID, now, stop); err != nil {
+		return fmt.Errorf("tasks: cancel attempt: %w", err)
+	}
+	if err := s.Tokens.Revoke(ctx, tx, t.ID, t.Attempt, "cancelled"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'failed', finished_at = $2, updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+		return err
+	}
+	fk := string(contracts.FailCancelled)
+	t.Status, t.FailureKind, t.FinishedAt, t.StopReason, t.PausedReason = Cancelled, &fk, &now, stop, nil
+	s.publish(ctx, tx, t)
+	return nil
 }
