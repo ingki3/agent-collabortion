@@ -247,3 +247,18 @@ Insert(msgInst + "/XMTib", {type:"ref", ref:"h6pub", descendants:{...}})    // �
 | O8 빈 상태 8종 | 별도 컴포넌트 "Empty State" 하나 추가 |
 | N6 lane 보드 접기 | Lane Card는 그대로, 보드를 상태별 접이식 그룹 컴포넌트로 |
 | O7 참여 에이전트 다이얼로그 | 마법사 5단계(참여자) 행을 컴포넌트로 만든 뒤 재사용 |
+
+---
+
+## 7. 구현에서 드러난 빈칸 (v0.5, 2026-09-05 — `web/components/badge-map.ts` PR #6)
+
+Badge를 코드로 옮기며(PLAN P0-a W) 문서가 답하지 않은 것들이다. 코드는 아래 "임시 결정"대로 두었고, 디자인 확인 후 이 표와 `.pen`을 함께 갱신한다.
+
+| # | 빈칸 | 임시 결정 (코드) | 확인 필요 |
+|---|---|---|---|
+| 1 | soft 변형의 테두리 — 문서는 paused만 "테두리만"이라 했고 나머지 soft의 테두리는 무언급 | 모든 soft에 1px 같은 색 테두리, paused는 채움 없이 1.5px 테두리만 | 디자인 |
+| 2 | agent `error ⚠` 글리프 — 리뷰 후속 #01에는 있으나 §2 조합표에는 없음 | ⚠ solid | 조합표에 추가 |
+| 3 | task `deferred`·`dispatched`·`preparing`, session `completing` 글리프 미정의 | deferred ○ / dispatched·preparing ● / completing ● | 글리프 결정 |
+| 4 | 한국어 라벨 출처 | SCREEN §4.3(세션)·§4.5(lane)·§4.6(인박스) 문구에서 선택, 없는 것은 신설(배정됨·준비 중·보류) | SCREEN에 표로 고정 |
+| 5 | `disabled` 색 | neutral(`--ink-3`) — 상태색 아님 | 확인 |
+| 6 | PLAN "색 19개" 표기 | 실제는 색 18 + 글꼴 1 = 변수 19 | PLAN 문구 |
