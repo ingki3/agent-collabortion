@@ -2,6 +2,8 @@ package tasks
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -208,5 +210,59 @@ func TestFinishIdempotent(t *testing.T) {
 	u, _ := GetUsage(ctx, s.DB, id)
 	if u == nil || u.InputTokens != 10 {
 		t.Fatalf("usage = %+v", u)
+	}
+}
+
+// Integrator finding: a finish carrying the contract-shaped runtime_session_ref
+// (harness §6: runtime_kind, not kind) must be stored — the 0001 CHECK required
+// 'kind' and turned every real finish into a 500. 0004 fixes the CHECK.
+func TestFinishStoresRuntimeSessionRef(t *testing.T) {
+	s, _, seed := newService(t)
+	ctx := context.Background()
+	id := testdb.AddTask(t, s.DB, seed, seed.SessionID, t0)
+	_ = dispatch(t, s, seed, id)
+	_ = s.Phase(ctx, id, 1, "running")
+	ref := &contracts.RuntimeSessionRef{
+		RuntimeKind: contracts.RuntimeClaudeCode, AdapterVersion: "0.74.0",
+		SessionID: "acp-sess-1", CWD: "/work/lane", CreatedAt: t0.Add(time.Minute),
+	}
+	st, err := s.Finish(ctx, id, 1, contracts.Finish{Outcome: "completed", StopReason: "end_turn", RuntimeSessionRef: ref})
+	if err != nil || st != Completed {
+		t.Fatalf("finish with runtime_session_ref = %s %v, want completed", st, err)
+	}
+	var kind, sid, cwd string
+	var raw []byte
+	if err := s.DB.QueryRow(ctx, `
+		SELECT l.runtime_session_ref->>'runtime_kind', l.runtime_session_ref->>'session_id', l.runtime_session_ref->>'cwd', l.runtime_session_ref
+		FROM lane l JOIN task t ON t.lane_id = l.id WHERE t.id = $1`, id).Scan(&kind, &sid, &cwd, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if kind != "claude_code" || sid != "acp-sess-1" || cwd != "/work/lane" {
+		t.Fatalf("lane.runtime_session_ref = %s", raw)
+	}
+	var stored contracts.RuntimeSessionRef
+	if err := json.Unmarshal(raw, &stored); err != nil || !stored.CreatedAt.Equal(ref.CreatedAt) || stored.AdapterVersion != "0.74.0" {
+		t.Fatalf("stored ref round-trip = %+v %v (raw %s)", stored, err, raw)
+	}
+}
+
+// A ref without the §6 required keys is rejected as a typed error (→ 400), not
+// a CHECK violation (→ 500). nil stays allowed (TestFinishIdempotent).
+func TestFinishRejectsSessionRefWithoutRequiredKeys(t *testing.T) {
+	s, _, seed := newService(t)
+	ctx := context.Background()
+	id := testdb.AddTask(t, s.DB, seed, seed.SessionID, t0)
+	_ = dispatch(t, s, seed, id)
+	_ = s.Phase(ctx, id, 1, "running")
+	for _, ref := range []*contracts.RuntimeSessionRef{
+		{SessionID: "acp-sess-1", CWD: "/work"},
+		{RuntimeKind: contracts.RuntimeClaudeCode, CWD: "/work"},
+	} {
+		if _, err := s.Finish(ctx, id, 1, contracts.Finish{Outcome: "completed", RuntimeSessionRef: ref}); !errors.Is(err, ErrInvalidSessionRef) {
+			t.Fatalf("finish with %+v: err = %v, want ErrInvalidSessionRef", ref, err)
+		}
+	}
+	if r := row(t, s, id); r.Status != Running {
+		t.Fatalf("task after rejected finish = %s, want still running", r.Status)
 	}
 }

@@ -20,6 +20,10 @@ import (
 var (
 	ErrNotFound     = errors.New("tasks: task not found")
 	ErrStaleAttempt = errors.New("tasks: attempt is not the current one")
+	// ErrInvalidSessionRef — finish carried a runtime_session_ref without the
+	// keys harness.md §6 requires (runtime_kind, session_id). Rejected before the
+	// lane CHECK (0004) can turn it into a 500.
+	ErrInvalidSessionRef = errors.New("tasks: runtime_session_ref needs runtime_kind and session_id")
 )
 
 type Service struct {
@@ -406,9 +410,16 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			t.ID, f.Usage.InputTokens, f.Usage.OutputTokens, f.Usage.CacheReadTokens, f.Usage.CostUSD, f.Usage.Estimated, now); err != nil {
 			return fmt.Errorf("tasks: usage: %w", err)
 		}
+		// harness.md §6: the ref is stored verbatim (contracts.RuntimeSessionRef →
+		// jsonb with the contract keys) — it is the only basis for the next
+		// attempt's TaskBundle.resume. The lane CHECK (0004) requires
+		// runtime_kind + session_id; reject earlier with a typed error.
 		if f.RuntimeSessionRef != nil {
+			if f.RuntimeSessionRef.RuntimeKind == "" || f.RuntimeSessionRef.SessionID == "" {
+				return ErrInvalidSessionRef
+			}
 			if _, err := tx.Exec(ctx, `UPDATE lane SET runtime_session_ref = $2, updated_at = $3 WHERE id = $1`, t.LaneID, f.RuntimeSessionRef, now); err != nil {
-				return err
+				return fmt.Errorf("tasks: runtime_session_ref: %w", err)
 			}
 		}
 		switch f.Outcome {
