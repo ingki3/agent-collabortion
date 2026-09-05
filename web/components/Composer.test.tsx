@@ -17,10 +17,41 @@ describe("classifyMentions — FR-3.3 규칙 2 / E1-04", () => {
     expect(r.triggers.map((a) => a.name)).toEqual(["Lead"]);
     expect(r.nonParticipants.map((m) => m.name)).toEqual(["X"]);
   });
-  it("사람 멘션·@all 은 트리거도 경고도 아니다", () => {
+  it("사람 멘션·@all 은 트리거도 경고도 아니다 — 규칙 3(no_trigger)", () => {
     const r = classifyMentions("[@민지](mention://user/u1) [@all](mention://all)", AGENTS);
+    expect(r.rule).toBe("no_trigger");
     expect(r.triggers).toEqual([]);
     expect(r.nonParticipants).toEqual([]);
+  });
+  it("/note 접두(앞 공백 무시)는 참여자를 멘션해도 트리거 0개 — 규칙 1이 규칙 2보다 먼저", () => {
+    const r = classifyMentions("  /note [@Lead](mention://agent/a-lead) 참고만 해", AGENTS);
+    expect(r.rule).toBe("note");
+    expect(r.triggers).toEqual([]);
+    expect(r.nonParticipants).toEqual([]);
+    expect(classifyMentions("/notes [@Lead](mention://agent/a-lead)", AGENTS).rule).toBe("mention");
+    expect(classifyMentions("hi", AGENTS).rule).toBe("implicit");
+  });
+});
+
+describe("Composer — 트리거 미리보기 규칙 1·3 (R2)", () => {
+  it("'/note @Lead' 는 트리거 칩이 사라지고 '기록만' 한 줄만 보인다(규칙 1)", () => {
+    render(<Composer agents={AGENTS} onSubmit={vi.fn<SubmitFn>(async () => [])} />);
+    const ta = screen.getByTestId("composer-input");
+    fireEvent.change(ta, { target: { value: "[@Lead](mention://agent/a-lead) 인사해줘" } });
+    expect(screen.getByTestId("chip-trigger")).not.toBeNull();
+    fireEvent.change(ta, { target: { value: "/note [@Lead](mention://agent/a-lead) [@X](mention://agent/a-x) 참고만 해" } });
+    expect(screen.queryByTestId("chip-trigger")).toBeNull();
+    expect(screen.queryByTestId("chip-not-participant")).toBeNull();
+    expect(screen.getByTestId("chip-note-only").textContent).toContain("기록만");
+    expect(screen.getByTestId("composer-chips").getAttribute("data-rule")).toBe("note");
+  });
+
+  it("@all·사람만 멘션이면 비참여자 경고 없이 '트리거 없음' 칩(규칙 3)", () => {
+    render(<Composer agents={AGENTS} onSubmit={vi.fn<SubmitFn>(async () => [])} />);
+    fireEvent.change(screen.getByTestId("composer-input"), { target: { value: "[@all](mention://all) [@민지](mention://user/u1) 공지" } });
+    expect(screen.queryByTestId("chip-trigger")).toBeNull();
+    expect(screen.queryByTestId("chip-not-participant")).toBeNull();
+    expect(screen.getByTestId("chip-no-trigger").textContent).toContain("트리거 없음");
   });
 });
 
