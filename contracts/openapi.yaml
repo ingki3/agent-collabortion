@@ -1824,7 +1824,7 @@ paths:
       summary: 메시지 게시(멱등) — 라우팅 규칙 1~8 적용
       description: |
         권한: 워크스페이스 멤버(누구나 게시·멘션, FR-5.3) · `TaskToken`(에이전트, 그 task의 세션만).
-        **`Idempotency-Key` 필수.** 사용자는 UUID를, CLI는 `task_id + seq`에서 파생한 키를 쓴다(§9 내구성) — 폐기된 토큰은 `401`(E11-04). 서버가 FR-3.3 규칙 1~8과 lane 해소 4규칙을 적용해 task를 만들거나 병합한다(FR-3.4: **어떤 메시지도 진행 중 턴을 취소하지 않는다**). `new_lane: true`는 해소 규칙 3을 건너뛴다(t-2, 사람만). `suppress_agent_ids`는 이번 메시지에서만 트리거를 억제한다(FR-3.6). 비참여 에이전트 멘션은 게시하되 `warnings[]`로 알린다(E1-04). 응답 `triggers[]`는 실제로 만들어진/병합된 task.
+        **`Idempotency-Key` 필수.** 사용자는 랜덤 UUID를, CLI는 `UUIDv5(task:<task_id>:<seq>)`(attempt 제외, seq는 `CliContext.last_seq`에서 이어짐 — colab-cli.md §1)를 쓴다(§9 내구성) — 폐기된 토큰은 `401`(E11-04). 서버가 FR-3.3 규칙 1~8과 lane 해소 4규칙을 적용해 task를 만들거나 병합한다(FR-3.4: **어떤 메시지도 진행 중 턴을 취소하지 않는다**). `new_lane: true`는 해소 규칙 3을 건너뛴다(t-2, 사람만). `suppress_agent_ids`는 이번 메시지에서만 트리거를 억제한다(FR-3.6). 비참여 에이전트 멘션은 게시하되 `warnings[]`로 알린다(E1-04). 응답 `triggers[]`는 실제로 만들어진/병합된 task.
         `TaskToken`으로 게시할 때 `author_type`은 `agent`, `source_task_id`는 그 task다. 루프 상한 초과면 메시지는 게시되고 세션이 `paused(loop)`가 되며 task는 만들지 않는다(E4-01).
       x-colab-cli: message post
       x-prd: [FR-3.1, FR-3.2, FR-3.3, FR-3.4, FR-3.5, FR-3.6]
@@ -4645,7 +4645,7 @@ components:
     CliContext:
       type: object
       description: '`TaskToken`이 가리키는 범위. CLI는 이 값으로 경로 파라미터를 채운다.'
-      required: [task_id, lane_id, session_id, agent_id, workspace_id, attempt, expires_at]
+      required: [task_id, lane_id, session_id, agent_id, workspace_id, attempt, last_seq, expires_at]
       properties:
         task_id: { type: string, format: uuid }
         lane_id: { type: string, format: uuid }
@@ -4654,6 +4654,7 @@ components:
         agent_name: { type: string }
         workspace_id: { type: string, format: uuid }
         attempt: { type: integer }
+        last_seq: { type: integer, description: '이 task가 지금까지 쓴 마지막 client seq(attempt 무관). CLI는 last_seq+1부터 이어 쓴다 — 멱등키 UUIDv5(task:<task_id>:<seq>)가 attempt 경계를 넘어 유일하도록(colab-cli.md §1, E8-04).' }
         delegated_from_task_id: { type: [string, 'null'], format: uuid }
         suppressed_delegator_agent_id: { type: [string, 'null'], format: uuid, description: 규칙 8로 멘션이 억제되는 위임자(합류 발화 전). 질문은 `status set blocked`로. }
         open_hitl_request_id: { type: [string, 'null'], format: uuid, description: 이미 열린 HITL이 있으면 두 번째 `hitl ask`는 409. }

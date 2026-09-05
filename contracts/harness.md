@@ -46,7 +46,7 @@ spawn (pgid, cwd=workdir, env=§2.1)
 | 변수 | 값 |
 |---|---|
 | `COLAB_TASK_TOKEN` | `daemon-protocol.md` §5 — 이 attempt 전용 |
-| `COLAB_SERVER_URL`, `COLAB_TASK_ID`, `COLAB_LANE_ID`, `COLAB_SESSION_ID`, `COLAB_AGENT_NAME` | colab CLI/MCP가 쓴다 |
+| `COLAB_SERVER_URL`(오리진), `COLAB_TASK_ID`, **`COLAB_TASK_ATTEMPT`**, `COLAB_LANE_ID`, `COLAB_SESSION_ID`, `COLAB_AGENT_NAME` | colab CLI/MCP가 쓴다(`colab-cli.md` §1). attempt는 멱등키 파생에 필요 |
 | `PATH`, `HOME`, `LANG`, `TMPDIR` | 시스템 최소 |
 | 런타임 인증 | Claude Code: `~/.claude` OAuth를 그대로(HOME). Hermes: `~/.hermes`. 프로파일 `env(jsonb)`는 **여기 더해진다** — 사용자가 명시한 것만 |
 
