@@ -38,9 +38,10 @@ const (
 
 // Posted is one stored message plus the response that was returned for it.
 type Posted struct {
-	Key      string
-	Body     map[string]any
-	Response []byte
+	Key       string
+	ClientSeq int // X-Colab-Client-Seq as sent (0 if the header was absent)
+	Body      map[string]any
+	Response  []byte
 }
 
 // Server is the fake. Mutate the exported fields before the request under test.
@@ -52,7 +53,7 @@ type Server struct {
 	FailCode string
 	Prefix   string // API prefix the fake mounts (default /api/v1)
 	Attempt  int    // CliContext.attempt (default Attempt)
-	LastSeq  int    // CliContext.last_seq — advanced by posts whose key is Key(last_seq+1); settable (E8-04)
+	LastSeq  int    // CliContext.last_seq = max(X-Colab-Client-Seq) (v0.3); header-less posts fall back to the UUIDv5 probe; settable (E8-04)
 	Posted   []Posted
 	ByKey    map[string]Posted
 	Requests []*http.Request // every request seen (auth header preserved)
@@ -194,6 +195,15 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.problem(w, 422, "validation_failed", "Validation failed", "content required")
 			return
 		}
+		clientSeq := 0
+		if v := r.Header.Get(client.HeaderClientSeq); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				s.problem(w, 422, "validation_failed", "Validation failed", "X-Colab-Client-Seq must be an integer >= 1")
+				return
+			}
+			clientSeq = n
+		}
 		s.Seq++
 		id := fmt.Sprintf("aaaaaaaa-0000-4000-8000-%012d", s.Seq)
 		content, _ := body["content"].(string)
@@ -218,15 +228,22 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			warnings = append(warnings, map[string]any{"code": client.WarningNotParticipant, "message": "mentioned agent is not a session participant", "agent_id": OutsiderID})
 		}
 		resp, _ := json.Marshal(map[string]any{"message": msg, "triggers": triggers, "warnings": warnings, "session_paused": nil})
-		p := Posted{Key: key, Body: body, Response: resp}
+		p := Posted{Key: key, ClientSeq: clientSeq, Body: body, Response: resp}
 		s.Posted = append(s.Posted, p)
 		s.ByKey[key] = p
-		// Track last_seq the way the server does: a key derived from the next
-		// seq advances it (keys are opaque UUIDs, so probe a small window).
-		for n := s.LastSeq + 1; n <= s.LastSeq+64; n++ {
-			if key == Key(n) {
-				s.LastSeq = n
-				break
+		// Track last_seq the way the server does (v0.3 / openapi ClientSeq):
+		// last_seq = max(client_seq) when the header is present; a header-less
+		// post (web · older CLI) falls back to probing UUIDv5(task:<id>:<n>).
+		if clientSeq > 0 {
+			if clientSeq > s.LastSeq {
+				s.LastSeq = clientSeq
+			}
+		} else {
+			for n := s.LastSeq + 1; n <= s.LastSeq+64; n++ {
+				if key == Key(n) {
+					s.LastSeq = n
+					break
+				}
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")

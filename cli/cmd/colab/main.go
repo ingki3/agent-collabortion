@@ -31,7 +31,8 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
                              --since is sent as the after= query parameter (messages newer than it)
                              --limit is 1..200 (omit for the server default 50)
   colab message post --body <text> [--reply-to <msg_id>] [--mention @A,@B] [--idempotency-key K] [--json]
-                             Idempotency-Key = UUIDv5(task:<task_id>:<seq>), seq continues across attempts
+                             Idempotency-Key = UUIDv5(task:<task_id>:<seq>), seq continues across attempts;
+                             the same seq is sent as X-Colab-Client-Seq (omitted with --idempotency-key)
   colab mcp serve            stdio MCP server exposing the same commands as tools
   colab version
 
