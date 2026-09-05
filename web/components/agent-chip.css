@@ -1,0 +1,15 @@
+/* Agent Chip `MmxsR` — 아바타 + 이름 + 상태 배지, 둘째 줄(역할 · 부가 텍스트)은 줄바꿈(N2). 루트 폭 268 → 인스턴스 fill. */
+.agent-chip { display: grid; grid-template-columns: 28px 1fr; gap: 8px 10px; align-items: start;
+  width: 100%; max-width: 268px; padding: 6px 8px; border-radius: 8px; }
+.agent-chip:hover { background: var(--surface); }
+.agent-chip__avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--surface); border: 1px solid var(--line);
+  display: grid; place-items: center; font-size: 12px; font-weight: 600; color: var(--ink-2); overflow: hidden; }
+.agent-chip__avatar img { width: 100%; height: 100%; object-fit: cover; }
+.agent-chip__text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.agent-chip__line1 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.agent-chip__name { font-size: 14px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-chip__assignee { font-size: 10px; color: var(--ink-3); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.agent-chip__line2 { font-size: 12px; color: var(--ink-3); line-height: 1.35; overflow-wrap: anywhere; }
+.agent-chip--sm { max-width: none; width: auto; padding: 2px 6px; grid-template-columns: 20px 1fr; gap: 6px; display: inline-grid; align-items: center; }
+.agent-chip--sm .agent-chip__avatar { width: 20px; height: 20px; font-size: 10px; }
+.agent-chip--sm .agent-chip__name { font-size: 13px; }

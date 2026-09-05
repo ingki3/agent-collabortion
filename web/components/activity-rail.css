@@ -1,0 +1,11 @@
+/* 활동 피드 원본 레일 — 모노스페이스 한 줄 = 시각 · class/verb · object → outcome */
+.rail { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--ink-2); }
+.rail__note { color: var(--ink-3); padding: 4px 0; font-family: var(--font); }
+.rail__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow: auto; }
+.rail__row { display: grid; grid-template-columns: 72px 1fr; gap: 8px; align-items: baseline; }
+.rail__row[data-outcome="failed"] .rail__text { color: var(--s-fail-text); font-weight: 600; }
+.rail__row[data-outcome="started"] .rail__text { color: var(--s-run-text); }
+.rail__row[data-class="message"] .rail__text { color: var(--ink); }
+.rail__time { color: var(--ink-3); }
+.rail__text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.rail__masked { color: var(--ink-3); }

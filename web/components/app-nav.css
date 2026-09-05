@@ -1,0 +1,15 @@
+/* App Nav `D6yb65` — 앱 셸 좌측 내비(세로). 항목 5개, Inbox 뱃지는 action_required 수만 센다(SCREEN §4.6). */
+.app-nav { display: flex; flex-direction: column; height: 100vh; position: sticky; top: 0;
+  border-right: 1px solid var(--line); background: var(--surface); padding: 14px 10px; gap: 4px; }
+.app-nav__brand { padding: 4px 10px 12px; font-size: 13px; font-weight: 600; letter-spacing: 0.04em; color: var(--ink-3); }
+.app-nav__ws { padding: 0 10px 14px; font-size: 14px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-nav__item { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; border-radius: 8px; font-size: 14px; color: var(--ink-2); text-decoration: none; }
+.app-nav__item:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.app-nav__item[aria-current="page"] { background: var(--bg); color: var(--ink); font-weight: 600; border: 1px solid var(--line); }
+.app-nav__badge { min-width: 20px; padding: 1px 6px; border-radius: 999px; font-size: 11px; font-weight: 600; text-align: center;
+  background: var(--s-wait); color: var(--bg); }
+.app-nav__badge--zero { background: transparent; color: var(--ink-3); border: 1px solid var(--line); }
+.app-nav__spacer { flex: 1; }
+.app-nav__user { padding: 8px 10px; font-size: 12px; color: var(--ink-3); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.app-nav__user b { color: var(--ink-2); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

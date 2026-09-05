@@ -1,0 +1,22 @@
+/* Message Card `CYRKG` — 타임라인 메시지. kind 별 배지·테두리(COMPONENTS §2.2 K3). 폭 580 → fill. */
+.msg { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }
+.msg[data-kind="blocked_q"] { padding: 12px; background: var(--bg); border-color: var(--s-block); }
+.msg[data-kind="summary"] { background: var(--surface); }
+.msg[data-kind="system"] .msg__body { color: var(--ink-2); font-size: 13px; }
+.msg__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.msg__author { font-weight: 600; font-size: 14px; }
+.msg__author--agent::before { content: "@"; color: var(--ink-3); }
+.msg__meta { font-size: 12px; color: var(--ink-3); }
+.msg__body { font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg__mention { color: var(--s-run-text); font-weight: 500; background: color-mix(in srgb, var(--s-run) 10%, transparent); border-radius: 4px; padding: 0 3px; }
+.msg__actions { display: flex; gap: 8px; align-items: center; }
+.msg__link { font-size: 12px; color: var(--ink-2); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
+.msg__slot { border-top: 1px dashed var(--line); padding-top: 8px; }
+.msg__thread { margin: 4px 0 0 20px; padding-left: 12px; border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+.msg__thread .msg { padding: 6px 8px; }
+/* kind 배지 — 상태 배지 조합표에 없는 라벨(system·answer·질문)이라 badge.css 클래스만 빌려 쓴다 */
+.msg__kind { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 999px; font-size: 11px; font-weight: 500; border: 1px solid; line-height: 1; }
+.msg__kind[data-tone="neutral"] { color: var(--ink-2); border-color: var(--ink-3); background: color-mix(in srgb, var(--ink-3) 12%, transparent); }
+.msg__kind[data-tone="block"] { color: var(--s-block-text); border-color: var(--s-block); background: color-mix(in srgb, var(--s-block) 12%, transparent); }
+.msg__kind[data-tone="done"] { color: var(--s-done-text); border-color: var(--s-done); background: color-mix(in srgb, var(--s-done) 12%, transparent); }
+.msg__kind[data-tone="wait"] { color: var(--s-wait-text); border-color: var(--s-wait); background: color-mix(in srgb, var(--s-wait) 12%, transparent); }
