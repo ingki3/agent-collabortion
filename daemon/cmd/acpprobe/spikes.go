@@ -209,6 +209,16 @@ func (r *runner) respawnAndLoad(ctx context.Context, sid string, resumes *[]map[
 	res, lerr := c.LoadSession(lctx, r.o.workdir, sid, r.claudeMeta())
 	entry := map[string]any{"why": why, "sessionId": sid, "ms": time.Since(start).Milliseconds(), "replayed_chunks": replayed}
 	if lerr == nil {
+		if res != nil && res.Models != nil && r.o.model != "" {
+			if id := pickModel(res.Models, r.o.model); id != "" {
+				_ = c.SetModel(lctx, sid, id)
+			}
+		} else if res != nil && r.o.model != "" && len(res.ConfigOptions) > 0 {
+			// claude-agent-acp 0.74.0: a resumed session can come back on the
+			// default model even when session/new ran on another (SPIKE_01b E1).
+			entry["model_after_load"] = acpprobe.ConfigOptionValue(res.ConfigOptions, "model")
+			r.ensureModel(lctx, c, sid, res.ConfigOptions)
+		}
 		// Prove the session is usable: one tool-free turn.
 		tr, terr := r.turn(ctx, c, sid, "Reply with exactly 'resumed'. Do not use tools.")
 		if terr != nil {
@@ -220,11 +230,7 @@ func (r *runner) respawnAndLoad(ctx context.Context, sid string, resumes *[]map[
 		} else {
 			entry["probe_stop"] = tr.StopReason
 			entry["probe_text"] = firstLine(tr.Text)
-		}
-		if res != nil && res.Models != nil && r.o.model != "" {
-			if id := pickModel(res.Models, r.o.model); id != "" {
-				_ = c.SetModel(lctx, sid, id)
-			}
+			entry["probe_models"] = tr.Models
 		}
 	}
 	if lerr != nil {

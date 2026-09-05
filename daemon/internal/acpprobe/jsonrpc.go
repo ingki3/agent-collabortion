@@ -25,7 +25,16 @@ const (
 	MethodSessionCancel   = "session/cancel"
 	MethodSessionSetModel = "session/set_model"
 	MethodSessionSetMode  = "session/set_mode"
+	// MethodSessionSetConfigOption is the ACP 1.x replacement for set_model:
+	// claude-agent-acp 0.74.0 no longer returns `models` from session/new, it
+	// returns `configOptions` (ids: mode, model, effort, …).
+	MethodSessionSetConfigOption = "session/set_config_option"
 )
+
+// ExtNotificationSDKMessage is claude-agent-acp's raw SDK message stream,
+// enabled per session with `_meta.claudeCode.emitRawSDKMessages` (true or a
+// filter list). Params: {sessionId, message: <SDKMessage>}.
+const ExtNotificationSDKMessage = "_claude/sdkMessage"
 
 // Client methods (agent → client).
 const (
@@ -54,7 +63,26 @@ type RPCError struct {
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
-func (e *RPCError) Error() string { return e.Message }
+func (e *RPCError) Error() string {
+	if len(e.Data) > 0 && string(e.Data) != "null" {
+		return e.Message + " data=" + string(e.Data)
+	}
+	return e.Message
+}
+
+// ErrorKind returns data.errorKind if the agent attached one (claude-agent-acp
+// 0.74.0 sets it from the SDK's assistant error: rate_limit, overloaded,
+// authentication_failed, billing_error, …). Empty when absent.
+func (e *RPCError) ErrorKind() string {
+	if len(e.Data) == 0 {
+		return ""
+	}
+	var d struct {
+		ErrorKind string `json:"errorKind"`
+	}
+	_ = json.Unmarshal(e.Data, &d)
+	return d.ErrorKind
+}
 
 // ---- initialize -----------------------------------------------------------
 
@@ -109,10 +137,45 @@ type LoadSessionParams struct {
 // SessionResult is the common shape of session/new, session/load and
 // session/resume responses. sessionId is only present on session/new.
 type SessionResult struct {
-	SessionID string          `json:"sessionId,omitempty"`
-	Models    *ModelState     `json:"models,omitempty"`
-	Modes     json.RawMessage `json:"modes,omitempty"`
-	Meta      json.RawMessage `json:"_meta,omitempty"`
+	SessionID     string          `json:"sessionId,omitempty"`
+	Models        *ModelState     `json:"models,omitempty"`
+	Modes         json.RawMessage `json:"modes,omitempty"`
+	ConfigOptions []ConfigOption  `json:"configOptions,omitempty"`
+	Meta          json.RawMessage `json:"_meta,omitempty"`
+}
+
+// ConfigOption is one entry of session/new·load `configOptions` (ACP 1.x).
+// currentValue is a string for select options and a bool for boolean ones.
+type ConfigOption struct {
+	ID           string          `json:"id"`
+	Name         string          `json:"name,omitempty"`
+	Category     string          `json:"category,omitempty"`
+	Type         string          `json:"type,omitempty"`
+	CurrentValue json.RawMessage `json:"currentValue,omitempty"`
+	Options      json.RawMessage `json:"options,omitempty"`
+}
+
+// ConfigOptionValue returns the string currentValue of option id ("" if absent
+// or not a string).
+func ConfigOptionValue(opts []ConfigOption, id string) string {
+	for _, o := range opts {
+		if o.ID == id {
+			var s string
+			_ = json.Unmarshal(o.CurrentValue, &s)
+			return s
+		}
+	}
+	return ""
+}
+
+type SetConfigOptionParams struct {
+	SessionID string `json:"sessionId"`
+	ConfigID  string `json:"configId"`
+	Value     any    `json:"value"`
+}
+
+type SetConfigOptionResult struct {
+	ConfigOptions []ConfigOption `json:"configOptions"`
 }
 
 type ModelState struct {
@@ -140,7 +203,30 @@ type ContentBlock struct {
 
 type PromptResult struct {
 	StopReason string          `json:"stopReason"`
+	Usage      json.RawMessage `json:"usage,omitempty"`
 	Meta       json.RawMessage `json:"_meta,omitempty"`
+}
+
+// ModelsUsed extracts `_meta.quota.model_usage[].model` (claude-agent-acp
+// ≥0.7x) — the accounting-grade record of which model(s) actually served the
+// turn, subagents included. This is the evidence for "which model ran", not
+// the agent's own answer.
+func (p PromptResult) ModelsUsed() []string {
+	var m struct {
+		Quota struct {
+			ModelUsage []struct {
+				Model string `json:"model"`
+			} `json:"model_usage"`
+		} `json:"quota"`
+	}
+	if len(p.Meta) == 0 || json.Unmarshal(p.Meta, &m) != nil {
+		return nil
+	}
+	var out []string
+	for _, u := range m.Quota.ModelUsage {
+		out = append(out, u.Model)
+	}
+	return out
 }
 
 type CancelParams struct {
