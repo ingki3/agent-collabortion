@@ -20,7 +20,7 @@ export function clockTime(iso: string | null | undefined): string {
   if (!iso) return "";
   const t = new Date(iso);
   if (Number.isNaN(t.getTime())) return iso;
-  return t.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return t.toLocaleTimeString("ko-KR", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 /** 경과 시간을 "1분 12초" 로. */
