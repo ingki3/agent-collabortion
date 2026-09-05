@@ -1,0 +1,70 @@
+{
+  "agent_capabilities": {
+    "_meta": {
+      "claudeCode": {
+        "promptQueueing": true
+      }
+    },
+    "promptCapabilities": {
+      "image": true,
+      "embeddedContext": true
+    },
+    "mcpCapabilities": {
+      "http": true,
+      "sse": true
+    },
+    "auth": {
+      "logout": {}
+    },
+    "providers": {},
+    "loadSession": true,
+    "sessionCapabilities": {
+      "additionalDirectories": {},
+      "close": {},
+      "delete": {},
+      "fork": {},
+      "list": {},
+      "resume": {},
+      "subagents": {}
+    }
+  },
+  "agent_info": {
+    "name": "@agentclientprotocol/claude-agent-acp",
+    "title": "Claude Agent",
+    "version": "0.74.0"
+  },
+  "cancels_requested": 10,
+  "crashes": 0,
+  "finished_at": "2026-09-05T02:12:40Z",
+  "model_requested": "haiku",
+  "n": 10,
+  "protocol_version": 1,
+  "resumes_requested": 10,
+  "runtime": "claude",
+  "scenario": "smoke",
+  "session_id": "077ea984-de7c-4d16-8c3d-0304e961db67",
+  "session_meta": null,
+  "started_at": "20260905T021228Z",
+  "stats": {
+    "PermissionRequests": 0,
+    "AllowOnceMissing": 0,
+    "PermissionCancelled": 0,
+    "Updates": 8,
+    "ToolCalls": 0,
+    "ToolCallUpdates": 0,
+    "AgentMessageChunks": 2,
+    "UnexpectedExit": 0,
+    "OtherClientRequests": 0,
+    "OptionKindsSeen": {}
+  },
+  "turn": {
+    "StopReason": "end_turn",
+    "Text": "PONG",
+    "ToolCalls": 0,
+    "Permissions": 0,
+    "Duration": 5349474333,
+    "LateChunks": 0
+  },
+  "turns_requested": 30,
+  "workdir": "/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0a-spikes/72df0f7a-bfd9-449b-95cf-147923c4d941/scratchpad/w-new1"
+}

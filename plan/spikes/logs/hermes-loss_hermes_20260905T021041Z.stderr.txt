@@ -1,0 +1,431 @@
+2026-09-05 11:10:42 [INFO] acp_adapter.entry: Loaded env from /Users/simplist/.hermes/.env
+2026-09-05 11:10:42 [INFO] acp_adapter.entry: Starting hermes-agent ACP adapter
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'browser-browser-use' registered browser provider: browser-use
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'browser-browserbase' registered browser provider: browserbase
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'browser-firecrawl' registered browser provider: firecrawl
+2026-09-05 11:10:42 [INFO] acp_adapter.server: ACP client connected
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'deepinfra' registered image_gen provider: deepinfra
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'fal' registered image_gen provider: fal
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'krea' registered image_gen provider: krea
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'openai' registered image_gen provider: openai
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'openai-codex' registered image_gen provider: openai-codex
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'openrouter' registered image_gen provider: openrouter
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'openrouter' registered image_gen provider: nous
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'xai' registered image_gen provider: xai
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'deepinfra' registered video_gen provider: deepinfra
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'fal' registered video_gen provider: fal
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'xai' registered video_gen provider: xai
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'web-brave-free' registered web provider: brave-free
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'web-ddgs' registered web provider: ddgs
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'web-exa' registered web provider: exa
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'web-firecrawl' registered web provider: firecrawl
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'web-keenable' registered web provider: keenable
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'web-parallel' registered web provider: parallel
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'web-searxng' registered web provider: searxng
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin 'web-xai' registered web provider: xai
+2026-09-05 11:10:42 [INFO] hermes_cli.plugin_capabilities: capability_check plugin=orca-status capability=tools.override decision=deny checked_by=plugin_capability_granted evidence=not granted
+2026-09-05 11:10:42 [INFO] hermes_cli.plugins: Plugin discovery complete: 55 found, 49 enabled
+2026-09-05 11:10:42 [INFO] acp_adapter.server: Initialize from colab-acpprobe (protocol v1)
+2026-09-05 11:10:42 [INFO] run_agent: Loaded environment variables from /Users/simplist/.hermes/.env
+2026-09-05 11:10:42 [WARNING] acp_adapter.session: Background MCP discovery previously exited with no connected servers; retrying discovery thread
+2026-09-05 11:10:42 [WARNING] tools.registry: check_fn check_browser_back_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:42 [WARNING] tools.registry: check_fn _browser_cdp_check returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:42 [WARNING] tools.registry: check_fn check_browser_click_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:42 [WARNING] tools.registry: check_fn check_browser_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:42 [WARNING] tools.registry: check_fn _browser_dialog_check returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:42 [WARNING] tools.registry: check_fn check_browser_navigate_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:42 [WARNING] tools.registry: check_fn check_browser_press_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:42 [WARNING] tools.registry: check_fn check_browser_scroll_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:42 [WARNING] tools.registry: check_fn check_browser_snapshot_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:42 [WARNING] tools.registry: check_fn check_browser_type_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:42 [WARNING] tools.registry: check_fn check_browser_vision_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:42 [INFO] agent.auxiliary_client: Vision auto-detect: using main provider anthropic (claude-opus-5)
+2026-09-05 11:10:42 [INFO] acp_adapter.session: Created ACP session 350d465e-6fea-4f8d-9d0d-552375b86452 (cwd=/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0a-spikes/72df0f7a-bfd9-449b-95cf-147923c4d941/scratchpad/w-hloss)
+2026-09-05 11:10:42 [INFO] acp_adapter.server: New session 350d465e-6fea-4f8d-9d0d-552375b86452 (cwd=/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0a-spikes/72df0f7a-bfd9-449b-95cf-147923c4d941/scratchpad/w-hloss)
+2026-09-05 11:10:43 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:10:45 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:10:45 [WARNING] acp_adapter.session: Background MCP discovery previously exited with no connected servers; retrying discovery thread
+2026-09-05 11:10:45 [INFO] acp_adapter.server: Session 350d465e-6fea-4f8d-9d0d-552375b86452: model switched to claude-haiku-4-5-20251001 via provider anthropic
+2026-09-05 11:10:45 [INFO] acp_adapter.server: Prompt on session 350d465e-6fea-4f8d-9d0d-552375b86452: Remember the code word 'walrus-1'. Reply with exactly 'ok'. Do not use tools.
+2026-09-05 11:10:45 [INFO] agent.turn_context: conversation turn: session=350d465e-6fea-4f8d-9d0d-552375b86452 model=claude-haiku-4-5-20251001 provider=anthropic platform=acp history=0 msg="Remember the code word 'walrus-1'. Reply with exactly 'ok'. Do not use tools."
+2026-09-05 11:10:45 [INFO] agent.auxiliary_client: Auxiliary auto-detect: using main provider anthropic (claude-haiku-4-5-20251001)
+2026-09-05 11:10:45 [INFO] agent.auxiliary_client: Auxiliary title_generation: using anthropic (claude-haiku-4-5-20251001) at https://api.anthropic.com
+2026-09-05 11:10:46 [INFO] agent.conversation_loop: API call #1: model=claude-haiku-4-5-20251001 provider=anthropic in=14551 out=4 total=14555 latency=0.9s
+2026-09-05 11:10:46 [INFO] agent.conversation_loop: Turn ended: reason=text_response(finish_reason=stop) model=claude-haiku-4-5-20251001 api_calls=1/9223372036854775807 budget=1/9223372036854775807 tool_turns=0 last_msg_role=assistant response_len=2 session=350d465e-6fea-4f8d-9d0d-552375b86452
+2026-09-05 11:10:47 [INFO] acp_adapter.entry: Loaded env from /Users/simplist/.hermes/.env
+2026-09-05 11:10:47 [INFO] acp_adapter.entry: Starting hermes-agent ACP adapter
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'browser-browser-use' registered browser provider: browser-use
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'browser-browserbase' registered browser provider: browserbase
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'browser-firecrawl' registered browser provider: firecrawl
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'deepinfra' registered image_gen provider: deepinfra
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'fal' registered image_gen provider: fal
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'krea' registered image_gen provider: krea
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'openai' registered image_gen provider: openai
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'openai-codex' registered image_gen provider: openai-codex
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'openrouter' registered image_gen provider: openrouter
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'openrouter' registered image_gen provider: nous
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'xai' registered image_gen provider: xai
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'deepinfra' registered video_gen provider: deepinfra
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'fal' registered video_gen provider: fal
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'xai' registered video_gen provider: xai
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'web-brave-free' registered web provider: brave-free
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'web-ddgs' registered web provider: ddgs
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'web-exa' registered web provider: exa
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'web-firecrawl' registered web provider: firecrawl
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'web-keenable' registered web provider: keenable
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'web-parallel' registered web provider: parallel
+2026-09-05 11:10:47 [INFO] acp_adapter.server: ACP client connected
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'web-searxng' registered web provider: searxng
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin 'web-xai' registered web provider: xai
+2026-09-05 11:10:47 [INFO] hermes_cli.plugin_capabilities: capability_check plugin=orca-status capability=tools.override decision=deny checked_by=plugin_capability_granted evidence=not granted
+2026-09-05 11:10:47 [INFO] hermes_cli.plugins: Plugin discovery complete: 55 found, 49 enabled
+2026-09-05 11:10:47 [INFO] acp_adapter.server: Initialize from colab-acpprobe (protocol v1)
+2026-09-05 11:10:47 [WARNING] acp_adapter.server: load_session: session 350d465e-6fea-4f8d-9d0d-552375b86452 not found
+2026-09-05 11:10:47 [WARNING] acp_adapter.server: resume_session: session 350d465e-6fea-4f8d-9d0d-552375b86452 not found, creating new
+2026-09-05 11:10:47 [INFO] run_agent: Loaded environment variables from /Users/simplist/.hermes/.env
+2026-09-05 11:10:48 [WARNING] acp_adapter.session: Background MCP discovery previously exited with no connected servers; retrying discovery thread
+2026-09-05 11:10:48 [WARNING] tools.registry: check_fn check_browser_back_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:48 [WARNING] tools.registry: check_fn _browser_cdp_check returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:48 [WARNING] tools.registry: check_fn check_browser_click_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:48 [WARNING] tools.registry: check_fn check_browser_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:48 [WARNING] tools.registry: check_fn _browser_dialog_check returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:48 [WARNING] tools.registry: check_fn check_browser_navigate_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:48 [WARNING] tools.registry: check_fn check_browser_press_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:48 [WARNING] tools.registry: check_fn check_browser_scroll_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:48 [WARNING] tools.registry: check_fn check_browser_snapshot_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:48 [WARNING] tools.registry: check_fn check_browser_type_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:48 [WARNING] tools.registry: check_fn check_browser_vision_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:48 [INFO] agent.auxiliary_client: Vision auto-detect: using main provider anthropic (claude-opus-5)
+2026-09-05 11:10:48 [INFO] acp_adapter.session: Created ACP session dd8cc84b-da8f-47a8-bc7b-5a02d049bb59 (cwd=/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0a-spikes/72df0f7a-bfd9-449b-95cf-147923c4d941/scratchpad/w-hloss)
+2026-09-05 11:10:48 [INFO] acp_adapter.server: Resumed session dd8cc84b-da8f-47a8-bc7b-5a02d049bb59
+2026-09-05 11:10:48 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:10:48 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:10:48 [INFO] acp_adapter.server: Prompt on session dd8cc84b-da8f-47a8-bc7b-5a02d049bb59: What was the code word I asked you to remember? Reply with the word only. Do not use tools.
+2026-09-05 11:10:48 [INFO] agent.turn_context: conversation turn: session=dd8cc84b-da8f-47a8-bc7b-5a02d049bb59 model=claude-opus-5 provider=anthropic platform=acp history=0 msg='What was the code word I asked you to remember? Reply with the word only. Do not...'
+2026-09-05 11:10:48 [INFO] agent.auxiliary_client: Auxiliary auto-detect: using main provider anthropic (claude-opus-5)
+2026-09-05 11:10:48 [INFO] agent.auxiliary_client: Auxiliary title_generation: using anthropic (claude-opus-5) at https://api.anthropic.com
+2026-09-05 11:10:50 [INFO] agent.conversation_loop: API call #1: model=claude-opus-5 provider=anthropic in=19460 out=36 total=19496 latency=1.8s
+2026-09-05 11:10:51 [INFO] agent.conversation_loop: Turn ended: reason=text_response(finish_reason=stop) model=claude-opus-5 api_calls=1/9223372036854775807 budget=1/9223372036854775807 tool_turns=0 last_msg_role=assistant response_len=118 session=dd8cc84b-da8f-47a8-bc7b-5a02d049bb59
+2026-09-05 11:10:51 [INFO] acp_adapter.entry: Loaded env from /Users/simplist/.hermes/.env
+2026-09-05 11:10:51 [INFO] acp_adapter.entry: Starting hermes-agent ACP adapter
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'browser-browser-use' registered browser provider: browser-use
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'browser-browserbase' registered browser provider: browserbase
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'browser-firecrawl' registered browser provider: firecrawl
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'deepinfra' registered image_gen provider: deepinfra
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'fal' registered image_gen provider: fal
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'krea' registered image_gen provider: krea
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'openai' registered image_gen provider: openai
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'openai-codex' registered image_gen provider: openai-codex
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'openrouter' registered image_gen provider: openrouter
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'openrouter' registered image_gen provider: nous
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'xai' registered image_gen provider: xai
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'deepinfra' registered video_gen provider: deepinfra
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'fal' registered video_gen provider: fal
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'xai' registered video_gen provider: xai
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'web-brave-free' registered web provider: brave-free
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'web-ddgs' registered web provider: ddgs
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'web-exa' registered web provider: exa
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'web-firecrawl' registered web provider: firecrawl
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'web-keenable' registered web provider: keenable
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'web-parallel' registered web provider: parallel
+2026-09-05 11:10:51 [INFO] acp_adapter.server: ACP client connected
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'web-searxng' registered web provider: searxng
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin 'web-xai' registered web provider: xai
+2026-09-05 11:10:51 [INFO] hermes_cli.plugin_capabilities: capability_check plugin=orca-status capability=tools.override decision=deny checked_by=plugin_capability_granted evidence=not granted
+2026-09-05 11:10:51 [INFO] hermes_cli.plugins: Plugin discovery complete: 55 found, 49 enabled
+2026-09-05 11:10:51 [INFO] acp_adapter.server: Initialize from colab-acpprobe (protocol v1)
+2026-09-05 11:10:51 [INFO] run_agent: Loaded environment variables from /Users/simplist/.hermes/.env
+2026-09-05 11:10:51 [WARNING] acp_adapter.session: Background MCP discovery previously exited with no connected servers; retrying discovery thread
+2026-09-05 11:10:52 [WARNING] tools.registry: check_fn check_browser_back_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:52 [WARNING] tools.registry: check_fn _browser_cdp_check returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:52 [WARNING] tools.registry: check_fn check_browser_click_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:52 [WARNING] tools.registry: check_fn check_browser_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:52 [WARNING] tools.registry: check_fn _browser_dialog_check returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:52 [WARNING] tools.registry: check_fn check_browser_navigate_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:52 [WARNING] tools.registry: check_fn check_browser_press_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:52 [WARNING] tools.registry: check_fn check_browser_scroll_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:52 [WARNING] tools.registry: check_fn check_browser_snapshot_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:52 [WARNING] tools.registry: check_fn check_browser_type_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:52 [WARNING] tools.registry: check_fn check_browser_vision_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:52 [INFO] agent.auxiliary_client: Vision auto-detect: using main provider anthropic (claude-opus-5)
+2026-09-05 11:10:52 [INFO] acp_adapter.session: Created ACP session 85974db1-bcdb-4892-a264-952804bc905c (cwd=/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0a-spikes/72df0f7a-bfd9-449b-95cf-147923c4d941/scratchpad/w-hloss)
+2026-09-05 11:10:52 [INFO] acp_adapter.server: New session 85974db1-bcdb-4892-a264-952804bc905c (cwd=/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0a-spikes/72df0f7a-bfd9-449b-95cf-147923c4d941/scratchpad/w-hloss)
+2026-09-05 11:10:52 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:10:52 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:10:52 [WARNING] acp_adapter.session: Background MCP discovery previously exited with no connected servers; retrying discovery thread
+2026-09-05 11:10:52 [INFO] acp_adapter.server: Session 85974db1-bcdb-4892-a264-952804bc905c: model switched to claude-haiku-4-5-20251001 via provider anthropic
+2026-09-05 11:10:52 [INFO] acp_adapter.server: Prompt on session 85974db1-bcdb-4892-a264-952804bc905c: Remember the code word 'walrus-2'. Reply with exactly 'ok'. Do not use tools.
+2026-09-05 11:10:52 [INFO] agent.turn_context: conversation turn: session=85974db1-bcdb-4892-a264-952804bc905c model=claude-haiku-4-5-20251001 provider=anthropic platform=acp history=0 msg="Remember the code word 'walrus-2'. Reply with exactly 'ok'. Do not use tools."
+2026-09-05 11:10:52 [INFO] agent.auxiliary_client: Auxiliary auto-detect: using main provider anthropic (claude-haiku-4-5-20251001)
+2026-09-05 11:10:52 [INFO] agent.auxiliary_client: Auxiliary title_generation: using anthropic (claude-haiku-4-5-20251001) at https://api.anthropic.com
+2026-09-05 11:10:53 [INFO] agent.conversation_loop: API call #1: model=claude-haiku-4-5-20251001 provider=anthropic in=14551 out=4 total=14555 latency=0.9s cache=10226/14551 (70%)
+2026-09-05 11:10:54 [INFO] agent.conversation_loop: Turn ended: reason=text_response(finish_reason=stop) model=claude-haiku-4-5-20251001 api_calls=1/9223372036854775807 budget=1/9223372036854775807 tool_turns=0 last_msg_role=assistant response_len=2 session=85974db1-bcdb-4892-a264-952804bc905c
+2026-09-05 11:10:55 [INFO] acp_adapter.entry: Loaded env from /Users/simplist/.hermes/.env
+2026-09-05 11:10:55 [INFO] acp_adapter.entry: Starting hermes-agent ACP adapter
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'browser-browser-use' registered browser provider: browser-use
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'browser-browserbase' registered browser provider: browserbase
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'browser-firecrawl' registered browser provider: firecrawl
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'deepinfra' registered image_gen provider: deepinfra
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'fal' registered image_gen provider: fal
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'krea' registered image_gen provider: krea
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'openai' registered image_gen provider: openai
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'openai-codex' registered image_gen provider: openai-codex
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'openrouter' registered image_gen provider: openrouter
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'openrouter' registered image_gen provider: nous
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'xai' registered image_gen provider: xai
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'deepinfra' registered video_gen provider: deepinfra
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'fal' registered video_gen provider: fal
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'xai' registered video_gen provider: xai
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'web-brave-free' registered web provider: brave-free
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'web-ddgs' registered web provider: ddgs
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'web-exa' registered web provider: exa
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'web-firecrawl' registered web provider: firecrawl
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'web-keenable' registered web provider: keenable
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'web-parallel' registered web provider: parallel
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'web-searxng' registered web provider: searxng
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin 'web-xai' registered web provider: xai
+2026-09-05 11:10:55 [INFO] acp_adapter.server: ACP client connected
+2026-09-05 11:10:55 [INFO] hermes_cli.plugin_capabilities: capability_check plugin=orca-status capability=tools.override decision=deny checked_by=plugin_capability_granted evidence=not granted
+2026-09-05 11:10:55 [INFO] hermes_cli.plugins: Plugin discovery complete: 55 found, 49 enabled
+2026-09-05 11:10:55 [INFO] acp_adapter.server: Initialize from colab-acpprobe (protocol v1)
+2026-09-05 11:10:55 [WARNING] acp_adapter.server: load_session: session 85974db1-bcdb-4892-a264-952804bc905c not found
+2026-09-05 11:10:55 [WARNING] acp_adapter.server: resume_session: session 85974db1-bcdb-4892-a264-952804bc905c not found, creating new
+2026-09-05 11:10:55 [INFO] run_agent: Loaded environment variables from /Users/simplist/.hermes/.env
+2026-09-05 11:10:55 [WARNING] acp_adapter.session: Background MCP discovery previously exited with no connected servers; retrying discovery thread
+2026-09-05 11:10:55 [WARNING] tools.registry: check_fn check_browser_back_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:55 [WARNING] tools.registry: check_fn _browser_cdp_check returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:55 [WARNING] tools.registry: check_fn check_browser_click_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:55 [WARNING] tools.registry: check_fn check_browser_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:55 [WARNING] tools.registry: check_fn _browser_dialog_check returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:55 [WARNING] tools.registry: check_fn check_browser_navigate_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:55 [WARNING] tools.registry: check_fn check_browser_press_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:55 [WARNING] tools.registry: check_fn check_browser_scroll_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:55 [WARNING] tools.registry: check_fn check_browser_snapshot_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:55 [WARNING] tools.registry: check_fn check_browser_type_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:55 [WARNING] tools.registry: check_fn check_browser_vision_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:55 [INFO] agent.auxiliary_client: Vision auto-detect: using main provider anthropic (claude-opus-5)
+2026-09-05 11:10:55 [INFO] acp_adapter.session: Created ACP session e611efe4-08a7-47b2-9a99-739cce081332 (cwd=/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0a-spikes/72df0f7a-bfd9-449b-95cf-147923c4d941/scratchpad/w-hloss)
+2026-09-05 11:10:55 [INFO] acp_adapter.server: Resumed session e611efe4-08a7-47b2-9a99-739cce081332
+2026-09-05 11:10:56 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:10:56 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:10:56 [INFO] acp_adapter.server: Prompt on session e611efe4-08a7-47b2-9a99-739cce081332: What was the code word I asked you to remember? Reply with the word only. Do not use tools.
+2026-09-05 11:10:56 [INFO] agent.turn_context: conversation turn: session=e611efe4-08a7-47b2-9a99-739cce081332 model=claude-opus-5 provider=anthropic platform=acp history=0 msg='What was the code word I asked you to remember? Reply with the word only. Do not...'
+2026-09-05 11:10:56 [INFO] agent.auxiliary_client: Auxiliary auto-detect: using main provider anthropic (claude-opus-5)
+2026-09-05 11:10:56 [INFO] agent.auxiliary_client: Auxiliary title_generation: using anthropic (claude-opus-5) at https://api.anthropic.com
+2026-09-05 11:10:58 [INFO] agent.conversation_loop: API call #1: model=claude-opus-5 provider=anthropic in=19460 out=21 total=19481 latency=2.0s cache=19458/19460 (100%)
+2026-09-05 11:10:58 [INFO] agent.conversation_loop: Turn ended: reason=text_response(finish_reason=stop) model=claude-opus-5 api_calls=1/9223372036854775807 budget=1/9223372036854775807 tool_turns=0 last_msg_role=assistant response_len=68 session=e611efe4-08a7-47b2-9a99-739cce081332
+2026-09-05 11:10:59 [INFO] acp_adapter.entry: Loaded env from /Users/simplist/.hermes/.env
+2026-09-05 11:10:59 [INFO] acp_adapter.entry: Starting hermes-agent ACP adapter
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'browser-browser-use' registered browser provider: browser-use
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'browser-browserbase' registered browser provider: browserbase
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'browser-firecrawl' registered browser provider: firecrawl
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'deepinfra' registered image_gen provider: deepinfra
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'fal' registered image_gen provider: fal
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'krea' registered image_gen provider: krea
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'openai' registered image_gen provider: openai
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'openai-codex' registered image_gen provider: openai-codex
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'openrouter' registered image_gen provider: openrouter
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'openrouter' registered image_gen provider: nous
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'xai' registered image_gen provider: xai
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'deepinfra' registered video_gen provider: deepinfra
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'fal' registered video_gen provider: fal
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'xai' registered video_gen provider: xai
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'web-brave-free' registered web provider: brave-free
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'web-ddgs' registered web provider: ddgs
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'web-exa' registered web provider: exa
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'web-firecrawl' registered web provider: firecrawl
+2026-09-05 11:10:59 [INFO] acp_adapter.server: ACP client connected
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'web-keenable' registered web provider: keenable
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'web-parallel' registered web provider: parallel
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'web-searxng' registered web provider: searxng
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin 'web-xai' registered web provider: xai
+2026-09-05 11:10:59 [INFO] hermes_cli.plugin_capabilities: capability_check plugin=orca-status capability=tools.override decision=deny checked_by=plugin_capability_granted evidence=not granted
+2026-09-05 11:10:59 [INFO] hermes_cli.plugins: Plugin discovery complete: 55 found, 49 enabled
+2026-09-05 11:10:59 [INFO] acp_adapter.server: Initialize from colab-acpprobe (protocol v1)
+2026-09-05 11:10:59 [INFO] run_agent: Loaded environment variables from /Users/simplist/.hermes/.env
+2026-09-05 11:10:59 [WARNING] acp_adapter.session: Background MCP discovery previously exited with no connected servers; retrying discovery thread
+2026-09-05 11:10:59 [WARNING] tools.registry: check_fn check_browser_back_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:59 [WARNING] tools.registry: check_fn _browser_cdp_check returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:59 [WARNING] tools.registry: check_fn check_browser_click_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:59 [WARNING] tools.registry: check_fn check_browser_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:59 [WARNING] tools.registry: check_fn _browser_dialog_check returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:59 [WARNING] tools.registry: check_fn check_browser_navigate_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:59 [WARNING] tools.registry: check_fn check_browser_press_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:59 [WARNING] tools.registry: check_fn check_browser_scroll_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:59 [WARNING] tools.registry: check_fn check_browser_snapshot_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:59 [WARNING] tools.registry: check_fn check_browser_type_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:59 [WARNING] tools.registry: check_fn check_browser_vision_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:10:59 [INFO] agent.auxiliary_client: Vision auto-detect: using main provider anthropic (claude-opus-5)
+2026-09-05 11:10:59 [INFO] acp_adapter.session: Created ACP session c5ddcc23-9eb7-4a37-b8f8-158d0db37ee0 (cwd=/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0a-spikes/72df0f7a-bfd9-449b-95cf-147923c4d941/scratchpad/w-hloss)
+2026-09-05 11:10:59 [INFO] acp_adapter.server: New session c5ddcc23-9eb7-4a37-b8f8-158d0db37ee0 (cwd=/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0a-spikes/72df0f7a-bfd9-449b-95cf-147923c4d941/scratchpad/w-hloss)
+2026-09-05 11:11:00 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:11:00 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:11:00 [WARNING] acp_adapter.session: Background MCP discovery previously exited with no connected servers; retrying discovery thread
+2026-09-05 11:11:00 [INFO] acp_adapter.server: Session c5ddcc23-9eb7-4a37-b8f8-158d0db37ee0: model switched to claude-haiku-4-5-20251001 via provider anthropic
+2026-09-05 11:11:00 [INFO] acp_adapter.server: Prompt on session c5ddcc23-9eb7-4a37-b8f8-158d0db37ee0: Remember the code word 'walrus-3'. Reply with exactly 'ok'. Do not use tools.
+2026-09-05 11:11:00 [INFO] agent.turn_context: conversation turn: session=c5ddcc23-9eb7-4a37-b8f8-158d0db37ee0 model=claude-haiku-4-5-20251001 provider=anthropic platform=acp history=0 msg="Remember the code word 'walrus-3'. Reply with exactly 'ok'. Do not use tools."
+2026-09-05 11:11:00 [INFO] agent.auxiliary_client: Auxiliary auto-detect: using main provider anthropic (claude-haiku-4-5-20251001)
+2026-09-05 11:11:00 [INFO] agent.auxiliary_client: Auxiliary title_generation: using anthropic (claude-haiku-4-5-20251001) at https://api.anthropic.com
+2026-09-05 11:11:01 [INFO] agent.conversation_loop: API call #1: model=claude-haiku-4-5-20251001 provider=anthropic in=14551 out=4 total=14555 latency=0.9s cache=10226/14551 (70%)
+2026-09-05 11:11:01 [INFO] agent.conversation_loop: Turn ended: reason=text_response(finish_reason=stop) model=claude-haiku-4-5-20251001 api_calls=1/9223372036854775807 budget=1/9223372036854775807 tool_turns=0 last_msg_role=assistant response_len=2 session=c5ddcc23-9eb7-4a37-b8f8-158d0db37ee0
+2026-09-05 11:11:02 [INFO] acp_adapter.entry: Loaded env from /Users/simplist/.hermes/.env
+2026-09-05 11:11:02 [INFO] acp_adapter.entry: Starting hermes-agent ACP adapter
+2026-09-05 11:11:02 [INFO] hermes_cli.plugins: Plugin 'browser-browser-use' registered browser provider: browser-use
+2026-09-05 11:11:02 [INFO] hermes_cli.plugins: Plugin 'browser-browserbase' registered browser provider: browserbase
+2026-09-05 11:11:02 [INFO] hermes_cli.plugins: Plugin 'browser-firecrawl' registered browser provider: firecrawl
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'deepinfra' registered image_gen provider: deepinfra
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'fal' registered image_gen provider: fal
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'krea' registered image_gen provider: krea
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'openai' registered image_gen provider: openai
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'openai-codex' registered image_gen provider: openai-codex
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'openrouter' registered image_gen provider: openrouter
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'openrouter' registered image_gen provider: nous
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'xai' registered image_gen provider: xai
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'deepinfra' registered video_gen provider: deepinfra
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'fal' registered video_gen provider: fal
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'xai' registered video_gen provider: xai
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'web-brave-free' registered web provider: brave-free
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'web-ddgs' registered web provider: ddgs
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'web-exa' registered web provider: exa
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'web-firecrawl' registered web provider: firecrawl
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'web-keenable' registered web provider: keenable
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'web-parallel' registered web provider: parallel
+2026-09-05 11:11:03 [INFO] acp_adapter.server: ACP client connected
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'web-searxng' registered web provider: searxng
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin 'web-xai' registered web provider: xai
+2026-09-05 11:11:03 [INFO] hermes_cli.plugin_capabilities: capability_check plugin=orca-status capability=tools.override decision=deny checked_by=plugin_capability_granted evidence=not granted
+2026-09-05 11:11:03 [INFO] hermes_cli.plugins: Plugin discovery complete: 55 found, 49 enabled
+2026-09-05 11:11:03 [INFO] acp_adapter.server: Initialize from colab-acpprobe (protocol v1)
+2026-09-05 11:11:03 [WARNING] acp_adapter.server: load_session: session c5ddcc23-9eb7-4a37-b8f8-158d0db37ee0 not found
+2026-09-05 11:11:03 [WARNING] acp_adapter.server: resume_session: session c5ddcc23-9eb7-4a37-b8f8-158d0db37ee0 not found, creating new
+2026-09-05 11:11:03 [INFO] run_agent: Loaded environment variables from /Users/simplist/.hermes/.env
+2026-09-05 11:11:03 [WARNING] acp_adapter.session: Background MCP discovery previously exited with no connected servers; retrying discovery thread
+2026-09-05 11:11:03 [WARNING] tools.registry: check_fn check_browser_back_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:03 [WARNING] tools.registry: check_fn _browser_cdp_check returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:03 [WARNING] tools.registry: check_fn check_browser_click_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:03 [WARNING] tools.registry: check_fn check_browser_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:03 [WARNING] tools.registry: check_fn _browser_dialog_check returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:03 [WARNING] tools.registry: check_fn check_browser_navigate_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:03 [WARNING] tools.registry: check_fn check_browser_press_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:03 [WARNING] tools.registry: check_fn check_browser_scroll_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:03 [WARNING] tools.registry: check_fn check_browser_snapshot_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:03 [WARNING] tools.registry: check_fn check_browser_type_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:03 [WARNING] tools.registry: check_fn check_browser_vision_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:03 [INFO] agent.auxiliary_client: Vision auto-detect: using main provider anthropic (claude-opus-5)
+2026-09-05 11:11:03 [INFO] acp_adapter.session: Created ACP session 4df8e355-877a-4314-926c-ff879df61b9b (cwd=/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0a-spikes/72df0f7a-bfd9-449b-95cf-147923c4d941/scratchpad/w-hloss)
+2026-09-05 11:11:03 [INFO] acp_adapter.server: Resumed session 4df8e355-877a-4314-926c-ff879df61b9b
+2026-09-05 11:11:03 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:11:03 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:11:03 [INFO] acp_adapter.server: Prompt on session 4df8e355-877a-4314-926c-ff879df61b9b: What was the code word I asked you to remember? Reply with the word only. Do not use tools.
+2026-09-05 11:11:03 [INFO] agent.turn_context: conversation turn: session=4df8e355-877a-4314-926c-ff879df61b9b model=claude-opus-5 provider=anthropic platform=acp history=0 msg='What was the code word I asked you to remember? Reply with the word only. Do not...'
+2026-09-05 11:11:03 [INFO] agent.auxiliary_client: Auxiliary auto-detect: using main provider anthropic (claude-opus-5)
+2026-09-05 11:11:03 [INFO] agent.auxiliary_client: Auxiliary title_generation: using anthropic (claude-opus-5) at https://api.anthropic.com
+2026-09-05 11:11:05 [INFO] agent.conversation_loop: API call #1: model=claude-opus-5 provider=anthropic in=19460 out=21 total=19481 latency=1.8s cache=19458/19460 (100%)
+2026-09-05 11:11:06 [INFO] agent.conversation_loop: Turn ended: reason=text_response(finish_reason=stop) model=claude-opus-5 api_calls=1/9223372036854775807 budget=1/9223372036854775807 tool_turns=0 last_msg_role=assistant response_len=68 session=4df8e355-877a-4314-926c-ff879df61b9b
+2026-09-05 11:11:06 [INFO] acp_adapter.entry: Loaded env from /Users/simplist/.hermes/.env
+2026-09-05 11:11:06 [INFO] acp_adapter.entry: Starting hermes-agent ACP adapter
+2026-09-05 11:11:06 [INFO] hermes_cli.plugins: Plugin 'browser-browser-use' registered browser provider: browser-use
+2026-09-05 11:11:06 [INFO] hermes_cli.plugins: Plugin 'browser-browserbase' registered browser provider: browserbase
+2026-09-05 11:11:06 [INFO] hermes_cli.plugins: Plugin 'browser-firecrawl' registered browser provider: firecrawl
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'deepinfra' registered image_gen provider: deepinfra
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'fal' registered image_gen provider: fal
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'krea' registered image_gen provider: krea
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'openai' registered image_gen provider: openai
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'openai-codex' registered image_gen provider: openai-codex
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'openrouter' registered image_gen provider: openrouter
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'openrouter' registered image_gen provider: nous
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'xai' registered image_gen provider: xai
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'deepinfra' registered video_gen provider: deepinfra
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'fal' registered video_gen provider: fal
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'xai' registered video_gen provider: xai
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'web-brave-free' registered web provider: brave-free
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'web-ddgs' registered web provider: ddgs
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'web-exa' registered web provider: exa
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'web-firecrawl' registered web provider: firecrawl
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'web-keenable' registered web provider: keenable
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'web-parallel' registered web provider: parallel
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'web-searxng' registered web provider: searxng
+2026-09-05 11:11:07 [INFO] acp_adapter.server: ACP client connected
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin 'web-xai' registered web provider: xai
+2026-09-05 11:11:07 [INFO] hermes_cli.plugin_capabilities: capability_check plugin=orca-status capability=tools.override decision=deny checked_by=plugin_capability_granted evidence=not granted
+2026-09-05 11:11:07 [INFO] hermes_cli.plugins: Plugin discovery complete: 55 found, 49 enabled
+2026-09-05 11:11:07 [INFO] acp_adapter.server: Initialize from colab-acpprobe (protocol v1)
+2026-09-05 11:11:07 [INFO] run_agent: Loaded environment variables from /Users/simplist/.hermes/.env
+2026-09-05 11:11:07 [WARNING] acp_adapter.session: Background MCP discovery previously exited with no connected servers; retrying discovery thread
+2026-09-05 11:11:07 [WARNING] tools.registry: check_fn check_browser_back_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:07 [WARNING] tools.registry: check_fn _browser_cdp_check returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:07 [WARNING] tools.registry: check_fn check_browser_click_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:07 [WARNING] tools.registry: check_fn check_browser_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:07 [WARNING] tools.registry: check_fn _browser_dialog_check returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:07 [WARNING] tools.registry: check_fn check_browser_navigate_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:07 [WARNING] tools.registry: check_fn check_browser_press_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:07 [WARNING] tools.registry: check_fn check_browser_scroll_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:07 [WARNING] tools.registry: check_fn check_browser_snapshot_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:07 [WARNING] tools.registry: check_fn check_browser_type_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:07 [WARNING] tools.registry: check_fn check_browser_vision_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:07 [INFO] agent.auxiliary_client: Vision auto-detect: using main provider anthropic (claude-opus-5)
+2026-09-05 11:11:07 [INFO] acp_adapter.session: Created ACP session 34aa91a3-e5e0-4398-86a1-7ce67033df80 (cwd=/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0a-spikes/72df0f7a-bfd9-449b-95cf-147923c4d941/scratchpad/w-hloss)
+2026-09-05 11:11:07 [INFO] acp_adapter.server: New session 34aa91a3-e5e0-4398-86a1-7ce67033df80 (cwd=/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0a-spikes/72df0f7a-bfd9-449b-95cf-147923c4d941/scratchpad/w-hloss)
+2026-09-05 11:11:07 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:11:07 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:11:07 [WARNING] acp_adapter.session: Background MCP discovery previously exited with no connected servers; retrying discovery thread
+2026-09-05 11:11:07 [INFO] acp_adapter.server: Session 34aa91a3-e5e0-4398-86a1-7ce67033df80: model switched to claude-haiku-4-5-20251001 via provider anthropic
+2026-09-05 11:11:07 [INFO] acp_adapter.server: Prompt on session 34aa91a3-e5e0-4398-86a1-7ce67033df80: Remember the code word 'walrus-4'. Reply with exactly 'ok'. Do not use tools.
+2026-09-05 11:11:07 [INFO] agent.turn_context: conversation turn: session=34aa91a3-e5e0-4398-86a1-7ce67033df80 model=claude-haiku-4-5-20251001 provider=anthropic platform=acp history=0 msg="Remember the code word 'walrus-4'. Reply with exactly 'ok'. Do not use tools."
+2026-09-05 11:11:08 [INFO] agent.auxiliary_client: Auxiliary auto-detect: using main provider anthropic (claude-haiku-4-5-20251001)
+2026-09-05 11:11:08 [INFO] agent.auxiliary_client: Auxiliary title_generation: using anthropic (claude-haiku-4-5-20251001) at https://api.anthropic.com
+2026-09-05 11:11:09 [INFO] agent.conversation_loop: API call #1: model=claude-haiku-4-5-20251001 provider=anthropic in=14551 out=4 total=14555 latency=1.2s cache=10226/14551 (70%)
+2026-09-05 11:11:09 [INFO] agent.conversation_loop: Turn ended: reason=text_response(finish_reason=stop) model=claude-haiku-4-5-20251001 api_calls=1/9223372036854775807 budget=1/9223372036854775807 tool_turns=0 last_msg_role=assistant response_len=2 session=34aa91a3-e5e0-4398-86a1-7ce67033df80
+2026-09-05 11:11:10 [INFO] acp_adapter.entry: Loaded env from /Users/simplist/.hermes/.env
+2026-09-05 11:11:10 [INFO] acp_adapter.entry: Starting hermes-agent ACP adapter
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'browser-browser-use' registered browser provider: browser-use
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'browser-browserbase' registered browser provider: browserbase
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'browser-firecrawl' registered browser provider: firecrawl
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'deepinfra' registered image_gen provider: deepinfra
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'fal' registered image_gen provider: fal
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'krea' registered image_gen provider: krea
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'openai' registered image_gen provider: openai
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'openai-codex' registered image_gen provider: openai-codex
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'openrouter' registered image_gen provider: openrouter
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'openrouter' registered image_gen provider: nous
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'xai' registered image_gen provider: xai
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'deepinfra' registered video_gen provider: deepinfra
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'fal' registered video_gen provider: fal
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'xai' registered video_gen provider: xai
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'web-brave-free' registered web provider: brave-free
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'web-ddgs' registered web provider: ddgs
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'web-exa' registered web provider: exa
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'web-firecrawl' registered web provider: firecrawl
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'web-keenable' registered web provider: keenable
+2026-09-05 11:11:10 [INFO] acp_adapter.server: ACP client connected
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'web-parallel' registered web provider: parallel
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'web-searxng' registered web provider: searxng
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin 'web-xai' registered web provider: xai
+2026-09-05 11:11:10 [INFO] hermes_cli.plugin_capabilities: capability_check plugin=orca-status capability=tools.override decision=deny checked_by=plugin_capability_granted evidence=not granted
+2026-09-05 11:11:10 [INFO] hermes_cli.plugins: Plugin discovery complete: 55 found, 49 enabled
+2026-09-05 11:11:10 [INFO] acp_adapter.server: Initialize from colab-acpprobe (protocol v1)
+2026-09-05 11:11:10 [INFO] run_agent: Loaded environment variables from /Users/simplist/.hermes/.env
+2026-09-05 11:11:11 [WARNING] acp_adapter.session: Background MCP discovery previously exited with no connected servers; retrying discovery thread
+2026-09-05 11:11:11 [WARNING] tools.registry: check_fn check_browser_back_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:11 [WARNING] tools.registry: check_fn _browser_cdp_check returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:11 [WARNING] tools.registry: check_fn check_browser_click_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:11 [WARNING] tools.registry: check_fn check_browser_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:11 [WARNING] tools.registry: check_fn _browser_dialog_check returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:11 [WARNING] tools.registry: check_fn check_browser_navigate_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:11 [WARNING] tools.registry: check_fn check_browser_press_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:11 [WARNING] tools.registry: check_fn check_browser_scroll_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:11 [WARNING] tools.registry: check_fn check_browser_snapshot_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:11 [WARNING] tools.registry: check_fn check_browser_type_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:11 [WARNING] tools.registry: check_fn check_browser_vision_requirements returned False; dependent tools will be unavailable this turn
+2026-09-05 11:11:11 [INFO] agent.auxiliary_client: Vision auto-detect: using main provider anthropic (claude-opus-5)
+2026-09-05 11:11:11 [INFO] acp_adapter.session: Restored ACP session 34aa91a3-e5e0-4398-86a1-7ce67033df80 from DB (2 messages)
+2026-09-05 11:11:11 [INFO] acp_adapter.server: Loaded session 34aa91a3-e5e0-4398-86a1-7ce67033df80
+2026-09-05 11:11:11 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:11:11 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:11:11 [INFO] acp_adapter.server: Resumed session 34aa91a3-e5e0-4398-86a1-7ce67033df80
+2026-09-05 11:11:11 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:11:11 [WARNING] agent.credential_pool: Copilot token exchange degraded to RAW token (exchange unavailable); enterprise-only models may 400 with model_not_available_for_integrator until exchange recovers.
+2026-09-05 11:11:11 [INFO] acp_adapter.server: Prompt on session 34aa91a3-e5e0-4398-86a1-7ce67033df80: What was the code word I asked you to remember? Reply with the word only. Do not use tools.
+2026-09-05 11:11:11 [INFO] agent.turn_context: conversation turn: session=34aa91a3-e5e0-4398-86a1-7ce67033df80 model=claude-haiku-4-5-20251001 provider=anthropic platform=acp history=2 msg='What was the code word I asked you to remember? Reply with the word only. Do not...'
+2026-09-05 11:11:12 [INFO] agent.conversation_loop: API call #1: model=claude-haiku-4-5-20251001 provider=anthropic in=14580 out=7 total=14587 latency=1.1s cache=14548/14580 (100%)
+2026-09-05 11:11:13 [INFO] agent.conversation_loop: Turn ended: reason=text_response(finish_reason=stop) model=claude-haiku-4-5-20251001 api_calls=1/9223372036854775807 budget=1/9223372036854775807 tool_turns=0 last_msg_role=assistant response_len=8 session=34aa91a3-e5e0-4398-86a1-7ce67033df80

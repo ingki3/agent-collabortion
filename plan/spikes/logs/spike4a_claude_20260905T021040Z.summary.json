@@ -1,0 +1,185 @@
+{
+  "agent_capabilities": {
+    "promptCapabilities": {
+      "image": true,
+      "embeddedContext": true
+    },
+    "mcpCapabilities": {
+      "http": true,
+      "sse": true
+    },
+    "loadSession": true,
+    "sessionCapabilities": {
+      "fork": {},
+      "list": {},
+      "resume": {}
+    }
+  },
+  "agent_info": {
+    "name": "@zed-industries/claude-code-acp",
+    "title": "Claude Code",
+    "version": "0.16.2"
+  },
+  "attempted": 10,
+  "cancels_requested": 10,
+  "crashes": 0,
+  "finished_at": "2026-09-05T02:13:23Z",
+  "model_default": "default",
+  "model_requested": "haiku",
+  "model_selected": "haiku",
+  "models_available": [
+    {
+      "modelId": "default",
+      "name": "Default (recommended)",
+      "description": "Opus 4.6 · Most capable for complex work"
+    },
+    {
+      "modelId": "sonnet",
+      "name": "Sonnet",
+      "description": "Sonnet 4.5 · Best for everyday tasks"
+    },
+    {
+      "modelId": "haiku",
+      "name": "Haiku",
+      "description": "Haiku 4.5 · Fastest for quick answers"
+    }
+  ],
+  "n": 10,
+  "protocol_version": 1,
+  "reps": [
+    {
+      "i": 1,
+      "sessionId": "06cb8814-750a-4f20-92c7-a4d1c709ab52",
+      "keyword": "pomegranate-1007",
+      "turn1": "saved",
+      "turn1Stop": "end_turn",
+      "replayedChunks": 7,
+      "turn2": "I created a file named `memo_1.txt` and wrote the exact word `pomegranate-1007` into it.",
+      "turn2Stop": "end_turn",
+      "retained": true
+    },
+    {
+      "i": 2,
+      "sessionId": "802cbc22-1d9c-4109-9c53-bca33636a8d7",
+      "keyword": "quasar-1014",
+      "turn1": "saved",
+      "turn1Stop": "end_turn",
+      "replayedChunks": 6,
+      "turn2": "I created a file named `memo_2.txt` and wrote the exact word `quasar-1014` into it.",
+      "turn2Stop": "end_turn",
+      "retained": true
+    },
+    {
+      "i": 3,
+      "sessionId": "a0d7e194-1f03-4672-8e11-f58d6998a314",
+      "keyword": "lighthouse-1021",
+      "turn1": "I'll create the file with the specified content.saved",
+      "turn1Stop": "end_turn",
+      "replayedChunks": 20,
+      "turn2": "I created a file named `memo_3.txt` and wrote the exact word `lighthouse-1021` into it.",
+      "turn2Stop": "end_turn",
+      "retained": true
+    },
+    {
+      "i": 4,
+      "sessionId": "7d66f5c3-f1ec-49e3-8d38-b97f1bdc4833",
+      "keyword": "saffron-1028",
+      "turn1": "I'll create the file memo_4.txt with the specified content.saved",
+      "turn1Stop": "end_turn",
+      "replayedChunks": 7,
+      "turn2": "Just before this message, I created a file named **memo_4.txt** and wrote the exact word **saffron-1028** into it.",
+      "turn2Stop": "end_turn",
+      "retained": true
+    },
+    {
+      "i": 5,
+      "sessionId": "f805fd55-58c3-434e-a944-663e24248e67",
+      "keyword": "meridian-1035",
+      "turn1": "saved",
+      "turn1Stop": "end_turn",
+      "replayedChunks": 6,
+      "turn2": "Just before this message, I used the Write tool to create a file named `memo_5.txt` and wrote the exact word `meridian-1035` into it.",
+      "turn2Stop": "end_turn",
+      "retained": true
+    },
+    {
+      "i": 6,
+      "sessionId": "77a2940a-da82-4812-a667-25a0b90e5480",
+      "keyword": "tungsten-1042",
+      "turn1": "I'll create the file with the specified content.saved",
+      "turn1Stop": "end_turn",
+      "replayedChunks": 21,
+      "turn2": "I created a file named `memo_6.txt` and wrote the exact word `tungsten-1042` into it.",
+      "turn2Stop": "end_turn",
+      "retained": true
+    },
+    {
+      "i": 7,
+      "sessionId": "52179a2f-93e9-41b3-99f3-4b1dad09c490",
+      "keyword": "obsidian-1049",
+      "turn1": "I'll create the file with the exact content you specified.saved",
+      "turn1Stop": "end_turn",
+      "replayedChunks": 22,
+      "turn2": "Just before this message, I created a file named **memo_7.txt** and wrote the exact word **obsidian-1049** into it.",
+      "turn2Stop": "end_turn",
+      "retained": true
+    },
+    {
+      "i": 8,
+      "sessionId": "ce64116c-85da-40d6-a331-dc72584cc716",
+      "keyword": "cinnamon-1056",
+      "turn1": "I'll create the file with the exact word you specified.saved",
+      "turn1Stop": "end_turn",
+      "replayedChunks": 25,
+      "turn2": "Just before this message, I created a file named **memo_8.txt** and wrote the exact word **cinnamon-1056** into it.",
+      "turn2Stop": "end_turn",
+      "retained": true
+    },
+    {
+      "i": 9,
+      "sessionId": "85cf9981-88b4-4018-a474-c6c01dd08273",
+      "keyword": "harbinger-1063",
+      "turn1": "I'll create the file with the specified content.saved",
+      "turn1Stop": "end_turn",
+      "replayedChunks": 7,
+      "turn2": "I created a file named `memo_9.txt` and wrote the exact word `harbinger-1063` into it.",
+      "turn2Stop": "end_turn",
+      "retained": true
+    },
+    {
+      "i": 10,
+      "sessionId": "c93ec6a8-549c-429c-b477-75a9529f42a1",
+      "keyword": "zeppelin-1070",
+      "turn1": "I'll create the file with the specified content.saved",
+      "turn1Stop": "end_turn",
+      "replayedChunks": 7,
+      "turn2": "I created a file named `memo_10.txt` and wrote the exact word `zeppelin-1070` into it.",
+      "turn2Stop": "end_turn",
+      "retained": true
+    }
+  ],
+  "resumes_requested": 10,
+  "retained": 10,
+  "retention_rate": 1,
+  "runtime": "claude",
+  "scenario": "spike4a",
+  "started_at": "20260905T021040Z",
+  "stats": {
+    "PermissionRequests": 10,
+    "AllowOnceMissing": 0,
+    "PermissionCancelled": 0,
+    "Updates": 252,
+    "ToolCalls": 30,
+    "ToolCallUpdates": 30,
+    "AgentMessageChunks": 162,
+    "UnexpectedExit": 0,
+    "OtherClientRequests": 0,
+    "OptionKindsSeen": {
+      "allow_always": 10,
+      "allow_once": 10,
+      "reject_once": 10
+    }
+  },
+  "turns_requested": 30,
+  "workdir": "/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0a-spikes/72df0f7a-bfd9-449b-95cf-147923c4d941/scratchpad/w-spike4a"
+}
