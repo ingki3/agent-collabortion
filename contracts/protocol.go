@@ -232,12 +232,43 @@ type Finish struct {
 }
 
 type Usage struct {
-	InputTokens      int64   `json:"input_tokens"`
-	OutputTokens     int64   `json:"output_tokens"`
-	CacheReadTokens  int64   `json:"cache_read_tokens,omitempty"`
-	CacheWriteTokens int64   `json:"cache_write_tokens,omitempty"`
-	CostUSD          float64 `json:"cost_usd"`
-	Estimated        bool    `json:"estimated"`
+	InputTokens      int64      `json:"input_tokens"`
+	OutputTokens     int64      `json:"output_tokens"`
+	CacheReadTokens  int64      `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int64      `json:"cache_write_tokens,omitempty"`
+	CostUSD          float64    `json:"cost_usd"`
+	Estimated        bool       `json:"estimated"`
+	Model            string     `json:"model,omitempty"`      // _meta.quota.model_usage[].model (spike 1b E1)
+	RateLimit        *RateLimit `json:"rate_limit,omitempty"` // usage_update._meta["_claude/rateLimit"] (spike 1b E5)
+}
+
+// RateLimit — structured account-limit state the Claude adapter reports every
+// turn. status "rejected" + ResetsAt is the primary rate_limited signal
+// (harness.md §8); the message prefixes below are the fallback.
+type RateLimit struct {
+	Status      string    `json:"status"` // allowed | allowed_warning | rejected
+	ResetsAt    time.Time `json:"resets_at"`
+	Type        string    `json:"type,omitempty"` // five_hour | seven_day | …
+	Utilization float64   `json:"utilization,omitempty"`
+}
+
+// UsageLimitPrefixes — SDK USAGE_LIMIT_ERROR_PREFIXES (claude-agent-sdk
+// 0.3.257, sdk.d.ts:8559). A -32603 error whose message (after
+// "Internal error: ") starts with one of these is rate_limited. Managed with
+// the adapter pin.
+var UsageLimitPrefixes = []string{
+	"You've hit your",
+	"You've reached your",
+	"You're out of usage credits",
+	"Your org is out of usage · add funds to continue",
+	"Your org is out of usage · contact your admin",
+	"Your seat type doesn't include usage credits",
+	"Your seat type doesn't include usage",
+	"Your usage allocation has been disabled by your admin",
+	"Your group's usage limit is set to $0",
+	"Fable 5 requires usage credits",
+	"You're out of extra usage",
+	"Your seat type doesn't include extra usage",
 }
 
 // TaskEvent — contracts/task_event.schema.json. Payload is class-specific and

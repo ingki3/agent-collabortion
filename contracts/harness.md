@@ -2,10 +2,10 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.1 (G2 후보) |
+| 버전 | v0.2 (G2 후보) — 스파이크 1b(`plan/spikes/SPIKE_01b.md`) 반영으로 §12 미결 전부 닫힘 |
 | 소유 | D + Lead. 변경은 Director 승인 PR로만 (`contracts/README.md`) |
-| 근거 | PRD §8.2 (하네스), §8.4 (브리프), FR-7.1 (재시도), FR-3.4·§8.2.2 (취소), FR-5.4 (재개). **G1 판정 `plan/G1_DECISION.md` 와 스파이크 보고서 `plan/spikes/SPIKE_01..06.md`** — 이 문서의 수치·옵션 키는 전부 실측에서 왔다 |
-| 미결 | §12 — 스파이크 1b(P0-b) 결과로 닫는다 |
+| 근거 | PRD §8.2 (하네스), §8.4 (브리프), FR-7.1 (재시도), FR-3.4·§8.2.2 (취소), FR-5.4 (재개). **G1 판정 `plan/G1_DECISION.md` 와 스파이크 보고서 `plan/spikes/SPIKE_01..06.md`, `SPIKE_01b.md`** — 이 문서의 수치·옵션 키는 전부 실측에서 왔다 |
+| 미결 | 없음 (§12 참조). 서브에이전트 가시성은 v1 피드 요구로 미광고 |
 
 이 문서는 **데몬이 런타임 프로세스와 어떻게 말하는가**를 정한다. 데몬 ↔ 서버는 `daemon-protocol.md`, 이벤트 형식은 `task_event.schema.json`, 에이전트 → 서버는 `colab-cli.md`.
 
@@ -15,7 +15,7 @@
 
 | `runtime_kind` | 어댑터 명령 | 어댑터 고정 | 모델 선택 | 브리프 전달 (`brief_transport`) |
 |---|---|---|---|---|
-| `claude_code` | `npx -y @agentclientprotocol/claude-agent-acp@<pin>` | **`0.74.0`** (G1 F1 — 구 `@zed-industries/claude-code-acp`는 동결, 쓰지 않는다) | `session/set_config_option` (스파이크 1b에서 확정; 실패 시 `session/set_model` 폴백) | `acp_meta_system_prompt` — `session/new._meta.systemPrompt = {append: <brief>}` (스파이크 3, **append 모드만**) |
+| `claude_code` | `npx -y @agentclientprotocol/claude-agent-acp@<pin>` | **`0.74.0`** (G1 F1 — 구 `@zed-industries/claude-code-acp`는 동결, 쓰지 않는다) | `session/set_config_option {configId: "model", value}` — **`session/new` 뒤와 모든 `session/load` 뒤에** 호출한다. load 시 기본 모델로 되돌아간다(1b E1). 응답 `configOptions[id="model"].currentValue`로 확인. `session/set_model`은 0.74.0에 없다 | `acp_meta_system_prompt` — `_meta.systemPrompt = {append: <brief>}`를 **`session/new`·`session/load` 양쪽에 매번**(1b E2: 세션에 저장되지 않는다). **append 모드만** |
 | `hermes` | `hermes acp` | Hermes ≥ 0.20.6 | `session/set_model "anthropic:<model>"` | `instruction_file` — workdir `AGENTS.md` 마커 구간 (§8.4) |
 
 - `transport`는 v1에서 항상 `acp`. `cli`는 타입에만 두고(v1.1) 구현하지 않는다 — G1.
@@ -29,6 +29,7 @@ spawn (pgid, cwd=workdir, env=§2.1)
   → 응답 protocolVersion ≠ 1 → failure_kind=config (재시도 없음)
   → session/new {cwd, mcpServers: [colab MCP], _meta: §3}      (신규)
     또는 session/load {sessionId, cwd, mcpServers, _meta: §3}  (재개, §6)
+  → session/set_config_option {sessionId, configId: "model", value: <profile.model>}   (claude_code: new/load 뒤 항상)
   → session/prompt {sessionId, prompt: [{type:"text", text: <턴 프롬프트>}]}
   → session/update 스트림 → task_event 정규화 (§7)
   → session/prompt 응답 {stopReason} = 턴 종료 (§2.2)
@@ -60,7 +61,7 @@ spawn (pgid, cwd=workdir, env=§2.1)
 
 ## 3. `_meta` — 어댑터 확장 (claude_code)
 
-`session/new`와 `session/load` **양쪽**에 같은 `_meta`를 넣는다(load에서 유지되는지는 1b가 확인, §12).
+`session/new`와 `session/load` **양쪽에 매번** 같은 `_meta`를 넣는다 — 어댑터는 `_meta`를 세션에 저장하지 않는다(1b E2, `acp-agent.js` `createSession`). 어댑터는 `claudeCode.options`의 키를 검증 없이 SDK로 통과시키므로 오타는 조용히 무시된다 — 효과는 계약 테스트(§11)로 확인한다.
 
 ```json
 {
@@ -69,21 +70,26 @@ spawn (pgid, cwd=workdir, env=§2.1)
     "options": {
       "settingSources": [],
       "strictMcpConfig": true,
-      "disallowedTools": ["AskUserQuestion"],
+      "disallowedTools": ["AskUserQuestion", "<프로파일 tools 허용 목록 밖의 툴>"],
+      "settings": { "permissions": { "deny": ["<서브에이전트까지 막을 규칙, 예: Bash(rm -rf:*)>"] } },
       "permissionMode": "default"
     }
   }
 }
 ```
 
-| 키 | 왜 |
-|---|---|
-| `systemPrompt.append` | 브리프 전달 경로 1(PRD §8.4). **대체(문자열) 모드는 쓰지 않는다** — Claude Code 기본 프롬프트(툴 규약)를 잃는다(스파이크 3 §2) |
-| `settingSources: []` + `strictMcpConfig: true` | **G1 F2** — 기본값은 사용자 전역 설정을 읽어 Director 개인 MCP 서버·hooks가 에이전트 세션에 실린다. 데몬 세션은 colab MCP만 |
-| `disallowedTools` | `AskUserQuestion`은 어댑터가 이미 빼지만 버전이 바뀌어도 우리 쪽에서 보장(스파이크 2 §3). 프로파일 `tools` 허용 목록에 없는 툴도 여기로 |
-| `permissionMode: default` | 권한 요청이 `session/request_permission`으로 오게. `bypassPermissions`는 쓰지 않는다 — 요청이 안 오면 피드에 남길 수 없다 |
+| 키 | 왜 | 실측 |
+|---|---|---|
+| `systemPrompt.append` | 브리프 전달 경로 1(PRD §8.4). **대체(문자열) 모드는 쓰지 않는다** — Claude Code 기본 프롬프트(툴 규약)를 잃는다 | 스파이크 3 3/3, 1b E2 new 3/3·load 적용 확인. **브리프 없는 턴이 한 번 끼면 이후 턴이 그 답을 따라간다**(이력 오염) — resume에서 브리프를 빠뜨리는 것은 회귀 |
+| `settingSources: []` | **G1 F2** — 기본 `["user","project","local"]`은 `~/.claude/settings.json`(hooks)·`~/.claude.json`(사용자 MCP)·`~/.claude/skills`를 읽는다. `[]` = SDK isolation. workdir `.claude/settings.json`도 안 읽으므로 오염 걱정 없음. 지시 파일 프로파일이라면 `["project"]`(CLAUDE.md를 읽으려면 필요) — v1 Claude Code는 `_meta` 경로라 `[]` | 1b E3: mcp__ 툴 0, hooks 0, 사용자 스킬 0 |
+| `strictMcpConfig: true` | `mcpServers` 파라미터로 넘긴 것 외 모든 MCP 차단 — `settingSources`만으로는 **claude.ai 원격 커넥터(Drive·Calendar·Gmail)가 남는다** | 1b E3: `mcp_servers: []`. **두 키가 모두 있어야 한다** |
+| `disallowedTools` | 모델 툴 목록에서 제거(주 에이전트 UX). `AskUserQuestion`은 어댑터가 이미 빼지만 버전이 바뀌어도 우리 쪽에서 보장 | 스파이크 2. **서브에이전트에는 전파되지 않는다** |
+| `settings.permissions.deny` | **서브에이전트까지 강제**하는 권한 규칙(SDK `--settings` 인라인 계층, 파일 없음). `Task` 안의 Bash도 "Permission … denied"로 돌아온다 | 1b E4 1/1. workdir `.claude/settings.json`은 **쓰지 않는다**(§8.4 M6) |
+| `permissionMode: default` | 권한 요청이 `session/request_permission`으로 오게. `bypassPermissions`는 쓰지 않는다 — 요청이 안 오면 피드에 남길 수 없다 | — |
 
-**서브에이전트 누수(G1 F5)**: `disallowedTools`는 `Task` 서브에이전트에 전파되지 않는다. 서브에이전트까지 막아야 하는 툴은 `permissions.deny`를 SDK 옵션으로 넘길 수 있는지 1b가 확인한다. **확인 전에는 workdir에 `.claude/settings.json`을 쓰지 않는다**(워크트리 오염, §8.4 M6).
+역할 분담: **`disallowedTools` = 목록에서 제거, `permissions.deny` = 호출을 거부.** 프로파일 `tools` 허용 목록은 둘 다에 반영한다.
+
+서브에이전트 가시성: 0.74.0은 서브에이전트의 툴 호출을 ACP `tool_call`로 올리지 않는다. 피드에 보이려면 `clientCapabilities._meta["subagent-transcript"]: true`를 광고해야 한다 — v1은 **광고하지 않는다**(피드 요구사항 밖, 원시 알림 폭증). v1.1 검토.
 
 Hermes는 `_meta`를 버린다(스파이크 3 §1). Hermes의 툴 제한은 `hermes acp`의 자체 설정으로 — P1 하네스 작업에서 확인.
 
@@ -148,7 +154,8 @@ Hermes는 `_meta`를 버린다(스파이크 3 §1). Hermes의 툴 제한은 `her
 | `tool_call` (status pending/in_progress) | `tool` | `kind`에서: `edit`→`edit_file`, `execute`→`run_shell`, `read`→`read`, `search`/`fetch`→`search`, 그 외 `use_tool` | `locations[0].path` 또는 `title` | `started` |
 | `tool_call_update` (completed/failed) | `tool` | 같은 verb, 같은 `toolCallId` | 같음 | `ok` / `failed` + `content` 요약(diff는 +/- 줄 수, 셸은 종료 코드) |
 | `session/request_permission` | `tool` | `permission` | toolCall.title | `allowed` / `rejected` / `cancelled` (§4) |
-| `usage_update` | `usage` | `report` | — | `{input, output, cache_read, cache_write, cost_usd?}` 누적 |
+| `usage_update` | `usage` | `report` | — | `{input, output, cache_read, cache_write, cost_usd?}` 누적 + **`_meta["_claude/rateLimit"]`**(`status`, `resetsAt`, `rateLimitType`, `utilization`)을 `payload.rate_limit`로. 매 턴 온다(1b E5) — 리셋 시각을 미리 보여주는 근거 |
+| `session/prompt` 응답 `_meta.quota.model_usage[].model` | `runtime` | `turn_end` | — | 실제 실행 모델. 프로파일 모델과 다르면 `payload.model_drift: true` + 피드 경고(1b E1 — load 후 기본 모델로 되돌아가는 회귀 감시) |
 | `plan` | `plan` | `update` | — | 항목 수·완료 수 |
 | `session/load` 리플레이 | — | — | — | **버림** |
 | 어댑터/프로세스 오류 | `runtime` | `error` | — | `failure_kind` (§8) |
@@ -162,7 +169,7 @@ Hermes는 `_meta`를 버린다(스파이크 3 §1). Hermes의 툴 제한은 `her
 |---|---|---|
 | `auth` | 어댑터 stderr/오류에 login·unauthorized, Claude Code "Login expired" | **없음** → 에이전트 `error` |
 | `quota` | 조직 쿼터·결제 실패 | 없음 |
-| **`rate_limited`** | `session/prompt` JSON-RPC `-32603` 본문에 `hit your limit`·`resets <time>` (G1 F3). 프로세스는 살아 있다 | **리셋 시각까지 `queued`** (`task.not_before` = 파싱한 시각, 못 파싱하면 +30분). 같은 런타임의 다른 task도 같은 `not_before` |
+| **`rate_limited`** | 우선순위(1b E5): (1) 직전 `usage_update._meta["_claude/rateLimit"].status == "rejected"` → `reset_at = resetsAt`(epoch초) (2) `session/prompt` 오류 `-32603` + `data.errorKind ∈ {rate_limit, overloaded}` (3) 오류 메시지가 SDK `USAGE_LIMIT_ERROR_PREFIXES` 12개(`protocol.go` `UsageLimitPrefixes`) 중 하나로 시작 → 리셋 시각 파싱(`resets 11am (Asia/Seoul)` 형식), 없으면 `quota`로 사람 에스컬레이션. 프로세스는 살아 있다 | **리셋 시각까지 `queued`** (`task.not_before` = `reset_at`, 없으면 +30분). 같은 런타임의 다른 task도 같은 `not_before`. `-32603`이지만 위 셋에 안 걸리면 `other` |
 | `config` | `protocolVersion ≠ 1`, 어댑터 핀 불일치, CLI 없음, 모델 없음 | 없음 |
 | `network` | 서버 연결 실패 | 2~3회 |
 | `runtime_offline` | heartbeat 3분 무응답(서버 판정) | 재큐잉 + 토큰 폐기 |
@@ -214,11 +221,14 @@ Hermes: `usage: true`(G1 F6), `resume: true`(`session/load`), `brief_transport: 
 
 실기 계약 테스트(야간, 실제 어댑터): 스파이크 1의 30턴 시나리오를 100턴으로.
 
-## 12. 미결 — 스파이크 1b가 닫는다
+## 12. 미결 — 스파이크 1b로 닫힘 (`plan/spikes/SPIKE_01b.md`)
 
-| # | 질문 | 임시값 |
-|---|---|---|
-| 1 | 0.74.0 모델 선택 방법 | `session/set_config_option`, 실패 시 `session/set_model` |
-| 2 | `_meta.systemPrompt`가 0.74.0에서 유지되는가, `session/load`에서도 필요한가 | 양쪽에 넣는다 |
-| 3 | `settingSources: []` + `strictMcpConfig`로 사용자 MCP·hooks가 빠지는가 | 빠진다고 가정 |
-| 4 | `permissions.deny`를 파일 없이 옵션으로 넘겨 서브에이전트까지 막을 수 있는가 | 못 하면 프로파일 `tools`는 주 에이전트에만 적용됨을 문서화 |
+| # | 질문 | 결과 | 계약 위치 |
+|---|---|---|---|
+| 1 | 0.74.0 모델 선택 방법 | `session/set_config_option {configId:"model"}` — **new 뒤와 모든 load 뒤에.** `set_model` 없음. `options.model` 경로는 `currentValue`가 거짓말을 하므로 쓰지 않는다 | §1, §2 |
+| 2 | `_meta.systemPrompt`가 load에서도 필요한가 | **필요.** 세션에 저장되지 않는다. 깨끗한 이력에서 load 시 적용 1/1 | §3 |
+| 3 | `settingSources: []` + `strictMcpConfig`로 사용자 MCP·hooks가 빠지는가 | **둘 다 있어야** 전부 빠진다. `settingSources`만으로는 claude.ai 커넥터가 남는다 | §3 |
+| 4 | `permissions.deny`를 파일 없이 넘겨 서브에이전트까지 막을 수 있는가 | **된다.** `options.settings.permissions.deny`가 Task 안 Bash까지 거부 1/1 | §3 |
+| + | 한도 오류 신호 | `_claude/rateLimit` 구조화 신호가 1차, `errorKind` 2차, 접두어 12개 3차 | §7, §8 |
+
+P1 계약 테스트 추가 항목: (a) load 후 첫 턴에 브리프 식별자 질의(브리프 유지), (b) load 후 `model_usage`가 프로파일 모델(모델 재호출), (c) 원시 `system/init.tools`에 `mcp__` 0·`hook_started` 0(격리), (d) `CLAUDE_CONFIG_DIR` 분리·플러그인 격리는 macOS keychain 문제로 미시험 — P1에서.
