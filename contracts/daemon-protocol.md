@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.1 (G2 후보) |
+| 버전 | v0.2 — PR #22 리뷰 R3·N5: 명령 최소 한 번의 **판정 기준(효과 관측)** 명시, heartbeat 만료는 `running`만 |
 | 소유 | S + D. 변경은 Director 승인 PR로만 |
 | 근거 | PRD §8.1(큐), FR-7.1(상태 머신·heartbeat), FR-9.1(고아·토큰 폐기), FR-9.2(오프라인 유예), FR-6.4(workdir·GC), `harness.md`(오류 분류·재개) |
 | 원칙 | **데몬은 stateless, 상태는 서버.** 데몬은 서버가 준 것만 실행하고 결과를 보고한다. 모든 시각 판정(만료·유예·`not_before`)은 서버 클럭(`contracts/clock`) |
@@ -94,7 +94,7 @@ POST /v1/daemon/tasks/{task_id}/attempts/{attempt}/heartbeat {usage: {…}, last
 
 - `events`는 배치(≤ 100개 또는 1초). `(task_id, attempt, seq)` 멱등 — 서버는 이미 받은 `seq`를 무시하고 `accepted_seq_max`를 돌려준다. 데몬은 미확인 이벤트를 재전송한다.
 - 메시지 스트리밍: `message.say` 이벤트는 턴 단위로 합치되, 사람이 보는 지연을 위해 `partial: true`인 중간 이벤트를 **같은 seq 없이** 별도 채널(heartbeat의 `preview` 필드)로 보낸다. 영속되지 않는다(PRD §7 "고빈도 이벤트 비영속").
-- heartbeat **15초**. 서버는 마지막 heartbeat로부터 **3분** 무응답이면 `runtime_offline` → 재큐잉 + 토큰 폐기(E5-03, E11-03).
+- heartbeat **15초**. 서버는 **`running` attempt**의 마지막 heartbeat로부터 **3분** 무응답이면 `runtime_offline` → 재큐잉 + 토큰 폐기(E5-03, E11-03). `preparing`은 heartbeat 만료 대상이 아니다 — `dispatched_at`부터 5분(§4.1)이 덮는다(v0.2, N5: 콜드 스타트가 긴 런타임의 준비 구간을 3분에 자르지 않기 위해).
 - `waiting_human`·`blocked`·`paused`로 끝난 attempt는 heartbeat를 보내지 않는다 — 프로세스가 없다.
 
 ### 4.3 명령 (서버 → 데몬)
@@ -110,6 +110,19 @@ claim·events·heartbeat 응답의 `commands[]`:
 | `rebind_prepare` | `{session_id, artifacts: [{id, order, url}]}` | 새 workdir 준비 후 아티팩트 순서 적용은 **프롬프트가 지시**(FR-9.2). 데몬은 다운로드만 |
 
 명령은 **최소 한 번** 전달된다. 데몬은 `(type, task_id, attempt)`로 멱등 처리.
+
+**서버 쪽 규칙(v0.2, PR #22 리뷰 R3)**: 명령을 응답에 실었다고 소비하지 않는다 — 응답이 유실되면 명령이 사라지기 때문이다. 데몬 ack 왕복도 두지 않는다(프로토콜을 늘리지 않기 위해). 대신 **명령의 효과가 관측될 때까지 매 응답에 다시 싣는다**:
+
+| type | 소비(더 이상 싣지 않음) 조건 |
+|---|---|
+| `cancel` | 그 attempt의 `finish`가 도착 |
+| `revoke` | 그 attempt의 `finish`가 도착, 또는 발행 후 `HeartbeatExpiry`(3분) 경과 — 그 뒤 고아는 데몬 재시작 정리(§5)와 401이 막는다 |
+| `probe` | 다음 probe 수신 |
+| `gc` | 해당 workdir 보고(§6)에서 삭제 확인 |
+| `rebind_prepare` | 새 attempt의 `phase: preparing` 보고 |
+| 공통 | 발행 후 24h 경과(TTL) — 피드에 "명령 미소비 만료" 기록 |
+
+데몬은 같은 명령을 여러 번 받을 수 있으므로 멱등 처리가 계약이다(E11-05 계약 테스트: 응답 유실 후 다음 응답에 같은 `revoke`가 다시 실림).
 
 ### 4.4 finish
 

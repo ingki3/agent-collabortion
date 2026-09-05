@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.1 (G2 후보) |
+| 버전 | v0.3 — PR #22 리뷰 R1: CLI가 `X-Colab-Client-Seq` 헤더로 seq를 보낸다(서버가 last_seq를 max로 계산). v0.2는 멱등키 UUIDv5·COLAB_TASK_ATTEMPT·warnings 코드 |
 | 소유 | C + D. 변경은 Director 승인 PR로만 |
 | 근거 | PRD FR-7.4(툴 표면), FR-3.3(라우팅), FR-5.1·5.4(HITL), FR-6.2·6.2.1(lane·blocked), FR-6.5(합류), FR-2.2(종료 조건), FR-1.5(동적 생성 금지), FR-9.1(토큰 폐기), EVAL §E1·E3·E6·E7·E15 |
 | 원칙 | 에이전트가 플랫폼에 되돌아오는 **유일한 경로**. 어떤 런타임이든 셸이 있으면 같다. MCP 서버는 같은 명령을 같은 이름의 툴로 노출한다 |
@@ -16,7 +16,7 @@
 | `COLAB_TASK_ID` `COLAB_TASK_ATTEMPT` `COLAB_LANE_ID` `COLAB_SESSION_ID` `COLAB_AGENT_NAME` | 데몬 | 명령이 인자를 생략할 때의 기본값. `COLAB_TASK_ATTEMPT`가 있으면 `/cli/context` 왕복 없이 멱등키를 만든다 (v0.2, PR #18) |
 | `COLAB_SERVER_URL` | 데몬 | **오리진**(예: `https://colab.example`). CLI가 `openapi.yaml` `servers[0].url`(`/api/v1`)을 뒤에 붙인다. `COLAB_API_PREFIX`로 덮어쓸 수 있다 |
 
-**멱등키 (v0.2)**: `Idempotency-Key`는 openapi대로 **UUID** — CLI가 `UUIDv5(namespace=colab, name="task:<task_id>:<seq>")`로 파생한다. **`seq`는 attempt를 포함하지 않고 task 안에서 이어진다**(`/cli/context`가 `last_seq`를 돌려주고, attempt 2는 그 다음부터). 재시도가 같은 내용을 다시 게시해도 다른 seq면 새 메시지다 — 중복 방지는 재개 프롬프트의 `posted_message_ids`(FR-7.1, E8-04)가 1차이고 멱등키는 **네트워크 재전송**만 막는다.
+**멱등키 (v0.2)**: `Idempotency-Key`는 openapi대로 **UUID** — CLI가 `UUIDv5(namespace=colab, name="task:<task_id>:<seq>")`로 파생한다. **`seq`는 attempt를 포함하지 않고 task 안에서 이어진다**(`/cli/context`가 `last_seq`를 돌려주고, attempt 2는 그 다음부터). **CLI는 `message post`마다 `X-Colab-Client-Seq: <seq>` 헤더를 함께 보낸다**(v0.3) — 서버가 `idempotency_key.client_seq`에 저장해 `last_seq = max(client_seq)`로 답한다. seq에 구멍이 생겨도(게시 실패 후 재시도) 개수가 아니라 최댓값이므로 키 재사용이 없다. 재시도가 같은 내용을 다시 게시해도 다른 seq면 새 메시지다 — 중복 방지는 재개 프롬프트의 `posted_message_ids`(FR-7.1, E8-04)가 1차이고 멱등키는 **네트워크 재전송**만 막는다.
 
 - **전처리 `GET /cli/context`** (`openapi.yaml` `getCliContext`): 토큰만으로 task·lane·세션·에이전트·참여자 로스터·억제 중인 위임자(규칙 8)·열린 HITL 여부를 받는다. CLI는 토큰을 파싱하지 않는다 — 서버가 범위를 푼다(openapi.md D2).
 - **토큰 읽기 범위**(G2 Q8): 그 task의 세션 안에서 세션·메시지·lane·task·아티팩트·결정 읽기만. 워크스페이스·에이전트·설정·인박스·다른 세션은 403.

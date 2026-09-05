@@ -9,7 +9,10 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "gen:api": "openapi-typescript ../contracts/openapi.yaml -o lib/api/schema.d.ts --default-non-nullable=false",
+    "dev:mock": "COLAB_MOCK_API=1 next dev",
+    "e2e:u1": "bash e2e/u1.sh"
   },
   "dependencies": {
     "next": "15.5.4",
@@ -24,6 +27,7 @@
     "@types/react-dom": "19.1.9",
     "@vitejs/plugin-react": "^4.7.0",
     "jsdom": "^26.1.0",
+    "openapi-typescript": "^7.13.0",
     "typescript": "5.9.2",
     "vitest": "^3.2.7"
   }
