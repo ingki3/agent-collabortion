@@ -1,26 +1,163 @@
 // Command colab is the CLI agents use to talk back to the platform
-// (PRD FR-7.4): session · message · lane · hitl · artifact · decision ·
-// status · review. Authenticated with COLAB_TASK_TOKEN. Also exposed as an
-// MCP server (PLAN.md §2 stream C).
+// (PRD FR-7.4, contracts/colab-cli.md). Authenticated with COLAB_TASK_TOKEN.
+// The same commands are exposed as MCP tools via `colab mcp serve`.
 //
-// P0-a skeleton: only `colab version`. Commands land per phase after G2
-// according to contracts/colab-cli.md.
+// P1: session get · session messages · message post · version · mcp serve.
+// Output is always JSON on stdout (agents parse it); --json is accepted for
+// clarity. Exit codes: 0 ok · 2 args · 3 refused · 4 no/revoked token ·
+// 5 server unreachable.
 package main
 
 import (
+	"context"
+	"flag"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 
+	"github.com/ingki3/agent-collabortion/cli/internal/client"
+	"github.com/ingki3/agent-collabortion/cli/internal/colab"
+	"github.com/ingki3/agent-collabortion/cli/internal/mcp"
 	"github.com/ingki3/agent-collabortion/contracts"
 )
 
 var version = "dev"
 
+const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
+
+  colab session get [--session S] [--json]
+  colab session messages [--since <cursor|id>] [--limit N] [--thread <root_id>] [--json]
+  colab message post --body <text> [--reply-to <msg_id>] [--mention @A,@B] [--json]
+  colab mcp serve            stdio MCP server exposing the same commands as tools
+  colab version
+
+env: COLAB_TASK_TOKEN COLAB_SERVER_URL COLAB_TASK_ID COLAB_LANE_ID COLAB_SESSION_ID COLAB_AGENT_NAME
+exit: 0 ok · 2 args · 3 refused · 4 no/revoked token · 5 server unreachable
+`
+
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "version" {
-		fmt.Printf("colab %s (contracts %s)\n", version, contracts.Version)
-		return
+	os.Exit(run(os.Args[1:], os.Getenv, os.Stdin, os.Stdout, os.Stderr))
+}
+
+// run is main without os.Exit so tests can drive it.
+func run(args []string, getenv client.Getenv, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
+		fmt.Fprint(stderr, usageText)
+		return client.ExitUsage
 	}
-	fmt.Fprintln(os.Stderr, "colab: skeleton — commands are defined in contracts/colab-cli.md after G2. try: colab version")
-	os.Exit(2)
+	switch args[0] {
+	case "version":
+		fmt.Fprintf(stdout, "colab %s (contracts %s)\n", version, contracts.Version)
+		return client.ExitOK
+	case "session":
+		return runSession(args[1:], getenv, stdout, stderr)
+	case "message":
+		return runMessage(args[1:], getenv, stdout, stderr)
+	case "mcp":
+		if len(args) < 2 || args[1] != "serve" {
+			return usage(stderr, "usage: colab mcp serve")
+		}
+		c := client.New(client.FromEnv(getenv))
+		if err := mcp.Serve(context.Background(), c, stdin, stdout, version); err != nil {
+			fmt.Fprintln(stderr, "colab mcp serve:", err)
+			return client.ExitUnreachable
+		}
+		return client.ExitOK
+	}
+	return usage(stderr, "colab: unknown command %q (P1: session · message · mcp · version)", args[0])
+}
+
+func usage(stderr io.Writer, format string, a ...any) int {
+	fmt.Fprintf(stderr, format+"\n", a...)
+	fmt.Fprint(stderr, usageText)
+	return client.ExitUsage
+}
+
+func newFlagSet(name string, stderr io.Writer) (*flag.FlagSet, *bool) {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	jsonOut := fs.Bool("json", true, "JSON output (always on; accepted for clarity)")
+	return fs, jsonOut
+}
+
+func runSession(args []string, getenv client.Getenv, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		return usage(stderr, "usage: colab session get | colab session messages")
+	}
+	c := client.New(client.FromEnv(getenv))
+	ctx := context.Background()
+	switch args[0] {
+	case "get":
+		fs, _ := newFlagSet("session get", stderr)
+		session := fs.String("session", "", "session id (default COLAB_SESSION_ID / token scope)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return client.ExitUsage
+		}
+		if fs.NArg() > 0 {
+			return usage(stderr, "session get: unexpected argument %q", fs.Arg(0))
+		}
+		v, err := colab.SessionGet(ctx, c, colab.SessionGetArgs{Session: *session})
+		return emit(stdout, stderr, v, err)
+	case "messages":
+		fs, _ := newFlagSet("session messages", stderr)
+		session := fs.String("session", "", "session id (default COLAB_SESSION_ID / token scope)")
+		since := fs.String("since", "", "only messages after this cursor / message id")
+		limit := fs.Int("limit", 0, "max messages (1..200, server default 50)")
+		thread := fs.String("thread", "", "thread root message id (root + replies)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return client.ExitUsage
+		}
+		if fs.NArg() > 0 {
+			return usage(stderr, "session messages: unexpected argument %q", fs.Arg(0))
+		}
+		v, err := colab.SessionMessages(ctx, c, colab.SessionMessagesArgs{
+			Session: *session, Since: *since, Limit: *limit, Thread: *thread})
+		return emit(stdout, stderr, v, err)
+	}
+	return usage(stderr, "colab session: unknown subcommand %q", args[0])
+}
+
+func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "post" {
+		return usage(stderr, "usage: colab message post --body <text> [--reply-to <id>] [--mention @A,@B]")
+	}
+	fs, _ := newFlagSet("message post", stderr)
+	session := fs.String("session", "", "session id (default COLAB_SESSION_ID / token scope)")
+	body := fs.String("body", "", "message text (markdown)")
+	replyTo := fs.String("reply-to", "", "parent message id (thread)")
+	mention := fs.String("mention", "", "comma-separated agent names to mention, e.g. @Reviewer,@Writer")
+	key := fs.String("idempotency-key", "", "reuse a previous key to retry the same post (default task:attempt:seq)")
+	if err := fs.Parse(args[1:]); err != nil {
+		return client.ExitUsage
+	}
+	if fs.NArg() > 0 {
+		return usage(stderr, "message post: unexpected argument %q", fs.Arg(0))
+	}
+	if strings.TrimSpace(*body) == "" {
+		return emit(stdout, stderr, nil, client.Usage("--body is required"))
+	}
+	var mentions []string
+	if *mention != "" {
+		mentions = strings.Split(*mention, ",")
+	}
+	c := client.New(client.FromEnv(getenv))
+	v, err := colab.MessagePost(context.Background(), c, colab.MessagePostArgs{
+		Session: *session, Body: *body, ReplyTo: *replyTo, Mention: mentions, IdempotencyKey: *key})
+	return emit(stdout, stderr, v, err)
+}
+
+// emit writes the result (or the error object) as JSON to stdout and returns
+// the exit code. Errors also get a one-line human message on stderr.
+func emit(stdout, stderr io.Writer, v any, err error) int {
+	if err != nil {
+		e := client.AsError(err)
+		fmt.Fprintln(stderr, "colab:", e.Error())
+		stdout.Write(colab.MarshalIndent(colab.ErrorJSON(e)))
+		fmt.Fprintln(stdout)
+		return e.Exit
+	}
+	stdout.Write(colab.MarshalIndent(v))
+	fmt.Fprintln(stdout)
+	return client.ExitOK
 }
