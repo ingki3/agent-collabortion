@@ -1,0 +1,10 @@
+# oapi-codegen config — regenerate with `go generate ./internal/httpapi/...` (see gen.go).
+package: gen
+generate:
+  models: true
+  std-http-server: true
+  embedded-spec: false
+output: api.gen.go
+output-options:
+  skip-prune: false
+  nullable-type: true
