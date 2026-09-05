@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://colab.dev/contracts/task_event.schema.json",
+  "title": "task_event",
+  "description": "데몬이 런타임 이벤트를 정규화해 서버로 보내는 단위. 활동 피드(PRD FR-7.2)의 원본. (task_id, attempt, seq)로 멱등. 정규화 규칙은 contracts/harness.md §7, 전송은 contracts/daemon-protocol.md §4.2. v0.1 (G2 후보).",
+  "type": "object",
+  "required": ["task_id", "attempt", "seq", "ts", "class", "verb", "outcome"],
+  "additionalProperties": false,
+  "properties": {
+    "task_id": { "type": "string", "format": "uuid" },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "seq": { "type": "integer", "minimum": 1, "description": "attempt 안에서 1부터 단조 증가. session/load 리플레이 청크는 seq를 소비하지 않는다(버림)." },
+    "ts": { "type": "string", "format": "date-time", "description": "데몬 벽시계. 정렬은 seq로 하고 ts는 표시용." },
+    "class": {
+      "type": "string",
+      "enum": ["message", "tool", "usage", "plan", "runtime", "status"],
+      "description": "message=에이전트 발화·사고, tool=툴 호출·권한, usage=사용량, plan=계획 갱신, runtime=프로세스·어댑터 수준(재개·오류), status=플랫폼 조작(colab CLI 호출을 서버가 기록할 때)"
+    },
+    "verb": {
+      "type": "string",
+      "enum": [
+        "say", "think",
+        "edit_file", "run_shell", "read", "search", "use_tool", "permission",
+        "report",
+        "update",
+        "start", "resume", "error", "cancel", "turn_end",
+        "post_message", "delegate", "set_status", "submit_artifact", "record_decision", "hitl", "review"
+      ]
+    },
+    "object_ref": {
+      "type": "string",
+      "maxLength": 512,
+      "description": "동사의 목적어. 파일 경로, 셸 명령 첫 토큰, 툴 제목, 메시지 id, lane id 등. 사람이 훑어 읽는 문장의 목적어(FR-7.2)."
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["started", "ok", "failed", "allowed", "rejected", "cancelled", "resumed", "cold_start", "report", "update", "info"],
+      "description": "started=진행 중(같은 tool_call_id의 후속 이벤트가 온다), ok/failed=완료, allowed/rejected/cancelled=권한 응답, resumed/cold_start=재개 결과"
+    },
+    "partial": {
+      "type": "boolean",
+      "default": false,
+      "description": "true면 스트리밍 중간 조각 — 영속하지 않는다(PRD §7 고빈도 비영속). daemon-protocol §4.2의 preview 채널로만 보낸다."
+    },
+    "payload": {
+      "type": "object",
+      "description": "class별 세부. 아래 $defs 중 하나.",
+      "oneOf": [
+        { "$ref": "#/$defs/message" },
+        { "$ref": "#/$defs/tool" },
+        { "$ref": "#/$defs/permission" },
+        { "$ref": "#/$defs/usage" },
+        { "$ref": "#/$defs/plan" },
+        { "$ref": "#/$defs/runtime" },
+        { "$ref": "#/$defs/status" }
+      ]
+    }
+  },
+  "$defs": {
+    "message": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "enum": ["text", "thought"] },
+        "text": { "type": "string", "description": "턴 단위로 합친 본문. 원본 레일 표시용. 에이전트가 플랫폼에 올리는 메시지는 이것이 아니라 colab message post(status.post_message)다." },
+        "chars": { "type": "integer" }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "required": ["tool_call_id", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "tool_call_id": { "type": "string" },
+        "kind": { "type": "string", "enum": ["edit", "execute", "read", "search", "fetch", "think", "other"], "description": "ACP tool_call.kind 원본" },
+        "title": { "type": "string" },
+        "path": { "type": "string" },
+        "lines_added": { "type": "integer" },
+        "lines_removed": { "type": "integer" },
+        "command": { "type": "string", "description": "run_shell: 명령 전체(마스킹 시 첫 토큰만)" },
+        "exit_code": { "type": "integer" },
+        "summary": { "type": "string", "maxLength": 2000, "description": "결과 요약. workspace_settings.task_event_masking=true면 diff·셸 출력 본문 대신 이것만" },
+        "masked": { "type": "boolean" },
+        "duration_ms": { "type": "integer" },
+        "policy": { "type": "string", "enum": ["allowed_by_profile", "denied_by_profile"], "description": "프로파일 tools 허용 목록 판정(harness §4)" }
+      }
+    },
+    "permission": {
+      "type": "object",
+      "required": ["tool_call_id", "option_kind"],
+      "additionalProperties": false,
+      "properties": {
+        "tool_call_id": { "type": "string" },
+        "title": { "type": "string" },
+        "option_kind": { "type": "string", "enum": ["allow_once", "allow_always", "reject_once", "reject_always"], "description": "데몬이 고른 옵션의 kind. optionId는 기록하지 않는다(어댑터마다 다름)" },
+        "options_offered": { "type": "array", "items": { "type": "string" } },
+        "allow_once_missing": { "type": "boolean" }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input_tokens": { "type": "integer" },
+        "output_tokens": { "type": "integer" },
+        "cache_read_tokens": { "type": "integer" },
+        "cache_write_tokens": { "type": "integer" },
+        "cost_usd": { "type": "number" },
+        "estimated": { "type": "boolean", "description": "런타임이 usage=false면 true — FR-7.3 추정 배지, 하드 컷 금지" },
+        "cumulative": { "type": "boolean", "default": true }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entries_total": { "type": "integer" },
+        "entries_done": { "type": "integer" },
+        "current": { "type": "string" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtime_kind": { "type": "string", "enum": ["claude_code", "hermes"] },
+        "adapter_version": { "type": "string" },
+        "protocol_version": { "type": "integer" },
+        "session_id": { "type": "string" },
+        "failure_kind": { "type": "string", "enum": ["auth", "quota", "rate_limited", "config", "network", "runtime_offline", "stall", "timeout", "cancelled", "other"] },
+        "detail": { "type": "string", "maxLength": 2000 },
+        "not_before": { "type": "string", "format": "date-time", "description": "rate_limited: 파싱한 리셋 시각" },
+        "stop_reason": { "type": "string" },
+        "resume_reason": { "type": "string", "enum": ["session_not_found", "load_null", "provenance_mismatch", "compression_rotation"] }
+      }
+    },
+    "status": {
+      "type": "object",
+      "required": ["command"],
+      "additionalProperties": false,
+      "properties": {
+        "command": { "type": "string", "description": "colab CLI 명령(contracts/colab-cli.md). 서버가 CLI 호출을 받을 때 기록한다 — 데몬이 만들지 않는다" },
+        "args": { "type": "object" },
+        "result_ref": { "type": "string", "description": "만들어진 message/lane/artifact/decision/hitl id" },
+        "rejected_reason": { "type": "string", "description": "예: token_revoked, hitl_already_open, not_participant" }
+      }
+    }
+  },
+  "x-render-class": {
+    "description": "활동 피드 렌더 클래스(FR-7.2, 컷 1 대상). 저장하지 않고 서버가 class/verb/outcome에서 파생한다.",
+    "rules": [
+      { "when": "class=message verb=say", "render": "message" },
+      { "when": "class=status", "render": "platform" },
+      { "when": "class=tool verb=edit_file", "render": "file_edit" },
+      { "when": "class=tool verb=run_shell", "render": "shell" },
+      { "when": "outcome=failed OR class=runtime verb=error OR (class=tool verb=permission outcome=rejected)", "render": "error" },
+      { "when": "else", "render": "raw" }
+    ],
+    "cut_1": "렌더러를 message·platform·error만 두고 file_edit·shell은 raw로 강등"
+  }
+}
