@@ -219,13 +219,14 @@ PRD §8.1의 구성을 따른다. 기술 스택은 **Go 서버 · Next.js 웹 ·
 
 | # | 위치 | 실험 | 통과 기준 | 실패 시 분기 |
 |---|---|---|---|---|
-| 1 | P0-a, **시간 상자 3일** | `claude-code-acp`로 Claude Code를 100턴 구동. resume 20회, 취소 20회, 권한 요청 50회 | 크래시 0, resume 성공 ≥ 95%, **`allow_once` 부재율 < 5%**(PRD §8.2.2가 부재 시 `reject_once`를 이미 정했으므로 "항상 존재"는 조건이 아니다), 프로토콜 버전 고정 가능 | **CLI 어댑터를 v1에 포함**. 하네스 인터페이스는 유지, Claude Code만 `transport: "cli"`. P1에 어댑터 작업 추가 → §6 컷 1 예약 |
+| 1 | P0-a — **통과(G1)** | `claude-code-acp`로 Claude Code를 100턴 구동. resume 20회, 취소 20회, 권한 요청 50회 | 크래시 0, resume 성공 ≥ 95%, **`allow_once` 부재율 < 5%**(PRD §8.2.2가 부재 시 `reject_once`를 이미 정했으므로 "항상 존재"는 조건이 아니다), 프로토콜 버전 고정 가능 | **CLI 어댑터를 v1에 포함**. 하네스 인터페이스는 유지, Claude Code만 `transport: "cli"`. P1에 어댑터 작업 추가 → §6 컷 1 예약 |
 | 2 | P0-a | ACP에서 `AskUserQuestion` 차단: 어댑터 옵션 / 설정 파일 / `--disallowedTools` 전달 | 차단된 툴 호출이 에이전트에게 오류로 돌아옴 | 브리프에 "쓰지 마라" + 호출 시 피드 경고(`tool_disallow: false`) |
 | 3 | P0-a | `session/new`에 시스템 프롬프트 넣고 브리프 없이 실행 | 에이전트가 브리프 내용을 인지 | §8.4 1번 경로 삭제, 지시 파일이 유일 경로 |
-| 4a | P0-a | (a) resume + "질문/답변" 프롬프트 → 이전 작업 맥락 유지? (b) Hermes `state.db` 삭제 후 resume → 유실 감지? | (a) 90%, (b) 100% 감지 | resume 불가 런타임은 콜드 스타트 전용으로 표시 |
+| 4a | P0-a — **통과(G1)** | (a) resume + "질문/답변" 프롬프트 → 이전 작업 맥락 유지? (b) Hermes `state.db` 삭제 후 resume → 유실 감지? | (a) 90%, (b) 100% 감지 | resume 불가 런타임은 콜드 스타트 전용으로 표시 |
 | 4c | **P3 착수 전** | 브리프 + 히스토리 + 결정 기록만으로 콜드 스타트 → 작업 이어감? | 정성 평가 통과 | 콜드 스타트 프롬프트에 직전 활동 피드 요약 주입 — **§8.4 턴 프롬프트 계약 변경 PR**이 필요하므로 P3 착수 전 Director 게이트 1회 추가 |
 | 5 | **P4 착수 전** (컷 3 시 생략) | 추적 중인 `CLAUDE.md`에 마커 append + `skip-worktree` → 런타임이 읽는가 / 편집하면 / 복원 후 diff | 런타임 인지, `git status` 클린, 복원 무손실 | 별도 파일 + import 지시로 우회 |
-| 6 | P0-a, 반나절 | `--effort` `--max-budget-usd` `--append-system-prompt-file` 실재 확인 | 부록 C 표와 일치 | §8.2.4 갱신 |
+| 1b | **P0-b 첫 작업, 반나절** | 후속 패키지 0.74.0에서 모델 선택(`session/set_config_option`), `_meta.systemPrompt` 유지(load 포함), `settingSources`·`strictMcpConfig` 격리, 서브에이전트 `permissions.deny` | 항목별 판정 | 안 되는 항목은 하네스 계약을 그에 맞춰 |
+| 6 | P0-a — **통과(G1)** | `--effort` `--max-budget-usd` `--append-system-prompt-file` 실재 확인 | 부록 C 표와 일치 | §8.2.4 갱신 |
 
 **1번의 시간 상자는 3일 — 이것은 달력이다.** 실제 런타임을 100턴 돌리는 시간은 에이전트가 압축하지 못한다. 3일 안에 판정 못 하면 "불안정"으로 간주하고 CLI 어댑터를 포함한다 — 판정을 미루는 것이 최악이다. 스파이크 4c·5를 뒤로 뺀 결과 P0 D 에이전트의 부하가 절반으로 준다.
 
@@ -273,7 +274,7 @@ v0.3은 12주 기준·10주 컷 경로를 적었다. 개발 주체가 에이전�
 
 | 게이트 | 단계 | Director가 판정하는 것 | 예산 (`blocked` / PR / 토큰) | 통과 못 하면 |
 |---|---|---|---|---|
-| **G1** | P0-a | 스파이크 1·2·3 판정 (CLI 어댑터 포함 여부, 툴 차단, 브리프 경로) | 3 / 6 / P0 실측 | 3일 상자 초과 = 불안정 → 어댑터 포함, **컷 1 예약** |
+| **G1** | P0-a | 스파이크 1·2·3 판정 (CLI 어댑터 포함 여부, 툴 차단, 브리프 경로) — **통과 2026-09-05, `plan/G1_DECISION.md`. CLI 어댑터 제외, 컷 1 예약 없음. Director 확인 대기** | 3 / 6 / P0 실측 | 3일 상자 초과 = 불안정 → 어댑터 포함, **컷 1 예약** |
 | **G2** | P0-b | 계약 5종 + 클럭 승인. **G1 이후에만.** **토큰 예산 단위 확정** | 3 / 8 / P0 실측 | 계약 없이는 P1 fan-out 금지 |
 | **G3** | P1 | 수직 슬라이스 DoD + kill -9 + 고아 정리 + 20회 중앙값 | 10 / 30 / G2에서 | **P2를 시작하지 않는다.** 기반이 흔들리면 뒤가 전부 흔들린다 |
 | **G4** | P2 중간 | P2a 골든 테스트 + 시나리오 A Claude Code 단일 | 8 / 20 / G2에서 | Hermes 어댑터를 P3로 이월(하네스는 유지) → **G5의 Hermes 조건이 G6로 옮겨간다** |
@@ -301,8 +302,8 @@ v0.3은 12주 기준·10주 컷 경로를 적었다. 개발 주체가 에이전�
 
 ## 7. 이 계획이 기대는 가정
 
-1. **`claude-code-acp`가 존재하고 현재 Claude Code 버전과 호환된다.** 스파이크 1이 이것부터 본다.
-2. **Hermes ACP가 `session/resume`과 `usage_update`를 실제로 준다** — multica 코드에서 확인했으나 우리 버전에서 재확인(스파이크 4a).
+1. ~~`claude-code-acp`가 존재하고 현재 Claude Code 버전과 호환된다.~~ → **해소(G1)**: 후속 패키지 `@agentclientprotocol/claude-agent-acp@0.74.0`이 프로토콜 v1로 호환. 모델 선택 방식만 스파이크 1b(P0-b)에서 재확인.
+2. ~~Hermes ACP가 `session/resume`과 `usage_update`를 실제로 준다~~ → **해소(G1)**: `session/load`·`session/resume`·`usage_update` 모두 확인. `session/resume`(UNSTABLE)은 쓰지 않고 `session/load`를 쓴다.
 3. **Postgres SKIP LOCKED 큐가 동시 task 50에서 충분하다.** 넘으면 Redis — 그러면 claim·heartbeat 프로토콜이 바뀌므로 **P0-b에서 큐 인터페이스를 추상화**해 둔다. "스키마는 안 바뀐다"가 아니라 "계약 뒤에 숨긴다"가 대응이다.
 4. **통합·판정·실기 실험은 에이전트 병렬성으로 줄지 않는다.** 그래서 게이트로 잰다(§6.1).
 5. **Director 한 명이 하루 세 번 개입할 수 있다**(§10.6). 이것이 단계 길이를 정한다. 안 되는 날은 §10.6의 개발용 deputy가 받는다.
