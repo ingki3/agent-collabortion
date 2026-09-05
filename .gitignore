@@ -20,3 +20,6 @@ tmp/
 
 # Orca / agent worktrees
 .worktrees/
+
+# Claude Code session files (wakeup lock 등)
+.claude/
