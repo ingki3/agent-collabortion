@@ -37,7 +37,7 @@ func TestVersion(t *testing.T) {
 
 func TestUsageExit2(t *testing.T) {
 	env := clienttest.New(t).Env(t.TempDir())
-	for _, args := range [][]string{{}, {"bogus"}, {"session"}, {"session", "nope"}, {"message"}, {"message", "post"}, {"message", "post", "--body", ""}, {"session", "get", "extra"}, {"lane", "delegate"}, {"mcp"}} {
+	for _, args := range [][]string{{}, {"bogus"}, {"session"}, {"session", "nope"}, {"message"}, {"message", "post"}, {"message", "post", "--body", ""}, {"session", "get", "extra"}, {"lane", "delegate"}, {"mcp"}, {"session", "messages", "--limit", "0"}, {"session", "messages", "--limit", "201"}} {
 		code, _, _ := exec(t, env, args...)
 		if code != 2 {
 			t.Errorf("%v: exit %d, want 2", args, code)
@@ -91,30 +91,46 @@ func TestRefusedExit3AndUnreachable5(t *testing.T) {
 	}
 }
 
-// E8-04: two processes, same state dir → seq 1, 2; explicit key retry → replayed.
-func TestPostIdempotentAcrossProcesses(t *testing.T) {
+// E8-04 at the CLI level: attempt 1 posts seq 1·2 (two processes); the task is
+// re-queued as attempt 2 (last_seq = 2) — its first post is seq 3, and a
+// re-send of seq 1 (explicit key or COLAB_CLIENT_SEQ) is replayed, not stored.
+func TestPostIdempotentAcrossAttempts(t *testing.T) {
 	s := clienttest.New(t)
+	s.Attempt = 1
 	env := s.Env(t.TempDir())
 	code, v1, _ := exec(t, env, "message", "post", "--body", "m1", "--mention", "@Reviewer")
 	if code != 0 {
 		t.Fatalf("post: %d %v", code, v1)
 	}
-	if v1["idempotency_key"] != clienttest.TaskID+":2:1" || v1["replayed"] != false {
+	if v1["idempotency_key"] != clienttest.Key(1) || v1["replayed"] != false {
 		t.Fatalf("v1 = %v", v1)
 	}
 	if tr, _ := v1["triggered"].([]any); len(tr) != 1 || tr[0] != "Reviewer" {
 		t.Fatalf("triggered = %v", v1["triggered"])
 	}
 	code, v2, _ := exec(t, env, "message", "post", "--body", "m2")
-	if code != 0 || v2["idempotency_key"] != clienttest.TaskID+":2:2" {
+	if code != 0 || v2["idempotency_key"] != clienttest.Key(2) {
 		t.Fatalf("v2 = %v", v2)
 	}
-	code, v3, _ := exec(t, env, "message", "post", "--body", "m1", "--idempotency-key", clienttest.TaskID+":2:1")
-	if code != 0 || v3["replayed"] != true || v3["message_id"] != v1["message_id"] {
-		t.Fatalf("v3 = %v", v3)
+
+	// kill → re-queue as attempt 2 (same host: same state dir; daemon sets COLAB_TASK_ATTEMPT=2)
+	s.Attempt = 2
+	env["COLAB_TASK_ATTEMPT"] = "2"
+	code, v3, _ := exec(t, env, "message", "post", "--body", "m1")
+	if code != 0 || v3["idempotency_key"] != clienttest.Key(3) || v3["replayed"] != false {
+		t.Fatalf("attempt 2 first post = %v (want seq 3)", v3)
 	}
-	if len(s.Posted) != 2 {
-		t.Fatalf("server has %d messages, want 2", len(s.Posted))
+	code, v4, _ := exec(t, env, "message", "post", "--body", "m1", "--idempotency-key", clienttest.Key(1))
+	if code != 0 || v4["replayed"] != true || v4["message_id"] != v1["message_id"] {
+		t.Fatalf("v4 = %v", v4)
+	}
+	env["COLAB_CLIENT_SEQ"] = "2"
+	code, v5, _ := exec(t, env, "message", "post", "--body", "m2")
+	if code != 0 || v5["replayed"] != true || v5["message_id"] != v2["message_id"] || v5["idempotency_key"] != clienttest.Key(2) {
+		t.Fatalf("v5 = %v", v5)
+	}
+	if len(s.Posted) != 3 {
+		t.Fatalf("server has %d messages, want 3 (re-sends stored 0)", len(s.Posted))
 	}
 }
 

@@ -1,21 +1,28 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 )
 
 var seqMu sync.Mutex
 
-// NextSeq returns the next client_seq for (task, attempt). Every CLI
-// invocation is a fresh process, so the counter is persisted under the state
-// dir (COLAB_STATE_DIR → $XDG_STATE_HOME/colab → ~/.local/state/colab).
+// NextSeq returns the next client seq for the task (colab-cli.md §1 v0.2):
+// the seq is task-scoped and does NOT reset per attempt, so the derived
+// Idempotency-Key UUIDv5(task:<task_id>:<seq>) is unique across attempts.
+//
+// Every CLI invocation is a fresh process, so the counter is persisted as
+// "<attempt> <seq>" under the state dir (COLAB_STATE_DIR →
+// $XDG_STATE_HOME/colab → ~/.local/state/colab). Within one attempt the file
+// is authoritative and no round trip is needed. On an attempt boundary
+// (no file, or the file was written by another attempt — possibly on another
+// host) the seq restarts from CliContext.last_seq + 1 via GET /cli/context.
 // COLAB_CLIENT_SEQ / Config.ClientSeq forces the value (retries, tests).
-func (c *Client) NextSeq(taskID string, attempt int) (int, error) {
+func (c *Client) NextSeq(ctx context.Context, taskID string, attempt int) (int, error) {
 	if c.cfg.ClientSeq > 0 {
 		return c.cfg.ClientSeq, nil
 	}
@@ -28,18 +35,29 @@ func (c *Client) NextSeq(taskID string, attempt int) (int, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return 0, &Error{Exit: ExitUnreachable, Code: "state_dir", Title: "cannot create state dir", Detail: err.Error()}
 	}
-	f := filepath.Join(dir, fmt.Sprintf("seq-%s-%d", sanitize(taskID), attempt))
-	n := 0
+	f := filepath.Join(dir, "seq-"+sanitize(taskID))
+	n := -1
 	if raw, err := os.ReadFile(f); err == nil {
-		n, _ = strconv.Atoi(strings.TrimSpace(string(raw)))
+		var a, s int
+		if _, err := fmt.Sscanf(strings.TrimSpace(string(raw)), "%d %d", &a, &s); err == nil && a == attempt {
+			n = s + 1
+		}
 	}
-	n++
+	if n < 0 {
+		// Attempt boundary (or first post ever): continue after the server's
+		// last_seq so attempt 2 never re-uses attempt 1's keys (E8-04).
+		cc, err := c.Context(ctx)
+		if err != nil {
+			return 0, err
+		}
+		n = cc.LastSeq + 1
+	}
 	tmp := f + ".tmp"
-	if err := os.WriteFile(tmp, []byte(strconv.Itoa(n)), 0o600); err != nil {
-		return 0, &Error{Exit: ExitUnreachable, Code: "state_dir", Title: "cannot persist client_seq", Detail: err.Error()}
+	if err := os.WriteFile(tmp, []byte(fmt.Sprintf("%d %d", attempt, n)), 0o600); err != nil {
+		return 0, &Error{Exit: ExitUnreachable, Code: "state_dir", Title: "cannot persist client seq", Detail: err.Error()}
 	}
 	if err := os.Rename(tmp, f); err != nil {
-		return 0, &Error{Exit: ExitUnreachable, Code: "state_dir", Title: "cannot persist client_seq", Detail: err.Error()}
+		return 0, &Error{Exit: ExitUnreachable, Code: "state_dir", Title: "cannot persist client seq", Detail: err.Error()}
 	}
 	return n, nil
 }

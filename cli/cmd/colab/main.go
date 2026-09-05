@@ -28,11 +28,15 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
 
   colab session get [--session S] [--json]
   colab session messages [--since <cursor|id>] [--limit N] [--thread <root_id>] [--json]
-  colab message post --body <text> [--reply-to <msg_id>] [--mention @A,@B] [--json]
+                             --since is sent as the after= query parameter (messages newer than it)
+                             --limit is 1..200 (omit for the server default 50)
+  colab message post --body <text> [--reply-to <msg_id>] [--mention @A,@B] [--idempotency-key K] [--json]
+                             Idempotency-Key = UUIDv5(task:<task_id>:<seq>), seq continues across attempts
   colab mcp serve            stdio MCP server exposing the same commands as tools
   colab version
 
-env: COLAB_TASK_TOKEN COLAB_SERVER_URL COLAB_TASK_ID COLAB_LANE_ID COLAB_SESSION_ID COLAB_AGENT_NAME
+env (daemon, contracts/colab-cli.md §1): COLAB_TASK_TOKEN COLAB_SERVER_URL(origin) COLAB_TASK_ID
+     COLAB_TASK_ATTEMPT COLAB_LANE_ID COLAB_SESSION_ID COLAB_AGENT_NAME [COLAB_API_PREFIX]
 exit: 0 ok · 2 args · 3 refused · 4 no/revoked token · 5 server unreachable
 `
 
@@ -102,8 +106,8 @@ func runSession(args []string, getenv client.Getenv, stdout, stderr io.Writer) i
 	case "messages":
 		fs, _ := newFlagSet("session messages", stderr)
 		session := fs.String("session", "", "session id (default COLAB_SESSION_ID / token scope)")
-		since := fs.String("since", "", "only messages after this cursor / message id")
-		limit := fs.Int("limit", 0, "max messages (1..200, server default 50)")
+		since := fs.String("since", "", "only messages newer than this cursor / message id (sent as after=)")
+		limit := fs.Int("limit", 0, "max messages, 1..200 (omit for the server default 50)")
 		thread := fs.String("thread", "", "thread root message id (root + replies)")
 		if err := fs.Parse(args[1:]); err != nil {
 			return client.ExitUsage
@@ -111,8 +115,13 @@ func runSession(args []string, getenv client.Getenv, stdout, stderr io.Writer) i
 		if fs.NArg() > 0 {
 			return usage(stderr, "session messages: unexpected argument %q", fs.Arg(0))
 		}
-		v, err := colab.SessionMessages(ctx, c, colab.SessionMessagesArgs{
-			Session: *session, Since: *since, Limit: *limit, Thread: *thread})
+		a := colab.SessionMessagesArgs{Session: *session, Since: *since, Thread: *thread}
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "limit" { // explicit --limit (even 0) is validated, not ignored
+				a.Limit = limit
+			}
+		})
+		v, err := colab.SessionMessages(ctx, c, a)
 		return emit(stdout, stderr, v, err)
 	}
 	return usage(stderr, "colab session: unknown subcommand %q", args[0])
@@ -127,7 +136,7 @@ func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) i
 	body := fs.String("body", "", "message text (markdown)")
 	replyTo := fs.String("reply-to", "", "parent message id (thread)")
 	mention := fs.String("mention", "", "comma-separated agent names to mention, e.g. @Reviewer,@Writer")
-	key := fs.String("idempotency-key", "", "reuse a previous key to retry the same post (default task:attempt:seq)")
+	key := fs.String("idempotency-key", "", "reuse a previous key to retry the same post (default: UUIDv5 of task:<task_id>:<seq>)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return client.ExitUsage
 	}

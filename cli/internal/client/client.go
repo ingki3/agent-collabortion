@@ -30,26 +30,31 @@ const (
 	ExitUnreachable = 5 // server unreachable (network, 5xx)
 )
 
-// Environment variables the daemon sets (colab-cli.md §1, harness.md §5).
+// Environment the daemon sets — exactly the contract table in
+// contracts/colab-cli.md §1 (harness.md §2.1). Nothing else is required.
 const (
 	EnvToken     = "COLAB_TASK_TOKEN"
-	EnvServerURL = "COLAB_SERVER_URL"
+	EnvServerURL = "COLAB_SERVER_URL" // origin only; the API prefix is appended
 	EnvTaskID    = "COLAB_TASK_ID"
+	EnvAttempt   = "COLAB_TASK_ATTEMPT" // marks the attempt boundary for the seq state (v0.2)
 	EnvLaneID    = "COLAB_LANE_ID"
 	EnvSessionID = "COLAB_SESSION_ID"
 	EnvAgentName = "COLAB_AGENT_NAME"
-	// EnvAPIPrefix overrides the API root appended to COLAB_SERVER_URL.
-	// openapi.yaml `servers[0].url` is /api/v1; the daemon hands over the
-	// origin only ("colab CLI는 데몬이 넘긴 서버 URL 뒤에 붙인다").
+	// EnvAPIPrefix is the contract's optional override of the API root
+	// appended to COLAB_SERVER_URL (openapi.yaml servers[0].url = /api/v1).
 	EnvAPIPrefix = "COLAB_API_PREFIX"
-	// EnvStateDir overrides where the client_seq counter is persisted.
-	EnvStateDir = "COLAB_STATE_DIR"
-	// EnvClientSeq forces the client_seq of the next write (tests · retries).
-	EnvClientSeq = "COLAB_CLIENT_SEQ"
-	// EnvAttempt lets the daemon skip the /cli/context round trip. Not in the
-	// contract; CliContext.attempt is authoritative when this is unset.
-	EnvAttempt = "COLAB_TASK_ATTEMPT"
+)
 
+// CLI-internal knobs — NOT part of the environment contract; the daemon never
+// sets them. They exist for tests and manual retries.
+const (
+	// EnvStateDir overrides where the client_seq state is persisted.
+	EnvStateDir = "COLAB_STATE_DIR"
+	// EnvClientSeq forces the seq of the next post (re-send the same key).
+	EnvClientSeq = "COLAB_CLIENT_SEQ"
+)
+
+const (
 	DefaultAPIPrefix = "/api/v1"
 	DefaultTimeout   = 30 * time.Second
 )
@@ -66,7 +71,7 @@ type Config struct {
 	AgentName string
 	Attempt   int // 0 = unknown → resolved via /cli/context
 	StateDir  string
-	ClientSeq int // >0 forces the next Idempotency-Key seq
+	ClientSeq int // >0 forces the next Idempotency-Key seq (internal)
 	Timeout   time.Duration
 	HTTP      *http.Client
 }

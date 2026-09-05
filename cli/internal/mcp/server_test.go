@@ -119,7 +119,7 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("post = %+v", post)
 	}
 	sc := post.Result["structuredContent"].(map[string]any)
-	if sc["message_id"] == "" || sc["triggered"].([]any)[0] != "Reviewer" || sc["idempotency_key"] != clienttest.TaskID+":2:1" {
+	if sc["message_id"] == "" || sc["triggered"].([]any)[0] != "Reviewer" || sc["idempotency_key"] != clienttest.Key(1) {
 		t.Fatalf("structuredContent = %v", sc)
 	}
 	text := post.Result["content"].([]any)[0].(map[string]any)["text"].(string)
@@ -136,11 +136,19 @@ func TestRoundTrip(t *testing.T) {
 	if msgs.Error != nil || msgs.Result["structuredContent"].(map[string]any)["included"] != float64(1) {
 		t.Fatalf("messages = %+v", msgs)
 	}
+	// N4: explicit limit 0 is a usage error (exit 2 in the error object), not "default".
+	bad := c.call("tools/call", map[string]any{"name": "colab_session_messages", "arguments": map[string]any{"limit": 0}})
+	if bad.Error != nil || bad.Result["isError"] != true {
+		t.Fatalf("limit 0 = %+v", bad)
+	}
+	if e := bad.Result["structuredContent"].(map[string]any)["error"].(map[string]any); e["exit"] != float64(2) {
+		t.Fatalf("limit 0 error = %v", e)
+	}
 
 	// string form of mention is accepted too.
 	post2 := c.call("tools/call", map[string]any{"name": "colab_message_post", "arguments": map[string]any{"body": "again", "mention": "@Reviewer,@Lead"}})
 	sc2 := post2.Result["structuredContent"].(map[string]any)
-	if sc2["suppressed"].([]any)[0] != "Lead" || sc2["idempotency_key"] != clienttest.TaskID+":2:2" {
+	if sc2["suppressed"].([]any)[0] != "Lead" || sc2["idempotency_key"] != clienttest.Key(2) {
 		t.Fatalf("post2 = %v", sc2)
 	}
 

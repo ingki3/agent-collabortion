@@ -49,7 +49,7 @@ func TestMessagePostMentionsTriggeredSuppressed(t *testing.T) {
 	if strings.Join(res.Suppressed, ",") != "Lead" {
 		t.Fatalf("suppressed = %v", res.Suppressed)
 	}
-	if res.IdempotencyKey != client.IdempotencyKey(clienttest.TaskID, clienttest.Attempt, 1) {
+	if res.IdempotencyKey != clienttest.Key(1) {
 		t.Fatalf("key = %q", res.IdempotencyKey)
 	}
 	content, _ := s.Posted[0].Body["content"].(string)
@@ -63,9 +63,7 @@ func TestMessagePostMentionsTriggeredSuppressed(t *testing.T) {
 
 func TestMessagePostReplyAndNoMention(t *testing.T) {
 	s := clienttest.New(t)
-	env := s.Env(t.TempDir())
-	env["COLAB_TASK_ATTEMPT"] = "2" // daemon-provided attempt: no /cli/context needed
-	c := client.New(client.FromEnv(clienttest.Getenv(env)))
+	c := newClient(t, s) // env carries COLAB_TASK_ATTEMPT (daemon-provided)
 	res, err := colab.MessagePost(context.Background(), c, colab.MessagePostArgs{Body: "status update", ReplyTo: "root-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -76,11 +74,36 @@ func TestMessagePostReplyAndNoMention(t *testing.T) {
 	if s.Posted[0].Body["parent_id"] != "root-1" {
 		t.Fatalf("parent_id = %v", s.Posted[0].Body["parent_id"])
 	}
-	// No mention → no /cli/context round trip when env has session+task+attempt.
+	if _, err := colab.MessagePost(context.Background(), c, colab.MessagePostArgs{Body: "second"}); err != nil {
+		t.Fatal(err)
+	}
+	// /cli/context once per attempt (last_seq), not once per post.
+	n := 0
 	for _, r := range s.Requests {
 		if strings.HasSuffix(r.URL.Path, "/cli/context") {
-			t.Fatalf("unexpected /cli/context call")
+			n++
 		}
+	}
+	if n != 1 {
+		t.Fatalf("/cli/context called %d times, want 1", n)
+	}
+}
+
+// N1: suppressed[] is derived only from warnings whose code is exactly
+// `suppressed_delegator`; a not_participant warning (E1-04) is not "suppressed".
+func TestSuppressedExactCodeOnly(t *testing.T) {
+	s := clienttest.New(t)
+	c := newClient(t, s)
+	body := "[@Ghost](mention://agent/" + clienttest.OutsiderID + ") [@Lead](mention://agent/" + clienttest.DelegatorID + ") hi"
+	res, err := colab.MessagePost(context.Background(), c, colab.MessagePostArgs{Body: body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Warnings) != 2 || res.Warnings[0].Code != client.WarningSuppressedDelegator || res.Warnings[1].Code != client.WarningNotParticipant {
+		t.Fatalf("warnings = %+v", res.Warnings)
+	}
+	if strings.Join(res.Suppressed, ",") != clienttest.Delegator {
+		t.Fatalf("suppressed = %v (want only the rule-8 delegator)", res.Suppressed)
 	}
 }
 
@@ -113,7 +136,8 @@ func TestSessionMessagesTruncated(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	res, err := colab.SessionMessages(ctx, c, colab.SessionMessagesArgs{Limit: 2})
+	two := 2
+	res, err := colab.SessionMessages(ctx, c, colab.SessionMessagesArgs{Limit: &two})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,5 +147,13 @@ func TestSessionMessagesTruncated(t *testing.T) {
 	res, err = colab.SessionMessages(ctx, c, colab.SessionMessagesArgs{})
 	if err != nil || res.Included != 3 || res.Truncated {
 		t.Fatalf("res = %+v err=%v", res, err)
+	}
+	// N4: an explicit limit outside 1..200 (including 0) is exit 2, not "unset".
+	for _, bad := range []int{0, -1, 201} {
+		n := len(s.Requests)
+		_, err := colab.SessionMessages(ctx, c, colab.SessionMessagesArgs{Limit: &bad})
+		if client.ExitCode(err) != client.ExitUsage || len(s.Requests) != n {
+			t.Fatalf("limit %d: err=%v requests=%d", bad, err, len(s.Requests)-n)
+		}
 	}
 }

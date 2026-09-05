@@ -9,22 +9,36 @@ P1 surface: `session get` · `session messages` · `message post` · `mcp serve`
 ## Build · test
 
 ```sh
-cd cli && go vet ./... && go test ./...
+cd cli && go vet ./... && go test -race ./...
 go build -o ../bin/colab ./cmd/colab
 ```
 
 Only the standard library is used; the MCP server is a minimal newline-delimited
 JSON-RPC 2.0 loop (`internal/mcp`) so the CLI stays one static binary.
 
-## Environment (set by the daemon, `contracts/harness.md` §5)
+## Environment (set by the daemon — `contracts/colab-cli.md` §1, `harness.md` §2.1)
+
+This table is the contract set, nothing more. The daemon sets exactly these.
 
 | var | meaning |
 |---|---|
 | `COLAB_TASK_TOKEN` | attempt-scoped token, sent as `Authorization: Bearer`. Missing → exit 4 `no_token` (test chat, E15-04). Revoked → `401 token_revoked` → exit 4 (E11-04). |
-| `COLAB_SERVER_URL` | server origin; `/api/v1` (openapi `servers[0].url`) is appended. Override the prefix with `COLAB_API_PREFIX`. |
-| `COLAB_TASK_ID` `COLAB_LANE_ID` `COLAB_SESSION_ID` `COLAB_AGENT_NAME` | defaults when a command omits the argument. Anything missing (and the `attempt`) is resolved once via `GET /cli/context`. |
-| `COLAB_STATE_DIR` | where the `client_seq` counter lives (default `$XDG_STATE_HOME/colab` or `~/.local/state/colab`). |
-| `COLAB_CLIENT_SEQ` / `COLAB_TASK_ATTEMPT` | optional overrides for the next Idempotency-Key. |
+| `COLAB_SERVER_URL` | server **origin** (e.g. `https://colab.example`); the CLI appends `/api/v1` (openapi `servers[0].url`). |
+| `COLAB_TASK_ID` | this task (Idempotency-Key input, default for path parameters). |
+| `COLAB_TASK_ATTEMPT` | this attempt. Marks the attempt boundary for the seq state (below); not part of the key. |
+| `COLAB_LANE_ID` `COLAB_SESSION_ID` `COLAB_AGENT_NAME` | defaults when a command omits the argument. |
+| `COLAB_API_PREFIX` | optional override of the `/api/v1` prefix (contract §1). |
+
+Anything missing from the environment is resolved once via `GET /cli/context`.
+
+## CLI-internal state (not part of the environment contract)
+
+The daemon never sets these; they exist for tests and manual retries.
+
+| var | meaning |
+|---|---|
+| `COLAB_STATE_DIR` | where the seq state lives (default `$XDG_STATE_HOME/colab` or `~/.local/state/colab`). One file per task, `seq-<task_id>`, holding `<attempt> <seq>`. |
+| `COLAB_CLIENT_SEQ` | forces the seq of the next `message post` (re-sends that seq's key; same effect as `--idempotency-key`). |
 
 ## Output · exit codes
 
@@ -50,10 +64,24 @@ colab mcp serve
 colab version
 ```
 
-`message post` sends `Idempotency-Key: <task_id>:<attempt>:<client_seq>` automatically;
-`client_seq` is persisted per (task, attempt) so every process gets a fresh one.
-A re-send with the same key returns the first response with `"replayed": true` and
-stores nothing (E8-04). `--mention` resolves each name to the participant's
+`session messages --since <x>` is sent to the server as the `after=<x>` query
+parameter (messages newer than that cursor / message id). `--limit` must be
+1..200 when given; an explicit `--limit 0` is exit 2, omit it for the server
+default (50).
+
+`message post` sends `Idempotency-Key: UUIDv5(namespace, "task:<task_id>:<seq>")`
+automatically (`contracts/colab-cli.md` §1 v0.2). The namespace is fixed:
+`UUIDv5(NameSpace_DNS, "colab")` = `454e4096-cb98-57f5-b314-6c5499b55cc8`. The
+**attempt is not part of the key** — `seq` is task-scoped and continues across
+attempts: on an attempt boundary (first post of an attempt, or the state file was
+written by another attempt / another host) the CLI reads `last_seq` from
+`GET /cli/context` and continues at `last_seq + 1`; within the attempt the seq state
+file is authoritative and no round trip is needed. So attempt 2 never re-uses an
+attempt-1 key, and a network re-send of the same seq (`--idempotency-key`,
+`COLAB_CLIENT_SEQ`) returns the first response with `"replayed": true` and stores
+nothing (E8-04). Re-posting the same *content* under a new seq is a new message —
+skipping already-posted messages is the resume prompt's `posted_message_ids` job.
+`--mention` resolves each name to the participant's
 `mention_link` from `/cli/context` and prepends it to the body; a name that is not a
 session participant is exit 2 `unknown_mention` with the roster in `detail` (FR-1.5).
 
@@ -65,11 +93,16 @@ session participant is exit 2 `unknown_mention` with the roster in `detail` (FR-
   "triggered": ["Reviewer"],
   "suppressed": ["Lead"],
   "triggers": [{"agent_id":"…","task_id":"…","lane_id":"…","coalesced":false}],
-  "warnings": [{"code":"delegator_mention_suppressed","message":"…","agent_id":"…"}],
-  "idempotency_key": "<task>:<attempt>:<seq>",
+  "warnings": [{"code":"suppressed_delegator","message":"…","agent_id":"…"}],
+  "idempotency_key": "47beee27-4c46-5269-ac72-040d886f1259",
   "replayed": false
 }
 ```
+
+`triggered` is the agent names of `triggers[]`; `suppressed` is the agent names of
+`warnings[]` whose `code` is exactly `suppressed_delegator` (rule 8). Other warning
+codes (`not_participant`, `loop_limit_near`, `agent_disabled`) stay in `warnings[]`
+only.
 
 `session messages` result adds `included` / `total` / `truncated` (E8-12) around the
 server's `items[]` and cursors.
@@ -98,7 +131,8 @@ The daemon registers it as the only MCP server (`harness.md` §3):
 > - `colab session get` — the goal, acceptance criteria, completion progress and the
 >   participant roster (name · role · status). Read it before you start.
 > - `colab session messages [--since <id>] [--limit N] [--thread <root_id>]` — read more
->   of the thread when the history in this prompt says `truncated: true`.
+>   of the thread when the history in this prompt says `truncated: true`
+>   (`--since` = messages newer than that id).
 > - `colab message post --body "<markdown>" [--reply-to <msg_id>] [--mention @Name,@Name]` —
 >   post to the session. **Your message triggers another agent only if you `--mention`
 >   them.** Mentioning your delegator is suppressed until you rejoin — use

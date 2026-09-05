@@ -25,6 +25,7 @@ type CliContext struct {
 	AgentName                  string        `json:"agent_name,omitempty"`
 	WorkspaceID                string        `json:"workspace_id"`
 	Attempt                    int           `json:"attempt"`
+	LastSeq                    int           `json:"last_seq"` // last client seq this task used (any attempt); CLI continues at +1
 	DelegatedFromTaskID        *string       `json:"delegated_from_task_id"`
 	SuppressedDelegatorAgentID *string       `json:"suppressed_delegator_agent_id"`
 	OpenHitlRequestID          *string       `json:"open_hitl_request_id"`
@@ -92,6 +93,16 @@ type Trigger struct {
 	DeferredUntil *string `json:"deferred_until,omitempty"`
 }
 
+// Warning codes — openapi.yaml MessagePostResult.warnings[].code enum
+// (colab-cli.md §2.2): not_participant · suppressed_delegator ·
+// loop_limit_near · agent_disabled.
+const (
+	WarningNotParticipant      = "not_participant"
+	WarningSuppressedDelegator = "suppressed_delegator" // rule 8
+	WarningLoopLimitNear       = "loop_limit_near"
+	WarningAgentDisabled       = "agent_disabled"
+)
+
 // Warning — MessagePostResult.warnings[].
 type Warning struct {
 	Code    string  `json:"code"`
@@ -100,9 +111,9 @@ type Warning struct {
 }
 
 // MessagePostResult — POST /sessions/{S}/messages 201 body (openapi.yaml).
-// `Triggered`/`Suppressed` are the colab-cli.md §2.2 names; a server that
-// emits them directly is accepted, otherwise they are derived from
-// triggers[]/warnings[] (see colab.PostResult).
+// `Triggered`/`Suppressed` are the colab-cli.md §2.2 convenience names; a
+// server that emits them directly is accepted, otherwise they are derived
+// from triggers[]/warnings[] (see colab.summarize).
 type MessagePostResult struct {
 	Message       Message   `json:"message"`
 	Triggers      []Trigger `json:"triggers"`

@@ -2,7 +2,9 @@
 // x-colab-cli operations, used by the CLI/MCP tests. It implements the
 // openapi.yaml shapes the P1 commands depend on: TaskToken auth (401
 // token_revoked · no bearer), GET /cli/context, GET /sessions/{S},
-// GET/POST /sessions/{S}/messages with Idempotency-Key replay.
+// GET/POST /sessions/{S}/messages with Idempotency-Key replay. CliContext
+// carries `attempt` and `last_seq` (v0.2) so tests can drive an attempt
+// boundary (E8-04).
 package clienttest
 
 import (
@@ -10,9 +12,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ingki3/agent-collabortion/cli/internal/client"
 )
 
 const (
@@ -28,6 +33,7 @@ const (
 	ReviewerName = "Reviewer"
 	DelegatorID  = "66666666-6666-4666-8666-666666666666"
 	Delegator    = "Lead"
+	OutsiderID   = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" // not in participants[]
 )
 
 // Posted is one stored message plus the response that was returned for it.
@@ -45,6 +51,8 @@ type Server struct {
 	Fail     int  // if >0, every call returns this status with a Problem
 	FailCode string
 	Prefix   string // API prefix the fake mounts (default /api/v1)
+	Attempt  int    // CliContext.attempt (default Attempt)
+	LastSeq  int    // CliContext.last_seq — advanced by posts whose key is Key(last_seq+1); settable (E8-04)
 	Posted   []Posted
 	ByKey    map[string]Posted
 	Requests []*http.Request // every request seen (auth header preserved)
@@ -58,7 +66,7 @@ func New(t interface {
 	Helper()
 }) *Server {
 	t.Helper()
-	s := &Server{ByKey: map[string]Posted{}, Prefix: "/api/v1"}
+	s := &Server{ByKey: map[string]Posted{}, Prefix: "/api/v1", Attempt: Attempt}
 	s.Server = httptest.NewServer(http.HandlerFunc(s.handle))
 	t.Cleanup(s.Close)
 	return s
@@ -105,7 +113,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "GET" && path == "/cli/context":
 		writeJSON(w, 200, map[string]any{
 			"task_id": TaskID, "lane_id": LaneID, "session_id": SessionID, "agent_id": AgentID,
-			"agent_name": AgentName, "workspace_id": "77777777-7777-4777-8777-777777777777", "attempt": Attempt,
+			"agent_name": AgentName, "workspace_id": "77777777-7777-4777-8777-777777777777", "attempt": s.Attempt, "last_seq": s.LastSeq,
 			"delegated_from_task_id": nil, "suppressed_delegator_agent_id": DelegatorID, "open_hitl_request_id": nil,
 			"participants": []map[string]any{
 				{"agent_id": AgentID, "name": AgentName, "role": "researcher", "mention_link": mention(AgentName, AgentID)},
@@ -203,12 +211,24 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			triggers = append(triggers, map[string]any{"agent_id": ReviewerID, "task_id": "99999999-9999-4999-8999-999999999999", "lane_id": LaneID, "coalesced": false, "deferred_until": nil})
 		}
 		if strings.Contains(content, DelegatorID) {
-			warnings = append(warnings, map[string]any{"code": "delegator_mention_suppressed", "message": "delegator is suppressed until rejoin (rule 8)", "agent_id": DelegatorID})
+			warnings = append(warnings, map[string]any{"code": client.WarningSuppressedDelegator, "message": "delegator is suppressed until rejoin (rule 8)", "agent_id": DelegatorID})
+		}
+		if strings.Contains(content, OutsiderID) {
+			// E1-04: a non-participant mention is posted but warned about — it is NOT "suppressed".
+			warnings = append(warnings, map[string]any{"code": client.WarningNotParticipant, "message": "mentioned agent is not a session participant", "agent_id": OutsiderID})
 		}
 		resp, _ := json.Marshal(map[string]any{"message": msg, "triggers": triggers, "warnings": warnings, "session_paused": nil})
 		p := Posted{Key: key, Body: body, Response: resp}
 		s.Posted = append(s.Posted, p)
 		s.ByKey[key] = p
+		// Track last_seq the way the server does: a key derived from the next
+		// seq advances it (keys are opaque UUIDs, so probe a small window).
+		for n := s.LastSeq + 1; n <= s.LastSeq+64; n++ {
+			if key == Key(n) {
+				s.LastSeq = n
+				break
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		w.Write(resp)
@@ -226,14 +246,20 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 // Env returns the COLAB_* environment an agent process would see, pointing at
-// this fake. stateDir isolates the client_seq counter per test.
+// this fake — the contract set of colab-cli.md §1 (COLAB_TASK_ATTEMPT =
+// s.Attempt) plus the CLI-internal COLAB_STATE_DIR so the seq state is
+// isolated per test.
 func (s *Server) Env(stateDir string) map[string]string {
 	return map[string]string{
 		"COLAB_TASK_TOKEN": Token, "COLAB_SERVER_URL": s.URL,
-		"COLAB_TASK_ID": TaskID, "COLAB_LANE_ID": LaneID, "COLAB_SESSION_ID": SessionID,
-		"COLAB_AGENT_NAME": AgentName, "COLAB_STATE_DIR": stateDir,
+		"COLAB_TASK_ID": TaskID, "COLAB_TASK_ATTEMPT": strconv.Itoa(s.Attempt),
+		"COLAB_LANE_ID": LaneID, "COLAB_SESSION_ID": SessionID, "COLAB_AGENT_NAME": AgentName,
+		"COLAB_STATE_DIR": stateDir,
 	}
 }
+
+// Key is the Idempotency-Key the CLI derives for TaskID and seq.
+func Key(seq int) string { return client.IdempotencyKey(TaskID, seq) }
 
 // Getenv adapts a map to client.Getenv.
 func Getenv(m map[string]string) func(string) string {

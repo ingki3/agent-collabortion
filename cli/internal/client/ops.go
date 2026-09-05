@@ -10,6 +10,14 @@ import (
 
 // Context calls GET /cli/context once and caches it (colab-cli.md §1
 // "전처리"). A revoked token surfaces here as 401 token_revoked → exit 4.
+//
+// NOTE (review N3): the contract phrases this as "called once at CLI start",
+// but P1 calls it lazily — only when a path parameter is missing from the
+// env or when the seq state needs last_seq (attempt boundary). That is
+// equivalent for P1 because every command's real request surfaces a revoked
+// token as 401 anyway. P2/P3 commands that depend on
+// open_hitl_request_id / suppressed_delegator_agent_id must call Context
+// explicitly before acting rather than assume it was fetched.
 func (c *Client) Context(ctx context.Context) (*CliContext, error) {
 	if c.ctx != nil {
 		return c.ctx, nil
@@ -40,7 +48,9 @@ func (c *Client) SessionID(ctx context.Context, explicit string) (string, error)
 	return cc.SessionID, nil
 }
 
-// TaskScope resolves (task_id, attempt) for the Idempotency-Key.
+// TaskScope resolves (task_id, attempt): env first, else /cli/context. The
+// attempt is not part of the key; NextSeq uses it to detect attempt
+// boundaries in the persisted seq state.
 func (c *Client) TaskScope(ctx context.Context) (string, int, error) {
 	if c.cfg.TaskID != "" && c.cfg.Attempt > 0 {
 		return c.cfg.TaskID, c.cfg.Attempt, nil
@@ -82,6 +92,8 @@ type MessagesQuery struct {
 
 // ListMessages — GET /sessions/{S}/messages.
 func (c *Client) ListMessages(ctx context.Context, sessionID string, q MessagesQuery) (*MessagePage, error) {
+	// 0 means "not given" here; an explicit --limit 0 is rejected one layer
+	// up (colab.SessionMessages) where "given" is known.
 	if q.Limit < 0 || q.Limit > 200 {
 		return nil, Usage("--limit must be 1..200 (got %d)", q.Limit)
 	}
@@ -103,13 +115,20 @@ func (c *Client) ListMessages(ctx context.Context, sessionID string, q MessagesQ
 	return &page, nil
 }
 
-// IdempotencyKey formats colab-cli.md §2.2: <task_id>:<attempt>:<client_seq>.
-func IdempotencyKey(taskID string, attempt, seq int) string {
-	return fmt.Sprintf("%s:%d:%d", taskID, attempt, seq)
+// IdempotencyKey derives the colab-cli.md §1 (v0.2) key:
+// UUIDv5(IdempotencyNamespace, "task:<task_id>:<seq>"). The attempt is
+// deliberately not part of the name — the same (task, seq) from a later
+// attempt is a network re-send and must replay (E8-04).
+func IdempotencyKey(taskID string, seq int) string {
+	u, err := UUIDv5(IdempotencyNamespace, fmt.Sprintf("task:%s:%d", taskID, seq))
+	if err != nil {
+		panic(err) // IdempotencyNamespace is a constant; cannot fail
+	}
+	return u
 }
 
 // PostMessage — POST /sessions/{S}/messages with the Idempotency-Key. If key
-// is empty one is generated from (task, attempt, next client_seq). Returns the
+// is empty one is derived from (task, next seq) — see NextSeq. Returns the
 // key actually used so a caller can retry with the same one.
 func (c *Client) PostMessage(ctx context.Context, sessionID string, body MessageCreate, key string) (*MessagePostResult, string, bool, error) {
 	if body.Content == "" {
@@ -120,11 +139,11 @@ func (c *Client) PostMessage(ctx context.Context, sessionID string, body Message
 		if err != nil {
 			return nil, "", false, err
 		}
-		seq, err := c.NextSeq(task, attempt)
+		seq, err := c.NextSeq(ctx, task, attempt)
 		if err != nil {
 			return nil, "", false, err
 		}
-		key = IdempotencyKey(task, attempt, seq)
+		key = IdempotencyKey(task, seq)
 	}
 	h := http.Header{}
 	h.Set("Idempotency-Key", key)

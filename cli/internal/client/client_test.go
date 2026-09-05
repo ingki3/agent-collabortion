@@ -131,6 +131,9 @@ func TestContextResolvesSessionAndAttempt(t *testing.T) {
 	if err != nil || task != clienttest.TaskID || attempt != clienttest.Attempt {
 		t.Fatalf("scope = %q/%d, %v", task, attempt, err)
 	}
+	if cc := c.CachedContext(); cc == nil || cc.LastSeq != 0 || cc.Attempt != clienttest.Attempt {
+		t.Fatalf("context = %+v", cc)
+	}
 	// /cli/context is fetched once and cached.
 	n := 0
 	for _, r := range s.Requests {
@@ -146,46 +149,117 @@ func TestContextResolvesSessionAndAttempt(t *testing.T) {
 	}
 }
 
-// E8-04: the Idempotency-Key is task:attempt:seq; re-sending the same key
-// returns the same response (Idempotent-Replayed) and stores nothing new.
-func TestIdempotencyKeyAndReplay(t *testing.T) {
-	s := clienttest.New(t)
-	state := t.TempDir()
-	c := newClient(t, s, func(e map[string]string) { e["COLAB_STATE_DIR"] = state })
-	ctx := context.Background()
+// Idempotency-Key (colab-cli.md §1 v0.2): UUIDv5(namespace=colab,
+// "task:<task_id>:<seq>") — a real UUID (openapi format: uuid), stable, and
+// independent of the attempt.
+func TestIdempotencyKeyIsUUIDv5(t *testing.T) {
+	if ns, _ := client.UUIDv5("6ba7b810-9dad-11d1-80b4-00c04fd430c8", "colab"); ns != client.IdempotencyNamespace {
+		t.Fatalf("namespace must be UUIDv5(DNS, \"colab\"): got %s want %s", ns, client.IdempotencyNamespace)
+	}
+	k := client.IdempotencyKey(clienttest.TaskID, 1)
+	// Known vector (python: uuid5(uuid5(NAMESPACE_DNS,'colab'), 'task:<id>:1')).
+	if k != "47beee27-4c46-5269-ac72-040d886f1259" {
+		t.Fatalf("key(1) = %s", k)
+	}
+	if len(k) != 36 || k[14] != '5' || !strings.ContainsRune("89ab", rune(k[19])) {
+		t.Fatalf("not an RFC 4122 v5 uuid: %s", k)
+	}
+	if client.IdempotencyKey(clienttest.TaskID, 1) != k || client.IdempotencyKey(clienttest.TaskID, 2) == k ||
+		client.IdempotencyKey(clienttest.LaneID, 1) == k {
+		t.Fatalf("key must be deterministic per (task, seq)")
+	}
+}
 
-	r1, key1, replayed, err := c.PostMessage(ctx, clienttest.SessionID, client.MessageCreate{Content: "m1"}, "")
-	if err != nil || replayed {
-		t.Fatalf("first post: %v replayed=%v", err, replayed)
+func contextCalls(s *clienttest.Server) int {
+	n := 0
+	for _, r := range s.Requests {
+		if strings.HasSuffix(r.URL.Path, "/cli/context") {
+			n++
+		}
 	}
-	if want := client.IdempotencyKey(clienttest.TaskID, clienttest.Attempt, 1); key1 != want {
-		t.Fatalf("key = %q, want %q", key1, want)
+	return n
+}
+
+// E8-04 across the attempt boundary: attempt 1 posts seq 1·2, is killed and
+// re-queued; attempt 2 (fresh process, CliContext.last_seq = 2) continues at
+// seq 3 — its keys never collide with attempt 1's — and a re-send of an
+// attempt-1 seq from attempt 2 is replayed, storing nothing.
+func TestIdempotencyAcrossAttempts(t *testing.T) {
+	s := clienttest.New(t)
+	s.Attempt = 1
+	state := t.TempDir() // same host: the seq state survives the re-queue
+	ctx := context.Background()
+	env := func(attempt string) func(map[string]string) {
+		return func(e map[string]string) { e["COLAB_STATE_DIR"] = state; e["COLAB_TASK_ATTEMPT"] = attempt }
 	}
-	// A new process (new client, same state dir) continues the sequence.
-	c2 := newClient(t, s, func(e map[string]string) { e["COLAB_STATE_DIR"] = state })
+
+	// attempt 1, process 1 → seq 1 (last_seq 0 + 1, one /cli/context call)
+	c1 := newClient(t, s, env("1"))
+	r1, key1, replayed, err := c1.PostMessage(ctx, clienttest.SessionID, client.MessageCreate{Content: "m1"}, "")
+	if err != nil || replayed || key1 != clienttest.Key(1) {
+		t.Fatalf("attempt1/seq1: key=%q replayed=%v err=%v", key1, replayed, err)
+	}
+	// attempt 1, process 2 → seq 2 from the state file, no extra round trip
+	c2 := newClient(t, s, env("1"))
 	_, key2, _, err := c2.PostMessage(ctx, clienttest.SessionID, client.MessageCreate{Content: "m2"}, "")
-	if err != nil || key2 != client.IdempotencyKey(clienttest.TaskID, clienttest.Attempt, 2) {
-		t.Fatalf("second key = %q (%v)", key2, err)
+	if err != nil || key2 != clienttest.Key(2) {
+		t.Fatalf("attempt1/seq2: key=%q err=%v", key2, err)
 	}
-	// Retry with the first key → identical body, replayed, no new message.
-	r3, key3, replayed, err := c2.PostMessage(ctx, clienttest.SessionID, client.MessageCreate{Content: "m1"}, key1)
-	if err != nil || !replayed || key3 != key1 {
-		t.Fatalf("replay: %v replayed=%v key=%q", err, replayed, key3)
+	if n := contextCalls(s); n != 1 {
+		t.Fatalf("/cli/context called %d times within attempt 1, want 1", n)
 	}
-	if r3.Message.ID != r1.Message.ID {
-		t.Fatalf("replayed id %q != original %q", r3.Message.ID, r1.Message.ID)
+	if s.LastSeq != 2 {
+		t.Fatalf("fake last_seq = %d, want 2", s.LastSeq)
 	}
-	if len(s.Posted) != 2 {
-		t.Fatalf("server stored %d messages, want 2 (duplicate = 0)", len(s.Posted))
+
+	// kill → re-queue: attempt 2. The agent re-posts m1 (same content); the
+	// key is a NEW seq (3), so it is a new message — dedupe of content is the
+	// prompt's posted_message_ids job — but no attempt-1 key is ever reused.
+	s.Attempt = 2
+	c3 := newClient(t, s, env("2"))
+	_, key3, replayed, err := c3.PostMessage(ctx, clienttest.SessionID, client.MessageCreate{Content: "m1"}, "")
+	if err != nil || replayed || key3 != clienttest.Key(3) {
+		t.Fatalf("attempt2 first post: key=%q replayed=%v err=%v (want seq 3 = last_seq+1)", key3, replayed, err)
 	}
-	// COLAB_CLIENT_SEQ forces the seq (explicit retry from a fresh process).
-	c4 := newClient(t, s, func(e map[string]string) { e["COLAB_STATE_DIR"] = state; e["COLAB_CLIENT_SEQ"] = "1" })
-	_, key4, replayed, err := c4.PostMessage(ctx, clienttest.SessionID, client.MessageCreate{Content: "m1"}, "")
-	if err != nil || key4 != key1 || !replayed {
-		t.Fatalf("forced seq: key=%q replayed=%v err=%v", key4, replayed, err)
+	if key3 == key1 || key3 == key2 {
+		t.Fatalf("attempt 2 reused an attempt-1 key")
 	}
-	if len(s.Posted) != 2 {
-		t.Fatalf("server stored %d messages after forced-seq retry, want 2", len(s.Posted))
+	if n := contextCalls(s); n != 2 {
+		t.Fatalf("/cli/context called %d times, want 2 (once per attempt boundary)", n)
+	}
+	// Network re-send of an attempt-1 seq from attempt 2 → same key → replayed, stored nothing.
+	c4 := newClient(t, s, func(e map[string]string) { env("2")(e); e["COLAB_CLIENT_SEQ"] = "1" })
+	r4, key4, replayed, err := c4.PostMessage(ctx, clienttest.SessionID, client.MessageCreate{Content: "m1"}, "")
+	if err != nil || !replayed || key4 != key1 || r4.Message.ID != r1.Message.ID {
+		t.Fatalf("re-send seq1 from attempt 2: key=%q replayed=%v id=%q err=%v", key4, replayed, r4.Message.ID, err)
+	}
+	// Explicit key retry (the CLI's --idempotency-key) replays too.
+	_, _, replayed, err = c3.PostMessage(ctx, clienttest.SessionID, client.MessageCreate{Content: "m2"}, key2)
+	if err != nil || !replayed {
+		t.Fatalf("explicit key retry: replayed=%v err=%v", replayed, err)
+	}
+	if len(s.Posted) != 3 {
+		t.Fatalf("server stored %d messages, want 3 (m1, m2, attempt-2 m1; re-sends = 0)", len(s.Posted))
+	}
+	// Another host (empty state dir) on attempt 2 continues after last_seq too.
+	c5 := newClient(t, s, func(e map[string]string) { e["COLAB_STATE_DIR"] = t.TempDir(); e["COLAB_TASK_ATTEMPT"] = "2" })
+	_, key5, _, err := c5.PostMessage(ctx, clienttest.SessionID, client.MessageCreate{Content: "m4"}, "")
+	if err != nil || key5 != clienttest.Key(4) {
+		t.Fatalf("fresh host: key=%q err=%v", key5, err)
+	}
+}
+
+// Attempt unknown in the env → /cli/context supplies attempt and last_seq.
+func TestSeqFromContextWhenAttemptUnset(t *testing.T) {
+	s := clienttest.New(t)
+	s.LastSeq = 7
+	c := newClient(t, s, func(e map[string]string) { delete(e, "COLAB_TASK_ATTEMPT") })
+	_, key, _, err := c.PostMessage(context.Background(), clienttest.SessionID, client.MessageCreate{Content: "m"}, "")
+	if err != nil || key != clienttest.Key(8) {
+		t.Fatalf("key=%q err=%v", key, err)
+	}
+	if n := contextCalls(s); n != 1 {
+		t.Fatalf("/cli/context called %d times, want 1", n)
 	}
 }
 
@@ -200,7 +274,7 @@ func TestPostParsesTriggersAndWarnings(t *testing.T) {
 	if len(res.Triggers) != 1 || res.Triggers[0].AgentID != clienttest.ReviewerID || res.Triggers[0].Coalesced {
 		t.Fatalf("triggers = %+v", res.Triggers)
 	}
-	if len(res.Warnings) != 1 || res.Warnings[0].Code != "delegator_mention_suppressed" || *res.Warnings[0].AgentID != clienttest.DelegatorID {
+	if len(res.Warnings) != 1 || res.Warnings[0].Code != client.WarningSuppressedDelegator || *res.Warnings[0].AgentID != clienttest.DelegatorID {
 		t.Fatalf("warnings = %+v", res.Warnings)
 	}
 	if res.Message.AuthorType != "agent" || res.Message.SourceTaskID == nil || *res.Message.SourceTaskID != clienttest.TaskID {

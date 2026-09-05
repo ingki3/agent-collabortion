@@ -44,12 +44,12 @@ var Tools = []Tool{
 	{
 		Name:        "colab_session_messages",
 		Description: "Read session messages (author, body, thread, time). Use when the history in your prompt is truncated. Same as `colab session messages [--since --limit --thread]`.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"session":{"type":"string"},"since":{"type":"string","description":"only messages after this cursor / message id"},"limit":{"type":"integer","minimum":1,"maximum":200},"thread":{"type":"string","description":"thread root message id: returns root + replies"}},"additionalProperties":false}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"session":{"type":"string"},"since":{"type":"string","description":"only messages newer than this cursor / message id (sent as the after= query parameter)"},"limit":{"type":"integer","minimum":1,"maximum":200,"description":"1..200; omit for the server default (50)"},"thread":{"type":"string","description":"thread root message id: returns root + replies"}},"additionalProperties":false}`),
 	},
 	{
 		Name:        "colab_message_post",
 		Description: "Post a message to the session. Routing is server-side: an agent message triggers other agents ONLY when it mentions them (`mention`); the delegator's mention is suppressed until rejoin. Returns message_id, triggered[], suppressed[]. Same as `colab message post --body [--reply-to --mention]`.",
-		InputSchema: json.RawMessage(`{"type":"object","required":["body"],"properties":{"body":{"type":"string","minLength":1,"description":"markdown text"},"reply_to":{"type":"string","description":"parent message id (thread)"},"mention":{"type":"array","items":{"type":"string"},"description":"agent names to mention, e.g. [\"@Reviewer\"]"},"session":{"type":"string"},"idempotency_key":{"type":"string","description":"reuse to retry the same post after a network error"}},"additionalProperties":false}`),
+		InputSchema: json.RawMessage(`{"type":"object","required":["body"],"properties":{"body":{"type":"string","minLength":1,"description":"markdown text"},"reply_to":{"type":"string","description":"parent message id (thread)"},"mention":{"type":"array","items":{"type":"string"},"description":"agent names to mention, e.g. [\"@Reviewer\"]"},"session":{"type":"string"},"idempotency_key":{"type":"string","description":"reuse a previous result's idempotency_key to retry the same post after a network error (default: UUIDv5 of task:<task_id>:<seq>)"}},"additionalProperties":false}`),
 	},
 }
 
