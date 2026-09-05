@@ -14,12 +14,30 @@ import (
 	"time"
 
 	"github.com/ingki3/agent-collabortion/contracts"
+	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/obs"
 )
 
 func main() {
 	log := obs.NewLogger("server")
 	addr := envOr("COLAB_SERVER_ADDR", ":8080")
+
+	// Schema first (PLAN.md §3 P0-a). Without COLAB_DB_URL the server still
+	// serves /healthz so the skeleton keeps working; with it, a failed
+	// migration is fatal — running against an unknown schema is worse than
+	// not running.
+	if dbURL := os.Getenv("COLAB_DB_URL"); dbURL == "" {
+		log.Warn("COLAB_DB_URL not set; skipping migrations, running without a database")
+	} else {
+		mctx, mcancel := context.WithTimeout(context.Background(), 60*time.Second)
+		n, err := db.Migrate(mctx, dbURL)
+		mcancel()
+		if err != nil {
+			log.Error("migrate failed", "err", err)
+			os.Exit(1)
+		}
+		log.Info("schema up to date", "migrations_applied", n)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
