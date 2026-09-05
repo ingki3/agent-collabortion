@@ -1,10 +1,12 @@
 // P0-a skeleton. Screens S1–S17 (SCREEN.md) land per phase after G2.
-// Design tokens (tokens.css) and the Badge component are P0-a W work.
 export default function Home() {
   return (
-    <main style={{ padding: 32, fontFamily: "var(--font)" }}>
-      <h1 style={{ margin: 0 }}>Colab</h1>
-      <p style={{ color: "var(--ink-2)" }}>skeleton — see PLAN.md §3 P0-a</p>
+    <main className="page">
+      <h1 className="h1">Colab</h1>
+      <p className="muted">skeleton — see PLAN.md §3 P0-a</p>
+      <p className="muted-3">
+        <a href="/dev/badges">/dev/badges</a> — 상태 배지 조합표
+      </p>
     </main>
   );
 }
