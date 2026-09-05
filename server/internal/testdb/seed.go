@@ -42,6 +42,21 @@ func Plant(t *testing.T, pool *pgxpool.Pool, now time.Time) Seed {
 	return s
 }
 
+// AddWorkspace adds a second, unrelated workspace (no members) so tests can
+// check that nothing leaks across workspace boundaries.
+func AddWorkspace(t *testing.T, pool *pgxpool.Pool, slug string, now time.Time) uuid.UUID {
+	t.Helper()
+	ctx := context.Background()
+	var id uuid.UUID
+	if err := pool.QueryRow(ctx, `INSERT INTO workspace (name, slug, created_at, updated_at) VALUES ($1, $1, $2, $2) RETURNING id`, slug, now).Scan(&id); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO workspace_settings (workspace_id) VALUES ($1)`, id); err != nil {
+		t.Fatalf("seed workspace settings: %v", err)
+	}
+	return id
+}
+
 // AddRuntime adds an online runtime.
 func AddRuntime(t *testing.T, pool *pgxpool.Pool, wsID uuid.UUID, name string, now time.Time) uuid.UUID {
 	t.Helper()
