@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/contracts/clock"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
@@ -138,5 +139,43 @@ func TestClaimWaitWakesOnNotify(t *testing.T) {
 	}
 	if time.Since(start) > 3*time.Second {
 		t.Fatalf("claim took %v, want < 3s", time.Since(start))
+	}
+}
+
+// finish {failed, rate_limited, not_before} re-queues the task (attempt+1) at
+// not_before (daemon-protocol §4.1, G1 F3): the injected clock decides — claim
+// yields nothing before not_before and the task once it has passed.
+func TestFinishRateLimitedRequeuesAtNotBefore(t *testing.T) {
+	q, c, s := newQueue(t)
+	ctx := context.Background()
+	id := testdb.AddTask(t, q.DB, s, s.SessionID, t0)
+
+	bundles, err := q.Claim(ctx, s.RuntimeID.String(), 1, c.Now())
+	if err != nil || len(bundles) != 1 {
+		t.Fatalf("first claim = %+v %v", bundles, err)
+	}
+	resetsAt := t0.Add(30 * time.Minute)
+	final, err := q.Tasks.Finish(ctx, id, 1, contracts.Finish{Outcome: "failed", FailureKind: contracts.FailRateLimited, NotBefore: &resetsAt, StopReason: "rate_limited"})
+	if err != nil || final != tasks.Queued {
+		t.Fatalf("finish rate_limited = %s %v, want queued", final, err)
+	}
+	st, attempt, _ := status(t, q, id)
+	var notBefore *time.Time
+	var kind *string
+	_ = q.DB.QueryRow(ctx, `SELECT not_before FROM task WHERE id = $1`, id).Scan(&notBefore)
+	_ = q.DB.QueryRow(ctx, `SELECT failure_kind::text FROM task_attempt WHERE task_id = $1 AND attempt = 1`, id).Scan(&kind)
+	if st != "queued" || attempt != 2 || notBefore == nil || !notBefore.Equal(resetsAt) || kind == nil || *kind != "rate_limited" {
+		t.Fatalf("after finish: status %s attempt %d not_before %v attempt1.failure_kind %v", st, attempt, notBefore, kind)
+	}
+
+	c.Advance(29 * time.Minute)
+	bundles, err = q.Claim(ctx, s.RuntimeID.String(), 1, c.Now())
+	if err != nil || len(bundles) != 0 {
+		t.Fatalf("claim before not_before = %d bundles %v, want 0", len(bundles), err)
+	}
+	c.Advance(time.Minute)
+	bundles, err = q.Claim(ctx, s.RuntimeID.String(), 1, c.Now())
+	if err != nil || len(bundles) != 1 || bundles[0].Task.ID != id.String() || bundles[0].Task.Attempt != 2 {
+		t.Fatalf("claim at not_before = %+v %v, want attempt 2 of the task", bundles, err)
 	}
 }

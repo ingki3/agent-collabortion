@@ -1,4 +1,4 @@
-# oapi-codegen config — regenerate with `go generate ./internal/httpapi/...` (see gen.go).
+# oapi-codegen v2.8.0 config — regenerate with `go generate ./internal/httpapi/gen && sh scripts/gen_unimplemented.sh` (see gen.go).
 package: gen
 generate:
   models: true

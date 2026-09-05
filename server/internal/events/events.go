@@ -24,7 +24,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
-// Closed sets from task_event.schema.json v0.1. events_test.go asserts they
+// Closed sets from task_event.schema.json v0.2. events_test.go asserts they
 // match the contract file so drift is caught in CI.
 var (
 	Classes  = []string{"message", "tool", "usage", "plan", "runtime", "status"}
@@ -33,7 +33,14 @@ var (
 
 	messageKinds = []string{"text", "thought"}
 	toolKinds    = []string{"edit", "execute", "read", "search", "fetch", "think", "other"}
-	optionKinds  = []string{"allow_once", "allow_always", "reject_once", "reject_always"}
+	// optionKinds is optional since v0.2: outcome=cancelled picked no option (PR #20 N2).
+	optionKinds = []string{"allow_once", "allow_always", "reject_once", "reject_always"}
+	// policies is tool.policy / permission.policy (harness §4, v0.3 PR #20 N3).
+	policies = []string{"allowed_by_profile", "denied_by_profile"}
+	// rateLimitStatuses is usage.rate_limit.status — the per-usage_update
+	// payload (harness v0.3 §7: tokens come once at turn end, rate_limit on
+	// every usage_update).
+	rateLimitStatuses = []string{"allowed", "allowed_warning", "rejected"}
 )
 
 // Validate checks the required fields, enums and the class payload shape.
@@ -62,6 +69,14 @@ func Validate(e *contracts.TaskEvent) error {
 	}
 	if e.Payload != nil {
 		str := func(k string) (string, bool) { v, ok := e.Payload[k].(string); return v, ok }
+		// optEnum: the key may be absent, but when present it must be in set.
+		optEnum := func(field string, set []string) {
+			if v, present := e.Payload[field]; present {
+				if k, ok := v.(string); !ok || !slices.Contains(set, k) {
+					errs = append(errs, apperr.Field("payload."+field, "enum", fmt.Sprintf("%s must be one of %v", field, set)))
+				}
+			}
+		}
 		switch e.Class {
 		case "message":
 			if k, ok := str("kind"); !ok || !slices.Contains(messageKinds, k) {
@@ -72,11 +87,19 @@ func Validate(e *contracts.TaskEvent) error {
 				errs = append(errs, apperr.Field("payload.tool_call_id", "required", "tool payload needs tool_call_id"))
 			}
 			if e.Verb == "permission" {
-				if k, ok := str("option_kind"); !ok || !slices.Contains(optionKinds, k) {
-					errs = append(errs, apperr.Field("payload.option_kind", "enum", "permission payload needs option_kind"))
-				}
+				optEnum("option_kind", optionKinds)
 			} else if k, ok := str("kind"); !ok || !slices.Contains(toolKinds, k) {
 				errs = append(errs, apperr.Field("payload.kind", "enum", "tool payload needs kind"))
+			}
+			optEnum("policy", policies)
+		case "usage":
+			if rl, present := e.Payload["rate_limit"]; present {
+				m, ok := rl.(map[string]any)
+				if !ok {
+					errs = append(errs, apperr.Field("payload.rate_limit", "type", "rate_limit must be an object"))
+				} else if st, ok := m["status"].(string); !ok || !slices.Contains(rateLimitStatuses, st) {
+					errs = append(errs, apperr.Field("payload.rate_limit.status", "enum", fmt.Sprintf("rate_limit.status must be one of %v", rateLimitStatuses)))
+				}
 			}
 		case "status":
 			if _, ok := str("command"); !ok {

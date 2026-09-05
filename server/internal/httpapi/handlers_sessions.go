@@ -154,19 +154,13 @@ func (s *Server) ListMessages(w http.ResponseWriter, r *http.Request, sessionId 
 	writeJSON(w, http.StatusOK, page)
 }
 
-// postMessage is registered by hand (see Handler) so the CLI's
-// `<task_id>:<attempt>:<seq>` Idempotency-Key is accepted.
-func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
-	sessionId, err := uuid.Parse(r.PathValue("sessionId"))
-	if err != nil {
-		writeProblem(w, apperr.Validation(apperr.Field("sessionId", "format", "sessionId must be a uuid")))
-		return
-	}
-	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
-	if key == "" {
-		writeProblem(w, &Problem{Status: http.StatusUnprocessableEntity, Code: "idempotency_key_required", Title: "Validation failed", Detail: "Idempotency-Key header is required"})
-		return
-	}
+// PostMessage is postMessage. Idempotency-Key is a UUID for every principal
+// (openapi.yaml; the generated binder rejects anything else): users send a
+// random UUID, the CLI derives UUIDv5(task:<task_id>:<seq>) with seq
+// continuing across attempts from CliContext.last_seq (colab-cli.md §1 v0.2).
+// Keys are scoped per principal (user or task) so they never collide.
+func (s *Server) PostMessage(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.PostMessageParams) {
+	key := params.IdempotencyKey.String()
 	u, p := s.sessionAccess(r, sessionId)
 	if p != nil {
 		writeProblem(w, p)
@@ -193,7 +187,7 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 		tid := pr.Task.TaskID
 		aid := pr.Task.AgentID
 		author = router.Author{Type: "agent", AgentID: &aid, TaskID: &tid, Attempt: pr.Task.Attempt}
-		scope = "task:" + tid.String()
+		scope = taskScope(tid)
 	} else {
 		author = router.Author{Type: "user", UserID: &u.Id}
 		scope = "user:" + u.Id.String()
@@ -208,6 +202,23 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 		}
 		return http.StatusCreated, res, nil
 	})
+}
+
+// taskScope is the idempotency scope of a task token (any attempt).
+func taskScope(taskID uuid.UUID) string { return "task:" + taskID.String() }
+
+// lastClientSeq is CliContext.last_seq: the number of idempotent CLI writes
+// this task has made so far, across attempts. The CLI derives keys as
+// UUIDv5(task:<task_id>:<seq>) with seq = 1, 2, … and never skips a seq that
+// was accepted, so the count of stored keys is the last seq. Keys expire after
+// 24h, so the message count (the only P1 CLI write) is the floor.
+func (s *Server) lastClientSeq(r *http.Request, taskID uuid.UUID) (int, error) {
+	var n int
+	err := s.DB.QueryRow(r.Context(), `
+		SELECT GREATEST(
+			(SELECT count(*) FROM idempotency_key WHERE scope = $1),
+			(SELECT count(*) FROM message WHERE source_task_id = $2))`, taskScope(taskID), taskID).Scan(&n)
+	return n, err
 }
 
 func (s *Server) taskAccess(r *http.Request, taskId uuid.UUID) (*tasks.Row, *Problem) {
@@ -289,9 +300,14 @@ func (s *Server) GetCliContext(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	lastSeq, err := s.lastClientSeq(r, sc.TaskID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
 	out := gen.CliContext{
 		TaskId: sc.TaskID, LaneId: sc.LaneID, SessionId: sc.SessionID, AgentId: sc.AgentID, WorkspaceId: sess.WorkspaceId,
-		Attempt: sc.Attempt, ExpiresAt: sc.ExpiresAt,
+		Attempt: sc.Attempt, LastSeq: lastSeq, ExpiresAt: sc.ExpiresAt,
 		DelegatedFromTaskId:        tasks.NullUUID(t.DelegatedFromTaskID),
 		SuppressedDelegatorAgentId: nullable.NewNullNullable[openapi_types.UUID](),
 		OpenHitlRequestId:          nullable.NewNullNullable[openapi_types.UUID](),

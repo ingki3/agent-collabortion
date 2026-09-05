@@ -267,19 +267,32 @@ func TestVerticalSlice(t *testing.T) {
 	if st, out, _ := cli.do("GET", p+"/workspaces/"+wsID+"/agents", nil); st != 403 {
 		t.Fatalf("task token outside scope = %d %v (Q8)", st, out)
 	}
-	reply := cli.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "안녕하세요!"}, "Idempotency-Key", taskID+":1:1")
+	// Idempotency-Key is a UUID for every principal (openapi.yaml); the CLI
+	// derives UUIDv5(task:<task_id>:<seq>) with seq continuing across attempts
+	// from CliContext.last_seq (colab-cli.md §1 v0.2). Anything else is 422.
+	if cctx["last_seq"].(float64) != 0 {
+		t.Fatalf("fresh task last_seq = %v, want 0", cctx["last_seq"])
+	}
+	if st, out, _ := cli.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "old key"}, "Idempotency-Key", taskID+":1:1"); st != 422 {
+		t.Fatalf("non-uuid Idempotency-Key = %d %v, want 422", st, out)
+	}
+	reply := cli.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "안녕하세요!"}, "Idempotency-Key", cliIdempotencyKey(taskID, 1))
 	rm := reply["message"].(map[string]any)
 	if str(rm, "author_type") != "agent" || str(rm, "source_task_id") != taskID || len(reply["triggers"].([]any)) != 0 {
 		t.Fatalf("agent reply = %v", reply)
 	}
-	st, again, rh := cli.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "안녕하세요!"}, "Idempotency-Key", taskID+":1:1")
+	st, again, rh := cli.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "안녕하세요!"}, "Idempotency-Key", cliIdempotencyKey(taskID, 1))
 	if st != 201 || rh.Get("Idempotent-Replayed") != "true" || str(again["message"].(map[string]any), "id") != str(rm, "id") {
 		t.Fatalf("CLI replay = %d %v", st, again)
 	}
+	cli.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "두 번째"}, "Idempotency-Key", cliIdempotencyKey(taskID, 2))
 	var agentMsgs int
 	_ = pool.QueryRow(t.Context(), `SELECT count(*) FROM message WHERE source_task_id = $1`, taskID).Scan(&agentMsgs)
-	if agentMsgs != 1 {
-		t.Fatalf("agent messages = %d, want 1 (E8-04 duplicate 0)", agentMsgs)
+	if agentMsgs != 2 {
+		t.Fatalf("agent messages = %d, want 2 (E8-04 duplicate 0)", agentMsgs)
+	}
+	if got := cli.must(200, "GET", p+"/cli/context", nil)["last_seq"].(float64); got != 2 {
+		t.Fatalf("last_seq after seq 2 = %v, want 2", got)
 	}
 
 	// --- heartbeat expiry → requeue, token revoked → 401 token_revoked ---
@@ -287,14 +300,14 @@ func TestVerticalSlice(t *testing.T) {
 	if n, err := s.Queue.ExpireStale(t.Context(), fake.Now()); err != nil || n != 1 {
 		t.Fatalf("ExpireStale = %d %v", n, err)
 	}
-	if st, out, _ := cli.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "orphan"}, "Idempotency-Key", taskID+":1:2"); st != 401 || str(out, "code") != "token_revoked" {
+	if st, out, _ := cli.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "orphan"}, "Idempotency-Key", cliIdempotencyKey(taskID, 3)); st != 401 || str(out, "code") != "token_revoked" {
 		t.Fatalf("orphan post = %d %v, want 401 token_revoked (E11-04)", st, out)
 	}
 	if st, _, _ := cli.do("GET", p+"/cli/context", nil); st != 401 {
 		t.Fatalf("revoked cli context = %d", st)
 	}
 	_ = pool.QueryRow(t.Context(), `SELECT count(*) FROM message WHERE source_task_id = $1`, taskID).Scan(&agentMsgs)
-	if agentMsgs != 1 {
+	if agentMsgs != 2 {
 		t.Fatal("orphan message must not be stored")
 	}
 	task := api.must(200, "GET", p+"/tasks/"+taskID, nil)
@@ -313,8 +326,22 @@ func TestVerticalSlice(t *testing.T) {
 		t.Fatalf("reclaim = %v", claim)
 	}
 	b2 := bundles[0].(map[string]any)
-	if b2["task"].(map[string]any)["attempt"].(float64) != 2 || len(b2["posted_message_ids"].([]any)) != 1 {
+	if b2["task"].(map[string]any)["attempt"].(float64) != 2 || len(b2["posted_message_ids"].([]any)) != 2 {
 		t.Fatalf("attempt 2 bundle = %v", b2)
+	}
+	// Attempt 2's context carries the task-wide last_seq so the CLI continues
+	// at seq 3 and its UUIDv5 key never collides with attempt 1's (E8-04).
+	if str(b2, "task_token") == "" {
+		t.Fatal("attempt 2 token missing")
+	}
+	cli.bearer = str(b2, "task_token")
+	cctx = cli.must(200, "GET", p+"/cli/context", nil)
+	if cctx["attempt"].(float64) != 2 || cctx["last_seq"].(float64) != 2 {
+		t.Fatalf("attempt 2 cli context = attempt %v last_seq %v, want 2 / 2", cctx["attempt"], cctx["last_seq"])
+	}
+	cli.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "attempt 2"}, "Idempotency-Key", cliIdempotencyKey(taskID, 3))
+	if got := cli.must(200, "GET", p+"/cli/context", nil)["last_seq"].(float64); got != 3 {
+		t.Fatalf("last_seq after attempt 2 post = %v, want 3", got)
 	}
 	// the revoke command was handed out on the stale heartbeat or this claim
 	var delivered int
@@ -333,10 +360,6 @@ func TestVerticalSlice(t *testing.T) {
 	if str(fin, "status") != "completed" {
 		t.Fatalf("second finish = %v, want completed kept", fin)
 	}
-	if str(b2, "task_token") == "" {
-		t.Fatal("attempt 2 token missing")
-	}
-	cli.bearer = str(b2, "task_token")
 	if st, out, _ := cli.do("GET", p+"/cli/context", nil); st != 401 || str(out, "code") != "token_revoked" {
 		t.Fatalf("token after completion = %d %v", st, out)
 	}
@@ -347,8 +370,8 @@ func TestVerticalSlice(t *testing.T) {
 	}
 	var streamed int
 	_ = pool.QueryRow(t.Context(), `SELECT count(*) FROM stream_event WHERE workspace_id = $1 AND type = 'message.created'`, wsID).Scan(&streamed)
-	if streamed != 3 { // 2 user posts + 1 agent reply (system start message is not routed)
-		t.Fatalf("stream message.created rows = %d, want 3", streamed)
+	if streamed != 5 { // 2 user posts + 3 agent replies (system start message is not routed)
+		t.Fatalf("stream message.created rows = %d, want 5", streamed)
 	}
 	fmt.Fprintln(io.Discard, agent, other)
 }
@@ -360,4 +383,20 @@ func mustUUID(t *testing.T, s string) uuid.UUID {
 		t.Fatalf("uuid %q: %v", s, err)
 	}
 	return u
+}
+
+// cliIdempotencyNamespace is the CLI's fixed UUIDv5 namespace
+// (cli/internal/client/uuid.go IdempotencyNamespace = UUIDv5(NameSpace_DNS, "colab")).
+var cliIdempotencyNamespace = uuid.NewSHA1(uuid.NameSpaceDNS, []byte("colab"))
+
+// cliIdempotencyKey is what `colab message post` sends: UUIDv5(task:<task_id>:<seq>)
+// with seq continuing across attempts (colab-cli.md §1 v0.2).
+func cliIdempotencyKey(taskID string, seq int) string {
+	return uuid.NewSHA1(cliIdempotencyNamespace, []byte(fmt.Sprintf("task:%s:%d", taskID, seq))).String()
+}
+
+func TestCliIdempotencyNamespaceIsStable(t *testing.T) {
+	if got := cliIdempotencyNamespace.String(); got != "454e4096-cb98-57f5-b314-6c5499b55cc8" {
+		t.Fatalf("namespace = %s; must match cli/internal/client/uuid.go or attempt-2 keys collide", got)
+	}
 }

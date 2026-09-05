@@ -1583,6 +1583,9 @@ type CliContext struct {
 	ExpiresAt           time.Time                             `json:"expires_at"`
 	LaneId              openapi_types.UUID                    `json:"lane_id"`
 
+	// LastSeq 이 task가 지금까지 쓴 마지막 client seq(attempt 무관). CLI는 last_seq+1부터 이어 쓴다 — 멱등키 UUIDv5(task:<task_id>:<seq>)가 attempt 경계를 넘어 유일하도록(colab-cli.md §1, E8-04).
+	LastSeq int `json:"last_seq"`
+
 	// OpenHitlRequestId 이미 열린 HITL이 있으면 두 번째 `hitl ask`는 409.
 	OpenHitlRequestId nullable.Nullable[openapi_types.UUID] `json:"open_hitl_request_id,omitempty"`
 

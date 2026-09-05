@@ -99,10 +99,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "contracts": contracts.Version})
 	})
-	// postMessage is registered by hand: colab-cli.md §2.2 uses
-	// `<task_id>:<attempt>:<seq>` as Idempotency-Key while openapi.yaml types
-	// the header as uuid; the generated binder would reject the CLI key.
-	mux.HandleFunc("POST "+BasePath+"/sessions/{sessionId}/messages", s.postMessage)
 	s.daemonRoutes(mux)
 	mux.Handle("/", api)
 	return s.authenticate(mux)
