@@ -1,0 +1,326 @@
+{
+  "agent_capabilities": {
+    "promptCapabilities": {
+      "image": true,
+      "embeddedContext": true
+    },
+    "mcpCapabilities": {
+      "http": true,
+      "sse": true
+    },
+    "loadSession": true,
+    "sessionCapabilities": {
+      "fork": {},
+      "list": {},
+      "resume": {}
+    }
+  },
+  "agent_info": {
+    "name": "@zed-industries/claude-code-acp",
+    "title": "Claude Code",
+    "version": "0.16.2"
+  },
+  "cancel_attempts": 6,
+  "cancel_ok": 6,
+  "cancels_requested": 6,
+  "crashes": 0,
+  "final_session_id": "2592b06b-f7de-4c4a-aded-e49ffdd0358c",
+  "finished_at": "2026-09-05T02:12:56Z",
+  "model_requested": "haiku",
+  "n": 10,
+  "protocol_version": 1,
+  "resume_attempts": 7,
+  "resume_ok": 7,
+  "resumes": [
+    {
+      "ms": 4803,
+      "ok": true,
+      "probe_stop": "end_turn",
+      "probe_text": "resumed",
+      "replayed_chunks": 53,
+      "sessionId": "2592b06b-f7de-4c4a-aded-e49ffdd0358c",
+      "why": "continue_previous_run"
+    },
+    {
+      "ms": 4753,
+      "ok": true,
+      "probe_stop": "end_turn",
+      "probe_text": "resumed",
+      "replayed_chunks": 61,
+      "sessionId": "2592b06b-f7de-4c4a-aded-e49ffdd0358c",
+      "why": "planned"
+    },
+    {
+      "ms": 5503,
+      "ok": true,
+      "probe_stop": "end_turn",
+      "probe_text": "resumed",
+      "replayed_chunks": 72,
+      "sessionId": "2592b06b-f7de-4c4a-aded-e49ffdd0358c",
+      "why": "planned"
+    },
+    {
+      "ms": 4690,
+      "ok": true,
+      "probe_stop": "end_turn",
+      "probe_text": "resumed",
+      "replayed_chunks": 80,
+      "sessionId": "2592b06b-f7de-4c4a-aded-e49ffdd0358c",
+      "why": "planned"
+    },
+    {
+      "ms": 5362,
+      "ok": true,
+      "probe_stop": "end_turn",
+      "probe_text": "resumed",
+      "replayed_chunks": 90,
+      "sessionId": "2592b06b-f7de-4c4a-aded-e49ffdd0358c",
+      "why": "planned"
+    },
+    {
+      "ms": 4671,
+      "ok": true,
+      "probe_stop": "end_turn",
+      "probe_text": "resumed",
+      "replayed_chunks": 100,
+      "sessionId": "2592b06b-f7de-4c4a-aded-e49ffdd0358c",
+      "why": "planned"
+    },
+    {
+      "ms": 4356,
+      "ok": true,
+      "probe_stop": "end_turn",
+      "probe_text": "resumed",
+      "replayed_chunks": 111,
+      "sessionId": "2592b06b-f7de-4c4a-aded-e49ffdd0358c",
+      "why": "planned"
+    }
+  ],
+  "resumes_requested": 6,
+  "runtime": "claude",
+  "scenario": "spike1",
+  "session_id": "2592b06b-f7de-4c4a-aded-e49ffdd0358c",
+  "started_at": "20260905T021040Z",
+  "stats": {
+    "PermissionRequests": 20,
+    "AllowOnceMissing": 0,
+    "PermissionCancelled": 0,
+    "Updates": 1101,
+    "ToolCalls": 203,
+    "ToolCallUpdates": 197,
+    "AgentMessageChunks": 393,
+    "UnexpectedExit": 0,
+    "OtherClientRequests": 0,
+    "OptionKindsSeen": {
+      "allow_always": 20,
+      "allow_once": 20,
+      "reject_once": 20
+    }
+  },
+  "turns": [
+    {
+      "i": 1,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 3982,
+      "text": "done"
+    },
+    {
+      "i": 2,
+      "kind": "cancel_text",
+      "stopReason": "cancelled",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 2763
+    },
+    {
+      "i": 2,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 2775,
+      "text": "done"
+    },
+    {
+      "i": 3,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 3337,
+      "text": "Let me first check if note_3.txt exists, and create it if needed, then copy it.done"
+    },
+    {
+      "i": 4,
+      "kind": "cancel_perm",
+      "stopReason": "cancelled",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 4272
+    },
+    {
+      "i": 4,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 2684,
+      "text": "I'll run the echo command to create shell_4.txt.done"
+    },
+    {
+      "i": 5,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 3555,
+      "text": "done"
+    },
+    {
+      "i": 6,
+      "kind": "cancel_text",
+      "stopReason": "cancelled",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 2754
+    },
+    {
+      "i": 6,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 2763,
+      "text": "done"
+    },
+    {
+      "i": 7,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 3224,
+      "text": "done"
+    },
+    {
+      "i": 8,
+      "kind": "cancel_perm",
+      "stopReason": "cancelled",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 4269
+    },
+    {
+      "i": 8,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 5649,
+      "text": "Let me first check if note_8.txt exists, and create it if needed, then copy it.done"
+    },
+    {
+      "i": 9,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 3036,
+      "text": "I'll run the echo command to create shell_9.txt.done"
+    },
+    {
+      "i": 10,
+      "kind": "cancel_text",
+      "stopReason": "cancelled",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 2778
+    },
+    {
+      "i": 10,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 3946,
+      "text": "I'll create the b_10.json file with the specified content.done"
+    },
+    {
+      "i": 11,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 3545,
+      "text": "I'll create the note_11.txt file with the specified content.done"
+    },
+    {
+      "i": 12,
+      "kind": "cancel_perm",
+      "stopReason": "cancelled",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 4258
+    },
+    {
+      "i": 12,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 3373,
+      "text": "I'll run the mkdir and echo commands to create the directory and file.done"
+    },
+    {
+      "i": 13,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 3231,
+      "text": "Let me first check if note_13.txt exists, and create it if needed, then copy it.done"
+    },
+    {
+      "i": 14,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 2663,
+      "text": "I'll run the echo command to create shell_14.txt.done"
+    },
+    {
+      "i": 15,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 3697,
+      "text": "I'll create the b_15.json file with the specified content.done"
+    },
+    {
+      "i": 16,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 3215,
+      "text": "I'll create the note_16.txt file with the specified content.done"
+    },
+    {
+      "i": 17,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 2,
+      "permissions": 1,
+      "ms": 2584,
+      "text": "I'll run the mkdir and echo commands to create the directory and file.done"
+    }
+  ],
+  "turns_requested": 17,
+  "work_turns": 17,
+  "workdir": "/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0a-spikes/72df0f7a-bfd9-449b-95cf-147923c4d941/scratchpad/w-spike1"
+}

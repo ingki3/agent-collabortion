@@ -1,0 +1,521 @@
+{
+  "agent_capabilities": {
+    "promptCapabilities": {
+      "image": true,
+      "embeddedContext": true
+    },
+    "mcpCapabilities": {
+      "http": true,
+      "sse": true
+    },
+    "loadSession": true,
+    "sessionCapabilities": {
+      "fork": {},
+      "list": {},
+      "resume": {}
+    }
+  },
+  "agent_info": {
+    "name": "@zed-industries/claude-code-acp",
+    "title": "Claude Code",
+    "version": "0.16.2"
+  },
+  "cancel_attempts": 4,
+  "cancel_ok": 4,
+  "cancels_requested": 10,
+  "crashes": 0,
+  "final_session_id": "cc88b11c-cf65-45c9-b13b-07208d1064da",
+  "finished_at": "2026-09-05T00:16:24Z",
+  "model_default": "default",
+  "model_requested": "haiku",
+  "model_selected": "haiku",
+  "models_available": [
+    {
+      "modelId": "default",
+      "name": "Default (recommended)",
+      "description": "Opus 4.6 · Most capable for complex work"
+    },
+    {
+      "modelId": "sonnet",
+      "name": "Sonnet",
+      "description": "Sonnet 4.5 · Best for everyday tasks"
+    },
+    {
+      "modelId": "haiku",
+      "name": "Haiku",
+      "description": "Haiku 4.5 · Fastest for quick answers"
+    }
+  ],
+  "n": 10,
+  "protocol_version": 1,
+  "resume_attempts": 10,
+  "resume_ok": 4,
+  "resumes": [
+    {
+      "ms": 4590,
+      "ok": true,
+      "probe_stop": "end_turn",
+      "probe_text": "resumed",
+      "replayed_chunks": 10,
+      "sessionId": "2592b06b-f7de-4c4a-aded-e49ffdd0358c",
+      "why": "planned"
+    },
+    {
+      "ms": 4631,
+      "ok": true,
+      "probe_stop": "end_turn",
+      "probe_text": "resumed",
+      "replayed_chunks": 20,
+      "sessionId": "2592b06b-f7de-4c4a-aded-e49ffdd0358c",
+      "why": "planned"
+    },
+    {
+      "ms": 5120,
+      "ok": true,
+      "probe_stop": "end_turn",
+      "probe_text": "resumed",
+      "replayed_chunks": 31,
+      "sessionId": "2592b06b-f7de-4c4a-aded-e49ffdd0358c",
+      "why": "planned"
+    },
+    {
+      "ms": 5508,
+      "ok": true,
+      "probe_stop": "end_turn",
+      "probe_text": "resumed",
+      "replayed_chunks": 43,
+      "sessionId": "2592b06b-f7de-4c4a-aded-e49ffdd0358c",
+      "why": "planned"
+    },
+    {
+      "error": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+      "ms": 5781,
+      "msg": "resume_failed",
+      "replayed_chunks": 51,
+      "sessionId": "2592b06b-f7de-4c4a-aded-e49ffdd0358c",
+      "why": "planned"
+    },
+    {
+      "error": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+      "ms": 5159,
+      "msg": "resume_failed",
+      "replayed_chunks": 6,
+      "sessionId": "da5e80b5-cf8a-4308-af88-50fb68bb7543",
+      "why": "planned"
+    },
+    {
+      "error": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+      "ms": 3918,
+      "msg": "resume_failed",
+      "replayed_chunks": 6,
+      "sessionId": "b1ba37ae-1562-43d5-b378-4ecd055eb0d4",
+      "why": "planned"
+    },
+    {
+      "error": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+      "ms": 4918,
+      "msg": "resume_failed",
+      "replayed_chunks": 6,
+      "sessionId": "e99cf339-2af9-4551-a9ac-33bf83d44df6",
+      "why": "planned"
+    },
+    {
+      "error": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+      "ms": 4764,
+      "msg": "resume_failed",
+      "replayed_chunks": 6,
+      "sessionId": "3505ee45-09e8-4742-9612-f2fd8786ca57",
+      "why": "planned"
+    },
+    {
+      "error": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+      "ms": 4696,
+      "msg": "resume_failed",
+      "replayed_chunks": 6,
+      "sessionId": "7fe02d8c-86b0-469a-9b3e-4bc6b9718411",
+      "why": "planned"
+    }
+  ],
+  "resumes_requested": 10,
+  "runtime": "claude",
+  "scenario": "spike1",
+  "session_id": "2592b06b-f7de-4c4a-aded-e49ffdd0358c",
+  "started_at": "20260905T001331Z",
+  "stats": {
+    "PermissionRequests": 6,
+    "AllowOnceMissing": 0,
+    "PermissionCancelled": 0,
+    "Updates": 498,
+    "ToolCalls": 82,
+    "ToolCallUpdates": 75,
+    "AgentMessageChunks": 226,
+    "UnexpectedExit": 0,
+    "OtherClientRequests": 0,
+    "OptionKindsSeen": {
+      "allow_always": 6,
+      "allow_once": 6,
+      "reject_once": 6
+    }
+  },
+  "turns": [
+    {
+      "i": 1,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 0,
+      "permissions": 1,
+      "ms": 4277,
+      "text": "I'll create the file note_1.txt with the content 'probe 1' using the Write tool.done"
+    },
+    {
+      "i": 2,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 3867,
+      "text": "Let me first read note_2.txt to see its current contents.The file note_2.txt doesn't exist yet. I need to create it first with the Write tool before I can edit it. However, you asked me to use the Edi"
+    },
+    {
+      "i": 3,
+      "kind": "cancel_text",
+      "stopReason": "cancelled",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 2779
+    },
+    {
+      "i": 3,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 2612,
+      "text": "1"
+    },
+    {
+      "i": 4,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 0,
+      "permissions": 1,
+      "ms": 2540,
+      "text": "done"
+    },
+    {
+      "i": 5,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 2473,
+      "text": "1788567242"
+    },
+    {
+      "i": 6,
+      "kind": "cancel_perm",
+      "stopReason": "cancelled",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 4259
+    },
+    {
+      "i": 6,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 0,
+      "permissions": 1,
+      "ms": 3298,
+      "text": "done"
+    },
+    {
+      "i": 7,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 4293,
+      "text": "Let me first read note_7.txt to see its current contents.The file note_7.txt doesn't exist yet. Since the Edit tool requires an existing file to modify, I cannot use it to append to a non-existent fil"
+    },
+    {
+      "i": 8,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 2576,
+      "text": "3"
+    },
+    {
+      "i": 9,
+      "kind": "cancel_text",
+      "stopReason": "cancelled",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 2754
+    },
+    {
+      "i": 9,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 0,
+      "permissions": 1,
+      "ms": 2601,
+      "text": "done"
+    },
+    {
+      "i": 10,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 2976,
+      "text": "1788567281"
+    },
+    {
+      "i": 11,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 0,
+      "permissions": 1,
+      "ms": 3616,
+      "text": "done"
+    },
+    {
+      "i": 12,
+      "kind": "cancel_perm",
+      "stopReason": "cancelled",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 4255
+    },
+    {
+      "i": 12,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 3342,
+      "text": "Let me first read note_12.txt to see its current contents.The file note_12.txt doesn't exist yet. Since the Edit tool requires an existing file to modify, I cannot use it to append to a non-existent f"
+    },
+    {
+      "i": 13,
+      "kind": "work",
+      "stopReason": "end_turn",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 2594,
+      "text": "5"
+    },
+    {
+      "i": 14,
+      "kind": "work",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 15,
+      "kind": "cancel_text",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 15,
+      "kind": "work",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 16,
+      "kind": "work",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 17,
+      "kind": "work",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 18,
+      "kind": "cancel_perm",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 18,
+      "kind": "work",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 19,
+      "kind": "work",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 20,
+      "kind": "work",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 21,
+      "kind": "cancel_text",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 21,
+      "kind": "work",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 22,
+      "kind": "work",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 23,
+      "kind": "work",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 24,
+      "kind": "cancel_perm",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 24,
+      "kind": "work",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 25,
+      "kind": "work",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 26,
+      "kind": "work",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 27,
+      "kind": "cancel_text",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 27,
+      "kind": "work",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 28,
+      "kind": "work",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 29,
+      "kind": "work",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 30,
+      "kind": "cancel_perm",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    },
+    {
+      "i": 30,
+      "kind": "work",
+      "stopReason": "",
+      "toolCalls": 0,
+      "permissions": 0,
+      "ms": 0,
+      "err": "session/prompt: rpc error -32603: Internal error: You've hit your limit · resets 11am (Asia/Seoul)"
+    }
+  ],
+  "turns_requested": 30,
+  "work_turns": 30,
+  "workdir": "/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0a-spikes/72df0f7a-bfd9-449b-95cf-147923c4d941/scratchpad/w-spike1"
+}
