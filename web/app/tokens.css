@@ -1,25 +1,42 @@
 /*
- * Design tokens — COMPONENTS.md / agent-collaboration.pen 변수와 1:1.
- * P0-a W 작업: 19색 + 글리프 + soft/solid 규칙을 여기와 Badge 컴포넌트로 옮긴다.
- * 이 파일은 자리만 잡는다. 값은 .pen SetVariables 결과를 그대로 가져온다.
+ * Design tokens — agent-collaboration.pen 변수와 1:1 (COMPONENTS.md: 색 18개 + 글꼴 1개).
+ * 다크 테마는 v1 범위 밖. 상태색을 텍스트에 쓸 때는 예외 없이 -text 변형(SCREEN §5).
  */
 :root {
-  --font: Inter, system-ui, -apple-system, sans-serif;
+  --font: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
 
+  /* 기본 6 */
   --bg: #ffffff;
-  --surface: #fafafa;
-  --line: #e4e4e7;
+  --surface: #f4f4f5;
+  --line: #d4d4d8;
   --ink: #18181b;
   --ink-2: #52525b;
   --ink-3: #71717a;
 
-  /* 6 lane/task states — soft fill + -text pair. 값은 .pen에서 확정 */
-  --s-run: #dbeafe;   --s-run-text: #1d4ed8;
-  --s-wait: #fef3c7;  --s-wait-text: #b45309;
-  --s-block: #fee2e2; --s-block-text: #b91c1c;
-  --s-pause: #f4f4f5; --s-pause-text: #52525b;
-  --s-done: #dcfce7;  --s-done-text: #15803d;
-  --s-fail: #fee2e2;  --s-fail-text: #991b1b;
+  /* 상태 solid 6 — 배지 채움·테두리·점 */
+  --s-run: #2563eb;
+  --s-wait: #d97706;
+  --s-block: #7c3aed;
+  --s-pause: #db2777;
+  --s-done: #16a34a;
+  --s-fail: #dc2626;
+
+  /* 상태 text 6 — 텍스트 전용 짙은 변형 */
+  --s-run-text: #1d4ed8;
+  --s-wait-text: #b45309;
+  --s-block-text: #6d28d9;
+  --s-pause-text: #be185d;
+  --s-done-text: #15803d;
+  --s-fail-text: #b91c1c;
+
+  /* soft 배경 = 상태색 12% 알파 (파생값, 토큰 수에 들지 않음) */
+  --soft-alpha: 12%;
 }
 
 html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); }
+
+/* 최소 유틸 — 화면(S1~S17)은 P1 이후. 여기서는 골격 페이지만 쓴다 */
+.page { padding: 32px; }
+.h1 { margin: 0; font-size: 20px; font-weight: 600; color: var(--ink); }
+.muted { color: var(--ink-2); }
+.muted-3 { color: var(--ink-3); }

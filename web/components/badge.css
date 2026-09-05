@@ -1,0 +1,49 @@
+/*
+ * Badge — SCREEN §5 상태 배지. 글리프는 마크업 텍스트(접근성), 색은 tokens.css 변수만 쓴다.
+ * soft  = 상태색 12% 알파 배경 + -text 글자색 + 상태색 1px 테두리
+ * paused soft = 흰 배경 + 상태색 1.5px 테두리 "테두리만" (COMPONENTS §2.1)
+ * solid = 상태색 배경 + 흰 글자 (failed · offline · error 기본)
+ */
+.badge {
+  --badge-solid: var(--ink-3);
+  --badge-text: var(--ink-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  border: 1px solid var(--badge-solid);
+  font-family: var(--font);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.badge--md { font-size: 12px; padding: 3px 8px; }
+.badge--sm { font-size: 11px; padding: 2px 6px; }
+
+.badge__glyph { font-size: 0.95em; }
+
+/* tone → 토큰 */
+.badge[data-tone="run"]   { --badge-solid: var(--s-run);   --badge-text: var(--s-run-text); }
+.badge[data-tone="wait"]  { --badge-solid: var(--s-wait);  --badge-text: var(--s-wait-text); }
+.badge[data-tone="block"] { --badge-solid: var(--s-block); --badge-text: var(--s-block-text); }
+.badge[data-tone="pause"] { --badge-solid: var(--s-pause); --badge-text: var(--s-pause-text); }
+.badge[data-tone="done"]  { --badge-solid: var(--s-done);  --badge-text: var(--s-done-text); }
+.badge[data-tone="fail"]  { --badge-solid: var(--s-fail);  --badge-text: var(--s-fail-text); }
+.badge[data-tone="neutral"] { --badge-solid: var(--ink-3); --badge-text: var(--ink-2); }
+
+.badge--soft {
+  background: color-mix(in srgb, var(--badge-solid) var(--soft-alpha, 12%), transparent);
+  color: var(--badge-text);
+}
+/* paused 는 테두리만 — 채움 없이 흰 배경 + 1.5px */
+.badge--soft[data-value="paused"] {
+  background: var(--bg);
+  border-width: 1.5px;
+}
+.badge--solid {
+  background: var(--badge-solid);
+  border-color: var(--badge-solid);
+  color: var(--bg);
+}
