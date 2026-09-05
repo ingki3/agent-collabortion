@@ -8,8 +8,9 @@ import { Composer } from "@/components/Composer";
 import type { AgentStatus, Message, TaskEvent } from "@/lib/api/types";
 
 const T = "2026-09-05T10:00:00Z";
+let seq = 0; // 결정적 id — SSR/클라이언트 하이드레이션 불일치 방지
 const msg = (over: Partial<Message>): Message => ({
-  id: over.id ?? Math.random().toString(36).slice(2),
+  id: over.id ?? `m${++seq}`,
   session_id: "s1",
   author_type: "user",
   author_id: "u1",
