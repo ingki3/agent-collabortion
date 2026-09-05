@@ -23,3 +23,6 @@ tmp/
 
 # Claude Code session files (wakeup lock 등)
 .claude/
+
+# P1 통합 E2E 산출물(토큰·쿠키 포함)
+e2e/p1/out/
