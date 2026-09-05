@@ -32,9 +32,39 @@ export interface ComposerProps {
   placeholder?: string;
 }
 
-/** 이 메시지가 트리거할 참여 에이전트(FR-3.3 규칙 2 — 명시 멘션). 비참여자는 트리거되지 않고 경고만. */
-export function classifyMentions(content: string, agents: ComposerAgent[]) {
-  const mentions = extractMentions(content).filter((m) => m.kind === "agent");
+/**
+ * 트리거 미리보기의 판정 근거(PRD FR-3.3, 위에서부터 우선).
+ * - `note`: 규칙 1 — `/note ` 접두 → 트리거 없음(기록만). 칩을 전부 숨긴다.
+ * - `mention`: 규칙 2 — 에이전트 명시 멘션 → 참여자는 트리거, 비참여자는 경고만(E1-04).
+ * - `no_trigger`: 규칙 3 — `@all` 또는 사람만 멘션 → 에이전트 트리거 없음.
+ * - `implicit`: 멘션 없음 — 규칙 4~6(답글·assignee)은 서버 상태가 필요해 로컬로 예고하지 않는다(`previewTriggers` 는 P2).
+ */
+export type TriggerRule = "note" | "mention" | "no_trigger" | "implicit";
+
+export const NOTE_PREFIX = "/note ";
+
+/** 규칙 1 — `/note ` 접두(앞 공백 무시). */
+export function isNote(content: string): boolean {
+  const t = content.trimStart();
+  return t.startsWith(NOTE_PREFIX) || t === NOTE_PREFIX.trim();
+}
+
+export interface TriggerPreview {
+  rule: TriggerRule;
+  /** 트리거될 참여 에이전트(규칙 2). */
+  triggers: ComposerAgent[];
+  /** 멘션됐지만 참여자가 아닌 에이전트 — 경고 칩(E1-04). */
+  nonParticipants: MentionTarget[];
+}
+
+/** 이 메시지가 트리거할 참여 에이전트를 로컬 규칙으로 판정한다. 틀릴 수 있는 규칙(4~6)은 판정하지 않는다. */
+export function classifyMentions(content: string, agents: ComposerAgent[]): TriggerPreview {
+  if (isNote(content)) return { rule: "note", triggers: [], nonParticipants: [] };
+  const all = extractMentions(content);
+  const mentions = all.filter((m) => m.kind === "agent");
+  if (mentions.length === 0) {
+    return { rule: all.length > 0 ? "no_trigger" : "implicit", triggers: [], nonParticipants: [] };
+  }
   const byId = new Map(agents.map((a) => [a.id, a]));
   const triggers: ComposerAgent[] = [];
   const nonParticipants: MentionTarget[] = [];
@@ -43,7 +73,7 @@ export function classifyMentions(content: string, agents: ComposerAgent[]) {
     if (a?.participant) triggers.push(a);
     else nonParticipants.push(m);
   }
-  return { triggers, nonParticipants };
+  return { rule: "mention", triggers, nonParticipants };
 }
 
 export function Composer(props: ComposerProps) {
@@ -72,7 +102,7 @@ export function Composer(props: ComposerProps) {
 
   useEffect(() => setSel(0), [candidates.length, query?.query]);
 
-  const { triggers, nonParticipants } = useMemo(() => classifyMentions(text, props.agents), [text, props.agents]);
+  const { rule, triggers, nonParticipants } = useMemo(() => classifyMentions(text, props.agents), [text, props.agents]);
 
   function insertMention(t: MentionTarget) {
     if (!query) return;
@@ -186,7 +216,17 @@ export function Composer(props: ComposerProps) {
         onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
         onKeyDown={onKeyDown}
       />
-      <div className="composer__chips" data-testid="composer-chips">
+      <div className="composer__chips" data-testid="composer-chips" data-rule={rule}>
+        {rule === "note" && (
+          <span className="chip" data-testid="chip-note-only" title="PRD FR-3.3 규칙 1 — /note 접두 메시지는 트리거 없음">
+            기록만 — 아무도 깨우지 않습니다(규칙 1)
+          </span>
+        )}
+        {rule === "no_trigger" && (
+          <span className="chip" data-testid="chip-no-trigger" title="PRD FR-3.3 규칙 3 — @all·사람만 멘션이면 에이전트 트리거 없음">
+            트리거 없음 — @all·사람만 멘션(규칙 3)
+          </span>
+        )}
         {nonParticipants.map((m) => (
           <span key={m.id} className="chip chip--warn" data-testid="chip-not-participant" title="게시는 되지만 트리거되지 않습니다(E1-04)">
             ⚠ @{m.name}는 이 세션 참여자가 아님

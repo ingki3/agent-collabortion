@@ -1,12 +1,13 @@
 "use client";
 /**
  * S12 Add a computer(SCREEN §4.8) — S4 2단계에 인라인, /runtimes/new 에 단독.
- * 설치 명령 2줄(복사) + `waiting → connected → probing → ready` 4단계. SSE `pairing.updated` 로 갱신하고
- * 스트림이 없을 때를 대비해 5초 폴링(GET pairing)을 병행한다. 3분 넘게 waiting 이면 문제 해결 안내를 편다.
+ * 설치 명령 2줄(복사) + `waiting → connected → probing → ready` 4단계. SSE `pairing.updated` 로 갱신하고(셸 안에서는 셸의
+ * 연결을 공유, 온보딩에서는 자기 연결), 스트림이 열려 있지 않은 동안만 5초 폴링(GET pairing)으로 보완한다(N5).
+ * resync 면 pairing 을 REST 로 다시 읽는다(N4). 3분 넘게 waiting 이면 문제 해결 안내를 편다.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage, isApiError } from "@/lib/api/client";
-import { useStream } from "@/lib/realtime/stream";
+import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
 import type { Pairing, PairingStatus, Runtime, StreamEvent } from "@/lib/api/types";
 
 export const PAIRING_STAGES: { key: PairingStatus; label: string }[] = [
@@ -80,23 +81,26 @@ export function PairingPanel({ workspaceId, canManage, onReady, now = Date.now }
     },
     [],
   );
-  useStream(workspaceId, onEvent, { enabled: !!pairing });
+  const refetch = useCallback(async () => {
+    if (!pairing) return;
+    try {
+      const p = await api.get("/workspaces/{workspaceId}/runtimes/pairings/{pairingId}", {
+        path: { workspaceId, pairingId: pairing.id },
+      });
+      setPairing((cur) => (cur && cur.id === p.id ? p : cur));
+    } catch (e) {
+      if (isApiError(e) && e.status === 410) setPairing((cur) => (cur ? { ...cur, status: "expired" } : cur));
+    }
+  }, [pairing, workspaceId]);
+  const conn = useWorkspaceStream(workspaceId, onEvent, { enabled: !!pairing, onResync: () => void refetch() });
 
-  // 폴링 폴백(5초) — 스트림이 아직 없거나 끊겼을 때도 단계가 진행된다
+  // 폴링 폴백(5초) — 스트림이 아직 안 열렸거나 끊긴 동안만. 열려 있으면 pairing.updated 가 단계를 옮긴다.
   useEffect(() => {
     if (!pairing || pairing.status === "ready" || pairing.status === "expired") return;
-    const t = setInterval(async () => {
-      try {
-        const p = await api.get("/workspaces/{workspaceId}/runtimes/pairings/{pairingId}", {
-          path: { workspaceId, pairingId: pairing.id },
-        });
-        setPairing(p);
-      } catch (e) {
-        if (isApiError(e) && e.status === 410) setPairing((cur) => (cur ? { ...cur, status: "expired" } : cur));
-      }
-    }, 5000);
+    if (conn === "open") return;
+    const t = setInterval(() => void refetch(), 5000);
     return () => clearInterval(t);
-  }, [pairing, workspaceId]);
+  }, [pairing, conn, refetch]);
 
   // 3분 타이머 → 문제 해결 안내 자동 펼침
   useEffect(() => {

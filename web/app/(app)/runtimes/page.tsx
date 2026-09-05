@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api, errorMessage } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { useStream } from "@/lib/realtime/stream";
+import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
 import { relativeTime } from "@/lib/time";
 import type { Runtime, StreamEvent } from "@/lib/api/types";
 import { RuntimeCard } from "@/components/RuntimeCard";
@@ -38,7 +38,7 @@ export default function RuntimesPage() {
     },
     [load],
   );
-  useStream(workspace?.id, onEvent, { onResync: () => void load() });
+  useWorkspaceStream(workspace?.id, onEvent, { onResync: () => void load() });
 
   return (
     <div>

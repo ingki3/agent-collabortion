@@ -2,8 +2,8 @@
 /**
  * S7 Session 상세 — P1 은 **중앙 열만**(SCREEN §4.5): 헤더(제목·상태·goal·참여자 칩) · 타임라인(Message Card, 스레드 접기,
  * 에이전트 메시지의 "활동 보기" = task_event 원본 레일) · 작성창(@ 자동완성, 비참여자 경고 칩 E1-04).
- * 실시간: 세션 범위 SSE — message.created/updated · task_event.appended/superseded · participant.updated · session.updated ·
- * agent.typing · message.delta. 새로고침 없이 갱신된다. 좌·우열(lane 보드·진행)은 P2.
+ * 실시간: 셸의 워크스페이스 SSE 하나를 구독하고 `session_id` 로 거른다(R4) — message.created/updated · task_event.appended/superseded ·
+ * participant.updated · session.updated · cost.updated · agent.typing · message.delta. 새로고침 없이 갱신된다. 좌·우열(lane 보드·진행)은 P2.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
@@ -16,7 +16,7 @@ import { ActivityRail } from "@/components/ActivityRail";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { api, errorMessage, newIdempotencyKey } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { useStream } from "@/lib/realtime/stream";
+import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
 import type { Agent, Member, Message, Participant, Session, StreamEvent, TaskEvent } from "@/lib/api/types";
 
 type Events = { events: TaskEvent[]; structured: boolean; loading: boolean };
@@ -98,6 +98,8 @@ export default function SessionPage() {
 
   // ── 실시간 ──
   const onEvent = useCallback((ev: StreamEvent) => {
+    // 워크스페이스 전체 스트림이므로 다른 세션의 이벤트는 버린다
+    if (ev.session_id && ev.session_id !== sessionId) return;
     switch (ev.type) {
       case "message.created": {
         const m = ev.payload as unknown as Message;
@@ -147,6 +149,13 @@ export default function SessionPage() {
         setSession((s) => (s ? { ...s, ...p, participants: p.participants ?? s.participants } : s));
         break;
       }
+      case "cost.updated": {
+        const p = ev.payload as { session_id?: string; cost_usd?: number; estimated?: boolean };
+        if (p.session_id && p.session_id !== sessionId) return;
+        if (typeof p.cost_usd !== "number") return;
+        setSession((s) => (s ? { ...s, cost_usd: p.cost_usd!, cost_estimated: p.estimated ?? s.cost_estimated } : s));
+        break;
+      }
       case "agent.typing": {
         const p = ev.payload as { agent_id: string; typing: boolean };
         setTyping((t) => ({ ...t, [p.agent_id]: p.typing }));
@@ -161,7 +170,7 @@ export default function SessionPage() {
         break;
     }
   }, [sessionId]);
-  const conn = useStream(workspace?.id, onEvent, { sessionIds: [sessionId], onResync: () => void load() });
+  const conn = useWorkspaceStream(workspace?.id, onEvent, { onResync: () => void load() });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });

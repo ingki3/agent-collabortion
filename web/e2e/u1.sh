@@ -24,7 +24,11 @@ NAME="${E2E_NAME:-민지}"
 export AGENT_BROWSER_SESSION="${AGENT_BROWSER_SESSION:-colab-u1-${STAMP}}"
 
 ab() { agent-browser "$@"; }
+# agent-browser screenshot [selector] [path] [--full]
+# 전체 페이지 플래그는 `--full`(`-f`)이고 **경로 뒤**에 둔다. `--full-page` 는 없는 옵션이라 경로 인자로 잡혀
+# 저장소에 `--full-page` 라는 파일이 생긴다(PR #21 리뷰 R3).
 shot() { ab screenshot "$SHOT_DIR/$1.png" >/dev/null; echo "  📸 $SHOT_DIR/$1.png"; }
+shot_full() { ab screenshot "$SHOT_DIR/$1.png" --full >/dev/null; echo "  📸 $SHOT_DIR/$1.png (full)"; }
 step() { echo; echo "▶ $*"; }
 fail() { echo "✗ $*" >&2; shot "u1-failure" || true; ab close >/dev/null 2>&1 || true; exit 1; }
 # 텍스트가 나타날 때까지 (초)
@@ -123,5 +127,5 @@ ab click '[data-testid="composer-send"]' >/dev/null
 ab wait --fn "document.querySelectorAll('[data-testid=\"message-card\"]').length >= 4" --timeout "$((PAIR_TIMEOUT * 1000))" >/dev/null || fail "멘션 답글이 오지 않음"
 ab find testid activity-toggle click >/dev/null 2>&1 || true
 ab wait '[data-testid="activity-rail"]' >/dev/null 2>&1 || true
-shot "u1-15-s7-reply-and-rail"
+shot_full "u1-15-s7-reply-and-rail"
 echo "✓ 2부 통과 — U1 13단계 + 멘션 왕복"

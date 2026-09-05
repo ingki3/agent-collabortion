@@ -401,7 +401,13 @@ function simulateRun(s: Store, sess: Session, task: MockTask, reply: string) {
   });
   at(1200, () => {
     if (thinking) supersede(s, sess, task, thinking, { class: "message", verb: "think", object_ref: { kind: "thought", chars: 412 }, outcome: "ok", sentence: `${agent.name}가 계획을 생각했다 → ok` });
-    pushEvent(s, sess, task, { class: "tool", verb: "read", object_ref: { path: "README.md" }, outcome: "ok", tool: "Read", sentence: `${agent.name}가 README.md 를 읽었다 → ok` });
+    // 데몬(PR #20)처럼 한 툴 호출을 started → ok 두 이벤트로, superseded_by 없이 tool_call_id 로만 잇는다(R1 검증용)
+    const tcid = `call_${task.id.slice(0, 8)}`;
+    pushEvent(s, sess, task, { class: "tool", verb: "read", object_ref: { path: "README.md" }, outcome: "started", tool: "Read", sentence: `${agent.name}가 README.md 를 읽는 중…`, payload: { tool_call_id: tcid, kind: "read" } } as Partial<TaskEvent> & Pick<TaskEvent, "class">);
+  });
+  at(1400, () => {
+    const tcid = `call_${task.id.slice(0, 8)}`;
+    pushEvent(s, sess, task, { class: "tool", verb: "read", object_ref: { path: "README.md" }, outcome: "ok", tool: "Read", sentence: `${agent.name}가 README.md 를 읽었다 → ok`, payload: { tool_call_id: tcid, kind: "read" } } as Partial<TaskEvent> & Pick<TaskEvent, "class">);
   });
   const chunks = reply.match(/.{1,12}/gs) ?? [reply];
   chunks.forEach((c, i) => at(1500 + i * 60, () => emit(s, sess.workspace_id, "message.delta", { session_id: sess.id, task_id: task.id, agent_id: agent.id, text: c }, sess.id, true)));

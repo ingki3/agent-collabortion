@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { api, errorMessage } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { useStream } from "@/lib/realtime/stream";
+import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
 import { relativeTime } from "@/lib/time";
 import { sessionBadgeLabel } from "@/lib/session-label";
 import type { Runtime, SessionListItem, StreamEvent } from "@/lib/api/types";
@@ -52,7 +52,7 @@ export default function SessionsPage() {
     },
     [load],
   );
-  useStream(workspace?.id, onEvent, { onResync: () => void load() });
+  useWorkspaceStream(workspace?.id, onEvent, { onResync: () => void load() });
 
   const noRuntime = runtimes !== null && runtimes.filter((r) => r.status === "online").length === 0;
 
