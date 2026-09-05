@@ -8,6 +8,8 @@
 | 배정 | S·D·C·W **동시** fan-out(각자 워크트리, PR 하나). Reviewer = Hermes(Orca 터미널), Integrator = 별도 worker(4개 머지 후) |
 | 예산 (PLAN §6.2 G3) | `blocked` ≤ 10, PR ≤ 30, PR당 리뷰 반려 ≤ 3 |
 
+**모델(2026-09-06 Director 결정)**: worker는 **Opus 5**로 띄운다 — `orca orchestration worker-start … --agent claude --model opus`. Fable 한도가 먼저 소진돼 작업이 멈추기 때문이다. 실행 중인 worker는 터미널에 `/model opus` → 확인 `1`로 전환한다.
+
 공통 규칙 (모든 작업): **Orca 워크트리 브랜치는 main 기준으로 생긴다 — 작업 시작 전에 반드시 `git fetch origin dev && git checkout -b <feature-branch> origin/dev`로 갈아타라(contracts/·server/·EVAL.md가 없으면 갈아타지 않은 것이다).** PR은 `GH_PROMPT_DISABLED=1 gh pr create --repo ingki3/agent-collabortion --base dev --head <branch> --title … --body-file <file>`(프롬프트에서 멈추는 것 방지). dev에서 feature 브랜치 → PR to dev. **`contracts/` 수정 금지** — 계약 결함은 `orca orchestration ask`로 Lead에게(Director 승인 PR로만 바뀐다). 남의 스트림 디렉토리 수정 금지. 테스트 파일은 자기 스트림 안에서만. `.github/` 수정은 CI 잡 추가에 한해 허용(PR 본문에 명시). 한도(rate limit)에 걸리면 기다리지 말고 지금까지 결과로 PR을 열고 `worker_done --outcome failed`에 리셋 시각을 적어라. 완료는 `worker_done`(PR URL, 테스트 결과, 계약과 다르게 한 것·발견한 계약 결함).
 
 ---
