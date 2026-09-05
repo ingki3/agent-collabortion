@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 문서 버전 | **v0.11 (Draft)** — 개발 계획 리뷰 #01이 드러낸 컷 표·스파이크 시점 2건 반영. 이전 버전은 `prd/` |
+| 문서 버전 | **v0.12 (Draft)** — 스키마 v0 구현(PR #7)에서 드러난 §7 결함 1건 반영(agent.status는 저장하지 않는다). 이전 버전은 `prd/` |
 | 작성일 | 2026-09-03 |
 | 파생 문서 | **`SCREEN.md`** (화면 설계 SSOT) — 이 PRD를 화면으로 옮기며 드러난 공백이 v0.9 변경 요약에 반영되어 있다. **`PLAN.md`** (개발 계획 SSOT, 이전 버전·리뷰는 `plan/`) — §10·§12를 주차로 펼치며 드러난 것이 v0.11에 반영되어 있다 |
 | 리뷰 이력 | `PRD_REVIEW_01` → v0.5 · `PRD_REVIEW_02` → v0.6 · `PRD_REVIEW_03` → v0.7 · `PRD_REVIEW_04` (`blocked` 경로 공백 6 / 소소한 것 8) → v0.8. **전건 반영, 반대 항목 없음** |
@@ -139,6 +139,12 @@ v0.7은 `blocked` 상태를 **추가**했지만 그것이 기존 규칙들과 �
 | P7 | **사람의 세션 역할이 정의되지 않았다.** FR-5.3 한 문장뿐이라 화면 문서가 `participant`/`observer`를 만들었고, PRD가 허용한 게시를 금지하는 결과가 됐다 | **FR-5.3 재작성.** 사람은 Director·deputy·워크스페이스 멤버 셋. 멤버는 열람·게시 가능, 비공개 세션은 v1.1. `participant`는 에이전트 전용 용어 | FR-5.3 |
 
 **교훈으로 남길 것** — P7은 "PRD가 말하지 않은 것을 파생 문서가 채우면, 그 채움이 PRD 규칙을 위반해도 아무도 모른다"는 사례다. 앞으로 파생 문서가 새 개념을 도입하면 **PRD에 없는 개념임을 명시**하고 되돌려 확인받는다. `screen/SCREEN_01.md` §8.2가 그 역할을 했다.
+
+### v0.12 변경 요약 (스키마 v0 구현 반영)
+
+| # | 문제 | 조치 | 위치 |
+|---|---|---|---|
+| S1′ | §7 agent 표에 `status` 컬럼이 있었으나 FR-1.3(v0.10)은 "저장하지 않고 파생·계산"으로 확정 | §7에서 컬럼 제거, ENUM 값 집합만 유지. `error` 파생에 필요한 실패 분류는 `task.failure_kind`(auth·quota·config·network·runtime_offline·stall·timeout·cancelled·other)로 | §7 |
 
 ### v0.11 변경 요약 (개발 계획 리뷰 #01 반영)
 
@@ -887,7 +893,8 @@ workspace 1─N agent (name, role, role_description, instructions, tools,
                      owner_id, respond_to, respond_to_allowlist[],
                      avatar_url, budget_per_task, max_concurrent_tasks,
                      definition_source, definition_version,
-                     status: idle|working|waiting_human|error|offline|disabled,
+                     -- status 컬럼 없음: FR-1.3에 따라 task 상태에서 파생·계산한다 (v0.12, 스키마 v0에서 발견).
+                     -- 값 집합(idle|working|waiting_human|error|offline|disabled)은 ENUM 타입으로만 존재
                      archived_at)
 agent     1─N agent_profile (name, runtime_kind, model, options(jsonb),
                              env(jsonb), args[], is_default, fallback_profile_id?)

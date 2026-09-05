@@ -67,7 +67,7 @@ PRD §8.1의 구성을 따른다. 기술 스택은 **Go 서버 · Next.js 웹 ·
 | **스파이크 6** Claude Code CLI 플래그 재확인 (반나절) | 부록 C 대조표 | D |
 | 스키마 v0 | PRD §7 전체를 마이그레이션으로. `message.state`, `task.budget_override`, `lane.runtime_session_ref` 등 v1.1용 필드도 지금 넣는다 — 스파이크 결과와 무관 | S |
 | 프로젝트 골격 | 모노레포, CI, `make dev`(Postgres·서버·데몬·웹), 관측 스켈레톤 | S+W |
-| 디자인 토큰 | 색 19개·글리프·soft/solid를 CSS 변수와 Badge 컴포넌트로(SCREEN §9-1) | W |
+| 디자인 토큰 | 변수 19개(색 18 + 글꼴)·글리프·soft/solid를 CSS 변수와 Badge 컴포넌트로(SCREEN §9-1) | W |
 
 **스파이크 5**(워크트리 지시 파일)는 **P4 착수 전**으로 옮긴다. worktree 종속이고, 컷 3이 발동하면 아예 필요 없다.
 

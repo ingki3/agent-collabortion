@@ -6,7 +6,7 @@
 
 GO_MODULES := contracts server daemon cli
 PG_CONTAINER := colab-pg
-PG_PORT ?= 5432
+PG_PORT ?= 5433  # 5432는 로컬 ssh 터널 등이 흔히 점유한다
 PG_URL ?= postgres://colab:colab@localhost:$(PG_PORT)/colab?sslmode=disable
 
 .PHONY: dev db db-stop migrate test-db build test vet lint web-install web-dev clean
