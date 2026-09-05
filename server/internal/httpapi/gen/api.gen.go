@@ -853,19 +853,16 @@ func (e RespondTo) Valid() bool {
 
 // Defines values for RuntimeCapabilityBriefTransport.
 const (
-	RuntimeCapabilityBriefTransportAcpMetaSystemPrompt RuntimeCapabilityBriefTransport = "acp_meta_system_prompt"
-	RuntimeCapabilityBriefTransportInstructionFile     RuntimeCapabilityBriefTransport = "instruction_file"
-	RuntimeCapabilityBriefTransportLessThannil         RuntimeCapabilityBriefTransport = "<nil>"
+	AcpMetaSystemPrompt RuntimeCapabilityBriefTransport = "acp_meta_system_prompt"
+	InstructionFile     RuntimeCapabilityBriefTransport = "instruction_file"
 )
 
 // Valid indicates whether the value is a known member of the RuntimeCapabilityBriefTransport enum.
 func (e RuntimeCapabilityBriefTransport) Valid() bool {
 	switch e {
-	case RuntimeCapabilityBriefTransportAcpMetaSystemPrompt:
+	case AcpMetaSystemPrompt:
 		return true
-	case RuntimeCapabilityBriefTransportInstructionFile:
-		return true
-	case RuntimeCapabilityBriefTransportLessThannil:
+	case InstructionFile:
 		return true
 	default:
 		return false
@@ -2478,7 +2475,7 @@ type RuntimeCapability struct {
 	// AllowOnceMissing 권한 협상에서 allow_once 부재 3회 누적(E12-03)
 	AllowOnceMissing *bool `json:"allow_once_missing,omitempty"`
 
-	// BriefTransport 브리프 전달 경로(harness §1)
+	// BriefTransport 브리프 전달 경로(harness §1). 값이 없으면 필드를 생략하거나 null — enum에 null을 넣지 않는다(생성기가 상수 '<nil>'을 만든다, v0.4.2).
 	BriefTransport nullable.Nullable[RuntimeCapabilityBriefTransport] `json:"brief_transport,omitempty"`
 
 	// Kind `runtime_kind` (FR-1.6)
@@ -2502,7 +2499,7 @@ type RuntimeCapability struct {
 	Version nullable.Nullable[string] `json:"version,omitempty"`
 }
 
-// RuntimeCapabilityBriefTransport 브리프 전달 경로(harness §1)
+// RuntimeCapabilityBriefTransport 브리프 전달 경로(harness §1). 값이 없으면 필드를 생략하거나 null — enum에 null을 넣지 않는다(생성기가 상수 '<nil>'을 만든다, v0.4.2).
 type RuntimeCapabilityBriefTransport string
 
 // RuntimeDetail defines model for RuntimeDetail.
