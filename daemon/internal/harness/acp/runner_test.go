@@ -295,6 +295,34 @@ func TestCancelAfterCurrentToolWaitsThenForces(t *testing.T) {
 	assertGroupGone(t, res.PGID)
 }
 
+// G3 D-1 — the run context dying while the §5 procedure is still in its
+// step-1 after_current_tool wait must not turn session/prompt's
+// "context canceled" into failed(other): the cancel intent set by Cancel
+// classifies it cancelled (E10-13).
+func TestCancelIntentBeatsContextCancellation(t *testing.T) {
+	s := acpfake.Script{StayAlive: true, Turns: []acpfake.Turn{{Steps: []acpfake.Step{
+		{ToolCall: &acpfake.ToolCallStep{ID: "t1", Title: "Bash", Kind: "execute", Command: "sleep 100"}},
+		{HangForever: true},
+	}}}}
+	clk := clock.NewFake(time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC))
+	f := newFixture(t, s, bundle(contracts.RuntimeClaudeCode), func(a *acp.Attempt) { a.Clock = clk })
+	ctx, cancel := context.WithCancel(context.Background())
+	var res acp.Result
+	done := make(chan struct{})
+	go func() { res = f.runner.Run(ctx); close(done) }()
+	waitFor(t, func() bool { return len(f.sink.find("tool", "run_shell", "started")) == 1 })
+	go f.runner.Cancel(context.Background(), acp.CancelRequest{AfterCurrentTool: true, Reason: "kill_switch"})
+	// the procedure is parked in step 1 (the tool never completes, the clock
+	// never advances) — this is the D-1 race: ctx dies first.
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+	<-done
+	if res.Outcome != "cancelled" || res.Failure == nil || res.Failure.Kind != contracts.FailCancelled {
+		t.Fatalf("result %+v — want cancelled, not failed(other)", res)
+	}
+	assertGroupGone(t, res.PGID)
+}
+
 // E12-04 — Hermes: chunk after the prompt response is captured (250ms wait).
 func TestHermesLateChunkAfterResponse(t *testing.T) {
 	s := acpfake.Script{Kind: "hermes", Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "PO"}}, LateChunk: "NG", LateDelayMs: 100}}}
