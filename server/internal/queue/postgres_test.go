@@ -82,6 +82,56 @@ func TestClaimFixesRuntimeAndRejectsOthers(t *testing.T) {
 	}
 }
 
+// A runtime paired to another workspace is never a candidate for a `none`
+// session with runtime_id NULL (FR-2.1 M10, FR-1.9): it must get nothing and
+// must not pin the session. The session's own workspace runtime still claims
+// and pins it (E11-10).
+func TestClaimScopedToSessionWorkspace(t *testing.T) {
+	q, c, s := newQueue(t)
+	ctx := context.Background()
+	wsB := testdb.AddWorkspace(t, q.DB, "ws-b", t0)
+	rtB := testdb.AddRuntime(t, q.DB, wsB, "mac-b", t0)
+	task1 := testdb.AddTask(t, q.DB, s, s.SessionID, t0)
+
+	bundles, err := q.Claim(ctx, rtB.String(), 4, c.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundles) != 0 {
+		t.Fatalf("workspace-B runtime claimed %d tasks from a workspace-A session", len(bundles))
+	}
+	var fixed *uuid.UUID
+	if err := q.DB.QueryRow(ctx, `SELECT runtime_id FROM session WHERE id = $1`, s.SessionID).Scan(&fixed); err != nil {
+		t.Fatal(err)
+	}
+	if fixed != nil {
+		t.Fatalf("session pinned to %v by a foreign runtime", *fixed)
+	}
+	if st, _, _ := status(t, q, task1); st != "queued" {
+		t.Fatalf("task status = %s, want queued", st)
+	}
+
+	// Unknown runtime id: nothing, no error.
+	bundles, err = q.Claim(ctx, uuid.New().String(), 4, c.Now())
+	if err != nil || len(bundles) != 0 {
+		t.Fatalf("unknown runtime: bundles=%d err=%v", len(bundles), err)
+	}
+
+	bundles, err = q.Claim(ctx, s.RuntimeID.String(), 4, c.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundles) != 1 || bundles[0].Task.ID != task1.String() {
+		t.Fatalf("same-workspace runtime should claim task1, got %+v", bundles)
+	}
+	if err := q.DB.QueryRow(ctx, `SELECT runtime_id FROM session WHERE id = $1`, s.SessionID).Scan(&fixed); err != nil {
+		t.Fatal(err)
+	}
+	if fixed == nil || *fixed != s.RuntimeID {
+		t.Fatalf("session runtime not fixed to workspace-A runtime (E11-10): %v", fixed)
+	}
+}
+
 // E5-04 / not_before / one in-flight task per lane.
 func TestClaimExclusions(t *testing.T) {
 	q, c, s := newQueue(t)

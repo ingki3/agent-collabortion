@@ -31,7 +31,10 @@ func NewPostgres(pool *pgxpool.Pool, c clock.Clock, t *tasks.Service, n *Notifie
 
 // Claim hands out up to capacity queued tasks to runtimeID:
 //   - only sessions fixed to this runtime (E11-09); a `none` session with no
-//     runtime is fixed to the first claimer (E11-10)
+//     runtime is fixed to the first claimer (E11-10) — but only a runtime of
+//     the session's own workspace is ever a candidate (FR-2.1 M10, FR-1.9):
+//     a daemon paired to workspace B must never claim, and thereby pin,
+//     workspace A's session
 //   - session must be active (paused → nothing, E5-04)
 //   - not_before must have passed (rate_limited)
 //   - one in-flight task per lane (FR-6.3)
@@ -52,10 +55,13 @@ func (p *Postgres) Claim(ctx context.Context, runtimeID string, capacity int, no
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
 	rows, err := tx.Query(ctx, `
-		SELECT t.id FROM task t JOIN session s ON s.id = t.session_id
+		SELECT t.id FROM task t
+		  JOIN session s ON s.id = t.session_id
+		  JOIN runtime r ON r.id = $1
 		WHERE t.status = 'queued'
 		  AND s.status = 'active'
-		  AND (s.runtime_id = $1 OR (s.runtime_id IS NULL AND s.isolation->>'kind' = 'none'))
+		  AND s.workspace_id = r.workspace_id
+		  AND (s.runtime_id = r.id OR (s.runtime_id IS NULL AND s.isolation->>'kind' = 'none'))
 		  AND (t.not_before IS NULL OR t.not_before <= $2)
 		  AND NOT EXISTS (SELECT 1 FROM task r WHERE r.lane_id = t.lane_id AND r.status IN ('dispatched', 'preparing', 'running'))
 		ORDER BY t.created_at
@@ -84,8 +90,12 @@ func (p *Postgres) Claim(ctx context.Context, runtimeID string, capacity int, no
 		if err != nil {
 			return nil, err
 		}
-		// E11-10: fix the session to the first runtime that claims it.
-		if _, err := tx.Exec(ctx, `UPDATE session SET runtime_id = $2, updated_at = $3 WHERE id = $1 AND runtime_id IS NULL`, t.SessionID, rt, now); err != nil {
+		// E11-10: fix the session to the first runtime that claims it. The
+		// workspace guard mirrors the SELECT so the session can never be pinned
+		// to a runtime outside its workspace.
+		if _, err := tx.Exec(ctx, `UPDATE session SET runtime_id = $2, updated_at = $3
+			WHERE id = $1 AND runtime_id IS NULL
+			  AND workspace_id = (SELECT workspace_id FROM runtime WHERE id = $2)`, t.SessionID, rt, now); err != nil {
 			return nil, err
 		}
 		token, err := p.Tasks.MarkDispatched(ctx, tx, t, rt, now)

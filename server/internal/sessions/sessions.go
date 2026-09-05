@@ -88,12 +88,15 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 	if nRuntimes == 0 {
 		return nil, apperr.Conflict("no_runtime", "connect a computer first")
 	}
+	// An explicit runtime must belong to this workspace (FR-2.1 M10; the claim
+	// path relies on it). Unknown and foreign runtimes get the same answer so
+	// the response does not reveal whether a runtime exists elsewhere.
 	var runtimeID *uuid.UUID
 	if in.RuntimeId.IsSpecified() && !in.RuntimeId.IsNull() {
 		id := uuid.UUID(in.RuntimeId.MustGet())
 		var rws uuid.UUID
 		if err := s.DB.QueryRow(ctx, `SELECT workspace_id FROM runtime WHERE id = $1`, id).Scan(&rws); err != nil || rws != wsID {
-			return nil, apperr.Validation(apperr.Field("runtime_id", "not_found", "runtime not in this workspace"))
+			return nil, apperr.Validation(apperr.Field("runtime_id", "runtime_not_in_workspace", "runtime not in this workspace"))
 		}
 		runtimeID = &id
 	}

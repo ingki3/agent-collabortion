@@ -169,6 +169,14 @@ func TestVerticalSlice(t *testing.T) {
 	if str(sess, "status") != "active" || str(sess, "my_role") != "director" || sess["runtime_id"] != nil {
 		t.Fatalf("session = %v", sess)
 	}
+	// A runtime paired to another workspace cannot be this session's runtime (FR-2.1 M10).
+	foreignRuntime := testdb.AddRuntime(t, pool, testdb.AddWorkspace(t, pool, "other-ws", t0), "mac-b", t0)
+	if st, out, _ := api.do("POST", p+"/workspaces/"+wsID+"/sessions", map[string]any{
+		"title": "Leak", "goal": "g", "isolation": map[string]any{"kind": "none"}, "runtime_id": foreignRuntime.String(),
+		"participants": []map[string]any{{"agent_id": agentID}},
+	}); st != 422 || str(out, "code") != "validation_failed" || !hasFieldError(out, "runtime_id", "runtime_not_in_workspace") {
+		t.Fatalf("foreign runtime_id = %d %v, want 422 runtime_not_in_workspace", st, out)
+	}
 
 	// --- post message: rule 2, idempotent replay, non-participant warning ---
 	mention := router.MentionLink("Lead", mustUUID(t, agentID))
@@ -462,6 +470,19 @@ func TestVerticalSlice(t *testing.T) {
 		t.Fatalf("stream message.created rows = %d, want 7", streamed)
 	}
 	fmt.Fprintln(io.Discard, agent, other)
+}
+
+// hasFieldError reports whether a validation_failed problem carries the
+// given field/code pair in errors[].
+func hasFieldError(out map[string]any, field, code string) bool {
+	errs, _ := out["errors"].([]any)
+	for _, e := range errs {
+		m, _ := e.(map[string]any)
+		if str(m, "field") == field && str(m, "code") == code {
+			return true
+		}
+	}
+	return false
 }
 
 func mustUUID(t *testing.T, s string) uuid.UUID {
