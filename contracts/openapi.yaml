@@ -3418,7 +3418,10 @@ components:
         resume: { type: boolean, description: 'session/load 지원 — harness §6' }
         usage: { type: boolean, description: '사용량 보고 여부. false면 비용은 추정 배지(FR-7.3)' }
         tool_disallow: { type: boolean, description: '툴 차단 수단 존재(harness §3)' }
-        brief_transport: { type: [string, 'null'], enum: [acp_meta_system_prompt, instruction_file, null], description: '브리프 전달 경로(harness §1)' }
+        brief_transport:
+          type: [string, 'null']
+          enum: [acp_meta_system_prompt, instruction_file]
+          description: '브리프 전달 경로(harness §1). 값이 없으면 필드를 생략하거나 null — enum에 null을 넣지 않는다(생성기가 상수 ''<nil>''을 만든다, v0.4.2).'
         allow_once_missing: { type: boolean, description: '권한 협상에서 allow_once 부재 3회 누적(E12-03)' }
 
     RuntimeRepo:
