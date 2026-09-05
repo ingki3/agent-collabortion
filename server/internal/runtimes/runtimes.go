@@ -154,21 +154,34 @@ func (s *Service) Pair(ctx context.Context, code, hostname, os, daemonVersion st
 	}
 	daemonToken = random(DaemonTokenPrefix, 32)
 	host := hostname
+	// Re-pairing the same hostname into the same workspace (reinstall, U12·F1)
+	// collides on runtime (workspace_id, name). The retry with a "-2", "-3"
+	// suffix runs inside a savepoint: a failed INSERT aborts the enclosing
+	// transaction otherwise (25P02, G3 S-4 / E11-12).
 	for i := 0; ; i++ {
 		candidate := rtName
 		if i > 0 {
 			candidate = fmt.Sprintf("%s-%d", rtName, i+1)
 		}
-		err = tx.QueryRow(ctx, `
+		sp, err := tx.Begin(ctx) // pgx nested tx = SAVEPOINT
+		if err != nil {
+			return uuid.Nil, "", err
+		}
+		err = sp.QueryRow(ctx, `
 			INSERT INTO runtime (workspace_id, name, host, status, daemon_version, last_seen_at, daemon_token_hash, created_at, updated_at)
 			VALUES ($1, $2, $3, 'online', $4, $5, $6, $5, $5) RETURNING id`,
 			wsID, candidate, host, daemonVersion, now, hash(daemonToken)).Scan(&runtimeID)
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" && i < 20 {
+			_ = sp.Rollback(ctx) // ROLLBACK TO SAVEPOINT; the outer tx stays usable
 			continue
 		}
 		if err != nil {
+			_ = sp.Rollback(ctx)
 			return uuid.Nil, "", fmt.Errorf("runtimes: insert runtime: %w", err)
+		}
+		if err := sp.Commit(ctx); err != nil {
+			return uuid.Nil, "", err
 		}
 		break
 	}

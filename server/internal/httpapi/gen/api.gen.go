@@ -851,18 +851,21 @@ func (e RespondTo) Valid() bool {
 	}
 }
 
-// Defines values for RuntimeCapabilityTransport.
+// Defines values for RuntimeCapabilityBriefTransport.
 const (
-	RuntimeCapabilityTransportAcp RuntimeCapabilityTransport = "acp"
-	RuntimeCapabilityTransportCli RuntimeCapabilityTransport = "cli"
+	RuntimeCapabilityBriefTransportAcpMetaSystemPrompt RuntimeCapabilityBriefTransport = "acp_meta_system_prompt"
+	RuntimeCapabilityBriefTransportInstructionFile     RuntimeCapabilityBriefTransport = "instruction_file"
+	RuntimeCapabilityBriefTransportLessThannil         RuntimeCapabilityBriefTransport = "<nil>"
 )
 
-// Valid indicates whether the value is a known member of the RuntimeCapabilityTransport enum.
-func (e RuntimeCapabilityTransport) Valid() bool {
+// Valid indicates whether the value is a known member of the RuntimeCapabilityBriefTransport enum.
+func (e RuntimeCapabilityBriefTransport) Valid() bool {
 	switch e {
-	case RuntimeCapabilityTransportAcp:
+	case RuntimeCapabilityBriefTransportAcpMetaSystemPrompt:
 		return true
-	case RuntimeCapabilityTransportCli:
+	case RuntimeCapabilityBriefTransportInstructionFile:
+		return true
+	case RuntimeCapabilityBriefTransportLessThannil:
 		return true
 	default:
 		return false
@@ -2467,26 +2470,40 @@ type RuntimeCandidate struct {
 	Runtime Runtime                   `json:"runtime"`
 }
 
-// RuntimeCapability probe() 항목: `capabilities` jsonb 원소.
+// RuntimeCapability probe() 항목: `capabilities` jsonb 원소. **contracts/protocol.go `Capability`와 키가 1:1**(v0.4.1, PR #26 대조표 — 이전 transport[]·usage_reporting·options는 protocol.go에 없어 채워지지 않았다). 데몬 → 서버 → 웹이 같은 모양을 쓴다(harness.md §9).
 type RuntimeCapability struct {
+	// AdapterVersion ACP 어댑터 실측 버전. 실측 실패 시 null(핀 상수로 채우지 않는다).
+	AdapterVersion nullable.Nullable[string] `json:"adapter_version,omitempty"`
+
+	// AllowOnceMissing 권한 협상에서 allow_once 부재 3회 누적(E12-03)
+	AllowOnceMissing *bool `json:"allow_once_missing,omitempty"`
+
+	// BriefTransport 브리프 전달 경로(harness §1)
+	BriefTransport nullable.Nullable[RuntimeCapabilityBriefTransport] `json:"brief_transport,omitempty"`
+
 	// Kind `runtime_kind` (FR-1.6)
 	Kind     RuntimeKind `json:"kind"`
 	LoggedIn bool        `json:"logged_in"`
 	Models   *[]string   `json:"models,omitempty"`
 
-	// Options 광고된 옵션 능력(예 `effort` 허용값). 프로파일 편집기 비활성 판정용(§8.2.6).
-	Options *map[string]interface{} `json:"options,omitempty"`
+	// ProtocolVersion ACP initialize 응답. v1은 1.
+	ProtocolVersion nullable.Nullable[int] `json:"protocol_version,omitempty"`
 
-	// Transport 데몬이 판단한 사용 가능 경로(§8.2).
-	Transport *[]RuntimeCapabilityTransport `json:"transport,omitempty"`
+	// Resume session/load 지원 — harness §6
+	Resume *bool `json:"resume,omitempty"`
 
-	// UsageReporting 사용량을 보고하는지. false면 비용은 추정치(FR-7.3).
-	UsageReporting *bool                     `json:"usage_reporting,omitempty"`
-	Version        nullable.Nullable[string] `json:"version,omitempty"`
+	// ToolDisallow 툴 차단 수단 존재(harness §3)
+	ToolDisallow *bool `json:"tool_disallow,omitempty"`
+
+	// Usage 사용량 보고 여부. false면 비용은 추정 배지(FR-7.3)
+	Usage *bool `json:"usage,omitempty"`
+
+	// Version 런타임 CLI 버전(예 Claude Code 2.1.258
+	Version nullable.Nullable[string] `json:"version,omitempty"`
 }
 
-// RuntimeCapabilityTransport defines model for RuntimeCapability.Transport.
-type RuntimeCapabilityTransport string
+// RuntimeCapabilityBriefTransport 브리프 전달 경로(harness §1)
+type RuntimeCapabilityBriefTransport string
 
 // RuntimeDetail defines model for RuntimeDetail.
 type RuntimeDetail struct {

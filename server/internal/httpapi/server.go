@@ -54,16 +54,25 @@ type Server struct {
 
 // Deps builds every service on one pool and clock (used by main and tests).
 type Deps struct {
-	DB        *pgxpool.Pool
-	Clock     clock.Clock
-	Log       *slog.Logger
+	DB    *pgxpool.Pool
+	Clock clock.Clock
+	Log   *slog.Logger
+	// ServerURL is the API origin (COLAB_SERVER_URL): daemon install
+	// commands and the CLI point here.
 	ServerURL string
+	// WebURL is the origin people open in a browser (COLAB_WEB_URL): invite
+	// links. Falls back to ServerURL — in `make dev` the web is :3000 and the
+	// server :8080 (G3 S-5).
+	WebURL string
 }
 
 // NewServer wires the services.
 func NewServer(d Deps) *Server {
 	if d.Log == nil {
 		d.Log = slog.Default()
+	}
+	if d.WebURL == "" {
+		d.WebURL = d.ServerURL
 	}
 	hub := realtime.New(d.DB, d.Clock)
 	tok := tokens.New(d.Clock)
@@ -73,7 +82,7 @@ func NewServer(d Deps) *Server {
 	rt := router.New(d.DB, d.Clock, hub, notifier)
 	return &Server{
 		DB: d.DB, Clock: d.Clock, Log: d.Log,
-		Auth:     auth.New(d.DB, d.Clock, d.ServerURL),
+		Auth:     auth.New(d.DB, d.Clock, d.WebURL),
 		Agents:   agents.New(d.DB, d.Clock),
 		Runtimes: runtimes.New(d.DB, d.Clock, hub, d.ServerURL),
 		Sessions: sessions.New(d.DB, d.Clock, hub, rt),

@@ -39,7 +39,7 @@ var ErrNoSession = errors.New("auth: no valid user session")
 type Service struct {
 	DB      *pgxpool.Pool
 	Clock   clock.Clock
-	BaseURL string // for invite URLs
+	BaseURL string // web origin for invite URLs (COLAB_WEB_URL, else the server URL)
 }
 
 func New(pool *pgxpool.Pool, c clock.Clock, baseURL string) *Service {
