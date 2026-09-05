@@ -103,16 +103,23 @@ type Runner struct {
 	toolDone     chan struct{} // closed when the in-flight edit/shell completes
 	lastRL       *RateLimitMeta
 	allowMissing int
-	cancelling   bool
-	cancelReq    *CancelRequest
-	stalled      bool
-	promptDone   chan struct{}
-	closeOnce    sync.Once
-	rawInit      *RawInit
-	planTotal    int
-	planDone     int
-	usage        contracts.Usage
-	available    []string
+	// intent is set the moment Cancel is called — before the §5 step-1
+	// after_current_tool wait — so a session/prompt that ends with
+	// "context canceled" while the procedure runs is classified cancelled,
+	// not failed(other) (G3 D-1, E10-13). cancelling is the narrower §5
+	// step-2 gate: only from there are pending permission requests answered
+	// "cancelled". The stall watcher sets cancelling without intent.
+	intent     bool
+	cancelling bool
+	cancelReq  *CancelRequest
+	stalled    bool
+	promptDone chan struct{}
+	closeOnce  sync.Once
+	rawInit    *RawInit
+	planTotal  int
+	planDone   int
+	usage      contracts.Usage
+	available  []string
 }
 
 // New prepares a Runner.
@@ -191,7 +198,7 @@ func (r *Runner) fail(kind contracts.FailureKind, detail string, nb *time.Time) 
 
 func (r *Runner) classify(err error) Result {
 	r.mu.Lock()
-	rl, cancelled, req := r.lastRL, r.cancelling, r.cancelReq
+	rl, cancelled, req := r.lastRL, r.intent || r.cancelling, r.cancelReq
 	r.mu.Unlock()
 	if cancelled && !r.isStalled() {
 		return Result{Outcome: "cancelled", StopReason: "cancelled", Failure: &Failure{Kind: contracts.FailCancelled, Detail: cancelReason(req)}}
@@ -312,7 +319,7 @@ func (r *Runner) run(ctx context.Context) Result {
 		time.Sleep(r.a.Quiet) // §2.2: late agent_message_chunk after the response
 	}
 	r.mu.Lock()
-	stalled, cancelled, cancelReq := r.stalled, r.cancelling, r.cancelReq
+	stalled, cancelled, cancelReq := r.stalled, r.intent || r.cancelling, r.cancelReq
 	text, ntools := r.say.String(), len(r.tools)
 	r.mu.Unlock()
 	// §8 v0.3 Hermes body rule: a turn whose whole body is the provider
@@ -834,9 +841,16 @@ func (r *Runner) startStallWatch(ctx context.Context) func() {
 func (r *Runner) Cancel(ctx context.Context, req CancelRequest) {
 	r.mu.Lock()
 	r.cancelReq = &req
+	r.intent = true
 	r.mu.Unlock()
 	r.emit("runtime", "cancel", "", "started", map[string]any{"runtime_kind": string(r.kind()), "detail": req.Reason})
 	r.cancelProcedure(ctx, req.AfterCurrentTool)
+}
+
+// CancelNote records a §5 note on the attempt's activity feed (e.g. the
+// daemon's shutdown drain running over its bound).
+func (r *Runner) CancelNote(detail string) {
+	r.emit("runtime", "cancel", "", "info", map[string]any{"runtime_kind": string(r.kind()), "detail": detail})
 }
 
 func (r *Runner) cancelProcedure(ctx context.Context, afterCurrentTool bool) {

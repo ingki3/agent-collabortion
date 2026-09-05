@@ -44,6 +44,9 @@ type Daemon struct {
 	ClaimWait         time.Duration // 0 → contracts.ClaimMaxWait
 	ProbeInterval     time.Duration // 0 → 24h
 	KillAfter         time.Duration // 0 → contracts.KillAfterTerm
+	// ShutdownDrain bounds the whole §5 shutdown procedure of all running
+	// attempts. 0 → defaultShutdownDrain.
+	ShutdownDrain time.Duration
 
 	mu           sync.Mutex
 	running      map[string]*attemptRun
@@ -59,6 +62,12 @@ type attemptRun struct {
 	bundle contracts.TaskBundle
 	runner *acp.Runner
 }
+
+// defaultShutdownDrain bounds the shutdown cancel of every running attempt
+// (§5 step 1 ≤30s + step 4 ≤10s + step 5 SIGTERM→SIGKILL are per-attempt
+// bounds; this is the daemon-wide cap after which the attempt context is
+// cancelled anyway — the attempt still reports outcome=cancelled).
+const defaultShutdownDrain = 15 * time.Second
 
 func key(taskID string, attempt int) string { return fmt.Sprintf("%s.%d", taskID, attempt) }
 
@@ -87,9 +96,17 @@ func (d *Daemon) init() {
 	d.slotFreed = make(chan struct{}, 1)
 }
 
-// Run blocks until ctx is done. Every running attempt is cancelled on exit.
+// Run blocks until ctx is done. On exit every running attempt goes through
+// the harness §5 cancel procedure and reports finish outcome=cancelled.
 func (d *Daemon) Run(ctx context.Context) error {
 	d.init()
+	// Attempts run on a context that deliberately outlives ctx: on SIGTERM the
+	// §5 procedure must run (cancel intent → permission answers → session/cancel
+	// → drain) BEFORE anything tears session/prompt down. Cancelling ctx first
+	// ended the prompt with "context canceled" → finish failed(other) → the
+	// server requeued the attempt (G3 D-1, E10-13).
+	attemptCtx, cancelAttempts := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelAttempts()
 	// FR-9.1: orphans BEFORE the first claim (E11-05)
 	swept, err := d.Orphans.Sweep()
 	if err != nil {
@@ -139,21 +156,66 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 		d.handleCommands(ctx, res.Commands)
 		for _, b := range res.Tasks {
-			d.start(ctx, b)
+			d.start(attemptCtx, b)
 		}
 	}
-	// stop everything still running (§5 procedure, reason kill_switch)
+	d.stop(context.WithoutCancel(ctx), cancelAttempts)
+	d.wg.Wait()
+	return ctx.Err()
+}
+
+func (d *Daemon) shutdownDrain() time.Duration {
+	if d.ShutdownDrain > 0 {
+		return d.ShutdownDrain
+	}
+	return defaultShutdownDrain
+}
+
+// stop cancels every attempt still running (§5, reason kill_switch) and waits
+// for their finish, bounded by shutdownDrain. Over the bound the note "드레인
+// 초과" goes on each activity feed and the attempt context is cancelled — the
+// cancel intent is already set, so the attempt is still reported cancelled and
+// never failed(other) (E10-13).
+func (d *Daemon) stop(ctx context.Context, cancelAttempts context.CancelFunc) {
 	d.mu.Lock()
 	runs := make([]*attemptRun, 0, len(d.running))
 	for _, r := range d.running {
 		runs = append(runs, r)
 	}
 	d.mu.Unlock()
-	for _, r := range runs {
-		r.runner.Cancel(context.Background(), acp.CancelRequest{Reason: "kill_switch"})
+	if len(runs) == 0 {
+		cancelAttempts()
+		return
 	}
-	d.wg.Wait()
-	return ctx.Err()
+	var wg sync.WaitGroup
+	for _, r := range runs {
+		wg.Add(1)
+		go func(r *attemptRun) {
+			defer wg.Done()
+			d.cancelRun(ctx, r, acp.CancelRequest{Reason: "kill_switch"})
+		}(r)
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		d.wg.Wait() // the finish call of every attempt
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-d.Clock.After(d.shutdownDrain()):
+		d.Log("shutdown: cancel drain over %s — forcing", d.shutdownDrain())
+		for _, r := range runs {
+			r.runner.CancelNote("드레인 초과")
+		}
+	}
+	cancelAttempts()
+}
+
+// cancelRun is the one entry to the harness §5 procedure: the server `cancel`
+// command (§4.3), `revoke`, and daemon shutdown all go through it.
+func (d *Daemon) cancelRun(ctx context.Context, run *attemptRun, req acp.CancelRequest) {
+	run.runner.Cancel(ctx, req)
 }
 
 func (d *Daemon) probe(ctx context.Context) {
@@ -189,13 +251,13 @@ func (d *Daemon) handleCommands(ctx context.Context, cmds []contracts.Command) {
 		switch c.Type {
 		case contracts.CmdCancel:
 			if run != nil {
-				go run.runner.Cancel(ctx, acp.CancelRequest{AfterCurrentTool: c.AfterCurrentTool, Reason: c.Reason})
+				go d.cancelRun(ctx, run, acp.CancelRequest{AfterCurrentTool: c.AfterCurrentTool, Reason: c.Reason})
 			}
 		case contracts.CmdRevoke:
 			// token revoked: the attempt is dead server-side. Cancel a live
 			// process; kill a recorded orphan group (§5).
 			if run != nil {
-				go run.runner.Cancel(ctx, acp.CancelRequest{Reason: "revoked"})
+				go d.cancelRun(ctx, run, acp.CancelRequest{Reason: "revoked"})
 				continue
 			}
 			if recs, err := d.Orphans.List(); err == nil {
@@ -333,10 +395,14 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 
 	f := contracts.Finish{Outcome: res.Outcome, StopReason: res.StopReason, Usage: res.Usage, RuntimeSessionRef: res.SessionRef, ResumeOutcome: res.ResumeOutcome}
 	if res.Failure != nil {
-		f.FailureKind = res.Failure.Kind
-		f.NotBefore = res.Failure.NotBefore
 		if f.StopReason == "" {
 			f.StopReason = res.Failure.Detail
+		}
+		// daemon-protocol §4.4: `cancelled` is an outcome, not a failure — the
+		// server records failure_kind itself when it ends the task (E10-13).
+		if res.Outcome != "cancelled" {
+			f.FailureKind = res.Failure.Kind
+			f.NotBefore = res.Failure.NotBefore
 		}
 	}
 	finish(api.FinishRequest{Finish: f, Workdir: &api.FinishWorkdir{Path: wd}})
