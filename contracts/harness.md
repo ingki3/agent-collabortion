@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.2 (G2 후보) — 스파이크 1b(`plan/spikes/SPIKE_01b.md`) 반영으로 §12 미결 전부 닫힘 |
+| 버전 | v0.3 — PR #20(데몬 P1) 구현·리뷰에서 드러난 5건 반영(usage 시점, Hermes 모델 접두어, Hermes 본문 오류 접두어 규칙, disallowedTools 도출, 250ms 비주입). v0.2는 스파이크 1b 반영 |
 | 소유 | D + Lead. 변경은 Director 승인 PR로만 (`contracts/README.md`) |
 | 근거 | PRD §8.2 (하네스), §8.4 (브리프), FR-7.1 (재시도), FR-3.4·§8.2.2 (취소), FR-5.4 (재개). **G1 판정 `plan/G1_DECISION.md` 와 스파이크 보고서 `plan/spikes/SPIKE_01..06.md`, `SPIKE_01b.md`** — 이 문서의 수치·옵션 키는 전부 실측에서 왔다 |
 | 미결 | 없음 (§12 참조). 서브에이전트 가시성은 v1 피드 요구로 미광고 |
@@ -16,7 +16,7 @@
 | `runtime_kind` | 어댑터 명령 | 어댑터 고정 | 모델 선택 | 브리프 전달 (`brief_transport`) |
 |---|---|---|---|---|
 | `claude_code` | `npx -y @agentclientprotocol/claude-agent-acp@<pin>` | **`0.74.0`** (G1 F1 — 구 `@zed-industries/claude-code-acp`는 동결, 쓰지 않는다) | `session/set_config_option {configId: "model", value}` — **`session/new` 뒤와 모든 `session/load` 뒤에** 호출한다. load 시 기본 모델로 되돌아간다(1b E1). 응답 `configOptions[id="model"].currentValue`로 확인. `session/set_model`은 0.74.0에 없다 | `acp_meta_system_prompt` — `_meta.systemPrompt = {append: <brief>}`를 **`session/new`·`session/load` 양쪽에 매번**(1b E2: 세션에 저장되지 않는다). **append 모드만** |
-| `hermes` | `hermes acp` | Hermes ≥ 0.20.6 | `session/set_model "anthropic:<model>"` | `instruction_file` — workdir `AGENTS.md` 마커 구간 (§8.4) |
+| `hermes` | `hermes acp` | Hermes ≥ 0.20.6 | `session/set_model "<provider>:<model>"` — 프로파일 `model`은 **provider 접두어 없이** 저장하고(Claude Code와 같은 값 집합), 데몬이 `anthropic:`을 붙인다. 프로파일에 `:`가 이미 있으면 그대로(v0.3, PR #20 결함 2) | `instruction_file` — workdir `AGENTS.md` 마커 구간 (§8.4) |
 
 - `transport`는 v1에서 항상 `acp`. `cli`는 타입에만 두고(v1.1) 구현하지 않는다 — G1.
 - probe(`daemon-protocol.md` §3)가 어댑터 버전·`hermes --version`을 보고하고, 핀과 다르면 프로파일을 `error(config)`로 표시한다. **버전 고정이 드리프트 방어다** — `_meta.*` 확장은 스펙이 아니라 어댑터 구현이라 버전 간에 움직인다(스파이크 1 §4).
@@ -154,7 +154,7 @@ Hermes는 `_meta`를 버린다(스파이크 3 §1). Hermes의 툴 제한은 `her
 | `tool_call` (status pending/in_progress) | `tool` | `kind`에서: `edit`→`edit_file`, `execute`→`run_shell`, `read`→`read`, `search`/`fetch`→`search`, 그 외 `use_tool` | `locations[0].path` 또는 `title` | `started` |
 | `tool_call_update` (completed/failed) | `tool` | 같은 verb, 같은 `toolCallId` | 같음 | `ok` / `failed` + `content` 요약(diff는 +/- 줄 수, 셸은 종료 코드) |
 | `session/request_permission` | `tool` | `permission` | toolCall.title | `allowed` / `rejected` / `cancelled` (§4) |
-| `usage_update` | `usage` | `report` | — | `{input, output, cache_read, cache_write, cost_usd?}` 누적 + **`_meta["_claude/rateLimit"]`**(`status`, `resetsAt`, `rateLimitType`, `utilization`)을 `payload.rate_limit`로. 매 턴 온다(1b E5) — 리셋 시각을 미리 보여주는 근거 |
+| `usage_update` | `usage` | `report` | — | 실측(P1 D)상 `usage_update`에는 토큰이 없고 `{used, size}`(컨텍스트 창)와 **`_meta["_claude/rateLimit"]`**(`status`, `resetsAt`, `rateLimitType`, `utilization`)만 온다 → `payload.rate_limit`로 올린다(매 턴, 리셋 시각을 미리 보여주는 근거). **토큰·비용은 `session/prompt` 응답 `usage`에서 턴 종료 시 1회** `usage.report {input, output, cache_read, cache_write, cost_usd?, cumulative:true}` (v0.3, PR #20 결함 1) |
 | `session/prompt` 응답 `_meta.quota.model_usage[].model` | `runtime` | `turn_end` | — | 실제 실행 모델. 프로파일 모델과 다르면 `payload.model_drift: true` + 피드 경고(1b E1 — load 후 기본 모델로 되돌아가는 회귀 감시) |
 | `plan` | `plan` | `update` | — | 항목 수·완료 수 |
 | `session/load` 리플레이 | — | — | — | **버림** |
@@ -178,7 +178,11 @@ Hermes는 `_meta`를 버린다(스파이크 3 §1). Hermes의 툴 제한은 `her
 | `cancelled` | §5 | 없음 |
 | `other` | 그 외 프로세스 비정상 종료(`UnexpectedExit`) | 2~3회 |
 
-Hermes 보조 신호: stderr의 프로바이더 오류 문구 스니핑 → `other`/`auth`로 분류(PRD §8.2.5).
+Hermes 보조 신호: stderr의 프로바이더 오류 문구 스니핑 → `other`/`auth`로 분류(PRD §8.2.5). **v0.3 추가(PR #20 결함 3)**: Hermes는 프로바이더 오류를 **`stopReason: end_turn`의 본문**으로 돌려준다(실측 "API call failed after 1 retries: HTTP 429 …"). 따라서 **툴 호출 0 + 본문 전체가 Hermes 오류 형식으로 시작**할 때만 턴을 실패로 분류한다 — 정확한 판별자는 접두어 정규식 `^API call failed after \d+ retries: ` (본문 첫 줄, 앞뒤 공백 제외, 그 외 텍스트가 앞에 있으면 **아니다**). 그 뒤의 `HTTP 429`·`rate limit` → `rate_limited`(리셋 시각 없음 → +30분), `HTTP 401`·`403`·`authentication` → `auth`, 그 외 → `other`. 에이전트가 "빌드 실패 원인: API call failed … 429"처럼 **보고 문장 안에** 같은 문구를 쓰는 경우는 접두어가 아니므로 오탐하지 않는다(PR #20 리뷰 R4의 우려). PRD §8.2.5의 `refusal && 활동 0` 규칙과 같은 자리에서 판정하고, 이 본문은 메시지로 게시하지 않는다.
+
+`disallowedTools` 도출(PR #20 결함 4): "프로파일 `tools` 허용 목록 밖의 툴"을 계산하려면 런타임의 전체 툴 표가 필요하다. 데몬이 Claude Code 툴 표(`KnownClaudeTools`, 어댑터 핀과 함께 관리)를 갖고 차집합을 `disallowedTools`와 `permissions.deny` 양쪽에 넣는다. 표에 없는 새 툴은 막히지 않는다 — 어댑터 핀을 올릴 때 표를 갱신한다.
+
+250ms 정적 대기(§2.2)는 어댑터 동작 대기라 **클럭 주입 대상이 아니다**(PR #20 결함 5). stall·취소 대기·`not_before`는 클럭 주입.
 
 ## 9. 능력 광고 (probe)
 
