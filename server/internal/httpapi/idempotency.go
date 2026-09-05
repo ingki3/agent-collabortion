@@ -41,6 +41,13 @@ func requestHash(r *http.Request, body []byte) string {
 // idempotency_key_reused. Concurrent first calls with the same key are
 // serialised by the primary key: the second insert fails and replays.
 func (s *Server) idempotent(ctx context.Context, w http.ResponseWriter, scope, key, reqHash string, fn func() (int, any, *Problem)) {
+	s.idempotentSeq(ctx, w, scope, key, reqHash, nil, fn)
+}
+
+// idempotentSeq is idempotent with the CLI's X-Colab-Client-Seq recorded on
+// the key (idempotency_key.client_seq) so CliContext.last_seq can be the
+// maximum seq actually used rather than a count (colab-cli.md §1 v0.3, R1).
+func (s *Server) idempotentSeq(ctx context.Context, w http.ResponseWriter, scope, key, reqHash string, clientSeq *int, fn func() (int, any, *Problem)) {
 	if key == "" {
 		status, body, p := fn()
 		if p != nil {
@@ -83,9 +90,9 @@ func (s *Server) idempotent(ctx context.Context, w http.ResponseWriter, scope, k
 		return
 	}
 	if _, err := s.DB.Exec(ctx, `
-		INSERT INTO idempotency_key (scope, key, request_hash, status, response, created_at, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (scope, key) DO NOTHING`,
-		scope, key, reqHash, status, raw, now, now.Add(idempotencyTTL)); err != nil {
+		INSERT INTO idempotency_key (scope, key, request_hash, status, response, created_at, expires_at, client_seq)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (scope, key) DO NOTHING`,
+		scope, key, reqHash, status, raw, now, now.Add(idempotencyTTL), clientSeq); err != nil {
 		s.Log.Warn("idempotency store failed", "err", err)
 	}
 	w.Header().Set("Content-Type", "application/json")

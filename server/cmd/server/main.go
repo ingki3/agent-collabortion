@@ -76,7 +76,7 @@ func main() {
 }
 
 // scheduler runs the time-driven sweeps (daemon-protocol §7 ExpireStale,
-// stream_event retention, idempotency retention).
+// §4.3 command expiry, stream_event retention, idempotency retention).
 func scheduler(ctx context.Context, srv *httpapi.Server, log interface {
 	Warn(string, ...any)
 	Info(string, ...any)
@@ -102,6 +102,11 @@ func scheduler(ctx context.Context, srv *httpapi.Server, log interface {
 			}
 			if err := srv.PurgeIdempotency(ctx); err != nil {
 				log.Warn("idempotency purge", "err", err)
+			}
+			if n, err := srv.ExpireCommands(ctx); err != nil {
+				log.Warn("command expiry", "err", err)
+			} else if n > 0 {
+				log.Info("expired unconsumed daemon commands", "n", n)
 			}
 		}
 	}

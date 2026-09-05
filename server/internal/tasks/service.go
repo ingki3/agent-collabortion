@@ -305,15 +305,17 @@ func (s *Service) requeueLocked(ctx context.Context, tx pgx.Tx, t *Row, reason c
 }
 
 // ExpireStale is the scheduler sweep (daemon-protocol §7):
-//   - dispatched with no preparing report for 5 minutes → timeout (E5-02)
-//   - preparing/running with no heartbeat for 3 minutes → runtime_offline,
-//     runtime marked offline (E5-03, E11-03)
+//   - dispatched/preparing with no running report 5 minutes after dispatch → timeout (E5-02, §4.1)
+//   - running with no heartbeat for 3 minutes → runtime_offline,
+//     runtime marked offline (E5-03, E11-03; §4.2 v0.2 — preparing is not a heartbeat subject)
 //   - runtimes silent for 3 minutes → offline
 func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 	n := 0
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		// §4.1: dispatched and preparing are bounded by 5 minutes from dispatch;
+		// preparing is not a heartbeat subject (§4.2 v0.2, N5).
 		ids, err := collectIDs(tx.Query(ctx, `
-			SELECT id FROM task WHERE status = 'dispatched' AND dispatched_at < $1 FOR UPDATE SKIP LOCKED`,
+			SELECT id FROM task WHERE status IN ('dispatched', 'preparing') AND dispatched_at < $1 FOR UPDATE SKIP LOCKED`,
 			now.Add(-contracts.DispatchedTimeout)))
 		if err != nil {
 			return err
@@ -329,7 +331,7 @@ func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 			n++
 		}
 		ids, err = collectIDs(tx.Query(ctx, `
-			SELECT id FROM task WHERE status IN ('preparing', 'running')
+			SELECT id FROM task WHERE status = 'running'
 			  AND COALESCE(heartbeat_at, started_at, dispatched_at) < $1 FOR UPDATE SKIP LOCKED`,
 			now.Add(-contracts.HeartbeatExpiry)))
 		if err != nil {

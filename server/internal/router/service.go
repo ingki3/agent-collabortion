@@ -208,10 +208,10 @@ func (s *Service) Post(ctx context.Context, sessionID uuid.UUID, author Author, 
 	if author.Type == "agent" && author.TaskID != nil {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO task_event (task_id, attempt, seq, class, verb, object_ref, outcome, payload, created_at)
-			VALUES ($1, $2, $3::int + (SELECT count(*)::int FROM task_event WHERE task_id = $1 AND attempt = $2 AND seq >= $3::int),
-			        'status', 'post_message', $4, 'ok', $5, $6)`,
+			VALUES ($1, $2, (SELECT COALESCE(max(seq) + 1, $3::int) FROM task_event WHERE task_id = $1 AND attempt = $2 AND seq >= $3::int),
+			        'status', 'post_message', to_jsonb($4::text), 'ok', $5, $6)`,
 			*author.TaskID, author.Attempt, ServerSeqBase,
-			map[string]any{"ref": msgID.String()},
+			msgID.String(),
 			map[string]any{"command": "message post", "result_ref": msgID.String()}, now); err != nil {
 			return nil, fmt.Errorf("router: status event: %w", err)
 		}

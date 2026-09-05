@@ -1583,7 +1583,7 @@ type CliContext struct {
 	ExpiresAt           time.Time                             `json:"expires_at"`
 	LaneId              openapi_types.UUID                    `json:"lane_id"`
 
-	// LastSeq 이 task가 지금까지 쓴 마지막 client seq(attempt 무관). CLI는 last_seq+1부터 이어 쓴다 — 멱등키 UUIDv5(task:<task_id>:<seq>)가 attempt 경계를 넘어 유일하도록(colab-cli.md §1, E8-04).
+	// LastSeq 이 task가 지금까지 쓴 **마지막(최댓값)** client seq(attempt 무관) — 개수가 아니다(구멍이 있어도 max). 출처는 idempotency_key.client_seq, 없으면 UUIDv5 순차 대조(ClientSeq 헤더 설명). CLI는 last_seq+1부터 이어 쓴다 — 멱등키 UUIDv5(task:<task_id>:<seq>)가 attempt 경계를 넘어 유일하도록(colab-cli.md §1, E8-04).
 	LastSeq int `json:"last_seq"`
 
 	// OpenHitlRequestId 이미 열린 HITL이 있으면 두 번째 `hitl ask`는 409.
@@ -2859,16 +2859,23 @@ type TaskAttempt struct {
 
 // TaskEvent `task_event` 행. `class` 집합과 `object_ref` 형식은 `contracts/task_event.schema.json`이 정한다 — 여기서는 열어 둔다.
 type TaskEvent struct {
+	// Attempt task attempt. (task_id, attempt, seq)가 멱등키 — daemon-protocol §4.2 (v0.4)
+	Attempt   *int                                      `json:"attempt,omitempty"`
 	Class     string                                    `json:"class"`
 	CreatedAt time.Time                                 `json:"created_at"`
 	Id        openapi_types.UUID                        `json:"id"`
 	Input     nullable.Nullable[map[string]interface{}] `json:"input,omitempty"`
 
 	// Masked 워크스페이스 마스킹으로 input·output이 요약으로 대체됨.
-	Masked    *bool                                     `json:"masked,omitempty"`
-	ObjectRef nullable.Nullable[map[string]interface{}] `json:"object_ref,omitempty"`
+	Masked *bool `json:"masked,omitempty"`
+
+	// ObjectRef task_event.schema.json과 같은 문자열(파일 경로·명령 첫 토큰·툴 제목 등). v0.4에서 object → string으로 정렬(PR #22 리뷰 N2).
+	ObjectRef nullable.Nullable[string]                 `json:"object_ref,omitempty"`
 	Outcome   nullable.Nullable[string]                 `json:"outcome,omitempty"`
 	Output    nullable.Nullable[map[string]interface{}] `json:"output,omitempty"`
+
+	// Payload task_event.schema.json $defs 중 class에 맞는 payload를 **최상위로** 그대로. 활동 피드가 tool_call_id로 툴 호출을 접는 근거(v0.4, PR #22 리뷰 R2). usage 안에 중첩하지 않는다.
+	Payload nullable.Nullable[map[string]interface{}] `json:"payload,omitempty"`
 
 	// Sentence 서버가 만든 한 문장 렌더("에이전트가 [동사]를 [목적어]에 했다 → [결과]"). 렌더러 폴백용.
 	Sentence     nullable.Nullable[string]                 `json:"sentence,omitempty"`
@@ -3097,6 +3104,9 @@ type AgentId = openapi_types.UUID
 
 // ArtifactId defines model for ArtifactId.
 type ArtifactId = openapi_types.UUID
+
+// ClientSeq defines model for ClientSeq.
+type ClientSeq = int
 
 // Cursor defines model for Cursor.
 type Cursor = string
@@ -3395,6 +3405,9 @@ type ListMessagesParams struct {
 type PostMessageParams struct {
 	// IdempotencyKey 클라이언트가 만든 UUID. 같은 키의 재요청은 첫 응답을 그대로 돌려준다(`Idempotent-Replayed: true`). 키는 24시간 보존. 같은 키에 다른 본문이면 `422 idempotency_key_reused`.
 	IdempotencyKey IdempotencyKeyRequired `json:"Idempotency-Key"`
+
+	// XColabClientSeq colab CLI가 보내는 이 task의 client seq(attempt 무관, 1부터 단조 증가). 서버는 idempotency_key.client_seq에 저장하고 CliContext.last_seq = max(client_seq)로 답한다(v0.4, PR #22 리뷰 R1). 헤더가 없으면(웹·구버전 CLI) 서버가 UUIDv5(task:<task_id>:<n>)를 n=1부터 순서대로 대조해 마지막 존재 seq를 찾는다.
+	XColabClientSeq *ClientSeq `json:"X-Colab-Client-Seq,omitempty"`
 }
 
 // AddParticipantJSONBody defines parameters for AddParticipant.
@@ -6243,6 +6256,25 @@ func (siw *ServerInterfaceWrapper) PostMessage(w http.ResponseWriter, r *http.Re
 		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
 		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
 		return
+	}
+
+	// ------------- Optional header parameter "X-Colab-Client-Seq" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Colab-Client-Seq")]; found {
+		var XColabClientSeq ClientSeq
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Colab-Client-Seq", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Colab-Client-Seq", valueList[0], &XColabClientSeq, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Colab-Client-Seq", Err: err})
+			return
+		}
+
+		params.XColabClientSeq = &XColabClientSeq
+
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

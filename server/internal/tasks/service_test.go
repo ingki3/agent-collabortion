@@ -94,6 +94,39 @@ func TestExpireStaleDispatchedTimeout(t *testing.T) {
 	}
 }
 
+// daemon-protocol §4.2 v0.2 (PR #22 N5): preparing is not a heartbeat subject —
+// a slow cold start is not cut at 3 minutes; §4.1's 5 minutes from dispatch
+// bounds it instead (outcome timeout).
+func TestExpireStalePreparingUsesDispatchTimeout(t *testing.T) {
+	s, c, seed := newService(t)
+	ctx := context.Background()
+	id := testdb.AddTask(t, s.DB, seed, seed.SessionID, t0)
+	dispatch(t, s, seed, id)
+	c.Advance(time.Minute)
+	if err := s.Phase(ctx, id, 1, "preparing"); err != nil {
+		t.Fatal(err)
+	}
+	c.Advance(contracts.HeartbeatExpiry + time.Second) // 4m01s after dispatch, 3m01s silent in preparing
+	if n, err := s.ExpireStale(ctx, c.Now()); err != nil || n != 0 {
+		t.Fatalf("preparing expired by heartbeat rule: n=%d err=%v, want 0", n, err)
+	}
+	if r := row(t, s, id); r.Status != Preparing {
+		t.Fatalf("task = %s, want preparing", r.Status)
+	}
+	c.Advance(time.Minute) // 5m01s after dispatch
+	if n, err := s.ExpireStale(ctx, c.Now()); err != nil || n != 1 {
+		t.Fatalf("preparing past DispatchedTimeout: n=%d err=%v, want 1", n, err)
+	}
+	r := row(t, s, id)
+	if r.Status != Queued || r.Attempt != 2 {
+		t.Fatalf("task = %s attempt %d, want queued attempt 2", r.Status, r.Attempt)
+	}
+	atts, _ := ListAttempts(ctx, s.DB, id)
+	if len(atts) != 1 || atts[0].Outcome == nil || *atts[0].Outcome != "timeout" {
+		t.Fatalf("attempt history = %+v, want timeout", atts)
+	}
+}
+
 // E5-03 / E11-03: running with no heartbeat for 3 minutes → runtime offline,
 // task requeued (attempt+1), token revoked, revoke command queued.
 func TestExpireStaleHeartbeat(t *testing.T) {
@@ -135,7 +168,7 @@ func TestExpireStaleHeartbeat(t *testing.T) {
 	if rtStatus != "offline" {
 		t.Fatalf("runtime = %s, want offline", rtStatus)
 	}
-	cmds, err := tokens.PendingCommands(ctx, s.DB, seed.RuntimeID)
+	cmds, err := tokens.PendingCommands(ctx, s.DB, seed.RuntimeID, c.Now())
 	if err != nil || len(cmds) != 1 || cmds[0].Type != contracts.CmdRevoke || cmds[0].TaskID != id.String() || cmds[0].Attempt != 1 {
 		t.Fatalf("commands = %+v err=%v, want one revoke for attempt 1", cmds, err)
 	}

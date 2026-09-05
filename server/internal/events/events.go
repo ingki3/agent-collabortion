@@ -6,6 +6,7 @@ package events
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -157,10 +158,13 @@ func (s *Service) Ingest(ctx context.Context, taskID uuid.UUID, attempt int, evs
 		if e.Partial {
 			continue
 		}
+		// object_ref is stored as a JSON string (task_event.schema.json, openapi v0.4 — N2).
 		var objectRef any
 		if e.ObjectRef != "" {
-			objectRef = map[string]any{"ref": e.ObjectRef}
+			objectRef = e.ObjectRef
 		}
+		// usage holds only class=usage measurements (N3); the class payload
+		// goes to the payload column and out as top-level TaskEvent.payload.
 		var usage any
 		if e.Class == "usage" && e.Payload != nil {
 			usage = e.Payload
@@ -170,7 +174,7 @@ func (s *Service) Ingest(ctx context.Context, taskID uuid.UUID, attempt int, evs
 			INSERT INTO task_event (task_id, attempt, seq, class, verb, object_ref, outcome, usage, payload, ts, created_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 			ON CONFLICT (task_id, attempt, seq) DO NOTHING RETURNING id`,
-			taskID, attempt, e.Seq, e.Class, e.Verb, objectRef, e.Outcome, usage, e.Payload, e.TS, now).Scan(&id)
+			taskID, attempt, e.Seq, e.Class, e.Verb, jsonArg(objectRef), e.Outcome, usage, e.Payload, e.TS, now).Scan(&id)
 		if errors.Is(err, errNoRows()) {
 			continue // duplicate seq — idempotent
 		}
@@ -213,33 +217,30 @@ func (s *Service) List(ctx context.Context, taskID uuid.UUID, afterSeq int, incl
 	out := []gen.TaskEvent{}
 	for rows.Next() {
 		var (
-			id, tid                            uuid.UUID
-			attempt, seq                       int
-			class                              string
-			verb, outcome, tool                *string
-			objectRef, input, output, usage, p map[string]any
-			supersededBy                       *uuid.UUID
-			ts                                 *time.Time
-			createdAt                          time.Time
+			id, tid                 uuid.UUID
+			attempt, seq            int
+			class                   string
+			verb, outcome, tool     *string
+			objectRef               any
+			input, output, usage, p map[string]any
+			supersededBy            *uuid.UUID
+			ts                      *time.Time
+			createdAt               time.Time
 		)
 		if err := rows.Scan(&id, &tid, &attempt, &seq, &class, &verb, &objectRef, &outcome, &tool, &input, &output, &usage, &p, &supersededBy, &ts, &createdAt); err != nil {
 			return nil, false, err
 		}
-		ev := gen.TaskEvent{Id: id, TaskId: tid, Seq: seq, Class: class, CreatedAt: createdAt,
+		ref := objectRefString(objectRef)
+		a := attempt
+		ev := gen.TaskEvent{Id: id, TaskId: tid, Attempt: &a, Seq: seq, Class: class, CreatedAt: createdAt,
 			Verb: tasks.NullString(verb), Outcome: tasks.NullString(outcome), Tool: tasks.NullString(tool),
 			SupersededBy: tasks.NullUUID(supersededBy)}
-		ev.ObjectRef = nullMap(objectRef)
+		ev.ObjectRef = nullString(ref)
 		ev.Input = nullMap(input)
 		ev.Output = nullMap(output)
-		if usage == nil && p != nil {
-			usage = map[string]any{"payload": p, "attempt": attempt}
-		} else if p != nil {
-			usage["payload"] = p
-			usage["attempt"] = attempt
-		}
 		ev.Usage = nullMap(usage)
-		sentence := sentenceFor(class, deref(verb), objectRef, deref(outcome))
-		ev.Sentence = nullable.NewNullableWithValue(sentence)
+		ev.Payload = nullMap(p) // top-level, as stored (openapi v0.4 — R2)
+		ev.Sentence = nullable.NewNullableWithValue(sentenceFor(class, deref(verb), ref, deref(outcome)))
 		out = append(out, ev)
 	}
 	more := len(out) > limit
@@ -249,19 +250,51 @@ func (s *Service) List(ctx context.Context, taskID uuid.UUID, afterSeq int, incl
 	return out, more, rows.Err()
 }
 
+// toAPI is the SSE task_event.appended frame: the same shape as List —
+// payload top-level, object_ref a string, usage only for class=usage.
 func toAPI(id, taskID uuid.UUID, e contracts.TaskEvent, createdAt time.Time) gen.TaskEvent {
-	ev := gen.TaskEvent{Id: id, TaskId: taskID, Seq: e.Seq, Class: e.Class, CreatedAt: createdAt,
+	a := e.Attempt
+	ev := gen.TaskEvent{Id: id, TaskId: taskID, Attempt: &a, Seq: e.Seq, Class: e.Class, CreatedAt: createdAt,
 		Verb: nullable.NewNullableWithValue(e.Verb), Outcome: nullable.NewNullableWithValue(e.Outcome)}
-	var objectRef map[string]any
-	if e.ObjectRef != "" {
-		objectRef = map[string]any{"ref": e.ObjectRef}
+	ev.ObjectRef = nullString(e.ObjectRef)
+	ev.Payload = nullMap(e.Payload)
+	if e.Class == "usage" {
+		ev.Usage = nullMap(e.Payload)
 	}
-	ev.ObjectRef = nullMap(objectRef)
-	if e.Payload != nil {
-		ev.Usage = nullable.NewNullableWithValue(map[string]any{"payload": e.Payload, "attempt": e.Attempt})
-	}
-	ev.Sentence = nullable.NewNullableWithValue(sentenceFor(e.Class, e.Verb, objectRef, e.Outcome))
+	ev.Sentence = nullable.NewNullableWithValue(sentenceFor(e.Class, e.Verb, e.ObjectRef, e.Outcome))
 	return ev
+}
+
+// jsonArg makes pgx encode a Go string as a JSON string value (a bare string
+// parameter would be taken as raw JSON text).
+func jsonArg(v any) any {
+	if v == nil {
+		return nil
+	}
+	b, _ := json.Marshal(v)
+	return b
+}
+
+// objectRefString reads the jsonb object_ref column: a string since 0003;
+// the pre-0003 {"ref": …} envelope is normalised by the migration but
+// tolerated here.
+func objectRefString(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case map[string]any:
+		if r, ok := x["ref"].(string); ok {
+			return r
+		}
+	}
+	return ""
+}
+
+func nullString(s string) nullable.Nullable[string] {
+	if s == "" {
+		return nullable.NewNullNullable[string]()
+	}
+	return nullable.NewNullableWithValue(s)
 }
 
 func nullMap(m map[string]any) nullable.Nullable[map[string]interface{}] {
@@ -279,12 +312,10 @@ func deref(p *string) string {
 }
 
 // sentenceFor is the FR-7.2 one-line fallback render: "<verb> <object> → <outcome>".
-func sentenceFor(class, verb string, objectRef map[string]any, outcome string) string {
+func sentenceFor(class, verb, objectRef, outcome string) string {
 	obj := ""
-	if objectRef != nil {
-		if r, ok := objectRef["ref"].(string); ok {
-			obj = " " + r
-		}
+	if objectRef != "" {
+		obj = " " + objectRef
 	}
 	return fmt.Sprintf("%s.%s%s → %s", class, verb, obj, outcome)
 }

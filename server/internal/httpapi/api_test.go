@@ -255,6 +255,27 @@ func TestVerticalSlice(t *testing.T) {
 	if len(feed["items"].([]any)) != 3 {
 		t.Fatalf("feed = %v", feed)
 	}
+	// openapi v0.4 TaskEvent (R2/N2/N3): payload and attempt are top-level,
+	// object_ref is a string, usage carries no envelope.
+	first := feed["items"].([]any)[0].(map[string]any)
+	if pl, ok := first["payload"].(map[string]any); !ok || pl["kind"] != "text" || pl["text"] != "hi" {
+		t.Fatalf("feed item payload = %v, want top-level {kind:text,text:hi}", first["payload"])
+	}
+	if first["attempt"].(float64) != 1 || first["usage"] != nil {
+		t.Fatalf("feed item attempt/usage = %v / %v, want 1 / null", first["attempt"], first["usage"])
+	}
+	toolEv := map[string]any{"task_id": taskID, "attempt": 1, "seq": 4, "ts": fake.Now().Format(time.RFC3339), "class": "tool", "verb": "run_shell", "object_ref": "go test", "outcome": "started",
+		"payload": map[string]any{"tool_call_id": "call_1", "kind": "execute"}}
+	daemon.must(200, "POST", attemptPath+"/events", map[string]any{"events": []any{toolEv}})
+	feed = api.must(200, "GET", p+"/tasks/"+taskID+"/events", map[string]any{})
+	items := feed["items"].([]any)
+	last := items[len(items)-1].(map[string]any)
+	if last["payload"].(map[string]any)["tool_call_id"] != "call_1" {
+		t.Fatalf("listTaskEvents payload.tool_call_id must be top-level (R2): %v", last)
+	}
+	if last["object_ref"] != "go test" || str(last, "sentence") != "tool.run_shell go test → started" {
+		t.Fatalf("object_ref must be the schema string (N2): %v / %v", last["object_ref"], last["sentence"])
+	}
 
 	// --- CLI with the task token ---
 	cli := &client{t: t, srv: ts, bearer: taskToken}
@@ -276,23 +297,25 @@ func TestVerticalSlice(t *testing.T) {
 	if st, out, _ := cli.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "old key"}, "Idempotency-Key", taskID+":1:1"); st != 422 {
 		t.Fatalf("non-uuid Idempotency-Key = %d %v, want 422", st, out)
 	}
-	reply := cli.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "안녕하세요!"}, "Idempotency-Key", cliIdempotencyKey(taskID, 1))
+	reply := cli.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "안녕하세요!"}, "Idempotency-Key", cliKey(taskID, 1))
 	rm := reply["message"].(map[string]any)
 	if str(rm, "author_type") != "agent" || str(rm, "source_task_id") != taskID || len(reply["triggers"].([]any)) != 0 {
 		t.Fatalf("agent reply = %v", reply)
 	}
-	st, again, rh := cli.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "안녕하세요!"}, "Idempotency-Key", cliIdempotencyKey(taskID, 1))
+	st, again, rh := cli.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "안녕하세요!"}, "Idempotency-Key", cliKey(taskID, 1))
 	if st != 201 || rh.Get("Idempotent-Replayed") != "true" || str(again["message"].(map[string]any), "id") != str(rm, "id") {
 		t.Fatalf("CLI replay = %d %v", st, again)
 	}
-	cli.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "두 번째"}, "Idempotency-Key", cliIdempotencyKey(taskID, 2))
+	cli.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "두 번째"}, "Idempotency-Key", cliKey(taskID, 2))
 	var agentMsgs int
 	_ = pool.QueryRow(t.Context(), `SELECT count(*) FROM message WHERE source_task_id = $1`, taskID).Scan(&agentMsgs)
 	if agentMsgs != 2 {
 		t.Fatalf("agent messages = %d, want 2 (E8-04 duplicate 0)", agentMsgs)
 	}
+	// Keys 1 and 2 were stored without X-Colab-Client-Seq (older CLI): the
+	// server walks UUIDv5(task:<id>:n) to find the last existing seq.
 	if got := cli.must(200, "GET", p+"/cli/context", nil)["last_seq"].(float64); got != 2 {
-		t.Fatalf("last_seq after seq 2 = %v, want 2", got)
+		t.Fatalf("last_seq after seq 2 (header-less keys, UUIDv5 fallback) = %v, want 2", got)
 	}
 
 	// --- heartbeat expiry → requeue, token revoked → 401 token_revoked ---
@@ -300,7 +323,7 @@ func TestVerticalSlice(t *testing.T) {
 	if n, err := s.Queue.ExpireStale(t.Context(), fake.Now()); err != nil || n != 1 {
 		t.Fatalf("ExpireStale = %d %v", n, err)
 	}
-	if st, out, _ := cli.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "orphan"}, "Idempotency-Key", cliIdempotencyKey(taskID, 3)); st != 401 || str(out, "code") != "token_revoked" {
+	if st, out, _ := cli.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "orphan"}, "Idempotency-Key", cliKey(taskID, 3)); st != 401 || str(out, "code") != "token_revoked" {
 		t.Fatalf("orphan post = %d %v, want 401 token_revoked (E11-04)", st, out)
 	}
 	if st, _, _ := cli.do("GET", p+"/cli/context", nil); st != 401 {
@@ -339,16 +362,81 @@ func TestVerticalSlice(t *testing.T) {
 	if cctx["attempt"].(float64) != 2 || cctx["last_seq"].(float64) != 2 {
 		t.Fatalf("attempt 2 cli context = attempt %v last_seq %v, want 2 / 2", cctx["attempt"], cctx["last_seq"])
 	}
-	cli.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "attempt 2"}, "Idempotency-Key", cliIdempotencyKey(taskID, 3))
+	cli.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "attempt 2"}, "Idempotency-Key", cliKey(taskID, 3), "X-Colab-Client-Seq", "3")
 	if got := cli.must(200, "GET", p+"/cli/context", nil)["last_seq"].(float64); got != 3 {
 		t.Fatalf("last_seq after attempt 2 post = %v, want 3", got)
 	}
-	// the revoke command was handed out on the stale heartbeat or this claim
-	var delivered int
-	_ = pool.QueryRow(t.Context(), `SELECT count(*) FROM daemon_command WHERE runtime_id = $1 AND type = 'revoke' AND delivered_at IS NOT NULL`, runtimeID).Scan(&delivered)
-	if delivered != 1 {
-		t.Fatalf("revoke commands delivered = %d, want 1", delivered)
+	// R1 (Hermes' reproduction): the CLI consumes seq 4 locally, the post
+	// fails on the network (never reaches the server), and it continues at 5.
+	// last_seq must be the max actually used (5), not the count (4) — otherwise
+	// the next post would reuse key 5 and be rejected 422 / silently replayed.
+	cli.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "after a hole"}, "Idempotency-Key", cliKey(taskID, 5), "X-Colab-Client-Seq", "5")
+	if got := cli.must(200, "GET", p+"/cli/context", nil)["last_seq"].(float64); got != 5 {
+		t.Fatalf("last_seq with a hole at 4 = %v, want 5 (max, not count) — the CLI would reuse a key", got)
 	}
+	nextKey := cliKey(taskID, 6) // = last_seq + 1 as the CLI computes it
+	st, fresh, fh := cli.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "new content after the hole"}, "Idempotency-Key", nextKey, "X-Colab-Client-Seq", "6")
+	if st != 201 || fh.Get("Idempotent-Replayed") != "" {
+		t.Fatalf("post at last_seq+1 = %d %v (replayed=%q), want 201 new message", st, fresh, fh.Get("Idempotent-Replayed"))
+	}
+	_ = pool.QueryRow(t.Context(), `SELECT count(*) FROM message WHERE source_task_id = $1`, taskID).Scan(&agentMsgs)
+	if agentMsgs != 5 {
+		t.Fatalf("agent messages = %d, want 5 (no message lost to key reuse)", agentMsgs)
+	}
+	var storedSeq int
+	_ = pool.QueryRow(t.Context(), `SELECT client_seq FROM idempotency_key WHERE scope = $1 AND key = $2`, "task:"+taskID, nextKey).Scan(&storedSeq)
+	if storedSeq != 6 {
+		t.Fatalf("idempotency_key.client_seq = %d, want 6", storedSeq)
+	}
+
+	// R3 (§4.3 v0.2, E11-05): the revoke for attempt 1 was in the stale
+	// heartbeat's 409 and in the claim above, and it is NOT consumed by being
+	// sent — a lost response must not lose the command. It rides every
+	// response until attempt 1's finish arrives.
+	hasRevoke := func(cmds any) bool {
+		for _, c := range cmds.([]any) {
+			m := c.(map[string]any)
+			if str(m, "type") == "revoke" && str(m, "task_id") == taskID && m["attempt"].(float64) == 1 {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasRevoke(claim["commands"]) {
+		t.Fatalf("claim commands = %v, want revoke(attempt 1)", claim["commands"])
+	}
+	again2 := daemon.must(200, "POST", "/v1/daemon/runtimes/"+runtimeID+"/claim", map[string]any{"capacity": 1, "wait_ms": 0})
+	if !hasRevoke(again2["commands"]) {
+		t.Fatalf("revoke must be re-sent on the next response (at-least-once): %v", again2["commands"])
+	}
+	daemon.must(200, "POST", "/v1/daemon/tasks/"+taskID+"/attempts/2/phase", map[string]any{"phase": "preparing", "pgid": 101})
+	daemon.must(200, "POST", "/v1/daemon/tasks/"+taskID+"/attempts/2/phase", map[string]any{"phase": "running", "pgid": 101})
+	hb2 := daemon.must(200, "POST", "/v1/daemon/tasks/"+taskID+"/attempts/2/heartbeat", map[string]any{"usage": map[string]any{}, "last_seq": 0})
+	if !hasRevoke(hb2["commands"]) {
+		t.Fatalf("revoke must also ride heartbeat responses: %v", hb2["commands"])
+	}
+	var stampedDelivered int
+	_ = pool.QueryRow(t.Context(), `SELECT count(*) FROM daemon_command WHERE runtime_id = $1 AND delivered_at IS NOT NULL`, runtimeID).Scan(&stampedDelivered)
+	if stampedDelivered != 0 {
+		t.Fatalf("PendingCommands must not stamp delivered_at (R3), got %d rows", stampedDelivered)
+	}
+	// The orphaned attempt-1 process reports finish → the revoke is consumed.
+	daemon.must(200, "POST", "/v1/daemon/tasks/"+taskID+"/attempts/1/finish", contracts.Finish{Outcome: "cancelled", StopReason: "revoked"})
+	after := daemon.must(200, "POST", "/v1/daemon/runtimes/"+runtimeID+"/claim", map[string]any{"capacity": 1, "wait_ms": 0})
+	if hasRevoke(after["commands"]) {
+		t.Fatalf("revoke must stop after attempt 1's finish arrived: %v", after["commands"])
+	}
+	var consumedBy string
+	_ = pool.QueryRow(t.Context(), `SELECT consumed_by FROM daemon_command WHERE runtime_id = $1 AND type = 'revoke' AND task_id = $2 AND attempt = 1`, runtimeID, taskID).Scan(&consumedBy)
+	if consumedBy != "finish" {
+		t.Fatalf("revoke consumed_by = %q, want finish", consumedBy)
+	}
+
+	// N6: a malformed workdir report is 400, a well-formed one 200.
+	if st, out, _ := daemon.do("POST", "/v1/daemon/runtimes/"+runtimeID+"/workdirs", nil); st != 400 || str(out, "code") != "malformed_json" {
+		t.Fatalf("empty workdir report = %d %v, want 400 malformed_json", st, out)
+	}
+	daemon.must(200, "POST", "/v1/daemon/runtimes/"+runtimeID+"/workdirs", map[string]any{"workdirs": []any{}})
 
 	// --- finish (idempotent) ---
 	daemon.must(200, "POST", "/v1/daemon/tasks/"+taskID+"/attempts/2/phase", map[string]any{"phase": "running", "pgid": 101})
@@ -370,8 +458,8 @@ func TestVerticalSlice(t *testing.T) {
 	}
 	var streamed int
 	_ = pool.QueryRow(t.Context(), `SELECT count(*) FROM stream_event WHERE workspace_id = $1 AND type = 'message.created'`, wsID).Scan(&streamed)
-	if streamed != 5 { // 2 user posts + 3 agent replies (system start message is not routed)
-		t.Fatalf("stream message.created rows = %d, want 5", streamed)
+	if streamed != 7 { // 2 user posts + 5 agent replies (system start message is not routed)
+		t.Fatalf("stream message.created rows = %d, want 7", streamed)
 	}
 	fmt.Fprintln(io.Discard, agent, other)
 }
@@ -385,15 +473,9 @@ func mustUUID(t *testing.T, s string) uuid.UUID {
 	return u
 }
 
-// cliIdempotencyNamespace is the CLI's fixed UUIDv5 namespace
-// (cli/internal/client/uuid.go IdempotencyNamespace = UUIDv5(NameSpace_DNS, "colab")).
-var cliIdempotencyNamespace = uuid.NewSHA1(uuid.NameSpaceDNS, []byte("colab"))
-
-// cliIdempotencyKey is what `colab message post` sends: UUIDv5(task:<task_id>:<seq>)
-// with seq continuing across attempts (colab-cli.md §1 v0.2).
-func cliIdempotencyKey(taskID string, seq int) string {
-	return uuid.NewSHA1(cliIdempotencyNamespace, []byte(fmt.Sprintf("task:%s:%d", taskID, seq))).String()
-}
+// cliKey is the CLI's Idempotency-Key for seq (server-side derivation in
+// handlers_sessions.go; the namespace is pinned by TestCliIdempotencyNamespaceIsStable).
+func cliKey(taskID string, seq int) string { return cliIdempotencyKey(uuid.MustParse(taskID), seq) }
 
 func TestCliIdempotencyNamespaceIsStable(t *testing.T) {
 	if got := cliIdempotencyNamespace.String(); got != "454e4096-cb98-57f5-b314-6c5499b55cc8" {

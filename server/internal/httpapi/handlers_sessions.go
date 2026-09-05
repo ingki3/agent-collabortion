@@ -192,7 +192,12 @@ func (s *Server) PostMessage(w http.ResponseWriter, r *http.Request, sessionId g
 		author = router.Author{Type: "user", UserID: &u.Id}
 		scope = "user:" + u.Id.String()
 	}
-	s.idempotent(r.Context(), w, scope, key, requestHash(r, body), func() (int, any, *Problem) {
+	var clientSeq *int
+	if params.XColabClientSeq != nil && pr.Task != nil {
+		v := int(*params.XColabClientSeq)
+		clientSeq = &v
+	}
+	s.idempotentSeq(r.Context(), w, scope, key, requestHash(r, body), clientSeq, func() (int, any, *Problem) {
 		res, err := s.Router.Post(r.Context(), sessionId, author, in)
 		switch {
 		case err == router.ErrParentNotFound:
@@ -207,18 +212,51 @@ func (s *Server) PostMessage(w http.ResponseWriter, r *http.Request, sessionId g
 // taskScope is the idempotency scope of a task token (any attempt).
 func taskScope(taskID uuid.UUID) string { return "task:" + taskID.String() }
 
-// lastClientSeq is CliContext.last_seq: the number of idempotent CLI writes
-// this task has made so far, across attempts. The CLI derives keys as
-// UUIDv5(task:<task_id>:<seq>) with seq = 1, 2, … and never skips a seq that
-// was accepted, so the count of stored keys is the last seq. Keys expire after
-// 24h, so the message count (the only P1 CLI write) is the floor.
+// cliIdempotencyNamespace is the CLI's fixed UUIDv5 namespace
+// (cli/internal/client/uuid.go IdempotencyNamespace = UUIDv5(NameSpace_DNS, "colab")).
+var cliIdempotencyNamespace = uuid.NewSHA1(uuid.NameSpaceDNS, []byte("colab"))
+
+// cliIdempotencyKey is what `colab message post` sends for seq:
+// UUIDv5(namespace, "task:<task_id>:<seq>") (colab-cli.md §1 v0.2).
+func cliIdempotencyKey(taskID uuid.UUID, seq int) string {
+	return uuid.NewSHA1(cliIdempotencyNamespace, []byte(fmt.Sprintf("task:%s:%d", taskID, seq))).String()
+}
+
+// lastSeqProbeLimit bounds the UUIDv5 fallback walk per request.
+const lastSeqProbeLimit = 10000
+
+// lastClientSeq is CliContext.last_seq: the **maximum** client seq this task
+// has used so far, across attempts — not a count, so a hole left by a failed
+// post never makes the CLI reuse a key (openapi v0.4 CliContext.last_seq, R1).
+//
+// Source 1: idempotency_key.client_seq (X-Colab-Client-Seq, CLI v0.3).
+// Source 2 (keys stored without the header — web or an older CLI): walk
+// UUIDv5(task:<task_id>:<n>) for n = max+1, max+2, … and take the last seq
+// whose key exists (openapi ClientSeq description). Keys expire after 24h,
+// so the count of this task's messages (the only P1 CLI write) is the floor.
 func (s *Server) lastClientSeq(r *http.Request, taskID uuid.UUID) (int, error) {
-	var n int
-	err := s.DB.QueryRow(r.Context(), `
-		SELECT GREATEST(
-			(SELECT count(*) FROM idempotency_key WHERE scope = $1),
-			(SELECT count(*) FROM message WHERE source_task_id = $2))`, taskScope(taskID), taskID).Scan(&n)
-	return n, err
+	ctx := r.Context()
+	scope := taskScope(taskID)
+	var maxSeq, msgs int
+	if err := s.DB.QueryRow(ctx, `
+		SELECT (SELECT COALESCE(max(client_seq), 0) FROM idempotency_key WHERE scope = $1),
+		       (SELECT count(*) FROM message WHERE source_task_id = $2)`, scope, taskID).Scan(&maxSeq, &msgs); err != nil {
+		return 0, err
+	}
+	for n := maxSeq + 1; n <= maxSeq+lastSeqProbeLimit; n++ {
+		var exists bool
+		if err := s.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM idempotency_key WHERE scope = $1 AND key = $2)`, scope, cliIdempotencyKey(taskID, n)).Scan(&exists); err != nil {
+			return 0, err
+		}
+		if !exists {
+			break
+		}
+		maxSeq = n
+	}
+	if msgs > maxSeq {
+		maxSeq = msgs
+	}
+	return maxSeq, nil
 }
 
 func (s *Server) taskAccess(r *http.Request, taskId uuid.UUID) (*tasks.Row, *Problem) {

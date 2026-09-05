@@ -91,6 +91,10 @@ func (s *Server) daemonProbe(w http.ResponseWriter, r *http.Request, d daemonCtx
 		writeErr(w, err)
 		return
 	}
+	// §4.3: a probe command is consumed by the next probe.
+	if err := tokens.ConsumeProbeCommands(r.Context(), s.DB, d.RuntimeID, s.Clock.Now()); err != nil {
+		s.Log.Warn("consume probe commands", "err", err)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -115,7 +119,7 @@ func (s *Server) daemonClaim(w http.ResponseWriter, r *http.Request, d daemonCtx
 	if bundles == nil {
 		bundles = []contracts.TaskBundle{}
 	}
-	cmds, err := tokens.PendingCommands(r.Context(), s.DB, d.RuntimeID)
+	cmds, err := tokens.PendingCommands(r.Context(), s.DB, d.RuntimeID, s.Clock.Now())
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -123,10 +127,28 @@ func (s *Server) daemonClaim(w http.ResponseWriter, r *http.Request, d daemonCtx
 	writeJSON(w, http.StatusOK, map[string]any{"tasks": bundles, "commands": cmds})
 }
 
+// daemonWorkdirs accepts the §6 workdir report. FR-6.4 GC judgement is P4;
+// P1 validates the shape (a malformed body is 400 — N6) and uses the report
+// to consume gc commands whose workdirs are gone (§4.3).
 func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemonCtx) {
-	// FR-6.4 workdir reporting/GC is P4; P1 accepts the report.
-	var in map[string]any
-	_ = json.NewDecoder(r.Body).Decode(&in)
+	var in struct {
+		Workdirs []struct {
+			ID string `json:"id"`
+		} `json:"workdirs"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(&in); err != nil {
+		writeProblem(w, apperr.New(http.StatusBadRequest, "malformed_json", "workdir report must be JSON {workdirs: [...]}: "+err.Error()))
+		return
+	}
+	present := make([]string, 0, len(in.Workdirs))
+	for _, wd := range in.Workdirs {
+		if wd.ID != "" {
+			present = append(present, wd.ID)
+		}
+	}
+	if err := tokens.ConsumeGCCommands(r.Context(), s.DB, d.RuntimeID, present, s.Clock.Now()); err != nil {
+		s.Log.Warn("consume gc commands", "err", err)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -183,13 +205,19 @@ func (s *Server) daemonPhase(w http.ResponseWriter, r *http.Request, d daemonCtx
 	case err != nil:
 		writeErr(w, err)
 	default:
+		if in.Phase == "preparing" {
+			// §4.3: rebind_prepare is consumed by the new attempt's preparing report.
+			if err := tokens.ConsumeRebindCommands(r.Context(), s.DB, d.RuntimeID, t.SessionID, s.Clock.Now()); err != nil {
+				s.Log.Warn("consume rebind commands", "err", err)
+			}
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	}
 }
 
 // staleAttempt answers 409 with the pending commands (the revoke is there).
 func (s *Server) staleAttempt(w http.ResponseWriter, r *http.Request, d daemonCtx) {
-	cmds, _ := tokens.PendingCommands(r.Context(), s.DB, d.RuntimeID)
+	cmds, _ := tokens.PendingCommands(r.Context(), s.DB, d.RuntimeID, s.Clock.Now())
 	p := apperr.Conflict("stale_attempt", "this attempt is no longer current; its token was revoked")
 	p.Extra = map[string]any{"commands": cmds}
 	writeProblem(w, p)
@@ -216,7 +244,7 @@ func (s *Server) daemonEvents(w http.ResponseWriter, r *http.Request, d daemonCt
 		writeErr(w, err)
 		return
 	}
-	cmds, _ := tokens.PendingCommands(r.Context(), s.DB, d.RuntimeID)
+	cmds, _ := tokens.PendingCommands(r.Context(), s.DB, d.RuntimeID, s.Clock.Now())
 	writeJSON(w, http.StatusOK, map[string]any{"accepted_seq_max": max, "commands": cmds})
 }
 
@@ -252,7 +280,7 @@ func (s *Server) daemonHeartbeat(w http.ResponseWriter, r *http.Request, d daemo
 			"session_id": t.SessionID, "task_id": t.ID, "agent_id": t.AgentID, "message_id": in.Preview.MessageID, "text": in.Preview.Text,
 		})
 	}
-	cmds, _ := tokens.PendingCommands(r.Context(), s.DB, d.RuntimeID)
+	cmds, _ := tokens.PendingCommands(r.Context(), s.DB, d.RuntimeID, s.Clock.Now())
 	writeJSON(w, http.StatusOK, map[string]any{"commands": cmds})
 }
 
@@ -271,6 +299,11 @@ func (s *Server) daemonFinish(w http.ResponseWriter, r *http.Request, d daemonCt
 	default:
 		writeProblem(w, apperr.Validation(apperr.Field("outcome", "enum", "outcome must be completed|failed|cancelled|paused_budget")))
 		return
+	}
+	// §4.3: cancel/revoke of this attempt are consumed by its finish arriving —
+	// whatever the server decides about the outcome (stale attempts included).
+	if err := tokens.ConsumeAttemptCommands(r.Context(), s.DB, t.ID, attempt, s.Clock.Now()); err != nil {
+		s.Log.Warn("consume attempt commands", "err", err)
 	}
 	final, err := s.Tasks.Finish(r.Context(), t.ID, attempt, in)
 	switch {
