@@ -108,7 +108,21 @@
         "cache_write_tokens": { "type": "integer" },
         "cost_usd": { "type": "number" },
         "estimated": { "type": "boolean", "description": "런타임이 usage=false면 true — FR-7.3 추정 배지, 하드 컷 금지" },
-        "cumulative": { "type": "boolean", "default": true }
+        "cumulative": { "type": "boolean", "default": true },
+        "model": { "type": "string", "description": "실제 실행 모델(_meta.quota.model_usage[].model). 프로파일과 다르면 model_drift" },
+        "model_drift": { "type": "boolean" },
+        "rate_limit": {
+          "type": "object",
+          "description": "usage_update._meta['_claude/rateLimit'] — 매 턴 오는 구조화 한도 상태(스파이크 1b E5). status=rejected면 rate_limited 1차 신호",
+          "required": ["status"],
+          "additionalProperties": false,
+          "properties": {
+            "status": { "type": "string", "enum": ["allowed", "allowed_warning", "rejected"] },
+            "resets_at": { "type": "string", "format": "date-time" },
+            "type": { "type": "string" },
+            "utilization": { "type": "number" }
+          }
+        }
       }
     },
     "plan": {
