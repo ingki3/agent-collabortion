@@ -2095,7 +2095,7 @@ paths:
         진행 중 턴만 취소한다(§8.2.2, 30초 보류 규칙). 결과 lane `failed`, task `cancelled`(`failure_kind: cancelled`), 활동 피드 "사람이 중단함"(E10-04). `paused(budget)` task를 명시 종료할 때도 이것이다(E9-03). `queued` lane이면 task를 `cancelled`로. 이미 종료 상태면 `409`.
       x-prd: [FR-3.4, FR-7.3]
       x-screen: [S7]
-      x-phase: P3
+      x-phase: P1   # PLAN §3 P1 DoD 3(취소)이 서버 경로를 요구한다 — v0.4.3, PR #33 리뷰 NN2
       responses:
         '202':
           description: 취소 절차 시작. 완료는 SSE `lane.updated`.
