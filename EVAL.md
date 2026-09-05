@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 문서 버전 | v0.1 |
+| 문서 버전 | v0.2 — P1 통합(G3, `plan/G3_REPORT.md`)에서 드러난 결함 5건을 회귀 행으로 승격(E8-13·E10-13·E11-11·E11-12·E17-09) |
 | 작성일 | 2026-09-05 |
 | 근거 | `PRD.md` v0.11 (FR 번호로 인용), `PLAN.md` v0.5 (게이트 G1~G9, §5 테스트 전략) |
 | 목적 | PRD의 규칙을 **입력 → 정확한 출력** 쌍으로 옮긴다. 이 문서의 한 행이 테스트 하나다. "됐다"를 사람마다 다르게 읽지 않게 하는 것이 PLAN의 DoD 원칙이고, 이 문서가 그 DoD의 실체다 |
@@ -194,6 +194,7 @@
 | E8-10 | 인증 오류로 실패 | — | 재시도 **0회**. `failed`. 에이전트 `error` | unit |
 | E8-11 | `preparing` 재개 | — | 기존 workdir **재사용**. 새 워크트리 생성 0 | harness |
 | E8-12 | 히스토리 200개, 프롬프트 상한 50개 | 턴 프롬프트 구성 | 히스토리 구간에 `included: 50 / total: 200 / truncated: true` 명시 | unit |
+| E8-13 | attempt가 `runtime_session_ref` **non-nil**로 finish (G3 S-1) | finish | 200, `lane.runtime_session_ref`에 계약 키(`runtime_kind`·`session_id`) 저장, 다음 attempt의 TaskBundle.resume에 같은 값 | unit + e2e |
 
 ---
 
@@ -227,6 +228,7 @@
 | E10-10 | 세션 내 상호 트리거 | R(`respond_to: owner`, 소유자 M1)이 M2가 만든 세션에 참여 중 | Dir·다른 참여자가 R 멘션 → **정상 트리거**(세션 참여 = 허용) | unit |
 | E10-11 | 세션 밖 | M2가 R을 자기 세션에 초대 | 거부(owner만 초대 가능) | unit |
 | E10-12 | 권한 originator | M2(권한 낮음)가 시작한 체인에서 Lead가 R 멘션 | 판정은 **M2 기준**. 에이전트 경유로 권한 상승 없음 | unit |
+| E10-13 | 데몬 프로세스 SIGTERM(정상 종료) 중 `running` attempt (G3 D-1) | 종료 | harness §5 순서(권한 응답 → `session/cancel` → 드레인)로 취소, finish `outcome=cancelled` — **재큐잉 아님**, 프로세스 트리 0 | harness + e2e |
 
 ---
 
@@ -244,6 +246,8 @@
 | E11-08 | 데몬 페어링 | `probe()` | CLI 목록·버전·모델, remote URL·브랜치·클린 여부(worktree용)가 서버 DB에 저장. S11에 표시 | e2e |
 | E11-09 | 재큐잉된 task를 다른 데몬이 claim 시도 | — | 세션 `runtime_id` 고정 → **거부**. 같은 런타임만 claim | unit |
 | E11-10 | `none` 격리, `runtime_id` 비움 | 첫 task dispatch | 선택된 머신으로 **고정**. 이후 모든 lane 같은 머신 | unit |
+| E11-11 | 워크스페이스 A의 none 세션(`runtime_id` NULL), 워크스페이스 B의 런타임이 claim (G3 S-3, **구현됨 PR #28**) | claim | **주지 않음**. 고정은 같은 워크스페이스 런타임만. 다른 워크스페이스 runtime_id로 세션 생성 → 422 | unit |
+| E11-12 | 같은 호스트명의 데몬을 같은 워크스페이스에 재페어링 (G3 S-4) | pair | 201, 이름 접미어(`-2`) — 500 아님 | unit |
 
 ---
 
@@ -385,6 +389,7 @@
 | E17-06 | `blocked` 질문 → 위임자 깨어남 | ≤ 5분(실제로는 즉시) | e2e |
 | E17-07 | F1: 설치 → 첫 세션 완료, 신규 사용자 5명 | 중앙값 < 15분 | manual |
 | E17-08 | 대시보드 | §11 지표 10개 전부 표시 | manual |
+| E17-09 | 웹 S12 패널, 실서버, `daemon pair` 실행 (G3 W-1·W-2) | 페어링 | 페어링 발급 **1건**(StrictMode 이중 effect에도), 패널이 10초 안에 `준비 완료` | e2e(agent-browser) |
 
 ---
 
