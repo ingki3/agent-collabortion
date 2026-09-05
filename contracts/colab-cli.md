@@ -13,7 +13,10 @@
 |---|---|---|
 | `COLAB_TASK_TOKEN` | 데몬(`daemon-protocol.md` §4.1 TaskBundle) | `ctk_` + base64url(32B). **attempt 전용.** 서버는 해시만 저장. 범위: `{task_id, attempt, lane_id, session_id, agent_id}` |
 | `COLAB_SERVER_URL` | 데몬 | 서버 |
-| `COLAB_TASK_ID` `COLAB_LANE_ID` `COLAB_SESSION_ID` `COLAB_AGENT_NAME` | 데몬 | 명령이 인자를 생략할 때의 기본값 |
+| `COLAB_TASK_ID` `COLAB_TASK_ATTEMPT` `COLAB_LANE_ID` `COLAB_SESSION_ID` `COLAB_AGENT_NAME` | 데몬 | 명령이 인자를 생략할 때의 기본값. `COLAB_TASK_ATTEMPT`가 있으면 `/cli/context` 왕복 없이 멱등키를 만든다 (v0.2, PR #18) |
+| `COLAB_SERVER_URL` | 데몬 | **오리진**(예: `https://colab.example`). CLI가 `openapi.yaml` `servers[0].url`(`/api/v1`)을 뒤에 붙인다. `COLAB_API_PREFIX`로 덮어쓸 수 있다 |
+
+**멱등키 (v0.2)**: `Idempotency-Key`는 openapi대로 **UUID** — CLI가 `UUIDv5(namespace=colab, name="task:<task_id>:<seq>")`로 파생한다. **`seq`는 attempt를 포함하지 않고 task 안에서 이어진다**(`/cli/context`가 `last_seq`를 돌려주고, attempt 2는 그 다음부터). 재시도가 같은 내용을 다시 게시해도 다른 seq면 새 메시지다 — 중복 방지는 재개 프롬프트의 `posted_message_ids`(FR-7.1, E8-04)가 1차이고 멱등키는 **네트워크 재전송**만 막는다.
 
 - **전처리 `GET /cli/context`** (`openapi.yaml` `getCliContext`): 토큰만으로 task·lane·세션·에이전트·참여자 로스터·억제 중인 위임자(규칙 8)·열린 HITL 여부를 받는다. CLI는 토큰을 파싱하지 않는다 — 서버가 범위를 푼다(openapi.md D2).
 - **토큰 읽기 범위**(G2 Q8): 그 task의 세션 안에서 세션·메시지·lane·task·아티팩트·결정 읽기만. 워크스페이스·에이전트·설정·인박스·다른 세션은 403.
@@ -37,7 +40,7 @@
 
 | 명령 | HTTP | 동작 | 단계 |
 |---|---|---|---|
-| `colab message post --body <text> [--reply-to <msg_id>] [--mention @A,@B]` | `POST /v1/sessions/{S}/messages` (`Idempotency-Key: <task_id>:<attempt>:<client_seq>`) | 메시지 게시. 라우팅은 서버(FR-3.3): 에이전트 메시지는 **멘션 있을 때만** 트리거(규칙 4), 위임자 멘션은 합류 전까지 억제(규칙 8). 응답에 `triggered: [agent…]`와 `suppressed: [agent…]`를 돌려준다 | P1 |
+| `colab message post --body <text> [--reply-to <msg_id>] [--mention @A,@B]` | `POST /sessions/{S}/messages` (`Idempotency-Key` UUIDv5, 위 §1) | 메시지 게시. 라우팅은 서버(FR-3.3): 에이전트 메시지는 **멘션 있을 때만** 트리거(규칙 4), 위임자 멘션은 합류 전까지 억제(규칙 8). 응답은 openapi `MessagePostResult` — `triggers[]`(생성·병합된 task, `coalesced` 플래그)와 `warnings[]`(`code` 열거: `not_participant`(비참여자 멘션, E1-04) · `suppressed_delegator`(규칙 8) · `loop_limit_near` · `agent_disabled`). CLI `--json`은 이를 그대로 내고 편의로 `triggered`(triggers의 agent 이름)·`suppressed`(`code == suppressed_delegator`인 warnings의 agent 이름 — **정확히 일치**로 판정, 부분 문자열 금지)를 파생한다 | P1 |
 | `colab status set working\|done [--note <text>]` | `POST /v1/tasks/{T}/status` | `done`은 "이 턴의 작업이 끝났다"의 선언 — lane 종료 판정은 서버가 `turn_end`와 함께 한다. `working`은 no-op에 가깝고 피드 기록용 | P2 |
 | `colab status set blocked --note "<질문>"` | `POST /v1/tasks/{T}/status` | **FR-6.2.1 경로.** 서버가 (1) lane `blocked` (2) 스레드에 질문 카드 게시(`lane.blocked_message_id`) (3) 위임자 즉시 깨움(없으면 Director 인박스 `lane_blocked`). 반환: `{"turn_end_required": true}` — 에이전트는 **턴을 끝내야 한다** | P2 |
 | `colab decision record --title <t> --body <text> [--options a,b] [--chosen a]` | `POST /v1/sessions/{S}/decisions` | 결정 기록(source=agent). 브리프 [7]에 실린다 | P2 |
