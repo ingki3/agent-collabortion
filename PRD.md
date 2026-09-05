@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 문서 버전 | **v0.12 (Draft)** — 스키마 v0 구현(PR #7)에서 드러난 §7 결함 1건 반영(agent.status는 저장하지 않는다). 이전 버전은 `prd/` |
+| 문서 버전 | **v0.13 (Draft)** — G1 판정 반영: CLI 어댑터 v1 제외 확정, 어댑터 패키지 개명, `rate_limited` 분류, Hermes 유실 감지 규칙. v0.12는 §7 agent.status. 이전 버전은 `prd/` |
 | 작성일 | 2026-09-03 |
 | 파생 문서 | **`SCREEN.md`** (화면 설계 SSOT) — 이 PRD를 화면으로 옮기며 드러난 공백이 v0.9 변경 요약에 반영되어 있다. **`PLAN.md`** (개발 계획 SSOT, 이전 버전·리뷰는 `plan/`) — §10·§12를 주차로 펼치며 드러난 것이 v0.11에 반영되어 있다 |
 | 리뷰 이력 | `PRD_REVIEW_01` → v0.5 · `PRD_REVIEW_02` → v0.6 · `PRD_REVIEW_03` → v0.7 · `PRD_REVIEW_04` (`blocked` 경로 공백 6 / 소소한 것 8) → v0.8. **전건 반영, 반대 항목 없음** |
@@ -139,6 +139,16 @@ v0.7은 `blocked` 상태를 **추가**했지만 그것이 기존 규칙들과 �
 | P7 | **사람의 세션 역할이 정의되지 않았다.** FR-5.3 한 문장뿐이라 화면 문서가 `participant`/`observer`를 만들었고, PRD가 허용한 게시를 금지하는 결과가 됐다 | **FR-5.3 재작성.** 사람은 Director·deputy·워크스페이스 멤버 셋. 멤버는 열람·게시 가능, 비공개 세션은 v1.1. `participant`는 에이전트 전용 용어 | FR-5.3 |
 
 **교훈으로 남길 것** — P7은 "PRD가 말하지 않은 것을 파생 문서가 채우면, 그 채움이 PRD 규칙을 위반해도 아무도 모른다"는 사례다. 앞으로 파생 문서가 새 개념을 도입하면 **PRD에 없는 개념임을 명시**하고 되돌려 확인받는다. `screen/SCREEN_01.md` §8.2가 그 역할을 했다.
+
+### v0.13 변경 요약 (G1 판정 반영 — `plan/G1_DECISION.md`)
+
+| # | 문제 | 조치 | 위치 |
+|---|---|---|---|
+| G1-1 | 조건부 항목 "Claude Code CLI 어댑터" 미결 | 스파이크 1 통과 → **v1 제외 확정**, 폴백 스펙은 문서 유지 | §10 |
+| G1-2 | 어댑터 패키지 `@zed-industries/claude-code-acp`가 2026-02 이후 동결 | `@agentclientprotocol/claude-agent-acp@0.74.0`으로 개명·고정 | §8.2.3, §12 |
+| G1-3 | 계정 사용 한도 오류가 재시도 분류에 없음 | `rate_limited` — 리셋 시각까지 재큐잉(`task.not_before`) | FR-7.1 |
+| G1-4 | Hermes 유실 감지 규칙 | `session/load` null 또는 provenance 불일치가 1차, refusal 규칙은 보조 | §8.2.5, §12 |
+| G1-5 | 어댑터가 사용자 전역 설정(MCP·hooks)을 세션에 싣는다 | 하네스 계약에서 `settingSources` 제한 + `strictMcpConfig` — `contracts/harness.md` | §8.2 |
 
 ### v0.12 변경 요약 (스키마 v0 구현 반영)
 
@@ -767,7 +777,7 @@ deferred → queued → dispatched → preparing → running → waiting_human
 2. 에이전트가 지시를 따르지 않고 작업을 계속할 수 있다. 그동안 게시된 메시지와 편집은 **그대로 기록한다** — 이미 일어난 일이다.
 3. **`turn_end`가 도착하면** `waiting_human`으로 전이한다.
 4. **task당 열린 HITL은 하나로 제한한다.** 두 번째 호출은 "이미 대기 중인 요청이 있다"로 거부하고, 활동 피드에 남긴다. 하나의 턴이 답을 두 개 기다리면 재개 프롬프트가 모호해진다.
-- 재시도: `runtime_offline`, 네트워크, 프로세스 stall은 2~3회 자동(같은 머신 안에 대체 프로파일이 있으면 전환), 인증/쿼터/설정 오류는 재시도 없음.
+- 재시도: `runtime_offline`, 네트워크, 프로세스 stall은 2~3회 자동(같은 머신 안에 대체 프로파일이 있으면 전환), 인증/쿼터/설정 오류는 재시도 없음. **`rate_limited`(G1 F3)**: 계정 사용 한도는 `session/prompt`의 JSON-RPC 오류 `-32603 "You've hit your limit … resets HH:MM"`으로 오고 프로세스는 살아 있다 — 쿼터 오류가 아니라 **리셋 시각까지 `queued`로 되돌리는 재시도 가능 분류**로 다룬다(`task.not_before`).
 
 **재시도는 처음부터 다시 하지 않는다 (M5).** 중단된 task는 이미 파일을 절반 고치고 메시지를 두 개 게시했을 수 있다. `task_id + seq` 멱등 키는 메시지 중복 게시만 막고 파일 편집·셸 명령은 막지 못한다. 따라서 재시도는 HITL 재개(FR-5.4)와 **같은 코드 경로**를 쓴다.
 
@@ -1037,7 +1047,7 @@ interface RuntimeHarness {
 
 | | Claude Code | Hermes | Antigravity |
 |---|---|---|---|
-| 1차 경로 | **ACP** (`claude-code-acp` 어댑터) | **ACP** (`hermes acp`, 네이티브) | **CLI 폴백** (ACP 어댑터 없음) |
+| 1차 경로 | **ACP** (`@agentclientprotocol/claude-agent-acp` 어댑터 — 구 `claude-code-acp`, G1) | **ACP** (`hermes acp`, 네이티브) | **CLI 폴백** (ACP 어댑터 없음) |
 | 폴백 경로 | CLI (`claude -p`, §8.2.4) | CLI (`hermes -z`) | — |
 | 지시 파일 | `CLAUDE.md` | `AGENTS.md` | `AGENTS.md` (`GEMINI.md`가 있으면 우선) |
 | MCP | ✓ | ✓ (런타임 `mcpCapabilities`에 맞춰 stdio/http 필터) | ✗ → `colab` CLI 셸 호출로 대체 |
@@ -1076,7 +1086,7 @@ claude -p --input-format stream-json --output-format stream-json --verbose \
 |---|---|---|
 | Claude Code | 헤드리스에서 `AskUserQuestion`이 빈 답을 반환 | **ACP·CLI 두 경로 모두에서** disallow하고 HITL은 `colab hitl ask`로 일원화. CLI는 `--disallowedTools`, ACP는 어댑터의 툴 차단 수단(`tool_disallow` 능력)을 쓴다 — 수단 확인은 스파이크 항목(M11). 차단이 불가능하면 브리프에 "이 툴을 쓰지 말라"고 명시하고 호출 시 활동 피드에 경고를 남긴다 |
 | Claude Code | resume 거부 시 "no conversation found" 류 메시지 | `resume_rejected`로 분류해 새 세션으로 재시도 |
-| Hermes | `state.db`에 없는 세션을 **오류 없이 새로 생성** | 세션 provenance 불일치, 또는 `stopReason=="refusal" && 턴 활동 0`으로 유실 감지 |
+| Hermes | `state.db`에 없는 세션을 **오류 없이 새로 생성** | **`session/load` 결과가 `null`이면 유실, 아니면 `_meta.hermes.sessionProvenance.acpSessionId == 요청 id` 확인**(스파이크 4a: 3/3 감지, 오탐 0). `stopReason=="refusal" && 턴 활동 0`은 실기에서 발동하지 않아 보조 규칙으로 강등(G1 F7) |
 | Hermes | 상위 LLM이 4xx/5xx여도 `end_turn` 보고 | stderr에서 프로바이더 오류를 별도 감지 |
 | Hermes | 마지막 메시지 청크가 프롬프트 응답 **뒤에** 도착 | 250ms 정적 대기 + 2초 드레인 후 완료 판정 |
 | Antigravity | resume 거부를 구분할 수 없음(빈 conversation id) | 항상 새 세션 폴백 준비 |
@@ -1190,7 +1200,7 @@ v0.4 대비 **컨테이너 격리 · Antigravity · `.agent.md` · Build with AI
 - [ ] 워크스페이스·멤버 CRUD
 - [ ] **데몬 + Runtimes 화면 + ACP 하네스** — 핸드셰이크, 권한 협상(`allow_once` 탐색), 이벤트 정규화, 취소 절차, 프로세스 그룹 정리
 - [ ] **런타임 2종**: Claude Code(ACP), Hermes(ACP). 구현 순서: **ACP 하네스 → Claude Code → Hermes**
-- [ ] **(조건부) Claude Code CLI 어댑터** — 스파이크 1에서 `claude-code-acp`가 불안정하다고 판정되면 v1에 포함한다. §12의 "드리프트 시 CLI 폴백으로 강등" 완화책도 이 어댑터가 있어야 성립하므로, 스파이크 결과에 따라 **v1 필수 또는 v1.1**로 확정한다(M2)
+- [x] ~~(조건부) Claude Code CLI 어댑터~~ — **G1(2026-09-05)에서 v1 제외 확정**: 스파이크 1 통과(크래시 0, resume 11/11, `allow_once` 부재 0%). §8.2.4 폴백 스펙은 문서로 유지. 원문: 스파이크 1에서 `claude-code-acp`가 불안정하다고 판정되면 v1에 포함한다. §12의 "드리프트 시 CLI 폴백으로 강등" 완화책도 이 어댑터가 있어야 성립하므로, 스파이크 결과에 따라 **v1 필수 또는 v1.1**로 확정한다(M2)
 - [ ] 에이전트 CRUD(폼), **프로파일(멀티) 편집기**, 팀 템플릿(FR-1.4), 동적 생성 금지
 - [ ] 호출 권한 게이트(`respond_to` = 초대 권한, 세션 참여 = 트리거 허용)
 - [ ] 세션 생성(goal, **Director**, `runtime_id`, 참여자+프로파일, **격리 worktree/none**, **종료 조건 4종: `artifact_submitted` · `agent_approval` · `user_approval` · `manual`**, 예산 상한). `criteria_met`(플랫폼 LLM 판정)만 v1.1 — 시나리오 B가 `agent_approval`을 쓰므로 이것이 빠지면 v1에서 성립하지 않는다(t-4)
@@ -1292,7 +1302,7 @@ v0.4 대비 **컨테이너 격리 · Antigravity · `.agent.md` · Build with AI
 
 **오픈 이슈 / 스파이크** — 1~2는 v1 착수 전, 3~5는 1주차, 6~8은 해당 기능 착수 전.
 
-1. **`claude-code-acp` 어댑터의 성숙도·유지보수 상태 실측.** Claude Code CLI 직접 구동(§8.2.4) 대비 안정성이 떨어지면 Claude Code만 CLI를 1차로 되돌린다. 하네스 구조는 그대로 두고 경로만 바꾼다. **이 결정이 v1 범위를 좌우하므로 1주차에 내린다.**
+1. ~~`claude-code-acp` 어댑터의 성숙도·유지보수 상태 실측.~~ **G1 통과** (`plan/spikes/SPIKE_01.md`, `plan/G1_DECISION.md`). 지시한 `@zed-industries/claude-code-acp`는 2026-02 이후 동결, 후속 `@agentclientprotocol/claude-agent-acp` 0.74.0으로 고정. 원문: Claude Code CLI 직접 구동(§8.2.4) 대비 안정성이 떨어지면 Claude Code만 CLI를 1차로 되돌린다. 하네스 구조는 그대로 두고 경로만 바꾼다. **이 결정이 v1 범위를 좌우하므로 1주차에 내린다.**
 2. **ACP 경로에서 툴을 차단하는 수단**(`AskUserQuestion`). 어댑터 옵션·설정 파일 중 무엇이 되는지 확인. 불가하면 브리프 지시 + 활동 피드 경고로 대체(M11).
 3. **ACP `session/new`에 시스템 프롬프트 필드가 있는가.** 없으면 §8.4의 1번 경로를 삭제하고 지시 파일을 유일 경로로 확정(M6).
 4. **HITL 재개 경로 검증** — 두 단계로 나눈다(`PLAN.md` §4). **4a(1주차)**: 런타임 능력 — Claude Code ACP resume 후 답변 프롬프트로 이전 컨텍스트가 유지되는지, Hermes 유실 감지가 실제로 동작하는지. **4c(HITL 구현 착수 전)**: 콜드 스타트만으로 작업을 이어갈 수 있는지(C1) — lane `runtime_session_ref`와 `<resumed>` 프롬프트가 있어야 실제 조건이 되므로 1주차에는 할 수 없다.
