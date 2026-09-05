@@ -42,6 +42,7 @@ type Client struct {
 	// waits on it to observe activity; scenarios read Stats instead.
 	updateHooksMu sync.Mutex
 	updateHooks   []func(SessionUpdateParams)
+	notifyHooks   []func(method string, params json.RawMessage)
 
 	// cancelling marks a session id whose in-flight turn is being cancelled;
 	// pending permission requests for it are answered "cancelled" (PRD §8.2.2).
@@ -261,7 +262,21 @@ func (c *Client) readLoop(r io.Reader) {
 	}
 }
 
+// OnNotification registers a hook called for every notification (session/update
+// and extension notifications such as _claude/sdkMessage).
+func (c *Client) OnNotification(fn func(method string, params json.RawMessage)) {
+	c.updateHooksMu.Lock()
+	c.notifyHooks = append(c.notifyHooks, fn)
+	c.updateHooksMu.Unlock()
+}
+
 func (c *Client) handleNotification(m message) {
+	c.updateHooksMu.Lock()
+	nh := append([]func(string, json.RawMessage){}, c.notifyHooks...)
+	c.updateHooksMu.Unlock()
+	for _, h := range nh {
+		h(m.Method, m.Params)
+	}
 	if m.Method != MethodSessionUpdate {
 		return
 	}
@@ -372,7 +387,8 @@ func (c *Client) Call(ctx context.Context, method string, params any, result any
 			return fmt.Errorf("%s: %w", method, ErrProcessExited)
 		}
 		if m.Error != nil {
-			return fmt.Errorf("%s: rpc error %d: %s", method, m.Error.Code, m.Error.Message)
+			// %w so callers can errors.As into *RPCError and read Code / Data.
+			return fmt.Errorf("%s: rpc error %d: %w", method, m.Error.Code, m.Error)
 		}
 		if result != nil && len(m.Result) > 0 && string(m.Result) != "null" {
 			if err := json.Unmarshal(m.Result, result); err != nil {
@@ -448,6 +464,17 @@ func (c *Client) SetModel(ctx context.Context, sessionID, modelID string) error 
 	return c.Call(ctx, MethodSessionSetModel, SetModelParams{SessionID: sessionID, ModelID: modelID}, nil)
 }
 
+// SetConfigOption is session/set_config_option (ACP 1.x). For configId
+// "model", claude-agent-acp accepts aliases ("haiku") as well as option values.
+func (c *Client) SetConfigOption(ctx context.Context, sessionID, configID string, value any) (*SetConfigOptionResult, error) {
+	var res SetConfigOptionResult
+	err := c.Call(ctx, MethodSessionSetConfigOption, SetConfigOptionParams{SessionID: sessionID, ConfigID: configID, Value: value}, &res)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
 // TurnResult is what Prompt returns: the stop reason plus the text the agent
 // produced in this turn (agent_message_chunk text concatenated) and counts.
 type TurnResult struct {
@@ -456,6 +483,11 @@ type TurnResult struct {
 	ToolCalls   int
 	Permissions int
 	Duration    time.Duration
+	// Models is _meta.quota.model_usage[].model from the prompt response (nil
+	// when the adapter does not report it).
+	Models []string
+	// Meta is the raw prompt-response _meta.
+	Meta json.RawMessage
 	// TurnEndAt is when the session/prompt response arrived. For Hermes the
 	// last chunk may land after it (PRD §8.2.5); Prompt drains for
 	// DrainAfterTurn and counts any late chunks in LateChunks.
@@ -526,11 +558,13 @@ func (c *Client) Prompt(ctx context.Context, sessionID, text string) (*TurnResul
 		Permissions: int(atomic.LoadInt64(&c.Stats.PermissionRequests) - permBefore),
 		Duration:    time.Since(start),
 		LateChunks:  late,
+		Models:      res.ModelsUsed(),
+		Meta:        res.Meta,
 	}
 	mu.Unlock()
 	// turn_end is not an ACP update kind — the session/prompt response is the
 	// turn end. We synthesise a record so the log reads like the task_event stream.
-	c.record("turn_end", map[string]any{"sessionId": sessionID, "stopReason": tr.StopReason, "toolCalls": tr.ToolCalls, "permissions": tr.Permissions, "lateChunks": tr.LateChunks, "ms": tr.Duration.Milliseconds(), "textLen": len(tr.Text)})
+	c.record("turn_end", map[string]any{"sessionId": sessionID, "stopReason": tr.StopReason, "toolCalls": tr.ToolCalls, "permissions": tr.Permissions, "lateChunks": tr.LateChunks, "ms": tr.Duration.Milliseconds(), "textLen": len(tr.Text), "models": tr.Models})
 	c.cancellingMu.Lock()
 	delete(c.cancelling, sessionID)
 	c.cancellingMu.Unlock()

@@ -4,8 +4,9 @@
 //	acpprobe -runtime claude -scenario spike1 -turns 30 -resumes 10 -cancels 10 -workdir /tmp/w -logdir plan/spikes/logs
 //	acpprobe -runtime hermes -scenario hermes-loss -n 3
 //
-// Runtimes: claude → `npx -y @zed-industries/claude-code-acp`, hermes → `hermes acp`.
-// Override with -cmd "prog arg arg".
+// Runtimes: claude → `npx -y @agentclientprotocol/claude-agent-acp@<pinned>`,
+// claude-zed → `npx -y @zed-industries/claude-code-acp` (frozen 0.16.x package,
+// P0-a spikes), hermes → `hermes acp`. Override with -cmd "prog arg arg".
 package main
 
 import (
@@ -40,19 +41,42 @@ type opts struct {
 	timeout  time.Duration
 }
 
+// ClaudeAdapterPkg is the ACP adapter the "claude" runtime spawns. Pinned:
+// adapter extensions (_meta.*, configOptions) move between versions
+// (SPIKE_01 §4, SPIKE_01b).
+const ClaudeAdapterPkg = "@agentclientprotocol/claude-agent-acp@0.74.0"
+
 var (
-	rateLimitRe = regexp.MustCompile(`(?i)rate[ _-]?limit|usage limit|limit reached|hit your limit|out of (extra )?usage|\b429\b|overloaded|resets? (at|in) |· resets `)
+	// rateLimitRe classifies a session/prompt failure as a limit. It covers the
+	// SDK's USAGE_LIMIT_ERROR_PREFIXES (claude-agent-sdk 0.3.257, the list
+	// claude-agent-acp 0.74.0 uses for isSyntheticUsageLimitMessage) plus API
+	// rate-limit / overloaded wording. See TestRateLimitRegexCoversSDKPrefixes.
+	rateLimitRe = regexp.MustCompile(`(?i)rate[ _-]?limit|usage limit|limit reached|you've (hit|reached) your|out of (extra )?usage|usage credits|usage allocation|doesn't include (extra )?usage|\b429\b|overloaded|resets? (at|in) |· resets `)
 	resetTimeRe = regexp.MustCompile(`(?i)reset[s]? (?:at |in )?([0-9]{1,2}(?::[0-9]{2})?\s*(?:am|pm)?(?:\s*\([^)]*\))?|[0-9]+ ?(?:min|hour|h|m)[a-z]*)`)
 )
+
+// isLimitError reports whether a turn error is a limit: either the adapter
+// attached data.errorKind == "rate_limit" (claude-agent-acp 0.74.0
+// errorKindData) or the message matches rateLimitRe.
+func isLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var rpc *acpprobe.RPCError
+	if errors.As(err, &rpc) && rpc.ErrorKind() == "rate_limit" {
+		return true
+	}
+	return rateLimitRe.MatchString(err.Error())
+}
 
 // ErrRateLimited aborts the run: PLAN says stop immediately, do not wait.
 var ErrRateLimited = errors.New("rate_limited")
 
 func main() {
 	var o opts
-	flag.StringVar(&o.runtime, "runtime", "claude", "claude | hermes")
+	flag.StringVar(&o.runtime, "runtime", "claude", "claude | claude-zed | hermes")
 	flag.StringVar(&o.cmd, "cmd", "", "override agent command line (space separated)")
-	flag.StringVar(&o.scenario, "scenario", "smoke", "smoke | spike1 | spike2 | spike3 | spike4a | hermes-loss | hermes-smoke")
+	flag.StringVar(&o.scenario, "scenario", "smoke", "smoke | spike1 | spike1b | spike1b-load | spike2 | spike3 | spike4a | hermes-loss | hermes-smoke")
 	flag.StringVar(&o.workdir, "workdir", "", "session cwd (default: temp dir)")
 	flag.StringVar(&o.logdir, "logdir", "plan/spikes/logs", "where JSONL + summary go")
 	flag.IntVar(&o.turns, "turns", 30, "spike1: number of prompt turns")
@@ -60,7 +84,7 @@ func main() {
 	flag.IntVar(&o.cancels, "cancels", 10, "spike1: number of cancelled turns")
 	flag.IntVar(&o.n, "n", 10, "spike4a / hermes-loss: repetitions")
 	flag.StringVar(&o.session, "session", "", "spike1: continue an existing session id via session/load instead of session/new")
-	flag.StringVar(&o.model, "model", "haiku", "model id substring to select via session/set_model (empty = runtime default)")
+	flag.StringVar(&o.model, "model", "haiku", "model to select after session/new: session/set_config_option{model} (ACP 1.x) or session/set_model (empty = runtime default)")
 	flag.DurationVar(&o.timeout, "timeout", 4*time.Minute, "per-request timeout")
 	flag.Parse()
 
@@ -96,6 +120,10 @@ func main() {
 		runErr = r.smoke(ctx)
 	case "spike1":
 		runErr = r.spike1(ctx)
+	case "spike1b":
+		runErr = r.spike1b(ctx)
+	case "spike1b-load":
+		runErr = r.spike1bLoad(ctx)
 	case "spike2":
 		runErr = r.spike2(ctx)
 	case "spike3":
@@ -148,6 +176,8 @@ func (r *runner) command() (string, []string) {
 	}
 	switch r.o.runtime {
 	case "claude":
+		return "npx", []string{"-y", ClaudeAdapterPkg}
+	case "claude-zed":
 		return "npx", []string{"-y", "@zed-industries/claude-code-acp"}
 	case "hermes":
 		return "hermes", []string{"acp"}
@@ -257,8 +287,35 @@ func (r *runner) newSession(ctx context.Context, c *acpprobe.Client, meta map[st
 		} else if id == "" {
 			r.rec.Note("model_not_found", map[string]any{"wanted": r.o.model})
 		}
+	} else if r.o.model != "" && s.Models == nil && len(s.ConfigOptions) > 0 {
+		r.ensureModel(sctx, c, s.SessionID, s.ConfigOptions)
 	}
 	return s, nil
+}
+
+// ensureModel is the ACP 1.x model path: session/set_config_option{configId:
+// "model", value: <alias>} when the session's current model is not already
+// the wanted one. Returns the model option value reported after the call.
+func (r *runner) ensureModel(ctx context.Context, c *acpprobe.Client, sid string, opts []acpprobe.ConfigOption) string {
+	cur := acpprobe.ConfigOptionValue(opts, "model")
+	if r.summary["model_default"] == nil {
+		r.summary["model_default"] = cur
+	}
+	if cur == "" {
+		r.rec.Note("model_config_option_missing", map[string]any{"wanted": r.o.model})
+		return ""
+	}
+	if strings.Contains(strings.ToLower(cur), strings.ToLower(r.o.model)) {
+		return cur
+	}
+	res, err := c.SetConfigOption(ctx, sid, "model", r.o.model)
+	if err != nil {
+		r.rec.Note("set_config_option_failed", map[string]any{"model": r.o.model, "error": err.Error()})
+		return cur
+	}
+	now := acpprobe.ConfigOptionValue(res.ConfigOptions, "model")
+	r.summary["model_selected"] = now
+	return now
 }
 
 func pickModel(ms *acpprobe.ModelState, want string) string {
@@ -280,7 +337,7 @@ func (r *runner) turn(ctx context.Context, c *acpprobe.Client, sid, prompt strin
 		if errors.Is(err, acpprobe.ErrProcessExited) {
 			r.crashes++
 		}
-		if rateLimitRe.MatchString(err.Error()) {
+		if isLimitError(err) {
 			return tr, r.rateLimited(err.Error())
 		}
 		return tr, err
