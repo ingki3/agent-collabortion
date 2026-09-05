@@ -50,14 +50,25 @@ log "페어링 행 수: $BEFORE → $AFTER (화면 1번 열 때 $((AFTER-BEFORE)
 ab screenshot "__screenshots__/p1-s12-01-waiting.png" >/dev/null
 CODE2="$(sed -E 's/.* pair ([^ ]+) --server.*/\1/' <<<"$CMD2")"
 CFG2="$OUT/daemon-f2.json"; rm -f "$CFG2"
+# E17-09: `daemon pair` 시작부터 패널이 `준비 완료` 를 보일 때까지 10초 안이어야 한다. 시작 시각을 pair 직전에 잡는다.
+T0="$(now_ms)"
 daemon_pair "$CODE2" "$CFG2" "$OUT/work-f2" --no-turn
-SHOWN_ST=""; for i in $(seq 1 30); do SHOWN_ST="$(ab get attr '[data-testid="pairing-status"]' data-status)"; [ "$SHOWN_ST" = ready ] && break; sleep 1; done
+SHOWN_ST=""; READY_MS=""
+for i in $(seq 1 30); do
+  SHOWN_ST="$(ab get attr '[data-testid="pairing-status"]' data-status)"
+  [ "$SHOWN_ST" = ready ] && { READY_MS="$(( $(now_ms) - T0 ))"; break; }
+  sleep 1
+done
+READY_S="$(python3 -c "print(f'{${READY_MS:-0}/1000:.1f}')")"
+[ -n "$READY_MS" ] && log "pair → 패널 준비 완료: ${READY_S}s (E17-09 기준 10s)"
 CMD2_LATER="$(ab get text '[data-testid="install-cmd-2"] code')"
 [ "$CMD2_LATER" = "$CMD2" ] && log "화면 2행 불변 (패널 state = 페어링한 것)" || bad "화면 2행이 바뀜 — 처음 표시된 코드로 페어링했지만 패널은 나중 응답(다른 페어링)을 추적: '$CMD2_LATER'"
 PAIRED_DB_ST="$(psqlq "select status from runtime_pairing where code_hash=encode(sha256('$CODE2'::bytea),'hex')")"; log "페어링한 코드의 DB 상태=$PAIRED_DB_ST"
 ab screenshot "__screenshots__/p1-s12-02-after-pair.png" >/dev/null
+[ "$SHOWN_ST" = ready ] && ab screenshot "__screenshots__/p1-s12-03-ready.png" >/dev/null
 DB_ST="$(psqlq "select string_agg(status||'@'||to_char(created_at,'HH24:MI:SS'),' ') from runtime_pairing where workspace_id='$WS' and created_at > now() - interval '2 minutes'")"
 log "패널 status=$SHOWN_ST (30초 내) · DB 최근 페어링: $DB_ST"
-[ "$SHOWN_ST" = ready ] && ok "S12 패널이 ready 로 갱신됨" || bad "S12 패널이 '$SHOWN_ST' 에 머묾(DB 에는 ready 있음) — 화면이 다른 페어링을 추적하거나 갱신 경로(SSE/폴링) 미동작"
-jq -n --argjson sse_pairing "${N_PAIR:-0}" --argjson sse_runtime "${N_RT:-0}" --arg api_status "$API_ST" --argjson created "$((AFTER-BEFORE))" --arg panel_status "$SHOWN_ST" --arg db "$DB_ST" --argjson shown_changed "$([ "$CMD2_LATER" = "$CMD2" ] && echo false || echo true)" --arg paired_db "$PAIRED_DB_ST" \
-  '{sse_pairing_updated:$sse_pairing,sse_runtime_updated:$sse_runtime,api_pairing_status:$api_status,pairings_created_by_one_panel:$created,panel_status_after_pair:$panel_status,shown_command_changed:$shown_changed,paired_code_db_status:$paired_db,db_recent_pairings:$db}' | tee "$OUT/f-summary.json"
+[ "$SHOWN_ST" = ready ] && ok "S12 패널이 ready 로 갱신됨 (${READY_S}s)" || bad "S12 패널이 '$SHOWN_ST' 에 머묾(DB 에는 ready 있음) — 화면이 다른 페어링을 추적하거나 갱신 경로(SSE/폴링) 미동작"
+[ -n "$READY_MS" ] && { [ "$READY_MS" -le 10000 ] && ok "E17-09: 10초 안에 준비 완료 (${READY_S}s)" || bad "E17-09: 준비 완료까지 ${READY_S}s — 10초 초과"; }
+jq -n --argjson sse_pairing "${N_PAIR:-0}" --argjson sse_runtime "${N_RT:-0}" --arg api_status "$API_ST" --argjson created "$((AFTER-BEFORE))" --arg panel_status "$SHOWN_ST" --arg db "$DB_ST" --argjson shown_changed "$([ "$CMD2_LATER" = "$CMD2" ] && echo false || echo true)" --arg paired_db "$PAIRED_DB_ST" --arg ready_s "${READY_S:-}" \
+  '{sse_pairing_updated:$sse_pairing,sse_runtime_updated:$sse_runtime,api_pairing_status:$api_status,pairings_created_by_one_panel:$created,panel_status_after_pair:$panel_status,panel_ready_seconds:($ready_s|if .=="" then null else tonumber end),shown_command_changed:$shown_changed,paired_code_db_status:$paired_db,db_recent_pairings:$db}' | tee "$OUT/f-summary.json"
