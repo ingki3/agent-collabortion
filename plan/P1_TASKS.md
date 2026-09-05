@@ -8,7 +8,7 @@
 | 배정 | S·D·C·W **동시** fan-out(각자 워크트리, PR 하나). Reviewer = Hermes(Orca 터미널), Integrator = 별도 worker(4개 머지 후) |
 | 예산 (PLAN §6.2 G3) | `blocked` ≤ 10, PR ≤ 30, PR당 리뷰 반려 ≤ 3 |
 
-공통 규칙 (모든 작업): dev에서 feature 브랜치 → PR to dev. **`contracts/` 수정 금지** — 계약 결함은 `orca orchestration ask`로 Lead에게(Director 승인 PR로만 바뀐다). 남의 스트림 디렉토리 수정 금지. 테스트 파일은 자기 스트림 안에서만. `.github/` 수정은 CI 잡 추가에 한해 허용(PR 본문에 명시). 한도(rate limit)에 걸리면 기다리지 말고 지금까지 결과로 PR을 열고 `worker_done --outcome failed`에 리셋 시각을 적어라. 완료는 `worker_done`(PR URL, 테스트 결과, 계약과 다르게 한 것·발견한 계약 결함).
+공통 규칙 (모든 작업): **Orca 워크트리 브랜치는 main 기준으로 생긴다 — 작업 시작 전에 반드시 `git fetch origin dev && git checkout -b <feature-branch> origin/dev`로 갈아타라(contracts/·server/·EVAL.md가 없으면 갈아타지 않은 것이다).** PR은 `GH_PROMPT_DISABLED=1 gh pr create --repo ingki3/agent-collabortion --base dev --head <branch> --title … --body-file <file>`(프롬프트에서 멈추는 것 방지). dev에서 feature 브랜치 → PR to dev. **`contracts/` 수정 금지** — 계약 결함은 `orca orchestration ask`로 Lead에게(Director 승인 PR로만 바뀐다). 남의 스트림 디렉토리 수정 금지. 테스트 파일은 자기 스트림 안에서만. `.github/` 수정은 CI 잡 추가에 한해 허용(PR 본문에 명시). 한도(rate limit)에 걸리면 기다리지 말고 지금까지 결과로 PR을 열고 `worker_done --outcome failed`에 리셋 시각을 적어라. 완료는 `worker_done`(PR URL, 테스트 결과, 계약과 다르게 한 것·발견한 계약 결함).
 
 ---
 
@@ -19,7 +19,8 @@
 스트림: S
 입력: contracts/openapi.yaml(P1 범위 operation — 인증·워크스페이스·멤버·초대·에이전트(프로파일 1개)·런타임·세션 생성(none)·메시지·task·실시간), contracts/daemon-protocol.md 전부, contracts/task_event.schema.json, contracts/protocol.go, contracts/clock, server/migrations/0001_init.sql, PRD FR-3.3 규칙 2·6, FR-7.1, FR-9.1, EVAL E5-01·02·03, E8-04, E11-03·04·09·10, E17-01
 출력: PR 하나 (branch feat/server-p1)
-  - server/internal/httpapi: openapi.yaml에서 타입·라우터 생성(oapi-codegen 권장, 생성물 커밋). P1 범위 밖 operation은 501.
+  - server/migrations/0002_p1_auth_and_stream.sql (G2 Q1): app_user.password_hash, user_session, workspace_invite, runtime_pairing, session_subscription, member.notification_settings(jsonb), artifact_review, idempotency_key(키·요청 해시·응답·만료), stream_event(SSE 백필 10분 창). session.isolation jsonb에 remote_url 키(Q2). 0001은 수정 금지.
+  - server/internal/httpapi: openapi.yaml에서 타입·라우터 생성(oapi-codegen 권장, 생성물 커밋). P1 범위 밖 operation은 501. getCliContext 포함(TaskToken 범위 = G2 Q8).
   - server/internal/auth: 이메일+비밀번호(argon2id), 세션 쿠키 또는 Bearer, 워크스페이스·멤버·초대 링크(S3).
   - server/internal/agents: CRUD, 프로파일 1개.
   - server/internal/runtimes: 페어링 코드 발급(S12) → /v1/daemon/pair, probe 저장, 목록.
