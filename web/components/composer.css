@@ -1,0 +1,18 @@
+/* 작성창 — 멘션 자동완성 + 비참여자 경고 칩(E1-04). 화면당 하나(SCREEN §5). */
+.composer { position: relative; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); padding: 8px 10px; }
+.composer:focus-within { border-color: var(--ink); }
+.composer__reply { font-size: 12px; color: var(--ink-2); display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.composer__ta { width: 100%; min-height: 64px; border: 0; outline: none; resize: vertical; font-size: 14px; line-height: 1.45; background: transparent; }
+.composer__foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+.composer__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); color: var(--ink-2); }
+.chip--warn { border-color: var(--s-wait); color: var(--s-wait-text); background: color-mix(in srgb, var(--s-wait) 12%, transparent); }
+.chip--trigger { border-color: var(--s-run); color: var(--s-run-text); background: color-mix(in srgb, var(--s-run) 10%, transparent); }
+.chip__x { border: 0; background: none; cursor: pointer; padding: 0; color: inherit; font-size: 12px; line-height: 1; }
+.composer__hint { font-size: 11px; color: var(--ink-3); }
+.mention-menu { position: absolute; left: 10px; bottom: calc(100% + 4px); z-index: 10; min-width: 240px; max-height: 220px; overflow: auto;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.08); padding: 4px; }
+.mention-menu__item { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left;
+  padding: 6px 8px; border-radius: 6px; border: 0; background: none; cursor: pointer; font-size: 13px; }
+.mention-menu__item[aria-selected="true"], .mention-menu__item:hover { background: var(--surface); }
+.mention-menu__kind { font-size: 11px; color: var(--ink-3); }
