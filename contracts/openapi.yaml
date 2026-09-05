@@ -1,0 +1,4671 @@
+openapi: 3.1.0
+info:
+  title: Colab Server API
+  version: 0.1.0-draft
+  summary: Colab 서버 REST API — P1~P3(수직 슬라이스 · 협업 코어 · HITL/재개/예산)에서 웹(W)과 colab CLI(C)가 호출하는 전부.
+  description: |
+    # 읽는 법
+
+    - **SSOT**: 리소스·필드·ENUM 값은 `server/migrations/0001_init.sql`(스키마 v0)과 정확히 일치한다. 동작은 `PRD.md` FR-1~FR-9, 화면이 부르는 순서는 `SCREEN.md` §4.
+    - **권한**은 각 operation `description`의 **첫 줄**에 `권한:`으로 적는다. 원칙(PRD §9): 판정은 항상 체인 최상단의 **사람 originator** 기준이며 에이전트 경유로 권한이 상승하지 않는다. 세션 내 사람 역할은 Director · deputy · 워크스페이스 멤버 셋뿐이다(FR-5.3).
+    - **데몬 엔드포인트**(claim · heartbeat · event push · 토큰 폐기 통보 · 페어링 토큰 교환)는 이 문서에 없다 — `contracts/daemon-protocol.md`.
+    - **colab CLI가 쓰는 operation**은 `x-colab-cli: <명령>` 확장으로 표시하고 보안 스킴 `TaskToken`(`COLAB_TASK_TOKEN`, task 범위·단기)을 쓴다. 토큰이 재큐잉으로 폐기되면 `401`이다(FR-9.1).
+    - **오류**는 전부 RFC 9457 `application/problem+json`(`Problem`). 검증 실패는 `422`, 상태 전이 불가·중복·차단은 `409`, 권한 없음은 `403`(버튼은 보이되 비활성 — 사유는 `detail`).
+    - **페이지네이션**은 커서 방식(`cursor` · `limit` → `next_cursor`). 메시지 타임라인만 `before`/`after` 양방향.
+    - **멱등키** `Idempotency-Key`(UUID)는 메시지 게시(`POST /sessions/{id}/messages`, `POST /lanes/{id}/restart`)와 HITL 응답(`POST /hitl-requests/{id}/response`)에 **필수**, 그 밖의 생성 POST에서 선택. 같은 키의 재요청은 첫 응답을 그대로 돌려준다(`Idempotent-Replayed: true`).
+    - **실시간**은 SSE 하나(`GET /workspaces/{workspaceId}/stream`). 이벤트 종류는 `StreamEvent.type`에 전부 나열한다.
+    - `x-prd`: 그 operation이 구현하는 PRD 항목. `x-screen`: 부르는 화면. `x-phase`: 처음 필요한 단계(P1~P5).
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+  contact:
+    name: Colab S 스트림 (contracts/openapi.md 참고)
+
+servers:
+  - url: /api/v1
+    description: 같은 오리진의 API 루트. 웹은 상대 경로로, colab CLI는 데몬이 넘긴 서버 URL 뒤에 붙인다.
+
+security:
+  - UserSession: []
+
+tags:
+  - name: auth
+    description: S1 로그인 · S2 회원가입 · S3 초대 수락. 사용자 세션(쿠키)을 발급한다.
+  - name: workspaces
+    description: 워크스페이스 · 멤버 · 초대 · S4 온보딩 상태.
+  - name: settings
+    description: S14 설정 8탭(멤버 탭은 `workspaces`). 기본값은 PRD §7 `workspace_settings`.
+  - name: runtimes
+    description: S11 Runtimes · S12 Add a computer(페어링) · probe 결과(CLI · 모델 · 저장소) · S13 workdir.
+  - name: agents
+    description: S9 Agents · S10 편집(프로파일 · 킬 스위치) · 팀 템플릿(FR-1.4) · 테스트 채팅(FR-1.8.1).
+  - name: sessions
+    description: S5 목록 · S6 마법사(검증 · 후보) · S7 상단 액션(상태 전이 · Director · 참여자) · S17 재바인딩.
+  - name: messages
+    description: 타임라인 · 스레드 · 게시(멱등) · 트리거 미리보기(FR-3.6).
+  - name: lanes
+    description: lane 보드(FR-6.2) · 위임(FR-6.2) · "중단하고 다시 지시" / "중단"(FR-3.4) · task 이력.
+  - name: tasks
+    description: task 조회 · 활동 피드(`task_event`, FR-7.2) · `colab status set`.
+  - name: hitl
+    description: HITL 요청(FR-5.1) · 응답(멱등, deputy 규칙 FR-5.4) · 예산 상향(`task.budget_override`, FR-7.3).
+  - name: inbox
+    description: S8 인박스 — 7타입 · 심각도 3종 · 정렬 규칙(FR-8).
+  - name: artifacts
+    description: 아티팩트(FR-4.3, 버전) · 리뷰 승인/반려(`agent_approval`, FR-2.2) · 결정 기록(FR-4.2).
+  - name: cost
+    description: 비용 집계 — task · agent · 세션 · 런타임 4단위, 추정치 배지(FR-7.3).
+  - name: realtime
+    description: SSE 스트림 하나. 재연결 시 `Last-Event-ID`로 놓친 이벤트를 채운다(SCREEN §6).
+  - name: cli
+    description: colab CLI 전용 보조 operation(`TaskToken` → 자기 task · lane · 세션 해석).
+
+paths:
+  # ───────────────────────────── auth ─────────────────────────────
+  /auth/signup:
+    post:
+      tags: [auth]
+      operationId: signup
+      summary: 회원가입(S2)
+      description: |
+        권한: 없음(공개).
+        이름·이메일·비밀번호로 계정을 만들고 사용자 세션 쿠키를 발급한다. `invite_token`을 주면 가입 직후 그 초대를 자동 수락한다(S3 미로그인 흐름). 워크스페이스가 없으면 클라이언트는 S4 온보딩으로 보낸다(SCREEN §2.1).
+      security: []
+      x-prd: [S2, S3]
+      x-screen: [S2]
+      x-phase: P1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [display_name, email, password]
+              properties:
+                display_name: { type: string, minLength: 1, maxLength: 80 }
+                email: { type: string, format: email }
+                password: { type: string, format: password, minLength: 8 }
+                invite_token: { type: string, description: S3 초대 토큰. 있으면 가입 직후 자동 수락. }
+      responses:
+        '201':
+          description: 가입됨. `Set-Cookie`로 사용자 세션 발급.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/SetSessionCookie' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResult' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: 로그인(S1)
+      description: |
+        권한: 없음(공개).
+        이메일/비밀번호 로그인. 실패 사유는 `Problem.code`로 구분한다 — `account_not_found` · `password_mismatch` · `account_locked`(S1). SSO는 미결(openapi.md).
+      security: []
+      x-prd: [S1]
+      x-screen: [S1]
+      x-phase: P1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+                invite_token: { type: string, description: S3 초대 토큰. 있으면 로그인 직후 자동 수락. }
+      responses:
+        '200':
+          description: 로그인됨.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/SetSessionCookie' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: 로그아웃
+      description: |
+        권한: 로그인한 사용자.
+        사용자 세션을 폐기한다.
+      x-phase: P1
+      responses:
+        '204': { description: 폐기됨. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: 현재 사용자와 소속 워크스페이스
+      description: |
+        권한: 로그인한 사용자.
+        앱 셸 진입 시 한 번 호출한다. 워크스페이스가 비어 있으면 S4로, 초대 대기가 있으면 목록으로 안내한다(SCREEN §2.1).
+      x-screen: [App Nav, S4]
+      x-phase: P1
+      responses:
+        '200':
+          description: 현재 사용자.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /me/notification-settings:
+    get:
+      tags: [settings]
+      operationId: getNotificationSettings
+      summary: 알림 설정 조회(S14 알림 탭 — 개인)
+      description: |
+        권한: 로그인한 사용자(본인).
+      x-screen: [S14]
+      x-phase: P5
+      responses:
+        '200':
+          description: 알림 설정.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [settings]
+      operationId: updateNotificationSettings
+      summary: 알림 설정 변경
+      description: |
+        권한: 로그인한 사용자(본인).
+        이메일·푸시 여부와 세션 구독 기본값(전부 / HITL만 / 종료만, FR-8).
+      x-screen: [S14]
+      x-phase: P5
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NotificationSettings' }
+      responses:
+        '200':
+          description: 변경됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /invites/{inviteToken}:
+    parameters:
+      - $ref: '#/components/parameters/InviteToken'
+    get:
+      tags: [auth]
+      operationId: previewInvite
+      summary: 초대 미리보기(S3)
+      description: |
+        권한: 없음(공개 — 토큰이 곧 권한).
+        워크스페이스·초대자·부여될 역할을 보여준다. 만료·취소된 토큰은 `410`이고 `Problem.code`가 `invite_expired` / `invite_revoked`다.
+      security: []
+      x-screen: [S3]
+      x-phase: P1
+      responses:
+        '200':
+          description: 초대 정보.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvitePreview' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410': { $ref: '#/components/responses/Gone' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /invites/{inviteToken}/accept:
+    parameters:
+      - $ref: '#/components/parameters/InviteToken'
+    post:
+      tags: [auth]
+      operationId: acceptInvite
+      summary: 초대 수락(S3)
+      description: |
+        권한: 로그인한 사용자.
+        초대의 워크스페이스에 `member`로 가입한다. 이미 멤버면 `200`으로 기존 멤버십을 돌려준다(멱등).
+      x-prd: [P1 DoD 초대 링크]
+      x-screen: [S3]
+      x-phase: P1
+      responses:
+        '200':
+          description: 이미 멤버였거나 지금 가입됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '410': { $ref: '#/components/responses/Gone' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  # ───────────────────────────── workspaces ─────────────────────────────
+  /workspaces:
+    get:
+      tags: [workspaces]
+      operationId: listWorkspaces
+      summary: 내 워크스페이스 목록
+      description: |
+        권한: 로그인한 사용자(본인이 멤버인 것만).
+      x-phase: P1
+      responses:
+        '200':
+          description: 목록.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Workspace' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [workspaces]
+      operationId: createWorkspace
+      summary: 워크스페이스 생성(S4 1단계)
+      description: |
+        권한: 로그인한 사용자. 생성자가 `owner`.
+        `workspace_settings` 행이 PRD §7 기본값으로 함께 만들어진다.
+      x-screen: [S4]
+      x-phase: P1
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                slug:
+                  type: string
+                  pattern: '^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$'
+                  description: 생략하면 이름에서 만든다.
+      responses:
+        '201':
+          description: 생성됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Workspace' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /workspaces/{workspaceId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [workspaces]
+      operationId: getWorkspace
+      summary: 워크스페이스 조회
+      description: |
+        권한: 워크스페이스 멤버.
+      x-phase: P1
+      responses:
+        '200':
+          description: 워크스페이스.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Workspace' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [workspaces]
+      operationId: updateWorkspace
+      summary: 워크스페이스 이름 변경
+      description: |
+        권한: owner · admin.
+      x-phase: P5
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+      responses:
+        '200':
+          description: 변경됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Workspace' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /workspaces/{workspaceId}/onboarding:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [workspaces]
+      operationId: getOnboardingStatus
+      summary: S4 온보딩 체크리스트 상태
+      description: |
+        권한: 워크스페이스 멤버.
+        세 단계(워크스페이스 · 컴퓨터 연결 · 에이전트)의 완료 판정. 건너뛴 단계는 홈 체크리스트로 남는다(SCREEN §4.2).
+      x-screen: [S4]
+      x-phase: P5
+      responses:
+        '200':
+          description: 상태.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingStatus' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /workspaces/{workspaceId}/members:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [workspaces]
+      operationId: listMembers
+      summary: 멤버 목록(S14 멤버 탭 · Director 선택 · 멘션 자동완성)
+      description: |
+        권한: 워크스페이스 멤버.
+      x-screen: [S14, S6, S7]
+      x-phase: P1
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 멤버 페이지.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Member' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /workspaces/{workspaceId}/members/{memberId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+      - $ref: '#/components/parameters/MemberId'
+    patch:
+      tags: [workspaces]
+      operationId: updateMemberRole
+      summary: 멤버 역할 변경
+      description: |
+        권한: owner · admin. **owner 강등은 owner만**(SCREEN §2.3). 마지막 owner는 강등할 수 없다(`409`).
+      x-screen: [S14]
+      x-phase: P5
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { $ref: '#/components/schemas/MemberRole' }
+      responses:
+        '200':
+          description: 변경됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [workspaces]
+      operationId: removeMember
+      summary: 멤버 제거
+      description: |
+        권한: owner · admin. 마지막 owner는 제거할 수 없다(`409`). 그 멤버가 Director인 활성 세션이 있으면 `409`(먼저 Director를 교체).
+      x-screen: [S14]
+      x-phase: P5
+      responses:
+        '204': { description: 제거됨. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /workspaces/{workspaceId}/invites:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [workspaces]
+      operationId: listInvites
+      summary: 초대 목록(대기 · 만료)
+      description: |
+        권한: owner · admin.
+      x-screen: [S14]
+      x-phase: P1
+      responses:
+        '200':
+          description: 초대 목록.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Invite' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [workspaces]
+      operationId: createInvite
+      summary: 초대 링크 생성
+      description: |
+        권한: owner · admin.
+        이메일을 주면 그 주소로만 수락할 수 있고 알림 메일을 보낸다. 비우면 링크를 아는 누구나 수락한다. 기본 만료 7일.
+      x-prd: [P1 DoD 초대 링크]
+      x-screen: [S14, S4]
+      x-phase: P1
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: [string, 'null'], format: email }
+                role:
+                  allOf: [{ $ref: '#/components/schemas/MemberRole' }]
+                  default: member
+                  description: owner는 초대로 줄 수 없다(`422`).
+                expires_in_hours: { type: integer, minimum: 1, maximum: 720, default: 168 }
+      responses:
+        '201':
+          description: 생성됨. `url`을 복사해 전달한다.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invite' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /workspaces/{workspaceId}/invites/{inviteId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+      - name: inviteId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [workspaces]
+      operationId: revokeInvite
+      summary: 초대 취소
+      description: |
+        권한: owner · admin.
+      x-screen: [S14]
+      x-phase: P1
+      responses:
+        '204': { description: 취소됨. 이후 미리보기는 `410 invite_revoked`. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /workspaces/{workspaceId}/settings:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [settings]
+      operationId: getWorkspaceSettings
+      summary: 워크스페이스 설정(S14 런타임 정책 · 예산 · 루프 상한 · 컨텍스트 · Workdir · 보안)
+      description: |
+        권한: 워크스페이스 멤버(읽기). 변경은 `PATCH`.
+      x-screen: [S14]
+      x-phase: P2
+      responses:
+        '200':
+          description: 설정 전체.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkspaceSettings' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        default: { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [settings]
+      operationId: updateWorkspaceSettings
+      summary: 워크스페이스 설정 변경
+      description: |
+        권한: owner · admin. **`task_event_masking`(보안 탭)은 owner만**(SCREEN §4.10).
+        부분 갱신. 루프 상한(`loop_limits`)은 다음 트리거부터, `runtime_offline_grace`·`workdir_retention_days`는 다음 스윕부터 적용된다.
+      x-prd: [FR-3.5, FR-4.4, FR-6.4, FR-7.3, FR-9, FR-9.2, §9 보안]
+      x-screen: [S14]
+      x-phase: P2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkspaceSettingsUpdate' }
+      responses:
+        '200':
+          description: 변경됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkspaceSettings' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  # ───────────────────────────── runtimes ─────────────────────────────
+  /workspaces/{workspaceId}/runtimes:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [runtimes]
+      operationId: listRuntimes
+      summary: 런타임(머신) 목록(S11)
+      description: |
+        권한: 워크스페이스 멤버.
+        카드 정보 전부 — 온라인 상태, 데몬 버전, probe 결과(`capabilities`: CLI 종류·버전·모델·로그인, `repos`: 경로·remote URL·브랜치·클린), 실행 중 task 수, workdir 사용량 합계, 오프라인 경과와 유예 잔여(FR-9.2).
+      x-prd: [FR-9, FR-9.2]
+      x-screen: [S11, S6]
+      x-phase: P1
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/RuntimeStatus' }
+      responses:
+        '200':
+          description: 목록.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Runtime' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /workspaces/{workspaceId}/runtimes/pairings:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    post:
+      tags: [runtimes]
+      operationId: createPairing
+      summary: Add a computer — 설치 명령 + 페어링 토큰 발급(S12)
+      description: |
+        권한: owner · admin(런타임 추가).
+        설치 명령 2줄과 1회용 페어링 토큰을 만든다. 토큰 교환(데몬 → 서버)은 `daemon-protocol.md`. 이후 연결 단계는 `GET …/pairings/{pairingId}` 또는 SSE `pairing.updated`로 본다. 기본 만료 30분.
+      x-prd: [FR-9]
+      x-screen: [S12, S4]
+      x-phase: P1
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, description: 연결될 런타임 이름 제안. 데몬이 호스트명으로 덮어쓸 수 있다. }
+      responses:
+        '201':
+          description: 발급됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pairing' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /workspaces/{workspaceId}/runtimes/pairings/{pairingId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+      - name: pairingId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [runtimes]
+      operationId: getPairing
+      summary: 페어링 진행 단계(S12 연결 대기)
+      description: |
+        권한: 워크스페이스 멤버.
+        `waiting → connected → probing → ready` 4단계. 3분 넘게 `waiting`이면 화면이 문제 해결 안내를 편다(SCREEN §4.8).
+      x-screen: [S12]
+      x-phase: P1
+      responses:
+        '200':
+          description: 상태.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pairing' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410': { $ref: '#/components/responses/Gone' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /runtimes/{runtimeId}:
+    parameters:
+      - $ref: '#/components/parameters/RuntimeId'
+    get:
+      tags: [runtimes]
+      operationId: getRuntime
+      summary: 런타임 상세
+      description: |
+        권한: 워크스페이스 멤버.
+        목록 항목과 같은 스키마에 `active_sessions`(이 머신에 묶인 활성 세션 요약)를 더한다 — 삭제 차단 사유 표시용(FR-9.2).
+      x-screen: [S11]
+      x-phase: P1
+      responses:
+        '200':
+          description: 상세.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RuntimeDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [runtimes]
+      operationId: updateRuntime
+      summary: 런타임 이름 · 런타임별 동시 task 상한
+      description: |
+        권한: owner · admin.
+      x-prd: [FR-9]
+      x-screen: [S11, S14]
+      x-phase: P5
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                max_concurrent_tasks:
+                  type: [integer, 'null']
+                  minimum: 1
+                  description: 이 머신의 상한. null이면 워크스페이스 `runtime_policy.max_concurrent_tasks`(기본 10).
+      responses:
+        '200':
+          description: 변경됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Runtime' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [runtimes]
+      operationId: deleteRuntime
+      summary: 런타임 삭제
+      description: |
+        권한: owner · admin.
+        **활성 세션이 걸려 있으면 `409`**(`code: runtime_has_active_sessions`, `Problem.sessions[]`에 대상 세션). 먼저 재바인딩 또는 종료를 요구한다(FR-9.2, E14-08). 삭제되면 데몬의 페어링이 무효가 된다.
+      x-prd: [FR-9.2]
+      x-screen: [S11]
+      x-phase: P4
+      responses:
+        '204': { description: 삭제됨. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /runtimes/{runtimeId}/repo-checks:
+    parameters:
+      - $ref: '#/components/parameters/RuntimeId'
+    post:
+      tags: [runtimes]
+      operationId: checkRepo
+      summary: 저장소 검증(S6 마법사 · worktree 격리)
+      description: |
+        권한: 워크스페이스 멤버.
+        선택한 런타임의 데몬에게 `repo_path` 존재 · git 상태(클린 여부 · 기본 브랜치 · remote URL)를 물어 돌려준다(FR-2.1). 실패하면 폼이 다음 단계를 막는다(E13-01). 데몬이 오프라인이면 `409 runtime_offline`, 데몬 응답 지연은 `504`.
+      x-prd: [FR-2.1, FR-9]
+      x-screen: [S6]
+      x-phase: P4
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repo_path]
+              properties:
+                repo_path: { type: string, description: 그 머신의 절대 경로. }
+      responses:
+        '200':
+          description: "검증 결과(`ok: false`여도 200 — 폼이 사유를 보여준다)."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RepoCheck' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /runtimes/{runtimeId}/workdirs:
+    parameters:
+      - $ref: '#/components/parameters/RuntimeId'
+    get:
+      tags: [runtimes]
+      operationId: listRuntimeWorkdirs
+      summary: workdir 목록(S13)
+      description: |
+        권한: 워크스페이스 멤버.
+        종류 · 소유(에이전트 또는 lane) · 경로·브랜치 · 용량 · 마지막 사용 · 보존 만료 · 상태. 상단 사용률은 `quota`로 계산한다(FR-6.4).
+      x-prd: [FR-6.4]
+      x-screen: [S13]
+      x-phase: P4
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/WorkdirStatus' }
+        - name: session_id
+          in: query
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 목록.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Workdir' }
+                      disk_bytes_total: { type: integer, format: int64 }
+                      disk_quota_gb: { type: [integer, 'null'] }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /workdirs/{workdirId}:
+    parameters:
+      - name: workdirId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [runtimes]
+      operationId: deleteWorkdir
+      summary: workdir 수동 삭제
+      description: |
+        권한: owner · admin, 또는 그 workdir 세션의 Director.
+        **미병합 커밋이나 미커밋 변경이 있으면 기본 차단**(`409 workdir_dirty`, `Problem.detail`에 사유). `force=true`로 확인 후 삭제한다. worktree는 워크트리만 지우고 브랜치는 남긴다(FR-6.4 M4). 실제 삭제는 데몬이 수행하므로 `202`이고 결과는 SSE `workdir.updated`.
+      x-prd: [FR-6.4]
+      x-screen: [S13]
+      x-phase: P4
+      parameters:
+        - name: force
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '202':
+          description: 삭제 요청 접수.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Workdir' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  # ───────────────────────────── agents ─────────────────────────────
+  /workspaces/{workspaceId}/agents:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [agents]
+      operationId: listAgents
+      summary: 에이전트 목록(S9 · S6 참여자 선택)
+      description: |
+        권한: 워크스페이스 멤버.
+        `status`는 FR-1.3 파생값(워크스페이스 전체 task 기준). `invitable`은 **호출자**가 이 에이전트를 세션에 초대할 수 있는지(`respond_to` 판정, FR-1.9) — S6 5단계에서 비활성+사유 표시에 쓴다.
+      x-prd: [FR-1.3, FR-1.9]
+      x-screen: [S9, S6, S7]
+      x-phase: P1
+      parameters:
+        - name: role
+          in: query
+          schema: { $ref: '#/components/schemas/AgentRole' }
+        - name: runtime_kind
+          in: query
+          description: 기본 프로파일의 런타임 종류.
+          schema: { $ref: '#/components/schemas/RuntimeKind' }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/AgentStatus' }
+        - name: owner_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: include_archived
+          in: query
+          schema: { type: boolean, default: false }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 페이지.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Agent' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [agents]
+      operationId: createAgent
+      summary: 에이전트 생성(S10 · FR-1.1)
+      description: |
+        권한: 워크스페이스 멤버(생성자가 `owner_id`). **사람만** — 에이전트 툴셋에는 이 operation이 없다(FR-1.5).
+        `profiles`는 1개 이상, 정확히 하나가 `is_default`. `name`은 워크스페이스 내 유일(`409`).
+      x-prd: [FR-1.1, FR-1.5, FR-1.6]
+      x-screen: [S10]
+      x-phase: P1
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AgentCreate' }
+      responses:
+        '201':
+          description: 생성됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Agent' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /workspaces/{workspaceId}/agent-templates:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [agents]
+      operationId: listAgentTemplates
+      summary: 팀 템플릿 3종(FR-1.4)
+      description: |
+        권한: 워크스페이스 멤버.
+        리서치 팀 · 개발 팀 · 콘텐츠 팀. 각 템플릿의 에이전트마다 이 워크스페이스의 온라인 런타임 능력으로 계산한 **프로파일 자동 매핑 결과**(`mapped` 또는 `unmapped`+사유)를 함께 준다.
+      x-prd: [FR-1.4]
+      x-screen: [S9, S4]
+      x-phase: P2
+      responses:
+        '200':
+          description: 템플릿 목록.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AgentTemplate' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /workspaces/{workspaceId}/agent-templates/{templateKey}/apply:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+      - name: templateKey
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/AgentTemplateKey' }
+    post:
+      tags: [agents]
+      operationId: applyAgentTemplate
+      summary: 템플릿으로 에이전트 일괄 생성
+      description: |
+        권한: 워크스페이스 멤버(생성자가 `owner_id`).
+        템플릿의 역할·instruction으로 에이전트를 만들고 프로파일은 감지된 런타임에 맞춰 자동 매핑한다. 매핑 불가 에이전트도 등록하되 `definition_source`에 템플릿 키, 응답의 `unmapped[]`에 사유를 넣는다(FR-1.7 검증 규칙 준용). 이름 충돌은 `name_overrides`로 피한다. P2 DoD "3분 이내"의 대상.
+      x-prd: [FR-1.4, FR-1.8]
+      x-screen: [S9, S4]
+      x-phase: P2
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                runtime_id:
+                  type: [string, 'null']
+                  format: uuid
+                  description: 프로파일 매핑 기준 런타임. 비우면 온라인 런타임 전체의 능력 합집합.
+                name_overrides:
+                  type: object
+                  additionalProperties: { type: string }
+                  description: 템플릿 에이전트 키 → 이름.
+      responses:
+        '201':
+          description: 생성 결과.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agents, unmapped]
+                properties:
+                  agents:
+                    type: array
+                    items: { $ref: '#/components/schemas/Agent' }
+                  unmapped:
+                    type: array
+                    items:
+                      type: object
+                      required: [agent_id, reason]
+                      properties:
+                        agent_id: { type: string, format: uuid }
+                        reason: { type: string }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /agents/{agentId}:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+    get:
+      tags: [agents]
+      operationId: getAgent
+      summary: 에이전트 상세(프로파일 포함)
+      description: |
+        권한: 워크스페이스 멤버.
+      x-screen: [S10]
+      x-phase: P1
+      responses:
+        '200':
+          description: 상세.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Agent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [agents]
+      operationId: updateAgent
+      summary: 에이전트 수정(정체성 · instruction · 실행 설정 · respond_to)
+      description: |
+        권한: 소유자, owner · admin(SCREEN §2.3 — PRD 미정 Q7을 화면 결정대로 따른다).
+        정의 갱신은 **실행 중 task에 영향 없음**, 다음 run부터 적용(FR-1.8). `respond_to: nobody`(킬 스위치)는 즉시 효과 — running 턴 취소 · queued `cancelled` · 열린 HITL 유지 · workdir 보존(FR-1.9 M8). `respond_to` 변경은 `activity_log`와 시스템 메시지에 남는다.
+      x-prd: [FR-1.1, FR-1.8, FR-1.9]
+      x-screen: [S10]
+      x-phase: P1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AgentUpdate' }
+      responses:
+        '200':
+          description: 변경됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Agent' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [agents]
+      operationId: archiveAgent
+      summary: 에이전트 보관(archived_at)
+      description: |
+        권한: 소유자, owner · admin.
+        물리 삭제가 아니다 — `archived_at`을 채운다(세션 이력이 참조하므로). 진행 중 lane이 있으면 `409`(먼저 `respond_to: nobody`로 정지하거나 lane을 끝낸다).
+      x-screen: [S10]
+      x-phase: P2
+      responses:
+        '204': { description: 보관됨. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /agents/{agentId}/profiles:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+    post:
+      tags: [agents]
+      operationId: createAgentProfile
+      summary: 프로파일 추가(FR-1.6)
+      description: |
+        권한: 소유자, owner · admin.
+        `model`·`options`는 이 워크스페이스 런타임이 probe로 광고한 능력 범위 안이어야 한다(§8.2.6) — 벗어나면 `422`. `is_default: true`면 기존 기본을 해제한다. `name`은 에이전트 내 유일.
+      x-prd: [FR-1.6]
+      x-screen: [S10]
+      x-phase: P2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AgentProfileCreate' }
+      responses:
+        '201':
+          description: 추가됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgentProfile' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /agents/{agentId}/profiles/{profileId}:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+      - $ref: '#/components/parameters/ProfileId'
+    patch:
+      tags: [agents]
+      operationId: updateAgentProfile
+      summary: 프로파일 수정 · 기본 지정 · 폴백 지정
+      description: |
+        권한: 소유자, owner · admin.
+        `fallback_profile_id`는 같은 에이전트의 다른 프로파일이어야 한다(`422`). 폴백은 같은 머신 안에서만 일어난다(FR-1.6).
+      x-prd: [FR-1.6]
+      x-screen: [S10]
+      x-phase: P2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AgentProfileUpdate' }
+      responses:
+        '200':
+          description: 변경됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgentProfile' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [agents]
+      operationId: deleteAgentProfile
+      summary: 프로파일 삭제
+      description: |
+        권한: 소유자, owner · admin.
+        마지막 프로파일이거나 기본 프로파일이면 `409`(먼저 다른 것을 기본으로). 세션 참여자·lane이 참조 중이면 `409`.
+      x-screen: [S10]
+      x-phase: P2
+      responses:
+        '204': { description: 삭제됨. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /agents/{agentId}/test-chats:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+    post:
+      tags: [agents]
+      operationId: createTestChat
+      summary: 테스트 채팅 시작(FR-1.8.1)
+      description: |
+        권한: 워크스페이스 멤버.
+        **세션이 아니다** — `session` 레코드 0개, lane 0개, `COLAB_TASK_TOKEN` 미발급(E15-03). 임시 workdir은 종료 시 삭제. 비용은 워크스페이스에만 합산. 선택한 런타임이 오프라인이면 `409`.
+      x-prd: [FR-1.8.1]
+      x-screen: [S10]
+      x-phase: P5
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                profile_id: { type: [string, 'null'], format: uuid, description: 비우면 기본 프로파일. }
+                runtime_id: { type: [string, 'null'], format: uuid, description: 비우면 그 `runtime_kind`를 가진 온라인 런타임 아무거나. }
+      responses:
+        '201':
+          description: 열림.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TestChat' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /test-chats/{testChatId}:
+    parameters:
+      - $ref: '#/components/parameters/TestChatId'
+    get:
+      tags: [agents]
+      operationId: getTestChat
+      summary: 테스트 채팅 조회(턴 · 실행 경로 · 토큰)
+      description: |
+        권한: 그 채팅을 연 사용자.
+      x-screen: [S10]
+      x-phase: P5
+      responses:
+        '200':
+          description: 채팅.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TestChat' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /test-chats/{testChatId}/turns:
+    parameters:
+      - $ref: '#/components/parameters/TestChatId'
+    post:
+      tags: [agents]
+      operationId: postTestChatTurn
+      summary: 테스트 채팅에 메시지 보내기
+      description: |
+        권한: 그 채팅을 연 사용자.
+        응답은 비동기 — `202`로 사용자 턴을 돌려주고, 에이전트 응답은 SSE `test_chat.delta` / `test_chat.turn`으로 온다. 이전 턴이 진행 중이면 `409`. 닫힌 채팅은 `410`.
+      x-prd: [FR-1.8.1]
+      x-screen: [S10]
+      x-phase: P5
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, minLength: 1 }
+      responses:
+        '202':
+          description: 접수됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TestChatTurn' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '410': { $ref: '#/components/responses/Gone' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /test-chats/{testChatId}/close:
+    parameters:
+      - $ref: '#/components/parameters/TestChatId'
+    post:
+      tags: [agents]
+      operationId: closeTestChat
+      summary: 테스트 채팅 종료(임시 workdir 삭제)
+      description: |
+        권한: 그 채팅을 연 사용자.
+        멱등 — 이미 닫혔으면 `200`.
+      x-prd: [FR-1.8.1]
+      x-screen: [S10]
+      x-phase: P5
+      responses:
+        '200':
+          description: 닫힘.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TestChat' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  # ───────────────────────────── sessions ─────────────────────────────
+  /workspaces/{workspaceId}/sessions:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [sessions]
+      operationId: listSessions
+      summary: 세션 목록(S5)
+      description: |
+        권한: 워크스페이스 멤버(비공개 세션은 v1에 없다 — FR-5.3).
+        행마다 상태 배지(+`paused_reason`), 진행률, 비용/예산, 마지막 활동, 주의 배지(HITL 대기 · blocked · 실패 수).
+      x-prd: [FR-2.3]
+      x-screen: [S5]
+      x-phase: P1
+      parameters:
+        - name: status
+          in: query
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/SessionStatus' }
+        - name: director_user_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: agent_id
+          in: query
+          description: 참여 에이전트.
+          schema: { type: string, format: uuid }
+        - name: runtime_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: created_after
+          in: query
+          schema: { type: string, format: date-time }
+        - name: created_before
+          in: query
+          schema: { type: string, format: date-time }
+        - name: q
+          in: query
+          description: 제목 · goal 검색.
+          schema: { type: string }
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [last_activity, cost, created_at]
+            default: last_activity
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 페이지.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/SessionListItem' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [sessions]
+      operationId: createSession
+      summary: 세션 생성(S6 마법사 제출)
+      description: |
+        권한: 워크스페이스 멤버. 생성자가 기본 Director(`director_user_id` 생략 시). 참여자 각각에 대해 호출자의 `respond_to` 초대 권한을 검사한다(FR-1.9, E10-09·11).
+        검증(`422`, `Problem.errors[]`): `isolation.kind`가 `worktree`·`container`면 `runtime_id` 필수(E15-11) · `criteria_met` 단독 불가(E6-07) · `container`는 v1.1(`kind: container` 거부) · `supervised`는 v1.1 · worktree면 저장소 검증(`checkRepo`) 통과 필요 · 참여자 프로파일의 `runtime_kind`가 선택 런타임에 없으면 `warnings[]`(거부 아님). 런타임 0개면 `409 no_runtime`(SCREEN §2.1). 디스크 상한 도달이면 `409 workdir_quota_exceeded`(E13-16).
+        생성 직후 상태는 `active`이고 assignee에게 초기 task가 만들어진다(E16-A 1단계). `draft`로 저장하려면 `draft: true`.
+      x-prd: [FR-2.1, FR-2.2, FR-1.9, FR-4.4, FR-6.4]
+      x-screen: [S6]
+      x-phase: P1
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SessionCreate' }
+      responses:
+        '201':
+          description: 생성됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /workspaces/{workspaceId}/runtime-candidates:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [sessions]
+      operationId: listRuntimeCandidates
+      summary: 런타임 후보(S6 4단계 · S17 재바인딩)
+      description: |
+        권한: 워크스페이스 멤버.
+        격리 방식이 후보를 제한한다 — `none`은 온라인 런타임 전부(자동 선택 허용), `worktree`는 **remote URL이 같은** 저장소를 가진 온라인 런타임만(경로 문자열 비교 아님, FR-9.2 F · E14-04·05). 후보가 아닌 런타임도 `eligible: false` + `reason`으로 돌려준다(화면이 비활성+사유로 그린다).
+      x-prd: [FR-2.1, FR-9.2]
+      x-screen: [S6, S17]
+      x-phase: P2
+      parameters:
+        - name: isolation
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/IsolationKind' }
+        - name: remote_url
+          in: query
+          description: worktree일 때 기준 저장소 remote URL. 세션 재바인딩이면 세션의 저장소.
+          schema: { type: string }
+        - name: session_id
+          in: query
+          description: 재바인딩 후보 조회 시 세션 id(격리·저장소를 세션에서 읽는다).
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 후보.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [auto_select_allowed, candidates]
+                properties:
+                  auto_select_allowed: { type: boolean, description: '"자동 선택(첫 실행 시 고정)" 허용 여부 — `none`만 true.' }
+                  candidates:
+                    type: array
+                    items: { $ref: '#/components/schemas/RuntimeCandidate' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /sessions/{sessionId}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [sessions]
+      operationId: getSession
+      summary: 세션 상세(S7 우열 · 상단)
+      description: |
+        권한: 워크스페이스 멤버 · `TaskToken`(그 task의 세션만).
+        goal · 성공 기준 · 종료 조건 진행률 · 한도 · 비용(추정 배지) · 런타임/격리 · `paused_detail`(사유 5종별 해결 동작 데이터) · 참여자(파생 상태) · 첨부 컨텍스트 · 호출자의 세션 역할(`my_role`).
+      x-colab-cli: session get
+      x-prd: [FR-2.1, FR-2.3, FR-4.1]
+      x-screen: [S7]
+      x-phase: P1
+      security:
+        - UserSession: []
+        - TaskToken: []
+      responses:
+        '200':
+          description: 상세.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [sessions]
+      operationId: updateSession
+      summary: 세션 설정 편집(goal · 성공 기준 · 한도 · autonomy · deputy)
+      description: |
+        권한: Director.
+        **런타임과 격리는 변경 불가**(workdir이 묶여 있다 — SCREEN §4.5 상단 액션). `draft` 상태에서만 `completion_condition`·`isolation`·`runtime_id`도 바꿀 수 있다.
+      x-prd: [FR-2.1]
+      x-screen: [S7]
+      x-phase: P3
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SessionUpdate' }
+      responses:
+        '200':
+          description: 변경됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /sessions/{sessionId}/start:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [sessions]
+      operationId: startSession
+      summary: draft → active
+      description: |
+        권한: Director.
+        `createSession`과 같은 검증을 다시 거친다. assignee 초기 task를 만든다. `draft`가 아니면 `409`.
+      x-prd: [FR-2.3]
+      x-screen: [S5, S7]
+      x-phase: P2
+      responses:
+        '200':
+          description: 시작됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /sessions/{sessionId}/pause:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [sessions]
+      operationId: pauseSession
+      summary: 일시정지(Director · 드레인)
+      description: |
+        권한: Director.
+        `active → paused(director)`. 진행 중 턴은 **마치게 둔다**(드레인) — `turn_end` 후 새 dispatch 없음(E5-06). `queued` task는 재개 때까지 dispatch되지 않는다(C3′). `active`가 아니면 `409`.
+      x-prd: [FR-2.3]
+      x-screen: [S7]
+      x-phase: P3
+      responses:
+        '200':
+          description: 일시정지됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /sessions/{sessionId}/resume:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [sessions]
+      operationId: resumeSession
+      summary: 재개 / "계속 진행 승인"(paused 사유별)
+      description: |
+        권한: Director. 사유가 `budget`·`time`·`loop`면 **기한 절반 후 deputy**도 가능(SCREEN §4.5 paused 해소 표). `runtime_offline`은 여기서 재개할 수 없다 — `rebindSession` 또는 `cancelSession`(`409`).
+        `paused → active`. `queued` task를 큐 순서대로 dispatch한다(E5-05). 사유별 본문:
+        - `budget`: `limits.budget_usd`를 새 상한으로(생략 시 현재 소진액 이상이어야 함 — 아니면 `422`).
+        - `time`: `limits.time_limit` 연장.
+        - `loop`: 카운터를 리셋하고 재개(`reset_loop_counters`, 기본 true). 배너의 "개입해서 방향 바꾸기"는 lane `restart`/`cancel`로 따로 한다.
+        - `director`: 본문 없음.
+        세션 예산 초과로 발행된 시스템 HITL(`source: system`, `task_id` 없음)이 열려 있으면 이 호출이 그것을 `answered(approved)`로 닫는다.
+      x-prd: [FR-2.3, FR-3.5, FR-7.3]
+      x-screen: [S7, S8]
+      x-phase: P3
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limits: { $ref: '#/components/schemas/SessionLimits' }
+                reset_loop_counters: { type: boolean, default: true }
+      responses:
+        '200':
+          description: 재개됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /sessions/{sessionId}/complete:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [sessions]
+      operationId: completeSession
+      summary: 종료(`manual`) — active → completing
+      description: |
+        권한: Director.
+        종료 조건과 무관하게 Director가 직접 끝낸다(FR-2.2 `manual`, E6-08). 진행 중 lane이 있으면 확인용으로 `running_lane_count`를 `409`가 아니라 응답에 실어 주고, `confirm: true`가 없으면 `409 running_lanes`. `completing`에서 요약(P4) 후 `completed`.
+      x-prd: [FR-2.2, FR-2.3, FR-2.4]
+      x-screen: [S7]
+      x-phase: P2
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirm: { type: boolean, default: false, description: 진행 중 lane이 있어도 취소하고 종료. }
+      responses:
+        '200':
+          description: 마무리 중.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /sessions/{sessionId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [sessions]
+      operationId: cancelSession
+      summary: 세션 취소(cancelled)
+      description: |
+        권한: Director.
+        `active`·`paused` → `cancelled`. 진행 중 턴은 §8.2.2 절차로 취소, `queued`는 `cancelled`. `container`·`none` workdir은 즉시 삭제(E13-15). S17의 "세션 종료" 선택지가 이것이다(E14-07).
+      x-prd: [FR-2.3, FR-6.4, FR-9.2]
+      x-screen: [S7, S17]
+      x-phase: P3
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        '200':
+          description: 취소됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /sessions/{sessionId}/director:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    put:
+      tags: [sessions]
+      operationId: changeDirector
+      summary: Director 교체
+      description: |
+        권한: 현재 Director, owner · admin(t-5, E15-07·08).
+        시스템 메시지 + `activity_log`. 열린 HITL의 `director` approver가 새 Director로 바뀐다. 새 Director는 워크스페이스 멤버여야 한다(`422`).
+      x-prd: [FR-2.1]
+      x-screen: [S7]
+      x-phase: P3
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [director_user_id]
+              properties:
+                director_user_id: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 교체됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /sessions/{sessionId}/participants:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [sessions]
+      operationId: listParticipants
+      summary: 참여 에이전트(S7 좌열 참여자 칩)
+      description: |
+        권한: 워크스페이스 멤버.
+        각 참여자의 **파생 상태**(FR-1.3 순서: disabled > offline > error > working > waiting_human > idle — 이 세션의 런타임·task 기준)와 둘째 줄 텍스트(`status_note`, 예: "lane #2 질문 대기"), 사용 프로파일.
+      x-prd: [FR-1.3]
+      x-screen: [S7]
+      x-phase: P2
+      responses:
+        '200':
+          description: 참여자.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Participant' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [sessions]
+      operationId: addParticipant
+      summary: 참여 에이전트 추가(O2)
+      description: |
+        권한: Director.
+        `respond_to` 초대 권한을 **호출자(originator)** 기준으로 검사한다(FR-1.9). `nobody`면 `403`. 프로파일의 `runtime_kind`가 세션 런타임에 없으면 `warnings[]`. 시스템 메시지로 로스터 변경을 남긴다.
+      x-prd: [FR-1.5, FR-1.9]
+      x-screen: [S7]
+      x-phase: P3
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id]
+              properties:
+                agent_id: { type: string, format: uuid }
+                profile_id: { type: [string, 'null'], format: uuid, description: 비우면 기본 프로파일. }
+      responses:
+        '201':
+          description: 추가됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Participant' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /sessions/{sessionId}/participants/{agentId}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+      - $ref: '#/components/parameters/AgentId'
+    patch:
+      tags: [sessions]
+      operationId: updateParticipant
+      summary: 참여자 프로파일 변경 · assignee 지정
+      description: |
+        권한: Director.
+        다음 run부터 적용된다(FR-1.8). `assignee: true`면 세션 `assignee_agent_id`를 이 에이전트로.
+      x-screen: [S7]
+      x-phase: P3
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                profile_id: { type: string, format: uuid }
+                assignee: { type: boolean }
+      responses:
+        '200':
+          description: 변경됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Participant' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [sessions]
+      operationId: removeParticipant
+      summary: 참여 에이전트 제거
+      description: |
+        권한: Director.
+        **진행 중 lane(`queued`·`running`·`waiting_human`·`paused`)이 있으면 `409`** — 먼저 끝내거나 중단(SCREEN §4.5 O2). assignee는 제거 불가(`409`, 먼저 다른 assignee 지정). 시스템 메시지로 남긴다.
+      x-prd: [FR-1.5]
+      x-screen: [S7]
+      x-phase: P3
+      responses:
+        '204': { description: 제거됨. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /sessions/{sessionId}/rebind:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [sessions]
+      operationId: rebindSession
+      summary: 런타임 재바인딩(S17)
+      description: |
+        권한: Director(세션 단위).
+        `paused(runtime_offline)` 세션의 `runtime_id`를 후보(`listRuntimeCandidates?session_id=`) 중 하나로 바꾸고 `active`로 되돌린다. `worktree`면 새 workdir을 만들고 첫 프롬프트에 "diff 아티팩트 N개를 제출 순서대로 적용한 뒤 이어가라"를 넣는다(E14-06); 진행 중이던 lane의 `runtime_session_ref`는 비워 콜드 스타트한다. 후보가 아닌 런타임이면 `422`, 세션이 `paused(runtime_offline)`가 아니면 `409`.
+      x-prd: [FR-9.2]
+      x-screen: [S17, S11, S7]
+      x-phase: P4
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [runtime_id]
+              properties:
+                runtime_id: { type: string, format: uuid }
+                acknowledge_loss:
+                  type: boolean
+                  default: false
+                  description: worktree 격리에서 유실 경고를 확인했음. worktree인데 false면 `422`.
+      responses:
+        '200':
+          description: 재바인딩됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /sessions/{sessionId}/subscription:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    put:
+      tags: [sessions]
+      operationId: setSessionSubscription
+      summary: 세션 알림 구독(전부 / HITL만 / 종료만)
+      description: |
+        권한: 워크스페이스 멤버(본인 구독).
+      x-prd: [FR-8]
+      x-screen: [S7]
+      x-phase: P5
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [level]
+              properties:
+                level: { $ref: '#/components/schemas/SubscriptionLevel' }
+      responses:
+        '200':
+          description: 설정됨.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session_id, level]
+                properties:
+                  session_id: { type: string, format: uuid }
+                  level: { $ref: '#/components/schemas/SubscriptionLevel' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  # ───────────────────────────── messages ─────────────────────────────
+  /sessions/{sessionId}/messages:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [messages]
+      operationId: listMessages
+      summary: 타임라인 · 스레드 조회
+      description: |
+        권한: 워크스페이스 멤버 · `TaskToken`(그 task의 세션만).
+        시간순으로 돌려준다. `thread`를 주면 그 루트와 답글만(`colab session messages --thread <id> --tail 30` = `thread`+`limit=30`). 기본은 최상위 메시지만(`include_replies=false`), 각 항목에 `reply_count`. `after`는 재연결 백필용.
+      x-colab-cli: session messages
+      x-prd: [FR-3.1, FR-4.1]
+      x-screen: [S7]
+      x-phase: P1
+      security:
+        - UserSession: []
+        - TaskToken: []
+      parameters:
+        - name: thread
+          in: query
+          description: 스레드 루트 메시지 id.
+          schema: { type: string, format: uuid }
+        - name: include_replies
+          in: query
+          schema: { type: boolean, default: false }
+        - name: kind
+          in: query
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/MessageKind' }
+        - name: before
+          in: query
+          description: 이 커서보다 오래된 것(뒤로 스크롤).
+          schema: { type: string }
+        - name: after
+          in: query
+          description: 이 커서보다 새로운 것(백필).
+          schema: { type: string }
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 메시지(시간순).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessagePage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [messages]
+      operationId: postMessage
+      summary: 메시지 게시(멱등) — 라우팅 규칙 1~8 적용
+      description: |
+        권한: 워크스페이스 멤버(누구나 게시·멘션, FR-5.3) · `TaskToken`(에이전트, 그 task의 세션만).
+        **`Idempotency-Key` 필수.** 사용자는 UUID를, CLI는 `task_id + seq`에서 파생한 키를 쓴다(§9 내구성) — 폐기된 토큰은 `401`(E11-04). 서버가 FR-3.3 규칙 1~8과 lane 해소 4규칙을 적용해 task를 만들거나 병합한다(FR-3.4: **어떤 메시지도 진행 중 턴을 취소하지 않는다**). `new_lane: true`는 해소 규칙 3을 건너뛴다(t-2, 사람만). `suppress_agent_ids`는 이번 메시지에서만 트리거를 억제한다(FR-3.6). 비참여 에이전트 멘션은 게시하되 `warnings[]`로 알린다(E1-04). 응답 `triggers[]`는 실제로 만들어진/병합된 task.
+        `TaskToken`으로 게시할 때 `author_type`은 `agent`, `source_task_id`는 그 task다. 루프 상한 초과면 메시지는 게시되고 세션이 `paused(loop)`가 되며 task는 만들지 않는다(E4-01).
+      x-colab-cli: message post
+      x-prd: [FR-3.1, FR-3.2, FR-3.3, FR-3.4, FR-3.5, FR-3.6]
+      x-screen: [S7]
+      x-phase: P1
+      security:
+        - UserSession: []
+        - TaskToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyRequired'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MessageCreate' }
+      responses:
+        '201':
+          description: "게시됨(재요청이면 같은 본문 + `Idempotent-Replayed: true`)."
+          headers:
+            Idempotent-Replayed: { $ref: '#/components/headers/IdempotentReplayed' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessagePostResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /sessions/{sessionId}/messages/preview:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [messages]
+      operationId: previewTriggers
+      summary: 트리거 미리보기(FR-3.6)
+      description: |
+        권한: 워크스페이스 멤버.
+        게시하지 않고 규칙 1~8 + lane 해소 결과를 돌려준다 — "이 메시지는 @Backend를 트리거합니다 · 실행 중이라 큐잉됩니다"(SCREEN §4.5 O4). 동기 경로에 LLM 호출 없음(§8.1). 본문은 `postMessage`와 같다.
+      x-prd: [FR-3.6, FR-3.3]
+      x-screen: [S7]
+      x-phase: P2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MessageCreate' }
+      responses:
+        '200':
+          description: 미리보기.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TriggerPreview' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /messages/{messageId}:
+    parameters:
+      - $ref: '#/components/parameters/MessageId'
+    get:
+      tags: [messages]
+      operationId: getMessage
+      summary: 메시지 하나(인박스 `mention` · `lane_blocked` 카드에서 이동)
+      description: |
+        권한: 워크스페이스 멤버 · `TaskToken`(그 세션만).
+      x-screen: [S7, S8]
+      x-phase: P2
+      security:
+        - UserSession: []
+        - TaskToken: []
+      responses:
+        '200':
+          description: 메시지.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  # ───────────────────────────── lanes ─────────────────────────────
+  /sessions/{sessionId}/lanes:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [lanes]
+      operationId: listLanes
+      summary: lane 보드(S7 좌열)
+      description: |
+        권한: 워크스페이스 멤버 · `TaskToken`.
+        상태별 카드 데이터 — 담당 에이전트, 위임 요약(`brief`), 경과, `reentry_count`, workdir 참조, 현재 task 한 줄(`current_task`), `blocked` 질문 요약, `paused` 초과 금액, `failed` 분류, 그리고 호출자가 쓸 수 있는 동작(`actions`: director·deputy만 restart/cancel).
+      x-prd: [FR-6.2, FR-3.4]
+      x-screen: [S7]
+      x-phase: P2
+      security:
+        - UserSession: []
+        - TaskToken: []
+      parameters:
+        - name: status
+          in: query
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/LaneStatus' }
+      responses:
+        '200':
+          description: lane 목록.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Lane' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [lanes]
+      operationId: delegateLane
+      summary: 위임 — 새 lane + 멘션 메시지 자동 작성(`colab lane delegate`)
+      description: |
+        권한: `TaskToken`(에이전트만 — 사람은 `postMessage`의 `new_lane`을 쓴다).
+        해소 규칙 2 — **항상 새 lane**(E2-02·03). `delegated_from_task_id` = 호출 task(합류 그룹 키, FR-6.5). 대상은 세션 참여자로 제한 — 아니면 `422 not_participant`와 안내("`hitl ask`로 Director에게 참여자 추가 요청", E15-02). `depends_on`은 같은 세션의 lane ids(DAG, 의존 lane이 끝나면 자동 시작). 서버가 `[@대상](mention://agent/<id>)` + brief 메시지를 호출 에이전트 이름으로 게시한다. 세션이 `paused`면 lane은 만들되 task는 dispatch되지 않는다.
+      x-colab-cli: lane delegate
+      x-prd: [FR-6.2, FR-6.5, FR-1.5, FR-3.3]
+      x-phase: P2
+      security:
+        - TaskToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, brief]
+              properties:
+                agent_id: { type: string, format: uuid }
+                brief: { type: string, minLength: 1, description: 위임 브리프. 턴 프롬프트에 그대로 들어간다. }
+                depends_on:
+                  type: array
+                  items: { type: string, format: uuid }
+                  default: []
+                profile:
+                  type: [string, 'null']
+                  description: 프로파일 **이름**(`--profile`). 비우면 참여자 등록 시 프로파일.
+      responses:
+        '201':
+          description: lane과 자동 게시된 멘션 메시지.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [lane, message]
+                properties:
+                  lane: { $ref: '#/components/schemas/Lane' }
+                  message: { $ref: '#/components/schemas/Message' }
+                  task: { $ref: '#/components/schemas/Task' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /lanes/{laneId}:
+    parameters:
+      - $ref: '#/components/parameters/LaneId'
+    get:
+      tags: [lanes]
+      operationId: getLane
+      summary: lane 상세
+      description: |
+        권한: 워크스페이스 멤버 · `TaskToken`.
+      x-screen: [S7]
+      x-phase: P2
+      security:
+        - UserSession: []
+        - TaskToken: []
+      responses:
+        '200':
+          description: lane.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lane' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /lanes/{laneId}/tasks:
+    parameters:
+      - $ref: '#/components/parameters/LaneId'
+    get:
+      tags: [lanes]
+      operationId: listLaneTasks
+      summary: task 이력(lane 카드 펼침, O3)
+      description: |
+        권한: 워크스페이스 멤버.
+        시간순. 재지시는 새 task(`restarted_from_task_id`), 재시도는 같은 task의 `attempt`(`attempts[]`에 시도별 시작·종료·resume 여부·비용). 정보 5종: 순번 · 트리거 메시지 · 상태/사유 · 실행(시작·종료·resume/콜드 스타트) · 비용.
+      x-prd: [FR-3.4, FR-7.1, FR-5.4]
+      x-screen: [S7]
+      x-phase: P3
+      responses:
+        '200':
+          description: task 목록.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Task' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /lanes/{laneId}/restart:
+    parameters:
+      - $ref: '#/components/parameters/LaneId'
+    post:
+      tags: [lanes]
+      operationId: restartLane
+      summary: 중단하고 다시 지시(FR-3.4 B)
+      description: |
+        권한: Director · deputy(**즉시**, t-3). 다른 멤버는 `403`(E10-05).
+        **`Idempotency-Key` 필수**(메시지를 게시한다). 진행 중 턴을 §8.2.2 절차로 취소하고(되돌리기 어려운 작업 중이면 최대 30초 보류, E10-01·02) lane 에이전트를 멘션한 새 메시지를 게시해 **새 task**(`attempt` 1, `restarted_from_task_id` = 이전 task)를 만든다. lane은 `running` 유지. 프롬프트는 `<resumed>` 없이 새 지시만(E8-06). `failed(cancelled)`·`failed(timeout)` lane의 "다시 지시"도 이것이다(SCREEN §4.5 실패 분류 표). lane이 `running`·`failed`·`paused`가 아니면 `409`.
+      x-prd: [FR-3.4]
+      x-screen: [S7, S8]
+      x-phase: P3
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyRequired'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, minLength: 1, description: 새 지시. 서버가 lane 에이전트 멘션을 앞에 붙인다(없으면). }
+      responses:
+        '202':
+          description: 취소 절차 시작 + 새 task 생성. 취소 완료는 SSE `task.updated`.
+          headers:
+            Idempotent-Replayed: { $ref: '#/components/headers/IdempotentReplayed' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [lane, message, task]
+                properties:
+                  lane: { $ref: '#/components/schemas/Lane' }
+                  message: { $ref: '#/components/schemas/Message' }
+                  task: { $ref: '#/components/schemas/Task', description: 새 task. }
+                  cancelled_task_id: { type: [string, 'null'], format: uuid }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /lanes/{laneId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/LaneId'
+    post:
+      tags: [lanes]
+      operationId: cancelLane
+      summary: 중단(FR-3.4)
+      description: |
+        권한: Director · deputy(즉시). 다른 멤버는 `403`.
+        진행 중 턴만 취소한다(§8.2.2, 30초 보류 규칙). 결과 lane `failed`, task `cancelled`(`failure_kind: cancelled`), 활동 피드 "사람이 중단함"(E10-04). `paused(budget)` task를 명시 종료할 때도 이것이다(E9-03). `queued` lane이면 task를 `cancelled`로. 이미 종료 상태면 `409`.
+      x-prd: [FR-3.4, FR-7.3]
+      x-screen: [S7]
+      x-phase: P3
+      responses:
+        '202':
+          description: 취소 절차 시작. 완료는 SSE `lane.updated`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lane' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  # ───────────────────────────── tasks ─────────────────────────────
+  /sessions/{sessionId}/tasks:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [tasks]
+      operationId: listSessionTasks
+      summary: 세션의 task 목록
+      description: |
+        권한: 워크스페이스 멤버.
+      x-screen: [S7]
+      x-phase: P2
+      parameters:
+        - name: status
+          in: query
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/TaskStatus' }
+        - name: agent_id
+          in: query
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 페이지.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Task' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /tasks/{taskId}:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      tags: [tasks]
+      operationId: getTask
+      summary: task 상세(사용량 · 시도 · resume 여부)
+      description: |
+        권한: 워크스페이스 멤버 · `TaskToken`(자기 task만).
+      x-prd: [FR-7.1, FR-7.3]
+      x-screen: [S7]
+      x-phase: P1
+      security:
+        - UserSession: []
+        - TaskToken: []
+      responses:
+        '200':
+          description: task.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /tasks/{taskId}/events:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      tags: [tasks]
+      operationId: listTaskEvents
+      summary: 활동 피드(`task_event`, FR-7.2)
+      description: |
+        권한: 워크스페이스 멤버.
+        `seq` 오름차순. 기본은 최신 판만(`superseded_by`가 비어 있는 행); `include_superseded=true`면 제자리 갱신 이력 전부. 마스킹이 켜진 워크스페이스에서는 `input`·`output`이 요약으로 대체되고 `masked: true`(§9). `class` 값 집합은 `contracts/task_event.schema.json`.
+      x-prd: [FR-7.2]
+      x-screen: [S7]
+      x-phase: P1
+      parameters:
+        - name: after_seq
+          in: query
+          schema: { type: integer, minimum: -1, default: -1 }
+        - name: include_superseded
+          in: query
+          schema: { type: boolean, default: false }
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 이벤트.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, has_more]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/TaskEvent' }
+                  has_more: { type: boolean }
+                  structured:
+                    type: boolean
+                    description: 런타임이 구조화 이벤트를 주는지. false면 화면이 "이 런타임은 툴 단위 로그를 제공하지 않습니다"를 표시(FR-7.2 강등).
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /tasks/{taskId}/status:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      tags: [tasks]
+      operationId: setTaskStatus
+      summary: 자기 상태 갱신(`colab status set working|blocked|done`)
+      description: |
+        권한: `TaskToken`(자기 task만).
+        - `working`: 활동 피드에 note만 남긴다.
+        - `blocked`: **위임자에게 질문하고 턴을 끝내는 경로**(FR-6.2.1). lane `blocked`, workdir 보존. 서버가 그 lane 스레드에 `blocked_q` 질문 카드를 게시하고(`lane.blocked_message_id`) 위임자를 즉시 깨운다(합류 아님). 위임자가 없으면 Director 인박스 `lane_blocked`(E3-08). 응답 `end_turn: true`.
+        - `done`: lane `done`. 합류 그룹 판정(FR-6.5) 또는 재진입 완료 통보(E3-11~13)를 서버가 수행한다. 응답 `end_turn: true`.
+        `note`는 `blocked`에서 필수(질문 본문).
+      x-colab-cli: status set
+      x-prd: [FR-6.2, FR-6.2.1, FR-6.5, FR-7.4]
+      x-phase: P2
+      security:
+        - TaskToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [working, blocked, done]
+                note: { type: string }
+      responses:
+        '200':
+          description: 갱신됨.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [task, lane, end_turn]
+                properties:
+                  task: { $ref: '#/components/schemas/Task' }
+                  lane: { $ref: '#/components/schemas/Lane' }
+                  end_turn: { type: boolean, description: true면 에이전트는 즉시 턴을 끝내야 한다. }
+                  question_message_id: { type: [string, 'null'], format: uuid, description: blocked일 때 게시된 질문 카드. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  # ───────────────────────────── hitl ─────────────────────────────
+  /sessions/{sessionId}/hitl-requests:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [hitl]
+      operationId: listHitlRequests
+      summary: 세션의 HITL 요청
+      description: |
+        권한: 워크스페이스 멤버(카드는 누구나 본다, 응답 버튼은 권한자만 — `can_respond`·`can_respond_from`).
+      x-prd: [FR-5.2]
+      x-screen: [S7]
+      x-phase: P3
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/HitlStatus' }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 페이지.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/HitlRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [hitl]
+      operationId: createHitlRequest
+      summary: HITL 요청 등록(`colab hitl ask` / `approve-request` / `request-info`) — 턴을 끝내라
+      description: |
+        권한: `TaskToken`(에이전트, `source: agent`). 시스템 발행(`source: system`)은 서버 내부 — 이 API로는 만들 수 없다.
+        타입별 본문은 `HitlCreate`(oneOf). `question`·`choice`는 `proposed_default` **필수**(`422`, E7-05). **task당 열린 HITL은 하나** — 두 번째는 `409 hitl_already_open`(E7-04, 피드 기록). `approver_spec`은 `director`·`any_member`·사용자 uuid만, 그 밖은 `422`(fail closed, E7-16). `due_in` 기본 24h.
+        등록 즉시 task에 `pending_hitl`만 세우고(상태는 아직 `running`) **`turn_end` 도착 시 `waiting_human`**(FR-7.1 N4). 응답은 `end_turn: true` — 에이전트는 답을 기다리지 말고 턴을 끝내야 한다(FR-5.2). v1은 `question`·`approval`(`choice`·`info`는 v1.1이지만 스키마는 지금 둔다 — SCREEN §2.3 C4).
+      x-colab-cli: hitl ask | hitl approve-request | hitl request-info
+      x-prd: [FR-5.1, FR-5.2, FR-5.4, FR-7.1]
+      x-phase: P3
+      security:
+        - TaskToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HitlCreate' }
+      responses:
+        '201':
+          description: 등록됨. 턴을 끝내라.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [hitl_request, end_turn]
+                properties:
+                  hitl_request: { $ref: '#/components/schemas/HitlRequest' }
+                  end_turn: { type: boolean, const: true }
+                  message_id: { type: string, format: uuid, description: 타임라인에 게시된 `hitl` 카드 메시지. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /hitl-requests/{hitlRequestId}:
+    parameters:
+      - $ref: '#/components/parameters/HitlRequestId'
+    get:
+      tags: [hitl]
+      operationId: getHitlRequest
+      summary: HITL 요청 하나(인박스 카드)
+      description: |
+        권한: 워크스페이스 멤버.
+      x-screen: [S7, S8]
+      x-phase: P3
+      responses:
+        '200':
+          description: 요청.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HitlRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /hitl-requests/{hitlRequestId}/response:
+    parameters:
+      - $ref: '#/components/parameters/HitlRequestId'
+    post:
+      tags: [hitl]
+      operationId: respondHitlRequest
+      summary: HITL 응답(멱등) — 답변 · 승인/거절 · 예산 상향
+      description: |
+        권한: `approver_spec`에 따라 — `director`는 **Director, 그리고 기한 절반 경과 후 deputy**(M7, E7-09·10); `any_member`는 워크스페이스 멤버; uuid는 그 사용자. 그 외 `403`(카드는 보이되 버튼 비활성, `Problem.can_respond_from`에 deputy 가능 시각).
+        **`Idempotency-Key` 필수.** 서버는 (a) `open`이고 (b) 응답자가 spec에 맞는지 검증한다. `overdue`여도 답할 수 있다(E7-15). **같은 요청에 대한 두 번째 응답은 오류가 아니라 무시** — `200`에 기존 응답 + `ignored: true`(E7-08).
+        효과: `answered` + 결정 기록 1건 + task `queued`로 재큐잉(새 attempt, resume 우선). `approval` 거절도 정상 흐름 — `approved: false`와 사유가 재개 프롬프트에 들어간다(E7-17). 예산 초과 시스템 HITL(`task_id` 있음)에 `budget_override_usd`를 주면 `task.budget_override`에 저장되고 에이전트 `budget_per_task`는 불변(E9-02). 종료 조건 `user_approval` HITL 승인은 세션을 `completing`으로 보낸다(E6-03); 거절은 `active` 유지 + 사유 결정 기록(E6-04). 킬 스위치로 `disabled`된 에이전트의 task는 `answered`로 기록만 하고 재큐잉을 보류한다(E10-08).
+      x-prd: [FR-5.2, FR-5.4, FR-7.3, FR-2.2]
+      x-screen: [S7, S8]
+      x-phase: P3
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyRequired'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HitlResponse' }
+      responses:
+        '200':
+          description: "기록됨(또는 이미 답변됨 — `ignored: true`)."
+          headers:
+            Idempotent-Replayed: { $ref: '#/components/headers/IdempotentReplayed' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [hitl_request, ignored]
+                properties:
+                  hitl_request: { $ref: '#/components/schemas/HitlRequest' }
+                  ignored: { type: boolean, description: 이미 답변된 요청이라 이 응답을 무시했다. }
+                  decision_id: { type: [string, 'null'], format: uuid }
+                  task: { $ref: '#/components/schemas/Task' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  # ───────────────────────────── inbox ─────────────────────────────
+  /inbox:
+    get:
+      tags: [inbox]
+      operationId: listInbox
+      summary: 인박스(S8)
+      description: |
+        권한: 로그인한 사용자(본인 멤버십의 항목만).
+        정의는 "나에게 열려 있는 HITL 요청 + 기한 임박 항목"의 합집합(FR-5.4). **정렬**: `overdue` → `action_required` → `attention` → `info`, 묶음 안에서 기한 임박 순(SCREEN §4.6). `hitl_request`는 처음엔 Director에게만, 기한 절반 후 deputy에게도 나타나며 `delegated: true`(O5). 각 항목은 타입별 카드 데이터(`ref`)와 인라인 동작 목록(`actions`)을 가진다.
+      x-prd: [FR-8, FR-5.4, FR-6.2.1]
+      x-screen: [S8]
+      x-phase: P2
+      parameters:
+        - name: workspace_id
+          in: query
+          description: 비우면 모든 워크스페이스.
+          schema: { type: string, format: uuid }
+        - name: filter
+          in: query
+          schema:
+            type: string
+            enum: [all, unread, action_required]
+            default: all
+        - name: session_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: type
+          in: query
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/InboxItemType' }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 페이지(정렬 규칙 적용).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/InboxItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /inbox/summary:
+    get:
+      tags: [inbox]
+      operationId: getInboxSummary
+      summary: 내비 뱃지 — action_required 개수만
+      description: |
+        권한: 로그인한 사용자.
+        `info`까지 세면 뱃지가 무의미하다(SCREEN §4.6).
+      x-screen: [App Nav]
+      x-phase: P2
+      parameters:
+        - name: workspace_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 개수.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InboxSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /inbox/{inboxItemId}/read:
+    parameters:
+      - name: inboxItemId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [inbox]
+      operationId: markInboxRead
+      summary: 읽음 처리
+      description: |
+        권한: 항목 소유 멤버.
+        멱등. `action_required` 항목은 읽어도 해소되지 않는다 — 해소는 응답/답글이 한다.
+      x-screen: [S8]
+      x-phase: P2
+      responses:
+        '200':
+          description: 읽음.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InboxItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /inbox/read-all:
+    post:
+      tags: [inbox]
+      operationId: markAllInboxRead
+      summary: 전부 읽음(info · attention만)
+      description: |
+        권한: 로그인한 사용자.
+        `action_required`는 건드리지 않는다.
+      x-screen: [S8]
+      x-phase: P2
+      parameters:
+        - name: workspace_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 처리 수.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated]
+                properties:
+                  updated: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  # ───────────────────────────── artifacts · decisions ─────────────────────────────
+  /sessions/{sessionId}/artifacts:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [artifacts]
+      operationId: listArtifacts
+      summary: 아티팩트 목록(버전 포함, 제출 순)
+      description: |
+        권한: 워크스페이스 멤버 · `TaskToken`.
+        제출 순서 = 재바인딩 시 재적용 순서(E14-06).
+      x-prd: [FR-4.3]
+      x-screen: [S7]
+      x-phase: P2
+      security:
+        - UserSession: []
+        - TaskToken: []
+      parameters:
+        - name: latest_only
+          in: query
+          description: 이름별 최신 버전만.
+          schema: { type: boolean, default: false }
+        - name: type
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: 목록.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Artifact' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [artifacts]
+      operationId: submitArtifact
+      summary: 아티팩트 제출(`colab artifact submit --name --type --file`)
+      description: |
+        권한: `TaskToken`(에이전트) · 워크스페이스 멤버(사람이 자료를 올릴 때).
+        같은 이름 재제출은 `version`+1(FR-4.3). `type`은 열린 집합(`file` · `diff` · `branch` · `doc` …). 종료 조건 `artifact_submitted`가 충족되면 서버가 나머지 조건을 보고 `user_approval` 시스템 HITL을 발행한다(E6-01) — 응답 `completion_progress`로 알 수 있다. 지정 에이전트가 아니면 저장은 되지만 조건은 미충족(E6-02). 크기 상한 50 MB(`413`).
+      x-colab-cli: artifact submit
+      x-prd: [FR-4.3, FR-2.2, FR-6.1]
+      x-screen: [S7]
+      x-phase: P2
+      security:
+        - TaskToken: []
+        - UserSession: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [name, type, file]
+              properties:
+                name: { type: string, minLength: 1 }
+                type: { type: string, minLength: 1, examples: [file, diff, branch, doc] }
+                file: { type: string, contentEncoding: binary }
+                description: { type: string }
+            encoding:
+              file:
+                contentType: application/octet-stream, text/plain, application/json
+      responses:
+        '201':
+          description: 제출됨.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [artifact]
+                properties:
+                  artifact: { $ref: '#/components/schemas/Artifact' }
+                  completion_progress: { $ref: '#/components/schemas/CompletionProgress' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /artifacts/{artifactId}:
+    parameters:
+      - $ref: '#/components/parameters/ArtifactId'
+    get:
+      tags: [artifacts]
+      operationId: getArtifact
+      summary: 아티팩트 메타(`colab artifact get`)
+      description: |
+        권한: 워크스페이스 멤버 · `TaskToken`(같은 세션). 크로스 lane 읽기는 아티팩트로만 한다(FR-6.1) — 워크트리 경로는 노출하지 않는다.
+      x-colab-cli: artifact get
+      x-prd: [FR-4.3, FR-6.1]
+      x-screen: [S7]
+      x-phase: P2
+      security:
+        - UserSession: []
+        - TaskToken: []
+      responses:
+        '200':
+          description: 메타.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Artifact' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /artifacts/{artifactId}/content:
+    parameters:
+      - $ref: '#/components/parameters/ArtifactId'
+    get:
+      tags: [artifacts]
+      operationId: downloadArtifact
+      summary: 아티팩트 본문 다운로드
+      description: |
+        권한: 워크스페이스 멤버 · `TaskToken`(같은 세션).
+      x-colab-cli: artifact get
+      x-prd: [FR-4.3]
+      x-phase: P2
+      security:
+        - UserSession: []
+        - TaskToken: []
+      responses:
+        '200':
+          description: "본문. `Content-Disposition: attachment`."
+          content:
+            application/octet-stream:
+              schema: { type: string, contentEncoding: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /artifacts/{artifactId}/review:
+    parameters:
+      - $ref: '#/components/parameters/ArtifactId'
+    post:
+      tags: [artifacts]
+      operationId: reviewArtifact
+      summary: 리뷰 승인/반려(`colab review approve|reject`)
+      description: |
+        권한: `TaskToken`(에이전트). 종료 조건 `agent_approval`에 지정된 에이전트가 아니면 `403 not_designated_reviewer`(E6-06) — 저장하지 않는다.
+        `approve`는 조건 충족 → 나머지 조건에 따라 `completing`(단독이면 사람 게이트 없이 종료, E6-05) 또는 `user_approval` HITL 발행. `reject`는 `comments`를 그 아티팩트를 제출한 task의 lane 스레드에 답글로 게시한다(해소 규칙 1로 재진입 — E16-B 5단계). 결정 기록에 `source: agent`로 남는다.
+      x-colab-cli: review approve | review reject
+      x-prd: [FR-2.2, FR-7.4, FR-6.1]
+      x-phase: P2
+      security:
+        - TaskToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verdict]
+              properties:
+                verdict:
+                  type: string
+                  enum: [approve, reject]
+                comments: { type: string, description: reject면 필수. }
+      responses:
+        '200':
+          description: 기록됨.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [review, completion_progress]
+                properties:
+                  review: { $ref: '#/components/schemas/ArtifactReview' }
+                  completion_progress: { $ref: '#/components/schemas/CompletionProgress' }
+                  message: { $ref: '#/components/schemas/Message', description: reject일 때 게시된 답글. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /sessions/{sessionId}/decisions:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [artifacts]
+      operationId: listDecisions
+      summary: 결정 기록(FR-4.2)
+      description: |
+        권한: 워크스페이스 멤버 · `TaskToken`.
+        시간순. 조회 **실패**와 "확실히 비어 있음"을 구분해야 하므로 빈 목록은 `200 []`, 장애는 `5xx`(FR-4.2) — 데몬이 브리프를 만들 때 이 구분에 기댄다.
+      x-colab-cli: session get
+      x-prd: [FR-4.2]
+      x-screen: [S7]
+      x-phase: P2
+      security:
+        - UserSession: []
+        - TaskToken: []
+      responses:
+        '200':
+          description: 목록.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Decision' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [artifacts]
+      operationId: recordDecision
+      summary: 결정 기록(`colab decision record --summary --rationale`)
+      description: |
+        권한: `TaskToken`(에이전트, `source: agent`, `ref_id` = task). HITL 응답에서 나온 결정(`source: hitl`)은 `respondHitlRequest`가 만든다.
+      x-colab-cli: decision record
+      x-prd: [FR-4.2, FR-7.4]
+      x-phase: P2
+      security:
+        - TaskToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [summary]
+              properties:
+                summary: { type: string, minLength: 1 }
+                rationale: { type: string }
+      responses:
+        '201':
+          description: 기록됨.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Decision' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  # ───────────────────────────── cost ─────────────────────────────
+  /sessions/{sessionId}/cost:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [cost]
+      operationId: getSessionCost
+      summary: 세션 비용(agent · task · 런타임별, 추정 배지)
+      description: |
+        권한: 워크스페이스 멤버.
+        `estimated: true`면 `usage=false` 런타임의 추정치가 섞여 있다(FR-7.3, E9-07).
+      x-prd: [FR-7.3]
+      x-screen: [S7]
+      x-phase: P3
+      responses:
+        '200':
+          description: 집계.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CostReport' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /workspaces/{workspaceId}/cost:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [cost]
+      operationId: getWorkspaceCost
+      summary: 워크스페이스 비용(세션 · agent · 런타임 · 테스트 채팅)
+      description: |
+        권한: 워크스페이스 멤버.
+        테스트 채팅 비용은 세션이 아니므로 `by_session`에 없고 `test_chat_usd`로 따로 준다(FR-1.8.1).
+      x-prd: [FR-7.3, FR-1.8.1]
+      x-screen: [S14, S9]
+      x-phase: P3
+      parameters:
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - name: agent_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: runtime_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 집계.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CostReport' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  # ───────────────────────────── realtime ─────────────────────────────
+  /workspaces/{workspaceId}/stream:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [realtime]
+      operationId: streamEvents
+      summary: SSE 이벤트 스트림(워크스페이스 단위)
+      description: |
+        권한: 워크스페이스 멤버. 인박스 이벤트는 호출자 본인 것만 흐른다.
+        **SSE 하나**(`text/event-stream`). 클라이언트 → 서버 동작은 전부 REST이므로 WS가 필요 없고, 재연결 시 `Last-Event-ID`로 놓친 이벤트를 채우는 것이 표준 동작이다(SCREEN §6 "끊긴 채로 낡은 화면을 보여주지 않는다"). 각 SSE 프레임: `id`(단조 증가 커서) · `event`(`StreamEvent.type`) · `data`(`StreamEvent` JSON). 15초마다 `: ping` 코멘트. 보존 창(기본 10분)을 넘긴 `Last-Event-ID`면 첫 프레임으로 `resync`를 보내 화면이 REST로 다시 읽게 한다.
+        `session_id`로 구독 범위를 좁힌다(S7). 고빈도 이벤트(`message.delta` · `agent.typing` · `test_chat.delta`)는 영속되지 않으며 백필되지 않는다(PRD §7).
+      x-prd: [§8.1, SCREEN §6]
+      x-screen: [S5, S7, S8, S11, S12, S13, S10]
+      x-phase: P1
+      parameters:
+        - name: session_id
+          in: query
+          description: 세션 범위 이벤트만(여러 개 가능). 비우면 워크스페이스 전체(S5·S8·S11 수준).
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: { type: string, format: uuid }
+        - name: test_chat_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: Last-Event-ID
+          in: header
+          description: 재연결 백필 커서.
+          schema: { type: string }
+      responses:
+        '200':
+          description: 이벤트 스트림.
+          content:
+            text/event-stream:
+              schema: { $ref: '#/components/schemas/StreamEvent' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  # ───────────────────────────── cli ─────────────────────────────
+  /cli/context:
+    get:
+      tags: [cli]
+      operationId: getCliContext
+      summary: 토큰이 가리키는 task · lane · 세션 · 에이전트
+      description: |
+        권한: `TaskToken`.
+        colab CLI가 시작할 때 한 번 호출해 나머지 명령의 경로 파라미터를 채운다. 토큰이 폐기됐으면 `401 token_revoked`(재큐잉, FR-9.1) — CLI는 즉시 종료해야 한다. 열린 HITL 여부(`open_hitl_request_id`)와 억제 중인 위임자(`suppressed_delegator_agent_id`, 규칙 8)도 준다.
+      x-colab-cli: (모든 명령의 전처리)
+      x-prd: [FR-7.4, FR-9.1]
+      x-phase: P1
+      security:
+        - TaskToken: []
+      responses:
+        '200':
+          description: 컨텍스트.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CliContext' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Problem' }
+
+components:
+  # ───────────────────────────── security ─────────────────────────────
+  securitySchemes:
+    UserSession:
+      type: apiKey
+      in: cookie
+      name: colab_session
+      description: 로그인(S1/S2)으로 발급되는 사용자 세션 쿠키(HttpOnly · SameSite=Lax). 웹 클라이언트 기본 인증. 사람의 모든 권한 판정은 이 사용자 = originator 기준.
+    TaskToken:
+      type: http
+      scheme: bearer
+      bearerFormat: COLAB_TASK_TOKEN
+      description: |
+        task마다 발급되는 단기 토큰(`COLAB_TASK_TOKEN`, 형식은 `contracts/colab-cli.md`). 그 task의 세션·에이전트 범위 밖에는 접근할 수 없다(FR-7.4). 재큐잉·취소 시 서버가 폐기하며(FR-9.1) 이후 호출은 `401 token_revoked`. 테스트 채팅에는 발급되지 않는다(FR-1.8.1). `x-colab-cli`가 붙은 operation만 이 스킴을 받는다.
+
+  # ───────────────────────────── parameters ─────────────────────────────
+  parameters:
+    WorkspaceId:
+      name: workspaceId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    MemberId:
+      name: memberId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    InviteToken:
+      name: inviteToken
+      in: path
+      required: true
+      schema: { type: string }
+    RuntimeId:
+      name: runtimeId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AgentId:
+      name: agentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ProfileId:
+      name: profileId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TestChatId:
+      name: testChatId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    MessageId:
+      name: messageId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    LaneId:
+      name: laneId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    HitlRequestId:
+      name: hitlRequestId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ArtifactId:
+      name: artifactId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Cursor:
+      name: cursor
+      in: query
+      description: 이전 응답의 `next_cursor`. 불투명 문자열.
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    IdempotencyKeyRequired:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: "클라이언트가 만든 UUID. 같은 키의 재요청은 첫 응답을 그대로 돌려준다(`Idempotent-Replayed: true`). 키는 24시간 보존. 같은 키에 다른 본문이면 `422 idempotency_key_reused`."
+      schema: { type: string, format: uuid }
+    IdempotencyKeyOptional:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
+      schema: { type: string, format: uuid }
+
+  headers:
+    SetSessionCookie:
+      description: '`colab_session=<token>; HttpOnly; SameSite=Lax; Path=/`'
+      schema: { type: string }
+    IdempotentReplayed:
+      description: 이 응답이 같은 `Idempotency-Key`의 첫 응답을 재생한 것이면 `true`.
+      schema: { type: boolean }
+
+  # ───────────────────────────── responses (RFC 9457) ─────────────────────────────
+  responses:
+    Problem:
+      description: 그 밖의 오류. 본문은 항상 `application/problem+json`.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: "인증 없음 · 사용자 세션 만료 · TaskToken 폐기(`code: token_revoked`) 또는 만료."
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            revoked:
+              value: { type: 'https://colab.dev/problems/token-revoked', title: Task token revoked, status: 401, code: token_revoked, detail: 이 task는 재큐잉되어 토큰이 폐기되었다. 즉시 종료하라. }
+    Forbidden:
+      description: 권한 없음. 화면은 버튼을 숨기지 않고 비활성+`detail`을 보여준다(SCREEN §7). deputy 시점 제한이면 `can_respond_from`.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            deputy_too_early:
+              value: { type: 'https://colab.dev/problems/deputy-not-yet', title: Deputy cannot respond yet, status: 403, code: deputy_not_yet, detail: 'Director 응답 대기 중 · 14:30부터 승인 가능', can_respond_from: '2026-09-06T14:30:00Z' }
+    NotFound:
+      description: 없음(또는 다른 워크스페이스의 리소스 — 존재를 노출하지 않는다).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: 상태 전이 불가 · 유일성 충돌 · 차단(활성 세션이 걸린 런타임, 더티 workdir, 열린 HITL 존재 등). `code`로 구분.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            runtime_has_active_sessions:
+              value: { type: 'https://colab.dev/problems/runtime-has-active-sessions', title: Runtime has active sessions, status: 409, code: runtime_has_active_sessions, detail: 먼저 세션을 재바인딩하거나 종료하라., sessions: [{ id: 6f1a0000-0000-4000-8000-000000000001, title: 시장 조사 }] }
+    Gone:
+      description: "만료·취소된 토큰/초대/페어링(`code: invite_expired` · `invite_revoked` · `pairing_expired` · `test_chat_closed`)."
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ValidationError:
+      description: 검증 실패. 필드별 사유는 `errors[]`.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            session_create:
+              value: { type: 'https://colab.dev/problems/validation', title: Validation failed, status: 422, code: validation_failed, errors: [{ field: runtime_id, code: required_for_isolation, message: worktree 격리는 실행 머신이 필수다. }, { field: completion_condition, code: criteria_met_alone, message: criteria_met은 단독으로 쓸 수 없다. }] }
+    PayloadTooLarge:
+      description: 업로드 크기 초과.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    GatewayTimeout:
+      description: 데몬 응답 지연(저장소 검증 등 동기 데몬 왕복).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  # ───────────────────────────── schemas ─────────────────────────────
+  schemas:
+    # ── 공통 ──
+    Problem:
+      type: object
+      description: RFC 9457 Problem Details + `code`(기계용 식별자) + `errors[]`(필드 검증) 확장.
+      required: [title, status]
+      properties:
+        type: { type: string, format: uri, default: 'about:blank' }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string, description: 사람에게 보여줄 사유(화면의 비활성 툴팁·경고 문구). }
+        instance: { type: string, format: uri }
+        code:
+          type: string
+          description: 기계용 식별자(snake_case). 예 — `token_revoked` · `deputy_not_yet` · `hitl_already_open` · `not_participant` · `runtime_offline` · `no_runtime` · `workdir_dirty` · `runtime_has_active_sessions` · `invalid_transition` · `idempotency_key_reused` · `validation_failed` · `not_designated_reviewer` · `workdir_quota_exceeded` · `running_lanes`.
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string, description: JSON pointer 또는 필드명. }
+              code: { type: string }
+              message: { type: string }
+        can_respond_from:
+          type: string
+          format: date-time
+          description: deputy가 응답할 수 있게 되는 시각(403에서).
+        sessions:
+          type: array
+          description: 차단 사유가 된 세션(런타임 삭제 409 등).
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              title: { type: string }
+      additionalProperties: true
+
+    Page:
+      type: object
+      description: 커서 페이지 공통 봉투. `items`는 각 operation이 정한다.
+      required: [items, next_cursor]
+      properties:
+        items: { type: array, items: {} }
+        next_cursor:
+          type: [string, 'null']
+          description: 다음 페이지 커서. null이면 끝.
+
+    # ── ENUM (0001_init.sql과 동일) ──
+    MemberRole:
+      type: string
+      enum: [owner, admin, member]
+      description: '`member_role`'
+    RuntimeStatus:
+      type: string
+      enum: [online, offline]
+      description: '`runtime_status`'
+    RuntimeKind:
+      type: string
+      enum: [claude_code, antigravity, hermes]
+      description: '`runtime_kind` (FR-1.6)'
+    AgentRole:
+      type: string
+      enum: [lead, researcher, writer, engineer, reviewer, custom]
+      description: '`agent_role` (FR-1.1)'
+    AgentStatus:
+      type: string
+      enum: [idle, working, waiting_human, error, offline, disabled]
+      description: '`agent_status` — 저장하지 않고 FR-1.3 순서로 파생한다.'
+    RespondTo:
+      type: string
+      enum: [owner, allowlist, workspace, nobody]
+      description: '`respond_to` (FR-1.9). `nobody`는 킬 스위치.'
+    IsolationKind:
+      type: string
+      enum: [worktree, container, none]
+      description: '`isolation_kind` (FR-2.1). v1 화면은 worktree · none — container는 v1.1.'
+    AutonomyLevel:
+      type: string
+      enum: [supervised, guided, autonomous]
+      description: '`autonomy_level` (FR-2.1). supervised는 v1.1.'
+    SessionStatus:
+      type: string
+      enum: [draft, active, paused, completing, completed, cancelled]
+      description: '`session_status` (FR-2.3)'
+    PauseReason:
+      type: string
+      enum: [budget, time, loop, runtime_offline, director]
+      description: '`pause_reason` (FR-2.3 · FR-7.3 · FR-9.2)'
+    ContextType:
+      type: string
+      enum: [doc, url, file, session]
+      description: '`context_type`'
+    WorkdirKind:
+      type: string
+      enum: [worktree, container, dir]
+      description: '`workdir_kind`'
+    WorkdirStatus:
+      type: string
+      enum: [active, retained, deleted]
+      description: '`workdir_status`'
+    AuthorType:
+      type: string
+      enum: [user, agent, system]
+      description: '`author_type` (FR-3.1)'
+    MessageKind:
+      type: string
+      enum: [text, hitl, blocked_q, system, summary]
+      description: '`message_kind`'
+    MessageState:
+      type: string
+      enum: [posted, pending_approval]
+      description: '`message_state` — pending_approval은 v1.1 supervised.'
+    LaneStatus:
+      type: string
+      enum: [queued, running, waiting_human, blocked, paused, done, failed]
+      description: '`lane_status` (FR-6.2)'
+    TaskStatus:
+      type: string
+      enum: [deferred, queued, dispatched, preparing, running, waiting_human, paused, completed, failed, cancelled]
+      description: '`task_status` (FR-7.1)'
+    FailureKind:
+      type: string
+      enum: [auth, quota, config, network, runtime_offline, stall, timeout, cancelled, other]
+      description: '`failure_kind`. auth · quota · config는 재시도 없음(→ 에이전트 `error`).'
+    HitlSource:
+      type: string
+      enum: [agent, system]
+      description: '`hitl_source`'
+    HitlType:
+      type: string
+      enum: [question, choice, approval, info]
+      description: '`hitl_type` (FR-5.1). v1은 question · approval.'
+    HitlStatus:
+      type: string
+      enum: [open, answered, auto_answered]
+      description: '`hitl_status` (FR-5.4). expired는 없다 — open + overdue.'
+    DecisionSource:
+      type: string
+      enum: [hitl, agent]
+      description: '`decision_source`'
+    InboxItemType:
+      type: string
+      enum: [hitl_request, lane_blocked, session_completed, session_paused, run_failed, runtime_offline, mention]
+      description: '`inbox_item_type` (FR-8)'
+    InboxSeverity:
+      type: string
+      enum: [action_required, attention, info]
+      description: '`inbox_severity` (SCREEN §4.6)'
+    TestChatStatus:
+      type: string
+      enum: [open, closed]
+      description: '`test_chat_status`'
+    SubscriptionLevel:
+      type: string
+      enum: [all, hitl_only, completion_only]
+      description: 세션 구독(FR-8 전부 / HITL만 / 종료만). 스키마 v0에 컬럼이 없다 — 미결(openapi.md).
+    AgentTemplateKey:
+      type: string
+      enum: [research_team, dev_team, content_team]
+      description: FR-1.4 팀 템플릿 3종.
+
+    # ── 사람 · 워크스페이스 ──
+    User:
+      type: object
+      required: [id, email, display_name, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        display_name: { type: string }
+        avatar_url: { type: [string, 'null'], format: uri }
+        created_at: { type: string, format: date-time }
+
+    Me:
+      type: object
+      required: [user, workspaces, pending_invites]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        workspaces:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/Workspace'
+              - type: object
+                required: [my_role]
+                properties:
+                  my_role: { $ref: '#/components/schemas/MemberRole' }
+        pending_invites:
+          type: array
+          description: 내 이메일로 온 대기 중 초대(S2.1 "초대 대기 목록").
+          items: { $ref: '#/components/schemas/InvitePreview' }
+
+    AuthResult:
+      type: object
+      required: [user]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        accepted_invite: { $ref: '#/components/schemas/Member' }
+        return_to: { type: [string, 'null'], description: 보호된 URL에서 왔다면 복귀 경로(클라이언트가 넘긴 값 에코). }
+
+    Workspace:
+      type: object
+      required: [id, name, slug, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Member:
+      type: object
+      required: [id, workspace_id, user, role, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        user: { $ref: '#/components/schemas/User' }
+        role: { $ref: '#/components/schemas/MemberRole' }
+        created_at: { type: string, format: date-time }
+
+    Invite:
+      type: object
+      required: [id, workspace_id, role, token, url, expires_at, created_at, status]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        email: { type: [string, 'null'], format: email }
+        role: { $ref: '#/components/schemas/MemberRole' }
+        token: { type: string }
+        url: { type: string, format: uri, description: 복사해서 전달할 링크. }
+        invited_by: { $ref: '#/components/schemas/User' }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        accepted_at: { type: [string, 'null'], format: date-time }
+        status:
+          type: string
+          enum: [pending, accepted, expired, revoked]
+
+    InvitePreview:
+      type: object
+      required: [token, workspace, role, invited_by, expires_at]
+      properties:
+        token: { type: string }
+        workspace: { $ref: '#/components/schemas/Workspace' }
+        role: { $ref: '#/components/schemas/MemberRole' }
+        invited_by: { $ref: '#/components/schemas/User' }
+        expires_at: { type: string, format: date-time }
+
+    OnboardingStatus:
+      type: object
+      required: [workspace_created, runtime_connected, agent_created]
+      properties:
+        workspace_created: { type: boolean }
+        runtime_connected: { type: boolean, description: 데몬이 붙고 CLI 1종 이상 감지. }
+        agent_created: { type: boolean }
+
+    WorkspaceSettings:
+      type: object
+      description: '`workspace_settings` 행 그대로. 기본값은 PRD §7.'
+      required: [workspace_id, loop_limits, budget_policy, context_reuse, default_isolation, runtime_policy, workdir_retention_days, workdir_disk_quota_gb, runtime_offline_grace, task_event_masking, updated_at]
+      properties:
+        workspace_id: { type: string, format: uuid }
+        loop_limits: { $ref: '#/components/schemas/LoopLimits' }
+        budget_policy: { $ref: '#/components/schemas/BudgetPolicy' }
+        context_reuse: { $ref: '#/components/schemas/ContextReusePolicy' }
+        default_isolation: { $ref: '#/components/schemas/IsolationKind' }
+        runtime_policy: { $ref: '#/components/schemas/RuntimePolicy' }
+        workdir_retention_days: { type: integer, minimum: 0, default: 14 }
+        workdir_disk_quota_gb: { type: [integer, 'null'], minimum: 1 }
+        runtime_offline_grace:
+          type: string
+          description: ISO 8601 duration(Postgres interval). 기본 `P7D`.
+          default: P7D
+        task_event_masking: { type: boolean, default: false, description: 보안 탭 — diff·셸 출력을 요약만 저장(owner만 변경). }
+        updated_at: { type: string, format: date-time }
+
+    WorkspaceSettingsUpdate:
+      type: object
+      description: 부분 갱신. 모든 필드 선택.
+      properties:
+        loop_limits: { $ref: '#/components/schemas/LoopLimits' }
+        budget_policy: { $ref: '#/components/schemas/BudgetPolicy' }
+        context_reuse: { $ref: '#/components/schemas/ContextReusePolicy' }
+        default_isolation: { $ref: '#/components/schemas/IsolationKind' }
+        runtime_policy: { $ref: '#/components/schemas/RuntimePolicy' }
+        workdir_retention_days: { type: integer, minimum: 0 }
+        workdir_disk_quota_gb: { type: [integer, 'null'], minimum: 1 }
+        runtime_offline_grace: { type: string }
+        task_event_masking: { type: boolean }
+
+    LoopLimits:
+      type: object
+      description: FR-3.5.
+      properties:
+        max_chain_depth: { type: integer, minimum: 1, default: 8 }
+        max_hops_per_hour: { type: integer, minimum: 1, default: 60 }
+        max_pair_roundtrips: { type: integer, minimum: 1, default: 5 }
+
+    BudgetPolicy:
+      type: object
+      description: FR-7.3. 스키마 v0는 `jsonb '{}'` — 키는 이 문서가 정한다(미결 항목 참조).
+      properties:
+        default_session_budget_usd: { type: [number, 'null'], minimum: 0 }
+        default_task_budget_usd: { type: [number, 'null'], minimum: 0 }
+        workspace_monthly_budget_usd: { type: [number, 'null'], minimum: 0 }
+        pricing_overrides:
+          type: object
+          description: 추정치 계산용 모델별 단가(USD per 1M tokens). 키는 모델 id.
+          additionalProperties:
+            type: object
+            properties:
+              input: { type: number }
+              output: { type: number }
+              cache_read: { type: number }
+
+    ContextReusePolicy:
+      type: object
+      description: FR-4.4.
+      properties:
+        max_summary_tokens: { type: integer, minimum: 0, default: 2000 }
+        include_artifacts:
+          type: string
+          enum: [links, none, full]
+          default: links
+
+    RuntimePolicy:
+      type: object
+      description: FR-9 데몬 전역 상한.
+      properties:
+        max_concurrent_tasks: { type: integer, minimum: 1, default: 10 }
+        per_kind:
+          type: object
+          description: 런타임 종류별 상한.
+          additionalProperties: { type: integer, minimum: 1 }
+
+    NotificationSettings:
+      type: object
+      required: [email, push, default_subscription]
+      properties:
+        email: { type: boolean, default: true }
+        push: { type: boolean, default: false }
+        default_subscription: { $ref: '#/components/schemas/SubscriptionLevel' }
+
+    # ── 런타임 ──
+    RuntimeCapability:
+      type: object
+      description: 'probe() 항목: `capabilities` jsonb 원소.'
+      required: [kind, logged_in]
+      properties:
+        kind: { $ref: '#/components/schemas/RuntimeKind' }
+        version: { type: [string, 'null'] }
+        models:
+          type: array
+          items: { type: string }
+        logged_in: { type: boolean }
+        transport:
+          type: array
+          description: 데몬이 판단한 사용 가능 경로(§8.2).
+          items: { type: string, enum: [acp, cli] }
+        usage_reporting: { type: boolean, description: 사용량을 보고하는지. false면 비용은 추정치(FR-7.3). }
+        options:
+          type: object
+          description: 광고된 옵션 능력(예 `effort` 허용값). 프로파일 편집기 비활성 판정용(§8.2.6).
+          additionalProperties: true
+
+    RuntimeRepo:
+      type: object
+      description: '`repos` jsonb 원소(FR-9). `remote_url`이 재바인딩 "같은 저장소" 키.'
+      required: [path]
+      properties:
+        path: { type: string }
+        remote_url: { type: [string, 'null'] }
+        branch: { type: [string, 'null'] }
+        clean: { type: [boolean, 'null'] }
+
+    Runtime:
+      type: object
+      required: [id, workspace_id, name, status, capabilities, repos, running_task_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        name: { type: string }
+        host: { type: [string, 'null'] }
+        status: { $ref: '#/components/schemas/RuntimeStatus' }
+        daemon_version: { type: [string, 'null'] }
+        last_seen_at: { type: [string, 'null'], format: date-time }
+        capabilities:
+          type: array
+          items: { $ref: '#/components/schemas/RuntimeCapability' }
+        repos:
+          type: array
+          items: { $ref: '#/components/schemas/RuntimeRepo' }
+        max_concurrent_tasks: { type: [integer, 'null'], description: 런타임별 상한. null이면 워크스페이스 정책. }
+        running_task_count: { type: integer }
+        workdir_disk_bytes: { type: integer, format: int64, description: workdir 사용량 합계. }
+        offline_since: { type: [string, 'null'], format: date-time }
+        grace_ends_at: { type: [string, 'null'], format: date-time, description: 7일 유예 만료 시각(오프라인일 때). }
+        paused_session_count: { type: integer, description: 유예를 넘겨 `paused(runtime_offline)`된 세션 수. }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    RuntimeDetail:
+      allOf:
+        - $ref: '#/components/schemas/Runtime'
+        - type: object
+          required: [active_sessions]
+          properties:
+            active_sessions:
+              type: array
+              items: { $ref: '#/components/schemas/SessionRef' }
+
+    Pairing:
+      type: object
+      required: [id, status, install_commands, expires_at, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [waiting, connected, probing, ready, expired]
+          description: S12 4단계 + 만료.
+        install_commands:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items: { type: string }
+          description: 복사 버튼 2줄(설치 · 페어링).
+        pairing_token: { type: string, description: 1회용. 교환 후 무효. }
+        runtime: { $ref: '#/components/schemas/Runtime' }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+
+    RepoCheck:
+      type: object
+      required: [ok, repo_path, exists]
+      properties:
+        ok: { type: boolean }
+        repo_path: { type: string }
+        exists: { type: boolean }
+        is_git: { type: boolean }
+        clean: { type: [boolean, 'null'] }
+        default_branch: { type: [string, 'null'] }
+        current_branch: { type: [string, 'null'] }
+        remote_url: { type: [string, 'null'] }
+        tracks_brief_file: { type: [boolean, 'null'], description: '`CLAUDE.md`/`AGENTS.md`가 추적 중인지(§8.4 오염 방지 경로 안내용).' }
+        problems:
+          type: array
+          items: { type: string }
+        checked_at: { type: string, format: date-time }
+
+    RuntimeCandidate:
+      type: object
+      required: [runtime, eligible]
+      properties:
+        runtime: { $ref: '#/components/schemas/Runtime' }
+        eligible: { type: boolean }
+        reason: { type: [string, 'null'], description: eligible=false일 때 사유(오프라인 · 저장소 없음 · remote 불일치). }
+        matched_repo: { $ref: '#/components/schemas/RuntimeRepo' }
+
+    Workdir:
+      type: object
+      required: [id, session_id, kind, path_or_ref, status, disk_bytes, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        session_id: { type: string, format: uuid }
+        session: { $ref: '#/components/schemas/SessionRef' }
+        agent_id: { type: [string, 'null'], format: uuid, description: worktree — 에이전트당 1개. }
+        lane_id: { type: [string, 'null'], format: uuid, description: container · none — lane당 1개. }
+        kind: { $ref: '#/components/schemas/WorkdirKind' }
+        path_or_ref: { type: string }
+        branch: { type: [string, 'null'] }
+        status: { $ref: '#/components/schemas/WorkdirStatus' }
+        disk_bytes: { type: integer, format: int64 }
+        last_used_at: { type: [string, 'null'], format: date-time }
+        retain_until: { type: [string, 'null'], format: date-time }
+        dirty:
+          type: [boolean, 'null']
+          description: 미병합 커밋 또는 미커밋 변경이 있음(GC 차단 · 수동 삭제 경고, FR-6.4 M4). 데몬 마지막 보고 기준.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    # ── 에이전트 ──
+    AgentProfile:
+      type: object
+      description: FR-1.6. 프로파일은 머신을 고르지 않는다 — 실행 머신은 세션 `runtime_id`.
+      required: [id, agent_id, name, runtime_kind, model, options, env, args, is_default, fallback_profile_id, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        agent_id: { type: string, format: uuid }
+        name: { type: string }
+        runtime_kind: { $ref: '#/components/schemas/RuntimeKind' }
+        model: { type: string }
+        options:
+          type: object
+          additionalProperties: true
+          description: "예 `{effort: xhigh}`. 세션이 광고한 능력 범위 안(§8.2.6)."
+        env:
+          type: object
+          additionalProperties: { type: string }
+        args:
+          type: array
+          items: { type: string }
+        is_default: { type: boolean }
+        fallback_profile_id: { type: [string, 'null'], format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    AgentProfileCreate:
+      type: object
+      required: [name, runtime_kind, model]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        runtime_kind: { $ref: '#/components/schemas/RuntimeKind' }
+        model: { type: string, minLength: 1 }
+        options: { type: object, additionalProperties: true, default: {} }
+        env: { type: object, additionalProperties: { type: string }, default: {} }
+        args: { type: array, items: { type: string }, default: [] }
+        is_default: { type: boolean, default: false }
+        fallback_profile_id: { type: [string, 'null'], format: uuid }
+        fallback_profile:
+          type: [string, 'null']
+          description: 생성 시 같은 배열 안의 다른 프로파일을 **이름**으로 가리킬 때(FR-1.7 `.agent.md` 형식과 같다).
+
+    AgentProfileUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        runtime_kind: { $ref: '#/components/schemas/RuntimeKind' }
+        model: { type: string, minLength: 1 }
+        options: { type: object, additionalProperties: true }
+        env: { type: object, additionalProperties: { type: string } }
+        args: { type: array, items: { type: string } }
+        is_default: { type: boolean }
+        fallback_profile_id: { type: [string, 'null'], format: uuid }
+
+    Agent:
+      type: object
+      description: 정의 필드 + 인스턴스 필드(FR-1.8). `status`는 파생값.
+      required: [id, workspace_id, name, role, role_description, instructions, tools, owner_id, respond_to, respond_to_allowlist, max_concurrent_tasks, status, profiles, invitable, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        name: { type: string }
+        role: { $ref: '#/components/schemas/AgentRole' }
+        role_description: { type: string }
+        instructions: { type: string }
+        tools:
+          type: array
+          items: { type: string }
+          description: 허용 도구/스킬/MCP 서버.
+        owner_id: { type: string, format: uuid }
+        owner: { $ref: '#/components/schemas/User' }
+        respond_to: { $ref: '#/components/schemas/RespondTo' }
+        respond_to_allowlist:
+          type: array
+          items: { type: string, format: uuid }
+        avatar_url: { type: [string, 'null'], format: uri }
+        budget_per_task: { type: [number, 'null'], description: USD. HITL 예산 승인으로는 바뀌지 않는다(C2′). }
+        max_concurrent_tasks: { type: integer, default: 3 }
+        definition_source: { type: [string, 'null'] }
+        definition_version: { type: [string, 'null'] }
+        definition_update_available: { type: [string, 'null'], description: '"이 팩의 v3에서 왔고 현재 v5가 있음"의 v5(E15-10).' }
+        status: { $ref: '#/components/schemas/AgentStatus' }
+        profiles:
+          type: array
+          items: { $ref: '#/components/schemas/AgentProfile' }
+        invitable:
+          type: object
+          description: 호출자가 이 에이전트를 세션에 초대할 수 있는가(FR-1.9).
+          required: [allowed]
+          properties:
+            allowed: { type: boolean }
+            reason: { type: [string, 'null'] }
+        usage:
+          type: object
+          description: 누적 사용량(인스턴스 필드).
+          properties:
+            cost_usd: { type: number }
+            task_count: { type: integer }
+        archived_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    AgentCreate:
+      type: object
+      required: [name, role, role_description, instructions, profiles]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40, description: 멘션 라벨. 워크스페이스 내 유일. }
+        role: { $ref: '#/components/schemas/AgentRole' }
+        role_description: { type: string, minLength: 1 }
+        instructions: { type: string, minLength: 1 }
+        profiles:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/AgentProfileCreate' }
+          description: 정확히 하나가 `is_default`(없으면 첫 번째).
+        tools: { type: array, items: { type: string }, default: [] }
+        max_concurrent_tasks: { type: integer, minimum: 1, default: 3 }
+        avatar_url: { type: [string, 'null'], format: uri }
+        respond_to:
+          allOf: [{ $ref: '#/components/schemas/RespondTo' }]
+          default: owner
+        respond_to_allowlist: { type: array, items: { type: string, format: uuid }, default: [] }
+        budget_per_task: { type: [number, 'null'], minimum: 0 }
+
+    AgentUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        role: { $ref: '#/components/schemas/AgentRole' }
+        role_description: { type: string, minLength: 1 }
+        instructions: { type: string, minLength: 1 }
+        tools: { type: array, items: { type: string } }
+        max_concurrent_tasks: { type: integer, minimum: 1 }
+        avatar_url: { type: [string, 'null'], format: uri }
+        respond_to: { $ref: '#/components/schemas/RespondTo' }
+        respond_to_allowlist: { type: array, items: { type: string, format: uuid } }
+        budget_per_task: { type: [number, 'null'], minimum: 0 }
+        apply_definition_update: { type: boolean, description: '`definition_update_available`을 적용(FR-1.8 명시 업데이트).' }
+
+    AgentTemplate:
+      type: object
+      required: [key, name, description, agents]
+      properties:
+        key: { $ref: '#/components/schemas/AgentTemplateKey' }
+        name: { type: string }
+        description: { type: string }
+        version: { type: string }
+        agents:
+          type: array
+          items:
+            type: object
+            required: [key, name, role, role_description, mapping]
+            properties:
+              key: { type: string }
+              name: { type: string }
+              role: { $ref: '#/components/schemas/AgentRole' }
+              role_description: { type: string }
+              mapping:
+                type: object
+                description: 이 워크스페이스 런타임으로의 프로파일 자동 매핑 결과.
+                required: [status]
+                properties:
+                  status: { type: string, enum: [mapped, unmapped] }
+                  runtime_kind: { $ref: '#/components/schemas/RuntimeKind' }
+                  model: { type: string }
+                  reason: { type: [string, 'null'] }
+
+    TestChat:
+      type: object
+      required: [id, workspace_id, agent_id, profile_id, user_id, status, turns, input_tokens, output_tokens, cost_usd, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        agent_id: { type: string, format: uuid }
+        profile_id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        runtime_id: { type: [string, 'null'], format: uuid }
+        status: { $ref: '#/components/schemas/TestChatStatus' }
+        transport: { type: [string, 'null'], enum: [acp, cli, null], description: 실제 사용된 경로. 사용자에게 보여준다(FR-1.8.1). }
+        turns:
+          type: array
+          items: { $ref: '#/components/schemas/TestChatTurn' }
+        input_tokens: { type: integer, format: int64 }
+        output_tokens: { type: integer, format: int64 }
+        cost_usd: { type: number }
+        estimated: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        closed_at: { type: [string, 'null'], format: date-time }
+
+    TestChatTurn:
+      type: object
+      required: [role, content, at]
+      properties:
+        role: { type: string, enum: [user, agent] }
+        content: { type: string }
+        at: { type: string, format: date-time }
+        usage:
+          type: object
+          properties:
+            input_tokens: { type: integer }
+            output_tokens: { type: integer }
+        error: { type: [string, 'null'] }
+
+    # ── 세션 ──
+    SessionRef:
+      type: object
+      required: [id, title, status]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        status: { $ref: '#/components/schemas/SessionStatus' }
+
+    Isolation:
+      type: object
+      description: '`session.isolation` jsonb. kind별로 `repo_path`(worktree) · `image`(container).'
+      required: [kind]
+      properties:
+        kind: { $ref: '#/components/schemas/IsolationKind' }
+        repo_path: { type: string }
+        remote_url: { type: [string, 'null'], description: 생성 시 `checkRepo` 결과로 서버가 채운다 — 재바인딩 판정 키. }
+        image: { type: string }
+
+    SessionLimits:
+      type: object
+      description: FR-2.1 `limits`. 초과는 종료가 아니라 `paused`.
+      properties:
+        budget_usd: { type: [number, 'null'], minimum: 0 }
+        budget_tokens: { type: [integer, 'null'], minimum: 0 }
+        time_limit: { type: [string, 'null'], description: ISO 8601 duration(예 `PT4H`). }
+        max_tasks: { type: [integer, 'null'], minimum: 1 }
+        max_parallel_lanes: { type: integer, minimum: 1, default: 5 }
+
+    CompletionCondition:
+      description: FR-2.2 AND/OR 트리. 그룹 `{op, conditions[]}` 또는 원자 `{type, …}`. 스키마 v0 기본값 `{"op":"and","conditions":[{"type":"artifact_submitted","who":"assignee"},{"type":"user_approval"}]}`.
+      oneOf:
+        - $ref: '#/components/schemas/CompletionGroup'
+        - $ref: '#/components/schemas/CompletionAtom'
+
+    CompletionGroup:
+      type: object
+      required: [op, conditions]
+      properties:
+        op: { type: string, enum: [and, or] }
+        conditions:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/CompletionCondition' }
+
+    CompletionAtom:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [artifact_submitted, agent_approval, user_approval, criteria_met, manual]
+        who:
+          type: string
+          description: '`artifact_submitted`: `assignee` 또는 역할명.'
+        agent_id:
+          type: string
+          format: uuid
+          description: '`artifact_submitted` · `agent_approval`의 지정 에이전트(`who` 대신).'
+
+    CompletionProgress:
+      type: object
+      description: S7 우열 "종료 조건 진행률" — 조건별 충족 여부와 누구 차례인지.
+      required: [met, total, satisfied, conditions]
+      properties:
+        met: { type: integer }
+        total: { type: integer }
+        satisfied: { type: boolean, description: 트리 전체 판정. true면 `completing`으로 간다. }
+        human_gate: { type: boolean, description: 트리에 `user_approval`·`manual`이 있는가. false면 "사람 승인 없이 완료됩니다"(m-m). }
+        conditions:
+          type: array
+          items:
+            type: object
+            required: [path, type, met]
+            properties:
+              path: { type: string, description: 트리 내 위치(예 `/conditions/0`). }
+              type: { type: string }
+              met: { type: boolean }
+              met_at: { type: [string, 'null'], format: date-time }
+              met_by: { type: [string, 'null'], description: 충족시킨 주체(에이전트 id · 사용자 id · platform). }
+              next_actor: { type: [string, 'null'], description: 누가 충족시킬 차례인지(표시용). }
+              hitl_request_id: { type: [string, 'null'], format: uuid, description: '`user_approval` 대기 중이면 그 HITL.' }
+
+    SessionContext:
+      type: object
+      required: [id, type, ref]
+      properties:
+        id: { type: string, format: uuid }
+        type: { $ref: '#/components/schemas/ContextType' }
+        ref: { type: string, description: url · storage ref · session id. }
+        summary: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+
+    SessionContextCreate:
+      type: object
+      required: [type, ref]
+      properties:
+        type: { $ref: '#/components/schemas/ContextType' }
+        ref: { type: string }
+
+    PausedDetail:
+      type: object
+      description: 사유 5종별 배너·해결 동작 데이터(SCREEN §4.5 O6).
+      required: [reason, paused_at]
+      properties:
+        reason: { $ref: '#/components/schemas/PauseReason' }
+        paused_at: { type: string, format: date-time }
+        budget:
+          type: object
+          properties:
+            limit_usd: { type: number }
+            spent_usd: { type: number }
+        time:
+          type: object
+          properties:
+            limit: { type: string }
+            elapsed: { type: string }
+        loop:
+          type: object
+          properties:
+            limit: { type: string, enum: [chain_depth, hops_per_hour, pair_roundtrips] }
+            count: { type: integer }
+            agents:
+              type: array
+              description: pair_roundtrips일 때 두 에이전트.
+              items: { type: string, format: uuid }
+        runtime:
+          type: object
+          properties:
+            runtime_id: { type: string, format: uuid }
+            offline_since: { type: string, format: date-time }
+        system_hitl_request_id: { type: [string, 'null'], format: uuid, description: 예산·시간·루프로 발행된 시스템 HITL. }
+        resolve_actions:
+          type: array
+          description: 호출자가 지금 할 수 있는 동작.
+          items: { type: string, enum: [resume, rebind, cancel] }
+        can_resolve_from: { type: [string, 'null'], format: date-time, description: deputy면 언제부터. }
+
+    Session:
+      type: object
+      required: [id, workspace_id, title, goal, acceptance_criteria, director_user_id, deputy_director_user_id, assignee_agent_id, runtime_id, isolation, completion_condition, completion_progress, limits, autonomy, status, paused_reason, cost_usd, created_by, created_at, updated_at, my_role]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        title: { type: string }
+        goal: { type: string }
+        acceptance_criteria: { type: array, items: { type: string } }
+        director_user_id: { type: string, format: uuid }
+        director: { $ref: '#/components/schemas/User' }
+        deputy_director_user_id: { type: [string, 'null'], format: uuid }
+        deputy_director: { $ref: '#/components/schemas/User' }
+        assignee_agent_id: { type: [string, 'null'], format: uuid }
+        runtime_id: { type: [string, 'null'], format: uuid, description: none 격리에서 자동 선택이면 첫 dispatch까지 null(M10). }
+        runtime: { $ref: '#/components/schemas/Runtime' }
+        isolation: { $ref: '#/components/schemas/Isolation' }
+        completion_condition: { $ref: '#/components/schemas/CompletionCondition' }
+        completion_progress: { $ref: '#/components/schemas/CompletionProgress' }
+        limits: { $ref: '#/components/schemas/SessionLimits' }
+        autonomy: { $ref: '#/components/schemas/AutonomyLevel' }
+        context_reuse_override: { $ref: '#/components/schemas/ContextReusePolicy' }
+        status: { $ref: '#/components/schemas/SessionStatus' }
+        paused_reason: { oneOf: [{ $ref: '#/components/schemas/PauseReason' }, { type: 'null' }] }
+        paused_detail: { $ref: '#/components/schemas/PausedDetail' }
+        cost_usd: { type: number }
+        cost_estimated: { type: boolean, description: 추정치 포함(FR-7.3 배지). }
+        participants:
+          type: array
+          items: { $ref: '#/components/schemas/Participant' }
+        context:
+          type: array
+          items: { $ref: '#/components/schemas/SessionContext' }
+        my_role:
+          type: string
+          enum: [director, deputy, member]
+          description: 호출자의 세션 역할(FR-5.3). TaskToken이면 `member`.
+        subscription: { $ref: '#/components/schemas/SubscriptionLevel' }
+        created_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        started_at: { type: [string, 'null'], format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+        last_activity_at: { type: [string, 'null'], format: date-time }
+
+    SessionListItem:
+      type: object
+      description: S5 행.
+      required: [id, title, goal, status, paused_reason, director, participants, completion_progress, cost_usd, attention, running_lane_count, last_activity_at, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        goal: { type: string }
+        status: { $ref: '#/components/schemas/SessionStatus' }
+        paused_reason: { oneOf: [{ $ref: '#/components/schemas/PauseReason' }, { type: 'null' }] }
+        director: { $ref: '#/components/schemas/User' }
+        participants:
+          type: array
+          items:
+            type: object
+            required: [agent_id, name]
+            properties:
+              agent_id: { type: string, format: uuid }
+              name: { type: string }
+              avatar_url: { type: [string, 'null'], format: uri }
+        completion_progress:
+          type: object
+          required: [met, total]
+          properties:
+            met: { type: integer }
+            total: { type: integer }
+        cost_usd: { type: number }
+        budget_usd: { type: [number, 'null'] }
+        cost_estimated: { type: boolean }
+        attention:
+          type: object
+          description: 주의 배지 — HITL 대기 N · blocked N · 실패 N.
+          required: [hitl_open, blocked, failed]
+          properties:
+            hitl_open: { type: integer }
+            blocked: { type: integer }
+            failed: { type: integer }
+        running_lane_count: { type: integer }
+        runtime_id: { type: [string, 'null'], format: uuid }
+        last_activity_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+
+    SessionCreate:
+      type: object
+      required: [title, goal, isolation, participants]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        goal: { type: string, minLength: 1 }
+        acceptance_criteria: { type: array, items: { type: string }, default: [] }
+        director_user_id: { type: string, format: uuid, description: 기본 생성자. }
+        deputy_director_user_id: { type: [string, 'null'], format: uuid }
+        runtime_id:
+          type: [string, 'null']
+          format: uuid
+          description: worktree · container면 필수. none이면 null = "자동 선택(첫 실행 시 고정)".
+        isolation: { $ref: '#/components/schemas/Isolation' }
+        participants:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [agent_id]
+            properties:
+              agent_id: { type: string, format: uuid }
+              profile_id: { type: [string, 'null'], format: uuid, description: 비우면 기본 프로파일. }
+        assignee_agent_id: { type: string, format: uuid, description: 기본 담당(보통 lead). 생략하면 첫 참여자. }
+        context:
+          type: array
+          items: { $ref: '#/components/schemas/SessionContextCreate' }
+          default: []
+        completion_condition: { $ref: '#/components/schemas/CompletionCondition' }
+        limits: { $ref: '#/components/schemas/SessionLimits' }
+        autonomy:
+          allOf: [{ $ref: '#/components/schemas/AutonomyLevel' }]
+          default: guided
+        context_reuse_override: { $ref: '#/components/schemas/ContextReusePolicy' }
+        draft: { type: boolean, default: false, description: true면 `draft`로 저장만(초기 task 없음). }
+
+    SessionUpdate:
+      type: object
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        goal: { type: string, minLength: 1 }
+        acceptance_criteria: { type: array, items: { type: string } }
+        deputy_director_user_id: { type: [string, 'null'], format: uuid }
+        limits: { $ref: '#/components/schemas/SessionLimits' }
+        autonomy: { $ref: '#/components/schemas/AutonomyLevel' }
+        context_reuse_override: { $ref: '#/components/schemas/ContextReusePolicy' }
+        completion_condition:
+          allOf: [{ $ref: '#/components/schemas/CompletionCondition' }]
+          description: draft에서만.
+        isolation:
+          allOf: [{ $ref: '#/components/schemas/Isolation' }]
+          description: draft에서만.
+        runtime_id:
+          type: [string, 'null']
+          format: uuid
+          description: draft에서만.
+
+    Participant:
+      type: object
+      description: '`session_participant` + 파생 상태(FR-1.3).'
+      required: [session_id, agent_id, agent, profile, status, is_assignee, joined_at]
+      properties:
+        session_id: { type: string, format: uuid }
+        agent_id: { type: string, format: uuid }
+        agent:
+          type: object
+          required: [id, name, role, role_description]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            role: { $ref: '#/components/schemas/AgentRole' }
+            role_description: { type: string }
+            avatar_url: { type: [string, 'null'], format: uri }
+            respond_to: { $ref: '#/components/schemas/RespondTo' }
+        profile: { $ref: '#/components/schemas/AgentProfile' }
+        status: { $ref: '#/components/schemas/AgentStatus' }
+        status_note: { type: [string, 'null'], description: '칩 둘째 줄(예 "lane #2 질문 대기"). 상태 값이 아니다(N2).' }
+        is_assignee: { type: boolean }
+        mention_link: { type: string, description: '`[@이름](mention://agent/<id>)` — 로스터 붙여넣기용(FR-3.2).' }
+        warnings:
+          type: array
+          items: { type: string }
+          description: 예 "프로파일의 runtime_kind가 세션 런타임에 없음".
+        joined_at: { type: string, format: date-time }
+
+    # ── 메시지 ──
+    Mention:
+      type: object
+      description: '`message.mentions[]` 정규화 원소(FR-3.2). 본문에는 원문 링크 `[@표시명](mention://agent/<id>)`가 그대로 남는다.'
+      required: [kind, id]
+      properties:
+        kind: { type: string, enum: [agent, user, all] }
+        id: { type: string, description: uuid 또는 `all`. }
+        display_name: { type: string }
+
+    Message:
+      type: object
+      required: [id, session_id, author_type, author_id, parent_id, content, mentions, source_task_id, kind, state, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        session_id: { type: string, format: uuid }
+        author_type: { $ref: '#/components/schemas/AuthorType' }
+        author_id: { type: [string, 'null'], format: uuid, description: app_user 또는 agent. system이면 null. }
+        author:
+          type: object
+          description: 표시용 해소값(uuid 노출 금지 원칙, FR-7.2).
+          properties:
+            name: { type: string }
+            avatar_url: { type: [string, 'null'], format: uri }
+            role: { $ref: '#/components/schemas/AgentRole' }
+        parent_id: { type: [string, 'null'], format: uuid, description: 스레드 루트. }
+        content: { type: string, description: 마크다운. }
+        mentions:
+          type: array
+          items: { $ref: '#/components/schemas/Mention' }
+        source_task_id: { type: [string, 'null'], format: uuid }
+        lane_id: { type: [string, 'null'], format: uuid, description: source_task의 lane(질문 카드·활동 보기 연결용). }
+        kind: { $ref: '#/components/schemas/MessageKind' }
+        state: { $ref: '#/components/schemas/MessageState' }
+        hitl_request_id: { type: [string, 'null'], format: uuid, description: kind=hitl일 때. }
+        reply_count: { type: integer }
+        is_note: { type: boolean, description: '`/note` 접두(규칙 1 — 기록만).' }
+        created_at: { type: string, format: date-time }
+        edited_at: { type: [string, 'null'], format: date-time }
+
+    MessagePage:
+      type: object
+      required: [items, has_more_before, has_more_after]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Message' }
+        before_cursor: { type: [string, 'null'], description: 더 오래된 페이지 커서. }
+        after_cursor: { type: [string, 'null'], description: 더 새로운 페이지 커서(백필 재개점). }
+        has_more_before: { type: boolean }
+        has_more_after: { type: boolean }
+        total: { type: [integer, 'null'], description: "스레드 조회일 때 전체 수(`included/total/truncated` 표기용, E8-12)." }
+
+    MessageCreate:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string, minLength: 1, description: 마크다운 + 멘션 링크. `/note ` 접두는 기록만. }
+        parent_id: { type: [string, 'null'], format: uuid, description: 답글이면 스레드 루트(또는 스레드 내 메시지 — 서버가 루트로 정규화). }
+        new_lane:
+          type: boolean
+          default: false
+          description: '"새 lane으로 보내기" 토글(t-2). 해소 규칙 3을 건너뛴다. TaskToken에서는 무시(에이전트는 `delegateLane`).'
+        suppress_agent_ids:
+          type: array
+          items: { type: string, format: uuid }
+          default: []
+          description: 이번 메시지에서만 트리거 억제(FR-3.6). 멘션은 본문에 남는다.
+
+    TriggerPreview:
+      type: object
+      description: 규칙 1~8 + lane 해소 결과(게시 전).
+      required: [triggers, warnings, note_only]
+      properties:
+        note_only: { type: boolean, description: 규칙 1(`/note`) — 트리거 없음. }
+        implicit_routing_suppressed: { type: boolean, description: 규칙 3(@all · 사람만 멘션). }
+        triggers:
+          type: array
+          items: { $ref: '#/components/schemas/TriggerTarget' }
+        warnings:
+          type: array
+          items:
+            type: object
+            required: [code, message]
+            properties:
+              code: { type: string, description: '`not_participant` · `suppressed_delegator` · `loop_limit_near` · `agent_disabled`.' }
+              message: { type: string }
+              agent_id: { type: [string, 'null'], format: uuid }
+
+    TriggerTarget:
+      type: object
+      required: [agent_id, agent_name, rule, lane, will_queue]
+      properties:
+        agent_id: { type: string, format: uuid }
+        agent_name: { type: string }
+        profile:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            runtime_kind: { $ref: '#/components/schemas/RuntimeKind' }
+            model: { type: string }
+        rule: { type: integer, minimum: 1, maximum: 8, description: 적용된 FR-3.3 규칙 번호. }
+        lane:
+          type: object
+          description: lane 해소 결과.
+          required: [resolution]
+          properties:
+            resolution: { type: integer, minimum: 1, maximum: 4, description: lane 해소 규칙 번호. }
+            lane_id: { type: [string, 'null'], format: uuid, description: 재사용 lane. 새 lane이면 null. }
+            reentry: { type: boolean, description: done·blocked 재진입. }
+        will_queue: { type: boolean, description: 실행 중이라 큐잉(병합)된다. }
+        deferred_until: { type: [string, 'null'], format: date-time, description: 규칙 7 assignee 폴백(5분 지연). }
+
+    MessagePostResult:
+      type: object
+      required: [message, triggers, warnings]
+      properties:
+        message: { $ref: '#/components/schemas/Message' }
+        triggers:
+          type: array
+          description: 실제로 생성·병합된 task.
+          items:
+            type: object
+            required: [agent_id, task_id, lane_id, coalesced]
+            properties:
+              agent_id: { type: string, format: uuid }
+              task_id: { type: string, format: uuid }
+              lane_id: { type: string, format: uuid }
+              coalesced: { type: boolean, description: 기존 queued task에 병합됨(FR-3.4). }
+              deferred_until: { type: [string, 'null'], format: date-time }
+        warnings:
+          type: array
+          items:
+            type: object
+            required: [code, message]
+            properties:
+              code: { type: string }
+              message: { type: string }
+              agent_id: { type: [string, 'null'], format: uuid }
+        session_paused: { type: [string, 'null'], enum: [budget, time, loop, runtime_offline, director, null], description: 이 게시가 세션을 `paused`로 만들었다면 사유(루프 상한). }
+
+    # ── lane · task ──
+    Lane:
+      type: object
+      required: [id, session_id, parent_lane_id, agent_id, profile_id, depends_on, workdir_id, delegated_from_task_id, status, blocked_note, blocked_message_id, reentry_count, created_at, updated_at, finished_at, actions]
+      properties:
+        id: { type: string, format: uuid }
+        session_id: { type: string, format: uuid }
+        parent_lane_id: { type: [string, 'null'], format: uuid }
+        agent_id: { type: string, format: uuid }
+        agent_name: { type: string }
+        profile_id: { type: string, format: uuid }
+        depends_on: { type: array, items: { type: string, format: uuid } }
+        workdir_id: { type: [string, 'null'], format: uuid }
+        workdir_ref: { type: [string, 'null'], description: 카드 표시용(브랜치명 등). 다른 에이전트의 워크트리 경로는 노출하지 않는다. }
+        delegated_from_task_id: { type: [string, 'null'], format: uuid, description: 합류 그룹 키. null이면 Director가 직접 만든 lane. }
+        has_runtime_session: { type: boolean, description: '`runtime_session_ref` 보유 여부(resume 가능 신호). ref 자체는 노출하지 않는다.' }
+        brief: { type: [string, 'null'], description: 위임 요약(첫 트리거 메시지 발췌). }
+        status: { $ref: '#/components/schemas/LaneStatus' }
+        blocked_note: { type: [string, 'null'] }
+        blocked_message_id: { type: [string, 'null'], format: uuid }
+        waiting_for: { type: [string, 'null'], description: "blocked면 위임자 이름 또는 Director, waiting_human이면 HITL 요약." }
+        hitl_request_id: { type: [string, 'null'], format: uuid, description: waiting_human일 때. }
+        paused_over_usd: { type: [number, 'null'], description: paused(budget)일 때 초과 금액. }
+        failure_kind: { oneOf: [{ $ref: '#/components/schemas/FailureKind' }, { type: 'null' }] }
+        reentry_count: { type: integer }
+        current_task: { $ref: '#/components/schemas/Task' }
+        current_activity: { type: [string, 'null'], description: running 카드 "현재 동작 한 줄"(마지막 task_event 문장). }
+        queue_position: { type: [integer, 'null'], description: queued일 때 대기 순번. }
+        join_group:
+          type: object
+          description: 합류 그룹 상태(FR-6.5).
+          properties:
+            fired: { type: boolean }
+            sibling_count: { type: integer }
+            finished_count: { type: integer }
+        actions:
+          type: array
+          description: 호출자가 지금 할 수 있는 동작(director·deputy만 restart/cancel).
+          items: { type: string, enum: [restart, cancel, respond_hitl, open_question, approve_budget] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+
+    TaskUsage:
+      type: object
+      required: [input_tokens, output_tokens, cache_read, cost_usd, estimated]
+      properties:
+        input_tokens: { type: integer, format: int64 }
+        output_tokens: { type: integer, format: int64 }
+        cache_read: { type: integer, format: int64 }
+        cost_usd: { type: number }
+        estimated: { type: boolean }
+        updated_at: { type: string, format: date-time }
+
+    TaskAttempt:
+      type: object
+      description: task 이력 표의 "재시도" 행(같은 task, attempt 증가).
+      required: [attempt, started_at, finished_at, resumed]
+      properties:
+        attempt: { type: integer, minimum: 1 }
+        started_at: { type: [string, 'null'], format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+        resumed: { type: [boolean, 'null'], description: 런타임 세션 resume 성공(true) · 콜드 스타트(false) · 미시작(null). }
+        outcome: { type: [string, 'null'], description: 이 시도가 끝난 사유(status 또는 failure_kind). }
+        cost_usd: { type: [number, 'null'] }
+
+    Task:
+      type: object
+      required: [id, lane_id, session_id, runtime_id, agent_id, profile_id, trigger_message_id, delegated_from_task_id, restarted_from_task_id, originator_user_id, coalesced_message_ids, attempt, max_attempts, pending_hitl, budget_override, status, paused_reason, failure_kind, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        lane_id: { type: string, format: uuid }
+        session_id: { type: string, format: uuid }
+        runtime_id: { type: [string, 'null'], format: uuid }
+        agent_id: { type: string, format: uuid }
+        profile_id: { type: string, format: uuid }
+        trigger_message_id: { type: [string, 'null'], format: uuid }
+        delegated_from_task_id: { type: [string, 'null'], format: uuid }
+        restarted_from_task_id: { type: [string, 'null'], format: uuid, description: 재지시(FR-3.4 B). }
+        originator_user_id: { type: [string, 'null'], format: uuid, description: 체인 최상단 사람(권한 판정 기준). }
+        coalesced_message_ids: { type: array, items: { type: string, format: uuid } }
+        attempt: { type: integer }
+        max_attempts: { type: integer }
+        pending_hitl: { type: boolean }
+        budget_override: { type: [number, 'null'], description: USD. HITL 예산 승인값(C2′). }
+        status: { $ref: '#/components/schemas/TaskStatus' }
+        paused_reason: { oneOf: [{ $ref: '#/components/schemas/PauseReason' }, { type: 'null' }] }
+        failure_kind: { oneOf: [{ $ref: '#/components/schemas/FailureKind' }, { type: 'null' }] }
+        transport: { type: [string, 'null'], enum: [acp, cli, null], description: 실제 사용 경로(활동 피드에도 기록). }
+        resumed: { type: [boolean, 'null'], description: 현재 attempt가 resume이었는지. 콜드 스타트는 눈에 띄게 표시(SCREEN §4.5). }
+        attempts:
+          type: array
+          items: { $ref: '#/components/schemas/TaskAttempt' }
+        usage: { $ref: '#/components/schemas/TaskUsage' }
+        open_hitl_request_id: { type: [string, 'null'], format: uuid }
+        heartbeat_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        dispatched_at: { type: [string, 'null'], format: date-time }
+        started_at: { type: [string, 'null'], format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+
+    TaskEvent:
+      type: object
+      description: '`task_event` 행. `class` 집합과 `object_ref` 형식은 `contracts/task_event.schema.json`이 정한다 — 여기서는 열어 둔다.'
+      required: [id, task_id, seq, class, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        task_id: { type: string, format: uuid }
+        seq: { type: integer, minimum: 0 }
+        class: { type: string }
+        verb: { type: [string, 'null'] }
+        object_ref: { type: [object, 'null'], additionalProperties: true }
+        outcome: { type: [string, 'null'] }
+        tool: { type: [string, 'null'] }
+        input: { type: [object, 'null'], additionalProperties: true }
+        output: { type: [object, 'null'], additionalProperties: true }
+        usage: { type: [object, 'null'], additionalProperties: true }
+        superseded_by: { type: [string, 'null'], format: uuid }
+        masked: { type: boolean, description: 워크스페이스 마스킹으로 input·output이 요약으로 대체됨. }
+        sentence: { type: [string, 'null'], description: '서버가 만든 한 문장 렌더("에이전트가 [동사]를 [목적어]에 했다 → [결과]"). 렌더러 폴백용.' }
+        created_at: { type: string, format: date-time }
+
+    # ── HITL ──
+    HitlRequest:
+      type: object
+      required: [id, session_id, task_id, source, type, question, options, proposed_default, approver_spec, due_at, overdue, status, approved, answer, answered_by, answered_at, created_at, can_respond]
+      properties:
+        id: { type: string, format: uuid }
+        session_id: { type: string, format: uuid }
+        task_id: { type: [string, 'null'], format: uuid, description: system 발행이면 null — 단 예산 초과 HITL은 채운다(s-13). }
+        lane_id: { type: [string, 'null'], format: uuid }
+        agent:
+          type: object
+          description: 요청한 에이전트(source=agent).
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+        source: { $ref: '#/components/schemas/HitlSource' }
+        type: { $ref: '#/components/schemas/HitlType' }
+        question: { type: string }
+        context: { type: [string, 'null'], description: '`--context` / `--why` / approval의 summary.' }
+        options: { type: array, items: { type: string } }
+        proposed_default: { type: [string, 'null'], description: '"에이전트 제안: …"으로 함께 표시.' }
+        artifact_id: { type: [string, 'null'], format: uuid, description: approval 대상 아티팩트. }
+        purpose:
+          type: [string, 'null']
+          enum: [agent, user_approval, budget, time, loop, null]
+          description: 시스템 발행 HITL의 용도(종료 조건 승인 · 예산 · 시간 · 루프).
+        approver_spec: { type: string, description: '`director` · `any_member` · 사용자 uuid.' }
+        due_at: { type: string, format: date-time }
+        overdue: { type: boolean }
+        status: { $ref: '#/components/schemas/HitlStatus' }
+        approved: { type: [boolean, 'null'] }
+        answer: { type: [string, 'null'] }
+        answered_by: { type: [string, 'null'], format: uuid }
+        answered_at: { type: [string, 'null'], format: date-time }
+        budget_override_usd: { type: [number, 'null'], description: 예산 승인으로 기록된 상향값. }
+        can_respond: { type: boolean, description: 호출자가 지금 응답할 수 있는가. }
+        can_respond_from: { type: [string, 'null'], format: date-time, description: deputy가 응답 가능해지는 시각(기한 절반). }
+        message_id: { type: [string, 'null'], format: uuid, description: 타임라인의 hitl 카드. }
+        created_at: { type: string, format: date-time }
+
+    HitlCreate:
+      description: 타입별 본문(FR-5.1 표).
+      oneOf:
+        - $ref: '#/components/schemas/HitlCreateQuestion'
+        - $ref: '#/components/schemas/HitlCreateChoice'
+        - $ref: '#/components/schemas/HitlCreateApproval'
+        - $ref: '#/components/schemas/HitlCreateInfo'
+      discriminator:
+        propertyName: type
+        mapping:
+          question: '#/components/schemas/HitlCreateQuestion'
+          choice: '#/components/schemas/HitlCreateChoice'
+          approval: '#/components/schemas/HitlCreateApproval'
+          info: '#/components/schemas/HitlCreateInfo'
+
+    HitlCreateBase:
+      type: object
+      required: [type]
+      properties:
+        type: { $ref: '#/components/schemas/HitlType' }
+        approver_spec:
+          type: string
+          default: director
+          description: '`director` · `any_member` · 사용자 uuid. 그 밖은 422(fail closed).'
+        due_in:
+          type: string
+          default: PT24H
+          description: ISO 8601 duration.
+
+    HitlCreateQuestion:
+      allOf:
+        - $ref: '#/components/schemas/HitlCreateBase'
+        - type: object
+          required: [question, proposed_default]
+          properties:
+            question: { type: string, minLength: 1 }
+            context: { type: string }
+            proposed_default: { type: string, minLength: 1 }
+
+    HitlCreateChoice:
+      allOf:
+        - $ref: '#/components/schemas/HitlCreateBase'
+        - type: object
+          required: [question, options, proposed_default]
+          properties:
+            question: { type: string, minLength: 1 }
+            context: { type: string }
+            options: { type: array, minItems: 2, items: { type: string } }
+            proposed_default: { type: string, minLength: 1, description: options 중 하나. }
+
+    HitlCreateApproval:
+      allOf:
+        - $ref: '#/components/schemas/HitlCreateBase'
+        - type: object
+          required: [summary]
+          properties:
+            summary: { type: string, minLength: 1, description: '`--summary`. `question` 필드로 저장된다.' }
+            artifact_id: { type: string, format: uuid, description: '`--artifact`.' }
+
+    HitlCreateInfo:
+      allOf:
+        - $ref: '#/components/schemas/HitlCreateBase'
+        - type: object
+          required: [what]
+          properties:
+            what: { type: string, minLength: 1, description: '`--what`. `question` 필드로 저장된다.' }
+            why: { type: string, description: '`--why`.' }
+
+    HitlResponse:
+      type: object
+      description: 타입에 맞는 필드만 쓴다 — question/choice는 `answer`, approval은 `approved`(+ `reason`, 예산이면 `budget_override_usd`, 시간이면 `time_extension`), info는 `answer` + `attachments`.
+      properties:
+        answer: { type: string }
+        approved: { type: boolean }
+        reason: { type: string, description: 거절 사유(결정 기록에 저장). }
+        budget_override_usd: { type: number, minimum: 0, description: 예산 초과 HITL 승인 시 새 task 상한(→ `task.budget_override`). }
+        time_extension: { type: string, description: 시간 초과 HITL 승인 시 연장(ISO 8601 duration). }
+        attachments:
+          type: array
+          description: info 응답 첨부(아티팩트 id 또는 URL).
+          items:
+            type: object
+            properties:
+              artifact_id: { type: string, format: uuid }
+              url: { type: string, format: uri }
+
+    # ── 아티팩트 · 결정 ──
+    Artifact:
+      type: object
+      required: [id, session_id, name, version, type, storage_ref, submitted_by_task_id, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        session_id: { type: string, format: uuid }
+        name: { type: string }
+        version: { type: integer, minimum: 1 }
+        type: { type: string }
+        storage_ref: { type: string }
+        size_bytes: { type: integer, format: int64 }
+        content_type: { type: [string, 'null'] }
+        submitted_by_task_id: { type: [string, 'null'], format: uuid }
+        submitted_by:
+          type: object
+          properties:
+            agent_id: { type: string, format: uuid }
+            agent_name: { type: string }
+            user_id: { type: string, format: uuid }
+        description: { type: [string, 'null'] }
+        latest: { type: boolean, description: 같은 이름 중 최신 버전. }
+        review: { $ref: '#/components/schemas/ArtifactReview' }
+        created_at: { type: string, format: date-time }
+
+    ArtifactReview:
+      type: object
+      required: [artifact_id, verdict, reviewer_agent_id, reviewed_at]
+      properties:
+        artifact_id: { type: string, format: uuid }
+        verdict: { type: string, enum: [approve, reject] }
+        comments: { type: [string, 'null'] }
+        reviewer_agent_id: { type: string, format: uuid }
+        reviewer_task_id: { type: string, format: uuid }
+        decision_id: { type: string, format: uuid }
+        reviewed_at: { type: string, format: date-time }
+
+    Decision:
+      type: object
+      required: [id, session_id, summary, rationale, source, ref_id, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        session_id: { type: string, format: uuid }
+        summary: { type: string }
+        rationale: { type: [string, 'null'] }
+        source: { $ref: '#/components/schemas/DecisionSource' }
+        ref_id: { type: [string, 'null'], format: uuid, description: hitl_request.id 또는 task.id. }
+        auto: { type: boolean, description: '`auto_answered`(기한 만료로 proposed_default 진행)에서 나온 결정(E7-12 "자동" 표시).' }
+        created_at: { type: string, format: date-time }
+
+    # ── 인박스 ──
+    InboxItem:
+      type: object
+      required: [id, workspace_id, type, severity, session_id, ref_id, read_at, created_at, actions]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        type: { $ref: '#/components/schemas/InboxItemType' }
+        severity: { $ref: '#/components/schemas/InboxSeverity' }
+        session_id: { type: [string, 'null'], format: uuid }
+        session: { $ref: '#/components/schemas/SessionRef' }
+        ref_id: { type: [string, 'null'], format: uuid, description: 타입별 — hitl_request · message · task · runtime id. }
+        due_at: { type: [string, 'null'], format: date-time, description: hitl_request면 기한(정렬 키). }
+        overdue: { type: boolean }
+        delegated: { type: boolean, description: 'deputy에게 위임되어 나타난 항목 — "위임됨 · 지금부터 응답 가능"(O5).' }
+        card:
+          type: object
+          description: 타입별 카드 내용(SCREEN §4.6 표). 세션을 열지 않고 처리할 수 있게 충분히 담는다.
+          properties:
+            title: { type: string }
+            body: { type: string }
+            agent_name: { type: [string, 'null'] }
+            proposed_default: { type: [string, 'null'] }
+            hitl_type: { $ref: '#/components/schemas/HitlType' }
+            paused_reason: { $ref: '#/components/schemas/PauseReason' }
+            failure_kind: { $ref: '#/components/schemas/FailureKind' }
+            runtime_name: { type: [string, 'null'] }
+            grace_ends_at: { type: [string, 'null'], format: date-time }
+            message_id: { type: [string, 'null'], format: uuid }
+            lane_id: { type: [string, 'null'], format: uuid }
+            summary: { type: [string, 'null'], description: session_completed 결과 요약. }
+        actions:
+          type: array
+          description: 인라인 동작(타입·권한별).
+          items: { type: string, enum: [answer, approve, reject, reply, approve_continue, restart, rebind, open_session, open_runtimes] }
+        read_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+
+    InboxSummary:
+      type: object
+      required: [action_required, overdue]
+      properties:
+        action_required: { type: integer, description: 내비 뱃지 값. }
+        overdue: { type: integer }
+        unread: { type: integer }
+
+    # ── 비용 ──
+    CostReport:
+      type: object
+      required: [total_usd, estimated, input_tokens, output_tokens, cache_read]
+      properties:
+        total_usd: { type: number }
+        budget_usd: { type: [number, 'null'] }
+        estimated: { type: boolean, description: 추정치가 섞여 있음 — "추정" 배지(FR-7.3). }
+        input_tokens: { type: integer, format: int64 }
+        output_tokens: { type: integer, format: int64 }
+        cache_read: { type: integer, format: int64 }
+        by_agent:
+          type: array
+          items: { $ref: '#/components/schemas/CostBucket' }
+        by_task:
+          type: array
+          items: { $ref: '#/components/schemas/CostBucket' }
+        by_runtime:
+          type: array
+          items: { $ref: '#/components/schemas/CostBucket' }
+        by_session:
+          type: array
+          items: { $ref: '#/components/schemas/CostBucket' }
+        test_chat_usd: { type: number, description: 워크스페이스 집계에서 테스트 채팅 비용(세션 아님). }
+        from: { type: [string, 'null'], format: date-time }
+        to: { type: [string, 'null'], format: date-time }
+
+    CostBucket:
+      type: object
+      required: [id, name, cost_usd, estimated]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        cost_usd: { type: number }
+        input_tokens: { type: integer, format: int64 }
+        output_tokens: { type: integer, format: int64 }
+        cache_read: { type: integer, format: int64 }
+        estimated: { type: boolean }
+        budget_usd: { type: [number, 'null'] }
+        task_count: { type: integer }
+
+    # ── 실시간 ──
+    StreamEvent:
+      type: object
+      description: |
+        SSE `data` 프레임. `id`는 프레임 헤더와 같은 단조 증가 커서. `ephemeral: true`인 종류(`message.delta` · `agent.typing` · `test_chat.delta`)는 영속·백필되지 않는다(PRD §7 고빈도 이벤트).
+
+        | type | payload | 화면 |
+        |---|---|---|
+        | `resync` | `{reason}` — 보존 창 밖의 `Last-Event-ID`. REST로 다시 읽어라 | 전역 |
+        | `session.updated` | `Session`(부분: status · paused_reason · paused_detail · cost_usd · runtime_id · last_activity_at) | S5 · S7 |
+        | `session.completion_progress` | `{session_id, completion_progress}` | S7 |
+        | `participant.updated` | `Participant`(status · status_note · profile) | S7 |
+        | `lane.updated` | `Lane` | S7 |
+        | `task.updated` | `Task`(status · attempt · failure_kind · usage) | S7 |
+        | `task_event.appended` | `TaskEvent` | S7 활동 피드 |
+        | `task_event.superseded` | `{task_id, event_id, superseded_by}` — 제자리 갱신 | S7 |
+        | `message.created` | `Message` | S7 |
+        | `message.updated` | `Message`(edited · reply_count · state) | S7 |
+        | `message.delta` | `{session_id, task_id, agent_id, message_id?, text}` — 토큰 스트리밍(ephemeral) | S7 |
+        | `agent.typing` | `{session_id, agent_id, typing}` (ephemeral) | S7 |
+        | `hitl.created` · `hitl.updated` | `HitlRequest` | S7 · S8 |
+        | `artifact.created` | `Artifact` | S7 |
+        | `decision.created` | `Decision` | S7 |
+        | `inbox.item_created` · `inbox.item_updated` | `InboxItem`(본인 것만) | S8 |
+        | `inbox.summary` | `InboxSummary` | App Nav |
+        | `runtime.updated` | `Runtime` | S11 · S6 |
+        | `pairing.updated` | `Pairing` | S12 · S4 |
+        | `workdir.updated` | `Workdir`(GC 결과 포함) | S13 |
+        | `cost.updated` | `{session_id, cost_usd, estimated}` | S5 · S7 |
+        | `test_chat.delta` | `{test_chat_id, text}` (ephemeral) | S10 |
+        | `test_chat.turn` | `{test_chat_id, turn: TestChatTurn, transport, input_tokens, output_tokens}` | S10 |
+      required: [id, type, at, payload]
+      properties:
+        id: { type: string, description: 커서(= SSE id). }
+        type:
+          type: string
+          enum:
+            - resync
+            - session.updated
+            - session.completion_progress
+            - participant.updated
+            - lane.updated
+            - task.updated
+            - task_event.appended
+            - task_event.superseded
+            - message.created
+            - message.updated
+            - message.delta
+            - agent.typing
+            - hitl.created
+            - hitl.updated
+            - artifact.created
+            - decision.created
+            - inbox.item_created
+            - inbox.item_updated
+            - inbox.summary
+            - runtime.updated
+            - pairing.updated
+            - workdir.updated
+            - cost.updated
+            - test_chat.delta
+            - test_chat.turn
+        at: { type: string, format: date-time }
+        workspace_id: { type: string, format: uuid }
+        session_id: { type: [string, 'null'], format: uuid }
+        ephemeral: { type: boolean, default: false }
+        payload: { type: object, additionalProperties: true }
+
+    # ── CLI ──
+    CliContext:
+      type: object
+      description: '`TaskToken`이 가리키는 범위. CLI는 이 값으로 경로 파라미터를 채운다.'
+      required: [task_id, lane_id, session_id, agent_id, workspace_id, attempt, expires_at]
+      properties:
+        task_id: { type: string, format: uuid }
+        lane_id: { type: string, format: uuid }
+        session_id: { type: string, format: uuid }
+        agent_id: { type: string, format: uuid }
+        agent_name: { type: string }
+        workspace_id: { type: string, format: uuid }
+        attempt: { type: integer }
+        delegated_from_task_id: { type: [string, 'null'], format: uuid }
+        suppressed_delegator_agent_id: { type: [string, 'null'], format: uuid, description: 규칙 8로 멘션이 억제되는 위임자(합류 발화 전). 질문은 `status set blocked`로. }
+        open_hitl_request_id: { type: [string, 'null'], format: uuid, description: 이미 열린 HITL이 있으면 두 번째 `hitl ask`는 409. }
+        participants:
+          type: array
+          description: 위임 가능한 대상(세션 참여자)과 멘션 링크.
+          items:
+            type: object
+            required: [agent_id, name, mention_link]
+            properties:
+              agent_id: { type: string, format: uuid }
+              name: { type: string }
+              role: { $ref: '#/components/schemas/AgentRole' }
+              mention_link: { type: string }
+        expires_at: { type: string, format: date-time }
