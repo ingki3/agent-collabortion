@@ -12,7 +12,9 @@
 | `colab-cli.md` | `colab` CLI/MCP 명령 표(FR-7.4) + 토큰 + 종료 코드 + "턴을 끝내라"(`turn_end_required`) | C + D | ✅ 초안 |
 | `clock/` | 주입 가능한 클럭 — `Clock` 인터페이스, `Real`, `Fake`(Advance/Set) | S + D | ✅ |
 | `protocol.go` | 위 계약의 Go 타입·열거값·타이밍 상수. server·daemon·cli가 import | — | ✅ |
-| `openapi.yaml` | 서버 REST API (사람 화면 + colab CLI가 쓰는 엔드포인트, 데몬 API 제외) | S + W | 🔄 S worker 작성 중 |
+| `openapi.yaml` + `openapi.md` | 서버 REST API 0.1.0-draft — operation 94, SSE 스트림, `x-colab-cli` 13, 설계 결정 D1~D16, 미결 Q1~Q12는 `plan/G2_DECISION.md`에서 판정 | S + W | ✅ (PR #15) |
+
+G2 판정: `plan/G2_DECISION.md` (Director 확인 대기). 이후 변경은 `contracts/` 버전 표기와 함께 Director 승인 PR로.
 
 ## 변경 규칙 (PLAN.md §10.3)
 

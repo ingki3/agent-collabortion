@@ -15,6 +15,8 @@
 | `COLAB_SERVER_URL` | 데몬 | 서버 |
 | `COLAB_TASK_ID` `COLAB_LANE_ID` `COLAB_SESSION_ID` `COLAB_AGENT_NAME` | 데몬 | 명령이 인자를 생략할 때의 기본값 |
 
+- **전처리 `GET /cli/context`** (`openapi.yaml` `getCliContext`): 토큰만으로 task·lane·세션·에이전트·참여자 로스터·억제 중인 위임자(규칙 8)·열린 HITL 여부를 받는다. CLI는 토큰을 파싱하지 않는다 — 서버가 범위를 푼다(openapi.md D2).
+- **토큰 읽기 범위**(G2 Q8): 그 task의 세션 안에서 세션·메시지·lane·task·아티팩트·결정 읽기만. 워크스페이스·에이전트·설정·인박스·다른 세션은 403.
 - 토큰이 폐기됐으면(재큐잉·취소·완료·`waiting_human`) 모든 명령이 **`401 token_revoked`** — 고아 프로세스의 마지막 방어선(FR-9.1, E11-04).
 - 테스트 채팅(FR-1.8.1)에는 토큰이 없다 → 모든 명령이 `no token` 오류(E15-04).
 - 토큰은 원본 사람 originator의 권한을 넘지 못한다(FR-1.9). 세션 밖 자원은 전부 403.
