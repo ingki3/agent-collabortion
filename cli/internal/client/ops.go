@@ -127,13 +127,23 @@ func IdempotencyKey(taskID string, seq int) string {
 	return u
 }
 
+// HeaderClientSeq carries the client seq the Idempotency-Key was derived from
+// (colab-cli.md §1 v0.3, openapi.yaml `ClientSeq`). The server stores it as
+// idempotency_key.client_seq and answers CliContext.last_seq = max(client_seq),
+// so a hole in the seq (failed post, then retry) never causes a key reuse.
+const HeaderClientSeq = "X-Colab-Client-Seq"
+
 // PostMessage — POST /sessions/{S}/messages with the Idempotency-Key. If key
-// is empty one is derived from (task, next seq) — see NextSeq. Returns the
-// key actually used so a caller can retry with the same one.
+// is empty one is derived from (task, next seq) — see NextSeq — and that seq
+// is sent alongside as X-Colab-Client-Seq (v0.3). An explicit key has no
+// known seq, so the header is omitted and the server falls back to its
+// UUIDv5 probe. Returns the key actually used so a caller can retry with the
+// same one.
 func (c *Client) PostMessage(ctx context.Context, sessionID string, body MessageCreate, key string) (*MessagePostResult, string, bool, error) {
 	if body.Content == "" {
 		return nil, "", false, Usage("--body is required")
 	}
+	h := http.Header{}
 	if key == "" {
 		task, attempt, err := c.TaskScope(ctx)
 		if err != nil {
@@ -144,8 +154,8 @@ func (c *Client) PostMessage(ctx context.Context, sessionID string, body Message
 			return nil, "", false, err
 		}
 		key = IdempotencyKey(task, seq)
+		h.Set(HeaderClientSeq, strconv.Itoa(seq))
 	}
-	h := http.Header{}
 	h.Set("Idempotency-Key", key)
 	res, err := c.Do(ctx, http.MethodPost, "/sessions/"+url.PathEscape(sessionID)+"/messages", nil, body, h)
 	if err != nil {

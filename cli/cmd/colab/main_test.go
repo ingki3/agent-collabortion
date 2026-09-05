@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ingki3/agent-collabortion/cli/internal/client"
 	"github.com/ingki3/agent-collabortion/cli/internal/client/clienttest"
 )
 
@@ -131,6 +132,26 @@ func TestPostIdempotentAcrossAttempts(t *testing.T) {
 	}
 	if len(s.Posted) != 3 {
 		t.Fatalf("server has %d messages, want 3 (re-sends stored 0)", len(s.Posted))
+	}
+	// v0.3: X-Colab-Client-Seq == the seq behind each derived key (1, 2, 3);
+	// the replayed re-sends stored nothing, and last_seq is the max.
+	for i, want := range []int{1, 2, 3} {
+		if s.Posted[i].ClientSeq != want {
+			t.Fatalf("post %d client_seq = %d, want %d", i, s.Posted[i].ClientSeq, want)
+		}
+	}
+	if s.LastSeq != 3 {
+		t.Fatalf("last_seq = %d, want 3", s.LastSeq)
+	}
+	var seqHeaders []string
+	for _, r := range s.Requests {
+		if r.Method == "POST" {
+			seqHeaders = append(seqHeaders, r.Header.Get(client.HeaderClientSeq))
+		}
+	}
+	// posts: m1(1) m2(2) m1(3) --idempotency-key(no seq → no header) COLAB_CLIENT_SEQ=2
+	if want := []string{"1", "2", "3", "", "2"}; strings.Join(seqHeaders, ",") != strings.Join(want, ",") {
+		t.Fatalf("X-Colab-Client-Seq per POST = %v, want %v", seqHeaders, want)
 	}
 }
 

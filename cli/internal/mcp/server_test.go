@@ -151,6 +151,11 @@ func TestRoundTrip(t *testing.T) {
 	if sc2["suppressed"].([]any)[0] != "Lead" || sc2["idempotency_key"] != clienttest.Key(2) {
 		t.Fatalf("post2 = %v", sc2)
 	}
+	// v0.3: the MCP tool posts through client.PostMessage, so each derived key
+	// arrives with X-Colab-Client-Seq = its seq and the fake's last_seq = max.
+	if len(s.Posted) != 2 || s.Posted[0].ClientSeq != 1 || s.Posted[1].ClientSeq != 2 || s.LastSeq != 2 {
+		t.Fatalf("client_seq headers = %+v last_seq=%d, want 1,2 / 2", s.Posted, s.LastSeq)
+	}
 
 	if r := c.call("ping", nil); r.Error != nil {
 		t.Fatalf("ping = %+v", r)

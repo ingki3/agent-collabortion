@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -211,6 +212,9 @@ func TestIdempotencyAcrossAttempts(t *testing.T) {
 	if s.LastSeq != 2 {
 		t.Fatalf("fake last_seq = %d, want 2", s.LastSeq)
 	}
+	if s.Posted[0].ClientSeq != 1 || s.Posted[1].ClientSeq != 2 {
+		t.Fatalf("X-Colab-Client-Seq stored = %d,%d, want 1,2", s.Posted[0].ClientSeq, s.Posted[1].ClientSeq)
+	}
 
 	// kill → re-queue: attempt 2. The agent re-posts m1 (same content); the
 	// key is a NEW seq (3), so it is a new message — dedupe of content is the
@@ -246,6 +250,99 @@ func TestIdempotencyAcrossAttempts(t *testing.T) {
 	_, key5, _, err := c5.PostMessage(ctx, clienttest.SessionID, client.MessageCreate{Content: "m4"}, "")
 	if err != nil || key5 != clienttest.Key(4) {
 		t.Fatalf("fresh host: key=%q err=%v", key5, err)
+	}
+}
+
+// postHeaders returns the headers of the n-th (0-based) POST .../messages the
+// fake saw.
+func postHeaders(t *testing.T, s *clienttest.Server, n int) http.Header {
+	t.Helper()
+	i := 0
+	for _, r := range s.Requests {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/messages") {
+			if i == n {
+				return r.Header
+			}
+			i++
+		}
+	}
+	t.Fatalf("POST /messages #%d not seen (%d requests)", n, len(s.Requests))
+	return nil
+}
+
+// v0.3: every derived-key post carries X-Colab-Client-Seq equal to the seq
+// the Idempotency-Key was derived from (openapi ClientSeq). A forced seq
+// (COLAB_CLIENT_SEQ) is sent too; an explicit --idempotency-key has no seq,
+// so the header is omitted and the server falls back to its UUIDv5 probe.
+func TestPostMessageSendsClientSeqHeader(t *testing.T) {
+	s := clienttest.New(t)
+	s.LastSeq = 4
+	ctx := context.Background()
+
+	c := newClient(t, s, nil)
+	for i, want := range []int{5, 6} {
+		_, key, _, err := c.PostMessage(ctx, clienttest.SessionID, client.MessageCreate{Content: "m"}, "")
+		if err != nil || key != clienttest.Key(want) {
+			t.Fatalf("post %d: key=%q err=%v", i, key, err)
+		}
+		h := postHeaders(t, s, i)
+		if got := h.Get(client.HeaderClientSeq); got != strconv.Itoa(want) {
+			t.Fatalf("post %d: %s = %q, want %d (the seq behind key %s)", i, client.HeaderClientSeq, got, want, key)
+		}
+		if h.Get("Idempotency-Key") != key {
+			t.Fatalf("post %d: Idempotency-Key header %q != returned key %q", i, h.Get("Idempotency-Key"), key)
+		}
+		if s.Posted[i].ClientSeq != want || s.LastSeq != want {
+			t.Fatalf("post %d: fake stored client_seq=%d last_seq=%d, want %d", i, s.Posted[i].ClientSeq, s.LastSeq, want)
+		}
+	}
+
+	// Forced seq → header carries the forced value.
+	cf := newClient(t, s, func(e map[string]string) { e["COLAB_CLIENT_SEQ"] = "6" })
+	if _, _, replayed, err := cf.PostMessage(ctx, clienttest.SessionID, client.MessageCreate{Content: "m"}, ""); err != nil || !replayed {
+		t.Fatalf("forced seq re-send: replayed=%v err=%v", replayed, err)
+	}
+	if got := postHeaders(t, s, 2).Get(client.HeaderClientSeq); got != "6" {
+		t.Fatalf("forced seq header = %q, want 6", got)
+	}
+
+	// Explicit key → no seq known → header absent.
+	if _, _, _, err := c.PostMessage(ctx, clienttest.SessionID, client.MessageCreate{Content: "m"}, "explicit-key"); err != nil {
+		t.Fatal(err)
+	}
+	if h := postHeaders(t, s, 3); h.Get(client.HeaderClientSeq) != "" {
+		t.Fatalf("explicit key must not send %s (got %q)", client.HeaderClientSeq, h.Get(client.HeaderClientSeq))
+	}
+}
+
+// The server keeps last_seq = max(client_seq), not a count: a hole in the seq
+// (post 5 failed on the network, 6 landed) must not make the next attempt
+// reuse 5 or 6.
+func TestLastSeqIsMaxNotCount(t *testing.T) {
+	s := clienttest.New(t)
+	ctx := context.Background()
+	c := newClient(t, s, func(e map[string]string) { e["COLAB_CLIENT_SEQ"] = "6" })
+	if _, key, _, err := c.PostMessage(ctx, clienttest.SessionID, client.MessageCreate{Content: "m6"}, ""); err != nil || key != clienttest.Key(6) {
+		t.Fatalf("key=%q err=%v", key, err)
+	}
+	if s.LastSeq != 6 || len(s.Posted) != 1 {
+		t.Fatalf("fake last_seq=%d posted=%d, want 6/1 (max, not count)", s.LastSeq, len(s.Posted))
+	}
+	// A header-less post with an out-of-window key leaves last_seq alone.
+	if _, _, _, err := c.PostMessage(ctx, clienttest.SessionID, client.MessageCreate{Content: "web"}, "not-a-seq-key"); err != nil {
+		t.Fatal(err)
+	}
+	if s.LastSeq != 6 {
+		t.Fatalf("header-less foreign key moved last_seq to %d", s.LastSeq)
+	}
+	// Fresh process on the next attempt continues at 7.
+	c2 := newClient(t, s, func(e map[string]string) { e["COLAB_TASK_ATTEMPT"] = "3" })
+	_, key, _, err := c2.PostMessage(ctx, clienttest.SessionID, client.MessageCreate{Content: "m7"}, "")
+	if err != nil || key != clienttest.Key(7) {
+		t.Fatalf("next attempt key=%q err=%v (want seq 7 = max+1)", key, err)
+	}
+	if postHeaders(t, s, 2).Get(client.HeaderClientSeq) != "7" {
+		t.Fatalf("next attempt header = %q", postHeaders(t, s, 2).Get(client.HeaderClientSeq))
 	}
 }
 

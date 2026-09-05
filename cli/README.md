@@ -70,7 +70,13 @@ parameter (messages newer than that cursor / message id). `--limit` must be
 default (50).
 
 `message post` sends `Idempotency-Key: UUIDv5(namespace, "task:<task_id>:<seq>")`
-automatically (`contracts/colab-cli.md` §1 v0.2). The namespace is fixed:
+automatically (`contracts/colab-cli.md` §1 v0.2), together with
+`X-Colab-Client-Seq: <seq>` — the same seq the key was derived from (v0.3,
+openapi `ClientSeq`). The server stores it as `idempotency_key.client_seq` and
+answers `last_seq = max(client_seq)`, so a hole in the seq (a post that failed
+on the network) never leads to a key reuse. With an explicit `--idempotency-key`
+the seq is unknown, so the header is omitted and the server falls back to its
+UUIDv5 probe. The namespace is fixed:
 `UUIDv5(NameSpace_DNS, "colab")` = `454e4096-cb98-57f5-b314-6c5499b55cc8`. The
 **attempt is not part of the key** — `seq` is task-scoped and continues across
 attempts: on an attempt boundary (first post of an attempt, or the state file was
