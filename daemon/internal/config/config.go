@@ -17,6 +17,22 @@ type Config struct {
 	Capacity    int    `json:"capacity,omitempty"`
 	// StderrDir keeps per-attempt runtime stderr logs. Empty → <workdir_root>/.colab/logs.
 	StderrDir string `json:"stderr_dir,omitempty"`
+	// ColabBin is the colab CLI registered as the attempt's MCP server
+	// (`colab mcp serve`, harness §2 / colab-cli.md §3). Empty → the `colab`
+	// next to the daemon executable if present, else `colab` on PATH.
+	ColabBin string `json:"colab_bin,omitempty"`
+}
+
+// DefaultColabBin returns the colab binary beside the daemon executable when
+// it exists, otherwise "colab" (resolved on PATH by the adapter).
+func DefaultColabBin() string {
+	if exe, err := os.Executable(); err == nil {
+		p := filepath.Join(filepath.Dir(exe), "colab")
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p
+		}
+	}
+	return "colab"
 }
 
 // DefaultPath is $COLAB_DAEMON_CONFIG or ~/.colab/daemon.json.
@@ -60,6 +76,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.StderrDir == "" {
 		c.StderrDir = filepath.Join(c.WorkdirRoot, ".colab", "logs")
+	}
+	if c.ColabBin == "" {
+		c.ColabBin = DefaultColabBin()
 	}
 	return c
 }

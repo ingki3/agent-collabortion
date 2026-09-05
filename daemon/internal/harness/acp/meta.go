@@ -23,14 +23,6 @@ type MetaOptions struct {
 	RawSDKMessages bool
 }
 
-// KnownClaudeTools is the Claude Code tool set the profile allow-list is
-// diffed against to build disallowedTools (§3 "허용 목록 밖의 툴").
-var KnownClaudeTools = []string{
-	"Agent", "Task", "Bash", "Edit", "Write", "Read", "Glob", "Grep",
-	"MultiEdit", "NotebookEdit", "WebFetch", "WebSearch", "TodoWrite",
-	"BashOutput", "KillShell", "Skill", "ExitPlanMode", "AskUserQuestion",
-}
-
 // Meta builds the claude_code `_meta` for session/new AND session/load
 // (harness §3 — sent every time, never stored by the adapter). Returns nil
 // for other runtimes (Hermes drops _meta; E12-09 "Hermes에는 _meta 없음").

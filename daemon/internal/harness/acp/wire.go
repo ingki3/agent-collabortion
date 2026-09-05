@@ -101,14 +101,14 @@ type InitializeResult struct {
 
 type NewSessionParams struct {
 	Cwd        string         `json:"cwd"`
-	MCPServers []any          `json:"mcpServers"`
+	MCPServers []MCPServer    `json:"mcpServers"`
 	Meta       map[string]any `json:"_meta,omitempty"`
 }
 
 type LoadSessionParams struct {
 	Cwd        string         `json:"cwd"`
 	SessionID  string         `json:"sessionId"`
-	MCPServers []any          `json:"mcpServers"`
+	MCPServers []MCPServer    `json:"mcpServers"`
 	Meta       map[string]any `json:"_meta,omitempty"`
 }
 
@@ -352,8 +352,8 @@ func (u *Update) ChunkText() string {
 
 // ToolContent is one element of tool_call(.update) `content[]`.
 type ToolContent struct {
-	Type    string `json:"type"` // diff | content | terminal
-	Path    string `json:"path,omitempty"`
+	Type    string  `json:"type"` // diff | content | terminal
+	Path    string  `json:"path,omitempty"`
 	OldText *string `json:"oldText,omitempty"`
 	NewText string  `json:"newText,omitempty"`
 	Content *struct {
@@ -374,7 +374,7 @@ func (u *Update) ToolContents() []ToolContent {
 
 // RateLimitMeta is usage_update._meta["_claude/rateLimit"] (spike 1b E5).
 type RateLimitMeta struct {
-	Status        string  `json:"status"` // allowed | allowed_warning | rejected
+	Status        string  `json:"status"`   // allowed | allowed_warning | rejected
 	ResetsAt      int64   `json:"resetsAt"` // epoch seconds
 	RateLimitType string  `json:"rateLimitType,omitempty"`
 	Utilization   float64 `json:"utilization,omitempty"`

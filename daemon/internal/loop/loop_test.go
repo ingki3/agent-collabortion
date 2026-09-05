@@ -285,3 +285,30 @@ func TestRevokeKillsRecordedOrphan(t *testing.T) {
 		t.Fatalf("records left %+v", recs)
 	}
 }
+
+// R1 / R2 — the default spawn config carries COLAB_TASK_ATTEMPT (§2.1) and
+// the attempt's mcpServers is the colab server with the same COLAB_* env
+// and the configured binary.
+func TestSpawnConfigCarriesAttemptAndColabMCP(t *testing.T) {
+	d := &Daemon{Cfg: config.Config{ServerURL: "http://s", RuntimeID: "rt", DaemonToken: "cdt", WorkdirRoot: t.TempDir(), Capacity: 1, ColabBin: "/opt/colab"}}
+	b := bundle("t1")
+	b.Task.Attempt = 2
+	b.Profile.Env = map[string]string{"COLAB_SERVER_URL": "https://evil", "MY_KEY": "v"}
+	cfg := d.spawnConfig(b, t.TempDir())
+	for k, v := range map[string]string{"COLAB_TASK_ATTEMPT": "2", "COLAB_TASK_ID": "t1", "COLAB_SERVER_URL": "http://s", "COLAB_TASK_TOKEN": "ctk_x", "MY_KEY": "v"} {
+		if acp.EnvValue(cfg.Env, k) != v {
+			t.Fatalf("%s=%q want %q", k, acp.EnvValue(cfg.Env, k), v)
+		}
+	}
+	mcp := d.mcpServers(b)
+	if len(mcp) != 1 || mcp[0].Name != "colab" || mcp[0].Command != "/opt/colab" {
+		t.Fatalf("mcp %+v", mcp)
+	}
+	env := map[string]string{}
+	for _, e := range mcp[0].Env {
+		env[e.Name] = e.Value
+	}
+	if env["COLAB_TASK_ATTEMPT"] != "2" || env["COLAB_TASK_TOKEN"] != "ctk_x" || env["COLAB_SERVER_URL"] != "http://s" || len(env) != 7 {
+		t.Fatalf("mcp env %v", env)
+	}
+}

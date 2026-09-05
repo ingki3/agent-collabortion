@@ -20,3 +20,20 @@ func TestLoadSaveRoundTrip(t *testing.T) {
 		t.Fatalf("%+v %v", c2, err)
 	}
 }
+
+// The colab MCP binary defaults to the one beside the daemon executable or
+// "colab" on PATH, and an explicit setting round-trips.
+func TestColabBinDefaultAndRoundTrip(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "daemon.json")
+	c, err := Load(p)
+	if err != nil || c.ColabBin == "" {
+		t.Fatalf("%+v %v", c, err)
+	}
+	c.ColabBin = "/opt/colab/bin/colab"
+	if err := Save(p, c); err != nil {
+		t.Fatal(err)
+	}
+	if c2, err := Load(p); err != nil || c2.ColabBin != "/opt/colab/bin/colab" {
+		t.Fatalf("%+v %v", c2, err)
+	}
+}

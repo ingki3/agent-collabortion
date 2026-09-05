@@ -105,7 +105,8 @@ func Detect(ctx context.Context, kind contracts.RuntimeKind, o Options) (contrac
 			return cap, false
 		}
 		cap.Version = v
-		cap.AdapterVersion = contracts.ClaudeAgentACPPin
+		// adapter_version is measured by the PONG turn (initialize →
+		// agentInfo.version); never filled with the pin (PR #20 R3).
 		cap.BriefTransport = contracts.BriefACPMetaSystemPrompt
 		cap.ToolDisallow = true
 		cap.Resume, cap.Usage = true, true
@@ -182,7 +183,7 @@ func Pong(ctx context.Context, kind contracts.RuntimeKind, o Options, cap *contr
 	}
 	b := contracts.TaskBundle{
 		Task:    contracts.BundleTask{ID: "probe", Attempt: 1, AgentName: "probe"},
-		Profile: contracts.BundleProfile{RuntimeKind: kind, AdapterPin: contracts.ClaudeAgentACPPin},
+		Profile: contracts.BundleProfile{RuntimeKind: kind, AdapterPin: acp.AdapterPin},
 		Brief:   contracts.BundleBrief{Transport: transport, Text: "You are a capability probe. Answer exactly as instructed."},
 		Prompt:  PongPrompt,
 		Limits:  contracts.BundleLimits{StallSeconds: 180},

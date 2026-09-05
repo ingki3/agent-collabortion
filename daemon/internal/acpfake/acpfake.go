@@ -23,8 +23,10 @@ import (
 
 // Script drives the fake.
 type Script struct {
-	ProtocolVersion int    `json:"protocol_version,omitempty"` // 0 → 1
-	AgentVersion    string `json:"agent_version,omitempty"`
+	ProtocolVersion int `json:"protocol_version,omitempty"` // 0 → 1
+	// AgentVersion is initialize.agentInfo.version. "" → acp.AdapterPin
+	// (the runner rejects a claude_code adapter whose version ≠ pin, §8 config).
+	AgentVersion string `json:"agent_version,omitempty"`
 	// Kind: "claude" answers session/set_config_option and reports
 	// configOptions; "hermes" answers session/set_model, returns null on
 	// unknown session/load and _meta.hermes.sessionProvenance.
@@ -60,8 +62,8 @@ type Turn struct {
 	Error      *acp.RPCError `json:"error,omitempty"`       // respond with error
 	ModelUsage bool          `json:"model_usage,omitempty"` // _meta.quota.model_usage = current model
 	// ReportModel overrides the model reported in model_usage (drift test).
-	ReportModel string `json:"report_model,omitempty"`
-	Usage      *acp.PromptUsage `json:"usage,omitempty"`
+	ReportModel string           `json:"report_model,omitempty"`
+	Usage       *acp.PromptUsage `json:"usage,omitempty"`
 	// LateChunk is sent LateDelayMs after the prompt response (Hermes, §2.2).
 	LateChunk   string `json:"late_chunk,omitempty"`
 	LateDelayMs int    `json:"late_delay_ms,omitempty"`
@@ -209,6 +211,7 @@ type server struct {
 	model     string
 	lastBrief string
 	lastMeta  map[string]any
+	lastMCP   []acp.MCPServer
 	turn      int
 }
 
@@ -302,10 +305,12 @@ func (sv *server) configOptions() []map[string]any {
 
 func (sv *server) absorbMeta(params json.RawMessage) {
 	var p struct {
-		Meta map[string]any `json:"_meta"`
+		Meta       map[string]any  `json:"_meta"`
+		MCPServers []acp.MCPServer `json:"mcpServers"`
 	}
 	_ = json.Unmarshal(params, &p)
 	sv.lastMeta = p.Meta
+	sv.lastMCP = p.MCPServers
 	if sp, ok := p.Meta["systemPrompt"].(map[string]any); ok {
 		if a, ok := sp["append"].(string); ok {
 			sv.lastBrief = a
@@ -314,8 +319,9 @@ func (sv *server) absorbMeta(params json.RawMessage) {
 }
 
 // rawInit emulates claude-agent-acp's `_claude/sdkMessage` system/init when
-// emitRawSDKMessages is on: mcp__ tools and hooks appear unless the §3
-// isolation keys (settingSources: [] + strictMcpConfig: true) were sent.
+// emitRawSDKMessages is on: user mcp__ tools and hooks appear unless the §3
+// isolation keys (settingSources: [] + strictMcpConfig: true) were sent;
+// servers passed in `mcpServers` always appear as mcp__<name>__* tools.
 func (sv *server) rawInit(sid string) {
 	cc, _ := sv.lastMeta["claudeCode"].(map[string]any)
 	if cc == nil || cc["emitRawSDKMessages"] != true {
@@ -334,6 +340,10 @@ func (sv *server) rawInit(sid string) {
 	}
 	tools := []string{"Bash", "Read", "Write"}
 	mcp := []map[string]any{}
+	for _, s := range sv.lastMCP {
+		tools = append(tools, "mcp__"+s.Name+"__message_post")
+		mcp = append(mcp, map[string]any{"name": s.Name, "status": "connected"})
+	}
 	if !isolated {
 		tools = append(tools, "mcp__user_server__do")
 		mcp = append(mcp, map[string]any{"name": "user_server", "status": "connected"})
@@ -348,7 +358,7 @@ func (sv *server) handle(m message) {
 	s := sv.s
 	switch m.Method {
 	case acp.MethodInitialize:
-		sv.reply(m.ID, map[string]any{"protocolVersion": s.ProtocolVersion, "agentCapabilities": map[string]any{"loadSession": true}, "agentInfo": map[string]any{"name": "acpfake", "version": s.AgentVersion}})
+		sv.reply(m.ID, map[string]any{"protocolVersion": s.ProtocolVersion, "agentCapabilities": map[string]any{"loadSession": true}, "agentInfo": map[string]any{"name": "acpfake", "version": orDefault(s.AgentVersion, acp.AdapterPin)}})
 	case acp.MethodSessionNew:
 		sv.absorbMeta(m.Params)
 		sv.model = s.DefaultModel

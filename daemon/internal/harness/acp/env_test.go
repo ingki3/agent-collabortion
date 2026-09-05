@@ -14,20 +14,52 @@ func TestEnvAllowList(t *testing.T) {
 	t.Setenv("SECRET_SHELL_VAR", "leak")
 	t.Setenv("CLAUDECODE", "1")
 	t.Setenv("PATH", "/usr/bin")
-	env := Env(contracts.RuntimeHermes, TaskEnv{TaskToken: "ctk_1", ServerURL: "http://s", TaskID: "t", LaneID: "l", SessionID: "s", AgentName: "Lead"}, map[string]string{"MY_KEY": "v"})
+	env := Env(contracts.RuntimeHermes, TaskEnv{TaskToken: "ctk_1", ServerURL: "http://s", TaskID: "t", Attempt: 2, LaneID: "l", SessionID: "s", AgentName: "Lead"}, map[string]string{"MY_KEY": "v"})
 	joined := strings.Join(env, "\n")
 	for _, bad := range []string{"SECRET_SHELL_VAR", "CLAUDECODE"} {
 		if strings.Contains(joined, bad) {
 			t.Fatalf("%s leaked: %v", bad, env)
 		}
 	}
-	for k, v := range map[string]string{"COLAB_TASK_TOKEN": "ctk_1", "COLAB_SERVER_URL": "http://s", "COLAB_TASK_ID": "t", "COLAB_LANE_ID": "l", "COLAB_SESSION_ID": "s", "COLAB_AGENT_NAME": "Lead", "PATH": "/usr/bin", "MY_KEY": "v", "HERMES_YOLO_MODE": "0"} {
+	for k, v := range map[string]string{"COLAB_TASK_TOKEN": "ctk_1", "COLAB_SERVER_URL": "http://s", "COLAB_TASK_ID": "t", "COLAB_TASK_ATTEMPT": "2", "COLAB_LANE_ID": "l", "COLAB_SESSION_ID": "s", "COLAB_AGENT_NAME": "Lead", "PATH": "/usr/bin", "MY_KEY": "v", "HERMES_YOLO_MODE": "0"} {
 		if EnvValue(env, k) != v {
 			t.Fatalf("%s=%q want %q (%v)", k, EnvValue(env, k), v, env)
 		}
 	}
 	if EnvValue(Env(contracts.RuntimeClaudeCode, TaskEnv{}, nil), "HERMES_YOLO_MODE") != "" {
 		t.Fatal("hermes var set for claude")
+	}
+}
+
+// §2.1 / R5 — the profile env is additive only: it sits under the
+// daemon-owned values, so COLAB_* (token, server URL), PATH/HOME and the
+// Hermes yolo guard cannot be overridden, and COLAB_-prefixed profile keys
+// are dropped as reserved.
+func TestEnvProfileCannotOverrideReserved(t *testing.T) {
+	t.Setenv("PATH", "/usr/bin")
+	t.Setenv("HOME", "/home/d")
+	profile := map[string]string{
+		"COLAB_SERVER_URL":   "https://evil.example",
+		"COLAB_TASK_TOKEN":   "ctk_evil",
+		"COLAB_TASK_ATTEMPT": "9",
+		"COLAB_API_PREFIX":   "/x",
+		"PATH":               "/evil/bin",
+		"HOME":               "/evil",
+		"HERMES_YOLO_MODE":   "1",
+		"MY_KEY":             "v",
+	}
+	env := Env(contracts.RuntimeHermes, TaskEnv{TaskToken: "ctk_1", ServerURL: "http://s", TaskID: "t", Attempt: 1, LaneID: "l", SessionID: "s", AgentName: "Lead"}, profile)
+	for k, v := range map[string]string{"COLAB_SERVER_URL": "http://s", "COLAB_TASK_TOKEN": "ctk_1", "COLAB_TASK_ATTEMPT": "1", "PATH": "/usr/bin", "HOME": "/home/d", "HERMES_YOLO_MODE": "0", "MY_KEY": "v"} {
+		if EnvValue(env, k) != v {
+			t.Fatalf("%s=%q want %q (%v)", k, EnvValue(env, k), v, env)
+		}
+	}
+	if strings.Contains(strings.Join(env, "\n"), "COLAB_API_PREFIX") {
+		t.Fatalf("reserved profile key leaked: %v", env)
+	}
+	// a token-less attempt must not inherit one from the profile either
+	if EnvValue(Env(contracts.RuntimeClaudeCode, TaskEnv{ServerURL: "http://s"}, map[string]string{"COLAB_TASK_TOKEN": "ctk_evil"}), "COLAB_TASK_TOKEN") != "" {
+		t.Fatal("profile injected COLAB_TASK_TOKEN")
 	}
 }
 

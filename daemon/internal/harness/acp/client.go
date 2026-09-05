@@ -386,10 +386,12 @@ func (c *Client) Initialize(ctx context.Context, daemonVersion string) (*Initial
 	return &res, nil
 }
 
-// NewSession is session/new. meta is the §3 _meta (nil for Hermes).
-func (c *Client) NewSession(ctx context.Context, cwd string, mcp []any, meta map[string]any) (*SessionResult, error) {
+// NewSession is session/new. mcp is the MCP server list (harness §2: the
+// colab server only, §3 strictMcpConfig); meta is the §3 _meta (nil for
+// Hermes).
+func (c *Client) NewSession(ctx context.Context, cwd string, mcp []MCPServer, meta map[string]any) (*SessionResult, error) {
 	if mcp == nil {
-		mcp = []any{}
+		mcp = []MCPServer{}
 	}
 	var res SessionResult
 	if err := c.Call(ctx, MethodSessionNew, NewSessionParams{Cwd: cwd, MCPServers: mcp, Meta: meta}, &res); err != nil {
@@ -400,9 +402,9 @@ func (c *Client) NewSession(ctx context.Context, cwd string, mcp []any, meta map
 
 // LoadSession is session/load; the agent replays history as session/update
 // notifications before responding (the runner discards them, §6).
-func (c *Client) LoadSession(ctx context.Context, cwd, sessionID string, mcp []any, meta map[string]any) (*SessionResult, error) {
+func (c *Client) LoadSession(ctx context.Context, cwd, sessionID string, mcp []MCPServer, meta map[string]any) (*SessionResult, error) {
 	if mcp == nil {
-		mcp = []any{}
+		mcp = []MCPServer{}
 	}
 	var raw json.RawMessage
 	if err := c.Call(ctx, MethodSessionLoad, LoadSessionParams{Cwd: cwd, SessionID: sessionID, MCPServers: mcp, Meta: meta}, &raw); err != nil {

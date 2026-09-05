@@ -44,6 +44,10 @@ type Attempt struct {
 	OnRunning func()
 	// Quiet is the post-response wait for Hermes (§2.2). Zero → 250ms.
 	Quiet time.Duration
+	// MCPServers go into session/new and session/load `mcpServers` (harness
+	// §2 lifecycle: the colab MCP server, colab-cli.md §3). Built by the loop
+	// with ColabMCPServer; nil → none (probe).
+	MCPServers []MCPServer
 }
 
 // RawInit is the claude_code raw `system/init` evidence (§12(c)).
@@ -231,9 +235,22 @@ func (r *Runner) run(ctx context.Context) Result {
 	if err != nil {
 		return r.classify(err)
 	}
-	adapterVersion := b.Profile.AdapterPin
-	if init.AgentInfo != nil && init.AgentInfo.Version != "" {
+	adapterVersion := ""
+	if init.AgentInfo != nil {
 		adapterVersion = init.AgentInfo.Version
+	}
+	// §1/§8 config: the adapter version must equal the pin — `_meta.*` is
+	// adapter behaviour, not spec, so drift is a config error (no retry).
+	if r.kind() == contracts.RuntimeClaudeCode {
+		pin := b.Profile.AdapterPin
+		if pin == "" {
+			pin = AdapterPin
+		}
+		if adapterVersion != pin {
+			res := r.fail(contracts.FailConfig, fmt.Sprintf("adapter version %q != pin %q", adapterVersion, pin), nil)
+			res.AdapterVersion = adapterVersion
+			return res
+		}
 	}
 
 	meta := r.meta()
@@ -294,11 +311,21 @@ func (r *Runner) run(ctx context.Context) Result {
 	if r.kind() == contracts.RuntimeHermes {
 		time.Sleep(r.a.Quiet) // §2.2: late agent_message_chunk after the response
 	}
-	r.flushMessages()
-
 	r.mu.Lock()
 	stalled, cancelled, cancelReq := r.stalled, r.cancelling, r.cancelReq
+	text, ntools := r.say.String(), len(r.tools)
 	r.mu.Unlock()
+	// §8 v0.3 Hermes body rule: a turn whose whole body is the provider
+	// error format (and no tool activity) is a failure, judged in the same
+	// place as refusal && 활동 0. The body is not posted as a message.
+	var hermesFail *Failure
+	if r.kind() == contracts.RuntimeHermes && perr == nil && pr.StopReason == "end_turn" && !cancelled {
+		if f, ok := SniffHermesText(text, ntools, r.clk.Now()); ok {
+			hermesFail = &f
+		}
+	}
+	r.flushMessages(hermesFail == nil)
+
 	base := Result{SessionRef: ref, ResumeOutcome: resumeOutcome, AdapterVersion: adapterVersion}
 	if stalled {
 		res := r.fail(contracts.FailStall, fmt.Sprintf("no session/update for %s", contracts.StallTimeout), nil)
@@ -329,25 +356,23 @@ func (r *Runner) run(ctx context.Context) Result {
 	}
 	tp := map[string]any{"runtime_kind": string(r.kind()), "session_id": sessionID, "stop_reason": pr.StopReason}
 	r.emit("runtime", "turn_end", "", "ok", tp)
-	if len(models) > 0 || drift {
-		up := map[string]any{"model": strings.Join(models, ","), "cumulative": true}
-		if drift {
-			up["model_drift"] = true
-		}
-		r.emit("usage", "report", "", "report", r.usagePayload(up))
+	// §7 v0.3: tokens/cost once per turn from the session/prompt usage
+	// (usage_update carries only context size + rate_limit).
+	up := map[string]any{"cumulative": true}
+	if len(models) > 0 {
+		up["model"] = strings.Join(models, ",")
 	}
+	if drift {
+		up["model_drift"] = true
+	}
+	r.emit("usage", "report", "", "report", r.usagePayload(up))
 	res := base
 	res.Models = models
 	res.StopReason = pr.StopReason
-	if r.kind() == contracts.RuntimeHermes && pr.StopReason == "end_turn" && !cancelled {
-		r.mu.Lock()
-		text, ntools := r.say.String(), len(r.tools)
-		r.mu.Unlock()
-		if f, ok := SniffHermesText(text, ntools, r.clk.Now()); ok {
-			res := r.fail(f.Kind, f.Detail, f.NotBefore)
-			res.SessionRef, res.ResumeOutcome, res.Models, res.StopReason = ref, resumeOutcome, models, pr.StopReason
-			return res
-		}
+	if hermesFail != nil {
+		res := r.fail(hermesFail.Kind, hermesFail.Detail, hermesFail.NotBefore)
+		res.SessionRef, res.ResumeOutcome, res.Models, res.StopReason, res.AdapterVersion = ref, resumeOutcome, models, pr.StopReason, adapterVersion
+		return res
 	}
 	switch pr.StopReason {
 	case "cancelled":
@@ -398,7 +423,7 @@ func (r *Runner) meta() map[string]any {
 }
 
 func (r *Runner) newSession(ctx context.Context, meta map[string]any) (*SessionResult, error) {
-	s, err := r.c.NewSession(ctx, r.a.Workdir, nil, meta)
+	s, err := r.c.NewSession(ctx, r.a.Workdir, r.a.MCPServers, meta)
 	if err != nil {
 		return nil, err
 	}
@@ -431,7 +456,7 @@ func (r *Runner) load(ctx context.Context, meta map[string]any) (sid string, pro
 		r.replaying = false
 		r.mu.Unlock()
 	}()
-	s, err := r.c.LoadSession(ctx, r.a.Workdir, ref.SessionID, nil, meta)
+	s, err := r.c.LoadSession(ctx, r.a.Workdir, ref.SessionID, r.a.MCPServers, meta)
 	switch r.kind() {
 	case contracts.RuntimeClaudeCode:
 		if err != nil {
@@ -621,14 +646,16 @@ func (r *Runner) finishTool(ts *toolState, status string) {
 	r.emit("tool", VerbFor(ts.kind), ts.objectRef(), outcome, ts.payload())
 }
 
-func (r *Runner) flushMessages() {
+// flushMessages emits the turn's thought and text; withSay=false drops the
+// text (a Hermes provider-error body, §8 — never posted as a message).
+func (r *Runner) flushMessages(withSay bool) {
 	r.mu.Lock()
 	say, think := r.say.String(), r.think.String()
 	r.mu.Unlock()
 	if think != "" {
 		r.emit("message", "think", "", "ok", map[string]any{"kind": "thought", "text": think, "chars": len(think)})
 	}
-	if say != "" {
+	if say != "" && withSay {
 		r.emit("message", "say", "", "ok", map[string]any{"kind": "text", "text": say, "chars": len(say)})
 	}
 }
@@ -707,15 +734,23 @@ func (r *Runner) decidePermission(p RequestPermissionParams) PermissionOutcome {
 	r.mu.Unlock()
 	title := p.ToolCall.Title
 	if cancelling {
-		r.emit("tool", "permission", title, "cancelled", map[string]any{"tool_call_id": p.ToolCall.ToolCallID, "title": clip(title, 512), "option_kind": "reject_once", "options_offered": OptionKinds(p.Options)})
+		// §4 row 4 / task_event v0.2: no option was chosen → option_kind omitted.
+		r.emit("tool", "permission", title, "cancelled", map[string]any{"tool_call_id": p.ToolCall.ToolCallID, "title": clip(title, 512), "options_offered": OptionKinds(p.Options)})
 		return PermissionOutcome{Outcome: "cancelled"}
 	}
 	var d Decision
 	outcome := "allowed"
-	if name := ToolName(p.ToolCall); name != "" && !r.toolAllowed(name) {
+	policy := ""
+	name := ToolName(p.ToolCall)
+	switch {
+	case name != "" && !r.toolAllowed(name):
 		d = Reject(p, false)
 		outcome = "rejected"
-	} else {
+		policy = "denied_by_profile" // §4 "outcome=rejected(policy)"
+	default:
+		if name != "" && len(r.a.Bundle.Profile.Tools) > 0 {
+			policy = "allowed_by_profile"
+		}
 		d = DefaultPolicy{}.Decide(p)
 		if d.AllowOnceMissing {
 			outcome = "rejected"
@@ -727,11 +762,13 @@ func (r *Runner) decidePermission(p RequestPermissionParams) PermissionOutcome {
 			outcome = "cancelled"
 		}
 	}
-	ok := d.OptionKind
-	if ok == "" {
-		ok = "reject_once"
+	payload := map[string]any{"tool_call_id": p.ToolCall.ToolCallID, "title": clip(title, 512), "options_offered": OptionKinds(p.Options)}
+	if d.OptionKind != "" { // omitted when nothing was chosen (outcome=cancelled)
+		payload["option_kind"] = d.OptionKind
 	}
-	payload := map[string]any{"tool_call_id": p.ToolCall.ToolCallID, "title": clip(title, 512), "option_kind": ok, "options_offered": OptionKinds(p.Options)}
+	if policy != "" {
+		payload["policy"] = policy
+	}
 	if d.AllowOnceMissing {
 		payload["allow_once_missing"] = true
 	}

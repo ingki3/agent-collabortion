@@ -231,12 +231,24 @@ func (d *Daemon) start(ctx context.Context, b contracts.TaskBundle) {
 	}()
 }
 
+// taskEnv is the harness §2.1 COLAB_* set for one attempt.
+func (d *Daemon) taskEnv(b contracts.TaskBundle) acp.TaskEnv {
+	return acp.TaskEnv{TaskToken: b.TaskToken, ServerURL: d.Cfg.ServerURL, TaskID: b.Task.ID, Attempt: b.Task.Attempt, LaneID: b.Task.LaneID, SessionID: b.Task.SessionID, AgentName: b.Task.AgentName}
+}
+
+// mcpServers is the session/new·load `mcpServers` list: the colab MCP server
+// only (harness §2, colab-cli.md §3), carrying the attempt's COLAB_* env.
+func (d *Daemon) mcpServers(b contracts.TaskBundle) []acp.MCPServer {
+	env := acp.Env(b.Profile.RuntimeKind, d.taskEnv(b), nil)
+	return []acp.MCPServer{acp.ColabMCPServer(d.Cfg.ColabBin, env)}
+}
+
 func (d *Daemon) spawnConfig(b contracts.TaskBundle, wd string) acp.Config {
 	if d.SpawnConfig != nil {
 		return d.SpawnConfig(b, wd)
 	}
 	cmd, args := acp.Command(b.Profile.RuntimeKind, b.Profile.AdapterPin, b.Profile.Args)
-	env := acp.Env(b.Profile.RuntimeKind, acp.TaskEnv{TaskToken: b.TaskToken, ServerURL: d.Cfg.ServerURL, TaskID: b.Task.ID, LaneID: b.Task.LaneID, SessionID: b.Task.SessionID, AgentName: b.Task.AgentName}, b.Profile.Env)
+	env := acp.Env(b.Profile.RuntimeKind, d.taskEnv(b), b.Profile.Env)
 	var stderr string
 	if d.Cfg.StderrDir != "" && os.MkdirAll(d.Cfg.StderrDir, 0o755) == nil {
 		stderr = filepath.Join(d.Cfg.StderrDir, key(b.Task.ID, b.Task.Attempt)+".stderr.txt")
@@ -281,7 +293,7 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	defer func() { _ = brief.Remove(prep) }()
 
 	runner := acp.New(acp.Attempt{
-		Bundle: b, Workdir: wd, Cmd: d.spawnConfig(b, wd), Sink: batcher, Clock: d.Clock, DaemonVersion: d.Version,
+		Bundle: b, Workdir: wd, Cmd: d.spawnConfig(b, wd), MCPServers: d.mcpServers(b), Sink: batcher, Clock: d.Clock, DaemonVersion: d.Version,
 		OnSpawn: func(pgid int) {
 			if err := d.Orphans.Record(orphan.Record{TaskID: b.Task.ID, Attempt: b.Task.Attempt, PGID: pgid, StartedAt: d.Clock.Now().UTC(), Workdir: wd}); err != nil {
 				d.Log("%s pgid record: %v", k, err)

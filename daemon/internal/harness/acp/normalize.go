@@ -184,19 +184,35 @@ func ToolName(tc ToolCallRef) string {
 }
 
 // ModelMatches compares the profile model with the model the adapter
-// reports. Profiles may use aliases ("sonnet") or Hermes-prefixed ids
-// ("anthropic:claude-sonnet-5"), so containment either way counts.
+// reports: exact match after lower-casing and stripping a Hermes provider
+// prefix ("anthropic:"), or an alias from ModelAliases. No substring
+// matching — model_drift (harness §7) must not be masked (PR #20 N5).
 func ModelMatches(profile, actual string) bool {
-	p := strings.ToLower(strings.TrimSpace(profile))
-	a := strings.ToLower(strings.TrimSpace(actual))
+	p := stripProvider(profile)
+	a := stripProvider(actual)
+	if p == a {
+		return true
+	}
 	if p == "" || a == "" {
-		return p == a
+		return false
 	}
-	if i := strings.IndexByte(p, ':'); i >= 0 {
-		p = p[i+1:]
+	for _, id := range ModelAliases[p] {
+		if id == a {
+			return true
+		}
 	}
-	if i := strings.IndexByte(a, ':'); i >= 0 {
-		a = a[i+1:]
+	for _, id := range ModelAliases[a] {
+		if id == p {
+			return true
+		}
 	}
-	return p == a || strings.Contains(a, p) || strings.Contains(p, a)
+	return false
+}
+
+func stripProvider(id string) string {
+	s := strings.ToLower(strings.TrimSpace(id))
+	if i := strings.IndexByte(s, ':'); i >= 0 {
+		s = s[i+1:]
+	}
+	return s
 }

@@ -192,8 +192,13 @@ func TestPermissionProfileToolAllowList(t *testing.T) {
 	b.Profile.Tools = []string{"Read"}
 	f := newFixture(t, s, b, nil)
 	f.run()
-	if len(f.sink.find("tool", "permission", "rejected")) != 1 || len(f.sink.find("tool", "permission", "allowed")) != 1 {
+	rej, alw := f.sink.find("tool", "permission", "rejected"), f.sink.find("tool", "permission", "allowed")
+	if len(rej) != 1 || len(alw) != 1 {
 		t.Fatalf("events %+v", f.sink.find("tool", "permission", ""))
+	}
+	// §4 row 4 "outcome=rejected(policy)" → permission.policy (task_event v0.2 N3)
+	if rej[0].Payload["policy"] != "denied_by_profile" || rej[0].Payload["option_kind"] != "reject_once" || alw[0].Payload["policy"] != "allowed_by_profile" {
+		t.Fatalf("policy payloads rejected=%+v allowed=%+v", rej[0].Payload, alw[0].Payload)
 	}
 	// _meta must carry the allow-list into disallowedTools + permissions.deny (§3)
 	for _, r := range f.records() {
@@ -225,8 +230,10 @@ func TestCancelDuringPermissionRequest(t *testing.T) {
 	if res.Outcome != "cancelled" || res.Failure == nil || res.Failure.Kind != contracts.FailCancelled {
 		t.Fatalf("result %+v", res)
 	}
-	if len(f.sink.find("tool", "permission", "cancelled")) != 1 {
+	if pc := f.sink.find("tool", "permission", "cancelled"); len(pc) != 1 {
 		t.Fatalf("permission not answered cancelled: %+v", f.sink.find("tool", "permission", ""))
+	} else if _, has := pc[0].Payload["option_kind"]; has {
+		t.Fatalf("option_kind recorded although nothing was chosen (task_event v0.2 N2): %+v", pc[0].Payload)
 	}
 	// order: session/cancel before the permission answer
 	var cancelIdx, answerIdx = -1, -1
@@ -327,11 +334,166 @@ func TestHermesProviderErrorTextIsClassified(t *testing.T) {
 	if ev := f.sink.find("runtime", "error", "failed"); len(ev) != 1 || ev[0].Payload["failure_kind"] != "rate_limited" {
 		t.Fatalf("events %+v", ev)
 	}
-	// a real answer is not sniffed
-	s2 := acpfake.Script{Kind: "hermes", Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "PONG"}}}}}
-	if res := newFixture(t, s2, bundle(contracts.RuntimeHermes), nil).run(); res.Outcome != "completed" {
+	// the error body is not posted as a message (§8 v0.3)
+	if say := f.sink.find("message", "say", ""); len(say) != 0 {
+		t.Fatalf("provider error body emitted as message: %+v", say)
+	}
+	// R4 — not evidence: a report that quotes the phrase, a bare HTTP 429, a real answer
+	for _, body := range []string{
+		"빌드 실패 원인: API call failed after 1 retries: HTTP 429 — 재시도 필요",
+		"HTTP 429 Too Many Requests from the upstream; I will retry later.",
+		"PONG",
+	} {
+		s2 := acpfake.Script{Kind: "hermes", Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: body}}}}}
+		f2 := newFixture(t, s2, bundle(contracts.RuntimeHermes), nil)
+		if res := f2.run(); res.Outcome != "completed" || res.Failure != nil {
+			t.Fatalf("%q → %+v", body, res)
+		}
+		if say := f2.sink.find("message", "say", "ok"); len(say) != 1 || say[0].Payload["text"] != body {
+			t.Fatalf("%q say events %+v", body, say)
+		}
+	}
+	// the prefix with tool activity is a real turn too
+	s3 := acpfake.Script{Kind: "hermes", Turns: []acpfake.Turn{{Steps: []acpfake.Step{
+		{ToolCall: &acpfake.ToolCallStep{ID: "t1", Title: "ls", Kind: "execute", Status: "completed"}},
+		{Chunk: "API call failed after 1 retries: HTTP 429"},
+	}}}}
+	if res := newFixture(t, s3, bundle(contracts.RuntimeHermes), nil).run(); res.Outcome != "completed" {
 		t.Fatalf("result %+v", res)
 	}
+	// auth prefix → auth
+	s4 := acpfake.Script{Kind: "hermes", Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "API call failed after 2 retries: HTTP 401: authentication_error"}}}}}
+	if res := newFixture(t, s4, bundle(contracts.RuntimeHermes), nil).run(); res.Outcome != "failed" || res.Failure == nil || res.Failure.Kind != contracts.FailAuth {
+		t.Fatalf("result %+v", res)
+	}
+}
+
+// R3 / harness §1·§8 — initialize.agentInfo.version ≠ adapter pin → config
+// (no session/new, no retry); the measured version is still reported.
+func TestAdapterPinMismatchIsConfig(t *testing.T) {
+	f := newFixture(t, acpfake.Script{AgentVersion: "0.73.0"}, bundle(contracts.RuntimeClaudeCode), nil)
+	res := f.run()
+	if res.Outcome != "failed" || res.Failure == nil || res.Failure.Kind != contracts.FailConfig || !strings.Contains(res.Failure.Detail, `"0.73.0" != pin "0.74.0"`) {
+		t.Fatalf("result %+v", res)
+	}
+	if res.AdapterVersion != "0.73.0" {
+		t.Fatalf("measured adapter version %q", res.AdapterVersion)
+	}
+	for _, r := range f.records() {
+		if r.Method == acp.MethodSessionNew || r.Method == acp.MethodSessionPrompt {
+			t.Fatalf("%s sent after pin mismatch", r.Method)
+		}
+	}
+	// profile pin is what counts when set
+	b := bundle(contracts.RuntimeClaudeCode)
+	b.Profile.AdapterPin = "0.73.0"
+	if res := newFixture(t, acpfake.Script{AgentVersion: "0.73.0"}, b, nil).run(); res.Outcome != "completed" {
+		t.Fatalf("result %+v", res)
+	}
+	// Hermes has no adapter pin
+	if res := newFixture(t, acpfake.Script{Kind: "hermes", AgentVersion: "0.20.6"}, bundle(contracts.RuntimeHermes), nil).run(); res.Outcome != "completed" {
+		t.Fatalf("result %+v", res)
+	}
+}
+
+// R2 / harness §2·§3, colab-cli.md §3 — the colab MCP server is the one
+// entry of session/new and session/load mcpServers (both runtimes), carrying
+// the attempt's COLAB_* env; with strictMcpConfig it is the only MCP the
+// agent sees (raw system/init: mcp__colab__* only).
+func TestColabMCPServerRegistered(t *testing.T) {
+	b := bundle(contracts.RuntimeClaudeCode)
+	env := acp.Env(contracts.RuntimeClaudeCode, acp.TaskEnv{TaskToken: b.TaskToken, ServerURL: "http://s", TaskID: b.Task.ID, Attempt: 1, LaneID: b.Task.LaneID, SessionID: b.Task.SessionID, AgentName: b.Task.AgentName}, nil)
+	mcp := []acp.MCPServer{acp.ColabMCPServer("/opt/colab", env)}
+	checkParams := func(t *testing.T, method string, raw json.RawMessage) {
+		t.Helper()
+		var p struct {
+			MCPServers []acp.MCPServer `json:"mcpServers"`
+		}
+		if err := json.Unmarshal(raw, &p); err != nil {
+			t.Fatal(err)
+		}
+		if len(p.MCPServers) != 1 || p.MCPServers[0].Name != "colab" || p.MCPServers[0].Command != "/opt/colab" || strings.Join(p.MCPServers[0].Args, " ") != "mcp serve" {
+			t.Fatalf("%s mcpServers %+v", method, p.MCPServers)
+		}
+		got := map[string]string{}
+		for _, e := range p.MCPServers[0].Env {
+			got[e.Name] = e.Value
+		}
+		for _, k := range []string{"COLAB_TASK_TOKEN", "COLAB_SERVER_URL", "COLAB_TASK_ID", "COLAB_TASK_ATTEMPT", "COLAB_LANE_ID", "COLAB_SESSION_ID", "COLAB_AGENT_NAME"} {
+			if got[k] == "" {
+				t.Fatalf("%s mcp env lacks %s: %v", method, k, got)
+			}
+		}
+		if len(got) != 7 {
+			t.Fatalf("%s mcp env %v", method, got)
+		}
+	}
+
+	t.Run("claude_code new", func(t *testing.T) {
+		f := newFixture(t, acpfake.Script{}, b, func(a *acp.Attempt) { a.MCPServers = mcp; a.RawSDKMessages = true })
+		res := f.run()
+		if res.Outcome != "completed" {
+			t.Fatalf("result %+v", res)
+		}
+		n := 0
+		for _, r := range f.records() {
+			if r.Method == acp.MethodSessionNew {
+				n++
+				checkParams(t, r.Method, r.Params)
+			}
+		}
+		if n != 1 {
+			t.Fatalf("session/new count %d", n)
+		}
+		if res.RawInit == nil || strings.Join(res.RawInit.MCPServers, ",") != "colab" {
+			t.Fatalf("raw init %+v", res.RawInit)
+		}
+		mcpTools := 0
+		for _, tl := range res.RawInit.Tools {
+			if strings.HasPrefix(tl, "mcp__") {
+				mcpTools++
+				if !strings.HasPrefix(tl, "mcp__colab__") {
+					t.Fatalf("foreign mcp tool %s", tl)
+				}
+			}
+		}
+		if mcpTools == 0 {
+			t.Fatalf("no mcp__colab__ tool: %v", res.RawInit.Tools)
+		}
+	})
+	t.Run("claude_code load", func(t *testing.T) {
+		rb := b
+		rb.Resume = resumeRef(contracts.RuntimeClaudeCode, "sess-1", "")
+		f := newFixture(t, acpfake.Script{KnownSessions: []string{"sess-1"}}, rb, func(a *acp.Attempt) { a.MCPServers = mcp })
+		if res := f.run(); res.Outcome != "completed" || res.ResumeOutcome != "resumed" {
+			t.Fatalf("result %+v", res)
+		}
+		n := 0
+		for _, r := range f.records() {
+			if r.Method == acp.MethodSessionLoad {
+				n++
+				checkParams(t, r.Method, r.Params)
+			}
+		}
+		if n != 1 {
+			t.Fatalf("session/load count %d", n)
+		}
+	})
+	t.Run("hermes new", func(t *testing.T) {
+		hb := bundle(contracts.RuntimeHermes)
+		f := newFixture(t, acpfake.Script{Kind: "hermes", Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "PONG"}}}}}, hb, func(a *acp.Attempt) { a.MCPServers = mcp })
+		if res := f.run(); res.Outcome != "completed" {
+			t.Fatalf("result %+v", res)
+		}
+		for _, r := range f.records() {
+			if r.Method == acp.MethodSessionNew {
+				checkParams(t, r.Method, r.Params)
+				if strings.Contains(string(r.Params), "_meta") {
+					t.Fatalf("hermes session/new carries _meta: %s", r.Params)
+				}
+			}
+		}
+	})
 }
 
 func resumeRef(kind contracts.RuntimeKind, id, root string) *contracts.RuntimeSessionRef {
@@ -546,6 +708,10 @@ func TestMetaInjectedOnceNoFile(t *testing.T) {
 	if strings.Join(order, ",") != "initialize,session/new,session/set_config_option,session/prompt" {
 		t.Fatalf("order %v", order)
 	}
+	// §7 v0.3: usage.report once at turn end (cumulative) even without model_usage / usage_update
+	if us := f.sink.find("usage", "report", "report"); len(us) != 1 || us[0].Payload["cumulative"] != true || us[0].Payload["estimated"] != true {
+		t.Fatalf("usage reports %+v", us)
+	}
 	for _, name := range []string{"CLAUDE.md", "AGENTS.md"} {
 		if _, err := os_stat(filepath.Join(f.dir, name)); err == nil {
 			t.Fatalf("%s written for claude_code", name)
@@ -553,19 +719,29 @@ func TestMetaInjectedOnceNoFile(t *testing.T) {
 	}
 }
 
-// §12 (c) — isolation evidence: raw system/init has no mcp__ tools, 0 hooks.
+// §12 (c) — isolation evidence: raw system/init has no mcp__ tools other
+// than colab's (R2) and 0 hooks.
 func TestRawInitIsolation(t *testing.T) {
-	f := newFixture(t, acpfake.Script{}, bundle(contracts.RuntimeClaudeCode), func(a *acp.Attempt) { a.RawSDKMessages = true })
+	env := acp.Env(contracts.RuntimeClaudeCode, acp.TaskEnv{TaskToken: "ctk_test", ServerURL: "http://s", TaskID: "t", Attempt: 1}, nil)
+	f := newFixture(t, acpfake.Script{}, bundle(contracts.RuntimeClaudeCode), func(a *acp.Attempt) {
+		a.RawSDKMessages = true
+		a.MCPServers = []acp.MCPServer{acp.ColabMCPServer("", env)}
+	})
 	res := f.run()
 	if res.RawInit == nil {
 		t.Fatal("no raw init captured")
 	}
 	for _, tl := range res.RawInit.Tools {
-		if strings.HasPrefix(tl, "mcp__") {
+		if strings.HasPrefix(tl, "mcp__") && !strings.HasPrefix(tl, "mcp__colab__") {
 			t.Fatalf("mcp tool leaked: %v", res.RawInit.Tools)
 		}
 	}
-	if res.RawInit.Hooks != 0 || len(res.RawInit.MCPServers) != 0 {
+	for _, s := range res.RawInit.MCPServers {
+		if s != "colab" {
+			t.Fatalf("foreign mcp server %q: %v", s, res.RawInit.MCPServers)
+		}
+	}
+	if res.RawInit.Hooks != 0 {
 		t.Fatalf("raw init %+v", res.RawInit)
 	}
 }
