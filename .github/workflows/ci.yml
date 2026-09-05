@@ -8,12 +8,30 @@ on:
 jobs:
   go:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: colab
+          POSTGRES_PASSWORD: colab
+          POSTGRES_DB: colab
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U colab"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # server/internal/db integration test (migrate → tables → idempotent)
+      COLAB_TEST_DB_URL: postgres://colab:colab@localhost:5432/colab?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.work
-          cache: false  # 외부 의존성이 생기고 go.sum이 있을 때 켠다
+          cache: true
+          cache-dependency-path: '**/go.sum'
       - name: vet
         run: for m in contracts server daemon cli; do (cd $m && go vet ./...) || exit 1; done
       - name: test

@@ -1,5 +1,6 @@
 # Colab monorepo — PLAN.md §3 P0-a "프로젝트 골격"
 #   make dev    Postgres + server + daemon + web 한 번에
+#   make db && make migrate   빈 Postgres에 스키마 적용 (server/migrations)
 #   make test   Go 모듈 전부 + web typecheck
 #   make build  바이너리 3개 (bin/)
 
@@ -8,7 +9,7 @@ PG_CONTAINER := colab-pg
 PG_PORT ?= 5432
 PG_URL ?= postgres://colab:colab@localhost:$(PG_PORT)/colab?sslmode=disable
 
-.PHONY: dev db db-stop build test vet lint web-install web-dev clean
+.PHONY: dev db db-stop migrate test-db build test vet lint web-install web-dev clean
 
 ## dev: run everything for local development (Ctrl-C stops all)
 dev: db build
@@ -30,6 +31,14 @@ db:
 
 db-stop:
 	@docker stop $(PG_CONTAINER) >/dev/null 2>&1 || true
+
+## migrate: apply server/migrations/*.sql to $(PG_URL) (idempotent; waits for Postgres)
+migrate:
+	COLAB_DB_URL="$(PG_URL)" go run ./server/cmd/migrate
+
+## test-db: Go tests including the Postgres integration test (needs `make db` first)
+test-db:
+	cd server && COLAB_TEST_DB_URL="$(PG_URL)" go test ./...
 
 build:
 	@mkdir -p bin
