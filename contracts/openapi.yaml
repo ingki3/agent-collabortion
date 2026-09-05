@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Colab Server API
-  version: 0.1.0-draft
+  version: 0.1.1-draft
   summary: Colab 서버 REST API — P1~P3(수직 슬라이스 · 협업 코어 · HITL/재개/예산)에서 웹(W)과 colab CLI(C)가 호출하는 전부.
   description: |
     # 읽는 법
@@ -1835,6 +1835,7 @@ paths:
         - TaskToken: []
       parameters:
         - $ref: '#/components/parameters/IdempotencyKeyRequired'
+        - $ref: '#/components/parameters/ClientSeq'
       requestBody:
         required: true
         content:
@@ -2975,6 +2976,12 @@ components:
       required: true
       description: "클라이언트가 만든 UUID. 같은 키의 재요청은 첫 응답을 그대로 돌려준다(`Idempotent-Replayed: true`). 키는 24시간 보존. 같은 키에 다른 본문이면 `422 idempotency_key_reused`."
       schema: { type: string, format: uuid }
+    ClientSeq:
+      name: X-Colab-Client-Seq
+      in: header
+      required: false
+      description: "colab CLI가 보내는 이 task의 client seq(attempt 무관, 1부터 단조 증가). 서버는 idempotency_key.client_seq에 저장하고 CliContext.last_seq = max(client_seq)로 답한다(v0.4, PR #22 리뷰 R1). 헤더가 없으면(웹·구버전 CLI) 서버가 UUIDv5(task:<task_id>:<n>)를 n=1부터 순서대로 대조해 마지막 존재 seq를 찾는다."
+      schema: { type: integer, minimum: 1 }
     IdempotencyKeyOptional:
       name: Idempotency-Key
       in: header
@@ -4296,11 +4303,13 @@ components:
       properties:
         id: { type: string, format: uuid }
         task_id: { type: string, format: uuid }
+        attempt: { type: integer, minimum: 1, description: 'task attempt. (task_id, attempt, seq)가 멱등키 — daemon-protocol §4.2 (v0.4)' }
         seq: { type: integer, minimum: 0 }
         class: { type: string }
         verb: { type: [string, 'null'] }
-        object_ref: { type: [object, 'null'], additionalProperties: true }
+        object_ref: { type: [string, 'null'], maxLength: 512, description: 'task_event.schema.json과 같은 문자열(파일 경로·명령 첫 토큰·툴 제목 등). v0.4에서 object → string으로 정렬(PR #22 리뷰 N2).' }
         outcome: { type: [string, 'null'] }
+        payload: { type: [object, 'null'], additionalProperties: true, description: 'task_event.schema.json $defs 중 class에 맞는 payload를 **최상위로** 그대로. 활동 피드가 tool_call_id로 툴 호출을 접는 근거(v0.4, PR #22 리뷰 R2). usage 안에 중첩하지 않는다.' }
         tool: { type: [string, 'null'] }
         input: { type: [object, 'null'], additionalProperties: true }
         output: { type: [object, 'null'], additionalProperties: true }
@@ -4654,7 +4663,7 @@ components:
         agent_name: { type: string }
         workspace_id: { type: string, format: uuid }
         attempt: { type: integer }
-        last_seq: { type: integer, description: '이 task가 지금까지 쓴 마지막 client seq(attempt 무관). CLI는 last_seq+1부터 이어 쓴다 — 멱등키 UUIDv5(task:<task_id>:<seq>)가 attempt 경계를 넘어 유일하도록(colab-cli.md §1, E8-04).' }
+        last_seq: { type: integer, description: '이 task가 지금까지 쓴 **마지막(최댓값)** client seq(attempt 무관) — 개수가 아니다(구멍이 있어도 max). 출처는 idempotency_key.client_seq, 없으면 UUIDv5 순차 대조(ClientSeq 헤더 설명). CLI는 last_seq+1부터 이어 쓴다 — 멱등키 UUIDv5(task:<task_id>:<seq>)가 attempt 경계를 넘어 유일하도록(colab-cli.md §1, E8-04).' }
         delegated_from_task_id: { type: [string, 'null'], format: uuid }
         suppressed_delegator_agent_id: { type: [string, 'null'], format: uuid, description: 규칙 8로 멘션이 억제되는 위임자(합류 발화 전). 질문은 `status set blocked`로. }
         open_hitl_request_id: { type: [string, 'null'], format: uuid, description: 이미 열린 HITL이 있으면 두 번째 `hitl ask`는 409. }
