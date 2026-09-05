@@ -2,11 +2,13 @@
 /**
  * S12 Add a computer(SCREEN §4.8) — S4 2단계에 인라인, /runtimes/new 에 단독.
  * 설치 명령 2줄(복사) + `waiting → connected → probing → ready` 4단계. SSE `pairing.updated` 로 갱신하고(셸 안에서는 셸의
- * 연결을 공유, 온보딩에서는 자기 연결), 스트림이 열려 있지 않은 동안만 5초 폴링(GET pairing)으로 보완한다(N5).
- * resync 면 pairing 을 REST 로 다시 읽는다(N4). 3분 넘게 waiting 이면 문제 해결 안내를 편다.
+ * 연결을 공유, 온보딩에서는 자기 연결), ready 전까지는 스트림이 열려 있어도 5초 폴링(GET pairing)을 **백업**으로 유지한다
+ * (G3 W-2: 이벤트 유실·프록시 버퍼링에 대비, N5). resync 면 pairing 을 REST 로 다시 읽는다(N4). 3분 넘게 waiting 이면 문제 해결 안내를 편다.
+ * 발급(createPairing)은 마운트당 정확히 1회 — StrictMode 의 이중 effect 를 ref 로 막고, 재시도까지 같은 `Idempotency-Key` 를
+ * 보내 네트워크 재시도에도 페어링이 1건만 생긴다(G3 W-1).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, errorMessage, isApiError } from "@/lib/api/client";
+import { api, errorMessage, isApiError, newIdempotencyKey } from "@/lib/api/client";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
 import type { Pairing, PairingStatus, Runtime, StreamEvent } from "@/lib/api/types";
 
@@ -18,9 +20,29 @@ export const PAIRING_STAGES: { key: PairingStatus; label: string }[] = [
 ];
 
 export const TROUBLESHOOT_AFTER_MS = 3 * 60 * 1000;
+/** ready 전까지 도는 백업 폴링 간격(N5). */
+export const POLL_INTERVAL_MS = 5000;
 
 export function stageIndex(s: PairingStatus): number {
   return PAIRING_STAGES.findIndex((x) => x.key === s);
+}
+
+/**
+ * 스트림·폴링에서 온 pairing 을 현재 상태에 합친다. 다른 페어링(id 불일치)은 무시하고, 단계는 **뒤로 가지 않는다**
+ * (재연결 backfill 로 `connected` 프레임이 REST 의 `ready` 뒤에 도착해도 준비 완료가 풀리지 않는다). `expired` 는 항상 받는다.
+ * 설치 명령 2줄과 pairing_token 은 **발급 응답의 것을 유지**한다 — 서버는 1회용 토큰을 발급 때만 주고 이후 GET·SSE 에서는
+ * `<pairing_token>` 자리표시자로 가리므로, 그대로 덮어쓰면 대기 중에 복사 버튼이 쓸 수 없는 명령을 보여준다.
+ */
+export function mergePairing(cur: Pairing | null, next: Pairing): Pairing | null {
+  if (!cur || cur.id !== next.id) return cur;
+  const merged: Pairing = {
+    ...next,
+    install_commands: cur.install_commands?.length ? cur.install_commands : next.install_commands,
+    pairing_token: cur.pairing_token ?? next.pairing_token,
+  };
+  if (next.status === "expired") return merged;
+  if (cur.status === "expired") return cur;
+  return stageIndex(next.status) >= stageIndex(cur.status) ? merged : cur;
 }
 
 export function capabilitySummary(rt: Runtime | undefined): string[] {
@@ -51,56 +73,68 @@ export function PairingPanel({ workspaceId, canManage, onReady, now = Date.now }
   const [troubleOpen, setTroubleOpen] = useState(false);
   const startedAt = useRef<number>(now());
   const readyFired = useRef(false);
+  // 발급 1회당 멱등키 1개. 같은 발급의 재시도(네트워크 오류 뒤 "다시 시도")는 같은 키 → 서버가 같은 페어링을 돌려준다.
+  // "다시 발급"(만료)만 새 키를 쓴다.
+  const issueKey = useRef<string | null>(null);
+  // 마운트당 1회 가드 — dev StrictMode 는 effect 를 mount→cleanup→mount 로 두 번 돌리지만 ref 는 유지된다(W-1).
+  const issuedFor = useRef<string | null>(null);
 
-  const create = useCallback(async () => {
-    setError(null);
-    setTroubleOpen(false);
-    readyFired.current = false;
-    startedAt.current = now();
-    try {
-      const p = await api.post("/workspaces/{workspaceId}/runtimes/pairings", {
-        path: { workspaceId },
-        body: {},
-      });
-      setPairing(p);
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  }, [workspaceId, now]);
+  const create = useCallback(
+    async (opts: { fresh?: boolean } = {}) => {
+      setError(null);
+      setTroubleOpen(false);
+      readyFired.current = false;
+      startedAt.current = now();
+      if (opts.fresh || !issueKey.current) issueKey.current = newIdempotencyKey();
+      try {
+        const p = await api.post("/workspaces/{workspaceId}/runtimes/pairings", {
+          path: { workspaceId },
+          body: {},
+          idempotencyKey: issueKey.current,
+        });
+        setPairing(p);
+      } catch (e) {
+        setError(errorMessage(e));
+      }
+    },
+    [workspaceId, now],
+  );
 
   useEffect(() => {
-    if (canManage) void create();
-  }, [canManage, create]);
+    if (!canManage || issuedFor.current === workspaceId) return;
+    issuedFor.current = workspaceId;
+    void create();
+  }, [canManage, workspaceId, create]);
 
-  // 실시간: pairing.updated
-  const onEvent = useCallback(
-    (ev: StreamEvent) => {
-      if (ev.type !== "pairing.updated") return;
-      const p = ev.payload as unknown as Pairing;
-      setPairing((cur) => (cur && p.id === cur.id ? p : cur));
-    },
-    [],
-  );
+  // 실시간: pairing.updated (셸 안에서는 StreamProvider 의 공용 연결, 온보딩에서는 자기 연결)
+  const onEvent = useCallback((ev: StreamEvent) => {
+    if (ev.type !== "pairing.updated") return;
+    const p = ev.payload as unknown as Pairing;
+    if (!p || typeof p.id !== "string" || typeof p.status !== "string") return;
+    setPairing((cur) => mergePairing(cur, p));
+  }, []);
+  const pairingId = pairing?.id ?? null;
   const refetch = useCallback(async () => {
-    if (!pairing) return;
+    if (!pairingId) return;
     try {
       const p = await api.get("/workspaces/{workspaceId}/runtimes/pairings/{pairingId}", {
-        path: { workspaceId, pairingId: pairing.id },
+        path: { workspaceId, pairingId },
       });
-      setPairing((cur) => (cur && cur.id === p.id ? p : cur));
+      setPairing((cur) => mergePairing(cur, p));
     } catch (e) {
       if (isApiError(e) && e.status === 410) setPairing((cur) => (cur ? { ...cur, status: "expired" } : cur));
     }
-  }, [pairing, workspaceId]);
+  }, [pairingId, workspaceId]);
   const conn = useWorkspaceStream(workspaceId, onEvent, { enabled: !!pairing, onResync: () => void refetch() });
 
-  // 폴링 폴백(5초) — 스트림이 아직 안 열렸거나 끊긴 동안만. 열려 있으면 pairing.updated 가 단계를 옮긴다.
+  // 폴링 백업(5초) — ready·expired 전까지는 스트림이 열려 있어도 계속 돈다(W-2: 프레임 유실·프록시 버퍼링 대비). 단계를 옮기는 주 경로는
+  // pairing.updated 이고, 폴링은 mergePairing 으로 합쳐지므로 뒤로 가지 않는다.
+  const settled = !pairing || pairing.status === "ready" || pairing.status === "expired";
   useEffect(() => {
-    if (!pairing || pairing.status === "ready" || pairing.status === "expired") return;
-    if (conn === "open") return;
-    const t = setInterval(() => void refetch(), 5000);
+    if (settled) return;
+    const t = setInterval(() => void refetch(), POLL_INTERVAL_MS);
     return () => clearInterval(t);
-  }, [pairing, conn, refetch]);
+  }, [settled, refetch]);
 
   // 3분 타이머 → 문제 해결 안내 자동 펼침
   useEffect(() => {
@@ -150,7 +184,7 @@ export function PairingPanel({ workspaceId, canManage, onReady, now = Date.now }
   const expired = pairing.status === "expired";
 
   return (
-    <div className="stack" data-testid="pairing-panel" data-status={pairing.status}>
+    <div className="stack" data-testid="pairing-panel" data-status={pairing.status} data-conn={conn}>
       <p className="muted small" style={{ margin: 0 }}>
         연결할 컴퓨터의 터미널에서 아래 두 줄을 순서대로 실행하세요. 데몬이 붙으면 이 화면이 자동으로 바뀝니다.
       </p>
@@ -199,7 +233,7 @@ export function PairingPanel({ workspaceId, canManage, onReady, now = Date.now }
         </ul>
       )}
       {expired && (
-        <button type="button" className="btn" onClick={() => void create()}>
+        <button type="button" className="btn" onClick={() => void create({ fresh: true })}>
           다시 발급
         </button>
       )}

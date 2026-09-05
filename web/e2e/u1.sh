@@ -19,6 +19,10 @@ PAIR_TIMEOUT="${PAIR_TIMEOUT:-600}"
 SHOT_DIR="__screenshots__"
 STAMP="$(date +%s)"
 EMAIL="${E2E_EMAIL:-minji+${STAMP}@example.com}"
+# U1 3단계의 이름은 "마케팅팀" 이지만 실행마다 접미어를 붙인다 — 서버가 **같은 슬러그로 두 번째 워크스페이스를 만들 때 500** 을 내기
+# 때문이다(auth.go createWorkspace: 유일 제약 재시도가 같은 tx 안 → `25P02 current transaction is aborted`. G3 S-4 와 같은 결함,
+# 위치만 다름). 이 스크립트는 W 범위라 서버를 못 고치므로 이름을 유일하게 해 재실행 가능하게 두고, 결함은 S 스트림에 보고했다.
+WORKSPACE_NAME="${E2E_WORKSPACE_NAME:-마케팅팀 ${STAMP}}"
 PASSWORD="${E2E_PASSWORD:-password123}"
 NAME="${E2E_NAME:-민지}"
 export AGENT_BROWSER_SESSION="${AGENT_BROWSER_SESSION:-colab-u1-${STAMP}}"
@@ -54,11 +58,12 @@ ab click 'button[type=submit]' >/dev/null
 step "U1-2 온보딩 1단계 — 워크스페이스 이름"
 ab wait --url "**/onboarding" >/dev/null || fail "온보딩으로 이동하지 않음"
 ab wait '[data-testid="workspace-name"]' >/dev/null
+ab wait '[data-testid="workspace-skip"]' >/dev/null || fail "S4-1 건너뛰기 링크 없음 (U1 2단계)"
 shot "u1-02-onboarding-workspace"
 
 # ── 3단계: 워크스페이스 생성 → S4-2 (S12 인라인) ──
-step "U1-3 '마케팅팀' → 2단계 컴퓨터 연결(S12 인라인)"
-ab fill '[data-testid="workspace-name"]' "마케팅팀" >/dev/null
+step "U1-3 '$WORKSPACE_NAME' → 2단계 컴퓨터 연결(S12 인라인)"
+ab fill '[data-testid="workspace-name"]' "$WORKSPACE_NAME" >/dev/null
 ab click '[data-testid="workspace-next"]' >/dev/null
 ab wait '[data-testid="pairing-panel"]' >/dev/null
 ab wait '[data-testid="install-cmd-1"]' >/dev/null
@@ -110,7 +115,8 @@ ab click '[data-testid="session-start"]' >/dev/null
 step "U1-13 S7 — goal 시스템 메시지 · 참여자 칩 · 에이전트 응답(실시간)"
 ab wait --url "**/sessions/*" >/dev/null || fail "S7 로 이동하지 않음"
 ab wait '[data-testid="session-detail"]' >/dev/null
-wait_text "세션 시작 — goal" 15
+# 첫 시스템 메시지: 실서버는 `Session started. Goal: …`(영문), 목 API 는 `세션 시작 — goal: …` — 둘 다 허용(G3 W-3)
+ab wait --fn "['Session started. Goal:','세션 시작 — goal'].some(t => document.body.innerText.includes(t))" --timeout 15000 >/dev/null || fail "goal 시스템 메시지가 보이지 않음(실서버 'Session started. Goal:' / 목 '세션 시작 — goal')"
 ab wait '[data-testid="participants"] [data-testid="agent-chip"]' >/dev/null || fail "참여자 칩 없음"
 shot "u1-13-s7-started"
 # 에이전트 답글이 새로고침 없이 도착하는지(실시간). 실서버는 데몬 실행 시간이 있으므로 넉넉히 기다린다.

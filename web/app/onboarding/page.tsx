@@ -3,6 +3,8 @@
  * S4 온보딩(SCREEN §4.2) — P1 최소. 세 단계, 각 단계 건너뛰기 가능.
  * 1 워크스페이스 이름 → 2 컴퓨터 연결(S12 인라인) → 3 에이전트(P1: 템플릿은 P2 — Lead 하나를 기본값으로 만들거나 건너뛴다).
  * 워크스페이스가 이미 있으면(초대 수락 등) S5 로 보낸다.
+ * 1단계 건너뛰기(U1 2단계 명세): 워크스페이스 없이는 어느 화면도 온보딩으로 되돌아오므로(AuthContext requireWorkspace),
+ * 기본 이름(`DEFAULT_WORKSPACE_NAME`)으로 만들고 2단계로 간다. 이름은 Settings 에서 바꾼다(홈 체크리스트는 P2).
  */
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -12,6 +14,7 @@ import { PairingPanel } from "@/components/PairingPanel";
 import type { Pairing, WorkspaceWithRole } from "@/lib/api/types";
 
 type Step = 1 | 2 | 3;
+const DEFAULT_WORKSPACE_NAME = "내 워크스페이스";
 
 function Steps({ current, done }: { current: Step; done: Step[] }) {
   const items: { n: Step; label: string }[] = [
@@ -50,16 +53,15 @@ function Onboarding() {
     if (!loading && me && workspace && !ws && step === 1) router.replace("/sessions");
   }, [loading, me, workspace, ws, step, router]);
 
-  async function createWorkspace(e: React.FormEvent) {
-    e.preventDefault();
+  async function createWorkspace(wsName: string, skipped = false) {
     setBusy(true);
     setError(null);
     try {
-      const w = await api.post("/workspaces", { body: { name } });
+      const w = await api.post("/workspaces", { body: { name: wsName } });
       selectWorkspace(w.id);
       const wr: WorkspaceWithRole = { ...w, my_role: "owner" };
       setWs(wr);
-      setDone([1]);
+      if (!skipped) setDone([1]);
       setStep(2);
       void refresh();
     } catch (err) {
@@ -110,7 +112,12 @@ function Onboarding() {
       {error && <p className="problem">{error}</p>}
 
       {step === 1 && (
-        <form onSubmit={createWorkspace}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void createWorkspace(name);
+          }}
+        >
           <h1 className="auth__title">워크스페이스 이름</h1>
           <p className="auth__sub">팀원 초대는 나중에 Settings 에서 합니다.</p>
           <label className="field">
@@ -120,6 +127,18 @@ function Onboarding() {
           <button className="btn btn--primary btn--block" type="submit" disabled={busy} data-testid="workspace-next">
             {busy ? "만드는 중…" : "다음"}
           </button>
+          <div className="row" style={{ marginTop: 12, justifyContent: "center" }}>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={busy}
+              onClick={() => void createWorkspace(DEFAULT_WORKSPACE_NAME, true)}
+              title={`"${DEFAULT_WORKSPACE_NAME}" 이름으로 만들고 넘어갑니다. 이름은 Settings 에서 바꿀 수 있습니다.`}
+              data-testid="workspace-skip"
+            >
+              건너뛰기
+            </button>
+          </div>
         </form>
       )}
 
