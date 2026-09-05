@@ -339,6 +339,16 @@ func (r *Runner) run(ctx context.Context) Result {
 	res := base
 	res.Models = models
 	res.StopReason = pr.StopReason
+	if r.kind() == contracts.RuntimeHermes && pr.StopReason == "end_turn" && !cancelled {
+		r.mu.Lock()
+		text, ntools := r.say.String(), len(r.tools)
+		r.mu.Unlock()
+		if f, ok := SniffHermesText(text, ntools, r.clk.Now()); ok {
+			res := r.fail(f.Kind, f.Detail, f.NotBefore)
+			res.SessionRef, res.ResumeOutcome, res.Models, res.StopReason = ref, resumeOutcome, models, pr.StopReason
+			return res
+		}
+	}
 	switch pr.StopReason {
 	case "cancelled":
 		res.Outcome = "cancelled"

@@ -139,3 +139,29 @@ func ParseResetTime(text string, now time.Time) (time.Time, bool) {
 	}
 	return t.UTC(), true
 }
+
+// hermesProviderRe matches provider errors Hermes surfaces as plain agent
+// text with stopReason end_turn (harness §8 "Hermes 보조 신호", PRD §8.2.5).
+var hermesProviderRe = regexp.MustCompile(`(?i)API call failed|HTTP (429|401|403|5\d\d)|rate limit|overloaded|authentication|unauthorized|invalid api key`)
+
+// SniffHermesText classifies a Hermes turn that ended normally but whose
+// only output is a provider error (no tool activity). ok=false when the
+// text looks like a real answer.
+func SniffHermesText(text string, toolCalls int, now time.Time) (Failure, bool) {
+	t := strings.TrimSpace(text)
+	if toolCalls > 0 || len(t) > 600 || !hermesProviderRe.MatchString(t) {
+		return Failure{}, false
+	}
+	low := strings.ToLower(t)
+	switch {
+	case strings.Contains(low, "429") || strings.Contains(low, "rate limit") || strings.Contains(low, "overloaded"):
+		nb := now.Add(contracts.RateLimitFallback)
+		if t2, ok := ParseResetTime(t, now); ok {
+			nb = t2
+		}
+		return Failure{Kind: contracts.FailRateLimited, NotBefore: &nb, Detail: firstLine(t)}, true
+	case strings.Contains(low, "401") || strings.Contains(low, "403") || strings.Contains(low, "authentication") || strings.Contains(low, "unauthorized") || strings.Contains(low, "invalid api key"):
+		return Failure{Kind: contracts.FailAuth, Detail: firstLine(t)}, true
+	}
+	return Failure{Kind: contracts.FailOther, Detail: firstLine(t)}, true
+}

@@ -315,6 +315,25 @@ func TestHermesLateChunkAfterResponse(t *testing.T) {
 	}
 }
 
+// §8 Hermes auxiliary signal — provider error as plain text with end_turn
+// (observed in the real smoke: "API call failed after 1 retries: HTTP 429").
+func TestHermesProviderErrorTextIsClassified(t *testing.T) {
+	s := acpfake.Script{Kind: "hermes", Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "API call failed after 1 retries: HTTP 429: This request would exceed your account's rate limit. Please try again later."}}}}}
+	f := newFixture(t, s, bundle(contracts.RuntimeHermes), nil)
+	res := f.run()
+	if res.Outcome != "failed" || res.Failure == nil || res.Failure.Kind != contracts.FailRateLimited || res.Failure.NotBefore == nil {
+		t.Fatalf("result %+v", res)
+	}
+	if ev := f.sink.find("runtime", "error", "failed"); len(ev) != 1 || ev[0].Payload["failure_kind"] != "rate_limited" {
+		t.Fatalf("events %+v", ev)
+	}
+	// a real answer is not sniffed
+	s2 := acpfake.Script{Kind: "hermes", Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "PONG"}}}}}
+	if res := newFixture(t, s2, bundle(contracts.RuntimeHermes), nil).run(); res.Outcome != "completed" {
+		t.Fatalf("result %+v", res)
+	}
+}
+
 func resumeRef(kind contracts.RuntimeKind, id, root string) *contracts.RuntimeSessionRef {
 	ref := &contracts.RuntimeSessionRef{RuntimeKind: kind, SessionID: id, CWD: "/x", CreatedAt: time.Now()}
 	if root != "" {
