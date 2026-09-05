@@ -311,6 +311,8 @@ func (s *Server) daemonFinish(w http.ResponseWriter, r *http.Request, d daemonCt
 		s.staleAttempt(w, r, d)
 	case errors.Is(err, tasks.ErrInvalidTransition):
 		writeProblem(w, apperr.Conflict("invalid_transition", err.Error()))
+	case errors.Is(err, tasks.ErrInvalidSessionRef):
+		writeProblem(w, apperr.Validation(apperr.Field("runtime_session_ref", "required", "runtime_session_ref needs runtime_kind and session_id (harness §6)")))
 	case err != nil:
 		writeErr(w, err)
 	default:

@@ -179,3 +179,38 @@ func TestFinishRateLimitedRequeuesAtNotBefore(t *testing.T) {
 		t.Fatalf("claim at not_before = %+v %v, want attempt 2 of the task", bundles, err)
 	}
 }
+
+// harness §6 resume input: the runtime_session_ref a finish stores on the lane
+// rides the next claim of that lane as TaskBundle.resume, unchanged.
+func TestResumeRefRidesNextClaim(t *testing.T) {
+	q, c, s := newQueue(t)
+	ctx := context.Background()
+	id := testdb.AddTask(t, q.DB, s, s.SessionID, t0)
+
+	bundles, err := q.Claim(ctx, s.RuntimeID.String(), 1, c.Now())
+	if err != nil || len(bundles) != 1 || bundles[0].Resume != nil {
+		t.Fatalf("first claim = %+v %v, want one bundle without resume", bundles, err)
+	}
+	ref := &contracts.RuntimeSessionRef{
+		RuntimeKind: contracts.RuntimeClaudeCode, AdapterVersion: "0.74.0",
+		SessionID: "acp-sess-42", CWD: "/work/lane", CreatedAt: t0.Add(time.Minute),
+	}
+	// attempt 1 dies retryably (max_attempts 3 → requeue as attempt 2) but had a live session.
+	final, err := q.Tasks.Finish(ctx, id, 1, contracts.Finish{Outcome: "failed", FailureKind: contracts.FailOther, StopReason: "crash", RuntimeSessionRef: ref})
+	if err != nil || final != tasks.Queued {
+		t.Fatalf("finish with ref = %s %v, want queued", final, err)
+	}
+	c.Advance(time.Second)
+	bundles, err = q.Claim(ctx, s.RuntimeID.String(), 1, c.Now())
+	if err != nil || len(bundles) != 1 || bundles[0].Task.ID != id.String() || bundles[0].Task.Attempt != 2 {
+		t.Fatalf("second claim = %+v %v, want attempt 2", bundles, err)
+	}
+	got := bundles[0].Resume
+	if got == nil || got.RuntimeKind != contracts.RuntimeClaudeCode || got.SessionID != "acp-sess-42" || got.CWD != "/work/lane" ||
+		got.AdapterVersion != "0.74.0" || !got.CreatedAt.Equal(ref.CreatedAt) {
+		t.Fatalf("bundle.resume = %+v, want %+v", got, ref)
+	}
+	if !bundles[0].Workdir.Reuse {
+		t.Fatalf("attempt 2 must reuse the workdir")
+	}
+}
