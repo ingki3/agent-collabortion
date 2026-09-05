@@ -34,6 +34,9 @@ var prdTables = []string{
 	"task_usage", "message", "hitl_request", "inbox_item", "artifact", "decision",
 	"activity_log", "workspace_settings", "test_chat",
 	"schema_migrations",
+	// 0002_p1_auth_and_stream.sql (G2 Q1 + daemon-protocol bookkeeping)
+	"user_session", "workspace_invite", "runtime_pairing", "session_subscription", "artifact_review",
+	"idempotency_key", "stream_event", "task_token", "daemon_command", "task_attempt",
 }
 
 // prdEnums pins every state set to the exact PRD labels (task item 2).

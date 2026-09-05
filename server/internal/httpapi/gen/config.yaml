@@ -1,0 +1,10 @@
+# oapi-codegen v2.8.0 config — regenerate with `go generate ./internal/httpapi/gen && sh scripts/gen_unimplemented.sh` (see gen.go).
+package: gen
+generate:
+  models: true
+  std-http-server: true
+  embedded-spec: false
+output: api.gen.go
+output-options:
+  skip-prune: false
+  nullable-type: true
