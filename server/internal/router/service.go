@@ -496,8 +496,8 @@ func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID u
 	}
 	var hitlID uuid.UUID
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO hitl_request (session_id, task_id, source, type, question, proposed_default, approver_spec, due_at, created_at)
-		VALUES ($1, NULL, 'system', 'approval', $2, NULL, 'director', $3, $4) RETURNING id`,
+		INSERT INTO hitl_request (session_id, task_id, source, type, question, proposed_default, approver_spec, purpose, due_at, created_at)
+		VALUES ($1, NULL, 'system', 'approval', $2, NULL, 'director', 'loop', $3, $4) RETURNING id`,
 		sessionID, "루프 상한("+v.Detail+")에 도달해 세션을 일시정지했습니다. 계속할까요?",
 		now.Add(24*time.Hour), now).Scan(&hitlID); err != nil {
 		return fmt.Errorf("router: loop hitl: %w", err)

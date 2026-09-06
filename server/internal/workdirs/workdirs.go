@@ -103,3 +103,32 @@ func max64(a, b int64) int64 {
 	}
 	return b
 }
+
+// MarkGCd closes the GC loop of daemon-protocol §6. The server issues
+// `gc {workdir_ids}`; the daemon deletes and reports; only then is the row
+// `deleted`. Nothing did that last step, so a directory the daemon had already
+// removed stayed `active` on S13 forever — and E6-03's "0개 남음" could never
+// become true no matter how well the daemon obeyed.
+//
+// Only rows the server actually asked for are touched: a directory that simply
+// stopped being reported (a machine unplugged, a partial report) is not
+// evidence of a deletion.
+func MarkGCd(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, presentWorkdirIDs []string, now time.Time) error {
+	if presentWorkdirIDs == nil {
+		presentWorkdirIDs = []string{}
+	}
+	_, err := q.Exec(ctx, `
+		UPDATE workdir SET status = 'deleted', updated_at = $3
+		WHERE status <> 'deleted'
+		  AND NOT (id::text = ANY($2))
+		  AND EXISTS (
+		        SELECT 1 FROM daemon_command c
+		        WHERE c.runtime_id = $1 AND c.type = 'gc'
+		          AND jsonb_typeof(c.payload->'workdir_ids') = 'array'
+		          AND jsonb_exists(c.payload->'workdir_ids', workdir.id::text))`,
+		runtimeID, presentWorkdirIDs, now)
+	if err != nil {
+		return fmt.Errorf("workdirs: mark gc'd: %w", err)
+	}
+	return nil
+}

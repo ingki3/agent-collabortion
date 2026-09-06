@@ -214,6 +214,11 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 	if err := tokens.ConsumeGCCommands(r.Context(), s.DB, d.RuntimeID, present, s.Clock.Now()); err != nil {
 		s.Log.Warn("consume gc commands", "err", err)
 	}
+	// The same report is the deletion receipt (§6): a workdir the server asked
+	// to collect and the daemon no longer lists is gone.
+	if err := workdirs.MarkGCd(r.Context(), s.DB, d.RuntimeID, present, s.Clock.Now()); err != nil {
+		s.Log.Warn("mark gc'd workdirs", "err", err)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

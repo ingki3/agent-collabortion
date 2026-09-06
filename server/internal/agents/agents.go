@@ -117,34 +117,320 @@ func (s *Service) Create(ctx context.Context, wsID, ownerID uuid.UUID, in gen.Ag
 	if err != nil {
 		return nil, fmt.Errorf("agents: insert: %w", err)
 	}
+	byName := map[string]uuid.UUID{}
+	ids := make([]uuid.UUID, len(in.Profiles))
 	for i, p := range in.Profiles {
 		isDefault := (p.IsDefault != nil && *p.IsDefault) || (defaults == 0 && i == 0)
-		opts := map[string]any{}
-		if p.Options != nil {
-			opts = *p.Options
-		}
-		env := map[string]string{}
-		if p.Env != nil {
-			env = *p.Env
-		}
-		args := []string{}
-		if p.Args != nil {
-			args = *p.Args
-		}
-		if _, err := tx.Exec(ctx, `
+		var pid uuid.UUID
+		if err := tx.QueryRow(ctx, `
 			INSERT INTO agent_profile (agent_id, name, runtime_kind, model, options, env, args, is_default, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
-			id, p.Name, string(p.RuntimeKind), p.Model, opts, env, args, isDefault, now); err != nil {
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9) RETURNING id`,
+			id, p.Name, string(p.RuntimeKind), p.Model, profileOptions(p.Options), profileEnv(p.Env), profileArgs(p.Args), isDefault, now).Scan(&pid); err != nil {
 			if isUnique(err) {
 				return nil, apperr.Validation(apperr.Field(fmt.Sprintf("profiles/%d/name", i), "duplicate", "profile names must be unique"))
 			}
 			return nil, fmt.Errorf("agents: insert profile: %w", err)
+		}
+		ids[i], byName[p.Name] = pid, pid
+	}
+	// S-24: the fallback link is a second pass because a profile may name one
+	// that is later in the same array (FR-1.7 `.agent.md` writes them in any
+	// order). Before this the INSERT column list simply had no
+	// fallback_profile_id, so BOTH contract fields were accepted and dropped:
+	// the API said yes and E8-08's alternate profile silently never existed.
+	for i, p := range in.Profiles {
+		target, err := resolveCreateFallback(p, byName, ids[i], i)
+		if err != nil {
+			return nil, err
+		}
+		if target == nil {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `UPDATE agent_profile SET fallback_profile_id = $2, updated_at = $3 WHERE id = $1`,
+			ids[i], *target, now); err != nil {
+			return nil, fmt.Errorf("agents: link fallback profile: %w", err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return s.Get(ctx, id, &ownerID)
+}
+
+// resolveCreateFallback picks the profile one AgentProfileCreate points at.
+// `fallback_profile_id` names it by id, `fallback_profile` by name inside the
+// same array; both must land on a profile of this agent, and never on itself
+// (the table's CHECK says the same thing, but a 500 is not an answer).
+func resolveCreateFallback(p gen.AgentProfileCreate, byName map[string]uuid.UUID, self uuid.UUID, i int) (*uuid.UUID, error) {
+	field := func(name, code, msg string) error {
+		return apperr.Validation(apperr.Field(fmt.Sprintf("profiles/%d/%s", i, name), code, msg))
+	}
+	var target *uuid.UUID
+	if p.FallbackProfileId.IsSpecified() && !p.FallbackProfileId.IsNull() {
+		id := uuid.UUID(p.FallbackProfileId.MustGet())
+		found := false
+		for _, v := range byName {
+			if v == id {
+				found = true
+			}
+		}
+		if !found {
+			return nil, field("fallback_profile_id", "not_found", "fallback_profile_id must be another profile of this agent")
+		}
+		target = &id
+	}
+	if p.FallbackProfile.IsSpecified() && !p.FallbackProfile.IsNull() {
+		name := p.FallbackProfile.MustGet()
+		id, ok := byName[name]
+		if !ok {
+			return nil, field("fallback_profile", "not_found", "no profile named "+name+" in this request")
+		}
+		target = &id
+	}
+	if target != nil && *target == self {
+		return nil, field("fallback_profile", "self_reference", "a profile cannot fall back to itself")
+	}
+	return target, nil
+}
+
+// CreateProfile is openapi createAgentProfile (FR-1.6, x-phase P2). Without it
+// a profile could only ever be created together with its agent, which is what
+// left a template-mapped agent with no way to acquire one (S-30).
+func (s *Service) CreateProfile(ctx context.Context, agentID uuid.UUID, in gen.AgentProfileCreate) (*gen.AgentProfile, error) {
+	var errs []apperr.FieldError
+	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 40 {
+		errs = append(errs, apperr.Field("name", "length", "name must be 1–40 characters"))
+	}
+	if strings.TrimSpace(in.Model) == "" {
+		errs = append(errs, apperr.Field("model", "required", "model is required"))
+	}
+	if !slices.Contains(v1RuntimeKinds, string(in.RuntimeKind)) {
+		errs = append(errs, apperr.Field("runtime_kind", "unsupported", "v1 runtimes are claude_code and hermes"))
+	}
+	if len(errs) > 0 {
+		return nil, apperr.Validation(errs...)
+	}
+	now := s.Clock.Now()
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+
+	existing, err := profileNames(ctx, tx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	fallback, err := resolveFallback(ctx, tx, agentID, uuid.Nil, in.FallbackProfileId, in.FallbackProfile, existing)
+	if err != nil {
+		return nil, err
+	}
+	isDefault := in.IsDefault != nil && *in.IsDefault
+	if isDefault {
+		if err := clearDefault(ctx, tx, agentID, now); err != nil {
+			return nil, err
+		}
+	}
+	var id uuid.UUID
+	err = tx.QueryRow(ctx, `
+		INSERT INTO agent_profile (agent_id, name, runtime_kind, model, options, env, args, is_default, fallback_profile_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10) RETURNING id`,
+		agentID, in.Name, string(in.RuntimeKind), in.Model, profileOptions(in.Options), profileEnv(in.Env), profileArgs(in.Args),
+		isDefault, fallback, now).Scan(&id)
+	if isUnique(err) {
+		return nil, apperr.Conflict("name_taken", "this agent already has a profile with that name")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("agents: create profile: %w", err)
+	}
+	out, err := LoadProfile(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// UpdateProfile is openapi updateAgentProfile — "프로파일 수정 · 기본 지정 ·
+// 폴백 지정" (FR-1.6, x-phase P2).
+func (s *Service) UpdateProfile(ctx context.Context, agentID, profileID uuid.UUID, in gen.AgentProfileUpdate) (*gen.AgentProfile, error) {
+	var errs []apperr.FieldError
+	if in.Name != nil && (strings.TrimSpace(*in.Name) == "" || len(*in.Name) > 40) {
+		errs = append(errs, apperr.Field("name", "length", "name must be 1–40 characters"))
+	}
+	if in.Model != nil && strings.TrimSpace(*in.Model) == "" {
+		errs = append(errs, apperr.Field("model", "required", "model cannot be empty"))
+	}
+	if in.RuntimeKind != nil && !slices.Contains(v1RuntimeKinds, string(*in.RuntimeKind)) {
+		errs = append(errs, apperr.Field("runtime_kind", "unsupported", "v1 runtimes are claude_code and hermes"))
+	}
+	if len(errs) > 0 {
+		return nil, apperr.Validation(errs...)
+	}
+	now := s.Clock.Now()
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+
+	var wasDefault bool
+	err = tx.QueryRow(ctx, `SELECT is_default FROM agent_profile WHERE id = $1 AND agent_id = $2 FOR UPDATE`, profileID, agentID).Scan(&wasDefault)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, apperr.NotFound("profile")
+	}
+	if err != nil {
+		return nil, err
+	}
+	set := []string{"updated_at = $2"}
+	args := []any{profileID, now}
+	add := func(col string, v any) {
+		args = append(args, v)
+		set = append(set, fmt.Sprintf("%s = $%d", col, len(args)))
+	}
+	if in.Name != nil {
+		add("name", *in.Name)
+	}
+	if in.RuntimeKind != nil {
+		add("runtime_kind", string(*in.RuntimeKind))
+	}
+	if in.Model != nil {
+		add("model", *in.Model)
+	}
+	if in.Options != nil {
+		add("options", *in.Options)
+	}
+	if in.Env != nil {
+		add("env", *in.Env)
+	}
+	if in.Args != nil {
+		add("args", *in.Args)
+	}
+	if in.FallbackProfileId.IsSpecified() {
+		if in.FallbackProfileId.IsNull() {
+			add("fallback_profile_id", nil)
+		} else {
+			fallback, err := resolveFallback(ctx, tx, agentID, profileID, in.FallbackProfileId, nullable.Nullable[string]{}, nil)
+			if err != nil {
+				return nil, err
+			}
+			add("fallback_profile_id", fallback)
+		}
+	}
+	if in.IsDefault != nil {
+		if *in.IsDefault {
+			if err := clearDefault(ctx, tx, agentID, now); err != nil {
+				return nil, err
+			}
+		} else if wasDefault {
+			// The partial unique index tolerates zero defaults; sessions do not
+			// — every participant is started on one (session_participant.
+			// profile_id). Dropping the only default here would leave the agent
+			// unusable with nothing saying so, so the caller names the new
+			// default instead.
+			return nil, apperr.Conflict("last_default",
+				"make another profile the default instead of clearing this one")
+		}
+		add("is_default", *in.IsDefault)
+	}
+	_, err = tx.Exec(ctx, "UPDATE agent_profile SET "+strings.Join(set, ", ")+" WHERE id = $1", args...)
+	if isUnique(err) {
+		return nil, apperr.Conflict("name_taken", "this agent already has a profile with that name")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("agents: update profile: %w", err)
+	}
+	out, err := LoadProfile(ctx, tx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// resolveFallback validates a fallback target against the agent's own
+// profiles. openapi updateAgentProfile: "`fallback_profile_id`는 같은
+// 에이전트의 다른 프로파일이어야 한다(`422`)" — a cross-agent id would make the
+// runtime fall back onto a profile nobody in this session may run.
+func resolveFallback(ctx context.Context, q db.DBTX, agentID, self uuid.UUID, byID nullable.Nullable[openapi_types.UUID], byNameField nullable.Nullable[string], names map[string]uuid.UUID) (*uuid.UUID, error) {
+	var target *uuid.UUID
+	if byID.IsSpecified() && !byID.IsNull() {
+		id := uuid.UUID(byID.MustGet())
+		var owner uuid.UUID
+		err := q.QueryRow(ctx, `SELECT agent_id FROM agent_profile WHERE id = $1`, id).Scan(&owner)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && owner != agentID) {
+			return nil, apperr.Validation(apperr.Field("fallback_profile_id", "not_found",
+				"fallback_profile_id must be another profile of this agent"))
+		}
+		if err != nil {
+			return nil, err
+		}
+		target = &id
+	}
+	if byNameField.IsSpecified() && !byNameField.IsNull() {
+		name := byNameField.MustGet()
+		id, ok := names[name]
+		if !ok {
+			return nil, apperr.Validation(apperr.Field("fallback_profile", "not_found",
+				"this agent has no profile named "+name))
+		}
+		target = &id
+	}
+	if target != nil && self != uuid.Nil && *target == self {
+		return nil, apperr.Validation(apperr.Field("fallback_profile_id", "self_reference",
+			"a profile cannot fall back to itself"))
+	}
+	return target, nil
+}
+
+func profileNames(ctx context.Context, q db.DBTX, agentID uuid.UUID) (map[string]uuid.UUID, error) {
+	rows, err := q.Query(ctx, `SELECT id, name FROM agent_profile WHERE agent_id = $1`, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		out[name] = id
+	}
+	return out, rows.Err()
+}
+
+// clearDefault unsets the agent's current default so the new one can take it.
+// The `agent_profile_one_default` partial unique index makes the order matter.
+func clearDefault(ctx context.Context, q db.DBTX, agentID uuid.UUID, now time.Time) error {
+	_, err := q.Exec(ctx, `UPDATE agent_profile SET is_default = false, updated_at = $2 WHERE agent_id = $1 AND is_default`, agentID, now)
+	return err
+}
+
+func profileOptions(v *map[string]any) map[string]any {
+	if v == nil {
+		return map[string]any{}
+	}
+	return *v
+}
+
+func profileEnv(v *map[string]string) map[string]string {
+	if v == nil {
+		return map[string]string{}
+	}
+	return *v
+}
+
+func profileArgs(v *[]string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return *v
 }
 
 // Update applies a partial AgentUpdate (P1: identity, instructions, respond_to).

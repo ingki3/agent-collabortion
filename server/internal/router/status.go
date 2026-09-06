@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
+	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/lanestate"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
@@ -74,18 +75,31 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 		}
 		s.publishLane(ctx, tx, laneID)
 	case "blocked":
-		delegator, err := delegatorOfLane(ctx, tx, laneID)
+		delegator, delegatorName, err := delegatorOfLane(ctx, tx, laneID)
 		if err != nil {
 			return nil, err
 		}
 		plan := PlanBlocked(delegator, note, uuid.New)
+		// S-27: the card names WHO is being asked. The web K3 badge reads
+		// message.mentions to render `질문 → @위임자` and fell back to a bare
+		// `질문` because the server posted the card with no mentions at all.
+		//
+		// This mention triggers nobody: the card is inserted here rather than
+		// through Post, so FR-3.3 never runs on it and the delegator's single
+		// wake-up below stays the only trigger (openapi setTaskStatus:
+		// "위임자를 즉시 깨운다(합류 아님)", once).
+		content, mentions := note, []gen.Mention{}
+		if delegator != nil {
+			content = note + "\n\n" + MentionLink(delegatorName, *delegator)
+			mentions = ParseMentions(content)
+		}
 		// The card IS the thread root: a status change alone gives the
 		// delegator nothing to reply to (리뷰#04-2). lane.blocked_note is only
 		// the last-value cache; the history lives in these messages.
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO message (id, session_id, author_type, author_id, content, source_task_id, kind, created_at)
-			VALUES ($1, $2, 'agent', $3, $4, $5, 'blocked_q', $6)`,
-			plan.QuestionCardID, sessionID, agentID, note, taskID, now); err != nil {
+			INSERT INTO message (id, session_id, author_type, author_id, content, mentions, source_task_id, kind, created_at)
+			VALUES ($1, $2, 'agent', $3, $4, $5, $6, 'blocked_q', $7)`,
+			plan.QuestionCardID, sessionID, agentID, content, mentions, taskID, now); err != nil {
 			return nil, fmt.Errorf("router: blocked question card: %w", err)
 		}
 		// The card is a message, so the timeline hears about it now rather than
@@ -103,8 +117,12 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 		if plan.DelegatorWoken {
 			// Immediate, not via the join: a question raised at minute 2 must
 			// not arrive forty minutes later behind the slowest sibling.
+			childName, err := agentDisplayName(ctx, tx, agentID)
+			if err != nil {
+				return nil, err
+			}
 			if err := s.wake(ctx, tx, sessionID, wsID, *plan.DelegatorAgentID, qid,
-				"위임한 작업에서 질문이 왔습니다. 이것은 질문 알림이며 합류가 아닙니다 — 답만 하고 턴을 끝내세요.", now); err != nil {
+				wakeOnBlocked(qid, note, childName, agentID), now); err != nil {
 				return nil, err
 			}
 		} else if director != nil {
@@ -147,19 +165,31 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 //	a RE-ENTRY completion tells whoever asked for the re-entry, which is
 //	usually not the delegator (scenario B: QA asked, Lead delegated).
 func (s *Service) afterLaneDone(ctx context.Context, tx pgx.Tx, sessionID, wsID, laneID, agentID uuid.UUID, triggerMsg *uuid.UUID, reentry int, director *uuid.UUID, now time.Time) error {
-	if reentry > 0 {
-		// The re-entry's author gets told. Leaving it to the agent's prompt
-		// means QA never learns Frontend produced a new diff (리뷰#04-5).
-		return s.notifyReentry(ctx, tx, sessionID, wsID, triggerMsg, director, now)
-	}
 	var delegTask *uuid.UUID
 	if err := tx.QueryRow(ctx, `SELECT delegated_from_task_id FROM lane WHERE id = $1`, laneID).Scan(&delegTask); err != nil {
 		return err
 	}
-	if delegTask == nil {
-		// Not a delegation: nobody is waiting for a bundle.
-		return s.notifyReentry(ctx, tx, sessionID, wsID, triggerMsg, director, now)
+	// S-31: these two questions are independent and used to share one branch.
+	// `reentry > 0` returned early, so a re-entered child that ended LAST in
+	// its delegation group completed the group without anyone asking whether
+	// the group was complete — join_fired_at stayed null and FR-6.5's bundle
+	// was lost silently. It is the easiest order to hit, because E3-05 exists
+	// to make the delegator answer the question FAST.
+	if reentry > 0 || delegTask == nil {
+		// The re-entry's author gets told. Leaving it to the agent's prompt
+		// means QA never learns Frontend produced a new diff (리뷰#04-5).
+		// A lane that is not a delegation has nobody waiting for a bundle
+		// either, so it takes the same path.
+		if err := s.notifyReentry(ctx, tx, sessionID, wsID, triggerMsg, director, now); err != nil {
+			return err
+		}
 	}
+	if delegTask == nil {
+		return nil
+	}
+	// Both notices can land on the same delegator. That is not two turns:
+	// wake() coalesces onto the lane's queued task (FR-3.4), so the delegator
+	// wakes once with both messages.
 	return s.maybeFireJoin(ctx, tx, sessionID, wsID, *delegTask, now)
 }
 
@@ -298,17 +328,52 @@ func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID, agentID,
 	return err
 }
 
-func delegatorOfLane(ctx context.Context, q pgx.Tx, laneID uuid.UUID) (*uuid.UUID, error) {
+// wakeOnBlocked is the system message the delegator wakes on (openapi
+// setTaskStatus, contracts PR #101). It used to be the first line alone, which
+// left the delegator with a notice it could not act on:
+//
+//   - the card id was missing, so there was nothing to thread the answer onto
+//     (E3-05 (3) asks the wake-up to QUOTE the card);
+//   - the question body was missing, so the delegator had to go find it while
+//     the join message carries it (§4.2) — the two paths disagreed;
+//   - and nothing said to mention the child. FR-3.3 rule 4 drops an agent's
+//     reply that mentions nobody, so a delegator that answers the way the
+//     first line asks is answering into the void: the child never wakes.
+func wakeOnBlocked(cardID uuid.UUID, note, childName string, childID uuid.UUID) string {
+	return "위임한 작업에서 질문이 왔습니다. 이것은 질문 알림이며 합류가 아닙니다 — 답만 하고 턴을 끝내세요.\n" +
+		"- 질문 카드: " + cardID.String() + "\n" +
+		"- 질문: " + note + "\n" +
+		"답은 그 카드에 스레드 답글(reply_to: " + cardID.String() + ")로 달고, 그 답글에서 자식 " +
+		MentionLink(childName, childID) + " 을(를) 멘션하세요 — " +
+		"멘션 없는 에이전트 메시지는 아무도 깨우지 않으므로(FR-3.3 규칙 4), 멘션이 없으면 자식이 재진입하지 않습니다."
+}
+
+// delegatorOfLane returns the agent that delegated this lane, with its display
+// name — the name is what the mention link on the question card shows (FR-3.2).
+func delegatorOfLane(ctx context.Context, q pgx.Tx, laneID uuid.UUID) (*uuid.UUID, string, error) {
 	var agent *uuid.UUID
+	var name string
 	err := q.QueryRow(ctx, `
-		SELECT d.agent_id FROM lane l JOIN task d ON d.id = l.delegated_from_task_id WHERE l.id = $1`, laneID).Scan(&agent)
+		SELECT d.agent_id, a.name FROM lane l
+		JOIN task d ON d.id = l.delegated_from_task_id
+		JOIN agent a ON a.id = d.agent_id
+		WHERE l.id = $1`, laneID).Scan(&agent, &name)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
+		return nil, "", nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return agent, nil
+	return agent, name, nil
+}
+
+// agentDisplayName reads one agent's display name for a mention link.
+func agentDisplayName(ctx context.Context, q pgx.Tx, agentID uuid.UUID) (string, error) {
+	var name string
+	if err := q.QueryRow(ctx, `SELECT name FROM agent WHERE id = $1`, agentID).Scan(&name); err != nil {
+		return "", err
+	}
+	return name, nil
 }
 
 func insertInbox(ctx context.Context, q pgx.Tx, wsID, userID uuid.UUID, typ, severity string, sessionID, refID uuid.UUID, now time.Time) error {
