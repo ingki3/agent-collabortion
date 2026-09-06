@@ -11,6 +11,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
+	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
@@ -578,6 +579,16 @@ func (s *Server) SetTaskStatus(w http.ResponseWriter, r *http.Request, taskId ge
 		"task":     tasks.ToAPI(task, nil, nil),
 		"lane":     lane,
 		turnEndKey: res.TurnEndRequired,
+	}
+	if in.Status == "blocked" {
+		// E7-19: `status set blocked` and `hitl ask` are two escalation paths,
+		// and the server follows the one the agent actually took. Routing a
+		// blocked to the Director because "the question is for a human" would
+		// make FR-6.2.1's immediate delegator wake unobservable, and the agent
+		// that picked the wrong path would get no signal that it did.
+		esc := hitl.PlanEscalation("blocked", derefUUID(res.DelegatorAgentID))
+		body[turnEndKey] = res.TurnEndRequired && esc.TurnEndRequired
+		body["escalation_path"] = esc.Path
 	}
 	if res.QuestionMessageID != nil {
 		body["question_message_id"] = res.QuestionMessageID.String()

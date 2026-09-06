@@ -89,15 +89,18 @@ chk_in "B 가 A 의 워크스페이스에 팀 생성 차단" "403 404" "$(curl -
 
 echo
 echo "▶ D3. 501 표면 (P1 밖 operation 은 501, 5xx 아님)"
-chk "restartLane 501"                      501 "$(ucode -X POST "$API/lanes/00000000-0000-0000-0000-000000000000/restart" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" --data '{"content":"x"}')"
+# T-S5(P3): restartLane · listInbox · listHitlRequests 는 더 이상 501 이 아니다.
+# 501 이 사라졌다는 것 자체가 DoD 이므로 줄을 지우지 않고 기대값을 바꾼다 —
+# 없는 lane 은 404(존재를 알려 주지 않는다), 인박스와 HITL 목록은 200.
+chk "restartLane 은 더 이상 501 이 아니다"  404 "$(ucode -X POST "$API/lanes/00000000-0000-0000-0000-000000000000/restart" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" --data '{"content":"x"}')"
 # previewTriggers 는 T-S2 에서 구현됐다(FR-3.6). 501 이 아니라 200 이고, 무엇보다
 # **아무것도 쓰지 않아야** 한다 — 미리보기가 task 를 만들면 미리보기가 아니다.
 N_BEFORE="$(psqlq "select count(*) from task where session_id='$SESSION'")"
 chk "previewTriggers 200"                  200 "$(ucode -X POST "$API/sessions/$SESSION/messages/preview" -H 'Content-Type: application/json' --data '{"content":"x"}')"
 N_AFTER="$(psqlq "select count(*) from task where session_id='$SESSION'")"
 chk "previewTriggers 는 task 를 만들지 않는다" "$N_BEFORE" "$N_AFTER"
-chk "listInbox 501"                        501 "$(ucode "$API/inbox")"
-chk "listHitlRequests 501"                 501 "$(ucode "$API/sessions/$SESSION/hitl-requests")"
+chk "listInbox 는 더 이상 501 이 아니다"    200 "$(ucode "$API/inbox")"
+chk "listHitlRequests 는 더 이상 501 이 아니다" 200 "$(ucode "$API/sessions/$SESSION/hitl-requests")"
 # T-S4(G4): 아래 넷은 어제까지 501 이었다. 501 이 아니라는 것 자체가 DoD 다 —
 # S7 좌열·S6 4단계·S9 팀 템플릿이 실서버에서 빈 화면이던 이유가 이 셋이다.
 chk "listLanes 는 더 이상 501 이 아니다"    200 "$(ucode "$API/sessions/$SESSION/lanes")"
@@ -267,6 +270,7 @@ echo
 echo "▶ D11. P2 operation 경계 (T-S2: lane · previewTriggers · pause/resume · delegateLane · decision · listParticipants)"
 # 구현된 operation 은 그 순간부터 **권한 검사**가 있어야 한다 — 501 은 권한 검사였던 적이 없다(D3 의 S-12 와 같은 이유).
 # 아직 안 켠 것은 501 을 허용값에 둔다. 켜는 PR 이 이 줄에서 501 을 빼면 그때부터 경계가 검사된다.
+# T-S5(P3)가 lane tasks·restart·pause·resume·cost 를 켰으므로 그 다섯 줄에서 501 을 뺐다.
 #   x-phase P3(아직): listLaneTasks · restartLane · pauseSession · resumeSession · getSessionCost
 #   x-phase P2 인데 501(= 결함, G4_REPORT S-6): listLanes
 B_LANE="$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/lanes")"
@@ -275,17 +279,17 @@ B_LANE="$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SES
 chk_in "B 가 A 의 lane 목록 차단"          "403 404" "$B_LANE"
 LANE_A="$(psqlq "select id from lane where session_id='$SESSION' order by created_at limit 1")"
 if [ -n "${LANE_A:-}" ]; then
-  chk_in "B 가 A 의 lane task 이력 차단 (P3)"  "403 404 501" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/lanes/$LANE_A/tasks")"
+  chk_in "B 가 A 의 lane task 이력 차단 (P3)"  "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/lanes/$LANE_A/tasks")"
   chk_in "B 가 A 의 lane 중단 차단"            "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -X POST "$API/lanes/$LANE_A/cancel")"
-  chk_in "B 가 A 의 lane 재지시 차단 (P3)"     "403 404 501" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -X POST "$API/lanes/$LANE_A/restart" --data '{"content":"x"}')"
+  chk_in "B 가 A 의 lane 재지시 차단 (P3)"     "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -X POST "$API/lanes/$LANE_A/restart" --data '{"content":"x"}')"
   chk_in "종료된 lane 중단은 409"              "409 404" "$(ucode -X POST "$API/lanes/$LANE_A/cancel")"
 fi
 chk_in "B 가 A 의 트리거 미리보기 차단"        "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/messages/preview" --data '{"content":"x"}')"
 chk "쿠키 없이 미리보기 401"                   401 "$(code -X POST "$API/sessions/$SESSION/messages/preview" -H 'Content-Type: application/json' --data '{"content":"x"}')"
-chk_in "B 가 A 의 세션 일시정지 차단 (P3)"     "403 404 501" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -X POST "$API/sessions/$SESSION/pause")"
-chk_in "B 가 A 의 세션 재개 차단 (P3)"         "403 404 501" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/resume" --data '{}')"
+chk_in "B 가 A 의 세션 일시정지 차단 (P3)"     "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -X POST "$API/sessions/$SESSION/pause")"
+chk_in "B 가 A 의 세션 재개 차단 (P3)"         "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/resume" --data '{}')"
 chk_in "B 가 A 의 결정 기록 목록 차단"         "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/decisions")"
-chk_in "B 가 A 의 비용 조회 차단 (P3)"         "403 404 501" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/cost")"
+chk_in "B 가 A 의 비용 조회 차단 (P3)"         "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/cost")"
 # delegateLane · recordDecision 은 **TaskToken 전용**(openapi security). 사람 쿠키가 통과하면
 # 누구나 결정 기록을 위조할 수 있다 — 그것도 `source: hitl` 로(사람이 HITL 로 답한 것처럼).
 chk_in "사람 쿠키의 lane 위임 차단"            "401 403" "$(ucode -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/lanes" --data '{"agent":"X","brief":"b"}')"

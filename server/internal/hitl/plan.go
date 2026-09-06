@@ -419,11 +419,22 @@ type ConcurrencyPlan struct {
 	SlotsUsed int
 }
 
-// PlanConcurrency is the slot rule.
+// OccupyingStatuses lists the task statuses that hold a concurrency slot
+// (FR-6.3's four limits). `waiting_human` and `blocked` are absent on purpose:
+// both processes have already exited, so holding a slot for them stalls the
+// session while nothing runs — a question held for 24h would otherwise spend a
+// slot for 24h (FR-5.4, t-1).
 //
-// Production caller: queue/postgres.go's claim query, whose in-flight count
-// excludes waiting_human — this function is the definition that query encodes
-// and the golden checks.
+// Production caller: queue.Postgres.Claim, whose `busy` set is this list.
+func OccupyingStatuses() []string {
+	return []string{"dispatched", "preparing", "running"}
+}
+
+// PlanConcurrency is the slot rule, stated as a count so the golden can check
+// it: a session with one waiting_human lane and one running lane uses ONE slot.
+//
+// Production caller: queue.Postgres.Claim through OccupyingStatuses — the
+// claim query counts exactly the statuses that function names.
 func PlanConcurrency(waitingHuman, running int) ConcurrencyPlan {
 	return ConcurrencyPlan{
 		SessionState: "active", OtherLaneRuns: running > 0, SlotsUsed: running,

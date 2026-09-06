@@ -27,6 +27,10 @@ type StatusResult struct {
 	// kind ↔ runtime_kind collision failed every finish for the same reason).
 	TurnEndRequired   bool
 	QuestionMessageID *uuid.UUID
+	// DelegatorAgentID is who `blocked` woke, or nil when there was no
+	// delegator and the question went to the Director instead. It is returned
+	// so the caller can name the escalation path it took (E7-19).
+	DelegatorAgentID *uuid.UUID
 }
 
 // SetAgentStatus is FR-7.4's `colab status set working|blocked|done`.
@@ -116,6 +120,7 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 		out.QuestionMessageID, out.TurnEndRequired = &qid, true
 
 		if plan.DelegatorWoken {
+			out.DelegatorAgentID = plan.DelegatorAgentID
 			// Immediate, not via the join: a question raised at minute 2 must
 			// not arrive forty minutes later behind the slowest sibling.
 			childName, err := agentDisplayName(ctx, tx, agentID)
