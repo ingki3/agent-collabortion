@@ -160,6 +160,15 @@ DoD: typecheck·test·build 초록, 컴포넌트 테스트 신규 5개 이상, C
      `e2e/p1/07_adversarial.sh`에 P2 operation 행을 **추가**한다(경계는 늘 때마다 늘린다).
 ```
 
+**e2e에서만 확인할 수 있는 항목 (PR #54 리뷰에서 이월).** acpfake 계약 테스트가 원리적으로 증명할 수 없는 것들이라 여기서 받는다 — fake는 구현의 가정을 공유하므로 "데몬이 보냈다"까지만 증명하고 "런타임이 존중한다"는 증명하지 못한다.
+
+| # | 항목 | 왜 fake로는 불가능한가 |
+|---|---|---|
+| **S3** | 실제 `disallowedTools`가 런타임에서 **효력**이 있는가 | `acpfake`가 이 PR에서 필터를 해석하도록 함께 바뀌었다 — fake와 구현이 같은 가정을 공유한다. 실제 어댑터가 무시하면 테스트는 통과한 채 `tool_disallow=true`를 오보한다 |
+| **S4** | Hermes 250ms 정적 대기가 **실기의** 늦은 청크를 잡는가 | fake는 지연을 스크립트로 흉내낸다 |
+
+나머지 스모크 항목(S1 세션 보존·S2 어댑터 버전 핀·S5 `colab --version`)은 **2026-09-06 Lead가 실기로 확인해 닫았다**(PR #54 코멘트: 두 런타임 PONG 완료, `resume`·`usage` 실측 true, `tool_disallow`가 claude true / hermes false로 갈림, `adapter_version = 0.74.0` = 핀).
+
 ---
 
 ## 4. 배포 전 필수 (P2 안에 반드시)
