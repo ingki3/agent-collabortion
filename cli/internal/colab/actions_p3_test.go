@@ -1,11 +1,11 @@
 package colab_test
 
-// Contract tests for the P3 HITL commands (contracts/colab-cli.md §2.4,
-// openapi.yaml createHitlRequest): the body each command builds, the
-// client-side flag checks that spare the agent a round trip, and how the
-// second open request on a task reaches the agent. EVAL rows are named on
-// each test. The server's handler is still 501 (T-S5) — the contract, served
-// by clienttest, is the reference.
+// Contract tests for the P3 HITL commands (contracts/colab-cli.md v0.5.1
+// §2.4, openapi.yaml createHitlRequest): the request line, the body each
+// command builds, the client-side flag checks that spare the agent a round
+// trip, and how the second open request on a task reaches the agent. EVAL
+// rows are named on each test; the contract, served by clienttest, is the
+// reference.
 
 import (
 	"context"
@@ -31,6 +31,11 @@ func TestHitlAskQuestion(t *testing.T) {
 		t.Fatalf("hitl calls = %d, want 1", len(s.HitlCalls))
 	}
 	call := s.HitlCalls[0]
+	// The path is the session's (openapi createHitlRequest); the task rides in
+	// the token, which is why nothing on this call names it.
+	if call.SessionID != clienttest.SessionID {
+		t.Fatalf("session = %q, want the env's session %q", call.SessionID, clienttest.SessionID)
+	}
 	if call.TaskID != clienttest.TaskID {
 		t.Fatalf("task = %q, want the token's task", call.TaskID)
 	}
@@ -281,11 +286,74 @@ func TestHitlIsOneRequest(t *testing.T) {
 		colab.HitlAskArgs{Question: "독자?", Default: "투자자"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(s.Requests) != 1 || !strings.HasSuffix(s.Requests[0].URL.Path, "/hitl") {
+	want := "/sessions/" + clienttest.SessionID + "/hitl-requests"
+	if len(s.Requests) != 1 || !strings.HasSuffix(s.Requests[0].URL.Path, want) {
 		paths := make([]string, 0, len(s.Requests))
 		for _, r := range s.Requests {
 			paths = append(paths, r.URL.Path)
 		}
-		t.Fatalf("requests = %v, want the POST /tasks/{T}/hitl alone", paths)
+		t.Fatalf("requests = %v, want the POST %s alone", paths, want)
+	}
+}
+
+// C-4 (found by T-I3): the three HITL commands used to POST
+// /v1/tasks/{T}/hitl, a path openapi.yaml has never had — every registration
+// 404'd against the real server, and the mock the smoke ran against was
+// written from the same wrong table row, so nothing caught it.
+//
+// This is the regression: it asserts the ONE thing the fake cannot fake — the
+// request line — against openapi createHitlRequest, for all three commands.
+// Point the client back at /tasks/{T}/hitl and it fails here first.
+func TestHitlPathIsSessionScoped(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		call func(context.Context, *client.Client) error
+	}{
+		{"ask", func(ctx context.Context, c *client.Client) error {
+			_, err := colab.HitlAsk(ctx, c, colab.HitlAskArgs{Question: "독자?", Default: "투자자"})
+			return err
+		}},
+		{"approve-request", func(ctx context.Context, c *client.Client) error {
+			_, err := colab.HitlApproveRequest(ctx, c, colab.HitlApproveRequestArgs{Summary: "배포?"})
+			return err
+		}},
+		{"request-info", func(ctx context.Context, c *client.Client) error {
+			_, err := colab.HitlRequestInfo(ctx, c, colab.HitlRequestInfoArgs{What: "API 키"})
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := clienttest.New(t)
+			if err := tc.call(context.Background(), newClient(t, s)); err != nil {
+				t.Fatal(err)
+			}
+			got := s.Requests[len(s.Requests)-1]
+			want := "/api/v1/sessions/" + clienttest.SessionID + "/hitl-requests"
+			if got.Method != "POST" || got.URL.Path != want {
+				t.Fatalf("%s %s, want POST %s (openapi createHitlRequest)", got.Method, got.URL.Path, want)
+			}
+			if strings.Contains(got.URL.Path, "/tasks/") {
+				t.Fatalf("path is task-scoped again: %s (C-4)", got.URL.Path)
+			}
+		})
+	}
+}
+
+// --session / the `session` tool argument overrides COLAB_SESSION_ID, the way
+// every other session-scoped command's flag does. The task is NOT overridable
+// any more: the token names it.
+func TestHitlSessionOverride(t *testing.T) {
+	s := clienttest.New(t)
+	other := "77777777-7777-4777-8777-777777777777"
+	_, err := colab.HitlAsk(context.Background(), newClient(t, s), colab.HitlAskArgs{
+		Session: other, Question: "독자?", Default: "투자자",
+	})
+	// The fake's token scopes another session → 403, but the point is the
+	// path: the flag reached the request line.
+	if err == nil {
+		t.Fatal("want the fake's 403 for a foreign session")
+	}
+	if len(s.HitlCalls) != 1 || s.HitlCalls[0].SessionID != other {
+		t.Fatalf("calls = %+v, want one on session %s", s.HitlCalls, other)
 	}
 }

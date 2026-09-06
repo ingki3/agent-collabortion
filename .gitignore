@@ -36,3 +36,5 @@ plan/spikes/*/out/
 cookies*.txt
 # P3 E2E 산출물(목 서버 캡처·래퍼 — 래퍼는 토큰을 담는다)
 e2e/p3/out/
+# 41_cli_hitl_real.sh 의 실서버 산출물(진짜 ctk_ 토큰·쿠키·claim 응답)
+e2e/p3/out-real/
