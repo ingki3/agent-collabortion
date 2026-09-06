@@ -5,6 +5,11 @@
 // GET/POST /sessions/{S}/messages with Idempotency-Key replay. CliContext
 // carries `attempt` and `last_seq` (v0.2) so tests can drive an attempt
 // boundary (E8-04).
+//
+// The P2 operations (lane delegate · status set · decision record ·
+// artifact submit/get · review approve/reject) live in p2.go. The fake is
+// written from contracts/openapi.yaml, not from the server — those handlers
+// are still 501 while T-S2 fills them in, and the contract is the reference.
 package clienttest
 
 import (
@@ -47,6 +52,7 @@ type Posted struct {
 // Server is the fake. Mutate the exported fields before the request under test.
 type Server struct {
 	*httptest.Server
+	p2State  // P2 knobs and captures — see p2.go
 	mu       sync.Mutex
 	Revoked  bool // every authed call → 401 token_revoked
 	Fail     int  // if >0, every call returns this status with a Problem
@@ -59,7 +65,14 @@ type Server struct {
 	Requests []*http.Request // every request seen (auth header preserved)
 	Seq      int
 	Messages []map[string]any
+
+	release     chan struct{} // closed at cleanup to free blocked handlers
+	releaseOnce sync.Once
 }
+
+// Release returns the channel a blocking handler waits on alongside the
+// request context, so cleanup can never deadlock on it.
+func (s *Server) Release() <-chan struct{} { return s.release }
 
 // New starts the fake server; it is closed on test cleanup.
 func New(t interface {
@@ -68,8 +81,13 @@ func New(t interface {
 }) *Server {
 	t.Helper()
 	s := &Server{ByKey: map[string]Posted{}, Prefix: "/api/v1", Attempt: Attempt}
+	s.release = make(chan struct{})
 	s.Server = httptest.NewServer(http.HandlerFunc(s.handle))
 	t.Cleanup(s.Close)
+	// Registered after Close, so it runs *before* it (Cleanup is LIFO): a
+	// deliberately blocked handler (HangBody · HangHeaders) has to return
+	// before httptest.Server.Close, which waits for outstanding requests.
+	t.Cleanup(func() { s.releaseOnce.Do(func() { close(s.release) }) })
 	return s
 }
 
@@ -110,6 +128,14 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.HangBody || s.HangHeaders || s.ChunkDelay > 0 {
+		// Slow or blocking handlers must not hold the fake's lock.
+		s.mu.Unlock()
+		defer s.mu.Lock()
+	}
+	if s.handleP2(w, r, path) {
+		return
+	}
 	switch {
 	case r.Method == "GET" && path == "/cli/context":
 		writeJSON(w, 200, map[string]any{
