@@ -18,6 +18,9 @@ CFG="$OUT/daemon-u1.json"; WORK="$OUT/work-u1"; DLOG="$OUT/daemon-u1.log"
 STEPS="$OUT/d-steps.tsv"; echo -e "step\tscreen\texpected\tresult\tnote" > "$STEPS"
 export AGENT_BROWSER_SESSION="colab-p1-u1-${STAMP}"
 ab() { agent-browser "$@"; }
+# abget — 없을 수 있는 요소를 읽는다. lib.sh 의 `set -euo pipefail` 아래에서는 `ab get … | tr` 의
+# 첫 단 실패가 대입문을 실패시켜 스크립트를 죽인다(2026-09-06: 서버가 고쳐져 오류 요소가 사라지자 걸렸다).
+abget() { agent-browser "$@" 2>/dev/null || true; }
 shot() { ab screenshot "$SHOT_DIR/$1.png" >/dev/null; log "📸 $SHOT_DIR/$1.png"; }
 shot_full() { ab screenshot "$SHOT_DIR/$1.png" --full >/dev/null; log "📸 $SHOT_DIR/$1.png (full)"; }
 rec() { echo -e "$1\t$2\t$3\t$4\t${5:-}" >> "$STEPS"; [ "$4" = PASS ] && ok "U1-$1 $3" || bad "U1-$1 $3 — $4 ${5:-}"; }
@@ -126,32 +129,32 @@ ab fill '[data-testid="session-title"]' "결제 시장 조사" >/dev/null
 ab fill '[data-testid="session-goal"]' "국내 B2B SaaS 결제 시장 조사 보고서 10페이지" >/dev/null
 shot p1-u1-07-s6-goal
 sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 2 Director
-wait_sel '[data-testid="wizard-director"]' 10
-DIR="$(ab get text '[data-testid="wizard-director"]' 2>/dev/null | tr '\n' ' ')"
+wait_sel '[data-testid="wizard-director"]' 10 || bad "마법사 'wizard-director' 단계로 넘어가지 못함"
+DIR="$(abget get text '[data-testid="wizard-director"]' | tr '\n' ' ')"
 grep -q "$NAME" <<<"$DIR" && rec 8 S6-2 "Director=본인, deputy 비움" PASS "$(head -c 80 <<<"$DIR")" || rec 8 S6-2 "Director=본인" FAIL "$(head -c 80 <<<"$DIR")"
 sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 3 격리
-wait_sel '[data-testid="wizard-isolation"]' 10
-ISO="$(ab get text '[data-testid="wizard-isolation"]' 2>/dev/null | tr '\n' ' ')"
+wait_sel '[data-testid="wizard-isolation"]' 10 || bad "마법사 'wizard-isolation' 단계로 넘어가지 못함"
+ISO="$(abget get text '[data-testid="wizard-isolation"]' | tr '\n' ' ')"
 grep -q "none" <<<"$ISO" && grep -q "worktree" <<<"$ISO" && rec 9 S6-3 "격리 none 기본, worktree 는 저장소 필요 설명" PASS "$(head -c 80 <<<"$ISO")" || rec 9 S6-3 "격리 none 기본" FAIL "$(head -c 80 <<<"$ISO")"
 sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 4 런타임
-wait_sel '[data-testid="wizard-runtime"]' 10
+wait_sel '[data-testid="wizard-runtime"]' 10 || bad "마법사 'wizard-runtime' 단계로 넘어가지 못함"
 sleep 2
 RTAUTO="$(ab get count '[data-testid="runtime-auto"]' 2>/dev/null || echo 0)"
 RTCAND="$(ab get count '[data-testid="runtime-candidate"]' 2>/dev/null || echo 0)"
-RTERR="$(ab get text '[data-testid="new-session-error"]' 2>/dev/null | tr '\n' ' ' | head -c 90)"
+RTERR="$(abget get text '[data-testid="new-session-error"]' | tr '\n' ' ' | head -c 90)"
 if [ "${RTAUTO:-0}" -ge 1 ] && [ "${RTCAND:-0}" -ge 1 ]; then
   rec 10 S6-4 "런타임 자동 선택 기본 + 방금 연결한 노트북 1대" PASS "auto=$RTAUTO candidates=$RTCAND"
 else rec 10 S6-4 "런타임 자동 선택 + 1대" FAIL "auto=${RTAUTO:-0} candidates=${RTCAND:-0} error='$RTERR'"; fi
 sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 5 참여자
-wait_sel '[data-testid="wizard-participants"]' 10
-PART="$(ab get text '[data-testid="wizard-participants"]' 2>/dev/null | tr '\n' ' ')"
+wait_sel '[data-testid="wizard-participants"]' 10 || bad "마법사 'wizard-participants' 단계로 넘어가지 못함"
+PART="$(abget get text '[data-testid="wizard-participants"]' | tr '\n' ' ')"
 grep -q "assignee" <<<"$PART" && rec 11 S6-5 "참여자 체크됨, assignee=Lead" PASS "$(head -c 80 <<<"$PART")" || rec 11 S6-5 "참여자·assignee" FAIL "$(head -c 80 <<<"$PART")"
 # 참여자를 하나도 고르지 않으면 다음 버튼이 잠긴다(마법사가 그렇게 막는다) — Lead 를 고르고 assignee 로 둔다.
 ab click '[data-testid="participant-option"] input[type=checkbox]' >/dev/null 2>&1 || true
 ab click '[data-testid="participant-option"] [data-testid="assignee-radio"]' >/dev/null 2>&1 || true
 sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 6 종료 조건
-wait_sel '[data-testid="wizard-conditions"]' 10 || rec 12 S6-6 "6단계(종료 조건)로 이동" FAIL "blocked='$(ab get text '[data-testid="wizard-blocked"]' 2>/dev/null | head -c 60)'"
-COND="$(ab get text '[data-testid="wizard-conditions"]' 2>/dev/null | tr '\n' ' ')"
+wait_sel '[data-testid="wizard-conditions"]' 10 || rec 12 S6-6 "6단계(종료 조건)로 이동" FAIL "blocked='$(abget get text '[data-testid="wizard-blocked"]' | head -c 60)'"
+COND="$(abget get text '[data-testid="wizard-conditions"]' | tr '\n' ' ')"
 grep -q "아티팩트 제출" <<<"$COND" && grep -q "승인" <<<"$COND" && rec 12 S6-6 "종료 조건 기본값: 아티팩트 제출 AND Director 승인" PASS "$(head -c 90 <<<"$COND")" || rec 12 S6-6 "종료 조건 기본값" FAIL "$(head -c 90 <<<"$COND")"
 sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 7 한도·요약
 wait_sel '[data-testid="wizard-summary"]' 10 || bad "7단계(한도·요약) 미도달"

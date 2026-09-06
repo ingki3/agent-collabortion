@@ -10,23 +10,33 @@ source "$(dirname "$0")/lib.sh"
 trap '[ -f "$OUT/daemon-demo.pid" ] && kill -TERM -- "-$(cat "$OUT/daemon-demo.pid")" 2>/dev/null; true' EXIT
 STAMP="$(date +%s)"
 MOCK_PORT="${MOCK_PORT:-3111}"
-DEMO_EMAIL="${E2E_EMAIL:-demo@colab.dev}"; DEMO_PW="${E2E_PASSWORD:-password123}"
+# **실행마다 새 계정**을 쓴다. 목은 `/__mock/reset` 으로 초기화되지만 실서버에는 그런 것이 없어
+# 한 계정을 재사용하면 자국이 쌓인다 — p2-mock.sh 가 마지막에 켜는 킬 스위치, 매번 3명씩 늘어나는
+# 템플릿 에이전트, 죽은 런타임. 그 상태에서 `agents[0:2]` 가 무엇을 고를지는 실행마다 달라진다
+# (2026-09-06 실측: 두 번째 실행부터 세션 생성이 403 not_invitable, 매핑이 unmapped).
+DEMO_EMAIL="${E2E_EMAIL:-demo+$STAMP@colab.dev}"; DEMO_PW="${E2E_PASSWORD:-password123}"
 
 step "1. 실서버에 데모 계정·워크스페이스 준비 (p2-mock.sh 가 그 계정으로 로그인한다)"
 COOKIE="$OUT/cookies-demo.txt"; rm -f "$COOKIE"
 if ! login "$DEMO_EMAIL" "$DEMO_PW" 2>/dev/null; then
   signup "$DEMO_EMAIL" "$DEMO_PW" "데모" >/dev/null
 fi
-WSN="$(api_ok GET /workspaces | jq 'length')"
-if [ "$WSN" = 0 ]; then create_workspace "Demo $STAMP" >/dev/null; fi
+if [ "$(api_ok GET /workspaces | jq 'length')" = 0 ]; then create_workspace "Demo $STAMP" >/dev/null; fi
 WS="$(api_ok GET /workspaces | jq -r '.[0].id')"
 # 목은 워크스페이스에 런타임 1대와 에이전트 3명을 이미 갖고 있다. 실서버에는 없으므로 같은 출발선을 만들어 준다 —
 # 그러지 않으면 첫 행(agent-templates)에서 무너져 뒤의 30행이 전부 "빈 문자열" 이 되고, 무엇이 진짜 갈린 지점인지 안 보인다.
-if [ "$(api_ok GET "/workspaces/$WS/runtimes" | jq 'length')" = 0 ]; then
+# 목은 `/__mock/reset` 으로 매 실행 초기화된다. 실서버에는 그런 것이 없어 **이전 실행의 자국**이 남는다 —
+# p2-mock.sh 는 마지막에 킬 스위치(respond_to: nobody)를 켜고 끄지 않으므로, 두 번째 실행은 세션 생성에서
+# 403 not_invitable 로 무너진다(2026-09-06 실측). 실행 전에 이 워크스페이스의 자국을 되돌린다.
+# 런타임이 **온라인**이어야 한다 — 템플릿 매핑이 probe 의 모델 목록을 읽는다(offline 이면 unmapped).
+if [ "$(api_ok GET "/workspaces/$WS/runtimes" | jq '[.[]|select(.status=="online")]|length')" = 0 ]; then
   read -r PID_ PTOK <<<"$(create_pairing "$WS" | tr '\t' ' ')"
   rm -f "$OUT/daemon-demo.json"; mkdir -p "$OUT/work-demo"
-  COLAB_DAEMON_CONFIG="$OUT/daemon-demo.json" "$BIN/daemon" pair "$PTOK" --server "$SERVER_URL" --workdir-root "$OUT/work-demo" --no-turn 2>&1 | tail -1 >&2
-  daemon_start "$OUT/daemon-demo.json" "$OUT/daemon-demo.log" > "$OUT/daemon-demo.pid"
+  COLAB_DAEMON_CONFIG="$OUT/daemon-demo.json" "$BIN/daemon" pair "$PTOK" --server "$SERVER_URL" --workdir-root "$OUT/work-demo" 2>&1 | tail -1 >&2   # PONG 턴을 돈다: models 가 있어야 템플릿 매핑이 mapped
+  # **PONG 턴을 도는 daemon_start_p2 여야 한다.** `--no-turn` 으로 띄우면 capabilities[].models 가
+  # 빈 배열로 덮이고, 그러면 팀 템플릿 매핑이 unmapped → apply 가 프로파일 없는 에이전트를 만들고
+  # → 세션 생성이 422 no_profile 로 무너져 뒤의 20행이 전부 무의미해진다(G4_REPORT S-12·D-2).
+  daemon_start_p2 "$OUT/daemon-demo.json" "$OUT/daemon-demo.log" > "$OUT/daemon-demo.pid"
   wait_pairing "$WS" "$PID_" 90 || bad "pairing not ready"
 fi
 if [ "$(api_ok GET "/workspaces/$WS/agents" | jq '(.items // .)|length')" -lt 2 ]; then

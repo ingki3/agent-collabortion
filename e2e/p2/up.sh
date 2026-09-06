@@ -26,11 +26,21 @@ if curl -fsS "$SERVER_URL/healthz" >/dev/null 2>&1; then ok "server already up (
   curl -fsS "$SERVER_URL/healthz" >/dev/null || die "server did not start (see $OUT/server.log)"
   ok "server pid $(cat "$OUT/server.pid")"
 fi
+# WEB_MODE=build(기본) → `next build` + `next start`. dev 서버는 요청이 오는 도중에 빌드 산출물을
+# 다시 쓰다가 `ENOENT … .next/server/app/(app)/sessions/page.js` 로 라우트를 통째로 죽인다 —
+# 2026-09-06 회귀에서 04·06 이 이것 때문에 죽었고, 그때마다 "브라우저가 하이드레이트를 못 한다" 처럼 보인다.
+# e2e 는 결정적이어야 하므로 프로덕션 빌드를 쓴다. 빠른 반복이 필요하면 WEB_MODE=dev.
+WEB_MODE="${WEB_MODE:-build}"
 if curl -fsS -o /dev/null "$WEB_URL/login" 2>/dev/null; then ok "web already up ($WEB_URL)"; else
-  step "web $WEB_URL (next dev, /api/v1 → $SERVER_URL)"
+  step "web $WEB_URL (next $WEB_MODE, /api/v1 → $SERVER_URL)"
   [ -d web/node_modules ] || (cd web && npm install --no-audit --no-fund >/dev/null)
-  (cd web && COLAB_SERVER_URL="$SERVER_URL" setsid_run "$OUT/web.log" npx next dev -p "$WEB_PORT") > "$OUT/web.pid"
+  if [ "$WEB_MODE" = build ]; then
+    (cd web && COLAB_SERVER_URL="$SERVER_URL" npx next build >"$OUT/web-build.log" 2>&1) || die "next build 실패 (see $OUT/web-build.log)"
+    (cd web && COLAB_SERVER_URL="$SERVER_URL" setsid_run "$OUT/web.log" npx next start -p "$WEB_PORT") > "$OUT/web.pid"
+  else
+    (cd web && COLAB_SERVER_URL="$SERVER_URL" setsid_run "$OUT/web.log" npx next dev -p "$WEB_PORT") > "$OUT/web.pid"
+  fi
   for i in $(seq 1 180); do curl -fsS -o /dev/null "$WEB_URL/login" 2>/dev/null && break; sleep 1; done
   curl -fsS -o /dev/null "$WEB_URL/login" || die "web did not start (see $OUT/web.log)"
-  ok "web pid $(cat "$OUT/web.pid")"
+  ok "web pid $(cat "$OUT/web.pid") ($WEB_MODE)"
 fi
