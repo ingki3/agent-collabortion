@@ -3,6 +3,8 @@
 # web/e2e/u1.sh(W 스트림) 의 셀렉터를 따르되, 4단계에서 화면의 설치 명령 2행에서 페어링 코드를 읽어 실제 bin/daemon 을 붙인다.
 # 스크린샷: web/__screenshots__/p1-u1-*.png, p1-u13-*.png. 단계별 "보이는 것" 판정을 e2e/p1/out/d-steps.tsv 에 남긴다.
 # 사용: bash e2e/p1/up.sh && bash e2e/p1/04_u1_browser.sh
+#   U1_STOP_AFTER=4 로 두면 1~4단계(가입 → 온보딩 → 워크스페이스 → S12 준비 완료)까지만 돌고 요약을 남긴다.
+#   S-6 회귀 재확인처럼 앞부분만 짧게 볼 때 쓴다(에이전트 턴 0 — 비용 없음).
 source "$(dirname "$0")/lib.sh"
 cd "$E2E_ROOT/web"
 SHOT_DIR="__screenshots__"; mkdir -p "$SHOT_DIR"
@@ -26,6 +28,14 @@ cleanup() { ab close >/dev/null 2>&1 || true; AGENT_BROWSER_SESSION="colab-p1-u1
 trap cleanup EXIT
 ab set viewport 1280 900 >/dev/null
 
+step "U1-3a 사전조건 — 같은 이름('마케팅팀') 워크스페이스를 미리 하나 만든다 (S-6 회귀)"
+# S-6: `auth.CreateWorkspace` 의 slug 접미어 재시도가 같은 tx 안에서 돌아 두 번째 '마케팅팀' 부터 500(`25P02`).
+# 브라우저가 만드는 '마케팅팀' 이 **두 번째**가 되도록 선행 워크스페이스를 하나 만들어 둔다 — 그래야 U1-3a 가 S-6 을 실제로 친다.
+WS_NAME="마케팅팀"
+SEED_WS="$(COOKIE="$OUT/cookies-u1-seed.txt"; rm -f "$COOKIE"; signup "seed+${STAMP}@example.com" "$PASSWORD" "seed" >/dev/null; create_workspace "$WS_NAME")"
+SEED_SLUG="$(psqlq "select slug from workspace where id='$SEED_WS'")"
+ok "선행 '$WS_NAME' $SEED_WS slug=$SEED_SLUG"
+
 step "U1-1 회원가입 S2 ($EMAIL)"
 ab open "$WEB_URL/signup" >/dev/null
 wait_sel '[data-testid="signup-form"]' || die "signup form"
@@ -44,13 +54,18 @@ if try ab wait --url "**/onboarding" --timeout 20000 && wait_sel '[data-testid="
 else rec 2 S4-1 "온보딩 자동 진입" FAIL "url=$(ab get url)"; exit 1; fi
 
 step "U1-3 '마케팅팀' → S4-2 컴퓨터 연결(S12 인라인)"
-# S-6(2026-09-06 재확인에서 발견): 이름이 한글뿐이면 slug 가 전부 'ws' 로 접히고, 접미어 재시도가 **같은 tx 안**에서 돌아
-# 두 번째 '마케팅팀' 부터 500 `25P02 current transaction is aborted`. #33 이 runtimes.go 에 넣은 savepoint 를 auth.go 는 안 받았다.
-# U1 명세대로 '마케팅팀' 을 먼저 넣어 판정하고, 막히면 이름만 유일하게 바꿔 나머지 단계를 계속 판정한다.
-WS_NAME="마케팅팀"; WS_WORKAROUND=""
+# S-6(2026-09-06 재확인에서 발견, **#43 머지**): 이름이 한글뿐이면 slug 가 전부 'ws' 로 접히고, 접미어 재시도가 **같은 tx 안**에서 돌아
+# 두 번째 '마케팅팀' 부터 500 `25P02 current transaction is aborted` 였다. 수정은 savepoint 재시도 + 이름 해시 stem.
+# 위에서 선행 워크스페이스를 하나 만들어 뒀으므로 여기서 만드는 것이 **두 번째** — 201 이고 slug 가 달라야 한다.
+WS_WORKAROUND=""
 ab fill '[data-testid="workspace-name"]' "$WS_NAME" >/dev/null; ab click '[data-testid="workspace-next"]' >/dev/null
 if wait_sel '[data-testid="pairing-panel"]' 15; then
-  rec 3a S4-1 "'마케팅팀' 입력 → 2단계(컴퓨터 연결)로" PASS "ws='$WS_NAME'"
+  BROWSER_SLUG="$(psqlq "select slug from workspace where name='$WS_NAME' and id<>'$SEED_WS' order by created_at desc limit 1")"
+  if [ -n "$BROWSER_SLUG" ] && [ "$BROWSER_SLUG" != "$SEED_SLUG" ]; then
+    rec 3a S4-1 "같은 이름('마케팅팀') **두 번째** 워크스페이스 → 2단계(컴퓨터 연결)로, slug 충돌 없음 (S-6)" PASS "slug '$SEED_SLUG' → '$BROWSER_SLUG'"
+  else
+    rec 3a S4-1 "같은 이름 두 번째 워크스페이스 slug" FAIL "seed='$SEED_SLUG' browser='$BROWSER_SLUG'"
+  fi
 else
   WS_ERR="$(ab get text '.problem' 2>/dev/null | tr '\n' ' ' | head -c 160)"
   rec 3a S4-1 "'마케팅팀' 입력 → 2단계로" FAIL "S-6 서버 500: $WS_ERR"
@@ -76,6 +91,15 @@ CAPS="$(ab get text '[data-testid="pairing-capabilities"]' 2>/dev/null || echo '
 shot p1-u1-04-s12-ready
 if grep -q "Claude Code" <<<"$CAPS" && grep -Eq "로그인|logged" <<<"$CAPS"; then rec 4 S4-2 "대기 중→연결됨→CLI 감지 중→준비 완료 자동 갱신, 'Claude Code 감지됨·로그인됨·모델 N개'" PASS "$(( (T1-T0)/1000 ))s; $(tr '\n' ' ' <<<"$CAPS" | head -c 120)"; else rec 4 S4-2 "준비 완료 + Claude Code 감지 문구" FAIL "$(tr '\n' ' ' <<<"$CAPS" | head -c 120)"; fi
 grep -q "Hermes" <<<"$CAPS" && log "Hermes 도 감지됨(이 머신엔 설치돼 있음 — U1 전제 'Hermes 없음' 과 다름, 정상)"
+if [ "${U1_STOP_AFTER:-}" = 4 ]; then
+  step "결과 (U1_STOP_AFTER=4 — 1~4단계까지)"
+  column -t -s $'\t' "$STEPS" >&2
+  jq -n --arg ws_name "$WS_NAME" --arg seed_slug "$SEED_SLUG" --arg browser_slug "${BROWSER_SLUG:-}" --arg email "$EMAIL" --arg pair_ms "$((T1-T0))" \
+    --arg ws_workaround "$WS_WORKAROUND" --argjson stop_after 4 \
+    --argjson pass "$(awk -F'\t' 'NR>1&&$4=="PASS"' "$STEPS" | wc -l)" --argjson fail "$(awk -F'\t' 'NR>1&&$4=="FAIL"' "$STEPS" | wc -l)" --argjson na "$(awk -F'\t' 'NR>1&&$4=="N/A"' "$STEPS" | wc -l)" \
+    '{stop_after:$stop_after,workspace_name:$ws_name,seed_slug:$seed_slug,browser_slug:$browser_slug,workspace_name_workaround:$ws_workaround,email:$email,pairing_to_ready_ms:$pair_ms,pass:$pass,fail:$fail,na:$na}' | tee "$OUT/d-summary.json"
+  exit 0
+fi
 ab click '[data-testid="pairing-next"]' >/dev/null
 
 step "U1-5/6 3단계 에이전트 (템플릿 3장은 P2 → P1 은 Lead 1개 폼)"
