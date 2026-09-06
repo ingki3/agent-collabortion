@@ -1380,7 +1380,7 @@ export interface paths {
          * 자기 상태 갱신(`colab status set working|blocked|done`)
          * @description 권한: `TaskToken`(자기 task만).
          *     - `working`: 활동 피드에 note만 남긴다.
-         *     - `blocked`: **위임자에게 질문하고 턴을 끝내는 경로**(FR-6.2.1). lane `blocked`, workdir 보존. 서버가 그 lane 스레드에 `blocked_q` 질문 카드를 게시하고(`lane.blocked_message_id`) 위임자를 즉시 깨운다(합류 아님). 위임자가 없으면 Director 인박스 `lane_blocked`(E3-08). 응답 `turn_end_required: true`.
+         *     - `blocked`: **위임자에게 질문하고 턴을 끝내는 경로**(FR-6.2.1). lane `blocked`, workdir 보존. 서버가 그 lane 스레드에 `blocked_q` 질문 카드를 게시하고(`lane.blocked_message_id`, **카드는 위임자를 멘션한다** — K3 배지 `질문 → @위임자`) 위임자를 즉시 깨운다(합류 아님 — 기상 시스템 메시지는 **카드 id·질문 본문을 인용**하고, 답은 그 카드에 스레드 답글로 **자식을 멘션해** 달라고 적는다: FR-3.3 규칙 4 상 멘션 없는 에이전트 답글은 아무도 깨우지 않는다). 위임자가 없으면 Director 인박스 `lane_blocked`(E3-08). 응답 `turn_end_required: true`.
          *     - `done`: lane `done`. 합류 그룹 판정(FR-6.5) 또는 재진입 완료 통보(E3-11~13)를 서버가 수행한다. 응답 `turn_end_required: true`.
          *     `note`는 `blocked`에서 필수(질문 본문).
          */
