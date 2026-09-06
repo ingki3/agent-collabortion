@@ -21,7 +21,22 @@ type Config struct {
 	// (`colab mcp serve`, harness §2 / colab-cli.md §3). Empty → the `colab`
 	// next to the daemon executable if present, else `colab` on PATH.
 	ColabBin string `json:"colab_bin,omitempty"`
+	// UsageMidturn asks claude_code for the adapter's raw SDK stream, which
+	// is the only place a pinned runtime reports usage DURING a turn
+	// (harness §7 v0.8.5, D-17) — without it the heartbeat's `usage` is zero
+	// until the turn ends and the server's in-turn budget check (FR-7.3)
+	// never fires. It is not free: measured on one 12.2s turn the stream cost
+	// ~4× the messages and ~2× the bytes. Absent → ON. Set false to turn it
+	// off machine-wide; doing it per session (only when a budget is set) is
+	// backlog D-18.
+	UsageMidturn *bool `json:"usage_midturn,omitempty"`
 }
+
+// UsageMidturnEnabled is UsageMidturn with its default (ON) applied. A
+// pointer + this accessor rather than a plain bool: `false` and "not
+// configured" have to stay distinguishable, or every daemon.json written
+// before v0.8.5 would silently turn the feature off.
+func (c Config) UsageMidturnEnabled() bool { return c.UsageMidturn == nil || *c.UsageMidturn }
 
 // DefaultColabBin returns the colab binary beside the daemon executable when
 // it exists, otherwise "colab" (resolved on PATH by the adapter).

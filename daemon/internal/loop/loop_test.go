@@ -38,9 +38,19 @@ type memServer struct {
 	hbCmds         []contracts.Command
 	workdirReports []api.WorkdirsRequest
 	finishes       []api.FinishRequest
-	root           string
-	claimHook      func()
-	phaseHook      func(api.PhaseRequest)
+	// hbUsageAtFinish is how many heartbeats carrying a non-zero `usage` had
+	// arrived by the time `finish` did (D-17): the server's in-turn budget
+	// check is gated on that number, so "0 until finish" is the defect.
+	hbUsageAtFinish []int
+	// hbLog / lastToolAt / finishAt time the smoke's evidence: a heartbeat
+	// whose usage is non-zero BEFORE the last tool of the turn is in-turn
+	// usage, not the pre-finish one (D-17 실기 스모크).
+	hbLog      []hbEntry
+	lastToolAt time.Time
+	finishAt   time.Time
+	root       string
+	claimHook  func()
+	phaseHook  func(api.PhaseRequest)
 }
 
 func (m *memServer) Pair(context.Context, api.PairRequest) (api.PairResponse, error) {
@@ -91,21 +101,39 @@ func (m *memServer) Events(_ context.Context, _ string, _ int, evs []contracts.T
 	max := 0
 	for _, e := range evs {
 		m.events = append(m.events, e)
+		if e.Class == "tool" {
+			m.lastToolAt = time.Now()
+		}
 		if e.Seq > max {
 			max = e.Seq
 		}
 	}
 	return api.EventsResponse{AcceptedSeqMax: max}, nil
 }
+
+type hbEntry struct {
+	at    time.Time
+	usage contracts.Usage
+}
+
 func (m *memServer) Heartbeat(_ context.Context, _ string, _ int, req api.HeartbeatRequest) (api.HeartbeatResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.hbs = append(m.hbs, req)
+	m.hbLog = append(m.hbLog, hbEntry{at: time.Now(), usage: req.Usage})
 	return api.HeartbeatResponse{Commands: m.hbCmds}, nil
 }
 func (m *memServer) Finish(_ context.Context, _ string, _ int, req api.FinishRequest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	n := 0
+	for _, hb := range m.hbs {
+		if hb.Usage.InputTokens > 0 || hb.Usage.OutputTokens > 0 || hb.Usage.CostUSD > 0 {
+			n++
+		}
+	}
+	m.hbUsageAtFinish = append(m.hbUsageAtFinish, n)
+	m.finishAt = time.Now()
 	m.finishes = append(m.finishes, req)
 	return nil
 }
@@ -506,6 +534,66 @@ func TestProbeCarriesColabCLIState(t *testing.T) {
 			srv.mu.Unlock()
 			if got.Present != tc.wantPresent || got.Version != tc.wantVersion {
 				t.Fatalf("colab_cli %+v want present=%v version=%q", got, tc.wantPresent, tc.wantVersion)
+			}
+		})
+	}
+}
+
+// D-17 — the server must see a MEASURED usage on a heartbeat BEFORE `finish`.
+// The heartbeat interval is set past the length of the run on purpose: the
+// ticker fires never, so the only heartbeat that can arrive is the one the
+// runner asks for the moment the turn's usage lands. Before D-17 the answer
+// was zero heartbeats with usage, on every runtime, and the server's in-turn
+// budget check (FR-7.3, S-44) therefore never ran once.
+func TestHeartbeatCarriesUsageBeforeFinish(t *testing.T) {
+	srv := &memServer{queue: []contracts.TaskBundle{bundle("t-usage")}}
+	usage := acp.PromptUsage{InputTokens: 120, OutputTokens: 45}
+	d, _ := newDaemon(t, srv, acpfake.Script{Kind: "claude", Turns: []acpfake.Turn{{
+		Steps: []acpfake.Step{{Chunk: "PONG"}}, Usage: &usage,
+	}}})
+	d.HeartbeatInterval = time.Hour
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- d.Run(ctx) }()
+	waitFor(t, 15*time.Second, func() bool { return srv.finished() == 1 })
+	cancel()
+	<-done
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	if len(srv.hbUsageAtFinish) == 0 || srv.hbUsageAtFinish[0] == 0 {
+		t.Fatalf("heartbeats with usage before finish = %v (heartbeats: %+v) — the in-turn budget "+
+			"check never sees a number and FR-7.3 degrades to the finish-time floor alone",
+			srv.hbUsageAtFinish, srv.hbs)
+	}
+	last := srv.hbs[len(srv.hbs)-1]
+	if last.Usage.InputTokens != 120 || last.Usage.OutputTokens != 45 {
+		t.Errorf("pre-finish heartbeat usage = %+v, want the turn's measured 120/45", last.Usage)
+	}
+	if got := srv.finishes[0].Usage; got.InputTokens != 120 || got.OutputTokens != 45 {
+		t.Errorf("finish usage = %+v, want 120/45 — the extra heartbeat must not disturb it", got)
+	}
+}
+
+// The raw SDK stream is on by default for claude_code and off for hermes
+// (harness §3 v0.8.5), and `usage_midturn: false` in daemon.json turns it off.
+func TestUsageMidturnConfigGate(t *testing.T) {
+	off := false
+	on := true
+	for _, tc := range []struct {
+		name string
+		cfg  *bool
+		kind contracts.RuntimeKind
+		want bool
+	}{
+		{"claude_code default", nil, contracts.RuntimeClaudeCode, true},
+		{"claude_code explicit on", &on, contracts.RuntimeClaudeCode, true},
+		{"claude_code off", &off, contracts.RuntimeClaudeCode, false},
+		{"hermes never", nil, contracts.RuntimeHermes, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &Daemon{Cfg: config.Config{UsageMidturn: tc.cfg}}
+			if got := d.usageMidturn(tc.kind); got != tc.want {
+				t.Errorf("usageMidturn(%s) = %v, want %v", tc.kind, got, tc.want)
 			}
 		})
 	}

@@ -239,6 +239,13 @@ func Pong(ctx context.Context, kind contracts.RuntimeKind, o Options, cap *contr
 	// probe that went 11/11 green while the agent had no channel at all, so
 	// an unmeasured surface stays unadvertised rather than assumed.
 	cap.ToolSurface = res.ToolSurface
+	// §9 v0.8.5 usage_midturn — MEASURED on this turn, like everything else
+	// here: true only if usage really arrived while the PONG turn was still
+	// running. claude_code answers true through the raw SDK stream the probe
+	// always enables; hermes has no such stream and answers false, which is
+	// what tells the server that FR-7.3's in-turn enforcement degrades to the
+	// finish-time check (E9-10) on that runtime.
+	cap.UsageMidturn = res.UsageMidturn
 	cap.ToolDisallow = toolDisallowMeasured(res)
 	// §9 supported_options (backlog D-5) is keyed on the MEASURED adapter
 	// version, not the pin the profile asked for: advertising the pin's option

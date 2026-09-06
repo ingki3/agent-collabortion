@@ -288,6 +288,16 @@ type PromptUsage struct {
 	CostUSD           *float64 `json:"costUSD,omitempty"`
 }
 
+// CostOrNil is the cost the ACP `session/prompt` response reported, or nil
+// when it reported none — which is every pinned adapter today (harness §7).
+// The raw SDK `result.total_cost_usd` is the fallback (midturn.go).
+func (p *PromptResult) CostOrNil() *float64 {
+	if p == nil || p.Usage == nil {
+		return nil
+	}
+	return p.Usage.CostUSD
+}
+
 // ModelsUsed extracts `_meta.quota.model_usage[].model` — which model(s)
 // actually served the turn (harness §7 model_drift).
 func (p PromptResult) ModelsUsed() []string {

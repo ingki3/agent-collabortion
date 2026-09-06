@@ -46,9 +46,18 @@ type Attempt struct {
 	// SetupTimeout bounds initialize / session/new / load / set model.
 	// Zero → 3 minutes (npx cold start).
 	SetupTimeout time.Duration
-	// RawSDKMessages asks claude_code for the raw SDK stream (probe/smoke,
-	// harness §12(c)); the system/init tools land in Result.RawInit.
+	// RawSDKMessages asks claude_code for the raw SDK stream. It is two
+	// things at once: the §12(c) probe/smoke evidence (system/init tools land
+	// in Result.RawInit) and, since harness §7 v0.8.5, the ONLY place the
+	// adapter reports usage during a turn (midturn.go). The loop turns it on
+	// for every claude_code attempt unless the daemon config says otherwise.
 	RawSDKMessages bool
+	// OnUsage fires as soon as a turn's usage has been folded in — after the
+	// `usage.report` event, before the attempt finishes. The loop sends one
+	// heartbeat there so the server's in-turn budget check (FR-7.3, §4.2)
+	// sees a MEASURED number before `finish` arrives, on every runtime
+	// including the ones with no mid-turn usage at all (D-17).
+	OnUsage func()
 	// OnSpawn fires once the process exists (pgid record, phase=preparing).
 	OnSpawn func(pgid int)
 	// OnRunning fires right before session/prompt (phase=running).
@@ -96,6 +105,11 @@ type Result struct {
 	// MCPDropped names the mcpServers the runtime could not accept (§8.2.3
 	// mcpCapabilities filter). Empty on the v1 stdio-only path.
 	MCPDropped []string
+	// UsageMidturn is the harness §9 v0.8.5 advertisement, MEASURED: did any
+	// usage reach the daemon while the turn was still running (midturn.go)?
+	// False for hermes, and false for a claude_code attempt that ran with the
+	// raw SDK stream off — an unmeasured capability is not advertised.
+	UsageMidturn bool
 	// ToolSurface is the harness §10 judgement measured on THIS attempt's
 	// initialize ("mcp" | "cli_wrapper"). Empty when initialize never
 	// answered — an absent measurement is not a cli_wrapper measurement.
@@ -157,6 +171,15 @@ type Runner struct {
 	planTotal  int
 	planDone   int
 	usage      contracts.Usage
+	// turn is the mid-turn approximation for the turn in flight (midturn.go);
+	// recordUsage discards it when the turn's authoritative total lands.
+	turn turnTokens
+	// turnCost is `result.total_cost_usd` for the turn in flight — the
+	// MEASURED cost harness §7 v0.8.5 lets the daemon report (estimated:false).
+	turnCost *float64
+	// sawMidturn is sticky: it stays true after recordUsage clears `turn`,
+	// because probe §9 asks whether the runtime CAN report in-turn usage.
+	sawMidturn bool
 	available  []string
 	// budget (FR-7.3 M9 — see budget.go)
 	budgetExceeded    bool
@@ -202,11 +225,35 @@ func (r *Runner) touch() {
 	r.mu.Unlock()
 }
 
-// Usage returns the usage accumulated so far (heartbeat).
+// Usage returns the usage burned so far, closed turns PLUS the turn in
+// flight (heartbeat, daemon-protocol §4.2).
 func (r *Runner) Usage() contracts.Usage {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.usage
+	return r.totalLocked()
+}
+
+// totalLocked is `usage` (turns already closed) plus the mid-turn
+// approximation for the turn in flight. Call with r.mu held.
+//
+// The mid-turn tokens have no price of their own — `result.total_cost_usd`
+// arrives at turn end — so as long as any of them are in the sum the total is
+// an ESTIMATE with no number, exactly as harness §7 v0.7.1 requires of a sum
+// that mixes a measured and a missing cost. That is also what keeps the
+// daemon's own §5 budget cancel honest (budget.go): it fires on a measured
+// overrun only, so mid-turn it stays quiet and the SERVER — which owns the
+// price table — is the one that judges the tokens this reports.
+func (r *Runner) totalLocked() contracts.Usage {
+	u := r.usage
+	if !r.turn.any() {
+		return u
+	}
+	u.InputTokens += r.turn.in
+	u.OutputTokens += r.turn.out
+	u.CacheReadTokens += r.turn.cacheRead
+	u.CacheWriteTokens += r.turn.cacheWrite
+	u.Estimated, u.CostUSD = true, 0
+	return u
 }
 
 // Run executes the attempt end to end. It never returns a Go error for
@@ -218,12 +265,16 @@ func (r *Runner) Run(ctx context.Context) Result {
 	res.AvailableModels = r.available
 	res.AllowOnceMissing = r.allowMissing
 	res.RawInit = r.rawInit
-	res.Usage = r.usage
+	// A cancelled or failed turn never reaches recordUsage, so without the
+	// mid-turn half its `finish` would report zero tokens for work that was
+	// really burned (E9 budget accounting).
+	res.Usage = r.totalLocked()
 	res.Text = r.say.String()
 	res.Caps = r.caps
 	res.ProtocolVersion = r.protocol
 	res.MCPDropped = r.mcpDropped
 	res.ToolSurface = r.surface
+	res.UsageMidturn = r.sawMidturn
 	r.mu.Unlock()
 	if r.c != nil {
 		res.PGID = r.c.PID()
@@ -410,6 +461,11 @@ func (r *Runner) run(ctx context.Context) Result {
 	// the fresh one works; if it really is declining, it declines again and
 	// the attempt fails honestly instead of reporting success.
 	if r.shouldRetryRefusal(resumeOutcome, pr, perr, cancelled, stalled, ntools) {
+		// The refused turn cost real tokens (a resume prompt carries the whole
+		// history). Folding them in before the retry is what keeps the
+		// attempt's `finish` usage — and the budget — counting both turns; the
+		// second recordUsage below adds to this one, it does not replace it.
+		r.recordUsage(pr, pr.ModelsUsed())
 		s, nerr := r.newSession(ctx, meta)
 		if nerr != nil {
 			return r.classify(nerr)
@@ -486,6 +542,15 @@ func (r *Runner) run(ctx context.Context) Result {
 	}
 	r.emit("usage", "report", "", "report", r.usagePayload(up))
 	r.flushBudgetNote()
+	// daemon-protocol §4.2 + FR-7.3: one heartbeat NOW, while the attempt is
+	// still open. Until D-17 the server's in-turn budget check saw usage only
+	// on heartbeats — which were all zero — so the first number it ever got
+	// was `finish`, by which time the money was spent. This is the runtime's
+	// measured total reaching the server one step before that, and it is the
+	// only in-turn signal a runtime with no mid-turn usage (hermes) can give.
+	if r.a.OnUsage != nil {
+		r.a.OnUsage()
+	}
 	res := base
 	res.Models = models
 	res.StopReason = pr.StopReason
@@ -579,6 +644,10 @@ func (r *Runner) resetTurn() {
 	r.lastTool = nil
 	r.toolDone = nil
 	r.promptDone = make(chan struct{})
+	// The next turn accumulates its own usage; whatever the abandoned turn
+	// contributed has already been folded into r.usage by recordUsage.
+	r.turn = turnTokens{}
+	r.turnCost = nil
 }
 
 func cancelReason(c *CancelRequest) string {
@@ -955,20 +1024,33 @@ func (r *Runner) flushMessages(withSay bool) {
 func (r *Runner) recordUsage(pr *PromptResult, models []string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// The turn's own total supersedes the mid-turn approximation this turn
+	// accumulated (midturn.go) — they measure the same tokens, so keeping
+	// both would double the turn.
+	r.turn = turnTokens{}
+	cost := pr.CostOrNil()
+	if cost == nil {
+		// harness §7 v0.8.5: `result.total_cost_usd` from the raw SDK stream
+		// is a MEASURED cost, so the D-6 rule "런타임이 비용을 주면 그 값 +
+		// estimated:false" applies to it as much as to a cost the ACP
+		// response carried. It is the only cost any pinned adapter reports.
+		cost = r.turnCost
+	}
+	r.turnCost = nil
 	if pr.Usage != nil {
 		r.usage.InputTokens += pr.Usage.InputTokens
 		r.usage.OutputTokens += pr.Usage.OutputTokens
 		r.usage.CacheReadTokens += pr.Usage.CachedReadTokens
 		r.usage.CacheWriteTokens += pr.Usage.CachedWriteTokens
 	}
-	if pr.Usage == nil || pr.Usage.CostUSD == nil {
+	if cost == nil {
 		// v0.7.1: from here on the total is an estimate AND its number is 0.
 		// A partial sum (one turn priced, the next not) would reach the server
 		// looking like the whole bill; 0 with `estimated: true` is the one
 		// shape the server is told to ignore and re-price.
 		r.usage.Estimated, r.usage.CostUSD = true, 0
 	} else if !r.usage.Estimated {
-		r.usage.CostUSD += *pr.Usage.CostUSD
+		r.usage.CostUSD += *cost
 	}
 	if len(models) > 0 {
 		r.usage.Model = strings.Join(models, ",")
@@ -978,7 +1060,7 @@ func (r *Runner) recordUsage(pr *PromptResult, models []string) {
 
 func (r *Runner) usagePayload(extra map[string]any) map[string]any {
 	r.mu.Lock()
-	u := r.usage
+	u := r.totalLocked()
 	r.mu.Unlock()
 	p := map[string]any{"input_tokens": u.InputTokens, "output_tokens": u.OutputTokens, "cache_read_tokens": u.CacheReadTokens, "cache_write_tokens": u.CacheWriteTokens, "estimated": u.Estimated}
 	// harness v0.7.1: in a `usage.report` payload the key is OMITTED when the
@@ -1019,8 +1101,28 @@ func (r *Runner) onRawSDK(method string, params json.RawMessage) {
 		MCPServers []struct {
 			Name string `json:"name"`
 		} `json:"mcp_servers"`
+		// stream_event — the per-request usage the turn is judged on (§7 v0.8.5)
+		Event json.RawMessage `json:"event,omitempty"`
+		// result — one per turn, and the only MEASURED cost on the ACP path
+		TotalCostUSD *float64 `json:"total_cost_usd,omitempty"`
 	}
-	if json.Unmarshal(p.Message, &head) != nil || head.Type != "system" {
+	if json.Unmarshal(p.Message, &head) != nil {
+		return
+	}
+	switch head.Type {
+	case "stream_event":
+		r.foldTurnUsage(foldSDKStream(head.Event))
+		return
+	case "result":
+		if head.TotalCostUSD != nil {
+			c := *head.TotalCostUSD
+			r.mu.Lock()
+			r.turnCost = &c
+			r.mu.Unlock()
+		}
+		return
+	case "system":
+	default:
 		return
 	}
 	r.mu.Lock()
@@ -1038,6 +1140,24 @@ func (r *Runner) onRawSDK(method string, params json.RawMessage) {
 	case "hook_started":
 		r.rawInit.Hooks++
 	}
+}
+
+// foldTurnUsage adds one raw SDK contribution to the turn in flight and lets
+// the budget see the new total. Nothing is emitted here: the mid-turn number
+// rides the ordinary 15s heartbeat (§4.2), so a chatty turn does not turn into
+// a chatty attempt.
+func (r *Runner) foldTurnUsage(t turnTokens) {
+	if !t.any() {
+		return
+	}
+	r.mu.Lock()
+	r.turn.in += t.in
+	r.turn.out += t.out
+	r.turn.cacheRead += t.cacheRead
+	r.turn.cacheWrite += t.cacheWrite
+	r.sawMidturn = true
+	r.noteBudget()
+	r.mu.Unlock()
 }
 
 // ---- permission (§4) ----------------------------------------------------------
