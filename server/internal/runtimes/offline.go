@@ -388,10 +388,31 @@ func PlanRebind(in RebindInput) RebindPlan {
 	return p
 }
 
+// RebindDirPlaceholder is harness.md §10 v0.8.7's placeholder for the directory
+// `rebind_prepare` downloaded the diff artifacts into
+// (`<workdir_root>/.colab/rebind/<session_id>`, daemon-protocol §4.3 v0.7.2).
+//
+// The server writes the placeholder VERBATIM and never a path: it does not know
+// the daemon's workdir root, and #159 made the daemon substitute it in the same
+// pass that rewrites `colab ` for the cli_wrapper surface. An unsubstituted
+// placeholder is a `failed(config)` finish on the daemon side — loud by design,
+// because an agent handed a broken path silently applies nothing.
+const RebindDirPlaceholder = "{{COLAB_REBIND_DIR}}"
+
 // RebindPrompt is E14-06's sentence, with the artifact list in submission
 // order. The order is part of the instruction, not decoration: diffs applied
 // out of order conflict, and the agent has no other way to know which came
 // first.
+//
+// NN5 (#162 review): the files are ALREADY ON DISK when this prompt runs.
+// `rebind_prepare` (§4.3) downloaded them before the attempt was dispatched, so
+// telling the agent to `colab artifact get` them again made that command's
+// whole purpose dead weight — a second download, over the network, of bytes the
+// daemon already fetched, with the manifest that records the submission order
+// left unread. The prompt now points at the placeholder directory and the
+// manifest instead, and names `git apply` as the operation: a diff artifact
+// (colab-cli.md `artifact submit --type diff`, #160) is `git diff --binary`
+// output, and `git apply` is what consumes it.
 func RebindPrompt(diffs []RebindArtifact) string {
 	if len(diffs) == 0 {
 		return "이 세션이 실행되던 컴퓨터가 사라져 새 컴퓨터로 옮겼습니다. " +
@@ -402,10 +423,16 @@ func RebindPrompt(diffs []RebindArtifact) string {
 		"이전 워크트리의 커밋은 그 머신에만 있으므로 남아 있지 않습니다.\n\n"+
 		"이 세션의 diff 아티팩트 %d개를 제출 순서대로 새 workdir 에 적용한 뒤 이어가라. "+
 		"순서를 바꾸면 충돌한다.\n\n", len(diffs))
+	fmt.Fprintf(&b, "아티팩트는 이미 내려받혀 있다 — 다시 받지 마라. `%s/manifest.json` 을 먼저 읽어 "+
+		"각 항목의 order·id·파일명(`NNN-<artifact_id><ext>`, 같은 디렉토리)을 확인하고, 아래 순서대로 "+
+		"`git apply <파일 경로>` 하라. manifest 의 항목에 `error` 가 있으면 그 아티팩트는 받지 못한 것이니 "+
+		"건너뛰고 무엇이 빠졌는지 보고하라.\n\n", RebindDirPlaceholder)
 	for _, a := range diffs {
-		fmt.Fprintf(&b, "%d. `colab artifact get %s`\n", a.Order, a.ID)
+		fmt.Fprintf(&b, "%d. artifact %s\n", a.Order, a.ID)
 	}
-	b.WriteString("\n적용한 뒤 workdir 의 현재 상태를 확인하고, 중단된 지점부터 이어가라.\n")
+	b.WriteString("\n런타임 세션은 이어지지 않는다 — 이 턴은 콜드 스타트이므로 아는 것은 이 프롬프트와 " +
+		"브리프·히스토리에 있는 것이 전부다.\n")
+	b.WriteString("적용한 뒤 workdir 의 현재 상태를 확인하고, 중단된 지점부터 이어가라.\n")
 	return b.String()
 }
 
@@ -464,11 +491,21 @@ func (s *Service) Rebind(ctx context.Context, wsID, sessionID, targetRuntime uui
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
+	// S-53: `rebind_prompt` is how E14-06's instruction reaches an agent.
+	// PlanRebind builds the sentence; before this it was computed and dropped,
+	// so `rebind_prepare` downloaded artifacts nobody was ever told to apply.
+	// It is written in the SAME transaction as the rebind — a prompt stored
+	// after a failed rebind would tell the next turn to replay diffs into a
+	// workdir that never moved.
+	var rebindPrompt any
+	if plan.Prompt != "" {
+		rebindPrompt = plan.Prompt
+	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE session SET runtime_id = $2, status = 'active', paused_reason = NULL, paused_detail = NULL,
-		       updated_at = $3
+		       rebind_prompt = $4, updated_at = $3
 		WHERE id = $1 AND status = 'paused' AND paused_reason = 'runtime_offline'`,
-		sessionID, targetRuntime, now)
+		sessionID, targetRuntime, now, rebindPrompt)
 	if err != nil {
 		return plan, err
 	}

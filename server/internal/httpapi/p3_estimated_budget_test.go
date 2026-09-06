@@ -135,8 +135,11 @@ func TestP3EstimatedUsageEnforcesInTurn(t *testing.T) {
 	// look like a silent stop.
 	var drained int
 	if err := f.pool.QueryRow(t.Context(), `
-		SELECT count(*) FROM task_event WHERE task_id = $1 AND verb = 'pause'
-		  AND object_ref = to_jsonb('budget'::text) AND payload->>'estimated' = 'true'`, taskID).Scan(&drained); err != nil {
+		-- S-52: the verb "pause" and a top-level "estimated" key were in no
+		-- part of task_event.schema.json. The row is runtime/report and the
+		-- sentence (with the arithmetic, and the word 추정) is "detail".
+		SELECT count(*) FROM task_event WHERE task_id = $1 AND class = 'runtime' AND verb = 'report'
+		  AND object_ref = to_jsonb('budget'::text) AND payload->>'detail' LIKE '추정 비용이%'`, taskID).Scan(&drained); err != nil {
 		t.Fatal(err)
 	}
 	if drained != 1 {

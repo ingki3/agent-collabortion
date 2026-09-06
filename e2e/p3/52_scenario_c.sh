@@ -168,7 +168,7 @@ while [ "$(date +%s)" -lt "$DEADLINE" ]; do [ "$(lane_field "$LANE3" status)" = 
 chk G2  "lane 이 **failed** 다"                             failed "$(lane_field "$LANE3" status)"
 chk G2b "task 가 cancelled · failure_kind=cancelled"        "cancelled|cancelled" \
   "$(psqlq "select status::text||'|'||coalesce(failure_kind::text,'-') from task where id='$T3'")"
-# 활동 피드 = `task_event`(class=status · verb=cancel · payload.note), 세션 `message` 가 아니다.
+# 활동 피드 = `task_event`(class=status · verb=cancel · payload.args.note — S-52), 세션 `message` 가 아니다.
 psqlq "select class||'/'||coalesce(verb,'-')||' '||replace(coalesce(payload::text,''),E'\n','⏎')
        from task_event where task_id='$T3' order by seq" > "$OUT/52-cancel-feed.txt"
 chk_has G3 "활동 피드에 \"사람이 중단함\" (E10-04)"         "$OUT/52-cancel-feed.txt" "사람이 중단함"

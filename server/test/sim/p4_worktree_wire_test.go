@@ -43,6 +43,11 @@ func init() {
 	requeuedAttempt = adaptRequeuedAttempt
 }
 
+// production caller: internal/queue/postgres.go:234 → internal/tasks
+// (Service.ExpireStale), run by cmd/server/main.go:96's purge tick — that is the
+// requeue this hook simulates. `tasks.RequeuedAttempt` itself is the READ the
+// simulator uses to see the two rows ExpireStale wrote (new attempt, revoked
+// token); the DECISION under test is ExpireStale's.
 func adaptRequeuedAttempt(taskID uuid.UUID) (worktreeLane, bool) {
 	ctx := context.Background()
 	h := simCurrent()

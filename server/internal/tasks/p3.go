@@ -264,10 +264,13 @@ func (s *Service) RecordTurnUsage(ctx context.Context, taskID uuid.UUID, u contr
 // unchecked, not to schedule the retry.
 func (s *Service) NoteBudgetEnforceFailed(ctx context.Context, taskID uuid.UUID, attempt int, cause error, now time.Time) error {
 	return s.inTx(ctx, func(tx pgx.Tx) error {
-		return InsertServerEventOnce(ctx, tx, taskID, attempt, "status", "error", "budget.enforce_failed", "error",
+		// S-52: outcome `error` is in no enum (the schema's failure outcome is
+		// `failed`), and this is the server reporting on itself, not a platform
+		// operation — class=runtime · `detail` (S-52 rule 2).
+		return InsertServerEventOnce(ctx, tx, taskID, attempt, "runtime", "error", "budget.enforce_failed", "failed",
 			map[string]any{
-				"note":  "턴이 끝난 뒤 예산 재검사가 실패했습니다 — 다음 heartbeat·finish 에서 다시 검사합니다",
-				"error": cause.Error(),
+				"detail": "턴이 끝난 뒤 예산 재검사가 실패했습니다 — 다음 heartbeat·finish 에서 다시 검사합니다: " +
+					cause.Error(),
 			}, now)
 	})
 }

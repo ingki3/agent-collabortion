@@ -305,8 +305,11 @@ func TestP3BudgetAtFinishEstimatedNeverCuts(t *testing.T) {
 	// A feed line says why, so the session view is not silent either.
 	var events int
 	if err := f.pool.QueryRow(t.Context(), `
+		-- S-52: the budget-pause note is class=runtime · verb=report — the verb
+		-- "pause" is in no enum, and a pause is not a colab CLI call.
 		SELECT count(*) FROM task_event
-		WHERE task_id = $1 AND verb = 'pause' AND object_ref = to_jsonb('budget'::text)`, taskID).Scan(&events); err != nil {
+		WHERE task_id = $1 AND class = 'runtime' AND verb = 'report'
+		  AND object_ref = to_jsonb('budget'::text)`, taskID).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events == 0 {

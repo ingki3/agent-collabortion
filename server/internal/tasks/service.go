@@ -274,11 +274,12 @@ func (s *Service) Heartbeat(ctx context.Context, taskID uuid.UUID, attempt int, 
 // attempt: a heartbeat every 15s would otherwise bury the feed.
 func (s *Service) NotePreviewDrift(ctx context.Context, taskID uuid.UUID, attempt int, now time.Time) error {
 	return s.inTx(ctx, func(tx pgx.Tx) error {
+		// S-52: `runtime` payload's free-text slot is `detail`; `note`,
+		// `field` and `spec` are not keys the schema knows.
 		return InsertServerEventOnce(ctx, tx, taskID, attempt, "runtime", "error", "heartbeat.preview", "info",
 			map[string]any{
-				"note":  "데몬이 보낸 heartbeat preview 모양이 계약과 달라 무시했습니다",
-				"field": "preview",
-				"spec":  "contracts/daemon-protocol.md §4.2 (v0.3)",
+				"detail": "데몬이 보낸 heartbeat preview 모양이 계약과 달라 무시했습니다 " +
+					"(field=preview, contracts/daemon-protocol.md §4.2 v0.3)",
 			}, now)
 	})
 }
@@ -625,10 +626,16 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 				// command here is belt-and-braces: daemonFinish consumes it before
 				// this runs, and a direct Finish caller (the queue's own paths,
 				// tests) would otherwise leave it to the 24h TTL.
+				// S-52: the cancel WAS rejected, and `rejected_reason` is the
+				// schema's own slot for exactly that (its examples are
+				// token_revoked·hitl_already_open). The sentence goes to `args`.
 				if err := InsertServerEventOnce(ctx, tx, t.ID, attempt, "status", "cancel", "cancel_raced_turn_end", "info",
 					map[string]any{
-						"command": "cancel",
-						"note":    "취소 요청이 턴 종료와 경합해 적용되지 않음 — 턴은 이미 끝나 있었습니다",
+						"command":         "cancel",
+						"rejected_reason": "cancel_raced_turn_end",
+						"args": map[string]any{
+							"note": "취소 요청이 턴 종료와 경합해 적용되지 않음 — 턴은 이미 끝나 있었습니다",
+						},
 					}, now); err != nil {
 					return err
 				}
@@ -668,6 +675,18 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			if _, err := tx.Exec(ctx, `
 				UPDATE lane SET status = CASE WHEN EXISTS (SELECT 1 FROM task WHERE lane_id = $1 AND status = 'queued') THEN 'queued'::lane_status ELSE 'done'::lane_status END,
 				  finished_at = $2, updated_at = $2 WHERE id = $1 AND status <> 'blocked'`, t.LaneID, now); err != nil {
+				return err
+			}
+			// S-53: a turn that COMPLETED after a rebind has replayed the
+			// diffs, so the instruction stops travelling. It is cleared here
+			// rather than when the bundle is built because a bundle can be
+			// built and then lost — a requeue (E5-03 runtime_offline) on the
+			// first attempt after a rebind would otherwise leave attempt 2 with
+			// a cold-start prompt and no word about the diffs to apply, and
+			// E14-06 would break silently.
+			if _, err := tx.Exec(ctx, `
+				UPDATE session SET rebind_prompt = NULL, updated_at = $2
+				WHERE id = $1 AND rebind_prompt IS NOT NULL`, t.SessionID, now); err != nil {
 				return err
 			}
 			t.Status, t.FinishedAt = Completed, &now
@@ -861,10 +880,13 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 		if model == "" {
 			model = "(모델 미상)"
 		}
-		if err := InsertServerEventOnce(ctx, tx, u.taskID, u.attempt, "status", "note", "cost.unpriced", "info",
+		// S-52: verb `note` is in no enum and this is not a platform
+		// operation — it is the server saying it could not price a turn.
+		// class=runtime · verb=report · `detail` (S-52 rule 2).
+		if err := InsertServerEventOnce(ctx, tx, u.taskID, u.attempt, "runtime", "report", "cost.unpriced", "info",
 			map[string]any{
-				"note":  "가격표에 없는 모델이라 비용을 추정할 수 없습니다 — 이 턴은 예산 계산에 $0으로 잡힙니다",
-				"model": model, "estimated": true,
+				"detail": "가격표에 없는 모델이라 비용을 추정할 수 없습니다 — 이 턴은 예산 계산에 $0으로 잡힙니다 " +
+					"(model=" + model + ", estimated)",
 			}, now); err != nil {
 			return err
 		}
@@ -1008,7 +1030,11 @@ func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*
 			return nil
 		}
 		if err := InsertServerEvent(ctx, tx, t.ID, t.Attempt, "status", "cancel", "director", "ok",
-			map[string]any{"command": "lane cancel", "note": "사람이 중단함", "requested_by": byUserID.String(), "reason": "director"}, now); err != nil {
+			// S-52: closed `status` payload — the sentence, the actor and the
+			// reason are the command's arguments.
+			map[string]any{"command": "lane cancel", "args": map[string]any{
+				"note": "사람이 중단함", "requested_by": byUserID.String(), "reason": "director",
+			}}, now); err != nil {
 			return err
 		}
 		switch t.Status {

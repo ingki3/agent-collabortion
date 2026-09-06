@@ -175,23 +175,11 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		}
 		summary := s.summarise(ctx, tx, sessionID, alreadyPosted)
 		if summary.Post {
-			var msgID uuid.UUID
-			// The WHERE NOT EXISTS is the actual "exactly one" guard. The read
-			// above decides what to ASK the model for; two ApplyCompletionEvent
-			// calls racing on the same session would both pass it, and only the
-			// insert can settle which one wins.
-			err := tx.QueryRow(ctx, `
-				INSERT INTO message (session_id, author_type, author_id, content, kind, created_at)
-				SELECT $1, 'system', NULL, $2, 'summary', $3
-				WHERE NOT EXISTS (SELECT 1 FROM message WHERE session_id = $1 AND kind = 'summary')
-				RETURNING id`, sessionID, summary.Body, now).Scan(&msgID)
-			switch {
-			case errors.Is(err, pgx.ErrNoRows):
-				// Somebody else got there first. Not an error: the session has
-				// its one summary, which is the whole rule.
-			case err != nil:
-				return nil, fmt.Errorf("sessions: summary message: %w", err)
-			default:
+			msgID, inserted, err := postSummaryOnce(ctx, tx, sessionID, summary.Body, now)
+			if err != nil {
+				return nil, err
+			}
+			if inserted {
 				// FR-2.4's summary is a timeline message like any other (openapi
 				// maps it to SSE `message.created`); it was the one insert on this
 				// path that never produced a frame.
@@ -401,6 +389,39 @@ func (s *Service) publishDecision(ctx context.Context, q db.DBTX, wsID, sessionI
 // screen renders, and a failure written nowhere is a failure nobody can act on
 // ("보여주지 않았으면 일어나지 않은 것이다", FR-7.2). A session that never
 // dispatched a task has no feed at all; the log line is then the record.
+// postSummaryOnce is FR-2.4's "정확히 1개", enforced where it can actually be
+// enforced: in the INSERT.
+//
+// The `alreadyPosted` read above decides what to ASK the model for; it cannot
+// decide who WINS, because two callers can both read false. The summariser runs
+// behind the `completing` transition and a retry after a timeout is the normal
+// way it is called twice, so the guard is the WHERE NOT EXISTS — two summaries
+// in a timeline are indistinguishable and a reader cannot tell which is
+// current.
+//
+// It is a function rather than four inline lines so a test can call the same
+// statement production calls, twice, and watch it insert once (#162 review NN1:
+// removing the NOT EXISTS was the injection nothing caught).
+//
+// production caller: sessions.Service.ApplyCompletionEvent (complete.go).
+func postSummaryOnce(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, body string, now time.Time) (uuid.UUID, bool, error) {
+	var msgID uuid.UUID
+	err := tx.QueryRow(ctx, `
+		INSERT INTO message (session_id, author_type, author_id, content, kind, created_at)
+		SELECT $1, 'system', NULL, $2, 'summary', $3
+		WHERE NOT EXISTS (SELECT 1 FROM message WHERE session_id = $1 AND kind = 'summary')
+		RETURNING id`, sessionID, body, now).Scan(&msgID)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		// Somebody else got there first. Not an error: the session has its one
+		// summary, which is the whole rule.
+		return uuid.Nil, false, nil
+	case err != nil:
+		return uuid.Nil, false, fmt.Errorf("sessions: summary message: %w", err)
+	}
+	return msgID, true, nil
+}
+
 func (s *Service) recordSummaryFailure(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, category string, now time.Time) {
 	if category == "" {
 		category = "unknown"

@@ -35,7 +35,9 @@ func (s *Server) ExpireCommands(ctx context.Context) (int, error) {
 		// way as the other three and swallow the conflict into a Log.Warn, so
 		// the note the Director needed disappeared twice over.
 		if err := s.writeServerEvent(ctx, *e.TaskID, attempt, "status", "error", string(e.Type), "info",
-			map[string]any{"command": string(e.Type), "result_ref": fmt.Sprintf("daemon_command:%d", e.ID), "note": "명령 미소비 만료 (24h TTL)"},
+			// S-52: closed `status` payload — the sentence goes under `args`.
+			map[string]any{"command": string(e.Type), "result_ref": fmt.Sprintf("daemon_command:%d", e.ID),
+				"args": map[string]any{"note": "명령 미소비 만료 (24h TTL)"}},
 			now); err != nil {
 			s.Log.Warn("record expired command", "err", err, "command", e.ID)
 		}

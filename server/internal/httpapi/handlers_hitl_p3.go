@@ -178,10 +178,17 @@ func (s *Server) createHitl(ctx context.Context, taskID, sessionID uuid.UUID, f 
 	if !plan.Accepted {
 		if plan.ErrorCode == hitl.CodeAlreadyOpen {
 			if plan.FeedRecorded {
-				if err := tasks.InsertServerEvent(ctx, tx, t.ID, t.Attempt, "status", "error", "hitl.rejected", "error",
+				// S-52: a rejected `colab hitl ask`. The schema names this exact
+				// case in `rejected_reason` ("예: … hitl_already_open"), and
+				// outcome `error` is in no enum — `rejected` is.
+				if err := tasks.InsertServerEvent(ctx, tx, t.ID, t.Attempt, "status", "hitl", "hitl.rejected", "rejected",
 					map[string]any{
-						"note":     "이미 열린 HITL 요청이 있어 두 번째 요청을 거절했습니다",
-						"question": f.Question, "open_hitl_request_id": openID.String(),
+						"command":         "hitl ask",
+						"rejected_reason": "hitl_already_open",
+						"args": map[string]any{
+							"note":     "이미 열린 HITL 요청이 있어 두 번째 요청을 거절했습니다",
+							"question": f.Question, "open_hitl_request_id": openID.String(),
+						},
 					}, now); err != nil {
 					return 0, nil, apperr.Internal(err)
 				}
@@ -241,8 +248,10 @@ func (s *Server) createHitl(ctx context.Context, taskID, sessionID uuid.UUID, f 
 			return 0, nil, apperr.Internal(err)
 		}
 	}
+	// S-52: `status` needs `command`, and the created id is `result_ref`.
 	if err := tasks.InsertServerEvent(ctx, tx, t.ID, t.Attempt, "status", "hitl", "hitl.requested", "ok",
-		map[string]any{"hitl_request_id": id.String(), "type": f.Kind, "question": f.Question}, now); err != nil {
+		map[string]any{"command": "hitl ask", "result_ref": id.String(),
+			"args": map[string]any{"type": f.Kind, "question": f.Question}}, now); err != nil {
 		return 0, nil, apperr.Internal(err)
 	}
 	if err := tx.Commit(ctx); err != nil {

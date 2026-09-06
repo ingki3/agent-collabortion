@@ -155,7 +155,9 @@ func TestG3ServerFixes(t *testing.T) {
 	noted := false
 	for _, it := range feed["items"].([]any) {
 		m := it.(map[string]any)
-		if pl, ok := m["payload"].(map[string]any); ok && pl["note"] == "사람이 중단함" && str(m, "class") == "status" {
+		// S-52: `status` closes its payload, so the sentence is `args.note`.
+		args, _ := m["payload"].(map[string]any)["args"].(map[string]any)
+		if args["note"] == "사람이 중단함" && str(m, "class") == "status" {
 			noted = true
 		}
 	}

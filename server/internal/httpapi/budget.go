@@ -172,10 +172,16 @@ func (s *Server) applyBudgetPause(ctx context.Context, tx pgx.Tx, b *budgetState
 		// turn finishes; only new dispatch stops (the claim query's
 		// `s.status = 'active'` guard does that). Killing real work on our own
 		// guess is the failure the rule names (E9-05).
-		if err := tasks.InsertServerEvent(ctx, tx, b.TaskID, b.Attempt, "status", "pause", "budget", "info",
+		// S-52: verb `pause` is in no enum, and a budget pause is not a colab
+		// CLI call — `status` requires a `command` and there is none to name.
+		// It is the server reporting its own decision, so it takes rule 2's
+		// shape: class=runtime · verb=report · `detail`. The numbers stay in
+		// the sentence because `runtime` has no slot for them either, and a
+		// pause the Director cannot see the arithmetic of is not actionable.
+		if err := tasks.InsertServerEvent(ctx, tx, b.TaskID, b.Attempt, "runtime", "report", "budget", "info",
 			map[string]any{
-				"note":      "추정 비용이 한도를 넘어 세션을 일시정지했습니다 — 진행 중인 턴은 끝까지 둡니다",
-				"estimated": true, "spent_usd": spent, "limit_usd": limit,
+				"detail": fmt.Sprintf("추정 비용이 한도를 넘어 세션을 일시정지했습니다 — 진행 중인 턴은 끝까지 둡니다 "+
+					"(추정 사용 $%.4f / 한도 $%.4f)", spent, limit),
 			}, now); err != nil {
 			return err
 		}

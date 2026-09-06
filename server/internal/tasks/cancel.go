@@ -256,7 +256,12 @@ func (s *Service) CancelForSession(ctx context.Context, tx pgx.Tx, taskID uuid.U
 	}
 	res := PlanCancelResult("")
 	if err := InsertServerEvent(ctx, tx, t.ID, t.Attempt, "status", "cancel", reason, "ok",
-		map[string]any{"command": "cancel", "note": res.FeedNote, "reason": reason}, now); err != nil {
+		// S-52: `status` payload is closed to {command,args,result_ref,
+		// rejected_reason}. The human sentence and the reason are the
+		// command's arguments, and `args` is the schema's open object.
+		map[string]any{"command": "cancel", "args": map[string]any{
+			"note": res.FeedNote, "reason": reason,
+		}}, now); err != nil {
 		return err
 	}
 	switch t.Status {
