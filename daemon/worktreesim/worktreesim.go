@@ -232,10 +232,22 @@ func (h *Harness) recordPath(taskID string, attempt int) string {
 // writerScript is the surviving process. It is a real program in its own
 // process group appending to a real file in the checkout: killing the daemon
 // does not stop it, and only a signal to its group does.
+// It also carries its own deadline: a test binary that dies without calling
+// Close would otherwise leave a shell loop behind in its own process group,
+// where nothing reaps it. Ten minutes is far longer than any row here and far
+// shorter than "until the machine reboots".
 const writerScript = `
-while [ ! -f "$GATE" ]; do sleep 0.01; done
+n=0
+while [ ! -f "$GATE" ]; do
+  sleep 0.01
+  n=$((n+1))
+  [ $n -gt 60000 ] && exit 0
+done
 : > "$STAMP"
+n=0
 while true; do
+  n=$((n+1))
+  [ $n -gt 60000 ] && exit 0
   for f in "$INBOX"/*.cmd; do
     [ -e "$f" ] || continue
     printf '%s\n' "$(cat "$f")" >> "$TARGET"
