@@ -198,6 +198,20 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 			WHERE id = $1`, sessionId, now); err != nil {
 			return err
 		}
+		// S-44: the pause parked the lanes it stopped (tasks.pauseLocked), and
+		// since the claim query refuses a paused lane the resume has to lift
+		// that too — C3′ is "재개 시 큐 순서대로 dispatch", and a lane left at
+		// paused never dispatches again. Only lanes that still hold a QUEUED
+		// task come back: a lane whose only task is `paused(budget)` has
+		// nothing to hand out, and saying `queued` there would be a card that
+		// claims work is waiting when the task is still parked.
+		if _, err := tx.Exec(r.Context(), `
+			UPDATE lane l SET status = 'queued', finished_at = NULL, updated_at = $2
+			WHERE l.session_id = $1 AND l.status = 'paused'
+			  AND EXISTS (SELECT 1 FROM task t WHERE t.lane_id = l.id AND t.status = 'queued')`,
+			sessionId, now); err != nil {
+			return err
+		}
 		if rule.ClosesSystemHitl {
 			// openapi resumeSession: resuming IS the answer to the system HITL
 			// the pause issued. Closing it with `answered(approved)` keeps the

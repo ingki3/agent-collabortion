@@ -330,6 +330,17 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, token string) (*c
 	// enforcement (httpapi.enforceBudgetFor, §4.2 usage) applies the same min
 	// on every heartbeat regardless.
 	budget := sessionRemainingBudget(ctx, tx, t.SessionID, limits.BudgetUSD)
+	// S-44: an approved raise carries along the lane it was granted on, so the
+	// daemon enforces the same ceiling the server does. Without this the
+	// server would allow $3 (httpapi.loadBudgetState reads the same fallback)
+	// while `task.budget_override_usd` told the daemon there was no raise at
+	// all, and the two halves of the double enforcement would disagree.
+	override := t.BudgetOverride
+	if override == nil {
+		if v, err := tasks.LaneBudgetOverride(ctx, tx, t.LaneID); err == nil {
+			override = v
+		}
+	}
 	workdirKind := "dir"
 	if isolation.Kind == "worktree" {
 		workdirKind = "worktree"
@@ -338,7 +349,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, token string) (*c
 		Task: contracts.BundleTask{
 			ID: t.ID.String(), Attempt: t.Attempt, LaneID: t.LaneID.String(), SessionID: t.SessionID.String(),
 			AgentID: t.AgentID.String(), AgentName: agentName,
-			BudgetUSD: budgetPerTask, BudgetOverrideUSD: t.BudgetOverride,
+			BudgetUSD: budgetPerTask, BudgetOverrideUSD: override,
 		},
 		TaskToken: token,
 		Profile: contracts.BundleProfile{

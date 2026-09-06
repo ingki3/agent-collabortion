@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ingki3/agent-collabortion/contracts"
+	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 )
 
@@ -140,4 +142,77 @@ func (s *Service) RecordTurnUsage(ctx context.Context, taskID uuid.UUID, u contr
 		return fmt.Errorf("tasks: turn usage: %w", err)
 	}
 	return nil
+}
+
+// PauseLaneForBudget parks the LANE of a task that has ALREADY finished.
+//
+// S-44: the budget check that runs after `finish` finds the overrun when the
+// turn is over. There is no turn to cancel and no task to park — the task is
+// `completed`, and completed → paused is not a transition the state machine
+// has (E5). What is still ahead is the NEXT task on this lane, and that is
+// what the pause has to stop: the agent's per-task budget is what was crossed,
+// so the next task by the same agent on the same lane would cross it again.
+// The claim query refuses a paused lane (queue/postgres.go), so this one row
+// is the whole gate; the Director's approval lifts it (ResumeLaneForBudget).
+func (s *Service) PauseLaneForBudget(ctx context.Context, tx pgx.Tx, laneID uuid.UUID, now time.Time) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE lane SET status = 'paused', updated_at = $2 WHERE id = $1 AND status <> 'paused'`,
+		laneID, now); err != nil {
+		return fmt.Errorf("tasks: pause lane for budget: %w", err)
+	}
+	if s.LanePublish != nil {
+		s.LanePublish(ctx, tx, laneID)
+	}
+	return nil
+}
+
+// ResumeLaneForBudget lifts a PauseLaneForBudget gate after the Director
+// raises the limit. It is the lane-only half of ResumeFromHuman: the task the
+// HITL names is terminal, so there is nothing to re-queue — only the lane's
+// refusal to dispatch to lift.
+//
+// The lane goes back to `queued` when it still holds a queued task and to
+// `done` otherwise, which is the same CASE the completed branch of Finish
+// writes. `done` is not an end: rule 3 re-entry brings the lane back the next
+// time the agent is mentioned (lanestate.Reenter).
+func (s *Service) ResumeLaneForBudget(ctx context.Context, laneID uuid.UUID, now time.Time) error {
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			UPDATE lane SET status = CASE WHEN EXISTS (SELECT 1 FROM task WHERE lane_id = $1 AND status = 'queued')
+			                          THEN 'queued'::lane_status ELSE 'done'::lane_status END,
+			       updated_at = $2
+			WHERE id = $1 AND status = 'paused'`, laneID, now); err != nil {
+			return fmt.Errorf("tasks: resume lane for budget: %w", err)
+		}
+		if s.LanePublish != nil {
+			s.LanePublish(ctx, tx, laneID)
+		}
+		return nil
+	})
+}
+
+// LaneBudgetOverride is the raise the Director last approved on this lane.
+//
+// A `task.budget_override` is scoped to one task (FR-7.3 C2′), which is right
+// for the in-turn pause — the same task resumes and carries it. It is not
+// enough for the post-turn pause: there the approved task is already finished,
+// so the raise would apply to nothing and the NEXT task on the lane would trip
+// the same limit on its first heartbeat, park the lane again and ask the same
+// question. The override therefore carries along the lane it was granted on,
+// which is the narrowest scope that makes the answer mean something. The
+// AGENT's budget_per_task is still untouched (E9-02), and another lane of the
+// same agent is unaffected.
+func LaneBudgetOverride(ctx context.Context, q db.DBTX, laneID uuid.UUID) (*float64, error) {
+	var v *float64
+	err := q.QueryRow(ctx, `
+		SELECT t.budget_override FROM task t
+		WHERE t.lane_id = $1 AND t.budget_override IS NOT NULL
+		ORDER BY t.created_at DESC, t.id DESC LIMIT 1`, laneID).Scan(&v)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("tasks: lane budget override: %w", err)
+	}
+	return v, nil
 }

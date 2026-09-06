@@ -34,6 +34,7 @@ type budgetState struct {
 	TaskSpentUSD                                    float64
 	SessionSpentUSD                                 float64
 	Estimated                                       bool
+	TaskStatus                                      string
 	SessionStatus                                   string
 	Attempt                                         int
 	Director                                        uuid.UUID
@@ -45,7 +46,16 @@ func (s *Server) loadBudgetState(ctx context.Context, q pgx.Tx, taskID uuid.UUID
 	var limits []byte
 	err := q.QueryRow(ctx, `
 		SELECT t.id, t.session_id, s.workspace_id, t.lane_id, t.agent_id, t.attempt,
-		       a.budget_per_task, t.budget_override, s.limits, s.status::text, s.director_user_id, a.name,
+		       a.budget_per_task,
+		       -- tasks.LaneBudgetOverride, inlined so the whole state is one
+		       -- round trip: an approved raise carries along the lane it was
+		       -- granted on, because the post-turn pause approves a task that
+		       -- has already finished (S-44).
+		       COALESCE(t.budget_override,
+		                (SELECT tt.budget_override FROM task tt
+		                  WHERE tt.lane_id = t.lane_id AND tt.budget_override IS NOT NULL
+		                  ORDER BY tt.created_at DESC, tt.id DESC LIMIT 1)),
+		       s.limits, t.status::text, s.status::text, s.director_user_id, a.name,
 		       COALESCE(u.cost_usd, 0), COALESCE(u.estimated, false),
 		       COALESCE((SELECT sum(uu.cost_usd) FROM task_usage uu JOIN task tt ON tt.id = uu.task_id
 		                 WHERE tt.session_id = t.session_id), 0)
@@ -55,7 +65,7 @@ func (s *Server) loadBudgetState(ctx context.Context, q pgx.Tx, taskID uuid.UUID
 		LEFT JOIN task_usage u ON u.task_id = t.id
 		WHERE t.id = $1`, taskID).
 		Scan(&b.TaskID, &b.SessionID, &b.WorkspaceID, &b.LaneID, &b.AgentID, &b.Attempt,
-			&b.AgentBudgetPerTask, &b.TaskOverride, &limits, &b.SessionStatus, &b.Director, &b.AgentName,
+			&b.AgentBudgetPerTask, &b.TaskOverride, &limits, &b.TaskStatus, &b.SessionStatus, &b.Director, &b.AgentName,
 			&b.TaskSpentUSD, &b.Estimated, &b.SessionSpentUSD)
 	if err != nil {
 		return nil, err
@@ -84,8 +94,16 @@ func (b *budgetState) sessionRemaining() float64 {
 // PlanBudget's verdict. It returns true when it paused something, so the caller
 // can tell the daemon (the cancel command rides the same response).
 //
-// production callers: daemonHeartbeat (the `usage` field) and
-// tasks.Finish's rollup, via Server.enforceBudgetFor.
+// production callers: daemonHeartbeat (the `usage` field, §4.2) and
+// daemonFinish through Server.finishAndEnforce, right after tasks.Finish has
+// committed the attempt AND rolled the usage up (§4.4).
+//
+// S-44: this comment used to claim the second caller existed when it did not,
+// and the enforcement point it named was the one that matters most — a daemon
+// that reports usage only at `finish` (measured in T-I3: budget_per_task
+// $0.002, turn $0.0599, task `completed`, session `active`, zero HITL) never
+// went through the heartbeat branch at all, so nothing was ever enforced. Both
+// call sites are named here so the next audit can grep them.
 func (s *Server) enforceBudgetFor(ctx context.Context, taskID uuid.UUID) (bool, error) {
 	now := s.Clock.Now()
 	paused := false
@@ -153,16 +171,38 @@ func (s *Server) applyBudgetPause(ctx context.Context, tx pgx.Tx, b *budgetState
 			}, now); err != nil {
 			return err
 		}
+		// E9-05's other half: "세션 `paused` + Dir 알림". The feed event is
+		// what the session shows; the Director is somewhere else. PlanBudget
+		// has set DirectorNotified since P3 and nothing implemented it, so an
+		// estimated overrun paused the session in silence — the one pause that
+		// raises no HITL is exactly the one that needs the inbox card (S-44).
+		if err := s.notifyDirectorPaused(ctx, tx, b, now); err != nil {
+			return err
+		}
 	} else if o.CancelCommandIssued {
 		// §8.2.2 through the daemon: PauseSessionTasks (session scope) or a
 		// single task pause, both of which queue the `cancel` command rather
 		// than signalling anything.
-		if o.SessionState == "paused" {
+		switch {
+		case o.SessionState == "paused":
 			if err := s.Tasks.PauseSessionTasks(ctx, tx, b.SessionID, sessions.PauseBudget, raw, now); err != nil {
 				return err
 			}
-		} else if err := s.Tasks.PauseTaskForBudget(ctx, tx, b.TaskID, raw, now); err != nil {
-			return err
+		case tasks.Terminal(tasks.Status(b.TaskStatus)):
+			// S-44, the post-turn case: the overrun was found after `finish`,
+			// so there is no turn to cancel and no task to park — `completed`
+			// has no edge to `paused` (E5), and inventing one would contradict
+			// a completion the session has already acted on. The next task on
+			// this lane is what a per-task budget can still stop, so the LANE
+			// takes the pause and the HITL below still names the task that
+			// crossed the line (FR-7.3 s-13).
+			if err := s.Tasks.PauseLaneForBudget(ctx, tx, b.LaneID, now); err != nil {
+				return err
+			}
+		default:
+			if err := s.Tasks.PauseTaskForBudget(ctx, tx, b.TaskID, raw, now); err != nil {
+				return err
+			}
 		}
 	}
 	if !o.HitlIssued {
@@ -212,3 +252,20 @@ func derefFloat(p *float64) float64 {
 }
 
 var _ = contracts.Usage{}
+
+// notifyDirectorPaused is the inbox card for a pause that issues no HITL: the
+// estimated overrun (E9-05). `session_paused` is the item type FR-8 names for
+// it, and the card's actions (`approve_continue`) are already wired — nothing
+// had ever inserted one. The card's body is the session's own paused_reason,
+// which applyBudgetPause has just written, so `ref_id` carries the session.
+//
+// It is inserted only while the session is still `active` (enforceBudgetFor's
+// guard), so the Director gets one card per pause, not one per heartbeat.
+func (s *Server) notifyDirectorPaused(ctx context.Context, tx pgx.Tx, b *budgetState, now time.Time) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
+		SELECT m.id, $3::inbox_item_type, $4::inbox_severity, $1, $1, $2
+		FROM member m WHERE m.workspace_id = $5 AND m.user_id = $6`,
+		b.SessionID, now, inbox.TypeSessionPaused, inbox.Severity(inbox.TypeSessionPaused), b.WorkspaceID, b.Director)
+	return err
+}
