@@ -257,6 +257,24 @@ type Finish struct {
 	RuntimeSessionRef *RuntimeSessionRef `json:"runtime_session_ref,omitempty"`
 	ResumeOutcome     string             `json:"resume_outcome,omitempty"` // resumed | cold_start
 	LastSeq           int                `json:"last_seq"`
+	Workdir           *FinishWorkdir     `json:"workdir,omitempty"` // daemon-protocol v0.7.2 §4.4 — worktree 격리에서만 git 이 실린다
+}
+
+// FinishWorkdir — finish 의 `workdir: {path, git?}` (daemon-protocol v0.7.2 §4.4).
+// git 블록의 이름은 §6 workdir 보고 행과 같다(`commits_ahead`; 옛 `ahead` 는 오기).
+// 서버는 이 값으로 workdir 행의 merged·dirty·commits_ahead(openapi Workdir, PR #155)를
+// 갱신하고 GC 판정(E13-10~13)에 쓴다.
+type FinishWorkdir struct {
+	Path string      `json:"path"`
+	Git  *WorkdirGit `json:"git,omitempty"`
+}
+
+// WorkdirGit — 체크아웃의 git 상태 한 장(daemon-protocol §6 `git: {branch, merged, dirty, commits_ahead}`).
+type WorkdirGit struct {
+	Branch       string `json:"branch"`
+	Merged       bool   `json:"merged"`
+	Dirty        bool   `json:"dirty"`
+	CommitsAhead int    `json:"commits_ahead"`
 }
 
 type Usage struct {

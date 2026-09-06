@@ -1,7 +1,12 @@
-// Package workdir prepares lane working directories. P1 implements `none`
-// isolation only (PRD §5 isolation, FR-6.4): every lane of a session gets a
-// sub-folder under the daemon's workdir root and is reused between attempts.
-// Orphan-left changes are never deleted (E11-06). `worktree` is P4.
+// Package workdir prepares lane working directories (PRD §5 isolation,
+// FR-6.4).
+//
+//	none/dir  — one sub-folder per LANE under the daemon's workdir root,
+//	            reused between attempts (this file).
+//	worktree  — one git checkout per AGENT, branch `colab/<session>/<agent>`
+//	            (worktree.go, P4).
+//
+// Orphan-left changes are never deleted (E11-06).
 package workdir
 
 import (
@@ -14,10 +19,12 @@ import (
 	"time"
 
 	"github.com/ingki3/agent-collabortion/contracts"
+	"github.com/ingki3/agent-collabortion/daemon/internal/gitrepo"
 )
 
-// ErrUnsupported is returned for isolation kinds not implemented in P1.
-var ErrUnsupported = errors.New("workdir: isolation kind not supported in P1")
+// ErrUnsupported is returned for isolation kinds this daemon cannot prepare.
+// `container` is the only one left (PRD §5); it is not v1.
+var ErrUnsupported = errors.New("workdir: isolation kind not supported")
 
 // Path returns the lane folder for `none` isolation:
 // <root>/sessions/<session_id>/<lane_id>.
@@ -46,7 +53,7 @@ func Prepare(root string, b contracts.TaskBundle) (string, error) {
 	switch b.Workdir.Kind {
 	case "", "dir", "none":
 	case "worktree":
-		return "", fmt.Errorf("%w: %s (P4)", ErrUnsupported, b.Workdir.Kind)
+		return PrepareWorktree(root, b)
 	default:
 		return "", fmt.Errorf("%w: %s", ErrUnsupported, b.Workdir.Kind)
 	}
@@ -73,8 +80,12 @@ type Info struct {
 	Path       string    `json:"path"`
 	SessionID  string    `json:"session_id"`
 	LaneID     string    `json:"lane_id,omitempty"`
+	AgentID    string    `json:"agent_id,omitempty"`
 	Bytes      int64     `json:"bytes"`
 	LastUsedAt time.Time `json:"last_used_at"`
+	// Git is the §6 report's `git` block, set for a checkout: the numbers
+	// the SERVER judges 병합·클린 from (E13-10~13). nil for a plain folder.
+	Git *contracts.WorkdirGit `json:"git,omitempty"`
 	// GC is set only on the report that answers a §4.3 `gc` command.
 	GC *GCResult `json:"gc,omitempty"`
 }
@@ -101,20 +112,20 @@ type GCResult struct {
 const (
 	GCDeleted = "deleted"
 	GCRefused = "refused"
-	// GCReasonWorktreeP4 is the one refusal v1 can produce: `worktree`
-	// isolation is P4, and removing one is `git worktree remove` plus a
-	// branch to keep (§6, E13-10) — not an rm -rf.
+	// GCReasonWorktreeP4 was the P1~P3 refusal: `worktree` isolation had no
+	// collector, so every gc naming a checkout was answered `refused`. P4
+	// implements it (RemoveWorktree), and the constant stays only so a
+	// server row written before this daemon shipped is still recognisable.
+	//
+	// Deprecated: no code path produces it any more.
 	GCReasonWorktreeP4 = "isolation_worktree_p4"
 )
 
 // IsWorktree reports whether p looks like a git worktree checkout: a worktree
 // has `.git` as a FILE (`gitdir: …`), a plain clone has it as a directory.
 // Either way it is not ours to delete with an rm -rf (§6 "`worktree` 삭제는
-// `git worktree remove`만, 브랜치는 남긴다" — P4).
-func IsWorktree(p string) bool {
-	fi, err := os.Stat(filepath.Join(p, ".git"))
-	return err == nil && !fi.IsDir()
-}
+// `git worktree remove`만, 브랜치는 남긴다").
+func IsWorktree(p string) bool { return gitrepo.IsWorktreeCheckout(p) }
 
 // Remove deletes one workdir named by a `gc` command. It refuses anything
 // outside root — the command carries a path the server stored, and a bug or a
@@ -159,10 +170,9 @@ func SessionLanes(root, sessionID string) []Info {
 func List(root string) ([]Info, error) {
 	base := filepath.Join(root, "sessions")
 	sessions, err := os.ReadDir(base)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
+	// A root that has only ever run `worktree` sessions has no `sessions/`
+	// directory at all; returning early here would hide every checkout.
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
 	var out []Info
@@ -183,6 +193,10 @@ func List(root string) ([]Info, error) {
 			out = append(out, Info{Kind: "dir", Path: p, SessionID: s.Name(), LaneID: l.Name(), Bytes: size, LastUsedAt: last})
 		}
 	}
+	// §6 "데몬은 workdir 목록을 probe와 함께 보고한다" — the list is the whole
+	// disk footprint, and a `worktree` checkout left out of it is a workdir
+	// S13 cannot show and GC can never reach.
+	out = append(out, ListWorktrees(root)...)
 	return out, nil
 }
 

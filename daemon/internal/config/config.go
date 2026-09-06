@@ -27,9 +27,30 @@ type Config struct {
 	// until the turn ends and the server's in-turn budget check (FR-7.3)
 	// never fires. It is not free: measured on one 12.2s turn the stream cost
 	// ~4× the messages and ~2× the bytes. Absent → ON. Set false to turn it
-	// off machine-wide; doing it per session (only when a budget is set) is
-	// backlog D-18.
+	// off machine-wide.
+	//
+	// D-18 (P4) made this the TOP of a three-tier decision, not the only one
+	// (Lead 2026-09-07):
+	//
+	//  1. `false` here is a hard kill switch — honoured even for a session
+	//     that has a budget, and probe §9 then advertises `usage_midturn:
+	//     false` (the EFFECTIVE value) so the server falls back to
+	//     finish-time budget enforcement (E9-10) instead of waiting for
+	//     in-turn numbers this machine will never send.
+	//  2. otherwise the attempt decides: a bundle with a budget gets the
+	//     stream, one without does not (loop.usageMidturn).
+	//  3. absent → ON, which is now only reachable through tier 2.
 	UsageMidturn *bool `json:"usage_midturn,omitempty"`
+	// Repos are the git repositories this machine offers for `worktree`
+	// isolation (daemon-protocol §3 `repos[]`). The wizard filters runtime
+	// candidates by them (E13-17) and, more importantly, `remote_url` is what
+	// decides whether this machine can take over a session whose original
+	// runtime went offline (FR-9.2, E14-04·05) — a machine that never lists
+	// its repositories is never a rebinding candidate.
+	//
+	// Repositories already backing a worktree workdir are added
+	// automatically, so this list is for the ones a session has not used yet.
+	Repos []string `json:"repos,omitempty"`
 }
 
 // UsageMidturnEnabled is UsageMidturn with its default (ON) applied. A

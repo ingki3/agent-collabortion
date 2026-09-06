@@ -320,7 +320,9 @@ func (r *Runner) classify(err error) Result {
 	rl, cancelled, req := r.lastRL, r.intent || r.cancelling, r.cancelReq
 	r.mu.Unlock()
 	if cancelled && !r.isStalled() {
-		return Result{Outcome: "cancelled", StopReason: "cancelled", Failure: &Failure{Kind: contracts.FailCancelled, Detail: cancelReason(req)}}
+		var res Result
+		applyCancelOutcome(&res, req)
+		return res
 	}
 	f := Classify(ClassifyInput{Err: err, LastRateLimit: rl, Stderr: r.c.Stderr(), Now: r.clk.Now()})
 	return r.fail(f.Kind, f.Detail, f.NotBefore)
@@ -510,8 +512,7 @@ func (r *Runner) run(ctx context.Context) Result {
 	if perr != nil {
 		if cancelled {
 			res := base
-			res.Outcome, res.StopReason = "cancelled", "cancelled"
-			res.Failure = &Failure{Kind: contracts.FailCancelled, Detail: cancelReason(cancelReq)}
+			applyCancelOutcome(&res, cancelReq)
 			return res
 		}
 		res := r.classify(perr)
@@ -570,14 +571,12 @@ func (r *Runner) run(ctx context.Context) Result {
 	}
 	switch pr.StopReason {
 	case "cancelled":
-		res.Outcome = "cancelled"
-		res.Failure = &Failure{Kind: contracts.FailCancelled, Detail: cancelReason(cancelReq)}
+		applyCancelOutcome(&res, cancelReq)
 	default:
 		// end_turn, max_tokens, max_turn_requests, refusal → completed (§2.2)
 		res.Outcome = "completed"
 		if cancelled {
-			res.Outcome = "cancelled"
-			res.Failure = &Failure{Kind: contracts.FailCancelled, Detail: cancelReason(cancelReq)}
+			applyCancelOutcome(&res, cancelReq)
 		} else if r.budgetHit() {
 			// daemon-protocol §4.4: a measured overrun is `paused_budget`,
 			// with NO failure_kind — going over budget is policy, not an
@@ -648,6 +647,49 @@ func (r *Runner) resetTurn() {
 	// contributed has already been folded into r.usage by recordUsage.
 	r.turn = turnTokens{}
 	r.turnCost = nil
+}
+
+// CancelReasonBudget is the §4.3 `cancel {reason}` value the SERVER uses when
+// it stops a turn because the session or task ran out of money.
+const CancelReasonBudget = "budget"
+
+// budgetCancel reports whether a cancel request is the server's budget pause.
+func budgetCancel(c *CancelRequest) bool { return c != nil && c.Reason == CancelReasonBudget }
+
+// applyCancelOutcome fills a Result for a turn that ended because someone
+// cancelled it (D-19).
+//
+// `cancelled` and `paused_budget` are two different things to the server:
+// `cancelled` ends the task, `paused_budget` pauses the session so a Director
+// who raises the cap resumes the SAME lane and workdir (FR-7.3 M9, §4.4). The
+// daemon reaches this branch two ways — it measured the overrun itself
+// (budgetHit) or the server told it to stop with `reason: budget` — and until
+// D-19 only the first was reported as a pause: every cancel path here checked
+// "was I cancelled?" before it checked why, so a server-driven budget pause
+// came back as `cancelled` + failure_kind `cancelled` and the session ended
+// instead of pausing. The reason is on the wire; this reads it.
+//
+// FOUR call sites reach it, not three (PR #156 review NN4 — the PR body said
+// three and undercounted). A turn can be cancelled at four distinct points,
+// and a pause that only survives three of them is a pause the Director
+// cannot rely on:
+//
+//  1. classify() — the cancel landed before/around the turn, so the error
+//     path is what returns, and it must not be classified as a failure.
+//  2. Run(), prompt error branch — session/prompt returned an error while
+//     the cancel was in flight.
+//  3. Run(), stopReason == "cancelled" — the adapter itself reports the
+//     cancellation.
+//  4. Run(), default stopReason with the cancel flag set — the turn ended
+//     normally but we had already asked it to stop.
+func applyCancelOutcome(res *Result, req *CancelRequest) {
+	if budgetCancel(req) {
+		// §4.4: no failure_kind — going over budget is policy, not an error.
+		res.Outcome, res.StopReason, res.Failure = "paused_budget", CancelReasonBudget, nil
+		return
+	}
+	res.Outcome, res.StopReason = "cancelled", "cancelled"
+	res.Failure = &Failure{Kind: contracts.FailCancelled, Detail: cancelReason(req)}
 }
 
 func cancelReason(c *CancelRequest) string {

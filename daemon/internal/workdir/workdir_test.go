@@ -1,6 +1,7 @@
 package workdir
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -40,8 +41,9 @@ func TestPrepareExplicitPathAndWorktreeUnsupported(t *testing.T) {
 	if err != nil || p != explicit {
 		t.Fatalf("%s %v", p, err)
 	}
-	if _, err := Prepare(root, contracts.TaskBundle{Workdir: contracts.BundleWorkdir{Kind: "worktree"}}); err == nil {
-		t.Fatal("worktree should be unsupported in P1")
+	// P4: `worktree` IS supported now — but only with a usable repo_path.
+	if _, err := Prepare(root, contracts.TaskBundle{Workdir: contracts.BundleWorkdir{Kind: "worktree"}}); !errors.Is(err, ErrNoRepo) {
+		t.Fatalf("worktree without repo_path = %v, want ErrNoRepo", err)
 	}
 }
 

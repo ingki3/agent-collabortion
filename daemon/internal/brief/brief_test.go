@@ -52,18 +52,32 @@ func TestPrepareMetaWritesNothing(t *testing.T) {
 	}
 }
 
-func TestPrepareInstructionFileMarkerBlock(t *testing.T) {
+// CHANGED FOR §8.4 v0.16 (spike 5, PR #153). The two tests that stood here
+// measured the v0.15 mechanism: a marker block APPENDED to the repository's
+// own AGENTS.md, and a Remove that stripped the block while keeping the
+// original text. Both behaviours are now defects — the contract says the
+// repository's instruction file is neither read nor written, and our brief is
+// a separate untracked file that is simply deleted (E13-03~07). P2_TASKS
+// §0-14: ordinary unit expectations move with the fix; the golden table that
+// pins the new behaviour is p4_brief_golden_test.go.
+func TestPrepareInstructionFileWritesOurOwnFile(t *testing.T) {
 	dir := t.TempDir()
 	p, err := Prepare(dir, contracts.BriefInstructionFile, "brief v1")
-	if err != nil || !p.Created {
+	if err != nil || p.Overwrote {
 		t.Fatalf("%+v %v", p, err)
+	}
+	if filepath.Base(p.Path) != "COLAB_BRIEF.md" {
+		t.Fatalf("brief written to %q, want COLAB_BRIEF.md (harness §10 v0.8.6)", p.Path)
 	}
 	got, _ := os.ReadFile(filepath.Join(dir, FileName))
 	if string(got) != MarkerStart+"\nbrief v1\n"+MarkerEnd+"\n" {
 		t.Fatalf("content %q", got)
 	}
-	// re-prepare replaces the block, exactly one block (no duplicate injection)
+	// A resumed lane REPLACES the stale brief — exactly one block, no v1.
 	p2, _ := Prepare(dir, contracts.BriefInstructionFile, "brief v2")
+	if !p2.Overwrote {
+		t.Error("the second Prepare did not report an overwrite")
+	}
 	got, _ = os.ReadFile(p2.Path)
 	if strings.Count(string(got), MarkerStart) != 1 || !strings.Contains(string(got), "brief v2") || strings.Contains(string(got), "brief v1") {
 		t.Fatalf("content %q", got)
@@ -72,30 +86,68 @@ func TestPrepareInstructionFileMarkerBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(p.Path); !os.IsNotExist(err) {
-		t.Fatal("created file not removed at lane end")
+		t.Fatal("our brief file survived the lane")
 	}
 }
 
-func TestPrepareAppendsToExistingAndRemoveKeepsOriginal(t *testing.T) {
+// §8.4 M3 v0.16 / E13-03·04·05: the repository's own instruction files are
+// not opened, not created, and not restored over.
+func TestPrepareLeavesTheRepositoryInstructionFileAlone(t *testing.T) {
+	for _, name := range InstructionFileNames {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, name)
+			original := "# Project rules\nkeep me\n"
+			if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			p, err := Prepare(dir, contracts.BriefInstructionFile, "brief")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, _ := os.ReadFile(path); string(got) != original {
+				t.Fatalf("%s changed to %q", name, got)
+			}
+			// The agent edits it as part of its actual work.
+			edited := original + "agent added\n"
+			if err := os.WriteFile(path, []byte(edited), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := Remove(p); err != nil {
+				t.Fatal(err)
+			}
+			if got, _ := os.ReadFile(path); string(got) != edited {
+				t.Fatalf("Remove ran over the agent's edit: %q", got)
+			}
+			if _, err := os.Stat(p.Path); !os.IsNotExist(err) {
+				t.Fatal("our brief file survived the lane")
+			}
+		})
+	}
+}
+
+// E13-04: the file is not created when the repository has none.
+func TestPrepareNeverCreatesTheRepositoryInstructionFile(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, FileName)
-	os.WriteFile(path, []byte("# Project rules\nkeep me\n"), 0o644)
-	p, err := Prepare(dir, contracts.BriefInstructionFile, "brief")
-	if err != nil || p.Created {
-		t.Fatalf("%+v %v", p, err)
-	}
-	got, _ := os.ReadFile(path)
-	if !strings.HasPrefix(string(got), "# Project rules\nkeep me\n") || !strings.Contains(string(got), MarkerStart) {
-		t.Fatalf("content %q", got)
-	}
-	// the agent edits the file legitimately; Remove keeps that edit
-	os.WriteFile(path, append(got, []byte("agent added\n")...), 0o644)
-	if err := Remove(p); err != nil {
+	if _, err := Prepare(dir, contracts.BriefInstructionFile, "brief"); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = os.ReadFile(path)
-	if string(got) != "# Project rules\nkeep me\nagent added\n" {
-		t.Fatalf("after remove %q", got)
+	for _, name := range InstructionFileNames {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Errorf("%s was created", name)
+		}
+	}
+}
+
+// E13-06a: the pointer line names the ABSOLUTE path.
+func TestTurnPromptPointer(t *testing.T) {
+	line := TurnPromptPointer("/srv/wd/S1/R")
+	if !strings.Contains(line, "/srv/wd/S1/R/COLAB_BRIEF.md") {
+		t.Fatalf("pointer %q", line)
+	}
+	full := PrependPointer("/srv/wd/S1/R", "turn body")
+	if !strings.HasPrefix(full, line) || !strings.HasSuffix(full, "turn body") {
+		t.Fatalf("prepended prompt %q", full)
 	}
 }
 

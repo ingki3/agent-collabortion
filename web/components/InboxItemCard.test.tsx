@@ -35,6 +35,8 @@ describe("심각도 배지 — 글리프는 심각도, 색은 원인 상태(리�
       run_failed: "fail",
       mention: "run",
       session_completed: "done",
+      // P4(PR #155): GC 가 미병합·미커밋 때문에 지우지 못한 workdir — Director 의 손이 필요하니 `block`.
+      workdir_gc_blocked: "block",
     });
     // 같은 `action_required` 인데 색이 다르다 — 그것이 규칙의 요점이다.
     expect(TONE_BY_TYPE.hitl_request).not.toBe(TONE_BY_TYPE.lane_blocked);
@@ -50,9 +52,9 @@ describe("심각도 배지 — 글리프는 심각도, 색은 원인 상태(리�
     expect(badge.textContent).toContain("▲");
   });
 
-  it("7종 이름표가 모두 있다", () => {
+  it("8종 이름표가 모두 있다(P4 workdir_gc_blocked 포함)", () => {
     expect(Object.keys(TYPE_LABEL).sort()).toEqual(
-      ["hitl_request", "lane_blocked", "mention", "run_failed", "runtime_offline", "session_completed", "session_paused"],
+      ["hitl_request", "lane_blocked", "mention", "run_failed", "runtime_offline", "session_completed", "session_paused", "workdir_gc_blocked"],
     );
   });
 });

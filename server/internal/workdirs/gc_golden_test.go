@@ -193,6 +193,8 @@ type worktreePlan struct {
 	BaseBranch string
 }
 
+// NOT WIRED here, mirror: daemon/internal/workdir/p4_worktree_golden_test.go
+// (same module-boundary reason as planBriefFile below; Lead 2026-09-07).
 var planWorktree func(r worktreeRequest) worktreePlan
 
 func TestWorktreePreparationGolden(t *testing.T) {
@@ -280,44 +282,76 @@ func TestWorktreeIsolationGolden(t *testing.T) {
 // 3. The brief file must not pollute the checkout — E13-03..E13-07
 // ---------------------------------------------------------------------------
 
-// briefFileCase is the state of the runtime instruction file when a lane
-// starts (§8.4 표: 원본 상태 → 숨기기 → lane 종료 시).
+// LEAD REWRITE AFTER SPIKE 5 (PR #153 → PRD v0.16 §8.4, harness v0.8.6 §10,
+// EVAL v0.10 E13-03~06·06a). The P4a draft measured the v0.15 mechanism
+// (marker append into the tracked instruction file + `skip-worktree`). Spike 5
+// killed it: `skip-worktree` silently drops the agent's own edits from its
+// commits (0/12) and blocks `switch`/`merge`. The contract now is 우회 B —
+// the repository's instruction file (`AGENTS.md`/`CLAUDE.md`) is neither read
+// nor written; the brief goes to an UNTRACKED `<workdir>/COLAB_BRIEF.md`
+// registered in `.git/info/exclude`, and the first line of the hermes turn
+// prompt points at its absolute path. These rows are the mirror T-D9 copies
+// into the daemon module (decision (a) on PR #152); this server-side hook
+// stays NOT WIRED (precedent: `cliFallbackArgs`, PR #121).
+
+// briefFileCase is the state of the repository's own instruction file when a
+// lane starts. Under 우회 B the plan must be the SAME for every row — that is
+// the point: the original's state no longer matters.
 type briefFileCase struct {
-	Path string // CLAUDE.md · AGENTS.md
+	Path string // the repository's instruction file: AGENTS.md · CLAUDE.md
 	// Existed is whether the repository already had the file.
 	Existed bool
-	// Tracked is whether git tracks it. `.git/info/exclude` is powerless
-	// here — this is the whole point of M3.
+	// Tracked is whether git tracks it.
 	Tracked bool
-	// AgentEditedOutsideMarkers is E13-05: the agent legitimately changed the
-	// project's own instructions during its work.
-	AgentEditedOutsideMarkers bool
+	// AgentEditedAndCommitted is E13-05: the agent legitimately changed the
+	// project's own instructions during its work and committed them.
+	AgentEditedAndCommitted bool
+	// Resumed is a second lane start on the same workdir (재개·재시도): the
+	// brief file is already there from the previous attempt.
+	Resumed bool
 }
 
 // briefFilePlan is what the daemon does at lane start and lane end.
 type briefFilePlan struct {
 	// --- lane start ---
-	// Overwrote must never be true when the file existed.
-	Overwrote bool
-	// AppendedBetweenMarkers is §8.4's 구분 마커 사이에 덧붙인다.
-	AppendedBetweenMarkers bool
-	// HideMethod: "skip_worktree" | "git_exclude" | "none".
+	// BriefPath is where the brief was written, relative to the workdir.
+	BriefPath string
+	// InstructionFileTouched is true if the daemon read OR wrote the
+	// repository's own instruction file. Must be false (§8.4 M3 v0.16).
+	InstructionFileTouched bool
+	// WrappedInMarkers is §8.4's 마커 구간 (still required inside our own file,
+	// so the turn-prompt pointer and E12-11 byte-identity have an anchor).
+	WrappedInMarkers bool
+	// HideMethod: "git_exclude" | "skip_worktree" | "none".
 	HideMethod string
-	// GitStatusClean is the observable E13-03·04 demand.
+	// SkipWorktreeBitsSet counts paths the daemon marked skip-worktree. 0.
+	SkipWorktreeBitsSet int
+	// GitStatusClean is the observable E13-03·04 demand — and under 우회 B it
+	// is a REAL clean (no hidden index bits), which E13-05 then proves.
 	GitStatusClean bool
+	// Overwrote is the resumed case: the stale brief from the previous
+	// attempt is replaced, never appended to.
+	Overwrote bool
 
 	// --- lane end ---
-	// RestoreAction: "remove_markers" | "delete_file" | "restore_original".
+	// RestoreAction: "delete_file" | "remove_markers" | "restore_original".
 	RestoreAction string
-	// UnhideAction: "no_skip_worktree" | "exclude_unregister" | "none".
+	// UnhideAction: "exclude_unregister" | "no_skip_worktree" | "none".
 	UnhideAction string
-	// AgentEditPreserved is E13-05's 에이전트 수정 보존.
-	AgentEditPreserved bool
-	// OriginalIntact is 원본 무손상.
-	OriginalIntact bool
+	// AgentCommitSucceeded is E13-05: `git commit` of the agent's edit to the
+	// instruction file reports `1 file changed`, not `nothing to commit`.
+	AgentCommitSucceeded bool
+	// BriefInAgentCommit is E13-05's 커밋에 브리프 섞이지 않음.
+	BriefInAgentCommit bool
+	// InstructionFileIsAgentVersion: after the lane the instruction file is
+	// exactly what the agent committed (no restore ran over it).
+	InstructionFileIsAgentVersion bool
+	// BriefFileRemains must be false at the end (E13-06).
+	BriefFileRemains bool
 	// ExcludeEntryRemains is E13-06's 등록 해제 (must be false at the end).
 	ExcludeEntryRemains bool
-	// GitStatusCleanAfter closes the loop: the repository is as we found it.
+	// GitStatusCleanAfter closes the loop: the repository is as we found it,
+	// plus whatever the agent committed.
 	GitStatusCleanAfter bool
 
 	// TouchedGitignore is §8.4's last bullet: `.gitignore` belongs to the
@@ -325,34 +359,64 @@ type briefFilePlan struct {
 	TouchedGitignore bool
 }
 
+// turnPromptPlan is E13-06a: the hermes turn prompt's first line.
+type turnPromptPlan struct {
+	// FirstLine of the turn prompt handed to `session/prompt`.
+	FirstLine string
+	// BriefAbsPath the daemon resolved for this lane.
+	BriefAbsPath string
+}
+
+// NOT WIRED in the server module (Lead decision on PR #152, option (a)):
+// `planBriefFile` and `planTurnPrompt` describe daemon behaviour and Go
+// forbids importing `daemon/internal/…` from here. T-D9 mirrors these rows
+// in the daemon module against `daemon/internal/brief`; this table stays as
+// the spec of record and reports "unimplemented" on purpose. Do NOT fill it
+// with a server-side re-implementation (그림자 훅).
 var planBriefFile func(c briefFileCase) briefFilePlan
+var planTurnPrompt func(workdirAbs string) turnPromptPlan
 
 func mustPlanBrief(t *testing.T, c briefFileCase) briefFilePlan {
 	t.Helper()
 	if planBriefFile == nil {
-		t.Fatalf("unimplemented: brief-file pollution prevention (§8.4 M3·M6, E13-03~07). " +
-			"T-D9 must wire `planBriefFile` (spike 5 decides the mechanism) — see the P4a " +
-			"hand-off report 'required API'")
+		t.Fatalf("unimplemented (NOT WIRED here by design): brief-file pollution prevention " +
+			"(§8.4 M3·M6 v0.16, E13-03~07) lives in the daemon — T-D9 mirrors this table in " +
+			"the daemon module; see the PR #152 Lead comment")
 	}
 	return planBriefFile(c)
 }
 
 func TestBriefFilePollutionGolden(t *testing.T) {
-	t.Run(caseNameP4("E13-03", "a_tracked_brief_file_is_appended_to_and_hidden_with_skip_worktree"), func(t *testing.T) {
-		p := mustPlanBrief(t, briefFileCase{Path: "CLAUDE.md", Existed: true, Tracked: true})
+	// The same plan for every original state — 우회 B does not branch on it.
+	allCases := []briefFileCase{
+		{Path: "AGENTS.md", Existed: true, Tracked: true},
+		{Path: "AGENTS.md", Existed: true, Tracked: false},
+		{Path: "AGENTS.md", Existed: false},
+		{Path: "CLAUDE.md", Existed: true, Tracked: true},
+	}
 
-		if p.Overwrote {
-			t.Fatal("the repository's own CLAUDE.md was overwritten — the project's rules are gone " +
-				"and the agent now follows only ours (§8.4 (a))")
+	t.Run(caseNameP4("E13-03", "a_tracked_instruction_file_is_left_alone_and_the_brief_is_an_untracked_excluded_file"), func(t *testing.T) {
+		p := mustPlanBrief(t, briefFileCase{Path: "AGENTS.md", Existed: true, Tracked: true})
+
+		if p.InstructionFileTouched {
+			t.Fatal("the repository's own AGENTS.md was read or written — §8.4 M3 (v0.16): " +
+				"we neither read nor write it; spike 5 §3 showed every way of hiding an edit " +
+				"to a tracked file ends in silent data loss")
 		}
-		if !p.AppendedBetweenMarkers {
-			t.Error("the brief goes BETWEEN markers so the end-of-lane restore has something to cut " +
-				"on (§8.4 '구분 마커 사이에 덧붙인다')")
+		if p.BriefPath != "COLAB_BRIEF.md" {
+			t.Errorf("brief path = %q, want COLAB_BRIEF.md (harness §10 v0.8.6)", p.BriefPath)
 		}
-		if p.HideMethod != "skip_worktree" {
-			t.Errorf("hide = %q, want skip_worktree — `.git/info/exclude` has NO effect on a "+
-				"tracked file, so the append shows up as `modified` and the agent commits it "+
-				"(§8.4 M3, E13-03)", p.HideMethod)
+		if !p.WrappedInMarkers {
+			t.Error("the brief is wrapped in <!-- colab:brief:start/end --> inside our own file " +
+				"(E12-11 byte identity of [1]~[5] is measured within it)")
+		}
+		if p.HideMethod != "git_exclude" {
+			t.Errorf("hide = %q, want git_exclude — the brief is untracked, which is exactly what "+
+				"`.git/info/exclude` covers (§8.4 표 v0.16, E13-03)", p.HideMethod)
+		}
+		if p.SkipWorktreeBitsSet != 0 {
+			t.Errorf("skip-worktree bits set = %d, want 0 — spike 5: the bit makes the agent's "+
+				"`git commit` report `nothing to commit` (0/12) and blocks switch/merge", p.SkipWorktreeBitsSet)
 		}
 		if !p.GitStatusClean {
 			t.Error("`git status` must be clean while the lane runs (E13-03) — a dirty tree also " +
@@ -360,75 +424,97 @@ func TestBriefFilePollutionGolden(t *testing.T) {
 		}
 	})
 
-	t.Run(caseNameP4("E13-04", "an_absent_brief_file_is_created_and_hidden_with_git_exclude"), func(t *testing.T) {
-		p := mustPlanBrief(t, briefFileCase{Path: "CLAUDE.md", Existed: false})
-
-		if p.HideMethod != "git_exclude" {
-			t.Errorf("hide = %q, want git_exclude — an untracked file is exactly the case "+
-				"`.git/info/exclude` covers, and `skip-worktree` on an unindexed path fails "+
-				"(§8.4 표, E13-04)", p.HideMethod)
-		}
-		if !p.GitStatusClean {
-			t.Error("`git status` must be clean (E13-04)")
+	t.Run(caseNameP4("E13-04", "the_plan_does_not_depend_on_the_original_state"), func(t *testing.T) {
+		ref := mustPlanBrief(t, allCases[0])
+		for _, c := range allCases[1:] {
+			p := mustPlanBrief(t, c)
+			if p.InstructionFileTouched {
+				t.Errorf("%+v: instruction file touched", c)
+			}
+			if p.BriefPath != ref.BriefPath || p.HideMethod != ref.HideMethod ||
+				p.SkipWorktreeBitsSet != ref.SkipWorktreeBitsSet || p.RestoreAction != ref.RestoreAction ||
+				p.UnhideAction != ref.UnhideAction {
+				t.Errorf("%+v: plan differs from the tracked case — 우회 B has ONE row (§8.4 표 v0.16): "+
+					"got %+v, want %+v", c, p, ref)
+			}
+			if !p.GitStatusClean {
+				t.Errorf("%+v: `git status` must be clean (E13-04)", c)
+			}
 		}
 	})
 
-	t.Run(caseNameP4("E13-05", "restoring_removes_the_marker_section_only_and_keeps_the_agents_edit"), func(t *testing.T) {
+	t.Run(caseNameP4("E13-05", "the_agents_own_edit_to_the_instruction_file_commits_normally_and_carries_no_brief"), func(t *testing.T) {
 		p := mustPlanBrief(t, briefFileCase{
-			Path: "CLAUDE.md", Existed: true, Tracked: true, AgentEditedOutsideMarkers: true,
+			Path: "AGENTS.md", Existed: true, Tracked: true, AgentEditedAndCommitted: true,
 		})
 
-		if p.RestoreAction == "restore_original" {
-			t.Fatal("restoring the whole file deletes the edit the agent made as part of its job — " +
-				"§8.4 says 마커 구간만 제거 for precisely this reason (E13-05)")
+		if !p.AgentCommitSucceeded {
+			t.Fatal("the agent's commit of its AGENTS.md edit must succeed with `1 file changed` — " +
+				"a `nothing to commit, working tree clean` here is the spike 5 failure (§3.1, 0/12) " +
+				"and means a skip-worktree bit is still in play")
 		}
-		if p.RestoreAction != "remove_markers" {
-			t.Errorf("restore = %q, want remove_markers", p.RestoreAction)
+		if p.BriefInAgentCommit {
+			t.Error("our brief ended up in the agent's commit — the control run in spike 5 §6.2 " +
+				"(marker append, not hidden) did exactly this 4/4")
 		}
-		if p.UnhideAction != "no_skip_worktree" {
-			t.Errorf("unhide = %q, want no_skip_worktree — leaving the bit set makes every later "+
-				"change to that file invisible to git long after the session ended (§8.4 표)",
-				p.UnhideAction)
+		if p.RestoreAction != "delete_file" {
+			t.Errorf("restore = %q, want delete_file — there is no marker section in the "+
+				"repository's file to remove any more; we only delete OUR file", p.RestoreAction)
 		}
-		if !p.AgentEditPreserved {
-			t.Error("에이전트 수정 보존 (E13-05)")
-		}
-		if !p.OriginalIntact {
-			t.Error("원본 무손상 (E13-05)")
+		if !p.InstructionFileIsAgentVersion {
+			t.Error("after the lane AGENTS.md must be exactly what the agent committed — no restore " +
+				"may run over the repository's file (E13-05)")
 		}
 		if !p.GitStatusCleanAfter {
-			t.Error("after the lane the only difference left in the tree is the agent's own edit, " +
-				"so nothing of OURS remains in `git status` (E13-03·05)")
+			t.Error("after the lane nothing of OURS remains in `git status` (E13-03·05)")
 		}
 	})
 
-	t.Run(caseNameP4("E13-06", "a_file_we_created_is_deleted_and_the_exclude_entry_is_removed"), func(t *testing.T) {
-		p := mustPlanBrief(t, briefFileCase{Path: "CLAUDE.md", Existed: false})
+	t.Run(caseNameP4("E13-06", "our_brief_file_is_deleted_and_the_exclude_entry_is_removed"), func(t *testing.T) {
+		for _, c := range allCases {
+			p := mustPlanBrief(t, c)
+			if p.BriefFileRemains {
+				t.Errorf("%+v: COLAB_BRIEF.md still exists after the lane (E13-06)", c)
+			}
+			if p.ExcludeEntryRemains {
+				t.Errorf("%+v: `.git/info/exclude` still lists our path: a later real file of that "+
+					"name would be invisible to git, which is a bug the user cannot explain (E13-06)", c)
+			}
+			if p.UnhideAction != "exclude_unregister" {
+				t.Errorf("%+v: unhide = %q, want exclude_unregister", c, p.UnhideAction)
+			}
+		}
+	})
 
-		if p.RestoreAction != "delete_file" {
-			t.Errorf("restore = %q, want delete_file — we created it, so we remove it (E13-06)",
-				p.RestoreAction)
-		}
-		if p.ExcludeEntryRemains {
-			t.Error("`.git/info/exclude` still lists our path: the next session's real CLAUDE.md " +
-				"would be invisible to git, which is a bug the user cannot explain (E13-06)")
-		}
-		if p.UnhideAction != "exclude_unregister" {
-			t.Errorf("unhide = %q, want exclude_unregister", p.UnhideAction)
+	t.Run(caseNameP4("E13-06", "a_resumed_lane_overwrites_the_stale_brief_instead_of_appending"), func(t *testing.T) {
+		p := mustPlanBrief(t, briefFileCase{Path: "AGENTS.md", Existed: true, Tracked: true, Resumed: true})
+		if !p.Overwrote {
+			t.Error("on 재개·재시도 the previous attempt's COLAB_BRIEF.md is replaced — appending " +
+				"would give the agent two briefs and break E12-11 byte identity (harness §10 v0.8.6)")
 		}
 	})
 
 	t.Run(caseNameP4("E13-07", "gitignore_is_never_touched"), func(t *testing.T) {
-		for _, c := range []briefFileCase{
-			{Path: "CLAUDE.md", Existed: true, Tracked: true},
-			{Path: "CLAUDE.md", Existed: false},
-			{Path: "AGENTS.md", Existed: true, Tracked: false},
-		} {
+		for _, c := range allCases {
 			p := mustPlanBrief(t, c)
 			if p.TouchedGitignore {
 				t.Errorf("%+v: wrote `.gitignore` — it is a file the REPOSITORY owns and a commit "+
 					"of our line ends up in the user's project history (§8.4, E13-07 diff 0)", c)
 			}
+		}
+	})
+
+	t.Run(caseNameP4("E13-06a", "the_hermes_turn_prompt_starts_by_pointing_at_the_brief_files_absolute_path"), func(t *testing.T) {
+		if planTurnPrompt == nil {
+			t.Fatal("unimplemented (NOT WIRED here by design): hermes turn-prompt pointer (§8.4 v0.16, E13-06a) — T-D9")
+		}
+		p := planTurnPrompt("/srv/wd/S1/R")
+		if p.BriefAbsPath != "/srv/wd/S1/R/COLAB_BRIEF.md" {
+			t.Errorf("brief abs path = %q", p.BriefAbsPath)
+		}
+		if !strings.Contains(p.FirstLine, p.BriefAbsPath) {
+			t.Errorf("first line %q must name the ABSOLUTE brief path — a relative one breaks when "+
+				"the runtime's cwd is not the workdir (spike 5 §6.3: first tool call was that read 4/4)", p.FirstLine)
 		}
 	})
 }
