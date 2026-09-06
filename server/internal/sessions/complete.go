@@ -114,10 +114,18 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 	}
 
 	if out.DecisionRecorded && out.RejectReason != "" {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO decision (session_id, summary, rationale, source, created_at)
-			VALUES ($1, $2, $3, 'hitl', $4)`,
-			sessionID, "Director가 완료를 거절했습니다", out.RejectReason, now); err != nil {
+		// FR-4.2: WHO decided is part of the record. A Director turning down
+		// the completion HITL and a reviewer agent turning down an artifact are
+		// both rejections, but the log must not read as if a person did both —
+		// `source: agent` is what openapi reviewArtifact promises.
+		summary, source := "Director가 완료를 거절했습니다", "hitl"
+		if ev.Kind == "review_reject" {
+			summary, source = "리뷰어가 아티팩트를 반려했습니다", "agent"
+		}
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO decision (session_id, summary, rationale, source, ref_id, created_at)
+			VALUES ($1, $2, $3, $4::decision_source, $5, $6) RETURNING id`,
+			sessionID, summary, out.RejectReason, source, ev.Ref, now).Scan(&out.DecisionID); err != nil {
 			return nil, fmt.Errorf("sessions: reject decision: %w", err)
 		}
 	}

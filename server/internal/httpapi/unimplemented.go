@@ -42,18 +42,6 @@ func (unimplemented) CreateTestChat(w http.ResponseWriter, r *http.Request, agen
 	notImplemented(w, r, "CreateTestChat")
 }
 
-func (unimplemented) GetArtifact(w http.ResponseWriter, r *http.Request, artifactId gen.ArtifactId) {
-	notImplemented(w, r, "GetArtifact")
-}
-
-func (unimplemented) DownloadArtifact(w http.ResponseWriter, r *http.Request, artifactId gen.ArtifactId) {
-	notImplemented(w, r, "DownloadArtifact")
-}
-
-func (unimplemented) ReviewArtifact(w http.ResponseWriter, r *http.Request, artifactId gen.ArtifactId, params gen.ReviewArtifactParams) {
-	notImplemented(w, r, "ReviewArtifact")
-}
-
 func (unimplemented) Login(w http.ResponseWriter, r *http.Request) {
 	notImplemented(w, r, "Login")
 }
@@ -160,14 +148,6 @@ func (unimplemented) GetSession(w http.ResponseWriter, r *http.Request, sessionI
 
 func (unimplemented) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
 	notImplemented(w, r, "UpdateSession")
-}
-
-func (unimplemented) ListArtifacts(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.ListArtifactsParams) {
-	notImplemented(w, r, "ListArtifacts")
-}
-
-func (unimplemented) SubmitArtifact(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.SubmitArtifactParams) {
-	notImplemented(w, r, "SubmitArtifact")
 }
 
 func (unimplemented) CancelSession(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {

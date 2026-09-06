@@ -73,9 +73,12 @@ func ValidateTree(t Tree) error {
 
 // Event is something that happens in the session and may satisfy an atom.
 type Event struct {
-	Kind  string // artifact_submit | review_approve | director_approve | director_reject | director_end | budget_exhausted
+	Kind  string // artifact_submit | review_approve | review_reject | director_approve | director_reject | director_end | budget_exhausted
 	Actor uuid.UUID
 	Note  string
+	// Ref is what the event was about, when there is such a thing (the
+	// artifact a review settled). It rides onto the decision log's ref_id.
+	Ref *uuid.UUID
 }
 
 // State is the set of atoms already satisfied. It is carried on the session
@@ -96,6 +99,9 @@ type Outcome struct {
 
 	DecisionRecorded bool
 	RejectReason     string
+	// DecisionID is filled by ApplyCompletionEvent once the row exists, so the
+	// caller can point artifact_review.decision_id at it.
+	DecisionID uuid.UUID
 
 	AgentTriggered bool
 	CLIError       string
@@ -127,6 +133,21 @@ func ApplyEvent(t Tree, st State, ev Event) Outcome {
 			o.MetAtoms = atoms(met)
 			return o
 		}
+	case "review_reject":
+		// The designation gate is the same one `approve` passes through
+		// (openapi reviewArtifact: a reviewer the tree did not name is 403 and
+		// nothing is stored) — a verdict nobody asked for must not reach the
+		// submitting lane's thread either.
+		if !namesActor(t, CondAgentApproval, ev.Actor) {
+			o.CLIError = "review reject: this session designates a different reviewer"
+			o.MetAtoms = atoms(met)
+			return o
+		}
+		// A rejection satisfies nothing and completes nothing: the artifact
+		// still exists at its version and the lane re-enters with the reason.
+		o.DecisionRecorded, o.RejectReason = true, ev.Note
+		o.MetAtoms = atoms(met)
+		return o
 	case "director_approve":
 		met[CondUserApproval] = true
 	case "director_reject":
