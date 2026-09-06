@@ -166,10 +166,12 @@ step "U1-13 S7 — goal 시스템 메시지 · 참여자 칩 · 에이전트 응
 ab wait --fn "/^\\/sessions\\/[0-9a-f-]{36}$/.test(location.pathname)" --timeout 25000 >/dev/null 2>&1 || die "S7 로 이동하지 않음 (url=$(ab get url))"
 wait_sel '[data-testid="session-detail"]'
 SESSION_ID="$(ab get attr '[data-testid="session-detail"]' data-session-id)"
-wait_cards 1 20 && FIRST="$(ab get text '[data-testid="message-card"]' | tr '\n' ' ' | head -c 160)" || FIRST=""
-CHIP="$(ab get text '[data-testid="participants"] [data-testid="agent-chip"]' 2>/dev/null | tr '\n' ' ')"
+wait_cards 1 20 && FIRST="$(abget get text '[data-testid="message-card"]' | tr '\n' ' ' | head -c 160)" || FIRST=""
+CHIP="$(abget get text '[data-testid="participants"] [data-testid="agent-chip"]' | tr '\n' ' ')"
 shot p1-u1-13-s7-started
-G13="PASS"; NOTE13="guided 문구: $(grep -o '질문 기한[^·]*' <<<"$DEF" | head -1)"
+# (P1 때는 `session-defaults` 한 줄에서 autonomy 문구를 읽었다. P2 마법사에서는 7단계에 있고
+#  U1-13 의 판정 대상이 아니므로 여기서는 참조하지 않는다.)
+G13="PASS"; NOTE13=""
 grep -q "결제 시장 조사 보고서" <<<"$FIRST" || { G13=FAIL; NOTE13="첫 카드='$FIRST'"; }
 grep -q "Lead" <<<"$CHIP" || { G13=FAIL; NOTE13="$NOTE13 chip='$CHIP'"; }
 rec 13 S7 "goal 시스템 메시지 1개 + 참여자 칩 Lead (lane 보드는 P2)" "$G13" "system='$(head -c 80 <<<"$FIRST")' chip='$CHIP' $NOTE13"
@@ -184,8 +186,12 @@ shot p1-u1-14-composer-mention
 [ -n "$CHIPTXT" ] && rec 14 S7 "@ 자동완성 → 트리거 미리보기 칩" PASS "chip='$CHIPTXT'" || rec 14 S7 "@ 자동완성 → 트리거 칩" FAIL
 TP="$(now_ms)"; ab click '[data-testid="composer-send"]' >/dev/null
 if wait_cards 4 240; then TR2="$(now_ms)"; rec 15 S7 "멘션 답글 실시간 도착" PASS "$(( (TR2-TP)/1000 ))s"; else rec 15 S7 "멘션 답글 도착" FAIL; fi
+# 원본 레일은 두 번 열어야 나온다: 메시지 카드의 `activity-toggle` 로 그 run 의 활동 피드를 펼치고,
+# 피드 머리의 `feed-raw-toggle`("원본 레일")을 눌러야 `activity-rail` 이 붙는다(ActivityFeed.tsx).
 ab find testid activity-toggle click >/dev/null 2>&1 || true
-wait_sel '[data-testid="activity-rail"]' 10 && RAIL="$(ab get text '[data-testid="activity-rail"]' | tr '\n' ' ' | head -c 200)" || RAIL=""
+wait_sel '[data-testid="activity-feed"]' 15 || true
+ab find testid feed-raw-toggle click >/dev/null 2>&1 || true
+wait_sel '[data-testid="activity-rail"]' 15 && RAIL="$(abget get text '[data-testid="activity-rail"]' | tr '\n' ' ' | head -c 200)" || RAIL=""
 shot_full p1-u1-15-s7-reply-and-rail
 [ -n "$RAIL" ] && rec 15b S7 "활동 피드 원본 레일(task_event 시간순)" PASS "$(head -c 120 <<<"$RAIL")" || rec 15b S7 "활동 피드 원본 레일" FAIL
 

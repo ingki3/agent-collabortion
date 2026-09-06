@@ -83,6 +83,18 @@ next_step wizard-conditions || true
 COND="$(abget get text '[data-testid="wizard-conditions"]' | tr '\n' ' ')"
 rec W4 S6-6 "종료 조건 기본값 = 아티팩트 제출 AND Director 승인" \
   "$( grep -q "아티팩트 제출" <<<"$COND" && grep -q "승인" <<<"$COND" && echo PASS || echo FAIL )" "$(head -c 110 <<<"$COND")"
+# PRD §4 시나리오 A 3단계의 종료 조건은 "**Writer 가** artifact 제출" 이다. 기본값 `who: assignee` 로는
+# Writer 가 내도 충족되지 않으므로(E6-02) 사람이 제출자를 골라야 한다 — #83 이 그 선택지를 넣었다.
+SUBSEL="$(count '[data-testid="submitter-select"]')"
+if [ "${SUBSEL:-0}" -ge 1 ]; then
+  ab select '[data-testid="submitter-select"]' "$WRTR" >/dev/null 2>&1 || true
+  sleep 1
+  SUBVAL="$(abget eval "document.querySelector('[data-testid=\"submitter-select\"]')?.value")"
+  rec W4c S6-6 "종료 조건의 **제출자를 Writer 로 지정**할 수 있다 (PRD 시나리오 A · E6-02)" \
+    "$( grep -q "$WRTR" <<<"$SUBVAL" && echo PASS || echo FAIL )" "선택값=$SUBVAL (Writer=$WRTR)"
+else
+  rec W4c S6-6 "종료 조건의 제출자를 지정할 수 있다" FAIL "submitter-select 가 없다 — 마법사가 제출자를 못 고른다(W-4)"
+fi
 next_step wizard-summary || true
 shot p2-a-03-wizard-summary
 sleep 1
@@ -106,19 +118,30 @@ ok "session $SESSION"
 
 step "2. U2-1·3 — lane 보드 카드 3장 running · 참여자 칩"
 # 카드 3장이 동시에 running 인 순간을 화면에서 잡는다(폴링으로 최댓값을 기록).
-MAXRUN=0; CHIP_R=""; CHIP_L=""
+#
+# 칩은 **두 순간**을 따로 잡는다. 최대 겹침 순간에는 Lead 의 위임 턴이 아직 살아 있을 수 있고
+# (2026-09-06 실측: 겹침 최대 08:18:12, Lead task 1 은 08:18:16 까지 running), 그때 Lead=working 은
+# FR-1.3 파생 순서상 **옳다**. U2-3·U2-4 의 "Lead 칩 idle" 은 Lead task 가 끝난 뒤의 이야기다.
+#   ① 최대 겹침 순간      → Researcher 칩이 working 인가
+#   ② Lead task 가 끝났고 Researcher lane 이 아직 도는 순간 → Lead 칩이 idle 인가
+MAXRUN=0; CHIP_R=""; CHIP_L_IDLE=""; CHIP_R_AT_IDLE=""; IDLE_AT=""
 chip_of() { abget get attr "[data-testid=\"participants\"] [data-testid=\"agent-chip\"][data-agent-id=\"$1\"]" data-status; }
+lead_active() { psqlq "select count(*) from task where session_id='$SESSION' and agent_id='$LEAD' and status in ('queued','preparing','dispatched','running')"; }
+rsch_running() { psqlq "select count(*) from task where session_id='$SESSION' and agent_id='$RSCH' and status in ('preparing','dispatched','running')"; }
 END=$(( $(date +%s) + 180 ))
 while [ "$(date +%s)" -lt "$END" ]; do
   N="$(count '[data-testid="lane-card"][data-status="running"]')"
   if [ "${N:-0}" -gt "$MAXRUN" ]; then
     MAXRUN="$N"
-    # **칩은 이 순간에 읽는다.** 루프가 끝난 뒤에 읽으면 이미 Researcher 가 끝나고 Lead 가 종합 중이라
-    # working/idle 이 뒤집힌다(2026-09-06 실측: Researcher=idle Lead=working).
-    CHIP_R="$(chip_of "$RSCH")"; CHIP_L="$(chip_of "$LEAD")"
+    CHIP_R="$(chip_of "$RSCH")"          # ① 겹침이 가장 큰 순간의 Researcher 칩
     [ "$N" -ge 3 ] && shot p2-a-04-lane-board-3running
   fi
-  [ "$MAXRUN" -ge 3 ] && break
+  # ② Lead 가 쉬는 동안 Researcher 가 도는 순간을 한 번만 잡는다
+  if [ -z "$IDLE_AT" ] && [ "$(lead_active)" = 0 ] && [ "$(rsch_running)" -ge 1 ]; then
+    CHIP_L_IDLE="$(chip_of "$LEAD")"; CHIP_R_AT_IDLE="$(chip_of "$RSCH")"; IDLE_AT="$(date +%H:%M:%S)"
+    shot p2-a-04b-lead-idle
+  fi
+  [ "$MAXRUN" -ge 3 ] && [ -n "$IDLE_AT" ] && break
   DONE_N="$(count '[data-testid="lane-card"][data-status="done"]')"
   [ "${DONE_N:-0}" -ge 3 ] && break
   sleep 2
@@ -129,8 +152,17 @@ rec W5 S7 "lane 보드에 Researcher 카드 3장이 **동시에** running (U2-1)
 wait_fn "document.querySelectorAll('[data-testid=\"lane-brief\"]').length >= 3" 60 || true
 BRIEF_N="$(count '[data-testid="lane-brief"]')"
 rec W6 S7 "각 카드에 브리프 한 줄 (U2-1)" "$( [ "${BRIEF_N:-0}" -ge 3 ] && echo PASS || echo FAIL )" "lane-brief=$BRIEF_N"
-rec W7 S7 "lane 이 도는 순간 Researcher 칩 working · Lead 칩 idle (U2-3 · E5-11)" \
-  "$( [ "$CHIP_R" = working ] && [ "$CHIP_L" = idle ] && echo PASS || echo FAIL )" "동시 running=$MAXRUN 시점: Researcher=${CHIP_R:-없음} Lead=${CHIP_L:-없음}"
+rec W7 S7 "lane 이 도는 순간 Researcher 칩이 working (U2-3 · E5-11)" \
+  "$( [ "$CHIP_R" = working ] && echo PASS || echo FAIL )" "동시 running=$MAXRUN 시점: Researcher=${CHIP_R:-없음}"
+# U2-4 "Lead 는 깨어나지 않음" 의 화면 쪽 판정. Lead task 가 하나도 안 도는 순간에만 묻는다 —
+# 최대 겹침 순간에는 Lead 의 위임 턴이 아직 살아 있어 working 이 옳다(FR-1.3 파생 순서 4 > 6).
+if [ -n "$IDLE_AT" ]; then
+  rec W7b S7 "Lead task 가 없는 동안 Lead 칩은 idle · Researcher 칩은 working (U2-4 · E5-11)" \
+    "$( [ "$CHIP_L_IDLE" = idle ] && [ "$CHIP_R_AT_IDLE" = working ] && echo PASS || echo FAIL )" \
+    "$IDLE_AT (Lead task 0개, Researcher 실행 중): Lead=${CHIP_L_IDLE:-없음} Researcher=${CHIP_R_AT_IDLE:-없음}"
+else
+  rec W7b S7 "Lead task 가 없는 동안 Lead 칩은 idle (U2-4)" "N/A" "그 구간을 못 잡았다(Lead 턴과 Researcher 실행이 겹치지 않는 순간이 폴링 간격 안에 없었다)"
+fi
 
 step "3. U4-1 · U15-3 — 작성창 트리거 미리보기가 **서버 값**인가"
 # 로컬 계산이면 서버를 끊어도 칩이 뜬다. 여기서는 previewTriggers 응답과 화면 칩을 대조한다.
@@ -185,12 +217,32 @@ fi
 rec W13 S7 "우열 아티팩트 목록에 제출물이 보인다" "$( [ "${ART_ROWS:-0}" -ge 1 ] && echo PASS || echo FAIL )" "artifact-row=$ART_ROWS"
 # U5-1 의 "1/2" 는 조건이 **Writer 를 지정한** 세션에서만 볼 수 있다. 마법사는 그것을 만들 수 없고
 # (§4 W-4), 10_ 이 만든 세션은 다른 계정 소유라 이 브라우저로 열 수 없다 — API 경로(§3.1)에서 확인한다.
-rec W13b S7 "제출 후 1/2 (U5-1)" "N/A" "마법사가 제출자를 지정할 수 없어 웹에서는 만들 수 없다(W-4). API 경로 §3.1 에서 met 1/2 확인"
+if [ "$COND_WHO" = assignee ]; then
+  rec W13b S7 "제출 후 1/2 (U5-1)" "N/A" "마법사가 제출자를 지정하지 못해 이 세션으로는 판정할 수 없다(W-4). API 경로 §3.1 에서 met 1/2 확인"
+else
+  rec W13b S7 "제출 후 1/2 (U5-1) — 마법사에서 제출자를 Writer 로 지정한 세션" "$( [ "$PROG1" = "1/2" ] && echo PASS || echo FAIL )" "progress=$PROG1 · 조건 지정 에이전트=$COND_WHO"
+fi
 # 새로고침하면 보이는가 — 초기 로드 뒤 우열이 갱신되지 않는다는 판정의 반쪽(§4 S-14)
 ab open "$WEB_URL/sessions/$SESSION" >/dev/null; wait_sel '[data-testid="session-aside"]' 20 || true
 RPROG="$(abget get text '[data-testid="progress-count"]' | tr -d ' \n')"; RART="$(count '[data-testid="artifact-row"]')"
 RJOIN="$(abget eval "[...document.querySelectorAll('[data-testid=\"message-card\"]')].filter(e=>e.textContent.includes('위임한 작업이 모두 끝났습니다')).length" | tr -dc '0-9')"
 shot p2-a-08-after-reload
+# 비용 카드. **런타임이 얼마를 보고했는지**부터 본다 — 값을 만들어 낼 수는 없다.
+# Claude Code 구독 계정은 `usage` 프레임에 토큰은 실수로, `cost_usd` 는 0(`estimated:false`)으로 보고한다.
+# 그러면 $0.00 이 정직한 표시이고 합산 경로는 이 런타임으로 판정할 수 없다.
+COST_TXT="$(abget get text '[data-testid="cost-line"]' | tr -d '\n' | head -c 60)"
+COST_API="$(api_ok GET "/sessions/$SESSION" | jq -r '.cost_usd')"
+USAGE_MAX="$(psqlq "select coalesce(max((payload->>'cost_usd')::numeric),0) from task_event
+  where task_id in (select id from task where session_id='$SESSION') and class='usage'")"
+USAGE_TOK="$(psqlq "select coalesce(sum((payload->>'output_tokens')::bigint),0) from task_event
+  where task_id in (select id from task where session_id='$SESSION') and class='usage'")"
+if awk -v c="${USAGE_MAX:-0}" 'BEGIN{exit !(c+0>0)}'; then
+  rec W16 S7 "우열 비용이 런타임 보고를 반영한다 (#85)" \
+    "$( awk -v c="${COST_API:-0}" 'BEGIN{exit !(c+0>0)}' && echo PASS || echo FAIL )" "화면='$COST_TXT' · API cost_usd=$COST_API · usage 최대 cost_usd=$USAGE_MAX"
+else
+  rec W16 S7 "우열 비용이 런타임 보고를 반영한다 (#85)" "N/A" \
+    "이 런타임은 usage 에 cost_usd 0 만 보고한다(estimated=false, 출력 토큰 합계 $USAGE_TOK). 화면 '$COST_TXT' · API $COST_API 는 그 보고 그대로 — 합산 경로는 값을 보고하는 런타임에서 판정해야 한다"
+fi
 rec W13c S7 "**새로고침하면** 아티팩트 행·합류 카드가 보인다 (같은 데이터, 실시간만 안 온다)" \
   "$( [ "${RART:-0}" -ge 1 ] && [ "${RJOIN:-0}" -ge 1 ] && echo PASS || echo FAIL )" "reload: artifact-row=$RART 합류카드=$RJOIN progress=$RPROG"
 # 활동 피드는 페이지 최상위 요소가 아니라 **메시지의 task 이력을 펼쳐야** 나온다(ActivityFeed 는 run 단위).
