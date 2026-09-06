@@ -106,6 +106,12 @@ type AgentCaps struct {
 	LoadSession bool `json:"loadSession"`
 	// MCP is which MCP transports the agent accepts.
 	MCP MCPCapabilities `json:"mcpCapabilities"`
+	// MCPAdvertised is whether `mcpCapabilities` was in the response AT ALL,
+	// which is a different question from what it said: an agent that omits
+	// the key does not speak MCP and drops session/new.mcpServers silently
+	// (Hermes, G5 blocker). It is the harness §10 tool_surface judgement —
+	// see AgentCaps.ToolSurface. Not a wire field; Caps() fills it.
+	MCPAdvertised bool `json:"-"`
 }
 
 // MCPCapabilities is `agentCapabilities.mcpCapabilities`. stdio is the ACP
@@ -124,6 +130,11 @@ func (r *InitializeResult) Caps() AgentCaps {
 		return c
 	}
 	_ = json.Unmarshal(r.AgentCapabilities, &c)
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(r.AgentCapabilities, &raw) == nil {
+		v, ok := raw["mcpCapabilities"]
+		c.MCPAdvertised = ok && len(v) > 0 && string(v) != "null"
+	}
 	return c
 }
 

@@ -39,6 +39,7 @@ type memServer struct {
 	finishes  []api.FinishRequest
 	root      string
 	claimHook func()
+	phaseHook func(api.PhaseRequest)
 }
 
 func (m *memServer) Pair(context.Context, api.PairRequest) (api.PairResponse, error) {
@@ -74,6 +75,9 @@ func (m *memServer) Phase(_ context.Context, task string, attempt int, req api.P
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.phases = append(m.phases, req)
+	if m.phaseHook != nil {
+		m.phaseHook(req)
+	}
 	if req.Phase == "preparing" {
 		_, err := os.Stat(filepath.Join(m.root, ".colab", "attempts", task+".1.json"))
 		m.phaseFile = append(m.phaseFile, err == nil)

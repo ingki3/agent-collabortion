@@ -234,6 +234,11 @@ func Pong(ctx context.Context, kind contracts.RuntimeKind, o Options, cap *contr
 	}
 	// §9 measured, never constant (backlog D-2).
 	cap.ProtocolVersion = res.ProtocolVersion
+	// §10 v0.8 tool_surface: what initialize advertised, not what the runtime
+	// is called. Empty when initialize never answered — G5 (b) was exactly a
+	// probe that went 11/11 green while the agent had no channel at all, so
+	// an unmeasured surface stays unadvertised rather than assumed.
+	cap.ToolSurface = res.ToolSurface
 	cap.ToolDisallow = toolDisallowMeasured(res)
 	// `resume` = the session advertised loadSession (PRD §8.2.1: judge by the
 	// advertised value) AND a second process really loaded the session back.
