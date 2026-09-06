@@ -14,7 +14,8 @@
     "dev:mock": "COLAB_MOCK_API=1 next dev",
     "e2e:u1": "bash e2e/u1.sh",
     "e2e:p2-mock": "bash e2e/p2-mock.sh",
-    "e2e:p3-mock": "bash e2e/p3-mock.sh"
+    "e2e:p3-mock": "bash e2e/p3-mock.sh",
+    "e2e:p4-mock": "bash e2e/p4-mock.sh"
   },
   "dependencies": {
     "next": "15.5.4",

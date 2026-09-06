@@ -4,7 +4,7 @@
  */
 import type {
   Agent, AgentProfile, AgentTemplate, Artifact, Decision, HitlRequest, InboxItem, Lane, Member, Message, Pairing,
-  Participant, Session, SessionListItem, Task, TaskEvent, TriggerPreview, TriggerTarget, User,
+  Participant, Runtime, Session, SessionListItem, Task, TaskEvent, TriggerPreview, TriggerTarget, User, Workdir,
 } from "@/lib/api/types";
 import {
   emit, makeAgent, makeRuntime, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges, sseFrame,
@@ -297,7 +297,7 @@ on("GET", "/workspaces/{id}/sessions", (req, p) => {
 on("POST", "/workspaces/{id}/sessions", (req, p) => {
   const s = store();
   const { user } = requireMember(s, req, p.id);
-  const b = body<{ title?: string; goal?: string; participants?: { agent_id: string; profile_id?: string | null }[]; assignee_agent_id?: string; isolation?: { kind: string }; runtime_id?: string | null; director_user_id?: string; autonomy?: Session["autonomy"]; draft?: boolean }>(req);
+  const b = body<{ title?: string; goal?: string; participants?: { agent_id: string; profile_id?: string | null }[]; assignee_agent_id?: string; isolation?: { kind: string; repo_path?: string; remote_url?: string | null }; runtime_id?: string | null; director_user_id?: string; autonomy?: Session["autonomy"]; draft?: boolean }>(req);
   const errors: { field: string; message: string }[] = [];
   if (!b.title?.trim()) errors.push({ field: "title", message: "제목을 입력하세요" });
   if (!b.goal?.trim()) errors.push({ field: "goal", message: "goal 을 입력하세요" });
@@ -322,7 +322,10 @@ on("POST", "/workspaces/{id}/sessions", (req, p) => {
   const director = s.users.get(b.director_user_id ?? user.id) ?? user;
   const sess: Session = {
     id, workspace_id: p.id, title: b.title!.trim(), goal: b.goal!.trim(), acceptance_criteria: [], director_user_id: director.id, director: stripUser(director),
-    deputy_director_user_id: null, assignee_agent_id: assignee.agent_id, runtime_id: b.runtime_id ?? null, isolation: { kind: (b.isolation?.kind as Session["isolation"]["kind"]) ?? "none" },
+    deputy_director_user_id: null, assignee_agent_id: assignee.agent_id, runtime_id: b.runtime_id ?? null, runtime: b.runtime_id ? s.runtimes.get(b.runtime_id) : undefined,
+    // **`remote_url` 을 버리지 않는다** — 재바인딩 후보 판정의 유일한 키다(FR-9.2 F, E14-04·05).
+    // 실서버는 `checkRepo` 결과로 이 칸을 채운다.
+    isolation: { kind: (b.isolation?.kind as Session["isolation"]["kind"]) ?? "none", ...(b.isolation?.repo_path ? { repo_path: b.isolation.repo_path } : {}), remote_url: b.isolation?.remote_url ?? null },
     completion_condition: { op: "and", conditions: [{ type: "artifact_submitted", who: "assignee" }, { type: "user_approval" }] },
     completion_progress: { met: 0, total: 2, satisfied: false, human_gate: true, conditions: [{ path: "/conditions/0", type: "artifact_submitted", met: false, next_actor: assignee.agent.name }, { path: "/conditions/1", type: "user_approval", met: false, next_actor: "director" }] },
     limits: { budget_usd: 20, budget_tokens: null, time_limit: "PT4H", max_tasks: null, max_parallel_lanes: 5 }, autonomy: b.autonomy ?? "guided",
@@ -854,9 +857,13 @@ on("GET", "/sessions/{id}/artifacts", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   const latestOnly = req.query.get("latest_only") === "true";
+  const type = req.query.get("type");
   let items = [...s.artifacts.values()].filter((a) => a.session_id === sess.id);
   if (latestOnly) items = items.filter((a) => a.latest !== false);
-  return ok(items.sort((a, b) => b.created_at.localeCompare(a.created_at)));
+  if (type) items = items.filter((a) => a.type === type);
+  // **제출 순**이다(계약 listArtifacts 요약 그대로). 재바인딩의 재적용 순서가 이 순서이고(E14-06),
+  // 순서가 뒤집힌 diff 는 충돌한다 — 최신순으로 주면 화면이 그 사실을 알 방법이 없다.
+  return ok(items.sort((a, b) => a.created_at.localeCompare(b.created_at)));
 });
 on("GET", "/sessions/{id}/decisions", (req, p) => {
   const s = store();
@@ -932,9 +939,12 @@ on("POST", "/sessions/{id}/resume", (req, p) => {
 on("GET", "/workspaces/{id}/runtime-candidates", (req, p) => {
   const s = store();
   requireMember(s, req, p.id);
-  const isolation = req.query.get("isolation");
+  const sessionId = req.query.get("session_id");
+  // 재바인딩 조회는 격리·저장소를 **세션에서** 읽는다(계약 `session_id` 칸) — 화면이 다시 계산하지 않는다.
+  const forSession = sessionId ? s.sessions.get(sessionId) : undefined;
+  const isolation = forSession ? (forSession.isolation?.kind ?? "none") : req.query.get("isolation");
   if (!isolation) throw new Problem(422, "validation failed", "validation_failed", "isolation 이 필요합니다", { errors: [{ field: "isolation", message: "required" }] });
-  const remoteUrl = req.query.get("remote_url");
+  const remoteUrl = forSession ? (forSession.isolation?.remote_url ?? null) : req.query.get("remote_url");
   const candidates = [...s.runtimes.values()]
     .filter((r) => r.workspace_id === p.id)
     .map((r) => {
@@ -1319,7 +1329,9 @@ function inboxFor(s: Store, it: InboxItem & { user_id: string }): InboxItem {
       out.overdue = view.overdue;
       out.due_at = h.due_at;
       out.actions = inboxActions("hitl_request", h.type, view.can_respond);
-      out.card = { ...out.card, hitl_type: h.type, title: h.question, body: h.context ?? undefined, proposed_default: h.proposed_default, agent_name: h.agent?.name ?? null };
+      // K-9 — `purpose` 를 카드에 그대로 싣는다. 이것이 없으면 웹이 예산 HITL 을 알아보려고 항목마다
+      // 상세를 한 번 더 읽어야 한다(N+1). 비-HITL 항목은 null 이다.
+      out.card = { ...out.card, hitl_type: h.type, title: h.question, body: h.context ?? undefined, proposed_default: h.proposed_default, agent_name: h.agent?.name ?? null, purpose: h.purpose ?? null };
     }
   }
   return out;
@@ -1778,4 +1790,265 @@ on("POST", "/__mock/inbox/seed", (req) => {
   add("mention", { title: "민지님을 멘션했습니다", body: "@민지 이 부분 확인 부탁드립니다", agent_name: "Lead" });
   add("session_completed", { title: "세션이 완료되었습니다", body: "보고서 1건 제출, 승인됨", summary: "결정 3건 · 아티팩트 1건 · $1.20" }, { read_at: now() });
   return ok(made, 201);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// P4 — S11 오프라인 유예·삭제 · S13 workdir · S17 재바인딩 (T-W5)
+//
+// **수치와 판정은 P4a 골든 표에서 왔다**(§0-9 (b)):
+//   · 유예 기본 7일, 유예 **직전**은 `active`·알림 0, 유예 **도달**은 `paused(runtime_offline)` + 선택지 2
+//                                    golden `server/internal/runtimes/offline_golden_test.go` E14-01·02
+//   · 이미 paused 인 세션의 다음 스윕은 알림 0(멱등)                       golden E14-10
+//   · 후보 판정은 **remote URL** — 경로 문자열이 같아도 remote 가 다르면 제외  golden E14-04·05
+//   · worktree 재바인딩에 `acknowledge_loss` 없으면 422, 후보 아니면 422,
+//     `paused(runtime_offline)` 가 아니면 409                              golden E14-06·03·05
+//   · 재바인딩은 대화·아티팩트·결정 기록을 **그대로 둔다**                    golden E14-03
+//   · 활성 세션·`paused(runtime_offline)` 세션이 걸린 런타임 삭제는 409 +
+//     `Problem.sessions[]`, 끝난 세션만 있으면 204                          golden E14-08
+//   · GC 차단 사유 둘은 **구별된다**(`unmerged_commits` ≠ `uncommitted_changes`) golden E13-12·13
+//   · 용량 상한은 `≥` 에서 막고, 미설정(null)은 무제한                        golden E13-16·19
+// 이 값을 바꾸면 `lib/mock/p4-golden.test.ts` 가 깨진다 — 그것이 이 표의 자물쇠다.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** 오프라인 유예 기본값(FR-9.2 · golden `Grace: 7 * p4Day`). */
+export const RUNTIME_OFFLINE_GRACE_MS = 7 * 864e5;
+/** worktree 보존 기한 기본값(FR-6.4 `workdir_retention_days`, golden `RetentionDays: 14`). */
+export const WORKDIR_RETENTION_DAYS = 14;
+
+/** 이 런타임에 묶인 **끝나지 않은** 세션. `paused(runtime_offline)` 도 포함이다(E14-08). */
+function activeSessionsOf(s: Store, runtimeId: string): Session[] {
+  return [...s.sessions.values()].filter(
+    (x) => x.runtime_id === runtimeId && x.status !== "completed" && x.status !== "cancelled",
+  );
+}
+const sessionRefOf = (x: Session) => ({ id: x.id, title: x.title, status: x.status });
+
+function runtimeOf(s: Store, req: Req, runtimeId: string): Runtime {
+  const rt = s.runtimes.get(runtimeId);
+  if (!rt) throw new Problem(404, "not found", "not_found");
+  requireMember(s, req, rt.workspace_id);
+  return rt;
+}
+
+// ── S11 런타임 상세 · 삭제 ────────────────────────────────────────────────
+on("GET", "/runtimes/{id}", (req, p) => {
+  const s = store();
+  const rt = runtimeOf(s, req, p.id);
+  return ok({ ...rt, active_sessions: activeSessionsOf(s, rt.id).map(sessionRefOf) });
+});
+on("DELETE", "/runtimes/{id}", (req, p) => {
+  const s = store();
+  const rt = runtimeOf(s, req, p.id);
+  const blocking = activeSessionsOf(s, rt.id);
+  if (blocking.length > 0) {
+    // 차단 사유는 **어느 세션인지**까지 준다 — "먼저 재바인딩/종료" 는 대상을 알아야 실행할 수 있는 지시다.
+    throw new Problem(
+      409, "conflict", "runtime_has_active_sessions",
+      `이 컴퓨터에 걸린 세션 ${blocking.length}개가 있습니다 — 먼저 재바인딩하거나 종료하세요`,
+      { sessions: blocking.map((x) => ({ id: x.id, title: x.title })) },
+    );
+  }
+  s.runtimes.delete(rt.id);
+  for (const w of [...s.workdirs.values()]) if (w.runtime_id === rt.id) s.workdirs.delete(w.id);
+  return { status: 204 };
+});
+
+// ── S13 workdir 목록 · 수동 삭제 ──────────────────────────────────────────
+on("GET", "/runtimes/{id}/workdirs", (req, p) => {
+  const s = store();
+  const rt = runtimeOf(s, req, p.id);
+  const status = req.query.get("status");
+  const sessionId = req.query.get("session_id");
+  const mine = [...s.workdirs.values()].filter((w) => w.runtime_id === rt.id);
+  const items = mine
+    .filter((w) => (!status || w.status === status) && (!sessionId || w.session_id === sessionId))
+    .map(({ runtime_id: _r, ...w }) => w)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+  return ok({
+    items, next_cursor: null,
+    // 합계는 **삭제되지 않은 것만** 센다 — 지운 디렉터리가 쿼터를 계속 먹으면 정리해도 막대가 안 내려간다.
+    disk_bytes_total: mine.filter((w) => w.status !== "deleted").reduce((n, w) => n + (w.disk_bytes ?? 0), 0),
+    disk_quota_gb: s.workdirQuotaGb,
+  });
+});
+on("DELETE", "/workdirs/{id}", (req, p) => {
+  const s = store();
+  const w = s.workdirs.get(p.id);
+  if (!w) throw new Problem(404, "not found", "not_found");
+  const sess = s.sessions.get(w.session_id);
+  requireMember(s, req, sess?.workspace_id ?? [...s.workspaces.values()][0].id);
+  const force = req.query.get("force") === "true";
+  const blocked = w.dirty === true || w.gc_blocked_reason != null;
+  if (blocked && !force) {
+    // `Problem.detail` 에 사유를 그대로 — Director 의 다음 행동이 사유마다 다르다(E13-12 병합 / E13-13 커밋).
+    throw new Problem(409, "conflict", "workdir_dirty", w.gc_blocked_reason ?? "uncommitted_changes");
+  }
+  // 실제 삭제는 데몬 몫이라 응답은 202 고 결과는 SSE 로 온다. **브랜치는 남긴다**(FR-6.4 M4).
+  const updated = { ...w, status: "deleted" as const, disk_bytes: 0, dirty: false, gc_blocked_reason: null, updated_at: now() };
+  s.workdirs.set(w.id, updated);
+  const { runtime_id: _r, ...wire } = updated;
+  if (sess) emit(s, sess.workspace_id, "workdir.updated", wire, sess.id);
+  return ok(wire, 202);
+});
+
+// ── S17 재바인딩 ──────────────────────────────────────────────────────────
+on("POST", "/sessions/{id}/rebind", (req, p) => {
+  const s = store();
+  const sess = sessionOf(s, req, p.id);
+  const { user } = requireMember(s, req, sess.workspace_id);
+  requireDirector(sess, user.id);
+  const b = body<{ runtime_id?: string; acknowledge_loss?: boolean }>(req);
+  // 살아 있는 세션을 옮기면 아직 돌고 있는 머신에서 일을 빼앗는다(E14-03).
+  if (!(sess.status === "paused" && sess.paused_reason === "runtime_offline")) {
+    throw new Problem(409, "conflict", "invalid_transition", "paused(runtime_offline) 세션만 재바인딩할 수 있습니다");
+  }
+  const target = b.runtime_id ? s.runtimes.get(b.runtime_id) : undefined;
+  const isolation = sess.isolation?.kind ?? "none";
+  const eligible = !!target && target.workspace_id === sess.workspace_id && target.status === "online" &&
+    (isolation !== "worktree" || target.repos.some((r) => r.remote_url && r.remote_url === sess.isolation?.remote_url));
+  // 후보 규칙은 **재바인딩에서도** 강제한다 — 화면을 거치지 않은 직접 호출이 E14-05 를 우회하면 안 된다.
+  if (!eligible) throw new Problem(422, "validation failed", "validation_failed", "후보가 아닌 런타임입니다", { errors: [{ field: "runtime_id", message: "not a candidate" }] });
+  if (isolation === "worktree" && b.acknowledge_loss !== true) {
+    throw new Problem(422, "validation failed", "validation_failed", "worktree 격리에서는 유실 경고 확인이 필요합니다", { errors: [{ field: "acknowledge_loss", message: "required" }] });
+  }
+  sess.runtime_id = target!.id;
+  sess.runtime = target!;
+  sess.status = "active";
+  sess.paused_reason = null;
+  sess.paused_detail = undefined;
+  sess.updated_at = now();
+  // 진행 중이던 lane 은 콜드 스타트한다 — 죽은 머신의 runtime_session_ref 로는 session/load 가 실패한다.
+  for (const t of s.tasks.values()) if (t.session_id === sess.id && (t.status === "running" || t.status === "queued")) t.resumed = false;
+  emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status, runtime_id: sess.runtime_id }, sess.id);
+  return ok(sessionFor(s, sess, user.id));
+});
+
+// ── 목 전용 시드 ──────────────────────────────────────────────────────────
+/**
+ * 런타임을 N일째 오프라인으로 만든다(E14-01·02·10). 유예를 넘기면 걸린 세션을 `paused(runtime_offline)`
+ * 로 보내고 Director 에게 알린다 — **이미 paused 인 세션은 다시 알리지 않는다**(멱등, E14-10).
+ */
+on("POST", "/__mock/runtimes/{id}/offline", (req, p) => {
+  const s = store();
+  const rt = runtimeOf(s, req, p.id);
+  const user = requireUser(s, req);
+  const b = body<{ days?: number }>(req);
+  const days = b.days ?? 8;
+  const since = new Date(Date.now() - days * 864e5).toISOString();
+  rt.status = "offline";
+  rt.offline_since = since;
+  rt.grace_ends_at = new Date(Date.parse(since) + RUNTIME_OFFLINE_GRACE_MS).toISOString();
+  rt.updated_at = now();
+  let paused = 0;
+  if (days * 864e5 >= RUNTIME_OFFLINE_GRACE_MS) {
+    for (const sess of activeSessionsOf(s, rt.id)) {
+      if (sess.status === "paused") { paused++; continue; } // 멱등 — 이미 멈춘 세션은 다시 알리지 않는다
+      sess.status = "paused";
+      sess.paused_reason = "runtime_offline";
+      sess.paused_detail = {
+        reason: "runtime_offline", paused_at: rt.grace_ends_at,
+        runtime: { id: rt.id, name: rt.name, offline_since: since },
+        resolve_actions: ["rebind", "cancel"],
+      } as Session["paused_detail"];
+      sess.updated_at = now();
+      paused++;
+      addInboxItem(s, user.id, {
+        workspace_id: sess.workspace_id, type: "runtime_offline", severity: inboxSeverity("runtime_offline"),
+        session_id: sess.id, session: sessionRefOf(sess), ref_id: rt.id, due_at: null, overdue: false, delegated: false,
+        card: { title: `${rt.name} 이 오프라인입니다`, body: `유예를 넘겨 이 세션이 일시정지되었습니다`, runtime_name: rt.name, grace_ends_at: rt.grace_ends_at },
+        actions: inboxActions("runtime_offline", undefined, true),
+      });
+      emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status }, sess.id);
+    }
+  }
+  rt.paused_session_count = paused;
+  emit(s, rt.workspace_id, "runtime.updated", rt, null);
+  return ok(rt);
+});
+
+/** S13 을 그릴 workdir 3행 — 깨끗한 것 하나, 미병합 커밋 하나(E13-12), 미커밋 변경 하나(E13-13). */
+on("POST", "/__mock/sessions/{id}/seed-workdirs", (req, p) => {
+  const s = store();
+  const sess = sessionOf(s, req, p.id);
+  requireMember(s, req, sess.workspace_id);
+  const rtId = sess.runtime_id ?? [...s.runtimes.values()][0]?.id;
+  if (!rtId) throw new Problem(409, "conflict", "no_runtime", "런타임이 없습니다");
+  const parts = (sess.participants ?? []).map((x) => x.agent_id);
+  const retain = new Date(Date.now() + WORKDIR_RETENTION_DAYS * 864e5).toISOString();
+  const rows: { agent: string | null; branch: string; dirty: boolean; ahead: number; reason: Workdir["gc_blocked_reason"] }[] = [
+    { agent: parts[0] ?? null, branch: "colab/S/backend", dirty: false, ahead: 0, reason: null },
+    { agent: parts[1] ?? null, branch: "colab/S/frontend", dirty: false, ahead: 3, reason: "unmerged_commits" },
+    { agent: parts[2] ?? parts[0] ?? null, branch: "colab/S/qa", dirty: true, ahead: 0, reason: "uncommitted_changes" },
+  ];
+  const made: Workdir[] = [];
+  rows.forEach((r, i) => {
+    const w: Workdir & { runtime_id: string } = {
+      id: uuid(), runtime_id: rtId, session_id: sess.id, session: sessionRefOf(sess), agent_id: r.agent, lane_id: null,
+      kind: "worktree", path_or_ref: `~/dev/app-worktrees/${r.branch.replace(/\//g, "-")}`, branch: r.branch,
+      status: "retained", disk_bytes: (i + 1) * 512 * 1024 * 1024, last_used_at: new Date(Date.now() - (i + 1) * 36e5).toISOString(),
+      retain_until: retain, dirty: r.dirty, merged: r.ahead === 0 && !r.dirty, commits_ahead: r.ahead,
+      gc_blocked_reason: r.reason, created_at: now(), updated_at: now(),
+    };
+    s.workdirs.set(w.id, w);
+    const { runtime_id: _r, ...wire } = w;
+    made.push(wire);
+  });
+  return ok(made, 201);
+});
+
+/** diff 아티팩트 N개를 **제출 순서대로** 만든다 — S17 의 재적용 순서 미리보기가 이 순서를 그린다(E14-06). */
+on("POST", "/__mock/sessions/{id}/seed-artifacts", (req, p) => {
+  const s = store();
+  const sess = sessionOf(s, req, p.id);
+  requireMember(s, req, sess.workspace_id);
+  const b = body<{ count?: number; type?: string }>(req);
+  const count = b.count ?? 3;
+  const type = b.type ?? "diff";
+  const parts = (sess.participants ?? []).map((x) => x.agent_id);
+  const made: Artifact[] = [];
+  for (let i = 0; i < count; i++) {
+    const agentId = parts[i % Math.max(1, parts.length)];
+    const a: Artifact = {
+      id: uuid(), session_id: sess.id, name: `${type}-${i + 1}.patch`, version: 1, type,
+      storage_ref: `mock://${type}/${i + 1}`, size_bytes: 2048 * (i + 1), content_type: "text/x-diff",
+      submitted_by_task_id: null,
+      submitted_by: agentId ? { agent_id: agentId, agent_name: s.agents.get(agentId)?.name ?? "agent" } : undefined,
+      description: null, latest: true,
+      // 제출 순서를 시각으로 못 박는다 — 목록이 오름차순이라 그대로 재적용 순서다.
+      created_at: new Date(Date.now() - (count - i) * 60_000).toISOString(),
+    };
+    s.artifacts.set(a.id, a);
+    made.push(a);
+  }
+  return ok(made, 201);
+});
+
+/**
+ * 두 번째 머신을 만든다 — 목 API 에는 런타임 생성 op 이 없다(페어링이 만든다). 재바인딩 후보 화면은
+ * **머신이 둘 이상일 때만** 볼 것이 있다: 같은 remote 를 가진 후보와, 다른 remote 라 후보가 아닌 머신.
+ */
+on("POST", "/__mock/runtimes", (req) => {
+  const s = store();
+  const user = requireUser(s, req);
+  const b = body<{ name?: string; repos?: Runtime["repos"]; status?: Runtime["status"] }>(req);
+  const ws = s.members.find((m) => m.user.id === user.id)!.workspace_id;
+  const seed = [...s.runtimes.values()].find((r) => r.workspace_id === ws);
+  if (!seed) throw new Problem(409, "conflict", "no_runtime", "시드 런타임이 없습니다");
+  const rt: Runtime = {
+    ...seed, id: uuid(), name: b.name ?? "새 머신", host: `${b.name ?? "machine"}.local`,
+    status: b.status ?? "online", repos: b.repos ?? [], offline_since: null, grace_ends_at: null,
+    paused_session_count: 0, running_task_count: 0, workdir_disk_bytes: 0, created_at: now(), updated_at: now(),
+  };
+  s.runtimes.set(rt.id, rt);
+  emit(s, ws, "runtime.updated", rt, null);
+  return ok(rt, 201);
+});
+
+/** 워크스페이스 workdir 용량 상한(GB). `null` 이면 미설정 = 무제한(E13-19). */
+on("POST", "/__mock/workdir-quota", (req) => {
+  const s = store();
+  requireUser(s, req);
+  const b = body<{ quota_gb?: number | null }>(req);
+  s.workdirQuotaGb = b.quota_gb ?? null;
+  return ok({ disk_quota_gb: s.workdirQuotaGb });
 });

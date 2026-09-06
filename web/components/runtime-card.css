@@ -10,3 +10,4 @@
   background: color-mix(in srgb, var(--s-fail) var(--soft-alpha), transparent);
 }
 .rtcard__alarm code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.rtcard__remote { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; color: var(--ink-3); }

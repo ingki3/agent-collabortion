@@ -2,7 +2,7 @@
  * S11 런타임 카드 — 계약 v0.4.1 `RuntimeCapability` 새 키(W-1)와 probe 최상위 `colab_cli`.
  * 능력이 **없다는 것도 결과와 함께** 말해야 한다(SCREEN §1 원칙 3·5) — 침묵과 미지원은 다르다.
  */
-import { describe, expect, it, afterEach } from "vitest";
+import { describe, expect, it, afterEach, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { RuntimeCard, capabilityNotes } from "./RuntimeCard";
 import type { Runtime } from "@/lib/api/types";
@@ -75,5 +75,50 @@ describe("RuntimeCard — colab_cli 는 probe 최상위(머신 속성)", () => {
   it("오프라인이면 유예 만료와 묶인 세션 수를 보여준다(FR-9.2)", () => {
     render(<RuntimeCard rt={rt({ status: "offline", offline_since: "2026-08-30T00:00:00Z", grace_ends_at: "2026-09-06T00:00:00Z", paused_session_count: 2 })} />);
     expect(screen.getByTestId("runtime-grace").textContent).toContain("세션 2개가 일시정지됨");
+  });
+});
+
+/**
+ * P4 — 오프라인 유예와 remote URL(SCREEN §4.8 · FR-9 · U12 1·2).
+ *
+ * "오프라인"만 쓰면 사람은 **언제까지 기다리면 되는지**를 모른다. 유예 안에서는 남은 날, 유예를 넘기면
+ * 묶인 세션 수를 말한다 — 그때부터는 기다림이 아니라 선택이 할 일이기 때문이다.
+ * remote URL 은 재바인딩의 "같은 저장소" 키라서(FR-9.2 F) 카드가 경로만 보여 주면 후보 판정의 근거가 사라진다.
+ */
+describe("오프라인 유예 · 저장소 remote(P4)", () => {
+  const offline = (over: Partial<Runtime>): Runtime => ({
+    ...rt(), status: "offline",
+    offline_since: "2026-09-01T00:00:00Z", grace_ends_at: "2026-09-08T00:00:00Z", ...over,
+  });
+
+  it("유예 안이면 남은 날을 말한다(U12 1)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-02T00:00:00Z"));
+    render(<RuntimeCard rt={offline({})} />);
+    const el = screen.getByTestId("runtime-grace");
+    expect(el.getAttribute("data-grace-expired")).toBe("false");
+    expect(el.textContent).toContain("유예 6일 남음");
+    vi.useRealTimers();
+  });
+
+  it("유예를 넘기면 만료와 묶인 세션 수를 말한다(U12 2)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-09T00:00:00Z"));
+    render(<RuntimeCard rt={offline({ paused_session_count: 2 })} />);
+    const el = screen.getByTestId("runtime-grace");
+    expect(el.getAttribute("data-grace-expired")).toBe("true");
+    expect(el.textContent).toContain("세션 2개");
+    vi.useRealTimers();
+  });
+
+  it("저장소 행은 remote URL 을 함께 보여 준다 — 재바인딩 후보 판정의 키다", () => {
+    render(<RuntimeCard rt={{ ...rt(), repos: [{ path: "~/dev/app", remote_url: "git@x:app.git", branch: "main", clean: true }] }} />);
+    expect(screen.getByTestId("runtime-repo").getAttribute("data-remote-url")).toBe("git@x:app.git");
+    expect(screen.getByTestId("runtime-repo-remote").textContent).toBe("git@x:app.git");
+  });
+
+  it("remote 가 없으면 'remote 없음' 이라고 쓴다 — 빈 칸은 후보가 아닌 이유를 말하지 못한다", () => {
+    render(<RuntimeCard rt={{ ...rt(), repos: [{ path: "~/dev/app", remote_url: null, branch: "main", clean: true }] }} />);
+    expect(screen.getByTestId("runtime-repo-remote").textContent).toBe("remote 없음");
   });
 });

@@ -10,7 +10,7 @@
  * `usage:false` 면 비용이 추정 배지가 되고(FR-7.3), `resume:false` 면 재진입이 늘 콜드 스타트다.
  */
 import "./runtime-card.css";
-import { relativeTime } from "@/lib/time";
+import { durationSince, relativeTime } from "@/lib/time";
 import type { Runtime, RuntimeCapability } from "@/lib/api/types";
 
 const KIND = { claude_code: "Claude Code", hermes: "Hermes", antigravity: "Antigravity" } as const;
@@ -29,6 +29,36 @@ export function capabilityNotes(c: RuntimeCapability): string[] {
   if (c.brief_transport) out.push(`브리프: ${BRIEF[c.brief_transport]}`);
   if (c.allow_once_missing) out.push("allow_once 부재 — 권한 협상이 매번 always 로 떨어집니다");
   return out;
+}
+
+/**
+ * 오프라인 유예 한 줄(SCREEN §4.8 · U12 1·2 · E14-01·02).
+ *
+ * "오프라인"만 쓰면 사람은 **언제까지 기다리면 되는지**를 모른다. U12 1단계가 요구하는 문장은
+ * `오프라인 · 1일 경과 · 유예 6일 남음` 이고, 유예를 넘기면(E14-02) 남은 시간 대신 **묶인 세션 수와
+ * 재바인딩** 을 말해야 한다 — 그때부터는 기다림이 아니라 선택이 할 일이기 때문이다.
+ *
+ * `grace_ends_at` 은 서버가 준다(계약 `Runtime.grace_ends_at`). 화면이 7일을 더하지 않는다 —
+ * 유예는 워크스페이스 설정(`runtime_offline_grace`)이라 7일이 아닐 수 있다.
+ */
+export function graceView(
+  rt: Pick<Runtime, "offline_since" | "grace_ends_at" | "paused_session_count">,
+  now = Date.now(),
+): { text: string; expired: boolean; daysLeft: number | null } {
+  const since = rt.offline_since ? `오프라인 · ${durationSince(rt.offline_since, null, now)} 경과` : "오프라인";
+  const end = rt.grace_ends_at ? Date.parse(rt.grace_ends_at) : NaN;
+  if (Number.isNaN(end)) return { text: since, expired: false, daysLeft: null };
+  const left = end - now;
+  if (left > 0) {
+    const days = Math.ceil(left / 86_400_000);
+    return { text: `${since} · 유예 ${days}일 남음`, expired: false, daysLeft: days };
+  }
+  const paused = rt.paused_session_count ?? 0;
+  return {
+    text: `${since} · 유예 만료(${new Date(end).toLocaleDateString("ko-KR")})${paused ? ` · 이 런타임에 묶인 세션 ${paused}개가 일시정지됨` : ""}`,
+    expired: true,
+    daysLeft: 0,
+  };
 }
 
 export function RuntimeCard({ rt, children }: { rt: Runtime; children?: React.ReactNode }) {
@@ -70,19 +100,20 @@ export function RuntimeCard({ rt, children }: { rt: Runtime; children?: React.Re
       {rt.repos.length > 0 && (
         <ul className="rtcard__repos" data-testid="runtime-repos">
           {rt.repos.map((r) => (
-            <li key={r.path}>
+            <li key={r.path} data-testid="runtime-repo" data-remote-url={r.remote_url ?? ""}>
               <code>{r.path}</code>
               {r.branch ? ` · ${r.branch}` : ""}
               {r.clean === false ? <span className="rtcard__dirty"> · 클린 아님</span> : r.clean ? " · 클린" : ""}
+              {/* remote URL 이 재바인딩의 "같은 저장소" 키다(FR-9.2 F) — 경로만 보여 주면 후보 판정의 근거가 화면에서 사라진다. */}
+              <div className="rtcard__remote" data-testid="runtime-repo-remote">{r.remote_url ?? "remote 없음"}</div>
             </li>
           ))}
         </ul>
       )}
 
-      {!online && rt.grace_ends_at && (
-        <div className="small" style={{ marginTop: 8, color: "var(--s-fail-text)" }} data-testid="runtime-grace">
-          오프라인 {relativeTime(rt.offline_since)} 부터 · 유예 만료 {new Date(rt.grace_ends_at).toLocaleDateString("ko-KR")}
-          {!!rt.paused_session_count && ` · 이 런타임에 묶인 세션 ${rt.paused_session_count}개가 일시정지됨`}
+      {!online && (rt.grace_ends_at || rt.offline_since) && (
+        <div className="small" style={{ marginTop: 8, color: "var(--s-fail-text)" }} data-testid="runtime-grace" data-grace-expired={String(graceView(rt).expired)}>
+          {graceView(rt).text}
         </div>
       )}
       <div className="small muted-3" style={{ marginTop: 6 }}>

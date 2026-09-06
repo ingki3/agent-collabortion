@@ -1,0 +1,33 @@
+/* S17 재바인딩 다이얼로그 — 색은 tokens.css 변수만. */
+.rebind__scrim {
+  position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--ink) 35%, transparent); padding: 20px;
+}
+.rebind {
+  width: min(560px, 100%); max-height: 88vh; overflow: auto; background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px;
+}
+.rebind__head { display: flex; align-items: center; gap: 8px; }
+.rebind__spacer { flex: 1; }
+.rebind__situation { margin: 0; font-size: 13px; }
+.rebind__sub { margin: 0; font-size: 12px; color: var(--ink-3); }
+.rebind__section { display: flex; flex-direction: column; gap: 6px; }
+.rebind__label { font-size: 12px; font-weight: 600; display: flex; flex-direction: column; gap: 2px; }
+.rebind__hint { font-weight: 400; color: var(--ink-3); font-size: 11px; }
+.rebind__cands { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.rebind__cands li { border: 1px solid var(--line); border-radius: 8px; padding: 8px; font-size: 13px; }
+.rebind__cand--off { opacity: 0.5; }
+.rebind__reason { font-size: 11px; color: var(--s-wait-text); margin-top: 2px; }
+.rebind__loss {
+  border: 1px solid var(--s-fail); border-radius: 8px; padding: 8px 10px;
+  background: color-mix(in srgb, var(--s-fail) var(--soft-alpha), transparent);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.rebind__loss-text { margin: 0; font-size: 12px; color: var(--s-fail-text); }
+.rebind__order { margin: 0; padding-left: 18px; font-size: 12px; color: var(--ink-2); }
+.rebind__ack { font-size: 12px; }
+.rebind__actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.rebind__foot { margin: 0; font-size: 11px; color: var(--ink-3); }
+/* 다이얼로그 자립용 — chip__x 는 composer.css 소유라 여기서 다시 정의하지 않는다. */
+.rebind__x { border: 0; background: none; cursor: pointer; padding: 0 2px; color: var(--ink-3); font-size: 13px; line-height: 1; }
+.rebind__danger { border-color: var(--s-fail); color: var(--s-fail-text); }
