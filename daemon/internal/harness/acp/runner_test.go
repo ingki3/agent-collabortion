@@ -918,3 +918,74 @@ func waitFor(t *testing.T, cond func() bool) {
 	}
 	t.Fatal("condition not met")
 }
+
+// D-6 / harness v0.7 — what `cost_usd` and `estimated` mean, in all three
+// states the wire can be in.
+//
+// The bug this pins: `estimated` used to be set only when `usage` was missing
+// altogether, and `cost_usd` was never assigned at all, so the ordinary ACP
+// turn (tokens, no cost — the only shape the pinned adapter sends) went out as
+// `cost_usd: 0, estimated: false`. That reads as a measured $0.00 and every
+// session's cost banner showed one (G4 3판 W16).
+func TestUsageCostRule(t *testing.T) {
+	cost := func(v float64) *float64 { return &v }
+
+	// (1) the runtime priced the turn → carry its number, not an estimate.
+	t.Run("cost reported", func(t *testing.T) {
+		s := acpfake.Script{Turns: []acpfake.Turn{{
+			Steps: []acpfake.Step{{Chunk: "ok"}},
+			Usage: &acp.PromptUsage{InputTokens: 10, OutputTokens: 5, CostUSD: cost(0.0125)},
+		}}}
+		f := newFixture(t, s, bundle(contracts.RuntimeClaudeCode), nil)
+		res := f.run()
+		us := f.sink.find("usage", "report", "report")
+		if len(us) != 1 || us[0].Payload["cost_usd"] != 0.0125 || us[0].Payload["estimated"] != false {
+			t.Fatalf("usage %+v", us)
+		}
+		if res.Usage.CostUSD != 0.0125 || res.Usage.Estimated {
+			t.Fatalf("result usage %+v", res.Usage)
+		}
+	})
+
+	// (2) tokens but no cost — the real ACP shape. The key is ABSENT; a 0
+	// here is the defect.
+	t.Run("tokens only", func(t *testing.T) {
+		s := acpfake.Script{Turns: []acpfake.Turn{{
+			Steps: []acpfake.Step{{Chunk: "ok"}},
+			Usage: &acp.PromptUsage{InputTokens: 10, OutputTokens: 5, CachedReadTokens: 100},
+		}}}
+		f := newFixture(t, s, bundle(contracts.RuntimeClaudeCode), nil)
+		res := f.run()
+		us := f.sink.find("usage", "report", "report")
+		if len(us) != 1 || us[0].Payload["estimated"] != true {
+			t.Fatalf("usage %+v", us)
+		}
+		if _, ok := us[0].Payload["cost_usd"]; ok {
+			t.Fatalf("cost_usd present with no measured cost: %+v", us[0].Payload)
+		}
+		// the tokens still went up — this is an unknown cost, not unknown usage
+		if us[0].Payload["input_tokens"] != int64(10) || us[0].Payload["cache_read_tokens"] != int64(100) {
+			t.Fatalf("tokens %+v", us[0].Payload)
+		}
+		if !res.Usage.Estimated || res.Usage.InputTokens != 10 {
+			t.Fatalf("result usage %+v", res.Usage)
+		}
+	})
+
+	// (3) no usage at all → estimated, no cost, no tokens.
+	t.Run("no usage", func(t *testing.T) {
+		s := acpfake.Script{Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "ok"}}}}}
+		f := newFixture(t, s, bundle(contracts.RuntimeClaudeCode), nil)
+		res := f.run()
+		us := f.sink.find("usage", "report", "report")
+		if len(us) != 1 || us[0].Payload["estimated"] != true {
+			t.Fatalf("usage %+v", us)
+		}
+		if _, ok := us[0].Payload["cost_usd"]; ok {
+			t.Fatalf("cost_usd present with no usage: %+v", us[0].Payload)
+		}
+		if !res.Usage.Estimated || res.Usage.InputTokens != 0 {
+			t.Fatalf("result usage %+v", res.Usage)
+		}
+	})
+}
