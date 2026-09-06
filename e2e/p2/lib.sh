@@ -75,3 +75,57 @@ daemon_start_p2() {
   local cfg="$1" logf="$2"
   COLAB_DAEMON_CONFIG="$cfg" setsid_run "$logf" "$BIN/daemon" run
 }
+
+# ── G5(T-I2 2부) 추가 헬퍼 ──────────────────────────────────────────────────
+# create_agent_kind WS NAME ROLE RUNTIME_KIND MODEL INSTRUCTIONS [ROLE_DESC] → agent id
+# create_agent_p2 와 같지만 runtime_kind 를 고른다(hermes 프로파일용). 모델은 **접두어 없이** 저장한다
+# — harness.md §1: 데몬이 hermes 에만 `anthropic:` 을 붙인다. 프로파일에 `:` 가 있으면 그대로 쓴다.
+create_agent_kind() {
+  api_ok POST "/workspaces/$1/agents" "$(jq -nc --arg n "$2" --arg r "$3" --arg k "$4" --arg m "$5" --arg i "$6" --arg rd "${7:-$3 역할}" --argjson env "$PROFILE_ENV" \
+    '{name:$n,role:$r,role_description:$rd,instructions:$i,profiles:[{name:"default",runtime_kind:$k,model:$m,is_default:true,env:$env}]}')" | jq -r .id
+}
+# create_agent_2profiles WS NAME ROLE INSTRUCTIONS  K1 M1 [ARGS1_JSON]  K2 M2 → agent id
+# 기본 프로파일 `primary`(K1/M1) + 대체 프로파일 `spare`(K2/M2). 폴백 연결은 link_fallback 이 한다.
+create_agent_2profiles() {
+  local ws="$1" n="$2" r="$3" ins="$4" k1="$5" m1="$6" a1="${7:-[]}" k2="$8" m2="$9"
+  api_ok POST "/workspaces/$ws/agents" "$(jq -nc --arg n "$n" --arg r "$r" --arg i "$ins" \
+      --arg k1 "$k1" --arg m1 "$m1" --argjson a1 "$a1" --arg k2 "$k2" --arg m2 "$m2" --argjson env "$PROFILE_ENV" \
+    '{name:$n,role:$r,role_description:($r+" 역할"),instructions:$i,
+      profiles:[{name:"primary",runtime_kind:$k1,model:$m1,args:$a1,is_default:true,env:$env},
+                {name:"spare",  runtime_kind:$k2,model:$m2,is_default:false,env:$env}]}')" | jq -r .id
+}
+# link_fallback AGENT_ID FROM_PROFILE_NAME TO_PROFILE_NAME
+# **우회 실행**: openapi 는 `AgentProfileCreate.fallback_profile(_id)` 를 P2 로 두고 `updateAgentProfile` 도
+# x-phase P2 이지만, 서버는 생성 시 두 필드를 조용히 버리고 updateAgentProfile 은 501 이다(G5_REPORT S-21).
+# E8-08 을 측정하려면 연결이 있어야 하므로 DB 에 직접 쓴다 — 정식 경로가 아님을 보고서에 명시한다.
+link_fallback() {
+  psqlq "update agent_profile set fallback_profile_id =
+           (select id from agent_profile where agent_id='$1' and name='$3')
+         where agent_id='$1' and name='$2'" >/dev/null
+}
+# profile_of AGENT_ID NAME → profile id
+profile_of() { psqlq "select id from agent_profile where agent_id='$1' and name='$2'"; }
+# lane_ref SESSION AGENT_NAME → lane 의 runtime_session_ref (JSON, 없으면 null)
+lane_ref() { psqlq "select coalesce(l.runtime_session_ref::text,'null') from lane l join agent a on a.id=l.agent_id
+                    where l.session_id='$1' and a.name='$2' order by l.created_at limit 1"; }
+# task_attempts TASK → attempt  outcome  failure_kind
+task_attempts() { psqlq "select attempt, outcome, coalesce(failure_kind::text,'-') from task_attempt where task_id='$1' order by attempt"; }
+# set_loop_limit WS KEY VALUE → 워크스페이스 설정 op (S-12 로 열린 정식 경로)
+set_loop_limit() {
+  api_ok PATCH "/workspaces/$1/settings" "$(jq -nc --arg k "$2" --argjson v "$3" '{loop_limits:{($k):$v}}')"
+}
+# session_paused SESSION → status  paused_reason  paused_detail
+session_paused() { psqlq "select status::text, coalesce(paused_reason::text,'-'), coalesce(paused_detail::text,'-') from session where id='$1'"; }
+# ── 판정 헬퍼 (30~34 가 공유한다 — 10_ 은 자기 안에 같은 것을 갖고 있다) ──
+# g5_chk_init FILE → 체크 표를 연다. chk ID 설명 기대 실제 / chk_ge ID 설명 최소 실제
+g5_chk_init() { CHK="$1"; printf 'id\twhat\tverdict\tvalue\n' > "$CHK"; pass=0; fail=0; }
+chk() {
+  if [ "$3" = "$4" ]; then pass=$((pass+1)); printf '  ✓ %-56s %s\n' "$2" "$4" >&2; printf '%s\t%s\tPASS\t%s\n' "$1" "$2" "$4" >> "$CHK"
+  else fail=$((fail+1)); printf '  ✗ %-56s got=%s want=%s\n' "$2" "$4" "$3" >&2; printf '%s\t%s\tFAIL\tgot=%s want=%s\n' "$1" "$2" "$4" "$3" >> "$CHK"; fi
+}
+chk_ge() {
+  if [ "${4:-0}" -ge "$3" ] 2>/dev/null; then pass=$((pass+1)); printf '  ✓ %-56s %s (≥%s)\n' "$2" "$4" "$3" >&2; printf '%s\t%s\tPASS\t%s\n' "$1" "$2" "$4" >> "$CHK"
+  else fail=$((fail+1)); printf '  ✗ %-56s got=%s want≥%s\n' "$2" "$4" "$3" >&2; printf '%s\t%s\tFAIL\tgot=%s want>=%s\n' "$1" "$2" "$4" "$3" >> "$CHK"; fi
+}
+# chk_has ID 설명 HAYSTACK_FILE NEEDLE — 파일에 문자열이 있으면 PASS
+chk_has() { chk "$1" "$2" yes "$(grep -qF -e "$4" "$3" 2>/dev/null && echo yes || echo no)"; }
