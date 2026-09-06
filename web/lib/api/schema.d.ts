@@ -2171,6 +2171,7 @@ export interface components {
              * @description workdir 사용량 합계.
              */
             workdir_disk_bytes?: number;
+            colab_cli?: components["schemas"]["ColabCLI"];
             /** Format: date-time */
             offline_since?: string | null;
             /**
@@ -2184,6 +2185,12 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        /** @description 머신에 설치된 colab CLI. **런타임 속성이 아니라 머신 속성**이라 `capabilities[]`가 아니라 probe 최상위에 한 번 실린다(daemon-protocol.md §3, v0.5) — 런타임이 둘이어도 바이너리는 하나고, 런타임이 0개인 머신에서도 보고돼야 한다. 에이전트는 colab CLI로 서버에 말하므로 `present: false`면 세션이 조용히 아무 말도 못 한다: S11·S12 카드는 이걸 경고로 드러낸다. */
+        ColabCLI: {
+            present: boolean;
+            /** @description 미설치·실행 실패면 빈 문자열. */
+            version: string;
         };
         RuntimeDetail: components["schemas"]["Runtime"] & {
             active_sessions: components["schemas"]["SessionRef"][];

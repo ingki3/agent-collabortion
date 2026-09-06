@@ -197,6 +197,8 @@ Hermes 보조 신호: stderr의 프로바이더 오류 문구 스니핑 → `oth
 
 Hermes: `usage: true`(G1 F6), `resume: true`(`session/load`), `brief_transport: "instruction_file"`.
 
+이 객체는 **런타임 하나**를 설명한다. 머신 전체의 속성(예: colab CLI 설치 여부)은 여기가 아니라 probe 최상위에 있다 — `daemon-protocol.md` §3 `colab_cli`.
+
 ## 10. 브리프와 workdir (PRD §8.4)
 
 | 런타임 | 브리프 | workdir 파일 |
