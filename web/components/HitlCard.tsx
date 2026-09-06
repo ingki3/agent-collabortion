@@ -44,8 +44,11 @@ export interface HitlCardProps {
   /** 낼 응답 컨트롤. 비우면 타입 기본값(question → 답변, approval → 승인·거절). */
   actions?: HitlAction[];
   onRespond?: (body: HitlResponse) => Promise<void> | void;
-  /** 예산 초과 시스템 HITL 이면 승인에 상향 입력을 붙인다(E9-02). */
-  budget?: { current?: number | null; spent?: number | null } | null;
+  /**
+   * 예산 초과 시스템 HITL 이면 승인에 상향 입력을 붙인다(E9-02).
+   * 비워 두면 `purpose` 로만 판정한다 — 범위(`scope`)·현재 상한·소진액을 아는 것은 호출부다.
+   */
+  budget?: { scope?: "task" | "session"; current?: number | null; spent?: number | null } | null;
   busy?: boolean;
 }
 
@@ -85,7 +88,12 @@ export function HitlCard({ request: r, actions, onRespond, budget, busy }: HitlC
         actions={actions}
         answer={r.answer}
         approved={r.approved}
-        budgetOverride={budget ?? (r.purpose === "budget" ? { current: r.budget_override_usd } : null)}
+        // 조건은 `purpose` 하나다 — 세션이 멈췄는지는 보지 않는다(task 범위 초과는 세션을 멈추지 않는다, W-6).
+        budgetOverride={
+          r.purpose === "budget"
+            ? { scope: r.task_id ? "task" : "session", current: r.budget_override_usd, ...(budget ?? {}) }
+            : null
+        }
         onRespond={onRespond}
         busy={busy}
       />

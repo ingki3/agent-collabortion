@@ -68,6 +68,17 @@ HB=$(curl -sS -b "$J" -X POST "$B/__mock/sessions/$SID/seed-hitl" -H 'content-ty
 HBID=$(echo "$HB" | py 'import sys,json;print(json.load(sys.stdin)["id"])')
 chk "예산 HITL 은 system 발행이어도 task_id 를 채운다(s-13)" "$(echo "$HB" | py 'import sys,json;print(json.load(sys.stdin)["task_id"] is not None)')" "True"
 chk "purpose 가 budget (0012 판정 기준)" "$(echo "$HB" | py 'import sys,json;print(json.load(sys.stdin)["purpose"])')" "budget"
+# S-45 대비 — 시스템 발행 HITL 도 타임라인 카드(kind=hitl)를 만든다. 없으면 S7 에 답할 자리가 없다.
+chk "시스템 발행 HITL 도 hitl 메시지를 만든다 (S-45 대비)" "$(echo "$HB" | py 'import sys,json;print(bool(json.load(sys.stdin)["message_id"]))')" "True"
+HBMID=$(echo "$HB" | py 'import sys,json;print(json.load(sys.stdin)["message_id"])')
+HBMSG=$(curl -sS -b "$J" "$B/sessions/$SID/messages")
+chk "그 메시지의 kind 가 hitl 이다" "$(echo "$HBMSG" | py "import sys,json;d=json.load(sys.stdin)['items'];print([m['kind'] for m in d if m['id']=='$HBMID'][0])")" "hitl"
+# W-6 — task 범위 초과는 세션을 멈추지 않는다. 인박스 항목은 hitl_request 로 오고 purpose 는 상세에만 있다.
+chk "task 범위 예산 HITL 은 세션을 멈추지 않는다 (E9-01)" "$(curl -sS -b "$J" "$B/sessions/$SID" | py 'import sys,json;print(json.load(sys.stdin)["status"])')" "active"
+IN0=$(curl -sS -b "$J" "$B/inbox?workspace_id=$WS")
+chk "예산 HITL 의 인박스 항목 타입은 hitl_request (W-6)" "$(echo "$IN0" | py "import sys,json;d=[x for x in json.load(sys.stdin)['items'] if x['ref_id']=='$HBID'];print(d[0]['type'])")" "hitl_request"
+chk "항목 카드에는 purpose 가 없다 — 상세를 읽어야 안다 (W-6)" "$(echo "$IN0" | py "import sys,json;d=[x for x in json.load(sys.stdin)['items'] if x['ref_id']=='$HBID'];print('purpose' in d[0]['card'])")" "False"
+chk "ref_id 로 읽은 상세에는 purpose=budget 이 있다 (W-6)" "$(curl -sS -b "$J" "$B/hitl-requests/$HBID" | py 'import sys,json;print(json.load(sys.stdin)["purpose"])')" "budget"
 RB=$(curl -sS -b "$J" -X POST "$B/hitl-requests/$HBID/response" -H 'content-type: application/json' -H "Idempotency-Key: $(IDEM)" -d '{"approved":true,"budget_override_usd":3}')
 chk "승인은 task.budget_override 로 간다 (E9-02)" "$(echo "$RB" | py 'import sys,json;print(json.load(sys.stdin)["task"]["budget_override"])')" "3"
 chk "승인이 곧 트리거 — task queued (E9-02)" "$(echo "$RB" | py 'import sys,json;print(json.load(sys.stdin)["task"]["status"])')" "queued"

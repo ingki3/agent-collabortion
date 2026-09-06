@@ -120,6 +120,53 @@ describe("타입별 입력부(FR-5.1 · SCREEN §2.3 C4)", () => {
     fireEvent.click(screen.getByTestId("hitl-approve"));
     expect(onRespond).toHaveBeenCalledWith({ approved: true, budget_override_usd: 3 });
   });
+
+  // ── W-6: 상향 입력의 조건은 `purpose` 하나다 ──────────────────────────────
+  it("호출부가 budget 을 안 넘겨도 purpose 가 budget 이면 입력이 붙는다(W-6)", () => {
+    render(<HitlCard request={req({ source: "system", purpose: "budget", type: "approval", proposed_default: null })} onRespond={vi.fn()} />);
+    expect(screen.getByTestId("hitl-budget-input")).toBeTruthy();
+    // task_id 가 있으면 task 상한이다 — 세션 상한이 아니다(E9-01 s-13).
+    expect(screen.getByTestId("hitl-budget-field").getAttribute("data-scope")).toBe("task");
+    expect(screen.getByTestId("hitl-budget-field").textContent).toContain("새 task 상한");
+  });
+
+  it("세션 범위(task_id 없음)는 '새 세션 상한' 이고 소진액이 최소값이다(E9-10)", () => {
+    render(
+      <HitlCard
+        request={req({ source: "system", purpose: "budget", type: "approval", task_id: null, proposed_default: null })}
+        budget={{ scope: "session", current: 20, spent: 21.4 }}
+        onRespond={vi.fn()}
+      />,
+    );
+    const field = screen.getByTestId("hitl-budget-field");
+    expect(field.getAttribute("data-scope")).toBe("session");
+    expect(field.textContent).toContain("새 세션 상한");
+    expect((screen.getByTestId("hitl-budget-input") as HTMLInputElement).min).toBe("21.4");
+    expect(screen.getByTestId("hitl-budget-hint").textContent).toContain("$21.40 사용");
+    // 기본값은 지금 상한($20)인데 이미 $21.40 을 썼다 — 그대로 승인하면 다음 턴에 또 멈춘다.
+    expect((screen.getByTestId("hitl-approve") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByTestId("hitl-budget-input"), { target: { value: "30" } });
+    expect((screen.getByTestId("hitl-approve") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("proposed_default 가 숫자면 그것이 금액 기본값이다(COMPONENTS §2.3 제안 기본값 슬롯)", () => {
+    const onRespond = vi.fn();
+    render(
+      <HitlCard
+        request={req({ source: "system", purpose: "budget", type: "approval", proposed_default: "3" })}
+        onRespond={onRespond}
+      />,
+    );
+    expect((screen.getByTestId("hitl-budget-input") as HTMLInputElement).value).toBe("3");
+    fireEvent.click(screen.getByTestId("hitl-approve"));
+    expect(onRespond).toHaveBeenCalledWith({ approved: true, budget_override_usd: 3 });
+  });
+
+  it("예산이 아닌 approval 에는 금액 입력이 없다 — 거절 사유는 그대로 필수다", () => {
+    render(<HitlCard request={req({ source: "system", purpose: "user_approval", type: "approval", proposed_default: null })} onRespond={vi.fn()} />);
+    expect(screen.queryByTestId("hitl-budget-input")).toBeNull();
+    expect((screen.getByTestId("hitl-reject") as HTMLButtonElement).disabled).toBe(true);
+  });
 });
 
 describe("상태 4종(계약 HitlStatus)", () => {

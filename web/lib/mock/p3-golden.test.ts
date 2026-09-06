@@ -19,7 +19,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { dispatch, DEPUTY_HALF_MS, HITL_DUE_IN_MS, inboxActions, inboxSeverity, inboxSortRank, type Req } from "./handlers";
 import { resetStore, store } from "./store";
-import type { HitlRequest, InboxItem, Lane, Session, TriggerPreview } from "@/lib/api/types";
+import type { HitlRequest, InboxItem, Lane, Message, Session, TriggerPreview } from "@/lib/api/types";
 
 // ── 목 API 를 HTTP 처럼 부르는 얇은 클라이언트 ──────────────────────────────
 let cookie = "";
@@ -198,6 +198,63 @@ describe("예산 — golden E9 의 수치", () => {
     expect(r.task?.budget_override).toBe(3);
     expect(r.task?.status).toBe("queued"); // 승인이 곧 트리거다 — 새 멘션이 필요 없다
     expect(store().agents.get(agentId)!.budget_per_task).toBe(1); // C2′ — 한 번의 클릭이 미래 세션을 재가격하지 않는다
+  });
+
+  /**
+   * W-6 의 모양을 목에 못 박는다 — 화면이 무엇을 보고 상향 입력을 낼지 정하는 근거다.
+   *
+   * task 범위 예산 초과(E9-01·E9-10)는 **lane 만** 멈춘다. 세션은 `active` 이므로 인박스 항목 타입은
+   * `session_paused` 가 아니라 `hitl_request` 고, 항목의 `card` 에는 `purpose` 가 없다(계약 InboxItem).
+   * 따라서 화면은 `ref_id` 로 HITL 상세를 읽어 `purpose` 를 알아내야 한다 — 그 왕복이 성립하는지까지 본다.
+   */
+  it("W-6 — task 범위 예산 HITL 은 세션을 멈추지 않고, 인박스 항목의 ref_id 로만 purpose 를 알 수 있다", async () => {
+    const { ws, session } = await newSession();
+    const ags = await must<{ items: { id: string }[] }>("GET", `/workspaces/${ws}/agents`);
+    const h = await must<HitlRequest>("POST", `/__mock/sessions/${session.id}/seed-hitl`, {
+      body: { source: "system", purpose: "budget", type: "approval", proposed_default: null, agent_id: ags.items[0].id },
+    });
+    expect(h.task_id).not.toBeNull(); // task 범위다(s-13)
+
+    // 세션은 멈추지 않는다 — 멈추는 것은 lane 뿐이다.
+    const after = await must<Session>("GET", `/sessions/${session.id}`);
+    expect(after.status).toBe("active");
+    expect(after.paused_reason ?? null).toBeNull();
+    const lanes = await must<Lane[]>("GET", `/sessions/${session.id}/lanes`);
+    expect(lanes.find((l) => l.id === h.lane_id)!.status).toBe("paused");
+
+    const inbox = await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`);
+    const it = inbox.items.find((x) => x.ref_id === h.id)!;
+    expect(it.type).toBe("hitl_request"); // session_paused 가 아니다 — 여기서 W-6 이 났다
+    expect(it.card?.hitl_type).toBe("approval");
+    // 항목만으로는 예산인지 알 수 없다. 이 단정이 깨지면(계약에 purpose 가 생기면) S8 의 상세 왕복을 지워도 된다.
+    expect((it.card as Record<string, unknown>).purpose).toBeUndefined();
+    expect(it.card?.paused_reason ?? null).toBeNull();
+    // 상세는 준다 — 그것이 화면이 쓰는 경로다.
+    expect((await must<HitlRequest>("GET", `/hitl-requests/${it.ref_id}`)).purpose).toBe("budget");
+
+    // 승인 페이로드는 그대로 E9-02 다.
+    const r = await must<{ task?: { budget_override: number | null } }>("POST", `/hitl-requests/${h.id}/response`, {
+      body: { approved: true, budget_override_usd: 3 }, headers: idem(),
+    });
+    expect(r.task?.budget_override).toBe(3);
+  });
+
+  /**
+   * S-45(T-S6 가 고치는 중) 대비 — **시스템 발행 HITL 도 타임라인 `hitl` 메시지를 만든다.**
+   * 서버가 그것을 안 만들면 S7 에 카드가 아예 뜨지 않아 인박스 밖에서는 답할 자리가 없다.
+   * 목이 그 모양을 먼저 지키고 있어야 서버가 고쳐졌을 때 화면이 그대로 붙는다.
+   */
+  it("시스템 발행(purpose=budget) HITL 도 kind=hitl 타임라인 메시지를 만든다 (S-45 대비)", async () => {
+    const { ws, session } = await newSession();
+    const ags = await must<{ items: { id: string }[] }>("GET", `/workspaces/${ws}/agents`);
+    const h = await must<HitlRequest>("POST", `/__mock/sessions/${session.id}/seed-hitl`, {
+      body: { source: "system", purpose: "budget", type: "approval", proposed_default: null, agent_id: ags.items[0].id },
+    });
+    expect(h.message_id).toBeTruthy();
+    const msgs = await must<{ items: Message[] }>("GET", `/sessions/${session.id}/messages`);
+    const card = msgs.items.find((m) => m.id === h.message_id)!;
+    expect(card.kind).toBe("hitl");
+    expect(card.author_type).toBe("system");
   });
 
   it("E9-03 — 거절은 failed 도 cancelled 도 아니고 paused(budget) 로 남는다", async () => {
