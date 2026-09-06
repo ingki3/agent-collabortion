@@ -126,6 +126,12 @@ func TestP3HitlRegistrationAndTurnEnd(t *testing.T) {
 			if str(row, "severity") != "action_required" {
 				t.Fatalf("inbox severity = %q, want action_required (FR-8)", str(row, "severity"))
 			}
+			// session.status is required on SessionRef (openapi): the card's
+			// session badge is unrenderable without it (S-43).
+			sess, _ := row["session"].(map[string]any)
+			if sess == nil || str(sess, "status") == "" {
+				t.Fatalf("inbox session ref = %v, want a non-empty status (openapi SessionRef.status, S-43)", row["session"])
+			}
 		}
 	}
 	if !found {

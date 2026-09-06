@@ -29,16 +29,17 @@ import (
 
 // inboxRow is one stored item plus what its card needs.
 type inboxRow struct {
-	ID          uuid.UUID
-	MemberID    uuid.UUID
-	WorkspaceID uuid.UUID
-	Type        string
-	Severity    string
-	SessionID   *uuid.UUID
-	SessionName *string
-	RefID       *uuid.UUID
-	ReadAt      *time.Time
-	CreatedAt   time.Time
+	ID            uuid.UUID
+	MemberID      uuid.UUID
+	WorkspaceID   uuid.UUID
+	Type          string
+	Severity      string
+	SessionID     *uuid.UUID
+	SessionName   *string
+	SessionStatus *string
+	RefID         *uuid.UUID
+	ReadAt        *time.Time
+	CreatedAt     time.Time
 
 	// HITL card data (NULL for other types).
 	HitlType        *string
@@ -57,7 +58,7 @@ type inboxRow struct {
 }
 
 const selectInbox = `
-	SELECT i.id, i.member_id, m.workspace_id, i.type::text, i.severity::text, i.session_id, s.title,
+	SELECT i.id, i.member_id, m.workspace_id, i.type::text, i.severity::text, i.session_id, s.title, s.status::text,
 	       i.ref_id, i.read_at, i.created_at,
 	       h.type::text, h.question, h.context, h.proposed_default, h.due_at, h.overdue, h.status::text,
 	       h.approver_spec, h.created_at, a.name, s.director_user_id, s.deputy_director_user_id, s.paused_reason::text
@@ -72,7 +73,7 @@ func scanInbox(rows pgx.Rows) ([]inboxRow, error) {
 	var out []inboxRow
 	for rows.Next() {
 		var r inboxRow
-		if err := rows.Scan(&r.ID, &r.MemberID, &r.WorkspaceID, &r.Type, &r.Severity, &r.SessionID, &r.SessionName,
+		if err := rows.Scan(&r.ID, &r.MemberID, &r.WorkspaceID, &r.Type, &r.Severity, &r.SessionID, &r.SessionName, &r.SessionStatus,
 			&r.RefID, &r.ReadAt, &r.CreatedAt,
 			&r.HitlType, &r.HitlQuestion, &r.HitlContext, &r.HitlDefault, &r.HitlDueAt, &r.HitlOverdue, &r.HitlStatus,
 			&r.HitlSpec, &r.HitlCreatedAt, &r.HitlAgentName, &r.SessionDirector, &r.SessionDeputy, &r.SessionPaused); err != nil {
@@ -178,8 +179,10 @@ func (s *Server) inboxAPI(r *inboxRow, viewer uuid.UUID, now time.Time) gen.Inbo
 		ReadAt: tasks.NullTime(r.ReadAt), CreatedAt: r.CreatedAt,
 		DueAt: nullableTime(nil),
 	}
-	if r.SessionID != nil && r.SessionName != nil {
-		out.Session = &gen.SessionRef{Id: *r.SessionID, Title: *r.SessionName}
+	if r.SessionID != nil && r.SessionName != nil && r.SessionStatus != nil {
+		// status is required on SessionRef (openapi) — a card without it is a
+		// contract violation, not a thinner card.
+		out.Session = &gen.SessionRef{Id: *r.SessionID, Title: *r.SessionName, Status: gen.SessionStatus(*r.SessionStatus)}
 	}
 	canRespond := false
 	hitlType := ""
