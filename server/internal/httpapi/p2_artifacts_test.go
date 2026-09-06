@@ -537,10 +537,17 @@ func TestSubmitIdempotency(t *testing.T) {
 	}})
 	tok, _ := f.agentToken(t, sess, f.leadUUID, "Lead")
 	key := uuid.NewString()
-	ct, body := multipartBody(t, "once.md", "doc", "", []byte("한 번"))
+	// Encoded TWICE, as the CLI does on a retry: multipart.Writer picks a fresh
+	// random boundary each time, so the raw bytes differ while the request does
+	// not. Hashing the bytes would turn a legitimate retry into 422.
+	ct1, body1 := multipartBody(t, "once.md", "doc", "", []byte("한 번"))
+	ct2, body2 := multipartBody(t, "once.md", "doc", "", []byte("한 번"))
+	if bytes.Equal(body1, body2) {
+		t.Fatal("premise: two encodings of the same upload must differ (random boundary)")
+	}
 
-	st1, out1 := f.rawKeyed(t, f.p+"/sessions/"+sess+"/artifacts", tok, ct, body, key)
-	st2, out2 := f.rawKeyed(t, f.p+"/sessions/"+sess+"/artifacts", tok, ct, body, key)
+	st1, out1 := f.rawKeyed(t, f.p+"/sessions/"+sess+"/artifacts", tok, ct1, body1, key)
+	st2, out2 := f.rawKeyed(t, f.p+"/sessions/"+sess+"/artifacts", tok, ct2, body2, key)
 	if st1 != 201 || st2 != 201 {
 		t.Fatalf("submits = %d, %d", st1, st2)
 	}
@@ -554,6 +561,13 @@ func TestSubmitIdempotency(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("stored %d artifacts for one key, want 1", n)
+	}
+
+	// The same key with a DIFFERENT upload is still a 422: the guard survives
+	// hashing the parts instead of the bytes.
+	ct3, body3 := multipartBody(t, "once.md", "doc", "", []byte("다른 본문"))
+	if st, _ := f.rawKeyed(t, f.p+"/sessions/"+sess+"/artifacts", tok, ct3, body3, key); st != 422 {
+		t.Fatalf("same key, different upload = %d, want 422 idempotency_key_reused", st)
 	}
 }
 

@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -103,7 +105,22 @@ func (s *Server) SubmitArtifact(w http.ResponseWriter, r *http.Request, sessionI
 		writeJSON(w, st, out)
 		return
 	}
-	s.idempotent(r.Context(), w, scope, params.IdempotencyKey.String(), requestHash(r, body), call)
+	s.idempotent(r.Context(), w, scope, params.IdempotencyKey.String(), uploadHash(r, in), call)
+}
+
+// uploadHash is requestHash for a multipart body. It CANNOT hash the raw
+// bytes: multipart.Writer picks a random boundary, so the CLI re-encoding the
+// same upload produces different bytes every time and a legitimate retry would
+// come back 422 idempotency_key_reused instead of replaying. What the contract
+// means by "the same request" is the four parts, so those are what is hashed.
+func uploadHash(r *http.Request, in *artifacts.SubmitInput) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%s %s\n", r.Method, r.URL.Path)
+	for _, field := range []string{in.Name, in.Type, in.Description, in.ContentType} {
+		fmt.Fprintf(h, "%d:%s\n", len(field), field)
+	}
+	h.Write(in.Content)
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // readUpload buffers the multipart body. It is the one request the 4 MB
