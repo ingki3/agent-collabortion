@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.5 — §9 `supported_options`(T-W2가 찾은 빈칸: 프로파일 옵션 능력을 광고할 키가 v0.4.1 대조에서 빠졌다). v0.3 은 PR #20(데몬 P1) 구현·리뷰에서 드러난 5건 반영(usage 시점, Hermes 모델 접두어, Hermes 본문 오류 접두어 규칙, disallowedTools 도출, 250ms 비주입). v0.2는 스파이크 1b 반영 |
+| 버전 | v0.6 — §2.1 시스템 최소에 `USER`(G4 차단 결함: OAuth 갱신 시 키체인이 `USER`를 쓴다). v0.5는 §9 `supported_options`(T-W2가 찾은 빈칸: 프로파일 옵션 능력을 광고할 키가 v0.4.1 대조에서 빠졌다). v0.3 은 PR #20(데몬 P1) 구현·리뷰에서 드러난 5건 반영(usage 시점, Hermes 모델 접두어, Hermes 본문 오류 접두어 규칙, disallowedTools 도출, 250ms 비주입). v0.2는 스파이크 1b 반영 |
 | 소유 | D + Lead. 변경은 Director 승인 PR로만 (`contracts/README.md`) |
 | 근거 | PRD §8.2 (하네스), §8.4 (브리프), FR-7.1 (재시도), FR-3.4·§8.2.2 (취소), FR-5.4 (재개). **G1 판정 `plan/G1_DECISION.md` 와 스파이크 보고서 `plan/spikes/SPIKE_01..06.md`, `SPIKE_01b.md`** — 이 문서의 수치·옵션 키는 전부 실측에서 왔다 |
 | 미결 | 없음 (§12 참조). 서브에이전트 가시성은 v1 피드 요구로 미광고 |
@@ -47,7 +47,7 @@ spawn (pgid, cwd=workdir, env=§2.1)
 |---|---|
 | `COLAB_TASK_TOKEN` | `daemon-protocol.md` §5 — 이 attempt 전용 |
 | `COLAB_SERVER_URL`(오리진), `COLAB_TASK_ID`, **`COLAB_TASK_ATTEMPT`**, `COLAB_LANE_ID`, `COLAB_SESSION_ID`, `COLAB_AGENT_NAME` | colab CLI/MCP가 쓴다(`colab-cli.md` §1). attempt는 멱등키 파생에 필요 |
-| `PATH`, `HOME`, `LANG`, `TMPDIR` | 시스템 최소 |
+| `PATH`, `HOME`, `LANG`, `TMPDIR`, **`USER`** | 시스템 최소. **`USER`는 v0.6 추가** — macOS에서 Claude Code가 만료된 OAuth를 갱신할 때 키체인 조회가 `USER`를 쓴다. 없으면 `Failed to authenticate: OAuth session expired and could not be refreshed`로 모든 task가 `failure_kind=auth`. P1에서는 액세스 토큰이 살아 있어 갱신이 필요 없었기에 드러나지 않았다(G4 첫 실행에서 격리: `env -i PATH HOME LANG TMPDIR claude -p PONG` 실패, `USER` 추가 시 성공) |
 | 런타임 인증 | Claude Code: `~/.claude` OAuth를 그대로(HOME). Hermes: `~/.hermes`. 프로파일 `env(jsonb)`는 **여기 더해진다** — 사용자가 명시한 것만 |
 
 ### 2.2 턴 종료 판정
