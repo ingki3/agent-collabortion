@@ -197,6 +197,14 @@ func AsError(err error) *Error {
 	return &Error{Exit: ExitUnreachable, Code: "unreachable", Title: "server unreachable", Detail: err.Error()}
 }
 
+// RawBody is a request body that is already encoded — used for the
+// multipart/form-data submitArtifact upload. Passing one to Do sets
+// Content-Type to ContentType instead of application/json.
+type RawBody struct {
+	ContentType string
+	Data        []byte
+}
+
 // Response carries the decoded body plus the headers the CLI surfaces.
 type Response struct {
 	Status   int
@@ -219,7 +227,11 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 		u += "?" + query.Encode()
 	}
 	var rd io.Reader
-	if body != nil {
+	contentType := "application/json"
+	if rb, ok := body.(*RawBody); ok {
+		// Pre-encoded body (multipart/form-data for submitArtifact).
+		rd, contentType = bytes.NewReader(rb.Data), rb.ContentType
+	} else if body != nil {
 		buf, err := json.Marshal(body)
 		if err != nil {
 			return nil, Usage("encode body: %v", err)
@@ -234,7 +246,7 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 	req.Header.Set("Accept", "application/json, application/problem+json")
 	req.Header.Set("User-Agent", "colab-cli")
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", contentType)
 	}
 	for k, vs := range headers {
 		for _, v := range vs {

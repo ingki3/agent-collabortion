@@ -105,8 +105,13 @@ func TestRoundTrip(t *testing.T) {
 	for _, tl := range tools {
 		names = append(names, tl.(map[string]any)["name"].(string))
 	}
-	if strings.Join(names, ",") != "colab_session_get,colab_session_messages,colab_message_post" {
-		t.Fatalf("tools = %v", names)
+	// contracts/colab-cli.md §3: one tool per command, named for the command
+	// path with underscores. Order is stable so tools/list is diffable.
+	want := "colab_session_get,colab_session_messages,colab_message_post," +
+		"colab_status_set,colab_lane_delegate,colab_decision_record," +
+		"colab_artifact_submit,colab_artifact_get,colab_review_approve,colab_review_reject"
+	if strings.Join(names, ",") != want {
+		t.Fatalf("tools = %v\nwant  %s", names, want)
 	}
 	for _, tl := range tools {
 		if _, ok := tl.(map[string]any)["inputSchema"].(map[string]any); !ok {

@@ -1,11 +1,17 @@
 // Package mcp is a minimal stdio MCP server (JSON-RPC 2.0, newline-delimited)
 // exposing the colab commands as tools with the same names as the command
 // paths joined by underscores (contracts/colab-cli.md §3):
-// colab_session_get · colab_session_messages · colab_message_post.
+// colab_session_get · colab_session_messages · colab_message_post ·
+// colab_status_set · colab_lane_delegate · colab_decision_record ·
+// colab_artifact_submit · colab_artifact_get · colab_review_approve ·
+// colab_review_reject.
+//
+// Every tool calls the same internal/colab action the CLI subcommand calls,
+// so a tool and its command produce byte-identical JSON.
 //
 // No SDK dependency: the daemon injects this server as the only MCP server
-// (harness.md §3, strictMcpConfig) and the surface is three tools, so a
-// hand-rolled JSON-RPC loop keeps the CLI a single static binary.
+// (harness.md §3, strictMcpConfig) and the surface is a handful of tools, so
+// a hand-rolled JSON-RPC loop keeps the CLI a single static binary.
 package mcp
 
 import (
@@ -34,7 +40,8 @@ type Tool struct {
 	InputSchema json.RawMessage `json:"inputSchema"`
 }
 
-// Tools is the P1 tool table (order is stable for tools/list).
+// Tools is the tool table (order is stable for tools/list): P1 reads and
+// message post, then the P2 write commands of colab-cli.md v0.4 §2.2·2.3.
 var Tools = []Tool{
 	{
 		Name:        "colab_session_get",
@@ -50,6 +57,41 @@ var Tools = []Tool{
 		Name:        "colab_message_post",
 		Description: "Post a message to the session. Routing is server-side: an agent message triggers other agents ONLY when it mentions them (`mention`); the delegator's mention is suppressed until rejoin. Returns message_id, triggered[], suppressed[]. Same as `colab message post --body [--reply-to --mention]`.",
 		InputSchema: json.RawMessage(`{"type":"object","required":["body"],"properties":{"body":{"type":"string","minLength":1,"description":"markdown text"},"reply_to":{"type":"string","description":"parent message id (thread)"},"mention":{"type":"array","items":{"type":"string"},"description":"agent names to mention, e.g. [\"@Reviewer\"]"},"session":{"type":"string"},"idempotency_key":{"type":"string","description":"reuse a previous result's idempotency_key to retry the same post after a network error (default: UUIDv5 of task:<task_id>:<seq>)"}},"additionalProperties":false}`),
+	},
+	{
+		Name:        "colab_status_set",
+		Description: "Set this task's status. `blocked` is how you ask YOUR DELEGATOR a question: the server marks the lane blocked, posts the question card on the lane thread and wakes the delegator (Director inbox when there is none) — `note` is the question and is required. `done` declares this turn's work finished. The result's `turn_end_required: true` means you must end your turn immediately. Same as `colab status set working|blocked|done [--note]`.",
+		InputSchema: json.RawMessage(`{"type":"object","required":["status"],"properties":{"status":{"type":"string","enum":["working","blocked","done"]},"note":{"type":"string","description":"feed note; REQUIRED for blocked — it is the question the delegator answers"},"task":{"type":"string","description":"task id (default: this task)"}},"additionalProperties":false}`),
+	},
+	{
+		Name:        "colab_lane_delegate",
+		Description: "Delegate work to another agent: always creates a NEW lane whose delegated_from_task_id is this task (the rejoin group). The target must ALREADY be a session participant — you cannot create one. A non-participant fails with code `not_participant`; ask the Director to add them with colab_hitl_ask. Same as `colab lane delegate --agent --brief`.",
+		InputSchema: json.RawMessage(`{"type":"object","required":["agent","brief"],"properties":{"agent":{"type":"string","description":"target participant name, e.g. \"Reviewer\" or \"@Reviewer\""},"brief":{"type":"string","minLength":1,"description":"the delegation brief; goes into the delegate's turn prompt verbatim"},"depends_on":{"type":"array","items":{"type":"string"},"description":"lane ids this lane waits for (v1 stores them; DAG execution is v1.1)"},"profile":{"type":"string","description":"profile name (default: the participant's registered profile)"},"session":{"type":"string"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
+	},
+	{
+		Name:        "colab_decision_record",
+		Description: "Record a decision (source=agent) so it appears in the session's decision log and in later turn briefs. The record is exactly two fields: summary (what was decided) and rationale (why). Same as `colab decision record --summary --rationale`.",
+		InputSchema: json.RawMessage(`{"type":"object","required":["summary"],"properties":{"summary":{"type":"string","minLength":1,"description":"what was decided"},"rationale":{"type":"string","description":"why"},"session":{"type":"string"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
+	},
+	{
+		Name:        "colab_artifact_submit",
+		Description: "Submit a file as a session artifact. Re-submitting the same name creates version+1. This is the input to the `artifact_submitted` completion condition — the result's completion_progress says whether it is now met. Max 50 MB. Same as `colab artifact submit --type --file`.",
+		InputSchema: json.RawMessage(`{"type":"object","required":["type","file"],"properties":{"type":{"type":"string","minLength":1,"description":"open set: file · diff · branch · doc · report …"},"file":{"type":"string","description":"path to the file to upload (max 50 MB)"},"name":{"type":"string","description":"artifact name; defaults to the file's base name"},"description":{"type":"string"},"session":{"type":"string"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
+	},
+	{
+		Name:        "colab_artifact_get",
+		Description: "Read an artifact's metadata, and with `out` also download its body to that path. This is the ONLY way to read another lane's work — worktree paths are never exposed. Same as `colab artifact get <id> [--out]`.",
+		InputSchema: json.RawMessage(`{"type":"object","required":["artifact"],"properties":{"artifact":{"type":"string","description":"artifact id"},"out":{"type":"string","description":"write the body here (a file path, or an existing directory)"}},"additionalProperties":false}`),
+	},
+	{
+		Name:        "colab_review_approve",
+		Description: "Approve an artifact. This is the input to the `agent_approval` completion condition. If the condition designates a different reviewer the call fails with code `not_reviewer` and nothing is stored. Same as `colab review approve --artifact [--note]`.",
+		InputSchema: json.RawMessage(`{"type":"object","required":["artifact"],"properties":{"artifact":{"type":"string","description":"artifact id"},"note":{"type":"string","description":"comments recorded with the review"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
+	},
+	{
+		Name:        "colab_review_reject",
+		Description: "Reject an artifact. `reason` is required and the server posts it as a reply on the artifact's lane thread, which re-enters the submitting lane, and records a decision. Same as `colab review reject --artifact --reason`.",
+		InputSchema: json.RawMessage(`{"type":"object","required":["artifact","reason"],"properties":{"artifact":{"type":"string","description":"artifact id"},"reason":{"type":"string","minLength":1,"description":"why it is rejected; posted on the artifact thread"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
 	},
 }
 
@@ -202,6 +244,52 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 		}
 		a.Mention = parseMention(a.MentionRaw)
 		v, err = colab.MessagePost(ctx, s.c, a.MessagePostArgs)
+	case "colab_status_set":
+		var a colab.StatusSetArgs
+		if e := json.Unmarshal(args, &a); e != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
+		}
+		v, err = colab.StatusSet(ctx, s.c, a)
+	case "colab_lane_delegate":
+		var a struct {
+			colab.LaneDelegateArgs
+			DependsOnRaw json.RawMessage `json:"depends_on,omitempty"`
+		}
+		if e := json.Unmarshal(args, &a); e != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
+		}
+		a.DependsOn = parseMention(a.DependsOnRaw) // same array-or-CSV shape
+		v, err = colab.LaneDelegate(ctx, s.c, a.LaneDelegateArgs)
+	case "colab_decision_record":
+		var a colab.DecisionRecordArgs
+		if e := json.Unmarshal(args, &a); e != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
+		}
+		v, err = colab.DecisionRecord(ctx, s.c, a)
+	case "colab_artifact_submit":
+		var a colab.ArtifactSubmitArgs
+		if e := json.Unmarshal(args, &a); e != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
+		}
+		v, err = colab.ArtifactSubmit(ctx, s.c, a)
+	case "colab_artifact_get":
+		var a colab.ArtifactGetArgs
+		if e := json.Unmarshal(args, &a); e != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
+		}
+		v, err = colab.ArtifactGet(ctx, s.c, a)
+	case "colab_review_approve":
+		var a colab.ReviewArgs
+		if e := json.Unmarshal(args, &a); e != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
+		}
+		v, err = colab.ReviewApprove(ctx, s.c, a)
+	case "colab_review_reject":
+		var a colab.ReviewArgs
+		if e := json.Unmarshal(args, &a); e != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
+		}
+		v, err = colab.ReviewReject(ctx, s.c, a)
 	default:
 		return nil, &rpcError{Code: codeInvalidParams, Message: fmt.Sprintf("unknown tool %q", name)}
 	}
@@ -219,7 +307,8 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 	}, nil
 }
 
-// parseMention accepts ["@A","@B"], "@A,@B" or null.
+// parseMention accepts ["@A","@B"], "@A,@B" or null. colab_lane_delegate's
+// depends_on takes the same shape.
 func parseMention(raw json.RawMessage) []string {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil

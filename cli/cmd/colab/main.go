@@ -3,6 +3,8 @@
 // The same commands are exposed as MCP tools via `colab mcp serve`.
 //
 // P1: session get · session messages · message post · version · mcp serve.
+// P2 (colab-cli.md v0.4 §2.2·2.3): lane delegate · status set ·
+// decision record · artifact submit/get · review approve/reject.
 // Output is always JSON on stdout (agents parse it); --json is accepted for
 // clarity. Exit codes: 0 ok · 2 args · 3 refused · 4 no/revoked token ·
 // 5 server unreachable.
@@ -33,8 +35,20 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
   colab message post --body <text> [--reply-to <msg_id>] [--mention @A,@B] [--idempotency-key K] [--json]
                              Idempotency-Key = UUIDv5(task:<task_id>:<seq>), seq continues across attempts;
                              the same seq is sent as X-Colab-Client-Seq (omitted with --idempotency-key)
+  colab status set working|blocked|done [--note <text>]
+                             blocked needs --note (the question); the reply carries turn_end_required
+  colab lane delegate --agent <name> --brief <text> [--depends-on <lane_id>] [--profile <name>]
+                             always a new lane; the target must already be a session participant
+  colab decision record --summary <s> [--rationale <r>]
+  colab artifact submit --type <t> --file <p> [--name <n>] [--description <d>]
+  colab artifact get <id> [--out <path>]
+  colab review approve --artifact <id> [--note <t>]
+  colab review reject  --artifact <id> --reason <text>
   colab mcp serve            stdio MCP server exposing the same commands as tools
   colab version
+
+  The four P2 write commands take an optional --idempotency-key (uuid); it is
+  sent only when given (openapi IdempotencyKeyOptional).
 
 env (daemon, contracts/colab-cli.md §1): COLAB_TASK_TOKEN COLAB_SERVER_URL(origin) COLAB_TASK_ID
      COLAB_TASK_ATTEMPT COLAB_LANE_ID COLAB_SESSION_ID COLAB_AGENT_NAME [COLAB_API_PREFIX]
@@ -59,6 +73,16 @@ func run(args []string, getenv client.Getenv, stdin io.Reader, stdout, stderr io
 		return runSession(args[1:], getenv, stdout, stderr)
 	case "message":
 		return runMessage(args[1:], getenv, stdout, stderr)
+	case "lane":
+		return runLane(args[1:], getenv, stdout, stderr)
+	case "status":
+		return runStatus(args[1:], getenv, stdout, stderr)
+	case "decision":
+		return runDecision(args[1:], getenv, stdout, stderr)
+	case "artifact":
+		return runArtifact(args[1:], getenv, stdout, stderr)
+	case "review":
+		return runReview(args[1:], getenv, stdout, stderr)
 	case "mcp":
 		if len(args) < 2 || args[1] != "serve" {
 			return usage(stderr, "usage: colab mcp serve")
@@ -70,7 +94,8 @@ func run(args []string, getenv client.Getenv, stdin io.Reader, stdout, stderr io
 		}
 		return client.ExitOK
 	}
-	return usage(stderr, "colab: unknown command %q (P1: session · message · mcp · version)", args[0])
+	return usage(stderr, "colab: unknown command %q "+
+		"(session · message · status · lane · decision · artifact · review · mcp · version)", args[0])
 }
 
 func usage(stderr io.Writer, format string, a ...any) int {

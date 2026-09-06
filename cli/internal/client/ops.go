@@ -8,16 +8,16 @@ import (
 	"strconv"
 )
 
-// Context calls GET /cli/context once and caches it (colab-cli.md §1
-// "전처리"). A revoked token surfaces here as 401 token_revoked → exit 4.
+// Context calls GET /cli/context on first need and caches it for the life of
+// the process — at most one round trip, never one per command (colab-cli.md
+// v0.4 §1, backlog C-1). An unconditional preflight would double every
+// command's request count for nothing: a revoked token surfaces as 401 on
+// each command's own request anyway (FR-9.1, E11-04).
 //
-// NOTE (review N3): the contract phrases this as "called once at CLI start",
-// but P1 calls it lazily — only when a path parameter is missing from the
-// env or when the seq state needs last_seq (attempt boundary). That is
-// equivalent for P1 because every command's real request surfaces a revoked
-// token as 401 anyway. P2/P3 commands that depend on
-// open_hitl_request_id / suppressed_delegator_agent_id must call Context
-// explicitly before acting rather than assume it was fetched.
+// A command that needs a context value — the session or task id when the env
+// does not carry one, the participant roster (`lane delegate`), last_seq at
+// an attempt boundary, or open_hitl_request_id /
+// suppressed_delegator_agent_id — calls this and gets the cached answer.
 func (c *Client) Context(ctx context.Context) (*CliContext, error) {
 	if c.ctx != nil {
 		return c.ctx, nil

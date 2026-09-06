@@ -5,6 +5,11 @@
 // GET/POST /sessions/{S}/messages with Idempotency-Key replay. CliContext
 // carries `attempt` and `last_seq` (v0.2) so tests can drive an attempt
 // boundary (E8-04).
+//
+// The P2 operations (lane delegate · status set · decision record ·
+// artifact submit/get · review approve/reject) live in p2.go. The fake is
+// written from contracts/openapi.yaml, not from the server — those handlers
+// are still 501 while T-S2 fills them in, and the contract is the reference.
 package clienttest
 
 import (
@@ -47,6 +52,7 @@ type Posted struct {
 // Server is the fake. Mutate the exported fields before the request under test.
 type Server struct {
 	*httptest.Server
+	p2State  // P2 knobs and captures — see p2.go
 	mu       sync.Mutex
 	Revoked  bool // every authed call → 401 token_revoked
 	Fail     int  // if >0, every call returns this status with a Problem
@@ -110,6 +116,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.handleP2(w, r, path) {
+		return
+	}
 	switch {
 	case r.Method == "GET" && path == "/cli/context":
 		writeJSON(w, 200, map[string]any{
