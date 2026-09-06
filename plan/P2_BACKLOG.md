@@ -25,7 +25,8 @@
 | D-4 | worktree·GC·`rebind_prepare`·예산 강제는 P3·P4 | PR #20 결함 7 | 단계대로 |
 | D-5 | probe `capabilities[].supported_options` 채우기 — `(kind, adapter_version)` 표. claude_code 0.74.0: `effort` 허용 값. Hermes: 비움 | T-W2 계약 빈칸(harness v0.5) | **T-I2 전.** 비어 있으면 웹이 옵션 편집을 비활성으로 둔다 — 빈 채로 두면 S10이 사실상 죽는다 |
 | ~~D-6~~ | 데몬 `recordUsage`가 `cost_usd`를 한 번도 대입하지 않고 `0 + estimated:false`를 보낸다(ACP `Usage`에 비용 필드 없음). harness v0.7: 비용을 모르면 **`cost_usd` 생략 + `estimated:true`**. `Estimated`가 `pr.Usage == nil`일 때만 켜지는 것을 고쳐라 | G4 3판 W16 (PR #87 리뷰 §2) | P3 비용 화면(E9-07) 전 | **해결 — PR #93.**
-| D-7 | **G5 (b) 차단** — Hermes ACP 어댑터가 `mcpServers`를 무시하고(initialize에 `mcpCapabilities` 없음) 셸 도구를 위생화된 env로 띄워 `COLAB_*`·`PATH`가 안 내려간다 → Hermes 에이전트가 플랫폼에 말할 수단이 없다(메시지 0, status 0). harness v0.8: attempt별 래퍼 `<workdir_root>/.colab/bin/<task>.<attempt>/colab` + 브리프 [2] 절대 경로 + `tool_surface` 광고 | G5 T-I2 2부 escalation | **G5 전** |
+| ~~D-7~~ | **G5 (b) 차단** — Hermes ACP 어댑터가 `mcpServers`를 무시하고(initialize에 `mcpCapabilities` 없음) 셸 도구를 위생화된 env로 띄워 `COLAB_*`·`PATH`가 안 내려간다 → Hermes 에이전트가 플랫폼에 말할 수단이 없다(메시지 0, status 0). harness v0.8: attempt별 래퍼 `<workdir_root>/.colab/bin/<task>.<attempt>/colab` + 브리프 [2] 절대 경로 + `tool_surface` 광고 | G5 T-I2 2부 escalation | **G5 전** | **해결 — PR #97**(`internal/toolwrap`, 실기 스모크로 위생화 셸에서 래퍼 동작 확인).
+| D-8 | `toolwrap.cliRe`가 명령 위치의 `colab <소문자 서브커맨드>`만 잡고 `colab --flag`(예 `` `colab --version` ``)는 치환하지 않는다. 지금 브리프·프롬프트의 명령은 전부 서브커맨드라 실해 없음; `([a-z]|-)`로 넓히거나 계약에 "서브커맨드 또는 플래그" 명시 | PR #97 리뷰 NN2 | 낮음 |
 
 ## W (웹)
 
