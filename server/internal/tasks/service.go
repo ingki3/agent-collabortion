@@ -316,7 +316,17 @@ func (s *Service) requeueLocked(ctx context.Context, tx pgx.Tx, t *Row, reason c
 		t.ID, t.Attempt, t.RuntimeID, now, string(reason), string(reason)); err != nil {
 		return fmt.Errorf("tasks: record attempt: %w", err)
 	}
-	if reason.Retryable() && t.Attempt < t.MaxAttempts {
+	// Queued-or-failed, and how many retries are left, is PlanAttempt's call —
+	// the same planner the bundle and the HITL answer go through, so a retry
+	// cannot drift from a resume (FR-7.1 M5). `AlternateProfile` is left false
+	// here because this call does not read it: E8-09's Director notice is
+	// decided one line below from what ApplyProfileFallback found in the
+	// database, which is the only place that knows.
+	plan := PlanAttempt(AttemptInput{
+		TaskID: t.ID, Attempt: t.Attempt, MaxAttempts: t.MaxAttempts,
+		Cause: CauseOfFailure(reason), PrevWorkdir: "-",
+	})
+	if plan.TaskStatus == string(Queued) {
 		if _, err := Transition(t.Status, Queued); err != nil {
 			return err
 		}
@@ -462,7 +472,20 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			final = t.Status
 			return nil
 		}
-		resumed := f.ResumeOutcome == "resumed"
+		// daemon-protocol §4.4: `resume_outcome` is "resumed" | "cold_start" |
+		// null, and the null is not a false. An attempt that never had a
+		// session to resume must leave the column NULL, or the NEXT attempt
+		// reads "the previous one cold started" and throws away the ref this
+		// very finish is storing (measured: TestResumeRefRidesNextClaim).
+		var resumed *bool
+		switch f.ResumeOutcome {
+		case "resumed":
+			t := true
+			resumed = &t
+		case "cold_start":
+			fa := false
+			resumed = &fa
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO task_attempt (task_id, attempt, runtime_id, finished_at, outcome, resumed, stop_reason)
 			VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -504,11 +527,12 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 		// jsonb with the contract keys) — it is the only basis for the next
 		// attempt's TaskBundle.resume. The lane CHECK (0004) requires
 		// runtime_kind + session_id; reject earlier with a typed error.
-		if f.RuntimeSessionRef != nil {
-			if f.RuntimeSessionRef.RuntimeKind == "" || f.RuntimeSessionRef.SessionID == "" {
-				return ErrInvalidSessionRef
-			}
-			if _, err := tx.Exec(ctx, `UPDATE lane SET runtime_session_ref = $2, updated_at = $3 WHERE id = $1`, t.LaneID, f.RuntimeSessionRef, now); err != nil {
+		ref, err := ValidateSessionRef(f.RuntimeSessionRef)
+		if err != nil {
+			return err
+		}
+		if ref != nil {
+			if _, err := tx.Exec(ctx, `UPDATE lane SET runtime_session_ref = $2, updated_at = $3 WHERE id = $1`, t.LaneID, ref, now); err != nil {
 				return fmt.Errorf("tasks: runtime_session_ref: %w", err)
 			}
 		}

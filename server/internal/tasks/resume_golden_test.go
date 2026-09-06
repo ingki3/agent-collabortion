@@ -1,5 +1,3 @@
-//go:build p3golden
-
 // Golden table for resume, retry and re-instruction (EVAL E8) — PRD FR-5.4
 // (재개 모델), FR-7.1 (재시도는 처음부터 다시 하지 않는다, M5), FR-3.4 (재지시 = 새
 // task, B), PRD §8.4 (턴 프롬프트·`<resumed>`), contracts/harness.md §6 and

@@ -46,7 +46,7 @@ var prdEnums = map[string][]string{
 	"session_status":  {"draft", "active", "paused", "completing", "completed", "cancelled"},
 	"task_status":     {"deferred", "queued", "dispatched", "preparing", "running", "waiting_human", "paused", "completed", "failed", "cancelled"},
 	"lane_status":     {"queued", "running", "waiting_human", "blocked", "paused", "done", "failed"},
-	"hitl_status":     {"open", "answered", "auto_answered"},
+	"hitl_status":     {"open", "answered", "auto_answered", "cancelled"},
 	"hitl_type":       {"question", "choice", "approval", "info"},
 	"hitl_source":     {"agent", "system"},
 	"respond_to":      {"owner", "allowlist", "workspace", "nobody"},

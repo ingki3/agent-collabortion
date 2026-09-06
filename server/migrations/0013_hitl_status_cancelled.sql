@@ -1,0 +1,16 @@
+-- 0013_hitl_status_cancelled.sql — hitl_status 에 `cancelled` (K-4)
+--
+-- Lead 결정(2026-09-06, T-S5 ask): 플랫폼이 자동 발행한 HITL 이 **발행 조건을 다시
+-- 잃으면**(user_approval 은 종료 조건 재미충족 — 아티팩트 철회 등, budget·loop 는
+-- 세션이 재개·취소돼 물어볼 것이 없어진 경우) 열린 요청을 `cancelled` 로 닫고
+-- 인박스에서 내린다. 사람이 답한 것이 아니므로 결정 기록은 남기지 않는다.
+--
+-- 남는 두 상태로는 표현할 수 없다: `answered` 는 아무도 하지 않은 답을 기록으로
+-- 만들고, `auto_answered` 는 "기한이 지나 proposed_default 로 진행했다"는 뜻이라
+-- 진행하지 않은 요청에 붙이면 거짓이다(FR-5.4 상태 값). 계약 HitlStatus 에도 같은
+-- 값이 추가된다(Lead 계약 PR).
+--
+-- 이 파일에 이 문장 하나만 있는 이유: 마이그레이션은 파일 하나가 한 트랜잭션이고
+-- (db/migrate.go MigratePool), 새 enum 값은 그것을 추가한 트랜잭션 안에서 쓸 수
+-- 없다. 값을 쓰는 쪽은 0014 다.
+ALTER TYPE hitl_status ADD VALUE IF NOT EXISTS 'cancelled';
