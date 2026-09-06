@@ -135,6 +135,11 @@ type Runner struct {
 	// "cancelled". The stall watcher sets cancelling without intent.
 	intent     bool
 	cancelling bool
+	// cancelGate is closed when the §5 step-2 gate opens. Permission
+	// requests that arrived after the cancel intent park on it.
+	cancelGate chan struct{}
+	// parked counts permission requests waiting on cancelGate.
+	parked     int
 	cancelReq  *CancelRequest
 	stalled    bool
 	promptDone chan struct{}
@@ -149,6 +154,9 @@ type Runner struct {
 	planDone   int
 	usage      contracts.Usage
 	available  []string
+	// budget (FR-7.3 M9 — see budget.go)
+	budgetExceeded    bool
+	pendingBudgetNote *budgetNote
 }
 
 // New prepares a Runner.
@@ -162,7 +170,7 @@ func New(a Attempt) *Runner {
 	if a.Quiet == 0 {
 		a.Quiet = contracts.HermesQuietWait
 	}
-	return &Runner{a: a, clk: a.Clock, tools: map[string]*toolState{}, promptDone: make(chan struct{})}
+	return &Runner{a: a, clk: a.Clock, tools: map[string]*toolState{}, promptDone: make(chan struct{}), cancelGate: make(chan struct{})}
 }
 
 func (r *Runner) kind() contracts.RuntimeKind { return r.a.Bundle.Profile.RuntimeKind }
@@ -296,12 +304,16 @@ func (r *Runner) run(ctx context.Context) Result {
 
 	meta := r.meta()
 	var (
-		sessionID     string
+		sessionID string
+		// resumeOutcome is what `finish` reports (daemon-protocol §4.4).
 		resumeOutcome string
-		provenance    *contracts.HermesProvenance
+		// refusalRetried records that the cold start below was the D-13
+		// second chance, so a second empty refusal fails instead of looping.
+		refusalRetried bool
+		provenance     *contracts.HermesProvenance
 	)
 	if b.Resume != nil && b.Resume.SessionID != "" {
-		sid, prov, reason, ferr := r.load(sctx, meta)
+		sid, prov, reason, rpcErr, ferr := r.load(sctx, meta)
 		if ferr != nil {
 			return r.classify(ferr)
 		}
@@ -318,7 +330,11 @@ func (r *Runner) run(ctx context.Context) Result {
 				return r.classify(nerr)
 			}
 			sessionID, provenance, resumeOutcome = s.SessionID, hermesProv(s), "cold_start"
-			r.emit("runtime", "resume", sessionID, "cold_start", map[string]any{"runtime_kind": string(r.kind()), "session_id": sessionID, "resume_reason": reason})
+			p := map[string]any{"runtime_kind": string(r.kind()), "session_id": sessionID, "resume_reason": reason}
+			if e := rpcError(rpcErr); e != "" {
+				p["detail"] = e
+			}
+			r.emit("runtime", "resume", sessionID, "cold_start", p)
 		}
 	} else {
 		s, nerr := r.newSession(sctx, meta)
@@ -344,18 +360,53 @@ func (r *Runner) run(ctx context.Context) Result {
 	if r.a.OnRunning != nil {
 		r.a.OnRunning()
 	}
-	r.touch()
-	stopStall := r.startStallWatch(ctx)
-	pr, perr := c.Prompt(ctx, sessionID, b.Prompt)
-	close(r.promptDone)
-	stopStall()
-	if r.kind() == contracts.RuntimeHermes {
-		time.Sleep(r.a.Quiet) // §2.2: late agent_message_chunk after the response
-	}
+	pr, perr := r.promptTurn(ctx, sessionID)
 	r.mu.Lock()
 	stalled, cancelled, cancelReq := r.stalled, r.intent || r.cancelling, r.cancelReq
 	text, ntools := r.say.String(), len(r.tools)
 	r.mu.Unlock()
+
+	// D-13 — an empty `refusal` right after a resume is a SECOND loss signal.
+	//
+	// harness §2.2 maps `refusal` to a normal end and forbids using it as a
+	// loss signal on its own (G1 F7): a runtime that genuinely declines a task
+	// must not be re-run as if it had crashed. That stays true. What spike 4c
+	// measured is narrower and is not covered by it: after `session/load`
+	// succeeded, the very first prompt came back `refusal` having edited
+	// nothing and posted nothing, 5/5, and the attempt was reported
+	// `completed`. Work vanished with nobody saying so.
+	//
+	// The narrowing is what makes this safe. A refusal is only re-tried when
+	// (a) this turn resumed a session, (b) the turn did nothing at all, and
+	// (c) it has not been re-tried yet. A cold start is the cheapest way to
+	// find out which of the two it was: if the runtime had lost the session,
+	// the fresh one works; if it really is declining, it declines again and
+	// the attempt fails honestly instead of reporting success.
+	if r.shouldRetryRefusal(resumeOutcome, pr, perr, cancelled, stalled, ntools) {
+		s, nerr := r.newSession(ctx, meta)
+		if nerr != nil {
+			return r.classify(nerr)
+		}
+		sessionID, provenance, resumeOutcome = s.SessionID, hermesProv(s), "cold_start"
+		refusalRetried = true
+		ref = &contracts.RuntimeSessionRef{RuntimeKind: r.kind(), AdapterVersion: adapterVersion, SessionID: sessionID, CWD: r.a.Workdir, CreatedAt: r.clk.Now().UTC(), Provenance: provenance}
+		r.mu.Lock()
+		r.sessionID = sessionID
+		r.mu.Unlock()
+		r.emit("runtime", "resume", sessionID, "cold_start", map[string]any{
+			"runtime_kind": string(r.kind()), "session_id": sessionID, "resume_reason": refusalAfterResume,
+			"detail": "resume 직후 첫 턴이 stopReason=refusal + 활동 0 — 콜드 스타트로 1회 재시도 (D-13)",
+		})
+		if err := r.setModel(ctx, sessionID); err != nil {
+			return r.fail(contracts.FailConfig, err.Error(), nil)
+		}
+		r.resetTurn()
+		pr, perr = r.promptTurn(ctx, sessionID)
+		r.mu.Lock()
+		stalled, cancelled, cancelReq = r.stalled, r.intent || r.cancelling, r.cancelReq
+		text, ntools = r.say.String(), len(r.tools)
+		r.mu.Unlock()
+	}
 	// §8 v0.3 Hermes body rule: a turn whose whole body is the provider
 	// error format (and no tool activity) is a failure, judged in the same
 	// place as refusal && 활동 0. The body is not posted as a message.
@@ -407,11 +458,21 @@ func (r *Runner) run(ctx context.Context) Result {
 		up["model_drift"] = true
 	}
 	r.emit("usage", "report", "", "report", r.usagePayload(up))
+	r.flushBudgetNote()
 	res := base
 	res.Models = models
 	res.StopReason = pr.StopReason
 	if hermesFail != nil {
 		res := r.fail(hermesFail.Kind, hermesFail.Detail, hermesFail.NotBefore)
+		res.SessionRef, res.ResumeOutcome, res.Models, res.StopReason, res.AdapterVersion = ref, resumeOutcome, models, pr.StopReason, adapterVersion
+		return res
+	}
+	if refusalRetried && pr.StopReason == "refusal" && ntools == 0 && !cancelled {
+		// The cold start refused too, doing nothing again. That is not a lost
+		// session, so it is not a resume problem — it is a turn that produced
+		// no work, and reporting `completed` would tell the session that the
+		// task is done (spike 4c §3).
+		res := r.fail(contracts.FailOther, "resume 후 콜드 스타트 재시도도 stopReason=refusal + 활동 0 — 턴이 아무 일도 하지 않았다 (D-13, 스파이크 4c §3)", nil)
 		res.SessionRef, res.ResumeOutcome, res.Models, res.StopReason, res.AdapterVersion = ref, resumeOutcome, models, pr.StopReason, adapterVersion
 		return res
 	}
@@ -425,9 +486,72 @@ func (r *Runner) run(ctx context.Context) Result {
 		if cancelled {
 			res.Outcome = "cancelled"
 			res.Failure = &Failure{Kind: contracts.FailCancelled, Detail: cancelReason(cancelReq)}
+		} else if r.budgetHit() {
+			// daemon-protocol §4.4: a measured overrun is `paused_budget`,
+			// with NO failure_kind — going over budget is policy, not an
+			// error, and the Director raising the cap resumes the same lane
+			// and workdir (FR-7.3 M9).
+			res.Outcome, res.StopReason = "paused_budget", "budget"
 		}
 	}
 	return res
+}
+
+// rpcError renders a JSON-RPC error into the one column the cold-start event
+// carries (D-11): `detail`, "<code> <message>". It is `detail` and not a key
+// of its own because the `runtime` payload is closed
+// (task_event.schema.json additionalProperties:false) and this stream does not
+// edit contracts/.
+func rpcError(e *RPCError) string {
+	if e == nil {
+		return ""
+	}
+	return clip(fmt.Sprintf("%d %s", e.Code, e.Message), 512)
+}
+
+// refusalAfterResume is the `resume_reason` of a D-13 cold start.
+const refusalAfterResume = "refusal_after_resume"
+
+// promptTurn sends one session/prompt under the stall watch, and does the
+// §2.2 Hermes quiet wait. It is called twice at most (D-13).
+func (r *Runner) promptTurn(ctx context.Context, sessionID string) (*PromptResult, error) {
+	r.touch()
+	stopStall := r.startStallWatch(ctx)
+	done := r.promptDoneCh()
+	pr, perr := r.c.Prompt(ctx, sessionID, r.a.Bundle.Prompt)
+	close(done)
+	stopStall()
+	if r.kind() == contracts.RuntimeHermes {
+		time.Sleep(r.a.Quiet) // §2.2: late agent_message_chunk after the response
+	}
+	return pr, perr
+}
+
+func (r *Runner) promptDoneCh() chan struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.promptDone
+}
+
+// shouldRetryRefusal is the D-13 gate. Every clause narrows: only a turn that
+// RESUMED, only a clean `refusal`, only with zero tool activity, only once.
+func (r *Runner) shouldRetryRefusal(resumeOutcome string, pr *PromptResult, perr error, cancelled, stalled bool, ntools int) bool {
+	return resumeOutcome == "resumed" && perr == nil && pr != nil &&
+		pr.StopReason == "refusal" && ntools == 0 && !cancelled && !stalled
+}
+
+// resetTurn clears the accumulated turn state before the D-13 retry: the
+// refused turn contributed no text, no thought and no tools, and carrying its
+// (empty) builders forward would merge two turns into one message.
+func (r *Runner) resetTurn() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.say.Reset()
+	r.think.Reset()
+	r.tools = map[string]*toolState{}
+	r.lastTool = nil
+	r.toolDone = nil
+	r.promptDone = make(chan struct{})
 }
 
 func cancelReason(c *CancelRequest) string {
@@ -517,7 +641,7 @@ func (r *Runner) newSession(ctx context.Context, meta map[string]any) (*SessionR
 
 // load implements harness §6. Returns the live session id ("" → cold start
 // with reason) or a hard error.
-func (r *Runner) load(ctx context.Context, meta map[string]any) (sid string, prov *contracts.HermesProvenance, reason string, err error) {
+func (r *Runner) load(ctx context.Context, meta map[string]any) (sid string, prov *contracts.HermesProvenance, reason string, rpcErr *RPCError, err error) {
 	ref := r.a.Bundle.Resume
 	r.mu.Lock()
 	r.replaying = true
@@ -533,21 +657,37 @@ func (r *Runner) load(ctx context.Context, meta map[string]any) (sid string, pro
 		if err != nil {
 			var rpc *RPCError
 			if errors.As(err, &rpc) && isSessionGone(rpc) {
-				return "", nil, "session_not_found", nil
+				// D-11: the ORIGINAL code and message ride along to the
+				// cold-start event. Spike 4c cost a full batch to the
+				// difference between the contract's quoted wording and the
+				// adapter's actual `-32002 Resource not found`, and nothing
+				// in the feed said which one had arrived — the event only
+				// said "cold_start". The next time the adapter changes its
+				// mind, the answer is in the activity feed.
+				return "", nil, "session_not_found", rpc, nil
 			}
-			return "", nil, "", err
+			return "", nil, "", nil, err
 		}
-		return ref.SessionID, nil, "", nil
+		return ref.SessionID, nil, "", nil, nil
 	default: // hermes
 		if err != nil {
-			return "", nil, "", err
+			return "", nil, "", nil, err
 		}
 		if s == nil {
-			return "", nil, "load_null", nil
+			return "", nil, "load_null", nil, nil
 		}
 		acp, root, kind, depth, ok := s.HermesProvenance()
-		if !ok {
-			// No provenance at all. §6 only names "result null" and
+		if !ok || acp == "" {
+			// No provenance at all — or a `sessionProvenance` object that
+			// carries no `acpSessionId` (D-12). An empty id cannot equal the
+			// requested one, so the mismatch branch below would already cold
+			// start; it would do so under the reason `provenance_mismatch`,
+			// which reads as "Hermes handed us a DIFFERENT session" when what
+			// actually happened is that it handed us nothing to compare. The
+			// reason is what a person reads in the feed, so it has to be the
+			// true one.
+			//
+			// §6 only names "result null" and
 			// "provenance mismatch", but Hermes 0.20.6 answers a session it no
 			// longer has with a bare `{}` — non-null, no `_meta` (spike 4c wire
 			// log, plan/spikes/logs/spike4c_hermes_wire.json). Reading that as
@@ -555,17 +695,17 @@ func (r *Runner) load(ctx context.Context, meta map[string]any) (sid string, pro
 			// back `stopReason: refusal`, which §2.2 forbids using as a loss
 			// signal, so the attempt ends `completed` having done nothing
 			// (5/5 in spike 4c). Missing provenance is a lost session.
-			return "", nil, "no_provenance", nil
+			return "", nil, "no_provenance", nil, nil
 		}
 		p := &contracts.HermesProvenance{ACPSessionID: acp, RootHermesSessionID: root, SessionKind: kind, CompressionDepth: depth}
 		if acp == ref.SessionID {
-			return ref.SessionID, p, "", nil
+			return ref.SessionID, p, "", nil, nil
 		}
 		if ref.Provenance != nil && root != "" && root == ref.Provenance.RootHermesSessionID {
 			// compression rotation: keep, store the new id (spike 4a rec. 2)
-			return acp, p, "compression_rotation", nil
+			return acp, p, "compression_rotation", nil, nil
 		}
-		return "", nil, "provenance_mismatch", nil
+		return "", nil, "provenance_mismatch", nil, nil
 	}
 }
 
@@ -582,6 +722,13 @@ func (r *Runner) load(ctx context.Context, meta map[string]any) (sid string, pro
 // attempts, so E8-02 had never fired against a real adapter. Match the code and
 // the generic wording, and keep the old string so an adapter that goes back to
 // it still works.
+//
+// D-10 — should this narrow to `-32002` alone? Not yet. The generic "not
+// found" half is the cheap insurance against an adapter that words it a third
+// way, and its cost is a false cold start (slow) rather than a false resume
+// (silent data loss, §6 a′). Narrowing is worth doing once the adapter has
+// held one wording across a pin bump; until then this comment is the decision,
+// not an oversight.
 func isSessionGone(rpc *RPCError) bool {
 	if rpc == nil {
 		return false
@@ -799,6 +946,7 @@ func (r *Runner) recordUsage(pr *PromptResult, models []string) {
 	if len(models) > 0 {
 		r.usage.Model = strings.Join(models, ",")
 	}
+	r.noteBudget()
 }
 
 func (r *Runner) usagePayload(extra map[string]any) map[string]any {
@@ -869,9 +1017,7 @@ func (r *Runner) onRawSDK(method string, params json.RawMessage) {
 
 func (r *Runner) decidePermission(p RequestPermissionParams) PermissionOutcome {
 	r.touch()
-	r.mu.Lock()
-	cancelling := r.cancelling
-	r.mu.Unlock()
+	cancelling := r.parkIfCancelling()
 	title := p.ToolCall.Title
 	if cancelling {
 		// §4 row 4 / task_event v0.2: no option was chosen → option_kind omitted.
@@ -914,6 +1060,73 @@ func (r *Runner) decidePermission(p RequestPermissionParams) PermissionOutcome {
 	}
 	r.emit("tool", "permission", title, outcome, payload)
 	return d.Outcome
+}
+
+// parkIfCancelling holds a permission request that arrived after a cancel was
+// decided but before the §5 step-2 gate opened, and reports whether the answer
+// must be "cancelled".
+//
+// Without the hold, the §5 step-1 window — up to THIRTY SECONDS of waiting for
+// an in-flight edit or shell command — was a window in which the daemon still
+// granted brand new tool calls. A human had already pressed 중단 and the agent
+// could start another `rm -rf` with our permission. "Cancel intent is set" and
+// "we still authorise work" cannot both be true.
+//
+// It is also what makes §5's step ORDER reachable at all. §5 numbers the
+// permission answer as step 2, before `session/cancel`, and notes that the
+// case never fires against a real runtime because permission is granted first
+// — which is precisely because an ACP client that answers on arrival can never
+// have one pending. Parking creates the pending set the contract describes,
+// and cancelProcedure drains it before step 3.
+func (r *Runner) parkIfCancelling() bool {
+	r.mu.Lock()
+	if r.cancelling {
+		r.mu.Unlock()
+		return true
+	}
+	if !r.intent {
+		r.mu.Unlock()
+		return false
+	}
+	r.parked++
+	gate := r.cancelGate
+	r.mu.Unlock()
+	var done <-chan struct{}
+	if r.c != nil {
+		done = r.c.Done()
+	}
+	select {
+	case <-gate:
+	case <-done:
+	case <-time.After(contracts.CancelDrainWait):
+		// The gate is opened by cancelProcedure a few instructions after the
+		// intent, so this bound is a deadlock guard, not a policy.
+	}
+	r.mu.Lock()
+	r.parked--
+	r.mu.Unlock()
+	return true
+}
+
+// waitParked lets the §5 step-2 gate drain: session/cancel is not sent while a
+// permission request is still unanswered, because the agent loop is blocked on
+// that answer and would never process the cancel (harness §5 steps 2-4).
+//
+// The bound is wall time on purpose. This waits for another goroutine of this
+// process to write one JSON line, like the §2.2 quiet wait — it is not one of
+// the contract deadlines (stall, cancel hold, not_before) that must move with
+// the injected clock.
+func (r *Runner) waitParked(bound time.Duration) {
+	deadline := time.Now().Add(bound)
+	for time.Now().Before(deadline) {
+		r.mu.Lock()
+		n := r.parked
+		r.mu.Unlock()
+		if n == 0 {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 }
 
 func (r *Runner) toolAllowed(name string) bool {
@@ -986,8 +1199,54 @@ func (r *Runner) CancelNote(detail string) {
 	r.emit("runtime", "cancel", "", "info", map[string]any{"runtime_kind": string(r.kind()), "detail": detail})
 }
 
+// The five §5 steps, named on the activity feed.
+//
+// They are emitted because the ORDER is the contract, not an implementation
+// detail (§8.2.2: killing first corrupts the runtime's own history and can
+// leave a half-written file), and until now nothing outside this function
+// could see it. A cancel that skipped the drain and a cancel that did not
+// looked identical in the feed and in the tests, so the only evidence for the
+// contract's most consequential sequence was reading this code.
+//
+// They ride in `detail`, not in a field of their own: the `runtime` payload in
+// task_event.schema.json is `additionalProperties: false`, and inventing a key
+// is a contract change this stream may not make (P2_TASKS §0-3). `detail` is
+// free text the feed already shows, so the line reads as a sentence to a
+// person and parses as "§5 <n> <step> [k=v …]" to a test.
+const (
+	stepWaitTool      = "wait_tool_completion"
+	stepPermission    = "answer_permission"
+	stepSessionCancel = "session_cancel"
+	stepDrain         = "drain"
+	stepSignal        = "signal_process_group"
+)
+
+// cancelStep renders one §5 step line for `detail`.
+func cancelStep(n int, step string, extra ...string) string {
+	out := fmt.Sprintf("§5 %d %s", n, step)
+	for _, e := range extra {
+		out += " " + e
+	}
+	return out
+}
+
+func (r *Runner) emitStep(n int, step string, extra ...string) {
+	r.emit("runtime", "cancel", "", "info", map[string]any{
+		"runtime_kind": string(r.kind()), "detail": cancelStep(n, step, extra...),
+	})
+}
+
+// cancelForcedNote is the E10-02 feed line, verbatim from harness §5 step 1.
+const cancelForcedNote = "30초 초과로 강제 취소"
+
 func (r *Runner) cancelProcedure(ctx context.Context, afterCurrentTool bool) {
 	// 1. wait for an in-flight edit/shell tool (≤30s)
+	//
+	// "편집 또는 셸" is one rule with two verbs (harness §5 step 1, FR-3.4,
+	// E10-14): a half-run migration or `rm -rf` is exactly as irreversible as
+	// a half-written file. A completed tool is not waited for at all — an
+	// unconditional 30s hold would satisfy the two rows above and make 중단
+	// feel broken on an idle turn.
 	if afterCurrentTool {
 		r.mu.Lock()
 		var wait chan struct{}
@@ -996,33 +1255,71 @@ func (r *Runner) cancelProcedure(ctx context.Context, afterCurrentTool bool) {
 		}
 		r.mu.Unlock()
 		if wait != nil {
+			start := r.clk.Now()
+			forced := false
 			select {
 			case <-wait:
 			case <-r.clk.After(contracts.CancelDrainWait):
-				r.emit("runtime", "cancel", "", "info", map[string]any{"detail": "30초 초과로 강제 취소"})
-			case <-r.promptDone:
+				forced = true
+			case <-r.promptDoneCh():
 			}
+			// A forced hold lasted exactly the cap: the timer firing IS the
+			// end of the wait, and reporting the wall clock instead would say
+			// 30.4s — a number the contract's "최대 30초" reads as a breach.
+			held := r.clk.Since(start)
+			if forced || held > contracts.CancelDrainWait {
+				held = contracts.CancelDrainWait
+			}
+			extra := []string{fmt.Sprintf("held_ms=%d", held.Milliseconds())}
+			if forced {
+				extra = append(extra, "forced", cancelForcedNote)
+			}
+			r.emitStep(1, stepWaitTool, extra...)
 		}
 	}
-	// 2. pending permission requests are answered "cancelled" from now on
+	// 2. pending permission requests are answered "cancelled" from now on.
+	// The answer itself is emitted by decidePermission as
+	// tool/permission outcome=cancelled — the step marker here records that
+	// the gate opened even when no request happens to be in flight.
 	r.mu.Lock()
 	r.cancelling = true
 	sid := r.sessionID
+	npark := r.parked
+	closeOnce(r.cancelGate) // under the lock: two cancels can race here
 	r.mu.Unlock()
+	// Nothing goes on the wire until every parked request has its answer: the
+	// agent loop is blocked on that answer, so a session/cancel sent first
+	// would never be read (harness §5 steps 2-4).
+	r.waitParked(2 * time.Second)
+	r.emitStep(2, stepPermission, fmt.Sprintf("answered=%d", npark))
 	if r.c == nil {
 		return
 	}
 	// 3. session/cancel  4. drain ≤10s for stopReason cancelled
 	if sid != "" {
+		r.emitStep(3, stepSessionCancel)
 		_ = r.c.Cancel(sid)
 		select {
-		case <-r.promptDone:
+		case <-r.promptDoneCh():
 		case <-r.clk.After(contracts.CancelPromptWait):
 		case <-r.c.Done():
 		}
+		r.emitStep(4, stepDrain)
 	}
-	// 5. SIGTERM → 10s → SIGKILL
+	// 5. SIGTERM → 10s → SIGKILL. Last, always: E10-03 is "프로세스 즉시 kill 아님".
+	r.emitStep(5, stepSignal)
 	r.closeProcess()
+}
+
+// closeOnce closes ch unless it is already closed. cancelProcedure can be
+// entered twice (the stall watcher and a server cancel), so the caller holds
+// r.mu — a bare check-then-close would double-close and panic.
+func closeOnce(ch chan struct{}) {
+	select {
+	case <-ch:
+	default:
+		close(ch)
+	}
 }
 
 func (r *Runner) closeProcess() {

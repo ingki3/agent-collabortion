@@ -75,6 +75,84 @@ type Info struct {
 	LaneID     string    `json:"lane_id,omitempty"`
 	Bytes      int64     `json:"bytes"`
 	LastUsedAt time.Time `json:"last_used_at"`
+	// GC is set only on the report that answers a §4.3 `gc` command.
+	GC *GCResult `json:"gc,omitempty"`
+}
+
+// GCResult is what the daemon did with a workdir a `gc` command named
+// (daemon-protocol §6, Lead decision 2026-09-06).
+//
+// A refusal has to travel on the wire. Before this, an isolation the daemon
+// cannot collect produced one line in the daemon's own log ("command gc
+// ignored (P4)") and nothing else: the server kept re-issuing the command,
+// the disk kept filling, and the only person who could have acted never saw
+// it. Silence is not an answer to a command.
+type GCResult struct {
+	// Status is "deleted" or "refused".
+	Status string `json:"status"`
+	// Reason is set on a refusal, e.g. isolation_worktree_p4.
+	Reason string `json:"reason,omitempty"`
+	// ID echoes the server's workdir row id from the command, so the server
+	// can match the answer to what it asked for without matching on paths.
+	ID string `json:"id,omitempty"`
+}
+
+// GCStatus values (§6).
+const (
+	GCDeleted = "deleted"
+	GCRefused = "refused"
+	// GCReasonWorktreeP4 is the one refusal v1 can produce: `worktree`
+	// isolation is P4, and removing one is `git worktree remove` plus a
+	// branch to keep (§6, E13-10) — not an rm -rf.
+	GCReasonWorktreeP4 = "isolation_worktree_p4"
+)
+
+// IsWorktree reports whether p looks like a git worktree checkout: a worktree
+// has `.git` as a FILE (`gitdir: …`), a plain clone has it as a directory.
+// Either way it is not ours to delete with an rm -rf (§6 "`worktree` 삭제는
+// `git worktree remove`만, 브랜치는 남긴다" — P4).
+func IsWorktree(p string) bool {
+	fi, err := os.Stat(filepath.Join(p, ".git"))
+	return err == nil && !fi.IsDir()
+}
+
+// Remove deletes one workdir named by a `gc` command. It refuses anything
+// outside root — the command carries a path the server stored, and a bug or a
+// tampered row must not turn the daemon into a remote `rm -rf /`.
+func Remove(root, p string) error {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return err
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	if rootAbs == "" || abs == rootAbs {
+		return fmt.Errorf("workdir: refusing to remove %q: not inside the workdir root %q", abs, rootAbs)
+	}
+	rel, err := filepath.Rel(rootAbs, abs)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("workdir: refusing to remove %q: not inside the workdir root %q", abs, rootAbs)
+	}
+	return os.RemoveAll(abs)
+}
+
+// SessionLanes lists the lane folders of one session — the fallback target of
+// a `gc` command that names no paths (only `session_id`).
+func SessionLanes(root, sessionID string) []Info {
+	all, err := List(root)
+	if err != nil {
+		return nil
+	}
+	var out []Info
+	want := safe(sessionID)
+	for _, w := range all {
+		if w.SessionID == want {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 // List enumerates lane folders under root with size and mtime.

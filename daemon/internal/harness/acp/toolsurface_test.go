@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/ingki3/agent-collabortion/contracts"
-	"github.com/ingki3/agent-collabortion/daemon/internal/acpfake"
+	"github.com/ingki3/agent-collabortion/daemon/acpfake"
 	"github.com/ingki3/agent-collabortion/daemon/internal/harness/acp"
 )
 

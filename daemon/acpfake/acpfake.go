@@ -21,6 +21,35 @@ import (
 	"github.com/ingki3/agent-collabortion/daemon/internal/harness/acp"
 )
 
+// Aliases for the harness types that appear in this package's PUBLIC API.
+//
+// acpfake lives outside `internal/` (backlog D-9) so the server module's
+// partial-execution simulator (`server/test/sim`, EVAL E8-04·05) can drive a
+// real ACP peer instead of a hand-rolled stand-in. Go's internal rule is
+// judged on the IMPORTER's path, so this package may keep importing
+// `daemon/internal/harness/acp` — but a caller outside `daemon/` cannot name
+// `acp.RPCError` to fill in a Script. A type ALIAS is the same type, and
+// naming it through this package requires no import of the internal one, so
+// the API stays byte-identical for existing callers while becoming reachable
+// from the other module.
+type (
+	// RPCError is a JSON-RPC error the fake replies with (Turn.Error).
+	RPCError = acp.RPCError
+	// PromptUsage is the `session/prompt` response `usage` (Turn.Usage).
+	PromptUsage = acp.PromptUsage
+	// PlanEntry is one `plan` update entry (Step.Plan).
+	PlanEntry = acp.PlanEntry
+	// RateLimitMeta is `_meta["_claude/rateLimit"]` (UsageStep.RateLimit).
+	RateLimitMeta = acp.RateLimitMeta
+	// MCPServer is one `mcpServers` entry as the fake received it.
+	MCPServer = acp.MCPServer
+)
+
+// AdapterPin is the pinned claude_code adapter version the fake reports by
+// default (harness §1) — re-exported so a caller outside `daemon/` can assert
+// on it without reaching into the harness package.
+const AdapterPin = acp.AdapterPin
+
 // Script drives the fake.
 type Script struct {
 	ProtocolVersion int `json:"protocol_version,omitempty"` // 0 → 1
@@ -591,7 +620,14 @@ func (sv *server) prompt(id *json.RawMessage, sid string) {
 			}
 			sv.nextID++
 			rid := sv.nextID
-			sv.send(map[string]any{"jsonrpc": "2.0", "id": rid, "method": acp.MethodRequestPermission, "params": map[string]any{"sessionId": sid, "toolCall": tc, "options": opts}})
+			// Record the OUTGOING request as well as the answer: a test that
+			// has to act while a permission is genuinely outstanding (harness
+			// §5 step 2, E10-03) needs to know the moment it was asked, and
+			// the client's own events only appear once it has decided.
+			params := map[string]any{"sessionId": sid, "toolCall": tc, "options": opts}
+			pb, _ := json.Marshal(params)
+			sv.record(message{Method: acp.MethodRequestPermission, Params: pb})
+			sv.send(map[string]any{"jsonrpc": "2.0", "id": rid, "method": acp.MethodRequestPermission, "params": params})
 			ans := <-sv.inbox
 			var r acp.RequestPermissionResult
 			_ = json.Unmarshal(ans.Result, &r)
