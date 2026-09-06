@@ -2146,6 +2146,11 @@ export interface components {
             supported_options?: {
                 [key: string]: string[];
             };
+            /**
+             * @description 에이전트가 플랫폼에 말하는 수단(harness §10 v0.8). `mcp` = session/new.mcpServers 를 존중(claude_code). `cli_wrapper` = MCP 를 무시하는 런타임(hermes) — 데몬이 attempt 별 래퍼 실행 파일을 만들고 브리프에 절대 경로를 적는다. 판정은 initialize 응답의 mcpCapabilities 유무. 값이 없으면 필드 생략.
+             * @enum {string|null}
+             */
+            tool_surface?: "mcp" | "cli_wrapper" | null;
         };
         /** @description `repos` jsonb 원소(FR-9). `remote_url`이 재바인딩 "같은 저장소" 키. */
         RuntimeRepo: {
