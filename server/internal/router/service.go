@@ -569,7 +569,8 @@ func (s *Service) SystemPost(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID
 
 func loadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID) ([]Participant, map[uuid.UUID]uuid.UUID, error) {
 	rows, err := q.Query(ctx, `
-		SELECT sp.agent_id, a.name, sp.profile_id FROM session_participant sp JOIN agent a ON a.id = sp.agent_id
+		SELECT sp.agent_id, a.name, a.respond_to = 'nobody', sp.profile_id
+		FROM session_participant sp JOIN agent a ON a.id = sp.agent_id
 		WHERE sp.session_id = $1 ORDER BY sp.joined_at`, sessionID)
 	if err != nil {
 		return nil, nil, err
@@ -580,7 +581,7 @@ func loadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID) ([]Pa
 	for rows.Next() {
 		var p Participant
 		var profile uuid.UUID
-		if err := rows.Scan(&p.AgentID, &p.Name, &profile); err != nil {
+		if err := rows.Scan(&p.AgentID, &p.Name, &p.Disabled, &profile); err != nil {
 			return nil, nil, err
 		}
 		participants = append(participants, p)

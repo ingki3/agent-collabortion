@@ -15,7 +15,29 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
+	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
 )
+
+// workdirKindOf reads the session's isolation kind so a recorded workdir gets
+// the right workdir_kind (C3: worktree binds to the agent, the others to the
+// lane). An unreadable session falls back to `dir`, which is what `none`
+// isolation produces.
+func workdirKindOf(r *http.Request, s *Server, sessionID uuid.UUID) string {
+	var raw []byte
+	if err := s.DB.QueryRow(r.Context(), `SELECT isolation FROM session WHERE id = $1`, sessionID).Scan(&raw); err != nil {
+		return "dir"
+	}
+	var iso struct {
+		Kind string `json:"kind"`
+	}
+	if err := json.Unmarshal(raw, &iso); err != nil {
+		return "dir"
+	}
+	if iso.Kind == "worktree" || iso.Kind == "container" {
+		return iso.Kind
+	}
+	return "dir"
+}
 
 // Daemon ↔ server protocol (contracts/daemon-protocol.md). Not in openapi.yaml
 // by design (§1); the document is the spec.
@@ -128,29 +150,103 @@ func (s *Server) daemonClaim(w http.ResponseWriter, r *http.Request, d daemonCtx
 	writeJSON(w, http.StatusOK, map[string]any{"tasks": bundles, "commands": cmds})
 }
 
-// daemonWorkdirs accepts the §6 workdir report. FR-6.4 GC judgement is P4;
-// P1 validates the shape (a malformed body is 400 — N6) and uses the report
-// to consume gc commands whose workdirs are gone (§4.3).
+// daemonWorkdirs accepts the §6 workdir report: the daemon lists what it has
+// on disk (probe time and lane end) and the server turns each entry into a
+// workdir row, binding the lane that runs in it (FR-6.1/6.4). GC judgement is
+// the server's too (§6) but stays P4 — here the report is what keeps
+// `lane.workdir_id` from being null forever and what feeds S13.
+//
+// A malformed body is 400 (N6). A single unusable entry is skipped and logged
+// rather than failing the whole report: the daemon has no way to retry one
+// line, and losing the other lanes' rows is worse than losing one.
 func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemonCtx) {
 	var in struct {
 		Workdirs []struct {
-			ID string `json:"id"`
+			ID         string     `json:"id"`
+			Kind       string     `json:"kind"`
+			Path       string     `json:"path"`
+			SessionID  string     `json:"session_id"`
+			AgentID    string     `json:"agent_id"`
+			LaneID     string     `json:"lane_id"`
+			Bytes      int64      `json:"bytes"`
+			LastUsedAt *time.Time `json:"last_used_at"`
+			Git        *struct {
+				Branch       string `json:"branch"`
+				Merged       bool   `json:"merged"`
+				Dirty        bool   `json:"dirty"`
+				CommitsAhead int    `json:"commits_ahead"`
+			} `json:"git"`
 		} `json:"workdirs"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(&in); err != nil {
 		writeProblem(w, apperr.New(http.StatusBadRequest, "malformed_json", "workdir report must be JSON {workdirs: [...]}: "+err.Error()))
 		return
 	}
+	now := s.Clock.Now()
 	present := make([]string, 0, len(in.Workdirs))
 	for _, wd := range in.Workdirs {
 		if wd.ID != "" {
 			present = append(present, wd.ID)
+		}
+		rep, ok := s.workdirReport(r, d, wd.Kind, wd.Path, wd.SessionID, wd.AgentID, wd.LaneID)
+		if !ok {
+			continue
+		}
+		rep.Bytes = wd.Bytes
+		if wd.LastUsedAt != nil && !wd.LastUsedAt.IsZero() {
+			rep.LastUsedAt = wd.LastUsedAt
+		}
+		if wd.Git != nil {
+			branch, dirty := wd.Git.Branch, wd.Git.Dirty || !wd.Git.Merged && wd.Git.CommitsAhead > 0
+			if branch != "" {
+				rep.Branch = &branch
+			}
+			rep.Dirty = &dirty
+		}
+		id, err := workdirs.Record(r.Context(), s.DB, rep, now)
+		if err != nil {
+			s.Log.Warn("record workdir", "err", err, "path", wd.Path, "session", wd.SessionID)
+			continue
+		}
+		if wd.ID == "" {
+			present = append(present, id.String())
 		}
 	}
 	if err := tokens.ConsumeGCCommands(r.Context(), s.DB, d.RuntimeID, present, s.Clock.Now()); err != nil {
 		s.Log.Warn("consume gc commands", "err", err)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// workdirReport validates one reported entry against the calling runtime. A
+// daemon token may only write rows for sessions of its own workspace — the
+// report carries ids the daemon read off its own disk, so it is input, not
+// authority.
+func (s *Server) workdirReport(r *http.Request, d daemonCtx, kind, path, session, agent, lane string) (workdirs.Report, bool) {
+	rep := workdirs.Report{Kind: kind, Path: path}
+	sid, err := uuid.Parse(session)
+	if err != nil || path == "" {
+		return rep, false
+	}
+	var ws uuid.UUID
+	if err := s.DB.QueryRow(r.Context(), `SELECT workspace_id FROM session WHERE id = $1`, sid).Scan(&ws); err != nil || ws != d.WorkspaceID {
+		return rep, false
+	}
+	rep.SessionID = sid
+	if lane != "" {
+		if id, err := uuid.Parse(lane); err == nil {
+			var owner uuid.UUID
+			if err := s.DB.QueryRow(r.Context(), `SELECT session_id FROM lane WHERE id = $1`, id).Scan(&owner); err == nil && owner == sid {
+				rep.LaneID = &id
+			}
+		}
+	}
+	if agent != "" {
+		if id, err := uuid.Parse(agent); err == nil {
+			rep.AgentID = &id
+		}
+	}
+	return rep, rep.AgentID != nil || rep.LaneID != nil
 }
 
 // taskForDaemon checks the task belongs to the calling runtime.
@@ -210,6 +306,19 @@ func (s *Server) daemonPhase(w http.ResponseWriter, r *http.Request, d daemonCtx
 			// §4.3: rebind_prepare is consumed by the new attempt's preparing report.
 			if err := tokens.ConsumeRebindCommands(r.Context(), s.DB, d.RuntimeID, t.SessionID, s.Clock.Now()); err != nil {
 				s.Log.Warn("consume rebind commands", "err", err)
+			}
+		}
+		// §4.2 carries workdir_path: this is the first moment the server can
+		// know which directory the lane runs in, and the §6 inventory report
+		// only arrives with the next probe. Binding here is what makes
+		// lane.workdir_id true while the lane is alive rather than a day later.
+		if in.WorkdirPath != "" {
+			rep := workdirs.Report{Kind: workdirKindOf(r, s, t.SessionID), Path: in.WorkdirPath, SessionID: t.SessionID, LaneID: &t.LaneID}
+			if rep.Kind == "worktree" {
+				rep.AgentID = &t.AgentID
+			}
+			if _, err := workdirs.Record(r.Context(), s.DB, rep, s.Clock.Now()); err != nil {
+				s.Log.Warn("record workdir from phase", "err", err, "task", t.ID)
 			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})

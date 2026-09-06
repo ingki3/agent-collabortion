@@ -47,6 +47,48 @@ func (s *Server) laneControl(r *http.Request, laneID uuid.UUID) (*gen.User, uuid
 	return u, wsID, sessionID, nil
 }
 
+// ListLanes is GET /sessions/{sessionId}/lanes — the S7 left-column board
+// (FR-6.2). Workspace member or a TaskToken scoped to this session; the
+// response is a bare array (openapi listLanes `type: array`).
+//
+// `actions` is per-caller: only the Director and the deputy may cancel
+// (t-3), and a TaskToken never can, so the board an agent reads shows no
+// control buttons.
+func (s *Server) ListLanes(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.ListLanesParams) {
+	u, p := s.sessionAccess(r, sessionId)
+	if p != nil {
+		writeProblem(w, p)
+		return
+	}
+	statuses := []string{}
+	if params.Status != nil {
+		for _, st := range *params.Status {
+			if !st.Valid() {
+				writeProblem(w, apperr.Validation(apperr.Field("status", "enum", "unknown lane status: "+string(st))))
+				return
+			}
+			statuses = append(statuses, string(st))
+		}
+	}
+	canControl := false
+	if u != nil {
+		var director uuid.UUID
+		var deputy *uuid.UUID
+		if err := s.DB.QueryRow(r.Context(), `SELECT director_user_id, deputy_director_user_id FROM session WHERE id = $1`, sessionId).
+			Scan(&director, &deputy); err != nil {
+			writeErr(w, err)
+			return
+		}
+		canControl = u.Id == director || (deputy != nil && u.Id == *deputy)
+	}
+	out, err := lanes.List(r.Context(), s.DB, sessionId, statuses, canControl)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // CancelLane is POST /lanes/{laneId}/cancel (FR-3.4 "중단", E10-04). P1
 // minimal: Director/deputy only; the lane must be running or queued (else
 // 409); a running attempt gets the daemon `cancel` command and ends when its

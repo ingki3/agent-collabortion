@@ -8,6 +8,8 @@
 #   D7 데몬 토큰 경계                  D8 잘못된 입력이 5xx 가 되지 않는가
 #   D10 아티팩트 제출·리뷰 경계(T-S3: TaskToken 범위·워크스페이스 경계·413·403)
 #   D11 P2 operation 경계(T-S2: lane·미리보기·일시정지·위임·결정 — 경계는 늘 때마다 늘린다)
+#   D12 G4 신규 op 의 모양·권한(T-S4: listLanes·runtime-candidates·agent-templates·apply
+#       · 배열 계약 · colab_cli · workdir 행)
 #
 # 전제: up.sh + 01 이 끝나 out/a-ids.txt · cookies-a.txt 가 있고 서버가 살아 있다.
 # 에이전트 턴 0. 산출물 out/g-summary.json
@@ -49,6 +51,14 @@ else
   chk_in "에이전트 목록 차단"              "401 403 404" "$(tcode "$TOK" "$API/workspaces/$WS/agents")"
   chk_in "인박스 차단"                      "401 403 404" "$(tcode "$TOK" "$API/inbox")"
   chk_in "워크스페이스 설정 차단"          "401 403 404" "$(tcode "$TOK" "$API/workspaces/$WS/settings")"
+  # T-S4: 새 op 도 같은 범위 안에 있다. lane 보드는 자기 세션이면 읽을 수 있고
+  # (계약 listLanes 는 TaskToken 허용), 워크스페이스 스코프 op 는 못 읽는다.
+  chk "자기 세션 lane 보드 200"            200 "$(tcode "$TOK" "$API/sessions/$MYSESS/lanes")"
+  [ -n "$OTHER" ] && chk_in "다른 세션 lane 보드 차단" "403 404" "$(tcode "$TOK" "$API/sessions/$OTHER/lanes")"
+  chk_in "런타임 후보 차단"                "401 403 404" "$(tcode "$TOK" "$API/workspaces/$WS/runtime-candidates?isolation=none")"
+  chk_in "팀 템플릿 목록 차단"             "401 403 404" "$(tcode "$TOK" "$API/workspaces/$WS/agent-templates")"
+  chk_in "팀 템플릿 적용 차단"             "401 403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOK" \
+      -H 'Content-Type: application/json' -X POST "$API/workspaces/$WS/agent-templates/dev_team/apply" --data '{}')"
 fi
 chk "위조 토큰 401"                        401 "$(tcode ctk_totally_made_up_token_value "$API/cli/context")"
 
@@ -70,6 +80,12 @@ chk_in "B 가 A 의 에이전트 목록 차단"      "403 404" "$(curl -sS -o /d
 # 이제 501 은 답이 아니다. owner·admin 만 통과한다(SCREEN §2.3).
 chk_in "B 가 A 의 워크스페이스 설정 변경 차단"  "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -X PATCH "$API/workspaces/$WS/settings" --data '{}')"
 chk_in "B 가 A 의 워크스페이스 설정 조회 차단"  "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/workspaces/$WS/settings")"
+# T-S4 신규 op — 남의 워크스페이스에서는 목록도 적용도 안 된다.
+chk_in "B 가 A 의 lane 보드 차단"          "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/lanes")"
+chk_in "B 가 A 의 런타임 후보 차단"        "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/workspaces/$WS/runtime-candidates?isolation=none")"
+chk_in "B 가 A 의 팀 템플릿 목록 차단"     "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/workspaces/$WS/agent-templates")"
+chk_in "B 가 A 의 워크스페이스에 팀 생성 차단" "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' \
+    -X POST "$API/workspaces/$WS/agent-templates/dev_team/apply" --data '{}')"
 
 echo
 echo "▶ D3. 501 표면 (P1 밖 operation 은 501, 5xx 아님)"
@@ -82,6 +98,12 @@ N_AFTER="$(psqlq "select count(*) from task where session_id='$SESSION'")"
 chk "previewTriggers 는 task 를 만들지 않는다" "$N_BEFORE" "$N_AFTER"
 chk "listInbox 501"                        501 "$(ucode "$API/inbox")"
 chk "listHitlRequests 501"                 501 "$(ucode "$API/sessions/$SESSION/hitl-requests")"
+# T-S4(G4): 아래 넷은 어제까지 501 이었다. 501 이 아니라는 것 자체가 DoD 다 —
+# S7 좌열·S6 4단계·S9 팀 템플릿이 실서버에서 빈 화면이던 이유가 이 셋이다.
+chk "listLanes 는 더 이상 501 이 아니다"    200 "$(ucode "$API/sessions/$SESSION/lanes")"
+chk "listRuntimeCandidates 200"            200 "$(ucode "$API/workspaces/$WS/runtime-candidates?isolation=none")"
+chk "listAgentTemplates 200"               200 "$(ucode "$API/workspaces/$WS/agent-templates")"
+chk "applyAgentTemplate 201"               201 "$(ucode -X POST "$API/workspaces/$WS/agent-templates/content_team/apply" -H 'Content-Type: application/json' --data '{}')"
 
 echo
 echo "▶ D4. 멱등키 경계"
@@ -248,7 +270,9 @@ echo "▶ D11. P2 operation 경계 (T-S2: lane · previewTriggers · pause/resum
 #   x-phase P3(아직): listLaneTasks · restartLane · pauseSession · resumeSession · getSessionCost
 #   x-phase P2 인데 501(= 결함, G4_REPORT S-6): listLanes
 B_LANE="$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/lanes")"
-chk_in "B 가 A 의 lane 목록 차단 (P2, 지금은 501 — S-6)" "403 404 501" "$B_LANE"
+# T-S4 로 listLanes 가 구현됐다(G4 S-6 해소). 501 은 더 이상 허용값이 아니다 —
+# 501 이 권한 검사였던 적은 없다.
+chk_in "B 가 A 의 lane 목록 차단"          "403 404" "$B_LANE"
 LANE_A="$(psqlq "select id from lane where session_id='$SESSION' order by created_at limit 1")"
 if [ -n "${LANE_A:-}" ]; then
   chk_in "B 가 A 의 lane task 이력 차단 (P3)"  "403 404 501" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/lanes/$LANE_A/tasks")"
@@ -277,6 +301,42 @@ if [ -n "${A_TOK:-}" ] && [ -n "${A_TASK:-}" ]; then
       "$(printf '%s' "$DEL" | sed '$d' | jq -r '(.code | select(. == "not_participant")) // (.errors[]? | select(.code == "not_participant") | .code) // empty')"
   chk "거절된 위임은 lane 을 만들지 않는다" "$N_LANE_BEFORE" "$(psqlq "select count(*) from lane where session_id='$SESSION'")"
 fi
+echo "▶ D12. G4 신규 op 의 모양·권한 (T-S4)"
+# 계약이 `type: array` 라고 말한 응답은 배열이다. listDecisions 가 {"items":[]} 를
+# 주는 바람에 S7 이 통째로 죽었다(props.decisions.map is not a function).
+arr() { curl -sS -b "$CK_A" "$1" | python3 -c 'import sys,json;print(type(json.load(sys.stdin)).__name__)' 2>/dev/null || echo err; }
+chk "listDecisions 는 배열"                list "$(arr "$API/sessions/$SESSION/decisions")"
+chk "listLanes 는 배열"                    list "$(arr "$API/sessions/$SESSION/lanes")"
+chk "listAgentTemplates 는 배열"           list "$(arr "$API/workspaces/$WS/agent-templates")"
+chk "listArtifacts 는 배열"                list "$(arr "$API/sessions/$SESSION/artifacts")"
+chk "listRuntimes 는 배열"                 list "$(arr "$API/workspaces/$WS/runtimes")"
+chk "팀 템플릿 3종"                        3 "$(curl -sS -b "$CK_A" "$API/workspaces/$WS/agent-templates" | jq 'length')"
+chk "runtime-candidates 는 객체 2키"       "auto_select_allowed candidates" \
+    "$(curl -sS -b "$CK_A" "$API/workspaces/$WS/runtime-candidates?isolation=none" | jq -r 'keys|join(" ")')"
+chk "none 이면 자동 선택 허용"             true "$(curl -sS -b "$CK_A" "$API/workspaces/$WS/runtime-candidates?isolation=none" | jq -r '.auto_select_allowed')"
+chk "worktree 면 자동 선택 불가"           false "$(curl -sS -b "$CK_A" "$API/workspaces/$WS/runtime-candidates?isolation=worktree&remote_url=git@github.com:acme/app.git" | jq -r '.auto_select_allowed')"
+chk "worktree 에 remote_url 없으면 422"    422 "$(ucode "$API/workspaces/$WS/runtime-candidates?isolation=worktree")"
+chk "모르는 격리 방식은 422"               422 "$(ucode "$API/workspaces/$WS/runtime-candidates?isolation=bogus")"
+chk "모르는 lane status 는 422"            422 "$(ucode "$API/sessions/$SESSION/lanes?status=bogus")"
+chk "모르는 템플릿 키는 4xx"               yes "$( [ "$(ucode -X POST "$API/workspaces/$WS/agent-templates/no_such/apply" -H 'Content-Type: application/json' --data '{}')" -ge 400 ] && echo yes || echo no)"
+# probe 의 colab_cli 는 저장돼서 API 에 실린다(daemon-protocol §3 v0.5). 01 이
+# 띄운 데몬이 이미 probe 를 보냈으므로 값이 있어야 한다.
+chk "Runtime.colab_cli 노출"               yes "$(curl -sS -b "$CK_A" "$API/runtimes/$RUNTIME" | jq -r 'if .colab_cli == null then "no" else "yes" end')"
+chk "colab_cli.present 가 boolean"         yes "$(curl -sS -b "$CK_A" "$API/runtimes/$RUNTIME" | jq -r 'if (.colab_cli.present|type) == "boolean" then "yes" else "no" end')"
+# recordDecision 은 계약상 TaskToken 전용이다. D11 이 사람 쿠키를 이미 보므로 여기서는
+# 익명 호출과 "거절이 아무것도 쓰지 않는가"를 본다.
+N_DEC_BEFORE="$(psqlq "select count(*) from decision where session_id='$SESSION'")"
+chk "쿠키 없이 결정 기록 401"              401 "$(code -X POST "$API/sessions/$SESSION/decisions" -H 'Content-Type: application/json' --data '{"summary":"anon"}')"
+chk "차단된 결정은 저장되지 않는다"        "$N_DEC_BEFORE" "$(psqlq "select count(*) from decision where session_id='$SESSION'")"
+# 데몬이 보고한 workdir 이 행이 되고 lane 이 그 행을 가리킨다(§6, FR-6.1/6.4).
+# 01 이 실제 턴을 돌렸으므로 lane 마다 workdir 이 하나씩 있어야 한다.
+chk "workdir 행이 생겼다"                  yes "$( [ "$(psqlq "select count(*) from workdir")" -gt 0 ] && echo yes || echo no)"
+# 아직 claim 만 된(dispatched) task 의 lane 은 데몬이 workdir 을 말하기 전이라 null 이 맞다.
+# 한 번이라도 preparing 을 보고한 lane 은 반드시 workdir 을 가리켜야 한다.
+chk "실행된 lane 은 workdir_id 가 있다"    0 \
+    "$(psqlq "select count(*) from lane l where l.workdir_id is null and exists (select 1 from task t where t.lane_id = l.id and t.status not in ('queued','deferred','dispatched'))")"
+chk "API 의 lane 카드도 workdir_id 를 준다" yes \
+    "$( [ "$(curl -sS -b "$CK_A" "$API/sessions/$SESSION/lanes" | jq '[.[]|select(.workdir_id!=null)]|length')" -gt 0 ] && echo yes || echo no)"
 
 echo
 echo "▶ D9. 서버 5xx 가 하나도 없었는가 (이 스크립트 구간)"

@@ -59,7 +59,24 @@ func (s *Server) CompleteSession(w http.ResponseWriter, r *http.Request, session
 
 // RecordDecision is FR-4.2. `colab decision record` writes source: agent with
 // the calling task as ref; a member writing from the UI records source: hitl.
+// RecordDecision is `colab decision record` (FR-4.2). **Agents only** —
+// openapi recordDecision is `security: [TaskToken]` and its description says
+// so ("권한: TaskToken(에이전트, source: agent)"). A person's decision is not
+// written here: answering a HITL request is what records one, with
+// `source: hitl` and the request as `ref_id`. Accepting a cookie here let the
+// same session grow two kinds of `hitl` decision — one with a ref_id and one
+// without — and gave a plain member a write the contract never granted.
 func (s *Server) RecordDecision(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.RecordDecisionParams) {
+	pr := principalOf(r)
+	if pr.Task == nil {
+		if pr.User == nil {
+			writeProblem(w, apperr.Unauthorized("unauthorized", "TaskToken required"))
+			return
+		}
+		writeProblem(w, apperr.Forbidden("agent_only",
+			"decision record is an agent tool (openapi recordDecision is TaskToken-only); a person's decision is recorded by answering the HITL request"))
+		return
+	}
 	if _, p := s.sessionAccess(r, sessionId); p != nil {
 		writeProblem(w, p)
 		return
@@ -78,16 +95,8 @@ func (s *Server) RecordDecision(w http.ResponseWriter, r *http.Request, sessionI
 		writeProblem(w, apperr.Validation(apperr.Field("summary", "required", "summary is required")))
 		return
 	}
-	pr := principalOf(r)
-	source, scope := "hitl", ""
-	var ref *uuid.UUID
-	if pr.Task != nil {
-		source = "agent"
-		id := pr.Task.TaskID
-		ref, scope = &id, taskScope(id)
-	} else {
-		scope = "user:" + pr.User.Id.String()
-	}
+	taskID := pr.Task.TaskID
+	source, scope, ref := "agent", taskScope(taskID), &taskID
 	rationale := ""
 	if in.Rationale != nil {
 		rationale = *in.Rationale
@@ -130,11 +139,14 @@ func (s *Server) ListDecisions(w http.ResponseWriter, r *http.Request, sessionId
 		writeErr(w, err)
 		return
 	}
+	// The contract's listDecisions response is `type: array` — the same shape
+	// listArtifacts already returns. Wrapping it in {"items": …} killed the whole
+	// S7 session screen (`props.decisions.map is not a function`, G4 결함 1).
 	items := make([]gen.Decision, 0, len(rows))
 	for _, d := range rows {
 		items = append(items, decisionAPI(sessionId, d))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, items)
 }
 
 func decisionAPI(sessionID uuid.UUID, d sessions.DecisionRow) gen.Decision {
