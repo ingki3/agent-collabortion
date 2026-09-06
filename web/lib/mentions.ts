@@ -10,19 +10,26 @@ export interface MentionTarget {
   name: string;
 }
 
+/**
+ * PRD FR-3.2 의 형식은 `mention://<kind>/<id>` 이고 `@all` 도 예외가 아니다 —
+ * `mention://all/all`. 여기서 `mention://all` 을 만들던 동안 서버 정규식
+ * (`mention://(agent|user|all)/([^)\s]+)`)이 그것을 멘션으로 읽지 못했고, 멘션이
+ * 하나도 없는 메시지로 취급해 규칙 3(암묵 라우팅 억제) 대신 규칙 6 으로 assignee 를
+ * 깨웠다(E1-05 위반: 실측 preview suppressed=false, 게시 시 Lead task 1개).
+ */
 export function mentionLink(t: MentionTarget): string {
-  if (t.kind === "all") return "[@all](mention://all)";
+  if (t.kind === "all") return "[@all](mention://all/all)";
   return `[@${t.name}](mention://${t.kind}/${t.id})`;
 }
 
-const LINK_RE = /\[@([^\]]+)\]\(mention:\/\/(agent|user)\/([0-9a-zA-Z-]+)\)|\[@all\]\(mention:\/\/all\)/g;
+const LINK_RE = /\[@([^\]]+)\]\(mention:\/\/(agent|user|all)\/([0-9a-zA-Z-]+)\)/g;
 
 /** 본문에서 멘션 링크를 뽑는다(순서 유지, 중복 제거). */
 export function extractMentions(content: string): MentionTarget[] {
   const out: MentionTarget[] = [];
   const seen = new Set<string>();
   for (const m of content.matchAll(LINK_RE)) {
-    const t: MentionTarget = m[2] ? { kind: m[2] as MentionKind, id: m[3], name: m[1] } : { kind: "all", id: "all", name: "all" };
+    const t: MentionTarget = { kind: m[2] as MentionKind, id: m[3], name: m[1] };
     const key = `${t.kind}:${t.id}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -42,7 +49,7 @@ export function splitContent(content: string): ContentPart[] {
   for (const m of content.matchAll(LINK_RE)) {
     const idx = m.index ?? 0;
     if (idx > last) parts.push({ type: "text", text: content.slice(last, idx) });
-    const target: MentionTarget = m[2] ? { kind: m[2] as MentionKind, id: m[3], name: m[1] } : { kind: "all", id: "all", name: "all" };
+    const target: MentionTarget = { kind: m[2] as MentionKind, id: m[3], name: m[1] };
     parts.push({ type: "mention", target });
     last = idx + m[0].length;
   }

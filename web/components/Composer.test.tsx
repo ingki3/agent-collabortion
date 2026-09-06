@@ -57,7 +57,7 @@ describe("Composer — 트리거 미리보기는 서버가 판정한다(W-6)", (
     type("/note [@Lead](mention://agent/a-lead) 참고만");
     expect((await screen.findByTestId("chip-note-only")).textContent).toContain("기록만");
     expect(screen.queryByTestId("chip-trigger")).toBeNull();
-    type("[@all](mention://all) 공지");
+    type("[@all](mention://all/all) 공지");
     expect((await screen.findByTestId("chip-no-trigger")).textContent).toContain("트리거 없음");
   });
 
@@ -151,6 +151,20 @@ describe("Composer — 멘션 자동완성 · paused 안내", () => {
     expect(opts[0].textContent).toContain("참여자");
     fireEvent.keyDown(ta, { key: "Enter" });
     expect(ta.value).toBe("[@Lead](mention://agent/a-lead) ");
+  });
+
+  // FR-3.2 의 형식은 `mention://<kind>/<id>` 이고 @all 도 예외가 아니다: `mention://all/all`.
+  // `mention://all` 을 넣던 동안 서버는 그것을 멘션으로 읽지 못해 규칙 3(억제) 대신
+  // 규칙 6 으로 assignee 를 깨웠다(E1-05 위반). 형식을 여기서 고정한다.
+  it("@all 은 mention://all/all 로 삽입된다 (FR-3.2 · E1-05)", () => {
+    render(<Composer agents={AGENTS} onSubmit={async () => []} />);
+    const ta = screen.getByTestId("composer-input") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "@all", selectionStart: 4 } });
+    const opts = screen.getByTestId("mention-menu").querySelectorAll('[role="option"]');
+    expect(opts.length).toBeGreaterThan(0);
+    expect(opts[0].textContent).toContain("@all");
+    fireEvent.keyDown(ta, { key: "Enter" });
+    expect(ta.value).toBe("[@all](mention://all/all) ");
   });
 
   it("세션이 paused 면 작성창 위에 '재개 후 처리됩니다' 안내가 뜬다(U15-9)", () => {

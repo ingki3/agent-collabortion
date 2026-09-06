@@ -502,7 +502,8 @@ function simulateRun(s: Store, sess: Session, task: MockTask, reply: string) {
   });
 }
 
-const MENTION_RE = /\[@([^\]]+)\]\(mention:\/\/(agent|user)\/([0-9a-zA-Z-]+)\)|\[@all\]\(mention:\/\/all\)/g;
+// FR-3.2: `mention://<kind>/<id>` — @all 은 `mention://all/all` 이다(서버 정규식과 같은 모양).
+const MENTION_RE = /\[@([^\]]+)\]\(mention:\/\/(agent|user|all)\/([0-9a-zA-Z-]+)\)/g;
 
 on("GET", "/sessions/{id}/messages", (req, p) => {
   const s = store();
@@ -562,7 +563,9 @@ function routeMessage(
     const lanes = [...s.lanes.values()].filter((l) => l.session_id === sess.id && l.agent_id === id);
     const active = lanes.find((l) => l.status === "running" || l.status === "queued");
     const reusable = lanes.find((l) => l.status === "done" || l.status === "blocked");
-    let resolution = 1;
+    // 기본은 규칙 4(새 lane) 다 — 규칙 1 은 스레드 답글의 lane 이고 목은 그것을
+    // 흉내내지 않는다. "새 lane 으로 보내기" 는 규칙 3 을 건너뛰어 4 로 간다(EVAL E2-07).
+    let resolution = 4;
     let laneId: string | null = null;
     let reentry = false;
     if (!input.newLane) {
@@ -585,8 +588,7 @@ function routeMessage(
 function parseMentions(content: string): Message["mentions"] {
   const mentions: Message["mentions"] = [];
   for (const m of content.matchAll(MENTION_RE)) {
-    if (m[2]) mentions.push({ kind: m[2] as "agent" | "user", id: m[3], display_name: m[1] });
-    else mentions.push({ kind: "all", id: "all", display_name: "all" });
+    mentions.push({ kind: m[2] as "agent" | "user" | "all", id: m[3], display_name: m[1] });
   }
   return mentions;
 }

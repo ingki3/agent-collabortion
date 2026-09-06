@@ -77,10 +77,12 @@ PV=$(curl -sS -b "$J" -X POST "$B/sessions/$SID/messages/preview" -H 'content-ty
 chk "preview 규칙 2" "$(echo "$PV" | python3 -c 'import sys,json;print(json.load(sys.stdin)["triggers"][0]["rule"])')" "2"
 PV2=$(curl -sS -b "$J" -X POST "$B/sessions/$SID/messages/preview" -H 'content-type: application/json' -d '{"content":"/note 참고만"}')
 chk "preview note_only" "$(echo "$PV2" | python3 -c 'import sys,json;print(json.load(sys.stdin)["note_only"])')" "True"
-PV3=$(curl -sS -b "$J" -X POST "$B/sessions/$SID/messages/preview" -H 'content-type: application/json' -d '{"content":"[@all](mention://all) 공지"}')
+PV3=$(curl -sS -b "$J" -X POST "$B/sessions/$SID/messages/preview" -H 'content-type: application/json' -d '{"content":"[@all](mention://all/all) 공지"}')
 chk "preview 규칙 3" "$(echo "$PV3" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["implicit_routing_suppressed"] and not d["triggers"])')" "True"
 PV4=$(curl -sS -b "$J" -X POST "$B/sessions/$SID/messages/preview" -H 'content-type: application/json' -d "{\"content\":\"$MENT 별도로\",\"new_lane\":true}")
-chk "new_lane 은 항상 새 lane" "$(echo "$PV4" | python3 -c 'import sys,json;t=json.load(sys.stdin)["triggers"][0];print(t["lane"]["lane_id"] is None and t["lane"]["resolution"]==1)')" "True"
+# EVAL E2-07: "새 lane 으로 보내기" 는 **규칙 3 을 건너뛰어 규칙 4** 로 간다 —
+# 새 lane 이므로 lane_id 는 아직 없다. 1 을 기대하던 것은 이 스크립트의 오류였다(서버가 맞다).
+chk "new_lane 은 항상 새 lane(규칙 4)" "$(echo "$PV4" | python3 -c 'import sys,json;t=json.load(sys.stdin)["triggers"][0];print(t["lane"]["lane_id"] is None and t["lane"]["resolution"]==4)')" "True"
 PV5=$(curl -sS -b "$J" -X POST "$B/sessions/$SID/messages/preview" -H 'content-type: application/json' -d "{\"content\":\"$MENT 억제\",\"suppress_agent_ids\":[\"$A2\"]}")
 chk "억제하면 트리거 0" "$(echo "$PV5" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["triggers"]))')" "0"
 
