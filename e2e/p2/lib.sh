@@ -127,5 +127,8 @@ chk_ge() {
   if [ "${4:-0}" -ge "$3" ] 2>/dev/null; then pass=$((pass+1)); printf '  ✓ %-56s %s (≥%s)\n' "$2" "$4" "$3" >&2; printf '%s\t%s\tPASS\t%s\n' "$1" "$2" "$4" >> "$CHK"
   else fail=$((fail+1)); printf '  ✗ %-56s got=%s want≥%s\n' "$2" "$4" "$3" >&2; printf '%s\t%s\tFAIL\tgot=%s want>=%s\n' "$1" "$2" "$4" "$3" >> "$CHK"; fi
 }
+# chk_na ID 설명 값 사유 — **판정하지 않는다**(단계 밖이라 통과/미달 어느 쪽도 아니다).
+# 표에는 남기고 PASS/FAIL 수에는 넣지 않는다 — G4 웹 표의 N/A 관례와 같다.
+chk_na() { printf '  · %-56s %s (N/A: %s)\n' "$2" "$3" "$4" >&2; printf '%s\t%s\tN/A\t%s — %s\n' "$1" "$2" "$3" "$4" >> "$CHK"; }
 # chk_has ID 설명 HAYSTACK_FILE NEEDLE — 파일에 문자열이 있으면 PASS
 chk_has() { chk "$1" "$2" yes "$(grep -qF -e "$4" "$3" 2>/dev/null && echo yes || echo no)"; }

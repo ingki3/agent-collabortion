@@ -8,9 +8,10 @@
 | 스택 | dev `6b4fe78`(문서 #99 까지) 를 머지한 `d61d3f5` 에서 **재빌드**. `bin/server`·`bin/daemon`·`bin/colab` 빌드 시각 **2026-09-06 19:48:20 KST**. 1판은 dev `6d9d20d`(18:59:22 빌드) 였고, D-7 hotfix **#97** 이 그 뒤에 들어왔다. 서버 `:8090` · 웹 `:3010`(`next build` + `next start`) · Postgres `colab-pg-g4 :5436` |
 | 런타임 | Claude Code 2.1.258 + 어댑터 0.74.0(핀) · **Hermes 0.20.6**. 모델은 비용 때문에 haiku(`claude-haiku-4-5-20251001`) |
 | 재현 | `bash e2e/p2/up.sh` 뒤 `30_scenario_a_hermes.sh` · `31_blocked_roundtrip.sh` · `32_loop_limit.sh` · `33_approval_completed.sh` · `34_template_3min.sh` |
-| 총계 | 다섯 스크립트 **PASS 134 · FAIL 5** — 30_ **57/0** · 31_ 26/2 · 32_ 13/1 · 33_ 24/2 · 34_ 14/0 |
+| 총계 | **재측정(PR #103 이후) PASS 162 · FAIL 0 · N/A 2** — 30_ 57/0 · 31_ 29/0(+S-31 순서 20/0) · 32_ 15/0 · 33_ 41/0(N/A 2) · 34_ 14/0. 1판·2판 수치와 그 사이 경과는 §10 |
 | D-7 | **수정됨 (#97).** hermes `tool_surface=cli_wrapper` 판정 + attempt 별 래퍼 실행 파일 + 브리프·턴 프롬프트 치환. 30_ 재실행에서 **FAIL 0**(§3) |
-| 결론 | **G5 충족 — 템플릿 3분 Director 실측 대기.** 다섯 항목이 전부 실기에서 섰다. 남은 FAIL 5건은 표시·프롬프트·정리 결함(S-26·S-27·S-28·S-29)과 승인 입구(S-25)이고 **DoD 를 막지 않는다**. S-25 는 계약 **PR #101 로 P2 확정** — 플랫폼 발행 `approval`(종료 조건 `user_approval`)의 승인·거절이 P2 가 됐고, 서버 hotfix 뒤 `33_` 로 재측정한다. 판정이 남은 칸은 (e) 의 **3분 수치 하나**뿐이다(§6.3) |
+| S-24~S-31 | **수정됨 (계약 #101 · 서버 #103).** 재측정에서 여덟 건이 전부 닫혔다 — 남은 것은 데몬의 `gc` 핸들러 한 조각뿐이고 그것은 원래 P3·P4(백로그 D-4)다. §10 |
+| 결론 | **G5 충족 — 템플릿 3분 Director 실측 대기.** 다섯 항목이 실기에서 섰고, 1판이 남긴 결함 아홉(D-7 + S-24~S-31)이 전부 닫힌 뒤 **FAIL 0** 으로 다시 쟀다. 판정이 남은 칸은 (e) 의 **3분 수치 하나**뿐이다(§6.3) |
 
 > **읽는 법.** 각 절은 EVAL 행 번호를 그대로 쓴다. `우회`라고 적힌 것은 정식 API 경로가 없어
 > DB 나 다른 op 로 돌아간 측정이다 — 그 자리에는 반드시 결함 번호가 붙어 있다.
@@ -567,3 +568,125 @@ openapi 도 "매핑 불가 에이전트도 등록하되 `unmapped[]` 에 사유"
    원자가 `manual` → `user_approval` 로 바뀌는 것을 확인한다.
 6. **S-31** — `afterLaneDone` 에서 재진입 통보와 합류 판정을 분리한다. 조용한 손실이라 우선순위가 낮지 않다.
 7. **S-26 · S-27 · S-28 · S-30** — 각각 한 곳 수정. DoD 를 막지는 않는다.
+
+---
+
+## 10. 재측정 (계약 PR #101 · 서버 PR #103 이후)
+
+| 항목 | 내용 |
+|---|---|
+| 스택 | dev `ada78a0` 에서 **재빌드**(`bin/server`·`bin/daemon`·`bin/colab`, **2026-09-06 20:24:02 KST**). 마이그레이션 **0012**(`hitl_request.purpose`)까지 적용. 서버 `:8090` · 웹 `:3010` · Postgres `colab-pg-g4 :5436` |
+| 무엇이 바뀌었나 | 계약 **#101**(`respondHitlRequest` 승인·거절 P2, blocked_q 카드 멘션·기상 인용 명문화) + 서버 **#103**(S-24~S-31 구현) |
+| 재실행 | `31_`(두 순서) · `32_` · `33_`. `30_` 은 #97 재측정 그대로 두고 비용 한 행만 더했다(§10.5). `34_` 는 문구만 |
+
+### 10.1 결과
+
+| 스크립트 | 1판 | 2판(#97) | **3판(#103)** | 무엇이 달라졌나 |
+|---|---|---|---|---|
+| `30_scenario_a_hermes.sh` | 45/6 | **57/0** | 57/0 (그대로) | D-7 이 닫힌 뒤 값 |
+| `31_blocked_roundtrip.sh` (EVAL 순서) | 25/2 | 26/2 | **29/0** | S-27·S-28 해소 + 카드 모양 단언 갱신 |
+| `31_` **S-31 순서** | 20/8 | — | **20/0** | 합류가 발화한다 |
+| `32_loop_limit.sh` | 13/1 | 13/1 | **15/0** | S-26 해소 |
+| `33_approval_completed.sh` | 24/2 | 24/2 | **41/0** (N/A 2) | 승인이 정식 경로로, E6-04 추가, S-29 서버 절반 |
+| `34_template_3min.sh` | 14/0 | 14/0 | 14/0 (그대로) | §6.2 에 측정 기준 한 줄 |
+| **합계** | | | **PASS 162 · FAIL 0 · N/A 2** | |
+
+### 10.2 (a) 승인·거절이 정식 경로로 돈다 — S-25 해소
+
+`33_` 은 더 이상 `completeSession` 으로 우회하지 않는다. 세션 두 개를 동시에 띄워
+(A=승인 · B=거절) Writer 턴을 병렬로 돌린 뒤 각각 `POST /hitl-requests/{id}/response` 를 부른다.
+
+| 확인 | 실측 |
+|---|---|
+| `respondHitlRequest` 승인 | **HTTP 200** (계약 #101 · 서버 #103) |
+| `hitl_request.purpose` | **`user_approval`** — 예산·루프 정지의 `approval` 과 갈린다(0012) |
+| `completion_met` | **`{"user_approval": true, "artifact_submitted": true}`** — `manual` **없음**(우회가 아니다) |
+| 세션 | `completed`, `finished_at` 있음, `paused_*` 비워짐 |
+| `session_summary` | **1개**, `author_type=system` |
+| 남은 `queued`/`deferred` task | 0 · Director 인박스 `session_completed` 1 |
+| 멱등(E7-08) | 같은 키 재요청 **2xx**, 첫 응답의 `ignored=false` |
+
+**E6-04 거절**(세션 B, `{"approved": false, "reason": …}` → HTTP 200):
+
+| 확인 | 기대 | 실측 |
+|---|---|---|
+| 세션 | `active` 유지 | **`active`** |
+| `artifact_submitted` | 유지 | **true** |
+| `user_approval` | 미충족 | **false** |
+| 거절 사유 | 결정 기록에 저장 | 사유가 `decision.rationale` 로 **1건** |
+| 그 결정의 `source` | 사람이 정했다 | **`hitl`** |
+| HITL | `answered`, `approved=false` | 그대로 |
+| 에이전트 트리거 | **없음**(사람이 다음 지시) | task 수 그대로 **1** |
+| 요약 | 아직 없음 | **0** |
+
+### 10.3 S-29 — 서버 절반은 닫혔고, 데몬 절반은 원래 P3·P4
+
+| 확인 | 실측 |
+|---|---|
+| 완료 시 서버가 `gc` 명령을 낸다 | **1건**(`daemon_command.type='gc'`) |
+| 그 명령이 세션의 workdir 를 전부 담는다 | workdir 행 1 = `workdir_ids` 1 |
+| workdir 행이 `deleted` 로 닫힌다 | **N/A** — 0/1 |
+| 디스크 디렉토리가 사라진다 | **N/A** — 1개 남음 |
+
+N/A 인 이유는 미달이 아니라 **단계**다. daemon-protocol §6 은 "GC **판정은 서버**, 삭제는 데몬"이고,
+데몬의 `gc` 핸들러는 백로그 **D-4**("worktree·GC·`rebind_prepare`·예산 강제는 P3·P4")로 아직 없다 —
+`handleCommands` 의 `default` 가 `command gc ignored (P4)` 를 찍는다. 실측에서 그 명령은 **전달조차
+되지 않았다**(`delivered_at` 없음): 명령은 진행 보고에 얹혀 가는데 유휴 데몬에는 얹을 보고가 없다.
+둘 다 같은 D-4 범위라 이 보고서는 판정하지 않고 관측만 남긴다.
+
+### 10.4 (c) blocked 왕복 — 두 순서 모두 통과
+
+**EVAL 순서**(질문 알림은 알림으로 두고 합류 묶음이 실어 온 질문에 답한다) — **29/0**:
+E3-05·E3-06·E3-07 이 전과 같이 서고, 1판에서 미달이던 둘이 닫혔다.
+
+| 1판 미달 | 3판 실측 |
+|---|---|
+| S-28 기상 메시지가 카드를 인용하지 않음 | **인용한다** — 카드 id·질문 본문에 더해 "그 카드에 `reply_to` 로 답하고 자식을 멘션하라"까지 적는다(멘션 없는 에이전트 메시지는 규칙 4로 아무도 안 깨운다는 설명 포함) |
+| S-27 K3 배지가 `질문` 으로 떨어짐 | **`질문 → @위임자`** — 서버가 카드에 위임자 멘션을 실어 웹이 이름을 채운다 |
+
+카드 본문이 "질문 + 위임자 멘션"으로 바뀌었으므로 `lane.blocked_note` 단언을 **완전 일치에서
+포함으로** 바꾸고(`position(blocked_note in content) > 0`), "카드가 위임자를 멘션한다"를 한 줄 더 넣었다.
+
+**S-31 순서**(위임자가 즉시 기상 통보에 바로 답해 재진입 lane 이 그룹의 마지막으로 끝난다) — **20/0**:
+
+| 확인 | 1판 | 3판 |
+|---|---|---|
+| 답을 받은 자식이 마지막으로 끝났다(전제) | yes | **yes** |
+| 합류 발화 | **0 — 영영 오지 않았다** | **1** |
+| 합류 시스템 메시지 | 0 | **정확히 1개** |
+| 합류가 위임자를 깨운 횟수 | — | **1** |
+| 그 기상이 **병합**으로 왔는가 | — | **그렇다** — 재진입 통보가 트리거이고 합류 메시지는 같은 task 의 `coalesced_message_ids` 안에 있다(FR-3.4) |
+| 재진입 lane 의 `reentry_count` | 1 | **1** |
+
+마지막 줄이 K-5 가 말한 모양 그대로다: 위임자는 **한 번** 깨어나고, 재진입 통보와 합류 묶음이
+그 한 번에 함께 실린다. 1판에서는 `afterLaneDone` 이 `reentry > 0` 에서 `notifyReentry` 로 빠져
+`maybeFireJoin` 을 아예 부르지 않았고, 그래서 합류가 조용히 사라졌다(§4.3.1).
+
+### 10.5 그 밖
+
+- **(d) S-26 해소** — `max_pair_roundtrips` 만 보낸 부분 갱신 뒤 `loop_limits` =
+  `{"max_chain_depth":8, "max_hops_per_hour":60, "max_pair_roundtrips":2}`. 형제 키가 남는다.
+  E4-03 본체는 전과 같다(상한 2 → 관측 왕복 3 → `paused(loop)`·`pair_roundtrips`·`count 3`).
+- **(b) Hermes 비용** (리뷰 NN3, `30_` 최종 세션 `be52bc50`) — `session.cost_usd` = **0.3049**,
+  `task_usage` **7행 전부 `estimated = true`**. 두 런타임 다 `cost_usd` 를 주지 않아 서버가 가격표로
+  값을 매긴 것이고(harness v0.7.1), 그중 **hermes 3행은 `model` 이 비어 있다** — 런타임이 모델을
+  보고하지 않는다. 서버는 그때 프로파일의 모델로 값을 매긴다
+  (`repriceEstimates`: `COALESCE(NULLIF(u.model,''), p.model, '')`). 즉 **FR-7.3 의 "추정" 배지가
+  켜지는 것이 정상 경로**이고, hermes 는 거기에 더해 모델 드리프트를 볼 근거가 없다.
+  재현: `select round(cost_usd::numeric,4) from session where id='<세션>'` /
+  `select estimated, model from task_usage tu join task t on t.id=tu.task_id where t.session_id='<세션>'`.
+- **(e) 측정 기준 명시** (리뷰 NN1) — §6.2 의 10초는 **agent-browser 의 DOM 조작** 기준이다.
+  셀렉터로 바로 채우고 누르므로 사람이 읽고·고르고·타이핑하는 시간이 빠져 있다. 사람 실측의
+  **하한**이지 예측이 아니며, 3분 판정은 여전히 Director 몫이다(§6.3).
+
+### 10.6 이번 판에서 스크립트가 틀렸던 것
+
+수치를 믿게 하려면 단언이 틀렸던 자리도 적어야 한다. 세 가지가 **제품이 아니라 단언**의 문제였다.
+
+- `jq` 의 `//` 는 **`false` 를 빈 값으로 친다** — `.ignored // "none"` 이 `false` 에도 `"none"` 을
+  준다. `has("ignored")` 로 바꿨다.
+- psql 은 boolean 을 `f` 가 아니라 **`false`** 로 찍는다(`::text` 연결 시).
+- S-31 순서에서는 "답을 기다리는 자식 1개"·"blocked 로 적힌 자식"이 **없는 것이 옳다**(그 순서에서는
+  자식이 이미 답을 받고 `done` 이다). 그 둘은 EVAL 순서 전용으로 묶었다. 마찬가지로 "합류로 생긴
+  Lead task 1개"는 **병합되면 `trigger_message_id` 가 아니라 `coalesced_message_ids` 에** 들어가므로
+  양쪽을 함께 세도록 고쳤다 — 안 고쳤으면 FR-3.4 가 제대로 도는 것을 미달로 오보할 뻔했다.
