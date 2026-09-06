@@ -16,6 +16,7 @@ import (
 
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/realtime"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -193,4 +194,25 @@ func ToAPI(m *Row) gen.Message {
 		}
 	}
 	return out
+}
+
+// Publish is the one place a stored message row becomes a `message.created`
+// frame (openapi StreamEvent, S7). router.Post and router.DelegateLane
+// publish inline because they already hold the mapped message; every OTHER
+// insert — the session-start notice, the join bundle, a wake prefix, the
+// blocked question card, the completion summary — went to the database and
+// nowhere else, so S7 only saw them on reload (G4 2판 W10).
+//
+// q is the caller's transaction: the frame is delivered immediately and the
+// stream_event row is written with the same tx as the message itself.
+func Publish(ctx context.Context, hub *realtime.Hub, q db.DBTX, wsID, sessionID, msgID uuid.UUID) error {
+	if hub == nil {
+		return nil
+	}
+	m, err := Get(ctx, q, msgID)
+	if err != nil {
+		return err
+	}
+	sid := sessionID
+	return hub.Publish(ctx, q, wsID, &sid, "message.created", ToAPI(m))
 }

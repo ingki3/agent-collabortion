@@ -88,6 +88,9 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 			plan.QuestionCardID, sessionID, agentID, note, taskID, now); err != nil {
 			return nil, fmt.Errorf("router: blocked question card: %w", err)
 		}
+		// The card is a message, so the timeline hears about it now rather than
+		// on the delegator's next reload (G4 2판 W10).
+		s.publishMessage(ctx, tx, sessionID, plan.QuestionCardID)
 		if _, err := tx.Exec(ctx, `
 			UPDATE lane SET status = 'blocked', blocked_note = $2, blocked_message_id = $3, finished_at = $4, updated_at = $4
 			WHERE id = $1`, laneID, note, plan.QuestionCardID, now); err != nil {
