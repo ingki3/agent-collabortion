@@ -373,7 +373,13 @@ func (d *Daemon) holdsWorkdir(p string) bool {
 func (d *Daemon) gc(ctx context.Context, c contracts.Command) {
 	targets := make([]workdir.Info, 0, len(c.Workdirs))
 	for _, w := range c.Workdirs {
-		targets = append(targets, workdir.Info{Kind: "dir", Path: w.Path, SessionID: c.SessionID, GC: &workdir.GCResult{ID: w.ID}})
+		// The receipt travels on a §6 row, so it needs the same identity every
+		// other row needs (v0.7.3): a row the server cannot match is skipped,
+		// and the command is then never consumed — it is re-issued every 30s
+		// until the 24h TTL writes "명령 미소비 만료" into the feed (§4.3).
+		row := workdir.Describe(d.Cfg.WorkdirRoot, w.Path, c.SessionID)
+		row.GC = &workdir.GCResult{ID: w.ID}
+		targets = append(targets, row)
 	}
 	if len(targets) == 0 && c.SessionID != "" {
 		for _, w := range workdir.SessionLanes(d.Cfg.WorkdirRoot, c.SessionID) {
@@ -405,6 +411,7 @@ func (d *Daemon) gc(ctx context.Context, c contracts.Command) {
 			} else {
 				res.Status = workdir.GCDeleted
 				w.Bytes = 0
+				workdir.ForgetWorkdir(d.Cfg.WorkdirRoot, w.Path)
 			}
 		default:
 			if err := workdir.Remove(d.Cfg.WorkdirRoot, w.Path); err != nil {
@@ -413,6 +420,7 @@ func (d *Daemon) gc(ctx context.Context, c contracts.Command) {
 			} else {
 				res.Status = workdir.GCDeleted
 				w.Bytes = 0
+				workdir.ForgetWorkdir(d.Cfg.WorkdirRoot, w.Path)
 			}
 		}
 		w.GC = &res
@@ -443,6 +451,16 @@ func (d *Daemon) finishWorkdir(wd string) *contracts.FinishWorkdir {
 		return nil
 	}
 	return &contracts.FinishWorkdir{Path: wd, Git: workdir.Git(wd)}
+}
+
+// workdirDetail is the D-21(c) failure text. It names FOUR things — the path
+// that is missing, the isolation, what the bundle asked for and this daemon's
+// root — because the fault always lives in the gap between two of them, and
+// the message it replaced (`spawn: fork/exec …/npx: no such file or
+// directory`) named none.
+func workdirDetail(err error, b contracts.TaskBundle, root string) string {
+	return fmt.Sprintf("%v (isolation=%s, bundle workdir.path=%q, workdir_root=%s)",
+		err, b.Workdir.Kind, b.Workdir.Path, root)
 }
 
 func (d *Daemon) killAfter() time.Duration {
@@ -527,6 +545,33 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	if err != nil {
 		d.Log("%s workdir: %v", k, err)
 		finish(contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: err.Error()})
+		return
+	}
+	if b.Workdir.Path != "" && wd != filepath.Clean(b.Workdir.Path) {
+		// Never silent: §4.1 v0.7.3 says the server sends an absolute path,
+		// so any resolution the daemon has to do (a relative path read against
+		// the root, or a target relocated out of the user's repository) is a
+		// disagreement between the two halves and belongs in the log.
+		d.Log("%s workdir: bundle path %q resolved to %s", k, b.Workdir.Path, wd)
+	}
+	// §4.1 v0.7.3 데몬 방어 (D-21(c)): the directory the runtime will run in
+	// has to exist BEFORE the spawn. Without this the missing cwd surfaced as
+	// the adapter's own `spawn: fork/exec …/npx: no such file or directory` —
+	// a message about node, for a fault that is about the path — and every
+	// attempt of the session died that way (T-I4 차단 ①).
+	if verr := workdir.Verify(wd); verr != nil {
+		detail := workdirDetail(verr, b, d.Cfg.WorkdirRoot)
+		d.Log("%s %s", k, detail)
+		batcher.Emit(contracts.TaskEvent{
+			TaskID: b.Task.ID, Attempt: b.Task.Attempt, Seq: 1, TS: d.Clock.Now().UTC(),
+			Class: "runtime", Verb: "error", Outcome: "failed",
+			Payload: map[string]any{
+				"runtime_kind": string(b.Profile.RuntimeKind),
+				"failure_kind": string(contracts.FailConfig),
+				"detail":       detail,
+			},
+		})
+		finish(contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: detail})
 		return
 	}
 	// harness §10: a cli_wrapper runtime ignores mcpServers and sanitises the
