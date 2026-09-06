@@ -228,9 +228,16 @@ type Command struct {
 	Attempt          int           `json:"attempt,omitempty"`
 	AfterCurrentTool bool          `json:"after_current_tool,omitempty"`
 	Reason           string        `json:"reason,omitempty"` // director | budget | kill_switch | loop | session_paused
-	WorkdirIDs       []string      `json:"workdir_ids,omitempty"`
+	WorkdirIDs       []string      `json:"workdir_ids,omitempty"` // gc — 옛 모양(v0.6). v0.7 부터는 Workdirs 가 정본
+	Workdirs         []GCWorkdir   `json:"workdirs,omitempty"`    // gc — daemon-protocol v0.7 §4.3: 서버가 경로를 싣는다
 	SessionID        string        `json:"session_id,omitempty"`
 	Artifacts        []ArtifactRef `json:"artifacts,omitempty"`
+}
+
+// GCWorkdir 은 gc 명령의 대상 하나 — 서버 DB 의 workdir id 와 그 절대 경로(daemon-protocol v0.7 §4.3).
+type GCWorkdir struct {
+	ID   string `json:"id"`
+	Path string `json:"path"`
 }
 
 type ArtifactRef struct {
