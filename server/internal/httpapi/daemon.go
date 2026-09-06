@@ -507,7 +507,17 @@ func (s *Server) finishAndEnforce(ctx context.Context, taskID uuid.UUID, attempt
 		// The attempt is committed either way. Losing the enforcement is worse
 		// than an error nobody reads, so it is logged rather than turned into
 		// a 500 that would make the daemon re-send a finish it already landed.
+		//
+		// S-47: the log line was the WHOLE record. A lost check leaves the
+		// lane unlocked and the next task dispatches on a budget nobody
+		// verified, and the session's timeline showed a turn that ended
+		// normally. The note says otherwise, in the one place the Director
+		// reads (tasks.NoteBudgetEnforceFailed also documents why the next
+		// heartbeat or finish re-checks by itself).
 		s.Log.Warn("enforce budget after finish", "err", err, "task", taskID)
+		if nerr := s.Tasks.NoteBudgetEnforceFailed(ctx, taskID, attempt, err, s.Clock.Now()); nerr != nil {
+			s.Log.Warn("note budget enforce failure", "err", nerr, "task", taskID)
+		}
 	}
 	return final, nil
 }

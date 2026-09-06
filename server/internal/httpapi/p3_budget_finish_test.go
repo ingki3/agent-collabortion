@@ -257,21 +257,50 @@ func TestP3BudgetAtFinishEstimatedNeverCuts(t *testing.T) {
 	if cmds != 0 {
 		t.Fatalf("cancel commands = %d, want 0 — an estimate never hard-cuts (E9-05)", cmds)
 	}
+	// S-48 changed this expectation. It used to read "budget HITL = 0 · one
+	// `session_paused` inbox card": the estimate path raised no request, so
+	// the only answer the card offered was to go and call resumeSession, while
+	// the MEASURED pause one branch over handed the Director an approval they
+	// could answer with a new limit. E9-05's "Dir 알림" does not say which of
+	// the two, and the two pauses are the same decision — so the estimate now
+	// asks it the same way. What E9-05 does forbid is unchanged and asserted
+	// above: no cancel command, no hard cut.
 	var hitls int
+	var hitlTask *uuid.UUID
 	if err := f.pool.QueryRow(t.Context(), `
-		SELECT count(*) FROM hitl_request WHERE session_id = $1 AND purpose = 'budget'`, f.sessionID).Scan(&hitls); err != nil {
+		SELECT count(*), (array_agg(task_id))[1] FROM hitl_request WHERE session_id = $1 AND purpose = 'budget'`,
+		f.sessionID).Scan(&hitls, &hitlTask); err != nil {
 		t.Fatal(err)
 	}
-	if hitls != 0 {
-		t.Fatalf("budget HITL = %d on the estimate path, want 0 — the drain raises none (E9-05)", hitls)
+	if hitls != 1 {
+		t.Fatalf("budget HITL = %d on the estimate path, want 1 — the drain still asks (E9-05 'Dir 알림', S-48)", hitls)
 	}
-	var cards int
+	if hitlTask != nil {
+		t.Fatalf("hitl task_id = %v, want empty — what paused is the SESSION, so the request is "+
+			"answered by resuming the session (K-10)", hitlTask)
+	}
+	var cards, paused int
 	if err := f.pool.QueryRow(t.Context(), `
-		SELECT count(*) FROM inbox_item WHERE session_id = $1 AND type = 'session_paused'`, f.sessionID).Scan(&cards); err != nil {
+		SELECT count(*) FILTER (WHERE type = 'hitl_request'), count(*) FILTER (WHERE type = 'session_paused')
+		FROM inbox_item WHERE session_id = $1`, f.sessionID).Scan(&cards, &paused); err != nil {
 		t.Fatal(err)
 	}
 	if cards != 1 {
-		t.Fatalf("session_paused inbox items = %d, want 1 — 'Dir 알림' is the other half of E9-05", cards)
+		t.Fatalf("hitl_request inbox items = %d, want 1 — 'Dir 알림' is the other half of E9-05", cards)
+	}
+	if paused != 0 {
+		t.Fatalf("session_paused inbox items = %d, want 0 — the HITL files its own card and two "+
+			"cards for one pause is the inbox saying it twice", paused)
+	}
+	// S-45's card: the request is on the session timeline, not only in the inbox.
+	var withCard int
+	if err := f.pool.QueryRow(t.Context(), `
+		SELECT count(*) FROM hitl_request h JOIN message m ON m.id = h.message_id
+		WHERE h.session_id = $1 AND h.purpose = 'budget' AND m.kind = 'hitl'`, f.sessionID).Scan(&withCard); err != nil {
+		t.Fatal(err)
+	}
+	if withCard != 1 {
+		t.Fatalf("timeline cards for the estimated budget request = %d, want 1 (S-45)", withCard)
 	}
 	// A feed line says why, so the session view is not silent either.
 	var events int

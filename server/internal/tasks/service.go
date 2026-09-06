@@ -709,8 +709,10 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 		return fmt.Errorf("tasks: pricing: %w", err)
 	}
 	type row struct {
-		taskID uuid.UUID
-		usd    float64
+		taskID  uuid.UUID
+		attempt int
+		usd     float64
+		model   string
 	}
 	// The cursor is drained before any write: tx is one connection, and a
 	// write issued mid-iteration would find it busy.
@@ -725,7 +727,8 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 	// arithmetic produces the same number, and a session with hundreds of
 	// attempts re-reads all of them on every finish.
 	rows, err := tx.Query(ctx, `
-		SELECT u.task_id, u.input_tokens, u.output_tokens, u.cache_read, u.cost_usd, COALESCE(NULLIF(u.model, ''), p.model, '')
+		SELECT u.task_id, t.attempt, u.input_tokens, u.output_tokens, u.cache_read, u.cost_usd,
+		       COALESCE(NULLIF(u.model, ''), p.model, '')
 		FROM task_usage u
 		JOIN task t ON t.id = u.task_id
 		LEFT JOIN agent_profile p ON p.id = t.profile_id
@@ -737,17 +740,31 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 		return fmt.Errorf("tasks: pricing rows: %w", err)
 	}
 	var todo []row
+	var unpriced []row
 	for rows.Next() {
 		var id uuid.UUID
+		var attempt int
 		var in, out, cacheRead int64
 		var stored float64
 		var model string
-		if err := rows.Scan(&id, &in, &out, &cacheRead, &stored, &model); err != nil {
+		if err := rows.Scan(&id, &attempt, &in, &out, &cacheRead, &stored, &model); err != nil {
 			rows.Close()
 			return fmt.Errorf("tasks: pricing scan: %w", err)
 		}
 		usd, ok := table.Estimate(model, in, out, cacheRead)
-		if !ok || usd == stored {
+		if !ok {
+			// S-48: an unpriced model is not $0, and since the budget is now
+			// enforced against the ESTIMATE the difference is the difference
+			// between a limit that holds and one that never trips. The row
+			// still keeps its 0 — inventing a rate is worse — but the feed
+			// says so once, so "예산이 안 걸렸다" has a reason on screen
+			// rather than only in the price table.
+			if in > 0 || out > 0 || cacheRead > 0 {
+				unpriced = append(unpriced, row{taskID: id, attempt: attempt, model: model})
+			}
+			continue
+		}
+		if usd == stored {
 			continue
 		}
 		todo = append(todo, row{taskID: id, usd: usd})
@@ -755,6 +772,19 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("tasks: pricing rows: %w", err)
+	}
+	for _, u := range unpriced {
+		model := u.model
+		if model == "" {
+			model = "(모델 미상)"
+		}
+		if err := InsertServerEventOnce(ctx, tx, u.taskID, u.attempt, "status", "note", "cost.unpriced", "info",
+			map[string]any{
+				"note":  "가격표에 없는 모델이라 비용을 추정할 수 없습니다 — 이 턴은 예산 계산에 $0으로 잡힙니다",
+				"model": model, "estimated": true,
+			}, now); err != nil {
+			return err
+		}
 	}
 	if len(todo) == 0 {
 		return nil

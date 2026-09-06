@@ -49,6 +49,7 @@ type inboxRow struct {
 	HitlDueAt       *time.Time
 	HitlOverdue     *bool
 	HitlStatus      *string
+	HitlPurpose     *string
 	HitlSpec        *string
 	HitlCreatedAt   *time.Time
 	HitlAgentName   *string
@@ -61,7 +62,7 @@ const selectInbox = `
 	SELECT i.id, i.member_id, m.workspace_id, i.type::text, i.severity::text, i.session_id, s.title, s.status::text,
 	       i.ref_id, i.read_at, i.created_at,
 	       h.type::text, h.question, h.context, h.proposed_default, h.due_at, h.overdue, h.status::text,
-	       h.approver_spec, h.created_at, a.name, s.director_user_id, s.deputy_director_user_id, s.paused_reason::text
+	       h.purpose::text, h.approver_spec, h.created_at, a.name, s.director_user_id, s.deputy_director_user_id, s.paused_reason::text
 	FROM inbox_item i
 	JOIN member m ON m.id = i.member_id
 	LEFT JOIN session s ON s.id = i.session_id
@@ -76,7 +77,7 @@ func scanInbox(rows pgx.Rows) ([]inboxRow, error) {
 		if err := rows.Scan(&r.ID, &r.MemberID, &r.WorkspaceID, &r.Type, &r.Severity, &r.SessionID, &r.SessionName, &r.SessionStatus,
 			&r.RefID, &r.ReadAt, &r.CreatedAt,
 			&r.HitlType, &r.HitlQuestion, &r.HitlContext, &r.HitlDefault, &r.HitlDueAt, &r.HitlOverdue, &r.HitlStatus,
-			&r.HitlSpec, &r.HitlCreatedAt, &r.HitlAgentName, &r.SessionDirector, &r.SessionDeputy, &r.SessionPaused); err != nil {
+			&r.HitlPurpose, &r.HitlSpec, &r.HitlCreatedAt, &r.HitlAgentName, &r.SessionDirector, &r.SessionDeputy, &r.SessionPaused); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -249,9 +250,15 @@ func fillInboxCard(out *gen.InboxItem, title, body string, r *inboxRow) {
 		MessageId       nullable.Nullable[openapi_types.UUID] `json:"message_id,omitempty"`
 		PausedReason    *gen.PauseReason                      `json:"paused_reason,omitempty"`
 		ProposedDefault nullable.Nullable[string]             `json:"proposed_default,omitempty"`
-		RuntimeName     nullable.Nullable[string]             `json:"runtime_name,omitempty"`
-		Summary         nullable.Nullable[string]             `json:"summary,omitempty"`
-		Title           *string                               `json:"title,omitempty"`
+
+		// Purpose is K-9: the web read `purpose` by fetching the request
+		// itself, one extra GET per approval card, because the pair
+		// (`source: system`, `approval`) cannot tell a budget pause from a
+		// completion approval (#139 NN1, 0012).
+		Purpose     nullable.Nullable[gen.InboxItemCardPurpose] `json:"purpose,omitempty"`
+		RuntimeName nullable.Nullable[string]                   `json:"runtime_name,omitempty"`
+		Summary     nullable.Nullable[string]                   `json:"summary,omitempty"`
+		Title       *string                                     `json:"title,omitempty"`
 	}{}
 	if title != "" {
 		out.Card.Title = &title
@@ -264,6 +271,14 @@ func fillInboxCard(out *gen.InboxItem, title, body string, r *inboxRow) {
 	if r.HitlType != nil {
 		k := gen.HitlType(*r.HitlType)
 		out.Card.HitlType = &k
+	}
+	// A non-HITL item carries no purpose: the column is joined only for
+	// `hitl_request` (selectInbox), so a NULL here is "this item is not a
+	// request", not "a request with no purpose".
+	if r.HitlPurpose != nil && *r.HitlPurpose != "" {
+		out.Card.Purpose = nullable.NewNullableWithValue(gen.InboxItemCardPurpose(*r.HitlPurpose))
+	} else {
+		out.Card.Purpose = nullable.NewNullNullable[gen.InboxItemCardPurpose]()
 	}
 	if r.SessionPaused != nil {
 		pr := gen.PauseReason(*r.SessionPaused)

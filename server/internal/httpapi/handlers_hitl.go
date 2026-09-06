@@ -105,6 +105,50 @@ func (s *Server) RespondHitlRequest(w http.ResponseWriter, r *http.Request, hitl
 			"budget_override_usd applies to the budget HITL only (FR-7.3 C2′)")))
 		return
 	}
+	if isSessionBudgetApproval(row, in) {
+		// K-10: this answer RESUMES the session, so it carries the new limit —
+		// and it is refused here for the same reason resumeSession refuses it,
+		// because coming back on a limit the session has already spent
+		// re-trips the pause on the next usage report and the Director sees
+		// the identical card again, having changed nothing (FR-7.3, openapi
+		// resumeSession `limits.budget_usd`).
+		//
+		// The demand is made only while the session is actually stopped for
+		// budget. The same request can be answered after someone has already
+		// resumed the session by hand, and asking for a raise then would
+		// refuse an answer that has nothing left to lift.
+		var status string
+		var reason *string
+		var spent float64
+		// The spend compared against is the one ENFORCEMENT reads — the live
+		// sum over task_usage — and not only `session.cost_usd`, which is
+		// written by the finish roll-up. An estimated overrun is found on a
+		// HEARTBEAT (S-48), before any finish, so the stored column is still
+		// $0.00 there and a $0.01 raise would pass this guard and re-trip the
+		// pause on the very next heartbeat.
+		if err := s.DB.QueryRow(r.Context(), `
+			SELECT s.status::text, s.paused_reason::text,
+			       greatest(s.cost_usd, COALESCE((SELECT sum(u.cost_usd) FROM task_usage u
+			                                        JOIN task t ON t.id = u.task_id
+			                                       WHERE t.session_id = s.id), 0))
+			FROM session s WHERE s.id = $1`, row.SessionID).
+			Scan(&status, &reason, &spent); err != nil {
+			writeErr(w, err)
+			return
+		}
+		if status == "paused" && derefString(reason) == sessions.PauseBudget {
+			switch {
+			case in.BudgetOverrideUsd == nil:
+				writeProblem(w, apperr.Validation(apperr.Field("budget_override_usd", "required",
+					"세션이 예산으로 멈춰 있습니다 — 승인은 새 세션 상한을 함께 받습니다 (승인이 곧 재개, K-10)")))
+				return
+			case float64(*in.BudgetOverrideUsd) <= spent:
+				writeProblem(w, apperr.Validation(apperr.Field("budget_override_usd", "too_low",
+					fmt.Sprintf("이미 $%.2f를 썼습니다 — 세션의 새 상한은 그보다 커야 합니다", spent))))
+				return
+			}
+		}
+	}
 	if row.isCompletionApproval() {
 		// The P2 branch (contracts PR #101): the platform's own approval for a
 		// `user_approval` completion condition — E6-03·E6-04. It folds into the
@@ -300,6 +344,23 @@ func (s *Server) answerAgentHitl(ctx context.Context, row *hitlRow, sess *hitlSe
 		}
 		s.Queue.Notifier.Notify()
 	}
+	if isSessionBudgetApproval(row, in) && in.BudgetOverrideUsd != nil {
+		// K-10: a SESSION-scoped budget request (task_id NULL) is answered by
+		// resuming the session. Before this the answer marked the request
+		// `answered` and stopped: the session stayed `paused(budget)`, its
+		// parked tasks stayed `paused`, and the Director had to go and call
+		// resumeSession as a second step — with the raise they had just
+		// approved not stored anywhere the resume would read, so that second
+		// step was refused as `limits.budget_usd too_low` unless they typed
+		// the number a second time.
+		if err := s.resumeSessionForBudget(ctx, row.SessionID, float64(*in.BudgetOverrideUsd), now); err != nil {
+			return 0, nil, apperr.As(err)
+		}
+		s.Queue.Notifier.Notify()
+		// publishSession renders the session for a viewer; the responder is
+		// the one person we know is looking at it.
+		s.publishSession(ctx, sess.WorkspaceID, row.SessionID, &gen.User{Id: userID})
+	}
 	s.publishHitl(ctx, sess.WorkspaceID, row.SessionID, row.ID, "hitl.updated")
 	out, err := s.hitlAPI(ctx, s.DB, row.ID, &userID)
 	if err != nil {
@@ -310,6 +371,77 @@ func (s *Server) answerAgentHitl(ctx context.Context, row *hitlRow, sess *hitlSe
 		resp["task"] = taskOut
 	}
 	return http.StatusOK, resp, nil
+}
+
+// isSessionBudgetApproval is K-10's gate: an APPROVED, session-scoped
+// (`task_id` empty) budget request. The three parts each carry weight —
+// `purpose` because `source: system` + `approval` is shared by the completion
+// approval and the loop pause (0012), `task_id` empty because a task-scoped
+// raise resumes that task and leaves the session alone (E9-02), and `approved`
+// because a rejection keeps the session `paused` (E9-03, contract: "거절은
+// paused 유지").
+func isSessionBudgetApproval(row *hitlRow, in gen.HitlResponse) bool {
+	return row.Purpose != nil && *row.Purpose == hitl.PurposeBudget && row.TaskID == nil &&
+		in.Approved != nil && *in.Approved
+}
+
+// resumeSessionForBudget is the session half of the approval: the same four
+// steps ResumeSession runs for a `budget` pause, minus the ones that belong to
+// another pause reason (loop counters) and minus closing the system request —
+// answerAgentHitl has already answered it, which is the whole point of K-10.
+//
+// It is a separate transaction from the answer for the reason answerAgentHitl
+// gives about the re-queue: this one locks the session and then its tasks,
+// while the budget answer path locks task-then-hitl, and holding both orders
+// at once is how the two deadlock.
+func (s *Server) resumeSessionForBudget(ctx context.Context, sessionID uuid.UUID, raise float64, now time.Time) error {
+	return s.inSessionTx(ctx, func(tx pgx.Tx) error {
+		var status string
+		var reason *string
+		var limitsRaw []byte
+		if err := tx.QueryRow(ctx, `
+			SELECT status::text, paused_reason::text, limits FROM session WHERE id = $1 FOR UPDATE`, sessionID).
+			Scan(&status, &reason, &limitsRaw); err != nil {
+			return err
+		}
+		if status != "paused" || derefString(reason) != sessions.PauseBudget {
+			// The pause was already lifted (a concurrent resumeSession), or
+			// the session stopped for another reason after the request was
+			// raised. Either way this answer is not the one that resumes it —
+			// and forcing `active` here would undo that other pause.
+			return nil
+		}
+		// The contract's "세션 잔여 상한 = 승인 금액": the raise IS the new
+		// session budget, not an addition to it, which is what makes
+		// `budget_override_usd` mean the same thing here as it does for a task
+		// (FR-7.3 C2′ — an override REPLACES the limit).
+		budget := float32(raise)
+		merged, err := mergeLimits(limitsRaw, &gen.SessionLimits{BudgetUsd: nullable.NewNullableWithValue(budget)})
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE session SET limits = $2, status = 'active', paused_reason = NULL, paused_detail = NULL, updated_at = $3
+			WHERE id = $1`, sessionID, merged, now); err != nil {
+			return err
+		}
+		// S-46's re-queue, reused: the pause PARKED the turns it cancelled, so
+		// a session that comes back `active` with its tasks still `paused` has
+		// resumed nothing.
+		if _, err := s.Tasks.ResumeSessionTasks(ctx, tx, sessionID, sessions.PauseBudget, tasks.CauseBudgetApproved, now); err != nil {
+			return err
+		}
+		// S-44's lane gate: the claim query refuses a paused lane, so a lane
+		// left `paused` never dispatches again. Only lanes that hold a queued
+		// task come back — one whose only task stayed parked has nothing to
+		// hand out.
+		_, err = tx.Exec(ctx, `
+			UPDATE lane l SET status = 'queued', finished_at = NULL, updated_at = $2
+			WHERE l.session_id = $1 AND l.status = 'paused'
+			  AND EXISTS (SELECT 1 FROM task t WHERE t.lane_id = l.id AND t.status = 'queued')`,
+			sessionID, now)
+		return err
+	})
 }
 
 // hitlDecisionSummary is the one line the decision log carries.
