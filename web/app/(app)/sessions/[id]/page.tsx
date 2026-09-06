@@ -381,6 +381,7 @@ export default function SessionPage() {
             {participants.map((p) => (
               <AgentChip
                 key={p.agent_id}
+                agentId={p.agent_id}
                 name={p.agent.name}
                 role={p.agent.role}
                 status={p.status}
