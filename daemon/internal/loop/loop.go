@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -437,11 +438,11 @@ func (d *Daemon) gc(ctx context.Context, c contracts.Command) {
 // finishWorkdir is §4.4's `workdir` block. The git measurement runs a couple
 // of git commands against the checkout the attempt just left; for a plain
 // folder it is nil and the block is just the path, as before.
-func (d *Daemon) finishWorkdir(wd string) *api.FinishWorkdir {
+func (d *Daemon) finishWorkdir(wd string) *contracts.FinishWorkdir {
 	if wd == "" {
 		return nil
 	}
-	return &api.FinishWorkdir{Path: wd, Git: workdir.Git(wd)}
+	return &contracts.FinishWorkdir{Path: wd, Git: workdir.Git(wd)}
 }
 
 func (d *Daemon) killAfter() time.Duration {
@@ -503,7 +504,7 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	k := key(b.Task.ID, b.Task.Attempt)
 	batcher := api.NewBatcher(ctx, d.Server, b.Task.ID, b.Task.Attempt)
 	batcher.OnCommands = func(cs []contracts.Command) { d.handleCommands(ctx, cs) }
-	finish := func(req api.FinishRequest) {
+	finish := func(req contracts.Finish) {
 		fctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		_ = batcher.Close(fctx)
@@ -525,7 +526,7 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	wd, err := workdir.Prepare(d.Cfg.WorkdirRoot, b)
 	if err != nil {
 		d.Log("%s workdir: %v", k, err)
-		finish(api.FinishRequest{Finish: contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: err.Error()}})
+		finish(contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: err.Error()})
 		return
 	}
 	// harness §10: a cli_wrapper runtime ignores mcpServers and sanitises the
@@ -537,7 +538,7 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		wrapper, werr := toolwrap.Write(d.Cfg.WorkdirRoot, b.Task.ID, b.Task.Attempt, d.Cfg.ColabBin, acp.Env(b.Profile.RuntimeKind, d.taskEnv(b), nil))
 		if werr != nil {
 			d.Log("%s tool wrapper: %v", k, werr)
-			finish(api.FinishRequest{Finish: contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: "tool wrapper: " + werr.Error()}, Workdir: d.finishWorkdir(wd)})
+			finish(contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: "tool wrapper: " + werr.Error(), Workdir: d.finishWorkdir(wd)})
 			return
 		}
 		// Every exit from here on — completed, failed, cancelled — drops the
@@ -547,9 +548,35 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		b.Prompt = toolwrap.RewriteCLI(b.Prompt, wrapper)
 	}
 
+	// harness §10 v0.8.7: the server writes `{{COLAB_REBIND_DIR}}` where it
+	// needs a path only this daemon knows; we fill it here — after the
+	// wrapper rewrite, before the pointer line. Every runtime, not just
+	// cli_wrapper: the placeholder is about paths, not about tool surface.
+	vals := d.placeholderValues(b)
+	b.Brief.Text = substitutePlaceholders(b.Brief.Text, vals)
+	b.Prompt = substitutePlaceholders(b.Prompt, vals)
+	if left := leftoverPlaceholders(b.Brief.Text, b.Prompt); len(left) > 0 {
+		// §10 v0.8.7: never hand the agent a broken path. `config` because
+		// nothing about this machine can retry it into working — a newer
+		// server is naming a placeholder this daemon does not implement.
+		detail := "치환되지 않은 자리표시자: " + strings.Join(left, ", ")
+		d.Log("%s %s", k, detail)
+		batcher.Emit(contracts.TaskEvent{
+			TaskID: b.Task.ID, Attempt: b.Task.Attempt, Seq: 1, TS: d.Clock.Now().UTC(),
+			Class: "runtime", Verb: "error", Outcome: "failed",
+			Payload: map[string]any{
+				"runtime_kind": string(b.Profile.RuntimeKind),
+				"failure_kind": string(contracts.FailConfig),
+				"detail":       detail,
+			},
+		})
+		finish(contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: detail, Workdir: d.finishWorkdir(wd)})
+		return
+	}
+
 	prep, err := brief.Prepare(wd, b.Brief.Transport, b.Brief.Text)
 	if err != nil {
-		finish(api.FinishRequest{Finish: contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: err.Error()}, Workdir: d.finishWorkdir(wd)})
+		finish(contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: err.Error(), Workdir: d.finishWorkdir(wd)})
 		return
 	}
 	defer func() { _ = brief.Remove(prep) }()
@@ -638,7 +665,8 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 			f.NotBefore = res.Failure.NotBefore
 		}
 	}
-	finish(api.FinishRequest{Finish: f, Workdir: d.finishWorkdir(wd)})
+	f.Workdir = d.finishWorkdir(wd)
+	finish(f)
 	d.Log("%s finished outcome=%s stop=%s", k, res.Outcome, f.StopReason)
 }
 

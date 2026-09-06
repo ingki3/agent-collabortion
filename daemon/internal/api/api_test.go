@@ -25,7 +25,7 @@ type fakeServer struct {
 	eventsMax int
 	failNext  int
 	batches   [][]int
-	finish    []FinishRequest
+	finish    []contracts.Finish
 	phases    []PhaseRequest
 	hb        []HeartbeatRequest
 	hbRaw     [][]byte
@@ -121,7 +121,7 @@ func (f *fakeServer) handler() http.Handler {
 		json.NewEncoder(w).Encode(HeartbeatResponse{Commands: []contracts.Command{{Type: contracts.CmdCancel, TaskID: "t1", Attempt: 1, Reason: "director"}}})
 	})
 	mux.HandleFunc("POST /v1/daemon/tasks/{task}/attempts/{n}/finish", func(w http.ResponseWriter, r *http.Request) {
-		var req FinishRequest
+		var req contracts.Finish
 		json.NewDecoder(r.Body).Decode(&req)
 		f.mu.Lock()
 		f.finish = append(f.finish, req)
@@ -172,7 +172,7 @@ func TestPairProbeClaimPhaseHeartbeatFinish(t *testing.T) {
 	if err != nil || len(hr.Commands) != 1 || hr.Commands[0].Type != contracts.CmdCancel {
 		t.Fatalf("%+v %v", hr, err)
 	}
-	if err := c.Finish(ctx, "t1", 1, FinishRequest{Finish: contracts.Finish{Outcome: "completed", StopReason: "end_turn", LastSeq: 3}}); err != nil {
+	if err := c.Finish(ctx, "t1", 1, contracts.Finish{Outcome: "completed", StopReason: "end_turn", LastSeq: 3}); err != nil {
 		t.Fatal(err)
 	}
 	f.mu.Lock()
@@ -352,5 +352,36 @@ func TestDaemonNeverFillsPreviewMessageID(t *testing.T) {
 		if _, ok := hb.Preview["message_id"]; ok {
 			t.Fatalf("heartbeat %d put message_id on the wire — §4.2 v0.5 makes it the server's: %s", i, raw)
 		}
+	}
+}
+
+// NN2: folding the daemon's own `FinishRequest`/`FinishWorkdir`/
+// `workdir.GitInfo` into the contract types must not move a single byte on
+// the wire. This pins the §4.4 `workdir` block's exact JSON — the shape the
+// server's finish handler and the P4 golden table read.
+func TestFinishWorkdirWireShape(t *testing.T) {
+	b, err := json.Marshal(contracts.Finish{
+		Outcome: "completed", LastSeq: 7,
+		Workdir: &contracts.FinishWorkdir{
+			Path: "/w/sessions/s1/backend",
+			Git:  &contracts.WorkdirGit{Branch: "colab/s1/backend", Merged: false, Dirty: true, CommitsAhead: 2},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `"workdir":{"path":"/w/sessions/s1/backend","git":{"branch":"colab/s1/backend","merged":false,"dirty":true,"commits_ahead":2}}`
+	if !strings.Contains(string(b), want) {
+		t.Fatalf("finish body\n got %s\nwant …%s…", b, want)
+	}
+	// A plain folder has no git block at all, and a `dir` attempt that never
+	// got a workdir has no `workdir` key (both `omitempty`).
+	b, _ = json.Marshal(contracts.Finish{Outcome: "completed", Workdir: &contracts.FinishWorkdir{Path: "/w/x"}})
+	if !strings.Contains(string(b), `"workdir":{"path":"/w/x"}`) {
+		t.Fatalf("folder finish body = %s", b)
+	}
+	b, _ = json.Marshal(contracts.Finish{Outcome: "completed"})
+	if strings.Contains(string(b), "workdir") {
+		t.Fatalf("empty workdir emitted a key: %s", b)
 	}
 }

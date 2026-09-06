@@ -668,6 +668,20 @@ func budgetCancel(c *CancelRequest) bool { return c != nil && c.Reason == Cancel
 // "was I cancelled?" before it checked why, so a server-driven budget pause
 // came back as `cancelled` + failure_kind `cancelled` and the session ended
 // instead of pausing. The reason is on the wire; this reads it.
+//
+// FOUR call sites reach it, not three (PR #156 review NN4 — the PR body said
+// three and undercounted). A turn can be cancelled at four distinct points,
+// and a pause that only survives three of them is a pause the Director
+// cannot rely on:
+//
+//  1. classify() — the cancel landed before/around the turn, so the error
+//     path is what returns, and it must not be classified as a failure.
+//  2. Run(), prompt error branch — session/prompt returned an error while
+//     the cancel was in flight.
+//  3. Run(), stopReason == "cancelled" — the adapter itself reports the
+//     cancellation.
+//  4. Run(), default stopReason with the cancel flag set — the turn ended
+//     normally but we had already asked it to stop.
 func applyCancelOutcome(res *Result, req *CancelRequest) {
 	if budgetCancel(req) {
 		// §4.4: no failure_kind — going over budget is policy, not an error.

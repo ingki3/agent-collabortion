@@ -37,7 +37,7 @@ type memServer struct {
 	hbs            []api.HeartbeatRequest
 	hbCmds         []contracts.Command
 	workdirReports []api.WorkdirsRequest
-	finishes       []api.FinishRequest
+	finishes       []contracts.Finish
 	// hbUsageAtFinish is how many heartbeats carrying a non-zero `usage` had
 	// arrived by the time `finish` did (D-17): the server's in-turn budget
 	// check is gated on that number, so "0 until finish" is the defect.
@@ -128,7 +128,7 @@ func (m *memServer) Heartbeat(_ context.Context, _ string, _ int, req api.Heartb
 	m.hbLog = append(m.hbLog, hbEntry{at: time.Now(), usage: req.Usage})
 	return api.HeartbeatResponse{Commands: m.hbCmds}, nil
 }
-func (m *memServer) Finish(_ context.Context, _ string, _ int, req api.FinishRequest) error {
+func (m *memServer) Finish(_ context.Context, _ string, _ int, req contracts.Finish) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	n := 0
