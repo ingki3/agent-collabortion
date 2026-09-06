@@ -332,6 +332,11 @@ type briefFilePlan struct {
 	// Overwrote is the resumed case: the stale brief from the previous
 	// attempt is replaced, never appended to.
 	Overwrote bool
+	// MarkerBlocks is how many <!-- colab:brief:start --> blocks the brief
+	// file holds after lane start. Exactly 1 — `Overwrote` alone is satisfied
+	// by an implementation that appends (PR #156 review NN1: the row was
+	// empty), so the count is what the row actually measures.
+	MarkerBlocks int
 
 	// --- lane end ---
 	// RestoreAction: "delete_file" | "remove_markers" | "restore_original".
@@ -491,6 +496,10 @@ func TestBriefFilePollutionGolden(t *testing.T) {
 		if !p.Overwrote {
 			t.Error("on 재개·재시도 the previous attempt's COLAB_BRIEF.md is replaced — appending " +
 				"would give the agent two briefs and break E12-11 byte identity (harness §10 v0.8.6)")
+		}
+		if p.MarkerBlocks != 1 {
+			t.Errorf("marker blocks after the resumed lane start = %d, want exactly 1 — two blocks are two "+
+				"briefs, and `Overwrote` on its own cannot tell an overwrite from an append (E12-11)", p.MarkerBlocks)
 		}
 	})
 

@@ -55,6 +55,7 @@ type briefFilePlan struct {
 	SkipWorktreeBitsSet           int
 	GitStatusClean                bool
 	Overwrote                     bool
+	MarkerBlocks                  int
 	RestoreAction                 string
 	UnhideAction                  string
 	AgentCommitSucceeded          bool
@@ -135,6 +136,7 @@ func planBriefFile(t *testing.T, c briefFileCase) briefFilePlan {
 	}
 	if body, err := os.ReadFile(prep.Path); err == nil {
 		p.WrappedInMarkers = HasMarkers(body)
+		p.MarkerBlocks = strings.Count(string(body), MarkerStart)
 	}
 	switch {
 	case gitrepo.ExcludeHas(wd, FileName):
@@ -295,6 +297,10 @@ func TestBriefFilePollutionGoldenMirror(t *testing.T) {
 		if !p.Overwrote {
 			t.Error("on 재개·재시도 the previous attempt's COLAB_BRIEF.md is replaced — appending " +
 				"would give the agent two briefs and break E12-11 byte identity (harness §10 v0.8.6)")
+		}
+		if p.MarkerBlocks != 1 {
+			t.Errorf("marker blocks after the resumed lane start = %d, want exactly 1 — two blocks are two "+
+				"briefs, and `Overwrote` on its own cannot tell an overwrite from an append (E12-11)", p.MarkerBlocks)
 		}
 	})
 
