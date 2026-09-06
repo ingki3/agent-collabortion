@@ -42,6 +42,8 @@
 | S-6 | **SSE 응답에 `Cache-Control: no-cache, no-transform`** — `compress:false`는 Next만 막는다. 배포의 nginx·CDN이 `text/event-stream`을 gzip 버퍼링하면 W-2가 그대로 재발한다. 서버가 스스로 말해야 한 곳에서 막힌다 | PR #34 NN1 | **배포 전 필수.** `handlers_sessions.go` 스트림 응답 헤더 |
 | S-7 | `createWorkspace` 슬러그 유일 제약 재시도가 같은 트랜잭션 안 → 같은 이름 두 번째 워크스페이스가 `25P02` 500. PR #33이 `runtimes.go`에서 savepoint로 고친 S-4와 **같은 결함·다른 위치** | PR #34 NN2 | 같은 패턴이 더 있는지 전수(`ON CONFLICT` 없는 재시도) |
 | S-8 | 취소 흡수(`cancelRequested`)가 명령의 **존재**만 보고 `consumed_at`을 안 본다. 24h TTL 소비 후에도 흡수가 남을 수 있다 | PR #33 NN3 | 낮음 |
+| S-9 | **서버 발행 task_event의 seq 계산이 attempt 스코프**(`max(seq)+1 WHERE task_id AND attempt`)인데 유니크 제약은 `(task_id, seq)`(0001) → attempt 2의 첫 서버 이벤트가 attempt 1과 충돌. 피해는 피드 노트 1건 유실(heartbeat·취소는 안전) | PR #43 NN1 | 두 자리 함께: `tasks/service.go` `NotePreviewDrift`·director 취소 노트. `ON CONFLICT (task_id, seq) DO NOTHING` 또는 seq에서 attempt 조건 제거 |
+| S-10 | `auth.AcceptInvite` 동시 수락 TOCTOU → 500 | PR #43 전수 조사 | savepoint 또는 `ON CONFLICT` |
 
 ## C (CLI)
 
