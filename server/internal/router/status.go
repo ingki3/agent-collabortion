@@ -17,13 +17,13 @@ import (
 // StatusResult is `colab status set …`'s answer (contracts/openapi.yaml
 // setTaskStatus).
 type StatusResult struct {
-	TaskID            uuid.UUID
-	LaneID            uuid.UUID
+	TaskID uuid.UUID
+	LaneID uuid.UUID
 	// TurnEndRequired is the server telling the agent to end its turn. It is
 	// deliberately NOT called end_turn: ACP's stopReason `end_turn` is the
 	// report that a turn ENDED, and one grep must not return both (the P1
 	// kind ↔ runtime_kind collision failed every finish for the same reason).
-	TurnEndRequired bool
+	TurnEndRequired   bool
 	QuestionMessageID *uuid.UUID
 }
 

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -10,6 +11,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
+	"github.com/ingki3/agent-collabortion/server/internal/router"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -86,4 +88,62 @@ func (s *Server) publishLane(r *http.Request, wsID, sessionID uuid.UUID, lane *g
 	if err := s.Hub.Publish(r.Context(), s.DB, wsID, &sid, "lane.updated", lane); err != nil {
 		s.Log.Warn("publish lane.updated", "err", err, "lane", lane.Id)
 	}
+}
+
+// DelegateLane is `colab lane delegate` (FR-6.2, FR-6.5). Agents only: a human
+// parallelises with postMessage's new_lane toggle instead.
+func (s *Server) DelegateLane(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.DelegateLaneParams) {
+	pr := principalOf(r)
+	if pr.Task == nil {
+		writeProblem(w, apperr.Forbidden("agent_only", "lane delegate is an agent tool; humans use the composer's new-lane toggle"))
+		return
+	}
+	if pr.Task.SessionID != sessionId {
+		writeProblem(w, apperr.Forbidden("outside_task_scope", "task token cannot delegate in another session"))
+		return
+	}
+	body, p := readBody(w, r)
+	if p != nil {
+		writeProblem(w, p)
+		return
+	}
+	var in gen.DelegateLaneJSONBody
+	if p := decodeJSON(w, r, &in); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	if strings.TrimSpace(in.Brief) == "" {
+		writeProblem(w, apperr.Validation(apperr.Field("brief", "required", "brief is required — it becomes the child's turn prompt")))
+		return
+	}
+	dep := []uuid.UUID{}
+	if in.DependsOn != nil {
+		for _, d := range *in.DependsOn {
+			dep = append(dep, uuid.UUID(d))
+		}
+	}
+	var profile *string
+	if in.Profile.IsSpecified() && !in.Profile.IsNull() {
+		v := in.Profile.MustGet()
+		profile = &v
+	}
+	call := func() (int, any, *Problem) {
+		res, err := s.Router.Delegate(r.Context(), pr.Task.TaskID, router.DelegateInput{
+			AgentID: uuid.UUID(in.AgentId), Brief: in.Brief, DependsOn: dep, Profile: profile,
+		})
+		if err != nil {
+			return 0, nil, apperr.As(err)
+		}
+		return http.StatusCreated, map[string]any{"lane": res.Lane, "message": res.Message, "task": res.Task}, nil
+	}
+	if params.IdempotencyKey == nil {
+		st, out, p := call()
+		if p != nil {
+			writeProblem(w, p)
+			return
+		}
+		writeJSON(w, st, out)
+		return
+	}
+	s.idempotent(r.Context(), w, taskScope(pr.Task.TaskID), params.IdempotencyKey.String(), requestHash(r, body), call)
 }

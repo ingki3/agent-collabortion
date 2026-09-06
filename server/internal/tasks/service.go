@@ -316,10 +316,23 @@ func (s *Service) requeueLocked(ctx context.Context, tx pgx.Tx, t *Row, reason c
 		if _, err := Transition(t.Status, Queued); err != nil {
 			return err
 		}
+		// daemon-protocol §4.4 (v0.4): the SERVER swaps the profile, not the
+		// daemon. The session is pinned to a runtime, so re-queueing here keeps
+		// the work on the same machine by construction — the one thing E8-09
+		// forbids is moving it elsewhere.
+		fb, err := s.ApplyProfileFallback(ctx, tx, t, reason, now)
+		if err != nil {
+			return err
+		}
+		if fb.NotifyDirector {
+			if err := noteNoFallback(ctx, tx, t, now); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE task SET status = 'queued', attempt = attempt + 1, failure_kind = NULL, not_before = $2,
-			       runtime_id = NULL, heartbeat_at = NULL, dispatched_at = NULL, started_at = NULL, updated_at = $3
-			WHERE id = $1`, t.ID, notBefore, now); err != nil {
+			       profile_id = $4, runtime_id = NULL, heartbeat_at = NULL, dispatched_at = NULL, started_at = NULL, updated_at = $3
+			WHERE id = $1`, t.ID, notBefore, now, t.ProfileID); err != nil {
 			return fmt.Errorf("tasks: requeue: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'queued', updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {

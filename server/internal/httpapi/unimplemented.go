@@ -206,10 +206,6 @@ func (unimplemented) ListLanes(w http.ResponseWriter, r *http.Request, sessionId
 	notImplemented(w, r, "ListLanes")
 }
 
-func (unimplemented) DelegateLane(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.DelegateLaneParams) {
-	notImplemented(w, r, "DelegateLane")
-}
-
 func (unimplemented) ListMessages(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.ListMessagesParams) {
 	notImplemented(w, r, "ListMessages")
 }
