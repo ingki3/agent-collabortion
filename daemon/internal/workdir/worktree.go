@@ -170,24 +170,21 @@ func PrepareWorktree(root string, b contracts.TaskBundle) (string, error) {
 	return abs, nil
 }
 
-// GitInfo is the §6 report's `git` block and the §4.4 finish's.
-type GitInfo struct {
-	Branch       string `json:"branch"`
-	Merged       bool   `json:"merged"`
-	Dirty        bool   `json:"dirty"`
-	CommitsAhead int    `json:"commits_ahead"`
-}
+// The §6 report's `git` block and the §4.4 finish's are one and the same
+// shape, and since daemon-protocol v0.7.2 that shape is a contract type
+// (`contracts.WorkdirGit`) — the local `GitInfo` that stood in while the
+// contract PR (#157) was pending is gone (NN2).
 
 // Git measures one checkout for the report. The server decides what may be
 // collected from these numbers (§6 "GC 판정은 서버가 한다"); the daemon only
 // states what it sees.
-func Git(path string) *GitInfo {
+func Git(path string) *contracts.WorkdirGit {
 	if !gitrepo.IsRepo(path) {
 		return nil
 	}
 	branch := gitrepo.Branch(path)
 	base := gitrepo.DefaultBranch(path)
-	return &GitInfo{
+	return &contracts.WorkdirGit{
 		Branch:       branch,
 		Merged:       gitrepo.Merged(path, branch, base),
 		Dirty:        !gitrepo.Clean(path),

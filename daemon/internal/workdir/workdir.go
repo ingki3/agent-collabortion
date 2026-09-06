@@ -85,7 +85,7 @@ type Info struct {
 	LastUsedAt time.Time `json:"last_used_at"`
 	// Git is the §6 report's `git` block, set for a checkout: the numbers
 	// the SERVER judges 병합·클린 from (E13-10~13). nil for a plain folder.
-	Git *GitInfo `json:"git,omitempty"`
+	Git *contracts.WorkdirGit `json:"git,omitempty"`
 	// GC is set only on the report that answers a §4.3 `gc` command.
 	GC *GCResult `json:"gc,omitempty"`
 }

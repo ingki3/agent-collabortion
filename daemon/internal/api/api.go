@@ -94,20 +94,15 @@ type HeartbeatResponse struct {
 	Commands []contracts.Command `json:"commands"`
 }
 
-// FinishRequest — POST …/finish (§4.4).
-type FinishRequest struct {
-	contracts.Finish
-	Workdir *FinishWorkdir `json:"workdir,omitempty"`
-}
-
-// FinishWorkdir is §4.4's `workdir: {path, git: {branch, dirty, ahead}?}`.
+// The §4.4 finish body — including `workdir: {path, git?}` — is
+// `contracts.Finish` itself (contracts/protocol.go, daemon-protocol v0.7.2),
+// so the daemon posts the contract type directly. The local `FinishRequest`
+// wrapper and its `FinishWorkdir` that carried the field while the contract
+// PR (#157) was pending are gone (NN2, the same fold as D-14).
+//
 // The git block is what tells the server whether the checkout it may collect
 // in 14 days has unmerged commits or uncommitted work (E13-12·13) — the
 // numbers arrive with the attempt that made them, not only on the next probe.
-type FinishWorkdir struct {
-	Path string           `json:"path"`
-	Git  *workdir.GitInfo `json:"git,omitempty"`
-}
 
 type WorkdirsRequest struct {
 	Workdirs []workdir.Info `json:"workdirs"`
@@ -121,7 +116,7 @@ type Server interface {
 	Phase(ctx context.Context, taskID string, attempt int, req PhaseRequest) error
 	Events(ctx context.Context, taskID string, attempt int, events []contracts.TaskEvent) (EventsResponse, error)
 	Heartbeat(ctx context.Context, taskID string, attempt int, req HeartbeatRequest) (HeartbeatResponse, error)
-	Finish(ctx context.Context, taskID string, attempt int, req FinishRequest) error
+	Finish(ctx context.Context, taskID string, attempt int, req contracts.Finish) error
 	Workdirs(ctx context.Context, runtimeID string, req WorkdirsRequest) error
 	// Download fetches an artifact body to dest. It is the only GET the
 	// daemon makes and the only one whose response is not JSON: a
@@ -229,7 +224,7 @@ func (c *Client) Heartbeat(ctx context.Context, taskID string, attempt int, req 
 	return res, err
 }
 
-func (c *Client) Finish(ctx context.Context, taskID string, attempt int, req FinishRequest) error {
+func (c *Client) Finish(ctx context.Context, taskID string, attempt int, req contracts.Finish) error {
 	return c.do(ctx, http.MethodPost, attemptPath(taskID, attempt, "finish"), req, nil)
 }
 
