@@ -10,7 +10,10 @@ import (
 )
 
 // systemEnvKeys is the "시스템 최소" part of the harness §2.1 allow-list.
-var systemEnvKeys = []string{"PATH", "HOME", "LANG", "TMPDIR"}
+// USER (v0.6) is here because refreshing an expired OAuth session looks the
+// user up in the macOS keychain through it — without it every task fails
+// with failure_kind=auth (G4 blocker).
+var systemEnvKeys = []string{"PATH", "HOME", "LANG", "TMPDIR", "USER"}
 
 // ReservedEnvPrefix marks variables the daemon owns (harness §2.1): the
 // profile env may not set or override them — COLAB_SERVER_URL would

@@ -45,7 +45,7 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
   colab review approve --artifact <id> [--note <t>]
   colab review reject  --artifact <id> --reason <text>
   colab mcp serve            stdio MCP server exposing the same commands as tools
-  colab version
+  colab version            also as the flags --version · -v (the daemon probe runs colab --version)
 
   The four P2 write commands take an optional --idempotency-key (uuid); it is
   sent only when given (openapi IdempotencyKeyOptional).
@@ -66,7 +66,10 @@ func run(args []string, getenv client.Getenv, stdin io.Reader, stdout, stderr io
 		return client.ExitUsage
 	}
 	switch args[0] {
-	case "version":
+	// --version/-v are the same output as the subcommand: the daemon probe
+	// runs `colab --version` (daemon-protocol.md §3) and reads x.y.z out of
+	// it, so without the flag every probe reports colab_cli.present=false.
+	case "version", "--version", "-v":
 		fmt.Fprintf(stdout, "colab %s (contracts %s)\n", version, contracts.Version)
 		return client.ExitOK
 	case "session":

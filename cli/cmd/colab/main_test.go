@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -33,6 +34,27 @@ func TestVersion(t *testing.T) {
 	var out bytes.Buffer
 	if code := run([]string{"version"}, func(string) string { return "" }, nil, &out, &out); code != 0 || !strings.HasPrefix(out.String(), "colab ") {
 		t.Fatalf("code=%d out=%q", code, out.String())
+	}
+}
+
+// The daemon probe runs `colab --version` (daemon-protocol.md §3) and pulls
+// x.y.z out of the output with `\d+\.\d+\.\d+`; without the flag it saw
+// exit 2 and reported colab_cli.present=false for every machine.
+func TestVersionFlag(t *testing.T) {
+	probeRe := regexp.MustCompile(`\d+\.\d+\.\d+`) // probe/probe.go versionRe
+	for _, arg := range []string{"--version", "-v", "version"} {
+		var out, errb bytes.Buffer
+		code := run([]string{arg}, func(string) string { return "" }, nil, &out, &errb)
+		if code != 0 {
+			t.Fatalf("%s: exit %d, want 0 (stderr %q)", arg, code, errb.String())
+		}
+		line := out.String()
+		if !strings.HasPrefix(line, "colab ") || strings.Count(line, "\n") != 1 || !strings.HasSuffix(line, "\n") {
+			t.Fatalf("%s: want one \"colab ...\" line, got %q", arg, line)
+		}
+		if !probeRe.MatchString(line) {
+			t.Fatalf("%s: %q has no x.y.z — probe would report present=false", arg, line)
+		}
 	}
 }
 
