@@ -226,10 +226,13 @@ describe("예산 — golden E9 의 수치", () => {
     const it = inbox.items.find((x) => x.ref_id === h.id)!;
     expect(it.type).toBe("hitl_request"); // session_paused 가 아니다 — 여기서 W-6 이 났다
     expect(it.card?.hitl_type).toBe("approval");
-    // 항목만으로는 예산인지 알 수 없다. 이 단정이 깨지면(계약에 purpose 가 생기면) S8 의 상세 왕복을 지워도 된다.
-    expect((it.card as Record<string, unknown>).purpose).toBeUndefined();
+    // **K-9(#147) 이후**: 항목 카드가 `purpose` 를 싣는다. P3 때는 여기가 `toBeUndefined()` 였고 S8 은
+    // 항목마다 상세를 한 번 더 읽었다(N+1). 계약이 그 칸을 만들면서 왕복이 사라졌다 — T-W5 가 지웠다.
+    expect(it.card?.purpose).toBe("budget");
+    // 세션은 `active` 다 — 그래서 범위는 **task** 다(`budgetScopeOf`). `paused_reason` 은 여전히 비어 있다.
     expect(it.card?.paused_reason ?? null).toBeNull();
-    // 상세는 준다 — 그것이 화면이 쓰는 경로다.
+    expect(it.session?.status).toBe("active");
+    // 상세도 같은 값을 준다(두 경로가 어긋나면 어느 쪽이 맞는지 알 수 없다).
     expect((await must<HitlRequest>("GET", `/hitl-requests/${it.ref_id}`)).purpose).toBe("budget");
 
     // 승인 페이로드는 그대로 E9-02 다.

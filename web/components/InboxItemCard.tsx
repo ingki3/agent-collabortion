@@ -88,12 +88,25 @@ export function extraLine(item: InboxItem): string | null {
   }
 }
 
+/**
+ * 예산 HITL 의 **범위**(K-9 이후, Lead 확인 2026-09-07).
+ *
+ * `card.purpose` 가 생겨(K-9) 인박스는 HITL 상세를 다시 읽지 않는다. 다만 카드에는 `task_id` 도 `scope` 도
+ * 없으므로 범위는 **세션 상태**로 가른다:
+ *   · task 범위 초과(E9-01·E9-10)는 lane 만 멈추고 세션은 `active` 다 → "새 task 상한".
+ *   · 세션 범위 초과(K-10)는 세션이 `paused(budget)` 다 → "새 세션 상한".
+ * 범위를 섞으면 라벨이 거짓말을 하고, 세션 소진액을 task 범위의 최소로 쓰면 정상적인 $3 상향이 막힌다.
+ */
+export function budgetScopeOf(item: InboxItem): "task" | "session" {
+  return item.session?.status === "paused" ? "session" : "task";
+}
+
 export interface InboxItemCardProps {
   item: InboxItem;
   /**
-   * 이 항목이 가리키는 HITL 요청(`ref_id` 로 읽은 것). **계약 `InboxItem.card` 에 `purpose` 가 없어서**
-   * 항목만으로는 예산 HITL 인지 알 수 없다 — 호출부(S8)가 상세를 읽어 넘긴다(W-6).
-   * 없어도 카드는 그대로 그려진다: 예산 상향 입력만 붙지 않는다.
+   * (선택) 이 항목이 가리키는 HITL 요청. **더는 필요하지 않다** — `card.purpose`(K-9)로 예산 HITL 을
+   * 알아보고 범위는 `budgetScopeOf` 가 세션 상태로 가른다. 넘기면 `budget_override_usd`(지금 상한)만
+   * 조금 더 정확해지므로, S7 처럼 이미 상세를 들고 있는 자리에서만 넘긴다.
    */
   hitl?: HitlRequest | null;
   /** 인라인 HITL 응답(F2). `hitl_request` 에서만 쓰인다. */
@@ -120,17 +133,16 @@ export function InboxItemCard({ item, hitl: detail, onRespond, onApproveContinue
   const raiseBudget = item.type === "session_paused" && item.card?.paused_reason === "budget" && actions.includes("approve_continue");
   const [budget, setBudget] = useState("");
   /**
-   * HITL 쪽 예산 상향 입력(W-6). **조건은 `purpose` 하나**다 — 항목 타입이 `session_paused` 인지,
-   * 세션이 멈췄는지는 보지 않는다. task 범위 초과(E9-01·E9-10)는 lane 만 멈추고 세션은 `active` 라서
-   * 항목은 `hitl_request` 로 오고, 그때도 Director 는 카드 안에서 금액을 정할 수 있어야 한다(U7-1).
+   * HITL 쪽 예산 상향 입력(W-6). **조건은 `card.purpose` 하나**다(K-9) — 항목 타입이 `session_paused` 인지는
+   * 보지 않는다. task 범위 초과(E9-01·E9-10)는 lane 만 멈추고 세션은 `active` 라서 항목이 `hitl_request` 로
+   * 오는데, 그때도 Director 는 카드 안에서 금액을 정할 수 있어야 한다(U7-1).
    *
-   * 상세를 아직 못 읽었을 때의 보루: 세션 범위 초과는 세션이 `paused(budget)` 이므로 항목 카드의
-   * `paused_reason` 만으로도 알아본다.
+   * **여기서 HITL 상세를 읽지 않는다** — K-9 전에는 항목마다 `getHitlRequest` 를 한 번 더 불렀고(N+1),
+   * 그 왕복이 카드가 그려진 뒤에 끝나 입력이 뒤늦게 붙었다.
    */
-  const budgetHitl =
-    item.type === "hitl_request" && (detail?.purpose === "budget" || (detail == null && item.card?.paused_reason === "budget"));
+  const budgetHitl = item.type === "hitl_request" && item.card?.purpose === "budget";
   const hitlBudget = budgetHitl
-    ? { scope: (detail?.task_id ? "task" : "session") as "task" | "session", current: detail?.budget_override_usd ?? null, spent: null }
+    ? { scope: budgetScopeOf(item), current: detail?.budget_override_usd ?? null, spent: null }
     : null;
 
   return (

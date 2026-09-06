@@ -26,6 +26,7 @@ import { SessionActions } from "@/components/SessionActions";
 import { ParticipantsDialog } from "@/components/ParticipantsDialog";
 import { HitlCard } from "@/components/HitlCard";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
+import { RebindDialog } from "@/components/RebindDialog";
 import { api, errorMessage, newIdempotencyKey } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
@@ -78,6 +79,8 @@ export default function SessionPage() {
   const [col, setCol] = useState<Col>("timeline");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** S17 재바인딩 다이얼로그 — `paused(runtime_offline)` 배너의 두 선택지 중 하나(SCREEN §4.9 진입). */
+  const [rebindOpen, setRebindOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -707,11 +710,26 @@ export default function SessionPage() {
             agentName={agentName}
             busy={busy}
             onResume={isDirector ? resume : undefined}
-            onRebind={() => setError("재바인딩 다이얼로그(S17)는 P4 입니다 — Runtimes 화면에서 진행하세요.")}
+            onRebind={isDirector ? () => setRebindOpen(true) : undefined}
             onCancelSession={isDirector ? () => void cancelSession("런타임 오프라인 — 재바인딩 대신 종료") : undefined}
           />
         </section>
       </div>
+      {rebindOpen && session && (
+        <RebindDialog
+          session={{
+            id: session.id,
+            title: session.title,
+            isolation: session.isolation,
+            status: session.status,
+            workspace_id: session.workspace_id,
+            paused_detail: session.paused_detail,
+            runtime: session.runtime ?? null,
+          }}
+          onClose={() => setRebindOpen(false)}
+          onDone={() => void load()}
+        />
+      )}
       {error && session && <p className="problem" role="alert" style={{ marginTop: 12 }}>{error}</p>}
       <style>{`
         .s7 { display: flex; flex-direction: column; min-height: calc(100vh - 48px - 48px); }

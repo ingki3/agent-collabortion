@@ -7,6 +7,10 @@
  * 필터는 계약의 `filter`(all·unread·action_required)와 `type` 뿐이다 — 화면이 만든 필터는 서버 페이지네이션과
  * 어긋난다.
  *
+ * **항목당 왕복은 하나도 없다**(K-9, #147). 예전에는 예산 HITL 을 알아보려고 `hitl_request` 항목마다
+ * `getHitlRequest` 를 한 번 더 읽었다(N+1) — 목록 하나에 요청 N+1 개였고, 그 응답이 늦게 오면 카드가
+ * 그려진 뒤에야 상향 입력이 붙었다. 계약이 `InboxItem.card.purpose` 를 실어 주면서 그 왕복이 사라졌다.
+ *
  * 응답은 `respondHitlRequest`(멱등키 필수) 로 보낸다. 성공하면 그 항목을 목록에서 내린다 — U3 2단계의
  * "카드가 사라짐"이 처리됐다는 유일한 신호다.
  *
@@ -19,7 +23,7 @@ import { InboxItemCard, type InboxAction } from "@/components/InboxItemCard";
 import { api, errorMessage, newIdempotencyKey } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
-import type { HitlRequest, HitlResponse, InboxItem, InboxSummary, StreamEvent } from "@/lib/api/types";
+import type { HitlResponse, InboxItem, InboxSummary, StreamEvent } from "@/lib/api/types";
 
 type Filter = "all" | "unread" | "action_required";
 
@@ -33,13 +37,6 @@ export default function InboxPage() {
   const router = useRouter();
   const { workspace } = useAuth();
   const [items, setItems] = useState<InboxItem[] | null>(null);
-  /**
-   * `ref_id` → HITL 상세. **계약 `InboxItem.card` 에 `purpose` 가 없어서** 항목만으로는 예산 초과 HITL 을
-   * 알아볼 수 없다(W-6). `paused_reason` 도 답이 못 된다 — 그 칸은 **세션**의 정지 사유고, task 범위 초과는
-   * 세션을 멈추지 않는다(E9-01·E9-10: lane 만 `paused`). 그래서 approval 항목만 상세를 한 번 더 읽는다.
-   * (계약에 `card.purpose` 가 생기면 이 왕복은 지워도 된다 — Lead 에게 올린 제안이다.)
-   */
-  const [hitls, setHitls] = useState<Record<string, HitlRequest>>({});
   const [summary, setSummary] = useState<InboxSummary | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [sessionFilter, setSessionFilter] = useState<string>("");
@@ -78,34 +75,6 @@ export default function InboxPage() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  /**
-   * approval HITL 항목의 상세를 채운다. 목록이 바뀔 때마다 **아직 없는 것만** 읽으므로 최초 적재와
-   * SSE 로 뒤늦게 들어온 항목이 같은 경로를 탄다. question·choice 는 예산일 수 없어 건너뛴다.
-   */
-  useEffect(() => {
-    const want = (items ?? [])
-      .filter((it) => it.type === "hitl_request" && it.card?.hitl_type === "approval" && it.ref_id && !hitls[it.ref_id])
-      .map((it) => it.ref_id!);
-    if (want.length === 0) return;
-    let live = true;
-    void Promise.all(
-      want.map((id) =>
-        api.get("/hitl-requests/{hitlRequestId}", { path: { hitlRequestId: id } }).then(
-          (h) => [id, h] as const,
-          // 못 읽어도 카드는 그대로 그린다 — 상향 입력만 붙지 않는다. 인박스 전체를 오류로 덮지 않는다.
-          () => null,
-        ),
-      ),
-    ).then((got) => {
-      if (!live) return;
-      const add = Object.fromEntries(got.filter((x): x is readonly [string, HitlRequest] => x !== null));
-      if (Object.keys(add).length > 0) setHitls((cur) => ({ ...cur, ...add }));
-    });
-    return () => {
-      live = false;
-    };
-  }, [items, hitls]);
 
   // 실시간(R4) — 셸의 워크스페이스 SSE 하나를 구독한다. 항목이 생기거나 해소되면 다시 읽는다.
   const onEvent = useCallback((ev: StreamEvent) => {
@@ -291,7 +260,6 @@ export default function InboxPage() {
             <InboxItemCard
               key={it.id}
               item={it}
-              hitl={it.ref_id ? (hitls[it.ref_id] ?? null) : null}
               onRespond={respond}
               onApproveContinue={approveContinue}
               onAction={(i, a) => void act(i, a)}

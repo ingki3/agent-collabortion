@@ -77,7 +77,9 @@ chk "그 메시지의 kind 가 hitl 이다" "$(echo "$HBMSG" | py "import sys,js
 chk "task 범위 예산 HITL 은 세션을 멈추지 않는다 (E9-01)" "$(curl -sS -b "$J" "$B/sessions/$SID" | py 'import sys,json;print(json.load(sys.stdin)["status"])')" "active"
 IN0=$(curl -sS -b "$J" "$B/inbox?workspace_id=$WS")
 chk "예산 HITL 의 인박스 항목 타입은 hitl_request (W-6)" "$(echo "$IN0" | py "import sys,json;d=[x for x in json.load(sys.stdin)['items'] if x['ref_id']=='$HBID'];print(d[0]['type'])")" "hitl_request"
-chk "항목 카드에는 purpose 가 없다 — 상세를 읽어야 안다 (W-6)" "$(echo "$IN0" | py "import sys,json;d=[x for x in json.load(sys.stdin)['items'] if x['ref_id']=='$HBID'];print('purpose' in d[0]['card'])")" "False"
+# K-9(#147) 이후 — 카드가 purpose 를 싣는다. 인박스의 상세 왕복(N+1)은 T-W5 가 지웠다.
+chk "항목 카드가 purpose 를 싣는다 (K-9)" "$(echo "$IN0" | py "import sys,json;d=[x for x in json.load(sys.stdin)['items'] if x['ref_id']=='$HBID'];print(d[0]['card'].get('purpose'))")" "budget"
+chk "세션은 active — 범위는 task 다 (E9-01)" "$(echo "$IN0" | py "import sys,json;d=[x for x in json.load(sys.stdin)['items'] if x['ref_id']=='$HBID'];print(d[0]['session']['status'])")" "active"
 chk "ref_id 로 읽은 상세에는 purpose=budget 이 있다 (W-6)" "$(curl -sS -b "$J" "$B/hitl-requests/$HBID" | py 'import sys,json;print(json.load(sys.stdin)["purpose"])')" "budget"
 RB=$(curl -sS -b "$J" -X POST "$B/hitl-requests/$HBID/response" -H 'content-type: application/json' -H "Idempotency-Key: $(IDEM)" -d '{"approved":true,"budget_override_usd":3}')
 chk "승인은 task.budget_override 로 간다 (E9-02)" "$(echo "$RB" | py 'import sys,json;print(json.load(sys.stdin)["task"]["budget_override"])')" "3"

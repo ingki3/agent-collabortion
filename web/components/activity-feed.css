@@ -25,3 +25,9 @@
 /* 조회는 조용하게 */
 .feed__row[data-render-class="raw"] { color: var(--ink-3); }
 .feed__row[data-pending="true"] .feed__glyph { color: var(--s-run); }
+/* P4 — 파일 편집·셸 카드 상세(경로·종료 코드·요약). */
+.feed__path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--ink-2); margin-left: 6px; }
+.feed__exit { font-size: 11px; margin-left: 6px; color: var(--ink-3); }
+.feed__exit[data-ok="false"] { color: var(--s-fail-text); }
+.feed__more { border: 0; background: none; padding: 0 0 0 6px; font-size: 11px; color: var(--ink-3); text-decoration: underline; cursor: pointer; }
+.feed__detail { display: block; margin-top: 4px; font-size: 11px; color: var(--ink-2); white-space: pre-wrap; }

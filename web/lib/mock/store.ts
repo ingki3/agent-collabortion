@@ -5,7 +5,7 @@
  */
 import type {
   Agent, AgentTemplate, Artifact, Decision, HitlRequest, InboxItem, Lane, Member, Message, Pairing, Participant,
-  Runtime, Session, StreamEventType, TaskEvent, User, Workspace,
+  Runtime, Session, StreamEventType, TaskEvent, User, Workdir, Workspace,
 } from "@/lib/api/types";
 
 export interface MockUser extends User {
@@ -79,6 +79,10 @@ export interface Store {
   hitls: Map<string, HitlRequest>;
   /** P3 — 인박스 항목. `member_id` 대신 `user_id` 로 소유자를 들고 있다(목은 워크스페이스 하나 기준). */
   inbox: Map<string, InboxItem & { user_id: string }>;
+  /** P4 — workdir(S13). 어느 런타임 것인지는 계약 `Workdir` 에 없으므로 목이 곁에 들고 있다. */
+  workdirs: Map<string, Workdir & { runtime_id: string }>;
+  /** P4 — 워크스페이스 workdir 용량 상한(GB). null 이면 미설정 = 무제한(E13-19). */
+  workdirQuotaGb: number | null;
   idem: Map<string, unknown>;
   events: StoredEvent[];
   eventSeq: number;
@@ -98,6 +102,7 @@ function seed(): Store {
     users: new Map(), cookies: new Map(), workspaces: new Map(), members: [], invites: new Map(), runtimes: new Map(),
     pairings: new Map(), agents: new Map(), sessions: new Map(), messages: new Map(), tasks: new Map(), taskEvents: new Map(),
     lanes: new Map(), artifacts: new Map(), decisions: new Map(), hitls: new Map(), inbox: new Map(),
+    workdirs: new Map(), workdirQuotaGb: 50,
     idem: new Map(), events: [], eventSeq: 0, subs: new Set(),
   };
   // 데모 워크스페이스: 초대 링크(S3)·비참여 에이전트 경고(E1-04) 검증용

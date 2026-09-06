@@ -51,6 +51,8 @@ export default function NewSessionPage() {
   const [isolation, setIsolation] = useState<IsolationKind>("none");
   const [repoPath, setRepoPath] = useState<string>("");
   const [repoCheck, setRepoCheck] = useState<RepoCheck | null>(null);
+  /** 검증 자체가 실패한 경우(409 runtime_offline 등). `ok: false` 와 다르다 — 그건 200 이고 결과다. */
+  const [repoCheckError, setRepoCheckError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   // 4 런타임
   const [candidates, setCandidates] = useState<{ auto_select_allowed: boolean; candidates: RuntimeCandidate[] } | null>(null);
@@ -108,16 +110,29 @@ export default function NewSessionPage() {
   }, [online]);
   const selectedRepo = repos.find((r) => r.path === repoPath);
 
-  /** 저장소 검증(E13-01) — 미커밋 변경이 있으면 다음 단계를 막는다. */
+  /**
+   * 저장소 검증(E13-01) — 실패하면 폼이 다음 단계를 막는다.
+   *
+   * 계약이 못 박은 두 가지를 화면이 그대로 따른다:
+   *   · `ok: false` 는 **오류가 아니라 답**이다(200). 그래서 화면은 사유를 그리고 오류 배너를 띄우지 않는다.
+   *   · 이 검증은 **마지막 probe `repos[]`** 를 읽고 최신값을 위해 probe 를 큐에 넣을 뿐, 데몬 왕복을 하지
+   *     않는다. 마지막 probe 뒤에 만든 저장소는 다음 probe 까지 "없음"으로 읽히므로 **다시 확인**이 필요하다.
+   * 데몬이 오프라인이면 `409 runtime_offline` 이고, 그것도 폼 안의 문장으로 말한다.
+   */
   const checkRepo = useCallback(async (path: string) => {
     const repo = repos.find((r) => r.path === path);
     if (!repo) return;
     setChecking(true);
     setRepoCheck(null);
+    setRepoCheckError(null);
     try {
       setRepoCheck(await api.post("/runtimes/{runtimeId}/repo-checks", { path: { runtimeId: repo.runtimeId }, body: { repo_path: path } }));
     } catch (e) {
-      setError(errorMessage(e));
+      setRepoCheckError(
+        isApiError(e) && e.code === "runtime_offline"
+          ? `${repo.runtimeName} 이 오프라인이라 저장소를 확인할 수 없습니다 — 그 컴퓨터를 켜거나 다른 저장소를 고르세요.`
+          : errorMessage(e),
+      );
     } finally {
       setChecking(false);
     }
@@ -178,6 +193,7 @@ export default function NewSessionPage() {
     if (step === 2 && isolation === "worktree") {
       if (!repoPath) return "저장소를 고르세요";
       if (checking) return "저장소 확인 중…";
+      if (repoCheckError) return repoCheckError;
       if (!repoCheck?.ok) return repoCheck?.problems?.[0] ?? "저장소 검증이 필요합니다";
     }
     if (step === 3 && isolation !== "none" && !runtimeId) return "런타임을 고르세요";
@@ -337,15 +353,46 @@ export default function NewSessionPage() {
                 <option value="">고르세요</option>
                 {repos.map((r) => <option key={r.path} value={r.path}>{r.path} — {r.runtimeName}</option>)}
               </select>
-              {checking && <span className="field__hint">확인 중…</span>}
+              <div className="row" style={{ marginTop: 4 }}>
+                {checking && <span className="field__hint">확인 중…</span>}
+                {repoPath && !checking && (
+                  // 계약: 마지막 probe 뒤에 만든 저장소는 다음 probe 까지 "없음"으로 읽힌다 — 그래서 다시 확인이 필요하다.
+                  <button type="button" className="btn btn--sm" onClick={() => void checkRepo(repoPath)} data-testid="repo-recheck">다시 확인</button>
+                )}
+              </div>
+              {repoCheckError && <p className="problem" data-testid="repo-check-error">{repoCheckError}</p>}
               {repoCheck && (
-                <p className={repoCheck.ok ? "small muted" : "problem"} data-testid="repo-check">
-                  {repoCheck.ok
-                    ? `클린 · ${repoCheck.current_branch ?? "?"} · ${repoCheck.remote_url ?? "remote 없음"}`
-                    : `${repoCheck.problems?.join(" · ") ?? "검증 실패"} — 커밋하거나 stash 후 다시 시도하세요`}
-                </p>
+                <div className={repoCheck.ok ? "notice notice--info" : "problem"} data-testid="repo-check" data-ok={String(repoCheck.ok)}>
+                  {/* 데몬 probe 가 본 것을 그대로 — 경로·git 여부·클린·브랜치·remote URL(FR-9, U6 1단계). */}
+                  <div data-testid="repo-check-line">
+                    {repoCheck.exists ? "경로 있음" : "경로가 없습니다"}
+                    {" · "}{repoCheck.is_git ? "git 저장소" : "git 저장소가 아닙니다"}
+                    {" · "}{repoCheck.clean === true ? "클린" : repoCheck.clean === false ? "클린 아님" : "클린 여부 미상"}
+                  </div>
+                  <div className="small" data-testid="repo-check-git">
+                    브랜치 {repoCheck.current_branch ?? "?"}{repoCheck.default_branch ? ` (기본 ${repoCheck.default_branch})` : ""}
+                    {" · remote "}{repoCheck.remote_url ?? "없음"}
+                  </div>
+                  {!repoCheck.ok && (
+                    <div className="small" data-testid="repo-check-problems">
+                      {repoCheck.problems?.join(" · ") || "검증 실패"} — 커밋하거나 stash 후 다시 확인하세요.
+                    </div>
+                  )}
+                  {repoCheck.tracks_brief_file && (
+                    // §8.4 우회 B — 지시 파일은 읽지도 쓰지도 않는다. 사람이 놀라지 않게 미리 말한다.
+                    <div className="small" data-testid="repo-check-brief">
+                      이 저장소는 지시 파일(CLAUDE.md·AGENTS.md)을 추적 중입니다 — 브리프는 그 파일이 아니라 워크트리 안의
+                      미추적 <code>COLAB_BRIEF.md</code> 로 전달되어 <code>git status</code> 를 더럽히지 않습니다.
+                    </div>
+                  )}
+                  {repoCheck.checked_at && <div className="small muted-3">확인 {new Date(repoCheck.checked_at).toLocaleString("ko-KR")}</div>}
+                </div>
               )}
-              <span className="field__hint">workdir 은 에이전트당 하나씩 만들어지고 세션에 묶입니다 — 나중에 바꿀 수 없습니다.</span>
+              {/* 바인딩 규칙(U6 1단계) — 이 선택이 되돌릴 수 없는 이유를 함께 말한다. */}
+              <span className="field__hint" data-testid="worktree-binding-note">
+                에이전트당 워크트리 1개 — 같은 에이전트의 lane 은 순차 실행됩니다. 브랜치는 <code>colab/&lt;세션&gt;/&lt;에이전트&gt;</code>,
+                워크트리는 세션이 끝난 뒤 보존 기한까지 남습니다. 이 바인딩은 나중에 바꿀 수 없습니다.
+              </span>
             </div>
           )}
         </section>
@@ -355,13 +402,21 @@ export default function NewSessionPage() {
         <section data-testid="wizard-runtime">
           {candidates === null ? <p className="muted">후보를 확인하는 중…</p> : (
             <>
-              {candidates.auto_select_allowed && (
-                <label className={`card${runtimeId === null ? " card--surface" : ""}`} style={{ display: "block", marginBottom: 8 }} data-testid="runtime-auto">
-                  <input type="radio" name="runtime" checked={runtimeId === null} onChange={() => setRuntimeId(null)} />
-                  {" "}<b>자동 선택 (첫 실행 시 고정)</b>
-                  <div className="small muted-3">첫 task 를 보낼 때 온라인 런타임 하나로 고정됩니다(FR-2.1 M10).</div>
-                </label>
-              )}
+              {/* 숨기지 않고 **비활성 + 사유**로 남긴다(SCREEN §7 · U6 2단계 "자동 선택 비활성"). 사라진 선택지는 이유를 말하지 못한다. */}
+              <label
+                className={`card${runtimeId === null && candidates.auto_select_allowed ? " card--surface" : ""}`}
+                style={{ display: "block", marginBottom: 8, opacity: candidates.auto_select_allowed ? 1 : 0.45 }}
+                data-testid="runtime-auto"
+                data-allowed={String(candidates.auto_select_allowed)}
+              >
+                <input type="radio" name="runtime" disabled={!candidates.auto_select_allowed} checked={runtimeId === null && candidates.auto_select_allowed} onChange={() => setRuntimeId(null)} />
+                {" "}<b>자동 선택 (첫 실행 시 고정)</b>
+                <div className="small muted-3">
+                  {candidates.auto_select_allowed
+                    ? "첫 task 를 보낼 때 온라인 런타임 하나로 고정됩니다(FR-2.1 M10)."
+                    : "worktree 격리에서는 고를 수 없습니다 — 워크트리는 저장소가 있는 그 머신에서만 만들 수 있습니다."}
+                </div>
+              </label>
               {candidates.candidates.map((c) => (
                 <label key={c.runtime.id} className={`card${runtimeId === c.runtime.id ? " card--surface" : ""}`} style={{ display: "block", marginBottom: 8, opacity: c.eligible ? 1 : 0.45 }} data-testid="runtime-candidate" data-eligible={String(c.eligible)}>
                   <input type="radio" name="runtime" disabled={!c.eligible} checked={runtimeId === c.runtime.id} onChange={() => setRuntimeId(c.runtime.id)} />

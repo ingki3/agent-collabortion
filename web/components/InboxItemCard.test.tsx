@@ -125,13 +125,17 @@ describe("hitl_request — 인박스에서 맥락 없이 답한다(F2, U3)", () 
  * 멈추고 **세션은 `active`** 다. 그래서 인박스 항목은 `session_paused` 가 아니라 `hitl_request` 로 오고,
  * 조건을 `session_paused` 로 쓴 화면에는 상향 입력이 붙지 않았다 — Director 가 웹에서 금액을 정할 수 없었다.
  * 조건은 **`purpose` 하나**여야 한다는 것이 이 묶음의 요점이다.
+ *
+ * **K-9(#147) 이후**: 그 `purpose` 는 `InboxItem.card.purpose` 로 온다 — 항목마다 HITL 상세를 한 번 더
+ * 읽던 왕복(N+1)이 사라졌다. 범위(task/세션)는 카드에 없으므로 **세션 상태**로 가른다(Lead 확인
+ * 2026-09-07): task 범위는 세션 `active`(E9-01·E9-10), 세션 범위는 `paused`(K-10).
  */
 describe("예산 HITL — 항목 타입·세션 상태와 무관하게 상향 입력이 붙는다(W-6)", () => {
   const budgetItem = (over: Partial<InboxItem> = {}) =>
     item({
       // 세션은 멈추지 않았다 — task 범위 초과이기 때문이다(E9-01).
       session: { id: "s1", title: "시장 조사", status: "active" },
-      card: { title: "Writer 의 작업이 예산 $1.00를 넘었습니다 (현재 $1.01). 계속할까요?", hitl_type: "approval", agent_name: "Writer" },
+      card: { title: "Writer 의 작업이 예산 $1.00를 넘었습니다 (현재 $1.01). 계속할까요?", hitl_type: "approval", agent_name: "Writer", purpose: "budget" },
       actions: ["approve", "reject", "open_session"],
       ...over,
     });
@@ -146,8 +150,9 @@ describe("예산 HITL — 항목 타입·세션 상태와 무관하게 상향 �
     ...over,
   });
 
-  it("항목 타입이 hitl_request 여도(세션은 active) 상향 입력이 붙는다", () => {
-    render(<InboxItemCard item={budgetItem()} hitl={budgetHitl()} onRespond={vi.fn()} />);
+  it("항목 타입이 hitl_request 여도(세션은 active) 상향 입력이 붙는다 — 상세 왕복 없이(K-9)", () => {
+    // `hitl` prop 을 주지 않는다. 이것이 N+1 제거의 단정이다 — 카드만으로 붙어야 한다.
+    render(<InboxItemCard item={budgetItem()} onRespond={vi.fn()} />);
     expect(screen.getByTestId("inbox-item").getAttribute("data-type")).toBe("hitl_request");
     expect(screen.getByTestId("hitl-budget-input")).toBeTruthy();
     // task 범위다 — 세션 상한을 올리는 자리가 아니다(E9-01 s-13).
@@ -156,7 +161,7 @@ describe("예산 HITL — 항목 타입·세션 상태와 무관하게 상향 �
 
   it("승인 페이로드가 budget_override_usd 를 담는다(E9-02 $3)", () => {
     const onRespond = vi.fn();
-    render(<InboxItemCard item={budgetItem()} hitl={budgetHitl()} onRespond={onRespond} />);
+    render(<InboxItemCard item={budgetItem()} onRespond={onRespond} />);
     fireEvent.change(screen.getByTestId("hitl-budget-input"), { target: { value: "3" } });
     fireEvent.click(screen.getByTestId("hitl-approve"));
     expect(onRespond.mock.calls[0][1]).toEqual({ approved: true, budget_override_usd: 3 });
@@ -164,24 +169,31 @@ describe("예산 HITL — 항목 타입·세션 상태와 무관하게 상향 �
 
   it("거절은 approved:false + 사유다 — 금액을 싣지 않는다(E9-03)", () => {
     const onRespond = vi.fn();
-    render(<InboxItemCard item={budgetItem()} hitl={budgetHitl()} onRespond={onRespond} />);
+    render(<InboxItemCard item={budgetItem()} onRespond={onRespond} />);
     fireEvent.change(screen.getByTestId("hitl-budget-input"), { target: { value: "3" } });
     fireEvent.change(screen.getByTestId("hitl-reason-input"), { target: { value: "여기까지만" } });
     fireEvent.click(screen.getByTestId("hitl-reject"));
     expect(onRespond.mock.calls[0][1]).toEqual({ approved: false, reason: "여기까지만" });
   });
 
-  it("purpose 가 budget 이 아니면 입력이 없다 — 완료 승인에 금액 칸이 붙으면 안 된다(0012)", () => {
-    render(<InboxItemCard item={budgetItem()} hitl={budgetHitl({ purpose: "user_approval" })} onRespond={vi.fn()} />);
+  it("card.purpose 가 budget 이 아니면 입력이 없다 — 완료 승인에 금액 칸이 붙으면 안 된다(0012)", () => {
+    const it0 = budgetItem({ card: { title: "보고서를 승인해 주세요", hitl_type: "approval", purpose: "user_approval" } });
+    render(<InboxItemCard item={it0} onRespond={vi.fn()} />);
     expect(screen.queryByTestId("hitl-budget-input")).toBeNull();
   });
 
-  it("상세를 아직 못 읽었어도 세션 범위 초과는 카드의 paused_reason 으로 알아본다(E9-10)", () => {
+  it("세션이 paused 면 세션 범위다 — 라벨이 'task 상한' 이면 거짓말이 된다(K-10)", () => {
     const it0 = budgetItem({
-      card: { title: "세션이 예산 $20.00를 넘었습니다", hitl_type: "approval", paused_reason: "budget" },
+      session: { id: "s1", title: "시장 조사", status: "paused" },
+      card: { title: "세션이 예산 $20.00를 넘었습니다", hitl_type: "approval", purpose: "budget" },
     });
     render(<InboxItemCard item={it0} onRespond={vi.fn()} />);
     expect(screen.getByTestId("hitl-budget-field").getAttribute("data-scope")).toBe("session");
+  });
+
+  it("세션이 active 면 task 범위다 — 세션 상한을 올리는 자리가 아니다(E9-01 s-13)", () => {
+    render(<InboxItemCard item={budgetItem()} onRespond={vi.fn()} />);
+    expect(screen.getByTestId("hitl-budget-field").getAttribute("data-scope")).toBe("task");
   });
 
   it("일반 질문 HITL 에는 금액 칸이 없다", () => {

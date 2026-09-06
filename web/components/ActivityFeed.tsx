@@ -42,11 +42,30 @@ function Detail({ cls, e }: { cls: RenderClass; e: TaskEvent }) {
   const p = payloadOf(e);
   switch (cls) {
     case "file_edit": {
+      // 한 줄 요약은 **경로 + diff 규모**다(U6 4단계 "파일 편집 카드(경로·+/-줄)"). 경로 없이 "+12 -3" 만
+      // 남으면 무엇을 고쳤는지 모르고, 문장(`feedSentence`)이 `object_ref` 를 못 받은 이벤트에서는 그 칸도 빈다.
       const d = [p.lines_added ? `+${p.lines_added}` : null, p.lines_removed ? `-${p.lines_removed}` : null].filter(Boolean).join(" ");
-      return d ? <span className="feed__diff" data-testid="feed-diff">{d}</span> : null;
+      return (
+        <>
+          {p.path && <code className="feed__path" data-testid="feed-path">{p.path}</code>}
+          {d && <span className="feed__diff" data-testid="feed-diff">{d}</span>}
+        </>
+      );
     }
     case "shell":
-      return p.command ? <code className="feed__cmd" data-testid="feed-command">{p.command}</code> : null;
+      // 셸은 **명령과 종료 코드가 한 쌍**이다(U6 4단계 "셸 카드(명령·종료 코드)"). 0 도 보여 준다 —
+      // `p.exit_code && …` 로 쓰면 성공(0)이 통째로 사라져 "끝났는지"조차 알 수 없다.
+      return (
+        <>
+          {p.command && <code className="feed__cmd" data-testid="feed-command">{p.command}</code>}
+          {p.exit_code != null && (
+            <span className="feed__exit" data-testid="feed-exit-code" data-exit-code={p.exit_code} data-ok={String(p.exit_code === 0)}>
+              exit {p.exit_code}
+            </span>
+          )}
+          {p.duration_ms != null && <span className="feed__why" data-testid="feed-duration">{(p.duration_ms / 1000).toFixed(1)}s</span>}
+        </>
+      );
     case "error":
       return (
         <span className="feed__why" data-testid="feed-error-detail">
@@ -63,6 +82,8 @@ function Detail({ cls, e }: { cls: RenderClass; e: TaskEvent }) {
 
 export function ActivityFeed({ events, structured = true, loading, cut1 = false, title, limit = 200 }: ActivityFeedProps) {
   const [raw, setRaw] = useState(false);
+  /** 펼친 카드 하나(행 id). 여러 개를 동시에 펼치면 피드가 로그가 된다. */
+  const [expanded, setExpanded] = useState<string | null>(null);
   const rows = foldEvents(events).slice(-limit);
 
   if (!structured) {
@@ -90,6 +111,11 @@ export function ActivityFeed({ events, structured = true, loading, cut1 = false,
         {rows.map(({ first, latest: e }) => {
           const cls = renderClassWithCut(e, cut1);
           const pending = e.outcome === "started";
+          const p = payloadOf(e);
+          // 카드 상세 — 편집·셸의 결과 요약(`summary`)은 접어 둔다. 피드는 훑는 자리이고,
+          // 마스킹이 켜진 워크스페이스에서는 이 요약이 diff·셸 출력을 대신하는 **유일한 내용**이다.
+          const detailText = (cls === "file_edit" || cls === "shell") ? (p.summary ?? null) : null;
+          const open = expanded === first.id;
           return (
             <li
               key={first.id}
@@ -106,6 +132,20 @@ export function ActivityFeed({ events, structured = true, loading, cut1 = false,
                 <Detail cls={cls} e={e} />
                 {pending && <span className="feed__pending" data-testid="feed-pending"> · 진행 중…</span>}
                 {e.masked && <span className="feed__quiet"> · 마스킹됨</span>}
+                {detailText && (
+                  <button
+                    type="button"
+                    className="feed__more"
+                    aria-expanded={open}
+                    onClick={() => setExpanded(open ? null : first.id)}
+                    data-testid="feed-detail-toggle"
+                  >
+                    {open ? "상세 접기" : "상세"}
+                  </button>
+                )}
+                {detailText && open && (
+                  <span className="feed__detail" data-testid="feed-detail">{detailText}</span>
+                )}
               </span>
               <span className="feed__time">{clockTime(e.created_at)}</span>
             </li>

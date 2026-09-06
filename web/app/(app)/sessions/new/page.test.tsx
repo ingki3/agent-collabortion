@@ -151,3 +151,82 @@ describe("S6 6단계 — artifact_submitted 의 제출자(W-4)", () => {
     expect(screen.queryByTestId("submitter-select")).toBeNull();
   });
 });
+
+/**
+ * P4 — 3단계 저장소 검증 · 4단계 후보 필터(E13-01 · E13-17 · U6 1·2 · U15 4).
+ *
+ * 마법사가 여기서 막지 않으면 사람은 여섯 단계를 다 채운 뒤 첫 `git worktree add` 에서 실패를 만난다.
+ * 그래서 `ok: false` 는 **오류 배너가 아니라 폼 안의 사유 + 다음 버튼 비활성**이어야 하고(계약: 200 이다),
+ * `worktree` 에서 "자동 선택" 은 **숨기지 않고 비활성 + 사유**여야 한다 — 사라진 선택지는 이유를 말하지 못한다.
+ */
+describe("S6 3·4단계 — worktree 저장소 검증과 런타임 후보(P4)", () => {
+  const REPO = "~/dev/app";
+  const withRepo = (over: Partial<import("@/lib/api/types").RepoCheck> = {}) => {
+    get.mockImplementation((path: string) => {
+      if (path.endsWith("/runtimes")) return Promise.resolve([{ ...runtime, repos: [{ path: REPO, remote_url: "git@x:app.git", branch: "main", clean: true }] }]);
+      if (path.endsWith("/agents")) return Promise.resolve({ items: [LEAD, WRITER] });
+      if (path.endsWith("/members")) return Promise.resolve({ items: [member] });
+      if (path.endsWith("/sessions")) return Promise.resolve({ items: [] });
+      // worktree 면 자동 선택이 허용되지 않는다(계약 auto_select_allowed: none 만 true).
+      if (path.endsWith("/runtime-candidates")) return Promise.resolve({ auto_select_allowed: false, candidates: [{ runtime, eligible: true }] });
+      return Promise.resolve({ items: [] });
+    });
+    post.mockImplementation((path: string) =>
+      path.includes("repo-checks")
+        ? Promise.resolve({ ok: true, repo_path: REPO, exists: true, is_git: true, clean: true, default_branch: "main", current_branch: "main", remote_url: "git@x:app.git", tracks_brief_file: false, problems: [], checked_at: "2026-09-07T00:00:00Z", ...over })
+        : Promise.resolve({ id: "s1" }),
+    );
+  };
+
+  async function toIsolation() {
+    render(<NewSessionPage />);
+    await screen.findByTestId("session-wizard");
+    fireEvent.change(screen.getByTestId("session-title"), { target: { value: "결제" } });
+    fireEvent.change(screen.getByTestId("session-goal"), { target: { value: "결제 모듈" } });
+    next(); // 2 Director
+    next(); // 3 격리
+    fireEvent.click(screen.getByTestId("isolation-worktree").querySelector("input")!);
+    fireEvent.change(screen.getByTestId("repo-select"), { target: { value: REPO } });
+  }
+
+  it("검증 결과를 데몬 probe 그대로 보여 준다 — 경로·git·클린·브랜치·remote(FR-9)", async () => {
+    withRepo();
+    await toIsolation();
+    await waitFor(() => expect(screen.getByTestId("repo-check")).toBeTruthy());
+    expect(screen.getByTestId("repo-check").getAttribute("data-ok")).toBe("true");
+    expect(screen.getByTestId("repo-check-line").textContent).toContain("클린");
+    expect(screen.getByTestId("repo-check-git").textContent).toContain("git@x:app.git");
+    expect(screen.getByTestId("worktree-binding-note").textContent).toContain("에이전트당 워크트리 1개");
+  });
+
+  it("E13-01 — 미커밋 변경이면 사유를 보여 주고 다음 버튼을 막는다(200 이지 오류가 아니다)", async () => {
+    withRepo({ ok: false, clean: false, problems: ["미커밋 변경 3개"] });
+    await toIsolation();
+    await waitFor(() => expect(screen.getByTestId("repo-check").getAttribute("data-ok")).toBe("false"));
+    expect(screen.getByTestId("repo-check-problems").textContent).toContain("미커밋 변경 3개");
+    expect((screen.getByTestId("wizard-next") as HTMLButtonElement).disabled).toBe(true);
+    // 오류 배너로 덮지 않는다 — `ok:false` 는 답이다.
+    expect(screen.queryByTestId("repo-check-error")).toBeNull();
+  });
+
+  it("다시 확인 버튼이 있다 — 마지막 probe 뒤에 만든 저장소는 다음 probe 까지 '없음'으로 읽힌다(계약 checkRepo)", async () => {
+    withRepo();
+    await toIsolation();
+    await waitFor(() => expect(screen.getByTestId("repo-recheck")).toBeTruthy());
+    const before = post.mock.calls.filter((c) => String(c[0]).includes("repo-checks")).length;
+    fireEvent.click(screen.getByTestId("repo-recheck"));
+    await waitFor(() => expect(post.mock.calls.filter((c) => String(c[0]).includes("repo-checks")).length).toBe(before + 1));
+  });
+
+  it("E13-17 · U6 2 — worktree 에서 '자동 선택' 은 숨지 않고 비활성 + 사유다", async () => {
+    withRepo();
+    await toIsolation();
+    await waitFor(() => expect(screen.getByTestId("repo-check").getAttribute("data-ok")).toBe("true"));
+    next(); // 4 런타임
+    await waitFor(() => expect(screen.getByTestId("runtime-auto")).toBeTruthy());
+    const auto = screen.getByTestId("runtime-auto");
+    expect(auto.getAttribute("data-allowed")).toBe("false");
+    expect((auto.querySelector("input") as HTMLInputElement).disabled).toBe(true);
+    expect(auto.textContent).toContain("worktree 격리에서는 고를 수 없습니다");
+  });
+});

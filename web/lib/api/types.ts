@@ -81,3 +81,10 @@ export type InboxItemType = S["InboxItemType"];
 export type InboxSeverity = S["InboxSeverity"];
 export type InboxSummary = S["InboxSummary"];
 export type SessionRef = S["SessionRef"];
+
+// ── P4 (T-W5) — S6 격리·저장소 검증 · S11 유예·재바인딩 · S13 workdir · S17 ──
+export type Workdir = S["Workdir"];
+export type WorkdirKind = S["WorkdirKind"];
+export type WorkdirStatus = S["WorkdirStatus"];
+export type RuntimeDetail = S["RuntimeDetail"];
+export type RuntimeStatus = S["RuntimeStatus"];

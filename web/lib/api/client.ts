@@ -104,6 +104,10 @@ async function request<O>(method: Method, path: string, opts: RequestOptions<O> 
   if (!res.ok) {
     const p = (json as Partial<Problem>) ?? {};
     throw new ApiError({
+      // Problem 은 `additionalProperties: true` 다 — 알려진 칸만 옮겨 담으면 확장 칸이 사라진다.
+      // `sessions[]`(런타임 삭제 409 의 차단 세션 목록, E14-08)·`can_respond_from` 이 그 확장이고,
+      // 화면은 그것으로 "어느 세션이 막고 있는지"를 링크로 그린다.
+      ...p,
       title: p.title ?? res.statusText ?? "요청 실패",
       status: p.status ?? res.status,
       detail: p.detail ?? (json === undefined && text ? text.slice(0, 200) : undefined),
