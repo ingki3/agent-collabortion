@@ -15,7 +15,7 @@
 
 | # | G4 항목 (TASK §2) | 판정 | 수치 | 결함 스트림 |
 |---|---|---|---|---|
-| 1 | Lead 가 깨어난 횟수 = 3 (위임 1 + 합류 1 + 통보 1) | **통과** | **3** — 세션 시작 1 · J1 합류 1 · J2(Writer) 합류 1. 셋 다 `completed` | — |
+| 1 | Lead 가 깨어난 횟수 = 3 | **통과** | **3** — 세션 시작 1 · J1(Researcher 3) 합류 1 · J2(Writer) 합류 1. 셋 다 `completed`. **구성은 "시작 1 + 합류 2"** 다 — TASK 가 적은 "통보"는 별도 트리거가 아니라 **J2 합류**이고, Writer 의 `@Lead` 멘션은 규칙 8 로 억제돼 task 를 만들지 않는다(합류 전에 도착했을 때). 위임 자체는 Lead 의 **첫 턴 안에서** 일어나므로 깨어남을 만들지 않는다 | — |
 | 2 | Researcher lane 3개가 실제로 **동시에** running | **통과** | lane **3**개, 동시 running 최대 겹침 **3** (task `started_at`~`finished_at` 스윕) | — |
 | 3 | 합류가 정확히 1회 — 묶음에 3개 결과 + 억제된 자식 메시지 | **통과** | 합류 발화 2건(J1 자식 3 · J2 자식 1), 합류 시스템 메시지 **그룹당 1개**. 합류 턴 프롬프트에 자식 메시지 **3/3** 실림(E1-21). 합류 전 Researcher 의 `@Lead` 멘션이 만든 Lead task **0개**(E1-15) | — |
 | 4 | Writer 의 `artifact submit` 201, 다운로드 바이트 = Content-Length | **통과** | `submitArtifact` 201 **1건**, 다운로드 **1439 B = Content-Length 1439**, 본문 일치 | — |
@@ -140,6 +140,8 @@ P1 에서는 액세스 토큰이 살아 있어 갱신이 필요 없었으므로 
 | **합계** | **82** | 이번 실행 PASS **81** · FAIL **1** |
 
 첫 실행의 `"fail": 8` 은 D11 을 처음 넣었을 때의 값이다. 그 8 중 **6개는 내 기대값이 과했던 것**(아직 x-phase P3 인 `listLaneTasks`·`restartLane`·`pauseSession`·`resumeSession`·`getSessionCost` 와 P2 인데 501 인 `listLanes` 가 403/404 대신 501 을 준다), **1개는 응답 위치 차이**(`not_participant` 가 최상위 `code` 가 아니라 `errors[].code` 에 실린다 — CLI 는 그것을 읽어 exit 3 과 대안 안내까지 정상 동작), **1개만 진짜 결함**(S-8)이다. D11 을 고쳐 501 을 허용값에 넣고(구현하는 PR 이 이 줄에서 501 을 빼면 그때부터 경계가 검사된다) `not_participant` 를 `errors[]` 에서도 읽게 한 뒤가 위 표의 81/82 다.
+
+**`out/regression.tsv` 의 07 행은 1차 실행값이다.** 일괄 실행(`20_regression_p1.sh`)이 남긴 tsv 의 `07_adversarial.sh` 행은 D11 을 처음 넣었을 때의 `"fail": 8` 을 가리킨다 — 위 표의 **81/82** 는 D11 을 고친 뒤 07 만 다시 돌린 값(`out/p1/07_adversarial.log`)이다. 두 값이 섞이지 않도록 `20_regression_p1.sh` 는 이제 각 행에 **실행 시각**을 함께 적는다. 2판에서 일괄 실행을 다시 돌리면 tsv 가 새로 쓰인다.
 
 **06 의 `net::ERR_ABORTED` 는 코드 결함이 아니다.** 첫 일괄 실행에서 06 이 `ab open $WEB_URL/login` 에서 `Navigation failed: net::ERR_ABORTED` 로 죽었다. 원인은 **agent-browser 세션 충돌** — 내가 S7 크래시를 좁히려고 열어 둔 디버깅용 세션(`colab-g4-probe*`)이 남아 있었다. `agent-browser close --all` 뒤 같은 스크립트를 같은 포트·같은 BASE_URL 로 다시 돌리면 **통과**한다(패널 ready 0.3s). 포트나 베이스 URL 문제가 아니고 하이드레이션 문제도 아니다 — 같은 실행에서 웹의 다른 화면은 정상 하이드레이트됐다. 재현 조건: 다른 `AGENT_BROWSER_SESSION` 이 살아 있는 상태에서 새 세션으로 `open`. `e2e/p2/20_regression_p1.sh` 가 시작할 때 `agent-browser close --all` 을 하도록 고쳤다.
 
