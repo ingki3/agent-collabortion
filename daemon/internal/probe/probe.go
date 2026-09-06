@@ -16,6 +16,7 @@ import (
 
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/contracts/clock"
+	"github.com/ingki3/agent-collabortion/daemon/internal/gitrepo"
 	"github.com/ingki3/agent-collabortion/daemon/internal/harness/acp"
 	"github.com/ingki3/agent-collabortion/daemon/internal/workdir"
 )
@@ -39,7 +40,19 @@ type Options struct {
 	// ColabBin is the colab CLI the attempts register as their MCP server
 	// (config.ColabBin). Empty → "colab" on PATH.
 	ColabBin string
-	Clock    clock.Clock
+	// Repos are the repositories configured for `worktree` isolation
+	// (config.Repos). The ones already backing a worktree workdir are found
+	// on disk and do not need listing here.
+	Repos []string
+	// UsageMidturnOff mirrors an operator's explicit `usage_midturn: false`
+	// (config). The PONG turn then runs WITHOUT the raw SDK stream, so §9
+	// `usage_midturn` is measured false and the server learns to fall back to
+	// finish-time budget enforcement (E9-10) rather than waiting for in-turn
+	// numbers this machine will never send. The advertisement is the
+	// EFFECTIVE value, not the runtime's theoretical ability (Lead decision
+	// 2026-09-07, D-18).
+	UsageMidturnOff bool
+	Clock           clock.Clock
 	// Log receives progress lines (may be nil).
 	Log func(string)
 }
@@ -67,10 +80,69 @@ func Run(ctx context.Context, o Options) contracts.Probe {
 		used, _ := workdir.DiskUsage(o.WorkdirRoot)
 		p.Disk = contracts.Disk{UsedBytes: used}
 	}
+	p.Repos = Repos(o)
 	// §3 v0.5: colab_cli is a MACHINE property, reported once at the top
 	// level — one binary serves every runtime, and a machine with zero
 	// runtimes still has to report it.
 	p.ColabCLI = Colab(ctx, o.ColabBin, o)
+	return p
+}
+
+// Repos builds daemon-protocol §3 `repos[]`: every git working tree this
+// machine offers, with the remote URL, the checked-out branch and whether it
+// is clean.
+//
+// `remote_url` carries the weight. FR-9.2 rebinding judges a candidate
+// machine by it and NOT by the path (E14-04: a different path with the same
+// remote IS a candidate; E14-05: the same path string with a different remote
+// is NOT) — two developers' `~/dev/app` are the same string and, as often as
+// not, different repositories.
+//
+// Two sources: the configured list, and the repositories that already back a
+// `worktree` workdir on this machine. The second exists so a daemon that was
+// handed a repo_path in a bundle and never had it configured still reports
+// it — otherwise the machine currently RUNNING a worktree session would not
+// be a candidate to rebind it back to.
+func Repos(o Options) []contracts.Repo {
+	seen := map[string]bool{}
+	out := []contracts.Repo{}
+	add := func(dir string) {
+		if dir == "" || !gitrepo.IsRepo(dir) {
+			return
+		}
+		top, err := gitrepo.TopLevel(dir)
+		if err != nil || seen[top] {
+			return
+		}
+		seen[top] = true
+		out = append(out, contracts.Repo{
+			Path:      top,
+			RemoteURL: gitrepo.RemoteURL(top),
+			Branch:    gitrepo.Branch(top),
+			Clean:     gitrepo.Clean(top),
+		})
+	}
+	for _, r := range o.Repos {
+		add(expandHome(r))
+	}
+	// A linked worktree's TopLevel is the worktree itself, so the MAIN
+	// repository is what has to be reported — that is the path a new
+	// `git worktree add` would be run against.
+	for _, w := range workdir.ListWorktrees(o.WorkdirRoot) {
+		if common, err := gitrepo.CommonDir(w.Path); err == nil {
+			add(filepath.Dir(common))
+		}
+	}
+	return out
+}
+
+// expandHome resolves a leading ~ so daemon.json can hold "~/dev/app".
+func expandHome(p string) string {
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(p, "~"), "/"))
+		}
+	}
 	return p
 }
 
@@ -210,7 +282,7 @@ func Pong(ctx context.Context, kind contracts.RuntimeKind, o Options, cap *contr
 		Clock:          o.Clock,
 		DaemonVersion:  o.DaemonVersion,
 		SetupTimeout:   timeout,
-		RawSDKMessages: kind == contracts.RuntimeClaudeCode,
+		RawSDKMessages: kind == contracts.RuntimeClaudeCode && !o.UsageMidturnOff,
 	})
 	res := r.Run(tctx)
 	if o.Log != nil {

@@ -193,6 +193,8 @@ type worktreePlan struct {
 	BaseBranch string
 }
 
+// NOT WIRED here, mirror: daemon/internal/workdir/p4_worktree_golden_test.go
+// (same module-boundary reason as planBriefFile below; Lead 2026-09-07).
 var planWorktree func(r worktreeRequest) worktreePlan
 
 func TestWorktreePreparationGolden(t *testing.T) {
