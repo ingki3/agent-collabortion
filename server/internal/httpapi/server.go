@@ -23,6 +23,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/events"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
+	"github.com/ingki3/agent-collabortion/server/internal/llm"
 	"github.com/ingki3/agent-collabortion/server/internal/queue"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
@@ -30,6 +31,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
+	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
 )
 
 // BasePath is the OpenAPI servers[0].url.
@@ -47,12 +49,15 @@ type Server struct {
 	Artifacts *artifacts.Service
 	Runtimes  *runtimes.Service
 	Sessions  *sessions.Service
-	Router    *router.Service
-	Tasks     *tasks.Service
-	Events    *events.Service
-	Queue     *queue.Postgres
-	Tokens    *tokens.Service
-	Hub       *realtime.Hub
+	// Workdirs is FR-6.4's GC scheduler (P4). It reads rows and issues the
+	// `gc` commands JudgeGC asked for; the judgement itself is a pure function.
+	Workdirs *workdirs.Service
+	Router   *router.Service
+	Tasks    *tasks.Service
+	Events   *events.Service
+	Queue    *queue.Postgres
+	Tokens   *tokens.Service
+	Hub      *realtime.Hub
 
 	// SecureCookies sets the Secure flag on the session cookie (HTTPS).
 	SecureCookies bool
@@ -106,14 +111,18 @@ func NewServer(d Deps) *Server {
 		Auth:      auth.New(d.DB, d.Clock, d.WebURL),
 		Agents:    agents.New(d.DB, d.Clock),
 		Artifacts: artifacts.New(d.DB, d.Clock),
-		Runtimes:  runtimes.New(d.DB, d.Clock, hub, d.ServerURL),
-		Sessions:  sessions.New(d.DB, d.Clock, hub, rt).WithTasks(tsk),
-		Router:    rt,
-		Tasks:     tsk,
-		Events:    events.New(d.DB, d.Clock, hub),
-		Queue:     q,
-		Tokens:    tok,
-		Hub:       hub,
+		Runtimes:  runtimes.New(d.DB, d.Clock, hub, d.ServerURL).WithLog(d.Log),
+		// §8.5's platform client is optional on purpose: with no
+		// ANTHROPIC_API_KEY the summary is composed from rows, as it was in P2,
+		// and every other part of the server runs unchanged (llm.FromEnv).
+		Sessions: sessions.New(d.DB, d.Clock, hub, rt).WithTasks(tsk).WithLLM(platformLLM(d.Log), d.Log),
+		Workdirs: workdirs.NewService(d.DB, d.Clock, hub, d.Log),
+		Router:   rt,
+		Tasks:    tsk,
+		Events:   events.New(d.DB, d.Clock, hub),
+		Queue:    q,
+		Tokens:   tok,
+		Hub:      hub,
 	}
 }
 
@@ -143,4 +152,21 @@ func validationFromBind(err error) *Problem {
 	}
 	return &Problem{Status: http.StatusUnprocessableEntity, Code: code, Title: "Validation failed", Detail: msg,
 		Errors: []apperr.FieldError{{Field: "params", Code: code, Message: msg}}}
+}
+
+// platformLLM builds the §8.5 client from the environment.
+//
+// Returning nil is a supported outcome, not a failure. A workspace with no
+// Anthropic account must still be able to finish a session, and every isolated
+// test stack would otherwise need a live key; `sessions.summarise` composes the
+// summary from rows in that case, exactly as P2 did.
+func platformLLM(log *slog.Logger) llm.Client {
+	c := llm.FromEnv(log)
+	if c == nil {
+		if log != nil {
+			log.Info("platform LLM not configured (ANTHROPIC_API_KEY unset) — session summaries are composed from rows")
+		}
+		return nil
+	}
+	return c
 }

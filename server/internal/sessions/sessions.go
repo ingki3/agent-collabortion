@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -23,10 +24,12 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
+	"github.com/ingki3/agent-collabortion/server/internal/llm"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
 	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
+	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
 )
 
 type Service struct {
@@ -37,6 +40,11 @@ type Service struct {
 	// Tasks carries out a pause's consequence for work already in flight
 	// (FR-2.3 drain vs cancel).
 	Tasks *tasks.Service
+	// LLM is the platform's own Claude client (PRD §8.5) — the session
+	// summary's writer. Nil is a supported state: with no API key configured
+	// the summary is composed from rows, as it was in P2 (see summarise).
+	LLM llm.Client
+	Log *slog.Logger
 }
 
 func New(pool *pgxpool.Pool, c clock.Clock, h *realtime.Hub, r *router.Service) *Service {
@@ -45,6 +53,38 @@ func New(pool *pgxpool.Pool, c clock.Clock, h *realtime.Hub, r *router.Service) 
 
 // WithTasks wires the task service in after construction.
 func (s *Service) WithTasks(t *tasks.Service) *Service { s.Tasks = t; return s }
+
+// WithLLM wires the platform LLM client (§8.5) and the logger it reports cache
+// and refusal outcomes through.
+func (s *Service) WithLLM(c llm.Client, log *slog.Logger) *Service {
+	if c != nil {
+		s.LLM = c
+	}
+	s.Log = log
+	return s
+}
+
+// checkWorkdirQuota is E13-16's gate: the workspace's machines are already
+// holding `workdir_disk_quota_gb`, so a new session would grow a disk nobody
+// can clear without the Director acting first.
+func (s *Service) checkWorkdirQuota(ctx context.Context, wsID uuid.UUID) (workdirs.QuotaVerdict, error) {
+	var quotaGB int
+	if err := s.DB.QueryRow(ctx,
+		`SELECT COALESCE((SELECT workdir_disk_quota_gb FROM workspace_settings WHERE workspace_id = $1), 0)`,
+		wsID).Scan(&quotaGB); err != nil {
+		return workdirs.QuotaVerdict{}, fmt.Errorf("sessions: workdir quota setting: %w", err)
+	}
+	if quotaGB <= 0 {
+		// The column is `[integer, "null"]` and a null must not mean zero — that
+		// would block every session in a workspace that never set one.
+		return workdirs.QuotaVerdict{}, nil
+	}
+	used, err := workdirs.RuntimeDiskUsed(ctx, s.DB, wsID)
+	if err != nil {
+		return workdirs.QuotaVerdict{}, err
+	}
+	return workdirs.CheckDiskQuota(used, quotaGB), nil
+}
 
 // Viewer is who asks: a member (user) or a task token.
 type Viewer struct {
@@ -69,10 +109,15 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 	case gen.IsolationKindContainer:
 		errs = append(errs, apperr.Field("isolation/kind", "unsupported", "container isolation is v1.1"))
 	case gen.IsolationKindWorktree:
+		// P4 opens this. The repository is checked before the session exists
+		// (E13-01): a session created on an unusable repository fails at the
+		// first `git worktree add`, after the person has filled in six steps.
 		if !in.RuntimeId.IsSpecified() || in.RuntimeId.IsNull() {
 			errs = append(errs, apperr.Field("runtime_id", "required_for_isolation", "worktree isolation requires a runtime"))
 		}
-		errs = append(errs, apperr.Field("isolation/kind", "unsupported_in_p1", "worktree isolation (repo check) lands in P4; P1 supports none"))
+		if in.Isolation.RepoPath == nil || strings.TrimSpace(*in.Isolation.RepoPath) == "" {
+			errs = append(errs, apperr.Field("isolation/repo_path", "required", "worktree isolation needs the repository path on that machine (FR-6.4)"))
+		}
 	default:
 		errs = append(errs, apperr.Field("isolation/kind", "enum", "unknown isolation kind"))
 	}
@@ -100,6 +145,16 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 	}
 	if nRuntimes == 0 {
 		return nil, apperr.Conflict("no_runtime", "connect a computer first")
+	}
+	// FR-6.4 last bullet / E13-16: the disk quota gates SESSION CREATION, not
+	// the workdir's creation. Blocking later would mean the person has already
+	// filled in the wizard and the agents are already assigned; blocking here
+	// is the only point where "정리해 주세요" is still an answer.
+	if v, err := s.checkWorkdirQuota(ctx, wsID); err != nil {
+		return nil, err
+	} else if v.Blocked {
+		p := apperr.Conflict(v.Code, v.Detail)
+		return nil, p
 	}
 	// An explicit runtime must belong to this workspace (FR-2.1 M10; the claim
 	// path relies on it). Unknown and foreign runtimes get the same answer so

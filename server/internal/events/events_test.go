@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"slices"
+	"sort"
 	"testing"
 	"time"
 
@@ -122,5 +123,97 @@ func TestValidateV02(t *testing.T) {
 		if err := Validate(&e); err == nil {
 			t.Errorf("bad[%d] accepted", i)
 		}
+	}
+}
+
+// TestPayloadPropertiesMatchSchema is the S-41 drift guard: the closed
+// property lists Validate enforces must equal the schema's, or the check
+// either rejects a legal event or lets an illegal one through — the two
+// failures that made S-41 invisible for three phases.
+func TestPayloadPropertiesMatchSchema(t *testing.T) {
+	raw, err := os.ReadFile("../../../contracts/task_event.schema.json")
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+	var doc struct {
+		Defs map[string]struct {
+			AdditionalProperties *bool                      `json:"additionalProperties"`
+			Properties           map[string]json.RawMessage `json:"properties"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parse schema: %v", err)
+	}
+	for def, spec := range doc.Defs {
+		if spec.AdditionalProperties == nil || *spec.AdditionalProperties {
+			t.Errorf("$defs.%s is not closed in the schema — Validate assumes every payload is", def)
+			continue
+		}
+		got, ok := PayloadProperties[def]
+		if !ok {
+			t.Errorf("PayloadProperties has no %q — that payload is unchecked", def)
+			continue
+		}
+		want := make([]string, 0, len(spec.Properties))
+		for k := range spec.Properties {
+			want = append(want, k)
+		}
+		sort.Strings(want)
+		have := append([]string(nil), got...)
+		sort.Strings(have)
+		if !slices.Equal(have, want) {
+			t.Errorf("%s payload properties = %v, schema says %v", def, have, want)
+		}
+	}
+}
+
+// TestValidateRejectsUnknownPayloadKeys is S-41's actual guard: the schema
+// closes every payload, and an unknown key used to be accepted with a 200.
+//
+// T-D5's first implementation broke five of these and nobody found out. A key
+// the server stores but no reader knows is a feed field that silently does
+// nothing; a key that was MEANT to be one of the closed set is a misspelling
+// that costs a whole column of the activity view.
+func TestValidateRejectsUnknownPayloadKeys(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ev   contracts.TaskEvent
+	}{
+		{"status payload has no note", contracts.TaskEvent{
+			Attempt: 1, Seq: 1, TS: time.Now(), Class: "status", Verb: "post_message", Outcome: "ok",
+			Payload: map[string]any{"command": "message post", "note": "hi"},
+		}},
+		{"tool payload has no stdout", contracts.TaskEvent{
+			Attempt: 1, Seq: 1, TS: time.Now(), Class: "tool", Verb: "run_shell", Outcome: "ok",
+			Payload: map[string]any{"tool_call_id": "c1", "kind": "execute", "stdout": "…"},
+		}},
+		{"runtime payload has no message", contracts.TaskEvent{
+			Attempt: 1, Seq: 1, TS: time.Now(), Class: "runtime", Verb: "error", Outcome: "failed",
+			Payload: map[string]any{"detail": "x", "message": "y"},
+		}},
+	} {
+		if err := Validate(&tc.ev); err == nil {
+			t.Errorf("%s: accepted — contracts/task_event.schema.json sets "+
+				"additionalProperties:false on every payload (S-41)", tc.name)
+		}
+	}
+	// The negative control: a legal payload still passes, or the check would
+	// reject the daemon's ordinary traffic.
+	ok := contracts.TaskEvent{
+		Attempt: 1, Seq: 1, TS: time.Now(), Class: "tool", Verb: "run_shell", Outcome: "ok",
+		Payload: map[string]any{"tool_call_id": "c1", "kind": "execute", "command": "go test", "exit_code": 0},
+	}
+	if err := Validate(&ok); err != nil {
+		t.Errorf("a legal tool payload was rejected: %v", err)
+	}
+	// `tool` + `permission` validates against the permission $defs, not tool's
+	// (schema oneOf, harness §4) — a check that used the wrong one would reject
+	// every permission event.
+	perm := contracts.TaskEvent{
+		Attempt: 1, Seq: 1, TS: time.Now(), Class: "tool", Verb: "permission", Outcome: "allowed",
+		Payload: map[string]any{"tool_call_id": "c1", "option_kind": "allow_once", "options_offered": 2},
+	}
+	if err := Validate(&perm); err != nil {
+		t.Errorf("a legal permission payload was rejected: %v", err)
 	}
 }

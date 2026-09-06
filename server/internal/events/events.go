@@ -42,7 +42,38 @@ var (
 	// payload (harness v0.3 §7: tokens come once at turn end, rate_limit on
 	// every usage_update).
 	rateLimitStatuses = []string{"allowed", "allowed_warning", "rejected"}
+
+	// PayloadProperties is `additionalProperties: false` per class, which
+	// Validate never enforced (S-41). The schema closes every payload, and an
+	// unknown key is not a harmless extra: T-D5's first implementation broke
+	// five of them and nobody found out, because the server answered 200 and
+	// the daemon's own memSink check was the only thing looking. A key the
+	// server stores but no reader knows is a feed field that silently does
+	// nothing — and a key that was MEANT to be one of these is a misspelling
+	// that costs a whole column of the activity view.
+	//
+	// events_test.go asserts these lists against contracts/task_event.schema.json
+	// so drift is caught in CI, the same way the enums above are.
+	PayloadProperties = map[string][]string{
+		"message":    {"kind", "text", "chars"},
+		"tool":       {"tool_call_id", "kind", "title", "path", "lines_added", "lines_removed", "command", "exit_code", "summary", "masked", "duration_ms", "policy"},
+		"permission": {"tool_call_id", "title", "option_kind", "options_offered", "allow_once_missing", "policy"},
+		"usage":      {"input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "cost_usd", "estimated", "cumulative", "model", "model_drift", "rate_limit"},
+		"plan":       {"entries_total", "entries_done", "current"},
+		"runtime":    {"runtime_kind", "adapter_version", "protocol_version", "session_id", "failure_kind", "detail", "not_before", "stop_reason", "resume_reason"},
+		"status":     {"command", "args", "result_ref", "rejected_reason"},
+	}
 )
+
+// payloadDefFor maps a class to the $defs entry its payload is validated
+// against. `tool` is the one class with two: a permission event carries the
+// `permission` payload (schema `oneOf`, harness §4).
+func payloadDefFor(class, verb string) string {
+	if class == "tool" && verb == "permission" {
+		return "permission"
+	}
+	return class
+}
 
 // Validate checks the required fields, enums and the class payload shape.
 func Validate(e *contracts.TaskEvent) error {
@@ -75,6 +106,18 @@ func Validate(e *contracts.TaskEvent) error {
 			if v, present := e.Payload[field]; present {
 				if k, ok := v.(string); !ok || !slices.Contains(set, k) {
 					errs = append(errs, apperr.Field("payload."+field, "enum", fmt.Sprintf("%s must be one of %v", field, set)))
+				}
+			}
+		}
+		// S-41: `additionalProperties: false`. Checked before the per-class
+		// rules so a misspelt required key is reported as the unknown key it
+		// is, rather than only as the missing one.
+		if allowed, ok := PayloadProperties[payloadDefFor(e.Class, e.Verb)]; ok {
+			for k := range e.Payload {
+				if !slices.Contains(allowed, k) {
+					errs = append(errs, apperr.Field("payload."+k, "additionalProperties",
+						fmt.Sprintf("%s payload has no %q — contracts/task_event.schema.json closes it to %v",
+							payloadDefFor(e.Class, e.Verb), k, allowed)))
 				}
 			}
 		}
@@ -145,8 +188,20 @@ func (s *Service) Ingest(ctx context.Context, taskID uuid.UUID, attempt int, evs
 			return 0, apperr.Validation(apperr.Field("events", "attempt_mismatch", "event attempt differs from path"))
 		}
 		if err := Validate(&evs[i]); err != nil {
+			// S-41: 422 AND a feed line. A rejected batch is invisible
+			// otherwise — the daemon retries, the operator sees a task with a
+			// gap in its activity and no reason for it, and the schema
+			// violation that caused it lives only in an HTTP response nobody
+			// keeps.
+			s.recordRejectedBatch(ctx, taskID, attempt, evs[i].Seq, err)
 			return 0, err
 		}
+	}
+	// §9: the workspace may decline to store what the agent read and wrote.
+	// Read once per batch — it is one row and the batch is up to 100 events.
+	maskOn, err := Masking(ctx, s.DB, t.WorkspaceID)
+	if err != nil {
+		return 0, err
 	}
 	now := s.Clock.Now()
 	tx, err := s.DB.Begin(ctx)
@@ -154,9 +209,17 @@ func (s *Service) Ingest(ctx context.Context, taskID uuid.UUID, attempt int, evs
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	for _, e := range evs {
+	for i := range evs {
+		e := evs[i]
 		if e.Partial {
 			continue
+		}
+		// Masking happens BEFORE the insert. Redacting on read would leave the
+		// raw diff on the server's disk, which is exactly what the setting
+		// exists to prevent.
+		masked := false
+		if maskOn {
+			masked = Mask(&e)
 		}
 		// object_ref is stored as a JSON string (task_event.schema.json, openapi v0.4 — N2).
 		var objectRef any
@@ -171,14 +234,14 @@ func (s *Service) Ingest(ctx context.Context, taskID uuid.UUID, attempt int, evs
 		}
 		var id uuid.UUID
 		err := tx.QueryRow(ctx, `
-			INSERT INTO task_event (task_id, attempt, seq, class, verb, object_ref, outcome, usage, payload, ts, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			INSERT INTO task_event (task_id, attempt, seq, class, verb, object_ref, outcome, usage, payload, masked, ts, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $12, $10, $11)
 			-- Unlike the server-issued notes (tasks.InsertServerEvent), seq here
 			-- comes FROM THE DAEMON and task_id + seq is the protocol's
 			-- idempotency key: a conflict means the daemon re-delivered the same
 			-- event, so dropping it is the correct answer, not a lost write.
 			ON CONFLICT (task_id, attempt, seq) DO NOTHING RETURNING id`,
-			taskID, attempt, e.Seq, e.Class, e.Verb, jsonArg(objectRef), e.Outcome, usage, e.Payload, e.TS, now).Scan(&id)
+			taskID, attempt, e.Seq, e.Class, e.Verb, jsonArg(objectRef), e.Outcome, usage, e.Payload, e.TS, now, masked).Scan(&id)
 		if errors.Is(err, errNoRows()) {
 			continue // duplicate seq — idempotent
 		}
@@ -187,7 +250,11 @@ func (s *Service) Ingest(ctx context.Context, taskID uuid.UUID, attempt int, evs
 		}
 		if s.Hub != nil {
 			sid := t.SessionID
-			_ = s.Hub.Publish(ctx, tx, t.WorkspaceID, &sid, "task_event.appended", toAPI(id, taskID, e, now))
+			api := toAPI(id, taskID, e, now)
+			if masked {
+				api.Masked = &masked
+			}
+			_ = s.Hub.Publish(ctx, tx, t.WorkspaceID, &sid, "task_event.appended", api)
 		}
 	}
 	// Events are liveness: refresh the heartbeat.
@@ -211,7 +278,7 @@ func (s *Service) List(ctx context.Context, taskID uuid.UUID, afterSeq int, incl
 		limit = 50
 	}
 	rows, err := s.DB.Query(ctx, `
-		SELECT id, task_id, attempt, seq, class, verb, object_ref, outcome, tool, input, output, usage, payload, superseded_by, ts, created_at
+		SELECT id, task_id, attempt, seq, class, verb, object_ref, outcome, tool, input, output, usage, payload, superseded_by, ts, created_at, masked
 		FROM task_event WHERE task_id = $1 AND seq > $2 AND ($3 OR superseded_by IS NULL)
 		ORDER BY attempt, seq LIMIT $4`, taskID, afterSeq, includeSuperseded, limit+1)
 	if err != nil {
@@ -230,8 +297,9 @@ func (s *Service) List(ctx context.Context, taskID uuid.UUID, afterSeq int, incl
 			supersededBy            *uuid.UUID
 			ts                      *time.Time
 			createdAt               time.Time
+			masked                  bool
 		)
-		if err := rows.Scan(&id, &tid, &attempt, &seq, &class, &verb, &objectRef, &outcome, &tool, &input, &output, &usage, &p, &supersededBy, &ts, &createdAt); err != nil {
+		if err := rows.Scan(&id, &tid, &attempt, &seq, &class, &verb, &objectRef, &outcome, &tool, &input, &output, &usage, &p, &supersededBy, &ts, &createdAt, &masked); err != nil {
 			return nil, false, err
 		}
 		ref := objectRefString(objectRef)
@@ -245,6 +313,13 @@ func (s *Service) List(ctx context.Context, taskID uuid.UUID, afterSeq int, incl
 		ev.Usage = nullMap(usage)
 		ev.Payload = nullMap(p) // top-level, as stored (openapi v0.4 — R2)
 		ev.Sentence = nullable.NewNullableWithValue(sentenceFor(class, deref(verb), ref, deref(outcome)))
+		if masked {
+			// openapi listTaskEvents: "마스킹이 켜진 워크스페이스에서는 …
+			// `masked: true`". The reader has to be able to tell a quiet turn
+			// from a redacted one.
+			m := true
+			ev.Masked = &m
+		}
 		out = append(out, ev)
 	}
 	more := len(out) > limit
@@ -322,4 +397,23 @@ func sentenceFor(class, verb, objectRef, outcome string) string {
 		obj = " " + objectRef
 	}
 	return fmt.Sprintf("%s.%s%s → %s", class, verb, obj, outcome)
+}
+
+// recordRejectedBatch is S-41's feed half. It runs outside the ingest
+// transaction (there is none yet) and never turns its own failure into the
+// caller's: the 422 is the answer, this line is the record.
+func (s *Service) recordRejectedBatch(ctx context.Context, taskID uuid.UUID, attempt, seq int, cause error) {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	detail := fmt.Sprintf("데몬이 보낸 task_event(seq %d)가 계약 스키마를 어겨 배치를 거절했습니다 — %s",
+		seq, cause.Error())
+	if err := tasks.InsertServerEventOnce(ctx, tx, taskID, attempt, "runtime", "error",
+		"task_event.schema_rejected", "failed",
+		map[string]any{"detail": detail}, s.Clock.Now()); err != nil {
+		return
+	}
+	_ = tx.Commit(ctx)
 }

@@ -127,12 +127,14 @@ func (s *Server) RespondHitlRequest(w http.ResponseWriter, r *http.Request, hitl
 		// $0.00 there and a $0.01 raise would pass this guard and re-trip the
 		// pause on the very next heartbeat.
 		if err := s.DB.QueryRow(r.Context(), `
-			SELECT s.status::text, s.paused_reason::text,
-			       greatest(s.cost_usd, COALESCE((SELECT sum(u.cost_usd) FROM task_usage u
-			                                        JOIN task t ON t.id = u.task_id
-			                                       WHERE t.session_id = s.id), 0))
-			FROM session s WHERE s.id = $1`, row.SessionID).
-			Scan(&status, &reason, &spent); err != nil {
+			SELECT s.status::text, s.paused_reason::text FROM session s WHERE s.id = $1`, row.SessionID).
+			Scan(&status, &reason); err != nil {
+			writeErr(w, err)
+			return
+		}
+		// S-49: one definition of "이미 쓴 돈" for both budget-raise handlers.
+		spent, err := sessions.SpentUSD(r.Context(), s.DB, row.SessionID)
+		if err != nil {
 			writeErr(w, err)
 			return
 		}
@@ -143,8 +145,7 @@ func (s *Server) RespondHitlRequest(w http.ResponseWriter, r *http.Request, hitl
 					"세션이 예산으로 멈춰 있습니다 — 승인은 새 세션 상한을 함께 받습니다 (승인이 곧 재개, K-10)")))
 				return
 			case float64(*in.BudgetOverrideUsd) <= spent:
-				writeProblem(w, apperr.Validation(apperr.Field("budget_override_usd", "too_low",
-					fmt.Sprintf("이미 $%.2f를 썼습니다 — 세션의 새 상한은 그보다 커야 합니다", spent))))
+				writeErr(w, sessions.BudgetTooLowError("budget_override_usd", spent))
 				return
 			}
 		}

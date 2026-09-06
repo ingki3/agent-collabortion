@@ -26,7 +26,18 @@ type Report struct {
 	Bytes      int64
 	LastUsedAt *time.Time
 	Branch     *string
-	Dirty      *bool
+	// Dirty is the contract's `Workdir.dirty` — "미병합 커밋 또는 미커밋 변경".
+	// It stays the OR because that is what openapi says it means and what S13
+	// already draws.
+	Dirty *bool
+	// Merged · CommitsAhead · TreeDirty are §6's `git` fields kept APART.
+	// FR-6.4's two green lights need the three values separately, and E13-12
+	// (미병합 → 병합해 달라) and E13-13 (미커밋 → 커밋하거나 버려 달라) ask the
+	// Director for different things — collapsing them into `dirty` made both
+	// unanswerable (T-S9).
+	Merged       *bool
+	CommitsAhead *int
+	TreeDirty    *bool
 }
 
 // Kind normalises what the daemon calls the workdir onto the workdir_kind
@@ -61,20 +72,24 @@ func Record(ctx context.Context, q db.DBTX, rep Report, now time.Time) (uuid.UUI
 	}
 	var id uuid.UUID
 	err := q.QueryRow(ctx, `
-		INSERT INTO workdir (session_id, agent_id, lane_id, kind, path_or_ref, branch, status, disk_bytes, last_used_at, dirty, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $10, $10)
+		INSERT INTO workdir (session_id, agent_id, lane_id, kind, path_or_ref, branch, status, disk_bytes, last_used_at, dirty, merged, commits_ahead, tree_dirty, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $11, COALESCE($12, 0), $13, $10, $10)
 		ON CONFLICT (session_id, path_or_ref) DO UPDATE SET
-			agent_id     = COALESCE(EXCLUDED.agent_id, workdir.agent_id),
-			lane_id      = COALESCE(EXCLUDED.lane_id, workdir.lane_id),
-			kind         = EXCLUDED.kind,
-			branch       = COALESCE(EXCLUDED.branch, workdir.branch),
-			disk_bytes   = GREATEST(EXCLUDED.disk_bytes, 0),
-			last_used_at = COALESCE(EXCLUDED.last_used_at, workdir.last_used_at),
-			dirty        = COALESCE(EXCLUDED.dirty, workdir.dirty),
-			updated_at   = EXCLUDED.updated_at
+			agent_id      = COALESCE(EXCLUDED.agent_id, workdir.agent_id),
+			lane_id       = COALESCE(EXCLUDED.lane_id, workdir.lane_id),
+			kind          = EXCLUDED.kind,
+			branch        = COALESCE(EXCLUDED.branch, workdir.branch),
+			disk_bytes    = GREATEST(EXCLUDED.disk_bytes, 0),
+			last_used_at  = COALESCE(EXCLUDED.last_used_at, workdir.last_used_at),
+			dirty         = COALESCE(EXCLUDED.dirty, workdir.dirty),
+			merged        = COALESCE($11, workdir.merged),
+			commits_ahead = COALESCE($12, workdir.commits_ahead),
+			tree_dirty    = COALESCE($13, workdir.tree_dirty),
+			updated_at    = EXCLUDED.updated_at
 		RETURNING id`,
 		rep.SessionID, rep.AgentID, rep.LaneID, Kind(rep.Kind), rep.Path, rep.Branch,
-		max64(rep.Bytes, 0), rep.LastUsedAt, rep.Dirty, now).Scan(&id)
+		max64(rep.Bytes, 0), rep.LastUsedAt, rep.Dirty, now,
+		rep.Merged, rep.CommitsAhead, rep.TreeDirty).Scan(&id)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("workdirs: upsert: %w", err)
 	}

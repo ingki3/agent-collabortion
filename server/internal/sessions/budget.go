@@ -1,8 +1,13 @@
 package sessions
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/google/uuid"
 
+	"github.com/ingki3/agent-collabortion/server/internal/apperr"
+	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
@@ -287,4 +292,43 @@ func PlanBudgetAnswer(in BudgetAnswerInput) BudgetResume {
 	r.Workdir = p.Workdir
 	r.ResumeAttempted = p.ResumeAttempted
 	return r
+}
+
+// ---------------------------------------------------------------------------
+// S-49 — one definition of "이미 쓴 돈", one sentence about it
+// ---------------------------------------------------------------------------
+
+// SpentUSD is how much a session has spent, for every "the new ceiling must be
+// higher than this" check.
+//
+// WHY `greatest`. `session.cost_usd` is a rollup written at finish; the
+// per-task `task_usage` rows are written as usage arrives, so between a
+// heartbeat and the finish that follows it the rollup is BEHIND. The two
+// budget-raise handlers each picked one of the two and got different answers
+// for the same session (S-49): the resume path read the lagging column and
+// accepted a new ceiling the session had already blown through, so the very
+// next usage report re-tripped the pause and the Director saw the same banner
+// with nothing changed.
+//
+// production callers: httpapi.answerAgentHitl (the K-10 session-budget
+// approval) and httpapi.ResumeSession.
+func SpentUSD(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (float64, error) {
+	var spent float64
+	err := q.QueryRow(ctx, `
+		SELECT greatest(s.cost_usd, COALESCE((SELECT sum(u.cost_usd) FROM task_usage u
+		                                        JOIN task t ON t.id = u.task_id
+		                                       WHERE t.session_id = s.id), 0))
+		FROM session s WHERE s.id = $1`, sessionID).Scan(&spent)
+	if err != nil {
+		return 0, fmt.Errorf("sessions: spent: %w", err)
+	}
+	return spent, nil
+}
+
+// BudgetTooLowError is the one wording for a raise that is not a raise. Two
+// handlers with two sentences taught the Director that the number to beat
+// depends on which button they pressed (S-49).
+func BudgetTooLowError(field string, spent float64) error {
+	return apperr.Validation(apperr.Field(field, "too_low",
+		fmt.Sprintf("이미 $%.2f를 썼습니다 — 새 상한은 그보다 커야 합니다", spent)))
 }

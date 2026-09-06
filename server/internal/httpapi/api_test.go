@@ -284,8 +284,16 @@ func TestVerticalSlice(t *testing.T) {
 	}
 	daemon.must(200, "POST", attemptPath+"/heartbeat", map[string]any{"usage": map[string]any{}, "last_seq": 3})
 	feed := api.must(200, "GET", p+"/tasks/"+taskID+"/events", nil)
-	if len(feed["items"].([]any)) != 3 {
+	// 3 daemon events + the server's own note about the rejected batch above
+	// (S-41): a 422 that leaves no trace makes a gap in the activity feed with
+	// no reason for it, and the schema violation then lives only in an HTTP
+	// response nobody keeps.
+	if len(feed["items"].([]any)) != 4 {
 		t.Fatalf("feed = %v", feed)
+	}
+	rejected := feed["items"].([]any)[3].(map[string]any)
+	if rejected["object_ref"] != "task_event.schema_rejected" || rejected["outcome"] != "failed" {
+		t.Fatalf("last feed item = %v, want the S-41 schema rejection note", rejected)
 	}
 	// openapi v0.4 TaskEvent (R2/N2/N3): payload and attempt are top-level,
 	// object_ref is a string, usage carries no envelope.
@@ -301,7 +309,18 @@ func TestVerticalSlice(t *testing.T) {
 	daemon.must(200, "POST", attemptPath+"/events", map[string]any{"events": []any{toolEv}})
 	feed = api.must(200, "GET", p+"/tasks/"+taskID+"/events", map[string]any{})
 	items := feed["items"].([]any)
-	last := items[len(items)-1].(map[string]any)
+	// The tool event is found by seq, not by position: server-recorded notes
+	// live above ServerSeqBase and sort after every daemon event, so the S-41
+	// rejection note is now the last row.
+	var last map[string]any
+	for _, it := range items {
+		if m, ok := it.(map[string]any); ok && m["seq"].(float64) == 4 {
+			last = m
+		}
+	}
+	if last == nil {
+		t.Fatalf("tool event seq 4 missing from %v", items)
+	}
 	if last["payload"].(map[string]any)["tool_call_id"] != "call_1" {
 		t.Fatalf("listTaskEvents payload.tool_call_id must be top-level (R2): %v", last)
 	}

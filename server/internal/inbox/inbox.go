@@ -16,6 +16,10 @@ const (
 	TypeRunFailed        = "run_failed"
 	TypeRuntimeOffline   = "runtime_offline"
 	TypeMention          = "mention"
+	// TypeWorkdirGCBlocked is FR-6.4's "삭제하지 않고 Director 에게 알린다"
+	// (E13-12·13). Added in P4 by Lead decision (T-S9 ask 1); the contract's
+	// InboxItemType grows the same value.
+	TypeWorkdirGCBlocked = "workdir_gc_blocked"
 )
 
 // The three severities (inbox_severity, SCREEN §4.6).
@@ -40,7 +44,7 @@ func Severity(itemType string) string {
 	switch itemType {
 	case TypeHitlRequest, TypeLaneBlocked, TypeSessionPaused:
 		return ActionRequired
-	case TypeRunFailed, TypeRuntimeOffline:
+	case TypeRunFailed, TypeRuntimeOffline, TypeWorkdirGCBlocked:
 		return Attention
 	case TypeSessionCompleted, TypeMention:
 		return Info
@@ -75,6 +79,10 @@ func Actions(itemType, hitlType string, canRespond bool) []string {
 			return []string{"restart", "open_session"}
 		}
 		return []string{"open_session"}
+	case TypeWorkdirGCBlocked:
+		// The two ways out FR-6.4 names. "정리" is the manual delete S13
+		// offers once the person has merged or discarded.
+		return []string{"open_workdirs", "delete_workdir"}
 	case TypeRuntimeOffline:
 		return []string{"open_runtimes"}
 	case TypeSessionCompleted:
