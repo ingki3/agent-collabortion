@@ -1,6 +1,16 @@
 package tasks
 
-import "github.com/google/uuid"
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/ingki3/agent-collabortion/contracts"
+	"github.com/ingki3/agent-collabortion/server/internal/tokens"
+)
 
 // DispatchOutcome is what a daemon claim gets under a given session state.
 type DispatchOutcome struct {
@@ -46,4 +56,89 @@ func PlanDispatch(sessionState, pauseReason string, queued []uuid.UUID, running 
 		o.SessionState, o.SummaryMessages = "completed", 1
 	}
 	return o
+}
+
+// ---------------------------------------------------------------------------
+// Production side of the gate.
+// ---------------------------------------------------------------------------
+
+// PauseSessionTasks carries out PlanDispatch's verdict for a session that has
+// just been paused. It is the reason PlanDispatch exists as a function rather
+// than a comment: FR-2.3 makes the two pauses behave differently towards work
+// already in flight, and getting that backwards is invisible until a budget
+// pause quietly lets the turn it was meant to stop run to completion.
+//
+//	director / loop → drain. The turn finishes; nothing new dispatches.
+//	budget / time   → cancel (§8.2.2) and park the task at paused(<reason>),
+//	                  so Director approval can resume it rather than re-run it.
+//
+// The "nothing new dispatches" half is enforced by the claim query's
+// `s.status = 'active'` guard (queue/postgres.go), not here.
+//
+// Production call sites for PlanDispatch: this function, called from
+// router.pauseForLoop (FR-3.5) and sessions.ApplyCompletionEvent
+// (budget_exhausted, E6-10).
+func (s *Service) PauseSessionTasks(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, reason, detail string, now time.Time) error {
+	queued, err := collectIDs(tx.Query(ctx, `
+		SELECT id FROM task WHERE session_id = $1 AND status = 'queued' ORDER BY created_at`, sessionID))
+	if err != nil {
+		return err
+	}
+	running, err := collectIDs(tx.Query(ctx, `
+		SELECT id FROM task WHERE session_id = $1 AND status IN ('dispatched', 'preparing', 'running')
+		ORDER BY created_at FOR UPDATE SKIP LOCKED`, sessionID))
+	if err != nil {
+		return err
+	}
+	o := PlanDispatch("paused", reason, queued, len(running) > 0)
+	if !o.RunningTurnKill {
+		return nil
+	}
+	for _, id := range running {
+		t, err := lockTask(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if err := s.pauseLocked(ctx, tx, t, reason, detail, o.TaskStatus, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// pauseLocked parks one in-flight task and asks its daemon to stop. The daemon
+// command is what actually ends the turn; the row is moved first so a claim
+// racing this cannot hand the task out again.
+func (s *Service) pauseLocked(ctx context.Context, tx pgx.Tx, t *Row, reason, detail string, target Status, now time.Time) error {
+	if _, err := Transition(t.Status, target); err != nil {
+		return err
+	}
+	var det *string
+	if detail != "" {
+		det = &detail
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE task SET status = $2, paused_reason = $3::pause_reason, paused_detail = $4, updated_at = $5 WHERE id = $1`,
+		t.ID, string(target), reason, det, now); err != nil {
+		return fmt.Errorf("tasks: pause task: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'paused', updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+		return err
+	}
+	if t.RuntimeID != nil {
+		if requested, err := cancelRequested(ctx, tx, t.ID, t.Attempt); err != nil {
+			return err
+		} else if !requested {
+			if err := tokens.QueueCommand(ctx, tx, *t.RuntimeID, contracts.Command{
+				Type: contracts.CmdCancel, TaskID: t.ID.String(), Attempt: t.Attempt,
+				AfterCurrentTool: true, Reason: reason,
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	t.Status = target
+	t.PausedReason = &reason
+	s.publish(ctx, tx, t)
+	return nil
 }

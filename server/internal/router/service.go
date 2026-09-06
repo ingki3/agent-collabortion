@@ -27,10 +27,9 @@ var (
 	ErrParentNotFound  = errors.New("router: parent message not found")
 )
 
-// ServerSeqBase is the seq range for task_events the server records itself
-// (colab-cli.md §4 status events). Daemon seqs are small and monotonic; the
-// schema has one (task, attempt, seq) key so server-side events live above it.
-const ServerSeqBase = 1 << 30
+// ServerSeqBase re-exports tasks.ServerSeqBase for callers that hold the
+// router (e.g. the command-expiry sweep).
+const ServerSeqBase = tasks.ServerSeqBase
 
 // Notifier wakes long-polling claims (queue.Notifier).
 type Notifier interface{ Notify() }
@@ -49,11 +48,17 @@ type Service struct {
 	Clock    clock.Clock
 	Hub      *realtime.Hub
 	Notifier Notifier
+	// Tasks carries out the consequences of a pause (FR-2.3 drain vs cancel).
+	Tasks *tasks.Service
 }
 
 func New(pool *pgxpool.Pool, c clock.Clock, h *realtime.Hub, n Notifier) *Service {
 	return &Service{DB: pool, Clock: c, Hub: h, Notifier: n}
 }
+
+// WithTasks wires the task service in. It is set after construction because
+// the two services are built in either order by the server wiring.
+func (s *Service) WithTasks(t *tasks.Service) *Service { s.Tasks = t; return s }
 
 // Post persists the message, applies the rules and creates or merges tasks.
 // One transaction per session (row lock) so two concurrent posts cannot create
@@ -198,25 +203,48 @@ func (s *Service) Post(ctx context.Context, sessionID uuid.UUID, author Author, 
 		if err != nil {
 			return nil, err
 		}
-		// FR-3.4: a queued task on the lane absorbs this message.
+		// FR-3.4: a queued task on the lane absorbs this message. PlanArrival
+		// owns the decision (never cancel a running turn, merge per LANE, keep
+		// arrival order); this only reads the lane's queue and writes the answer.
 		var existing uuid.UUID
-		err = tx.QueryRow(ctx, `SELECT id FROM task WHERE lane_id = $1 AND status = 'queued' ORDER BY created_at LIMIT 1 FOR UPDATE`, laneID).Scan(&existing)
+		var laneStatus string
+		var queuedMsgs []uuid.UUID
+		err = tx.QueryRow(ctx, `
+			SELECT t.id, t.coalesced_message_ids, l.status::text
+			FROM task t JOIN lane l ON l.id = t.lane_id
+			WHERE t.lane_id = $1 AND t.status = 'queued' ORDER BY t.created_at LIMIT 1 FOR UPDATE OF t`, laneID).
+			Scan(&existing, &queuedMsgs, &laneStatus)
 		coalesced := err == nil
+		if errors.Is(err, pgx.ErrNoRows) {
+			if err := tx.QueryRow(ctx, `SELECT status::text FROM lane WHERE id = $1`, laneID).Scan(&laneStatus); err != nil {
+				return nil, err
+			}
+		} else if err != nil {
+			return nil, err
+		}
+		arrival := PlanArrival(laneID, laneStatus, queuedMsgs, []uuid.UUID{msgID})
+		if arrival.CancelledRunningTurn {
+			// Unreachable by construction — the invariant is that no message
+			// cancels a turn — but an explicit refusal beats a silent one if
+			// PlanArrival ever changes.
+			return nil, fmt.Errorf("router: FR-3.4 invariant: a message may not cancel a running turn")
+		}
 		var taskID uuid.UUID
 		if coalesced {
 			taskID = existing
-			if _, err := tx.Exec(ctx, `UPDATE task SET coalesced_message_ids = array_append(coalesced_message_ids, $2), updated_at = $3 WHERE id = $1`, taskID, msgID, now); err != nil {
+			if _, err := tx.Exec(ctx, `UPDATE task SET coalesced_message_ids = $2, updated_at = $3 WHERE id = $1`,
+				taskID, arrival.CoalescedMessageIDs, now); err != nil {
 				return nil, err
 			}
-		} else if errors.Is(err, pgx.ErrNoRows) {
+		} else {
 			if err := tx.QueryRow(ctx, `
-				INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, originator_user_id, status, created_at, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7, $7) RETURNING id`,
-				laneID, sessionID, tr.AgentID, profiles[tr.AgentID], msgID, originator, now).Scan(&taskID); err != nil {
+				INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, originator_user_id,
+				                  coalesced_message_ids, status, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $8) RETURNING id`,
+				laneID, sessionID, tr.AgentID, profiles[tr.AgentID], msgID, originator,
+				arrival.CoalescedMessageIDs, now).Scan(&taskID); err != nil {
 				return nil, fmt.Errorf("router: insert task: %w", err)
 			}
-		} else {
-			return nil, err
 		}
 		result.Triggers = append(result.Triggers, struct {
 			AgentId       openapi_types.UUID           `json:"agent_id"`
@@ -277,15 +305,10 @@ func (s *Service) Post(ctx context.Context, sessionID uuid.UUID, author Author, 
 		}
 	}
 	if author.Type == "agent" && author.TaskID != nil {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO task_event (task_id, attempt, seq, class, verb, object_ref, outcome, payload, created_at)
-			VALUES ($1, $2, (SELECT COALESCE(max(seq) + 1, $3::int) FROM task_event WHERE task_id = $1 AND attempt = $2 AND seq >= $3::int),
-			        'status', 'post_message', to_jsonb($4::text), 'ok', $5, $6)
-			ON CONFLICT (task_id, attempt, seq) DO NOTHING`,
-			*author.TaskID, author.Attempt, ServerSeqBase,
-			msgID.String(),
+		if err := tasks.InsertServerEvent(ctx, tx, *author.TaskID, author.Attempt, "status", "post_message",
+			msgID.String(), "ok",
 			map[string]any{"command": "message post", "result_ref": msgID.String()}, now); err != nil {
-			return nil, fmt.Errorf("router: status event: %w", err)
+			return nil, err
 		}
 	}
 
@@ -451,9 +474,10 @@ func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID u
 	if status == "paused" {
 		return nil // already stopped; one pause per session, not one per trigger
 	}
+	detail := tasks.WithLoop(tasks.PausedDetail("loop", now), v.Detail, v.LimitCount(), v.Agents)
 	if _, err := tx.Exec(ctx, `
-		UPDATE session SET status = 'paused', paused_reason = 'loop', pause_detail = $2, updated_at = $3
-		WHERE id = $1`, sessionID, v.Detail, now); err != nil {
+		UPDATE session SET status = 'paused', paused_reason = 'loop', paused_detail = $2, updated_at = $3
+		WHERE id = $1`, sessionID, detail, now); err != nil {
 		return err
 	}
 	var hitlID uuid.UUID
@@ -473,10 +497,19 @@ func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID u
 			return err
 		}
 	}
+	// FR-2.3: what happens to a turn already running depends on WHY we paused.
+	// A loop pause is not a budget breach — the work in flight is legitimate —
+	// so it drains. PlanDispatch owns that distinction.
+	if s.Tasks != nil {
+		if err := s.Tasks.PauseSessionTasks(ctx, tx, sessionID, "loop", v.Detail, now); err != nil {
+			return err
+		}
+	}
 	if s.Hub != nil {
 		sid := sessionID
 		_ = s.Hub.Publish(ctx, tx, wsID, &sid, "session.updated", map[string]any{
-			"id": sessionID, "status": "paused", "paused_reason": "loop", "pause_detail": v.Detail,
+			"id": sessionID, "status": "paused", "paused_reason": "loop",
+			"paused_detail": detail,
 		})
 	}
 	return nil

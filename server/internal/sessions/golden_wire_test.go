@@ -1,4 +1,12 @@
 // Wiring for the E6 golden table. The evaluation lives in completion.go.
+//
+// PRODUCTION CALL SITES:
+//
+//	applyEvent   → ApplyEvent     complete.go ApplyCompletionEvent, reached from
+//	                              CompleteSession (manual) and the budget pause
+//	validateTree → ValidateTree   sessions.Create (session-creation guard)
+//	runSummary   → RunSummary     complete.go ApplyCompletionEvent's
+//	                              completing → completed step
 package sessions
 
 import "github.com/google/uuid"

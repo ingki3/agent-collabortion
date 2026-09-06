@@ -103,14 +103,18 @@ func Resolve(req Request) Decision {
 		return Decision{Rule: 2, Created: true, Status: Queued, DelegatedFromTaskID: req.DelegatorTaskID}
 	}
 	if req.TopLevelMention && !req.ForceNewLane {
-		if c, ok := mostRecent(req.Existing, req.AgentID); ok && c.Status != Failed {
-			d := Decision{Rule: 3, LaneID: c.ID, FromStatus: c.Status, ReentryCount: c.ReentryCount, Status: c.Status}
-			if Reentrant(c.Status) {
-				d.Reentry = true
-				d.ReentryCount = c.ReentryCount + 1
-				d.Status = Running
+		if c, ok := mostRecent(req.Existing, req.AgentID); ok {
+			// Rule 3 and the FR-6.2 re-entry machine are one decision, so it is
+			// made once: Reenter says whether this lane can be resumed at all,
+			// and a lane it refuses (failed) falls through to rule 4.
+			r := Reenter(c.Status, c.ReentryCount)
+			if !r.NewLane {
+				d := Decision{Rule: 3, LaneID: c.ID, FromStatus: c.Status, ReentryCount: c.ReentryCount, Status: c.Status}
+				if r.Allowed {
+					d.Reentry, d.ReentryCount, d.Status = true, r.ReentryCount, r.Status
+				}
+				return d
 			}
-			return d
 		}
 	}
 	return Decision{Rule: 4, Created: true, Status: Queued}
@@ -125,13 +129,22 @@ type Reentry struct {
 }
 
 // Reenter is the FR-6.2 lane re-entry machine: done and blocked go back to
-// running with reentry_count+1; anything else (notably failed) forks a new
-// lane (E5-09, E5-10).
+// running with reentry_count+1; failed forks a new lane (E5-09, E5-10).
+//
+// A lane that is still live (queued/running/waiting_human/paused) is neither
+// re-entered nor forked — the trigger simply joins it, which is what rule 3
+// already does. Only `failed` demands a new lane.
+//
+// Production call site: Resolve above, which every lane decision goes through
+// (router/service.go resolveLaneFor, router/preview.go previewLane).
 func Reenter(from string, count int) Reentry {
-	if Reentrant(from) {
+	switch {
+	case Reentrant(from):
 		return Reentry{Allowed: true, Status: Running, ReentryCount: count + 1}
+	case from == Failed:
+		return Reentry{Allowed: false, NewLane: true, Status: Queued}
 	}
-	return Reentry{Allowed: false, NewLane: true, Status: Queued}
+	return Reentry{Allowed: false, Status: from, ReentryCount: count}
 }
 
 // Layout is FR-6.1: lane and workdir are different things, and isolation binds

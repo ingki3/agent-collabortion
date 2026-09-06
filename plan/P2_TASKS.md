@@ -84,11 +84,29 @@ DoD: `cd server && go vet -tags p2golden ./... && go test -tags p2golden ./... 2
   - 동시성 상한 4층, 호출 권한 게이트(respond_to, 세션 참여=허용), 결정 기록 저장/조회.
   - previewTriggers(FR-3.6) 구현 — 웹의 로컬 계산을 걷어낼 수 있게.
   - **프로파일 폴백**(T-D2에서 이동): 재시도 가능한 `failure_kind`(network·stall·runtime_offline·rate_limited)일 때 `agent_profile.fallback_profile_id`로 갈아타 재큐잉 — 같은 workdir(`reuse:true`), `attempt` 증가, `runtime_kind`가 바뀌면 `resume` 비움(E8-08). 대안이 없으면 `queued` + Director 알림, **다른 머신으로 넘기지 않음**(E8-09).
-  - 백로그 흡수: **S-1**(규칙 3 — 위 규칙 세트에 포함), **S-9**(서버 seq attempt 스코프 충돌,
-    두 자리 함께), **S-10**(AcceptInvite TOCTOU), **S-11**(파라미터 범위 → 422),
+  - 백로그 흡수: **S-1**(규칙 3 — 위 규칙 세트에 포함), **S-9**(서버 발행 seq 동시 계산 — **네 자리**), **S-10**(AcceptInvite TOCTOU), **S-11**(파라미터 범위 → 422),
     **S-12**(설정 operation 구현 시 authz — 설정을 이번에 켠다면).
 DoD: 골든 테스트(자기 범위) 초록 + 기존 테스트 회귀 0 + CI 초록. e2e/p1/07_adversarial.sh 37항목 유지.
 금지: contracts/·daemon/·cli/·web/ 수정, 0001~0005 수정(0006부터).
+```
+
+#### T-S3 · 서버 후속: 아티팩트 제출·리뷰 (T-S2 다음 PR)
+
+T-S2 에서 **하지 않은** 것이고 "범위 밖"이 아니라 "바로 다음"이다.
+
+```
+작업: submitArtifact · reviewArtifact · getArtifact · downloadArtifact · listArtifacts (FR-4.3)
+스트림: S / 브랜치 feat/server-artifacts
+왜 지금인가:
+  - **G5 를 막는다.** 시나리오 A 8단계가 artifact_submitted 로 시작한다. G4 는 통과한다.
+  - **PR #61(T-C2, CLI)이 이미 이 엔드포인트를 부른다.** 서버가 없으면 `colab` 5개 명령 중
+    3개(artifact submit·get, review approve)가 501 을 받는다.
+  - 종료 조건 E6-05·06(`agent_approval`)의 판정 로직은 T-S2 가 이미 넣었다
+    (sessions.ApplyEvent). 빠진 것은 그 이벤트를 발생시킬 **호출 경로**뿐이다.
+출력: 파일 저장(버전 관리 — 같은 이름 재제출 시 v2), artifact_review 행,
+      submit → sessions.ApplyEvent{Kind: "artifact_submit"},
+      review approve → sessions.ApplyEvent{Kind: "review_approve"} 연결.
+DoD: E6-05·06 이 실 경로로 초록, e2e 에서 CLI 3개 명령이 501 을 받지 않는다.
 ```
 
 ### T-D2 · 데몬: Hermes 어댑터 · 프로파일 폴백 · 브리프 완성 · probe 실측

@@ -1,5 +1,23 @@
 // Wiring for the E5 golden table. The decisions live in sweep.go, gate.go and
 // derive.go; this file only shapes them into the table's structs.
+//
+// PRODUCTION CALL SITES (see router/golden_wire_test.go for why these are
+// listed):
+//
+//	sweepAt       → PlanSweep           service.go applySweep, from ExpireStale
+//	dispatchUnder → PlanDispatch        gate.go PauseSessionTasks, from
+//	                                    router.pauseForLoop and
+//	                                    sessions.ApplyCompletionEvent. The
+//	                                    "nothing new dispatches" half is the
+//	                                    claim query's `s.status = 'active'`
+//	                                    guard (queue/postgres.go), covered by
+//	                                    TestP2SessionGateInTheDatabase.
+//	reenterLane   → lanestate.Reenter   called by lanestate.Resolve, which every
+//	                                    lane decision goes through
+//	deriveStatus  → DeriveAgentStatus   sessions.LoadParticipants (S7 roster)
+//	                                    and agents.Load (agent page) — the only
+//	                                    two ladders left, and they are the same
+//	                                    one
 package tasks
 
 import (

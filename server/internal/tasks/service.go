@@ -258,23 +258,14 @@ func (s *Service) Heartbeat(ctx context.Context, taskID uuid.UUID, attempt int, 
 // (G3 C-1) — so the drift is visible instead of fatal, and only once per
 // attempt: a heartbeat every 15s would otherwise bury the feed.
 func (s *Service) NotePreviewDrift(ctx context.Context, taskID uuid.UUID, attempt int, now time.Time) error {
-	_, err := s.DB.Exec(ctx, `
-		INSERT INTO task_event (task_id, attempt, seq, class, verb, object_ref, outcome, payload, created_at)
-		SELECT $1, $2, (SELECT COALESCE(max(seq) + 1, $3::int) FROM task_event WHERE task_id = $1 AND attempt = $2 AND seq >= $3::int),
-		       'runtime', 'error', to_jsonb($4::text), 'info', $5, $6
-		WHERE NOT EXISTS (
-			SELECT 1 FROM task_event WHERE task_id = $1 AND attempt = $2 AND object_ref = to_jsonb($4::text) AND class = 'runtime' AND verb = 'error')
-		ON CONFLICT (task_id, attempt, seq) DO NOTHING`,
-		taskID, attempt, serverSeqBase, "heartbeat.preview",
-		map[string]any{
-			"note":  "데몬이 보낸 heartbeat preview 모양이 계약과 달라 무시했습니다",
-			"field": "preview",
-			"spec":  "contracts/daemon-protocol.md §4.2 (v0.3)",
-		}, now)
-	if err != nil {
-		return fmt.Errorf("tasks: preview drift note: %w", err)
-	}
-	return nil
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		return InsertServerEventOnce(ctx, tx, taskID, attempt, "runtime", "error", "heartbeat.preview", "info",
+			map[string]any{
+				"note":  "데몬이 보낸 heartbeat preview 모양이 계약과 달라 무시했습니다",
+				"field": "preview",
+				"spec":  "contracts/daemon-protocol.md §4.2 (v0.3)",
+			}, now)
+	})
 }
 
 // Requeue ends the current attempt with reason and either queues attempt+1
@@ -379,12 +370,7 @@ func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 			if err != nil {
 				return err
 			}
-			// daemon-protocol §4.1 (v0.6) + PRD FR-7.1: the dispatch timeout ENDS
-			// the task, it does not re-queue it. Nobody ever claimed the work, so
-			// there is nothing to resume, and handing it back to the same silent
-			// runtime just burns the attempt budget. `timeout` is deliberately
-			// absent from FR-7.1's retry list.
-			if err := s.failLocked(ctx, tx, t, contracts.FailTimeout, now); err != nil {
+			if err := s.applySweep(ctx, tx, t, idleSince(t, now), now); err != nil {
 				return err
 			}
 			n++
@@ -402,7 +388,7 @@ func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 				return err
 			}
 			rt := t.RuntimeID
-			if err := s.requeueLocked(ctx, tx, t, contracts.FailRuntimeOffline, nil, now); err != nil {
+			if err := s.applySweep(ctx, tx, t, idleSince(t, now), now); err != nil {
 				return err
 			}
 			if rt != nil {
@@ -644,14 +630,9 @@ func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*
 			out = t
 			return nil
 		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO task_event (task_id, attempt, seq, class, verb, object_ref, outcome, payload, created_at)
-			VALUES ($1, $2, (SELECT COALESCE(max(seq) + 1, $3::int) FROM task_event WHERE task_id = $1 AND attempt = $2 AND seq >= $3::int),
-			        'status', 'cancel', to_jsonb($4::text), 'ok', $5, $6)
-			ON CONFLICT (task_id, attempt, seq) DO NOTHING`,
-			t.ID, t.Attempt, serverSeqBase, "director",
+		if err := InsertServerEvent(ctx, tx, t.ID, t.Attempt, "status", "cancel", "director", "ok",
 			map[string]any{"command": "lane cancel", "note": "사람이 중단함", "requested_by": byUserID.String(), "reason": "director"}, now); err != nil {
-			return fmt.Errorf("tasks: cancel feed event: %w", err)
+			return err
 		}
 		switch t.Status {
 		case Dispatched, Preparing, Running:
@@ -674,11 +655,6 @@ func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*
 	})
 	return out, immediate, err
 }
-
-// serverSeqBase mirrors router.ServerSeqBase (the router package imports
-// tasks, so the constant is repeated here): server-recorded status events
-// live above the daemon's seq range.
-const serverSeqBase = 1 << 30
 
 // cancelRequested reports whether a cancel command was issued for (task, attempt).
 func cancelRequested(ctx context.Context, q db.DBTX, taskID uuid.UUID, attempt int) (bool, error) {
@@ -767,4 +743,21 @@ func (s *Service) failLocked(ctx context.Context, tx pgx.Tx, t *Row, reason cont
 	t.Status, t.FailureKind, t.FinishedAt = Failed, &fk, &now
 	s.publish(ctx, tx, t)
 	return nil
+}
+
+// applySweep carries out PlanSweep's verdict. The classification — which
+// silence this is, whether it ends the task or starts a new attempt — lives in
+// PlanSweep so the golden table drives the same decision the sweep makes.
+//
+// Production call site for PlanSweep: here, from ExpireStale (both branches).
+func (s *Service) applySweep(ctx context.Context, tx pgx.Tx, t *Row, idle time.Duration, now time.Time) error {
+	o, stale := PlanSweep(t.Status, idle, t.Attempt, t.MaxAttempts)
+	if !stale {
+		return nil
+	}
+	reason := contracts.FailureKind(o.FailureKind)
+	if o.TaskStatus == Failed {
+		return s.failLocked(ctx, tx, t, reason, now)
+	}
+	return s.requeueLocked(ctx, tx, t, reason, nil, now)
 }

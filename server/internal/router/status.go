@@ -316,15 +316,6 @@ func insertInbox(ctx context.Context, q pgx.Tx, wsID, userID uuid.UUID, typ, sev
 
 // recordStatusEvent is colab-cli.md §4: every CLI call shows up in the feed.
 func (s *Service) recordStatusEvent(ctx context.Context, tx pgx.Tx, taskID uuid.UUID, attempt int, status, note string, now time.Time) error {
-	_, err := tx.Exec(ctx, `
-		INSERT INTO task_event (task_id, attempt, seq, class, verb, object_ref, outcome, payload, created_at)
-		VALUES ($1, $2, (SELECT COALESCE(max(seq) + 1, $3::int) FROM task_event WHERE task_id = $1 AND attempt = $2 AND seq >= $3::int),
-		        'status', 'set_status', to_jsonb($4::text), 'ok', $5, $6)
-		ON CONFLICT (task_id, attempt, seq) DO NOTHING`,
-		taskID, attempt, ServerSeqBase, status,
+	return tasks.InsertServerEvent(ctx, tx, taskID, attempt, "status", "set_status", status, "ok",
 		map[string]any{"command": "status set " + status, "note": note}, now)
-	if err != nil {
-		return fmt.Errorf("router: status event: %w", err)
-	}
-	return nil
 }

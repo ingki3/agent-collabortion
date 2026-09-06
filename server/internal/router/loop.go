@@ -23,8 +23,8 @@ func DefaultLimits() Limits {
 const HopWindow = time.Hour
 
 // Loop-limit detail values. pause_reason has a single `loop` label, so the
-// limit that actually tripped is recorded next to it (session.pause_detail,
-// migration 0006) — E4-01, E4-03, E4-06 and E4-09 are four different rows and
+// limit that actually tripped is recorded next to it (session.paused_detail's
+// `loop` branch, migration 0006 + openapi PausedDetail) — E4-01, E4-03, E4-06 and E4-09 are four different rows and
 // the Director cannot act on "loop" alone.
 const (
 	DetailChainDepth     = "chain_depth"
@@ -56,6 +56,11 @@ type LoopVerdict struct {
 	ChainDepth     int
 	HopsThisWindow int
 	PairRoundtrips int
+
+	// Agents is who the limit is about — the two ends of a pair ping-pong, or
+	// the trigger's own pair otherwise. PausedDetail.loop.agents shows them so
+	// the Director can see WHO is looping, not just that something is.
+	Agents []uuid.UUID
 }
 
 // CheckLoopLimits applies the three FR-3.5 limits to the next trigger. It is
@@ -68,6 +73,7 @@ func CheckLoopLimits(history []Hop, next Hop, lim Limits, now time.Time) LoopVer
 		ChainDepth:     chainDepth(history, next),
 		HopsThisWindow: hopsInWindow(history, now),
 		PairRoundtrips: pairRoundtrips(history, next),
+		Agents:         hopAgents(next),
 	}
 	// A human message is never limited: it is the thing that RESETS the
 	// counters, so it can always land.
@@ -138,7 +144,33 @@ func pairRoundtrips(history []Hop, next Hop) int {
 	return (run + 1) / 2
 }
 
+// hopAgents lists the agents at the two ends of the trigger, humans omitted.
+func hopAgents(h Hop) []uuid.UUID {
+	out := []uuid.UUID{}
+	if !h.Human() {
+		out = append(out, h.FromAgent)
+	}
+	if h.ToAgent != uuid.Nil {
+		out = append(out, h.ToAgent)
+	}
+	return out
+}
+
 func samePair(a, b Hop) bool {
 	return (a.FromAgent == b.FromAgent && a.ToAgent == b.ToAgent) ||
 		(a.FromAgent == b.ToAgent && a.ToAgent == b.FromAgent)
+}
+
+// LimitCount is the number that tripped, whichever limit it was — PausedDetail
+// carries one `count` field and the banner needs it filled with the right one.
+func (v LoopVerdict) LimitCount() int {
+	switch v.Detail {
+	case DetailChainDepth:
+		return v.ChainDepth
+	case DetailHopsPerHour:
+		return v.HopsThisWindow
+	case DetailPairRoundtrips:
+		return v.PairRoundtrips
+	}
+	return 0
 }

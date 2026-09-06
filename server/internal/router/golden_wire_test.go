@@ -1,6 +1,28 @@
 // Wiring for the P2a golden tables (PLAN §10.3: the tables themselves are
-// read-only for this PR). Every hook here is a thin adapter — the decisions
-// live in rules.go, fallback.go, loop.go, blocked.go and internal/lanestate.
+// read-only for this PR). Every hook here is a thin adapter — no decision is
+// made in this file.
+//
+// PRODUCTION CALL SITES. A golden table is only worth its cost if the function
+// it drives is the one the user reaches; a hook nothing calls tests a second
+// implementation and lets the first rot. Each adapter names where its function
+// runs in production, so the next review is a grep rather than an audit.
+//
+//	planFallback   → router.PlanFallback     service.go Post (rule 7 scheduling)
+//	                 router.ResolveFallback  service.go cancelFallbacksFor +
+//	                                         tasks.ExpireStale (deferred → queued)
+//	setBlocked     → router.PlanBlocked      status.go SetAgentStatus ("blocked")
+//	resolveLane    → lanestate.Resolve       service.go resolveLaneFor,
+//	                                         preview.go previewLane
+//	messageArrives → router.PlanArrival      service.go Post (FR-3.4 merge)
+//	layoutFor      → lanestate.LayoutFor     lanestate.Resolve's sibling; the
+//	                                         binding it describes is enforced by
+//	                                         the claim query's worktree guard
+//	                                         (queue/postgres.go)
+//	checkLoop      → router.CheckLoopLimits  service.go Post (per trigger)
+//
+// Each of those paths also has a database-level regression test in
+// httpapi/p2_production_test.go, so breaking the production path fails the
+// suite even while the pure function stays correct.
 package router
 
 import (

@@ -101,12 +101,25 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, token string) (*c
 	}
 	rows.Close()
 
-	// Trigger + coalesced messages, history, posted ids
+	// Trigger messages, history, posted ids.
+	//
+	// coalesced_message_ids is the arrival-ordered list of everything this task
+	// answers, the first message included (FR-3.4 "도착 순서대로 인용", E2-10) —
+	// so it is the list, not an addition to trigger_message_id. Concatenating
+	// the two quoted the first message twice. trigger_message_id remains the
+	// fallback for rows written before the list carried it.
 	triggerIDs := []uuid.UUID{}
+	seen := map[uuid.UUID]bool{}
 	if t.TriggerMessageID != nil {
-		triggerIDs = append(triggerIDs, *t.TriggerMessageID)
+		triggerIDs, seen[*t.TriggerMessageID] = append(triggerIDs, *t.TriggerMessageID), true
 	}
-	triggerIDs = append(triggerIDs, t.CoalescedMessageIDs...)
+	for _, id := range t.CoalescedMessageIDs {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		triggerIDs = append(triggerIDs, id)
+	}
 	var trigger strings.Builder
 	for _, id := range triggerIDs {
 		m, err := messages.Get(ctx, tx, id)

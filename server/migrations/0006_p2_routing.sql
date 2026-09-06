@@ -11,11 +11,18 @@
 -- 할지 알 수 없으므로(EVAL E4-01·03·06·09 는 서로 다른 행이다) 이유를 따로 적는다.
 -- enum 을 늘리지 않는 이유: pause_reason 은 "왜 멈췄나"의 분류이고 이것은 그
 -- 분류 안의 세부라, 값을 섞으면 UI 가 다섯 가지 사유를 여덟 가지로 읽는다.
-ALTER TABLE session ADD COLUMN pause_detail text;
-ALTER TABLE session ADD CONSTRAINT session_pause_detail_check
-    CHECK (pause_detail IS NULL OR paused_reason IS NOT NULL);
+--
+-- 모양은 **계약이 이미 정해 두었다** — openapi.yaml 의 `PausedDetail`
+-- (Session.paused_detail): {reason, paused_at, budget{}, time{},
+-- loop{limit, count, agents[]}, runtime{}, system_hitl_request_id,
+-- resolve_actions[], can_resolve_from}. text 한 칸으로 만들면 S5 배너가 count·
+-- agents 를 못 그리고 웹이 키를 못 찾는다. 컬럼 이름도 계약의 필드명(paused_detail)
+-- 을 그대로 쓰고 두 테이블에서 같게 둔다.
+ALTER TABLE session ADD COLUMN paused_detail jsonb;
+ALTER TABLE session ADD CONSTRAINT session_paused_detail_check
+    CHECK (paused_detail IS NULL OR paused_reason IS NOT NULL);
 
-ALTER TABLE task ADD COLUMN paused_detail text;
+ALTER TABLE task ADD COLUMN paused_detail jsonb;
 ALTER TABLE task ADD CONSTRAINT task_paused_detail_check
     CHECK (paused_detail IS NULL OR paused_reason IS NOT NULL);
 

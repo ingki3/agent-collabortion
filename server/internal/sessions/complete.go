@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
+	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
 // ParseTree reads session.completion_condition. The stored shape allows nested
@@ -71,12 +72,13 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 
 	var wsID uuid.UUID
 	var status string
-	var raw, metRaw []byte
+	var raw, metRaw, limitsRaw []byte
+	var cost float64
 	var assignee, director *uuid.UUID
 	err = tx.QueryRow(ctx, `
-		SELECT workspace_id, status::text, completion_condition, completion_met, assignee_agent_id, director_user_id
+		SELECT workspace_id, status::text, completion_condition, completion_met, limits, cost_usd, assignee_agent_id, director_user_id
 		FROM session WHERE id = $1 FOR UPDATE`, sessionID).
-		Scan(&wsID, &status, &raw, &metRaw, &assignee, &director)
+		Scan(&wsID, &status, &raw, &metRaw, &limitsRaw, &cost, &assignee, &director)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.NotFound("session")
 	}
@@ -122,10 +124,21 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 
 	switch out.SessionState {
 	case "paused":
+		detail := tasks.PausedDetail(out.PauseReason, now)
+		if out.PauseReason == "budget" {
+			detail = tasks.WithBudget(detail, float32(budgetLimit(limitsRaw)), float32(cost))
+		}
 		if _, err := tx.Exec(ctx, `
-			UPDATE session SET status = 'paused', paused_reason = $2, updated_at = $3 WHERE id = $1`,
-			sessionID, out.PauseReason, now); err != nil {
+			UPDATE session SET status = 'paused', paused_reason = $2, paused_detail = $3, updated_at = $4 WHERE id = $1`,
+			sessionID, out.PauseReason, detail, now); err != nil {
 			return nil, err
+		}
+		// FR-2.3 / §8.2.2: a budget pause CANCELS the turn in flight. Letting it
+		// finish spends exactly the money the pause exists to stop.
+		if s.Tasks != nil {
+			if err := s.Tasks.PauseSessionTasks(ctx, tx, sessionID, out.PauseReason, "", now); err != nil {
+				return nil, err
+			}
 		}
 	case "completed":
 		// active → completing → completed. The intermediate state is real: no
@@ -145,7 +158,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		}
 		out.SummaryMsgs = summary.SummaryMsgs
 		if _, err := tx.Exec(ctx, `
-			UPDATE session SET status = 'completed', paused_reason = NULL, pause_detail = NULL,
+			UPDATE session SET status = 'completed', paused_reason = NULL, paused_detail = NULL,
 			       finished_at = $2, updated_at = $2 WHERE id = $1`, sessionID, now); err != nil {
 			return nil, err
 		}
@@ -286,4 +299,17 @@ func (s *Service) ListDecisions(ctx context.Context, sessionID uuid.UUID) ([]Dec
 		out = append(out, d)
 	}
 	return out, rows.Err()
+}
+
+// budgetLimit reads session.limits.budget_usd for the pause banner. A missing
+// limit yields 0, which the banner renders as "no explicit limit" rather than
+// inventing one.
+func budgetLimit(raw []byte) float64 {
+	var l struct {
+		BudgetUsd *float64 `json:"budget_usd"`
+	}
+	if json.Unmarshal(raw, &l) != nil || l.BudgetUsd == nil {
+		return 0
+	}
+	return *l.BudgetUsd
 }

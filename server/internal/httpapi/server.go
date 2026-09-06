@@ -79,13 +79,13 @@ func NewServer(d Deps) *Server {
 	tsk := tasks.New(d.DB, d.Clock, tok, hub)
 	notifier := queue.NewNotifier()
 	q := queue.NewPostgres(d.DB, d.Clock, tsk, notifier)
-	rt := router.New(d.DB, d.Clock, hub, notifier)
+	rt := router.New(d.DB, d.Clock, hub, notifier).WithTasks(tsk)
 	return &Server{
 		DB: d.DB, Clock: d.Clock, Log: d.Log,
 		Auth:     auth.New(d.DB, d.Clock, d.WebURL),
 		Agents:   agents.New(d.DB, d.Clock),
 		Runtimes: runtimes.New(d.DB, d.Clock, hub, d.ServerURL),
-		Sessions: sessions.New(d.DB, d.Clock, hub, rt),
+		Sessions: sessions.New(d.DB, d.Clock, hub, rt).WithTasks(tsk),
 		Router:   rt,
 		Tasks:    tsk,
 		Events:   events.New(d.DB, d.Clock, hub),

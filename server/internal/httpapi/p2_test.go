@@ -232,16 +232,42 @@ func TestP2LoopLimitPauses(t *testing.T) {
 	if len(out.Warnings) != 1 || out.Warnings[0].Code != "loop_limit" {
 		t.Fatalf("warnings = %v, want loop_limit — the author must be told why", out.Warnings)
 	}
-	var status, reason, detail *string
-	if err := f.pool.QueryRow(ctx, `SELECT status::text, paused_reason::text, pause_detail FROM session WHERE id = $1`, f.sessionID).
+	var status, reason *string
+	var detail *gen.PausedDetail
+	if err := f.pool.QueryRow(ctx, `SELECT status::text, paused_reason::text, paused_detail FROM session WHERE id = $1`, f.sessionID).
 		Scan(&status, &reason, &detail); err != nil {
 		t.Fatal(err)
 	}
 	if status == nil || *status != "paused" || reason == nil || *reason != "loop" {
 		t.Fatalf("session = %v/%v, want paused/loop", deref(status), deref(reason))
 	}
-	if detail == nil || *detail != "pair_roundtrips" {
-		t.Fatalf("pause_detail = %v, want pair_roundtrips — `loop` alone does not tell the Director what to raise", deref(detail))
+	// The banner needs the shape the contract defines, not a bare string:
+	// which limit, the count that tripped it, and who was looping (S5, O6).
+	if detail == nil || detail.Loop == nil || detail.Loop.Limit == nil {
+		t.Fatalf("paused_detail = %+v, want the contract's PausedDetail with a loop branch", detail)
+	}
+	if string(*detail.Loop.Limit) != "pair_roundtrips" {
+		t.Fatalf("loop.limit = %q, want pair_roundtrips — `loop` alone does not tell the Director what to raise", *detail.Loop.Limit)
+	}
+	if detail.Loop.Count == nil || *detail.Loop.Count < 2 {
+		t.Fatalf("loop.count = %v, want the roundtrip count that tripped the limit", detail.Loop.Count)
+	}
+	if detail.Loop.Agents == nil || len(*detail.Loop.Agents) != 2 {
+		t.Fatalf("loop.agents = %v, want both ends of the ping-pong", detail.Loop.Agents)
+	}
+	if string(detail.Reason) != "loop" || detail.PausedAt.IsZero() {
+		t.Fatalf("paused_detail reason/paused_at = %q/%v, both are required by the contract", detail.Reason, detail.PausedAt)
+	}
+
+	// And the session read model exposes it under the contract's key, so the
+	// web can render the banner from getSession as well as from the stream.
+	sess := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
+	pd, ok := sess["paused_detail"].(map[string]any)
+	if !ok {
+		t.Fatalf("getSession paused_detail = %v, want an object under that exact key", sess["paused_detail"])
+	}
+	if loop, ok := pd["loop"].(map[string]any); !ok || loop["limit"] != "pair_roundtrips" {
+		t.Fatalf("getSession paused_detail.loop = %v", pd["loop"])
 	}
 	// FR-3.5: the Director gets a system-issued HITL, not a silent stop.
 	var hitl int

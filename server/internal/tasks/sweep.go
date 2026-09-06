@@ -52,3 +52,27 @@ func PlanSweep(initial Status, idle time.Duration, attempt, maxAttempts int) (Sw
 	}
 	return SweepOutcome{}, false
 }
+
+// idleSince is how long the task has been silent, measured the way the sweep's
+// two rules measure it: from dispatch for an unclaimed task, from the last
+// heartbeat for a running one.
+func idleSince(t *Row, now time.Time) time.Duration {
+	var last time.Time
+	switch t.Status {
+	case Running:
+		for _, c := range []*time.Time{t.HeartbeatAt, t.StartedAt, t.DispatchedAt} {
+			if c != nil {
+				last = *c
+				break
+			}
+		}
+	default:
+		if t.DispatchedAt != nil {
+			last = *t.DispatchedAt
+		}
+	}
+	if last.IsZero() {
+		last = t.CreatedAt
+	}
+	return now.Sub(last)
+}

@@ -33,11 +33,17 @@ type Service struct {
 	Clock  clock.Clock
 	Hub    *realtime.Hub
 	Router *router.Service
+	// Tasks carries out a pause's consequence for work already in flight
+	// (FR-2.3 drain vs cancel).
+	Tasks *tasks.Service
 }
 
 func New(pool *pgxpool.Pool, c clock.Clock, h *realtime.Hub, r *router.Service) *Service {
 	return &Service{DB: pool, Clock: c, Hub: h, Router: r}
 }
+
+// WithTasks wires the task service in after construction.
+func (s *Service) WithTasks(t *tasks.Service) *Service { s.Tasks = t; return s }
 
 // Viewer is who asks: a member (user) or a task token.
 type Viewer struct {
@@ -316,12 +322,12 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, v Viewer) (*gen.Session,
 	)
 	err := q.QueryRow(ctx, `
 		SELECT s.id, s.workspace_id, s.title, s.goal, s.acceptance_criteria, s.director_user_id, s.deputy_director_user_id, s.assignee_agent_id,
-		       s.runtime_id, s.isolation, s.completion_condition, s.completion_met, s.limits, s.autonomy, s.context_reuse_override, s.status, s.paused_reason,
+		       s.runtime_id, s.isolation, s.completion_condition, s.completion_met, s.limits, s.autonomy, s.context_reuse_override, s.status, s.paused_reason, s.paused_detail,
 		       s.cost_usd, s.created_by, s.created_at, s.updated_at, s.started_at, s.finished_at,
 		       (SELECT max(created_at) FROM message m WHERE m.session_id = s.id), r.status
 		FROM session s LEFT JOIN runtime r ON r.id = s.runtime_id WHERE s.id = $1`, id).Scan(
 		&out.Id, &out.WorkspaceId, &out.Title, &out.Goal, &out.AcceptanceCriteria, &out.DirectorUserId, &deputy, &assignee,
-		&runtimeID, &isolation, &completion, &met, &limits, &autonomy, &reuse, &status, &pausedReason,
+		&runtimeID, &isolation, &completion, &met, &limits, &autonomy, &reuse, &status, &pausedReason, &out.PausedDetail,
 		&cost, &out.CreatedBy, &out.CreatedAt, &out.UpdatedAt, &startedAt, &finishedAt, &lastActivity, &runtimeStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.NotFound("session")
@@ -349,7 +355,12 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, v Viewer) (*gen.Session,
 	out.PausedReason = nullable.NewNullNullable[gen.PauseReason]()
 	if pausedReason != nil {
 		out.PausedReason = nullable.NewNullableWithValue(gen.PauseReason(*pausedReason))
-		out.PausedDetail = &gen.PausedDetail{Reason: gen.PauseReason(*pausedReason), PausedAt: out.UpdatedAt}
+		// P1 synthesised the whole detail here, which threw away everything the
+		// pause actually recorded. The stored column wins; this stays only as
+		// the fallback for rows paused before 0006 added it.
+		if out.PausedDetail == nil {
+			out.PausedDetail = &gen.PausedDetail{Reason: gen.PauseReason(*pausedReason), PausedAt: out.UpdatedAt}
+		}
 	}
 	out.CostUsd = float32(cost)
 	f := false
@@ -472,7 +483,10 @@ func LoadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID, assig
 		SELECT sp.agent_id, sp.profile_id, sp.joined_at, a.name, a.role, a.role_description, a.avatar_url, a.respond_to, a.archived_at IS NOT NULL,
 		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status IN ('dispatched','preparing','running')),
 		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status = 'waiting_human'),
-		       (SELECT t.failure_kind::text FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status IN ('failed','completed','cancelled') ORDER BY t.finished_at DESC NULLS LAST LIMIT 1)
+		       (SELECT t.failure_kind::text FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status IN ('failed','completed','cancelled') ORDER BY t.finished_at DESC NULLS LAST LIMIT 1),
+		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status IN ('queued','deferred') AND t.attempt > 1),
+		       EXISTS (SELECT 1 FROM lane l WHERE l.agent_id = a.id AND l.session_id = sp.session_id AND l.status = 'blocked'),
+		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status = 'paused' AND t.paused_reason = 'budget')
 		FROM session_participant sp JOIN agent a ON a.id = sp.agent_id WHERE sp.session_id = $1 ORDER BY sp.joined_at`, sessionID)
 	if err != nil {
 		return nil, err
@@ -484,8 +498,8 @@ func LoadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID, assig
 		var profileID uuid.UUID
 		var role, respondTo string
 		var avatar, lastFailure *string
-		var archived, running, waiting bool
-		if err := rows.Scan(&p.AgentId, &profileID, &p.JoinedAt, &p.Agent.Name, &role, &p.Agent.RoleDescription, &avatar, &respondTo, &archived, &running, &waiting, &lastFailure); err != nil {
+		var archived, running, waiting, retrying, blocked, pausedBudget bool
+		if err := rows.Scan(&p.AgentId, &profileID, &p.JoinedAt, &p.Agent.Name, &role, &p.Agent.RoleDescription, &avatar, &respondTo, &archived, &running, &waiting, &lastFailure, &retrying, &blocked, &pausedBudget); err != nil {
 			return nil, err
 		}
 		p.SessionId = sessionID
@@ -494,10 +508,25 @@ func LoadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID, assig
 		p.Agent.AvatarUrl = tasks.NullString(avatar)
 		rt := gen.RespondTo(respondTo)
 		p.Agent.RespondTo = &rt
-		p.Status = agents.DeriveStatus(respondTo, archived, running, waiting, lastFailure)
-		if p.Status != gen.AgentStatusDisabled && runtimeStatus != nil && *runtimeStatus == "offline" {
-			p.Status = gen.AgentStatusOffline
-		}
+		// One ladder, one implementation (FR-1.3). The offline step is
+		// session-scoped — it is the SESSION's runtime that decides whether a
+		// turn could run — so it is an input here rather than a second pass
+		// over the answer.
+		//
+		// blocked lanes and paused(budget) tasks are read but deliberately
+		// ignored by the ladder (E5-13, E5-14): both processes have already
+		// ended and the lane card says why. Selecting them keeps that decision
+		// visible instead of hiding it in a missing column.
+		p.Status = gen.AgentStatus(tasks.DeriveAgentStatus(tasks.Derived{
+			RespondTo: respondTo, Archived: archived,
+			RuntimeOffline:  runtimeStatus != nil && *runtimeStatus == "offline",
+			Running:         boolCount(running),
+			WaitingHuman:    boolCount(waiting),
+			Blocked:         boolCount(blocked),
+			PausedBudget:    boolCount(pausedBudget),
+			LastFailureKind: derefStr(lastFailure),
+			RetryInFlight:   retrying,
+		}))
 		p.IsAssignee = assignee != nil && *assignee == p.AgentId
 		link := router.MentionLink(p.Agent.Name, p.AgentId)
 		p.MentionLink = &link
@@ -628,4 +657,18 @@ func (s *Service) listItem(ctx context.Context, id uuid.UUID) (*gen.SessionListI
 		       (SELECT count(*) FROM lane l WHERE l.session_id = $1 AND l.status = 'running')`, id).
 		Scan(&item.Attention.HitlOpen, &item.Attention.Blocked, &item.Attention.Failed, &item.RunningLaneCount)
 	return item, err
+}
+
+func boolCount(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
