@@ -620,7 +620,14 @@ func (sv *server) prompt(id *json.RawMessage, sid string) {
 			}
 			sv.nextID++
 			rid := sv.nextID
-			sv.send(map[string]any{"jsonrpc": "2.0", "id": rid, "method": acp.MethodRequestPermission, "params": map[string]any{"sessionId": sid, "toolCall": tc, "options": opts}})
+			// Record the OUTGOING request as well as the answer: a test that
+			// has to act while a permission is genuinely outstanding (harness
+			// §5 step 2, E10-03) needs to know the moment it was asked, and
+			// the client's own events only appear once it has decided.
+			params := map[string]any{"sessionId": sid, "toolCall": tc, "options": opts}
+			pb, _ := json.Marshal(params)
+			sv.record(message{Method: acp.MethodRequestPermission, Params: pb})
+			sv.send(map[string]any{"jsonrpc": "2.0", "id": rid, "method": acp.MethodRequestPermission, "params": params})
 			ans := <-sv.inbox
 			var r acp.RequestPermissionResult
 			_ = json.Unmarshal(ans.Result, &r)

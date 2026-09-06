@@ -135,6 +135,11 @@ type Runner struct {
 	// "cancelled". The stall watcher sets cancelling without intent.
 	intent     bool
 	cancelling bool
+	// cancelGate is closed when the §5 step-2 gate opens. Permission
+	// requests that arrived after the cancel intent park on it.
+	cancelGate chan struct{}
+	// parked counts permission requests waiting on cancelGate.
+	parked     int
 	cancelReq  *CancelRequest
 	stalled    bool
 	promptDone chan struct{}
@@ -149,6 +154,9 @@ type Runner struct {
 	planDone   int
 	usage      contracts.Usage
 	available  []string
+	// budget (FR-7.3 M9 — see budget.go)
+	budgetExceeded    bool
+	pendingBudgetNote *budgetNote
 }
 
 // New prepares a Runner.
@@ -162,7 +170,7 @@ func New(a Attempt) *Runner {
 	if a.Quiet == 0 {
 		a.Quiet = contracts.HermesQuietWait
 	}
-	return &Runner{a: a, clk: a.Clock, tools: map[string]*toolState{}, promptDone: make(chan struct{})}
+	return &Runner{a: a, clk: a.Clock, tools: map[string]*toolState{}, promptDone: make(chan struct{}), cancelGate: make(chan struct{})}
 }
 
 func (r *Runner) kind() contracts.RuntimeKind { return r.a.Bundle.Profile.RuntimeKind }
@@ -454,6 +462,7 @@ func (r *Runner) run(ctx context.Context) Result {
 		up["model_drift"] = true
 	}
 	r.emit("usage", "report", "", "report", r.usagePayload(up))
+	r.flushBudgetNote()
 	res := base
 	res.Models = models
 	res.StopReason = pr.StopReason
@@ -481,6 +490,12 @@ func (r *Runner) run(ctx context.Context) Result {
 		if cancelled {
 			res.Outcome = "cancelled"
 			res.Failure = &Failure{Kind: contracts.FailCancelled, Detail: cancelReason(cancelReq)}
+		} else if r.budgetHit() {
+			// daemon-protocol §4.4: a measured overrun is `paused_budget`,
+			// with NO failure_kind — going over budget is policy, not an
+			// error, and the Director raising the cap resumes the same lane
+			// and workdir (FR-7.3 M9).
+			res.Outcome, res.StopReason = "paused_budget", "budget"
 		}
 	}
 	return res
@@ -925,6 +940,7 @@ func (r *Runner) recordUsage(pr *PromptResult, models []string) {
 	if len(models) > 0 {
 		r.usage.Model = strings.Join(models, ",")
 	}
+	r.noteBudget()
 }
 
 func (r *Runner) usagePayload(extra map[string]any) map[string]any {
@@ -995,9 +1011,7 @@ func (r *Runner) onRawSDK(method string, params json.RawMessage) {
 
 func (r *Runner) decidePermission(p RequestPermissionParams) PermissionOutcome {
 	r.touch()
-	r.mu.Lock()
-	cancelling := r.cancelling
-	r.mu.Unlock()
+	cancelling := r.parkIfCancelling()
 	title := p.ToolCall.Title
 	if cancelling {
 		// §4 row 4 / task_event v0.2: no option was chosen → option_kind omitted.
@@ -1040,6 +1054,73 @@ func (r *Runner) decidePermission(p RequestPermissionParams) PermissionOutcome {
 	}
 	r.emit("tool", "permission", title, outcome, payload)
 	return d.Outcome
+}
+
+// parkIfCancelling holds a permission request that arrived after a cancel was
+// decided but before the §5 step-2 gate opened, and reports whether the answer
+// must be "cancelled".
+//
+// Without the hold, the §5 step-1 window — up to THIRTY SECONDS of waiting for
+// an in-flight edit or shell command — was a window in which the daemon still
+// granted brand new tool calls. A human had already pressed 중단 and the agent
+// could start another `rm -rf` with our permission. "Cancel intent is set" and
+// "we still authorise work" cannot both be true.
+//
+// It is also what makes §5's step ORDER reachable at all. §5 numbers the
+// permission answer as step 2, before `session/cancel`, and notes that the
+// case never fires against a real runtime because permission is granted first
+// — which is precisely because an ACP client that answers on arrival can never
+// have one pending. Parking creates the pending set the contract describes,
+// and cancelProcedure drains it before step 3.
+func (r *Runner) parkIfCancelling() bool {
+	r.mu.Lock()
+	if r.cancelling {
+		r.mu.Unlock()
+		return true
+	}
+	if !r.intent {
+		r.mu.Unlock()
+		return false
+	}
+	r.parked++
+	gate := r.cancelGate
+	r.mu.Unlock()
+	var done <-chan struct{}
+	if r.c != nil {
+		done = r.c.Done()
+	}
+	select {
+	case <-gate:
+	case <-done:
+	case <-time.After(contracts.CancelDrainWait):
+		// The gate is opened by cancelProcedure a few instructions after the
+		// intent, so this bound is a deadlock guard, not a policy.
+	}
+	r.mu.Lock()
+	r.parked--
+	r.mu.Unlock()
+	return true
+}
+
+// waitParked lets the §5 step-2 gate drain: session/cancel is not sent while a
+// permission request is still unanswered, because the agent loop is blocked on
+// that answer and would never process the cancel (harness §5 steps 2-4).
+//
+// The bound is wall time on purpose. This waits for another goroutine of this
+// process to write one JSON line, like the §2.2 quiet wait — it is not one of
+// the contract deadlines (stall, cancel hold, not_before) that must move with
+// the injected clock.
+func (r *Runner) waitParked(bound time.Duration) {
+	deadline := time.Now().Add(bound)
+	for time.Now().Before(deadline) {
+		r.mu.Lock()
+		n := r.parked
+		r.mu.Unlock()
+		if n == 0 {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 }
 
 func (r *Runner) toolAllowed(name string) bool {
@@ -1177,8 +1258,11 @@ func (r *Runner) cancelProcedure(ctx context.Context, afterCurrentTool bool) {
 	r.mu.Lock()
 	r.cancelling = true
 	sid := r.sessionID
+	closeOnce(r.cancelGate) // under the lock: two cancels can race here
 	r.mu.Unlock()
 	r.emit("runtime", "cancel", "", "info", map[string]any{"step": stepPermission})
+	// Nothing goes on the wire until every parked request has its answer.
+	r.waitParked(2 * time.Second)
 	if r.c == nil {
 		return
 	}
@@ -1196,6 +1280,17 @@ func (r *Runner) cancelProcedure(ctx context.Context, afterCurrentTool bool) {
 	// 5. SIGTERM → 10s → SIGKILL. Last, always: E10-03 is "프로세스 즉시 kill 아님".
 	r.emit("runtime", "cancel", "", "info", map[string]any{"step": stepSignal})
 	r.closeProcess()
+}
+
+// closeOnce closes ch unless it is already closed. cancelProcedure can be
+// entered twice (the stall watcher and a server cancel), so the caller holds
+// r.mu — a bare check-then-close would double-close and panic.
+func closeOnce(ch chan struct{}) {
+	select {
+	case <-ch:
+	default:
+		close(ch)
+	}
 }
 
 func (r *Runner) closeProcess() {

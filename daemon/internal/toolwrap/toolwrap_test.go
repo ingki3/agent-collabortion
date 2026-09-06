@@ -169,3 +169,22 @@ func read(t *testing.T, p string) string {
 	}
 	return string(b)
 }
+
+// D-8: a flag is as much a command position as a subcommand.
+func TestRewriteCLIFlags(t *testing.T) {
+	const w = "/w/.colab/bin/t.1/colab"
+	for _, tc := range []struct{ in, want string }{
+		{"`colab --version`", "`" + w + " --version`"},
+		{"$ colab --help", "$ " + w + " --help"},
+		{"colab -h", w + " -h"},
+		{"colab message post x", w + " message post x"},
+		// prose and the MCP tool name stay untouched
+		{"the colab CLI is installed", "the colab CLI is installed"},
+		{"colab_message_post", "colab_message_post"},
+		{"run x-colab --version", "run x-colab --version"},
+	} {
+		if got := toolwrap.RewriteCLI(tc.in, w); got != tc.want {
+			t.Errorf("RewriteCLI(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

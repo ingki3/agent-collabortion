@@ -240,6 +240,11 @@ func Pong(ctx context.Context, kind contracts.RuntimeKind, o Options, cap *contr
 	// an unmeasured surface stays unadvertised rather than assumed.
 	cap.ToolSurface = res.ToolSurface
 	cap.ToolDisallow = toolDisallowMeasured(res)
+	// §9 supported_options (backlog D-5) is keyed on the MEASURED adapter
+	// version, not the pin the profile asked for: advertising the pin's option
+	// set for a version that actually answered would tell S10 to offer a
+	// control the running adapter discards.
+	cap.SupportedOptions = acp.SupportedOptions(kind, cap.AdapterVersion)
 	// `resume` = the session advertised loadSession (PRD §8.2.1: judge by the
 	// advertised value) AND a second process really loaded the session back.
 	cap.Resume = res.Caps.LoadSession

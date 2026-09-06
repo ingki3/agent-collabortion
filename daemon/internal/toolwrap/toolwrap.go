@@ -146,10 +146,18 @@ func SweepAll(workdirRoot string) error {
 
 // cliRe matches `colab ` where it is a COMMAND, not prose: at the start of a
 // line, right after a backtick (inline code and fenced blocks alike) or after
-// a shell prompt "$ ", and followed by a lower-case subcommand word. So
-// "`colab message post …`" is rewritten and "the colab CLI" or the MCP tool
-// name "colab_message_post" are not.
-var cliRe = regexp.MustCompile("(?m)(^|`|\\$ )colab ([a-z])")
+// a shell prompt "$ ", and followed by a lower-case subcommand word OR a
+// flag. So "`colab message post …`" and "`colab --version`" are rewritten and
+// "the colab CLI" or the MCP tool name "colab_message_post" are not.
+//
+// The flag half is backlog D-8. `([a-z])` alone left "`colab --version`"
+// pointing at whatever `colab` the runtime's sanitised PATH resolves to —
+// which for a cli_wrapper runtime is either nothing or a binary with none of
+// the attempt's COLAB_* env, i.e. exactly the G5 failure the wrapper exists to
+// prevent. Nothing in today's brief or turn prompt is a bare flag, so this
+// closes a hole rather than fixing a break; the point is that the rule is
+// "command position", not "command position and also a subcommand".
+var cliRe = regexp.MustCompile("(?m)(^|`|\\$ )colab (-|[a-z])")
 
 // RewriteCLI replaces those command occurrences with the wrapper's absolute
 // path (harness §10 v0.8.1: the daemon rewrites every text it hands a
