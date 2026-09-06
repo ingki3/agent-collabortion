@@ -107,8 +107,14 @@ func TestSystemMessagesPublish(t *testing.T) {
 	card := waitFrame(t, frames, "message.created", func(p json.RawMessage) bool {
 		return messageKind(t, p) == "blocked_q"
 	})
-	if got := messageContent(t, card); got != "예산은 얼마입니까?" {
+	// The card carries the question AND the delegator mention the K3 badge
+	// reads (S-27), so the frame is checked for both rather than for equality.
+	got := messageContent(t, card)
+	if !contains(got, "예산은 얼마입니까?") {
 		t.Fatalf("blocked_q frame content = %q, want the question", got)
+	}
+	if !contains(got, router.MentionLink("Lead", f.leadUUID)) {
+		t.Fatalf("blocked_q frame content = %q, want the delegator mention (S-27)", got)
 	}
 
 	if _, err := f.srv.Router.SetAgentStatus(ctx, done.Task.Id, 1, "done", ""); err != nil {

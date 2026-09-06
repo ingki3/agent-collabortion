@@ -211,6 +211,67 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, agentId gen
 	writeJSON(w, http.StatusOK, out)
 }
 
+// agentEditor is the "권한: 소유자, owner · admin" gate the profile operations
+// share with updateAgent. A profile decides which runtime and model an agent
+// runs on, so it is an owner-level edit, not a member-level one.
+func (s *Server) agentEditor(r *http.Request, agentId gen.AgentId) (*gen.User, *Problem) {
+	u, p := s.agentAccess(r, agentId)
+	if p != nil {
+		return nil, p
+	}
+	a, err := s.Agents.Get(r.Context(), agentId, &u.Id)
+	if err != nil {
+		return nil, apperr.As(err)
+	}
+	m, _ := s.Auth.Member(r.Context(), a.WorkspaceId, u.Id)
+	if a.OwnerId != u.Id && (m == nil || (m.Role != "owner" && m.Role != "admin")) {
+		return nil, apperr.Forbidden("not_agent_owner", "only the agent owner or a workspace owner/admin can edit this agent")
+	}
+	return u, nil
+}
+
+// CreateAgentProfile is openapi createAgentProfile (x-phase P2). It was 501,
+// which meant an agent created without a usable profile — the template mapping
+// failure of §6.4 — could never be given one (S-24 · S-30).
+func (s *Server) CreateAgentProfile(w http.ResponseWriter, r *http.Request, agentId gen.AgentId) {
+	if _, p := s.agentEditor(r, agentId); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	var in gen.AgentProfileCreate
+	if p := decodeJSON(w, r, &in); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	out, err := s.Agents.CreateProfile(r.Context(), agentId, in)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, out)
+}
+
+// UpdateAgentProfile is openapi updateAgentProfile (x-phase P2): edit, pick the
+// default, and — the reason E8-08 had to reach into the database — set the
+// fallback profile.
+func (s *Server) UpdateAgentProfile(w http.ResponseWriter, r *http.Request, agentId gen.AgentId, profileId gen.ProfileId) {
+	if _, p := s.agentEditor(r, agentId); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	var in gen.AgentProfileUpdate
+	if p := decodeJSON(w, r, &in); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	out, err := s.Agents.UpdateProfile(r.Context(), agentId, profileId, in)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // ListRuntimeCandidates is GET /workspaces/{id}/runtime-candidates — S6 4단계
 // and S17 rebinding (FR-2.1, FR-9.2 F). Ineligible runtimes are returned too,
 // with a reason, so the wizard draws them disabled instead of showing "후보 0".

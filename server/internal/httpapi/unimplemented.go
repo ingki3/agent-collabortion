@@ -26,16 +26,8 @@ func (unimplemented) UpdateAgent(w http.ResponseWriter, r *http.Request, agentId
 	notImplemented(w, r, "UpdateAgent")
 }
 
-func (unimplemented) CreateAgentProfile(w http.ResponseWriter, r *http.Request, agentId gen.AgentId) {
-	notImplemented(w, r, "CreateAgentProfile")
-}
-
 func (unimplemented) DeleteAgentProfile(w http.ResponseWriter, r *http.Request, agentId gen.AgentId, profileId gen.ProfileId) {
 	notImplemented(w, r, "DeleteAgentProfile")
-}
-
-func (unimplemented) UpdateAgentProfile(w http.ResponseWriter, r *http.Request, agentId gen.AgentId, profileId gen.ProfileId) {
-	notImplemented(w, r, "UpdateAgentProfile")
 }
 
 func (unimplemented) CreateTestChat(w http.ResponseWriter, r *http.Request, agentId gen.AgentId, params gen.CreateTestChatParams) {
@@ -60,10 +52,6 @@ func (unimplemented) GetCliContext(w http.ResponseWriter, r *http.Request) {
 
 func (unimplemented) GetHitlRequest(w http.ResponseWriter, r *http.Request, hitlRequestId gen.HitlRequestId) {
 	notImplemented(w, r, "GetHitlRequest")
-}
-
-func (unimplemented) RespondHitlRequest(w http.ResponseWriter, r *http.Request, hitlRequestId gen.HitlRequestId, params gen.RespondHitlRequestParams) {
-	notImplemented(w, r, "RespondHitlRequest")
 }
 
 func (unimplemented) ListInbox(w http.ResponseWriter, r *http.Request, params gen.ListInboxParams) {

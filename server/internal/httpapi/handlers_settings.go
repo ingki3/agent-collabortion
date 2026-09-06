@@ -57,17 +57,30 @@ func (s *Server) UpdateWorkspaceSettings(w http.ResponseWriter, r *http.Request,
 		args = append(args, v)
 		sets = append(sets, fmt.Sprintf("%s = $%d", expr, len(args)))
 	}
+	// S-26: a jsonb settings group is PATCHed key by key. Assigning the
+	// marshalled body replaced the whole object, so `{"max_pair_roundtrips": 2}`
+	// silently reset max_chain_depth and max_hops_per_hour to null — the router
+	// then fell back to DefaultLimits() and S14 showed null where an admin had
+	// set a value. `||` is Postgres' shallow object merge: the keys present in
+	// the request win, the rest of the object stays.
+	//
+	// An explicit `null` in the body still writes null: that is "unset this
+	// key", which is what nullable.Nullable's specified-null means.
+	mergeInto := func(col string, v any) {
+		args = append(args, marshalJSON(v))
+		sets = append(sets, fmt.Sprintf("%s = %s || $%d::jsonb", col, col, len(args)))
+	}
 	if in.LoopLimits != nil {
-		add("loop_limits", mergeJSON(in.LoopLimits))
+		mergeInto("loop_limits", in.LoopLimits)
 	}
 	if in.BudgetPolicy != nil {
-		add("budget_policy", mergeJSON(in.BudgetPolicy))
+		mergeInto("budget_policy", in.BudgetPolicy)
 	}
 	if in.ContextReuse != nil {
-		add("context_reuse", mergeJSON(in.ContextReuse))
+		mergeInto("context_reuse", in.ContextReuse)
 	}
 	if in.RuntimePolicy != nil {
-		add("runtime_policy", mergeJSON(in.RuntimePolicy))
+		mergeInto("runtime_policy", in.RuntimePolicy)
 	}
 	if in.DefaultIsolation != nil {
 		add("default_isolation", string(*in.DefaultIsolation))
@@ -199,7 +212,9 @@ func isoDuration(d time.Duration) string {
 	return out
 }
 
-func mergeJSON(v any) []byte {
+// marshalJSON renders one settings group for the `||` merge above. It was
+// called mergeJSON while it merged nothing; the name is now what it does.
+func marshalJSON(v any) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return []byte("{}")

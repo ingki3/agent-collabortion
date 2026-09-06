@@ -10,10 +10,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
+	"github.com/ingki3/agent-collabortion/server/internal/tokens"
 )
 
 // ParseTree reads session.completion_condition. The stored shape allows nested
@@ -190,6 +192,9 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 				return nil, err
 			}
 		}
+		if err := s.gcWorkdirs(ctx, tx, sessionID, now); err != nil {
+			return nil, err
+		}
 	}
 
 	if out.HitlIssued {
@@ -197,13 +202,18 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		// PLATFORM, so task_id stays empty and source is `system` (§7).
 		var hitlID uuid.UUID
 		question := "종료 조건이 모두 충족되었습니다. 승인하시겠습니까?"
+		// 0012: `purpose` is what tells the three platform-issued approvals
+		// apart afterwards. They share source=system, type=approval and an
+		// empty task_id, so respondHitlRequest would otherwise have to read the
+		// question text to know whether answering it completes the session.
+		purpose := CondUserApproval
 		if ev.Kind == "budget_exhausted" {
-			question = "예산 상한에 도달했습니다. 계속 진행할까요?"
+			question, purpose = "예산 상한에 도달했습니다. 계속 진행할까요?", "budget"
 		}
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO hitl_request (session_id, task_id, source, type, question, approver_spec, due_at, created_at)
-			VALUES ($1, NULL, 'system', 'approval', $2, 'director', $3, $4) RETURNING id`,
-			sessionID, question, now.Add(24*time.Hour), now).Scan(&hitlID); err != nil {
+			INSERT INTO hitl_request (session_id, task_id, source, type, question, approver_spec, purpose, due_at, created_at)
+			VALUES ($1, NULL, 'system', 'approval', $2, 'director', $3, $4, $5) RETURNING id`,
+			sessionID, question, purpose, now.Add(24*time.Hour), now).Scan(&hitlID); err != nil {
 			return nil, fmt.Errorf("sessions: approval hitl: %w", err)
 		}
 		out.HitlTaskID = uuid.Nil
@@ -231,6 +241,61 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		return nil, err
 	}
 	return &out, nil
+}
+
+// gcWorkdirs is E6-03's last column — "`container`/`none` workdir 즉시 삭제" —
+// and daemon-protocol §6's division of labour: the SERVER decides what may go,
+// the daemon does the deleting and reports back. The `completed` branch tidied
+// the session, its tasks and the inbox but issued no `gc`, so a finished
+// session left its directories on the machine indefinitely.
+//
+// Only `container` and `none` are collected here. A `worktree` workdir is
+// shared by all of one agent's lanes (C3) and outlives the session under the
+// retention policy — deleting it on completion would take an uncommitted
+// branch with it.
+func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, now time.Time) error {
+	var kind string
+	var runtimeID *uuid.UUID
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(isolation->>'kind', ''), runtime_id FROM session WHERE id = $1`, sessionID).
+		Scan(&kind, &runtimeID); err != nil {
+		return fmt.Errorf("sessions: gc isolation: %w", err)
+	}
+	if kind != "none" && kind != "container" {
+		return nil
+	}
+	if runtimeID == nil {
+		// The session was never dispatched (C4 fixes runtime_id at first
+		// dispatch), so no machine holds a directory for it.
+		return nil
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT id FROM workdir WHERE session_id = $1 AND status <> 'deleted' ORDER BY created_at`, sessionID)
+	if err != nil {
+		return fmt.Errorf("sessions: gc workdirs: %w", err)
+	}
+	ids := []string{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id.String())
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	// The row stays `active` until the daemon's next §6 report no longer lists
+	// it (workdirs.MarkGCd): the server asked, it did not observe. Claiming the
+	// deletion here would make S13 show an empty machine that is still full.
+	return tokens.QueueCommand(ctx, tx, *runtimeID, contracts.Command{
+		Type: contracts.CmdGC, SessionID: sessionID.String(), WorkdirIDs: ids,
+	})
 }
 
 // publishDecision sends `decision.created` for a row just inserted. FR-4.2's
