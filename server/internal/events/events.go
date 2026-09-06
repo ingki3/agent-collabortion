@@ -173,6 +173,10 @@ func (s *Service) Ingest(ctx context.Context, taskID uuid.UUID, attempt int, evs
 		err := tx.QueryRow(ctx, `
 			INSERT INTO task_event (task_id, attempt, seq, class, verb, object_ref, outcome, usage, payload, ts, created_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			-- Unlike the server-issued notes (tasks.InsertServerEvent), seq here
+			-- comes FROM THE DAEMON and task_id + seq is the protocol's
+			-- idempotency key: a conflict means the daemon re-delivered the same
+			-- event, so dropping it is the correct answer, not a lost write.
 			ON CONFLICT (task_id, attempt, seq) DO NOTHING RETURNING id`,
 			taskID, attempt, e.Seq, e.Class, e.Verb, jsonArg(objectRef), e.Outcome, usage, e.Payload, e.TS, now).Scan(&id)
 		if errors.Is(err, errNoRows()) {
