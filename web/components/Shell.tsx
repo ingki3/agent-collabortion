@@ -4,7 +4,8 @@
  * `inbox.summary`(뱃지)와 연결 상태를 받는다. 화면들(S5·S7·S11·S12)은 같은 연결을 구독한다 — 화면당 연결 1개(R4).
  */
 import { usePathname } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { api } from "@/lib/api/client";
 import { AppNav } from "./AppNav";
 import { ConnectionBanner } from "./ConnectionBanner";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -47,8 +48,23 @@ function ShellFrame({ children, title }: { children: React.ReactNode; title?: st
       if (typeof p.action_required === "number") setInbox(p.action_required);
     }
   }, []);
-  // resync(보존 창 밖): 인박스 요약 REST(getInboxSummary)는 P2 라 다시 읽을 수 없다 → 낡은 수를 지운다(N4).
-  const onResync = useCallback(() => setInbox(null), []);
+  /**
+   * 첫 진입과 resync(보존 창 밖) 때는 REST 로 읽는다 — SSE `inbox.summary` 는 **변화가 있을 때만** 오므로
+   * 그것만 기다리면 새로고침 직후 뱃지가 0 으로 보인다(P2 때는 `getInboxSummary` 가 없어 낡은 수를 지웠다).
+   */
+  const refreshInbox = useCallback(async () => {
+    if (!workspace) return;
+    try {
+      const sum = await api.get("/inbox/summary", { query: { workspace_id: workspace.id } });
+      setInbox(sum.action_required);
+    } catch {
+      setInbox(null); // 못 읽으면 낡은 수를 남기지 않는다(N4)
+    }
+  }, [workspace]);
+  useEffect(() => {
+    void refreshInbox();
+  }, [refreshInbox]);
+  const onResync = useCallback(() => void refreshInbox(), [refreshInbox]);
   useWorkspaceStream(workspace?.id, onEvent, { onResync });
   const conn = useStreamState() ?? "connecting";
   if (!me || !workspace) return null;

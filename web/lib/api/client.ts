@@ -23,7 +23,7 @@ export class ApiError extends Error {
   }
 }
 
-type Method = "get" | "post" | "patch" | "delete";
+type Method = "get" | "post" | "put" | "patch" | "delete";
 type PathsFor<M extends Method> = { [P in keyof paths]: paths[P] extends Record<M, unknown> ? P : never }[keyof paths];
 type Op<P extends keyof paths, M extends Method> = paths[P] extends Record<M, infer O> ? O : never;
 
@@ -120,6 +120,8 @@ export const api = {
     request<Op<P, "get">>("get", path, opts),
   post: <P extends PathsFor<"post">>(path: P, opts?: RequestOptions<Op<P, "post">>) =>
     request<Op<P, "post">>("post", path, opts),
+  put: <P extends PathsFor<"put">>(path: P, opts?: RequestOptions<Op<P, "put">>) =>
+    request<Op<P, "put">>("put", path, opts),
   patch: <P extends PathsFor<"patch">>(path: P, opts?: RequestOptions<Op<P, "patch">>) =>
     request<Op<P, "patch">>("patch", path, opts),
   delete: <P extends PathsFor<"delete">>(path: P, opts?: RequestOptions<Op<P, "delete">>) =>

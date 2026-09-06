@@ -41,4 +41,4 @@ async function handle(request: Request): Promise<Response> {
   return new Response(JSON.stringify(res.body), { status: res.status, headers: { "Content-Type": "application/json", ...res.headers } });
 }
 
-export { handle as GET, handle as POST, handle as PATCH, handle as DELETE };
+export { handle as GET, handle as POST, handle as PUT, handle as PATCH, handle as DELETE };

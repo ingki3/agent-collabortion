@@ -13,3 +13,5 @@
 .agent-chip--sm { max-width: none; width: auto; padding: 2px 6px; grid-template-columns: 20px 1fr; gap: 6px; display: inline-grid; align-items: center; }
 .agent-chip--sm .agent-chip__avatar { width: 20px; height: 20px; font-size: 10px; }
 .agent-chip--sm .agent-chip__name { font-size: 13px; }
+/* 보관된 에이전트 — 과거 메시지의 칩은 유지하고 표시만 붙인다(SCREEN §8.2 Q3). */
+.agent-chip__archived { font-size: 10px; color: var(--ink-3); border: 1px dashed var(--line); border-radius: 4px; padding: 0 4px; }

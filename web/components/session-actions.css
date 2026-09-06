@@ -1,0 +1,26 @@
+/* S7 상단 액션과 그 다이얼로그(SCREEN §4.5 "상단 액션" · O2). */
+.s7-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; position: relative; }
+.s7-actions__dialog {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 5;
+  margin-top: 6px;
+  width: 320px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 10px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 12%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.s7-actions__dialog--wide { width: 380px; }
+.s7-actions__dialog p { margin: 0; }
+.s7-actions__warn { color: var(--s-fail-text); }
+.s7-actions__field { display: flex; flex-direction: column; gap: 3px; }
+.s7-actions__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow: auto; }
+.s7-actions__row { display: flex; align-items: center; gap: 4px; }
+.s7-actions__spacer { flex: 1; }
+.s7-actions__add { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
