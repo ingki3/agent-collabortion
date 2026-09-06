@@ -484,9 +484,12 @@ func TestVerticalSlice(t *testing.T) {
 		t.Fatalf("token after completion = %d %v", st, out)
 	}
 
-	// --- 501 for out-of-P1 operations, SSE backfill row count ---
-	if st, out, _ := api.do("GET", p+"/inbox", nil); st != 501 || str(out, "code") != "not_implemented" {
-		t.Fatalf("P2 op = %d %v", st, out)
+	// --- an operation still outside the implemented set, SSE backfill count ---
+	// `/inbox` used to be the example here; T-S5 implemented it (FR-8), so the
+	// row moved to one that is still out of scope rather than being dropped —
+	// the 501 contract itself is what this half of the slice checks.
+	if st, out, _ := api.do("GET", p+"/workspaces/"+wsID+"/onboarding", nil); st != 501 || str(out, "code") != "not_implemented" {
+		t.Fatalf("out-of-scope op = %d %v", st, out)
 	}
 	var streamed int
 	_ = pool.QueryRow(t.Context(), `SELECT count(*) FROM stream_event WHERE workspace_id = $1 AND type = 'message.created'`, wsID).Scan(&streamed)

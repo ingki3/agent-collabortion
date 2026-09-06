@@ -858,9 +858,7 @@ func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*
 		switch t.Status {
 		case Dispatched, Preparing, Running:
 			if t.RuntimeID != nil {
-				if err := tokens.QueueCommand(ctx, tx, *t.RuntimeID, contracts.Command{
-					Type: contracts.CmdCancel, TaskID: t.ID.String(), Attempt: t.Attempt, AfterCurrentTool: true, Reason: "director",
-				}); err != nil {
+				if err := tokens.QueueCommand(ctx, tx, *t.RuntimeID, cancelCommandFor(t, "director")); err != nil {
 					return err
 				}
 				out = t

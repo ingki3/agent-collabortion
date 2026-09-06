@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
 )
 
@@ -129,10 +128,7 @@ func (s *Service) pauseLocked(ctx context.Context, tx pgx.Tx, t *Row, reason, de
 		if requested, err := cancelRequested(ctx, tx, t.ID, t.Attempt); err != nil {
 			return err
 		} else if !requested {
-			if err := tokens.QueueCommand(ctx, tx, *t.RuntimeID, contracts.Command{
-				Type: contracts.CmdCancel, TaskID: t.ID.String(), Attempt: t.Attempt,
-				AfterCurrentTool: true, Reason: reason,
-			}); err != nil {
+			if err := tokens.QueueCommand(ctx, tx, *t.RuntimeID, cancelCommandFor(t, reason)); err != nil {
 				return err
 			}
 		}
