@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.5 — probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
+| 버전 | v0.6 — `dispatched` 5분 타임아웃은 재큐잉이 아니라 종료다(§4.1). v0.5는 probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
 | 소유 | S + D. 변경은 Director 승인 PR로만 |
 | 근거 | PRD §8.1(큐), FR-7.1(상태 머신·heartbeat), FR-9.1(고아·토큰 폐기), FR-9.2(오프라인 유예), FR-6.4(workdir·GC), `harness.md`(오류 분류·재개) |
 | 원칙 | **데몬은 stateless, 상태는 서버.** 데몬은 서버가 준 것만 실행하고 결과를 보고한다. 모든 시각 판정(만료·유예·`not_before`)은 서버 클럭(`contracts/clock`) |
@@ -66,7 +66,11 @@ POST /v1/daemon/runtimes/{runtime_id}/claim
 - 세션이 `paused`면 주지 않는다(E5-04). `task.not_before`가 미래면 주지 않는다(`rate_limited`).
 - 동시성 상한 4층(FR-6.3)을 서버가 계산한다. `worktree` 격리에서 같은 에이전트의 다른 lane이 `running`이면 주지 않는다(E2-12).
 - 큐는 `Queue` 인터페이스(§7) 뒤에 있다. v1 구현은 Postgres `SELECT … FOR UPDATE SKIP LOCKED`.
-- claim 즉시 `queued → dispatched`, `dispatched_at` 기록. 5분 안에 `preparing` 보고가 없으면 `failed(timeout)` → 재큐잉(E5-02).
+- claim 즉시 `queued → dispatched`, `dispatched_at` 기록. 5분 안에 `preparing` 보고가 없으면 **`failed(timeout)`으로 끝난다 — 재큐잉하지 않는다**(E5-02, PRD FR-7.1). 서버는 그 attempt의 task token을 폐기하고(좀비 데몬이 나중에 보고하지 못하게) Director가 보도록 드러낸다.
+
+  **v0.6 정정.** 이 줄은 v0.5까지 "→ 재큐잉(E5-02)"이라고 적혀 있었다. 그런데 인용한 EVAL E5-02는 `failed(timeout)`만 말하고 재큐잉을 말하지 않으며, PRD FR-7.1도 "`dispatched` 5분 초과 → `failed(timeout)`"이고 **재시도 대상 목록(`runtime_offline`·네트워크·프로세스 stall)에 `timeout`이 없다.** 근거를 인용하면서 반대로 옮긴 것이라 계약을 고친다.
+
+  **왜 `running`(E5-03, 3분)은 재큐잉인데 이쪽은 아닌가.** `dispatched`는 데몬이 **이미 claim해서 소유권과 토큰을 가진** 상태다. 그 데몬이 모델 작업 이전 단계인 `preparing`조차 보고하지 못했다면 고장은 반복된다 — 세션은 런타임에 고정돼 있으므로(§4.1) 재큐잉은 같은 고장난 런타임에게 되돌려 주는 것이고, claim ↔ timeout 을 오가며 attempt만 태운다. 반대로 `running` 침묵은 프로세스가 실제로 시작된 뒤의 일이라 재시도에 승산이 있고, 그 경로는 런타임을 `offline`으로 표시해 즉시 재배정 루프를 막는다.
 
 **TaskBundle**
 
@@ -205,7 +209,7 @@ type Queue interface {
 |---|---|
 | claim이 `paused` 세션·미래 `not_before`·다른 런타임 고정 세션을 주지 않음 | E5-04, E11-09 |
 | `none` 첫 claim이 `runtime_id` 고정 | E11-10 |
-| `dispatched` 5분 → timeout 재큐잉 (클럭 주입) | E5-02 |
+| `dispatched` 5분 → `failed(timeout)`, **재큐잉 없음** + 토큰 폐기 (클럭 주입) | E5-02 |
 | heartbeat 3분 무응답 → 재큐잉 + 토큰 폐기 → 그 토큰의 `colab message post` 401 | E5-03, E11-03·04 |
 | events `(task,attempt,seq)` 멱등, 재전송 시 중복 0 | E8-04 |
 | `finish` 멱등 | — |

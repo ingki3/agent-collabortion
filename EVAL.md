@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 문서 버전 | v0.3 — P2a 골든 테이블 작성 중 드러난 공백 4행 추가(E1-21 억제와 합류 전달은 한 쌍, E2-14 새 lane 토글 자동 해제, E2-15 중단 후 재지시의 lane, E4-10 재개 시 카운터). v0.2는 P1 통합(G3)에서 드러난 결함 5건을 회귀 행으로 승격(E8-13·E10-13·E11-11·E11-12·E17-09) |
+| 문서 버전 | v0.4 — E5-02가 재큐잉하지 않는다는 것을 명시(계약이 반대로 적고 있었다, `daemon-protocol.md` v0.6에서 정정). v0.3은 P2a 골든 테이블 작성 중 드러난 공백 4행 추가(E1-21 억제와 합류 전달은 한 쌍, E2-14 새 lane 토글 자동 해제, E2-15 중단 후 재지시의 lane, E4-10 재개 시 카운터). v0.2는 P1 통합(G3)에서 드러난 결함 5건을 회귀 행으로 승격(E8-13·E10-13·E11-11·E11-12·E17-09) |
 | 작성일 | 2026-09-05 |
 | 근거 | `PRD.md` v0.11 (FR 번호로 인용), `PLAN.md` v0.5 (게이트 G1~G9, §5 테스트 전략) |
 | 목적 | PRD의 규칙을 **입력 → 정확한 출력** 쌍으로 옮긴다. 이 문서의 한 행이 테스트 하나다. "됐다"를 사람마다 다르게 읽지 않게 하는 것이 PLAN의 DoD 원칙이고, 이 문서가 그 DoD의 실체다 |
@@ -118,7 +118,7 @@
 | ID | 전제 | 자극 | 예상 | 검증 |
 |---|---|---|---|---|
 | E5-01 | task `waiting_human` | API로 `running` 전이 시도 | **거부**. 유일한 출구는 `queued` | unit |
-| E5-02 | task `dispatched`, 데몬 claim 없음 | 5분 경과 | `failed(timeout)` | unit + clock |
+| E5-02 | task `dispatched`, 데몬 claim 없음 | 5분 경과 | `failed(timeout)`. **재큐잉하지 않는다** — attempt를 늘리지 않고 task가 거기서 끝난다(PRD FR-7.1의 재시도 목록에 `timeout`이 없다). 그 attempt의 task token **폐기**(좀비 데몬의 뒤늦은 보고 차단) | unit + clock |
 | E5-03 | task `running`, heartbeat 15초 | 3분 무응답 | 런타임 `offline`, task 재큐잉(`queued`, `attempt`+1), 토큰 폐기(§E11) | unit + clock |
 | E5-04 | 세션 `paused`, `queued` task 3개 | — | dispatch **0**. 데몬 claim 요청에 빈 응답 | unit |
 | E5-05 | E5-04 | Dir가 재개 | 3개가 **큐 순서대로** dispatch | unit |
