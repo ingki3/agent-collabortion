@@ -39,6 +39,8 @@
 | D-18 | `emitRawSDKMessages` 원시 스트림은 메시지 4배·바이트 2배 — 예산이 설정되지 않은 세션에서는 OFF 로 두는 스위치(지금은 데몬 config `usage_midturn` 전역 스위치, 기본 ON) | PR #145 (T-D7) | P4 비용 항목 → T-D9 |
 | D-19 | 서버의 예산 pause 취소(cancel reason=budget)를 받았을 때 runner.go 의 cancelled 분기가 budgetHit 보다 먼저라 finish outcome 이 `cancelled` 로 갈 여지(§4.4 는 `paused_budget`). 서버는 #151 로 reason=budget 취소를 승격하지 않게 됐지만 데몬 보고도 맞춰야 한다 | T-S9a 관찰(PR #151) | T-D9 |
 | D-20 | `daemon.json` `repos[]`(probe §3 재바인딩 후보의 근거)를 채우는 사용자 경로가 없다 — worktree 를 한 번이라도 돌린 머신만 자동 발견되고, 한 번도 안 돌린 머신은 재바인딩 후보가 되지 않는다(E13-17 manual). 계약 §3 에 등록 방법 한 줄(데몬 CLI `colab-daemon repos add <path>` 또는 S6/S11 등록 → 명령) + T-W5 S6/S11 화면 | T-D9 PR #156 계약 결함 4 | T-W5 뒤 · 계약 |
+| D-21 | **차단(G7 1판, S-55 의 데몬 절반)** — 번들 `workdir.path` 를 자기 CWD 기준으로 절대화하고, `git worktree add <상대경로>` 로 **사용자 저장소 안**에 체크아웃을 만든다. 계약 v0.7.3: 상대면 `<workdir_root>` 기준으로 해석하고, spawn 전 디렉터리 존재를 확인해 없으면 경로를 문구에 넣어 `failed(config)`(지금 문구 `spawn: fork/exec …/npx: no such file or directory` 는 원인을 가린다) | T-I4 61_ X1b·X1c | **G7 2판 전** |
+| D-22 | **차단(G7 1판, S-56 의 데몬 절반)** — §6 workdir 보고가 `agent_id` 없이·세션 uuid 가 아닌 값으로 와서 서버가 조용히 skip 한다. `git`·`bytes` 도 매 보고에 실어야 GC 판정 입력이 생긴다(계약 v0.7.3 §6) | T-I4 64_ P1·P1b | **G7 2판 전** |
 
 ## W (웹)
 
@@ -107,6 +109,13 @@
 | ~~S-51~~ | 턴 종료와 경합한 취소가 흡수되지 않는다 — `completed` finish 는 `cancelRequested` 를 보지 않아 task `completed`·lane `done` 인데 피드에는 '사람이 중단함' 이 남아 화면과 어긋난다 | G6 2판 §9.6 (`51_` 첫 회차) | T-S9a | **해결 — PR #151** (완료는 완료로 두고, 피드에 '취소 요청이 턴 종료와 경합해 적용되지 않음' 을 남기고 명령을 소비한다)
 | S-52 | 서버가 **자기가 쓰는** `task_event` 12곳에서 닫힌 스키마를 어긴다 — `status` payload 에 `note`(집합 밖), verb `note`(enum 밖). S-41(422)은 데몬 위반만 막고 서버 자신은 예외. 고치면 피드 문구가 바뀌어 e2e 기대값을 건드린다 → 핫픽스 라운드에서 12곳 + e2e 기대값 함께 | T-S9 PR #162 보고 | P4 핫픽스(T-I4 전) |
 | S-53 | 재바인딩 뒤 첫 턴 프롬프트의 diff 재적용 지시(`RebindPrompt`)가 **번들에 실리지 않는다** — `Rebind` 가 저장하지 않고 `buildBundle` 이 읽지 않아 openapi `rebindSession`·E14-06 미충족. #162 골든이 `plan.Prompt` 만 재서 못 봄. 결정: `session.rebind_prompt`(0018) + 매 attempt `<rebind>` 구간 + **completed finish 에서 비움**(claim 에서 비우면 재큐잉에 유실) | T-S9b 발견 | T-S9b |
+| S-54 | 서버 자체 `task_event` 16곳의 리터럴 payload 를 한 표로 순회해 `ValidateServerEvent` 에 통과시키는 유닛이 없다 — 런타임 가드는 "그 프로세스에서 실제로 실행된 호출"만 본다 | PR #168 리뷰 NN1 | 낮음 |
+| S-55 | **차단(G7 1판)** — TaskBundle 의 `workdir.path` 가 **상대 경로**(`<session-slug>/<agent-slug>`)라 `worktree` 격리 세션이 첫 턴부터 전부 `failed(config)`. 계약 v0.7.3 §4.1: **서버가 probe `workdir_root` 로 절대 경로를 조립해 싣는다**. 데몬 몫은 D-21 | T-I4 61_ X1·X1b·X1c | **G7 2판 전** |
+| S-56 | **차단(G7 1판)** — `worktree` workdir 의 git 사실이 서버에 도달하지 않아 GC 가 미병합 커밋·미커밋 변경을 지운다(FR-6.4 M4 무력화). 서버가 §4.4 `Finish.Workdir.Git` 을 읽지 않고, §6 보고는 짝이 안 맞아 skip 된다. 부수: `disk_bytes` 0, gc 영수증 미도달로 행이 안 닫힘. 데몬 몫은 D-22 | T-I4 64_ P1·P1b·P1c·P1d·G2d | **G7 2판 전** |
+| S-57 | **차단(G7 1판)** — `rebind_prepare` 다운로드가 401(서버가 `downloadArtifact` 에서 DaemonToken 을 받지 않음) → 재바인딩 뒤 diff 가 디스크에 없어 E14-06 불성립, 명령도 소비되지 않아 30초마다 재발행. 계약은 K-13 으로 고쳤다 | T-I4 63_ R5f | **G7 2판 전** |
+| S-58 | **차단(G7 1판)** — 재바인딩이 세션의 `isolation.repo_path` 를 새 런타임 것으로 옮기지 않는다(후보 조회가 이미 `matched_repo` 를 주는데 쓰지 않음) → 새 머신 데몬이 없는 저장소에서 워크트리를 만들려다 `failed(config)` | T-I4 63_ R5h·R7g | **G7 2판 전** |
+| S-59 | `review reject` 답글이 그 자체로 lane 재진입을 일으키지 않는다 — 에이전트가 쓴 멘션 없는 메시지라 라우팅 규칙 4에 걸린다. 계약(openapi `reviewArtifact`)은 재진입을 약속하므로 **서버가 명시적으로 재진입**시켜야 한다(K-13 문언 정정 반영) | T-I4 61_ B5g | 중 · G7 2판 전 |
+| S-60 | 사라진 머신으로 **이미 dispatch 된** task 는 재바인딩이 되살리지 않는다(`queued`·`deferred` 만 requeue) → heartbeat 만료로 `failed(timeout)` 까지 아무 일도 안 함 | T-I4 63_ R5g | 낮음 |
 
 ## C (CLI)
 
@@ -133,6 +142,7 @@
 | ~~K-10~~ | 세션 범위 예산·시간 HITL(`task_id` 비움)을 `respondHitlRequest` 로 승인해도 세션이 재개되지 않는다(openapi 가 `resumeSession` 을 답으로 적음) — Lead 결정: **승인 = 재개까지 한 동작**(paused → active, park 된 task 재큐잉, 세션 잔여 = 승인 금액). 계약 문언은 브랜치 `contracts/inbox-card-purpose-2` | T-S7 PR #142 | T-S8 | **해결 — PR #147**
 | K-11 | harness §7 dedup 문언(입력=message_start, 출력=message_delta)은 어댑터 0.74.0 관찰 — 워커는 message_delta 만으로 충분하다고 제안, 리뷰어는 문언 유지 권고. 어댑터 버전이 바뀌면 재확인 | PR #145 | 낮음 |
 | K-12 | `InboxItem.card` 에 예산 HITL 의 범위(task/세션)를 알 칸이 없다(`task_id`·`scope` 없음) — 웹은 `purpose=budget` + `session.status=paused` 로 파생(T-W5). 세션이 다른 이유로 paused 인 채 task 범위 예산 HITL 이 뜨는 순간에만 어긋난다 | T-W5 질문 2 | 낮음 |
+| K-13 | `openapi` `downloadArtifact` 의 security 에 **DaemonToken 이 없었다** — §4.3 `rebind_prepare` 는 데몬에게 다운로드를 지시하므로 계약 내부 모순이었다(T-I4 실측 401). 함께: `reviewArtifact` 의 "해소 규칙 1로 재진입" 문언이 라우팅 규칙 4와 충돌 → "서버가 명시적으로 재진입" 으로 정정 | T-I4 63_ R5f · 61_ B5g | **해결 — 계약 PR(v0.7.3 · openapi)** |
 
 ## 테스트 자산 (P1에서 만든 것)
 

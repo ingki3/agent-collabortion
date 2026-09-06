@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.7.2 — §4.4 finish `workdir.git` 이름을 §6 과 통일(`commits_ahead`·`merged`)하고 `protocol.go` `Finish.Workdir` 추가; §4.3 `rebind_prepare` 다운로드 위치 + 프롬프트 자리표시자 `{{COLAB_REBIND_DIR}}`(T-D9 PR #156 계약 결함 1·2). v0.7.1 — §4.4 유효 예산 = min(task 상한(override 우선), 세션 잔여)(PR #121 리뷰 NN3, D-16). v0.7 — §4.3 `gc` 페이로드에 서버가 경로를 싣고(`workdirs:[{id,path}]`), §6 보고 행 `gc: {status: deleted|refused, reason}` 로 결과·거부를 알린다(T-D5 계약 질문, G5 S-29·D-4). v0.6 — `dispatched` 5분 타임아웃은 재큐잉이 아니라 종료다(§4.1). v0.5는 probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
+| 버전 | v0.7.3 — T-I4(G7 1판) 차단 결함 반영: §4.1 `workdir.path` 는 **절대 경로**(서버가 probe `workdir_root` 로 조립)이고 데몬 방어 규칙 명시(①), §6 workdir 보고의 `session_id`·`agent_id` 필수 규칙과 서버의 §4.4 `Finish.Workdir` 소비 의무 명시(②). v0.7.2 — §4.4 finish `workdir.git` 이름을 §6 과 통일(`commits_ahead`·`merged`)하고 `protocol.go` `Finish.Workdir` 추가; §4.3 `rebind_prepare` 다운로드 위치 + 프롬프트 자리표시자 `{{COLAB_REBIND_DIR}}`(T-D9 PR #156 계약 결함 1·2). v0.7.1 — §4.4 유효 예산 = min(task 상한(override 우선), 세션 잔여)(PR #121 리뷰 NN3, D-16). v0.7 — §4.3 `gc` 페이로드에 서버가 경로를 싣고(`workdirs:[{id,path}]`), §6 보고 행 `gc: {status: deleted|refused, reason}` 로 결과·거부를 알린다(T-D5 계약 질문, G5 S-29·D-4). v0.6 — `dispatched` 5분 타임아웃은 재큐잉이 아니라 종료다(§4.1). v0.5는 probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
 | 소유 | S + D. 변경은 Director 승인 PR로만 |
 | 근거 | PRD §8.1(큐), FR-7.1(상태 머신·heartbeat), FR-9.1(고아·토큰 폐기), FR-9.2(오프라인 유예), FR-6.4(workdir·GC), `harness.md`(오류 분류·재개) |
 | 원칙 | **데몬은 stateless, 상태는 서버.** 데몬은 서버가 준 것만 실행하고 결과를 보고한다. 모든 시각 판정(만료·유예·`not_before`)은 서버 클럭(`contracts/clock`) |
@@ -81,6 +81,13 @@ POST /v1/daemon/runtimes/{runtime_id}/claim
   "task_token": "ctk_…",
   "profile": { "runtime_kind", "model", "options", "env", "args", "tools", "adapter_pin" },
   "workdir": { "kind": "worktree|dir", "path?", "repo_path?", "branch?", "reuse": true|false },
+  //  path 는 **절대 경로**다 (v0.7.3, T-I4 차단 ①). 서버가 그 런타임의 probe `workdir_root`(§3)와
+  //  세션·에이전트로 조립해 싣는다 — 데몬이 정하면 서버가 E13-08(남의 워크트리 경로를 번들에 싣지
+  //  않는다)을 판정할 수 없고, GC 명령(§4.3)·workdir 행도 서버가 경로를 소유한다. 상대 경로를 실으면
+  //  데몬이 자기 CWD 로 절대화해 없는 디렉터리를 런타임 cwd 로 넘기고, worktree 격리에서는 사용자
+  //  저장소 **안**에 체크아웃이 생긴다(실측: 세션이 첫 턴부터 전부 failed(config)).
+  //  데몬 방어: path 가 상대면 `<workdir_root>` 기준으로 해석하고, 런타임 spawn 전에 디렉터리 존재를
+  //  확인해 없으면 `failure_kind=config` 로 그 경로를 문구에 넣어 finish 한다(원인을 가리지 않는다).
   "brief": { "transport": "acp_meta_system_prompt|instruction_file", "text": "<[1]~[8]>" },
   "prompt": "<턴 프롬프트 — 서버가 만든다. 재개면 <resumed> 구간 포함>",
   "resume": { "runtime_session_ref": <harness.md §6> } | null,
@@ -182,6 +189,8 @@ POST /v1/daemon/runtimes/{runtime_id}/workdirs   {workdirs: [{id?, kind, path, s
 ```
 
 - 데몬은 workdir 목록을 probe와 함께, 그리고 lane 종료 시 보고한다. S13이 이 데이터를 보여준다.
+- **행을 서버가 저장할 수 있게 채운다 (v0.7.3, T-I4 차단 ②).** `session_id` 는 그 workdir 을 만든 **세션의 uuid** 이고(슬러그·디렉터리 이름이 아니다), `worktree` 격리에서는 `agent_id` 가 **필수**다(그 격리의 workdir 은 에이전트당 1개라 agent 없이는 어느 행인지 정해지지 않는다 — 서버는 짝을 못 맞추면 조용히 건너뛴다). `git` 블록과 `bytes` 도 매 보고에 싣는다: **GC 판정의 유일한 입력**이라 비면 서버는 "커밋 0 · 클린"으로 읽어 미병합 커밋·미커밋 변경을 지운다(FR-6.4 M4 무력화).
+- **서버는 §4.4 `finish` 의 `Finish.Workdir.Git` 도 같은 행에 반영한다 (v0.7.3).** attempt 가 만든 사실이 다음 probe 를 기다리지 않고 도착해야 그 사이에 도는 GC 스윕이 옳게 판정한다.
 - GC 판정은 **서버**가 한다(보존 기한·용량 상한·미병합/미커밋 차단 — E13-09~13). 서버가 `gc {session_id, workdirs:[{id, path}]}` 명령을 내리면 데몬이 삭제하고 결과를 보고한다. 데몬은 스스로 지우지 않는다.
 - **gc 결과 보고(v0.7)**: 데몬은 다음 workdir 보고에서 그 행에 `gc: {status, reason?}` 를 싣는다 — `deleted`(행은 마지막으로 한 번 더 실린다; 서버가 `deleted` 로 닫고 명령을 소비) 또는 `refused`(예: `isolation_worktree_p4` — P4 전 `worktree` 삭제는 데몬이 거부한다; 서버는 피드에 "GC 거부: <reason>" 을 남기고 명령을 소비한다). **조용히 무시하는 경로는 없다** — 로그만 남기고 보고하지 않으면 명령이 24h 미소비 만료로 피드에 남는다(§4.3).
 - `worktree` 삭제는 `git worktree remove`만, 브랜치는 남긴다(E13-10).
