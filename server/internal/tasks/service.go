@@ -547,6 +547,17 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 				decided = "cancelled"
 			}
 		}
+		if decided == "completed" && t.PendingHitl {
+			// daemon-protocol §4.4: the daemon does not decide `waiting_human`.
+			// It reports a finished turn and the SERVER reads pending_hitl —
+			// this is FR-7.1's HITL transition, and it is the only place the
+			// task leaves `running` for a question (E7-03).
+			if err := s.waitingHumanLocked(ctx, tx, t, attempt, now); err != nil {
+				return err
+			}
+			final = t.Status
+			return nil
+		}
 		switch decided {
 		case "completed":
 			if _, err := Transition(t.Status, Completed); err != nil {

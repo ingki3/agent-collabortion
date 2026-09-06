@@ -455,10 +455,13 @@ func TestG5ApprovalSecondResponseIsIgnored(t *testing.T) {
 	}
 }
 
-// The P2 branch is exactly one kind of request. Everything else — an agent's
-// question, a budget override, a loop pause — is still P3 and says so rather
-// than answering half of FR-5.4.
-func TestG5OtherHitlRequestsStay501(t *testing.T) {
+// P3 (T-S5) opened the rest of respondHitlRequest. This row used to assert
+// 501 for an agent's question, a budget override and a loop pause; those are
+// now answered (FR-5.4, E7-07·E9-02), so the test asserts what replaced the
+// 501 rather than being deleted — the boundary it was guarding still exists,
+// it just moved to `time_extension` and to a budget override on a request that
+// is not the budget one.
+func TestP3OtherHitlRequestsAreAnswered(t *testing.T) {
 	f := newP2Fixture(t)
 	ctx := t.Context()
 	mk := func(purpose, source string, task *uuid.UUID) string {
@@ -476,13 +479,24 @@ func TestG5OtherHitlRequestsStay501(t *testing.T) {
 	agentTask := mustUUID(t, str(post["triggers"].([]any)[0].(map[string]any), "task_id"))
 
 	for _, id := range []string{mk("budget", "system", nil), mk("loop", "system", nil), mk("agent", "agent", &agentTask)} {
-		f.api.must(501, "POST", f.p+"/hitl-requests/"+id+"/response",
+		out := f.api.must(200, "POST", f.p+"/hitl-requests/"+id+"/response",
 			map[string]any{"approved": true}, "Idempotency-Key", uuid.NewString())
+		req, _ := out["hitl_request"].(map[string]any)
+		if str(req, "status") != "answered" {
+			t.Fatalf("hitl %s status = %q, want answered", id, str(req, "status"))
+		}
+		if out["decision_id"] == nil {
+			t.Fatalf("hitl %s recorded no decision (FR-5.2: exactly one per answer)", id)
+		}
 	}
-	// budget_override_usd is P3 even on the request this branch does answer.
+	// budget_override_usd belongs to the budget request only: accepting it on
+	// the completion approval would raise a limit nobody asked about (C2′).
 	hitl := f.issueCompletionApproval(t)
-	f.api.must(501, "POST", f.p+"/hitl-requests/"+hitl+"/response",
+	f.api.must(422, "POST", f.p+"/hitl-requests/"+hitl+"/response",
 		map[string]any{"approved": true, "budget_override_usd": 10}, "Idempotency-Key", uuid.NewString())
+	// The session time limit is not in the P3 server slice, and says so.
+	f.api.must(501, "POST", f.p+"/hitl-requests/"+mk("time", "system", nil)+"/response",
+		map[string]any{"approved": true, "time_extension": "PT1H"}, "Idempotency-Key", uuid.NewString())
 }
 
 // approver_spec `director` is authorisation, not decoration: another member of
