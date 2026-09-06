@@ -35,7 +35,8 @@
 | ~~D-14~~ | daemon-protocol v0.7 이후 `api.Command` 래퍼를 `contracts.Command` 로 접는 후속 정리(T-D5 가 남김) | PR #121 | 다음 데몬 작업 | **해결 — PR #129**
 | ~~D-15~~ | `closeProcess()` 를 `emitStep(5)` 없이 부르는 경로가 생기면 취소 순서 골든이 못 잡는다 — `closeProcess` 안에서 5단계 이벤트를 내게 묶기 | PR #121 리뷰 NN1 | 낮음 | **해결 — PR #129**
 | ~~D-16~~ | `budgetLimit` 우선순위가 `Task.BudgetOverrideUSD > Limits.BudgetUSD > Task.BudgetUSD` — Lead 결정: 유효 예산 = **min(override 또는 task 예산, 세션 잔여)**. harness §4.4 문언 보강(Lead) + 데몬 반영 | PR #121 리뷰 NN3 | 다음 데몬 작업 + 계약 | **해결 — PR #129**
-| D-17 | 데몬 `Runner.recordUsage` 가 `session/prompt` 응답에서만 호출돼 턴 중 heartbeat 의 usage 가 전부 0 — daemon-protocol §4.2 위반, 서버 턴 중 예산 강제가 실기에서 0회. 런타임이 턴 중 usage 를 못 주면 최소한 finish 전 heartbeat 1회에 최종 usage(핫픽스 T-D7) | T-I3 실측 (c) | T-D7 |
+| ~~D-17~~ | 데몬 `Runner.recordUsage` 가 `session/prompt` 응답에서만 호출돼 턴 중 heartbeat 의 usage 가 전부 0 — daemon-protocol §4.2 위반, 서버 턴 중 예산 강제가 실기에서 0회. 런타임이 턴 중 usage 를 못 주면 최소한 finish 전 heartbeat 1회에 최종 usage(핫픽스 T-D7) | T-I3 실측 (c) | T-D7 | **해결 — PR #145**(harness v0.8.5: claude_code 원시 스트림 누적·dedup·result.total_cost_usd 실측, hermes finish 전 heartbeat 1회, usage_midturn 광고)
+| D-18 | `emitRawSDKMessages` 원시 스트림은 메시지 4배·바이트 2배 — 예산이 설정되지 않은 세션에서는 OFF 로 두는 스위치(지금은 데몬 config `usage_midturn` 전역 스위치, 기본 ON) | PR #145 (T-D7) | P4 비용 항목 |
 
 ## W (웹)
 
@@ -122,6 +123,7 @@
 | K-8 | ACP 경로는 `cost_usd` 를 안 줘 `task_usage` 가 100% `estimated` → 서버가 가격표로 매긴 값도 '추정' 이라 E9-01 의 '실측 → 취소 명령' 분기는 실기 도달 불가(E9-05 추정 컷 금지). Lead 판정: 계약 유지(추정은 paused+드레인), E9-01 실측 분기는 대역/acpfake 로만. 가격표 추정을 '실측 급' 으로 승격할지는 P4 비용 항목에서 | T-I3 실측 | P4 결정 |
 | K-9 | openapi `InboxItem.card` 에 HITL `purpose` 가 없어 웹이 approval 항목마다 GET /hitl-requests/{id} 를 한 번 더 읽는다(#139 NN1). 계약 커밋은 브랜치 `contracts/inbox-card-purpose-2`(생성 타입 변경이 `handlers_inbox.go` 리터럴을 깨 서버 적응과 함께 머지해야 함) | T-W4 PR #139 | T-S8 (계약 커밋 얹기) |
 | K-10 | 세션 범위 예산·시간 HITL(`task_id` 비움)을 `respondHitlRequest` 로 승인해도 세션이 재개되지 않는다(openapi 가 `resumeSession` 을 답으로 적음) — Lead 결정: **승인 = 재개까지 한 동작**(paused → active, park 된 task 재큐잉, 세션 잔여 = 승인 금액). 계약 문언은 브랜치 `contracts/inbox-card-purpose-2` | T-S7 PR #142 | T-S8 |
+| K-11 | harness §7 dedup 문언(입력=message_start, 출력=message_delta)은 어댑터 0.74.0 관찰 — 워커는 message_delta 만으로 충분하다고 제안, 리뷰어는 문언 유지 권고. 어댑터 버전이 바뀌면 재확인 | PR #145 | 낮음 |
 
 ## 테스트 자산 (P1에서 만든 것)
 
