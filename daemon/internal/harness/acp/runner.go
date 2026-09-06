@@ -96,6 +96,10 @@ type Result struct {
 	// MCPDropped names the mcpServers the runtime could not accept (§8.2.3
 	// mcpCapabilities filter). Empty on the v1 stdio-only path.
 	MCPDropped []string
+	// ToolSurface is the harness §10 judgement measured on THIS attempt's
+	// initialize ("mcp" | "cli_wrapper"). Empty when initialize never
+	// answered — an absent measurement is not a cli_wrapper measurement.
+	ToolSurface string
 }
 
 // CancelRequest is harness §5 input.
@@ -140,6 +144,7 @@ type Runner struct {
 	protocol   int
 	mcp        []MCPServer
 	mcpDropped []string
+	surface    string
 	planTotal  int
 	planDone   int
 	usage      contracts.Usage
@@ -205,6 +210,7 @@ func (r *Runner) Run(ctx context.Context) Result {
 	res.Caps = r.caps
 	res.ProtocolVersion = r.protocol
 	res.MCPDropped = r.mcpDropped
+	res.ToolSurface = r.surface
 	r.mu.Unlock()
 	if r.c != nil {
 		res.PGID = r.c.PID()
@@ -452,6 +458,7 @@ func (r *Runner) applyCaps(init *InitializeResult) {
 	}
 	r.mu.Lock()
 	r.caps, r.protocol, r.mcp, r.mcpDropped = caps, init.ProtocolVersion, kept, names
+	r.surface = caps.ToolSurface()
 	r.mu.Unlock()
 	for _, s := range dropped {
 		r.emit("runtime", "start", "", "info", map[string]any{

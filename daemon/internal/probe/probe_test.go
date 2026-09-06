@@ -192,3 +192,44 @@ func TestColabCLIPresenceIsReported(t *testing.T) {
 		})
 	}
 }
+
+// §9 v0.8 — tool_surface is advertised from what initialize said, per
+// runtime: claude_code advertises mcpCapabilities (mcp), Hermes does not
+// (cli_wrapper). G5 (b) was a probe reporting 11/11 green while the agent
+// had no channel at all, because this column did not exist.
+func TestPongAdvertisesToolSurface(t *testing.T) {
+	cases := []struct {
+		name    string
+		kind    contracts.RuntimeKind
+		script  acpfake.Script
+		surface string
+	}{
+		{"claude_code", contracts.RuntimeClaudeCode,
+			acpfake.Script{Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "PONG"}}}}}, acp.ToolSurfaceMCP},
+		{"hermes", contracts.RuntimeHermes,
+			acpfake.Script{Kind: "hermes", NoMCPCapabilities: true, Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "PONG"}}}}}, acp.ToolSurfaceCLIWrapper},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			script := c.script
+			o := Options{Turn: true, Timeout: 20 * time.Second, Command: func(contracts.RuntimeKind) (string, []string, []string, bool) {
+				cmd, a, e := acpfake.Command(script, "")
+				return cmd, a, e, true
+			}}
+			cap := contracts.Capability{Kind: c.kind}
+			Pong(context.Background(), c.kind, o, &cap)
+			if cap.ToolSurface != c.surface {
+				t.Fatalf("tool_surface %q want %q", cap.ToolSurface, c.surface)
+			}
+		})
+	}
+}
+
+// No turn, no measurement: an unmeasured surface is left blank rather than
+// guessed from the runtime name (the same rule as resume/usage, D-2).
+func TestDetectWithoutTurnLeavesToolSurfaceEmpty(t *testing.T) {
+	cap, ok := Detect(context.Background(), contracts.RuntimeClaudeCode, Options{})
+	if ok && cap.ToolSurface != "" {
+		t.Fatalf("tool_surface %q advertised without a turn", cap.ToolSurface)
+	}
+}

@@ -33,6 +33,16 @@ func TestSmokeRealAdapters(t *testing.T) {
 	found := map[contracts.RuntimeKind]bool{}
 	for _, c := range p.Capabilities {
 		found[c.Kind] = true
+		// §10 v0.8 — measured from initialize, so it holds even when the
+		// runtime is not logged in. This is the G5 (b) evidence: Hermes must
+		// come out cli_wrapper, claude_code mcp.
+		want := acp.ToolSurfaceMCP
+		if c.Kind == contracts.RuntimeHermes {
+			want = acp.ToolSurfaceCLIWrapper
+		}
+		if c.ToolSurface != want {
+			t.Errorf("%s tool_surface %q want %q", c.Kind, c.ToolSurface, want)
+		}
 		// Not being logged in is a missing ENVIRONMENT, not a broken daemon —
 		// and this smoke is how the DoD gets closed, so it must be easy to
 		// run. Skip rather than fail; every assertion below stays an Errorf
