@@ -29,12 +29,12 @@
 
 | # | 항목 | 출처 | 비고 |
 |---|---|---|---|
-| W-1 | S11 런타임 카드가 계약 v0.4.1 `RuntimeCapability` 새 키(adapter_version·protocol_version·resume·usage·tool_disallow·brief_transport·allow_once_missing)를 읽도록 | PR #27 | P2b S11 전체 |
-| W-2 | `TaskEventWire` 캐스팅 제거 — 이제 생성 타입에 `payload`가 있다 | PR #22 R2 | 3줄 |
-| W-3 | `new_lane` 토글(t-2) | PR #21 N2 | P2b 작성창 |
+| ~~W-1~~ | **해결 — T-W2.** `RuntimeCard` 가 새 키 7종을 읽고, **없는 능력은 결과와 함께** 말한다(`usage:false` → 비용이 추정치, `resume:false` → 재진입이 늘 콜드 스타트). probe 최상위 `colab_cli.present:false` 는 경고다 | PR #27 | — |
+| ~~W-2~~ | **해결 — T-W2.** `TaskEventWire` 캐스팅 제거 + `object_ref` 를 문자열로만 읽는다(계약 v0.4) | PR #22 R2 | — |
+| ~~W-3~~ | **해결 — T-W2.** `new_lane` 토글 + **전송 후 자동 해제**. 해제되지 않으면 이후 모든 멘션이 lane 을 새로 만들어 해소 규칙 3 이 죽으므로 컴포넌트 테스트로 고정했다 | PR #21 N2 | — |
 | W-4 | `install_commands`의 서버 호스트(:8080 직접 vs :3000 프록시) 실서버 기준 확정 | PR #21 N6 | Integrator 결과로 |
-| W-5 | `working`에 드는 task 상태 집합(파생 상태 FR-1.3) — `dispatched`·`preparing`도 working인지 | PR #21 N7 | PRD 확인 후 |
-| W-6 | 트리거 미리보기는 `previewTriggers`(P2 op)로 교체, 로컬 계산 제거 | PR #21 R2 | P2b |
+| ~~W-5~~ | **해결 — T-W2.** PRD FR-1.3 4행대로 **`running` 만 `working`** 이다. `dispatched`·`preparing` 은 아직 턴이 시작되지 않았고, 그것을 working 으로 세면 데몬이 claim 만 하고 멈춰도 칩이 "작업 중"이라 침묵과 실행을 구분할 수 없다. 웹의 파생 함수와 목 저장소 둘 다 고쳤다 | PR #21 N7 | — |
+| ~~W-6~~ | **해결 — T-W2.** 작성창이 `previewTriggers` 를 부르고 로컬 규칙 계산(`classifyMentions`)을 지웠다 — 규칙 1~8 과 lane 해소는 서버 상태를 봐야 해서 로컬로 흉내 내면 서버와 반대로 말한다(S-1 이 그랬다) | PR #21 R2 | — |
 
 ### S 추가 (G3 수정 리뷰에서)
 

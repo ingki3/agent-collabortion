@@ -1,0 +1,38 @@
+/* Lane Card(COMPONENTS §2.1) — 좌열 268px 기준. 색은 tokens.css 변수만. */
+.lane { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--bg); display: flex; flex-direction: column; gap: 5px; }
+.lane--selected { border-color: var(--ink); }
+.lane__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lane__agent { font-weight: 600; font-size: 13px; }
+.lane__brief { font-size: 12px; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.lane__note { font-size: 12px; color: var(--ink-2); }
+.lane__note[data-status="blocked"] { color: var(--s-block-text); }
+.lane__note[data-status="paused"] { color: var(--s-pause-text); }
+.lane__note[data-status="waiting_human"] { color: var(--s-wait-text); }
+.lane__note[data-status="failed"] { color: var(--s-fail-text); }
+.lane__meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; color: var(--ink-3); }
+.lane__reentry { color: var(--s-wait-text); }
+.lane__cold { color: var(--s-fail-text); }
+.lane__workdir { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.lane__quiet { color: var(--ink-3); }
+.lane__actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.lane__more { align-self: flex-start; }
+
+/* lane 보드 — 상태별 묶음(SCREEN §4.5) */
+.board { display: flex; flex-direction: column; gap: 12px; }
+.board__group { display: flex; flex-direction: column; gap: 6px; }
+.board__label { font-size: 11px; font-weight: 600; color: var(--ink-3); letter-spacing: 0.03em; display: flex; gap: 6px; align-items: center; }
+.board__count { color: var(--ink-2); }
+
+/* task 이력 — 2줄 행(디자인 리뷰 #02 N1) */
+.lane-hist { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.lane-hist__item { border-top: 1px solid var(--line); padding-top: 5px; }
+.lane-hist__l1 { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.lane-hist__l2 { display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: var(--ink-3); flex-wrap: wrap; }
+.lane-hist__l2--attempt { padding-left: 10px; }
+.lane-hist__no { font-weight: 600; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.lane-hist__cost { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.lane-hist__why { color: var(--s-fail-text); }
+.lane-hist__cold { color: var(--s-fail-text); }
+.lane-hist__resumed { color: var(--s-done-text); }
+.lane-hist__quiet { color: var(--ink-3); font-size: 11px; margin: 4px 0; }
+.lane-hist__run { color: var(--ink-3); }

@@ -1,0 +1,12 @@
+/* Condition Row(COMPONENTS §2.5) — S6 마법사(테두리)와 S7 우열 진행률(테두리 없음). */
+.cond { display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left; background: none; }
+.cond--wizard { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+.cond--wizard.cond--selected { border-color: var(--ink); }
+.cond--progress { border: 0; padding: 2px 0; }
+.cond--disabled { opacity: 0.45; cursor: not-allowed; }
+.cond__check { width: 14px; font-size: 13px; color: var(--ink-2); }
+.cond__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.cond__name { font-size: 12px; }
+.cond__desc { font-size: 11px; color: var(--ink-3); }
+.cond[data-met="true"] .cond__check { color: var(--s-done-text); }
+.cond[data-met="true"] .cond__name { color: var(--ink-2); }

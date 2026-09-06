@@ -1,0 +1,27 @@
+/* 활동 피드(COMPONENTS §2.8) — 실패는 크게, 조회는 조용하게. 색은 tokens.css 변수만. */
+.feed { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--surface); }
+.feed__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.feed__title { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.feed__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.feed__row { display: grid; grid-template-columns: 14px 1fr auto; gap: 8px; align-items: baseline; font-size: 12px; color: var(--ink-2); }
+.feed__glyph { color: var(--ink-3); text-align: center; }
+.feed__body { min-width: 0; }
+.feed__sentence { overflow-wrap: anywhere; }
+.feed__time { color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.feed__diff { margin-left: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--s-done-text); }
+.feed__cmd { margin-left: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.feed__why { margin-left: 6px; color: var(--s-fail-text); }
+.feed__pending { color: var(--s-run-text); }
+.feed__quiet { color: var(--ink-3); font-size: 12px; padding: 2px 0; }
+.feed__degraded { font-size: 12px; color: var(--ink-2); border-left: 2px solid var(--line); padding-left: 8px; margin-bottom: 6px; }
+.feed__failnote { margin-top: 6px; font-size: 11px; color: var(--s-fail-text); }
+.feed__raw { margin-top: 8px; }
+
+/* 실패는 크게 — 클래스와 무관하게 행 전체를 강조한다(x-render-class 는 첫 일치 순서라 shell/failed 는 shell 이다) */
+.feed__row[data-outcome="failed"], .feed__row[data-outcome="rejected"], .feed__row[data-render-class="error"] {
+  color: var(--s-fail-text); font-weight: 500;
+}
+.feed__row[data-outcome="failed"] .feed__glyph, .feed__row[data-render-class="error"] .feed__glyph { color: var(--s-fail); }
+/* 조회는 조용하게 */
+.feed__row[data-render-class="raw"] { color: var(--ink-3); }
+.feed__row[data-pending="true"] .feed__glyph { color: var(--s-run); }

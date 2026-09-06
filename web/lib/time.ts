@@ -31,3 +31,27 @@ export function elapsed(fromIso: string, now: number = Date.now()): string {
   const m = Math.floor(s / 60);
   return m > 0 ? `${m}분 ${s % 60}초` : `${s}초`;
 }
+
+/** lane 카드의 경과 — 끝났으면 시작~종료, 진행 중이면 시작~지금. */
+export function durationSince(fromIso: string | null | undefined, toIso?: string | null, now: number = Date.now()): string {
+  if (!fromIso) return "—";
+  const from = Date.parse(fromIso);
+  if (Number.isNaN(from)) return "—";
+  const to = toIso ? Date.parse(toIso) : now;
+  const s = Math.max(0, Math.floor(((Number.isNaN(to) ? now : to) - from) / 1000));
+  if (s < 60) return `${s}초`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}분`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `${h}시간 ${m % 60}분` : `${Math.floor(h / 24)}일`;
+}
+
+/** ISO 8601 duration(`PT4H`·`PT90M`)을 사람이 읽는 문자열로. 파싱 실패면 원문. */
+export function humanDuration(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const m = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(iso);
+  if (!m) return iso;
+  const [, d, h, mi, s] = m;
+  const parts = [d && `${d}일`, h && `${h}시간`, mi && `${mi}분`, s && `${s}초`].filter(Boolean);
+  return parts.length ? parts.join(" ") : iso;
+}

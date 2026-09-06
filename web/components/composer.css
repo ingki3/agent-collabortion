@@ -16,3 +16,12 @@
   padding: 6px 8px; border-radius: 6px; border: 0; background: none; cursor: pointer; font-size: 13px; }
 .mention-menu__item[aria-selected="true"], .mention-menu__item:hover { background: var(--surface); }
 .mention-menu__kind { font-size: 11px; color: var(--ink-3); }
+
+/* P2 — 미리보기 칩 상세 · new_lane 토글(t-2) · paused 안내 */
+.chip__sub { font-size: 11px; opacity: 0.85; }
+.composer__toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-2); cursor: pointer; }
+.composer__lane-note { font-size: 11px; color: var(--s-run-text); font-weight: 600; }
+.composer__notice { font-size: 12px; color: var(--s-pause-text); background: color-mix(in srgb, var(--s-pause) var(--soft-alpha), transparent);
+  border: 1px solid var(--s-pause); border-radius: 8px; padding: 4px 8px; margin-bottom: 6px; }
+.composer__foot .composer__hint { margin-left: auto; }
+.composer__chips[data-previewing="true"] { opacity: 0.75; }

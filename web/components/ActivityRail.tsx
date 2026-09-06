@@ -20,23 +20,16 @@ export interface ActivityRailProps {
 }
 
 export function eventLine(e: TaskEvent): string {
-  const obj =
-    typeof e.object_ref === "string"
-      ? e.object_ref
-      : e.object_ref && typeof e.object_ref === "object"
-        ? JSON.stringify(e.object_ref)
-        : "";
+  // `object_ref` 는 **문자열**이다(계약 v0.4 — 파일 경로·명령 첫 토큰·툴 제목·메시지 id). 객체를 기대하지 않는다.
+  const obj = e.object_ref ?? "";
   const head = `${e.class}${e.verb ? "/" + e.verb : ""}`;
   const parts = [head, obj].filter(Boolean).join(" ");
   return e.outcome ? `${parts} → ${e.outcome}` : parts;
 }
 
-/** openapi `TaskEvent` 에는 `payload` 가 없다(N1 — 두 계약 문서의 불일치). 스키마 문서 쪽 필드를 열어서 읽는다. */
-type TaskEventWire = TaskEvent & { payload?: { tool_call_id?: unknown } | null };
-
-/** 같은 툴 호출을 잇는 키 — `payload.tool_call_id`. 없으면 null(접지 않는다). */
+/** 같은 툴 호출을 잇는 키 — `payload.tool_call_id`(생성 타입에 `payload` 가 있다, W-2). 없으면 null(접지 않는다). */
 export function toolCallKey(e: TaskEvent): string | null {
-  const id = (e as TaskEventWire).payload?.tool_call_id;
+  const id = (e.payload as { tool_call_id?: unknown } | null | undefined)?.tool_call_id;
   if (typeof id !== "string" || !id) return null;
   return `${e.class}:${id}`;
 }
@@ -95,7 +88,7 @@ export function ActivityRail({ events, structured = true, loading, limit = 200 }
             data-outcome={e.outcome ?? ""}
             data-class={e.class}
             data-event-id={e.id}
-            data-tool-call-id={(e as TaskEventWire).payload?.tool_call_id as string | undefined}
+            data-tool-call-id={(e.payload as { tool_call_id?: string } | null | undefined)?.tool_call_id}
           >
             <span className="rail__time">{clockTime(e.created_at)}</span>
             <span className="rail__text">
