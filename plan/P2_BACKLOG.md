@@ -23,6 +23,7 @@
 | D-2 | probe의 `resume`·`usage`·`tool_disallow`를 상수가 아니라 실측으로(E12-06 `usage=false` 경로) | PR #20 NN2 | P2 초반 |
 | D-3 | `acpprobe`(스파이크 cmd) 제거 — `harness/acp`로 승격 완료 | PR #20 결함 6 | 정리 |
 | D-4 | worktree·GC·`rebind_prepare`·예산 강제는 P3·P4 | PR #20 결함 7 | 단계대로 |
+| D-5 | probe `capabilities[].supported_options` 채우기 — `(kind, adapter_version)` 표. claude_code 0.74.0: `effort` 허용 값. Hermes: 비움 | T-W2 계약 빈칸(harness v0.5) | **T-I2 전.** 비어 있으면 웹이 옵션 편집을 비활성으로 둔다 — 빈 채로 두면 S10이 사실상 죽는다 |
 
 ## W (웹)
 

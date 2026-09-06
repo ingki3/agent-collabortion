@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.3 — PR #20(데몬 P1) 구현·리뷰에서 드러난 5건 반영(usage 시점, Hermes 모델 접두어, Hermes 본문 오류 접두어 규칙, disallowedTools 도출, 250ms 비주입). v0.2는 스파이크 1b 반영 |
+| 버전 | v0.5 — §9 `supported_options`(T-W2가 찾은 빈칸: 프로파일 옵션 능력을 광고할 키가 v0.4.1 대조에서 빠졌다). v0.3 은 PR #20(데몬 P1) 구현·리뷰에서 드러난 5건 반영(usage 시점, Hermes 모델 접두어, Hermes 본문 오류 접두어 규칙, disallowedTools 도출, 250ms 비주입). v0.2는 스파이크 1b 반영 |
 | 소유 | D + Lead. 변경은 Director 승인 PR로만 (`contracts/README.md`) |
 | 근거 | PRD §8.2 (하네스), §8.4 (브리프), FR-7.1 (재시도), FR-3.4·§8.2.2 (취소), FR-5.4 (재개). **G1 판정 `plan/G1_DECISION.md` 와 스파이크 보고서 `plan/spikes/SPIKE_01..06.md`, `SPIKE_01b.md`** — 이 문서의 수치·옵션 키는 전부 실측에서 왔다 |
 | 미결 | 없음 (§12 참조). 서브에이전트 가시성은 v1 피드 요구로 미광고 |
@@ -192,8 +192,11 @@ Hermes 보조 신호: stderr의 프로바이더 오류 문구 스니핑 → `oth
 { "kind": "claude_code", "version": "2.1.258", "adapter_version": "0.74.0", "logged_in": true,
   "models": ["…"], "protocol_version": 1,
   "resume": true, "usage": true, "tool_disallow": true,
-  "brief_transport": "acp_meta_system_prompt", "allow_once_missing": false }
+  "brief_transport": "acp_meta_system_prompt", "allow_once_missing": false,
+  "supported_options": { "effort": ["low", "medium", "high", "xhigh"] } }
 ```
+
+`supported_options`(v0.5)는 이 런타임이 받는 프로파일 옵션과 허용 값이다. 어댑터는 `claudeCode.options`의 키를 검증 없이 통과시키므로(§2) 실측할 수 없다 — 데몬이 `(kind, adapter_version)`로 **아는 범위**를 표로 광고한다. 모르면 비워 두고, 비어 있으면 "광고 없음"이다(옵션 없음이 아니다). Hermes는 v1에서 비어 있다.
 
 Hermes: `usage: true`(G1 F6), `resume: true`(`session/load`), `brief_transport: "instruction_file"`.
 
