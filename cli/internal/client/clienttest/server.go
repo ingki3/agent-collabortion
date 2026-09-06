@@ -7,7 +7,8 @@
 // boundary (E8-04).
 //
 // The P2 operations (lane delegate · status set · decision record ·
-// artifact submit/get · review approve/reject) live in p2.go. The fake is
+// artifact submit/get · review approve/reject) live in p2.go, and the P3
+// HITL registration (hitl ask · approve-request · request-info) in p3.go. The fake is
 // written from contracts/openapi.yaml, not from the server — those handlers
 // are still 501 while T-S2 fills them in, and the contract is the reference.
 package clienttest
@@ -134,6 +135,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		defer s.mu.Lock()
 	}
 	if s.handleP2(w, r, path) {
+		return
+	}
+	if s.handleP3(w, r, path) {
 		return
 	}
 	switch {

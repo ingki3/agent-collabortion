@@ -52,8 +52,11 @@ type ReviewCall struct {
 	Body       map[string]any
 }
 
-// p2State is embedded in Server; the mutex there guards it.
+// p2State is embedded in Server; the mutex there guards it. p3State rides
+// along so Server keeps one embedded field per phase.
 type p2State struct {
+	p3State
+
 	// NotDesignatedReviewer makes reviewArtifact answer 403
 	// not_designated_reviewer without storing anything (E6-06).
 	NotDesignatedReviewer bool

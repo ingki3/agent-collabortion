@@ -5,6 +5,8 @@
 // P1: session get · session messages · message post · version · mcp serve.
 // P2 (colab-cli.md v0.4 §2.2·2.3): lane delegate · status set ·
 // decision record · artifact submit/get · review approve/reject.
+// P3 (colab-cli.md v0.5 §2.4): hitl ask · hitl approve-request ·
+// hitl request-info.
 // Output is always JSON on stdout (agents parse it); --json is accepted for
 // clarity. Exit codes: 0 ok · 2 args · 3 refused · 4 no/revoked token ·
 // 5 server unreachable.
@@ -24,7 +26,16 @@ import (
 	"github.com/ingki3/agent-collabortion/contracts"
 )
 
-var version = "dev"
+// version is the colab CLI's own version. Release builds set it with
+// -ldflags "-X main.version=<x.y.z>" (Makefile COLAB_VERSION); the default
+// is a semver too, and deliberately so: the daemon probe reads
+// `colab --version` with the regexp \d+\.\d+\.\d+ and takes the FIRST
+// match (daemon/internal/probe.CLIVersion). While this said "dev" the first
+// x.y.z in the line was the contracts version, so probe reported the
+// contract set as the CLI's version and S11 showed "colab CLI 0.1.0"
+// (backlog C-3). The CLI version stays leftmost in the output for the same
+// reason.
+var version = "0.3.0-dev"
 
 const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
 
@@ -44,6 +55,15 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
   colab artifact get <id> [--out <path>]
   colab review approve --artifact <id> [--note <t>]
   colab review reject  --artifact <id> --reason <text>
+  colab hitl ask --question <text> --default <text> [--choices a,b,c] [--context <text>]
+                             asks the Director. --default is REQUIRED for both question and choice
+                             (FR-5.1); --choices makes it a choice (2+ options, --default one of them)
+  colab hitl approve-request --summary <text> [--artifact <id>]
+                             asks for approval; no default — an approval never auto-proceeds (FR-5.4)
+  colab hitl request-info --what <text> [--why <text>]
+                             asks a human for information (--question is an alias of --what)
+                             All three return turn_end_required:true — register it and END YOUR TURN.
+                             A task holds one open request at a time; a second is exit 3 hitl_already_open.
   colab mcp serve            stdio MCP server exposing the same commands as tools
   colab version            also as the flags --version · -v (the daemon probe runs colab --version)
 
@@ -86,6 +106,8 @@ func run(args []string, getenv client.Getenv, stdin io.Reader, stdout, stderr io
 		return runArtifact(args[1:], getenv, stdout, stderr)
 	case "review":
 		return runReview(args[1:], getenv, stdout, stderr)
+	case "hitl":
+		return runHitl(args[1:], getenv, stdout, stderr)
 	case "mcp":
 		if len(args) < 2 || args[1] != "serve" {
 			return usage(stderr, "usage: colab mcp serve")
@@ -98,7 +120,7 @@ func run(args []string, getenv client.Getenv, stdin io.Reader, stdout, stderr io
 		return client.ExitOK
 	}
 	return usage(stderr, "colab: unknown command %q "+
-		"(session · message · status · lane · decision · artifact · review · mcp · version)", args[0])
+		"(session · message · status · lane · decision · artifact · review · hitl · mcp · version)", args[0])
 }
 
 func usage(stderr io.Writer, format string, a ...any) int {
