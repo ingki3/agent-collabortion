@@ -57,6 +57,7 @@
 |---|---|---|---|
 | C-1 | `/cli/context` 호출 시점("시작 시 1회" vs 필요 시) 문서와 구현 정렬 | PR #18 N3 | 문서 |
 | C-2 | `colab-cli.md` §2.1 `--tail` ↔ `--limit` 표기 통일 | PR #18 N5 | 문서 |
+| C-3 | CLI 버전이 `var version = "dev"`이고 빌드 어디에도 `-ldflags -X main.version`이 없다. probe의 `versionRe`가 출력에서 먼저 걸리는 **contracts 버전**(0.1.0)을 `colab_cli.version`으로 싣는다 — `present` 판정은 정상이나 S11 카드가 "colab CLI 0.1.0"을 보인다. 배포 빌드(Makefile)에 ldflags 를 넣고 CLI 버전이 왼쪽에 오게 | PR #71 리뷰 NN1 + hotfix 워커 | 출시 전 |
 
 ## 계약·문서
 
