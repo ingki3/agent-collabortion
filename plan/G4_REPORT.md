@@ -3,11 +3,11 @@
 | 항목 | 내용 |
 |---|---|
 | 작성 | Integrator (T-I2 1부). **1판** 2026-09-06 14:30~15:50 KST · **2판**(웹 재실행) 16:10~ KST |
-| 대상 | **2판**: `origin/dev` `950b02a` (1판 대상 `9bb4ce9` + T-S4 서버 #75 · 웹 #76). 1판 대상은 서버 P2 #62 · 아티팩트 #65 · CLI #61 · 웹 #67 · 데몬 #54 + 핫픽스 #71 |
+| 대상 | **2판**: `origin/dev` `d5957e1` (1판 대상 `9bb4ce9` + T-S4 서버 #75 · 웹 #76 + 핫픽스 #78 서버 · #79 웹). 1판 대상은 서버 P2 #62 · 아티팩트 #65 · CLI #61 · 웹 #67 · 데몬 #54 + 핫픽스 #71 |
 | 2판 범위 | **웹 절반만 다시 돌린다**(`11_scenario_a_web.sh` · `12_mock_vs_real.sh` · P1 회귀). API/CLI 경로(§3.1)는 1판 수치를 그대로 둔다 — #75·#76 은 그 경로를 바꾸지 않았고, 재실행은 에이전트 턴을 다시 태운다 |
 | 실제 런타임 | Claude Code 2.1.258(로그인됨) · 어댑터 `@agentclientprotocol/claude-agent-acp@0.74.0`(핀) · macOS arm64 |
 | 에이전트 모델 | `claude-haiku-4-5-20251001` (비용 지침, `LEAD_MODEL` 로 덮어쓰기) |
-| 바이너리 | 1판 **15:21:33** 빌드(dev `9bb4ce9`, 커밋 14:59:24) · 2판 **16:10:49** 빌드(dev `8d9c7a8` = `950b02a` 머지, 커밋 16:0x) — 둘 다 대상 HEAD **이후**. `e2e/p2/up.sh` 가 매 실행마다 `make build` 한다 |
+| 바이너리 | 1판 **15:21:33** 빌드(dev `9bb4ce9`) · 2판 **17:05:44** 빌드(dev `c7b190c` = `d5957e1` 머지) — 둘 다 대상 HEAD **이후**. 웹은 2판부터 **프로덕션 빌드**(`next build` + `next start`)로 띄운다(§2 각주). `e2e/p2/up.sh` 가 매 실행마다 `make build` 한다 |
 | 스택 | 전용 Postgres `colab-pg-g4`(:5436) · `bin/server` :8090 · `next dev` :3010. **P1 스택(:8080/:3000/:5435)과 포트를 분리**했다 — 다른 워크스페이스의 P1 스택이 동시에 돌고 있어 같은 포트를 잡을 수 없다 |
 | 스크립트 | `e2e/p2/` (재현 명령은 §6). **CI 에서 실행하지 않는다**(실제 런타임·로그인 필요) |
 | 판정 근거 | PLAN.md §3 P2 DoD·§6.2 G4, plan/P2_TASKS.md §3 T-I2 1부, PRD 시나리오 A(§4), EVAL E1~E6·E15-02, EVAL_USER U2·U4·U5·U15 |
@@ -22,7 +22,7 @@
 | 4 | Writer 의 `artifact submit` 201, 다운로드 바이트 = Content-Length | **통과** | `submitArtifact` 201 **1건**, 다운로드 **1439 B = Content-Length 1439**, 본문 일치 | — |
 | 5 | 종료 조건 진행률이 `artifact_submitted` 를 반영 | **통과** | `completion_progress` = `met 1 / total 2`, `artifact_submitted.met=true` · `user_approval.met=false` · `satisfied=false` · `human_gate=true`, 세션 `active` 유지(E6-01) | — |
 | 6 | `previewTriggers` 가 작성창에 **서버 값**으로 뜬다 | **통과** (2판) | 웹 작성창 칩 = `@Researcher를 트리거합니다 · 명시 멘션(규칙 2) · claude-haiku-4-5-20251001`, 같은 본문의 서버 `previewTriggers` = `Researcher` / 규칙 2 / 프로파일 `default`. 규칙 번호·프로파일·모델은 로컬에서 만들 수 없는 값이다. (1판: S7 이 안 열려 미확인) | — |
-| 7 | 웹(agent-browser)으로 U2·U4·U5 여정 한 번 | **부분** (2판) | S6 마법사 7단계 전부 통과하고 **세션이 만들어져 S7 이 열린다**(1판의 S-1·S-2 해소). U2-1 lane 보드는 아직 아니다 — 카드가 3장 동시 running 으로 보이지 않고(**S-9**) 브리프 줄이 없다(**S-10**). 참여자 칩은 e2e 가 식별할 수단이 없다(**W-3**). W9 이후(U15-3·U2-5·U2-6·U5-1)는 미도달 | **S**·**W** |
+| 7 | 웹(agent-browser)으로 U2·U4·U5 여정 한 번 | **부분** (2판) | 15항목 중 **PASS 12 · FAIL 4 · N/A 1**. 마법사 7단계 → 세션 생성 → S7 → **lane 카드 3장 이상 동시 running(최대 4)** · 카드별 브리프 3 · 작성창 미리보기 칩(서버 값) · `@all` "트리거 없음"까지 사람 경로로 확인된다. 남은 실패는 **한 덩어리**다 — 참여자 칩·합류 카드·아티팩트 행이 **실시간으로 오지 않는다**(**S-13**·**S-14**). 같은 화면을 **새로고침하면 전부 보인다**(W13c: artifact-row 1 · 합류 카드 2). U5-1 "1/2" 는 마법사가 제출자를 지정할 수 없어 웹에서 만들 수 없다(**W-4**) | **S**·**W** |
 | 8 | API/CLI 로 한 번 | **통과** | `e2e/p2/10_scenario_a_api.sh` — 체크 **31개 중 PASS 29 · FAIL 2**(FAIL 2 = §4 S-4·S-5). 세션 전체 소요 **93초**, 에이전트 턴 7 | — |
 
 **G4 관점 요약.** 협업 코어의 결정적 부분 — 위임 → lane 3개 병렬 → **합류 정확히 1회** → 종합 → Writer 제출 → 종료 조건 반영 — 은 실제 Claude Code 런타임에서 **끝까지 돈다**. 즉 PLAN §6.2 G4 의 "시나리오 A Claude Code 단일 런타임" 은 **API/CLI 경로에서 통과**다. 반면 **사람이 보는 경로는 통과가 아니다**: 서버가 계약과 다른 모양을 주는 한 필드(`listDecisions`)가 S7 세션 화면 전체를 죽이고(**S-1**), lane 보드·런타임 후보·팀 템플릿이 실서버에서 501 이라(**S-2·S-3**) U2 여정이 성립하지 않는다. 이 넷은 전부 **서버 쪽 좁은 수정**이고 웹 코드와 무관하다.
@@ -78,32 +78,42 @@ P1 에서는 액세스 토큰이 살아 있어 갱신이 필요 없었으므로 
 
 ### 3.2 시나리오 A — 웹 경로 (`e2e/p2/11_scenario_a_web.sh`)
 
-**2판**(dev `950b02a`, T-S4 #75·#76 이후). 1판에서는 S6 4단계에서 후보가 0이고 S7 이 첫 렌더에서 죽어 **U2-1 이후 전부 미도달**이었다. 지금은 마법사가 끝까지 가고 세션이 만들어지며 S7 이 열린다.
+**2판**(dev `d5957e1`, T-S4 #75·#76 + 핫픽스 #78·#79 이후). 1판에서는 S6 4단계에서 후보가 0이고 S7 이 첫 렌더에서 죽어 **U2-1 이후 전부 미도달**이었다.
 
-| # | 판정 대상 | 1판 | 2판 | 근거 |
+| # | 판정 대상 | 1판 | 2판 | 2판 근거 |
 |---|---|---|---|---|
 | W1 | S6 마법사 7단계 · 제목·goal | 통과 | **통과** | `wizard-steps` 7 |
-| W2 | 4단계 런타임 후보에 방금 연결한 컴퓨터 | 실패(S-2) | **통과** | 후보 **1**, 오류 문구 없음 |
+| W2 | 4단계 런타임 후보 | 실패(S-2) | **통과** | 후보 1, 오류 없음 |
 | W3 | 5단계 참여자 3명 + assignee=Lead | 통과 | **통과** | `participant-option` 3 |
 | W4 | 6단계 종료 조건 기본값 | 통과 | **통과** | `☑ 아티팩트 제출 (assignee) … 모두 충족 (AND)` |
-| W4b | 마법사 '시작' 이 세션을 만든다 | 미측정 | **통과** | 세션 `bef082c8-…`, S7 로 이동 |
-| W5 | lane 보드 카드 3장이 **동시에** running (U2-1) | 미도달(S-1) | **실패** | 화면에서 본 최대 동시 running **1**. **DB 는 3이다** — §아래 |
-| W6 | 각 카드에 브리프 한 줄 (U2-1) | 미도달 | **실패** | `lane-brief` **0**. `listLanes` 응답에 `brief` 키가 아예 없다 |
-| W7 | Researcher 칩 `working` · Lead 칩 `idle` (U2-3·E5-11) | 미도달 | **실패(테스트 훅)** | 셀렉터가 아무것도 못 잡았다 — `AgentChip` 이 `data-agent-id` 를 달지 않는다 |
-| W8 | 작성창 미리보기 칩이 **서버 값**인가 (U4-1·FR-3.6) | 미도달 | **통과** | 칩 `@Researcher를 트리거합니다 · 명시 멘션(규칙 2) · claude-haiku-4-5-20251001` = 서버 `previewTriggers`(agent `Researcher` · rule 2 · profile `default`) |
-| W9~W15 | U15-3 `@all` · U2-5 합류 1회 · U2-6·U5-1 진행률 · 아티팩트 행 · HITL | 미도달 | **미도달** | 스크립트가 W9 에서 멈췄다(§아래) |
+| W4b | 마법사 '시작' 이 세션을 만든다 | 미측정 | **통과** | 세션 `25a87bb1-…` |
+| **W5** | **lane 카드가 동시에 running (U2-1)** | 미도달 | **통과** | 화면에서 본 **최대 동시 running 4** (1판 1) — #78 의 `lane.updated` |
+| **W6** | **각 카드에 브리프 한 줄 (U2-1)** | 미도달 | **통과** | `lane-brief` **3** — #78 의 `lane.brief` |
+| W7 | 참여자 칩 Researcher `working`·Lead `idle` (U2-3·E5-11) | 미도달 | **실패** | 칩은 이제 식별된다(#79) — 값이 **초기 로드 그대로**다: 3~4장이 running 인 순간에도 `Researcher=idle Lead=working`. `participant.updated` 미발행(**S-14**) |
+| W8 | 작성창 미리보기 칩이 서버 값인가 (U4-1·FR-3.6) | 미도달 | **통과** | 칩 `@Researcher를 트리거합니다 · 명시 멘션(규칙 2) · claude-haiku-4-5-20251001` = 서버 `previewTriggers` |
+| W9 | `@all` 은 "트리거 없음 — 기록만" (U15-3·E1-05) | 미도달 | **통과** | 칩 `트리거 없음 — @all·사람만 멘션(규칙 3)` (계약 형식 `mention://all/all`) |
+| W10 | 합류 시스템 메시지가 타임라인에 **한 번** (U2-5) | 미도달 | **실패** | 실시간 카드 **0** / 전체 카드 12. DB 에는 시스템 메시지 3건(시작 1 + 합류 2). `SystemPost` 가 `message.created` 를 발행하지 않는다(**S-13**) |
+| W11 | 제출 전 진행률 0/2 (U2-6) | 미도달 | **통과** | `progress-count` = 0/2 |
+| W12 | 제출자가 지정 에이전트가 아니면 미충족 (E6-02) | 미도달 | **통과** | 마법사 기본 조건 `who: assignee`(=Lead), 제출자는 Writer → 0/2 가 **정상 동작** |
+| W13 | 우열 아티팩트 목록에 제출물 | 미도달 | **실패** | 실시간 `artifact-row` **0**. `artifact.created` 미발행(**S-14**) |
+| W13b | 제출 후 1/2 (U5-1) | 미도달 | **N/A** | 마법사가 제출자를 지정할 수 없어 웹에서 이 조건의 세션을 만들 수 없다(**W-4**). API 경로 §3.1 에서 `met 1/2` 확인 |
+| **W13c** | **새로고침하면 같은 것이 보이는가** | — | **통과** | reload 후 `artifact-row` **1** · 합류 카드 **2**. **데이터는 있고 실시간 전달만 없다** |
+| W14 | task 이력을 펼치면 활동 피드 | 미도달 | **미판정** | 토글 클릭 뒤에도 `activity-feed` 가 비어 있었다. `ActivityFeed` 는 메시지 카드의 `activity-toggle` 아래에 붙는다 — 스크립트가 먼저 시도한 셀렉터가 틀렸다. 다음 실행에서 재판정 |
+| W15 | `artifact_submitted` 충족 시 `user_approval` HITL (E6-01) | 미도달 | **실패(전제 미충족)** | 조건이 충족되지 않았으므로(W12) HITL 이 발행되지 않는 것이 맞다. `GET /inbox` 는 501(P3) |
 
-**W5 는 폴링이 놓친 것이 아니다.** 같은 세션의 서버 DB 를 보면 Researcher task 3개가 실제로 겹쳤다:
+**남은 실패는 한 덩어리다.** W7·W10·W13 은 서로 다른 화면 요소지만 원인이 하나다 — **서버가 S7 스트림 이벤트를 발행하지 않는다.** 계약(`openapi.yaml` 실시간 이벤트 표)이 선언한 것 중 서버에 `Publish` 호출이 있는 것은 `lane.updated`(#78 이 넣은 3곳)와 `message.created`(2곳: `postMessage`·`delegateLane`)뿐이다:
 
-| task | `started_at` (UTC) | `finished_at` (UTC) |
-|---|---|---|
-| `e526d307…` | 07:33:12.729 | 07:33:27.616 |
-| `3debeeaa…` | 07:33:13.276 | 07:33:31.560 |
-| `ed9ef8f8…` | 07:33:13.984 | 07:33:35.414 |
+| 이벤트 | 계약 | 서버 `Publish` 호출 | 화면에서 죽는 것 |
+|---|---|---|---|
+| `lane.updated` | S7 | **3** (#78) | — (2판에서 살아났다) |
+| `message.created` | S7 | 2 — 사람 게시·위임 게시만 | **시스템 메시지**(합류·질문 카드·재진입 통보)가 실시간으로 안 온다 |
+| `participant.updated` | S7 | **0** | 참여자 칩이 초기 로드 상태로 굳는다 |
+| `artifact.created` | S7 | **0** | 우열 아티팩트 목록 |
+| `decision.created` | S7 | **0** | 우열 결정 기록 |
+| `session.completion_progress` | S7 | **0** | 종료 조건 진행률 |
+| `cost.updated` | S7 | **0** | 우열 비용 |
 
-셋이 동시에 `running` 인 구간은 **07:33:13.98 ~ 07:33:27.62 = 약 13.6초**이고 스윕으로 센 최대 겹침은 **3**이다. 2초 간격 폴링이 13.6초를 놓칠 수 없다. 원인은 **서버가 lane 이 `running` 으로 바뀔 때 `lane.updated` 를 내보내지 않는 것**이다 — `publishLane` 호출처는 delegate·cancel(`handlers_lanes.go`)과 finish(`daemon.go`)뿐이라, 보드는 **초기 로드 상태에서 lane 이 끝날 때만** 갱신된다. 사람 눈에는 "3장이 순서대로 하나씩 도는" 것처럼 보인다(**S-9**).
-
-**W9 에서 멈춘 이유는 제품이 아니라 스크립트다.** `@all` 미리보기 칩(`chip-no-trigger`)을 기다리는 `wait_sel` 이 가드 없이 있어 `set -e` 가 스크립트를 끝냈다. 그 EXIT 트랩이 데몬을 내리는 바람에 **Writer lane 이 `failed`, 그 task 가 `cancelled`** 로 남았다 — 결함이 아니라 teardown 이다. 2판 재실행 전에 브라우저 읽기(`abget`)와 대기(`|| true`)를 전부 실패 허용으로 고쳤다.
+웹은 이 일곱 개를 **전부 처리하는 코드를 이미 갖고 있다**(`sessions/[id]/page.tsx` 의 이벤트 switch). 받을 프레임이 없을 뿐이다.
 
 ### 3.3 목 API vs 실서버 (`e2e/p2/12_mock_vs_real.sh`)
 
@@ -134,41 +144,25 @@ P1 에서는 액세스 토큰이 살아 있어 갱신이 필요 없었으므로 
 
 ### 3.4 P1 회귀 (`e2e/p2/20_regression_p1.sh`)
 
-`e2e/p1/01~07` 을 이 스택에 README 순서(01 → 03 → 02 → 05 → 06 → 04 → 07)로 전부 돌렸다. `N=20`.
+`e2e/p1/01~07` 을 이 스택에 README 순서(01 → 03 → 02 → 05 → 06 → 04 → 07)로 전부 돌렸다. `N=20`. **2판 수치**(`out/regression.tsv` 는 이제 행마다 실행 시각을 적는다 — NN2).
 
-| 스크립트 | 결과 | 수치 |
+| 스크립트 | 2판 | 수치 |
 |---|---|---|
-| `01_vertical_slice.sh` | **통과 (19/20)** | claim 중앙값 **0.008s**(max 0.013, E17-01 ≤ 2s) · 첫 출력 중앙값 **3.324s**(E17-02 ≤ 10s) · 답글 도착 중앙값 **3.914s** · 페어링→ready **10.4s**. C-1 회귀 초록: heartbeat 422 **0**, 재큐잉 로그 **0**, SSE `message.delta` **2프레임**. **20회차만 답글 0** — task 는 `completed`(`stop_reason=end_turn`)이고 `message.say` 에 "E2E 수직 슬라이스 인사 왕복이 성공적으로 완료되었습니다!" 가 있는데 `colab_message_post` 를 부르지 않았다. 플랫폼 오류 없음(모델이 20번째에서 왕복이 끝났다고 판단) |
-| `03_cancel.sh` | **통과** | 두 취소 경로 모두. 데몬 정상 종료 1s |
-| `02_kill9.sh` | **통과** | 재큐잉·토큰 폐기·고아 정리·중복 게시 0, `final_status: completed`, 그 task 의 메시지 **1건** |
-| `05_invite_api.sh` | **통과** | 초대 `accepted`, 두 번째 멤버 `member` 로 가입 |
-| `06_s12_pairing_realtime.sh` | **통과** | 서버 SSE `pairing.updated` 2프레임 · 화면 1번 열 때 페어링 **1개** · 패널이 **0.3초**에 `ready`(E17-09 ≤ 10s) |
-| `04_u1_browser.sh` | **부분** | U1-1~4·6~9·11~12 통과(S12 준비 완료 **11.4s**, S-6 회귀 초록, P2 7단계 마법사 전부 통과). U1-5 는 P2 템플릿(**S-3**), U1-10 은 런타임 후보(**S-2**) — 새 결함이 아니라 §4 의 같은 항목이다. **U1-13 미도달**: 마법사 마지막 단계 전환이 스크립트 페이싱에 걸려 '시작' 이 눌리지 않는다(같은 계정·같은 화면을 손으로 몰면 세션이 만들어진다 — 스크립트 문제이지 제품 문제가 아니다). 도달했더라도 S7 은 **S-1** 로 죽는다 |
-| `07_adversarial.sh` | **부분 (81/82)** | 유일한 ✗ = **S-8**(사람 쿠키로 `recordDecision` 201) |
+| `01_vertical_slice.sh` | **통과 (20/20)** | claim 중앙값 **0.009s**(E17-01 ≤ 2s) · 첫 출력 중앙값 **3.373s**(E17-02 ≤ 10s) · 답글 도착 **4.013s**. C-1 회귀 초록. (1판은 19/20 — 20회차에 모델이 `colab_message_post` 를 생략했다. 2판에서 재현되지 않았다) |
+| `03_cancel.sh` | **통과** | 두 취소 경로, 데몬 정상 종료 1s |
+| `02_kill9.sh` | **통과** | 재큐잉·토큰 폐기·고아 정리·중복 게시 0 |
+| `05_invite_api.sh` | **통과** | 초대 `accepted`, 두 번째 멤버 `member` |
+| `06_s12_pairing_realtime.sh` | **통과** | 페어링 1개 · 패널 **0.3초**에 `ready`(E17-09 ≤ 10s) |
+| `04_u1_browser.sh` | **부분** | U1-1~4·6~9 통과(S12 준비 완료, S-6 회귀 초록, P2 7단계 마법사). U1-5 는 온보딩 3단계의 템플릿 카드가 아직 없다(P2 W 범위). U1-10 이후는 스크립트가 죽었다 — §아래 |
+| `07_adversarial.sh` | **통과 (110/110)** | **FAIL 0**. S-8(사람 쿠키 `recordDecision`)이 #75 로 닫혔다. T-S4 가 workdir·`colab_cli`·`agent_disabled` 행을 더해 chk 가 82 → **110** 이 됐다 |
 
-**07 의 chk 수를 정확히 세었다** — T-S3 워커의 "D10 18/18" 은 6개 적다. 한 번의 완전 실행에서 실제로 도는 chk 는 **82개**다:
+**07 의 chk 수.** 1판에서 세었을 때 완전 실행은 **82개**(D10 **24** — T-S3 보고의 "18/18" 보다 6 많다; D11 신설 16). 2판에서 #75 가 행을 더해 **110개**다. 이 중 한 행(`실행된 lane 은 workdir_id 가 있다`)이 **전체 DB 를 세고 있어** 이 워크스테이션처럼 오래된 lane 45개가 남은 DB 에서는 언제나 빨강이었다 — 이번 세션으로 범위를 좁혔다(수정 후 110/110).
 
-| 절 | 실행되는 chk | 비고 |
-|---|---|---|
-| D1 TaskToken 범위 | **2** | 서버가 토큰 평문을 저장하지 않아 짧은 가지로 간다(살아 있는 토큰이 있으면 7) |
-| D2 워크스페이스 경계 | 9 | |
-| D3 501 표면 | 5 | |
-| D4 멱등키 경계 | 6 | |
-| D5 미인증 접근 | 4 | |
-| D6 SSE 인가 | 2 | |
-| D7 데몬 토큰 경계 | 3 | |
-| D8 잘못된 입력 | 11 | |
-| **D10 아티팩트 경계** | **24** | 파일에 있는 `chk` 문은 26개지만 2개는 "살아 있는 토큰이 없을 때" 가지다. 토큰을 심고 다른 세션·다른 task 가 있는 완전 실행에서 도는 것은 **24** |
-| **D11 P2 operation 경계(신설)** | **16** | |
-| **합계** | **82** | 이번 실행 PASS **81** · FAIL **1** |
+**04 가 죽는 자리는 제품이 아니라 스크립트였다.** 두 가지를 고쳤다. (1) `set -euo pipefail` 아래에서 **없을 수 있는 요소를 읽는 것**이 대입문을 실패시켜 스크립트를 끝낸다 — 서버가 고쳐져 `new-session-error` 요소가 사라지자 바로 걸렸다. 읽기를 전부 `abget`(실패 허용)으로 바꿨다. (2) 마법사 단계 대기를 가드 없이 두면 한 단계만 늦어도 뒤가 통째로 사라진다. `11_scenario_a_web.sh` 도 같은 두 가지를 고쳤다.
 
-첫 실행의 `"fail": 8` 은 D11 을 처음 넣었을 때의 값이다. 그 8 중 **6개는 내 기대값이 과했던 것**(아직 x-phase P3 인 `listLaneTasks`·`restartLane`·`pauseSession`·`resumeSession`·`getSessionCost` 와 P2 인데 501 인 `listLanes` 가 403/404 대신 501 을 준다), **1개는 응답 위치 차이**(`not_participant` 가 최상위 `code` 가 아니라 `errors[].code` 에 실린다 — CLI 는 그것을 읽어 exit 3 과 대안 안내까지 정상 동작), **1개만 진짜 결함**(S-8)이다. D11 을 고쳐 501 을 허용값에 넣고(구현하는 PR 이 이 줄에서 501 을 빼면 그때부터 경계가 검사된다) `not_participant` 를 `errors[]` 에서도 읽게 한 뒤가 위 표의 81/82 다.
+**`next dev` 는 e2e 에 쓰지 않는다.** 1차 일괄 실행에서 04·06 이 죽은 원인은 브라우저가 아니라 **dev 서버**였다 — `⨯ ENOENT … .next/server/app/(app)/sessions/page.js`. 요청이 오는 도중에 빌드 산출물을 다시 쓰다가 라우트를 통째로 죽인다(웹 로그에 4회). 이것이 T-W2 가 "헤드리스가 하이드레이트하지 않는다" 로 본 현상과 같은 모양이다. `e2e/p2/up.sh` 는 이제 기본이 **`next build` + `next start`** 다(`WEB_MODE=dev` 로 되돌릴 수 있다). 바꾼 뒤 06 은 통과, 04 는 마법사 끝까지 갔다.
 
-**`out/regression.tsv` 의 07 행은 1차 실행값이다.** 일괄 실행(`20_regression_p1.sh`)이 남긴 tsv 의 `07_adversarial.sh` 행은 D11 을 처음 넣었을 때의 `"fail": 8` 을 가리킨다 — 위 표의 **81/82** 는 D11 을 고친 뒤 07 만 다시 돌린 값(`out/p1/07_adversarial.log`)이다. 두 값이 섞이지 않도록 `20_regression_p1.sh` 는 이제 각 행에 **실행 시각**을 함께 적는다. 2판에서 일괄 실행을 다시 돌리면 tsv 가 새로 쓰인다.
-
-**06 의 `net::ERR_ABORTED` 는 코드 결함이 아니다.** 첫 일괄 실행에서 06 이 `ab open $WEB_URL/login` 에서 `Navigation failed: net::ERR_ABORTED` 로 죽었다. 원인은 **agent-browser 세션 충돌** — 내가 S7 크래시를 좁히려고 열어 둔 디버깅용 세션(`colab-g4-probe*`)이 남아 있었다. `agent-browser close --all` 뒤 같은 스크립트를 같은 포트·같은 BASE_URL 로 다시 돌리면 **통과**한다(패널 ready 0.3s). 포트나 베이스 URL 문제가 아니고 하이드레이션 문제도 아니다 — 같은 실행에서 웹의 다른 화면은 정상 하이드레이트됐다. 재현 조건: 다른 `AGENT_BROWSER_SESSION` 이 살아 있는 상태에서 새 세션으로 `open`. `e2e/p2/20_regression_p1.sh` 가 시작할 때 `agent-browser close --all` 을 하도록 고쳤다.
-
-**T-W2 가 보고한 헤드리스 하이드레이션 문제는 이 워크스페이스에서 재현되지 않았다.** `/signup`·`/login`·`/onboarding`·S12·S6 마법사 전부 헤드리스에서 상호작용까지 정상이다. 다만 **`next dev` 가 도는 중에 `web/.next` 를 지우면** 그 다음 라우트가 `ENOENT … .next/server/app/(app)/sessions/new/page.js` 로 죽는다(실측). 그때는 웹을 내리고 `.next` 를 지운 뒤 다시 띄우면 된다 — S7 크래시(**S-1**)와는 다른 현상이고, S-1 은 `.next` 를 새로 만든 뒤에도 그대로였다.
+**`net::ERR_ABORTED`(1판 06)는 agent-browser 세션 충돌이었다.** 디버깅용 세션이 열려 있으면 새 세션의 `open` 이 죽는다. 러너가 시작할 때 `agent-browser close --all` 을 한다.
 
 ## 4. 결함 — 스트림 귀속
 
@@ -184,14 +178,17 @@ P1 에서는 액세스 토큰이 살아 있어 갱신이 필요 없었으므로 
 | **S-6** | S | `listLanes`(**P2**) 501 | 직접 확인 · `12_mock_vs_real` | S7 lane 보드가 항상 빈 화면 | **#75** — 2판 lane 5건 반환 |
 | **S-7** | S | `previewTriggers` 에 `agent_disabled` 경고 없음 | 정지 후 preview → `warnings: []` | U11-6·E10-07 | **#75** — 2판 `정지된 에이전트는 경고` 초록(`agent_disabled`) |
 | **S-8** | S | `recordDecision` 이 사람 쿠키로 **201**, 저장된 행의 `source` 가 `hitl` | `POST …/decisions` + 쿠키 → 201 | 워크스페이스 멤버 누구나 사람이 HITL 로 답한 것처럼 결정 기록을 위조 | **#75**(2판 회귀 07 로 재확인 예정) |
-| **S-9** | **S** | **lane 이 `running` 으로 바뀔 때 `lane.updated` 를 내보내지 않는다** | 계약: `openapi.yaml` 실시간 이벤트에 `lane.updated`. 실서버: DB 는 Researcher 3개가 07:33:13.98~27.62(**13.6초**) 동안 동시에 `running`(스윕 최대 겹침 3)인데 화면 최대 동시 running 은 **1**. 코드: `publishLane` 호출처가 delegate·cancel·finish 뿐 | **U2-1·U2-4 가 성립하지 않는다.** 사람 눈에는 3-way 병렬이 순차 실행으로 보인다 — 시나리오 A 의 핵심 장면이 화면에서 사라진다 | 미해소 |
-| **S-10** | **S** | **`listLanes` 응답에 `brief` 가 없다** | 계약: openapi `Lane.brief`. 실서버: 모든 lane 이 `brief` 키 자체 없음(lane 테이블에 컬럼이 없고 `delegateLane` 의 brief 를 저장하지 않는다). 목: brief 있음 | U2-1 "각 카드에 브리프 한 줄" 불가. 카드만 보고 "이 lane 이 무슨 일을 하는지" 알 수 없다 | 미해소 |
+| **S-9** | **S** | **lane 이 `running` 으로 바뀔 때 `lane.updated` 를 내보내지 않는다** | 계약: `openapi.yaml` 실시간 이벤트에 `lane.updated`. 실서버: DB 는 Researcher 3개가 07:33:13.98~27.62(**13.6초**) 동안 동시에 `running`(스윕 최대 겹침 3)인데 화면 최대 동시 running 은 **1**. 코드: `publishLane` 호출처가 delegate·cancel·finish 뿐 | **U2-1·U2-4 가 성립하지 않는다.** 사람 눈에는 3-way 병렬이 순차 실행으로 보인다 — 시나리오 A 의 핵심 장면이 화면에서 사라진다 | **#78** — 2판 화면 최대 동시 running **4** |
+| **S-10** | **S** | **`listLanes` 응답에 `brief` 가 없다** | 계약: openapi `Lane.brief`. 실서버: 모든 lane 이 `brief` 키 자체 없음(lane 테이블에 컬럼이 없고 `delegateLane` 의 brief 를 저장하지 않는다). 목: brief 있음 | U2-1 "각 카드에 브리프 한 줄" 불가. 카드만 보고 "이 lane 이 무슨 일을 하는지" 알 수 없다 | **#78** — 2판 `lane-brief` 3, API 에 브리프 원문 |
 | **S-11** | **S** | **`createAgentProfile`·`updateAgentProfile`·`deleteAgentProfile`(x-phase **P2**) 가 501** | 계약: 세 operation 모두 `x-phase: P2`. 목: 201 / 광고 없는 옵션 422. 실서버: **501** | S10 프로파일 편집기(`profile-add`·`new-profile-save`)가 실서버에서 아무것도 저장하지 못한다. 시나리오 D(프로파일 폴백)의 전제인 "프로파일 2개"를 사람이 만들 수 없다 | 미해소 |
 | **S-12** | **S** | **`applyAgentTemplate` 이 매핑에 실패해도 프로파일 없는 에이전트를 만들어 저장한다.** 매핑 `reason` 도 사실과 다르다("감지된 런타임이 없습니다" — 런타임은 `online` 이다) | 실측 사슬: 런타임 `models: []` → 템플릿 매핑 `unmapped` → apply 가 **프로파일 0개** 에이전트 3명 생성(201) → 그 에이전트로 세션 생성 **422 `no_profile`**. 같은 워크스페이스에서 데몬이 PONG 턴을 돌면(models 5·43) 매핑 `mapped` → apply 가 프로파일 1개씩 붙임 → 세션 생성 성공 | 사람이 템플릿을 눌러 팀을 만들면 **세션에 넣을 수 없는 죽은 에이전트 3명**이 남고, 원인 문구는 엉뚱한 곳(컴퓨터 연결)을 가리킨다. G5 DoD "템플릿에서 시나리오 A 팀 생성 3분" 이 여기서 막힌다 | 미해소 |
 | **D-2** | **D** | **`daemon run --no-turn` 이 이미 보고한 `capabilities[].models` 를 빈 배열로 덮어쓴다** — 모르는 값을 "없음"으로 보고한다 | 실측: PONG 턴 뒤 `claude_code 5 · hermes 43` → `--no-turn` 재시작 뒤 **0 · 0**. G3_REPORT §2 가 "표시에 영향" 으로만 적었던 것이 S-12 를 거쳐 **세션 생성 실패**까지 간다 | 데몬을 한 번 재시작하면 팀 템플릿이 조용히 죽는다. 데몬이 지우지 않거나(모르면 그대로 두거나) 서버가 빈 배열 덮어쓰기를 거절해야 한다 | 미해소 |
+| **S-13** | **S** | **서버가 올린 시스템 메시지가 `message.created` 로 발행되지 않는다** | 계약: openapi 실시간 이벤트 표에 `message.created`(S7). 코드: `router/service.go` 의 `SystemPost` 는 INSERT 만 하고 `Hub.Publish` 를 부르지 않는다 — 발행하는 곳은 `postMessage`·`delegateLane` 두 곳뿐. 실서버: 세션 진행 중 타임라인 카드 12개, DB 메시지 14개(시스템 3), **합류 카드 0**; 새로고침하면 2개 | **U2-5 가 성립하지 않는다** — "3개 lane 결과가 Lead 에게 전달됨" 이라는 시나리오 A 의 장면이 새로고침 전에는 안 보인다. 같은 경로로 올라오는 **질문 카드(E3-05)·재진입 통보(E3-11)** 도 함께 죽는다 | 미해소 |
+| **S-14** | **S** | **S7 스트림 이벤트 5종을 서버가 한 번도 발행하지 않는다** — `participant.updated` · `artifact.created` · `decision.created` · `session.completion_progress` · `cost.updated` | 계약: 다섯 모두 openapi 실시간 이벤트 표에 S7 로 선언. 코드: `grep` 결과 서버의 `Publish` 호출 **0곳**(대조: `lane.updated` 3곳). 웹: 다섯 모두 처리하는 switch 분기가 이미 있다. 실서버: 진행 중 `artifact-row` 0·칩 초기값 고정 → **새로고침하면 artifact-row 1** | U2-3·U2-4·U2-6·U5-1 이 전부 "새로고침해야 보인다". 사람이 화면을 열어 두고 지켜보는 것이 시나리오 A 의 사용자 시점인데(U2 목표) 그 전제가 깨진다 | 미해소 |
+| **W-4** | **W** | **S6 마법사가 `artifact_submitted` 의 제출자를 지정할 수 없다** — 항상 `who: "assignee"` 로 고정 | 계약: openapi `CompletionAtom` 에 `who`·`agent_id`, PRD §4 시나리오 A 3단계 "종료 조건: **Writer 가** artifact 제출". 코드: `sessions/new/page.tsx` 가 `who={t === "artifact_submitted" ? "assignee" : undefined}` 로 하드코딩. 실서버: 마법사로 만든 세션의 조건은 `{who:"assignee"}` 이고 Writer 가 제출해도 `met:false`(E6-02 대로 **정상**) | **마법사로 만든 시나리오 A 세션은 종료 조건이 영원히 충족되지 않는다.** 사람이 웹만으로는 시나리오 A 를 끝낼 수 없다 — G5 의 "8단계 끝까지" 가 여기서 막힌다 | 미해소 |
 | **W-1** | W | 웹이 `[@all](mention://all)` 을 만드는데 PRD FR-3.2 는 `mention://all/all` | 실측 3출처: 계약(PRD §FR-3.2) · 실서버(`mention://all/all` → suppressed=true·트리거 0 / `mention://all` → suppressed=false·규칙 6 으로 Lead 1개) · 목(`content.includes` 로만 판정해 차이를 가림) | **E1-05·U15-3 위반** — `@all` 이 "기록만" 이 아니라 Lead 를 깨운다 | **#76** — 2판 `preview 규칙 3` 초록 |
 | **W-2** | W | `web/e2e/p2-mock.sh` 의 `new_lane` 기대값(`resolution==1`)이 EVAL E2-07(→ **4**)과 반대 | 실서버 4 · 목 1 · EVAL 4 | 스모크가 초록인 채로 웹이 잘못된 해소 번호를 믿을 수 있다 | **#76** — 2판 `new_lane 은 항상 새 lane(규칙 4)` 초록 |
-| **W-3** | **W** | **`AgentChip` 이 `data-agent-id` 를 달지 않는다** | 화면에는 칩이 있고 페이지는 서버 `participants[].status` 를 그대로 넘긴다. e2e 가 "어느 에이전트의 칩인가"를 고를 수단이 없다 | 제품 결함이 아니라 **테스트 훅 결함**. U2-3(E5-11 파생 상태)을 자동으로 판정할 수 없다 | 미해소 |
+| **W-3** | **W** | **`AgentChip` 이 `data-agent-id` 를 달지 않는다** | 화면에는 칩이 있고 페이지는 서버 `participants[].status` 를 그대로 넘긴다. e2e 가 "어느 에이전트의 칩인가"를 고를 수단이 없다 | 제품 결함이 아니라 **테스트 훅 결함**. U2-3(E5-11 파생 상태)을 자동으로 판정할 수 없다 | **#79** — 2판에서 칩이 식별된다(값은 S-14 로 굳어 있다) |
 | **D-1** | D | 데몬 env 허용 목록에 `USER` 가 없어 만료된 OAuth 갱신 실패 | §2.1 | 해소 전 **모든 claude_code task 가 `failed(auth)`** — G4 전면 차단 | **#71** |
 | **C-1** | C | `colab --version` 이 exit 2 | `daemon-protocol.md` §3 은 데몬이 `colab --version` 을 실행한다고 못박는다 | 해소 전 모든 probe 가 `colab_cli.present=false` | **#71** |
 

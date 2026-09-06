@@ -330,11 +330,13 @@ chk "쿠키 없이 결정 기록 401"              401 "$(code -X POST "$API/ses
 chk "차단된 결정은 저장되지 않는다"        "$N_DEC_BEFORE" "$(psqlq "select count(*) from decision where session_id='$SESSION'")"
 # 데몬이 보고한 workdir 이 행이 되고 lane 이 그 행을 가리킨다(§6, FR-6.1/6.4).
 # 01 이 실제 턴을 돌렸으므로 lane 마다 workdir 이 하나씩 있어야 한다.
-chk "workdir 행이 생겼다"                  yes "$( [ "$(psqlq "select count(*) from workdir")" -gt 0 ] && echo yes || echo no)"
+chk "workdir 행이 생겼다"                  yes "$( [ "$(psqlq "select count(*) from workdir where session_id='$SESSION'")" -gt 0 ] && echo yes || echo no)"
 # 아직 claim 만 된(dispatched) task 의 lane 은 데몬이 workdir 을 말하기 전이라 null 이 맞다.
 # 한 번이라도 preparing 을 보고한 lane 은 반드시 workdir 을 가리켜야 한다.
+# **이 세션으로 좁힌다.** 전체 DB 를 세면 #75 이전에 만들어진 옛 lane(이 워크스테이션 DB 에 45개)이
+# 전부 null 이라 언제나 빨강이다 — 검사가 "지금 이 실행이 workdir 을 기록했는가" 를 말하지 못한다.
 chk "실행된 lane 은 workdir_id 가 있다"    0 \
-    "$(psqlq "select count(*) from lane l where l.workdir_id is null and exists (select 1 from task t where t.lane_id = l.id and t.status not in ('queued','deferred','dispatched'))")"
+    "$(psqlq "select count(*) from lane l where l.session_id='$SESSION' and l.workdir_id is null and exists (select 1 from task t where t.lane_id = l.id and t.status not in ('queued','deferred','dispatched'))")"
 chk "API 의 lane 카드도 workdir_id 를 준다" yes \
     "$( [ "$(curl -sS -b "$CK_A" "$API/sessions/$SESSION/lanes" | jq '[.[]|select(.workdir_id!=null)]|length')" -gt 0 ] && echo yes || echo no)"
 

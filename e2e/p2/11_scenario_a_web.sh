@@ -106,11 +106,18 @@ ok "session $SESSION"
 
 step "2. U2-1·3 — lane 보드 카드 3장 running · 참여자 칩"
 # 카드 3장이 동시에 running 인 순간을 화면에서 잡는다(폴링으로 최댓값을 기록).
-MAXRUN=0
+MAXRUN=0; CHIP_R=""; CHIP_L=""
+chip_of() { abget get attr "[data-testid=\"participants\"] [data-testid=\"agent-chip\"][data-agent-id=\"$1\"]" data-status; }
 END=$(( $(date +%s) + 180 ))
 while [ "$(date +%s)" -lt "$END" ]; do
   N="$(count '[data-testid="lane-card"][data-status="running"]')"
-  [ "${N:-0}" -gt "$MAXRUN" ] && { MAXRUN="$N"; [ "$N" -ge 3 ] && shot p2-a-04-lane-board-3running; }
+  if [ "${N:-0}" -gt "$MAXRUN" ]; then
+    MAXRUN="$N"
+    # **칩은 이 순간에 읽는다.** 루프가 끝난 뒤에 읽으면 이미 Researcher 가 끝나고 Lead 가 종합 중이라
+    # working/idle 이 뒤집힌다(2026-09-06 실측: Researcher=idle Lead=working).
+    CHIP_R="$(chip_of "$RSCH")"; CHIP_L="$(chip_of "$LEAD")"
+    [ "$N" -ge 3 ] && shot p2-a-04-lane-board-3running
+  fi
   [ "$MAXRUN" -ge 3 ] && break
   DONE_N="$(count '[data-testid="lane-card"][data-status="done"]')"
   [ "${DONE_N:-0}" -ge 3 ] && break
@@ -118,12 +125,12 @@ while [ "$(date +%s)" -lt "$END" ]; do
 done
 [ "$MAXRUN" -lt 3 ] && shot p2-a-04-lane-board-3running
 rec W5 S7 "lane 보드에 Researcher 카드 3장이 **동시에** running (U2-1)" "$( [ "$MAXRUN" -ge 3 ] && echo PASS || echo FAIL )" "화면에서 본 최대 동시 running=$MAXRUN"
+# 브리프는 **모든 카드가 뜬 뒤** 센다. 최대 동시 running 을 잡은 순간에 세면 늦게 생긴 lane 카드가 빠진다.
+wait_fn "document.querySelectorAll('[data-testid=\"lane-brief\"]').length >= 3" 60 || true
 BRIEF_N="$(count '[data-testid="lane-brief"]')"
 rec W6 S7 "각 카드에 브리프 한 줄 (U2-1)" "$( [ "${BRIEF_N:-0}" -ge 3 ] && echo PASS || echo FAIL )" "lane-brief=$BRIEF_N"
-CHIP_R="$(abget get attr '[data-testid="participants"] [data-testid="agent-chip"][data-agent-id="'"$RSCH"'"]' data-status 2>/dev/null || ab get attr '[data-testid="agent-chip"]' data-status 2>/dev/null || echo '?')"
-CHIP_L="$(abget get attr '[data-testid="participants"] [data-testid="agent-chip"][data-agent-id="'"$LEAD"'"]' data-status 2>/dev/null || echo '?')"
-rec W7 S7 "Researcher 칩 working · Lead 칩 idle (U2-3 · E5-11)" \
-  "$( [ "$CHIP_R" = working ] && [ "$CHIP_L" = idle ] && echo PASS || echo FAIL )" "Researcher=$CHIP_R Lead=$CHIP_L"
+rec W7 S7 "lane 이 도는 순간 Researcher 칩 working · Lead 칩 idle (U2-3 · E5-11)" \
+  "$( [ "$CHIP_R" = working ] && [ "$CHIP_L" = idle ] && echo PASS || echo FAIL )" "동시 running=$MAXRUN 시점: Researcher=${CHIP_R:-없음} Lead=${CHIP_L:-없음}"
 
 step "3. U4-1 · U15-3 — 작성창 트리거 미리보기가 **서버 값**인가"
 # 로컬 계산이면 서버를 끊어도 칩이 뜬다. 여기서는 previewTriggers 응답과 화면 칩을 대조한다.
@@ -136,7 +143,9 @@ PV_PROF="$(jq -r '.triggers[0].profile.name // empty' <<<"$PV")"
 shot p2-a-05-composer-preview
 rec W8 S7 "미리보기 칩이 서버 previewTriggers 와 같은 에이전트를 말한다 (U4-1 · FR-3.6)" \
   "$( [ -n "$PV_NAME" ] && grep -q "$PV_NAME" <<<"$CHIPTXT" && echo PASS || echo FAIL )" "chip='$(head -c 90 <<<"$CHIPTXT")' server=$PV_NAME/$PV_PROF"
-ab fill '[data-testid="composer-input"]' "[@all](mention://all) 다들 상황 공유" >/dev/null
+# PRD FR-3.2 의 형식은 `mention://all/all` 이다. #76 이전에는 웹이 `mention://all` 을 넣어 서버가
+# 못 알아봤다(W-1) — 여기서는 **계약 형식**을 직접 쳐서 서버 규칙 3 을 본다.
+ab fill '[data-testid="composer-input"]' "[@all](mention://all/all) 다들 상황 공유" >/dev/null
 wait_sel '[data-testid="chip-no-trigger"], [data-testid="chip-note-only"]' 15 || true
 NOTRIG="$(abget get text '[data-testid="composer-chips"]' | tr '\n' ' ')"
 rec W9 S7 "@all 은 '트리거 없음 — 기록만' (U15-3 · E1-05)" \
@@ -144,7 +153,7 @@ rec W9 S7 "@all 은 '트리거 없음 — 기록만' (U15-3 · E1-05)" \
 ab fill '[data-testid="composer-input"]' "" >/dev/null 2>&1 || true
 
 step "4. U2-5 — 합류가 화면에 **한 번**, U2-6 · U5-1 진행률"
-wait_fn "document.querySelectorAll('[data-testid=\"message-card\"]').length >= 6" 240 || true
+wait_fn "[...document.querySelectorAll('[data-testid=\"message-card\"]')].some(e=>e.textContent.includes('위임한 작업이 모두 끝났습니다'))" 300 || true
 JOIN_SEEN="$(abget get count '[data-testid="message-card"]')"; JOIN_SEEN="${JOIN_SEEN:-0}"
 JOIN_TXT_N="$(abget eval "[...document.querySelectorAll('[data-testid=\"message-card\"]')].filter(e=>e.textContent.includes('위임한 작업이 모두 끝났습니다')).length" | tr -dc '0-9')"
 shot p2-a-06-join
@@ -152,6 +161,7 @@ rec W10 S7 "합류 시스템 메시지가 타임라인에 **한 번** (U2-5 · F
   "$( [ "${JOIN_TXT_N:-0}" = 1 ] && echo PASS || echo FAIL )" "합류 카드 수=${JOIN_TXT_N:-0} / 전체 카드=$JOIN_SEEN"
 PROG0="$(abget get text '[data-testid="progress-count"]' | tr -d ' \n')"
 rec W11 S7 "우열 종료 조건 진행률이 제출 전 0/2 (U2-6)" "$( [ "$PROG0" = "0/2" ] && echo PASS || echo FAIL )" "progress=$PROG0"
+COND_WHO="$(api_ok GET "/sessions/$SESSION" | jq -r '.completion_condition.conditions[]|select(.type=="artifact_submitted")|(.agent_id // .who)')"
 
 step "5. Writer 제출까지 기다린 뒤 U5-1 — 진행률 1/2 · 아티팩트 행"
 END=$(( $(date +%s) + 420 ))
@@ -163,10 +173,31 @@ sleep 3
 PROG1="$(abget get text '[data-testid="progress-count"]' | tr -d ' \n')"
 ART_ROWS="$(count '[data-testid="artifact-row"]')"
 shot p2-a-07-progress-artifact
-rec W12 S7 "제출 후 진행률 1/2 (U5-1 · E6-01)" "$( [ "$PROG1" = "1/2" ] && echo PASS || echo FAIL )" "progress=$PROG1"
+# 마법사는 `artifact_submitted` 의 제출자를 고르는 UI 가 없어 항상 `who: assignee`(=Lead) 로 만든다.
+# 시나리오 A 는 **Writer** 가 낸다 — 그래서 제출해도 조건은 미충족이 **정상**이다(E6-02).
+# 즉 이 화면에서 1/2 를 볼 수 없는 것은 서버가 아니라 마법사의 한계다(§4 W-4).
+if [ "$COND_WHO" = assignee ]; then
+  rec W12 S7 "제출자가 지정 에이전트가 아니면 미충족 (E6-02) — 마법사 기본값 who=assignee" \
+    "$( [ "$PROG1" = "0/2" ] && echo PASS || echo FAIL )" "progress=$PROG1 · 조건 who=$COND_WHO · 제출자=Writer"
+else
+  rec W12 S7 "제출 후 진행률 1/2 (U5-1 · E6-01)" "$( [ "$PROG1" = "1/2" ] && echo PASS || echo FAIL )" "progress=$PROG1 · 조건=$COND_WHO"
+fi
 rec W13 S7 "우열 아티팩트 목록에 제출물이 보인다" "$( [ "${ART_ROWS:-0}" -ge 1 ] && echo PASS || echo FAIL )" "artifact-row=$ART_ROWS"
+# U5-1 의 "1/2" 는 조건이 **Writer 를 지정한** 세션에서만 볼 수 있다. 마법사는 그것을 만들 수 없고
+# (§4 W-4), 10_ 이 만든 세션은 다른 계정 소유라 이 브라우저로 열 수 없다 — API 경로(§3.1)에서 확인한다.
+rec W13b S7 "제출 후 1/2 (U5-1)" "N/A" "마법사가 제출자를 지정할 수 없어 웹에서는 만들 수 없다(W-4). API 경로 §3.1 에서 met 1/2 확인"
+# 새로고침하면 보이는가 — 초기 로드 뒤 우열이 갱신되지 않는다는 판정의 반쪽(§4 S-14)
+ab open "$WEB_URL/sessions/$SESSION" >/dev/null; wait_sel '[data-testid="session-aside"]' 20 || true
+RPROG="$(abget get text '[data-testid="progress-count"]' | tr -d ' \n')"; RART="$(count '[data-testid="artifact-row"]')"
+RJOIN="$(abget eval "[...document.querySelectorAll('[data-testid=\"message-card\"]')].filter(e=>e.textContent.includes('위임한 작업이 모두 끝났습니다')).length" | tr -dc '0-9')"
+shot p2-a-08-after-reload
+rec W13c S7 "**새로고침하면** 아티팩트 행·합류 카드가 보인다 (같은 데이터, 실시간만 안 온다)" \
+  "$( [ "${RART:-0}" -ge 1 ] && [ "${RJOIN:-0}" -ge 1 ] && echo PASS || echo FAIL )" "reload: artifact-row=$RART 합류카드=$RJOIN progress=$RPROG"
+# 활동 피드는 페이지 최상위 요소가 아니라 **메시지의 task 이력을 펼쳐야** 나온다(ActivityFeed 는 run 단위).
+ab find testid activity-toggle click >/dev/null 2>&1 || ab find testid lane-tasks-toggle click >/dev/null 2>&1 || true
+wait_sel '[data-testid="activity-feed"]' 15 || true
 FEED="$(abget get text '[data-testid="activity-feed"]' | tr '\n' ' ' | head -c 200)"
-rec W14 S7 "활동 피드에 실행 흐름이 렌더된다 (컷 1 판정 근거)" "$( [ -n "$FEED" ] && echo PASS || echo FAIL )" "$(head -c 120 <<<"$FEED")"
+rec W14 S7 "task 이력을 펼치면 활동 피드가 렌더된다 (컷 1 판정 근거)" "$( [ -n "$FEED" ] && echo PASS || echo FAIL )" "$(head -c 120 <<<"$FEED")"
 
 step "6. U5 — Director 승인 경로 (P2 는 인박스 항목 + 승인 API 까지)"
 INBOX_CODE="$(curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE" "$API/inbox")"
