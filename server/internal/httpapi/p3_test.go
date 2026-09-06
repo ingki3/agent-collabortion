@@ -132,6 +132,39 @@ func TestP3HitlRegistrationAndTurnEnd(t *testing.T) {
 	}
 }
 
+// TestP3AnyMemberSpec is the E7-16 spec `any_member` on the real path. It has
+// its own row because it is the only branch that fans the inbox out over a
+// QUERY inside the registration transaction, and because "any member may
+// answer" is a right, not just a card: the director-spec rows exercise neither.
+func TestP3AnyMemberSpec(t *testing.T) {
+	f := newP2Fixture(t)
+	member := f.addMember(t, "m3@example.com", "M3")
+	tok, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
+
+	out := f.hitlOn(t, tok, map[string]any{
+		"type": "question", "question": "독자?", "proposed_default": "투자자", "approver_spec": "any_member",
+	}, 201)
+	id := str(out["hitl_request"].(map[string]any), "id")
+	f.endTurn(t, taskID)
+
+	var items int
+	if err := f.pool.QueryRow(t.Context(), `SELECT count(*) FROM inbox_item WHERE ref_id = $1`, id).Scan(&items); err != nil {
+		t.Fatal(err)
+	}
+	if items < 2 {
+		t.Fatalf("inbox items = %d, want one per workspace member (Director + M3) for approver_spec any_member", items)
+	}
+	// …and any member may actually answer, not just see the card (FR-5.4).
+	st, body, _ := member.do("POST", f.p+"/hitl-requests/"+id+"/response",
+		map[string]any{"answer": "실무자"}, "Idempotency-Key", uuid.NewString())
+	if st != 200 {
+		t.Fatalf("any_member response = %d %v, want 200", st, body)
+	}
+	if s := f.taskStatus(t, taskID); s != "queued" {
+		t.Fatalf("task = %q, want queued", s)
+	}
+}
+
 // TestP3HitlAnswerRequeues is E7-07·08·17: the answer records one decision and
 // re-queues a NEW attempt, a second answer is ignored, and a rejection resumes
 // the task rather than failing it.

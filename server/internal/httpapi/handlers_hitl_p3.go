@@ -280,6 +280,11 @@ func (s *Server) hitlInbox(ctx context.Context, tx pgx.Tx, sess *hitlSession, se
 	targets := []uuid.UUID{}
 	switch spec {
 	case hitl.SpecAnyMember:
+		// The cursor is drained fully before any write below. pgx releases the
+		// transaction's connection when Next() returns false, so the deferred
+		// Close is safe here — the "conn busy" trap (G4 S7) is writing WHILE
+		// iterating, which this does not do. Measured: reverting to a
+		// write-inside-the-loop shape is what breaks it, not the defer.
 		rows, err := tx.Query(ctx, `SELECT user_id FROM member WHERE workspace_id = $1`, sess.WorkspaceID)
 		if err != nil {
 			return err
