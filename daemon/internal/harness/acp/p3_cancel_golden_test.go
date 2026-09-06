@@ -29,6 +29,8 @@ package acp_test
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -174,18 +176,26 @@ func cancelTurn(t *testing.T, c cancelCase) cancelProcedure {
 	for _, e := range f.sink.all() {
 		switch {
 		case e.Class == "runtime" && e.Verb == "cancel":
-			step, _ := e.Payload["step"].(string)
-			if step == "" {
+			// The §5 line is `detail`: "§5 <n> <step> [k=v …]". The runtime
+			// payload is closed (task_event.schema.json), so the step has no
+			// key of its own to read.
+			detail, _ := e.Payload["detail"].(string)
+			fields := strings.Fields(detail)
+			if len(fields) < 3 || fields[0] != "§5" {
 				continue
 			}
+			step := fields[2]
 			p.Steps = append(p.Steps, step)
 			if step == "wait_tool_completion" {
-				if ms, ok := e.Payload["held_ms"].(int64); ok {
-					p.HeldFor = time.Duration(ms) * time.Millisecond
-				}
-				if f, ok := e.Payload["forced"].(bool); ok && f {
-					p.ForcedAfterTimeout = true
-					p.FeedNote, _ = e.Payload["detail"].(string)
+				for _, kv := range fields[3:] {
+					if ms, ok := strings.CutPrefix(kv, "held_ms="); ok {
+						n, _ := strconv.Atoi(ms)
+						p.HeldFor = time.Duration(n) * time.Millisecond
+					}
+					if kv == "forced" {
+						p.ForcedAfterTimeout = true
+						p.FeedNote = detail
+					}
 				}
 			}
 		case e.Class == "tool" && e.Verb == "permission":

@@ -1,6 +1,8 @@
 package acp
 
 import (
+	"fmt"
+
 	"github.com/ingki3/agent-collabortion/contracts"
 )
 
@@ -82,9 +84,15 @@ func (r *Runner) flushBudgetNote() {
 	if n == nil {
 		return
 	}
-	r.emit("usage", "budget", "", "exceeded", map[string]any{
-		"runtime_kind": string(r.kind()), "budget_usd": n.Limit, "cost_usd": n.Cost,
-		"detail": "실측 비용이 task 예산을 넘었다 — paused_budget (FR-7.3 M9)",
+	// class/verb/outcome are all from task_event.schema.json's enums and the
+	// payload from the closed `runtime` $def — `usage` has no room for a
+	// budget and `budget`/`exceeded` are not words the schema knows. The
+	// overrun IS the reason the attempt stops, which is what §8.2.2 calls the
+	// cancel procedure, so it belongs on the cancel line.
+	r.emit("runtime", "cancel", "", "info", map[string]any{
+		"runtime_kind": string(r.kind()),
+		"detail": fmt.Sprintf("실측 비용 $%.4f 가 task 예산 $%.4f 를 넘었다 — paused_budget (FR-7.3 M9, E9-01)",
+			n.Cost, n.Limit),
 	})
 }
 

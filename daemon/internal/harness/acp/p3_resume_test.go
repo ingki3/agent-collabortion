@@ -27,9 +27,9 @@ func TestColdStartCarriesTheOriginalRPCError(t *testing.T) {
 	if len(ev) != 1 {
 		t.Fatalf("resume events %+v", f.sink.find("runtime", "resume", ""))
 	}
-	got, _ := ev[0].Payload["rpc_error"].(string)
+	got, _ := ev[0].Payload["detail"].(string)
 	if !strings.Contains(got, "-32002") || !strings.Contains(strings.ToLower(got), "not found") {
-		t.Fatalf("rpc_error = %q, want the adapter's own code and message (D-11)", got)
+		t.Fatalf("detail = %q, want the adapter's own code and message (D-11)", got)
 	}
 }
 
@@ -79,12 +79,9 @@ func TestRefusalRightAfterResumeColdStartsOnce(t *testing.T) {
 	if res.Text != "picked the work back" {
 		t.Fatalf("text = %q — the retry's turn is the one that counts", res.Text)
 	}
-	if ev := f.sink.find("runtime", "resume", "refusal_retry"); len(ev) != 1 {
-		t.Fatalf("no refusal_retry event: %+v", f.sink.find("runtime", "resume", ""))
-	}
 	cold := f.sink.find("runtime", "resume", "cold_start")
 	if len(cold) != 1 || cold[0].Payload["resume_reason"] != "refusal_after_resume" {
-		t.Fatalf("cold start event %+v", cold)
+		t.Fatalf("cold start event %+v — the feed must say WHY it started over", cold)
 	}
 }
 
@@ -104,7 +101,7 @@ func TestRefusalTwiceFailsTheAttempt(t *testing.T) {
 	if !strings.Contains(res.Failure.Detail, "refusal") {
 		t.Fatalf("detail = %q, want the reason on the event (D-13)", res.Failure.Detail)
 	}
-	if n := len(f.sink.find("runtime", "resume", "refusal_retry")); n != 1 {
+	if n := len(f.sink.find("runtime", "resume", "cold_start")); n != 1 {
 		t.Fatalf("retried %d times, want exactly 1", n)
 	}
 }
@@ -117,7 +114,7 @@ func TestRefusalWithoutResumeIsStillANormalEnd(t *testing.T) {
 	if res.Outcome != "completed" || res.StopReason != "refusal" {
 		t.Fatalf("result %+v — §2.2 keeps refusal a normal end outside the resume path", res)
 	}
-	if n := len(f.sink.find("runtime", "resume", "refusal_retry")); n != 0 {
-		t.Fatalf("retried %d times on a cold turn", n)
+	if n := len(f.sink.find("runtime", "resume", "")); n != 0 {
+		t.Fatalf("a turn that never resumed emitted %d resume events", n)
 	}
 }

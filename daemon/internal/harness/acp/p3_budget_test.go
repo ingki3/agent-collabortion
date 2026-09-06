@@ -6,6 +6,7 @@
 package acp_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/ingki3/agent-collabortion/contracts"
@@ -72,8 +73,14 @@ func TestBudgetOverrunIsPausedNotFailed(t *testing.T) {
 	if res.Failure != nil {
 		t.Fatalf("failure = %+v, want none — §4.4 says paused_budget carries no failure_kind", res.Failure)
 	}
-	if ev := f.sink.find("usage", "budget", "exceeded"); len(ev) != 1 {
-		t.Fatalf("no budget event on the feed: %+v", f.sink.find("usage", "budget", ""))
+	var said bool
+	for _, e := range f.sink.find("runtime", "cancel", "info") {
+		if d, _ := e.Payload["detail"].(string); strings.Contains(d, "paused_budget") {
+			said = true
+		}
+	}
+	if !said {
+		t.Fatalf("the feed never says why the attempt stopped: %+v", f.sink.find("runtime", "cancel", ""))
 	}
 }
 

@@ -17,15 +17,30 @@ import (
 )
 
 type memSink struct {
-	mu       sync.Mutex
-	events   []contracts.TaskEvent
-	previews []string
+	mu               sync.Mutex
+	events           []contracts.TaskEvent
+	previews         []string
+	schemaViolations []string
 }
 
 func (s *memSink) Emit(ev contracts.TaskEvent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.events = append(s.events, ev)
+	// Every event this package produces is held to
+	// contracts/task_event.schema.json (schema_test.go). A wrong verb or an
+	// extra payload key reaches the server as a 200 and disappears.
+	s.schemaViolations = append(s.schemaViolations, checkEvent(ev)...)
+}
+
+// assertSchema fails the test if any emitted event broke the contract.
+func (s *memSink) assertSchema(t *testing.T) {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, v := range s.schemaViolations {
+		t.Errorf("task_event violates contracts/task_event.schema.json: %s", v)
+	}
 }
 
 func (s *memSink) Preview(t string) {
@@ -109,7 +124,9 @@ func newFixture(t *testing.T, script acpfake.Script, b contracts.TaskBundle, mut
 func (f *fixture) run() acp.Result {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return f.runner.Run(ctx)
+	res := f.runner.Run(ctx)
+	f.sink.assertSchema(f.t)
+	return res
 }
 
 func (f *fixture) records() []acpfake.Record {

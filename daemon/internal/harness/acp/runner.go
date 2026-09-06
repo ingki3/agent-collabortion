@@ -332,7 +332,7 @@ func (r *Runner) run(ctx context.Context) Result {
 			sessionID, provenance, resumeOutcome = s.SessionID, hermesProv(s), "cold_start"
 			p := map[string]any{"runtime_kind": string(r.kind()), "session_id": sessionID, "resume_reason": reason}
 			if e := rpcError(rpcErr); e != "" {
-				p["rpc_error"] = e
+				p["detail"] = e
 			}
 			r.emit("runtime", "resume", sessionID, "cold_start", p)
 		}
@@ -383,11 +383,6 @@ func (r *Runner) run(ctx context.Context) Result {
 	// the fresh one works; if it really is declining, it declines again and
 	// the attempt fails honestly instead of reporting success.
 	if r.shouldRetryRefusal(resumeOutcome, pr, perr, cancelled, stalled, ntools) {
-		r.emit("runtime", "resume", sessionID, "refusal_retry", map[string]any{
-			"runtime_kind": string(r.kind()), "session_id": sessionID,
-			"resume_reason": refusalAfterResume,
-			"detail":        "resume 직후 첫 턴이 refusal + 활동 0 — 콜드 스타트로 1회 재시도",
-		})
 		s, nerr := r.newSession(ctx, meta)
 		if nerr != nil {
 			return r.classify(nerr)
@@ -400,6 +395,7 @@ func (r *Runner) run(ctx context.Context) Result {
 		r.mu.Unlock()
 		r.emit("runtime", "resume", sessionID, "cold_start", map[string]any{
 			"runtime_kind": string(r.kind()), "session_id": sessionID, "resume_reason": refusalAfterResume,
+			"detail": "resume 직후 첫 턴이 stopReason=refusal + 활동 0 — 콜드 스타트로 1회 재시도 (D-13)",
 		})
 		if err := r.setModel(ctx, sessionID); err != nil {
 			return r.fail(contracts.FailConfig, err.Error(), nil)
@@ -501,8 +497,11 @@ func (r *Runner) run(ctx context.Context) Result {
 	return res
 }
 
-// rpcError renders a JSON-RPC error into the one `rpc_error` column the
-// cold-start event carries (D-11): "<code> <message>".
+// rpcError renders a JSON-RPC error into the one column the cold-start event
+// carries (D-11): `detail`, "<code> <message>". It is `detail` and not a key
+// of its own because the `runtime` payload is closed
+// (task_event.schema.json additionalProperties:false) and this stream does not
+// edit contracts/.
 func rpcError(e *RPCError) string {
 	if e == nil {
 		return ""
@@ -1200,7 +1199,7 @@ func (r *Runner) CancelNote(detail string) {
 	r.emit("runtime", "cancel", "", "info", map[string]any{"runtime_kind": string(r.kind()), "detail": detail})
 }
 
-// The five §5 steps, named on the activity feed as `payload.step`.
+// The five §5 steps, named on the activity feed.
 //
 // They are emitted because the ORDER is the contract, not an implementation
 // detail (§8.2.2: killing first corrupts the runtime's own history and can
@@ -1208,6 +1207,12 @@ func (r *Runner) CancelNote(detail string) {
 // could see it. A cancel that skipped the drain and a cancel that did not
 // looked identical in the feed and in the tests, so the only evidence for the
 // contract's most consequential sequence was reading this code.
+//
+// They ride in `detail`, not in a field of their own: the `runtime` payload in
+// task_event.schema.json is `additionalProperties: false`, and inventing a key
+// is a contract change this stream may not make (P2_TASKS §0-3). `detail` is
+// free text the feed already shows, so the line reads as a sentence to a
+// person and parses as "§5 <n> <step> [k=v …]" to a test.
 const (
 	stepWaitTool      = "wait_tool_completion"
 	stepPermission    = "answer_permission"
@@ -1215,6 +1220,21 @@ const (
 	stepDrain         = "drain"
 	stepSignal        = "signal_process_group"
 )
+
+// cancelStep renders one §5 step line for `detail`.
+func cancelStep(n int, step string, extra ...string) string {
+	out := fmt.Sprintf("§5 %d %s", n, step)
+	for _, e := range extra {
+		out += " " + e
+	}
+	return out
+}
+
+func (r *Runner) emitStep(n int, step string, extra ...string) {
+	r.emit("runtime", "cancel", "", "info", map[string]any{
+		"runtime_kind": string(r.kind()), "detail": cancelStep(n, step, extra...),
+	})
+}
 
 // cancelForcedNote is the E10-02 feed line, verbatim from harness §5 step 1.
 const cancelForcedNote = "30초 초과로 강제 취소"
@@ -1250,12 +1270,11 @@ func (r *Runner) cancelProcedure(ctx context.Context, afterCurrentTool bool) {
 			if forced || held > contracts.CancelDrainWait {
 				held = contracts.CancelDrainWait
 			}
-			p := map[string]any{"step": stepWaitTool, "held_ms": held.Milliseconds()}
+			extra := []string{fmt.Sprintf("held_ms=%d", held.Milliseconds())}
 			if forced {
-				p["forced"] = true
-				p["detail"] = cancelForcedNote
+				extra = append(extra, "forced", cancelForcedNote)
 			}
-			r.emit("runtime", "cancel", "", "info", p)
+			r.emitStep(1, stepWaitTool, extra...)
 		}
 	}
 	// 2. pending permission requests are answered "cancelled" from now on.
@@ -1272,23 +1291,23 @@ func (r *Runner) cancelProcedure(ctx context.Context, afterCurrentTool bool) {
 	// agent loop is blocked on that answer, so a session/cancel sent first
 	// would never be read (harness §5 steps 2-4).
 	r.waitParked(2 * time.Second)
-	r.emit("runtime", "cancel", "", "info", map[string]any{"step": stepPermission, "answered": npark})
+	r.emitStep(2, stepPermission, fmt.Sprintf("answered=%d", npark))
 	if r.c == nil {
 		return
 	}
 	// 3. session/cancel  4. drain ≤10s for stopReason cancelled
 	if sid != "" {
-		r.emit("runtime", "cancel", "", "info", map[string]any{"step": stepSessionCancel})
+		r.emitStep(3, stepSessionCancel)
 		_ = r.c.Cancel(sid)
 		select {
 		case <-r.promptDoneCh():
 		case <-r.clk.After(contracts.CancelPromptWait):
 		case <-r.c.Done():
 		}
-		r.emit("runtime", "cancel", "", "info", map[string]any{"step": stepDrain})
+		r.emitStep(4, stepDrain)
 	}
 	// 5. SIGTERM → 10s → SIGKILL. Last, always: E10-03 is "프로세스 즉시 kill 아님".
-	r.emit("runtime", "cancel", "", "info", map[string]any{"step": stepSignal})
+	r.emitStep(5, stepSignal)
 	r.closeProcess()
 }
 

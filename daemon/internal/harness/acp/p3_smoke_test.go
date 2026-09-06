@@ -48,6 +48,7 @@ func smokeAttempt(t *testing.T, b contracts.TaskBundle, mut func(*acp.Attempt)) 
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
 	res := f.runner.Run(ctx)
+	f.sink.assertSchema(t)
 	t.Logf("outcome=%s stop=%s resume=%s ref=%+v text=%q", res.Outcome, res.StopReason, res.ResumeOutcome, res.SessionRef, strings.TrimSpace(res.Text))
 	return f, res
 }
@@ -99,8 +100,8 @@ func TestSmokeP3ResumeThenForcedColdStart(t *testing.T) {
 		t.Fatalf("cold start events %+v", f3.sink.find("runtime", "resume", ""))
 	}
 	t.Logf("cold_start payload: %+v", ev[0].Payload)
-	if s, _ := ev[0].Payload["rpc_error"].(string); s == "" {
-		t.Errorf("no rpc_error on the cold start — the adapter's own wording is the evidence (D-11)")
+	if s, _ := ev[0].Payload["detail"].(string); !strings.Contains(s, "-32002") {
+		t.Errorf("cold start detail = %q — the adapter's own code and wording is the evidence (D-11)", s)
 	}
 }
 
@@ -124,14 +125,16 @@ func TestSmokeP3CancelOrder(t *testing.T) {
 	var res acp.Result
 	done := make(chan struct{})
 	go func() { res = f.runner.Run(ctx); close(done) }()
+	defer f.sink.assertSchema(t)
 	waitFor(t, func() bool { return len(f.sink.find("tool", "run_shell", "started")) > 0 })
 	f.runner.Cancel(context.Background(), acp.CancelRequest{Reason: "director"})
 	<-done
 
 	var steps []string
 	for _, e := range f.sink.find("runtime", "cancel", "info") {
-		if s, _ := e.Payload["step"].(string); s != "" {
-			steps = append(steps, s)
+		d, _ := e.Payload["detail"].(string)
+		if fields := strings.Fields(d); len(fields) >= 3 && fields[0] == "§5" {
+			steps = append(steps, fields[2])
 		}
 	}
 	t.Logf("§5 steps: %v outcome=%s", steps, res.Outcome)

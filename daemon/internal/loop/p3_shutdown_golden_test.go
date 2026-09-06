@@ -8,6 +8,7 @@ package loop
 
 import (
 	"context"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -56,8 +57,10 @@ func daemonSigterm(t *testing.T) shutdownResult {
 
 	r := shutdownResult{}
 	for _, e := range srv.findEvents("runtime", "cancel", "") {
-		if step, _ := e.Payload["step"].(string); step != "" {
-			r.Steps = append(r.Steps, step)
+		// "§5 <n> <step> …" in `detail` — the runtime payload is closed.
+		detail, _ := e.Payload["detail"].(string)
+		if fields := strings.Fields(detail); len(fields) >= 3 && fields[0] == "§5" {
+			r.Steps = append(r.Steps, fields[2])
 		}
 	}
 	if n := srv.finished(); n == 1 {
