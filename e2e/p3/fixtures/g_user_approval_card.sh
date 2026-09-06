@@ -9,7 +9,8 @@
 #      "정식 카드" 의 정의는 SCREEN §4.5 다 — 중앙 타임라인에 `hitl` 카드가 서고, 거기서 답할 수 있다.
 #
 # 사용: bash e2e/p3/fixtures/g_user_approval_card.sh
-# 산출물: out/g-checks.tsv · out/a3-*.{json,tsv} (33_ 것) · web/__screenshots__/p3-4g-*.png
+# 산출물: out/g-checks.tsv · out/g.json · out/a3-*.{json,tsv}(재실행한 33_ 이 쓰는 이름) ·
+#         web/__screenshots__/p3-4g-*.png. (§0-17 의 번호 규칙은 번호 스크립트에 붙는다 — 이것은 픽스처라 `g-` 를 쓴다.)
 source "$(cd "$(dirname "$0")/.." && pwd)/lib.sh"
 STAMP="$(date +%s)"
 g5_chk_init "$OUT/g-checks.tsv"
@@ -28,6 +29,9 @@ EMAIL="$(psqlq "select u.email from app_user u join member m on m.user_id=u.id
                 where m.workspace_id='$WS' order by m.created_at limit 1")"
 HITL="$(psqlq "select id from hitl_request where session_id='$SESSION' and source='system' order by created_at desc limit 1")"
 ok "session=$SESSION hitl=$HITL director=$EMAIL"
+# API 관측은 그 Director 로 로그인해서 한다 — 기본 쿠키(out/cookies.txt)는 33_ 의 계정이 아니다.
+COOKIE="$OUT/cookies-g.txt"; rm -f "$COOKIE"
+login "$EMAIL" password123
 chk G1  "완료 승인 HITL 이 있다 (source=system)"        system "$(hitl_field "$HITL" source)"
 chk G1b "purpose=user_approval (0012 — 예산·루프와 갈린다)" user_approval "$(hitl_field "$HITL" purpose)"
 
@@ -51,6 +55,8 @@ abwait '[data-testid="inbox-page"]' 40 || true
 shot "p3-4g-02-inbox"
 IB="$(abcount '[data-testid="inbox-item"]')"
 chk G3  "S8 인박스에는 항목이 뜬다"                      yes "$( [ "${IB:-0}" -ge 1 ] && echo yes || echo no )"
+chk G3b "인박스 카드가 purpose 를 싣는다 (K-9 — 웹이 상세를 한 번 더 읽지 않아도 된다)" user_approval \
+  "$(api_ok GET "/inbox?limit=50" | jq -r --arg r "$HITL" '[.items[]|select(.ref_id==$r)][0].card.purpose // "-"')"
 INBOX_TXT="$(abget get text '[data-testid="inbox-list"]' | tr '\n' ' ')"
 printf '%s\n' "$INBOX_TXT" > "$OUT/g-inbox.txt"
 log "인박스 본문: $(head -c 200 <<<"$INBOX_TXT")"

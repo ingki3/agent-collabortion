@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 문서 버전 | v0.8 — E9-10(사후 발견 예산 강제, S-44 Lead 결정 A). v0.7 — E8-05a(같은 seq 재전송 = 멱등 replay, PR #120 제안). v0.6 — E7-20·E7-21·E9-08·E9-09·E10-14 추가(P3a 골든 작성 중 드러난 "한쪽만 구현해도 통과하는" 구멍 5건, PR #108). v0.5는 E1-22(합류 뒤 자식 멘션의 기상 한도 = FR-3.4 병합, K-5). v0.4는 E5-02가 재큐잉하지 않는다는 것을 명시(계약이 반대로 적고 있었다, `daemon-protocol.md` v0.6에서 정정). v0.3은 P2a 골든 테이블 작성 중 드러난 공백 4행 추가(E1-21 억제와 합류 전달은 한 쌍, E2-14 새 lane 토글 자동 해제, E2-15 중단 후 재지시의 lane, E4-10 재개 시 카운터). v0.2는 P1 통합(G3)에서 드러난 결함 5건을 회귀 행으로 승격(E8-13·E10-13·E11-11·E11-12·E17-09) |
+| 문서 버전 | v0.9 — E9-01·E9-10 실기 도달 노트(G6 2판, K-8 해소). v0.8 — E9-10(사후 발견 예산 강제, S-44 Lead 결정 A). v0.7 — E8-05a(같은 seq 재전송 = 멱등 replay, PR #120 제안). v0.6 — E7-20·E7-21·E9-08·E9-09·E10-14 추가(P3a 골든 작성 중 드러난 "한쪽만 구현해도 통과하는" 구멍 5건, PR #108). v0.5는 E1-22(합류 뒤 자식 멘션의 기상 한도 = FR-3.4 병합, K-5). v0.4는 E5-02가 재큐잉하지 않는다는 것을 명시(계약이 반대로 적고 있었다, `daemon-protocol.md` v0.6에서 정정). v0.3은 P2a 골든 테이블 작성 중 드러난 공백 4행 추가(E1-21 억제와 합류 전달은 한 쌍, E2-14 새 lane 토글 자동 해제, E2-15 중단 후 재지시의 lane, E4-10 재개 시 카운터). v0.2는 P1 통합(G3)에서 드러난 결함 5건을 회귀 행으로 승격(E8-13·E10-13·E11-11·E11-12·E17-09) |
 | 작성일 | 2026-09-05 |
 | 근거 | `PRD.md` v0.11 (FR 번호로 인용), `PLAN.md` v0.5 (게이트 G1~G9, §5 테스트 전략) |
 | 목적 | PRD의 규칙을 **입력 → 정확한 출력** 쌍으로 옮긴다. 이 문서의 한 행이 테스트 하나다. "됐다"를 사람마다 다르게 읽지 않게 하는 것이 PLAN의 DoD 원칙이고, 이 문서가 그 DoD의 실체다 |
@@ -210,7 +210,7 @@
 
 | ID | 전제 | 자극 | 예상 | 검증 |
 |---|---|---|---|---|
-| E9-01 | R `budget_per_task` $1, 턴 중 `usage_update` 누적 $1.01 | — | 데몬이 §8.2.2 취소 절차. task **`paused(budget)`**, `failed` 아님. lane `paused`. Dir에게 HITL(`source: system`, **`task_id` 채움**) | harness |
+| E9-01 | R `budget_per_task` $1, 턴 중 `usage_update` 누적 $1.01 | — | 데몬이 §8.2.2 취소 절차. task **`paused(budget)`**, `failed` 아님. lane `paused`. Dir에게 HITL(`source: system`, **`task_id` 채움**) | harness | **v0.9 노트**: 실측(`estimated:false`) 분기는 harness v0.8.5(#145) 로 claude_code 가 `result.total_cost_usd` 를 실어 실기 도달(G6 2판 50_ arm A); hermes 는 추정 분기(E9-05)만.
 | E9-02 | E9-01 | Dir가 $3으로 상향 승인 | `task.budget_override` = 3. R의 `budget_per_task` **여전히 $1**. task `queued` → 같은 lane·workdir로 재개(resume 우선). 새 트리거 불필요 | unit + harness |
 | E9-03 | E9-01 | Dir 거절 | task `failed(budget)`? — **아니다**: `paused(budget)` 유지, Dir가 "중단" 버튼으로 명시 종료해야 `cancelled` | unit |
 | E9-04 | 세션 잔여 예산 $0.5, 턴 중 $0.6 도달 | — | 세션 `paused(budget)`, 진행 중 턴 **취소**. `queued` dispatch 0 | harness |
@@ -219,7 +219,7 @@
 | E9-07 | 비용 표시 | 조회 | task/agent/세션/런타임 4단위 집계. 추정치에는 "추정" 배지 | unit |
 | E9-08 | `task.budget_override` = $3 승인 뒤, 턴 중 누적 $1.50 | — | 취소 **없음**, task `running` 유지 — override 를 저장만 하고 강제 시점에 읽지 않으면 재개 즉시 다시 `paused(budget)` 가 된다 | harness |
 | E9-09 | 세션 비용 조회, 전 행 실측(`estimated:false`) | 조회 | `estimated: false` — 항상 true 를 돌려주는 구현을 잡는다 | unit |
-| E9-10 | 턴이 끝난 뒤(finish 롤업) 초과를 발견 — 데몬이 턴 중 usage 를 못 준 경우 | finish | completed task 는 그대로. 세션 잔여 초과 → 세션 `paused(budget)` + 시스템 HITL(`task_id` 비움), task 상한만 초과 → 그 lane `paused(budget)` + 시스템 HITL(`task_id` = 초과한 task) → 다음 task dispatch 0. 승인 시 lane 재개 + `budget_override` 승계, 거절 시 유지. `completed → paused` 전이는 없다(E5) | unit + e2e |
+| E9-10 | 턴이 끝난 뒤(finish 롤업) 초과를 발견 — 데몬이 턴 중 usage 를 못 준 경우 | finish | completed task 는 그대로. 세션 잔여 초과 → 세션 `paused(budget)` + 시스템 HITL(`task_id` 비움), task 상한만 초과 → 그 lane `paused(budget)` + 시스템 HITL(`task_id` = 초과한 task) → 다음 task dispatch 0. 승인 시 lane 재개 + `budget_override` 승계, 거절 시 유지. `completed → paused` 전이는 없다(E5) | unit + e2e | **v0.9 노트**: 세션 범위 **사후 실측** 분기는 오늘의 런타임 조합으로 실기 도달 불가(claude_code 는 finish 전 heartbeat 로 실측을 먼저 보내 턴 중 강제가 먼저 잡는다; G6 2판 §9.4) — 서버 유닛이 지킨다. task 범위 사후 분기는 실기 도달.
 
 ---
 
