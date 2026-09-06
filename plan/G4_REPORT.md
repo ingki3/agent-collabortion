@@ -22,10 +22,10 @@
 | 4 | Writer 의 `artifact submit` 201, 다운로드 바이트 = Content-Length | **통과** | `submitArtifact` 201 **1건**, 다운로드 **1439 B = Content-Length 1439**, 본문 일치 | — |
 | 5 | 종료 조건 진행률이 `artifact_submitted` 를 반영 | **통과** | `completion_progress` = `met 1 / total 2`, `artifact_submitted.met=true` · `user_approval.met=false` · `satisfied=false` · `human_gate=true`, 세션 `active` 유지(E6-01) | — |
 | 6 | `previewTriggers` 가 작성창에 **서버 값**으로 뜬다 | **통과** (2판·3판) | 웹 작성창 칩 = `@Researcher를 트리거합니다 · 명시 멘션(규칙 2) · claude-haiku-4-5-20251001`, 같은 본문의 서버 `previewTriggers` = `Researcher` / 규칙 2 / 프로파일 `default`. 규칙 번호·프로파일·모델은 로컬에서 만들 수 없는 값이다. (1판: S7 이 안 열려 미확인) | — |
-| 7 | 웹(agent-browser)으로 U2·U4·U5 여정 한 번 | **통과** (3판) | 20항목 중 **PASS 19 · FAIL 0 · N/A 2**. 마법사 7단계(제출자 = Writer 지정 포함) → 세션 생성 → S7 에서 **lane 카드 최대 동시 running 4** · 카드별 브리프 3 · lane 이 도는 순간 Researcher 칩 `working` · **Lead task 가 없는 동안 Lead 칩 `idle`**(U2-4) · 합류 시스템 메시지 **실시간 1건**(U2-5) · 작성창 미리보기 칩이 서버 값 · `@all` "트리거 없음" · 제출 후 **진행률 1/2** 와 아티팩트 행 · **`user_approval` HITL 발행**(E6-01). N/A 2 = W14(`listLaneTasks` 는 x-phase P3) · W16(런타임이 `cost_usd` 0 만 보고) | — |
-| 8 | API/CLI 로 한 번 | **통과** | `e2e/p2/10_scenario_a_api.sh`(1판, dev `9bb4ce9`) — 체크 **31개 중 PASS 29 · FAIL 2**. 그 2건은 §4 **S-4**(workdir 행)·**S-5**(`colab_cli`)이고 **둘 다 #75 로 닫혔다** — 2판에서 이 스크립트를 다시 돌리지는 않았다(에이전트 턴 7). 세션 전체 소요 **93초** | — |
+| 7 | 웹(agent-browser)으로 U2·U4·U5 여정 한 번 | **통과** (3판) | 20항목 중 **PASS 19 · N/A 1 · DoD 밖 1**(W16 = D-6). 마법사 7단계(제출자 = Writer 지정 포함) → 세션 생성 → S7 에서 **lane 카드 최대 동시 running 4** · 카드별 브리프 3 · lane 이 도는 순간 Researcher 칩 `working` · **Lead task 가 없는 동안 Lead 칩 `idle`**(U2-4) · 합류 시스템 메시지 **실시간 1건**(U2-5) · 작성창 미리보기 칩이 서버 값 · `@all` "트리거 없음" · 제출 후 **진행률 1/2** 와 아티팩트 행 · **`user_approval` HITL 발행**(E6-01). N/A 1 = W14(`listLaneTasks` 는 x-phase P3). W16(비용)은 실패이고 원인은 데몬(§4 **D-6**) — G4 DoD 밖이다 | — |
+| 8 | API/CLI 로 한 번 | **통과** (3판 보완) | `e2e/p2/10_scenario_a_api.sh` 를 **현 스택**(dev `c7d299e`, #75·#85 포함)에서 재실행 — 체크 **32개 전부 통과, FAIL 0**. Lead 깨어난 횟수 **3** · Researcher lane **3**(동시 겹침 **3**) · 합류 그룹 **2**(그룹당 시스템 메시지 1) · 합류 프롬프트에 자식 메시지 **3/3** · `submitArtifact` 201 · 다운로드 **1755 B = Content-Length** · 진행률 **1/2** · `colab_cli.present true` · `failure_kind=auth` 0. 세션 전체 **82초**, 에이전트 턴 7 | — |
 
-**G4 관점 요약.** 협업 코어의 결정적 부분 — 위임 → lane 3개 병렬 → **합류 정확히 1회** → 종합 → Writer 제출 → 종료 조건 반영 — 은 실제 Claude Code 런타임에서 **끝까지 돈다**. 즉 PLAN §6.2 G4 의 "시나리오 A Claude Code 단일 런타임" 은 **API/CLI 경로에서 통과**다. 반면 **사람이 보는 경로는 통과가 아니다**: 서버가 계약과 다른 모양을 주는 한 필드(`listDecisions`)가 S7 세션 화면 전체를 죽이고(**S-1**), lane 보드·런타임 후보·팀 템플릿이 실서버에서 501 이라(**S-2·S-3**) U2 여정이 성립하지 않는다. 이 넷은 전부 **서버 쪽 좁은 수정**이고 웹 코드와 무관하다.
+**G4 판정.** PLAN §6.2 의 G4 조건 "시나리오 A **Claude Code 단일 런타임** 통과"는 **양쪽 경로에서 통과**한다. API/CLI 경로는 체크 **32/32**(82초, 에이전트 턴 7), 웹 경로는 **PASS 19 · N/A 1**(U2·U4·U5 여정을 마법사부터 `user_approval` HITL 발행까지). 협업 코어 — 위임 → lane 3개 병렬 → **합류 정확히 1회** → 종합 → Writer 제출 → 종료 조건 반영 — 이 실기에서 돌고, 사람이 화면을 열어 둔 채 그것을 본다. 회귀도 초록이다(01 20/20 · 07 110/110 · 04 PASS 20/FAIL 0). 가는 길에 결함 **18건**을 냈고 **15건이 닫혔다**(#71·#75·#76·#78·#79·#83·#85). 남은 셋은 **G4 를 막지 않는다**: **S-11**(`createAgentProfile` 501 — 시나리오 D 전제) · **S-12·D-2**(데몬 재시작이 팀 템플릿을 죽이는 사슬 — G5 항목) · **D-6**(데몬이 `cost_usd` 를 채우지 않는다 — P3 예산 전).
 
 ## 2. 환경과 전제
 
@@ -61,7 +61,7 @@ P1 에서는 액세스 토큰이 살아 있어 갱신이 필요 없었으므로 
 
 `가입 → 워크스페이스 → 페어링 → daemon pair/run → 에이전트 3(Lead·Researcher·Writer, 전부 claude_code) → 세션(격리 none, 종료 조건 artifact_submitted(Writer) AND user_approval, runtime_id 명시) → 자동 트리거` 뒤는 전부 에이전트가 `colab_*` MCP 도구로 한다.
 
-관측된 흐름(정식 실행, 서버 DB 단일 클럭):
+관측된 흐름(3판 보완 실행, 서버 DB 단일 클럭):
 
 | 시각(상대) | 사건 |
 |---|---|
@@ -72,9 +72,11 @@ P1 에서는 액세스 토큰이 살아 있어 갱신이 필요 없었으므로 
 | +26~40s | Lead 종합 게시(멘션 없음) → `colab lane delegate` 1회 → Writer lane(J2) |
 | +40~70s | Writer 가 파일 작성 → `colab artifact submit` **201** → `@Lead` 게시 → `status set done` |
 | +70s | J2 합류 → Lead task **3** → 마무리 게시 + `status set done` |
-| +93s | 활성 task 0. `completion_progress` = 1/2 |
+| +82s | 활성 task 0. `completion_progress` = 1/2 |
 
-체크 31개 중 통과 29. 전체 표는 `e2e/p2/out/a-checks.tsv`, 요약 JSON 은 `e2e/p2/out/scenario-a.json`, 합류 프롬프트 원문은 `e2e/p2/out/a-join-prompt.txt`.
+**3판 보완에서 이 스크립트를 현 스택으로 다시 돌렸다 — 체크 32개 전부 통과(FAIL 0), 82초.** 1판(dev `9bb4ce9`)의 FAIL 2 는 §4 **S-4**(workdir 행)·**S-5**(`colab_cli`)였고 둘 다 #75 로 닫혔다. 재실행에서 한 번 더 갈린 행(`workdir 행이 서버에 기록된다` = 5, 기대 3)은 **내 단언이 좁았던 것**이다 — 격리 `none` 은 lane 당 workdir 하나이므로 lane 5개(Lead·Researcher 3·Writer)면 행도 5개가 맞다. 단언을 둘로 나눴다: `Researcher lane 3개가 각각 workdir 행을 가리킨다`(3) · `workdir 행 수 = lane 수`(5).
+
+전체 표는 `e2e/p2/out/a-checks.tsv`, 요약 JSON 은 `e2e/p2/out/scenario-a.json`, 합류 프롬프트 원문은 `e2e/p2/out/a-join-prompt.txt`.
 
 ### 3.2 시나리오 A — 웹 경로 (`e2e/p2/11_scenario_a_web.sh`)
 
@@ -102,7 +104,7 @@ P1 에서는 액세스 토큰이 살아 있어 갱신이 필요 없었으므로 
 | W13c | **새로고침해도 같은 것이 보인다** | — | 통과 | **통과** | reload: artifact-row 1 · 합류 카드 1 · progress 1/2 |
 | W14 | task 이력을 펼치면 활동 피드 (컷 1 근거) | 미도달 | N/A | **N/A (P3 op)** | `GET /lanes/{id}/tasks`(`listLaneTasks`) 는 x-phase **P3** — 501 이 정상이라 피드에 실을 이벤트가 없다. 컷 1 판정은 P3 에서 |
 | W15 | `artifact_submitted` 충족 → `user_approval` HITL (E6-01) | 미도달 | N/A(전제 미충족) | **통과** | `hitl_request` **1건 발행**. 인박스 화면은 P3(`GET /inbox` 501) |
-| W16 | 우열 비용이 런타임 보고를 반영 (#85) | — | — | **N/A (판정 불가)** | 이 런타임이 `usage` 에 `cost_usd` **0** 만 보고한다(`estimated:false`, 출력 토큰 합계 7,36x). 화면 `$0.00 / $20 (0%)` · API `cost_usd 0` 은 **그 보고 그대로**다 — 합산 경로는 값을 보고하는 런타임에서 판정해야 한다 |
+| W16 | 우열 비용이 런타임 보고를 반영 (#85) | — | — | **실패 → 결함 D-6** | 화면 `$0.00 / $20 (0%)`(추정 배지 없음) · API `cost_usd 0`. 서버 합산은 맞다 — **데몬이 `cost_usd` 를 한 번도 채우지 않는다**(§4 **D-6**). G4 DoD 항목은 아니다 |
 
 **2판에서 3판으로 무엇이 바뀌었나.** 2판의 실패 3건은 원인이 하나였다 — 서버가 S7 스트림 이벤트를 발행하지 않아 참여자 칩·합류 카드·아티팩트 행이 **새로고침해야** 보였다. #85 가 여섯 개(`message.created`(시스템)·`participant.updated`·`artifact.created`·`decision.created`·`session.completion_progress`·`cost.updated`)를 발행하면서 W7·W10·W13 이 함께 초록이 됐고, W13c(새로고침 대조)를 남겨 둔 덕에 "실시간으로 오는 것"과 "다시 불러야 보이는 것"을 계속 구분할 수 있다.
 
@@ -174,6 +176,7 @@ P1 에서는 액세스 토큰이 살아 있어 갱신이 필요 없었으므로 
 | **S-13** | **S** | **서버가 올린 시스템 메시지가 `message.created` 로 발행되지 않는다** | 계약: openapi 실시간 이벤트 표에 `message.created`(S7). 코드: `router/service.go` 의 `SystemPost` 는 INSERT 만 하고 `Hub.Publish` 를 부르지 않는다 — 발행하는 곳은 `postMessage`·`delegateLane` 두 곳뿐. 실서버: 세션 진행 중 타임라인 카드 12개, DB 메시지 14개(시스템 3), **합류 카드 0**; 새로고침하면 2개 | **U2-5 가 성립하지 않는다** — "3개 lane 결과가 Lead 에게 전달됨" 이라는 시나리오 A 의 장면이 새로고침 전에는 안 보인다. 같은 경로로 올라오는 **질문 카드(E3-05)·재진입 통보(E3-11)** 도 함께 죽는다 | **#85** — 3판 W10 실시간 합류 카드 1건 |
 | **S-14** | **S** | **S7 스트림 이벤트 5종을 서버가 한 번도 발행하지 않는다** — `participant.updated` · `artifact.created` · `decision.created` · `session.completion_progress` · `cost.updated` | 계약: 다섯 모두 openapi 실시간 이벤트 표에 S7 로 선언. 코드: `grep` 결과 서버의 `Publish` 호출 **0곳**(대조: `lane.updated` 3곳). 웹: 다섯 모두 처리하는 switch 분기가 이미 있다. 실서버: 진행 중 `artifact-row` 0·칩 초기값 고정 → **새로고침하면 artifact-row 1** | U2-3·U2-4·U2-6·U5-1 이 전부 "새로고침해야 보인다". 사람이 화면을 열어 두고 지켜보는 것이 시나리오 A 의 사용자 시점인데(U2 목표) 그 전제가 깨진다 | **#85** — 3판 W7·W7b·W12·W13 초록, W13c 로 실시간/재조회 구분 유지 |
 | **W-4** | **W** | **S6 마법사가 `artifact_submitted` 의 제출자를 지정할 수 없다** — 항상 `who: "assignee"` 로 고정 | 계약: openapi `CompletionAtom` 에 `who`·`agent_id`, PRD §4 시나리오 A 3단계 "종료 조건: **Writer 가** artifact 제출". 코드: `sessions/new/page.tsx` 가 `who={t === "artifact_submitted" ? "assignee" : undefined}` 로 하드코딩. 실서버: 마법사로 만든 세션의 조건은 `{who:"assignee"}` 이고 Writer 가 제출해도 `met:false`(E6-02 대로 **정상**) | **마법사로 만든 시나리오 A 세션은 종료 조건이 영원히 충족되지 않는다.** 사람이 웹만으로는 시나리오 A 를 끝낼 수 없다 — G5 의 "8단계 끝까지" 가 여기서 막힌다 | **#83** — 3판 W4c(제출자 선택) · W12·W13b(제출 후 1/2) |
+| **D-6** | **D** | **데몬이 `usage.report` 의 `cost_usd` 를 한 번도 채우지 않는다** — 0 을 `estimated:false` 로 보낸다 | 계약: `harness.md` §7 `usage.report {…, cost_usd?, cumulative:true}`, `contracts/protocol.go` `CostUSD float64` (포인터가 아니라 **늘 직렬화**된다). 코드: `acp/runner.go` 의 `recordUsage()` 는 토큰 네 칸만 누적하고 `Estimated` 는 `pr.Usage == nil` 일 때만 켠다 — `r.usage.CostUSD` **대입이 어디에도 없다**(읽는 곳은 `usagePayload` 한 곳). 실측: `usage` 페이로드가 `output_tokens 2353 · cache_read 92767` 인데 `cost_usd 0 · estimated false`; `session.cost_usd = 0.0000`; S7 비용 카드 `$0.00 / $20 (0%)` 에 **추정 배지 없음** | 화면이 "비용을 모른다" 가 아니라 **"정확히 0달러"** 라고 말한다(PRD FR-7.3 은 모를 때 추정치 + "추정" 배지). 토큰은 다 있으므로 값을 만들 근거는 있다. **G4 DoD 밖**이지만 FR-7.3 예산 강제(`budget_usd`)가 영원히 발동하지 않으므로 **P3 예산 항목 전에** 닫아야 한다 | 미해소 |
 | **W-1** | W | 웹이 `[@all](mention://all)` 을 만드는데 PRD FR-3.2 는 `mention://all/all` | 실측 3출처: 계약(PRD §FR-3.2) · 실서버(`mention://all/all` → suppressed=true·트리거 0 / `mention://all` → suppressed=false·규칙 6 으로 Lead 1개) · 목(`content.includes` 로만 판정해 차이를 가림) | **E1-05·U15-3 위반** — `@all` 이 "기록만" 이 아니라 Lead 를 깨운다 | **#76** — 2판 `preview 규칙 3` 초록 |
 | **W-2** | W | `web/e2e/p2-mock.sh` 의 `new_lane` 기대값(`resolution==1`)이 EVAL E2-07(→ **4**)과 반대 | 실서버 4 · 목 1 · EVAL 4 | 스모크가 초록인 채로 웹이 잘못된 해소 번호를 믿을 수 있다 | **#76** — 2판 `new_lane 은 항상 새 lane(규칙 4)` 초록 |
 | **W-3** | **W** | **`AgentChip` 이 `data-agent-id` 를 달지 않는다** | 화면에는 칩이 있고 페이지는 서버 `participants[].status` 를 그대로 넘긴다. e2e 가 "어느 에이전트의 칩인가"를 고를 수단이 없다 | 제품 결함이 아니라 **테스트 훅 결함**. U2-3(E5-11 파생 상태)을 자동으로 판정할 수 없다 | **#79** — 2판에서 칩이 식별된다(값은 S-14 로 굳어 있다) |
