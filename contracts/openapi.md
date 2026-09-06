@@ -85,7 +85,7 @@
 | FR-4.3 아티팩트 | `submitArtifact` · `listArtifacts` · `getArtifact` · `downloadArtifact` | 버전 자동 증가 |
 | FR-4.4 컨텍스트 재사용 | `SessionCreate.context(type: session)` · `context_reuse_override` · `updateWorkspaceSettings(context_reuse)` | E15-09 |
 | FR-5.1 HITL 타입 | `createHitlRequest`(`HitlCreate` oneOf) | E7-05·06 |
-| FR-5.2 동작 | `createHitlRequest`(`end_turn`) · `listHitlRequests` · `getHitlRequest` · `listInbox` | E7-01~04 |
+| FR-5.2 동작 | `createHitlRequest`(`turn_end_required`) · `listHitlRequests` · `getHitlRequest` · `listInbox` | E7-01~04 |
 | FR-5.3 사람 역할 | `Session.my_role` · 각 operation 권한 첫 줄 | |
 | FR-5.4 응답 · deputy · 기한 | `respondHitlRequest`(멱등 · `ignored` · `403 deputy_not_yet`) · `HitlRequest.overdue/can_respond_from` | E7-07~17 |
 | FR-6.1 lane/workdir 분리 | `Lane.workdir_id/workdir_ref` · `listRuntimeWorkdirs` | 경로 비노출 |
@@ -128,11 +128,11 @@
 | `session messages --thread --tail` | `GET /sessions/{id}/messages?thread=&limit=` | |
 | `message post --content-file --parent` | `POST /sessions/{id}/messages` | 멱등키 = `task_id + seq` |
 | `lane delegate --agent --brief --depends-on --profile` | `POST /sessions/{id}/lanes` | 참여자만 |
-| `hitl ask --default` / `approve-request` / `request-info` | `POST /sessions/{id}/hitl-requests` | `end_turn: true` |
+| `hitl ask --default` / `approve-request` / `request-info` | `POST /sessions/{id}/hitl-requests` | `turn_end_required: true` |
 | `artifact submit --name --type --file` | `POST /sessions/{id}/artifacts` (multipart) | |
 | `artifact get` | `GET /artifacts/{id}` · `…/content` | |
 | `decision record --summary --rationale` | `POST /sessions/{id}/decisions` | |
-| `status set working\|blocked\|done --note` | `POST /tasks/{id}/status` | blocked·done → `end_turn` |
+| `status set working\|blocked\|done --note` | `POST /tasks/{id}/status` | blocked·done → `turn_end_required` |
 | `review approve\|reject --artifact --comments` | `POST /artifacts/{id}/review` | 지정 리뷰어만 |
 
 ## 6. 미결 (Lead · Director 판정 필요)
