@@ -118,6 +118,9 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 	d := lanestate.Resolve(lanestate.Request{
 		AgentID: in.AgentID, ViaDelegate: true, DelegatorTaskID: callerTask,
 	})
+	if in.DependsOn == nil {
+		in.DependsOn = []uuid.UUID{}
+	}
 	var laneID uuid.UUID
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO lane (session_id, agent_id, profile_id, depends_on, delegated_from_task_id, status, created_at, updated_at)

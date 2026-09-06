@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/auth"
@@ -153,4 +154,35 @@ func (s *Server) sessionAccess(r *http.Request, sessionID uuid.UUID) (*gen.User,
 		return nil, apperr.NotFound("session") // do not reveal other workspaces' sessions
 	}
 	return p.User, nil
+}
+
+// sessionDirector is the gate for session-level control (completeSession).
+// Unlike lane cancellation the deputy is NOT included: ending the session is
+// not the urgent stop-the-runaway action the deputy exists for (t-3), and it
+// is not undoable.
+func (s *Server) sessionDirector(r *http.Request, sessionID uuid.UUID) (*gen.User, uuid.UUID, *Problem) {
+	u, p := s.user(r)
+	if p != nil {
+		return nil, uuid.Nil, p
+	}
+	var wsID, director uuid.UUID
+	err := s.DB.QueryRow(r.Context(), `SELECT workspace_id, director_user_id FROM session WHERE id = $1`, sessionID).
+		Scan(&wsID, &director)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, uuid.Nil, apperr.NotFound("session")
+	}
+	if err != nil {
+		return nil, uuid.Nil, apperr.Internal(err)
+	}
+	m, err := s.Auth.Member(r.Context(), wsID, u.Id)
+	if err != nil {
+		return nil, uuid.Nil, apperr.Internal(err)
+	}
+	if m == nil {
+		return nil, uuid.Nil, apperr.NotFound("session")
+	}
+	if u.Id != director {
+		return nil, uuid.Nil, apperr.Forbidden("director_required", "only the session's Director can end the session")
+	}
+	return u, wsID, nil
 }

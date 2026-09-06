@@ -269,6 +269,14 @@ func (s *Service) Post(ctx context.Context, sessionID uuid.UUID, author Author, 
 	}
 
 	// colab-cli.md §4: the server records CLI calls as status task_events.
+	// attempt is CHECK (attempt >= 1); a caller that leaves it zero would take
+	// a 23514 instead of posting, so fall back to the task's own attempt.
+	if author.Attempt < 1 {
+		author.Attempt = 1
+		if author.TaskID != nil {
+			_ = tx.QueryRow(ctx, `SELECT attempt FROM task WHERE id = $1`, *author.TaskID).Scan(&author.Attempt)
+		}
+	}
 	if author.Type == "agent" && author.TaskID != nil {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO task_event (task_id, attempt, seq, class, verb, object_ref, outcome, payload, created_at)

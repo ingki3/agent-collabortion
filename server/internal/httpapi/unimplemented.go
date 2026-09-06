@@ -174,20 +174,8 @@ func (unimplemented) CancelSession(w http.ResponseWriter, r *http.Request, sessi
 	notImplemented(w, r, "CancelSession")
 }
 
-func (unimplemented) CompleteSession(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	notImplemented(w, r, "CompleteSession")
-}
-
 func (unimplemented) GetSessionCost(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
 	notImplemented(w, r, "GetSessionCost")
-}
-
-func (unimplemented) ListDecisions(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	notImplemented(w, r, "ListDecisions")
-}
-
-func (unimplemented) RecordDecision(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.RecordDecisionParams) {
-	notImplemented(w, r, "RecordDecision")
 }
 
 func (unimplemented) ChangeDirector(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {

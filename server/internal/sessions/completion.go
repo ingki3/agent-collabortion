@@ -136,7 +136,14 @@ func ApplyEvent(t Tree, st State, ev Event) Outcome {
 		o.MetAtoms = atoms(met)
 		return o
 	case "director_end":
+		// `manual` is the Director ending the session directly, "종료 조건과
+		// 무관하게" (FR-2.2, contracts completeSession). It does not have to be
+		// an atom of the tree: a human with the authority to end the session
+		// does not need the tree's permission (E6-08).
 		met[CondManual] = true
+		o.MetAtoms = atoms(met)
+		o.SessionState, o.SummaryMsgs = "completed", 1
+		return o
 	case "budget_exhausted":
 		// FR-2.2: a budget limit is a `limits` matter, not a completion
 		// condition. It pauses and asks the Director whether to continue.

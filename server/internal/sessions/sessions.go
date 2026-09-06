@@ -73,8 +73,14 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 		errs = append(errs, apperr.Field("autonomy", "unsupported", "supervised is v1.1"))
 	}
 	if in.CompletionCondition != nil {
-		if b, err := json.Marshal(in.CompletionCondition); err == nil && strings.Contains(string(b), `"criteria_met"`) && !strings.Contains(string(b), `"conditions"`) {
-			errs = append(errs, apperr.Field("completion_condition", "criteria_met_alone", "criteria_met cannot be the only condition"))
+		// E6-07. The P1 check was a substring test on the marshalled tree,
+		// which passed `criteria_met OR user_approval` — a tree where
+		// criteria_met alone still completes the session, i.e. exactly the
+		// self-scoring FR-2.2 forbids. Evaluate the parsed tree instead.
+		if b, err := json.Marshal(in.CompletionCondition); err == nil {
+			if err := ValidateTree(ParseTree(b)); err != nil {
+				errs = append(errs, apperr.Field("completion_condition", "criteria_met_alone", err.Error()))
+			}
 		}
 	}
 	if len(errs) > 0 {
