@@ -18,12 +18,15 @@ COOKIE="$OUT/cookies-w.txt"; rm -f "$COOKIE"
 STEPS="$OUT/w-steps.tsv"; echo -e "step\tscreen\texpected\tresult\tnote" > "$STEPS"
 export AGENT_BROWSER_SESSION="colab-g4-a-${STAMP}"
 ab() { agent-browser "$@"; }
+# abget — 없을 수 있는 요소를 읽는다. lib.sh 의 `set -euo pipefail` 아래에서는 `ab get ... | tr` 의
+# 첫 단 실패가 대입문을 실패시켜 스크립트를 죽인다(2판 실측). 읽기는 전부 이것을 거친다.
+abget() { agent-browser "$@" 2>/dev/null || true; }
 shot() { ab screenshot "$SHOT_DIR/$1.png" >/dev/null 2>&1; log "📸 $1.png"; }
 rec() { echo -e "$1\t$2\t$3\t$4\t${5:-}" >> "$STEPS"; [ "$4" = PASS ] && ok "$1 $3" || bad "$1 $3 — $4 ${5:-}"; }
 try() { "$@" >/dev/null 2>&1; }
 wait_sel() { ab wait "$1" --timeout "$((${2:-25} * 1000))" >/dev/null 2>&1; }
 wait_fn()  { ab wait --fn "$1" --timeout "$((${2:-60} * 1000))" >/dev/null 2>&1; }
-count()    { ab get count "$1" 2>/dev/null || echo 0; }
+count()    { local n; n="$(abget get count "$1")"; echo "${n:-0}"; }
 cleanup() { ab close >/dev/null 2>&1 || true; [ -f "$OUT/daemon-w.pid" ] && kill -TERM -- "-$(cat "$OUT/daemon-w.pid")" 2>/dev/null; return 0; }
 trap cleanup EXIT
 ab set viewport 1440 1000 >/dev/null
@@ -56,32 +59,33 @@ ab fill '[data-testid="session-goal"]' "$SCENARIO_GOAL" >/dev/null
 shot p2-a-01-wizard-goal
 STEPS_N="$(count '[data-testid="wizard-steps"] span')"
 rec W1 S6-1 "마법사 7단계 · 제목·goal 입력" "$( [ "$STEPS_N" -ge 7 ] && echo PASS || echo FAIL )" "steps=$STEPS_N"
-# 2 Director → 3 격리 → 4 런타임 → 5 참여자 → 6 종료 조건 → 7 한도
-ab click '[data-testid="wizard-next"]' >/dev/null   # → director
-ab click '[data-testid="wizard-next"]' >/dev/null   # → isolation
-wait_sel '[data-testid="wizard-isolation"]' 10
-ab click '[data-testid="wizard-next"]' >/dev/null   # → runtime
-wait_sel '[data-testid="wizard-runtime"]' 10
+# 2 Director → 3 격리 → 4 런타임 → 5 참여자 → 6 종료 조건 → 7 한도.
+# 단계 전환은 클라이언트 렌더다 — 연달아 누르면 눌린 것이 씹힌다(04 에서 실측). 각 단계를 확인하고 넘어간다.
+next_step() { # testid_of_next_section [timeout]
+  sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null
+  wait_sel "[data-testid=\"$1\"]" "${2:-15}" || { bad "마법사 단계 '$1' 로 넘어가지 못함 (blocked='$(abget get text '[data-testid="wizard-blocked"]' | head -c 60)')"; return 1; }
+}
+next_step wizard-director || true
+next_step wizard-isolation || true
+next_step wizard-runtime || true
 sleep 2
 RC="$(count '[data-testid="runtime-candidate"]')"
-WERR="$(ab get text '[data-testid="new-session-error"]' 2>/dev/null | tr '\n' ' ' | head -c 120)"
+WERR="$(abget get text '[data-testid="new-session-error"]' | tr '\n' ' ' | head -c 120)"
 rec W2 S6-4 "런타임 후보에 방금 연결한 컴퓨터가 보인다" "$( [ "${RC:-0}" -ge 1 ] && echo PASS || echo FAIL )" "candidates=${RC:-0} error='$WERR'"
 [ "${RC:-0}" -ge 1 ] && ab click '[data-testid="runtime-candidate"]' >/dev/null
-ab click '[data-testid="wizard-next"]' >/dev/null   # → participants
-wait_sel '[data-testid="wizard-participants"]' 10
+next_step wizard-participants || true
 PN="$(count '[data-testid="participant-option"]')"
 for id in "$LEAD" "$RSCH" "$WRTR"; do ab click "[data-testid=\"participant-option\"][data-agent-id=\"$id\"] input[type=checkbox]" >/dev/null 2>&1 || true; done
 ab click "[data-testid=\"participant-option\"][data-agent-id=\"$LEAD\"] [data-testid=\"assignee-radio\"]" >/dev/null 2>&1 || true
 shot p2-a-02-wizard-participants
 rec W3 S6-5 "참여자 3명 + assignee=Lead" "$( [ "$PN" -ge 3 ] && echo PASS || echo FAIL )" "options=$PN"
-ab click '[data-testid="wizard-next"]' >/dev/null   # → conditions
-wait_sel '[data-testid="wizard-conditions"]' 10
-COND="$(ab get text '[data-testid="wizard-conditions"]' 2>/dev/null | tr '\n' ' ')"
+next_step wizard-conditions || true
+COND="$(abget get text '[data-testid="wizard-conditions"]' | tr '\n' ' ')"
 rec W4 S6-6 "종료 조건 기본값 = 아티팩트 제출 AND Director 승인" \
   "$( grep -q "아티팩트 제출" <<<"$COND" && grep -q "승인" <<<"$COND" && echo PASS || echo FAIL )" "$(head -c 110 <<<"$COND")"
-ab click '[data-testid="wizard-next"]' >/dev/null   # → limits/summary
-wait_sel '[data-testid="wizard-summary"]' 10
+next_step wizard-summary || true
 shot p2-a-03-wizard-summary
+sleep 1
 T0="$(now_ms)"
 ab click '[data-testid="session-start"]' >/dev/null
 if wait_fn "/^\\/sessions\\/[0-9a-f-]{36}$/.test(location.pathname)" 25; then
@@ -89,13 +93,13 @@ if wait_fn "/^\\/sessions\\/[0-9a-f-]{36}$/.test(location.pathname)" 25; then
 else
   # 마법사가 세션을 만들지 못하면 U2 여정 자체를 볼 수 없다 — 원인을 적고 API 로 같은 세션을 만들어 S7 판정을 계속한다.
   WIZARD_OK=no
-  WERR2="$(ab get text '[data-testid="new-session-error"]' 2>/dev/null | tr '\n' ' ' | head -c 160)"
+  WERR2="$(abget get text '[data-testid="new-session-error"]' | tr '\n' ' ' | head -c 160)"
   rec W4b S6 "마법사 '시작' 이 세션을 만든다" FAIL "error='$WERR2' url=$(ab get url)"
   SESSION="$(create_session_p2 "$WS" "제품 X 시장 조사 (웹)" "$SCENARIO_GOAL" "$LEAD" "$RUNTIME" "$WRTR" "$LEAD" "$RSCH" "$WRTR")"
   ab open "$WEB_URL/sessions/$SESSION" >/dev/null
 fi
 wait_sel '[data-testid="session-detail"]' 25 || die "S7 이 열리지 않음"
-SESSION="$(ab get attr '[data-testid="session-detail"]' data-session-id)"
+SESSION="$(abget get attr '[data-testid="session-detail"]' data-session-id)"
 [ "$WIZARD_OK" = yes ] && rec W4b S6 "마법사 '시작' 이 세션을 만든다" PASS "session=$SESSION"
 echo "$WS $SESSION $LEAD $RSCH $WRTR $RUNTIME" > "$OUT/w-ids.txt"
 ok "session $SESSION"
@@ -116,16 +120,16 @@ done
 rec W5 S7 "lane 보드에 Researcher 카드 3장이 **동시에** running (U2-1)" "$( [ "$MAXRUN" -ge 3 ] && echo PASS || echo FAIL )" "화면에서 본 최대 동시 running=$MAXRUN"
 BRIEF_N="$(count '[data-testid="lane-brief"]')"
 rec W6 S7 "각 카드에 브리프 한 줄 (U2-1)" "$( [ "${BRIEF_N:-0}" -ge 3 ] && echo PASS || echo FAIL )" "lane-brief=$BRIEF_N"
-CHIP_R="$(ab get attr '[data-testid="participants"] [data-testid="agent-chip"][data-agent-id="'"$RSCH"'"]' data-status 2>/dev/null || ab get attr '[data-testid="agent-chip"]' data-status 2>/dev/null || echo '?')"
-CHIP_L="$(ab get attr '[data-testid="participants"] [data-testid="agent-chip"][data-agent-id="'"$LEAD"'"]' data-status 2>/dev/null || echo '?')"
+CHIP_R="$(abget get attr '[data-testid="participants"] [data-testid="agent-chip"][data-agent-id="'"$RSCH"'"]' data-status 2>/dev/null || ab get attr '[data-testid="agent-chip"]' data-status 2>/dev/null || echo '?')"
+CHIP_L="$(abget get attr '[data-testid="participants"] [data-testid="agent-chip"][data-agent-id="'"$LEAD"'"]' data-status 2>/dev/null || echo '?')"
 rec W7 S7 "Researcher 칩 working · Lead 칩 idle (U2-3 · E5-11)" \
   "$( [ "$CHIP_R" = working ] && [ "$CHIP_L" = idle ] && echo PASS || echo FAIL )" "Researcher=$CHIP_R Lead=$CHIP_L"
 
 step "3. U4-1 · U15-3 — 작성창 트리거 미리보기가 **서버 값**인가"
 # 로컬 계산이면 서버를 끊어도 칩이 뜬다. 여기서는 previewTriggers 응답과 화면 칩을 대조한다.
 ab fill '[data-testid="composer-input"]' "$(mention Researcher "$RSCH") 범위를 국내로 좁혀줘" >/dev/null
-wait_sel '[data-testid="chip-trigger"]' 15
-CHIPTXT="$(ab get text '[data-testid="composer-chips"]' 2>/dev/null | tr '\n' ' ')"
+wait_sel '[data-testid="chip-trigger"]' 15 || true   # 칩이 안 뜨는 것도 판정 대상이다 — 여기서 죽으면 안 된다
+CHIPTXT="$(abget get text '[data-testid="composer-chips"]' | tr '\n' ' ')"
 PV="$(api_ok POST "/sessions/$SESSION/messages/preview" "$(jq -nc --arg c "$(mention Researcher "$RSCH") 범위를 국내로 좁혀줘" '{content:$c}')")"
 PV_NAME="$(jq -r '.triggers[0].agent_name // empty' <<<"$PV")"
 PV_PROF="$(jq -r '.triggers[0].profile.name // empty' <<<"$PV")"
@@ -133,20 +137,20 @@ shot p2-a-05-composer-preview
 rec W8 S7 "미리보기 칩이 서버 previewTriggers 와 같은 에이전트를 말한다 (U4-1 · FR-3.6)" \
   "$( [ -n "$PV_NAME" ] && grep -q "$PV_NAME" <<<"$CHIPTXT" && echo PASS || echo FAIL )" "chip='$(head -c 90 <<<"$CHIPTXT")' server=$PV_NAME/$PV_PROF"
 ab fill '[data-testid="composer-input"]' "[@all](mention://all) 다들 상황 공유" >/dev/null
-wait_sel '[data-testid="chip-no-trigger"], [data-testid="chip-note-only"]' 15
-NOTRIG="$(ab get text '[data-testid="composer-chips"]' 2>/dev/null | tr '\n' ' ')"
+wait_sel '[data-testid="chip-no-trigger"], [data-testid="chip-note-only"]' 15 || true
+NOTRIG="$(abget get text '[data-testid="composer-chips"]' | tr '\n' ' ')"
 rec W9 S7 "@all 은 '트리거 없음 — 기록만' (U15-3 · E1-05)" \
   "$( grep -qE "트리거 없음|기록만" <<<"$NOTRIG" && echo PASS || echo FAIL )" "$(head -c 90 <<<"$NOTRIG")"
 ab fill '[data-testid="composer-input"]' "" >/dev/null 2>&1 || true
 
 step "4. U2-5 — 합류가 화면에 **한 번**, U2-6 · U5-1 진행률"
 wait_fn "document.querySelectorAll('[data-testid=\"message-card\"]').length >= 6" 240 || true
-JOIN_SEEN="$(ab get count '[data-testid="message-card"]' 2>/dev/null || echo 0)"
-JOIN_TXT_N="$(ab eval "[...document.querySelectorAll('[data-testid=\"message-card\"]')].filter(e=>e.textContent.includes('위임한 작업이 모두 끝났습니다')).length" 2>/dev/null | tr -dc '0-9')"
+JOIN_SEEN="$(abget get count '[data-testid="message-card"]')"; JOIN_SEEN="${JOIN_SEEN:-0}"
+JOIN_TXT_N="$(abget eval "[...document.querySelectorAll('[data-testid=\"message-card\"]')].filter(e=>e.textContent.includes('위임한 작업이 모두 끝났습니다')).length" | tr -dc '0-9')"
 shot p2-a-06-join
 rec W10 S7 "합류 시스템 메시지가 타임라인에 **한 번** (U2-5 · FR-6.5)" \
   "$( [ "${JOIN_TXT_N:-0}" = 1 ] && echo PASS || echo FAIL )" "합류 카드 수=${JOIN_TXT_N:-0} / 전체 카드=$JOIN_SEEN"
-PROG0="$(ab get text '[data-testid="progress-count"]' 2>/dev/null | tr -d ' \n')"
+PROG0="$(abget get text '[data-testid="progress-count"]' | tr -d ' \n')"
 rec W11 S7 "우열 종료 조건 진행률이 제출 전 0/2 (U2-6)" "$( [ "$PROG0" = "0/2" ] && echo PASS || echo FAIL )" "progress=$PROG0"
 
 step "5. Writer 제출까지 기다린 뒤 U5-1 — 진행률 1/2 · 아티팩트 행"
@@ -156,12 +160,12 @@ while [ "$(date +%s)" -lt "$END" ]; do
   sleep 5
 done
 sleep 3
-PROG1="$(ab get text '[data-testid="progress-count"]' 2>/dev/null | tr -d ' \n')"
+PROG1="$(abget get text '[data-testid="progress-count"]' | tr -d ' \n')"
 ART_ROWS="$(count '[data-testid="artifact-row"]')"
 shot p2-a-07-progress-artifact
 rec W12 S7 "제출 후 진행률 1/2 (U5-1 · E6-01)" "$( [ "$PROG1" = "1/2" ] && echo PASS || echo FAIL )" "progress=$PROG1"
 rec W13 S7 "우열 아티팩트 목록에 제출물이 보인다" "$( [ "${ART_ROWS:-0}" -ge 1 ] && echo PASS || echo FAIL )" "artifact-row=$ART_ROWS"
-FEED="$(ab get text '[data-testid="activity-feed"]' 2>/dev/null | tr '\n' ' ' | head -c 200)"
+FEED="$(abget get text '[data-testid="activity-feed"]' | tr '\n' ' ' | head -c 200)"
 rec W14 S7 "활동 피드에 실행 흐름이 렌더된다 (컷 1 판정 근거)" "$( [ -n "$FEED" ] && echo PASS || echo FAIL )" "$(head -c 120 <<<"$FEED")"
 
 step "6. U5 — Director 승인 경로 (P2 는 인박스 항목 + 승인 API 까지)"
