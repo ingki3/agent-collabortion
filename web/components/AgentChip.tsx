@@ -17,15 +17,19 @@ export interface DeriveInput {
 }
 
 /**
- * 서버가 `Participant.status` 로 파생값을 주지만, 실시간 `task.updated` 만 받았을 때 화면이 같은 규칙으로
- * 다시 계산할 수 있어야 한다. 규칙은 한 곳(여기)에만 둔다.
+ * 상태의 **주인은 서버**다 — 화면은 `Participant.status` 를 그대로 그린다. 이 함수는 실시간 `task.updated` 만 받아
+ * 참여자 이벤트가 아직 안 온 순간의 **거울**이고, 서버 값을 덮어쓰지 않는다. 규칙은 한 곳(여기)에만 둔다.
+ *
+ * **`working` 은 `running` task 뿐이다**(PRD FR-1.3 4행, W-5). `dispatched`·`preparing` 은 아직 턴이 시작되지 않았고,
+ * 그것을 `working` 으로 세면 데몬이 claim 만 하고 멈춰도 칩이 계속 "작업 중"이라 침묵과 실행을 구분할 수 없다.
+ * `blocked`·`paused` lane 도 파생에 넣지 않는다(C1′) — 왜 멈췄는지는 lane 카드가 말한다.
  */
 export function deriveAgentStatus(input: DeriveInput): AgentStatus {
   if (input.disabled) return "disabled";
   if (input.offline) return "offline";
   if (input.error) return "error";
   const ts = input.taskStatuses ?? [];
-  if (ts.some((s) => s === "running" || s === "dispatched" || s === "preparing")) return "working";
+  if (ts.some((s) => s === "running")) return "working";
   if (ts.some((s) => s === "waiting_human")) return "waiting_human";
   return "idle";
 }

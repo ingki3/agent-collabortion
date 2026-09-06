@@ -1,12 +1,23 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+/**
+ * 작성창(SCREEN §4.5 중앙 하단) — 멘션 자동완성 · **트리거 미리보기** · 개별 억제 · "새 lane으로 보내기" 토글.
+ *
+ * **트리거 미리보기는 서버가 판정한다**(`previewTriggers`, FR-3.6 — W-6). FR-3.3 의 8개 규칙과 lane 해소 규칙은
+ * 서버 상태(실행 중 task·lane·합류 그룹)를 봐야 하므로 로컬로 흉내 내면 서버와 반대로 말하게 된다(P1 의 W-6·S-1 이 그랬다).
+ * 여기서는 계약 `TriggerPreview` 를 그대로 그린다 — 로컬 규칙 계산은 없다.
+ *
+ * **`new_lane` 토글은 전송 후 자동 해제된다**(t-2, E2-07·E2-14). 해제되지 않으면 이후 모든 멘션이 lane 을 새로 만들어
+ * 해소 규칙 3(실행 중 lane 재사용)이 사실상 죽는다. 켜져 있는 동안은 전송 버튼 옆에 "새 lane으로 전송됨"을 **상시** 표시한다.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./composer.css";
-import { activeMentionQuery, extractMentions, mentionLink, type MentionTarget } from "@/lib/mentions";
+import { activeMentionQuery, mentionLink, type MentionTarget } from "@/lib/mentions";
+import type { TriggerPreview } from "@/lib/api/types";
 
 export interface ComposerAgent {
   id: string;
   name: string;
-  /** 세션 참여자인가. 아니면 멘션 시 경고 칩(E1-04). */
+  /** 세션 참여자인가 — 자동완성 정렬·부제에만 쓴다. 트리거 판정은 서버 몫이다. */
   participant: boolean;
 }
 export interface ComposerMember {
@@ -20,70 +31,108 @@ export interface ComposerWarning {
   agent_id?: string | null;
 }
 
+export interface ComposerInput {
+  content: string;
+  parentId: string | null;
+  /** "새 lane으로 보내기"(t-2). 전송 후 자동 해제된다. */
+  newLane: boolean;
+  suppressAgentIds: string[];
+}
+
 export interface ComposerProps {
-  /** 워크스페이스 에이전트 전부(참여 여부 포함) — 자동완성은 참여자를 위에 둔다. */
   agents: ComposerAgent[];
   members?: ComposerMember[];
   replyTo?: { id: string; authorName: string } | null;
   onCancelReply?: () => void;
-  onSubmit: (input: { content: string; parentId: string | null; suppressAgentIds: string[] }) => Promise<ComposerWarning[] | void>;
+  /** 서버 트리거 미리보기(`POST /sessions/{id}/messages/preview`). 없으면 칩을 그리지 않는다. */
+  onPreview?: (input: ComposerInput) => Promise<TriggerPreview>;
+  onSubmit: (input: ComposerInput) => Promise<ComposerWarning[] | void>;
   disabled?: boolean;
   disabledReason?: string;
   placeholder?: string;
+  /** 작성창 위 안내 — 예: 세션 `paused` 중 "재개 후 처리됩니다"(U15-9). */
+  notice?: string;
+  /** 미리보기 디바운스(ms). 테스트에서 0 으로 줄인다. */
+  previewDelayMs?: number;
+  /** 외부에서 채워 넣는 초안(lane 카드의 "중단하고 다시 지시" — 멘션이 미리 채워진다). */
+  draft?: { content: string; nonce: number } | null;
 }
 
-/**
- * 트리거 미리보기의 판정 근거(PRD FR-3.3, 위에서부터 우선).
- * - `note`: 규칙 1 — `/note ` 접두 → 트리거 없음(기록만). 칩을 전부 숨긴다.
- * - `mention`: 규칙 2 — 에이전트 명시 멘션 → 참여자는 트리거, 비참여자는 경고만(E1-04).
- * - `no_trigger`: 규칙 3 — `@all` 또는 사람만 멘션 → 에이전트 트리거 없음.
- * - `implicit`: 멘션 없음 — 규칙 4~6(답글·assignee)은 서버 상태가 필요해 로컬로 예고하지 않는다(`previewTriggers` 는 P2).
- */
-export type TriggerRule = "note" | "mention" | "no_trigger" | "implicit";
+/** 규칙 번호 → 사람 문구. 미리보기 칩의 근거를 숨기지 않는다. */
+export const RULE_NOTE: Record<number, string> = {
+  1: "기록만(규칙 1)",
+  2: "명시 멘션(규칙 2)",
+  3: "트리거 없음(규칙 3)",
+  4: "스레드 답글(규칙 4)",
+  5: "질문 답글(규칙 5)",
+  6: "assignee 기본(규칙 6)",
+  7: "assignee 폴백(규칙 7)",
+  8: "합류(규칙 8)",
+};
 
-export const NOTE_PREFIX = "/note ";
-
-/** 규칙 1 — `/note ` 접두(앞 공백 무시). */
-export function isNote(content: string): boolean {
-  const t = content.trimStart();
-  return t.startsWith(NOTE_PREFIX) || t === NOTE_PREFIX.trim();
-}
-
-export interface TriggerPreview {
-  rule: TriggerRule;
-  /** 트리거될 참여 에이전트(규칙 2). */
-  triggers: ComposerAgent[];
-  /** 멘션됐지만 참여자가 아닌 에이전트 — 경고 칩(E1-04). */
-  nonParticipants: MentionTarget[];
-}
-
-/** 이 메시지가 트리거할 참여 에이전트를 로컬 규칙으로 판정한다. 틀릴 수 있는 규칙(4~6)은 판정하지 않는다. */
-export function classifyMentions(content: string, agents: ComposerAgent[]): TriggerPreview {
-  if (isNote(content)) return { rule: "note", triggers: [], nonParticipants: [] };
-  const all = extractMentions(content);
-  const mentions = all.filter((m) => m.kind === "agent");
-  if (mentions.length === 0) {
-    return { rule: all.length > 0 ? "no_trigger" : "implicit", triggers: [], nonParticipants: [] };
-  }
-  const byId = new Map(agents.map((a) => [a.id, a]));
-  const triggers: ComposerAgent[] = [];
-  const nonParticipants: MentionTarget[] = [];
-  for (const m of mentions) {
-    const a = byId.get(m.id);
-    if (a?.participant) triggers.push(a);
-    else nonParticipants.push(m);
-  }
-  return { rule: "mention", triggers, nonParticipants };
-}
+const EMPTY: TriggerPreview = { triggers: [], warnings: [], note_only: false };
 
 export function Composer(props: ComposerProps) {
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [sel, setSel] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [newLane, setNewLane] = useState(false);
   const [serverWarnings, setServerWarnings] = useState<ComposerWarning[]>([]);
-  const [suppressed, setSuppressed] = useState<Set<string>>(new Set());
+  /** 억제된 에이전트 id → 이름. 억제하면 서버 미리보기에서 사라지므로 이름을 여기 들고 있어야 ↺ 칩을 그린다. */
+  const [suppressed, setSuppressed] = useState<Map<string, string>>(new Map());
+  const [preview, setPreview] = useState<TriggerPreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+
+  const parentId = props.replyTo?.id ?? null;
+  const suppressKey = [...suppressed.keys()].sort().join(",");
+  const suppressIds = useMemo(() => (suppressKey ? suppressKey.split(",") : []), [suppressKey]);
+  const { onPreview } = props;
+  const delay = props.previewDelayMs ?? 250;
+
+  // 외부 초안(lane "중단하고 다시 지시") — nonce 가 바뀔 때만 덮어쓴다.
+  const draftNonce = props.draft?.nonce;
+  const draftContent = props.draft?.content;
+  useEffect(() => {
+    if (draftNonce === undefined) return;
+    setText(draftContent ?? "");
+    taRef.current?.focus();
+  }, [draftNonce, draftContent]);
+
+  // ── 서버 트리거 미리보기(FR-3.6) — 디바운스, 마지막 응답만 채택 ──
+  useEffect(() => {
+    if (!onPreview) return;
+    const content = text.trim();
+    if (!content) {
+      setPreview(null);
+      setPreviewError(null);
+      return;
+    }
+    let live = true;
+    setPreviewing(true);
+    const t = setTimeout(() => {
+      onPreview({ content, parentId, newLane, suppressAgentIds: suppressIds })
+        .then((p) => {
+          if (!live) return;
+          setPreview(p);
+          setPreviewError(null);
+        })
+        .catch((e) => {
+          if (!live) return;
+          setPreview(null);
+          setPreviewError(e instanceof Error ? e.message : "미리보기를 가져오지 못했습니다");
+        })
+        .finally(() => {
+          if (live) setPreviewing(false);
+        });
+    }, delay);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [text, parentId, newLane, suppressIds, onPreview, delay]);
 
   const query = useMemo(() => activeMentionQuery(text, caret), [text, caret]);
   const candidates = useMemo(() => {
@@ -102,8 +151,6 @@ export function Composer(props: ComposerProps) {
 
   useEffect(() => setSel(0), [candidates.length, query?.query]);
 
-  const { rule, triggers, nonParticipants } = useMemo(() => classifyMentions(text, props.agents), [text, props.agents]);
-
   function insertMention(t: MentionTarget) {
     if (!query) return;
     const before = text.slice(0, query.start);
@@ -112,27 +159,34 @@ export function Composer(props: ComposerProps) {
     const next = before + link + after;
     setText(next);
     const pos = before.length + link.length;
-    requestAnimationFrame(() => {
-      taRef.current?.focus();
-      taRef.current?.setSelectionRange(pos, pos);
-      setCaret(pos);
-    });
+    taRef.current?.focus();
+    taRef.current?.setSelectionRange(pos, pos);
+    setCaret(pos);
   }
+
+  const suppress = useCallback((id: string, name: string) => {
+    setSuppressed((s) => new Map(s).set(id, name));
+  }, []);
+  const unsuppress = useCallback((id: string) => {
+    setSuppressed((s) => {
+      const n = new Map(s);
+      n.delete(id);
+      return n;
+    });
+  }, []);
 
   async function submit() {
     const content = text.trim();
     if (!content || busy || props.disabled) return;
     setBusy(true);
     try {
-      const warnings = await props.onSubmit({
-        content,
-        parentId: props.replyTo?.id ?? null,
-        suppressAgentIds: [...suppressed],
-      });
+      const warnings = await props.onSubmit({ content, parentId, newLane, suppressAgentIds: suppressIds });
       setServerWarnings(warnings ?? []);
       setText("");
-      setSuppressed(new Set());
+      setSuppressed(new Map());
+      setPreview(null);
       setCaret(0);
+      setNewLane(false); // t-2 — 토글은 전송 후 자동 해제(E2-07·E2-14)
     } finally {
       setBusy(false);
     }
@@ -167,10 +221,16 @@ export function Composer(props: ComposerProps) {
     }
   }
 
+  const p = preview ?? EMPTY;
   const disabled = props.disabled || busy;
 
   return (
     <div className="composer" data-testid="composer">
+      {props.notice && (
+        <div className="composer__notice" data-testid="composer-notice">
+          {props.notice}
+        </div>
+      )}
       {props.replyTo && (
         <div className="composer__reply" data-testid="composer-reply-target">
           답글 → <b>{props.replyTo.authorName}</b>
@@ -216,57 +276,81 @@ export function Composer(props: ComposerProps) {
         onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
         onKeyDown={onKeyDown}
       />
-      <div className="composer__chips" data-testid="composer-chips" data-rule={rule}>
-        {rule === "note" && (
-          <span className="chip" data-testid="chip-note-only" title="PRD FR-3.3 규칙 1 — /note 접두 메시지는 트리거 없음">
+      <div className="composer__chips" data-testid="composer-chips" data-previewing={previewing ? "true" : "false"}>
+        {previewError && (
+          <span className="chip chip--warn" data-testid="chip-preview-error">
+            ⚠ {previewError}
+          </span>
+        )}
+        {p.note_only && (
+          <span className="chip" data-testid="chip-note-only" title="FR-3.3 규칙 1 — /note 접두 메시지는 트리거 없음">
             기록만 — 아무도 깨우지 않습니다(규칙 1)
           </span>
         )}
-        {rule === "no_trigger" && (
-          <span className="chip" data-testid="chip-no-trigger" title="PRD FR-3.3 규칙 3 — @all·사람만 멘션이면 에이전트 트리거 없음">
+        {p.implicit_routing_suppressed && !p.note_only && (
+          <span className="chip" data-testid="chip-no-trigger" title="FR-3.3 규칙 3 — @all·사람만 멘션이면 에이전트 트리거 없음">
             트리거 없음 — @all·사람만 멘션(규칙 3)
           </span>
         )}
-        {nonParticipants.map((m) => (
-          <span key={m.id} className="chip chip--warn" data-testid="chip-not-participant" title="게시는 되지만 트리거되지 않습니다(E1-04)">
-            ⚠ @{m.name}는 이 세션 참여자가 아님
+        {p.warnings.map((w, i) => (
+          <span key={`w${i}`} className="chip chip--warn" data-testid="chip-warning" data-code={w.code}>
+            ⚠ {w.message}
           </span>
         ))}
-        {triggers.map((a) =>
-          suppressed.has(a.id) ? (
-            <span key={a.id} className="chip" data-testid="chip-suppressed">
-              @{a.name} 트리거 억제됨
-              <button
-                type="button"
-                className="chip__x"
-                aria-label={`@${a.name} 트리거 복원`}
-                onClick={() => setSuppressed((s) => { const n = new Set(s); n.delete(a.id); return n; })}
-              >
-                ↺
-              </button>
+        {p.triggers.map((t) => (
+          <span key={t.agent_id} className="chip chip--trigger" data-testid="chip-trigger" data-rule={t.rule} data-agent-id={t.agent_id}>
+            @{t.agent_name}를 트리거합니다
+            <span className="chip__sub">
+              {" · "}
+              {RULE_NOTE[t.rule] ?? `규칙 ${t.rule}`}
+              {t.profile?.model ? ` · ${t.profile.model}` : ""}
+              {t.will_queue ? " · 실행 중 → 현재 턴 종료 후 처리됩니다" : ""}
+              {t.lane.reentry ? " · 재진입" : ""}
+              {t.lane.lane_id === null ? " · 새 lane" : ""}
+              {t.deferred_until ? " · 5분 뒤 폴백" : ""}
             </span>
-          ) : (
-            <span key={a.id} className="chip chip--trigger" data-testid="chip-trigger">
-              @{a.name}를 트리거합니다
-              <button
-                type="button"
-                className="chip__x"
-                aria-label={`@${a.name} 트리거 억제`}
-                title="이번 메시지에서만 깨우지 않음(FR-3.6)"
-                onClick={() => setSuppressed((s) => new Set(s).add(a.id))}
-              >
-                ✕
-              </button>
-            </span>
-          ),
-        )}
+            <button
+              type="button"
+              className="chip__x"
+              aria-label={`@${t.agent_name} 트리거 억제`}
+              title="이번 메시지에서만 깨우지 않음(FR-3.6). 멘션은 본문에 남습니다"
+              onClick={() => suppress(t.agent_id, t.agent_name)}
+            >
+              ✕
+            </button>
+          </span>
+        ))}
+        {[...suppressed.entries()].map(([id, name]) => (
+          <span key={id} className="chip" data-testid="chip-suppressed" data-agent-id={id}>
+            @{name} 트리거 억제됨
+            <button type="button" className="chip__x" aria-label={`@${name} 트리거 복원`} onClick={() => unsuppress(id)}>
+              ↺
+            </button>
+          </span>
+        ))}
         {serverWarnings.map((w, i) => (
-          <span key={i} className="chip chip--warn" data-testid="chip-server-warning">
+          <span key={`s${i}`} className="chip chip--warn" data-testid="chip-server-warning">
             ⚠ {w.message}
           </span>
         ))}
       </div>
       <div className="composer__foot">
+        <label className="composer__toggle" data-testid="new-lane-toggle-label">
+          <input
+            type="checkbox"
+            checked={newLane}
+            disabled={props.disabled}
+            onChange={(e) => setNewLane(e.target.checked)}
+            data-testid="new-lane-toggle"
+            aria-label="새 lane으로 보내기"
+          />
+          <span>새 lane으로 보내기</span>
+        </label>
+        {newLane && (
+          <span className="composer__lane-note" data-testid="new-lane-note">
+            새 lane으로 전송됨 — 전송하면 해제됩니다
+          </span>
+        )}
         <span className="composer__hint">⌘/Ctrl+Enter 로 전송 · @ 로 멘션</span>
         <button
           type="button"

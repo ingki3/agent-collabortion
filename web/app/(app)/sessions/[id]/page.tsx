@@ -1,9 +1,13 @@
 "use client";
 /**
- * S7 Session 상세 — P1 은 **중앙 열만**(SCREEN §4.5): 헤더(제목·상태·goal·참여자 칩) · 타임라인(Message Card, 스레드 접기,
- * 에이전트 메시지의 "활동 보기" = task_event 원본 레일) · 작성창(@ 자동완성, 비참여자 경고 칩 E1-04).
- * 실시간: 셸의 워크스페이스 SSE 하나를 구독하고 `session_id` 로 거른다(R4) — message.created/updated · task_event.appended/superseded ·
- * participant.updated · session.updated · cost.updated · agent.typing · message.delta. 새로고침 없이 갱신된다. 좌·우열(lane 보드·진행)은 P2.
+ * S7 Session 상세 — **3열**(SCREEN §4.5). P1 은 중앙 열만이었고 P2 에서 좌·우열이 붙는다.
+ *
+ * 좌: 참여자 칩(파생 상태 6종 — 서버가 준 값을 그린다) + lane 보드(7상태 카드, 재진입·질문 배지, task 이력).
+ * 중앙: 메시지 타임라인(kind 별 카드 · 질문 카드 스레드 · 에이전트 메시지의 활동 피드 5클래스) + 작성창.
+ * 우: goal · 종료 조건 진행률 · 아티팩트 · 결정 기록 · 비용 · paused 배너(사유 5종).
+ *
+ * 실시간: 셸의 워크스페이스 SSE 하나를 구독하고 `session_id` 로 거른다(R4).
+ * 좁은 화면에서는 좌·우열이 탭으로 접힌다.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
@@ -11,15 +15,20 @@ import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { AgentChip } from "@/components/AgentChip";
 import { MessageCard, authorName } from "@/components/MessageCard";
-import { Composer, type ComposerAgent, type ComposerWarning } from "@/components/Composer";
-import { ActivityRail } from "@/components/ActivityRail";
+import { Composer, type ComposerAgent, type ComposerInput, type ComposerWarning } from "@/components/Composer";
+import { ActivityFeed } from "@/components/ActivityFeed";
+import { LaneBoard } from "@/components/LaneBoard";
+import { SessionAside } from "@/components/SessionAside";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { api, errorMessage, newIdempotencyKey } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
-import type { Agent, Member, Message, Participant, Session, StreamEvent, TaskEvent } from "@/lib/api/types";
+import type {
+  Agent, Artifact, Decision, Lane, Member, Message, Participant, Session, StreamEvent, Task, TaskEvent, TriggerPreview,
+} from "@/lib/api/types";
 
 type Events = { events: TaskEvent[]; structured: boolean; loading: boolean };
+type Col = "board" | "timeline" | "aside";
 
 /** 에이전트 메시지의 "활동 보기" — 처음 펼칠 때 GET /tasks/{id}/events, 이후는 SSE 로 채워진다. */
 function TaskActivity({ taskId, cache, load }: { taskId: string; cache: Record<string, Events>; load: (id: string) => void }) {
@@ -27,7 +36,7 @@ function TaskActivity({ taskId, cache, load }: { taskId: string; cache: Record<s
     if (!cache[taskId]) load(taskId);
   }, [taskId, cache, load]);
   const c = cache[taskId];
-  return <ActivityRail events={c?.events ?? []} structured={c?.structured ?? true} loading={!c || c.loading} />;
+  return <ActivityFeed events={c?.events ?? []} structured={c?.structured ?? true} loading={!c || c.loading} title="이 run 의 활동" />;
 }
 
 function sortByTime(a: Message, b: Message) {
@@ -43,10 +52,20 @@ export default function SessionPage() {
   const [events, setEvents] = useState<Record<string, Events>>({});
   const [agents, setAgents] = useState<Agent[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [lanes, setLanes] = useState<Lane[]>([]);
+  const [artifacts, setArtifacts] = useState<Artifact[] | null>(null);
+  const [decisions, setDecisions] = useState<Decision[] | null>(null);
   const [typing, setTyping] = useState<Record<string, boolean>>({});
   const [deltas, setDeltas] = useState<Record<string, string>>({});
   const [replyTo, setReplyTo] = useState<{ id: string; authorName: string } | null>(null);
+  /** "중단하고 다시 지시"(FR-3.4 B) — 작성창이 restart 모드로 바뀐다(U4-3). */
+  const [restart, setRestart] = useState<{ laneId: string; agentName: string } | null>(null);
+  const [draft, setDraft] = useState<{ content: string; nonce: number } | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState<Lane | null>(null);
+  const [selectedLane, setSelectedLane] = useState<string | null>(null);
+  const [col, setCol] = useState<Col>("timeline");
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -74,9 +93,22 @@ export default function SessionPage() {
     }
   }, [sessionId, workspace]);
 
+  /** 좌·우열 데이터. 서버가 아직 안 켠 operation 은 조용히 비운다 — 화면은 빈 상태로 말한다(§7). */
+  const loadSide = useCallback(async () => {
+    const [l, a, d] = await Promise.allSettled([
+      api.get("/sessions/{sessionId}/lanes", { path: { sessionId } }),
+      api.get("/sessions/{sessionId}/artifacts", { path: { sessionId } }),
+      api.get("/sessions/{sessionId}/decisions", { path: { sessionId } }),
+    ]);
+    setLanes(l.status === "fulfilled" ? l.value : []);
+    setArtifacts(a.status === "fulfilled" ? a.value : []);
+    setDecisions(d.status === "fulfilled" ? d.value : []);
+  }, [sessionId]);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadSide();
+  }, [load, loadSide]);
 
   const loadReplies = useCallback(
     async (rootId: string) => {
@@ -94,6 +126,10 @@ export default function SessionPage() {
     } catch {
       setEvents((c) => ({ ...c, [taskId]: { events: [], structured: true, loading: false } }));
     }
+  }, []);
+
+  const loadLaneTasks = useCallback(async (laneId: string): Promise<Task[]> => {
+    return api.get("/lanes/{laneId}/tasks", { path: { laneId } });
   }, []);
 
   // ── 실시간 ──
@@ -138,6 +174,28 @@ export default function SessionPage() {
         });
         break;
       }
+      case "lane.updated": {
+        const l = ev.payload as unknown as Lane;
+        if (l.session_id !== sessionId) return;
+        setLanes((cur) => (cur.some((x) => x.id === l.id) ? cur.map((x) => (x.id === l.id ? l : x)) : [...cur, l]));
+        break;
+      }
+      case "artifact.created": {
+        const a = ev.payload as unknown as Artifact;
+        setArtifacts((cur) => (cur ? [a, ...cur.filter((x) => x.id !== a.id)] : [a]));
+        break;
+      }
+      case "decision.created": {
+        const d = ev.payload as unknown as Decision;
+        setDecisions((cur) => (cur ? [d, ...cur.filter((x) => x.id !== d.id)] : [d]));
+        break;
+      }
+      case "session.completion_progress": {
+        const p = ev.payload as { session_id?: string; completion_progress?: Session["completion_progress"] };
+        if (!p.completion_progress) return;
+        setSession((s) => (s ? { ...s, completion_progress: p.completion_progress! } : s));
+        break;
+      }
       case "participant.updated": {
         const p = ev.payload as unknown as Participant;
         setSession((s) => (s && s.participants ? { ...s, participants: s.participants.map((x) => (x.agent_id === p.agent_id ? { ...x, ...p } : x)) } : s));
@@ -170,7 +228,7 @@ export default function SessionPage() {
         break;
     }
   }, [sessionId]);
-  const conn = useWorkspaceStream(workspace?.id, onEvent, { onResync: () => void load() });
+  const conn = useWorkspaceStream(workspace?.id, onEvent, { onResync: () => { void load(); void loadSide(); } });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
@@ -183,17 +241,93 @@ export default function SessionPage() {
   }, [agents, participants]);
   const composerMembers = useMemo(() => members.map((m) => ({ id: m.user.id, name: m.user.display_name })), [members]);
   const agentById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
+  const agentName = useCallback((id: string) => agentById.get(id)?.name ?? id.slice(0, 8), [agentById]);
 
-  async function submit(input: { content: string; parentId: string | null; suppressAgentIds: string[] }): Promise<ComposerWarning[]> {
+  const preview = useCallback(
+    (input: ComposerInput): Promise<TriggerPreview> =>
+      api.post("/sessions/{sessionId}/messages/preview", {
+        path: { sessionId },
+        body: { content: input.content, parent_id: input.parentId, new_lane: input.newLane, suppress_agent_ids: input.suppressAgentIds },
+      }),
+    [sessionId],
+  );
+
+  async function submit(input: ComposerInput): Promise<ComposerWarning[]> {
+    // restart 모드면 게시가 아니라 lane 재지시다 — 서버가 진행 중 턴을 취소하고 새 task 를 만든다(FR-3.4 B)
+    if (restart) {
+      const r = await api.post("/lanes/{laneId}/restart", {
+        path: { laneId: restart.laneId },
+        idempotencyKey: newIdempotencyKey(),
+        body: { content: input.content },
+      });
+      setRestart(null);
+      setLanes((cur) => cur.map((l) => (l.id === r.lane.id ? r.lane : l)));
+      onEvent({ id: "", type: "message.created", at: r.message.created_at, payload: r.message as unknown as Record<string, unknown> });
+      return [];
+    }
     const r = await api.post("/sessions/{sessionId}/messages", {
       path: { sessionId },
       idempotencyKey: newIdempotencyKey(),
-      body: { content: input.content, parent_id: input.parentId, suppress_agent_ids: input.suppressAgentIds },
+      body: { content: input.content, parent_id: input.parentId, new_lane: input.newLane, suppress_agent_ids: input.suppressAgentIds },
     });
     // 스트림보다 먼저 도착할 수 있으므로 직접 넣는다(중복은 id 로 걸러진다)
     onEvent({ id: "", type: "message.created", at: r.message.created_at, payload: r.message as unknown as Record<string, unknown> });
     setReplyTo(null);
     return r.warnings;
+  }
+
+  function beginRestart(lane: Lane) {
+    const a = agentById.get(lane.agent_id);
+    const mention = a ? `[@${a.name}](mention://agent/${a.id}) ` : "";
+    setRestart({ laneId: lane.id, agentName: a?.name ?? "agent" });
+    setReplyTo(null);
+    setDraft({ content: mention, nonce: Date.now() });
+    setCol("timeline");
+  }
+
+  async function doCancel(lane: Lane) {
+    setBusy(true);
+    try {
+      const l = await api.post("/lanes/{laneId}/cancel", { path: { laneId: lane.id } });
+      setLanes((cur) => cur.map((x) => (x.id === l.id ? l : x)));
+      setConfirmCancel(null);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resume(body: { limits?: { budget_usd?: number; time_limit?: string }; reset_loop_counters?: boolean }) {
+    setBusy(true);
+    try {
+      const s = await api.post("/sessions/{sessionId}/resume", { path: { sessionId }, body });
+      setSession(s);
+      void loadSide();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function pause() {
+    setBusy(true);
+    try {
+      setSession(await api.post("/sessions/{sessionId}/pause", { path: { sessionId } }));
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function jumpToMessage(messageId: string) {
+    setCol("timeline");
+    const el = document.querySelector(`[data-message-id="${messageId}"]`);
+    el?.scrollIntoView({ block: "center" });
+    el?.classList.add("msg--flash");
+    setTimeout(() => el?.classList.remove("msg--flash"), 1200);
   }
 
   if (!workspace) return null;
@@ -207,95 +341,196 @@ export default function SessionPage() {
   }
   if (!session) return <p className="muted">불러오는 중…</p>;
 
-  const composerDisabled = session.status === "completed" || session.status === "cancelled";
+  const closed = session.status === "completed" || session.status === "cancelled";
+  const isDirector = session.my_role === "director" || session.my_role === "deputy";
   const typingAgents = Object.entries(typing).filter(([, v]) => v).map(([id]) => agentById.get(id)?.name ?? "agent");
+  const laneOfMessage = (m: Message) => (m.lane_id ? lanes.find((l) => l.id === m.lane_id) : undefined);
 
   return (
-    <div className="s7" data-testid="session-detail" data-session-id={session.id}>
+    <div className="s7" data-testid="session-detail" data-session-id={session.id} data-col={col}>
       <ConnectionBanner state={conn} />
       <header className="s7__head">
         <div className="row" style={{ gap: 10 }}>
           <Link href="/sessions" className="small muted-3">← Sessions</Link>
           <h1 style={{ margin: 0, fontSize: 18 }} data-testid="session-title">{session.title}</h1>
           <Badge kind="session" value={session.status} data-testid="session-status" />
-          {session.cost_usd > 0 && (
-            <span className="small muted-3">${session.cost_usd.toFixed(2)}{session.limits.budget_usd ? ` / $${session.limits.budget_usd}` : ""}{session.cost_estimated ? " · 추정" : ""}</span>
+          {session.status === "paused" && session.paused_reason && (
+            <span className="small muted-3" data-testid="session-paused-reason">사유: {session.paused_reason}</span>
+          )}
+          <span className="s7__spacer" />
+          {session.status === "active" && (
+            <button type="button" className="btn btn--sm" disabled={!isDirector || busy} title={!isDirector ? "Director 만 할 수 있습니다" : undefined} onClick={() => void pause()} data-testid="session-pause">
+              일시정지
+            </button>
           )}
         </div>
         <p className="muted small" style={{ margin: "4px 0 8px" }} data-testid="session-goal">{session.goal}</p>
-        <div className="row" data-testid="participants">
-          {participants.map((p) => (
-            <AgentChip
-              key={p.agent_id}
-              name={p.agent.name}
-              role={p.agent.role}
-              status={p.status}
-              statusNote={p.status_note}
-              profile={p.profile ? `${p.profile.runtime_kind} · ${p.profile.model}` : null}
-              isAssignee={p.is_assignee}
-              size="sm"
-            />
+        <nav className="s7__tabs" aria-label="열 전환">
+          {(["board", "timeline", "aside"] as Col[]).map((c) => (
+            <button key={c} type="button" className={`s7__tab${col === c ? " s7__tab--on" : ""}`} onClick={() => setCol(c)} data-testid={`tab-${c}`}>
+              {c === "board" ? `lane ${lanes.length}` : c === "timeline" ? "타임라인" : "진행"}
+            </button>
           ))}
-          {participants.length === 0 && <span className="small muted-3">참여 에이전트 없음</span>}
-        </div>
+        </nav>
       </header>
 
-      <section className="s7__timeline" data-testid="timeline">
-        {messages.length === 0 && (
-          <div className="empty" data-testid="timeline-empty">
-            <div className="empty__title">아직 메시지가 없습니다</div>
-            <div className="empty__body">@로 에이전트를 불러 시작하세요. 멘션 없이 보내면 assignee 에게 갑니다.</div>
+      <div className="s7__cols">
+        <section className="s7__left" data-testid="s7-left">
+          <h2 className="s7__h">참여자</h2>
+          <div className="s7__chips" data-testid="participants">
+            {participants.map((p) => (
+              <AgentChip
+                key={p.agent_id}
+                name={p.agent.name}
+                role={p.agent.role}
+                status={p.status}
+                statusNote={p.status_note}
+                profile={p.profile ? `${p.profile.runtime_kind} · ${p.profile.model}` : null}
+                isAssignee={p.is_assignee}
+                size="md"
+              />
+            ))}
+            {participants.length === 0 && <span className="small muted-3">참여 에이전트 없음</span>}
           </div>
-        )}
-        {messages.map((m) => {
-          const agentMsg = m.author_type === "agent" && m.source_task_id;
-          const askee = m.kind === "blocked_q" ? m.mentions.find((x) => x.kind === "agent")?.display_name : undefined;
-          return (
-            <MessageCard
-              key={m.id}
-              message={m}
-              replies={replies[m.id]}
-              onLoadReplies={loadReplies}
-              onReply={(root) => setReplyTo({ id: root.id, authorName: authorName(root) })}
-              activity={agentMsg ? <TaskActivity taskId={m.source_task_id!} cache={events} load={loadEvents} /> : undefined}
-              askee={askee}
-              now={now}
-            />
-          );
-        })}
-        {Object.entries(deltas).map(([agentId, text]) => (
-          <article key={agentId} className="msg" data-testid="message-delta">
-            <div className="msg__head">
-              <span className="msg__author msg__author--agent">{agentById.get(agentId)?.name ?? "agent"}</span>
-              <span className="msg__meta">작성 중…</span>
+          <h2 className="s7__h">Lane 보드</h2>
+          <LaneBoard
+            lanes={lanes}
+            selected={false}
+            now={now}
+            disabledReason={isDirector ? undefined : "Director·deputy 만 할 수 있습니다"}
+            loadTasks={loadLaneTasks}
+            onRestart={beginRestart}
+            onCancel={(l) => setConfirmCancel(l)}
+            onOpenQuestion={jumpToMessage}
+            onSelect={(l) => setSelectedLane((cur) => (cur === l.id ? null : l.id))}
+          />
+          {confirmCancel && (
+            <div className="s7__confirm" role="dialog" aria-label="lane 중단 확인" data-testid="cancel-confirm">
+              <p className="small">이 lane 을 중단합니다. 새 지시 없이 종료됩니다.</p>
+              <p className="small muted-3">되돌리기 어려운 작업 중이면 최대 30초 보류 후 종료됩니다.</p>
+              <div className="row">
+                <button type="button" className="btn btn--sm btn--primary" disabled={busy} onClick={() => void doCancel(confirmCancel)} data-testid="cancel-confirm-yes">중단</button>
+                <button type="button" className="btn btn--sm" onClick={() => setConfirmCancel(null)}>취소</button>
+              </div>
             </div>
-            <div className="msg__body">{text}▍</div>
-          </article>
-        ))}
-        {typingAgents.length > 0 && (
-          <p className="small muted-3" data-testid="typing">
-            {typingAgents.map((n) => `@${n}`).join(", ")} 입력 중…
-          </p>
-        )}
-        <div ref={bottomRef} />
-      </section>
+          )}
+        </section>
 
-      <footer className="s7__composer">
-        <Composer
-          agents={composerAgents}
-          members={composerMembers}
-          replyTo={replyTo}
-          onCancelReply={() => setReplyTo(null)}
-          onSubmit={submit}
-          disabled={composerDisabled}
-          disabledReason={composerDisabled ? "종료된 세션에는 게시할 수 없습니다" : undefined}
-        />
-      </footer>
+        <section className="s7__center">
+          <div className="s7__timeline" data-testid="timeline">
+            {messages.length === 0 && (
+              <div className="empty" data-testid="timeline-empty">
+                <div className="empty__title">아직 메시지가 없습니다</div>
+                <div className="empty__body">@로 에이전트를 불러 시작하세요. 멘션 없이 보내면 assignee 에게 갑니다.</div>
+              </div>
+            )}
+            {messages.map((m) => {
+              const agentMsg = m.author_type === "agent" && m.source_task_id;
+              const askee = m.kind === "blocked_q" ? m.mentions.find((x) => x.kind === "agent")?.display_name : undefined;
+              const lane = laneOfMessage(m);
+              const dim = selectedLane != null && lane?.id !== selectedLane;
+              return (
+                <div key={m.id} className={dim ? "s7__dim" : undefined}>
+                  <MessageCard
+                    message={m}
+                    replies={replies[m.id]}
+                    onLoadReplies={loadReplies}
+                    onReply={(root) => { setRestart(null); setReplyTo({ id: root.id, authorName: authorName(root) }); }}
+                    activity={agentMsg ? <TaskActivity taskId={m.source_task_id!} cache={events} load={loadEvents} /> : undefined}
+                    askee={askee}
+                    now={now}
+                  />
+                </div>
+              );
+            })}
+            {Object.entries(deltas).map(([agentId, text]) => (
+              <article key={agentId} className="msg" data-testid="message-delta">
+                <div className="msg__head">
+                  <span className="msg__author msg__author--agent">{agentById.get(agentId)?.name ?? "agent"}</span>
+                  <span className="msg__meta">작성 중…</span>
+                </div>
+                <div className="msg__body">{text}▍</div>
+              </article>
+            ))}
+            {typingAgents.length > 0 && (
+              <p className="small muted-3" data-testid="typing">
+                {typingAgents.map((n) => `@${n}`).join(", ")} 입력 중…
+              </p>
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          <footer className="s7__composer">
+            {restart && (
+              <div className="row" style={{ justifyContent: "space-between" }}>
+                <span />
+                <button type="button" className="msg__link" onClick={() => { setRestart(null); setDraft({ content: "", nonce: Date.now() }); }} data-testid="restart-cancel">
+                  재지시 취소
+                </button>
+              </div>
+            )}
+            <Composer
+              agents={composerAgents}
+              members={composerMembers}
+              replyTo={restart ? null : replyTo}
+              onCancelReply={() => setReplyTo(null)}
+              onPreview={restart ? undefined : preview}
+              onSubmit={submit}
+              draft={draft}
+              disabled={closed}
+              disabledReason={closed ? "종료된 세션에는 게시할 수 없습니다" : undefined}
+              notice={
+                restart
+                  ? `전송하면 @${restart.agentName} 의 진행 중인 턴을 취소하고 이 메시지만으로 다시 시작합니다`
+                  : session.status === "paused"
+                    ? "일시정지 중 — 게시는 되지만 재개 후 처리됩니다"
+                    : undefined
+              }
+            />
+          </footer>
+        </section>
+
+        <section className="s7__right" data-testid="s7-right">
+          <SessionAside
+            session={session}
+            artifacts={artifacts}
+            decisions={decisions}
+            agentName={agentName}
+            busy={busy}
+            onResume={isDirector ? resume : undefined}
+            onRebind={() => setError("재바인딩 다이얼로그(S17)는 P4 입니다 — Runtimes 화면에서 진행하세요.")}
+            onCancelSession={() => setError("세션 종료는 상단 액션에서 진행합니다.")}
+          />
+        </section>
+      </div>
+      {error && session && <p className="problem" role="alert" style={{ marginTop: 12 }}>{error}</p>}
       <style>{`
-        .s7 { display: flex; flex-direction: column; min-height: calc(100vh - 48px - 48px); max-width: 760px; }
-        .s7__head { padding-bottom: 12px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+        .s7 { display: flex; flex-direction: column; min-height: calc(100vh - 48px - 48px); }
+        .s7__head { padding-bottom: 10px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+        .s7__spacer { flex: 1; }
+        .s7__cols { display: grid; grid-template-columns: 268px minmax(0, 1fr) 268px; gap: 16px; align-items: start; }
+        .s7__left, .s7__right { position: sticky; top: 12px; max-height: calc(100vh - 140px); overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+        .s7__center { display: flex; flex-direction: column; min-width: 0; }
+        .s7__h { margin: 4px 0 2px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+        .s7__chips { display: flex; flex-direction: column; gap: 4px; }
         .s7__timeline { flex: 1; display: flex; flex-direction: column; gap: 6px; padding-bottom: 12px; }
         .s7__composer { position: sticky; bottom: 0; background: var(--bg); padding: 8px 0 4px; }
+        .s7__dim { opacity: 0.4; }
+        .s7__tabs { display: none; gap: 6px; }
+        .s7__tab { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+        .s7__tab--on { border-color: var(--ink); font-weight: 600; }
+        .s7__confirm { border: 1px solid var(--s-fail); border-radius: 8px; padding: 8px 10px; background: color-mix(in srgb, var(--s-fail) var(--soft-alpha), transparent); }
+        .s7__confirm p { margin: 0 0 6px; }
+        .msg--flash { outline: 2px solid var(--s-block); border-radius: 8px; }
+        /* 좁은 화면에서는 좌·우열이 접히고 탭으로 전환된다(SCREEN §4.5) */
+        @media (max-width: 1100px) {
+          .s7__tabs { display: flex; margin-top: 6px; }
+          .s7__cols { grid-template-columns: minmax(0, 1fr); }
+          .s7__left, .s7__right { position: static; max-height: none; }
+          .s7[data-col="timeline"] .s7__left, .s7[data-col="timeline"] .s7__right,
+          .s7[data-col="board"] .s7__center, .s7[data-col="board"] .s7__right,
+          .s7[data-col="aside"] .s7__center, .s7[data-col="aside"] .s7__left { display: none; }
+        }
       `}</style>
     </div>
   );

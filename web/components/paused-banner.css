@@ -1,0 +1,18 @@
+/* Status Banner(COMPONENTS §2.7) — paused 변형. 색은 tokens.css 변수만. */
+.pbanner {
+  border: 1px solid var(--s-pause); border-radius: 10px; padding: 10px 12px;
+  background: color-mix(in srgb, var(--s-pause) var(--soft-alpha), transparent);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.pbanner__title { font-weight: 600; font-size: 13px; color: var(--s-pause-text); }
+.pbanner__body { margin: 0; font-size: 13px; color: var(--ink); }
+.pbanner__hint { margin: 0; font-size: 12px; color: var(--ink-2); }
+.pbanner__meta { margin: 0; font-size: 11px; color: var(--ink-3); }
+.pbanner__field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-2); }
+.pbanner__actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+
+/* 사유별 색 — 런타임 오프라인은 실패 계열(COMPONENTS §2.7 색 변형) */
+.pbanner[data-reason="runtime_offline"] { border-color: var(--s-fail); background: color-mix(in srgb, var(--s-fail) var(--soft-alpha), transparent); }
+.pbanner[data-reason="runtime_offline"] .pbanner__title { color: var(--s-fail-text); }
+.pbanner[data-reason="budget"], .pbanner[data-reason="time"] { border-color: var(--s-wait); background: color-mix(in srgb, var(--s-wait) var(--soft-alpha), transparent); }
+.pbanner[data-reason="budget"] .pbanner__title, .pbanner[data-reason="time"] .pbanner__title { color: var(--s-wait-text); }

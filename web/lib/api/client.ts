@@ -28,14 +28,17 @@ type PathsFor<M extends Method> = { [P in keyof paths]: paths[P] extends Record<
 type Op<P extends keyof paths, M extends Method> = paths[P] extends Record<M, infer O> ? O : never;
 
 type JsonOf<R> = R extends { content: { "application/json": infer T } } ? T : undefined;
+/** 성공 응답 하나를 고른다. `202`(취소·재지시처럼 절차만 시작하는 응답)도 성공이다 — 완료는 SSE 로 온다. */
 type SuccessOf<O> = O extends { responses: infer R }
   ? R extends { 200: infer S }
     ? JsonOf<S>
     : R extends { 201: infer S }
       ? JsonOf<S>
-      : R extends { 204: unknown }
-        ? undefined
-        : never
+      : R extends { 202: infer S }
+        ? JsonOf<S>
+        : R extends { 204: unknown }
+          ? undefined
+          : never
   : never;
 type BodyOf<O> = O extends { requestBody: { content: { "application/json": infer B } } }
   ? B

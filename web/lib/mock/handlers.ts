@@ -2,8 +2,14 @@
  * 목 API 핸들러 — openapi P1 범위. 라우터는 FR-3.3 규칙 2(명시 멘션 → task, 비참여자 경고)·6(그 외 → assignee)만.
  * 에이전트 실행은 타이머로 흉내 낸다(task_event 원본 레일·typing·delta·답글 메시지·참여자 상태).
  */
-import type { Agent, Member, Message, Pairing, Participant, Session, SessionListItem, TaskEvent, User } from "@/lib/api/types";
-import { emit, makeAgent, makeRuntime, now, participantStatus, resetStore, sseFrame, store, stripUser, uuid, type MockTask, type Store, type Subscriber } from "./store";
+import type {
+  Agent, AgentProfile, AgentTemplate, Artifact, Decision, Lane, Member, Message, Pairing, Participant, Session,
+  SessionListItem, Task, TaskEvent, TriggerPreview, TriggerTarget, User,
+} from "@/lib/api/types";
+import {
+  emit, makeAgent, makeRuntime, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges, sseFrame,
+  store, stripUser, TEMPLATES, uuid, type MockTask, type Store, type Subscriber,
+} from "./store";
 
 export class Problem extends Error {
   constructor(public status: number, public title: string, public code?: string, public detail?: string, public extra?: Record<string, unknown>) {
@@ -355,11 +361,76 @@ function addMessage(s: Store, sess: Session, m: Partial<Message> & Pick<Message,
   emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status, last_activity_at: sess.last_activity_at }, sess.id);
   return msg;
 }
-function createTask(s: Store, sess: Session, agentId: string, triggerId: string | null): MockTask {
-  const t: MockTask = { id: uuid(), session_id: sess.id, agent_id: agentId, lane_id: uuid(), status: "queued", attempt: 1, trigger_message_id: triggerId, created_at: now() };
+/** lane 하나. `brief` 는 첫 트리거 메시지 발췌다(카드의 위임 요약). */
+function createLane(s: Store, sess: Session, agentId: string, brief: string | null): Lane {
+  const a = s.agents.get(agentId);
+  const t = now();
+  const lane: Lane = {
+    id: uuid(), session_id: sess.id, parent_lane_id: null, agent_id: agentId, agent_name: a?.name ?? "agent",
+    profile_id: a?.profiles[0]?.id ?? uuid(), depends_on: [], workdir_id: null, workdir_ref: null,
+    delegated_from_task_id: null, has_runtime_session: false, brief, status: "queued", blocked_note: null,
+    blocked_message_id: null, waiting_for: null, hitl_request_id: null, paused_over_usd: null, failure_kind: null,
+    reentry_count: 0, current_activity: null, queue_position: null, actions: laneActions(sess, "queued"),
+    created_at: t, updated_at: t, finished_at: null,
+  };
+  s.lanes.set(lane.id, lane);
+  emit(s, sess.workspace_id, "lane.updated", lane, sess.id);
+  return lane;
+}
+/** 호출자가 지금 할 수 있는 동작(Lane.actions). 목은 항상 Director 시점이다. */
+function laneActions(_sess: Session, status: Lane["status"]): Lane["actions"] {
+  switch (status) {
+    case "running":
+      return ["restart", "cancel"];
+    case "queued":
+      return ["cancel"];
+    case "blocked":
+      return ["open_question"];
+    case "waiting_human":
+      return ["respond_hitl"];
+    case "paused":
+      return ["approve_budget", "cancel"];
+    case "failed":
+      return ["restart"];
+    default:
+      return [];
+  }
+}
+function setLaneStatus(s: Store, sess: Session, laneId: string, patch: Partial<Lane>) {
+  const lane = s.lanes.get(laneId);
+  if (!lane) return;
+  Object.assign(lane, patch, { updated_at: now() });
+  lane.actions = laneActions(sess, lane.status);
+  emit(s, sess.workspace_id, "lane.updated", lane, sess.id);
+}
+function createTask(s: Store, sess: Session, agentId: string, triggerId: string | null, opts: { laneId?: string; brief?: string | null; restartedFrom?: string | null } = {}): MockTask {
+  const laneId = opts.laneId ?? createLane(s, sess, agentId, opts.brief ?? null).id;
+  const t: MockTask = {
+    id: uuid(), session_id: sess.id, agent_id: agentId, lane_id: laneId, status: "queued", attempt: 1,
+    trigger_message_id: triggerId, created_at: now(), restarted_from_task_id: opts.restartedFrom ?? null,
+    failure_kind: null, started_at: null, finished_at: null, resumed: null, cost_usd: 0,
+  };
   s.tasks.set(t.id, t);
   s.taskEvents.set(t.id, []);
   return t;
+}
+
+/** MockTask → 계약 `Task`(lane 카드 펼침의 정보 5종). */
+function toTask(s: Store, t: MockTask): Task {
+  const lane = s.lanes.get(t.lane_id);
+  const sess = s.sessions.get(t.session_id);
+  return {
+    id: t.id, lane_id: t.lane_id, session_id: t.session_id, runtime_id: sess?.runtime_id ?? null, agent_id: t.agent_id,
+    profile_id: lane?.profile_id ?? uuid(), trigger_message_id: t.trigger_message_id,
+    delegated_from_task_id: null, restarted_from_task_id: t.restarted_from_task_id ?? null, originator_user_id: null,
+    coalesced_message_ids: [], attempt: t.attempt, max_attempts: 3, pending_hitl: false, budget_override: null,
+    status: t.status as Task["status"], paused_reason: null, failure_kind: (t.failure_kind ?? null) as Task["failure_kind"],
+    transport: "acp", resumed: t.resumed ?? null,
+    attempts: [{ attempt: t.attempt, started_at: t.started_at ?? null, finished_at: t.finished_at ?? null, resumed: t.resumed ?? null, outcome: t.failure_kind ?? t.status, cost_usd: t.cost_usd ?? 0 }],
+    usage: { input_tokens: 1200, output_tokens: 180, cache_read: 0, cost_usd: t.cost_usd ?? 0, estimated: false },
+    open_hitl_request_id: null, heartbeat_at: null,
+    created_at: t.created_at, updated_at: now(), dispatched_at: t.started_at ?? null, started_at: t.started_at ?? null, finished_at: t.finished_at ?? null,
+  };
 }
 function pushEvent(s: Store, sess: Session, task: MockTask, e: Partial<TaskEvent> & Pick<TaskEvent, "class">): TaskEvent {
   const list = s.taskEvents.get(task.id)!;
@@ -391,7 +462,10 @@ function simulateRun(s: Store, sess: Session, task: MockTask, reply: string) {
   const at = (ms: number, f: () => void) => setTimeout(f, ms);
   at(300, () => {
     task.status = "running";
-    emitParticipant(s, sess, agent.id, "lane #1 실행 중");
+    task.started_at = now();
+    task.resumed = false; // 목은 늘 콜드 스타트 — 카드가 그것을 표시하는지 보기 위해서다
+    setLaneStatus(s, sess, task.lane_id, { status: "running", current_activity: "세션을 시작했다 → cold_start", has_runtime_session: true, queue_position: null });
+    emitParticipant(s, sess, agent.id, "lane 실행 중");
     pushEvent(s, sess, task, { class: "runtime", verb: "start", object_ref: null, outcome: "cold_start", payload: { runtime_kind: "claude_code", session_id: `acp-${task.id.slice(0, 8)}` }, sentence: `${agent.name}가 세션을 시작했다 → cold_start` });
     emit(s, sess.workspace_id, "agent.typing", { session_id: sess.id, agent_id: agent.id, typing: true }, sess.id, true);
   });
@@ -404,6 +478,7 @@ function simulateRun(s: Store, sess: Session, task: MockTask, reply: string) {
     // 데몬(PR #20)처럼 한 툴 호출을 started → ok 두 이벤트로, superseded_by 없이 tool_call_id 로만 잇는다(R1 검증용)
     const tcid = `call_${task.id.slice(0, 8)}`;
     pushEvent(s, sess, task, { class: "tool", verb: "read", object_ref: "README.md", outcome: "started", tool: "Read", sentence: `${agent.name}가 README.md 를 읽는 중…`, payload: { tool_call_id: tcid, kind: "read" } } as Partial<TaskEvent> & Pick<TaskEvent, "class">);
+    setLaneStatus(s, sess, task.lane_id, { current_activity: `README.md 를 읽는 중…` });
   });
   at(1400, () => {
     const tcid = `call_${task.id.slice(0, 8)}`;
@@ -418,6 +493,9 @@ function simulateRun(s: Store, sess: Session, task: MockTask, reply: string) {
     pushEvent(s, sess, task, { class: "usage", verb: "report", object_ref: null, outcome: "report", usage: { input_tokens: 1200, output_tokens: 180, cost_usd: 0.02 } });
     pushEvent(s, sess, task, { class: "runtime", verb: "turn_end", object_ref: null, outcome: "ok", sentence: `턴 종료 → ok` });
     task.status = "completed";
+    task.finished_at = now();
+    task.cost_usd = 0.02;
+    setLaneStatus(s, sess, task.lane_id, { status: "done", current_activity: null, finished_at: task.finished_at, brief: reply.slice(0, 60) });
     sess.cost_usd = Math.round((sess.cost_usd + 0.02) * 100) / 100;
     emit(s, sess.workspace_id, "cost.updated", { session_id: sess.id, cost_usd: sess.cost_usd, estimated: false }, sess.id);
     emitParticipant(s, sess, agent.id, null);
@@ -442,6 +520,94 @@ on("GET", "/sessions/{id}/messages", (req, p) => {
   items = items.slice(-limit);
   return ok({ items, before_cursor: null, after_cursor: items.at(-1)?.created_at ?? null, has_more_before: total > items.length, has_more_after: false, total: thread ? total : null });
 });
+/**
+ * 라우터(FR-3.3) — 규칙 1(`/note`) · 2(명시 멘션) · 3(`@all`·사람만 멘션 → 트리거 없음) · 6(그 외 → assignee).
+ * **미리보기와 실제 게시가 같은 함수를 쓴다** — 그래야 칩과 결과가 반대로 말하지 않는다(P1 S-1 이 그랬다).
+ *
+ * lane 해소: 1 새 lane · 3 실행 중 lane 재사용(큐잉) · 4 done·blocked 재진입.
+ * `new_lane` 토글이 켜지면 해소를 건너뛰고 **항상 새 lane**(t-2).
+ */
+function routeMessage(
+  s: Store,
+  sess: Session,
+  input: { content: string; mentions: Message["mentions"]; parentId: string | null; newLane: boolean; suppress: Set<string> },
+): TriggerPreview {
+  const warnings: TriggerPreview["warnings"] = [];
+  const noteOnly = input.content.trimStart().startsWith("/note ");
+  const parts = new Set((sess.participants ?? []).map((x) => x.agent_id));
+  const agentMentions = input.mentions.filter((m) => m.kind === "agent");
+  const hasOtherMentions = input.mentions.some((m) => m.kind !== "agent");
+
+  if (noteOnly) return { note_only: true, implicit_routing_suppressed: false, triggers: [], warnings };
+
+  const targets: { id: string; rule: number }[] = [];
+  for (const m of agentMentions) {
+    const a = s.agents.get(m.id);
+    if (!a || a.workspace_id !== sess.workspace_id) { warnings.push({ code: "unknown_agent", message: `@${m.display_name} 를 찾을 수 없음`, agent_id: null }); continue; }
+    if (!parts.has(a.id)) { warnings.push({ code: "not_participant", message: `${a.name}는 이 세션 참여자가 아닙니다 — 트리거되지 않습니다`, agent_id: a.id }); continue; } // E1-04
+    if (a.respond_to === "nobody") { warnings.push({ code: "agent_disabled", message: `${a.name}는 정지 상태입니다(respond_to: nobody)`, agent_id: a.id }); continue; }
+    if (input.suppress.has(a.id)) continue; // 억제된 대상은 트리거 목록에서 빠진다(칩은 화면이 들고 있다)
+    targets.push({ id: a.id, rule: 2 });
+  }
+  // 규칙 3 — 에이전트 멘션이 없고 @all·사람 멘션만 있으면 암묵 라우팅을 끈다
+  const implicitSuppressed = agentMentions.length === 0 && hasOtherMentions;
+  if (agentMentions.length === 0 && !implicitSuppressed && sess.assignee_agent_id && !input.parentId) {
+    if (!input.suppress.has(sess.assignee_agent_id)) targets.push({ id: sess.assignee_agent_id, rule: 6 });
+  }
+
+  const triggers: TriggerTarget[] = [];
+  for (const { id, rule } of targets) {
+    const a = s.agents.get(id)!;
+    const prof = a.profiles.find((x) => x.is_default) ?? a.profiles[0];
+    const lanes = [...s.lanes.values()].filter((l) => l.session_id === sess.id && l.agent_id === id);
+    const active = lanes.find((l) => l.status === "running" || l.status === "queued");
+    const reusable = lanes.find((l) => l.status === "done" || l.status === "blocked");
+    let resolution = 1;
+    let laneId: string | null = null;
+    let reentry = false;
+    if (!input.newLane) {
+      if (active) { resolution = 3; laneId = active.id; }
+      else if (reusable) { resolution = 4; laneId = reusable.id; reentry = true; }
+    }
+    triggers.push({
+      agent_id: id,
+      agent_name: a.name,
+      profile: prof ? { id: prof.id, name: prof.name, runtime_kind: prof.runtime_kind, model: prof.model } : undefined,
+      rule,
+      lane: { resolution, lane_id: laneId, reentry },
+      will_queue: active?.status === "running",
+      deferred_until: null,
+    });
+  }
+  return { note_only: false, implicit_routing_suppressed: implicitSuppressed, triggers, warnings };
+}
+
+function parseMentions(content: string): Message["mentions"] {
+  const mentions: Message["mentions"] = [];
+  for (const m of content.matchAll(MENTION_RE)) {
+    if (m[2]) mentions.push({ kind: m[2] as "agent" | "user", id: m[3], display_name: m[1] });
+    else mentions.push({ kind: "all", id: "all", display_name: "all" });
+  }
+  return mentions;
+}
+
+/** 트리거 미리보기(FR-3.6) — 게시하지 않는다. */
+on("POST", "/sessions/{id}/messages/preview", (req, p) => {
+  const s = store();
+  const sess = s.sessions.get(p.id);
+  if (!sess) throw new Problem(404, "not found", "not_found");
+  requireMember(s, req, sess.workspace_id);
+  const b = body<{ content?: string; parent_id?: string | null; new_lane?: boolean; suppress_agent_ids?: string[] }>(req);
+  const content = b.content ?? "";
+  return ok(routeMessage(s, sess, {
+    content,
+    mentions: parseMentions(content),
+    parentId: b.parent_id ?? null,
+    newLane: b.new_lane ?? false,
+    suppress: new Set(b.suppress_agent_ids ?? []),
+  }));
+});
+
 on("POST", "/sessions/{id}/messages", (req, p) => {
   const s = store();
   const sess = s.sessions.get(p.id);
@@ -459,38 +625,34 @@ on("POST", "/sessions/{id}/messages", (req, p) => {
     if (!parent || parent.session_id !== sess.id) throw new Problem(404, "not found", "not_found", "답글 대상 메시지가 없습니다");
     parentId = parent.parent_id ?? parent.id; // 루트로 정규화
   }
-  const mentions: Message["mentions"] = [];
-  for (const m of b.content.matchAll(MENTION_RE)) {
-    if (m[2]) mentions.push({ kind: m[2] as "agent" | "user", id: m[3], display_name: m[1] });
-    else mentions.push({ kind: "all", id: "all", display_name: "all" });
-  }
+  const mentions = parseMentions(b.content);
   const isNote = b.content.startsWith("/note ");
-  const msg = addMessage(s, sess, { author_type: "user", author_id: user.id, author: { name: user.display_name, avatar_url: null }, kind: "text", content: b.content, mentions, parent_id: parentId, is_note: isNote });
-  const warnings: { code: string; message: string; agent_id: string | null }[] = [];
-  const triggers: { agent_id: string; task_id: string; lane_id: string; coalesced: boolean; deferred_until: null }[] = [];
-  const parts = new Set((sess.participants ?? []).map((x) => x.agent_id));
   const suppress = new Set(b.suppress_agent_ids ?? []);
-  const targets: string[] = [];
-  const agentMentions = mentions.filter((m) => m.kind === "agent");
-  if (!isNote) {
-    for (const m of agentMentions) {
-      const a = s.agents.get(m.id);
-      if (!a || a.workspace_id !== sess.workspace_id) { warnings.push({ code: "unknown_agent", message: `@${m.display_name} 를 찾을 수 없음`, agent_id: null }); continue; }
-      if (!parts.has(a.id)) { warnings.push({ code: "not_participant", message: `${a.name}는 이 세션 참여자가 아님`, agent_id: a.id }); continue; } // E1-04
-      if (suppress.has(a.id)) { warnings.push({ code: "suppressed", message: `@${a.name} 트리거 억제됨(FR-3.6)`, agent_id: a.id }); continue; }
-      targets.push(a.id); // 규칙 2
-    }
-    const onlyUsersOrAll = agentMentions.length === 0 && mentions.length > 0;
-    if (agentMentions.length === 0 && !onlyUsersOrAll && sess.assignee_agent_id && !parentId) targets.push(sess.assignee_agent_id); // 규칙 6
+  const preview = routeMessage(s, sess, { content: b.content, mentions, parentId, newLane: b.new_lane ?? false, suppress });
+  const msg = addMessage(s, sess, { author_type: "user", author_id: user.id, author: { name: user.display_name, avatar_url: null }, kind: "text", content: b.content, mentions, parent_id: parentId, is_note: isNote });
+
+  const warnings = [...preview.warnings];
+  for (const id of suppress) {
+    const a = s.agents.get(id);
+    if (a) warnings.push({ code: "suppressed", message: `@${a.name} 트리거 억제됨(FR-3.6)`, agent_id: a.id });
   }
-  for (const agentId of new Set(targets)) {
-    const queued = [...s.tasks.values()].find((t) => t.session_id === sess.id && t.agent_id === agentId && t.status === "queued");
-    if (queued) { triggers.push({ agent_id: agentId, task_id: queued.id, lane_id: queued.lane_id, coalesced: true, deferred_until: null }); continue; }
-    const task = createTask(s, sess, agentId, msg.id);
-    triggers.push({ agent_id: agentId, task_id: task.id, lane_id: task.lane_id, coalesced: false, deferred_until: null });
-    const agent = s.agents.get(agentId)!;
-    const plain = b.content.replace(MENTION_RE, "@$1").trim();
-    simulateRun(s, sess, task, `안녕하세요, ${agent.name}입니다. "${plain.slice(0, 80)}" 잘 받았습니다. 바로 진행하겠습니다.`);
+  const triggers: { agent_id: string; task_id: string; lane_id: string; coalesced: boolean; deferred_until: null }[] = [];
+  // 세션이 paused 면 lane·task 는 만들되 dispatch 하지 않는다(C3′ · U15-9)
+  const dispatchable = sess.status === "active";
+  for (const t of preview.triggers) {
+    const queued = [...s.tasks.values()].find((x) => x.session_id === sess.id && x.agent_id === t.agent_id && x.status === "queued");
+    if (queued) { triggers.push({ agent_id: t.agent_id, task_id: queued.id, lane_id: queued.lane_id, coalesced: true, deferred_until: null }); continue; }
+    const brief = b.content.replace(MENTION_RE, "@$1").trim().slice(0, 80);
+    const laneId = t.lane.lane_id ?? undefined;
+    if (laneId && t.lane.reentry) {
+      const lane = s.lanes.get(laneId)!;
+      setLaneStatus(s, sess, laneId, { status: "queued", reentry_count: lane.reentry_count + 1, finished_at: null, brief });
+    }
+    const task = createTask(s, sess, t.agent_id, msg.id, { laneId, brief });
+    triggers.push({ agent_id: t.agent_id, task_id: task.id, lane_id: task.lane_id, coalesced: false, deferred_until: null });
+    const agent = s.agents.get(t.agent_id)!;
+    if (dispatchable) simulateRun(s, sess, task, `안녕하세요, ${agent.name}입니다. "${brief}" 잘 받았습니다. 바로 진행하겠습니다.`);
+    else setLaneStatus(s, sess, task.lane_id, { status: "queued", queue_position: 1, current_activity: "세션 재개 후 처리됩니다" });
   }
   const result = { message: msg, triggers, warnings, session_paused: null };
   s.idem.set(key, result);
@@ -539,4 +701,397 @@ on("GET", "/workspaces/{id}/stream", (req, p) => {
     },
   });
   return { status: 200, stream, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" } };
+});
+
+// ── lanes (S7 좌열) ──
+function sessionOf(s: Store, req: Req, sessionId: string): Session {
+  const sess = s.sessions.get(sessionId);
+  if (!sess) throw new Problem(404, "not found", "not_found");
+  requireMember(s, req, sess.workspace_id);
+  return sess;
+}
+on("GET", "/sessions/{id}/lanes", (req, p) => {
+  const s = store();
+  const sess = sessionOf(s, req, p.id);
+  const filter = req.query.get("status")?.split(",").filter(Boolean);
+  let items = [...s.lanes.values()].filter((l) => l.session_id === sess.id);
+  if (filter?.length) items = items.filter((l) => filter.includes(l.status));
+  items.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  return ok(items);
+});
+on("GET", "/lanes/{id}", (req, p) => {
+  const s = store();
+  const lane = s.lanes.get(p.id);
+  if (!lane) throw new Problem(404, "not found", "not_found");
+  sessionOf(s, req, lane.session_id);
+  return ok(lane);
+});
+on("GET", "/lanes/{id}/tasks", (req, p) => {
+  const s = store();
+  const lane = s.lanes.get(p.id);
+  if (!lane) throw new Problem(404, "not found", "not_found");
+  sessionOf(s, req, lane.session_id);
+  const items = [...s.tasks.values()].filter((t) => t.lane_id === lane.id).sort((a, b) => a.created_at.localeCompare(b.created_at));
+  return ok(items.map((t) => toTask(s, t)));
+});
+/** 중단(FR-3.4) — 진행 중 턴만 취소한다. lane `failed(cancelled)`. `paused`는 실패가 아니지만 명시 종료는 이것이다. */
+on("POST", "/lanes/{id}/cancel", (req, p) => {
+  const s = store();
+  const lane = s.lanes.get(p.id);
+  if (!lane) throw new Problem(404, "not found", "not_found");
+  const sess = sessionOf(s, req, lane.session_id);
+  if (lane.status === "done" || lane.status === "failed") throw new Problem(409, "conflict", "invalid_transition", "이미 종료된 lane 입니다");
+  for (const t of s.tasks.values()) {
+    if (t.lane_id !== lane.id || t.status === "completed" || t.status === "cancelled") continue;
+    t.status = "cancelled";
+    t.failure_kind = "cancelled";
+    t.finished_at = now();
+    pushEvent(s, sess, t, { class: "status", verb: "cancel", object_ref: lane.id, outcome: "cancelled", sentence: "사람이 중단함" });
+  }
+  setLaneStatus(s, sess, lane.id, { status: "failed", failure_kind: "cancelled", current_activity: null, finished_at: now() });
+  emitParticipant(s, sess, lane.agent_id, null);
+  return ok(s.lanes.get(lane.id), 202);
+});
+/** 중단하고 다시 지시(FR-3.4 B) — 진행 중 턴을 취소하고 **새 task**(`restarted_from_task_id`)를 만든다. lane 은 running 유지. */
+on("POST", "/lanes/{id}/restart", (req, p) => {
+  const s = store();
+  const lane = s.lanes.get(p.id);
+  if (!lane) throw new Problem(404, "not found", "not_found");
+  const sess = sessionOf(s, req, lane.session_id);
+  const key = req.headers.get("idempotency-key");
+  if (!key) throw new Problem(422, "validation failed", "validation_failed", "Idempotency-Key 헤더가 필요합니다", { errors: [{ field: "Idempotency-Key", message: "required" }] });
+  if (s.idem.has(key)) return ok(s.idem.get(key), 202, { "Idempotent-Replayed": "true" });
+  const b = body<{ content?: string }>(req);
+  if (!b.content?.trim()) throw new Problem(422, "validation failed", "validation_failed", undefined, { errors: [{ field: "content", message: "새 지시를 입력하세요" }] });
+  if (!["running", "failed", "paused"].includes(lane.status)) throw new Problem(409, "conflict", "invalid_transition", "running·failed·paused lane 만 다시 지시할 수 있습니다");
+  const agent = s.agents.get(lane.agent_id)!;
+  let cancelled: string | null = null;
+  for (const t of s.tasks.values()) {
+    if (t.lane_id !== lane.id || t.status === "completed" || t.status === "cancelled" || t.status === "failed") continue;
+    t.status = "cancelled";
+    t.failure_kind = "cancelled";
+    t.finished_at = now();
+    cancelled = t.id;
+    pushEvent(s, sess, t, { class: "status", verb: "cancel", object_ref: lane.id, outcome: "cancelled", sentence: "사람이 중단하고 다시 지시함" });
+  }
+  const mention = `[@${agent.name}](mention://agent/${agent.id})`;
+  const content = b.content.includes(`mention://agent/${agent.id}`) ? b.content : `${mention} ${b.content}`;
+  const { user } = requireMember(s, req, sess.workspace_id);
+  const msg = addMessage(s, sess, { author_type: "user", author_id: user.id, author: { name: user.display_name, avatar_url: null }, kind: "text", content, mentions: parseMentions(content) });
+  const task = createTask(s, sess, agent.id, msg.id, { laneId: lane.id, restartedFrom: cancelled, brief: b.content.slice(0, 80) });
+  setLaneStatus(s, sess, lane.id, { status: "running", failure_kind: null, finished_at: null, brief: b.content.slice(0, 80) });
+  simulateRun(s, sess, task, `다시 받았습니다. "${b.content.slice(0, 60)}" 로 진행하겠습니다.`);
+  const result = { lane: s.lanes.get(lane.id), message: msg, task: toTask(s, task), cancelled_task_id: cancelled };
+  s.idem.set(key, result);
+  return ok(result, 202);
+});
+
+// ── 아티팩트 · 결정 기록 · 비용 (S7 우열) ──
+on("GET", "/sessions/{id}/artifacts", (req, p) => {
+  const s = store();
+  const sess = sessionOf(s, req, p.id);
+  const latestOnly = req.query.get("latest_only") === "true";
+  let items = [...s.artifacts.values()].filter((a) => a.session_id === sess.id);
+  if (latestOnly) items = items.filter((a) => a.latest !== false);
+  return ok(items.sort((a, b) => b.created_at.localeCompare(a.created_at)));
+});
+on("GET", "/sessions/{id}/decisions", (req, p) => {
+  const s = store();
+  const sess = sessionOf(s, req, p.id);
+  return ok([...s.decisions.values()].filter((d) => d.session_id === sess.id).sort((a, b) => b.created_at.localeCompare(a.created_at)));
+});
+on("GET", "/sessions/{id}/cost", (req, p) => {
+  const s = store();
+  const sess = sessionOf(s, req, p.id);
+  return ok({
+    total_usd: sess.cost_usd, budget_usd: sess.limits.budget_usd ?? null, estimated: sess.cost_estimated ?? false,
+    input_tokens: 12000, output_tokens: 1800, cache_read: 0,
+  });
+});
+
+// ── 세션 일시정지 · 재개(FR-2.3 · O6) ──
+on("POST", "/sessions/{id}/pause", (req, p) => {
+  const s = store();
+  const sess = sessionOf(s, req, p.id);
+  if (sess.status !== "active") throw new Problem(409, "conflict", "invalid_transition", "active 세션만 일시정지할 수 있습니다");
+  sess.status = "paused";
+  sess.paused_reason = "director";
+  sess.paused_detail = { reason: "director", paused_at: now(), resolve_actions: ["resume", "cancel"], can_resolve_from: null };
+  emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status, paused_reason: sess.paused_reason, paused_detail: sess.paused_detail }, sess.id);
+  return ok({ ...sess, participants: participantsOf(s, sess) });
+});
+on("POST", "/sessions/{id}/resume", (req, p) => {
+  const s = store();
+  const sess = sessionOf(s, req, p.id);
+  if (sess.status !== "paused") throw new Problem(409, "conflict", "invalid_transition", "paused 세션만 재개할 수 있습니다");
+  if (sess.paused_reason === "runtime_offline") throw new Problem(409, "conflict", "invalid_transition", "런타임 오프라인은 재바인딩하거나 세션을 종료해야 합니다");
+  const b = body<{ limits?: { budget_usd?: number; time_limit?: string }; reset_loop_counters?: boolean }>(req);
+  if (sess.paused_reason === "budget" && b.limits?.budget_usd != null) {
+    if (b.limits.budget_usd < sess.cost_usd) throw new Problem(422, "validation failed", "validation_failed", "새 상한은 현재 소진액 이상이어야 합니다", { errors: [{ field: "limits.budget_usd", message: `$${sess.cost_usd} 이상` }] });
+    sess.limits = { ...sess.limits, budget_usd: b.limits.budget_usd };
+  }
+  if (sess.paused_reason === "time" && b.limits?.time_limit) sess.limits = { ...sess.limits, time_limit: b.limits.time_limit };
+  sess.status = "active";
+  sess.paused_reason = null;
+  sess.paused_detail = undefined;
+  emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status, paused_reason: null, limits: sess.limits }, sess.id);
+  // queued lane 을 큐 순서대로 dispatch(E5-05)
+  for (const t of [...s.tasks.values()].filter((x) => x.session_id === sess.id && x.status === "queued")) {
+    const agent = s.agents.get(t.agent_id);
+    if (agent) simulateRun(s, sess, t, `재개했습니다. ${agent.name}가 이어서 진행합니다.`);
+  }
+  return ok({ ...sess, participants: participantsOf(s, sess) });
+});
+
+// ── 런타임 후보(S6 4단계 · S17) · 저장소 검증(S6 3단계) ──
+on("GET", "/workspaces/{id}/runtime-candidates", (req, p) => {
+  const s = store();
+  requireMember(s, req, p.id);
+  const isolation = req.query.get("isolation");
+  if (!isolation) throw new Problem(422, "validation failed", "validation_failed", "isolation 이 필요합니다", { errors: [{ field: "isolation", message: "required" }] });
+  const remoteUrl = req.query.get("remote_url");
+  const candidates = [...s.runtimes.values()]
+    .filter((r) => r.workspace_id === p.id)
+    .map((r) => {
+      if (r.status !== "online") return { runtime: r, eligible: false, reason: "오프라인" };
+      if (isolation === "worktree") {
+        // 경로 문자열이 아니라 remote URL 로 판정한다(FR-9.2 F)
+        const repo = r.repos.find((x) => !remoteUrl || x.remote_url === remoteUrl);
+        if (!repo) return { runtime: r, eligible: false, reason: remoteUrl ? "같은 remote URL 의 저장소가 없음" : "저장소가 없음" };
+        return { runtime: r, eligible: true, reason: null, matched_repo: repo };
+      }
+      return { runtime: r, eligible: true, reason: null };
+    });
+  return ok({ auto_select_allowed: isolation === "none", candidates });
+});
+on("POST", "/runtimes/{id}/repo-checks", (req, p) => {
+  const s = store();
+  const rt = s.runtimes.get(p.id);
+  if (!rt) throw new Problem(404, "not found", "not_found");
+  requireMember(s, req, rt.workspace_id);
+  if (rt.status !== "online") throw new Problem(409, "conflict", "runtime_offline", "런타임이 오프라인입니다");
+  const b = body<{ repo_path?: string }>(req);
+  const path = b.repo_path ?? "";
+  const known = rt.repos.find((r) => r.path === path);
+  // "dirty" 를 포함한 경로는 미커밋 변경이 있는 저장소로 흉내 낸다(E13-01 경로 확인용)
+  const dirty = path.includes("dirty");
+  if (!known && !dirty) {
+    return ok({ ok: false, repo_path: path, exists: false, is_git: false, clean: null, default_branch: null, current_branch: null, remote_url: null, tracks_brief_file: null, problems: ["경로가 없습니다"], checked_at: now() });
+  }
+  return ok({
+    ok: !dirty, repo_path: path, exists: true, is_git: true, clean: !dirty,
+    default_branch: "main", current_branch: known?.branch ?? "main", remote_url: known?.remote_url ?? null,
+    tracks_brief_file: false, problems: dirty ? ["미커밋 변경 3개 — 커밋하거나 stash 후 다시 시도하세요"] : [],
+    checked_at: now(),
+  });
+});
+
+// ── S9·S10 에이전트 · 프로파일 · 팀 템플릿 ──
+/** 옵션은 런타임이 광고한 범위 안이어야 한다(§8.2.6). 광고가 없으면 그 키는 쓸 수 없다 — 추측하지 않는다. */
+function optionErrors(s: Store, workspaceId: string, kind: string | undefined, options: Record<string, unknown> | undefined): { field: string; message: string }[] {
+  if (!kind || !options) return [];
+  const adv = runtimeOptionRanges(s, workspaceId).get(kind) ?? {};
+  const out: { field: string; message: string }[] = [];
+  for (const [k, v] of Object.entries(options)) {
+    const range = adv[k];
+    if (!range) out.push({ field: `options.${k}`, message: `${kind} 는 ${k} 의 지원 범위를 광고하지 않습니다` });
+    else if (!range.includes(String(v))) out.push({ field: `options.${k}`, message: `${k} 는 ${range.join(" · ")} 중 하나여야 합니다` });
+  }
+  return out;
+}
+
+function agentOf(s: Store, req: Req, agentId: string): Agent {
+  const a = s.agents.get(agentId);
+  if (!a) throw new Problem(404, "not found", "not_found");
+  requireMember(s, req, a.workspace_id);
+  return a;
+}
+/** 계약 SSE 에는 `agent.updated` 가 없다 — S9·S10 은 변경 후 다시 읽는다. 여기서는 갱신 시각만 올린다. */
+function touchAgent(_s: Store, a: Agent) {
+  a.updated_at = now();
+}
+on("GET", "/agents/{id}", (req, p) => ok(agentOf(store(), req, p.id)));
+on("PATCH", "/agents/{id}", (req, p) => {
+  const s = store();
+  const a = agentOf(s, req, p.id);
+  const b = body<Partial<Agent>>(req);
+  if (b.name !== undefined) {
+    const dup = [...s.agents.values()].find((x) => x.workspace_id === a.workspace_id && x.id !== a.id && x.name === b.name);
+    if (dup) throw new Problem(409, "conflict", "name_taken", "워크스페이스 안에서 이름이 유일해야 합니다");
+    a.name = b.name;
+  }
+  for (const k of ["role", "role_description", "instructions", "tools", "max_concurrent_tasks", "respond_to", "respond_to_allowlist", "budget_per_task"] as const) {
+    if (b[k] !== undefined) (a as Record<string, unknown>)[k] = b[k];
+  }
+  // 킬 스위치(FR-1.9) — respond_to: nobody 는 실행 중 턴을 취소하고 대기 중 task 를 취소한다. 열린 HITL 은 남는다.
+  if (b.respond_to === "nobody") {
+    for (const t of s.tasks.values()) {
+      if (t.agent_id !== a.id || t.status === "completed" || t.status === "cancelled" || t.status === "failed") continue;
+      t.status = "cancelled";
+      t.failure_kind = "cancelled";
+      t.finished_at = now();
+      const sess = s.sessions.get(t.session_id);
+      if (sess) {
+        setLaneStatus(s, sess, t.lane_id, { status: "failed", failure_kind: "cancelled", current_activity: null, finished_at: now() });
+        emitParticipant(s, sess, a.id, "정지됨(respond_to: nobody)");
+      }
+    }
+  }
+  a.status = b.respond_to === "nobody" ? "disabled" : a.respond_to === "nobody" ? "disabled" : a.status;
+  if (a.respond_to !== "nobody" && a.status === "disabled") a.status = "idle";
+  touchAgent(s, a);
+  return ok(a);
+});
+/** 보관 — 물리 삭제가 아니라 `archived_at`(세션 이력이 참조한다). 진행 중 lane 이 있으면 409. */
+on("DELETE", "/agents/{id}", (req, p) => {
+  const s = store();
+  const a = agentOf(s, req, p.id);
+  const busy = [...s.lanes.values()].some((l) => l.agent_id === a.id && (l.status === "running" || l.status === "queued"));
+  if (busy) throw new Problem(409, "conflict", "agent_busy", "진행 중 lane 이 있습니다 — 먼저 정지시키거나 lane 을 끝내세요");
+  a.archived_at = now();
+  touchAgent(s, a);
+  return { status: 204 };
+});
+/** 프로파일 추가(FR-1.6) — `model` 은 워크스페이스 런타임이 probe 로 광고한 범위 안이어야 한다(§8.2.6). */
+on("POST", "/agents/{id}/profiles", (req, p) => {
+  const s = store();
+  const a = agentOf(s, req, p.id);
+  const b = body<{ name?: string; runtime_kind?: AgentProfile["runtime_kind"]; model?: string; options?: Record<string, unknown>; env?: Record<string, string>; args?: string[]; is_default?: boolean; fallback_profile_id?: string | null }>(req);
+  const errors: { field: string; message: string }[] = [];
+  if (!b.name?.trim()) errors.push({ field: "name", message: "이름을 입력하세요" });
+  if (!b.runtime_kind) errors.push({ field: "runtime_kind", message: "런타임 종류를 고르세요" });
+  if (!b.model?.trim()) errors.push({ field: "model", message: "모델을 고르세요" });
+  if (a.profiles.some((x) => x.name === b.name)) errors.push({ field: "name", message: "에이전트 안에서 이름이 유일해야 합니다" });
+  const models = runtimeModels(s, a.workspace_id);
+  if (b.runtime_kind && b.model && !(models.get(b.runtime_kind) ?? []).includes(b.model)) {
+    errors.push({ field: "model", message: `이 워크스페이스의 런타임이 광고하지 않은 모델입니다(${b.runtime_kind})` });
+  }
+  if (b.fallback_profile_id && !a.profiles.some((x) => x.id === b.fallback_profile_id)) errors.push({ field: "fallback_profile_id", message: "같은 에이전트의 다른 프로파일이어야 합니다" });
+  errors.push(...optionErrors(s, a.workspace_id, b.runtime_kind, b.options));
+  if (errors.length) throw new Problem(422, "validation failed", "validation_failed", undefined, { errors });
+  const t = now();
+  const prof: AgentProfile = {
+    id: uuid(), agent_id: a.id, name: b.name!.trim(), runtime_kind: b.runtime_kind!, model: b.model!,
+    options: b.options ?? {}, env: b.env ?? {}, args: b.args ?? [], is_default: !!b.is_default,
+    fallback_profile_id: b.fallback_profile_id ?? null, created_at: t, updated_at: t,
+  };
+  if (prof.is_default) for (const x of a.profiles) x.is_default = false;
+  a.profiles.push(prof);
+  touchAgent(s, a);
+  return ok(prof, 201);
+});
+on("PATCH", "/agents/{id}/profiles/{pid}", (req, p) => {
+  const s = store();
+  const a = agentOf(s, req, p.id);
+  const prof = a.profiles.find((x) => x.id === p.pid);
+  if (!prof) throw new Problem(404, "not found", "not_found");
+  const b = body<Partial<AgentProfile>>(req);
+  if (b.fallback_profile_id !== undefined && b.fallback_profile_id !== null) {
+    if (b.fallback_profile_id === prof.id || !a.profiles.some((x) => x.id === b.fallback_profile_id)) {
+      throw new Problem(422, "validation failed", "validation_failed", "폴백은 같은 에이전트의 다른 프로파일이어야 합니다", { errors: [{ field: "fallback_profile_id", message: "다른 프로파일" }] });
+    }
+  }
+  if (b.model && b.runtime_kind !== undefined) {
+    const models = runtimeModels(s, a.workspace_id);
+    if (!(models.get(b.runtime_kind) ?? []).includes(b.model)) {
+      throw new Problem(422, "validation failed", "validation_failed", "런타임이 광고하지 않은 모델입니다", { errors: [{ field: "model", message: "범위 밖" }] });
+    }
+  }
+  const optErrs = optionErrors(s, a.workspace_id, b.runtime_kind ?? prof.runtime_kind, b.options as Record<string, unknown> | undefined);
+  if (optErrs.length) throw new Problem(422, "validation failed", "validation_failed", undefined, { errors: optErrs });
+  for (const k of ["name", "runtime_kind", "model", "options", "env", "args", "fallback_profile_id"] as const) {
+    if (b[k] !== undefined) (prof as Record<string, unknown>)[k] = b[k];
+  }
+  if (b.is_default) for (const x of a.profiles) x.is_default = x.id === prof.id;
+  prof.updated_at = now();
+  touchAgent(s, a);
+  return ok(prof);
+});
+on("DELETE", "/agents/{id}/profiles/{pid}", (req, p) => {
+  const s = store();
+  const a = agentOf(s, req, p.id);
+  const prof = a.profiles.find((x) => x.id === p.pid);
+  if (!prof) throw new Problem(404, "not found", "not_found");
+  if (a.profiles.length === 1) throw new Problem(409, "conflict", "last_profile", "마지막 프로파일은 삭제할 수 없습니다");
+  if (prof.is_default) throw new Problem(409, "conflict", "default_profile", "먼저 다른 프로파일을 기본으로 지정하세요");
+  a.profiles = a.profiles.filter((x) => x.id !== prof.id);
+  for (const x of a.profiles) if (x.fallback_profile_id === prof.id) x.fallback_profile_id = null;
+  touchAgent(s, a);
+  return { status: 204 };
+});
+
+/** 템플릿 목록 — 매핑은 요청 시점의 온라인 런타임 능력으로 계산한다(FR-1.4). */
+on("GET", "/workspaces/{id}/agent-templates", (req, p) => {
+  const s = store();
+  requireMember(s, req, p.id);
+  const models = runtimeModels(s, p.id);
+  const out: AgentTemplate[] = TEMPLATES.map((t) => ({
+    key: t.key,
+    name: t.name,
+    description: t.description,
+    version: t.version,
+    agents: t.agents.map((a) => {
+      const ms = models.get(a.prefer) ?? [];
+      // 선호 런타임이 없으면 감지된 다른 런타임으로 떨어진다 — 매핑 실패도 등록은 한다
+      const fallbackKind = [...models.keys()][0] as AgentProfile["runtime_kind"] | undefined;
+      if (ms.length) return { key: a.key, name: a.name, role: a.role, role_description: a.role_description, mapping: { status: "mapped" as const, runtime_kind: a.prefer, model: ms[0], reason: null } };
+      if (fallbackKind) {
+        return { key: a.key, name: a.name, role: a.role, role_description: a.role_description, mapping: { status: "mapped" as const, runtime_kind: fallbackKind, model: (models.get(fallbackKind) ?? [])[0], reason: `${a.prefer} 가 없어 ${fallbackKind} 로 매핑했습니다` } };
+      }
+      return { key: a.key, name: a.name, role: a.role, role_description: a.role_description, mapping: { status: "unmapped" as const, reason: "감지된 런타임이 없습니다 — 먼저 컴퓨터를 연결하세요" } };
+    }),
+  }));
+  return ok(out);
+});
+on("POST", "/workspaces/{id}/agent-templates/{key}/apply", (req, p) => {
+  const s = store();
+  const { user } = requireMember(s, req, p.id);
+  const tpl = TEMPLATES.find((t) => t.key === p.key);
+  if (!tpl) throw new Problem(404, "not found", "not_found", "그런 템플릿이 없습니다");
+  const b = body<{ runtime_id?: string | null; name_overrides?: Record<string, string> }>(req);
+  const models = runtimeModels(s, p.id, b.runtime_id ?? null);
+  const fallbackKind = [...models.keys()][0] as AgentProfile["runtime_kind"] | undefined;
+  const agents: Agent[] = [];
+  const unmapped: { agent_id: string; reason: string }[] = [];
+  for (const seed of tpl.agents) {
+    let name = b.name_overrides?.[seed.key] ?? seed.name;
+    // 이름 충돌은 접미사로 피한다(계약: name_overrides 로 피할 수 있게 하되 막지는 않는다)
+    let n = 2;
+    while ([...s.agents.values()].some((x) => x.workspace_id === p.id && x.name === name)) name = `${b.name_overrides?.[seed.key] ?? seed.name} ${n++}`;
+    const kind = (models.has(seed.prefer) ? seed.prefer : fallbackKind) as AgentProfile["runtime_kind"] | undefined;
+    const model = kind ? (models.get(kind) ?? [])[0] : undefined;
+    const a = makeAgent(p.id, user.id, name, seed.role, seed.role_description, kind && model ? { runtime_kind: kind, model } : undefined);
+    a.instructions = seed.instructions;
+    a.definition_source = tpl.key;
+    a.definition_version = tpl.version;
+    s.agents.set(a.id, a);
+    agents.push(a);
+    if (!kind || !model) unmapped.push({ agent_id: a.id, reason: "감지된 런타임이 없어 프로파일을 매핑하지 못했습니다 — 컴퓨터를 연결한 뒤 S10 에서 지정하세요" });
+  }
+  return ok({ agents, unmapped }, 201);
+});
+
+/** dev·테스트용 — lane 7상태를 한 번에 만든다(계약 밖 경로, `__mock` 접두). */
+on("POST", "/__mock/sessions/{id}/seed-lanes", (req, p) => {
+  const s = store();
+  const sess = sessionOf(s, req, p.id);
+  const agents = (sess.participants ?? []).map((x) => x.agent_id);
+  const states: Lane["status"][] = ["queued", "running", "waiting_human", "blocked", "paused", "done", "failed"];
+  const made: Lane[] = [];
+  states.forEach((st, i) => {
+    const agentId = agents[i % Math.max(1, agents.length)] ?? uuid();
+    const lane = createLane(s, sess, agentId, `${st} 상태 예시 lane`);
+    const patch: Partial<Lane> = { status: st };
+    if (st === "queued") patch.queue_position = 2;
+    if (st === "running") patch.current_activity = "src/app.ts 를 편집하는 중…";
+    if (st === "waiting_human") patch.waiting_for = "Director 승인 대기";
+    if (st === "blocked") { patch.waiting_for = "Lead"; patch.blocked_note = "국내만인가요, 글로벌 포함인가요?"; patch.blocked_message_id = uuid(); }
+    if (st === "paused") patch.paused_over_usd = 1.4;
+    if (st === "done") { patch.finished_at = now(); patch.brief = "경쟁사 5곳 정리 완료"; }
+    if (st === "failed") { patch.failure_kind = "timeout"; patch.finished_at = now(); }
+    if (st === "done" || st === "failed") patch.reentry_count = 1;
+    setLaneStatus(s, sess, lane.id, patch);
+    made.push(s.lanes.get(lane.id)!);
+  });
+  return ok(made, 201);
 });

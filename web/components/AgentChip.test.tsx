@@ -10,7 +10,8 @@ describe("deriveAgentStatus — PRD FR-1.3 파생 순서", () => {
     expect(deriveAgentStatus({ offline: true, error: true, taskStatuses: ["running"] })).toBe("offline");
     expect(deriveAgentStatus({ error: true, taskStatuses: ["running"] })).toBe("error");
     expect(deriveAgentStatus({ taskStatuses: ["completed", "running", "waiting_human"] })).toBe("working");
-    expect(deriveAgentStatus({ taskStatuses: ["dispatched"] })).toBe("working");
+    // W-5 — `dispatched` 는 아직 턴이 시작되지 않았다. 자세한 경계는 AgentChip.derive.test.tsx
+    expect(deriveAgentStatus({ taskStatuses: ["dispatched"] })).toBe("idle");
     expect(deriveAgentStatus({ taskStatuses: ["waiting_human", "completed"] })).toBe("waiting_human");
     expect(deriveAgentStatus({ taskStatuses: ["completed", "failed"] })).toBe("idle");
     expect(deriveAgentStatus({})).toBe("idle");

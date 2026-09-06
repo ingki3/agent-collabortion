@@ -1,0 +1,12 @@
+/* S11 런타임 카드 — 능력 목록·저장소·colab CLI 경고. 색은 tokens.css 변수만. */
+.rtcard { display: flex; flex-direction: column; gap: 6px; }
+.rtcard__caps { margin: 4px 0 0; padding-left: 16px; font-size: 12px; color: var(--ink-2); display: flex; flex-direction: column; gap: 4px; }
+.rtcard__notes { font-size: 11px; color: var(--ink-3); }
+.rtcard__repos { margin: 0; padding-left: 16px; font-size: 11px; color: var(--ink-3); }
+.rtcard__dirty { color: var(--s-wait-text); }
+.rtcard__alarm {
+  margin: 4px 0 0; padding: 6px 8px; border-radius: 8px; font-size: 12px;
+  border: 1px solid var(--s-fail); color: var(--s-fail-text);
+  background: color-mix(in srgb, var(--s-fail) var(--soft-alpha), transparent);
+}
+.rtcard__alarm code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
