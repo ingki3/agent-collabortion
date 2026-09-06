@@ -117,7 +117,16 @@ func buildDiff(dir, base string) (*diffResult, error) {
 	if mb, err := gitOut(dir, "merge-base", base, "HEAD"); err == nil && mb != "" {
 		from = mb
 	}
-	body, err := gitOut(dir, "diff", "--no-color", "--no-ext-diff", "--find-renames", from, "--")
+	// --binary is what makes a diff of a worktree that touched an image, a
+	// font or a `.dat` re-appliable. Without it git writes one
+	// `Binary files a/x and b/x differ` line and `git apply` refuses the
+	// WHOLE patch ("cannot apply binary patch to 'x' without full index
+	// line") — the text hunks go down with the one binary file while the CLI
+	// reports success, so the loss is silent (PR #160 R1). With it git writes
+	// the full index line and the base85 payload, which `git apply` takes
+	// with no flag of its own. The size ceiling is unchanged: the body is
+	// still checked against MaxArtifactBytes before any request.
+	body, err := gitRaw(dir, "diff", "--no-color", "--no-ext-diff", "--find-renames", "--binary", from, "--")
 	if err != nil {
 		return nil, &client.Error{Exit: client.ExitUsage, Code: "diff_failed",
 			Title: "could not build the diff", Detail: err.Error()}
@@ -126,10 +135,17 @@ func buildDiff(dir, base string) (*diffResult, error) {
 	if others, err := gitOut(dir, "ls-files", "--others", "--exclude-standard"); err == nil && others != "" {
 		out.Untracked = strings.Split(others, "\n")
 	}
-	if strings.TrimSpace(body) == "" {
+	if strings.TrimSpace(string(body)) == "" {
 		return out, emptyDiff(meta, out.Untracked)
 	}
-	out.Body = []byte(meta.headerLine() + "\n" + body + "\n")
+	// git's bytes go out as git wrote them. A binary hunk's base85 block is
+	// terminated by an empty line, so dropping the trailing blank line — what
+	// trimming the output as a string does — turns the patch into "corrupt
+	// binary patch at line N". Only a missing final newline is added.
+	out.Body = append([]byte(meta.headerLine()+"\n"), body...)
+	if n := len(out.Body); out.Body[n-1] != '\n' {
+		out.Body = append(out.Body, '\n')
+	}
 	return out, nil
 }
 
@@ -181,13 +197,24 @@ func emptyDiff(m diffMeta, untracked []string) error {
 }
 
 // gitOut runs git in dir and returns stdout with the trailing newline
-// trimmed. It never takes a directory from the caller's arguments: dir is
-// the process working directory, so the command cannot reach a repository
-// outside the worktree this attempt was given.
+// trimmed — for the one-line answers (`rev-parse`, `merge-base`, …). Patch
+// output goes through gitRaw instead, which does not touch the bytes.
+func gitOut(dir string, args ...string) (string, error) {
+	out, err := gitRaw(dir, args...)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(string(out), "\n"), nil
+}
+
+// gitRaw runs git in dir and returns stdout byte for byte. It never takes a
+// directory from the caller's arguments: dir is the process working
+// directory, so the command cannot reach a repository outside the worktree
+// this attempt was given.
 //
 // GIT_OPTIONAL_LOCKS=0 keeps a read from taking the index lock or rewriting
 // the index in the agent's worktree.
-func gitOut(dir string, args ...string) (string, error) {
+func gitRaw(dir string, args ...string) ([]byte, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(cmd.Environ(), "GIT_OPTIONAL_LOCKS=0")
@@ -196,11 +223,11 @@ func gitOut(dir string, args ...string) (string, error) {
 	out, err := cmd.Output()
 	if err != nil {
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, msg)
+			return nil, fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, msg)
 		}
-		return "", fmt.Errorf("git %s: %v", strings.Join(args, " "), err)
+		return nil, fmt.Errorf("git %s: %v", strings.Join(args, " "), err)
 	}
-	return strings.TrimRight(string(out), "\n"), nil
+	return out, nil
 }
 
 // diffNameUnsafe is everything an artifact name should not carry from a
@@ -211,7 +238,16 @@ var diffNameUnsafe = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 // not given. It has to be *stable* for the same worktree: E16-B step 5→6 has
 // the same lane submit a second diff after review feedback, and FR-4.3 makes
 // that version 2 only when the name matches. The branch's last segment is
-// that stable key (`colab/<session>/frontend` → `frontend.diff`).
+// that stable key (`colab/<session>/frontend` → `frontend.diff`), and it
+// falls back to the agent name (then `workdir`) on a detached HEAD.
+//
+// What the rule buys and what it costs: the key is the BRANCH, not the lane.
+// The daemon puts an attempt on `colab/<session>/<agent>` (harness.md §5), so
+// within a session the last segment is the agent and every re-submission
+// stacks as version+1. If an agent switches branches mid-session the default
+// name switches with it and the next submission opens a NEW artifact at
+// version 1 instead of continuing the old one — pass `--name` to keep the
+// versions together (documented in e2e/p4/README.md).
 func defaultDiffName(branch, agentName string) string {
 	name := ""
 	if branch != "" && branch != "HEAD" {

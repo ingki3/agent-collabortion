@@ -58,7 +58,11 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
                              workdir (commits since --base, staged and unstaged changes, in one
                              patch). Untracked files are not in a diff — git add them first.
                              The description's first line is "diff <branch>@<commit> vs <base>" and
-                             the body starts with a "# colab-diff:" comment (git apply skips it)
+                             the body starts with a "# colab-diff:" comment (git apply skips it).
+                             The patch is for "git apply", NOT "git am" — it is a plain diff with no
+                             commit metadata. Binary files are included (git diff --binary).
+                             Default --name is the branch's last segment (colab/<s>/frontend →
+                             frontend.diff), so re-submitting from the same branch is version+1
   colab artifact get <id> [--out <path>]
   colab review approve --artifact <id> [--note <t>]
   colab review reject  --artifact <id> --reason <text>

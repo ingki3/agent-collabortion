@@ -327,3 +327,127 @@ func TestDiffTargetIsNotCallerSettable(t *testing.T) {
 		t.Fatalf("workdir was settable from JSON: %q", a.Workdir)
 	}
 }
+
+// binaryV1/binaryV2 are two versions of a file git treats as binary (a NUL in
+// the first bytes). They stand in for the image/font/`.dat` an engineer lane
+// really changes.
+const (
+	binaryV1 = "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01v1"
+	binaryV2 = "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x02v2-longer\xff\xfe"
+)
+
+// binaryWorktree is a worktree that changed a binary file as well as a text
+// one — an agent that touched an icon, a font or a lockfile.
+func binaryWorktree(t *testing.T) string {
+	t.Helper()
+	dir := baseRepo(t)
+	write(t, dir, "logo.png", binaryV1)
+	git(t, dir, "add", "logo.png")
+	git(t, dir, "commit", "-qm", "base binary")
+	git(t, dir, "checkout", "-q", "-b", "colab/S/frontend")
+	write(t, dir, "a.txt", "one\ntwo committed\n")
+	git(t, dir, "commit", "-qam", "committed work")
+	write(t, dir, "logo.png", binaryV2) // unstaged, like any other edit
+	return dir
+}
+
+// PR #160 R1: a worktree that changed a binary file must still produce a
+// patch that re-applies. Without `git diff --binary` the body carries one
+// `Binary files a/logo.png and b/logo.png differ` line and `git apply`
+// refuses the WHOLE patch — the text hunks are lost with it while the CLI
+// exits 0, which is the silent-loss shape E14-06 (rebinding re-apply) and the
+// scenario B reviewer both hit. The apply here is real, on a fresh clone of
+// the base, exactly like a rebound machine.
+func TestGeneratedDiffAppliesWithBinaryChange(t *testing.T) {
+	dir := binaryWorktree(t)
+	s := clienttest.New(t)
+	if _, err := colab.ArtifactSubmit(context.Background(), newClient(t, s),
+		colab.ArtifactSubmitArgs{Type: "diff", Workdir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	body := string(s.Submissions[0].Data)
+	// The tell-tale of a patch git cannot apply: the summary line instead of
+	// the payload. `--binary` replaces it with `GIT binary patch`.
+	if strings.Contains(body, "Binary files") {
+		t.Fatalf("the diff summarises the binary change instead of carrying it:\n%s", body)
+	}
+	if !strings.Contains(body, "GIT binary patch") {
+		t.Fatalf("no binary payload in the patch:\n%s", body)
+	}
+	patch := filepath.Join(t.TempDir(), "colab.diff")
+	if err := os.WriteFile(patch, s.Submissions[0].Data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh := t.TempDir()
+	git(t, fresh, "clone", "-q", dir, "app")
+	app := filepath.Join(fresh, "app")
+	git(t, app, "checkout", "-q", "main")
+	git(t, app, "apply", "--check", patch) // exit 0 or this test fails
+	git(t, app, "apply", patch)
+
+	got, err := os.ReadFile(filepath.Join(app, "logo.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != binaryV2 {
+		t.Fatalf("logo.png after apply = %q, want the worktree's bytes %q", got, binaryV2)
+	}
+	// The text change rode along; a rejected binary hunk would have taken it.
+	text, err := os.ReadFile(filepath.Join(app, "a.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(text) != "one\ntwo committed\n" {
+		t.Fatalf("a.txt after apply = %q", text)
+	}
+}
+
+// movedOnBaseWorktree is the fork this repository actually produces: the
+// agent branched, and `main` gained a commit afterwards while the agent
+// worked.
+func movedOnBaseWorktree(t *testing.T) string {
+	t.Helper()
+	dir := baseRepo(t)
+	git(t, dir, "checkout", "-q", "-b", "colab/S/frontend")
+	write(t, dir, "a.txt", "one\ntwo committed\n")
+	git(t, dir, "commit", "-qam", "committed work")
+	git(t, dir, "checkout", "-q", "main")
+	write(t, dir, "b.txt", "base moved on\n")
+	git(t, dir, "add", "b.txt")
+	git(t, dir, "commit", "-qm", "landed on main after the fork")
+	git(t, dir, "checkout", "-q", "colab/S/frontend")
+	write(t, dir, "a.txt", "one\ntwo committed\nthree unstaged\n")
+	return dir
+}
+
+// The diff is taken from the MERGE BASE, not from the base branch's tip.
+// Diffing against the tip would describe this branch as deleting b.txt —
+// a reversal of work the agent never touched, which a reviewer reads as
+// vandalism and a re-apply performs. Nothing that landed on main after the
+// fork may appear in the patch.
+func TestGeneratedDiffUsesMergeBaseWhenBaseMovedOn(t *testing.T) {
+	dir := movedOnBaseWorktree(t)
+	s := clienttest.New(t)
+	if _, err := colab.ArtifactSubmit(context.Background(), newClient(t, s),
+		colab.ArtifactSubmitArgs{Type: "diff", Workdir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	body := string(s.Submissions[0].Data)
+	// The branch's own work is there — otherwise this assertion is vacuous.
+	for _, want := range []string{"+two committed", "+three unstaged"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body is missing %q:\n%s", want, body)
+		}
+	}
+	for _, unwanted := range []string{"b.txt", "base moved on", "deleted file"} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("the patch reverses main's later commit (%q in body):\n%s", unwanted, body)
+		}
+	}
+	// Still stated as "vs main": the base is the branch, the merge base is
+	// only where the comparison starts (E14-06 re-applies onto the base).
+	if want := "base=main"; !strings.Contains(strings.SplitN(body, "\n", 2)[0], want) {
+		t.Fatalf("header = %q, want %q", strings.SplitN(body, "\n", 2)[0], want)
+	}
+}

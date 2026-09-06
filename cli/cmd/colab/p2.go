@@ -116,8 +116,10 @@ func runArtifact(args []string, getenv client.Getenv, stdout, stderr io.Writer) 
 	case "submit":
 		fs, _ := newFlagSet("artifact submit", stderr)
 		session := fs.String("session", "", "session id (default COLAB_SESSION_ID / token scope)")
-		name := fs.String("name", "", "artifact name; re-submitting the same name is version+1 (default: the file's base name)")
-		typ := fs.String("type", "", "artifact type — open set: file · diff · branch · doc · report …")
+		name := fs.String("name", "", "artifact name; re-submitting the same name is version+1 "+
+			"(default: the file's base name; for a generated --type diff, the branch's last segment)")
+		typ := fs.String("type", "", "artifact type — open set: file · diff · branch · doc · report …; "+
+			"a generated diff is a patch for \"git apply\", not a \"git am\" mailbox")
 		file := fs.String("file", "", "file to upload, max 50 MB (openapi's multipart part name); "+
 			"optional for --type diff — omitted, the CLI diffs this workdir")
 		path := fs.String("path", "", "alias of --file")

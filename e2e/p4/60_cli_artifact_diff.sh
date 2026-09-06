@@ -14,11 +14,15 @@
 # 격리 e2e 가 자기 저장소를 대상으로 삼으면 X-2 의 worktree 판이 된다.
 #
 #   1. 전용 스택(Postgres :5449 + server :8104) — 다른 워커 스택에 손대지 않는다(P3_TASKS §0-13).
-#   2. 임시 저장소: main 1커밋 → colab/S/frontend 브랜치에 커밋·staged·unstaged·untracked 각 1개.
+#   2. 임시 저장소: main 1커밋(텍스트 + **바이너리 파일**) → colab/S/frontend 브랜치에
+#      커밋·staged·unstaged·untracked 각 1개 + 바이너리 파일 변경 1개.
 #   3. `colab artifact submit --type diff` (cwd = 임시 워크트리, --file 없음)
 #      → 201, artifact.type=diff, name=frontend.diff, description 첫 줄 `diff <b>@<c> vs main`.
 #   4. 내려받은 본문: 첫 줄 `# colab-diff: …`, 세 변경이 다 있고 untracked 는 없다.
+#      바이너리 변경은 `Binary files … differ` 요약이 아니라 `GIT binary patch` 페이로드로 실린다
+#      (PR #160 R1: 요약만 있으면 `git apply` 가 패치를 통째로 거부한다).
 #      base 만 있는 새 클론에 `git apply` → 그대로 적용된다(E14-06 재적용의 전제).
+#      바이너리 파일은 적용 후 바이트가 원본 워크트리와 같다.
 #   5. 같은 워크트리에서 두 번째 제출 → **같은 이름 version 2** (FR-4.3, E16-B 5→6단계).
 #   6. 변경 없는 워크트리 → exit 2 `empty_diff`, 아티팩트 행 증가 0.
 #   7. 워크트리 밖은 읽지 않는다 — 저장소가 아닌 cwd 는 위로 올라가지 않고 거절한다.
@@ -86,7 +90,9 @@ mkdir -p "$REPO"
 tgit "$REPO" init -q
 tgit "$REPO" symbolic-ref HEAD refs/heads/main
 printf 'one\n' > "$REPO/a.txt"
-tgit "$REPO" add a.txt
+# git 이 binary 로 판정하는 파일(첫 8000바이트 안에 NUL) — 아이콘·폰트·lockfile 자리.
+printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR-v1' > "$REPO/logo.png"
+tgit "$REPO" add a.txt logo.png
 tgit "$REPO" commit -qm base
 BASE_COMMIT="$(tgit "$REPO" rev-parse HEAD)"
 tgit "$REPO" checkout -q -b colab/S/frontend
@@ -95,6 +101,7 @@ tgit "$REPO" commit -qam "committed work"
 printf 'staged work\n' > "$REPO/staged.txt"
 tgit "$REPO" add staged.txt
 printf 'one\ntwo committed\nthree unstaged\n' > "$REPO/a.txt"
+printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR-v2-longer\xff\xfe' > "$REPO/logo.png"
 printf 'build noise\n' > "$REPO/junk.log"
 HEAD_SHORT="$(tgit "$REPO" rev-parse --short HEAD)"
 ok "repo $REPO — branch colab/S/frontend @ $HEAD_SHORT (base main $BASE_COMMIT)"
@@ -171,6 +178,10 @@ chk C6-8 "커밋·staged·unstaged 세 변경이 한 패치에" 3 "$((C1 + C2 + 
 chk C6-9 "untracked 는 본문에 없다" 0 "$(grep -c 'junk.log' "$DL" 2>/dev/null || true)"
 chk C6-10 "untracked 는 결과에서 알려 준다" "junk.log" \
   "$(jq -r '.diff.untracked_not_included | join(",")' "$OUT/60_submit1.json" 2>/dev/null)"
+# PR #160 R1: 바이너리 변경은 페이로드로 실려야 한다. `Binary files a/x and b/x differ` 한 줄만
+# 나가면 `git apply` 가 텍스트 hunk까지 포함해 패치를 통째로 거부한다(조용한 유실).
+chk C6-22 "바이너리 변경이 GIT binary patch 로 실린다 (요약 줄 아님)" "1|0" \
+  "$(grep -c '^GIT binary patch$' "$DL" 2>/dev/null || true)|$(grep -c '^Binary files ' "$DL" 2>/dev/null || true)"
 # E14-06 재적용의 전제: base 만 있는 새 워크트리에 그대로 붙는다(`#` 줄은 git apply 가 무시한다).
 FRESH="$TMPROOT/fresh"
 tgit "$TMPROOT" clone -q "$REPO" fresh >/dev/null 2>&1
@@ -182,6 +193,8 @@ set -e
 chk C6-11 "새 클론에 git apply 성공" 0 "$APPLY"
 chk C6-12 "적용 결과가 원본 워크트리와 같다" "same" \
   "$(if diff -q "$REPO/a.txt" "$FRESH/a.txt" >/dev/null 2>&1 && diff -q "$REPO/staged.txt" "$FRESH/staged.txt" >/dev/null 2>&1; then echo same; else echo differs; fi)"
+chk C6-23 "적용된 바이너리 파일이 원본과 바이트 동일" "same" \
+  "$(if cmp -s "$REPO/logo.png" "$FRESH/logo.png"; then echo same; else echo differs; fi)"
 
 step "5. 재진입 후 두 번째 제출 → 같은 이름 version 2 (FR-4.3, E16-B 5→6)"
 printf 'one\ntwo committed\nthree unstaged\nfour after review\n' > "$REPO/a.txt"
