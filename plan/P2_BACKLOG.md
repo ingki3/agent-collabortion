@@ -55,6 +55,7 @@
 | S-16 | `listParticipants`(x-phase **P2**)가 아직 501. 웹은 세션 상세의 `participants`를 써서 G4 2판을 막지 않지만, T-S2가 "P2 op 전부"를 받고 남긴 마지막 하나 | T-S4(PR #75) 남김 | 다음 서버 작업 |
 | S-17 | `tasks.Service.LanePublish` 훅이 `nil`이면 **조용히** 발행을 건너뛴다(`tasks/service.go:585`). 프로덕션 배선은 `httpapi/server.go:89` 한 곳이고 `TestClaimPublishesLaneRunning`이 누락을 잡지만, 다른 바이너리 조립(워커·CLI 임베드)에서는 조용히 빠질 수 있다 → `nil`이면 `slog.Warn("tasks: LanePublish unwired")` 한 줄 | PR #78 리뷰 NN1 | 낮음 |
 | S-18 | PR #78 본문의 "lane.updated 발행 20곳"은 status 전이(15: UPDATE 12 + INSERT 3)에 카드 변경 자리(phase 보고 등 5)를 더한 정의다. 다음 대조가 15와 20을 다시 맞추지 않도록 정의를 코드 주석(`tasks.publish`)에 명시 | PR #78 리뷰 NN2 | 문서 |
+| S-19 | 비용 롤업(`tasks.Finish` 커밋 뒤 별도 tx, `SUM(task_usage)`)이 실패하면 데몬 재시도가 `finished != nil` 멱등 경로로 빠져 `costed`가 안 켜지고 그 attempt의 롤업이 다시 돌지 않는다 — 세션의 마지막 finish면 `session.cost_usd`가 영구 뒤처짐. DB 장애 외 도달 불가라 비차단. 후보: 멱등 경로에서도 롤업(SUM이라 무해) 또는 `getSessionCost`가 SUM을 직접 읽기. (S-17의 nil 훅 로그는 `ParticipantPublish`에도 적용) | PR #85 리뷰 NN1·NN2 | 낮음 |
 
 ## C (CLI)
 
