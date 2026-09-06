@@ -6,6 +6,7 @@
 #   D3 501 표면의 정직성               D4 멱등키 경계
 #   D5 미인증 접근                     D6 SSE 인가
 #   D7 데몬 토큰 경계                  D8 잘못된 입력이 5xx 가 되지 않는가
+#   D10 아티팩트 제출·리뷰 경계(T-S3: TaskToken 범위·워크스페이스 경계·413·403)
 #
 # 전제: up.sh + 01 이 끝나 out/a-ids.txt · cookies-a.txt 가 있고 서버가 살아 있다.
 # 에이전트 턴 0. 산출물 out/g-summary.json
@@ -133,6 +134,111 @@ chk "상한 바로 밖(201) 은 422"             "422" "$(ucode "$API/sessions/$
 chk "상한값(200) 은 통과"                  "200" "$(ucode "$API/sessions/$SESSION/messages?limit=200")"
 N_BIG="$(curl -sS -b "$CK_A" "$API/sessions/$SESSION/messages?limit=200" | jq '.items|length')"
 [ "$N_BIG" -le 200 ] && chk "허용 최대 limit 결과가 상한 200 이하" yes yes || chk "허용 최대 limit 결과가 상한 200 이하" yes no
+
+echo
+echo "▶ D10. 아티팩트 제출·리뷰 경계 (T-S3: submitArtifact · getArtifact · downloadArtifact · reviewArtifact)"
+# 세 operation 중 둘이 TaskToken 전용인데 서버는 토큰 평문을 저장하지 않는다
+# (task_token.token_hash 뿐 — D1 이 같은 이유로 우회한다). 데몬을 한 번 더 돌리는
+# 대신 **테스트 픽스처로 토큰을 하나 심는다**: 서버가 검증하는 것은 sha256 hex 이므로
+# 우리가 고른 문자열의 해시를 넣으면 진짜 발급과 구분되지 않는다(colab_tap 과 같은 성격).
+A_TOK="ctk_adv_$(uuidgen | tr -d - | tr 'A-Z' 'a-z')"
+A_TASK="$(psqlq "select id from task where session_id='$SESSION' order by created_at desc limit 1")"
+if [ -n "${A_TASK:-}" ]; then
+  psqlq "insert into task_token (task_id, attempt, token_hash, lane_id, session_id, agent_id, issued_at, expires_at)
+         select t.id, t.attempt, encode(sha256('$A_TOK'::bytea), 'hex'), t.lane_id, t.session_id, t.agent_id, now(), now() + interval '1 hour'
+         from task t where t.id = '$A_TASK'
+         on conflict (task_id, attempt) do update
+           set token_hash = excluded.token_hash, expires_at = excluded.expires_at,
+               revoked_at = null, revoke_reason = null" >/dev/null || A_TASK=""
+fi
+if [ -z "${A_TASK:-}" ]; then
+  log "살아 있는 task 토큰이 없다 — D10 은 미인증·경계만 확인한다"
+  chk "쿠키·토큰 없이 아티팩트 제출 401"   401 "$(code -X POST "$API/sessions/$SESSION/artifacts" -F 'name=x' -F 'type=doc' -F 'file=@/dev/null')"
+  chk_in "B 가 A 의 아티팩트 목록 차단"    "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/artifacts")"
+else
+  A_SESS="$SESSION"
+  ART_F="$OUT/adv-artifact.txt"; printf 'T-S3 경계 검증 본문\n' > "$ART_F"
+  # 이름은 실행마다 고유하다 — 07 을 두 번 돌리면 v1·v2 가 v3·v4 가 된다.
+  ART_NAME="adversarial-$(date +%s).txt"
+  SUB="$(curl -sS -H "Authorization: Bearer $A_TOK" -X POST "$API/sessions/$A_SESS/artifacts" \
+         -F "name=$ART_NAME" -F 'type=doc' -F "file=@$ART_F")"
+  ART_ID="$(printf '%s' "$SUB" | jq -r '.artifact.id // empty')"
+  chk "TaskToken 으로 자기 세션 제출 201"  yes "$( [ -n "$ART_ID" ] && echo yes || echo no )"
+  chk "제출은 v1 부터"                      1 "$(printf '%s' "$SUB" | jq -r '.artifact.version // 0')"
+  # 같은 이름 재제출은 덮어쓰기가 아니라 v2 (FR-4.3)
+  SUB2="$(curl -sS -H "Authorization: Bearer $A_TOK" -X POST "$API/sessions/$A_SESS/artifacts" \
+          -F "name=$ART_NAME" -F 'type=doc' -F "file=@$ART_F")"
+  chk "같은 이름 재제출은 v2"               2 "$(printf '%s' "$SUB2" | jq -r '.artifact.version // 0')"
+
+  # 다운로드: 선언 길이와 실제 바이트가 같아야 한다 — CLI 가 절단을 이것으로 잡는다.
+  DL="$OUT/adv-artifact-dl.bin"
+  # macOS 의 awk 에는 IGNORECASE 가 없다 — 헤더 이름 대소문자는 grep -i 로 받는다.
+  DECL="$(curl -sS -D - -o "$DL" -H "Authorization: Bearer $A_TOK" "$API/artifacts/$ART_ID/content" \
+          | tr -d '\r' | grep -i '^content-length:' | tail -1 | awk '{print $2}')"
+  chk "downloadArtifact 가 Content-Length 를 선언" yes "$( [ -n "${DECL:-}" ] && echo yes || echo no )"
+  chk "선언 길이 = 기록된 바이트"           "${DECL:-none}" "$(wc -c < "$DL" | tr -d ' ')"
+  chk "내려받은 본문이 올린 본문과 같다"    yes "$(cmp -s "$ART_F" "$DL" && echo yes || echo no)"
+
+  # 지정 리뷰어가 아니면 403 not_designated_reviewer — CLI 가 이 문자열을 exit 3 으로 맵핑한다.
+  REV="$(curl -sS -w '\n%{http_code}' -H "Authorization: Bearer $A_TOK" -H 'Content-Type: application/json' \
+         -X POST "$API/artifacts/$ART_ID/review" --data '{"verdict":"approve"}')"
+  chk "비지정 리뷰어 403"                   403 "$(printf '%s' "$REV" | tail -1)"
+  chk "403 코드 문자열이 not_designated_reviewer" not_designated_reviewer \
+      "$(printf '%s' "$REV" | sed '$d' | jq -r '.code // empty')"
+
+  # 50 MB 상한(계약) — 한 바이트 넘기면 413 이고, 아무것도 저장되지 않는다.
+  BIGF="$OUT/adv-artifact-big.bin"
+  dd if=/dev/zero of="$BIGF" bs=1048576 count=51 status=none
+  N_ART_BEFORE="$(psqlq "select count(*) from artifact where session_id='$A_SESS'")"
+  chk "50MB 초과 제출은 413"                413 "$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $A_TOK" \
+      -X POST "$API/sessions/$A_SESS/artifacts" -F 'name=huge.bin' -F 'type=file' -F "file=@$BIGF")"
+  chk "413 은 아무것도 저장하지 않는다"     "$N_ART_BEFORE" "$(psqlq "select count(*) from artifact where session_id='$A_SESS'")"
+  rm -f "$BIGF"
+
+  # TaskToken 범위: 자기 세션 밖으로는 제출도 조회도 못 한다(G2 Q8).
+  OTHER_SESS="$(psqlq "select id from session where id <> '$A_SESS' limit 1")"
+  if [ -n "${OTHER_SESS:-}" ]; then
+    chk_in "다른 세션에 제출 차단"          "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $A_TOK" \
+        -X POST "$API/sessions/$OTHER_SESS/artifacts" -F 'name=x' -F 'type=doc' -F "file=@$ART_F")"
+    chk_in "다른 세션 아티팩트 목록 차단"   "403 404" "$(tcode "$A_TOK" "$API/sessions/$OTHER_SESS/artifacts")"
+    # 반대 방향도 막혀야 한다: 남의 세션 토큰이 **아티팩트 id 를 알아도** 그 아티팩트
+    # 자체에 닿으면 안 된다. 위의 두 행은 세션 스코프 경로(/sessions/{S}/…)라
+    # 아티팩트 스코프 경로(/artifacts/{A}) 를 검사하지 않는다.
+    O_TASK="$(psqlq "select id from task where session_id='$OTHER_SESS' order by created_at desc limit 1")"
+    if [ -n "${O_TASK:-}" ]; then
+      O_TOK="ctk_adv_other_$(uuidgen | tr -d - | tr 'A-Z' 'a-z')"
+      psqlq "insert into task_token (task_id, attempt, token_hash, lane_id, session_id, agent_id, issued_at, expires_at)
+             select t.id, t.attempt, encode(sha256('$O_TOK'::bytea), 'hex'), t.lane_id, t.session_id, t.agent_id, now(), now() + interval '1 hour'
+             from task t where t.id = '$O_TASK'
+             on conflict (task_id, attempt) do update
+               set token_hash = excluded.token_hash, expires_at = excluded.expires_at,
+                   revoked_at = null, revoke_reason = null" >/dev/null && {
+        chk_in "타 세션 토큰의 아티팩트 메타 조회 차단" "403 404" "$(tcode "$O_TOK" "$API/artifacts/$ART_ID")"
+        chk_in "타 세션 토큰의 아티팩트 본문 조회 차단" "403 404" "$(tcode "$O_TOK" "$API/artifacts/$ART_ID/content")"
+        chk_in "타 세션 토큰의 리뷰 호출 차단"          "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $O_TOK" -H 'Content-Type: application/json' \
+            -X POST "$API/artifacts/$ART_ID/review" --data '{"verdict":"approve"}')"
+        chk "타 세션 리뷰 시도는 아무것도 저장하지 않는다" 0 \
+            "$(psqlq "select count(*) from artifact_review where artifact_id='$ART_ID'")"
+      }
+    fi
+  fi
+  chk "위조 토큰의 아티팩트 조회 401"       401 "$(tcode ctk_forged_0000000000000000000000 "$API/artifacts/$ART_ID")"
+
+  # 워크스페이스 경계: B 는 id 를 알아도 존재조차 알면 안 된다(404, 403 아님).
+  chk "B 가 A 의 아티팩트 메타 조회 404"    404 "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/artifacts/$ART_ID")"
+  chk "B 가 A 의 아티팩트 본문 조회 404"    404 "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/artifacts/$ART_ID/content")"
+  chk_in "B 가 A 의 아티팩트 목록 차단"     "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$A_SESS/artifacts")"
+  chk_in "B 가 A 의 세션에 제출 차단"       "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" \
+      -X POST "$API/sessions/$A_SESS/artifacts" -F 'name=x' -F 'type=doc' -F "file=@$ART_F")"
+
+  # 사람은 리뷰하지 않는다(openapi reviewArtifact 는 TaskToken 전용).
+  chk_in "사람 세션의 리뷰 호출 차단"       "401 403" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_A" -H 'Content-Type: application/json' \
+      -X POST "$API/artifacts/$ART_ID/review" --data '{"verdict":"approve"}')"
+  chk_in "없는 아티팩트 404"                "403 404" "$(tcode "$A_TOK" "$API/artifacts/$(uuidgen)")"
+  chk_in "잘못된 uuid 아티팩트 경로"        "400 404 422" "$(tcode "$A_TOK" "$API/artifacts/not-a-uuid")"
+  rm -f "$DL"
+fi
 
 echo
 echo "▶ D9. 서버 5xx 가 하나도 없었는가 (이 스크립트 구간)"

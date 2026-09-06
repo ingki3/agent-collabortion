@@ -418,6 +418,22 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, v Viewer) (*gen.Session,
 	return &out, nil
 }
 
+// Progress is the completion read model on its own. submitArtifact and
+// reviewArtifact answer with it beside the thing that just happened (openapi),
+// so the caller learns whether its submission actually moved the session
+// without a second round trip to getSession.
+func (s *Service) Progress(ctx context.Context, sessionID uuid.UUID) (gen.CompletionProgress, error) {
+	var tree, met []byte
+	err := s.DB.QueryRow(ctx, `SELECT completion_condition, completion_met FROM session WHERE id = $1`, sessionID).Scan(&tree, &met)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return gen.CompletionProgress{}, apperr.NotFound("session")
+	}
+	if err != nil {
+		return gen.CompletionProgress{}, err
+	}
+	return progress(tree, met), nil
+}
+
 // progress counts atoms of the completion tree; P1 has no satisfaction logic.
 // progress renders the completion tree for S7's right rail. The met flags come
 // from session.completion_met rather than being recomputed: E6-04 pins that an
@@ -473,6 +489,10 @@ func progress(tree, metRaw []byte) gen.CompletionProgress {
 	}
 	walk(node, "")
 	p.HumanGate = &human
+	// `satisfied` is the tree's verdict, not `met == total`: under OR one atom
+	// is enough, and S7 renders "완료로 갑니다" from this field. Leaving it at
+	// the zero value made a finished session look unfinished to every reader.
+	p.Satisfied = Satisfied(ParseTree(tree), met)
 	return p
 }
 

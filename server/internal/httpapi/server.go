@@ -15,6 +15,7 @@ import (
 	"github.com/ingki3/agent-collabortion/contracts/clock"
 	"github.com/ingki3/agent-collabortion/server/internal/agents"
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
+	"github.com/ingki3/agent-collabortion/server/internal/artifacts"
 	"github.com/ingki3/agent-collabortion/server/internal/auth"
 	"github.com/ingki3/agent-collabortion/server/internal/events"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
@@ -34,19 +35,20 @@ const BasePath = "/api/v1"
 type Server struct {
 	unimplemented
 
-	DB       *pgxpool.Pool
-	Clock    clock.Clock
-	Log      *slog.Logger
-	Auth     *auth.Service
-	Agents   *agents.Service
-	Runtimes *runtimes.Service
-	Sessions *sessions.Service
-	Router   *router.Service
-	Tasks    *tasks.Service
-	Events   *events.Service
-	Queue    *queue.Postgres
-	Tokens   *tokens.Service
-	Hub      *realtime.Hub
+	DB        *pgxpool.Pool
+	Clock     clock.Clock
+	Log       *slog.Logger
+	Auth      *auth.Service
+	Agents    *agents.Service
+	Artifacts *artifacts.Service
+	Runtimes  *runtimes.Service
+	Sessions  *sessions.Service
+	Router    *router.Service
+	Tasks     *tasks.Service
+	Events    *events.Service
+	Queue     *queue.Postgres
+	Tokens    *tokens.Service
+	Hub       *realtime.Hub
 
 	// SecureCookies sets the Secure flag on the session cookie (HTTPS).
 	SecureCookies bool
@@ -82,16 +84,17 @@ func NewServer(d Deps) *Server {
 	rt := router.New(d.DB, d.Clock, hub, notifier).WithTasks(tsk)
 	return &Server{
 		DB: d.DB, Clock: d.Clock, Log: d.Log,
-		Auth:     auth.New(d.DB, d.Clock, d.WebURL),
-		Agents:   agents.New(d.DB, d.Clock),
-		Runtimes: runtimes.New(d.DB, d.Clock, hub, d.ServerURL),
-		Sessions: sessions.New(d.DB, d.Clock, hub, rt).WithTasks(tsk),
-		Router:   rt,
-		Tasks:    tsk,
-		Events:   events.New(d.DB, d.Clock, hub),
-		Queue:    q,
-		Tokens:   tok,
-		Hub:      hub,
+		Auth:      auth.New(d.DB, d.Clock, d.WebURL),
+		Agents:    agents.New(d.DB, d.Clock),
+		Artifacts: artifacts.New(d.DB, d.Clock),
+		Runtimes:  runtimes.New(d.DB, d.Clock, hub, d.ServerURL),
+		Sessions:  sessions.New(d.DB, d.Clock, hub, rt).WithTasks(tsk),
+		Router:    rt,
+		Tasks:     tsk,
+		Events:    events.New(d.DB, d.Clock, hub),
+		Queue:     q,
+		Tokens:    tok,
+		Hub:       hub,
 	}
 }
 
