@@ -1,6 +1,6 @@
 //go:build p3golden
 
-// Golden table for budgets (EVAL E9, 7 rows) — PRD FR-7.3 (비용 집계와 강제,
+// Golden table for budgets (EVAL E9, 9 rows) — PRD FR-7.3 (비용 집계와 강제,
 // M9·C2′), FR-2.2 (예산 소진은 종료가 아니라 paused), PRD §8.2.2 (취소 절차),
 // contracts/daemon-protocol.md §4.3·§4.4 (`cancel reason=budget`,
 // `outcome: paused_budget`) and openapi `respondHitlRequest` ·
@@ -191,19 +191,28 @@ func TestTaskBudgetEnforcementGolden(t *testing.T) {
 		}
 	})
 
-	t.Run(caseNameP3("E9-01", "an_approved_override_raises_the_ceiling_for_this_task"), func(t *testing.T) {
-		// The mirror of E9-01: with an override in force the same spend must
-		// NOT trip the limit, or an approved continuation pauses immediately
-		// again and the approval is meaningless.
+	t.Run(caseNameP3("E9-08", "an_approved_override_is_read_at_enforcement_time_not_just_stored"), func(t *testing.T) {
+		// EVAL v0.6's row: $3 approved, $1.50 accumulated mid-turn. An
+		// implementation that STORES budget_override and keeps enforcing
+		// against the agent's budget_per_task pauses the task the moment it
+		// resumes, so the Director's approval buys nothing — and E9-02, which
+		// only inspects the state right after the answer, stays green.
 		o := mustEnforce(t, budgetCase{
-			Scope: "task", TaskLimitUSD: 1, OverrideUSD: 3, SpentUSD: 1.01,
+			Scope: "task", TaskLimitUSD: 1, OverrideUSD: 3, SpentUSD: 1.50,
 		})
-		if o.TaskStatus == "paused" {
-			t.Error("with budget_override = $3 a spend of $1.01 is inside the limit — the override " +
-				"is what the enforcement reads (FR-7.3 C2′, E9-02)")
+		if o.TaskStatus == "paused" || o.PausedReason == "budget" {
+			t.Errorf("task = %q(%q) — with budget_override = $3 a spend of $1.50 is INSIDE the "+
+				"effective limit; the override is what enforcement reads (FR-7.3 C2′, E9-08)",
+				o.TaskStatus, o.PausedReason)
+		}
+		if o.TaskStatus != "running" {
+			t.Errorf("task = %q, want running (E9-08)", o.TaskStatus)
 		}
 		if o.CancelCommandIssued {
-			t.Error("no cancel while inside the effective limit")
+			t.Error("no cancel command while inside the effective limit (E9-08)")
+		}
+		if o.HitlIssued {
+			t.Error("nothing to ask the Director — the raise they already approved covers this spend")
 		}
 	})
 }
@@ -409,16 +418,30 @@ func TestCostRollupGolden(t *testing.T) {
 		}
 	})
 
-	t.Run(caseNameP3("E9-07", "an_all_measured_report_is_not_badged_estimated"), func(t *testing.T) {
+	t.Run(caseNameP3("E9-09", "an_all_measured_report_is_not_badged_estimated"), func(t *testing.T) {
+		// EVAL v0.6's row: the negative control for the badge. E9-07 only
+		// feeds a mixed report, so an implementation that hard-codes
+		// `estimated: true` passes it — and then every session in the product
+		// wears an "추정" badge, which makes the badge unreadable.
 		if rollupCost == nil {
 			t.Fatalf("unimplemented: see the row above")
 		}
 		r := rollupCost([]usageRow{
 			{TaskID: p3TaskR1, AgentID: p3AgentR, RuntimeID: p3Runtime, CostUSD: 0.40, Estimated: false},
+			{TaskID: uuid.MustParse("c0000000-0000-4000-8000-000000000005"),
+				AgentID: p3AgentR, RuntimeID: p3Runtime, CostUSD: 0.25, Estimated: false},
 		})
 		if r.Estimated {
-			t.Error("an always-true badge tells the reader nothing — with every row measured the " +
-				"report is measured")
+			t.Error("every row is measured, so the report is measured — an always-true badge tells " +
+				"the reader nothing (FR-7.3, E9-09)")
+		}
+		if r.TotalUSD < 0.6499 || r.TotalUSD > 0.6501 {
+			t.Errorf("total = %v, want 0.65 (E9-09)", r.TotalUSD)
+		}
+		for _, b := range r.ByTask {
+			if b.Estimated {
+				t.Errorf("task bucket %s badged estimated, but its row was measured (E9-09)", b.ID)
+			}
 		}
 	})
 }
