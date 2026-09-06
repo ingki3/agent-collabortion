@@ -1791,9 +1791,9 @@ export interface components {
             }[];
             /**
              * Format: date-time
-             * @description deputy가 응답할 수 있게 되는 시각(403에서).
+             * @description deputy 의 시점 제한(기한 절반 경과 시각)일 때만 시각. **권한이 영영 없는 사람(일반 멤버 등)에게는 비운다(null)** — 생기지 않을 권리에 시각을 약속하지 않는다(E7-11, PR #108).
              */
-            can_respond_from?: string;
+            can_respond_from?: string | null;
             /** @description 차단 사유가 된 세션(런타임 삭제 409 등). */
             sessions?: {
                 /** Format: uuid */
@@ -3165,7 +3165,7 @@ export interface components {
              */
             artifact_id?: string | null;
             /**
-             * @description 시스템 발행 HITL의 용도(종료 조건 승인 · 예산 · 시간 · 루프).
+             * @description HITL 의 용도. **플랫폼 발행이면 용도별 고정값** — 종료 조건 승인 `user_approval`(E6-01) · 예산 `budget`(E9-01·04) · 시간 `time` · 루프 `loop`(E4-03); 에이전트 발행(source=agent)은 `agent`. source=system + type=approval 만으로는 완료 승인과 예산·루프 정지를 구분할 수 없어 이 칸이 판정 기준이다(0012, PR #103·#108).
              * @enum {string|null}
              */
             purpose?: "agent" | "user_approval" | "budget" | "time" | "loop" | null;

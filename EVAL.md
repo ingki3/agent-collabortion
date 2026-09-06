@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 문서 버전 | v0.5 — E1-22(합류 뒤 자식 멘션의 기상 한도 = FR-3.4 병합, K-5). v0.4는 E5-02가 재큐잉하지 않는다는 것을 명시(계약이 반대로 적고 있었다, `daemon-protocol.md` v0.6에서 정정). v0.3은 P2a 골든 테이블 작성 중 드러난 공백 4행 추가(E1-21 억제와 합류 전달은 한 쌍, E2-14 새 lane 토글 자동 해제, E2-15 중단 후 재지시의 lane, E4-10 재개 시 카운터). v0.2는 P1 통합(G3)에서 드러난 결함 5건을 회귀 행으로 승격(E8-13·E10-13·E11-11·E11-12·E17-09) |
+| 문서 버전 | v0.6 — E7-20·E7-21·E9-08·E9-09·E10-14 추가(P3a 골든 작성 중 드러난 "한쪽만 구현해도 통과하는" 구멍 5건, PR #108). v0.5는 E1-22(합류 뒤 자식 멘션의 기상 한도 = FR-3.4 병합, K-5). v0.4는 E5-02가 재큐잉하지 않는다는 것을 명시(계약이 반대로 적고 있었다, `daemon-protocol.md` v0.6에서 정정). v0.3은 P2a 골든 테이블 작성 중 드러난 공백 4행 추가(E1-21 억제와 합류 전달은 한 쌍, E2-14 새 lane 토글 자동 해제, E2-15 중단 후 재지시의 lane, E4-10 재개 시 카운터). v0.2는 P1 통합(G3)에서 드러난 결함 5건을 회귀 행으로 승격(E8-13·E10-13·E11-11·E11-12·E17-09) |
 | 작성일 | 2026-09-05 |
 | 근거 | `PRD.md` v0.11 (FR 번호로 인용), `PLAN.md` v0.5 (게이트 G1~G9, §5 테스트 전략) |
 | 목적 | PRD의 규칙을 **입력 → 정확한 출력** 쌍으로 옮긴다. 이 문서의 한 행이 테스트 하나다. "됐다"를 사람마다 다르게 읽지 않게 하는 것이 PLAN의 DoD 원칙이고, 이 문서가 그 DoD의 실체다 |
@@ -180,6 +180,8 @@
 | E7-17 | `approval` 거절 | 재개 | 턴 프롬프트에 `approved: false` + 사유. task `queued` → 실행. `failed` **아님** | harness |
 | E7-18 | W `waiting_human`, R `running` 다른 lane | — | R 계속 진행. 세션 `active` | e2e |
 | E7-19 | Dir가 답해야 할 질문을 R이 `status set blocked`로 올림 | — | 위임자 Lead가 깨어남(잘못된 경로지만 규칙대로). 브리프에 구분 지시 존재 — 프롬프트 검증은 `manual` | unit |
+| E7-20 | `question`, `--default` 있음, task당 열린 HITL 0 | `choice` 타입으로 default 없이 등록 | **거부**(422) — FR-5.1 은 question·choice 둘 다 default 필수. E7-05 가 question 만 적어 한쪽만 구현해도 통과하던 구멍 | unit |
+| E7-21 | `info` 타입, `autonomy: autonomous`, 24h 경과 | — | `open` + `overdue`. 자동 진행 **없음**(FR-5.4 표는 `approval · info` 를 한 줄로 묶는다) | unit + clock |
 
 ---
 
@@ -214,6 +216,8 @@
 | E9-05 | 런타임 `usage=false`(추정), 추정치 100% 도달 | — | **하드 컷 없음**. 세션 `paused` + Dir 알림. 턴은 계속(드레인) | harness |
 | E9-06 | CLI 폴백 경로, Claude Code | 실행 | `--max-budget-usd` 함께 전달(이중 강제) | harness |
 | E9-07 | 비용 표시 | 조회 | task/agent/세션/런타임 4단위 집계. 추정치에는 "추정" 배지 | unit |
+| E9-08 | `task.budget_override` = $3 승인 뒤, 턴 중 누적 $1.50 | — | 취소 **없음**, task `running` 유지 — override 를 저장만 하고 강제 시점에 읽지 않으면 재개 즉시 다시 `paused(budget)` 가 된다 | harness |
+| E9-09 | 세션 비용 조회, 전 행 실측(`estimated:false`) | 조회 | `estimated: false` — 항상 true 를 돌려주는 구현을 잡는다 | unit |
 
 ---
 
@@ -234,6 +238,7 @@
 | E10-11 | 세션 밖 | M2가 R을 자기 세션에 초대 | 거부(owner만 초대 가능) | unit |
 | E10-12 | 권한 originator | M2(권한 낮음)가 시작한 체인에서 Lead가 R 멘션 | 판정은 **M2 기준**. 에이전트 경유로 권한 상승 없음 | unit |
 | E10-13 | 데몬 프로세스 SIGTERM(정상 종료) 중 `running` attempt (G3 D-1) | 종료 | harness §5 순서(권한 응답 → `session/cancel` → 드레인)로 취소, finish `outcome=cancelled` — **재큐잉 아님**, 프로세스 트리 0 | harness + e2e |
+| E10-14 | Dir 가 취소, 마지막 이벤트가 **셸 명령** 시작(완료 없음) | 중단 | 편집과 같은 30초 보류(FR-3.4·harness §5 "파일 편집 또는 셸 명령") | harness |
 
 ---
 

@@ -1884,7 +1884,7 @@ type HitlRequest struct {
 	// ProposedDefault "에이전트 제안: …"으로 함께 표시.
 	ProposedDefault nullable.Nullable[string] `json:"proposed_default"`
 
-	// Purpose 시스템 발행 HITL의 용도(종료 조건 승인 · 예산 · 시간 · 루프).
+	// Purpose HITL 의 용도. **플랫폼 발행이면 용도별 고정값** — 종료 조건 승인 `user_approval`(E6-01) · 예산 `budget`(E9-01·04) · 시간 `time` · 루프 `loop`(E4-03); 에이전트 발행(source=agent)은 `agent`. source=system + type=approval 만으로는 완료 승인과 예산·루프 정지를 구분할 수 없어 이 칸이 판정 기준이다(0012, PR #103·#108).
 	Purpose   nullable.Nullable[HitlRequestPurpose] `json:"purpose,omitempty"`
 	Question  string                                `json:"question"`
 	SessionId openapi_types.UUID                    `json:"session_id"`
@@ -1902,7 +1902,7 @@ type HitlRequest struct {
 	Type HitlType `json:"type"`
 }
 
-// HitlRequestPurpose 시스템 발행 HITL의 용도(종료 조건 승인 · 예산 · 시간 · 루프).
+// HitlRequestPurpose HITL 의 용도. **플랫폼 발행이면 용도별 고정값** — 종료 조건 승인 `user_approval`(E6-01) · 예산 `budget`(E9-01·04) · 시간 `time` · 루프 `loop`(E4-03); 에이전트 발행(source=agent)은 `agent`. source=system + type=approval 만으로는 완료 승인과 예산·루프 정지를 구분할 수 없어 이 칸이 판정 기준이다(0012, PR #103·#108).
 type HitlRequestPurpose string
 
 // HitlResponse 타입에 맞는 필드만 쓴다 — question/choice는 `answer`, approval은 `approved`(+ `reason`, 예산이면 `budget_override_usd`, 시간이면 `time_extension`), info는 `answer` + `attachments`.
@@ -2402,8 +2402,8 @@ type PausedDetailResolveActions string
 
 // Problem RFC 9457 Problem Details + `code`(기계용 식별자) + `errors[]`(필드 검증) 확장.
 type Problem struct {
-	// CanRespondFrom deputy가 응답할 수 있게 되는 시각(403에서).
-	CanRespondFrom *time.Time `json:"can_respond_from,omitempty"`
+	// CanRespondFrom deputy 의 시점 제한(기한 절반 경과 시각)일 때만 시각. **권한이 영영 없는 사람(일반 멤버 등)에게는 비운다(null)** — 생기지 않을 권리에 시각을 약속하지 않는다(E7-11, PR #108).
+	CanRespondFrom nullable.Nullable[time.Time] `json:"can_respond_from,omitempty"`
 
 	// Code 기계용 식별자(snake_case). 예 — `token_revoked` · `deputy_not_yet` · `hitl_already_open` · `not_participant` · `runtime_offline` · `no_runtime` · `workdir_dirty` · `runtime_has_active_sessions` · `invalid_transition` · `idempotency_key_reused` · `validation_failed` · `not_designated_reviewer` · `workdir_quota_exceeded` · `running_lanes`.
 	Code *string `json:"code,omitempty"`
