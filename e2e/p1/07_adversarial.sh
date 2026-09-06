@@ -264,7 +264,7 @@ else
 fi
 
 echo
-echo "▶ D11. P2 operation 경계 (T-S2: lane · previewTriggers · pause/resume · delegateLane · decision)"
+echo "▶ D11. P2 operation 경계 (T-S2: lane · previewTriggers · pause/resume · delegateLane · decision · listParticipants)"
 # 구현된 operation 은 그 순간부터 **권한 검사**가 있어야 한다 — 501 은 권한 검사였던 적이 없다(D3 의 S-12 와 같은 이유).
 # 아직 안 켠 것은 501 을 허용값에 둔다. 켜는 PR 이 이 줄에서 501 을 빼면 그때부터 경계가 검사된다.
 #   x-phase P3(아직): listLaneTasks · restartLane · pauseSession · resumeSession · getSessionCost
@@ -290,6 +290,12 @@ chk_in "B 가 A 의 비용 조회 차단 (P3)"         "403 404 501" "$(curl -sS
 # 누구나 결정 기록을 위조할 수 있다 — 그것도 `source: hitl` 로(사람이 HITL 로 답한 것처럼).
 chk_in "사람 쿠키의 lane 위임 차단"            "401 403" "$(ucode -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/lanes" --data '{"agent":"X","brief":"b"}')"
 chk_in "사람 쿠키의 결정 기록 차단"            "401 403" "$(ucode -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/decisions" --data '{"summary":"경계 검증"}')"
+# listParticipants(S-16) 도 세션 스코프 읽기다 — 남의 세션 에이전트 이름·상태·실패
+# 사유를 돌려주므로 TaskToken 은 자기 세션에서 멈춰야 한다. 501 이던 동안에는 이 행이
+# 존재할 수 없었고, 구현된 순간부터 경계다.
+if [ -n "${A_TOK:-}" ] && [ -n "${OTHER_SESS:-}" ]; then
+  chk "타 세션 토큰의 참가자 목록 차단 403"    403 "$(tcode "$A_TOK" "$API/sessions/$OTHER_SESS/participants")"
+fi
 if [ -n "${A_TOK:-}" ] && [ -n "${A_TASK:-}" ]; then
   # E15-02: 세션 비참여 에이전트에게 위임하면 서버가 422 + not_participant 로 거절하고 CLI 가 대안을 안내한다.
   N_LANE_BEFORE="$(psqlq "select count(*) from lane where session_id='$SESSION'")"

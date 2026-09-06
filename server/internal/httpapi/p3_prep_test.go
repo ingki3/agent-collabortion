@@ -4,6 +4,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -242,4 +243,65 @@ func TestCostUpdatedCarriesTheEstimate(t *testing.T) {
 	if !near(c.CostUSD, 2.40) || !c.Estimated {
 		t.Fatalf("cost.updated = %+v, want the estimated 2.40", c)
 	}
+}
+
+// TestListParticipantsBoundary is the D10/D11 row the operation shipped
+// without. listParticipants hands back every agent's name, status and — when a
+// lane failed — the failure note, so it is a cross-session read like the
+// artifact ones and needs the same two boundaries (#65 TestArtifactBoundaries):
+// a TaskToken stops at its own session, and a member of another workspace is
+// told 404, not 403, because 403 confirms the id exists.
+//
+// The gap was real, not theoretical: delete `sessionAccess` from the handler
+// and the whole httpapi package stayed green before this row existed. The
+// three boundaries are subtests so that mutation shows every one of them.
+func TestListParticipantsBoundary(t *testing.T) {
+	f := newP2Fixture(t)
+	tree := map[string]any{"op": "and", "conditions": []map[string]any{
+		{"type": "artifact_submitted", "who": "assignee"}, {"type": "user_approval"},
+	}}
+	sessA, sessB := f.artifactSession(t, tree), f.artifactSession(t, tree)
+	tokA, _ := f.agentToken(t, sessA, f.leadUUID, "Lead")
+	tokB, _ := f.agentToken(t, sessB, f.leadUUID, "Lead")
+	path := f.p + "/sessions/" + sessA + "/participants"
+
+	// A member of another workspace: 404, and the roster does not leak with it.
+	t.Run("outsider is 404", func(t *testing.T) {
+		other := &client{t: t, srv: f.api.srv}
+		_, _, hdr := other.do("POST", f.p+"/auth/signup", map[string]any{
+			"display_name": "Out", "email": "out@example.com", "password": "password123"})
+		other.cookie = hdr.Get("Set-Cookie")
+		other.must(201, "POST", f.p+"/workspaces", map[string]any{"name": "Other"})
+		st, body, _ := other.raw("GET", path, nil)
+		if st != 404 {
+			t.Fatalf("outsider listParticipants = %d, want 404 (존재 은폐): %s", st, body)
+		}
+		for _, name := range []string{"Lead", "R", "W"} {
+			if strings.Contains(string(body), `"`+name+`"`) {
+				t.Fatalf("404 body names participant %s: %s", name, body)
+			}
+		}
+	})
+
+	// The other session's TaskToken: 403 outside_task_scope (G2 Q8).
+	t.Run("other session token is 403", func(t *testing.T) {
+		st, out := f.rawGet(t, path, tokB)
+		if st != 403 {
+			t.Fatalf("cross-session listParticipants = %d, want 403: %v", st, out)
+		}
+		if code := str(out, "code"); code != "outside_task_scope" {
+			t.Fatalf("403 code = %q, want outside_task_scope", code)
+		}
+	})
+
+	// …and the session's own TaskToken reads it.
+	t.Run("own token is 200", func(t *testing.T) {
+		st, items := f.rawList(t, path, tokA)
+		if st != 200 {
+			t.Fatalf("in-session listParticipants = %d, want 200", st)
+		}
+		if len(items) != 3 {
+			t.Fatalf("in-session participants = %d, want the session's 3", len(items))
+		}
+	})
 }
