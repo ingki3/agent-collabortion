@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.8.6 — 스파이크 5(PR #153) 반영: §10 hermes 브리프는 **미추적 `COLAB_BRIEF.md` + `.git/info/exclude` + 턴 프롬프트 첫 줄 지시**(`skip-worktree` 채택 안 함 — 에이전트 커밋 0/12), §1 hermes `session/set_model` 파라미터 이름 `modelId`. v0.8.5 — §7 턴 중 usage(emitRawSDKMessages, dedup, result.total_cost_usd = 실측 비용), §3 _meta, §9 `usage_midturn`(D-17·K-8 데몬 절반). v0.8.4 — §2.2 refusal 예외: 재개 직후 활동 0 인 refusal 은 유실 의심 → 콜드 스타트 1회 재시도(D-13). v0.8.3 — §6 hermes 행 (a′) provenance 부재(빈 객체)는 유실(스파이크 4c 실측 2). v0.8.2 — §6 claude_code 유실 판정을 실측대로(`-32002` 또는 `not found`; 스파이크 4c). v0.8.1 — §10 cli_wrapper 치환 범위를 브리프+턴 프롬프트로(D-7 워커 지적). v0.8은 §10 **도구 표면**(`tool_surface`: claude_code `mcp`, hermes `cli_wrapper` — 데몬이 attempt별 래퍼를 만들고 브리프 [2]에 절대 경로) + §9 광고. G5 (b) 차단 결함. v0.7.1은 §11 `estimated`의 자리별 표현(`usage.report` 생략 / `finish` 0 + 무시). v0.7은 §11 `cost_usd` 부재 규칙(생략 + `estimated:true`)과 가격표 소유(워크스페이스=서버). v0.6은 §2.1 시스템 최소에 `USER`(G4 차단 결함: OAuth 갱신 시 키체인이 `USER`를 쓴다). v0.5는 §9 `supported_options`(T-W2가 찾은 빈칸: 프로파일 옵션 능력을 광고할 키가 v0.4.1 대조에서 빠졌다). v0.3 은 PR #20(데몬 P1) 구현·리뷰에서 드러난 5건 반영(usage 시점, Hermes 모델 접두어, Hermes 본문 오류 접두어 규칙, disallowedTools 도출, 250ms 비주입). v0.2는 스파이크 1b 반영 |
+| 버전 | v0.8.7 — §10 자리표시자 치환 규칙(`{{COLAB_REBIND_DIR}}`, T-D9 PR #156 계약 결함 2). v0.8.6 — 스파이크 5(PR #153) 반영: §10 hermes 브리프는 **미추적 `COLAB_BRIEF.md` + `.git/info/exclude` + 턴 프롬프트 첫 줄 지시**(`skip-worktree` 채택 안 함 — 에이전트 커밋 0/12), §1 hermes `session/set_model` 파라미터 이름 `modelId`. v0.8.5 — §7 턴 중 usage(emitRawSDKMessages, dedup, result.total_cost_usd = 실측 비용), §3 _meta, §9 `usage_midturn`(D-17·K-8 데몬 절반). v0.8.4 — §2.2 refusal 예외: 재개 직후 활동 0 인 refusal 은 유실 의심 → 콜드 스타트 1회 재시도(D-13). v0.8.3 — §6 hermes 행 (a′) provenance 부재(빈 객체)는 유실(스파이크 4c 실측 2). v0.8.2 — §6 claude_code 유실 판정을 실측대로(`-32002` 또는 `not found`; 스파이크 4c). v0.8.1 — §10 cli_wrapper 치환 범위를 브리프+턴 프롬프트로(D-7 워커 지적). v0.8은 §10 **도구 표면**(`tool_surface`: claude_code `mcp`, hermes `cli_wrapper` — 데몬이 attempt별 래퍼를 만들고 브리프 [2]에 절대 경로) + §9 광고. G5 (b) 차단 결함. v0.7.1은 §11 `estimated`의 자리별 표현(`usage.report` 생략 / `finish` 0 + 무시). v0.7은 §11 `cost_usd` 부재 규칙(생략 + `estimated:true`)과 가격표 소유(워크스페이스=서버). v0.6은 §2.1 시스템 최소에 `USER`(G4 차단 결함: OAuth 갱신 시 키체인이 `USER`를 쓴다). v0.5는 §9 `supported_options`(T-W2가 찾은 빈칸: 프로파일 옵션 능력을 광고할 키가 v0.4.1 대조에서 빠졌다). v0.3 은 PR #20(데몬 P1) 구현·리뷰에서 드러난 5건 반영(usage 시점, Hermes 모델 접두어, Hermes 본문 오류 접두어 규칙, disallowedTools 도출, 250ms 비주입). v0.2는 스파이크 1b 반영 |
 | 소유 | D + Lead. 변경은 Director 승인 PR로만 (`contracts/README.md`) |
 | 근거 | PRD §8.2 (하네스), §8.4 (브리프), FR-7.1 (재시도), FR-3.4·§8.2.2 (취소), FR-5.4 (재개). **G1 판정 `plan/G1_DECISION.md` 와 스파이크 보고서 `plan/spikes/SPIKE_01..06.md`, `SPIKE_01b.md`** — 이 문서의 수치·옵션 키는 전부 실측에서 왔다 |
 | 미결 | 없음 (§12 참조). 서브에이전트 가시성은 v1 피드 요구로 미광고 |
@@ -224,6 +224,8 @@ Hermes: `usage: true`(G1 F6), `resume: true`(`session/load`), `brief_transport: 
 **판정은 실측**: `initialize` 응답에 `mcpCapabilities`가 있으면 `mcp`, 없으면 `cli_wrapper`. 값은 §9 `runtime.capabilities[].tool_surface`로 광고한다 — G5에서 Hermes probe가 11/11 초록인데 에이전트는 플랫폼에 한 마디도 못 했던 것이 이 칸이 비어 있어서였다.
 
 브리프 [1]~[8]의 순서는 고정이고 [1]~[5]는 같은 세션 안에서 바이트 동일(캐시 친화, E12-11).
+
+**자리표시자 치환(v0.8.7)** — 서버가 만드는 텍스트(브리프·턴 프롬프트)에 데몬만 아는 절대 경로가 필요할 때 서버는 자리표시자를 쓰고 데몬이 치환한다. cli_wrapper 의 `colab ` 치환(v0.8.1)과 같은 자리·같은 시점(래퍼 치환 → 자리표시자 치환 → 포인터 줄 prepend). v1 목록: `{{COLAB_REBIND_DIR}}` → `<workdir_root>/.colab/rebind/<session_id>`(daemon-protocol §4.3 `rebind_prepare`). 치환되지 않은 자리표시자가 남으면 데몬은 attempt 를 `failed(config)` 로 finish 한다(에이전트에게 깨진 경로를 주지 않는다).
 
 ## 11. 계약 테스트 (P1 D 작업, EVAL §E12)
 

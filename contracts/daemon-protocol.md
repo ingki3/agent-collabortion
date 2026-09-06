@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.7.1 — §4.4 유효 예산 = min(task 상한(override 우선), 세션 잔여)(PR #121 리뷰 NN3, D-16). v0.7 — §4.3 `gc` 페이로드에 서버가 경로를 싣고(`workdirs:[{id,path}]`), §6 보고 행 `gc: {status: deleted|refused, reason}` 로 결과·거부를 알린다(T-D5 계약 질문, G5 S-29·D-4). v0.6 — `dispatched` 5분 타임아웃은 재큐잉이 아니라 종료다(§4.1). v0.5는 probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
+| 버전 | v0.7.2 — §4.4 finish `workdir.git` 이름을 §6 과 통일(`commits_ahead`·`merged`)하고 `protocol.go` `Finish.Workdir` 추가; §4.3 `rebind_prepare` 다운로드 위치 + 프롬프트 자리표시자 `{{COLAB_REBIND_DIR}}`(T-D9 PR #156 계약 결함 1·2). v0.7.1 — §4.4 유효 예산 = min(task 상한(override 우선), 세션 잔여)(PR #121 리뷰 NN3, D-16). v0.7 — §4.3 `gc` 페이로드에 서버가 경로를 싣고(`workdirs:[{id,path}]`), §6 보고 행 `gc: {status: deleted|refused, reason}` 로 결과·거부를 알린다(T-D5 계약 질문, G5 S-29·D-4). v0.6 — `dispatched` 5분 타임아웃은 재큐잉이 아니라 종료다(§4.1). v0.5는 probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
 | 소유 | S + D. 변경은 Director 승인 PR로만 |
 | 근거 | PRD §8.1(큐), FR-7.1(상태 머신·heartbeat), FR-9.1(고아·토큰 폐기), FR-9.2(오프라인 유예), FR-6.4(workdir·GC), `harness.md`(오류 분류·재개) |
 | 원칙 | **데몬은 stateless, 상태는 서버.** 데몬은 서버가 준 것만 실행하고 결과를 보고한다. 모든 시각 판정(만료·유예·`not_before`)은 서버 클럭(`contracts/clock`) |
@@ -126,7 +126,7 @@ claim·events·heartbeat 응답의 `commands[]`:
 | `revoke` | `{task_id, attempt}` | 그 attempt의 토큰이 폐기됐다. 프로세스가 아직 있으면 취소 절차. **고아 정리의 신호**(§5) |
 | `probe` | — | §3 |
 | `gc` | `{session_id, workdirs: [{id, path}]}` 또는 `{policy: {...}}` — **서버가 경로를 싣는다**(데몬은 uuid↔path 매핑을 가진 적이 없다, v0.7). `workdirs` 없이 `workdir_ids` 만 있는 옛 모양이면 데몬은 `session_id` 의 lane workdir 전부로 해석 | §6 — 삭제 또는 거부를 다음 workdir 보고 행의 `gc` 로 알린다 |
-| `rebind_prepare` | `{session_id, artifacts: [{id, order, url}]}` | 새 workdir 준비 후 아티팩트 순서 적용은 **프롬프트가 지시**(FR-9.2). 데몬은 다운로드만 |
+| `rebind_prepare` | `{session_id, artifacts: [{id, order, url}]}` | 새 workdir 준비 후 아티팩트 순서 적용은 **프롬프트가 지시**(FR-9.2). 데몬은 다운로드만 — 위치는 **체크아웃 밖** `<workdir_root>/.colab/rebind/<session_id>/NNN-<artifact_id><ext>` + `manifest.json`(order·id·파일명; v0.7.2, T-D9 계약 결함 2). 서버는 그 경로를 모르므로 재바인딩 뒤 첫 턴 프롬프트에 자리표시자 **`{{COLAB_REBIND_DIR}}`** 를 쓰고, 데몬이 `harness.md` §10 치환 규칙대로 절대 경로로 바꾼다 |
 
 명령은 **최소 한 번** 전달된다. 데몬은 `(type, task_id, attempt)`로 멱등 처리.
 
@@ -150,9 +150,11 @@ POST /v1/daemon/tasks/{task_id}/attempts/{attempt}/finish
   { outcome: "completed"|"failed"|"cancelled"|"waiting_human"|"blocked"|"paused_budget",
     stop_reason, failure_kind?, not_before?, usage: {…},
     runtime_session_ref: <harness.md §6>, resume_outcome: "resumed"|"cold_start"|null,
-    last_seq, workdir: {path, git: {branch, dirty, ahead}?} }
+    last_seq, workdir: {path, git: {branch, merged, dirty, commits_ahead}?} }
   → 200 {ok}
 ```
+
+- **`workdir.git`(v0.7.2, T-D9 계약 결함 1)**: 이름은 §6 보고 행과 **같다**(`commits_ahead` — 옛 `ahead` 는 오기). `contracts/protocol.go` `Finish.Workdir`(`FinishWorkdir{Path, Git *WorkdirGit}`)이 정본. 서버는 이 값으로 그 workdir 행의 `merged`·`dirty`·`commits_ahead`(openapi Workdir, PR #155)를 갱신한다 — GC 판정(E13-10~13)의 입력이 이것이다. `git` 이 없으면(격리 `none`·`container`) 서버는 행을 건드리지 않는다.
 
 - `waiting_human`·`blocked`는 데몬이 정하지 않는다. `turn_end`가 왔을 때 서버가 `pending_hitl`(FR-7.1 HITL 전이) 또는 `status set blocked` 호출 여부로 정하므로, 데몬은 `outcome: "completed"` + `stop_reason`을 보내고 **서버가 최종 상태를 정한다**. 위 열거는 서버 응답의 최종 상태이지 데몬 판단이 아니다.
 - `finish`는 attempt 단위로 멱등. 두 번 와도 첫 결과가 남는다.
