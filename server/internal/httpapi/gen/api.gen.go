@@ -497,6 +497,7 @@ const (
 	InboxItemTypeRuntimeOffline   InboxItemType = "runtime_offline"
 	InboxItemTypeSessionCompleted InboxItemType = "session_completed"
 	InboxItemTypeSessionPaused    InboxItemType = "session_paused"
+	InboxItemTypeWorkdirGcBlocked InboxItemType = "workdir_gc_blocked"
 )
 
 // Valid indicates whether the value is a known member of the InboxItemType enum.
@@ -515,6 +516,8 @@ func (e InboxItemType) Valid() bool {
 	case InboxItemTypeSessionCompleted:
 		return true
 	case InboxItemTypeSessionPaused:
+		return true
+	case InboxItemTypeWorkdirGcBlocked:
 		return true
 	default:
 		return false
@@ -1232,6 +1235,27 @@ func (e TestChatTurnRole) Valid() bool {
 	case TestChatTurnRoleAgent:
 		return true
 	case TestChatTurnRoleUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WorkdirGcBlockedReason.
+const (
+	WorkdirGcBlockedReasonLessThannil        WorkdirGcBlockedReason = "<nil>"
+	WorkdirGcBlockedReasonUncommittedChanges WorkdirGcBlockedReason = "uncommitted_changes"
+	WorkdirGcBlockedReasonUnmergedCommits    WorkdirGcBlockedReason = "unmerged_commits"
+)
+
+// Valid indicates whether the value is a known member of the WorkdirGcBlockedReason enum.
+func (e WorkdirGcBlockedReason) Valid() bool {
+	switch e {
+	case WorkdirGcBlockedReasonLessThannil:
+		return true
+	case WorkdirGcBlockedReasonUncommittedChanges:
+		return true
+	case WorkdirGcBlockedReasonUnmergedCommits:
 		return true
 	default:
 		return false
@@ -2018,7 +2042,7 @@ type InboxItem struct {
 	// Severity `inbox_severity` (SCREEN §4.6)
 	Severity InboxSeverity `json:"severity"`
 
-	// Type `inbox_item_type` (FR-8)
+	// Type `inbox_item_type` (FR-8). `workdir_gc_blocked`(P4, FR-6.4 M4 · E13-12·13) — 보존 기한이 지난 worktree 를 미병합 커밋·미커밋 변경 때문에 지우지 못했다. 같은 workdir 에 미해결 항목이 있으면 다시 만들지 않는다(스윕 멱등). 카드: {workdir_id, session_id, repo_path, branch, reason, commits_ahead}
 	Type        InboxItemType      `json:"type"`
 	WorkspaceId openapi_types.UUID `json:"workspace_id"`
 }
@@ -2029,7 +2053,7 @@ type InboxItemActions string
 // InboxItemCardPurpose HITL 항목이면 `HitlRequest.purpose` 를 그대로 싣는다(K-9) — 웹이 task 범위 예산 HITL(세션은 active)에 상향 입력을 붙이려면 카드에서 바로 읽어야 한다. 비-HITL 항목은 null.
 type InboxItemCardPurpose string
 
-// InboxItemType `inbox_item_type` (FR-8)
+// InboxItemType `inbox_item_type` (FR-8). `workdir_gc_blocked`(P4, FR-6.4 M4 · E13-12·13) — 보존 기한이 지난 worktree 를 미병합 커밋·미커밋 변경 때문에 지우지 못했다. 같은 workdir 에 미해결 항목이 있으면 다시 만들지 않는다(스윕 멱등). 카드: {workdir_id, session_id, repo_path, branch, reason, commits_ahead}
 type InboxItemType string
 
 // InboxSeverity `inbox_severity` (SCREEN §4.6)
@@ -3106,30 +3130,42 @@ type User struct {
 // Workdir defines model for Workdir.
 type Workdir struct {
 	// AgentId worktree — 에이전트당 1개.
-	AgentId   nullable.Nullable[openapi_types.UUID] `json:"agent_id,omitempty"`
-	Branch    nullable.Nullable[string]             `json:"branch,omitempty"`
-	CreatedAt time.Time                             `json:"created_at"`
+	AgentId nullable.Nullable[openapi_types.UUID] `json:"agent_id,omitempty"`
+	Branch  nullable.Nullable[string]             `json:"branch,omitempty"`
+
+	// CommitsAhead P4: 기본 브랜치 대비 이 브랜치의 커밋 수. 0 이면 E13-11(커밋 0 + 클린 = 삭제).
+	CommitsAhead nullable.Nullable[int] `json:"commits_ahead,omitempty"`
+	CreatedAt    time.Time              `json:"created_at"`
 
 	// Dirty 미병합 커밋 또는 미커밋 변경이 있음(GC 차단 · 수동 삭제 경고, FR-6.4 M4). 데몬 마지막 보고 기준.
 	Dirty     nullable.Nullable[bool] `json:"dirty,omitempty"`
 	DiskBytes int64                   `json:"disk_bytes"`
-	Id        openapi_types.UUID      `json:"id"`
+
+	// GcBlockedReason P4: 마지막 GC 판정이 삭제를 막은 사유. Director 의 다음 행동이 다르다 — `unmerged_commits` 는 병합해라(E13-12), `uncommitted_changes` 는 커밋하거나 버려라(E13-13). null = 차단 없음. deleteWorkdir 409 의 Problem.detail 에도 같은 값.
+	GcBlockedReason nullable.Nullable[WorkdirGcBlockedReason] `json:"gc_blocked_reason,omitempty"`
+	Id              openapi_types.UUID                        `json:"id"`
 
 	// Kind `workdir_kind`
 	Kind WorkdirKind `json:"kind"`
 
 	// LaneId container · none — lane당 1개.
-	LaneId      nullable.Nullable[openapi_types.UUID] `json:"lane_id,omitempty"`
-	LastUsedAt  nullable.Nullable[time.Time]          `json:"last_used_at,omitempty"`
-	PathOrRef   string                                `json:"path_or_ref"`
-	RetainUntil nullable.Nullable[time.Time]          `json:"retain_until,omitempty"`
-	Session     *SessionRef                           `json:"session,omitempty"`
-	SessionId   openapi_types.UUID                    `json:"session_id"`
+	LaneId     nullable.Nullable[openapi_types.UUID] `json:"lane_id,omitempty"`
+	LastUsedAt nullable.Nullable[time.Time]          `json:"last_used_at,omitempty"`
+
+	// Merged P4(T-S9 질문 2): 브랜치가 기본 브랜치에 병합됐는가. 데몬 마지막 보고 기준.
+	Merged      nullable.Nullable[bool]      `json:"merged,omitempty"`
+	PathOrRef   string                       `json:"path_or_ref"`
+	RetainUntil nullable.Nullable[time.Time] `json:"retain_until,omitempty"`
+	Session     *SessionRef                  `json:"session,omitempty"`
+	SessionId   openapi_types.UUID           `json:"session_id"`
 
 	// Status `workdir_status`
 	Status    WorkdirStatus `json:"status"`
 	UpdatedAt time.Time     `json:"updated_at"`
 }
+
+// WorkdirGcBlockedReason P4: 마지막 GC 판정이 삭제를 막은 사유. Director 의 다음 행동이 다르다 — `unmerged_commits` 는 병합해라(E13-12), `uncommitted_changes` 는 커밋하거나 버려라(E13-13). null = 차단 없음. deleteWorkdir 409 의 Problem.detail 에도 같은 값.
+type WorkdirGcBlockedReason string
 
 // WorkdirKind `workdir_kind`
 type WorkdirKind string
