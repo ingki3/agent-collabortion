@@ -9,6 +9,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"strings"
@@ -24,16 +26,35 @@ import (
 // at, migrates it and returns a pool. The database is dropped on cleanup.
 func New(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	base := os.Getenv("COLAB_TEST_DB_URL")
-	if base == "" {
+	if os.Getenv("COLAB_TEST_DB_URL") == "" {
 		t.Skip("COLAB_TEST_DB_URL not set; skipping integration test")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	pool, drop, err := Provision(context.Background())
+	if err != nil {
+		t.Fatalf("testdb: %v", err)
+	}
+	t.Cleanup(drop)
+	return pool
+}
+
+// ErrNoTestDB is Provision's answer when COLAB_TEST_DB_URL is unset. It is a
+// value rather than a skip because Provision has no *testing.T — a TestMain
+// (server/test/sim) needs to decide for the whole package.
+var ErrNoTestDB = errors.New("testdb: COLAB_TEST_DB_URL not set")
+
+// Provision is New without the testing hooks: it creates and migrates a
+// private database and returns the pool plus the function that drops it.
+func Provision(ctx context.Context) (*pgxpool.Pool, func(), error) {
+	base := os.Getenv("COLAB_TEST_DB_URL")
+	if base == "" {
+		return nil, nil, ErrNoTestDB
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
 	u, err := url.Parse(base)
 	if err != nil {
-		t.Fatalf("testdb: parse url: %v", err)
+		return nil, nil, fmt.Errorf("testdb: parse url: %w", err)
 	}
 	var b [6]byte
 	_, _ = rand.Read(b[:])
@@ -41,32 +62,30 @@ func New(t *testing.T) *pgxpool.Pool {
 
 	admin, err := db.Open(ctx, base)
 	if err != nil {
-		t.Fatalf("testdb: open admin: %v", err)
+		return nil, nil, fmt.Errorf("testdb: open admin: %w", err)
 	}
 	if _, err := admin.Exec(ctx, `CREATE DATABASE `+name); err != nil {
 		admin.Close()
-		t.Fatalf("testdb: create database: %v", err)
+		return nil, nil, fmt.Errorf("testdb: create database: %w", err)
 	}
-
 	u.Path = "/" + name
 	pool, err := db.Open(ctx, u.String())
 	if err != nil {
 		admin.Close()
-		t.Fatalf("testdb: open %s: %v", name, err)
+		return nil, nil, fmt.Errorf("testdb: open %s: %w", name, err)
 	}
 	if _, err := db.MigratePool(ctx, pool); err != nil {
 		pool.Close()
 		admin.Close()
-		t.Fatalf("testdb: migrate: %v", err)
+		return nil, nil, fmt.Errorf("testdb: migrate: %w", err)
 	}
-	t.Cleanup(func() {
+	return pool, func() {
 		pool.Close()
 		cctx, ccancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer ccancel()
 		_, _ = admin.Exec(cctx, `DROP DATABASE IF EXISTS `+name+` WITH (FORCE)`)
 		admin.Close()
-	})
-	return pool
+	}, nil
 }
 
 // URL returns the connection string of pool's database (for code that opens
