@@ -44,6 +44,8 @@
 | S-8 | 취소 흡수(`cancelRequested`)가 명령의 **존재**만 보고 `consumed_at`을 안 본다. 24h TTL 소비 후에도 흡수가 남을 수 있다 | PR #33 NN3 | 낮음 |
 | S-9 | **서버 발행 task_event의 seq 계산이 attempt 스코프**(`max(seq)+1 WHERE task_id AND attempt`)인데 유니크 제약은 `(task_id, seq)`(0001) → attempt 2의 첫 서버 이벤트가 attempt 1과 충돌. 피해는 피드 노트 1건 유실(heartbeat·취소는 안전) | PR #43 NN1 | 두 자리 함께: `tasks/service.go` `NotePreviewDrift`·director 취소 노트. `ON CONFLICT (task_id, seq) DO NOTHING` 또는 seq에서 attempt 조건 제거 |
 | S-10 | `auth.AcceptInvite` 동시 수락 TOCTOU → 500 | PR #43 전수 조사 | savepoint 또는 `ON CONFLICT` |
+| S-11 | **요청 파라미터의 스키마 제약이 강제되지 않는다.** `limit`은 계약상 `minimum:1 maximum:200`인데 서버는 `-1`·`0`·`999999`를 200으로 받고 **조용히 기본값 50으로 강제**한다(타입 오류만 422). 네 저장소(messages·agents·sessions·events)가 모두 clamp하므로 **자원 고갈 위험은 없다** — 계약↔구현 불일치이고, 500을 요청한 클라이언트가 50을 받고도 모른다 | Lead 적대적 검증 D8 | oapi-codegen 검증 미들웨어 또는 핸들러에서 범위 밖이면 422. P2에서 파라미터가 늘기 전에 |
+| S-12 | **P2에서 `updateWorkspaceSettings`·`getWorkspaceSettings`를 구현할 때 authz를 반드시 넣을 것.** 지금은 501이라 남의 워크스페이스 설정도 바뀌지 않지만, 501은 인가가 아니라 미구현이다. `e2e/p1/07_adversarial.sh` D2의 기대를 그때 `403/404`로 좁힌다 | Lead 적대적 검증 D2 | owner·admin만(SCREEN §2.3) |
 
 ## C (CLI)
 
@@ -59,6 +61,14 @@
 | K-1 | EVAL 제안 행: E8-13 "finish가 non-nil runtime_session_ref를 저장하고 다음 claim resume에 실린다", E11-11 "claim은 세션 워크스페이스의 런타임에만 준다" | Integrator |
 | K-2 | PRD §7 스키마 ↔ 계약 키 표기 통일(`runtime_session_ref` 키 이름 `runtime_kind`) | PR #26 |
 | K-3 | `harness.md` §2.2 `preparing` heartbeat 비대상, §4.3 명령 소비 표 — 데몬 쪽 문서(`daemon/README`)에 반영 | PR #22 |
+
+## 테스트 자산 (P1에서 만든 것)
+
+| 항목 | 내용 |
+|---|---|
+| `e2e/p1/01`~`06` | 실제 런타임 수직 슬라이스·kill -9·취소·U1 브라우저·초대·S12 |
+| **`e2e/p1/07_adversarial.sh`** | 경계 37항목(TaskToken 범위·워크스페이스 경계·501 표면·멱등키·미인증·SSE 인가·데몬 토큰·잘못된 입력). **에이전트 턴 0** — 서버가 떠 있으면 언제든 돌릴 수 있다. P2에서 operation이 늘 때마다 여기에 행을 더한다 |
+| CI `contracts` 잡 | openapi strict lint · task_event JSON Schema · 프로즈 키 스캔 · 서버·웹 생성물 드리프트 게이트 |
 
 ## 운영 (PLAN §10.7 되먹임)
 

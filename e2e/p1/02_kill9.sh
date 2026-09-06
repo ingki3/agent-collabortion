@@ -87,7 +87,12 @@ START_N="$(psqlq "select count(*) from message where source_task_id='$TASK' and 
 DONE_N="$(psqlq "select count(*) from message where source_task_id='$TASK' and content like '%kill9-done%'")"
 TOTAL_N="$(psqlq "select count(*) from message where source_task_id='$TASK'")"
 [ "$START_N" = 1 ] && ok "'kill9-start' 정확히 1건 (attempt 2 가 재게시하지 않음)" || bad "'kill9-start' $START_N 건"
-[ "$DONE_N" = 1 ] && ok "'kill9-done' 정확히 1건" || bad "'kill9-done' $DONE_N 건"
+# E8-04 이 요구하는 것은 **중복 0** 이다. attempt 2 가 심부름을 끝냈는지(= kill9-done 을
+# 게시했는지)는 에이전트의 자유의지다 — 실측에서 haiku 가 `sleep` 을 백그라운드로 돌리고
+# "완료를 기다린다"며 턴을 끝낸 적이 있다(2026-09-06). 그것은 플랫폼 결함이 아니므로
+# 판정은 "≤ 1건"으로 하고, 0건이면 정보로만 남긴다.
+[ "$DONE_N" -le 1 ] && ok "'kill9-done' $DONE_N 건 (중복 없음 — E8-04)" || bad "'kill9-done' $DONE_N 건 (중복)"
+[ "$DONE_N" = 0 ] && log "참고: attempt 2 가 kill9-done 을 게시하지 않고 턴을 끝냈다(에이전트 판단). 플랫폼 판정에는 영향 없음."
 WD="$WORK/sessions/$SESSION/$LANE"; [ -d "$WD" ] && ok "workdir 보존 $WD" || bad "workdir 없음 $WD"
 REV2="$(psqlq "select (revoked_at is not null)::text from task_token where task_id='$TASK' and attempt=2")"; log "attempt-2 token revoked after finish: $REV2"
 jq -n --arg task "$TASK" --argjson pgid "$PGID" --argjson orphan_alive_after_kill "$ORPHAN_ALIVE" --argjson orphan_alive_at_restart "$ORPHAN_ALIVE_AT_RESTART" --argjson requeue_after_kill_s "$((T_REQ-T_KILL))" \
