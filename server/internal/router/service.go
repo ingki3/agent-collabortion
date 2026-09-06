@@ -495,13 +495,26 @@ func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID u
 		WHERE id = $1`, sessionID, detail, now); err != nil {
 		return err
 	}
+	question := "루프 상한(" + v.Detail + ")에 도달해 세션을 일시정지했습니다. 계속할까요?"
 	var hitlID uuid.UUID
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO hitl_request (session_id, task_id, source, type, question, proposed_default, approver_spec, purpose, due_at, created_at)
 		VALUES ($1, NULL, 'system', 'approval', $2, NULL, 'director', 'loop', $3, $4) RETURNING id`,
-		sessionID, "루프 상한("+v.Detail+")에 도달해 세션을 일시정지했습니다. 계속할까요?",
+		sessionID, question,
 		now.Add(24*time.Hour), now).Scan(&hitlID); err != nil {
 		return fmt.Errorf("router: loop hitl: %w", err)
+	}
+	// S-45: the timeline card. A loop pause is the one a reader is most likely
+	// to meet in the timeline itself — the session stops mid-conversation — and
+	// it posted no card at all, so the feed simply went quiet (SCREEN §4.5).
+	msgID, err := messages.PostHitlCard(ctx, s.Hub, tx, wsID, sessionID, messages.HitlCard{
+		Type: "approval", Question: question,
+	}, now)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE hitl_request SET message_id = $2 WHERE id = $1`, hitlID, msgID); err != nil {
+		return fmt.Errorf("router: loop hitl card: %w", err)
 	}
 	if director != nil {
 		if _, err := tx.Exec(ctx, `

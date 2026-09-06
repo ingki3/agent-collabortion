@@ -218,6 +218,20 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 			sessionID, question, purpose, now.Add(24*time.Hour), now).Scan(&hitlID); err != nil {
 			return nil, fmt.Errorf("sessions: approval hitl: %w", err)
 		}
+		// S-45: the timeline card. This request is what E6-01's "⬜ Director
+		// 승인" checkbox waits on, and until now it existed only as an inbox
+		// item — the session timeline the Director is already looking at showed
+		// nothing (SCREEN §4.5). `source_task_id` stays empty: the platform
+		// issued it, no task did.
+		msgID, err := messages.PostHitlCard(ctx, s.Hub, tx, wsID, sessionID, messages.HitlCard{
+			Type: "approval", Question: question,
+		}, now)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE hitl_request SET message_id = $2 WHERE id = $1`, hitlID, msgID); err != nil {
+			return nil, fmt.Errorf("sessions: approval hitl card: %w", err)
+		}
 		out.HitlTaskID = uuid.Nil
 		if director != nil {
 			if err := s.inbox(ctx, tx, wsID, *director, inbox.TypeHitlRequest, inbox.Severity(inbox.TypeHitlRequest), sessionID, hitlID, now); err != nil {

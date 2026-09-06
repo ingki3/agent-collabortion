@@ -17,6 +17,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
+	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -196,13 +197,15 @@ func (s *Server) createHitl(ctx context.Context, taskID, sessionID uuid.UUID, f 
 
 	// The card goes on the timeline at registration: the Director should see
 	// the question while the agent is still finishing its turn (FR-5.2).
-	agentName := ""
-	_ = tx.QueryRow(ctx, `SELECT name FROM agent WHERE id = $1`, t.AgentID).Scan(&agentName)
-	var msgID uuid.UUID
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO message (session_id, author_type, author_id, content, kind, source_task_id, created_at)
-		VALUES ($1, 'agent', $2, $3, 'hitl', $4, $5) RETURNING id`,
-		sessionID, t.AgentID, hitlCardBody(f, agentName), t.ID, now).Scan(&msgID); err != nil {
+	// S-45: the same helper the system-issued paths use, so the four requests
+	// produce the same card.
+	agentID := t.AgentID
+	msgID, err := messages.PostHitlCard(ctx, s.Hub, tx, sess.WorkspaceID, sessionID, messages.HitlCard{
+		Type: f.Kind, Question: f.Question, Context: f.Context,
+		Options: f.Options, ProposedDefault: f.ProposedDefault,
+		AuthorAgentID: &agentID, SourceTaskID: &t.ID,
+	}, now)
+	if err != nil {
 		return 0, nil, apperr.Internal(err)
 	}
 
@@ -253,23 +256,6 @@ func (s *Server) createHitl(ctx context.Context, taskID, sessionID uuid.UUID, f 
 	return http.StatusCreated, map[string]any{
 		"hitl_request": out, "turn_end_required": plan.TurnEndRequired, "message_id": msgID,
 	}, nil
-}
-
-// hitlCardBody is the timeline card's text (SCREEN §4.6: enough to answer
-// without opening the session).
-func hitlCardBody(f hitlCreateFields, agentName string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "[HITL:%s] %s", f.Kind, f.Question)
-	if f.Context != "" {
-		fmt.Fprintf(&b, "\n%s", f.Context)
-	}
-	if len(f.Options) > 0 {
-		fmt.Fprintf(&b, "\n선택지: %s", strings.Join(f.Options, " · "))
-	}
-	if f.ProposedDefault != "" {
-		fmt.Fprintf(&b, "\n에이전트 제안: %s", f.ProposedDefault)
-	}
-	return b.String()
 }
 
 // hitlInbox files the request for whoever may answer it. The deputy is filed

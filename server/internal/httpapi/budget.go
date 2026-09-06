@@ -13,6 +13,7 @@ import (
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
+	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
@@ -236,6 +237,20 @@ func (s *Server) applyBudgetPause(ctx context.Context, tx pgx.Tx, b *budgetState
 	if err != nil {
 		return err
 	}
+	// S-45: the timeline card. The request row and the inbox card were the
+	// whole of this path, so the Director saw the pause in the inbox and the
+	// session's own timeline showed nothing to answer (SCREEN §4.5). The card
+	// is posted AFTER the insert on purpose — the ON CONFLICT above is what
+	// decides whether there is a request at all, and posting first would leave
+	// a card for a request that was never created.
+	//
+	// This covers the post-turn path S-44 added too: it reaches the same
+	// insert, with taskRef naming the task that crossed the line.
+	if err := s.attachHitlCard(ctx, tx, b.WorkspaceID, b.SessionID, hitlID, messages.HitlCard{
+		Type: o.HitlType, Question: question, SourceTaskID: taskRef,
+	}, now); err != nil {
+		return err
+	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
 		SELECT m.id, $4::inbox_item_type, $5::inbox_severity, $1, $2, $3
@@ -267,5 +282,18 @@ func (s *Server) notifyDirectorPaused(ctx context.Context, tx pgx.Tx, b *budgetS
 		SELECT m.id, $3::inbox_item_type, $4::inbox_severity, $1, $1, $2
 		FROM member m WHERE m.workspace_id = $5 AND m.user_id = $6`,
 		b.SessionID, now, inbox.TypeSessionPaused, inbox.Severity(inbox.TypeSessionPaused), b.WorkspaceID, b.Director)
+	return err
+}
+
+// attachHitlCard posts the timeline card for a system-issued request and links
+// it back (openapi HitlRequest.message_id). Filling the column is what makes
+// the card findable from the request — S7's card and the inbox item lead to
+// the same row, and a NULL there reads as "this request has no card".
+func (s *Server) attachHitlCard(ctx context.Context, tx pgx.Tx, wsID, sessionID, hitlID uuid.UUID, card messages.HitlCard, now time.Time) error {
+	msgID, err := messages.PostHitlCard(ctx, s.Hub, tx, wsID, sessionID, card, now)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `UPDATE hitl_request SET message_id = $2 WHERE id = $1`, hitlID, msgID)
 	return err
 }
