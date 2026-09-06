@@ -170,8 +170,21 @@ func TestG3ServerFixes(t *testing.T) {
 	if laneUpdated < 2 {
 		t.Fatalf("lane.updated stream events = %d, want ≥ 2 (cancel request + finish)", laneUpdated)
 	}
-	// restartLane ("중단하고 다시 지시") stays P2.
-	if st, _, _ := api.do("POST", p+"/lanes/"+laneID+"/restart", map[string]any{"content": "again"}, "Idempotency-Key", "44444444-4444-4444-8444-444444444444"); st != 501 {
-		t.Fatalf("restartLane = %d, want 501", st)
+	// restartLane ("중단하고 다시 지시") landed in P3 (T-S5, FR-3.4 B). A
+	// `failed(cancelled)` lane is exactly the case SCREEN §4.5's failure table
+	// points at it for, so the row now asserts the new task instead of the 501.
+	st, out, _ := api.do("POST", p+"/lanes/"+laneID+"/restart", map[string]any{"content": "again"}, "Idempotency-Key", "44444444-4444-4444-8444-444444444444")
+	if st != 202 {
+		t.Fatalf("restartLane = %d %v, want 202", st, out)
+	}
+	newTask, _ := out["task"].(map[string]any)
+	if newTask == nil {
+		t.Fatalf("restartLane returned no task: %v", out)
+	}
+	if str(newTask, "id") == taskID {
+		t.Fatal("re-instruction must be a NEW task, not the cancelled one (FR-3.4 B, E8-06)")
+	}
+	if int(newTask["attempt"].(float64)) != 1 {
+		t.Fatalf("new task attempt = %v, want 1", newTask["attempt"])
 	}
 }

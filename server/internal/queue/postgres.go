@@ -12,6 +12,7 @@ import (
 
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/contracts/clock"
+	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -64,11 +65,14 @@ func (p *Postgres) Claim(ctx context.Context, runtimeID string, capacity int, no
 	//
 	// `waiting_human` and `blocked` are absent from every count on purpose
 	// (t-1): both processes have already exited, so holding a slot for them
-	// stalls the session while nothing runs.
+	// stalls the session while nothing runs. The list is hitl.OccupyingStatuses
+	// rather than a literal so the rule has ONE definition — the E7-18 golden
+	// checks that function, and a status added here would otherwise be a slot
+	// nobody's table knows about.
 	rows, err := tx.Query(ctx, `
 		WITH busy AS (
 			SELECT id, session_id, agent_id, lane_id, runtime_id FROM task
-			WHERE status IN ('dispatched', 'preparing', 'running')
+			WHERE status::text = ANY($4)
 		),
 		cand AS (
 			SELECT DISTINCT ON (t.lane_id)
@@ -121,7 +125,7 @@ func (p *Postgres) Claim(ctx context.Context, runtimeID string, capacity int, no
 		        ORDER BY created_at, id
 		        LIMIT $3)
 		 ORDER BY t.created_at
-		 FOR UPDATE OF t SKIP LOCKED`, rt, now, capacity)
+		 FOR UPDATE OF t SKIP LOCKED`, rt, now, capacity, hitl.OccupyingStatuses())
 	if err != nil {
 		return nil, fmt.Errorf("queue: select: %w", err)
 	}

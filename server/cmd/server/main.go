@@ -111,6 +111,14 @@ func scheduler(ctx context.Context, srv *httpapi.Server, log interface {
 			} else if n > 0 {
 				log.Info("expired unconsumed daemon commands", "n", n)
 			}
+			// FR-5.4: a HITL request past its deadline either proceeds with the
+			// agent's proposal (question/choice under `autonomous`) or is
+			// flagged overdue and keeps waiting. Nothing else moves it.
+			if n, err := srv.SweepHitlDeadlines(ctx); err != nil {
+				log.Warn("hitl deadline sweep", "err", err)
+			} else if n > 0 {
+				log.Info("hitl deadlines handled", "n", n)
+			}
 		}
 	}
 }

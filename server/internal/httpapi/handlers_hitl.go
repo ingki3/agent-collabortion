@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
+	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
@@ -40,21 +42,29 @@ func (s *Server) RespondHitlRequest(w http.ResponseWriter, r *http.Request, hitl
 		return
 	}
 	// Membership first: a non-member must not learn that this id exists.
-	if _, p := s.sessionAccess(r, row.SessionID); p != nil {
-		writeProblem(w, p)
-		return
-	}
-	if !row.isCompletionApproval() {
-		notImplemented(w, r, "RespondHitlRequest (P2 answers only the platform-issued user_approval request)")
-		return
-	}
-	// approver_spec `director`. The deputy half-window (M7, E7-09·10) is P3 —
-	// refusing is the fail-closed answer while it is unimplemented.
-	u, _, p := s.sessionDirector(r, row.SessionID)
+	u, p := s.sessionAccess(r, row.SessionID)
 	if p != nil {
 		writeProblem(w, p)
 		return
 	}
+	if u == nil {
+		// A task token identifies an agent attempt, and FR-5.3 gives the
+		// response right to people. An agent answering its own question is the
+		// loop HITL exists to break.
+		writeProblem(w, apperr.Forbidden("task_token_scope", "a HITL request is answered by a person (FR-5.3)"))
+		return
+	}
+	sess, serr := loadHitlSession(r.Context(), s.DB, row.SessionID)
+	if serr != nil {
+		writeErr(w, serr)
+		return
+	}
+	now := s.Clock.Now()
+	az := hitl.Authorize(hitl.AuthzInput{
+		Spec: row.ApproverSpec, Director: sess.Director, Deputy: derefUUID(sess.Deputy),
+		Responder: u.Id, IsMember: true,
+		Elapsed: now.Sub(row.CreatedAt), DueIn: row.DueAt.Sub(row.CreatedAt),
+	})
 	body, p := readBody(w, r)
 	if p != nil {
 		writeProblem(w, p)
@@ -65,30 +75,258 @@ func (s *Server) RespondHitlRequest(w http.ResponseWriter, r *http.Request, hitl
 		writeProblem(w, p)
 		return
 	}
-	if in.Approved == nil {
-		writeProblem(w, apperr.Validation(apperr.Field("approved", "required",
-			"an approval request is answered with approved: true or false")))
+	if p := validateHitlResponse(row, in); p != nil {
+		writeProblem(w, p)
 		return
 	}
-	reason := ""
-	if in.Reason != nil {
-		reason = strings.TrimSpace(*in.Reason)
-	}
-	if !*in.Approved && reason == "" {
-		// E6-04 stores the reason in the decision log; a rejection without one
-		// leaves the log saying a decision was made and not why.
-		writeProblem(w, apperr.Validation(apperr.Field("reason", "required",
-			"a rejection records its reason in the decision log (E6-04)")))
+	disabled, derr := s.agentDisabledFor(r.Context(), row.TaskID)
+	if derr != nil {
+		writeErr(w, derr)
 		return
 	}
-	if in.BudgetOverrideUsd != nil || in.TimeExtension != nil {
-		notImplemented(w, r, "RespondHitlRequest budget_override_usd / time_extension")
+	plan := hitl.PlanRespond(hitl.RespondInput{
+		Kind: row.Type, Status: row.Status, Authz: az,
+		Approved: in.Approved, Answer: derefString(in.Answer), Reason: derefString(in.Reason),
+		AgentDisabled: disabled,
+	})
+	if !plan.Accepted && plan.ErrorCode == hitl.CodeForbidden {
+		writeProblem(w, forbiddenRespond(row, plan, now))
+		return
+	}
+	if in.TimeExtension != nil {
+		// The `time` purpose is issued by the session time limit, which is not
+		// part of T-S5 (P3_TASKS §2 names budget). Refusing is the honest
+		// answer: storing an extension nothing reads would look implemented.
+		notImplemented(w, r, "RespondHitlRequest time_extension (session time limit is not in the P3 server slice)")
+		return
+	}
+	if in.BudgetOverrideUsd != nil && (row.Purpose == nil || *row.Purpose != hitl.PurposeBudget) {
+		writeProblem(w, apperr.Validation(apperr.Field("budget_override_usd", "not_applicable",
+			"budget_override_usd applies to the budget HITL only (FR-7.3 C2′)")))
+		return
+	}
+	if row.isCompletionApproval() {
+		// The P2 branch (contracts PR #101): the platform's own approval for a
+		// `user_approval` completion condition — E6-03·E6-04. It folds into the
+		// session's completion state instead of re-queueing a task.
+		s.idempotent(r.Context(), w, "user:"+u.Id.String(), params.IdempotencyKey.String(), requestHash(r, body),
+			func() (int, any, *Problem) {
+				return s.answerCompletionApproval(r.Context(), hitlRequestId, u.Id, *in.Approved, derefString(in.Reason))
+			})
 		return
 	}
 	s.idempotent(r.Context(), w, "user:"+u.Id.String(), params.IdempotencyKey.String(), requestHash(r, body),
 		func() (int, any, *Problem) {
-			return s.answerCompletionApproval(r.Context(), hitlRequestId, u.Id, *in.Approved, reason)
+			return s.answerAgentHitl(r.Context(), row, sess, u.Id, in, plan)
 		})
+}
+
+// validateHitlResponse is the per-type body rule (openapi HitlResponse: "타입에
+// 맞는 필드만 쓴다"). A question answered with `approved` and an approval
+// answered with `answer` are both requests the resume prompt cannot render.
+func validateHitlResponse(row *hitlRow, in gen.HitlResponse) *Problem {
+	switch row.Type {
+	case hitl.KindApproval:
+		if in.Approved == nil {
+			return apperr.Validation(apperr.Field("approved", "required",
+				"an approval request is answered with approved: true or false"))
+		}
+		if !*in.Approved && strings.TrimSpace(derefString(in.Reason)) == "" {
+			// E6-04: the rejection reason is the decision record. Without it
+			// the log says a decision was made and not why.
+			return apperr.Validation(apperr.Field("reason", "required",
+				"a rejection records its reason in the decision log (E6-04)"))
+		}
+	default:
+		if strings.TrimSpace(derefString(in.Answer)) == "" {
+			return apperr.Validation(apperr.Field("answer", "required",
+				"a question, choice or info request is answered with `answer`"))
+		}
+	}
+	return nil
+}
+
+// forbiddenRespond builds the 403 the greyed-out button reads. The deputy gets
+// the instant they become eligible; a plain member gets null, because a time
+// there would promise a right that never arrives (E7-11, openapi
+// Problem.can_respond_from).
+func forbiddenRespond(row *hitlRow, plan hitl.RespondPlan, now time.Time) *Problem {
+	if plan.CanRespondFrom == nil {
+		p := apperr.Forbidden("not_approver", "이 요청에 응답할 권한이 없습니다 (FR-5.3)")
+		p.Extra = map[string]any{"can_respond_from": nil}
+		return p
+	}
+	at := row.CreatedAt.Add(*plan.CanRespondFrom).UTC()
+	p := apperr.Forbidden("deputy_not_yet",
+		fmt.Sprintf("Director 응답 대기 중 · %s부터 승인 가능", at.Format("15:04")))
+	p.Extra = map[string]any{"can_respond_from": at}
+	return p
+}
+
+// agentDisabledFor is FR-1.9 M8's premise: the owner switched `respond_to` to
+// `nobody` while the request was open (E10-08).
+func (s *Server) agentDisabledFor(ctx context.Context, taskID *uuid.UUID) (bool, error) {
+	if taskID == nil {
+		return false, nil
+	}
+	var disabled bool
+	err := s.DB.QueryRow(ctx, `
+		SELECT a.respond_to = 'nobody' OR a.archived_at IS NOT NULL
+		FROM task t JOIN agent a ON a.id = t.agent_id WHERE t.id = $1`, *taskID).Scan(&disabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return disabled, err
+}
+
+func derefString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+// answerAgentHitl records a response to an agent-issued request (or to the
+// platform's budget request) and starts the next attempt.
+//
+// The order is the same one answerCompletionApproval explains: the answer is
+// written first because it is the record of what a person did, and only then
+// is the task moved. An unrecorded answer that re-queued the task would leave
+// the agent resuming with a question it can no longer read.
+func (s *Server) answerAgentHitl(ctx context.Context, row *hitlRow, sess *hitlSession, userID uuid.UUID, in gen.HitlResponse, plan hitl.RespondPlan) (int, any, *Problem) {
+	now := s.Clock.Now()
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return 0, nil, apperr.Internal(err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+
+	var status string
+	if err := tx.QueryRow(ctx, `SELECT status::text FROM hitl_request WHERE id = $1 FOR UPDATE`, row.ID).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil, apperr.NotFound("hitl_request")
+		}
+		return 0, nil, apperr.Internal(err)
+	}
+	if status != string(gen.HitlStatusOpen) {
+		// E7-08: not an error. The caller gets the answer that stands.
+		_ = tx.Rollback(ctx)
+		out, err := s.hitlAPI(ctx, s.DB, row.ID, &userID)
+		if err != nil {
+			return 0, nil, apperr.As(err)
+		}
+		return http.StatusOK, map[string]any{"hitl_request": out, "ignored": true, "decision_id": nil}, nil
+	}
+
+	answer := strings.TrimSpace(derefString(in.Answer))
+	reason := strings.TrimSpace(derefString(in.Reason))
+	stored := answer
+	if stored == "" {
+		stored = reason
+	}
+	var override *float64
+	if in.BudgetOverrideUsd != nil && in.Approved != nil && *in.Approved {
+		v := float64(*in.BudgetOverrideUsd)
+		override = &v
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE hitl_request SET status = 'answered', approved = $2, answer = NULLIF($3, ''), answered_by = $4,
+		       answered_at = $5, budget_override_usd = $6, requeue_held = $7
+		WHERE id = $1`, row.ID, in.Approved, stored, userID, now, override, plan.RequeueHeld); err != nil {
+		return 0, nil, apperr.Internal(err)
+	}
+	// FR-5.2: exactly one decision record per answer. `auto` stays false — a
+	// person answered (E7-12 is the other half).
+	decisionID, err := insertDecision(ctx, tx, row.SessionID, hitlDecisionSummary(row, in, stored), reason, "hitl", &row.ID, false, now)
+	if err != nil {
+		return 0, nil, apperr.Internal(err)
+	}
+	// The inbox item is resolved by the response, not by reading it
+	// (openapi markInboxRead).
+	if _, err := tx.Exec(ctx, `UPDATE inbox_item SET read_at = COALESCE(read_at, $2) WHERE ref_id = $1`, row.ID, now); err != nil {
+		return 0, nil, apperr.Internal(err)
+	}
+	if override != nil && row.TaskID != nil {
+		// FR-7.3 C2′: the raise is scoped to THIS task. The agent's
+		// budget_per_task is untouched, or one click re-prices every future
+		// session (E9-02).
+		if _, err := tx.Exec(ctx, `UPDATE task SET budget_override = $2, updated_at = $3 WHERE id = $1`, *row.TaskID, *override, now); err != nil {
+			return 0, nil, apperr.Internal(err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, nil, apperr.Internal(err)
+	}
+
+	// The re-queue is a separate transaction on purpose: it locks the task
+	// row, and holding both locks in this order while the budget path also
+	// locks task-then-hitl is how the two deadlock.
+	var taskOut *gen.Task
+	resume := plan.TaskStatus == "queued"
+	cause := tasks.CauseHitlAnswer
+	if row.Purpose != nil && *row.Purpose == hitl.PurposeBudget {
+		// E9-03: a REJECTED raise does not resume anything — the task stays
+		// parked at paused(budget) until a person presses 중단. Only the
+		// approval is a trigger (E9-02), and PlanBudgetAnswer is what says
+		// which of the two this is.
+		cause = tasks.CauseBudgetApproved
+		br := sessions.PlanBudgetAnswer(sessions.BudgetAnswerInput{
+			Approved: in.Approved != nil && *in.Approved,
+			TaskID:   derefUUID(row.TaskID), LaneID: derefUUID(row.LaneID),
+		})
+		resume = resume && br.TaskStatus == "queued"
+	}
+	if row.TaskID != nil && resume {
+		if _, err := s.Tasks.ResumeFromHuman(ctx, *row.TaskID, cause); err != nil {
+			return 0, nil, apperr.As(err)
+		}
+		t, err := tasks.Get(ctx, s.DB, *row.TaskID)
+		if err == nil {
+			api := tasks.ToAPI(t, nil, nil)
+			taskOut = &api
+		}
+		s.Queue.Notifier.Notify()
+	}
+	s.publishHitl(ctx, sess.WorkspaceID, row.SessionID, row.ID, "hitl.updated")
+	out, err := s.hitlAPI(ctx, s.DB, row.ID, &userID)
+	if err != nil {
+		return 0, nil, apperr.As(err)
+	}
+	resp := map[string]any{"hitl_request": out, "ignored": false, "decision_id": decisionID}
+	if taskOut != nil {
+		resp["task"] = taskOut
+	}
+	return http.StatusOK, resp, nil
+}
+
+// hitlDecisionSummary is the one line the decision log carries.
+func hitlDecisionSummary(row *hitlRow, in gen.HitlResponse, stored string) string {
+	switch row.Type {
+	case hitl.KindApproval:
+		if in.Approved != nil && *in.Approved {
+			return "승인: " + row.Question
+		}
+		return "거절: " + row.Question
+	default:
+		return row.Question + " → " + stored
+	}
+}
+
+// insertDecision writes one decision row. `auto` separates a human answer from
+// an expiry that proceeded with the agent's proposal (openapi Decision.auto,
+// E7-12); it is a column rather than a convention because the two read
+// identically in the log otherwise.
+func insertDecision(ctx context.Context, q db.DBTX, sessionID uuid.UUID, summary, rationale, source string, refID *uuid.UUID, auto bool, now time.Time) (uuid.UUID, error) {
+	var id uuid.UUID
+	var rat *string
+	if rationale != "" {
+		rat = &rationale
+	}
+	err := q.QueryRow(ctx, `
+		INSERT INTO decision (session_id, summary, rationale, source, ref_id, auto, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+		sessionID, summary, rat, source, refID, auto, now).Scan(&id)
+	return id, err
 }
 
 // answerCompletionApproval records the answer and then folds it into the
@@ -135,6 +373,12 @@ func (s *Server) answerCompletionApproval(ctx context.Context, hitlID, userID uu
 		WHERE id = $1`, hitlID, approved, answer, userID, now); err != nil {
 		return 0, nil, apperr.Internal(err)
 	}
+	// The inbox item is resolved by the RESPONSE, not by reading it (openapi
+	// markInboxRead). Leaving it unread keeps an action_required row — and the
+	// nav badge — on a request that has already been decided (S-33).
+	if _, err := tx.Exec(ctx, `UPDATE inbox_item SET read_at = COALESCE(read_at, $2) WHERE ref_id = $1`, hitlID, now); err != nil {
+		return 0, nil, apperr.Internal(err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, nil, apperr.Internal(err)
 	}
@@ -169,10 +413,15 @@ type hitlRow struct {
 	AgentName       *string
 	Source, Type    string
 	Question        string
+	Context         *string
 	Options         []string
 	ProposedDefault *string
 	ApproverSpec    string
 	Purpose         *string
+	ArtifactID      *uuid.UUID
+	BudgetOverride  *float64
+	MessageID       *uuid.UUID
+	RequeueHeld     bool
 	DueAt           time.Time
 	Overdue         bool
 	Status          string
@@ -182,6 +431,8 @@ type hitlRow struct {
 	AnsweredAt      *time.Time
 	CreatedAt       time.Time
 	Director        uuid.UUID
+	Deputy          *uuid.UUID
+	TaskStatus      *string
 }
 
 // isCompletionApproval is the P2 branch's gate: the platform's own approval for
@@ -197,18 +448,22 @@ func loadHitlRow(ctx context.Context, q db.DBTX, id uuid.UUID) (*hitlRow, error)
 	var h hitlRow
 	err := q.QueryRow(ctx, `
 		SELECT h.id, h.session_id, h.task_id, t.lane_id, t.agent_id, a.name,
-		       h.source::text, h.type::text, h.question, h.options, h.proposed_default,
-		       h.approver_spec, h.purpose, h.due_at, h.overdue, h.status::text,
-		       h.approved, h.answer, h.answered_by, h.answered_at, h.created_at, s.director_user_id
+		       h.source::text, h.type::text, h.question, h.context, h.options, h.proposed_default,
+		       h.approver_spec, h.purpose, h.artifact_id, h.budget_override_usd, h.message_id, h.requeue_held,
+		       h.due_at, h.overdue, h.status::text,
+		       h.approved, h.answer, h.answered_by, h.answered_at, h.created_at,
+		       s.director_user_id, s.deputy_director_user_id, t.status::text
 		FROM hitl_request h
 		JOIN session s ON s.id = h.session_id
 		LEFT JOIN task t ON t.id = h.task_id
 		LEFT JOIN agent a ON a.id = t.agent_id
 		WHERE h.id = $1`, id).
 		Scan(&h.ID, &h.SessionID, &h.TaskID, &h.LaneID, &h.AgentID, &h.AgentName,
-			&h.Source, &h.Type, &h.Question, &h.Options, &h.ProposedDefault,
-			&h.ApproverSpec, &h.Purpose, &h.DueAt, &h.Overdue, &h.Status,
-			&h.Approved, &h.Answer, &h.AnsweredBy, &h.AnsweredAt, &h.CreatedAt, &h.Director)
+			&h.Source, &h.Type, &h.Question, &h.Context, &h.Options, &h.ProposedDefault,
+			&h.ApproverSpec, &h.Purpose, &h.ArtifactID, &h.BudgetOverride, &h.MessageID, &h.RequeueHeld,
+			&h.DueAt, &h.Overdue, &h.Status,
+			&h.Approved, &h.Answer, &h.AnsweredBy, &h.AnsweredAt, &h.CreatedAt,
+			&h.Director, &h.Deputy, &h.TaskStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.NotFound("hitl_request")
 	}
@@ -256,10 +511,29 @@ func (s *Server) hitlAPI(ctx context.Context, q db.DBTX, id uuid.UUID, viewer *u
 			Name *string    `json:"name,omitempty"`
 		}{Id: h.AgentID, Name: h.AgentName}
 	}
-	// can_respond is what greys the button out (SCREEN S8). It is the same
-	// judgement the handler makes, so it never says "you can" to someone the
-	// handler will refuse.
-	out.CanRespond = h.Status == string(gen.HitlStatusOpen) && viewer != nil &&
-		h.isCompletionApproval() && h.ApproverSpec == "director" && *viewer == h.Director
+	out.Context = tasks.NullString(h.Context)
+	out.ArtifactId = tasks.NullUUID(h.ArtifactID)
+	out.MessageId = tasks.NullUUID(h.MessageID)
+	if h.BudgetOverride != nil {
+		out.BudgetOverrideUsd = nullable.NewNullableWithValue(float32(*h.BudgetOverride))
+	} else {
+		out.BudgetOverrideUsd = nullable.NewNullNullable[float32]()
+	}
+	// can_respond / can_respond_from are the SAME judgement the handler makes
+	// (hitl.Authorize), so the button never says "you can" to someone the
+	// handler will refuse, and the greyed-out tooltip carries the instant the
+	// deputy becomes eligible (E7-09, E7-11).
+	out.CanRespondFrom = nullable.NewNullNullable[time.Time]()
+	if h.Status == string(gen.HitlStatusOpen) && viewer != nil {
+		az := hitl.Authorize(hitl.AuthzInput{
+			Spec: h.ApproverSpec, Director: h.Director, Deputy: derefUUID(h.Deputy),
+			Responder: *viewer, IsMember: true,
+			Elapsed: now.Sub(h.CreatedAt), DueIn: h.DueAt.Sub(h.CreatedAt),
+		})
+		out.CanRespond = az.Allowed
+		if az.CanRespondFrom != nil {
+			out.CanRespondFrom = nullable.NewNullableWithValue(h.CreatedAt.Add(*az.CanRespondFrom).UTC())
+		}
+	}
 	return &out, nil
 }

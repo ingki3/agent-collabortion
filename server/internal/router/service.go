@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -515,7 +516,7 @@ func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID u
 	// A loop pause is not a budget breach — the work in flight is legitimate —
 	// so it drains. PlanDispatch owns that distinction.
 	if s.Tasks != nil {
-		if err := s.Tasks.PauseSessionTasks(ctx, tx, sessionID, "loop", v.Detail, now); err != nil {
+		if err := s.Tasks.PauseSessionTasks(ctx, tx, sessionID, "loop", loopPausedDetail(v, now), now); err != nil {
 			return err
 		}
 	}
@@ -713,4 +714,26 @@ func delegatorPremise(ctx context.Context, q db.DBTX, taskID *uuid.UUID) (*uuid.
 		return nil, false, err
 	}
 	return deleg, firedAt != nil, nil
+}
+
+// loopPausedDetail is the jsonb the S5 banner reads for a loop pause (openapi
+// PausedDetail.loop): which of the three limits tripped, the count that tripped
+// it and the agents involved. "loop" on its own does not tell the Director
+// which setting to raise (FR-3.5).
+func loopPausedDetail(v LoopVerdict, now time.Time) []byte {
+	count := 0
+	switch v.Detail {
+	case DetailChainDepth:
+		count = v.ChainDepth
+	case DetailHopsPerHour:
+		count = v.HopsThisWindow
+	case DetailPairRoundtrips:
+		count = v.PairRoundtrips
+	}
+	d := tasks.WithLoop(tasks.PausedDetail("loop", now), v.Detail, count, v.Agents)
+	raw, err := json.Marshal(d)
+	if err != nil {
+		return nil
+	}
+	return raw
 }

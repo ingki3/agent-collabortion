@@ -57,7 +57,7 @@ func Unrunnable(failureKind string) bool {
 // set of independent rules: step 1 outranks step 4, step 2 outranks step 4 and
 // step 3 outranks both working and waiting_human (E5-11 … E5-18).
 //
-// Production call sites: sessions.LoadParticipants (S7 participant list) and
+// production callers: sessions.LoadParticipants (S7 participant list) and
 // agents.Load (agent page). There is no second ladder — the SQL in both only
 // gathers the counts this function reads.
 //

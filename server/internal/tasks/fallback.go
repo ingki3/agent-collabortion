@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ingki3/agent-collabortion/contracts"
+	"github.com/ingki3/agent-collabortion/server/internal/inbox"
 )
 
 // Profile fallback (daemon-protocol.md v0.4 §4.4). The DAEMON reports a
@@ -109,10 +110,10 @@ func (s *Service) ApplyProfileFallback(ctx context.Context, tx pgx.Tx, t *Row, r
 func noteNoFallback(ctx context.Context, tx pgx.Tx, t *Row, now time.Time) error {
 	_, err := tx.Exec(ctx, `
 		INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
-		SELECT m.id, 'run_failed', 'attention', s.id, $1, $2
+		SELECT m.id, $4::inbox_item_type, $5::inbox_severity, s.id, $1, $2
 		FROM session s JOIN member m ON m.workspace_id = s.workspace_id AND m.user_id = s.director_user_id
 		WHERE s.id = $3
-		  AND NOT EXISTS (SELECT 1 FROM inbox_item i WHERE i.ref_id = $1 AND i.type = 'run_failed')`,
-		t.ID, now, t.SessionID)
+		  AND NOT EXISTS (SELECT 1 FROM inbox_item i WHERE i.ref_id = $1 AND i.type = $4::inbox_item_type)`,
+		t.ID, now, t.SessionID, inbox.TypeRunFailed, inbox.Severity(inbox.TypeRunFailed))
 	return err
 }

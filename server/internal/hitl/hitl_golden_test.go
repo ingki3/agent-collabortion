@@ -1,5 +1,3 @@
-//go:build p3golden
-
 // Golden table for HITL (EVAL E7, 21 rows) — PRD FR-5.1 (types), FR-5.2
 // (behaviour), FR-5.4 (pause/resume model), FR-7.1 (the HITL transition), and
 // contracts/openapi.yaml `createHitlRequest` · `respondHitlRequest`.

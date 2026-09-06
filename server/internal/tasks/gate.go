@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
 )
 
@@ -34,6 +33,11 @@ type DispatchOutcome struct {
 //
 //	director → drain. The human asked for a stop, not for lost work.
 //	budget   → cancel. Letting the turn finish defeats the limit (E5-07).
+//
+// production caller: tasks.Service.PauseSessionTasks (gate.go), reached from
+// httpapi.PauseSession, httpapi.applyBudgetPause, sessions.completion and
+// router's loop guard — RunningTurnKill is what decides whether a turn already
+// in flight is drained or cancelled.
 func PlanDispatch(sessionState, pauseReason string, queued []uuid.UUID, running bool) DispatchOutcome {
 	o := DispatchOutcome{SessionState: sessionState, PauseReason: pauseReason, Order: []uuid.UUID{}}
 	switch sessionState {
@@ -78,7 +82,12 @@ func PlanDispatch(sessionState, pauseReason string, queued []uuid.UUID, running 
 // Production call sites for PlanDispatch: this function, called from
 // router.pauseForLoop (FR-3.5) and sessions.ApplyCompletionEvent
 // (budget_exhausted, E6-10).
-func (s *Service) PauseSessionTasks(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, reason, detail string, now time.Time) error {
+// `detail` is the marshalled contract PausedDetail (openapi PausedDetail,
+// migration 0006) or nil. It is bytes rather than a string because the column
+// is jsonb: passing prose here used to fail the UPDATE with "invalid input
+// syntax for type json", which no caller had hit only because the two existing
+// ones passed an empty string or never reached the pause branch.
+func (s *Service) PauseSessionTasks(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, reason string, detail []byte, now time.Time) error {
 	queued, err := collectIDs(tx.Query(ctx, `
 		SELECT id FROM task WHERE session_id = $1 AND status = 'queued' ORDER BY created_at`, sessionID))
 	if err != nil {
@@ -109,13 +118,13 @@ func (s *Service) PauseSessionTasks(ctx context.Context, tx pgx.Tx, sessionID uu
 // pauseLocked parks one in-flight task and asks its daemon to stop. The daemon
 // command is what actually ends the turn; the row is moved first so a claim
 // racing this cannot hand the task out again.
-func (s *Service) pauseLocked(ctx context.Context, tx pgx.Tx, t *Row, reason, detail string, target Status, now time.Time) error {
+func (s *Service) pauseLocked(ctx context.Context, tx pgx.Tx, t *Row, reason string, detail []byte, target Status, now time.Time) error {
 	if _, err := Transition(t.Status, target); err != nil {
 		return err
 	}
-	var det *string
-	if detail != "" {
-		det = &detail
+	var det []byte
+	if len(detail) > 0 {
+		det = detail
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE task SET status = $2, paused_reason = $3::pause_reason, paused_detail = $4, updated_at = $5 WHERE id = $1`,
@@ -129,10 +138,7 @@ func (s *Service) pauseLocked(ctx context.Context, tx pgx.Tx, t *Row, reason, de
 		if requested, err := cancelRequested(ctx, tx, t.ID, t.Attempt); err != nil {
 			return err
 		} else if !requested {
-			if err := tokens.QueueCommand(ctx, tx, *t.RuntimeID, contracts.Command{
-				Type: contracts.CmdCancel, TaskID: t.ID.String(), Attempt: t.Attempt,
-				AfterCurrentTool: true, Reason: reason,
-			}); err != nil {
+			if err := tokens.QueueCommand(ctx, tx, *t.RuntimeID, cancelCommandFor(t, reason)); err != nil {
 				return err
 			}
 		}

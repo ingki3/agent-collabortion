@@ -11,6 +11,7 @@ import (
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/inbox"
 	"github.com/ingki3/agent-collabortion/server/internal/lanestate"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
@@ -26,6 +27,10 @@ type StatusResult struct {
 	// kind ↔ runtime_kind collision failed every finish for the same reason).
 	TurnEndRequired   bool
 	QuestionMessageID *uuid.UUID
+	// DelegatorAgentID is who `blocked` woke, or nil when there was no
+	// delegator and the question went to the Director instead. It is returned
+	// so the caller can name the escalation path it took (E7-19).
+	DelegatorAgentID *uuid.UUID
 }
 
 // SetAgentStatus is FR-7.4's `colab status set working|blocked|done`.
@@ -115,6 +120,7 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 		out.QuestionMessageID, out.TurnEndRequired = &qid, true
 
 		if plan.DelegatorWoken {
+			out.DelegatorAgentID = plan.DelegatorAgentID
 			// Immediate, not via the join: a question raised at minute 2 must
 			// not arrive forty minutes later behind the slowest sibling.
 			childName, err := agentDisplayName(ctx, tx, agentID)
@@ -128,7 +134,7 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 		} else if director != nil {
 			// 리뷰#04-3: a lane the Director created by mentioning an agent has
 			// no delegator to wake, so the question goes to the inbox.
-			if err := insertInbox(ctx, tx, wsID, *director, "lane_blocked", "action_required", sessionID, qid, now); err != nil {
+			if err := insertInbox(ctx, tx, wsID, *director, inbox.TypeLaneBlocked, inbox.Severity(inbox.TypeLaneBlocked), sessionID, qid, now); err != nil {
 				return nil, err
 			}
 		}
@@ -281,9 +287,9 @@ func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID 
 	case authorType == "agent" && authorID != nil:
 		return s.wake(ctx, tx, sessionID, wsID, *authorID, *triggerMsg, "요청하신 작업이 끝났습니다.", now)
 	case authorType == "user" && authorID != nil:
-		return insertInbox(ctx, tx, wsID, *authorID, "mention", "info", sessionID, *triggerMsg, now)
+		return insertInbox(ctx, tx, wsID, *authorID, inbox.TypeMention, inbox.Severity(inbox.TypeMention), sessionID, *triggerMsg, now)
 	case director != nil:
-		return insertInbox(ctx, tx, wsID, *director, "mention", "info", sessionID, *triggerMsg, now)
+		return insertInbox(ctx, tx, wsID, *director, inbox.TypeMention, inbox.Severity(inbox.TypeMention), sessionID, *triggerMsg, now)
 	}
 	return nil
 }

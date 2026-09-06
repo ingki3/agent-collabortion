@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +14,7 @@ import (
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
+	"github.com/ingki3/agent-collabortion/server/internal/inbox"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
@@ -149,7 +151,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		// FR-2.3 / §8.2.2: a budget pause CANCELS the turn in flight. Letting it
 		// finish spends exactly the money the pause exists to stop.
 		if s.Tasks != nil {
-			if err := s.Tasks.PauseSessionTasks(ctx, tx, sessionID, out.PauseReason, "", now); err != nil {
+			if err := s.Tasks.PauseSessionTasks(ctx, tx, sessionID, out.PauseReason, nil, now); err != nil {
 				return nil, err
 			}
 		}
@@ -188,7 +190,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 			return nil, err
 		}
 		if director != nil {
-			if err := s.inbox(ctx, tx, wsID, *director, "session_completed", "info", sessionID, sessionID, now); err != nil {
+			if err := s.inbox(ctx, tx, wsID, *director, inbox.TypeSessionCompleted, inbox.Severity(inbox.TypeSessionCompleted), sessionID, sessionID, now); err != nil {
 				return nil, err
 			}
 		}
@@ -218,7 +220,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		}
 		out.HitlTaskID = uuid.Nil
 		if director != nil {
-			if err := s.inbox(ctx, tx, wsID, *director, "hitl_request", "action_required", sessionID, hitlID, now); err != nil {
+			if err := s.inbox(ctx, tx, wsID, *director, inbox.TypeHitlRequest, inbox.Severity(inbox.TypeHitlRequest), sessionID, hitlID, now); err != nil {
 				return nil, err
 			}
 		}
@@ -267,21 +269,37 @@ func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID
 	if runtimeID == nil {
 		// The session was never dispatched (C4 fixes runtime_id at first
 		// dispatch), so no machine holds a directory for it.
+		//
+		// S-34: this used to return in silence. Under `none` isolation it is
+		// unreachable — a session with no runtime has no workdir either — but
+		// if it ever IS reached the directories are stranded with nothing in
+		// the log, which is exactly the shape of the P4 GC bug this branch
+		// would cause. One line, only when there is actually something to
+		// collect.
+		var orphans int
+		_ = tx.QueryRow(ctx, `SELECT count(*) FROM workdir WHERE session_id = $1 AND status <> 'deleted'`, sessionID).Scan(&orphans)
+		if orphans > 0 {
+			slog.Warn("sessions: session has workdirs but no runtime — gc not issued",
+				"session", sessionID, "workdirs", orphans, "isolation", kind)
+		}
 		return nil
 	}
 	rows, err := tx.Query(ctx, `
-		SELECT id FROM workdir WHERE session_id = $1 AND status <> 'deleted' ORDER BY created_at`, sessionID)
+		SELECT id, path_or_ref FROM workdir WHERE session_id = $1 AND status <> 'deleted' ORDER BY created_at`, sessionID)
 	if err != nil {
 		return fmt.Errorf("sessions: gc workdirs: %w", err)
 	}
 	ids := []string{}
+	targets := []contracts.GCWorkdir{}
 	for rows.Next() {
 		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
+		var path string
+		if err := rows.Scan(&id, &path); err != nil {
 			rows.Close()
 			return err
 		}
 		ids = append(ids, id.String())
+		targets = append(targets, contracts.GCWorkdir{ID: id.String(), Path: path})
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -290,11 +308,17 @@ func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID
 	if len(ids) == 0 {
 		return nil
 	}
-	// The row stays `active` until the daemon's next §6 report no longer lists
-	// it (workdirs.MarkGCd): the server asked, it did not observe. Claiming the
-	// deletion here would make S13 show an empty machine that is still full.
+	// daemon-protocol §4.3 v0.7: the SERVER carries the paths. The daemon has
+	// never held a uuid→path map, so a command with ids alone falls back to
+	// "every lane workdir of the session" — which is not what the retention
+	// rules decided. `workdir_ids` stays for a daemon still on v0.6.
+	//
+	// The rows stay `active` until the daemon's §6 report says `gc: deleted`
+	// (workdirs.ApplyGCReports): the server asked, it did not observe.
+	// Claiming the deletion here would make S13 show an empty machine that is
+	// still full.
 	return tokens.QueueCommand(ctx, tx, *runtimeID, contracts.Command{
-		Type: contracts.CmdGC, SessionID: sessionID.String(), WorkdirIDs: ids,
+		Type: contracts.CmdGC, SessionID: sessionID.String(), WorkdirIDs: ids, Workdirs: targets,
 	})
 }
 

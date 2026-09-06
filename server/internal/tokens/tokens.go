@@ -185,7 +185,7 @@ func QueueCommand(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, cmd contr
 // functions; the two time bounds are applied here and swept by ExpireCommands.
 func PendingCommands(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, now time.Time) ([]contracts.Command, error) {
 	rows, err := q.Query(ctx, `
-		SELECT payload FROM daemon_command
+		SELECT id, payload FROM daemon_command
 		WHERE runtime_id = $1 AND consumed_at IS NULL
 		  AND created_at > $2
 		  AND NOT (type = 'revoke' AND created_at <= $3)
@@ -195,14 +195,34 @@ func PendingCommands(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, now ti
 	}
 	defer rows.Close()
 	out := []contracts.Command{}
+	var ids []int64
 	for rows.Next() {
+		var id int64
 		var c contracts.Command
-		if err := rows.Scan(&c); err != nil {
+		if err := rows.Scan(&id, &c); err != nil {
 			return nil, err
 		}
+		ids = append(ids, id)
 		out = append(out, c)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// S-35: `delivered_at` is the FIRST time this command rode a response, and
+	// it is distinct from `consumed_at`. Delivery is at-least-once and a
+	// response can be lost, so being handed out does NOT consume a command —
+	// but without the timestamp there is no way to tell "the daemon has been
+	// told and has not acted" from "the daemon has never seen it", and the
+	// §4.3 at-least-once guarantee (E11-05) cannot be evidenced. Nothing here
+	// reads it back into a decision; it is the audit trail the re-delivery
+	// rule is judged by. COALESCE keeps the first delivery, not the last.
+	if len(ids) > 0 {
+		if _, err := q.Exec(ctx, `
+			UPDATE daemon_command SET delivered_at = COALESCE(delivered_at, $2) WHERE id = ANY($1)`, ids, now); err != nil {
+			return nil, fmt.Errorf("tokens: mark delivered: %w", err)
+		}
+	}
+	return out, nil
 }
 
 // ConsumeAttemptCommands marks the cancel/revoke commands of (task, attempt)
@@ -241,18 +261,27 @@ func ConsumeRebindCommands(ctx context.Context, q db.DBTX, runtimeID, sessionID 
 	return nil
 }
 
-// ConsumeGCCommands marks gc {workdir_ids} commands consumed once the
-// runtime's workdir report (§6) lists none of their workdirs any more.
-func ConsumeGCCommands(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, presentWorkdirIDs []string, now time.Time) error {
-	if presentWorkdirIDs == nil {
-		presentWorkdirIDs = []string{}
-	}
+// ConsumeGCCommands marks a gc command consumed once every workdir it named
+// has a receipt: the §6 report said `deleted` (the row is `deleted`) or
+// `refused` (the row is `retained`, workdirs.ApplyGCReports).
+//
+// It used to consume on absence — "the daemon stopped listing it, so it is
+// gone". A `refused` row is listed forever, so its command was re-sent on
+// every response until the 24h TTL and the refusal never reached the feed
+// (review R2); a partial report closed directories that still existed
+// (NN6). Both disappear once the status field, not the silence, is the
+// receipt.
+//
+// production caller: httpapi.Server.daemonWorkdirs, after ApplyGCReports.
+func ConsumeGCCommands(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, now time.Time) error {
 	_, err := q.Exec(ctx, `
-		UPDATE daemon_command SET consumed_at = $3, consumed_by = 'workdir_report'
-		WHERE runtime_id = $1 AND type = 'gc' AND consumed_at IS NULL
-		  AND jsonb_typeof(payload->'workdir_ids') = 'array'
-		  AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(payload->'workdir_ids') w WHERE w = ANY($2))`,
-		runtimeID, presentWorkdirIDs, now)
+		UPDATE daemon_command c SET consumed_at = $2, consumed_by = 'workdir_report'
+		WHERE c.runtime_id = $1 AND c.type = 'gc' AND c.consumed_at IS NULL
+		  AND NOT EXISTS (
+		        SELECT 1 FROM workdir w
+		        WHERE w.id::text = ANY(gc_command_workdir_ids(c.payload))
+		          AND w.status = 'active')`,
+		runtimeID, now)
 	if err != nil {
 		return fmt.Errorf("tokens: consume gc commands: %w", err)
 	}

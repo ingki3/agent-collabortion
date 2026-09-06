@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -316,7 +318,17 @@ func (s *Service) requeueLocked(ctx context.Context, tx pgx.Tx, t *Row, reason c
 		t.ID, t.Attempt, t.RuntimeID, now, string(reason), string(reason)); err != nil {
 		return fmt.Errorf("tasks: record attempt: %w", err)
 	}
-	if reason.Retryable() && t.Attempt < t.MaxAttempts {
+	// Queued-or-failed, and how many retries are left, is PlanAttempt's call —
+	// the same planner the bundle and the HITL answer go through, so a retry
+	// cannot drift from a resume (FR-7.1 M5). `AlternateProfile` is left false
+	// here because this call does not read it: E8-09's Director notice is
+	// decided one line below from what ApplyProfileFallback found in the
+	// database, which is the only place that knows.
+	plan := PlanAttempt(AttemptInput{
+		TaskID: t.ID, Attempt: t.Attempt, MaxAttempts: t.MaxAttempts,
+		Cause: CauseOfFailure(reason), PrevWorkdir: "-",
+	})
+	if plan.TaskStatus == string(Queued) {
 		if _, err := Transition(t.Status, Queued); err != nil {
 			return err
 		}
@@ -459,10 +471,30 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 		var outcome *string
 		_ = tx.QueryRow(ctx, `SELECT finished_at, outcome FROM task_attempt WHERE task_id = $1 AND attempt = $2`, t.ID, attempt).Scan(&finished, &outcome)
 		if finished != nil || Terminal(t.Status) {
+			// S-19: the repeat still rolls up. The roll-up is a SUM over
+			// task_usage, not an increment, so running it again is harmless —
+			// and if the FIRST finish's roll-up failed (its own transaction,
+			// after this one committed) this is the only thing that ever
+			// retries it. Without this line a session whose last finish lost
+			// its roll-up shows a permanently stale cost_usd.
+			costed = true
 			final = t.Status
 			return nil
 		}
-		resumed := f.ResumeOutcome == "resumed"
+		// daemon-protocol §4.4: `resume_outcome` is "resumed" | "cold_start" |
+		// null, and the null is not a false. An attempt that never had a
+		// session to resume must leave the column NULL, or the NEXT attempt
+		// reads "the previous one cold started" and throws away the ref this
+		// very finish is storing (measured: TestResumeRefRidesNextClaim).
+		var resumed *bool
+		switch f.ResumeOutcome {
+		case "resumed":
+			t := true
+			resumed = &t
+		case "cold_start":
+			fa := false
+			resumed = &fa
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO task_attempt (task_id, attempt, runtime_id, finished_at, outcome, resumed, stop_reason)
 			VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -490,25 +522,35 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			m := f.Usage.Model
 			model = &m
 		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO task_usage (task_id, input_tokens, output_tokens, cache_read, cost_usd, estimated, model, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			ON CONFLICT (task_id) DO UPDATE SET input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
-			  cache_read = EXCLUDED.cache_read, cost_usd = EXCLUDED.cost_usd, estimated = EXCLUDED.estimated,
-			  model = COALESCE(EXCLUDED.model, task_usage.model), updated_at = EXCLUDED.updated_at`,
-			t.ID, f.Usage.InputTokens, f.Usage.OutputTokens, f.Usage.CacheReadTokens, reported, f.Usage.Estimated, model, now); err != nil {
-			return fmt.Errorf("tasks: usage: %w", err)
+		// An EMPTY usage report is "no information", not "zero". Since P3 the
+		// heartbeat records the turn's running usage (FR-7.3 M9), so a finish
+		// that carries nothing — a cancelled attempt often does — would erase
+		// what the turn actually cost and the session's total would fall
+		// (measured on the :8094 stack: a cancel after $2.20 reported $0).
+		empty := f.Usage.InputTokens == 0 && f.Usage.OutputTokens == 0 &&
+			f.Usage.CacheReadTokens == 0 && f.Usage.CostUSD == 0
+		if !empty {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO task_usage (task_id, input_tokens, output_tokens, cache_read, cost_usd, estimated, model, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+				ON CONFLICT (task_id) DO UPDATE SET input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
+				  cache_read = EXCLUDED.cache_read, cost_usd = EXCLUDED.cost_usd, estimated = EXCLUDED.estimated,
+				  model = COALESCE(EXCLUDED.model, task_usage.model), updated_at = EXCLUDED.updated_at`,
+				t.ID, f.Usage.InputTokens, f.Usage.OutputTokens, f.Usage.CacheReadTokens, reported, f.Usage.Estimated, model, now); err != nil {
+				return fmt.Errorf("tasks: usage: %w", err)
+			}
 		}
 		costed = true
 		// harness.md §6: the ref is stored verbatim (contracts.RuntimeSessionRef →
 		// jsonb with the contract keys) — it is the only basis for the next
 		// attempt's TaskBundle.resume. The lane CHECK (0004) requires
 		// runtime_kind + session_id; reject earlier with a typed error.
-		if f.RuntimeSessionRef != nil {
-			if f.RuntimeSessionRef.RuntimeKind == "" || f.RuntimeSessionRef.SessionID == "" {
-				return ErrInvalidSessionRef
-			}
-			if _, err := tx.Exec(ctx, `UPDATE lane SET runtime_session_ref = $2, updated_at = $3 WHERE id = $1`, t.LaneID, f.RuntimeSessionRef, now); err != nil {
+		ref, err := ValidateSessionRef(f.RuntimeSessionRef)
+		if err != nil {
+			return err
+		}
+		if ref != nil {
+			if _, err := tx.Exec(ctx, `UPDATE lane SET runtime_session_ref = $2, updated_at = $3 WHERE id = $1`, t.LaneID, ref, now); err != nil {
 				return fmt.Errorf("tasks: runtime_session_ref: %w", err)
 			}
 		}
@@ -522,6 +564,17 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			} else if requested {
 				decided = "cancelled"
 			}
+		}
+		if decided == "completed" && t.PendingHitl {
+			// daemon-protocol §4.4: the daemon does not decide `waiting_human`.
+			// It reports a finished turn and the SERVER reads pending_hitl —
+			// this is FR-7.1's HITL transition, and it is the only place the
+			// task leaves `running` for a question (E7-03).
+			if err := s.waitingHumanLocked(ctx, tx, t, attempt, now); err != nil {
+				return err
+			}
+			final = t.Status
+			return nil
 		}
 		switch decided {
 		case "completed":
@@ -665,13 +718,21 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 	// ORDER BY task_id is not cosmetic — two finishes in the same session roll
 	// up concurrently, and locking the same rows in the same order is what
 	// keeps the pair from deadlocking.
+	// S-23: only rows that can actually change are scanned. An estimate is
+	// worth re-pricing when it has no price yet (cost_usd = 0) or when the
+	// price table has been edited since it was priced (`<=`, not `<`: an
+	// injected clock can stamp both in the same instant) — otherwise the same
+	// arithmetic produces the same number, and a session with hundreds of
+	// attempts re-reads all of them on every finish.
 	rows, err := tx.Query(ctx, `
 		SELECT u.task_id, u.input_tokens, u.output_tokens, u.cache_read, u.cost_usd, COALESCE(NULLIF(u.model, ''), p.model, '')
 		FROM task_usage u
 		JOIN task t ON t.id = u.task_id
 		LEFT JOIN agent_profile p ON p.id = t.profile_id
+		LEFT JOIN workspace_settings ws ON ws.workspace_id = $2
 		WHERE t.session_id = $1 AND u.estimated
-		ORDER BY u.task_id`, sessionID)
+		  AND (u.cost_usd = 0 OR ws.updated_at IS NULL OR u.updated_at <= ws.updated_at)
+		ORDER BY u.task_id`, sessionID, wsID)
 	if err != nil {
 		return fmt.Errorf("tasks: pricing rows: %w", err)
 	}
@@ -739,6 +800,23 @@ func (s *Service) inTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
 // for fourteen seconds produced no frame (W5). Keeping the two together means a
 // transition added later cannot forget the board.
 func (s *Service) publish(ctx context.Context, q db.DBTX, t *Row) {
+	// S-18, the definition PR #78's "20 발행 자리" counted: this function is
+	// called at every place a task ROW changes — the 15 status transitions
+	// (12 UPDATEs + 3 INSERTs) plus the 5 places that change what the lane card
+	// shows without changing status (Phase, pending_hitl, budget_override,
+	// attempt bump, paused_detail). 15 ≠ 20 is not a discrepancy; the two
+	// numbers count different things, and the next audit should compare against
+	// this sentence rather than re-deriving it.
+	if s.LanePublish == nil {
+		// S-17: a nil hook used to skip publishing in silence. Production wires
+		// it in one place (httpapi.NewServer), so a second binary assembling
+		// this service without the hook would lose every lane card update with
+		// nothing in the log to say so.
+		warnUnwired("tasks: LanePublish unwired — lane.updated frames will not be published")
+	}
+	if s.ParticipantPublish == nil {
+		warnUnwired("tasks: ParticipantPublish unwired — participant.updated frames will not be published")
+	}
 	if s.Hub != nil {
 		sid := t.SessionID
 		_ = s.Hub.Publish(ctx, q, t.WorkspaceID, &sid, "task.updated", ToAPI(t, nil, nil))
@@ -823,9 +901,7 @@ func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*
 		switch t.Status {
 		case Dispatched, Preparing, Running:
 			if t.RuntimeID != nil {
-				if err := tokens.QueueCommand(ctx, tx, *t.RuntimeID, contracts.Command{
-					Type: contracts.CmdCancel, TaskID: t.ID.String(), Attempt: t.Attempt, AfterCurrentTool: true, Reason: "director",
-				}); err != nil {
+				if err := tokens.QueueCommand(ctx, tx, *t.RuntimeID, cancelCommandFor(t, "director")); err != nil {
 					return err
 				}
 				out = t
@@ -856,6 +932,9 @@ func cancelRequested(ctx context.Context, q db.DBTX, taskID uuid.UUID, attempt i
 // cancelLane), records the attempt, revokes its token and marks the lane
 // failed(cancelled). No requeue.
 func (s *Service) cancelLocked(ctx context.Context, tx pgx.Tx, t *Row, stopReason string, now time.Time) error {
+	// FR-3.4's table, in one place: lane failed, task cancelled(cancelled), a
+	// feed line saying a person stopped it, no new task and no re-queue.
+	res := PlanCancelResult("")
 	if _, err := Transition(t.Status, Cancelled); err != nil {
 		return err
 	}
@@ -879,11 +958,11 @@ func (s *Service) cancelLocked(ctx context.Context, tx pgx.Tx, t *Row, stopReaso
 	if err := s.Tokens.Revoke(ctx, tx, t.ID, t.Attempt, "cancelled"); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'failed', finished_at = $2, updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE lane SET status = $2, finished_at = $3, updated_at = $3 WHERE id = $1`, t.LaneID, res.LaneStatus, now); err != nil {
 		return err
 	}
-	fk := string(contracts.FailCancelled)
-	t.Status, t.FailureKind, t.FinishedAt, t.StopReason, t.PausedReason = Cancelled, &fk, &now, stop, nil
+	fk := res.FailureKind
+	t.Status, t.FailureKind, t.FinishedAt, t.StopReason, t.PausedReason = Status(res.TaskStatus), &fk, &now, stop, nil
 	s.publish(ctx, tx, t)
 	return nil
 }
@@ -946,4 +1025,16 @@ func (s *Service) applySweep(ctx context.Context, tx pgx.Tx, t *Row, idle time.D
 		return s.failLocked(ctx, tx, t, reason, now)
 	}
 	return s.requeueLocked(ctx, tx, t, reason, nil, now)
+}
+
+// unwiredOnce keeps the nil-hook warning to one line per process: publish runs
+// on every transition, and a warning per transition would bury the one that
+// matters.
+var unwiredOnce sync.Map
+
+func warnUnwired(msg string) {
+	if _, loaded := unwiredOnce.LoadOrStore(msg, true); loaded {
+		return
+	}
+	slog.Warn(msg)
 }

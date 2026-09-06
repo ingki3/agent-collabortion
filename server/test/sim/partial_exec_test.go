@@ -1,5 +1,3 @@
-//go:build p3golden
-
 // Partial-execution simulator — EVAL E8-04 and E8-05, the `sim` verification
 // tier of PLAN §5 and the "중복 0" half of the G6 DoD.
 //

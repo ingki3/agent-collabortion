@@ -447,10 +447,22 @@ func TestVerticalSlice(t *testing.T) {
 	if !hasRevoke(hb2["commands"]) {
 		t.Fatalf("revoke must also ride heartbeat responses: %v", hb2["commands"])
 	}
-	var stampedDelivered int
-	_ = pool.QueryRow(t.Context(), `SELECT count(*) FROM daemon_command WHERE runtime_id = $1 AND delivered_at IS NOT NULL`, runtimeID).Scan(&stampedDelivered)
-	if stampedDelivered != 0 {
-		t.Fatalf("PendingCommands must not stamp delivered_at (R3), got %d rows", stampedDelivered)
+	// S-35 (T-S5). This row used to assert delivered_at stayed NULL, reading
+	// R3's rule — "putting a command in a response does not CONSUME it" — as
+	// "does not record it either". Those are different columns: `consumed_at`
+	// is what stops re-delivery, `delivered_at` is the evidence that §4.3's
+	// at-least-once delivery happened at all (E11-05). With it never written,
+	// every command looked undelivered forever and G5's report drew the wrong
+	// conclusion from that. So: stamped on the first delivery, and still not
+	// consumed.
+	var stampedDelivered, consumed int
+	_ = pool.QueryRow(t.Context(), `SELECT count(*) FILTER (WHERE delivered_at IS NOT NULL), count(*) FILTER (WHERE consumed_at IS NOT NULL)
+		FROM daemon_command WHERE runtime_id = $1`, runtimeID).Scan(&stampedDelivered, &consumed)
+	if stampedDelivered == 0 {
+		t.Fatal("PendingCommands must stamp delivered_at on the first delivery (S-35)")
+	}
+	if consumed != 0 {
+		t.Fatalf("delivery must NOT consume the command (R3, §4.3), got %d consumed", consumed)
 	}
 	// The orphaned attempt-1 process reports finish → the revoke is consumed.
 	daemon.must(200, "POST", "/v1/daemon/tasks/"+taskID+"/attempts/1/finish", contracts.Finish{Outcome: "cancelled", StopReason: "revoked"})
@@ -484,9 +496,12 @@ func TestVerticalSlice(t *testing.T) {
 		t.Fatalf("token after completion = %d %v", st, out)
 	}
 
-	// --- 501 for out-of-P1 operations, SSE backfill row count ---
-	if st, out, _ := api.do("GET", p+"/inbox", nil); st != 501 || str(out, "code") != "not_implemented" {
-		t.Fatalf("P2 op = %d %v", st, out)
+	// --- an operation still outside the implemented set, SSE backfill count ---
+	// `/inbox` used to be the example here; T-S5 implemented it (FR-8), so the
+	// row moved to one that is still out of scope rather than being dropped —
+	// the 501 contract itself is what this half of the slice checks.
+	if st, out, _ := api.do("GET", p+"/workspaces/"+wsID+"/onboarding", nil); st != 501 || str(out, "code") != "not_implemented" {
+		t.Fatalf("out-of-scope op = %d %v", st, out)
 	}
 	var streamed int
 	_ = pool.QueryRow(t.Context(), `SELECT count(*) FROM stream_event WHERE workspace_id = $1 AND type = 'message.created'`, wsID).Scan(&streamed)

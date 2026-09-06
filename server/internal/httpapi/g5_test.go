@@ -269,10 +269,10 @@ func TestG5CompletedSessionCollectsWorkdirs(t *testing.T) {
 	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/complete", map[string]any{"confirm": true})
 
 	var gcs int
-	var ids string
+	var ids, targets string
 	if err := f.pool.QueryRow(ctx, `
-		SELECT count(*), coalesce(max(payload->>'workdir_ids'), '') FROM daemon_command
-		WHERE session_id = $1 AND type = 'gc'`, f.sessionID).Scan(&gcs, &ids); err != nil {
+		SELECT count(*), coalesce(max(payload->>'workdir_ids'), ''), coalesce(max(payload->>'workdirs'), '')
+		FROM daemon_command WHERE session_id = $1 AND type = 'gc'`, f.sessionID).Scan(&gcs, &ids, &targets); err != nil {
 		t.Fatal(err)
 	}
 	if gcs != 1 {
@@ -280,6 +280,12 @@ func TestG5CompletedSessionCollectsWorkdirs(t *testing.T) {
 	}
 	if !contains(ids, workdirID.String()) {
 		t.Fatalf("gc payload = %s, want the session's workdir %s", ids, workdirID)
+	}
+	// v0.7 §4.3: the SERVER carries the path. A daemon that only got ids falls
+	// back to "every lane workdir of this session", which is not what the
+	// retention rules decided (review R2).
+	if !contains(targets, workdirID.String()) || !contains(targets, "/tmp/colab/wd-1") {
+		t.Fatalf("gc payload workdirs = %s, want [{id, path}] carrying %s and its path", targets, workdirID)
 	}
 	// The row is still `active`: the server asked, it has not seen the result.
 	var status string
@@ -289,8 +295,25 @@ func TestG5CompletedSessionCollectsWorkdirs(t *testing.T) {
 	if status != "active" {
 		t.Fatalf("workdir status = %q before the daemon reports; want active — the server does not delete", status)
 	}
-	// …and the daemon's next §6 report, which no longer lists it, is the receipt.
+	// A report that simply omits the directory is NOT a receipt (review NN6): a
+	// daemon restarting mid-report would otherwise close rows that are still
+	// on disk.
 	f.daemon.must(200, "POST", "/v1/daemon/runtimes/"+f.runtimeID+"/workdirs", map[string]any{"workdirs": []any{}})
+	if err := f.pool.QueryRow(ctx, `SELECT status::text FROM workdir WHERE id = $1`, workdirID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "active" {
+		t.Fatalf("workdir status after a report that merely omits it = %q, want active — §6 v0.7 "+
+			"makes `gc: {status}` the receipt, and silence is not one", status)
+	}
+	// …the receipt is the row's `gc: {status: deleted}` — carried one last time.
+	f.daemon.must(200, "POST", "/v1/daemon/runtimes/"+f.runtimeID+"/workdirs", map[string]any{
+		"workdirs": []any{map[string]any{
+			"id": workdirID.String(), "kind": "dir", "path": "/tmp/colab/wd-1",
+			"session_id": f.sessionID, "lane_id": laneID.String(),
+			"gc": map[string]any{"status": "deleted"},
+		}},
+	})
 	if err := f.pool.QueryRow(ctx, `SELECT status::text FROM workdir WHERE id = $1`, workdirID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
@@ -391,6 +414,35 @@ func TestG5ApprovalCompletesSession(t *testing.T) {
 	if summaries != 1 {
 		t.Fatalf("session_summary messages = %d, want exactly 1 (FR-2.4)", summaries)
 	}
+	// S-33: the Director's inbox is what FR-8 promises after a session ends,
+	// and nothing asserted it — `listInbox` was P3 at the time, so the row was
+	// left out rather than measured through the table. It is measured through
+	// the API now that the endpoint exists.
+	items := f.api.must(200, "GET", "/api/v1/inbox?session_id="+f.sessionID, nil)
+	list, _ := items["items"].([]any)
+	completed := 0
+	for _, it := range list {
+		row, _ := it.(map[string]any)
+		if str(row, "type") == "session_completed" {
+			completed++
+			if str(row, "severity") != "info" {
+				t.Fatalf("session_completed severity = %q, want info — the nav badge counts action_required only (SCREEN §4.6)", str(row, "severity"))
+			}
+		}
+	}
+	if completed != 1 {
+		t.Fatalf("session_completed inbox items = %d, want exactly 1 for the Director (FR-8, S-33)", completed)
+	}
+	// The approval's own action_required item is resolved by the response, not
+	// by reading it (openapi markInboxRead).
+	var unreadApproval int
+	if err := f.pool.QueryRow(t.Context(), `
+		SELECT count(*) FROM inbox_item WHERE ref_id = $1 AND read_at IS NULL`, hitl).Scan(&unreadApproval); err != nil {
+		t.Fatal(err)
+	}
+	if unreadApproval != 0 {
+		t.Fatalf("answered HITL still has %d unread inbox rows (S-33)", unreadApproval)
+	}
 }
 
 // E6-04: 거절 → 세션 `active` 유지 · `artifact_submitted` 유지 · 사유가 결정 기록에.
@@ -455,10 +507,13 @@ func TestG5ApprovalSecondResponseIsIgnored(t *testing.T) {
 	}
 }
 
-// The P2 branch is exactly one kind of request. Everything else — an agent's
-// question, a budget override, a loop pause — is still P3 and says so rather
-// than answering half of FR-5.4.
-func TestG5OtherHitlRequestsStay501(t *testing.T) {
+// P3 (T-S5) opened the rest of respondHitlRequest. This row used to assert
+// 501 for an agent's question, a budget override and a loop pause; those are
+// now answered (FR-5.4, E7-07·E9-02), so the test asserts what replaced the
+// 501 rather than being deleted — the boundary it was guarding still exists,
+// it just moved to `time_extension` and to a budget override on a request that
+// is not the budget one.
+func TestP3OtherHitlRequestsAreAnswered(t *testing.T) {
 	f := newP2Fixture(t)
 	ctx := t.Context()
 	mk := func(purpose, source string, task *uuid.UUID) string {
@@ -476,13 +531,24 @@ func TestG5OtherHitlRequestsStay501(t *testing.T) {
 	agentTask := mustUUID(t, str(post["triggers"].([]any)[0].(map[string]any), "task_id"))
 
 	for _, id := range []string{mk("budget", "system", nil), mk("loop", "system", nil), mk("agent", "agent", &agentTask)} {
-		f.api.must(501, "POST", f.p+"/hitl-requests/"+id+"/response",
+		out := f.api.must(200, "POST", f.p+"/hitl-requests/"+id+"/response",
 			map[string]any{"approved": true}, "Idempotency-Key", uuid.NewString())
+		req, _ := out["hitl_request"].(map[string]any)
+		if str(req, "status") != "answered" {
+			t.Fatalf("hitl %s status = %q, want answered", id, str(req, "status"))
+		}
+		if out["decision_id"] == nil {
+			t.Fatalf("hitl %s recorded no decision (FR-5.2: exactly one per answer)", id)
+		}
 	}
-	// budget_override_usd is P3 even on the request this branch does answer.
+	// budget_override_usd belongs to the budget request only: accepting it on
+	// the completion approval would raise a limit nobody asked about (C2′).
 	hitl := f.issueCompletionApproval(t)
-	f.api.must(501, "POST", f.p+"/hitl-requests/"+hitl+"/response",
+	f.api.must(422, "POST", f.p+"/hitl-requests/"+hitl+"/response",
 		map[string]any{"approved": true, "budget_override_usd": 10}, "Idempotency-Key", uuid.NewString())
+	// The session time limit is not in the P3 server slice, and says so.
+	f.api.must(501, "POST", f.p+"/hitl-requests/"+mk("time", "system", nil)+"/response",
+		map[string]any{"approved": true, "time_extension": "PT1H"}, "Idempotency-Key", uuid.NewString())
 }
 
 // approver_spec `director` is authorisation, not decoration: another member of

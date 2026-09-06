@@ -736,24 +736,21 @@ func deref(s *string) string {
 	return *s
 }
 
-// Invitable is FR-1.9: may caller invite this agent into a session?
+// Invitable is FR-1.9's invitation half: may caller invite this agent into a
+// session? It delegates to tasks.MayTrigger so there is ONE ladder rather than
+// two — the in-session half (participation is itself the permission, E10-10)
+// and this one have to agree, and they drifted apart the moment they were
+// written separately.
 func Invitable(respondTo string, owner uuid.UUID, allow []uuid.UUID, caller *uuid.UUID) (bool, string) {
-	switch respondTo {
-	case "nobody":
-		return false, "kill switch: respond_to is nobody"
-	case "workspace":
-		return true, ""
-	case "allowlist":
-		if caller != nil && (*caller == owner || slices.Contains(allow, *caller)) {
-			return true, ""
-		}
-		return false, "not on this agent's allowlist"
-	default: // owner
-		if caller != nil && *caller == owner {
-			return true, ""
-		}
-		return false, "only the owner can invite this agent"
+	originator := uuid.Nil
+	if caller != nil {
+		originator = *caller
 	}
+	v := tasks.MayTrigger(tasks.TriggerInput{
+		RespondTo: respondTo, OwnerID: owner, Allowlist: allow,
+		InSession: false, Participant: false, OriginatorUserID: originator,
+	})
+	return v.Allowed, v.Reason
 }
 
 func isUnique(err error) bool {

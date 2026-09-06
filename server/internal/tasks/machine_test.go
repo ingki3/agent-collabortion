@@ -28,3 +28,15 @@ func TestTransitions(t *testing.T) {
 		}
 	}
 }
+
+// TestHistoryLimitMatchesEval is S-38. The golden table injects its own
+// HistoryLimit (resume_golden_test.go passes 50), so nothing ever compared the
+// constant the production path actually uses with the contract — it sat at 30
+// through a green E8-12. This row is the comparison.
+func TestHistoryLimitMatchesEval(t *testing.T) {
+	if DefaultHistoryLimit != 50 {
+		t.Fatalf("DefaultHistoryLimit = %d, want 50 (EVAL E8-12, S-38). queue.buildBundle takes its "+
+			"history cap from here, so a wrong number here is a wrong prompt everywhere",
+			DefaultHistoryLimit)
+	}
+}

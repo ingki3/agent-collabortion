@@ -64,8 +64,19 @@ func (s *Server) UpdateWorkspaceSettings(w http.ResponseWriter, r *http.Request,
 	// set a value. `||` is Postgres' shallow object merge: the keys present in
 	// the request win, the rest of the object stays.
 	//
-	// An explicit `null` in the body still writes null: that is "unset this
-	// key", which is what nullable.Nullable's specified-null means.
+	// S-32, correcting what this comment used to claim. Inside a jsonb GROUP an
+	// explicit `null` does NOT unset the key: the generated fields of
+	// LoopLimits, BudgetPolicy, ContextReuse and RuntimePolicy are `*int` /
+	// `*string` with `omitempty`, so `{"max_chain_depth": null}` and an omitted
+	// key both arrive as a nil pointer and both marshal to nothing — the `||`
+	// merge then leaves the stored value alone. That is a limitation of the
+	// generated shape, not a misbehaviour: nothing is lost and nothing is
+	// silently overwritten. Clearing one key of a group means writing the whole
+	// group without it, which the contract has no verb for yet.
+	//
+	// The TOP-LEVEL nullable columns are different and do work as documented:
+	// `workdir_disk_quota_gb` is `nullable.Nullable[int]`, so a specified null
+	// is distinguishable from an omitted key and writes SQL NULL (below).
 	mergeInto := func(col string, v any) {
 		args = append(args, marshalJSON(v))
 		sets = append(sets, fmt.Sprintf("%s = %s || $%d::jsonb", col, col, len(args)))
