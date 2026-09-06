@@ -48,12 +48,14 @@ ASK_INS='너는 가상의 실내 화분 자동 급수기 제품 Y 의 설명 초
 
 LONG_INS='너는 가상의 실내 화분 자동 급수기 제품 Y 의 사용 설명서를 쓰는 작성자다. 답은 한국어로 짧게.
 
-지시를 받으면 현재 작업 디렉토리에서 아래를 순서대로, 서두르지 말고 한 단계씩 수행한다.
+**첫 턴부터 곧바로** 현재 작업 디렉토리에서 아래를 순서대로, 서두르지 말고 한 단계씩 수행한다.
+기다리지 말고 아무것도 묻지 말고 바로 시작한다.
 - 단계 1..8: chapter-01.md 부터 chapter-08.md 까지 각각 여덟 줄짜리 장을 하나씩 쓴다.
   한 장을 끝낼 때마다 colab_message_post 로 `CHAPTER-<번호> done` 을 게시한다.
 여덟 장이 끝나면 `ALL-DONE` 을 게시하고 colab_status_set 으로 status "done" 을 부른 뒤 턴을 끝낸다.
 
-웹 검색을 하지 마라. 저장소나 다른 디렉토리를 뒤지지 마라. 파일 쓰기 말고는 colab_* 도구만 쓴다.'
+웹 검색을 하지 마라. 저장소나 다른 디렉토리를 뒤지지 마라. 도구가 실패해도 재시도하거나
+다른 방법을 찾지 마라. 파일 쓰기 말고는 colab_* 도구만 쓴다.'
 
 step "1. 사람 셋 — Director · deputy · 일반 멤버 (초대 링크로)"
 COOKIE="$DIR_COOKIE"
@@ -119,6 +121,11 @@ chk W4  "멤버 화면에 \"중단\" 버튼이 **보인다**(숨기지 않는다
 chk W4b "그 버튼이 **비활성**이다 (E10-05)"              yes \
   "$( [ "$(abcount '[data-testid="lane-action-cancel"]:disabled')" -ge 1 ] && echo yes || echo no )"
 COOKIE="$DEP_COOKIE"
+# §8 되먹임 2: **개입은 턴이 살아 있는 동안에만 잰다.** 턴이 이미 끝났으면 E10-04 의 자극 자체가
+# 성립하지 않는다 — 서버는 `completed` finish 를 받고, 취소는 흡수되지 않는다(2판 §9.6 관찰).
+# 그래서 취소 직전에 그 attempt 가 아직 turn_end 를 내지 않았음을 못 박는다.
+chk X1c "취소 시점에 그 턴이 **아직 살아 있다** (§8 되먹임 2 — 이 자극의 전제)" 0 \
+  "$(psqlq "select count(*) from task_event where task_id='$TC' and attempt=1 and class='runtime' and verb='turn_end'")"
 T_CANCEL="$(now_ms)"
 DC="$(api POST "/lanes/$LANE_C/cancel" '' | api_code)"
 chk X2 "**deputy 의 취소는 즉시 받아들여진다** (시점 제한 없음, E10-06)" 202 "$DC"

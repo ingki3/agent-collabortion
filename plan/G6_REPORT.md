@@ -5,11 +5,13 @@
 | 게이트 | `PLAN.md` §6.2 **G6** — "시나리오 C·D + **중복 0**". **컷 3**: 미통과면 P4 를 열지 않고 P3 를 마감한다 |
 | 앞 게이트 | **G5 통과**(`plan/G5_DECISION.md`) — 시나리오 A 8단계 + Hermes + 템플릿 3분. 재측정 PASS 162 · FAIL 0 |
 | 작성 | Integrator (T-I3), 2026-09-07 |
-| 스택 | 1차 측정 dev `957ffd3`(서버 #124 · 웹 #130 머지 뒤), **`48_` 재측정은 계약 #133 · CLI #134 · 서버 #136 을 머지한 `5ed5dfc`**(빌드 2026-09-07 00:50:46 KST). `bin/server`·`bin/daemon`·`bin/colab` 빌드 시각 **2026-09-06 23:51:18 KST**. server `:8100` · web `:3020`(`next build` + `next start`) · Postgres `colab-pg-g6 :5442` — 다른 워커 스택(P1 `:8080/:5435` · P2 `:8090/:5436` · G5 `:5437` · 스파이크 4c `:8095/:5441`)과 포트·컨테이너·workdir 를 분리했다(§0-13) |
+| 스택 (2판) | dev **`94c4143`** — 바이너리·`next build` **2026-09-07 01:43:09 KST**, 마이그레이션 15개, **DB 재생성**. server `:8100` · web `:3020` · Postgres `colab-pg-g6 :5442` |
+| 스택 (1판) | 1차 측정 dev `957ffd3`(서버 #124 · 웹 #130 머지 뒤), **`48_` 재측정은 계약 #133 · CLI #134 · 서버 #136 을 머지한 `5ed5dfc`**(빌드 2026-09-07 00:50:46 KST). `bin/server`·`bin/daemon`·`bin/colab` 빌드 시각 **2026-09-06 23:51:18 KST**. server `:8100` · web `:3020`(`next build` + `next start`) · Postgres `colab-pg-g6 :5442` — 다른 워커 스택(P1 `:8080/:5435` · P2 `:8090/:5436` · G5 `:5437` · 스파이크 4c `:8095/:5441`)과 포트·컨테이너·workdir 를 분리했다(§0-13) |
 | 런타임 | Claude Code CLI 2.1.258 + 어댑터 `@agentclientprotocol/claude-agent-acp` **0.74.0**(핀) · **Hermes 0.20.6**. 모델은 비용 때문에 haiku(`claude-haiku-4-5-20251001`) |
 | 재현 | `bash e2e/p3/up.sh` 뒤 `48_`~`53_` + `fixtures/g_user_approval_card.sh` — 순서·비용·함정은 `e2e/p3/README.md` |
-| 총계 | **PASS 259 · FAIL 10** — 48_ **76/0**(핫픽스 뒤 재측정) · 49_ 33/0 · 50_ 47/7 · 51_ 37/0 · 52_ 40/0 · 53_ 22/0 · (g) 4/3. 여기에 (g) 가 재실행한 `e2e/p2/33_` 이 **41/0**(별도 집계) |
-| 결론 | **G6 미충족 — 남은 차단 결함 4건.** HITL 왕복·재개·중복 0·취소·deputy·시나리오 C·D 는 **전부 섰다**(FAIL 0 다섯 스크립트). 측정 중 드러난 **K-7·C-4 는 이 PR 이 열려 있는 동안 닫혔고**(계약 #133 · CLI #134) `48_` 재측정이 **76/0** 으로 그것을 확인한다. 남은 것은 **예산 하나**다: 강제가 실기에서 한 번도 발동하지 않고(**D-17 · K-8**; S-44 는 #136 으로 닫혔으나 재측정 대기), 초과를 사람이 **웹에서 풀 수 없다**(**S-45 · W-6**). 판정은 §7 |
+| 총계 (2판, `94c4143`) | **PASS 331 · FAIL 3** — 48_ 76/0 · 49_ 33/0 · 50_ **114/3** · 51_ 38/0 · 52_ 40/0 · 53_ 22/0 · (g) 8/0. 여기에 (g) 가 재실행한 `e2e/p2/33_` 이 **41/0**(별도 집계). **§9** 가 2판이다 |
+| 총계 (1판, `957ffd3`) | PASS 259 · FAIL 10 — 48_ 76/0(핫픽스 뒤 재측정) · 49_ 33/0 · 50_ 47/7 · 51_ 37/0 · 52_ 40/0 · 53_ 22/0 · (g) 4/3 |
+| 결론 | **G6 충족(2판, §9).** 1판의 차단 다섯(K-7·C-4 · S-44 · S-45 · W-6 · D-17 · K-8)은 핫픽스 #133·#134·#136·#139·#142·#145·#147 로 **전부 닫혔고 실기로 확인**했다. `50_` 은 이제 **데몬 대역 우회가 하나도 없다** — 예산 초과·취소·정지·상향·재개가 전부 에이전트가 실제로 쓴 돈으로 일어난다. 남은 것은 **신규 결함 1건(서버)**: 예산으로 `paused` 된 task 의 `finish` 가 500 이라 attempt 기록과 `runtime_session_ref` 가 유실되고, 승인 뒤 재개가 resume 이 아니라 **콜드 스타트**가 된다(§9.5). 판정은 §9.7 — 아래 §1~§8 은 **1판 그대로** 남긴다 |
 
 > **읽는 법.** 각 절은 EVAL 행 번호를 그대로 쓴다. `우회`라고 적힌 것은 정식 경로가 막혀 다른 경로로
 > 돌아간 측정이고, 그 자리에는 반드시 **결함 번호**가 붙어 있다. 결함은 `S`(서버) `W`(웹) `D`(데몬)
@@ -64,11 +66,14 @@
 |---|---|---|---|---|
 | ~~**K-7**~~ | 계약 | `contracts/colab-cli.md` v0.5 §2.4 는 `colab hitl ask·approve-request·request-info` 의 경로를 `POST /v1/tasks/{T}/hitl` 로 적는데 **openapi 에 그 경로가 없다** — `createHitlRequest` 는 `POST /sessions/{S}/hitl-requests` 뿐이다 | §2.1 | **해결 — 계약 #133** |
 | ~~**C-4**~~ | CLI | CLI(PR #126, `cli/internal/client/ops_p3.go:18`)가 colab-cli.md 를 따라 존재하지 않는 경로를 부른다 → 두 도구 표면(MCP·cli_wrapper) 모두 **404**. 목 서버 스모크가 이것을 잡지 못했다(#126 리뷰 NN1 이 예고한 그대로) | §2.1 | **해결 — CLI #134** |
-| **D-17** | 데몬 | `acp.Runner.recordUsage` 가 `session/prompt` **응답에서만** 호출된다(`runner.go:955`) → 턴 중 heartbeat 의 `usage` 는 언제나 0 → 서버 가드(`daemon.go:442`)가 거짓이라 `enforceBudgetFor` 미호출 | §2.2 | **차단** |
-| ~~**S-44**~~ | 서버 | `enforceBudgetFor` 는 heartbeat 한 곳에서만 호출된다 — `tasks.Finish` 에서 부르지 않아 **사후 강제도 없다**(`budget.go:88` 주석은 부른다고 적었다) | §2.2 | **해결 — 서버 #136**(50_ 재측정 대기) |
-| **K-8** | 계약·교차 | ACP 경로는 `cost_usd` 를 주지 않아 **런타임이 만든 `task_usage` 행이 72/72 전부 `estimated: true`** 다(claude_code·hermes 모두). 그리고 `RecordTurnUsage` 는 `estimated: true` 보고의 금액을 **0 으로 떨어뜨린다**(harness v0.7.1) → 추정 경로도 강제에 도달하지 못한다. **D-17 만 고쳐도 예산은 여전히 발동하지 않는다** | §2.2 | **차단** |
-| **S-45** | 서버 | 시스템 발행 HITL 3곳(`budget.go:188` · `sessions/complete.go:216` · `router/service.go:500`)이 `kind='hitl'` 타임라인 메시지를 만들지 않고 `message_id` 가 NULL 이다 → S7 에 카드가 **아예 없다**(SCREEN §4.5 위반). 에이전트 발행 경로만 게시한다(`handlers_hitl_p3.go:203`) | §2.3 · §6 | **차단** |
-| **W-6** | 웹 | 인박스의 `hitl_request` 항목이 `HitlBody` 를 `budgetOverride` 없이 그린다(`InboxItemCard.tsx:159`) — 상향 입력칸은 `item.type === "session_paused"` 조건이라 붙지 않는다. task 범위 예산 초과는 세션을 멈추지 않으므로(E9-01) 이 항목은 영영 `session_paused` 가 아니다 → **웹에서 금액을 정할 자리가 없다** | §2.3 | **차단** |
+| ~~**D-17**~~ | 데몬 | `acp.Runner.recordUsage` 가 `session/prompt` **응답에서만** 호출된다(`runner.go:955`) → 턴 중 heartbeat 의 `usage` 는 언제나 0 → 서버 가드(`daemon.go:442`)가 거짓이라 `enforceBudgetFor` 미호출 | §2.2 | **해결 — 데몬 #145** (§9.1) |
+| ~~**S-44**~~ | 서버 | `enforceBudgetFor` 는 heartbeat 한 곳에서만 호출된다 — `tasks.Finish` 에서 부르지 않아 **사후 강제도 없다**(`budget.go:88` 주석은 부른다고 적었다) | §2.2 | **해결 — 서버 #136**. 다만 그 호출부는 오늘의 런타임에서 실기에 도달하지 않는다(§9.4) |
+| ~~**K-8**~~ | 계약·교차 | ACP 경로는 `cost_usd` 를 주지 않아 **런타임이 만든 `task_usage` 행이 72/72 전부 `estimated: true`** 다(claude_code·hermes 모두). 그리고 `RecordTurnUsage` 는 `estimated: true` 보고의 금액을 **0 으로 떨어뜨린다**(harness v0.7.1) → 추정 경로도 강제에 도달하지 못한다. **D-17 만 고쳐도 예산은 여전히 발동하지 않는다** | §2.2 | **해결 — 서버 #147**(S-48). 그리고 #145 로 claude_code 가 실측 비용을 준다 (§9.1) |
+| ~~**S-45**~~ | 서버 | 시스템 발행 HITL 3곳(`budget.go:188` · `sessions/complete.go:216` · `router/service.go:500`)이 `kind='hitl'` 타임라인 메시지를 만들지 않고 `message_id` 가 NULL 이다 → S7 에 카드가 **아예 없다**(SCREEN §4.5 위반). 에이전트 발행 경로만 게시한다(`handlers_hitl_p3.go:203`) | §2.3 · §6 | **해결 — 서버 #142** (§9.1) |
+| ~~**W-6**~~ | 웹 | 인박스의 `hitl_request` 항목이 `HitlBody` 를 `budgetOverride` 없이 그린다(`InboxItemCard.tsx:159`) — 상향 입력칸은 `item.type === "session_paused"` 조건이라 붙지 않는다. task 범위 예산 초과는 세션을 멈추지 않으므로(E9-01) 이 항목은 영영 `session_paused` 가 아니다 → **웹에서 금액을 정할 자리가 없다** | §2.3 | **해결 — 웹 #139** (§9.1) |
+
+| **신규** | 서버 | **예산으로 `paused` 된 task 의 `finish` 가 500 이다.** `tasks.Finish` 가 `completed` 아닌 outcome 을 `cancelRequested` 때문에 `cancelled` 로 바꾸고, `cancelLocked` 가 `paused_reason` 만 지우고 `paused_detail` 을 남겨 `task_paused_detail_check`(0006)를 깬다 → attempt 기록과 `lane.runtime_session_ref` 유실 → 승인 뒤 재개가 **콜드 스타트**(E9-02 "resume 우선" 미충족) | **§9.5** | Lead 판정 |
+| **관찰** | 서버 | 턴 종료와 경합한 취소는 흡수되지 않는다 — `completed` finish 는 `cancelRequested` 를 보지 않아 피드는 "사람이 중단함", 화면은 완료 | **§9.6** | Lead 판정 |
 
 관찰(결함 아님, §4 에 상술): 예비 회차 한 번에서 resume arm 의 "workdir 먼저 확인" 이 어긋났다 — 최종 회차는 2/2 로 지켰다.
 
@@ -443,7 +448,9 @@ SCREEN §4.5 가 정한 중앙 타임라인의 자리가 비어 있다.
 
 ---
 
-## 7. 판정 (컷 3)
+## 7. 판정 (컷 3) — 1판
+
+> **이 절은 1판(`957ffd3`)의 판정이다. 핫픽스 뒤 재측정한 2판 판정은 §9.7 이고, 그것이 최종이다.**
 
 **G6 미충족.** 근거는 "무엇이 실패했나" 가 아니라 **"어느 경로가 서지 않나"** 다.
 
@@ -504,3 +511,269 @@ D-17·K-8 은 FR-7.3 의 "턴 중 강제" 자체다. **D-17 과 K-8 은 같이 �
 6. **EVAL 제안(K-1 에 얹을 것)**: E9-01 의 "실측(`estimated:false`) → 취소" 분기는 오늘의 두 런타임으로는
    실기에 도달할 수 없다(K-8). EVAL 에 "실기 검증 불가 · `acpfake`/골든이 지킨다"를 명시하거나,
    추정치에 서버 가격표를 매겨 비교하는 규칙을 계약에 넣어야 행이 살아난다.
+
+---
+
+## 9. 2판 — 핫픽스 뒤 재측정 (2026-09-07)
+
+1판(§1~§8)은 그대로 둔다. 이 절은 **차단 결함 다섯이 전부 닫힌 뒤** 같은 자극을 다시 낸 결과다.
+
+| 항목 | 내용 |
+|---|---|
+| 스택 | dev **`94c4143`**(#134·#136·#139·#142·#143·#145·#146·#147 머지 뒤). `bin/server`·`bin/daemon`·`bin/colab` 빌드 **2026-09-07 01:43:09 KST**, `next build` 같은 시각, 마이그레이션 15개 적용. 서버 `:8100` · web `:3020` · Postgres `colab-pg-g6 :5442` — **DB 를 드롭하고 다시 만들었다**(1판 데이터 없음) |
+| 런타임 | 1판과 같다 — Claude Code CLI 2.1.258 + 어댑터 `0.74.0`(핀) · Hermes 0.20.6 · haiku |
+| 재측정 범위 | `48_`~`53_` **전부 다시 돌렸다** + `fixtures/g_user_approval_card.sh`. (Lead 지시는 `50_`·(g) 만이었지만 #142 가 **에이전트 HITL 카드 경로**를, #147 이 **롤업·인박스**를 건드려 나머지도 같은 빌드에서 다시 잰다) |
+| 총계 | **PASS 331 · FAIL 3** — 48_ **76/0** · 49_ **33/0** · 50_ **114/3** · 51_ **38/0** · 52_ **40/0** · 53_ **22/0** · (g) **8/0**. 그 안에서 재실행한 `e2e/p2/33_` 은 **41/0**(별도 집계) |
+| 결론 | **G6 충족 — 남은 차단 1건은 신규**(§9.5). 1판의 차단 다섯(K-7·C-4·S-44·S-45·W-6·D-17·K-8)은 **전부 닫혔고 실기로 확인**했다. `50_` 은 **대역 우회가 하나도 없다** — 예산 초과·취소·정지·상향·재개가 전부 에이전트가 실제로 쓴 돈으로 일어난다 |
+
+### 9.1 1판의 차단 결함 — 하나씩 실측으로 닫음
+
+| # | 어떻게 닫혔나 | 2판 실측 근거 |
+|---|---|---|
+| ~~**K-7 · C-4**~~ | 계약 #133 · CLI #134 | `48_` **76/0** — 두 도구 표면(Claude Code `mcp` · Hermes `cli_wrapper`) 모두 우회 없이 등록·왕복. `resumed` a1 `true` · 콜드 스타트 arm `false`(E8-01·E8-02 그대로) |
+| ~~**D-17**~~ | 데몬 #145 (harness v0.8.5 — `emitRawSDKMessages` 원시 스트림 dedup 누적 + `OnUsage` 훅) | `50_` **D1·D1b·D1c** — 턴 시작 27초 만에 `task_usage` 1행 · 토큰 451 · `estimated:true`. 런타임 능력 광고도 `usage_midturn: true`(**실측 광고**, §9 v0.8.5) |
+| ~~**K-8**~~ | 서버 #147 (`RecordTurnUsage` 가 `repriceEstimates` 를 롤업과 **같은 함수**로 heartbeat 에서도 부른다) | `50_` **D1d** — 그 추정 행에 **$0.006122** 가 매겨져 있다(1판은 0). 그리고 claude_code 가 `result.total_cost_usd` 를 실어 주면서(#145) **`estimated:false` 실측 행이 실기에 생긴다** — 1판의 "런타임이 만든 행 72/72 가 추정" 은 더 이상 사실이 아니다 |
+| ~~**S-44**~~ | 서버 #136 (finish 뒤 강제) | 아래 §9.4 — 오늘의 런타임에서는 **finish 이전 heartbeat 이 언제나 먼저 잡아** 그 호출부가 실기에 도달하지 않는다. 유닛(`TestP3BudgetAtFinish*`)이 지킨다. `50_` H6 을 **N/A** 로 남겼다 |
+| ~~**S-45**~~ | 서버 #142 (`messages.PostHitlCard` — 네 경로 한 헬퍼) | `50_` **C2g·C2h**(예산 task 범위) · **N4d**(추정·세션 범위) · **M2c**(실측·세션 범위) · **H3b**(hermes) · (g) **G2·G2b·G2c**(완료 승인). 시스템 발행 HITL **네 경로 전부** 타임라인에 카드 한 장 |
+| ~~**S-46**~~ | 서버 #142 (`ResumeSessionTasks`) | `50_` **M7** — 세션 정지가 park 한 task 가 승인 한 번에 `queued` 로 돌아온다 |
+| ~~**W-6**~~ | 웹 #139 | `50_` **W1b**(S7 카드, scope=task) · **W3**(인박스, task 범위) · **M5**(인박스, 세션 범위). 그리고 **승인을 실제로 웹에서 냈다** — C4·M6 은 DOM 입력 → 클릭의 결과다 |
+| ~~**K-9**~~ | 계약 + 서버 #147 | `50_` **C2i** = `budget` · (g) **G3b** = `user_approval` — `GET /inbox` 의 `card.purpose` 가 채워진다 |
+| ~~**K-10**~~ | 서버 #147 | `50_` **N9**(이미 쓴 금액 이하 상향 → 4xx) · **N10b/c**(승인 한 번에 세션 `active` + `limits.budget_usd` = 승인 금액) · **M6b/c** · **M8**(멈춰 있던 다음 task 가 다시 dispatch) |
+
+### 9.2 `50_` 을 다시 짠 방식 — 대역이 사라졌다
+
+1판의 `50_` 은 `fixtures/daemon_heartbeat.sh` 로 §4.2 와이어를 흉내 냈다. 2판은 **자극이 전부 실기**다.
+바뀐 것은 금액의 눈금 하나다.
+
+> EVAL E9-01 은 `budget_per_task` **$1** · 턴 중 **$1.01** 이다. 그 금액은 **실기 한 턴으로 도달할 수 없다** —
+> haiku 한 턴의 실측 비용이 $0.075 안팎이다. 그래서 2판은 **상한을 실기 눈금으로 내리고 EVAL 의 비율을
+> 지킨다**: 상한 **L=$0.05** → 초과 → 상향 **3L=$0.15** → 재개 뒤 다시 L 초과(취소 없음).
+
+L 을 고르는 규칙이 하나 더 있다. **서버는 같은 턴을 두 번 본다.**
+
+| 무엇 | 언제 | 값(실측) | 어느 분기 |
+|---|---|---|---|
+| 원시 SDK 스트림 토큰 × 워크스페이스 가격표 = **추정** | 턴 중, 15초마다 | $0.0061 → $0.025 → $0.032 (한 턴 끝값 $0.044) | `Estimated` → 세션 `paused` + 드레인 (E9-05) |
+| `result.total_cost_usd` = **실측** | 턴 끝, `finish` **직전** heartbeat(`OnUsage`) | **$0.0770** | 실측 → 취소 명령 + task `paused(budget)` (E9-01) |
+
+추정이 먼저 넘으면 E9-05 로 가고 E9-01 에 도달하지 못한다. **$0.044 < $0.05 < $0.0770** 이 그 사이다.
+같은 눈금 규칙으로 다섯 arm 을 한 워크스페이스에 얹었다(capacity 5, 전부 동시).
+
+| arm | 자극 | 무엇을 재나 |
+|---|---|---|
+| **A** | claude_code · `budget_per_task` $0.05 | E9-01 실측 초과 → **웹**에서 $0.15 상향 → E9-02 재개 → E9-08 |
+| **B** | 같음 | E9-03 거절은 `paused` 유지 |
+| **C** | claude_code · `budget_per_task` $0.015 | E9-05 · S-48 **추정치**가 먼저 넘는다 → 하드 컷 없이 세션 정지 + 드레인 → K-10 |
+| **D** | claude_code · 에이전트 상한 없음 · 세션 `limits.budget_usd` $0.05 | 세션 범위 **실측** 초과 → **웹** 승인 → K-10 + S-46 |
+| **H** | hermes · `budget_per_task` $0.10 | 실측 비용을 주지 않는 런타임의 사후 강제(E9-10) |
+
+### 9.3 (c) 예산 — `50_` **PASS 114 · FAIL 3**
+
+#### E9-01 (arm A) — 실기에서 처음으로 발동한다
+
+| 항목 | 실측 |
+|---|---|
+| 턴 중 추정 | 행 1 · 토큰 451 · **$0.006122** · `estimated:true` — 이 시점엔 강제 없음(task `running`) |
+| 턴 끝 실측 | **$0.076976** · `estimated:false` (상한 $0.05) |
+| task / lane / 세션 | **`paused(budget)`** / `paused` / **`active` 유지**(task 범위다) |
+| 시스템 HITL | 1건 · `source=system` · `approval` · **`purpose=budget`** · **`task_id` 채움** |
+| 타임라인 카드 | **1장**(`kind='hitl'`, `hitl_request.message_id` NOT NULL) — S-45 |
+| 인박스 | 1건, `card.purpose = budget` — K-9 |
+| 취소 | `daemon_command(type=cancel)` 1건 · `delivered_at` 채움 — 프로세스 kill 아님 |
+| attempt 1 프로세스 | 0 |
+| **데몬 자신의 §5** | 함께 발동했다 — `runtime/cancel` 이벤트 `실측 비용 $0.0770 가 유효 예산 $0.0500 를 넘었다 — 넘긴 쪽은 task 상한 … paused_budget` |
+| 단가 | 데몬 보고 `cost_usd=0.0769764` = DB `task_usage.cost_usd` **0.076976** — 서버는 실측을 **다시 매기지 않는다**(어댑터 list 단가 재계산 없음) |
+
+FR-7.3 M9 의 **데몬 반쪽이 처음 동작한다**(#145 §4): ACP 경로가 늘 추정이던 동안 `budget.go` 의 `Estimated`
+가드가 영원히 닫혀 있었다. 이제 서버 명령과 데몬 §5 가 **이중**으로 같은 결론에 이른다.
+
+#### E9-02 · E9-08 — 웹에서 상향, 같은 lane·workdir 재개
+
+| 항목 | 실측 |
+|---|---|
+| 승인 경로 | **S8 인박스 DOM** — `hitl-budget-input` 에 `0.15` 입력 → `hitl-approve` 클릭. 스크린샷 `p3-50-02`·`p3-50-03` |
+| HITL | `answered` · `approved=true` |
+| `task.budget_override` | **0.15** |
+| 에이전트 `budget_per_task` | **0.05 — 불변**(E9-02) |
+| 재개 | 같은 task `attempt` 2 · task 수 1 · **같은 lane** · 같은 workdir · 프롬프트에 `<resumed attempt=2>` |
+| **E9-08** | 재개한 턴이 **$0.093628** 을 썼다 — 원래 상한 $0.05 를 **다시 넘었는데** 취소 0 · 새 HITL 0 · task `running` 유지 → `completed`. 강제 시점이 override 를 읽고 있다 |
+
+S7 타임라인 카드에도 상향 입력칸이 붙는다(W1b, `scope=task`) — 두 자리 모두 산다.
+
+#### E9-03 (arm B) — 거절은 `paused` 유지
+
+`approved:false` + 사유 → task **`paused(budget)` 유지** · `failed`·`cancelled` 아님 · `budget_override` 미저장 ·
+`attempt` 그대로 1. 1판과 같다.
+
+#### E9-05 · S-48 (arm C) — 1판이 **잴 수 없다**고 적은 자리
+
+1판 §5.4 는 이 다섯 줄 중 셋을 FAIL 로 남겼다(K-8). 2판은 전부 선다.
+
+| 항목 | 1판 | 2판 실측 |
+|---|---|---|
+| 추정 보고의 금액을 서버가 보존하나 | **0 으로 떨어뜨린다** | **$0.078946** — 가격표로 매긴다 |
+| 그 정지를 결정한 값이 추정인가 | (도달 못 함) | **`estimated: true`** — `task_event(status/pause).payload.estimated` |
+| 세션이 `paused(budget)` 로 멈추나 | `active` | **`paused`** · `paused_detail.budget = {limit_usd: 0.015, spent_usd: 0.025288}` |
+| "진행 중인 턴은 끝까지" 피드 | 0건 | **1건** |
+| 시스템 HITL | 없음(알림만) | **1건** · `system`·`approval`·`purpose=budget` · **`task_id` 비움** · 타임라인 카드 1 · 인박스 1 |
+| 옛 `session_paused` 인박스 카드 | — | **0** (한 정지에 카드 한 장) |
+| 하드 컷 | — | **없다** — 서버 취소 명령 0, 턴은 `end_turn` 으로 제 끝까지 갔다 |
+| 멈춘 세션의 dispatch | — | **0** (`dispatched`·`running` 0건) |
+
+턴을 닫은 것은 서버가 아니라 **데몬의 §5** 다(`task_attempt.outcome = paused_budget`). 서버는 드레인을 지켰고,
+데몬은 자기 상한을 지켰다 — 계약이 정한 두 반쪽이 각자 제자리에서 동작한다.
+
+**K-10**: 이미 쓴 $0.078946 이하($0.001)의 상향은 **4xx** 로 막힌다. $0.30 승인 한 번에 세션 `active` ·
+`limits.budget_usd = 0.30` · `paused_reason` 비움.
+
+#### 세션 범위 · S-46 (arm D)
+
+| 항목 | 실측 |
+|---|---|
+| 자극 | 세션 `limits.budget_usd` $0.05, 에이전트 상한 없음 → D-16 의 min() 이 **세션 잔여**로 묶는다 |
+| 정지 | 세션 `paused(budget)` · `paused_detail.budget.limit_usd = 0.05` · 누적 $0.075111 (**실측**) |
+| HITL | `system`·`purpose=budget`·**`task_id` 비움** · 타임라인 카드 1 · 인박스 1 |
+| 취소 | 실측이므로 취소 **명령** 1건, 그 task 는 `paused(budget)` 로 park |
+| **다음 dispatch 0** | 정지 중에 새 task(멘션)를 만들어도 `queued` 에 머문다 — `task_attempt` **0행**(E5-04) |
+| 승인 | **웹 인박스**의 세션 범위 입력칸(`새 세션 상한`)에 $0.15 → 클릭 |
+| **K-10 · S-46** | 세션 `active` · `limits.budget_usd = 0.15` · **park 된 task 재큐잉** · 멈춰 있던 다음 task 도 dispatch |
+
+#### hermes (arm H) — 실측 비용을 주지 않는 런타임
+
+| 항목 | 실측 |
+|---|---|
+| usage | **$0.134196 · `estimated: true`** — ACP 에 `cost_usd` 가 없어 hermes 는 끝까지 추정이다(상한 $0.10) |
+| 분기 | 추정이므로 **하드 컷 없음** — 취소 명령 **0**, 완료한 task 는 `completed` 그대로(E5: `completed → paused` 전이 없다) |
+| 정지 | 세션 `paused(budget)` + 시스템 HITL(`purpose=budget`) + 타임라인 카드 1 + 인박스 1 + 다음 dispatch 0 |
+
+### 9.4 E9-10 의 실측·사후 분기는 **실기에 도달하지 않는다** (N/A, 결함 아님)
+
+E9-10 은 둘로 갈린다. 세션 잔여 초과 → 세션 `paused` + HITL(`task_id` 비움)은 arm C·D·H 가 **실기로 확인**했다.
+남은 절반 — **실측** 초과가 **`finish` 뒤**에 발견되어 lane 이 `paused` 되고 HITL 이 task 를 지목하는 분기 —
+는 오늘의 런타임 조합으로 만들 수 없다.
+
+- 실측 금액을 주는 런타임은 claude_code 하나뿐이고(#145),
+- 그 값은 `finish` **이전**의 `OnUsage` heartbeat 으로 먼저 서버에 닿는다(#145 §5).
+- 그래서 강제는 언제나 **턴-중 호출부**가 먼저 잡고, `finishAndEnforce` 는 `SessionStatus != active` 로 조기 반환한다.
+
+즉 S-44 가 만든 호출부는 **살아 있지만 오늘은 지나가지 않는다**. `50_` 의 **H6 을 `N/A`** 로 두고 근거를
+서버 유닛(`TestP3BudgetAtFinishEstimatedNeverCuts` 등)에 넘긴다. **EVAL 제안(K-1 에 얹을 것)**: E9-10 의
+실측 분기에 "실기 검증 불가(런타임이 finish 전에 실측을 보낸다) · 유닛이 지킨다"를 명시할 것.
+
+### 9.5 신규 결함 1건 (차단) — 스트림 **S(서버)**
+
+> 번호는 Lead 가 준다(§0-11). 아래는 "신규(서버)" 로만 적는다.
+
+**증상.** 예산으로 `paused` 된 task 의 `finish` 가 **500** 이다. 재현 3/3(arm A·B·D), 두 회차 모두.
+
+```
+finish <task>.1: server: 500: {"code":"internal",
+ "detail":"tasks: cancel: ERROR: new row for relation \"task\" violates check constraint
+           \"task_paused_detail_check\" (SQLSTATE 23514)"}
+```
+
+**경로.**
+
+1. `httpapi.applyBudgetPause` 가 task 를 `paused` + `paused_reason='budget'` + `paused_detail={...}` 로 두고
+   `daemon_command(type=cancel)` 을 건다.
+2. 데몬이 §5 로 attempt 를 닫고 `finish{outcome: "paused_budget"}` 을 보낸다.
+3. `tasks.Finish` 는 `completed` 가 아닌 **모든** outcome 을, 그 attempt 에 cancel 명령이 있으면
+   `decided = "cancelled"` 로 바꾼다(`service.go` 의 `cancelRequested` 분기).
+4. `cancelLocked` 가 `paused_reason = NULL` 로 지우면서 **`paused_detail` 은 남긴다** →
+   `task_paused_detail_check`(migration 0006: `paused_detail IS NULL OR paused_reason IS NOT NULL`) 위반 → 500.
+
+**두 가지가 겹쳐 있다.**
+- (a) 예산 pause 가 건 취소 명령을 근거로 `paused_budget` 을 **`cancelled` 로 승격**하는 것 자체가
+  E9-01 문언("`failed` 가 아니다", 재개 가능해야 한다)과 어긋난다. 그 취소 명령은 **그 pause 자신**이다.
+- (b) `cancelLocked` 가 `paused_detail` 을 지우지 않아 `paused → cancelled` 전이가 **어떤 경로로도** 500 이다.
+
+**측정된 영향.**
+
+| 무엇 | 실측 |
+|---|---|
+| 그 attempt 의 `task_attempt.outcome`·`finished_at`·`stop_reason` | **NULL 로 남는다**(A·B·D 3/3) — 피드·화면에서 "끝나지 않은 attempt" |
+| `lane.runtime_session_ref` | **저장되지 않는다** — `Finish` 가 유일한 기록자다 |
+| 그래서 승인 뒤 재개는 | **콜드 스타트**다 — `task_attempt(attempt 2).resumed` 가 NULL(붙일 세션 자체가 없다). **E9-02 의 "resume 우선" 미충족** |
+| pause 자체 | **살아남는다** — 트랜잭션이 CHECK 로 깨져 `cancelled` 가 커밋되지 않았기 때문이다(우연한 보호) |
+
+**차단인 이유.** E9-02 가 "같은 lane·workdir 로 재개(**resume 우선**)"를 명문으로 요구하고,
+정상 프로토콜 경로(`finish`)가 500 을 받는다. 콜드 스타트가 결과적으로 이어가긴 한다(스파이크 4c ·
+2판 A 의 attempt 2 는 `completed`) — 그래서 **작업이 유실되지는 않는다**. 판정은 Lead.
+
+**1판에도 있었다.** 1판은 대역 heartbeat 로 턴 중에 취소를 걸었고, 그 뒤 데몬의 `finish` 도 같은 경로를
+탔다. 다만 1판은 `task_attempt.outcome`·`resumed` 를 재지 않아 드러나지 않았다. 2판이 그 칸을 새로 잰다
+(`50_` **C3e·C3f·C5e**).
+
+**연관.** 백로그 **S-39**("`runtime_session_ref` 가 finish 에서만 저장돼 크래시한 attempt 는 콜드 스타트",
+P4·알고 있기)와 증상이 같다. 그러나 여기서는 **크래시가 아니라 정상 경로가 500** 이므로 원인이 다르다 —
+S-39 를 P4 로 미룬 근거("실측상 콜드 스타트 성적이 같다")가 이 자리에도 적용되는지는 Lead 판단이다.
+
+**함께 갱신할 것: K-8.** Lead 판정은 "E9-01 실측 분기는 실기 도달 불가, 대역/acpfake 로만" 이었다.
+#145 가 `result.total_cost_usd` 를 실어 주면서 **그 전제가 바뀌었다** — 2판은 실측 분기를 실기로 통과한다.
+K-8 은 해소로 옮기고, 남는 것은 §9.4 의 "finish **사후** 실측 분기" 하나다.
+
+### 9.6 나머지 스크립트 — 같은 빌드에서 다시
+
+| 스크립트 | 1판 | 2판(`94c4143`) | 비고 |
+|---|---|---|---|
+| `48_hitl_roundtrip.sh` (a) | 76/0 (`5ed5dfc`) | **76/0** | #142 가 에이전트 HITL 카드 경로를 헬퍼로 옮겼는데 회귀 없음. `resumed` a1 `true` · 콜드 arm `false` |
+| `49_partial_exec_dup0.sh` (b) | 33/0 | **33/0** | 실기 재게시 0 · 중복 편집 0 · 3분 만료 대기 그대로 |
+| `50_budget_pause_override.sh` (c) | 47/**7** | **114/3** | 대역 제거 + arm 5개로 다시 짰다(§9.2). FAIL 3 은 §9.5 한 결함 |
+| `51_deputy_and_cancel.sh` (d) | 37/0 | **38/0** | 첫 회차 34/**3** → 자극이 성립하지 않았다(아래 관찰). 지시문을 고치고 **전제 검사 X1c 를 더해** 38/0. 취소 → lane `failed` **3초** |
+| `52_scenario_c.sh` (e) | 40/0 | **40/0** | Director 메시지가 실행 중 턴을 죽이지 않는다 |
+| `53_scenario_d.sh` (f) | 22/0 | **22/0** | 프로파일 전환 재확인 |
+| `fixtures/g_user_approval_card.sh` (g) | 4/**3** | **8/0** | S-45 가 닫혀 완료 승인도 타임라인 카드로 선다. 그 안의 `e2e/p2/33_` **41/0** |
+
+#### 관찰(신규 후보 · 스트림 S) — 턴 종료와 경합한 취소는 흡수되지 않는다
+
+`51_` 첫 회차의 실측이다. deputy 의 취소가 **202** 로 받아들여지고 서버가 `cancel` 명령을 걸었으며
+활동 피드에 **"사람이 중단함"** 까지 남았는데, 그 사이 턴이 `end_turn` 으로 끝나 데몬이
+`finish{outcome: "completed"}` 를 보냈다. `tasks.Finish` 는 **`completed` 가 아닌 outcome 에서만**
+`cancelRequested` 를 본다 — 그래서 task 는 `completed`, lane 은 `done` 이 됐다.
+
+| 시각 | 무슨 일 |
+|---|---|
+| 17:19:29.65 | `cancel` 명령 `delivered_at` |
+| (그 직전) | `runtime/turn_end` `stop_reason=end_turn` — 턴은 이미 끝나 있었다 |
+| 17:19:30.25 | `finish outcome=completed stop=end_turn` → task `completed` · lane `done` |
+| — | 피드에는 `status/cancel` **"사람이 중단함"** 이 남아 있다 |
+
+일이 실제로 끝났으니 `completed` 가 옳다고 볼 수도 있다. 다만 **피드가 "사람이 중단함" 이라고 말하는데
+화면은 완료**라 사람이 읽는 두 문장이 어긋난다. 결함으로 볼지 문구를 고칠지는 Lead 판정 — 여기서는
+자극의 전제(§8 되먹임 2)를 스크립트가 **직접 검사하도록** 고쳤다(`51_` **X1c**: 취소 직전에 그 attempt 가
+아직 `turn_end` 를 내지 않았음). 첫 회차에 이 전제가 깨진 것은 `Chapters` 에이전트가 지시문의
+"지시를 받으면" 을 "지시를 기다린다" 로 읽고 첫 턴을 15초 만에 끝냈기 때문이다 — 지시문을
+"**첫 턴부터 곧바로**" 로 바꿨다(§0-16 문구는 유지).
+
+### 9.7 판정 (컷 3) — 2판
+
+| G6 DoD (PLAN §3 P3) | 1판 | 2판 |
+|---|---|---|
+| HITL 왕복 — 턴 종료 · 슬롯 미점유 · 답변 · 새 attempt · resume 기억 / 콜드 스타트 이어감 | 충족 | **충족** — `48_` 76/0 |
+| 중복 0 — 실기 1회 + CI sim 100회 | 충족 | **충족** — `49_` |
+| 예산 — `paused(budget)` → 상향 → 같은 lane·workdir 재개 + `budget_per_task` 불변 | **미충족** | **충족** — `50_` 이 **대역 없이** 전 구간을 통과한다(§9.3). 다만 재개가 resume 이 아니라 콜드 스타트다(§9.5 신규) |
+| deputy — 12h 전 비활성 + "HH:MM부터" · 취소 즉시 | 충족 | **충족** — `51_` |
+| 시나리오 C — Director 메시지가 실행 중 턴을 절대 죽이지 않음 | 충족 | **충족** — `52_` |
+| 시나리오 D 재확인 | 충족 | **충족** — `53_` |
+| 시나리오 A 의 `user_approval` 이 정식 HITL 카드로 | **미충족** | **충족** — (g) 8/0 |
+
+**결론: G6 충족.** DoD 일곱 행이 전부 선다. 남은 것은 **신규 결함 1건(서버, §9.5)** 이고,
+그것은 "예산 재개가 resume 이 아니라 콜드 스타트가 된다 + `finish` 가 500 을 받는다" 이지 **작업 유실이
+아니다**. P4 를 여는 조건으로 볼지 핫픽스 한 번을 더 돌지는 Lead 판정(`plan/G6_DECISION.md`).
+
+### 9.8 되먹임 (2판에서 새로 배운 것)
+
+1. **예산은 EVAL 의 금액이 아니라 런타임의 눈금으로 자극해야 한다.** haiku 한 턴이 $0.075 이므로 EVAL 의
+   $1 은 실기에서 영원히 안 넘는다. 1판이 대역을 쓴 진짜 이유가 여기 있다. 상한을 내리고 **비율**을 지키면
+   같은 행을 실기로 잰다.
+2. **한 턴에 두 번의 강제 신호가 온다** — 턴 중 추정(가격표), 턴 끝 실측(`result.total_cost_usd`). 어느
+   분기를 재려는지에 따라 상한을 **그 둘 사이**에 두어야 한다. 이것을 모르면 E9-01 을 재려다 E9-05 를 잰다.
+3. **인박스 DOM 은 항목을 `data-item-id` 로 집어야 한다.** 여러 arm 이 같은 인박스에 뜨므로
+   `[data-type="hitl_request"]` 만으로는 남의 항목을 누른다.
+4. **API 관측은 그 화면의 계정으로 로그인하고 해야 한다.** (g) 가 처음에 `card.purpose` 를 `-` 로 읽은 것은
+   `api_ok` 가 lib 기본 쿠키(다른 계정)를 쓰고 있었기 때문이다 — 결함이 아니라 측정 실수였다.
+5. **`paused_detail` 은 `{"budget": {...}, "reason": …, "paused_at": …}` 다.** `paused_detail->>'limit_usd'` 는
+   언제나 NULL 이다(`->'budget'->>'limit_usd'`).
+6. **"지시를 받으면 …" 은 첫 턴을 기다리게 만든다.** `51_` 의 에이전트가 그렇게 읽고 15초 만에 턴을
+   끝내 취소 자극이 성립하지 않았다. 개입을 재는 스크립트의 지시문은 **"첫 턴부터 곧바로"** 로 쓰고,
+   자극의 전제(턴이 살아 있는가)를 **체크 한 줄로 남겨** 전제가 깨진 회차를 결함으로 오독하지 않게 한다.
