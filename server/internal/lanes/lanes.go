@@ -82,3 +82,38 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, canControl bool) (*gen.L
 	}
 	return &out, nil
 }
+
+// List returns the session's lanes for the S7 board (openapi listLanes). The
+// response is a **bare array** — the contract says `type: array`, like
+// listArtifacts. statuses filters by lane_status; empty means all seven.
+func List(ctx context.Context, q db.DBTX, sessionID uuid.UUID, statuses []string, canControl bool) ([]gen.Lane, error) {
+	rows, err := q.Query(ctx, `
+		SELECT id FROM lane
+		WHERE session_id = $1 AND (cardinality($2::text[]) = 0 OR status::text = ANY($2))
+		ORDER BY created_at`, sessionID, statuses)
+	if err != nil {
+		return nil, fmt.Errorf("lanes: list: %w", err)
+	}
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]gen.Lane, 0, len(ids))
+	for _, id := range ids {
+		l, err := Load(ctx, q, id, canControl)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *l)
+	}
+	return out, nil
+}

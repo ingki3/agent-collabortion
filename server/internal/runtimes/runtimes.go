@@ -235,10 +235,13 @@ func (s *Service) Probe(ctx context.Context, runtimeID uuid.UUID, p contracts.Pr
 	if repos == nil {
 		repos = []contracts.Repo{}
 	}
+	// §3 v0.5: colab_cli rides on the probe, not on capabilities[]. Storing it
+	// is the whole point — the daemon has been reporting it since v0.5 and the
+	// API answered null because there was nowhere to put it (G4 결함 6).
 	if _, err := s.DB.Exec(ctx, `
 		UPDATE runtime SET capabilities = $2, repos = $3, daemon_version = COALESCE(NULLIF($4, ''), daemon_version),
-		       host = COALESCE(NULLIF($5, ''), host), last_seen_at = $6, status = 'online', offline_since = NULL, updated_at = $6
-		WHERE id = $1`, runtimeID, caps, repos, p.DaemonVersion, p.Hostname, now); err != nil {
+		       host = COALESCE(NULLIF($5, ''), host), colab_cli = $7, last_seen_at = $6, status = 'online', offline_since = NULL, updated_at = $6
+		WHERE id = $1`, runtimeID, caps, repos, p.DaemonVersion, p.Hostname, now, p.ColabCLI); err != nil {
 		return fmt.Errorf("runtimes: probe: %w", err)
 	}
 	var pid, wsID uuid.UUID
@@ -307,15 +310,16 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID) (*Detail, error) {
 	var grace time.Duration
 	var running, paused int
 	var disk int64
+	var colabCLI *gen.ColabCLI
 	err := q.QueryRow(ctx, `
-		SELECT r.id, r.workspace_id, r.name, r.host, r.status, r.daemon_version, r.last_seen_at, r.capabilities, r.repos, r.offline_since,
+		SELECT r.id, r.workspace_id, r.name, r.host, r.status, r.daemon_version, r.last_seen_at, r.capabilities, r.repos, r.colab_cli, r.offline_since,
 		       r.created_at, r.updated_at,
 		       COALESCE((SELECT ws.runtime_offline_grace FROM workspace_settings ws WHERE ws.workspace_id = r.workspace_id), interval '7 days'),
 		       (SELECT count(*) FROM task t WHERE t.runtime_id = r.id AND t.status IN ('dispatched','preparing','running')),
 		       (SELECT count(*) FROM session s WHERE s.runtime_id = r.id AND s.status = 'paused' AND s.paused_reason = 'runtime_offline'),
 		       COALESCE((SELECT sum(w.disk_bytes) FROM workdir w JOIN session s ON s.id = w.session_id WHERE s.runtime_id = r.id AND w.status <> 'deleted'), 0)
 		FROM runtime r WHERE r.id = $1`, id).Scan(
-		&r.Id, &r.WorkspaceId, &r.Name, &host, &status, &version, &lastSeen, &r.Capabilities, &r.Repos, &offlineSince,
+		&r.Id, &r.WorkspaceId, &r.Name, &host, &status, &version, &lastSeen, &r.Capabilities, &r.Repos, &colabCLI, &offlineSince,
 		&r.CreatedAt, &r.UpdatedAt, &grace, &running, &paused, &disk)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.NotFound("runtime")
@@ -342,6 +346,7 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID) (*Detail, error) {
 	if r.Repos == nil {
 		r.Repos = []gen.RuntimeRepo{}
 	}
+	r.ColabCli = colabCLI
 	d := &Detail{Runtime: r, ActiveSessions: []gen.SessionRef{}}
 	rows, err := q.Query(ctx, `SELECT id, title, status FROM session WHERE runtime_id = $1 AND status IN ('active','paused','completing') ORDER BY created_at`, id)
 	if err != nil {

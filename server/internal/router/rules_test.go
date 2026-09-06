@@ -9,8 +9,11 @@ import (
 // EVAL E1 golden rows for the P1 rules (2 and 6).
 func TestDecide(t *testing.T) {
 	lead, r, w, x := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	roster := []Participant{{lead, "Lead"}, {r, "R"}, {w, "W"}}
+	roster := []Participant{{AgentID: lead, Name: "Lead"}, {AgentID: r, Name: "R"}, {AgentID: w, Name: "W"}}
 	m := func(name string, id uuid.UUID) string { return MentionLink(name, id) }
+	// Same roster with the kill switch on R (and, for the last row, on Lead).
+	killed := []Participant{{AgentID: lead, Name: "Lead"}, {AgentID: r, Name: "R", Disabled: true}, {AgentID: w, Name: "W"}}
+	killedLead := []Participant{{AgentID: lead, Name: "Lead", Disabled: true}, {AgentID: r, Name: "R"}}
 
 	cases := []struct {
 		name     string
@@ -45,6 +48,17 @@ func TestDecide(t *testing.T) {
 		{"no assignee → nothing",
 			Input{Content: "hello", AuthorType: "user", Participants: roster},
 			[]Trigger{}, nil},
+		// FR-1.9 킬 스위치: 참여 중이어도 `respond_to: nobody`는 트리거를 멈춘다.
+		// colab-cli.md §2.2가 `agent_disabled`를 warnings 코드로 열거한다.
+		{"kill switch: 멘션해도 트리거 0 + agent_disabled",
+			Input{Content: m("R", r) + " 조사", AuthorType: "user", Participants: killed, AssigneeAgentID: &lead},
+			[]Trigger{}, []string{"agent_disabled"}},
+		{"kill switch: 다른 참여자는 그대로 트리거된다",
+			Input{Content: m("R", r) + " " + m("W", w), AuthorType: "user", Participants: killed, AssigneeAgentID: &lead},
+			[]Trigger{{w, 2}}, []string{"agent_disabled"}},
+		{"kill switch: assignee 가 꺼져 있으면 규칙 6도 멈춘다",
+			Input{Content: "이제 시작하자", AuthorType: "user", Participants: killedLead, AssigneeAgentID: &lead},
+			[]Trigger{}, []string{"agent_disabled"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

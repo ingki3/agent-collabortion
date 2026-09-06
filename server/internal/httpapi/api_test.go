@@ -27,7 +27,7 @@ type client struct {
 	bearer string
 }
 
-func (c *client) do(method, path string, body any, headers ...string) (int, map[string]any, http.Header) {
+func (c *client) raw(method, path string, body any, headers ...string) (int, []byte, http.Header) {
 	c.t.Helper()
 	var rd io.Reader
 	if body != nil {
@@ -51,11 +51,35 @@ func (c *client) do(method, path string, body any, headers ...string) (int, map[
 	}
 	defer res.Body.Close()
 	raw, _ := io.ReadAll(res.Body)
+	return res.StatusCode, raw, res.Header
+}
+
+func (c *client) do(method, path string, body any, headers ...string) (int, map[string]any, http.Header) {
+	c.t.Helper()
+	st, raw, h := c.raw(method, path, body, headers...)
 	var out map[string]any
 	if len(raw) > 0 {
 		_ = json.Unmarshal(raw, &out)
 	}
-	return res.StatusCode, out, res.Header
+	return st, out, h
+}
+
+// mustList is must for the contract's bare-array responses — listDecisions,
+// listArtifacts, listLanes, listAgentTemplates, listRuntimes, listWorkspaces,
+// listInvites. It decodes into []any, so a handler that wraps the array in
+// {"items": …} fails here instead of shipping (G4 결함 1: that wrapper killed
+// the whole S7 screen with `props.decisions.map is not a function`).
+func (c *client) mustList(status int, method, path string, body any, headers ...string) []any {
+	c.t.Helper()
+	st, raw, _ := c.raw(method, path, body, headers...)
+	if st != status {
+		c.t.Fatalf("%s %s = %d, want %d: %s", method, path, st, status, raw)
+	}
+	var out []any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		c.t.Fatalf("%s %s: response is not a JSON array (contract says type: array): %s", method, path, raw)
+	}
+	return out
 }
 
 func (c *client) must(status int, method, path string, body any, headers ...string) map[string]any {

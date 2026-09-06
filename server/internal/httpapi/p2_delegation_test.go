@@ -281,22 +281,58 @@ func TestP2CompletionTreeValidation(t *testing.T) {
 	}
 }
 
-// TestP2DecisionLog is FR-4.2.
+// TestP2DecisionLog is FR-4.2. recordDecision is TaskToken-only (openapi
+// `security: [TaskToken]`), so the writer here is an agent, not the Director.
 func TestP2DecisionLog(t *testing.T) {
 	f := newP2Fixture(t)
-	f.api.must(201, "POST", f.p+"/sessions/"+f.sessionID+"/decisions", map[string]any{
+	tok, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
+	if st, out := f.rawPost(t, f.p+"/sessions/"+f.sessionID+"/decisions", tok, map[string]any{
 		"summary": "API 응답은 JSON", "rationale": "클라이언트가 셋 다 JSON을 쓴다",
-	})
-	out := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID+"/decisions", nil)
-	items := out["items"].([]any)
+	}); st != 201 {
+		t.Fatalf("agent decision = %d %v, want 201", st, out)
+	}
+	// 계약 listDecisions 는 `type: array` 다 — {"items": …} 가 아니다(G4 결함 1).
+	items := f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/decisions", nil)
 	if len(items) != 1 {
 		t.Fatalf("decisions = %d, want 1", len(items))
 	}
 	d := items[0].(map[string]any)
-	if str(d, "summary") != "API 응답은 JSON" || str(d, "source") != "hitl" {
+	if str(d, "summary") != "API 응답은 JSON" || str(d, "source") != "agent" {
 		t.Fatalf("decision = %v", d)
 	}
-	if st, _, _ := f.api.do("POST", f.p+"/sessions/"+f.sessionID+"/decisions", map[string]any{"summary": "  "}); st != 422 {
+	if str(d, "ref_id") != taskID.String() {
+		t.Fatalf("ref_id = %q, want the recording task %s", str(d, "ref_id"), taskID)
+	}
+	if st, _ := f.rawPost(t, f.p+"/sessions/"+f.sessionID+"/decisions", tok, map[string]any{"summary": "  "}); st != 422 {
 		t.Fatalf("blank summary = %d, want 422", st)
+	}
+}
+
+// TestG4RecordDecisionIsAgentOnly is the P1 회귀 07 finding: a human cookie was
+// getting 201 from an operation the contract gives only to TaskToken.
+func TestG4RecordDecisionIsAgentOnly(t *testing.T) {
+	f := newP2Fixture(t)
+	body := map[string]any{"summary": "사람이 쓴 결정"}
+
+	if st, out, _ := f.api.do("POST", f.p+"/sessions/"+f.sessionID+"/decisions", body); st != 403 {
+		t.Fatalf("director's cookie = %d %v, want 403 (openapi recordDecision is TaskToken-only)", st, out)
+	}
+	anon := &client{t: t, srv: f.api.srv}
+	if st, _, _ := anon.do("POST", f.p+"/sessions/"+f.sessionID+"/decisions", body); st != 401 && st != 403 {
+		t.Fatalf("anonymous = %d, want 401/403", st)
+	}
+	var n int
+	if err := f.pool.QueryRow(t.Context(), `SELECT count(*) FROM decision WHERE session_id = $1`, f.sessionID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("a refused decision wrote %d rows", n)
+	}
+
+	// A token for another session cannot write here either.
+	other := f.artifactSession(t, map[string]any{"type": "manual"})
+	tok, _ := f.agentToken(t, other, f.rUUID, "R")
+	if st, out := f.rawPost(t, f.p+"/sessions/"+f.sessionID+"/decisions", tok, body); st != 403 {
+		t.Fatalf("another session's token = %d %v, want 403", st, out)
 	}
 }
