@@ -195,14 +195,19 @@ func TestWorktreeDoubleWriteHundredRoundsGoldenMirror(t *testing.T) {
 		// Attempt 2 redoes the same edits — it cannot remember what it did.
 		for e := 0; e < edits; e++ {
 			marker := fmt.Sprintf("<edit-%d>", e+1)
-			before := h.MarkerCount(next.Path, marker)
 			h.Write(next.Path, marker)
-			if n := h.MarkerCount(next.Path, marker) - before; n > 1 {
+			if n := h.MarkerCount(next.Path, marker); n > 1 {
 				dupEdits += n - 1
 			}
 		}
 		h.Close()
 	}
+
+	// Not an assertion — the numbers themselves. The three rows below are
+	// all-or-nothing, so a green run with no output is indistinguishable from
+	// a run that measured nothing; this line is what the log carries.
+	t.Logf("100 rounds: overlaps=%d lateClaims=%d dupEdits=%d (absolute marker counts, "+
+		"not deltas)", overlaps, lateClaims, dupEdits)
 
 	if overlaps != 0 {
 		t.Errorf("rounds with two live processes in one checkout = %d/%d, want 0 — PRD §11 "+
@@ -246,4 +251,96 @@ func TestClaimBeforeSweepIsCaught(t *testing.T) {
 		t.Fatalf("peak live writers in one checkout = %d, want ≥ 2 — the simulator cannot see "+
 			"the window it exists to measure, so a green run above proves nothing", n)
 	}
+}
+
+// OBSERVATION (not a golden row, and it asserts nothing the table asserts).
+//
+// The 100-round row above measures the absolute marker count AFTER recovery,
+// i.e. with exactly one writer alive — that is the only state E11-05 allows.
+// The question this answers is the one that state hides: while the orphan is
+// still up and the restarted attempt is already writing — the window E11-05
+// measures as zero — does "inspect the workdir first" still leave each edit
+// exactly once?
+//
+// It is set up by claiming WITHOUT sweeping, which is the same fault
+// TestClaimBeforeSweepIsCaught injects, held open instead of closed.
+//
+// Two sub-cases, and they answer differently:
+//
+//	(a) an edit that is ALREADY in the checkout, re-applied by both writers at
+//	    once. Both inspect, both find it, neither writes. Count stays 1. This
+//	    is asserted — it is the E8-04 (4) mechanism, and it holds even here.
+//	(b) an edit NEITHER writer has made yet, made by both at once. The
+//	    inspection is a read followed by an append with nothing between them,
+//	    so two agents can both read "absent" and both append: the count can
+//	    reach the number of live writers. This is REPORTED, not asserted —
+//	    the resume prompt is a prompt, not a lock, and E11-05 is what closes
+//	    this window in the first place (kill orphans, THEN claim). The
+//	    measured rate is in the PR body.
+func TestOverlappingWritersObservation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns real processes")
+	}
+	h := newHarness(t)
+	taskID := newID()
+	lane, _, err := h.StartAttempt("S", "backend", taskID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const trials = 20
+	for i := 0; i < trials; i++ {
+		if n, _ := h.Write(lane.Path, fmt.Sprintf("<edit-%d>", i)); n == 0 {
+			t.Fatalf("attempt 1 wrote nothing for edit %d", i)
+		}
+	}
+	h.KillDaemon()
+	h.Requeue(taskID)
+
+	// The claim that E11-05 forbids: the orphan is still alive, and attempt 2
+	// starts in the same checkout anyway.
+	next, _, err := h.StartAttempt("S", "backend", taskID, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Path != lane.Path {
+		t.Fatalf("attempt 2 workdir = %q, want %q", next.Path, lane.Path)
+	}
+	if n := h.Writers(next.Path); n < 2 {
+		t.Fatalf("peak live writers in one checkout = %d, want ≥ 2 — the window this "+
+			"observation is about is not open, so it measures nothing", n)
+	}
+
+	// (a) re-applied edits, both writers at once.
+	dupRedo := 0
+	for i := 0; i < trials; i++ {
+		marker := fmt.Sprintf("<edit-%d>", i)
+		h.WriteAll(next.Path, marker)
+		if n := h.MarkerCount(next.Path, marker); n != 1 {
+			dupRedo += n - 1
+		}
+	}
+	if dupRedo != 0 {
+		t.Errorf("re-applied edits duplicated %d times over %d trials with %d live writers, "+
+			"want 0 — the workdir inspection (§8.4 `<resumed>`, FR-7.1) is the only mechanism "+
+			"E8-04 (4) has, and it has to survive the overlap too", dupRedo, trials,
+			h.Writers(next.Path))
+	}
+
+	// (b) brand-new edits, both writers at once.
+	raced, seen := 0, 0
+	for i := 0; i < trials; i++ {
+		marker := fmt.Sprintf("<fresh-%d>", i)
+		h.WriteAll(next.Path, marker)
+		n := h.MarkerCount(next.Path, marker)
+		if n > 1 {
+			raced++
+			seen += n - 1
+		}
+	}
+	t.Logf("OBSERVATION: peak live writers = %d; re-applied edits duplicated %d/%d; "+
+		"simultaneous NEW edits duplicated in %d/%d trials (%d extra copies). "+
+		"(b) is a read-then-append race between two agents, not an idempotency failure: "+
+		"E11-05 closes this window (kill orphans, THEN claim), and the golden rows measure "+
+		"the state after it is closed.", h.Writers(next.Path), dupRedo, trials, raced, trials, seen)
 }
