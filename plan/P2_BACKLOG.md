@@ -49,7 +49,7 @@
 | ~~W-6~~ | **해결 — T-W2.** 작성창이 `previewTriggers` 를 부르고 로컬 규칙 계산(`classifyMentions`)을 지웠다 — 규칙 1~8 과 lane 해소는 서버 상태를 봐야 해서 로컬로 흉내 내면 서버와 반대로 말한다(S-1 이 그랬다) | PR #21 R2 | — |
 | W-3′ | mock previewTriggers가 `done/blocked` lane **재진입**을 `resolution 4 + lane_id + reentry:true`로 준다(`handlers.ts:571-573`). PRD lane 규칙·EVAL E2-04·05는 재진입을 **규칙 3**으로 두고 4는 "그 외 → 새 lane". §0-9(b) 부류 — mock 응답·p2-mock 기대값·재진입 테스트 함께 | PR #76 Lead 확인 | 다음 웹 작업 |
 | ~~W-5~~ | mock의 lane 해소 규칙(`handlers.ts` resolveLane류)을 지키는 것이 `web/e2e/p2-mock.sh`뿐이고 그 스모크는 CI 밖(mock 서버 필요)이다. `done` lane 있는 세션에서 preview → `resolution 3 · reentry true`를 vitest 1건으로 — W-2·W-3′ 부류가 다시 슬며시 바뀌어도 CI가 모른다 | PR #83 리뷰 NN1 | 다음 웹 작업 | **해결 — PR #130**
-| W-6 | 인박스 항목이 purpose=budget HITL(task 범위, 세션은 active)에 `budgetOverride` 입력칸을 붙이지 않는다(`session_paused` 조건) → Director 가 웹에서 상향 금액을 정할 수 없음(E9-02·U7-1) | T-I3 실측 43_ | T-W4 |
+| ~~W-6~~ | 인박스 항목이 purpose=budget HITL(task 범위, 세션은 active)에 `budgetOverride` 입력칸을 붙이지 않는다(`session_paused` 조건) → Director 가 웹에서 상향 금액을 정할 수 없음(E9-02·U7-1) | T-I3 실측 43_ | T-W4 | **해결 — PR #139**
 
 ### S 추가 (G3 수정 리뷰에서)
 
@@ -97,6 +97,7 @@
 | S-45 | 시스템 발행 HITL 3곳(`httpapi/budget.go` 예산 · `sessions/complete.go` user_approval · `router/service.go` 루프)이 에이전트 경로와 달리 kind='hitl' 타임라인 메시지를 게시하지 않고 `hitl_request.message_id` NULL → S7 카드 0(SCREEN §4.5) | T-I3 실측 43_ | T-S7 |
 | S-46 | `ResumeSession` 이 pause 가 park 한 task 를 재큐잉하지 않아 영영 paused(#136 은 큐가 남은 lane 의 게이트만 품) | T-S6 발견 | T-S7 |
 | S-47 | finish 뒤 enforce 가 실패하면(별도 tx) task 상한 초과 lane 이 안 잠긴 채 다음 task 가 dispatch 되어 첫 heartbeat 에서야 잡힘 — 한 턴 지연, 로그 Warn 뿐 | PR #136 리뷰 NN1 | 낮음(관측성) |
+| S-48 | 예산 강제 경로가 **추정 금액을 0 으로 떨어뜨린다** — ACP 런타임은 cost_usd 를 안 줘 task_usage 가 100% estimated(가격표로 매긴 값이 있는데도) → D-17 을 고쳐도 강제가 발동하지 않음. FR-7.3·E9-05: 추정치는 하드 컷 없이 **누적·비교해 세션 paused+드레인+알림** | T-I3 실측 (c), K-8 의 서버 절반 | T-S8 |
 
 ## C (CLI)
 
@@ -119,6 +120,7 @@
 | K-6 | 인박스 `mention` 항목의 `actions` 가 COMPONENTS §2.4 표와 다르다 — 서버 쪽이 맞아 보이므로 문서(COMPONENTS) 수정 후보. Lead 판정 | T-W3 PR #130 관찰 | 문서 |
 | ~~K-7~~ | colab-cli §2.4 HITL 경로(`/tasks/{T}/hitl`) ↔ openapi(`/sessions/{S}/hitl-requests`) 충돌 — openapi 가 API SSOT | T-I3 | **해결 — 계약 PR #133(v0.5.1)** |
 | K-8 | ACP 경로는 `cost_usd` 를 안 줘 `task_usage` 가 100% `estimated` → 서버가 가격표로 매긴 값도 '추정' 이라 E9-01 의 '실측 → 취소 명령' 분기는 실기 도달 불가(E9-05 추정 컷 금지). Lead 판정: 계약 유지(추정은 paused+드레인), E9-01 실측 분기는 대역/acpfake 로만. 가격표 추정을 '실측 급' 으로 승격할지는 P4 비용 항목에서 | T-I3 실측 | P4 결정 |
+| K-9 | openapi `InboxItem.card` 에 HITL `purpose` 가 없어 웹이 approval 항목마다 GET /hitl-requests/{id} 를 한 번 더 읽는다(#139 NN1). 계약 커밋은 브랜치 `contracts/inbox-card-purpose-2`(생성 타입 변경이 `handlers_inbox.go` 리터럴을 깨 서버 적응과 함께 머지해야 함) | T-W4 PR #139 | T-S8 (계약 커밋 얹기) |
 
 ## 테스트 자산 (P1에서 만든 것)
 
