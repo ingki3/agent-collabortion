@@ -44,8 +44,21 @@ if try ab wait --url "**/onboarding" --timeout 20000 && wait_sel '[data-testid="
 else rec 2 S4-1 "온보딩 자동 진입" FAIL "url=$(ab get url)"; exit 1; fi
 
 step "U1-3 '마케팅팀' → S4-2 컴퓨터 연결(S12 인라인)"
-ab fill '[data-testid="workspace-name"]' "마케팅팀" >/dev/null; ab click '[data-testid="workspace-next"]' >/dev/null
-wait_sel '[data-testid="pairing-panel"]' || die "pairing panel"
+# S-6(2026-09-06 재확인에서 발견): 이름이 한글뿐이면 slug 가 전부 'ws' 로 접히고, 접미어 재시도가 **같은 tx 안**에서 돌아
+# 두 번째 '마케팅팀' 부터 500 `25P02 current transaction is aborted`. #33 이 runtimes.go 에 넣은 savepoint 를 auth.go 는 안 받았다.
+# U1 명세대로 '마케팅팀' 을 먼저 넣어 판정하고, 막히면 이름만 유일하게 바꿔 나머지 단계를 계속 판정한다.
+WS_NAME="마케팅팀"; WS_WORKAROUND=""
+ab fill '[data-testid="workspace-name"]' "$WS_NAME" >/dev/null; ab click '[data-testid="workspace-next"]' >/dev/null
+if wait_sel '[data-testid="pairing-panel"]' 15; then
+  rec 3a S4-1 "'마케팅팀' 입력 → 2단계(컴퓨터 연결)로" PASS "ws='$WS_NAME'"
+else
+  WS_ERR="$(ab get text '.problem' 2>/dev/null | tr '\n' ' ' | head -c 160)"
+  rec 3a S4-1 "'마케팅팀' 입력 → 2단계로" FAIL "S-6 서버 500: $WS_ERR"
+  WS_NAME="마케팅팀 $STAMP"; WS_WORKAROUND="이름을 '$WS_NAME' 로 바꿔 우회"
+  log "S-6 우회: $WS_WORKAROUND"
+  ab fill '[data-testid="workspace-name"]' "$WS_NAME" >/dev/null; ab click '[data-testid="workspace-next"]' >/dev/null
+  wait_sel '[data-testid="pairing-panel"]' 20 || die "pairing panel"
+fi
 wait_sel '[data-testid="install-cmd-2"]'
 CMD1="$(ab get text '[data-testid="install-cmd-1"] code')"; CMD2="$(ab get text '[data-testid="install-cmd-2"] code')"
 log "설치 명령 1: $CMD1"; log "설치 명령 2: $CMD2"
@@ -140,4 +153,5 @@ step "결과"
 column -t -s $'\t' "$STEPS" >&2
 jq -n --arg session "$SESSION_ID" --arg ws "$WS" --arg email "$EMAIL" --arg pair_ms "$((T1-T0))" --arg invite_url "$INV_URL" --argjson members "$MEMBERS" \
   --argjson pass "$(awk -F'\t' 'NR>1&&$4=="PASS"' "$STEPS" | wc -l)" --argjson fail "$(awk -F'\t' 'NR>1&&$4=="FAIL"' "$STEPS" | wc -l)" --argjson na "$(awk -F'\t' 'NR>1&&$4=="N/A"' "$STEPS" | wc -l)" \
-  '{session:$session,workspace:$ws,email:$email,pairing_to_ready_ms:$pair_ms,invite_url:$invite_url,members:$members,pass:$pass,fail:$fail,na:$na}' | tee "$OUT/d-summary.json"
+  --arg ws_name "$WS_NAME" --arg ws_workaround "$WS_WORKAROUND" \
+  '{session:$session,workspace:$ws,workspace_name:$ws_name,workspace_name_workaround:$ws_workaround,email:$email,pairing_to_ready_ms:$pair_ms,invite_url:$invite_url,members:$members,pass:$pass,fail:$fail,na:$na}' | tee "$OUT/d-summary.json"
