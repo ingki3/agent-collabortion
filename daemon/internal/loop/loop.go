@@ -422,6 +422,10 @@ func (d *Daemon) heartbeat(ctx context.Context, b contracts.TaskBundle, r *acp.R
 		res, err := d.Server.Heartbeat(hctx, b.Task.ID, b.Task.Attempt, api.HeartbeatRequest{Usage: r.Usage(), LastSeq: bt.LastSeq(), Preview: bt.TakePreview()})
 		cancel()
 		if err != nil {
+			// A heartbeat is a liveness signal, never fatal to the attempt
+			// (§4.2 v0.3): the server ignores a bad `preview` and still
+			// returns 200, and any other status — 4xx included — is only
+			// logged so the next tick retries.
 			d.Log("heartbeat %s: %v", key(b.Task.ID, b.Task.Attempt), err)
 			continue
 		}

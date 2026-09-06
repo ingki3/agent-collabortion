@@ -67,11 +67,17 @@ func (b *Batcher) Preview(text string) {
 	b.mu.Unlock()
 }
 
-// TakePreview returns the latest partial text (for the heartbeat).
-func (b *Batcher) TakePreview() string {
+// TakePreview returns the latest partial output in the §4.2 v0.3 shape, or
+// nil when there is none — the heartbeat then omits `preview` rather than
+// sending an empty object. message_id stays unset: the daemon does not know
+// the server-side message id.
+func (b *Batcher) TakePreview() *HeartbeatPreview {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.preview
+	if b.preview == "" {
+		return nil
+	}
+	return &HeartbeatPreview{Text: b.preview}
 }
 
 // LastSeq is the highest seq emitted so far.
