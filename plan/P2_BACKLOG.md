@@ -32,9 +32,9 @@
 | ~~D-11~~ | 유실 이벤트(`runtime.resume outcome=cold_start`)에 원 rpc 코드·메시지 한 칸 — S7 피드에서 "왜 콜드 스타트인지" | PR #111 리뷰 NN2 | T-D5 | **해결 — PR #121**
 | ~~D-12~~ | hermes `sessionProvenance: {}`·빈 `acpSessionId` 는 reason 이 `provenance_mismatch` 로 남는다(결과는 같은 cold_start) — `no_provenance` 로 | PR #115 리뷰 NN1 | T-D5 | **해결 — PR #121**
 | ~~D-13~~ | resume 직후 첫 prompt 가 `stopReason=refusal` 로 편집·게시 0 으로 끝나면 task 가 `completed` 가 된다(§2.2 가 refusal 을 성공으로 읽음) — Lead 결정: 콜드 스타트 1회 재시도, 재시도도 refusal 이면 `failed(other)` + 사유 이벤트 | 스파이크 4c §3 | T-D5 | **해결 — PR #121**
-| D-14 | daemon-protocol v0.7 이후 `api.Command` 래퍼를 `contracts.Command` 로 접는 후속 정리(T-D5 가 남김) | PR #121 | 다음 데몬 작업 |
-| D-15 | `closeProcess()` 를 `emitStep(5)` 없이 부르는 경로가 생기면 취소 순서 골든이 못 잡는다 — `closeProcess` 안에서 5단계 이벤트를 내게 묶기 | PR #121 리뷰 NN1 | 낮음 |
-| D-16 | `budgetLimit` 우선순위가 `Task.BudgetOverrideUSD > Limits.BudgetUSD > Task.BudgetUSD` — Lead 결정: 유효 예산 = **min(override 또는 task 예산, 세션 잔여)**. harness §4.4 문언 보강(Lead) + 데몬 반영 | PR #121 리뷰 NN3 | 다음 데몬 작업 + 계약 |
+| ~~D-14~~ | daemon-protocol v0.7 이후 `api.Command` 래퍼를 `contracts.Command` 로 접는 후속 정리(T-D5 가 남김) | PR #121 | 다음 데몬 작업 | **해결 — PR #129**
+| ~~D-15~~ | `closeProcess()` 를 `emitStep(5)` 없이 부르는 경로가 생기면 취소 순서 골든이 못 잡는다 — `closeProcess` 안에서 5단계 이벤트를 내게 묶기 | PR #121 리뷰 NN1 | 낮음 | **해결 — PR #129**
+| ~~D-16~~ | `budgetLimit` 우선순위가 `Task.BudgetOverrideUSD > Limits.BudgetUSD > Task.BudgetUSD` — Lead 결정: 유효 예산 = **min(override 또는 task 예산, 세션 잔여)**. harness §4.4 문언 보강(Lead) + 데몬 반영 | PR #121 리뷰 NN3 | 다음 데몬 작업 + 계약 | **해결 — PR #129**
 
 ## W (웹)
 
@@ -89,6 +89,8 @@
 | S-39 | `lane.runtime_session_ref` 가 finish 에서만 저장돼 크래시한 attempt 는 resume 자원이 없다(다음 attempt 는 항상 콜드 스타트). 실측상 콜드 스타트 성적이 같아 고치지 않음 — 세션 생성 직후 ref 를 heartbeat 에 싣는 것은 §4.2 계약 변경 | 스파이크 4c §5-5·§0.2 | P4, 알고 있기 |
 | S-40 | 사소: 턴 프롬프트 영어 · `failure_kind` 원문 노출 · `none` 격리에서 `git status` 문구 | 스파이크 4c §5-6 | 낮음 |
 | S-41 | 서버가 `contracts/task_event.schema.json` 을 어긴 task_event(닫힌 enum·additionalProperties:false 위반)를 **200 으로 받는다** — T-D5 첫 구현이 5곳 어겼는데 아무도 몰랐다(데몬은 memSink 검사로 자기 방어). 서버 ingest 에 스키마 검증(422 + 피드) | PR #121 자기 정정 | T-S5 후속 또는 P4 |
+| S-42 | 취소 골든(`tasks/cancel_golden_test.go`)의 5단계(`signal_process_group`) 순서 단언이 단계 **부재**를 참으로 둔다(index -1 → `signal < drain` 공허, `ImmediateKill=false`) — 1~4단계는 부재를 FAIL 로 잡는데 5단계만 구멍. 데몬 사본은 §0-8 로 못 고쳐 별도 테스트(#129)로 막았다. 골든 저자(Reviewer)가 원본 수정 | PR #129 (T-D6 발견) | 리뷰어 후속 |
+| S-43 | `listInbox` 항목의 `SessionRef.status` 가 빈 문자열 — openapi required 인데 서버가 id·title 만 채운다 | T-W3 PR #130 관찰 | #124 재작업에 포함 지시 |
 
 ## C (CLI)
 
@@ -107,6 +109,7 @@
 | K-3 | `harness.md` §2.2 `preparing` heartbeat 비대상, §4.3 명령 소비 표 — 데몬 쪽 문서(`daemon/README`)에 반영 | PR #22 |
 | K-4 | **P3로 미룸** — 자동 발행된 `user_approval`의 **취소 조건**. FR-2.2는 "나머지 조건이 모두 충족되면 자동 발행"만 정하고, 발행 뒤 조건이 다시 미충족이 되면(예: 아티팩트 철회) 이미 발행된 HITL이 어떻게 되는지 정의가 없다 — Director 인박스에 유효하지 않은 승인 요청이 남는다. P3 HITL 전이를 설계할 때 정한다. EVAL 행(E6-12 후보)은 그때 추가 | P2a Hermes |
 | K-5 | **G5 전 결정** — 규칙 8 억제가 **lane 상태**에 묶여 있어, 자식 lane 이 `done` 된 뒤 같은 lane 이 한 줄 더 쓰면(재진입) 위임자가 다시 깨어난다. E1-17 문언("억제 기간은 합류 발화 전까지")대로이지만 FR-6.5 "합류는 정확히 한 번"과 맞물리면 위임자가 합류 뒤 자식 한 줄마다 깨어난다. 억제 해제 시점을 "합류 발화"가 아니라 "위임자가 그 lane 에 다시 지시"로 둘지 결정 필요 | G4_REPORT §5 관찰 1 (PR #73 리뷰 NN3) | G5 전 |
+| K-6 | 인박스 `mention` 항목의 `actions` 가 COMPONENTS §2.4 표와 다르다 — 서버 쪽이 맞아 보이므로 문서(COMPONENTS) 수정 후보. Lead 판정 | T-W3 PR #130 관찰 | 문서 |
 
 ## 테스트 자산 (P1에서 만든 것)
 
