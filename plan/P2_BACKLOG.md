@@ -46,6 +46,8 @@
 | ~~S-10~~ | ~~`auth.AcceptInvite` 동시 수락 TOCTOU → 500~~ **해결 — T-S2**(`ON CONFLICT (workspace_id, user_id) DO NOTHING`. 두 번 수락은 오류가 아니다) | PR #43 전수 조사 | — |
 | ~~S-11~~ | **해결 — T-S2**(`validateLimit`, 범위 밖은 422. `07_adversarial.sh` D8 기대도 갱신). ~~요청 파라미터의 스키마 제약이 강제되지 않는다. `limit`은 계약상 `minimum:1 maximum:200`인데 서버는 `-1`·`0`·`999999`를 200으로 받고 **조용히 기본값 50으로 강제**한다(타입 오류만 422). 네 저장소(messages·agents·sessions·events)가 모두 clamp하므로 **자원 고갈 위험은 없다** — 계약↔구현 불일치이고, 500을 요청한 클라이언트가 50을 받고도 모른다 ~~ | Lead 적대적 검증 D8 | — |
 | ~~S-12~~ | **해결 — T-S2.** 두 operation 을 켜면서 owner·admin 게이트를 함께 넣었고, 루프 상한 0(상한을 조용히 끄는 값)도 422 로 막는다. `07_adversarial.sh` D2 기대를 403/404 로 좁혔다. ~~P2에서 authz를 반드시 넣을 것. 지금은 501이라 남의 워크스페이스 설정도 바뀌지 않지만, 501은 인가가 아니라 미구현이다. `e2e/p1/07_adversarial.sh` D2의 기대를 그때 `403/404`로 좁힌다 ~~ | Lead 적대적 검증 D2 | — |
+| S-14 | **다운로드가 응답 끝까지 DB 트랜잭션(=풀 커넥션)을 잡는다.** large object 는 트랜잭션 안에서만 읽히므로 `artifacts.Open` → `io.Copy` 구조 자체는 대안이 없고 설계는 맞다. 문제는 그 옆이다 — `http.Server` 에 `WriteTimeout` 이 없고(`cmd/server/main.go` 는 `ReadHeaderTimeout` 만 준다) 풀도 기본 크기라, 느린 클라이언트 N 개가 커넥션 N 개를 무기한 점유한다. **P3 웹 다운로드를 켜기 전에** `WriteTimeout` 또는 다운로드 전용 컨텍스트 데드라인을 반드시 넣는다 | PR #65 NN1 | P3 전 필수 |
+| S-15 | **`artifact_review` 의 `ON CONFLICT (artifact_id) DO UPDATE` 가 재리뷰로 이전 판정을 덮어쓴다.** 거절 사유는 `decision_id` 로 결정 기록에 남아 E6-04("아티팩트는 사라지지 않는다")는 지켜지지만, 행 자체에는 이력이 없다 — 같은 아티팩트를 reject 했다가 approve 하면 reject 가 행에서 사라진다. P3 리뷰 UI 가 이력(누가 언제 무엇을 뒤집었나)을 그리려면 PK 를 `(artifact_id, reviewed_at)` 류로 바꾸거나 별도 이력 테이블이 필요하다 | PR #65 NN3 | P3 리뷰 UI 설계 시 |
 
 ## C (CLI)
 
@@ -68,7 +70,7 @@
 | 항목 | 내용 |
 |---|---|
 | `e2e/p1/01`~`06` | 실제 런타임 수직 슬라이스·kill -9·취소·U1 브라우저·초대·S12 |
-| **`e2e/p1/07_adversarial.sh`** | 경계 37항목(TaskToken 범위·워크스페이스 경계·501 표면·멱등키·미인증·SSE 인가·데몬 토큰·잘못된 입력). **에이전트 턴 0** — 서버가 떠 있으면 언제든 돌릴 수 있다. P2에서 operation이 늘 때마다 여기에 행을 더한다 |
+| **`e2e/p1/07_adversarial.sh`** | 경계 항목 D1~D10(TaskToken 범위·워크스페이스 경계·501 표면·멱등키·미인증·SSE 인가·데몬 토큰·잘못된 입력·**아티팩트 제출/리뷰 경계**). **에이전트 턴 0** — 서버가 떠 있으면 언제든 돌릴 수 있다. P2에서 operation이 늘 때마다 여기에 행을 더한다 |
 | CI `contracts` 잡 | openapi strict lint · task_event JSON Schema · 프로즈 키 스캔 · 서버·웹 생성물 드리프트 게이트 |
 
 ## 운영 (PLAN §10.7 되먹임)

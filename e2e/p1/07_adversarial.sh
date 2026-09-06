@@ -201,6 +201,27 @@ else
     chk_in "다른 세션에 제출 차단"          "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $A_TOK" \
         -X POST "$API/sessions/$OTHER_SESS/artifacts" -F 'name=x' -F 'type=doc' -F "file=@$ART_F")"
     chk_in "다른 세션 아티팩트 목록 차단"   "403 404" "$(tcode "$A_TOK" "$API/sessions/$OTHER_SESS/artifacts")"
+    # 반대 방향도 막혀야 한다: 남의 세션 토큰이 **아티팩트 id 를 알아도** 그 아티팩트
+    # 자체에 닿으면 안 된다. 위의 두 행은 세션 스코프 경로(/sessions/{S}/…)라
+    # 아티팩트 스코프 경로(/artifacts/{A}) 를 검사하지 않는다.
+    O_TASK="$(psqlq "select id from task where session_id='$OTHER_SESS' order by created_at desc limit 1")"
+    if [ -n "${O_TASK:-}" ]; then
+      O_TOK="ctk_adv_other_$(uuidgen | tr -d - | tr 'A-Z' 'a-z')"
+      psqlq "insert into task_token (task_id, attempt, token_hash, lane_id, session_id, agent_id, issued_at, expires_at)
+             select t.id, t.attempt, encode(sha256('$O_TOK'::bytea), 'hex'), t.lane_id, t.session_id, t.agent_id, now(), now() + interval '1 hour'
+             from task t where t.id = '$O_TASK'
+             on conflict (task_id, attempt) do update
+               set token_hash = excluded.token_hash, expires_at = excluded.expires_at,
+                   revoked_at = null, revoke_reason = null" >/dev/null && {
+        chk_in "타 세션 토큰의 아티팩트 메타 조회 차단" "403 404" "$(tcode "$O_TOK" "$API/artifacts/$ART_ID")"
+        chk_in "타 세션 토큰의 아티팩트 본문 조회 차단" "403 404" "$(tcode "$O_TOK" "$API/artifacts/$ART_ID/content")"
+        chk_in "타 세션 토큰의 리뷰 호출 차단"          "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $O_TOK" -H 'Content-Type: application/json' \
+            -X POST "$API/artifacts/$ART_ID/review" --data '{"verdict":"approve"}')"
+        chk "타 세션 리뷰 시도는 아무것도 저장하지 않는다" 0 \
+            "$(psqlq "select count(*) from artifact_review where artifact_id='$ART_ID'")"
+      }
+    fi
   fi
   chk "위조 토큰의 아티팩트 조회 401"       401 "$(tcode ctk_forged_0000000000000000000000 "$API/artifacts/$ART_ID")"
 

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -667,4 +668,84 @@ func (f *p2Fixture) rawKeyed(t *testing.T, path, tok, contentType string, body [
 	var out map[string]any
 	_ = json.Unmarshal(raw, &out)
 	return res.StatusCode, out
+}
+
+// TestArtifactBlobIsUnlinkedWithTheRow is review R1: the bytes live in a large
+// object, and a large object is NOT owned by the row that points at it. Nothing
+// in the server calls lo_unlink, and `artifact` cascades off `session`, so a
+// deleted session would leave up to 50 MB per version in pg_largeobject
+// forever. Migration 0008's AFTER DELETE trigger is what closes that; drop the
+// trigger and both halves of this test go red.
+func TestArtifactBlobIsUnlinkedWithTheRow(t *testing.T) {
+	f := newP2Fixture(t)
+	ctx := t.Context()
+	sess := f.artifactSession(t, map[string]any{"op": "and", "conditions": []map[string]any{
+		{"type": "artifact_submitted", "who": "assignee"}, {"type": "user_approval"},
+	}})
+	tok, _ := f.agentToken(t, sess, f.leadUUID, "Lead")
+
+	blobOf := func(artifactID uuid.UUID) uint32 {
+		t.Helper()
+		var ref string
+		if err := f.pool.QueryRow(ctx, `SELECT storage_ref FROM artifact WHERE id = $1`, artifactID).Scan(&ref); err != nil {
+			t.Fatal(err)
+		}
+		var oid uint32
+		if _, err := fmt.Sscanf(ref, "pglo:%d", &oid); err != nil {
+			t.Fatalf("storage_ref %q is not a large object ref: %v", ref, err)
+		}
+		return oid
+	}
+	blobCount := func(oid uint32) int {
+		t.Helper()
+		var n int
+		if err := f.pool.QueryRow(ctx,
+			`SELECT count(*) FROM pg_largeobject_metadata WHERE oid = $1`, oid).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	// --- the row is deleted directly ---
+	st, out := f.submit(t, sess, tok, "direct.txt", "file", []byte("직접 삭제되는 본문"))
+	if st != 201 {
+		t.Fatalf("submit = %d: %v", st, out)
+	}
+	direct := mustUUID(t, str(out["artifact"].(map[string]any), "id"))
+	oid := blobOf(direct)
+	if n := blobCount(oid); n != 1 {
+		t.Fatalf("blob %d exists = %d, want 1 — the premise is that the bytes are really there", oid, n)
+	}
+	if _, err := f.pool.Exec(ctx, `DELETE FROM artifact WHERE id = $1`, direct); err != nil {
+		t.Fatal(err)
+	}
+	if n := blobCount(oid); n != 0 {
+		t.Fatalf("blob %d survived its row (count %d) — nothing else will ever unlink it", oid, n)
+	}
+
+	// --- the session is deleted and the row goes with it (ON DELETE CASCADE) ---
+	// This is the path that actually leaks: a cascade never runs application
+	// code, so a Go-side Remove() would not have covered it.
+	st, out = f.submit(t, sess, tok, "cascade.txt", "file", []byte("세션과 함께 사라질 본문"))
+	if st != 201 {
+		t.Fatalf("submit = %d: %v", st, out)
+	}
+	cascaded := mustUUID(t, str(out["artifact"].(map[string]any), "id"))
+	oid = blobOf(cascaded)
+	if n := blobCount(oid); n != 1 {
+		t.Fatalf("blob %d exists = %d, want 1", oid, n)
+	}
+	if _, err := f.pool.Exec(ctx, `DELETE FROM session WHERE id = $1`, mustUUID(t, sess)); err != nil {
+		t.Fatal(err)
+	}
+	var rows int
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM artifact WHERE id = $1`, cascaded).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Fatalf("the artifact row survived the session (count %d) — premise broken", rows)
+	}
+	if n := blobCount(oid); n != 0 {
+		t.Fatalf("blob %d survived the session cascade (count %d) — FR-6.4 GC would leak 50 MB per version", oid, n)
+	}
 }
