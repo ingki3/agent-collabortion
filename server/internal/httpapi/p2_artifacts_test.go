@@ -749,3 +749,61 @@ func TestArtifactBlobIsUnlinkedWithTheRow(t *testing.T) {
 		t.Fatalf("blob %d survived the session cascade (count %d) — FR-6.4 GC would leak 50 MB per version", oid, n)
 	}
 }
+
+// TestArtifactRowDeletesWhenTheBlobIsAlreadyGone is review NN1. Migration
+// 0008's trigger swallows `undefined_object` so that a missing blob cannot
+// block the delete, and until now that promise rested only on the SQLSTATE
+// name being the right one. If it is wrong — or a future Postgres raises
+// something else for lo_unlink — every session delete that touches an
+// already-cleaned artifact starts failing, and the failure surfaces as a
+// cascade nobody can complete. This pins the behaviour instead of the code.
+func TestArtifactRowDeletesWhenTheBlobIsAlreadyGone(t *testing.T) {
+	f := newP2Fixture(t)
+	ctx := t.Context()
+	sess := f.artifactSession(t, map[string]any{"op": "and", "conditions": []map[string]any{
+		{"type": "artifact_submitted", "who": "assignee"}, {"type": "user_approval"},
+	}})
+	tok, _ := f.agentToken(t, sess, f.leadUUID, "Lead")
+
+	st, out := f.submit(t, sess, tok, "orphaned.txt", "file", []byte("blob 이 먼저 사라진다"))
+	if st != 201 {
+		t.Fatalf("submit = %d: %v", st, out)
+	}
+	id := mustUUID(t, str(out["artifact"].(map[string]any), "id"))
+
+	var ref string
+	if err := f.pool.QueryRow(ctx, `SELECT storage_ref FROM artifact WHERE id = $1`, id).Scan(&ref); err != nil {
+		t.Fatal(err)
+	}
+	var oid uint32
+	if _, err := fmt.Sscanf(ref, "pglo:%d", &oid); err != nil {
+		t.Fatalf("storage_ref %q is not a large object ref: %v", ref, err)
+	}
+
+	// The blob goes first — the state a half-finished manual cleanup, a restored
+	// dump, or a second GC pass leaves behind.
+	if _, err := f.pool.Exec(ctx, `SELECT lo_unlink($1)`, oid); err != nil {
+		t.Fatalf("premise: unlinking the blob directly: %v", err)
+	}
+	var n int
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM pg_largeobject_metadata WHERE oid = $1`, oid).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("premise: blob %d still exists (count %d)", oid, n)
+	}
+
+	// …and the row must still delete. A trigger that re-raises here would make
+	// the row undeletable and take the whole session cascade down with it.
+	if _, err := f.pool.Exec(ctx, `DELETE FROM artifact WHERE id = $1`, id); err != nil {
+		t.Fatalf("deleting a row whose blob is already gone must succeed — 0008's trigger "+
+			"has to swallow undefined_object, not re-raise it: %v", err)
+	}
+	var rows int
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM artifact WHERE id = $1`, id).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Fatalf("the row survived its own DELETE (count %d)", rows)
+	}
+}
