@@ -105,8 +105,14 @@ R_WD_DISK=0
 while read -r lid; do [ -n "$lid" ] && [ -d "$WORK/sessions/$SESSION/$lid" ] && R_WD_DISK=$((R_WD_DISK+1)); done <<<"$R_LANE_IDS"
 chk A2b "격리 none → Researcher workdir 디렉토리 3개 (FR-6.1)" 3 "$R_WD_DISK"
 # 같은 사실이 서버에도 있어야 한다 — openapi Lane.workdir_id 는 required 필드다.
-R_WD_DB="$(psqlq "select count(*) from workdir where session_id='$SESSION'")"
-chk A2e "workdir 행이 서버에 기록된다 (openapi Lane.workdir_id)" 3 "$R_WD_DB"
+# 격리 `none` 은 **lane 당 workdir 하나**이므로(FR-6.1) 세션 전체 행 수는 lane 수와 같다.
+# Researcher 만 세면 3, 세션 전체를 세면 5(Lead·Researcher 3·Writer) — 둘 다 본다.
+R_WD_DB="$(psqlq "select count(*) from workdir w join lane l on l.workdir_id=w.id join agent a on a.id=l.agent_id
+                  where l.session_id='$SESSION' and a.name='Researcher'")"
+chk A2e "Researcher lane 3개가 각각 workdir 행을 가리킨다 (openapi Lane.workdir_id)" 3 "$R_WD_DB"
+chk A2f "격리 none → workdir 행 수 = lane 수 (FR-6.1)" \
+  "$(psqlq "select count(*) from lane where session_id='$SESSION'")" \
+  "$(psqlq "select count(*) from workdir where session_id='$SESSION'")"
 OVERLAP="$(running_overlap "$SESSION" Researcher)"
 chk_ge A2c "Researcher lane 동시 running 최대 겹침 (FR-6.3)" 2 "$OVERLAP"
 chk A2d "동시 3개 (위임 3이 병렬)" 3 "$OVERLAP"
