@@ -3050,12 +3050,6 @@ components:
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
-    GatewayTimeout:
-      description: 데몬 응답 지연(저장소 검증 등 동기 데몬 왕복).
-      content:
-        application/problem+json:
-          schema: { $ref: '#/components/schemas/Problem' }
-
   # ───────────────────────────── schemas ─────────────────────────────
   schemas:
     # ── 공통 ──

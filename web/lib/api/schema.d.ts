@@ -3610,15 +3610,6 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description 데몬 응답 지연(저장소 검증 등 동기 데몬 왕복). */
-        GatewayTimeout: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/problem+json": components["schemas"]["Problem"];
-            };
-        };
     };
     parameters: {
         WorkspaceId: string;
