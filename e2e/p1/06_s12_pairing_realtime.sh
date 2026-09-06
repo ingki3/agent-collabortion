@@ -14,7 +14,7 @@ SSE="$OUT/f-sse.txt"; : > "$SSE"
 # 주의: 이전 실행의 curl 이 살아 있으면 같은 파일에 섞여 쓴다(1차 실행에서 프레임이 깨져 보인 원인) → 먼저 정리하고, 종료 시 반드시 죽인다
 pkill -f "workspaces/.*/stream" 2>/dev/null || true
 curl -sN -b "$COOKIE" -H 'Accept: text/event-stream' "$API/workspaces/$WS/stream" > "$SSE" 2>&1 &
-SSE_PID=$!; trap 'kill $SSE_PID 2>/dev/null; agent-browser close >/dev/null 2>&1; true' EXIT   # trap 의 마지막 명령이 종료코드를 정한다 — 이미 죽은 curl 의 kill 실패로 스크립트가 1 을 내지 않도록
+SSE_PID=$!; trap 'kill $SSE_PID 2>/dev/null || true; agent-browser close >/dev/null 2>&1 || true' EXIT   # trap 안에서도 set -e 가 산다 — 이미 죽은 curl 의 kill 실패가 스크립트를 1 로 만들지 않도록 각 명령을 `|| true` 로 받는다
 sleep 1
 IFS=$'\t' read -r PID1 CODE1 < <(create_pairing "$WS")
 CFG1="$OUT/daemon-f1.json"; rm -f "$CFG1"
