@@ -24,20 +24,43 @@ func TestSmokeRealAdapters(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
-	p := Run(ctx, Options{DaemonVersion: "smoke", Turn: true, Log: func(s string) { t.Log(s) }})
+	o := Options{DaemonVersion: "smoke", Turn: true, Log: func(s string) { t.Log(s) }}
+	p := Run(ctx, o)
 	b, _ := json.MarshalIndent(p, "", "  ")
 	t.Logf("probe:\n%s", b)
+	// D-1: the colab CLI is a machine property reported alongside the runtimes.
+	t.Logf("colab_cli: %+v", Colab(ctx, "", o))
 	found := map[contracts.RuntimeKind]bool{}
 	for _, c := range p.Capabilities {
 		found[c.Kind] = true
+		// Not being logged in is a missing ENVIRONMENT, not a broken daemon —
+		// and this smoke is how the DoD gets closed, so it must be easy to
+		// run. Skip rather than fail; every assertion below stays an Errorf
+		// because those really are code failures.
 		if !c.LoggedIn {
-			t.Errorf("%s: PONG turn did not complete (logged_in=false)", c.Kind)
+			t.Skipf("%s: not logged in on this machine (log in and re-run to close the smoke)", c.Kind)
 		}
 		if c.Kind == contracts.RuntimeClaudeCode && c.AdapterVersion != contracts.ClaudeAgentACPPin {
 			t.Errorf("claude adapter %q != pin %q", c.AdapterVersion, contracts.ClaudeAgentACPPin)
 		}
 		if c.Kind == contracts.RuntimeClaudeCode && c.BriefTransport != contracts.BriefACPMetaSystemPrompt {
 			t.Errorf("claude transport %s", c.BriefTransport)
+		}
+		if c.Kind == contracts.RuntimeHermes && c.BriefTransport != contracts.BriefInstructionFile {
+			t.Errorf("hermes transport %s", c.BriefTransport)
+		}
+		// D-2: these are measurements now — a real turn must produce them.
+		if c.ProtocolVersion != contracts.ACPProtocolVersion {
+			t.Errorf("%s protocol_version %d (measured from initialize)", c.Kind, c.ProtocolVersion)
+		}
+		if !c.Resume {
+			t.Errorf("%s resume=false — session/load did not bring the session back", c.Kind)
+		}
+		if !c.Usage {
+			t.Errorf("%s usage=false — the turn reported no tokens", c.Kind)
+		}
+		if c.Kind == contracts.RuntimeClaudeCode && !c.ToolDisallow {
+			t.Error("claude tool_disallow=false — disallowedTools did not take effect")
 		}
 	}
 	for _, k := range []contracts.RuntimeKind{contracts.RuntimeClaudeCode, contracts.RuntimeHermes} {

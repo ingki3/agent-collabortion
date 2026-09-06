@@ -6,6 +6,7 @@
 | 실행일 | 2026-09-05 (KST 09:14) |
 | 어댑터 | `@zed-industries/claude-code-acp` 0.16.2 (claude-agent-sdk 0.2.44) · Claude Code CLI 2.1.258 · 모델 haiku |
 | 도구 | `daemon/cmd/acpprobe -scenario spike2` |
+| 도구 주석 | `acpprobe`(스파이크 전용 CLI)는 P2 에서 삭제됐다 — `daemon/internal/harness/acp` 로 승격 완료(백로그 D-3). 이 문서의 명령줄은 당시 실행 기록이며 지금은 재현되지 않는다. 재현이 필요하면 `daemon/internal/probe`(PONG 턴)와 `daemon/internal/acpfake`(계약 테스트)를 쓴다 |
 | 원시 로그 | `plan/spikes/logs/spike2_claude_20260905T001358Z.{jsonl,summary.json}` |
 
 **판정: 통과** — 설정 파일(`permissions.deny`)로 차단한 툴 호출은 에이전트에게 오류로 돌아온다. 어댑터는 `AskUserQuestion`을 기본으로 툴 목록에서 제거하므로 호출 자체가 불가능하다. `tool_disallow: true`.

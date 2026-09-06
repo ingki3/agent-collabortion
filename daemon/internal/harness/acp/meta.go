@@ -10,6 +10,31 @@ const (
 	BriefMarkerEnd   = "<!-- colab:brief:end -->"
 )
 
+// DisallowedTools is the harness §8 "disallowedTools 도출": AskUserQuestion
+// always (PRD §8.2.5 — it returns an empty answer headless), plus everything
+// in KnownClaudeTools outside the profile allow-list. An empty allow-list
+// means "runtime default", so only AskUserQuestion is removed. Tools missing
+// from the table are not blocked here — the §4 permission check is the second
+// line. The same list feeds `permissions.deny` (minus AskUserQuestion, which
+// the adapter already removes) so subagents are covered too.
+func DisallowedTools(allowList []string) []string {
+	out := []string{"AskUserQuestion"}
+	if len(allowList) == 0 {
+		return out
+	}
+	allowed := map[string]bool{}
+	for _, t := range allowList {
+		allowed[t] = true
+	}
+	for _, t := range KnownClaudeTools {
+		if t == "AskUserQuestion" || allowed[t] {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
 // MetaOptions parametrise Meta().
 type MetaOptions struct {
 	// Brief is the [1]~[8] text; goes to _meta.systemPrompt.append (append
@@ -30,18 +55,10 @@ func Meta(kind contracts.RuntimeKind, o MetaOptions) map[string]any {
 	if kind != contracts.RuntimeClaudeCode {
 		return nil
 	}
-	disallowed := []string{"AskUserQuestion"}
+	disallowed := DisallowedTools(o.Tools)
 	deny := append([]string{}, o.DenyRules...)
-	if len(o.Tools) > 0 {
-		allowed := map[string]bool{}
-		for _, t := range o.Tools {
-			allowed[t] = true
-		}
-		for _, t := range KnownClaudeTools {
-			if t == "AskUserQuestion" || allowed[t] {
-				continue
-			}
-			disallowed = append(disallowed, t)
+	for _, t := range disallowed {
+		if t != "AskUserQuestion" {
 			deny = append(deny, t)
 		}
 	}

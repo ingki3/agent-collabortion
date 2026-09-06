@@ -225,7 +225,14 @@ func (d *Daemon) probe(ctx context.Context) {
 		am[k] = v
 	}
 	d.mu.Unlock()
-	p := probe.Run(ctx, probe.Options{DaemonVersion: d.Version, WorkdirRoot: d.Cfg.WorkdirRoot, Turn: d.ProbeTurn, AllowOnceMissing: am, Command: d.ProbeCommand, Clock: d.Clock, Log: func(s string) { d.Log("%s", s) }})
+	o := probe.Options{DaemonVersion: d.Version, WorkdirRoot: d.Cfg.WorkdirRoot, Turn: d.ProbeTurn, AllowOnceMissing: am, Command: d.ProbeCommand, ColabBin: d.Cfg.ColabBin, Clock: d.Clock, Log: func(s string) { d.Log("%s", s) }}
+	// probe.Run fills §3 colab_cli itself: the colab CLI is how every agent
+	// reaches the platform (MCP server and shell path are the same binary),
+	// so its absence rides on the probe instead of only the daemon log.
+	p := probe.Run(ctx, o)
+	if !p.ColabCLI.Present {
+		d.Log("colab CLI not usable (%s) — agents have neither the MCP server nor the shell path", d.Cfg.ColabBin)
+	}
 	pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if err := d.Server.Probe(pctx, d.Cfg.RuntimeID, p); err != nil {

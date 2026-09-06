@@ -99,7 +99,11 @@ func cmdPair(args []string) error {
 	// daemon-protocol §2: probe right after pairing (S12 "CLI 감지 중 → 준비 완료")
 	pctx, pcancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer pcancel()
-	p := probe.Run(pctx, probe.Options{DaemonVersion: version, WorkdirRoot: cfg.WorkdirRoot, Turn: !*noTurn, Log: func(s string) { log.Print(s) }})
+	po := probe.Options{DaemonVersion: version, WorkdirRoot: cfg.WorkdirRoot, Turn: !*noTurn, ColabBin: cfg.ColabBin, Log: func(s string) { log.Print(s) }}
+	p := probe.Run(pctx, po)
+	if !p.ColabCLI.Present {
+		log.Printf("warning: colab CLI not usable (%s) — agents have neither the MCP server nor the shell path", cfg.ColabBin)
+	}
 	if err := api.New(cfg.ServerURL, cfg.DaemonToken).Probe(pctx, cfg.RuntimeID, p); err != nil {
 		return fmt.Errorf("probe: %w", err)
 	}
@@ -149,7 +153,8 @@ func cmdProbe(args []string) error {
 	cfg, _ := config.Load(*cfgPath)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	p := probe.Run(ctx, probe.Options{DaemonVersion: version, WorkdirRoot: cfg.WorkdirRoot, Turn: *turn, Log: func(s string) { log.Print(s) }})
+	po := probe.Options{DaemonVersion: version, WorkdirRoot: cfg.WorkdirRoot, Turn: *turn, ColabBin: cfg.ColabBin, Log: func(s string) { log.Print(s) }}
+	p := probe.Run(ctx, po)
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(p)
