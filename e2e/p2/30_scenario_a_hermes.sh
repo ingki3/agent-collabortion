@@ -178,7 +178,10 @@ psqlq "select distinct substring(te.payload::text from '/[^\\\\\"[:space:]]*[.]c
        from task_event te join task t on t.id=te.task_id join agent a on a.id=t.agent_id
        where t.session_id='$SESSION' and a.name='Researcher' and te.payload::text like '%.colab/bin/%'" \
   > "$OUT/h-wrapper-calls.txt"
-grep -iE 'tool_surface|tool wrapper' "$DLOG" > "$OUT/h-toolsurface.txt" 2>/dev/null || : > "$OUT/h-toolsurface.txt"
+# 데몬 로그는 **정상 경로에서 래퍼 경로를 찍지 않는다** — 실측 표면이 준비한 것과 다를 때와
+# 래퍼 생성 실패 때만 남는다(loop.go). 비어 있는 것이 정상이므로 그 사실을 파일에 적어 둔다.
+{ grep -iE 'tool_surface|tool wrapper' "$DLOG" 2>/dev/null || true; } > "$OUT/h-toolsurface.txt"
+[ -s "$OUT/h-toolsurface.txt" ] || printf '(비어 있음 = 정상: 데몬은 실측 tool_surface 가 준비한 값과 다를 때와 래퍼 생성 실패 때만 로그를 남긴다.\n 래퍼가 실제로 불린 증거는 h-wrapper-calls.txt, 광고된 값은 h-caps.json 에 있다.)\n' > "$OUT/h-toolsurface.txt"
 chk_ge H14 "hermes 턴이 래퍼 절대 경로로 colab 을 불렀다 (§10 cli_wrapper)" 1 \
   "$(wc -l < "$OUT/h-wrapper-calls.txt" | tr -d ' ')"
 chk_has H14b "그 경로가 <workdir_root>/.colab/bin/ 아래다" "$OUT/h-wrapper-calls.txt" "$WRAP_RE"
