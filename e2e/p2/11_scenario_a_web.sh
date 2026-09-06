@@ -194,10 +194,20 @@ shot p2-a-08-after-reload
 rec W13c S7 "**새로고침하면** 아티팩트 행·합류 카드가 보인다 (같은 데이터, 실시간만 안 온다)" \
   "$( [ "${RART:-0}" -ge 1 ] && [ "${RJOIN:-0}" -ge 1 ] && echo PASS || echo FAIL )" "reload: artifact-row=$RART 합류카드=$RJOIN progress=$RPROG"
 # 활동 피드는 페이지 최상위 요소가 아니라 **메시지의 task 이력을 펼쳐야** 나온다(ActivityFeed 는 run 단위).
+# 그 패널이 부르는 `GET /lanes/{laneId}/tasks`(listLaneTasks)는 계약 x-phase **P3** 다 — 지금 501 인 것이 정상이고,
+# 컷 1(활동 피드 5클래스 → 2클래스) 판정 근거도 P3 에서 모인다. 그래서 여기서는 **501 이면 N/A** 로 적는다.
+LANE_ANY="$(psqlq "select id from lane where session_id='$SESSION' order by created_at limit 1")"
+LANE_TASKS_CODE="$(curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE" "$API/lanes/$LANE_ANY/tasks" 2>/dev/null || echo 000)"
 ab find testid activity-toggle click >/dev/null 2>&1 || ab find testid lane-tasks-toggle click >/dev/null 2>&1 || true
 wait_sel '[data-testid="activity-feed"]' 15 || true
 FEED="$(abget get text '[data-testid="activity-feed"]' | tr '\n' ' ' | head -c 200)"
-rec W14 S7 "task 이력을 펼치면 활동 피드가 렌더된다 (컷 1 판정 근거)" "$( [ -n "$FEED" ] && echo PASS || echo FAIL )" "$(head -c 120 <<<"$FEED")"
+if [ "$LANE_TASKS_CODE" = 501 ]; then
+  rec W14 S7 "task 이력을 펼치면 활동 피드가 렌더된다 (컷 1 판정 근거)" "N/A" \
+    "listLaneTasks 가 501 — 계약 x-phase P3 라 정상. 컷 1 판정은 P3 에서 (GET /lanes/{id}/tasks=$LANE_TASKS_CODE)"
+else
+  rec W14 S7 "task 이력을 펼치면 활동 피드가 렌더된다 (컷 1 판정 근거)" \
+    "$( [ -n "$FEED" ] && echo PASS || echo FAIL )" "listLaneTasks=$LANE_TASKS_CODE · $(head -c 100 <<<"$FEED")"
+fi
 
 step "6. U5 — Director 승인 경로 (P2 는 인박스 항목 + 승인 API 까지)"
 INBOX_CODE="$(curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE" "$API/inbox")"
