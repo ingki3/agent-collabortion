@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# e2e/p3/45_scenario_c.sh — T-I3 (e): **시나리오 C — Director 개입** (EVAL E16-C, E8-06, E10-01·04).
+# e2e/p3/52_scenario_c.sh — T-I3 (e): **시나리오 C — Director 개입** (EVAL E16-C, E8-06, E10-01·04).
 #
 #   C1  R 이 `running` 인 동안 Director 가 `@R …` 메시지를 보낸다
 #       → 진행 중 턴은 **계속 돈다**(프로세스 kill 0, 취소 명령 0), 새 지시는 같은 lane 의 **`queued` task**
@@ -12,19 +12,19 @@
 #       지운 뒤 재개시켜, 콜드 스타트한 attempt 의 브리프 [7] 에 그 결정이 실려 있는지 본다
 #
 # 과제는 저장소 밖의 무해한 주제다(X-2). 수치는 서버 DB 단일 클럭.
-# 산출물: out/45-checks.tsv · out/45.json · out/45-prompt-*.txt · out/45-brief-*.txt
+# 산출물: out/52-checks.tsv · out/52.json · out/52-prompt-*.txt · out/52-brief-*.txt
 source "$(dirname "$0")/lib.sh"
 STAMP="$(date +%s)"
-COOKIE="$OUT/cookies-45.txt"; rm -f "$COOKIE"
-CFG="$OUT/daemon-45.json"; WORK="$OUT/work-45"; DLOG="$OUT/daemon-45.log"
-TAP="$OUT/tap-45.jsonl"; TAP_PORT="${TAP_PORT_45:-8104}"
+COOKIE="$OUT/cookies-52.txt"; rm -f "$COOKIE"
+CFG="$OUT/daemon-52.json"; WORK="$OUT/work-52"; DLOG="$OUT/daemon-52.log"
+TAP="$OUT/tap-52.jsonl"; TAP_PORT="${TAP_PORT_52:-8104}"
 MODEL="${LEAD_MODEL}"
 EMAIL="g6e+$STAMP@example.com"; PASSWORD="password123"
-g5_chk_init "$OUT/45-checks.tsv"
+g5_chk_init "$OUT/52-checks.tsv"
 
 cleanup() {
   [ -n "${TAP_PID:-}" ] && kill "$TAP_PID" 2>/dev/null || true
-  [ -f "$OUT/daemon-45.pid" ] && { kill -TERM -- "-$(cat "$OUT/daemon-45.pid")" 2>/dev/null || true; }
+  [ -f "$OUT/daemon-52.pid" ] && { kill -TERM -- "-$(cat "$OUT/daemon-52.pid")" 2>/dev/null || true; }
   return 0
 }
 trap cleanup EXIT
@@ -75,7 +75,7 @@ WS="$(create_workspace "G6 Scenario C $STAMP")"
 read -r PID_ PTOK <<<"$(create_pairing "$WS" | tr '\t' ' ')"
 rm -rf "$WORK"
 PAIR_SERVER="http://localhost:$TAP_PORT" daemon_pair_cap "$PTOK" "$CFG" "$WORK" 4
-COLAB_DAEMON_CONFIG="$CFG" setsid_run "$DLOG" "$BIN/daemon" run > "$OUT/daemon-45.pid"
+COLAB_DAEMON_CONFIG="$CFG" setsid_run "$DLOG" "$BIN/daemon" run > "$OUT/daemon-52.pid"
 wait_pairing "$WS" "$PID_" 300 || die "pairing not ready"
 RUNTIME="$(psqlq "select id from runtime where workspace_id='$WS' order by created_at desc limit 1")"
 R1="$(create_agent_p2 "$WS" Rsearch1 researcher "$MODEL" "$RES_INS" '시장 조사 메모를 쓴다')"
@@ -105,7 +105,7 @@ post_message "$S1" "$(mention Rsearch1 "$R1") 한국 시장으로 좁혀줘" >/d
 NEW_INSTRUCTION="이전 지시는 취소한다. 대신 note-99.md 에 제품 Y 의 보증 정책 한 가지만 세 줄로 쓰고 끝내라"
 RS="$(api POST "/lanes/$LANE2/restart" "$(jq -nc --arg c "$NEW_INSTRUCTION" '{content:$c}')" -H "Idempotency-Key: $(uuid)")"
 RS_CODE="$(api_code <<<"$RS")"; RS_BODY="$(api_body <<<"$RS")"
-printf '%s\n' "$RS_BODY" > "$OUT/45-restart.json"
+printf '%s\n' "$RS_BODY" > "$OUT/52-restart.json"
 # C3 — 중단
 T_CANCEL="$(now_ms)"
 CC="$(api POST "/lanes/$LANE3/cancel" '' | api_code)"
@@ -153,12 +153,12 @@ chk F3b "**restarted_from_task_id = 이전 task**"            "$T2" "$(task_fiel
 chk F3c "같은 lane 이다"                                    "$LANE2" "$(task_field "$T2B" lane_id)"
 F2ST="$(WAIT_S=${TURN_WAIT_S:-900} wait_task "$T2B" completed failed cancelled)"
 chk F4  "새 지시가 실행됐다"                                completed "$F2ST"
-tap_prompt "$TAP" "$T2B" 1 > "$OUT/45-prompt-c2-restart.txt"
-chk_has F5  "프롬프트에 새 지시가 있다"                     "$OUT/45-prompt-c2-restart.txt" "보증 정책"
+tap_prompt "$TAP" "$T2B" 1 > "$OUT/52-prompt-c2-restart.txt"
+chk_has F5  "프롬프트에 새 지시가 있다"                     "$OUT/52-prompt-c2-restart.txt" "보증 정책"
 chk F5b "프롬프트에 **<resumed> 가 없다** (E8-06)"          0 \
-  "$(grep -c "<resumed" "$OUT/45-prompt-c2-restart.txt" || true)"
+  "$(grep -c "<resumed" "$OUT/52-prompt-c2-restart.txt" || true)"
 chk F5c "프롬프트에 \"이미 게시한 메시지\" 목록도 없다"     0 \
-  "$(grep -c "Messages you already posted" "$OUT/45-prompt-c2-restart.txt" || true)"
+  "$(grep -c "Messages you already posted" "$OUT/52-prompt-c2-restart.txt" || true)"
 fi
 
 step "5. C3 — \"중단\" (cancelLane): lane failed(cancelled) · 피드 \"사람이 중단함\""
@@ -170,13 +170,13 @@ chk G2b "task 가 cancelled · failure_kind=cancelled"        "cancelled|cancell
   "$(psqlq "select status::text||'|'||coalesce(failure_kind::text,'-') from task where id='$T3'")"
 # 활동 피드 = `task_event`(class=status · verb=cancel · payload.note), 세션 `message` 가 아니다.
 psqlq "select class||'/'||coalesce(verb,'-')||' '||replace(coalesce(payload::text,''),E'\n','⏎')
-       from task_event where task_id='$T3' order by seq" > "$OUT/45-cancel-feed.txt"
-chk_has G3 "활동 피드에 \"사람이 중단함\" (E10-04)"         "$OUT/45-cancel-feed.txt" "사람이 중단함"
+       from task_event where task_id='$T3' order by seq" > "$OUT/52-cancel-feed.txt"
+chk_has G3 "활동 피드에 \"사람이 중단함\" (E10-04)"         "$OUT/52-cancel-feed.txt" "사람이 중단함"
 chk G4  "취소는 새 task 를 만들지 않는다 (E10-04)"          1 "$(task_count "$S3")"
 chk G5  "프로세스 트리 잔존 0 (E10-03)"                     0 "$(procs_of_attempt "$WORK" "$T3" 1)"
 CANCEL_S=$(( ($(now_ms)-T_CANCEL)/1000 ))
-psqlq "select coalesce(ts,created_at), class::text, coalesce(verb,'-') from task_event where task_id='$T3' and attempt=1 order by seq desc limit 8" > "$OUT/45-cancel-events.tsv"
-log "중단 → lane failed 까지 ${CANCEL_S}s (마지막 이벤트: out/45-cancel-events.tsv)"
+psqlq "select coalesce(ts,created_at), class::text, coalesce(verb,'-') from task_event where task_id='$T3' and attempt=1 order by seq desc limit 8" > "$OUT/52-cancel-events.tsv"
+log "중단 → lane failed 까지 ${CANCEL_S}s (마지막 이벤트: out/52-cancel-events.tsv)"
 
 step "6. C1 이어서 — 첫 턴은 스스로 끝나고, 그 뒤 새 지시가 실행된다"
 FIRST_END="$(WAIT_S=${TURN_WAIT_S:-900} wait_task "$T1" completed failed cancelled)"
@@ -184,8 +184,8 @@ chk E3  "첫 턴이 **스스로** 끝났다 (취소가 아니다)"        comple
 if [ -n "$T1B" ]; then
   SECOND="$(WAIT_S=${TURN_WAIT_S:-900} wait_task "$T1B" completed failed cancelled)"
   chk E3b "그 뒤 새 지시가 이어서 실행된다"                 completed "$SECOND"
-  tap_prompt "$TAP" "$T1B" 1 > "$OUT/45-prompt-c1-followup.txt"
-  chk_has E3c "그 프롬프트의 trigger 가 새 지시다"          "$OUT/45-prompt-c1-followup.txt" "한국 시장으로 좁혀줘"
+  tap_prompt "$TAP" "$T1B" 1 > "$OUT/52-prompt-c1-followup.txt"
+  chk_has E3c "그 프롬프트의 trigger 가 새 지시다"          "$OUT/52-prompt-c1-followup.txt" "한국 시장으로 좁혀줘"
 fi
 
 step "7. C4 — 결정 기록이 **콜드 스타트를 넘어** 살아남는가 (브리프 [7])"
@@ -223,9 +223,9 @@ chk H3 "새 task 가 생겼다" yes "$( [ -n "$T1C" ] && echo yes || echo no )"
 if [ -n "$T1C" ]; then
   H3ST="$(WAIT_S=${TURN_WAIT_S:-900} wait_task "$T1C" completed failed cancelled)"
   chk H3b "그 턴이 끝났다" completed "$H3ST"
-  tap_brief "$TAP" "$T1C" 1 --last > "$OUT/45-brief-c4.txt"
-  chk_has H4  "브리프에 **[7] Decision Log** 구간이 있다"   "$OUT/45-brief-c4.txt" "[7] Decision Log"
-  chk_has H4b "그 구간에 앞서 남긴 결정이 실려 있다"        "$OUT/45-brief-c4.txt" "$DEC_SUMMARY"
+  tap_brief "$TAP" "$T1C" 1 --last > "$OUT/52-brief-c4.txt"
+  chk_has H4  "브리프에 **[7] Decision Log** 구간이 있다"   "$OUT/52-brief-c4.txt" "[7] Decision Log"
+  chk_has H4b "그 구간에 앞서 남긴 결정이 실려 있다"        "$OUT/52-brief-c4.txt" "$DEC_SUMMARY"
   RES1="$(psqlq "select coalesce(payload->>'outcome','-') from task_event where task_id='$T1C' and class='runtime' and verb='resume' order by seq limit 1")"
   log "C4 재개 판정: ${RES1:--} (transcript 를 지웠으므로 콜드 스타트여야 한다)"
   chk H5 "그 턴은 콜드 스타트다 (resumed 가 아니다)" no "$( [ "$RES1" = resumed ] && echo yes || echo no )"
@@ -244,5 +244,5 @@ jq -n --arg ws "$WS" --arg s1 "$S1" --arg s2 "$S2" --arg s3 "$S3" \
     c1:{session:$s1,running_task:$t1,queued_task:$t1b,decision_task:$t1d,cold_start_task:$t1c,lane:$lane1},
     c2:{session:$s2,cancelled_task:$t2,new_task:$t2b,lane:$lane2},
     c3:{session:$s3,task:$t3,lane:$lane3,cancel_to_failed_s:$cancel_s},
-    elapsed_s:$elapsed_s,pass:$pass,fail:$fail}' | tee "$OUT/45.json"
+    elapsed_s:$elapsed_s,pass:$pass,fail:$fail}' | tee "$OUT/52.json"
 [ "$fail" = 0 ]

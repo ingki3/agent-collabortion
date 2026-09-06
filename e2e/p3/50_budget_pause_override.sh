@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# e2e/p3/43_budget_pause_override.sh — T-I3 (c): **예산** (E9-01 · E9-02 · E9-03 · E9-05 · E9-08).
+# e2e/p3/50_budget_pause_override.sh — T-I3 (c): **예산** (E9-01 · E9-02 · E9-03 · E9-05 · E9-08).
 #
 #   E9-01  턴 중 누적이 task 상한($1)을 넘으면 → §8.2.2 취소 **명령** → task `paused(budget)`(failed 아님),
 #          lane `paused`, Director 에게 시스템 HITL(`source: system` · `purpose: budget` · **`task_id` 채움**)
@@ -21,12 +21,12 @@
 # usage 를 실어 보낸다. 서버가 하는 일은 실제 데몬이 보냈을 때와 같다 — 재는 것은 서버의 강제 경로이고,
 # 대역으로 채운 것은 "데몬이 턴 중에 숫자를 올린다" 하나뿐이다. 그 하나는 아래 D1 에서 **FAIL 로 남긴다.**
 #
-# 산출물: out/43-checks.tsv · out/43.json · web/__screenshots__/p3-43-*.png
+# 산출물: out/50-checks.tsv · out/50.json · web/__screenshots__/p3-50-*.png
 source "$(dirname "$0")/lib.sh"
 STAMP="$(date +%s)"
-COOKIE="$OUT/cookies-43.txt"; rm -f "$COOKIE"
-CFG="$OUT/daemon-43.json"; WORK="$OUT/work-43"; DLOG="$OUT/daemon-43.log"
-TAP="$OUT/tap-43.jsonl"; TAP_PORT="${TAP_PORT_43:-8103}"
+COOKIE="$OUT/cookies-50.txt"; rm -f "$COOKIE"
+CFG="$OUT/daemon-50.json"; WORK="$OUT/work-50"; DLOG="$OUT/daemon-50.log"
+TAP="$OUT/tap-50.jsonl"; TAP_PORT="${TAP_PORT_50:-8103}"
 HB="$P3_DIR/fixtures/daemon_heartbeat.sh"
 MODEL="${LEAD_MODEL}"
 BUDGET="${BUDGET:-1}"          # 에이전트 budget_per_task — EVAL E9-01 그대로 $1
@@ -34,13 +34,13 @@ OVER_1="${OVER_1:-1.01}"       # 턴 중 누적(초과) — E9-01
 BUDGET_NEW="${BUDGET_NEW:-3}"  # 상향값 — E9-02
 OVER_2="${OVER_2:-1.50}"       # 재개 뒤 누적 — E9-08
 EMAIL="g6c+$STAMP@example.com"; PASSWORD="password123"
-export AGENT_BROWSER_SESSION="colab-g6-43-$STAMP"
+export AGENT_BROWSER_SESSION="colab-g6-50-$STAMP"
 mkdir -p "$E2E_ROOT/web/__screenshots__"
-g5_chk_init "$OUT/43-checks.tsv"
+g5_chk_init "$OUT/50-checks.tsv"
 
 cleanup() {
   [ -n "${TAP_PID:-}" ] && kill "$TAP_PID" 2>/dev/null || true
-  [ -f "$OUT/daemon-43.pid" ] && { kill -TERM -- "-$(cat "$OUT/daemon-43.pid")" 2>/dev/null || true; }
+  [ -f "$OUT/daemon-50.pid" ] && { kill -TERM -- "-$(cat "$OUT/daemon-50.pid")" 2>/dev/null || true; }
   agent-browser close >/dev/null 2>&1 || true
   return 0
 }
@@ -82,7 +82,7 @@ WS="$(create_workspace "G6 Budget $STAMP")"
 read -r PID_ PTOK <<<"$(create_pairing "$WS" | tr '\t' ' ')"
 rm -rf "$WORK"
 PAIR_SERVER="http://localhost:$TAP_PORT" daemon_pair_cap "$PTOK" "$CFG" "$WORK" 3
-COLAB_DAEMON_CONFIG="$CFG" setsid_run "$DLOG" "$BIN/daemon" run > "$OUT/daemon-43.pid"
+COLAB_DAEMON_CONFIG="$CFG" setsid_run "$DLOG" "$BIN/daemon" run > "$OUT/daemon-50.pid"
 wait_pairing "$WS" "$PID_" 300 || die "pairing not ready"
 RUNTIME="$(psqlq "select id from runtime where workspace_id='$WS' order by created_at desc limit 1")"
 ok "ws=$WS runtime=$RUNTIME"
@@ -114,7 +114,7 @@ step "4. 데몬 대역으로 **세 턴 모두** turn-중 usage 를 보고한다 
 # "턴 중" 이 성립하지 않는다(1차 실행 실측).
 read -r HB_CODE HB_BODY <<<"$(bash "$HB" "$CFG" "$TA" "$(task_field "$TA" attempt)" 12000 8000 "$OVER_1" false)"
 chk C0  "A: heartbeat 가 받아들여진다 (HTTP $HB_CODE)" 200 "$HB_CODE"
-printf '%s\n' "$HB_BODY" > "$OUT/43-heartbeat-response.json"
+printf '%s\n' "$HB_BODY" > "$OUT/50-heartbeat-response.json"
 read -r HB_CODE_B _ <<<"$(bash "$HB" "$CFG" "$TB" "$(task_field "$TB" attempt)" 12000 8000 "$OVER_1" false)"
 chk C0b "B: heartbeat 가 받아들여진다 (HTTP $HB_CODE_B)" 200 "$HB_CODE_B"
 read -r HB_CODE_C _ <<<"$(bash "$HB" "$CFG" "$TC" "$(task_field "$TC" attempt)" 12000 8000 "$OVER_1" true)"
@@ -200,7 +200,7 @@ chk W0 "웹 로그인" yes "$WEB_OK"
 ab open "$WEB_URL/sessions/$SA" >/dev/null 2>&1 || true
 abwait '[data-testid="timeline"]' 40 || true
 sleep 3
-shot "p3-43-01-session-no-budget-card"
+shot "p3-50-01-session-no-budget-card"
 BC="$(abcount '[data-testid="hitl-card"][data-purpose="budget"]')"
 chk W1  "**S7 타임라인에 예산 HITL 카드가 렌더된다** (신규 결함 — 시스템 발행은 카드 메시지가 없다)" yes \
   "$( [ "${BC:-0}" -ge 1 ] && echo yes || echo no )"
@@ -208,7 +208,7 @@ chk W1b "그 근거: hitl_request.message_id 가 채워져 있다" yes \
   "$( [ "$(psqlq "select case when message_id is null then 'no' else 'yes' end from hitl_request where id='$HA'")" = yes ] && echo yes || echo no )"
 ab open "$WEB_URL/inbox" >/dev/null 2>&1 || true
 abwait '[data-testid="inbox-page"]' 40 || true
-shot "p3-43-02-inbox-budget-item"
+shot "p3-50-02-inbox-budget-item"
 IB="$(abcount '[data-testid="inbox-item"][data-type="hitl_request"]')"
 chk W2  "인박스에는 항목이 뜬다"                          yes "$( [ "${IB:-0}" -ge 1 ] && echo yes || echo no )"
 chk W3  "**인박스 카드에 상향 입력칸이 있다** (신규 결함 — hitl_request 항목에는 붙지 않는다)" yes \
@@ -242,21 +242,21 @@ chk C6b "**E9-08: 취소가 없다** — task 가 여전히 running"    running 
 chk C6c "새 예산 HITL 이 생기지 않았다"                     1 "$(psqlq "select count(*) from hitl_request where task_id='$TA'")"
 chk C6d "취소 명령도 더 나오지 않았다"                      1 \
   "$(psqlq "select count(*) from daemon_command where task_id='$TA' and type='cancel'")"
-tap_prompt "$TAP" "$TA" 2 > "$OUT/43-prompt-attempt2.txt"
-chk_has C6e "재개 프롬프트에 <resumed> 구간"                "$OUT/43-prompt-attempt2.txt" "<resumed attempt=2>"
+tap_prompt "$TAP" "$TA" 2 > "$OUT/50-prompt-attempt2.txt"
+chk_has C6e "재개 프롬프트에 <resumed> 구간"                "$OUT/50-prompt-attempt2.txt" "<resumed attempt=2>"
 AST="$(WAIT_S=${RESUME_WAIT_S:-900} wait_task "$TA" completed failed cancelled paused)"
 chk C6f "재개한 턴이 끝까지 갔다"                           completed "$AST"
 
 step "7. 4단위 비용 집계 (E9-07 · E9-09 — getSessionCost)"
 COST="$(api_ok GET "/sessions/$SA/cost" || echo '{}')"
-printf '%s\n' "$COST" > "$OUT/43-cost.json"
+printf '%s\n' "$COST" > "$OUT/50-cost.json"
 chk K1  "getSessionCost 가 응답한다"           yes "$( [ -n "$COST" ] && echo yes || echo no )"
 chk K1b "세션 합계가 0 보다 크다"              yes \
-  "$(python3 -c "import json;d=json.load(open('$OUT/43-cost.json'));import sys;
+  "$(python3 -c "import json;d=json.load(open('$OUT/50-cost.json'));import sys;
 tot=d.get('total_usd') or d.get('cost_usd') or (d.get('session') or {}).get('cost_usd') or 0
 print('yes' if float(tot)>0 else 'no')" 2>/dev/null || echo no)"
 psqlq "select 'task' unit, count(*) from task_usage u join task t on t.id=u.task_id where t.session_id='$SA'
-       union all select 'agent', count(distinct t.agent_id) from task t where t.session_id='$SA'" > "$OUT/43-cost-units.tsv"
+       union all select 'agent', count(distinct t.agent_id) from task t where t.session_id='$SA'" > "$OUT/50-cost-units.tsv"
 
 step "결과"
 printf '판정: PASS %d · FAIL %d\n' "$pass" "$fail" >&2
@@ -269,5 +269,5 @@ jq -n --arg ws "$WS" --arg sa "$SA" --arg sb "$SB" --arg sc "$SC_" \
     estimated:{session:$sc,task:$tc},
     budget:{per_task_usd:$budget,in_turn_usd:$over1,override_usd:$new,after_resume_usd:$over2},
     daemon_in_turn_usage_rows:$hb_rows,final_status:$final,
-    elapsed_s:$elapsed_s,pass:$pass,fail:$fail}' | tee "$OUT/43.json"
+    elapsed_s:$elapsed_s,pass:$pass,fail:$fail}' | tee "$OUT/50.json"
 [ "$fail" = 0 ]

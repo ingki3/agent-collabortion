@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# e2e/p3/41_hitl_roundtrip.sh — T-I3 (a): **HITL 왕복** 실기 1회씩.
+# e2e/p3/48_hitl_roundtrip.sh — T-I3 (a): **HITL 왕복** 실기 1회씩.
 #
 #   E7-01·03  에이전트가 HITL 을 등록 → 턴 종료 → task `waiting_human`(프로세스 없음, 슬롯 미점유),
 #             타임라인에 HITL 카드(message.kind='hitl'), Director 인박스 `action_required`, workdir 보존
@@ -26,22 +26,22 @@
 #       (턴 종료 → waiting_human · 웹 답변 · 재큐잉 · `<hitl_answer>` · 거절)는 실기 그대로 잰다.
 #
 # 과제는 저장소 밖의 무해한 주제다(X-2). 수치는 전부 서버 DB 단일 클럭, 화면 판정만 DOM(§0-9).
-# 산출물: out/41-checks.tsv · out/41.json · out/41-prompt-*.txt · web/__screenshots__/p3-41-*.png
+# 산출물: out/48-checks.tsv · out/48.json · out/48-prompt-*.txt · web/__screenshots__/p3-48-*.png
 source "$(dirname "$0")/lib.sh"
 STAMP="$(date +%s)"
-COOKIE="$OUT/cookies-41.txt"; rm -f "$COOKIE"
-CFG="$OUT/daemon-41.json"; WORK="$OUT/work-41"; DLOG="$OUT/daemon-41.log"
-TAP="$OUT/tap-41.jsonl"; TAP_PORT="${TAP_PORT_41:-8101}"
+COOKIE="$OUT/cookies-48.txt"; rm -f "$COOKIE"
+CFG="$OUT/daemon-48.json"; WORK="$OUT/work-48"; DLOG="$OUT/daemon-48.log"
+TAP="$OUT/tap-48.jsonl"; TAP_PORT="${TAP_PORT_48:-8101}"
 MODEL="${LEAD_MODEL}"
 HERMES_MODEL="${HERMES_MODEL:-claude-haiku-4-5-20251001}"
 EMAIL="g6a+$STAMP@example.com"; PASSWORD="password123"
-export AGENT_BROWSER_SESSION="colab-g6-41-$STAMP"
+export AGENT_BROWSER_SESSION="colab-g6-48-$STAMP"
 mkdir -p "$E2E_ROOT/web/__screenshots__"
-g5_chk_init "$OUT/41-checks.tsv"
+g5_chk_init "$OUT/48-checks.tsv"
 
 cleanup() {
   [ -n "${TAP_PID:-}" ] && kill "$TAP_PID" 2>/dev/null || true
-  [ -f "$OUT/daemon-41.pid" ] && { kill -TERM -- "-$(cat "$OUT/daemon-41.pid")" 2>/dev/null || true; }
+  [ -f "$OUT/daemon-48.pid" ] && { kill -TERM -- "-$(cat "$OUT/daemon-48.pid")" 2>/dev/null || true; }
   agent-browser close >/dev/null 2>&1 || true
   return 0
 }
@@ -53,8 +53,8 @@ ASK_INS='너는 가상의 실내 화분 자동 급수기 제품 Y 의 사용 설
 첫 턴에 할 일은 아래 세 가지뿐이다. **각각 한 번씩만** 하고, 실패해도 재시도하거나 다른 방법을 찾지 마라.
   a. colab_hitl_ask 를 한 번 호출한다. question 은 "설명 초안의 독자를 누구로 잡을까요?",
      default 는 "가정용 사용자", context 는 "브리프에 독자가 적혀 있지 않다".
-     오류가 나면 **아무것도 조사하지 말고** 곧바로 b 로 간다.
-  b. 셸에서 아래 명령을 그대로 한 번 실행한다.
+     이 호출이 성공하면 **b 를 건너뛰고 곧장 c 로 간다.** 오류가 나면 아무것도 조사하지 말고 b 로 간다.
+  b. (a 가 실패했을 때만) 셸에서 아래 명령을 그대로 한 번 실행한다.
      curl -sS -X POST "$COLAB_SERVER_URL/api/v1/sessions/$COLAB_SESSION_ID/hitl-requests" -H "Authorization: Bearer $COLAB_TASK_TOKEN" -H "Content-Type: application/json" -d '"'"'{"type":"question","question":"설명 초안의 독자를 누구로 잡을까요?","context":"브리프에 독자가 적혀 있지 않다","proposed_default":"가정용 사용자"}'"'"'
      (그 명령의 응답에 "turn_end_required":true 가 들어 있으면 등록된 것이다.)
   c. 메시지를 하나도 게시하지 말고 즉시 턴을 끝낸다. 다른 도구를 부르지 마라.
@@ -80,8 +80,8 @@ REJ_INS='너는 가상의 실내 화분 자동 급수기 제품 Y 의 설명 초
 
 첫 턴에 할 일은 아래 세 가지뿐이다. **각각 한 번씩만** 하고, 실패해도 재시도하거나 다른 방법을 찾지 마라.
   a. colab_hitl_approve_request 를 한 번 호출한다. summary 는 "초안을 이대로 확정해도 될까요?".
-     오류가 나면 곧바로 b 로 간다.
-  b. 셸에서 아래 명령을 그대로 한 번 실행한다.
+     이 호출이 성공하면 **b 를 건너뛰고 곧장 c 로 간다.** 오류가 나면 b 로 간다.
+  b. (a 가 실패했을 때만) 셸에서 아래 명령을 그대로 한 번 실행한다.
      curl -sS -X POST "$COLAB_SERVER_URL/api/v1/sessions/$COLAB_SESSION_ID/hitl-requests" -H "Authorization: Bearer $COLAB_TASK_TOKEN" -H "Content-Type: application/json" -d '"'"'{"type":"approval","summary":"초안을 이대로 확정해도 될까요?"}'"'"'
      (그 명령의 응답에 "turn_end_required":true 가 들어 있으면 등록된 것이다.)
   c. 메시지를 하나도 게시하지 말고 즉시 턴을 끝낸다.
@@ -118,11 +118,11 @@ WS="$(create_workspace "G6 HITL $STAMP")"
 read -r PID_ PTOK <<<"$(create_pairing "$WS" | tr '\t' ' ')"
 rm -rf "$WORK"
 PAIR_SERVER="http://localhost:$TAP_PORT" daemon_pair_cap "$PTOK" "$CFG" "$WORK" 1
-COLAB_DAEMON_CONFIG="$CFG" setsid_run "$DLOG" "$BIN/daemon" run > "$OUT/daemon-41.pid"
+COLAB_DAEMON_CONFIG="$CFG" setsid_run "$DLOG" "$BIN/daemon" run > "$OUT/daemon-48.pid"
 wait_pairing "$WS" "$PID_" 300 || die "pairing not ready"
 RUNTIME="$(psqlq "select id from runtime where workspace_id='$WS' order by created_at desc limit 1")"
 chk C0 "데몬 capacity=1 (슬롯 판정의 전제)" 1 "$(jq -r .capacity "$CFG")"
-ok "ws=$WS runtime=$RUNTIME daemon pid $(cat "$OUT/daemon-41.pid")"
+ok "ws=$WS runtime=$RUNTIME daemon pid $(cat "$OUT/daemon-48.pid")"
 
 step "2. arm A1 — Claude Code(mcp) 가 colab_hitl_ask 로 질문한다"
 ASKER="$(create_agent_p2 "$WS" Asker writer "$MODEL" "$ASK_INS" '설명 초안을 쓴다')"
@@ -164,10 +164,12 @@ MCP_TRIED="$(psqlq "select count(*) from task_event where task_id='$T_A1' and at
 MCP_404="$(psqlq "select count(*) from task_event where task_id='$T_A1' and attempt=1
                   and payload::text like '%colab_hitl_ask%' and payload::text like '%404%'")"
 psqlq "select left(replace(coalesce(payload->>'summary',''),E'\n','⏎'),300) from task_event
-       where task_id='$T_A1' and attempt=1 and payload::text like '%colab_hitl_ask%'" > "$OUT/41-mcp-probe.txt"
+       where task_id='$T_A1' and attempt=1 and payload::text like '%colab_hitl_ask%'" > "$OUT/48-mcp-probe.txt"
 chk_ge T0 "에이전트가 MCP 도구 colab_hitl_ask 를 실제로 불렀다" 1 "$MCP_TRIED"
-chk T1 "**MCP 도구 표면이 HITL 을 등록한다** (신규 결함 K-7 계약 충돌 · C-4 CLI — 지금은 404)" 0 "$MCP_404"
-chk T2 "그래서 이 HITL 은 우회(attempt 토큰 → openapi createHitlRequest)로 등록됐다" yes \
+chk T1 "**MCP 도구 표면이 HITL 을 등록한다** (K-7 · C-4 가 막았던 자리 — 404 가 0건이어야 한다)" 0 "$MCP_404"
+# T1 이 FAIL 이면 이 HITL 은 우회(attempt 토큰 → openapi createHitlRequest)로 등록된 것이고,
+# PASS 면 정식 도구가 등록한 것이다. 어느 쪽이든 뒷단계는 서버가 보기에 같은 상태에서 출발한다.
+chk T2 "어느 경로로든 HITL 이 하나 열려 있다 (뒷단계의 전제)" yes \
   "$( [ -n "$H1" ] && echo yes || echo no )"
 
 step "3. E7-18 — waiting_human 이 슬롯을 잡지 않는다 (capacity=1 에서 다른 lane 이 돈다)"
@@ -193,7 +195,7 @@ if web_login "$EMAIL" "$PASSWORD"; then WEB_OK=yes; fi
 chk W0 "웹 로그인" yes "$WEB_OK"
 ab open "$WEB_URL/inbox" >/dev/null 2>&1 || true
 abwait '[data-testid="inbox-page"]' 30 || true
-shot "p3-41-01-inbox"
+shot "p3-48-01-inbox"
 ITEMS="$(abcount '[data-testid="inbox-item"]')"
 chk W1 "인박스에 항목이 보인다 (S8)"                       yes "$( [ "${ITEMS:-0}" -ge 1 ] && echo yes || echo no )"
 INBOX_TXT="$(abget get text '[data-testid="inbox-list"]' | tr '\n' ' ')"
@@ -203,7 +205,7 @@ CARD_SEL='[data-testid="inbox-item"][data-type="hitl_request"]'
 [ "$(abcount "$CARD_SEL")" -ge 1 ] || CARD_SEL='[data-testid="inbox-item"]'
 ab fill "$CARD_SEL [data-testid=\"hitl-answer-input\"]" "$ANSWER" >/dev/null 2>&1 \
   || ab fill '[data-testid="hitl-answer-input"]' "$ANSWER" >/dev/null 2>&1 || true
-shot "p3-41-02-inbox-answer"
+shot "p3-48-02-inbox-answer"
 ab click "$CARD_SEL [data-testid=\"hitl-answer\"]" >/dev/null 2>&1 \
   || ab click '[data-testid="hitl-answer"]' >/dev/null 2>&1 || true
 sleep 4
@@ -222,12 +224,12 @@ chk A5 "같은 task 의 attempt 가 2 다 (재지시가 아니라 재개)" 2 "$(
 chk A5b "task 수는 그대로 (새 task 를 만들지 않았다)"         2 "$(task_count "$S1")"
 A1ST="$(WAIT_S=${RESUME_WAIT_S:-600} wait_task "$T_A1" completed failed cancelled)"
 chk A5c "재개한 턴이 끝났다"                                  completed "$A1ST"
-tap_prompt "$TAP" "$T_A1" 2 > "$OUT/41-prompt-a1-attempt2.txt"
-chk_has A6  "attempt 2 프롬프트에 <resumed> 구간"             "$OUT/41-prompt-a1-attempt2.txt" "<resumed attempt=2>"
-chk_has A6b "그 안에 <hitl_answer> 구간 (PR #124 R1)"          "$OUT/41-prompt-a1-attempt2.txt" "<hitl_answer"
-chk_has A6c "질문 원문이 실려 있다"                            "$OUT/41-prompt-a1-attempt2.txt" "question: 설명 초안의 독자를 누구로 잡을까요?"
-chk_has A6d "**사람이 낸 답**이 실려 있다"                     "$OUT/41-prompt-a1-attempt2.txt" "answer: $ANSWER"
-chk_has A6e "sections=question_answer"                          "$OUT/41-prompt-a1-attempt2.txt" 'sections="question_answer"'
+tap_prompt "$TAP" "$T_A1" 2 > "$OUT/48-prompt-a1-attempt2.txt"
+chk_has A6  "attempt 2 프롬프트에 <resumed> 구간"             "$OUT/48-prompt-a1-attempt2.txt" "<resumed attempt=2>"
+chk_has A6b "그 안에 <hitl_answer> 구간 (PR #124 R1)"          "$OUT/48-prompt-a1-attempt2.txt" "<hitl_answer"
+chk_has A6c "질문 원문이 실려 있다"                            "$OUT/48-prompt-a1-attempt2.txt" "question: 설명 초안의 독자를 누구로 잡을까요?"
+chk_has A6d "**사람이 낸 답**이 실려 있다"                     "$OUT/48-prompt-a1-attempt2.txt" "answer: $ANSWER"
+chk_has A6e "sections=question_answer"                          "$OUT/48-prompt-a1-attempt2.txt" 'sections="question_answer"'
 RESUMED_A1="$(psqlq "select coalesce(resumed::text,'-') from task_attempt where task_id='$T_A1' and attempt=2")"
 chk A7  "attempt 2 가 **resume** 으로 붙었다 (E8-01 resume 우선)" true "$RESUMED_A1"
 chk A7b "에이전트가 그 답을 실제로 읽고 게시했다 (ANSWERED: …)" 1 \
@@ -259,30 +261,31 @@ A2ST="$(WAIT_S=${RESUME_WAIT_S:-600} wait_task "$T_A2" completed failed cancelle
 chk B3 "콜드 스타트 attempt 가 끝났다" completed "$A2ST"
 RESUMED_A2="$(psqlq "select coalesce(resumed::text,'-') from task_attempt where task_id='$T_A2' and attempt=2")"
 chk B3b "그 attempt 는 resume 이 아니다 (콜드 스타트)" false "$RESUMED_A2"
-tap_prompt "$TAP" "$T_A2" 2 > "$OUT/41-prompt-a2-attempt2.txt"
-chk_has B4  "콜드 스타트 프롬프트에도 <hitl_answer>"      "$OUT/41-prompt-a2-attempt2.txt" "<hitl_answer"
-chk_has B4b "사람의 답이 실려 있다"                        "$OUT/41-prompt-a2-attempt2.txt" "answer: $ANSWER2"
-chk_has B4c "\"workdir 를 먼저 확인하라\" 지시 (§8.4)"     "$OUT/41-prompt-a2-attempt2.txt" "inspect the current state of the workdir"
+tap_prompt "$TAP" "$T_A2" 2 > "$OUT/48-prompt-a2-attempt2.txt"
+chk_has B4  "콜드 스타트 프롬프트에도 <hitl_answer>"      "$OUT/48-prompt-a2-attempt2.txt" "<hitl_answer"
+chk_has B4b "사람의 답이 실려 있다"                        "$OUT/48-prompt-a2-attempt2.txt" "answer: $ANSWER2"
+chk_has B4c "\"workdir 를 먼저 확인하라\" 지시 (§8.4)"     "$OUT/48-prompt-a2-attempt2.txt" "inspect the current state of the workdir"
 chk B5 "**콜드 스타트인데 이어갔다** (ANSWERED: … 게시)"   1 \
   "$(psqlq "select count(*) from message where source_task_id='$T_A2' and content like 'ANSWERED:%$ANSWER2%'")"
 chk B5b "같은 workdir 에 파일이 남았다"                    yes "$( [ -f "$WD2/guide-draft.md" ] && echo yes || echo no )"
-{ grep -iE 'cold|resume' "$DLOG" | tail -20; } > "$OUT/41-daemon-resume.txt" 2>/dev/null || true
+{ grep -iE 'cold|resume' "$DLOG" | tail -20; } > "$OUT/48-daemon-resume.txt" 2>/dev/null || true
 
-step "7. arm A3 — Hermes(cli_wrapper) 도구 표면 프로브 (두 번째 표면, K-7 · C-4)"
+step "7. arm A3 — Hermes(cli_wrapper) 도구 표면 + 왕복 (두 번째 표면)"
 # cli_wrapper 경로는 **우회할 수 없다**: 래퍼는 위생화된 env(`env -i`)에서 돌아 에이전트가
 # COLAB_TASK_TOKEN 을 볼 수 없다 — 토큰을 나르는 것이 래퍼 파일 자신이기 때문이다(harness §10).
-# 그래서 이 arm 은 정식 경로 하나만 보고, 왕복은 CLI 핫픽스 뒤 재실행으로 갱신한다.
+# 그래서 이 arm 은 정식 경로만 본다. K-7·C-4 로 막혀 있던 자리이고, 핫픽스(#133·#134) 뒤에는
+# 여기서 왕복까지 이어진다.
 WRAPA="$(create_agent_kind "$WS" Wrapper writer hermes "$HERMES_MODEL" "$WRAP_INS" '설명 초안을 쓴다')"
 S3="$(create_session_p3 "$WS" "제품 Y 설명 초안 (래퍼)" "$P3_GOAL" "$WRAPA" "$RUNTIME" '{}' "$WRAPA")"
 T_A3="$(session_initial_task "$S3")"
 ST3="$(WAIT_S=${HITL_WAIT_S:-600} wait_task "$T_A3" waiting_human failed cancelled completed)"
 H3="$(hitl_of_task "$T_A3")"
 psqlq "select left(replace(coalesce(payload::text,''),E'\n','⏎'),300) from task_event
-       where task_id='$T_A3' and attempt=1 and class='tool' order by seq" > "$OUT/41-wrapper-probe.txt"
-chk H1  "**cli_wrapper 도구 표면이 HITL 을 등록한다** (K-7 · C-4 — 지금은 404)" 1 \
+       where task_id='$T_A3' and attempt=1 and class='tool' order by seq" > "$OUT/48-wrapper-probe.txt"
+chk H1  "**cli_wrapper 도구 표면이 HITL 을 등록한다** (K-7 · C-4 가 막았던 자리)" 1 \
   "$(psqlq "select count(*) from hitl_request where task_id='$T_A3'")"
 chk H1b "그래서 Hermes 턴은 waiting_human 으로 끝나야 한다"  waiting_human "$ST3"
-log "arm A3 최종 상태 = $ST3 · HITL = ${H3:-없음} (프로브 로그: out/41-wrapper-probe.txt)"
+log "arm A3 최종 상태 = $ST3 · HITL = ${H3:-없음} (프로브 로그: out/48-wrapper-probe.txt)"
 if [ -n "$H3" ]; then
   ANSWER3="사내 총무팀"
   read -r RC3 _ <<<"$(respond_hitl "$H3" "$(jq -nc --arg a "$ANSWER3" '{answer:$a}')")"
@@ -290,12 +293,12 @@ if [ -n "$H3" ]; then
   wait_task_attempt "$T_A3" 2 || bad "arm A3 attempt 2 로 넘어가지 않았다"
   A3ST="$(WAIT_S=${RESUME_WAIT_S:-600} wait_task "$T_A3" completed failed cancelled)"
   chk H2b "재개한 턴이 끝났다" completed "$A3ST"
-  tap_prompt "$TAP" "$T_A3" 2 > "$OUT/41-prompt-a3-attempt2.txt"
-  chk_has H2c "프롬프트에 답변" "$OUT/41-prompt-a3-attempt2.txt" "answer: $ANSWER3"
+  tap_prompt "$TAP" "$T_A3" 2 > "$OUT/48-prompt-a3-attempt2.txt"
+  chk_has H2c "프롬프트에 답변" "$OUT/48-prompt-a3-attempt2.txt" "answer: $ANSWER3"
   chk H3 "Hermes 에이전트가 답을 읽고 게시했다" 1 \
     "$(psqlq "select count(*) from message where source_task_id='$T_A3' and content like 'ANSWERED:%'")"
 else
-  chk H2 "**Hermes(cli_wrapper) HITL 왕복** — 위 결함으로 서지 않는다 (핫픽스 뒤 재실행)" yes no
+  chk H2 "**Hermes(cli_wrapper) HITL 왕복** — 등록이 없어 서지 않는다 (K-7 · C-4)" yes no
 fi
 
 step "8. arm A4 — approval **거절** (E7-17): failed 가 아니라 재개한다"
@@ -317,10 +320,10 @@ chk R3 "**거절도 재개다** — task 가 failed 가 아니다" no \
   "$( [ "$(task_field "$T_A4" status)" = failed ] && echo yes || echo no )"
 A4ST="$(WAIT_S=${RESUME_WAIT_S:-600} wait_task "$T_A4" completed failed cancelled)"
 chk R3b "거절 뒤 턴이 정상 종료" completed "$A4ST"
-tap_prompt "$TAP" "$T_A4" 2 > "$OUT/41-prompt-a4-attempt2.txt"
-chk_has R4  "프롬프트에 approved: false"   "$OUT/41-prompt-a4-attempt2.txt" "approved: false"
-chk_has R4b "프롬프트에 거절 사유"          "$OUT/41-prompt-a4-attempt2.txt" "reason: $REJ_REASON"
-chk_has R4c "sections=approval_result"      "$OUT/41-prompt-a4-attempt2.txt" 'sections="approval_result"'
+tap_prompt "$TAP" "$T_A4" 2 > "$OUT/48-prompt-a4-attempt2.txt"
+chk_has R4  "프롬프트에 approved: false"   "$OUT/48-prompt-a4-attempt2.txt" "approved: false"
+chk_has R4b "프롬프트에 거절 사유"          "$OUT/48-prompt-a4-attempt2.txt" "reason: $REJ_REASON"
+chk_has R4c "sections=approval_result"      "$OUT/48-prompt-a4-attempt2.txt" 'sections="approval_result"'
 chk R5 "에이전트가 거절 사유를 읽고 게시했다" 1 \
   "$(psqlq "select count(*) from message where source_task_id='$T_A4' and content like 'REJECTED:%'")"
 chk R6 "거절도 결정 기록 1건" 1 "$(psqlq "select count(*) from decision where session_id='$S4'")"
@@ -328,7 +331,7 @@ chk R6 "거절도 결정 기록 1건" 1 "$(psqlq "select count(*) from decision 
 step "9. 타임라인의 HITL 카드가 웹 S7 에도 정식 카드로 보이는가 (§0-9 DOM)"
 ab open "$WEB_URL/sessions/$S1" >/dev/null 2>&1 || true
 abwait '[data-testid="hitl-card"]' 30 || true
-shot "p3-41-03-session-hitl-card"
+shot "p3-48-03-session-hitl-card"
 HC="$(abcount '[data-testid="hitl-card"]')"
 chk W3 "세션 타임라인에 HITL 카드가 렌더된다" yes "$( [ "${HC:-0}" -ge 1 ] && echo yes || echo no )"
 HC_SRC="$(abget get attr '[data-testid="hitl-card"]' data-source)"
@@ -348,5 +351,5 @@ jq -n --arg ws "$WS" --arg s1 "$S1" --arg s2 "$S2" --arg s3 "${S3:-}" --arg s4 "
     tasks:{a1:$t_a1,cold:$t_a2,hermes:$t_a3,reject:$t_a4},
     hitl:{a1:$h1,cold:$h2,hermes:$h3,reject:$h4},
     resumed:{a1:$resumed_a1,cold:$resumed_a2},peer_task:$peer,
-    elapsed_s:$elapsed_s,pass:$pass,fail:$fail}' | tee "$OUT/41.json"
+    elapsed_s:$elapsed_s,pass:$pass,fail:$fail}' | tee "$OUT/48.json"
 [ "$fail" = 0 ]

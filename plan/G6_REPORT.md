@@ -5,11 +5,11 @@
 | 게이트 | `PLAN.md` §6.2 **G6** — "시나리오 C·D + **중복 0**". **컷 3**: 미통과면 P4 를 열지 않고 P3 를 마감한다 |
 | 앞 게이트 | **G5 통과**(`plan/G5_DECISION.md`) — 시나리오 A 8단계 + Hermes + 템플릿 3분. 재측정 PASS 162 · FAIL 0 |
 | 작성 | Integrator (T-I3), 2026-09-07 |
-| 스택 | dev `957ffd3`(서버 #124 · 웹 #130 머지 뒤)에서 재빌드. `bin/server`·`bin/daemon`·`bin/colab` 빌드 시각 **2026-09-06 23:51:18 KST**. server `:8100` · web `:3020`(`next build` + `next start`) · Postgres `colab-pg-g6 :5442` — 다른 워커 스택(P1 `:8080/:5435` · P2 `:8090/:5436` · G5 `:5437` · 스파이크 4c `:8095/:5441`)과 포트·컨테이너·workdir 를 분리했다(§0-13) |
+| 스택 | 1차 측정 dev `957ffd3`(서버 #124 · 웹 #130 머지 뒤), **`48_` 재측정은 계약 #133 · CLI #134 · 서버 #136 을 머지한 `5ed5dfc`**(빌드 2026-09-07 00:50:46 KST). `bin/server`·`bin/daemon`·`bin/colab` 빌드 시각 **2026-09-06 23:51:18 KST**. server `:8100` · web `:3020`(`next build` + `next start`) · Postgres `colab-pg-g6 :5442` — 다른 워커 스택(P1 `:8080/:5435` · P2 `:8090/:5436` · G5 `:5437` · 스파이크 4c `:8095/:5441`)과 포트·컨테이너·workdir 를 분리했다(§0-13) |
 | 런타임 | Claude Code CLI 2.1.258 + 어댑터 `@agentclientprotocol/claude-agent-acp` **0.74.0**(핀) · **Hermes 0.20.6**. 모델은 비용 때문에 haiku(`claude-haiku-4-5-20251001`) |
-| 재현 | `bash e2e/p3/up.sh` 뒤 `41_`~`46_` + `fixtures/g_user_approval_card.sh` — 순서·비용·함정은 `e2e/p3/README.md` |
-| 총계 | **PASS 252 · FAIL 14** — 41_ 69/4 · 42_ 33/0 · 43_ 47/7 · 44_ 37/0 · 45_ 40/0 · 46_ 22/0 · (g) 4/3. 여기에 (g) 가 재실행한 `e2e/p2/33_` 이 **41/0**(별도 집계) |
-| 결론 | **G6 미충족 — 차단 결함 5건.** 재개·중복 0·취소·deputy·시나리오 C·D 는 **전부 섰다**(FAIL 0 네 스크립트). 서지 않은 것은 **사람이 개입하는 두 입구**다: 에이전트가 HITL 을 **열 수 없고**(K-7·C-4), 예산 초과를 사람이 **웹에서 풀 수 없다**(S-45·W-6). 그리고 **예산 강제 자체가 실기에서 한 번도 발동한 적이 없다**(D-17·S-44·K-8). 판정은 §7 |
+| 재현 | `bash e2e/p3/up.sh` 뒤 `48_`~`53_` + `fixtures/g_user_approval_card.sh` — 순서·비용·함정은 `e2e/p3/README.md` |
+| 총계 | **PASS 259 · FAIL 10** — 48_ **76/0**(핫픽스 뒤 재측정) · 49_ 33/0 · 50_ 47/7 · 51_ 37/0 · 52_ 40/0 · 53_ 22/0 · (g) 4/3. 여기에 (g) 가 재실행한 `e2e/p2/33_` 이 **41/0**(별도 집계) |
+| 결론 | **G6 미충족 — 남은 차단 결함 4건.** HITL 왕복·재개·중복 0·취소·deputy·시나리오 C·D 는 **전부 섰다**(FAIL 0 다섯 스크립트). 측정 중 드러난 **K-7·C-4 는 이 PR 이 열려 있는 동안 닫혔고**(계약 #133 · CLI #134) `48_` 재측정이 **76/0** 으로 그것을 확인한다. 남은 것은 **예산 하나**다: 강제가 실기에서 한 번도 발동하지 않고(**D-17 · K-8**; S-44 는 #136 으로 닫혔으나 재측정 대기), 초과를 사람이 **웹에서 풀 수 없다**(**S-45 · W-6**). 판정은 §7 |
 
 > **읽는 법.** 각 절은 EVAL 행 번호를 그대로 쓴다. `우회`라고 적힌 것은 정식 경로가 막혀 다른 경로로
 > 돌아간 측정이고, 그 자리에는 반드시 **결함 번호**가 붙어 있다. 결함은 `S`(서버) `W`(웹) `D`(데몬)
@@ -35,8 +35,8 @@
 | 자극 | 무엇을 대신하나 | 왜 필요했나 |
 |---|---|---|
 | `backdate_hitl`(lib.sh) | 클럭 주입 | 서버 바이너리에 클럭 주입 경로가 없다(`clock.Real{}` 고정). `hitl.Authorize` 가 보는 값은 `Elapsed = now - created_at` 과 `DueIn = due_at - created_at` 뿐이라 **둘을 같은 만큼 과거로 밀면** 기한 길이 24h 는 보존한 채 경과 시간만 옮길 수 있다. 서버·계약 무수정 |
-| `fixtures/daemon_heartbeat.sh` | 데몬의 turn-중 usage 보고 | 데몬이 턴 중에 usage 를 **올리지 않아서**(D-17) 예산 강제가 발동하지 않는다. daemon-protocol §4.2 의 와이어 그대로 데몬 토큰으로 heartbeat 를 보낸다 — 서버가 하는 일은 실제 데몬이 보냈을 때와 같다 |
-| 에이전트 턴 안의 `curl` | `colab hitl ask` | CLI 가 openapi 에 없는 경로를 부른다(K-7·C-4). 에이전트가 자기 `COLAB_TASK_TOKEN` 으로 `createHitlRequest` 를 직접 부른다 — 서버가 보는 것은 정식 경로와 **완전히 같다**(`source=agent` · `pending_hitl` · 카드 · 인박스) |
+| `fixtures/daemon_heartbeat.sh` | 데몬의 턴 중 usage 보고 | 데몬이 턴 중에 usage 를 **올리지 않아서**(D-17) 예산 강제가 발동하지 않는다. daemon-protocol §4.2 의 와이어 그대로 데몬 토큰으로 heartbeat 를 보낸다 — 서버가 하는 일은 실제 데몬이 보냈을 때와 같다 |
+| 에이전트 턴 안의 `curl` | `colab hitl ask` | 1차에서 CLI 가 openapi 에 없는 경로를 불렀다(K-7·C-4). 에이전트가 자기 `COLAB_TASK_TOKEN` 으로 `createHitlRequest` 를 직접 부른다 — 서버가 보는 것은 정식 경로와 **완전히 같다**(`source=agent` · `pending_hitl` · 카드 · 인박스). **핫픽스 뒤 재측정에서는 쓰이지 않았다**(정식 도구가 성공하면 건너뛴다) |
 
 세 자극 모두 **서버·계약·구현을 수정하지 않는다.** 대역으로 채운 부분은 각 절에서 FAIL 로 남겼다.
 
@@ -46,15 +46,15 @@
 
 | 스크립트 | 항목 | PASS | FAIL | 비고 |
 |---|---|---|---|---|
-| `41_hitl_roundtrip.sh` | (a) HITL 왕복 | 69 | **4** | 전부 K-7·C-4(도구 표면 404) |
-| `42_partial_exec_dup0.sh` | (b) 중복 0 | 33 | 0 | |
-| `43_budget_pause_override.sh` | (c) 예산 | 47 | **7** | D-17 1 · K-8 3 · S-45 2 · W-6 1 |
-| `44_deputy_and_cancel.sh` | (d) deputy·취소 | 37 | 0 | |
-| `45_scenario_c.sh` | (e) 시나리오 C | 40 | 0 | |
-| `46_scenario_d.sh` | (f) 시나리오 D 재확인 | 22 | 0 | |
+| `48_hitl_roundtrip.sh` | (a) HITL 왕복 | **76** | 0 | 핫픽스(#133·#134) 뒤 재측정. 1차(`957ffd3`)는 69/4 — 네 칸 모두 K-7·C-4 |
+| `49_partial_exec_dup0.sh` | (b) 중복 0 | 33 | 0 | |
+| `50_budget_pause_override.sh` | (c) 예산 | 47 | **7** | D-17 1 · K-8 3 · S-45 2 · W-6 1 |
+| `51_deputy_and_cancel.sh` | (d) deputy·취소 | 37 | 0 | |
+| `52_scenario_c.sh` | (e) 시나리오 C | 40 | 0 | |
+| `53_scenario_d.sh` | (f) 시나리오 D 재확인 | 22 | 0 | |
 | `fixtures/g_user_approval_card.sh` | (g) 완료 승인 카드 | 4 | **3** | S-45 |
 | ↳ 그 안에서 재실행한 `e2e/p2/33_` | E6-01·03·04 재확인 | 41 | 0 | 별도 집계 |
-| **합계**(33_ 제외) | | **252** | **14** | 결함 7건에 전부 귀속된다(§2) |
+| **합계**(33_ 제외) | | **259** | **10** | 결함에 전부 귀속된다(§2) |
 
 ---
 
@@ -62,10 +62,10 @@
 
 | # | 스트림 | 내용 | 근거 | 차단? |
 |---|---|---|---|---|
-| **K-7** | 계약 | `contracts/colab-cli.md` v0.5 §2.4 는 `colab hitl ask·approve-request·request-info` 의 경로를 `POST /v1/tasks/{T}/hitl` 로 적는데 **openapi 에 그 경로가 없다** — `createHitlRequest` 는 `POST /sessions/{S}/hitl-requests` 뿐이다 | §2.1 | **차단** |
-| **C-4** | CLI | CLI(PR #126, `cli/internal/client/ops_p3.go:18`)가 colab-cli.md 를 따라 존재하지 않는 경로를 부른다 → 두 도구 표면(MCP·cli_wrapper) 모두 **404**. 목 서버 스모크가 이것을 잡지 못했다(#126 리뷰 NN1 이 예고한 그대로) | §2.1 | **차단** |
+| ~~**K-7**~~ | 계약 | `contracts/colab-cli.md` v0.5 §2.4 는 `colab hitl ask·approve-request·request-info` 의 경로를 `POST /v1/tasks/{T}/hitl` 로 적는데 **openapi 에 그 경로가 없다** — `createHitlRequest` 는 `POST /sessions/{S}/hitl-requests` 뿐이다 | §2.1 | **해결 — 계약 #133** |
+| ~~**C-4**~~ | CLI | CLI(PR #126, `cli/internal/client/ops_p3.go:18`)가 colab-cli.md 를 따라 존재하지 않는 경로를 부른다 → 두 도구 표면(MCP·cli_wrapper) 모두 **404**. 목 서버 스모크가 이것을 잡지 못했다(#126 리뷰 NN1 이 예고한 그대로) | §2.1 | **해결 — CLI #134** |
 | **D-17** | 데몬 | `acp.Runner.recordUsage` 가 `session/prompt` **응답에서만** 호출된다(`runner.go:955`) → 턴 중 heartbeat 의 `usage` 는 언제나 0 → 서버 가드(`daemon.go:442`)가 거짓이라 `enforceBudgetFor` 미호출 | §2.2 | **차단** |
-| **S-44** | 서버 | `enforceBudgetFor` 는 heartbeat 한 곳에서만 호출된다 — `tasks.Finish` 에서 부르지 않아 **사후 강제도 없다**(`budget.go:88` 주석은 부른다고 적었다) | §2.2 | **차단** |
+| ~~**S-44**~~ | 서버 | `enforceBudgetFor` 는 heartbeat 한 곳에서만 호출된다 — `tasks.Finish` 에서 부르지 않아 **사후 강제도 없다**(`budget.go:88` 주석은 부른다고 적었다) | §2.2 | **해결 — 서버 #136**(50_ 재측정 대기) |
 | **K-8** | 계약·교차 | ACP 경로는 `cost_usd` 를 주지 않아 **런타임이 만든 `task_usage` 행이 72/72 전부 `estimated: true`** 다(claude_code·hermes 모두). 그리고 `RecordTurnUsage` 는 `estimated: true` 보고의 금액을 **0 으로 떨어뜨린다**(harness v0.7.1) → 추정 경로도 강제에 도달하지 못한다. **D-17 만 고쳐도 예산은 여전히 발동하지 않는다** | §2.2 | **차단** |
 | **S-45** | 서버 | 시스템 발행 HITL 3곳(`budget.go:188` · `sessions/complete.go:216` · `router/service.go:500`)이 `kind='hitl'` 타임라인 메시지를 만들지 않고 `message_id` 가 NULL 이다 → S7 에 카드가 **아예 없다**(SCREEN §4.5 위반). 에이전트 발행 경로만 게시한다(`handlers_hitl_p3.go:203`) | §2.3 · §6 | **차단** |
 | **W-6** | 웹 | 인박스의 `hitl_request` 항목이 `HitlBody` 를 `budgetOverride` 없이 그린다(`InboxItemCard.tsx:159`) — 상향 입력칸은 `item.type === "session_paused"` 조건이라 붙지 않는다. task 범위 예산 초과는 세션을 멈추지 않으므로(E9-01) 이 항목은 영영 `session_paused` 가 아니다 → **웹에서 금액을 정할 자리가 없다** | §2.3 | **차단** |
@@ -98,8 +98,18 @@ PR #126 리뷰 NN1 이 "목은 openapi 를 읽지 않는다" 고 적어 둔 그 
 X-2 가 말하는 사고의 변종이다 — goal 에 저장소 이름을 쓰지 않아도, **도구가 실패하면** 에이전트는
 workdir 위의 저장소를 뒤지러 간다. 지시문에 "저장소를 뒤지지 마라" 를 넣어 2회차부터 막았다(§8).
 
-**Lead 판정: openapi 가 API SSOT.** `colab-cli.md` 를 openapi 에 맞추는 계약 PR + CLI 핫픽스.
-그때까지 (a) 는 §0.1 의 `curl` 자극으로 재고, **"두 도구 표면" 칸만 FAIL 로 남긴다**(§3 T1·H1).
+**Lead 판정: openapi 가 API SSOT.** `colab-cli.md` 를 openapi 에 맞추는 계약 **#133**, CLI 핫픽스 **#134**.
+
+**재측정(핫픽스 뒤, `5ed5dfc`): 닫혔다.** `48_` 을 다시 돌려 **76/0** 이 나왔고, 이번에는 우회가 한 번도
+쓰이지 않았다 — 두 도구 표면이 다 선다.
+
+| 도구 표면 | 1차(`957ffd3`) | 재측정(`5ed5dfc`) |
+|---|---|---|
+| Claude Code · `mcp` (`colab_hitl_ask`) | 404, 등록 실패 | **등록 성공** — `{"hitl_id":…,"turn_end_required":true}` → `waiting_human` |
+| Hermes · `cli_wrapper` (래퍼 `colab hitl ask`) | 404, 등록 0건 | **등록 성공** → `waiting_human` → 답변 → 재개 → 에이전트가 답을 게시(왕복 완주) |
+
+§0.1 의 `curl` 자극은 스크립트에 남아 있지만 **정식 도구가 성공하면 건너뛴다** — 회귀가 나면
+`T1`(404 0건)·`H1`(등록 1건)이 먼저 붉어진다.
 
 ### 2.2 D-17 · S-44 · K-8 — 예산 강제가 **한 번도 발동한 적이 없다**
 
@@ -118,7 +128,7 @@ workdir 위의 저장소를 뒤지러 간다. 지시문에 "저장소를 뒤지�
 1. **D-17.** `acp.Runner.recordUsage` 는 `session/prompt` **응답에서만** 호출된다 — 턴은 프롬프트 하나이므로
    호출은 턴당 한 번, 끝에서다. 그래서 heartbeat 의 `r.Usage()` 는 턴 내내 0 이고, 서버의
    `if in.Usage.InputTokens > 0 || …` 가드가 거짓이라 `RecordTurnUsage`·`enforceBudgetFor` 가 아예 불리지 않는다.
-   43_ 의 **D1** 이 이것을 직접 잰다: 턴 시작 50초(heartbeat 3회) 뒤 `task_usage` **행 0개**.
+   50_ 의 **D1** 이 이것을 직접 잰다: 턴 시작 50초(heartbeat 3회) 뒤 `task_usage` **행 0개**.
 2. **S-44.** `enforceBudgetFor` 는 `daemon.go:445` 한 곳에서만 호출된다. `budget.go:88` 의 주석은
    "production callers: daemonHeartbeat … 그리고 tasks.Finish 의 rollup" 이라고 적었지만 **그 호출이 없다**
    (테스트 제외 grep 0건). 그래서 턴이 끝난 뒤에도 강제가 없다.
@@ -143,7 +153,7 @@ workdir 위의 저장소를 뒤지러 간다. 지시문에 "저장소를 뒤지�
 
 - **S-45**: 그 행의 `message_id` 가 **NULL** 이고 세션 타임라인에 `kind='hitl'` 메시지가 없다. S7 은
   `kind='hitl'` 메시지를 `HitlCard` 로 그리므로(`sessions/[id]/page.tsx:626`) 카드가 화면에 서지 않는다.
-  실측: 43_ 의 W1 — S7 의 `[data-testid="hitl-card"][data-purpose="budget"]` **0개**.
+  실측: 50_ 의 W1 — S7 의 `[data-testid="hitl-card"][data-purpose="budget"]` **0개**.
   같은 원인이 (g) 의 완료 승인 카드에도 그대로 걸린다(§6) — 즉 **시스템 발행 HITL 전부**가 화면에 없다.
 - **W-6**: 인박스에는 항목이 뜨지만(`inbox-item[data-type=hitl_request]` 1개) 그 카드는 `HitlBody` 를
   `budgetOverride` 없이 그린다. 상향 입력칸(`inbox-budget-input`)은 `item.type === "session_paused"`
@@ -156,7 +166,7 @@ FR-7.3 이 정한 사람의 개입 경로가 웹에 없다 — Lead 판정도 **
 
 ---
 
-## 3. (a) HITL 왕복 — `41_hitl_roundtrip.sh` (E7-01·03·04·06·17·18, E8-01·02)
+## 3. (a) HITL 왕복 — `48_hitl_roundtrip.sh` (E7-01·03·04·06·17·18, E8-01·02)
 
 네 arm 을 **capacity=1 데몬 하나**에 얹었다. capacity 1 은 우연이 아니다 — `waiting_human` 이 동시 실행
 슬롯을 잡고 있으면 다른 lane 의 task 가 **영원히 queued 로 남는다**. 그래서 "슬롯 미점유" 가 반증 가능해진다.
@@ -165,7 +175,7 @@ FR-7.3 이 정한 사람의 개입 경로가 웹에 없다 — Lead 판정도 **
 |---|---|---|
 | A1 | claude_code · mcp | 등록 → 턴 종료 → `waiting_human` → **웹 인박스에서 답** → 재개(resume 우선) |
 | A2 | claude_code · mcp | 같은 왕복을 **강제 콜드 스타트**로(transcript 삭제, E8-02) |
-| A3 | hermes · cli_wrapper | 두 번째 도구 표면 프로브 |
+| A3 | hermes · cli_wrapper | 두 번째 도구 표면 — 등록 + 왕복 |
 | A4 | claude_code · mcp | `approval` **거절**(E7-17) |
 
 ### 3.1 E7-03 — 턴 종료 · 프로세스 없음 · 슬롯 미점유
@@ -188,7 +198,7 @@ FR-7.3 이 정한 사람의 개입 경로가 웹에 없다 — Lead 판정도 **
 ### 3.2 E8-01 — 웹에서 답 → 재개, 답이 프롬프트에
 
 답변은 **웹 인박스(S8)** 에서 냈다(§0-9 DOM: `inbox-item[data-type=hitl_request]` → `hitl-answer-input`
-→ `hitl-answer`). 스크린샷 `web/__screenshots__/p3-41-01-inbox.png`·`p3-41-02-inbox-answer.png`.
+→ `hitl-answer`). 스크린샷 `web/__screenshots__/p3-48-01-inbox.png`·`p3-48-02-inbox-answer.png`.
 
 | 항목 | 실측 |
 |---|---|
@@ -226,22 +236,25 @@ resume 이 붙은 A1 과 콜드 스타트한 A2 의 **결과가 같다.** 스파
 | 결정 기록 | 1건 |
 | `approval` 의 `proposed_default` | **없음**(E7-06 — 절대 자동 진행되지 않는다) |
 
-### 3.5 FAIL 4건 — 전부 K-7·C-4
+### 3.5 두 도구 표면 — 1차 FAIL 4건 → 재측정 0건
 
-| id | 항목 | 실측 |
-|---|---|---|
-| T1 | MCP 도구 표면이 HITL 을 등록한다 | 등록 실패(404). 에이전트는 `colab_hitl_ask` 를 실제로 불렀다(툴 이벤트 5건) |
-| H1 | cli_wrapper 도구 표면이 HITL 을 등록한다 | 등록 0건 |
-| H1b | 그래서 Hermes 턴이 `waiting_human` 으로 끝난다 | `completed`(등록이 없으니 `pending_hitl` 도 없다) |
-| H2 | Hermes(cli_wrapper) HITL 왕복 | 서지 않음 |
+1차(`957ffd3`)에서 네 칸이 붉었고 **전부 K-7·C-4** 였다. 계약 #133 · CLI #134 가 머지된 뒤
+`5ed5dfc` 로 다시 돌린 결과가 오른쪽 칸이다.
 
-cli_wrapper 경로는 **우회할 수 없다**: 래퍼는 위생화된 env(`env -i`)에서 돌고 토큰을 나르는 것이
-래퍼 파일 자신이라(harness §10) 에이전트가 `COLAB_TASK_TOKEN` 을 볼 수 없다. CLI 핫픽스가 머지되면
-41_ 만 재실행해 이 네 칸을 갱신한다.
+| id | 항목 | 1차(`957ffd3`) | 재측정(`5ed5dfc`) |
+|---|---|---|---|
+| T1 | MCP 도구 표면이 HITL 을 등록한다 | 404, 등록 실패 | **PASS** — 404 0건 |
+| H1 | cli_wrapper 도구 표면이 HITL 을 등록한다 | 등록 0건 | **PASS** — 1건 |
+| H1b | 그래서 Hermes 턴이 `waiting_human` 으로 끝난다 | `completed` | **PASS** — `waiting_human` |
+| H2~H3 | Hermes(cli_wrapper) HITL 왕복 | 서지 않음 | **PASS** — 답변 → 재개 → 에이전트가 `ANSWERED:` 게시 |
+
+cli_wrapper 경로는 **우회할 수 없었다**: 래퍼는 위생화된 env(`env -i`)에서 돌고 토큰을 나르는 것이
+래퍼 파일 자신이라(harness §10) 에이전트가 `COLAB_TASK_TOKEN` 을 볼 수 없다. 그래서 1차에서 이 arm 은
+프로브 하나로 남았고, 지금은 **왕복까지 완주한다** — G6 의 (a) 는 두 표면 모두에서 선다.
 
 ---
 
-## 4. (b) 중복 0 — `42_partial_exec_dup0.sh` (E8-04)
+## 4. (b) 중복 0 — `49_partial_exec_dup0.sh` (E8-04)
 
 시뮬레이터 100회는 CI(T-P3a `test/sim`)가 돈다. 여기서 재는 것은 **실기 한 번**이다. 판정기는 스파이크
 4c 의 것을 그대로 옮겨 썼다(`fixtures/measure_dup0.py`) — 같은 자를 써야 스파이크 표와 비교가 된다.
@@ -283,7 +296,7 @@ Before continuing, inspect the current state of the workdir (changed files, git 
 
 ---
 
-## 5. (c) 예산 — `43_budget_pause_override.sh` (E9-01·02·03·05·08)
+## 5. (c) 예산 — `50_budget_pause_override.sh` (E9-01·02·03·05·08)
 
 금액은 EVAL 그대로다: `budget_per_task` **$1** → 턴 중 **$1.01** → 상향 **$3** → 재개 뒤 **$1.50**.
 자극만 데몬 대역이다(§0.1 · §2.2). 세 세션(A 승인 · B 거절 · C 추정)의 turn-중 heartbeat 를
@@ -343,6 +356,10 @@ E9-08 은 "override 를 저장만 하고 강제 시점에 읽지 않으면 재�
 
 ### 5.5 D1 — 데몬은 턴 중 usage 를 올리지 않는다 (FAIL 1 · D-17)
 
+> **주의**: (c) 의 수치는 전부 **`957ffd3`**(서버 #136 이전)에서 잰 것이다. #136 이 finish 뒤 강제를
+> 넣었으므로(S-44 · E9-10) 아래 D1 과 §5.4 의 판정은 재측정에서 달라질 수 있다 — Lead 지시대로
+> `50_` 은 D-17·S-45·W-6 이 닫힌 뒤 **한 번에** 다시 돈다.
+
 턴 시작 50초(heartbeat 3회) 뒤 `task_usage` **행 0개**. 그래서 그 시점까지 아무 강제도 없다(task `running`).
 §2.2 참조.
 
@@ -355,7 +372,7 @@ E9-08 은 "override 를 저장만 하고 강제 시점에 읽지 않으면 재�
 
 ## 6. (d)·(e)·(f)·(g)
 
-### 6.1 (d) deputy 위임 시점과 취소 권한 — `44_deputy_and_cancel.sh` (PASS 37 · FAIL 0)
+### 6.1 (d) deputy 위임 시점과 취소 권한 — `51_deputy_and_cancel.sh` (PASS 37 · FAIL 0)
 
 Director·deputy·일반 멤버 **세 사람**을 초대 링크로 만들고 세션에 deputy 를 지정했다.
 시각은 `backdate_hitl` 로 옮겼다(§0.1) — 서버·계약 무수정.
@@ -375,10 +392,10 @@ Director·deputy·일반 멤버 **세 사람**을 초대 링크로 만들고 세
 12h 뒤 같은 카드가 `allowed` + 버튼 **활성**이 되고, 그 버튼으로 실제 승인이 통과했다.
 일반 멤버에게는 `never` + "응답 권한이 없습니다"(카드는 보인다). lane 의 "중단" 버튼도
 멤버에게 **보이되 비활성**이다(SCREEN §7 — 숨기지 않는다).
-스크린샷 `p3-44-01-deputy-locked.png` · `p3-44-02-member-noright.png` · `p3-44-03-deputy-unlocked.png` ·
-`p3-44-04-member-cancel-disabled.png`.
+스크린샷 `p3-51-01-deputy-locked.png` · `p3-51-02-member-noright.png` · `p3-51-03-deputy-unlocked.png` ·
+`p3-51-04-member-cancel-disabled.png`.
 
-### 6.2 (e) 시나리오 C — `45_scenario_c.sh` (PASS 40 · FAIL 0)
+### 6.2 (e) 시나리오 C — `52_scenario_c.sh` (PASS 40 · FAIL 0)
 
 세 자극을 **턴이 살아 있는 동안 한 자리에서** 냈다(끝난 lane 에 restart·cancel 은 409 다).
 
@@ -394,7 +411,7 @@ Director·deputy·일반 멤버 **세 사람**을 초대 링크로 만들고 세
 **`[7] Decision Log`** 구간과 그 결정("조사 범위를 한국 시장으로 좁힌다")이 실려 있었으며, 턴은 일을 했다.
 **결정 기록은 콜드 스타트를 넘어 살아남는다.**
 
-### 6.3 (f) 시나리오 D 재확인 — `46_scenario_d.sh` (PASS 22 · FAIL 0)
+### 6.3 (f) 시나리오 D 재확인 — `53_scenario_d.sh` (PASS 22 · FAIL 0)
 
 G5 에서 `30_scenario_a_hermes.sh` 의 arm C·D 로 통과한 항목을 P3 빌드에서 다시 쟀다.
 
@@ -432,9 +449,9 @@ SCREEN §4.5 가 정한 중앙 타임라인의 자리가 비어 있다.
 
 | G6 DoD (PLAN §3 P3) | 판정 |
 |---|---|
-| HITL 왕복 — 턴 종료 · 슬롯 미점유 · 답변 · 새 attempt · resume 기억 / 콜드 스타트 이어감 | **충족**(§3) — 단, **에이전트가 HITL 을 여는 입구가 막혀 있다**(K-7·C-4). 우회로 뒤를 전부 쟀다 |
+| HITL 왕복 — 턴 종료 · 슬롯 미점유 · 답변 · 새 attempt · resume 기억 / 콜드 스타트 이어감 | **충족**(§3). 1차에서 막혀 있던 입구(K-7·C-4)가 #133·#134 로 닫혔고 재측정 **76/0** — **두 도구 표면 모두** 우회 없이 선다 |
 | 중복 0 — 실기 1회 + CI sim 100회 | **충족**(§4). 실기 재게시 0 · 중복 편집 0(두 경로) |
-| 예산 — `paused(budget)` → 상향 → 같은 lane·workdir 재개 + `budget_per_task` 불변 | **서버 로직은 충족, 경로는 미충족**(§5) — 강제가 실기에서 발동하지 않고(D-17·S-44·K-8) 사람이 웹에서 풀 수 없다(S-45·W-6) |
+| 예산 — `paused(budget)` → 상향 → 같은 lane·workdir 재개 + `budget_per_task` 불변 | **서버 로직은 충족, 경로는 미충족**(§5) — 강제가 실기에서 발동하지 않고(D-17·K-8; S-44 는 #136 으로 닫혔으나 재측정 대기) 사람이 웹에서 풀 수 없다(S-45·W-6) |
 | deputy — 12h 전 비활성 + "HH:MM부터" · 취소 즉시 | **충족**(§6.1) |
 | 시나리오 C — Director 메시지가 실행 중 턴을 절대 죽이지 않음 | **충족**(§6.2) |
 | 시나리오 D 재확인 | **충족**(§6.3) |
@@ -442,19 +459,24 @@ SCREEN §4.5 가 정한 중앙 타임라인의 자리가 비어 있다.
 
 ### 7.1 P4 를 열려면 닫아야 하는 것
 
-1. **K-7 · C-4** — 계약 정렬 + CLI 핫픽스. 닫히면 `41_` 만 재실행해 (a) 의 도구 표면 4칸을 갱신한다.
-2. **S-45** — 시스템 발행 HITL 의 타임라인 카드. 닫히면 `43_`·(g) 재실행.
-3. **W-6** — 인박스(또는 S7 카드)의 예산 상향 입력칸. 닫히면 `43_` 재실행.
-4. **D-17 · S-44 · K-8** — 예산 강제에 숫자가 도달하게. **셋을 같이 봐야 한다**: D-17 만 고치면
-   턴 중에 0 을 올리는 데몬이 될 뿐이다(§2.2). 닫히면 `43_` 의 D1·N1~N3 재실행.
+| # | 상태 | 재측정 |
+|---|---|---|
+| ~~K-7 · C-4~~ | **닫힘** — 계약 #133 · CLI #134 | `48_` **76/0** 으로 확인(§3.5) |
+| ~~S-44~~ | **닫힘** — 서버 #136(finish 뒤 강제, E9-10) | **재측정 대기** — Lead 지시로 `50_` 은 D-17·S-45·W-6 과 함께 한 번에 돈다 |
+| **S-45** | 열림 — 시스템 발행 HITL 의 타임라인 카드 | 닫히면 `50_`·(g) 재실행 |
+| **W-6** | 열림 — 인박스(또는 S7 카드)의 예산 상향 입력칸 | 닫히면 `50_` 재실행 |
+| **D-17** | 열림 — 데몬이 턴 중 usage 를 올리지 않는다 | 닫히면 `50_` 의 D1 재실행 |
+| **K-8** | 열림 — 추정 보고의 금액이 0 으로 떨어져 강제에 도달하지 못한다 | 닫히면 `50_` 의 N1~N3 재실행 |
 
-1~3 은 사람이 개입하는 입구라 **컷 3 의 본문**이고, 4 는 FR-7.3 전체다. 넷 다 **핫픽스 라운드 한 번**에
-들어갈 크기로 보인다 — 판정은 Lead(`plan/G6_DECISION.md`).
+남은 넷은 **전부 예산 하나에 모여 있다.** S-45·W-6 은 사람이 개입하는 입구라 **컷 3 의 본문**이고,
+D-17·K-8 은 FR-7.3 의 "턴 중 강제" 자체다. **D-17 과 K-8 은 같이 봐야 한다** — D-17 만 고치면
+턴 중에 0 을 올리는 데몬이 될 뿐이다(§2.2). 넷 다 **핫픽스 라운드 한 번**에 들어갈 크기로 보인다 —
+판정은 Lead(`plan/G6_DECISION.md`).
 
 ### 7.2 재실행 비용
 
-전 항목 재측정은 에이전트 턴 **34** 남짓(haiku), 벽시계 **40분** 안팎이다(42_ 의 3분 만료 대기가 최장).
-41_·43_ 만 다시 도는 부분 재측정이면 턴 13 · 15분이다.
+전 항목 재측정은 에이전트 턴 **34** 남짓(haiku), 벽시계 **40분** 안팎이다(`49_` 의 3분 만료 대기가 최장).
+남은 결함이 닫힌 뒤 필요한 것은 **`50_` 과 (g) 둘뿐**이다 — 턴 8 · 12분.
 
 ---
 
@@ -467,7 +489,7 @@ SCREEN §4.5 가 정한 중앙 타임라인의 자리가 비어 있다.
    **"실패해도 재시도하거나 다른 방법을 찾지 마라"** 를 넣어 막았다 — e2e 지시문의 기본 문구로 굳힐 것을 권한다.
 2. **개입은 턴이 살아 있는 동안에만 잰다.** `restartLane`·`cancelLane` 은 끝난 lane 에 409 이고,
    "턴 중 예산 초과" 도 턴이 끝나면 성립하지 않는다. 자극을 한 자리에 모으고 판정을 뒤로 미루는
-   구조로 두 스크립트를 다시 짰다(45_ §2, 43_ §4).
+   구조로 두 스크립트를 다시 짰다(52_ §2, 50_ §4).
 3. **`prompt_of_task.py` 는 attempt 를 가리지 않는다.** 같은 task 의 모든 claim 을 이어 붙이므로 재개를
    재는 자리에서는 "답변이 프롬프트에 들어갔다" 가 항상 참이 된다. T-I3 는 attempt 를 받는
    `fixtures/prompt_of.py` 를 따로 뒀다. P2 스크립트를 재사용하는 곳은 확인이 필요하다.

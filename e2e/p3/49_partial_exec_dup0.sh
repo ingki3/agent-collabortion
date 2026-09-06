@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# e2e/p3/42_partial_exec_dup0.sh — T-I3 (b): **부분 실행 → 재개, 중복 0** 실기 1회 (E8-04).
+# e2e/p3/49_partial_exec_dup0.sh — T-I3 (b): **부분 실행 → 재개, 중복 0** 실기 1회 (E8-04).
 #
 # 시뮬레이터 100회는 CI(서버 test/sim, T-P3a)가 돌린다. 여기서 재는 것은 **실기 한 번**이다:
 #   파일 절반 편집 + 메시지 2개 게시 상태에서 데몬 **SIGKILL** → heartbeat 3분 만료 재큐잉(E5-03)
@@ -16,16 +16,16 @@
 #      게시하고 끝내는 턴)이 먼저 있어야 attempt 2 가 resume 을 시도한다. warm-up 이 없으면
 #      resume 필드가 비어 콜드 스타트가 되고 — 그것이 실사용의 기본 모양이라 (b2) 로 같이 잰다.
 #
-# 산출물: out/42-checks.tsv · out/42.jsonl(런별 판정치) · out/42-prompt-*.txt
+# 산출물: out/49-checks.tsv · out/49.jsonl(런별 판정치) · out/49-prompt-*.txt
 source "$(dirname "$0")/lib.sh"
 STAMP="$(date +%s)"
-COOKIE="$OUT/cookies-42.txt"; rm -f "$COOKIE"
-CFG="$OUT/daemon-42.json"; WORK="$OUT/work-42"; DLOG="$OUT/daemon-42.log"; PIDF="$OUT/daemon-42.pid"
-TAP="$OUT/tap-42.jsonl"; TAP_PORT="${TAP_PORT_42:-8102}"
-RES="$OUT/42.jsonl"; : > "$RES"
+COOKIE="$OUT/cookies-49.txt"; rm -f "$COOKIE"
+CFG="$OUT/daemon-49.json"; WORK="$OUT/work-49"; DLOG="$OUT/daemon-49.log"; PIDF="$OUT/daemon-49.pid"
+TAP="$OUT/tap-49.jsonl"; TAP_PORT="${TAP_PORT_49:-8102}"
+RES="$OUT/49.jsonl"; : > "$RES"
 MODEL="${LEAD_MODEL}"
 MEASURE="$P3_DIR/fixtures/measure_dup0.py"
-g5_chk_init "$OUT/42-checks.tsv"
+g5_chk_init "$OUT/49-checks.tsv"
 
 cleanup() {
   [ -n "${TAP_PID:-}" ] && kill "$TAP_PID" 2>/dev/null || true
@@ -128,7 +128,7 @@ SNAPS=(); WDS=()
 for i in 0 1; do
   LANE="$(psqlq "select id from lane where session_id='${SESS[$i]}' limit 1")"
   wd="$WORK/sessions/${SESS[$i]}/$LANE"; WDS+=("$wd")
-  snap="$OUT/snap-42-${NAMES[$i]}"; rm -rf "$snap"; mkdir -p "$snap"; SNAPS+=("$snap")
+  snap="$OUT/snap-49-${NAMES[$i]}"; rm -rf "$snap"; mkdir -p "$snap"; SNAPS+=("$snap")
   for f in part-one.md part-two.md; do [ -f "$wd/$f" ] && cp "$wd/$f" "$snap/$f" || :; done
   psqlq "select id||E'\t'||replace(content,E'\n',' ') from message where source_task_id='${TASKS[$i]}' order by created_at" > "$snap/posted.tsv" || true
   echo "$wd" > "$snap/workdir.txt"
@@ -177,7 +177,7 @@ for i in 0 1; do
     --session "${SESS[$i]}" --task "${TASKS[$i]}" --snap "${SNAPS[$i]}" --workdir "${WDS[$i]}" \
     --pg "$PG_CONTAINER" --tap "$TAP" >> "$RES"
 done
-python3 - "$RES" <<'PY' > "$OUT/42-summary.tsv"
+python3 - "$RES" <<'PY' > "$OUT/49-summary.tsv"
 import json,sys
 rows=[json.loads(l) for l in open(sys.argv[1]) if l.strip()]
 print("name\twarmup\tstatus\tattempt\tresumed\tcontinued\tsame_files\tdup_messages\tdup_edits\tworkdir_first")
@@ -186,7 +186,7 @@ for r in rows:
     print("\t".join(str(x) for x in [r["name"],r["arm"],r["status"],r["attempt"],a2.get("outcome","-"),
         r["continued"],r["same_files"],r["dup_messages"],r["dup_edits"],r["workdir_first"]]))
 PY
-column -t -s $'\t' "$OUT/42-summary.tsv" >&2
+column -t -s $'\t' "$OUT/49-summary.tsv" >&2
 
 for i in 0 1; do
   J="$(python3 -c "import json,sys;print(json.dumps([json.loads(l) for l in open(sys.argv[1]) if l.strip()][$i],ensure_ascii=False))" "$RES")"
@@ -198,7 +198,7 @@ for i in 0 1; do
   chk "D${i}d" "$N: attempt 1 이 만든 **같은 파일**을 이어서 편집했다 (E8-04 (1))" True "$(g same_files)"
   chk "D${i}e" "$N: attempt 2 가 workdir 를 **먼저 확인**했다"     True "$(g workdir_first)"
   chk "D${i}f" "$N: task 가 completed 로 닫혔다"                  completed "$(g status)"
-  P="$OUT/42-prompt-${N}.txt"
+  P="$OUT/49-prompt-${N}.txt"
   python3 -c "import json,sys;d=json.loads(sys.argv[1]);sys.stdout.write(d.get('prompt2') or '')" "$J" > "$P"
   chk_has "D${i}g" "$N: attempt 2 프롬프트에 <resumed> 구간"        "$P" "<resumed attempt=2>"
   chk_has "D${i}h" "$N: **이미 게시한 메시지 목록**이 실려 있다 (E8-04 (2))" "$P" "Messages you already posted"

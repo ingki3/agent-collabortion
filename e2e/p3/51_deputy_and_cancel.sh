@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# e2e/p3/44_deputy_and_cancel.sh — T-I3 (d): **deputy 위임 시점**과 **취소 권한** (E7-09·10·11, E10-04·05·06).
+# e2e/p3/51_deputy_and_cancel.sh — T-I3 (d): **deputy 위임 시점**과 **취소 권한** (E7-09·10·11, E10-04·05·06).
 #
 #   E7-11  일반 멤버는 응답할 수 없다 — `403`, `can_respond_from` 은 **null**(생기지 않을 권리에
 #          시각을 약속하지 않는다). 화면은 버튼을 숨기지 않고 "권한 없음" 을 보여준다
@@ -16,26 +16,26 @@
 # 그래서 **`created_at` 과 `due_at` 을 같은 만큼 과거로 민다**(lib.sh `backdate_hitl`): 기한 길이 24h 는
 # 그대로 두고 경과 시간만 옮긴다. 서버 코드도 계약도 건드리지 않는다.
 #
-# 산출물: out/44-checks.tsv · out/44.json · web/__screenshots__/p3-44-*.png
+# 산출물: out/51-checks.tsv · out/51.json · web/__screenshots__/p3-51-*.png
 source "$(dirname "$0")/lib.sh"
 STAMP="$(date +%s)"
-CFG="$OUT/daemon-44.json"; WORK="$OUT/work-44"; DLOG="$OUT/daemon-44.log"
-DIR_COOKIE="$OUT/cookies-44-dir.txt"; DEP_COOKIE="$OUT/cookies-44-dep.txt"; MEM_COOKIE="$OUT/cookies-44-mem.txt"
+CFG="$OUT/daemon-51.json"; WORK="$OUT/work-51"; DLOG="$OUT/daemon-51.log"
+DIR_COOKIE="$OUT/cookies-51-dir.txt"; DEP_COOKIE="$OUT/cookies-51-dep.txt"; MEM_COOKIE="$OUT/cookies-51-mem.txt"
 rm -f "$DIR_COOKIE" "$DEP_COOKIE" "$MEM_COOKIE"
 MODEL="${LEAD_MODEL}"
 DIR_EMAIL="g6d-dir+$STAMP@example.com"; DEP_EMAIL="g6d-dep+$STAMP@example.com"; MEM_EMAIL="g6d-mem+$STAMP@example.com"
 PASSWORD="password123"
 mkdir -p "$E2E_ROOT/web/__screenshots__"
-g5_chk_init "$OUT/44-checks.tsv"
+g5_chk_init "$OUT/51-checks.tsv"
 
 cleanup() {
-  [ -f "$OUT/daemon-44.pid" ] && { kill -TERM -- "-$(cat "$OUT/daemon-44.pid")" 2>/dev/null || true; }
+  [ -f "$OUT/daemon-51.pid" ] && { kill -TERM -- "-$(cat "$OUT/daemon-51.pid")" 2>/dev/null || true; }
   agent-browser close >/dev/null 2>&1 || true
   return 0
 }
 trap cleanup EXIT
 
-# 에이전트 발행 HITL 은 K-7·C-4(계약 충돌 · CLI 404)로 정식 도구가 서지 않는다 — 41_ 과 같은 우회로
+# 에이전트 발행 HITL 은 K-7·C-4(계약 충돌 · CLI 404)로 정식 도구가 서지 않는다 — 48_ 과 같은 우회로
 # attempt 토큰을 써서 openapi `createHitlRequest` 에 직접 등록한다. 서버가 보는 것은 정식 경로와 같다.
 ASK_INS='너는 가상의 실내 화분 자동 급수기 제품 Y 의 설명 초안을 쓰는 작성자다. 답은 한국어로 짧게.
 
@@ -76,7 +76,7 @@ step "2. 페어링 · 에이전트"
 read -r PID_ PTOK <<<"$(create_pairing "$WS" | tr '\t' ' ')"
 rm -rf "$WORK"
 daemon_pair_cap "$PTOK" "$CFG" "$WORK" 2
-COLAB_DAEMON_CONFIG="$CFG" setsid_run "$DLOG" "$BIN/daemon" run > "$OUT/daemon-44.pid"
+COLAB_DAEMON_CONFIG="$CFG" setsid_run "$DLOG" "$BIN/daemon" run > "$OUT/daemon-51.pid"
 wait_pairing "$WS" "$PID_" 300 || die "pairing not ready"
 RUNTIME="$(psqlq "select id from runtime where workspace_id='$WS' order by created_at desc limit 1")"
 ASKER="$(create_agent_p2 "$WS" Asker writer "$MODEL" "$ASK_INS" '설명 초안을 쓴다')"
@@ -108,12 +108,12 @@ MC="$(api POST "/lanes/$LANE_C/cancel" '' | api_code)"
 chk X1 "멤버의 취소는 403 (E10-05)" 403 "$MC"
 chk X1b "그래서 lane 은 계속 돈다"  yes \
   "$(in_set "$(lane_field "$LANE_C" status)" running queued dispatched)"
-export AGENT_BROWSER_SESSION="colab-g6-44-mem-$STAMP"
+export AGENT_BROWSER_SESSION="colab-g6-51-mem-$STAMP"
 ab set viewport 1440 1000 >/dev/null 2>&1 || true
 web_login "$MEM_EMAIL" "$PASSWORD" >/dev/null 2>&1 || bad "멤버 웹 로그인 실패"
 ab open "$WEB_URL/sessions/$SC_" >/dev/null 2>&1 || true
 abwait '[data-testid="lane-card"]' 40 || true
-shot "p3-44-04-member-cancel-disabled"
+shot "p3-51-04-member-cancel-disabled"
 chk W4  "멤버 화면에 \"중단\" 버튼이 **보인다**(숨기지 않는다, SCREEN §7)" yes \
   "$( [ "$(abcount '[data-testid="lane-action-cancel"]')" -ge 1 ] && echo yes || echo no )"
 chk W4b "그 버튼이 **비활성**이다 (E10-05)"              yes \
@@ -133,8 +133,8 @@ chk X3c "task 도 cancelled"                              cancelled "$(task_fiel
 # 활동 피드는 `task_event` 다(서버 tasks/service.go: class=status · verb=cancel · payload.note).
 # 세션 `message` 가 아니다 — 1차 실행에서 message 를 봐 놓치고 FAIL 이 났다.
 psqlq "select class||'/'||coalesce(verb,'-')||' '||replace(coalesce(payload::text,''),E'\n','⏎')
-       from task_event where task_id='$TC' order by seq" > "$OUT/44-cancel-feed.txt"
-chk_has X4 "활동 피드에 \"사람이 중단함\" (E10-04)"      "$OUT/44-cancel-feed.txt" "사람이 중단함"
+       from task_event where task_id='$TC' order by seq" > "$OUT/51-cancel-feed.txt"
+chk_has X4 "활동 피드에 \"사람이 중단함\" (E10-04)"      "$OUT/51-cancel-feed.txt" "사람이 중단함"
 chk X5  "취소가 새 task 를 만들지 않았다 (E10-04)"       1 "$(task_count "$SC_")"
 chk X6  "취소 뒤 그 attempt 의 프로세스가 남지 않았다"   0 "$(procs_of_attempt "$WORK" "$TC" 1)"
 CANCEL_S=$(( ($(now_ms)-T_CANCEL)/1000 ))
@@ -154,7 +154,7 @@ step "6. E7-11 — 일반 멤버는 영영 응답할 수 없다 (403, can_respon
 COOKIE="$MEM_COOKIE"
 MEM_RES="$(api POST "/hitl-requests/$H/response" '{"approved":true}' -H "Idempotency-Key: $(uuid)")"
 MEM_CODE="$(api_code <<<"$MEM_RES")"; MEM_BODY="$(api_body <<<"$MEM_RES")"
-printf '%s\n' "$MEM_BODY" > "$OUT/44-member-403.json"
+printf '%s\n' "$MEM_BODY" > "$OUT/51-member-403.json"
 chk P1  "멤버 응답이 403 이다"                         403 "$MEM_CODE"
 chk P1b "**can_respond_from 이 null** (E7-11 · PR #108)" null \
   "$(jq -r 'if has("can_respond_from") then (.can_respond_from|tostring) else "missing" end' <<<"$MEM_BODY")"
@@ -166,7 +166,7 @@ backdate_hitl "$H" $((11*3600))
 COOKIE="$DEP_COOKIE"
 DEP_RES="$(api POST "/hitl-requests/$H/response" '{"approved":true}' -H "Idempotency-Key: $(uuid)")"
 DEP_CODE="$(api_code <<<"$DEP_RES")"; DEP_BODY="$(api_body <<<"$DEP_RES")"
-printf '%s\n' "$DEP_BODY" > "$OUT/44-deputy-early.json"
+printf '%s\n' "$DEP_BODY" > "$OUT/51-deputy-early.json"
 chk P2  "11h 시점 deputy 응답이 403 이다 (E7-09)"      403 "$DEP_CODE"
 chk P2b "code=deputy_not_yet"                          deputy_not_yet "$(jq -r '.code // "-"' <<<"$DEP_BODY")"
 CRF="$(jq -r '.can_respond_from // "-"' <<<"$DEP_BODY")"
@@ -176,12 +176,12 @@ chk P2d "그 시각이 발행 + 12h 다"                       12 "$CRF_H"
 chk P2e "HITL 은 여전히 open"                           open "$(hitl_field "$H" status)"
 
 step "8. 화면 — deputy 에게는 버튼 비활성 + \"HH:MM 부터\", 멤버에게는 권한 없음 (§0-9 DOM)"
-export AGENT_BROWSER_SESSION="colab-g6-44-dep-$STAMP"
+export AGENT_BROWSER_SESSION="colab-g6-51-dep-$STAMP"
 ab set viewport 1440 1000 >/dev/null 2>&1 || true
 web_login "$DEP_EMAIL" "$PASSWORD" >/dev/null 2>&1
 ab open "$WEB_URL/sessions/$SH" >/dev/null 2>&1 || true
 abwait '[data-testid="hitl-card"]' 40 || true
-shot "p3-44-01-deputy-locked"
+shot "p3-51-01-deputy-locked"
 PERM="$(abget get attr '[data-testid="hitl-body"]' data-permission)"
 chk W1  "deputy 화면의 카드 권한 상태 = later"          later "${PERM:-none}"
 GATE="$(abget get text '[data-testid="hitl-gate"]' | tr '\n' ' ')"
@@ -192,10 +192,10 @@ chk W1b "\"HH:MM 부터 응답 가능\" 안내가 있다"          yes \
 chk W1c "승인 버튼이 **비활성**"                        yes \
   "$( [ "$(abcount '[data-testid="hitl-approve"]:disabled')" -ge 1 ] && echo yes || echo no )"
 log "deputy gate 문구: $GATE"
-export AGENT_BROWSER_SESSION="colab-g6-44-mem-$STAMP"   # 위 4단계에서 이미 로그인돼 있다
+export AGENT_BROWSER_SESSION="colab-g6-51-mem-$STAMP"   # 위 4단계에서 이미 로그인돼 있다
 ab open "$WEB_URL/sessions/$SH" >/dev/null 2>&1 || true
 abwait '[data-testid="hitl-card"]' 40 || true
-shot "p3-44-02-member-noright"
+shot "p3-51-02-member-noright"
 MPERM="$(abget get attr '[data-testid="hitl-body"]' data-permission)"
 chk W2  "멤버 화면의 카드 권한 상태 = never"            never "${MPERM:-none}"
 chk W2b "\"응답 권한이 없습니다\" 안내가 있다 (카드는 보인다)" yes \
@@ -203,7 +203,7 @@ chk W2b "\"응답 권한이 없습니다\" 안내가 있다 (카드는 보인다
 
 step "9. E7-10 — 12h 1분 뒤 deputy 응답은 수락된다 (웹에서)"
 backdate_hitl "$H" $((3600+120))     # 누적 12h 2분
-export AGENT_BROWSER_SESSION="colab-g6-44-dep-$STAMP"
+export AGENT_BROWSER_SESSION="colab-g6-51-dep-$STAMP"
 ab open "$WEB_URL/sessions/$SH" >/dev/null 2>&1 || true
 abwait '[data-testid="hitl-card"]' 40 || true
 sleep 2
@@ -211,7 +211,7 @@ PERM2="$(abget get attr '[data-testid="hitl-body"]' data-permission)"
 chk W3  "12h 뒤 deputy 화면 권한 상태 = allowed"        allowed "${PERM2:-none}"
 chk W3b "승인 버튼이 **활성**"                          yes \
   "$( [ "$(abcount '[data-testid="hitl-approve"]:enabled')" -ge 1 ] && echo yes || echo no )"
-shot "p3-44-03-deputy-unlocked"
+shot "p3-51-03-deputy-unlocked"
 ab click '[data-testid="hitl-approve"]' >/dev/null 2>&1 || true
 sleep 4
 chk P3  "**deputy 의 승인이 받아들여졌다** (E7-10)"     answered "$(hitl_field "$H" status)"
@@ -228,5 +228,5 @@ jq -n --arg ws "$WS" --arg sh "$SH" --arg sc "$SC_" --arg h "$H" --arg lane "$LA
   --argjson pass "$pass" --argjson fail "$fail" \
   '{workspace:$ws,hitl_session:$sh,cancel_session:$sc,hitl:$h,lane:$lane,
     deputy:$dep,member:$mem,can_respond_from:$crf,gate_text:$gate,
-    deputy_cancel_to_failed_s:$cancel_s,elapsed_s:$elapsed_s,pass:$pass,fail:$fail}' | tee "$OUT/44.json"
+    deputy_cancel_to_failed_s:$cancel_s,elapsed_s:$elapsed_s,pass:$pass,fail:$fail}' | tee "$OUT/51.json"
 [ "$fail" = 0 ]

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# e2e/p3/46_scenario_d.sh — T-I3 (f): **시나리오 D 재확인 — 프로파일 전환** (EVAL E16-D, E8-08 · E8-09).
+# e2e/p3/53_scenario_d.sh — T-I3 (f): **시나리오 D 재확인 — 프로파일 전환** (EVAL E16-D, E8-08 · E8-09).
 #
 # G5 에서 `e2e/p2/30_scenario_a_hermes.sh` 의 arm C·D 로 이미 통과한 항목을 **P3 빌드에서 다시** 잰다.
 # 30_ 의 판정을 그대로 옮기고 두 가지를 더한다:
@@ -12,16 +12,16 @@
 #      workdir 재사용, `runtime_session_ref` 는 새 런타임 것(resume 비움 → 콜드 스타트)
 #   D  대체 프로파일이 없으면 → 재큐잉은 하되 다른 머신으로 넘기지 않고 Director 알림 1건
 #
-# 산출물: out/46-checks.tsv · out/46.json
+# 산출물: out/53-checks.tsv · out/53.json
 source "$(dirname "$0")/lib.sh"
 STAMP="$(date +%s)"
-COOKIE="$OUT/cookies-46.txt"; rm -f "$COOKIE"
-CFG="$OUT/daemon-46.json"; WORK="$OUT/work-46"; DLOG="$OUT/daemon-46.log"
+COOKIE="$OUT/cookies-53.txt"; rm -f "$COOKIE"
+CFG="$OUT/daemon-53.json"; WORK="$OUT/work-53"; DLOG="$OUT/daemon-53.log"
 MODEL="${LEAD_MODEL}"
 BAD_MODEL="${BAD_MODEL:-claude-haiku-4-5-TYPO}"     # 오타 → 재시도 가능한 실패
-g5_chk_init "$OUT/46-checks.tsv"
+g5_chk_init "$OUT/53-checks.tsv"
 
-cleanup() { [ -f "$OUT/daemon-46.pid" ] && { kill -TERM -- "-$(cat "$OUT/daemon-46.pid")" 2>/dev/null || true; }; return 0; }
+cleanup() { [ -f "$OUT/daemon-53.pid" ] && { kill -TERM -- "-$(cat "$OUT/daemon-53.pid")" 2>/dev/null || true; }; return 0; }
 trap cleanup EXIT
 
 # 폴백 뒤 실제로 일을 끝내는지 보려면 대체 프로파일이 뭔가를 남겨야 한다 — 파일 하나 + 아티팩트 제출.
@@ -41,7 +41,7 @@ WS="$(create_workspace "G6 Scenario D $STAMP")"
 read -r PID_ PTOK <<<"$(create_pairing "$WS" | tr '\t' ' ')"
 rm -rf "$WORK"
 daemon_pair_cap "$PTOK" "$CFG" "$WORK" 2
-COLAB_DAEMON_CONFIG="$CFG" setsid_run "$DLOG" "$BIN/daemon" run > "$OUT/daemon-46.pid"
+COLAB_DAEMON_CONFIG="$CFG" setsid_run "$DLOG" "$BIN/daemon" run > "$OUT/daemon-53.pid"
 wait_pairing "$WS" "$PID_" 300 || die "pairing not ready"
 RUNTIME="$(psqlq "select id from runtime where workspace_id='$WS' order by created_at desc limit 1")"
 RT_JSON="$(api_ok GET "/runtimes/$RUNTIME")"
@@ -133,5 +133,5 @@ jq -n --arg ws "$WS" --arg fs "$FS" --arg ft "$FT" --arg ns "$NS" --arg nt "$NT"
   '{workspace:$ws,fallback:{session:$fs,task:$ft,attempt1_failure_kind:$kind,
       workdir_before:$wd_before,workdir_after:$wd_after,artifact:$art},
     no_alternative:{session:$ns,task:$nt},
-    elapsed_s:$elapsed_s,pass:$pass,fail:$fail}' | tee "$OUT/46.json"
+    elapsed_s:$elapsed_s,pass:$pass,fail:$fail}' | tee "$OUT/53.json"
 [ "$fail" = 0 ]
