@@ -483,7 +483,7 @@ func LoadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID, assig
 		SELECT sp.agent_id, sp.profile_id, sp.joined_at, a.name, a.role, a.role_description, a.avatar_url, a.respond_to, a.archived_at IS NOT NULL,
 		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status IN ('dispatched','preparing','running')),
 		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status = 'waiting_human'),
-		       (SELECT t.failure_kind::text FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status IN ('failed','completed','cancelled') ORDER BY t.finished_at DESC NULLS LAST LIMIT 1),
+		       `+tasks.LastFailureKindSQL("AND t.session_id = sp.session_id")+`,
 		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status IN ('queued','deferred') AND t.attempt > 1),
 		       EXISTS (SELECT 1 FROM lane l WHERE l.agent_id = a.id AND l.session_id = sp.session_id AND l.status = 'blocked'),
 		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status = 'paused' AND t.paused_reason = 'budget')

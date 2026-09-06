@@ -440,3 +440,75 @@ func TestP2ServerEventsSurviveConcurrency(t *testing.T) {
 		t.Fatalf("server events written = %d, want %d — a lost note is a feed that lies", n, writers)
 	}
 }
+
+// TestP2ErrorStatusIsNotSticky pins FR-1.3 step 3's INPUT, which is where the
+// ladder's order and the PRD's "error must not stay sticky" meet.
+//
+// The ladder is unchanged — step 3 outranks step 4, exactly as golden E5-15
+// pins it. What changed is what LastFailureKind means: the agent's most recent
+// task, not the last one that finished. Under the old definition the Director
+// could fix the credentials, re-instruct, and watch a new task run while the
+// participant list still said `error`.
+func TestP2ErrorStatusIsNotSticky(t *testing.T) {
+	f := newP2Fixture(t)
+	ctx := t.Context()
+
+	statusOf := func(agentID string) string {
+		sess := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
+		for _, raw := range sess["participants"].([]any) {
+			if p := raw.(map[string]any); str(p, "agent_id") == agentID {
+				return str(p, "status")
+			}
+		}
+		t.Fatalf("agent %s is not a participant", agentID)
+		return ""
+	}
+
+	// An auth failure with nothing else running reads as error (E5-17).
+	f.post(t, map[string]any{"content": router.MentionLink("R", f.rUUID) + " 조사"})
+	var failed uuid.UUID
+	if err := f.pool.QueryRow(ctx, `SELECT id FROM task WHERE session_id = $1 AND agent_id = $2`, f.sessionID, f.r).Scan(&failed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `
+		UPDATE task SET status = 'failed', failure_kind = 'auth', started_at = $2, finished_at = $2 WHERE id = $1`,
+		failed, f.fake.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := statusOf(f.r); got != "error" {
+		t.Fatalf("agent whose most recent task failed on auth = %q, want error (E5-17)", got)
+	}
+
+	// The Director fixes the credentials and re-instructs. A NEW task starts.
+	f.fake.Advance(time.Minute)
+	f.post(t, map[string]any{"content": router.MentionLink("R", f.rUUID) + " 다시 해줘", "new_lane": true})
+	var fresh uuid.UUID
+	if err := f.pool.QueryRow(ctx, `
+		SELECT id FROM task WHERE session_id = $1 AND agent_id = $2 AND id <> $3`, f.sessionID, f.r, failed).Scan(&fresh); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `
+		UPDATE task SET status = 'running', started_at = $2 WHERE id = $1`, fresh, f.fake.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := statusOf(f.r); got != "working" {
+		t.Fatalf("agent with a running task after an old auth failure = %q, want working — "+
+			"`error` must not stay sticky once the agent is demonstrably running (FR-1.3)", got)
+	}
+
+	// The agent page (workspace-scoped, a different query) must agree.
+	ag := f.api.must(200, "GET", f.p+"/agents/"+f.r, nil)
+	if str(ag, "status") != "working" {
+		t.Fatalf("agent page status = %q, want working — the two ladders must read the same input", str(ag, "status"))
+	}
+
+	// And if the new task fails on auth too, the error comes back.
+	f.fake.Advance(time.Minute)
+	if _, err := f.pool.Exec(ctx, `
+		UPDATE task SET status = 'failed', failure_kind = 'auth', finished_at = $2 WHERE id = $1`, fresh, f.fake.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := statusOf(f.r); got != "error" {
+		t.Fatalf("agent whose newest task also failed on auth = %q, want error again", got)
+	}
+}

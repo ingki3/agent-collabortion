@@ -330,7 +330,7 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, caller *uuid.UUID) (*gen
 		       u.id, u.email, u.display_name, u.avatar_url, u.created_at,
 		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.status IN ('dispatched','preparing','running')),
 		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.status = 'waiting_human'),
-		       (SELECT t.failure_kind::text FROM task t WHERE t.agent_id = a.id AND t.status IN ('failed','completed','cancelled') ORDER BY t.finished_at DESC NULLS LAST LIMIT 1),
+		       `+tasks.LastFailureKindSQL("")+`,
 		       -- FR-1.3 step 3 never fires while the server is re-queueing the
 		       -- failed task (attempt >= 2 back in the queue), including onto an
 		       -- alternate profile — a retry in flight is not "cannot run" (E5-18).

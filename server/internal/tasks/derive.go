@@ -29,12 +29,17 @@ type Derived struct {
 	Blocked      int
 	PausedBudget int
 
-	// LastFailureKind is the failure_kind of the agent's most recent task, or
-	// "" when it did not fail.
+	// LastFailureKind is the failure_kind of the agent's MOST RECENT task, or
+	// "" when that task did not fail. Not "the last task that finished" — see
+	// LastFailureKindSQL for why the difference decides whether `error` gets
+	// stuck on an agent that is demonstrably running.
 	LastFailureKind string
 	// RetryInFlight covers the server re-queueing that task, including onto an
 	// alternate profile (daemon-protocol v0.4 §4.4 fallback). A retry in
-	// flight must never read as `error` (E5-18).
+	// flight must never read as `error` (E5-18). With LastFailureKind defined
+	// as "the most recent task's failure" this is belt-and-braces — a requeue
+	// puts the same row back to `queued`, so it is no longer failed — but
+	// production supplies it truthfully rather than hard-coding false.
 	RetryInFlight bool
 }
 
@@ -56,19 +61,14 @@ func Unrunnable(failureKind string) bool {
 // agents.Load (agent page). There is no second ladder — the SQL in both only
 // gathers the counts this function reads.
 //
-// OPEN QUESTION, step 3 vs step 4. The golden table pins error ABOVE working:
-// state_golden_test.go:374-378 feeds {auth, Running: 1, RetryInFlight: false}
-// and wants "error". A literal reading of PRD FR-1.3 step 3 ("실행 자체가
-// 불가능한 오류") argues the other way — something is demonstrably running, so
-// the agent can run — and P1's implementation agreed with the PRD. The two
-// requirements use the SAME input, so no ladder satisfies both.
-//
-// This code follows the table, because the alternative is a red golden row and
-// the expectations are not ours to change. The counter-argument for the table
-// is real: an auth failure means the credentials are broken, and the task still
-// running was dispatched before that and will fail too. If the ruling goes the
-// other way, the change is one clause — add `&& in.Running == 0 &&
-// in.WaitingHuman == 0` to the Unrunnable case — plus the golden row.
+// Step 3 sits above step 4 on purpose. PRD FR-1.3's table is an ORDER — "위에서
+// 부터 첫 번째로 맞는 것이 상태다" — and golden E5-15 pins that order with a
+// synthetic {auth, Running: 1}. The PRD's other rule, that `error` must not stay
+// sticky, is satisfied by the INPUT rather than by reordering the ladder:
+// LastFailureKind is the agent's most recent task's failure, so a new task
+// starting clears it (see LastFailureKindSQL, the single definition both
+// production queries use). Production therefore never produces E5-15's
+// synthetic input naturally.
 func DeriveAgentStatus(in Derived) string {
 	switch {
 	case in.RespondTo == "nobody" || in.Archived:
