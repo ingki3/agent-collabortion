@@ -189,6 +189,17 @@ cross-lane read (FR-6.1) — worktree paths are never exposed.
 The download is **streamed**, never buffered: it goes to a temporary file in the
 destination directory and is renamed into place only after the whole body has
 arrived, and the bytes written are checked against the server's `Content-Length`.
+
+Streaming needs its own bounds, because `http.Client.Timeout` is a whole-request
+deadline and applying it to a body of unknown size is what truncated large ones.
+The two jobs that deadline was doing are separated: the shared transport bounds the
+wait for **response headers** (`ResponseHeaderTimeout`, and TLS/expect-continue), and
+the body is bounded by **silence** — if no byte arrives for `Config.Timeout`, the
+transfer fails with `download_stalled`. A slow but steadily-progressing download is
+never cut off however long it takes. Dropping the deadline without replacing the
+"end the wait" half of its job would turn a truncation into an unbounded hang, which
+inside an agent's turn is invisible until harness §5's stall detector cancels the
+attempt.
 A transfer that ends early is exit 5 with `download_truncated` / `download_failed`
 and **leaves no file behind** — a half-written artifact an agent believes is complete
 is worse than a failure, and a truncated `diff` that then passes `review approve`

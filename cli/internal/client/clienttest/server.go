@@ -65,7 +65,14 @@ type Server struct {
 	Requests []*http.Request // every request seen (auth header preserved)
 	Seq      int
 	Messages []map[string]any
+
+	release     chan struct{} // closed at cleanup to free blocked handlers
+	releaseOnce sync.Once
 }
+
+// Release returns the channel a blocking handler waits on alongside the
+// request context, so cleanup can never deadlock on it.
+func (s *Server) Release() <-chan struct{} { return s.release }
 
 // New starts the fake server; it is closed on test cleanup.
 func New(t interface {
@@ -74,8 +81,13 @@ func New(t interface {
 }) *Server {
 	t.Helper()
 	s := &Server{ByKey: map[string]Posted{}, Prefix: "/api/v1", Attempt: Attempt}
+	s.release = make(chan struct{})
 	s.Server = httptest.NewServer(http.HandlerFunc(s.handle))
 	t.Cleanup(s.Close)
+	// Registered after Close, so it runs *before* it (Cleanup is LIFO): a
+	// deliberately blocked handler (HangBody · HangHeaders) has to return
+	// before httptest.Server.Close, which waits for outstanding requests.
+	t.Cleanup(func() { s.releaseOnce.Do(func() { close(s.release) }) })
 	return s
 }
 
@@ -116,6 +128,11 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.HangBody || s.HangHeaders || s.ChunkDelay > 0 {
+		// Slow or blocking handlers must not hold the fake's lock.
+		s.mu.Unlock()
+		defer s.mu.Lock()
+	}
 	if s.handleP2(w, r, path) {
 		return
 	}

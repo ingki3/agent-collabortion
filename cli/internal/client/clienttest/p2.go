@@ -72,6 +72,17 @@ type p2State struct {
 	// ShortWrite makes downloadArtifact declare the full Content-Length but
 	// send only half of it, the way a connection dropped mid-transfer looks.
 	ShortWrite bool
+	// HangBody makes downloadArtifact send the headers and then go quiet
+	// forever without closing — a wedged proxy or a half-open connection.
+	// The handler returns when the client disconnects.
+	HangBody bool
+	// HangHeaders makes downloadArtifact accept the request and never
+	// respond at all, so not even the status line arrives.
+	HangHeaders bool
+	// ChunkDelay paces downloadArtifact: the body is sent in 64 KiB pieces
+	// with this pause between them. Progress never stops, so an idle bound
+	// must not fire however long the whole transfer takes.
+	ChunkDelay time.Duration
 
 	Delegations []Delegation
 	StatusCalls []StatusCall
@@ -251,12 +262,46 @@ func (s *Server) handleP2(w http.ResponseWriter, r *http.Request, path string) b
 				body[i] = byte('a' + i%26)
 			}
 		}
+		if s.HangHeaders {
+			// Never answers; unblocks when the client gives up or at cleanup.
+			select {
+			case <-r.Context().Done():
+			case <-s.Release():
+			}
+			return true
+		}
 		w.Header().Set("Content-Type", "text/plain")
 		w.Header().Set("Content-Disposition", `attachment; filename="`+ArtifactName+`"`)
 		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 		w.WriteHeader(200)
+		if s.HangBody {
+			// Headers land, then nothing — and the body is never closed, so a
+			// reader with no idle bound waits for ever.
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			select {
+			case <-r.Context().Done():
+			case <-s.Release():
+			}
+			return true
+		}
 		if s.ShortWrite {
 			w.Write(body[:len(body)/2]) // declared more than it sends
+			return true
+		}
+		if s.ChunkDelay > 0 {
+			const chunk = 64 << 10
+			for off := 0; off < len(body); off += chunk {
+				end := min(off+chunk, len(body))
+				if _, err := w.Write(body[off:end]); err != nil {
+					return true
+				}
+				if f, ok := w.(http.Flusher); ok {
+					f.Flush()
+				}
+				time.Sleep(s.ChunkDelay)
+			}
 			return true
 		}
 		w.Write(body)

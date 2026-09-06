@@ -8,6 +8,7 @@ package colab
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -374,8 +375,11 @@ func writeStream(dest string, s *client.Stream) (int64, error) {
 	n, copyErr := io.Copy(tmp, s.Body)
 	if copyErr != nil {
 		discard()
-		return 0, &client.Error{Exit: client.ExitUnreachable, Code: "download_failed",
-			Title:  "artifact download failed",
+		code, title := "download_failed", "artifact download failed"
+		if errors.Is(copyErr, client.ErrStalled) {
+			code, title = "download_stalled", "artifact download stalled"
+		}
+		return 0, &client.Error{Exit: client.ExitUnreachable, Code: code, Title: title,
 			Detail: fmt.Sprintf("the transfer ended after %d bytes: %v — nothing was written to %s", n, copyErr, dest)}
 	}
 	if s.Length >= 0 && n != s.Length {
