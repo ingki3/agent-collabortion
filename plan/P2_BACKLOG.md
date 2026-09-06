@@ -61,6 +61,7 @@
 | K-1 | EVAL 제안 행: E8-13 "finish가 non-nil runtime_session_ref를 저장하고 다음 claim resume에 실린다", E11-11 "claim은 세션 워크스페이스의 런타임에만 준다" | Integrator |
 | K-2 | PRD §7 스키마 ↔ 계약 키 표기 통일(`runtime_session_ref` 키 이름 `runtime_kind`) | PR #26 |
 | K-3 | `harness.md` §2.2 `preparing` heartbeat 비대상, §4.3 명령 소비 표 — 데몬 쪽 문서(`daemon/README`)에 반영 | PR #22 |
+| K-4 | **P3로 미룸** — 자동 발행된 `user_approval`의 **취소 조건**. FR-2.2는 "나머지 조건이 모두 충족되면 자동 발행"만 정하고, 발행 뒤 조건이 다시 미충족이 되면(예: 아티팩트 철회) 이미 발행된 HITL이 어떻게 되는지 정의가 없다 — Director 인박스에 유효하지 않은 승인 요청이 남는다. P3 HITL 전이를 설계할 때 정한다. EVAL 행(E6-12 후보)은 그때 추가 | P2a Hermes |
 
 ## 테스트 자산 (P1에서 만든 것)
 
