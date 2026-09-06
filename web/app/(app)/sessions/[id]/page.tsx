@@ -347,6 +347,25 @@ export default function SessionPage() {
     }
   }
 
+  /**
+   * 상단 액션의 "재개". **사유별 본문의 주인은 우열 배너다**(O6: 예산은 새 상한, 시간은 연장 시간을 받는다) —
+   * 여기서 빈 본문으로 보내면 계약이 "생략 시 현재 소진액 이상" 을 요구하는 예산 재개가 늘 422 가 된다.
+   * 그래서 입력이 필요한 사유는 배너로 데려가고, 입력이 없는 사유만 여기서 바로 재개한다.
+   */
+  function topResume() {
+    const r = session?.paused_reason;
+    if (r === "budget" || r === "time") {
+      setCol("aside");
+      const el = document.querySelector('[data-testid="paused-banner"]');
+      el?.scrollIntoView({ block: "center" });
+      el?.classList.add("msg--flash");
+      setTimeout(() => el?.classList.remove("msg--flash"), 1200);
+      return;
+    }
+    // 루프는 카운터를 리셋하고 재개한다(계약 resumeSession `reset_loop_counters`, 기본 true).
+    return resume(r === "loop" ? { reset_loop_counters: true } : {});
+  }
+
   async function pause() {
     setBusy(true);
     try {
@@ -505,7 +524,7 @@ export default function SessionPage() {
             runningLanes={runningLanes}
             members={members}
             onPause={pause}
-            onResume={() => resume({})}
+            onResume={topResume}
             onComplete={complete}
             onCancel={cancelSession}
             onOpenParticipants={() => setShowParticipants((v) => !v)}
