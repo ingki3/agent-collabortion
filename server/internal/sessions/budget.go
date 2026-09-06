@@ -113,18 +113,36 @@ func EffectiveTaskLimit(limit, override, sessionRemaining float64) float64 {
 
 // PlanBudget decides one enforcement point.
 //
-// production caller: httpapi.Server.enforceBudget, called from the daemon
-// heartbeat (daemon-protocol §4.2 `usage`) and from tasks.Finish's usage
-// rollup.
+// production caller: httpapi.Server.enforceBudgetFor, called from the daemon
+// heartbeat (daemon-protocol §4.2 `usage`) and — since S-44 — from
+// httpapi.finishAndEnforce, right after tasks.Finish has stored the attempt's
+// usage and rolled it up (§4.4). The second call site is what makes the rule
+// hold for a runtime that reports usage only at the end of the turn; before it
+// existed this comment named it anyway, and nothing enforced anything there.
+//
+// The two differ in one thing only, and it is applied by the caller: after a
+// finish the task is TERMINAL, so there is no turn to cancel and no task to
+// park. httpapi.applyBudgetPause parks the LANE instead, which is what stops
+// the next task by the same agent.
 func PlanBudget(in BudgetInput) BudgetOutcome {
 	o := BudgetOutcome{SessionState: "active", TaskStatus: "running"}
 	scope, limit := in.Scope, in.SessionLimitUSD
 	if in.Scope == "task" {
+		ceiling := TaskCeiling(in.TaskLimitUSD, in.OverrideUSD)
 		limit = EffectiveTaskLimit(in.TaskLimitUSD, in.OverrideUSD, in.SessionRemainingUSD)
-		if limit == in.SessionRemainingUSD && limit < TaskCeiling(in.TaskLimitUSD, in.OverrideUSD) {
-			// D-16: the session's remainder is the half of the min that bound.
-			// Pausing only this task would leave the other lanes free to spend
-			// a session budget that is already gone (FR-7.3, E9-04).
+		// D-16: the session's remainder is the half of the min that bound.
+		// Pausing only this task would leave the other lanes free to spend a
+		// session budget that is already gone (FR-7.3, E9-04).
+		//
+		// The condition is EffectiveTaskLimit's own, restated: the remainder
+		// bound when it is positive AND the task ceiling is either absent or
+		// larger. It used to read `limit < ceiling`, which is false for a
+		// ceiling of 0 — so an agent with NO budget_per_task (the column is
+		// nullable and most agents leave it) took the session remainder as its
+		// TASK limit and, on crossing it, paused only itself while the session
+		// budget it had just exhausted stayed `active` and the other lanes kept
+		// spending. Found while wiring the finish-time check (S-44).
+		if limit == in.SessionRemainingUSD && (ceiling <= 0 || limit < ceiling) {
 			scope = "session"
 		}
 	}

@@ -92,7 +92,7 @@
 | S-41 | 서버가 `contracts/task_event.schema.json` 을 어긴 task_event(닫힌 enum·additionalProperties:false 위반)를 **200 으로 받는다** — T-D5 첫 구현이 5곳 어겼는데 아무도 몰랐다(데몬은 memSink 검사로 자기 방어). 서버 ingest 에 스키마 검증(422 + 피드) | PR #121 자기 정정 | T-S5 후속 또는 P4 |
 | S-42 | 취소 골든(`tasks/cancel_golden_test.go`)의 5단계(`signal_process_group`) 순서 단언이 단계 **부재**를 참으로 둔다(index -1 → `signal < drain` 공허, `ImmediateKill=false`) — 1~4단계는 부재를 FAIL 로 잡는데 5단계만 구멍. 데몬 사본은 §0-8 로 못 고쳐 별도 테스트(#129)로 막았다. 골든 저자(Reviewer)가 원본 수정 | PR #129 (T-D6 발견) | 리뷰어 후속 |
 | ~~S-43~~ | `listInbox` 항목의 `SessionRef.status` 가 빈 문자열 — openapi required 인데 서버가 id·title 만 채운다 | T-W3 PR #130 관찰 | #124 재작업에 포함 지시 | **해결 — PR #124**
-| S-44 | `enforceBudgetFor` 가 heartbeat 한 곳에서만 호출되고 `budget.go` 주석의 'Finish rollup 에서도' 가 거짓 → 사후 강제 없음. Lead 결정 A: completed task 는 유지, 세션 잔여 초과 → 세션 paused(budget)+HITL(task_id 비움), task 상한 초과 → lane paused(budget)+HITL(task_id 채움), 승인 시 lane 재개 + override 승계 | T-I3 실측 (c) | T-S6 |
+| ~~S-44~~ | `enforceBudgetFor` 가 heartbeat 한 곳에서만 호출되고 `budget.go` 주석의 'Finish rollup 에서도' 가 거짓 → 사후 강제 없음. Lead 결정 A: completed task 는 유지, 세션 잔여 초과 → 세션 paused(budget)+HITL(task_id 비움), task 상한 초과 → lane paused(budget)+HITL(task_id 채움), 승인 시 lane 재개 + override 승계 | T-I3 실측 (c) | **해소(T-S6)**. `httpapi.finishAndEnforce` 가 §4.4 finish 커밋·롤업 뒤 enforce, terminal task 는 lane 을 park, claim 쿼리가 paused lane 을 거른다. 회귀 `TestP3BudgetEnforcedAtFinish`·`…SessionScope`·`…EstimatedNeverCuts`·`…RejectionKeepsTheGate`(E9-10), 실서버 `e2e/p3/41_budget_finish_smoke.sh` 13/13(고치기 전 origin/dev 는 FAIL 5 로 재현) |
 
 ## C (CLI)
 

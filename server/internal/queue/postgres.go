@@ -98,6 +98,12 @@ func (p *Postgres) Claim(ctx context.Context, runtimeID string, capacity int, no
 			  LEFT JOIN workspace_settings cfg ON cfg.workspace_id = r.workspace_id
 			 WHERE t.status = 'queued'
 			   AND s.status = 'active'
+			   -- FR-7.3 / S-44: a lane parked at paused does not dispatch. The
+			   -- budget pause that follows a finished turn has no task to park
+			   -- (the task is completed), so the lane row IS the gate on the
+			   -- next task by that agent; the Director's approval lifts it
+			   -- (tasks.ResumeLaneForBudget, tasks.ResumeFromHuman).
+			   AND l.status <> 'paused'
 			   AND s.workspace_id = r.workspace_id
 			   AND (s.runtime_id = r.id OR (s.runtime_id IS NULL AND s.isolation->>'kind' = 'none'))
 			   AND (t.not_before IS NULL OR t.not_before <= $2)
