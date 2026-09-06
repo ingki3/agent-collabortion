@@ -24,6 +24,7 @@
 | D-3 | `acpprobe`(스파이크 cmd) 제거 — `harness/acp`로 승격 완료 | PR #20 결함 6 | 정리 |
 | D-4 | worktree·GC·`rebind_prepare`·예산 강제는 P3·P4 | PR #20 결함 7 | 단계대로 |
 | D-5 | probe `capabilities[].supported_options` 채우기 — `(kind, adapter_version)` 표. claude_code 0.74.0: `effort` 허용 값. Hermes: 비움 | T-W2 계약 빈칸(harness v0.5) | **T-I2 전.** 비어 있으면 웹이 옵션 편집을 비활성으로 둔다 — 빈 채로 두면 S10이 사실상 죽는다 |
+| D-6 | 데몬 `recordUsage`가 `cost_usd`를 한 번도 대입하지 않고 `0 + estimated:false`를 보낸다(ACP `Usage`에 비용 필드 없음). harness v0.7: 비용을 모르면 **`cost_usd` 생략 + `estimated:true`**. `Estimated`가 `pr.Usage == nil`일 때만 켜지는 것을 고쳐라 | G4 3판 W16 (PR #87 리뷰 §2) | P3 비용 화면(E9-07) 전 |
 
 ## W (웹)
 
@@ -56,6 +57,7 @@
 | S-17 | `tasks.Service.LanePublish` 훅이 `nil`이면 **조용히** 발행을 건너뛴다(`tasks/service.go:585`). 프로덕션 배선은 `httpapi/server.go:89` 한 곳이고 `TestClaimPublishesLaneRunning`이 누락을 잡지만, 다른 바이너리 조립(워커·CLI 임베드)에서는 조용히 빠질 수 있다 → `nil`이면 `slog.Warn("tasks: LanePublish unwired")` 한 줄 | PR #78 리뷰 NN1 | 낮음 |
 | S-18 | PR #78 본문의 "lane.updated 발행 20곳"은 status 전이(15: UPDATE 12 + INSERT 3)에 카드 변경 자리(phase 보고 등 5)를 더한 정의다. 다음 대조가 15와 20을 다시 맞추지 않도록 정의를 코드 주석(`tasks.publish`)에 명시 | PR #78 리뷰 NN2 | 문서 |
 | S-19 | 비용 롤업(`tasks.Finish` 커밋 뒤 별도 tx, `SUM(task_usage)`)이 실패하면 데몬 재시도가 `finished != nil` 멱등 경로로 빠져 `costed`가 안 켜지고 그 attempt의 롤업이 다시 돌지 않는다 — 세션의 마지막 finish면 `session.cost_usd`가 영구 뒤처짐. DB 장애 외 도달 불가라 비차단. 후보: 멱등 경로에서도 롤업(SUM이라 무해) 또는 `getSessionCost`가 SUM을 직접 읽기. (S-17의 nil 훅 로그는 `ParticipantPublish`에도 적용) | PR #85 리뷰 NN1·NN2 | 낮음 |
+| S-20 | 비용 롤업(#85)이 `estimated` 행을 **워크스페이스 가격표 × 토큰**으로 채우고 세션 비용에 추정 배지를 단다(harness v0.7: 가격표는 워크스페이스 소유, 추정은 서버). 가격표 스키마·기본값은 PRD §8.2.6 | G4 3판 W16 | P3 비용 화면 전, D-6과 함께 |
 
 ## C (CLI)
 
