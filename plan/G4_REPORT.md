@@ -107,20 +107,30 @@ P1 에서는 액세스 토큰이 살아 있어 갱신이 필요 없었으므로 
 
 ### 3.3 목 API vs 실서버 (`e2e/p2/12_mock_vs_real.sh`)
 
-`web/e2e/p2-mock.sh` 를 **BASE_URL 만 바꿔** 실서버에 돌렸다(T-W2 가 그렇게 돈다고 한 방식). 목에는 런타임 1대·에이전트 3명이 미리 있으므로 실서버에도 같은 출발선을 만들어 준다 — 그러지 않으면 첫 행에서 무너져 뒤 30행이 전부 빈 문자열이 되고 진짜 갈린 지점이 안 보인다.
+`web/e2e/p2-mock.sh` 를 **BASE_URL 만 바꿔** 실서버에 돌린다(T-W2 가 그렇게 돈다고 한 방식). 목에는 런타임 1대·에이전트가 미리 있으므로 실서버에도 같은 출발선을 만들어 준다.
 
-목 **SMOKE PASS(29행)** · 실서버 **SMOKE FAIL** · 갈리는 행 **21**. 원인별로 묶으면:
-
-| 원인 | 갈리는 행 | 스트림 |
+| | 1판 (dev `9bb4ce9`) | 2판 (dev `950b02a`) |
 |---|---|---|
-| `listAgentTemplates`·`applyAgentTemplate` 501 (x-phase **P2**) | agent-templates 3종 · 매핑 status · dev_team 적용 3명 (+ 이어서 프로파일 2행이 빈 경로로 301) | **S-3** |
-| `listRuntimeCandidates` 501 (x-phase **P2**) | none 자동 선택 · worktree 자동 선택 불가 · remote URL 후보 | **S-2** |
-| `listLanes` 501 (x-phase **P2**) | lane 상태 done · lane tasks 정보 5종 (+ lane cancel 301) | **S-6** |
-| P3 operation 을 웹이 이미 쓴다 (`pauseSession`·`resumeSession`·`getSessionCost`·`restartLane`·`listLaneTasks` 는 x-phase **P3**) | pause 200 · resume 200 · paused_detail · cost 200 · lane restart | 결함 아님 — **웹이 P2 범위를 앞서 있음**(기록만) |
-| `createRepoCheck` 미구현 | dirty 저장소 ok:false | 결함 아님(x-phase 없음, worktree = P4) |
-| **`@all` 링크 형식이 웹과 계약에서 다르다** | preview 규칙 3 | **W-1** |
-| **목의 기대값이 EVAL 과 반대** | new_lane 은 항상 새 lane | **W-2** |
-| **`agent_disabled` 경고 없음** | 정지된 에이전트는 경고 | **S-7** |
+| 목 | SMOKE PASS (29행) | SMOKE PASS (29행) |
+| 실서버 | SMOKE FAIL | SMOKE FAIL |
+| **갈리는 행** | **21** | **13** |
+
+2판에서 초록으로 바뀐 것: `agent-templates 3종`·`매핑 status mapped`·`dev_team 적용 3명`(S-3) · `none/worktree 자동 선택`(S-2) · `lane 생성됨`(S-6) · `preview 규칙 2·note_only·규칙 3·new_lane·억제`(W-1·W-2) · `artifacts/decisions 200`(S-1) · `킬 스위치 후 disabled`·`정지된 에이전트는 경고`(S-7).
+
+남은 13행을 원인별로:
+
+| 원인 | 갈리는 행 | 판정 |
+|---|---|---|
+| `createAgentProfile`·`updateAgentProfile`·`deleteAgentProfile`(x-phase **P2**) 가 501 | 프로파일 추가(광고된 effort) · 광고 없는 옵션은 422 | **S-11** — S10 프로파일 편집기가 실서버에서 동작 불가 |
+| x-phase **P3** operation 을 웹이 이미 부른다 | lane restart · lane tasks 정보 5종 · pause · resume · paused_detail · cost | 결함 아님 — 웹이 P2 범위를 앞서 있다(기록) |
+| `createRepoCheck` 미구현(worktree = P4) | dirty 저장소는 ok:false | 결함 아님 |
+| 이 머신에 그 `remote_url` 저장소가 없다 | remote URL 일치 런타임 후보 | 환경 |
+| 목은 lane 을 즉시 `done` 으로 만들고 실서버는 실제로 실행한다 | lane 상태 done(=`queued`) · 그 lane 을 cancel 하니 409 대신 202 | 타이밍 — 목과 실서버의 성질 차이 |
+
+**하네스에서 배운 것 두 가지**(둘 다 스크립트에 반영했다).
+
+1. **실서버에는 `/__mock/reset` 이 없다.** `p2-mock.sh` 는 마지막에 킬 스위치(`respond_to: nobody`)를 켜고 끄지 않으므로, 같은 계정을 재사용하면 두 번째 실행부터 세션 생성이 **403 `not_invitable`** 로 무너진다(실측). 이제 **실행마다 새 계정**(`demo+<stamp>@colab.dev`)을 쓴다.
+2. **데모 데몬은 PONG 턴을 돌아야 한다.** `--no-turn` 으로 띄우면 뒤의 20행이 전부 무의미해진다 — 그 사슬이 §4 **S-12·D-2** 다.
 
 ### 3.4 P1 회귀 (`e2e/p2/20_regression_p1.sh`)
 
@@ -172,12 +182,15 @@ P1 에서는 액세스 토큰이 살아 있어 갱신이 필요 없었으므로 
 | **S-4** | S | `workdir` 행 미기록, `lane.workdir_id` 항상 `null` | `select count(*) from workdir` = 0 | openapi `Lane.workdir_id` 는 required. FR-6.1 이 API 로 관측되지 않음 | **#75** — 2판 lane 응답에 `workdir_id` 채워짐 |
 | **S-5** | S | probe 최상위 `colab_cli` 를 서버가 저장·노출하지 않는다 | `runtimes.Probe()` 가 4필드만 UPDATE · `GET /runtimes/{id}` → `colab_cli: null` | `daemon-protocol.md` §3 의 S11/S12 경고가 불가능 | **#75**(2판 재확인 예정) |
 | **S-6** | S | `listLanes`(**P2**) 501 | 직접 확인 · `12_mock_vs_real` | S7 lane 보드가 항상 빈 화면 | **#75** — 2판 lane 5건 반환 |
-| **S-7** | S | `previewTriggers` 에 `agent_disabled` 경고 없음 | 정지 후 preview → `warnings: []` | U11-6·E10-07 | **#75**(2판 재확인 예정) |
+| **S-7** | S | `previewTriggers` 에 `agent_disabled` 경고 없음 | 정지 후 preview → `warnings: []` | U11-6·E10-07 | **#75** — 2판 `정지된 에이전트는 경고` 초록(`agent_disabled`) |
 | **S-8** | S | `recordDecision` 이 사람 쿠키로 **201**, 저장된 행의 `source` 가 `hitl` | `POST …/decisions` + 쿠키 → 201 | 워크스페이스 멤버 누구나 사람이 HITL 로 답한 것처럼 결정 기록을 위조 | **#75**(2판 회귀 07 로 재확인 예정) |
 | **S-9** | **S** | **lane 이 `running` 으로 바뀔 때 `lane.updated` 를 내보내지 않는다** | 계약: `openapi.yaml` 실시간 이벤트에 `lane.updated`. 실서버: DB 는 Researcher 3개가 07:33:13.98~27.62(**13.6초**) 동안 동시에 `running`(스윕 최대 겹침 3)인데 화면 최대 동시 running 은 **1**. 코드: `publishLane` 호출처가 delegate·cancel·finish 뿐 | **U2-1·U2-4 가 성립하지 않는다.** 사람 눈에는 3-way 병렬이 순차 실행으로 보인다 — 시나리오 A 의 핵심 장면이 화면에서 사라진다 | 미해소 |
 | **S-10** | **S** | **`listLanes` 응답에 `brief` 가 없다** | 계약: openapi `Lane.brief`. 실서버: 모든 lane 이 `brief` 키 자체 없음(lane 테이블에 컬럼이 없고 `delegateLane` 의 brief 를 저장하지 않는다). 목: brief 있음 | U2-1 "각 카드에 브리프 한 줄" 불가. 카드만 보고 "이 lane 이 무슨 일을 하는지" 알 수 없다 | 미해소 |
-| **W-1** | W | 웹이 `[@all](mention://all)` 을 만드는데 PRD FR-3.2 는 `mention://all/all` | 실측 3출처: 계약(PRD §FR-3.2) · 실서버(`mention://all/all` → suppressed=true·트리거 0 / `mention://all` → suppressed=false·규칙 6 으로 Lead 1개) · 목(`content.includes` 로만 판정해 차이를 가림) | **E1-05·U15-3 위반** — `@all` 이 "기록만" 이 아니라 Lead 를 깨운다 | **#76**(2판 W9 재실행에서 확인 예정) |
-| **W-2** | W | `web/e2e/p2-mock.sh` 의 `new_lane` 기대값(`resolution==1`)이 EVAL E2-07(→ **4**)과 반대 | 실서버 4 · 목 1 · EVAL 4 | 스모크가 초록인 채로 웹이 잘못된 해소 번호를 믿을 수 있다 | **#76** |
+| **S-11** | **S** | **`createAgentProfile`·`updateAgentProfile`·`deleteAgentProfile`(x-phase **P2**) 가 501** | 계약: 세 operation 모두 `x-phase: P2`. 목: 201 / 광고 없는 옵션 422. 실서버: **501** | S10 프로파일 편집기(`profile-add`·`new-profile-save`)가 실서버에서 아무것도 저장하지 못한다. 시나리오 D(프로파일 폴백)의 전제인 "프로파일 2개"를 사람이 만들 수 없다 | 미해소 |
+| **S-12** | **S** | **`applyAgentTemplate` 이 매핑에 실패해도 프로파일 없는 에이전트를 만들어 저장한다.** 매핑 `reason` 도 사실과 다르다("감지된 런타임이 없습니다" — 런타임은 `online` 이다) | 실측 사슬: 런타임 `models: []` → 템플릿 매핑 `unmapped` → apply 가 **프로파일 0개** 에이전트 3명 생성(201) → 그 에이전트로 세션 생성 **422 `no_profile`**. 같은 워크스페이스에서 데몬이 PONG 턴을 돌면(models 5·43) 매핑 `mapped` → apply 가 프로파일 1개씩 붙임 → 세션 생성 성공 | 사람이 템플릿을 눌러 팀을 만들면 **세션에 넣을 수 없는 죽은 에이전트 3명**이 남고, 원인 문구는 엉뚱한 곳(컴퓨터 연결)을 가리킨다. G5 DoD "템플릿에서 시나리오 A 팀 생성 3분" 이 여기서 막힌다 | 미해소 |
+| **D-2** | **D** | **`daemon run --no-turn` 이 이미 보고한 `capabilities[].models` 를 빈 배열로 덮어쓴다** — 모르는 값을 "없음"으로 보고한다 | 실측: PONG 턴 뒤 `claude_code 5 · hermes 43` → `--no-turn` 재시작 뒤 **0 · 0**. G3_REPORT §2 가 "표시에 영향" 으로만 적었던 것이 S-12 를 거쳐 **세션 생성 실패**까지 간다 | 데몬을 한 번 재시작하면 팀 템플릿이 조용히 죽는다. 데몬이 지우지 않거나(모르면 그대로 두거나) 서버가 빈 배열 덮어쓰기를 거절해야 한다 | 미해소 |
+| **W-1** | W | 웹이 `[@all](mention://all)` 을 만드는데 PRD FR-3.2 는 `mention://all/all` | 실측 3출처: 계약(PRD §FR-3.2) · 실서버(`mention://all/all` → suppressed=true·트리거 0 / `mention://all` → suppressed=false·규칙 6 으로 Lead 1개) · 목(`content.includes` 로만 판정해 차이를 가림) | **E1-05·U15-3 위반** — `@all` 이 "기록만" 이 아니라 Lead 를 깨운다 | **#76** — 2판 `preview 규칙 3` 초록 |
+| **W-2** | W | `web/e2e/p2-mock.sh` 의 `new_lane` 기대값(`resolution==1`)이 EVAL E2-07(→ **4**)과 반대 | 실서버 4 · 목 1 · EVAL 4 | 스모크가 초록인 채로 웹이 잘못된 해소 번호를 믿을 수 있다 | **#76** — 2판 `new_lane 은 항상 새 lane(규칙 4)` 초록 |
 | **W-3** | **W** | **`AgentChip` 이 `data-agent-id` 를 달지 않는다** | 화면에는 칩이 있고 페이지는 서버 `participants[].status` 를 그대로 넘긴다. e2e 가 "어느 에이전트의 칩인가"를 고를 수단이 없다 | 제품 결함이 아니라 **테스트 훅 결함**. U2-3(E5-11 파생 상태)을 자동으로 판정할 수 없다 | 미해소 |
 | **D-1** | D | 데몬 env 허용 목록에 `USER` 가 없어 만료된 OAuth 갱신 실패 | §2.1 | 해소 전 **모든 claude_code task 가 `failed(auth)`** — G4 전면 차단 | **#71** |
 | **C-1** | C | `colab --version` 이 exit 2 | `daemon-protocol.md` §3 은 데몬이 `colab --version` 을 실행한다고 못박는다 | 해소 전 모든 probe 가 `colab_cli.present=false` | **#71** |
