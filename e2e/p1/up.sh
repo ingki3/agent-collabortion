@@ -13,7 +13,9 @@ step "build bin/server bin/daemon bin/colab"
 make build >/dev/null
 if curl -fsS "$SERVER_URL/healthz" >/dev/null 2>&1; then ok "server already up"; else
   step "server $SERVER_URL"
-  COLAB_DB_URL="postgres://colab:colab@localhost:$PG_PORT/colab?sslmode=disable" COLAB_SERVER_URL="$SERVER_URL" \
+  # COLAB_WEB_URL: 초대 링크가 사람이 여는 웹 오리진(:3000)을 가리키게 한다(S-5, PR #33).
+  # `make dev` 는 아직 이 값을 넘기지 않아 기본 폴백(서버 URL :8080)이 쓰인다 — Makefile 은 이 작업 범위 밖이라 여기서만 맞춘다.
+  COLAB_DB_URL="postgres://colab:colab@localhost:$PG_PORT/colab?sslmode=disable" COLAB_SERVER_URL="$SERVER_URL" COLAB_WEB_URL="$WEB_URL" \
     setsid_run "$OUT/server.log" "$BIN/server" > "$OUT/server.pid"
   for i in $(seq 1 60); do curl -fsS "$SERVER_URL/healthz" >/dev/null 2>&1 && break; sleep 0.5; done
   curl -fsS "$SERVER_URL/healthz" >/dev/null || die "server did not start (see $OUT/server.log)"
