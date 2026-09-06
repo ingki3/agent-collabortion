@@ -77,7 +77,7 @@ func runStatus(args []string, getenv client.Getenv, stdout, stderr io.Writer) in
 
 func runDecision(args []string, getenv client.Getenv, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] != "record" {
-		return usage(stderr, "usage: colab decision record --title <t> --body <text> [--options a,b] [--chosen a]")
+		return usage(stderr, "usage: colab decision record --summary <s> [--rationale <r>]")
 	}
 	fs, _ := newFlagSet("decision record", stderr)
 	session := fs.String("session", "", "session id (default COLAB_SESSION_ID / token scope)")
@@ -106,7 +106,8 @@ func runDecision(args []string, getenv client.Getenv, stdout, stderr io.Writer) 
 
 func runArtifact(args []string, getenv client.Getenv, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		return usage(stderr, "usage: colab artifact submit | colab artifact get <id>")
+		return usage(stderr, "usage: colab artifact submit --type <t> --file <p> [--name <n>] [--description <d>]\n"+
+			"       colab artifact get <id> [--out <path>]")
 	}
 	c := client.New(client.FromEnv(getenv))
 	ctx := context.Background()

@@ -8,6 +8,8 @@ package colab
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"mime"
 	"os"
 	"path/filepath"
@@ -297,12 +299,13 @@ type ArtifactGetArgs struct {
 }
 
 // ArtifactGetResult — getArtifact metadata, plus the download when --out was
-// given.
+// given. SizeBytes is what actually reached disk, and it is only ever set
+// when the whole body did.
 type ArtifactGetResult struct {
 	ArtifactID  string          `json:"artifact_id"`
 	Artifact    json.RawMessage `json:"artifact"`
 	SavedTo     string          `json:"saved_to,omitempty"`
-	SizeBytes   *int            `json:"size_bytes,omitempty"`
+	SizeBytes   *int64          `json:"size_bytes,omitempty"`
 	ContentType string          `json:"content_type,omitempty"`
 }
 
@@ -324,13 +327,16 @@ func ArtifactGet(ctx context.Context, c *client.Client, a ArtifactGetArgs) (*Art
 	if strings.TrimSpace(a.Out) == "" {
 		return out, nil
 	}
-	body, err := c.DownloadArtifact(ctx, id)
+	stream, err := c.OpenArtifactContent(ctx, id)
 	if err != nil {
 		return nil, err
 	}
+	defer stream.Close()
 	dest := a.Out
 	if st, err := os.Stat(dest); err == nil && st.IsDir() {
-		name := body.FileName
+		// filepath.Base: the filename is the server's, so it never escapes
+		// the directory the caller named.
+		name := stream.FileName
 		if name == "" {
 			name = rawField(meta, "name")
 		}
@@ -339,12 +345,54 @@ func ArtifactGet(ctx context.Context, c *client.Client, a ArtifactGetArgs) (*Art
 		}
 		dest = filepath.Join(dest, filepath.Base(name))
 	}
-	if err := os.WriteFile(dest, body.Data, 0o600); err != nil {
-		return nil, client.Usage("--out %s: %v", dest, err)
+	n, err := writeStream(dest, stream)
+	if err != nil {
+		return nil, err
 	}
-	n := len(body.Data)
-	out.SavedTo, out.SizeBytes, out.ContentType = dest, &n, body.ContentType
+	out.SavedTo, out.SizeBytes, out.ContentType = dest, &n, stream.ContentType
 	return out, nil
+}
+
+// writeStream copies an artifact body to dest and returns the bytes written.
+//
+// It writes to a temporary file in the destination directory and renames only
+// after the whole body has arrived, so a failed or short transfer never
+// leaves a partial file behind for an agent to mistake for the artifact. When
+// the server declared a Content-Length, the bytes written are checked against
+// it: a body that ends early is exit 5, not a smaller success.
+func writeStream(dest string, s *client.Stream) (int64, error) {
+	dir := filepath.Dir(dest)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(dest)+".part-*")
+	if err != nil {
+		return 0, client.Usage("--out %s: %v", dest, err)
+	}
+	tmpName := tmp.Name()
+	discard := func() {
+		tmp.Close()
+		os.Remove(tmpName)
+	}
+	n, copyErr := io.Copy(tmp, s.Body)
+	if copyErr != nil {
+		discard()
+		return 0, &client.Error{Exit: client.ExitUnreachable, Code: "download_failed",
+			Title:  "artifact download failed",
+			Detail: fmt.Sprintf("the transfer ended after %d bytes: %v — nothing was written to %s", n, copyErr, dest)}
+	}
+	if s.Length >= 0 && n != s.Length {
+		discard()
+		return 0, &client.Error{Exit: client.ExitUnreachable, Code: "download_truncated",
+			Title:  "artifact download truncated",
+			Detail: fmt.Sprintf("the server declared %d bytes but sent %d — nothing was written to %s", s.Length, n, dest)}
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return 0, client.Usage("--out %s: %v", dest, err)
+	}
+	if err := os.Rename(tmpName, dest); err != nil {
+		os.Remove(tmpName)
+		return 0, client.Usage("--out %s: %v", dest, err)
+	}
+	return n, nil
 }
 
 // ───────────────────────────── review ─────────────────────────────

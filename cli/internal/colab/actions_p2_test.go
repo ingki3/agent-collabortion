@@ -382,7 +382,7 @@ func TestArtifactGetOutFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.SavedTo != dest || res.SizeBytes == nil || *res.SizeBytes != len(clienttest.ArtifactBody) {
+	if res.SavedTo != dest || res.SizeBytes == nil || *res.SizeBytes != int64(len(clienttest.ArtifactBody)) {
 		t.Fatalf("res = %+v", res)
 	}
 	got, err := os.ReadFile(dest)

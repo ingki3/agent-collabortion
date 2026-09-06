@@ -178,12 +178,23 @@ can query is worse than not accepting the input.
 `submitArtifact` exactly. `--file` is the file (`--path` is an alias); `--name`
 defaults to its base name and re-submitting the same name is version+1 (FR-4.3).
 `--type` is an open set (`file` · `diff` · `branch` · `doc` · `report` …). The 50 MB
-ceiling is checked locally before the upload. There is **no `--url`**: openapi has no
+ceiling is checked locally, from the file's size, **before** the upload starts —
+relying on the server's `413` would mean pushing 50 MB up the wire to be told no. There is **no `--url`**: openapi has no
 url part, and an absent flag tells the truth about an absent feature.
 
 `get` returns metadata; with `--out` it also downloads the body (`--out` may be a
 directory, in which case the `Content-Disposition` filename is used). This is the only
 cross-lane read (FR-6.1) — worktree paths are never exposed.
+
+The download is **streamed**, never buffered: it goes to a temporary file in the
+destination directory and is renamed into place only after the whole body has
+arrived, and the bytes written are checked against the server's `Content-Length`.
+A transfer that ends early is exit 5 with `download_truncated` / `download_failed`
+and **leaves no file behind** — a half-written artifact an agent believes is complete
+is worse than a failure, and a truncated `diff` that then passes `review approve`
+would satisfy the `agent_approval` completion condition on corrupt input (FR-2.2).
+Buffered responses (JSON and problem documents) are bounded by `MaxJSONResponse`
+(16 MiB) and that bound **refuses rather than truncates**.
 
 ### `review approve` · `review reject`
 

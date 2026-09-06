@@ -18,6 +18,7 @@ import (
 
 	"github.com/ingki3/agent-collabortion/cli/internal/client"
 	"github.com/ingki3/agent-collabortion/cli/internal/client/clienttest"
+	"github.com/ingki3/agent-collabortion/cli/internal/colab"
 )
 
 // ───────────────────────────── lane delegate ─────────────────────────────
@@ -510,5 +511,160 @@ func TestP2CommandAndMCPToolAgree(t *testing.T) {
 				t.Fatalf("command and tool disagree\n  cmd:  %s\n  tool: %s", a, b)
 			}
 		})
+	}
+}
+
+// ─────────────────────── help text must not lie (R2) ───────────────────────
+
+// A usage string that advertises a flag the CLI rejects is worse than no
+// usage string: `decision record`'s help still named v0.3's --options and
+// --chosen, and brief section [2] puts these commands in front of the agent,
+// so it would read the suggestion and get exit 2. Every subcommand's usage
+// line is checked against the flags that actually exist.
+func TestUsageTextAdvertisesOnlyRealFlags(t *testing.T) {
+	env := clienttest.New(t).Env(t.TempDir())
+	// Flag spellings removed from the contract in v0.4.
+	gone := []string{"--options", "--chosen", "--url"}
+
+	// Each subcommand's own usage line, reached by invoking it wrongly, plus
+	// the top-level help.
+	for _, args := range [][]string{
+		{"help"},
+		{"lane"},
+		{"status"},
+		{"decision"},
+		{"artifact"},
+		{"review"},
+	} {
+		var out, errb bytes.Buffer
+		run(args, clienttest.Getenv(env), strings.NewReader(""), &out, &errb)
+		text := errb.String()
+		for _, g := range gone {
+			if strings.Contains(text, g) {
+				t.Errorf("%v help advertises %s, which no longer exists:\n%s", args, g, text)
+			}
+		}
+	}
+
+	// And the canonical names are the ones offered.
+	var out, errb bytes.Buffer
+	run([]string{"decision"}, clienttest.Getenv(env), strings.NewReader(""), &out, &errb)
+	if !strings.Contains(errb.String(), "--summary") || !strings.Contains(errb.String(), "--rationale") {
+		t.Errorf("decision record usage should name --summary/--rationale:\n%s", errb.String())
+	}
+}
+
+// Every flag a usage line advertises must actually parse. R2 was a usage
+// line naming flags that had been removed; this catches the mirror image too
+// — a usage line naming a flag that was never added.
+//
+// The usage line is obtained by invoking the command group with a bogus
+// subcommand, which is what prints it. (Passing a bogus *flag* would print
+// the flag package's own listing of real flags instead, which can never
+// disagree with itself.)
+func TestAdvertisedFlagsAllParse(t *testing.T) {
+	env := clienttest.New(t).Env(t.TempDir())
+	groups := []struct {
+		probe []string   // prints the group's usage line
+		subs  [][]string // the flag must be defined by one of these
+	}{
+		{probe: []string{"lane", "bogus"}, subs: [][]string{{"lane", "delegate"}}},
+		{probe: []string{"status", "bogus"}, subs: [][]string{{"status", "set"}}},
+		{probe: []string{"decision", "bogus"}, subs: [][]string{{"decision", "record"}}},
+		{probe: []string{"artifact"}, subs: [][]string{{"artifact", "submit"}, {"artifact", "get"}}},
+		{probe: []string{"review", "bogus"}, subs: [][]string{{"review", "approve"}, {"review", "reject"}}},
+	}
+	for _, g := range groups {
+		t.Run(strings.Join(g.probe, " "), func(t *testing.T) {
+			var out, errb bytes.Buffer
+			run(g.probe, clienttest.Getenv(env), strings.NewReader(""), &out, &errb)
+			usageLine := errb.String()
+			// Only the "usage:" lines this group printed, not the shared
+			// bottom-of-help text.
+			if i := strings.Index(usageLine, "colab — agent → platform CLI"); i >= 0 {
+				usageLine = usageLine[:i]
+			}
+			flags := advertisedFlags(usageLine)
+			if len(flags) == 0 {
+				t.Fatalf("no flags found in the usage line — the probe stopped printing it:\n%s", errb.String())
+			}
+			for _, f := range flags {
+				if !anyDefines(t, env, g.subs, f) {
+					t.Errorf("usage advertises %s but no subcommand of %v defines it:\n%s", f, g.probe, usageLine)
+				}
+			}
+		})
+	}
+}
+
+// advertisedFlags pulls the --flag words out of a usage line.
+func advertisedFlags(text string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, word := range strings.Fields(text) {
+		word = strings.Trim(word, "[]|`,.()")
+		if !strings.HasPrefix(word, "--") || len(word) < 4 || seen[word] {
+			continue
+		}
+		seen[word] = true
+		out = append(out, word)
+	}
+	return out
+}
+
+// anyDefines reports whether one of the subcommands defines the flag. The
+// flag package answers "flag provided but not defined: -x" for one it does
+// not know — note the single dash, whatever the caller typed — and any other
+// outcome means it parsed.
+func anyDefines(t *testing.T, env map[string]string, subs [][]string, flag string) bool {
+	t.Helper()
+	rejected := "not defined: -" + strings.TrimLeft(flag, "-")
+	for _, sub := range subs {
+		var out, errb bytes.Buffer
+		run(append(append([]string{}, sub...), flag, "x"), clienttest.Getenv(env), strings.NewReader(""), &out, &errb)
+		if !strings.Contains(errb.String(), rejected) {
+			return true
+		}
+	}
+	return false
+}
+
+// ─────────────────────────── NN1: submit size cap ───────────────────────────
+
+// The 50 MB submitArtifact ceiling is enforced locally, before the upload:
+// relying on the server's 413 would mean pushing 50 MB up the wire to be told
+// no. The file is created sparse so the test costs no disk.
+func TestArtifactSubmitRefusesOversizeBeforeUploading(t *testing.T) {
+	s := clienttest.New(t)
+	path := filepath.Join(t.TempDir(), "huge.bin")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(colab.MaxArtifactBytes + 1); err != nil { // sparse
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	code, v, _ := exec(t, s.Env(t.TempDir()), "artifact", "submit", "--type", "diff", "--file", path)
+	if code != client.ExitUsage {
+		t.Fatalf("code = %d, want 2 (refused locally), v = %v", code, v)
+	}
+	if len(s.Requests) != 0 {
+		t.Fatalf("%d requests reached the server; the cap must be checked before uploading", len(s.Requests))
+	}
+	// Exactly at the ceiling is allowed.
+	ok := filepath.Join(t.TempDir(), "atlimit.bin")
+	f2, err := os.Create(ok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f2.Truncate(colab.MaxArtifactBytes); err != nil {
+		t.Fatal(err)
+	}
+	f2.Close()
+	if code, v, _ := exec(t, s.Env(t.TempDir()), "artifact", "submit", "--type", "diff", "--file", ok); code != client.ExitOK {
+		t.Fatalf("a file exactly at the limit must be accepted: code=%d v=%v", code, v)
 	}
 }

@@ -79,13 +79,6 @@ type ArtifactSubmitResult struct {
 	Raw                json.RawMessage `json:"-"`
 }
 
-// ArtifactContent — downloadArtifact 200 (application/octet-stream).
-type ArtifactContent struct {
-	Data        []byte
-	ContentType string
-	FileName    string // from Content-Disposition, when the server sends one
-}
-
 // Review verdicts — reviewArtifact request `verdict` enum.
 const (
 	VerdictApprove = "approve"

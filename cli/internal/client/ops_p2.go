@@ -165,19 +165,13 @@ func (c *Client) GetArtifact(ctx context.Context, artifactID string) (json.RawMe
 	return json.RawMessage(res.Body), nil
 }
 
-// DownloadArtifact — GET /artifacts/{id}/content (downloadArtifact).
-func (c *Client) DownloadArtifact(ctx context.Context, artifactID string) (*ArtifactContent, error) {
-	res, err := c.Do(ctx, http.MethodGet, "/artifacts/"+url.PathEscape(artifactID)+"/content", nil, nil, nil)
-	if err != nil {
-		return nil, err
-	}
-	out := &ArtifactContent{Data: res.Body, ContentType: res.Header.Get("Content-Type")}
-	if cd := res.Header.Get("Content-Disposition"); cd != "" {
-		if _, params, err := mime.ParseMediaType(cd); err == nil {
-			out.FileName = params["filename"]
-		}
-	}
-	return out, nil
+// OpenArtifactContent — GET /artifacts/{id}/content (downloadArtifact),
+// returned as an open stream. Artifact bodies are the one payload with no
+// useful size ceiling (`artifact submit` alone accepts 50 MB), so they are
+// never buffered: the caller copies the stream straight to its destination
+// and checks the byte count against Stream.Length. The caller must Close it.
+func (c *Client) OpenArtifactContent(ctx context.Context, artifactID string) (*Stream, error) {
+	return c.DoStream(ctx, http.MethodGet, "/artifacts/"+url.PathEscape(artifactID)+"/content", nil)
 }
 
 // ReviewArtifact — POST /artifacts/{id}/review (reviewArtifact). A reviewer

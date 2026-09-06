@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -64,6 +65,13 @@ type p2State struct {
 	TurnEndOnWorking bool
 	// NewLaneID is the lane delegateLane creates.
 	NewLaneID string
+	// ArtifactBytes, when > 0, makes downloadArtifact serve that many bytes
+	// instead of ArtifactBody — for exercising bodies past any client-side
+	// read cap.
+	ArtifactBytes int
+	// ShortWrite makes downloadArtifact declare the full Content-Length but
+	// send only half of it, the way a connection dropped mid-transfer looks.
+	ShortWrite bool
 
 	Delegations []Delegation
 	StatusCalls []StatusCall
@@ -236,10 +244,22 @@ func (s *Server) handleP2(w http.ResponseWriter, r *http.Request, path string) b
 		return true
 
 	case r.Method == "GET" && path == "/artifacts/"+ArtifactID+"/content":
+		body := []byte(ArtifactBody)
+		if s.ArtifactBytes > 0 {
+			body = make([]byte, s.ArtifactBytes)
+			for i := range body {
+				body[i] = byte('a' + i%26)
+			}
+		}
 		w.Header().Set("Content-Type", "text/plain")
 		w.Header().Set("Content-Disposition", `attachment; filename="`+ArtifactName+`"`)
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 		w.WriteHeader(200)
-		w.Write([]byte(ArtifactBody))
+		if s.ShortWrite {
+			w.Write(body[:len(body)/2]) // declared more than it sends
+			return true
+		}
+		w.Write(body)
 		return true
 
 	case r.Method == "POST" && strings.HasPrefix(path, "/artifacts/") && strings.HasSuffix(path, "/review"):

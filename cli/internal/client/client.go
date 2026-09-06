@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -213,8 +214,12 @@ type Response struct {
 	Replayed bool // Idempotent-Replayed: true
 }
 
-// Do performs one authenticated request. path is relative to the API prefix.
-// body (if non-nil) is JSON-encoded. Headers are merged into the request.
+// Do performs one authenticated request and buffers the response, which must
+// therefore be a JSON or problem document (MaxJSONResponse). Anything that can
+// be large — an artifact body — goes through DoStream instead.
+//
+// path is relative to the API prefix. body (if non-nil) is JSON-encoded.
+// Headers are merged into the request.
 func (c *Client) Do(ctx context.Context, method, path string, query url.Values, body any, headers http.Header) (*Response, error) {
 	if c.cfg.Token == "" {
 		return nil, ErrNoToken
@@ -222,6 +227,53 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 	if c.cfg.ServerURL == "" {
 		return nil, &Error{Exit: ExitUnreachable, Code: "unreachable", Title: "server unreachable", Detail: EnvServerURL + " is not set"}
 	}
+	req, err := c.newRequest(ctx, method, path, query, body, headers)
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.http.Do(req)
+	if err != nil {
+		return nil, &Error{Exit: ExitUnreachable, Code: "unreachable", Title: "server unreachable", Detail: err.Error()}
+	}
+	defer res.Body.Close()
+	raw, err := readBounded(res.Body)
+	if err != nil {
+		return nil, err
+	}
+	out := &Response{Status: res.StatusCode, Header: res.Header, Body: raw,
+		Replayed: strings.EqualFold(res.Header.Get("Idempotent-Replayed"), "true")}
+	if res.StatusCode >= 200 && res.StatusCode < 300 {
+		return out, nil
+	}
+	return out, problemError(res.StatusCode, raw)
+}
+
+// MaxJSONResponse bounds the buffered responses. It applies only to JSON and
+// problem documents; artifact bodies are streamed (DoStream) and are never
+// subject to it. The bound refuses rather than truncates: a cut-short JSON
+// document cannot be mistaken for a complete one.
+const MaxJSONResponse = 16 << 20
+
+// readBounded reads a response body that is meant to be small. Reading one
+// byte past the bound is an error, never a silent truncation — io.LimitReader
+// alone returns a clean EOF at the limit, which is what let a 17 MiB artifact
+// land on disk at 16 MiB and report success.
+func readBounded(body io.Reader) ([]byte, error) {
+	raw, err := io.ReadAll(io.LimitReader(body, MaxJSONResponse+1))
+	if err != nil {
+		return nil, &Error{Exit: ExitUnreachable, Code: "unreachable", Title: "read response", Detail: err.Error()}
+	}
+	if len(raw) > MaxJSONResponse {
+		return nil, &Error{Exit: ExitUnreachable, Code: "response_too_large",
+			Title:  "response too large",
+			Detail: fmt.Sprintf("the server sent more than %d bytes of JSON", MaxJSONResponse)}
+	}
+	return raw, nil
+}
+
+// newRequest builds one authenticated request. path is relative to the API
+// prefix; body is JSON-encoded unless it is a *RawBody.
+func (c *Client) newRequest(ctx context.Context, method, path string, query url.Values, body any, headers http.Header) (*http.Request, error) {
 	u := c.cfg.ServerURL + c.cfg.APIPrefix + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
@@ -243,8 +295,8 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 		return nil, Usage("build request: %v", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
-	req.Header.Set("Accept", "application/json, application/problem+json")
 	req.Header.Set("User-Agent", "colab-cli")
+	req.Header.Set("Accept", "application/json, application/problem+json")
 	if body != nil {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -253,21 +305,70 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 			req.Header.Add(k, v)
 		}
 	}
-	res, err := c.http.Do(req)
+	return req, nil
+}
+
+// Stream is a response whose body is still open, for payloads that must not
+// be held in memory (artifact downloads). The caller must Close it.
+type Stream struct {
+	Header      http.Header
+	Body        io.ReadCloser
+	ContentType string
+	// Length is the declared Content-Length, or -1 when the server did not
+	// send one (chunked). A caller that writes the body to a file must check
+	// what it wrote against this.
+	Length   int64
+	FileName string // from Content-Disposition, when present
+}
+
+// Close releases the connection.
+func (s *Stream) Close() error {
+	if s == nil || s.Body == nil {
+		return nil
+	}
+	return s.Body.Close()
+}
+
+// DoStream performs an authenticated request and hands back the response body
+// unread, so an arbitrarily large payload never has to fit in memory. A
+// non-2xx response is a problem document — small — so it is read, closed and
+// returned as *Error, exactly as Do would.
+func (c *Client) DoStream(ctx context.Context, method, path string, query url.Values) (*Stream, error) {
+	if c.cfg.Token == "" {
+		return nil, ErrNoToken
+	}
+	if c.cfg.ServerURL == "" {
+		return nil, &Error{Exit: ExitUnreachable, Code: "unreachable", Title: "server unreachable", Detail: EnvServerURL + " is not set"}
+	}
+	req, err := c.newRequest(ctx, method, path, query, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "*/*")
+	// Config.Timeout is a whole-request deadline, body included, which would
+	// cut a large artifact short on a slow link. A download is bounded by ctx
+	// instead; the same Transport (and so the same dial/TLS timeouts) is kept.
+	hc := &http.Client{Transport: c.http.Transport, CheckRedirect: c.http.CheckRedirect, Jar: c.http.Jar}
+	res, err := hc.Do(req)
 	if err != nil {
 		return nil, &Error{Exit: ExitUnreachable, Code: "unreachable", Title: "server unreachable", Detail: err.Error()}
 	}
-	defer res.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(res.Body, 16<<20))
-	if err != nil {
-		return nil, &Error{Exit: ExitUnreachable, Code: "unreachable", Title: "read response", Detail: err.Error()}
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		defer res.Body.Close()
+		raw, err := readBounded(res.Body)
+		if err != nil {
+			return nil, err
+		}
+		return nil, problemError(res.StatusCode, raw)
 	}
-	out := &Response{Status: res.StatusCode, Header: res.Header, Body: raw,
-		Replayed: strings.EqualFold(res.Header.Get("Idempotent-Replayed"), "true")}
-	if res.StatusCode >= 200 && res.StatusCode < 300 {
-		return out, nil
+	out := &Stream{Header: res.Header, Body: res.Body,
+		ContentType: res.Header.Get("Content-Type"), Length: res.ContentLength}
+	if cd := res.Header.Get("Content-Disposition"); cd != "" {
+		if _, params, err := mime.ParseMediaType(cd); err == nil {
+			out.FileName = params["filename"]
+		}
 	}
-	return out, problemError(res.StatusCode, raw)
+	return out, nil
 }
 
 // problemError maps an HTTP failure to *Error (colab-cli.md §2 exit codes).
