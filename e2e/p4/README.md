@@ -15,6 +15,39 @@
 | 스크립트 | 무엇을 재는가 | 스택 |
 |---|---|---|
 | `60_cli_artifact_diff.sh` | `colab artifact submit --type diff` (T-C6): 생성된 diff 가 실서버 multipart 를 그대로 통과하는가, 메타 두 자리, `git apply` 재적용(**바이너리 파일 포함**), 같은 이름 version 2, 빈 diff 거절 | Postgres `colab-pg-c6` :5449 + server :8104 (웹·런타임 없음, 모델 호출 0회) |
+| `61_scenario_b.sh` | **시나리오 B 전체**(E16-B 1~8단계): worktree 격리·브랜치·diff 아티팩트·QA 가 아티팩트만 본다(E13-08)·재진입·`agent_approval` 종료·§8.4 위생(E13-03~06)·요약·활동 피드. **QA 는 hermes**(브리프 `instruction_file` 경로가 있어야 오염을 잴 수 있다) | T-I4 스택 + 탭 :8115 |
+| `62_double_write.sh` | 데몬 `kill -9` → 재시작 → **이중 쓰기 0**(E11-05·06·E8-04 (4)) + `daemon/worktreesim` 100라운드 | T-I4 스택 (hermes 1대) |
+| `63_offline_rebind.sh` | 오프라인 유예 7일 → `paused(runtime_offline)` → 후보 판정(remote URL) → 재바인딩 → `rebind_prepare` → 첫 턴 프롬프트 → diff 재적용(E14-02~06·08·10) · 실서버 `listArtifacts` 순서 | T-I4 스택 (런타임 3대) + 탭 :8116 |
+| `64_gc.sh` | workdir GC(E13-09~19): 미병합/미커밋 차단 + 인박스, 병합·클린 삭제 + 브랜치 보존, active 세션 보존, 쿼터 | T-I4 스택 |
+| `65_summary_refusal.sh` | 세션 요약 실패 경로(E6-11·12, §8.5): refusal · 전송 오류 · 정상 · 키 없음 폴백 | 전용 server :8106(같은 DB) + `mock_anthropic.py` :8117 |
+
+## T-I4 전용 스택 · 재현
+
+```bash
+bash e2e/p4/up.sh                      # colab-pg-i4 :5450 + server :8105 + web :3018
+bash e2e/p4/61_scenario_b.sh           # 이하 하나씩 (동시에 돌려도 되지만 워크스페이스가 따로다)
+bash e2e/p4/62_double_write.sh
+bash e2e/p4/63_offline_rebind.sh
+bash e2e/p4/64_gc.sh
+bash e2e/p4/65_summary_refusal.sh
+bash e2e/p4/down.sh                    # pid·pgid 로만 종료. Postgres 컨테이너는 남긴다
+```
+
+판정 표는 `out/<번호>-checks.tsv`, 요약은 `plan/G7_REPORT.md`.
+
+## 이 판에서 밟은 함정 (다음 사람을 위해)
+
+- **돌고 있는 bash 스크립트를 편집하지 마라.** bash 는 파일을 바이트 오프셋으로 다시 읽어 `syntax error` 로 죽는다.
+- `set -euo pipefail` 에서 **무매치 `grep` 은 파이프라인을 죽인다** — `{ grep … || true; }` 로 감싼다.
+  `grep -c` 는 무매치면 `0` 을 찍고 exit 1 이라 `|| echo 0` 이 줄을 **두 개** 만든다(`cnt()` 헬퍼 참고).
+- **bash 3.2 는 명령 치환 안의 `case … pattern)` 을 파싱하지 못한다** (p3 `lib.sh in_set` 주석과 같은 함정).
+- **fnm 의 multishell PATH 는 셸이 끝나면 사라진다** → 데몬이 물려받으면 `npx` 를 못 찾아 모든 attempt 가
+  `failed(config)`. `lib.sh stable_path` 가 데몬에 넘기는 PATH 만 안정 경로로 바꾼다.
+- **브리프 파일은 턴이 도는 동안에만 디스크에 있다**(삭제는 attempt 종료의 `defer`). 위생을 재려면 그 세션의
+  `queued|dispatched|preparing|running` task 가 0 이 될 때까지 기다리고, "덧붙이지 않는가" 를 재려면 반대로
+  **턴이 도는 동안** 세야 한다.
+- **`worktree` 격리 세션은 이 빌드에서 그대로는 돌지 않는다**(G7_REPORT §1 차단 ①). 스크립트들은 세션을 만든 뒤
+  데몬을 띄우기 전에 `lib.sh seed_worktree_workdirs` 로 workdir 절대 경로를 심어 우회한다 — 결함이 고쳐지면 지운다.
 
 ## 생성된 diff 아티팩트를 읽는 쪽이 알아야 할 것 (T-C6)
 
