@@ -565,12 +565,15 @@ function routeMessage(
     const reusable = lanes.find((l) => l.status === "done" || l.status === "blocked");
     // 기본은 규칙 4(새 lane) 다 — 규칙 1 은 스레드 답글의 lane 이고 목은 그것을
     // 흉내내지 않는다. "새 lane 으로 보내기" 는 규칙 3 을 건너뛰어 4 로 간다(EVAL E2-07).
+    // **재사용은 진행 중이든 재진입이든 전부 규칙 3 이다** — PRD lane 해소 규칙 3 이
+    // "가장 최근 lane 재사용, `done`·`blocked` 면 재진입(reentry_count 증가)" 이고
+    // 4 는 "그 외 → 새 lane" 이다. 재진입을 4 로 주면 EVAL E2-04·05 와 어긋난다.
     let resolution = 4;
     let laneId: string | null = null;
     let reentry = false;
     if (!input.newLane) {
       if (active) { resolution = 3; laneId = active.id; }
-      else if (reusable) { resolution = 4; laneId = reusable.id; reentry = true; }
+      else if (reusable) { resolution = 3; laneId = reusable.id; reentry = true; }
     }
     triggers.push({
       agent_id: id,

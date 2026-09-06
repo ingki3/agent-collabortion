@@ -86,6 +86,13 @@ chk "new_lane 은 항상 새 lane(규칙 4)" "$(echo "$PV4" | python3 -c 'import
 PV5=$(curl -sS -b "$J" -X POST "$B/sessions/$SID/messages/preview" -H 'content-type: application/json' -d "{\"content\":\"$MENT 억제\",\"suppress_agent_ids\":[\"$A2\"]}")
 chk "억제하면 트리거 0" "$(echo "$PV5" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["triggers"]))')" "0"
 
+# EVAL E2-04·05: `done`·`blocked` lane 을 가진 에이전트를 최상위 멘션하면 **규칙 3** 이다 —
+# 가장 최근 lane 을 재사용하고 재진입시킨다(`reentry_count`+1). 4 는 "그 외 → 새 lane" 이므로
+# 재진입을 4 로 주면 새 lane 과 구분이 사라진다.
+MENT1="[@a1](mention://agent/$A1)"
+PV6=$(curl -sS -b "$J" -X POST "$B/sessions/$SID/messages/preview" -H 'content-type: application/json' -d "{\"content\":\"$MENT1 보완해줘\"}")
+chk "재진입은 규칙 3 + 최근 lane 재사용(E2-04)" "$(echo "$PV6" | python3 -c 'import sys,json;t=json.load(sys.stdin)["triggers"][0];print(t["lane"]["resolution"]==3 and t["lane"]["reentry"] is True and t["lane"]["lane_id"] is not None)')" "True"
+
 # 재지시 · 중단
 curl -sS -b "$J" -X POST "$B/sessions/$SID/messages" -H 'content-type: application/json' -H "idempotency-key: $(uuidgen)" -d "{\"content\":\"$MENT 시작\"}" -o /dev/null
 sleep 1
