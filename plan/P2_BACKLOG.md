@@ -63,14 +63,17 @@
 | S-21 | `cost.Defaults`에 Claude 계열 단가만 있다. Hermes가 비용을 안 주는 경로면 모델 미상 → 배지만 켜지고 $0. G5 Hermes 실기 전에 그 모델들 단가 또는 "Hermes는 자체 보고" 확인 | PR #95 리뷰 NN1 | G5 |
 | S-22 | `cost.Load`가 settings 행 없음·override JSON 불량을 모두 빈 표로 삼킨다 — finish를 500으로 안 만드는 의도는 맞으나 관리자가 알 길이 없다. 로그 한 줄 | PR #95 리뷰 NN2 | 낮음 |
 | S-23 | `rollUpCost`의 `repriceEstimates`가 매 finish마다 세션 전체 `task_usage`를 훑는다. 지금은 무해; P4 GC 전에 `WHERE estimated AND (cost_usd = 0 OR updated_at < settings.updated_at)` 류로 좁힐 것 | PR #95 리뷰 NN3 | P4 전 |
-| S-24 | `createAgent` 가 `AgentProfileCreate.fallback_profile(_id)` 를 INSERT 에서 조용히 버린다; `createAgentProfile`·`updateAgentProfile` 은 x-phase P2 인데 501 → E8-08 폴백 연결을 DB 로 우회 | G5 보고서 §3.3 (PR #100) | G5 hotfix(서버, 진행 중) |
-| S-25 | 종료 조건 `user_approval` 을 채울 HTTP 입구가 없다 — `director_approve` 이벤트는 있으나 호출자 없음. **Lead 결정: 계약 PR #101 로 `respondHitlRequest` 의 플랫폼 발행 approval 승인·거절을 P2 로** | G5 §2.2 | G5 hotfix |
-| S-26 | `updateWorkspaceSettings` 의 `mergeJSON` 이 merge 가 아니라 replace — 한 키만 보내면 같은 객체의 다른 키가 null | G5 §5 | G5 hotfix |
-| S-27 | `blocked_q` 카드에 위임자 멘션이 없어 K3 배지가 `질문 → @위임자` 대신 `질문` | G5 §4.4, 계약 #101 | G5 hotfix |
-| S-28 | 위임자 즉시 기상 시스템 메시지가 카드 id·본문을 인용하지 않고(E3-05 (3)), 답글에 자식 멘션이 필요하다는 안내가 없다(규칙 4) | G5 §4.1·§4.3, 계약 #101 | G5 hotfix |
-| S-29 | 세션 완료 시 서버가 `gc` 명령을 내지 않아 격리 `none` workdir 가 남는다(E6-03) | G5 §2.3 | G5 hotfix |
-| S-30 | 템플릿 매핑 실패 시 프로파일 없는 에이전트가 남고 P2 에 프로파일을 붙일 op 가 없다(S-24 와 함께 닫힘) | G5 §6.4 | G5 hotfix |
-| S-31 | `afterLaneDone` 이 `reentry > 0` 이면 `notifyReentry` 로 빠져 `maybeFireJoin` 을 안 부른다 — 재진입 lane 이 그룹의 마지막으로 끝나면 합류(FR-6.5)가 영영 발화하지 않는다 | G5 §4.3.1 (세션 f80b092b) | G5 hotfix — 조용한 손실, 우선 1순위 |
+| ~~S-24~~ | `createAgent` 가 `AgentProfileCreate.fallback_profile(_id)` 를 INSERT 에서 조용히 버린다; `createAgentProfile`·`updateAgentProfile` 은 x-phase P2 인데 501 → E8-08 폴백 연결을 DB 로 우회 | G5 보고서 §3.3 (PR #100) | G5 hotfix(서버, 진행 중) | **해결 — PR #103**
+| ~~S-25~~ | 종료 조건 `user_approval` 을 채울 HTTP 입구가 없다 — `director_approve` 이벤트는 있으나 호출자 없음. **Lead 결정: 계약 PR #101 로 `respondHitlRequest` 의 플랫폼 발행 approval 승인·거절을 P2 로** | G5 §2.2 | G5 hotfix | **해결 — PR #103**
+| ~~S-26~~ | `updateWorkspaceSettings` 의 `mergeJSON` 이 merge 가 아니라 replace — 한 키만 보내면 같은 객체의 다른 키가 null | G5 §5 | G5 hotfix | **해결 — PR #103**
+| ~~S-27~~ | `blocked_q` 카드에 위임자 멘션이 없어 K3 배지가 `질문 → @위임자` 대신 `질문` | G5 §4.4, 계약 #101 | G5 hotfix | **해결 — PR #103**
+| ~~S-28~~ | 위임자 즉시 기상 시스템 메시지가 카드 id·본문을 인용하지 않고(E3-05 (3)), 답글에 자식 멘션이 필요하다는 안내가 없다(규칙 4) | G5 §4.1·§4.3, 계약 #101 | G5 hotfix | **해결 — PR #103**
+| ~~S-29~~ | 세션 완료 시 서버가 `gc` 명령을 내지 않아 격리 `none` workdir 가 남는다(E6-03) | G5 §2.3 | G5 hotfix | **해결 — PR #103**
+| ~~S-30~~ | 템플릿 매핑 실패 시 프로파일 없는 에이전트가 남고 P2 에 프로파일을 붙일 op 가 없다(S-24 와 함께 닫힘) | G5 §6.4 | G5 hotfix | **해결 — PR #103**
+| ~~S-31~~ | `afterLaneDone` 이 `reentry > 0` 이면 `notifyReentry` 로 빠져 `maybeFireJoin` 을 안 부른다 — 재진입 lane 이 그룹의 마지막으로 끝나면 합류(FR-6.5)가 영영 발화하지 않는다 | G5 §4.3.1 (세션 f80b092b) | G5 hotfix — 조용한 손실, 우선 1순위 | **해결 — PR #103**
+| S-32 | `updateWorkspaceSettings` 의 '명시 null = unset' 주석과 실제가 다르다 — 생성 타입이 `*int omitempty` 라 null 이 생략과 같아 키를 지울 수 없다(오동작 아님). `nullable.Nullable` 로 바꾸거나 주석 정정 | PR #103 리뷰 NN1 | 낮음 |
+| S-33 | 승인(S-25) 후 `session_completed` 인박스 행 단언이 테스트에 없다 — `listInbox` 가 P3 라 HTTP 관측 불가지만 `inbox` 테이블 count 로 고정 가능 | PR #103 리뷰 NN2 | 낮음 |
+| S-34 | `gcWorkdirs` 가 `runtime_id IS NULL` 이면 조용히 반환 — `none` 격리는 도달 불가지만 로그 한 줄 | PR #103 리뷰 NN3 | P4 GC |
 
 ## C (CLI)
 
