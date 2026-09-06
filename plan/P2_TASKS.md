@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 상태 | **진행 중(2026-09-06). Director가 G3를 확인했다.** P2a **완료**(PR #52, 골든 71행) · T-D2 진행 중 · **T-S2 착수**(`task_d3532aa71e9c`) |
+| 상태 | **진행 중(2026-09-06). Director가 G3를 확인했다.** P2a·T-D2·T-S2·T-C2 **완료**(PR #52·#54·#62·#61) · **T-W2**(`task_211be9c19151`)·**T-S3**(`task_340892472fac`) 진행 중 |
 | 근거 | `PLAN.md` §3 P2·§6.2 G4·G5, `EVAL.md` E1~E6·E15, `EVAL_USER.md` U2·U4·U5·U8·U10·U11·U15, `plan/P2_BACKLOG.md`(P1 이월 전부) |
 | 목표 | **시나리오 A(`none` 격리)가 8단계 끝까지 통과한다.** Lead가 3항목을 위임 → lane 3개 병렬 → 합류 **정확히 1회** → 종합 → Writer 초안 → `artifact_submitted` → 승인 → `completed` |
 | 게이트 | **G4**(중간): P2a 골든 테스트 + 시나리오 A **단일 런타임** 통과 · **G5**: 시나리오 A 8단계 + Hermes + 템플릿 3분 Director 실측 |
@@ -205,9 +205,12 @@ DoD: typecheck·test·build 초록, 컴포넌트 테스트 신규 5개 이상, C
    - 계약 공백 2건도 함께 메웠다(PR #51, `daemon-protocol.md` v0.5): probe 최상위 `colab_cli`, `preview.message_id`는 서버가 채운다.
 2. **T-S2 + T-D2** 동시 2개 → 리뷰·머지. S가 먼저 머지되어야 W의 previewTriggers 교체가 가능하다.
    - **T-D2 완료 2026-09-06, PR #54.** Hermes APPROVE. 리뷰어가 회귀 2건(`Preview` 인자, `Resume` 상수화)을 직접 주입해 테스트가 실제로 무는 것까지 확인했다. 삭제 3144줄 중 3084줄이 `acpprobe`이고, 함께 사라진 테스트 8개가 전부 `harness/acp`에 행동 기준으로 대체됐음을 표로 대조했다. **DoD의 실기 스모크는 Lead가 직접 돌려 닫았다.** 비차단 지적 NN1(`Sink.Preview`의 `message_id` 인자 제거 — 옳은 값을 만들 수 없다면 틀린 값을 넣을 자리도 없어야 한다)·NN3(스모크의 로그인 미비는 `Skipf`)은 머지 전에 반영했고, 가드가 여전히 무는 것을 Lead가 상수를 되돌려 확인했다.
-   - **T-S2 진행 중**(`task_d3532aa71e9c`). 골든 어댑터 예외를 §0-8로 결정(PR #56).
+   - **T-S2 완료 2026-09-06, PR #62** — 골든 71행 초록, 태그 제거로 **상시 CI 편입**. 두 라운드: 1차 반려는 **그림자 훅 6개**(프로덕션 호출 0 — 프로덕션을 망가뜨려도 표가 초록, 파생 상태 사다리가 둘) + Lead 추가 결함 `paused_detail` 키·모양·테이블 이름 셋 다 계약과 어긋남 + 서버 이벤트 seq 한 자리 미보호. 2차는 리뷰어가 같은 방법으로 다시 세어 해소 확인, `LastFailureKindSQL` ORDER BY 경계 4건을 Postgres에서 직접 평가, advisory lock 순서를 전 호출자에서 추적. 파생 상태 열린 질문은 Lead 판정 — **사다리는 PRD 표 순서대로, 끈적한 `error`는 입력 정의가 막는다**(가장 최근 task 기준, 두 화면이 SQL 조각 하나를 공유). 부산물: 계약 PR #60(dispatched 5분 타임아웃은 재큐잉이 아니라 종료 — 계약만 반대였고 인용한 EVAL 행이 그 반대를 말하지 않았다), §0-8 골든 어댑터 예외(PR #56).
    - T-D2가 끝나 슬롯이 비어 **T-C2를 앞당겨 착수**했다(`task_e97458fa87bf`). CLI는 httptest로 계약을 검증하므로 서버 머지를 기다릴 필요가 없다 — 기다려야 하는 것은 W의 `previewTriggers`뿐이다.
 3. **T-C2 + T-W2** 동시 2개 → 리뷰·머지.
+   - **T-C2 완료 2026-09-06, PR #61.** 세 라운드 — 각 라운드가 앞 라운드의 수정이 만든 것을 잡았다: `artifact get` 16 MiB **조용한 절단** → 수정이 **모든 타임아웃을 버려 무한 대기** → 헤더 상한(transport) + 본문 유휴 상한(idleReader)으로 분리. 교훈: 상한 하나가 두 일(자르기·끝내기)을 하고 있었다. 부산물: 계약 PR #59(`colab-cli.md` ↔ openapi 불일치 5건 — review 는 아티팩트 스코프, artifact submit 은 multipart 4필드, decision record 는 summary·rationale 둘뿐 — 그리고 **`end_turn` → `turn_end_required`**: ACP stopReason 과 이름이 충돌해 P1 `kind`↔`runtime_kind` 와 같은 부류였다).
+   - **T-W2 착수**(`task_211be9c19151`) — T-S2 머지를 기다리지 않고 슬롯이 비자마자 넣었다. 웹은 계약(생성 타입 + mock)을 상대로 만들고 서버 머지는 종단 검증(T-I2)에만 필요하다. 부산물: 계약 PR #63(`x-render-class` 평가 순서 first-match·실패 강조·"서버가 파생" 문구 정정 — 와이어 필드가 없고 서버도 계산하지 않았다).
+   - **T-S3 착수**(`task_340892472fac`) — PR #62 리뷰가 "범위 밖이 아니라 다음 PR"로 판정한 아티팩트 제출·리뷰. G5 전제이고 CLI(#61)가 이미 부른다.
 4. **T-I2 1부** → **G4 판정**(P2a 초록 + 시나리오 A 단일). 미달이면 Hermes 어댑터를 P3로 이월.
 5. **T-I2 2부** → **G5 판정**(시나리오 A 8단계 + Hermes + 템플릿 3분).
 
