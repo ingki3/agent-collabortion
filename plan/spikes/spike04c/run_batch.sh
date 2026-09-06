@@ -145,7 +145,7 @@ step "5. arm 별 lane.runtime_session_ref 조작"
 for r in "${RUNS[@]}"; do
   IFS=$'\t' read -r arm kind S AG name <<<"$r"
   case "$arm" in
-    b|c)
+    b|c|e|f)
       # **실제 유실을 만든다** — ref 를 훼손하는 대신 런타임 쪽 세션 기록을 지운다.
       #   hermes      : ~/.hermes 의 state.db 대신 해당 ACP 세션 행만 (사용자 실데이터 보호)
       #   claude_code : ~/.claude/projects/<cwd 인코딩>/<sessionId>.jsonl (이 스파이크가 만든 것만)
@@ -165,7 +165,17 @@ for r in "${RUNS[@]}"; do
           #  들어가지 않았다 — 그 자체가 결함이고 보고서 §2 에 남긴다.)
           python3 "$(dirname "$0")/hermes_forget.py" "$sid" >&2 || bad "  $name hermes 세션 제거 실패"
           log "  $name hermes state.db 세션 제거 → 유실 감지 경로 ($sid)";;
-      esac;;
+      esac
+      if [ "$arm" = e ] || [ "$arm" = f ]; then
+        # E8-12 — 히스토리 상한(서버 historyLimit=30) 을 넘겨 **처음 게시한 STAGE 줄이 창 밖으로
+        # 밀려나게** 한다. 라우터를 거치지 않고 message 테이블에 직접 넣는다(테스트 픽스처):
+        # 필러가 task 를 만들면 실험이 달라진다.
+        psqlq "insert into message (session_id, author_type, content, created_at)
+               select '$S', 'system', '진행 메모 '||g||' — 이 줄은 히스토리 상한을 넘기기 위한 채움이다',
+                      now() - ((40-g) * interval '${FILLER_GAP_MS:-1000} milliseconds')
+               from generate_series(1,40) g" >/dev/null
+        log "  $name 히스토리 필러 40건 주입 → 상한 초과 (간격 ${FILLER_GAP_MS:-1000}ms)"
+      fi;;
     *)   log "  $name ref 그대로";;
   esac
 done
