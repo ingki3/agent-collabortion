@@ -723,6 +723,13 @@ func (r *Runner) load(ctx context.Context, meta map[string]any) (sid string, pro
 // attempts, so E8-02 had never fired against a real adapter. Match the code and
 // the generic wording, and keep the old string so an adapter that goes back to
 // it still works.
+//
+// D-10 — should this narrow to `-32002` alone? Not yet. The generic "not
+// found" half is the cheap insurance against an adapter that words it a third
+// way, and its cost is a false cold start (slow) rather than a false resume
+// (silent data loss, §6 a′). Narrowing is worth doing once the adapter has
+// held one wording across a pin bump; until then this comment is the decision,
+// not an oversight.
 func isSessionGone(rpc *RPCError) bool {
 	if rpc == nil {
 		return false
@@ -1258,11 +1265,14 @@ func (r *Runner) cancelProcedure(ctx context.Context, afterCurrentTool bool) {
 	r.mu.Lock()
 	r.cancelling = true
 	sid := r.sessionID
+	npark := r.parked
 	closeOnce(r.cancelGate) // under the lock: two cancels can race here
 	r.mu.Unlock()
-	r.emit("runtime", "cancel", "", "info", map[string]any{"step": stepPermission})
-	// Nothing goes on the wire until every parked request has its answer.
+	// Nothing goes on the wire until every parked request has its answer: the
+	// agent loop is blocked on that answer, so a session/cancel sent first
+	// would never be read (harness §5 steps 2-4).
 	r.waitParked(2 * time.Second)
+	r.emit("runtime", "cancel", "", "info", map[string]any{"step": stepPermission, "answered": npark})
 	if r.c == nil {
 		return
 	}

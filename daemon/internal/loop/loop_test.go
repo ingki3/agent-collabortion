@@ -27,19 +27,20 @@ func TestMain(m *testing.M) {
 // memServer is an in-memory api.Server: hands out queued bundles, records
 // everything, and can attach commands to heartbeat responses.
 type memServer struct {
-	mu        sync.Mutex
-	queue     []contracts.TaskBundle
-	claims    int
-	probes    []contracts.Probe
-	phases    []api.PhaseRequest
-	phaseFile []bool // pgid record existed when phase=preparing arrived
-	events    []contracts.TaskEvent
-	hbs       []api.HeartbeatRequest
-	hbCmds    []api.Command
-	finishes  []api.FinishRequest
-	root      string
-	claimHook func()
-	phaseHook func(api.PhaseRequest)
+	mu             sync.Mutex
+	queue          []contracts.TaskBundle
+	claims         int
+	probes         []contracts.Probe
+	phases         []api.PhaseRequest
+	phaseFile      []bool // pgid record existed when phase=preparing arrived
+	events         []contracts.TaskEvent
+	hbs            []api.HeartbeatRequest
+	hbCmds         []api.Command
+	workdirReports []api.WorkdirsRequest
+	finishes       []api.FinishRequest
+	root           string
+	claimHook      func()
+	phaseHook      func(api.PhaseRequest)
 }
 
 func (m *memServer) Pair(context.Context, api.PairRequest) (api.PairResponse, error) {
@@ -108,7 +109,12 @@ func (m *memServer) Finish(_ context.Context, _ string, _ int, req api.FinishReq
 	m.finishes = append(m.finishes, req)
 	return nil
 }
-func (m *memServer) Workdirs(context.Context, string, api.WorkdirsRequest) error { return nil }
+func (m *memServer) Workdirs(_ context.Context, _ string, req api.WorkdirsRequest) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.workdirReports = append(m.workdirReports, req)
+	return nil
+}
 
 func (m *memServer) finished() int {
 	m.mu.Lock()

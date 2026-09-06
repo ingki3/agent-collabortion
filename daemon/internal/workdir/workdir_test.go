@@ -84,3 +84,42 @@ func TestWorkdirSurvivesProfileSwitch(t *testing.T) {
 		t.Fatalf("artifact directory lost on profile switch: %v", err)
 	}
 }
+
+// E8-11 — resuming a `preparing` attempt REUSES the workdir: no new directory,
+// and nothing already in it is touched. FR-9.1 goes further — an orphan's
+// changes are never deleted (E11-06) — so "reuse" here means literally the
+// same path with its contents intact.
+func TestPreparingResumeReusesTheWorkdir(t *testing.T) {
+	root := t.TempDir()
+	b := contracts.TaskBundle{
+		Task:    contracts.BundleTask{ID: "t1", Attempt: 1, SessionID: "sess-A", LaneID: "lane-1"},
+		Workdir: contracts.BundleWorkdir{Kind: "dir", Reuse: true},
+	}
+	first, err := Prepare(root, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	half := filepath.Join(first, "part-one.md")
+	if err := os.WriteFile(half, []byte("half written\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	b.Task.Attempt = 2 // the re-queued attempt
+	second, err := Prepare(root, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second != first {
+		t.Fatalf("attempt 2 got %q, want the same workdir %q (E8-11)", second, first)
+	}
+	if got, err := os.ReadFile(half); err != nil || string(got) != "half written\n" {
+		t.Fatalf("the resumed attempt lost the previous one's work: %q %v", got, err)
+	}
+	lanes, err := List(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lanes) != 1 {
+		t.Fatalf("workdirs = %d, want 1 — a second directory means the resume started over (E8-11)", len(lanes))
+	}
+}
