@@ -34,9 +34,15 @@ type Script struct {
 	SessionID    string   `json:"session_id,omitempty"` // default "sess-1"
 	DefaultModel string   `json:"default_model,omitempty"`
 	Models       []string `json:"models,omitempty"`
-	// KnownSessions succeed on session/load; others → claude: -32000
-	// "Session not found", hermes: null.
+	// KnownSessions succeed on session/load; others → claude: the error shape
+	// LoadErrorKind picks, hermes: null.
 	KnownSessions []string `json:"known_sessions,omitempty"`
+	// LoadErrorKind selects the claude_code `session/load` error for an unknown
+	// session. "" (default) is what the real adapter 0.74.0 answers —
+	// -32002 "Resource not found: <id>" (spike 4c). "legacy" is the older
+	// -32000 "Session not found" that harness §6 used to quote; both must be
+	// read as resume_rejected.
+	LoadErrorKind string `json:"load_error_kind,omitempty"`
 	// NoLoadSession drops agentCapabilities.loadSession (probe §9 `resume`
 	// is the advertised value, PRD §8.2.1).
 	NoLoadSession bool `json:"no_load_session,omitempty"`
@@ -421,7 +427,12 @@ func (sv *server) handle(m message) {
 			if s.Kind == "hermes" {
 				sv.reply(m.ID, nil)
 			} else {
-				sv.replyErr(m.ID, &acp.RPCError{Code: -32000, Message: "Session not found"})
+				if s.LoadErrorKind == "legacy" {
+					sv.replyErr(m.ID, &acp.RPCError{Code: -32000, Message: "Session not found"})
+				} else {
+					sv.replyErr(m.ID, &acp.RPCError{Code: -32002, Message: "Resource not found: " + p.SessionID,
+						Data: json.RawMessage(`{"uri":"` + p.SessionID + `"}`)})
+				}
 			}
 			return
 		}

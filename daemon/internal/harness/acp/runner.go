@@ -532,7 +532,7 @@ func (r *Runner) load(ctx context.Context, meta map[string]any) (sid string, pro
 	case contracts.RuntimeClaudeCode:
 		if err != nil {
 			var rpc *RPCError
-			if errors.As(err, &rpc) && strings.Contains(strings.ToLower(rpc.Message), "session not found") {
+			if errors.As(err, &rpc) && isSessionGone(rpc) {
 				return "", nil, "session_not_found", nil
 			}
 			return "", nil, "", err
@@ -559,6 +559,29 @@ func (r *Runner) load(ctx context.Context, meta map[string]any) (sid string, pro
 		}
 		return "", nil, "provenance_mismatch", nil
 	}
+}
+
+// isSessionGone says whether a `session/load` JSON-RPC error means the runtime
+// no longer has the session — the signal that turns a resume into a cold start
+// (harness §6, E8-02). The adapter does NOT answer with the one string the
+// contract used to quote: 0.74.0 on Claude Code CLI 2.1.258 replies
+//
+//	-32002 "Resource not found: <sessionId>"  (data {"uri": "<sessionId>"})
+//
+// for both a never-created id and a transcript file that was actually deleted
+// (spike 4c, 2026-09-06 — 10/10). Matching only "session not found" made every
+// forced cold start fail the attempt with failure_kind=other and burn all three
+// attempts, so E8-02 had never fired against a real adapter. Match the code and
+// the generic wording, and keep the old string so an adapter that goes back to
+// it still works.
+func isSessionGone(rpc *RPCError) bool {
+	if rpc == nil {
+		return false
+	}
+	if rpc.Code == -32002 {
+		return true
+	}
+	return strings.Contains(strings.ToLower(rpc.Message), "not found")
 }
 
 func (r *Runner) setModel(ctx context.Context, sessionID string) error {

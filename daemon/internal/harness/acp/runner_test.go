@@ -568,21 +568,33 @@ func TestResumeHermes(t *testing.T) {
 	}
 }
 
-// §6 claude_code: "Session not found" → cold start; known → resumed, replay
+// §6 claude_code: a lost session → cold start; known → resumed, replay
 // chunks discarded, _meta + model re-sent after load (§12 (a)(b)).
+//
+// The lost-session error has two shapes and BOTH must become cold_start.
+// The real adapter (0.74.0 + CLI 2.1.258) answers -32002 "Resource not found:
+// <id>"; only the older -32000 "Session not found" was ever written down.
+// Matching just the old string meant E8-02 never fired in the field — a forced
+// cold start failed the attempt with failure_kind=other and burned all three
+// attempts (spike 4c, 2026-09-06).
 func TestResumeClaudeCode(t *testing.T) {
-	t.Run("not found", func(t *testing.T) {
-		b := bundle(contracts.RuntimeClaudeCode)
-		b.Resume = resumeRef(contracts.RuntimeClaudeCode, "gone", "")
-		f := newFixture(t, acpfake.Script{}, b, nil)
-		res := f.run()
-		if res.ResumeOutcome != "cold_start" || res.SessionRef.SessionID != "sess-1" {
-			t.Fatalf("result %+v", res)
-		}
-		if ev := f.sink.find("runtime", "resume", "cold_start"); len(ev) != 1 || ev[0].Payload["resume_reason"] != "session_not_found" {
-			t.Fatalf("events %+v", ev)
-		}
-	})
+	for _, tc := range []struct{ name, kind string }{
+		{"not found (adapter 0.74.0: -32002 Resource not found)", ""},
+		{"not found (legacy: -32000 Session not found)", "legacy"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := bundle(contracts.RuntimeClaudeCode)
+			b.Resume = resumeRef(contracts.RuntimeClaudeCode, "gone", "")
+			f := newFixture(t, acpfake.Script{LoadErrorKind: tc.kind}, b, nil)
+			res := f.run()
+			if res.ResumeOutcome != "cold_start" || res.SessionRef.SessionID != "sess-1" {
+				t.Fatalf("result %+v", res)
+			}
+			if ev := f.sink.find("runtime", "resume", "cold_start"); len(ev) != 1 || ev[0].Payload["resume_reason"] != "session_not_found" {
+				t.Fatalf("events %+v", ev)
+			}
+		})
+	}
 	t.Run("resumed replay dropped brief and model kept", func(t *testing.T) {
 		s := acpfake.Script{KnownSessions: []string{"old"}, ReplayChunks: 5, Turns: []acpfake.Turn{{Steps: []acpfake.Step{{EchoBrief: true}, {Chunk: "|"}, {EchoModel: true}}, ModelUsage: true}}}
 		b := bundle(contracts.RuntimeClaudeCode)
