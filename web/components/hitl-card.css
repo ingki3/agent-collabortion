@@ -27,5 +27,7 @@
 .hitl__answer { font-size: 12px; margin: 0; }
 .hitl__actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .hitl__field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+/* 예산 상향 입력 아래 한 줄 — 최소값(지금까지 쓴 금액)과 지금 상한을 보인다(E9-02, U7-1). */
+.hitl__hint { color: var(--ink-3); font-size: 11px; }
 .hitl__opts { display: flex; gap: 6px; flex-wrap: wrap; }
 .hitl__err { color: var(--s-fail-text); font-size: 12px; margin: 0; }

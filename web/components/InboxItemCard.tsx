@@ -18,7 +18,7 @@ import { Badge } from "./Badge";
 import { HitlBody, type HitlAction } from "./HitlBody";
 import { dueLabel } from "./HitlBody";
 import { clockTime, relativeTime } from "@/lib/time";
-import type { HitlResponse, InboxItem } from "@/lib/api/types";
+import type { HitlRequest, HitlResponse, InboxItem } from "@/lib/api/types";
 import type { Tone } from "./badge-map";
 
 export type InboxAction = NonNullable<InboxItem["actions"]>[number];
@@ -88,6 +88,12 @@ export function extraLine(item: InboxItem): string | null {
 
 export interface InboxItemCardProps {
   item: InboxItem;
+  /**
+   * 이 항목이 가리키는 HITL 요청(`ref_id` 로 읽은 것). **계약 `InboxItem.card` 에 `purpose` 가 없어서**
+   * 항목만으로는 예산 HITL 인지 알 수 없다 — 호출부(S8)가 상세를 읽어 넘긴다(W-6).
+   * 없어도 카드는 그대로 그려진다: 예산 상향 입력만 붙지 않는다.
+   */
+  hitl?: HitlRequest | null;
   /** 인라인 HITL 응답(F2). `hitl_request` 에서만 쓰인다. */
   onRespond?: (item: InboxItem, body: HitlResponse) => Promise<void> | void;
   /**
@@ -102,7 +108,7 @@ export interface InboxItemCardProps {
   now?: number;
 }
 
-export function InboxItemCard({ item, onRespond, onApproveContinue, onAction, onMarkRead, busy, now }: InboxItemCardProps) {
+export function InboxItemCard({ item, hitl: detail, onRespond, onApproveContinue, onAction, onMarkRead, busy, now }: InboxItemCardProps) {
   const hitl = item.type === "hitl_request" ? item.card : null;
   const actions = (item.actions ?? []) as InboxAction[];
   const inline = actions.filter((a): a is HitlAction => (INLINE_HITL as readonly string[]).includes(a));
@@ -111,6 +117,19 @@ export function InboxItemCard({ item, onRespond, onApproveContinue, onAction, on
   // 예산으로 멈춘 세션만 금액을 받는다 — 시간·루프·수동은 올릴 금액이 없다(SCREEN §4.5 O6 표).
   const raiseBudget = item.type === "session_paused" && item.card?.paused_reason === "budget" && actions.includes("approve_continue");
   const [budget, setBudget] = useState("");
+  /**
+   * HITL 쪽 예산 상향 입력(W-6). **조건은 `purpose` 하나**다 — 항목 타입이 `session_paused` 인지,
+   * 세션이 멈췄는지는 보지 않는다. task 범위 초과(E9-01·E9-10)는 lane 만 멈추고 세션은 `active` 라서
+   * 항목은 `hitl_request` 로 오고, 그때도 Director 는 카드 안에서 금액을 정할 수 있어야 한다(U7-1).
+   *
+   * 상세를 아직 못 읽었을 때의 보루: 세션 범위 초과는 세션이 `paused(budget)` 이므로 항목 카드의
+   * `paused_reason` 만으로도 알아본다.
+   */
+  const budgetHitl =
+    item.type === "hitl_request" && (detail?.purpose === "budget" || (detail == null && item.card?.paused_reason === "budget"));
+  const hitlBudget = budgetHitl
+    ? { scope: (detail?.task_id ? "task" : "session") as "task" | "session", current: detail?.budget_override_usd ?? null, spent: null }
+    : null;
 
   return (
     <article
@@ -155,6 +174,7 @@ export function InboxItemCard({ item, onRespond, onApproveContinue, onAction, on
           canRespond={inline.length > 0}
           canRespondFrom={null}
           actions={inline}
+          budgetOverride={hitlBudget}
           onRespond={onRespond && ((body) => onRespond(item, body))}
           busy={busy}
           dense

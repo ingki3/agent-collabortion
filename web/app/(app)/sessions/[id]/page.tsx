@@ -626,7 +626,13 @@ export default function SessionPage() {
                     <HitlCard
                       request={hitl}
                       onRespond={(body) => respondHitl(hitl.id, body)}
-                      budget={hitl.purpose === "budget" ? { current: hitl.budget_override_usd, spent: session.cost_usd } : null}
+                      // 범위를 섞지 않는다: task 범위 초과(`task_id` 채움, E9-01)의 최소값은 **그 task 의**
+                      // 소진액이지 세션 소진액이 아니다 — 세션 비용을 최소로 쓰면 $3 상향이 막힌다.
+                      budget={
+                        hitl.task_id
+                          ? { scope: "task", current: hitl.budget_override_usd, spent: null }
+                          : { scope: "session", current: session.limits?.budget_usd ?? null, spent: session.cost_usd }
+                      }
                       busy={busy}
                     />
                   </div>
