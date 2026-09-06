@@ -22,6 +22,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/auth"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
 	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
@@ -272,6 +273,10 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 			sessionID, assignee, profileID, now).Scan(&laneID); err != nil {
 			return nil, err
 		}
+		// The assignee's lane is born `queued`: that is a lane status being set,
+		// so the board hears about it like every other one (a workspace-wide SSE
+		// subscriber is already listening even though this session is new).
+		_ = lanes.Publish(ctx, s.Hub, tx, laneID)
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO task (lane_id, session_id, runtime_id, agent_id, profile_id, trigger_message_id, originator_user_id, status, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $8)`, laneID, sessionID, runtimeID, assignee, profileID, msgID, userID, now); err != nil {
