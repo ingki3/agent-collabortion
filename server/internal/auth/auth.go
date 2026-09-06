@@ -658,9 +658,14 @@ func (s *Service) AcceptInvite(ctx context.Context, token string, userID uuid.UU
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	var memberID uuid.UUID
-	if err := tx.QueryRow(ctx, `INSERT INTO member (workspace_id, user_id, role, created_at) VALUES ($1, $2, $3, $4) RETURNING id`,
-		inv.WorkspaceId, userID, string(inv.Role), now).Scan(&memberID); err != nil {
+	// S-10: two clicks on the same invite race between the membership check
+	// above and this insert. member has UNIQUE (workspace_id, user_id), so the
+	// loser used to get a 23505 500. Accepting twice is not an error — the
+	// second acceptance is a no-op and the caller still gets its membership.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO member (workspace_id, user_id, role, created_at) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (workspace_id, user_id) DO NOTHING`,
+		inv.WorkspaceId, userID, string(inv.Role), now); err != nil {
 		return nil, fmt.Errorf("auth: accept invite: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE workspace_invite SET accepted_at = $2, accepted_by = $3 WHERE id = $1`, inv.Id, now, userID); err != nil {

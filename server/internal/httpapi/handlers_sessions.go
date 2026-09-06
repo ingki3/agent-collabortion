@@ -41,6 +41,10 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, workspaceI
 		v := *params.RuntimeId
 		o.RuntimeID = &v
 	}
+	if p := validateLimit(params.Limit); p != nil {
+		writeProblem(w, p)
+		return
+	}
 	if params.Limit != nil {
 		o.Limit = *params.Limit
 	}
@@ -128,6 +132,10 @@ func (s *Server) ListMessages(w http.ResponseWriter, r *http.Request, sessionId 
 			return
 		}
 		o.After = &id
+	}
+	if p := validateLimit(params.Limit); p != nil {
+		writeProblem(w, p)
+		return
 	}
 	if params.Limit != nil {
 		o.Limit = *params.Limit
@@ -309,6 +317,10 @@ func (s *Server) ListTaskEvents(w http.ResponseWriter, r *http.Request, taskId g
 		after = *params.AfterSeq
 	}
 	limit := 0
+	if p := validateLimit(params.Limit); p != nil {
+		writeProblem(w, p)
+		return
+	}
 	if params.Limit != nil {
 		limit = *params.Limit
 	}
@@ -407,7 +419,12 @@ func (s *Server) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceI
 	defer sub.Close()
 
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	// S-6: `no-transform` is the half that survives deployment. `no-cache`
+	// stops caching but a gzip-ing proxy (nginx, a CDN) may still buffer
+	// text/event-stream and hold every event until the buffer fills — the
+	// stream then looks dead. compress:false only disciplines our own dev
+	// server, so the header has to say it.
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
@@ -460,4 +477,40 @@ func (s *Server) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceI
 			write(id, e.Type, data)
 		}
 	}
+}
+
+// PreviewTriggers is FR-3.6. It runs the router's own rules read-only so the
+// composer's promise and the post's behaviour cannot drift — the web had to
+// reimplement FR-3.3 locally in P1, and two copies of an eight-rule table do
+// not stay equal.
+func (s *Server) PreviewTriggers(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
+	u, p := s.sessionAccess(r, sessionId)
+	if p != nil {
+		writeProblem(w, p)
+		return
+	}
+	var in gen.MessageCreate
+	if p := decodeJSON(w, r, &in); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	pr := principalOf(r)
+	var author router.Author
+	if pr.Task != nil {
+		tid := pr.Task.TaskID
+		aid := pr.Task.AgentID
+		author = router.Author{Type: "agent", AgentID: &aid, TaskID: &tid, Attempt: pr.Task.Attempt}
+	} else {
+		author = router.Author{Type: "user", UserID: &u.Id}
+	}
+	out, err := s.Router.Preview(r.Context(), sessionId, author, in)
+	switch {
+	case err == router.ErrParentNotFound:
+		writeProblem(w, apperr.Validation(apperr.Field("parent_id", "not_found", "parent message not in this session")))
+		return
+	case err != nil:
+		writeProblem(w, apperr.As(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }

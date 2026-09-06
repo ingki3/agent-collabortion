@@ -218,10 +218,6 @@ func (unimplemented) PostMessage(w http.ResponseWriter, r *http.Request, session
 	notImplemented(w, r, "PostMessage")
 }
 
-func (unimplemented) PreviewTriggers(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	notImplemented(w, r, "PreviewTriggers")
-}
-
 func (unimplemented) ListParticipants(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
 	notImplemented(w, r, "ListParticipants")
 }
@@ -376,14 +372,6 @@ func (unimplemented) ListSessions(w http.ResponseWriter, r *http.Request, worksp
 
 func (unimplemented) CreateSession(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.CreateSessionParams) {
 	notImplemented(w, r, "CreateSession")
-}
-
-func (unimplemented) GetWorkspaceSettings(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId) {
-	notImplemented(w, r, "GetWorkspaceSettings")
-}
-
-func (unimplemented) UpdateWorkspaceSettings(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId) {
-	notImplemented(w, r, "UpdateWorkspaceSettings")
 }
 
 func (unimplemented) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.StreamEventsParams) {

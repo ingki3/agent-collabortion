@@ -263,7 +263,8 @@ func (s *Service) NotePreviewDrift(ctx context.Context, taskID uuid.UUID, attemp
 		SELECT $1, $2, (SELECT COALESCE(max(seq) + 1, $3::int) FROM task_event WHERE task_id = $1 AND attempt = $2 AND seq >= $3::int),
 		       'runtime', 'error', to_jsonb($4::text), 'info', $5, $6
 		WHERE NOT EXISTS (
-			SELECT 1 FROM task_event WHERE task_id = $1 AND attempt = $2 AND object_ref = to_jsonb($4::text) AND class = 'runtime' AND verb = 'error')`,
+			SELECT 1 FROM task_event WHERE task_id = $1 AND attempt = $2 AND object_ref = to_jsonb($4::text) AND class = 'runtime' AND verb = 'error')
+		ON CONFLICT (task_id, attempt, seq) DO NOTHING`,
 		taskID, attempt, serverSeqBase, "heartbeat.preview",
 		map[string]any{
 			"note":  "데몬이 보낸 heartbeat preview 모양이 계약과 달라 무시했습니다",
@@ -612,7 +613,8 @@ func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO task_event (task_id, attempt, seq, class, verb, object_ref, outcome, payload, created_at)
 			VALUES ($1, $2, (SELECT COALESCE(max(seq) + 1, $3::int) FROM task_event WHERE task_id = $1 AND attempt = $2 AND seq >= $3::int),
-			        'status', 'cancel', to_jsonb($4::text), 'ok', $5, $6)`,
+			        'status', 'cancel', to_jsonb($4::text), 'ok', $5, $6)
+			ON CONFLICT (task_id, attempt, seq) DO NOTHING`,
 			t.ID, t.Attempt, serverSeqBase, "director",
 			map[string]any{"command": "lane cancel", "note": "사람이 중단함", "requested_by": byUserID.String(), "reason": "director"}, now); err != nil {
 			return fmt.Errorf("tasks: cancel feed event: %w", err)

@@ -114,6 +114,10 @@ func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request, workspaceId 
 	if params.IncludeArchived != nil {
 		o.IncludeArchived = *params.IncludeArchived
 	}
+	if p := validateLimit(params.Limit); p != nil {
+		writeProblem(w, p)
+		return
+	}
 	if params.Limit != nil {
 		o.Limit = *params.Limit
 	}
