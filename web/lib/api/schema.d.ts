@@ -1612,7 +1612,8 @@ export interface paths {
         };
         /**
          * 아티팩트 본문 다운로드
-         * @description 권한: 워크스페이스 멤버 · `TaskToken`(같은 세션).
+         * @description 권한: 워크스페이스 멤버 · `TaskToken`(같은 세션) · **`DaemonToken`**(P4 — 그 런타임에 고정된 세션의 아티팩트만).
+         *     `DaemonToken` 은 `daemon-protocol.md` §4.3 `rebind_prepare` 가 데몬에게 **다운로드를 지시**하기 때문에 필요하다(T-I4 실측: 없으면 401 로 전부 실패하고 재바인딩 뒤 diff 가 디스크에 없어 E14-06 이 성립하지 않는다).
          */
         get: operations["downloadArtifact"];
         put?: never;
@@ -1637,7 +1638,7 @@ export interface paths {
         /**
          * 리뷰 승인/반려(`colab review approve|reject`)
          * @description 권한: `TaskToken`(에이전트). 종료 조건 `agent_approval`에 지정된 에이전트가 아니면 `403 not_designated_reviewer`(E6-06) — 저장하지 않는다.
-         *     `approve`는 조건 충족 → 나머지 조건에 따라 `completing`(단독이면 사람 게이트 없이 종료, E6-05) 또는 `user_approval` HITL 발행. `reject`는 `comments`를 그 아티팩트를 제출한 task의 lane 스레드에 답글로 게시한다(해소 규칙 1로 재진입 — E16-B 5단계). 결정 기록에 `source: agent`로 남는다.
+         *     `approve`는 조건 충족 → 나머지 조건에 따라 `completing`(단독이면 사람 게이트 없이 종료, E6-05) 또는 `user_approval` HITL 발행. `reject`는 `comments`를 그 아티팩트를 제출한 task의 lane 스레드에 답글로 게시하고 **서버가 그 lane 을 명시적으로 재진입시킨다**(E16-B 5단계). **라우팅 규칙 4를 타지 않는다(P4 정정, T-I4 실측)** — 그 답글은 에이전트가 쓴 멘션 없는 메시지라 규칙 4("에이전트 메시지는 멘션이 있을 때만 트리거")에 걸려 아무도 깨우지 않았다. 재진입은 해소 규칙 1의 결과(같은 lane, `reentry_count`+1)와 같되 트리거는 리뷰 반려라는 **플랫폼 사건**이다. 결정 기록에 `source: agent`로 남는다.
          */
         post: operations["reviewArtifact"];
         delete?: never;
