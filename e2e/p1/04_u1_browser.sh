@@ -3,6 +3,9 @@
 # web/e2e/u1.sh(W 스트림) 의 셀렉터를 따르되, 4단계에서 화면의 설치 명령 2행에서 페어링 코드를 읽어 실제 bin/daemon 을 붙인다.
 # 스크린샷: web/__screenshots__/p1-u1-*.png, p1-u13-*.png. 단계별 "보이는 것" 판정을 e2e/p1/out/d-steps.tsv 에 남긴다.
 # 사용: bash e2e/p1/up.sh && bash e2e/p1/04_u1_browser.sh
+# 2026-09-06 T-I2: P2(T-W2, PR #67)가 S6 를 **7단계 마법사**로 바꿨다. U1-7~12 를 단계별로 확인하도록 갱신했다.
+#   단계 전환은 클라이언트 렌더라 연달아 누르면 씹힌다 — 각 단계 사이에 sleep 1 이 있다. 그래도 마지막 '시작' 이
+#   눌리지 않는 실행이 있다(손으로 같은 화면을 몰면 세션이 만들어진다). U1-13 이 미도달이면 여기를 먼저 의심하라.
 #   U1_STOP_AFTER=4 로 두면 1~4단계(가입 → 온보딩 → 워크스페이스 → S12 준비 완료)까지만 돌고 요약을 남긴다.
 #   S-6 회귀 재확인처럼 앞부분만 짧게 볼 때 쓴다(에이전트 턴 0 — 비용 없음).
 source "$(dirname "$0")/lib.sh"
@@ -110,24 +113,54 @@ rec 5 S4-3 "템플릿 카드 3장 + 직접 만들기" N/A "P2(applyAgentTemplate
 ab click '[data-testid="agent-create"]' >/dev/null
 if try ab wait --url "**/sessions/new" --timeout 20000; then rec 6 "S4-3→S6" "'Lead 생성됨' 확인 후 첫 세션" PASS "P1: Lead(claude_code, probe models[0]) 생성 후 S6 로 이동"; else rec 6 "S4-3→S6" "Lead 생성 후 S6" FAIL "url=$(ab get url)"; fi
 
-step "U1-7~12 S6 마법사 — 제목·goal 입력, 2~7단계는 기본값 요약"
-wait_sel '[data-testid="session-defaults"]' || die "S6 defaults"
-DEF="$(ab get text '[data-testid="session-defaults"]' | tr '\n' ' ')"; log "defaults: $DEF"
+step "U1-7~12 S6 마법사 — P2(T-W2) 에서 **7단계 마법사**로 바뀌었다. 단계별로 U1 항목을 그대로 확인한다"
+# P1 때는 한 화면의 `session-defaults` 요약 한 줄이었다. T-W2(PR #67)가 SCREEN §4.4 대로 7단계로 나눴으므로
+# 같은 항목을 각 단계에서 본다 — 요약 문자열이 사라진 것은 결함이 아니라 P2 범위의 화면 변경이다.
+wait_sel '[data-testid="session-wizard"]' || die "S6 마법사"
+STEPS_N="$(ab get count '[data-testid="wizard-steps"] span' 2>/dev/null || echo 0)"
 PH="$(ab get attr '[data-testid="session-goal"]' placeholder 2>/dev/null || echo '')"
-grep -q "국내 B2B SaaS" <<<"$PH" && rec 7 S6-1 "제목·goal 필드, 예시 placeholder" PASS "placeholder='$PH'" || rec 7 S6-1 "제목·goal 필드 + 예시 placeholder" FAIL "placeholder='$PH'"
-grep -q "Director" <<<"$DEF" && grep -q "본인" <<<"$DEF" && rec 8 S6-2 "Director=본인, deputy 비움" PASS "요약 행" || rec 8 S6-2 "Director=본인" FAIL
-grep -q "none" <<<"$DEF" && grep -q "worktree" <<<"$DEF" && rec 9 S6-3 "격리 none 기본, worktree 는 저장소 필요 설명" PASS "요약 행" || rec 9 S6-3 "격리 none 기본" FAIL
-grep -q "자동 선택" <<<"$DEF" && grep -q "1대" <<<"$DEF" && rec 10 S6-4 "런타임 자동 선택 기본 + 방금 연결한 노트북 1대" PASS "요약 행" || rec 10 S6-4 "런타임 자동 선택 + 1대" FAIL "$DEF"
-grep -q "assignee" <<<"$DEF" && rec 11 S6-5 "참여자 체크됨, assignee=Lead" PASS "요약 행(P1: Lead 1개)" || rec 11 S6-5 "참여자·assignee" FAIL
-grep -q "artifact 제출" <<<"$DEF" && grep -q "Director 승인" <<<"$DEF" && rec 12 S6-6 "종료 조건 기본값: artifact 제출 AND Director 승인" PASS "요약 행" || rec 12 S6-6 "종료 조건 기본값" FAIL
+if grep -q "국내 B2B SaaS" <<<"$PH" && [ "${STEPS_N:-0}" -ge 7 ]; then
+  rec 7 S6-1 "제목·goal 필드, 예시 placeholder (+7단계)" PASS "placeholder='$PH' steps=$STEPS_N"
+else rec 7 S6-1 "제목·goal 필드 + 예시 placeholder" FAIL "placeholder='$PH' steps=$STEPS_N"; fi
 ab fill '[data-testid="session-title"]' "결제 시장 조사" >/dev/null
 ab fill '[data-testid="session-goal"]' "국내 B2B SaaS 결제 시장 조사 보고서 10페이지" >/dev/null
 shot p1-u1-07-s6-goal
+sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 2 Director
+wait_sel '[data-testid="wizard-director"]' 10
+DIR="$(ab get text '[data-testid="wizard-director"]' 2>/dev/null | tr '\n' ' ')"
+grep -q "$NAME" <<<"$DIR" && rec 8 S6-2 "Director=본인, deputy 비움" PASS "$(head -c 80 <<<"$DIR")" || rec 8 S6-2 "Director=본인" FAIL "$(head -c 80 <<<"$DIR")"
+sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 3 격리
+wait_sel '[data-testid="wizard-isolation"]' 10
+ISO="$(ab get text '[data-testid="wizard-isolation"]' 2>/dev/null | tr '\n' ' ')"
+grep -q "none" <<<"$ISO" && grep -q "worktree" <<<"$ISO" && rec 9 S6-3 "격리 none 기본, worktree 는 저장소 필요 설명" PASS "$(head -c 80 <<<"$ISO")" || rec 9 S6-3 "격리 none 기본" FAIL "$(head -c 80 <<<"$ISO")"
+sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 4 런타임
+wait_sel '[data-testid="wizard-runtime"]' 10
+sleep 2
+RTAUTO="$(ab get count '[data-testid="runtime-auto"]' 2>/dev/null || echo 0)"
+RTCAND="$(ab get count '[data-testid="runtime-candidate"]' 2>/dev/null || echo 0)"
+RTERR="$(ab get text '[data-testid="new-session-error"]' 2>/dev/null | tr '\n' ' ' | head -c 90)"
+if [ "${RTAUTO:-0}" -ge 1 ] && [ "${RTCAND:-0}" -ge 1 ]; then
+  rec 10 S6-4 "런타임 자동 선택 기본 + 방금 연결한 노트북 1대" PASS "auto=$RTAUTO candidates=$RTCAND"
+else rec 10 S6-4 "런타임 자동 선택 + 1대" FAIL "auto=${RTAUTO:-0} candidates=${RTCAND:-0} error='$RTERR'"; fi
+sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 5 참여자
+wait_sel '[data-testid="wizard-participants"]' 10
+PART="$(ab get text '[data-testid="wizard-participants"]' 2>/dev/null | tr '\n' ' ')"
+grep -q "assignee" <<<"$PART" && rec 11 S6-5 "참여자 체크됨, assignee=Lead" PASS "$(head -c 80 <<<"$PART")" || rec 11 S6-5 "참여자·assignee" FAIL "$(head -c 80 <<<"$PART")"
+# 참여자를 하나도 고르지 않으면 다음 버튼이 잠긴다(마법사가 그렇게 막는다) — Lead 를 고르고 assignee 로 둔다.
+ab click '[data-testid="participant-option"] input[type=checkbox]' >/dev/null 2>&1 || true
+ab click '[data-testid="participant-option"] [data-testid="assignee-radio"]' >/dev/null 2>&1 || true
+sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 6 종료 조건
+wait_sel '[data-testid="wizard-conditions"]' 10 || rec 12 S6-6 "6단계(종료 조건)로 이동" FAIL "blocked='$(ab get text '[data-testid="wizard-blocked"]' 2>/dev/null | head -c 60)'"
+COND="$(ab get text '[data-testid="wizard-conditions"]' 2>/dev/null | tr '\n' ' ')"
+grep -q "아티팩트 제출" <<<"$COND" && grep -q "승인" <<<"$COND" && rec 12 S6-6 "종료 조건 기본값: 아티팩트 제출 AND Director 승인" PASS "$(head -c 90 <<<"$COND")" || rec 12 S6-6 "종료 조건 기본값" FAIL "$(head -c 90 <<<"$COND")"
+sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 7 한도·요약
+wait_sel '[data-testid="wizard-summary"]' 10 || bad "7단계(한도·요약) 미도달"
+sleep 1
 TS="$(now_ms)"
 ab click '[data-testid="session-start"]' >/dev/null
 
 step "U1-13 S7 — goal 시스템 메시지 · 참여자 칩 · 에이전트 응답(실시간)"
-try ab wait --url "**/sessions/*" --timeout 20000 || die "S7 로 이동하지 않음"
+ab wait --fn "/^\\/sessions\\/[0-9a-f-]{36}$/.test(location.pathname)" --timeout 25000 >/dev/null 2>&1 || die "S7 로 이동하지 않음 (url=$(ab get url))"
 wait_sel '[data-testid="session-detail"]'
 SESSION_ID="$(ab get attr '[data-testid="session-detail"]' data-session-id)"
 wait_cards 1 20 && FIRST="$(ab get text '[data-testid="message-card"]' | tr '\n' ' ' | head -c 160)" || FIRST=""
