@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.8.3 — §6 hermes 행 (a′) provenance 부재(빈 객체)는 유실(스파이크 4c 실측 2). v0.8.2 — §6 claude_code 유실 판정을 실측대로(`-32002` 또는 `not found`; 스파이크 4c). v0.8.1 — §10 cli_wrapper 치환 범위를 브리프+턴 프롬프트로(D-7 워커 지적). v0.8은 §10 **도구 표면**(`tool_surface`: claude_code `mcp`, hermes `cli_wrapper` — 데몬이 attempt별 래퍼를 만들고 브리프 [2]에 절대 경로) + §9 광고. G5 (b) 차단 결함. v0.7.1은 §11 `estimated`의 자리별 표현(`usage.report` 생략 / `finish` 0 + 무시). v0.7은 §11 `cost_usd` 부재 규칙(생략 + `estimated:true`)과 가격표 소유(워크스페이스=서버). v0.6은 §2.1 시스템 최소에 `USER`(G4 차단 결함: OAuth 갱신 시 키체인이 `USER`를 쓴다). v0.5는 §9 `supported_options`(T-W2가 찾은 빈칸: 프로파일 옵션 능력을 광고할 키가 v0.4.1 대조에서 빠졌다). v0.3 은 PR #20(데몬 P1) 구현·리뷰에서 드러난 5건 반영(usage 시점, Hermes 모델 접두어, Hermes 본문 오류 접두어 규칙, disallowedTools 도출, 250ms 비주입). v0.2는 스파이크 1b 반영 |
+| 버전 | v0.8.4 — §2.2 refusal 예외: 재개 직후 활동 0 인 refusal 은 유실 의심 → 콜드 스타트 1회 재시도(D-13). v0.8.3 — §6 hermes 행 (a′) provenance 부재(빈 객체)는 유실(스파이크 4c 실측 2). v0.8.2 — §6 claude_code 유실 판정을 실측대로(`-32002` 또는 `not found`; 스파이크 4c). v0.8.1 — §10 cli_wrapper 치환 범위를 브리프+턴 프롬프트로(D-7 워커 지적). v0.8은 §10 **도구 표면**(`tool_surface`: claude_code `mcp`, hermes `cli_wrapper` — 데몬이 attempt별 래퍼를 만들고 브리프 [2]에 절대 경로) + §9 광고. G5 (b) 차단 결함. v0.7.1은 §11 `estimated`의 자리별 표현(`usage.report` 생략 / `finish` 0 + 무시). v0.7은 §11 `cost_usd` 부재 규칙(생략 + `estimated:true`)과 가격표 소유(워크스페이스=서버). v0.6은 §2.1 시스템 최소에 `USER`(G4 차단 결함: OAuth 갱신 시 키체인이 `USER`를 쓴다). v0.5는 §9 `supported_options`(T-W2가 찾은 빈칸: 프로파일 옵션 능력을 광고할 키가 v0.4.1 대조에서 빠졌다). v0.3 은 PR #20(데몬 P1) 구현·리뷰에서 드러난 5건 반영(usage 시점, Hermes 모델 접두어, Hermes 본문 오류 접두어 규칙, disallowedTools 도출, 250ms 비주입). v0.2는 스파이크 1b 반영 |
 | 소유 | D + Lead. 변경은 Director 승인 PR로만 (`contracts/README.md`) |
 | 근거 | PRD §8.2 (하네스), §8.4 (브리프), FR-7.1 (재시도), FR-3.4·§8.2.2 (취소), FR-5.4 (재개). **G1 판정 `plan/G1_DECISION.md` 와 스파이크 보고서 `plan/spikes/SPIKE_01..06.md`, `SPIKE_01b.md`** — 이 문서의 수치·옵션 키는 전부 실측에서 왔다 |
 | 미결 | 없음 (§12 참조). 서브에이전트 가시성은 v1 피드 요구로 미광고 |
@@ -57,7 +57,7 @@ spawn (pgid, cwd=workdir, env=§2.1)
 | `claude_code` | `session/prompt` 응답 수신 = 종료 |
 | `hermes` | `session/prompt` 응답 수신 후 **250ms 정적 대기** — 마지막 `agent_message_chunk`가 응답 뒤에 올 수 있다(PRD §8.2.5) |
 
-`stopReason` 매핑: `end_turn` → 정상, `cancelled` → 취소 완료, `max_tokens`·`max_turn_requests` → 정상(피드에 사유), `refusal` → 정상 종료 + 피드 경고(유실 판정에는 **쓰지 않는다** — G1 F7).
+`stopReason` 매핑: `end_turn` → 정상, `cancelled` → 취소 완료, `max_tokens`·`max_turn_requests` → 정상(피드에 사유), `refusal` → 정상 종료 + 피드 경고(유실 판정에는 **쓰지 않는다** — G1 F7). **예외(v0.8.4, D-13 — 스파이크 4c §3 실측)**: `session/load` 성공 **직후 첫 턴**이 `refusal` 로 끝나고 그 턴의 툴 호출·`colab` 게시가 **0** 이면 유실 의심으로 본다 — 데몬은 그 attempt 를 **콜드 스타트로 1회 재시도**하고(`runtime.resume outcome=cold_start`, `resume_reason=refusal_after_resume`), 재시도도 같으면 `failed(other)` + 사유 이벤트. 재개가 아닌 턴의 refusal 은 여전히 정상 종료다.
 
 ## 3. `_meta` — 어댑터 확장 (claude_code)
 

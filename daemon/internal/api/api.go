@@ -40,7 +40,34 @@ type ClaimRequest struct {
 
 type ClaimResponse struct {
 	Tasks    []contracts.TaskBundle `json:"tasks"`
-	Commands []contracts.Command    `json:"commands"`
+	Commands []Command              `json:"commands"`
+}
+
+// GCWorkdir is one entry of the §4.3 `gc` payload: the server's workdir row id
+// and the ABSOLUTE PATH it stands for.
+//
+// The path is there because the daemon has never held a uuid ↔ path mapping.
+// §6 reports carry an optional `id`, but nothing ever hands the daemon the id
+// the server minted (the report response has no body), so a `gc
+// {workdir_ids}` naming DB uuids was undeliverable work: the daemon could not
+// tell which directory to remove. Lead's answer is that the server names the
+// path (daemon-protocol §4.3 gc payload v0.7).
+type GCWorkdir struct {
+	ID   string `json:"id"`
+	Path string `json:"path"`
+}
+
+// Command is a §4.3 server command as the daemon reads it: the contract
+// struct plus the gc payload's `workdirs` list.
+//
+// The extra field lives here rather than in `contracts` because the contract
+// PR that adds it (daemon-protocol v0.7) is Lead's to merge and this stream
+// may not edit `contracts/` (P2_TASKS §0-3). Embedding keeps every existing
+// `c.Type` / `c.TaskID` / `c.Reason` read working unchanged; when the contract
+// type grows the field, this wrapper collapses to `contracts.Command`.
+type Command struct {
+	contracts.Command
+	Workdirs []GCWorkdir `json:"workdirs,omitempty"`
 }
 
 // PhaseRequest — POST …/phase (§4.2).
@@ -55,8 +82,8 @@ type EventsRequest struct {
 }
 
 type EventsResponse struct {
-	AcceptedSeqMax int                 `json:"accepted_seq_max"`
-	Commands       []contracts.Command `json:"commands"`
+	AcceptedSeqMax int       `json:"accepted_seq_max"`
+	Commands       []Command `json:"commands"`
 }
 
 // HeartbeatPreview is the non-persisted partial message (§4.2 v0.3, G3 C-1):
@@ -76,7 +103,7 @@ type HeartbeatRequest struct {
 }
 
 type HeartbeatResponse struct {
-	Commands []contracts.Command `json:"commands"`
+	Commands []Command `json:"commands"`
 }
 
 // FinishRequest — POST …/finish (§4.4).

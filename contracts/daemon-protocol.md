@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.7 — §4.3 `gc` 페이로드에 서버가 경로를 싣고(`workdirs:[{id,path}]`), §6 보고 행 `gc: {status: deleted|refused, reason}` 로 결과·거부를 알린다(T-D5 계약 질문, G5 S-29·D-4). v0.6 — `dispatched` 5분 타임아웃은 재큐잉이 아니라 종료다(§4.1). v0.5는 probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
+| 버전 | v0.7.1 — §4.4 유효 예산 = min(task 상한(override 우선), 세션 잔여)(PR #121 리뷰 NN3, D-16). v0.7 — §4.3 `gc` 페이로드에 서버가 경로를 싣고(`workdirs:[{id,path}]`), §6 보고 행 `gc: {status: deleted|refused, reason}` 로 결과·거부를 알린다(T-D5 계약 질문, G5 S-29·D-4). v0.6 — `dispatched` 5분 타임아웃은 재큐잉이 아니라 종료다(§4.1). v0.5는 probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
 | 소유 | S + D. 변경은 Director 승인 PR로만 |
 | 근거 | PRD §8.1(큐), FR-7.1(상태 머신·heartbeat), FR-9.1(고아·토큰 폐기), FR-9.2(오프라인 유예), FR-6.4(workdir·GC), `harness.md`(오류 분류·재개) |
 | 원칙 | **데몬은 stateless, 상태는 서버.** 데몬은 서버가 준 것만 실행하고 결과를 보고한다. 모든 시각 판정(만료·유예·`not_before`)은 서버 클럭(`contracts/clock`) |
@@ -161,7 +161,7 @@ POST /v1/daemon/tasks/{task_id}/attempts/{attempt}/finish
   서버가 폴백할 때: 같은 workdir(`workdir.reuse: true`), `attempt` 증가, **`runtime_kind`가 바뀌면 `resume`을 비운다**(런타임 세션은 이어받을 수 없다 — E8-08). 같은 머신에 쓸 수 있는 대체 프로파일이 없으면 `queued`로 두고 Director에게 알린다. **다른 머신으로 넘기지 않는다**(E8-09).
 
   따라서 `TaskBundle`에 대체 프로파일 목록은 두지 않는다.
-- `paused_budget`: 데몬이 `usage_update` 누적으로 `limits.budget_usd`를 넘겨 취소 절차를 밟은 경우(FR-7.3). `failure_kind` 없음.
+- `paused_budget`: 데몬이 `usage_update` 누적으로 **유효 예산**을 넘겨 취소 절차를 밟은 경우(FR-7.3). `failure_kind` 없음. **유효 예산(v0.7.1, D-16)** = `min(task 상한, 세션 잔여)` — task 상한은 `budget_override_usd` 가 있으면 그것(승인된 상향), 없으면 `budget_usd`(에이전트 `budget_per_task`); 세션 잔여는 `limits.budget_usd`(서버가 번들에 실은 세션 잔여 예산). 어느 쪽이 먼저 닿든 `paused_budget` 이고, 넘긴 쪽을 `detail` 에 적는다. 우선순위(override > limits > task) 방식은 세션 잔여를 넘길 수 있어 쓰지 않는다.
 
 ## 5. 토큰 폐기와 고아 (FR-9.1)
 

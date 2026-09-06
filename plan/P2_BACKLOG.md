@@ -23,15 +23,18 @@
 | D-2 | probe의 `resume`·`usage`·`tool_disallow`를 상수가 아니라 실측으로(E12-06 `usage=false` 경로) | PR #20 NN2 | P2 초반 |
 | D-3 | `acpprobe`(스파이크 cmd) 제거 — `harness/acp`로 승격 완료 | PR #20 결함 6 | 정리 |
 | D-4 | worktree·GC·`rebind_prepare`·예산 강제는 P3·P4 | PR #20 결함 7 | 단계대로 |
-| D-5 | probe `capabilities[].supported_options` 채우기 — `(kind, adapter_version)` 표. claude_code 0.74.0: `effort` 허용 값. Hermes: 비움 | T-W2 계약 빈칸(harness v0.5) | **T-I2 전.** 비어 있으면 웹이 옵션 편집을 비활성으로 둔다 — 빈 채로 두면 S10이 사실상 죽는다 |
+| ~~D-5~~ | probe `capabilities[].supported_options` 채우기 — `(kind, adapter_version)` 표. claude_code 0.74.0: `effort` 허용 값. Hermes: 비움 | T-W2 계약 빈칸(harness v0.5) | **T-I2 전.** 비어 있으면 웹이 옵션 편집을 비활성으로 둔다 — 빈 채로 두면 S10이 사실상 죽는다 | **해결 — PR #121**
 | ~~D-6~~ | 데몬 `recordUsage`가 `cost_usd`를 한 번도 대입하지 않고 `0 + estimated:false`를 보낸다(ACP `Usage`에 비용 필드 없음). harness v0.7: 비용을 모르면 **`cost_usd` 생략 + `estimated:true`**. `Estimated`가 `pr.Usage == nil`일 때만 켜지는 것을 고쳐라 | G4 3판 W16 (PR #87 리뷰 §2) | P3 비용 화면(E9-07) 전 | **해결 — PR #93.**
 | ~~D-7~~ | **G5 (b) 차단** — Hermes ACP 어댑터가 `mcpServers`를 무시하고(initialize에 `mcpCapabilities` 없음) 셸 도구를 위생화된 env로 띄워 `COLAB_*`·`PATH`가 안 내려간다 → Hermes 에이전트가 플랫폼에 말할 수단이 없다(메시지 0, status 0). harness v0.8: attempt별 래퍼 `<workdir_root>/.colab/bin/<task>.<attempt>/colab` + 브리프 [2] 절대 경로 + `tool_surface` 광고 | G5 T-I2 2부 escalation | **G5 전** | **해결 — PR #97**(`internal/toolwrap`, 실기 스모크로 위생화 셸에서 래퍼 동작 확인).
-| D-8 | `toolwrap.cliRe`가 명령 위치의 `colab <소문자 서브커맨드>`만 잡고 `colab --flag`(예 `` `colab --version` ``)는 치환하지 않는다. 지금 브리프·프롬프트의 명령은 전부 서브커맨드라 실해 없음; `([a-z]|-)`로 넓히거나 계약에 "서브커맨드 또는 플래그" 명시 | PR #97 리뷰 NN2 | 낮음 |
-| D-9 | `daemon/internal/acpfake` 가 내부 패키지라 server 모듈의 시뮬레이터(`server/test/sim`, P3a #108)가 임포트 못 한다 — 테스트 로컬 `replayAttempt` 로 대체 중. 공개 패키지(`daemon/acpfake`)로 이동하면 시뮬레이터가 실제 ACP 대역으로 돈다 | P3a PR #108 질문 1 | T-D5 |
+| ~~D-8~~ | `toolwrap.cliRe`가 명령 위치의 `colab <소문자 서브커맨드>`만 잡고 `colab --flag`(예 `` `colab --version` ``)는 치환하지 않는다. 지금 브리프·프롬프트의 명령은 전부 서브커맨드라 실해 없음; `([a-z]|-)`로 넓히거나 계약에 "서브커맨드 또는 플래그" 명시 | PR #97 리뷰 NN2 | 낮음 | **해결 — PR #121**
+| ~~D-9~~ | `daemon/internal/acpfake` 가 내부 패키지라 server 모듈의 시뮬레이터(`server/test/sim`, P3a #108)가 임포트 못 한다 — 테스트 로컬 `replayAttempt` 로 대체 중. 공개 패키지(`daemon/acpfake`)로 이동하면 시뮬레이터가 실제 ACP 대역으로 돈다 | P3a PR #108 질문 1 | T-D5 | **해결 — PR #121**
 | D-10 | `isSessionGone` 의 `not found` 부분일치가 넓다(`cwd not found` 류도 유실로) — 보수적 방향이라 무해; 어댑터 코드 안정화 뒤 `-32002` 만 | PR #111 리뷰 NN1 | 낮음 |
-| D-11 | 유실 이벤트(`runtime.resume outcome=cold_start`)에 원 rpc 코드·메시지 한 칸 — S7 피드에서 "왜 콜드 스타트인지" | PR #111 리뷰 NN2 | T-D5 |
-| D-12 | hermes `sessionProvenance: {}`·빈 `acpSessionId` 는 reason 이 `provenance_mismatch` 로 남는다(결과는 같은 cold_start) — `no_provenance` 로 | PR #115 리뷰 NN1 | T-D5 |
-| D-13 | resume 직후 첫 prompt 가 `stopReason=refusal` 로 편집·게시 0 으로 끝나면 task 가 `completed` 가 된다(§2.2 가 refusal 을 성공으로 읽음) — Lead 결정: 콜드 스타트 1회 재시도, 재시도도 refusal 이면 `failed(other)` + 사유 이벤트 | 스파이크 4c §3 | T-D5 |
+| ~~D-11~~ | 유실 이벤트(`runtime.resume outcome=cold_start`)에 원 rpc 코드·메시지 한 칸 — S7 피드에서 "왜 콜드 스타트인지" | PR #111 리뷰 NN2 | T-D5 | **해결 — PR #121**
+| ~~D-12~~ | hermes `sessionProvenance: {}`·빈 `acpSessionId` 는 reason 이 `provenance_mismatch` 로 남는다(결과는 같은 cold_start) — `no_provenance` 로 | PR #115 리뷰 NN1 | T-D5 | **해결 — PR #121**
+| ~~D-13~~ | resume 직후 첫 prompt 가 `stopReason=refusal` 로 편집·게시 0 으로 끝나면 task 가 `completed` 가 된다(§2.2 가 refusal 을 성공으로 읽음) — Lead 결정: 콜드 스타트 1회 재시도, 재시도도 refusal 이면 `failed(other)` + 사유 이벤트 | 스파이크 4c §3 | T-D5 | **해결 — PR #121**
+| D-14 | daemon-protocol v0.7 이후 `api.Command` 래퍼를 `contracts.Command` 로 접는 후속 정리(T-D5 가 남김) | PR #121 | 다음 데몬 작업 |
+| D-15 | `closeProcess()` 를 `emitStep(5)` 없이 부르는 경로가 생기면 취소 순서 골든이 못 잡는다 — `closeProcess` 안에서 5단계 이벤트를 내게 묶기 | PR #121 리뷰 NN1 | 낮음 |
+| D-16 | `budgetLimit` 우선순위가 `Task.BudgetOverrideUSD > Limits.BudgetUSD > Task.BudgetUSD` — Lead 결정: 유효 예산 = **min(override 또는 task 예산, 세션 잔여)**. harness §4.4 문언 보강(Lead) + 데몬 반영 | PR #121 리뷰 NN3 | 다음 데몬 작업 + 계약 |
 
 ## W (웹)
 
@@ -85,6 +88,7 @@
 | S-38 | `historyLimit = 30` 인데 EVAL E8-12 는 50 — 상수를 50 으로, 설정화는 P4 | 스파이크 4c §5-4 | T-S5 |
 | S-39 | `lane.runtime_session_ref` 가 finish 에서만 저장돼 크래시한 attempt 는 resume 자원이 없다(다음 attempt 는 항상 콜드 스타트). 실측상 콜드 스타트 성적이 같아 고치지 않음 — 세션 생성 직후 ref 를 heartbeat 에 싣는 것은 §4.2 계약 변경 | 스파이크 4c §5-5·§0.2 | P4, 알고 있기 |
 | S-40 | 사소: 턴 프롬프트 영어 · `failure_kind` 원문 노출 · `none` 격리에서 `git status` 문구 | 스파이크 4c §5-6 | 낮음 |
+| S-41 | 서버가 `contracts/task_event.schema.json` 을 어긴 task_event(닫힌 enum·additionalProperties:false 위반)를 **200 으로 받는다** — T-D5 첫 구현이 5곳 어겼는데 아무도 몰랐다(데몬은 memSink 검사로 자기 방어). 서버 ingest 에 스키마 검증(422 + 피드) | PR #121 자기 정정 | T-S5 후속 또는 P4 |
 
 ## C (CLI)
 

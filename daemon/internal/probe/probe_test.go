@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/ingki3/agent-collabortion/contracts"
-	"github.com/ingki3/agent-collabortion/daemon/internal/acpfake"
+	"github.com/ingki3/agent-collabortion/daemon/acpfake"
 	"github.com/ingki3/agent-collabortion/daemon/internal/harness/acp"
 )
 
@@ -231,5 +231,58 @@ func TestDetectWithoutTurnLeavesToolSurfaceEmpty(t *testing.T) {
 	cap, ok := Detect(context.Background(), contracts.RuntimeClaudeCode, Options{})
 	if ok && cap.ToolSurface != "" {
 		t.Fatalf("tool_surface %q advertised without a turn", cap.ToolSurface)
+	}
+}
+
+// D-5 — §9 supported_options is a (kind, adapter_version) table, and an
+// unverified version advertises NOTHING. Empty means "no advertisement", not
+// "no options" (§9), and S10 leaves option editing disabled on empty — so a
+// guess here hands the user a control the adapter silently discards.
+func TestSupportedOptionsIsPinnedToTheAdapterVersion(t *testing.T) {
+	got := acp.SupportedOptions(contracts.RuntimeClaudeCode, acp.AdapterPin)
+	want := []string{"low", "medium", "high", "xhigh"}
+	if len(got["effort"]) != len(want) {
+		t.Fatalf("effort = %v, want %v (harness §9 example)", got["effort"], want)
+	}
+	for i, v := range want {
+		if got["effort"][i] != v {
+			t.Fatalf("effort = %v, want %v", got["effort"], want)
+		}
+	}
+	if o := acp.SupportedOptions(contracts.RuntimeClaudeCode, "0.99.0"); o != nil {
+		t.Errorf("an unverified adapter version advertised %v — empty is the honest answer (§9)", o)
+	}
+	if o := acp.SupportedOptions(contracts.RuntimeHermes, "0.20.6"); len(o) != 0 {
+		t.Errorf("hermes advertised %v — v1 has no profile-option channel at all (§3, §9)", o)
+	}
+	// Mutating the returned map must not edit the table.
+	got["effort"][0] = "tampered"
+	if again := acp.SupportedOptions(contracts.RuntimeClaudeCode, acp.AdapterPin); again["effort"][0] != "low" {
+		t.Error("SupportedOptions handed out the package table itself")
+	}
+
+	// And the probe actually CARRIES it — a table nothing reads leaves S10
+	// exactly as dead as no table at all (D-5).
+	script := acpfake.Script{Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "PONG"}}}}}
+	o := Options{Turn: true, Timeout: 20 * time.Second, Command: func(k contracts.RuntimeKind) (string, []string, []string, bool) {
+		c, a, e := acpfake.Command(script, "")
+		return c, a, e, true
+	}}
+	cap := contracts.Capability{Kind: contracts.RuntimeClaudeCode}
+	Pong(context.Background(), contracts.RuntimeClaudeCode, o, &cap)
+	if len(cap.SupportedOptions["effort"]) == 0 {
+		t.Fatalf("probe capability = %+v, want supported_options.effort filled for the pinned adapter (D-5)", cap)
+	}
+	// An adapter version the daemon has not verified advertises nothing.
+	cap2 := contracts.Capability{Kind: contracts.RuntimeClaudeCode}
+	o2 := o
+	unknown := acpfake.Script{AgentVersion: "0.73.0", Turns: script.Turns}
+	o2.Command = func(k contracts.RuntimeKind) (string, []string, []string, bool) {
+		c, a, e := acpfake.Command(unknown, "")
+		return c, a, e, true
+	}
+	Pong(context.Background(), contracts.RuntimeClaudeCode, o2, &cap2)
+	if len(cap2.SupportedOptions) != 0 {
+		t.Fatalf("an unverified adapter (%s) advertised %+v", cap2.AdapterVersion, cap2.SupportedOptions)
 	}
 }

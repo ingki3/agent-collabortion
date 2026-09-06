@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/ingki3/agent-collabortion/contracts"
-	"github.com/ingki3/agent-collabortion/daemon/internal/acpfake"
+	"github.com/ingki3/agent-collabortion/daemon/acpfake"
 	"github.com/ingki3/agent-collabortion/daemon/internal/api"
 	"github.com/ingki3/agent-collabortion/daemon/internal/config"
 	"github.com/ingki3/agent-collabortion/daemon/internal/harness/acp"
@@ -27,19 +27,20 @@ func TestMain(m *testing.M) {
 // memServer is an in-memory api.Server: hands out queued bundles, records
 // everything, and can attach commands to heartbeat responses.
 type memServer struct {
-	mu        sync.Mutex
-	queue     []contracts.TaskBundle
-	claims    int
-	probes    []contracts.Probe
-	phases    []api.PhaseRequest
-	phaseFile []bool // pgid record existed when phase=preparing arrived
-	events    []contracts.TaskEvent
-	hbs       []api.HeartbeatRequest
-	hbCmds    []contracts.Command
-	finishes  []api.FinishRequest
-	root      string
-	claimHook func()
-	phaseHook func(api.PhaseRequest)
+	mu             sync.Mutex
+	queue          []contracts.TaskBundle
+	claims         int
+	probes         []contracts.Probe
+	phases         []api.PhaseRequest
+	phaseFile      []bool // pgid record existed when phase=preparing arrived
+	events         []contracts.TaskEvent
+	hbs            []api.HeartbeatRequest
+	hbCmds         []api.Command
+	workdirReports []api.WorkdirsRequest
+	finishes       []api.FinishRequest
+	root           string
+	claimHook      func()
+	phaseHook      func(api.PhaseRequest)
 }
 
 func (m *memServer) Pair(context.Context, api.PairRequest) (api.PairResponse, error) {
@@ -108,7 +109,12 @@ func (m *memServer) Finish(_ context.Context, _ string, _ int, req api.FinishReq
 	m.finishes = append(m.finishes, req)
 	return nil
 }
-func (m *memServer) Workdirs(context.Context, string, api.WorkdirsRequest) error { return nil }
+func (m *memServer) Workdirs(_ context.Context, _ string, req api.WorkdirsRequest) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.workdirReports = append(m.workdirReports, req)
+	return nil
+}
 
 func (m *memServer) finished() int {
 	m.mu.Lock()
@@ -224,7 +230,7 @@ func TestClaimRunFinish(t *testing.T) {
 func TestCancelCommandViaHeartbeat(t *testing.T) {
 	srv := &memServer{queue: []contracts.TaskBundle{bundle("t2")}}
 	d, _ := newDaemon(t, srv, acpfake.Script{StayAlive: true, Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "working"}, {Hang: true}}}}})
-	srv.hbCmds = []contracts.Command{{Type: contracts.CmdCancel, TaskID: "t2", Attempt: 1, Reason: "director"}, {Type: contracts.CmdCancel, TaskID: "t2", Attempt: 1, Reason: "director"}}
+	srv.hbCmds = []api.Command{{Command: contracts.Command{Type: contracts.CmdCancel, TaskID: "t2", Attempt: 1, Reason: "director"}}, {Command: contracts.Command{Type: contracts.CmdCancel, TaskID: "t2", Attempt: 1, Reason: "director"}}}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- d.Run(ctx) }()
@@ -295,7 +301,7 @@ func TestRevokeKillsRecordedOrphan(t *testing.T) {
 	d.init()
 	st := orphan.Store{Root: root}
 	st.Record(orphan.Record{TaskID: "gone", Attempt: 3, PGID: pgid})
-	d.handleCommands(context.Background(), []contracts.Command{{Type: contracts.CmdRevoke, TaskID: "gone", Attempt: 3}})
+	d.handleCommands(context.Background(), []api.Command{{Command: contracts.Command{Type: contracts.CmdRevoke, TaskID: "gone", Attempt: 3}}})
 	if orphan.Alive(pgid) {
 		t.Fatal("group alive after revoke")
 	}
