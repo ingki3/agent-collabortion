@@ -969,7 +969,7 @@ workspace 1─N activity_log
   - resume이 거부되면(§8.2.5) lane의 ref를 비우고 콜드 스타트한다.
   - `provenance`는 세션 동일성 검증에 쓴다(Hermes 유실 감지).
 - `message.state`는 `supervised` 모드에서 Director 승인 전 메시지를 담는다. v1.1 기능이지만 마이그레이션을 피하려고 스키마는 v1에 넣는다(M10).
-- `task_event`는 활동 피드의 렌더 단위다(FR-7.2). `class`는 렌더 클래스, `verb`/`object_ref`/`outcome`은 한 문장 렌더용이며, 제자리 갱신은 새 행을 쓰고 이전 행의 `superseded_by`를 채우는 방식으로 이력을 잃지 않고 표현한다.
+- `task_event`는 활동 피드의 렌더 단위다(FR-7.2). `class`는 렌더 클래스, `verb`/`object_ref`/`outcome`은 한 문장 렌더용이며, 제자리 갱신은 새 행을 쓰고 이전 행의 `superseded_by`를 채우는 방식으로 이력을 잃지 않고 표현한다. **서버가 스스로 만드는 이벤트도 닫힌 스키마를 지킨다(v0.16, S-52)**: 사람의 플랫폼 조작·플랫폼이 사람에게 하는 말(cancel·set_status·hitl·gc.refused·명령 TTL 만료)은 `class=status` 에 두고 사람이 읽는 문장은 `payload.args.note` 에, 서버 자체 진단(preview 드리프트·미가격 비용·예산 강제 실패·스키마 거절)은 `class=runtime` + `detail` 에 둔다. 서버 insert 경로도 데몬 경로와 같은 검증을 거친다.
 
 **고빈도 이벤트는 영속화하지 않는다.** 프레즌스, 타이핑·생성 중 표시, 토큰 델타 같은 신호는 실시간 채널로만 흐르고 `task_event`·`activity_log`·검색 색인에 들어가지 않는다. 영속 대상은 "나중에 누가 왜 그랬는지 물을 수 있는 것"으로 한정한다. 이 구분이 없으면 감사 로그가 스트리밍 잡음에 묻힌다.
 
