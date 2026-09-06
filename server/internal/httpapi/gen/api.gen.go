@@ -1268,13 +1268,13 @@ func (e ListInboxParamsFilter) Valid() bool {
 	}
 }
 
-// Defines values for CreateHitlRequest201JSONResponseBodyEndTurn.
+// Defines values for CreateHitlRequest201JSONResponseBodyTurnEndRequired.
 const (
-	True CreateHitlRequest201JSONResponseBodyEndTurn = true
+	True CreateHitlRequest201JSONResponseBodyTurnEndRequired = true
 )
 
-// Valid indicates whether the value is a known member of the CreateHitlRequest201JSONResponseBodyEndTurn enum.
-func (e CreateHitlRequest201JSONResponseBodyEndTurn) Valid() bool {
+// Valid indicates whether the value is a known member of the CreateHitlRequest201JSONResponseBodyTurnEndRequired enum.
+func (e CreateHitlRequest201JSONResponseBodyTurnEndRequired) Valid() bool {
 	switch e {
 	case True:
 		return true
@@ -3388,8 +3388,8 @@ type CreateHitlRequestParams struct {
 	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
 }
 
-// CreateHitlRequest201JSONResponseBodyEndTurn defines parameters for CreateHitlRequest.
-type CreateHitlRequest201JSONResponseBodyEndTurn bool
+// CreateHitlRequest201JSONResponseBodyTurnEndRequired defines parameters for CreateHitlRequest.
+type CreateHitlRequest201JSONResponseBodyTurnEndRequired bool
 
 // ListLanesParams defines parameters for ListLanes.
 type ListLanesParams struct {
