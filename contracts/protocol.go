@@ -121,7 +121,8 @@ type Capability struct {
 	// (session/new.mcpServers 존중) 또는 "cli_wrapper"(MCP 무시 → 데몬이
 	// attempt별 래퍼 실행 파일을 만들고 브리프 [2]에 절대 경로). 판정은
 	// initialize 응답의 mcpCapabilities 유무.
-	ToolSurface string `json:"tool_surface,omitempty"`
+	ToolSurface  string `json:"tool_surface,omitempty"`
+	UsageMidturn bool   `json:"usage_midturn,omitempty"` // harness v0.8.5 §9 — 턴 중 usage 를 주는가(claude_code emitRawSDKMessages true, hermes false)
 }
 
 // Repo — probe repos[] (FR-9, FR-9.2 rebinding by remote_url).
@@ -227,7 +228,7 @@ type Command struct {
 	TaskID           string        `json:"task_id,omitempty"`
 	Attempt          int           `json:"attempt,omitempty"`
 	AfterCurrentTool bool          `json:"after_current_tool,omitempty"`
-	Reason           string        `json:"reason,omitempty"` // director | budget | kill_switch | loop | session_paused
+	Reason           string        `json:"reason,omitempty"`      // director | budget | kill_switch | loop | session_paused
 	WorkdirIDs       []string      `json:"workdir_ids,omitempty"` // gc — 옛 모양(v0.6). v0.7 부터는 Workdirs 가 정본
 	Workdirs         []GCWorkdir   `json:"workdirs,omitempty"`    // gc — daemon-protocol v0.7 §4.3: 서버가 경로를 싣는다
 	SessionID        string        `json:"session_id,omitempty"`
