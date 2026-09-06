@@ -7,13 +7,15 @@
 #   E6-03  Director 승인 → `active → completing → completed`, `session_summary` 1개,
 #          격리 `none`/`container` 의 workdir 즉시 삭제
 #
-# **경로 주의.** `respondHitlRequest` 는 x-phase P3 이라 이 스택에서 501 이다. P2 에서 사람이
-# 세션을 끝내는 정식 경로는 `completeSession`(FR-2.2 `manual`, E6-08)뿐이므로 E6-03 의 기대값을
-# 그 경로로 옮겨 적용한다 — `user_approval` 원자 자체를 충족시키는 HTTP 입구가 P2 에 없다는 사실은
-# 결함으로 따로 기록한다(G5_REPORT S-25). 두 가지를 다 잰다:
-#   (1) HITL 카드가 실제로 발행되는가 (E6-01 — P2 서버가 하는 일)
-#   (2) 승인 응답으로 원자를 충족시킬 수 있는가 (respondHitlRequest — P3 이면 501 을 기록)
-#   (3) completeSession 으로 완료 전이·요약·workdir 삭제가 도는가 (E6-03 의 나머지)
+# **경로 주의.** 종료 조건 `user_approval` 을 충족시키는 입구는 `respondHitlRequest` 이고,
+# 계약 **PR #101** 로 그 승인·거절이 **P2 로 확정**됐다(플랫폼 발행 `approval` 한정 — 에이전트 발행
+# HITL 응답·재큐잉·예산 상향·deputy 는 P3). 서버 구현이 아직 없는 스택에서는 501 이 오므로,
+# 그때는 `completeSession`(FR-2.2 `manual`, E6-08)으로 떨어져 E6-03 의 **전이·요약·정리**를 잰다 —
+# 그 경우 채워지는 원자가 `user_approval` 이 아니라 `manual` 이라는 것까지 판정에 남긴다.
+# 서버 hotfix 가 들어오면 이 스크립트를 그대로 다시 돌리면 된다(아래 셋을 다 재기 때문이다):
+#   (1) HITL 카드가 실제로 발행되는가 (E6-01 — 서버가 하는 일)
+#   (2) 승인 응답으로 원자를 충족시킬 수 있는가 (respondHitlRequest — 501 이면 그것을 기록)
+#   (3) 완료 전이·요약·workdir 삭제가 도는가 (E6-03 의 나머지)
 #
 # 산출물: out/approval.json · out/a3-checks.tsv
 source "$(dirname "$0")/lib.sh"
@@ -93,11 +95,11 @@ if [ -n "$HITL" ]; then
   RESP_CODE="$(api POST "/hitl-requests/$HITL/response" '{"approved":true}' -H "Idempotency-Key: $(uuid)" | api_code)"
 fi
 RESP_OK=no; [ "${RESP_CODE:0:1}" = 2 ] && RESP_OK=yes
-chk P3  "respondHitlRequest 로 user_approval 을 충족시킬 수 있다 (HTTP $RESP_CODE)" yes "$RESP_OK"
+chk P3  "respondHitlRequest 로 user_approval 을 충족시킬 수 있다 (PR #101 로 P2, HTTP $RESP_CODE)" yes "$RESP_OK"
 if [ "$RESP_OK" = yes ]; then
   APPROVE_PATH=respondHitlRequest
 else
-  log "respondHitlRequest 가 $RESP_CODE — x-phase P3 이므로 P2 의 승인 경로(completeSession)로 판정한다"
+  log "respondHitlRequest 가 $RESP_CODE — 서버 구현 대기(PR #101 로 P2 확정). completeSession 으로 전이·요약·정리를 잰다"
   APPROVE_PATH=completeSession
 fi
 
@@ -132,7 +134,7 @@ if [ "$APPROVE_PATH" = respondHitlRequest ]; then
   chk P9 "user_approval 원자가 충족됐다"               true "$(jq -r '.user_approval // false' <<<"$MET")"
 else
   chk P9 "manual 원자로 완료됐다 (P2 의 승인 경로)"    true "$(jq -r '.manual // false' <<<"$MET")"
-  chk P9b "user_approval 원자는 여전히 미충족 — P2 에 입구가 없다 (S-25)" false "$(jq -r '.user_approval // false' <<<"$MET")"
+  chk P9b "user_approval 원자는 여전히 미충족 — 서버 입구 대기 (S-25)" false "$(jq -r '.user_approval // false' <<<"$MET")"
 fi
 # workdir 즉시 삭제 (격리 none)
 sleep 3

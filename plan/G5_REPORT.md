@@ -10,7 +10,7 @@
 | 재현 | `bash e2e/p2/up.sh` 뒤 `30_scenario_a_hermes.sh` · `31_blocked_roundtrip.sh` · `32_loop_limit.sh` · `33_approval_completed.sh` · `34_template_3min.sh` |
 | 총계 | 다섯 스크립트 **PASS 134 · FAIL 5** — 30_ **57/0** · 31_ 26/2 · 32_ 13/1 · 33_ 24/2 · 34_ 14/0 |
 | D-7 | **수정됨 (#97).** hermes `tool_surface=cli_wrapper` 판정 + attempt 별 래퍼 실행 파일 + 브리프·턴 프롬프트 치환. 30_ 재실행에서 **FAIL 0**(§3) |
-| 결론 | **G5 충족 — 템플릿 3분 Director 실측 대기.** 다섯 항목이 전부 실기에서 섰다. 남은 FAIL 5건은 표시·프롬프트·정리 결함(S-26·S-27·S-28·S-29)과 승인 경로의 P3 이월(S-25)이고 **DoD 를 막지 않는다**. 판정이 남은 칸은 (e) 의 **3분 수치 하나**뿐이다(§6.3) |
+| 결론 | **G5 충족 — 템플릿 3분 Director 실측 대기.** 다섯 항목이 전부 실기에서 섰다. 남은 FAIL 5건은 표시·프롬프트·정리 결함(S-26·S-27·S-28·S-29)과 승인 입구(S-25)이고 **DoD 를 막지 않는다**. S-25 는 계약 **PR #101 로 P2 확정** — 플랫폼 발행 `approval`(종료 조건 `user_approval`)의 승인·거절이 P2 가 됐고, 서버 hotfix 뒤 `33_` 로 재측정한다. 판정이 남은 칸은 (e) 의 **3분 수치 하나**뿐이다(§6.3) |
 
 > **읽는 법.** 각 절은 EVAL 행 번호를 그대로 쓴다. `우회`라고 적힌 것은 정식 API 경로가 없어
 > DB 나 다른 op 로 돌아간 측정이다 — 그 자리에는 반드시 결함 번호가 붙어 있다.
@@ -49,7 +49,7 @@ K-5 는 판정 기준으로만 썼고 실측은 P2a 골든 E1-22 가 맡는다.
 
 | # | DoD (PLAN §6.2) | 판정 | 근거 |
 |---|---|---|---|
-| a | 시나리오 A **8단계 끝까지** — 위임 3 → lane 3 병렬 → 합류 1회 → 종합 → Writer 초안 → `artifact_submitted` → **승인** → `completed` + 요약 자동 게시 | **통과 (단서 2)** | 1~6단계는 G4(Claude Code 단일, API 32/32)에 이어 이번 30_ 에서 **Hermes 를 섞어서도** 다시 섰다. 7·8단계(승인 → `completed` + 요약)는 `33_approval_completed.sh` **PASS 24 / FAIL 2** — `active → completing → completed`·`session_summary` **1개**·인박스 알림 성립. 단서 둘: 승인을 **P2 의 경로**(`completeSession`)로 쟀다(**S-25** — `respondHitlRequest` 는 x-phase P3, 채워진 원자는 `manual`), 그리고 완료해도 workdir 가 안 지워진다(**S-29**). 둘 다 8단계의 흐름을 막지 않는다. §2 |
+| a | 시나리오 A **8단계 끝까지** — 위임 3 → lane 3 병렬 → 합류 1회 → 종합 → Writer 초안 → `artifact_submitted` → **승인** → `completed` + 요약 자동 게시 | **통과 (단서 2)** | 1~6단계는 G4(Claude Code 단일, API 32/32)에 이어 이번 30_ 에서 **Hermes 를 섞어서도** 다시 섰다. 7·8단계(승인 → `completed` + 요약)는 `33_approval_completed.sh` **PASS 24 / FAIL 2** — `active → completing → completed`·`session_summary` **1개**·인박스 알림 성립. 단서 둘: 측정 시점 스택에 `respondHitlRequest` 가 없어(501) 승인을 `completeSession` 으로 쟀다 — 채워진 원자가 `user_approval` 이 아니라 `manual` 이다(**S-25**; 계약 **PR #101 로 P2 확정**, 서버 hotfix 뒤 `33_` 로 재측정 예정). 그리고 완료해도 workdir 가 안 지워진다(**S-29**). 둘 다 8단계의 흐름을 막지 않는다. §2 |
 | b | **Hermes 프로파일**로 같은 시나리오 + 폴백 전환(E8-08) + 대안 없음(E8-09) | **통과** | `30_scenario_a_hermes.sh` **PASS 57 / FAIL 0**(93초). Researcher 를 hermes 로 두고 위임 3 → **hermes lane 3개 동시 running** → 합류 2회(그룹당 시스템 메시지 1) → 종합 → Writer 초안 → `artifact_submitted` → 진행률 `1/2`. hermes 자식 메시지 3/3, 실패 attempt 0. 도구 표면은 **래퍼 절대 경로 호출 6건**으로 실증했고 턴 뒤 정리 0(§3.2). 폴백 E8-08·E8-09 전부 통과(§3.3) |
 | c | **blocked 왕복** E3-05·E3-06·E3-07 + 웹에서 질문 카드 | **통과 (순서 단서 있음)** | `31_blocked_roundtrip.sh` **PASS 26 / FAIL 2**. 세 행 전부 성립하고 재진입이 **같은 런타임 세션을 이어받았다**(`runtime.resume outcome=resumed`). 미달 2건은 표시·프롬프트 결함(S-27·S-28)이고 왕복 자체를 막지 않는다. **단서**: 위임자가 즉시 기상 통보에 바로 답하면 합류가 아예 발화하지 않는다(**S-31**, §4.3.1) — EVAL 이 적은 순서에서는 통과하지만 순서에 의존한다. §4 |
 | d | **루프 상한** E4-03 — 워크스페이스 설정으로 낮춰 `paused(loop)` + `paused_detail.loop.limit` | **통과** | `32_loop_limit.sh` **PASS 13 / FAIL 1**. 설정 op 는 P2 에 있다(HTTP 200). 상한 2 에서 관측 왕복 3 → `paused(loop)` · `limit=pair_roundtrips` · `count=3` · `agents` 2명 · 넘긴 트리거로 task 0 · Director HITL `source=system`. 미달 1건은 **S-26**(부분 갱신이 같은 객체의 다른 키를 지운다) §5 |
@@ -66,7 +66,7 @@ Hermes 를 섞은 시나리오가 위임부터 아티팩트 제출까지, blocke
 통합이 그것을 드러냈고 #97 이 계약에 `tool_surface` 칸을 만들어 닫았다 —
 **G4 가 적어 둔 "통합에서만 드러나는 부류"의 이번 사례**다.
 
-남은 FAIL 5건은 표시(S-27)·프롬프트(S-28)·정리(S-29)·설정 병합(S-26)과 승인 입구의 P3 이월(S-25)이고,
+남은 FAIL 5건은 표시(S-27)·프롬프트(S-28)·정리(S-29)·설정 병합(S-26)과 승인 입구(S-25)이고,
 어느 것도 DoD 문장을 막지 않는다. 판정이 남은 칸은 (e) 의 **3분 수치 하나**이며 그것은 사람이 잰다.
 순서 의존 하나(S-31)는 §4.3.1 에 증거와 함께 적어 뒀다 — 통과 판정을 뒤집지는 않지만
 FR-6.5 의 묶음이 조용히 사라지는 경로라 그냥 두지 않는 편이 낫다.
@@ -91,18 +91,24 @@ FR-6.5 의 묶음이 조용히 사라지는 경로라 그냥 두지 않는 편�
 `source=system` + `task_id` 비움은 "**플랫폼이** 발행한다"(FR-2.2 · openapi §7)의 관측 가능한 형태다.
 에이전트 턴이 낸 HITL 과 구분되는 유일한 표식이므로 셋을 따로 확인했다.
 
-### 2.2 승인 경로 — `respondHitlRequest` 는 P3 다 (S-25)
+### 2.2 승인 입구 — 계약 PR #101 로 **P2 확정**, 서버 hotfix 대기 (S-25)
 
-`POST /hitl-requests/{id}/response` → **HTTP 501**. openapi 의 x-phase 가 P3 이므로 이 스택에서 옳다.
-문제는 그 결과로 **`user_approval` 원자를 충족시키는 HTTP 입구가 P2 에 하나도 없다**는 것이다:
+측정 시점 스택에서 `POST /hitl-requests/{id}/response` 는 **HTTP 501** 이었고, 그 결과
+**`user_approval` 원자를 충족시키는 HTTP 입구가 하나도 없었다**:
 
 - `sessions/completion.go` 에 `director_approve` 이벤트가 구현돼 있고 `met[CondUserApproval]=true` 를 세운다.
 - 그런데 그 이벤트를 부르는 핸들러가 없다. 부르는 것은 `artifact_submit`·`review_*`·`director_end`·`budget_exhausted` 뿐이다.
 
-그래서 지시대로 **P2 의 승인 경로**(`completeSession`)로 E6-03 의 기대값을 옮겨 적용했다.
-`completeSession` 은 FR-2.2 의 `manual`(E6-08)이고 "종료 조건과 무관하게 사람이 끝낸다"이므로
-**전이·요약·정리**를 재는 데는 같은 경로다. 다만 채워지는 원자가 다르다 —
-관측된 `completion_met` = `{"manual": true, "artifact_submitted": true}`, `user_approval` 은 **여전히 false**.
+**Lead 결정은 이 입구를 P2 에 두는 것이다.** 계약 **PR #101**(dev 머지)이 `respondHitlRequest` 의
+x-phase 를 P2 로 올렸다 — 다만 **플랫폼 발행 `approval`(종료 조건 `user_approval`)의 승인·거절만**
+P2 이고(E6-03·E6-04), 에이전트 발행 HITL 응답·재큐잉·예산 상향·deputy 는 P3 로 남는다.
+서버 hotfix 워커가 S-24~S-31 과 함께 구현 중이며, 들어오면 **`33_approval_completed.sh` 로 재측정한다**
+(스크립트는 이미 그 경로를 먼저 시도하고 501 이면 `completeSession` 으로 떨어지도록 돼 있어 그대로 쓴다).
+
+**이 보고서의 수치는 재측정 전 값이다.** 승인을 `completeSession` 으로 쟀고, 그것은 FR-2.2 의
+`manual`(E6-08) — "종료 조건과 무관하게 사람이 끝낸다" — 이라 **전이·요약·정리**를 재는 데는 같은
+경로지만 채워지는 원자가 다르다. 관측된 `completion_met` = `{"manual": true, "artifact_submitted": true}`,
+`user_approval` 은 **false**. 재측정에서 확인할 것은 그 원자가 `user_approval` 로 바뀌는가 하나다.
 
 ### 2.3 E6-03 — `active → completing → completed`
 
@@ -510,7 +516,7 @@ openapi 도 "매핑 불가 에이전트도 등록하되 `unmapped[]` 에 사유"
 |---|---|---|---|---|
 | **D-7** | D + 계약 | **~~hermes 런타임에 colab 도구 표면이 닿지 않는다~~** — MCP 는 어댑터가 무시하고(`mcpCapabilities` 미광고, `session/new` 는 200), CLI 는 `colab` 이 PATH 에 없었다. `COLAB_*` env 는 가고 있었으므로 끊긴 것은 **도구와 실행 파일**이었다 | ~~(b) 차단~~ → **수정됨 (#97)**: `tool_surface` 실측·광고 + attempt 래퍼 + 브리프·턴 프롬프트 치환. 30_ 재실행 **57/0** | §3.2 — 1판 근거는 세션 `0661186a`·`6b49f0ad` 의 task_event 와 직접 ACP 프로브, 수정 확인은 `out/h-wrapper-calls.txt` |
 | **S-24** | S | `createAgent` 가 `AgentProfileCreate.fallback_profile(_id)` 를 조용히 버린다(INSERT 열 목록에 없음). `createAgentProfile`·`updateAgentProfile` 은 x-phase P2 인데 501 | (b) E8-08 **우회 필요** · (e) S-30 의 원인 | §3.3, `agents.go:135`, `unimplemented.go` |
-| **S-25** | S | `user_approval` 원자를 충족시키는 HTTP 입구가 P2 에 없다. `director_approve` 이벤트는 구현돼 있으나 호출자가 없고 `respondHitlRequest` 는 P3(501) | (a) **승인 경로 대체** | §2.2, `sessions/completion.go` |
+| **S-25** | S | `user_approval` 원자를 충족시키는 HTTP 입구가 없다 — `director_approve` 이벤트는 구현돼 있으나 호출자가 없고 측정 시점 `respondHitlRequest` 는 501 | (a) 승인을 `completeSession` 으로 대체 측정. **계약 PR #101 로 P2 확정**(플랫폼 발행 `approval` 의 승인·거절만), 서버 hotfix 뒤 `33_` 재측정 예정 | §2.2, `sessions/completion.go` |
 | **S-26** | S | `updateWorkspaceSettings` 의 부분 갱신이 같은 객체의 다른 키를 지운다(`mergeJSON` 이 merge 가 아니라 replace) | (d) FAIL 1 | §5, `handlers_settings.go:202` |
 | **S-27** | S (표시는 W) | `blocked_q` 질문 카드에 위임자 멘션이 없어 K3 배지가 `질문 → @위임자` 가 아니라 `질문` 으로 떨어진다 | (c) FAIL 1 | §4.4 |
 | **S-28** | S + 계약 | 위임자 기상 시스템 메시지가 **카드를 인용하지 않는다**(E3-05 (3)). 더해서 위임자가 멘션 없이 답글만 달면 규칙 4 로 자식이 안 깨어나는데 프롬프트가 그 말을 하지 않는다 | (c) FAIL 1 · 왕복은 성립 | §4.1·§4.3, `router/status.go wake()` |
@@ -556,7 +562,8 @@ openapi 도 "매핑 불가 에이전트도 등록하되 `unmapped[]` 에 사유"
 2. **템플릿 3분 Director 실측** — G5 에서 판정이 남은 유일한 칸이다. 절차는 §6.3.
 3. **S-24** — 프로파일 op(생성·수정)를 열면 E8-08 우회가 사라지고 S-30 도 같이 닫힌다.
 4. **S-29** — 완료 시 workdir GC. E6-03 의 마지막 칸이다.
-5. **S-25** — `user_approval` 입구. P3 로 두는 것이 결정이라면 EVAL E6-01·E6-03 의 P2 판정 문언을
-   `completeSession` 기준으로 정정해야 한다(지금은 문서와 구현이 다른 것을 가리킨다).
+5. **S-25** — `user_approval` 입구. 계약 **PR #101 로 P2 확정**됐으므로 EVAL E6-01·E6-03 은 문언 그대로
+   두고, 서버 hotfix 가 들어오는 대로 `33_approval_completed.sh` 를 다시 돌려 `completion_met` 의
+   원자가 `manual` → `user_approval` 로 바뀌는 것을 확인한다.
 6. **S-31** — `afterLaneDone` 에서 재진입 통보와 합류 판정을 분리한다. 조용한 손실이라 우선순위가 낮지 않다.
 7. **S-26 · S-27 · S-28 · S-30** — 각각 한 곳 수정. DoD 를 막지는 않는다.
