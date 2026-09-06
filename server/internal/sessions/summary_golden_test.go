@@ -1,5 +1,3 @@
-//go:build p4golden
-
 // Golden table for the session summary and the platform LLM client (EVAL
 // E6-11 · E5-08 · E6-03 as they are RE-MET in P4, plus the §8.5 client rules) —
 // PRD FR-2.4 (세션 요약), FR-4.4 (컨텍스트 재사용 상한), PRD §8.5 (플랫폼 내부
