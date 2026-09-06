@@ -16,6 +16,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/inbox"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -171,7 +172,7 @@ func (s *Server) createHitl(ctx context.Context, taskID, sessionID uuid.UUID, f 
 	plan := hitl.PlanRegister(hitl.RegisterInput{
 		Kind: f.Kind, Question: f.Question, Options: f.Options,
 		ProposedDefault: f.ProposedDefault, ApproverSpec: f.ApproverSpec,
-		AlreadyOpen:     openID != nil,
+		AlreadyOpen: openID != nil,
 	})
 	if !plan.Accepted {
 		if plan.ErrorCode == hitl.CodeAlreadyOpen {
@@ -307,10 +308,10 @@ func (s *Server) hitlInbox(ctx context.Context, tx pgx.Tx, sess *hitlSession, se
 	for _, u := range targets {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
-			SELECT m.id, 'hitl_request', 'action_required', $1, $2, $3
+			SELECT m.id, $6::inbox_item_type, $7::inbox_severity, $1, $2, $3
 			FROM member m WHERE m.workspace_id = $4 AND m.user_id = $5
 			  AND NOT EXISTS (SELECT 1 FROM inbox_item i WHERE i.member_id = m.id AND i.ref_id = $2)`,
-			sessionID, hitlID, now, sess.WorkspaceID, u); err != nil {
+			sessionID, hitlID, now, sess.WorkspaceID, u, inbox.TypeHitlRequest, inbox.Severity(inbox.TypeHitlRequest)); err != nil {
 			return err
 		}
 	}

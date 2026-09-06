@@ -13,6 +13,7 @@ import (
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
+	"github.com/ingki3/agent-collabortion/server/internal/inbox"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
@@ -188,7 +189,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 			return nil, err
 		}
 		if director != nil {
-			if err := s.inbox(ctx, tx, wsID, *director, "session_completed", "info", sessionID, sessionID, now); err != nil {
+			if err := s.inbox(ctx, tx, wsID, *director, inbox.TypeSessionCompleted, inbox.Severity(inbox.TypeSessionCompleted), sessionID, sessionID, now); err != nil {
 				return nil, err
 			}
 		}
@@ -218,7 +219,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		}
 		out.HitlTaskID = uuid.Nil
 		if director != nil {
-			if err := s.inbox(ctx, tx, wsID, *director, "hitl_request", "action_required", sessionID, hitlID, now); err != nil {
+			if err := s.inbox(ctx, tx, wsID, *director, inbox.TypeHitlRequest, inbox.Severity(inbox.TypeHitlRequest), sessionID, hitlID, now); err != nil {
 				return nil, err
 			}
 		}

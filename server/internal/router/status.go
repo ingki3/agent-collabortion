@@ -11,6 +11,7 @@ import (
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/inbox"
 	"github.com/ingki3/agent-collabortion/server/internal/lanestate"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
@@ -128,7 +129,7 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 		} else if director != nil {
 			// 리뷰#04-3: a lane the Director created by mentioning an agent has
 			// no delegator to wake, so the question goes to the inbox.
-			if err := insertInbox(ctx, tx, wsID, *director, "lane_blocked", "action_required", sessionID, qid, now); err != nil {
+			if err := insertInbox(ctx, tx, wsID, *director, inbox.TypeLaneBlocked, inbox.Severity(inbox.TypeLaneBlocked), sessionID, qid, now); err != nil {
 				return nil, err
 			}
 		}
@@ -281,9 +282,9 @@ func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID 
 	case authorType == "agent" && authorID != nil:
 		return s.wake(ctx, tx, sessionID, wsID, *authorID, *triggerMsg, "요청하신 작업이 끝났습니다.", now)
 	case authorType == "user" && authorID != nil:
-		return insertInbox(ctx, tx, wsID, *authorID, "mention", "info", sessionID, *triggerMsg, now)
+		return insertInbox(ctx, tx, wsID, *authorID, inbox.TypeMention, inbox.Severity(inbox.TypeMention), sessionID, *triggerMsg, now)
 	case director != nil:
-		return insertInbox(ctx, tx, wsID, *director, "mention", "info", sessionID, *triggerMsg, now)
+		return insertInbox(ctx, tx, wsID, *director, inbox.TypeMention, inbox.Severity(inbox.TypeMention), sessionID, *triggerMsg, now)
 	}
 	return nil
 }
