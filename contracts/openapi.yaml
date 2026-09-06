@@ -3429,6 +3429,10 @@ components:
             type: array
             items: { type: string }
           description: '이 런타임이 받는 프로파일 옵션과 허용 값(v0.5). 예 `{effort: [low, medium, high, xhigh]}`. PRD §8.2.6 "세션이 광고한 능력 범위 내에서만"의 그 광고다 — v0.4.1 에서 protocol.go 대조 중 빠졌는데, createProfile 의 422 규칙과 S10 의 "미지원 옵션 비활성 + 사유"(SCREEN §4.7)가 둘 다 이 값을 전제한다. 데몬이 (kind, adapter_version) 으로 아는 범위를 채운다. **키가 없거나 비어 있으면 "광고 없음"** — 웹은 옵션 편집을 비활성으로 두고 사유를 보이며, 서버는 어떤 옵션 값도 받지 않는다(빈 광고 = 허용 없음).'
+        tool_surface:
+          type: [string, 'null']
+          enum: [mcp, cli_wrapper]
+          description: '에이전트가 플랫폼에 말하는 수단(harness §10 v0.8). `mcp` = session/new.mcpServers 를 존중(claude_code). `cli_wrapper` = MCP 를 무시하는 런타임(hermes) — 데몬이 attempt 별 래퍼 실행 파일을 만들고 브리프에 절대 경로를 적는다. 판정은 initialize 응답의 mcpCapabilities 유무. 값이 없으면 필드 생략.'
 
     RuntimeRepo:
       type: object

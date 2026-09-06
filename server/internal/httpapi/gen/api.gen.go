@@ -869,6 +869,24 @@ func (e RuntimeCapabilityBriefTransport) Valid() bool {
 	}
 }
 
+// Defines values for RuntimeCapabilityToolSurface.
+const (
+	CliWrapper RuntimeCapabilityToolSurface = "cli_wrapper"
+	Mcp        RuntimeCapabilityToolSurface = "mcp"
+)
+
+// Valid indicates whether the value is a known member of the RuntimeCapabilityToolSurface enum.
+func (e RuntimeCapabilityToolSurface) Valid() bool {
+	switch e {
+	case CliWrapper:
+		return true
+	case Mcp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RuntimeKind.
 const (
 	Antigravity RuntimeKind = "antigravity"
@@ -2506,6 +2524,9 @@ type RuntimeCapability struct {
 	// ToolDisallow 툴 차단 수단 존재(harness §3)
 	ToolDisallow *bool `json:"tool_disallow,omitempty"`
 
+	// ToolSurface 에이전트가 플랫폼에 말하는 수단(harness §10 v0.8). `mcp` = session/new.mcpServers 를 존중(claude_code). `cli_wrapper` = MCP 를 무시하는 런타임(hermes) — 데몬이 attempt 별 래퍼 실행 파일을 만들고 브리프에 절대 경로를 적는다. 판정은 initialize 응답의 mcpCapabilities 유무. 값이 없으면 필드 생략.
+	ToolSurface nullable.Nullable[RuntimeCapabilityToolSurface] `json:"tool_surface,omitempty"`
+
 	// Usage 사용량 보고 여부. false면 비용은 추정 배지(FR-7.3)
 	Usage *bool `json:"usage,omitempty"`
 
@@ -2515,6 +2536,9 @@ type RuntimeCapability struct {
 
 // RuntimeCapabilityBriefTransport 브리프 전달 경로(harness §1). 값이 없으면 필드를 생략하거나 null — enum에 null을 넣지 않는다(생성기가 상수 '<nil>'을 만든다, v0.4.2).
 type RuntimeCapabilityBriefTransport string
+
+// RuntimeCapabilityToolSurface 에이전트가 플랫폼에 말하는 수단(harness §10 v0.8). `mcp` = session/new.mcpServers 를 존중(claude_code). `cli_wrapper` = MCP 를 무시하는 런타임(hermes) — 데몬이 attempt 별 래퍼 실행 파일을 만들고 브리프에 절대 경로를 적는다. 판정은 initialize 응답의 mcpCapabilities 유무. 값이 없으면 필드 생략.
+type RuntimeCapabilityToolSurface string
 
 // RuntimeDetail defines model for RuntimeDetail.
 type RuntimeDetail struct {

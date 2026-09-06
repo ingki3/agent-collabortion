@@ -117,6 +117,11 @@ type Capability struct {
 	// 웹은 그 옵션을 비활성으로 두고 사유를 보이고, 서버는 createProfile 에서
 	// 광고 밖 값을 422 로 거부한다(PRD §8.2.6, openapi createProfile).
 	SupportedOptions map[string][]string `json:"supported_options,omitempty"`
+	// ToolSurface — 에이전트가 플랫폼에 말하는 수단(harness §10 v0.8): "mcp"
+	// (session/new.mcpServers 존중) 또는 "cli_wrapper"(MCP 무시 → 데몬이
+	// attempt별 래퍼 실행 파일을 만들고 브리프 [2]에 절대 경로). 판정은
+	// initialize 응답의 mcpCapabilities 유무.
+	ToolSurface string `json:"tool_surface,omitempty"`
 }
 
 // Repo — probe repos[] (FR-9, FR-9.2 rebinding by remote_url).
