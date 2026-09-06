@@ -12,7 +12,7 @@ import (
 
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/contracts/clock"
-	"github.com/ingki3/agent-collabortion/daemon/internal/acpfake"
+	"github.com/ingki3/agent-collabortion/daemon/acpfake"
 	"github.com/ingki3/agent-collabortion/daemon/internal/harness/acp"
 )
 
@@ -285,7 +285,8 @@ func TestCancelAfterCurrentToolWaitsThenForces(t *testing.T) {
 	}
 	forced := false
 	for _, e := range f.sink.find("runtime", "cancel", "info") {
-		if strings.Contains(e.Payload["detail"].(string), "30초") {
+		// §5 step markers carry no `detail`, so read it defensively.
+		if d, _ := e.Payload["detail"].(string); strings.Contains(d, "30초") {
 			forced = true
 		}
 	}

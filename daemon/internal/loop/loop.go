@@ -264,11 +264,17 @@ func (d *Daemon) probe(ctx context.Context) {
 }
 
 // handleCommands applies server commands idempotently on (type, task, attempt).
-func (d *Daemon) handleCommands(ctx context.Context, cmds []contracts.Command) {
+func (d *Daemon) handleCommands(ctx context.Context, cmds []api.Command) {
 	for _, c := range cmds {
 		k := string(c.Type) + ":" + key(c.TaskID, c.Attempt)
 		d.mu.Lock()
-		if c.Type != contracts.CmdProbe && d.seen[k] {
+		// probe and gc carry no (task_id, attempt), so the §4.3 idempotency
+		// key does not separate two of them: de-duplicating on it would drop
+		// every gc after the first, and a `gc` is re-issued precisely BECAUSE
+		// the server has not observed the last one yet. Both are idempotent in
+		// their own right (a probe re-measures, a delete of a gone directory
+		// is a no-op), so they are simply re-run.
+		if c.Type != contracts.CmdProbe && c.Type != contracts.CmdGC && d.seen[k] {
 			d.mu.Unlock()
 			continue
 		}
@@ -299,9 +305,77 @@ func (d *Daemon) handleCommands(ctx context.Context, cmds []contracts.Command) {
 			}
 		case contracts.CmdProbe:
 			go d.probe(ctx)
+		case contracts.CmdGC:
+			go d.gc(ctx, c)
 		default:
 			d.Log("command %s ignored (P4)", c.Type)
 		}
+	}
+}
+
+// gc executes a §4.3 `gc` command and reports the outcome (§6).
+//
+// The command names workdirs as {id, path} (daemon-protocol §4.3 v0.7). The
+// path is the operative field: the daemon has no uuid ↔ path map, so a
+// payload that carries only `workdir_ids` — the shape before v0.7 — is
+// answered by collecting every lane folder of `session_id`, which is what the
+// only issuer (sessions.gcWorkdirs, one command per completed session) means
+// anyway.
+//
+// Every named workdir produces a row in the answer, deleted or refused. The
+// server decides WHAT may go (§6); the daemon's whole job is to do it and say
+// what happened, and a refusal it keeps to itself is indistinguishable from a
+// daemon that is not listening.
+func (d *Daemon) gc(ctx context.Context, c api.Command) {
+	targets := make([]workdir.Info, 0, len(c.Workdirs))
+	for _, w := range c.Workdirs {
+		targets = append(targets, workdir.Info{Kind: "dir", Path: w.Path, SessionID: c.SessionID, GC: &workdir.GCResult{ID: w.ID}})
+	}
+	if len(targets) == 0 && c.SessionID != "" {
+		for _, w := range workdir.SessionLanes(d.Cfg.WorkdirRoot, c.SessionID) {
+			w.GC = &workdir.GCResult{}
+			targets = append(targets, w)
+		}
+	}
+	if len(targets) == 0 {
+		d.Log("gc: nothing to collect (session=%q workdirs=%d)", c.SessionID, len(c.Workdirs))
+		return
+	}
+	report := make([]workdir.Info, 0, len(targets))
+	for _, w := range targets {
+		res := *w.GC
+		switch {
+		case workdir.IsWorktree(w.Path):
+			// §6: a worktree comes off with `git worktree remove` and leaves
+			// its branch behind (E13-10). That is P4, so this is a refusal —
+			// reported, not swallowed.
+			res.Status, res.Reason = workdir.GCRefused, workdir.GCReasonWorktreeP4
+		default:
+			if err := workdir.Remove(d.Cfg.WorkdirRoot, w.Path); err != nil {
+				res.Status, res.Reason = workdir.GCRefused, err.Error()
+				d.Log("gc %s: %v", w.Path, err)
+			} else {
+				res.Status = workdir.GCDeleted
+				w.Bytes = 0
+			}
+		}
+		w.GC = &res
+		report = append(report, w)
+		d.Log("gc %s: %s %s", w.Path, res.Status, res.Reason)
+	}
+	// The answer carries the gc rows AND the directories still on disk: the
+	// server consumes the command by no longer seeing what it asked about
+	// (§4.3 "해당 workdir 보고에서 삭제 확인"), so a report that listed only
+	// the collected rows would leave every surviving workdir looking gone.
+	live, err := workdir.List(d.Cfg.WorkdirRoot)
+	if err != nil {
+		d.Log("gc: list workdirs: %v", err)
+	}
+	report = append(report, live...)
+	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := d.Server.Workdirs(rctx, d.Cfg.RuntimeID, api.WorkdirsRequest{Workdirs: report}); err != nil {
+		d.Log("gc: report: %v", err)
 	}
 }
 
@@ -363,7 +437,7 @@ func (d *Daemon) spawnConfig(b contracts.TaskBundle, wd string) acp.Config {
 func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	k := key(b.Task.ID, b.Task.Attempt)
 	batcher := api.NewBatcher(ctx, d.Server, b.Task.ID, b.Task.Attempt)
-	batcher.OnCommands = func(cs []contracts.Command) { d.handleCommands(ctx, cs) }
+	batcher.OnCommands = func(cs []api.Command) { d.handleCommands(ctx, cs) }
 	finish := func(req api.FinishRequest) {
 		fctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()

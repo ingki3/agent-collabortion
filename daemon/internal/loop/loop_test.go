@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/ingki3/agent-collabortion/contracts"
-	"github.com/ingki3/agent-collabortion/daemon/internal/acpfake"
+	"github.com/ingki3/agent-collabortion/daemon/acpfake"
 	"github.com/ingki3/agent-collabortion/daemon/internal/api"
 	"github.com/ingki3/agent-collabortion/daemon/internal/config"
 	"github.com/ingki3/agent-collabortion/daemon/internal/harness/acp"
@@ -35,7 +35,7 @@ type memServer struct {
 	phaseFile []bool // pgid record existed when phase=preparing arrived
 	events    []contracts.TaskEvent
 	hbs       []api.HeartbeatRequest
-	hbCmds    []contracts.Command
+	hbCmds    []api.Command
 	finishes  []api.FinishRequest
 	root      string
 	claimHook func()
@@ -224,7 +224,7 @@ func TestClaimRunFinish(t *testing.T) {
 func TestCancelCommandViaHeartbeat(t *testing.T) {
 	srv := &memServer{queue: []contracts.TaskBundle{bundle("t2")}}
 	d, _ := newDaemon(t, srv, acpfake.Script{StayAlive: true, Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "working"}, {Hang: true}}}}})
-	srv.hbCmds = []contracts.Command{{Type: contracts.CmdCancel, TaskID: "t2", Attempt: 1, Reason: "director"}, {Type: contracts.CmdCancel, TaskID: "t2", Attempt: 1, Reason: "director"}}
+	srv.hbCmds = []api.Command{{Command: contracts.Command{Type: contracts.CmdCancel, TaskID: "t2", Attempt: 1, Reason: "director"}}, {Command: contracts.Command{Type: contracts.CmdCancel, TaskID: "t2", Attempt: 1, Reason: "director"}}}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- d.Run(ctx) }()
@@ -295,7 +295,7 @@ func TestRevokeKillsRecordedOrphan(t *testing.T) {
 	d.init()
 	st := orphan.Store{Root: root}
 	st.Record(orphan.Record{TaskID: "gone", Attempt: 3, PGID: pgid})
-	d.handleCommands(context.Background(), []contracts.Command{{Type: contracts.CmdRevoke, TaskID: "gone", Attempt: 3}})
+	d.handleCommands(context.Background(), []api.Command{{Command: contracts.Command{Type: contracts.CmdRevoke, TaskID: "gone", Attempt: 3}}})
 	if orphan.Alive(pgid) {
 		t.Fatal("group alive after revoke")
 	}
