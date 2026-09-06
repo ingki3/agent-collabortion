@@ -574,27 +574,67 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 				return err
 			} else if requested {
 				decided = "cancelled"
+			} else if decided == "cancelled" {
+				// S-50, the other direction (#151 review NN1). The promotion
+				// above stops the SERVER from turning a budget pause into a
+				// cancellation, but a daemon that reports `outcome: cancelled`
+				// for the very same budget cancel walks straight past it — it
+				// arrives already saying "cancelled", so there is nothing to
+				// promote and cancelLocked runs on a row that is already
+				// `paused(budget)`.
+				//
+				// That is E9-01 read backwards ("a budget overrun is not a
+				// failure"): the Director can approve a raise and resume, and a
+				// `cancelled` task has nothing to resume. Only a cancel set
+				// that is ENTIRELY budget downgrades — the moment a director ·
+				// kill_switch · loop · session_paused cancel is also present,
+				// somebody else asked the turn to stop and E10-04 stands
+				// unchanged.
+				if budgetOnly, err := budgetOnlyCancelRequested(ctx, tx, t.ID, attempt); err != nil {
+					return err
+				} else if budgetOnly {
+					decided = "paused_budget"
+				}
 			}
-		} else if requested, err := nonBudgetCancelRequested(ctx, tx, t.ID, attempt); err != nil {
-			return err
-		} else if requested {
-			// S-51: the cancel lost the race with the turn's own end. The task
-			// is genuinely `completed` and that is what the screen must show —
-			// but the feed already carries "사람이 중단함" from the moment the
-			// button was pressed, so without this line the timeline says a
-			// person stopped a turn that finished on its own. Consuming the
-			// command here is belt-and-braces: daemonFinish consumes it before
-			// this runs, and a direct Finish caller (the queue's own paths,
-			// tests) would otherwise leave it to the 24h TTL.
-			if err := InsertServerEventOnce(ctx, tx, t.ID, attempt, "status", "cancel", "cancel_raced_turn_end", "info",
-				map[string]any{
-					"command": "cancel",
-					"note":    "취소 요청이 턴 종료와 경합해 적용되지 않음 — 턴은 이미 끝나 있었습니다",
-				}, now); err != nil {
-				return err
+		}
+		if decided != f.Outcome {
+			// The attempt row records the SERVER's decision, not the daemon's
+			// report. §4.4 is explicit that "위 열거는 서버 응답의 최종 상태이지
+			// 데몬 판단이 아니다", and this row is read back as the answer to a
+			// REPEAT finish (the idempotency branch above returns
+			// `Status(task_attempt.outcome)`). Leaving the daemon's word there
+			// makes a retried finish report `cancelled` for a task the server
+			// parked as `paused(budget)` — the two halves of the same attempt
+			// disagreeing, which is how the resume the Director approved goes
+			// looking for a task that says it was cancelled (#151 review NN1).
+			if _, err := tx.Exec(ctx, `
+				UPDATE task_attempt SET outcome = $3 WHERE task_id = $1 AND attempt = $2`,
+				t.ID, attempt, decided); err != nil {
+				return fmt.Errorf("tasks: finish attempt outcome: %w", err)
 			}
-			if err := tokens.ConsumeAttemptCommands(ctx, tx, t.ID, attempt, now); err != nil {
+		}
+		if f.Outcome == "completed" && decided == "completed" {
+			if requested, err := nonBudgetCancelRequested(ctx, tx, t.ID, attempt); err != nil {
 				return err
+			} else if requested {
+				// S-51: the cancel lost the race with the turn's own end. The task
+				// is genuinely `completed` and that is what the screen must show —
+				// but the feed already carries "사람이 중단함" from the moment the
+				// button was pressed, so without this line the timeline says a
+				// person stopped a turn that finished on its own. Consuming the
+				// command here is belt-and-braces: daemonFinish consumes it before
+				// this runs, and a direct Finish caller (the queue's own paths,
+				// tests) would otherwise leave it to the 24h TTL.
+				if err := InsertServerEventOnce(ctx, tx, t.ID, attempt, "status", "cancel", "cancel_raced_turn_end", "info",
+					map[string]any{
+						"command": "cancel",
+						"note":    "취소 요청이 턴 종료와 경합해 적용되지 않음 — 턴은 이미 끝나 있었습니다",
+					}, now); err != nil {
+					return err
+				}
+				if err := tokens.ConsumeAttemptCommands(ctx, tx, t.ID, attempt, now); err != nil {
+					return err
+				}
 			}
 		}
 		if decided == "completed" && t.PendingHitl {
@@ -1026,6 +1066,28 @@ func nonBudgetCancelRequested(ctx context.Context, q db.DBTX, taskID uuid.UUID, 
 		return false, fmt.Errorf("tasks: cancel requested: %w", err)
 	}
 	return ok, nil
+}
+
+// budgetOnlyCancelRequested reports whether this attempt has at least one
+// cancel command and every one of them is the budget pause's own.
+//
+// "At least one" matters: a daemon that reports `cancelled` with NO cancel
+// command behind it was stopped by something else entirely (a user's Ctrl-C in
+// the terminal, an adapter giving up), and turning that into `paused(budget)`
+// would invent a budget event and offer the Director a resume for a turn that
+// nothing paused.
+//
+// production caller: tasks.Finish — the S-50 downgrade (#151 review NN1).
+func budgetOnlyCancelRequested(ctx context.Context, q db.DBTX, taskID uuid.UUID, attempt int) (bool, error) {
+	var total, budget int
+	err := q.QueryRow(ctx, `
+		SELECT count(*), count(*) FILTER (WHERE COALESCE(payload->>'reason', '') = 'budget')
+		FROM daemon_command WHERE task_id = $1 AND attempt = $2 AND type = 'cancel'`,
+		taskID, attempt).Scan(&total, &budget)
+	if err != nil {
+		return false, fmt.Errorf("tasks: budget-only cancel: %w", err)
+	}
+	return total > 0 && total == budget, nil
 }
 
 // cancelLocked ends the task as cancelled (failure_kind cancelled — openapi

@@ -162,21 +162,60 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 			UPDATE session SET status = 'completing', updated_at = $2 WHERE id = $1`, sessionID, now); err != nil {
 			return nil, err
 		}
-		summary := RunSummary(s.summaryStopReason(), "")
-		if summary.SummaryMsgs > 0 {
-			var msgID uuid.UUID
-			if err := tx.QueryRow(ctx, `
-				INSERT INTO message (session_id, author_type, author_id, content, kind, created_at)
-				VALUES ($1, 'system', NULL, $2, 'summary', $3) RETURNING id`,
-				sessionID, s.summaryBody(ctx, tx, sessionID), now).Scan(&msgID); err != nil {
-				return nil, fmt.Errorf("sessions: summary message: %w", err)
-			}
-			// FR-2.4's summary is a timeline message like any other (openapi
-			// maps it to SSE `message.created`); it was the one insert on this
-			// path that never produced a frame.
-			_ = messages.Publish(ctx, s.Hub, tx, wsID, sessionID, msgID)
+		// FR-2.4 with a model on the path (P4, §8.5). `alreadyPosted` is read
+		// FIRST because it changes what a success means: the summariser runs
+		// behind the completing transition and a retry after a timeout is the
+		// normal way it is called twice — two summaries in a timeline are
+		// indistinguishable and the reader cannot tell which is current.
+		var alreadyPosted bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (SELECT 1 FROM message WHERE session_id = $1 AND kind = 'summary')`,
+			sessionID).Scan(&alreadyPosted); err != nil {
+			return nil, fmt.Errorf("sessions: summary presence: %w", err)
 		}
-		out.SummaryMsgs = summary.SummaryMsgs
+		summary := s.summarise(ctx, tx, sessionID, alreadyPosted)
+		if summary.Post {
+			var msgID uuid.UUID
+			// The WHERE NOT EXISTS is the actual "exactly one" guard. The read
+			// above decides what to ASK the model for; two ApplyCompletionEvent
+			// calls racing on the same session would both pass it, and only the
+			// insert can settle which one wins.
+			err := tx.QueryRow(ctx, `
+				INSERT INTO message (session_id, author_type, author_id, content, kind, created_at)
+				SELECT $1, 'system', NULL, $2, 'summary', $3
+				WHERE NOT EXISTS (SELECT 1 FROM message WHERE session_id = $1 AND kind = 'summary')
+				RETURNING id`, sessionID, summary.Body, now).Scan(&msgID)
+			switch {
+			case errors.Is(err, pgx.ErrNoRows):
+				// Somebody else got there first. Not an error: the session has
+				// its one summary, which is the whole rule.
+			case err != nil:
+				return nil, fmt.Errorf("sessions: summary message: %w", err)
+			default:
+				// FR-2.4's summary is a timeline message like any other (openapi
+				// maps it to SSE `message.created`); it was the one insert on this
+				// path that never produced a frame.
+				_ = messages.Publish(ctx, s.Hub, tx, wsID, sessionID, msgID)
+			}
+		}
+		if summary.Post {
+			// Lead T-S9 ask 3 (i): who wrote it. `message` has no payload
+			// column and openapi's Message has no field for it, so the feed's
+			// `detail` carries it — the same place the failure category goes.
+			s.recordSummaryOrigin(ctx, tx, sessionID, summary.GeneratedBy, now)
+		}
+		if summary.FeedError {
+			// E6-11: the failure is recorded and the session still completes.
+			// The category is what tells an operator whether to change the
+			// prompt or the model, so it is the object_ref rather than a
+			// generic "요약 실패".
+			s.recordSummaryFailure(ctx, tx, sessionID, summary.ErrorCategory, now)
+		}
+		if err := tx.QueryRow(ctx, `
+			SELECT count(*) FROM message WHERE session_id = $1 AND kind = 'summary'`,
+			sessionID).Scan(&out.SummaryMsgs); err != nil {
+			return nil, fmt.Errorf("sessions: summary count: %w", err)
+		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE session SET status = 'completed', paused_reason = NULL, paused_detail = NULL,
 			       finished_at = $2, updated_at = $2 WHERE id = $1`, sessionID, now); err != nil {
@@ -354,43 +393,63 @@ func (s *Service) publishDecision(ctx context.Context, q db.DBTX, wsID, sessionI
 	_ = s.Hub.Publish(ctx, q, wsID, &sid, "decision.created", DecisionAPI(sessionID, d))
 }
 
-// summaryStopReason is where the platform LLM's verdict will arrive (§8.1).
-// P2 has no LLM on this path — the summary is assembled from rows — so it
-// always succeeds; E6-11's refusal branch lives in RunSummary and is exercised
-// by the golden table until P4 wires the model.
-func (s *Service) summaryStopReason() string { return "end_turn" }
-
-// summaryBody is FR-2.4's session_summary: decisions, artifacts, cost and the
-// timeline. P4 replaces the assembly with the platform LLM; the shape and the
-// "exactly one message" rule do not change.
-func (s *Service) summaryBody(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) string {
-	var title, goal string
-	var cost float64
-	_ = tx.QueryRow(ctx, `SELECT title, goal, cost_usd FROM session WHERE id = $1`, sessionID).Scan(&title, &goal, &cost)
-	body := "## 세션 요약 — " + title + "\n\n목표: " + goal + "\n"
-
-	rows, err := tx.Query(ctx, `SELECT summary FROM decision WHERE session_id = $1 ORDER BY created_at`, sessionID)
-	if err == nil {
-		var decisions []string
-		for rows.Next() {
-			var d string
-			if rows.Scan(&d) == nil {
-				decisions = append(decisions, d)
-			}
-		}
-		rows.Close()
-		if len(decisions) > 0 {
-			body += "\n### 결정 기록\n"
-			for _, d := range decisions {
-				body += "- " + d + "\n"
-			}
-		}
+// recordSummaryFailure puts E6-11's activity-feed error on the session.
+//
+// A session-level event has no task of its own, so it is attached to the
+// session's most recent task — the same shape httpapi.recordGCRefusal uses for
+// a GC refusal, and for the same reason: `task_event` is the only feed the
+// screen renders, and a failure written nowhere is a failure nobody can act on
+// ("보여주지 않았으면 일어나지 않은 것이다", FR-7.2). A session that never
+// dispatched a task has no feed at all; the log line is then the record.
+func (s *Service) recordSummaryFailure(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, category string, now time.Time) {
+	if category == "" {
+		category = "unknown"
 	}
-	var lanes, tasksDone int
-	_ = tx.QueryRow(ctx, `SELECT count(*) FROM lane WHERE session_id = $1`, sessionID).Scan(&lanes)
-	_ = tx.QueryRow(ctx, `SELECT count(*) FROM task WHERE session_id = $1 AND status = 'completed'`, sessionID).Scan(&tasksDone)
-	body += fmt.Sprintf("\n### 실행\nlane %d개, 완료된 task %d개, 비용 $%.2f\n", lanes, tasksDone, cost)
-	return body
+	var taskID uuid.UUID
+	var attempt int
+	if err := tx.QueryRow(ctx, `
+		SELECT id, attempt FROM task WHERE session_id = $1 ORDER BY created_at DESC LIMIT 1`,
+		sessionID).Scan(&taskID, &attempt); err != nil {
+		s.logWarn("sessions: summary failed with no task to record it on",
+			"session", sessionID, "category", category)
+		return
+	}
+	// class `runtime` with `detail`, not `status` with a free-text `note`:
+	// `contracts/task_event.schema.json` closes the `status` payload to
+	// {command, args, result_ref, rejected_reason}, and `detail` is the field
+	// the schema provides for a sentence.
+	if err := tasks.InsertServerEventOnce(ctx, tx, taskID, attempt, "runtime", "error",
+		"summary.failed", "failed",
+		map[string]any{
+			"detail":      "세션 요약을 만들지 못했습니다 — " + category,
+			"stop_reason": category,
+		}, now); err != nil {
+		s.logWarn("sessions: record summary failure", "session", sessionID, "err", err)
+	}
+}
+
+// recordSummaryOrigin notes who wrote the summary that was just posted.
+//
+// A row-composed fallback and a model-written summary read very differently,
+// and only one of them is what FR-2.4 promises. Saying which on the feed is
+// what stops a reader from judging the platform's summarising by an assembly
+// it did without a model.
+func (s *Service) recordSummaryOrigin(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, by string, now time.Time) {
+	detail := "세션 요약을 플랫폼 LLM 이 작성했습니다 (§8.5)"
+	if by == GeneratedByFallback {
+		detail = "플랫폼 LLM 키 없음 — 행 조립 요약입니다 (§8.5 폴백)"
+	}
+	var taskID uuid.UUID
+	var attempt int
+	if err := tx.QueryRow(ctx, `
+		SELECT id, attempt FROM task WHERE session_id = $1 ORDER BY created_at DESC LIMIT 1`,
+		sessionID).Scan(&taskID, &attempt); err != nil {
+		return
+	}
+	if err := tasks.InsertServerEventOnce(ctx, tx, taskID, attempt, "runtime", "report",
+		"summary.generated_by:"+by, "info", map[string]any{"detail": detail}, now); err != nil {
+		s.logWarn("sessions: record summary origin", "session", sessionID, "err", err)
+	}
 }
 
 func (s *Service) inbox(ctx context.Context, tx pgx.Tx, wsID, userID uuid.UUID, typ, severity string, sessionID, refID uuid.UUID, now time.Time) error {

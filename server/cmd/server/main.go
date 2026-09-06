@@ -119,6 +119,23 @@ func scheduler(ctx context.Context, srv *httpapi.Server, log interface {
 			} else if n > 0 {
 				log.Info("hitl deadlines handled", "n", n)
 			}
+			// FR-9.2: a machine that has been gone longer than
+			// `runtime_offline_grace` parks its sessions in
+			// `paused(runtime_offline)` and asks the Director to rebind or end.
+			// Without it the session queues forever and nobody is told.
+			if n, err := srv.Runtimes.SweepOffline(ctx); err != nil {
+				log.Warn("runtime offline sweep", "err", err)
+			} else if n > 0 {
+				log.Info("sessions paused for offline runtimes", "n", n)
+			}
+			// FR-6.4: the retention pass. It runs on the minute tick rather
+			// than the 10s one because retention is measured in days — a
+			// per-second pass would only add load to the same answer.
+			if res, err := srv.Workdirs.SweepGC(ctx); err != nil {
+				log.Warn("workdir gc sweep", "err", err)
+			} else if res.Deleted > 0 || res.Blocked > 0 {
+				log.Info("workdir gc", "requested", res.Deleted, "blocked", res.Blocked)
+			}
 		}
 	}
 }

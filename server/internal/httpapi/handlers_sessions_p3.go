@@ -16,6 +16,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
+	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
@@ -153,9 +154,15 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
 		var status string
 		var limitsRaw []byte
-		var spent float64
-		if err := tx.QueryRow(r.Context(), `SELECT status::text, limits, cost_usd FROM session WHERE id = $1 FOR UPDATE`, sessionId).
-			Scan(&status, &limitsRaw, &spent); err != nil {
+		if err := tx.QueryRow(r.Context(), `SELECT status::text, limits FROM session WHERE id = $1 FOR UPDATE`, sessionId).
+			Scan(&status, &limitsRaw); err != nil {
+			return err
+		}
+		// S-49: the same reading the K-10 approval uses. `cost_usd` alone lags
+		// the per-task rollup, so this path used to accept a "raise" the
+		// session had already spent past.
+		spent, err := sessions.SpentUSD(r.Context(), tx, sessionId)
+		if err != nil {
 			return err
 		}
 		if status != "paused" {
@@ -176,8 +183,7 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 			// next usage report, and the Director sees the banner again with
 			// nothing changed (FR-7.3).
 			if lim := budgetOf(limitsRaw); lim > 0 && lim <= spent {
-				return apperr.Validation(apperr.Field("limits.budget_usd", "too_low",
-					fmt.Sprintf("이미 $%.2f를 썼습니다 — 새 상한은 그보다 커야 합니다", spent)))
+				return sessions.BudgetTooLowError("limits.budget_usd", spent)
 			}
 		}
 		if rule.ResetLoopCounters {
@@ -314,11 +320,46 @@ func (s *Server) CancelSession(w http.ResponseWriter, r *http.Request, sessionId
 	now := s.Clock.Now()
 	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
 		var status string
-		if err := tx.QueryRow(r.Context(), `SELECT status::text FROM session WHERE id = $1 FOR UPDATE`, sessionId).Scan(&status); err != nil {
+		var pauseReason *string
+		if err := tx.QueryRow(r.Context(), `SELECT status::text, paused_reason::text FROM session WHERE id = $1 FOR UPDATE`, sessionId).
+			Scan(&status, &pauseReason); err != nil {
 			return err
 		}
 		if status != "active" && status != "paused" {
 			return apperr.Conflict("invalid_transition", "active·paused 세션만 취소할 수 있습니다 (현재: "+status+")")
+		}
+		offline := status == "paused" && derefString(pauseReason) == runtimes.PauseReasonOffline
+		if offline {
+			// E14-07: the Director chose "종료" over rebinding. The state is
+			// `cancelled`, never `completed` — the goal was never met, and
+			// filing a machine outage in the success column would also trigger
+			// FR-2.4's summary of a job that was never finished. The artifacts
+			// are recovered by having been on the server all along (FR-9.2
+			// "아티팩트만 회수한다"), which is why nothing here fetches them.
+			var artifacts int
+			if err := tx.QueryRow(r.Context(), `SELECT count(*) FROM artifact WHERE session_id = $1`, sessionId).Scan(&artifacts); err != nil {
+				return err
+			}
+			end := runtimes.PlanOfflineEnd(artifacts)
+			if end.SessionState != "cancelled" || end.CompletionConditionsMet {
+				return apperr.Internal(fmt.Errorf("runtimes: offline end plan = %+v", end))
+			}
+			// The dead machine's directories are unreachable. Leaving them
+			// `active` makes the GC sweep ask a runtime that will never answer,
+			// forever.
+			if _, err := tx.Exec(r.Context(), `
+				UPDATE workdir SET status = 'retained', gc_blocked_reason = 'runtime_gone', updated_at = $2
+				WHERE session_id = $1 AND status = 'active'`, sessionId, now); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(r.Context(), `
+				INSERT INTO decision (session_id, summary, rationale, source, created_at)
+				VALUES ($1, $2, $3, 'hitl', $4)`,
+				sessionId, "런타임이 돌아오지 않아 세션을 종료했습니다",
+				fmt.Sprintf("재바인딩 대신 종료를 선택했습니다 — 아티팩트 %d개는 서버에 남아 있습니다 (FR-9.2, E14-07)", end.ArtifactsRecovered),
+				now); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.Exec(r.Context(), `
 			UPDATE session SET status = 'cancelled', paused_reason = NULL, paused_detail = NULL,

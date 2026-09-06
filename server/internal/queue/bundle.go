@@ -12,9 +12,12 @@ import (
 
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
+	"github.com/ingki3/agent-collabortion/server/internal/llm"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
+	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
+	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
 )
 
 // historyLimit is §8.4's history cap. It is tasks.DefaultHistoryLimit and not
@@ -342,8 +345,28 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, token string) (*c
 		}
 	}
 	workdirKind := "dir"
+	wdPlan := workdirs.WorktreePlan{}
 	if isolation.Kind == "worktree" {
 		workdirKind = "worktree"
+		// FR-6.4/C3: ONE worktree per agent, reused across that agent's lanes.
+		// The existing path is looked up by agent, not by lane, so a second
+		// lane of the same agent gets the same checkout back rather than a
+		// second worktree of the same branch (E13-02, E16-B's "워크트리 2개").
+		//
+		// E13-08 is the same query read the other way: the bundle names only
+		// what THIS agent owns. A reviewer handed the Frontend checkout can
+		// edit the code it is reviewing, and under `worktree` two agents in one
+		// tree is repository corruption, not a stale read.
+		existing := ""
+		if paths, err := workdirs.BundleWorkdirPaths(ctx, tx, t.SessionID, t.AgentID); err == nil && len(paths) > 0 {
+			existing = paths[0]
+		}
+		wdPlan = workdirs.PlanWorktree(workdirs.WorktreeRequest{
+			SessionSlug:      workdirs.Slug(title),
+			AgentSlug:        workdirs.Slug(agentName),
+			AgentID:          t.AgentID,
+			ExistingForAgent: existing,
+		})
 	}
 	b := &contracts.TaskBundle{
 		Task: contracts.BundleTask{
@@ -355,11 +378,18 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, token string) (*c
 		Profile: contracts.BundleProfile{
 			RuntimeKind: contracts.RuntimeKind(runtimeKind), Model: model, Options: options, Env: env, Args: args, Tools: tools, AdapterPin: adapterPin,
 		},
-		Workdir: contracts.BundleWorkdir{Kind: workdirKind, RepoPath: isolation.RepoPath, Reuse: t.Attempt > 1 || reentry > 0},
-		Brief:   contracts.BundleBrief{Transport: transport, Text: brief.String()},
-		Prompt:  prompt.String(),
-		Resume:  resume,
-		Limits:  contracts.BundleLimits{BudgetUSD: budget, StallSeconds: int(contracts.StallTimeout.Seconds())},
+		Workdir: contracts.BundleWorkdir{
+			Kind: workdirKind, RepoPath: isolation.RepoPath,
+			Path: wdPlan.Path, Branch: wdPlan.Branch,
+			// `reuse` is true for a retry, a lane re-entry, AND — under
+			// `worktree` — whenever this agent already has a checkout in this
+			// session, which is every lane after its first (C3).
+			Reuse: t.Attempt > 1 || reentry > 0 || (workdirKind == "worktree" && !wdPlan.Created),
+		},
+		Brief:  contracts.BundleBrief{Transport: transport, Text: brief.String()},
+		Prompt: prompt.String(),
+		Resume: resume,
+		Limits: contracts.BundleLimits{BudgetUSD: budget, StallSeconds: int(contracts.StallTimeout.Seconds())},
 	}
 	if t.TriggerMessageID != nil {
 		b.Task.TriggerMessageID = t.TriggerMessageID.String()
@@ -490,10 +520,106 @@ func briefContext(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, 
 	if err := rows.Err(); err != nil {
 		return "", err
 	}
-	if b.Len() == 0 {
+	// FR-4.4 · §8.4 [6]: what earlier sessions produced, under the workspace's
+	// cap. This is what "이전 세션 요약 (설정 상한 내)" means, and it is why the
+	// wizard offers `type: session` context at all — without it, attaching a
+	// previous session did nothing to the brief.
+	reuse, err := reusedSessionSummaries(ctx, tx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	if b.Len() == 0 && reuse == "" {
 		return "", nil
 	}
-	return "Artifacts submitted in this session (read one with `colab artifact get <name>`):\n" + b.String(), nil
+	var out strings.Builder
+	if b.Len() > 0 {
+		out.WriteString("Artifacts submitted in this session (read one with `colab artifact get <name>`):\n")
+		out.WriteString(b.String())
+	}
+	if reuse != "" {
+		if out.Len() > 0 {
+			out.WriteString("\n")
+		}
+		out.WriteString(reuse)
+	}
+	return out.String(), nil
+}
+
+// reusedSessionSummaries is FR-4.4's context reuse.
+//
+// THE CAP GOVERNS WHAT WE SEND, NOT WHAT WE STORE. The previous session's
+// summary stays whole in its own timeline; only the copy injected here is
+// trimmed, and the trim is DISCLOSED — an agent that does not know it is
+// reading a fragment answers as if it has the whole thing (§8.4's history rule,
+// applied to [6]).
+//
+// The policy is the session's own override when it has one, else the
+// workspace's (openapi Session.context_reuse_override · WorkspaceSettings).
+func reusedSessionSummaries(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, error) {
+	var raw []byte
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(s.context_reuse_override, ws.context_reuse, '{}'::jsonb)
+		FROM session s
+		LEFT JOIN workspace_settings ws ON ws.workspace_id = s.workspace_id
+		WHERE s.id = $1`, sessionID).Scan(&raw); err != nil {
+		return "", fmt.Errorf("queue: context reuse policy: %w", err)
+	}
+	var policy struct {
+		MaxSummaryTokens *int    `json:"max_summary_tokens"`
+		IncludeArtifacts *string `json:"include_artifacts"`
+	}
+	_ = json.Unmarshal(raw, &policy)
+	maxTokens := sessions.DefaultMaxSummaryTokens
+	if policy.MaxSummaryTokens != nil {
+		maxTokens = *policy.MaxSummaryTokens
+	}
+	include := sessions.ReuseArtifactLinks
+	if policy.IncludeArtifacts != nil && *policy.IncludeArtifacts != "" {
+		include = *policy.IncludeArtifacts
+	}
+
+	// `session_context` rows of type `session` are the previous sessions the
+	// wizard attached (§7 session_context.type).
+	rows, err := tx.Query(ctx, `
+		SELECT prev.title,
+		       COALESCE((SELECT m.content FROM message m
+		                  WHERE m.session_id = prev.id AND m.kind = 'summary'
+		                  ORDER BY m.created_at DESC LIMIT 1), ''),
+		       (SELECT count(*) FROM artifact a WHERE a.session_id = prev.id)
+		FROM session_context sc
+		JOIN session prev ON prev.id::text = sc.ref
+		WHERE sc.session_id = $1 AND sc.type = 'session'
+		ORDER BY sc.created_at`, sessionID)
+	if err != nil {
+		return "", fmt.Errorf("queue: reused sessions: %w", err)
+	}
+	defer rows.Close()
+	var out strings.Builder
+	for rows.Next() {
+		var title, summary string
+		var artifacts int
+		if err := rows.Scan(&title, &summary, &artifacts); err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(summary) == "" {
+			// A session that never produced a summary has nothing to reuse.
+			// Saying "이전 세션: (없음)" would spend brief budget on a fact the
+			// agent cannot act on.
+			continue
+		}
+		plan := sessions.PlanContextReuse(sessions.ContextReuseInput{
+			StoredSummaryTokens: llm.EstimateTokens(summary),
+			MaxSummaryTokens:    maxTokens,
+			IncludeArtifacts:    include,
+			ArtifactCount:       artifacts,
+		})
+		out.WriteString(sessions.ReuseSection(title, summary, plan))
+		if plan.ArtifactLinks > 0 {
+			fmt.Fprintf(&out, "이전 세션의 아티팩트 %d개 — `colab artifact get <name>` 로 읽어라.\n", plan.ArtifactLinks)
+		}
+		out.WriteString("\n")
+	}
+	return out.String(), rows.Err()
 }
 
 // briefDecisionLog is §8.4 [7]: FR-4.2's log, in the order it was written.
@@ -622,6 +748,17 @@ func renderHitlAnswer(prompt *strings.Builder, a *hitlAnswer) {
 // its tasks have already spent, floored at zero. nil when the session carries
 // no budget — a session without a limit must not hand every task a limit of
 // zero.
+// sessionRemainingBudget returns nil — the field is OMITTED, not zeroed — when
+// the session has no budget.
+//
+// D-18 (server half): the daemon's mid-turn usage stream costs 4× the messages
+// and 2× the bytes, and it exists only so the daemon can enforce a ceiling. A
+// bundle whose `task.budget_usd`, `task.budget_override_usd` AND
+// `limits.budget_usd` are all absent is an attempt with NOTHING to enforce, and
+// that absence is the signal the daemon turns `usage_midturn` off on. Sending a
+// 0 here instead of nil would read as "a budget of zero" — every turn instantly
+// over its limit — so the nil is load-bearing, not a shortcut.
+// bundle_budget_test.go pins it.
 func sessionRemainingBudget(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, limit *float64) *float64 {
 	if limit == nil || *limit <= 0 {
 		return nil

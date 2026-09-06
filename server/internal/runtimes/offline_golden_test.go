@@ -1,5 +1,3 @@
-//go:build p4golden
-
 // Golden table for runtime offline grace and session rebinding (EVAL E14, 9
 // rows) — PRD FR-9.2 (런타임이 영구히 사라졌을 때, 리뷰 지적 F), FR-9 (probe 가
 // repo_path·remote URL·브랜치·클린 여부를 보고한다), contracts/openapi.yaml

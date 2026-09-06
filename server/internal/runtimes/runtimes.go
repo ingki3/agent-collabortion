@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -42,7 +43,11 @@ type Service struct {
 	Clock     clock.Clock
 	Hub       *realtime.Hub
 	ServerURL string // shown in install_commands
+	Log       *slog.Logger
 }
+
+// WithLog wires the logger the offline sweep and the GC pass report through.
+func (s *Service) WithLog(l *slog.Logger) *Service { s.Log = l; return s }
 
 func New(pool *pgxpool.Pool, c clock.Clock, h *realtime.Hub, serverURL string) *Service {
 	return &Service{DB: pool, Clock: c, Hub: h, ServerURL: serverURL}

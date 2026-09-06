@@ -206,6 +206,13 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 				rep.Branch = &branch
 			}
 			rep.Dirty = &dirty
+			// P4: the three git facts are also kept APART. `dirty` keeps its
+			// contract meaning (the OR, what S13 draws), but FR-6.4's GC rules
+			// need `merged`, `commits_ahead` and the working-tree state on their
+			// own — the OR cannot tell E13-12 from E13-13, and those two ask the
+			// Director for different things.
+			merged, ahead, tree := wd.Git.Merged, wd.Git.CommitsAhead, wd.Git.Dirty
+			rep.Merged, rep.CommitsAhead, rep.TreeDirty = &merged, &ahead, &tree
 		}
 		id, err := workdirs.Record(r.Context(), s.DB, rep, now)
 		if err != nil {
