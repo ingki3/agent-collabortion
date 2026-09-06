@@ -254,13 +254,15 @@ func (s *Server) daemonHeartbeat(w http.ResponseWriter, r *http.Request, d daemo
 	if !ok {
 		return
 	}
+	// §4.2 v0.3: heartbeat is a liveness signal, so `preview` is decoded apart
+	// from it — a daemon on the old shape (`preview` as a bare string) must not
+	// lose its attempt to a 422 three minutes later (G3 C-1). Whatever arrives,
+	// `usage`·`last_seq` refresh heartbeat_at; only a preview that does not match
+	// {text, message_id?} is dropped, with one warning in the feed.
 	var in struct {
 		Usage   contracts.Usage `json:"usage"`
 		LastSeq int             `json:"last_seq"`
-		Preview *struct {
-			Text      string `json:"text"`
-			MessageID string `json:"message_id"`
-		} `json:"preview"`
+		Preview json.RawMessage `json:"preview"`
 	}
 	if p := decodeJSON(w, r, &in); p != nil {
 		writeProblem(w, p)
@@ -275,14 +277,40 @@ func (s *Server) daemonHeartbeat(w http.ResponseWriter, r *http.Request, d daemo
 		writeErr(w, err)
 		return
 	}
-	if in.Preview != nil && in.Preview.Text != "" {
+	if preview, drift := parsePreview(in.Preview); drift {
+		if err := s.Tasks.NotePreviewDrift(r.Context(), t.ID, attempt, s.Clock.Now()); err != nil {
+			s.Log.Warn("note heartbeat preview drift", "err", err)
+		}
+	} else if preview != nil && preview.Text != "" {
 		sid := t.SessionID
 		s.Hub.PublishEphemeral(t.WorkspaceID, &sid, "message.delta", map[string]any{
-			"session_id": t.SessionID, "task_id": t.ID, "agent_id": t.AgentID, "message_id": in.Preview.MessageID, "text": in.Preview.Text,
+			"session_id": t.SessionID, "task_id": t.ID, "agent_id": t.AgentID, "message_id": preview.MessageID, "text": preview.Text,
 		})
 	}
 	cmds, _ := tokens.PendingCommands(r.Context(), s.DB, d.RuntimeID, s.Clock.Now())
 	writeJSON(w, http.StatusOK, map[string]any{"commands": cmds})
+}
+
+// preview is the heartbeat's non-persisted partial output (§4.2 v0.3).
+type preview struct {
+	Text      string `json:"text"`
+	MessageID string `json:"message_id"`
+}
+
+// parsePreview reads the `preview` field leniently. It returns (nil, false)
+// when the field is absent or null, the value when it matches the contract,
+// and (nil, true) — drift — for any other shape (a bare string from a v0.2
+// daemon, a number, an object whose `text` is not a string).
+func parsePreview(raw json.RawMessage) (*preview, bool) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return nil, false
+	}
+	var p preview
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, true
+	}
+	return &p, false
 }
 
 func (s *Server) daemonFinish(w http.ResponseWriter, r *http.Request, d daemonCtx) {
