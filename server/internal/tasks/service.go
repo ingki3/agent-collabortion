@@ -889,6 +889,9 @@ func cancelRequested(ctx context.Context, q db.DBTX, taskID uuid.UUID, attempt i
 // cancelLane), records the attempt, revokes its token and marks the lane
 // failed(cancelled). No requeue.
 func (s *Service) cancelLocked(ctx context.Context, tx pgx.Tx, t *Row, stopReason string, now time.Time) error {
+	// FR-3.4's table, in one place: lane failed, task cancelled(cancelled), a
+	// feed line saying a person stopped it, no new task and no re-queue.
+	res := PlanCancelResult("")
 	if _, err := Transition(t.Status, Cancelled); err != nil {
 		return err
 	}
@@ -912,11 +915,11 @@ func (s *Service) cancelLocked(ctx context.Context, tx pgx.Tx, t *Row, stopReaso
 	if err := s.Tokens.Revoke(ctx, tx, t.ID, t.Attempt, "cancelled"); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'failed', finished_at = $2, updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE lane SET status = $2, finished_at = $3, updated_at = $3 WHERE id = $1`, t.LaneID, res.LaneStatus, now); err != nil {
 		return err
 	}
-	fk := string(contracts.FailCancelled)
-	t.Status, t.FailureKind, t.FinishedAt, t.StopReason, t.PausedReason = Cancelled, &fk, &now, stop, nil
+	fk := res.FailureKind
+	t.Status, t.FailureKind, t.FinishedAt, t.StopReason, t.PausedReason = Status(res.TaskStatus), &fk, &now, stop, nil
 	s.publish(ctx, tx, t)
 	return nil
 }

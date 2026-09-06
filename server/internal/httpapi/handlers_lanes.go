@@ -41,7 +41,10 @@ func (s *Server) laneControl(r *http.Request, laneID uuid.UUID) (*gen.User, uuid
 	if m == nil {
 		return nil, uuid.Nil, uuid.Nil, apperr.NotFound("lane")
 	}
-	if u.Id != director && (deputy == nil || u.Id != *deputy) {
+	// FR-3.4 t-3: the deputy may cancel IMMEDIATELY, unlike approving (FR-5.4
+	// M7's half-deadline). Reusing the approval window here would make a
+	// runaway agent un-stoppable for twelve hours (E10-06).
+	if perm := tasks.MayCancel(u.Id, director, deputy); !perm.Allowed {
 		return nil, uuid.Nil, uuid.Nil, apperr.Forbidden("director_required", "only the session's Director or deputy can cancel a lane (FR-3.4)")
 	}
 	return u, wsID, sessionID, nil
@@ -79,7 +82,9 @@ func (s *Server) ListLanes(w http.ResponseWriter, r *http.Request, sessionId gen
 			writeErr(w, err)
 			return
 		}
-		canControl = u.Id == director || (deputy != nil && u.Id == *deputy)
+		// The same gate the cancel handler applies, so the board never shows a
+		// button that 403s (FR-5.3 last bullet).
+		canControl = tasks.MayCancel(u.Id, director, deputy).ButtonEnabled
 	}
 	out, err := lanes.List(r.Context(), s.DB, sessionId, statuses, canControl)
 	if err != nil {

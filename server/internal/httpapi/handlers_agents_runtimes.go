@@ -203,10 +203,36 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, agentId gen
 		writeProblem(w, p)
 		return
 	}
+	before := a.RespondTo
 	out, err := s.Agents.Update(r.Context(), agentId, u.Id, in)
 	if err != nil {
 		writeErr(w, err)
 		return
+	}
+	// FR-1.9 M8: `respond_to: nobody` is not "stop giving it work". It cancels
+	// the running turn and the queued ones, keeps the open HITL and preserves
+	// the workdirs — and switching back releases the answers that were held
+	// while it was off (E10-07·08).
+	if in.RespondTo != nil && string(*in.RespondTo) != string(before) {
+		switch string(*in.RespondTo) {
+		case "nobody":
+			if err := s.applyKillSwitch(r.Context(), agentId); err != nil {
+				writeErr(w, err)
+				return
+			}
+		default:
+			if string(before) == "nobody" {
+				if err := s.releaseHeldRequeues(r.Context(), agentId); err != nil {
+					writeErr(w, err)
+					return
+				}
+			}
+		}
+		out, err = s.Agents.Get(r.Context(), agentId, &u.Id)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
