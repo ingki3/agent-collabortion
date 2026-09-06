@@ -41,6 +41,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -230,8 +231,27 @@ func (h *Harness) recordPath(taskID string, attempt int) string {
 }
 
 // writerScript is the surviving process. It is a real program in its own
-// process group appending to a real file in the checkout: killing the daemon
-// does not stop it, and only a signal to its group does.
+// process group editing a real file in the checkout: killing the daemon does
+// not stop it, and only a signal to its group does.
+//
+// IT READS BEFORE IT WRITES. That is not an optimisation, it is the property
+// E8-04 (4) names. A retried attempt cannot remember what attempt 1 did, and
+// no idempotency key can de-duplicate a file write; the only mechanism the
+// PRD gives is the resume prompt's "workdir의 현재 상태를 먼저 확인하라"
+// (FR-7.1, §8.4 `<resumed>`, PRD.md:1162). So the writer here behaves like an
+// agent that obeys that line: it greps the checkout for the edit it is about
+// to make and, if the edit is already there, leaves it alone. The edit id is
+// deterministic per attempt — attempt 2 redoing `<edit-1>` produces the same
+// marker attempt 1 wrote — which is what makes the inspection able to answer.
+//
+// Edits it did not make are none of its business: it never rewrites the file,
+// only appends to it, so the orphan's `<orphan>` line survives untouched
+// (E11-06 — a writer that "tidied" the checkout would delete the work
+// recovery exists to preserve).
+//
+// It reports which of the two it did, so the caller's byte count is the truth
+// about the file rather than an assumption about what a write does.
+//
 // It also carries its own deadline: a test binary that dies without calling
 // Close would otherwise leave a shell loop behind in its own process group,
 // where nothing reaps it. Ten minutes is far longer than any row here and far
@@ -250,9 +270,16 @@ while true; do
   [ $n -gt 60000 ] && exit 0
   for f in "$INBOX"/*.cmd; do
     [ -e "$f" ] || continue
-    printf '%s\n' "$(cat "$f")" >> "$TARGET"
+    m=$(cat "$f")
+    d="${f%.cmd}.done"
+    if [ -f "$TARGET" ] && grep -qF -- "$m" "$TARGET"; then
+      printf 'skipped\n' > "$d.part"
+    else
+      printf '%s\n' "$m" >> "$TARGET"
+      printf 'wrote\n' > "$d.part"
+    fi
     rm -f "$f"
-    : > "${f%.cmd}.done"
+    mv "$d.part" "$d"
   done
   sleep 0.01
 done
@@ -336,9 +363,15 @@ func (h *Harness) Requeue(taskID string) (Lane, bool) {
 	return next, tok != ""
 }
 
-// Write is the runtime side: the process that holds the checkout appends
-// marker to its file, and then tries to post with its task token. It returns
-// how many bytes landed and the HTTP status the post got.
+// Write is the runtime side: the process that holds the checkout makes the
+// edit named by marker, and then tries to post with its task token. It
+// returns how many bytes landed IN THE FILE and the HTTP status the post got.
+//
+// "How many bytes landed" is measured, not assumed. The writer inspects the
+// workdir first (see writerScript) and an edit that is already there is not
+// made again, so a re-applied edit reports 0 bytes — which is the honest
+// answer for a file that did not change, and the shape E8-04 (4) asks about:
+// after a retry each edit is present exactly once, not once per attempt.
 //
 // The write is dispatched to the LIVE writer for that path — if the orphan is
 // still up it is the orphan's write, and after recovery it is the new
@@ -349,17 +382,76 @@ func (h *Harness) Write(path, marker string) (int, int) {
 	if w == nil {
 		return 0, 0
 	}
-	name := fmt.Sprintf("%d", time.Now().UnixNano())
-	cmdFile := filepath.Join(w.dir, name+".cmd")
-	if err := os.WriteFile(cmdFile, []byte(marker), 0o644); err != nil {
+	n, ok := h.dispatch(w, marker)
+	if !ok {
 		return 0, 0
 	}
-	if err := waitFile(filepath.Join(w.dir, name+".done"), 5*time.Second); err != nil {
-		return 0, 0
-	}
-	_ = os.Remove(filepath.Join(w.dir, name+".done"))
-	return len(marker) + 1, h.post(w.token)
+	return n, h.post(w.token)
 }
+
+// WriteAll dispatches marker to EVERY live writer holding path AT ONCE, and
+// returns the bytes each of them reported, newest writer first.
+//
+// It exists for one observation and is not part of any golden row: while the
+// orphan is still up and the restarted attempt is already writing, do two
+// agents both obeying "inspect the workdir first" still leave the edit exactly
+// once? Write cannot ask that — it always picks a single writer. E11-05 says
+// this window is never open in a correct daemon, so what this measures is what
+// would happen if it were.
+func (h *Harness) WriteAll(path, marker string) []int {
+	h.mu.Lock()
+	ws := append([]*writer(nil), h.writers[path]...)
+	h.mu.Unlock()
+	live := make([]*writer, 0, len(ws))
+	for i := len(ws) - 1; i >= 0; i-- {
+		if orphan.Alive(ws[i].pgid) {
+			live = append(live, ws[i])
+		}
+	}
+	out := make([]int, len(live))
+	var wg sync.WaitGroup
+	for i, w := range live {
+		wg.Add(1)
+		go func(i int, w *writer) {
+			defer wg.Done()
+			n, ok := h.dispatch(w, marker)
+			if !ok {
+				n = 0
+			}
+			out[i] = n
+		}(i, w)
+	}
+	wg.Wait()
+	return out
+}
+
+// dispatch hands one edit to one writer and waits for that writer's own
+// account of what it did. The reply is the writer's, not ours: a harness that
+// assumed "a dispatched edit is an appended edit" would report bytes for a
+// skipped write and hide the very thing being counted.
+func (h *Harness) dispatch(w *writer, marker string) (int, bool) {
+	name := fmt.Sprintf("%d-%d", time.Now().UnixNano(), cmdSeq.Add(1))
+	if err := os.WriteFile(filepath.Join(w.dir, name+".cmd"), []byte(marker), 0o644); err != nil {
+		return 0, false
+	}
+	done := filepath.Join(w.dir, name+".done")
+	if err := waitFile(done, 5*time.Second); err != nil {
+		return 0, false
+	}
+	b, err := os.ReadFile(done)
+	_ = os.Remove(done)
+	if err != nil {
+		return 0, false
+	}
+	if strings.TrimSpace(string(b)) != "wrote" {
+		return 0, true
+	}
+	return len(marker) + 1, true
+}
+
+// cmdSeq keeps two writers dispatched in the same nanosecond from colliding on
+// an inbox file name.
+var cmdSeq atomic.Int64
 
 func (h *Harness) post(token string) int {
 	req, err := http.NewRequest(http.MethodPost, h.srv.URL+"/v1/messages", nil)
