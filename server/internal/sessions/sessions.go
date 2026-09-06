@@ -306,22 +306,22 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID, v Viewer) (*gen.Session
 func Load(ctx context.Context, q db.DBTX, id uuid.UUID, v Viewer) (*gen.Session, error) {
 	var out gen.Session
 	var (
-		deputy, assignee, runtimeID          *uuid.UUID
-		isolation, completion, limits, reuse []byte
-		autonomy, status                     string
-		pausedReason                         *string
-		cost                                 float64
-		startedAt, finishedAt, lastActivity  *time.Time
-		runtimeStatus                        *string
+		deputy, assignee, runtimeID               *uuid.UUID
+		isolation, completion, met, limits, reuse []byte
+		autonomy, status                          string
+		pausedReason                              *string
+		cost                                      float64
+		startedAt, finishedAt, lastActivity       *time.Time
+		runtimeStatus                             *string
 	)
 	err := q.QueryRow(ctx, `
 		SELECT s.id, s.workspace_id, s.title, s.goal, s.acceptance_criteria, s.director_user_id, s.deputy_director_user_id, s.assignee_agent_id,
-		       s.runtime_id, s.isolation, s.completion_condition, s.limits, s.autonomy, s.context_reuse_override, s.status, s.paused_reason,
+		       s.runtime_id, s.isolation, s.completion_condition, s.completion_met, s.limits, s.autonomy, s.context_reuse_override, s.status, s.paused_reason,
 		       s.cost_usd, s.created_by, s.created_at, s.updated_at, s.started_at, s.finished_at,
 		       (SELECT max(created_at) FROM message m WHERE m.session_id = s.id), r.status
 		FROM session s LEFT JOIN runtime r ON r.id = s.runtime_id WHERE s.id = $1`, id).Scan(
 		&out.Id, &out.WorkspaceId, &out.Title, &out.Goal, &out.AcceptanceCriteria, &out.DirectorUserId, &deputy, &assignee,
-		&runtimeID, &isolation, &completion, &limits, &autonomy, &reuse, &status, &pausedReason,
+		&runtimeID, &isolation, &completion, &met, &limits, &autonomy, &reuse, &status, &pausedReason,
 		&cost, &out.CreatedBy, &out.CreatedAt, &out.UpdatedAt, &startedAt, &finishedAt, &lastActivity, &runtimeStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.NotFound("session")
@@ -357,7 +357,7 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, v Viewer) (*gen.Session,
 	out.StartedAt = tasks.NullTime(startedAt)
 	out.FinishedAt = tasks.NullTime(finishedAt)
 	out.LastActivityAt = tasks.NullTime(lastActivity)
-	out.CompletionProgress = progress(completion)
+	out.CompletionProgress = progress(completion, met)
 	if d, err := auth.LoadUser(ctx, q, out.DirectorUserId); err == nil {
 		out.Director = d
 	}
@@ -408,8 +408,14 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, v Viewer) (*gen.Session,
 }
 
 // progress counts atoms of the completion tree; P1 has no satisfaction logic.
-func progress(tree []byte) gen.CompletionProgress {
+// progress renders the completion tree for S7's right rail. The met flags come
+// from session.completion_met rather than being recomputed: E6-04 pins that an
+// artifact_submitted flag survives a Director rejection, and a recomputation
+// has no way to remember that.
+func progress(tree, metRaw []byte) gen.CompletionProgress {
 	var p gen.CompletionProgress
+	met := map[string]bool{}
+	_ = json.Unmarshal(metRaw, &met)
 	p.Conditions = make([]struct {
 		HitlRequestId nullable.Nullable[openapi_types.UUID] `json:"hitl_request_id,omitempty"`
 		Met           bool                                  `json:"met"`
@@ -441,6 +447,9 @@ func progress(tree []byte) gen.CompletionProgress {
 			human = true
 		}
 		p.Total++
+		if met[typ] {
+			p.Met++
+		}
 		p.Conditions = append(p.Conditions, struct {
 			HitlRequestId nullable.Nullable[openapi_types.UUID] `json:"hitl_request_id,omitempty"`
 			Met           bool                                  `json:"met"`
@@ -449,7 +458,7 @@ func progress(tree []byte) gen.CompletionProgress {
 			NextActor     nullable.Nullable[string]             `json:"next_actor,omitempty"`
 			Path          string                                `json:"path"`
 			Type          string                                `json:"type"`
-		}{Path: path, Type: typ})
+		}{Path: path, Type: typ, Met: met[typ]})
 	}
 	walk(node, "")
 	p.HumanGate = &human
