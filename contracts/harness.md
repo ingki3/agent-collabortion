@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.8.4 — §2.2 refusal 예외: 재개 직후 활동 0 인 refusal 은 유실 의심 → 콜드 스타트 1회 재시도(D-13). v0.8.3 — §6 hermes 행 (a′) provenance 부재(빈 객체)는 유실(스파이크 4c 실측 2). v0.8.2 — §6 claude_code 유실 판정을 실측대로(`-32002` 또는 `not found`; 스파이크 4c). v0.8.1 — §10 cli_wrapper 치환 범위를 브리프+턴 프롬프트로(D-7 워커 지적). v0.8은 §10 **도구 표면**(`tool_surface`: claude_code `mcp`, hermes `cli_wrapper` — 데몬이 attempt별 래퍼를 만들고 브리프 [2]에 절대 경로) + §9 광고. G5 (b) 차단 결함. v0.7.1은 §11 `estimated`의 자리별 표현(`usage.report` 생략 / `finish` 0 + 무시). v0.7은 §11 `cost_usd` 부재 규칙(생략 + `estimated:true`)과 가격표 소유(워크스페이스=서버). v0.6은 §2.1 시스템 최소에 `USER`(G4 차단 결함: OAuth 갱신 시 키체인이 `USER`를 쓴다). v0.5는 §9 `supported_options`(T-W2가 찾은 빈칸: 프로파일 옵션 능력을 광고할 키가 v0.4.1 대조에서 빠졌다). v0.3 은 PR #20(데몬 P1) 구현·리뷰에서 드러난 5건 반영(usage 시점, Hermes 모델 접두어, Hermes 본문 오류 접두어 규칙, disallowedTools 도출, 250ms 비주입). v0.2는 스파이크 1b 반영 |
+| 버전 | v0.8.5 — §7 턴 중 usage(emitRawSDKMessages, dedup, result.total_cost_usd = 실측 비용), §3 _meta, §9 `usage_midturn`(D-17·K-8 데몬 절반). v0.8.4 — §2.2 refusal 예외: 재개 직후 활동 0 인 refusal 은 유실 의심 → 콜드 스타트 1회 재시도(D-13). v0.8.3 — §6 hermes 행 (a′) provenance 부재(빈 객체)는 유실(스파이크 4c 실측 2). v0.8.2 — §6 claude_code 유실 판정을 실측대로(`-32002` 또는 `not found`; 스파이크 4c). v0.8.1 — §10 cli_wrapper 치환 범위를 브리프+턴 프롬프트로(D-7 워커 지적). v0.8은 §10 **도구 표면**(`tool_surface`: claude_code `mcp`, hermes `cli_wrapper` — 데몬이 attempt별 래퍼를 만들고 브리프 [2]에 절대 경로) + §9 광고. G5 (b) 차단 결함. v0.7.1은 §11 `estimated`의 자리별 표현(`usage.report` 생략 / `finish` 0 + 무시). v0.7은 §11 `cost_usd` 부재 규칙(생략 + `estimated:true`)과 가격표 소유(워크스페이스=서버). v0.6은 §2.1 시스템 최소에 `USER`(G4 차단 결함: OAuth 갱신 시 키체인이 `USER`를 쓴다). v0.5는 §9 `supported_options`(T-W2가 찾은 빈칸: 프로파일 옵션 능력을 광고할 키가 v0.4.1 대조에서 빠졌다). v0.3 은 PR #20(데몬 P1) 구현·리뷰에서 드러난 5건 반영(usage 시점, Hermes 모델 접두어, Hermes 본문 오류 접두어 규칙, disallowedTools 도출, 250ms 비주입). v0.2는 스파이크 1b 반영 |
 | 소유 | D + Lead. 변경은 Director 승인 PR로만 (`contracts/README.md`) |
 | 근거 | PRD §8.2 (하네스), §8.4 (브리프), FR-7.1 (재시도), FR-3.4·§8.2.2 (취소), FR-5.4 (재개). **G1 판정 `plan/G1_DECISION.md` 와 스파이크 보고서 `plan/spikes/SPIKE_01..06.md`, `SPIKE_01b.md`** — 이 문서의 수치·옵션 키는 전부 실측에서 왔다 |
 | 미결 | 없음 (§12 참조). 서브에이전트 가시성은 v1 피드 요구로 미광고 |
@@ -93,6 +93,8 @@ spawn (pgid, cwd=workdir, env=§2.1)
 
 Hermes는 `_meta`를 버린다(스파이크 3 §1). Hermes의 툴 제한은 `hermes acp`의 자체 설정으로 — P1 하네스 작업에서 확인.
 
+- **v0.8.5**: `claudeCode.emitRawSDKMessages: true` 를 함께 넣는다(§7 usage_update 행) — 메시지 수 약 4배·바이트 약 2배(실측 31→122, 57KB→114KB). 데몬 설정으로 끌 수 있다(기본 ON; 예산 미설정 세션에서 OFF 는 백로그 D-18).
+
 ## 4. 권한 응답 정책
 
 `session/request_permission {toolCall, options[]}`에 데몬이 자동 응답한다. 사람의 승인은 ACP 권한이 아니라 **앱 층의 HITL(`colab hitl approve-request`)** 이다 — 둘을 섞지 않는다.
@@ -154,7 +156,7 @@ Hermes는 `_meta`를 버린다(스파이크 3 §1). Hermes의 툴 제한은 `her
 | `tool_call` (status pending/in_progress) | `tool` | `kind`에서: `edit`→`edit_file`, `execute`→`run_shell`, `read`→`read`, `search`/`fetch`→`search`, 그 외 `use_tool` | `locations[0].path` 또는 `title` | `started` |
 | `tool_call_update` (completed/failed) | `tool` | 같은 verb, 같은 `toolCallId` | 같음 | `ok` / `failed` + `content` 요약(diff는 +/- 줄 수, 셸은 종료 코드) |
 | `session/request_permission` | `tool` | `permission` | toolCall.title | `allowed` / `rejected` / `cancelled` (§4) |
-| `usage_update` | `usage` | `report` | — | 실측(P1 D)상 `usage_update`에는 토큰이 없고 `{used, size}`(컨텍스트 창)와 **`_meta["_claude/rateLimit"]`**(`status`, `resetsAt`, `rateLimitType`, `utilization`)만 온다 → `payload.rate_limit`로 올린다(매 턴, 리셋 시각을 미리 보여주는 근거). **토큰·비용은 `session/prompt` 응답 `usage`에서 턴 종료 시 1회** `usage.report {input, output, cache_read, cache_write, cost_usd?, cumulative:true}` (v0.3, PR #20 결함 1). **`cost_usd`의 뜻(v0.7)**: 런타임이 비용을 주면 그 값 + `estimated: false`. 주지 않으면 **`cost_usd`를 생략하고 `estimated: true`** — `0`을 실측처럼 보내지 않는다(G4 3판 W16: Claude Code는 토큰만 주므로 데몬이 `cost_usd: 0, estimated: false`를 보내 세션 비용이 확정 $0으로 보였다). **가격표는 워크스페이스 소유**(PRD §8.2.6 "워크스페이스 가격표로 계산")이므로 추정은 **서버**가 롤업 시 토큰 × 단가로 채우고 배지(FR-7.3)를 단다. 데몬은 단가를 모른다. **자리별 표현(v0.7.1)**: `task_event` `usage.report` 페이로드는 `cost_usd`를 **생략**; `finish` 본문의 `contracts.Usage`는 타입이 `float64`라 생략할 수 없으므로 `cost_usd: 0` + `estimated: true`이고 **서버는 `estimated: true`면 `cost_usd`를 무시하고 추정으로 덮는다**(`estimated: false`의 0만 진짜 0). `estimated`는 usage가 없을 때만이 아니라 **비용 필드가 없을 때도** true다 — ACP `session/prompt` 응답 `usage`에는 비용 필드가 없으므로 지금 ACP 경로는 항상 `estimated: true`다 |
+| `usage_update` | `usage` | `report` | — | 실측(P1 D)상 `usage_update`에는 토큰이 없고 `{used, size}`(컨텍스트 창)와 **`_meta["_claude/rateLimit"]`**(`status`, `resetsAt`, `rateLimitType`, `utilization`)만 온다 → `payload.rate_limit`로 올린다(매 턴, 리셋 시각을 미리 보여주는 근거). **토큰·비용은 `session/prompt` 응답 `usage`에서 턴 종료 시 1회** `usage.report {input, output, cache_read, cache_write, cost_usd?, cumulative:true}` (v0.3, PR #20 결함 1). **`cost_usd`의 뜻(v0.7)**: 런타임이 비용을 주면 그 값 + `estimated: false`. 주지 않으면 **`cost_usd`를 생략하고 `estimated: true`** — `0`을 실측처럼 보내지 않는다(G4 3판 W16: Claude Code는 토큰만 주므로 데몬이 `cost_usd: 0, estimated: false`를 보내 세션 비용이 확정 $0으로 보였다). **가격표는 워크스페이스 소유**(PRD §8.2.6 "워크스페이스 가격표로 계산")이므로 추정은 **서버**가 롤업 시 토큰 × 단가로 채우고 배지(FR-7.3)를 단다. 데몬은 단가를 모른다. **자리별 표현(v0.7.1)**: `task_event` `usage.report` 페이로드는 `cost_usd`를 **생략**; `finish` 본문의 `contracts.Usage`는 타입이 `float64`라 생략할 수 없으므로 `cost_usd: 0` + `estimated: true`이고 **서버는 `estimated: true`면 `cost_usd`를 무시하고 추정으로 덮는다**(`estimated: false`의 0만 진짜 0). `estimated`는 usage가 없을 때만이 아니라 **비용 필드가 없을 때도** true다 — ACP `session/prompt` 응답 `usage`에는 비용 필드가 없으므로 지금 ACP 경로는 항상 `estimated: true`다 | **v0.8.5(D-17 실측)**: claude_code 는 `session/new` `_meta.claudeCode.emitRawSDKMessages: true` 로 어댑터 원시 스트림(`_claude/sdkMessage`)을 켜면 **요청 단위 usage 를 턴 중에** 준다 — 데몬은 이를 누적해 heartbeat 마다 싣는다(dedup: 입력 토큰은 `message_start`, 출력 토큰은 `message_delta` 에서만; assistant 메시지는 2번 온다). 턴 끝 `result.total_cost_usd` 는 **실측 비용**이라 D-6 규칙 (4) 대로 `cost_usd` + `estimated:false`(§4.4 데몬 자체 예산 취소가 살아난다). hermes 는 어느 경로로도 턴 중 usage 가 없다 → 누적 0 을 싣되 `session/prompt` 응답 직후 **finish 전 heartbeat 1회**에 실측 토큰(estimated:true)을 싣는다.
 | `session/prompt` 응답 `_meta.quota.model_usage[].model` | `runtime` | `turn_end` | — | 실제 실행 모델. 프로파일 모델과 다르면 `payload.model_drift: true` + 피드 경고(1b E1 — load 후 기본 모델로 되돌아가는 회귀 감시) |
 | `plan` | `plan` | `update` | — | 항목 수·완료 수 |
 | `session/load` 리플레이 | — | — | — | **버림** |
@@ -200,6 +202,8 @@ Hermes 보조 신호: stderr의 프로바이더 오류 문구 스니핑 → `oth
 `supported_options`(v0.5)는 이 런타임이 받는 프로파일 옵션과 허용 값이다. 어댑터는 `claudeCode.options`의 키를 검증 없이 통과시키므로(§2) 실측할 수 없다 — 데몬이 `(kind, adapter_version)`로 **아는 범위**를 표로 광고한다. 모르면 비워 두고, 비어 있으면 "광고 없음"이다(옵션 없음이 아니다). Hermes는 v1에서 비어 있다.
 
 Hermes: `usage: true`(G1 F6), `resume: true`(`session/load`), `brief_transport: "instruction_file"`, **`tool_surface: "cli_wrapper"`**(v0.8 — MCP를 존중하지 않는다).
+
+`usage_midturn`(v0.8.5): 런타임(+어댑터 설정)이 **턴 중** usage 를 주는가 — claude_code `true`(emitRawSDKMessages), hermes `false`. `false` 면 서버의 턴 중 예산 강제(FR-7.3 M9)는 그 런타임에서 finish 사후 강제(E9-10)로만 작동한다.
 
 이 객체는 **런타임 하나**를 설명한다. 머신 전체의 속성(예: colab CLI 설치 여부)은 여기가 아니라 probe 최상위에 있다 — `daemon-protocol.md` §3 `colab_cli`.
 

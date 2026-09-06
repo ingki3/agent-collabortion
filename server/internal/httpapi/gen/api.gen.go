@@ -2533,6 +2533,9 @@ type RuntimeCapability struct {
 	// Usage 사용량 보고 여부. false면 비용은 추정 배지(FR-7.3)
 	Usage *bool `json:"usage,omitempty"`
 
+	// UsageMidturn harness v0.8.5 §9 — 런타임(+어댑터 설정)이 턴 중 usage 를 주는가. false 면 턴 중 예산 강제는 finish 사후(E9-10)로만.
+	UsageMidturn *bool `json:"usage_midturn,omitempty"`
+
 	// Version 런타임 CLI 버전(예 Claude Code 2.1.258, Hermes 0.20.6).
 	Version nullable.Nullable[string] `json:"version,omitempty"`
 }
