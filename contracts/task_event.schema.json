@@ -420,7 +420,9 @@
     }
   },
   "x-render-class": {
-    "description": "활동 피드 렌더 클래스(FR-7.2, 컷 1 대상). 저장하지 않고 서버가 class/verb/outcome에서 파생한다.",
+    "description": "활동 피드 렌더 클래스(FR-7.2, 컷 1 대상). class/verb/outcome의 순수 함수다 — 와이어 필드가 아니며 서버가 저장·전송하지 않는다. 웹이 이벤트를 받을 때 계산한다(v0.3 정정: 이전 문구 '서버가 파생한다'는 openapi에 필드가 없고 서버도 계산하지 않아 사실이 아니었다).",
+    "evaluation": "rules 배열을 위에서부터 순서대로 평가해 첫 번째로 맞는 것을 쓴다(first-match). 마지막 else가 그 전제다. error 규칙은 앞 규칙이 잡지 않은 실패 — runtime/error, permission rejected, 전용 렌더러가 없는 클래스의 outcome=failed — 만 잡는다.",
+    "failed_emphasis": "전용 렌더러(message·platform·file_edit·shell)는 outcome=failed 를 반드시 크게 그린다(SCREEN §4.5 '실패는 크게, 조회는 조용하게'). 실패한 셸 명령은 error 카드가 아니라 실패 강조된 shell 카드다 — 명령과 출력이 보여야 원인을 알 수 있다. 컷 1에서 shell·file_edit 이 raw 로 강등되면 그 실패는 error 규칙이 잡는다.",
     "rules": [
       {
         "when": "class=message verb=say",
