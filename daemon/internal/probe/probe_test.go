@@ -286,3 +286,42 @@ func TestSupportedOptionsIsPinnedToTheAdapterVersion(t *testing.T) {
 		t.Fatalf("an unverified adapter (%s) advertised %+v", cap2.AdapterVersion, cap2.SupportedOptions)
 	}
 }
+
+// §9 v0.8.5 usage_midturn — MEASURED, like every other field here. The probe
+// always enables the raw SDK stream for claude_code, so a runtime that puts
+// usage on it before the turn ends advertises true; hermes, which has no such
+// stream on any path (D-17 실측), advertises false and tells the server that
+// FR-7.3's in-turn enforcement degrades to the finish-time check there.
+func TestPongMeasuresUsageMidturn(t *testing.T) {
+	req := acpfake.SDKRequestStep{Input: 10, Output: 60, CacheRead: 13615, CacheWrite: 8184}
+	cases := []struct {
+		name  string
+		kind  contracts.RuntimeKind
+		steps []acpfake.Step
+		want  bool
+	}{
+		{"claude streams per-request usage", contracts.RuntimeClaudeCode,
+			[]acpfake.Step{{SDKRequest: &req}, {Chunk: "PONG"}}, true},
+		{"claude adapter sends none", contracts.RuntimeClaudeCode,
+			[]acpfake.Step{{Chunk: "PONG"}}, false},
+		{"hermes has no raw stream at all", contracts.RuntimeHermes,
+			[]acpfake.Step{{SDKRequest: &req}, {Chunk: "PONG"}}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			script := acpfake.Script{Turns: []acpfake.Turn{{Steps: tc.steps, Usage: &contractsUsage}}}
+			if tc.kind == contracts.RuntimeHermes {
+				script.Kind = "hermes"
+			}
+			o := Options{DaemonVersion: "t", Turn: true, Timeout: 30 * time.Second, Command: func(contracts.RuntimeKind) (string, []string, []string, bool) {
+				c, a, e := acpfake.Command(script, "")
+				return c, a, e, true
+			}}
+			cap := contracts.Capability{Kind: tc.kind}
+			Pong(context.Background(), tc.kind, o, &cap)
+			if cap.UsageMidturn != tc.want {
+				t.Fatalf("usage_midturn = %v, want %v", cap.UsageMidturn, tc.want)
+			}
+		})
+	}
+}

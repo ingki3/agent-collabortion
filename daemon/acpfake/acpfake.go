@@ -118,6 +118,11 @@ type Turn struct {
 	// ReportModel overrides the model reported in model_usage (drift test).
 	ReportModel string           `json:"report_model,omitempty"`
 	Usage       *acp.PromptUsage `json:"usage,omitempty"`
+	// CostUSD emits the raw SDK `result` message that closes a claude_code
+	// turn, carrying `total_cost_usd` (harness §7 v0.8.5) — the only place a
+	// pinned adapter reports a MEASURED cost. Like every other raw SDK
+	// message the fake sends it only when the client asked for the stream.
+	CostUSD *float64 `json:"cost_usd,omitempty"`
 	// LateChunk is sent LateDelayMs after the prompt response (Hermes, §2.2).
 	LateChunk   string `json:"late_chunk,omitempty"`
 	LateDelayMs int    `json:"late_delay_ms,omitempty"`
@@ -131,6 +136,7 @@ type Step struct {
 	ToolUpdate *ToolUpdateStep `json:"tool_update,omitempty"`
 	Permission *PermissionStep `json:"permission,omitempty"`
 	Usage      *UsageStep      `json:"usage,omitempty"`
+	SDKRequest *SDKRequestStep `json:"sdk_request,omitempty"`
 	Plan       []acp.PlanEntry `json:"plan,omitempty"`
 	// EchoBrief emits the last received _meta.systemPrompt.append as a chunk
 	// (§12 (a)); EchoModel emits the current model (§12 (b)).
@@ -167,6 +173,23 @@ type PermissionStep struct {
 	ToolName string   `json:"tool_name,omitempty"`
 	Kinds    []string `json:"kinds"` // option kinds offered, in order
 	IDPrefix string   `json:"id_prefix,omitempty"`
+}
+
+// SDKRequestStep is ONE model request inside a turn, as claude-agent-acp
+// 0.74.0 puts it on the raw SDK stream (measured; midturn.go quotes the wire).
+// It deliberately emits the DECOYS too — the duplicated `assistant` message
+// whose output_tokens is the opening value, and a `message_delta` that repeats
+// the input and cache counts — because a daemon that sums everything with a
+// `usage` block gets 2× the input tokens and a fraction of the output, and a
+// fake that sent only the clean pair could never catch that.
+type SDKRequestStep struct {
+	Input      int64 `json:"input"`
+	Output     int64 `json:"output"`
+	CacheRead  int64 `json:"cache_read,omitempty"`
+	CacheWrite int64 `json:"cache_write,omitempty"`
+	// OpeningOutput is the output_tokens the request STARTS with (real turns:
+	// 1~4). Zero → 4.
+	OpeningOutput int64 `json:"opening_output,omitempty"`
 }
 
 type UsageStep struct {
@@ -430,6 +453,42 @@ func (sv *server) rawInit(sid string) {
 	}
 }
 
+// rawSDKOn reports whether the client asked for `_claude/sdkMessage`.
+func (sv *server) rawSDKOn() bool {
+	cc, _ := sv.lastMeta["claudeCode"].(map[string]any)
+	return cc != nil && cc["emitRawSDKMessages"] == true
+}
+
+func (sv *server) sdkMessage(sid string, msg map[string]any) {
+	sv.send(map[string]any{"jsonrpc": "2.0", "method": acp.ExtNotificationSDKMessage,
+		"params": map[string]any{"sessionId": sid, "message": msg}})
+}
+
+// sdkRequest emits one model request's worth of raw SDK traffic, in the order
+// the adapter sends it: message_start, the assistant message twice, then
+// message_delta with the final output count.
+func (sv *server) sdkRequest(sid string, r *SDKRequestStep) {
+	if !sv.rawSDKOn() {
+		return
+	}
+	opening := r.OpeningOutput
+	if opening == 0 {
+		opening = 4
+	}
+	open := map[string]any{"input_tokens": r.Input, "output_tokens": opening,
+		"cache_read_input_tokens": r.CacheRead, "cache_creation_input_tokens": r.CacheWrite}
+	sv.sdkMessage(sid, map[string]any{"type": "stream_event", "parent_tool_use_id": nil,
+		"event": map[string]any{"type": "message_start", "message": map[string]any{"id": "msg_fake", "usage": open}}})
+	for i := 0; i < 2; i++ {
+		sv.sdkMessage(sid, map[string]any{"type": "assistant",
+			"message": map[string]any{"id": "msg_fake", "usage": open}})
+	}
+	sv.sdkMessage(sid, map[string]any{"type": "stream_event", "parent_tool_use_id": nil,
+		"event": map[string]any{"type": "message_delta", "usage": map[string]any{
+			"input_tokens": r.Input, "output_tokens": r.Output,
+			"cache_read_input_tokens": r.CacheRead, "cache_creation_input_tokens": r.CacheWrite}}})
+}
+
 func (sv *server) handle(m message) {
 	s := sv.s
 	switch m.Method {
@@ -538,6 +597,13 @@ func (sv *server) prompt(id *json.RawMessage, sid string) {
 		if t.Error != nil && stop != "cancelled" {
 			sv.replyErr(id, t.Error)
 			return
+		}
+		// The `result` message closes the turn on the raw stream BEFORE the
+		// ACP response — that ordering is what lets recordUsage read the
+		// measured cost when it folds the turn in (harness §7 v0.8.5).
+		if t.CostUSD != nil && sv.rawSDKOn() {
+			sv.sdkMessage(sid, map[string]any{"type": "result", "subtype": "success",
+				"stop_reason": stop, "total_cost_usd": *t.CostUSD})
 		}
 		res := map[string]any{"stopReason": stop}
 		if t.Usage != nil {
@@ -648,6 +714,8 @@ func (sv *server) prompt(id *json.RawMessage, sid string) {
 				u["_meta"] = map[string]any{"_claude/rateLimit": st.Usage.RateLimit}
 			}
 			sv.update(sid, u)
+		case st.SDKRequest != nil:
+			sv.sdkRequest(sid, st.SDKRequest)
 		case st.Plan != nil:
 			sv.update(sid, map[string]any{"sessionUpdate": "plan", "entries": st.Plan})
 		}

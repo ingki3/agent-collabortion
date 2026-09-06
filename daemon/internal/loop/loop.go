@@ -489,8 +489,15 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	}
 	defer func() { _ = brief.Remove(prep) }()
 
+	// The heartbeater exists before the runner because the runner calls back
+	// into it (OnUsage); its `r` is filled in on the next line.
+	hb := &heartbeater{d: d, b: b, bt: batcher}
 	runner := acp.New(acp.Attempt{
 		Bundle: b, Workdir: wd, Cmd: d.spawnConfig(b, wd), MCPServers: d.mcpServers(b), Sink: batcher, Clock: d.Clock, DaemonVersion: d.Version,
+		// harness §7 v0.8.5: the raw SDK stream is what makes the heartbeat's
+		// `usage` non-zero before the turn ends (D-17).
+		RawSDKMessages: d.usageMidturn(b.Profile.RuntimeKind),
+		OnUsage:        func() { hb.send(ctx) },
 		OnSpawn: func(pgid int) {
 			if err := d.Orphans.Record(orphan.Record{TaskID: b.Task.ID, Attempt: b.Task.Attempt, PGID: pgid, StartedAt: d.Clock.Now().UTC(), Workdir: wd}); err != nil {
 				d.Log("%s pgid record: %v", k, err)
@@ -505,8 +512,9 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	d.mu.Lock()
 	d.running[k] = run
 	d.mu.Unlock()
+	hb.r = runner
 	hbStop := make(chan struct{})
-	go d.heartbeat(ctx, b, runner, batcher, hbStop)
+	go d.heartbeat(ctx, hb, hbStop)
 
 	res := runner.Run(ctx)
 	close(hbStop)
@@ -552,7 +560,43 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	d.Log("%s finished outcome=%s stop=%s", k, res.Outcome, f.StopReason)
 }
 
-func (d *Daemon) heartbeat(ctx context.Context, b contracts.TaskBundle, r *acp.Runner, bt *api.Batcher, stop <-chan struct{}) {
+// usageMidturn reports whether this attempt asks the runtime for in-turn
+// usage. Only claude_code has a channel for it (harness §7 v0.8.5); on hermes
+// the flag would buy nothing but `_meta`, which hermes drops anyway.
+func (d *Daemon) usageMidturn(kind contracts.RuntimeKind) bool {
+	return kind == contracts.RuntimeClaudeCode && d.Cfg.UsageMidturnEnabled()
+}
+
+// heartbeater owns the attempt's heartbeat channel. Two goroutines use it —
+// the 15s ticker and the runner's OnUsage callback the moment a turn's usage
+// lands — so the send is serialised: `TakePreview` consumes state, and two
+// concurrent heartbeats would race for the same partial output.
+type heartbeater struct {
+	d  *Daemon
+	b  contracts.TaskBundle
+	r  *acp.Runner
+	bt *api.Batcher
+	mu sync.Mutex
+}
+
+func (h *heartbeater) send(ctx context.Context) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	hctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	res, err := h.d.Server.Heartbeat(hctx, h.b.Task.ID, h.b.Task.Attempt, api.HeartbeatRequest{Usage: h.r.Usage(), LastSeq: h.bt.LastSeq(), Preview: h.bt.TakePreview()})
+	cancel()
+	if err != nil {
+		// A heartbeat is a liveness signal, never fatal to the attempt
+		// (§4.2 v0.3): the server ignores a bad `preview` and still
+		// returns 200, and any other status — 4xx included — is only
+		// logged so the next tick retries.
+		h.d.Log("heartbeat %s: %v", key(h.b.Task.ID, h.b.Task.Attempt), err)
+		return
+	}
+	h.d.handleCommands(ctx, res.Commands)
+}
+
+func (d *Daemon) heartbeat(ctx context.Context, hb *heartbeater, stop <-chan struct{}) {
 	for {
 		select {
 		case <-stop:
@@ -561,17 +605,6 @@ func (d *Daemon) heartbeat(ctx context.Context, b contracts.TaskBundle, r *acp.R
 			return
 		case <-d.Clock.After(d.HeartbeatInterval):
 		}
-		hctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		res, err := d.Server.Heartbeat(hctx, b.Task.ID, b.Task.Attempt, api.HeartbeatRequest{Usage: r.Usage(), LastSeq: bt.LastSeq(), Preview: bt.TakePreview()})
-		cancel()
-		if err != nil {
-			// A heartbeat is a liveness signal, never fatal to the attempt
-			// (§4.2 v0.3): the server ignores a bad `preview` and still
-			// returns 200, and any other status — 4xx included — is only
-			// logged so the next tick retries.
-			d.Log("heartbeat %s: %v", key(b.Task.ID, b.Task.Attempt), err)
-			continue
-		}
-		d.handleCommands(ctx, res.Commands)
+		hb.send(ctx)
 	}
 }
