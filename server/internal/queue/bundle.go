@@ -5,17 +5,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ingki3/agent-collabortion/contracts"
+	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
-const historyLimit = 30
+// historyLimit is §8.4's history cap. It is tasks.DefaultHistoryLimit and not
+// a second number: the golden table injects its own HistoryLimit, so a
+// literal here was never compared with anything (S-38, review §5).
+const historyLimit = tasks.DefaultHistoryLimit
 
 // buildBundle assembles the TaskBundle (daemon-protocol §4.1): profile, brief
 // [1]~[8] (PRD §8.4), the turn prompt with history/trigger/<resumed>, limits
@@ -103,6 +108,19 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, token string) (*c
 	}
 	rows.Close()
 
+	// Brief [6] Context and [7] Decision Log (§8.4, S-37). The decision table
+	// and the artifact table were both written from P2 on and nothing read
+	// them back into a prompt, so every turn re-derived what had already been
+	// decided from the raw history.
+	sessionContext, err := briefContext(ctx, tx, t.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	decisionLog, err := briefDecisionLog(ctx, tx, t.SessionID)
+	if err != nil {
+		return nil, err
+	}
+
 	// Trigger messages, history, posted ids.
 	//
 	// coalesced_message_ids is the arrival-ordered list of everything this task
@@ -138,22 +156,30 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, token string) (*c
 	_ = tx.QueryRow(ctx, `SELECT count(*) FROM message WHERE session_id = $1`, t.SessionID).Scan(&total)
 	var hist strings.Builder
 	for _, m := range history {
-		fmt.Fprintf(&hist, "[%s] %s: %s\n", m.CreatedAt.UTC().Format("15:04"), authorLabel(m), m.Content)
+		// The id is here so `Messages you already posted` above can be matched
+		// line by line against what the session actually holds (S-36).
+		fmt.Fprintf(&hist, "[%s] %s %s: %s\n", m.CreatedAt.UTC().Format("15:04"), m.ID, authorLabel(m), m.Content)
 	}
 
-	var posted []string
+	// posted is the bundle's `posted_message_ids` (bare ids, §4.1); postedLines
+	// is what the PROMPT shows. S-36: a list of uuids is nothing an agent can
+	// compare its draft against, so each line is `id — first 80 chars` and the
+	// history lines below carry the same ids.
+	var posted, postedLines []string
 	var postedIDs []uuid.UUID
-	prow, err := tx.Query(ctx, `SELECT id FROM message WHERE source_task_id = $1 ORDER BY created_at`, t.ID)
+	prow, err := tx.Query(ctx, `SELECT id, content FROM message WHERE source_task_id = $1 ORDER BY created_at`, t.ID)
 	if err != nil {
 		return nil, err
 	}
 	for prow.Next() {
 		var id uuid.UUID
-		if err := prow.Scan(&id); err != nil {
+		var content string
+		if err := prow.Scan(&id, &content); err != nil {
 			prow.Close()
 			return nil, err
 		}
 		posted = append(posted, id.String())
+		postedLines = append(postedLines, fmt.Sprintf("%s — %s", id, preview(content, 80)))
 		postedIDs = append(postedIDs, id)
 	}
 	prow.Close()
@@ -183,7 +209,17 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, token string) (*c
 		newInstruction = trigger.String()
 	}
 
-	// Brief [1]~[8] (PRD §8.4). [3] coordination protocol and [6]/[7] are P2.
+	// The human's answer that put this task back in the queue. Only these two
+	// causes have one: a retry or a heartbeat re-queue answers no question.
+	var answered *hitlAnswer
+	if cause == tasks.CauseHitlAnswer || cause == tasks.CauseBudgetApproved {
+		answered, err = lastAnsweredHitl(ctx, tx, t.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Brief [1]~[8] (PRD §8.4).
 	var brief strings.Builder
 	fmt.Fprintf(&brief, "[1] Agent Identity\nYou are %s, %s in the Colab workspace. %s\n\nInstructions:\n%s\n\n", agentName, agentRole, roleDesc, instructions)
 	brief.WriteString("[2] Workspace rules and colab CLI\n" +
@@ -192,6 +228,17 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, token string) (*c
 		"- Read more history with `colab session messages`, session details with `colab session get`.\n" +
 		"- Mentioning an agent creates work for it; do not mention agents just to acknowledge.\n" +
 		"- Your COLAB_TASK_TOKEN is valid for this attempt only; if a call returns token_revoked, stop immediately.\n\n")
+	if agentRole == "lead" {
+		// §8.4 marks [3] "(lead만)". A researcher handed the coordination
+		// protocol starts handing out work to the roster it can see, which is
+		// how a session grows two coordinators.
+		brief.WriteString("[3] Coordination Protocol\n" +
+			"- You are the lead. Split the goal into pieces and hand each one to the agent in [5] whose role fits it, by mentioning that agent.\n" +
+			"- One mention is one unit of work: do not mention an agent to acknowledge, and do not mention two agents for the same piece.\n" +
+			"- Wait for a reply before handing out work that depends on it; independent pieces go out together.\n" +
+			"- When a decision needs a person, ask with `colab hitl ask` rather than guessing; the answer comes back in the next turn's `<resumed>`.\n" +
+			"- Report to the Director yourself; the other agents report to you.\n\n")
+	}
 	fmt.Fprintf(&brief, "[4] Session\nTitle: %s\nGoal: %s\n", title, goal)
 	if len(criteria) > 0 {
 		brief.WriteString("Acceptance criteria:\n")
@@ -201,6 +248,12 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, token string) (*c
 	}
 	fmt.Fprintf(&brief, "Director: %s\nIsolation: %s\n\n", directorName, isolation.Kind)
 	fmt.Fprintf(&brief, "[5] Roster\n%s\n", roster.String())
+	if sessionContext != "" {
+		fmt.Fprintf(&brief, "[6] Context\n%s\n", sessionContext)
+	}
+	if decisionLog != "" {
+		fmt.Fprintf(&brief, "[7] Decision Log\n%s\n", decisionLog)
+	}
 	brief.WriteString("[8] Instruction precedence: user instruction > session goal > agent instructions > runtime defaults.\n")
 
 	// The next attempt's shape — resume vs cold start, `<resumed>`, the history
@@ -224,8 +277,16 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, token string) (*c
 	var prompt strings.Builder
 	if plan.HasResumedSection {
 		fmt.Fprintf(&prompt, "<resumed attempt=%d>\nYour previous attempt (%d) was interrupted: %s.\n", t.Attempt, t.Attempt-1, prevOutcome)
-		if len(posted) > 0 {
-			fmt.Fprintf(&prompt, "Messages you already posted: %s. Do not post them again.\n", strings.Join(posted, ", "))
+		if len(postedLines) > 0 {
+			fmt.Fprintf(&prompt, "Messages you already posted (do not post them again):\n%s\n",
+				"- "+strings.Join(postedLines, "\n- "))
+		}
+		// PRD §8.4: `<resumed>` carries the HITL answer and the approval
+		// verdict. hitl.PromptSections is the same function RespondPlan fills
+		// its table value from, so the row the golden pins is the text handed
+		// to the agent (review R1, E7-07·E7-17).
+		if answered != nil {
+			renderHitlAnswer(&prompt, answered)
 		}
 		if plan.ColdStart {
 			// FR-5.4 step 2: the runtime no longer holds the session, so this
@@ -258,10 +319,17 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, token string) (*c
 	if plan.ResumeRef != "" {
 		resume = tasks.PlanBundleResume(runtimeSessionRef, runtimeKind)
 	}
-	budget := budgetPerTask
-	if t.BudgetOverride != nil {
-		budget = t.BudgetOverride
-	}
+	// daemon-protocol §4.1·§4.4 v0.7.1: `limits.budget_usd` is the SESSION's
+	// remaining budget, and the task ceiling travels in `task.budget_usd` /
+	// `task.budget_override_usd`. The daemon then enforces D-16's
+	// min(task 상한, 세션 잔여) — before v0.7.1 this field carried the task
+	// ceiling again, so the session remainder was a number the daemon could
+	// not see and the last lane of a session could spend past it.
+	//
+	// The daemon's own half of D-16 is backlog D-16; the server's in-turn
+	// enforcement (httpapi.enforceBudgetFor, §4.2 usage) applies the same min
+	// on every heartbeat regardless.
+	budget := sessionRemainingBudget(ctx, tx, t.SessionID, limits.BudgetUSD)
 	workdirKind := "dir"
 	if isolation.Kind == "worktree" {
 		workdirKind = "worktree"
@@ -366,4 +434,194 @@ func deref(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// preview is the first n characters of one line of text — enough for a person
+// or an agent to recognise a message without carrying its whole body (S-36).
+func preview(content string, n int) string {
+	line := strings.TrimSpace(content)
+	if i := strings.IndexAny(line, "\r\n"); i >= 0 {
+		line = line[:i]
+	}
+	r := []rune(line)
+	if len(r) <= n {
+		return line
+	}
+	return string(r[:n]) + "…"
+}
+
+// briefContext is §8.4 [6]: what this session already has attached. The
+// artifacts are named, not inlined — the agent fetches the one it needs with
+// `colab artifact get`, and a brief that carries file bodies stops being
+// cacheable.
+func briefContext(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT DISTINCT ON (name) name, type, version, COALESCE(description, '')
+		FROM artifact WHERE session_id = $1
+		ORDER BY name, version DESC`, sessionID)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	var b strings.Builder
+	for rows.Next() {
+		var name, typ, desc string
+		var version int
+		if err := rows.Scan(&name, &typ, &version, &desc); err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "- %s (%s, v%d)", name, typ, version)
+		if desc != "" {
+			fmt.Fprintf(&b, " — %s", preview(desc, 120))
+		}
+		b.WriteString("\n")
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	if b.Len() == 0 {
+		return "", nil
+	}
+	return "Artifacts submitted in this session (read one with `colab artifact get <name>`):\n" + b.String(), nil
+}
+
+// briefDecisionLog is §8.4 [7]: FR-4.2's log, in the order it was written.
+// `auto` is kept visible — "nobody answered and we used the proposal" is not
+// the same instruction as "the Director said this" (E7-12).
+func briefDecisionLog(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT summary, COALESCE(rationale, ''), source::text, auto, created_at
+		FROM decision WHERE session_id = $1 ORDER BY created_at DESC LIMIT $2`, sessionID, decisionLogLimit)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	var lines []string
+	for rows.Next() {
+		var summary, rationale, source string
+		var auto bool
+		var at time.Time
+		if err := rows.Scan(&summary, &rationale, &source, &auto, &at); err != nil {
+			return "", err
+		}
+		line := fmt.Sprintf("- [%s] %s (%s", at.UTC().Format("2006-01-02 15:04"), summary, source)
+		if auto {
+			line += ", automatic: nobody answered in time"
+		}
+		line += ")"
+		if rationale != "" {
+			line += " — " + preview(rationale, 160)
+		}
+		lines = append(lines, line)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	if len(lines) == 0 {
+		return "", nil
+	}
+	// Oldest first: the log reads as a sequence, and the newest N are the ones
+	// that survived the LIMIT.
+	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
+		lines[i], lines[j] = lines[j], lines[i]
+	}
+	return strings.Join(lines, "\n") + "\n", nil
+}
+
+// decisionLogLimit caps §8.4 [7]. The brief is the cacheable prefix (§8.4
+// "캐시 친화적"), so it may not grow without bound.
+const decisionLogLimit = 20
+
+// hitlAnswer is the answered request the next attempt is resuming from.
+type hitlAnswer struct {
+	Sections []string
+	Kind     string
+	Question string
+	Context  string
+	Answer   string
+	Approved *bool
+	Reason   string
+	Auto     bool
+}
+
+// lastAnsweredHitl reads the most recently answered request of this task.
+// `<resumed>` needs the ANSWER, so an open request (there can be at most one)
+// is not a candidate and neither is a cancelled one (K-4).
+//
+// The reason comes from the decision row rather than hitl_request: a rejection
+// with no answer text stores the reason in `answer` (handlers_hitl.go), and
+// printing that as "answer: 근거가 부족합니다" would read as approval.
+func lastAnsweredHitl(ctx context.Context, tx pgx.Tx, taskID uuid.UUID) (*hitlAnswer, error) {
+	var a hitlAnswer
+	var answer, hctx, rationale *string
+	err := tx.QueryRow(ctx, `
+		SELECT h.type::text, h.question, h.context, h.answer, h.approved,
+		       (SELECT d.rationale FROM decision d WHERE d.ref_id = h.id ORDER BY d.created_at DESC LIMIT 1),
+		       COALESCE((SELECT d.auto FROM decision d WHERE d.ref_id = h.id ORDER BY d.created_at DESC LIMIT 1), false)
+		FROM hitl_request h
+		WHERE h.task_id = $1 AND h.status IN ('answered', 'auto_answered')
+		ORDER BY h.answered_at DESC NULLS LAST, h.created_at DESC
+		LIMIT 1`, taskID).Scan(&a.Kind, &a.Question, &hctx, &answer, &a.Approved, &rationale, &a.Auto)
+	if isNoRows(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("queue: bundle: hitl answer: %w", err)
+	}
+	a.Sections = hitl.PromptSections(a.Kind)
+	a.Answer, a.Context, a.Reason = deref(answer), deref(hctx), deref(rationale)
+	if a.Kind == hitl.KindApproval {
+		// The rejection reason is stored in `answer` when the responder gave
+		// no separate answer text; it is a reason either way, never an answer.
+		if a.Reason == "" {
+			a.Reason = a.Answer
+		}
+		a.Answer = ""
+	}
+	return &a, nil
+}
+
+// renderHitlAnswer writes §8.4's HITL section of `<resumed>`. The section name
+// is hitl.PromptSections' — the same value RespondPlan carries into the golden
+// table (E7-07 question/answer, E7-17 approved:false + reason).
+func renderHitlAnswer(prompt *strings.Builder, a *hitlAnswer) {
+	fmt.Fprintf(prompt, "<hitl_answer sections=%q>\n", strings.Join(a.Sections, ","))
+	fmt.Fprintf(prompt, "question: %s\n", a.Question)
+	if a.Context != "" {
+		fmt.Fprintf(prompt, "context: %s\n", a.Context)
+	}
+	if a.Approved != nil {
+		fmt.Fprintf(prompt, "approved: %t\n", *a.Approved)
+	}
+	if a.Answer != "" {
+		fmt.Fprintf(prompt, "answer: %s\n", a.Answer)
+	}
+	if a.Reason != "" {
+		fmt.Fprintf(prompt, "reason: %s\n", a.Reason)
+	}
+	if a.Auto {
+		// E7-12: the deadline passed and the agent's own proposal was used.
+		// Reading that as a human decision is how a guess becomes a fact.
+		prompt.WriteString("decided_by: nobody answered before the deadline; your proposed default was used\n")
+	}
+	prompt.WriteString("</hitl_answer>\n")
+}
+
+// sessionRemainingBudget is §4.4's "세션 잔여": the session's limit less what
+// its tasks have already spent, floored at zero. nil when the session carries
+// no budget — a session without a limit must not hand every task a limit of
+// zero.
+func sessionRemainingBudget(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, limit *float64) *float64 {
+	if limit == nil || *limit <= 0 {
+		return nil
+	}
+	var spent float64
+	_ = tx.QueryRow(ctx, `
+		SELECT COALESCE(sum(u.cost_usd), 0) FROM task_usage u
+		JOIN task t ON t.id = u.task_id WHERE t.session_id = $1`, sessionID).Scan(&spent)
+	rem := *limit - spent
+	if rem < 0 {
+		rem = 0
+	}
+	return &rem
 }

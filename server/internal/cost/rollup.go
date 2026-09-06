@@ -49,7 +49,7 @@ type Report struct {
 
 // Rollup folds usage rows into the four buckets.
 //
-// Production callers: httpapi.GetSessionCost and httpapi.GetWorkspaceCost.
+// production callers: httpapi.GetSessionCost and httpapi.GetWorkspaceCost.
 func Rollup(rows []UsageRow) Report {
 	r := Report{ByTask: []Bucket{}, ByAgent: []Bucket{}, BySession: []Bucket{}, ByRuntime: []Bucket{}}
 	byTask := newGrouper()

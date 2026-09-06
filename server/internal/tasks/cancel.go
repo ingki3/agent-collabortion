@@ -38,7 +38,7 @@ type CancelResult struct {
 // instruction is 중단하고 다시 지시, which cancels the same way and then
 // creates ONE new task (a re-instruction, not a retry — FR-3.4 B).
 //
-// Production call sites: tasks.cancelLocked (the lane/task statuses and the
+// production callers: tasks.cancelLocked (the lane/task statuses and the
 // feed note it writes) and httpapi.RestartLane (the new task).
 func PlanCancelResult(newInstruction string) CancelResult {
 	r := CancelResult{
@@ -75,7 +75,7 @@ type CancelCommand struct {
 // daemon's observation (harness §5 step 1), not the server's: the server sees
 // task_events after the fact and would race the tool it is asking about.
 //
-// Production callers: tasks.Service.CancelLane, tasks.Service.CancelForSession
+// production callers: tasks.Service.CancelLane, tasks.Service.CancelForSession
 // and tasks.Service.pauseLocked — the three places a cancel command is queued.
 func PlanCancelCommand(reason string) CancelCommand {
 	return CancelCommand{AfterCurrentTool: true, Reason: reason, HoldFor: contracts.CancelDrainWait}
@@ -97,7 +97,7 @@ type CancelPermission struct {
 
 // MayCancel is the cancel gate.
 //
-// Production caller: httpapi.CancelLane and lanes.Load's `can_control`.
+// production caller: httpapi.CancelLane and lanes.Load's `can_control`.
 func MayCancel(actor, director uuid.UUID, deputy *uuid.UUID) CancelPermission {
 	if actor == director || (deputy != nil && actor == *deputy) {
 		return CancelPermission{Allowed: true, HTTPStatus: 200, ButtonEnabled: true}
@@ -135,7 +135,7 @@ type KillSwitchEffect struct {
 
 // PlanKillSwitch is what `respond_to: nobody` does immediately.
 //
-// Production caller: httpapi.UpdateAgent (applyKillSwitch).
+// production caller: httpapi.UpdateAgent (applyKillSwitch).
 func PlanKillSwitch(s KillSwitchState) KillSwitchEffect {
 	return KillSwitchEffect{
 		CancelRunning: s.Running, CancelQueued: s.Queued,
@@ -160,7 +160,7 @@ type KillSwitchAnswer struct {
 
 // PlanKillSwitchAnswer records the answer and holds the re-queue.
 //
-// Production caller: hitl.PlanRespond's AgentDisabled branch, applied by
+// production caller: hitl.PlanRespond's AgentDisabled branch, applied by
 // httpapi.answerAgentHitl; the release is httpapi.releaseHeldRequeues.
 func PlanKillSwitchAnswer() KillSwitchAnswer {
 	return KillSwitchAnswer{
@@ -201,7 +201,7 @@ type TriggerVerdict struct {
 // mention makes a team workspace's default block the collaboration it was
 // invited for (E10-10). Outside, `respond_to` governs who may invite (E10-11).
 //
-// Production callers: router.Post's trigger gate and httpapi.AddParticipant.
+// production callers: router.Post's trigger gate and httpapi.AddParticipant.
 func MayTrigger(in TriggerInput) TriggerVerdict {
 	v := TriggerVerdict{JudgedOn: in.OriginatorUserID}
 	if in.RespondTo == "nobody" {

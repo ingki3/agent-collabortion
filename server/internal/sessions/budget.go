@@ -25,6 +25,12 @@ type BudgetInput struct {
 	SessionLimitUSD float64
 	SpentUSD        float64
 
+	// SessionRemainingUSD is what is left of the session budget for this task
+	// (session limit minus what the OTHER tasks already spent). D-16 makes it
+	// a ceiling on the task limit, so a $5 task inside a session with $0.40
+	// left may not spend $5. Zero means the session has no budget at all.
+	SessionRemainingUSD float64
+
 	// OverrideUSD is a previously approved task.budget_override. It is read
 	// HERE, at enforcement time — storing it and still enforcing against the
 	// agent's budget_per_task means the Director's approval buys nothing and
@@ -74,25 +80,53 @@ type BudgetOutcome struct {
 	DirectorNotified bool
 }
 
-// EffectiveTaskLimit is FR-7.3 C2′: the raise applies to THIS task, and it is
-// what enforcement compares against.
-func EffectiveTaskLimit(limit, override float64) float64 {
+// TaskCeiling is FR-7.3 C2′: the raise applies to THIS task, and an override
+// REPLACES the agent's per-task budget rather than being compared with it —
+// an approved raise below the default would otherwise be silently ignored.
+func TaskCeiling(limit, override float64) float64 {
 	if override > 0 {
 		return override
 	}
 	return limit
 }
 
+// EffectiveTaskLimit is daemon-protocol v0.7.1 §4.4 (D-16): the effective
+// budget is min(task ceiling, session remaining).
+//
+// The priority scheme it replaces (override > session > task) could hand a
+// task a limit ABOVE what the session had left, so the last lane of a session
+// spent past the session budget and the session pause arrived after the money
+// was gone. `sessionRemaining <= 0` means the session carries no budget, not
+// that it has none left — a session with no limit must not pin every task to
+// zero.
+//
+// production callers: sessions.PlanBudget, httpapi.applyBudgetPause (the
+// number written into paused_detail) and queue.buildBundle (the number the
+// daemon enforces its own half against, §4.1 `limits.budget_usd`).
+func EffectiveTaskLimit(limit, override, sessionRemaining float64) float64 {
+	ceiling := TaskCeiling(limit, override)
+	if sessionRemaining > 0 && (ceiling <= 0 || sessionRemaining < ceiling) {
+		return sessionRemaining
+	}
+	return ceiling
+}
+
 // PlanBudget decides one enforcement point.
 //
-// Production caller: httpapi.Server.enforceBudget, called from the daemon
+// production caller: httpapi.Server.enforceBudget, called from the daemon
 // heartbeat (daemon-protocol §4.2 `usage`) and from tasks.Finish's usage
 // rollup.
 func PlanBudget(in BudgetInput) BudgetOutcome {
 	o := BudgetOutcome{SessionState: "active", TaskStatus: "running"}
-	limit := in.SessionLimitUSD
+	scope, limit := in.Scope, in.SessionLimitUSD
 	if in.Scope == "task" {
-		limit = EffectiveTaskLimit(in.TaskLimitUSD, in.OverrideUSD)
+		limit = EffectiveTaskLimit(in.TaskLimitUSD, in.OverrideUSD, in.SessionRemainingUSD)
+		if limit == in.SessionRemainingUSD && limit < TaskCeiling(in.TaskLimitUSD, in.OverrideUSD) {
+			// D-16: the session's remainder is the half of the min that bound.
+			// Pausing only this task would leave the other lanes free to spend
+			// a session budget that is already gone (FR-7.3, E9-04).
+			scope = "session"
+		}
 	}
 	if limit <= 0 || in.SpentUSD < limit {
 		return o
@@ -126,7 +160,7 @@ func PlanBudget(in BudgetInput) BudgetOutcome {
 	// 0012 stores `purpose` (E9-01).
 	o.HitlPurpose = hitl.PurposeBudget
 
-	switch in.Scope {
+	switch scope {
 	case "task":
 		o.TaskStatus, o.PausedReason = "paused", PauseBudget
 		o.LaneStatus = "paused"
@@ -184,7 +218,7 @@ type BudgetResume struct {
 
 // PlanBudgetAnswer applies the Director's verdict.
 //
-// Production caller: httpapi.answerAgentHitl (the budget branch) and
+// production caller: httpapi.answerAgentHitl (the budget branch) and
 // tasks.Service.ResumeFromHuman.
 func PlanBudgetAnswer(in BudgetAnswerInput) BudgetResume {
 	r := BudgetResume{

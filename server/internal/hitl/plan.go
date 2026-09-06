@@ -105,7 +105,7 @@ type RegisterPlan struct {
 
 // PlanRegister validates one registration and says what it does to the task.
 //
-// Production caller: httpapi.CreateHitlRequest (handlers_hitl_p3.go).
+// production caller: httpapi.CreateHitlRequest (handlers_hitl_p3.go).
 func PlanRegister(in RegisterInput) RegisterPlan {
 	p := RegisterPlan{TaskStatus: "running", ApproverSpec: in.ApproverSpec, Purpose: PurposeAgent}
 	if p.ApproverSpec == "" {
@@ -189,7 +189,7 @@ type TurnPlan struct {
 // PlanTurn is FR-7.1's HITL transition. `posts` is how many messages the agent
 // sent after registering; turnEnd is whether its turn has ended.
 //
-// Production caller: tasks.Service.Finish (the `pending_hitl` branch of the
+// production caller: tasks.Service.Finish (the `pending_hitl` branch of the
 // daemon's end-of-turn report, service.go).
 func PlanTurn(posts int, turnEnd bool) TurnPlan {
 	p := TurnPlan{
@@ -238,7 +238,7 @@ type AuthzInput struct {
 // — notifying a deputy without granting the right makes the notification
 // useless (E7-09, E7-10).
 //
-// Production caller: httpapi.RespondHitlRequest and hitlAPI's `can_respond`
+// production caller: httpapi.RespondHitlRequest and hitlAPI's `can_respond`
 // (handlers_hitl.go) — the same judgement, so the button never says "you can"
 // to someone the handler will refuse.
 func Authorize(in AuthzInput) Authz {
@@ -318,9 +318,38 @@ type RespondPlan struct {
 	PromptReason   string
 }
 
+// `<resumed>` section names (PRD §8.4 "HITL 답변과 승인 여부").
+const (
+	SectionQuestionAnswer = "question_answer"
+	SectionApprovalResult = "approval_result"
+	SectionRequestedInfo  = "requested_info"
+)
+
+// PromptSections names the `<resumed>` sections one answer contributes to the
+// NEXT turn's prompt (E7-07 question/answer, E7-17 approved:false + reason).
+//
+// It is a function rather than a literal inside PlanRespond because the value
+// the golden table pins and the text the agent is actually handed must be one
+// decision. PR #124 round 1 filled RespondPlan.PromptSections and nothing read
+// it: the table was green while queue.buildBundle never asked the
+// hitl_request a question, so the answer reached no prompt (review R1).
+//
+// production callers: hitl.PlanRespond (the plan's value) and
+// queue.buildBundle (the rendered `<resumed>` section).
+func PromptSections(kind string) []string {
+	switch kind {
+	case KindApproval:
+		return []string{SectionApprovalResult}
+	case KindInfo:
+		return []string{SectionRequestedInfo}
+	default:
+		return []string{SectionQuestionAnswer}
+	}
+}
+
 // PlanRespond decides one response.
 //
-// Production caller: httpapi.Server.answerAgentHitl (handlers_hitl_p3.go).
+// production caller: httpapi.Server.answerAgentHitl (handlers_hitl_p3.go).
 func PlanRespond(in RespondInput) RespondPlan {
 	p := RespondPlan{Status: in.Status, CanRespondFrom: in.Authz.CanRespondFrom}
 	if in.Status != StatusOpen {
@@ -336,15 +365,10 @@ func PlanRespond(in RespondInput) RespondPlan {
 	p.Accepted = true
 	p.Status = StatusAnswered
 	p.DecisionRecords = 1
-	switch in.Kind {
-	case KindApproval:
-		p.PromptSections = []string{"approval_result"}
+	p.PromptSections = PromptSections(in.Kind)
+	if in.Kind == KindApproval {
 		p.PromptApproved = in.Approved
 		p.PromptReason = in.Reason
-	case KindInfo:
-		p.PromptSections = []string{"requested_info"}
-	default:
-		p.PromptSections = []string{"question_answer"}
 	}
 	if in.AgentDisabled {
 		// FR-1.9 M8: re-queueing restarts the agent the owner just disabled.
@@ -383,7 +407,7 @@ type ExpiryPlan struct {
 // implementation that keys on autonomy alone auto-answers an approval, which
 // empties the human gate the approval exists to be (E7-14, E7-21).
 //
-// Production caller: hitl.Service.SweepDeadlines (sweep.go), run by the
+// production caller: hitl.Service.SweepDeadlines (sweep.go), run by the
 // scheduler.
 func PlanExpiry(kind, autonomy, proposedDefault string) ExpiryPlan {
 	p := ExpiryPlan{Overdue: true, InboxTop: true}
@@ -425,7 +449,7 @@ type ConcurrencyPlan struct {
 // session while nothing runs — a question held for 24h would otherwise spend a
 // slot for 24h (FR-5.4, t-1).
 //
-// Production caller: queue.Postgres.Claim, whose `busy` set is this list.
+// production caller: queue.Postgres.Claim, whose `busy` set is this list.
 func OccupyingStatuses() []string {
 	return []string{"dispatched", "preparing", "running"}
 }
@@ -433,7 +457,7 @@ func OccupyingStatuses() []string {
 // PlanConcurrency is the slot rule, stated as a count so the golden can check
 // it: a session with one waiting_human lane and one running lane uses ONE slot.
 //
-// Production caller: queue.Postgres.Claim through OccupyingStatuses — the
+// production caller: queue.Postgres.Claim through OccupyingStatuses — the
 // claim query counts exactly the statuses that function names.
 func PlanConcurrency(waitingHuman, running int) ConcurrencyPlan {
 	return ConcurrencyPlan{
@@ -460,7 +484,7 @@ type EscalationPlan struct {
 // FR-6.2.1's immediate delegator wake unobservable, and the agent that picked
 // the wrong path gets no signal that it did.
 //
-// Production caller: httpapi.SetTaskStatus (the `blocked` arm) and
+// production caller: httpapi.SetTaskStatus (the `blocked` arm) and
 // httpapi.CreateHitlRequest (the `hitl` arm).
 func PlanEscalation(via string, delegator uuid.UUID) EscalationPlan {
 	if via == "blocked" {

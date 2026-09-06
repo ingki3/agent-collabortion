@@ -34,9 +34,15 @@ var ErrInvalidTransition = errors.New("tasks: invalid transition")
 //	deferred → queued → dispatched → preparing → running → waiting_human | completed | failed | cancelled | paused
 //	waiting_human → queued (only exit, N4) · paused → queued · retry: dispatched/preparing/running → queued
 var transitions = map[Status][]Status{
-	Deferred:     {Queued, Cancelled},
-	Queued:       {Dispatched, Cancelled, Failed},
-	Dispatched:   {Preparing, Running, Queued, Failed, Cancelled},
+	Deferred: {Queued, Cancelled},
+	Queued:   {Dispatched, Cancelled, Failed},
+	// Dispatched → Paused: a session pause reaches every task that has left
+	// the queue, and a task the daemon has been handed but has not started is
+	// as pausable as a preparing one. Leaving it out made
+	// tasks.PauseSessionTasks — which selects dispatched rows — fail the whole
+	// enforcement transaction, so a budget overrun raced with a claim left the
+	// session ACTIVE (found by TestP3SessionRemainderCapsTheTaskBudget).
+	Dispatched:   {Preparing, Running, Queued, Failed, Cancelled, Paused},
 	Preparing:    {Running, Queued, Failed, Cancelled, Paused},
 	Running:      {WaitingHuman, Completed, Failed, Cancelled, Paused, Queued},
 	WaitingHuman: {Queued},

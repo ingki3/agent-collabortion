@@ -334,3 +334,13 @@ func TestClaimRespectsConcurrencyLimits(t *testing.T) {
 		t.Fatalf("claimed %d, want 1 — a missing settings row must fall back to the defaults", len(got))
 	}
 }
+
+// TestBundleHistoryLimitIsTheOneConstant is the other half of S-38: the bundle
+// must not carry a second, private cap. Two literals is how the prompt and the
+// planner's `truncated` flag came to disagree.
+func TestBundleHistoryLimitIsTheOneConstant(t *testing.T) {
+	if historyLimit != tasks.DefaultHistoryLimit {
+		t.Fatalf("queue.historyLimit = %d, tasks.DefaultHistoryLimit = %d — one cap, one constant",
+			historyLimit, tasks.DefaultHistoryLimit)
+	}
+}

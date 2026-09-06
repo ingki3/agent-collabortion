@@ -104,31 +104,76 @@ func max64(a, b int64) int64 {
 	return b
 }
 
-// MarkGCd closes the GC loop of daemon-protocol §6. The server issues
-// `gc {workdir_ids}`; the daemon deletes and reports; only then is the row
-// `deleted`. Nothing did that last step, so a directory the daemon had already
-// removed stayed `active` on S13 forever — and E6-03's "0개 남음" could never
-// become true no matter how well the daemon obeyed.
+// GCReport is one workdir row's `gc` field in the §6 report (v0.7): the
+// daemon says what it did with a directory the server asked it to collect.
+type GCReport struct {
+	// WorkdirID is the id the server put in the command; the daemon echoes it.
+	WorkdirID uuid.UUID
+	Status    string // deleted | refused
+	Reason    string
+}
+
+// GCStatuses of §6.
+const (
+	GCDeleted = "deleted"
+	GCRefused = "refused"
+)
+
+// Refusal is a `gc: {status: refused}` row the caller must put on the feed.
+type Refusal struct {
+	WorkdirID uuid.UUID
+	Reason    string
+}
+
+// ApplyGCReports closes the GC loop of daemon-protocol §6 v0.7. The server
+// issues `gc {session_id, workdirs}`; the daemon deletes or refuses and says
+// which in the NEXT report; only then does the row move.
 //
-// Only rows the server actually asked for are touched: a directory that simply
-// stopped being reported (a machine unplugged, a partial report) is not
-// evidence of a deletion.
-func MarkGCd(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, presentWorkdirIDs []string, now time.Time) error {
-	if presentWorkdirIDs == nil {
-		presentWorkdirIDs = []string{}
+// It replaced an inference — "a workdir the server asked for and the daemon no
+// longer lists is gone". That was wrong in both directions (review NN6): a
+// daemon restarting mid-report closed directories that were still on disk, and
+// a `refused` row is reported forever, so its command was never consumed and
+// the refusal never reached a person. §6 is explicit that there is no silent
+// path; the status field is the receipt.
+//
+// `refused` parks the row at `retained` rather than leaving it `active`:
+// the daemon will not delete it (worktree before P4, say), so it is kept on
+// purpose, and the command has nothing left to wait for.
+//
+// production caller: httpapi.Server.daemonWorkdirs (§6 report handler).
+func ApplyGCReports(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, reports []GCReport, now time.Time) ([]Refusal, error) {
+	var refusals []Refusal
+	for _, rep := range reports {
+		if rep.WorkdirID == uuid.Nil {
+			continue
+		}
+		status := ""
+		switch rep.Status {
+		case GCDeleted:
+			status = "deleted"
+		case GCRefused:
+			status = "retained"
+		default:
+			// An unknown status is not a receipt. Leaving the row alone keeps
+			// the command unconsumed, so the 24h TTL records it on the feed
+			// rather than the server inventing an outcome.
+			continue
+		}
+		// Only a workdir the server actually asked THIS runtime to collect
+		// moves: the report is input, not authority.
+		tag, err := q.Exec(ctx, `
+			UPDATE workdir SET status = $3::workdir_status, updated_at = $4
+			WHERE id = $1 AND status <> 'deleted'
+			  AND EXISTS (SELECT 1 FROM daemon_command c
+			              WHERE c.runtime_id = $2 AND c.type = 'gc'
+			                AND workdir.id::text = ANY(gc_command_workdir_ids(c.payload)))`,
+			rep.WorkdirID, runtimeID, status, now)
+		if err != nil {
+			return nil, fmt.Errorf("workdirs: apply gc report: %w", err)
+		}
+		if rep.Status == GCRefused && tag.RowsAffected() > 0 {
+			refusals = append(refusals, Refusal{WorkdirID: rep.WorkdirID, Reason: rep.Reason})
+		}
 	}
-	_, err := q.Exec(ctx, `
-		UPDATE workdir SET status = 'deleted', updated_at = $3
-		WHERE status <> 'deleted'
-		  AND NOT (id::text = ANY($2))
-		  AND EXISTS (
-		        SELECT 1 FROM daemon_command c
-		        WHERE c.runtime_id = $1 AND c.type = 'gc'
-		          AND jsonb_typeof(c.payload->'workdir_ids') = 'array'
-		          AND jsonb_exists(c.payload->'workdir_ids', workdir.id::text))`,
-		runtimeID, presentWorkdirIDs, now)
-	if err != nil {
-		return fmt.Errorf("workdirs: mark gc'd: %w", err)
-	}
-	return nil
+	return refusals, nil
 }

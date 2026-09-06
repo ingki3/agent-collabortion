@@ -285,18 +285,21 @@ func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID
 		return nil
 	}
 	rows, err := tx.Query(ctx, `
-		SELECT id FROM workdir WHERE session_id = $1 AND status <> 'deleted' ORDER BY created_at`, sessionID)
+		SELECT id, path_or_ref FROM workdir WHERE session_id = $1 AND status <> 'deleted' ORDER BY created_at`, sessionID)
 	if err != nil {
 		return fmt.Errorf("sessions: gc workdirs: %w", err)
 	}
 	ids := []string{}
+	targets := []contracts.GCWorkdir{}
 	for rows.Next() {
 		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
+		var path string
+		if err := rows.Scan(&id, &path); err != nil {
 			rows.Close()
 			return err
 		}
 		ids = append(ids, id.String())
+		targets = append(targets, contracts.GCWorkdir{ID: id.String(), Path: path})
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -305,11 +308,17 @@ func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID
 	if len(ids) == 0 {
 		return nil
 	}
-	// The row stays `active` until the daemon's next §6 report no longer lists
-	// it (workdirs.MarkGCd): the server asked, it did not observe. Claiming the
-	// deletion here would make S13 show an empty machine that is still full.
+	// daemon-protocol §4.3 v0.7: the SERVER carries the paths. The daemon has
+	// never held a uuid→path map, so a command with ids alone falls back to
+	// "every lane workdir of the session" — which is not what the retention
+	// rules decided. `workdir_ids` stays for a daemon still on v0.6.
+	//
+	// The rows stay `active` until the daemon's §6 report says `gc: deleted`
+	// (workdirs.ApplyGCReports): the server asked, it did not observe.
+	// Claiming the deletion here would make S13 show an empty machine that is
+	// still full.
 	return tokens.QueueCommand(ctx, tx, *runtimeID, contracts.Command{
-		Type: contracts.CmdGC, SessionID: sessionID.String(), WorkdirIDs: ids,
+		Type: contracts.CmdGC, SessionID: sessionID.String(), WorkdirIDs: ids, Workdirs: targets,
 	})
 }
 

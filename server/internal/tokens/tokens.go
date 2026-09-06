@@ -261,18 +261,27 @@ func ConsumeRebindCommands(ctx context.Context, q db.DBTX, runtimeID, sessionID 
 	return nil
 }
 
-// ConsumeGCCommands marks gc {workdir_ids} commands consumed once the
-// runtime's workdir report (§6) lists none of their workdirs any more.
-func ConsumeGCCommands(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, presentWorkdirIDs []string, now time.Time) error {
-	if presentWorkdirIDs == nil {
-		presentWorkdirIDs = []string{}
-	}
+// ConsumeGCCommands marks a gc command consumed once every workdir it named
+// has a receipt: the §6 report said `deleted` (the row is `deleted`) or
+// `refused` (the row is `retained`, workdirs.ApplyGCReports).
+//
+// It used to consume on absence — "the daemon stopped listing it, so it is
+// gone". A `refused` row is listed forever, so its command was re-sent on
+// every response until the 24h TTL and the refusal never reached the feed
+// (review R2); a partial report closed directories that still existed
+// (NN6). Both disappear once the status field, not the silence, is the
+// receipt.
+//
+// production caller: httpapi.Server.daemonWorkdirs, after ApplyGCReports.
+func ConsumeGCCommands(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, now time.Time) error {
 	_, err := q.Exec(ctx, `
-		UPDATE daemon_command SET consumed_at = $3, consumed_by = 'workdir_report'
-		WHERE runtime_id = $1 AND type = 'gc' AND consumed_at IS NULL
-		  AND jsonb_typeof(payload->'workdir_ids') = 'array'
-		  AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(payload->'workdir_ids') w WHERE w = ANY($2))`,
-		runtimeID, presentWorkdirIDs, now)
+		UPDATE daemon_command c SET consumed_at = $2, consumed_by = 'workdir_report'
+		WHERE c.runtime_id = $1 AND c.type = 'gc' AND c.consumed_at IS NULL
+		  AND NOT EXISTS (
+		        SELECT 1 FROM workdir w
+		        WHERE w.id::text = ANY(gc_command_workdir_ids(c.payload))
+		          AND w.status = 'active')`,
+		runtimeID, now)
 	if err != nil {
 		return fmt.Errorf("tokens: consume gc commands: %w", err)
 	}

@@ -33,6 +33,11 @@ type DispatchOutcome struct {
 //
 //	director → drain. The human asked for a stop, not for lost work.
 //	budget   → cancel. Letting the turn finish defeats the limit (E5-07).
+//
+// production caller: tasks.Service.PauseSessionTasks (gate.go), reached from
+// httpapi.PauseSession, httpapi.applyBudgetPause, sessions.completion and
+// router's loop guard — RunningTurnKill is what decides whether a turn already
+// in flight is drained or cancelled.
 func PlanDispatch(sessionState, pauseReason string, queued []uuid.UUID, running bool) DispatchOutcome {
 	o := DispatchOutcome{SessionState: sessionState, PauseReason: pauseReason, Order: []uuid.UUID{}}
 	switch sessionState {

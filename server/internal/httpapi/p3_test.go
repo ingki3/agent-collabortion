@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -722,3 +723,326 @@ func mustJSON(t *testing.T, v any) []byte {
 
 var _ = tasks.CauseHitlAnswer
 var _ = router.MentionLink
+
+// ---------------------------------------------------------------------------
+// R1 — the answer has to reach the PROMPT (review round 1)
+// ---------------------------------------------------------------------------
+
+// claimPrompt runs a real claim on the session's runtime and returns the turn
+// prompt and the brief of the task it hands out.
+//
+// The rows above stop at "the task is queued again". That is where round 1 of
+// this PR passed and the agent still never saw its answer: hitl.PlanRespond
+// filled PromptSections and queue.buildBundle read no hitl_request at all, so
+// the golden table was green over a prompt that carried nothing. Opening the
+// bundle is the only assertion that can tell the two apart.
+func (f *p2Fixture) claimPrompt(t *testing.T, taskID uuid.UUID) (prompt, brief string) {
+	t.Helper()
+	var runtimeID uuid.UUID
+	if err := f.pool.QueryRow(t.Context(), `SELECT id FROM runtime WHERE workspace_id = $1 LIMIT 1`, f.wsID).Scan(&runtimeID); err != nil {
+		t.Fatal(err)
+	}
+	bundles, err := f.srv.Queue.Claim(t.Context(), runtimeID.String(), 5, f.fake.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range bundles {
+		if b.Task.ID == taskID.String() {
+			return b.Prompt, b.Brief.Text
+		}
+	}
+	t.Fatalf("the queue handed out no bundle for task %s (got %d)", taskID, len(bundles))
+	return "", ""
+}
+
+// claimLimit is claimPrompt's sibling for the one bundle field D-16 is about.
+func (f *p2Fixture) claimLimit(t *testing.T, taskID uuid.UUID) *float64 {
+	t.Helper()
+	var runtimeID uuid.UUID
+	if err := f.pool.QueryRow(t.Context(), `SELECT id FROM runtime WHERE workspace_id = $1 LIMIT 1`, f.wsID).Scan(&runtimeID); err != nil {
+		t.Fatal(err)
+	}
+	bundles, err := f.srv.Queue.Claim(t.Context(), runtimeID.String(), 5, f.fake.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range bundles {
+		if b.Task.ID == taskID.String() {
+			return b.Limits.BudgetUSD
+		}
+	}
+	t.Fatalf("the queue handed out no bundle for task %s", taskID)
+	return nil
+}
+
+// TestP3HitlAnswerReachesTheResumePrompt is E7-07 · E7-17 · PRD §8.4:1162 —
+// "`<resumed>` 구간에 … HITL 답변과 승인 여부". It also holds S-36 (the posted
+// list and the history lines carry ids) and S-37 (brief [7] Decision Log).
+func TestP3HitlAnswerReachesTheResumePrompt(t *testing.T) {
+	f := newP2Fixture(t)
+	tok, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
+	// Something the previous attempt already posted, so `<resumed>` has a list
+	// to render (S-36).
+	if st, body := f.rawKeyed(t, f.p+"/sessions/"+f.sessionID+"/messages", tok, "application/json",
+		mustJSON(t, map[string]any{"content": "초안 1차를 올렸습니다. 독자층만 정해 주세요."}), uuid.NewString()); st != 201 {
+		t.Fatalf("post = %d %v", st, body)
+	}
+	out := f.hitlOn(t, tok, map[string]any{
+		"type": "question", "question": "독자는 누구인가?", "proposed_default": "투자자",
+		"context": "서론 톤이 달라집니다",
+	}, 201)
+	id := str(out["hitl_request"].(map[string]any), "id")
+	f.endTurn(t, taskID)
+	f.api.must(200, "POST", f.p+"/hitl-requests/"+id+"/response",
+		map[string]any{"answer": "경영진"}, "Idempotency-Key", uuid.NewString())
+
+	prompt, brief := f.claimPrompt(t, taskID)
+	if !strings.Contains(prompt, "<resumed") {
+		t.Fatalf("attempt 2 has no <resumed> section:\n%s", prompt)
+	}
+	resumed := prompt[strings.Index(prompt, "<resumed"):]
+	if i := strings.Index(resumed, "</resumed>"); i >= 0 {
+		resumed = resumed[:i]
+	}
+	// E7-07: the answer, in question/answer form, inside `<resumed>`.
+	if !strings.Contains(resumed, "독자는 누구인가?") || !strings.Contains(resumed, "경영진") {
+		t.Fatalf("the human's answer is not in <resumed> — the agent resumes with a question it can "+
+			"no longer read (E7-07, PRD §8.4:1162):\n%s", resumed)
+	}
+	if !strings.Contains(resumed, hitl.SectionQuestionAnswer) {
+		t.Errorf("the section hitl.PromptSections names (%q) is not the one rendered:\n%s",
+			hitl.SectionQuestionAnswer, resumed)
+	}
+	if !strings.Contains(resumed, "서론 톤이 달라집니다") {
+		t.Errorf("the request's context is dropped on resume:\n%s", resumed)
+	}
+	// S-36: a bare uuid is nothing the agent can compare its draft against.
+	if !strings.Contains(resumed, "초안 1차를 올렸습니다") {
+		t.Errorf("the posted list carries ids only — `id — 앞 80자` is what makes it usable (S-36):\n%s", resumed)
+	}
+	// S-37: the decision the answer produced is in brief [7].
+	if !strings.Contains(brief, "[7] Decision Log") || !strings.Contains(brief, "경영진") {
+		t.Errorf("brief [7] Decision Log missing or empty (S-37, §8.4):\n%s", brief)
+	}
+	// S-36: history lines carry the message id, so the posted list can be
+	// matched line by line.
+	var firstMsg uuid.UUID
+	if err := f.pool.QueryRow(t.Context(), `
+		SELECT id FROM message WHERE session_id = $1 AND source_task_id = $2 ORDER BY created_at LIMIT 1`,
+		f.sessionID, taskID).Scan(&firstMsg); err != nil {
+		t.Fatal(err)
+	}
+	hist := prompt[strings.Index(prompt, "<history"):]
+	if !strings.Contains(hist, firstMsg.String()) {
+		t.Errorf("history lines carry no message id (S-36):\n%s", hist)
+	}
+}
+
+// TestP3RejectedApprovalReachesTheResumePrompt is E7-17: the turn prompt says
+// `approved: false` and why. A rejection the agent cannot read is a rejection
+// it repeats.
+func TestP3RejectedApprovalReachesTheResumePrompt(t *testing.T) {
+	f := newP2Fixture(t)
+	tok, taskID := f.agentToken(t, f.sessionID, f.wUUID, "W")
+	out := f.hitlOn(t, tok, map[string]any{"type": "approval", "summary": "초안 승인 요청"}, 201)
+	id := str(out["hitl_request"].(map[string]any), "id")
+	f.endTurn(t, taskID)
+	f.api.must(200, "POST", f.p+"/hitl-requests/"+id+"/response",
+		map[string]any{"approved": false, "reason": "근거가 부족합니다"}, "Idempotency-Key", uuid.NewString())
+
+	prompt, _ := f.claimPrompt(t, taskID)
+	if !strings.Contains(prompt, "approved: false") {
+		t.Fatalf("the turn prompt does not say the request was rejected (E7-17):\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "근거가 부족합니다") {
+		t.Fatalf("the rejection reason is not in the prompt — without it the agent can only guess "+
+			"what to change (E7-17):\n%s", prompt)
+	}
+	if !strings.Contains(prompt, hitl.SectionApprovalResult) {
+		t.Errorf("section = want %q (hitl.PromptSections):\n%s", hitl.SectionApprovalResult, prompt)
+	}
+}
+
+// TestP3RetryPromptCarriesNoHitlSection is the other half of R1: a prompt that
+// always carried an answer section would pass the two rows above while telling
+// the agent about a question nobody asked.
+func TestP3RetryPromptCarriesNoHitlSection(t *testing.T) {
+	f := newP2Fixture(t)
+	_, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
+	f.runTask(t, taskID)
+	if _, err := f.srv.Tasks.Finish(t.Context(), taskID, currentAttempt(t, f, taskID), contracts.Finish{
+		Outcome: "failed", StopReason: "error", FailureKind: contracts.FailNetwork,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	prompt, _ := f.claimPrompt(t, taskID)
+	if strings.Contains(prompt, "<hitl_answer") {
+		t.Fatalf("a network retry answered no question:\n%s", prompt)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// R2 — `gc: refused` is a receipt, not silence (daemon-protocol v0.7 §6)
+// ---------------------------------------------------------------------------
+
+// TestP3GCRefusedConsumesTheCommandAndReachesTheFeed is §6's refusal branch.
+// Before this, `refused` rows were reported on every probe forever: the server
+// consumed the command only when the workdir STOPPED being listed, so the
+// command was re-sent until the 24h TTL and "GC 거부" never reached a person.
+func TestP3GCRefusedConsumesTheCommandAndReachesTheFeed(t *testing.T) {
+	f := newG4Fixture(t)
+	ctx := t.Context()
+	_, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
+
+	runtimeID := mustUUID(t, f.runtimeID)
+	var laneID uuid.UUID
+	if err := f.pool.QueryRow(ctx, `SELECT lane_id FROM task WHERE id = $1`, taskID).Scan(&laneID); err != nil {
+		t.Fatal(err)
+	}
+	var workdirID uuid.UUID
+	if err := f.pool.QueryRow(ctx, `
+		INSERT INTO workdir (session_id, lane_id, kind, path_or_ref, status, created_at, updated_at)
+		VALUES ($1, $2, 'worktree', '/tmp/colab/wt-1', 'active', now(), now()) RETURNING id`,
+		f.sessionID, laneID).Scan(&workdirID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `
+		INSERT INTO daemon_command (runtime_id, session_id, type, payload, created_at)
+		VALUES ($1, $2::uuid, 'gc', jsonb_build_object(
+		        'session_id', $3::text,
+		        'workdirs', jsonb_build_array(jsonb_build_object('id', $4::text, 'path', '/tmp/colab/wt-1'))), $5)`,
+		runtimeID, f.sessionID, f.sessionID, workdirID.String(), f.fake.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	// One report carrying `gc: {status: refused}`. That is the whole receipt.
+	f.daemon.must(200, "POST", "/v1/daemon/runtimes/"+f.runtimeID+"/workdirs", map[string]any{
+		"workdirs": []any{map[string]any{
+			"id": workdirID.String(), "kind": "worktree", "path": "/tmp/colab/wt-1",
+			"session_id": f.sessionID, "lane_id": laneID.String(),
+			"gc": map[string]any{"status": "refused", "reason": "isolation_worktree_p4"},
+		}},
+	})
+
+	var unconsumed int
+	if err := f.pool.QueryRow(ctx, `
+		SELECT count(*) FROM daemon_command WHERE type = 'gc' AND consumed_at IS NULL`).Scan(&unconsumed); err != nil {
+		t.Fatal(err)
+	}
+	if unconsumed != 0 {
+		t.Fatalf("unconsumed gc commands after a refusal = %d, want 0 — a refused row is reported "+
+			"forever, so waiting for it to disappear re-sends the command until the 24h TTL "+
+			"(daemon-protocol §6 v0.7)", unconsumed)
+	}
+	var status string
+	if err := f.pool.QueryRow(ctx, `SELECT status::text FROM workdir WHERE id = $1`, workdirID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "retained" {
+		t.Fatalf("workdir status after a refusal = %q, want retained — the daemon will not delete it, "+
+			"so `active` says the server is still waiting for something", status)
+	}
+	var notes int
+	if err := f.pool.QueryRow(ctx, `
+		SELECT count(*) FROM task_event
+		WHERE object_ref = '"gc.refused"' AND payload->>'note' = 'GC 거부: isolation_worktree_p4'`).Scan(&notes); err != nil {
+		t.Fatal(err)
+	}
+	if notes != 1 {
+		t.Fatalf("feed entries for the refusal = %d, want 1 (§6 '서버는 피드에 GC 거부: <reason> 를 남긴다')", notes)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// NN4 — E9-09's "no hard cut on an estimate" on the HTTP path
+// ---------------------------------------------------------------------------
+
+// TestP3EstimatedOverrunDrainsOverHTTP is the production guard the tagged
+// golden had on its own: an estimate pauses the session and stops dispatch,
+// and it does NOT issue a cancel command. Injecting a hard cut used to leave
+// every DB test green.
+func TestP3EstimatedOverrunDrainsOverHTTP(t *testing.T) {
+	f := newP2Fixture(t)
+	ctx := t.Context()
+	_, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
+	f.runTask(t, taskID)
+	if _, err := f.pool.Exec(ctx, `UPDATE session SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE agent SET budget_per_task = NULL WHERE id = $1`, f.rUUID); err != nil {
+		t.Fatal(err)
+	}
+	// An ESTIMATED $1.50: the price table's number, not a measurement.
+	// RecordTurnUsage stores a reported cost and the roll-up prices the rest,
+	// so the row is written here directly — what is under test is enforcement.
+	if _, err := f.pool.Exec(ctx, `
+		INSERT INTO task_usage (task_id, cost_usd, estimated, updated_at) VALUES ($1, 1.5, true, $2)
+		ON CONFLICT (task_id) DO UPDATE SET cost_usd = 1.5, estimated = true`, taskID, f.fake.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.srv.enforceBudgetFor(ctx, taskID); err != nil {
+		t.Fatal(err)
+	}
+	if st := f.sessionStatus(t, f.sessionID); st != "paused" {
+		t.Fatalf("session = %q over an estimated overrun, want paused (FR-7.3)", st)
+	}
+	if st := f.taskStatus(t, taskID); st != "running" {
+		t.Fatalf("task = %q, want running — an ESTIMATE drains the turn, it never kills it. The "+
+			"number is our own guess from the price table (E9-05/E9-09)", st)
+	}
+	var cancels int
+	if err := f.pool.QueryRow(ctx, `
+		SELECT count(*) FROM daemon_command WHERE task_id = $1 AND type = 'cancel'`, taskID).Scan(&cancels); err != nil {
+		t.Fatal(err)
+	}
+	if cancels != 0 {
+		t.Fatalf("cancel commands = %d, want 0 — draining is the whole of E9-09 on this path", cancels)
+	}
+}
+
+// TestP3SessionRemainderCapsTheTaskBudget is D-16 (daemon-protocol v0.7.1
+// §4.4): the effective budget is min(task ceiling, session remaining), and the
+// number the daemon enforces its own half against travels in
+// `limits.budget_usd`. The priority scheme it replaced could hand a $5 task a
+// $5 limit inside a session with $0.40 left.
+func TestP3SessionRemainderCapsTheTaskBudget(t *testing.T) {
+	f := newP2Fixture(t)
+	ctx := t.Context()
+	_, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
+	if _, err := f.pool.Exec(ctx, `UPDATE session SET limits = '{"budget_usd": 2}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE agent SET budget_per_task = 5 WHERE id = $1`, f.rUUID); err != nil {
+		t.Fatal(err)
+	}
+	// Another task in the same session already spent $1.60.
+	_, other := f.agentToken(t, f.sessionID, f.wUUID, "W")
+	if err := f.srv.Tasks.RecordTurnUsage(ctx, other, contracts.Usage{CostUSD: 1.6}, f.fake.Now()); err != nil {
+		t.Fatal(err)
+	}
+	// The bundle the daemon is handed carries the session REMAINDER, not the
+	// task ceiling again: without it the daemon's own min() has nothing to
+	// take a minimum against (§4.1 `limits.budget_usd`).
+	lim := f.claimLimit(t, taskID)
+	if lim == nil {
+		t.Fatal("bundle limits.budget_usd is null — the daemon's half of D-16 has nothing to take a " +
+			"minimum against (§4.1, §4.4 v0.7.1)")
+	}
+	if *lim > 0.401 || *lim < 0.399 {
+		t.Fatalf("bundle limits.budget_usd = %v, want the session remainder 0.40 — this field is the "+
+			"SESSION remainder, not the task ceiling repeated (§4.4 v0.7.1)", *lim)
+	}
+	f.runTask(t, taskID)
+	// $0.50 spent on THIS task, $2.10 on the session: the task ceiling ($5) is
+	// nowhere near, the session remainder is gone.
+	if err := f.srv.Tasks.RecordTurnUsage(ctx, taskID, contracts.Usage{CostUSD: 0.5}, f.fake.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.srv.enforceBudgetFor(ctx, taskID); err != nil {
+		t.Fatal(err)
+	}
+	if st := f.sessionStatus(t, f.sessionID); st != "paused" {
+		t.Fatalf("session = %q, want paused — the session budget is spent even though the task is "+
+			"well inside its own $5 ceiling (D-16, §4.4 v0.7.1)", st)
+	}
+}

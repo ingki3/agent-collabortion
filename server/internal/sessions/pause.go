@@ -43,7 +43,7 @@ type ResumeRule struct {
 
 // PlanResume is the per-reason rule.
 //
-// Production caller: httpapi.ResumeSession (handlers_sessions_p3.go).
+// production caller: httpapi.ResumeSession (handlers_sessions_p3.go).
 func PlanResume(reason string) ResumeRule {
 	switch reason {
 	case PauseBudget:

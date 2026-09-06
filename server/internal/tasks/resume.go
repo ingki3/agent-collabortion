@@ -32,7 +32,12 @@ const (
 // DefaultHistoryLimit is how many messages §8.4's history section carries when
 // the caller does not say. The number is a cap, and the section declares that
 // it is one (E8-12).
-const DefaultHistoryLimit = 30
+//
+// It is 50 because EVAL E8-12 says 50 (S-38). The golden table injects its own
+// HistoryLimit, so nothing compared this constant with the contract until
+// TestHistoryLimitMatchesEval did; queue.buildBundle now takes it from here
+// rather than keeping a second literal.
+const DefaultHistoryLimit = 50
 
 // AttemptInput is the state the next attempt starts from. Everything here is
 // something the caller already loaded; the planner reads no database.
@@ -140,7 +145,7 @@ func failureFor(cause string) (contracts.FailureKind, bool) {
 
 // PlanAttempt is the shared resume/retry/restart path.
 //
-// Production call sites:
+// production callers:
 //
 //	queue.buildBundle          resume ref, `<resumed>`, posted_message_ids,
 //	                           history header and the workdir-check line
@@ -265,7 +270,7 @@ func PlanAttempt(in AttemptInput) AttemptPlan {
 // CHECK (0004) requires runtime_kind and session_id; rejecting here turns a
 // constraint violation into a typed error the daemon can act on.
 //
-// Production caller: tasks.Service.Finish (service.go).
+// production caller: tasks.Service.Finish (service.go).
 func ValidateSessionRef(ref *contracts.RuntimeSessionRef) (*contracts.RuntimeSessionRef, error) {
 	if ref == nil {
 		return nil, nil
@@ -281,7 +286,7 @@ func ValidateSessionRef(ref *contracts.RuntimeSessionRef) (*contracts.RuntimeSes
 // makes every attempt a silent cold start while the API still claims resume is
 // supported — the G3 defect E8-13 was promoted from.
 //
-// Production caller: queue.buildBundle (bundle.go).
+// production caller: queue.buildBundle (bundle.go).
 func PlanBundleResume(stored []byte, profileRuntimeKind string) *contracts.RuntimeSessionRef {
 	if len(stored) == 0 {
 		return nil
@@ -302,7 +307,7 @@ func PlanBundleResume(stored []byte, profileRuntimeKind string) *contracts.Runti
 // It is the inverse of failureFor, and it exists so the requeue path names its
 // cause instead of re-deriving the retry rule.
 //
-// Production caller: tasks.requeueLocked (service.go).
+// production caller: tasks.requeueLocked (service.go).
 func CauseOfFailure(reason contracts.FailureKind) string {
 	if !reason.Retryable() {
 		// auth · quota · config · cancelled: FR-7.1 never retries these, and

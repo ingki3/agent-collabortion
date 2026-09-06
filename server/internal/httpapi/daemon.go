@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -175,6 +176,13 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 				Dirty        bool   `json:"dirty"`
 				CommitsAhead int    `json:"commits_ahead"`
 			} `json:"git"`
+			// GC is §6 v0.7's receipt for a gc command: what the daemon did
+			// with this directory. Without it the server was guessing from
+			// absence (review R2).
+			GC *struct {
+				Status string `json:"status"`
+				Reason string `json:"reason"`
+			} `json:"gc"`
 		} `json:"workdirs"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(&in); err != nil {
@@ -182,11 +190,8 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 		return
 	}
 	now := s.Clock.Now()
-	present := make([]string, 0, len(in.Workdirs))
+	var gcReports []workdirs.GCReport
 	for _, wd := range in.Workdirs {
-		if wd.ID != "" {
-			present = append(present, wd.ID)
-		}
 		rep, ok := s.workdirReport(r, d, wd.Kind, wd.Path, wd.SessionID, wd.AgentID, wd.LaneID)
 		if !ok {
 			continue
@@ -207,19 +212,59 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 			s.Log.Warn("record workdir", "err", err, "path", wd.Path, "session", wd.SessionID)
 			continue
 		}
-		if wd.ID == "" {
-			present = append(present, id.String())
+		if wd.GC != nil && wd.GC.Status != "" {
+			// The row is upserted FIRST so the receipt lands on the id the
+			// server knows, whether or not the daemon echoed one back.
+			gcReports = append(gcReports, workdirs.GCReport{
+				WorkdirID: id, Status: wd.GC.Status, Reason: wd.GC.Reason,
+			})
 		}
 	}
-	if err := tokens.ConsumeGCCommands(r.Context(), s.DB, d.RuntimeID, present, s.Clock.Now()); err != nil {
+	// §6 v0.7: the `gc` field is the receipt. `deleted` closes the row,
+	// `refused` retains it and goes on the feed; both let the command be
+	// consumed. Absence is no longer evidence of anything.
+	refusals, err := workdirs.ApplyGCReports(r.Context(), s.DB, d.RuntimeID, gcReports, now)
+	if err != nil {
+		s.Log.Warn("apply gc reports", "err", err)
+	}
+	for _, ref := range refusals {
+		s.recordGCRefusal(r.Context(), ref, now)
+	}
+	if err := tokens.ConsumeGCCommands(r.Context(), s.DB, d.RuntimeID, s.Clock.Now()); err != nil {
 		s.Log.Warn("consume gc commands", "err", err)
 	}
-	// The same report is the deletion receipt (§6): a workdir the server asked
-	// to collect and the daemon no longer lists is gone.
-	if err := workdirs.MarkGCd(r.Context(), s.DB, d.RuntimeID, present, s.Clock.Now()); err != nil {
-		s.Log.Warn("mark gc'd workdirs", "err", err)
-	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// recordGCRefusal puts §6's "GC 거부: <reason>" on the activity feed. The gc
+// command carries a session, not a task, so the note lands on the last task of
+// the lane that ran in that directory — the place a person looking at why the
+// machine is still full will actually be.
+func (s *Server) recordGCRefusal(ctx context.Context, ref workdirs.Refusal, now time.Time) {
+	var taskID uuid.UUID
+	var attempt int
+	err := s.DB.QueryRow(ctx, `
+		SELECT t.id, t.attempt
+		FROM workdir w
+		JOIN task t ON t.session_id = w.session_id
+		         AND (w.lane_id IS NULL OR t.lane_id = w.lane_id)
+		         AND (w.lane_id IS NOT NULL OR w.agent_id IS NULL OR t.agent_id = w.agent_id)
+		WHERE w.id = $1
+		ORDER BY t.created_at DESC
+		LIMIT 1`, ref.WorkdirID).Scan(&taskID, &attempt)
+	if err != nil {
+		s.Log.Warn("gc refused with no task to record it on", "workdir", ref.WorkdirID, "reason", ref.Reason)
+		return
+	}
+	reason := ref.Reason
+	if reason == "" {
+		reason = "이유 없음"
+	}
+	if err := s.writeServerEvent(ctx, taskID, attempt, "status", "error", "gc.refused", "info",
+		map[string]any{"note": "GC 거부: " + reason, "result_ref": "workdir:" + ref.WorkdirID.String()},
+		now); err != nil {
+		s.Log.Warn("record gc refusal", "err", err, "workdir", ref.WorkdirID)
+	}
 }
 
 // workdirReport validates one reported entry against the calling runtime. A

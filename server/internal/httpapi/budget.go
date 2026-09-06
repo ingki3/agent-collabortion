@@ -64,11 +64,27 @@ func (s *Server) loadBudgetState(ctx context.Context, q pgx.Tx, taskID uuid.UUID
 	return &b, nil
 }
 
+// sessionRemaining is D-16's "세션 잔여" for THIS task: the session budget less
+// what the OTHER tasks have spent. Its own spend is left in, because that is
+// the number its limit is compared against. Zero means the session carries no
+// budget — never "nothing left", or a session without a limit would pin every
+// task to zero (daemon-protocol v0.7.1 §4.4).
+func (b *budgetState) sessionRemaining() float64 {
+	if b.SessionLimitUSD <= 0 {
+		return 0
+	}
+	rem := b.SessionLimitUSD - (b.SessionSpentUSD - b.TaskSpentUSD)
+	if rem < 0 {
+		return 0
+	}
+	return rem
+}
+
 // EnforceBudget checks the task and then the session limit and applies
 // PlanBudget's verdict. It returns true when it paused something, so the caller
 // can tell the daemon (the cancel command rides the same response).
 //
-// Production entry points: daemonHeartbeat (the `usage` field) and
+// production callers: daemonHeartbeat (the `usage` field) and
 // tasks.Finish's rollup, via Server.enforceBudgetFor.
 func (s *Server) enforceBudgetFor(ctx context.Context, taskID uuid.UUID) (bool, error) {
 	now := s.Clock.Now()
@@ -91,7 +107,8 @@ func (s *Server) enforceBudgetFor(ctx context.Context, taskID uuid.UUID) (bool, 
 		o := sessions.PlanBudget(sessions.BudgetInput{
 			Scope: "task", TaskID: b.TaskID,
 			TaskLimitUSD: derefFloat(b.AgentBudgetPerTask), OverrideUSD: derefFloat(b.TaskOverride),
-			SpentUSD: b.TaskSpentUSD, Estimated: b.Estimated,
+			SessionRemainingUSD: b.sessionRemaining(),
+			SpentUSD:            b.TaskSpentUSD, Estimated: b.Estimated,
 		})
 		if !o.Exceeded {
 			o = sessions.PlanBudget(sessions.BudgetInput{
@@ -110,7 +127,7 @@ func (s *Server) enforceBudgetFor(ctx context.Context, taskID uuid.UUID) (bool, 
 
 func (s *Server) applyBudgetPause(ctx context.Context, tx pgx.Tx, b *budgetState, o sessions.BudgetOutcome, now time.Time) error {
 	spent := b.TaskSpentUSD
-	limit := sessions.EffectiveTaskLimit(derefFloat(b.AgentBudgetPerTask), derefFloat(b.TaskOverride))
+	limit := sessions.EffectiveTaskLimit(derefFloat(b.AgentBudgetPerTask), derefFloat(b.TaskOverride), b.sessionRemaining())
 	if o.HitlTaskID == uuid.Nil {
 		spent, limit = b.SessionSpentUSD, b.SessionLimitUSD
 	}

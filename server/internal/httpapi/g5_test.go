@@ -269,10 +269,10 @@ func TestG5CompletedSessionCollectsWorkdirs(t *testing.T) {
 	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/complete", map[string]any{"confirm": true})
 
 	var gcs int
-	var ids string
+	var ids, targets string
 	if err := f.pool.QueryRow(ctx, `
-		SELECT count(*), coalesce(max(payload->>'workdir_ids'), '') FROM daemon_command
-		WHERE session_id = $1 AND type = 'gc'`, f.sessionID).Scan(&gcs, &ids); err != nil {
+		SELECT count(*), coalesce(max(payload->>'workdir_ids'), ''), coalesce(max(payload->>'workdirs'), '')
+		FROM daemon_command WHERE session_id = $1 AND type = 'gc'`, f.sessionID).Scan(&gcs, &ids, &targets); err != nil {
 		t.Fatal(err)
 	}
 	if gcs != 1 {
@@ -280,6 +280,12 @@ func TestG5CompletedSessionCollectsWorkdirs(t *testing.T) {
 	}
 	if !contains(ids, workdirID.String()) {
 		t.Fatalf("gc payload = %s, want the session's workdir %s", ids, workdirID)
+	}
+	// v0.7 §4.3: the SERVER carries the path. A daemon that only got ids falls
+	// back to "every lane workdir of this session", which is not what the
+	// retention rules decided (review R2).
+	if !contains(targets, workdirID.String()) || !contains(targets, "/tmp/colab/wd-1") {
+		t.Fatalf("gc payload workdirs = %s, want [{id, path}] carrying %s and its path", targets, workdirID)
 	}
 	// The row is still `active`: the server asked, it has not seen the result.
 	var status string
@@ -289,8 +295,25 @@ func TestG5CompletedSessionCollectsWorkdirs(t *testing.T) {
 	if status != "active" {
 		t.Fatalf("workdir status = %q before the daemon reports; want active — the server does not delete", status)
 	}
-	// …and the daemon's next §6 report, which no longer lists it, is the receipt.
+	// A report that simply omits the directory is NOT a receipt (review NN6): a
+	// daemon restarting mid-report would otherwise close rows that are still
+	// on disk.
 	f.daemon.must(200, "POST", "/v1/daemon/runtimes/"+f.runtimeID+"/workdirs", map[string]any{"workdirs": []any{}})
+	if err := f.pool.QueryRow(ctx, `SELECT status::text FROM workdir WHERE id = $1`, workdirID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "active" {
+		t.Fatalf("workdir status after a report that merely omits it = %q, want active — §6 v0.7 "+
+			"makes `gc: {status}` the receipt, and silence is not one", status)
+	}
+	// …the receipt is the row's `gc: {status: deleted}` — carried one last time.
+	f.daemon.must(200, "POST", "/v1/daemon/runtimes/"+f.runtimeID+"/workdirs", map[string]any{
+		"workdirs": []any{map[string]any{
+			"id": workdirID.String(), "kind": "dir", "path": "/tmp/colab/wd-1",
+			"session_id": f.sessionID, "lane_id": laneID.String(),
+			"gc": map[string]any{"status": "deleted"},
+		}},
+	})
 	if err := f.pool.QueryRow(ctx, `SELECT status::text FROM workdir WHERE id = $1`, workdirID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}

@@ -72,10 +72,16 @@ func (s *Server) applyKillSwitch(ctx context.Context, agentID uuid.UUID) error {
 // attempts. Without an explicit held flag there would be nothing to release —
 // the answer would sit on a task in waiting_human forever.
 func (s *Server) releaseHeldRequeues(ctx context.Context, agentID uuid.UUID) error {
+	// E10-08's shape is tasks.PlanKillSwitchAnswer's: the answer parked the
+	// task at TaskStatus with requeue_held, and re-enabling releases it to
+	// AfterReenableTaskStatus. Reading them from the planner rather than
+	// repeating the two literals is what keeps this loop and hitl.PlanRespond
+	// from drifting apart (review NN2).
+	ks := tasks.PlanKillSwitchAnswer()
 	rows, err := s.DB.Query(ctx, `
 		SELECT h.id, h.task_id FROM hitl_request h
 		JOIN task t ON t.id = h.task_id
-		WHERE t.agent_id = $1 AND h.requeue_held AND t.status = 'waiting_human'`, agentID)
+		WHERE t.agent_id = $1 AND h.requeue_held AND t.status = $2::task_status`, agentID, ks.TaskStatus)
 	if err != nil {
 		return err
 	}
@@ -94,8 +100,14 @@ func (s *Server) releaseHeldRequeues(ctx context.Context, agentID uuid.UUID) err
 		return err
 	}
 	for _, h := range list {
+		// ResumeFromHuman's queued IS AfterReenableTaskStatus; the planner is
+		// the statement of that, not a second implementation of it.
 		if _, err := s.Tasks.ResumeFromHuman(ctx, h.task, tasks.CauseHitlAnswer); err != nil {
 			return err
+		}
+		if got := s.taskStatusOf(ctx, h.task); got != ks.AfterReenableTaskStatus {
+			s.Log.Warn("released hold did not reach the planned status",
+				"task", h.task, "got", got, "want", ks.AfterReenableTaskStatus)
 		}
 		if _, err := s.DB.Exec(ctx, `UPDATE hitl_request SET requeue_held = false WHERE id = $1`, h.hitl); err != nil {
 			return err
@@ -247,3 +259,11 @@ func nullableFloat(v *float32) nullable.Nullable[float32] {
 var _ = context.Background
 var _ = time.Now
 var _ = apperr.Internal
+
+// taskStatusOf is the one-line read releaseHeldRequeues uses to check its own
+// work against tasks.PlanKillSwitchAnswer.
+func (s *Server) taskStatusOf(ctx context.Context, taskID uuid.UUID) string {
+	var st string
+	_ = s.DB.QueryRow(ctx, `SELECT status::text FROM task WHERE id = $1`, taskID).Scan(&st)
+	return st
+}

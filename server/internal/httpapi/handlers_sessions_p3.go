@@ -229,8 +229,8 @@ func (s *Server) closeSessionBudgetHitl(ctx context.Context, tx pgx.Tx, sessionI
 		return err
 	}
 	type row struct {
-		id  uuid.UUID
-		q   string
+		id uuid.UUID
+		q  string
 	}
 	var open []row
 	for rows.Next() {
