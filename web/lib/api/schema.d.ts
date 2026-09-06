@@ -475,7 +475,7 @@ export interface paths {
         /**
          * 저장소 검증(S6 마법사 · worktree 격리)
          * @description 권한: 워크스페이스 멤버.
-         *     선택한 런타임의 데몬에게 `repo_path` 존재 · git 상태(클린 여부 · 기본 브랜치 · remote URL)를 물어 돌려준다(FR-2.1). 실패하면 폼이 다음 단계를 막는다(E13-01). 데몬이 오프라인이면 `409 runtime_offline`, 데몬 응답 지연은 `504`.
+         *     선택한 런타임의 **마지막 probe `repos[]`**(daemon-protocol §3)에서 `repo_path` 존재 · git 상태(클린 여부 · 기본 브랜치 · remote URL)를 읽어 돌려주고, 최신값을 위해 그 런타임에 `probe` 명령(§4.3)을 큐에 넣는다(FR-2.1; P4 정정 — §4.3 에 저장소 질의 명령이 없으므로 데몬 왕복은 하지 않는다. 마지막 probe 뒤에 만든 저장소는 다음 probe 가 돌 때까지 "없음"으로 읽히며 폼은 "다시 확인"을 제공한다). 실패하면 폼이 다음 단계를 막는다(E13-01). 데몬이 오프라인이면 `409 runtime_offline`. `504` 는 없다(T-S9 PR #162 보고).
          */
         post: operations["checkRepo"];
         delete?: never;
@@ -4429,7 +4429,6 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
-            504: components["responses"]["GatewayTimeout"];
             default: components["responses"]["Problem"];
         };
     };
