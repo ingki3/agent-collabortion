@@ -130,6 +130,7 @@
 | ~~K-9~~ | openapi `InboxItem.card` 에 HITL `purpose` 가 없어 웹이 approval 항목마다 GET /hitl-requests/{id} 를 한 번 더 읽는다(#139 NN1). 계약 커밋은 브랜치 `contracts/inbox-card-purpose-2`(생성 타입 변경이 `handlers_inbox.go` 리터럴을 깨 서버 적응과 함께 머지해야 함) | T-W4 PR #139 | T-S8 (계약 커밋 얹기) | **해결 — PR #147**
 | ~~K-10~~ | 세션 범위 예산·시간 HITL(`task_id` 비움)을 `respondHitlRequest` 로 승인해도 세션이 재개되지 않는다(openapi 가 `resumeSession` 을 답으로 적음) — Lead 결정: **승인 = 재개까지 한 동작**(paused → active, park 된 task 재큐잉, 세션 잔여 = 승인 금액). 계약 문언은 브랜치 `contracts/inbox-card-purpose-2` | T-S7 PR #142 | T-S8 | **해결 — PR #147**
 | K-11 | harness §7 dedup 문언(입력=message_start, 출력=message_delta)은 어댑터 0.74.0 관찰 — 워커는 message_delta 만으로 충분하다고 제안, 리뷰어는 문언 유지 권고. 어댑터 버전이 바뀌면 재확인 | PR #145 | 낮음 |
+| K-12 | `InboxItem.card` 에 예산 HITL 의 범위(task/세션)를 알 칸이 없다(`task_id`·`scope` 없음) — 웹은 `purpose=budget` + `session.status=paused` 로 파생(T-W5). 세션이 다른 이유로 paused 인 채 task 범위 예산 HITL 이 뜨는 순간에만 어긋난다 | T-W5 질문 2 | 낮음 |
 
 ## 테스트 자산 (P1에서 만든 것)
 
