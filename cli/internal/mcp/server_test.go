@@ -109,7 +109,8 @@ func TestRoundTrip(t *testing.T) {
 	// path with underscores. Order is stable so tools/list is diffable.
 	want := "colab_session_get,colab_session_messages,colab_message_post," +
 		"colab_status_set,colab_lane_delegate,colab_decision_record," +
-		"colab_artifact_submit,colab_artifact_get,colab_review_approve,colab_review_reject"
+		"colab_artifact_submit,colab_artifact_get,colab_review_approve,colab_review_reject," +
+		"colab_hitl_ask,colab_hitl_approve_request,colab_hitl_request_info"
 	if strings.Join(names, ",") != want {
 		t.Fatalf("tools = %v\nwant  %s", names, want)
 	}
@@ -165,7 +166,9 @@ func TestRoundTrip(t *testing.T) {
 	if r := c.call("ping", nil); r.Error != nil {
 		t.Fatalf("ping = %+v", r)
 	}
-	if r := c.call("tools/call", map[string]any{"name": "colab_hitl_ask", "arguments": map[string]any{}}); r.Error == nil || r.Error.Code != -32602 {
+	// colab_hitl_ask used to stand in here as "a tool that does not exist
+	// yet"; it exists as of P3 (§2.4), so the probe is a name that never will.
+	if r := c.call("tools/call", map[string]any{"name": "colab_session_delete", "arguments": map[string]any{}}); r.Error == nil || r.Error.Code != -32602 {
 		t.Fatalf("unknown tool = %+v", r)
 	}
 	if r := c.call("resources/list", nil); r.Error == nil || r.Error.Code != -32601 {

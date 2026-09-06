@@ -4,7 +4,8 @@
 // colab_session_get · colab_session_messages · colab_message_post ·
 // colab_status_set · colab_lane_delegate · colab_decision_record ·
 // colab_artifact_submit · colab_artifact_get · colab_review_approve ·
-// colab_review_reject.
+// colab_review_reject · colab_hitl_ask · colab_hitl_approve_request ·
+// colab_hitl_request_info.
 //
 // Every tool calls the same internal/colab action the CLI subcommand calls,
 // so a tool and its command produce byte-identical JSON.
@@ -41,7 +42,8 @@ type Tool struct {
 }
 
 // Tools is the tool table (order is stable for tools/list): P1 reads and
-// message post, then the P2 write commands of colab-cli.md v0.4 §2.2·2.3.
+// message post, then the P2 write commands of colab-cli.md v0.4 §2.2·2.3,
+// then the P3 HITL commands of v0.5 §2.4.
 var Tools = []Tool{
 	{
 		Name:        "colab_session_get",
@@ -92,6 +94,21 @@ var Tools = []Tool{
 		Name:        "colab_review_reject",
 		Description: "Reject an artifact. `reason` is required and the server posts it as a reply on the artifact's lane thread, which re-enters the submitting lane, and records a decision. Same as `colab review reject --artifact --reason`.",
 		InputSchema: json.RawMessage(`{"type":"object","required":["artifact","reason"],"properties":{"artifact":{"type":"string","description":"artifact id"},"reason":{"type":"string","minLength":1,"description":"why it is rejected; posted on the artifact thread"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
+	},
+	{
+		Name:        "colab_hitl_ask",
+		Description: "Ask the DIRECTOR (a human) a question and STOP. Use this when you cannot proceed without a human decision — not for questions your delegator can answer (that is colab_status_set with status=blocked). `default` is REQUIRED: it is the answer you propose so the human can just accept it. Pass `choices` (2+) to make it a multiple-choice question, and then `default` must be one of them. The result is `turn_end_required: true` — register the request and END YOUR TURN immediately; the answer arrives as a new turn. A task can have only ONE open request: a second call fails with code `hitl_already_open`. Same as `colab hitl ask --question --default [--choices --context]`.",
+		InputSchema: json.RawMessage(`{"type":"object","required":["question","default"],"properties":{"question":{"type":"string","minLength":1,"description":"the question for the Director"},"default":{"type":"string","minLength":1,"description":"REQUIRED — the answer you propose (FR-5.1); with choices it must be one of them"},"choices":{"type":"array","minItems":2,"items":{"type":"string"},"description":"2+ options; makes this a choice-type request"},"context":{"type":"string","description":"background the human needs to answer"},"task":{"type":"string","description":"task id (default: this task)"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
+	},
+	{
+		Name:        "colab_hitl_approve_request",
+		Description: "Ask a human to APPROVE something and STOP — for an irreversible or out-of-scope step you must not take on your own. There is no default and it NEVER auto-proceeds, even after the due date passes (FR-5.4): without an answer the work stays stopped. The result is `turn_end_required: true` — END YOUR TURN. A rejection is a normal outcome and comes back with its reason in your next turn. One open request per task; a second call fails with code `hitl_already_open`. Same as `colab hitl approve-request --summary [--artifact]`.",
+		InputSchema: json.RawMessage(`{"type":"object","required":["summary"],"properties":{"summary":{"type":"string","minLength":1,"description":"what you are asking approval for"},"artifact":{"type":"string","description":"artifact id this approval is about"},"task":{"type":"string","description":"task id (default: this task)"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
+	},
+	{
+		Name:        "colab_hitl_request_info",
+		Description: "Ask a human for INFORMATION you cannot obtain yourself (a credential holder's answer, an offline document, a fact only they know) and STOP. No default, and it never auto-proceeds. The result is `turn_end_required: true` — END YOUR TURN. One open request per task; a second call fails with code `hitl_already_open`. Same as `colab hitl request-info --what [--why]`.",
+		InputSchema: json.RawMessage(`{"type":"object","required":["what"],"properties":{"what":{"type":"string","minLength":1,"description":"the information you need"},"why":{"type":"string","description":"why you need it"},"task":{"type":"string","description":"task id (default: this task)"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
 	},
 }
 
@@ -290,6 +307,34 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
 		}
 		v, err = colab.ReviewReject(ctx, s.c, a)
+	case "colab_hitl_ask":
+		var a struct {
+			colab.HitlAskArgs
+			ChoicesRaw json.RawMessage `json:"choices,omitempty"`
+		}
+		if e := json.Unmarshal(args, &a); e != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
+		}
+		a.Choices = parseMention(a.ChoicesRaw) // same array-or-CSV shape
+		v, err = colab.HitlAsk(ctx, s.c, a.HitlAskArgs)
+	case "colab_hitl_approve_request":
+		var a colab.HitlApproveRequestArgs
+		if e := json.Unmarshal(args, &a); e != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
+		}
+		v, err = colab.HitlApproveRequest(ctx, s.c, a)
+	case "colab_hitl_request_info":
+		var a struct {
+			colab.HitlRequestInfoArgs
+			Question string `json:"question,omitempty"` // alias of what, as on the CLI
+		}
+		if e := json.Unmarshal(args, &a); e != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
+		}
+		if a.What == "" {
+			a.What = a.Question
+		}
+		v, err = colab.HitlRequestInfo(ctx, s.c, a.HitlRequestInfoArgs)
 	default:
 		return nil, &rpcError{Code: codeInvalidParams, Message: fmt.Sprintf("unknown tool %q", name)}
 	}

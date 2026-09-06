@@ -94,9 +94,9 @@
 
 | # | 항목 | 출처 | 비고 |
 |---|---|---|---|
-| C-1 | `/cli/context` 호출 시점("시작 시 1회" vs 필요 시) 문서와 구현 정렬 | PR #18 N3 | 문서 |
-| C-2 | `colab-cli.md` §2.1 `--tail` ↔ `--limit` 표기 통일 | PR #18 N5 | 문서 |
-| C-3 | CLI 버전이 `var version = "dev"`이고 빌드 어디에도 `-ldflags -X main.version`이 없다. probe의 `versionRe`가 출력에서 먼저 걸리는 **contracts 버전**(0.1.0)을 `colab_cli.version`으로 싣는다 — `present` 판정은 정상이나 S11 카드가 "colab CLI 0.1.0"을 보인다. 배포 빌드(Makefile)에 ldflags 를 넣고 CLI 버전이 왼쪽에 오게 | PR #71 리뷰 NN1 + hotfix 워커 | 출시 전 |
+| ~~C-1~~ | `/cli/context` 호출 시점("시작 시 1회" vs 필요 시) 문서와 구현 정렬 | PR #18 N3 | **해소(T-C4)**. 계약이 v0.4 §1 에서 "필요할 때 호출하고 프로세스 안에서 캐시(프로세스당 최대 1회)"로 정리됐고 구현이 그대로다 — 회귀 `TestCliContextFetchedAtMostOncePerProcess`·`TestArtifactGetDoesNotFetchCliContext`, HITL 경로는 `TestHitlIsOneRequest`(E7-04 를 낡은 컨텍스트 캐시로 대신 판정하지 않는다) |
+| ~~C-2~~ | `colab-cli.md` §2.1 `--tail` ↔ `--limit` 표기 통일 | PR #18 N5 | **해소(T-C4)**. 계약 v0.4 §2.1 이 `--limit` 로 통일됐고 CLI 에 `--tail` 은 없다(도움말 포함). `TestUsageTextAdvertisesOnlyRealFlags` 가 도움말과 실제 플래그의 어긋남을 계속 잡는다 |
+| ~~C-3~~ | CLI 버전이 `var version = "dev"`이고 빌드 어디에도 `-ldflags -X main.version`이 없다. probe의 `versionRe`가 출력에서 먼저 걸리는 **contracts 버전**(0.1.0)을 `colab_cli.version`으로 싣는다 — `present` 판정은 정상이나 S11 카드가 "colab CLI 0.1.0"을 보인다. 배포 빌드(Makefile)에 ldflags 를 넣고 CLI 버전이 왼쪽에 오게 | PR #71 리뷰 NN1 + hotfix 워커 | **해소(T-C4)**. Makefile `COLAB_VERSION ?= 0.3.0` → `go build -ldflags "-X main.version=$(COLAB_VERSION)"`, **그리고 기본값도 `0.3.0-dev`** — `go build` 만 한 바이너리도 probe 에 x.y.z 를 준다(`"dev"` 가 x.y.z 가 아니었던 것이 근본 원인이다). CLI 버전은 여전히 출력 왼쪽. 회귀 `TestVersionFirstMatchIsTheCLIVersion` 이 probe 와 같은 정규식으로 첫 매치를 검사한다 |
 
 ## 계약·문서
 

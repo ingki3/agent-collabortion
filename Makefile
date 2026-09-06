@@ -5,6 +5,14 @@
 #   make build  바이너리 3개 (bin/)
 
 GO_MODULES := contracts server daemon cli
+
+# COLAB_VERSION is the colab CLI's own version, stamped into the binary with
+# -ldflags. The daemon probe runs `colab --version` and takes the FIRST
+# \d+\.\d+\.\d+ in the output as colab_cli.version (daemon-protocol.md §3);
+# without this the binary said "colab dev (contracts x.y.z)" and probe
+# reported the CONTRACTS version as the CLI's — S11 showed "colab CLI 0.1.0"
+# (backlog C-3). Bump it with the CLI's command surface: 0.3.0 is P3 (HITL).
+COLAB_VERSION ?= 0.3.0
 PG_CONTAINER := colab-pg
 PG_PORT ?= 5433  # 5432는 로컬 ssh 터널 등이 흔히 점유한다
 PG_URL ?= postgres://colab:colab@localhost:$(PG_PORT)/colab?sslmode=disable
@@ -44,7 +52,7 @@ build:
 	@mkdir -p bin
 	go build -o bin/server ./server/cmd/server
 	go build -o bin/daemon ./daemon/cmd/daemon
-	go build -o bin/colab  ./cli/cmd/colab
+	go build -ldflags "-X main.version=$(COLAB_VERSION)" -o bin/colab ./cli/cmd/colab
 
 test: vet
 	@for m in $(GO_MODULES); do (cd $$m && go test ./...) || exit 1; done
