@@ -143,22 +143,31 @@ export default function InboxPage() {
       case "rebind":
         router.push("/runtimes");
         return;
-      case "approve_continue": {
-        if (!item.session_id) return;
-        setBusy(true);
-        try {
-          await api.post("/sessions/{sessionId}/resume", { path: { sessionId: item.session_id }, body: {} });
-          setItems((cur) => (cur ? cur.filter((x) => x.id !== item.id) : cur));
-          setToast("세션을 재개했습니다");
-        } catch (e) {
-          setError(errorMessage(e));
-        } finally {
-          setBusy(false);
-        }
-        return;
-      }
       default:
         return;
+    }
+  }
+
+  /**
+   * `session_paused` 의 "계속 승인" — 예산이면 **카드 안에서 새 상한까지 받는다**(U7-1: 카드만으로
+   * "얼마를 얼마로 올릴지" 결정할 수 있어야 하고, 그러지 못하면 세션을 열게 된다).
+   * 사유별 본문은 계약 `resumeSession` 표 그대로다.
+   */
+  async function approveContinue(item: InboxItem, limits: { budget_usd?: number }) {
+    if (!item.session_id) return;
+    setBusy(true);
+    try {
+      await api.post("/sessions/{sessionId}/resume", {
+        path: { sessionId: item.session_id },
+        body: limits.budget_usd != null ? { limits: { budget_usd: limits.budget_usd } } : {},
+      });
+      setItems((cur) => (cur ? cur.filter((x) => x.id !== item.id) : cur));
+      setSummary((cur) => (cur ? { ...cur, action_required: Math.max(0, cur.action_required - 1) } : cur));
+      setToast("세션을 재개했습니다");
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -248,6 +257,7 @@ export default function InboxPage() {
               key={it.id}
               item={it}
               onRespond={respond}
+              onApproveContinue={approveContinue}
               onAction={(i, a) => void act(i, a)}
               onMarkRead={(i) => void markRead(i)}
               busy={busy}

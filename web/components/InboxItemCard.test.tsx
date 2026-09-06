@@ -116,6 +116,37 @@ describe("hitl_request — 인박스에서 맥락 없이 답한다(F2, U3)", () 
   });
 });
 
+describe("session_paused — 카드 안에서 금액까지 정한다(U7-1)", () => {
+  const paused = (reason: "budget" | "loop") =>
+    item({
+      type: "session_paused", severity: "attention", due_at: null,
+      card: { title: "세션이 멈췄습니다", body: "예산 초과 — $21.40 / $20", paused_reason: reason },
+      actions: ["approve_continue", "open_session"],
+    });
+
+  it("예산이면 새 상한 입력이 붙고 그 값이 resumeSession 본문으로 간다", () => {
+    const onApproveContinue = vi.fn();
+    render(<InboxItemCard item={paused("budget")} onApproveContinue={onApproveContinue} onAction={vi.fn()} />);
+    // U7 성공 기준: "1단계 카드만으로 얼마를 얼마로 올릴지 결정 가능" — 입력이 없으면 세션을 열게 된다.
+    fireEvent.change(screen.getByTestId("inbox-budget-input"), { target: { value: "30" } });
+    fireEvent.click(screen.getByTestId("inbox-action-approve_continue"));
+    expect(onApproveContinue.mock.calls[0][1]).toEqual({ budget_usd: 30 });
+  });
+
+  it("비워 두면 금액 없이 재개한다 — 계약이 '생략 시 현재 상한' 을 허용한다", () => {
+    const onApproveContinue = vi.fn();
+    render(<InboxItemCard item={paused("budget")} onApproveContinue={onApproveContinue} />);
+    fireEvent.click(screen.getByTestId("inbox-action-approve_continue"));
+    expect(onApproveContinue.mock.calls[0][1]).toEqual({});
+  });
+
+  it("예산이 아닌 사유에는 금액 입력을 만들지 않는다 — 루프·시간은 올릴 금액이 없다", () => {
+    render(<InboxItemCard item={paused("loop")} onApproveContinue={vi.fn()} />);
+    expect(screen.queryByTestId("inbox-budget-input")).toBeNull();
+    expect(screen.getByTestId("inbox-action-approve_continue")).toBeTruthy();
+  });
+});
+
 describe("부가 텍스트(COMPONENTS §2.4 `fDXjQ`, 기본 끔)", () => {
   it("타입마다 '더 알아야 할 한 줄' 이 다르고 없으면 자리를 만들지 않는다", () => {
     expect(extraLine(item({ type: "mention", card: { title: "멘션" } }))).toBeNull();

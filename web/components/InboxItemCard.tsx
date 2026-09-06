@@ -12,6 +12,7 @@
  * 버튼은 **서버가 준 `actions`** 로만 정한다(계약 `InboxItem.actions` — 권한을 반영한 목록이다).
  * 화면이 버튼을 만들어 내면 403 을 누르게 된다.
  */
+import { useState } from "react";
 import "./inbox-item.css";
 import { Badge } from "./Badge";
 import { HitlBody, type HitlAction } from "./HitlBody";
@@ -89,6 +90,11 @@ export interface InboxItemCardProps {
   item: InboxItem;
   /** 인라인 HITL 응답(F2). `hitl_request` 에서만 쓰인다. */
   onRespond?: (item: InboxItem, body: HitlResponse) => Promise<void> | void;
+  /**
+   * `session_paused` 의 "계속 승인" — **금액 입력과 함께**다(U7-1: "카드만으로 얼마를 얼마로 올릴지
+   * 결정 가능"). 없으면 `onAction(item, "approve_continue")` 로 떨어진다.
+   */
+  onApproveContinue?: (item: InboxItem, limits: { budget_usd?: number }) => Promise<void> | void;
   /** 그 밖의 인라인 동작 — 세션 열기·답글·다시 지시·계속 승인·Runtimes. */
   onAction?: (item: InboxItem, action: InboxAction) => void;
   onMarkRead?: (item: InboxItem) => void;
@@ -96,12 +102,15 @@ export interface InboxItemCardProps {
   now?: number;
 }
 
-export function InboxItemCard({ item, onRespond, onAction, onMarkRead, busy, now }: InboxItemCardProps) {
+export function InboxItemCard({ item, onRespond, onApproveContinue, onAction, onMarkRead, busy, now }: InboxItemCardProps) {
   const hitl = item.type === "hitl_request" ? item.card : null;
   const actions = (item.actions ?? []) as InboxAction[];
   const inline = actions.filter((a): a is HitlAction => (INLINE_HITL as readonly string[]).includes(a));
   const rest = actions.filter((a) => !(INLINE_HITL as readonly string[]).includes(a));
   const overdue = item.overdue === true;
+  // 예산으로 멈춘 세션만 금액을 받는다 — 시간·루프·수동은 올릴 금액이 없다(SCREEN §4.5 O6 표).
+  const raiseBudget = item.type === "session_paused" && item.card?.paused_reason === "budget" && actions.includes("approve_continue");
+  const [budget, setBudget] = useState("");
 
   return (
     <article
@@ -162,6 +171,23 @@ export function InboxItemCard({ item, onRespond, onAction, onMarkRead, busy, now
         <p className="inbox-item__extra" data-testid="inbox-extra">{extraLine(item)}</p>
       )}
 
+      {raiseBudget && (
+        <label className="inbox-item__field">
+          <span>새 상한 (USD)</span>
+          <input
+            className="input"
+            type="number"
+            min={0}
+            step="1"
+            value={budget}
+            onChange={(e) => setBudget(e.target.value)}
+            disabled={busy}
+            placeholder="비워 두면 현재 상한 그대로 재개"
+            data-testid="inbox-budget-input"
+          />
+        </label>
+      )}
+
       {rest.length > 0 && (
         <div className="inbox-item__actions" data-testid="inbox-actions">
           {rest.map((a, i) => (
@@ -169,8 +195,15 @@ export function InboxItemCard({ item, onRespond, onAction, onMarkRead, busy, now
               key={a}
               type="button"
               className={`btn btn--sm${i === 0 && a !== "open_session" ? " btn--primary" : ""}`}
-              disabled={busy || !onAction}
-              onClick={() => onAction?.(item, a)}
+              disabled={busy || (!onAction && !(a === "approve_continue" && onApproveContinue))}
+              onClick={() => {
+                if (a === "approve_continue" && onApproveContinue) {
+                  const n = Number(budget);
+                  onApproveContinue(item, raiseBudget && Number.isFinite(n) && n > 0 ? { budget_usd: n } : {});
+                  return;
+                }
+                onAction?.(item, a);
+              }}
               data-testid={`inbox-action-${a}`}
             >
               {ACTION_LABEL[a]}
