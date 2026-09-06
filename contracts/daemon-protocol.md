@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.2 — PR #22 리뷰 R3·N5: 명령 최소 한 번의 **판정 기준(효과 관측)** 명시, heartbeat 만료는 `running`만 |
+| 버전 | v0.3 — G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
 | 소유 | S + D. 변경은 Director 승인 PR로만 |
 | 근거 | PRD §8.1(큐), FR-7.1(상태 머신·heartbeat), FR-9.1(고아·토큰 폐기), FR-9.2(오프라인 유예), FR-6.4(workdir·GC), `harness.md`(오류 분류·재개) |
 | 원칙 | **데몬은 stateless, 상태는 서버.** 데몬은 서버가 준 것만 실행하고 결과를 보고한다. 모든 시각 판정(만료·유예·`not_before`)은 서버 클럭(`contracts/clock`) |
@@ -94,6 +94,16 @@ POST /v1/daemon/tasks/{task_id}/attempts/{attempt}/heartbeat {usage: {…}, last
 
 - `events`는 배치(≤ 100개 또는 1초). `(task_id, attempt, seq)` 멱등 — 서버는 이미 받은 `seq`를 무시하고 `accepted_seq_max`를 돌려준다. 데몬은 미확인 이벤트를 재전송한다.
 - 메시지 스트리밍: `message.say` 이벤트는 턴 단위로 합치되, 사람이 보는 지연을 위해 `partial: true`인 중간 이벤트를 **같은 seq 없이** 별도 채널(heartbeat의 `preview` 필드)로 보낸다. 영속되지 않는다(PRD §7 "고빈도 이벤트 비영속").
+
+  **`preview` 모양 (v0.3, G3 C-1)** — 데몬과 서버가 서로 다른 모양을 쓰고 있었다(데몬 `string` vs 서버 `{text, message_id}`) → 부분 출력이 있는 동안 heartbeat가 통째로 `422`가 되어 **살아 있는 attempt가 3분 뒤 재큐잉**되고 `message.delta`가 한 번도 안 나갔다. 확정:
+
+  ```json
+  "preview": { "text": "<지금까지의 부분 출력>", "message_id": "<uuid, 이미 게시된 메시지를 이어 쓰는 중이면>" }
+  ```
+
+  `text`만 필수, `message_id`는 선택. 서버는 이를 SSE `message.delta`로 브로드캐스트하고 저장하지 않는다.
+
+  **부가 정보는 heartbeat를 실패시키지 않는다.** `preview`가 없거나 모양이 달라도 서버는 `usage`·`last_seq`를 받아 `heartbeat_at`을 갱신하고 `200`을 돌려준다 — 잘못된 `preview`만 무시하고 활동 피드에 경고를 남긴다. heartbeat는 **생존 신호**이므로 부가 필드 하나로 attempt를 잃으면 안 된다(E5-03이 막으려던 상황을 스스로 만든다).
 - heartbeat **15초**. 서버는 **`running` attempt**의 마지막 heartbeat로부터 **3분** 무응답이면 `runtime_offline` → 재큐잉 + 토큰 폐기(E5-03, E11-03). `preparing`은 heartbeat 만료 대상이 아니다 — `dispatched_at`부터 5분(§4.1)이 덮는다(v0.2, N5: 콜드 스타트가 긴 런타임의 준비 구간을 3분에 자르지 않기 위해).
 - `waiting_human`·`blocked`·`paused`로 끝난 attempt는 heartbeat를 보내지 않는다 — 프로세스가 없다.
 
