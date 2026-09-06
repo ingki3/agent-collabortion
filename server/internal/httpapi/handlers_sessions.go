@@ -12,6 +12,7 @@ import (
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
@@ -513,4 +514,58 @@ func (s *Server) PreviewTriggers(w http.ResponseWriter, r *http.Request, session
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// turnEndKey is the wire name of setTaskStatus's "end your turn now" flag.
+// It lives in one place because contracts/openapi.yaml renamed it away from
+// `end_turn` — ACP's stopReason already owns that word for the opposite
+// meaning ("the turn ended"), and a name that means both is a grep trap.
+const turnEndKey = "turn_end_required"
+
+// SetTaskStatus is `colab status set working|blocked|done` (FR-7.4).
+func (s *Server) SetTaskStatus(w http.ResponseWriter, r *http.Request, taskId gen.TaskId) {
+	pr := principalOf(r)
+	if pr.Task == nil || pr.Task.TaskID != taskId {
+		writeProblem(w, apperr.Forbidden("outside_task_scope", "status set is scoped to the caller's own task"))
+		return
+	}
+	var in gen.SetTaskStatusJSONBody
+	if p := decodeJSON(w, r, &in); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	if !in.Status.Valid() {
+		writeProblem(w, apperr.Validation(apperr.Field("status", "invalid", "status must be working, blocked or done")))
+		return
+	}
+	note := ""
+	if in.Note != nil {
+		note = strings.TrimSpace(*in.Note)
+	}
+	res, err := s.Router.SetAgentStatus(r.Context(), taskId, pr.Task.Attempt, string(in.Status), note)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	task, err := tasks.Get(r.Context(), s.DB, res.TaskID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	lane, err := lanes.Load(r.Context(), s.DB, res.LaneID, false)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	body := map[string]any{
+		"task":     tasks.ToAPI(task, nil, nil),
+		"lane":     lane,
+		turnEndKey: res.TurnEndRequired,
+	}
+	if res.QuestionMessageID != nil {
+		body["question_message_id"] = res.QuestionMessageID.String()
+	} else {
+		body["question_message_id"] = nil
+	}
+	writeJSON(w, http.StatusOK, body)
 }

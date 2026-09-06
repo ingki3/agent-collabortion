@@ -266,10 +266,6 @@ func (unimplemented) ListTaskEvents(w http.ResponseWriter, r *http.Request, task
 	notImplemented(w, r, "ListTaskEvents")
 }
 
-func (unimplemented) SetTaskStatus(w http.ResponseWriter, r *http.Request, taskId gen.TaskId) {
-	notImplemented(w, r, "SetTaskStatus")
-}
-
 func (unimplemented) GetTestChat(w http.ResponseWriter, r *http.Request, testChatId gen.TestChatId) {
 	notImplemented(w, r, "GetTestChat")
 }

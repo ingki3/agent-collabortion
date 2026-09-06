@@ -64,9 +64,10 @@ chk_in "B 가 A 의 세션 메시지 읽기 차단"   "403 404" "$(curl -sS -o /
 chk_in "B 가 A 의 세션에 게시 차단"        "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -X POST "$API/sessions/$SESSION/messages" --data '{"content":"침입"}')"
 chk_in "B 가 A 의 런타임 읽기 차단"        "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/runtimes/$RUNTIME")"
 chk_in "B 가 A 의 에이전트 목록 차단"      "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/workspaces/$WS/agents")"
-# updateWorkspaceSettings 는 x-phase P2 라 아직 501 이다 — 구현이 없으니 남의 설정도 바뀌지 않는다.
-# **P2 에서 구현할 때 authz 를 반드시 넣어야 하며**(P2_BACKLOG S-12), 그때 이 기대를 403/404 로 좁힌다.
-chk_in "B 가 A 의 워크스페이스 설정 변경 차단(현재 P2 미구현=501)" "403 404 501" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -X PATCH "$API/workspaces/$WS/settings" --data '{}')"
+# S-12 해소(T-S2): updateWorkspaceSettings·getWorkspaceSettings 가 구현됐으므로
+# 이제 501 은 답이 아니다. owner·admin 만 통과한다(SCREEN §2.3).
+chk_in "B 가 A 의 워크스페이스 설정 변경 차단"  "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -X PATCH "$API/workspaces/$WS/settings" --data '{}')"
+chk_in "B 가 A 의 워크스페이스 설정 조회 차단"  "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/workspaces/$WS/settings")"
 
 echo
 echo "▶ D3. 501 표면 (P1 밖 operation 은 501, 5xx 아님)"
@@ -118,13 +119,15 @@ chk_in "깨진 JSON 본문"                    "400 422" "$(ucode -X POST "$API/
 chk_in "빈 본문 게시"                      "400 422" "$(ucode -X POST "$API/sessions/$SESSION/messages" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" --data '{"content":""}')"
 BIG="$(python3 -c 'print("가"*200000)')"
 chk_in "200k 본문(상한 또는 수용)"          "201 400 413 422" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_A" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -X POST "$API/sessions/$SESSION/messages" --data "$(jq -n --arg c "$BIG" '{content:$c}')")"
-# 계약은 limit minimum:1 maximum:200 이지만 서버는 범위를 거절하지 않고 **조용히 기본값 50 으로 강제**한다
-# (messages·agents·sessions·events 네 저장소 모두 clamp — 자원 고갈 위험은 없다).
-# 계약↔구현 불일치이므로 P2_BACKLOG S-11 로 남기고, 여기서는 "5xx 가 아니다 + 결과가 상한을 넘지 않는다"만 본다.
-chk_in "음수 limit(현재 clamp)"            "200 400 422" "$(ucode "$API/sessions/$SESSION/messages?limit=-1")"
-chk_in "거대 limit(현재 clamp)"            "200 400 422" "$(ucode "$API/sessions/$SESSION/messages?limit=100000")"
-N_BIG="$(curl -sS -b "$CK_A" "$API/sessions/$SESSION/messages?limit=100000" | jq '.items|length')"
-[ "$N_BIG" -le 200 ] && chk "거대 limit 결과가 상한 200 이하" yes yes || chk "거대 limit 결과가 상한 200 이하" yes no
+# S-11 해소(T-S2): 계약이 limit minimum:1 maximum:200 이라고 말하므로 범위 밖은
+# 422 다. 조용히 50 으로 깎으면 500 개를 요청한 클라이언트가 50 개를 받고도 모른다.
+chk "음수 limit 은 422"                    "422" "$(ucode "$API/sessions/$SESSION/messages?limit=-1")"
+chk "0 limit 은 422"                       "422" "$(ucode "$API/sessions/$SESSION/messages?limit=0")"
+chk "거대 limit 은 422"                    "422" "$(ucode "$API/sessions/$SESSION/messages?limit=100000")"
+chk "상한 바로 밖(201) 은 422"             "422" "$(ucode "$API/sessions/$SESSION/messages?limit=201")"
+chk "상한값(200) 은 통과"                  "200" "$(ucode "$API/sessions/$SESSION/messages?limit=200")"
+N_BIG="$(curl -sS -b "$CK_A" "$API/sessions/$SESSION/messages?limit=200" | jq '.items|length')"
+[ "$N_BIG" -le 200 ] && chk "허용 최대 limit 결과가 상한 200 이하" yes yes || chk "허용 최대 limit 결과가 상한 200 이하" yes no
 
 echo
 echo "▶ D9. 서버 5xx 가 하나도 없었는가 (이 스크립트 구간)"
