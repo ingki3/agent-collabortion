@@ -1456,7 +1456,7 @@ export interface paths {
          * HITL 응답(멱등) — 답변 · 승인/거절 · 예산 상향
          * @description 권한: `approver_spec`에 따라 — `director`는 **Director, 그리고 기한 절반 경과 후 deputy**(M7, E7-09·10); `any_member`는 워크스페이스 멤버; uuid는 그 사용자. 그 외 `403`(카드는 보이되 버튼 비활성, `Problem.can_respond_from`에 deputy 가능 시각).
          *     **`Idempotency-Key` 필수.** 서버는 (a) `open`이고 (b) 응답자가 spec에 맞는지 검증한다. `overdue`여도 답할 수 있다(E7-15). **같은 요청에 대한 두 번째 응답은 오류가 아니라 무시** — `200`에 기존 응답 + `ignored: true`(E7-08).
-         *     효과: `answered` + 결정 기록 1건 + task `queued`로 재큐잉(새 attempt, resume 우선). `approval` 거절도 정상 흐름 — `approved: false`와 사유가 재개 프롬프트에 들어간다(E7-17). 예산 초과 시스템 HITL(`task_id` 있음)에 `budget_override_usd`를 주면 `task.budget_override`에 저장되고 에이전트 `budget_per_task`는 불변(E9-02). 종료 조건 `user_approval` HITL 승인은 세션을 `completing`으로 보낸다(E6-03); 거절은 `active` 유지 + 사유 결정 기록(E6-04). 킬 스위치로 `disabled`된 에이전트의 task는 `answered`로 기록만 하고 재큐잉을 보류한다(E10-08).
+         *     효과: `answered` + 결정 기록 1건 + task `queued`로 재큐잉(새 attempt, resume 우선). `approval` 거절도 정상 흐름 — `approved: false`와 사유가 재개 프롬프트에 들어간다(E7-17). 예산 초과 시스템 HITL(`task_id` 있음)에 `budget_override_usd`를 주면 `task.budget_override`에 저장되고 에이전트 `budget_per_task`는 불변(E9-02). 종료 조건 `user_approval` HITL 승인은 세션을 `completing`으로 보낸다(E6-03); 거절은 `active` 유지 + 사유 결정 기록(E6-04). **세션 범위 예산·시간 HITL(`task_id` 비움, `purpose` budget|time)의 승인은 세션을 재개한다(K-10, v0.8.5 라운드)** — `paused(budget)` → `active`, pause 가 park 한 task 재큐잉(같은 lane·workdir), 세션 잔여 상한 = 승인 금액(`budget_override_usd`); Director 가 `resumeSession` 을 따로 부르지 않는다. 거절은 `paused` 유지. 킬 스위치로 `disabled`된 에이전트의 task는 `answered`로 기록만 하고 재큐잉을 보류한다(E10-08).
          */
         post: operations["respondHitlRequest"];
         delete?: never;
