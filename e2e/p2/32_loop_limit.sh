@@ -44,7 +44,12 @@ if [ "${SET_CODE:0:1}" != 2 ]; then
 fi
 GOT="$(api_ok GET "/workspaces/$WS/settings" | jq -r '.loop_limits.max_pair_roundtrips')"
 chk L0b "설정이 되읽힌다 (max_pair_roundtrips=$LIMIT)" "$LIMIT" "$GOT"
-chk L0c "다른 상한은 건드리지 않았다 (부분 갱신)"  8 "$(api_ok GET "/workspaces/$WS/settings" | jq -r '.loop_limits.max_chain_depth')"
+# S-26 — 부분 갱신이 같은 객체의 **다른 키를 지우지 않는가**. 1판에서는 `mergeJSON` 이 이름과 달리
+# 통째로 교체해 `max_chain_depth` 가 null 이 됐다(PR #103 이 키 병합으로 고쳤다).
+SET_ALL="$(api_ok GET "/workspaces/$WS/settings" | jq -c '.loop_limits')"
+log "loop_limits = $SET_ALL"
+chk L0c "부분 갱신이 max_chain_depth 를 지우지 않는다 (S-26)"  8 "$(jq -r '.max_chain_depth' <<<"$SET_ALL")"
+chk L0d "max_hops_per_hour 도 남는다 (S-26)"                  60 "$(jq -r '.max_hops_per_hour' <<<"$SET_ALL")"
 
 step "2. 서로만 멘션하는 두 에이전트 · 세션"
 PING_LEAD='You are Lead. Always answer in Korean and keep every message under 25 words.

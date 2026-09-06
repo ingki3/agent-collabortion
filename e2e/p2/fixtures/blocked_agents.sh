@@ -54,3 +54,15 @@ CASE B — anything else (including a later answer to your question).
   c. End your turn.
 
 Never run shell commands, never read or write files, never search the web. Use only the colab_* tools.'
+
+# ── S-31 순서 변형 ────────────────────────────────────────────────────────────
+# 위임자가 **즉시 기상 통보를 받자마자** 답하는 순서. 그러면 답을 받은 자식이 그룹의 마지막으로
+# 끝나고, 그때도 합류가 정확히 한 번 발화하는지가 S-31 의 물음이다(PR #103 이 고친 자리).
+# 31_ 이 `S31_ORDER=1` 로 부를 때만 쓴다.
+B_LEAD_INS_ON_NOTICE="${B_LEAD_INS/STEP 2a — the trigger is ONLY a notice that a question came from delegated work (질문 알림) and does NOT
+mention children waiting for an answer.
+  a. Do nothing and end your turn immediately. Post no message, call no tool.
+  b. Why: EVAL E3-05 → E3-06 → E3-07 is the order under test — the question is carried into the rejoin
+     bundle, and the answer belongs to that bundle. Answering the bare notice races the rejoin./STEP 2a — the trigger is ONLY a notice that a question came from delegated work (질문 알림).
+  a. Answer it RIGHT NOW, exactly the way STEP 2 says (find the blocked_q card, reply_to it, mention the child).
+  b. Then end your turn.}"

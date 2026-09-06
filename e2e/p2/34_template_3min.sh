@@ -151,7 +151,9 @@ D_TEMPLATE=$(( (T1-T0)/1000 )); D_WIZARD=$(( (T2-T1)/1000 )); D_TOTAL=$(( (T2-T0
 printf '  로그인→템플릿 적용   %4ds\n  템플릿→세션 생성     %4ds\n  합계(팀 생성→세션 시작) %4ds\n  첫 task 가 돌기까지  %4ds\n' \
   "$D_TEMPLATE" "$D_WIZARD" "$D_TOTAL" "$D_RUN" >&2
 chk_ge T7 "합계가 측정됐다 (초)" 1 "$D_TOTAL"
-log "판정은 하지 않는다 — DoD 의 3분은 **Director 실측**이다. 위 수치는 자동 조작의 하한이다."
+log "판정은 하지 않는다 — DoD 의 3분은 **Director 실측**이다."
+log "위 수치는 agent-browser 의 DOM 조작 기준이다: 셀렉터로 바로 채우고 누르므로 사람이 읽고 고르고"
+log "타이핑하는 시간이 빠져 있다. 사람 실측의 **하한**이지 예측이 아니다."
 
 step "결과"
 printf '판정: PASS %d · FAIL %d  (경로 확인만; 3분 판정은 Director 실측 대기)\n' "$pass" "$fail" >&2
