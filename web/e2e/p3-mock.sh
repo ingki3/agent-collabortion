@@ -81,7 +81,9 @@ chk "overdue 가 맨 위 (SCREEN §4.6 정렬)" "$(echo "$IN" | py 'import sys,j
 chk "심각도 3종만 쓴다" "$(echo "$IN" | py 'import sys,json;d=json.load(sys.stdin)["items"];print(set(x["severity"] for x in d) <= {"action_required","attention","info"})')" "True"
 chk "hitl_request 카드에 제안 기본값이 있다(F2)" "$(echo "$IN" | py 'import sys,json;d=[x for x in json.load(sys.stdin)["items"] if x["type"]=="hitl_request"];print(bool(d[0]["card"]["proposed_default"]))')" "True"
 SUM=$(curl -sS -b "$J" "$B/inbox/summary?workspace_id=$WS")
-chk "뱃지는 action_required 만" "$(echo "$SUM" | py "import sys,json;s=json.load(sys.stdin);import subprocess;print(s['action_required'] == $(echo "$IN" | py 'import sys,json;print(len([x for x in json.load(sys.stdin)["items"] if x["severity"]=="action_required"]))'))")" "True"
+# 뱃지는 목록의 action_required 수와 같아야 한다 — info 까지 세면 뱃지가 영구히 켜져 의미가 없다.
+AR_IN_LIST=$(echo "$IN" | py 'import sys,json;print(len([x for x in json.load(sys.stdin)["items"] if x["severity"]=="action_required"]))')
+chk "뱃지 = 목록의 action_required 수" "$(echo "$SUM" | py 'import sys,json;print(json.load(sys.stdin)["action_required"])')" "$AR_IN_LIST"
 FA=$(curl -sS -b "$J" "$B/inbox?workspace_id=$WS&filter=action_required")
 chk "액션 필요 필터" "$(echo "$FA" | py 'import sys,json;d=json.load(sys.stdin)["items"];print(all(x["severity"]=="action_required" for x in d))')" "True"
 curl -sS -b "$J" -X POST "$B/inbox/read-all?workspace_id=$WS" -o /dev/null
