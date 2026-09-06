@@ -11,6 +11,9 @@ source "$(dirname "$0")/lib.sh"
 export E2E_OUT="$OUT/p1"; mkdir -p "$E2E_OUT"
 export SERVER_URL WEB_URL PG_PORT PG_CONTAINER
 N="${N:-20}"
+# 04·06 은 agent-browser 를 쓴다. 다른 세션이 열려 있으면 새 창이 net::ERR_ABORTED 로 죽는 것을
+# 2026-09-06 실행에서 봤다(디버깅용 세션과 충돌). 먼저 전부 닫는다.
+agent-browser close --all >/dev/null 2>&1 || true
 TSV="$OUT/regression.tsv"; echo -e "script\texit\tnote" > "$TSV"
 run() { # script [env...]
   local sh="$1"; shift

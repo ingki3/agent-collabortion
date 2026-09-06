@@ -111,7 +111,39 @@ P1 에서는 액세스 토큰이 살아 있어 갱신이 필요 없었으므로 
 
 ### 3.4 P1 회귀 (`e2e/p2/20_regression_p1.sh`)
 
-<!--REGRESSION-->
+`e2e/p1/01~07` 을 이 스택에 README 순서(01 → 03 → 02 → 05 → 06 → 04 → 07)로 전부 돌렸다. `N=20`.
+
+| 스크립트 | 결과 | 수치 |
+|---|---|---|
+| `01_vertical_slice.sh` | **통과 (19/20)** | claim 중앙값 **0.008s**(max 0.013, E17-01 ≤ 2s) · 첫 출력 중앙값 **3.324s**(E17-02 ≤ 10s) · 답글 도착 중앙값 **3.914s** · 페어링→ready **10.4s**. C-1 회귀 초록: heartbeat 422 **0**, 재큐잉 로그 **0**, SSE `message.delta` **2프레임**. **20회차만 답글 0** — task 는 `completed`(`stop_reason=end_turn`)이고 `message.say` 에 "E2E 수직 슬라이스 인사 왕복이 성공적으로 완료되었습니다!" 가 있는데 `colab_message_post` 를 부르지 않았다. 플랫폼 오류 없음(모델이 20번째에서 왕복이 끝났다고 판단) |
+| `03_cancel.sh` | **통과** | 두 취소 경로 모두. 데몬 정상 종료 1s |
+| `02_kill9.sh` | **통과** | 재큐잉·토큰 폐기·고아 정리·중복 게시 0, `final_status: completed`, 그 task 의 메시지 **1건** |
+| `05_invite_api.sh` | **통과** | 초대 `accepted`, 두 번째 멤버 `member` 로 가입 |
+| `06_s12_pairing_realtime.sh` | **통과** | 서버 SSE `pairing.updated` 2프레임 · 화면 1번 열 때 페어링 **1개** · 패널이 **0.3초**에 `ready`(E17-09 ≤ 10s) |
+| `04_u1_browser.sh` | **부분** | U1-1~4·6~9·11~12 통과(S12 준비 완료 **11.4s**, S-6 회귀 초록, P2 7단계 마법사 전부 통과). U1-5 는 P2 템플릿(**S-3**), U1-10 은 런타임 후보(**S-2**) — 새 결함이 아니라 §4 의 같은 항목이다. **U1-13 미도달**: 마법사 마지막 단계 전환이 스크립트 페이싱에 걸려 '시작' 이 눌리지 않는다(같은 계정·같은 화면을 손으로 몰면 세션이 만들어진다 — 스크립트 문제이지 제품 문제가 아니다). 도달했더라도 S7 은 **S-1** 로 죽는다 |
+| `07_adversarial.sh` | **부분 (81/82)** | 유일한 ✗ = **S-8**(사람 쿠키로 `recordDecision` 201) |
+
+**07 의 chk 수를 정확히 세었다** — T-S3 워커의 "D10 18/18" 은 6개 적다. 한 번의 완전 실행에서 실제로 도는 chk 는 **82개**다:
+
+| 절 | 실행되는 chk | 비고 |
+|---|---|---|
+| D1 TaskToken 범위 | **2** | 서버가 토큰 평문을 저장하지 않아 짧은 가지로 간다(살아 있는 토큰이 있으면 7) |
+| D2 워크스페이스 경계 | 9 | |
+| D3 501 표면 | 5 | |
+| D4 멱등키 경계 | 6 | |
+| D5 미인증 접근 | 4 | |
+| D6 SSE 인가 | 2 | |
+| D7 데몬 토큰 경계 | 3 | |
+| D8 잘못된 입력 | 11 | |
+| **D10 아티팩트 경계** | **24** | 파일에 있는 `chk` 문은 26개지만 2개는 "살아 있는 토큰이 없을 때" 가지다. 토큰을 심고 다른 세션·다른 task 가 있는 완전 실행에서 도는 것은 **24** |
+| **D11 P2 operation 경계(신설)** | **16** | |
+| **합계** | **82** | 이번 실행 PASS **81** · FAIL **1** |
+
+첫 실행의 `"fail": 8` 은 D11 을 처음 넣었을 때의 값이다. 그 8 중 **6개는 내 기대값이 과했던 것**(아직 x-phase P3 인 `listLaneTasks`·`restartLane`·`pauseSession`·`resumeSession`·`getSessionCost` 와 P2 인데 501 인 `listLanes` 가 403/404 대신 501 을 준다), **1개는 응답 위치 차이**(`not_participant` 가 최상위 `code` 가 아니라 `errors[].code` 에 실린다 — CLI 는 그것을 읽어 exit 3 과 대안 안내까지 정상 동작), **1개만 진짜 결함**(S-8)이다. D11 을 고쳐 501 을 허용값에 넣고(구현하는 PR 이 이 줄에서 501 을 빼면 그때부터 경계가 검사된다) `not_participant` 를 `errors[]` 에서도 읽게 한 뒤가 위 표의 81/82 다.
+
+**06 의 `net::ERR_ABORTED` 는 코드 결함이 아니다.** 첫 일괄 실행에서 06 이 `ab open $WEB_URL/login` 에서 `Navigation failed: net::ERR_ABORTED` 로 죽었다. 원인은 **agent-browser 세션 충돌** — 내가 S7 크래시를 좁히려고 열어 둔 디버깅용 세션(`colab-g4-probe*`)이 남아 있었다. `agent-browser close --all` 뒤 같은 스크립트를 같은 포트·같은 BASE_URL 로 다시 돌리면 **통과**한다(패널 ready 0.3s). 포트나 베이스 URL 문제가 아니고 하이드레이션 문제도 아니다 — 같은 실행에서 웹의 다른 화면은 정상 하이드레이트됐다. 재현 조건: 다른 `AGENT_BROWSER_SESSION` 이 살아 있는 상태에서 새 세션으로 `open`. `e2e/p2/20_regression_p1.sh` 가 시작할 때 `agent-browser close --all` 을 하도록 고쳤다.
+
+**T-W2 가 보고한 헤드리스 하이드레이션 문제는 이 워크스페이스에서 재현되지 않았다.** `/signup`·`/login`·`/onboarding`·S12·S6 마법사 전부 헤드리스에서 상호작용까지 정상이다. 다만 **`next dev` 가 도는 중에 `web/.next` 를 지우면** 그 다음 라우트가 `ENOENT … .next/server/app/(app)/sessions/new/page.js` 로 죽는다(실측). 그때는 웹을 내리고 `.next` 를 지운 뒤 다시 띄우면 된다 — S7 크래시(**S-1**)와는 다른 현상이고, S-1 은 `.next` 를 새로 만든 뒤에도 그대로였다.
 
 ## 4. 결함 — 스트림 귀속
 
@@ -126,6 +158,7 @@ P1 에서는 액세스 토큰이 살아 있어 갱신이 필요 없었으므로 
 | **S-5** | **S** | probe 최상위 `colab_cli` 를 서버가 저장·노출하지 않는다 | `server/internal/runtimes` `Probe()` 가 `capabilities·repos·daemon_version·host` 만 UPDATE · `GET /runtimes/{id}` → `colab_cli: null` | `daemon-protocol.md` §3 "서버는 `present == false` 인 머신을 S12/S11 카드에 경고로 드러낸다" 가 불가능. 웹의 `colab-cli-*` 표시는 영원히 unknown. **PR #71 로 데몬 쪽은 고쳐졌으나 서버 쪽이 남아 있다** |
 | **S-6** | **S** | `listLanes`(x-phase **P2**) 가 501 | `12_mock_vs_real` · 직접 확인 | S7 lane 보드가 실서버에서 **항상 빈 화면**. U2-1·2·4·5·6 이 전부 이 한 줄에 걸린다(S-1 을 고쳐도 남는다) |
 | **S-7** | **S** | `previewTriggers` 가 `respond_to: nobody` 에이전트에 `agent_disabled` 경고를 주지 않는다 | 실측: 정지 후 preview → `warnings: []` 이고 트리거는 그대로 1개 | U11-6·E10-07. 사람이 정지시킨 에이전트를 멘션해도 작성창이 경고하지 않는다. `not_participant` 경고는 정상 동작한다 |
+| **S-8** | **S** | `recordDecision` 이 **사람 세션 쿠키로 201** 을 준다. 계약은 `TaskToken` 전용이고 "HITL 응답에서 나온 결정(`source: hitl`)은 `respondHitlRequest` 가 만든다" 고 못박는다 | `POST /sessions/{id}/decisions` + 쿠키 → 201, 저장된 행의 `source` = **`hitl`** | 워크스페이스 멤버 누구나 **사람이 HITL 로 답한 것처럼** 결정 기록을 위조할 수 있다. 결정 기록은 나중 턴의 브리프에 실리므로 에이전트 입력까지 오염된다. `e2e/p1/07` D11 의 유일한 ✗ |
 | **W-1** | **W** | 웹이 만드는 `@all` 링크가 계약과 다르다 — `web/lib/mentions.ts` 는 `[@all](mention://all)`, PRD FR-3.2 는 `[@all](mention://all/all)` | 실측: `mention://all/all` → `suppressed=true, triggers 0` / `mention://all` → `suppressed=false, triggers 1(규칙 6 → Lead)`, 실제 게시 시 Lead task 1개 생성 | **E1-05·U15-3 위반**. 사용자가 작성창에서 `@all` 을 고르면 "기록만" 이 아니라 Lead 가 깨어난다. 목은 `content.includes("mention://all")` 로만 판정해 이 차이를 가렸다 |
 | **W-2** | **W** | `web/e2e/p2-mock.sh` 의 `new_lane` 기대값이 EVAL 과 반대 — 목은 `lane.resolution == 1`, EVAL E2-07 은 "규칙 3 건너뜀 → **4**" | 실서버 preview → `resolution 4`. 목 → 1 | 목이 통과시키는 값이 계약과 다르다. 스모크가 초록인 채로 웹이 잘못된 해소 번호를 믿을 수 있다 |
 | **D-1** | **D** | (해소됨, PR #71) 데몬 환경 허용 목록에 `USER` 가 없어 만료된 Claude Code OAuth 를 갱신하지 못한다 | §2.1 | 해소 전에는 **모든 claude_code task 가 `failed(auth)`** — G4 전면 차단이었다 |
@@ -159,4 +192,4 @@ N=20 bash e2e/p2/20_regression_p1.sh      # out/p1/*.log · out/regression.tsv
 bash e2e/p2/down.sh
 ```
 
-`e2e/p1/07_adversarial.sh` 에는 **D11(P2 operation 경계)** 를 추가했다 — lane 목록·task 이력·중단·재지시·미리보기·일시정지·재개·결정·비용의 워크스페이스 경계와, `delegateLane`·`recordDecision` 이 사람 쿠키를 받지 않는지, 비참여 에이전트 위임이 `not_participant` 인지(E15-02). 같은 파일의 데몬 경로에 박혀 있던 `http://localhost:8080` 은 `$SERVER_URL` 로 바꿨다 — 포트가 다른 스택에서 **남의 서버를 찌르고 있었다**.
+`e2e/p1/04_u1_browser.sh` 의 U1-7~12 는 **P2 7단계 마법사**에 맞춰 갱신했다 — P1 때의 `session-defaults` 요약 한 줄이 사라진 것은 결함이 아니라 T-W2 의 화면 변경이다. `e2e/p1/07_adversarial.sh` 에는 **D11(P2 operation 경계)** 를 추가했다 — lane 목록·task 이력·중단·재지시·미리보기·일시정지·재개·결정·비용의 워크스페이스 경계와, `delegateLane`·`recordDecision` 이 사람 쿠키를 받지 않는지, 비참여 에이전트 위임이 `not_participant` 인지(E15-02). 같은 파일의 데몬 경로에 박혀 있던 `http://localhost:8080` 은 `$SERVER_URL` 로 바꿨다 — 포트가 다른 스택에서 **남의 서버를 찌르고 있었다**.

@@ -243,34 +243,39 @@ fi
 
 echo
 echo "▶ D11. P2 operation 경계 (T-S2: lane · previewTriggers · pause/resume · delegateLane · decision)"
-# P2 에서 501 이 아니게 된 operation 은 그 순간부터 **권한 검사**가 있어야 한다 —
-# 501 은 권한 검사였던 적이 없다(D3 의 S-12 와 같은 이유).
+# 구현된 operation 은 그 순간부터 **권한 검사**가 있어야 한다 — 501 은 권한 검사였던 적이 없다(D3 의 S-12 와 같은 이유).
+# 아직 안 켠 것은 501 을 허용값에 둔다. 켜는 PR 이 이 줄에서 501 을 빼면 그때부터 경계가 검사된다.
+#   x-phase P3(아직): listLaneTasks · restartLane · pauseSession · resumeSession · getSessionCost
+#   x-phase P2 인데 501(= 결함, G4_REPORT S-6): listLanes
 B_LANE="$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/lanes")"
-chk_in "B 가 A 의 lane 목록 차단"           "403 404" "$B_LANE"
+chk_in "B 가 A 의 lane 목록 차단 (P2, 지금은 501 — S-6)" "403 404 501" "$B_LANE"
 LANE_A="$(psqlq "select id from lane where session_id='$SESSION' order by created_at limit 1")"
 if [ -n "${LANE_A:-}" ]; then
-  chk_in "B 가 A 의 lane task 이력 차단"     "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/lanes/$LANE_A/tasks")"
-  chk_in "B 가 A 의 lane 중단 차단"          "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -X POST "$API/lanes/$LANE_A/cancel")"
-  chk_in "B 가 A 의 lane 재지시 차단"        "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -X POST "$API/lanes/$LANE_A/restart" --data '{"content":"x"}')"
-  # 이미 끝난 lane 은 사람이 눌러도 409 — 목 API 가 그렇게 답한다(web/e2e/p2-mock.sh).
-  chk_in "종료된 lane 중단은 409"            "409 404" "$(ucode -X POST "$API/lanes/$LANE_A/cancel")"
+  chk_in "B 가 A 의 lane task 이력 차단 (P3)"  "403 404 501" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/lanes/$LANE_A/tasks")"
+  chk_in "B 가 A 의 lane 중단 차단"            "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -X POST "$API/lanes/$LANE_A/cancel")"
+  chk_in "B 가 A 의 lane 재지시 차단 (P3)"     "403 404 501" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -X POST "$API/lanes/$LANE_A/restart" --data '{"content":"x"}')"
+  chk_in "종료된 lane 중단은 409"              "409 404" "$(ucode -X POST "$API/lanes/$LANE_A/cancel")"
 fi
-chk_in "B 가 A 의 트리거 미리보기 차단"      "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/messages/preview" --data '{"content":"x"}')"
-chk "쿠키 없이 미리보기 401"                 401 "$(code -X POST "$API/sessions/$SESSION/messages/preview" -H 'Content-Type: application/json' --data '{"content":"x"}')"
-chk_in "B 가 A 의 세션 일시정지 차단"        "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -X POST "$API/sessions/$SESSION/pause")"
-chk_in "B 가 A 의 세션 재개 차단"            "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/resume" --data '{}')"
-chk_in "B 가 A 의 결정 기록 목록 차단"       "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/decisions")"
-chk_in "B 가 A 의 비용 조회 차단"            "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/cost")"
-# delegateLane · recordDecision 은 **TaskToken 전용**(openapi security) — 사람 쿠키는 통과하면 안 된다.
-chk_in "사람 쿠키의 lane 위임 차단"          "401 403" "$(ucode -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/lanes" --data '{"agent":"X","brief":"b"}')"
-chk_in "사람 쿠키의 결정 기록 차단"          "401 403" "$(ucode -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/decisions" --data '{"summary":"s"}')"
+chk_in "B 가 A 의 트리거 미리보기 차단"        "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/messages/preview" --data '{"content":"x"}')"
+chk "쿠키 없이 미리보기 401"                   401 "$(code -X POST "$API/sessions/$SESSION/messages/preview" -H 'Content-Type: application/json' --data '{"content":"x"}')"
+chk_in "B 가 A 의 세션 일시정지 차단 (P3)"     "403 404 501" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -X POST "$API/sessions/$SESSION/pause")"
+chk_in "B 가 A 의 세션 재개 차단 (P3)"         "403 404 501" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/resume" --data '{}')"
+chk_in "B 가 A 의 결정 기록 목록 차단"         "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/decisions")"
+chk_in "B 가 A 의 비용 조회 차단 (P3)"         "403 404 501" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/cost")"
+# delegateLane · recordDecision 은 **TaskToken 전용**(openapi security). 사람 쿠키가 통과하면
+# 누구나 결정 기록을 위조할 수 있다 — 그것도 `source: hitl` 로(사람이 HITL 로 답한 것처럼).
+chk_in "사람 쿠키의 lane 위임 차단"            "401 403" "$(ucode -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/lanes" --data '{"agent":"X","brief":"b"}')"
+chk_in "사람 쿠키의 결정 기록 차단"            "401 403" "$(ucode -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/decisions" --data '{"summary":"경계 검증"}')"
 if [ -n "${A_TOK:-}" ] && [ -n "${A_TASK:-}" ]; then
-  # E15-02: 세션 비참여 에이전트에게 위임하면 CLI 가 거부할 수 있게 서버가 not_participant 를 준다.
+  # E15-02: 세션 비참여 에이전트에게 위임하면 서버가 422 + not_participant 로 거절하고 CLI 가 대안을 안내한다.
+  N_LANE_BEFORE="$(psqlq "select count(*) from lane where session_id='$SESSION'")"
   DEL="$(curl -sS -w '\n%{http_code}' -H "Authorization: Bearer $A_TOK" -H 'Content-Type: application/json' \
-        -X POST "$API/sessions/$SESSION/lanes" --data '{"agent":"존재하지-않는-에이전트","brief":"b"}')"
-  chk_in "비참여 에이전트 위임은 4xx (E15-02)" "403 404 422" "$(printf '%s' "$DEL" | tail -1)"
-  chk "비참여 위임 코드가 not_participant"   not_participant "$(printf '%s' "$DEL" | sed '$d' | jq -r '.code // empty')"
-  chk "거부된 위임은 lane 을 만들지 않는다"  "$(psqlq "select count(*) from lane where session_id='$SESSION'")" "$(psqlq "select count(*) from lane where session_id='$SESSION'")"
+        -X POST "$API/sessions/$SESSION/lanes" --data '{"agent":"세션에-없는-에이전트","brief":"b"}')"
+  chk "비참여 에이전트 위임은 422 (E15-02)" 422 "$(printf '%s' "$DEL" | tail -1)"
+  # 계약은 "422 not_participant" 라고 적는다. 서버는 그것을 errors[] 의 필드 코드로 싣는다 — CLI 가 읽는 자리다.
+  chk "거절 코드가 not_participant"        not_participant \
+      "$(printf '%s' "$DEL" | sed '$d' | jq -r '(.code | select(. == "not_participant")) // (.errors[]? | select(.code == "not_participant") | .code) // empty')"
+  chk "거절된 위임은 lane 을 만들지 않는다" "$N_LANE_BEFORE" "$(psqlq "select count(*) from lane where session_id='$SESSION'")"
 fi
 
 echo
