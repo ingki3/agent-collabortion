@@ -375,6 +375,7 @@ func (e HitlSource) Valid() bool {
 const (
 	HitlStatusAnswered     HitlStatus = "answered"
 	HitlStatusAutoAnswered HitlStatus = "auto_answered"
+	HitlStatusCancelled    HitlStatus = "cancelled"
 	HitlStatusOpen         HitlStatus = "open"
 )
 
@@ -384,6 +385,8 @@ func (e HitlStatus) Valid() bool {
 	case HitlStatusAnswered:
 		return true
 	case HitlStatusAutoAnswered:
+		return true
+	case HitlStatusCancelled:
 		return true
 	case HitlStatusOpen:
 		return true
@@ -1892,7 +1895,7 @@ type HitlRequest struct {
 	// Source `hitl_source`
 	Source HitlSource `json:"source"`
 
-	// Status `hitl_status` (FR-5.4). expired는 없다 — open + overdue.
+	// Status `hitl_status` (FR-5.4). expired는 없다 — open + overdue. `cancelled`(K-4, P3)는 **플랫폼 발행 HITL 이 발행 조건을 잃었을 때** 서버가 닫는 상태 — `user_approval` 은 종료 조건이 다시 미충족(아티팩트 철회 등), `budget`·`loop`·`time` 은 세션 재개·취소로 무의미해진 경우. 사람이 답하지 않았으므로 결정 기록 없음, 인박스 항목 제거, 카드는 취소됨 표시. 에이전트 발행(`agent`) HITL 은 task 취소·킬 스위치 때만.
 	Status HitlStatus `json:"status"`
 
 	// TaskId system 발행이면 null — 단 예산 초과 HITL은 채운다(s-13).
@@ -1929,7 +1932,7 @@ type HitlResponse struct {
 // HitlSource `hitl_source`
 type HitlSource string
 
-// HitlStatus `hitl_status` (FR-5.4). expired는 없다 — open + overdue.
+// HitlStatus `hitl_status` (FR-5.4). expired는 없다 — open + overdue. `cancelled`(K-4, P3)는 **플랫폼 발행 HITL 이 발행 조건을 잃었을 때** 서버가 닫는 상태 — `user_approval` 은 종료 조건이 다시 미충족(아티팩트 철회 등), `budget`·`loop`·`time` 은 세션 재개·취소로 무의미해진 경우. 사람이 답하지 않았으므로 결정 기록 없음, 인박스 항목 제거, 카드는 취소됨 표시. 에이전트 발행(`agent`) HITL 은 task 취소·킬 스위치 때만.
 type HitlStatus string
 
 // HitlType `hitl_type` (FR-5.1). v1은 question · approval.
