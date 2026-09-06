@@ -1,16 +1,12 @@
-//go:build p3golden
-
 // Wiring for the partial-execution simulator (EVAL E8-04·E8-05).
 //
-// The file keeps its `p3golden` tag on Lead's judgement (T-S5 ask 3): with the
-// hooks connected to the real server path, `replayAttempt` — the harness's own
-// stand-in for the agent — never consults `ctx.PostedMessageIDs` for messages
-// and re-posts them under fresh seqs, so the run reports one duplicate per
-// message by construction. contracts/colab-cli.md §1 is explicit that a
-// different seq is a NEW message and that de-duplication is the resume
-// prompt's job, so making the count 0 would mean adding content-based
-// de-duplication to the server, which the contract forbids. The Reviewer fixes
-// the stand-in in a separate PR; the tag comes off then.
+// The tag came off with PR #120. Before it, the stand-in re-posted every
+// message under a fresh seq — `colab-cli.md` §1 makes a different seq a NEW
+// message and puts de-duplication on the resume prompt, so the run reported one
+// duplicate per message and the only way to reach 0 would have been
+// content-based de-duplication in the server, which the contract forbids.
+// #120 taught the stand-in to obey `posted_message_ids`, which is what spike 4c
+// measured real runtimes doing (20/20, zero re-posts).
 //
 // PRODUCTION CALL SITES (nothing below decides anything — every verdict comes
 // from the server):
