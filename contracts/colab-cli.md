@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.4 — T-C2가 찾은 openapi 불일치 5건 정리: `review`는 아티팩트 스코프, `artifact submit`은 multipart 4필드(`--url` 없음), `decision record`는 `--summary`·`--rationale` 둘뿐, `turn_end_required` 이름 유지(openapi를 이쪽으로 통일), `/cli/context`는 필요 시 1회 캐시(C-1)·`--limit` 표기(C-2). v0.3은 PR #22 리뷰 R1: CLI가 `X-Colab-Client-Seq` 헤더로 seq를 보낸다(서버가 last_seq를 max로 계산). v0.2는 멱등키 UUIDv5·COLAB_TASK_ATTEMPT·warnings 코드 |
+| 버전 | v0.5 — §2.4 `choice`(`--choices`)·`request-info` 를 v1 로 승격(EVAL v0.6 E7-20·E7-21, T-C4 질문), §3 MCP 툴에 `colab_hitl_request_info`. v0.4 — T-C2가 찾은 openapi 불일치 5건 정리: `review`는 아티팩트 스코프, `artifact submit`은 multipart 4필드(`--url` 없음), `decision record`는 `--summary`·`--rationale` 둘뿐, `turn_end_required` 이름 유지(openapi를 이쪽으로 통일), `/cli/context`는 필요 시 1회 캐시(C-1)·`--limit` 표기(C-2). v0.3은 PR #22 리뷰 R1: CLI가 `X-Colab-Client-Seq` 헤더로 seq를 보낸다(서버가 last_seq를 max로 계산). v0.2는 멱등키 UUIDv5·COLAB_TASK_ATTEMPT·warnings 코드 |
 | 소유 | C + D. 변경은 Director 승인 PR로만 |
 | 근거 | PRD FR-7.4(툴 표면), FR-3.3(라우팅), FR-5.1·5.4(HITL), FR-6.2·6.2.1(lane·blocked), FR-6.5(합류), FR-2.2(종료 조건), FR-1.5(동적 생성 금지), FR-9.1(토큰 폐기), EVAL §E1·E3·E6·E7·E15 |
 | 원칙 | 에이전트가 플랫폼에 되돌아오는 **유일한 경로**. 어떤 런타임이든 셸이 있으면 같다. MCP 서버는 같은 명령을 같은 이름의 툴로 노출한다 |
@@ -59,8 +59,8 @@
 |---|---|---|---|
 | `colab hitl ask --question <q> --default <proposed> [--context <text>]` | `POST /v1/tasks/{T}/hitl` `{type: question}` | `--default` **필수**(없으면 `2`). task에 `pending_hitl` 세움. 반환 `{"hitl_id", "turn_end_required": true}` | P3 |
 | `colab hitl approve-request --summary <s> [--artifact <id>]` | 〃 `{type: approval}` | default 없음. **절대 자동 진행되지 않는다**(FR-5.4) | P3 |
-| `colab hitl request-info --what <w> --why <y>` | 〃 `{type: info}` | v1.1(타입만 예약). v1은 `3 unsupported_type` | v1.1 |
-| (choice) | 〃 `{type: choice}` | v1.1 | v1.1 |
+| `colab hitl request-info --what <w> --why <y>` (`--question` 은 `--what` 의 별칭) | 〃 `{type: info}` | default 없음. **v1 로 승격**(v0.5 — PLAN §3 P3 표·EVAL E7-21). 자동 진행 없음(overdue 만) | P3 |
+| `colab hitl ask --question <q> --default <proposed> --choices a,b,c` | 〃 `{type: choice, options: [...]}` | **v1 로 승격**(v0.5 — EVAL E7-20·골든 E7-05/E7-20, openapi `HitlCreateChoice`). `--default` 는 `options` 안에 있어야 하고 options 는 2개 이상 — 클라이언트에서도 검사(없으면 `2`) | P3 |
 
 - **task당 열린 HITL은 하나**: 두 번째 호출은 `3 hitl_already_open`(E7-04).
 - "턴을 끝내라"는 반환 필드 `turn_end_required: true`로 표현한다. **이름을 `end_turn`으로 줄이지 않는다 (v0.4)** — ACP `stopReason: end_turn`은 "턴이 끝났다"는 **사실**이고 이 필드는 "턴을 끝내라"는 **지시**다. 서버·데몬이 둘을 같은 코드베이스에서 다루므로 같은 이름을 쓰면 grep 한 번에 구분되지 않는다(P1에서 `kind`↔`runtime_kind`가 같은 이유로 모든 finish를 500으로 만들었다). openapi도 이 이름으로 통일했다. 브리프 [2]가 같은 말을 한다. 에이전트가 무시하고 계속하면 그동안의 게시·편집은 그대로 기록되고 `turn_end`에 `waiting_human`으로 전이한다(FR-7.1, E7-02).
@@ -68,7 +68,7 @@
 
 ## 3. MCP 서버
 
-`colab mcp serve`(stdio). 툴 이름은 명령 경로를 밑줄로: `colab_session_get`, `colab_session_messages`, `colab_message_post`, `colab_status_set`, `colab_decision_record`, `colab_lane_delegate`, `colab_artifact_submit`, `colab_artifact_get`, `colab_review_approve`, `colab_review_reject`, `colab_hitl_ask`, `colab_hitl_approve_request`. 인자·반환은 CLI와 동일한 JSON. 데몬이 `session/new.mcpServers`에 이 서버 하나만 넣는다(`harness.md` §3, `strictMcpConfig`).
+`colab mcp serve`(stdio). 툴 이름은 명령 경로를 밑줄로: `colab_session_get`, `colab_session_messages`, `colab_message_post`, `colab_status_set`, `colab_decision_record`, `colab_lane_delegate`, `colab_artifact_submit`, `colab_artifact_get`, `colab_review_approve`, `colab_review_reject`, `colab_hitl_ask`, `colab_hitl_approve_request`, `colab_hitl_request_info`(v0.5). 인자·반환은 CLI와 동일한 JSON. 데몬이 `session/new.mcpServers`에 이 서버 하나만 넣는다(`harness.md` §3, `strictMcpConfig`).
 
 ## 4. 서버 기록
 
