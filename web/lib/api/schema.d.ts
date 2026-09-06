@@ -1915,10 +1915,10 @@ export interface components {
          */
         HitlType: "question" | "choice" | "approval" | "info";
         /**
-         * @description `hitl_status` (FR-5.4). expired는 없다 — open + overdue.
+         * @description `hitl_status` (FR-5.4). expired는 없다 — open + overdue. `cancelled`(K-4, P3)는 **플랫폼 발행 HITL 이 발행 조건을 잃었을 때** 서버가 닫는 상태 — `user_approval` 은 종료 조건이 다시 미충족(아티팩트 철회 등), `budget`·`loop`·`time` 은 세션 재개·취소로 무의미해진 경우. 사람이 답하지 않았으므로 결정 기록 없음, 인박스 항목 제거, 카드는 취소됨 표시. 에이전트 발행(`agent`) HITL 은 task 취소·킬 스위치 때만.
          * @enum {string}
          */
-        HitlStatus: "open" | "answered" | "auto_answered";
+        HitlStatus: "open" | "answered" | "auto_answered" | "cancelled";
         /**
          * @description `decision_source`
          * @enum {string}

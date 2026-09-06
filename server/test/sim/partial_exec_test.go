@@ -128,6 +128,18 @@ func requireWiring(t *testing.T) {
 // ONLY if the server actually told it. When the resume context is empty, it
 // repeats everything, which is precisely the case the mechanisms must survive.
 //
+// HOW THE MESSAGE SKIP IS MODELLED. `posted_message_ids` is the FIRST line of
+// defence and the idempotency key is not a second one: colab-cli.md §1 is
+// explicit that "재시도가 같은 내용을 다시 게시해도 다른 seq 면 새 메시지다 —
+// 중복 방지는 재개 프롬프트의 posted_message_ids 가 1차이고 멱등키는 네트워크
+// 재전송만 막는다". The seq series continues across attempts (LastSeq), so a
+// re-post carries a DIFFERENT key and a contract-abiding server stores it as a
+// new message. Therefore the stand-in must model an agent that obeys the
+// prompt: it reads the list, sees that the first len(posted) reports of its
+// plan are already in the session, and resumes from there. Spike 4c measured
+// exactly this behaviour on real runtimes (20/20, zero re-posts). Making the
+// server de-duplicate by content instead would be a contract violation.
+//
 // It returns the posts it attempted and the edits it applied.
 func replayAttempt(taskID uuid.UUID, workdir string, msgs, edits int, ctx resumeContext) ([]postResult, []int) {
 	posted := map[uuid.UUID]bool{}
@@ -138,11 +150,29 @@ func replayAttempt(taskID uuid.UUID, workdir string, msgs, edits int, ctx resume
 	seq := ctx.LastSeq
 	results := make([]postResult, 0, msgs)
 	for i := 0; i < msgs; i++ {
+		// Report i+1 is already in the session (the prompt listed it) — the
+		// agent moves on instead of writing it again.
+		if i < len(posted) {
+			continue
+		}
 		seq++
-		results = append(results, postMessage(postAttempt{
+		p := postAttempt{
 			TaskID: taskID, Seq: seq,
 			Content: fmt.Sprintf("결과 보고 %d", i+1),
-		}))
+		}
+		r := postMessage(p)
+		// The network-retransmission case, which is what the idempotency key
+		// DOES cover: the first report of a fresh attempt is sent twice with
+		// the same seq (a timeout the transport retried, not a re-decision by
+		// the agent). The second send must replay the stored row — no new
+		// message. No expectation is added for it here; a server that creates
+		// a row instead trips the existing "attempt 1 created N messages"
+		// assertion, because the replay would arrive with Created = true.
+		if i == 0 && ctx.Attempt <= 1 {
+			results = append(results, r, postMessage(p))
+			continue
+		}
+		results = append(results, r)
 	}
 
 	counts := make([]int, 0, edits)

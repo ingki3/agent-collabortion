@@ -28,6 +28,10 @@
 | ~~D-7~~ | **G5 (b) 차단** — Hermes ACP 어댑터가 `mcpServers`를 무시하고(initialize에 `mcpCapabilities` 없음) 셸 도구를 위생화된 env로 띄워 `COLAB_*`·`PATH`가 안 내려간다 → Hermes 에이전트가 플랫폼에 말할 수단이 없다(메시지 0, status 0). harness v0.8: attempt별 래퍼 `<workdir_root>/.colab/bin/<task>.<attempt>/colab` + 브리프 [2] 절대 경로 + `tool_surface` 광고 | G5 T-I2 2부 escalation | **G5 전** | **해결 — PR #97**(`internal/toolwrap`, 실기 스모크로 위생화 셸에서 래퍼 동작 확인).
 | D-8 | `toolwrap.cliRe`가 명령 위치의 `colab <소문자 서브커맨드>`만 잡고 `colab --flag`(예 `` `colab --version` ``)는 치환하지 않는다. 지금 브리프·프롬프트의 명령은 전부 서브커맨드라 실해 없음; `([a-z]|-)`로 넓히거나 계약에 "서브커맨드 또는 플래그" 명시 | PR #97 리뷰 NN2 | 낮음 |
 | D-9 | `daemon/internal/acpfake` 가 내부 패키지라 server 모듈의 시뮬레이터(`server/test/sim`, P3a #108)가 임포트 못 한다 — 테스트 로컬 `replayAttempt` 로 대체 중. 공개 패키지(`daemon/acpfake`)로 이동하면 시뮬레이터가 실제 ACP 대역으로 돈다 | P3a PR #108 질문 1 | T-D5 |
+| D-10 | `isSessionGone` 의 `not found` 부분일치가 넓다(`cwd not found` 류도 유실로) — 보수적 방향이라 무해; 어댑터 코드 안정화 뒤 `-32002` 만 | PR #111 리뷰 NN1 | 낮음 |
+| D-11 | 유실 이벤트(`runtime.resume outcome=cold_start`)에 원 rpc 코드·메시지 한 칸 — S7 피드에서 "왜 콜드 스타트인지" | PR #111 리뷰 NN2 | T-D5 |
+| D-12 | hermes `sessionProvenance: {}`·빈 `acpSessionId` 는 reason 이 `provenance_mismatch` 로 남는다(결과는 같은 cold_start) — `no_provenance` 로 | PR #115 리뷰 NN1 | T-D5 |
+| D-13 | resume 직후 첫 prompt 가 `stopReason=refusal` 로 편집·게시 0 으로 끝나면 task 가 `completed` 가 된다(§2.2 가 refusal 을 성공으로 읽음) — Lead 결정: 콜드 스타트 1회 재시도, 재시도도 refusal 이면 `failed(other)` + 사유 이벤트 | 스파이크 4c §3 | T-D5 |
 
 ## W (웹)
 
@@ -76,6 +80,11 @@
 | S-33 | 승인(S-25) 후 `session_completed` 인박스 행 단언이 테스트에 없다 — `listInbox` 가 P3 라 HTTP 관측 불가지만 `inbox` 테이블 count 로 고정 가능 | PR #103 리뷰 NN2 | 낮음 |
 | S-34 | `gcWorkdirs` 가 `runtime_id IS NULL` 이면 조용히 반환 — `none` 격리는 도달 불가지만 로그 한 줄 | PR #103 리뷰 NN3 | P4 GC |
 | S-35 | `daemon_command.delivered_at` 을 프로덕션 코드가 어디서도 채우지 않는다(대입 0곳) — 명령은 claim·events·heartbeat 응답으로 전달되고 데몬이 받지만(재측정에서 gc 가 `command gc ignored (P4)` 로 찍힘) 서버 기록은 영원히 NULL 이라 '최소 한 번' 전달(E11-05)·재전달 판단을 증명할 수 없다. 보고서 §10.3 의 '유휴 데몬 전달 불가'는 틀린 진단(#105 리뷰 NN1) | G5 재측정 §10.3 | P3 첫 서버 작업 |
+| S-36 | 재개 프롬프트의 "이미 게시한 메시지" 가 UUID 뿐이라 에이전트가 대조할 수 없다(히스토리 줄에 id 없음) — 재게시 0 은 workdir 덕. `id — 앞 80자` 로 렌더 + 히스토리 줄에 id | 스파이크 4c §5-1 (PR #117) | T-S5 |
+| S-37 | 브리프에 §8.4 의 [3] coordination·[6] Context·[7] Decision Log 가 없다(`bundle.go` 주석 "P2" 인데 P2 에서 안 만들어짐) — decision 테이블·기록 op 는 있는데 읽는 쪽이 없다. HITL 답변·승인 여부는 `<resumed>` 에 | 스파이크 4c §5-2 | T-S5 (시나리오 C 전) |
+| S-38 | `historyLimit = 30` 인데 EVAL E8-12 는 50 — 상수를 50 으로, 설정화는 P4 | 스파이크 4c §5-4 | T-S5 |
+| S-39 | `lane.runtime_session_ref` 가 finish 에서만 저장돼 크래시한 attempt 는 resume 자원이 없다(다음 attempt 는 항상 콜드 스타트). 실측상 콜드 스타트 성적이 같아 고치지 않음 — 세션 생성 직후 ref 를 heartbeat 에 싣는 것은 §4.2 계약 변경 | 스파이크 4c §5-5·§0.2 | P4, 알고 있기 |
+| S-40 | 사소: 턴 프롬프트 영어 · `failure_kind` 원문 노출 · `none` 격리에서 `git status` 문구 | 스파이크 4c §5-6 | 낮음 |
 
 ## C (CLI)
 
