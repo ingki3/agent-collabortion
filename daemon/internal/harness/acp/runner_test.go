@@ -546,6 +546,10 @@ func TestResumeHermes(t *testing.T) {
 		{"null", acpfake.Script{Kind: "hermes"}, "old", "old", "cold_start", "load_null", "sess-1"},
 		{"mismatch", acpfake.Script{Kind: "hermes", KnownSessions: []string{"old"}, LoadProvenance: &acpfake.Provenance{ACPSessionID: "other", RootHermesSessionID: "other"}}, "old", "old", "cold_start", "provenance_mismatch", "sess-1"},
 		{"match", acpfake.Script{Kind: "hermes", KnownSessions: []string{"old"}}, "old", "old", "resumed", "", "old"},
+		// Hermes 0.20.6 answers a deleted session with a bare `{}` — not null,
+		// no provenance. Treating that as "resumed" ended the attempt
+		// `completed` having done nothing at all (spike 4c, 5/5).
+		{"no provenance", acpfake.Script{Kind: "hermes", KnownSessions: []string{"old"}, LoadNoProvenance: true}, "old", "old", "cold_start", "no_provenance", "sess-1"},
 		{"rotation", acpfake.Script{Kind: "hermes", KnownSessions: []string{"old"}, LoadProvenance: &acpfake.Provenance{ACPSessionID: "rot", RootHermesSessionID: "old", CompressionDepth: 1}}, "old", "old", "resumed", "compression_rotation", "rot"},
 	}
 	for _, tc := range cases {

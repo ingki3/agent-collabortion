@@ -43,6 +43,11 @@ type Script struct {
 	// -32000 "Session not found" that harness §6 used to quote; both must be
 	// read as resume_rejected.
 	LoadErrorKind string `json:"load_error_kind,omitempty"`
+	// LoadNoProvenance makes a hermes `session/load` on a KNOWN session answer
+	// a bare `{}` — no `_meta.hermes.sessionProvenance`. That is what Hermes
+	// 0.20.6 answers for a session deleted from `~/.hermes/state.db`
+	// (spike 4c): the result is not null, so §6 (a) does not catch it.
+	LoadNoProvenance bool `json:"load_no_provenance,omitempty"`
 	// NoLoadSession drops agentCapabilities.loadSession (probe §9 `resume`
 	// is the advertised value, PRD §8.2.1).
 	NoLoadSession bool `json:"no_load_session,omitempty"`
@@ -233,6 +238,11 @@ type server struct {
 	lastMeta  map[string]any
 	lastMCP   []acp.MCPServer
 	turn      int
+	// refuseSession is the session a LoadNoProvenance load handed back. Hermes
+	// answers the next session/prompt on it with `stopReason: "refusal"` and
+	// does nothing (spike 4c wire log) — that is what makes a missed loss end
+	// as a `completed` attempt with no work.
+	refuseSession string
 }
 
 // Serve runs the fake over in/out until in is closed.
@@ -444,11 +454,17 @@ func (sv *server) handle(m message) {
 		}
 		res := map[string]any{}
 		if s.Kind == "hermes" {
-			prov := Provenance{ACPSessionID: p.SessionID, RootHermesSessionID: p.SessionID, SessionKind: "root"}
-			if s.LoadProvenance != nil {
-				prov = *s.LoadProvenance
+			// LoadNoProvenance: the bare `{}` Hermes 0.20.6 actually answers for
+			// a session it no longer has (spike 4c wire log) — not null, no _meta.
+			if s.LoadNoProvenance {
+				sv.refuseSession = p.SessionID
+			} else {
+				prov := Provenance{ACPSessionID: p.SessionID, RootHermesSessionID: p.SessionID, SessionKind: "root"}
+				if s.LoadProvenance != nil {
+					prov = *s.LoadProvenance
+				}
+				res["_meta"] = map[string]any{"hermes": map[string]any{"sessionProvenance": prov}}
 			}
-			res["_meta"] = map[string]any{"hermes": map[string]any{"sessionProvenance": prov}}
 		} else {
 			res["configOptions"] = sv.configOptions()
 		}
@@ -478,6 +494,10 @@ func (sv *server) handle(m message) {
 }
 
 func (sv *server) prompt(id *json.RawMessage, sid string) {
+	if sv.refuseSession != "" && sid == sv.refuseSession {
+		sv.reply(id, map[string]any{"stopReason": "refusal"})
+		return
+	}
 	t := sv.s.Turns[min(sv.turn, len(sv.s.Turns)-1)]
 	sv.turn++
 	sv.cancelled.Store(false)
