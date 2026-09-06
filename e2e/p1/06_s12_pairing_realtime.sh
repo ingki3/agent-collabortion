@@ -11,10 +11,12 @@ COOKIE="$OUT/cookies-f.txt"; rm -f "$COOKIE"
 signup "$EMAIL" "$PASS" "e2e-f" >/dev/null; WS="$(create_workspace "e2e-f $STAMP")"; ok "fresh user $EMAIL workspace $WS"
 step "(1) 서버 SSE: pairing.updated 프레임"
 SSE="$OUT/f-sse.txt"; : > "$SSE"
-# 주의: 이전 실행의 curl 이 살아 있으면 같은 파일에 섞여 쓴다(1차 실행에서 프레임이 깨져 보인 원인) → 먼저 정리하고, 종료 시 반드시 죽인다
-pkill -f "workspaces/.*/stream" 2>/dev/null || true
+# 주의: 이전 실행의 curl 이 살아 있으면 같은 파일에 섞여 쓴다(1차 실행에서 프레임이 깨져 보인 원인).
+# **이 스크립트가 남긴 pid 로만** 정리한다 — `pkill -f "workspaces/.*/stream"` 은 포트를 보지 않아
+# 같은 머신의 다른 스택이 구독 중인 SSE 까지 끊는다(종료는 pid 파일·pgid·포트로만).
+[ -f "$OUT/f-sse.pid" ] && { kill "$(cat "$OUT/f-sse.pid")" 2>/dev/null; rm -f "$OUT/f-sse.pid"; } || true
 curl -sN -b "$COOKIE" -H 'Accept: text/event-stream' "$API/workspaces/$WS/stream" > "$SSE" 2>&1 &
-SSE_PID=$!; trap 'kill $SSE_PID 2>/dev/null || true; agent-browser close >/dev/null 2>&1 || true' EXIT   # trap 안에서도 set -e 가 산다 — 이미 죽은 curl 의 kill 실패가 스크립트를 1 로 만들지 않도록 각 명령을 `|| true` 로 받는다
+SSE_PID=$!; echo "$SSE_PID" > "$OUT/f-sse.pid"; trap 'kill $SSE_PID 2>/dev/null || true; rm -f "$OUT/f-sse.pid"; agent-browser close >/dev/null 2>&1 || true' EXIT   # trap 안에서도 set -e 가 산다 — 이미 죽은 curl 의 kill 실패가 스크립트를 1 로 만들지 않도록 각 명령을 `|| true` 로 받는다
 sleep 1
 IFS=$'\t' read -r PID1 CODE1 < <(create_pairing "$WS")
 CFG1="$OUT/daemon-f1.json"; rm -f "$CFG1"
