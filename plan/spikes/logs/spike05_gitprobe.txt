@@ -1,0 +1,198 @@
+
+### P1  skip-worktree 를 세운 뒤 append 하면 status·diff 가 무엇을 보이는가
+$ git -C p1 ls-files -v CLAUDE.md
+    S CLAUDE.md
+    (rc=0)
+$ git -C p1 status --porcelain
+    
+    (rc=0)
+$ git -C p1 diff --stat
+    
+    (rc=0)
+$ git -C p1 diff --stat HEAD
+    
+    (rc=0)
+
+### P2  에이전트가 같은 파일을 편집하고 커밋하려 하면 (add -A / add <file> / commit -a)
+$ git -C p1 status --short
+    
+    (rc=0)
+$ git -C p1 add -A
+    
+    (rc=0)
+$ git -C p1 status --short
+    
+    (rc=0)
+$ git -C p1 add CLAUDE.md
+    The following paths and/or pathspecs matched paths that exist
+    outside of your sparse-checkout definition, so will not be
+    updated in the index:
+    CLAUDE.md
+    hint: If you intend to update such entries, try one of the following:
+    hint: * Use the --sparse option.
+    hint: * Disable or modify the sparsity rules.
+    hint: Disable this message with "git config set advice.updateSparsePath false"
+    (rc=1)
+$ git -C p1 commit -m docs: agent note
+    On branch main
+    nothing to commit, working tree clean
+    (rc=1)
+$ git -C p1 commit -a -m docs: agent note (commit -a)
+    On branch main
+    nothing to commit, working tree clean
+    (rc=1)
+$ git -C p1 log --oneline -2
+    3e387c6 feat: widgets
+    ae5a589 docs: rules
+    (rc=0)
+    파일에 노트가 남아 있는가: 1
+
+### P2b  강제로 스테이징하는 우회 (--no-skip-worktree 없이): git update-index --add / add --force / stash
+$ git -C p1 add --force CLAUDE.md
+    The following paths and/or pathspecs matched paths that exist
+    outside of your sparse-checkout definition, so will not be
+    updated in the index:
+    CLAUDE.md
+    hint: If you intend to update such entries, try one of the following:
+    hint: * Use the --sparse option.
+    hint: * Disable or modify the sparsity rules.
+    hint: Disable this message with "git config set advice.updateSparsePath false"
+    (rc=1)
+$ git -C p1 stash push -m probe
+    No local changes to save
+    (rc=0)
+$ git -C p1 status --short
+    
+    (rc=0)
+    stash 뒤 파일에 마커가 남아 있는가: 1
+
+### P3  브랜치 이동·병합·리셋이 skip-worktree 파일을 만나면
+$ git -C p3 switch other
+    error: Your local changes to the following files would be overwritten by checkout:
+    	CLAUDE.md
+    Please commit your changes or stash them before you switch branches.
+    Aborting
+    (rc=1)
+$ git -C p3 merge other -m merge other
+    error: Your local changes to the following files would be overwritten by merge:
+    	CLAUDE.md
+    Please commit your changes or stash them before you merge.
+    Aborting
+    Updating 8cee230..2b6aa4d
+    (rc=1)
+    merge 뒤 마커가 남아 있는가: 1  노트: 1
+$ git -C p3 status --short
+    
+    (rc=0)
+$ git -C p3 log --oneline -2
+    8cee230 feat: widgets
+    36622ff docs: rules
+    (rc=0)
+$ git -C p3 reset --hard HEAD
+    HEAD is now at 8cee230 feat: widgets
+    (rc=0)
+    reset --hard 뒤 마커: 1  노트: 1
+
+### P4  worktree 의 index 는 별개인가 (skip-worktree 가 worktree 마다인가)
+-- worktree 쪽 --
+$ git -C p4-wt ls-files -v CLAUDE.md
+    S CLAUDE.md
+    (rc=0)
+$ git -C p4-wt status --porcelain
+    
+    (rc=0)
+-- 원본 체크아웃 쪽 --
+$ git -C p4 ls-files -v CLAUDE.md
+    H CLAUDE.md
+    (rc=0)
+$ git -C p4 status --porcelain
+    
+    (rc=0)
+    index 파일 위치: /private/tmp/colab-spike05/gitprobe/p4/.git/worktrees/p4-wt/index vs .git/index
+-- 원본 쪽에서 같은 파일을 편집하면 worktree 의 S 비트가 영향을 받는가 --
+$ git -C p4 status --porcelain
+     M CLAUDE.md
+    (rc=0)
+$ git -C p4-wt ls-files -v CLAUDE.md
+    S CLAUDE.md
+    (rc=0)
+-- worktree 를 지우면(gc) index 도 함께 사라지는가 --
+$ git -C p4 worktree remove --force /private/tmp/colab-spike05/gitprobe/p4-wt
+    
+    (rc=0)
+$ git -C p4 worktree list
+    /private/tmp/colab-spike05/gitprobe/p4  8cee230 [main]
+    (rc=0)
+
+### P5  복원: --no-skip-worktree → 마커 구간만 제거 (에이전트 편집 유무 두 갈래)
+-- noedit --
+$ git -C p5-noedit status --porcelain
+    
+    (rc=0)
+$ git -C p5-noedit diff -- CLAUDE.md
+    
+    (rc=0)
+    원본 규칙 살아 있는가: 1  마커 잔여: 0
+-- edited --
+$ git -C p5-edited status --porcelain
+     M CLAUDE.md
+    (rc=0)
+$ git -C p5-edited diff -- CLAUDE.md
+    diff --git a/CLAUDE.md b/CLAUDE.md
+    index fe2159d..8a9a8c3 100644
+    --- a/CLAUDE.md
+    +++ b/CLAUDE.md
+    @@ -1,3 +1,4 @@
+     # rules
+     
+     - PROJECT_RULE_CODE = ORIG-RULE-4471
+    +<!-- agent-note: NOTE-3 -->
+    (rc=0)
+    원본 규칙 살아 있는가: 1  마커 잔여: 0
+
+### P6  복원 전에 데몬이 죽으면 (S 비트가 남은 채 파일에 마커가 남는다)
+$ git -C p6 status --porcelain
+    
+    (rc=0)
+    사람이 clone 을 새로 받으면 마커는 없다(작업 트리 로컬 상태). 같은 체크아웃에서는:
+$ git -C p6 ls-files -v CLAUDE.md
+    S CLAUDE.md
+    (rc=0)
+    → 다음 세션이 같은 workdir 를 다시 쓰면 append 가 중복되는가는 brief.writeMarkerBlock 이 strip 후 append 라 1개 유지
+
+### 환경
+git version 2.50.1 (Apple Git-155)
+
+### P7  시나리오 B 의 실제 모양: 코드 파일 + 지시 파일을 같이 고치고 커밋한다
+$ git -C p7 status --short
+     M widgets.md
+    (rc=0)
+$ git -C p7 add -A
+    
+    (rc=0)
+$ git -C p7 commit -m feat: widget + rule note
+    [main 45ed5ea] feat: widget + rule note
+     1 file changed, 1 insertion(+)
+    (rc=0)
+$ git -C p7 show --stat --oneline HEAD
+    45ed5ea feat: widget + rule note
+     widgets.md | 1 +
+     1 file changed, 1 insertion(+)
+    (rc=0)
+$ git -C p7 status --short
+    
+    (rc=0)
+    → 코드 파일은 커밋됐고 지시 파일 편집은 조용히 빠졌다. 에이전트가 보는 status 는 클린.
+    커밋에 CLAUDE.md 가 있는가: 0
+    파일에 노트가 남아 있는가: 1
+    HEAD:CLAUDE.md 에 마커가 섞였는가: 0
+
+### P8  복원 후 에이전트 편집을 데몬이 커밋할 수 있는가 (P4 가 원한다면)
+$ git -C p7 status --short
+     M CLAUDE.md
+    (rc=0)
+$ git -C p7 diff --stat
+     CLAUDE.md | 1 +
+     1 file changed, 1 insertion(+)
+    (rc=0)
+    → 복원 뒤에는 평범한 modified 라 사람도 에이전트도 커밋할 수 있다(단, 그 턴은 이미 끝났다).
