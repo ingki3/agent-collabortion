@@ -2151,6 +2151,8 @@ export interface components {
              * @enum {string|null}
              */
             tool_surface?: "mcp" | "cli_wrapper" | null;
+            /** @description harness v0.8.5 §9 — 런타임(+어댑터 설정)이 턴 중 usage 를 주는가. false 면 턴 중 예산 강제는 finish 사후(E9-10)로만. */
+            usage_midturn?: boolean;
         };
         /** @description `repos` jsonb 원소(FR-9). `remote_url`이 재바인딩 "같은 저장소" 키. */
         RuntimeRepo: {
