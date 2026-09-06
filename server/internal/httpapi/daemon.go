@@ -482,6 +482,36 @@ func parsePreview(raw json.RawMessage) (*preview, bool) {
 	return &p, false
 }
 
+// finishAndEnforce is §4.4's finish plus FR-7.3's "사후" half. tasks.Finish
+// records the attempt, stores `usage` and rolls the session cost up; the
+// budget is then checked against the number that roll-up just produced.
+//
+// S-44: FR-7.3 says the budget is checked DURING the turn precisely because
+// checking it only between tasks lets one task overshoot by a lot — but the
+// in-turn check is driven by the heartbeat's `usage`, and a daemon that
+// reports usage only at `finish` (D-17) went through no check at all. The
+// finish check is the floor under that: it cannot stop money already spent,
+// but it stops the next task from spending the same way, which is the whole
+// difference between a budget and a report.
+//
+// It runs after Finish has COMMITTED (and after its roll-up transaction), not
+// inside it: Finish holds task row locks and enforceBudgetFor takes the
+// session lock first, so nesting them makes the two lock orders opposite and a
+// concurrent pair deadlocks — the same reason rollUpCost is its own tx.
+func (s *Server) finishAndEnforce(ctx context.Context, taskID uuid.UUID, attempt int, in contracts.Finish) (tasks.Status, error) {
+	final, err := s.Tasks.Finish(ctx, taskID, attempt, in)
+	if err != nil {
+		return final, err
+	}
+	if _, err := s.enforceBudgetFor(ctx, taskID); err != nil {
+		// The attempt is committed either way. Losing the enforcement is worse
+		// than an error nobody reads, so it is logged rather than turned into
+		// a 500 that would make the daemon re-send a finish it already landed.
+		s.Log.Warn("enforce budget after finish", "err", err, "task", taskID)
+	}
+	return final, nil
+}
+
 func (s *Server) daemonFinish(w http.ResponseWriter, r *http.Request, d daemonCtx) {
 	t, attempt, ok := s.taskForDaemon(w, r, d)
 	if !ok {
@@ -503,7 +533,7 @@ func (s *Server) daemonFinish(w http.ResponseWriter, r *http.Request, d daemonCt
 	if err := tokens.ConsumeAttemptCommands(r.Context(), s.DB, t.ID, attempt, s.Clock.Now()); err != nil {
 		s.Log.Warn("consume attempt commands", "err", err)
 	}
-	final, err := s.Tasks.Finish(r.Context(), t.ID, attempt, in)
+	final, err := s.finishAndEnforce(r.Context(), t.ID, attempt, in)
 	switch {
 	case errors.Is(err, tasks.ErrStaleAttempt):
 		s.staleAttempt(w, r, d)

@@ -18,7 +18,8 @@ const (
 	HitlInfo     = "info"
 )
 
-// HitlCreate — POST /tasks/{T}/hitl body.
+// HitlCreate — POST /sessions/{S}/hitl-requests body. It carries no task:
+// the TaskToken names it (openapi createHitlRequest).
 //
 //   - question : question + proposed_default (+ context)
 //   - choice   : question + options (>= 2) + proposed_default (+ context)

@@ -284,6 +284,19 @@ func (s *Server) answerAgentHitl(ctx context.Context, row *hitlRow, sess *hitlSe
 		if err == nil {
 			api := tasks.ToAPI(t, nil, nil)
 			taskOut = &api
+			// S-44: ResumeFromHuman is a no-op for a task that is already
+			// terminal, and the post-turn budget pause names exactly such a
+			// task — the overrun was found after the turn ended. What the
+			// approval has to lift there is the LANE gate, or the raise buys
+			// nothing and the lane never dispatches again. The override the
+			// answer just stored carries along this lane
+			// (tasks.LaneBudgetOverride), so the next task starts with the
+			// limit the Director actually approved.
+			if cause == tasks.CauseBudgetApproved && tasks.Terminal(t.Status) {
+				if err := s.Tasks.ResumeLaneForBudget(ctx, t.LaneID, now); err != nil {
+					return 0, nil, apperr.As(err)
+				}
+			}
 		}
 		s.Queue.Notifier.Notify()
 	}
