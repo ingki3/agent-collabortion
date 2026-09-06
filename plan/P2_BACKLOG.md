@@ -9,10 +9,10 @@
 
 | # | 항목 | 출처 | 비고 |
 |---|---|---|---|
-| S-1 | 라우터 규칙 3(`@all`·사람만 멘션 → 트리거 없음) — 지금은 규칙 6으로 떨어져 assignee task 생성. 웹 미리보기 칩("트리거 없음")과 서버가 반대로 말함 | PR #22 N1 | P2b 라우터 전체에 포함(E1-05·06) |
+| ~~S-1~~ | 라우터 규칙 3(`@all`·사람만 멘션 → 트리거 없음) — 지금은 규칙 6으로 떨어져 assignee task 생성. 웹 미리보기 칩("트리거 없음")과 서버가 반대로 말함 | PR #22 N1 | P2b 라우터 전체에 포함(E1-05·06) |
 | S-2 | `session.runtime_id` ↔ `workspace_id` 일치를 DB에서 강제 — 복합 FK `session(workspace_id, runtime_id) → runtime(workspace_id, id)`(0005). `rebindSession`(FR-9.2)이 세 번째 고정 경로가 되므로 같은 가드 필수 | PR #28 NN2 | P2 착수 시 |
 | S-3 | 고정 UPDATE 가드 회귀 테스트(순수 SQL로 재현 어려움 — 주석으로 대체 가능) | PR #28 NN1 | 낮음 |
-| S-4 | `ServerSeqBase` 위 seq 유일성은 `max(seq)+1`로 고침(완료). 동시 커밋 창은 남음 — 트랜잭션 advisory lock 검토 | PR #22 N4 | 낮음 |
+| S-4 | `ServerSeqBase` 위 seq 유일성은 `max(seq)+1`로 고침(완료). 동시 커밋 창은 T-S2 에서 `ON CONFLICT (task_id, attempt, seq) DO NOTHING` 으로 **500 을 없앴다**(경합 시 피드 노트 1건이 조용히 빠진다). 노트를 잃지 않으려면 advisory lock 이 남은 선택지 | PR #22 N4 | 낮음 |
 | S-5 | TaskEvent `object_ref`·`payload` 계약 정렬 완료(v0.4). `sentence` 렌더 폴백이 payload를 쓰는지 재확인 | PR #22 R2 | P2b 피드 5클래스 |
 
 ## D (데몬)
@@ -39,13 +39,13 @@
 
 | # | 항목 | 출처 | 비고 |
 |---|---|---|---|
-| S-6 | **SSE 응답에 `Cache-Control: no-cache, no-transform`** — `compress:false`는 Next만 막는다. 배포의 nginx·CDN이 `text/event-stream`을 gzip 버퍼링하면 W-2가 그대로 재발한다. 서버가 스스로 말해야 한 곳에서 막힌다 | PR #34 NN1 | **배포 전 필수.** `handlers_sessions.go` 스트림 응답 헤더 |
+| ~~S-6~~ | ~~SSE 응답에 `Cache-Control: no-cache, no-transform`~~ **해결 — T-S2**(`handlers_sessions.go` 스트림 헤더) | PR #34 NN1 | — |
 | ~~S-7~~ | ~~`createWorkspace` 슬러그 유일 제약 재시도가 같은 트랜잭션 안 → 같은 이름 두 번째 워크스페이스가 `25P02` 500~~ **해결 — PR #43**(savepoint + 이름 해시 stem). 전수 조사도 그 PR에서 끝났다(재시도하던 곳은 `auth.go`·`runtimes.go` 둘뿐). 실기 확인: `plan/G3_DECISION.md` §3-1 | PR #34 NN2 → G3_DECISION S-6 | — |
 | S-8 | 취소 흡수(`cancelRequested`)가 명령의 **존재**만 보고 `consumed_at`을 안 본다. 24h TTL 소비 후에도 흡수가 남을 수 있다 | PR #33 NN3 | 낮음 |
-| S-9 | **서버 발행 task_event의 seq 계산이 attempt 스코프**(`max(seq)+1 WHERE task_id AND attempt`)인데 유니크 제약은 `(task_id, seq)`(0001) → attempt 2의 첫 서버 이벤트가 attempt 1과 충돌. 피해는 피드 노트 1건 유실(heartbeat·취소는 안전) | PR #43 NN1 | 두 자리 함께: `tasks/service.go` `NotePreviewDrift`·director 취소 노트. `ON CONFLICT (task_id, seq) DO NOTHING` 또는 seq에서 attempt 조건 제거 |
-| S-10 | `auth.AcceptInvite` 동시 수락 TOCTOU → 500 | PR #43 전수 조사 | savepoint 또는 `ON CONFLICT` |
-| S-11 | **요청 파라미터의 스키마 제약이 강제되지 않는다.** `limit`은 계약상 `minimum:1 maximum:200`인데 서버는 `-1`·`0`·`999999`를 200으로 받고 **조용히 기본값 50으로 강제**한다(타입 오류만 422). 네 저장소(messages·agents·sessions·events)가 모두 clamp하므로 **자원 고갈 위험은 없다** — 계약↔구현 불일치이고, 500을 요청한 클라이언트가 50을 받고도 모른다 | Lead 적대적 검증 D8 | oapi-codegen 검증 미들웨어 또는 핸들러에서 범위 밖이면 422. P2에서 파라미터가 늘기 전에 |
-| S-12 | **P2에서 `updateWorkspaceSettings`·`getWorkspaceSettings`를 구현할 때 authz를 반드시 넣을 것.** 지금은 501이라 남의 워크스페이스 설정도 바뀌지 않지만, 501은 인가가 아니라 미구현이다. `e2e/p1/07_adversarial.sh` D2의 기대를 그때 `403/404`로 좁힌다 | Lead 적대적 검증 D2 | owner·admin만(SCREEN §2.3) |
+| ~~S-9~~ | **원인 정정 후 해결 — T-S2.** 유니크 제약은 이미 `(task_id, attempt, seq)`다(0002:214-215) — 아래 진단의 전제가 낡았다. 남아 있던 실제 위험은 서버 발행 이벤트 세 자리의 `max(seq)+1` **동시 계산**이라 전부 `ON CONFLICT (task_id, attempt, seq) DO NOTHING` 을 걸었다. ~~서버 발행 task_event의 seq 계산이 attempt 스코프(`max(seq)+1 WHERE task_id AND attempt`)인데 유니크 제약은 `(task_id, seq)`(0001) → attempt 2의 첫 서버 이벤트가 attempt 1과 충돌. 피해는 피드 노트 1건 유실(heartbeat·취소는 안전) ~~ | PR #43 NN1 | 세 자리: `NotePreviewDrift`·director 취소 노트·`router.Post` 상태 이벤트 |
+| ~~S-10~~ | ~~`auth.AcceptInvite` 동시 수락 TOCTOU → 500~~ **해결 — T-S2**(`ON CONFLICT (workspace_id, user_id) DO NOTHING`. 두 번 수락은 오류가 아니다) | PR #43 전수 조사 | — |
+| ~~S-11~~ | **해결 — T-S2**(`validateLimit`, 범위 밖은 422. `07_adversarial.sh` D8 기대도 갱신). ~~요청 파라미터의 스키마 제약이 강제되지 않는다. `limit`은 계약상 `minimum:1 maximum:200`인데 서버는 `-1`·`0`·`999999`를 200으로 받고 **조용히 기본값 50으로 강제**한다(타입 오류만 422). 네 저장소(messages·agents·sessions·events)가 모두 clamp하므로 **자원 고갈 위험은 없다** — 계약↔구현 불일치이고, 500을 요청한 클라이언트가 50을 받고도 모른다 ~~ | Lead 적대적 검증 D8 | — |
+| ~~S-12~~ | **해결 — T-S2.** 두 operation 을 켜면서 owner·admin 게이트를 함께 넣었고, 루프 상한 0(상한을 조용히 끄는 값)도 422 로 막는다. `07_adversarial.sh` D2 기대를 403/404 로 좁혔다. ~~P2에서 authz를 반드시 넣을 것. 지금은 501이라 남의 워크스페이스 설정도 바뀌지 않지만, 501은 인가가 아니라 미구현이다. `e2e/p1/07_adversarial.sh` D2의 기대를 그때 `403/404`로 좁힌다 ~~ | Lead 적대적 검증 D2 | — |
 
 ## C (CLI)
 
