@@ -147,19 +147,30 @@ func (s *Server) restartLane(ctx context.Context, laneID, wsID, sessionID, userI
 		}
 	}
 
-	// 2. The new instruction goes on the timeline as a message. That is what
+	// 2. The lane survives the restart (FR-3.4, E2-15, E8-06). It is put back to
+	// `running` BEFORE the message is posted, because lane resolution rule 3
+	// deliberately forks a new lane off a `failed` one (E5-10) — leaving it
+	// failed would give the re-instruction a different lane, a different
+	// workdir and a lane card that says the agent stopped.
+	if _, err := s.DB.Exec(ctx, `UPDATE lane SET status = 'running', finished_at = NULL, updated_at = $2 WHERE id = $1`,
+		laneID, now); err != nil {
+		return 0, nil, apperr.Internal(err)
+	}
+
+	// 3. The new instruction goes on the timeline as a message. That is what
 	// creates the task, so the trigger of the new task is a real message the
 	// Director can see — not an invisible server-side row (FR-3.4 B).
 	body := content
 	if !strings.Contains(body, "mention://agent/") {
 		body = router.MentionLink(agentName, agentID) + " " + strings.TrimSpace(content)
 	}
-	res, err := s.Router.Post(ctx, sessionID, router.Author{UserID: &userID}, gen.MessageCreate{Content: body})
+	res, err := s.Router.Post(ctx, sessionID, router.Author{Type: "user", UserID: &userID}, gen.MessageCreate{Content: body})
 	if err != nil {
 		return 0, nil, apperr.As(err)
 	}
-	// 3. The new task is a re-instruction of the cancelled one, and the lane
-	// keeps running (E2-15): PlanAttempt is what says both.
+	// 4. The new task is a re-instruction of the cancelled one: PlanAttempt's
+	// restart branch is what says a NEW task with attempt 1 and
+	// restarted_from_task_id (FR-3.4 B).
 	var newTask *gen.Task
 	for _, tr := range res.Triggers {
 		if tr.TaskId == (uuid.UUID{}) {
@@ -175,10 +186,6 @@ func (s *Server) restartLane(ctx context.Context, laneID, wsID, sessionID, userI
 				return 0, nil, apperr.Internal(err)
 			}
 			t.RestartedFromTaskID = cancelledTaskID
-		}
-		if _, err := s.DB.Exec(ctx, `UPDATE lane SET status = 'running', finished_at = NULL, updated_at = $2 WHERE id = $1`,
-			laneID, now); err != nil {
-			return 0, nil, apperr.Internal(err)
 		}
 		api := tasks.ToAPI(t, nil, nil)
 		newTask = &api
