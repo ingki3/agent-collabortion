@@ -522,14 +522,23 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			m := f.Usage.Model
 			model = &m
 		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO task_usage (task_id, input_tokens, output_tokens, cache_read, cost_usd, estimated, model, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			ON CONFLICT (task_id) DO UPDATE SET input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
-			  cache_read = EXCLUDED.cache_read, cost_usd = EXCLUDED.cost_usd, estimated = EXCLUDED.estimated,
-			  model = COALESCE(EXCLUDED.model, task_usage.model), updated_at = EXCLUDED.updated_at`,
-			t.ID, f.Usage.InputTokens, f.Usage.OutputTokens, f.Usage.CacheReadTokens, reported, f.Usage.Estimated, model, now); err != nil {
-			return fmt.Errorf("tasks: usage: %w", err)
+		// An EMPTY usage report is "no information", not "zero". Since P3 the
+		// heartbeat records the turn's running usage (FR-7.3 M9), so a finish
+		// that carries nothing — a cancelled attempt often does — would erase
+		// what the turn actually cost and the session's total would fall
+		// (measured on the :8094 stack: a cancel after $2.20 reported $0).
+		empty := f.Usage.InputTokens == 0 && f.Usage.OutputTokens == 0 &&
+			f.Usage.CacheReadTokens == 0 && f.Usage.CostUSD == 0
+		if !empty {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO task_usage (task_id, input_tokens, output_tokens, cache_read, cost_usd, estimated, model, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+				ON CONFLICT (task_id) DO UPDATE SET input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
+				  cache_read = EXCLUDED.cache_read, cost_usd = EXCLUDED.cost_usd, estimated = EXCLUDED.estimated,
+				  model = COALESCE(EXCLUDED.model, task_usage.model), updated_at = EXCLUDED.updated_at`,
+				t.ID, f.Usage.InputTokens, f.Usage.OutputTokens, f.Usage.CacheReadTokens, reported, f.Usage.Estimated, model, now); err != nil {
+				return fmt.Errorf("tasks: usage: %w", err)
+			}
 		}
 		costed = true
 		// harness.md §6: the ref is stored verbatim (contracts.RuntimeSessionRef →
