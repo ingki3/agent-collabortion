@@ -3,7 +3,11 @@
 // PRODUCTION CALL SITES:
 //
 //	applyEvent   → ApplyEvent     complete.go ApplyCompletionEvent, reached from
-//	                              CompleteSession (manual) and the budget pause
+//	                              httpapi.CompleteSession (manual · E6-08),
+//	                              httpapi.SubmitArtifact (artifact_submit ·
+//	                              E6-01·02), httpapi.ReviewArtifact
+//	                              (review_approve · E6-05·06, review_reject)
+//	                              and the budget pause
 //	validateTree → ValidateTree   sessions.Create (session-creation guard)
 //	runSummary   → RunSummary     complete.go ApplyCompletionEvent's
 //	                              completing → completed step
