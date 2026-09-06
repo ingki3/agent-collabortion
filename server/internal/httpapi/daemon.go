@@ -12,7 +12,6 @@ import (
 
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
-	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
 	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
@@ -454,11 +453,10 @@ func (s *Server) daemonFinish(w http.ResponseWriter, r *http.Request, d daemonCt
 	case err != nil:
 		writeErr(w, err)
 	default:
-		// The lane's status follows the task's (running → failed/done/queued);
-		// S7 listens on lane.updated (openapi cancelLane: 완료는 SSE lane.updated).
-		if lane, err := lanes.Load(r.Context(), s.DB, t.LaneID, false); err == nil {
-			s.publishLane(r, t.WorkspaceID, t.SessionID, lane)
-		}
+		// The lane frame is no longer emitted here: tasks.Finish publishes it
+		// inside its own transaction, for every outcome (completed → done/queued,
+		// paused_budget → paused, cancelled/failed → failed), together with
+		// task.updated. Publishing again after the commit would only duplicate it.
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": final})
 	}
 }

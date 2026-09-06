@@ -72,6 +72,7 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 		if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'running', updated_at = $2 WHERE id = $1`, laneID, now); err != nil {
 			return nil, err
 		}
+		s.publishLane(ctx, tx, laneID)
 	case "blocked":
 		delegator, err := delegatorOfLane(ctx, tx, laneID)
 		if err != nil {
@@ -92,6 +93,7 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 			WHERE id = $1`, laneID, note, plan.QuestionCardID, now); err != nil {
 			return nil, err
 		}
+		s.publishLane(ctx, tx, laneID)
 		qid := plan.QuestionCardID
 		out.QuestionMessageID, out.TurnEndRequired = &qid, true
 
@@ -114,6 +116,7 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 			UPDATE lane SET status = 'done', finished_at = $2, updated_at = $2 WHERE id = $1`, laneID, now); err != nil {
 			return nil, err
 		}
+		s.publishLane(ctx, tx, laneID)
 		out.TurnEndRequired = true
 		if err := s.afterLaneDone(ctx, tx, sessionID, wsID, laneID, agentID, triggerMsg, reentry, director, now); err != nil {
 			return nil, err

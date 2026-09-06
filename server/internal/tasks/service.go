@@ -35,6 +35,12 @@ type Service struct {
 	Clock  clock.Clock
 	Tokens *tokens.Service
 	Hub    *realtime.Hub
+
+	// LanePublish emits `lane.updated` for a lane this service just moved.
+	// It is a hook rather than a direct call because loading the contract
+	// Lane lives in internal/lanes, which imports this package —
+	// httpapi.NewServer wires lanes.Publish in. nil in unit tests with no hub.
+	LanePublish func(ctx context.Context, q db.DBTX, laneID uuid.UUID)
 }
 
 func New(pool *pgxpool.Pool, c clock.Clock, t *tokens.Service, h *realtime.Hub) *Service {
@@ -560,12 +566,25 @@ func (s *Service) inTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
 	return tx.Commit(ctx)
 }
 
+// publish emits the two frames one task-row change produces: `task.updated`
+// for the task and `lane.updated` for the S7 card that shows it.
+//
+// They are one call on purpose. Every place this is reached is a place the lane
+// card changed — six of the seven also move lane.status (claim → running,
+// requeue → queued, finish → done/queued/paused, cancel/fail → failed, session
+// pause → paused) and the seventh (Phase) changes the card's current-task line.
+// Before G4's second web pass only the daemon's finish published a lane at all,
+// so S7 never saw a lane while it ran: three Researchers running in parallel
+// for fourteen seconds produced no frame (W5). Keeping the two together means a
+// transition added later cannot forget the board.
 func (s *Service) publish(ctx context.Context, q db.DBTX, t *Row) {
-	if s.Hub == nil {
-		return
+	if s.Hub != nil {
+		sid := t.SessionID
+		_ = s.Hub.Publish(ctx, q, t.WorkspaceID, &sid, "task.updated", ToAPI(t, nil, nil))
 	}
-	sid := t.SessionID
-	_ = s.Hub.Publish(ctx, q, t.WorkspaceID, &sid, "task.updated", ToAPI(t, nil, nil))
+	if s.LanePublish != nil {
+		s.LanePublish(ctx, q, t.LaneID)
+	}
 }
 
 func collectIDs(rows pgx.Rows, err error) ([]uuid.UUID, error) {

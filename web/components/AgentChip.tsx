@@ -44,6 +44,14 @@ export const AGENT_ROLE_LABEL: Record<AgentRole, string> = {
 };
 
 export interface AgentChipProps {
+  /**
+   * 이 칩이 가리키는 에이전트의 id. `data-agent-id` 로 나가고, **e2e 가 칩을
+   * 하나로 특정하는 유일한 수단**이다 — 이름은 워크스페이스 안에서만 유일하고
+   * 화면에는 `@` 가 붙은 채로 나오며, 시나리오가 같은 이름의 에이전트를 둘
+   * 만들면 셀렉터가 조용히 둘을 잡는다(G4 2판 W7: 셀렉터가 아무것도 못 잡았다).
+   * 데모 화면처럼 진짜 id 가 없는 자리에서는 생략한다.
+   */
+  agentId?: string;
   name: string;
   role?: AgentRole;
   /** 파생 상태값. `derive` 를 주면 그것으로 계산한다(둘 다 있으면 derive 우선). */
@@ -71,6 +79,7 @@ export function AgentChip(props: AgentChipProps) {
       className={["agent-chip", size === "sm" ? "agent-chip--sm" : "", props.className].filter(Boolean).join(" ")}
       onClick={props.onClick}
       data-testid="agent-chip"
+      data-agent-id={props.agentId}
       data-status={status}
       title={props.statusNote ?? undefined}
     >

@@ -5,10 +5,12 @@
 package httpapi
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ingki3/agent-collabortion/contracts"
@@ -17,8 +19,10 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/artifacts"
 	"github.com/ingki3/agent-collabortion/server/internal/auth"
+	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/events"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/queue"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
@@ -79,6 +83,14 @@ func NewServer(d Deps) *Server {
 	hub := realtime.New(d.DB, d.Clock)
 	tok := tokens.New(d.Clock)
 	tsk := tasks.New(d.DB, d.Clock, tok, hub)
+	// The task layer moves lane.status (claim → running, finish → done, …) but
+	// cannot import internal/lanes, which imports it. The hook closes that loop
+	// so S7 gets a frame for every transition (G4 2판 W5).
+	tsk.LanePublish = func(ctx context.Context, q db.DBTX, laneID uuid.UUID) {
+		if err := lanes.Publish(ctx, hub, q, laneID); err != nil {
+			d.Log.Warn("publish lane.updated", "err", err, "lane", laneID)
+		}
+	}
 	notifier := queue.NewNotifier()
 	q := queue.NewPostgres(d.DB, d.Clock, tsk, notifier)
 	rt := router.New(d.DB, d.Clock, hub, notifier).WithTasks(tsk)
