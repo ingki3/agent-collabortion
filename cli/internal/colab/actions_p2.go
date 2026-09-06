@@ -205,17 +205,37 @@ func DecisionRecord(ctx context.Context, c *client.Client, a DecisionRecordArgs)
 // MaxArtifactBytes is the submitArtifact size ceiling (openapi: 50 MB → 413).
 const MaxArtifactBytes = 50 << 20
 
-// ArtifactSubmitArgs — `colab artifact submit --type <t> --file <p>
-// [--name <n>] [--description <d>]`. The field is named for openapi's
-// multipart part (`file`); `--path` is accepted as an alias.
+// ArtifactSubmitArgs — `colab artifact submit --type <t> [--file <p>]
+// [--name <n>] [--description <d>] [--base <rev>]`. The field is named for
+// openapi's multipart part (`file`); `--path` is accepted as an alias.
 type ArtifactSubmitArgs struct {
 	Session     string `json:"session,omitempty"`
 	Name        string `json:"name,omitempty"` // defaults to the file's base name
 	Type        string `json:"type"`           // open set: file · diff · branch · doc …
 	File        string `json:"file"`
 	Description string `json:"description,omitempty"`
+	// Base is `--base`: what a `--type diff` submission is diffed against
+	// (default: the repository's own default branch). Meaningless for any
+	// other type and refused there rather than ignored.
+	Base string `json:"base,omitempty"`
 
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
+
+	// workdir is the directory git runs in for `--type diff`. It is
+	// deliberately unexported-by-JSON (`-`): the daemon spawns the attempt
+	// with cwd = the agent's workdir (harness.md §5), and neither a flag nor
+	// an MCP tool argument may point the diff at another repository
+	// (PRD FR-6.1). Tests set it directly.
+	Workdir string `json:"-"`
+}
+
+// dir is where git runs: the process working directory unless a test said
+// otherwise.
+func (a ArtifactSubmitArgs) dir() string {
+	if a.Workdir != "" {
+		return a.Workdir
+	}
+	return "."
 }
 
 // ArtifactSubmitResult — submitArtifact 201.
@@ -226,6 +246,21 @@ type ArtifactSubmitResult struct {
 	SizeBytes          int             `json:"size_bytes"`
 	Artifact           json.RawMessage `json:"artifact"`
 	CompletionProgress json.RawMessage `json:"completion_progress,omitempty"`
+	// Diff is present when the CLI built the body itself (`--type diff`
+	// without `--file`): what it diffed and what it left out.
+	Diff *DiffSummary `json:"diff,omitempty"`
+}
+
+// DiffSummary echoes the metadata the CLI stamped into the description's
+// first line and the diff body's `# colab-diff:` comment, so the agent can
+// quote it in the message it posts without re-running git.
+type DiffSummary struct {
+	Branch string `json:"branch"`
+	Base   string `json:"base"`
+	Commit string `json:"commit"`
+	// UntrackedNotIncluded lists files git does not track. They are NOT in
+	// the diff — the agent has to `git add` them and submit again.
+	UntrackedNotIncluded []string `json:"untracked_not_included,omitempty"`
 }
 
 // ArtifactSubmit — POST /sessions/{S}/artifacts (multipart: name · type ·
@@ -233,46 +268,112 @@ type ArtifactSubmitResult struct {
 // Re-submitting the same name is version+1 (FR-4.3); the response's
 // completion_progress says whether the `artifact_submitted` completion
 // condition is now met (FR-2.2, E6-01).
+//
+// `--type diff` may omit `--file`, and then the CLI builds the unified diff
+// of the workdir this task runs in (see diff.go). Because the multipart body
+// has no field for branch/base/commit, that metadata goes into the two
+// places the contract already has: the description's first line
+// (`diff <branch>@<commit> vs <base>`, the caller's own --description
+// following it) and one `# colab-diff:` comment at the top of the body.
+// Nothing else about the request changes, and any other type behaves exactly
+// as it did.
 func ArtifactSubmit(ctx context.Context, c *client.Client, a ArtifactSubmitArgs) (*ArtifactSubmitResult, error) {
-	if strings.TrimSpace(a.Type) == "" {
+	typ := strings.TrimSpace(a.Type)
+	if typ == "" {
 		return nil, client.Usage("--type is required (file · diff · branch · doc · …)")
 	}
-	if strings.TrimSpace(a.File) == "" {
-		return nil, client.Usage("--file is required")
+	isDiff := strings.EqualFold(typ, ArtifactTypeDiff)
+	if !isDiff && strings.TrimSpace(a.Base) != "" {
+		return nil, client.Usage("--base applies to --type diff only (this is --type %s)", typ)
 	}
-	st, err := os.Stat(a.File)
-	if err != nil {
-		return nil, client.Usage("--file %s: %v", a.File, err)
+
+	var (
+		data        []byte
+		name        = strings.TrimSpace(a.Name)
+		fileName    string
+		contentType string
+		description = a.Description
+		summary     *DiffSummary
+	)
+	switch {
+	case strings.TrimSpace(a.File) != "":
+		// A file the caller produced is uploaded byte for byte, diff or not:
+		// rewriting someone's patch is how a patch stops applying.
+		b, err := readArtifactFile(a.File)
+		if err != nil {
+			return nil, err
+		}
+		data, fileName, contentType = b, filepath.Base(a.File), partContentType(a.File)
+		if name == "" {
+			name = filepath.Base(a.File)
+		}
+		if isDiff {
+			m, ok, err := repoMeta(a.dir(), a.Base)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				description = stampDescription(m, description)
+				summary = &DiffSummary{Branch: m.Branch, Base: m.Base, Commit: m.Commit}
+			}
+		}
+	case isDiff:
+		// No --file: build the diff of this worktree (scenario B step 4).
+		d, err := buildDiff(a.dir(), a.Base)
+		if err != nil {
+			return nil, err
+		}
+		data = d.Body
+		if len(data) > MaxArtifactBytes {
+			return nil, client.Usage("the generated diff is %d bytes; the limit is %d (50 MB) — "+
+				"narrow it with --base, or submit a file with --file", len(data), MaxArtifactBytes)
+		}
+		if name == "" {
+			name = defaultDiffName(d.Meta.Branch, c.Config().AgentName)
+		}
+		fileName, contentType = diffFileName(name), "text/plain"
+		description = stampDescription(d.Meta, description)
+		summary = &DiffSummary{Branch: d.Meta.Branch, Base: d.Meta.Base, Commit: d.Meta.Commit,
+			UntrackedNotIncluded: d.Untracked}
+	default:
+		return nil, client.Usage("--file is required (only `--type diff` can build its own body)")
 	}
-	if st.IsDir() {
-		return nil, client.Usage("--file %s is a directory", a.File)
-	}
-	if st.Size() > MaxArtifactBytes {
-		return nil, client.Usage("--file %s is %d bytes; the limit is %d (50 MB)", a.File, st.Size(), MaxArtifactBytes)
-	}
-	data, err := os.ReadFile(a.File)
-	if err != nil {
-		return nil, client.Usage("--file %s: %v", a.File, err)
-	}
-	name := strings.TrimSpace(a.Name)
-	if name == "" {
-		name = filepath.Base(a.File)
-	}
+
 	sid, err := c.SessionID(ctx, a.Session)
 	if err != nil {
 		return nil, err
 	}
 	res, err := c.SubmitArtifact(ctx, sid, client.ArtifactUpload{
-		Name: name, Type: a.Type, Description: a.Description,
-		FileName: filepath.Base(a.File), ContentType: partContentType(a.File), Data: data,
+		Name: name, Type: typ, Description: description,
+		FileName: fileName, ContentType: contentType, Data: data,
 	}, a.IdempotencyKey)
 	if err != nil {
 		return nil, err
 	}
 	return &ArtifactSubmitResult{
-		ArtifactID: rawField(res.Artifact, "id"), Name: name, Type: a.Type, SizeBytes: len(data),
-		Artifact: res.Artifact, CompletionProgress: res.CompletionProgress,
+		ArtifactID: rawField(res.Artifact, "id"), Name: name, Type: typ, SizeBytes: len(data),
+		Artifact: res.Artifact, CompletionProgress: res.CompletionProgress, Diff: summary,
 	}, nil
+}
+
+// readArtifactFile reads --file with the contract's guards (a real file,
+// within the 50 MB submitArtifact ceiling).
+func readArtifactFile(path string) ([]byte, error) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return nil, client.Usage("--file %s: %v", path, err)
+	}
+	if st.IsDir() {
+		return nil, client.Usage("--file %s is a directory", path)
+	}
+	if st.Size() > MaxArtifactBytes {
+		return nil, client.Usage("--file %s is %d bytes; the limit is %d (50 MB)", path, st.Size(), MaxArtifactBytes)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, client.Usage("--file %s: %v", path, err)
+	}
+	return data, nil
 }
 
 // partContentType picks the `file` part's Content-Type from the contract's

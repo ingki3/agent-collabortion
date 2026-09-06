@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	osexec "os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -203,6 +204,88 @@ func TestCLIArtifactSubmit(t *testing.T) {
 	if f := s.Submissions[0].Fields; f["type"] != "report" || f["description"] != "first cut" {
 		t.Fatalf("fields = %v", f)
 	}
+}
+
+// `--type diff` with no --file diffs the process's OWN working directory —
+// the workdir the daemon spawned this attempt in (harness.md §5). There is no
+// flag that points it anywhere else, which is what keeps a lane out of
+// another lane's worktree (FR-6.1, scenario B step 4).
+func TestCLIArtifactSubmitDiffUsesProcessWorkdir(t *testing.T) {
+	s := clienttest.New(t)
+	dir := cliDiffRepo(t)
+	t.Chdir(dir)
+
+	code, v, _ := exec(t, s.Env(t.TempDir()), "artifact", "submit", "--type", "diff", "--description", "탈퇴 화면")
+	if code != client.ExitOK {
+		t.Fatalf("code=%d v=%v", code, v)
+	}
+	if v["name"] != "frontend.diff" {
+		t.Fatalf("name = %v, want the branch's last segment", v["name"])
+	}
+	sub := s.Submissions[0]
+	if !strings.HasPrefix(sub.Fields["description"], "diff colab/S/frontend@") ||
+		!strings.HasSuffix(sub.Fields["description"], "\n탈퇴 화면") {
+		t.Fatalf("description = %q", sub.Fields["description"])
+	}
+	if !strings.HasPrefix(string(sub.Data), "# colab-diff: branch=colab/S/frontend base=main commit=") {
+		t.Fatalf("body head = %q", strings.SplitN(string(sub.Data), "\n", 2)[0])
+	}
+	if !strings.Contains(string(sub.Data), "+worktree change") {
+		t.Fatalf("body = %s", sub.Data)
+	}
+	// A clean workdir has nothing to submit: exit 2 and no second request.
+	if _, err := gitCLI(t, dir, "checkout", "--", "."); err != nil {
+		t.Fatal(err)
+	}
+	code, v, _ = exec(t, s.Env(t.TempDir()), "artifact", "submit", "--type", "diff", "--base", "HEAD")
+	if code != client.ExitUsage || errCode(v) != "empty_diff" {
+		t.Fatalf("clean workdir: code=%d v=%v", code, v)
+	}
+	if len(s.Submissions) != 1 {
+		t.Fatalf("submissions = %d", len(s.Submissions))
+	}
+}
+
+// cliDiffRepo is a worktree in the state E16-B step 3 finds: an agent branch
+// off `main` with an uncommitted change.
+func cliDiffRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if _, err := gitCLI(t, dir, "init", "-q"); err != nil {
+		t.Skipf("git unavailable: %v", err)
+	}
+	mustGit := func(args ...string) {
+		t.Helper()
+		if _, err := gitCLI(t, dir, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustGit("symbolic-ref", "HEAD", "refs/heads/main")
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit("add", "a.txt")
+	mustGit("commit", "-qm", "base")
+	mustGit("checkout", "-q", "-b", "colab/S/frontend")
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\nworktree change\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func gitCLI(t *testing.T, dir string, args ...string) (string, error) {
+	t.Helper()
+	cmd := osexec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
+		"GIT_AUTHOR_NAME=colab", "GIT_AUTHOR_EMAIL=colab@example.com",
+		"GIT_COMMITTER_NAME=colab", "GIT_COMMITTER_EMAIL=colab@example.com")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return string(out), nil
 }
 
 // --path is the alias; --url no longer exists (v0.4: an absent flag tells

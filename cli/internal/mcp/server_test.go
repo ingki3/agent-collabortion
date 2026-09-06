@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"os"
+	osexec "os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -222,4 +225,101 @@ func TestParseErrorAndBatch(t *testing.T) {
 		t.Fatalf("batch = %+v (%v)", r2, err)
 	}
 	inW.Close()
+}
+
+// The MCP tool is the same function the command calls, so `type: "diff"`
+// without `file` builds the diff of the server process's own workdir. And the
+// schema deliberately has no field for pointing git anywhere else (FR-6.1) —
+// the diff an agent can submit is its own worktree's, or none.
+func TestArtifactSubmitDiffTool(t *testing.T) {
+	s := clienttest.New(t)
+	dir := mcpDiffRepo(t)
+	t.Chdir(dir)
+	c := dial(t, client.New(client.FromEnv(clienttest.Getenv(s.Env(t.TempDir())))))
+	c.call("initialize", map[string]any{"protocolVersion": mcp.ProtocolVersion})
+	c.notify("notifications/initialized")
+
+	var schema map[string]any
+	for _, tl := range c.call("tools/list", nil).Result["tools"].([]any) {
+		if m := tl.(map[string]any); m["name"] == "colab_artifact_submit" {
+			schema = m["inputSchema"].(map[string]any)
+		}
+	}
+	if schema == nil {
+		t.Fatal("colab_artifact_submit is missing from tools/list")
+	}
+	props := schema["properties"].(map[string]any)
+	if _, ok := props["base"]; !ok {
+		t.Fatal("schema has no `base` — an agent cannot say what to diff against")
+	}
+	for _, forbidden := range []string{"workdir", "dir", "repo", "path"} {
+		if _, ok := props[forbidden]; ok {
+			t.Fatalf("schema exposes %q: the diff must always be of this workdir (FR-6.1)", forbidden)
+		}
+	}
+	// `file` is required for every other type; the action enforces that.
+	if req := schema["required"].([]any); len(req) != 1 || req[0] != "type" {
+		t.Fatalf("required = %v, want [type] only (file is optional for diff)", req)
+	}
+
+	r := c.call("tools/call", map[string]any{"name": "colab_artifact_submit",
+		"arguments": map[string]any{"type": "diff", "description": "탈퇴 API"}})
+	if r.Error != nil || r.Result["isError"] == true {
+		t.Fatalf("submit = %+v", r)
+	}
+	sc := r.Result["structuredContent"].(map[string]any)
+	if sc["name"] != "backend.diff" {
+		t.Fatalf("name = %v", sc["name"])
+	}
+	d, ok := sc["diff"].(map[string]any)
+	if !ok || d["branch"] != "colab/S/backend" || d["base"] != "main" {
+		t.Fatalf("diff summary = %v", sc["diff"])
+	}
+	sub := s.Submissions[0]
+	if !strings.HasPrefix(string(sub.Data), "# colab-diff: branch=colab/S/backend base=main commit=") {
+		t.Fatalf("body head = %q", strings.SplitN(string(sub.Data), "\n", 2)[0])
+	}
+	if !strings.HasSuffix(sub.Fields["description"], "\n탈퇴 API") {
+		t.Fatalf("description = %q", sub.Fields["description"])
+	}
+	// An argument that names another repository is simply not in the schema,
+	// and an unknown key changes nothing about what gets diffed.
+	r2 := c.call("tools/call", map[string]any{"name": "colab_artifact_submit",
+		"arguments": map[string]any{"type": "diff", "workdir": "/etc"}})
+	if r2.Error != nil || r2.Result["isError"] == true {
+		t.Fatalf("submit with a stray key = %+v", r2)
+	}
+	if d2 := r2.Result["structuredContent"].(map[string]any)["diff"].(map[string]any); d2["branch"] != "colab/S/backend" {
+		t.Fatalf("a stray `workdir` moved the diff: %v", d2)
+	}
+}
+
+// mcpDiffRepo is an agent worktree with one uncommitted change.
+func mcpDiffRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := osexec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
+			"GIT_AUTHOR_NAME=colab", "GIT_AUTHOR_EMAIL=colab@example.com",
+			"GIT_COMMITTER_NAME=colab", "GIT_COMMITTER_EMAIL=colab@example.com")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q")
+	git("symbolic-ref", "HEAD", "refs/heads/main")
+	if err := os.WriteFile(filepath.Join(dir, "api.go"), []byte("package api\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "api.go")
+	git("commit", "-qm", "base")
+	git("checkout", "-q", "-b", "colab/S/backend")
+	if err := os.WriteFile(filepath.Join(dir, "api.go"), []byte("package api\n\nfunc Delete() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }

@@ -38,3 +38,5 @@ cookies*.txt
 e2e/p3/out/
 # 41_cli_hitl_real.sh 의 실서버 산출물(진짜 ctk_ 토큰·쿠키·claim 응답)
 e2e/p3/out-real/
+# P4 E2E 산출물(60_ 실서버 스모크의 claim 응답 = 진짜 ctk_ 토큰·쿠키)
+e2e/p4/out/

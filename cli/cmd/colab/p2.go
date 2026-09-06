@@ -107,6 +107,7 @@ func runDecision(args []string, getenv client.Getenv, stdout, stderr io.Writer) 
 func runArtifact(args []string, getenv client.Getenv, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		return usage(stderr, "usage: colab artifact submit --type <t> --file <p> [--name <n>] [--description <d>]\n"+
+			"       colab artifact submit --type diff [--base <rev>] [--name <n>] [--description <d>]\n"+
 			"       colab artifact get <id> [--out <path>]")
 	}
 	c := client.New(client.FromEnv(getenv))
@@ -115,11 +116,17 @@ func runArtifact(args []string, getenv client.Getenv, stdout, stderr io.Writer) 
 	case "submit":
 		fs, _ := newFlagSet("artifact submit", stderr)
 		session := fs.String("session", "", "session id (default COLAB_SESSION_ID / token scope)")
-		name := fs.String("name", "", "artifact name; re-submitting the same name is version+1 (default: the file's base name)")
-		typ := fs.String("type", "", "artifact type — open set: file · diff · branch · doc · report …")
-		file := fs.String("file", "", "file to upload, max 50 MB (openapi's multipart part name)")
+		name := fs.String("name", "", "artifact name; re-submitting the same name is version+1 "+
+			"(default: the file's base name; for a generated --type diff, the branch's last segment)")
+		typ := fs.String("type", "", "artifact type — open set: file · diff · branch · doc · report …; "+
+			"a generated diff is a patch for \"git apply\", not a \"git am\" mailbox")
+		file := fs.String("file", "", "file to upload, max 50 MB (openapi's multipart part name); "+
+			"optional for --type diff — omitted, the CLI diffs this workdir")
 		path := fs.String("path", "", "alias of --file")
-		desc := fs.String("description", "", "optional description")
+		desc := fs.String("description", "", "optional description (a --type diff submission puts "+
+			"`diff <branch>@<commit> vs <base>` on the first line and this underneath)")
+		base := fs.String("base", "", "--type diff only: what to diff against "+
+			"(default: the repository's default branch — origin/HEAD, else main/master)")
 		key := fs.String("idempotency-key", "", "optional Idempotency-Key (uuid) to make a retry replay")
 		if err := fs.Parse(args[1:]); err != nil {
 			return client.ExitUsage
@@ -133,7 +140,7 @@ func runArtifact(args []string, getenv client.Getenv, stdout, stderr io.Writer) 
 		}
 		v, err := colab.ArtifactSubmit(ctx, c, colab.ArtifactSubmitArgs{
 			Session: *session, Name: *name, Type: *typ, File: f,
-			Description: *desc, IdempotencyKey: *key})
+			Description: *desc, Base: *base, IdempotencyKey: *key})
 		return emit(stdout, stderr, v, err)
 	case "get":
 		// `colab artifact get <id> [--out <path>]` — the id is positional.

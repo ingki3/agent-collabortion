@@ -7,6 +7,7 @@
 // decision record · artifact submit/get · review approve/reject.
 // P3 (colab-cli.md v0.5 §2.4): hitl ask · hitl approve-request ·
 // hitl request-info.
+// P4: `artifact submit --type diff` builds the workdir's own diff (FR-4.3).
 // Output is always JSON on stdout (agents parse it); --json is accepted for
 // clarity. Exit codes: 0 ok · 2 args · 3 refused · 4 no/revoked token ·
 // 5 server unreachable.
@@ -52,6 +53,16 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
                              always a new lane; the target must already be a session participant
   colab decision record --summary <s> [--rationale <r>]
   colab artifact submit --type <t> --file <p> [--name <n>] [--description <d>]
+  colab artifact submit --type diff [--base <rev>] [--name <n>] [--description <d>]
+                             --type diff may omit --file: the CLI builds the unified diff of THIS
+                             workdir (commits since --base, staged and unstaged changes, in one
+                             patch). Untracked files are not in a diff — git add them first.
+                             The description's first line is "diff <branch>@<commit> vs <base>" and
+                             the body starts with a "# colab-diff:" comment (git apply skips it).
+                             The patch is for "git apply", NOT "git am" — it is a plain diff with no
+                             commit metadata. Binary files are included (git diff --binary).
+                             Default --name is the branch's last segment (colab/<s>/frontend →
+                             frontend.diff), so re-submitting from the same branch is version+1
   colab artifact get <id> [--out <path>]
   colab review approve --artifact <id> [--note <t>]
   colab review reject  --artifact <id> --reason <text>
