@@ -171,11 +171,11 @@ func TestBriefTextDeliveredByteIdentical(t *testing.T) {
 	}
 }
 
-// daemon-protocol §4.2 v0.3 — preview.message_id is the SERVER's to fill.
-// The daemon never learns a server-side message id (agents post through the
-// colab CLI/MCP, colab-cli.md §1), so it always sends the pair with an empty
-// message_id rather than guessing one.
-func TestDaemonNeverFillsPreviewMessageID(t *testing.T) {
+// daemon-protocol §4.2 — the runner streams the partial text and only the
+// partial text; preview.message_id is the server's (v0.5) and the Sink has
+// nowhere to put one. The wire-level guard lives with the code that writes
+// the heartbeat: api.TestDaemonNeverFillsPreviewMessageID.
+func TestPreviewCarriesTheGrowingTurnText(t *testing.T) {
 	script := acpfake.Script{Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "part one "}, {Chunk: "part two"}}}}}
 	f := newFixture(t, script, bundle(contracts.RuntimeClaudeCode), nil)
 	if res := f.run(); res.Outcome != "completed" {
@@ -183,13 +183,8 @@ func TestDaemonNeverFillsPreviewMessageID(t *testing.T) {
 	}
 	f.sink.mu.Lock()
 	defer f.sink.mu.Unlock()
-	if len(f.sink.previews) < 2 {
-		t.Fatalf("previews %v", f.sink.previews)
-	}
-	for i, id := range f.sink.previewIDs {
-		if id != "" {
-			t.Fatalf("preview %d carried message_id %q — the server fills it", i, id)
-		}
+	if len(f.sink.previews) < 2 || f.sink.previews[len(f.sink.previews)-1] != "part one part two" {
+		t.Fatalf("previews %q", f.sink.previews)
 	}
 }
 

@@ -16,17 +16,19 @@ import (
 // Sink receives normalised task_events (seq assigned by the runner) and
 // non-persisted streaming previews (daemon-protocol §4.2).
 //
-// Preview carries the §4.2 v0.3 pair {text, message_id}. messageID is the
-// already-posted message the partial continues — and the daemon never knows
-// one: agents post through the colab CLI/MCP straight to the server
+// Preview takes the partial text and NOTHING else. The §4.2 v0.3 wire pair is
+// {text, message_id}, but §4.2 v0.5 makes message_id the SERVER's to fill:
+// agents post through the colab CLI/MCP straight to the server
 // (colab-cli.md §1), so the daemon sees neither the round trip nor the id the
-// server minted, and a preview is by definition output that has not been
-// posted yet. The contract therefore has the SERVER fill preview.message_id;
-// the daemon leaves it empty. The parameter exists so the day a runtime does
-// know its message the plumbing is already here, not so we can invent one.
+// server minted — and a preview is by definition output that has not been
+// posted yet, so at that moment no id exists at all. There is therefore no
+// code path that could supply a correct id, and this interface deliberately
+// offers no place to pass a wrong one: an id invented here would make the
+// server attribute the delta to somebody else's message. The empty value goes
+// on the wire in api.Batcher (see previewMessageID there).
 type Sink interface {
 	Emit(ev contracts.TaskEvent)
-	Preview(text, messageID string)
+	Preview(text string)
 }
 
 // Attempt is one task attempt to run (daemon-protocol §4.1 TaskBundle plus
@@ -601,8 +603,7 @@ func (r *Runner) onUpdate(p SessionUpdateParams) {
 		preview := r.say.String()
 		r.mu.Unlock()
 		if r.a.Sink != nil && t != "" {
-			// message_id stays empty — see Sink.
-			r.a.Sink.Preview(preview, "")
+			r.a.Sink.Preview(preview)
 		}
 	case "agent_thought_chunk":
 		r.mu.Lock()

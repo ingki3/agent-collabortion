@@ -20,17 +20,16 @@ type Batcher struct {
 	MaxBatch   int
 	Interval   time.Duration
 
-	mu           sync.Mutex
-	pending      []contracts.TaskEvent // unacked, ascending seq
-	acked        int
-	preview      string
-	previewMsgID string
-	lastSeq      int
-	kick         chan struct{}
-	stopped      chan struct{}
-	stopOnce     sync.Once
-	wg           sync.WaitGroup
-	lastErr      error
+	mu       sync.Mutex
+	pending  []contracts.TaskEvent // unacked, ascending seq
+	acked    int
+	preview  string
+	lastSeq  int
+	kick     chan struct{}
+	stopped  chan struct{}
+	stopOnce sync.Once
+	wg       sync.WaitGroup
+	lastErr  error
 }
 
 // NewBatcher starts the flush loop with the §4.2 defaults (100 events / 1s).
@@ -61,27 +60,33 @@ func (b *Batcher) Emit(ev contracts.TaskEvent) {
 }
 
 // Preview implements acp.Sink: the partial message goes out with the next
-// heartbeat, never as an event. messageID is what the daemon knows about an
-// already-posted message it is continuing — always "" in v1 (§4.2 v0.3: the
-// server fills preview.message_id, the daemon leaves it empty).
-func (b *Batcher) Preview(text, messageID string) {
+// heartbeat, never as an event.
+func (b *Batcher) Preview(text string) {
 	b.mu.Lock()
-	b.preview, b.previewMsgID = text, messageID
+	b.preview = text
 	b.mu.Unlock()
 }
 
+// previewMessageID is what the daemon puts in preview.message_id: nothing.
+// §4.2 v0.5 assigns that field to the server — the daemon cannot know a
+// server-side message id (agents post through the colab CLI/MCP, and a
+// preview is pre-publication output anyway). It is a constant rather than a
+// parameter on purpose: no code path could produce a correct id, so there
+// must be no place to pass a wrong one. A non-empty value here would make the
+// server hang the delta off somebody else's message.
+const previewMessageID = ""
+
 // TakePreview returns the latest partial output in the §4.2 v0.3 shape, or
 // nil when there is none — the heartbeat then omits `preview` rather than
-// sending an empty object. message_id is whatever the sink was given, which
-// in v1 is always empty: the daemon does not learn server-side message ids
-// (§4.2 v0.3 — the server fills it).
+// sending an empty object. message_id is always previewMessageID (empty):
+// §4.2 v0.5 has the server fill that field.
 func (b *Batcher) TakePreview() *HeartbeatPreview {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.preview == "" {
 		return nil
 	}
-	return &HeartbeatPreview{Text: b.preview, MessageID: b.previewMsgID}
+	return &HeartbeatPreview{Text: b.preview, MessageID: previewMessageID}
 }
 
 // LastSeq is the highest seq emitted so far.

@@ -348,4 +348,4 @@ func logf(o Options, format string, args ...any) {
 type captureSink struct{ events []contracts.TaskEvent }
 
 func (s *captureSink) Emit(ev contracts.TaskEvent) { s.events = append(s.events, ev) }
-func (s *captureSink) Preview(string, string)      {}
+func (s *captureSink) Preview(string)              {}

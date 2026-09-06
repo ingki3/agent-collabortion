@@ -202,7 +202,7 @@ func TestBatcherBatchesAndResends(t *testing.T) {
 	for i := 1; i <= 250; i++ {
 		b.Emit(ev(i))
 	}
-	b.Preview("partial text", "") // §4.2 v0.3: the daemon never fills message_id
+	b.Preview("partial text")
 	if err := b.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestHeartbeatPreviewContractShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	// (a) partial output → preview.text is exactly that string.
-	b.Preview("hello wor", "")
+	b.Preview("hello wor")
 	if _, err := c.Heartbeat(ctx, "t1", 1, HeartbeatRequest{LastSeq: 7, Preview: b.TakePreview()}); err != nil {
 		t.Fatal(err)
 	}
@@ -310,5 +310,47 @@ func TestHeartbeatPreviewContractShape(t *testing.T) {
 	}
 	if _, ok := keys[1]["preview"]; !ok {
 		t.Fatalf("partial output must send a preview: %s", f.hbRaw[1])
+	}
+}
+
+// daemon-protocol §4.2 v0.5 — preview.message_id belongs to the SERVER; the
+// daemon leaves it empty. This test is the ONLY thing standing between us and
+// a wrong attribution: acp.Sink no longer has a parameter for an id, and
+// HeartbeatPreview.MessageID is `omitempty`, so the day someone gives the
+// batcher a non-empty previewMessageID the compiler and the schema both stay
+// quiet — the key simply appears on the wire and the server hangs the delta
+// off another agent's message. Assert on the bytes, not on the struct.
+func TestDaemonNeverFillsPreviewMessageID(t *testing.T) {
+	f, s := newFake(t)
+	c := New(s.URL, "cdt_secret")
+	ctx := context.Background()
+	b := NewBatcherWith(ctx, c, "t1", 1, 100, time.Hour)
+	t.Cleanup(func() { b.Close(ctx) })
+
+	for _, partial := range []string{"part one ", "part one part two"} {
+		b.Preview(partial)
+		if _, err := c.Heartbeat(ctx, "t1", 1, HeartbeatRequest{LastSeq: 1, Preview: b.TakePreview()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.hbRaw) != 2 {
+		t.Fatalf("want 2 heartbeats, got %d", len(f.hbRaw))
+	}
+	for i, raw := range f.hbRaw {
+		var hb struct {
+			Preview map[string]json.RawMessage `json:"preview"`
+		}
+		if err := json.Unmarshal(raw, &hb); err != nil {
+			t.Fatalf("heartbeat %d: %v (%s)", i, err, raw)
+		}
+		if _, ok := hb.Preview["text"]; !ok {
+			t.Fatalf("heartbeat %d has no preview.text: %s", i, raw)
+		}
+		if _, ok := hb.Preview["message_id"]; ok {
+			t.Fatalf("heartbeat %d put message_id on the wire — §4.2 v0.5 makes it the server's: %s", i, raw)
+		}
 	}
 }
