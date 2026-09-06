@@ -12,6 +12,7 @@ import (
 
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/contracts/clock"
+	"github.com/ingki3/agent-collabortion/server/internal/cost"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
@@ -470,12 +471,32 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			t.ID, attempt, t.RuntimeID, now, f.Outcome, resumed, f.StopReason); err != nil {
 			return fmt.Errorf("tasks: finish attempt: %w", err)
 		}
+		// harness v0.7.1: `estimated: true` means the runtime did not price the
+		// turn, and the 0 that rides along is a type artefact — contracts.Usage
+		// cannot omit a float64 — not a measurement. Storing it would be the
+		// original defect one layer down, so the server drops it here and the
+		// roll-up fills the number from the workspace price table (S-20). Only
+		// an `estimated: false` zero is a real zero.
+		reported := f.Usage.CostUSD
+		if f.Usage.Estimated {
+			reported = 0
+		}
+		// The model is stored because the estimate is per-model. It is the one
+		// the daemon MEASURED (harness §7 `_meta.quota.model_usage[].model`),
+		// which is what model_drift is about: pricing a drifted turn at the
+		// profile's rate would bill the model that did not run it.
+		var model *string
+		if f.Usage.Model != "" {
+			m := f.Usage.Model
+			model = &m
+		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO task_usage (task_id, input_tokens, output_tokens, cache_read, cost_usd, estimated, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			INSERT INTO task_usage (task_id, input_tokens, output_tokens, cache_read, cost_usd, estimated, model, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			ON CONFLICT (task_id) DO UPDATE SET input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
-			  cache_read = EXCLUDED.cache_read, cost_usd = EXCLUDED.cost_usd, estimated = EXCLUDED.estimated, updated_at = EXCLUDED.updated_at`,
-			t.ID, f.Usage.InputTokens, f.Usage.OutputTokens, f.Usage.CacheReadTokens, f.Usage.CostUSD, f.Usage.Estimated, now); err != nil {
+			  cache_read = EXCLUDED.cache_read, cost_usd = EXCLUDED.cost_usd, estimated = EXCLUDED.estimated,
+			  model = COALESCE(EXCLUDED.model, task_usage.model), updated_at = EXCLUDED.updated_at`,
+			t.ID, f.Usage.InputTokens, f.Usage.OutputTokens, f.Usage.CacheReadTokens, reported, f.Usage.Estimated, model, now); err != nil {
 			return fmt.Errorf("tasks: usage: %w", err)
 		}
 		costed = true
@@ -590,6 +611,9 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 // mixes a measured and an estimated number is an estimate.
 func (s *Service) rollUpCost(ctx context.Context, wsID, sessionID uuid.UUID, now time.Time) error {
 	return s.inTx(ctx, func(tx pgx.Tx) error {
+		if err := repriceEstimates(ctx, tx, wsID, sessionID, now); err != nil {
+			return err
+		}
 		var cost float64
 		var estimated bool
 		if err := tx.QueryRow(ctx, `
@@ -609,6 +633,86 @@ func (s *Service) rollUpCost(ctx context.Context, wsID, sessionID uuid.UUID, now
 		}
 		return nil
 	})
+}
+
+// repriceEstimates fills in the cost of the session's estimated usage rows
+// from the workspace price table (S-20, harness v0.7.1 "가격표는 워크스페이스
+// 소유 … 추정은 서버가 롤업 시 토큰 × 단가로").
+//
+// It runs INSIDE the roll-up rather than at finish so that correcting a price
+// (or configuring one for the first time) applies to the session's whole
+// history at the next finish, instead of freezing whatever rate happened to be
+// configured the minute each attempt ended. Recomputing is safe because the
+// inputs — tokens and model — do not change; only rows the daemon marked
+// `estimated` are touched, so a measured cost is never overwritten.
+//
+// An unknown model is left alone. `estimated: true` with cost 0 then keeps
+// saying "we do not know", which is the honest answer and the reason the badge
+// exists; inventing a rate would be worse than the $0 this whole change is
+// about, because a made-up number cannot be told from a measured one.
+func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID, now time.Time) error {
+	table, err := cost.Load(ctx, tx, wsID)
+	if err != nil {
+		return fmt.Errorf("tasks: pricing: %w", err)
+	}
+	type row struct {
+		taskID uuid.UUID
+		usd    float64
+	}
+	// The cursor is drained before any write: tx is one connection, and a
+	// write issued mid-iteration would find it busy.
+	//
+	// ORDER BY task_id is not cosmetic — two finishes in the same session roll
+	// up concurrently, and locking the same rows in the same order is what
+	// keeps the pair from deadlocking.
+	rows, err := tx.Query(ctx, `
+		SELECT u.task_id, u.input_tokens, u.output_tokens, u.cache_read, u.cost_usd, COALESCE(NULLIF(u.model, ''), p.model, '')
+		FROM task_usage u
+		JOIN task t ON t.id = u.task_id
+		LEFT JOIN agent_profile p ON p.id = t.profile_id
+		WHERE t.session_id = $1 AND u.estimated
+		ORDER BY u.task_id`, sessionID)
+	if err != nil {
+		return fmt.Errorf("tasks: pricing rows: %w", err)
+	}
+	var todo []row
+	for rows.Next() {
+		var id uuid.UUID
+		var in, out, cacheRead int64
+		var stored float64
+		var model string
+		if err := rows.Scan(&id, &in, &out, &cacheRead, &stored, &model); err != nil {
+			rows.Close()
+			return fmt.Errorf("tasks: pricing scan: %w", err)
+		}
+		usd, ok := table.Estimate(model, in, out, cacheRead)
+		if !ok || usd == stored {
+			continue
+		}
+		todo = append(todo, row{taskID: id, usd: usd})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("tasks: pricing rows: %w", err)
+	}
+	if len(todo) == 0 {
+		return nil
+	}
+	b := &pgx.Batch{}
+	for _, r := range todo {
+		b.Queue(`UPDATE task_usage SET cost_usd = $2, updated_at = $3 WHERE task_id = $1 AND estimated`, r.taskID, r.usd, now)
+	}
+	br := tx.SendBatch(ctx, b)
+	for range todo {
+		if _, err := br.Exec(); err != nil {
+			_ = br.Close()
+			return fmt.Errorf("tasks: pricing update: %w", err)
+		}
+	}
+	if err := br.Close(); err != nil {
+		return fmt.Errorf("tasks: pricing update: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) inTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
