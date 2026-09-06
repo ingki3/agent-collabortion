@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -268,6 +269,19 @@ func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID
 	if runtimeID == nil {
 		// The session was never dispatched (C4 fixes runtime_id at first
 		// dispatch), so no machine holds a directory for it.
+		//
+		// S-34: this used to return in silence. Under `none` isolation it is
+		// unreachable — a session with no runtime has no workdir either — but
+		// if it ever IS reached the directories are stranded with nothing in
+		// the log, which is exactly the shape of the P4 GC bug this branch
+		// would cause. One line, only when there is actually something to
+		// collect.
+		var orphans int
+		_ = tx.QueryRow(ctx, `SELECT count(*) FROM workdir WHERE session_id = $1 AND status <> 'deleted'`, sessionID).Scan(&orphans)
+		if orphans > 0 {
+			slog.Warn("sessions: session has workdirs but no runtime — gc not issued",
+				"session", sessionID, "workdirs", orphans, "isolation", kind)
+		}
 		return nil
 	}
 	rows, err := tx.Query(ctx, `

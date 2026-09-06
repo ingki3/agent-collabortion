@@ -391,6 +391,35 @@ func TestG5ApprovalCompletesSession(t *testing.T) {
 	if summaries != 1 {
 		t.Fatalf("session_summary messages = %d, want exactly 1 (FR-2.4)", summaries)
 	}
+	// S-33: the Director's inbox is what FR-8 promises after a session ends,
+	// and nothing asserted it — `listInbox` was P3 at the time, so the row was
+	// left out rather than measured through the table. It is measured through
+	// the API now that the endpoint exists.
+	items := f.api.must(200, "GET", "/api/v1/inbox?session_id="+f.sessionID, nil)
+	list, _ := items["items"].([]any)
+	completed := 0
+	for _, it := range list {
+		row, _ := it.(map[string]any)
+		if str(row, "type") == "session_completed" {
+			completed++
+			if str(row, "severity") != "info" {
+				t.Fatalf("session_completed severity = %q, want info — the nav badge counts action_required only (SCREEN §4.6)", str(row, "severity"))
+			}
+		}
+	}
+	if completed != 1 {
+		t.Fatalf("session_completed inbox items = %d, want exactly 1 for the Director (FR-8, S-33)", completed)
+	}
+	// The approval's own action_required item is resolved by the response, not
+	// by reading it (openapi markInboxRead).
+	var unreadApproval int
+	if err := f.pool.QueryRow(t.Context(), `
+		SELECT count(*) FROM inbox_item WHERE ref_id = $1 AND read_at IS NULL`, hitl).Scan(&unreadApproval); err != nil {
+		t.Fatal(err)
+	}
+	if unreadApproval != 0 {
+		t.Fatalf("answered HITL still has %d unread inbox rows (S-33)", unreadApproval)
+	}
 }
 
 // E6-04: 거절 → 세션 `active` 유지 · `artifact_submitted` 유지 · 사유가 결정 기록에.
