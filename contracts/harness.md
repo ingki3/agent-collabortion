@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.8 — §10 **도구 표면**(`tool_surface`: claude_code `mcp`, hermes `cli_wrapper` — 데몬이 attempt별 래퍼를 만들고 브리프 [2]에 절대 경로) + §9 광고. G5 (b) 차단 결함. v0.7.1은 §11 `estimated`의 자리별 표현(`usage.report` 생략 / `finish` 0 + 무시). v0.7은 §11 `cost_usd` 부재 규칙(생략 + `estimated:true`)과 가격표 소유(워크스페이스=서버). v0.6은 §2.1 시스템 최소에 `USER`(G4 차단 결함: OAuth 갱신 시 키체인이 `USER`를 쓴다). v0.5는 §9 `supported_options`(T-W2가 찾은 빈칸: 프로파일 옵션 능력을 광고할 키가 v0.4.1 대조에서 빠졌다). v0.3 은 PR #20(데몬 P1) 구현·리뷰에서 드러난 5건 반영(usage 시점, Hermes 모델 접두어, Hermes 본문 오류 접두어 규칙, disallowedTools 도출, 250ms 비주입). v0.2는 스파이크 1b 반영 |
+| 버전 | v0.8.1 — §10 cli_wrapper 치환 범위를 브리프+턴 프롬프트로(D-7 워커 지적). v0.8은 §10 **도구 표면**(`tool_surface`: claude_code `mcp`, hermes `cli_wrapper` — 데몬이 attempt별 래퍼를 만들고 브리프 [2]에 절대 경로) + §9 광고. G5 (b) 차단 결함. v0.7.1은 §11 `estimated`의 자리별 표현(`usage.report` 생략 / `finish` 0 + 무시). v0.7은 §11 `cost_usd` 부재 규칙(생략 + `estimated:true`)과 가격표 소유(워크스페이스=서버). v0.6은 §2.1 시스템 최소에 `USER`(G4 차단 결함: OAuth 갱신 시 키체인이 `USER`를 쓴다). v0.5는 §9 `supported_options`(T-W2가 찾은 빈칸: 프로파일 옵션 능력을 광고할 키가 v0.4.1 대조에서 빠졌다). v0.3 은 PR #20(데몬 P1) 구현·리뷰에서 드러난 5건 반영(usage 시점, Hermes 모델 접두어, Hermes 본문 오류 접두어 규칙, disallowedTools 도출, 250ms 비주입). v0.2는 스파이크 1b 반영 |
 | 소유 | D + Lead. 변경은 Director 승인 PR로만 (`contracts/README.md`) |
 | 근거 | PRD §8.2 (하네스), §8.4 (브리프), FR-7.1 (재시도), FR-3.4·§8.2.2 (취소), FR-5.4 (재개). **G1 판정 `plan/G1_DECISION.md` 와 스파이크 보고서 `plan/spikes/SPIKE_01..06.md`, `SPIKE_01b.md`** — 이 문서의 수치·옵션 키는 전부 실측에서 왔다 |
 | 미결 | 없음 (§12 참조). 서브에이전트 가시성은 v1 피드 요구로 미광고 |
@@ -215,7 +215,7 @@ Hermes: `usage: true`(G1 F6), `resume: true`(`session/load`), `brief_transport: 
 | 런타임 | `tool_surface` | 전달 |
 |---|---|---|
 | `claude_code` | `mcp` | `session/new.mcpServers`에 colab MCP(stdio) 하나(§3, `strictMcpConfig`). CLI는 보조 |
-| `hermes` | `cli_wrapper` | Hermes ACP 어댑터는 `mcpServers`를 **조용히 무시**하고(initialize 응답에 `mcpCapabilities` 없음, G5 실측), 셸·파이썬 도구를 **위생화된 env**로 띄워 프로세스 env의 `COLAB_*`·`PATH`가 도구까지 내려가지 않는다. 그래서 데몬이 attempt마다 **래퍼 실행 파일** `<workdir_root>/.colab/bin/<task_id>.<attempt>/colab`(`COLAB_TASK_TOKEN`·`COLAB_SERVER_URL`·`COLAB_TASK_ID`·`COLAB_TASK_ATTEMPT`·`COLAB_LANE_ID`·`COLAB_SESSION_ID`·`COLAB_AGENT_NAME`을 export하고 `config.ColabBin`을 `exec`)을 만들고, 브리프 [2]의 CLI 안내에 **그 절대 경로**를 적는다. 저장소 트리 밖(`.colab/`)이라 커밋에 섞이지 않고, `finish` 시 pgid 기록과 함께 삭제한다(토큰은 어차피 attempt와 함께 폐기된다) |
+| `hermes` | `cli_wrapper` | Hermes ACP 어댑터는 `mcpServers`를 **조용히 무시**하고(initialize 응답에 `mcpCapabilities` 없음, G5 실측), 셸·파이썬 도구를 **위생화된 env**로 띄워 프로세스 env의 `COLAB_*`·`PATH`가 도구까지 내려가지 않는다. 그래서 데몬이 attempt마다 **래퍼 실행 파일** `<workdir_root>/.colab/bin/<task_id>.<attempt>/colab`(`COLAB_TASK_TOKEN`·`COLAB_SERVER_URL`·`COLAB_TASK_ID`·`COLAB_TASK_ATTEMPT`·`COLAB_LANE_ID`·`COLAB_SESSION_ID`·`COLAB_AGENT_NAME`을 export하고 `config.ColabBin`을 `exec`)을 만들고, **데몬이 전달하는 모든 텍스트 — 브리프 마커 구간과 턴 프롬프트 — 에서 명령 위치의 `colab ` 접두(줄머리·백틱/코드 블록 안·`$ ` 뒤)를 그 절대 경로로 치환한다**(v0.8.1: 서버가 만드는 턴 프롬프트에도 `colab message post`가 들어 있어 브리프만 바꾸면 구멍이 남는다; 산문 속 "colab CLI" 같은 단어는 건드리지 않는다). 서버는 래퍼 경로를 알 수 없으므로 치환은 데몬 몫이다. 저장소 트리 밖(`.colab/`)이라 커밋에 섞이지 않고, `finish` 시 pgid 기록과 함께 삭제한다(토큰은 어차피 attempt와 함께 폐기된다) |
 
 **판정은 실측**: `initialize` 응답에 `mcpCapabilities`가 있으면 `mcp`, 없으면 `cli_wrapper`. 값은 §9 `runtime.capabilities[].tool_surface`로 광고한다 — G5에서 Hermes probe가 11/11 초록인데 에이전트는 플랫폼에 한 마디도 못 했던 것이 이 칸이 비어 있어서였다.
 
