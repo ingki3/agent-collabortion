@@ -36,7 +36,7 @@ describe("Composer — 트리거 미리보기는 서버가 판정한다(W-6)", (
   it("previewTriggers 응답을 그대로 칩으로 그린다 — 규칙 번호·큐잉·재진입까지", async () => {
     const onPreview = vi.fn<PreviewFn>(async () => ({
       ...empty,
-      triggers: [trigger({ will_queue: true, lane: { resolution: 4, lane_id: "lane-9", reentry: true }, profile: { id: "p1", name: "default", runtime_kind: "claude_code", model: "claude-sonnet-5" } })],
+      triggers: [trigger({ will_queue: true, lane: { resolution: 3, lane_id: "lane-9", reentry: true }, profile: { id: "p1", name: "default", runtime_kind: "claude_code", model: "claude-sonnet-5" } })],
     }));
     render(<Composer agents={AGENTS} onPreview={onPreview} onSubmit={vi.fn<SubmitFn>(async () => [])} previewDelayMs={0} />);
     type("[@Lead](mention://agent/a-lead) 범위를 좁혀줘");
@@ -130,7 +130,7 @@ describe("Composer — new_lane 토글은 전송 후 자동 해제된다 (t-2 ·
   it("토글이 켜져 있으면 미리보기도 new_lane 으로 묻는다 — 칩이 '새 lane' 이라고 말한다", async () => {
     const onPreview = vi.fn<PreviewFn>(async (i) => ({
       ...empty,
-      triggers: [trigger(i.newLane ? { lane: { resolution: 1, lane_id: null, reentry: false } } : {})],
+      triggers: [trigger(i.newLane ? { lane: { resolution: 4, lane_id: null, reentry: false } } : {})],
     }));
     render(<Composer agents={AGENTS} onPreview={onPreview} onSubmit={vi.fn<SubmitFn>(async () => [])} previewDelayMs={0} />);
     type("[@Lead](mention://agent/a-lead) 별도로");

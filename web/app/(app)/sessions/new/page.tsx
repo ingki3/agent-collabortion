@@ -61,6 +61,8 @@ export default function NewSessionPage() {
   // 6 종료 조건
   const [conds, setConds] = useState<CondType[]>(["artifact_submitted", "user_approval"]);
   const [op, setOp] = useState<"and" | "or">("and");
+  /** `artifact_submitted` 의 제출자. 빈 문자열이면 `who: "assignee"`(기본값, SCREEN §4.4 6단계). */
+  const [submitter, setSubmitter] = useState<string>("");
   // 7 한도
   const [budget, setBudget] = useState("20");
   const [timeLimit, setTimeLimit] = useState("PT4H");
@@ -148,6 +150,11 @@ export default function NewSessionPage() {
     setAssignee(lead ?? pickedIds[0] ?? "");
   }, [pickedIds.join(","), invitable, assignee]);
 
+  // 참여자에서 빠진 에이전트가 제출자로 남으면 아무도 못 채우는 종료 조건이 된다 — assignee 로 되돌린다.
+  useEffect(() => {
+    if (submitter && !pickedIds.includes(submitter)) setSubmitter("");
+  }, [pickedIds.join(","), submitter]);
+
   /** 선택한 런타임에 없는 `runtime_kind` 의 프로파일은 경고(거부 아님). */
   const runtimeKinds = useMemo(() => {
     const rts = runtimeId ? online.filter((r) => r.id === runtimeId) : online;
@@ -164,6 +171,8 @@ export default function NewSessionPage() {
   );
 
   const humanGate = conds.includes("user_approval") || conds.includes("manual");
+  /** 화면에 쓰는 제출자 이름 — 지정이 없으면 역할(`assignee`) 그대로 말한다. */
+  const submitterLabel = submitter ? `@${invitable.find((a) => a.id === submitter)?.name ?? submitter}` : "assignee";
   const stepBlocked = ((): string | null => {
     if (step === 0) return title.trim() && goal.trim() ? null : "제목과 goal 을 입력하세요";
     if (step === 2 && isolation === "worktree") {
@@ -197,7 +206,11 @@ export default function NewSessionPage() {
           context: contextSessionId ? [{ type: "session" as const, ref: contextSessionId }] : [],
           completion_condition: {
             op,
-            conditions: conds.map((t) => (t === "artifact_submitted" ? { type: t, who: "assignee" } : { type: t })),
+            // CompletionAtom: `who` 는 역할(`assignee`), `agent_id` 는 **`who` 대신** 쓰는 지정 에이전트다.
+            // 둘을 함께 보내지 않는다 — 계약이 배타로 적었다. E6-02 는 이 지정으로 판정된다.
+            conditions: conds.map((t) =>
+              t !== "artifact_submitted" ? { type: t } : submitter ? { type: t, agent_id: submitter } : { type: t, who: "assignee" },
+            ),
           },
           limits: {
             budget_usd: budget ? Number(budget) : null,
@@ -417,15 +430,36 @@ export default function NewSessionPage() {
           </div>
           <div className="stack" style={{ gap: 6 }}>
             {COND_ORDER.map((t) => (
-              <ConditionRow
-                key={t}
-                type={t}
-                met={null}
-                variant="wizard"
-                selected={conds.includes(t)}
-                who={t === "artifact_submitted" ? "assignee" : undefined}
-                onToggle={(next) => setConds((c) => (next ? [...c, t] : c.filter((x) => x !== t)))}
-              />
+              <div key={t} className="stack" style={{ gap: 4 }}>
+                <ConditionRow
+                  type={t}
+                  met={null}
+                  variant="wizard"
+                  selected={conds.includes(t)}
+                  who={t === "artifact_submitted" ? submitterLabel : undefined}
+                  onToggle={(next) => setConds((c) => (next ? [...c, t] : c.filter((x) => x !== t)))}
+                />
+                {/* 제출자를 고를 수 없으면 시나리오 A 3단계("**Writer 가** 아티팩트 제출")를 화면으로 만들 수 없다.
+                    E6-02 는 "지정 에이전트가 아니면 미충족" 이므로 그 지정이 여기서 나온다. 기본값은 assignee 다. */}
+                {t === "artifact_submitted" && conds.includes(t) && (
+                  <label className="row small" style={{ paddingLeft: 26 }}>
+                    <span className="muted">제출자</span>
+                    <select
+                      className="select"
+                      style={{ width: "auto" }}
+                      value={submitter}
+                      onChange={(e) => setSubmitter(e.target.value)}
+                      data-testid="submitter-select"
+                      aria-label="아티팩트 제출자"
+                    >
+                      <option value="">assignee (기본) — 담당이 바뀌면 따라갑니다</option>
+                      {pickedIds.map((id) => (
+                        <option key={id} value={id}>@{invitable.find((a) => a.id === id)?.name ?? id}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
             ))}
             <ConditionRow type="criteria_met" met={null} variant="wizard" disabled disabledNote="v1.1 — 성공 기준 자동 판정은 아직 없습니다" />
           </div>
@@ -486,7 +520,7 @@ export default function NewSessionPage() {
               <li>격리 <b>{isolation}</b>{isolation === "worktree" ? ` · ${repoPath}` : ""}</li>
               <li>런타임 <b>{runtimeId ? online.find((r) => r.id === runtimeId)?.name ?? runtimeId : "자동 선택(첫 실행 시 고정)"}</b></li>
               <li>참여자 {pickedIds.map((id) => `@${invitable.find((a) => a.id === id)?.name}`).join(", ") || "—"} · assignee <b>@{invitable.find((a) => a.id === assignee)?.name ?? "—"}</b></li>
-              <li>종료 조건 <b>{conds.join(op === "and" ? " AND " : " OR ")}</b>{humanGate ? "" : " — 사람 승인 없음"}</li>
+              <li>종료 조건 <b>{conds.join(op === "and" ? " AND " : " OR ")}</b>{conds.includes("artifact_submitted") ? ` · 제출자 ${submitterLabel}` : ""}{humanGate ? "" : " — 사람 승인 없음"}</li>
               <li>한도 {budget ? `$${budget}` : "예산 없음"} · {timeLimit || "시간 제한 없음"} · autonomy <b>{autonomy}</b></li>
             </ul>
           </div>
