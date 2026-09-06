@@ -57,17 +57,21 @@ func row(t *testing.T, s *Service, id uuid.UUID) *Row {
 	return r
 }
 
-// E5-02: dispatched with no preparing report for 5 minutes → timeout.
-// Default max_attempts requeues (daemon-protocol §4.1); max_attempts=1 fails.
+// E5-02: dispatched with no preparing report for 5 minutes → failed(timeout).
+//
+// It is NOT a retry, whatever max_attempts says (daemon-protocol §4.1 v0.6,
+// contract PR #60; PRD FR-7.1 leaves `timeout` out of the retry list). Nobody
+// ever claimed the task, so there is no interrupted work to resume — and the
+// token must die with it so a zombie daemon cannot report in afterwards.
 func TestExpireStaleDispatchedTimeout(t *testing.T) {
 	s, c, seed := newService(t)
 	ctx := context.Background()
-	retry := testdb.AddTask(t, s.DB, seed, seed.SessionID, t0)
+	plenty := testdb.AddTask(t, s.DB, seed, seed.SessionID, t0) // max_attempts 3
 	final := testdb.AddTask(t, s.DB, seed, seed.SessionID, t0)
 	if _, err := s.DB.Exec(ctx, `UPDATE task SET max_attempts = 1 WHERE id = $1`, final); err != nil {
 		t.Fatal(err)
 	}
-	tokRetry := dispatch(t, s, seed, retry)
+	tokPlenty := dispatch(t, s, seed, plenty)
 	dispatch(t, s, seed, final)
 
 	c.Advance(4 * time.Minute)
@@ -79,11 +83,12 @@ func TestExpireStaleDispatchedTimeout(t *testing.T) {
 	if err != nil || n != 2 {
 		t.Fatalf("expired %d err=%v, want 2", n, err)
 	}
-	r := row(t, s, retry)
-	if r.Status != Queued || r.Attempt != 2 || r.RuntimeID != nil {
-		t.Fatalf("retry task = %s attempt %d rt %v; want queued attempt 2", r.Status, r.Attempt, r.RuntimeID)
+	r := row(t, s, plenty)
+	if r.Status != Failed || r.Attempt != 1 || r.FailureKind == nil || *r.FailureKind != "timeout" {
+		t.Fatalf("task = %s attempt %d kind %v; want failed(timeout) at attempt 1 even with attempts left",
+			r.Status, r.Attempt, r.FailureKind)
 	}
-	atts, _ := ListAttempts(ctx, s.DB, retry)
+	atts, _ := ListAttempts(ctx, s.DB, plenty)
 	if len(atts) != 1 || atts[0].Outcome == nil || *atts[0].Outcome != "timeout" {
 		t.Fatalf("attempt history = %+v, want attempt 1 outcome timeout", atts)
 	}
@@ -91,8 +96,8 @@ func TestExpireStaleDispatchedTimeout(t *testing.T) {
 	if f.Status != Failed || f.FailureKind == nil || *f.FailureKind != "timeout" {
 		t.Fatalf("final task = %s %v; want failed(timeout)", f.Status, f.FailureKind)
 	}
-	if _, err := s.Tokens.Verify(ctx, s.DB, tokRetry); err != tokens.ErrRevoked {
-		t.Fatalf("token after requeue: %v, want revoked", err)
+	if _, err := s.Tokens.Verify(ctx, s.DB, tokPlenty); err != tokens.ErrRevoked {
+		t.Fatalf("token after the timeout: %v, want revoked", err)
 	}
 }
 
@@ -120,8 +125,8 @@ func TestExpireStalePreparingUsesDispatchTimeout(t *testing.T) {
 		t.Fatalf("preparing past DispatchedTimeout: n=%d err=%v, want 1", n, err)
 	}
 	r := row(t, s, id)
-	if r.Status != Queued || r.Attempt != 2 {
-		t.Fatalf("task = %s attempt %d, want queued attempt 2", r.Status, r.Attempt)
+	if r.Status != Failed || r.Attempt != 1 {
+		t.Fatalf("task = %s attempt %d, want failed at attempt 1 (§4.1 v0.6)", r.Status, r.Attempt)
 	}
 	atts, _ := ListAttempts(ctx, s.DB, id)
 	if len(atts) != 1 || atts[0].Outcome == nil || *atts[0].Outcome != "timeout" {

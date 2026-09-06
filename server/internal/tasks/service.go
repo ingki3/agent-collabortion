@@ -379,7 +379,12 @@ func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 			if err != nil {
 				return err
 			}
-			if err := s.requeueLocked(ctx, tx, t, contracts.FailTimeout, nil, now); err != nil {
+			// daemon-protocol §4.1 (v0.6) + PRD FR-7.1: the dispatch timeout ENDS
+			// the task, it does not re-queue it. Nobody ever claimed the work, so
+			// there is nothing to resume, and handing it back to the same silent
+			// runtime just burns the attempt budget. `timeout` is deliberately
+			// absent from FR-7.1's retry list.
+			if err := s.failLocked(ctx, tx, t, contracts.FailTimeout, now); err != nil {
 				return err
 			}
 			n++
@@ -717,6 +722,49 @@ func (s *Service) cancelLocked(ctx context.Context, tx pgx.Tx, t *Row, stopReaso
 	}
 	fk := string(contracts.FailCancelled)
 	t.Status, t.FailureKind, t.FinishedAt, t.StopReason, t.PausedReason = Cancelled, &fk, &now, stop, nil
+	s.publish(ctx, tx, t)
+	return nil
+}
+
+// failLocked ends the attempt AND the task, with no retry. It shares
+// requeueLocked's bookkeeping — cancel absorption, token revocation, the
+// task_attempt row — so the two exits cannot drift apart.
+//
+// Revoking the token matters as much as the status here: a zombie daemon that
+// wakes up after the timeout must not be able to report into a task the server
+// has already closed (daemon-protocol §4.1 v0.6, §5).
+func (s *Service) failLocked(ctx context.Context, tx pgx.Tx, t *Row, reason contracts.FailureKind, now time.Time) error {
+	if Terminal(t.Status) {
+		return nil
+	}
+	if requested, err := cancelRequested(ctx, tx, t.ID, t.Attempt); err != nil {
+		return err
+	} else if requested {
+		return s.cancelLocked(ctx, tx, t, string(reason), now)
+	}
+	if err := s.Tokens.Revoke(ctx, tx, t.ID, t.Attempt, string(reason)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO task_attempt (task_id, attempt, runtime_id, finished_at, outcome, failure_kind)
+		VALUES ($1, $2, $3, $4, $5, $6::failure_kind)
+		ON CONFLICT (task_id, attempt) DO UPDATE SET finished_at = EXCLUDED.finished_at, outcome = EXCLUDED.outcome, failure_kind = EXCLUDED.failure_kind`,
+		t.ID, t.Attempt, t.RuntimeID, now, string(reason), string(reason)); err != nil {
+		return fmt.Errorf("tasks: record attempt: %w", err)
+	}
+	if _, err := Transition(t.Status, Failed); err != nil {
+		return err
+	}
+	fk := string(reason)
+	if _, err := tx.Exec(ctx, `
+		UPDATE task SET status = 'failed', failure_kind = $2, finished_at = $3, heartbeat_at = NULL, updated_at = $3 WHERE id = $1`,
+		t.ID, fk, now); err != nil {
+		return fmt.Errorf("tasks: fail: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'failed', finished_at = $2, updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+		return err
+	}
+	t.Status, t.FailureKind, t.FinishedAt = Failed, &fk, &now
 	s.publish(ctx, tx, t)
 	return nil
 }
