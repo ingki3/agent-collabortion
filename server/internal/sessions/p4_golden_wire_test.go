@@ -36,6 +36,8 @@ func init() {
 // UNREAD, which is what makes `BodyWasRead` a measurement rather than a claim:
 // the flag is set by `Response.Text()`, so it comes back true only if the
 // implementation actually parsed before deciding.
+// production caller: internal/sessions/summary.go:375 (Service.summarise), reached
+// from internal/sessions/complete.go:176 (ApplyCompletionEvent's `completed` arm).
 func adaptRunSummaryP4(r summaryRun) summaryResult {
 	var res *llm.Response
 	var callErr error
@@ -80,6 +82,7 @@ func (transportError) Error() string { return "llm: transport failure" }
 
 var errTransport = transportError{}
 
+// production caller: internal/sessions/summary.go:369 (Service.summarise).
 func adaptBuildLLMRequest(job string) llmRequest {
 	r := llm.BuildRequest(job)
 	return llmRequest{
@@ -93,6 +96,7 @@ func adaptBuildLLMRequest(job string) llmRequest {
 	}
 }
 
+// production caller: internal/llm/anthropic.go:175 (Client.Do — every §8.5 job).
 func adaptVerifyCache(prefixTokens, minCacheTokens, cacheReadTokens int) cacheVerification {
 	v := llm.VerifyCache(prefixTokens, minCacheTokens, cacheReadTokens)
 	return cacheVerification{
@@ -102,6 +106,7 @@ func adaptVerifyCache(prefixTokens, minCacheTokens, cacheReadTokens int) cacheVe
 	}
 }
 
+// production caller: internal/queue/bundle.go:596 (buildBundle, brief [6] Context).
 func adaptPlanContextReuse(c contextReuseCase) contextReuseResult {
 	p := PlanContextReuse(ContextReuseInput{
 		StoredSummaryTokens: c.StoredSummaryTokens,
@@ -122,6 +127,8 @@ func adaptPlanContextReuse(c contextReuseCase) contextReuseResult {
 // takes. An entry with no text is a real row — an artifact submitted without a
 // title — and the composer renders it as such, so the counts survive the map
 // without the adapter inventing content.
+// production caller: internal/sessions/summary.go:356 (Service.summarise — the
+// fallback body when the platform LLM is unconfigured or refuses).
 func adaptBuildSummaryBody(decisions, artifacts, tasks int, costUSD float64) summaryContent {
 	c := BuildSummaryBody(SummaryFacts{
 		Title:     "골든 세션",

@@ -52,6 +52,7 @@ func init() {
 	// planBriefFile stays nil on purpose — see the file comment.
 }
 
+// production caller: internal/httpapi/handlers_p4.go:99 (checkRepo).
 func adaptCheckRepo(c repoCheck) repoVerdict {
 	v := CheckRepo(RepoCheck{
 		Exists: c.Exists, IsGit: c.IsGit, Clean: c.Clean,
@@ -60,6 +61,8 @@ func adaptCheckRepo(c repoCheck) repoVerdict {
 	return repoVerdict{OK: v.OK, FormBlocked: v.FormBlocked, Problems: v.Problems, HTTPStatus: v.HTTPStatus}
 }
 
+// production caller: internal/queue/bundle.go:350 (buildBundle — the bundle's
+// workdir plan).
 func adaptPlanWorktree(r worktreeRequest) worktreePlan {
 	p := PlanWorktree(WorktreeRequest{
 		SessionSlug: r.SessionSlug, AgentSlug: r.AgentSlug, AgentID: r.AgentID,
@@ -79,6 +82,7 @@ func adaptPlanWorktree(r worktreeRequest) worktreePlan {
 // TestBundleWorkdirPathsExcludesOtherAgents (workdirs_db_test.go); wiring the
 // pool in here would make this table skip whenever COLAB_TEST_DB_URL is unset,
 // and a golden that skips is a golden nobody notices going red.
+// production caller: internal/queue/bundle.go:347 (buildBundle).
 func adaptBundleWorkdirPaths(sessionID, agentID uuid.UUID) []string {
 	p := PlanWorktree(WorktreeRequest{
 		Root: "/w", SessionSlug: Slug(sessionID.String()), AgentSlug: Slug(agentID.String()),
@@ -87,6 +91,8 @@ func adaptBundleWorkdirPaths(sessionID, agentID uuid.UUID) []string {
 	return []string{p.Path}
 }
 
+// production caller: internal/workdirs/sweep.go:135 (Service.Sweep, run by
+// cmd/server/main.go's GC tick).
 func adaptJudgeGC(c gcCase) gcVerdict {
 	v := JudgeGC(GCCase{
 		Isolation: c.Isolation, SessionStatus: c.SessionStatus,
@@ -99,6 +105,8 @@ func adaptJudgeGC(c gcCase) gcVerdict {
 	}
 }
 
+// production caller: internal/sessions/sessions.go:86 (quota check on
+// createSession).
 func adaptCheckDiskQuota(usedBytes int64, quotaGB int) quotaVerdict {
 	v := CheckDiskQuota(usedBytes, quotaGB)
 	return quotaVerdict{
@@ -106,6 +114,8 @@ func adaptCheckDiskQuota(usedBytes int64, quotaGB int) quotaVerdict {
 	}
 }
 
+// production caller: internal/workdirs/sweep.go:184 (Service.Sweep) and
+// internal/httpapi/handlers_p4.go:236 (the manual workdir GC endpoint).
 func adaptBuildGCCommand(ids []uuid.UUID, paths []string) gcCommandPayload {
 	cmd := BuildGCCommand(p4Session, ids, paths)
 	out := gcCommandPayload{SessionID: cmd.SessionID}

@@ -42,6 +42,8 @@ func init() {
 // shows and a zero there is the bug E14-02 checks for.
 var goldenNow = time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
 
+// production caller: internal/runtimes/offline.go:175 (Service.SweepOffline,
+// run by cmd/server/main.go's one-minute scheduler tick).
 func adaptSweepOffline(c offlineCase) offlineOutcome {
 	in := OfflineCase{
 		RuntimeID: c.RuntimeID, OfflineFor: c.OfflineFor, Grace: c.Grace,
@@ -58,6 +60,8 @@ func adaptSweepOffline(c offlineCase) offlineOutcome {
 	}
 }
 
+// production caller: internal/runtimes/offline.go:474 (Service.Rebind) and
+// internal/runtimes/candidates.go (Service.Candidates → listRuntimeCandidates).
 func adaptJudgeCandidate(c candidateCase) candidateVerdict {
 	in := CandidateCase{Isolation: c.Isolation, SessionRemote: c.SessionRemote, Online: c.Online}
 	for _, r := range c.Repos {
@@ -74,6 +78,8 @@ func adaptJudgeCandidate(c candidateCase) candidateVerdict {
 // and nothing touches the conversation, because messages, artifacts and
 // decisions live on the SERVER and a rebind that cleared them would be
 // destroying data it never had to touch (FR-9.2).
+// production caller: internal/runtimes/offline.go:480 (Service.Rebind), reached
+// from internal/httpapi/handlers_p4.go:286 (POST /sessions/{id}/rebind).
 func adaptRebind(c rebindCase) rebindResult {
 	in := RebindInput{
 		Isolation: c.Isolation, TargetEligible: c.TargetEligible,
@@ -110,6 +116,8 @@ func adaptRebind(c rebindCase) rebindResult {
 	return out
 }
 
+// production caller: internal/httpapi/handlers_sessions_p3.go:343
+// (Server.CancelSession, the paused(runtime_offline) arm).
 func adaptEndOffline(artifacts int) endResult {
 	r := PlanOfflineEnd(artifacts)
 	return endResult{
@@ -119,6 +127,8 @@ func adaptEndOffline(artifacts int) endResult {
 	}
 }
 
+// production caller: internal/runtimes/offline.go:691 (Service.DeleteRuntime),
+// reached from internal/httpapi (DELETE /runtimes/{id}).
 func adaptDeleteRuntime(c deleteRuntimeCase) deleteRuntimeResult {
 	r := PlanRuntimeDelete(DeleteCase{
 		ActiveSessions: c.ActiveSessions, PausedOfflineSessions: c.PausedOfflineSessions,
