@@ -677,6 +677,18 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 				  finished_at = $2, updated_at = $2 WHERE id = $1 AND status <> 'blocked'`, t.LaneID, now); err != nil {
 				return err
 			}
+			// S-53: a turn that COMPLETED after a rebind has replayed the
+			// diffs, so the instruction stops travelling. It is cleared here
+			// rather than when the bundle is built because a bundle can be
+			// built and then lost — a requeue (E5-03 runtime_offline) on the
+			// first attempt after a rebind would otherwise leave attempt 2 with
+			// a cold-start prompt and no word about the diffs to apply, and
+			// E14-06 would break silently.
+			if _, err := tx.Exec(ctx, `
+				UPDATE session SET rebind_prompt = NULL, updated_at = $2
+				WHERE id = $1 AND rebind_prompt IS NOT NULL`, t.SessionID, now); err != nil {
+				return err
+			}
 			t.Status, t.FinishedAt = Completed, &now
 		case "cancelled":
 			if err := s.cancelLocked(ctx, tx, t, f.StopReason, now); err != nil {

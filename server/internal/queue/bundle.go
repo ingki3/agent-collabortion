@@ -276,8 +276,18 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, token string) (*c
 		NewInstruction: newInstruction,
 	})
 
+	// S-53: the rebind instruction, if this session was moved to a new machine
+	// and the diffs have not been replayed yet. It goes FIRST — before
+	// `<resumed>`, before the history — because nothing else in the prompt is
+	// true until the workdir has the previous machine's work in it.
+	var rebindPrompt string
+	_ = tx.QueryRow(ctx, `SELECT COALESCE(rebind_prompt, '') FROM session WHERE id = $1`, t.SessionID).Scan(&rebindPrompt)
+
 	// Turn prompt
 	var prompt strings.Builder
+	if rebindPrompt != "" {
+		fmt.Fprintf(&prompt, "<rebind>\n%s</rebind>\n\n", ensureTrailingNewline(rebindPrompt))
+	}
 	renderResumedSection(&prompt, plan, t.Attempt, prevOutcome, postedLines, answered)
 	fmt.Fprintf(&prompt, "<history included=%d total=%d truncated=%t>\n%s</history>\n\n",
 		plan.HistoryIncluded, plan.HistoryTotal, plan.HistoryTruncated, hist.String())
@@ -697,6 +707,15 @@ func lastAnsweredHitl(ctx context.Context, tx pgx.Tx, taskID uuid.UUID) (*hitlAn
 // renderHitlAnswer writes §8.4's HITL section of `<resumed>`. The section name
 // is hitl.PromptSections' — the same value RespondPlan carries into the golden
 // table (E7-07 question/answer, E7-17 approved:false + reason).
+// ensureTrailingNewline keeps `</rebind>` on its own line whatever the prompt
+// builder ended with.
+func ensureTrailingNewline(s string) string {
+	if strings.HasSuffix(s, "\n") {
+		return s
+	}
+	return s + "\n"
+}
+
 // renderResumedSection writes PRD §8.4's `<resumed>` block: why the previous
 // attempt stopped, what it already posted, the HITL answer it was waiting for,
 // whether this turn is cold, and the workdir check.

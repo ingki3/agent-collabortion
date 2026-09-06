@@ -491,11 +491,21 @@ func (s *Service) Rebind(ctx context.Context, wsID, sessionID, targetRuntime uui
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
+	// S-53: `rebind_prompt` is how E14-06's instruction reaches an agent.
+	// PlanRebind builds the sentence; before this it was computed and dropped,
+	// so `rebind_prepare` downloaded artifacts nobody was ever told to apply.
+	// It is written in the SAME transaction as the rebind — a prompt stored
+	// after a failed rebind would tell the next turn to replay diffs into a
+	// workdir that never moved.
+	var rebindPrompt any
+	if plan.Prompt != "" {
+		rebindPrompt = plan.Prompt
+	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE session SET runtime_id = $2, status = 'active', paused_reason = NULL, paused_detail = NULL,
-		       updated_at = $3
+		       rebind_prompt = $4, updated_at = $3
 		WHERE id = $1 AND status = 'paused' AND paused_reason = 'runtime_offline'`,
-		sessionID, targetRuntime, now)
+		sessionID, targetRuntime, now, rebindPrompt)
 	if err != nil {
 		return plan, err
 	}
