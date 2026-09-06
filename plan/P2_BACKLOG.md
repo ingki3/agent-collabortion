@@ -35,6 +35,7 @@
 | ~~D-14~~ | daemon-protocol v0.7 이후 `api.Command` 래퍼를 `contracts.Command` 로 접는 후속 정리(T-D5 가 남김) | PR #121 | 다음 데몬 작업 | **해결 — PR #129**
 | ~~D-15~~ | `closeProcess()` 를 `emitStep(5)` 없이 부르는 경로가 생기면 취소 순서 골든이 못 잡는다 — `closeProcess` 안에서 5단계 이벤트를 내게 묶기 | PR #121 리뷰 NN1 | 낮음 | **해결 — PR #129**
 | ~~D-16~~ | `budgetLimit` 우선순위가 `Task.BudgetOverrideUSD > Limits.BudgetUSD > Task.BudgetUSD` — Lead 결정: 유효 예산 = **min(override 또는 task 예산, 세션 잔여)**. harness §4.4 문언 보강(Lead) + 데몬 반영 | PR #121 리뷰 NN3 | 다음 데몬 작업 + 계약 | **해결 — PR #129**
+| D-17 | 데몬 `Runner.recordUsage` 가 `session/prompt` 응답에서만 호출돼 턴 중 heartbeat 의 usage 가 전부 0 — daemon-protocol §4.2 위반, 서버 턴 중 예산 강제가 실기에서 0회. 런타임이 턴 중 usage 를 못 주면 최소한 finish 전 heartbeat 1회에 최종 usage(핫픽스 T-D7) | T-I3 실측 (c) | T-D7 |
 
 ## W (웹)
 
@@ -91,6 +92,7 @@
 | S-41 | 서버가 `contracts/task_event.schema.json` 을 어긴 task_event(닫힌 enum·additionalProperties:false 위반)를 **200 으로 받는다** — T-D5 첫 구현이 5곳 어겼는데 아무도 몰랐다(데몬은 memSink 검사로 자기 방어). 서버 ingest 에 스키마 검증(422 + 피드) | PR #121 자기 정정 | T-S5 후속 또는 P4 |
 | S-42 | 취소 골든(`tasks/cancel_golden_test.go`)의 5단계(`signal_process_group`) 순서 단언이 단계 **부재**를 참으로 둔다(index -1 → `signal < drain` 공허, `ImmediateKill=false`) — 1~4단계는 부재를 FAIL 로 잡는데 5단계만 구멍. 데몬 사본은 §0-8 로 못 고쳐 별도 테스트(#129)로 막았다. 골든 저자(Reviewer)가 원본 수정 | PR #129 (T-D6 발견) | 리뷰어 후속 |
 | ~~S-43~~ | `listInbox` 항목의 `SessionRef.status` 가 빈 문자열 — openapi required 인데 서버가 id·title 만 채운다 | T-W3 PR #130 관찰 | #124 재작업에 포함 지시 | **해결 — PR #124**
+| S-44 | `enforceBudgetFor` 가 heartbeat 한 곳에서만 호출되고 `budget.go` 주석의 'Finish rollup 에서도' 가 거짓 → 사후 강제 없음. Lead 결정 A: completed task 는 유지, 세션 잔여 초과 → 세션 paused(budget)+HITL(task_id 비움), task 상한 초과 → lane paused(budget)+HITL(task_id 채움), 승인 시 lane 재개 + override 승계 | T-I3 실측 (c) | T-S6 |
 
 ## C (CLI)
 
@@ -99,6 +101,7 @@
 | ~~C-1~~ | `/cli/context` 호출 시점("시작 시 1회" vs 필요 시) 문서와 구현 정렬 | PR #18 N3 | **해소(T-C4)**. 계약이 v0.4 §1 에서 "필요할 때 호출하고 프로세스 안에서 캐시(프로세스당 최대 1회)"로 정리됐고 구현이 그대로다 — 회귀 `TestCliContextFetchedAtMostOncePerProcess`·`TestArtifactGetDoesNotFetchCliContext`, HITL 경로는 `TestHitlIsOneRequest`(E7-04 를 낡은 컨텍스트 캐시로 대신 판정하지 않는다) |
 | ~~C-2~~ | `colab-cli.md` §2.1 `--tail` ↔ `--limit` 표기 통일 | PR #18 N5 | **해소(T-C4)**. 계약 v0.4 §2.1 이 `--limit` 로 통일됐고 CLI 에 `--tail` 은 없다(도움말 포함). `TestUsageTextAdvertisesOnlyRealFlags` 가 도움말과 실제 플래그의 어긋남을 계속 잡는다 |
 | ~~C-3~~ | CLI 버전이 `var version = "dev"`이고 빌드 어디에도 `-ldflags -X main.version`이 없다. probe의 `versionRe`가 출력에서 먼저 걸리는 **contracts 버전**(0.1.0)을 `colab_cli.version`으로 싣는다 — `present` 판정은 정상이나 S11 카드가 "colab CLI 0.1.0"을 보인다. 배포 빌드(Makefile)에 ldflags 를 넣고 CLI 버전이 왼쪽에 오게 | PR #71 리뷰 NN1 + hotfix 워커 | **해소(T-C4)**. Makefile `COLAB_VERSION ?= 0.3.0` → `go build -ldflags "-X main.version=$(COLAB_VERSION)"`, **그리고 기본값도 `0.3.0-dev`** — `go build` 만 한 바이너리도 probe 에 x.y.z 를 준다(`"dev"` 가 x.y.z 가 아니었던 것이 근본 원인이다). CLI 버전은 여전히 출력 왼쪽. 회귀 `TestVersionFirstMatchIsTheCLIVersion` 이 probe 와 같은 정규식으로 첫 매치를 검사한다 |
+| ~~C-4~~ | CLI `hitl` 3종·MCP 툴이 openapi 에 없는 `POST /v1/tasks/{T}/hitl` 을 불러 실서버 404(colab-cli §2.4 의 잘못된 경로를 그대로 구현; 목 서버가 같은 오답을 공유해 스모크 통과) | T-I3 실측 | **해결 — PR #134**(경로 = createHitlRequest, 목을 openapi 에서 베낌, 실서버 스모크 41_) |
 
 ## 계약·문서
 
@@ -110,6 +113,8 @@
 | ~~K-4~~ | **P3로 미룸** — 자동 발행된 `user_approval`의 **취소 조건**. FR-2.2는 "나머지 조건이 모두 충족되면 자동 발행"만 정하고, 발행 뒤 조건이 다시 미충족이 되면(예: 아티팩트 철회) 이미 발행된 HITL이 어떻게 되는지 정의가 없다 — Director 인박스에 유효하지 않은 승인 요청이 남는다. P3 HITL 전이를 설계할 때 정한다. EVAL 행(E6-12 후보)은 그때 추가 | P2a Hermes | **해결 — PR #124(계약 #116)**
 | K-5 | **G5 전 결정** — 규칙 8 억제가 **lane 상태**에 묶여 있어, 자식 lane 이 `done` 된 뒤 같은 lane 이 한 줄 더 쓰면(재진입) 위임자가 다시 깨어난다. E1-17 문언("억제 기간은 합류 발화 전까지")대로이지만 FR-6.5 "합류는 정확히 한 번"과 맞물리면 위임자가 합류 뒤 자식 한 줄마다 깨어난다. 억제 해제 시점을 "합류 발화"가 아니라 "위임자가 그 lane 에 다시 지시"로 둘지 결정 필요 | G4_REPORT §5 관찰 1 (PR #73 리뷰 NN3) | G5 전 |
 | K-6 | 인박스 `mention` 항목의 `actions` 가 COMPONENTS §2.4 표와 다르다 — 서버 쪽이 맞아 보이므로 문서(COMPONENTS) 수정 후보. Lead 판정 | T-W3 PR #130 관찰 | 문서 |
+| ~~K-7~~ | colab-cli §2.4 HITL 경로(`/tasks/{T}/hitl`) ↔ openapi(`/sessions/{S}/hitl-requests`) 충돌 — openapi 가 API SSOT | T-I3 | **해결 — 계약 PR #133(v0.5.1)** |
+| K-8 | ACP 경로는 `cost_usd` 를 안 줘 `task_usage` 가 100% `estimated` → 서버가 가격표로 매긴 값도 '추정' 이라 E9-01 의 '실측 → 취소 명령' 분기는 실기 도달 불가(E9-05 추정 컷 금지). Lead 판정: 계약 유지(추정은 paused+드레인), E9-01 실측 분기는 대역/acpfake 로만. 가격표 추정을 '실측 급' 으로 승격할지는 P4 비용 항목에서 | T-I3 실측 | P4 결정 |
 
 ## 테스트 자산 (P1에서 만든 것)
 
