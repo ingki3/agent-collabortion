@@ -113,7 +113,7 @@ export function makeRuntime(workspaceId: string, name: string): Runtime {
     id: uuid(), workspace_id: workspaceId, name, host: `${name}.local`, status: "online", daemon_version: "0.1.0-mock",
     last_seen_at: t,
     capabilities: [
-      { kind: "claude_code", version: "2.0.0", models: ["claude-sonnet-5", "claude-opus-5"], logged_in: true, transport: ["acp"], usage_reporting: true, options: { effort: ["low", "medium", "high"] } },
+      { kind: "claude_code", version: "2.1.258", adapter_version: "0.74.0", models: ["claude-sonnet-5", "claude-opus-5"], logged_in: true, protocol_version: 1, resume: true, usage: true, tool_disallow: true, brief_transport: "acp_meta_system_prompt", allow_once_missing: false },
     ],
     repos: [], max_concurrent_tasks: null, running_task_count: 0, workdir_disk_bytes: 0, offline_since: null, grace_ends_at: null,
     paused_session_count: 0, created_at: t, updated_at: t,

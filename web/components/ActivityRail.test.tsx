@@ -14,7 +14,7 @@ function ev(seq: number, over: Partial<Wire> = {}): Wire {
     seq,
     class: "tool",
     verb: "edit_file",
-    object_ref: { path: "src/a.ts" },
+    object_ref: "src/a.ts",
     outcome: "ok",
     created_at: `2026-09-06T14:03:${String(seq).padStart(2, "0")}Z`,
     ...over,

@@ -45,11 +45,11 @@ const MESSAGES: { label: string; m: Message; replies?: Message[]; askee?: string
 ];
 
 const EVENTS: TaskEvent[] = [
-  { id: "e1", task_id: "t1", seq: 1, class: "runtime", verb: "start", object_ref: { session: "acp-1" }, outcome: "cold_start", created_at: T },
+  { id: "e1", task_id: "t1", seq: 1, class: "runtime", verb: "start", object_ref: null, outcome: "cold_start", created_at: T },
   { id: "e2", task_id: "t1", seq: 2, class: "message", verb: "think", object_ref: null, outcome: "ok", created_at: T, sentence: "Lead가 계획을 생각했다 → ok" },
-  { id: "e3", task_id: "t1", seq: 3, class: "tool", verb: "read", object_ref: { path: "README.md" }, outcome: "ok", tool: "Read", created_at: T },
-  { id: "e4", task_id: "t1", seq: 4, class: "tool", verb: "run_shell", object_ref: { command: "npm test" }, outcome: "failed", created_at: T },
-  { id: "e5", task_id: "t1", seq: 5, class: "status", verb: "post_message", object_ref: { message: "m1" }, outcome: "ok", created_at: T },
+  { id: "e3", task_id: "t1", seq: 3, class: "tool", verb: "read", object_ref: "README.md", outcome: "ok", tool: "Read", created_at: T },
+  { id: "e4", task_id: "t1", seq: 4, class: "tool", verb: "run_shell", object_ref: "npm test", outcome: "failed", created_at: T },
+  { id: "e5", task_id: "t1", seq: 5, class: "status", verb: "post_message", object_ref: "m1", outcome: "ok", created_at: T },
 ];
 
 const STATUSES: AgentStatus[] = ["idle", "working", "waiting_human", "error", "offline", "disabled"];
