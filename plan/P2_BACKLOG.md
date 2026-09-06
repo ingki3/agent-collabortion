@@ -49,6 +49,7 @@
 | ~~W-6~~ | **해결 — T-W2.** 작성창이 `previewTriggers` 를 부르고 로컬 규칙 계산(`classifyMentions`)을 지웠다 — 규칙 1~8 과 lane 해소는 서버 상태를 봐야 해서 로컬로 흉내 내면 서버와 반대로 말한다(S-1 이 그랬다) | PR #21 R2 | — |
 | W-3′ | mock previewTriggers가 `done/blocked` lane **재진입**을 `resolution 4 + lane_id + reentry:true`로 준다(`handlers.ts:571-573`). PRD lane 규칙·EVAL E2-04·05는 재진입을 **규칙 3**으로 두고 4는 "그 외 → 새 lane". §0-9(b) 부류 — mock 응답·p2-mock 기대값·재진입 테스트 함께 | PR #76 Lead 확인 | 다음 웹 작업 |
 | ~~W-5~~ | mock의 lane 해소 규칙(`handlers.ts` resolveLane류)을 지키는 것이 `web/e2e/p2-mock.sh`뿐이고 그 스모크는 CI 밖(mock 서버 필요)이다. `done` lane 있는 세션에서 preview → `resolution 3 · reentry true`를 vitest 1건으로 — W-2·W-3′ 부류가 다시 슬며시 바뀌어도 CI가 모른다 | PR #83 리뷰 NN1 | 다음 웹 작업 | **해결 — PR #130**
+| W-6 | 인박스 항목이 purpose=budget HITL(task 범위, 세션은 active)에 `budgetOverride` 입력칸을 붙이지 않는다(`session_paused` 조건) → Director 가 웹에서 상향 금액을 정할 수 없음(E9-02·U7-1) | T-I3 실측 43_ | T-W4 |
 
 ### S 추가 (G3 수정 리뷰에서)
 
@@ -93,6 +94,9 @@
 | S-42 | 취소 골든(`tasks/cancel_golden_test.go`)의 5단계(`signal_process_group`) 순서 단언이 단계 **부재**를 참으로 둔다(index -1 → `signal < drain` 공허, `ImmediateKill=false`) — 1~4단계는 부재를 FAIL 로 잡는데 5단계만 구멍. 데몬 사본은 §0-8 로 못 고쳐 별도 테스트(#129)로 막았다. 골든 저자(Reviewer)가 원본 수정 | PR #129 (T-D6 발견) | 리뷰어 후속 |
 | ~~S-43~~ | `listInbox` 항목의 `SessionRef.status` 가 빈 문자열 — openapi required 인데 서버가 id·title 만 채운다 | T-W3 PR #130 관찰 | #124 재작업에 포함 지시 | **해결 — PR #124**
 | ~~S-44~~ | `enforceBudgetFor` 가 heartbeat 한 곳에서만 호출되고 `budget.go` 주석의 'Finish rollup 에서도' 가 거짓 → 사후 강제 없음. Lead 결정 A: completed task 는 유지, 세션 잔여 초과 → 세션 paused(budget)+HITL(task_id 비움), task 상한 초과 → lane paused(budget)+HITL(task_id 채움), 승인 시 lane 재개 + override 승계 | T-I3 실측 (c) | **해소(T-S6)**. `httpapi.finishAndEnforce` 가 §4.4 finish 커밋·롤업 뒤 enforce, terminal task 는 lane 을 park, claim 쿼리가 paused lane 을 거른다. 회귀 `TestP3BudgetEnforcedAtFinish`·`…SessionScope`·`…EstimatedNeverCuts`·`…RejectionKeepsTheGate`(E9-10), 실서버 `e2e/p3/41_budget_finish_smoke.sh` 13/13(고치기 전 origin/dev 는 FAIL 5 로 재현) |
+| S-45 | 시스템 발행 HITL 3곳(`httpapi/budget.go` 예산 · `sessions/complete.go` user_approval · `router/service.go` 루프)이 에이전트 경로와 달리 kind='hitl' 타임라인 메시지를 게시하지 않고 `hitl_request.message_id` NULL → S7 카드 0(SCREEN §4.5) | T-I3 실측 43_ | T-S7 |
+| S-46 | `ResumeSession` 이 pause 가 park 한 task 를 재큐잉하지 않아 영영 paused(#136 은 큐가 남은 lane 의 게이트만 품) | T-S6 발견 | T-S7 |
+| S-47 | finish 뒤 enforce 가 실패하면(별도 tx) task 상한 초과 lane 이 안 잠긴 채 다음 task 가 dispatch 되어 첫 heartbeat 에서야 잡힘 — 한 턴 지연, 로그 Warn 뿐 | PR #136 리뷰 NN1 | 낮음(관측성) |
 
 ## C (CLI)
 
