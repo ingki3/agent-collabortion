@@ -724,6 +724,22 @@ func (r *Runner) flushMessages(withSay bool) {
 	}
 }
 
+// recordUsage folds one turn's usage into the attempt total (harness §7:
+// tokens and cost come from the session/prompt response once per turn).
+//
+// `estimated` means "this cost is not a number the runtime measured" — and
+// that is true in two ways, not one. Before harness v0.7 only the first was
+// checked (usage absent entirely), so the ACP path — whose `usage` carries
+// tokens and NO cost field at all (wire.PromptUsage, measured on the pinned
+// adapter) — reported `cost_usd: 0, estimated: false` and every session read a
+// confident $0.00 (G4 3판 W16). A turn that reports tokens without a cost
+// makes the total an estimate, and once any turn does, the attempt's total is
+// an estimate for good: a sum that mixes a measured and a missing number is
+// not measured.
+//
+// The daemon never fills the gap itself — it does not know the workspace price
+// table (PRD §8.2.6). It says "unknown" honestly and the server estimates at
+// roll-up (S-20).
 func (r *Runner) recordUsage(pr *PromptResult, models []string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -732,8 +748,15 @@ func (r *Runner) recordUsage(pr *PromptResult, models []string) {
 		r.usage.OutputTokens += pr.Usage.OutputTokens
 		r.usage.CacheReadTokens += pr.Usage.CachedReadTokens
 		r.usage.CacheWriteTokens += pr.Usage.CachedWriteTokens
-	} else {
-		r.usage.Estimated = true
+	}
+	if pr.Usage == nil || pr.Usage.CostUSD == nil {
+		// v0.7.1: from here on the total is an estimate AND its number is 0.
+		// A partial sum (one turn priced, the next not) would reach the server
+		// looking like the whole bill; 0 with `estimated: true` is the one
+		// shape the server is told to ignore and re-price.
+		r.usage.Estimated, r.usage.CostUSD = true, 0
+	} else if !r.usage.Estimated {
+		r.usage.CostUSD += *pr.Usage.CostUSD
 	}
 	if len(models) > 0 {
 		r.usage.Model = strings.Join(models, ",")
@@ -744,7 +767,22 @@ func (r *Runner) usagePayload(extra map[string]any) map[string]any {
 	r.mu.Lock()
 	u := r.usage
 	r.mu.Unlock()
-	p := map[string]any{"input_tokens": u.InputTokens, "output_tokens": u.OutputTokens, "cache_read_tokens": u.CacheReadTokens, "cache_write_tokens": u.CacheWriteTokens, "cost_usd": u.CostUSD, "estimated": u.Estimated}
+	p := map[string]any{"input_tokens": u.InputTokens, "output_tokens": u.OutputTokens, "cache_read_tokens": u.CacheReadTokens, "cache_write_tokens": u.CacheWriteTokens, "estimated": u.Estimated}
+	// harness v0.7.1: in a `usage.report` payload the key is OMITTED when the
+	// runtime reported no cost, not
+	// sent as 0 — `cost_usd: 0` is indistinguishable from a measured free turn
+	// to every reader downstream. `estimated: true` with no number says
+	// "ask the price table"; `cost_usd: 0` with `estimated: false` means the
+	// turn really cost nothing. The task_event schema leaves `cost_usd`
+	// optional precisely so this distinction can be made on the wire.
+	//
+	// (The `finish` body cannot do this — `contracts.Usage.CostUSD` is a
+	// float64 — so there the pair is `0` + `estimated: true` and the server
+	// ignores the 0 and re-prices from the workspace table. Only an
+	// `estimated: false` 0 is a real zero.)
+	if !u.Estimated {
+		p["cost_usd"] = u.CostUSD
+	}
 	for k, v := range extra {
 		p[k] = v
 	}
