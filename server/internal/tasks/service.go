@@ -559,10 +559,42 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			// A cancel command was issued for this attempt (cancelLane): the
 			// daemon's failed/paused report after it is the cancel taking
 			// effect, not a retryable failure (E10-04: no requeue).
-			if requested, err := cancelRequested(ctx, tx, t.ID, attempt); err != nil {
+			//
+			// S-50: the budget pause's OWN cancel is excluded. §8.2.2 makes a
+			// budget pause stop the turn through the same `cancel` command, so
+			// every `paused_budget` finish arrived with one outstanding and was
+			// promoted to `cancelled` — which is E9-01 read backwards ("a
+			// budget overrun is not a failure", the Director can resume it) and
+			// then died on `task_paused_detail_check`, losing the attempt row
+			// and the `runtime_session_ref` that is the next attempt's only
+			// resume basis (G6 2판 §9.5, 3/3). director · kill_switch · loop ·
+			// session_paused cancels are somebody ELSE asking the turn to stop,
+			// and they still decide the outcome.
+			if requested, err := nonBudgetCancelRequested(ctx, tx, t.ID, attempt); err != nil {
 				return err
 			} else if requested {
 				decided = "cancelled"
+			}
+		} else if requested, err := nonBudgetCancelRequested(ctx, tx, t.ID, attempt); err != nil {
+			return err
+		} else if requested {
+			// S-51: the cancel lost the race with the turn's own end. The task
+			// is genuinely `completed` and that is what the screen must show —
+			// but the feed already carries "사람이 중단함" from the moment the
+			// button was pressed, so without this line the timeline says a
+			// person stopped a turn that finished on its own. Consuming the
+			// command here is belt-and-braces: daemonFinish consumes it before
+			// this runs, and a direct Finish caller (the queue's own paths,
+			// tests) would otherwise leave it to the 24h TTL.
+			if err := InsertServerEventOnce(ctx, tx, t.ID, attempt, "status", "cancel", "cancel_raced_turn_end", "info",
+				map[string]any{
+					"command": "cancel",
+					"note":    "취소 요청이 턴 종료와 경합해 적용되지 않음 — 턴은 이미 끝나 있었습니다",
+				}, now); err != nil {
+				return err
+			}
+			if err := tokens.ConsumeAttemptCommands(ctx, tx, t.ID, attempt, now); err != nil {
+				return err
 			}
 		}
 		if decided == "completed" && t.PendingHitl {
@@ -606,8 +638,19 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			final = t.Status
 			return nil
 		case "paused_budget":
-			if _, err := Transition(t.Status, Paused); err != nil {
-				return err
+			// The task is ALREADY `paused(budget)` when the server is what
+			// found the overrun: applyBudgetPause parks the row and asks the
+			// daemon to stop, and this finish is that request being carried out
+			// (S-50). `paused → paused` is not an edge FR-7.1 has, and adding
+			// one would say a pause can re-pause; there is simply nothing to
+			// transition. What this branch still owes the row is the same in
+			// both cases, and the attempt record and the lane's
+			// `runtime_session_ref` — written above, for every outcome — are
+			// what the Director's approval resumes from.
+			if t.Status != Paused {
+				if _, err := Transition(t.Status, Paused); err != nil {
+					return err
+				}
 			}
 			if _, err := tx.Exec(ctx, `UPDATE task SET status = 'paused', paused_reason = 'budget', finished_at = NULL, heartbeat_at = NULL, updated_at = $2 WHERE id = $1`,
 				t.ID, now); err != nil {
@@ -949,9 +992,36 @@ func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*
 }
 
 // cancelRequested reports whether a cancel command was issued for (task, attempt).
+//
+// Its callers are the ones that ask "is a stop already on its way?" before
+// queueing another one — every reason counts there, the budget pause's own
+// included, or a pause would queue a second cancel on top of the first.
 func cancelRequested(ctx context.Context, q db.DBTX, taskID uuid.UUID, attempt int) (bool, error) {
 	var ok bool
 	err := q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM daemon_command WHERE task_id = $1 AND attempt = $2 AND type = 'cancel')`, taskID, attempt).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("tasks: cancel requested: %w", err)
+	}
+	return ok, nil
+}
+
+// nonBudgetCancelRequested is the other question: was the attempt stopped by
+// somebody OTHER than the budget pause itself?
+//
+// The reason rides in the §4.3 payload (contracts.Command.Reason — director |
+// budget | kill_switch | loop | session_paused). A `budget` cancel is issued by
+// applyBudgetPause in the same breath as it writes `paused(budget)`, so reading
+// it back as "a cancel was requested" makes the pause cancel itself (S-50).
+// Every other reason is a decision taken about the attempt and still decides
+// how it ends (E10-04).
+//
+// production callers: tasks.Finish — the outcome promotion and the S-51 note.
+func nonBudgetCancelRequested(ctx context.Context, q db.DBTX, taskID uuid.UUID, attempt int) (bool, error) {
+	var ok bool
+	err := q.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM daemon_command
+		                WHERE task_id = $1 AND attempt = $2 AND type = 'cancel'
+		                  AND COALESCE(payload->>'reason', '') <> 'budget')`, taskID, attempt).Scan(&ok)
 	if err != nil {
 		return false, fmt.Errorf("tasks: cancel requested: %w", err)
 	}
@@ -964,6 +1034,13 @@ func cancelRequested(ctx context.Context, q db.DBTX, taskID uuid.UUID, attempt i
 func (s *Service) cancelLocked(ctx context.Context, tx pgx.Tx, t *Row, stopReason string, now time.Time) error {
 	// FR-3.4's table, in one place: lane failed, task cancelled(cancelled), a
 	// feed line saying a person stopped it, no new task and no re-queue.
+	//
+	// `paused_detail` goes with `paused_reason`. The two are one fact and
+	// migration 0006 says so (`paused_detail IS NULL OR paused_reason IS NOT
+	// NULL`); clearing only the reason turned EVERY paused → cancelled
+	// transition into a 500, whatever brought it here — a budget pause the
+	// daemon then closed, a 중단 pressed on a parked task, a loop pause that
+	// requeued (S-50 (b), G6 2판 §9.5).
 	res := PlanCancelResult("")
 	if _, err := Transition(t.Status, Cancelled); err != nil {
 		return err
@@ -973,7 +1050,8 @@ func (s *Service) cancelLocked(ctx context.Context, tx pgx.Tx, t *Row, stopReaso
 		stop = &stopReason
 	}
 	if _, err := tx.Exec(ctx, `
-		UPDATE task SET status = 'cancelled', failure_kind = 'cancelled', paused_reason = NULL, finished_at = $2, stop_reason = $3,
+		UPDATE task SET status = 'cancelled', failure_kind = 'cancelled', paused_reason = NULL, paused_detail = NULL,
+		       finished_at = $2, stop_reason = $3,
 		       heartbeat_at = NULL, updated_at = $2 WHERE id = $1`, t.ID, now, stop); err != nil {
 		return fmt.Errorf("tasks: cancel: %w", err)
 	}

@@ -100,6 +100,8 @@
 | ~~S-47~~ | finish 뒤 enforce 가 실패하면(별도 tx) task 상한 초과 lane 이 안 잠긴 채 다음 task 가 dispatch 되어 첫 heartbeat 에서야 잡힘 — 한 턴 지연, 로그 Warn 뿐 | PR #136 리뷰 NN1 | T-S8 | **해결 — PR #147**
 | ~~S-48~~ | 예산 강제 경로가 **추정 금액을 0 으로 떨어뜨린다** — ACP 런타임은 cost_usd 를 안 줘 task_usage 가 100% estimated(가격표로 매긴 값이 있는데도) → D-17 을 고쳐도 강제가 발동하지 않음. FR-7.3·E9-05: 추정치는 하드 컷 없이 **누적·비교해 세션 paused+드레인+알림** | T-I3 실측 (c), K-8 의 서버 절반 | T-S8 | **해결 — PR #147**
 | S-49 | 예산 상향 `too_low` 검사가 두 핸들러(K-10 세션 승인 `greatest(session.cost_usd, sum(task_usage))` vs `resumeSession` "새 상한은 현재 소진액 이상")에서 기준·문구가 다르다 — 통일 | PR #147 리뷰 NN2 | 낮음 |
+| ~~S-50~~ | **예산으로 `paused` 된 task 의 `finish` 가 500**(`task_paused_detail_check`, 23514). `tasks.Finish` 가 `completed` 아닌 outcome 을 그 attempt 의 cancel 명령을 근거로 `cancelled` 로 승격하는데 그 취소는 **예산 pause 자신**이었고, `cancelLocked` 가 `paused_reason` 만 지우고 `paused_detail` 을 남겨 0006 CHECK 를 깬다 → attempt 기록·`lane.runtime_session_ref` 유실 → 승인 뒤 재개가 콜드 스타트(E9-02 '재개 우선' 미충족) | G6 2판 §9.5 (3/3) | T-S9a | **해결 — PR #{PR}**
+| ~~S-51~~ | 턴 종료와 경합한 취소가 흡수되지 않는다 — `completed` finish 는 `cancelRequested` 를 보지 않아 task `completed`·lane `done` 인데 피드에는 '사람이 중단함' 이 남아 화면과 어긋난다 | G6 2판 §9.6 (`51_` 첫 회차) | T-S9a | **해결 — PR #{PR}** (완료는 완료로 두고, 피드에 '취소 요청이 턴 종료와 경합해 적용되지 않음' 을 남기고 명령을 소비한다)
 
 ## C (CLI)
 
