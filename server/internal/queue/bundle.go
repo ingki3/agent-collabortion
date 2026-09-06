@@ -278,31 +278,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, token string) (*c
 
 	// Turn prompt
 	var prompt strings.Builder
-	if plan.HasResumedSection {
-		fmt.Fprintf(&prompt, "<resumed attempt=%d>\nYour previous attempt (%d) was interrupted: %s.\n", t.Attempt, t.Attempt-1, prevOutcome)
-		if len(postedLines) > 0 {
-			fmt.Fprintf(&prompt, "Messages you already posted (do not post them again):\n%s\n",
-				"- "+strings.Join(postedLines, "\n- "))
-		}
-		// PRD §8.4: `<resumed>` carries the HITL answer and the approval
-		// verdict. hitl.PromptSections is the same function RespondPlan fills
-		// its table value from, so the row the golden pins is the text handed
-		// to the agent (review R1, E7-07·E7-17).
-		if answered != nil {
-			renderHitlAnswer(&prompt, answered)
-		}
-		if plan.ColdStart {
-			// FR-5.4 step 2: the runtime no longer holds the session, so this
-			// turn rebuilds from the brief, the history and the decision log
-			// above — say so, or the agent reads `<resumed>` as "you still
-			// remember" and skips the workdir it must inspect.
-			prompt.WriteString("The runtime session could not be resumed, so this turn starts cold: everything you know is in this prompt.\n")
-		}
-		if plan.WorkdirCheckInstruction {
-			prompt.WriteString("Before continuing, inspect the current state of the workdir (changed files, git status) and continue from there.\n")
-		}
-		prompt.WriteString("</resumed>\n\n")
-	}
+	renderResumedSection(&prompt, plan, t.Attempt, prevOutcome, postedLines, answered)
 	fmt.Fprintf(&prompt, "<history included=%d total=%d truncated=%t>\n%s</history>\n\n",
 		plan.HistoryIncluded, plan.HistoryTotal, plan.HistoryTruncated, hist.String())
 	// A re-instruction's trigger IS the new instruction, and `<resumed>` is
@@ -721,6 +697,52 @@ func lastAnsweredHitl(ctx context.Context, tx pgx.Tx, taskID uuid.UUID) (*hitlAn
 // renderHitlAnswer writes §8.4's HITL section of `<resumed>`. The section name
 // is hitl.PromptSections' — the same value RespondPlan carries into the golden
 // table (E7-07 question/answer, E7-17 approved:false + reason).
+// renderResumedSection writes PRD §8.4's `<resumed>` block: why the previous
+// attempt stopped, what it already posted, the HITL answer it was waiting for,
+// whether this turn is cold, and the workdir check.
+//
+// It is a separate function because the two instructions inside it are E8-04's
+// ONLY defence and nothing else pins them. E8-04 (4) asks for "파일 편집 중복
+// 적용 0" on a re-queued attempt, and the sim models an agent that does not
+// look before it writes — so the agent's only way to know an edit is already
+// applied is to be told, in this block, to look. `WorkdirCheckInstruction` is
+// pinned by the golden table as a boolean; the SENTENCE it turns into is
+// pinned by resumed_prompt_test.go.
+func renderResumedSection(prompt *strings.Builder, plan tasks.AttemptPlan, attempt int,
+	prevOutcome string, postedLines []string, answered *hitlAnswer) {
+	if !plan.HasResumedSection {
+		return
+	}
+	fmt.Fprintf(prompt, "<resumed attempt=%d>\nYour previous attempt (%d) was interrupted: %s.\n", attempt, attempt-1, prevOutcome)
+	if len(postedLines) > 0 {
+		fmt.Fprintf(prompt, "Messages you already posted (do not post them again):\n%s\n",
+			"- "+strings.Join(postedLines, "\n- "))
+	}
+	// PRD §8.4: `<resumed>` carries the HITL answer and the approval
+	// verdict. hitl.PromptSections is the same function RespondPlan fills
+	// its table value from, so the row the golden pins is the text handed
+	// to the agent (review R1, E7-07·E7-17).
+	if answered != nil {
+		renderHitlAnswer(prompt, answered)
+	}
+	if plan.ColdStart {
+		// FR-5.4 step 2: the runtime no longer holds the session, so this
+		// turn rebuilds from the brief, the history and the decision log
+		// above — say so, or the agent reads `<resumed>` as "you still
+		// remember" and skips the workdir it must inspect.
+		prompt.WriteString("The runtime session could not be resumed, so this turn starts cold: everything you know is in this prompt.\n")
+	}
+	if plan.WorkdirCheckInstruction {
+		// E8-04 (4). The second sentence is the one that does the work: the
+		// previous attempt died mid-flight and its partial edits are still on
+		// disk, so "inspect the workdir" without "do not redo what is there"
+		// leaves the agent free to append the same edit twice.
+		prompt.WriteString("Before continuing, inspect the current state of the workdir (changed files, `git status`) and continue from there.\n")
+		prompt.WriteString("Some of your previous attempt's edits are already applied: do NOT make an edit again if it is already in the file.\n")
+	}
+	prompt.WriteString("</resumed>\n\n")
+}
+
 func renderHitlAnswer(prompt *strings.Builder, a *hitlAnswer) {
 	fmt.Fprintf(prompt, "<hitl_answer sections=%q>\n", strings.Join(a.Sections, ","))
 	fmt.Fprintf(prompt, "question: %s\n", a.Question)
