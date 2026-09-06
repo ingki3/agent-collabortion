@@ -33,6 +33,7 @@ export const TYPE_LABEL: Record<ItemType, string> = {
   runtime_offline: "런타임 오프라인",
   session_completed: "세션 완료",
   mention: "멘션",
+  workdir_gc_blocked: "workdir 정리 차단",
 };
 
 /**
@@ -48,6 +49,7 @@ export const TONE_BY_TYPE: Record<ItemType, Tone> = {
   run_failed: "fail",
   mention: "run",
   session_completed: "done",
+  workdir_gc_blocked: "block",
 };
 
 /** 버튼 라벨(COMPONENTS §2.4 표 · SCREEN §4.6 인라인 동작). `restart` 는 "다시 지시"다 — 재시도가 아니다(리뷰 #01 C4). */

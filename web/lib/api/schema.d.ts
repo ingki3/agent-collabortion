@@ -1925,10 +1925,10 @@ export interface components {
          */
         DecisionSource: "hitl" | "agent";
         /**
-         * @description `inbox_item_type` (FR-8)
+         * @description `inbox_item_type` (FR-8). `workdir_gc_blocked`(P4, FR-6.4 M4 · E13-12·13) — 보존 기한이 지난 worktree 를 미병합 커밋·미커밋 변경 때문에 지우지 못했다. 같은 workdir 에 미해결 항목이 있으면 다시 만들지 않는다(스윕 멱등). 카드: {workdir_id, session_id, repo_path, branch, reason, commits_ahead}
          * @enum {string}
          */
-        InboxItemType: "hitl_request" | "lane_blocked" | "session_completed" | "session_paused" | "run_failed" | "runtime_offline" | "mention";
+        InboxItemType: "hitl_request" | "lane_blocked" | "session_completed" | "session_paused" | "run_failed" | "runtime_offline" | "mention" | "workdir_gc_blocked";
         /**
          * @description `inbox_severity` (SCREEN §4.6)
          * @enum {string}
@@ -2274,6 +2274,15 @@ export interface components {
             retain_until?: string | null;
             /** @description 미병합 커밋 또는 미커밋 변경이 있음(GC 차단 · 수동 삭제 경고, FR-6.4 M4). 데몬 마지막 보고 기준. */
             dirty?: boolean | null;
+            /** @description P4(T-S9 질문 2): 브랜치가 기본 브랜치에 병합됐는가. 데몬 마지막 보고 기준. */
+            merged?: boolean | null;
+            /** @description P4: 기본 브랜치 대비 이 브랜치의 커밋 수. 0 이면 E13-11(커밋 0 + 클린 = 삭제). */
+            commits_ahead?: number | null;
+            /**
+             * @description P4: 마지막 GC 판정이 삭제를 막은 사유. Director 의 다음 행동이 다르다 — `unmerged_commits` 는 병합해라(E13-12), `uncommitted_changes` 는 커밋하거나 버려라(E13-13). null = 차단 없음. deleteWorkdir 409 의 Problem.detail 에도 같은 값.
+             * @enum {string|null}
+             */
+            gc_blocked_reason?: "unmerged_commits" | "uncommitted_changes" | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
