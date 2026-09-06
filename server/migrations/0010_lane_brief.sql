@@ -1,0 +1,11 @@
+-- 0010_lane_brief.sql — lane.brief 를 적을 칸 (G4 웹 여정 2판)
+--
+-- 0001~0009 는 건드리지 않는다. 계약 Lane 은 `brief`(위임 요약, 첫 트리거 메시지
+-- 발췌)를 이미 내보내라고 말하는데 lane 테이블에 칸이 없어서, delegateLane 이 받은
+-- brief — 자식 턴의 프롬프트가 되는 바로 그 문자열 — 를 메시지 본문에만 남기고
+-- 버렸다. 그래서 listLanes·getLane 의 모든 lane 이 brief:null 이었고 S7 카드가
+-- "이 lane 이 무슨 일을 하는 lane 인지" 를 한 줄도 못 보여줬다.
+--
+-- NULL 은 "위임으로 생긴 lane 이 아니다"이다. 사람이 멘션으로 만든 lane 과
+-- 세션 시작 lane 에는 brief 가 없는 것이 맞다(계약도 nullable).
+ALTER TABLE lane ADD COLUMN brief text;

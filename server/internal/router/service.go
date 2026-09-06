@@ -16,6 +16,7 @@ import (
 	"github.com/ingki3/agent-collabortion/contracts/clock"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/lanestate"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
@@ -382,6 +383,9 @@ func (s *Service) resolveLaneFor(ctx context.Context, tx pgx.Tx, sessionID uuid.
 				WHERE id = $1`, d.LaneID, now); err != nil {
 				return uuid.Nil, false, err
 			}
+			// A done/blocked card going back to queued is a status change like
+			// any other: S7 must not keep showing it finished.
+			s.publishLane(ctx, tx, d.LaneID)
 		}
 		return d.LaneID, false, nil
 	}
@@ -396,7 +400,17 @@ func (s *Service) resolveLaneFor(ctx context.Context, tx pgx.Tx, sessionID uuid.
 		sessionID, tr.AgentID, profileID, deleg, now).Scan(&id); err != nil {
 		return uuid.Nil, false, fmt.Errorf("router: insert lane: %w", err)
 	}
+	// Rules 2·4 make a lane: the row's first status is a status change too, and
+	// without a frame the queued card only appears on the next full REST read.
+	s.publishLane(ctx, tx, id)
 	return id, true, nil
+}
+
+// publishLane emits `lane.updated` for the S7 board (lanes.Publish). Called
+// from every router path that writes lane.status — a frame the board misses is
+// a card frozen at its last-loaded state.
+func (s *Service) publishLane(ctx context.Context, q db.DBTX, laneID uuid.UUID) {
+	_ = lanes.Publish(ctx, s.Hub, q, laneID)
 }
 
 // loopLimits reads workspace_settings.loop_limits, falling back to the FR-3.5

@@ -122,10 +122,14 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 		in.DependsOn = []uuid.UUID{}
 	}
 	var laneID uuid.UUID
+	// The brief is stored on the lane, not only inside the mention message:
+	// it is the child's turn prompt AND the S7 card's one-line "what is this
+	// lane for" (openapi Lane.brief). Reading it back out of the message body
+	// is not possible — the server prefixes the mention link.
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO lane (session_id, agent_id, profile_id, depends_on, delegated_from_task_id, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, 'queued', $6, $6) RETURNING id`,
-		sessionID, in.AgentID, profileID, in.DependsOn, d.DelegatedFromTaskID, now).Scan(&laneID); err != nil {
+		INSERT INTO lane (session_id, agent_id, profile_id, depends_on, delegated_from_task_id, brief, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7, $7) RETURNING id`,
+		sessionID, in.AgentID, profileID, in.DependsOn, d.DelegatedFromTaskID, in.Brief, now).Scan(&laneID); err != nil {
 		return nil, fmt.Errorf("router: delegate lane: %w", err)
 	}
 

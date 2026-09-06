@@ -17,6 +17,7 @@ import (
 
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/realtime"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -29,7 +30,7 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, canControl bool) (*gen.L
 	var (
 		out                                        gen.Lane
 		parent, workdir, delegatedFrom, blockedMsg *uuid.UUID
-		blockedNote, agentName                     *string
+		blockedNote, agentName, brief              *string
 		status                                     string
 		hasRef                                     bool
 		finishedAt                                 *time.Time
@@ -37,10 +38,10 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, canControl bool) (*gen.L
 	err := q.QueryRow(ctx, `
 		SELECT l.id, l.session_id, l.parent_lane_id, l.agent_id, l.profile_id, l.depends_on, l.workdir_id, l.delegated_from_task_id,
 		       l.runtime_session_ref IS NOT NULL, l.status::text, l.blocked_note, l.blocked_message_id, l.reentry_count,
-		       l.created_at, l.updated_at, l.finished_at, a.name
+		       l.brief, l.created_at, l.updated_at, l.finished_at, a.name
 		FROM lane l JOIN agent a ON a.id = l.agent_id WHERE l.id = $1`, id).
 		Scan(&out.Id, &out.SessionId, &parent, &out.AgentId, &out.ProfileId, &out.DependsOn, &workdir, &delegatedFrom,
-			&hasRef, &status, &blockedNote, &blockedMsg, &out.ReentryCount, &out.CreatedAt, &out.UpdatedAt, &finishedAt, &agentName)
+			&hasRef, &status, &blockedNote, &blockedMsg, &out.ReentryCount, &brief, &out.CreatedAt, &out.UpdatedAt, &finishedAt, &agentName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -53,6 +54,10 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, canControl bool) (*gen.L
 	out.DelegatedFromTaskId = tasks.NullUUID(delegatedFrom)
 	out.BlockedMessageId = tasks.NullUUID(blockedMsg)
 	out.BlockedNote = tasks.NullString(blockedNote)
+	// FR-6.2/6.5: only a delegated lane has one — the brief IS the child's turn
+	// prompt. A lane a human made by mentioning an agent has none, and null is
+	// the honest answer there (openapi Lane.brief is nullable).
+	out.Brief = tasks.NullString(brief)
 	out.FinishedAt = tasks.NullTime(finishedAt)
 	out.HasRuntimeSession = &hasRef
 	out.AgentName = agentName
@@ -116,4 +121,35 @@ func List(ctx context.Context, q db.DBTX, sessionID uuid.UUID, statuses []string
 		out = append(out, *l)
 	}
 	return out, nil
+}
+
+// Publish emits `lane.updated` for one lane (openapi StreamEvent: payload
+// `Lane`, screen S7).
+//
+// Every place that changes `lane.status` calls this. Before G4's second web
+// pass only three did — delegate, cancelLane and the daemon's finish — so the
+// S7 board went dark between the initial load and the moment a lane ended:
+// three Researchers running in parallel for fourteen seconds never appeared
+// (W5). The board is a live view of lane_status, so the rule is "the row
+// changed status → the frame goes out", with no exceptions to remember.
+//
+// q may be the caller's transaction: the stream_event row is then written with
+// it and the in-memory push happens at once (realtime.Hub.Publish). The lane is
+// loaded with canControl=false — `actions` is per-caller (only the Director and
+// deputy may cancel), and a broadcast frame has no single caller, so it carries
+// none and the browser keeps the actions it got from the REST read.
+func Publish(ctx context.Context, hub *realtime.Hub, q db.DBTX, laneID uuid.UUID) error {
+	if hub == nil {
+		return nil
+	}
+	l, err := Load(ctx, q, laneID, false)
+	if err != nil {
+		return err
+	}
+	var wsID uuid.UUID
+	if err := q.QueryRow(ctx, `SELECT workspace_id FROM session WHERE id = $1`, l.SessionId).Scan(&wsID); err != nil {
+		return fmt.Errorf("lanes: publish: workspace of %s: %w", l.SessionId, err)
+	}
+	sid := uuid.UUID(l.SessionId)
+	return hub.Publish(ctx, q, wsID, &sid, "lane.updated", l)
 }
