@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# e2e/p3/55_p4_gc_offline_summary_smoke.sh — T-S9 실서버 스모크 (P4 서버).
+# e2e/p3/56_p4_gc_offline_summary_smoke.sh — T-S9 실서버 스모크 (P4 서버).
 #
 # 네 가지를 실서버에서 잰다.
 #   1. 세션 요약 정확히 1개  (FR-2.4 · E5-08 · E6-03) — 두 번째 패스가 두 번째 요약을
@@ -20,7 +20,7 @@
 #     COLAB_SERVER_ADDR=:8103 COLAB_SERVER_URL=http://127.0.0.1:8103 ./out/server-s9
 # 종료는 pid·포트로만 (§0-10).
 #
-# 사용: bash e2e/p3/55_p4_gc_offline_summary_smoke.sh
+# 사용: bash e2e/p3/56_p4_gc_offline_summary_smoke.sh
 set -uo pipefail
 RUNID=$(uuidgen | tr "[:upper:]" "[:lower:]" | cut -c1-8)
 S=http://127.0.0.1:8103/api/v1
