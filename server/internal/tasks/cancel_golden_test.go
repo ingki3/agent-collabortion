@@ -1,6 +1,6 @@
 //go:build p3golden
 
-// Golden table for cancellation and the kill switch (EVAL E10, 13 rows) —
+// Golden table for cancellation and the kill switch (EVAL E10, 14 rows) —
 // PRD FR-3.4 (취소는 UI 조작으로만, 30초 보류, 권한), FR-1.9 M8 (`respond_to:
 // nobody`의 즉시 효과), PRD §8.2.2 / contracts/harness.md §5 (취소 절차),
 // contracts/daemon-protocol.md §4.3 (`cancel` 명령) and openapi
@@ -138,6 +138,52 @@ func TestCancelProcedureGolden(t *testing.T) {
 		if p.FeedNote == "" {
 			t.Error("the forced cancel is recorded in the activity feed — otherwise a truncated " +
 				"edit looks like the agent's own work (E10-02)")
+		}
+	})
+
+	t.Run(caseNameP3("E10-14", "an_unfinished_shell_command_holds_the_cancel_exactly_like_an_edit"), func(t *testing.T) {
+		// EVAL v0.6's row. FR-3.4 and harness §5 step 1 say "파일 편집 **또는
+		// 셸 명령**", but E10-01·02 only exercise the edit. A hold keyed on
+		// the edit verb alone passes both of those and cancels a running
+		// `rm -rf`/migration halfway — the irreversible case the rule exists
+		// for.
+		p := mustCancel(t, cancelCase{LastEvent: "shell_started", CompletionAfter: 5 * time.Second})
+
+		if p.HeldFor != 5*time.Second {
+			t.Errorf("held for %s, want 5s — a shell command in flight gets the same hold as an "+
+				"edit (FR-3.4, harness §5 step 1, E10-14)", p.HeldFor)
+		}
+		if i := indexOfStep(p.Steps, "wait_tool_completion"); i != 0 {
+			t.Errorf("steps = %v, want the wait FIRST for a shell command too (E10-14)", p.Steps)
+		}
+		if p.ForcedAfterTimeout {
+			t.Error("the command completed inside 30s — this is not a forced cancel (E10-14)")
+		}
+	})
+
+	t.Run(caseNameP3("E10-14", "a_shell_hold_is_capped_at_thirty_seconds_too"), func(t *testing.T) {
+		p := mustCancel(t, cancelCase{LastEvent: "shell_started", CompletionAfter: 90 * time.Second})
+
+		if p.HeldFor > 30*time.Second {
+			t.Errorf("held for %s, want at most 30s — the cap is the same for both tool kinds "+
+				"(E10-14, FR-3.4)", p.HeldFor)
+		}
+		if !p.ForcedAfterTimeout {
+			t.Error("past 30s the cancel proceeds regardless, shell or edit (E10-14)")
+		}
+		if p.FeedNote == "" {
+			t.Error("a forced cancel is recorded in the feed whichever tool was in flight (E10-14)")
+		}
+	})
+
+	t.Run(caseNameP3("E10-14", "a_completed_tool_is_not_waited_for_at_all"), func(t *testing.T) {
+		// The control: the hold is for an UNFINISHED tool. Holding 30s on
+		// every cancel would satisfy the two rows above and make 중단 feel
+		// broken on an idle turn.
+		p := mustCancel(t, cancelCase{LastEvent: "edit_completed"})
+		if p.HeldFor != 0 {
+			t.Errorf("held for %s, want 0 — the completion event already arrived, so there is "+
+				"nothing to wait for (FR-3.4)", p.HeldFor)
 		}
 	})
 

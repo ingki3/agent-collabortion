@@ -1,6 +1,6 @@
 //go:build p3golden
 
-// Golden table for HITL (EVAL E7, 19 rows) — PRD FR-5.1 (types), FR-5.2
+// Golden table for HITL (EVAL E7, 21 rows) — PRD FR-5.1 (types), FR-5.2
 // (behaviour), FR-5.4 (pause/resume model), FR-7.1 (the HITL transition), and
 // contracts/openapi.yaml `createHitlRequest` · `respondHitlRequest`.
 //
@@ -179,14 +179,18 @@ func TestHitlRegisterGolden(t *testing.T) {
 		}
 	})
 
-	t.Run(caseNameP3("E7-05", "choice_without_default_is_rejected_too"), func(t *testing.T) {
+	t.Run(caseNameP3("E7-20", "choice_without_default_is_rejected_too"), func(t *testing.T) {
 		// FR-5.1 names question AND choice. A rule implemented for one type
-		// only passes the row above and still stalls a choice request.
+		// only passes the row above and still stalls a choice request — the
+		// gap E7-20 was added to EVAL v0.6 to close.
 		r := mustRegister(t, registerCase{
 			kind: "choice", question: "어느 쪽?", options: []string{"A", "B"},
 		})
 		if r.Accepted {
-			t.Fatal("proposed_default is required for choice as well as question (FR-5.1)")
+			t.Fatal("proposed_default is required for choice as well as question (FR-5.1, E7-20)")
+		}
+		if r.ErrorCode != "validation" {
+			t.Errorf("error = %q, want validation (openapi 422, E7-20)", r.ErrorCode)
 		}
 	})
 
@@ -602,12 +606,22 @@ func TestHitlExpiryGolden(t *testing.T) {
 		}
 	})
 
-	t.Run(caseNameP3("E7-14", "info_never_auto_proceeds_either"), func(t *testing.T) {
-		// FR-5.4's table names approval AND info. Implementing the rule for
-		// `approval` alone passes the row above and auto-answers info.
+	t.Run(caseNameP3("E7-21", "info_never_auto_proceeds_either"), func(t *testing.T) {
+		// FR-5.4's table names approval AND info on one line. Implementing the
+		// rule for `approval` alone passes the row above and auto-answers info
+		// — the gap E7-21 was added to EVAL v0.6 to close.
 		r := mustExpire(t, "info", "autonomous", past)
 		if r.Status != "open" {
-			t.Errorf("status = %q, want open — approval and info always wait (FR-5.4 표)", r.Status)
+			t.Errorf("status = %q, want open — approval and info always wait (FR-5.4 표, E7-21)", r.Status)
+		}
+		if !r.Overdue {
+			t.Error("info past its deadline carries the overdue flag like every other type (E7-21)")
+		}
+		if r.Answer != "" {
+			t.Errorf("answer = %q, want empty — info has no proposed_default to proceed with (E7-21)", r.Answer)
+		}
+		if r.TaskStatus != "waiting_human" {
+			t.Errorf("task = %q, want waiting_human — nothing proceeded (E7-21)", r.TaskStatus)
 		}
 	})
 
