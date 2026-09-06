@@ -309,14 +309,30 @@ func TestRouterGolden(t *testing.T) {
 // not an implementation: every routing decision stays inside router.Decide.
 // The fields Input cannot yet carry (thread position, author agent, lane
 // delegator, join state) are listed in /tmp/p2a-report.md as required API.
+// T-S2 landed them on Input, so the adapter now passes them through; not one
+// expectation in the table above changed.
 func decideForCase(c routeCase) Decision {
-	return Decide(Input{
+	in := Input{
 		Content:         c.content,
 		AuthorType:      c.authorKind,
 		Participants:    sessionRoster(),
 		AssigneeAgentID: c.assignee,
 		Suppress:        c.suppress,
-	})
+		JoinGroupFired:  c.joinGroupFired,
+	}
+	if c.authorAgt != uuid.Nil {
+		in.AuthorAgentID = &c.authorAgt
+	}
+	if c.replyToAgent != uuid.Nil {
+		in.ReplyToAgentID = &c.replyToAgent
+	}
+	if c.threadOwner != uuid.Nil {
+		in.ThreadOwnerAgentID = &c.threadOwner
+	}
+	if c.authorLaneDelegator != uuid.Nil {
+		in.AuthorLaneDelegatorID = &c.authorLaneDelegator
+	}
+	return Decide(in)
 }
 
 // ---------------------------------------------------------------------------
