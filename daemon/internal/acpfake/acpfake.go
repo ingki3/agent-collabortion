@@ -44,6 +44,13 @@ type Script struct {
 	// filter). stdio is the baseline and never advertised.
 	MCPHTTP bool `json:"mcp_http,omitempty"`
 	MCPSSE  bool `json:"mcp_sse,omitempty"`
+	// NoMCPCapabilities drops the `mcpCapabilities` KEY from initialize —
+	// the real Hermes shape (G5): mcpServers are then accepted on the wire
+	// and silently ignored, which is harness §10 tool_surface=cli_wrapper.
+	// The fake used to always advertise the key and to honour mcpServers,
+	// i.e. it shared the implementation's assumption, so the blocker was
+	// invisible until e2e. Turning this on makes the fake tell the truth.
+	NoMCPCapabilities bool `json:"no_mcp_capabilities,omitempty"`
 	// LoadProvenance is returned in _meta.hermes.sessionProvenance on load
 	// (hermes). Nil → provenance echoing the requested id.
 	LoadProvenance *Provenance `json:"load_provenance,omitempty"`
@@ -382,9 +389,9 @@ func (sv *server) handle(m message) {
 	s := sv.s
 	switch m.Method {
 	case acp.MethodInitialize:
-		caps := map[string]any{
-			"loadSession":     !s.NoLoadSession,
-			"mcpCapabilities": map[string]any{"http": s.MCPHTTP, "sse": s.MCPSSE},
+		caps := map[string]any{"loadSession": !s.NoLoadSession}
+		if !s.NoMCPCapabilities {
+			caps["mcpCapabilities"] = map[string]any{"http": s.MCPHTTP, "sse": s.MCPSSE}
 		}
 		sv.reply(m.ID, map[string]any{"protocolVersion": s.ProtocolVersion, "agentCapabilities": caps, "agentInfo": map[string]any{"name": "acpfake", "version": orDefault(s.AgentVersion, acp.AdapterPin)}})
 	case acp.MethodSessionNew:

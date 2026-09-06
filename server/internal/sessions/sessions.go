@@ -511,6 +511,39 @@ func LoadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID, assig
 	return loadParticipants(ctx, q, sessionID, nil, assignee, runtimeStatus)
 }
 
+// ListParticipants is listParticipants (S7 좌열 참여자 칩) — the same rows the
+// session detail carries in `participants` and the same rows
+// `participant.updated` re-derives, through the same function.
+//
+// Sharing the derivation is the point of implementing it this way rather than
+// writing a second query: FR-1.3's status is computed, not stored, so a second
+// implementation would be a second opinion, and the poll and the live frame
+// would disagree about whether an agent is working.
+func ListParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID) ([]gen.Participant, error) {
+	_, assignee, runtimeStatus, err := participantScope(ctx, q, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return loadParticipants(ctx, q, sessionID, nil, assignee, runtimeStatus)
+}
+
+// participantScope reads the two session-level facts the derived status needs:
+// who the session's assignee is (the `assignee` chip) and whether the session's
+// runtime is offline (FR-1.3 puts `offline` above `working`).
+func participantScope(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (uuid.UUID, *uuid.UUID, *string, error) {
+	var wsID uuid.UUID
+	var assignee *uuid.UUID
+	var runtimeStatus *string
+	err := q.QueryRow(ctx, `
+		SELECT s.workspace_id, s.assignee_agent_id, r.status::text
+		FROM session s LEFT JOIN runtime r ON r.id = s.runtime_id WHERE s.id = $1`, sessionID).
+		Scan(&wsID, &assignee, &runtimeStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, nil, nil, apperr.NotFound("session")
+	}
+	return wsID, assignee, runtimeStatus, err
+}
+
 // loadParticipants is LoadParticipants with an optional single-agent filter.
 // `participant.updated` carries ONE row, and re-deriving it has to run the
 // same SQL as the list or the frame and the reload disagree — which is the
@@ -765,13 +798,8 @@ func PublishParticipant(ctx context.Context, hub *realtime.Hub, q db.DBTX, sessi
 	if hub == nil {
 		return nil
 	}
-	var wsID uuid.UUID
-	var assignee *uuid.UUID
-	var runtimeStatus *string
-	if err := q.QueryRow(ctx, `
-		SELECT s.workspace_id, s.assignee_agent_id, r.status::text
-		FROM session s LEFT JOIN runtime r ON r.id = s.runtime_id WHERE s.id = $1`, sessionID).
-		Scan(&wsID, &assignee, &runtimeStatus); err != nil {
+	wsID, assignee, runtimeStatus, err := participantScope(ctx, q, sessionID)
+	if err != nil {
 		return err
 	}
 	parts, err := loadParticipants(ctx, q, sessionID, &agentID, assignee, runtimeStatus)

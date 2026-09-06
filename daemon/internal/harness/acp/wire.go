@@ -106,6 +106,12 @@ type AgentCaps struct {
 	LoadSession bool `json:"loadSession"`
 	// MCP is which MCP transports the agent accepts.
 	MCP MCPCapabilities `json:"mcpCapabilities"`
+	// MCPAdvertised is whether `mcpCapabilities` was in the response AT ALL,
+	// which is a different question from what it said: an agent that omits
+	// the key does not speak MCP and drops session/new.mcpServers silently
+	// (Hermes, G5 blocker). It is the harness §10 tool_surface judgement —
+	// see AgentCaps.ToolSurface. Not a wire field; Caps() fills it.
+	MCPAdvertised bool `json:"-"`
 }
 
 // MCPCapabilities is `agentCapabilities.mcpCapabilities`. stdio is the ACP
@@ -124,6 +130,11 @@ func (r *InitializeResult) Caps() AgentCaps {
 		return c
 	}
 	_ = json.Unmarshal(r.AgentCapabilities, &c)
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(r.AgentCapabilities, &raw) == nil {
+		v, ok := raw["mcpCapabilities"]
+		c.MCPAdvertised = ok && len(v) > 0 && string(v) != "null"
+	}
 	return c
 }
 
@@ -259,13 +270,22 @@ type PromptResult struct {
 }
 
 // PromptUsage is the session/prompt response `usage` (ACP 1.x).
+//
+// The token fields are measured (spike 1b). There is NO cost in what the
+// pinned adapter sends — that is the whole of D-6: the runner used to read
+// this struct's zero value as a measured $0. `CostUSD` is a pointer and
+// `omitempty` so the two states stay apart: absent (nil → the attempt is an
+// estimate, harness v0.7) versus a reported number, including a reported 0.
+// No adapter fills it today; it is the seam a runtime that prices its own
+// turns drops into, and the contract test drives it through acpfake.
 type PromptUsage struct {
-	InputTokens       int64 `json:"inputTokens"`
-	OutputTokens      int64 `json:"outputTokens"`
-	CachedReadTokens  int64 `json:"cachedReadTokens"`
-	CachedWriteTokens int64 `json:"cachedWriteTokens"`
-	ThoughtTokens     int64 `json:"thoughtTokens"`
-	TotalTokens       int64 `json:"totalTokens"`
+	InputTokens       int64    `json:"inputTokens"`
+	OutputTokens      int64    `json:"outputTokens"`
+	CachedReadTokens  int64    `json:"cachedReadTokens"`
+	CachedWriteTokens int64    `json:"cachedWriteTokens"`
+	ThoughtTokens     int64    `json:"thoughtTokens"`
+	TotalTokens       int64    `json:"totalTokens"`
+	CostUSD           *float64 `json:"costUSD,omitempty"`
 }
 
 // ModelsUsed extracts `_meta.quota.model_usage[].model` — which model(s)

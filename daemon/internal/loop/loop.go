@@ -19,6 +19,7 @@ import (
 	"github.com/ingki3/agent-collabortion/daemon/internal/harness/acp"
 	"github.com/ingki3/agent-collabortion/daemon/internal/orphan"
 	"github.com/ingki3/agent-collabortion/daemon/internal/probe"
+	"github.com/ingki3/agent-collabortion/daemon/internal/toolwrap"
 	"github.com/ingki3/agent-collabortion/daemon/internal/workdir"
 )
 
@@ -52,8 +53,13 @@ type Daemon struct {
 	running      map[string]*attemptRun
 	seen         map[string]bool
 	allowMissing map[contracts.RuntimeKind]bool
-	slotFreed    chan struct{}
-	wg           sync.WaitGroup
+	// surface caches the MEASURED harness §10 tool_surface per runtime (the
+	// probe turn, then every attempt). An attempt has to decide whether to
+	// write the CLI wrapper before it can measure anything of its own, so it
+	// asks here first and falls back to acp.DefaultToolSurface.
+	surface   map[contracts.RuntimeKind]string
+	slotFreed chan struct{}
+	wg        sync.WaitGroup
 	// Claimed counts claim calls (tests).
 	Claimed int
 }
@@ -93,6 +99,7 @@ func (d *Daemon) init() {
 	d.running = map[string]*attemptRun{}
 	d.seen = map[string]bool{}
 	d.allowMissing = map[contracts.RuntimeKind]bool{}
+	d.surface = map[contracts.RuntimeKind]string{}
 	d.slotFreed = make(chan struct{}, 1)
 }
 
@@ -114,6 +121,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	for _, s := range swept {
 		d.Log("orphan %s.%d pgid=%d alive=%v killed=%v", s.Record.TaskID, s.Record.Attempt, s.Record.PGID, s.Alive, s.Killed)
+	}
+	// The §10 wrapper carries an attempt token, so it is swept in the same
+	// place and for the same reason as the pgid record: nothing of this
+	// daemon runs yet, so whatever is left belongs to a dead attempt.
+	if err := toolwrap.SweepAll(d.Cfg.WorkdirRoot); err != nil {
+		d.Log("tool wrapper sweep: %v", err)
 	}
 	d.probe(ctx)
 	nextProbe := d.Clock.After(d.ProbeInterval)
@@ -230,6 +243,13 @@ func (d *Daemon) probe(ctx context.Context) {
 	// reaches the platform (MCP server and shell path are the same binary),
 	// so its absence rides on the probe instead of only the daemon log.
 	p := probe.Run(ctx, o)
+	d.mu.Lock()
+	for _, c := range p.Capabilities {
+		if c.ToolSurface != "" {
+			d.surface[c.Kind] = c.ToolSurface
+		}
+	}
+	d.mu.Unlock()
 	if !p.ColabCLI.Present {
 		d.Log("colab CLI not usable (%s) — agents have neither the MCP server nor the shell path", d.Cfg.ColabBin)
 	}
@@ -312,6 +332,21 @@ func (d *Daemon) mcpServers(b contracts.TaskBundle) []acp.MCPServer {
 	return []acp.MCPServer{acp.ColabMCPServer(d.Cfg.ColabBin, env)}
 }
 
+// toolSurface is the harness §10 surface to PREPARE this attempt for: the
+// last value measured on this machine (probe turn or a previous attempt),
+// else the §10 table. The wrapper file and the CLI-path rewrite have to be
+// decided before the process exists, so there is no measurement of this
+// attempt's own to use; the runner still measures and the value is fed back.
+func (d *Daemon) toolSurface(kind contracts.RuntimeKind) string {
+	d.mu.Lock()
+	s := d.surface[kind]
+	d.mu.Unlock()
+	if s != "" {
+		return s
+	}
+	return acp.DefaultToolSurface(kind)
+}
+
 func (d *Daemon) spawnConfig(b contracts.TaskBundle, wd string) acp.Config {
 	if d.SpawnConfig != nil {
 		return d.SpawnConfig(b, wd)
@@ -354,6 +389,25 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		finish(api.FinishRequest{Finish: contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: err.Error()}})
 		return
 	}
+	// harness §10: a cli_wrapper runtime ignores mcpServers and sanitises the
+	// env of its shell tools, so the attempt's only channel to the platform is
+	// a wrapper FILE, and every text we hand the agent must name it by
+	// absolute path (v0.8.1 — the server cannot know a path we invent here).
+	surface := d.toolSurface(b.Profile.RuntimeKind)
+	if surface == acp.ToolSurfaceCLIWrapper {
+		wrapper, werr := toolwrap.Write(d.Cfg.WorkdirRoot, b.Task.ID, b.Task.Attempt, d.Cfg.ColabBin, acp.Env(b.Profile.RuntimeKind, d.taskEnv(b), nil))
+		if werr != nil {
+			d.Log("%s tool wrapper: %v", k, werr)
+			finish(api.FinishRequest{Finish: contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: "tool wrapper: " + werr.Error()}, Workdir: &api.FinishWorkdir{Path: wd}})
+			return
+		}
+		// Every exit from here on — completed, failed, cancelled — drops the
+		// wrapper: it holds the attempt token.
+		defer func() { _ = toolwrap.Remove(d.Cfg.WorkdirRoot, b.Task.ID, b.Task.Attempt) }()
+		b.Brief.Text = toolwrap.RewriteCLI(b.Brief.Text, wrapper)
+		b.Prompt = toolwrap.RewriteCLI(b.Prompt, wrapper)
+	}
+
 	prep, err := brief.Prepare(wd, b.Brief.Transport, b.Brief.Text)
 	if err != nil {
 		finish(api.FinishRequest{Finish: contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: err.Error()}, Workdir: &api.FinishWorkdir{Path: wd}})
@@ -393,7 +447,15 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	if res.AllowOnceMissing >= 3 {
 		d.allowMissing[b.Profile.RuntimeKind] = true
 	}
+	if res.ToolSurface != "" {
+		d.surface[b.Profile.RuntimeKind] = res.ToolSurface
+	}
 	d.mu.Unlock()
+	if res.ToolSurface != "" && res.ToolSurface != surface {
+		// Never silent: the attempt was prepared for the wrong surface, so
+		// the next one on this daemon is prepared for the measured one.
+		d.Log("%s tool_surface measured=%s prepared=%s", k, res.ToolSurface, surface)
+	}
 	select {
 	case d.slotFreed <- struct{}{}:
 	default:
