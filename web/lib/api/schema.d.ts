@@ -3376,6 +3376,11 @@ export interface components {
                 proposed_default?: string | null;
                 hitl_type?: components["schemas"]["HitlType"];
                 paused_reason?: components["schemas"]["PauseReason"];
+                /**
+                 * @description HITL 항목이면 `HitlRequest.purpose` 를 그대로 싣는다(K-9) — 웹이 task 범위 예산 HITL(세션은 active)에 상향 입력을 붙이려면 카드에서 바로 읽어야 한다. 비-HITL 항목은 null.
+                 * @enum {string|null}
+                 */
+                purpose?: "agent" | "user_approval" | "budget" | "time" | "loop" | null;
                 failure_kind?: components["schemas"]["FailureKind"];
                 runtime_name?: string | null;
                 /** Format: date-time */

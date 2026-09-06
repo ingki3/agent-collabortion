@@ -4541,6 +4541,7 @@ components:
             proposed_default: { type: [string, 'null'] }
             hitl_type: { $ref: '#/components/schemas/HitlType' }
             paused_reason: { $ref: '#/components/schemas/PauseReason' }
+            purpose: { type: [string, 'null'], enum: [agent, user_approval, budget, time, loop, null], description: "HITL 항목이면 `HitlRequest.purpose` 를 그대로 싣는다(K-9) — 웹이 task 범위 예산 HITL(세션은 active)에 상향 입력을 붙이려면 카드에서 바로 읽어야 한다. 비-HITL 항목은 null." }
             failure_kind: { $ref: '#/components/schemas/FailureKind' }
             runtime_name: { type: [string, 'null'] }
             grace_ends_at: { type: [string, 'null'], format: date-time }
