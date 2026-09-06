@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 문서 버전 | v0.9 — E9-01·E9-10 실기 도달 노트(G6 2판, K-8 해소). v0.8 — E9-10(사후 발견 예산 강제, S-44 Lead 결정 A). v0.7 — E8-05a(같은 seq 재전송 = 멱등 replay, PR #120 제안). v0.6 — E7-20·E7-21·E9-08·E9-09·E10-14 추가(P3a 골든 작성 중 드러난 "한쪽만 구현해도 통과하는" 구멍 5건, PR #108). v0.5는 E1-22(합류 뒤 자식 멘션의 기상 한도 = FR-3.4 병합, K-5). v0.4는 E5-02가 재큐잉하지 않는다는 것을 명시(계약이 반대로 적고 있었다, `daemon-protocol.md` v0.6에서 정정). v0.3은 P2a 골든 테이블 작성 중 드러난 공백 4행 추가(E1-21 억제와 합류 전달은 한 쌍, E2-14 새 lane 토글 자동 해제, E2-15 중단 후 재지시의 lane, E4-10 재개 시 카운터). v0.2는 P1 통합(G3)에서 드러난 결함 5건을 회귀 행으로 승격(E8-13·E10-13·E11-11·E11-12·E17-09) |
+| 문서 버전 | v0.10 — E13-18·E13-19·E14-10·E6-12 추가(P4a 골든 작성 중 드러난 "한쪽만 구현해도 통과하는" 구멍 4건, PR #152); E13-03~06 을 스파이크 5(PR #153) 판정대로 정정(`skip-worktree` 폐기 → 미추적 `COLAB_BRIEF.md`) + E13-06a. v0.9 — E9-01·E9-10 실기 도달 노트(G6 2판, K-8 해소). v0.8 — E9-10(사후 발견 예산 강제, S-44 Lead 결정 A). v0.7 — E8-05a(같은 seq 재전송 = 멱등 replay, PR #120 제안). v0.6 — E7-20·E7-21·E9-08·E9-09·E10-14 추가(P3a 골든 작성 중 드러난 "한쪽만 구현해도 통과하는" 구멍 5건, PR #108). v0.5는 E1-22(합류 뒤 자식 멘션의 기상 한도 = FR-3.4 병합, K-5). v0.4는 E5-02가 재큐잉하지 않는다는 것을 명시(계약이 반대로 적고 있었다, `daemon-protocol.md` v0.6에서 정정). v0.3은 P2a 골든 테이블 작성 중 드러난 공백 4행 추가(E1-21 억제와 합류 전달은 한 쌍, E2-14 새 lane 토글 자동 해제, E2-15 중단 후 재지시의 lane, E4-10 재개 시 카운터). v0.2는 P1 통합(G3)에서 드러난 결함 5건을 회귀 행으로 승격(E8-13·E10-13·E11-11·E11-12·E17-09) |
 | 작성일 | 2026-09-05 |
 | 근거 | `PRD.md` v0.11 (FR 번호로 인용), `PLAN.md` v0.5 (게이트 G1~G9, §5 테스트 전략) |
 | 목적 | PRD의 규칙을 **입력 → 정확한 출력** 쌍으로 옮긴다. 이 문서의 한 행이 테스트 하나다. "됐다"를 사람마다 다르게 읽지 않게 하는 것이 PLAN의 DoD 원칙이고, 이 문서가 그 DoD의 실체다 |
@@ -154,6 +154,7 @@
 | E6-09 | 조건 `artifact_submitted(W) OR agent_approval(QA)` | QA approve | 충족 → `completing`. W 제출 불필요 | unit |
 | E6-10 | 세션 예산 소진 | — | **`paused(budget)`**, `completed` 아님. Dir에게 "계속?" HITL(`source: system`) | unit |
 | E6-11 | 요약 생성 중 Platform LLM `stop_reason == "refusal"` | — | 활동 피드에 오류(`stop_details.category`). 세션 **`completed`**(요약 없이). `completing`에 머물지 않음 | unit |
+| E6-12 | 요약 생성 중 Platform LLM **transport 오류**(5xx·타임아웃 — `stop_reason` 자체가 없음) | — | E6-11 과 같다: 피드 오류 + 세션 **`completed`**(요약 없이). `refusal` 문자열만 분기한 구현은 세션을 `completing` 에 영구히 가둔다(**v0.10**, P4a 골든 제안) | unit |
 
 ---
 
@@ -287,10 +288,11 @@
 |---|---|---|---|---|
 | E13-01 | 격리 `worktree`, 저장소 `~/dev/app` | 세션 생성 | 데몬이 `repo_path` 존재·클린·기본 브랜치 검증. 실패 시 **폼에서 차단** | e2e |
 | E13-02 | 〃 | R의 첫 task | `git worktree add`, 브랜치 `colab/<S>/R`. 에이전트당 1개 | e2e |
-| E13-03 | 저장소가 `CLAUDE.md`를 **추적 중** | lane 시작 | 원본 덮어쓰지 않음. 마커 사이에 브리프 append. `git update-index --skip-worktree CLAUDE.md`. `git status` **클린** | e2e |
-| E13-04 | 저장소에 `CLAUDE.md` 없음 | lane 시작 | 파일 생성. `.git/info/exclude`에 등록. `git status` 클린 | e2e |
-| E13-05 | E13-03, 에이전트가 작업 중 `CLAUDE.md`의 마커 **밖**을 정당하게 수정 | lane 종료 | `--no-skip-worktree` 해제 → **마커 구간만 제거**. 에이전트 수정 **보존**. 원본 무손상 | e2e |
-| E13-06 | E13-04 | lane 종료 | 우리가 만든 파일 삭제, exclude 등록 해제 | e2e |
+| E13-03 | 저장소가 `AGENTS.md`를 **추적 중**, hermes(`instruction_file`) | lane 시작 | `AGENTS.md` **바이트 무변경**(읽지도 쓰지도 않음). 브리프는 `<workdir>/COLAB_BRIEF.md`(마커 구간)에. `.git/info/exclude` 등록. `skip-worktree` 비트 **0**. `git status` **진짜 클린**(v0.10 정정 — 스파이크 5) | e2e |
+| E13-04 | 저장소에 `AGENTS.md` 없음 | lane 시작 | E13-03 과 같다 — 원본 상태와 무관하게 같은 경로·같은 숨기기. `AGENTS.md` 는 생성하지 않는다 | e2e |
+| E13-05 | E13-03, 에이전트가 작업 중 `AGENTS.md`를 정당하게 수정하고 **커밋** | lane 종료 | 커밋이 **평범하게 성공**(`1 file changed`). 커밋에 브리프 **섞이지 않음**. lane 종료 뒤 `AGENTS.md` = 에이전트 커밋본, `COLAB_BRIEF.md` 없음 | e2e |
+| E13-06 | E13-03 | lane 종료 | `COLAB_BRIEF.md` 삭제, exclude 등록 해제. `git status` 클린 | e2e |
+| E13-06a | hermes 턴 프롬프트 | — | 맨 앞 한 줄이 `<workdir 절대 경로>/COLAB_BRIEF.md` 를 읽으라는 지시. 에이전트의 첫 도구 호출이 그 파일 read(실측 4/4) | unit + e2e |
 | E13-07 | `.gitignore` | — | 데몬이 **건드리지 않음**(diff 0) | e2e |
 | E13-08 | QA가 Frontend diff 리뷰 | — | QA workdir에서 Frontend 워크트리 경로 접근 **불가**(노출 안 됨). 리뷰 대상은 아티팩트만 | e2e |
 | E13-09 | 세션 `completed`, `worktree`, 14일 미경과 | GC 실행 | 삭제 **0** | unit + clock |
@@ -302,6 +304,8 @@
 | E13-15 | 세션 `cancelled` | — | 〃 | e2e |
 | E13-16 | 디스크 사용량 ≥ `workdir_disk_quota_gb` | 새 세션 생성 시도 | **차단** + Dir에게 정리 요청 | unit |
 | E13-17 | 격리 `worktree` | 마법사 | 런타임 후보가 **저장소 있는 머신만** 필터됨 | manual |
+| E13-18 | 세션 **`active`**(또는 `paused`) 인 workdir, 생성 후 14일 경과 | GC | 삭제 **0** — 보존 기한은 세션 종료 시각 기준. `created_at` 기준 구현은 실행 중 체크아웃을 지운다(**v0.10**, P4a 골든 제안) | unit + clock |
+| E13-19 | `workdir_disk_quota_gb` **미설정(null)** | 새 세션 생성 | 차단 **안 함**(무제한). null 을 0 으로 읽으면 쿼터를 안 켠 워크스페이스가 세션을 못 만든다(**v0.10**) | unit |
 
 ---
 
@@ -318,6 +322,7 @@
 | E14-07 | Dir 종료 선택 | — | 세션 `cancelled`. 아티팩트 회수 | unit |
 | E14-08 | 활성 세션이 걸린 런타임 | 삭제 시도 | **차단** + "먼저 재바인딩/종료" 요구 | unit |
 | E14-09 | 런타임 복귀(7일 안) | — | 세션 그대로 `active`, queued 진행 | e2e |
+| E14-10 | 이미 `paused(runtime_offline)` 인 세션 | 오프라인 스윕 다음 tick | 알림 **0**(멱등). "offline > grace" 만 보는 구현은 tick 마다 같은 인박스 항목을 쌓는다(**v0.10**) | unit + clock |
 
 ---
 
