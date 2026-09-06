@@ -14,10 +14,13 @@ package cost
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
+	"github.com/jackc/pgx/v5"
 )
 
 // Price is USD per 1,000,000 tokens — the unit every published price list uses
@@ -63,13 +66,26 @@ type Table struct {
 func Load(ctx context.Context, q db.DBTX, workspaceID uuid.UUID) (Table, error) {
 	var raw []byte
 	err := q.QueryRow(ctx, `SELECT budget_policy FROM workspace_settings WHERE workspace_id = $1`, workspaceID).Scan(&raw)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		// S-22: a real database error used to look exactly like "no settings
+		// row" — both fell through to the empty table, and an administrator who
+		// had configured prices saw $0 with nothing anywhere saying why.
+		// Pricing from defaults is still the answer (a finish must not 500 over
+		// it), but the reason is now in the log.
+		slog.Warn("cost: read pricing overrides", "err", err, "workspace", workspaceID)
+		return Table{}, nil
+	}
 	if err != nil || len(raw) == 0 {
 		return Table{}, nil //nolint:nilerr // missing settings price from defaults
 	}
 	var policy struct {
 		PricingOverrides map[string]Price `json:"pricing_overrides"`
 	}
-	if json.Unmarshal(raw, &policy) != nil {
+	if err := json.Unmarshal(raw, &policy); err != nil {
+		// Same reasoning, one level in: malformed overrides are ignored so the
+		// finish survives, and said out loud so they can be fixed.
+		slog.Warn("cost: pricing_overrides is not valid JSON — pricing from defaults",
+			"err", err, "workspace", workspaceID)
 		return Table{}, nil
 	}
 	t := Table{}

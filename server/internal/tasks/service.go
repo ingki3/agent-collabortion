@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -469,6 +471,13 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 		var outcome *string
 		_ = tx.QueryRow(ctx, `SELECT finished_at, outcome FROM task_attempt WHERE task_id = $1 AND attempt = $2`, t.ID, attempt).Scan(&finished, &outcome)
 		if finished != nil || Terminal(t.Status) {
+			// S-19: the repeat still rolls up. The roll-up is a SUM over
+			// task_usage, not an increment, so running it again is harmless —
+			// and if the FIRST finish's roll-up failed (its own transaction,
+			// after this one committed) this is the only thing that ever
+			// retries it. Without this line a session whose last finish lost
+			// its roll-up shows a permanently stale cost_usd.
+			costed = true
 			final = t.Status
 			return nil
 		}
@@ -700,13 +709,21 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 	// ORDER BY task_id is not cosmetic — two finishes in the same session roll
 	// up concurrently, and locking the same rows in the same order is what
 	// keeps the pair from deadlocking.
+	// S-23: only rows that can actually change are scanned. An estimate is
+	// worth re-pricing when it has no price yet (cost_usd = 0) or when the
+	// price table has been edited since it was priced (`<=`, not `<`: an
+	// injected clock can stamp both in the same instant) — otherwise the same
+	// arithmetic produces the same number, and a session with hundreds of
+	// attempts re-reads all of them on every finish.
 	rows, err := tx.Query(ctx, `
 		SELECT u.task_id, u.input_tokens, u.output_tokens, u.cache_read, u.cost_usd, COALESCE(NULLIF(u.model, ''), p.model, '')
 		FROM task_usage u
 		JOIN task t ON t.id = u.task_id
 		LEFT JOIN agent_profile p ON p.id = t.profile_id
+		LEFT JOIN workspace_settings ws ON ws.workspace_id = $2
 		WHERE t.session_id = $1 AND u.estimated
-		ORDER BY u.task_id`, sessionID)
+		  AND (u.cost_usd = 0 OR ws.updated_at IS NULL OR u.updated_at <= ws.updated_at)
+		ORDER BY u.task_id`, sessionID, wsID)
 	if err != nil {
 		return fmt.Errorf("tasks: pricing rows: %w", err)
 	}
@@ -774,6 +791,23 @@ func (s *Service) inTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
 // for fourteen seconds produced no frame (W5). Keeping the two together means a
 // transition added later cannot forget the board.
 func (s *Service) publish(ctx context.Context, q db.DBTX, t *Row) {
+	// S-18, the definition PR #78's "20 발행 자리" counted: this function is
+	// called at every place a task ROW changes — the 15 status transitions
+	// (12 UPDATEs + 3 INSERTs) plus the 5 places that change what the lane card
+	// shows without changing status (Phase, pending_hitl, budget_override,
+	// attempt bump, paused_detail). 15 ≠ 20 is not a discrepancy; the two
+	// numbers count different things, and the next audit should compare against
+	// this sentence rather than re-deriving it.
+	if s.LanePublish == nil {
+		// S-17: a nil hook used to skip publishing in silence. Production wires
+		// it in one place (httpapi.NewServer), so a second binary assembling
+		// this service without the hook would lose every lane card update with
+		// nothing in the log to say so.
+		warnUnwired("tasks: LanePublish unwired — lane.updated frames will not be published")
+	}
+	if s.ParticipantPublish == nil {
+		warnUnwired("tasks: ParticipantPublish unwired — participant.updated frames will not be published")
+	}
 	if s.Hub != nil {
 		sid := t.SessionID
 		_ = s.Hub.Publish(ctx, q, t.WorkspaceID, &sid, "task.updated", ToAPI(t, nil, nil))
@@ -982,4 +1016,16 @@ func (s *Service) applySweep(ctx context.Context, tx pgx.Tx, t *Row, idle time.D
 		return s.failLocked(ctx, tx, t, reason, now)
 	}
 	return s.requeueLocked(ctx, tx, t, reason, nil, now)
+}
+
+// unwiredOnce keeps the nil-hook warning to one line per process: publish runs
+// on every transition, and a warning per transition would bury the one that
+// matters.
+var unwiredOnce sync.Map
+
+func warnUnwired(msg string) {
+	if _, loaded := unwiredOnce.LoadOrStore(msg, true); loaded {
+		return
+	}
+	slog.Warn(msg)
 }

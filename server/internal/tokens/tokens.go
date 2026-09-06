@@ -185,7 +185,7 @@ func QueueCommand(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, cmd contr
 // functions; the two time bounds are applied here and swept by ExpireCommands.
 func PendingCommands(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, now time.Time) ([]contracts.Command, error) {
 	rows, err := q.Query(ctx, `
-		SELECT payload FROM daemon_command
+		SELECT id, payload FROM daemon_command
 		WHERE runtime_id = $1 AND consumed_at IS NULL
 		  AND created_at > $2
 		  AND NOT (type = 'revoke' AND created_at <= $3)
@@ -195,14 +195,34 @@ func PendingCommands(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, now ti
 	}
 	defer rows.Close()
 	out := []contracts.Command{}
+	var ids []int64
 	for rows.Next() {
+		var id int64
 		var c contracts.Command
-		if err := rows.Scan(&c); err != nil {
+		if err := rows.Scan(&id, &c); err != nil {
 			return nil, err
 		}
+		ids = append(ids, id)
 		out = append(out, c)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// S-35: `delivered_at` is the FIRST time this command rode a response, and
+	// it is distinct from `consumed_at`. Delivery is at-least-once and a
+	// response can be lost, so being handed out does NOT consume a command —
+	// but without the timestamp there is no way to tell "the daemon has been
+	// told and has not acted" from "the daemon has never seen it", and the
+	// §4.3 at-least-once guarantee (E11-05) cannot be evidenced. Nothing here
+	// reads it back into a decision; it is the audit trail the re-delivery
+	// rule is judged by. COALESCE keeps the first delivery, not the last.
+	if len(ids) > 0 {
+		if _, err := q.Exec(ctx, `
+			UPDATE daemon_command SET delivered_at = COALESCE(delivered_at, $2) WHERE id = ANY($1)`, ids, now); err != nil {
+			return nil, fmt.Errorf("tokens: mark delivered: %w", err)
+		}
+	}
+	return out, nil
 }
 
 // ConsumeAttemptCommands marks the cancel/revoke commands of (task, attempt)

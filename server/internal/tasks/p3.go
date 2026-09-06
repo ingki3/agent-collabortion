@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 )
 
@@ -92,5 +93,51 @@ func (s *Service) waitingHumanLocked(ctx context.Context, tx pgx.Tx, t *Row, att
 	}
 	t.Status = WaitingHuman
 	s.publish(ctx, tx, t)
+	return nil
+}
+
+// PauseTaskForBudget parks ONE task at paused(budget) and asks its daemon to
+// stop through the §8.2.2 procedure. It is the task-scoped sibling of
+// PauseSessionTasks: a single agent over its own budget_per_task must not stop
+// the lanes that are inside theirs (FR-7.3, E9-01).
+func (s *Service) PauseTaskForBudget(ctx context.Context, tx pgx.Tx, taskID uuid.UUID, detail string, now time.Time) error {
+	t, err := lockTask(ctx, tx, taskID)
+	if err != nil {
+		return err
+	}
+	if Terminal(t.Status) || t.Status == Paused {
+		return nil
+	}
+	return s.pauseLocked(ctx, tx, t, "budget", detail, Paused, now)
+}
+
+// RecordTurnUsage stores the running usage the daemon reports on every
+// heartbeat (daemon-protocol §4.2). It is an upsert on the task, not an
+// increment: the daemon sends the turn's TOTAL, so adding it would multiply
+// the bill by the number of heartbeats.
+//
+// An `estimated: true` report carries a 0 the runtime did not measure
+// (harness v0.7.1), so the number is dropped here exactly as Finish drops it
+// and the roll-up prices it from the workspace table instead (S-20).
+func (s *Service) RecordTurnUsage(ctx context.Context, taskID uuid.UUID, u contracts.Usage, now time.Time) error {
+	reported := u.CostUSD
+	if u.Estimated {
+		reported = 0
+	}
+	var model *string
+	if u.Model != "" {
+		m := u.Model
+		model = &m
+	}
+	_, err := s.DB.Exec(ctx, `
+		INSERT INTO task_usage (task_id, input_tokens, output_tokens, cache_read, cost_usd, estimated, model, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (task_id) DO UPDATE SET input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
+		  cache_read = EXCLUDED.cache_read, cost_usd = EXCLUDED.cost_usd, estimated = EXCLUDED.estimated,
+		  model = COALESCE(EXCLUDED.model, task_usage.model), updated_at = EXCLUDED.updated_at`,
+		taskID, u.InputTokens, u.OutputTokens, u.CacheReadTokens, reported, u.Estimated, model, now)
+	if err != nil {
+		return fmt.Errorf("tasks: turn usage: %w", err)
+	}
 	return nil
 }

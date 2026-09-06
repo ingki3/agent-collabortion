@@ -390,6 +390,17 @@ func (s *Server) daemonHeartbeat(w http.ResponseWriter, r *http.Request, d daemo
 		writeErr(w, err)
 		return
 	}
+	// FR-7.3 M9: the heartbeat's `usage` is the only in-turn signal there is.
+	// Storing it and checking the limits here is what makes "턴 중 강제" exist —
+	// pricing only at `finish` can stop a task no earlier than after it has
+	// already spent past its budget.
+	if in.Usage.InputTokens > 0 || in.Usage.OutputTokens > 0 || in.Usage.CostUSD > 0 {
+		if err := s.Tasks.RecordTurnUsage(r.Context(), t.ID, in.Usage, s.Clock.Now()); err != nil {
+			s.Log.Warn("record turn usage", "err", err, "task", t.ID)
+		} else if _, err := s.enforceBudgetFor(r.Context(), t.ID); err != nil {
+			s.Log.Warn("enforce budget", "err", err, "task", t.ID)
+		}
+	}
 	if preview, drift := parsePreview(in.Preview); drift {
 		if err := s.Tasks.NotePreviewDrift(r.Context(), t.ID, attempt, s.Clock.Now()); err != nil {
 			s.Log.Warn("note heartbeat preview drift", "err", err)
