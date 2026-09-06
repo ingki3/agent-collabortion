@@ -547,7 +547,15 @@ func (r *Runner) load(ctx context.Context, meta map[string]any) (sid string, pro
 		}
 		acp, root, kind, depth, ok := s.HermesProvenance()
 		if !ok {
-			return ref.SessionID, nil, "", nil
+			// No provenance at all. §6 only names "result null" and
+			// "provenance mismatch", but Hermes 0.20.6 answers a session it no
+			// longer has with a bare `{}` — non-null, no `_meta` (spike 4c wire
+			// log, plan/spikes/logs/spike4c_hermes_wire.json). Reading that as
+			// "resumed" loses the work silently: the next session/prompt comes
+			// back `stopReason: refusal`, which §2.2 forbids using as a loss
+			// signal, so the attempt ends `completed` having done nothing
+			// (5/5 in spike 4c). Missing provenance is a lost session.
+			return "", nil, "no_provenance", nil
 		}
 		p := &contracts.HermesProvenance{ACPSessionID: acp, RootHermesSessionID: root, SessionKind: kind, CompressionDepth: depth}
 		if acp == ref.SessionID {
