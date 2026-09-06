@@ -40,7 +40,7 @@ T-C4 때는 목도 CLI 도 같은 잘못된 표(`/tasks/{T}/hitl`)에서 나와 
 | `up.sh` / `down.sh` | 전용 스택. **포트를 다른 단계와 분리한다**: Postgres `colab-pg-g6`(:5442) · server :8100 · web :3020 — P1(:8080/:3000/:5435) · P2(:8090/:3010/:5436) · G5(:5437) · 스파이크 4c(:8095/:5441) 과 같이 돌 수 있게. 매 실행 `make build` | `server.log` `web.log` `*.pid` |
 | `48_hitl_roundtrip.sh` | (a) HITL 왕복 — 턴 종료 → `waiting_human`(프로세스 0 · 슬롯 미점유) → **웹 인박스**에서 답 → 새 attempt(resume 우선) → `<hitl_answer>` 가 프롬프트에. 강제 콜드 스타트 · 거절(E7-17) · 두 도구 표면 프로브 | `48-checks.tsv` `48.json` `48-prompt-*.txt` |
 | `49_partial_exec_dup0.sh` | (b) 부분 실행 → 데몬 **SIGKILL** → 3분 만료 재큐잉 → 재개. **재게시 0 · 중복 편집 0**(실기 1회; sim 100회는 CI) | `49-checks.tsv` `49.jsonl` `49-summary.tsv` |
-| `50_budget_pause_override.sh` | (c) 예산 — 턴 중 초과 → `paused(budget)` + 시스템 HITL → 상향 승인 → 같은 lane·workdir 재개 → E9-08. 거절 유지(E9-03) · 추정치 드레인(E9-05) | `50-checks.tsv` `50.json` |
+| `50_budget_pause_override.sh` | (c) 예산 — **2판부터 대역이 없다**(실기 비용으로만 자극한다). arm 5개: A 실측 초과 → **웹** 상향 → 재개 → E9-08 · B 거절 유지(E9-03) · C 추정치 드레인(E9-05·S-48) → K-10 · D 세션 범위 → **웹** 승인 → K-10·S-46 · H hermes 사후 강제 | `50-checks.tsv` `50.json` `50-midturn.tsv` `50-usage.tsv` `50-sessions.tsv` |
 | `51_deputy_and_cancel.sh` | (d) deputy 위임 시점(E7-09·10)·멤버 권한(E7-11)·취소 권한(E10-05·06). 시각은 `backdate_hitl` 로 옮긴다 | `51-checks.tsv` `51.json` |
 | `52_scenario_c.sh` | (e) 시나리오 C — 실행 중 메시지 / "중단하고 다시 지시" / "중단", 그리고 결정 기록이 콜드 스타트를 넘는가 | `52-checks.tsv` `52.json` |
 | `53_scenario_d.sh` | (f) 시나리오 D 재확인 — hermes 실패 → 같은 머신 claude_code 폴백(workdir·아티팩트 유지), 대안 없음 → 알림 | `53-checks.tsv` `53.json` |
@@ -48,7 +48,7 @@ T-C4 때는 목도 CLI 도 같은 잘못된 표(`/tasks/{T}/hitl`)에서 나와 
 | `lib.sh` | `e2e/p2/lib.sh` 재사용 + 포트 분리 + P3 헬퍼(HITL 질의·`backdate_hitl`·attempt 별 프롬프트/브리프·웹 헬퍼) |
 | `fixtures/prompt_of.py` · `brief_of.py` | claim 탭 JSONL 에서 **attempt 별** 턴 프롬프트 / 브리프 [1]~[8] 을 꺼낸다 |
 | `fixtures/measure_dup0.py` | 중복 0 판정기 — `plan/spikes/spike04c/measure.py` 를 옮기고 psql 마지막 줄 빈 칸 버그만 고쳤다 |
-| `fixtures/daemon_heartbeat.sh` | **데몬 대역** — daemon-protocol §4.2 heartbeat 에 `usage` 를 실어 보낸다(결함 D-17 우회) |
+| `fixtures/daemon_heartbeat.sh` | **데몬 대역** — daemon-protocol §4.2 heartbeat 에 `usage` 를 실어 보낸다. 1판이 D-17 을 우회하려고 썼다. **2판의 `50_` 은 쓰지 않는다**(#145 로 데몬이 진짜로 올린다) — 회귀 재현용으로 남겨 둔다 |
 
 ```
 bash e2e/p3/up.sh                       # 스택 (WITH_WEB=0 이면 웹 생략)
@@ -74,7 +74,19 @@ bash e2e/p3/down.sh
   아예 없다(SPIKE_04c §0.2). 그리고 `lane.runtime_session_ref` 는 `finish` 에서만 저장되므로 **warm-up 턴**이
   없으면 다음 attempt 는 콜드 스타트다.
 - **개입은 턴이 살아 있는 동안**: `restartLane`·`cancelLane` 은 끝난 lane 에 409 다. `52_` 가 세 자극을 한
-  자리에서 내는 이유이고, `50_` 이 세 heartbeat 를 한 자리에서 내는 이유다.
+  자리에서 내는 이유다. 취소를 재는 자리(`51_`)는 **전제를 체크 한 줄로 남긴다**(X1c: 취소 직전에 그
+  attempt 가 아직 `turn_end` 를 내지 않았다) — 2판 첫 회차에 에이전트가 "지시를 받으면" 을 "기다린다" 로
+  읽고 15초 만에 턴을 끝내 자극이 성립하지 않았고, 결함처럼 보였다.
+- **개입 스크립트의 지시문은 "첫 턴부터 곧바로"** 로 쓴다. 조건절("지시를 받으면 …")은 에이전트를 기다리게 만든다.
+- **예산 자극은 EVAL 의 금액이 아니라 런타임의 눈금으로**: haiku 한 턴이 $0.075 안팎이라 EVAL 의 $1 은
+  실기에서 영영 안 넘는다. 상한을 내리고 **비율**을 지킨다. 그리고 서버는 한 턴을 **두 번** 본다 —
+  턴 중 추정(원시 스트림 토큰 × 가격표, 한 턴 끝값 ≈$0.044)과 턴 끝 실측(`result.total_cost_usd` ≈$0.077).
+  E9-01(실측 분기)을 재려면 상한이 **그 둘 사이**여야 한다. 아니면 E9-05 를 재게 된다.
+- **인박스 DOM 은 `data-item-id` 로 집는다**: 여러 arm 이 같은 인박스에 뜨므로 `[data-type="hitl_request"]`
+  만으로는 남의 항목을 누른다.
+- **API 관측은 그 화면의 계정으로 로그인하고** 한다 — `api_ok` 는 lib 기본 쿠키(`out/cookies.txt`)를 쓴다.
+- **`paused_detail` 은 `{"budget": {...}, "reason": …, "paused_at": …}`** 이다. `paused_detail->>'limit_usd'` 는
+  언제나 NULL — `->'budget'->>'limit_usd'`.
 - **프로세스 종료는 pid·pgid·포트만**(`P2_TASKS.md §0-10`). 이 머신에는 다른 워커의 데몬이 떠 있다.
 - **비활성 버튼 판정은 CSS `:disabled`**: `get attr … disabled` 는 boolean 속성이 있을 때 빈 문자열을 준다.
 - **활동 피드는 `task_event`** 다(class=`status`, payload.note), 세션 `message` 가 아니다.
@@ -82,4 +94,5 @@ bash e2e/p3/down.sh
 - **실행 중인 스크립트 파일을 편집하지 마라** — bash 가 오프셋으로 이어 읽어 중간에 깨진다.
 - `out/` 은 gitignore — attempt 토큰(래퍼 파일)·쿠키·턴 프롬프트가 들어 있다.
 
-비용: `48_` 은 에이전트 턴 8 남짓, `49_` 은 6, `50_` 은 5, `51_` 은 3, `52_` 은 8, `53_` 은 4 (전부 haiku).
+비용: `48_` 은 에이전트 턴 8 남짓, `49_` 은 6, `50_` 은 8(2판 arm 5개), `51_` 은 3, `52_` 은 8, `53_` 은 4 (전부 haiku).
+벽시계(2판 실측): 48_ 156s · 49_ 5분 · 50_ 188s · 51_ 3분 · 52_ 3분 · 53_ 1분 · (g) 2분.
