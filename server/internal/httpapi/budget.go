@@ -145,9 +145,16 @@ func (s *Server) enforceBudgetFor(ctx context.Context, taskID uuid.UUID) (bool, 
 }
 
 func (s *Server) applyBudgetPause(ctx context.Context, tx pgx.Tx, b *budgetState, o sessions.BudgetOutcome, now time.Time) error {
+	// The pair quoted everywhere below — paused_detail, the feed note and the
+	// question — is the pair that CROSSED. S-48: it used to be picked by
+	// `HitlTaskID == uuid.Nil`, which is the request's scope, not the limit's.
+	// The two only agree on the measured path; an estimated overrun of a TASK
+	// budget pauses the session (E9-05) and so leaves HitlTaskID empty, and the
+	// old test then quoted the SESSION's numbers — for a session that often has
+	// no budget at all, i.e. "세션이 예산 $0.00를 넘었습니다".
 	spent := b.TaskSpentUSD
 	limit := sessions.EffectiveTaskLimit(derefFloat(b.AgentBudgetPerTask), derefFloat(b.TaskOverride), b.sessionRemaining())
-	if o.HitlTaskID == uuid.Nil {
+	if o.Scope != "task" {
 		spent, limit = b.SessionSpentUSD, b.SessionLimitUSD
 	}
 	detail := tasks.WithBudget(tasks.PausedDetail(sessions.PauseBudget, now), float32(limit), float32(spent))
@@ -172,14 +179,12 @@ func (s *Server) applyBudgetPause(ctx context.Context, tx pgx.Tx, b *budgetState
 			}, now); err != nil {
 			return err
 		}
-		// E9-05's other half: "세션 `paused` + Dir 알림". The feed event is
-		// what the session shows; the Director is somewhere else. PlanBudget
-		// has set DirectorNotified since P3 and nothing implemented it, so an
-		// estimated overrun paused the session in silence — the one pause that
-		// raises no HITL is exactly the one that needs the inbox card (S-44).
-		if err := s.notifyDirectorPaused(ctx, tx, b, now); err != nil {
-			return err
-		}
+		// E9-05's other half — "세션 `paused` + Dir 알림" — is the HITL below.
+		// S-44 filed a bare `session_paused` inbox card here because the
+		// estimated path raised no request; S-48 gives it the same
+		// `purpose: budget` approval the measured path raises, and that
+		// request files its own inbox item. Filing both would put two cards
+		// for one pause in the Director's inbox.
 	} else if o.CancelCommandIssued {
 		// §8.2.2 through the daemon: PauseSessionTasks (session scope) or a
 		// single task pause, both of which queue the `cancel` command rather
@@ -213,8 +218,14 @@ func (s *Server) applyBudgetPause(ctx context.Context, tx pgx.Tx, b *budgetState
 	// tells this request apart from the completion approval and the loop pause
 	// — all three are `source: system` + `approval` (0012, E9-01).
 	question := fmt.Sprintf("%s의 작업이 예산 $%.2f를 넘었습니다 (현재 $%.2f). 계속할까요?", b.AgentName, limit, spent)
-	if o.HitlTaskID == uuid.Nil {
+	if o.Scope != "task" {
 		question = fmt.Sprintf("세션이 예산 $%.2f를 넘었습니다 (현재 $%.2f). 계속할까요?", limit, spent)
+	}
+	if o.TurnDrained {
+		// The Director has to be told that the number is OURS, or "$0.06 spent
+		// of $0.05" reads as a measurement and the raise they pick is based on
+		// a precision the price table does not have (FR-7.3, E9-05).
+		question += " (추정 비용 · 진행 중인 턴은 끝까지 둡니다)"
 	}
 	var taskRef *uuid.UUID
 	if o.HitlTaskID != uuid.Nil {
@@ -225,9 +236,19 @@ func (s *Server) applyBudgetPause(ctx context.Context, tx pgx.Tx, b *budgetState
 		taskRef = &id
 	}
 	var hitlID uuid.UUID
+	// `hitl_request_one_open_per_task` (0001) is partial — `WHERE task_id IS
+	// NOT NULL` — so ON CONFLICT alone does not dedupe a SESSION-scoped
+	// request, and S-48 makes the estimated path raise exactly those on a
+	// signal that repeats every heartbeat. enforceBudgetFor's
+	// `SessionStatus != 'active'` guard already stops the second heartbeat,
+	// but that guard is one caller's; the uniqueness belongs here.
 	err := tx.QueryRow(ctx, `
 		INSERT INTO hitl_request (session_id, task_id, source, type, question, approver_spec, purpose, due_at, created_at)
-		VALUES ($1, $2, 'system', $3, $4, 'director', $5, $6, $7)
+		SELECT $1, $2, 'system', $3, $4, 'director', $5, $6, $7
+		WHERE NOT EXISTS (
+		      SELECT 1 FROM hitl_request h
+		       WHERE h.session_id = $1 AND h.status = 'open' AND h.source = 'system'
+		         AND h.purpose = $5 AND h.task_id IS NOT DISTINCT FROM $2)
 		ON CONFLICT DO NOTHING
 		RETURNING id`,
 		b.SessionID, taskRef, o.HitlType, question, o.HitlPurpose, now.Add(hitl.DefaultDueIn), now).Scan(&hitlID)
@@ -267,23 +288,6 @@ func derefFloat(p *float64) float64 {
 }
 
 var _ = contracts.Usage{}
-
-// notifyDirectorPaused is the inbox card for a pause that issues no HITL: the
-// estimated overrun (E9-05). `session_paused` is the item type FR-8 names for
-// it, and the card's actions (`approve_continue`) are already wired — nothing
-// had ever inserted one. The card's body is the session's own paused_reason,
-// which applyBudgetPause has just written, so `ref_id` carries the session.
-//
-// It is inserted only while the session is still `active` (enforceBudgetFor's
-// guard), so the Director gets one card per pause, not one per heartbeat.
-func (s *Server) notifyDirectorPaused(ctx context.Context, tx pgx.Tx, b *budgetState, now time.Time) error {
-	_, err := tx.Exec(ctx, `
-		INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
-		SELECT m.id, $3::inbox_item_type, $4::inbox_severity, $1, $1, $2
-		FROM member m WHERE m.workspace_id = $5 AND m.user_id = $6`,
-		b.SessionID, now, inbox.TypeSessionPaused, inbox.Severity(inbox.TypeSessionPaused), b.WorkspaceID, b.Director)
-	return err
-}
 
 // attachHitlCard posts the timeline card for a system-issued request and links
 // it back (openapi HitlRequest.message_id). Filling the column is what makes

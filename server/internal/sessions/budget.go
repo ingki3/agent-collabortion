@@ -48,6 +48,14 @@ type BudgetInput struct {
 type BudgetOutcome struct {
 	Exceeded bool
 
+	// Scope is which limit was crossed after D-16's min() has been applied:
+	// "task" (the agent's budget_per_task) or "session". The caller needs it
+	// to quote the right pair of numbers, and it is NOT the same question as
+	// HitlTaskID — an ESTIMATED overrun of a task budget still pauses the
+	// SESSION (E9-05 has no per-task drain), so the request is session-scoped
+	// while the numbers that crossed are the task's (S-48).
+	Scope string
+
 	TaskStatus         string
 	PausedReason       string
 	LaneStatus         string
@@ -150,6 +158,7 @@ func PlanBudget(in BudgetInput) BudgetOutcome {
 		return o
 	}
 	o.Exceeded = true
+	o.Scope = scope
 	o.DirectorNotified = true
 	o.QueuedDispatched = 0
 
@@ -160,6 +169,23 @@ func PlanBudget(in BudgetInput) BudgetOutcome {
 		o.TurnDrained = true
 		o.SessionState, o.SessionPauseReason = "paused", PauseBudget
 		o.TaskStatus, o.PausedReason = "running", ""
+		// S-48: "Director에게 알린다" is a REQUEST, not a notice. Before this
+		// the estimated pause raised no HITL at all and the Director got an
+		// `session_paused` inbox card whose only answer was to go and call
+		// resumeSession — while the measured pause, one branch below, handed
+		// them a card they could approve with a new limit. The two pauses are
+		// the same decision ("이 세션에 돈을 더 쓸까요?"), so they now ask it
+		// the same way: `source: system` + `approval` + `purpose: budget`,
+		// answered by respondHitlRequest (K-10 makes that answer resume the
+		// session in one action).
+		//
+		// HitlTaskID stays EMPTY even for a task-scope overrun: what paused is
+		// the session, and a request naming a task would be answered by
+		// resuming that task while the session stayed `paused`.
+		o.HitlIssued = true
+		o.HitlSource = "system"
+		o.HitlType = hitl.KindApproval
+		o.HitlPurpose = hitl.PurposeBudget
 		return o
 	}
 

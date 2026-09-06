@@ -3,6 +3,7 @@ package messages
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -81,7 +82,13 @@ func PostHitlCard(ctx context.Context, hub *realtime.Hub, q db.DBTX, wsID, sessi
 		return uuid.Nil, fmt.Errorf("messages: hitl card: %w", err)
 	}
 	// A publish failure is not the caller's failure — the card is committed
-	// either way and the client re-reads via REST (realtime D1).
-	_ = Publish(ctx, hub, q, wsID, sessionID, id)
+	// either way and the client re-reads via REST (realtime D1). It is still
+	// said out loud (#142 review NN3): a swallowed publish is exactly the
+	// shape of "the card is in the database and not on the screen", which is
+	// the bug S-45 was, and a silent `_ =` gives the next investigation
+	// nothing to grep for.
+	if err := Publish(ctx, hub, q, wsID, sessionID, id); err != nil {
+		slog.Warn("messages: hitl card publish", "err", err, "session", sessionID, "message", id)
+	}
 	return id, nil
 }

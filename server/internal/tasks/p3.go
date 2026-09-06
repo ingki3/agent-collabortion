@@ -198,8 +198,17 @@ func (s *Service) PauseTaskForBudget(ctx context.Context, tx pgx.Tx, taskID uuid
 // the bill by the number of heartbeats.
 //
 // An `estimated: true` report carries a 0 the runtime did not measure
-// (harness v0.7.1), so the number is dropped here exactly as Finish drops it
-// and the roll-up prices it from the workspace table instead (S-20).
+// (harness v0.7.1), so the reported number is dropped — and the row is priced
+// from the workspace price table before this returns.
+//
+// S-48: the pricing used to happen only in the roll-up, which runs at
+// `finish`. Every ACP runtime (Claude Code, Hermes) reports `estimated: true`
+// — T-I3 measured 72 of 72 runtime-written `task_usage` rows that way — so the
+// heartbeat wrote a 0, `enforceBudgetFor` compared that 0 against the limit,
+// and the "턴 중 강제" half of FR-7.3 could not fire for any runtime the
+// product actually runs. Fixing the daemon's own half (D-17) would only have
+// made it report a 0 more often. The pricing is the SAME function the roll-up
+// calls, so the heartbeat and the finish cannot drift onto two numbers.
 func (s *Service) RecordTurnUsage(ctx context.Context, taskID uuid.UUID, u contracts.Usage, now time.Time) error {
 	reported := u.CostUSD
 	if u.Estimated {
@@ -210,17 +219,57 @@ func (s *Service) RecordTurnUsage(ctx context.Context, taskID uuid.UUID, u contr
 		m := u.Model
 		model = &m
 	}
-	_, err := s.DB.Exec(ctx, `
-		INSERT INTO task_usage (task_id, input_tokens, output_tokens, cache_read, cost_usd, estimated, model, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		ON CONFLICT (task_id) DO UPDATE SET input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
-		  cache_read = EXCLUDED.cache_read, cost_usd = EXCLUDED.cost_usd, estimated = EXCLUDED.estimated,
-		  model = COALESCE(EXCLUDED.model, task_usage.model), updated_at = EXCLUDED.updated_at`,
-		taskID, u.InputTokens, u.OutputTokens, u.CacheReadTokens, reported, u.Estimated, model, now)
-	if err != nil {
-		return fmt.Errorf("tasks: turn usage: %w", err)
-	}
-	return nil
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO task_usage (task_id, input_tokens, output_tokens, cache_read, cost_usd, estimated, model, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			ON CONFLICT (task_id) DO UPDATE SET input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
+			  cache_read = EXCLUDED.cache_read, cost_usd = EXCLUDED.cost_usd, estimated = EXCLUDED.estimated,
+			  model = COALESCE(EXCLUDED.model, task_usage.model), updated_at = EXCLUDED.updated_at`,
+			taskID, u.InputTokens, u.OutputTokens, u.CacheReadTokens, reported, u.Estimated, model, now); err != nil {
+			return fmt.Errorf("tasks: turn usage: %w", err)
+		}
+		if !u.Estimated {
+			// A measured cost is already the number; re-pricing it would
+			// overwrite a measurement with a guess (repriceEstimates only
+			// touches `estimated` rows, but not walking the session at all is
+			// cheaper on the 15s heartbeat).
+			return nil
+		}
+		var wsID, sessionID uuid.UUID
+		if err := tx.QueryRow(ctx, `
+			SELECT s.workspace_id, t.session_id FROM task t JOIN session s ON s.id = t.session_id
+			WHERE t.id = $1`, taskID).Scan(&wsID, &sessionID); err != nil {
+			return fmt.Errorf("tasks: turn usage session: %w", err)
+		}
+		return repriceEstimates(ctx, tx, wsID, sessionID, now)
+	})
+}
+
+// NoteBudgetEnforceFailed puts the loss of a post-finish budget check on the
+// FEED (S-47). The check runs in its own transaction after `finish` has
+// committed (finishAndEnforce explains why), so when it fails the attempt
+// stands and nothing is paused: a task that crossed its per-task limit leaves
+// its lane unlocked and the next task is dispatched, to be caught only at that
+// task's first usage report. That is one turn of overspend, and until now the
+// only trace of it was a Warn line in the server log — the session's own
+// timeline said the turn ended normally.
+//
+// The re-check itself is guaranteed by enforceBudgetFor being idempotent and
+// state-driven rather than event-driven: it re-reads task_usage and the
+// session status every time, the HITL insert is guarded (one open system
+// request per session·purpose·task), and a session already `paused` returns
+// early. So the NEXT heartbeat or finish on this session runs the same
+// comparison and pauses then — this note exists to say that a turn went by
+// unchecked, not to schedule the retry.
+func (s *Service) NoteBudgetEnforceFailed(ctx context.Context, taskID uuid.UUID, attempt int, cause error, now time.Time) error {
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		return InsertServerEventOnce(ctx, tx, taskID, attempt, "status", "error", "budget.enforce_failed", "error",
+			map[string]any{
+				"note":  "턴이 끝난 뒤 예산 재검사가 실패했습니다 — 다음 heartbeat·finish 에서 다시 검사합니다",
+				"error": cause.Error(),
+			}, now)
+	})
 }
 
 // PauseLaneForBudget parks the LANE of a task that has ALREADY finished.
