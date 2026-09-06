@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 상태 | **P3 착수(2026-09-06).** G5 조건부 통과(`plan/G5_DECISION.md` — 템플릿 3분 Director 실측 대기). P3-pre 두 갈래(스파이크 4c, P3a 골든·시뮬레이터)부터 연다 |
+| 상태 | **P3-pre 진행(2026-09-06 밤).** G5 조건부 통과(`plan/G5_DECISION.md`). **T-P3a 골든 PR #108 머지**(E7 24·E8 11·E9 9·E10 13·sim 2 leaf, 태그 `p3golden`) — 계약 빈칸 2건은 PR #110(openapi `purpose` 고정값·`can_respond_from` null + EVAL v0.6 제안 5행 채택)으로. **스파이크 4c 진행 중** — 첫 발견: Claude Code resume 유실이 `-32002 Resource not found` 라 데몬이 못 잡아 E8-02 가 실기에서 발동한 적 없음 → harness **v0.8.2 PR #109** + 데몬 수정 PR 예정. 다음: T-S5 ‖ T-D5 |
 | 근거 | `PLAN.md` §3 P3·§6.2 G6·§8(열린 결정 5·6), `EVAL.md` E7~E10·E8-13·E16-C, `PRD.md` FR-5.1~5.4·FR-7.3·FR-3.4·FR-1.9·§8.2.2·§8.4, `contracts/harness.md` §5·§6, `contracts/daemon-protocol.md` §4.3·§6, `plan/P2_BACKLOG.md` |
 | 목표 | **사람이 개입하는 모든 경로.** 세션이 멈추고 다시 이어지되 **작업을 잃지 않는다.** 시나리오 C(Director 중간 개입)·D(프로파일 전환 — G5에서 이미 통과, G6에서 재확인) |
 | 게이트 | **G6**: 시나리오 C·D + **중복 0** + (G4에서 이월된 Hermes 조건은 G5에서 닫힘). **컷 3 판정** — 미통과면 P4를 시작하지 않고 P3를 마감(PLAN §6.2) |
