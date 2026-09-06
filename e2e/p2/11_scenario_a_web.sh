@@ -83,6 +83,18 @@ next_step wizard-conditions || true
 COND="$(abget get text '[data-testid="wizard-conditions"]' | tr '\n' ' ')"
 rec W4 S6-6 "종료 조건 기본값 = 아티팩트 제출 AND Director 승인" \
   "$( grep -q "아티팩트 제출" <<<"$COND" && grep -q "승인" <<<"$COND" && echo PASS || echo FAIL )" "$(head -c 110 <<<"$COND")"
+# PRD §4 시나리오 A 3단계의 종료 조건은 "**Writer 가** artifact 제출" 이다. 기본값 `who: assignee` 로는
+# Writer 가 내도 충족되지 않으므로(E6-02) 사람이 제출자를 골라야 한다 — #83 이 그 선택지를 넣었다.
+SUBSEL="$(count '[data-testid="submitter-select"]')"
+if [ "${SUBSEL:-0}" -ge 1 ]; then
+  ab select '[data-testid="submitter-select"]' "$WRTR" >/dev/null 2>&1 || true
+  sleep 1
+  SUBVAL="$(abget eval "document.querySelector('[data-testid=\"submitter-select\"]')?.value")"
+  rec W4c S6-6 "종료 조건의 **제출자를 Writer 로 지정**할 수 있다 (PRD 시나리오 A · E6-02)" \
+    "$( grep -q "$WRTR" <<<"$SUBVAL" && echo PASS || echo FAIL )" "선택값=$SUBVAL (Writer=$WRTR)"
+else
+  rec W4c S6-6 "종료 조건의 제출자를 지정할 수 있다" FAIL "submitter-select 가 없다 — 마법사가 제출자를 못 고른다(W-4)"
+fi
 next_step wizard-summary || true
 shot p2-a-03-wizard-summary
 sleep 1
@@ -205,12 +217,32 @@ fi
 rec W13 S7 "우열 아티팩트 목록에 제출물이 보인다" "$( [ "${ART_ROWS:-0}" -ge 1 ] && echo PASS || echo FAIL )" "artifact-row=$ART_ROWS"
 # U5-1 의 "1/2" 는 조건이 **Writer 를 지정한** 세션에서만 볼 수 있다. 마법사는 그것을 만들 수 없고
 # (§4 W-4), 10_ 이 만든 세션은 다른 계정 소유라 이 브라우저로 열 수 없다 — API 경로(§3.1)에서 확인한다.
-rec W13b S7 "제출 후 1/2 (U5-1)" "N/A" "마법사가 제출자를 지정할 수 없어 웹에서는 만들 수 없다(W-4). API 경로 §3.1 에서 met 1/2 확인"
+if [ "$COND_WHO" = assignee ]; then
+  rec W13b S7 "제출 후 1/2 (U5-1)" "N/A" "마법사가 제출자를 지정하지 못해 이 세션으로는 판정할 수 없다(W-4). API 경로 §3.1 에서 met 1/2 확인"
+else
+  rec W13b S7 "제출 후 1/2 (U5-1) — 마법사에서 제출자를 Writer 로 지정한 세션" "$( [ "$PROG1" = "1/2" ] && echo PASS || echo FAIL )" "progress=$PROG1 · 조건 지정 에이전트=$COND_WHO"
+fi
 # 새로고침하면 보이는가 — 초기 로드 뒤 우열이 갱신되지 않는다는 판정의 반쪽(§4 S-14)
 ab open "$WEB_URL/sessions/$SESSION" >/dev/null; wait_sel '[data-testid="session-aside"]' 20 || true
 RPROG="$(abget get text '[data-testid="progress-count"]' | tr -d ' \n')"; RART="$(count '[data-testid="artifact-row"]')"
 RJOIN="$(abget eval "[...document.querySelectorAll('[data-testid=\"message-card\"]')].filter(e=>e.textContent.includes('위임한 작업이 모두 끝났습니다')).length" | tr -dc '0-9')"
 shot p2-a-08-after-reload
+# 비용 카드. **런타임이 얼마를 보고했는지**부터 본다 — 값을 만들어 낼 수는 없다.
+# Claude Code 구독 계정은 `usage` 프레임에 토큰은 실수로, `cost_usd` 는 0(`estimated:false`)으로 보고한다.
+# 그러면 $0.00 이 정직한 표시이고 합산 경로는 이 런타임으로 판정할 수 없다.
+COST_TXT="$(abget get text '[data-testid="cost-line"]' | tr -d '\n' | head -c 60)"
+COST_API="$(api_ok GET "/sessions/$SESSION" | jq -r '.cost_usd')"
+USAGE_MAX="$(psqlq "select coalesce(max((payload->>'cost_usd')::numeric),0) from task_event
+  where task_id in (select id from task where session_id='$SESSION') and class='usage'")"
+USAGE_TOK="$(psqlq "select coalesce(sum((payload->>'output_tokens')::bigint),0) from task_event
+  where task_id in (select id from task where session_id='$SESSION') and class='usage'")"
+if awk -v c="${USAGE_MAX:-0}" 'BEGIN{exit !(c+0>0)}'; then
+  rec W16 S7 "우열 비용이 런타임 보고를 반영한다 (#85)" \
+    "$( awk -v c="${COST_API:-0}" 'BEGIN{exit !(c+0>0)}' && echo PASS || echo FAIL )" "화면='$COST_TXT' · API cost_usd=$COST_API · usage 최대 cost_usd=$USAGE_MAX"
+else
+  rec W16 S7 "우열 비용이 런타임 보고를 반영한다 (#85)" "N/A" \
+    "이 런타임은 usage 에 cost_usd 0 만 보고한다(estimated=false, 출력 토큰 합계 $USAGE_TOK). 화면 '$COST_TXT' · API $COST_API 는 그 보고 그대로 — 합산 경로는 값을 보고하는 런타임에서 판정해야 한다"
+fi
 rec W13c S7 "**새로고침하면** 아티팩트 행·합류 카드가 보인다 (같은 데이터, 실시간만 안 온다)" \
   "$( [ "${RART:-0}" -ge 1 ] && [ "${RJOIN:-0}" -ge 1 ] && echo PASS || echo FAIL )" "reload: artifact-row=$RART 합류카드=$RJOIN progress=$RPROG"
 # 활동 피드는 페이지 최상위 요소가 아니라 **메시지의 task 이력을 펼쳐야** 나온다(ActivityFeed 는 run 단위).
