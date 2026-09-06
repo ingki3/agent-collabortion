@@ -74,6 +74,7 @@
 | S-32 | `updateWorkspaceSettings` 의 '명시 null = unset' 주석과 실제가 다르다 — 생성 타입이 `*int omitempty` 라 null 이 생략과 같아 키를 지울 수 없다(오동작 아님). `nullable.Nullable` 로 바꾸거나 주석 정정 | PR #103 리뷰 NN1 | 낮음 |
 | S-33 | 승인(S-25) 후 `session_completed` 인박스 행 단언이 테스트에 없다 — `listInbox` 가 P3 라 HTTP 관측 불가지만 `inbox` 테이블 count 로 고정 가능 | PR #103 리뷰 NN2 | 낮음 |
 | S-34 | `gcWorkdirs` 가 `runtime_id IS NULL` 이면 조용히 반환 — `none` 격리는 도달 불가지만 로그 한 줄 | PR #103 리뷰 NN3 | P4 GC |
+| S-35 | `daemon_command.delivered_at` 을 프로덕션 코드가 어디서도 채우지 않는다(대입 0곳) — 명령은 claim·events·heartbeat 응답으로 전달되고 데몬이 받지만(재측정에서 gc 가 `command gc ignored (P4)` 로 찍힘) 서버 기록은 영원히 NULL 이라 '최소 한 번' 전달(E11-05)·재전달 판단을 증명할 수 없다. 보고서 §10.3 의 '유휴 데몬 전달 불가'는 틀린 진단(#105 리뷰 NN1) | G5 재측정 §10.3 | P3 첫 서버 작업 |
 
 ## C (CLI)
 
