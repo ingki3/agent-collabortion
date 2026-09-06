@@ -78,6 +78,7 @@ DoD: `cd server && go vet -tags p2golden ./... && go test -tags p2golden ./... 2
     승인 API까지(정식 HITL 전이는 P3). **요약 생성은 P4.**
   - 동시성 상한 4층, 호출 권한 게이트(respond_to, 세션 참여=허용), 결정 기록 저장/조회.
   - previewTriggers(FR-3.6) 구현 — 웹의 로컬 계산을 걷어낼 수 있게.
+  - **프로파일 폴백**(T-D2에서 이동): 재시도 가능한 `failure_kind`(network·stall·runtime_offline·rate_limited)일 때 `agent_profile.fallback_profile_id`로 갈아타 재큐잉 — 같은 workdir(`reuse:true`), `attempt` 증가, `runtime_kind`가 바뀌면 `resume` 비움(E8-08). 대안이 없으면 `queued` + Director 알림, **다른 머신으로 넘기지 않음**(E8-09).
   - 백로그 흡수: **S-1**(규칙 3 — 위 규칙 세트에 포함), **S-9**(서버 seq attempt 스코프 충돌,
     두 자리 함께), **S-10**(AcceptInvite TOCTOU), **S-11**(파라미터 범위 → 422),
     **S-12**(설정 operation 구현 시 authz — 설정을 이번에 켠다면).
@@ -95,7 +96,7 @@ DoD: 골든 테스트(자기 범위) 초록 + 기존 테스트 회귀 0 + CI 초
 출력: PR 하나
   - Hermes 어댑터를 실기 경로로: mcpCapabilities 필터, 유실 감지(session/load null·provenance),
     250ms 정적 대기, 프로바이더 오류 접두어 규칙, usage_update.
-  - 프로파일 다중 + **같은 머신 안에서만** 폴백(E8-08: workdir·아티팩트 유지 / E8-09: 대안 없으면 queued).
+  - ~~프로파일 폴백~~ → **T-S2로 이동**(2026-09-06 결정, `daemon-protocol.md` v0.4 §4.4): 세션이 런타임에 고정되므로 서버 재큐잉이 같은 머신을 보장하고, 재시도 회계·토큰·비용이 전부 서버 소유다. 데몬이 할 일은 **`failure_kind`를 정확히 보고**하는 것뿐이며 그 분류를 acpfake 테스트로 굳힌다.
   - 브리프 [6] 컨텍스트 요약 · [7] 결정 기록 · [8] 지시 우선순위(서버가 주는 값을 붙이기만).
   - 백로그 흡수: **D-1**(probe가 `colab --version` 확인), **D-2**(probe의 resume·usage·tool_disallow를
     상수가 아니라 실측), **D-3**(acpprobe 제거 — harness/acp로 승격 완료),
