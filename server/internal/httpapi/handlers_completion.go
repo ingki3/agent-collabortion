@@ -5,8 +5,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/oapi-codegen/nullable"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
@@ -149,20 +147,10 @@ func (s *Server) ListDecisions(w http.ResponseWriter, r *http.Request, sessionId
 	writeJSON(w, http.StatusOK, items)
 }
 
+// decisionAPI is sessions.DecisionAPI. The mapping lives in the sessions
+// package because `decision.created` is published from there — the SSE payload
+// and the REST body have to be the same shape, and two copies of it is how
+// they stop being.
 func decisionAPI(sessionID uuid.UUID, d sessions.DecisionRow) gen.Decision {
-	out := gen.Decision{
-		Id: d.ID, SessionId: sessionID, Summary: d.Summary,
-		Source: gen.DecisionSource(d.Source), CreatedAt: d.CreatedAt,
-	}
-	if d.Rationale != nil {
-		out.Rationale = nullable.NewNullableWithValue(*d.Rationale)
-	} else {
-		out.Rationale = nullable.NewNullNullable[string]()
-	}
-	if d.RefID != nil {
-		out.RefId = nullable.NewNullableWithValue(openapi_types.UUID(*d.RefID))
-	} else {
-		out.RefId = nullable.NewNullNullable[openapi_types.UUID]()
-	}
-	return out
+	return sessions.DecisionAPI(sessionID, d)
 }

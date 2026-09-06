@@ -490,8 +490,11 @@ func TestVerticalSlice(t *testing.T) {
 	}
 	var streamed int
 	_ = pool.QueryRow(t.Context(), `SELECT count(*) FROM stream_event WHERE workspace_id = $1 AND type = 'message.created'`, wsID).Scan(&streamed)
-	if streamed != 7 { // 2 user posts + 5 agent replies (system start message is not routed)
-		t.Fatalf("stream message.created rows = %d, want 7", streamed)
+	// 2 user posts + 5 agent replies + the session-start system message. The
+	// start message is not ROUTED, but it is still a message on the timeline,
+	// so it gets a frame like every other one (G4 2판 W10).
+	if streamed != 8 {
+		t.Fatalf("stream message.created rows = %d, want 8", streamed)
 	}
 	fmt.Fprintln(io.Discard, agent, other)
 }
