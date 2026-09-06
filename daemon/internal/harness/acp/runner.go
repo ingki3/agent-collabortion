@@ -15,6 +15,17 @@ import (
 
 // Sink receives normalised task_events (seq assigned by the runner) and
 // non-persisted streaming previews (daemon-protocol §4.2).
+//
+// Preview takes the partial text and NOTHING else. The §4.2 v0.3 wire pair is
+// {text, message_id}, but §4.2 v0.5 makes message_id the SERVER's to fill:
+// agents post through the colab CLI/MCP straight to the server
+// (colab-cli.md §1), so the daemon sees neither the round trip nor the id the
+// server minted — and a preview is by definition output that has not been
+// posted yet, so at that moment no id exists at all. There is therefore no
+// code path that could supply a correct id, and this interface deliberately
+// offers no place to pass a wrong one: an id invented here would make the
+// server attribute the delta to somebody else's message. The empty value goes
+// on the wire in api.Batcher (see previewMessageID there).
 type Sink interface {
 	Emit(ev contracts.TaskEvent)
 	Preview(text string)
@@ -76,6 +87,15 @@ type Result struct {
 	AdapterVersion   string
 	// AvailableModels is what session/new advertised (probe §9).
 	AvailableModels []string
+	// ProtocolVersion is what initialize answered (probe §9, measured — the
+	// runner already refuses anything but contracts.ACPProtocolVersion).
+	ProtocolVersion int
+	// Caps is what the session advertised (PRD §8.2.1). probe §9 `resume`
+	// comes from Caps.LoadSession, never from the runtime name.
+	Caps AgentCaps
+	// MCPDropped names the mcpServers the runtime could not accept (§8.2.3
+	// mcpCapabilities filter). Empty on the v1 stdio-only path.
+	MCPDropped []string
 }
 
 // CancelRequest is harness §5 input.
@@ -116,6 +136,10 @@ type Runner struct {
 	promptDone chan struct{}
 	closeOnce  sync.Once
 	rawInit    *RawInit
+	caps       AgentCaps
+	protocol   int
+	mcp        []MCPServer
+	mcpDropped []string
 	planTotal  int
 	planDone   int
 	usage      contracts.Usage
@@ -178,6 +202,9 @@ func (r *Runner) Run(ctx context.Context) Result {
 	res.RawInit = r.rawInit
 	res.Usage = r.usage
 	res.Text = r.say.String()
+	res.Caps = r.caps
+	res.ProtocolVersion = r.protocol
+	res.MCPDropped = r.mcpDropped
 	r.mu.Unlock()
 	if r.c != nil {
 		res.PGID = r.c.PID()
@@ -246,6 +273,7 @@ func (r *Runner) run(ctx context.Context) Result {
 	if init.AgentInfo != nil {
 		adapterVersion = init.AgentInfo.Version
 	}
+	r.applyCaps(init)
 	// §1/§8 config: the adapter version must equal the pin — `_meta.*` is
 	// adapter behaviour, not spec, so drift is a config error (no retry).
 	if r.kind() == contracts.RuntimeClaudeCode {
@@ -411,6 +439,35 @@ func hermesProv(s *SessionResult) *contracts.HermesProvenance {
 	return &contracts.HermesProvenance{ACPSessionID: acp, RootHermesSessionID: root, SessionKind: kind, CompressionDepth: depth}
 }
 
+// applyCaps records what the session advertised and filters the MCP server
+// list against `mcpCapabilities` (PRD §8.2.3). A server we cannot send is
+// reported on the activity feed rather than dropped silently — the agent
+// would otherwise just be missing a tool namespace with no trace.
+func (r *Runner) applyCaps(init *InitializeResult) {
+	caps := init.Caps()
+	kept, dropped := FilterMCPServers(r.a.MCPServers, caps.MCP)
+	names := make([]string, 0, len(dropped))
+	for _, s := range dropped {
+		names = append(names, s.Name)
+	}
+	r.mu.Lock()
+	r.caps, r.protocol, r.mcp, r.mcpDropped = caps, init.ProtocolVersion, kept, names
+	r.mu.Unlock()
+	for _, s := range dropped {
+		r.emit("runtime", "start", "", "info", map[string]any{
+			"runtime_kind": string(r.kind()),
+			"detail":       fmt.Sprintf("mcp server %q dropped: transport %s is not in the runtime mcpCapabilities", s.Name, s.Transport()),
+		})
+	}
+}
+
+// mcpServers is the filtered list actually sent on session/new·load.
+func (r *Runner) mcpServers() []MCPServer {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.mcp
+}
+
 func (r *Runner) meta() map[string]any {
 	b := r.a.Bundle
 	if b.Brief.Transport != contracts.BriefACPMetaSystemPrompt {
@@ -430,7 +487,7 @@ func (r *Runner) meta() map[string]any {
 }
 
 func (r *Runner) newSession(ctx context.Context, meta map[string]any) (*SessionResult, error) {
-	s, err := r.c.NewSession(ctx, r.a.Workdir, r.a.MCPServers, meta)
+	s, err := r.c.NewSession(ctx, r.a.Workdir, r.mcpServers(), meta)
 	if err != nil {
 		return nil, err
 	}
@@ -463,7 +520,7 @@ func (r *Runner) load(ctx context.Context, meta map[string]any) (sid string, pro
 		r.replaying = false
 		r.mu.Unlock()
 	}()
-	s, err := r.c.LoadSession(ctx, r.a.Workdir, ref.SessionID, r.a.MCPServers, meta)
+	s, err := r.c.LoadSession(ctx, r.a.Workdir, ref.SessionID, r.mcpServers(), meta)
 	switch r.kind() {
 	case contracts.RuntimeClaudeCode:
 		if err != nil {

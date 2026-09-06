@@ -1117,7 +1117,7 @@ export interface paths {
         /**
          * 타임라인 · 스레드 조회
          * @description 권한: 워크스페이스 멤버 · `TaskToken`(그 task의 세션만).
-         *     시간순으로 돌려준다. `thread`를 주면 그 루트와 답글만(`colab session messages --thread <id> --tail 30` = `thread`+`limit=30`). 기본은 최상위 메시지만(`include_replies=false`), 각 항목에 `reply_count`. `after`는 재연결 백필용.
+         *     시간순으로 돌려준다. `thread`를 주면 그 루트와 답글만(`colab session messages --thread <id> --limit 30` = `thread`+`limit=30`). 기본은 최상위 메시지만(`include_replies=false`), 각 항목에 `reply_count`. `after`는 재연결 백필용.
          */
         get: operations["listMessages"];
         put?: never;
@@ -1380,8 +1380,8 @@ export interface paths {
          * 자기 상태 갱신(`colab status set working|blocked|done`)
          * @description 권한: `TaskToken`(자기 task만).
          *     - `working`: 활동 피드에 note만 남긴다.
-         *     - `blocked`: **위임자에게 질문하고 턴을 끝내는 경로**(FR-6.2.1). lane `blocked`, workdir 보존. 서버가 그 lane 스레드에 `blocked_q` 질문 카드를 게시하고(`lane.blocked_message_id`) 위임자를 즉시 깨운다(합류 아님). 위임자가 없으면 Director 인박스 `lane_blocked`(E3-08). 응답 `end_turn: true`.
-         *     - `done`: lane `done`. 합류 그룹 판정(FR-6.5) 또는 재진입 완료 통보(E3-11~13)를 서버가 수행한다. 응답 `end_turn: true`.
+         *     - `blocked`: **위임자에게 질문하고 턴을 끝내는 경로**(FR-6.2.1). lane `blocked`, workdir 보존. 서버가 그 lane 스레드에 `blocked_q` 질문 카드를 게시하고(`lane.blocked_message_id`) 위임자를 즉시 깨운다(합류 아님). 위임자가 없으면 Director 인박스 `lane_blocked`(E3-08). 응답 `turn_end_required: true`.
+         *     - `done`: lane `done`. 합류 그룹 판정(FR-6.5) 또는 재진입 완료 통보(E3-11~13)를 서버가 수행한다. 응답 `turn_end_required: true`.
          *     `note`는 `blocked`에서 필수(질문 본문).
          */
         post: operations["setTaskStatus"];
@@ -1410,7 +1410,7 @@ export interface paths {
          * HITL 요청 등록(`colab hitl ask` / `approve-request` / `request-info`) — 턴을 끝내라
          * @description 권한: `TaskToken`(에이전트, `source: agent`). 시스템 발행(`source: system`)은 서버 내부 — 이 API로는 만들 수 없다.
          *     타입별 본문은 `HitlCreate`(oneOf). `question`·`choice`는 `proposed_default` **필수**(`422`, E7-05). **task당 열린 HITL은 하나** — 두 번째는 `409 hitl_already_open`(E7-04, 피드 기록). `approver_spec`은 `director`·`any_member`·사용자 uuid만, 그 밖은 `422`(fail closed, E7-16). `due_in` 기본 24h.
-         *     등록 즉시 task에 `pending_hitl`만 세우고(상태는 아직 `running`) **`turn_end` 도착 시 `waiting_human`**(FR-7.1 N4). 응답은 `end_turn: true` — 에이전트는 답을 기다리지 말고 턴을 끝내야 한다(FR-5.2). v1은 `question`·`approval`(`choice`·`info`는 v1.1이지만 스키마는 지금 둔다 — SCREEN §2.3 C4).
+         *     등록 즉시 task에 `pending_hitl`만 세우고(상태는 아직 `running`) **`turn_end` 도착 시 `waiting_human`**(FR-7.1 N4). 응답은 `turn_end_required: true` — 에이전트는 답을 기다리지 말고 턴을 끝내야 한다(FR-5.2). v1은 `question`·`approval`(`choice`·`info`는 v1.1이지만 스키마는 지금 둔다 — SCREEN §2.3 C4).
          */
         post: operations["createHitlRequest"];
         delete?: never;
@@ -1753,7 +1753,7 @@ export interface paths {
         /**
          * 토큰이 가리키는 task · lane · 세션 · 에이전트
          * @description 권한: `TaskToken`.
-         *     colab CLI가 시작할 때 한 번 호출해 나머지 명령의 경로 파라미터를 채운다. 토큰이 폐기됐으면 `401 token_revoked`(재큐잉, FR-9.1) — CLI는 즉시 종료해야 한다. 열린 HITL 여부(`open_hitl_request_id`)와 억제 중인 위임자(`suppressed_delegator_agent_id`, 규칙 8)도 준다.
+         *     colab CLI가 **필요할 때**(세션·task 식별자 해석, 참여자 로스터, `last_seq`) 호출하고 프로세스 안에서 캐시한다 — **프로세스당 최대 1회**. 무조건 전처리로 부르면 모든 명령의 요청 수가 2배가 되는데, 폐기 토큰 방어(FR-9.1)는 각 명령의 본 요청이 `401`을 받는 것으로 이미 성립한다. 토큰이 폐기됐으면 `401 token_revoked`(재큐잉, FR-9.1) — CLI는 즉시 종료해야 한다. 열린 HITL 여부(`open_hitl_request_id`)와 억제 중인 위임자(`suppressed_delegator_agent_id`, 규칙 8)도 준다.
          */
         get: operations["getCliContext"];
         put?: never;
@@ -5881,8 +5881,8 @@ export interface operations {
                     "application/json": {
                         task: components["schemas"]["Task"];
                         lane: components["schemas"]["Lane"];
-                        /** @description true면 에이전트는 즉시 턴을 끝내야 한다. */
-                        end_turn: boolean;
+                        /** @description true면 에이전트는 즉시 턴을 끝내야 한다. ACP `stopReason: end_turn`(턴이 끝났다는 사실)과 헷갈리지 않도록 이름을 다르게 둔다. */
+                        turn_end_required: boolean;
                         /**
                          * Format: uuid
                          * @description blocked일 때 게시된 질문 카드.
@@ -5955,7 +5955,7 @@ export interface operations {
                     "application/json": {
                         hitl_request: components["schemas"]["HitlRequest"];
                         /** @constant */
-                        end_turn: true;
+                        turn_end_required: true;
                         /**
                          * Format: uuid
                          * @description 타임라인에 게시된 `hitl` 카드 메시지.

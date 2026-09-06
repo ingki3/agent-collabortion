@@ -460,3 +460,43 @@ func TestRuntimeErrorWithoutCancelIntentStaysFailedOther(t *testing.T) {
 		t.Fatalf("cancel events on a plain failure: %+v", c)
 	}
 }
+
+// D-1 — every probe the daemon sends carries the machine's colab CLI state,
+// so a machine whose agents cannot reach the platform is visible on S11
+// instead of failing the first turn silently.
+func TestProbeCarriesColabCLIState(t *testing.T) {
+	dir := t.TempDir()
+	colab := filepath.Join(dir, "colab")
+	if err := os.WriteFile(colab, []byte("#!/bin/sh\necho 'colab 1.2.3'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name        string
+		bin         string
+		wantPresent bool
+		wantVersion string
+	}{
+		{"installed", colab, true, "1.2.3"},
+		{"missing", filepath.Join(dir, "nope"), false, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := &memServer{}
+			d, _ := newDaemon(t, srv, acpfake.Script{})
+			d.Cfg.ColabBin = tc.bin
+			ctx, cancel := context.WithCancel(context.Background())
+			go d.Run(ctx)
+			waitFor(t, 5*time.Second, func() bool {
+				srv.mu.Lock()
+				defer srv.mu.Unlock()
+				return len(srv.probes) > 0
+			})
+			cancel()
+			srv.mu.Lock()
+			got := srv.probes[0].ColabCLI
+			srv.mu.Unlock()
+			if got.Present != tc.wantPresent || got.Version != tc.wantVersion {
+				t.Fatalf("colab_cli %+v want present=%v version=%q", got, tc.wantPresent, tc.wantVersion)
+			}
+		})
+	}
+}

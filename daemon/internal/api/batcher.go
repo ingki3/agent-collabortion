@@ -67,17 +67,26 @@ func (b *Batcher) Preview(text string) {
 	b.mu.Unlock()
 }
 
+// previewMessageID is what the daemon puts in preview.message_id: nothing.
+// §4.2 v0.5 assigns that field to the server — the daemon cannot know a
+// server-side message id (agents post through the colab CLI/MCP, and a
+// preview is pre-publication output anyway). It is a constant rather than a
+// parameter on purpose: no code path could produce a correct id, so there
+// must be no place to pass a wrong one. A non-empty value here would make the
+// server hang the delta off somebody else's message.
+const previewMessageID = ""
+
 // TakePreview returns the latest partial output in the §4.2 v0.3 shape, or
 // nil when there is none — the heartbeat then omits `preview` rather than
-// sending an empty object. message_id stays unset: the daemon does not know
-// the server-side message id.
+// sending an empty object. message_id is always previewMessageID (empty):
+// §4.2 v0.5 has the server fill that field.
 func (b *Batcher) TakePreview() *HeartbeatPreview {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.preview == "" {
 		return nil
 	}
-	return &HeartbeatPreview{Text: b.preview}
+	return &HeartbeatPreview{Text: b.preview, MessageID: previewMessageID}
 }
 
 // LastSeq is the highest seq emitted so far.

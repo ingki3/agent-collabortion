@@ -6,6 +6,7 @@
 | 실행일 | 2026-09-05 (KST 11:10~11:13) |
 | 런타임 | (a) `@zed-industries/claude-code-acp` 0.16.2 + Claude Code 2.1.258, 모델 haiku. (b) `hermes acp` 0.20.6, 모델 `anthropic:claude-haiku-4-5-20251001`(`session/set_model`) |
 | 도구 | `acpprobe -scenario spike4a -n 10`, `acpprobe -runtime hermes -scenario hermes-loss -n 4` |
+| 도구 주석 | `acpprobe`(스파이크 전용 CLI)는 P2 에서 삭제됐다 — `daemon/internal/harness/acp` 로 승격 완료(백로그 D-3). 이 문서의 명령줄은 당시 실행 기록이며 지금은 재현되지 않는다. 재현이 필요하면 `daemon/internal/probe`(PONG 턴)와 `daemon/internal/acpfake`(계약 테스트)를 쓴다 |
 | 원시 로그 | `plan/spikes/logs/spike4a_claude_20260905T021040Z.*`, `plan/spikes/logs/hermes-loss_hermes_20260905T021041Z.*` |
 
 **판정: 통과** — (a) Claude Code ACP `session/load` 후 컨텍스트 유지 **10/10 (100%, 기준 90%)**. (b) Hermes `state.db`에서 세션을 지운 뒤 `session/resume`은 오류 없이 새 세션을 만들지만, 응답 `_meta.hermes.sessionProvenance.acpSessionId`가 요청한 id와 달라 **3/3 (100%) 감지**. 대조군(삭제 안 함) 1/1은 id 일치·기억 유지.

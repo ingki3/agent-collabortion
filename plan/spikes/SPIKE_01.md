@@ -7,6 +7,7 @@
 | 어댑터 | **`@zed-industries/claude-code-acp` 0.16.2** (npm latest, 2026-02-17) — deps `@anthropic-ai/claude-agent-sdk` 0.2.44, `@agentclientprotocol/sdk` 0.14.1. 실행 `npx -y @zed-industries/claude-code-acp` |
 | 런타임 | Claude Code CLI 2.1.258, 로그인 claude.ai Max(OAuth), 모델 **haiku** (`session/set_model`) |
 | 도구 | `daemon/cmd/acpprobe -scenario spike1` (Go ACP 클라이언트 `daemon/internal/acpprobe`) |
+| 도구 주석 | `acpprobe`(스파이크 전용 CLI)는 P2 에서 삭제됐다 — `daemon/internal/harness/acp` 로 승격 완료(백로그 D-3). 이 문서의 명령줄은 당시 실행 기록이며 지금은 재현되지 않는다. 재현이 필요하면 `daemon/internal/probe`(PONG 턴)와 `daemon/internal/acpfake`(계약 테스트)를 쓴다 |
 | 원시 로그 | `plan/spikes/logs/spike1_claude_20260905T001331Z.*` (1차), `spike1_claude_20260905T021040Z.*` (2차), 비교 실행 `newpkg_spike1_claude_20260905T021240Z.*` |
 
 **판정: 통과 — 단, 패키지 이름이 바뀌었다.** 30턴·resume 11회·취소 10회·권한 요청 26건에서 크래시 0, resume 성공 11/11(100%), `allow_once` 부재 0/26(0%), 프로토콜 버전 1 고정 가능. **CLI 어댑터를 v1에 넣지 않는다.** 다만 지시받은 패키지 `@zed-industries/claude-code-acp`는 2026-02 이후 갱신이 없고, 프로젝트는 **`@agentclientprotocol/claude-agent-acp`** 로 이름을 바꿔 0.74.0(2026-09-04)까지 활발히 릴리스 중이다. 프로파일은 새 패키지 이름으로 고정해야 한다(§4).

@@ -7,6 +7,7 @@
 | 어댑터 | **`@agentclientprotocol/claude-agent-acp` 0.74.0** (`npx -y …@0.74.0`) — deps `@anthropic-ai/claude-agent-sdk` 0.3.257, `@agentclientprotocol/sdk` 1.4.0. `agentInfo.name` = `@agentclientprotocol/claude-agent-acp`, `protocolVersion` 1 |
 | 런타임 | Claude Code CLI 2.1.258, 로그인 claude.ai Max(OAuth), 모델 haiku(`claude-haiku-4-5-20251001`) |
 | 도구 | `daemon/cmd/acpprobe -scenario spike1b` (E1~E4) · `-scenario spike1b-load` (E2 보강). 소스 확인은 `node_modules/@agentclientprotocol/claude-agent-acp/dist/acp-agent.js` 등 (줄 번호는 0.74.0 dist 기준) |
+| 도구 주석 | `acpprobe`(스파이크 전용 CLI)는 P2 에서 삭제됐다 — `daemon/internal/harness/acp` 로 승격 완료(백로그 D-3). 이 문서의 명령줄은 당시 실행 기록이며 지금은 재현되지 않는다. 재현이 필요하면 `daemon/internal/probe`(PONG 턴)와 `daemon/internal/acpfake`(계약 테스트)를 쓴다 |
 | 원시 로그 | `plan/spikes/logs/spike1b_claude_20260905T023003Z.{jsonl,summary.json,stderr.txt}` (E1~E4), `spike1b-load_claude_20260905T023428Z.*` (E2b 1차), `spike1b-load_claude_20260905T023525Z.*` (E2b 2차, 깨끗한 이력 변형 포함) |
 
 **총평: 5항목 모두 판정 완료, 0.74.0으로 프로파일을 고정해도 된다.** 다만 세 가지가 하네스 계약에 그대로 들어가야 한다 — (1) 모델은 `session/set_config_option`으로 고르고 **`session/load` 뒤에는 반드시 다시 건다**(리로드 시 기본 모델로 되돌아감), (2) `_meta.systemPrompt`는 `session/new`·`session/load` **양쪽에 매번** 넣는다, (3) 격리는 `settingSources: []` + `strictMcpConfig: true` 두 키가 모두 필요하다. 어댑터 소스 증거는 `session/update`의 `_meta["_claude/rateLimit"]`가 한도 상태를 **구조화해서 매 턴** 보내므로 F3의 문구 파싱은 보조 수단으로 내려간다.
