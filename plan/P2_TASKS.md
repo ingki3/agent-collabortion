@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 상태 | **초안. Director의 G3 확인 뒤 fan-out한다**(`plan/G3_DECISION.md` §5) |
+| 상태 | **착수(2026-09-06). Director가 G3를 확인했다.** P2a 진행 중 |
 | 근거 | `PLAN.md` §3 P2·§6.2 G4·G5, `EVAL.md` E1~E6·E15, `EVAL_USER.md` U2·U4·U5·U8·U10·U11·U15, `plan/P2_BACKLOG.md`(P1 이월 전부) |
 | 목표 | **시나리오 A(`none` 격리)가 8단계 끝까지 통과한다.** Lead가 3항목을 위임 → lane 3개 병렬 → 합류 **정확히 1회** → 종합 → Writer 초안 → `artifact_submitted` → 승인 → `completed` |
 | 게이트 | **G4**(중간): P2a 골든 테스트 + 시나리오 A **단일 런타임** 통과 · **G5**: 시나리오 A 8단계 + Hermes + 템플릿 3분 Director 실측 |
