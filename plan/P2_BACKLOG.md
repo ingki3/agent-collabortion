@@ -38,6 +38,7 @@
 | ~~D-17~~ | 데몬 `Runner.recordUsage` 가 `session/prompt` 응답에서만 호출돼 턴 중 heartbeat 의 usage 가 전부 0 — daemon-protocol §4.2 위반, 서버 턴 중 예산 강제가 실기에서 0회. 런타임이 턴 중 usage 를 못 주면 최소한 finish 전 heartbeat 1회에 최종 usage(핫픽스 T-D7) | T-I3 실측 (c) | T-D7 | **해결 — PR #145**(harness v0.8.5: claude_code 원시 스트림 누적·dedup·result.total_cost_usd 실측, hermes finish 전 heartbeat 1회, usage_midturn 광고)
 | D-18 | `emitRawSDKMessages` 원시 스트림은 메시지 4배·바이트 2배 — 예산이 설정되지 않은 세션에서는 OFF 로 두는 스위치(지금은 데몬 config `usage_midturn` 전역 스위치, 기본 ON) | PR #145 (T-D7) | P4 비용 항목 → T-D9 |
 | D-19 | 서버의 예산 pause 취소(cancel reason=budget)를 받았을 때 runner.go 의 cancelled 분기가 budgetHit 보다 먼저라 finish outcome 이 `cancelled` 로 갈 여지(§4.4 는 `paused_budget`). 서버는 #151 로 reason=budget 취소를 승격하지 않게 됐지만 데몬 보고도 맞춰야 한다 | T-S9a 관찰(PR #151) | T-D9 |
+| D-20 | `daemon.json` `repos[]`(probe §3 재바인딩 후보의 근거)를 채우는 사용자 경로가 없다 — worktree 를 한 번이라도 돌린 머신만 자동 발견되고, 한 번도 안 돌린 머신은 재바인딩 후보가 되지 않는다(E13-17 manual). 계약 §3 에 등록 방법 한 줄(데몬 CLI `colab-daemon repos add <path>` 또는 S6/S11 등록 → 명령) + T-W5 S6/S11 화면 | T-D9 PR #156 계약 결함 4 | T-W5 뒤 · 계약 |
 
 ## W (웹)
 
