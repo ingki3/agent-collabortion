@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.8.2 — §6 claude_code 유실 판정을 실측대로(`-32002` 또는 `not found`; 스파이크 4c). v0.8.1 — §10 cli_wrapper 치환 범위를 브리프+턴 프롬프트로(D-7 워커 지적). v0.8은 §10 **도구 표면**(`tool_surface`: claude_code `mcp`, hermes `cli_wrapper` — 데몬이 attempt별 래퍼를 만들고 브리프 [2]에 절대 경로) + §9 광고. G5 (b) 차단 결함. v0.7.1은 §11 `estimated`의 자리별 표현(`usage.report` 생략 / `finish` 0 + 무시). v0.7은 §11 `cost_usd` 부재 규칙(생략 + `estimated:true`)과 가격표 소유(워크스페이스=서버). v0.6은 §2.1 시스템 최소에 `USER`(G4 차단 결함: OAuth 갱신 시 키체인이 `USER`를 쓴다). v0.5는 §9 `supported_options`(T-W2가 찾은 빈칸: 프로파일 옵션 능력을 광고할 키가 v0.4.1 대조에서 빠졌다). v0.3 은 PR #20(데몬 P1) 구현·리뷰에서 드러난 5건 반영(usage 시점, Hermes 모델 접두어, Hermes 본문 오류 접두어 규칙, disallowedTools 도출, 250ms 비주입). v0.2는 스파이크 1b 반영 |
+| 버전 | v0.8.3 — §6 hermes 행 (a′) provenance 부재(빈 객체)는 유실(스파이크 4c 실측 2). v0.8.2 — §6 claude_code 유실 판정을 실측대로(`-32002` 또는 `not found`; 스파이크 4c). v0.8.1 — §10 cli_wrapper 치환 범위를 브리프+턴 프롬프트로(D-7 워커 지적). v0.8은 §10 **도구 표면**(`tool_surface`: claude_code `mcp`, hermes `cli_wrapper` — 데몬이 attempt별 래퍼를 만들고 브리프 [2]에 절대 경로) + §9 광고. G5 (b) 차단 결함. v0.7.1은 §11 `estimated`의 자리별 표현(`usage.report` 생략 / `finish` 0 + 무시). v0.7은 §11 `cost_usd` 부재 규칙(생략 + `estimated:true`)과 가격표 소유(워크스페이스=서버). v0.6은 §2.1 시스템 최소에 `USER`(G4 차단 결함: OAuth 갱신 시 키체인이 `USER`를 쓴다). v0.5는 §9 `supported_options`(T-W2가 찾은 빈칸: 프로파일 옵션 능력을 광고할 키가 v0.4.1 대조에서 빠졌다). v0.3 은 PR #20(데몬 P1) 구현·리뷰에서 드러난 5건 반영(usage 시점, Hermes 모델 접두어, Hermes 본문 오류 접두어 규칙, disallowedTools 도출, 250ms 비주입). v0.2는 스파이크 1b 반영 |
 | 소유 | D + Lead. 변경은 Director 승인 PR로만 (`contracts/README.md`) |
 | 근거 | PRD §8.2 (하네스), §8.4 (브리프), FR-7.1 (재시도), FR-3.4·§8.2.2 (취소), FR-5.4 (재개). **G1 판정 `plan/G1_DECISION.md` 와 스파이크 보고서 `plan/spikes/SPIKE_01..06.md`, `SPIKE_01b.md`** — 이 문서의 수치·옵션 키는 전부 실측에서 왔다 |
 | 미결 | 없음 (§12 참조). 서브에이전트 가시성은 v1 피드 요구로 미광고 |
@@ -136,7 +136,7 @@ Hermes는 `_meta`를 버린다(스파이크 3 §1). Hermes의 툴 제한은 `her
 | 런타임 | 절차 | 유실 판정 → 콜드 스타트 |
 |---|---|---|
 | `claude_code` | `session/load {sessionId, cwd, mcpServers, _meta}` → 리플레이 `user_message_chunk`/`agent_message_chunk` 수신(**버린다** — task_event로 올리지 않는다, G1 F4: 11회에 111청크) → 응답 | JSON-RPC 오류 **코드 `-32002`**, 또는 오류 메시지에 `not found`(대소문자 무시)가 포함 → `resume_rejected`. 실측(어댑터 0.74.0 + CLI 2.1.258, 스파이크 4c): 없는 `sessionId` → `-32002 "Resource not found: <id>"` — transcript 파일을 지워도 같다. 옛 문구 `"Session not found"`는 어댑터 소스 독해였고 실기에 나온 적이 없다(v0.8.2) |
-| `hermes` | `session/load {sessionId, cwd}` → 응답 | (a) 결과 `null` → `resume_rejected` (b) `_meta.hermes.sessionProvenance.acpSessionId ≠ 요청 id` → `resume_rejected` (c) 같으면 유지. `session/resume`(UNSTABLE)은 **쓰지 않는다** |
+| `hermes` | `session/load {sessionId, cwd}` → 응답 | (a) 결과 `null` → `resume_rejected` (a′) 결과에 `_meta.hermes.sessionProvenance` 가 **없으면(빈 객체 `{}` 포함)** → `resume_rejected` — 실측(hermes 0.20.6, 스파이크 4c): `state.db` 에서 세션 행을 지우면 `session/load` 가 `null` 이 아니라 **`{}`** 를 돌려주고 다음 `session/prompt` 는 `stopReason=refusal` 로 아무 일 없이 끝난다; 데몬이 이것을 `resumed` 로 읽어 작업이 조용히 사라졌다(v0.8.3) (b) `_meta.hermes.sessionProvenance.acpSessionId ≠ 요청 id` → `resume_rejected` (c) 같으면 유지. `session/resume`(UNSTABLE)은 **쓰지 않는다** |
 
 - 실측: Claude Code 컨텍스트 유지 10/10, Hermes 유실 감지 3/3·오탐 0(스파이크 4a). **Claude Code 유실 판정은 4a에서 실측되지 않았고** 4c에서 처음 실측됐다 — 그 전까지 데몬이 `"session not found"` 부분일치만 봐서 E8-02(콜드 스타트 전환)가 실기에서 한 번도 발동하지 않았다(v0.8.2, 데몬 수정 별도 PR).
 - `resume_rejected`는 실패가 아니다. 데몬이 콜드 스타트(`session/new` + 브리프 + 히스토리 + 결정 기록)로 이어가고 `task_event` `runtime.resume outcome=cold_start`를 올린다(E8-02).
