@@ -51,6 +51,11 @@ type memServer struct {
 	root       string
 	claimHook  func()
 	phaseHook  func(api.PhaseRequest)
+	// downloads records rebind_prepare artifact fetches; downloadBody is the
+	// bytes served, downloadErr forces a failure.
+	downloads    []string
+	downloadBody map[string]string
+	downloadErr  map[string]error
 }
 
 func (m *memServer) Pair(context.Context, api.PairRequest) (api.PairResponse, error) {
@@ -142,6 +147,22 @@ func (m *memServer) Workdirs(_ context.Context, _ string, req api.WorkdirsReques
 	defer m.mu.Unlock()
 	m.workdirReports = append(m.workdirReports, req)
 	return nil
+}
+
+// Download is the §4.3 rebind_prepare fetch. The fake writes the body it was
+// given so the test can assert on bytes rather than on the daemon's own log.
+func (m *memServer) Download(_ context.Context, rawURL, dest string) error {
+	m.mu.Lock()
+	m.downloads = append(m.downloads, rawURL)
+	body, err := m.downloadBody[rawURL], m.downloadErr[rawURL]
+	m.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(dest, []byte(body), 0o644)
 }
 
 func (m *memServer) finished() int {
@@ -574,26 +595,51 @@ func TestHeartbeatCarriesUsageBeforeFinish(t *testing.T) {
 	}
 }
 
-// The raw SDK stream is on by default for claude_code and off for hermes
-// (harness §3 v0.8.5), and `usage_midturn: false` in daemon.json turns it off.
-func TestUsageMidturnConfigGate(t *testing.T) {
+// D-18 (was: TestUsageMidturnConfigGate). The raw SDK stream is decided per
+// ATTEMPT by whether the bundle carries a budget, and that rule takes
+// precedence over daemon.json's machine-wide `usage_midturn` switch. hermes
+// never gets the stream (harness §3 v0.8.5) whatever the budget says.
+func TestUsageMidturnBudgetGate(t *testing.T) {
 	off := false
 	on := true
+	usd := func(v float64) *float64 { return &v }
+	budgeted := func(b contracts.TaskBundle) contracts.TaskBundle {
+		b.Task.BudgetUSD = usd(5)
+		return b
+	}
+	sessionOnly := func(b contracts.TaskBundle) contracts.TaskBundle {
+		b.Limits.BudgetUSD = usd(20)
+		return b
+	}
+	overrideOnly := func(b contracts.TaskBundle) contracts.TaskBundle {
+		b.Task.BudgetOverrideUSD = usd(9)
+		return b
+	}
+	none := func(b contracts.TaskBundle) contracts.TaskBundle { return b }
+
 	for _, tc := range []struct {
 		name string
 		cfg  *bool
 		kind contracts.RuntimeKind
+		with func(contracts.TaskBundle) contracts.TaskBundle
 		want bool
 	}{
-		{"claude_code default", nil, contracts.RuntimeClaudeCode, true},
-		{"claude_code explicit on", &on, contracts.RuntimeClaudeCode, true},
-		{"claude_code off", &off, contracts.RuntimeClaudeCode, false},
-		{"hermes never", nil, contracts.RuntimeHermes, false},
+		{"claude_code, task budget", nil, contracts.RuntimeClaudeCode, budgeted, true},
+		{"claude_code, session remainder only", nil, contracts.RuntimeClaudeCode, sessionOnly, true},
+		{"claude_code, approved override only", nil, contracts.RuntimeClaudeCode, overrideOnly, true},
+		{"claude_code, no budget anywhere", nil, contracts.RuntimeClaudeCode, none, false},
+		// Three tiers (Lead 2026-09-07): an operator's explicit false is a
+		// hard kill switch and outranks the automatic rule; the automatic
+		// rule outranks the default ON.
+		{"operator kill switch beats a budget", &off, contracts.RuntimeClaudeCode, budgeted, false},
+		{"explicit on does not override the no-budget rule", &on, contracts.RuntimeClaudeCode, none, false},
+		{"hermes never, budget set", nil, contracts.RuntimeHermes, budgeted, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d := &Daemon{Cfg: config.Config{UsageMidturn: tc.cfg}}
-			if got := d.usageMidturn(tc.kind); got != tc.want {
-				t.Errorf("usageMidturn(%s) = %v, want %v", tc.kind, got, tc.want)
+			b := tc.with(contracts.TaskBundle{Profile: contracts.BundleProfile{RuntimeKind: tc.kind}})
+			if got := d.usageMidturn(b); got != tc.want {
+				t.Errorf("usageMidturn(%s, budget=%v) = %v, want %v", tc.kind, BundleHasBudget(b), got, tc.want)
 			}
 		})
 	}

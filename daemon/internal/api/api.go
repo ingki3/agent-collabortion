@@ -12,6 +12,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -98,8 +100,13 @@ type FinishRequest struct {
 	Workdir *FinishWorkdir `json:"workdir,omitempty"`
 }
 
+// FinishWorkdir is §4.4's `workdir: {path, git: {branch, dirty, ahead}?}`.
+// The git block is what tells the server whether the checkout it may collect
+// in 14 days has unmerged commits or uncommitted work (E13-12·13) — the
+// numbers arrive with the attempt that made them, not only on the next probe.
 type FinishWorkdir struct {
-	Path string `json:"path"`
+	Path string           `json:"path"`
+	Git  *workdir.GitInfo `json:"git,omitempty"`
 }
 
 type WorkdirsRequest struct {
@@ -116,6 +123,11 @@ type Server interface {
 	Heartbeat(ctx context.Context, taskID string, attempt int, req HeartbeatRequest) (HeartbeatResponse, error)
 	Finish(ctx context.Context, taskID string, attempt int, req FinishRequest) error
 	Workdirs(ctx context.Context, runtimeID string, req WorkdirsRequest) error
+	// Download fetches an artifact body to dest. It is the only GET the
+	// daemon makes and the only one whose response is not JSON: a
+	// `rebind_prepare` command names artifact URLs the daemon must have on
+	// disk before the rebound session's first turn (§4.3, FR-9.2).
+	Download(ctx context.Context, rawURL, dest string) error
 }
 
 // HTTPError is a non-2xx response.
@@ -223,6 +235,63 @@ func (c *Client) Finish(ctx context.Context, taskID string, attempt int, req Fin
 
 func (c *Client) Workdirs(ctx context.Context, runtimeID string, req WorkdirsRequest) error {
 	return c.do(ctx, http.MethodPost, "/v1/daemon/runtimes/"+url.PathEscape(runtimeID)+"/workdirs", req, nil)
+}
+
+// Download fetches rawURL into dest (created with its parent directories).
+// Relative URLs are resolved against BaseURL and carry the daemon token;
+// an absolute URL to another host (object storage with its own signature)
+// does not — sending the daemon token to a third party would leak it.
+func (c *Client) Download(ctx context.Context, rawURL, dest string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return err
+	}
+	sameHost := !u.IsAbs()
+	if u.IsAbs() {
+		if base, err := url.Parse(c.BaseURL); err == nil {
+			sameHost = base.Host == u.Host
+		}
+	} else {
+		joined, err := url.JoinPath(c.BaseURL, rawURL)
+		if err != nil {
+			return err
+		}
+		rawURL = joined
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return err
+	}
+	if c.Token != "" && sameHost {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("GET %s: %w", rawURL, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		rb, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+		return &HTTPError{Status: resp.StatusCode, Body: string(bytes.TrimSpace(rb))}
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	tmp := dest + ".part"
+	f, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, dest)
 }
 
 // IsNetwork reports whether err is a transport failure (→ failure_kind

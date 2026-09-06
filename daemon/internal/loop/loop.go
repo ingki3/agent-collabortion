@@ -67,6 +67,9 @@ type Daemon struct {
 type attemptRun struct {
 	bundle contracts.TaskBundle
 	runner *acp.Runner
+	// workdir is the resolved absolute path this attempt writes in. GC asks
+	// for it (§6 refusal `process_alive`).
+	workdir string
 }
 
 // defaultShutdownDrain bounds the shutdown cancel of every running attempt
@@ -238,7 +241,7 @@ func (d *Daemon) probe(ctx context.Context) {
 		am[k] = v
 	}
 	d.mu.Unlock()
-	o := probe.Options{DaemonVersion: d.Version, WorkdirRoot: d.Cfg.WorkdirRoot, Turn: d.ProbeTurn, AllowOnceMissing: am, Command: d.ProbeCommand, ColabBin: d.Cfg.ColabBin, Clock: d.Clock, Log: func(s string) { d.Log("%s", s) }}
+	o := probe.Options{DaemonVersion: d.Version, WorkdirRoot: d.Cfg.WorkdirRoot, Turn: d.ProbeTurn, AllowOnceMissing: am, Command: d.ProbeCommand, ColabBin: d.Cfg.ColabBin, Repos: d.Cfg.Repos, UsageMidturnOff: !d.Cfg.UsageMidturnEnabled(), Clock: d.Clock, Log: func(s string) { d.Log("%s", s) }}
 	// probe.Run fills §3 colab_cli itself: the colab CLI is how every agent
 	// reaches the platform (MCP server and shell path are the same binary),
 	// so its absence rides on the probe instead of only the daemon log.
@@ -274,7 +277,10 @@ func (d *Daemon) handleCommands(ctx context.Context, cmds []contracts.Command) {
 		// the server has not observed the last one yet. Both are idempotent in
 		// their own right (a probe re-measures, a delete of a gone directory
 		// is a no-op), so they are simply re-run.
-		if c.Type != contracts.CmdProbe && c.Type != contracts.CmdGC && d.seen[k] {
+		// probe, gc and rebind_prepare carry no (task_id, attempt), so the
+		// §4.3 idempotency key does not separate two of them; each is
+		// idempotent in its own right and is simply re-run.
+		if c.Type != contracts.CmdProbe && c.Type != contracts.CmdGC && c.Type != contracts.CmdRebindPrepare && d.seen[k] {
 			d.mu.Unlock()
 			continue
 		}
@@ -307,10 +313,47 @@ func (d *Daemon) handleCommands(ctx context.Context, cmds []contracts.Command) {
 			go d.probe(ctx)
 		case contracts.CmdGC:
 			go d.gc(ctx, c)
+		case contracts.CmdRebindPrepare:
+			go d.rebindPrepare(ctx, c)
 		default:
 			d.Log("command %s ignored (P4)", c.Type)
 		}
 	}
+}
+
+// holdsWorkdir reports whether a live process of this machine is still
+// writing in p — a running attempt of this daemon, or a recorded process
+// group that outlived one (daemon-protocol §5). Under `worktree` the answer
+// decides whether a `gc` is executed or refused: the directory GC wants to
+// delete is a checkout somebody may be mid-commit in.
+func (d *Daemon) holdsWorkdir(p string) bool {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		abs = p
+	}
+	d.mu.Lock()
+	for _, r := range d.running {
+		if r.workdir != "" {
+			if rabs, err := filepath.Abs(r.workdir); err == nil && rabs == abs {
+				d.mu.Unlock()
+				return true
+			}
+		}
+	}
+	d.mu.Unlock()
+	recs, err := d.Orphans.List()
+	if err != nil {
+		return false
+	}
+	for _, r := range recs {
+		if r.Workdir == "" {
+			continue
+		}
+		if rabs, err := filepath.Abs(r.Workdir); err == nil && rabs == abs && orphan.Alive(r.PGID) {
+			return true
+		}
+	}
+	return false
 }
 
 // gc executes a §4.3 `gc` command and reports the outcome (§6).
@@ -345,11 +388,23 @@ func (d *Daemon) gc(ctx context.Context, c contracts.Command) {
 	for _, w := range targets {
 		res := *w.GC
 		switch {
+		case d.holdsWorkdir(w.Path):
+			// A live attempt is still writing there. §6 lets the daemon
+			// refuse with a reason (잠금·프로세스 잔존) and the server
+			// re-issues the command; deleting the directory under a running
+			// runtime is how a lane fails in a way nobody can explain.
+			res.Status, res.Reason = workdir.GCRefused, workdir.GCReasonProcessAlive
 		case workdir.IsWorktree(w.Path):
-			// §6: a worktree comes off with `git worktree remove` and leaves
-			// its branch behind (E13-10). That is P4, so this is a refusal —
-			// reported, not swallowed.
-			res.Status, res.Reason = workdir.GCRefused, workdir.GCReasonWorktreeP4
+			// §6 / E13-10: `git worktree remove` only, and the branch stays.
+			// No --force — git refuses a checkout with modified or untracked
+			// files, and that refusal is the answer, not an obstacle.
+			if reason, err := workdir.RemoveWorktree(w.Path); err != nil {
+				res.Status, res.Reason = workdir.GCRefused, reason
+				d.Log("gc %s: %s: %v", w.Path, reason, err)
+			} else {
+				res.Status = workdir.GCDeleted
+				w.Bytes = 0
+			}
 		default:
 			if err := workdir.Remove(d.Cfg.WorkdirRoot, w.Path); err != nil {
 				res.Status, res.Reason = workdir.GCRefused, err.Error()
@@ -377,6 +432,16 @@ func (d *Daemon) gc(ctx context.Context, c contracts.Command) {
 	if err := d.Server.Workdirs(rctx, d.Cfg.RuntimeID, api.WorkdirsRequest{Workdirs: report}); err != nil {
 		d.Log("gc: report: %v", err)
 	}
+}
+
+// finishWorkdir is §4.4's `workdir` block. The git measurement runs a couple
+// of git commands against the checkout the attempt just left; for a plain
+// folder it is nil and the block is just the path, as before.
+func (d *Daemon) finishWorkdir(wd string) *api.FinishWorkdir {
+	if wd == "" {
+		return nil
+	}
+	return &api.FinishWorkdir{Path: wd, Git: workdir.Git(wd)}
 }
 
 func (d *Daemon) killAfter() time.Duration {
@@ -472,7 +537,7 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		wrapper, werr := toolwrap.Write(d.Cfg.WorkdirRoot, b.Task.ID, b.Task.Attempt, d.Cfg.ColabBin, acp.Env(b.Profile.RuntimeKind, d.taskEnv(b), nil))
 		if werr != nil {
 			d.Log("%s tool wrapper: %v", k, werr)
-			finish(api.FinishRequest{Finish: contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: "tool wrapper: " + werr.Error()}, Workdir: &api.FinishWorkdir{Path: wd}})
+			finish(api.FinishRequest{Finish: contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: "tool wrapper: " + werr.Error()}, Workdir: d.finishWorkdir(wd)})
 			return
 		}
 		// Every exit from here on — completed, failed, cancelled — drops the
@@ -484,11 +549,28 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 
 	prep, err := brief.Prepare(wd, b.Brief.Transport, b.Brief.Text)
 	if err != nil {
-		finish(api.FinishRequest{Finish: contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: err.Error()}, Workdir: &api.FinishWorkdir{Path: wd}})
+		finish(api.FinishRequest{Finish: contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: err.Error()}, Workdir: d.finishWorkdir(wd)})
 		return
 	}
 	defer func() { _ = brief.Remove(prep) }()
+	if prep.Path != "" {
+		// §8.4 턴 프롬프트 v0.16 / E13-06a: an instruction_file runtime is
+		// told, on the FIRST line, to read the brief file by absolute path.
+		// The daemon prepends it for the same reason it rewrites the CLI
+		// wrapper path — the server does not know where this machine put the
+		// workdir. It goes on AFTER the wrapper rewrite: the pointer contains
+		// no `colab ` command, and rewriting it would be a no-op that only
+		// risks mangling the path.
+		b.Prompt = brief.PrependPointer(wd, b.Prompt)
+	}
 
+	midturn := d.usageMidturn(b)
+	if b.Profile.RuntimeKind == contracts.RuntimeClaudeCode && !midturn && d.Cfg.UsageMidturnEnabled() {
+		// D-18 tier 2. One log line and nothing else: it is not a task event
+		// because nothing about the TASK changed — the session simply has no
+		// budget for the in-turn check to enforce.
+		d.Log("%s raw SDK stream off: no budget in the bundle (D-18)", k)
+	}
 	// The heartbeater exists before the runner because the runner calls back
 	// into it (OnUsage); its `r` is filled in on the next line.
 	hb := &heartbeater{d: d, b: b, bt: batcher}
@@ -496,7 +578,7 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		Bundle: b, Workdir: wd, Cmd: d.spawnConfig(b, wd), MCPServers: d.mcpServers(b), Sink: batcher, Clock: d.Clock, DaemonVersion: d.Version,
 		// harness §7 v0.8.5: the raw SDK stream is what makes the heartbeat's
 		// `usage` non-zero before the turn ends (D-17).
-		RawSDKMessages: d.usageMidturn(b.Profile.RuntimeKind),
+		RawSDKMessages: midturn,
 		OnUsage:        func() { hb.send(ctx) },
 		OnSpawn: func(pgid int) {
 			if err := d.Orphans.Record(orphan.Record{TaskID: b.Task.ID, Attempt: b.Task.Attempt, PGID: pgid, StartedAt: d.Clock.Now().UTC(), Workdir: wd}); err != nil {
@@ -508,7 +590,7 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 			_ = d.Server.Phase(ctx, b.Task.ID, b.Task.Attempt, api.PhaseRequest{Phase: "running", WorkdirPath: wd})
 		},
 	})
-	run := &attemptRun{bundle: b, runner: runner}
+	run := &attemptRun{bundle: b, runner: runner, workdir: wd}
 	d.mu.Lock()
 	d.running[k] = run
 	d.mu.Unlock()
@@ -556,15 +638,49 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 			f.NotBefore = res.Failure.NotBefore
 		}
 	}
-	finish(api.FinishRequest{Finish: f, Workdir: &api.FinishWorkdir{Path: wd}})
+	finish(api.FinishRequest{Finish: f, Workdir: d.finishWorkdir(wd)})
 	d.Log("%s finished outcome=%s stop=%s", k, res.Outcome, f.StopReason)
 }
 
 // usageMidturn reports whether this attempt asks the runtime for in-turn
 // usage. Only claude_code has a channel for it (harness §7 v0.8.5); on hermes
 // the flag would buy nothing but `_meta`, which hermes drops anyway.
-func (d *Daemon) usageMidturn(kind contracts.RuntimeKind) bool {
-	return kind == contracts.RuntimeClaudeCode && d.Cfg.UsageMidturnEnabled()
+//
+// D-18: the stream is bought for ONE purpose — the server's in-turn budget
+// check (FR-7.3 M9) needs a non-zero `usage` on the heartbeat before the turn
+// ends. A session with no budget at all has nothing for that check to
+// enforce, so the ~4× messages and ~2× bytes measured in PR #145 buy nothing.
+//
+// THREE TIERS, in this order (Lead decision 2026-09-07):
+//
+//  1. an operator's explicit `usage_midturn: false` in daemon.json — a hard
+//     kill switch, honoured even for a budgeted session. probe §9 then
+//     advertises `usage_midturn: false` too (the EFFECTIVE value), so the
+//     server knows to fall back to finish-time enforcement (E9-10) instead of
+//     waiting for in-turn numbers that will never arrive.
+//  2. the automatic per-attempt rule: budget set → on, no budget → off.
+//  3. the default, on.
+//
+// The automatic rule replaces the DEFAULT, not the switch. Tier 2 is a
+// per-attempt decision and does not change what the runtime is advertised as
+// being capable of — it is a choice not to ask, not an absence of the
+// ability — so it is recorded in the daemon log and nowhere else.
+func (d *Daemon) usageMidturn(b contracts.TaskBundle) bool {
+	if b.Profile.RuntimeKind != contracts.RuntimeClaudeCode {
+		return false
+	}
+	if !d.Cfg.UsageMidturnEnabled() {
+		return false
+	}
+	return BundleHasBudget(b)
+}
+
+// BundleHasBudget reports whether the bundle carries any budget the daemon
+// could hit: a task cap (`budget_usd`, or the approved raise
+// `budget_override_usd`) or the session's remaining budget
+// (`limits.budget_usd`) — the same three numbers §4.4's 유효 예산 is a min of.
+func BundleHasBudget(b contracts.TaskBundle) bool {
+	return b.Task.BudgetUSD != nil || b.Task.BudgetOverrideUSD != nil || b.Limits.BudgetUSD != nil
 }
 
 // heartbeater owns the attempt's heartbeat channel. Two goroutines use it —
