@@ -151,7 +151,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		// FR-2.3 / §8.2.2: a budget pause CANCELS the turn in flight. Letting it
 		// finish spends exactly the money the pause exists to stop.
 		if s.Tasks != nil {
-			if err := s.Tasks.PauseSessionTasks(ctx, tx, sessionID, out.PauseReason, "", now); err != nil {
+			if err := s.Tasks.PauseSessionTasks(ctx, tx, sessionID, out.PauseReason, nil, now); err != nil {
 				return nil, err
 			}
 		}

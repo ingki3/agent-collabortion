@@ -141,12 +141,10 @@ func (s *Server) applyBudgetPause(ctx context.Context, tx pgx.Tx, b *budgetState
 		// single task pause, both of which queue the `cancel` command rather
 		// than signalling anything.
 		if o.SessionState == "paused" {
-			if err := s.Tasks.PauseSessionTasks(ctx, tx, b.SessionID, sessions.PauseBudget,
-				fmt.Sprintf("세션 예산 $%.2f 초과", limit), now); err != nil {
+			if err := s.Tasks.PauseSessionTasks(ctx, tx, b.SessionID, sessions.PauseBudget, raw, now); err != nil {
 				return err
 			}
-		} else if err := s.Tasks.PauseTaskForBudget(ctx, tx, b.TaskID,
-			fmt.Sprintf("task 예산 $%.2f 초과", limit), now); err != nil {
+		} else if err := s.Tasks.PauseTaskForBudget(ctx, tx, b.TaskID, raw, now); err != nil {
 			return err
 		}
 	}

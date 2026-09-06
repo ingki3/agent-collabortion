@@ -317,7 +317,7 @@ func TestP2BudgetPauseCancelsTheTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := f2.srv.Tasks.PauseSessionTasks(ctx, tx, mustUUID(t, f2.sessionID), "director", "", f2.fake.Now()); err != nil {
+	if err := f2.srv.Tasks.PauseSessionTasks(ctx, tx, mustUUID(t, f2.sessionID), "director", nil, f2.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(ctx); err != nil {

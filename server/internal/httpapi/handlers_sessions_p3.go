@@ -112,7 +112,7 @@ func (s *Server) PauseSession(w http.ResponseWriter, r *http.Request, sessionId 
 		// tasks.PlanDispatch, which is where "director → drain, budget → cancel"
 		// lives, so the running turn is left alone here (E5-06) and the claim
 		// query's `s.status = 'active'` guard stops anything new (C3′).
-		return s.Tasks.PauseSessionTasks(r.Context(), tx, sessionId, sessions.PauseDirector, "Director가 일시정지했습니다", now)
+		return s.Tasks.PauseSessionTasks(r.Context(), tx, sessionId, sessions.PauseDirector, raw, now)
 	})
 	if err != nil {
 		writeErr(w, err)

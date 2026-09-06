@@ -262,11 +262,21 @@ func (s *Server) answerAgentHitl(ctx context.Context, row *hitlRow, sess *hitlSe
 	// row, and holding both locks in this order while the budget path also
 	// locks task-then-hitl is how the two deadlock.
 	var taskOut *gen.Task
-	if row.TaskID != nil && plan.TaskStatus == "queued" {
-		cause := tasks.CauseHitlAnswer
-		if row.Purpose != nil && *row.Purpose == hitl.PurposeBudget {
-			cause = tasks.CauseBudgetApproved
-		}
+	resume := plan.TaskStatus == "queued"
+	cause := tasks.CauseHitlAnswer
+	if row.Purpose != nil && *row.Purpose == hitl.PurposeBudget {
+		// E9-03: a REJECTED raise does not resume anything — the task stays
+		// parked at paused(budget) until a person presses 중단. Only the
+		// approval is a trigger (E9-02), and PlanBudgetAnswer is what says
+		// which of the two this is.
+		cause = tasks.CauseBudgetApproved
+		br := sessions.PlanBudgetAnswer(sessions.BudgetAnswerInput{
+			Approved: in.Approved != nil && *in.Approved,
+			TaskID:   derefUUID(row.TaskID), LaneID: derefUUID(row.LaneID),
+		})
+		resume = resume && br.TaskStatus == "queued"
+	}
+	if row.TaskID != nil && resume {
 		if _, err := s.Tasks.ResumeFromHuman(ctx, *row.TaskID, cause); err != nil {
 			return 0, nil, apperr.As(err)
 		}

@@ -100,7 +100,7 @@ func (s *Service) waitingHumanLocked(ctx context.Context, tx pgx.Tx, t *Row, att
 // stop through the §8.2.2 procedure. It is the task-scoped sibling of
 // PauseSessionTasks: a single agent over its own budget_per_task must not stop
 // the lanes that are inside theirs (FR-7.3, E9-01).
-func (s *Service) PauseTaskForBudget(ctx context.Context, tx pgx.Tx, taskID uuid.UUID, detail string, now time.Time) error {
+func (s *Service) PauseTaskForBudget(ctx context.Context, tx pgx.Tx, taskID uuid.UUID, detail []byte, now time.Time) error {
 	t, err := lockTask(ctx, tx, taskID)
 	if err != nil {
 		return err
