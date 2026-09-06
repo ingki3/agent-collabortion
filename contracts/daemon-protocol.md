@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.6 — `dispatched` 5분 타임아웃은 재큐잉이 아니라 종료다(§4.1). v0.5는 probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
+| 버전 | v0.7 — §4.3 `gc` 페이로드에 서버가 경로를 싣고(`workdirs:[{id,path}]`), §6 보고 행 `gc: {status: deleted|refused, reason}` 로 결과·거부를 알린다(T-D5 계약 질문, G5 S-29·D-4). v0.6 — `dispatched` 5분 타임아웃은 재큐잉이 아니라 종료다(§4.1). v0.5는 probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
 | 소유 | S + D. 변경은 Director 승인 PR로만 |
 | 근거 | PRD §8.1(큐), FR-7.1(상태 머신·heartbeat), FR-9.1(고아·토큰 폐기), FR-9.2(오프라인 유예), FR-6.4(workdir·GC), `harness.md`(오류 분류·재개) |
 | 원칙 | **데몬은 stateless, 상태는 서버.** 데몬은 서버가 준 것만 실행하고 결과를 보고한다. 모든 시각 판정(만료·유예·`not_before`)은 서버 클럭(`contracts/clock`) |
@@ -125,7 +125,7 @@ claim·events·heartbeat 응답의 `commands[]`:
 | `cancel` | `{task_id, attempt, after_current_tool: bool, reason: "director"\|"budget"\|"kill_switch"\|"loop"\|"session_paused"}` | `harness.md` §5 절차 → `finish` outcome=`cancelled` |
 | `revoke` | `{task_id, attempt}` | 그 attempt의 토큰이 폐기됐다. 프로세스가 아직 있으면 취소 절차. **고아 정리의 신호**(§5) |
 | `probe` | — | §3 |
-| `gc` | `{workdir_ids: [...]}` 또는 `{policy: {...}}` | §6 |
+| `gc` | `{session_id, workdirs: [{id, path}]}` 또는 `{policy: {...}}` — **서버가 경로를 싣는다**(데몬은 uuid↔path 매핑을 가진 적이 없다, v0.7). `workdirs` 없이 `workdir_ids` 만 있는 옛 모양이면 데몬은 `session_id` 의 lane workdir 전부로 해석 | §6 — 삭제 또는 거부를 다음 workdir 보고 행의 `gc` 로 알린다 |
 | `rebind_prepare` | `{session_id, artifacts: [{id, order, url}]}` | 새 workdir 준비 후 아티팩트 순서 적용은 **프롬프트가 지시**(FR-9.2). 데몬은 다운로드만 |
 
 명령은 **최소 한 번** 전달된다. 데몬은 `(type, task_id, attempt)`로 멱등 처리.
@@ -176,11 +176,12 @@ POST /v1/daemon/tasks/{task_id}/attempts/{attempt}/finish
 ## 6. workdir와 GC (FR-6.4)
 
 ```
-POST /v1/daemon/runtimes/{runtime_id}/workdirs   {workdirs: [{id?, kind, path, session_id, agent_id?, lane_id?, bytes, last_used_at, git: {branch, merged, dirty, commits_ahead}?}]}
+POST /v1/daemon/runtimes/{runtime_id}/workdirs   {workdirs: [{id?, kind, path, session_id, agent_id?, lane_id?, bytes, last_used_at, git: {branch, merged, dirty, commits_ahead}?, gc: {status: "deleted"|"refused", reason?}?}]}
 ```
 
 - 데몬은 workdir 목록을 probe와 함께, 그리고 lane 종료 시 보고한다. S13이 이 데이터를 보여준다.
-- GC 판정은 **서버**가 한다(보존 기한·용량 상한·미병합/미커밋 차단 — E13-09~13). 서버가 `gc {workdir_ids}` 명령을 내리면 데몬이 삭제하고 결과를 보고한다. 데몬은 스스로 지우지 않는다.
+- GC 판정은 **서버**가 한다(보존 기한·용량 상한·미병합/미커밋 차단 — E13-09~13). 서버가 `gc {session_id, workdirs:[{id, path}]}` 명령을 내리면 데몬이 삭제하고 결과를 보고한다. 데몬은 스스로 지우지 않는다.
+- **gc 결과 보고(v0.7)**: 데몬은 다음 workdir 보고에서 그 행에 `gc: {status, reason?}` 를 싣는다 — `deleted`(행은 마지막으로 한 번 더 실린다; 서버가 `deleted` 로 닫고 명령을 소비) 또는 `refused`(예: `isolation_worktree_p4` — P4 전 `worktree` 삭제는 데몬이 거부한다; 서버는 피드에 "GC 거부: <reason>" 을 남기고 명령을 소비한다). **조용히 무시하는 경로는 없다** — 로그만 남기고 보고하지 않으면 명령이 24h 미소비 만료로 피드에 남는다(§4.3).
 - `worktree` 삭제는 `git worktree remove`만, 브랜치는 남긴다(E13-10).
 - 디스크 상한 도달은 probe의 `disk`로 서버가 판정해 새 세션 생성을 막는다(E13-16).
 
