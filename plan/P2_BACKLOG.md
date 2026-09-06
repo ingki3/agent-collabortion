@@ -97,8 +97,9 @@
 | ~~S-44~~ | `enforceBudgetFor` 가 heartbeat 한 곳에서만 호출되고 `budget.go` 주석의 'Finish rollup 에서도' 가 거짓 → 사후 강제 없음. Lead 결정 A: completed task 는 유지, 세션 잔여 초과 → 세션 paused(budget)+HITL(task_id 비움), task 상한 초과 → lane paused(budget)+HITL(task_id 채움), 승인 시 lane 재개 + override 승계 | T-I3 실측 (c) | **해소(T-S6)**. `httpapi.finishAndEnforce` 가 §4.4 finish 커밋·롤업 뒤 enforce, terminal task 는 lane 을 park, claim 쿼리가 paused lane 을 거른다. 회귀 `TestP3BudgetEnforcedAtFinish`·`…SessionScope`·`…EstimatedNeverCuts`·`…RejectionKeepsTheGate`(E9-10), 실서버 `e2e/p3/41_budget_finish_smoke.sh` 13/13(고치기 전 origin/dev 는 FAIL 5 로 재현) |
 | ~~S-45~~ | 시스템 발행 HITL 3곳(`httpapi/budget.go` 예산 · `sessions/complete.go` user_approval · `router/service.go` 루프)이 에이전트 경로와 달리 kind='hitl' 타임라인 메시지를 게시하지 않고 `hitl_request.message_id` NULL → S7 카드 0(SCREEN §4.5) | T-I3 실측 43_ | T-S7 | **해결 — PR #142**
 | ~~S-46~~ | `ResumeSession` 이 pause 가 park 한 task 를 재큐잉하지 않아 영영 paused(#136 은 큐가 남은 lane 의 게이트만 품) | T-S6 발견 | T-S7 | **해결 — PR #142**
-| S-47 | finish 뒤 enforce 가 실패하면(별도 tx) task 상한 초과 lane 이 안 잠긴 채 다음 task 가 dispatch 되어 첫 heartbeat 에서야 잡힘 — 한 턴 지연, 로그 Warn 뿐 | PR #136 리뷰 NN1 | T-S8 |
-| S-48 | 예산 강제 경로가 **추정 금액을 0 으로 떨어뜨린다** — ACP 런타임은 cost_usd 를 안 줘 task_usage 가 100% estimated(가격표로 매긴 값이 있는데도) → D-17 을 고쳐도 강제가 발동하지 않음. FR-7.3·E9-05: 추정치는 하드 컷 없이 **누적·비교해 세션 paused+드레인+알림** | T-I3 실측 (c), K-8 의 서버 절반 | T-S8 |
+| ~~S-47~~ | finish 뒤 enforce 가 실패하면(별도 tx) task 상한 초과 lane 이 안 잠긴 채 다음 task 가 dispatch 되어 첫 heartbeat 에서야 잡힘 — 한 턴 지연, 로그 Warn 뿐 | PR #136 리뷰 NN1 | T-S8 | **해결 — PR #147**
+| ~~S-48~~ | 예산 강제 경로가 **추정 금액을 0 으로 떨어뜨린다** — ACP 런타임은 cost_usd 를 안 줘 task_usage 가 100% estimated(가격표로 매긴 값이 있는데도) → D-17 을 고쳐도 강제가 발동하지 않음. FR-7.3·E9-05: 추정치는 하드 컷 없이 **누적·비교해 세션 paused+드레인+알림** | T-I3 실측 (c), K-8 의 서버 절반 | T-S8 | **해결 — PR #147**
+| S-49 | 예산 상향 `too_low` 검사가 두 핸들러(K-10 세션 승인 `greatest(session.cost_usd, sum(task_usage))` vs `resumeSession` "새 상한은 현재 소진액 이상")에서 기준·문구가 다르다 — 통일 | PR #147 리뷰 NN2 | 낮음 |
 
 ## C (CLI)
 
@@ -121,8 +122,8 @@
 | K-6 | 인박스 `mention` 항목의 `actions` 가 COMPONENTS §2.4 표와 다르다 — 서버 쪽이 맞아 보이므로 문서(COMPONENTS) 수정 후보. Lead 판정 | T-W3 PR #130 관찰 | 문서 |
 | ~~K-7~~ | colab-cli §2.4 HITL 경로(`/tasks/{T}/hitl`) ↔ openapi(`/sessions/{S}/hitl-requests`) 충돌 — openapi 가 API SSOT | T-I3 | **해결 — 계약 PR #133(v0.5.1)** |
 | K-8 | ACP 경로는 `cost_usd` 를 안 줘 `task_usage` 가 100% `estimated` → 서버가 가격표로 매긴 값도 '추정' 이라 E9-01 의 '실측 → 취소 명령' 분기는 실기 도달 불가(E9-05 추정 컷 금지). Lead 판정: 계약 유지(추정은 paused+드레인), E9-01 실측 분기는 대역/acpfake 로만. 가격표 추정을 '실측 급' 으로 승격할지는 P4 비용 항목에서 | T-I3 실측 | P4 결정 |
-| K-9 | openapi `InboxItem.card` 에 HITL `purpose` 가 없어 웹이 approval 항목마다 GET /hitl-requests/{id} 를 한 번 더 읽는다(#139 NN1). 계약 커밋은 브랜치 `contracts/inbox-card-purpose-2`(생성 타입 변경이 `handlers_inbox.go` 리터럴을 깨 서버 적응과 함께 머지해야 함) | T-W4 PR #139 | T-S8 (계약 커밋 얹기) |
-| K-10 | 세션 범위 예산·시간 HITL(`task_id` 비움)을 `respondHitlRequest` 로 승인해도 세션이 재개되지 않는다(openapi 가 `resumeSession` 을 답으로 적음) — Lead 결정: **승인 = 재개까지 한 동작**(paused → active, park 된 task 재큐잉, 세션 잔여 = 승인 금액). 계약 문언은 브랜치 `contracts/inbox-card-purpose-2` | T-S7 PR #142 | T-S8 |
+| ~~K-9~~ | openapi `InboxItem.card` 에 HITL `purpose` 가 없어 웹이 approval 항목마다 GET /hitl-requests/{id} 를 한 번 더 읽는다(#139 NN1). 계약 커밋은 브랜치 `contracts/inbox-card-purpose-2`(생성 타입 변경이 `handlers_inbox.go` 리터럴을 깨 서버 적응과 함께 머지해야 함) | T-W4 PR #139 | T-S8 (계약 커밋 얹기) | **해결 — PR #147**
+| ~~K-10~~ | 세션 범위 예산·시간 HITL(`task_id` 비움)을 `respondHitlRequest` 로 승인해도 세션이 재개되지 않는다(openapi 가 `resumeSession` 을 답으로 적음) — Lead 결정: **승인 = 재개까지 한 동작**(paused → active, park 된 task 재큐잉, 세션 잔여 = 승인 금액). 계약 문언은 브랜치 `contracts/inbox-card-purpose-2` | T-S7 PR #142 | T-S8 | **해결 — PR #147**
 | K-11 | harness §7 dedup 문언(입력=message_start, 출력=message_delta)은 어댑터 0.74.0 관찰 — 워커는 message_delta 만으로 충분하다고 제안, 리뷰어는 문언 유지 권고. 어댑터 버전이 바뀌면 재확인 | PR #145 | 낮음 |
 
 ## 테스트 자산 (P1에서 만든 것)
