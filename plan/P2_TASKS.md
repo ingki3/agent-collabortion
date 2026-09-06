@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 상태 | **진행 중(2026-09-06). Director가 G3를 확인했다.** P2a·T-D2·T-S2·T-C2 **완료**(PR #52·#54·#62·#61) · **T-W2**(`task_211be9c19151`)·**T-S3**(`task_340892472fac`) 진행 중 |
+| 상태 | **진행 중(2026-09-06). Director가 G3를 확인했다.** 구현 스트림 전부 완료 — P2a #52 · D #54 · S #62 · C #61 · W #67 · S후속(아티팩트) #65. **T-I2 1부**(`task_0bec4deae960`, 시나리오 A 단일 런타임 → G4 판정 자료) 진행 중 |
 | 근거 | `PLAN.md` §3 P2·§6.2 G4·G5, `EVAL.md` E1~E6·E15, `EVAL_USER.md` U2·U4·U5·U8·U10·U11·U15, `plan/P2_BACKLOG.md`(P1 이월 전부) |
 | 목표 | **시나리오 A(`none` 격리)가 8단계 끝까지 통과한다.** Lead가 3항목을 위임 → lane 3개 병렬 → 합류 **정확히 1회** → 종합 → Writer 초안 → `artifact_submitted` → 승인 → `completed` |
 | 게이트 | **G4**(중간): P2a 골든 테스트 + 시나리오 A **단일 런타임** 통과 · **G5**: 시나리오 A 8단계 + Hermes + 템플릿 3분 Director 실측 |
@@ -210,8 +210,9 @@ DoD: typecheck·test·build 초록, 컴포넌트 테스트 신규 5개 이상, C
 3. **T-C2 + T-W2** 동시 2개 → 리뷰·머지.
    - **T-C2 완료 2026-09-06, PR #61.** 세 라운드 — 각 라운드가 앞 라운드의 수정이 만든 것을 잡았다: `artifact get` 16 MiB **조용한 절단** → 수정이 **모든 타임아웃을 버려 무한 대기** → 헤더 상한(transport) + 본문 유휴 상한(idleReader)으로 분리. 교훈: 상한 하나가 두 일(자르기·끝내기)을 하고 있었다. 부산물: 계약 PR #59(`colab-cli.md` ↔ openapi 불일치 5건 — review 는 아티팩트 스코프, artifact submit 은 multipart 4필드, decision record 는 summary·rationale 둘뿐 — 그리고 **`end_turn` → `turn_end_required`**: ACP stopReason 과 이름이 충돌해 P1 `kind`↔`runtime_kind` 와 같은 부류였다).
    - **T-W2 착수**(`task_211be9c19151`) — T-S2 머지를 기다리지 않고 슬롯이 비자마자 넣었다. 웹은 계약(생성 타입 + mock)을 상대로 만들고 서버 머지는 종단 검증(T-I2)에만 필요하다. 부산물: 계약 PR #63(`x-render-class` 평가 순서 first-match·실패 강조·"서버가 파생" 문구 정정 — 와이어 필드가 없고 서버도 계산하지 않았다).
-   - **T-S3 착수**(`task_340892472fac`) — PR #62 리뷰가 "범위 밖이 아니라 다음 PR"로 판정한 아티팩트 제출·리뷰. G5 전제이고 CLI(#61)가 이미 부른다.
-4. **T-I2 1부** → **G4 판정**(P2a 초록 + 시나리오 A 단일). 미달이면 Hermes 어댑터를 P3로 이월.
+   - **T-W2 완료 2026-09-06, PR #67 — 한 라운드 APPROVE.** 계약 빈칸 2건(#63 피드 평가 순서·"서버가 파생" 문구 정정, #66 `supported_options`)을 추측 없이 물어 계약이 고쳐진 뒤 반영. 리뷰어가 판정 5건을 코드 줄로 대조, 회귀 주입 2/2. mock이 생성 타입으로 강제돼 P1의 모양 불일치 부류가 컴파일에서 막힌다. 브라우저 실기(U1)는 헤드리스 하이드레이션 환경 문제로 못 함 → **T-I2가 대신 확인**. P3 기록: 배너 UUID 폴백(NN1), 컷 1 플래그 출처(NN2).
+   - **T-S3 완료 2026-09-06, PR #65 — 두 라운드.** 반려 1건: large object 정리 경로 부재(세션 CASCADE 뒤 바이트가 `pg_largeobject`에 영구 잔존) → 0008 트리거(`pglo:` 가드, `undefined_object`만 삼킴) + 두 국면 회귀 테스트. Lead가 트리거를 빼고 FAIL 확인, 리뷰어가 SQLSTATE 42704 를 라이브 DB에서 대조. 백로그 S-14(다운로드 커넥션 점유 상한 — P3 웹 다운로드 전 필수)·S-15(리뷰 행 덮어쓰기). **후속 소PR 대기**: "이미 없는 oid" 케이스 테스트 1건(`feat/server-artifacts-nn1`) — T-I2는 기다리지 않는다.
+4. **T-I2 1부** → **G4 판정**(P2a 초록 + 시나리오 A 단일). 미달이면 Hermes 어댑터를 P3로 이월. **착수 2026-09-06**(`task_0bec4deae960`, 워크트리 p1-integration, 브랜치 test/g4-scenario-a). 판정 수치: Lead 기상 = 정확히 3(위임 1 + 합류 1 + 통보 1), lane 3 동시 running 구간, 다운로드 바이트 = Content-Length, 웹(agent-browser)과 API/CLI 양쪽.
 5. **T-I2 2부** → **G5 판정**(시나리오 A 8단계 + Hermes + 템플릿 3분).
 
 리뷰는 P1과 같다: worker_done → Hermes `REVIEW PR <n>` → `/tmp/review<n>.md`를 Lead가 게시 → APPROVE면 CI·범위 확인 후 머지. **반려 3회면 Director 상신.**
