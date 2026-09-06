@@ -6,11 +6,14 @@
  * 중앙: 메시지 타임라인(kind 별 카드 · 질문 카드 스레드 · 에이전트 메시지의 활동 피드 5클래스) + 작성창.
  * 우: goal · 종료 조건 진행률 · 아티팩트 · 결정 기록 · 비용 · paused 배너(사유 5종).
  *
+ * P3: 상단 액션(일시정지·재개·종료·참여자·Director 교체) · 타임라인의 **HITL 카드**(인박스와 같은 하위 컴포넌트) ·
+ * lane 카드의 응답/예산 승인 연결. 권한이 없으면 숨기지 않고 비활성 + 사유(S7-P·S7-D, SCREEN §7).
+ *
  * 실시간: 셸의 워크스페이스 SSE 하나를 구독하고 `session_id` 로 거른다(R4).
  * 좁은 화면에서는 좌·우열이 탭으로 접힌다.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { AgentChip } from "@/components/AgentChip";
@@ -19,12 +22,16 @@ import { Composer, type ComposerAgent, type ComposerInput, type ComposerWarning 
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { LaneBoard } from "@/components/LaneBoard";
 import { SessionAside } from "@/components/SessionAside";
+import { SessionActions } from "@/components/SessionActions";
+import { ParticipantsDialog } from "@/components/ParticipantsDialog";
+import { HitlCard } from "@/components/HitlCard";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { api, errorMessage, newIdempotencyKey } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
 import type {
-  Agent, Artifact, Decision, Lane, Member, Message, Participant, Session, StreamEvent, Task, TaskEvent, TriggerPreview,
+  Agent, Artifact, Decision, HitlRequest, HitlResponse, Lane, Member, Message, Participant, Session, StreamEvent,
+  Task, TaskEvent, TriggerPreview,
 } from "@/lib/api/types";
 
 type Events = { events: TaskEvent[]; structured: boolean; loading: boolean };
@@ -45,6 +52,7 @@ function sortByTime(a: Message, b: Message) {
 
 export default function SessionPage() {
   const { id: sessionId } = useParams<{ id: string }>();
+  const search = useSearchParams();
   const { workspace, me } = useAuth();
   const [session, setSession] = useState<Session | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -55,6 +63,10 @@ export default function SessionPage() {
   const [lanes, setLanes] = useState<Lane[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[] | null>(null);
   const [decisions, setDecisions] = useState<Decision[] | null>(null);
+  /** 세션의 HITL 요청 — 타임라인의 `hitl` 메시지가 `message_id` 로 자기 요청을 찾는다. */
+  const [hitls, setHitls] = useState<HitlRequest[]>([]);
+  const [showParticipants, setShowParticipants] = useState(false);
+  const [participantWarnings, setParticipantWarnings] = useState<string[]>([]);
   const [typing, setTyping] = useState<Record<string, boolean>>({});
   const [deltas, setDeltas] = useState<Record<string, string>>({});
   const [replyTo, setReplyTo] = useState<{ id: string; authorName: string } | null>(null);
@@ -95,14 +107,16 @@ export default function SessionPage() {
 
   /** 좌·우열 데이터. 서버가 아직 안 켠 operation 은 조용히 비운다 — 화면은 빈 상태로 말한다(§7). */
   const loadSide = useCallback(async () => {
-    const [l, a, d] = await Promise.allSettled([
+    const [l, a, d, h] = await Promise.allSettled([
       api.get("/sessions/{sessionId}/lanes", { path: { sessionId } }),
       api.get("/sessions/{sessionId}/artifacts", { path: { sessionId } }),
       api.get("/sessions/{sessionId}/decisions", { path: { sessionId } }),
+      api.get("/sessions/{sessionId}/hitl-requests", { path: { sessionId }, query: { limit: 100 } }),
     ]);
     setLanes(l.status === "fulfilled" ? l.value : []);
     setArtifacts(a.status === "fulfilled" ? a.value : []);
     setDecisions(d.status === "fulfilled" ? d.value : []);
+    setHitls(h.status === "fulfilled" ? (h.value.items ?? []) : []);
   }, [sessionId]);
 
   useEffect(() => {
@@ -180,6 +194,13 @@ export default function SessionPage() {
         setLanes((cur) => (cur.some((x) => x.id === l.id) ? cur.map((x) => (x.id === l.id ? l : x)) : [...cur, l]));
         break;
       }
+      case "hitl.created":
+      case "hitl.updated": {
+        const h = ev.payload as unknown as HitlRequest;
+        if (h.session_id !== sessionId) return;
+        setHitls((cur) => (cur.some((x) => x.id === h.id) ? cur.map((x) => (x.id === h.id ? h : x)) : [...cur, h]));
+        break;
+      }
       case "artifact.created": {
         const a = ev.payload as unknown as Artifact;
         setArtifacts((cur) => (cur ? [a, ...cur.filter((x) => x.id !== a.id)] : [a]));
@@ -233,6 +254,21 @@ export default function SessionPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [messages.length, deltas]);
+
+  /**
+   * 인박스의 `run_failed` "다시 지시"는 `?restart_lane=` 로 이 화면에 온다 — **인박스에서 맥락 없이 새 지시를
+   * 만들 수 없기 때문**이다(SCREEN §4.5 m6: 사람은 항상 맥락을 더해 다시 지시한다). 여기서 작성창을 연다.
+   */
+  const restartParam = search.get("restart_lane");
+  useEffect(() => {
+    if (!restartParam || lanes.length === 0) return;
+    const lane = lanes.find((l) => l.id === restartParam);
+    if (!lane) return;
+    const a = agents.find((x) => x.id === lane.agent_id);
+    setRestart({ laneId: lane.id, agentName: a?.name ?? "agent" });
+    setDraft({ content: a ? `[@${a.name}](mention://agent/${a.id}) ` : "", nonce: Date.now() });
+    setCol("timeline");
+  }, [restartParam, lanes, agents]);
 
   const participants = session?.participants ?? [];
   const composerAgents = useMemo<ComposerAgent[]>(() => {
@@ -322,6 +358,109 @@ export default function SessionPage() {
     }
   }
 
+  /** 종료(`manual`) — 진행 중 lane 이 있으면 `confirm: true` 가 있어야 서버가 받는다(409 running_lanes). */
+  async function complete(confirm: boolean) {
+    setBusy(true);
+    try {
+      setSession(await api.post("/sessions/{sessionId}/complete", { path: { sessionId }, body: { confirm } }));
+      void loadSide();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancelSession(reason: string) {
+    setBusy(true);
+    try {
+      setSession(await api.post("/sessions/{sessionId}/cancel", { path: { sessionId }, body: reason ? { reason } : {} }));
+      void loadSide();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeDirector(userId: string) {
+    setBusy(true);
+    try {
+      setSession(await api.put("/sessions/{sessionId}/director", { path: { sessionId }, body: { director_user_id: userId } }));
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** HITL 응답 — 계약 필수 헤더 `Idempotency-Key` 를 보낸다. 두 번째 응답은 오류가 아니라 무시된다(E7-08). */
+  async function respondHitl(id: string, body: HitlResponse) {
+    setBusy(true);
+    try {
+      const r = await api.post("/hitl-requests/{hitlRequestId}/response", {
+        path: { hitlRequestId: id },
+        idempotencyKey: newIdempotencyKey(),
+        body,
+      });
+      setHitls((cur) => cur.map((x) => (x.id === r.hitl_request.id ? r.hitl_request : x)));
+      if (r.ignored) setError("이미 답변된 요청이라 이 응답을 무시했습니다 — 첫 응답이 유지됩니다.");
+      void loadSide();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addParticipant(agentId: string, profileId: string | null) {
+    setBusy(true);
+    try {
+      const p = await api.post("/sessions/{sessionId}/participants", {
+        path: { sessionId },
+        body: { agent_id: agentId, profile_id: profileId },
+      });
+      setParticipantWarnings(p.warnings ?? []);
+      await load();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeParticipant(agentId: string) {
+    setBusy(true);
+    try {
+      await api.delete("/sessions/{sessionId}/participants/{agentId}", { path: { sessionId, agentId } });
+      await load();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setAssignee(agentId: string) {
+    setBusy(true);
+    try {
+      await api.patch("/sessions/{sessionId}/participants/{agentId}", { path: { sessionId, agentId }, body: { assignee: true } });
+      await load();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * lane 카드의 "응답하러 가기" · "계속 진행 승인" — 그 lane 의 HITL 카드로 타임라인을 옮긴다.
+   * lane 이 카드 메시지를 모르면(`hitl_request_id` 만 있는 경우) 요청 목록에서 찾는다.
+   */
+  function openLaneHitl(lane: Lane) {
+    const h = hitls.find((x) => x.id === lane.hitl_request_id) ?? hitls.find((x) => x.lane_id === lane.id && x.status === "open");
+    if (h?.message_id) jumpToMessage(h.message_id);
+    else setError("이 lane 의 HITL 카드를 찾지 못했습니다 — Inbox 에서 응답하세요.");
+  }
+
   function jumpToMessage(messageId: string) {
     setCol("timeline");
     const el = document.querySelector(`[data-message-id="${messageId}"]`);
@@ -343,6 +482,9 @@ export default function SessionPage() {
 
   const closed = session.status === "completed" || session.status === "cancelled";
   const isDirector = session.my_role === "director" || session.my_role === "deputy";
+  // 종료 확인 문구가 개수를 명시한다(SCREEN §4.5 상단 액션) — 계약 removeParticipant 와 같은 4상태다.
+  const runningLanes = lanes.filter((l) => ["queued", "running", "waiting_human", "paused"].includes(l.status)).length;
+  const hitlByMessage = new Map(hitls.filter((h) => h.message_id).map((h) => [h.message_id!, h]));
   const typingAgents = Object.entries(typing).filter(([, v]) => v).map(([id]) => agentById.get(id)?.name ?? "agent");
   const laneOfMessage = (m: Message) => (m.lane_id ? lanes.find((l) => l.id === m.lane_id) : undefined);
 
@@ -358,12 +500,36 @@ export default function SessionPage() {
             <span className="small muted-3" data-testid="session-paused-reason">사유: {session.paused_reason}</span>
           )}
           <span className="s7__spacer" />
-          {session.status === "active" && (
-            <button type="button" className="btn btn--sm" disabled={!isDirector || busy} title={!isDirector ? "Director 만 할 수 있습니다" : undefined} onClick={() => void pause()} data-testid="session-pause">
-              일시정지
-            </button>
-          )}
+          <SessionActions
+            session={session}
+            runningLanes={runningLanes}
+            members={members}
+            onPause={pause}
+            onResume={() => resume({})}
+            onComplete={complete}
+            onCancel={cancelSession}
+            onOpenParticipants={() => setShowParticipants((v) => !v)}
+            onChangeDirector={changeDirector}
+            busy={busy}
+          />
         </div>
+        {showParticipants && (
+          <div className="s7__panel">
+            <ParticipantsDialog
+              participants={participants}
+              agents={agents}
+              lanes={lanes}
+              assigneeAgentId={session.assignee_agent_id}
+              canManage={session.my_role === "director"}
+              warnings={participantWarnings}
+              onAdd={addParticipant}
+              onRemove={removeParticipant}
+              onSetAssignee={setAssignee}
+              onClose={() => { setShowParticipants(false); setParticipantWarnings([]); }}
+              busy={busy}
+            />
+          </div>
+        )}
         <p className="muted small" style={{ margin: "4px 0 8px" }} data-testid="session-goal">{session.goal}</p>
         <nav className="s7__tabs" aria-label="열 전환">
           {(["board", "timeline", "aside"] as Col[]).map((c) => (
@@ -388,6 +554,7 @@ export default function SessionPage() {
                 statusNote={p.status_note}
                 profile={p.profile ? `${p.profile.runtime_kind} · ${p.profile.model}` : null}
                 isAssignee={p.is_assignee}
+                archived={agentById.get(p.agent_id)?.archived_at != null}
                 size="md"
               />
             ))}
@@ -403,6 +570,8 @@ export default function SessionPage() {
             onRestart={beginRestart}
             onCancel={(l) => setConfirmCancel(l)}
             onOpenQuestion={jumpToMessage}
+            onRespondHitl={openLaneHitl}
+            onApproveBudget={openLaneHitl}
             onSelect={(l) => setSelectedLane((cur) => (cur === l.id ? null : l.id))}
           />
           {confirmCancel && (
@@ -430,6 +599,20 @@ export default function SessionPage() {
               const askee = m.kind === "blocked_q" ? m.mentions.find((x) => x.kind === "agent")?.display_name : undefined;
               const lane = laneOfMessage(m);
               const dim = selectedLane != null && lane?.id !== selectedLane;
+              const hitl = hitlByMessage.get(m.id);
+              // `hitl` 메시지는 **HITL 카드**로 그린다(SCREEN §4.5 중앙 표). 본문은 인박스와 같은 하위 컴포넌트다.
+              if (m.kind === "hitl" && hitl) {
+                return (
+                  <div key={m.id} className={dim ? "s7__dim" : undefined} data-message-id={m.id}>
+                    <HitlCard
+                      request={hitl}
+                      onRespond={(body) => respondHitl(hitl.id, body)}
+                      budget={hitl.purpose === "budget" ? { current: hitl.budget_override_usd, spent: session.cost_usd } : null}
+                      busy={busy}
+                    />
+                  </div>
+                );
+              }
               return (
                 <div key={m.id} className={dim ? "s7__dim" : undefined}>
                   <MessageCard
@@ -500,7 +683,7 @@ export default function SessionPage() {
             busy={busy}
             onResume={isDirector ? resume : undefined}
             onRebind={() => setError("재바인딩 다이얼로그(S17)는 P4 입니다 — Runtimes 화면에서 진행하세요.")}
-            onCancelSession={() => setError("세션 종료는 상단 액션에서 진행합니다.")}
+            onCancelSession={isDirector ? () => void cancelSession("런타임 오프라인 — 재바인딩 대신 종료") : undefined}
           />
         </section>
       </div>
@@ -520,6 +703,8 @@ export default function SessionPage() {
         .s7__tabs { display: none; gap: 6px; }
         .s7__tab { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
         .s7__tab--on { border-color: var(--ink); font-weight: 600; }
+        .s7__panel { position: relative; display: flex; justify-content: flex-end; }
+        .s7__panel .s7-actions__dialog { position: static; width: 380px; margin-top: 8px; }
         .s7__confirm { border: 1px solid var(--s-fail); border-radius: 8px; padding: 8px 10px; background: color-mix(in srgb, var(--s-fail) var(--soft-alpha), transparent); }
         .s7__confirm p { margin: 0 0 6px; }
         .msg--flash { outline: 2px solid var(--s-block); border-radius: 8px; }

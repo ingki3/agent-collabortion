@@ -15,8 +15,12 @@ import { PausedBanner } from "@/components/PausedBanner";
 import { ConditionRow } from "@/components/ConditionRow";
 import { AgentProfileEditor } from "@/components/AgentProfileEditor";
 import { RuntimeCard } from "@/components/RuntimeCard";
+import { HitlCard } from "@/components/HitlCard";
+import { InboxItemCard } from "@/components/InboxItemCard";
 import { capabilityIndex } from "@/lib/runtime-options";
-import type { AgentStatus, Lane, LaneStatus, Message, PausedDetail, Runtime, TaskEvent } from "@/lib/api/types";
+import type {
+  AgentStatus, HitlRequest, InboxItem, Lane, LaneStatus, Message, PausedDetail, Runtime, TaskEvent,
+} from "@/lib/api/types";
 
 const T = "2026-09-05T10:00:00Z";
 let seq = 0; // 결정적 id — SSR/클라이언트 하이드레이션 불일치 방지
@@ -114,6 +118,60 @@ const RUNTIME_NO_CLI: Runtime = { ...RUNTIME, id: "r2", name: "데스크탑", co
 const PROFILES = [
   { id: "p1", agent_id: "a1", name: "default", runtime_kind: "claude_code" as const, model: "claude-sonnet-5", options: { effort: "high" }, env: {}, args: [], is_default: true, fallback_profile_id: "p2", created_at: T, updated_at: T },
   { id: "p2", agent_id: "a1", name: "fast", runtime_kind: "hermes" as const, model: "hermes-4", options: {}, env: {}, args: [], is_default: false, fallback_profile_id: null, created_at: T, updated_at: T },
+];
+
+// ── P3 — HITL 카드(COMPONENTS §2.3)와 Inbox Item(§2.4) ──
+// **본문(HitlBody)은 두 자리가 같은 코드**다(리뷰 #03 K2) — 이 스토리에서 나란히 두는 이유다.
+const DUE = "2026-09-06T22:00:00Z";
+const hitl = (over: Partial<HitlRequest> = {}): HitlRequest => ({
+  id: `h-${++seq}`, session_id: "s1", task_id: "t1", lane_id: "l1", agent: { id: "a1", name: "Writer" },
+  source: "agent", type: "question", purpose: "agent",
+  question: "타깃 독자가 투자자인지 내부 경영진인지 알려주세요",
+  context: "보고서 톤이 갈립니다.", options: [], proposed_default: "투자자", artifact_id: null,
+  approver_spec: "director", due_at: DUE, overdue: false, status: "open",
+  approved: null, answer: null, answered_by: null, answered_at: null, budget_override_usd: null,
+  can_respond: true, can_respond_from: null, message_id: "m-h", created_at: T,
+  ...over,
+});
+const HITLS: { label: string; r: HitlRequest; budget?: { current: number | null } }[] = [
+  { label: "question · Director(활성)", r: hitl() },
+  { label: "question · deputy — 비활성 + 🔒 HH:MM부터 (E7-09)", r: hitl({ can_respond: false, can_respond_from: DUE }) },
+  { label: "question · 일반 멤버 — 응답 컨트롤 없음 (E7-11)", r: hitl({ can_respond: false, can_respond_from: null }) },
+  { label: "approval · 시스템 발행(예산) — purpose 문구 (E9-01)", r: hitl({ source: "system", purpose: "budget", type: "approval", proposed_default: null, question: "예산 $1 을 초과했습니다 — 계속 진행할까요?" }), budget: { current: 1 } },
+  { label: "approval · 시스템 발행(종료 조건) (E6-01)", r: hitl({ source: "system", purpose: "user_approval", type: "approval", proposed_default: null, question: "Writer 가 보고서를 제출했습니다 — 승인하면 세션이 완료됩니다" }) },
+  { label: "answered", r: hitl({ status: "answered", answer: "경영진" }) },
+  { label: "auto_answered (E7-12)", r: hitl({ status: "auto_answered", answer: "투자자" }) },
+  { label: "cancelled '취소됨' (K-4)", r: hitl({ status: "cancelled" }) },
+  { label: "overdue — open + 플래그 (E7-13)", r: hitl({ overdue: true, due_at: "2026-09-05T10:00:00Z" }) },
+];
+
+const inbox = (over: Partial<InboxItem> & Pick<InboxItem, "type">): InboxItem => ({
+  id: `i-${++seq}`, workspace_id: "w1", severity: "info", session_id: "s1",
+  session: { id: "s1", title: "국내 B2B SaaS 결제 시장 조사", status: "active" },
+  ref_id: "x", due_at: null, overdue: false, delegated: false, card: {}, actions: ["open_session"],
+  read_at: null, created_at: T, ...over,
+});
+const INBOX: InboxItem[] = [
+  inbox({ type: "hitl_request", severity: "action_required", ref_id: "h1", due_at: DUE, overdue: true,
+    card: { title: "타깃 독자가 투자자인지 내부 경영진인지 알려주세요", body: "보고서 톤이 갈립니다.", agent_name: "Writer", proposed_default: "투자자", hitl_type: "question" },
+    actions: ["answer", "open_session"] }),
+  inbox({ type: "hitl_request", severity: "action_required", ref_id: "h2", due_at: DUE, delegated: true,
+    card: { title: "보고서를 승인해 주세요", body: "승인 대상: 보고서.pdf", agent_name: "Writer", hitl_type: "approval" },
+    actions: ["approve", "reject", "open_session"] }),
+  inbox({ type: "lane_blocked", severity: "action_required",
+    card: { title: "Researcher: '국내만인가요, 글로벌 포함인가요?'", body: "위임자가 없는 lane 입니다 — 답글이 곧 지시가 됩니다.", agent_name: "Researcher" },
+    actions: ["reply", "open_session"] }),
+  inbox({ type: "session_paused", severity: "attention",
+    card: { title: "세션이 멈췄습니다", body: "예산 초과 — $21.40 / $20", paused_reason: "budget" },
+    actions: ["approve_continue", "open_session"] }),
+  inbox({ type: "run_failed", severity: "attention",
+    card: { title: "작업이 실패했습니다", body: "자동 재시도가 소진되었습니다", failure_kind: "timeout" },
+    actions: ["restart", "open_session"] }),
+  inbox({ type: "runtime_offline", severity: "attention",
+    card: { title: "MacBook 이 오프라인입니다", body: "7일 유예 중 5일 남음", runtime_name: "MacBook", grace_ends_at: "2026-09-11T00:00:00Z" },
+    actions: ["open_runtimes"] }),
+  inbox({ type: "mention", card: { title: "민지님을 멘션했습니다", body: "@민지 이 부분 확인 부탁드립니다", agent_name: "Lead" }, actions: ["reply", "open_session"] }),
+  inbox({ type: "session_completed", read_at: T, card: { title: "세션이 완료되었습니다", summary: "결정 3건 · 아티팩트 1건 · $1.20" } }),
 ];
 
 export default function ComponentsPage() {
@@ -258,6 +316,31 @@ export default function ComponentsPage() {
           />
         </div>
       </section>
+
+      {/* 두 자리를 한 컷에 담는다 — 겉껍질은 다르고 **본문은 같은 하위 컴포넌트**라는 것이 이 그림의 요점이다. */}
+      <div data-testid="story-hitl-both">
+      <section className="story" data-testid="story-hitl-card">
+        <h2>HITL 카드 `n9PqY` — 타임라인 자리(S7). 본문은 Inbox Item 과 **같은 하위 컴포넌트**</h2>
+        <div className="story__grid">
+          {HITLS.map((x) => (
+            <div className="story__cell" key={x.r.id} style={{ maxWidth: 580 }}>
+              <div className="story__label">{x.label}</div>
+              <HitlCard request={x.r} budget={x.budget} onRespond={async () => {}} />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="story" data-testid="story-inbox-item">
+        <h2>Inbox Item `T0qdqP` — 7종 · 심각도 글리프(! ▲ i) · 색은 원인 상태</h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {INBOX.map((it) => (
+            <InboxItemCard key={it.id} item={it} onRespond={async () => {}} onAction={() => {}} onMarkRead={() => {}} />
+          ))}
+        </div>
+      </section>
+
+      </div>
 
       <section className="story" data-testid="story-app-nav">
         <h2>App Nav</h2>

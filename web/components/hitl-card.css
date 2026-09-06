@@ -1,0 +1,31 @@
+/* HITL 카드(COMPONENTS §2.3 `n9PqY`)와 그 하위 컴포넌트(HitlBody) — 타임라인·인박스 공용. */
+.hitl {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hitl--open { border-color: var(--s-wait); background: color-mix(in srgb, var(--s-wait) var(--soft-alpha), transparent); }
+.hitl--cancelled { opacity: 0.7; }
+.hitl__head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.hitl__kind {
+  display: inline-flex; align-items: center; gap: 3px;
+  border: 1px solid var(--s-wait); color: var(--s-wait-text);
+  border-radius: 999px; padding: 0 6px; font-size: 11px; font-weight: 600;
+}
+.hitl__author { font-weight: 600; }
+.hitl__meta { color: var(--ink-3); }
+.hitl__q { font-size: 14px; font-weight: 600; margin: 0; }
+.hitl__ctx { margin: 0; color: var(--ink-2); font-size: 12px; white-space: pre-wrap; }
+.hitl__default { margin: 0; font-size: 12px; }
+.hitl__due { font-size: 12px; color: var(--ink-3); }
+.hitl__due--overdue { color: var(--s-fail-text); font-weight: 700; }
+.hitl__gate { font-size: 12px; color: var(--ink-2); margin: 0; }
+.hitl__answer { font-size: 12px; margin: 0; }
+.hitl__actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.hitl__field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.hitl__opts { display: flex; gap: 6px; flex-wrap: wrap; }
+.hitl__err { color: var(--s-fail-text); font-size: 12px; margin: 0; }

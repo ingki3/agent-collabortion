@@ -71,3 +71,13 @@ export type RuntimeRepo = S["RuntimeRepo"];
 export type RuntimeCandidate = S["RuntimeCandidate"];
 export type ColabCLI = S["ColabCLI"];
 export type RepoCheck = S["RepoCheck"];
+
+// ── P3 (T-W3) — S8 인박스 · HITL 카드 · S7 상단 액션 ──
+export type HitlType = S["HitlType"];
+export type HitlStatus = S["HitlStatus"];
+export type HitlSource = S["HitlSource"];
+export type HitlResponse = S["HitlResponse"];
+export type InboxItemType = S["InboxItemType"];
+export type InboxSeverity = S["InboxSeverity"];
+export type InboxSummary = S["InboxSummary"];
+export type SessionRef = S["SessionRef"];

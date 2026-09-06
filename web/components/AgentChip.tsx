@@ -63,6 +63,12 @@ export interface AgentChipProps {
   profile?: string | null;
   avatarUrl?: string | null;
   isAssignee?: boolean;
+  /**
+   * 보관된 에이전트(`archived_at`). **과거 세션의 칩은 그대로 두고 "보관됨"만 붙인다**
+   * (SCREEN §8.2 Q3 Lead 결정) — 지난 대화에서 누가 말했는지가 사라지면 기록이 읽히지 않는다.
+   * 신규 초대 목록에서 빼는 쪽은 `ParticipantsDialog` 다.
+   */
+  archived?: boolean;
   size?: "md" | "sm";
   onClick?: () => void;
   className?: string;
@@ -81,6 +87,7 @@ export function AgentChip(props: AgentChipProps) {
       data-testid="agent-chip"
       data-agent-id={props.agentId}
       data-status={status}
+      data-archived={props.archived ? "true" : undefined}
       title={props.statusNote ?? undefined}
     >
       <span className="agent-chip__avatar" aria-hidden="true">
@@ -90,6 +97,9 @@ export function AgentChip(props: AgentChipProps) {
         <span className="agent-chip__line1">
           <span className="agent-chip__name">@{props.name}</span>
           {props.isAssignee && <span className="agent-chip__assignee">assignee</span>}
+          {props.archived && (
+            <span className="agent-chip__archived" data-testid="agent-chip-archived">보관됨</span>
+          )}
           <Badge kind="agent" value={status} size="sm" />
         </span>
         {size === "md" && line2 && (

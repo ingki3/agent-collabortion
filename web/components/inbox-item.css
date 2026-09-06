@@ -1,0 +1,28 @@
+/* Inbox Item(COMPONENTS §2.4 `T0qdqP`) — S8 목록의 한 행. 폭은 내용 열을 채운다. */
+.inbox-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg);
+}
+/*
+ * `action_required` **만** 테두리를 굵게 한다 — 카드 오버라이드 `stroke: 심각도색, strokeWidth: 2`(COMPONENTS §2.4).
+ * `attention`·`info` 에 테두리 색을 주면 배지의 **원인 색**과 카드의 **심각도 색**이 충돌해, 리뷰 #03 N4 가
+ * 경고한 "심각도를 색으로 통일" 로 다시 미끄러진다. 색 신호는 배지 하나로 충분하다.
+ */
+.inbox-item--action_required { border-width: 2px; border-color: var(--s-wait); }
+.inbox-item--unread { box-shadow: inset 3px 0 0 var(--ink-3); }
+.inbox-item__head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.inbox-item__type { font-weight: 600; }
+.inbox-item__session { color: var(--ink-3); }
+.inbox-item__spacer { flex: 1; }
+.inbox-item__due { color: var(--ink-3); }
+.inbox-item__due--overdue { color: var(--s-fail-text); font-weight: 700; }
+.inbox-item__body { display: flex; flex-direction: column; gap: 3px; }
+.inbox-item__title { margin: 0; font-size: 14px; font-weight: 600; }
+.inbox-item__text { margin: 0; font-size: 12px; color: var(--ink-2); white-space: pre-wrap; }
+.inbox-item__extra { margin: 0; font-size: 12px; color: var(--ink-3); }
+.inbox-item__actions { display: flex; gap: 6px; flex-wrap: wrap; }

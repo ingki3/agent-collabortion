@@ -4,8 +4,8 @@
  * 계약(응답 형태·오류 코드·SSE 프레임)은 openapi 를 그대로 따른다 — 화면이 목에만 맞게 되는 것을 막기 위해서다.
  */
 import type {
-  Agent, AgentTemplate, Artifact, Decision, Lane, Member, Message, Pairing, Participant, Runtime, Session,
-  StreamEventType, TaskEvent, User, Workspace,
+  Agent, AgentTemplate, Artifact, Decision, HitlRequest, InboxItem, Lane, Member, Message, Pairing, Participant,
+  Runtime, Session, StreamEventType, TaskEvent, User, Workspace,
 } from "@/lib/api/types";
 
 export interface MockUser extends User {
@@ -36,6 +36,13 @@ export interface MockTask {
   finished_at?: string | null;
   resumed?: boolean | null;
   cost_usd?: number;
+  /** HITL 예산 승인값(C2′) — **task 범위**다. 에이전트의 `budget_per_task` 는 건드리지 않는다(E9-02). */
+  budget_override?: number | null;
+  /**
+   * 시도별 기록(계약 `TaskAttempt`) — lane 카드 펼침의 "실행" 열이다(SCREEN §4.5 O3 정보 5종).
+   * HITL 재개·재시도는 **같은 task 의 새 attempt** 이므로 여기 한 줄이 늘어난다(E7-07·E8-07).
+   */
+  attempts?: { attempt: number; started_at: string | null; finished_at: string | null; resumed: boolean | null; outcome: string | null; cost_usd: number }[];
 }
 export interface StoredEvent {
   id: number;
@@ -68,6 +75,10 @@ export interface Store {
   lanes: Map<string, Lane>;
   artifacts: Map<string, Artifact>;
   decisions: Map<string, Decision>;
+  /** P3 — HITL 요청(S7 카드 · S8 인박스가 같은 행을 본다). */
+  hitls: Map<string, HitlRequest>;
+  /** P3 — 인박스 항목. `member_id` 대신 `user_id` 로 소유자를 들고 있다(목은 워크스페이스 하나 기준). */
+  inbox: Map<string, InboxItem & { user_id: string }>;
   idem: Map<string, unknown>;
   events: StoredEvent[];
   eventSeq: number;
@@ -86,7 +97,7 @@ function seed(): Store {
   const s: Store = {
     users: new Map(), cookies: new Map(), workspaces: new Map(), members: [], invites: new Map(), runtimes: new Map(),
     pairings: new Map(), agents: new Map(), sessions: new Map(), messages: new Map(), tasks: new Map(), taskEvents: new Map(),
-    lanes: new Map(), artifacts: new Map(), decisions: new Map(),
+    lanes: new Map(), artifacts: new Map(), decisions: new Map(), hitls: new Map(), inbox: new Map(),
     idem: new Map(), events: [], eventSeq: 0, subs: new Set(),
   };
   // 데모 워크스페이스: 초대 링크(S3)·비참여 에이전트 경고(E1-04) 검증용
@@ -95,6 +106,12 @@ function seed(): Store {
   const ws: Workspace = { id: uuid(), name: "데모팀", slug: "demo", created_at: now(), updated_at: now() };
   s.workspaces.set(ws.id, ws);
   s.members.push({ id: uuid(), workspace_id: ws.id, user: stripUser(demo), role: "owner", created_at: now() });
+  // deputy·일반 멤버 시나리오(U9·U10)와 Director 교체 다이얼로그가 고를 상대가 필요하다.
+  for (const [name, email] of [["서연", "seoyeon@colab.dev"], ["준호", "junho@colab.dev"]] as const) {
+    const u: MockUser = { id: uuid(), email, display_name: name, avatar_url: null, created_at: now(), password: "password123" };
+    s.users.set(u.id, u);
+    s.members.push({ id: uuid(), workspace_id: ws.id, user: stripUser(u), role: "member", created_at: now() });
+  }
   s.invites.set("demo-invite", {
     id: uuid(), token: "demo-invite", workspace_id: ws.id, role: "member", invited_by: demo.id,
     expires_at: new Date(Date.now() + 7 * 864e5).toISOString(), status: "pending",
