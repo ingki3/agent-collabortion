@@ -64,7 +64,13 @@ if [ -n "$HC" ]; then
   chk H1h "hermes 버전 ≥ 0.20.6 (§1 어댑터 고정)"            yes \
     "$(python3 -c "import sys;v=sys.argv[1].split('.');print('yes' if [int(x) for x in v[:3]]>=[0,20,6] else 'no')" "$(jq -r '.version' <<<"$HC" | tr -d 'v')" 2>/dev/null || echo no)"
   chk H1i "hermes protocol_version=1"                        1 "$(jq -r '.protocol_version' <<<"$HC")"
+  # §10 v0.8 — 도구 표면. G5 1차에서 이 칸이 비어 있어 probe 11/11 초록인데 에이전트가
+  # 플랫폼에 한 마디도 못 했다(D-7). 판정은 실측이다: initialize 에 mcpCapabilities 가
+  # 있으면 mcp, 없으면 cli_wrapper.
+  chk H1k "hermes tool_surface=cli_wrapper (§10 v0.8, MCP 미존중)" cli_wrapper "$(jq -r '.tool_surface // "none"' <<<"$HC")"
 fi
+CC="$(jq -c '.capabilities[]?|select(.kind=="claude_code")' <<<"$RT_JSON")"
+chk H1l "claude_code tool_surface=mcp (두 런타임이 갈린다)"   mcp "$(jq -r '.tool_surface // "none"' <<<"${CC:-{\}}")"
 chk H1j "colab_cli 는 런타임이 아니라 probe 최상위 (§3)"     true "$(jq -r '.colab_cli.present // "null"' <<<"$RT_JSON")"
 
 step "B. 시나리오 A — Researcher = hermes, Lead·Writer = claude_code"
@@ -95,7 +101,35 @@ T_END="$(now_ms)"; ELAPSED=$(( (T_END-T_START)/1000 )); log "총 소요 ${ELAPSE
 step "B2. 판정 — 8단계 중 위임~제출 (승인·completed 는 33_ 이 잇는다)"
 echo "── lane 보드 ──" >&2; lanes_of "$SESSION" | column -t -s $'\t' >&2
 
-chk H3  "Lead 가 깨어난 횟수 = 3 (위임1+합류1+통보1)"  3 "$(count_tasks_of_agent "$SESSION" Lead)"
+# Lead 기상 횟수 — **K-5(PRD v0.15 규칙 8, EVAL E1-22) 로 판정한다.**
+# 기본은 3(시작 1 + 합류 2)이다. 그런데 자식이 `status set done` **뒤에** 한 줄을 더 올리면
+# 그 시점에는 그 자식의 합류 그룹이 이미 발화한 뒤라 규칙 8 억제가 풀려 있고, 멘션은 **일반
+# 라우팅**으로 위임자를 깨운다. 그것이 결함이 아니라는 것이 K-5 결정이고, 위임자가 자식 발언
+# 한 줄마다 깨어나지 않게 막는 것은 FR-3.4 의 lane 단위 병합이다. 그래서 두 가지를 잰다:
+#   (1) 총 기상 = 3 + 합류 뒤 자식 멘션이 만든 task 수
+#   (2) 그 task 수가 합류 뒤 자식 멘션 수를 넘지 않는다(병합이 실제로 묶는다)
+# 자식이 어떤 순서로 도구를 부르는지는 런타임이 정하므로 (1) 의 우변은 실측이지 상수가 아니다.
+POSTJOIN_MENTIONS="$(psqlq "select count(*) from message m
+  join agent a on a.id=m.author_id
+  join task st on st.id=m.source_task_id
+  join lane l on l.id=st.lane_id
+  join task dt on dt.id=l.delegated_from_task_id
+  where m.session_id='$SESSION' and a.name<>'Lead' and m.mentions::text like '%$LEAD%'
+    and dt.join_fired_at is not null and m.created_at > dt.join_fired_at")"
+POSTJOIN_TASKS="$(psqlq "select count(*) from task t
+  join message m on m.id=t.trigger_message_id
+  join agent a on a.id=m.author_id
+  join task st on st.id=m.source_task_id
+  join lane l on l.id=st.lane_id
+  join task dt on dt.id=l.delegated_from_task_id
+  where t.session_id='$SESSION' and t.agent_id='$LEAD' and a.name<>'Lead'
+    and dt.join_fired_at is not null and m.created_at > dt.join_fired_at")"
+LEAD_TASKS="$(count_tasks_of_agent "$SESSION" Lead)"
+log "K-5: 합류 뒤 자식 멘션 $POSTJOIN_MENTIONS 건 → Lead task $POSTJOIN_TASKS 개 (총 기상 $LEAD_TASKS)"
+chk H3  "Lead 기상 = 3(시작1+합류2) + 합류 뒤 자식 멘션분 (K-5·E1-22)" \
+  "$((3 + POSTJOIN_TASKS))" "$LEAD_TASKS"
+chk H3b "합류 뒤 멘션이 자식 발언 수만큼 깨우지 않는다 (FR-3.4 병합)" yes \
+  "$( [ "${POSTJOIN_TASKS:-0}" -le "${POSTJOIN_MENTIONS:-0}" ] && echo yes || echo no )"
 chk H4  "Researcher lane 3개 (위임 3 = lane 3)"       3 "$(psqlq "select count(*) from lane l join agent a on a.id=l.agent_id where l.session_id='$SESSION' and a.name='Researcher'")"
 OVERLAP="$(running_overlap "$SESSION" Researcher)"
 chk H5  "hermes lane 3개가 동시에 running (FR-6.3)"   3 "$OVERLAP"
@@ -134,6 +168,23 @@ chk H10d "hermes 턴이 세션에 무엇이든 남겼다 (메시지 또는 statu
 chk H10e "hermes 턴에 'colab: command not found' 흔적이 없다 (CLI 표면)" 0 \
   "$(psqlq "select count(*) from task_event te join task t on t.id=te.task_id join agent a on a.id=t.agent_id
             where t.session_id='$SESSION' and a.name='Researcher' and te.payload::text like '%colab: command not found%'")"
+
+# §10 cli_wrapper 실증 — 리뷰어 요구: 래퍼가 실제로 **불렸는가**.
+# 데몬 로그는 정상 경로에서 래퍼 경로를 찍지 않으므로(오류·불일치 때만), 증거는 에이전트가
+# 남긴 도구 호출이다. 래퍼 절대 경로가 그 안에 그대로 있어야 한다.
+WRAP_RE="$WORK/.colab/bin/"
+# payload 안에서 래퍼 절대 경로가 나온 자리를 그대로 뽑는다(title 에는 없고 본문에 있다).
+psqlq "select distinct substring(te.payload::text from '/[^\\\\\"[:space:]]*[.]colab/bin/[^\\\\\"[:space:]]*')
+       from task_event te join task t on t.id=te.task_id join agent a on a.id=t.agent_id
+       where t.session_id='$SESSION' and a.name='Researcher' and te.payload::text like '%.colab/bin/%'" \
+  > "$OUT/h-wrapper-calls.txt"
+grep -iE 'tool_surface|tool wrapper' "$DLOG" > "$OUT/h-toolsurface.txt" 2>/dev/null || : > "$OUT/h-toolsurface.txt"
+chk_ge H14 "hermes 턴이 래퍼 절대 경로로 colab 을 불렀다 (§10 cli_wrapper)" 1 \
+  "$(wc -l < "$OUT/h-wrapper-calls.txt" | tr -d ' ')"
+chk_has H14b "그 경로가 <workdir_root>/.colab/bin/ 아래다" "$OUT/h-wrapper-calls.txt" "$WRAP_RE"
+# 래퍼는 attempt 토큰을 담으므로 finish 에서 지워져야 한다(§10).
+chk H14c "턴이 끝난 뒤 래퍼 디렉토리가 남지 않았다 (토큰 정리)" 0 \
+  "$(find "$WORK/.colab/bin" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
 # §6 재개 — runtime_session_ref 가 hermes 모양인가
 REF="$(lane_ref "$SESSION" Researcher)"; echo "$REF" > "$OUT/h-lane-ref.json"
 chk H11  "Researcher lane 의 runtime_session_ref.runtime_kind = hermes" hermes "$(jq -r '.runtime_kind // "none"' <<<"$REF")"
@@ -153,9 +204,9 @@ chk H13  "hermes 자식 메시지 3개 (250ms 정적 대기가 청크를 잃지 
 step "C. E8-08 폴백 — hermes 프로파일이 실패하면 서버가 claude_code 로 재큐잉하는가"
 FB_INS='You are a helper. Your only job: call colab_status_set with status "done" immediately, then end your turn. Do not post any message.'
 FBA="$(create_agent_2profiles "$WS" Faller custom "$FB_INS" hermes "$BAD_MODEL" '[]' claude_code "$MODEL")"
-link_fallback "$FBA" primary spare      # ← 우회(S-21): 생성 API 가 fallback_profile 을 버린다
+link_fallback "$FBA" primary spare      # ← 우회(S-24): 생성 API 가 fallback_profile 을 버린다
 P_PRIMARY="$(profile_of "$FBA" primary)"; P_SPARE="$(profile_of "$FBA" spare)"
-chk C0 "폴백 연결이 DB 에 섰다 (정식 경로 부재 — S-21)" "$P_SPARE" \
+chk C0 "폴백 연결이 DB 에 섰다 (정식 경로 부재 — S-24)" "$P_SPARE" \
   "$(psqlq "select coalesce(fallback_profile_id::text,'-') from agent_profile where id='$P_PRIMARY'")"
 FB_SESSION="$(api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg t "폴백 전환" --arg g "폴백 확인용 세션" --arg a "$FBA" --arg rt "$RUNTIME" \
   '{title:$t,goal:$g,isolation:{kind:"none"},participants:[{agent_id:$a}],assignee_agent_id:$a,runtime_id:$rt,

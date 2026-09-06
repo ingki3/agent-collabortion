@@ -10,7 +10,7 @@
 # **경로 주의.** `respondHitlRequest` 는 x-phase P3 이라 이 스택에서 501 이다. P2 에서 사람이
 # 세션을 끝내는 정식 경로는 `completeSession`(FR-2.2 `manual`, E6-08)뿐이므로 E6-03 의 기대값을
 # 그 경로로 옮겨 적용한다 — `user_approval` 원자 자체를 충족시키는 HTTP 입구가 P2 에 없다는 사실은
-# 결함으로 따로 기록한다(G5_REPORT S-22). 두 가지를 다 잰다:
+# 결함으로 따로 기록한다(G5_REPORT S-25). 두 가지를 다 잰다:
 #   (1) HITL 카드가 실제로 발행되는가 (E6-01 — P2 서버가 하는 일)
 #   (2) 승인 응답으로 원자를 충족시킬 수 있는가 (respondHitlRequest — P3 이면 501 을 기록)
 #   (3) completeSession 으로 완료 전이·요약·workdir 삭제가 도는가 (E6-03 의 나머지)
@@ -132,7 +132,7 @@ if [ "$APPROVE_PATH" = respondHitlRequest ]; then
   chk P9 "user_approval 원자가 충족됐다"               true "$(jq -r '.user_approval // false' <<<"$MET")"
 else
   chk P9 "manual 원자로 완료됐다 (P2 의 승인 경로)"    true "$(jq -r '.manual // false' <<<"$MET")"
-  chk P9b "user_approval 원자는 여전히 미충족 — P2 에 입구가 없다 (S-22)" false "$(jq -r '.user_approval // false' <<<"$MET")"
+  chk P9b "user_approval 원자는 여전히 미충족 — P2 에 입구가 없다 (S-25)" false "$(jq -r '.user_approval // false' <<<"$MET")"
 fi
 # workdir 즉시 삭제 (격리 none)
 sleep 3

@@ -5,11 +5,12 @@
 | 게이트 | PLAN.md §6.2 **G5** — "시나리오 A **8단계** + **Hermes** + **템플릿 3분 Director 실측**". 예산이 가장 큰 게이트다 |
 | 앞 게이트 | **G4 통과**(`plan/G4_DECISION.md`, Director 확인·K-5 결정 PR #91). 시나리오 A 를 Claude Code 단일 런타임으로 — API 32/32 · 웹 19/0 |
 | 작성 | Integrator (T-I2 2부), 2026-09-06 |
-| 스택 | dev `6d9d20d` HEAD 에서 **재빌드**. `bin/server`·`bin/daemon`·`bin/colab` 빌드 시각 **2026-09-06 18:59:22 KST**. 서버 `:8090` · 웹 `:3010`(`next build` + `next start`) · Postgres `colab-pg-g4 :5436` |
+| 스택 | dev `6b4fe78`(문서 #99 까지) 를 머지한 `d61d3f5` 에서 **재빌드**. `bin/server`·`bin/daemon`·`bin/colab` 빌드 시각 **2026-09-06 19:48:20 KST**. 1판은 dev `6d9d20d`(18:59:22 빌드) 였고, D-7 hotfix **#97** 이 그 뒤에 들어왔다. 서버 `:8090` · 웹 `:3010`(`next build` + `next start`) · Postgres `colab-pg-g4 :5436` |
 | 런타임 | Claude Code 2.1.258 + 어댑터 0.74.0(핀) · **Hermes 0.20.6**. 모델은 비용 때문에 haiku(`claude-haiku-4-5-20251001`) |
 | 재현 | `bash e2e/p2/up.sh` 뒤 `30_scenario_a_hermes.sh` · `31_blocked_roundtrip.sh` · `32_loop_limit.sh` · `33_approval_completed.sh` · `34_template_3min.sh` |
-| 총계 | 다섯 스크립트 **PASS 122 · FAIL 11** — 30_ 45/6 · 31_ 26/2 · 32_ 13/1 · 33_ 24/2 · 34_ 14/0 |
-| 결론 | **G5 미달 — 차단 결함 1건(D-7).** (c)(d)(e)와 (a)의 승인·완료 전이는 전부 섰다. 막힌 것은 **(b) Hermes 프로파일**이고, 원인은 협업 코어가 아니라 **런타임에 colab 도구 표면이 닿지 않는 것**이다(§3.2). FAIL 11건은 결함 **6건**(D-7·S-22·S-23·S-24·S-25·S-26)에서 나왔고, 표에는 우회·별도 실행으로 드러난 것까지 **9건**을 적는다(§7) |
+| 총계 | 다섯 스크립트 **PASS 134 · FAIL 5** — 30_ **57/0** · 31_ 26/2 · 32_ 13/1 · 33_ 24/2 · 34_ 14/0 |
+| D-7 | **수정됨 (#97).** hermes `tool_surface=cli_wrapper` 판정 + attempt 별 래퍼 실행 파일 + 브리프·턴 프롬프트 치환. 30_ 재실행에서 **FAIL 0**(§3) |
+| 결론 | **G5 충족 — 템플릿 3분 Director 실측 대기.** 다섯 항목이 전부 실기에서 섰다. 남은 FAIL 5건은 표시·프롬프트·정리 결함(S-26·S-27·S-28·S-29)과 승인 경로의 P3 이월(S-25)이고 **DoD 를 막지 않는다**. 판정이 남은 칸은 (e) 의 **3분 수치 하나**뿐이다(§6.3) |
 
 > **읽는 법.** 각 절은 EVAL 행 번호를 그대로 쓴다. `우회`라고 적힌 것은 정식 API 경로가 없어
 > DB 나 다른 op 로 돌아간 측정이다 — 그 자리에는 반드시 결함 번호가 붙어 있다.
@@ -48,18 +49,27 @@ K-5 는 판정 기준으로만 썼고 실측은 P2a 골든 E1-22 가 맡는다.
 
 | # | DoD (PLAN §6.2) | 판정 | 근거 |
 |---|---|---|---|
-| a | 시나리오 A **8단계 끝까지** — 위임 3 → lane 3 병렬 → 합류 1회 → 종합 → Writer 초안 → `artifact_submitted` → **승인** → `completed` + 요약 자동 게시 | **부분 통과** | 1~6단계는 G4 에서 이미 통과(API 32/32). 이번에 이은 7·8단계(승인 → `completed` + 요약)는 `33_approval_completed.sh` **PASS 24 / FAIL 2** — `completed` 전이·`session_summary` 1개·인박스 알림 전부 성립. 미달 2건은 **S-22**(`user_approval` 원자를 충족시킬 P2 입구 없음 → `completeSession` 의 `manual` 로 우회)와 **S-26**(완료해도 workdir 가 안 지워짐). §2 |
-| b | **Hermes 프로파일**로 같은 시나리오 + 폴백 전환(E8-08) + 대안 없음(E8-09) | **미달 — 차단** | `30_scenario_a_hermes.sh` **PASS 45 / FAIL 6**. probe·계약 대조 13건 통과, **폴백 E8-08·E8-09 15건 전부 통과**(§3.3). 막힌 것은 시나리오 자체다 — hermes 런타임에 **colab 도구 표면이 닿지 않아**(**D-7**) 턴이 세션에 아무것도 남기지 못한다: 메시지 0, `status set` 0, 합류 0, Lead 기상 1. FAIL 6건이 전부 그 하류다. §3.2 |
-| c | **blocked 왕복** E3-05·E3-06·E3-07 + 웹에서 질문 카드 | **통과 (순서 단서 있음)** | `31_blocked_roundtrip.sh` **PASS 26 / FAIL 2**. 세 행 전부 성립하고 재진입이 **같은 런타임 세션을 이어받았다**(`runtime.resume outcome=resumed`). 미달 2건은 표시·프롬프트 결함(S-24·S-25)이고 왕복 자체를 막지 않는다. **단서**: 위임자가 즉시 기상 통보에 바로 답하면 합류가 아예 발화하지 않는다(**S-28**, §4.3.1) — EVAL 이 적은 순서에서는 통과하지만 순서에 의존한다. §4 |
-| d | **루프 상한** E4-03 — 워크스페이스 설정으로 낮춰 `paused(loop)` + `paused_detail.loop.limit` | **통과** | `32_loop_limit.sh` **PASS 13 / FAIL 1**. 설정 op 는 P2 에 있다(HTTP 200). 상한 2 에서 관측 왕복 3 → `paused(loop)` · `limit=pair_roundtrips` · `count=3` · `agents` 2명 · 넘긴 트리거로 task 0 · Director HITL `source=system`. 미달 1건은 **S-23**(부분 갱신이 같은 객체의 다른 키를 지운다) §5 |
+| a | 시나리오 A **8단계 끝까지** — 위임 3 → lane 3 병렬 → 합류 1회 → 종합 → Writer 초안 → `artifact_submitted` → **승인** → `completed` + 요약 자동 게시 | **통과 (단서 2)** | 1~6단계는 G4(Claude Code 단일, API 32/32)에 이어 이번 30_ 에서 **Hermes 를 섞어서도** 다시 섰다. 7·8단계(승인 → `completed` + 요약)는 `33_approval_completed.sh` **PASS 24 / FAIL 2** — `active → completing → completed`·`session_summary` **1개**·인박스 알림 성립. 단서 둘: 승인을 **P2 의 경로**(`completeSession`)로 쟀다(**S-25** — `respondHitlRequest` 는 x-phase P3, 채워진 원자는 `manual`), 그리고 완료해도 workdir 가 안 지워진다(**S-29**). 둘 다 8단계의 흐름을 막지 않는다. §2 |
+| b | **Hermes 프로파일**로 같은 시나리오 + 폴백 전환(E8-08) + 대안 없음(E8-09) | **통과** | `30_scenario_a_hermes.sh` **PASS 57 / FAIL 0**(93초). Researcher 를 hermes 로 두고 위임 3 → **hermes lane 3개 동시 running** → 합류 2회(그룹당 시스템 메시지 1) → 종합 → Writer 초안 → `artifact_submitted` → 진행률 `1/2`. hermes 자식 메시지 3/3, 실패 attempt 0. 도구 표면은 **래퍼 절대 경로 호출 6건**으로 실증했고 턴 뒤 정리 0(§3.2). 폴백 E8-08·E8-09 전부 통과(§3.3) |
+| c | **blocked 왕복** E3-05·E3-06·E3-07 + 웹에서 질문 카드 | **통과 (순서 단서 있음)** | `31_blocked_roundtrip.sh` **PASS 26 / FAIL 2**. 세 행 전부 성립하고 재진입이 **같은 런타임 세션을 이어받았다**(`runtime.resume outcome=resumed`). 미달 2건은 표시·프롬프트 결함(S-27·S-28)이고 왕복 자체를 막지 않는다. **단서**: 위임자가 즉시 기상 통보에 바로 답하면 합류가 아예 발화하지 않는다(**S-31**, §4.3.1) — EVAL 이 적은 순서에서는 통과하지만 순서에 의존한다. §4 |
+| d | **루프 상한** E4-03 — 워크스페이스 설정으로 낮춰 `paused(loop)` + `paused_detail.loop.limit` | **통과** | `32_loop_limit.sh` **PASS 13 / FAIL 1**. 설정 op 는 P2 에 있다(HTTP 200). 상한 2 에서 관측 왕복 3 → `paused(loop)` · `limit=pair_roundtrips` · `count=3` · `agents` 2명 · 넘긴 트리거로 task 0 · Director HITL `source=system`. 미달 1건은 **S-26**(부분 갱신이 같은 객체의 다른 키를 지운다) §5 |
 | e | **템플릿 3분** — 팀 템플릿에서 팀 생성 → 세션 시작 | **경로 통과 · 시간은 Director 실측 대기** | `34_template_3min.sh` **PASS 14 / FAIL 0**. 자동 조작 하한 **10초**(로그인→템플릿 0s, 템플릿→세션 9s, 첫 task 까지 10s). 사람 실측 절차와 예상 소요는 §6 |
 
 **판정 논리.** G5 가 묻는 것은 "협업 코어가 **여러 런타임 위에서, 사람이 끼는 지점까지 포함해**
-끝까지 도는가"다. 코어 쪽 답은 명확하다 — blocked 왕복·루프 상한·승인/완료 전이·템플릿 경로가
-전부 실기에서 섰고, 수치는 DB 에서 다시 셀 수 있다. 막힌 것은 **한 곳**이고, 그 한 곳은 라우터도
-lane 도 합류도 아니라 **데몬이 Hermes 에게 도구를 건네는 자리**다. G4 가 이월 규칙을 이미 적어
-뒀듯(§6.2: "Hermes 어댑터를 P3 로 이월하면 G5 의 Hermes 조건이 G6 로 옮겨간다"), 이 결정은
-Lead·Director 의 몫이다. 이 문서는 그 결정에 필요한 것 — **무엇이 막혔고, 어디까지는 섰는가** — 만 준다.
+끝까지 도는가"다. 다섯 항목이 전부 실기에서 섰고 수치는 DB 에서 다시 셀 수 있다 —
+Hermes 를 섞은 시나리오가 위임부터 아티팩트 제출까지, blocked 왕복이 질문·합류·재진입·resume 까지,
+루프 상한이 정지·상세·알림까지, 승인이 `completed` 와 요약까지, 템플릿이 팀 생성부터 세션 시작까지.
+
+**한 판 만에 되지 않았다는 것이 이 게이트의 내용이다.** 1판은 (b) 가 통째로 막혀 있었고
+(D-7 — 데몬이 Hermes 에게 도구를 건네는 자리), 그 자리는 라우터도 lane 도 합류도 아니었다.
+`acpfake` 는 원리적으로 그것을 잡을 수 없었고(구현과 같은 가정을 공유한다), probe 는 초록이었다.
+통합이 그것을 드러냈고 #97 이 계약에 `tool_surface` 칸을 만들어 닫았다 —
+**G4 가 적어 둔 "통합에서만 드러나는 부류"의 이번 사례**다.
+
+남은 FAIL 5건은 표시(S-27)·프롬프트(S-28)·정리(S-29)·설정 병합(S-26)과 승인 입구의 P3 이월(S-25)이고,
+어느 것도 DoD 문장을 막지 않는다. 판정이 남은 칸은 (e) 의 **3분 수치 하나**이며 그것은 사람이 잰다.
+순서 의존 하나(S-31)는 §4.3.1 에 증거와 함께 적어 뒀다 — 통과 판정을 뒤집지는 않지만
+FR-6.5 의 묶음이 조용히 사라지는 경로라 그냥 두지 않는 편이 낫다.
 
 ---
 
@@ -81,7 +91,7 @@ Lead·Director 의 몫이다. 이 문서는 그 결정에 필요한 것 — **�
 `source=system` + `task_id` 비움은 "**플랫폼이** 발행한다"(FR-2.2 · openapi §7)의 관측 가능한 형태다.
 에이전트 턴이 낸 HITL 과 구분되는 유일한 표식이므로 셋을 따로 확인했다.
 
-### 2.2 승인 경로 — `respondHitlRequest` 는 P3 다 (S-22)
+### 2.2 승인 경로 — `respondHitlRequest` 는 P3 다 (S-25)
 
 `POST /hitl-requests/{id}/response` → **HTTP 501**. openapi 의 x-phase 가 P3 이므로 이 스택에서 옳다.
 문제는 그 결과로 **`user_approval` 원자를 충족시키는 HTTP 입구가 P2 에 하나도 없다**는 것이다:
@@ -104,20 +114,22 @@ Lead·Director 의 몫이다. 이 문서는 그 결정에 필요한 것 — **�
 | `session_summary` 메시지 | **1개** | **1개**, `author_type=system`, 213 B |
 | 남은 `queued`/`deferred` task | 0 | **0**(완료 시 취소) |
 | Director 인박스 `session_completed` | 1 | **1** |
-| 격리 `none` workdir 즉시 삭제 | 0개 남음 | **1개 남음 — FAIL (S-26)** |
+| 격리 `none` workdir 즉시 삭제 | 0개 남음 | **1개 남음 — FAIL (S-29)** |
 
 요약 본문은 현재 `## 세션 요약 … 목표 … ### 실행 lane 1개, 완료된 task 1개, 비용 $0.00` 이다.
 **본문 품질은 P4** 이므로 여기서는 "전이가 서고 요약 메시지가 정확히 한 개 생긴다"만 봤다(지시대로).
 
-**S-26.** 완료 시 서버가 낸 `gc` 명령 **0건**(`daemon_command where type='gc'`). `sessions/complete.go` 의
+**S-29.** 완료 시 서버가 낸 `gc` 명령 **0건**(`daemon_command where type='gc'`). `sessions/complete.go` 의
 `completed` 분기가 세션·task·인박스는 정리하지만 workdir GC 훅이 없다. daemon-protocol §6 은
 "**GC 판정은 서버**가 하고 서버가 `gc {workdir_ids}` 를 내면 데몬이 지운다" 이므로 빠진 쪽은 서버다.
 
 ---
 
-## 3. (b) Hermes 프로파일 — **차단**
+## 3. (b) Hermes 프로파일 — **통과** (D-7 수정 뒤)
 
-재현: `bash e2e/p2/30_scenario_a_hermes.sh` · 산출물 `out/hermes.json`·`out/h-checks.tsv`·`out/daemon-h.log`.
+재현: `bash e2e/p2/30_scenario_a_hermes.sh` · 산출물 `out/hermes.json`·`out/h-checks.tsv`·
+`out/h-caps.json`(능력 광고)·`out/h-wrapper-calls.txt`(래퍼 호출 증거)·`out/daemon-h.log`.
+**PASS 57 / FAIL 0**, 시나리오 88초. 연속 두 번 같은 값이 나왔다.
 
 ### 3.1 probe — 능력 광고는 실기와 맞는다 (harness §9)
 
@@ -141,67 +153,84 @@ Researcher 프로파일만 `runtime_kind: hermes` 로 두고 나머지는 G4 와
 `adapter_version` 은 hermes 행에서 **빈 문자열**이다. §1 이 hermes 에는 별도 어댑터 핀을 두지 않고
 `hermes ≥ 0.20.6` 만 요구하므로 계약대로다(claude_code 는 `0.74.0` 핀이 실린다).
 
-### 3.2 D-7 — hermes 런타임에 colab 도구 표면이 닿지 않는다 **(차단)**
+### 3.2 D-7 — 무엇이 막혀 있었고 #97 이 무엇을 바꿨나 **(수정됨)**
 
-세 lane 이 병렬로 뜨고(**동시 running 3**), 셋 다 `outcome=completed stop=end_turn` 으로 끝났는데
-**세션에는 아무것도 남지 않았다** — Researcher 메시지 **0**, `status set` **0**, 합류 **미발화**,
-Lead 기상 **1회**(위임 턴뿐), 진행률 `0/2`. 시나리오가 1단계에서 정지한다.
-실패한 attempt 는 **0** 이다 — 하네스 눈에는 성공한 턴이다.
+**1판(dev `6d9d20d`)의 증상.** 세 lane 이 병렬로 뜨고 셋 다 `outcome=completed stop=end_turn` 인데
+**세션에는 아무것도 남지 않았다** — Researcher 메시지 0, `status set` 0, 합류 0, Lead 기상 1,
+진행률 `0/2`, 실패 attempt 0. 하네스 눈에는 성공한 턴이었다.
 
-**무엇이 있고 무엇이 없나.** 두 번의 실행에서 hermes 에이전트가 스스로 조사한 결과가 그대로 남았다.
+원인은 두 표면이 **동시에** 끊긴 것이었다. 에이전트가 스스로 조사한 결과가 task_event 에 남았다:
 
-| | 상태 | 근거 |
+| | 1판 상태 | 근거 |
 |---|---|---|
-| 브리프(`AGENTS.md`) | **있다** | TaskBundle `brief.transport=instruction_file`, 본문이 `[1] Agent Identity` 로 시작하고 `colab message post` 규칙을 담고 있다. 에이전트가 읽고 자기 역할을 정확히 말했다 |
-| `COLAB_*` 환경변수 | **있다** | 에이전트가 실행한 `env \| grep -i colab`: `COLAB_TASK_TOKEN`·`COLAB_TASK_ID`·`COLAB_LANE_ID`·`COLAB_TASK_ATTEMPT`·`COLAB_SESSION_ID`·`COLAB_SERVER_URL`·`COLAB_AGENT_NAME` 7개 전부 |
-| **colab MCP 도구** | **없다** | 도구 목록에 `colab_*` 0개. 에이전트가 남긴 말: "Colab 도구를 사용할 수 없는 것으로 보입니다" |
-| **`colab` 실행 파일** | **없다** | `colab message post` → `/bin/bash: colab: command not found`. `echo $PATH` 에 저장소 `bin/` 이 없다 |
+| 브리프(`AGENTS.md`) | 있다 | `brief.transport=instruction_file`, `[1] Agent Identity` 로 시작 |
+| `COLAB_*` 환경변수 | 있다 | 에이전트의 `env \| grep -i colab` 에 토큰 포함 7개 전부 |
+| colab **MCP 도구** | **없다** | 도구 목록에 `colab_*` 0개. 직접 ACP 프로브: `initialize` 응답에 `mcpCapabilities` 가 아예 없고, `mcpServers` 를 실은 `session/new` 는 200 을 주면서 **조용히 버린다** |
+| `colab` **실행 파일** | **없다** | `colab message post` → `command not found`. `echo $PATH` 에 저장소 `bin/` 이 없다 |
 
-즉 **경로 두 개가 동시에 끊겨 있다.** 브리프와 토큰은 갔는데, 그 브리프가 시키는 도구도 명령도 없다.
+Claude Code 는 MCP 서버를 `colab_bin` **절대경로**로 띄우므로 PATH 가 필요 없었다 —
+그래서 브리프 [2] 가 내내 `colab message post` 를 쓰라고 적어 온 표면을 아무도 실행해 본 적이 없었다.
+도구도 명령도 없자 에이전트는 토큰을 들고 `curl $COLAB_SERVER_URL/api/v1/messages` 같은
+**없는 경로를 지어내 두드렸다** — 막힘이 "아무 일도 안 일어남"으로 끝나지 않았다.
 
-**1. MCP — hermes 어댑터가 무시한다.**
-데몬은 `session/new` 에 stdio `colab` 서버를 싣고(`loop.go mcpServers`), `FilterMCPServers` 도
-stdio 를 통과시킨다. 직접 ACP 프로브로 확인했다:
+**#97 이 한 일.** harness v0.8/v0.8.1 로 계약에 **`tool_surface`** 칸이 생기고, 데몬이 `initialize` 의
+`mcpCapabilities` 유무로 그것을 **실측**해 광고한다. `cli_wrapper` 로 판정된 런타임에는 attempt 마다
+`<workdir_root>/.colab/bin/<task_id>.<attempt>/colab`(0700) 래퍼를 쓰고, **브리프 마커 구간과 턴
+프롬프트의 명령 위치 `colab `** 을 그 절대 경로로 치환한다. 래퍼는 attempt 토큰을 담으므로 `finish`
+에서 지운다.
 
-- `initialize` 응답의 `agentCapabilities` = `{loadSession, promptCapabilities, sessionCapabilities}` —
-  **`mcpCapabilities` 가 아예 없다.**
-- `mcpServers` 를 실은 `session/new` 는 **200** 을 준다(오류가 아니다). 그런데 그 세션의 도구에
-  `colab_*` 이 하나도 없다. **조용히 버려진다.**
+**재측정 (dev `6b4fe78` 머지, `d61d3f5` 빌드 19:48:20).**
 
-**2. CLI — 이름으로 부를 수 없다.**
-`colab` 은 데몬 설정의 `colab_bin`(절대경로)으로만 존재한다. Claude Code 는 그 절대경로로 MCP 서버를
-띄우므로 PATH 가 필요 없었다 — **그래서 지금까지 아무도 이 구멍을 밟지 않았다.** hermes 는 MCP 가
-막히니 브리프가 적어 둔 `colab …` 명령으로 내려오는데, 그 이름이 PATH 에 없다.
+| 확인 | 기대 | 실측 |
+|---|---|---|
+| hermes `tool_surface` | `cli_wrapper` (§10 v0.8) | **`cli_wrapper`** |
+| claude_code `tool_surface` | `mcp` — 두 런타임이 갈린다 | **`mcp`** |
+| 래퍼가 실제로 **불렸는가** | 절대 경로 호출 ≥ 1 | **3건** — hermes lane 3개 각각 하나씩, 전부 `<workdir_root>/.colab/bin/<task>.<attempt>/colab` |
+| `colab: command not found` | 0 | **0** |
+| 턴 뒤 래퍼 정리 | 0개 남음 | **0** (토큰이 남지 않는다) |
+| hermes 턴이 세션에 남긴 것 | 있음 | 메시지·`status set` 모두 있음 |
 
-**3. 그래서 에이전트가 API 를 직접 두드린다.**
-도구도 명령도 없자 에이전트는 `COLAB_SERVER_URL` 과 토큰을 들고
-`curl -X POST $COLAB_SERVER_URL/api/v1/messages -H "Authorization: …"` 를 시도했고(경로를 지어냈다),
-실패하자 `curl $COLAB_SERVER_URL/`, `find … -name colab` 로 이어졌다. 한 턴이 그렇게 소진된다.
-**설계상 없는 행동이 아니라, 표면이 없을 때 나오는 행동**이다 — 토큰을 쥔 에이전트가 API 를
-탐색하게 두는 것 자체가 위험 신호다.
+래퍼 경로는 `out/h-wrapper-calls.txt` 에 그대로 있다(예:
+`…/e2e/p2/out/work-h/.colab/bin/152b3a64-….1/colab`). 데몬 로그는 정상 경로에서 래퍼 경로를 찍지
+않으므로(오류·표면 불일치 때만) **에이전트의 도구 호출 자체가 증거**다 — `out/h-toolsurface.txt` 도
+함께 남긴다.
 
-**왜 지금까지 안 보였나.** `acpfake` 는 `mcpServers` 를 존중하도록 함께 구현돼 있어 구현과 같은
-가정을 공유한다 — "데몬이 보냈다"까지만 증명하고 "런타임이 존중한다"는 증명하지 못한다.
-`plan/P2_TASKS.md §3` 이 e2e 로 넘긴 S3·S4 와 정확히 같은 부류다.
+**시나리오는 끝까지 돈다.**
 
-**귀속과 제안.** D(데몬/하네스) + 계약. harness.md §1 표에는 런타임별 `brief_transport` 칸은 있어도
-**"도구 표면"** 칸이 없다 — 브리프는 런타임마다 다르게 보내면서 도구는 한 방법(MCP)만 가정한 것이
-이 구멍의 뿌리다. 구현 판단은 D 스트림의 몫이고, 통합이 본 것은 이렇다:
+| 확인 | 기대 | 실측 |
+|---|---|---|
+| Researcher lane | 위임 3 = lane 3 | **3** |
+| hermes lane 동시 running | 3 (FR-6.3) | **3** |
+| 합류 그룹 발화 | 2 (J1 Researcher 3 · J2 Writer 1) | **2**, 그룹당 시스템 메시지 **1** |
+| hermes 자식 메시지 | 3 (E12-04 늦은 청크 유실 0) | **3** |
+| hermes lane 종료 | 3개 전부 `done` | **3** |
+| 실패 attempt | 0 | **0** |
+| Writer 아티팩트 | 제출 | 제출 |
+| 진행률 · 세션 | `1/2` · `active` | `1/2` · `active` |
+| Lead 기상 | K-5 로 판정(아래) | **3** |
 
-- (a) **가장 짧은 길**: hermes 프로파일이면 `colab_bin` 의 디렉토리를 런타임 PATH 앞에 붙인다.
-  env 는 이미 가 있으므로 이 한 줄로 브리프가 적어 둔 `colab …` 이 그대로 산다.
-  (workdir 에 래퍼를 놓는 방법도 같은 효과다.)
-- (b) 계약에 런타임별 **도구 표면** 칸을 만든다 — `mcp` / `cli` / 둘 다. 지금은 문서가
-  "MCP 로 준다"를 말한 적이 없으면서 구현만 그렇게 돼 있다.
-- (c) MCP 를 못 받는 런타임을 데몬이 **감지해 광고**해야 한다. 지금은 §3.1 이 전부 통과한 것이
-  그 자체로 증거다 — **초록으로 보인다**.
+**K-5(E1-22)를 판정에 넣었다.** 기본은 3(시작 1 + 합류 2)이다. 자식이 `status set done` **뒤에**
+한 줄을 더 올리면 그 시점에는 그 자식의 합류 그룹이 이미 발화한 뒤라 규칙 8 억제가 풀려 있고,
+멘션은 일반 라우팅으로 위임자를 깨운다 — 결함이 아니라 K-5 결정이고, 위임자가 자식 발언 한 줄마다
+깨어나지 않게 막는 것은 FR-3.4 의 lane 단위 병합이다. 그래서 단언을 상수 3 이 아니라
+**`3 + 합류 뒤 자식 멘션이 만든 task 수`** 로 두고, 그 task 수가 **합류 뒤 자식 멘션 수를 넘지
+않는지**(병합이 실제로 묶는지)를 함께 잰다.
+
+- 최종 실행: 합류 뒤 자식 멘션 **0건** → Lead task **0개** → 총 기상 **3**.
+- 그 직전 실행(세션 `f351c81d`)에서는 Writer 가 `done` **뒤에** `@Lead` 를 한 줄 올렸고,
+  그때 J2 는 이미 발화한 상태라 그 멘션이 Lead 를 한 번 더 깨웠다(총 4, `coalesced_message_ids` 1건).
+  **K-5 대로 옳은 동작**이다 — 상수 3 을 그대로 뒀다면 제품 결함으로 오보했을 자리다.
+
+**남은 계약 빈칸.** `acpfake` 는 `mcpServers` 를 존중하도록 함께 구현돼 있어 이 부류를 원리적으로
+잡을 수 없다 — `P2_TASKS §3` 이 e2e 로 넘긴 S3·S4 와 같다. #97 이 `tool_surface` 를 실측·광고로
+만들었으므로 이제 **probe 가 초록인데 에이전트가 말을 못 하는** 상태는 광고에서 드러난다.
 
 ### 3.3 E8-08 · E8-09 — 프로파일 폴백 (전부 통과)
 
 폴백은 hermes 를 **실패하는 프로파일**로만 쓰므로 D-7 과 독립이다. 고의로 모델 이름을 틀린
 hermes 프로파일(`claude-haiku-4-5-TYPO`)을 기본으로 두고, 대체 프로파일을 claude_code 로 뒀다.
 
-**우회 1건 (S-21).** `agent_profile.fallback_profile_id` 를 세울 정식 경로가 없어 DB 에 직접 썼다
+**우회 1건 (S-24).** `agent_profile.fallback_profile_id` 를 세울 정식 경로가 없어 DB 에 직접 썼다
 (`lib.sh link_fallback`):
 
 - `createAgent` 의 `AgentProfileCreate` 는 계약상 `fallback_profile`(이름)과 `fallback_profile_id` 를
@@ -237,10 +266,9 @@ E8-09 의 "`queued` 대기"는 재시도 **사이의 상태**라 폴링으로는
 
 ### 3.4 (b) 요약
 
-`30_scenario_a_hermes.sh` **PASS 45 / FAIL 6** (424초).
-FAIL 6건은 **전부 §3.2 의 하류**다 — Lead 기상 1(≠3), 합류 0(≠2), 아티팩트 없음, 진행률 0/2,
-hermes 턴이 세션에 아무것도 안 남김, hermes 자식 메시지 0(≠3).
-probe·계약 대조(13건)와 폴백(E8-08·E8-09, 15건)은 전부 통과했다.
+`30_scenario_a_hermes.sh` **PASS 57 / FAIL 0** (시나리오 88초). 연속 두 실행이 같은 값이다.
+probe·계약 대조 15건(도구 표면 2건 포함), 시나리오 12건, 하네스 규칙 11건, 폴백 15건이 전부 통과했다.
+1판의 FAIL 6건은 **전부 D-7 의 하류**였고 #97 로 사라졌다.
 
 ---
 
@@ -265,9 +293,9 @@ Researcher 는 `colab status set blocked --note "경쟁 제품의 범위가 불�
 | workdir | 보존(프로세스만 종료) | **남아 있음** |
 | 위임자 기상 | **즉시** 시스템 메시지 task 1개 | **1개** — 그 시점 종료된 형제 lane **0개**(형제 상태와 무관하게 성립한다는 것이 E3-05 의 요구다) |
 | 프롬프트 문구 | "질문 알림이며 합류가 아니다" | `"…이것은 질문 알림이며 합류가 아닙니다 — 답만 하고 턴을 끝내세요."` |
-| **카드 인용** | 시스템 메시지가 카드를 인용 | **FAIL — S-25** |
+| **카드 인용** | 시스템 메시지가 카드를 인용 | **FAIL — S-28** |
 
-**S-25.** `router/status.go` 의 `wake()` 는 접두어 문자열만 `SystemPost` 한다. 위임자가 받는
+**S-28.** `router/status.go` 의 `wake()` 는 접두어 문자열만 `SystemPost` 한다. 위임자가 받는
 시스템 메시지에는 **카드 id 도, 질문 본문도 없다**. 질문은 히스토리에 있으니 읽히기는 하지만,
 위임자가 그 카드에 **답글을 달려면 id 가 필요한데** 트리거에는 없다.
 합류 메시지는 질문 본문을 싣는데(§4.2) 즉시 기상 쪽만 안 싣는 것은 일관성도 깨진다.
@@ -303,7 +331,7 @@ E3-06 의 세 요구(발화·질문 재포함·"답을 기다리는 자식 1개"
 | 재진입 프롬프트 트리거 | 답글 본문 | 실림 |
 | 실제 재개 결과 | `resumed` 또는 `cold_start` (§6 상 둘 다 정상) | **`runtime.resume outcome=resumed`** — 같은 ACP 세션을 이어받았다 |
 
-**여기서 한 가지가 드러났다(S-25 두 번째 절반).** 앞선 실행에서 Lead 는 지시대로 **멘션 없이**
+**여기서 한 가지가 드러났다(S-28 두 번째 절반).** 앞선 실행에서 Lead 는 지시대로 **멘션 없이**
 스레드 답글만 달았고, 그때 자식 lane 은 `blocked` 그대로 남았다(`reentry_count` 0, 새 task 0).
 FR-3.3 규칙 4 — "에이전트의 멘션 없는 메시지는 아무도 트리거하지 않는다" — 가 먼저 걸리기 때문이다.
 lane 해소(규칙 1)는 **누구를 깨울지 정해진 뒤**의 이야기라 트리거가 없으면 도달하지 않는다.
@@ -312,7 +340,7 @@ lane 해소(규칙 1)는 **누구를 깨울지 정해진 뒤**의 이야기라 �
 카드 id 부재(§4.1)와 합쳐지면 위임자가 스스로 규칙을 알아내야 푸는 길이 된다.
 지시문을 그에 맞춰 고쳐 정식 경로로 다시 쟀고, 그것이 위 표다.
 
-### 4.3.1 S-28 — 답을 받은 자식이 **마지막**으로 끝나면 합류가 영영 안 온다
+### 4.3.1 S-31 — 답을 받은 자식이 **마지막**으로 끝나면 합류가 영영 안 온다
 
 E3-05 → E3-06 → E3-07 은 EVAL 이 적은 순서이고, 위 표는 그 순서로 잰 것이다. 순서를 바꿔 보다가
 합류가 통째로 사라지는 경로를 만났다.
@@ -355,9 +383,9 @@ FR-6.5 가 약속한 "자식 결과를 한 번에 묶어 전달"이 사라졌고
 | 피드에 `blocked_q` 카드 | 렌더 | **1장** (`[data-kind="blocked_q"]`) |
 | 질문 본문 | 보임 | 보임 |
 | lane 보드 | blocked 카드 | **1장** |
-| 배지 | `질문 → @위임자` | **`질문`** — FAIL (S-24) |
+| 배지 | `질문 → @위임자` | **`질문`** — FAIL (S-27) |
 
-**S-24.** 웹은 배지의 위임자 이름을 `message.mentions` 에서 찾는다
+**S-27.** 웹은 배지의 위임자 이름을 `message.mentions` 에서 찾는다
 (`MessageCard.tsx`: `m.kind === "blocked_q" ? m.mentions.find(agent)…`). 서버가 `blocked_q` 카드를
 **멘션 없이** 삽입하므로(`router/status.go`) 이름을 채울 수 없고 웹은 폴백 라벨 `질문` 을 쓴다.
 웹 코드는 두 경우를 다 다루고 있으므로 고칠 쪽은 **서버가 카드에 위임자 멘션을 싣는 것**이다.
@@ -397,7 +425,7 @@ E4-03 문언은 기본값 5(=10 트리거)이고 여기서는 같은 규칙을 �
 읽는다는 것까지 함께 재기 위해서다. **기본값 5 로도 같은 코드 경로**이고, 그쪽은 P2a 골든
 (`router/loop_golden_test.go`)이 이미 덮는다.
 
-**S-23 (미달 1건).** 같은 요청에서 `max_chain_depth` 가 **`null` 로 지워졌다**.
+**S-26 (미달 1건).** 같은 요청에서 `max_chain_depth` 가 **`null` 로 지워졌다**.
 `handlers_settings.go` 의 `mergeJSON` 은 이름과 달리 merge 하지 않고 부분 객체를 그대로
 jsonb 열에 **덮어쓴다**. 라우터는 `DefaultLimits()` 에서 시작해 있는 키만 덮으므로 상한이 0 이
 되지는 않지만, **관리자가 설정해 둔 값이 조용히 기본값으로 되돌아가고** S14 화면과
@@ -458,7 +486,7 @@ jsonb 열에 **덮어쓴다**. 라우터는 `DefaultLimits()` 에서 시작해 �
 **예상 소요.** 기계 하한 10초 + 사람이 읽고 고르는 시간. 2~6 단계는 각각 읽을 것이 있는 화면이라
 단계당 20~40초로 보면 **약 2분 ~ 2분 30초**. 3분 안에 들어올 것으로 보지만, 판정은 Director 가 한다.
 
-### 6.4 S-27 — 매핑이 실패하면 프로파일 없는 에이전트가 남는다
+### 6.4 S-30 — 매핑이 실패하면 프로파일 없는 에이전트가 남는다
 
 1차 실행에서 매핑이 **9개 전부 실패**했다(`unmapped=9`, 사유 "감지된 런타임이 없습니다").
 원인은 테스트 쪽이었다 — `daemon run --no-turn` 이 재시작 때 `capabilities.models` 를 빈 배열로
@@ -468,7 +496,7 @@ jsonb 열에 **덮어쓴다**. 라우터는 `DefaultLimits()` 에서 시작해 �
 만들고 **프로파일은 만들지 않는다**(`templates.go`: `if kind == "" { unmapped… ; continue }`).
 openapi 도 "매핑 불가 에이전트도 등록하되 `unmapped[]` 에 사유"라고 그렇게 적었다.
 문제는 **그 뒤를 이을 경로가 P2 에 없다**는 것이다 — `createAgentProfile`·`updateAgentProfile` 둘 다
-501(S-21). 프로파일 없는 에이전트는 세션에서 쓸 수 없으므로, 런타임을 연결하기 전에 템플릿을
+501(S-24). 프로파일 없는 에이전트는 세션에서 쓸 수 없으므로, 런타임을 연결하기 전에 템플릿을
 누른 사람은 **되돌릴 수 없는 3명**을 얻는다. 3분 DoD 를 가장 흔하게 깨는 경로이기도 하다
 (처음 쓰는 사람이 컴퓨터 연결보다 팀 만들기를 먼저 누르는 것은 자연스럽다).
 
@@ -476,17 +504,19 @@ openapi 도 "매핑 불가 에이전트도 등록하되 `unmapped[]` 에 사유"
 
 ## 7. 결함 목록 (스트림 귀속)
 
+번호는 `plan/P2_BACKLOG.md` 의 S-21·S-22·S-23(PR #95 리뷰, 비용 롤업)과 겹치지 않게 **S-24 부터** 붙였다.
+
 | ID | 스트림 | 내용 | DoD 영향 | 근거 |
 |---|---|---|---|---|
-| **D-7** | **D + 계약** | **hermes 런타임에 colab 도구 표면이 닿지 않는다** — MCP 는 어댑터가 무시하고(`mcpCapabilities` 미광고, `session/new` 는 200), CLI 는 `colab` 이 PATH 에 없다(`command not found`). `COLAB_*` env 는 정상 전달된다 — 끊긴 것은 **도구와 실행 파일**이다. 턴이 세션에 아무것도 남기지 못한다 | **(b) 차단** | §3.2 — 세션 `0661186a`·`6b49f0ad` 의 task_event(에이전트가 스스로 조사한 `env`·`PATH` 출력), 직접 ACP 프로브 |
-| **S-21** | S | `createAgent` 가 `AgentProfileCreate.fallback_profile(_id)` 를 조용히 버린다(INSERT 열 목록에 없음). `createAgentProfile`·`updateAgentProfile` 은 x-phase P2 인데 501 | (b) E8-08 **우회 필요** · (e) S-27 의 원인 | §3.3, `agents.go:135`, `unimplemented.go` |
-| **S-22** | S | `user_approval` 원자를 충족시키는 HTTP 입구가 P2 에 없다. `director_approve` 이벤트는 구현돼 있으나 호출자가 없고 `respondHitlRequest` 는 P3(501) | (a) **승인 경로 대체** | §2.2, `sessions/completion.go` |
-| **S-23** | S | `updateWorkspaceSettings` 의 부분 갱신이 같은 객체의 다른 키를 지운다(`mergeJSON` 이 merge 가 아니라 replace) | (d) FAIL 1 | §5, `handlers_settings.go:202` |
-| **S-24** | S (표시는 W) | `blocked_q` 질문 카드에 위임자 멘션이 없어 K3 배지가 `질문 → @위임자` 가 아니라 `질문` 으로 떨어진다 | (c) FAIL 1 | §4.4 |
-| **S-25** | S + 계약 | 위임자 기상 시스템 메시지가 **카드를 인용하지 않는다**(E3-05 (3)). 더해서 위임자가 멘션 없이 답글만 달면 규칙 4 로 자식이 안 깨어나는데 프롬프트가 그 말을 하지 않는다 | (c) FAIL 1 · 왕복은 성립 | §4.1·§4.3, `router/status.go wake()` |
-| **S-26** | S | 세션 완료 시 격리 `none` workdir 가 지워지지 않는다(E6-03). 서버가 `gc` 명령을 0건 낸다 | (a) FAIL 1 | §2.3, `sessions/complete.go` |
-| **S-27** | S + 계약 | 템플릿 매핑 실패 시 **프로파일 없는 에이전트**가 남는데 P2 에 프로파일을 붙일 op 가 없다 | (e) 잠재 — 이번 실행은 통과 | §6.4, `agents/templates.go` |
-| **S-28** | S | **재진입한 lane 이 자기 합류 그룹의 마지막으로 끝나면 합류가 발화하지 않는다** — `afterLaneDone` 이 `reentry > 0` 에서 `notifyReentry` 로 빠지고 `maybeFireJoin` 을 부르지 않는다 | (c) 순서 의존 — FR-6.5 묶음이 조용히 사라진다 | §4.3.1, 세션 `f80b092b` |
+| **D-7** | D + 계약 | **~~hermes 런타임에 colab 도구 표면이 닿지 않는다~~** — MCP 는 어댑터가 무시하고(`mcpCapabilities` 미광고, `session/new` 는 200), CLI 는 `colab` 이 PATH 에 없었다. `COLAB_*` env 는 가고 있었으므로 끊긴 것은 **도구와 실행 파일**이었다 | ~~(b) 차단~~ → **수정됨 (#97)**: `tool_surface` 실측·광고 + attempt 래퍼 + 브리프·턴 프롬프트 치환. 30_ 재실행 **57/0** | §3.2 — 1판 근거는 세션 `0661186a`·`6b49f0ad` 의 task_event 와 직접 ACP 프로브, 수정 확인은 `out/h-wrapper-calls.txt` |
+| **S-24** | S | `createAgent` 가 `AgentProfileCreate.fallback_profile(_id)` 를 조용히 버린다(INSERT 열 목록에 없음). `createAgentProfile`·`updateAgentProfile` 은 x-phase P2 인데 501 | (b) E8-08 **우회 필요** · (e) S-30 의 원인 | §3.3, `agents.go:135`, `unimplemented.go` |
+| **S-25** | S | `user_approval` 원자를 충족시키는 HTTP 입구가 P2 에 없다. `director_approve` 이벤트는 구현돼 있으나 호출자가 없고 `respondHitlRequest` 는 P3(501) | (a) **승인 경로 대체** | §2.2, `sessions/completion.go` |
+| **S-26** | S | `updateWorkspaceSettings` 의 부분 갱신이 같은 객체의 다른 키를 지운다(`mergeJSON` 이 merge 가 아니라 replace) | (d) FAIL 1 | §5, `handlers_settings.go:202` |
+| **S-27** | S (표시는 W) | `blocked_q` 질문 카드에 위임자 멘션이 없어 K3 배지가 `질문 → @위임자` 가 아니라 `질문` 으로 떨어진다 | (c) FAIL 1 | §4.4 |
+| **S-28** | S + 계약 | 위임자 기상 시스템 메시지가 **카드를 인용하지 않는다**(E3-05 (3)). 더해서 위임자가 멘션 없이 답글만 달면 규칙 4 로 자식이 안 깨어나는데 프롬프트가 그 말을 하지 않는다 | (c) FAIL 1 · 왕복은 성립 | §4.1·§4.3, `router/status.go wake()` |
+| **S-29** | S | 세션 완료 시 격리 `none` workdir 가 지워지지 않는다(E6-03). 서버가 `gc` 명령을 0건 낸다 | (a) FAIL 1 | §2.3, `sessions/complete.go` |
+| **S-30** | S + 계약 | 템플릿 매핑 실패 시 **프로파일 없는 에이전트**가 남는데 P2 에 프로파일을 붙일 op 가 없다 | (e) 잠재 — 이번 실행은 통과 | §6.4, `agents/templates.go` |
+| **S-31** | S | **재진입한 lane 이 자기 합류 그룹의 마지막으로 끝나면 합류가 발화하지 않는다** — `afterLaneDone` 이 `reentry > 0` 에서 `notifyReentry` 로 빠지고 `maybeFireJoin` 을 부르지 않는다 | (c) 순서 의존 — FR-6.5 묶음이 조용히 사라진다 | §4.3.1, 세션 `f80b092b` |
 
 **G4 에서 넘어온 것 중 이번에 다시 본 것.** `D-6`(비용 추정)·`S-16`(`listParticipants` 501)은
 이 브랜치 시점(dev `6d9d20d`) 기준으로 아직 열려 있었다. 다른 워커가 그 뒤 PR #93·#95 로
@@ -496,10 +526,10 @@ openapi 도 "매핑 불가 에이전트도 등록하되 `unmapped[]` 에 사유"
 
 ## 8. 통합에서만 보인 것 (§10.7 되먹임)
 
-- **"광고는 초록인데 실제로는 못 쓴다"가 이번의 새 부류다.** hermes 는 probe 13항목을 전부
-  통과했다 — 로그인·재개·usage·브리프 전송까지. 그런데 도구가 없다. 능력 광고가 **런타임이
-  할 수 있는 것**만 말하고 **플랫폼이 그 런타임과 말할 수 있는가**는 말하지 않기 때문이다.
-  §3.2 (c) 의 제안이 그것이다.
+- **"광고는 초록인데 실제로는 못 쓴다"가 이번의 새 부류였다.** hermes 는 probe 항목을 전부
+  통과했다 — 로그인·재개·usage·브리프 전송까지. 그런데 도구가 없었다. 능력 광고가 **런타임이
+  할 수 있는 것**만 말하고 **플랫폼이 그 런타임과 말할 수 있는가**는 말하지 않았기 때문이다.
+  #97 이 `tool_surface` 를 실측 항목으로 만들어 그 칸을 메웠다 — 이제 같은 상태는 광고에서 드러난다.
 - **한 런타임이 두 표면을 다 쓸 수 있다고 아무도 확인하지 않았다.** Claude Code 는 MCP 만으로
   충분해서 CLI 를 이름으로 부를 일이 없었고, 그래서 `colab` 이 PATH 에 없다는 사실이 P1·G3·G4 를
   전부 통과했다. 브리프 [2] 는 그동안 내내 `colab message post` 를 쓰라고 적고 있었다 —
@@ -509,7 +539,7 @@ openapi 도 "매핑 불가 에이전트도 등록하되 `unmapped[]` 에 사유"
   "아무 일도 안 일어남"으로 끝나지 않는다는 뜻이다.
 - **fake 가 증명할 수 없는 것을 e2e 가 정확히 그 자리에서 잡았다.** `acpfake` 는 `mcpServers` 를
   존중하도록 함께 구현돼 있어 통과했다. P2_TASKS §3 이 S3·S4 를 e2e 로 넘긴 판단이 값을 했다.
-- **"규칙이 옳은데 사람에게 그 말을 안 한다"가 두 번 나왔다**(S-25 두 절반, S-27).
+- **"규칙이 옳은데 사람에게 그 말을 안 한다"가 두 번 나왔다**(S-28 두 절반, S-30).
   규칙 4 도 unmapped 도 각각 문서대로다. 문제는 그 규칙에 걸린 사람에게 다음 한 걸음을
   알려주는 문장이 없다는 것이다. 프롬프트와 응답 본문은 계약의 일부로 다뤄야 한다.
 - **스크립트를 돌리는 중에 그 스크립트를 고치면 죽는다.** bash 는 파일을 조금씩 읽는다.
@@ -522,12 +552,11 @@ openapi 도 "매핑 불가 에이전트도 등록하되 `unmapped[]` 에 사유"
 
 ## 9. 다음
 
-1. **D-7** — Hermes 도구 표면. 이것 하나가 (b) 전체를 막는다. 고쳐지면
-   `bash e2e/p2/30_scenario_a_hermes.sh` 재실행만으로 (b) 를 다시 잰다.
-2. **S-21** — 프로파일 op(생성·수정)를 열면 E8-08 우회가 사라지고 S-27 도 같이 닫힌다.
-3. **S-26** — 완료 시 workdir GC. E6-03 의 마지막 칸이다.
-4. **S-22** — `user_approval` 입구. P3 로 두는 것이 결정이라면 EVAL E6-01·E6-03 의 P2 판정 문언을
+1. ~~**D-7**~~ — **닫혔다(#97).** 30_ 재실행 57/0, 연속 두 번 같은 값. §3.2.
+2. **템플릿 3분 Director 실측** — G5 에서 판정이 남은 유일한 칸이다. 절차는 §6.3.
+3. **S-24** — 프로파일 op(생성·수정)를 열면 E8-08 우회가 사라지고 S-30 도 같이 닫힌다.
+4. **S-29** — 완료 시 workdir GC. E6-03 의 마지막 칸이다.
+5. **S-25** — `user_approval` 입구. P3 로 두는 것이 결정이라면 EVAL E6-01·E6-03 의 P2 판정 문언을
    `completeSession` 기준으로 정정해야 한다(지금은 문서와 구현이 다른 것을 가리킨다).
-5. **S-28** — `afterLaneDone` 에서 재진입 통보와 합류 판정을 분리한다. 조용한 손실이라 우선순위가 낮지 않다.
-6. **S-23 · S-24 · S-25** — 각각 한 곳 수정. DoD 를 막지는 않는다.
-7. **템플릿 3분** — Director 실측. 절차는 §6.3.
+6. **S-31** — `afterLaneDone` 에서 재진입 통보와 합류 판정을 분리한다. 조용한 손실이라 우선순위가 낮지 않다.
+7. **S-26 · S-27 · S-28 · S-30** — 각각 한 곳 수정. DoD 를 막지는 않는다.

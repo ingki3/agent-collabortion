@@ -96,7 +96,7 @@ create_agent_2profiles() {
 }
 # link_fallback AGENT_ID FROM_PROFILE_NAME TO_PROFILE_NAME
 # **우회 실행**: openapi 는 `AgentProfileCreate.fallback_profile(_id)` 를 P2 로 두고 `updateAgentProfile` 도
-# x-phase P2 이지만, 서버는 생성 시 두 필드를 조용히 버리고 updateAgentProfile 은 501 이다(G5_REPORT S-21).
+# x-phase P2 이지만, 서버는 생성 시 두 필드를 조용히 버리고 updateAgentProfile 은 501 이다(G5_REPORT S-24).
 # E8-08 을 측정하려면 연결이 있어야 하므로 DB 에 직접 쓴다 — 정식 경로가 아님을 보고서에 명시한다.
 link_fallback() {
   psqlq "update agent_profile set fallback_profile_id =

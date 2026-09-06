@@ -152,7 +152,7 @@ if [ "$(psqlq "select count(*) from message where parent_id='$CARD'")" = 0 ]; th
 fi
 # 관찰(2026-09-06 1차 실행): 위임자가 **멘션 없이** 스레드 답글만 달면 규칙 4로 아무도 트리거되지 않아
 # 자식 lane 이 blocked 그대로 남았다. 사람 답글은 규칙 5로 살아나고, 에이전트 답글은 자식 멘션이 있어야
-# 살아난다 — 기상 프롬프트가 그 말을 하지 않는다(G5_REPORT S-25). 지시문을 그에 맞춰 고쳐 정식 경로로 잰다.
+# 살아난다 — 기상 프롬프트가 그 말을 하지 않는다(G5_REPORT S-28). 지시문을 그에 맞춰 고쳐 정식 경로로 잰다.
 chk E307a "질문 카드 스레드에 답글이 달렸다"               yes \
   "$( [ "$(psqlq "select count(*) from message where parent_id='$CARD'")" -ge 1 ] && echo yes || echo no )"
 log "답글 경로: $ANSWER_PATH (agent = 정식 · director = 우회)"

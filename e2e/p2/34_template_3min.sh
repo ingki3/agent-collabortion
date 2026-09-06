@@ -73,7 +73,7 @@ chk T1b "리서치 팀 카드가 있다"                            1 "$(count "
 MAPPED="$(count '[data-testid="template-agent"][data-mapping="mapped"]')"
 UNMAPPED="$(count '[data-testid="template-agent"][data-mapping="unmapped"]')"
 chk_ge T1c "템플릿 에이전트에 프로파일이 자동 매핑됐다"     1 "$MAPPED"
-chk T1d "매핑 실패가 0 이다 (unmapped 는 프로파일 없는 에이전트를 만든다 — S-27)" 0 "$UNMAPPED"
+chk T1d "매핑 실패가 0 이다 (unmapped 는 프로파일 없는 에이전트를 만든다 — S-30)" 0 "$UNMAPPED"
 log "매핑 mapped=$MAPPED · unmapped=$UNMAPPED (unmapped 는 등록은 되지만 사람이 프로파일을 골라야 한다)"
 ab click "[data-testid=\"apply-$TEMPLATE\"]" >/dev/null
 wait_sel '[data-testid="template-applied"]' 30 || true
