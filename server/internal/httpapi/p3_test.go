@@ -951,7 +951,9 @@ func TestP3GCRefusedConsumesTheCommandAndReachesTheFeed(t *testing.T) {
 	var notes int
 	if err := f.pool.QueryRow(ctx, `
 		SELECT count(*) FROM task_event
-		WHERE object_ref = '"gc.refused"' AND payload->>'note' = 'GC 거부: isolation_worktree_p4'`).Scan(&notes); err != nil {
+		-- S-52: "status" closes its payload, so the sentence lives in "args".
+		WHERE object_ref = '"gc.refused"'
+		  AND payload->'args'->>'note' = 'GC 거부: isolation_worktree_p4'`).Scan(&notes); err != nil {
 		t.Fatal(err)
 	}
 	if notes != 1 {

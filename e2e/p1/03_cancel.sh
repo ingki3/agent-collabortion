@@ -90,7 +90,9 @@ if [ "$ATT_A" = 1 ] && [ "$QUEUED_A" = 0 ] && [ "$NEW_TASKS_A" = 0 ]; then ok "�
 else bad "재큐잉 발생: attempt=$ATT_A 취소 뒤 새 task=$NEW_TASKS_A queued/running=$QUEUED_A"; fi
 sleep 2
 LEFT_A="$(assert_tree_gone "$TASK" "$PGID" "$NPROC_BEFORE" A)"
-FEED_A="$(psqlq "select count(*) from task_event where task_id='$TASK' and class='status' and verb='cancel' and payload->>'note'='사람이 중단함'")"
+# S-52(PR #167): `status` payload 는 {command,args,result_ref,rejected_reason} 로 닫혀 있다 —
+# 사람이 읽는 문장은 `payload.args.note`(PRD §7 v0.16).
+FEED_A="$(psqlq "select count(*) from task_event where task_id='$TASK' and class='status' and verb='cancel' and payload->'args'->>'note'='사람이 중단함'")"
 [ "${FEED_A:-0}" -ge 1 ] && ok "활동 피드에 '사람이 중단함' 기록 (E10-04)" || bad "활동 피드에 status/cancel '사람이 중단함' 없음"
 DONE_A="$(psqlq "select count(*) from message where session_id='$SESSION' and source_task_id='$TASK' and content like '%cancel-done%'")"
 [ "$DONE_A" = 0 ] && ok "취소 뒤 'cancel-done' 게시 0" || bad "취소됐는데 'cancel-done' 게시 $DONE_A"

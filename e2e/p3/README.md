@@ -89,7 +89,7 @@ bash e2e/p3/down.sh
   언제나 NULL — `->'budget'->>'limit_usd'`.
 - **프로세스 종료는 pid·pgid·포트만**(`P2_TASKS.md §0-10`). 이 머신에는 다른 워커의 데몬이 떠 있다.
 - **비활성 버튼 판정은 CSS `:disabled`**: `get attr … disabled` 는 boolean 속성이 있을 때 빈 문자열을 준다.
-- **활동 피드는 `task_event`** 다(class=`status`, payload.note), 세션 `message` 가 아니다.
+- **활동 피드는 `task_event`** 다(class=`status`, `payload.args.note` — S-52, PRD §7 v0.16), 세션 `message` 가 아니다.
 - **`daemon_command` 는 task 범위 명령이면 `session_id` 가 NULL** 이다 — `task_id` 로 찾아라.
 - **실행 중인 스크립트 파일을 편집하지 마라** — bash 가 오프셋으로 이어 읽어 중간에 깨진다.
 - `out/` 은 gitignore — attempt 토큰(래퍼 파일)·쿠키·턴 프롬프트가 들어 있다.

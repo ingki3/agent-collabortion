@@ -418,8 +418,12 @@ func TestP2ServerEventsSurviveConcurrency(t *testing.T) {
 				return
 			}
 			defer func() { _ = tx.Rollback(ctx) }()
-			if err := tasks.InsertServerEvent(ctx, tx, taskID, 1, "status", "note",
-				"concurrent", "ok", map[string]any{"i": i}, t0); err != nil {
+			// S-52: the row this concurrency test writes obeys the schema like
+			// any other — `status` needs a `command` and closes the rest, so
+			// the writer index travels in `args`.
+			if err := tasks.InsertServerEvent(ctx, tx, taskID, 1, "status", "set_status",
+				"concurrent", "ok", map[string]any{"command": "status set running",
+					"args": map[string]any{"i": i}}, t0); err != nil {
 				errs <- err
 				return
 			}
@@ -433,7 +437,8 @@ func TestP2ServerEventsSurviveConcurrency(t *testing.T) {
 	}
 	var n int
 	if err := f.pool.QueryRow(ctx, `
-		SELECT count(*) FROM task_event WHERE task_id = $1 AND attempt = 1 AND verb = 'note'`, taskID).Scan(&n); err != nil {
+		SELECT count(*) FROM task_event WHERE task_id = $1 AND attempt = 1
+		   AND object_ref = to_jsonb('concurrent'::text)`, taskID).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	if n != writers {

@@ -32,6 +32,7 @@ const ServerSeqBase = 1 << 30
 // clause here: it would hide one.
 func InsertServerEvent(ctx context.Context, tx pgx.Tx, taskID uuid.UUID, attempt int,
 	class, verb, objectRef, outcome string, payload map[string]any, now time.Time) error {
+	checkServerEvent(class, verb, objectRef, outcome, payload)
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
 		taskID.String()+":"+fmt.Sprint(attempt)); err != nil {
 		return fmt.Errorf("tasks: server event lock: %w", err)
@@ -53,6 +54,7 @@ func InsertServerEvent(ctx context.Context, tx pgx.Tx, taskID uuid.UUID, attempt
 // interleave with another writer.
 func InsertServerEventOnce(ctx context.Context, tx pgx.Tx, taskID uuid.UUID, attempt int,
 	class, verb, objectRef, outcome string, payload map[string]any, now time.Time) error {
+	checkServerEvent(class, verb, objectRef, outcome, payload)
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
 		taskID.String()+":"+fmt.Sprint(attempt)); err != nil {
 		return fmt.Errorf("tasks: server event lock: %w", err)

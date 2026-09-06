@@ -208,7 +208,9 @@ func TestG3RecheckHeartbeatPreview(t *testing.T) {
 	warned := false
 	for _, it := range feed["items"].([]any) {
 		m := it.(map[string]any)
-		if pl, ok := m["payload"].(map[string]any); ok && str(pl, "field") == "preview" && str(m, "class") == "runtime" {
+		// S-52: the `runtime` payload's only free-text slot is `detail` — the
+		// old `field`/`spec`/`note` keys are in no part of the schema.
+		if pl, ok := m["payload"].(map[string]any); ok && strings.Contains(str(pl, "detail"), "preview") && str(m, "class") == "runtime" {
 			warned = true
 		}
 	}

@@ -137,7 +137,7 @@ done
 chk X3  "lane 이 failed 다"                              failed "$(lane_field "$LANE_C" status)"
 chk X3b "task 의 failure_kind=cancelled (E10-04)"         cancelled "$(task_field "$TC" failure_kind)"
 chk X3c "task 도 cancelled"                              cancelled "$(task_field "$TC" status)"
-# 활동 피드는 `task_event` 다(서버 tasks/service.go: class=status · verb=cancel · payload.note).
+# 활동 피드는 `task_event` 다(서버 tasks/service.go: class=status · verb=cancel · payload.args.note — S-52).
 # 세션 `message` 가 아니다 — 1차 실행에서 message 를 봐 놓치고 FAIL 이 났다.
 psqlq "select class||'/'||coalesce(verb,'-')||' '||replace(coalesce(payload::text,''),E'\n','⏎')
        from task_event where task_id='$TC' order by seq" > "$OUT/51-cancel-feed.txt"

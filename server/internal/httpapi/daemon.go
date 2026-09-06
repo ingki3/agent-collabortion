@@ -267,8 +267,12 @@ func (s *Server) recordGCRefusal(ctx context.Context, ref workdirs.Refusal, now 
 	if reason == "" {
 		reason = "이유 없음"
 	}
+	// S-52: `status` requires `command` — this row records the platform's own
+	// `gc` command (§4.3) coming back refused — and closes the payload, so the
+	// sentence goes under `args`.
 	if err := s.writeServerEvent(ctx, taskID, attempt, "status", "error", "gc.refused", "info",
-		map[string]any{"note": "GC 거부: " + reason, "result_ref": "workdir:" + ref.WorkdirID.String()},
+		map[string]any{"command": "gc", "result_ref": "workdir:" + ref.WorkdirID.String(),
+			"args": map[string]any{"note": "GC 거부: " + reason}},
 		now); err != nil {
 		s.Log.Warn("record gc refusal", "err", err, "workdir", ref.WorkdirID)
 	}

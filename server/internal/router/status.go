@@ -394,5 +394,7 @@ func insertInbox(ctx context.Context, q pgx.Tx, wsID, userID uuid.UUID, typ, sev
 // recordStatusEvent is colab-cli.md §4: every CLI call shows up in the feed.
 func (s *Service) recordStatusEvent(ctx context.Context, tx pgx.Tx, taskID uuid.UUID, attempt int, status, note string, now time.Time) error {
 	return tasks.InsertServerEvent(ctx, tx, taskID, attempt, "status", "set_status", status, "ok",
-		map[string]any{"command": "status set " + status, "note": note}, now)
+		// S-52: closed `status` payload — `--note` is an argument of the command.
+		map[string]any{"command": "status set " + status,
+			"args": map[string]any{"note": note}}, now)
 }

@@ -340,16 +340,20 @@ chk N1  "C: **서버가 추정 보고의 금액을 버리지 않는다** (S-48 �
 chk N1b "C: 그 금액이 상한을 넘었다"                       yes "$(gt "$C_COST" "$EST_BUDGET")"
 # 정지를 **결정한** 값이 추정이었는지를 잰다 — 그 뒤 턴이 끝나면 같은 행이 실측으로 덮이므로
 # (drain 이 계속 도니까) 지금 읽는 `estimated` 는 정지 시점의 것이 아니다.
+# S-52(PR #167): 예산 정지 행은 `class=runtime · verb=report`(verb `pause` 는 enum 밖,
+# 예산 정지는 colab CLI 호출이 아니라 `status` 의 필수 `command` 를 댈 수 없다) 이고
+# 금액쌍과 "추정" 은 `payload.detail` 문장 안에 있다.
 chk N1c "C: **그 정지를 결정한 값이 추정이었다**" true \
-  "$(psqlq "select coalesce(bool_or((payload->>'estimated')::boolean)::text,'-') from task_event
-            where task_id='$TC' and class='status' and verb='pause'")"
+  "$(psqlq "select coalesce(bool_or(payload->>'detail' like '추정 비용이%')::text,'-') from task_event
+            where task_id='$TC' and class='runtime' and verb='report' and object_ref=to_jsonb('budget'::text)")"
 chk N1d "C: 정지 시점 금액쌍이 paused_detail 에 남았다 (한도 \$$EST_BUDGET)" "$EST_BUDGET" \
   "$(eqnum "$(psqlq "select coalesce((paused_detail->'budget'->>'limit_usd'),'-') from session where id='$SC_'")" "$EST_BUDGET")"
 chk N2  "C: **세션이 paused(budget)**"                     paused "$(sess_field "$SC_" status)"
 chk N2b "C: paused_reason=budget"                          budget "$(sess_field "$SC_" paused_reason)"
 chk N3  "C: 활동 피드에 \"진행 중인 턴은 끝까지\" 기록 (E9-05)" 1 \
-  "$(psqlq "select count(*) from task_event where task_id='$TC' and class='status' and verb='pause'
-            and payload->>'note' like '%진행 중인 턴은 끝까지%'")"
+  "$(psqlq "select count(*) from task_event where task_id='$TC' and class='runtime' and verb='report'
+            and object_ref=to_jsonb('budget'::text)
+            and payload->>'detail' like '%진행 중인 턴은 끝까지%'")"
 chk N4  "C: 시스템 HITL 1건 (S-48 — 1판은 요청 없이 알림만)" 1 \
   "$(psqlq "select count(*) from hitl_request where session_id='$SC_'")"
 if [ -n "$HC" ]; then

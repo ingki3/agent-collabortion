@@ -1,4 +1,4 @@
-package events
+package eventschema
 
 import (
 	"encoding/json"

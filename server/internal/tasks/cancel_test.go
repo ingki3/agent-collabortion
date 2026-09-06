@@ -25,7 +25,7 @@ func laneStatus(t *testing.T, s *Service, laneID uuid.UUID) string {
 func cancelFeedNotes(t *testing.T, s *Service, taskID uuid.UUID) int {
 	t.Helper()
 	var n int
-	if err := s.DB.QueryRow(context.Background(), `SELECT count(*) FROM task_event WHERE task_id = $1 AND class = 'status' AND verb = 'cancel' AND payload->>'note' = '사람이 중단함'`, taskID).Scan(&n); err != nil {
+	if err := s.DB.QueryRow(context.Background(), `SELECT count(*) FROM task_event WHERE task_id = $1 AND class = 'status' AND verb = 'cancel' AND payload->'args'->>'note' = '사람이 중단함'`, taskID).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	return n
