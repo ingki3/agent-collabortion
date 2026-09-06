@@ -458,6 +458,36 @@ func (e InboxItemActions) Valid() bool {
 	}
 }
 
+// Defines values for InboxItemCardPurpose.
+const (
+	InboxItemCardPurposeAgent        InboxItemCardPurpose = "agent"
+	InboxItemCardPurposeBudget       InboxItemCardPurpose = "budget"
+	InboxItemCardPurposeLessThannil  InboxItemCardPurpose = "<nil>"
+	InboxItemCardPurposeLoop         InboxItemCardPurpose = "loop"
+	InboxItemCardPurposeTime         InboxItemCardPurpose = "time"
+	InboxItemCardPurposeUserApproval InboxItemCardPurpose = "user_approval"
+)
+
+// Valid indicates whether the value is a known member of the InboxItemCardPurpose enum.
+func (e InboxItemCardPurpose) Valid() bool {
+	switch e {
+	case InboxItemCardPurposeAgent:
+		return true
+	case InboxItemCardPurposeBudget:
+		return true
+	case InboxItemCardPurposeLessThannil:
+		return true
+	case InboxItemCardPurposeLoop:
+		return true
+	case InboxItemCardPurposeTime:
+		return true
+	case InboxItemCardPurposeUserApproval:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for InboxItemType.
 const (
 	InboxItemTypeHitlRequest      InboxItemType = "hitl_request"
@@ -1960,7 +1990,10 @@ type InboxItem struct {
 		// PausedReason `pause_reason` (FR-2.3 · FR-7.3 · FR-9.2)
 		PausedReason    *PauseReason              `json:"paused_reason,omitempty"`
 		ProposedDefault nullable.Nullable[string] `json:"proposed_default,omitempty"`
-		RuntimeName     nullable.Nullable[string] `json:"runtime_name,omitempty"`
+
+		// Purpose HITL 항목이면 `HitlRequest.purpose` 를 그대로 싣는다(K-9, PR #140) — 웹이 task 범위 예산 HITL(세션은 active)에 상향 입력을 붙이려면 카드에서 바로 읽어야 한다. 비-HITL 항목은 null.
+		Purpose     nullable.Nullable[InboxItemCardPurpose] `json:"purpose,omitempty"`
+		RuntimeName nullable.Nullable[string]               `json:"runtime_name,omitempty"`
 
 		// Summary session_completed 결과 요약.
 		Summary nullable.Nullable[string] `json:"summary,omitempty"`
@@ -1992,6 +2025,9 @@ type InboxItem struct {
 
 // InboxItemActions defines model for InboxItem.Actions.
 type InboxItemActions string
+
+// InboxItemCardPurpose HITL 항목이면 `HitlRequest.purpose` 를 그대로 싣는다(K-9, PR #140) — 웹이 task 범위 예산 HITL(세션은 active)에 상향 입력을 붙이려면 카드에서 바로 읽어야 한다. 비-HITL 항목은 null.
+type InboxItemCardPurpose string
 
 // InboxItemType `inbox_item_type` (FR-8)
 type InboxItemType string
