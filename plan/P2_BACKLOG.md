@@ -35,6 +35,14 @@
 | W-5 | `working`에 드는 task 상태 집합(파생 상태 FR-1.3) — `dispatched`·`preparing`도 working인지 | PR #21 N7 | PRD 확인 후 |
 | W-6 | 트리거 미리보기는 `previewTriggers`(P2 op)로 교체, 로컬 계산 제거 | PR #21 R2 | P2b |
 
+### S 추가 (G3 수정 리뷰에서)
+
+| # | 항목 | 출처 | 비고 |
+|---|---|---|---|
+| S-6 | **SSE 응답에 `Cache-Control: no-cache, no-transform`** — `compress:false`는 Next만 막는다. 배포의 nginx·CDN이 `text/event-stream`을 gzip 버퍼링하면 W-2가 그대로 재발한다. 서버가 스스로 말해야 한 곳에서 막힌다 | PR #34 NN1 | **배포 전 필수.** `handlers_sessions.go` 스트림 응답 헤더 |
+| S-7 | `createWorkspace` 슬러그 유일 제약 재시도가 같은 트랜잭션 안 → 같은 이름 두 번째 워크스페이스가 `25P02` 500. PR #33이 `runtimes.go`에서 savepoint로 고친 S-4와 **같은 결함·다른 위치** | PR #34 NN2 | 같은 패턴이 더 있는지 전수(`ON CONFLICT` 없는 재시도) |
+| S-8 | 취소 흡수(`cancelRequested`)가 명령의 **존재**만 보고 `consumed_at`을 안 본다. 24h TTL 소비 후에도 흡수가 남을 수 있다 | PR #33 NN3 | 낮음 |
+
 ## C (CLI)
 
 | # | 항목 | 출처 | 비고 |
@@ -52,7 +60,7 @@
 
 ## 운영 (PLAN §10.7 되먹임)
 
-- Hermes Reviewer가 잡은 결함 중 **통합에서만 드러나는 것**(payload 위치, CHECK 키, 워크스페이스 claim)이 셋 — 스트림 단위 테스트가 목 데이터로 초록이어도 계약 양쪽을 실기로 잇는 테스트가 필요. P2a 골든 테스트에 "계약 왕복" 항목 추가.
+- Hermes Reviewer가 잡은 결함 중 **통합에서만 드러나는 것**(payload 위치, CHECK 키, 워크스페이스 claim, **SSE 응답 압축**)이 넷 — 스트림 단위 테스트가 목 데이터로 초록이어도 계약 양쪽을 실기로 잇는 테스트가 필요. P2a 골든 테스트에 "계약 왕복" 항목 추가.
 - 코디네이터 `/login`이 worker 세션을 전부 무효화 — 재로그인은 fan-out 사이에만.
-- 한도: 4 worker 동시는 5시간 창을 20~30분에 소진. P2는 **동시 2개**로.
+- 한도: 4 worker 동시는 5시간 창을 20~30분에 소진. P2는 **동시 2개**로. worker는 `--model opus`(Fable 한도가 먼저 소진됨, 2026-09-06 Director 결정).
 - Hermes의 `gh`·`git worktree` 호출이 승인 게이트에서 멈춘다 — 리뷰 결과 파일을 Lead가 게시하는 방식 유지, 임시 워크트리는 Lead가 정리.
