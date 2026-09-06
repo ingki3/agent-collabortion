@@ -396,6 +396,18 @@ func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 			}
 			n++
 		}
+		// FR-3.3 rule 7: the assignee fallback's window closed with no reply
+		// from the primary agent, so the deferred task becomes a real one
+		// (E1-14). A reply inside the window already cancelled it, so anything
+		// still `deferred` here is genuinely unanswered.
+		tag, err := tx.Exec(ctx, `
+			UPDATE task SET status = 'queued', not_before = NULL, updated_at = $1
+			WHERE status = 'deferred' AND not_before IS NOT NULL AND not_before <= $1`, now)
+		if err != nil {
+			return err
+		}
+		n += int(tag.RowsAffected())
+
 		_, err = tx.Exec(ctx, `
 			UPDATE runtime SET status = 'offline', offline_since = COALESCE(offline_since, $1), updated_at = $1
 			WHERE status = 'online' AND (last_seen_at IS NULL OR last_seen_at < $2)`, now, now.Add(-contracts.HeartbeatExpiry))
@@ -482,10 +494,14 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			if err := s.Tokens.Revoke(ctx, tx, t.ID, attempt, "completed"); err != nil {
 				return err
 			}
-			// lane: another queued task on this lane keeps it queued, else done
+			// lane: another queued task on this lane keeps it queued, else done.
+			// A lane the agent put in `blocked` keeps that status: the turn
+			// ending is exactly what `colab status set blocked` asked for, and
+			// overwriting it with `done` loses the question the delegator has
+			// yet to answer (FR-6.2.1).
 			if _, err := tx.Exec(ctx, `
 				UPDATE lane SET status = CASE WHEN EXISTS (SELECT 1 FROM task WHERE lane_id = $1 AND status = 'queued') THEN 'queued'::lane_status ELSE 'done'::lane_status END,
-				  finished_at = $2, updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+				  finished_at = $2, updated_at = $2 WHERE id = $1 AND status <> 'blocked'`, t.LaneID, now); err != nil {
 				return err
 			}
 			t.Status, t.FinishedAt = Completed, &now

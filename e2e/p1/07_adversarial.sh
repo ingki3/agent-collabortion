@@ -72,7 +72,12 @@ chk_in "B 가 A 의 워크스페이스 설정 조회 차단"  "403 404" "$(curl 
 echo
 echo "▶ D3. 501 표면 (P1 밖 operation 은 501, 5xx 아님)"
 chk "restartLane 501"                      501 "$(ucode -X POST "$API/lanes/00000000-0000-0000-0000-000000000000/restart" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" --data '{"content":"x"}')"
-chk "previewTriggers 501"                  501 "$(ucode -X POST "$API/sessions/$SESSION/messages/preview" -H 'Content-Type: application/json' --data '{"content":"x"}')"
+# previewTriggers 는 T-S2 에서 구현됐다(FR-3.6). 501 이 아니라 200 이고, 무엇보다
+# **아무것도 쓰지 않아야** 한다 — 미리보기가 task 를 만들면 미리보기가 아니다.
+N_BEFORE="$(psqlq "select count(*) from task where session_id='$SESSION'")"
+chk "previewTriggers 200"                  200 "$(ucode -X POST "$API/sessions/$SESSION/messages/preview" -H 'Content-Type: application/json' --data '{"content":"x"}')"
+N_AFTER="$(psqlq "select count(*) from task where session_id='$SESSION'")"
+chk "previewTriggers 는 task 를 만들지 않는다" "$N_BEFORE" "$N_AFTER"
 chk "listInbox 501"                        501 "$(ucode "$API/inbox")"
 chk "listHitlRequests 501"                 501 "$(ucode "$API/sessions/$SESSION/hitl-requests")"
 
