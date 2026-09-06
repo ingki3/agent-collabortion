@@ -38,6 +38,11 @@ func MentionLink(name string, id uuid.UUID) string {
 type Participant struct {
 	AgentID uuid.UUID
 	Name    string
+	// Disabled is `respond_to: nobody`, the FR-1.9 kill switch. Participation
+	// is normally the whole permission (C5), so this is the one agent property
+	// the rules read: `nobody` "새 초대를 막고, 이미 참여 중인 세션에서도
+	// 트리거를 중단한다" (PRD FR-1.9 M8).
+	Disabled bool
 }
 
 // Input is everything Decide needs; it is pure so the table tests need no DB.
@@ -133,6 +138,10 @@ func Decide(in Input) Decision {
 			d.Warnings = append(d.Warnings, Warning{Code: "not_participant", Message: name + "은(는) 이 세션 참여자가 아닙니다", AgentID: &aid})
 			continue
 		}
+		if p := participants[id]; p.Disabled {
+			d.Warnings = append(d.Warnings, disabledWarning(p))
+			continue
+		}
 		if suppressed[id] {
 			continue
 		}
@@ -158,7 +167,11 @@ func Decide(in Input) Decision {
 	// Rule 5: a reply goes to the agent that owns the message, or the agent
 	// that owns the thread root (E1-09, E1-10).
 	if ag := replyTarget(in); ag != nil {
-		if _, ok := participants[*ag]; ok && !suppressed[*ag] {
+		if p, ok := participants[*ag]; ok && !suppressed[*ag] {
+			if p.Disabled {
+				d.Warnings = append(d.Warnings, disabledWarning(p))
+				return d
+			}
 			d.Triggers = append(d.Triggers, Trigger{AgentID: *ag, Rule: 5})
 			return d
 		}
@@ -166,11 +179,25 @@ func Decide(in Input) Decision {
 
 	// Rule 6: any other user message → session assignee (E1-11).
 	if in.AssigneeAgentID != nil && !suppressed[*in.AssigneeAgentID] {
-		if _, ok := participants[*in.AssigneeAgentID]; ok {
+		if p, ok := participants[*in.AssigneeAgentID]; ok {
+			if p.Disabled {
+				d.Warnings = append(d.Warnings, disabledWarning(p))
+				return d
+			}
 			d.Triggers = append(d.Triggers, Trigger{AgentID: *in.AssigneeAgentID, Rule: 6})
 		}
 	}
 	return d
+}
+
+// disabledWarning is the `agent_disabled` code colab-cli.md §2.2 enumerates
+// alongside not_participant · suppressed_delegator · loop_limit_near. Without
+// it a mention of a killed agent looks exactly like a mention that worked:
+// the message is posted, no task appears, and nothing says why.
+func disabledWarning(p Participant) Warning {
+	id := p.AgentID
+	return Warning{Code: "agent_disabled", AgentID: &id,
+		Message: p.Name + "은(는) 킬 스위치(respond_to: nobody)가 켜져 있어 트리거되지 않습니다"}
 }
 
 // isNote is rule 1's prefix test. Leading whitespace is tolerated so a pasted

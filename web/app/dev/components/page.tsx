@@ -248,7 +248,7 @@ export default function ComponentsPage() {
             previewDelayMs={0}
             onPreview={async (i) => ({
               note_only: i.content.trimStart().startsWith("/note "),
-              implicit_routing_suppressed: i.content.includes("mention://all"),
+              implicit_routing_suppressed: i.content.includes("mention://all/"),
               triggers: i.content.includes(LEAD)
                 ? [{ agent_id: LEAD, agent_name: "Lead", rule: 2, profile: { id: "p1", name: "default", runtime_kind: "claude_code", model: "claude-sonnet-5" }, lane: { resolution: i.newLane ? 1 : 3, lane_id: i.newLane ? null : "lane-1", reentry: false }, will_queue: !i.newLane, deferred_until: null }]
                 : [],

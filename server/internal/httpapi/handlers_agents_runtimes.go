@@ -3,11 +3,13 @@ package httpapi
 import (
 	"net/http"
 
+	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/ingki3/agent-collabortion/server/internal/agents"
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 )
 
 // ── runtimes ──
@@ -207,4 +209,81 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, agentId gen
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// ListRuntimeCandidates is GET /workspaces/{id}/runtime-candidates — S6 4단계
+// and S17 rebinding (FR-2.1, FR-9.2 F). Ineligible runtimes are returned too,
+// with a reason, so the wizard draws them disabled instead of showing "후보 0".
+func (s *Server) ListRuntimeCandidates(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.ListRuntimeCandidatesParams) {
+	if _, _, p := s.member(r, workspaceId); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	q := runtimes.CandidateQuery{Isolation: string(params.Isolation), SessionID: params.SessionId}
+	if params.RemoteUrl != nil {
+		q.RemoteURL = *params.RemoteUrl
+	}
+	auto, cands, err := s.Runtimes.Candidates(r.Context(), workspaceId, q)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"auto_select_allowed": auto, "candidates": cands})
+}
+
+// ── agent templates (FR-1.4) ──
+
+// ListAgentTemplates is GET /workspaces/{id}/agent-templates: the three teams
+// with per-agent profile mapping computed from this workspace's online
+// runtimes. The contract's response is a bare array.
+func (s *Server) ListAgentTemplates(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId) {
+	if _, _, p := s.member(r, workspaceId); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	out, err := s.Agents.ListTemplates(r.Context(), workspaceId)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// ApplyAgentTemplate is POST /workspaces/{id}/agent-templates/{key}/apply —
+// the P2 "3분 이내" path. Any workspace member may apply one; the caller
+// becomes the agents' owner.
+func (s *Server) ApplyAgentTemplate(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, templateKey gen.AgentTemplateKey, params gen.ApplyAgentTemplateParams) {
+	u, _, p := s.member(r, workspaceId)
+	if p != nil {
+		writeProblem(w, p)
+		return
+	}
+	body, p := readBody(w, r)
+	if p != nil {
+		writeProblem(w, p)
+		return
+	}
+	var in gen.ApplyAgentTemplateJSONBody
+	if len(body) > 0 {
+		if p := decodeJSON(w, r, &in); p != nil {
+			writeProblem(w, p)
+			return
+		}
+	}
+	var runtimeID *uuid.UUID
+	if in.RuntimeId.IsSpecified() && !in.RuntimeId.IsNull() {
+		v := uuid.UUID(in.RuntimeId.MustGet())
+		runtimeID = &v
+	}
+	overrides := map[string]string{}
+	if in.NameOverrides != nil {
+		overrides = *in.NameOverrides
+	}
+	s.idempotent(r.Context(), w, "user:"+u.Id.String(), optKey(params.IdempotencyKey), requestHash(r, body), func() (int, any, *Problem) {
+		out, err := s.Agents.ApplyTemplate(r.Context(), workspaceId, u.Id, string(templateKey), runtimeID, overrides)
+		if err != nil {
+			return 0, nil, apperr.As(err)
+		}
+		return http.StatusCreated, out, nil
+	})
 }
