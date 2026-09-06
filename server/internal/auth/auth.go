@@ -59,6 +59,15 @@ func random(prefix string, n int) string {
 	return prefix + base64.RawURLEncoding.EncodeToString(b)
 }
 
+// randomHex is the slug-safe tail for a crowded slug stem ([a-z0-9] only).
+func randomHex(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
+}
+
 var emailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
 // Signup creates the account, a user session and (optionally) accepts an invite.
@@ -279,13 +288,42 @@ func Slugify(name string) string {
 	return out
 }
 
+// slugStem is the slug a new workspace starts from. Slugify folds every name
+// without ASCII letters or digits to the same "ws" ("마케팅팀", "개발팀", …), so
+// unrelated workspaces would all queue up behind one stem and its -2, -3 …
+// suffixes. Such a name gets a short digest of itself instead: deterministic
+// (the same name always proposes the same slug) but distinct per name (G3 S-6).
+// The stem is kept short enough that a suffix still fits in 40 characters.
+func slugStem(name string) string {
+	name = strings.TrimSpace(name)
+	stem := Slugify(name)
+	if stem == "ws" && !hasASCIIAlnum(name) {
+		sum := sha256.Sum256([]byte(name))
+		stem = "ws-" + hex.EncodeToString(sum[:3])
+	}
+	if len(stem) > 31 {
+		stem = strings.Trim(stem[:31], "-")
+	}
+	return stem
+}
+
+func hasASCIIAlnum(s string) bool {
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			return true
+		}
+	}
+	return false
+}
+
 // CreateWorkspace creates workspace + settings row + owner membership.
 func (s *Service) CreateWorkspace(ctx context.Context, userID uuid.UUID, name string, slug *string) (*gen.Workspace, error) {
 	if strings.TrimSpace(name) == "" || len(name) > 80 {
 		return nil, apperr.Validation(apperr.Field("name", "length", "name must be 1–80 characters"))
 	}
-	sl := Slugify(name)
-	if slug != nil && *slug != "" {
+	sl := slugStem(name)
+	explicit := slug != nil && *slug != ""
+	if explicit {
 		if !slugRe.MatchString(*slug) {
 			return nil, apperr.Validation(apperr.Field("slug", "pattern", "slug must match ^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$"))
 		}
@@ -298,15 +336,29 @@ func (s *Service) CreateWorkspace(ctx context.Context, userID uuid.UUID, name st
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	var w gen.Workspace
+	// The slug suffix retry runs inside a savepoint: a failed INSERT aborts the
+	// enclosing transaction otherwise, so the second workspace with the same
+	// name died on `25P02 current transaction is aborted` instead of becoming
+	// "…-2" (G3 S-6, the same shape as runtimes.Pair / S-4). After a few
+	// numbered suffixes a random tail settles a crowded stem in one round trip.
 	for i := 0; ; i++ {
 		candidate := sl
-		if i > 0 {
+		switch {
+		case i == 0:
+		case i <= 8:
 			candidate = fmt.Sprintf("%s-%d", sl, i+1)
+		default:
+			candidate = fmt.Sprintf("%s-%s", sl, randomHex(4))
 		}
-		err = tx.QueryRow(ctx, `INSERT INTO workspace (name, slug, created_at, updated_at) VALUES ($1, $2, $3, $3) RETURNING id, name, slug, created_at, updated_at`,
+		sp, err2 := tx.Begin(ctx) // pgx nested tx = SAVEPOINT
+		if err2 != nil {
+			return nil, err2
+		}
+		err = sp.QueryRow(ctx, `INSERT INTO workspace (name, slug, created_at, updated_at) VALUES ($1, $2, $3, $3) RETURNING id, name, slug, created_at, updated_at`,
 			strings.TrimSpace(name), candidate, now).Scan(&w.Id, &w.Name, &w.Slug, &w.CreatedAt, &w.UpdatedAt)
 		if isUnique(err) {
-			if slug != nil && *slug != "" {
+			_ = sp.Rollback(ctx) // ROLLBACK TO SAVEPOINT; the outer tx stays usable
+			if explicit {
 				return nil, apperr.Conflict("slug_taken", "this slug is already in use")
 			}
 			if i < 20 {
@@ -314,7 +366,11 @@ func (s *Service) CreateWorkspace(ctx context.Context, userID uuid.UUID, name st
 			}
 		}
 		if err != nil {
+			_ = sp.Rollback(ctx)
 			return nil, fmt.Errorf("auth: create workspace: %w", err)
+		}
+		if err := sp.Commit(ctx); err != nil {
+			return nil, err
 		}
 		break
 	}

@@ -252,6 +252,30 @@ func (s *Service) Heartbeat(ctx context.Context, taskID uuid.UUID, attempt int, 
 	return nil
 }
 
+// NotePreviewDrift records the one feed warning a daemon whose heartbeat
+// `preview` does not match daemon-protocol §4.2 v0.3 earns. The heartbeat
+// itself already succeeded — a bad extra field must not cost the attempt
+// (G3 C-1) — so the drift is visible instead of fatal, and only once per
+// attempt: a heartbeat every 15s would otherwise bury the feed.
+func (s *Service) NotePreviewDrift(ctx context.Context, taskID uuid.UUID, attempt int, now time.Time) error {
+	_, err := s.DB.Exec(ctx, `
+		INSERT INTO task_event (task_id, attempt, seq, class, verb, object_ref, outcome, payload, created_at)
+		SELECT $1, $2, (SELECT COALESCE(max(seq) + 1, $3::int) FROM task_event WHERE task_id = $1 AND attempt = $2 AND seq >= $3::int),
+		       'runtime', 'error', to_jsonb($4::text), 'info', $5, $6
+		WHERE NOT EXISTS (
+			SELECT 1 FROM task_event WHERE task_id = $1 AND attempt = $2 AND object_ref = to_jsonb($4::text) AND class = 'runtime' AND verb = 'error')`,
+		taskID, attempt, serverSeqBase, "heartbeat.preview",
+		map[string]any{
+			"note":  "데몬이 보낸 heartbeat preview 모양이 계약과 달라 무시했습니다",
+			"field": "preview",
+			"spec":  "contracts/daemon-protocol.md §4.2 (v0.3)",
+		}, now)
+	if err != nil {
+		return fmt.Errorf("tasks: preview drift note: %w", err)
+	}
+	return nil
+}
+
 // Requeue ends the current attempt with reason and either queues attempt+1
 // (retryable kinds with attempts left) or fails the task. The attempt's token
 // is revoked either way (daemon-protocol §5, §7).
