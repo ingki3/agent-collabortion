@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/ingki3/agent-collabortion/contracts"
-	"github.com/ingki3/agent-collabortion/daemon/internal/api"
 	"github.com/ingki3/agent-collabortion/daemon/internal/config"
 	"github.com/ingki3/agent-collabortion/daemon/internal/workdir"
 )
@@ -64,9 +63,9 @@ func TestGCDeletesNamedWorkdirsAndReports(t *testing.T) {
 	keep := makeLane(t, root, "sess-a", "lane-keep")
 	drop := makeLane(t, root, "sess-a", "lane-drop")
 
-	d.gc(context.Background(), api.Command{
-		Command:  contracts.Command{Type: contracts.CmdGC, SessionID: "sess-a"},
-		Workdirs: []api.GCWorkdir{{ID: "wd-1", Path: drop}},
+	d.gc(context.Background(), contracts.Command{
+		Type: contracts.CmdGC, SessionID: "sess-a",
+		Workdirs: []contracts.GCWorkdir{{ID: "wd-1", Path: drop}},
 	})
 
 	if _, err := os.Stat(drop); !os.IsNotExist(err) {
@@ -107,8 +106,8 @@ func TestGCWithoutPathsFallsBackToTheSession(t *testing.T) {
 	b := makeLane(t, root, "sess-b", "lane-2")
 	other := makeLane(t, root, "sess-c", "lane-1")
 
-	d.gc(context.Background(), api.Command{
-		Command: contracts.Command{Type: contracts.CmdGC, SessionID: "sess-b", WorkdirIDs: []string{"x", "y"}},
+	d.gc(context.Background(), contracts.Command{
+		Type: contracts.CmdGC, SessionID: "sess-b", WorkdirIDs: []string{"x", "y"},
 	})
 
 	for _, p := range []string{a, b} {
@@ -131,9 +130,9 @@ func TestGCRefusesAWorktreeAndSaysSo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d.gc(context.Background(), api.Command{
-		Command:  contracts.Command{Type: contracts.CmdGC, SessionID: "sess-d"},
-		Workdirs: []api.GCWorkdir{{ID: "wd-w", Path: p}},
+	d.gc(context.Background(), contracts.Command{
+		Type: contracts.CmdGC, SessionID: "sess-d",
+		Workdirs: []contracts.GCWorkdir{{ID: "wd-w", Path: p}},
 	})
 
 	if _, err := os.Stat(p); err != nil {
@@ -156,9 +155,9 @@ func TestGCRefusesAPathOutsideTheRoot(t *testing.T) {
 	}
 	_ = root
 
-	d.gc(context.Background(), api.Command{
-		Command:  contracts.Command{Type: contracts.CmdGC, SessionID: "sess-e"},
-		Workdirs: []api.GCWorkdir{{ID: "wd-o", Path: outside}},
+	d.gc(context.Background(), contracts.Command{
+		Type: contracts.CmdGC, SessionID: "sess-e",
+		Workdirs: []contracts.GCWorkdir{{ID: "wd-o", Path: outside}},
 	})
 
 	if _, err := os.Stat(filepath.Join(outside, "keep.txt")); err != nil {
@@ -176,15 +175,15 @@ func TestGCIsNotDroppedByTheCommandDedupe(t *testing.T) {
 	srv := &memServer{}
 	d, root := gcDaemon(t, srv)
 	one := makeLane(t, root, "sess-f", "lane-1")
-	cmds := []api.Command{
-		{Command: contracts.Command{Type: contracts.CmdGC, SessionID: "sess-f"}, Workdirs: []api.GCWorkdir{{ID: "wd-1", Path: one}}},
+	cmds := []contracts.Command{
+		{Type: contracts.CmdGC, SessionID: "sess-f", Workdirs: []contracts.GCWorkdir{{ID: "wd-1", Path: one}}},
 	}
 	d.handleCommands(context.Background(), cmds)
 	waitFor(t, 5*time.Second, func() bool { _, err := os.Stat(one); return os.IsNotExist(err) })
 
 	two := makeLane(t, root, "sess-f", "lane-2")
-	d.handleCommands(context.Background(), []api.Command{
-		{Command: contracts.Command{Type: contracts.CmdGC, SessionID: "sess-f"}, Workdirs: []api.GCWorkdir{{ID: "wd-2", Path: two}}},
+	d.handleCommands(context.Background(), []contracts.Command{
+		{Type: contracts.CmdGC, SessionID: "sess-f", Workdirs: []contracts.GCWorkdir{{ID: "wd-2", Path: two}}},
 	})
 	waitFor(t, 5*time.Second, func() bool { _, err := os.Stat(two); return os.IsNotExist(err) })
 }

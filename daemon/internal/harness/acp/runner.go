@@ -143,6 +143,10 @@ type Runner struct {
 	cancelReq  *CancelRequest
 	stalled    bool
 	promptDone chan struct{}
+	// cancelDone is closed when the §5 procedure has run to its end. Run
+	// waits on it before its own close so the two paths into closeProcess
+	// cannot interleave (D-15).
+	cancelDone chan struct{}
 	closeOnce  sync.Once
 	rawInit    *RawInit
 	caps       AgentCaps
@@ -170,7 +174,8 @@ func New(a Attempt) *Runner {
 	if a.Quiet == 0 {
 		a.Quiet = contracts.HermesQuietWait
 	}
-	return &Runner{a: a, clk: a.Clock, tools: map[string]*toolState{}, promptDone: make(chan struct{}), cancelGate: make(chan struct{})}
+	return &Runner{a: a, clk: a.Clock, tools: map[string]*toolState{}, promptDone: make(chan struct{}),
+		cancelGate: make(chan struct{}), cancelDone: make(chan struct{})}
 }
 
 func (r *Runner) kind() contracts.RuntimeKind { return r.a.Bundle.Profile.RuntimeKind }
@@ -222,9 +227,31 @@ func (r *Runner) Run(ctx context.Context) Result {
 	r.mu.Unlock()
 	if r.c != nil {
 		res.PGID = r.c.PID()
+		// A §5 procedure that is still running owns the close (and with it
+		// the step-5 line closeProcess now emits). Whichever goroutine got
+		// here first would otherwise decide whether the feed reads
+		// "… → drain → signal" or "… → signal → drain" (D-15).
+		r.awaitCancelProcedure()
 		r.closeProcess()
 	}
 	return res
+}
+
+// awaitCancelProcedure blocks while a §5 procedure is in flight. The bound is
+// real time on purpose: it is not a contract deadline (every §5 wait is on the
+// injected clock and already bounded) but a backstop so a wedged procedure
+// cannot keep the attempt's own close from running.
+func (r *Runner) awaitCancelProcedure() {
+	r.mu.Lock()
+	inFlight := r.intent || r.cancelling
+	r.mu.Unlock()
+	if !inFlight {
+		return
+	}
+	select {
+	case <-r.cancelDone:
+	case <-time.After(contracts.CancelDrainWait + contracts.CancelPromptWait + 5*time.Second):
+	}
 }
 
 func (r *Runner) fail(kind contracts.FailureKind, detail string, nb *time.Time) Result {
@@ -1240,6 +1267,14 @@ func (r *Runner) emitStep(n int, step string, extra ...string) {
 const cancelForcedNote = "30초 초과로 강제 취소"
 
 func (r *Runner) cancelProcedure(ctx context.Context, afterCurrentTool bool) {
+	// Every exit from here — including the `r.c == nil` one below — has to
+	// release Run's wait, or an attempt whose process appeared after the
+	// procedure started would sit on the backstop bound (D-15).
+	defer func() {
+		r.mu.Lock()
+		closeOnce(r.cancelDone)
+		r.mu.Unlock()
+	}()
 	// 1. wait for an in-flight edit/shell tool (≤30s)
 	//
 	// "편집 또는 셸" is one rule with two verbs (harness §5 step 1, FR-3.4,
@@ -1307,7 +1342,7 @@ func (r *Runner) cancelProcedure(ctx context.Context, afterCurrentTool bool) {
 		r.emitStep(4, stepDrain)
 	}
 	// 5. SIGTERM → 10s → SIGKILL. Last, always: E10-03 is "프로세스 즉시 kill 아님".
-	r.emitStep(5, stepSignal)
+	// The step-5 line is closeProcess's, not this function's — see there.
 	r.closeProcess()
 }
 
@@ -1322,8 +1357,28 @@ func closeOnce(ch chan struct{}) {
 	}
 }
 
+// closeProcess signals the runtime's process group (SIGTERM → 10s → SIGKILL)
+// and reports that it did.
+//
+// The §5 step-5 line is emitted HERE, inside the same sync.Once as the signal,
+// so the observation cannot be separated from the action: a future path that
+// closes the process without walking the procedure still shows up in the feed,
+// and the cancel-order golden catches it (D-15, PR #121 review NN1). Before
+// this, `cancelProcedure` emitted the line itself and `Run` closed the process
+// with nothing said — a kill that skipped the drain and one that did not
+// looked identical, which is exactly what the golden exists to tell apart.
+//
+// The line is only for a close that a cancel reached: `Run` ends every attempt
+// here, and labelling a completed turn "§5 5 signal_process_group" would put a
+// cancel line in the feed of a task nobody cancelled.
 func (r *Runner) closeProcess() {
 	r.closeOnce.Do(func() {
+		r.mu.Lock()
+		cancelling := r.intent || r.cancelling
+		r.mu.Unlock()
+		if cancelling {
+			r.emitStep(5, stepSignal)
+		}
 		if r.c != nil {
 			_ = r.c.Close()
 		}

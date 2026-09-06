@@ -264,7 +264,7 @@ func (d *Daemon) probe(ctx context.Context) {
 }
 
 // handleCommands applies server commands idempotently on (type, task, attempt).
-func (d *Daemon) handleCommands(ctx context.Context, cmds []api.Command) {
+func (d *Daemon) handleCommands(ctx context.Context, cmds []contracts.Command) {
 	for _, c := range cmds {
 		k := string(c.Type) + ":" + key(c.TaskID, c.Attempt)
 		d.mu.Lock()
@@ -326,7 +326,7 @@ func (d *Daemon) handleCommands(ctx context.Context, cmds []api.Command) {
 // server decides WHAT may go (§6); the daemon's whole job is to do it and say
 // what happened, and a refusal it keeps to itself is indistinguishable from a
 // daemon that is not listening.
-func (d *Daemon) gc(ctx context.Context, c api.Command) {
+func (d *Daemon) gc(ctx context.Context, c contracts.Command) {
 	targets := make([]workdir.Info, 0, len(c.Workdirs))
 	for _, w := range c.Workdirs {
 		targets = append(targets, workdir.Info{Kind: "dir", Path: w.Path, SessionID: c.SessionID, GC: &workdir.GCResult{ID: w.ID}})
@@ -437,7 +437,7 @@ func (d *Daemon) spawnConfig(b contracts.TaskBundle, wd string) acp.Config {
 func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	k := key(b.Task.ID, b.Task.Attempt)
 	batcher := api.NewBatcher(ctx, d.Server, b.Task.ID, b.Task.Attempt)
-	batcher.OnCommands = func(cs []api.Command) { d.handleCommands(ctx, cs) }
+	batcher.OnCommands = func(cs []contracts.Command) { d.handleCommands(ctx, cs) }
 	finish := func(req api.FinishRequest) {
 		fctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()

@@ -16,7 +16,7 @@ type Batcher struct {
 	srv        Server
 	taskID     string
 	attempt    int
-	OnCommands func([]Command)
+	OnCommands func([]contracts.Command)
 	MaxBatch   int
 	Interval   time.Duration
 
