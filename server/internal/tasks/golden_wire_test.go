@@ -1,5 +1,3 @@
-//go:build p2golden
-
 // Wiring for the E5 golden table. The decisions live in sweep.go, gate.go and
 // derive.go; this file only shapes them into the table's structs.
 package tasks

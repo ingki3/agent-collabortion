@@ -1,5 +1,3 @@
-//go:build p2golden
-
 // Wiring for the E6 golden table. The evaluation lives in completion.go.
 package sessions
 

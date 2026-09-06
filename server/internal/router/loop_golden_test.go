@@ -1,5 +1,3 @@
-//go:build p2golden
-
 // Golden table for FR-3.5 loop prevention (EVAL E4, 9 rows).
 //
 // Three independent limits, each with its own reset rule:

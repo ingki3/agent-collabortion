@@ -1,5 +1,3 @@
-//go:build p2golden
-
 // Wiring for the P2a golden tables (PLAN §10.3: the tables themselves are
 // read-only for this PR). Every hook here is a thin adapter — the decisions
 // live in rules.go, fallback.go, loop.go, blocked.go and internal/lanestate.

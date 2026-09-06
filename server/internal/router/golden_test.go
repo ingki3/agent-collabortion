@@ -1,5 +1,3 @@
-//go:build p2golden
-
 // Golden tables for the router: PRD FR-3.3 rules 1–8 (E1) and the lane
 // resolution + coalescing rules (E2). Written by the Reviewer BEFORE the
 // implementation (PLAN §10.1, P2a) so T-S2 codes against a table it did not

@@ -1,5 +1,3 @@
-//go:build p2golden
-
 // Golden table for completion conditions (EVAL E6, 11 rows) — PRD FR-2.2 and
 // the session state machine FR-2.3.
 //
