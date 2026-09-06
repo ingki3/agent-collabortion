@@ -18,7 +18,8 @@ import (
 
 const workdirCols = `w.id, w.session_id, w.agent_id, w.lane_id, w.kind::text, w.path_or_ref,
 	 w.branch, w.status::text, w.disk_bytes, w.last_used_at, w.retain_until, w.dirty,
-	 w.created_at, w.updated_at, s.title, s.status::text`
+	 w.created_at, w.updated_at, s.title, s.status::text,
+	 w.merged, w.commits_ahead, w.gc_blocked_reason`
 
 func scanWorkdir(row pgx.Row) (gen.Workdir, uuid.UUID, error) {
 	var wd gen.Workdir
@@ -26,11 +27,14 @@ func scanWorkdir(row pgx.Row) (gen.Workdir, uuid.UUID, error) {
 	var kind, status, sessionStatus, sessionTitle string
 	var branch *string
 	var lastUsed, retain *time.Time
-	var dirty *bool
+	var dirty, merged *bool
+	var commitsAhead int
+	var blockedReason *string
 	var sessionID uuid.UUID
 	if err := row.Scan(&wd.Id, &sessionID, &agentID, &laneID, &kind, &wd.PathOrRef,
 		&branch, &status, &wd.DiskBytes, &lastUsed, &retain, &dirty,
-		&wd.CreatedAt, &wd.UpdatedAt, &sessionTitle, &sessionStatus); err != nil {
+		&wd.CreatedAt, &wd.UpdatedAt, &sessionTitle, &sessionStatus,
+		&merged, &commitsAhead, &blockedReason); err != nil {
 		return wd, uuid.Nil, err
 	}
 	wd.SessionId = openapi_types.UUID(sessionID)
@@ -45,6 +49,21 @@ func scanWorkdir(row pgx.Row) (gen.Workdir, uuid.UUID, error) {
 		wd.Dirty = nullable.NewNullableWithValue(*dirty)
 	} else {
 		wd.Dirty = nullable.NewNullNullable[bool]()
+	}
+	// P4 (Lead T-S9 ask 2): the three git facts, apart. `dirty` keeps its old
+	// meaning (the OR); these are what let S13 say WHICH problem is holding the
+	// directory, because E13-12 asks the Director to merge and E13-13 asks them
+	// to commit or discard.
+	if merged != nil {
+		wd.Merged = nullable.NewNullableWithValue(*merged)
+	} else {
+		wd.Merged = nullable.NewNullNullable[bool]()
+	}
+	wd.CommitsAhead = nullable.NewNullableWithValue(commitsAhead)
+	if blockedReason != nil && *blockedReason != "" {
+		wd.GcBlockedReason = nullable.NewNullableWithValue(gen.WorkdirGcBlockedReason(*blockedReason))
+	} else {
+		wd.GcBlockedReason = nullable.NewNullNullable[gen.WorkdirGcBlockedReason]()
 	}
 	wd.Session = &gen.SessionRef{
 		Id: openapi_types.UUID(sessionID), Title: sessionTitle, Status: gen.SessionStatus(sessionStatus),

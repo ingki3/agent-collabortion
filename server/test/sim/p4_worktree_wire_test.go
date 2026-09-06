@@ -1,59 +1,86 @@
 //go:build p4golden
 
-// Wiring for the worktree double-write simulator.
+// ADAPTER ONLY (P2_TASKS §0-8) — T-S9's half of the wiring for
+// worktree_double_write_test.go.
 //
-// THE FILE KEEPS ITS `p4golden` TAG. Six of the seven hooks are daemon
-// behaviour — `startWorktreeAttempt`, `killDaemon`, `restartDaemon`,
-// `orphanWrite`, `markerCount`, `concurrentWriters` — and Go forbids importing
-// `daemon/internal/…` from the server module. The harness file says so itself
-// and rules out the shortcut: re-implementing pgid bookkeeping on the server to
-// satisfy the hooks would make the simulator measure the simulator. T-D9
-// exposes a test-usable entry point (a public package, or a small `cmd` this
-// wiring drives as a subprocess) and binds them to THAT, then removes the tag.
+// It binds the ONE server hook of that file. The other six are daemon
+// behaviour and T-D9 bound them to `daemon/worktreesim` in
+// p4_daemon_adapter_test.go; between the two files every hook is now live and
+// the table runs with `go test -tags p4golden ./test/sim/`.
 //
-// T-S9 owns exactly one hook, and it is bound here:
+//	requeuedAttempt → tasks.Service.ExpireStale + Queue.Claim
+//	                  (cmd/server.scheduler's 10s tick in production)
 //
-//	requeuedAttempt → tasks.RequeuedAttempt   the heartbeat-expiry re-queue
-//	                                          (tasks.Service.ExpireStale, from
-//	                                          cmd/server.scheduler) — the next
-//	                                          attempt's lane and workdir, plus the
-//	                                          previous attempt's revoked token
+// WHY THIS ONE CANNOT BE A STAND-IN. `worktreesim.Harness.Requeue` exists and
+// does the same thing in memory — T-D9 wrote it so the daemon-side mirror of
+// these rows could run before this hook existed, and its doc says so. Leaving
+// it bound here would make the table measure the harness's own bookkeeping:
+// the property under test is that the SERVER's heartbeat sweep gives attempt 2
+// the same checkout (FR-6.4/C3) and revokes attempt 1's token (FR-9.1's last
+// line of defence), and a simulator that tracks its own flags proves only that
+// the simulator can count.
 //
-// Until T-D9 lands, `requireWorktreeWiring` stops at the first nil daemon hook,
-// so binding this one changes nothing observable yet. It is bound anyway so
-// that T-D9's PR has nothing of the server's left to do — the same hand-off
-// shape `cliFallbackArgs` had in the E9 table (PR #121).
+// So every value returned below comes from Postgres after the real sweep ran:
+// the attempt from `task.attempt`, the path and branch from the `workdir` row
+// the lane binds, and `tokenRevoked` from `task_token.revoked_at`. The harness
+// is then TOLD (`Requeue`), because it owns the fake runtime process's view of
+// its own token — `orphanWrite`'s POST status is the harness answering "this
+// token is dead", and that is the E11-04 half of the same rule. The server
+// decides; the harness is informed.
 package sim
 
 import (
 	"context"
-	"testing"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
+	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
 )
-
-// simPool is the database the wiring reads through. TestMain provisions it for
-// this package (see the package's existing harness); a nil pool means the
-// package skipped, and the daemon hooks would have stopped the run first
-// anyway.
-var simPool *pgxpool.Pool
 
 func init() {
 	requeuedAttempt = adaptRequeuedAttempt
 }
 
 func adaptRequeuedAttempt(taskID uuid.UUID) (worktreeLane, bool) {
-	if simPool == nil {
+	ctx := context.Background()
+	h := simCurrent()
+	lane, ok := h.Requeue(taskID.String())
+	if !ok {
 		return worktreeLane{}, false
 	}
-	attempt, _, workdir, branch, revoked, err := tasks.RequeuedAttempt(context.Background(), simPool, taskID)
-	if err != nil {
-		return worktreeLane{}, false
+	if err := ensureTask(taskID); err != nil {
+		panic("sim: seed task: " + err.Error())
 	}
-	return worktreeLane{TaskID: taskID, Attempt: attempt, Path: workdir, Branch: branch}, revoked
-}
+	// The server has to know which checkout this lane holds, or "attempt 2 gets
+	// the same workdir" is a claim about a row that does not exist. Under
+	// `worktree` the workdir belongs to the AGENT (C3), which is the whole
+	// reason the double write is possible here.
+	if _, err := workdirs.Record(ctx, pool, workdirs.Report{
+		Kind: "worktree", Path: lane.Path, SessionID: seedIDs.session,
+		AgentID: &seedIDs.agent, Branch: &lane.Branch,
+	}, fake.Now()); err != nil {
+		panic("sim: record workdir: " + err.Error())
+	}
 
-var _ = testing.Short
+	// The daemon died, so no heartbeat arrives. The SERVER's sweep
+	// (daemon-protocol §7) is what notices — the simulator does not move the
+	// row itself.
+	if _, err := pool.Exec(ctx, `UPDATE task SET heartbeat_at = $2 WHERE id = $1`,
+		taskID, fake.Now().Add(-2*contracts.HeartbeatExpiry)); err != nil {
+		panic("sim: kill: " + err.Error())
+	}
+	if _, err := srv.Queue.ExpireStale(ctx, fake.Now()); err != nil {
+		panic("sim: sweep: " + err.Error())
+	}
+
+	attempt, _, workdir, branch, revoked, err := tasks.RequeuedAttempt(ctx, pool, taskID)
+	if err != nil {
+		panic("sim: requeued attempt: " + err.Error())
+	}
+	return worktreeLane{
+		SessionID: seedIDs.session, AgentID: seedIDs.agent, TaskID: taskID,
+		Attempt: attempt, Path: workdir, Branch: branch,
+	}, revoked
+}
