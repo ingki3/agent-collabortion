@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -89,7 +90,7 @@ func (s *Server) UpdateWorkspaceSettings(w http.ResponseWriter, r *http.Request,
 	}
 	add("updated_at", now)
 
-	q := "UPDATE workspace_settings SET " + join(sets, ", ") + " WHERE workspace_id = $1"
+	q := "UPDATE workspace_settings SET " + strings.Join(sets, ", ") + " WHERE workspace_id = $1"
 	tag, err := s.DB.Exec(r.Context(), q, args...)
 	if err != nil {
 		writeErr(w, err)
@@ -204,15 +205,4 @@ func mergeJSON(v any) []byte {
 		return []byte("{}")
 	}
 	return b
-}
-
-func join(parts []string, sep string) string {
-	out := ""
-	for i, p := range parts {
-		if i > 0 {
-			out += sep
-		}
-		out += p
-	}
-	return out
 }

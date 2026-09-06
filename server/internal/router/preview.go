@@ -12,6 +12,7 @@ import (
 
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/lanestate"
+	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
 // Preview answers FR-3.6: "이 메시지는 A, B를 트리거합니다 (프로파일: …)". It
@@ -79,7 +80,7 @@ func (s *Service) Preview(ctx context.Context, sessionID uuid.UUID, author Autho
 			AgentId nullable.Nullable[openapi_types.UUID] `json:"agent_id,omitempty"`
 			Code    string                                `json:"code"`
 			Message string                                `json:"message"`
-		}{AgentId: nullUUID(w.AgentID), Code: w.Code, Message: w.Message})
+		}{AgentId: tasks.NullUUID(w.AgentID), Code: w.Code, Message: w.Message})
 	}
 	if out.Warnings == nil {
 		out.Warnings = []struct {
@@ -95,7 +96,7 @@ func (s *Service) Preview(ctx context.Context, sessionID uuid.UUID, author Autho
 			AgentId nullable.Nullable[openapi_types.UUID] `json:"agent_id,omitempty"`
 			Code    string                                `json:"code"`
 			Message string                                `json:"message"`
-		}{AgentId: nullUUID(authorDelegator), Code: "suppressed_delegator",
+		}{AgentId: tasks.NullUUID(authorDelegator), Code: "suppressed_delegator",
 			Message: names[*authorDelegator] + "은(는) 위임자이므로 합류 묶음으로 한 번에 전달됩니다"})
 	}
 
@@ -214,11 +215,4 @@ func mentionsAgent(d Decision, id uuid.UUID) bool {
 		}
 	}
 	return false
-}
-
-func nullUUID(id *uuid.UUID) nullable.Nullable[openapi_types.UUID] {
-	if id == nil {
-		return nullable.NewNullNullable[openapi_types.UUID]()
-	}
-	return nullable.NewNullableWithValue(openapi_types.UUID(*id))
 }

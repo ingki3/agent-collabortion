@@ -190,7 +190,7 @@ func (s *Service) Post(ctx context.Context, sessionID uuid.UUID, author Author, 
 			continue
 		}
 
-		laneID, laneNew, err := s.resolveLaneFor(ctx, tx, sessionID, tr, profiles[tr.AgentID], laneOpts{
+		laneID, _, err := s.resolveLaneFor(ctx, tx, sessionID, tr, profiles[tr.AgentID], laneOpts{
 			threadRootLane: th.RootLane,
 			topLevelMent:   tr.Rule == 2 && parent == nil,
 			forceNewLane:   newLane,
@@ -198,7 +198,6 @@ func (s *Service) Post(ctx context.Context, sessionID uuid.UUID, author Author, 
 		if err != nil {
 			return nil, err
 		}
-		_ = laneNew
 		// FR-3.4: a queued task on the lane absorbs this message.
 		var existing uuid.UUID
 		err = tx.QueryRow(ctx, `SELECT id FROM task WHERE lane_id = $1 AND status = 'queued' ORDER BY created_at LIMIT 1 FOR UPDATE`, laneID).Scan(&existing)
