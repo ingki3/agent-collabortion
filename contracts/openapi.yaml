@@ -2364,7 +2364,7 @@ paths:
         효과: `answered` + 결정 기록 1건 + task `queued`로 재큐잉(새 attempt, resume 우선). `approval` 거절도 정상 흐름 — `approved: false`와 사유가 재개 프롬프트에 들어간다(E7-17). 예산 초과 시스템 HITL(`task_id` 있음)에 `budget_override_usd`를 주면 `task.budget_override`에 저장되고 에이전트 `budget_per_task`는 불변(E9-02). 종료 조건 `user_approval` HITL 승인은 세션을 `completing`으로 보낸다(E6-03); 거절은 `active` 유지 + 사유 결정 기록(E6-04). 킬 스위치로 `disabled`된 에이전트의 task는 `answered`로 기록만 하고 재큐잉을 보류한다(E10-08).
       x-prd: [FR-5.2, FR-5.4, FR-7.3, FR-2.2]
       x-screen: [S7, S8]
-      x-phase: "P2(플랫폼 발행 `approval` — 종료 조건 `user_approval` 의 승인·거절, E6-03·E6-04) / P3(그 외 — 에이전트 발행 HITL 응답·재큐잉·예산 상향·deputy)"
+      x-phase: P2   # 플랫폼 발행 `approval`(종료 조건 `user_approval`)의 승인·거절만 P2(E6-03·E6-04); 에이전트 발행 HITL 응답·재큐잉·예산 상향·deputy 는 P3 — G5 S-25, PR #101
       parameters:
         - $ref: '#/components/parameters/IdempotencyKeyRequired'
       requestBody:
