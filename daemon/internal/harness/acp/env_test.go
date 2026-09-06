@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -105,5 +106,25 @@ func TestClassifyAuthAndPrefixes(t *testing.T) {
 	}
 	if f := Classify(ClassifyInput{Err: ErrProcessExited}); f.Kind != contracts.FailOther || !strings.Contains(f.Detail, "UnexpectedExit") {
 		t.Fatalf("exit → %+v", f)
+	}
+}
+
+// §2.1 v0.6 — USER is part of the system minimum: Claude Code refreshes an
+// expired OAuth session through the macOS keychain, which needs it (G4).
+// It is passed through when the daemon has it and never invented when it
+// does not — an empty USER is not the same as no USER to the keychain.
+func TestEnvUser(t *testing.T) {
+	t.Setenv("PATH", "/usr/bin")
+	t.Setenv("USER", "simplist")
+	env := Env(contracts.RuntimeClaudeCode, TaskEnv{ServerURL: "http://s"}, nil)
+	if got := EnvValue(env, "USER"); got != "simplist" {
+		t.Fatalf("USER=%q want %q (%v)", got, "simplist", env)
+	}
+	os.Unsetenv("USER") // t.Setenv above restores it on cleanup
+	env = Env(contracts.RuntimeClaudeCode, TaskEnv{ServerURL: "http://s"}, nil)
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "USER=") {
+			t.Fatalf("USER injected while unset: %q (%v)", kv, env)
+		}
 	}
 }
