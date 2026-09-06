@@ -6,8 +6,11 @@
 #           `<workdir_root>/.colab/bin/<task>.<attempt>/colab` 을 harness.md §10 그대로 만들고,
 #           **위생화된 env**(`env -i`, PATH·COLAB_* 없음)에서 부른다. Hermes 도구가 도는 환경이 그렇다.
 #
-# 서버 T-S5(PR #124)가 아직 열려 있어 **목 서버**(mock_hitl_server.py, 계약 openapi createHitlRequest)로 돈다.
-# 머지되면 MOCK 대신 실서버 URL·실토큰만 바꾸면 같은 스크립트가 그대로 돈다.
+# 이 스모크는 **목 서버**(mock_hitl_server.py)로 돈다 — 계약 openapi createHitlRequest 를
+# 그대로 옮긴 라우트다. 목은 openapi 에서 베끼고 CLI 에서 베끼지 않는다: T-C4 때는 둘 다
+# 잘못된 표(`/tasks/{T}/hitl`)에서 나와 같은 오답을 공유했고 실서버에서만 404 였다(C-4).
+# 그 부류를 잡는 것은 옆의 **41_cli_hitl_real.sh**(진짜 서버 · 진짜 TaskToken)다 — 목을 고칠
+# 때마다 41_ 도 돌려라.
 #
 # 사용: bash e2e/p3/40_cli_hitl_smoke.sh
 # 산출물: e2e/p3/out/{capture.jsonl,mcp.jsonl,*.txt}
@@ -87,6 +90,12 @@ ASK="$(jq -c 'select(.id==3)|.result.structuredContent' "$OUT/mcp.jsonl")"
 [ "$(capture_n)" = 1 ] && [ "$(capture_at 1 '.body.type')" = "question" ] \
   && ok "서버 본문 {type:question, proposed_default:$(capture_at 1 '.body.proposed_default')}" \
   || bad "요청 $(capture_n)건: $(cat "$CAPTURE")"
+# C-4: 요청 **줄** 자체를 본다. 본문만 검사하면 경로가 틀려도 목이 받아 주는 한 초록이 된다 —
+# 그것이 T-C4 에서 실제로 일어난 일이다. 기대값은 openapi createHitlRequest 그대로.
+WANT_PATH="/api/v1/sessions/$SESSION_ID/hitl-requests"
+[ "$(capture_at 1 '.path')" = "$WANT_PATH" ] \
+  && ok "요청 경로 = $WANT_PATH (openapi createHitlRequest, 세션 스코프)" \
+  || bad "요청 경로 = $(capture_at 1 '.path') (기대 $WANT_PATH — C-4)"
 
 step "3. 경로 1 계속 — 같은 task 두 번째 요청은 409 → 3 (E7-04)"
 set +e
@@ -145,6 +154,9 @@ set -e
   && ok "두 도구 표면의 반환 문구가 같다" || bad "instruction = $(jq -r '.instruction' "$OUT/wrapper_info.json")"
 [ "$(capture_at 1 '.body.what')" = "결제사 API 키" ] && [ "$(capture_at 1 '.body.type')" = "info" ] \
   && ok "서버 본문 {type:info, what:…, why:…}" || bad "본문: $(sed -n 1p "$CAPTURE")"
+# 래퍼 경로도 같은 줄을 쓴다 — COLAB_SESSION_ID 는 래퍼가 export 하는 값이다.
+[ "$(capture_at 1 '.path')" = "$WANT_PATH" ] \
+  && ok "cli_wrapper 경로도 $WANT_PATH" || bad "요청 경로 = $(capture_at 1 '.path')"
 
 step "6. approve-request · choice 를 래퍼로 한 번씩 (E7-06 · 골든 E7-20 의 정상 경로)"
 for CASE in "approve-request --summary 프로덕션에_배포해도_되나:approval" "ask --question 어느쪽? --default B --choices A,B,C:choice"; do
@@ -169,6 +181,6 @@ for CASE in "approve-request --summary 프로덕션에_배포해도_되나:appro
 done
 
 printf '\n'
-if [ "$FAILED" = 0 ]; then printf '\033[32mSMOKE PASS\033[0m — 두 도구 표면 모두 초록 (목 서버; 서버 T-S5 PR #124 머지 전)\n'; else
+if [ "$FAILED" = 0 ]; then printf '\033[32mSMOKE PASS\033[0m — 두 도구 표면 모두 초록 (목 서버; 실서버는 41_cli_hitl_real.sh)\n'; else
   printf '\033[31mSMOKE FAIL\033[0m — %d건\n' "$FAILED"; fi
 exit "$FAILED"

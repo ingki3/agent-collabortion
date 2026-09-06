@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """Mock of the one server operation the P3 CLI HITL commands call.
 
-`POST /api/v1/tasks/{T}/hitl` — openapi.yaml `createHitlRequest`. The real
-handler lands with T-S5 (PR #124, still open at the time of writing), so this
-smoke runs against the CONTRACT: the 201 shape, the 409 `hitl_already_open`
-for a task's second open request (E7-04), and the 422 a missing
-`proposed_default` would get if the CLI ever stopped catching it first
-(E7-05 · E7-20).
+`POST /api/v1/sessions/{S}/hitl-requests` — openapi.yaml `createHitlRequest`.
+The path is session-scoped and the task comes from the TaskToken; the mock
+routes exactly that and 404s everything else, so the shape of C-4 (the CLI
+posting `/api/v1/tasks/{T}/hitl`, a path openapi never had) cannot pass here
+again. The route below is transcribed from openapi.yaml, not from the CLI —
+when the two disagree, this file is the one that is right.
+
+The real handler landed with T-S5 (PR #124); this mock keeps the smoke
+hermetic, and `SMOKE_REAL=1` in 40_cli_hitl_smoke.sh runs the same assertions
+against a live stack instead. What it serves is the CONTRACT: the 201 shape,
+the 409 `hitl_already_open` for a task's second open request (E7-04), and the
+422 a missing `proposed_default` would get if the CLI ever stopped catching it
+first (E7-05 · E7-20).
 
 Every request is appended to $CAPTURE as one JSON line so the smoke can assert
 what the CLI actually sent — and, just as important, that it sent nothing at
@@ -70,7 +77,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.headers.get("Authorization") != "Bearer " + TOKEN:
             return self._problem(401, "unauthorized", "Unauthorized", "missing or invalid task token")
-        if self.path != "/api/v1/tasks/%s/hitl" % TASK_ID:
+        if self.path != "/api/v1/sessions/%s/hitl-requests" % SESSION_ID:
+            # Exactly what the real server did to the old `/tasks/{T}/hitl`
+            # (C-4). Do not widen this to accept both.
             return self._problem(404, "not_found", "Not found", "no such route: " + self.path)
 
         # One open request per task (E7-04) — checked before the body, the way

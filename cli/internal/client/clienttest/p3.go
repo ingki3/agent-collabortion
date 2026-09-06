@@ -1,9 +1,11 @@
 package clienttest
 
-// P3 half of the fake server — createHitlRequest (POST /tasks/{T}/hitl),
-// the one operation behind `hitl ask` · `approve-request` · `request-info`.
-// Shapes follow contracts/openapi.yaml; the real handler is still 501 while
-// T-S5 fills it in, so the contract is the reference (same rule as p2.go).
+// P3 half of the fake server — createHitlRequest
+// (POST /sessions/{S}/hitl-requests), the one operation behind `hitl ask` ·
+// `approve-request` · `request-info`. Shapes and the ROUTE follow
+// contracts/openapi.yaml: the operation is session-scoped and the task comes
+// from the TaskToken. Nothing here answers `/tasks/{T}/hitl`, so a CLI that
+// goes back to that path fails the way the real server failed it (404, C-4).
 
 import (
 	"fmt"
@@ -11,11 +13,15 @@ import (
 	"strings"
 )
 
-// HitlCall is one captured createHitlRequest request.
+// HitlCall is one captured createHitlRequest request. SessionID is the path
+// parameter; TaskID is what the token scopes the request to — the fake fills
+// it from the token, the way the server does, so a test can still assert
+// which task the request lands on.
 type HitlCall struct {
-	TaskID string
-	Key    string
-	Body   map[string]any
+	SessionID string
+	TaskID    string
+	Key       string
+	Body      map[string]any
 }
 
 // p3State is embedded in p2State (and so in Server); the Server mutex guards
@@ -40,17 +46,23 @@ type p3State struct {
 const HitlID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 
 func (s *Server) handleP3(w http.ResponseWriter, r *http.Request, path string) bool {
-	if r.Method != "POST" || !strings.HasPrefix(path, "/tasks/") || !strings.HasSuffix(path, "/hitl") {
+	if r.Method != "POST" || !strings.HasPrefix(path, "/sessions/") || !strings.HasSuffix(path, "/hitl-requests") {
 		return false
 	}
-	taskID := strings.TrimSuffix(strings.TrimPrefix(path, "/tasks/"), "/hitl")
+	sessionID := strings.TrimSuffix(strings.TrimPrefix(path, "/sessions/"), "/hitl-requests")
 	body, ok := decodeBody(s, w, r)
 	if !ok {
 		return true
 	}
-	s.HitlCalls = append(s.HitlCalls, HitlCall{TaskID: taskID, Key: r.Header.Get("Idempotency-Key"), Body: body})
-	if taskID != TaskID {
-		s.problem(w, 403, "forbidden", "Forbidden", "token scope is another task")
+	// The task is the token's, never the caller's — the path has no room for
+	// one (openapi createHitlRequest).
+	taskID := TaskID
+	s.HitlCalls = append(s.HitlCalls, HitlCall{
+		SessionID: sessionID, TaskID: taskID,
+		Key: r.Header.Get("Idempotency-Key"), Body: body,
+	})
+	if sessionID != SessionID {
+		s.problem(w, 403, "forbidden", "Forbidden", "token scope is another session")
 		return true
 	}
 	// One open request per task (E7-04). Checked before validation: the
@@ -114,7 +126,7 @@ func (s *Server) handleP3(w http.ResponseWriter, r *http.Request, path string) b
 		opts = []any{}
 	}
 	req := map[string]any{
-		"id": id, "session_id": SessionID, "task_id": taskID, "lane_id": LaneID,
+		"id": id, "session_id": sessionID, "task_id": taskID, "lane_id": LaneID,
 		"agent":  map[string]any{"id": AgentID, "name": AgentName},
 		"source": "agent", "type": typ, "question": question,
 		"context": body["context"], "options": opts, "proposed_default": nil,
