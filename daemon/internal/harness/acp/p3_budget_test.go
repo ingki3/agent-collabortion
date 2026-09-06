@@ -49,11 +49,38 @@ func TestCliBudgetFlagGolden(t *testing.T) {
 	})
 }
 
-func budgetBundle(limit float64, override *float64) contracts.TaskBundle {
+// budgetBundle carries the three numbers §4.4 v0.7.1 reads: `session` is the
+// session's REMAINING budget (`limits.budget_usd`), `override` the Director's
+// approved raise, and `task` the agent's own `budget_per_task`. A 0 means "not
+// set".
+func budgetBundle(session float64, override *float64) contracts.TaskBundle {
 	b := bundle(contracts.RuntimeClaudeCode)
-	b.Limits.BudgetUSD = &limit
+	b.Limits.BudgetUSD = &session
 	b.Task.BudgetOverrideUSD = override
 	return b
+}
+
+func withTaskBudget(b contracts.TaskBundle, task float64) contracts.TaskBundle {
+	b.Task.BudgetUSD = &task
+	return b
+}
+
+// spend scripts one turn that reports `cost` as a MEASURED cost.
+func spend(cost float64) acpfake.Script {
+	return acpfake.Script{Turns: []acpfake.Turn{{
+		Steps: []acpfake.Step{{Chunk: "spending"}},
+		Usage: &acpfake.PromptUsage{InputTokens: 100, OutputTokens: 50, CostUSD: &cost},
+	}}}
+}
+
+// budgetDetail returns the §4.4 feed line the attempt left, or "".
+func budgetDetail(f *fixture) string {
+	for _, e := range f.sink.find("runtime", "cancel", "info") {
+		if d, _ := e.Payload["detail"].(string); strings.Contains(d, "paused_budget") {
+			return d
+		}
+	}
+	return ""
 }
 
 // E9-01 — a MEASURED overrun ends the attempt as paused_budget, not failed:
@@ -113,8 +140,58 @@ func TestBudgetOverrideWinsAtEnforcementTime(t *testing.T) {
 		Steps: []acpfake.Step{{Chunk: "spending"}},
 		Usage: &acpfake.PromptUsage{InputTokens: 10, OutputTokens: 10, CostUSD: &cost},
 	}}}
-	f := newFixture(t, s, budgetBundle(1.0, &over), nil)
+	// The agent's original $1 rides on `task.budget_usd`, not on
+	// `limits.budget_usd`: §4.4 v0.7.1 calls the latter the SESSION's
+	// remaining budget, and a session with $1 left would (correctly) pause
+	// this attempt no matter what the task's override says. The row's
+	// expectation is unchanged — an approved override beats the agent's own
+	// per-task budget at enforcement time.
+	f := newFixture(t, s, withTaskBudget(budgetBundle(10.0, &over), 1.0), nil)
 	if res := f.run(); res.Outcome != "completed" {
 		t.Fatalf("outcome = %q, want completed — $1.50 is under the approved $3 override (E9-08)", res.Outcome)
+	}
+}
+
+// D-16 / §4.4 v0.7.1 — the effective budget is min(task 상한, 세션 잔여), so an
+// approved $3 override does NOT let one task spend a session that has $2 left.
+// Under the old priority ladder (override > limits > task) it did: raising a
+// task's cap silently raised the session's.
+func TestSessionRemainingCapsAnApprovedOverride(t *testing.T) {
+	over := 3.0
+	f := newFixture(t, spend(2.4), budgetBundle(2.0, &over), nil)
+	res := f.run()
+	if res.Outcome != "paused_budget" {
+		t.Fatalf("outcome = %q, want paused_budget — $2.40 is over the $2 the session has left, "+
+			"and the $3 override cannot spend money the session does not have (D-16, §4.4 v0.7.1)", res.Outcome)
+	}
+	d := budgetDetail(f)
+	if d == "" {
+		t.Fatalf("the feed never says why the attempt stopped: %+v", f.sink.find("runtime", "cancel", ""))
+	}
+	if !strings.Contains(d, "세션 잔여") {
+		t.Errorf("detail = %q, want it to name 세션 잔여 as the cap that bound — paused at $2 with a "+
+			"$3 override approved, the Director cannot otherwise tell which cap to lift (D-16)", d)
+	}
+	if !strings.Contains(d, "$2.0000") {
+		t.Errorf("detail = %q, want the enforced cap $2.0000, not the $3 override", d)
+	}
+}
+
+// D-16 — the other side of the min(): no override, the agent's $1 per-task
+// budget is nearer than the session's $5, so the task cap is what binds and
+// what the feed names.
+func TestTaskBudgetBindsWhenTheSessionHasRoom(t *testing.T) {
+	f := newFixture(t, spend(1.2), withTaskBudget(budgetBundle(5.0, nil), 1.0), nil)
+	res := f.run()
+	if res.Outcome != "paused_budget" {
+		t.Fatalf("outcome = %q, want paused_budget — $1.20 is over the agent's $1 per-task budget "+
+			"even though the session has $5 left (D-16, §4.4 v0.7.1)", res.Outcome)
+	}
+	d := budgetDetail(f)
+	if !strings.Contains(d, "task 상한") {
+		t.Errorf("detail = %q, want it to name task 상한 as the cap that bound (D-16)", d)
+	}
+	if !strings.Contains(d, "$1.0000") {
+		t.Errorf("detail = %q, want the enforced cap $1.0000, not the session's $5", d)
 	}
 }

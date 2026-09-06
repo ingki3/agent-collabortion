@@ -111,7 +111,7 @@ func TestCLIWrapperRemovedOnCancel(t *testing.T) {
 	s.StayAlive = true
 	s.Turns = []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "working"}, {Hang: true}}}}
 	d, root := newDaemon(t, srv, s)
-	srv.hbCmds = []api.Command{{Command: contracts.Command{Type: contracts.CmdCancel, TaskID: "t-hc", Attempt: 1, Reason: "director"}}}
+	srv.hbCmds = []contracts.Command{{Type: contracts.CmdCancel, TaskID: "t-hc", Attempt: 1, Reason: "director"}}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- d.Run(ctx) }()

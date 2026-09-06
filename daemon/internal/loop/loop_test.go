@@ -35,7 +35,7 @@ type memServer struct {
 	phaseFile      []bool // pgid record existed when phase=preparing arrived
 	events         []contracts.TaskEvent
 	hbs            []api.HeartbeatRequest
-	hbCmds         []api.Command
+	hbCmds         []contracts.Command
 	workdirReports []api.WorkdirsRequest
 	finishes       []api.FinishRequest
 	root           string
@@ -230,7 +230,7 @@ func TestClaimRunFinish(t *testing.T) {
 func TestCancelCommandViaHeartbeat(t *testing.T) {
 	srv := &memServer{queue: []contracts.TaskBundle{bundle("t2")}}
 	d, _ := newDaemon(t, srv, acpfake.Script{StayAlive: true, Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "working"}, {Hang: true}}}}})
-	srv.hbCmds = []api.Command{{Command: contracts.Command{Type: contracts.CmdCancel, TaskID: "t2", Attempt: 1, Reason: "director"}}, {Command: contracts.Command{Type: contracts.CmdCancel, TaskID: "t2", Attempt: 1, Reason: "director"}}}
+	srv.hbCmds = []contracts.Command{{Type: contracts.CmdCancel, TaskID: "t2", Attempt: 1, Reason: "director"}, {Type: contracts.CmdCancel, TaskID: "t2", Attempt: 1, Reason: "director"}}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- d.Run(ctx) }()
@@ -301,7 +301,7 @@ func TestRevokeKillsRecordedOrphan(t *testing.T) {
 	d.init()
 	st := orphan.Store{Root: root}
 	st.Record(orphan.Record{TaskID: "gone", Attempt: 3, PGID: pgid})
-	d.handleCommands(context.Background(), []api.Command{{Command: contracts.Command{Type: contracts.CmdRevoke, TaskID: "gone", Attempt: 3}}})
+	d.handleCommands(context.Background(), []contracts.Command{{Type: contracts.CmdRevoke, TaskID: "gone", Attempt: 3}})
 	if orphan.Alive(pgid) {
 		t.Fatal("group alive after revoke")
 	}

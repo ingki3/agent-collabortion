@@ -29,7 +29,7 @@ type fakeServer struct {
 	phases    []PhaseRequest
 	hb        []HeartbeatRequest
 	hbRaw     [][]byte
-	commands  []Command
+	commands  []contracts.Command
 }
 
 func (f *fakeServer) handler() http.Handler {
@@ -108,7 +108,7 @@ func (f *fakeServer) handler() http.Handler {
 			}
 		}
 		f.batches = append(f.batches, got)
-		json.NewEncoder(w).Encode(EventsResponse{AcceptedSeqMax: f.eventsMax, Commands: []Command{{Command: contracts.Command{Type: contracts.CmdProbe}}}})
+		json.NewEncoder(w).Encode(EventsResponse{AcceptedSeqMax: f.eventsMax, Commands: []contracts.Command{{Type: contracts.CmdProbe}}})
 	})
 	mux.HandleFunc("POST /v1/daemon/tasks/{task}/attempts/{n}/heartbeat", func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
@@ -118,7 +118,7 @@ func (f *fakeServer) handler() http.Handler {
 		f.hb = append(f.hb, req)
 		f.hbRaw = append(f.hbRaw, raw)
 		f.mu.Unlock()
-		json.NewEncoder(w).Encode(HeartbeatResponse{Commands: []Command{{Command: contracts.Command{Type: contracts.CmdCancel, TaskID: "t1", Attempt: 1, Reason: "director"}}}})
+		json.NewEncoder(w).Encode(HeartbeatResponse{Commands: []contracts.Command{{Type: contracts.CmdCancel, TaskID: "t1", Attempt: 1, Reason: "director"}}})
 	})
 	mux.HandleFunc("POST /v1/daemon/tasks/{task}/attempts/{n}/finish", func(w http.ResponseWriter, r *http.Request) {
 		var req FinishRequest
@@ -192,10 +192,10 @@ func TestBatcherBatchesAndResends(t *testing.T) {
 	f, s := newFake(t)
 	c := New(s.URL, "cdt_secret")
 	ctx := context.Background()
-	var cmds []Command
+	var cmds []contracts.Command
 	var cmu sync.Mutex
 	b := NewBatcherWith(ctx, c, "t1", 1, 100, 50*time.Millisecond)
-	b.OnCommands = func(cs []Command) { cmu.Lock(); cmds = append(cmds, cs...); cmu.Unlock() }
+	b.OnCommands = func(cs []contracts.Command) { cmu.Lock(); cmds = append(cmds, cs...); cmu.Unlock() }
 	f.mu.Lock()
 	f.failNext = 2
 	f.mu.Unlock()
