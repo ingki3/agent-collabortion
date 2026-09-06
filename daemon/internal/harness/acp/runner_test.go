@@ -17,9 +17,10 @@ import (
 )
 
 type memSink struct {
-	mu       sync.Mutex
-	events   []contracts.TaskEvent
-	previews []string
+	mu         sync.Mutex
+	events     []contracts.TaskEvent
+	previews   []string
+	previewIDs []string
 }
 
 func (s *memSink) Emit(ev contracts.TaskEvent) {
@@ -28,10 +29,11 @@ func (s *memSink) Emit(ev contracts.TaskEvent) {
 	s.events = append(s.events, ev)
 }
 
-func (s *memSink) Preview(t string) {
+func (s *memSink) Preview(t, messageID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.previews = append(s.previews, t)
+	s.previewIDs = append(s.previewIDs, messageID)
 }
 
 func (s *memSink) nPreviews() int {

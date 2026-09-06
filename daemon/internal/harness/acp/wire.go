@@ -97,6 +97,36 @@ type InitializeResult struct {
 	AuthMethods       json.RawMessage `json:"authMethods,omitempty"`
 }
 
+// AgentCaps is the part of `agentCapabilities` the harness acts on. PRD
+// §8.2.1: a capability is judged by what the session advertised, never by
+// the runtime name — the same protocol keys are spoken by different
+// binaries and by different versions of the same one.
+type AgentCaps struct {
+	// LoadSession is the resume capability (harness §6, probe §9 `resume`).
+	LoadSession bool `json:"loadSession"`
+	// MCP is which MCP transports the agent accepts.
+	MCP MCPCapabilities `json:"mcpCapabilities"`
+}
+
+// MCPCapabilities is `agentCapabilities.mcpCapabilities`. stdio is the ACP
+// baseline every agent accepts and is therefore not advertised; http and sse
+// are (PRD §8.2.3 "런타임 `mcpCapabilities`에 맞춰 stdio/http 필터").
+type MCPCapabilities struct {
+	HTTP bool `json:"http"`
+	SSE  bool `json:"sse"`
+}
+
+// Caps decodes agentCapabilities. An absent or unparsable block means
+// "nothing advertised" — the caller then keeps only the stdio baseline.
+func (r *InitializeResult) Caps() AgentCaps {
+	var c AgentCaps
+	if r == nil || len(r.AgentCapabilities) == 0 {
+		return c
+	}
+	_ = json.Unmarshal(r.AgentCapabilities, &c)
+	return c
+}
+
 // ---- session/new · load ---------------------------------------------------
 
 type NewSessionParams struct {

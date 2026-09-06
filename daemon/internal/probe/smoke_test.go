@@ -24,9 +24,12 @@ func TestSmokeRealAdapters(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
-	p := Run(ctx, Options{DaemonVersion: "smoke", Turn: true, Log: func(s string) { t.Log(s) }})
+	o := Options{DaemonVersion: "smoke", Turn: true, Log: func(s string) { t.Log(s) }}
+	p := Run(ctx, o)
 	b, _ := json.MarshalIndent(p, "", "  ")
 	t.Logf("probe:\n%s", b)
+	// D-1: the colab CLI is a machine property reported alongside the runtimes.
+	t.Logf("colab_cli: %+v", Colab(ctx, "", o))
 	found := map[contracts.RuntimeKind]bool{}
 	for _, c := range p.Capabilities {
 		found[c.Kind] = true
@@ -38,6 +41,22 @@ func TestSmokeRealAdapters(t *testing.T) {
 		}
 		if c.Kind == contracts.RuntimeClaudeCode && c.BriefTransport != contracts.BriefACPMetaSystemPrompt {
 			t.Errorf("claude transport %s", c.BriefTransport)
+		}
+		if c.Kind == contracts.RuntimeHermes && c.BriefTransport != contracts.BriefInstructionFile {
+			t.Errorf("hermes transport %s", c.BriefTransport)
+		}
+		// D-2: these are measurements now — a real turn must produce them.
+		if c.ProtocolVersion != contracts.ACPProtocolVersion {
+			t.Errorf("%s protocol_version %d (measured from initialize)", c.Kind, c.ProtocolVersion)
+		}
+		if !c.Resume {
+			t.Errorf("%s resume=false — session/load did not bring the session back", c.Kind)
+		}
+		if !c.Usage {
+			t.Errorf("%s usage=false — the turn reported no tokens", c.Kind)
+		}
+		if c.Kind == contracts.RuntimeClaudeCode && !c.ToolDisallow {
+			t.Error("claude tool_disallow=false — disallowedTools did not take effect")
 		}
 	}
 	for _, k := range []contracts.RuntimeKind{contracts.RuntimeClaudeCode, contracts.RuntimeHermes} {

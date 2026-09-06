@@ -20,16 +20,17 @@ type Batcher struct {
 	MaxBatch   int
 	Interval   time.Duration
 
-	mu       sync.Mutex
-	pending  []contracts.TaskEvent // unacked, ascending seq
-	acked    int
-	preview  string
-	lastSeq  int
-	kick     chan struct{}
-	stopped  chan struct{}
-	stopOnce sync.Once
-	wg       sync.WaitGroup
-	lastErr  error
+	mu           sync.Mutex
+	pending      []contracts.TaskEvent // unacked, ascending seq
+	acked        int
+	preview      string
+	previewMsgID string
+	lastSeq      int
+	kick         chan struct{}
+	stopped      chan struct{}
+	stopOnce     sync.Once
+	wg           sync.WaitGroup
+	lastErr      error
 }
 
 // NewBatcher starts the flush loop with the §4.2 defaults (100 events / 1s).
@@ -60,24 +61,27 @@ func (b *Batcher) Emit(ev contracts.TaskEvent) {
 }
 
 // Preview implements acp.Sink: the partial message goes out with the next
-// heartbeat, never as an event.
-func (b *Batcher) Preview(text string) {
+// heartbeat, never as an event. messageID is what the daemon knows about an
+// already-posted message it is continuing — always "" in v1 (§4.2 v0.3: the
+// server fills preview.message_id, the daemon leaves it empty).
+func (b *Batcher) Preview(text, messageID string) {
 	b.mu.Lock()
-	b.preview = text
+	b.preview, b.previewMsgID = text, messageID
 	b.mu.Unlock()
 }
 
 // TakePreview returns the latest partial output in the §4.2 v0.3 shape, or
 // nil when there is none — the heartbeat then omits `preview` rather than
-// sending an empty object. message_id stays unset: the daemon does not know
-// the server-side message id.
+// sending an empty object. message_id is whatever the sink was given, which
+// in v1 is always empty: the daemon does not learn server-side message ids
+// (§4.2 v0.3 — the server fills it).
 func (b *Batcher) TakePreview() *HeartbeatPreview {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.preview == "" {
 		return nil
 	}
-	return &HeartbeatPreview{Text: b.preview}
+	return &HeartbeatPreview{Text: b.preview, MessageID: b.previewMsgID}
 }
 
 // LastSeq is the highest seq emitted so far.

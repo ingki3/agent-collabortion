@@ -6,6 +6,7 @@
 | 실행일 | 2026-09-05 (KST 09:14) |
 | 어댑터 | `@zed-industries/claude-code-acp` 0.16.2 · Claude Code CLI 2.1.258 · 모델 haiku · Hermes 0.20.6은 소스 확인만 |
 | 도구 | `daemon/cmd/acpprobe -scenario spike3` |
+| 도구 주석 | `acpprobe`(스파이크 전용 CLI)는 P2 에서 삭제됐다 — `daemon/internal/harness/acp` 로 승격 완료(백로그 D-3). 이 문서의 명령줄은 당시 실행 기록이며 지금은 재현되지 않는다. 재현이 필요하면 `daemon/internal/probe`(PONG 턴)와 `daemon/internal/acpfake`(계약 테스트)를 쓴다 |
 | 원시 로그 | `plan/spikes/logs/spike3_claude_20260905T001436Z.{jsonl,summary.json}` |
 
 **판정: 통과(Claude Code 한정)** — ACP 표준 스키마에는 필드가 없고, `claude-code-acp`가 `_meta.systemPrompt`로 받는다. 브리프 없이 주입한 이름·비밀어를 에이전트가 정확히 답했다. Hermes는 필드가 없어 지시 파일이 유일 경로.

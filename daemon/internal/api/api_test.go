@@ -150,7 +150,7 @@ func TestPairProbeClaimPhaseHeartbeatFinish(t *testing.T) {
 		t.Fatalf("%+v %v", pr, err)
 	}
 	c := New(s.URL, pr.DaemonToken)
-	if err := c.Probe(ctx, pr.RuntimeID, contracts.Probe{DaemonVersion: "t", Capabilities: []contracts.Capability{{Kind: contracts.RuntimeClaudeCode}}}); err != nil {
+	if err := c.Probe(ctx, pr.RuntimeID, contracts.Probe{DaemonVersion: "t", Capabilities: []contracts.Capability{{Kind: contracts.RuntimeClaudeCode}}, ColabCLI: contracts.ColabCLI{Present: true, Version: "0.1.0"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := New(s.URL, "wrong").Probe(ctx, "rt_1", contracts.Probe{}); err == nil {
@@ -202,7 +202,7 @@ func TestBatcherBatchesAndResends(t *testing.T) {
 	for i := 1; i <= 250; i++ {
 		b.Emit(ev(i))
 	}
-	b.Preview("partial text")
+	b.Preview("partial text", "") // §4.2 v0.3: the daemon never fills message_id
 	if err := b.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestHeartbeatPreviewContractShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	// (a) partial output → preview.text is exactly that string.
-	b.Preview("hello wor")
+	b.Preview("hello wor", "")
 	if _, err := c.Heartbeat(ctx, "t1", 1, HeartbeatRequest{LastSeq: 7, Preview: b.TakePreview()}); err != nil {
 		t.Fatal(err)
 	}

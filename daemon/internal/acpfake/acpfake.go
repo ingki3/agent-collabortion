@@ -37,6 +37,13 @@ type Script struct {
 	// KnownSessions succeed on session/load; others → claude: -32000
 	// "Session not found", hermes: null.
 	KnownSessions []string `json:"known_sessions,omitempty"`
+	// NoLoadSession drops agentCapabilities.loadSession (probe §9 `resume`
+	// is the advertised value, PRD §8.2.1).
+	NoLoadSession bool `json:"no_load_session,omitempty"`
+	// MCPHTTP/MCPSSE advertise agentCapabilities.mcpCapabilities (§8.2.3
+	// filter). stdio is the baseline and never advertised.
+	MCPHTTP bool `json:"mcp_http,omitempty"`
+	MCPSSE  bool `json:"mcp_sse,omitempty"`
 	// LoadProvenance is returned in _meta.hermes.sessionProvenance on load
 	// (hermes). Nil → provenance echoing the requested id.
 	LoadProvenance *Provenance `json:"load_provenance,omitempty"`
@@ -338,7 +345,24 @@ func (sv *server) rawInit(sid string) {
 			}
 		}
 	}
-	tools := []string{"Bash", "Read", "Write"}
+	tools := []string{"Bash", "Read", "Write", "Task", "WebFetch"}
+	if opts != nil {
+		if dis, ok := opts["disallowedTools"].([]any); ok {
+			blocked := map[string]bool{}
+			for _, d := range dis {
+				if name, ok := d.(string); ok {
+					blocked[name] = true
+				}
+			}
+			kept := tools[:0:0]
+			for _, t := range tools {
+				if !blocked[t] {
+					kept = append(kept, t)
+				}
+			}
+			tools = kept
+		}
+	}
 	mcp := []map[string]any{}
 	for _, s := range sv.lastMCP {
 		tools = append(tools, "mcp__"+s.Name+"__message_post")
@@ -358,7 +382,11 @@ func (sv *server) handle(m message) {
 	s := sv.s
 	switch m.Method {
 	case acp.MethodInitialize:
-		sv.reply(m.ID, map[string]any{"protocolVersion": s.ProtocolVersion, "agentCapabilities": map[string]any{"loadSession": true}, "agentInfo": map[string]any{"name": "acpfake", "version": orDefault(s.AgentVersion, acp.AdapterPin)}})
+		caps := map[string]any{
+			"loadSession":     !s.NoLoadSession,
+			"mcpCapabilities": map[string]any{"http": s.MCPHTTP, "sse": s.MCPSSE},
+		}
+		sv.reply(m.ID, map[string]any{"protocolVersion": s.ProtocolVersion, "agentCapabilities": caps, "agentInfo": map[string]any{"name": "acpfake", "version": orDefault(s.AgentVersion, acp.AdapterPin)}})
 	case acp.MethodSessionNew:
 		sv.absorbMeta(m.Params)
 		sv.model = s.DefaultModel
