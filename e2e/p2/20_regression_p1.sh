@@ -14,17 +14,25 @@ N="${N:-20}"
 # 04·06 은 agent-browser 를 쓴다. 다른 세션이 열려 있으면 새 창이 net::ERR_ABORTED 로 죽는 것을
 # 2026-09-06 실행에서 봤다(디버깅용 세션과 충돌). 먼저 전부 닫는다.
 agent-browser close --all >/dev/null 2>&1 || true
-# 행마다 실행 시각을 적는다 — 한 스크립트만 따로 다시 돌린 값과 일괄 실행값이 섞이면
-# 나중에 보고서를 쓰는 사람이 어느 쪽 수치인지 알 수 없다(2026-09-06 07 행에서 실제로 그랬다).
-TSV="$OUT/regression.tsv"; echo -e "script\tran_at\texit\tnote" > "$TSV"
+# tsv 는 **누적**이다. 행마다 시도 번호와 실행 시각을 적는다 — 일괄 실행에서 실패한 스크립트를
+# 손으로 다시 돌려 통과시키면 그 결과가 로그에만 남고 tsv 는 옛 실패로 남아 보고서와 어긋난다
+# (2026-09-06 04·06 행에서 실제로 그랬다). 다시 돌릴 때는 손이 아니라 러너로 돌린다:
+#   ONLY="04_u1_browser.sh 06_s12_pairing_realtime.sh" bash e2e/p2/20_regression_p1.sh   # 그 둘만, 행 추가
+#   RESET_TSV=1 bash e2e/p2/20_regression_p1.sh                                          # tsv 를 새로 시작
+TSV="$OUT/regression.tsv"
+[ "${RESET_TSV:-0}" = 1 ] && rm -f "$TSV"
+[ -f "$TSV" ] || printf 'script\tattempt\tran_at\texit\tnote\n' > "$TSV"
+ONLY="${ONLY:-}"
 run() { # script [env...]
   local sh="$1"; shift
+  if [ -n "$ONLY" ]; then case " $ONLY " in *" $sh "*) ;; *) return 0;; esac; fi
   step "e2e/p1/$sh"
-  local t0; t0="$(date +%s)"
+  local t0 attempt; t0="$(date +%s)"
+  attempt=$(( $(awk -F'\t' -v s="$sh" 'NR>1 && $1==s' "$TSV" | wc -l | tr -d ' ') + 1 ))
   if env "$@" bash "$E2E_ROOT/e2e/p1/$sh" > "$OUT/p1/${sh%.sh}.log" 2>&1; then rc=0; else rc=$?; fi
   local note; note="$(tail -3 "$OUT/p1/${sh%.sh}.log" | tr '\n' ' ' | tr -s ' ' | head -c 200)"
-  printf '%s\t%s\t%s\t%s\n' "$sh" "$(date '+%F %T')" "$rc" "$note" >> "$TSV"
-  [ "$rc" = 0 ] && ok "$sh ($(( $(date +%s) - t0 ))s)" || bad "$sh exit=$rc ($(( $(date +%s) - t0 ))s) — $OUT/p1/${sh%.sh}.log"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$sh" "$attempt" "$(date '+%F %T')" "$rc" "$note" >> "$TSV"
+  [ "$rc" = 0 ] && ok "$sh #$attempt ($(( $(date +%s) - t0 ))s)" || bad "$sh #$attempt exit=$rc ($(( $(date +%s) - t0 ))s) — $OUT/p1/${sh%.sh}.log"
 }
 run 01_vertical_slice.sh "N=$N"
 run 03_cancel.sh
@@ -33,5 +41,5 @@ run 05_invite_api.sh
 run 06_s12_pairing_realtime.sh
 run 04_u1_browser.sh
 run 07_adversarial.sh
-step "결과"
+step "결과 (같은 스크립트가 여러 줄이면 attempt 가 큰 쪽이 최신이다)"
 column -t -s $'\t' "$TSV" >&2

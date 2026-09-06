@@ -106,19 +106,30 @@ ok "session $SESSION"
 
 step "2. U2-1·3 — lane 보드 카드 3장 running · 참여자 칩"
 # 카드 3장이 동시에 running 인 순간을 화면에서 잡는다(폴링으로 최댓값을 기록).
-MAXRUN=0; CHIP_R=""; CHIP_L=""
+#
+# 칩은 **두 순간**을 따로 잡는다. 최대 겹침 순간에는 Lead 의 위임 턴이 아직 살아 있을 수 있고
+# (2026-09-06 실측: 겹침 최대 08:18:12, Lead task 1 은 08:18:16 까지 running), 그때 Lead=working 은
+# FR-1.3 파생 순서상 **옳다**. U2-3·U2-4 의 "Lead 칩 idle" 은 Lead task 가 끝난 뒤의 이야기다.
+#   ① 최대 겹침 순간      → Researcher 칩이 working 인가
+#   ② Lead task 가 끝났고 Researcher lane 이 아직 도는 순간 → Lead 칩이 idle 인가
+MAXRUN=0; CHIP_R=""; CHIP_L_IDLE=""; CHIP_R_AT_IDLE=""; IDLE_AT=""
 chip_of() { abget get attr "[data-testid=\"participants\"] [data-testid=\"agent-chip\"][data-agent-id=\"$1\"]" data-status; }
+lead_active() { psqlq "select count(*) from task where session_id='$SESSION' and agent_id='$LEAD' and status in ('queued','preparing','dispatched','running')"; }
+rsch_running() { psqlq "select count(*) from task where session_id='$SESSION' and agent_id='$RSCH' and status in ('preparing','dispatched','running')"; }
 END=$(( $(date +%s) + 180 ))
 while [ "$(date +%s)" -lt "$END" ]; do
   N="$(count '[data-testid="lane-card"][data-status="running"]')"
   if [ "${N:-0}" -gt "$MAXRUN" ]; then
     MAXRUN="$N"
-    # **칩은 이 순간에 읽는다.** 루프가 끝난 뒤에 읽으면 이미 Researcher 가 끝나고 Lead 가 종합 중이라
-    # working/idle 이 뒤집힌다(2026-09-06 실측: Researcher=idle Lead=working).
-    CHIP_R="$(chip_of "$RSCH")"; CHIP_L="$(chip_of "$LEAD")"
+    CHIP_R="$(chip_of "$RSCH")"          # ① 겹침이 가장 큰 순간의 Researcher 칩
     [ "$N" -ge 3 ] && shot p2-a-04-lane-board-3running
   fi
-  [ "$MAXRUN" -ge 3 ] && break
+  # ② Lead 가 쉬는 동안 Researcher 가 도는 순간을 한 번만 잡는다
+  if [ -z "$IDLE_AT" ] && [ "$(lead_active)" = 0 ] && [ "$(rsch_running)" -ge 1 ]; then
+    CHIP_L_IDLE="$(chip_of "$LEAD")"; CHIP_R_AT_IDLE="$(chip_of "$RSCH")"; IDLE_AT="$(date +%H:%M:%S)"
+    shot p2-a-04b-lead-idle
+  fi
+  [ "$MAXRUN" -ge 3 ] && [ -n "$IDLE_AT" ] && break
   DONE_N="$(count '[data-testid="lane-card"][data-status="done"]')"
   [ "${DONE_N:-0}" -ge 3 ] && break
   sleep 2
@@ -129,8 +140,17 @@ rec W5 S7 "lane 보드에 Researcher 카드 3장이 **동시에** running (U2-1)
 wait_fn "document.querySelectorAll('[data-testid=\"lane-brief\"]').length >= 3" 60 || true
 BRIEF_N="$(count '[data-testid="lane-brief"]')"
 rec W6 S7 "각 카드에 브리프 한 줄 (U2-1)" "$( [ "${BRIEF_N:-0}" -ge 3 ] && echo PASS || echo FAIL )" "lane-brief=$BRIEF_N"
-rec W7 S7 "lane 이 도는 순간 Researcher 칩 working · Lead 칩 idle (U2-3 · E5-11)" \
-  "$( [ "$CHIP_R" = working ] && [ "$CHIP_L" = idle ] && echo PASS || echo FAIL )" "동시 running=$MAXRUN 시점: Researcher=${CHIP_R:-없음} Lead=${CHIP_L:-없음}"
+rec W7 S7 "lane 이 도는 순간 Researcher 칩이 working (U2-3 · E5-11)" \
+  "$( [ "$CHIP_R" = working ] && echo PASS || echo FAIL )" "동시 running=$MAXRUN 시점: Researcher=${CHIP_R:-없음}"
+# U2-4 "Lead 는 깨어나지 않음" 의 화면 쪽 판정. Lead task 가 하나도 안 도는 순간에만 묻는다 —
+# 최대 겹침 순간에는 Lead 의 위임 턴이 아직 살아 있어 working 이 옳다(FR-1.3 파생 순서 4 > 6).
+if [ -n "$IDLE_AT" ]; then
+  rec W7b S7 "Lead task 가 없는 동안 Lead 칩은 idle · Researcher 칩은 working (U2-4 · E5-11)" \
+    "$( [ "$CHIP_L_IDLE" = idle ] && [ "$CHIP_R_AT_IDLE" = working ] && echo PASS || echo FAIL )" \
+    "$IDLE_AT (Lead task 0개, Researcher 실행 중): Lead=${CHIP_L_IDLE:-없음} Researcher=${CHIP_R_AT_IDLE:-없음}"
+else
+  rec W7b S7 "Lead task 가 없는 동안 Lead 칩은 idle (U2-4)" "N/A" "그 구간을 못 잡았다(Lead 턴과 Researcher 실행이 겹치지 않는 순간이 폴링 간격 안에 없었다)"
+fi
 
 step "3. U4-1 · U15-3 — 작성창 트리거 미리보기가 **서버 값**인가"
 # 로컬 계산이면 서버를 끊어도 칩이 뜬다. 여기서는 previewTriggers 응답과 화면 칩을 대조한다.
