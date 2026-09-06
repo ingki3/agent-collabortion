@@ -12,6 +12,7 @@ import (
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
@@ -40,6 +41,10 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, workspaceI
 	if params.RuntimeId != nil {
 		v := *params.RuntimeId
 		o.RuntimeID = &v
+	}
+	if p := validateLimit(params.Limit); p != nil {
+		writeProblem(w, p)
+		return
 	}
 	if params.Limit != nil {
 		o.Limit = *params.Limit
@@ -128,6 +133,10 @@ func (s *Server) ListMessages(w http.ResponseWriter, r *http.Request, sessionId 
 			return
 		}
 		o.After = &id
+	}
+	if p := validateLimit(params.Limit); p != nil {
+		writeProblem(w, p)
+		return
 	}
 	if params.Limit != nil {
 		o.Limit = *params.Limit
@@ -309,6 +318,10 @@ func (s *Server) ListTaskEvents(w http.ResponseWriter, r *http.Request, taskId g
 		after = *params.AfterSeq
 	}
 	limit := 0
+	if p := validateLimit(params.Limit); p != nil {
+		writeProblem(w, p)
+		return
+	}
 	if params.Limit != nil {
 		limit = *params.Limit
 	}
@@ -407,7 +420,12 @@ func (s *Server) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceI
 	defer sub.Close()
 
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	// S-6: `no-transform` is the half that survives deployment. `no-cache`
+	// stops caching but a gzip-ing proxy (nginx, a CDN) may still buffer
+	// text/event-stream and hold every event until the buffer fills — the
+	// stream then looks dead. compress:false only disciplines our own dev
+	// server, so the header has to say it.
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
@@ -460,4 +478,94 @@ func (s *Server) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceI
 			write(id, e.Type, data)
 		}
 	}
+}
+
+// PreviewTriggers is FR-3.6. It runs the router's own rules read-only so the
+// composer's promise and the post's behaviour cannot drift — the web had to
+// reimplement FR-3.3 locally in P1, and two copies of an eight-rule table do
+// not stay equal.
+func (s *Server) PreviewTriggers(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
+	u, p := s.sessionAccess(r, sessionId)
+	if p != nil {
+		writeProblem(w, p)
+		return
+	}
+	var in gen.MessageCreate
+	if p := decodeJSON(w, r, &in); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	pr := principalOf(r)
+	var author router.Author
+	if pr.Task != nil {
+		tid := pr.Task.TaskID
+		aid := pr.Task.AgentID
+		author = router.Author{Type: "agent", AgentID: &aid, TaskID: &tid, Attempt: pr.Task.Attempt}
+	} else {
+		author = router.Author{Type: "user", UserID: &u.Id}
+	}
+	out, err := s.Router.Preview(r.Context(), sessionId, author, in)
+	switch {
+	case err == router.ErrParentNotFound:
+		writeProblem(w, apperr.Validation(apperr.Field("parent_id", "not_found", "parent message not in this session")))
+		return
+	case err != nil:
+		writeProblem(w, apperr.As(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// turnEndKey is the wire name of setTaskStatus's "end your turn now" flag.
+// It lives in one place because contracts/openapi.yaml renamed it away from
+// `end_turn` — ACP's stopReason already owns that word for the opposite
+// meaning ("the turn ended"), and a name that means both is a grep trap.
+const turnEndKey = "turn_end_required"
+
+// SetTaskStatus is `colab status set working|blocked|done` (FR-7.4).
+func (s *Server) SetTaskStatus(w http.ResponseWriter, r *http.Request, taskId gen.TaskId) {
+	pr := principalOf(r)
+	if pr.Task == nil || pr.Task.TaskID != taskId {
+		writeProblem(w, apperr.Forbidden("outside_task_scope", "status set is scoped to the caller's own task"))
+		return
+	}
+	var in gen.SetTaskStatusJSONBody
+	if p := decodeJSON(w, r, &in); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	if !in.Status.Valid() {
+		writeProblem(w, apperr.Validation(apperr.Field("status", "invalid", "status must be working, blocked or done")))
+		return
+	}
+	note := ""
+	if in.Note != nil {
+		note = strings.TrimSpace(*in.Note)
+	}
+	res, err := s.Router.SetAgentStatus(r.Context(), taskId, pr.Task.Attempt, string(in.Status), note)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	task, err := tasks.Get(r.Context(), s.DB, res.TaskID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	lane, err := lanes.Load(r.Context(), s.DB, res.LaneID, false)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	body := map[string]any{
+		"task":     tasks.ToAPI(task, nil, nil),
+		"lane":     lane,
+		turnEndKey: res.TurnEndRequired,
+	}
+	if res.QuestionMessageID != nil {
+		body["question_message_id"] = res.QuestionMessageID.String()
+	} else {
+		body["question_message_id"] = nil
+	}
+	writeJSON(w, http.StatusOK, body)
 }

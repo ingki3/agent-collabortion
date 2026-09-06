@@ -154,6 +154,10 @@ func (s *Server) ListMembers(w http.ResponseWriter, r *http.Request, workspaceId
 		writeProblem(w, p)
 		return
 	}
+	if p := validateLimit(params.Limit); p != nil {
+		writeProblem(w, p)
+		return
+	}
 	limit := 0
 	if params.Limit != nil {
 		limit = *params.Limit

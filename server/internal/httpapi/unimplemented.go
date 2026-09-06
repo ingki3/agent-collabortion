@@ -174,20 +174,8 @@ func (unimplemented) CancelSession(w http.ResponseWriter, r *http.Request, sessi
 	notImplemented(w, r, "CancelSession")
 }
 
-func (unimplemented) CompleteSession(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	notImplemented(w, r, "CompleteSession")
-}
-
 func (unimplemented) GetSessionCost(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
 	notImplemented(w, r, "GetSessionCost")
-}
-
-func (unimplemented) ListDecisions(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	notImplemented(w, r, "ListDecisions")
-}
-
-func (unimplemented) RecordDecision(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.RecordDecisionParams) {
-	notImplemented(w, r, "RecordDecision")
 }
 
 func (unimplemented) ChangeDirector(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
@@ -206,20 +194,12 @@ func (unimplemented) ListLanes(w http.ResponseWriter, r *http.Request, sessionId
 	notImplemented(w, r, "ListLanes")
 }
 
-func (unimplemented) DelegateLane(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.DelegateLaneParams) {
-	notImplemented(w, r, "DelegateLane")
-}
-
 func (unimplemented) ListMessages(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.ListMessagesParams) {
 	notImplemented(w, r, "ListMessages")
 }
 
 func (unimplemented) PostMessage(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.PostMessageParams) {
 	notImplemented(w, r, "PostMessage")
-}
-
-func (unimplemented) PreviewTriggers(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	notImplemented(w, r, "PreviewTriggers")
 }
 
 func (unimplemented) ListParticipants(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
@@ -268,10 +248,6 @@ func (unimplemented) GetTask(w http.ResponseWriter, r *http.Request, taskId gen.
 
 func (unimplemented) ListTaskEvents(w http.ResponseWriter, r *http.Request, taskId gen.TaskId, params gen.ListTaskEventsParams) {
 	notImplemented(w, r, "ListTaskEvents")
-}
-
-func (unimplemented) SetTaskStatus(w http.ResponseWriter, r *http.Request, taskId gen.TaskId) {
-	notImplemented(w, r, "SetTaskStatus")
 }
 
 func (unimplemented) GetTestChat(w http.ResponseWriter, r *http.Request, testChatId gen.TestChatId) {
@@ -376,14 +352,6 @@ func (unimplemented) ListSessions(w http.ResponseWriter, r *http.Request, worksp
 
 func (unimplemented) CreateSession(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.CreateSessionParams) {
 	notImplemented(w, r, "CreateSession")
-}
-
-func (unimplemented) GetWorkspaceSettings(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId) {
-	notImplemented(w, r, "GetWorkspaceSettings")
-}
-
-func (unimplemented) UpdateWorkspaceSettings(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId) {
-	notImplemented(w, r, "UpdateWorkspaceSettings")
 }
 
 func (unimplemented) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.StreamEventsParams) {

@@ -37,6 +37,8 @@ var prdTables = []string{
 	// 0002_p1_auth_and_stream.sql (G2 Q1 + daemon-protocol bookkeeping)
 	"user_session", "workspace_invite", "runtime_pairing", "session_subscription", "artifact_review",
 	"idempotency_key", "stream_event", "task_token", "daemon_command", "task_attempt",
+	// 0006_p2_routing.sql (FR-3.5 루프 상한이 읽는 트리거 이력)
+	"session_hop",
 }
 
 // prdEnums pins every state set to the exact PRD labels (task item 2).

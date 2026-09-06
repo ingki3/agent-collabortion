@@ -258,22 +258,14 @@ func (s *Service) Heartbeat(ctx context.Context, taskID uuid.UUID, attempt int, 
 // (G3 C-1) — so the drift is visible instead of fatal, and only once per
 // attempt: a heartbeat every 15s would otherwise bury the feed.
 func (s *Service) NotePreviewDrift(ctx context.Context, taskID uuid.UUID, attempt int, now time.Time) error {
-	_, err := s.DB.Exec(ctx, `
-		INSERT INTO task_event (task_id, attempt, seq, class, verb, object_ref, outcome, payload, created_at)
-		SELECT $1, $2, (SELECT COALESCE(max(seq) + 1, $3::int) FROM task_event WHERE task_id = $1 AND attempt = $2 AND seq >= $3::int),
-		       'runtime', 'error', to_jsonb($4::text), 'info', $5, $6
-		WHERE NOT EXISTS (
-			SELECT 1 FROM task_event WHERE task_id = $1 AND attempt = $2 AND object_ref = to_jsonb($4::text) AND class = 'runtime' AND verb = 'error')`,
-		taskID, attempt, serverSeqBase, "heartbeat.preview",
-		map[string]any{
-			"note":  "데몬이 보낸 heartbeat preview 모양이 계약과 달라 무시했습니다",
-			"field": "preview",
-			"spec":  "contracts/daemon-protocol.md §4.2 (v0.3)",
-		}, now)
-	if err != nil {
-		return fmt.Errorf("tasks: preview drift note: %w", err)
-	}
-	return nil
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		return InsertServerEventOnce(ctx, tx, taskID, attempt, "runtime", "error", "heartbeat.preview", "info",
+			map[string]any{
+				"note":  "데몬이 보낸 heartbeat preview 모양이 계약과 달라 무시했습니다",
+				"field": "preview",
+				"spec":  "contracts/daemon-protocol.md §4.2 (v0.3)",
+			}, now)
+	})
 }
 
 // Requeue ends the current attempt with reason and either queues attempt+1
@@ -315,10 +307,23 @@ func (s *Service) requeueLocked(ctx context.Context, tx pgx.Tx, t *Row, reason c
 		if _, err := Transition(t.Status, Queued); err != nil {
 			return err
 		}
+		// daemon-protocol §4.4 (v0.4): the SERVER swaps the profile, not the
+		// daemon. The session is pinned to a runtime, so re-queueing here keeps
+		// the work on the same machine by construction — the one thing E8-09
+		// forbids is moving it elsewhere.
+		fb, err := s.ApplyProfileFallback(ctx, tx, t, reason, now)
+		if err != nil {
+			return err
+		}
+		if fb.NotifyDirector {
+			if err := noteNoFallback(ctx, tx, t, now); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE task SET status = 'queued', attempt = attempt + 1, failure_kind = NULL, not_before = $2,
-			       runtime_id = NULL, heartbeat_at = NULL, dispatched_at = NULL, started_at = NULL, updated_at = $3
-			WHERE id = $1`, t.ID, notBefore, now); err != nil {
+			       profile_id = $4, runtime_id = NULL, heartbeat_at = NULL, dispatched_at = NULL, started_at = NULL, updated_at = $3
+			WHERE id = $1`, t.ID, notBefore, now, t.ProfileID); err != nil {
 			return fmt.Errorf("tasks: requeue: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'queued', updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
@@ -365,7 +370,7 @@ func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 			if err != nil {
 				return err
 			}
-			if err := s.requeueLocked(ctx, tx, t, contracts.FailTimeout, nil, now); err != nil {
+			if err := s.applySweep(ctx, tx, t, idleSince(t, now), now); err != nil {
 				return err
 			}
 			n++
@@ -383,7 +388,7 @@ func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 				return err
 			}
 			rt := t.RuntimeID
-			if err := s.requeueLocked(ctx, tx, t, contracts.FailRuntimeOffline, nil, now); err != nil {
+			if err := s.applySweep(ctx, tx, t, idleSince(t, now), now); err != nil {
 				return err
 			}
 			if rt != nil {
@@ -395,6 +400,18 @@ func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 			}
 			n++
 		}
+		// FR-3.3 rule 7: the assignee fallback's window closed with no reply
+		// from the primary agent, so the deferred task becomes a real one
+		// (E1-14). A reply inside the window already cancelled it, so anything
+		// still `deferred` here is genuinely unanswered.
+		tag, err := tx.Exec(ctx, `
+			UPDATE task SET status = 'queued', not_before = NULL, updated_at = $1
+			WHERE status = 'deferred' AND not_before IS NOT NULL AND not_before <= $1`, now)
+		if err != nil {
+			return err
+		}
+		n += int(tag.RowsAffected())
+
 		_, err = tx.Exec(ctx, `
 			UPDATE runtime SET status = 'offline', offline_since = COALESCE(offline_since, $1), updated_at = $1
 			WHERE status = 'online' AND (last_seen_at IS NULL OR last_seen_at < $2)`, now, now.Add(-contracts.HeartbeatExpiry))
@@ -481,10 +498,14 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			if err := s.Tokens.Revoke(ctx, tx, t.ID, attempt, "completed"); err != nil {
 				return err
 			}
-			// lane: another queued task on this lane keeps it queued, else done
+			// lane: another queued task on this lane keeps it queued, else done.
+			// A lane the agent put in `blocked` keeps that status: the turn
+			// ending is exactly what `colab status set blocked` asked for, and
+			// overwriting it with `done` loses the question the delegator has
+			// yet to answer (FR-6.2.1).
 			if _, err := tx.Exec(ctx, `
 				UPDATE lane SET status = CASE WHEN EXISTS (SELECT 1 FROM task WHERE lane_id = $1 AND status = 'queued') THEN 'queued'::lane_status ELSE 'done'::lane_status END,
-				  finished_at = $2, updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+				  finished_at = $2, updated_at = $2 WHERE id = $1 AND status <> 'blocked'`, t.LaneID, now); err != nil {
 				return err
 			}
 			t.Status, t.FinishedAt = Completed, &now
@@ -609,13 +630,9 @@ func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*
 			out = t
 			return nil
 		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO task_event (task_id, attempt, seq, class, verb, object_ref, outcome, payload, created_at)
-			VALUES ($1, $2, (SELECT COALESCE(max(seq) + 1, $3::int) FROM task_event WHERE task_id = $1 AND attempt = $2 AND seq >= $3::int),
-			        'status', 'cancel', to_jsonb($4::text), 'ok', $5, $6)`,
-			t.ID, t.Attempt, serverSeqBase, "director",
+		if err := InsertServerEvent(ctx, tx, t.ID, t.Attempt, "status", "cancel", "director", "ok",
 			map[string]any{"command": "lane cancel", "note": "사람이 중단함", "requested_by": byUserID.String(), "reason": "director"}, now); err != nil {
-			return fmt.Errorf("tasks: cancel feed event: %w", err)
+			return err
 		}
 		switch t.Status {
 		case Dispatched, Preparing, Running:
@@ -638,11 +655,6 @@ func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*
 	})
 	return out, immediate, err
 }
-
-// serverSeqBase mirrors router.ServerSeqBase (the router package imports
-// tasks, so the constant is repeated here): server-recorded status events
-// live above the daemon's seq range.
-const serverSeqBase = 1 << 30
 
 // cancelRequested reports whether a cancel command was issued for (task, attempt).
 func cancelRequested(ctx context.Context, q db.DBTX, taskID uuid.UUID, attempt int) (bool, error) {
@@ -688,4 +700,64 @@ func (s *Service) cancelLocked(ctx context.Context, tx pgx.Tx, t *Row, stopReaso
 	t.Status, t.FailureKind, t.FinishedAt, t.StopReason, t.PausedReason = Cancelled, &fk, &now, stop, nil
 	s.publish(ctx, tx, t)
 	return nil
+}
+
+// failLocked ends the attempt AND the task, with no retry. It shares
+// requeueLocked's bookkeeping — cancel absorption, token revocation, the
+// task_attempt row — so the two exits cannot drift apart.
+//
+// Revoking the token matters as much as the status here: a zombie daemon that
+// wakes up after the timeout must not be able to report into a task the server
+// has already closed (daemon-protocol §4.1 v0.6, §5).
+func (s *Service) failLocked(ctx context.Context, tx pgx.Tx, t *Row, reason contracts.FailureKind, now time.Time) error {
+	if Terminal(t.Status) {
+		return nil
+	}
+	if requested, err := cancelRequested(ctx, tx, t.ID, t.Attempt); err != nil {
+		return err
+	} else if requested {
+		return s.cancelLocked(ctx, tx, t, string(reason), now)
+	}
+	if err := s.Tokens.Revoke(ctx, tx, t.ID, t.Attempt, string(reason)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO task_attempt (task_id, attempt, runtime_id, finished_at, outcome, failure_kind)
+		VALUES ($1, $2, $3, $4, $5, $6::failure_kind)
+		ON CONFLICT (task_id, attempt) DO UPDATE SET finished_at = EXCLUDED.finished_at, outcome = EXCLUDED.outcome, failure_kind = EXCLUDED.failure_kind`,
+		t.ID, t.Attempt, t.RuntimeID, now, string(reason), string(reason)); err != nil {
+		return fmt.Errorf("tasks: record attempt: %w", err)
+	}
+	if _, err := Transition(t.Status, Failed); err != nil {
+		return err
+	}
+	fk := string(reason)
+	if _, err := tx.Exec(ctx, `
+		UPDATE task SET status = 'failed', failure_kind = $2, finished_at = $3, heartbeat_at = NULL, updated_at = $3 WHERE id = $1`,
+		t.ID, fk, now); err != nil {
+		return fmt.Errorf("tasks: fail: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'failed', finished_at = $2, updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+		return err
+	}
+	t.Status, t.FailureKind, t.FinishedAt = Failed, &fk, &now
+	s.publish(ctx, tx, t)
+	return nil
+}
+
+// applySweep carries out PlanSweep's verdict. The classification — which
+// silence this is, whether it ends the task or starts a new attempt — lives in
+// PlanSweep so the golden table drives the same decision the sweep makes.
+//
+// Production call site for PlanSweep: here, from ExpireStale (both branches).
+func (s *Service) applySweep(ctx context.Context, tx pgx.Tx, t *Row, idle time.Duration, now time.Time) error {
+	o, stale := PlanSweep(t.Status, idle, t.Attempt, t.MaxAttempts)
+	if !stale {
+		return nil
+	}
+	reason := contracts.FailureKind(o.FailureKind)
+	if o.TaskStatus == Failed {
+		return s.failLocked(ctx, tx, t, reason, now)
+	}
+	return s.requeueLocked(ctx, tx, t, reason, nil, now)
 }

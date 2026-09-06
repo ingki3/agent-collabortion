@@ -3,8 +3,11 @@ package httpapi
 import (
 	"context"
 	"fmt"
+	"time"
 
-	"github.com/ingki3/agent-collabortion/server/internal/router"
+	"github.com/google/uuid"
+
+	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
 )
 
@@ -28,14 +31,29 @@ func (s *Server) ExpireCommands(ctx context.Context) (int, error) {
 		} else {
 			_ = s.DB.QueryRow(ctx, `SELECT attempt FROM task WHERE id = $1`, *e.TaskID).Scan(&attempt)
 		}
-		if _, err := s.DB.Exec(ctx, `
-			INSERT INTO task_event (task_id, attempt, seq, class, verb, object_ref, outcome, payload, created_at)
-			VALUES ($1, $2, (SELECT COALESCE(max(seq) + 1, $3::int) FROM task_event WHERE task_id = $1 AND attempt = $2 AND seq >= $3::int),
-			        'status', 'error', to_jsonb($4::text), 'info', $5, $6)`,
-			*e.TaskID, attempt, router.ServerSeqBase, string(e.Type),
-			map[string]any{"command": string(e.Type), "result_ref": fmt.Sprintf("daemon_command:%d", e.ID), "note": "명령 미소비 만료 (24h TTL)"}, now); err != nil {
+		// The fourth server-side writer. It used to compute seq the same racy
+		// way as the other three and swallow the conflict into a Log.Warn, so
+		// the note the Director needed disappeared twice over.
+		if err := s.writeServerEvent(ctx, *e.TaskID, attempt, "status", "error", string(e.Type), "info",
+			map[string]any{"command": string(e.Type), "result_ref": fmt.Sprintf("daemon_command:%d", e.ID), "note": "명령 미소비 만료 (24h TTL)"},
+			now); err != nil {
 			s.Log.Warn("record expired command", "err", err, "command", e.ID)
 		}
 	}
 	return len(expired), nil
+}
+
+// writeServerEvent runs tasks.InsertServerEvent in its own transaction — the
+// advisory lock it takes is transaction-scoped, so it needs one.
+func (s *Server) writeServerEvent(ctx context.Context, taskID uuid.UUID, attempt int,
+	class, verb, objectRef, outcome string, payload map[string]any, now time.Time) error {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := tasks.InsertServerEvent(ctx, tx, taskID, attempt, class, verb, objectRef, outcome, payload, now); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

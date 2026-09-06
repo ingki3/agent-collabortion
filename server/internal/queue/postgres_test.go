@@ -264,3 +264,73 @@ func TestResumeRefRidesNextClaim(t *testing.T) {
 		t.Fatalf("attempt 2 must reuse the workdir")
 	}
 }
+
+// FR-6.3: the four concurrency layers are guards on the claim query, so a
+// second task on the same lane, a second lane past max_parallel_lanes, and an
+// agent over max_concurrent_tasks all stay queued rather than dispatching.
+//
+// A missing workspace_settings row must NOT stop dispatch — the layers fall
+// back to their defaults.
+func TestClaimRespectsConcurrencyLimits(t *testing.T) {
+	q, c, seed := newQueue(t)
+	pool := q.DB
+	ctx := context.Background()
+
+	// max_parallel_lanes = 1: the session may only have one lane in flight.
+	if _, err := pool.Exec(ctx, `UPDATE session SET limits = '{"max_parallel_lanes": 1}' WHERE id = $1`, seed.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	a := testdb.AddTask(t, pool, seed, seed.SessionID, t0)
+	b := testdb.AddTask(t, pool, seed, seed.SessionID, t0)
+	// Two different lanes, or the per-lane guard alone would explain the result.
+	var lane2 uuid.UUID
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO lane (session_id, agent_id, profile_id, status, created_at, updated_at)
+		VALUES ($1, $2, $3, 'queued', $4, $4) RETURNING id`,
+		seed.SessionID, seed.AgentID, seed.ProfileID, t0).Scan(&lane2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE task SET lane_id = $2 WHERE id = $1`, b, lane2); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := q.Claim(ctx, seed.RuntimeID.String(), 10, c.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("claimed %d, want 1 — max_parallel_lanes is 1", len(got))
+	}
+	_ = a
+
+	// Raising the session limit is not enough while the agent's own cap binds.
+	if _, err := pool.Exec(ctx, `UPDATE session SET limits = '{"max_parallel_lanes": 5}' WHERE id = $1`, seed.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE agent SET max_concurrent_tasks = 1 WHERE id = $1`, seed.AgentID); err != nil {
+		t.Fatal(err)
+	}
+	got, err = q.Claim(ctx, seed.RuntimeID.String(), 10, c.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("claimed %d, want 0 — the agent already has one task running", len(got))
+	}
+
+	// With both raised, the second lane goes out — including when the
+	// workspace has no settings row at all.
+	if _, err := pool.Exec(ctx, `UPDATE agent SET max_concurrent_tasks = 5 WHERE id = $1`, seed.AgentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM workspace_settings WHERE workspace_id = $1`, seed.WorkspaceID); err != nil {
+		t.Fatal(err)
+	}
+	got, err = q.Claim(ctx, seed.RuntimeID.String(), 10, c.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("claimed %d, want 1 — a missing settings row must fall back to the defaults", len(got))
+	}
+}

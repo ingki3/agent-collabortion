@@ -321,6 +321,7 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, caller *uuid.UUID) (*gen
 		owner                         gen.User
 		ownerAvatar                   *string
 		hasRunning, hasWaiting        bool
+		retrying                      bool
 		lastFailure                   *string
 	)
 	err := q.QueryRow(ctx, `
@@ -329,12 +330,16 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, caller *uuid.UUID) (*gen
 		       u.id, u.email, u.display_name, u.avatar_url, u.created_at,
 		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.status IN ('dispatched','preparing','running')),
 		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.status = 'waiting_human'),
-		       (SELECT t.failure_kind::text FROM task t WHERE t.agent_id = a.id AND t.status IN ('failed','completed','cancelled') ORDER BY t.finished_at DESC NULLS LAST LIMIT 1)
+		       `+tasks.LastFailureKindSQL("")+`,
+		       -- FR-1.3 step 3 never fires while the server is re-queueing the
+		       -- failed task (attempt >= 2 back in the queue), including onto an
+		       -- alternate profile — a retry in flight is not "cannot run" (E5-18).
+		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.status IN ('queued','deferred') AND t.attempt > 1)
 		FROM agent a JOIN app_user u ON u.id = a.owner_id WHERE a.id = $1`, id).Scan(
 		&a.Id, &a.WorkspaceId, &a.Name, &role, &a.RoleDescription, &a.Instructions, &tools, &a.OwnerId, &respondTo, &allow,
 		&avatar, &budget, &a.MaxConcurrentTasks, &defSource, &defVersion, &archived, &a.CreatedAt, &a.UpdatedAt,
 		&owner.Id, &owner.Email, &owner.DisplayName, &ownerAvatar, &owner.CreatedAt,
-		&hasRunning, &hasWaiting, &lastFailure)
+		&hasRunning, &hasWaiting, &lastFailure, &retrying)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.NotFound("agent")
 	}
@@ -358,7 +363,11 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, caller *uuid.UUID) (*gen
 	a.ArchivedAt = tasks.NullTime(archived)
 	owner.AvatarUrl = tasks.NullString(ownerAvatar)
 	a.Owner = &owner
-	a.Status = DeriveStatus(respondTo, archived != nil, hasRunning, hasWaiting, lastFailure)
+	a.Status = gen.AgentStatus(tasks.DeriveAgentStatus(tasks.Derived{
+		RespondTo: respondTo, Archived: archived != nil,
+		Running: boolCount(hasRunning), WaitingHuman: boolCount(hasWaiting),
+		LastFailureKind: deref(lastFailure), RetryInFlight: retrying,
+	}))
 	allowed, reason := Invitable(respondTo, a.OwnerId, allow, caller)
 	a.Invitable.Allowed = allowed
 	a.Invitable.Reason = nullable.NewNullNullable[string]()
@@ -425,25 +434,20 @@ func scanProfile(row pgx.Row) (*gen.AgentProfile, error) {
 	return &p, nil
 }
 
-// DeriveStatus is FR-1.3 order 1 disabled → (2 offline is session-scoped) →
-// 3 error → 4 working → 5 waiting_human → 6 idle (E5-11~18).
-func DeriveStatus(respondTo string, archived, hasRunning, hasWaiting bool, lastFailure *string) gen.AgentStatus {
-	if respondTo == "nobody" || archived {
-		return gen.AgentStatusDisabled
+// boolCount adapts the EXISTS probes above to the ladder's counts: FR-1.3 only
+// asks "is there one", never how many.
+func boolCount(b bool) int {
+	if b {
+		return 1
 	}
-	if lastFailure != nil && !hasRunning && !hasWaiting {
-		switch *lastFailure {
-		case "auth", "quota", "config":
-			return gen.AgentStatusError
-		}
+	return 0
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
 	}
-	if hasRunning {
-		return gen.AgentStatusWorking
-	}
-	if hasWaiting {
-		return gen.AgentStatusWaitingHuman
-	}
-	return gen.AgentStatusIdle
+	return *s
 }
 
 // Invitable is FR-1.9: may caller invite this agent into a session?

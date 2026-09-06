@@ -54,19 +54,74 @@ func (p *Postgres) Claim(ctx context.Context, runtimeID string, capacity int, no
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
+	// FR-6.3's four concurrency layers plus the DAG gate.
+	//
+	// The counting has to happen INSIDE the statement, not just against the
+	// tasks already running: one claim asks for up to `capacity` tasks, so a
+	// guard that only reads the current `busy` set would hand out ten at once
+	// and blow every limit in a single call. The window functions rank the
+	// candidates and each limit admits only as many as it has room for.
+	//
+	// `waiting_human` and `blocked` are absent from every count on purpose
+	// (t-1): both processes have already exited, so holding a slot for them
+	// stalls the session while nothing runs.
 	rows, err := tx.Query(ctx, `
+		WITH busy AS (
+			SELECT id, session_id, agent_id, lane_id, runtime_id FROM task
+			WHERE status IN ('dispatched', 'preparing', 'running')
+		),
+		cand AS (
+			SELECT DISTINCT ON (t.lane_id)
+			       t.id, t.session_id, t.agent_id, t.lane_id, t.created_at,
+			       COALESCE((s.limits->>'max_parallel_lanes')::int, 5) AS lane_cap,
+			       -- worktree shares one workdir per agent (FR-6.1), so that
+			       -- agent's lanes run one at a time whatever its own cap says.
+			       CASE WHEN s.isolation->>'kind' = 'worktree' THEN 1 ELSE a.max_concurrent_tasks END AS agent_cap,
+			       COALESCE((cfg.runtime_policy->>'max_concurrent_tasks')::int, 10) AS runtime_cap,
+			       (cfg.runtime_policy->>'max_concurrent_tasks_workspace')::int AS workspace_cap,
+			       (SELECT count(DISTINCT b.lane_id) FROM busy b WHERE b.session_id = t.session_id) AS busy_lanes,
+			       (SELECT count(*) FROM busy b WHERE b.agent_id = t.agent_id) AS busy_agent,
+			       (SELECT count(*) FROM busy b WHERE b.runtime_id = r.id) AS busy_runtime,
+			       (SELECT count(*) FROM busy b JOIN session bs ON bs.id = b.session_id
+			         WHERE bs.workspace_id = r.workspace_id) AS busy_workspace
+			  FROM task t
+			  JOIN session s ON s.id = t.session_id
+			  JOIN lane l ON l.id = t.lane_id
+			  JOIN agent a ON a.id = t.agent_id
+			  JOIN runtime r ON r.id = $1
+			  -- LEFT: a workspace with no settings row falls back to the
+			  -- defaults instead of stopping dispatch altogether.
+			  LEFT JOIN workspace_settings cfg ON cfg.workspace_id = r.workspace_id
+			 WHERE t.status = 'queued'
+			   AND s.status = 'active'
+			   AND s.workspace_id = r.workspace_id
+			   AND (s.runtime_id = r.id OR (s.runtime_id IS NULL AND s.isolation->>'kind' = 'none'))
+			   AND (t.not_before IS NULL OR t.not_before <= $2)
+			   AND NOT EXISTS (SELECT 1 FROM busy b WHERE b.lane_id = t.lane_id)
+			   -- FR-6.2: a lane waits for every lane it depends on to end.
+			   AND NOT EXISTS (
+			         SELECT 1 FROM lane d WHERE d.id = ANY (l.depends_on)
+			           AND d.status NOT IN ('done', 'failed', 'blocked'))
+			 ORDER BY t.lane_id, t.created_at
+		),
+		ranked AS (
+			SELECT c.*,
+			       row_number() OVER (PARTITION BY c.session_id ORDER BY c.created_at, c.id) AS rn_session,
+			       row_number() OVER (PARTITION BY c.agent_id   ORDER BY c.created_at, c.id) AS rn_agent,
+			       row_number() OVER (                          ORDER BY c.created_at, c.id) AS rn_all
+			  FROM cand c
+		)
 		SELECT t.id FROM task t
-		  JOIN session s ON s.id = t.session_id
-		  JOIN runtime r ON r.id = $1
-		WHERE t.status = 'queued'
-		  AND s.status = 'active'
-		  AND s.workspace_id = r.workspace_id
-		  AND (s.runtime_id = r.id OR (s.runtime_id IS NULL AND s.isolation->>'kind' = 'none'))
-		  AND (t.not_before IS NULL OR t.not_before <= $2)
-		  AND NOT EXISTS (SELECT 1 FROM task r WHERE r.lane_id = t.lane_id AND r.status IN ('dispatched', 'preparing', 'running'))
-		ORDER BY t.created_at
-		LIMIT $3
-		FOR UPDATE OF t SKIP LOCKED`, rt, now, capacity)
+		 WHERE t.id IN (
+		       SELECT id FROM ranked
+		        WHERE busy_lanes + rn_session <= lane_cap
+		          AND busy_agent + rn_agent   <= agent_cap
+		          AND busy_runtime + rn_all   <= runtime_cap
+		          AND (workspace_cap IS NULL OR busy_workspace + rn_all <= workspace_cap)
+		        ORDER BY created_at, id
+		        LIMIT $3)
+		 ORDER BY t.created_at
+		 FOR UPDATE OF t SKIP LOCKED`, rt, now, capacity)
 	if err != nil {
 		return nil, fmt.Errorf("queue: select: %w", err)
 	}

@@ -1,5 +1,3 @@
-//go:build p2golden
-
 // Golden table for the state machines (EVAL E5, 18 rows):
 //
 //   - task status transitions (PRD FR-7.1) — the only pure part today
