@@ -24,7 +24,7 @@
 | D-3 | `acpprobe`(스파이크 cmd) 제거 — `harness/acp`로 승격 완료 | PR #20 결함 6 | 정리 |
 | D-4 | worktree·GC·`rebind_prepare`·예산 강제는 P3·P4 | PR #20 결함 7 | 단계대로 |
 | D-5 | probe `capabilities[].supported_options` 채우기 — `(kind, adapter_version)` 표. claude_code 0.74.0: `effort` 허용 값. Hermes: 비움 | T-W2 계약 빈칸(harness v0.5) | **T-I2 전.** 비어 있으면 웹이 옵션 편집을 비활성으로 둔다 — 빈 채로 두면 S10이 사실상 죽는다 |
-| D-6 | 데몬 `recordUsage`가 `cost_usd`를 한 번도 대입하지 않고 `0 + estimated:false`를 보낸다(ACP `Usage`에 비용 필드 없음). harness v0.7: 비용을 모르면 **`cost_usd` 생략 + `estimated:true`**. `Estimated`가 `pr.Usage == nil`일 때만 켜지는 것을 고쳐라 | G4 3판 W16 (PR #87 리뷰 §2) | P3 비용 화면(E9-07) 전 |
+| ~~D-6~~ | 데몬 `recordUsage`가 `cost_usd`를 한 번도 대입하지 않고 `0 + estimated:false`를 보낸다(ACP `Usage`에 비용 필드 없음). harness v0.7: 비용을 모르면 **`cost_usd` 생략 + `estimated:true`**. `Estimated`가 `pr.Usage == nil`일 때만 켜지는 것을 고쳐라 | G4 3판 W16 (PR #87 리뷰 §2) | P3 비용 화면(E9-07) 전 | **해결 — PR #93.**
 | D-7 | **G5 (b) 차단** — Hermes ACP 어댑터가 `mcpServers`를 무시하고(initialize에 `mcpCapabilities` 없음) 셸 도구를 위생화된 env로 띄워 `COLAB_*`·`PATH`가 안 내려간다 → Hermes 에이전트가 플랫폼에 말할 수단이 없다(메시지 0, status 0). harness v0.8: attempt별 래퍼 `<workdir_root>/.colab/bin/<task>.<attempt>/colab` + 브리프 [2] 절대 경로 + `tool_surface` 광고 | G5 T-I2 2부 escalation | **G5 전** |
 
 ## W (웹)
@@ -54,11 +54,14 @@
 | ~~S-12~~ | **해결 — T-S2.** 두 operation 을 켜면서 owner·admin 게이트를 함께 넣었고, 루프 상한 0(상한을 조용히 끄는 값)도 422 로 막는다. `07_adversarial.sh` D2 기대를 403/404 로 좁혔다. ~~P2에서 authz를 반드시 넣을 것. 지금은 501이라 남의 워크스페이스 설정도 바뀌지 않지만, 501은 인가가 아니라 미구현이다. `e2e/p1/07_adversarial.sh` D2의 기대를 그때 `403/404`로 좁힌다 ~~ | Lead 적대적 검증 D2 | — |
 | S-14 | **다운로드가 응답 끝까지 DB 트랜잭션(=풀 커넥션)을 잡는다.** large object 는 트랜잭션 안에서만 읽히므로 `artifacts.Open` → `io.Copy` 구조 자체는 대안이 없고 설계는 맞다. 문제는 그 옆이다 — `http.Server` 에 `WriteTimeout` 이 없고(`cmd/server/main.go` 는 `ReadHeaderTimeout` 만 준다) 풀도 기본 크기라, 느린 클라이언트 N 개가 커넥션 N 개를 무기한 점유한다. **P3 웹 다운로드를 켜기 전에** `WriteTimeout` 또는 다운로드 전용 컨텍스트 데드라인을 반드시 넣는다 | PR #65 NN1 | P3 전 필수 |
 | S-15 | **`artifact_review` 의 `ON CONFLICT (artifact_id) DO UPDATE` 가 재리뷰로 이전 판정을 덮어쓴다.** 거절 사유는 `decision_id` 로 결정 기록에 남아 E6-04("아티팩트는 사라지지 않는다")는 지켜지지만, 행 자체에는 이력이 없다 — 같은 아티팩트를 reject 했다가 approve 하면 reject 가 행에서 사라진다. P3 리뷰 UI 가 이력(누가 언제 무엇을 뒤집었나)을 그리려면 PK 를 `(artifact_id, reviewed_at)` 류로 바꾸거나 별도 이력 테이블이 필요하다 | PR #65 NN3 | P3 리뷰 UI 설계 시 |
-| S-16 | `listParticipants`(x-phase **P2**)가 아직 501. 웹은 세션 상세의 `participants`를 써서 G4 2판을 막지 않지만, T-S2가 "P2 op 전부"를 받고 남긴 마지막 하나 | T-S4(PR #75) 남김 | 다음 서버 작업 |
+| ~~S-16~~ | `listParticipants`(x-phase **P2**)가 아직 501. 웹은 세션 상세의 `participants`를 써서 G4 2판을 막지 않지만, T-S2가 "P2 op 전부"를 받고 남긴 마지막 하나 | T-S4(PR #75) 남김 | 다음 서버 작업 | **해결 — PR #95.**
 | S-17 | `tasks.Service.LanePublish` 훅이 `nil`이면 **조용히** 발행을 건너뛴다(`tasks/service.go:585`). 프로덕션 배선은 `httpapi/server.go:89` 한 곳이고 `TestClaimPublishesLaneRunning`이 누락을 잡지만, 다른 바이너리 조립(워커·CLI 임베드)에서는 조용히 빠질 수 있다 → `nil`이면 `slog.Warn("tasks: LanePublish unwired")` 한 줄 | PR #78 리뷰 NN1 | 낮음 |
 | S-18 | PR #78 본문의 "lane.updated 발행 20곳"은 status 전이(15: UPDATE 12 + INSERT 3)에 카드 변경 자리(phase 보고 등 5)를 더한 정의다. 다음 대조가 15와 20을 다시 맞추지 않도록 정의를 코드 주석(`tasks.publish`)에 명시 | PR #78 리뷰 NN2 | 문서 |
 | S-19 | 비용 롤업(`tasks.Finish` 커밋 뒤 별도 tx, `SUM(task_usage)`)이 실패하면 데몬 재시도가 `finished != nil` 멱등 경로로 빠져 `costed`가 안 켜지고 그 attempt의 롤업이 다시 돌지 않는다 — 세션의 마지막 finish면 `session.cost_usd`가 영구 뒤처짐. DB 장애 외 도달 불가라 비차단. 후보: 멱등 경로에서도 롤업(SUM이라 무해) 또는 `getSessionCost`가 SUM을 직접 읽기. (S-17의 nil 훅 로그는 `ParticipantPublish`에도 적용) | PR #85 리뷰 NN1·NN2 | 낮음 |
-| S-20 | 비용 롤업(#85)이 `estimated` 행을 **워크스페이스 가격표 × 토큰**으로 채우고 세션 비용에 추정 배지를 단다(harness v0.7: 가격표는 워크스페이스 소유, 추정은 서버). 가격표 스키마·기본값은 PRD §8.2.6 | G4 3판 W16 | P3 비용 화면 전, D-6과 함께 |
+| ~~S-20~~ | 비용 롤업(#85)이 `estimated` 행을 **워크스페이스 가격표 × 토큰**으로 채우고 세션 비용에 추정 배지를 단다(harness v0.7: 가격표는 워크스페이스 소유, 추정은 서버). 가격표 스키마·기본값은 PRD §8.2.6 | G4 3판 W16 | P3 비용 화면 전, D-6과 함께 | **해결 — PR #95**(`internal/cost`, `pricing_overrides` 우선, 0011 `task_usage.model`).
+| S-21 | `cost.Defaults`에 Claude 계열 단가만 있다. Hermes가 비용을 안 주는 경로면 모델 미상 → 배지만 켜지고 $0. G5 Hermes 실기 전에 그 모델들 단가 또는 "Hermes는 자체 보고" 확인 | PR #95 리뷰 NN1 | G5 |
+| S-22 | `cost.Load`가 settings 행 없음·override JSON 불량을 모두 빈 표로 삼킨다 — finish를 500으로 안 만드는 의도는 맞으나 관리자가 알 길이 없다. 로그 한 줄 | PR #95 리뷰 NN2 | 낮음 |
+| S-23 | `rollUpCost`의 `repriceEstimates`가 매 finish마다 세션 전체 `task_usage`를 훑는다. 지금은 무해; P4 GC 전에 `WHERE estimated AND (cost_usd = 0 OR updated_at < settings.updated_at)` 류로 좁힐 것 | PR #95 리뷰 NN3 | P4 전 |
 
 ## C (CLI)
 
