@@ -182,10 +182,6 @@ func (unimplemented) PostMessage(w http.ResponseWriter, r *http.Request, session
 	notImplemented(w, r, "PostMessage")
 }
 
-func (unimplemented) ListParticipants(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	notImplemented(w, r, "ListParticipants")
-}
-
 func (unimplemented) AddParticipant(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
 	notImplemented(w, r, "AddParticipant")
 }

@@ -1,0 +1,13 @@
+-- 0011_task_usage_model.sql — 추정에 필요한 모델 이름 (S-20)
+--
+-- 비용을 모르는 런타임(harness v0.7.1: ACP 경로는 전부 그렇다)의 사용량은
+-- 서버가 워크스페이스 가격표 × 토큰으로 추정한다. 단가는 모델별이므로 추정에는
+-- "이 attempt 를 실제로 실행한 모델" 이 필요하다.
+--
+-- 프로파일(agent_profile.model)로 대신하면 model_drift 를 놓친다 — 데몬은
+-- `session/prompt` 응답의 _meta.quota.model_usage[].model 을 실측해 finish 의
+-- usage.model 로 올리고(harness §7), 그것이 프로파일과 다를 수 있다. 실측이
+-- 있으면 실측으로, 없으면(옛 행·Hermes 등) 프로파일로 떨어진다.
+--
+-- NULL 은 "데몬이 모델을 보고하지 않았다" 이다.
+ALTER TABLE task_usage ADD COLUMN model text;

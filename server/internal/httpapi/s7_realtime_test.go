@@ -288,6 +288,12 @@ func TestRecordDecisionPublishes(t *testing.T) {
 // the summary but written by nobody, and `cost.updated` had no publisher: the
 // cost line sat at $0.00 for the whole session. The finish's usage rolls up
 // and the frame carries the new total.
+//
+// The cost here is MEASURED (`estimated: false`), which is what makes 0.25 the
+// answer: harness v0.7.1 has the server ignore the cost on an estimated finish
+// and re-price it from the workspace table instead (S-20, TestEstimatedCost…
+// in p3_prep_test.go). This test is about the publisher, so it uses the branch
+// that passes the number through.
 func TestFinishPublishesCost(t *testing.T) {
 	f := newG4Fixture(t)
 	post := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
@@ -301,7 +307,7 @@ func TestFinishPublishesCost(t *testing.T) {
 
 	f.daemon.must(200, "POST", "/v1/daemon/tasks/"+taskID+"/attempts/1/finish", contracts.Finish{
 		Outcome: "completed", StopReason: "end_turn",
-		Usage: contracts.Usage{InputTokens: 100, OutputTokens: 20, CostUSD: 0.25, Estimated: true},
+		Usage: contracts.Usage{InputTokens: 100, OutputTokens: 20, CostUSD: 0.25, Estimated: false},
 	})
 
 	var c struct {
@@ -312,8 +318,8 @@ func TestFinishPublishesCost(t *testing.T) {
 	if err := json.Unmarshal(waitFrame(t, frames, "cost.updated", nil), &c); err != nil {
 		t.Fatal(err)
 	}
-	if c.SessionID != f.sessionID || c.CostUSD != 0.25 || !c.Estimated {
-		t.Fatalf("cost.updated = %+v, want the attempt's 0.25 marked estimated", c)
+	if c.SessionID != f.sessionID || c.CostUSD != 0.25 || c.Estimated {
+		t.Fatalf("cost.updated = %+v, want the attempt's measured 0.25", c)
 	}
 	// The frame and the reload have to agree — that disagreement is the whole
 	// class of bug this file is about.
@@ -321,7 +327,7 @@ func TestFinishPublishesCost(t *testing.T) {
 	if got, _ := sess["cost_usd"].(float64); got != 0.25 {
 		t.Fatalf("getSession cost_usd = %v after cost.updated 0.25", sess["cost_usd"])
 	}
-	if est, _ := sess["cost_estimated"].(bool); !est {
-		t.Fatalf("getSession cost_estimated = %v, want true", sess["cost_estimated"])
+	if est, _ := sess["cost_estimated"].(bool); est {
+		t.Fatalf("getSession cost_estimated = %v, want false for a measured cost", sess["cost_estimated"])
 	}
 }

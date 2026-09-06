@@ -100,6 +100,23 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, sessionId ge
 	writeJSON(w, http.StatusOK, sess)
 }
 
+// ListParticipants is listParticipants (S7 좌열). The last P2 operation left at
+// 501 by T-S2 (backlog S-16): the web fell back to the session detail's
+// `participants`, so the board worked and the endpoint the contract advertises
+// did not.
+func (s *Server) ListParticipants(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
+	if _, p := s.sessionAccess(r, sessionId); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	parts, err := sessions.ListParticipants(r.Context(), s.DB, sessionId)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, parts)
+}
+
 func (s *Server) ListMessages(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.ListMessagesParams) {
 	if _, p := s.sessionAccess(r, sessionId); p != nil {
 		writeProblem(w, p)
