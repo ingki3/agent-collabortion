@@ -50,6 +50,7 @@
 | ~~W-4~~ | `install_commands`의 서버 호스트(:8080 직접 vs :3000 프록시) 실서버 기준 확정 | PR #21 N6 | Integrator 결과로 | **해결 — PR #130**
 | ~~W-5~~ | **해결 — T-W2.** PRD FR-1.3 4행대로 **`running` 만 `working`** 이다. `dispatched`·`preparing` 은 아직 턴이 시작되지 않았고, 그것을 working 으로 세면 데몬이 claim 만 하고 멈춰도 칩이 "작업 중"이라 침묵과 실행을 구분할 수 없다. 웹의 파생 함수와 목 저장소 둘 다 고쳤다 | PR #21 N7 | — |
 | ~~W-6~~ | **해결 — T-W2.** 작성창이 `previewTriggers` 를 부르고 로컬 규칙 계산(`classifyMentions`)을 지웠다 — 규칙 1~8 과 lane 해소는 서버 상태를 봐야 해서 로컬로 흉내 내면 서버와 반대로 말한다(S-1 이 그랬다) | PR #21 R2 | — |
+| W-7 | 인박스 예산 HITL 범위 파생 `budgetScopeOf` 가 `session.status==="paused"` 만 보고 `paused_reason` 을 안 본다 — 세션이 다른 사유(HITL·offline)로 paused 인 동안 task 범위 예산 HITL 이 열리면 "세션 범위" 오표시. `paused_reason==="budget"` 까지 보기 | PR #166 리뷰 NN2 | 낮음 · K-12 와 같은 급 |
 | W-3′ | mock previewTriggers가 `done/blocked` lane **재진입**을 `resolution 4 + lane_id + reentry:true`로 준다(`handlers.ts:571-573`). PRD lane 규칙·EVAL E2-04·05는 재진입을 **규칙 3**으로 두고 4는 "그 외 → 새 lane". §0-9(b) 부류 — mock 응답·p2-mock 기대값·재진입 테스트 함께 | PR #76 Lead 확인 | 다음 웹 작업 |
 | ~~W-5~~ | mock의 lane 해소 규칙(`handlers.ts` resolveLane류)을 지키는 것이 `web/e2e/p2-mock.sh`뿐이고 그 스모크는 CI 밖(mock 서버 필요)이다. `done` lane 있는 세션에서 preview → `resolution 3 · reentry true`를 vitest 1건으로 — W-2·W-3′ 부류가 다시 슬며시 바뀌어도 CI가 모른다 | PR #83 리뷰 NN1 | 다음 웹 작업 | **해결 — PR #130**
 | ~~W-6~~ | 인박스 항목이 purpose=budget HITL(task 범위, 세션은 active)에 `budgetOverride` 입력칸을 붙이지 않는다(`session_paused` 조건) → Director 가 웹에서 상향 금액을 정할 수 없음(E9-02·U7-1) | T-I3 실측 43_ | T-W4 | **해결 — PR #139**
@@ -105,6 +106,7 @@
 | ~~S-50~~ | **예산으로 `paused` 된 task 의 `finish` 가 500**(`task_paused_detail_check`, 23514). `tasks.Finish` 가 `completed` 아닌 outcome 을 그 attempt 의 cancel 명령을 근거로 `cancelled` 로 승격하는데 그 취소는 **예산 pause 자신**이었고, `cancelLocked` 가 `paused_reason` 만 지우고 `paused_detail` 을 남겨 0006 CHECK 를 깬다 → attempt 기록·`lane.runtime_session_ref` 유실 → 승인 뒤 재개가 콜드 스타트(E9-02 '재개 우선' 미충족) | G6 2판 §9.5 (3/3) | T-S9a | **해결 — PR #151**
 | ~~S-51~~ | 턴 종료와 경합한 취소가 흡수되지 않는다 — `completed` finish 는 `cancelRequested` 를 보지 않아 task `completed`·lane `done` 인데 피드에는 '사람이 중단함' 이 남아 화면과 어긋난다 | G6 2판 §9.6 (`51_` 첫 회차) | T-S9a | **해결 — PR #151** (완료는 완료로 두고, 피드에 '취소 요청이 턴 종료와 경합해 적용되지 않음' 을 남기고 명령을 소비한다)
 | S-52 | 서버가 **자기가 쓰는** `task_event` 12곳에서 닫힌 스키마를 어긴다 — `status` payload 에 `note`(집합 밖), verb `note`(enum 밖). S-41(422)은 데몬 위반만 막고 서버 자신은 예외. 고치면 피드 문구가 바뀌어 e2e 기대값을 건드린다 → 핫픽스 라운드에서 12곳 + e2e 기대값 함께 | T-S9 PR #162 보고 | P4 핫픽스(T-I4 전) |
+| S-53 | 재바인딩 뒤 첫 턴 프롬프트의 diff 재적용 지시(`RebindPrompt`)가 **번들에 실리지 않는다** — `Rebind` 가 저장하지 않고 `buildBundle` 이 읽지 않아 openapi `rebindSession`·E14-06 미충족. #162 골든이 `plan.Prompt` 만 재서 못 봄. 결정: `session.rebind_prompt`(0018) + 매 attempt `<rebind>` 구간 + **completed finish 에서 비움**(claim 에서 비우면 재큐잉에 유실) | T-S9b 발견 | T-S9b |
 
 ## C (CLI)
 
