@@ -36,28 +36,107 @@ func (s *Service) ResumeFromHuman(ctx context.Context, taskID uuid.UUID, cause s
 			// Not an error: the answer is recorded either way (E7-08).
 			return nil
 		}
-		if _, err := Transition(t.Status, Queued); err != nil {
-			return err
-		}
-		p := PlanAttempt(AttemptInput{
-			TaskID: t.ID, Attempt: t.Attempt, MaxAttempts: t.MaxAttempts,
-			Cause: cause, PrevWorkdir: "-",
-		})
-		if _, err := tx.Exec(ctx, `
-			UPDATE task SET status = 'queued', attempt = $2, pending_hitl = false, paused_reason = NULL,
-			       paused_detail = NULL, failure_kind = NULL, not_before = NULL, runtime_id = NULL,
-			       heartbeat_at = NULL, dispatched_at = NULL, started_at = NULL, finished_at = NULL, updated_at = $3
-			WHERE id = $1`, t.ID, p.Attempt, now); err != nil {
-			return fmt.Errorf("tasks: resume from human: %w", err)
-		}
-		if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'queued', finished_at = NULL, updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
-			return err
-		}
-		t.Status, t.Attempt, t.PendingHitl, t.PausedReason = Queued, p.Attempt, false, nil
-		s.publish(ctx, tx, t)
-		return nil
+		return s.requeueParkedLocked(ctx, tx, t, cause, now)
 	})
 	return out, err
+}
+
+// requeueParkedLocked is the write half of ResumeFromHuman, on a row the caller
+// has already locked. It is shared with ResumeSessionTasks because the two are
+// the same transition — a person lifted the hold, so the task starts a NEW
+// attempt on the SAME lane and workdir with resume tried first (FR-5.4, E9-02).
+// Writing the session-scoped resume separately is how one of the two quietly
+// stops reusing the workdir.
+func (s *Service) requeueParkedLocked(ctx context.Context, tx pgx.Tx, t *Row, cause string, now time.Time) error {
+	if _, err := Transition(t.Status, Queued); err != nil {
+		return err
+	}
+	p := PlanAttempt(AttemptInput{
+		TaskID: t.ID, Attempt: t.Attempt, MaxAttempts: t.MaxAttempts,
+		Cause: cause, PrevWorkdir: "-",
+	})
+	if _, err := tx.Exec(ctx, `
+		UPDATE task SET status = 'queued', attempt = $2, pending_hitl = false, paused_reason = NULL,
+		       paused_detail = NULL, failure_kind = NULL, not_before = NULL, runtime_id = NULL,
+		       heartbeat_at = NULL, dispatched_at = NULL, started_at = NULL, finished_at = NULL, updated_at = $3
+		WHERE id = $1`, t.ID, p.Attempt, now); err != nil {
+		return fmt.Errorf("tasks: resume from human: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'queued', finished_at = NULL, updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+		return err
+	}
+	t.Status, t.Attempt, t.PendingHitl, t.PausedReason = Queued, p.Attempt, false, nil
+	s.publish(ctx, tx, t)
+	return nil
+}
+
+// ResumeSessionTasks re-queues the tasks a SESSION-scoped pause parked
+// (PRD FR-2.3, §8.2.2 "드레인 vs 취소 · 재개", EVAL E9-02·E9-03·E9-10).
+//
+// S-46: a budget or time pause CANCELS the turn in flight, and
+// PauseSessionTasks parks every running task at `paused(budget)` with its lane
+// `paused`. resumeSession set the session back to `active` and lifted only the
+// lanes that still held a QUEUED task — so the work the pause had actually
+// stopped stayed `paused` forever, with no endpoint anywhere that moves it.
+// The session looked resumed and dispatched nothing (found in T-S6; #136
+// lifted the lane gate of the post-turn case, which is a different row).
+//
+// Two tasks are deliberately left parked:
+//
+//   - one whose OWN budget request is still open — that request is answered by
+//     respondHitlRequest, and re-queueing it here would spend past a limit
+//     nobody raised (E9-01);
+//   - one whose own budget request was REFUSED — E9-03 says a rejection keeps
+//     the task at `paused(budget)` until a person presses 중단, and a session
+//     pause/resume cycle must not launder that refusal into a dispatch.
+//
+// Both are per-TASK requests (hitl_request.task_id = the task, FR-7.3 s-13);
+// the session-scoped one carries a NULL task_id and is answered by this very
+// resume, so it gates nothing here.
+func (s *Service) ResumeSessionTasks(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, reason, cause string, now time.Time) ([]uuid.UUID, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT t.id FROM task t
+		WHERE t.session_id = $1 AND t.status = 'paused'
+		  AND ($2 = '' OR t.paused_reason::text = $2)
+		  AND NOT EXISTS (
+		        SELECT 1 FROM hitl_request h
+		         WHERE h.task_id = t.id AND h.purpose = 'budget'
+		           AND (h.status = 'open' OR h.approved IS NOT TRUE))
+		ORDER BY t.created_at
+		FOR UPDATE`, sessionID, reason)
+	if err != nil {
+		return nil, fmt.Errorf("tasks: resume session tasks: %w", err)
+	}
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// The cursor is drained before any write: writing while iterating is the
+	// "conn busy" trap (G4 S7).
+	resumed := make([]uuid.UUID, 0, len(ids))
+	for _, id := range ids {
+		t, err := lockTask(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+		if t.Status != Paused {
+			continue // moved between the select and the lock
+		}
+		if err := s.requeueParkedLocked(ctx, tx, t, cause, now); err != nil {
+			return nil, err
+		}
+		resumed = append(resumed, id)
+	}
+	return resumed, nil
 }
 
 // SetPendingHitl flags the task without moving it. FR-7.1 step 1: registration

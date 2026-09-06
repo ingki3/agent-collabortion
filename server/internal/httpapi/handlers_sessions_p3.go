@@ -198,11 +198,32 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 			WHERE id = $1`, sessionId, now); err != nil {
 			return err
 		}
+		// S-46: the pause PARKED the turns it cancelled (§8.2.2 — a budget or
+		// time pause does not drain), so resuming the session has to put those
+		// tasks back in the queue. Without this the session returned to
+		// `active` with every task it had stopped still `paused`, and no
+		// endpoint anywhere moved them again: FR-2.3's 재개 lost the work
+		// instead of continuing it. The re-queue is a new attempt on the same
+		// lane and workdir, resume tried first (E9-02).
+		//
+		// It runs BEFORE the lane sweep below, so a lane whose only task was
+		// parked is caught by that sweep's `EXISTS ... status = 'queued'`.
+		resumeCause := tasks.CauseHitlAnswer
+		if derefString(reason) == sessions.PauseBudget {
+			// The budget HITL this resume answers is the session-scoped one
+			// (task_id NULL, openapi resumeSession), so the attempt starts for
+			// the same reason an approved per-task raise does.
+			resumeCause = tasks.CauseBudgetApproved
+		}
+		if _, err := s.Tasks.ResumeSessionTasks(r.Context(), tx, sessionId, derefString(reason), resumeCause, now); err != nil {
+			return err
+		}
 		// S-44: the pause parked the lanes it stopped (tasks.pauseLocked), and
 		// since the claim query refuses a paused lane the resume has to lift
 		// that too — C3′ is "재개 시 큐 순서대로 dispatch", and a lane left at
 		// paused never dispatches again. Only lanes that still hold a QUEUED
-		// task come back: a lane whose only task is `paused(budget)` has
+		// task come back: a lane whose only task is `paused(budget)` and stayed
+		// parked above (its own budget request is open or was refused) has
 		// nothing to hand out, and saying `queued` there would be a card that
 		// claims work is waiting when the task is still parked.
 		if _, err := tx.Exec(r.Context(), `
