@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,6 +28,7 @@ type fakeServer struct {
 	finish    []FinishRequest
 	phases    []PhaseRequest
 	hb        []HeartbeatRequest
+	hbRaw     [][]byte
 	commands  []contracts.Command
 }
 
@@ -109,10 +111,12 @@ func (f *fakeServer) handler() http.Handler {
 		json.NewEncoder(w).Encode(EventsResponse{AcceptedSeqMax: f.eventsMax, Commands: []contracts.Command{{Type: contracts.CmdProbe}}})
 	})
 	mux.HandleFunc("POST /v1/daemon/tasks/{task}/attempts/{n}/heartbeat", func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
 		var req HeartbeatRequest
-		json.NewDecoder(r.Body).Decode(&req)
+		json.Unmarshal(raw, &req)
 		f.mu.Lock()
 		f.hb = append(f.hb, req)
+		f.hbRaw = append(f.hbRaw, raw)
 		f.mu.Unlock()
 		json.NewEncoder(w).Encode(HeartbeatResponse{Commands: []contracts.Command{{Type: contracts.CmdCancel, TaskID: "t1", Attempt: 1, Reason: "director"}}})
 	})
@@ -164,7 +168,7 @@ func TestPairProbeClaimPhaseHeartbeatFinish(t *testing.T) {
 	if err := c.Phase(ctx, "t1", 1, PhaseRequest{Phase: "preparing", PGID: 42, WorkdirPath: "/w"}); err != nil {
 		t.Fatal(err)
 	}
-	hr, err := c.Heartbeat(ctx, "t1", 1, HeartbeatRequest{LastSeq: 3, Preview: "par"})
+	hr, err := c.Heartbeat(ctx, "t1", 1, HeartbeatRequest{LastSeq: 3, Preview: &HeartbeatPreview{Text: "par"}})
 	if err != nil || len(hr.Commands) != 1 || hr.Commands[0].Type != contracts.CmdCancel {
 		t.Fatalf("%+v %v", hr, err)
 	}
@@ -173,7 +177,7 @@ func TestPairProbeClaimPhaseHeartbeatFinish(t *testing.T) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if len(f.phases) != 1 || f.phases[0].PGID != 42 || len(f.hb) != 1 || f.hb[0].Preview != "par" || len(f.finish) != 1 || f.finish[0].Outcome != "completed" {
+	if len(f.phases) != 1 || f.phases[0].PGID != 42 || len(f.hb) != 1 || f.hb[0].Preview == nil || f.hb[0].Preview.Text != "par" || len(f.finish) != 1 || f.finish[0].Outcome != "completed" {
 		t.Fatalf("server saw phases=%+v hb=%+v finish=%+v", f.phases, f.hb, f.finish)
 	}
 }
@@ -217,7 +221,7 @@ func TestBatcherBatchesAndResends(t *testing.T) {
 			}
 		}
 	}
-	if b.Unacked() != 0 || b.LastSeq() != 250 || b.TakePreview() != "partial text" {
+	if p := b.TakePreview(); b.Unacked() != 0 || b.LastSeq() != 250 || p == nil || p.Text != "partial text" || p.MessageID != "" {
 		t.Fatalf("batcher state unacked=%d last=%d", b.Unacked(), b.LastSeq())
 	}
 	cmu.Lock()
@@ -239,5 +243,72 @@ func TestBatcherKeepsPendingWhileServerDown(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "events") {
 		t.Fatalf("err %v", err)
+	}
+}
+
+// §4.2 v0.3 (G3 C-1): the heartbeat carries `preview` as an object with a
+// required `text`, and omits the key entirely when there is no partial
+// output — the server used to 422 the whole heartbeat on the old string
+// shape, losing a live attempt to re-queueing.
+func TestHeartbeatPreviewContractShape(t *testing.T) {
+	f, s := newFake(t)
+	c := New(s.URL, "cdt_secret")
+	ctx := context.Background()
+	b := NewBatcherWith(ctx, c, "t1", 1, 100, time.Hour)
+	t.Cleanup(func() { b.Close(ctx) })
+
+	// (b) no partial output yet → no `preview` key at all (never {}).
+	if p := b.TakePreview(); p != nil {
+		t.Fatalf("empty preview should be nil, got %+v", p)
+	}
+	if _, err := c.Heartbeat(ctx, "t1", 1, HeartbeatRequest{LastSeq: 0, Preview: b.TakePreview()}); err != nil {
+		t.Fatal(err)
+	}
+	// (a) partial output → preview.text is exactly that string.
+	b.Preview("hello wor")
+	if _, err := c.Heartbeat(ctx, "t1", 1, HeartbeatRequest{LastSeq: 7, Preview: b.TakePreview()}); err != nil {
+		t.Fatal(err)
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.hbRaw) != 2 {
+		t.Fatalf("want 2 heartbeats, got %d", len(f.hbRaw))
+	}
+	// (c) the wire bytes unmarshal into the server-side contract shape.
+	type serverPreview struct {
+		Text      string `json:"text"`
+		MessageID string `json:"message_id"`
+	}
+	type serverHeartbeat struct {
+		Usage   map[string]any `json:"usage"`
+		LastSeq int            `json:"last_seq"`
+		Preview *serverPreview `json:"preview"`
+	}
+	var keys []map[string]json.RawMessage
+	for i, raw := range f.hbRaw {
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Fatalf("heartbeat %d not an object: %v (%s)", i, err, raw)
+		}
+		keys = append(keys, m)
+		var sh serverHeartbeat
+		if err := json.Unmarshal(raw, &sh); err != nil {
+			t.Fatalf("heartbeat %d does not fit the contract shape: %v (%s)", i, err, raw)
+		}
+		if i == 1 {
+			if sh.Preview == nil || sh.Preview.Text != "hello wor" || sh.Preview.MessageID != "" {
+				t.Fatalf("preview: %+v (%s)", sh.Preview, raw)
+			}
+			if sh.LastSeq != 7 {
+				t.Fatalf("last_seq %d", sh.LastSeq)
+			}
+		}
+	}
+	if _, ok := keys[0]["preview"]; ok {
+		t.Fatalf("no partial output must omit the preview key: %s", f.hbRaw[0])
+	}
+	if _, ok := keys[1]["preview"]; !ok {
+		t.Fatalf("partial output must send a preview: %s", f.hbRaw[1])
 	}
 }

@@ -59,12 +59,20 @@ type EventsResponse struct {
 	Commands       []contracts.Command `json:"commands"`
 }
 
-// HeartbeatRequest — POST …/heartbeat (§4.2). Preview is the non-persisted
-// streaming text (partial message).
+// HeartbeatPreview is the non-persisted partial message (§4.2 v0.3, G3 C-1):
+// {"text": …, "message_id": …} — text required, message_id only when the
+// daemon knows which already-posted message it is continuing.
+type HeartbeatPreview struct {
+	Text      string `json:"text"`
+	MessageID string `json:"message_id,omitempty"`
+}
+
+// HeartbeatRequest — POST …/heartbeat (§4.2). Preview is omitted entirely
+// when there is no partial output; it is never sent as an empty object.
 type HeartbeatRequest struct {
-	Usage   contracts.Usage `json:"usage"`
-	LastSeq int             `json:"last_seq"`
-	Preview string          `json:"preview,omitempty"`
+	Usage   contracts.Usage   `json:"usage"`
+	LastSeq int               `json:"last_seq"`
+	Preview *HeartbeatPreview `json:"preview,omitempty"`
 }
 
 type HeartbeatResponse struct {
