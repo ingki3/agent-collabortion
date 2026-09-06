@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.4 — 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
+| 버전 | v0.5 — probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
 | 소유 | S + D. 변경은 Director 승인 PR로만 |
 | 근거 | PRD §8.1(큐), FR-7.1(상태 머신·heartbeat), FR-9.1(고아·토큰 폐기), FR-9.2(오프라인 유예), FR-6.4(workdir·GC), `harness.md`(오류 분류·재개) |
 | 원칙 | **데몬은 stateless, 상태는 서버.** 데몬은 서버가 준 것만 실행하고 결과를 보고한다. 모든 시각 판정(만료·유예·`not_before`)은 서버 클럭(`contracts/clock`) |
@@ -36,11 +36,14 @@ POST /v1/daemon/runtimes/{runtime_id}/probe
   { daemon_version, hostname,
     capabilities: [ <harness.md §9> … ],
     repos: [ {path, remote_url, branch, clean} … ],
-    workdir_root, disk: {used_bytes, quota_bytes?} }
+    workdir_root, disk: {used_bytes, quota_bytes?},
+    colab_cli: {present, version} }
   → 200 {ok}
 ```
 
 시점: 페어링 직후, 데몬 시작 시, 하루 1회, 서버가 `probe` 명령(§4.3)을 내릴 때. `repos[].remote_url`이 재바인딩 후보 판정의 기준(FR-9.2, E14-04·05).
+
+**`colab_cli` 는 최상위다 (v0.5).** 에이전트는 colab CLI 로 서버에 말하므로(colab-cli.md §1) CLI 가 없으면 세션은 조용히 아무 말도 못 하는 상태가 된다 — 데몬 로그에만 남기면 사람이 원인을 못 찾는다. 이 값은 **머신 속성**이라 런타임별 `capabilities[]` 가 아니라 probe 최상위에 한 번 싣는다: 런타임이 둘이어도 바이너리는 하나이고, 런타임이 0개인 머신에서도 보고돼야 한다. 데몬은 probe 마다 `colab --version` 을 실행해 채우고, 실행 실패·미설치는 `{present: false, version: ""}` 로 통일한다(원인은 데몬 로그에 남긴다). 서버는 `present == false` 인 머신을 S12/S11 카드에 경고로 드러낸다.
 
 ## 4. task 수명
 
@@ -102,6 +105,8 @@ POST /v1/daemon/tasks/{task_id}/attempts/{attempt}/heartbeat {usage: {…}, last
   ```
 
   `text`만 필수, `message_id`는 선택. 서버는 이를 SSE `message.delta`로 브로드캐스트하고 저장하지 않는다.
+
+  **`message_id` 는 서버가 채운다. 데몬은 비운다 (v0.5).** 메시지는 에이전트가 colab CLI/MCP 로 서버에 **직접** 올리므로(colab-cli.md §1) 데몬은 그 왕복도, 서버가 만든 message id 도 볼 수 없다. 게다가 preview 는 게시 **이전**의 부분 출력이라 그 시점에는 id 가 아직 존재하지도 않는다. 그러므로 데몬이 id 를 알게 하려고 프로토콜을 늘리지 않는다 — 델타를 어느 메시지에 잇는지는 서버가 "이 attempt 가 마지막에 만든 메시지"로 판단한다. 데몬 구현은 배관만 열어 두고(아는 경우 채울 수 있게) 항상 빈 값으로 보낸다.
 
   **부가 정보는 heartbeat를 실패시키지 않는다.** `preview`가 없거나 모양이 달라도 서버는 `usage`·`last_seq`를 받아 `heartbeat_at`을 갱신하고 `200`을 돌려준다 — 잘못된 `preview`만 무시하고 활동 피드에 경고를 남긴다. heartbeat는 **생존 신호**이므로 부가 필드 하나로 attempt를 잃으면 안 된다(E5-03이 막으려던 상황을 스스로 만든다).
 - heartbeat **15초**. 서버는 **`running` attempt**의 마지막 heartbeat로부터 **3분** 무응답이면 `runtime_offline` → 재큐잉 + 토큰 폐기(E5-03, E11-03). `preparing`은 heartbeat 만료 대상이 아니다 — `dispatched_at`부터 5분(§4.1)이 덮는다(v0.2, N5: 콜드 스타트가 긴 런타임의 준비 구간을 3분에 자르지 않기 위해).

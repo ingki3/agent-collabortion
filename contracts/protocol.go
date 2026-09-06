@@ -121,6 +121,14 @@ type Repo struct {
 	Clean     bool   `json:"clean"`
 }
 
+// ColabCLI — 머신에 설치된 colab CLI (probe 최상위, v0.5).
+// 런타임 속성이 아니라 머신 속성이다: 런타임이 둘이어도 colab 바이너리는 하나이고,
+// 런타임이 0개인 머신에서도 보고돼야 한다. 그래서 Capability 가 아니라 Probe 에 있다.
+type ColabCLI struct {
+	Present bool   `json:"present"`
+	Version string `json:"version"`
+}
+
 // Probe — POST /v1/daemon/runtimes/{id}/probe body (daemon-protocol.md §3).
 type Probe struct {
 	DaemonVersion string       `json:"daemon_version"`
@@ -129,6 +137,7 @@ type Probe struct {
 	Repos         []Repo       `json:"repos"`
 	WorkdirRoot   string       `json:"workdir_root"`
 	Disk          Disk         `json:"disk"`
+	ColabCLI      ColabCLI     `json:"colab_cli"`
 }
 
 type Disk struct {

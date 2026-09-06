@@ -1606,6 +1606,14 @@ type CliContext struct {
 	WorkspaceId                openapi_types.UUID                    `json:"workspace_id"`
 }
 
+// ColabCLI 머신에 설치된 colab CLI. **런타임 속성이 아니라 머신 속성**이라 `capabilities[]`가 아니라 probe 최상위에 한 번 실린다(daemon-protocol.md §3, v0.5) — 런타임이 둘이어도 바이너리는 하나고, 런타임이 0개인 머신에서도 보고돼야 한다. 에이전트는 colab CLI로 서버에 말하므로 `present: false`면 세션이 조용히 아무 말도 못 한다: S11·S12 카드는 이걸 경고로 드러낸다.
+type ColabCLI struct {
+	Present bool `json:"present"`
+
+	// Version 미설치·실행 실패면 빈 문자열.
+	Version string `json:"version"`
+}
+
 // CompletionAtom defines model for CompletionAtom.
 type CompletionAtom struct {
 	// AgentId `artifact_submitted` · `agent_approval`의 지정 에이전트(`who` 대신).
@@ -2426,7 +2434,10 @@ type RespondTo string
 
 // Runtime defines model for Runtime.
 type Runtime struct {
-	Capabilities  []RuntimeCapability       `json:"capabilities"`
+	Capabilities []RuntimeCapability `json:"capabilities"`
+
+	// ColabCli 머신에 설치된 colab CLI. **런타임 속성이 아니라 머신 속성**이라 `capabilities[]`가 아니라 probe 최상위에 한 번 실린다(daemon-protocol.md §3, v0.5) — 런타임이 둘이어도 바이너리는 하나고, 런타임이 0개인 머신에서도 보고돼야 한다. 에이전트는 colab CLI로 서버에 말하므로 `present: false`면 세션이 조용히 아무 말도 못 한다: S11·S12 카드는 이걸 경고로 드러낸다.
+	ColabCli      *ColabCLI                 `json:"colab_cli,omitempty"`
 	CreatedAt     time.Time                 `json:"created_at"`
 	DaemonVersion nullable.Nullable[string] `json:"daemon_version,omitempty"`
 
@@ -2504,10 +2515,13 @@ type RuntimeCapabilityBriefTransport string
 
 // RuntimeDetail defines model for RuntimeDetail.
 type RuntimeDetail struct {
-	ActiveSessions []SessionRef              `json:"active_sessions"`
-	Capabilities   []RuntimeCapability       `json:"capabilities"`
-	CreatedAt      time.Time                 `json:"created_at"`
-	DaemonVersion  nullable.Nullable[string] `json:"daemon_version,omitempty"`
+	ActiveSessions []SessionRef        `json:"active_sessions"`
+	Capabilities   []RuntimeCapability `json:"capabilities"`
+
+	// ColabCli 머신에 설치된 colab CLI. **런타임 속성이 아니라 머신 속성**이라 `capabilities[]`가 아니라 probe 최상위에 한 번 실린다(daemon-protocol.md §3, v0.5) — 런타임이 둘이어도 바이너리는 하나고, 런타임이 0개인 머신에서도 보고돼야 한다. 에이전트는 colab CLI로 서버에 말하므로 `present: false`면 세션이 조용히 아무 말도 못 한다: S11·S12 카드는 이걸 경고로 드러낸다.
+	ColabCli      *ColabCLI                 `json:"colab_cli,omitempty"`
+	CreatedAt     time.Time                 `json:"created_at"`
+	DaemonVersion nullable.Nullable[string] `json:"daemon_version,omitempty"`
 
 	// GraceEndsAt 7일 유예 만료 시각(오프라인일 때).
 	GraceEndsAt nullable.Nullable[time.Time] `json:"grace_ends_at,omitempty"`
