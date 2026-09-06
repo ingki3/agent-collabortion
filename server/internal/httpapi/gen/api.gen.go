@@ -3292,9 +3292,6 @@ type Conflict = Problem
 // Forbidden RFC 9457 Problem Details + `code`(기계용 식별자) + `errors[]`(필드 검증) 확장.
 type Forbidden = Problem
 
-// GatewayTimeout RFC 9457 Problem Details + `code`(기계용 식별자) + `errors[]`(필드 검증) 확장.
-type GatewayTimeout = Problem
-
 // Gone RFC 9457 Problem Details + `code`(기계용 식별자) + `errors[]`(필드 검증) 확장.
 type Gone = Problem
 

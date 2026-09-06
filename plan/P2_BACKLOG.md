@@ -104,6 +104,7 @@
 | S-49 | 예산 상향 `too_low` 검사가 두 핸들러(K-10 세션 승인 `greatest(session.cost_usd, sum(task_usage))` vs `resumeSession` "새 상한은 현재 소진액 이상")에서 기준·문구가 다르다 — 통일 | PR #147 리뷰 NN2 | 낮음 |
 | ~~S-50~~ | **예산으로 `paused` 된 task 의 `finish` 가 500**(`task_paused_detail_check`, 23514). `tasks.Finish` 가 `completed` 아닌 outcome 을 그 attempt 의 cancel 명령을 근거로 `cancelled` 로 승격하는데 그 취소는 **예산 pause 자신**이었고, `cancelLocked` 가 `paused_reason` 만 지우고 `paused_detail` 을 남겨 0006 CHECK 를 깬다 → attempt 기록·`lane.runtime_session_ref` 유실 → 승인 뒤 재개가 콜드 스타트(E9-02 '재개 우선' 미충족) | G6 2판 §9.5 (3/3) | T-S9a | **해결 — PR #151**
 | ~~S-51~~ | 턴 종료와 경합한 취소가 흡수되지 않는다 — `completed` finish 는 `cancelRequested` 를 보지 않아 task `completed`·lane `done` 인데 피드에는 '사람이 중단함' 이 남아 화면과 어긋난다 | G6 2판 §9.6 (`51_` 첫 회차) | T-S9a | **해결 — PR #151** (완료는 완료로 두고, 피드에 '취소 요청이 턴 종료와 경합해 적용되지 않음' 을 남기고 명령을 소비한다)
+| S-52 | 서버가 **자기가 쓰는** `task_event` 12곳에서 닫힌 스키마를 어긴다 — `status` payload 에 `note`(집합 밖), verb `note`(enum 밖). S-41(422)은 데몬 위반만 막고 서버 자신은 예외. 고치면 피드 문구가 바뀌어 e2e 기대값을 건드린다 → 핫픽스 라운드에서 12곳 + e2e 기대값 함께 | T-S9 PR #162 보고 | P4 핫픽스(T-I4 전) |
 
 ## C (CLI)
 
