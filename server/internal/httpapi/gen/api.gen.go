@@ -2500,6 +2500,9 @@ type RuntimeCapability struct {
 	// Resume session/load 지원 — harness §6
 	Resume *bool `json:"resume,omitempty"`
 
+	// SupportedOptions 이 런타임이 받는 프로파일 옵션과 허용 값(v0.5). 예 `{effort: [low, medium, high, xhigh]}`. PRD §8.2.6 "세션이 광고한 능력 범위 내에서만"의 그 광고다 — v0.4.1 에서 protocol.go 대조 중 빠졌는데, createProfile 의 422 규칙과 S10 의 "미지원 옵션 비활성 + 사유"(SCREEN §4.7)가 둘 다 이 값을 전제한다. 데몬이 (kind, adapter_version) 으로 아는 범위를 채운다. **키가 없거나 비어 있으면 "광고 없음"** — 웹은 옵션 편집을 비활성으로 두고 사유를 보이며, 서버는 어떤 옵션 값도 받지 않는다(빈 광고 = 허용 없음).
+	SupportedOptions *map[string][]string `json:"supported_options,omitempty"`
+
 	// ToolDisallow 툴 차단 수단 존재(harness §3)
 	ToolDisallow *bool `json:"tool_disallow,omitempty"`
 

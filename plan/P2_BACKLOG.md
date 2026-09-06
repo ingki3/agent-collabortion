@@ -23,6 +23,7 @@
 | D-2 | probe의 `resume`·`usage`·`tool_disallow`를 상수가 아니라 실측으로(E12-06 `usage=false` 경로) | PR #20 NN2 | P2 초반 |
 | D-3 | `acpprobe`(스파이크 cmd) 제거 — `harness/acp`로 승격 완료 | PR #20 결함 6 | 정리 |
 | D-4 | worktree·GC·`rebind_prepare`·예산 강제는 P3·P4 | PR #20 결함 7 | 단계대로 |
+| D-5 | probe `capabilities[].supported_options` 채우기 — `(kind, adapter_version)` 표. claude_code 0.74.0: `effort` 허용 값. Hermes: 비움 | T-W2 계약 빈칸(harness v0.5) | **T-I2 전.** 비어 있으면 웹이 옵션 편집을 비활성으로 둔다 — 빈 채로 두면 S10이 사실상 죽는다 |
 
 ## W (웹)
 
@@ -45,6 +46,7 @@
 | ~~S-9~~ | **진단 정정 + 해결 — T-S2.** 유니크 제약은 0002(214-215)가 이미 `(task_id, attempt, seq)` 로 바꿨다 — 아래 진단의 전제가 낡았다. 남은 위험은 서버 발행 이벤트의 **동시 `max(seq)+1` 계산**이고, 자리는 셋이 아니라 **넷**이다(`NotePreviewDrift`·director 취소 노트·`router.Post` 상태 이벤트·`httpapi/commands.go` 명령 24h 만료 노트). `ON CONFLICT DO NOTHING` 은 충돌을 오류에서 **조용한 유실**로 바꾼 것이라 해결이 아니었다 — 네 자리를 `tasks.InsertServerEvent` 하나로 모으고 `pg_advisory_xact_lock((task, attempt))` 아래에서 seq 를 계산한다. 피드는 사람이 개입 여부를 판단하는 화면이라 노트 유실이 500 보다 나쁘다(FR-7.2). ~~서버 발행 task_event의 seq 계산이 attempt 스코프(`max(seq)+1 WHERE task_id AND attempt`)인데 유니크 제약은 `(task_id, seq)`(0001) → attempt 2의 첫 서버 이벤트가 attempt 1과 충돌. 피해는 피드 노트 1건 유실(heartbeat·취소는 안전) ~~ | PR #43 NN1 | — |
 | ~~S-10~~ | ~~`auth.AcceptInvite` 동시 수락 TOCTOU → 500~~ **해결 — T-S2**(`ON CONFLICT (workspace_id, user_id) DO NOTHING`. 두 번 수락은 오류가 아니다) | PR #43 전수 조사 | — |
 | ~~S-11~~ | **해결 — T-S2**(`validateLimit`, 범위 밖은 422. `07_adversarial.sh` D8 기대도 갱신). ~~요청 파라미터의 스키마 제약이 강제되지 않는다. `limit`은 계약상 `minimum:1 maximum:200`인데 서버는 `-1`·`0`·`999999`를 200으로 받고 **조용히 기본값 50으로 강제**한다(타입 오류만 422). 네 저장소(messages·agents·sessions·events)가 모두 clamp하므로 **자원 고갈 위험은 없다** — 계약↔구현 불일치이고, 500을 요청한 클라이언트가 50을 받고도 모른다 ~~ | Lead 적대적 검증 D8 | — |
+| S-13 | `createProfile`·`updateProfile`이 `options`를 런타임 `supported_options` 밖이면 **422**(openapi L1053 규칙 — 광고할 키가 없어 지금까지 구현 불가였다). 빈 광고 = 허용 없음 | T-W2 계약 빈칸(harness v0.5) | T-S3 뒤 또는 T-I2 전 |
 | ~~S-12~~ | **해결 — T-S2.** 두 operation 을 켜면서 owner·admin 게이트를 함께 넣었고, 루프 상한 0(상한을 조용히 끄는 값)도 422 로 막는다. `07_adversarial.sh` D2 기대를 403/404 로 좁혔다. ~~P2에서 authz를 반드시 넣을 것. 지금은 501이라 남의 워크스페이스 설정도 바뀌지 않지만, 501은 인가가 아니라 미구현이다. `e2e/p1/07_adversarial.sh` D2의 기대를 그때 `403/404`로 좁힌다 ~~ | Lead 적대적 검증 D2 | — |
 
 ## C (CLI)

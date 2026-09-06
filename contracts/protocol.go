@@ -111,6 +111,12 @@ type Capability struct {
 	ToolDisallow     bool           `json:"tool_disallow"`
 	BriefTransport   BriefTransport `json:"brief_transport"`
 	AllowOnceMissing bool           `json:"allow_once_missing"`
+	// SupportedOptions — 이 런타임이 받는 프로파일 옵션과 허용 값(v0.5). 예
+	// {"effort": ["low","medium","high","xhigh"]}. 데몬이 (kind, adapter_version)
+	// 로 아는 범위를 광고한다; 빈 값은 "광고 없음"이지 "옵션 없음"이 아니다 —
+	// 웹은 그 옵션을 비활성으로 두고 사유를 보이고, 서버는 createProfile 에서
+	// 광고 밖 값을 422 로 거부한다(PRD §8.2.6, openapi createProfile).
+	SupportedOptions map[string][]string `json:"supported_options,omitempty"`
 }
 
 // Repo — probe repos[] (FR-9, FR-9.2 rebinding by remote_url).
