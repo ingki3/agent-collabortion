@@ -3408,7 +3408,7 @@ components:
       required: [kind, logged_in]
       properties:
         kind: { $ref: '#/components/schemas/RuntimeKind' }
-        version: { type: [string, 'null'], description: 런타임 CLI 버전(예 Claude Code 2.1.258, Hermes 0.20.6). }
+        version: { type: [string, 'null'], description: '런타임 CLI 버전(예 Claude Code 2.1.258, Hermes 0.20.6).' }
         adapter_version: { type: [string, 'null'], description: 'ACP 어댑터 실측 버전. 실측 실패 시 null(핀 상수로 채우지 않는다).' }
         logged_in: { type: boolean }
         models:

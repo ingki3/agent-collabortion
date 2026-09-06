@@ -6,6 +6,59 @@ on:
     branches: [dev, main]
 
 jobs:
+  # 계약은 네 스트림의 유일한 공유 지점이다(contracts/README.md). 지금까지 CI가
+  # 계약 자체를 검증하지 않아, 잘못된 YAML(플로우 매핑 안의 따옴표 없는 쉼표)이
+  # 스키마에 엉뚱한 속성을 만든 채 머지됐다. 그 부류를 여기서 막는다.
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: false
+      - name: openapi lint (strict)
+        run: npx -y @redocly/cli@2 lint contracts/openapi.yaml --extends recommended-strict
+      - name: task_event schema is valid JSON Schema
+        # strict=false: 문서용 확장 키(x-render-class)를 허용한다.
+        run: |
+          npx -y ajv-cli@5 compile -s contracts/task_event.schema.json --spec=draft2020 --strict=false
+      - name: no prose-like keys (flow-mapping comma split)
+        run: |
+          python3 - <<'PY'
+          import yaml, sys
+          doc = yaml.safe_load(open('contracts/openapi.yaml'))
+          bad = []
+          def walk(n, p):
+              if isinstance(n, dict):
+                  for k, v in n.items():
+                      ks = str(k)
+                      if ' ' in ks and (ks.endswith('.') or ks.endswith(')') or ks.endswith(').')):
+                          bad.append(f"{p}/{ks!r}")
+                      walk(v, f"{p}/{ks}")
+              elif isinstance(n, list):
+                  for i, v in enumerate(n):
+                      walk(v, f"{p}[{i}]")
+          walk(doc, '')
+          if bad:
+              print("prose-like keys (unquoted description with a comma inside { }):")
+              print("\n".join(bad)); sys.exit(1)
+          print("ok")
+          PY
+      - name: generated code matches contracts (server)
+        run: |
+          cd server && go generate ./internal/httpapi/gen
+          cd .. && git diff --exit-code -- server/internal/httpapi/gen \
+            || { echo "::error::server/internal/httpapi/gen is stale — run 'cd server && go generate ./internal/httpapi/gen'"; exit 1; }
+      - name: generated types match contracts (web)
+        run: |
+          cd web && npm ci --silent && npm run gen:api
+          cd .. && git diff --exit-code -- web/lib/api \
+            || { echo "::error::web/lib/api is stale — run 'cd web && npm run gen:api'"; exit 1; }
+
   go:
     runs-on: ubuntu-latest
     services:

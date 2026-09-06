@@ -1124,7 +1124,7 @@ export interface paths {
         /**
          * 메시지 게시(멱등) — 라우팅 규칙 1~8 적용
          * @description 권한: 워크스페이스 멤버(누구나 게시·멘션, FR-5.3) · `TaskToken`(에이전트, 그 task의 세션만).
-         *     **`Idempotency-Key` 필수.** 사용자는 UUID를, CLI는 `task_id + seq`에서 파생한 키를 쓴다(§9 내구성) — 폐기된 토큰은 `401`(E11-04). 서버가 FR-3.3 규칙 1~8과 lane 해소 4규칙을 적용해 task를 만들거나 병합한다(FR-3.4: **어떤 메시지도 진행 중 턴을 취소하지 않는다**). `new_lane: true`는 해소 규칙 3을 건너뛴다(t-2, 사람만). `suppress_agent_ids`는 이번 메시지에서만 트리거를 억제한다(FR-3.6). 비참여 에이전트 멘션은 게시하되 `warnings[]`로 알린다(E1-04). 응답 `triggers[]`는 실제로 만들어진/병합된 task.
+         *     **`Idempotency-Key` 필수.** 사용자는 랜덤 UUID를, CLI는 `UUIDv5(task:<task_id>:<seq>)`(attempt 제외, seq는 `CliContext.last_seq`에서 이어짐 — colab-cli.md §1)를 쓴다(§9 내구성) — 폐기된 토큰은 `401`(E11-04). 서버가 FR-3.3 규칙 1~8과 lane 해소 4규칙을 적용해 task를 만들거나 병합한다(FR-3.4: **어떤 메시지도 진행 중 턴을 취소하지 않는다**). `new_lane: true`는 해소 규칙 3을 건너뛴다(t-2, 사람만). `suppress_agent_ids`는 이번 메시지에서만 트리거를 억제한다(FR-3.6). 비참여 에이전트 멘션은 게시하되 `warnings[]`로 알린다(E1-04). 응답 `triggers[]`는 실제로 만들어진/병합된 task.
          *     `TaskToken`으로 게시할 때 `author_type`은 `agent`, `source_task_id`는 그 task다. 루프 상한 초과면 메시지는 게시되고 세션이 `paused(loop)`가 되며 task는 만들지 않는다(E4-01).
          */
         post: operations["postMessage"];
@@ -2118,20 +2118,30 @@ export interface components {
             push: boolean;
             default_subscription: components["schemas"]["SubscriptionLevel"];
         };
-        /** @description probe() 항목: `capabilities` jsonb 원소. */
+        /** @description probe() 항목: `capabilities` jsonb 원소. **contracts/protocol.go `Capability`와 키가 1:1**(v0.4.1, PR #26 대조표 — 이전 transport[]·usage_reporting·options는 protocol.go에 없어 채워지지 않았다). 데몬 → 서버 → 웹이 같은 모양을 쓴다(harness.md §9). */
         RuntimeCapability: {
             kind: components["schemas"]["RuntimeKind"];
+            /** @description 런타임 CLI 버전(예 Claude Code 2.1.258, Hermes 0.20.6). */
             version?: string | null;
-            models?: string[];
+            /** @description ACP 어댑터 실측 버전. 실측 실패 시 null(핀 상수로 채우지 않는다). */
+            adapter_version?: string | null;
             logged_in: boolean;
-            /** @description 데몬이 판단한 사용 가능 경로(§8.2). */
-            transport?: ("acp" | "cli")[];
-            /** @description 사용량을 보고하는지. false면 비용은 추정치(FR-7.3). */
-            usage_reporting?: boolean;
-            /** @description 광고된 옵션 능력(예 `effort` 허용값). 프로파일 편집기 비활성 판정용(§8.2.6). */
-            options?: {
-                [key: string]: unknown;
-            };
+            models?: string[];
+            /** @description ACP initialize 응답. v1은 1. */
+            protocol_version?: number | null;
+            /** @description session/load 지원 — harness §6 */
+            resume?: boolean;
+            /** @description 사용량 보고 여부. false면 비용은 추정 배지(FR-7.3) */
+            usage?: boolean;
+            /** @description 툴 차단 수단 존재(harness §3) */
+            tool_disallow?: boolean;
+            /**
+             * @description 브리프 전달 경로(harness §1). 값이 없으면 필드를 생략하거나 null — enum에 null을 넣지 않는다(생성기가 상수 '<nil>'을 만든다, v0.4.2).
+             * @enum {string|null}
+             */
+            brief_transport?: "acp_meta_system_prompt" | "instruction_file" | null;
+            /** @description 권한 협상에서 allow_once 부재 3회 누적(E12-03) */
+            allow_once_missing?: boolean;
         };
         /** @description `repos` jsonb 원소(FR-9). `remote_url`이 재바인딩 "같은 저장소" 키. */
         RuntimeRepo: {
@@ -3076,13 +3086,18 @@ export interface components {
             id: string;
             /** Format: uuid */
             task_id: string;
+            /** @description task attempt. (task_id, attempt, seq)가 멱등키 — daemon-protocol §4.2 (v0.4) */
+            attempt?: number;
             seq: number;
             class: string;
             verb?: string | null;
-            object_ref?: {
+            /** @description task_event.schema.json과 같은 문자열(파일 경로·명령 첫 토큰·툴 제목 등). v0.4에서 object → string으로 정렬(PR #22 리뷰 N2). */
+            object_ref?: string | null;
+            outcome?: string | null;
+            /** @description task_event.schema.json $defs 중 class에 맞는 payload를 **최상위로** 그대로. 활동 피드가 tool_call_id로 툴 호출을 접는 근거(v0.4, PR #22 리뷰 R2). usage 안에 중첩하지 않는다. */
+            payload?: {
                 [key: string]: unknown;
             } | null;
-            outcome?: string | null;
             tool?: string | null;
             input?: {
                 [key: string]: unknown;
@@ -3464,6 +3479,8 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
             attempt: number;
+            /** @description 이 task가 지금까지 쓴 **마지막(최댓값)** client seq(attempt 무관) — 개수가 아니다(구멍이 있어도 max). 출처는 idempotency_key.client_seq, 없으면 UUIDv5 순차 대조(ClientSeq 헤더 설명). CLI는 last_seq+1부터 이어 쓴다 — 멱등키 UUIDv5(task:<task_id>:<seq>)가 attempt 경계를 넘어 유일하도록(colab-cli.md §1, E8-04). */
+            last_seq: number;
             /** Format: uuid */
             delegated_from_task_id?: string | null;
             /**
@@ -3590,6 +3607,8 @@ export interface components {
         Limit: number;
         /** @description 클라이언트가 만든 UUID. 같은 키의 재요청은 첫 응답을 그대로 돌려준다(`Idempotent-Replayed: true`). 키는 24시간 보존. 같은 키에 다른 본문이면 `422 idempotency_key_reused`. */
         IdempotencyKeyRequired: string;
+        /** @description colab CLI가 보내는 이 task의 client seq(attempt 무관, 1부터 단조 증가). 서버는 idempotency_key.client_seq에 저장하고 CliContext.last_seq = max(client_seq)로 답한다(v0.4, PR #22 리뷰 R1). 헤더가 없으면(웹·구버전 CLI) 서버가 UUIDv5(task:<task_id>:<n>)를 n=1부터 순서대로 대조해 마지막 존재 seq를 찾는다. */
+        ClientSeq: number;
         /** @description 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙. */
         IdempotencyKeyOptional: string;
     };
@@ -5461,6 +5480,8 @@ export interface operations {
             header: {
                 /** @description 클라이언트가 만든 UUID. 같은 키의 재요청은 첫 응답을 그대로 돌려준다(`Idempotent-Replayed: true`). 키는 24시간 보존. 같은 키에 다른 본문이면 `422 idempotency_key_reused`. */
                 "Idempotency-Key": components["parameters"]["IdempotencyKeyRequired"];
+                /** @description colab CLI가 보내는 이 task의 client seq(attempt 무관, 1부터 단조 증가). 서버는 idempotency_key.client_seq에 저장하고 CliContext.last_seq = max(client_seq)로 답한다(v0.4, PR #22 리뷰 R1). 헤더가 없으면(웹·구버전 CLI) 서버가 UUIDv5(task:<task_id>:<n>)를 n=1부터 순서대로 대조해 마지막 존재 seq를 찾는다. */
+                "X-Colab-Client-Seq"?: components["parameters"]["ClientSeq"];
             };
             path: {
                 sessionId: components["parameters"]["SessionId"];

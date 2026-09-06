@@ -392,29 +392,29 @@ function simulateRun(s: Store, sess: Session, task: MockTask, reply: string) {
   at(300, () => {
     task.status = "running";
     emitParticipant(s, sess, agent.id, "lane #1 실행 중");
-    pushEvent(s, sess, task, { class: "runtime", verb: "start", object_ref: { runtime_kind: "claude_code", session_id: `acp-${task.id.slice(0, 8)}` }, outcome: "cold_start", sentence: `${agent.name}가 세션을 시작했다 → cold_start` });
+    pushEvent(s, sess, task, { class: "runtime", verb: "start", object_ref: null, outcome: "cold_start", payload: { runtime_kind: "claude_code", session_id: `acp-${task.id.slice(0, 8)}` }, sentence: `${agent.name}가 세션을 시작했다 → cold_start` });
     emit(s, sess.workspace_id, "agent.typing", { session_id: sess.id, agent_id: agent.id, typing: true }, sess.id, true);
   });
   let thinking: TaskEvent | undefined;
   at(700, () => {
-    thinking = pushEvent(s, sess, task, { class: "message", verb: "think", object_ref: { kind: "thought" }, outcome: "started", sentence: `${agent.name}가 생각하는 중…` });
+    thinking = pushEvent(s, sess, task, { class: "message", verb: "think", object_ref: null, outcome: "started", payload: { kind: "thought" }, sentence: `${agent.name}가 생각하는 중…` });
   });
   at(1200, () => {
-    if (thinking) supersede(s, sess, task, thinking, { class: "message", verb: "think", object_ref: { kind: "thought", chars: 412 }, outcome: "ok", sentence: `${agent.name}가 계획을 생각했다 → ok` });
+    if (thinking) supersede(s, sess, task, thinking, { class: "message", verb: "think", object_ref: null, outcome: "ok", payload: { kind: "thought", chars: 412 }, sentence: `${agent.name}가 계획을 생각했다 → ok` });
     // 데몬(PR #20)처럼 한 툴 호출을 started → ok 두 이벤트로, superseded_by 없이 tool_call_id 로만 잇는다(R1 검증용)
     const tcid = `call_${task.id.slice(0, 8)}`;
-    pushEvent(s, sess, task, { class: "tool", verb: "read", object_ref: { path: "README.md" }, outcome: "started", tool: "Read", sentence: `${agent.name}가 README.md 를 읽는 중…`, payload: { tool_call_id: tcid, kind: "read" } } as Partial<TaskEvent> & Pick<TaskEvent, "class">);
+    pushEvent(s, sess, task, { class: "tool", verb: "read", object_ref: "README.md", outcome: "started", tool: "Read", sentence: `${agent.name}가 README.md 를 읽는 중…`, payload: { tool_call_id: tcid, kind: "read" } } as Partial<TaskEvent> & Pick<TaskEvent, "class">);
   });
   at(1400, () => {
     const tcid = `call_${task.id.slice(0, 8)}`;
-    pushEvent(s, sess, task, { class: "tool", verb: "read", object_ref: { path: "README.md" }, outcome: "ok", tool: "Read", sentence: `${agent.name}가 README.md 를 읽었다 → ok`, payload: { tool_call_id: tcid, kind: "read" } } as Partial<TaskEvent> & Pick<TaskEvent, "class">);
+    pushEvent(s, sess, task, { class: "tool", verb: "read", object_ref: "README.md", outcome: "ok", tool: "Read", sentence: `${agent.name}가 README.md 를 읽었다 → ok`, payload: { tool_call_id: tcid, kind: "read" } } as Partial<TaskEvent> & Pick<TaskEvent, "class">);
   });
   const chunks = reply.match(/.{1,12}/gs) ?? [reply];
   chunks.forEach((c, i) => at(1500 + i * 60, () => emit(s, sess.workspace_id, "message.delta", { session_id: sess.id, task_id: task.id, agent_id: agent.id, text: c }, sess.id, true)));
   at(1500 + chunks.length * 60 + 100, () => {
     emit(s, sess.workspace_id, "agent.typing", { session_id: sess.id, agent_id: agent.id, typing: false }, sess.id, true);
     const msg = addMessage(s, sess, { author_type: "agent", author_id: agent.id, author: { name: agent.name, avatar_url: null, role: agent.role }, kind: "text", content: reply, mentions: [], source_task_id: task.id, lane_id: task.lane_id });
-    pushEvent(s, sess, task, { class: "status", verb: "post_message", object_ref: { message_id: msg.id }, outcome: "ok", sentence: `${agent.name}가 메시지를 게시했다 → ok` });
+    pushEvent(s, sess, task, { class: "status", verb: "post_message", object_ref: msg.id, outcome: "ok", sentence: `${agent.name}가 메시지를 게시했다 → ok` });
     pushEvent(s, sess, task, { class: "usage", verb: "report", object_ref: null, outcome: "report", usage: { input_tokens: 1200, output_tokens: 180, cost_usd: 0.02 } });
     pushEvent(s, sess, task, { class: "runtime", verb: "turn_end", object_ref: null, outcome: "ok", sentence: `턴 종료 → ok` });
     task.status = "completed";

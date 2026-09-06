@@ -2495,7 +2495,7 @@ type RuntimeCapability struct {
 	// Usage 사용량 보고 여부. false면 비용은 추정 배지(FR-7.3)
 	Usage *bool `json:"usage,omitempty"`
 
-	// Version 런타임 CLI 버전(예 Claude Code 2.1.258
+	// Version 런타임 CLI 버전(예 Claude Code 2.1.258, Hermes 0.20.6).
 	Version nullable.Nullable[string] `json:"version,omitempty"`
 }
 
