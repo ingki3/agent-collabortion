@@ -324,16 +324,18 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, v Viewer) (*gen.Session,
 		cost                                      float64
 		startedAt, finishedAt, lastActivity       *time.Time
 		runtimeStatus                             *string
+		costEstimated                             bool
 	)
 	err := q.QueryRow(ctx, `
 		SELECT s.id, s.workspace_id, s.title, s.goal, s.acceptance_criteria, s.director_user_id, s.deputy_director_user_id, s.assignee_agent_id,
 		       s.runtime_id, s.isolation, s.completion_condition, s.completion_met, s.limits, s.autonomy, s.context_reuse_override, s.status, s.paused_reason, s.paused_detail,
 		       s.cost_usd, s.created_by, s.created_at, s.updated_at, s.started_at, s.finished_at,
-		       (SELECT max(created_at) FROM message m WHERE m.session_id = s.id), r.status
+		       (SELECT max(created_at) FROM message m WHERE m.session_id = s.id), r.status,
+		       (SELECT COALESCE(bool_or(u.estimated), false) FROM task_usage u JOIN task t ON t.id = u.task_id WHERE t.session_id = s.id)
 		FROM session s LEFT JOIN runtime r ON r.id = s.runtime_id WHERE s.id = $1`, id).Scan(
 		&out.Id, &out.WorkspaceId, &out.Title, &out.Goal, &out.AcceptanceCriteria, &out.DirectorUserId, &deputy, &assignee,
 		&runtimeID, &isolation, &completion, &met, &limits, &autonomy, &reuse, &status, &pausedReason, &out.PausedDetail,
-		&cost, &out.CreatedBy, &out.CreatedAt, &out.UpdatedAt, &startedAt, &finishedAt, &lastActivity, &runtimeStatus)
+		&cost, &out.CreatedBy, &out.CreatedAt, &out.UpdatedAt, &startedAt, &finishedAt, &lastActivity, &runtimeStatus, &costEstimated)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.NotFound("session")
 	}
@@ -368,8 +370,10 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, v Viewer) (*gen.Session,
 		}
 	}
 	out.CostUsd = float32(cost)
-	f := false
-	out.CostEstimated = &f
+	// The same predicate `cost.updated` publishes: a total is an estimate as
+	// soon as one attempt's cost was. Hard-coding false made the SSE frame and
+	// the REST body disagree the moment an estimated attempt finished.
+	out.CostEstimated = &costEstimated
 	out.StartedAt = tasks.NullTime(startedAt)
 	out.FinishedAt = tasks.NullTime(finishedAt)
 	out.LastActivityAt = tasks.NullTime(lastActivity)
@@ -504,6 +508,20 @@ func progress(tree, metRaw []byte) gen.CompletionProgress {
 // LoadParticipants returns session_participant rows with FR-1.3 derived status
 // (session-scoped: offline when the session runtime is offline).
 func LoadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID, assignee *uuid.UUID, runtimeStatus *string) ([]gen.Participant, error) {
+	return loadParticipants(ctx, q, sessionID, nil, assignee, runtimeStatus)
+}
+
+// loadParticipants is LoadParticipants with an optional single-agent filter.
+// `participant.updated` carries ONE row, and re-deriving it has to run the
+// same SQL as the list or the frame and the reload disagree — which is the
+// class of bug this whole change is about.
+func loadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID, agentID, assignee *uuid.UUID, runtimeStatus *string) ([]gen.Participant, error) {
+	only := ""
+	args := []any{sessionID}
+	if agentID != nil {
+		args = append(args, *agentID)
+		only = " AND sp.agent_id = $2"
+	}
 	rows, err := q.Query(ctx, `
 		SELECT sp.agent_id, sp.profile_id, sp.joined_at, a.name, a.role, a.role_description, a.avatar_url, a.respond_to, a.archived_at IS NOT NULL,
 		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status IN ('dispatched','preparing','running')),
@@ -512,12 +530,16 @@ func LoadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID, assig
 		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status IN ('queued','deferred') AND t.attempt > 1),
 		       EXISTS (SELECT 1 FROM lane l WHERE l.agent_id = a.id AND l.session_id = sp.session_id AND l.status = 'blocked'),
 		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status = 'paused' AND t.paused_reason = 'budget')
-		FROM session_participant sp JOIN agent a ON a.id = sp.agent_id WHERE sp.session_id = $1 ORDER BY sp.joined_at`, sessionID)
+		FROM session_participant sp JOIN agent a ON a.id = sp.agent_id WHERE sp.session_id = $1`+only+` ORDER BY sp.joined_at`, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	out := []gen.Participant{}
+	// The profile of each row is loaded AFTER this cursor is drained, not
+	// inside the loop: q may be the caller's transaction (PublishParticipant
+	// derives from the tx that just moved the task), and a second query on the
+	// same connection while rows are open is `conn busy`.
+	profileIDs := []uuid.UUID{}
 	for rows.Next() {
 		var p gen.Participant
 		var profileID uuid.UUID
@@ -525,6 +547,7 @@ func LoadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID, assig
 		var avatar, lastFailure *string
 		var archived, running, waiting, retrying, blocked, pausedBudget bool
 		if err := rows.Scan(&p.AgentId, &profileID, &p.JoinedAt, &p.Agent.Name, &role, &p.Agent.RoleDescription, &avatar, &respondTo, &archived, &running, &waiting, &lastFailure, &retrying, &blocked, &pausedBudget); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		p.SessionId = sessionID
@@ -557,14 +580,22 @@ func LoadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID, assig
 		p.MentionLink = &link
 		p.StatusNote = nullable.NewNullNullable[string]()
 		p.Warnings = &[]string{}
-		prof, err := agents.LoadProfile(ctx, q, profileID)
+		profileIDs = append(profileIDs, profileID)
+		out = append(out, p)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		prof, err := agents.LoadProfile(ctx, q, profileIDs[i])
 		if err != nil {
 			return nil, err
 		}
-		p.Profile = *prof
-		out = append(out, p)
+		out[i].Profile = *prof
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // ListOptions mirrors listSessions filters (P1: status, director, agent, runtime, q, cursor).
@@ -696,4 +727,60 @@ func derefStr(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// DecisionAPI maps one decision row to the contract's Decision. It is the one
+// mapping: listDecisions, recordDecision's 201 and the `decision.created`
+// frame all read it, so the web sees the same object however it arrived.
+func DecisionAPI(sessionID uuid.UUID, d DecisionRow) gen.Decision {
+	out := gen.Decision{
+		Id: d.ID, SessionId: sessionID, Summary: d.Summary,
+		Source: gen.DecisionSource(d.Source), CreatedAt: d.CreatedAt,
+	}
+	if d.Rationale != nil {
+		out.Rationale = nullable.NewNullableWithValue(*d.Rationale)
+	} else {
+		out.Rationale = nullable.NewNullNullable[string]()
+	}
+	if d.RefID != nil {
+		out.RefId = nullable.NewNullableWithValue(openapi_types.UUID(*d.RefID))
+	} else {
+		out.RefId = nullable.NewNullNullable[openapi_types.UUID]()
+	}
+	return out
+}
+
+// PublishParticipant re-derives ONE agent's participant row and sends
+// `participant.updated`.
+//
+// FR-1.3's status is not stored — it is computed from the agent's tasks every
+// time it is read — so the only moment it can be known to have changed is the
+// moment a task of that agent moved. Nothing published it at all before: three
+// Researchers ran in parallel and S7's chips stayed `idle` until the page was
+// reloaded (G4 2판 W7).
+//
+// q is the caller's transaction, so the derivation sees the task row the
+// caller has just written.
+func PublishParticipant(ctx context.Context, hub *realtime.Hub, q db.DBTX, sessionID, agentID uuid.UUID) error {
+	if hub == nil {
+		return nil
+	}
+	var wsID uuid.UUID
+	var assignee *uuid.UUID
+	var runtimeStatus *string
+	if err := q.QueryRow(ctx, `
+		SELECT s.workspace_id, s.assignee_agent_id, r.status::text
+		FROM session s LEFT JOIN runtime r ON r.id = s.runtime_id WHERE s.id = $1`, sessionID).
+		Scan(&wsID, &assignee, &runtimeStatus); err != nil {
+		return err
+	}
+	parts, err := loadParticipants(ctx, q, sessionID, &agentID, assignee, runtimeStatus)
+	if err != nil {
+		return err
+	}
+	if len(parts) == 0 {
+		return nil // the agent left the session; nothing to update
+	}
+	sid := sessionID
+	return hub.Publish(ctx, q, wsID, &sid, "participant.updated", parts[0])
 }

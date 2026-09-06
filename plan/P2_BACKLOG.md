@@ -36,6 +36,7 @@
 | ~~W-5~~ | **해결 — T-W2.** PRD FR-1.3 4행대로 **`running` 만 `working`** 이다. `dispatched`·`preparing` 은 아직 턴이 시작되지 않았고, 그것을 working 으로 세면 데몬이 claim 만 하고 멈춰도 칩이 "작업 중"이라 침묵과 실행을 구분할 수 없다. 웹의 파생 함수와 목 저장소 둘 다 고쳤다 | PR #21 N7 | — |
 | ~~W-6~~ | **해결 — T-W2.** 작성창이 `previewTriggers` 를 부르고 로컬 규칙 계산(`classifyMentions`)을 지웠다 — 규칙 1~8 과 lane 해소는 서버 상태를 봐야 해서 로컬로 흉내 내면 서버와 반대로 말한다(S-1 이 그랬다) | PR #21 R2 | — |
 | W-3′ | mock previewTriggers가 `done/blocked` lane **재진입**을 `resolution 4 + lane_id + reentry:true`로 준다(`handlers.ts:571-573`). PRD lane 규칙·EVAL E2-04·05는 재진입을 **규칙 3**으로 두고 4는 "그 외 → 새 lane". §0-9(b) 부류 — mock 응답·p2-mock 기대값·재진입 테스트 함께 | PR #76 Lead 확인 | 다음 웹 작업 |
+| W-5 | mock의 lane 해소 규칙(`handlers.ts` resolveLane류)을 지키는 것이 `web/e2e/p2-mock.sh`뿐이고 그 스모크는 CI 밖(mock 서버 필요)이다. `done` lane 있는 세션에서 preview → `resolution 3 · reentry true`를 vitest 1건으로 — W-2·W-3′ 부류가 다시 슬며시 바뀌어도 CI가 모른다 | PR #83 리뷰 NN1 | 다음 웹 작업 |
 
 ### S 추가 (G3 수정 리뷰에서)
 
@@ -52,6 +53,8 @@
 | S-14 | **다운로드가 응답 끝까지 DB 트랜잭션(=풀 커넥션)을 잡는다.** large object 는 트랜잭션 안에서만 읽히므로 `artifacts.Open` → `io.Copy` 구조 자체는 대안이 없고 설계는 맞다. 문제는 그 옆이다 — `http.Server` 에 `WriteTimeout` 이 없고(`cmd/server/main.go` 는 `ReadHeaderTimeout` 만 준다) 풀도 기본 크기라, 느린 클라이언트 N 개가 커넥션 N 개를 무기한 점유한다. **P3 웹 다운로드를 켜기 전에** `WriteTimeout` 또는 다운로드 전용 컨텍스트 데드라인을 반드시 넣는다 | PR #65 NN1 | P3 전 필수 |
 | S-15 | **`artifact_review` 의 `ON CONFLICT (artifact_id) DO UPDATE` 가 재리뷰로 이전 판정을 덮어쓴다.** 거절 사유는 `decision_id` 로 결정 기록에 남아 E6-04("아티팩트는 사라지지 않는다")는 지켜지지만, 행 자체에는 이력이 없다 — 같은 아티팩트를 reject 했다가 approve 하면 reject 가 행에서 사라진다. P3 리뷰 UI 가 이력(누가 언제 무엇을 뒤집었나)을 그리려면 PK 를 `(artifact_id, reviewed_at)` 류로 바꾸거나 별도 이력 테이블이 필요하다 | PR #65 NN3 | P3 리뷰 UI 설계 시 |
 | S-16 | `listParticipants`(x-phase **P2**)가 아직 501. 웹은 세션 상세의 `participants`를 써서 G4 2판을 막지 않지만, T-S2가 "P2 op 전부"를 받고 남긴 마지막 하나 | T-S4(PR #75) 남김 | 다음 서버 작업 |
+| S-17 | `tasks.Service.LanePublish` 훅이 `nil`이면 **조용히** 발행을 건너뛴다(`tasks/service.go:585`). 프로덕션 배선은 `httpapi/server.go:89` 한 곳이고 `TestClaimPublishesLaneRunning`이 누락을 잡지만, 다른 바이너리 조립(워커·CLI 임베드)에서는 조용히 빠질 수 있다 → `nil`이면 `slog.Warn("tasks: LanePublish unwired")` 한 줄 | PR #78 리뷰 NN1 | 낮음 |
+| S-18 | PR #78 본문의 "lane.updated 발행 20곳"은 status 전이(15: UPDATE 12 + INSERT 3)에 카드 변경 자리(phase 보고 등 5)를 더한 정의다. 다음 대조가 15와 20을 다시 맞추지 않도록 정의를 코드 주석(`tasks.publish`)에 명시 | PR #78 리뷰 NN2 | 문서 |
 
 ## C (CLI)
 

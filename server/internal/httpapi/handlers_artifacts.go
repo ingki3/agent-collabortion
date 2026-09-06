@@ -94,7 +94,20 @@ func (s *Server) SubmitArtifact(w http.ResponseWriter, r *http.Request, sessionI
 		if err != nil {
 			return 0, nil, apperr.As(err)
 		}
-		return http.StatusCreated, map[string]any{"artifact": artifactAPI(fresh), "completion_progress": prog}, nil
+		api := artifactAPI(fresh)
+		// `artifact.created` had no publisher at all, so a submitted artifact
+		// showed up in S7's 산출물 tab only after a reload (G4 2판 W13). It is
+		// sent from here rather than from artifacts.Submit because the row the
+		// web must see is the one the REST body carries — same mapping, same
+		// object — and because the idempotent replay path never reaches this
+		// closure, so a retried submit cannot emit a second frame.
+		if s.Hub != nil {
+			if wsID, err := s.Sessions.WorkspaceOf(r.Context(), sessionId); err == nil {
+				sid := uuid.UUID(sessionId)
+				_ = s.Hub.Publish(r.Context(), nil, wsID, &sid, "artifact.created", api)
+			}
+		}
+		return http.StatusCreated, map[string]any{"artifact": api, "completion_progress": prog}, nil
 	}
 	if params.IdempotencyKey == nil {
 		st, out, p := call()

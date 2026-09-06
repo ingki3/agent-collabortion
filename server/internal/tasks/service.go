@@ -41,6 +41,12 @@ type Service struct {
 	// Lane lives in internal/lanes, which imports this package —
 	// httpapi.NewServer wires lanes.Publish in. nil in unit tests with no hub.
 	LanePublish func(ctx context.Context, q db.DBTX, laneID uuid.UUID)
+
+	// ParticipantPublish emits `participant.updated` for the agent whose task
+	// this service just moved. Same hook shape and the same reason as
+	// LanePublish: deriving FR-1.3's status lives in internal/sessions, which
+	// imports this package. nil in unit tests with no hub.
+	ParticipantPublish func(ctx context.Context, q db.DBTX, sessionID, agentID uuid.UUID)
 }
 
 func New(pool *pgxpool.Pool, c clock.Clock, t *tokens.Service, h *realtime.Hub) *Service {
@@ -432,11 +438,14 @@ func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f contracts.Finish) (Status, error) {
 	now := s.Clock.Now()
 	var final Status
+	var costed bool
+	var wsID, sessionID uuid.UUID
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
 		t, err := lockTask(ctx, tx, taskID)
 		if err != nil {
 			return err
 		}
+		wsID, sessionID = t.WorkspaceID, t.SessionID
 		if attempt != t.Attempt {
 			var outcome *string
 			if err := tx.QueryRow(ctx, `SELECT outcome FROM task_attempt WHERE task_id = $1 AND attempt = $2`, t.ID, attempt).Scan(&outcome); err == nil && outcome != nil {
@@ -469,6 +478,7 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			t.ID, f.Usage.InputTokens, f.Usage.OutputTokens, f.Usage.CacheReadTokens, f.Usage.CostUSD, f.Usage.Estimated, now); err != nil {
 			return fmt.Errorf("tasks: usage: %w", err)
 		}
+		costed = true
 		// harness.md §6: the ref is stored verbatim (contracts.RuntimeSessionRef →
 		// jsonb with the contract keys) — it is the only basis for the next
 		// attempt's TaskBundle.resume. The lane CHECK (0004) requires
@@ -551,7 +561,54 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 		final = t.Status
 		return nil
 	})
+	if err == nil && costed {
+		// Deliberately its own transaction, AFTER the attempt is committed.
+		// Finish holds task row locks; sessions.ApplyCompletionEvent locks the
+		// SESSION first and then its tasks (the completed branch cancels the
+		// queued ones), so writing session.cost_usd inside the finish tx makes
+		// the two orders opposite and a concurrent pair deadlocks. The rollup
+		// recomputes the whole sum rather than adding a delta, so running it
+		// separately — or losing it to a crash and letting the next finish do
+		// it — still lands on the right number.
+		if err := s.rollUpCost(ctx, wsID, sessionID, now); err != nil {
+			return final, err
+		}
+	}
 	return final, err
+}
+
+// rollUpCost folds the attempt's usage into session.cost_usd and publishes
+// `cost.updated` (openapi StreamEvent, S5 · S7).
+//
+// The column existed and was read — the budget pause banner and the session
+// summary both quote it — but nothing ever wrote it, so every session cost
+// $0.00 and `cost.updated` had no publisher. The rollup is a SUM over
+// task_usage rather than an increment: an attempt's usage row is upserted, so
+// adding a delta would double-count a re-reported finish.
+//
+// `estimated` is true when ANY attempt's cost was estimated — a total that
+// mixes a measured and an estimated number is an estimate.
+func (s *Service) rollUpCost(ctx context.Context, wsID, sessionID uuid.UUID, now time.Time) error {
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		var cost float64
+		var estimated bool
+		if err := tx.QueryRow(ctx, `
+			SELECT COALESCE(sum(u.cost_usd), 0), COALESCE(bool_or(u.estimated), false)
+			FROM task_usage u JOIN task t ON t.id = u.task_id WHERE t.session_id = $1`, sessionID).
+			Scan(&cost, &estimated); err != nil {
+			return fmt.Errorf("tasks: cost rollup: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE session SET cost_usd = $2, updated_at = $3 WHERE id = $1`, sessionID, cost, now); err != nil {
+			return fmt.Errorf("tasks: session cost: %w", err)
+		}
+		if s.Hub != nil {
+			sid := sessionID
+			_ = s.Hub.Publish(ctx, tx, wsID, &sid, "cost.updated", map[string]any{
+				"session_id": sessionID, "cost_usd": cost, "estimated": estimated,
+			})
+		}
+		return nil
+	})
 }
 
 func (s *Service) inTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
@@ -584,6 +641,12 @@ func (s *Service) publish(ctx context.Context, q db.DBTX, t *Row) {
 	}
 	if s.LanePublish != nil {
 		s.LanePublish(ctx, q, t.LaneID)
+	}
+	// The agent's chip is derived from these same task rows (FR-1.3), so a task
+	// moving is exactly when it can have changed. Nothing published it before
+	// and S7's chips sat at `idle` through three parallel turns (W7).
+	if s.ParticipantPublish != nil {
+		s.ParticipantPublish(ctx, q, t.SessionID, t.AgentID)
 	}
 }
 

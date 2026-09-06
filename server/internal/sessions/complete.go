@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
+	"github.com/ingki3/agent-collabortion/server/internal/db"
+	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -128,6 +130,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 			sessionID, summary, out.RejectReason, source, ev.Ref, now).Scan(&out.DecisionID); err != nil {
 			return nil, fmt.Errorf("sessions: reject decision: %w", err)
 		}
+		s.publishDecision(ctx, tx, wsID, sessionID, out.DecisionID)
 	}
 
 	switch out.SessionState {
@@ -157,12 +160,17 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		}
 		summary := RunSummary(s.summaryStopReason(), "")
 		if summary.SummaryMsgs > 0 {
-			if _, err := tx.Exec(ctx, `
+			var msgID uuid.UUID
+			if err := tx.QueryRow(ctx, `
 				INSERT INTO message (session_id, author_type, author_id, content, kind, created_at)
-				VALUES ($1, 'system', NULL, $2, 'summary', $3)`,
-				sessionID, s.summaryBody(ctx, tx, sessionID), now); err != nil {
+				VALUES ($1, 'system', NULL, $2, 'summary', $3) RETURNING id`,
+				sessionID, s.summaryBody(ctx, tx, sessionID), now).Scan(&msgID); err != nil {
 				return nil, fmt.Errorf("sessions: summary message: %w", err)
 			}
+			// FR-2.4's summary is a timeline message like any other (openapi
+			// maps it to SSE `message.created`); it was the one insert on this
+			// path that never produced a frame.
+			_ = messages.Publish(ctx, s.Hub, tx, wsID, sessionID, msgID)
 		}
 		out.SummaryMsgs = summary.SummaryMsgs
 		if _, err := tx.Exec(ctx, `
@@ -206,10 +214,41 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		}
 	}
 
+	// FR-2.2's progress bar is the point of this call: every event that folds
+	// into completion_met changes what S7 shows, and the contract declares
+	// `session.completion_progress` for exactly that. It published nowhere
+	// before, so an artifact submission moved the bar only on reload (W13).
+	if s.Hub != nil {
+		metRaw, _ := json.Marshal(met)
+		sid := sessionID
+		_ = s.Hub.Publish(ctx, tx, wsID, &sid, "session.completion_progress", map[string]any{
+			"session_id":          sessionID,
+			"completion_progress": progress(raw, metRaw),
+		})
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return &out, nil
+}
+
+// publishDecision sends `decision.created` for a row just inserted. FR-4.2's
+// log exists so a reader can find out WHY — a decision that only appears after
+// a reload is one the person watching the session never sees being made.
+func (s *Service) publishDecision(ctx context.Context, q db.DBTX, wsID, sessionID, decisionID uuid.UUID) {
+	if s.Hub == nil || decisionID == uuid.Nil {
+		return
+	}
+	var d DecisionRow
+	if err := q.QueryRow(ctx, `
+		SELECT id, summary, rationale, source::text, ref_id, created_at
+		FROM decision WHERE id = $1`, decisionID).
+		Scan(&d.ID, &d.Summary, &d.Rationale, &d.Source, &d.RefID, &d.CreatedAt); err != nil {
+		return
+	}
+	sid := sessionID
+	_ = s.Hub.Publish(ctx, q, wsID, &sid, "decision.created", DecisionAPI(sessionID, d))
 }
 
 // summaryStopReason is where the platform LLM's verdict will arrive (§8.1).
@@ -276,6 +315,10 @@ func (s *Service) RecordDecision(ctx context.Context, sessionID uuid.UUID, summa
 		sessionID, summary, rat, source, refID, s.Clock.Now()).Scan(&id)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("sessions: record decision: %w", err)
+	}
+	var wsID uuid.UUID
+	if err := s.DB.QueryRow(ctx, `SELECT workspace_id FROM session WHERE id = $1`, sessionID).Scan(&wsID); err == nil {
+		s.publishDecision(ctx, s.DB, wsID, sessionID, id)
 	}
 	return id, nil
 }

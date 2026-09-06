@@ -568,11 +568,37 @@ func (s *Service) cancelFallbacksFor(ctx context.Context, tx pgx.Tx, primary uui
 }
 
 // SystemPost inserts a system message without routing (session start etc.).
+//
+// It publishes, because a system message IS a timeline message: the session
+// start notice, the join bundle and the re-entry notice all reached S7 only on
+// reload before (G4 2판 W10). Routing is what SystemPost skips — not the frame.
 func (s *Service) SystemPost(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, content string) (uuid.UUID, error) {
 	var id uuid.UUID
-	err := tx.QueryRow(ctx, `INSERT INTO message (session_id, author_type, author_id, content, kind, created_at) VALUES ($1, 'system', NULL, $2, 'system', $3) RETURNING id`,
-		sessionID, strings.TrimSpace(content), s.Clock.Now()).Scan(&id)
-	return id, err
+	if err := tx.QueryRow(ctx, `INSERT INTO message (session_id, author_type, author_id, content, kind, created_at) VALUES ($1, 'system', NULL, $2, 'system', $3) RETURNING id`,
+		sessionID, strings.TrimSpace(content), s.Clock.Now()).Scan(&id); err != nil {
+		return uuid.Nil, err
+	}
+	s.publishMessage(ctx, tx, sessionID, id)
+	return id, nil
+}
+
+// publishMessage sends `message.created` for a row this service inserted
+// outside Post/DelegateLane. The workspace is read here rather than threaded
+// through every caller: these are all one-per-turn events, not a hot path, and
+// a missing frame is the bug this exists to prevent.
+//
+// A publish failure is not the caller's failure — the message is committed
+// either way and the client re-reads via REST (realtime D1) — so it is logged
+// by the hub's persist error, not returned.
+func (s *Service) publishMessage(ctx context.Context, tx pgx.Tx, sessionID, msgID uuid.UUID) {
+	if s.Hub == nil {
+		return
+	}
+	var wsID uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT workspace_id FROM session WHERE id = $1`, sessionID).Scan(&wsID); err != nil {
+		return
+	}
+	_ = messages.Publish(ctx, s.Hub, tx, wsID, sessionID, msgID)
 }
 
 // ---------------------------------------------------------------------------
