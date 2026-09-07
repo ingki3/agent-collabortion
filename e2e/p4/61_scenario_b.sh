@@ -128,8 +128,8 @@ read -r PID_ PTOK <<<"$(create_pairing "$WS" | tr '\t' ' ')"
 rm -rf "$WORK"
 PAIR_SERVER="http://localhost:$TAP_PORT" daemon_pair_p4 "$PTOK" "$CFG" "$WORK" 4 "$REPO"
 RUNTIME="$(runtime_of_config "$CFG")"
-# **데몬은 아직 띄우지 않는다.** 아래 결함(상대 workdir 경로) 우회가 세션 생성과 첫 claim 사이에
-# workdir 행을 넣어야 하기 때문이다 — 런타임이 없으면 task 는 queued 로 기다린다.
+# **데몬은 아직 띄우지 않는다.** probe 세션(§2)과 본 세션(§2b)이 **같은 claim 창**에서 함께
+# 잡혀야 X1 이 "손대지 않은 worktree 세션" 을 재는 값이 된다 — 런타임이 없으면 task 는 queued 로 기다린다.
 QA="$(create_agent_kind "$WS" QA reviewer hermes "$HERMES_MODEL" "$QA_INS" 'diff 아티팩트를 리뷰한다')"
 BE="$(create_agent_p2 "$WS" Backend engineer "$MODEL" "$BE_INS" '급수 시간 계산을 구현한다')"
 FE="$(create_agent_p2 "$WS" Frontend engineer "$MODEL" "$FE_INS" '패널 표시를 구현한다')"
@@ -155,12 +155,9 @@ T_PM="$(session_initial_task "$S")"
 chk B1  "worktree 격리 세션이 열린다 (repo_path 검증 통과)"      yes "$( [ -n "$S" ] && echo yes || echo no )"
 chk B1b "isolation.kind = worktree"                              worktree "$(psqlq "select isolation->>'kind' from session where id='$S'")"
 chk B1c "종료 조건 = agent_approval 단독"                        agent_approval "$(psqlq "select completion_condition->'conditions'->0->>'type' from session where id='$S'")"
-# 우회(보고서 §대역/우회 표에 그대로 적는다): 서버가 번들에 **상대** workdir 경로를 실어
-# worktree 세션이 첫 턴부터 죽는다. 서버는 이 에이전트의 workdir 행이 이미 있으면 그 경로를
-# 대신 싣는다(`workdirs.BundleWorkdirPaths` → `ExistingForAgent`) — 그래서 **의도된 절대 경로**를
-# 먼저 넣는다. probe 세션에는 넣지 않는다(위 X1 이 그것을 잰다).
-seed_worktree_workdirs "$S" "$WORK" "$SLUG" "$PM:pm" "$BE:backend" "$FE:frontend" "$QA:qa"
-ok "session $S · PM task $T_PM (workdir 행 4개 선행 삽입 — 우회)"
+# 2판(T-I4b): workdir 행 선행 삽입 우회(U1)를 **지웠다**. 서버가 probe 의 `workdir_root` 를
+# 저장했다가 번들에 절대 경로를 싣고(S-55), 데몬이 그 아래에 워크트리를 만든다(D-21).
+ok "session $S · PM task $T_PM (우회 없음 — 경로는 서버가 만든다)"
 T0="$(now_ms)"
 
 step "2c. 데몬 기동 — 두 세션이 동시에 claim 된다"
@@ -188,8 +185,12 @@ PROBE_DEAD=no; [ "$PROBE_ST" = failed ] && PROBE_DEAD=yes
 chk X1  "TaskBundle 의 workdir.path 가 **절대 경로**다 (§4.1 — 서버는 데몬의 workdir_root 를 모른다)" \
   absolute "$PROBE_WD_KIND"
 chk X1b "손대지 않은 worktree 세션의 첫 attempt 가 config 로 죽지 않는다" no "$PROBE_DEAD"
-chk X1c "체크아웃이 사용자 저장소 안에 생기지 않는다 (worktree.go 주석·FR-6.4)" 1 \
-  "$(git -C "$PROBE_REPO" worktree list | wc -l | tr -d ' ')"
+# 1판의 **측정 결함**: `git worktree list | wc -l` 로 쟀다. 저장소 **밖**에 올바로 만든 워크트리도
+# 그 목록에 뜨므로(연결된 워크트리는 어디에 있든 등록된다) 배선이 고쳐지면 오히려 2가 된다.
+# 2판은 목록의 경로가 저장소 디렉터리 **아래**인 항목만 센다 — 그것이 차단 ① 이 만들던 상태다.
+chk X1c "체크아웃이 사용자 저장소 안에 생기지 않는다 (worktree.go 주석·FR-6.4)" 0 \
+  "$(git -C "$PROBE_REPO" worktree list --porcelain 2>/dev/null \
+     | awk -v r="$PROBE_REPO/" '/^worktree /{p=substr($0,10); if (index(p,r)==1) n++} END{print n+0}')"
 git -C "$PROBE_REPO" worktree list > "$OUT/61-probe-worktrees.txt" 2>&1 || true
 printf 'bundle workdir.path = %s\nattempt status = %s\ndetail = %s\n' "$PROBE_WD" "$PROBE_ST" "$PROBE_DETAIL" > "$OUT/61-probe.txt"
 ok "probe: workdir.path=$PROBE_WD status=$PROBE_ST"

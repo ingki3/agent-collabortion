@@ -46,8 +46,12 @@ bash e2e/p4/down.sh                    # pid·pgid 로만 종료. Postgres 컨�
 - **브리프 파일은 턴이 도는 동안에만 디스크에 있다**(삭제는 attempt 종료의 `defer`). 위생을 재려면 그 세션의
   `queued|dispatched|preparing|running` task 가 0 이 될 때까지 기다리고, "덧붙이지 않는가" 를 재려면 반대로
   **턴이 도는 동안** 세야 한다.
-- **`worktree` 격리 세션은 이 빌드에서 그대로는 돌지 않는다**(G7_REPORT §1 차단 ①). 스크립트들은 세션을 만든 뒤
-  데몬을 띄우기 전에 `lib.sh seed_worktree_workdirs` 로 workdir 절대 경로를 심어 우회한다 — 결함이 고쳐지면 지운다.
+- **`worktree` 격리 세션의 우회는 2판(T-I4b)에서 사라졌다.** 1판은 `lib.sh seed_worktree_workdirs`(U1)·
+  `retire_workdirs`(U2)·`64_ inject_facts`(U3) 로 서버·데몬의 배선 결함을 덮고 잰다. 핫픽스(#172·#173) 뒤
+  **세 함수 모두 저장소에서 지웠다** — 경로는 서버가 만들고(S-55) 데몬이 그 아래에 워크트리를 판다(D-21),
+  git 사실은 §6 보고·§4.4 finish 로 온다(S-56·D-22). 다시 넣지 마라.
+- **`git worktree list` 의 줄 수로 "저장소 안에 체크아웃이 생겼는가" 를 재지 마라**(1판 X1c 의 측정 결함).
+  올바르게 **밖에** 만든 워크트리도 그 목록에 뜬다. 경로가 저장소 디렉터리 **아래**인 항목을 세야 한다.
 
 ## 생성된 diff 아티팩트를 읽는 쪽이 알아야 할 것 (T-C6)
 

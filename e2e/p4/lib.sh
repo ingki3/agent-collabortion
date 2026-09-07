@@ -129,9 +129,9 @@ PYEOF
 }
 
 # daemon_run CONFIG LOG → pid (probe 턴을 돈다 — 능력 광고가 비면 S9·S11 이 빈다)
-# 데몬의 CWD 는 **이 저장소 밖의 빈 디렉토리**로 둔다. 아래 결함(상대 workdir 경로)이
-# 있는 동안 `os.MkdirAll(filepath.Dir(<상대경로>))` 가 데몬의 CWD 에 디렉토리를 만든다 —
-# 그대로 두면 이 저장소가 미추적 파일로 더러워진다(§0-18 의 취지).
+# 데몬의 CWD 는 **이 저장소 밖의 빈 디렉토리**로 둔다(§0-18). 데몬이 상대 경로를 절대화할 때
+# CWD 를 쓰는 자리가 남아 있으면(D-21 이전이 그랬다) 이 저장소가 미추적 파일로 더러워진다 —
+# CWD 를 밖에 두면 그런 일이 일어나도 여기서 보인다.
 daemon_run() {
   local cwd="${DAEMON_CWD:-$P4_TMP_ROOT/daemon-cwd}"
   mkdir -p "$cwd"
@@ -175,37 +175,3 @@ workdir_path_of() { psqlq "select w.path_or_ref from workdir w join agent a on a
 feed_kinds() { psqlq "select class::text||'/'||coalesce(verb,'-'), count(*) from task_event where task_id='$1' group by 1 order by 1"; }
 # feed_has SESSION CLASS VERB → 세션 전체에서 그 카드 수
 feed_has() { psqlq "select count(*) from task_event e join task t on t.id=e.task_id where t.session_id='$1' and e.class='$2' and e.verb='$3'"; }
-
-# ── 신규 결함 우회: 서버가 번들에 **상대** workdir 경로를 싣는다 ─────────────
-# 실측(2026-09-07, dev c375b33): `queue.buildBundle` 은 `workdirs.PlanWorktree` 를 `Root` 없이
-# 부르므로 TaskBundle 의 `workdir.path` 가 `"<session-slug>/<agent-slug>"` (상대)다. 데몬
-# `PrepareWorktree` 는 그 값을 그대로 쓰고 `filepath.Abs` 로 **자기 CWD 기준** 절대화하는데,
-# `git -C <repo> worktree add <상대경로>` 는 **저장소 안**에 체크아웃을 만든다 — 둘이 어긋나
-# 어댑터에 없는 디렉토리가 cmd.Dir 로 가고 모든 attempt 가
-# `failed(config) · spawn: fork/exec …/npx: no such file or directory` 로 죽는다.
-# → **worktree 격리 세션은 첫 턴부터 하나도 돌지 않는다.**
-#
-# 측정을 이어가기 위한 우회다(보고서에 명시). 서버는 이 에이전트의 workdir 행이 이미 있으면
-# 그 경로를 번들에 싣는다(`workdirs.BundleWorkdirPaths` → `ExistingForAgent`). 그래서 세션을
-# `draft` 로 만들고 **의도된 절대 경로**(`<workdir_root>/worktrees/<slug>/<agent>`, 데몬
-# `workdir.WorktreePath` 와 같은 규칙)를 workdir 행으로 미리 넣은 뒤 시작한다.
-# 데몬의 워크트리 준비·브랜치·브리프·정리는 전부 실기 그대로 돈다(`reuse` 는 데몬이 읽지 않는다).
-#
-# seed_worktree_workdirs SESSION WORKROOT SLUG AGENT_ID:AGENT_SLUG...
-seed_worktree_workdirs() {
-  local sess="$1" root="$2" slug="$3"; shift 3
-  local a id ag
-  for a in "$@"; do
-    id="${a%%:*}"; ag="${a#*:}"
-    psqlq "insert into workdir (session_id, agent_id, kind, path_or_ref, branch, status, disk_bytes,
-                                last_used_at, dirty, merged, commits_ahead, tree_dirty, created_at, updated_at)
-           values ('$sess','$id','worktree','$root/worktrees/$slug/$ag','colab/$slug/$ag','active',0,
-                   now(), false, false, 0, false, now(), now())
-           on conflict (session_id, path_or_ref) do nothing" >/dev/null
-  done
-}
-
-# retire_workdirs SESSION — 위 우회의 짝. 재바인딩은 옛 machine 의 workdir 행을
-# `retained` 로만 바꾸는데 `BundleWorkdirPaths` 는 `status <> 'deleted'` 만 보므로 새 machine 의
-# 번들이 **사라진 컴퓨터의 경로**를 그대로 가리킨다. 새 경로를 시드하기 전에 옛 행을 접는다.
-retire_workdirs() { psqlq "update workdir set status='deleted' where session_id='$1'" >/dev/null; }
