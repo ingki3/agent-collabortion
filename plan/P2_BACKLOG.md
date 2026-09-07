@@ -145,6 +145,7 @@
 | K-11 | harness §7 dedup 문언(입력=message_start, 출력=message_delta)은 어댑터 0.74.0 관찰 — 워커는 message_delta 만으로 충분하다고 제안, 리뷰어는 문언 유지 권고. 어댑터 버전이 바뀌면 재확인 | PR #145 | 낮음 |
 | K-12 | `InboxItem.card` 에 예산 HITL 의 범위(task/세션)를 알 칸이 없다(`task_id`·`scope` 없음) — 웹은 `purpose=budget` + `session.status=paused` 로 파생(T-W5). 세션이 다른 이유로 paused 인 채 task 범위 예산 HITL 이 뜨는 순간에만 어긋난다 | T-W5 질문 2 | 낮음 |
 | K-13 | `openapi` `downloadArtifact` 의 security 에 **DaemonToken 이 없었다** — §4.3 `rebind_prepare` 는 데몬에게 다운로드를 지시하므로 계약 내부 모순이었다(T-I4 실측 401). 함께: `reviewArtifact` 의 "해소 규칙 1로 재진입" 문언이 라우팅 규칙 4와 충돌 → "서버가 명시적으로 재진입" 으로 정정 | T-I4 63_ R5f · 61_ B5g | **해결 — 계약 PR(v0.7.3 · openapi)** |
+| K-14 | daemon-protocol §4.1 TaskBundle 에 `workdir.id?` 를 싣고 §6 보고가 그 `id` 를 회신하면 데몬의 `<root>/.colab/workdirs/` index 파일이 불필요해진다(지금은 경로가 슬러그라 세션·에이전트 uuid 를 복원할 수 없어 준비 시점에 적어 둔다). 서버·데몬 양쪽 변경 + 재측정이라 G7 뒤로 | PR #172 리뷰 NN4 | P5 |
 
 ## 테스트 자산 (P1에서 만든 것)
 
