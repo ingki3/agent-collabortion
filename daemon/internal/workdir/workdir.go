@@ -46,6 +46,79 @@ func safe(s string) string {
 	return s
 }
 
+// ResolvePath turns a bundle's `workdir.path` into an absolute path on THIS
+// machine (daemon-protocol §4.1 v0.7.3).
+//
+// The contract says the server sends an absolute path, and this is the
+// daemon's half of that clause: "path 가 상대면 `<workdir_root>` 기준으로
+// 해석한다". Absolutising a relative path against the daemon's own CWD — what
+// `filepath.Abs` does and what this code used to do — pointed every
+// `worktree` lane at a directory that does not exist, and the runtime died
+// with `spawn: fork/exec …/npx: no such file or directory` (T-I4 차단 ①).
+// The daemon's CWD is wherever the operator happened to launch it from; it
+// has never been a workdir.
+func ResolvePath(root, p string) string {
+	if p == "" {
+		return ""
+	}
+	if filepath.IsAbs(p) {
+		return filepath.Clean(p)
+	}
+	if root != "" {
+		return filepath.Join(root, p) // Join cleans
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return filepath.Clean(p)
+	}
+	return abs
+}
+
+// UnderRoot reports whether p is the workdir root's own subtree. `Remove`
+// already refused anything outside it; `worktree` preparation asks the same
+// question BEFORE creating a checkout instead of after (§4.1 v0.7.3 데몬
+// 방어, D-21(b)).
+func UnderRoot(root, p string) bool {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil || root == "" {
+		return false
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(rootAbs, abs)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	return true
+}
+
+// Verify is the last check before a runtime is spawned: the directory the
+// process will run in has to exist (§4.1 v0.7.3 데몬 방어, D-21(c)).
+//
+// The error NAMES THE PATH on purpose. Without this check the missing
+// directory surfaced as the runtime's own `exec …/npx: no such file or
+// directory` — a message about the adapter binary, for a fault that has
+// nothing to do with it, which sent the G7 investigation looking at node
+// installs for as long as it took to strace the spawn.
+func Verify(path string) error {
+	if path == "" {
+		return errors.New("workdir: no directory to run in")
+	}
+	fi, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("workdir does not exist: %s", path)
+	}
+	if err != nil {
+		return fmt.Errorf("workdir %s: %w", path, err)
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("workdir is not a directory: %s", path)
+	}
+	return nil
+}
+
 // Prepare resolves and creates the workdir for a bundle. An explicit
 // bundle.workdir.path wins; otherwise the lane folder under root. Existing
 // folders are reused as-is (reuse=false still never deletes — FR-9.1).
@@ -57,7 +130,7 @@ func Prepare(root string, b contracts.TaskBundle) (string, error) {
 	default:
 		return "", fmt.Errorf("%w: %s", ErrUnsupported, b.Workdir.Kind)
 	}
-	path := b.Workdir.Path
+	path := ResolvePath(root, b.Workdir.Path)
 	if path == "" {
 		if root == "" {
 			return "", errors.New("workdir: empty root")
@@ -70,6 +143,16 @@ func Prepare(root string, b contracts.TaskBundle) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
+	}
+	// §6 v0.7.3: the report needs the session uuid and the lane, and neither
+	// survives in the directory name once the server names the path.
+	if root != "" {
+		if err := RecordWorkdir(root, Record{
+			Kind: "dir", Path: abs, SessionID: b.Task.SessionID,
+			AgentID: b.Task.AgentID, AgentName: b.Task.AgentName, LaneID: b.Task.LaneID,
+		}); err != nil {
+			return "", fmt.Errorf("workdir index: %w", err)
+		}
 	}
 	return abs, nil
 }
@@ -135,15 +218,8 @@ func Remove(root, p string) error {
 	if err != nil {
 		return err
 	}
-	rootAbs, err := filepath.Abs(root)
-	if err != nil {
-		return err
-	}
-	if rootAbs == "" || abs == rootAbs {
-		return fmt.Errorf("workdir: refusing to remove %q: not inside the workdir root %q", abs, rootAbs)
-	}
-	rel, err := filepath.Rel(rootAbs, abs)
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	rootAbs, _ := filepath.Abs(root)
+	if !UnderRoot(root, abs) {
 		return fmt.Errorf("workdir: refusing to remove %q: not inside the workdir root %q", abs, rootAbs)
 	}
 	return os.RemoveAll(abs)

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -99,6 +100,40 @@ func refSafe(s string) string {
 // ErrNoRepo is returned when a `worktree` bundle names no usable repository.
 var ErrNoRepo = errors.New("workdir: worktree isolation needs repo_path")
 
+// WorktreeTarget decides where `git worktree add` actually checks out
+// (daemon-protocol §4.1 v0.7.3 데몬 방어, D-21(a)·(b)).
+//
+// Two rules, and the second is the one that matters:
+//
+//  1. a RELATIVE bundle path is resolved against `<workdir_root>`, never
+//     against the daemon's CWD (ResolvePath).
+//  2. the target is ALWAYS under the workdir root. A path that lands outside
+//     it — the `<session-slug>/<agent-slug>` a pre-v0.7.3 server sent, read
+//     relative to `git -C <repo>`, or an absolute path pointing anywhere
+//     else — is replaced by the daemon's own plan.
+//
+// Rule 2 exists because of what the alternative did: `git worktree add` runs
+// with `-C <repo>`, so a relative target created the checkout INSIDE THE
+// USER'S REPOSITORY (T-I4 차단 ①, measured: `…/repo/<session>/<agent>`).
+// That is not a workdir the daemon may ever make — every path FR-9.1 and
+// harness §10 root here (orphan records, CLI wrapper, stderr) would land in
+// the user's `git status`, and GC (§6) cannot reach it. The bundle path is
+// still honoured whenever it is inside the root, which is where §4.1 says the
+// server puts it; relocating is a floor, not a preference.
+func WorktreeTarget(root, bundlePath string, plan WorktreePlan, repoTop string) string {
+	path := ResolvePath(root, bundlePath)
+	if path == "" {
+		return plan.Path
+	}
+	if repoTop != "" && UnderRoot(repoTop, path) {
+		return plan.Path
+	}
+	if root != "" && !UnderRoot(root, path) {
+		return plan.Path
+	}
+	return path
+}
+
 // prepLocks serialises PrepareWorktree per path within this daemon.
 var prepLocks sync.Map // path → *sync.Mutex
 
@@ -134,10 +169,7 @@ func PrepareWorktree(root string, b contracts.TaskBundle) (string, error) {
 		SessionSlug: b.Task.SessionID, AgentSlug: b.Task.AgentName,
 		BaseBranch: b.Workdir.Branch,
 	})
-	path, branch := b.Workdir.Path, plan.Branch
-	if path == "" {
-		path = plan.Path
-	}
+	path, branch := WorktreeTarget(root, b.Workdir.Path, plan, top), plan.Branch
 	if b.Workdir.Branch != "" {
 		branch = b.Workdir.Branch
 	}
@@ -166,6 +198,18 @@ func PrepareWorktree(root string, b contracts.TaskBundle) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
+	}
+	// §6 v0.7.3: `worktree` rows need the session uuid AND the agent_id, and
+	// the checkout's directory name carries neither (the server names it with
+	// slugs). Written on every preparation, not only the first — a record the
+	// disk lost heals on the agent's next lane.
+	if root != "" {
+		if err := RecordWorkdir(root, Record{
+			Kind: "worktree", Path: abs, SessionID: b.Task.SessionID,
+			AgentID: b.Task.AgentID, AgentName: b.Task.AgentName, Branch: branch,
+		}); err != nil {
+			return "", fmt.Errorf("workdir index: %w", err)
+		}
 	}
 	return abs, nil
 }
@@ -246,15 +290,44 @@ func worktreeLocked(repo, path string) (bool, error) {
 	return false, nil
 }
 
-// ListWorktrees enumerates the checkouts under <root>/worktrees for the §6
-// report, with the git block filled in.
+// ListWorktrees enumerates this machine's `worktree` checkouts for the §6
+// report, with the identity and the git block filled in.
+//
+// TWO SOURCES, and both are needed (v0.7.3, T-I4 차단 ②):
+//
+//   - the index (index.go) — the session uuid and the agent_id the bundle
+//     stated. A row without them is dropped by the server without a word, so
+//     a scan that can only read directory NAMES reports nothing usable;
+//   - the disk scan of `<root>/worktrees/<session>/<agent>` — the daemon's own
+//     plan, which is also every checkout an older daemon left behind and any
+//     record a wiped `.colab` lost. It keeps a workdir visible to S13 and
+//     reachable by GC even when its identity is unknown.
+//
+// `git` and `bytes` ride on every row: §6 makes them the only input the
+// server's GC judgement has, and a missing block reads as "0 commits, clean"
+// — which is how unmerged work gets deleted (FR-6.4 M4).
 func ListWorktrees(root string) []Info {
-	base := filepath.Join(root, "worktrees")
-	sessions, err := os.ReadDir(base)
-	if err != nil {
-		return nil
-	}
+	idx := LoadIndex(root)
+	seen := map[string]bool{}
 	var out []Info
+	add := func(p, sessionFallback string) {
+		abs := absClean(p)
+		if seen[abs] {
+			return
+		}
+		seen[abs] = true
+		size, last := DiskUsage(abs)
+		info := Info{
+			Kind: "worktree", Path: abs, SessionID: sessionFallback,
+			Bytes: size, LastUsedAt: last, Git: Git(abs),
+		}
+		if rec, ok := idx[abs]; ok {
+			info.apply(rec)
+		}
+		out = append(out, info)
+	}
+	base := filepath.Join(root, "worktrees")
+	sessions, _ := os.ReadDir(base)
 	for _, s := range sessions {
 		if !s.IsDir() {
 			continue
@@ -267,13 +340,24 @@ func ListWorktrees(root string) []Info {
 			if !a.IsDir() {
 				continue
 			}
-			p := filepath.Join(base, s.Name(), a.Name())
-			size, last := DiskUsage(p)
-			out = append(out, Info{
-				Kind: "worktree", Path: p, SessionID: s.Name(),
-				Bytes: size, LastUsedAt: last, Git: Git(p),
-			})
+			// The directory name is the fallback identity it always was: the
+			// server skips a row it cannot match, and that is strictly better
+			// than not reporting the disk at all.
+			add(filepath.Join(base, s.Name(), a.Name()), s.Name())
 		}
 	}
+	// A checkout at the path the SERVER chose (§4.1 — anywhere under the
+	// root, not necessarily `worktrees/…`) is only findable through its
+	// record.
+	for path, rec := range idx {
+		if rec.Kind != "worktree" {
+			continue
+		}
+		if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
+			continue // collected, or moved by hand
+		}
+		add(path, rec.SessionID)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
 }
