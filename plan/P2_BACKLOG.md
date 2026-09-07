@@ -41,6 +41,7 @@
 | D-20 | `daemon.json` `repos[]`(probe §3 재바인딩 후보의 근거)를 채우는 사용자 경로가 없다 — worktree 를 한 번이라도 돌린 머신만 자동 발견되고, 한 번도 안 돌린 머신은 재바인딩 후보가 되지 않는다(E13-17 manual). 계약 §3 에 등록 방법 한 줄(데몬 CLI `colab-daemon repos add <path>` 또는 S6/S11 등록 → 명령) + T-W5 S6/S11 화면 | T-D9 PR #156 계약 결함 4 | T-W5 뒤 · 계약 |
 | D-21 | **차단(G7 1판, S-55 의 데몬 절반)** — 번들 `workdir.path` 를 자기 CWD 기준으로 절대화하고, `git worktree add <상대경로>` 로 **사용자 저장소 안**에 체크아웃을 만든다. 계약 v0.7.3: 상대면 `<workdir_root>` 기준으로 해석하고, spawn 전 디렉터리 존재를 확인해 없으면 경로를 문구에 넣어 `failed(config)`(지금 문구 `spawn: fork/exec …/npx: no such file or directory` 는 원인을 가린다) | T-I4 61_ X1b·X1c | **G7 2판 전** |
 | D-22 | **차단(G7 1판, S-56 의 데몬 절반)** — §6 workdir 보고가 `agent_id` 없이·세션 uuid 가 아닌 값으로 와서 서버가 조용히 skip 한다. `git`·`bytes` 도 매 보고에 실어야 GC 판정 입력이 생긴다(계약 v0.7.3 §6) | T-I4 64_ P1·P1b | **G7 2판 전** |
+| D-23 | 살아 있는 worktree 의 `disk_bytes` 가 서버에 늦게 도착한다 — 계약 §6 은 "probe 와 함께, 그리고 **lane 종료 시**" 보고라고 적었는데 데몬은 probe 직후(기본 24h)와 gc 명령 뒤 두 곳뿐이다. S13 용량 열·쿼터 분자(E13-16)가 첫 gc 스윕까지 과소. GC **판정** 입력은 §4.4 finish 로 오므로 차단 아님. attempt finish 뒤 `Workdirs` 보고 1회, 또는 `Finish.Workdir` 에 `bytes` | G7 2판 64_ P1d · PR #177 리뷰 NN2 | 낮음 |
 
 ## W (웹)
 
