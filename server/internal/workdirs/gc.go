@@ -94,10 +94,19 @@ func CheckRepo(c RepoCheck) RepoVerdict {
 // 2. Worktree preparation — FR-6.4 표, E13-02
 // ---------------------------------------------------------------------------
 
+// WorktreesDir is the segment the daemon lays its checkouts out under:
+// `<workdir_root>/worktrees/<session>/<agent>`
+// (daemon/internal/workdir/worktree.go WorktreePath). The server assembles the
+// SAME string because v0.7.3 §4.1 makes the path the server's to own — two
+// halves each computing "their own correct" layout is exactly how G7's 차단 ①
+// stayed invisible to both golden tables.
+const WorktreesDir = "worktrees"
+
 // WorktreeRequest is one lane starting under `worktree` isolation.
 type WorktreeRequest struct {
-	// Root is the daemon's `workdir_root` (probe §3). Empty leaves the plan
-	// relative and the daemon resolves it under its own root.
+	// Root is the daemon's `workdir_root` (probe §3, runtime.workdir_root).
+	// Empty means the server does not know it — the plan then names NO path at
+	// all (see PlanWorktree). It must never fall back to a relative one.
 	Root        string
 	SessionSlug string
 	AgentSlug   string
@@ -118,7 +127,11 @@ type WorktreePlan struct {
 	BaseBranch string
 }
 
-// PlanWorktree names the branch and the checkout for one lane.
+// PlanWorktree names the branch and the ABSOLUTE checkout path for one lane
+// (daemon-protocol v0.7.3 §4.1).
+//
+// THE PATH IS ABSOLUTE OR IT IS NOTHING. See the `Root` field and the
+// `r.Root == ""` branch below.
 //
 // ONE WORKTREE PER AGENT, NOT PER LANE (FR-6.4/C3). The second lane of the
 // same agent reuses the first one's checkout — which is also why those lanes
@@ -137,9 +150,19 @@ func PlanWorktree(r WorktreeRequest) WorktreePlan {
 	if r.ExistingForAgent != "" {
 		return WorktreePlan{Branch: branch, Path: r.ExistingForAgent, BaseBranch: base}
 	}
+	if r.Root == "" {
+		// S-55: an unknown `workdir_root` yields an EMPTY path, never a
+		// relative one. A relative path looks like an answer all the way down
+		// the wire — the daemon absolutises it against its own CWD, checks a
+		// worktree out INSIDE the user's repository and hands the runtime a
+		// directory that does not exist, and every attempt dies as
+		// `failed(config)` with a message about `npx` (T-I4 차단 ①). The caller
+		// (queue.buildBundle) turns this into a refusal to build the bundle.
+		return WorktreePlan{Branch: branch, Created: true, BaseBranch: base}
+	}
 	return WorktreePlan{
 		Branch:     branch,
-		Path:       path.Join(r.Root, r.SessionSlug, r.AgentSlug),
+		Path:       path.Join(r.Root, WorktreesDir, r.SessionSlug, r.AgentSlug),
 		Created:    true,
 		BaseBranch: base,
 	}
@@ -183,12 +206,21 @@ func Slug(s string) string {
 //
 // production caller: queue.buildBundle (the `workdir` field).
 func BundleWorkdirPaths(ctx context.Context, q db.DBTX, sessionID, agentID uuid.UUID) ([]string, error) {
+	// U2 (T-I4 §0.2): `gc_blocked_reason = 'runtime_gone'` is the stamp
+	// runtimes.Rebind puts on the DEAD machine's rows. Those rows stay (the
+	// checkouts still exist, on a computer nobody can reach), so
+	// `status <> 'deleted'` still matched them and the bundle for the NEW
+	// machine kept naming a path from the old one — the e2e run had to fold
+	// them away by hand (`retire_workdirs`) for the rebind to go anywhere.
+	// Filtering on the reason rather than on `retained` keeps a GC-refused row
+	// — which is on THIS machine and legitimately reusable — in the answer.
 	rows, err := q.Query(ctx, `
 		SELECT DISTINCT w.path_or_ref
 		FROM workdir w
 		LEFT JOIN lane l ON l.id = w.lane_id
 		WHERE w.session_id = $1
 		  AND w.status <> 'deleted'
+		  AND w.gc_blocked_reason IS DISTINCT FROM 'runtime_gone'
 		  AND (w.agent_id = $2 OR l.agent_id = $2)
 		ORDER BY w.path_or_ref`, sessionID, agentID)
 	if err != nil {

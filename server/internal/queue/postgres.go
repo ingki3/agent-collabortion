@@ -163,15 +163,36 @@ func (p *Postgres) Claim(ctx context.Context, runtimeID string, capacity int, no
 			  AND workspace_id = (SELECT workspace_id FROM runtime WHERE id = $2)`, t.SessionID, rt, now); err != nil {
 			return nil, err
 		}
+		// S-55: one task's bundle may be impossible to build without making the
+		// whole claim fail — a runtime whose probe has not landed yet would
+		// otherwise take every other session's queued task down with it. The
+		// savepoint undoes THIS task's dispatch (it stays `queued` and is
+		// retried on the next claim, which is right: the probe is seconds
+		// away) and the note below is what makes the wait visible.
+		if _, err := tx.Exec(ctx, `SAVEPOINT claim_task`); err != nil {
+			return nil, err
+		}
 		token, err := p.Tasks.MarkDispatched(ctx, tx, t, rt, now)
-		if err != nil {
+		if err == nil {
+			var b *contracts.TaskBundle
+			b, err = buildBundle(ctx, tx, t, rt, token)
+			if err == nil {
+				if _, err := tx.Exec(ctx, `RELEASE SAVEPOINT claim_task`); err != nil {
+					return nil, err
+				}
+				bundles = append(bundles, *b)
+				continue
+			}
+		}
+		if !errors.Is(err, errNoWorkdirRoot) {
 			return nil, err
 		}
-		b, err := buildBundle(ctx, tx, t, token)
-		if err != nil {
-			return nil, err
+		if _, rerr := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT claim_task`); rerr != nil {
+			return nil, rerr
 		}
-		bundles = append(bundles, *b)
+		if nerr := noteMissingWorkdirRoot(ctx, tx, t, rt, now); nerr != nil {
+			return nil, nerr
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -236,5 +257,30 @@ func (p *Postgres) ExpireStale(ctx context.Context, now time.Time) (int, error) 
 
 // errNoBundle is returned when the task's joins are missing (data bug).
 var errNoBundle = errors.New("queue: bundle rows missing")
+
+// errNoWorkdirRoot is S-55's refusal: a `worktree` lane whose runtime has not
+// reported a `workdir_root` (probe §3) has no absolute path to run in, and
+// daemon-protocol v0.7.3 §4.1 forbids the relative one that used to be shipped
+// in its place.
+var errNoWorkdirRoot = errors.New("queue: runtime has no workdir_root (probe §3) — cannot name an absolute workdir (§4.1 v0.7.3)")
+
+// noteMissingWorkdirRoot puts S-55's refusal on the activity feed. A task that
+// silently stays queued is the same silence the relative path was: the
+// Director needs to see that this machine's daemon has not probed yet.
+//
+// `Once` per (task, attempt): the claim long-polls, so a plain insert would
+// write this line every second until the probe lands.
+func noteMissingWorkdirRoot(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UUID, now time.Time) error {
+	// S-52: a server-written task_event obeys the closed schema. `runtime` is
+	// the class for "process/adapter level", and `detail` is its one free-text
+	// field.
+	return tasks.InsertServerEventOnce(ctx, tx, t.ID, t.Attempt, "runtime", "error", "workdir_root", "failed",
+		map[string]any{
+			"failure_kind": "config",
+			"detail": "이 런타임(" + runtimeID.String() + ")의 probe `workdir_root` 를 아직 받지 못해 " +
+				"절대 workdir 경로를 만들 수 없습니다(daemon-protocol §4.1 v0.7.3). 데몬이 probe 를 " +
+				"보내면 다음 claim 에서 이 task 가 나갑니다 — 상대 경로로 내보내지 않습니다.",
+		}, now)
+}
 
 func isNoRows(err error) bool { return errors.Is(err, pgx.ErrNoRows) }

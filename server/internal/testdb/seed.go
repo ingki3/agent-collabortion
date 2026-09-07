@@ -61,7 +61,12 @@ func AddWorkspace(t *testing.T, pool *pgxpool.Pool, slug string, now time.Time) 
 func AddRuntime(t *testing.T, pool *pgxpool.Pool, wsID uuid.UUID, name string, now time.Time) uuid.UUID {
 	t.Helper()
 	var id uuid.UUID
-	if err := pool.QueryRow(context.Background(), `INSERT INTO runtime (workspace_id, name, status, last_seen_at, created_at, updated_at) VALUES ($1, $2, 'online', $3, $3, $3) RETURNING id`, wsID, name, now).Scan(&id); err != nil {
+	// `workdir_root` is seeded because a runtime that can CLAIM has probed
+	// (daemon-protocol §3 — the daemon probes at start, before its first
+	// claim), and since v0.7.3 §4.1 the server assembles the bundle's absolute
+	// `workdir.path` from it. A seed without it describes a machine no
+	// `worktree` session could ever run on (S-55).
+	if err := pool.QueryRow(context.Background(), `INSERT INTO runtime (workspace_id, name, status, workdir_root, last_seen_at, created_at, updated_at) VALUES ($1, $2, 'online', '/Users/x/.colab', $3, $3, $3) RETURNING id`, wsID, name, now).Scan(&id); err != nil {
 		t.Fatalf("seed runtime: %v", err)
 	}
 	return id
