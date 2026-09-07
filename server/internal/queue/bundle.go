@@ -28,7 +28,7 @@ const historyLimit = tasks.DefaultHistoryLimit
 // buildBundle assembles the TaskBundle (daemon-protocol §4.1): profile, brief
 // [1]~[8] (PRD §8.4), the turn prompt with history/trigger/<resumed>, limits
 // and posted_message_ids for attempt ≥ 2 (FR-7.1 M5).
-func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, token string) (*contracts.TaskBundle, error) {
+func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UUID, token string) (*contracts.TaskBundle, error) {
 	var (
 		agentName, agentRole, roleDesc, instructions   string
 		toolsJSON, optionsJSON, envJSON, isolationJSON []byte
@@ -347,12 +347,28 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, token string) (*c
 		if paths, err := workdirs.BundleWorkdirPaths(ctx, tx, t.SessionID, t.AgentID); err == nil && len(paths) > 0 {
 			existing = paths[0]
 		}
+		// S-55 / v0.7.3 §4.1: the bundle's `workdir.path` is ABSOLUTE, and the
+		// only material for it is the runtime's probe `workdir_root`. The path
+		// is the server's to own because the server is what judges E13-08 (a
+		// bundle names no other agent's checkout) and what puts paths in the
+		// `gc` command (§4.3) and the workdir rows.
+		var root *string
+		if err := tx.QueryRow(ctx, `SELECT workdir_root FROM runtime WHERE id = $1`, runtimeID).Scan(&root); err != nil && !isNoRows(err) {
+			return nil, fmt.Errorf("queue: bundle workdir_root: %w", err)
+		}
 		wdPlan = workdirs.PlanWorktree(workdirs.WorktreeRequest{
+			Root:             deref(root),
 			SessionSlug:      workdirs.Slug(title),
 			AgentSlug:        workdirs.Slug(agentName),
 			AgentID:          t.AgentID,
 			ExistingForAgent: existing,
 		})
+		if wdPlan.Path == "" {
+			// Not a fallback, a refusal: PlanWorktree only leaves the path
+			// empty when it has no root, and shipping a relative path is the
+			// failure mode that killed every `worktree` session in T-I4.
+			return nil, errNoWorkdirRoot
+		}
 	}
 	b := &contracts.TaskBundle{
 		Task: contracts.BundleTask{

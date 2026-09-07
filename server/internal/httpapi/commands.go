@@ -59,3 +59,19 @@ func (s *Server) writeServerEvent(ctx context.Context, taskID uuid.UUID, attempt
 	}
 	return tx.Commit(ctx)
 }
+
+// writeServerEventOnce is writeServerEvent for notes a repeating report would
+// otherwise write on every arrival — the §6 workdir report comes with every
+// probe, so a dropped entry would redraw its own diagnosis forever.
+func (s *Server) writeServerEventOnce(ctx context.Context, taskID uuid.UUID, attempt int,
+	class, verb, objectRef, outcome string, payload map[string]any, now time.Time) error {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := tasks.InsertServerEventOnce(ctx, tx, taskID, attempt, class, verb, objectRef, outcome, payload, now); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}

@@ -62,10 +62,40 @@ func New(pool *pgxpool.Pool, c clock.Clock, h *realtime.Hub, n Notifier) *Servic
 // the two services are built in either order by the server wiring.
 func (s *Service) WithTasks(t *tasks.Service) *Service { s.Tasks = t; return s }
 
+// RulePlatform is the "rule" recorded for a trigger the PLATFORM raised rather
+// than the routing table (FR-3.3 numbers 1–8 are the table's own). It exists so
+// `session_hop.rule` still says where a hop came from.
+const RulePlatform = 9
+
+// PlatformTrigger is a wake-up the server owes somebody because of an event of
+// its own, not because of what a message says.
+//
+// S-59: `review reject` posts the reason into the submitting lane's thread and
+// openapi v0.7.3 says the server then "그 lane 을 명시적으로 재진입시킨다"
+// (E16-B 5단계). That reply is an AGENT message with no mention, so routing
+// rule 4 ("에이전트의 메시지는 멘션이 없으면 아무것도 트리거하지 않는다") stops
+// it — measured in T-I4: the rejected agent only ever woke up because a person
+// relayed the rejection by hand. The trigger is added AFTER Decide so rule 4
+// keeps its meaning for every ordinary message; the platform simply is not a
+// message.
+//
+// LaneID is the lane to re-enter, decided by the caller (the submitting task's
+// lane). It is fed to lane resolution rule 1, so the result is the same lane
+// with `reentry_count`+1 — exactly what a thread reply would have produced.
+type PlatformTrigger struct {
+	AgentID uuid.UUID
+	LaneID  uuid.UUID
+}
+
 // Post persists the message, applies the rules and creates or merges tasks.
 // One transaction per session (row lock) so two concurrent posts cannot create
 // two queued tasks on the same lane.
 func (s *Service) Post(ctx context.Context, sessionID uuid.UUID, author Author, in gen.MessageCreate) (*gen.MessagePostResult, error) {
+	return s.PostWithTrigger(ctx, sessionID, author, in, nil)
+}
+
+// PostWithTrigger is Post plus a platform trigger (S-59).
+func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, author Author, in gen.MessageCreate, platform *PlatformTrigger) (*gen.MessagePostResult, error) {
 	now := s.Clock.Now()
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
@@ -114,6 +144,21 @@ func (s *Service) Post(ctx context.Context, sessionID uuid.UUID, author Author, 
 		ReplyToAgentID: th.ReplyTo, ThreadOwnerAgentID: th.ThreadOwner,
 		AuthorLaneDelegatorID: authorDelegator, JoinGroupFired: joinFired,
 	})
+
+	if platform != nil && platform.AgentID != uuid.Nil {
+		already := false
+		for _, tr := range dec.Triggers {
+			if tr.AgentID == platform.AgentID {
+				already = true
+			}
+		}
+		// A mention that already woke the same agent is the same wake-up; two
+		// triggers would coalesce onto one task anyway, and the hop would be
+		// double-counted against FR-3.5's limits.
+		if !already {
+			dec.Triggers = append(dec.Triggers, Trigger{AgentID: platform.AgentID, Rule: RulePlatform})
+		}
+	}
 
 	var authorID *uuid.UUID
 	switch author.Type {
@@ -197,11 +242,20 @@ func (s *Service) Post(ctx context.Context, sessionID uuid.UUID, author Author, 
 			continue
 		}
 
-		laneID, _, err := s.resolveLaneFor(ctx, tx, sessionID, tr, profiles[tr.AgentID], laneOpts{
+		opts := laneOpts{
 			threadRootLane: th.RootLane,
 			topLevelMent:   tr.Rule == 2 && parent == nil,
 			forceNewLane:   newLane,
-		}, now)
+		}
+		if tr.Rule == RulePlatform && platform != nil && platform.LaneID != uuid.Nil {
+			// 해소 규칙 1 with the lane named outright: the caller knows which
+			// lane the event belongs to (the one that submitted the artifact),
+			// and it must not depend on the reply's thread happening to root
+			// there. Same lane, `reentry_count`+1 — never a new lane.
+			opts.threadRootLane = platform.LaneID
+			opts.forceNewLane = false
+		}
+		laneID, _, err := s.resolveLaneFor(ctx, tx, sessionID, tr, profiles[tr.AgentID], opts, now)
 		if err != nil {
 			return nil, err
 		}

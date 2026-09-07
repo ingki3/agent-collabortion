@@ -61,10 +61,18 @@ func adaptCheckRepo(c repoCheck) repoVerdict {
 	return repoVerdict{OK: v.OK, FormBlocked: v.FormBlocked, Problems: v.Problems, HTTPStatus: v.HTTPStatus}
 }
 
-// production caller: internal/queue/bundle.go:350 (buildBundle — the bundle's
+// production caller: internal/queue/bundle.go (buildBundle — the bundle's
 // workdir plan).
+//
+// `Root` is supplied because production supplies it: daemon-protocol v0.7.3
+// §4.1 makes `workdir.path` ABSOLUTE and buildBundle reads
+// `runtime.workdir_root` (probe §3) for it. The adapter passes the same "/w"
+// that `adaptBundleWorkdirPaths` below already used, so the two hooks of this
+// table describe one layout. The table's EXPECTATIONS are untouched — E13-02
+// asserts the branch name, reuse and distinctness, never a literal path.
 func adaptPlanWorktree(r worktreeRequest) worktreePlan {
 	p := PlanWorktree(WorktreeRequest{
+		Root:        "/w",
 		SessionSlug: r.SessionSlug, AgentSlug: r.AgentSlug, AgentID: r.AgentID,
 		ExistingForAgent: r.ExistingForAgent,
 	})

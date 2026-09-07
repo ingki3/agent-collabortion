@@ -79,12 +79,25 @@ func Record(ctx context.Context, q db.DBTX, rep Report, now time.Time) (uuid.UUI
 			lane_id       = COALESCE(EXCLUDED.lane_id, workdir.lane_id),
 			kind          = EXCLUDED.kind,
 			branch        = COALESCE(EXCLUDED.branch, workdir.branch),
-			disk_bytes    = GREATEST(EXCLUDED.disk_bytes, 0),
+			-- 0 bytes is "not measured", not "an empty checkout": the §4.4 finish
+			-- report carries git facts but no size, and overwriting a measured
+			-- value with 0 would zero the quota numerator (E13-16) every time a
+			-- turn ended. A real directory is never 0 bytes.
+			disk_bytes    = CASE WHEN EXCLUDED.disk_bytes > 0 THEN EXCLUDED.disk_bytes ELSE workdir.disk_bytes END,
 			last_used_at  = COALESCE(EXCLUDED.last_used_at, workdir.last_used_at),
 			dirty         = COALESCE(EXCLUDED.dirty, workdir.dirty),
 			merged        = COALESCE($11, workdir.merged),
 			commits_ahead = COALESCE($12, workdir.commits_ahead),
 			tree_dirty    = COALESCE($13, workdir.tree_dirty),
+			-- U2's other half: a live report for a path stamped runtime_gone
+			-- means the directory is on the machine reporting it NOW, so the row
+			-- comes back to life. Only that reason is revived — a GC-refused
+			-- row is parked on purpose and reviving it would re-issue the gc
+			-- command on every probe.
+			status        = CASE WHEN workdir.gc_blocked_reason = 'runtime_gone'
+			                     THEN 'active'::workdir_status ELSE workdir.status END,
+			gc_blocked_reason = CASE WHEN workdir.gc_blocked_reason = 'runtime_gone'
+			                         THEN NULL ELSE workdir.gc_blocked_reason END,
 			updated_at    = EXCLUDED.updated_at
 		RETURNING id`,
 		rep.SessionID, rep.AgentID, rep.LaneID, Kind(rep.Kind), rep.Path, rep.Branch,

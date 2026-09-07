@@ -12,15 +12,33 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/auth"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
 )
 
-// Principal is who is calling: a person (UserSession) or an agent attempt
-// (TaskToken). Daemon tokens are resolved separately in daemon.go.
+// Principal is who is calling: a person (UserSession), an agent attempt
+// (TaskToken) or — for exactly one operation — a paired machine (DaemonToken).
+// The `/v1/daemon/*` surface still resolves its own token in daemon.go; this
+// carries the openapi half.
 type Principal struct {
 	User         *gen.User
 	SessionToken string
 	Task         *tokens.Scope
+	Daemon       *DaemonScope
+}
+
+// DaemonScope is a verified `cdt_` bearer on the openapi surface.
+//
+// S-57: openapi v0.7.3 adds `DaemonToken` to `downloadArtifact` and to NOTHING
+// else — §4.3's `rebind_prepare` orders the daemon to download the session's
+// diff artifacts, and with no scheme for it every one of those GETs came back
+// 401, so the rebind prompt pointed at a directory holding a manifest and no
+// diffs (T-I4 차단 ③). The scope is checked at the operation, not here: a
+// daemon principal that reaches any other handler has no user and no task, so
+// the ordinary gates answer 401 exactly as before.
+type DaemonScope struct {
+	RuntimeID   uuid.UUID
+	WorkspaceID uuid.UUID
 }
 
 type ctxKey struct{}
@@ -46,6 +64,13 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 			tok := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
 			switch {
+			case strings.HasPrefix(tok, runtimes.DaemonTokenPrefix):
+				rt, ws, err := s.Runtimes.VerifyDaemonToken(r.Context(), tok)
+				if err != nil {
+					writeProblem(w, apperr.Unauthorized("invalid_daemon_token", "unknown daemon token"))
+					return
+				}
+				p.Daemon = &DaemonScope{RuntimeID: rt, WorkspaceID: ws}
 			case strings.HasPrefix(tok, tokens.Prefix):
 				sc, err := s.Tokens.Verify(r.Context(), s.DB, tok)
 				switch {
