@@ -192,8 +192,20 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 	now := s.Clock.Now()
 	var gcReports []workdirs.GCReport
 	for _, wd := range in.Workdirs {
-		rep, ok := s.workdirReport(r, d, wd.Kind, wd.Path, wd.SessionID, wd.AgentID, wd.LaneID)
-		if !ok {
+		rep, why := s.workdirReport(r, d, wd.Kind, wd.Path, wd.SessionID, wd.AgentID, wd.LaneID)
+		if why != "" {
+			// S-56(b): loudly. Silence here is what let 차단 ② live through a
+			// whole gate — both halves computed correct values and the row was
+			// dropped in between with no trace.
+			s.Log.Warn("workdir report entry dropped", "reason", why, "path", wd.Path,
+				"session", wd.SessionID, "agent", wd.AgentID, "lane", wd.LaneID, "runtime", d.RuntimeID)
+			s.noteWorkdirReportDropped(r.Context(), rep.SessionID, wd.Path, why, now)
+			// (c) The gc receipt is not the row: a directory the daemon just
+			// DELETED may well be unbindable now, and refusing the receipt is
+			// what left `gc` commands unconsumed and rows open forever.
+			if id, err := uuid.Parse(wd.ID); err == nil && wd.GC != nil && wd.GC.Status != "" {
+				gcReports = append(gcReports, workdirs.GCReport{WorkdirID: id, Status: wd.GC.Status, Reason: wd.GC.Reason})
+			}
 			continue
 		}
 		rep.Bytes = wd.Bytes
@@ -282,15 +294,39 @@ func (s *Server) recordGCRefusal(ctx context.Context, ref workdirs.Refusal, now 
 // daemon token may only write rows for sessions of its own workspace — the
 // report carries ids the daemon read off its own disk, so it is input, not
 // authority.
-func (s *Server) workdirReport(r *http.Request, d daemonCtx, kind, path, session, agent, lane string) (workdirs.Report, bool) {
+//
+// S-56(b): it returns WHY an entry was unusable instead of a bare false. This
+// handler used to answer `false` with no log, so a daemon that put a directory
+// NAME where §6 asks for a session uuid — which is exactly what T-I4 measured —
+// had every one of its rows dropped in silence, and the git facts GC judges on
+// (FR-6.4 M4) never arrived. P3's rule ("침묵은 명령에 대한 답이 아니다") now
+// applies to the server's receiving end too.
+//
+// `worktree` matching is (session_id, agent_id, path) per §6 v0.7.3: that
+// isolation has ONE workdir per agent (C3), so a row without an agent names no
+// particular workdir and cannot be bound.
+func (s *Server) workdirReport(r *http.Request, d daemonCtx, kind, path, session, agent, lane string) (workdirs.Report, string) {
 	rep := workdirs.Report{Kind: kind, Path: path}
+	if path == "" {
+		return rep, "path 가 비어 있습니다"
+	}
 	sid, err := uuid.Parse(session)
-	if err != nil || path == "" {
-		return rep, false
+	if err != nil {
+		return rep, "session_id 가 uuid 가 아닙니다(" + trimForDetail(session) + ") — §6 은 세션 uuid 를 요구합니다(디렉터리 이름이 아닙니다)"
 	}
 	var ws uuid.UUID
-	if err := s.DB.QueryRow(r.Context(), `SELECT workspace_id FROM session WHERE id = $1`, sid).Scan(&ws); err != nil || ws != d.WorkspaceID {
-		return rep, false
+	var runtimeID *uuid.UUID
+	if err := s.DB.QueryRow(r.Context(), `SELECT workspace_id, runtime_id FROM session WHERE id = $1`, sid).Scan(&ws, &runtimeID); err != nil {
+		return rep, "그런 세션이 없습니다(" + sid.String() + ")"
+	}
+	if ws != d.WorkspaceID {
+		return rep, "이 데몬 토큰의 워크스페이스가 아닌 세션입니다(" + sid.String() + ")"
+	}
+	if runtimeID != nil && *runtimeID != d.RuntimeID {
+		// The session is pinned elsewhere (§4.1). A row written from here would
+		// name a path on the wrong machine — and after a rebind that is exactly
+		// the stale row U2 is about.
+		return rep, "이 세션은 다른 런타임에 고정돼 있습니다(" + runtimeID.String() + ")"
 	}
 	rep.SessionID = sid
 	if lane != "" {
@@ -303,10 +339,60 @@ func (s *Server) workdirReport(r *http.Request, d daemonCtx, kind, path, session
 	}
 	if agent != "" {
 		if id, err := uuid.Parse(agent); err == nil {
-			rep.AgentID = &id
+			var n int
+			if err := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM session_participant WHERE session_id = $1 AND agent_id = $2`, sid, id).Scan(&n); err == nil && n > 0 {
+				rep.AgentID = &id
+			}
 		}
 	}
-	return rep, rep.AgentID != nil || rep.LaneID != nil
+	if workdirKindOf(r, s, sid) == "worktree" && rep.AgentID == nil {
+		return rep, "worktree 격리의 workdir 보고에 agent_id 가 없습니다(§6 v0.7.3 필수) — 에이전트당 1개라 " +
+			"agent 없이는 어느 행인지 정해지지 않습니다. 받은 값: agent_id=" + trimForDetail(agent)
+	}
+	if rep.AgentID == nil && rep.LaneID == nil {
+		return rep, "agent_id·lane_id 가 둘 다 없어 이 행을 어디에도 묶을 수 없습니다"
+	}
+	return rep, ""
+}
+
+// trimForDetail keeps an echoed daemon value short enough for the event
+// payload's `detail` (maxLength 2000) and for a log line.
+func trimForDetail(v string) string {
+	if v == "" {
+		return "(빈 값)"
+	}
+	if len(v) > 120 {
+		return v[:120] + "…"
+	}
+	return v
+}
+
+// noteWorkdirReportDropped is S-56(b)'s "loudly, not silently". The §6 report
+// carries no task, so the note lands on the most recent task of the session it
+// names — the place a person looking at a lane whose workdir never got its git
+// facts will actually be. When even the session cannot be identified there is
+// nothing to hang it on, and the log line is the whole record.
+func (s *Server) noteWorkdirReportDropped(ctx context.Context, sessionID uuid.UUID, path, reason string, now time.Time) {
+	if sessionID == uuid.Nil {
+		return
+	}
+	var taskID uuid.UUID
+	var attempt int
+	if err := s.DB.QueryRow(ctx, `
+		SELECT id, attempt FROM task WHERE session_id = $1 ORDER BY created_at DESC LIMIT 1`, sessionID).
+		Scan(&taskID, &attempt); err != nil {
+		return
+	}
+	// S-52: class `runtime` is "process/adapter level" and `detail` is its one
+	// free-text field; `failure_kind: config` is what a malformed report is.
+	if err := s.writeServerEventOnce(ctx, taskID, attempt, "runtime", "error", "workdir:"+path, "failed",
+		map[string]any{"failure_kind": "config",
+			"detail": "workdir 보고(daemon-protocol §6) 행을 저장하지 못했습니다 — " + reason +
+				". path=" + trimForDetail(path) + ". 이 행의 git 사실이 도달하지 않으면 GC 판정이 " +
+				"'커밋 0 · 클린' 으로 읽어 미병합 커밋·미커밋 변경을 지울 수 있습니다(FR-6.4 M4)."},
+		now); err != nil {
+		s.Log.Warn("note dropped workdir report", "err", err, "session", sessionID, "path", path)
+	}
 }
 
 // taskForDaemon checks the task belongs to the calling runtime.
@@ -565,10 +651,52 @@ func (s *Server) daemonFinish(w http.ResponseWriter, r *http.Request, d daemonCt
 	case err != nil:
 		writeErr(w, err)
 	default:
+		s.applyFinishWorkdir(r, d, t, in.Workdir)
 		// The lane frame is no longer emitted here: tasks.Finish publishes it
 		// inside its own transaction, for every outcome (completed → done/queued,
 		// paused_budget → paused, cancelled/failed → failed), together with
 		// task.updated. Publishing again after the commit would only duplicate it.
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": final})
+	}
+}
+
+// applyFinishWorkdir is S-56(a): daemon-protocol v0.7.2/v0.7.3 §4.4 says "서버는
+// 이 값으로 그 workdir 행의 merged·dirty·commits_ahead 를 갱신한다", and until now
+// nothing in the server read `Finish.Workdir` at all. It is the second of §6's
+// two routes for GC's ONLY input, and the faster one: an attempt's facts land
+// here immediately instead of waiting for the next probe, so a GC sweep running
+// in between judges on what the turn actually left behind rather than on the
+// default "커밋 0 · 클린" — which is how FR-6.4 M4 came to delete unmerged
+// commits in T-I4 (차단 ②).
+//
+// It runs AFTER the finish committed and never fails the request: the attempt
+// is over either way, and a 500 here would make the daemon re-send a finish it
+// already landed. `git` absent (isolation none/container) leaves the row alone,
+// per §4.4.
+func (s *Server) applyFinishWorkdir(r *http.Request, d daemonCtx, t *tasks.Row, fw *contracts.FinishWorkdir) {
+	if fw == nil || fw.Path == "" {
+		return
+	}
+	now := s.Clock.Now()
+	rep := workdirs.Report{
+		Kind: workdirKindOf(r, s, t.SessionID), Path: fw.Path,
+		SessionID: t.SessionID, LaneID: &t.LaneID, LastUsedAt: &now,
+	}
+	if rep.Kind == "worktree" {
+		// §6 v0.7.3: the worktree row is keyed by (session, agent, path).
+		rep.AgentID = &t.AgentID
+	}
+	if fw.Git != nil {
+		branch, merged, ahead, tree := fw.Git.Branch, fw.Git.Merged, fw.Git.CommitsAhead, fw.Git.Dirty
+		if branch != "" {
+			rep.Branch = &branch
+		}
+		// `dirty` keeps the contract's OR meaning (openapi Workdir), the three
+		// facts are kept apart for FR-6.4 — the same split daemonWorkdirs does.
+		dirty := tree || (!merged && ahead > 0)
+		rep.Dirty, rep.Merged, rep.CommitsAhead, rep.TreeDirty = &dirty, &merged, &ahead, &tree
+	}
+	if _, err := workdirs.Record(r.Context(), s.DB, rep, now); err != nil {
+		s.Log.Warn("record workdir from finish", "err", err, "task", t.ID, "path", fw.Path, "runtime", d.RuntimeID)
 	}
 }

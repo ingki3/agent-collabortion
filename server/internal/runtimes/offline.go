@@ -501,11 +501,27 @@ func (s *Service) Rebind(ctx context.Context, wsID, sessionID, targetRuntime uui
 	if plan.Prompt != "" {
 		rebindPrompt = plan.Prompt
 	}
+	// S-58: the session's REPOSITORY moves too. `isolation.repo_path` is an
+	// absolute path on the machine that is gone; the new daemon would run
+	// `git worktree add` inside a directory that does not exist there and every
+	// attempt would end `failed(config)` (T-I4 차단 ④). The path to move to is
+	// the one the candidate rule already found by remote URL —
+	// `JudgeCandidate.MatchedRepoPath`, the same value the picker draws — so the
+	// rebind cannot land on a repository the eligibility check never approved.
+	// jsonb_set keeps the rest of the isolation object (kind, and whatever P5
+	// adds) untouched.
+	var repoPath any
+	if verdict.MatchedRepoPath != "" && kind == "worktree" {
+		repoPath = verdict.MatchedRepoPath
+	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE session SET runtime_id = $2, status = 'active', paused_reason = NULL, paused_detail = NULL,
-		       rebind_prompt = $4, updated_at = $3
+		       rebind_prompt = $4,
+		       isolation = CASE WHEN $5::text IS NULL THEN isolation
+		                        ELSE jsonb_set(isolation, '{repo_path}', to_jsonb($5::text), true) END,
+		       updated_at = $3
 		WHERE id = $1 AND status = 'paused' AND paused_reason = 'runtime_offline'`,
-		sessionID, targetRuntime, now, rebindPrompt)
+		sessionID, targetRuntime, now, rebindPrompt, repoPath)
 	if err != nil {
 		return plan, err
 	}
@@ -556,12 +572,73 @@ func (s *Service) Rebind(ctx context.Context, wsID, sessionID, targetRuntime uui
 		WHERE session_id = $1 AND status IN ('queued', 'deferred')`, sessionID, now); err != nil {
 		return plan, err
 	}
+	// S-60: a task already HANDED OUT to the machine that vanished is the one
+	// case the line above misses. It sat `dispatched` until §4.1's five-minute
+	// timeout failed it — on a runtime everybody already knows is gone — so the
+	// rebind's promise ("이 세션의 남은 일을 새 컴퓨터에서 이어서 한다") quietly
+	// excluded whatever happened to be in flight when the machine died.
+	// Reviving it is the ordinary requeue (tasks.Service.Requeue: revoke the
+	// attempt's token, record the attempt, queue the next one) rather than a
+	// second state machine here; it runs after the commit because Requeue takes
+	// its own transaction and its own task locks.
+	stranded, err := s.strandedDispatched(ctx, tx, sessionID)
+	if err != nil {
+		return plan, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return plan, err
+	}
+	for _, id := range stranded {
+		if s.Tasks == nil {
+			s.warn("rebind: no task service wired; dispatched task left stranded", "task", id)
+			break
+		}
+		if err := s.Tasks.Requeue(ctx, id, contracts.FailRuntimeOffline, nil, now); err != nil {
+			// The rebind itself is committed. Losing one revival is worse than
+			// silent, so it is logged: the task still fails on the §4.1 timeout
+			// exactly as it did before this fix, which is a state a person can
+			// see and restart.
+			s.warn("rebind: requeue stranded dispatched task", "err", err, "task", id, "session", sessionID)
+		}
 	}
 	s.publishRuntime(ctx, targetRuntime)
 	return plan, nil
 }
+
+// strandedDispatched lists the session's tasks the dead machine had already
+// claimed (S-60). Read inside the rebind transaction so the list is the one the
+// rebind decided on.
+func (s *Service) strandedDispatched(ctx context.Context, q db.DBTX, sessionID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.Query(ctx, `
+		SELECT id FROM task
+		WHERE session_id = $1 AND status IN ('dispatched', 'preparing', 'running')
+		ORDER BY created_at`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("runtimes: stranded tasks: %w", err)
+	}
+	defer rows.Close()
+	var out []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// apiBasePath is openapi `servers[0].url` — the prefix every operation of
+// openapi.yaml lives under, and the same string as httpapi.BasePath (which this
+// package cannot import: httpapi imports runtimes).
+//
+// It is spelled out here because the `rebind_prepare` command (§4.3) carries a
+// RELATIVE url and the daemon joins it to the server root (api.Client.Download).
+// Without the prefix that join produced `/v1/artifacts/…`, which no route
+// serves. T-I4 could not see it: `downloadArtifact` had no `DaemonToken` scheme
+// then, so the auth middleware answered 401 before the mux ever looked for the
+// path, and fixing S-57 alone would have swapped one failure for another.
+const apiBasePath = "/api/v1"
 
 // sessionArtifacts lists the session's artifacts in SUBMISSION order. The
 // order is the whole point of E14-06, so it is `created_at`, never `name` or
@@ -585,7 +662,7 @@ func (s *Service) sessionArtifacts(ctx context.Context, sessionID uuid.UUID) ([]
 		}
 		i++
 		a.Order = i
-		a.URL = fmt.Sprintf("/v1/artifacts/%s/content", a.ID)
+		a.URL = fmt.Sprintf("%s/artifacts/%s/content", apiBasePath, a.ID)
 		out = append(out, a)
 	}
 	return out, rows.Err()

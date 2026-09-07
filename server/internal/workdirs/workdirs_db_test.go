@@ -108,3 +108,75 @@ func seedTwoAgentSession(ctx context.Context, t *testing.T, pool *pgxpool.Pool, 
 	}
 	return sessionID, feID, qaID
 }
+
+// TestRuntimeGoneRowsLeaveAndReturn is U2 (T-I4 §0.2), both directions.
+//
+// A rebind parks the dead machine's rows at `retained` with
+// `gc_blocked_reason = 'runtime_gone'`. `BundleWorkdirPaths` only excluded
+// `deleted`, so the NEW machine's bundle kept naming a path on the computer
+// that vanished — the e2e run folded those rows away by hand to get past it.
+// The other direction matters too: when the new machine happens to lay its
+// checkouts out at the same path, a live report must bring the row back rather
+// than leave the session with no workdir at all.
+func TestRuntimeGoneRowsLeaveAndReturn(t *testing.T) {
+	pool := testdb.New(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	sessionID, feID, _ := seedTwoAgentSession(ctx, t, pool, now)
+
+	if _, err := Record(ctx, pool, Report{
+		Kind: "worktree", Path: "/w/s/frontend", SessionID: sessionID, AgentID: &feID, Bytes: 2048,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	// What runtimes.Rebind writes.
+	if _, err := pool.Exec(ctx, `
+		UPDATE workdir SET status = 'retained', gc_blocked_reason = 'runtime_gone' WHERE session_id = $1`, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := BundleWorkdirPaths(ctx, pool, sessionID, feID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 0 {
+		t.Fatalf("bundle candidates = %v, want none — every one of those directories is on a computer "+
+			"nobody can reach (U2)", paths)
+	}
+
+	// A GC refusal is a different thing: that directory is on THIS machine and
+	// is kept on purpose, so it stays reusable.
+	if _, err := pool.Exec(ctx, `
+		UPDATE workdir SET gc_blocked_reason = 'unmerged_commits' WHERE session_id = $1`, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if paths, err = BundleWorkdirPaths(ctx, pool, sessionID, feID); err != nil || len(paths) != 1 {
+		t.Fatalf("a GC-blocked row was dropped too (%v, %v) — only `runtime_gone` names a machine that is gone", paths, err)
+	}
+
+	// Back to runtime_gone, then a live report for the same path.
+	if _, err := pool.Exec(ctx, `
+		UPDATE workdir SET status = 'retained', gc_blocked_reason = 'runtime_gone' WHERE session_id = $1`, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	// The finish route carries no size; it must not zero the measured one.
+	if _, err := Record(ctx, pool, Report{
+		Kind: "worktree", Path: "/w/s/frontend", SessionID: sessionID, AgentID: &feID,
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	var reason *string
+	var bytes int64
+	if err := pool.QueryRow(ctx, `
+		SELECT status::text, gc_blocked_reason, disk_bytes FROM workdir WHERE session_id = $1`, sessionID).
+		Scan(&status, &reason, &bytes); err != nil {
+		t.Fatal(err)
+	}
+	if status != "active" || reason != nil {
+		t.Errorf("row after a live report: status=%q reason=%v, want active/NULL — the directory is on "+
+			"the machine reporting it now", status, reason)
+	}
+	if bytes != 2048 {
+		t.Errorf("disk_bytes = %d, want 2048 — a report without a size means \"not measured\"", bytes)
+	}
+}

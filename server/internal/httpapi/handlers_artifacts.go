@@ -270,6 +270,38 @@ func (s *Server) artifactAccess(r *http.Request, id uuid.UUID) (*artifacts.Row, 
 	return a, nil
 }
 
+// downloadAccess is `downloadArtifact`'s gate, which openapi v0.7.3 widens by
+// exactly one scheme: `DaemonToken` — "그 런타임에 고정된 세션의 아티팩트만"
+// (S-57). Every other artifact operation keeps artifactAccess, so a daemon
+// token can read a body and nothing else.
+//
+// SCOPE IS THE SESSION'S PINNING, NOT THE WORKSPACE. A daemon paired to a
+// workspace can hold several sessions' machines; `session.runtime_id` is what
+// says this artifact belongs to work THIS computer is running (§4.1 "이 런타임에
+// 고정된 세션"). Anything else answers 404 rather than 403, for the same reason
+// artifactAccess does: an id that exists elsewhere is more than a stranger
+// should learn.
+func (s *Server) downloadAccess(r *http.Request, id uuid.UUID) (*artifacts.Row, *Problem) {
+	pr := principalOf(r)
+	if pr.Daemon == nil {
+		return s.artifactAccess(r, id)
+	}
+	a, err := s.Artifacts.Get(r.Context(), id)
+	if err != nil {
+		return nil, apperr.As(err)
+	}
+	var wsID uuid.UUID
+	var runtimeID *uuid.UUID
+	if err := s.DB.QueryRow(r.Context(), `SELECT workspace_id, runtime_id FROM session WHERE id = $1`, a.SessionID).
+		Scan(&wsID, &runtimeID); err != nil {
+		return nil, apperr.NotFound("artifact")
+	}
+	if wsID != pr.Daemon.WorkspaceID || runtimeID == nil || *runtimeID != pr.Daemon.RuntimeID {
+		return nil, apperr.NotFound("artifact")
+	}
+	return a, nil
+}
+
 func (s *Server) GetArtifact(w http.ResponseWriter, r *http.Request, artifactId gen.ArtifactId) {
 	a, p := s.artifactAccess(r, artifactId)
 	if p != nil {
@@ -284,7 +316,7 @@ func (s *Server) GetArtifact(w http.ResponseWriter, r *http.Request, artifactId 
 // a chunked response a truncated download and a complete one look the same,
 // and the agent that reads the half file never learns it was half.
 func (s *Server) DownloadArtifact(w http.ResponseWriter, r *http.Request, artifactId gen.ArtifactId) {
-	a, p := s.artifactAccess(r, artifactId)
+	a, p := s.downloadAccess(r, artifactId)
 	if p != nil {
 		writeProblem(w, p)
 		return
@@ -414,30 +446,48 @@ func (s *Server) ReviewArtifact(w http.ResponseWriter, r *http.Request, artifact
 }
 
 // postRejectReason puts the reason back where the work is (openapi
-// reviewArtifact: "그 아티팩트를 제출한 task의 lane 스레드에 답글로"). It goes
-// through the ordinary posting path so lane resolution rule 1 re-enters the
-// submitting lane instead of opening a new one — E16-B step 5.
+// reviewArtifact: "그 아티팩트를 제출한 task의 lane 스레드에 답글로") AND wakes
+// that lane — E16-B step 5.
+//
+// S-59: posting was not enough, and the reply thread was not the mechanism.
+// The reply is written by the REVIEWER agent with no mention in it, so routing
+// rule 4 stops it before rule 5 ever looks at the thread: T-I4 measured zero
+// Frontend tasks carrying the rejection message as their trigger, and the
+// re-entry that step 5 is about only happened because the PM relayed the
+// rejection in a message of its own. openapi v0.7.3 settles it — the server
+// re-enters the lane explicitly, as a PLATFORM event (router.PlatformTrigger),
+// with the same result resolution rule 1 gives: same lane, `reentry_count`+1.
 func (s *Server) postRejectReason(r *http.Request, a *artifacts.Row, reviewer, reviewerTask uuid.UUID, comments string) (*gen.Message, error) {
 	var parent nullable.Nullable[openapi_types.UUID]
+	var platform *router.PlatformTrigger
 	if a.SubmittedByTaskID != nil {
 		var msgID *uuid.UUID
+		var laneID, agentID uuid.UUID
 		err := s.DB.QueryRow(r.Context(), `
 			SELECT coalesce(
 				(SELECT m.id FROM message m WHERE m.source_task_id = $1 ORDER BY m.created_at DESC LIMIT 1),
-				(SELECT t.trigger_message_id FROM task t WHERE t.id = $1))`, *a.SubmittedByTaskID).Scan(&msgID)
+				(SELECT t.trigger_message_id FROM task t WHERE t.id = $1)),
+			       (SELECT t.lane_id FROM task t WHERE t.id = $1),
+			       (SELECT t.agent_id FROM task t WHERE t.id = $1)`, *a.SubmittedByTaskID).
+			Scan(&msgID, &laneID, &agentID)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return nil, err
 		}
 		if msgID != nil {
 			parent = nullable.NewNullableWithValue(openapi_types.UUID(*msgID))
 		}
+		if laneID != uuid.Nil && agentID != uuid.Nil && agentID != reviewer {
+			// Not the reviewer's own lane: a self-rejection would otherwise
+			// wake the reviewer with its own verdict.
+			platform = &router.PlatformTrigger{AgentID: agentID, LaneID: laneID}
+		}
 	}
-	out, err := s.Router.Post(r.Context(), a.SessionID,
+	out, err := s.Router.PostWithTrigger(r.Context(), a.SessionID,
 		router.Author{Type: "agent", AgentID: &reviewer, TaskID: &reviewerTask, Attempt: 1},
 		gen.MessageCreate{
 			Content:  fmt.Sprintf("리뷰 반려 — %s v%d\n\n%s", a.Name, a.Version, comments),
 			ParentId: parent,
-		})
+		}, platform)
 	if err != nil {
 		return nil, err
 	}

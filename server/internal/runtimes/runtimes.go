@@ -44,10 +44,19 @@ type Service struct {
 	Hub       *realtime.Hub
 	ServerURL string // shown in install_commands
 	Log       *slog.Logger
+	// Tasks is the requeue path S-60 reuses: a rebind revives the tasks the
+	// vanished machine had already claimed instead of leaving them to the §4.1
+	// five-minute timeout. Optional — a Service without it still rebinds, and
+	// says so in the log.
+	Tasks *tasks.Service
 }
 
 // WithLog wires the logger the offline sweep and the GC pass report through.
 func (s *Service) WithLog(l *slog.Logger) *Service { s.Log = l; return s }
+
+// WithTasks wires the task service (S-60). Set after construction because the
+// two services are built in either order by the server wiring.
+func (s *Service) WithTasks(t *tasks.Service) *Service { s.Tasks = t; return s }
 
 func New(pool *pgxpool.Pool, c clock.Clock, h *realtime.Hub, serverURL string) *Service {
 	return &Service{DB: pool, Clock: c, Hub: h, ServerURL: serverURL}
@@ -243,10 +252,17 @@ func (s *Service) Probe(ctx context.Context, runtimeID uuid.UUID, p contracts.Pr
 	// §3 v0.5: colab_cli rides on the probe, not on capabilities[]. Storing it
 	// is the whole point — the daemon has been reporting it since v0.5 and the
 	// API answered null because there was nowhere to put it (G4 결함 6).
+	// S-55 (v0.7.3 §4.1): `workdir_root` is stored because the server assembles
+	// the bundle's ABSOLUTE workdir path from it. It was arriving on every probe
+	// and being dropped, which is why `worktree` sessions shipped a relative
+	// path and died on the first turn (plan/G7_REPORT.md 차단 ①). NULLIF keeps a
+	// probe that omits it from erasing what the last one told us.
 	if _, err := s.DB.Exec(ctx, `
 		UPDATE runtime SET capabilities = $2, repos = $3, daemon_version = COALESCE(NULLIF($4, ''), daemon_version),
-		       host = COALESCE(NULLIF($5, ''), host), colab_cli = $7, last_seen_at = $6, status = 'online', offline_since = NULL, updated_at = $6
-		WHERE id = $1`, runtimeID, caps, repos, p.DaemonVersion, p.Hostname, now, p.ColabCLI); err != nil {
+		       host = COALESCE(NULLIF($5, ''), host), colab_cli = $7,
+		       workdir_root = COALESCE(NULLIF($8, ''), workdir_root),
+		       last_seen_at = $6, status = 'online', offline_since = NULL, updated_at = $6
+		WHERE id = $1`, runtimeID, caps, repos, p.DaemonVersion, p.Hostname, now, p.ColabCLI, p.WorkdirRoot); err != nil {
 		return fmt.Errorf("runtimes: probe: %w", err)
 	}
 	var pid, wsID uuid.UUID
