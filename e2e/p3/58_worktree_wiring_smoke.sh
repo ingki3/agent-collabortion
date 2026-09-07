@@ -168,8 +168,28 @@ check "finish outcome=completed + §4.4 workdir.git{branch,merged,dirty,commits_
 check "런타임의 실제 CWD = 체크아웃 ($WT/acpfake-cwd.jsonl)" $?
 [ ! -e "$WORK/acpfake-cwd.jsonl" ] && [ ! -e "$ROOT/acpfake-cwd.jsonl" ]
 check "데몬 CWD 에는 아무것도 만들지 않았다" $?
-grep -q 'resolved to' "$LOG"
+grep -q 'workdir bundle path' "$LOG"
 check "데몬 로그가 번들 경로 해석을 남겼다 (조용히 고치지 않는다)" $?
+
+# T-D10b NN2 — 로그는 이 기계의 stderr 다. §4.1 위반 재발을 **서버에서** 보려면
+# 같은 사실이 와이어에도 실려야 한다: class=runtime · verb=report · outcome=info
+# · payload.detail 에 "bundle path X → Y" (PRD §7 v0.16 / S-52 규칙 2).
+python3 - "$WORK/server.jsonl" "$WT" <<'PYEOF'
+import json, sys
+rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+evs = [e for r in rows if r["kind"] == "events" for e in r["body"]]
+hit = [e for e in evs if e.get("class") == "runtime" and e.get("verb") == "report"
+       and e.get("outcome") == "info" and "→" in (e.get("detail") or "")]
+if not hit:
+    print("  runtime/report 경로 해석 이벤트가 와이어에 없다: %r" % (evs,)); sys.exit(1)
+if sys.argv[2] not in hit[-1]["detail"]:
+    print("  detail 이 실제 체크아웃 경로를 담지 않는다: %r" % hit[-1]); sys.exit(1)
+seqs = [e.get("seq") for e in evs]
+if len(seqs) != len(set(seqs)):
+    print("  seq 중복 — §4.2 (task_id, attempt, seq) 멱등: %r" % seqs); sys.exit(1)
+print("  §4.1 경로 해석 이벤트: %s" % hit[-1]["detail"])
+PYEOF
+check "§4.1 경로 해석이 와이어에도 실렸다 (runtime/report · detail, NN2)" $?
 
 # ---------------------------------------------------------------------------
 say "(2) D-22 — §6 workdir 보고"

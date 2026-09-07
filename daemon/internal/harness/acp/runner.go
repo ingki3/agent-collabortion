@@ -68,6 +68,12 @@ type Attempt struct {
 	// §2 lifecycle: the colab MCP server, colab-cli.md §3). Built by the loop
 	// with ColabMCPServer; nil → none (probe).
 	MCPServers []MCPServer
+	// StartSeq is the last seq the CALLER has already emitted on this attempt
+	// (§4.2 idempotency is (task_id, attempt, seq)). The runner numbers from
+	// StartSeq+1, so a loop-level note — the §4.1 path-resolution report —
+	// and the runner's first event cannot collide on seq 1. Zero is the
+	// normal case: the runner starts at 1 as it always did.
+	StartSeq int
 }
 
 // RawInit is the claude_code raw `system/init` evidence (§12(c)).
@@ -197,7 +203,7 @@ func New(a Attempt) *Runner {
 	if a.Quiet == 0 {
 		a.Quiet = contracts.HermesQuietWait
 	}
-	return &Runner{a: a, clk: a.Clock, tools: map[string]*toolState{}, promptDone: make(chan struct{}),
+	return &Runner{a: a, clk: a.Clock, seq: a.StartSeq, tools: map[string]*toolState{}, promptDone: make(chan struct{}),
 		cancelGate: make(chan struct{}), cancelDone: make(chan struct{})}
 }
 
