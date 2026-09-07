@@ -120,12 +120,23 @@ var ErrNoRepo = errors.New("workdir: worktree isolation needs repo_path")
 // the user's `git status`, and GC (§6) cannot reach it. The bundle path is
 // still honoured whenever it is inside the root, which is where §4.1 says the
 // server puts it; relocating is a floor, not a preference.
+//
+// Both questions are asked about the paths the FILESYSTEM sees (realPath):
+// `repoTop` arrives symlink-resolved from git and the bundle path does not,
+// and on a machine where either side crosses a symlink — `/tmp` and `/var` on
+// macOS, a symlinked home — an unresolved comparison answers "unrelated
+// trees" and the guard passes everything (T-D10b).
 func WorktreeTarget(root, bundlePath string, plan WorktreePlan, repoTop string) string {
 	path := ResolvePath(root, bundlePath)
 	if path == "" {
 		return plan.Path
 	}
-	if repoTop != "" && UnderRoot(repoTop, path) {
+	// `UnderRoot` answers "is it a SUBTREE", so the repository's own top level
+	// — a bundle path that names the working copy itself — has to be asked
+	// about separately. `git worktree add` refuses it, but with git's own
+	// message; the daemon's job here is to state which of the two paths was
+	// wrong (T-D10b, found by the NN5 fixture).
+	if repoTop != "" && (samePath(repoTop, path) || UnderRoot(repoTop, path)) {
 		return plan.Path
 	}
 	if root != "" && !UnderRoot(root, path) {
@@ -133,6 +144,9 @@ func WorktreeTarget(root, bundlePath string, plan WorktreePlan, repoTop string) 
 	}
 	return path
 }
+
+// samePath compares two paths as the filesystem sees them (symlinks and all).
+func samePath(a, b string) bool { return realPath(a) == realPath(b) }
 
 // prepLocks serialises PrepareWorktree per path within this daemon.
 var prepLocks sync.Map // path → *sync.Mutex

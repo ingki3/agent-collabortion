@@ -41,6 +41,20 @@ type Daemon struct {
 	// SpawnConfig overrides how an attempt's process is built (tests →
 	// acpfake). Nil → acp.Command + acp.Env.
 	SpawnConfig func(b contracts.TaskBundle, wd string) acp.Config
+	// PrepareWorkdir overrides how the attempt's working directory is made
+	// (tests). Nil → workdir.Prepare.
+	//
+	// It exists so the §4.1 데몬 방어 gate below can be measured THROUGH THE
+	// LOOP (PR #172 리뷰 NN3). The gate answers one question — "the directory
+	// the runtime is about to run in is not there" — and since D-21 that
+	// answer can no longer be produced by `workdir.Prepare` itself: `dir`
+	// isolation mkdir -p's the path and `worktree` isolation gets it from
+	// `git worktree add`. The fault it defends against came from a preparer
+	// that RETURNED A PATH IT HAD NOT MADE (T-I4 차단 ①: the checkout landed
+	// in the user's repository while the daemon handed the runtime a
+	// CWD-relative path), so a test that wants to see the gate has to supply
+	// such a preparer. Same seam, same reason, as SpawnConfig.
+	PrepareWorkdir func(root string, b contracts.TaskBundle) (string, error)
 
 	HeartbeatInterval time.Duration // 0 → contracts.HeartbeatInterval
 	ClaimWait         time.Duration // 0 → contracts.ClaimMaxWait
@@ -541,7 +555,18 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 			d.Log("finish %s: %v", k, err)
 		}
 	}
-	wd, err := workdir.Prepare(d.Cfg.WorkdirRoot, b)
+	// seq numbers the events the LOOP emits before the runner exists. The
+	// runner continues from it (acp.Attempt.StartSeq): (task_id, attempt,
+	// seq) is the idempotency key of §4.2, so a loop event and the runner's
+	// first event may not both be seq 1 — the server keeps one and drops the
+	// other without a word.
+	seq := 0
+	nextSeq := func() int { seq++; return seq }
+	prepare := d.PrepareWorkdir
+	if prepare == nil {
+		prepare = workdir.Prepare
+	}
+	wd, err := prepare(d.Cfg.WorkdirRoot, b)
 	if err != nil {
 		d.Log("%s workdir: %v", k, err)
 		finish(contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: err.Error()})
@@ -552,7 +577,26 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		// so any resolution the daemon has to do (a relative path read against
 		// the root, or a target relocated out of the user's repository) is a
 		// disagreement between the two halves and belongs in the log.
-		d.Log("%s workdir: bundle path %q resolved to %s", k, b.Workdir.Path, wd)
+		//
+		// AND ON THE WIRE (PR #172 리뷰 NN2). `d.Log` is this machine's
+		// stderr: nobody watching the platform can see that the daemon had to
+		// move the checkout, so a server that starts sending §4.1-violating
+		// paths again — the exact G7 차단 ① regression — looks perfectly
+		// healthy from the feed. The note is class=runtime · verb=report ·
+		// outcome=info with the fact in `detail` (PRD §7 v0.16 / S-52 rule 2:
+		// `detail` is the runtime class's one free-text field, and the payload
+		// is closed to anything else).
+		detail := fmt.Sprintf("workdir bundle path %q → %s (isolation=%s, workdir_root=%s)",
+			b.Workdir.Path, wd, b.Workdir.Kind, d.Cfg.WorkdirRoot)
+		d.Log("%s %s", k, detail)
+		batcher.Emit(contracts.TaskEvent{
+			TaskID: b.Task.ID, Attempt: b.Task.Attempt, Seq: nextSeq(), TS: d.Clock.Now().UTC(),
+			Class: "runtime", Verb: "report", ObjectRef: "workdir.path", Outcome: "info",
+			Payload: map[string]any{
+				"runtime_kind": string(b.Profile.RuntimeKind),
+				"detail":       detail,
+			},
+		})
 	}
 	// §4.1 v0.7.3 데몬 방어 (D-21(c)): the directory the runtime will run in
 	// has to exist BEFORE the spawn. Without this the missing cwd surfaced as
@@ -563,7 +607,7 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		detail := workdirDetail(verr, b, d.Cfg.WorkdirRoot)
 		d.Log("%s %s", k, detail)
 		batcher.Emit(contracts.TaskEvent{
-			TaskID: b.Task.ID, Attempt: b.Task.Attempt, Seq: 1, TS: d.Clock.Now().UTC(),
+			TaskID: b.Task.ID, Attempt: b.Task.Attempt, Seq: nextSeq(), TS: d.Clock.Now().UTC(),
 			Class: "runtime", Verb: "error", Outcome: "failed",
 			Payload: map[string]any{
 				"runtime_kind": string(b.Profile.RuntimeKind),
@@ -607,7 +651,7 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		detail := "치환되지 않은 자리표시자: " + strings.Join(left, ", ")
 		d.Log("%s %s", k, detail)
 		batcher.Emit(contracts.TaskEvent{
-			TaskID: b.Task.ID, Attempt: b.Task.Attempt, Seq: 1, TS: d.Clock.Now().UTC(),
+			TaskID: b.Task.ID, Attempt: b.Task.Attempt, Seq: nextSeq(), TS: d.Clock.Now().UTC(),
 			Class: "runtime", Verb: "error", Outcome: "failed",
 			Payload: map[string]any{
 				"runtime_kind": string(b.Profile.RuntimeKind),
@@ -648,6 +692,8 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	hb := &heartbeater{d: d, b: b, bt: batcher}
 	runner := acp.New(acp.Attempt{
 		Bundle: b, Workdir: wd, Cmd: d.spawnConfig(b, wd), MCPServers: d.mcpServers(b), Sink: batcher, Clock: d.Clock, DaemonVersion: d.Version,
+		// The loop may already have spent seq 1 on the §4.1 note above.
+		StartSeq: seq,
 		// harness §7 v0.8.5: the raw SDK stream is what makes the heartbeat's
 		// `usage` non-zero before the turn ends (D-17).
 		RawSDKMessages: midturn,

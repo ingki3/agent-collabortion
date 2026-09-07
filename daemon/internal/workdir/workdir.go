@@ -57,6 +57,14 @@ func safe(s string) string {
 // with `spawn: fork/exec …/npx: no such file or directory` (T-I4 차단 ①).
 // The daemon's CWD is wherever the operator happened to launch it from; it
 // has never been a workdir.
+//
+// THERE IS NO CWD FALLBACK LEFT (PR #172 리뷰 NN1). A relative path with no
+// root is a path this daemon cannot place, and the honest answer to that is
+// nothing: the empty string travels to `Prepare` ("workdir: empty root") and
+// to `Verify` ("no directory to run in"), which name the real fault. The
+// fallback that used to live here — `filepath.Abs(p)`, i.e. the CWD — is the
+// one line §4.1 forbids, and leaving it as an unreachable branch left the
+// T-I4 차단 ① behaviour one config bug away from coming back.
 func ResolvePath(root, p string) string {
 	if p == "" {
 		return ""
@@ -64,14 +72,47 @@ func ResolvePath(root, p string) string {
 	if filepath.IsAbs(p) {
 		return filepath.Clean(p)
 	}
-	if root != "" {
-		return filepath.Join(root, p) // Join cleans
+	if root == "" {
+		return ""
 	}
+	return filepath.Join(root, p) // Join cleans
+}
+
+// realPath is `filepath.Abs` plus every symlink that actually exists on the
+// way — the longest existing ancestor is resolved and the rest is appended,
+// so a path that has not been created yet still answers about the right
+// directory.
+//
+// It exists because the two sides of the guards below come from different
+// places and only one of them was ever resolved: `repo_path` reaches
+// `UnderRoot` as `git rev-parse --show-toplevel`, which git ALWAYS gives
+// resolved, while the bundle's `workdir.path` is whatever the server stored.
+// On macOS that is enough to disarm the whole check — `/tmp` and `/var` are
+// symlinks to `/private/…`, so `<repo>/wt` and the same repository's
+// toplevel compare as two unrelated trees and the "never inside the user's
+// repository" guard silently passes anything (found by the NN5 fixture,
+// T-D10b). Symlinked repository paths are ordinary: `/tmp/...` on macOS, a
+// symlinked home, an `/etc/auto_home` mount.
+//
+// It also makes `Remove` strictly safer: a symlink under the root pointing
+// out of it used to read as "inside the root", and `os.RemoveAll` follows the
+// last component.
+func realPath(p string) string {
 	abs, err := filepath.Abs(p)
 	if err != nil {
 		return filepath.Clean(p)
 	}
-	return abs
+	rest, cur := "", abs
+	for {
+		if resolved, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(resolved, rest)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return abs
+		}
+		rest, cur = filepath.Join(filepath.Base(cur), rest), parent
+	}
 }
 
 // UnderRoot reports whether p is the workdir root's own subtree. `Remove`
@@ -79,14 +120,11 @@ func ResolvePath(root, p string) string {
 // question BEFORE creating a checkout instead of after (§4.1 v0.7.3 데몬
 // 방어, D-21(b)).
 func UnderRoot(root, p string) bool {
-	rootAbs, err := filepath.Abs(root)
-	if err != nil || root == "" {
+	if root == "" {
 		return false
 	}
-	abs, err := filepath.Abs(p)
-	if err != nil {
-		return false
-	}
+	rootAbs := realPath(root)
+	abs := realPath(p)
 	rel, err := filepath.Rel(rootAbs, abs)
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return false

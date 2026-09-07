@@ -115,8 +115,14 @@ class H(BaseHTTPRequestHandler):
             return self._send({"ok": True})
         if p.endswith("/events"):
             evs = body.get("events") or []
+            # `object_ref` and `payload.detail` ride along since T-D10b: the
+            # §4.1 path-resolution note (class=runtime · verb=report) is only
+            # worth asserting if what it CARRIES arrives, and `detail` is the
+            # runtime class's one free-text field (task_event.schema.json).
             record("events", [{"class": e.get("class"), "verb": e.get("verb"),
-                               "outcome": e.get("outcome")} for e in evs])
+                               "outcome": e.get("outcome"), "seq": e.get("seq"),
+                               "object_ref": e.get("object_ref"),
+                               "detail": (e.get("payload") or {}).get("detail")} for e in evs])
             with LOCK:
                 cmds = commands()
             return self._send({"accepted_seq_max": max([e.get("seq", 0) for e in evs] or [0]),

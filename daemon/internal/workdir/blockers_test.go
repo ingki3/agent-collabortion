@@ -20,9 +20,15 @@ import (
 
 // tempGitRepo is a one-commit repository on `main`. (The p4golden mirror has
 // its own `newGitRepo`; this file is untagged, so it cannot borrow it.)
-func tempGitRepo(t *testing.T) string {
+func tempGitRepo(t *testing.T) string { return initGitRepo(t, t.TempDir()) }
+
+// initGitRepo is tempGitRepo at a path the caller chooses — NN5 needs the
+// repository to sit UNDER the workdir root, which t.TempDir() can never do.
+func initGitRepo(t *testing.T, dir string) string {
 	t.Helper()
-	dir := t.TempDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	for _, args := range [][]string{
 		{"init", "-q", "-b", "main"},
 		{"config", "user.email", "daemon@test"},
