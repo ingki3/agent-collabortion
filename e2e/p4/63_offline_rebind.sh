@@ -86,11 +86,10 @@ ok "A=$RA B=$RB C=$RC"
 D1="$(create_agent_p2 "$WS" dev1 engineer "$MODEL" "$DEV1_INS" '급수 시간 계산')"
 D2="$(create_agent_p2 "$WS" dev2 engineer "$MODEL" "$DEV2_INS" '패널 표시')"
 
-step "2. 세션(A) — 우회: workdir 절대 경로 선행 삽입 (61_ X1 의 결함)"
+step "2. 세션(A) — 우회 없음 (2판: 경로는 서버가 만들고 데몬이 그 아래에 워크트리를 판다)"
 TITLE="rebind-$STAMP"; SLUG="$TITLE"
 S="$(create_session_p4 "$WS" "$TITLE" '급수 시간 계산과 상태 표시를 두 조각으로 구현한다' "$D1" "$RA" "$REPO_A" \
      "$(jq -nc '{op:"and",conditions:[{type:"manual"}]}')" '{}' "$D1" "$D2")"
-seed_worktree_workdirs "$S" "$WORK_A" "$SLUG" "$D1:dev1" "$D2:dev2"
 T1="$(session_initial_task "$S")"
 ok "session $S · dev1 task $T1"
 
@@ -144,30 +143,33 @@ chk R4  "B(같은 remote, 다른 경로) = 후보"  true  "$CB"
 chk R4b "C(다른 remote) = 후보 아님 (E14-05)" false "$CC"
 
 step "7. R5·R6 — 재바인딩 → rebind_prepare 와 첫 claim 의 순서"
-# 우회 2 (61_ X1 의 결함과 같은 뿌리): 재바인딩은 옛 workdir 행을 `retained` 로만 바꾸는데
-# `BundleWorkdirPaths` 는 그 행을 계속 돌려주므로 새 machine 의 번들이 사라진 컴퓨터의 경로를
-# 가리킨다. 옛 행을 접고 B 의 경로를 시드한다.
+# 2판(T-I4b): 우회 U2(`retire_workdirs`)·U1 없음. 재바인딩이 옛 머신의 행을 `runtime_gone` 으로
+# 찍고 번들 후보에서 빼며(S-55/U2 흡수), `isolation.repo_path` 도 새 머신 것으로 옮긴다(S-58).
 RB_CODE="$(api POST "/sessions/$S/rebind" "$(jq -nc --arg r "$RB" '{runtime_id:$r,acknowledge_loss:true}')" | api_code)"
 chk R5  "rebind = 200 (E14-03)" 200 "$RB_CODE"
 chk R5b "rebind_prepare 명령 1건 큐잉 (§4.3)" yes \
   "$( [ "$(psqlq "select count(*) from daemon_command where type='rebind_prepare' and session_id='$S'")" -ge 1 ] && echo yes || echo no )"
 chk R5c "lane 의 runtime_session_ref 가 비었다 → 콜드 스타트" 0 \
   "$(psqlq "select count(*) from lane where session_id='$S' and runtime_session_ref is not null")"
-# **관측**: A 가 사라진 동안 그 런타임으로 dispatch 된 task 는 `failed(timeout)` 로 끝난다.
-# `rebindSession` 은 `queued`·`deferred` 만 되살리므로(runtimes/offline.go) 그 task 는 되살아나지 않는다.
-PREV_ST="$(task_field "$T_RESUME" status)"
-PREV_OK=no
-if [ "$PREV_ST" = queued ] || [ "$PREV_ST" = running ] || [ "$PREV_ST" = completed ]; then PREV_OK=yes; fi
-chk R5g "오프라인 동안 dispatch 된 task 가 재바인딩으로 되살아난다 (실제: $PREV_ST)" yes "$PREV_OK"
-retire_workdirs "$S"
-seed_worktree_workdirs "$S" "$WORK_B" "$SLUG" "$D1:dev1" "$D2:dev2"
+# S-60: 사라진 machine 으로 **이미 dispatch 된** task 도 재큐잉된다. 1판은 되살아나지 않아
+# (`queued`·`deferred` 만 봤다) 새 메시지로 만든 task 가 재개를 이어받았다.
+# **상태 문자열로는 못 잰다** — 재큐잉 직후 새 machine 이 곧바로 claim 하면 다시 `dispatched` 라
+# 옛 머신의 죽은 dispatch 와 구별되지 않는다(2판 1차 실측). 새 런타임의 attempt 가 났는가로 잰다.
+wait_until 300 '[ "$(psqlq "select count(*) from task_attempt where task_id='"'$T_RESUME'"' and runtime_id='"'$RB'"'")" -ge 1 ]' || true
+chk R5g "오프라인 동안 dispatch 된 task 가 **새 machine 의 attempt** 로 되살아난다 (S-60)" yes \
+  "$( [ "$(psqlq "select count(*) from task_attempt where task_id='$T_RESUME' and runtime_id='$RB'")" -ge 1 ] && echo yes || echo no )"
+chk R5g2 "그 task 의 옛 attempt 는 runtime_offline 으로 닫혔다 (되살아난 것이지 두 번 돈 것이 아니다)" \
+  runtime_offline "$(psqlq "select coalesce(outcome::text,'-') from task_attempt where task_id='$T_RESUME' and runtime_id='$RA' order by attempt limit 1")"
 REBIND_DIR="$WORK_B/.colab/rebind/$S"
-# 새 컴퓨터에서 실제로 한 턴을 돌린다 — `session.rebind_prompt` 는 completed finish 전까지 남으므로
-# 이 task 의 번들에 `<rebind>` 구간이 실린다(S-53, 57_).
-post_message "$S" "$(mention dev1 "$D1") 이어서 마무리해 주세요" >/dev/null
-wait_until 300 '[ -n "$(latest_task "'"$S"'" dev1)" ]' || true
-T_RESUME="$(latest_task "$S" dev1)"
-ok "재바인딩 뒤 dev1 task = $T_RESUME"
+# **재바인딩 프롬프트를 실은 턴은 어느 것인가.** `session.rebind_prompt` 는 그것을 실은 첫 턴이
+# 끝나면 비워진다. S-60 이 되살린 task 가 먼저 새 machine 에 claim 되므로 `<rebind>` 는 그
+# attempt 에 실린다 — "마지막 dev1 task" 를 보면 그 다음 턴(프롬프트 없음)을 보게 된다(2판 1차 실측).
+# 그래서 **새 런타임에서 가장 먼저 시작된 attempt** 를 짚는다.
+wait_until 600 '[ -n "$(psqlq "select ta.task_id from task_attempt ta join task t on t.id=ta.task_id where t.session_id='"'$S'"' and ta.runtime_id='"'$RB'"' order by ta.started_at nulls last limit 1")" ]' || true
+read -r T_REBIND A_REBIND <<<"$(psqlq "select ta.task_id::text||' '||ta.attempt::text from task_attempt ta join task t on t.id=ta.task_id
+                                       where t.session_id='$S' and ta.runtime_id='$RB' order by ta.started_at nulls last limit 1")"
+T_RESUME="${T_REBIND:-$T_RESUME}"; A_REBIND="${A_REBIND:-1}"
+ok "재바인딩 뒤 새 machine 의 첫 attempt = $T_RESUME.$A_REBIND"
 wait_until 600 '[ -f "'"$REBIND_DIR"'/manifest.json" ]' || bad "rebind manifest 가 오지 않았다"
 cp "$REBIND_DIR/manifest.json" "$OUT/63-manifest.json" 2>/dev/null || true
 chk R5h "재바인딩이 세션의 저장소 경로를 **새 컴퓨터의 것**으로 옮긴다 (listRuntimeCandidates.matched_repo)" \
@@ -178,21 +180,25 @@ chk R5e "manifest 에 아티팩트 2개가 제출 순서대로" "$A1 $A2" \
   "$(jq -r '[.artifacts[] | .id] | join(" ")' "$OUT/63-manifest.json" 2>/dev/null || echo '-')"
 chk R5f "manifest 의 모든 아티팩트가 실제로 내려받아졌다 (error 0)" 0 \
   "$(jq -r '[.artifacts[] | select((.error // "") != "")] | length' "$OUT/63-manifest.json" 2>/dev/null || echo -1)"
-# R6 — NN2(#168 리뷰) 순서 실측. **이 빌드에서는 잴 수 없다**: 아래 R5f 대로 다운로드가 전부
-# 401 로 실패하고 `rebind_prepare` 는 30초마다 재발행돼 manifest 의 mtime 이 계속 갱신된다 —
-# "명령이 첫 claim 보다 먼저 처리됐는가" 를 가릴 시각이 남지 않는다. 다운로드가 성공하게 되면
-# 이 자리에서 다시 잰다.
-wait_until 900 '[ "$(task_field "'"$T_RESUME"'" status)" = completed ] || [ "$(task_field "'"$T_RESUME"'" status)" = failed ]' || true
-M_TS="$(python3 -c "import os,sys;print(int(os.path.getmtime(sys.argv[1])))" "$REBIND_DIR/manifest.json" 2>/dev/null || echo 0)"
+# R6 — NN2(#168 리뷰) 순서 실측. 1판에서는 다운로드가 전부 401 이라 명령이 소비되지 않고
+# 30초마다 재발행돼 **잴 시각이 없었다**(N/A). 2판은 다운로드가 성공하므로 명령이 한 번만
+# 처리되고 manifest 의 mtime 이 고정된다 — 그 시각을 첫 attempt 의 시작과 견준다.
+M_TS0="$(python3 -c "import os,sys;print(int(os.path.getmtime(sys.argv[1])))" "$REBIND_DIR/manifest.json" 2>/dev/null || echo 0)"
+# started_at 이 채워질 때까지 기다린다 — 0 이면 "아직 안 시작" 을 "먼저가 아니다" 로 오독한다.
+wait_until 600 '[ "$(psqlq "select coalesce(extract(epoch from started_at)::bigint::text,'"'0'"') from task where id='"'$T_RESUME'"'")" != 0 ]' || true
 D_TS="$(psqlq "select coalesce(extract(epoch from dispatched_at)::bigint::text,'0') from task where id='$T_RESUME'")"
 P_TS="$(psqlq "select coalesce(extract(epoch from started_at)::bigint::text,'0') from task where id='$T_RESUME'")"
-chk_na R6 "manifest 가 그 attempt 보다 먼저 존재한다 (NN2)" "manifest=$M_TS dispatch=$D_TS running=$P_TS" \
-  "다운로드가 401 로 전부 실패해 명령이 소비되지 않고 30초마다 재발행된다 (R5f)"
+R6_OK=no; [ "$M_TS0" -gt 0 ] && [ "$P_TS" -gt 0 ] && [ "$M_TS0" -le "$P_TS" ] && R6_OK=yes
+chk R6 "manifest 가 그 attempt 가 running 이 되기 전에 있다 (NN2 · manifest=$M_TS0 running=$P_TS)" yes "$R6_OK"
+wait_until 900 '[ "$(task_field "'"$T_RESUME"'" status)" = completed ] || [ "$(task_field "'"$T_RESUME"'" status)" = failed ]' || true
+M_TS="$(python3 -c "import os,sys;print(int(os.path.getmtime(sys.argv[1])))" "$REBIND_DIR/manifest.json" 2>/dev/null || echo 0)"
+chk R6b "명령이 한 번만 처리됐다 — 턴이 끝난 뒤에도 manifest mtime 이 그대로 (1판은 30초마다 재발행)" \
+  yes "$( [ "$M_TS" = "$M_TS0" ] && echo yes || echo no )"
 printf 'manifest_mtime=%s dispatched_at=%s started_at=%s\n' "$M_TS" "$D_TS" "$P_TS" > "$OUT/63-order.txt"
 
 step "8. R7·R8 — 첫 턴 프롬프트 · diff 재적용"
-wait_until 600 '[ -n "$(tap_prompt "'"$TAP"'" "'"$T_RESUME"'" 2>/dev/null)" ]' || true
-tap_prompt "$TAP" "$T_RESUME" > "$OUT/63-rebind-prompt.txt" 2>/dev/null || true
+wait_until 600 '[ -n "$(tap_prompt "'"$TAP"'" "'"$T_RESUME"'" "'"$A_REBIND"'" 2>/dev/null)" ]' || true
+tap_prompt "$TAP" "$T_RESUME" "$A_REBIND" > "$OUT/63-rebind-prompt.txt" 2>/dev/null || true
 has() { grep -qF -- "$1" "$OUT/63-rebind-prompt.txt" 2>/dev/null; }
 chk R7  "<rebind> 구간이 있다 (S-53)"                      yes "$( has '<rebind>' && echo yes || echo no )"
 chk R7b "{{COLAB_REBIND_DIR}}/manifest.json 를 가리킨다"   yes "$( has '{{COLAB_REBIND_DIR}}/manifest.json' && echo yes || echo no )"

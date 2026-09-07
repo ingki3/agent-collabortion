@@ -74,11 +74,9 @@ TITLE="double-write-$STAMP"; SLUG="$TITLE"
 WT="$WORK/worktrees/$SLUG/runner"
 
 step "2. D1 — 실기 턴이 워크트리에 쓰기 시작할 때까지"
-# 데몬은 세션을 만들고 workdir 절대 경로를 시드한 **뒤에** 띄운다 — 61_ X1 의 결함 우회
-# (서버가 번들에 상대 workdir 경로를 실어 worktree 세션이 첫 턴부터 죽는다).
+# 2판(T-I4b): workdir 행 선행 삽입 우회(U1) 없음. 번들의 workdir.path 는 서버가 만든다(S-55).
 S="$(create_session_p4 "$WS" "$TITLE" '워크트리에 계속 쓰는 긴 셸 작업을 돌린다' "$RUN" "$RUNTIME" "$REPO" \
      "$(jq -nc '{op:"and",conditions:[{type:"manual"}]}')" '{}' "$RUN")"
-seed_worktree_workdirs "$S" "$WORK" "$SLUG" "$RUN:runner"
 T1="$(session_initial_task "$S")"
 daemon_run "$CFG" "$DLOG" > "$OUT/daemon-62.pid"
 wait_pairing "$WS" "$PID_" 300 || die "pairing not ready"

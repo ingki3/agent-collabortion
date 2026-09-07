@@ -64,12 +64,12 @@ AK="$(create_agent_p2 "$WS" gcClean  engineer "$MODEL" "$INS_CLEAN"  '아무것�
 AD="$(create_agent_p2 "$WS" gcDirty  engineer "$MODEL" "$INS_DIRTY"  '미커밋 변경을 남긴다')"
 ok "runtime=$RUNTIME"
 
-step "1. 네 세션 — 데몬 기동 전에 만들고 workdir 절대 경로를 시드한다 (61_ X1 결함 우회)"
+step "1. 네 세션 (2판: 우회 없음 — workdir 경로는 서버가 만든다)"
 MANUAL="$(jq -nc '{op:"and",conditions:[{type:"manual"}]}')"
-mk() { # TITLE AGENT_ID AGENT_SLUG → session id
+mk() { # TITLE AGENT_ID AGENT_SLUG → session id (slug 는 워크트리 경로 확인용으로만 남긴다)
   local t="$1" ag="$2" slug="$3" s
+  : "$slug"
   s="$(create_session_p4 "$WS" "$t" 'GC 판정을 위한 git 상태를 만든다' "$ag" "$RUNTIME" "$REPO" "$MANUAL" '{}' "$ag")"
-  seed_worktree_workdirs "$s" "$WORK" "$t" "$ag:$slug"
   printf '%s' "$s"
 }
 T_A="gc-unmerged-$STAMP";  S_A="$(mk "$T_A" "$AC" gccommit)"
@@ -101,28 +101,28 @@ chk P0b "디스크: B 는 커밋 0 + 클린"           "0|f" "$FB"
 chk P0c "디스크: C 는 커밋 0 + 미커밋 변경"    "0|t" "$FC"
 
 # ── 서버가 그 사실을 받았는가 (§4.4 finish `workdir.git` · §6 workdirs 보고) ──
-db_facts() { psqlq "select coalesce(merged::text,'-')||'|'||coalesce(commits_ahead::text,'-')||'|'||coalesce(tree_dirty::text,'-') from workdir where session_id='$1' limit 1"; }
+# 1판의 **측정 결함**: `merged::text` 는 `true`/`false` 를 주는데 want 를 `t`/`f` 로 적었다 —
+# 값이 옳아도 FAIL 이 난다. 2판은 양쪽을 같은 눈금(`t`/`f`/`-`)으로 맞춘다.
+db_facts() { psqlq "select case when merged is null then '-' when merged then 't' else 'f' end
+                          ||'|'||coalesce(commits_ahead::text,'-')||'|'||
+                          case when tree_dirty is null then '-' when tree_dirty then 't' else 'f' end
+                    from workdir where session_id='$1' limit 1"; }
 chk P1  "A: 미병합 커밋이 **서버 행에** 반영됐다 (merged|ahead|tree_dirty)" "f|1|f" "$(db_facts "$S_A")"
 chk P1b "B: 병합·클린이 서버 행에 반영됐다"                                "t|0|f" "$(db_facts "$S_B")"
-chk P1c "C: 미커밋 변경이 서버 행에 반영됐다"                              "f|0|t" "$(db_facts "$S_C")"
-chk P1d "worktree workdir 의 disk_bytes 가 보고됐다 (S13 용량 · 쿼터 분자)" yes \
+# 1판의 **두 번째 측정 결함**: C 의 want 를 `f|0|t` 로 적었다. `merged` 는 "브랜치가 base 의
+# 조상인가"(daemon `gitrepo.Merged` — `merge-base --is-ancestor`)이므로 **커밋 0인 브랜치는
+# 언제나 merged=t** 다. EVAL E13-13 자신이 그 상황을 "커밋 0, 미커밋 변경" 이라 부른다.
+# 차단하는 것은 `tree_dirty` 이고(G3 = uncommitted_changes) merged 가 아니다.
+chk P1c "C: 미커밋 변경이 서버 행에 반영됐다 (커밋 0 → merged=t 가 옳다)"     "t|0|t" "$(db_facts "$S_C")"
+# `bytes` 는 §6 workdir 보고에만 실린다(§4.4 finish 의 `workdir` 블록에는 `git` 만 있다).
+# 데몬이 §6 보고를 내는 자리는 **probe 때**(워크트리가 아직 없다)와 **gc 명령을 처리한 뒤**
+# 둘뿐이라, 계약이 말하는 "lane 종료 시" 보고가 없으면 살아 있는 워크트리의 용량은 0으로 남는다.
+# 아래 두 줄이 그 시각 차이를 그대로 잰다 — P1d 는 턴 직후, P1d2 는 gc 스윕 뒤(§9 아래).
+chk P1d "worktree workdir 의 disk_bytes 가 턴 직후 보고됐다 (S13 용량 · 쿼터 분자)" yes \
   "$( [ "$(psqlq "select coalesce(sum(disk_bytes),0) from workdir where session_id in ('$S_A','$S_B','$S_C')")" -gt 0 ] && echo yes || echo no )"
 
-# ── 우회: 위 세 줄이 FAIL 이면 GC **판정** 자체는 잴 수가 없다 ────────────────
-# GC 규칙의 입력(merged·commits_ahead·tree_dirty)은 데몬이 재서 서버에 올리는 값이다. 그 통로가
-# 막혀 있으면 JudgeGC 는 언제나 "커밋 0·클린" 을 보고 **전부 삭제**로 판정한다 — 규칙이 무엇을
-# 하는지 아무것도 드러나지 않는다. 그래서 **디스크에서 방금 잰 진짜 값**을 행에 직접 써 넣고
-# (없는 사실을 지어내지 않는다) 그 아래에서 판정·알림·멱등·브랜치 보존을 잰다.
-# 보고서 §대역/우회 표에 그대로 적는다.
-inject_facts() { # SESSION AHEAD DIRTY MERGED
-  psqlq "update workdir set commits_ahead=$2, tree_dirty=$3, merged=$4, dirty=($3 or $2>0),
-         disk_bytes=greatest(disk_bytes, 1048576) where session_id='$1'" >/dev/null
-}
-inject_facts "$S_A" 1 false false
-inject_facts "$S_B" 0 false true
-inject_facts "$S_C" 0 true  false
-inject_facts "$S_D" 1 false false
-ok "우회: 디스크에서 잰 git 사실을 workdir 행에 직접 기록했다 ($OUT/64-git-facts.txt)"
+# 2판(T-I4b): git 사실 주입 우회(U3)를 **지웠다**. 아래 GC 판정은 데몬이 §6 보고·§4.4 finish
+# 로 올린 값(위 P1·P1b·P1c 가 그것을 잰다) 위에서 돈다 — 입력도 규칙도 실기다.
 
 step "3. 세션 A·B·C 종료 → 보존 기한 30일 경과 (D 는 active 로 둔다)"
 for s in "$S_A" "$S_B" "$S_C"; do api_ok POST "/sessions/$s/complete" '{"confirm":true}' >/dev/null || true; done
@@ -134,7 +134,7 @@ psqlq "update session set finished_at = now() - interval '30 days' where id in (
 psqlq "update session set created_at = now() - interval '30 days', started_at = now() - interval '30 days' where id='$S_D'" >/dev/null
 BR_B="colab/$T_B/gcclean"
 WT_A="$WT_A0"; WT_B="$WT_B0"; WT_D="$WT_D0"
-chk P1  "판정 전: B 워크트리가 디스크에 있다"    yes "$( [ -d "$WT_B" ] && echo yes || echo no )"
+chk P1e "판정 전: B 워크트리가 디스크에 있다"    yes "$( [ -d "$WT_B" ] && echo yes || echo no )"
 sleep 70
 
 step "4. G1 — 미병합 커밋: 삭제 0 + 인박스 1건 (E13-12)"
@@ -191,6 +191,12 @@ QC="$(api POST "/workspaces/$WS/sessions" "$(jq -nc --arg a "$AK" --arg rt "$RUN
 chk Q2  "사용량 ≥ 상한이면 세션 생성 = 409 (E13-16, 초과가 아니라 도달에서 막는다)" 409 "$(api_code <<<"$QC")"
 chk Q2b "code = workdir_quota_exceeded" workdir_quota_exceeded "$(api_body <<<"$QC" | jq -r '.code // "-"')"
 api_ok PATCH "/workspaces/$WS/settings" '{"workdir_disk_quota_gb":null}' >/dev/null 2>&1 || true
+
+step "10. P1d2 — gc 스윕이 한 번 돌고 난 뒤에는 bytes 가 도착하는가 (P1d 의 짝)"
+# 여기까지 오면 §6 보고가 최소 한 번 났다(gc 결과 보고). C·D 는 살아 있는 워크트리다.
+workdir_rows "$S_C" >> "$OUT/64-workdirs.txt"; workdir_rows "$S_D" >> "$OUT/64-workdirs.txt"
+chk P1d2 "gc 보고가 난 뒤 살아 있는 워크트리의 disk_bytes > 0 (통로는 있고 시점만 늦다)" yes \
+  "$( [ "$(psqlq "select coalesce(min(disk_bytes),0) from workdir where session_id in ('$S_C','$S_D') and status<>'deleted'")" -gt 0 ] && echo yes || echo no )"
 
 step "결과"
 printf '  PASS %d · FAIL %d  (%s)\n' "$pass" "$fail" "$OUT/64-checks.tsv"
