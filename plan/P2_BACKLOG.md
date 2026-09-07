@@ -116,6 +116,8 @@
 | S-58 | **차단(G7 1판)** — 재바인딩이 세션의 `isolation.repo_path` 를 새 런타임 것으로 옮기지 않는다(후보 조회가 이미 `matched_repo` 를 주는데 쓰지 않음) → 새 머신 데몬이 없는 저장소에서 워크트리를 만들려다 `failed(config)` | T-I4 63_ R5h·R7g | **G7 2판 전** |
 | S-59 | `review reject` 답글이 그 자체로 lane 재진입을 일으키지 않는다 — 에이전트가 쓴 멘션 없는 메시지라 라우팅 규칙 4에 걸린다. 계약(openapi `reviewArtifact`)은 재진입을 약속하므로 **서버가 명시적으로 재진입**시켜야 한다(K-13 문언 정정 반영) | T-I4 61_ B5g | 중 · G7 2판 전 |
 | S-60 | 사라진 머신으로 **이미 dispatch 된** task 는 재바인딩이 되살리지 않는다(`queued`·`deferred` 만 requeue) → heartbeat 만료로 `failed(timeout)` 까지 아무 일도 안 함 | T-I4 63_ R5g | 낮음 |
+| ~~S-61~~ | 재바인딩 뒤 옛 런타임의 workdir 행이 남아 `BundleWorkdirPaths` 가 사라진 머신 경로를 계속 고른다(T-I4 가 우회 U2 로 가리고 있었다) | PR #170 리뷰 NN3 | **해결 — PR #173**(`gc_blocked_reason IS DISTINCT FROM 'runtime_gone'` + 살아 있는 보고가 행을 되살림) |
+| S-62 | 마이그레이션 0019 **이전에 저장된 상대 경로 `workdir` 행**이 `ExistingForAgent` 로 그대로 번들에 실린다(절대성 검사 없음) — S-55 의 뒷문. `buildBundle` 에 `filepath.IsAbs` 방어 + 유닛, 또는 배포 시 `path_or_ref NOT LIKE '/%'` 행 정리. 함께: `noteWorkdirReportDropped` 가 세션 최신 task 에 note 를 붙임(NN2), 참가자 검사 실패가 "agent_id 없음" 으로 뭉개짐(NN3) | PR #173 리뷰 NN1~NN3 | 배포 전 |
 
 ## C (CLI)
 
