@@ -12,6 +12,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/auth"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/install"
 	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
 )
@@ -57,6 +58,14 @@ func principalOf(r *http.Request) *Principal {
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/v1/daemon/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// S-63: the installer is fetched by a machine that has no account and
+		// no daemon token yet — it is what CREATES the daemon. It must never be
+		// able to answer 401, including for a caller carrying some other,
+		// stale credential (P4 리뷰: 인증 오류 하나가 다음 오류를 가린다).
+		if r.URL.Path == install.Path {
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -26,6 +26,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/install"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
@@ -94,9 +95,18 @@ func (s *Service) CreatePairing(ctx context.Context, wsID, userID uuid.UUID, nam
 	return p, nil
 }
 
+// installCommands is the S12 card's two copy buttons (openapi `Pairing.
+// install_commands`).
+//
+// S-63: line 1 must name a path this server actually answers. It is built from
+// `install.CurlCommand` — the same package that owns `install.Path` and the
+// script — because the two used to be separate literals in separate packages
+// and the card pointed at a 404 for the whole of P1~P4 (Director 실사용
+// 2026-09-08). The integration runs never saw it: they called `bin/daemon pair`
+// directly, so only a person starting from the screen met the defect.
 func (s *Service) installCommands(code string) []string {
 	return []string{
-		fmt.Sprintf("curl -fsSL %s/install.sh | sh", s.ServerURL),
+		install.CurlCommand(s.ServerURL),
 		fmt.Sprintf("colab-daemon pair %s --server %s", code, s.ServerURL),
 	}
 }
