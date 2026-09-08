@@ -23,6 +23,7 @@ import (
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/daemon/internal/api"
 	"github.com/ingki3/agent-collabortion/daemon/internal/config"
+	"github.com/ingki3/agent-collabortion/daemon/internal/dlog"
 	"github.com/ingki3/agent-collabortion/daemon/internal/loop"
 	"github.com/ingki3/agent-collabortion/daemon/internal/orphan"
 	"github.com/ingki3/agent-collabortion/daemon/internal/probe"
@@ -130,15 +131,23 @@ func cmdRun(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// D-24: `run`'s progress log goes to STDOUT. It is progress, not error
+	// output, and this is the one subcommand whose stdout is otherwise
+	// unused — `probe` writes its JSON body there, which is why it keeps the
+	// package logger (stderr) instead. Nothing that captures the daemon today
+	// is affected: every e2e launcher merges the two streams (e2e/p1/lib.sh
+	// setsid_run: stderr=STDOUT).
+	lg := dlog.New(os.Stdout, dlog.ParseLevel(cfg.LogLevelEffective()))
 	d := &loop.Daemon{
 		Cfg:       cfg,
 		Server:    api.New(cfg.ServerURL, cfg.DaemonToken),
 		Version:   version,
 		Orphans:   orphan.Store{Root: cfg.WorkdirRoot},
-		Log:       log.Printf,
+		Log:       lg.Printf,
+		Debug:     lg.Debugf,
 		ProbeTurn: !*noTurn,
 	}
-	log.Printf("colab-daemon %s runtime=%s server=%s workdir=%s capacity=%d", version, cfg.RuntimeID, cfg.ServerURL, cfg.WorkdirRoot, cfg.Capacity)
+	lg.Printf("colab-daemon %s runtime=%s server=%s workdir=%s capacity=%d log_level=%s", version, cfg.RuntimeID, cfg.ServerURL, cfg.WorkdirRoot, cfg.Capacity, lg.Level())
 	if err := d.Run(ctx); err != nil && err != context.Canceled {
 		return err
 	}
