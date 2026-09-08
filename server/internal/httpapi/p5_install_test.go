@@ -149,8 +149,6 @@ func TestP5InstallScriptStaysInTheUsersOwnDirectories(t *testing.T) {
 		"command -v git",     //     소스 경로에 필요한 나머지
 		"https://go.dev/dl/", //   없을 때 사람이 읽을 수 있는 안내
 		"colab-daemon",       // PATH 에 놓이는 이름
-		"./cmd/colab",        // Lead 판정: colab CLI 도 같이 놓는다
-		"COLAB_VERSION",      //   버전은 저장소 Makefile 에서 (C-3)
 		"mktemp -d",          // 빌드는 임시 디렉터리에서
 	} {
 		if !strings.Contains(script, want) {
@@ -182,29 +180,11 @@ func TestP5InstallScriptStaysInTheUsersOwnDirectories(t *testing.T) {
 	}
 }
 
-// TestP5InstallScriptInstallsBothBinaries is the Lead's 2026-09-08 판정: the
-// daemon alone leaves the agent with no way to talk to the platform at all.
-//
-// `colab` IS the MCP server the daemon registers and the shell path agents
-// call (colab-cli.md §1), so a machine with only `colab-daemon` probes
-// `colab_cli.present=false` and every session on it goes quiet — which is
-// exactly the F1 G8 measures. The installer therefore builds both from the
-// same checkout and puts both in the user's own bin directory.
-func TestP5InstallScriptInstallsBothBinaries(t *testing.T) {
-	script := install.Script("http://colab.test")
-	for _, want := range []string{
-		`DAEMON_NAME="colab-daemon"`,
-		`CLI_NAME="colab"`,
-		"./cmd/daemon",
-		"./cmd/colab",
-	} {
-		if !strings.Contains(script, want) {
-			t.Errorf("installer does not contain %q — 데몬만 놓으면 colab_cli.present=false 로 세션이 "+
-				"조용히 아무 일도 못 한다", want)
-		}
-	}
-	// Both land in the same user-owned directory, installed by the same loop.
-	if !strings.Contains(script, `for b in "$DAEMON_NAME" "$CLI_NAME"; do`) {
-		t.Errorf("the two binaries are not installed by the same step — one of them will drift")
-	}
-}
+// The Lead's 2026-09-08 판정 — the installer places the `colab` CLI as well as
+// the daemon — is measured in server/internal/install by RUNNING the script
+// against a throwaway HOME (TestScriptInstallsBothBinaries). A grep for
+// `./cmd/colab` here would pass on every broken variant of that build line; the
+// only check that separates a working installer from a plausible-looking one is
+// the binary being there and answering `--version` afterwards, which is exactly
+// what the contract's acceptance test (`colab_cli.present == true` on the first
+// probe) reads.

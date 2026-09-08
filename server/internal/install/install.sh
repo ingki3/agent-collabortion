@@ -31,7 +31,7 @@ say()  { printf '%s\n' "$*"; }
 step() { printf '\033[36m▶\033[0m %s\n' "$*"; }
 die()  { printf '\033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
-say "colab-daemon 설치 — 서버 $COLAB_SERVER_URL"
+say "colab 설치 — 데몬(colab-daemon)과 CLI(colab), 서버 $COLAB_SERVER_URL"
 
 # ---------------------------------------------------------------------------
 # 0. 배포 아티팩트 분기가 들어올 자리
@@ -123,6 +123,8 @@ case "${SHELL:-}" in
   */bash) if [ -f "$HOME/.bashrc" ]; then profile="$HOME/.bashrc"; else profile="$HOME/.bash_profile"; fi ;;
   *)      profile="$HOME/.profile" ;;
 esac
+# 마커 문자열은 바꾸지 않는다: 이미 설치한 사람의 프로파일에 같은 문자열이 들어 있고,
+# 이름을 바꾸면 grep -qF 가 어긋나 블록이 두 개가 된다(멱등이 깨진다).
 marker="# >>> colab-daemon >>>"
 case ":${PATH}:" in
   *":$BIN_DIR:"*) on_path=1 ;;
@@ -135,7 +137,7 @@ if [ "$on_path" -eq 0 ] && [ "${COLAB_INSTALL_NO_PROFILE:-0}" != "1" ]; then
       printf 'export PATH="%s:$PATH"\n' "$BIN_DIR"
       printf '%s\n' "# <<< colab-daemon <<<"
     } >> "$profile"
-    say "  PATH 추가: $profile"
+    say "  PATH 추가: $profile — 새 셸에서 colab-daemon·colab 둘 다 쓸 수 있습니다"
   fi
 fi
 
@@ -145,9 +147,15 @@ say "  $("$BIN_DIR/$DAEMON_NAME" version 2>/dev/null || echo "$BIN_DIR/$DAEMON_N
 say "  $("$BIN_DIR/$CLI_NAME" --version 2>/dev/null | head -1 || echo "$BIN_DIR/$CLI_NAME")"
 say ""
 if [ "$on_path" -eq 0 ]; then
-  say "지금 이 셸에서 바로 쓰려면:"
+  say "지금 이 셸에서 바로 쓰려면(두 바이너리 모두 이 한 줄로 잡힙니다):"
   say "  export PATH=\"$BIN_DIR:\$PATH\""
   say ""
 fi
+# 왜 PATH 가 데몬만의 문제가 아닌가: 데몬은 probe 에서 `colab` 을 PATH 로 찾고
+# (daemon-protocol §3 colab_cli), 에이전트도 셸에서 같은 이름으로 부른다. 이 디렉터리가
+# PATH 에 없으면 데몬은 떠 있는데 첫 probe 가 colab_cli.present=false 로 뜬다.
 say "다음 단계 — 화면의 둘째 줄(페어링 코드가 채워진 명령)을 그대로 붙여넣으세요:"
 say "  colab-daemon pair <pairing_token> --server $COLAB_SERVER_URL"
+say ""
+say "페어링하면 데몬이 첫 probe 를 보냅니다. 설치가 제대로 됐는지는 그 probe 의"
+say "colab_cli.present 로 확인하세요 — false 면 위 PATH 줄이 빠진 것입니다."
