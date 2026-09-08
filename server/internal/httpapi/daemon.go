@@ -199,7 +199,7 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 			// dropped in between with no trace.
 			s.Log.Warn("workdir report entry dropped", "reason", why, "path", wd.Path,
 				"session", wd.SessionID, "agent", wd.AgentID, "lane", wd.LaneID, "runtime", d.RuntimeID)
-			s.noteWorkdirReportDropped(r.Context(), rep.SessionID, wd.Path, why, now)
+			s.noteWorkdirReportDropped(r.Context(), rep, wd.Path, why, now)
 			// (c) The gc receipt is not the row: a directory the daemon just
 			// DELETED may well be unbindable now, and refusing the receipt is
 			// what left `gc` commands unconsumed and rows open forever.
@@ -337,20 +337,32 @@ func (s *Server) workdirReport(r *http.Request, d daemonCtx, kind, path, session
 			}
 		}
 	}
-	if agent != "" {
-		if id, err := uuid.Parse(agent); err == nil {
-			var n int
-			if err := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM session_participant WHERE session_id = $1 AND agent_id = $2`, sid, id).Scan(&n); err == nil && n > 0 {
-				rep.AgentID = &id
-			}
+	// NN3 (PR #173 리뷰): the three ways this can fail are three different
+	// things to do about it, and folding them into one "agent_id 없음" told the
+	// Director nothing. `agentWhy` stays empty when the agent bound.
+	agentWhy := ""
+	if agent == "" {
+		agentWhy = "agent_id 가 비어 있습니다"
+	} else if id, err := uuid.Parse(agent); err != nil {
+		agentWhy = "agent_id 가 uuid 가 아닙니다(" + trimForDetail(agent) + ")"
+	} else {
+		var n int
+		switch err := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM session_participant WHERE session_id = $1 AND agent_id = $2`, sid, id).Scan(&n); {
+		case err != nil:
+			agentWhy = "참가자 조회에 실패했습니다(" + trimForDetail(err.Error()) + ")"
+		case n == 0:
+			agentWhy = "이 에이전트는 그 세션의 참가자가 아닙니다(agent_id=" + id.String() + ", session=" + sid.String() +
+				") — 다른 세션의 워크트리를 보고했거나 참가자에서 빠진 에이전트입니다"
+		default:
+			rep.AgentID = &id
 		}
 	}
 	if workdirKindOf(r, s, sid) == "worktree" && rep.AgentID == nil {
-		return rep, "worktree 격리의 workdir 보고에 agent_id 가 없습니다(§6 v0.7.3 필수) — 에이전트당 1개라 " +
-			"agent 없이는 어느 행인지 정해지지 않습니다. 받은 값: agent_id=" + trimForDetail(agent)
+		return rep, "worktree 격리의 workdir 보고를 agent 에 묶지 못했습니다(§6 v0.7.3 필수) — 에이전트당 " +
+			"1개라 agent 없이는 어느 행인지 정해지지 않습니다. 사유: " + agentWhy
 	}
 	if rep.AgentID == nil && rep.LaneID == nil {
-		return rep, "agent_id·lane_id 가 둘 다 없어 이 행을 어디에도 묶을 수 없습니다"
+		return rep, "agent_id·lane_id 가 둘 다 없어 이 행을 어디에도 묶을 수 없습니다. agent 사유: " + agentWhy
 	}
 	return rep, ""
 }
@@ -367,21 +379,44 @@ func trimForDetail(v string) string {
 	return v
 }
 
-// noteWorkdirReportDropped is S-56(b)'s "loudly, not silently". The §6 report
-// carries no task, so the note lands on the most recent task of the session it
-// names — the place a person looking at a lane whose workdir never got its git
-// facts will actually be. When even the session cannot be identified there is
-// nothing to hang it on, and the log line is the whole record.
-func (s *Server) noteWorkdirReportDropped(ctx context.Context, sessionID uuid.UUID, path, reason string, now time.Time) {
-	if sessionID == uuid.Nil {
+// noteWorkdirReportDropped is S-56(b)'s "loudly, not silently".
+//
+// NN2 (PR #173 리뷰): the note used to land on "the session's most recent
+// task", whichever lane that happened to be — under `worktree` a session runs
+// several agents at once, so the warning about Backend's directory routinely
+// appeared on Frontend's attempt, at Frontend's attempt number. The §6 report
+// carries no task, but it does carry the lane and the agent the row belongs to,
+// so the note is anchored to THAT row's task and attempt, and only falls back
+// to the session when the report named neither. When even the session cannot be
+// identified there is nothing to hang it on and the log line is the whole
+// record.
+func (s *Server) noteWorkdirReportDropped(ctx context.Context, rep workdirs.Report, path, reason string, now time.Time) {
+	if rep.SessionID == uuid.Nil {
 		return
 	}
 	var taskID uuid.UUID
 	var attempt int
-	if err := s.DB.QueryRow(ctx, `
-		SELECT id, attempt FROM task WHERE session_id = $1 ORDER BY created_at DESC LIMIT 1`, sessionID).
-		Scan(&taskID, &attempt); err != nil {
-		return
+	found := false
+	if rep.LaneID != nil {
+		if err := s.DB.QueryRow(ctx, `
+			SELECT id, attempt FROM task WHERE lane_id = $1 ORDER BY created_at DESC LIMIT 1`, *rep.LaneID).
+			Scan(&taskID, &attempt); err == nil {
+			found = true
+		}
+	}
+	if !found && rep.AgentID != nil {
+		if err := s.DB.QueryRow(ctx, `
+			SELECT id, attempt FROM task WHERE session_id = $1 AND agent_id = $2 ORDER BY created_at DESC LIMIT 1`,
+			rep.SessionID, *rep.AgentID).Scan(&taskID, &attempt); err == nil {
+			found = true
+		}
+	}
+	if !found {
+		if err := s.DB.QueryRow(ctx, `
+			SELECT id, attempt FROM task WHERE session_id = $1 ORDER BY created_at DESC LIMIT 1`, rep.SessionID).
+			Scan(&taskID, &attempt); err != nil {
+			return
+		}
 	}
 	// S-52: class `runtime` is "process/adapter level" and `detail` is its one
 	// free-text field; `failure_kind: config` is what a malformed report is.
@@ -391,7 +426,7 @@ func (s *Server) noteWorkdirReportDropped(ctx context.Context, sessionID uuid.UU
 				". path=" + trimForDetail(path) + ". 이 행의 git 사실이 도달하지 않으면 GC 판정이 " +
 				"'커밋 0 · 클린' 으로 읽어 미병합 커밋·미커밋 변경을 지울 수 있습니다(FR-6.4 M4)."},
 		now); err != nil {
-		s.Log.Warn("note dropped workdir report", "err", err, "session", sessionID, "path", path)
+		s.Log.Warn("note dropped workdir report", "err", err, "session", rep.SessionID, "path", path)
 	}
 }
 

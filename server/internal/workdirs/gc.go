@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -147,7 +148,13 @@ func PlanWorktree(r WorktreeRequest) WorktreePlan {
 	if base == "" {
 		base = "HEAD"
 	}
-	if r.ExistingForAgent != "" {
+	// S-62: a workdir row stored before migration 0019 can hold a RELATIVE
+	// path, and this branch used to hand it straight back — the one way a
+	// relative path could still reach the wire after S-55. A non-absolute
+	// stored path is not a candidate at all; the checkout is planned afresh
+	// below. (queue.buildBundle filters the same rows and puts the fact on the
+	// activity feed; this is the invariant restated where the path is made.)
+	if r.ExistingForAgent != "" && filepath.IsAbs(r.ExistingForAgent) {
 		return WorktreePlan{Branch: branch, Path: r.ExistingForAgent, BaseBranch: base}
 	}
 	if r.Root == "" {

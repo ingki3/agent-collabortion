@@ -175,7 +175,7 @@ func (p *Postgres) Claim(ctx context.Context, runtimeID string, capacity int, no
 		token, err := p.Tasks.MarkDispatched(ctx, tx, t, rt, now)
 		if err == nil {
 			var b *contracts.TaskBundle
-			b, err = buildBundle(ctx, tx, t, rt, token)
+			b, err = buildBundle(ctx, tx, t, rt, token, now)
 			if err == nil {
 				if _, err := tx.Exec(ctx, `RELEASE SAVEPOINT claim_task`); err != nil {
 					return nil, err

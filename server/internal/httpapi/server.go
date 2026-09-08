@@ -6,8 +6,10 @@ package httpapi
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -22,6 +24,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/events"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/install"
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/llm"
 	"github.com/ingki3/agent-collabortion/server/internal/queue"
@@ -61,6 +64,11 @@ type Server struct {
 
 	// SecureCookies sets the Secure flag on the session cookie (HTTPS).
 	SecureCookies bool
+
+	// ServerURL is this deployment's own origin (COLAB_SERVER_URL). The
+	// installer served at install.Path is rendered with it, so a machine that
+	// runs the S12 card's first line is pointed back at THIS server (S-63).
+	ServerURL string
 }
 
 // Deps builds every service on one pool and clock (used by main and tests).
@@ -107,7 +115,7 @@ func NewServer(d Deps) *Server {
 	q := queue.NewPostgres(d.DB, d.Clock, tsk, notifier)
 	rt := router.New(d.DB, d.Clock, hub, notifier).WithTasks(tsk)
 	return &Server{
-		DB: d.DB, Clock: d.Clock, Log: d.Log,
+		DB: d.DB, Clock: d.Clock, Log: d.Log, ServerURL: d.ServerURL,
 		Auth:      auth.New(d.DB, d.Clock, d.WebURL),
 		Agents:    agents.New(d.DB, d.Clock),
 		Artifacts: artifacts.New(d.DB, d.Clock),
@@ -138,6 +146,18 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "contracts": contracts.Version})
+	})
+	// S-63: the daemon installer the S12 card tells a new person to pipe into
+	// `sh`. Unauthenticated by construction — the machine running it has no
+	// account yet, and this is the FIRST thing anyone does. `install.Path` is
+	// the same constant `runtimes.installCommands` prints.
+	mux.HandleFunc("GET "+install.Path, func(w http.ResponseWriter, _ *http.Request) {
+		body := install.Script(s.ServerURL)
+		w.Header().Set("Content-Type", install.ContentType)
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, body)
 	})
 	s.daemonRoutes(mux)
 	mux.Handle("/", api)

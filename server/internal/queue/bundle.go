@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -28,7 +29,7 @@ const historyLimit = tasks.DefaultHistoryLimit
 // buildBundle assembles the TaskBundle (daemon-protocol §4.1): profile, brief
 // [1]~[8] (PRD §8.4), the turn prompt with history/trigger/<resumed>, limits
 // and posted_message_ids for attempt ≥ 2 (FR-7.1 M5).
-func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UUID, token string) (*contracts.TaskBundle, error) {
+func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UUID, token string, now time.Time) (*contracts.TaskBundle, error) {
 	var (
 		agentName, agentRole, roleDesc, instructions   string
 		toolsJSON, optionsJSON, envJSON, isolationJSON []byte
@@ -344,8 +345,35 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		// edit the code it is reviewing, and under `worktree` two agents in one
 		// tree is repository corruption, not a stale read.
 		existing := ""
-		if paths, err := workdirs.BundleWorkdirPaths(ctx, tx, t.SessionID, t.AgentID); err == nil && len(paths) > 0 {
-			existing = paths[0]
+		if paths, err := workdirs.BundleWorkdirPaths(ctx, tx, t.SessionID, t.AgentID); err == nil {
+			for _, p := range paths {
+				// S-62 (PR #173 리뷰 NN1): a row written BEFORE migration 0019
+				// can hold a RELATIVE path. S-55 stopped the server from
+				// producing one, and 0019 stopped new ones from being stored,
+				// but neither looked at what was already in the table — and
+				// this branch hands the stored string straight to the daemon,
+				// which absolutises it against its own CWD and checks a
+				// worktree out inside the user's repository (T-I4 차단 ①,
+				// all over again on an upgraded deployment).
+				//
+				// So: only an absolute row is reusable. A relative one is
+				// ignored and the checkout is planned afresh from the probe's
+				// `workdir_root`, and the fact is put on the feed rather than
+				// swallowed — the old directory is still on disk and the
+				// Director is the one who decides what happens to it.
+				if filepath.IsAbs(p) {
+					if existing == "" {
+						existing = p
+					}
+					continue
+				}
+				// Every relative row is reported, not just the ones that leave
+				// the agent with no checkout at all: the directory it names is
+				// still on disk either way.
+				if err := noteRelativeWorkdirRow(ctx, tx, t, p, now); err != nil {
+					return nil, err
+				}
+			}
 		}
 		// S-55 / v0.7.3 §4.1: the bundle's `workdir.path` is ABSOLUTE, and the
 		// only material for it is the runtime's probe `workdir_root`. The path
@@ -829,4 +857,39 @@ func sessionRemainingBudget(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID,
 		rem = 0
 	}
 	return &rem
+}
+
+// noteRelativeWorkdirRow is S-62's "무시했다는 사실을 진단 이벤트로".
+//
+// A workdir row stored before migration 0019 can hold a relative path. The
+// bundle simply skips it (see buildBundle), which is the safe half — but a
+// silently skipped row means the agent's previous checkout, with whatever
+// uncommitted work is in it, is quietly orphaned while a new worktree appears
+// beside it. The Director has to be able to see that happened.
+//
+// `Once` per (task, attempt): the claim long-polls.
+func noteRelativeWorkdirRow(ctx context.Context, tx pgx.Tx, t *tasks.Row, badPath string, now time.Time) error {
+	// S-52: `runtime` is the class for "process/adapter level" and `detail` is
+	// its one free-text field.
+	return tasks.InsertServerEventOnce(ctx, tx, t.ID, t.Attempt, "runtime", "error", "workdir.relative", "failed",
+		map[string]any{
+			"failure_kind": "config",
+			"detail": "이 에이전트의 저장된 workdir 경로가 절대 경로가 아니라(" + trimPathForDetail(badPath) + ") " +
+				"번들에서 제외하고 워크트리를 새로 계획했습니다(daemon-protocol §4.1 v0.7.3, 마이그레이션 " +
+				"0019 이전 행). 상대 경로를 그대로 보내면 데몬이 자기 CWD 기준으로 절대화해 사용자 " +
+				"저장소 안에 체크아웃합니다. 이전 디렉터리는 디스크에 그대로 남아 있으니 미커밋 변경이 " +
+				"있는지 확인하세요.",
+		}, now)
+}
+
+// trimPathForDetail keeps an echoed path inside the event payload's `detail`
+// (maxLength 2000).
+func trimPathForDetail(v string) string {
+	if v == "" {
+		return "(빈 값)"
+	}
+	if len(v) > 120 {
+		return v[:120] + "…"
+	}
+	return v
 }
