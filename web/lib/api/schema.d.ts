@@ -2215,7 +2215,13 @@ export interface components {
              * @enum {string}
              */
             status: "waiting" | "connected" | "probing" | "ready" | "expired";
-            /** @description 복사 버튼 2줄(설치 · 페어링). */
+            /**
+             * @description 복사 버튼 2줄(설치 · 페어링). 첫 줄은 `curl -fsSL <서버 오리진>/install.sh | sh` 이고
+             *     **그 스크립트는 이 서버가 서비스한다**(P5 정정, S-63): 안내만 하고 경로가 없으면 처음 쓰는
+             *     사람이 첫 단계에서 404 를 만난다(실사용 2026-09-08). `/install.sh` 는 인증 없이 200 이어야
+             *     하고, 데몬 바이너리를 설치한 뒤 `colab-daemon` 을 PATH 에 놓는다. 둘째 줄은 페어링 코드가
+             *     채워진 `colab-daemon pair <code> --server <서버 오리진>`.
+             */
             install_commands: string[];
             /** @description 1회용. 교환 후 무효. */
             pairing_token?: string;

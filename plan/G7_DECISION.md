@@ -6,7 +6,7 @@
 | 근거 | `plan/G7_REPORT.md` 1판(PR #170) + **§9 2판**(PR #177) — 2판 **PASS 155 · FAIL 1 · N/A 0**(1판 136/16/1 대비 퇴행 0). 두 판 모두 Hermes 리뷰가 수치를 다시 세어 확인했다 |
 | 게이트 정의 | `plan/P4_TASKS.md` §3 · PLAN §6.2 G7 |
 | 컷 2 규칙 | "B 됐는데 요약이 안 되면 요약을 뺀다; 재바인딩 미통과면 v1.1" — 둘 다 통과라 **발동 사유 없음** |
-| 판정자 | Lead(초안) → Director 확인 |
+| 판정자 | Lead(초안) → **Director 확인 완료(2026-09-08)** — "G7 통과 인정, P5 열어라". `plan/P5_TASKS.md` 착수 |
 | 스택 | dev `200e9c8`(2판 측정 시점). 실기 2종 — Claude Code CLI 2.1.258 + `claude-agent-acp` 0.74.0(핀) · Hermes 0.20.6, 모델 `claude-haiku-4-5-20251001`. **데몬 대역 curl 0회** |
 
 ## 1. DoD 판정
