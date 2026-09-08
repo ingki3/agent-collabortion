@@ -33,6 +33,10 @@ type Daemon struct {
 	Version string
 	Orphans orphan.Store
 	Log     func(format string, args ...any)
+	// Debug is the progress log's detail tier (D-24, internal/dlog): one
+	// line per task_event the attempt puts on the wire. Nil → dropped, which
+	// is also what a daemon at the default level does.
+	Debug func(format string, args ...any)
 
 	// ProbeTurn runs the PONG turn on the start-up / daily / commanded probe.
 	ProbeTurn bool
@@ -101,6 +105,9 @@ func (d *Daemon) init() {
 	}
 	if d.Log == nil {
 		d.Log = func(string, ...any) {}
+	}
+	if d.Debug == nil {
+		d.Debug = func(string, ...any) {}
 	}
 	if d.HeartbeatInterval == 0 {
 		d.HeartbeatInterval = contracts.HeartbeatInterval
@@ -185,8 +192,24 @@ func (d *Daemon) Run(ctx context.Context) error {
 			}
 			continue
 		}
+		if len(res.Tasks) == 0 && len(res.Commands) == 0 {
+			// D-24: an idle long-poll is the ONE thing in this loop that
+			// repeats forever, so it is the one line that cannot be at the
+			// default level — 30s apart it would bury an eight-hour session's
+			// six interesting lines.
+			d.Debug("claim idle free=%d wait=%s", free, d.ClaimWait)
+		}
 		d.handleCommands(ctx, res.Commands)
 		for _, b := range res.Tasks {
+			// D-24: the claim is where a task becomes this machine's problem,
+			// and until now nothing said so — the log jumped from the
+			// start-up probe straight to `finished`, minutes or hours later.
+			// Everything here is what a reader needs to tie the line to the
+			// server's feed (task·attempt·lane) and to know what is about to
+			// be spawned.
+			d.Log("%s claim lane=%s session=%s agent=%s runtime=%s model=%s isolation=%s",
+				key(b.Task.ID, b.Task.Attempt), b.Task.LaneID, b.Task.SessionID, b.Task.AgentName,
+				b.Profile.RuntimeKind, b.Profile.Model, b.Workdir.Kind)
 			d.start(attemptCtx, b)
 		}
 	}
@@ -297,11 +320,19 @@ func (d *Daemon) handleCommands(ctx context.Context, cmds []contracts.Command) {
 		// idempotent in its own right and is simply re-run.
 		if c.Type != contracts.CmdProbe && c.Type != contracts.CmdGC && c.Type != contracts.CmdRebindPrepare && d.seen[k] {
 			d.mu.Unlock()
+			// §4.3 re-issues a command until its effect is observed, so a
+			// duplicate is the NORMAL case and belongs at the detail level.
+			d.Debug("command %s %s already applied", c.Type, commandTarget(c))
 			continue
 		}
 		d.seen[k] = true
 		run := d.running[key(c.TaskID, c.Attempt)]
 		d.mu.Unlock()
+		// D-24: a command is the server reaching into this machine — a
+		// cancel, a gc, a rebind. When one of those has no visible effect the
+		// first question is whether the daemon ever received it, and until
+		// now only the UNKNOWN types answered it.
+		d.Log("command %s %s", c.Type, commandTarget(c))
 		switch c.Type {
 		case contracts.CmdCancel:
 			if run != nil {
@@ -334,6 +365,42 @@ func (d *Daemon) handleCommands(ctx context.Context, cmds []contracts.Command) {
 			d.Log("command %s ignored (P4)", c.Type)
 		}
 	}
+}
+
+// eventLogSink is the D-24 detail tier: it logs every task_event on its way
+// to the batcher and changes nothing else. At the default level `log` is the
+// no-op init() installed, so the wrapper costs one call per event.
+type eventLogSink struct {
+	inner acp.Sink
+	key   string
+	log   func(format string, args ...any)
+}
+
+func (s eventLogSink) Emit(ev contracts.TaskEvent) {
+	s.log("%s event seq=%d %s/%s ref=%s outcome=%s", s.key, ev.Seq, ev.Class, ev.Verb, ev.ObjectRef, ev.Outcome)
+	s.inner.Emit(ev)
+}
+
+func (s eventLogSink) Preview(text string) { s.inner.Preview(text) }
+
+// commandTarget names what a §4.3 command is about, for the log. cancel and
+// revoke carry (task, attempt); gc and rebind_prepare carry a session and a
+// workdir list instead, and `key("", 0)` would print a bare ".0" for them.
+func commandTarget(c contracts.Command) string {
+	parts := make([]string, 0, 3)
+	if c.TaskID != "" {
+		parts = append(parts, "task="+key(c.TaskID, c.Attempt))
+	}
+	if c.SessionID != "" {
+		parts = append(parts, "session="+c.SessionID)
+	}
+	if len(c.Workdirs) > 0 {
+		parts = append(parts, fmt.Sprintf("workdirs=%d", len(c.Workdirs)))
+	}
+	if len(parts) == 0 {
+		return "target=-"
+	}
+	return strings.Join(parts, " ")
 }
 
 // holdsWorkdir reports whether a live process of this machine is still
@@ -457,6 +524,81 @@ func (d *Daemon) gc(ctx context.Context, c contracts.Command) {
 	}
 }
 
+// reportLaneWorkdir is the D-23 §6 report: ONE row for the directory the
+// attempt just left, sent once, right after finish.
+//
+// Why the row is built here and not by `workdir.List`. §6 v0.7.3 makes a row
+// the server can store: the SESSION UUID (never a slug or a directory name),
+// `agent_id` — mandatory under `worktree`, because that isolation gives one
+// checkout per agent and the server skips a row it cannot match — plus `git`
+// and `bytes`, which are GC's only inputs. `workdir.Describe` recovers all of
+// that from the index sidecar and the disk, and the BUNDLE is layered on top
+// where it disagrees: the bundle is what §4.1 actually said, while the index
+// is this daemon's memory of an earlier preparation, and a sidecar lost to a
+// half-written disk must not turn into a row the server drops.
+//
+// The git block is taken from §4.4's finish rather than measured again: they
+// are the same shape (contracts.WorkdirGit) measured seconds apart, and a
+// second `git status` on a large checkout is not free.
+func (d *Daemon) reportLaneWorkdir(b contracts.TaskBundle, fw *contracts.FinishWorkdir) {
+	k := key(b.Task.ID, b.Task.Attempt)
+	row := workdir.Describe(d.Cfg.WorkdirRoot, fw.Path, b.Task.SessionID)
+	if b.Workdir.Kind != "" {
+		row.Kind = b.Workdir.Kind
+	}
+	if b.Task.AgentID != "" {
+		row.AgentID = b.Task.AgentID
+	}
+	// A `worktree` belongs to the AGENT and outlives any one lane, so it is
+	// reported without a lane — the same rule workdir.Record follows when it
+	// writes the sidecar. A `dir` is one per lane and carries it.
+	if row.Kind == "worktree" {
+		row.LaneID = ""
+	} else if b.Task.LaneID != "" {
+		row.LaneID = b.Task.LaneID
+	}
+	if fw.Git != nil {
+		row.Git = fw.Git
+	}
+	// Background, not the attempt's context: this runs after finish, and on
+	// SIGTERM the attempt's context is already being torn down. The report is
+	// the last thing the lane owes the server.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := d.Server.Workdirs(ctx, d.Cfg.RuntimeID, api.WorkdirsRequest{Workdirs: []workdir.Info{row}}); err != nil {
+		d.Log("%s workdir report: %v", k, err)
+		return
+	}
+	d.Log("%s workdir report kind=%s bytes=%d %s", k, row.Kind, row.Bytes, gitSummary(row.Git))
+}
+
+// usageSummary is the §4.4 `usage` block on one line (D-24). Cache counters
+// are printed only when there are any: on hermes they are always zero and
+// would be four dead columns in every turn line.
+func usageSummary(u contracts.Usage) string {
+	s := fmt.Sprintf("in=%d out=%d cost=%.4f", u.InputTokens, u.OutputTokens, u.CostUSD)
+	if u.CacheReadTokens > 0 || u.CacheWriteTokens > 0 {
+		s += fmt.Sprintf(" cache_read=%d cache_write=%d", u.CacheReadTokens, u.CacheWriteTokens)
+	}
+	if u.Estimated {
+		s += " estimated"
+	}
+	if u.Model != "" {
+		s += " model=" + u.Model
+	}
+	return s
+}
+
+// gitSummary is the §6 `git` block on one line (D-24). A plain folder has
+// none, and says so rather than printing four zeroes that read like a clean
+// checkout — the exact misreading §6 warns about.
+func gitSummary(g *contracts.WorkdirGit) string {
+	if g == nil {
+		return "git=none"
+	}
+	return fmt.Sprintf("branch=%s merged=%v dirty=%v commits_ahead=%d", g.Branch, g.Merged, g.Dirty, g.CommitsAhead)
+}
+
 // finishWorkdir is §4.4's `workdir` block. The git measurement runs a couple
 // of git commands against the checkout the attempt just left; for a plain
 // folder it is nil and the block is just the path, as before.
@@ -536,6 +678,12 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	k := key(b.Task.ID, b.Task.Attempt)
 	batcher := api.NewBatcher(ctx, d.Server, b.Task.ID, b.Task.Attempt)
 	batcher.OnCommands = func(cs []contracts.Command) { d.handleCommands(ctx, cs) }
+	// The DETAIL tier of D-24: one line per task_event, tool calls included.
+	// It is a wrapper around the sink rather than a hook inside the batcher
+	// because the loop emits events of its own (the §4.1 note, the §4.1 gate
+	// failure) that never pass through the runner — logging in one place only
+	// would show a stream with holes in it.
+	sink := acp.Sink(eventLogSink{inner: batcher, key: k, log: d.Debug})
 	finish := func(req contracts.Finish) {
 		fctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -553,6 +701,28 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		}
 		if err != nil {
 			d.Log("finish %s: %v", k, err)
+		} else {
+			// D-24: the finish is the attempt's last word to the server, and
+			// its outcome is the one fact a person reading the log after a
+			// bad night actually needs. Only its FAILURE was logged before.
+			d.Log("%s finish outcome=%s failure_kind=%s last_seq=%d stop=%s",
+				k, req.Outcome, req.FailureKind, req.LastSeq, req.StopReason)
+		}
+		// D-23 / daemon-protocol §6: "데몬은 workdir 목록을 probe와 함께,
+		// 그리고 **lane 종료 시** 보고한다." Only the two probe-shaped paths
+		// existed (start-up + daily, and the answer to a `gc` command), so a
+		// checkout's `bytes` reached the server no earlier than the first GC
+		// sweep — S13's capacity column and the E13-16 quota numerator read
+		// low until then. This is the lane-end report, and it goes on EVERY
+		// exit that had a directory: `req.Workdir` is set by exactly those
+		// paths (the two early returns above have no directory to report —
+		// one never made it, the other found it missing).
+		//
+		// Deliberately after the finish call, not instead of it: §4.4's
+		// `Finish.Workdir.Git` is what the server folds into the row, and a
+		// §6 report that overtook it would be judged on staler git facts.
+		if req.Workdir != nil && req.Workdir.Path != "" {
+			d.reportLaneWorkdir(b, req.Workdir)
 		}
 	}
 	// seq numbers the events the LOOP emits before the runner exists. The
@@ -572,6 +742,10 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		finish(contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: err.Error()})
 		return
 	}
+	// D-24: `git worktree add` on a cold repository is the longest silent
+	// stretch of an attempt, and a claim that never reaches `phase preparing`
+	// is a preparation that hung. One line closes that gap.
+	d.Log("%s workdir path=%s isolation=%s reuse=%v", k, wd, b.Workdir.Kind, b.Workdir.Reuse)
 	if b.Workdir.Path != "" && wd != filepath.Clean(b.Workdir.Path) {
 		// Never silent: §4.1 v0.7.3 says the server sends an absolute path,
 		// so any resolution the daemon has to do (a relative path read against
@@ -589,7 +763,7 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		detail := fmt.Sprintf("workdir bundle path %q → %s (isolation=%s, workdir_root=%s)",
 			b.Workdir.Path, wd, b.Workdir.Kind, d.Cfg.WorkdirRoot)
 		d.Log("%s %s", k, detail)
-		batcher.Emit(contracts.TaskEvent{
+		sink.Emit(contracts.TaskEvent{
 			TaskID: b.Task.ID, Attempt: b.Task.Attempt, Seq: nextSeq(), TS: d.Clock.Now().UTC(),
 			Class: "runtime", Verb: "report", ObjectRef: "workdir.path", Outcome: "info",
 			Payload: map[string]any{
@@ -606,7 +780,7 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	if verr := workdir.Verify(wd); verr != nil {
 		detail := workdirDetail(verr, b, d.Cfg.WorkdirRoot)
 		d.Log("%s %s", k, detail)
-		batcher.Emit(contracts.TaskEvent{
+		sink.Emit(contracts.TaskEvent{
 			TaskID: b.Task.ID, Attempt: b.Task.Attempt, Seq: nextSeq(), TS: d.Clock.Now().UTC(),
 			Class: "runtime", Verb: "error", Outcome: "failed",
 			Payload: map[string]any{
@@ -650,7 +824,7 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		// server is naming a placeholder this daemon does not implement.
 		detail := "치환되지 않은 자리표시자: " + strings.Join(left, ", ")
 		d.Log("%s %s", k, detail)
-		batcher.Emit(contracts.TaskEvent{
+		sink.Emit(contracts.TaskEvent{
 			TaskID: b.Task.ID, Attempt: b.Task.Attempt, Seq: nextSeq(), TS: d.Clock.Now().UTC(),
 			Class: "runtime", Verb: "error", Outcome: "failed",
 			Payload: map[string]any{
@@ -691,7 +865,7 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	// into it (OnUsage); its `r` is filled in on the next line.
 	hb := &heartbeater{d: d, b: b, bt: batcher}
 	runner := acp.New(acp.Attempt{
-		Bundle: b, Workdir: wd, Cmd: d.spawnConfig(b, wd), MCPServers: d.mcpServers(b), Sink: batcher, Clock: d.Clock, DaemonVersion: d.Version,
+		Bundle: b, Workdir: wd, Cmd: d.spawnConfig(b, wd), MCPServers: d.mcpServers(b), Sink: sink, Clock: d.Clock, DaemonVersion: d.Version,
 		// The loop may already have spent seq 1 on the §4.1 note above.
 		StartSeq: seq,
 		// harness §7 v0.8.5: the raw SDK stream is what makes the heartbeat's
@@ -702,9 +876,15 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 			if err := d.Orphans.Record(orphan.Record{TaskID: b.Task.ID, Attempt: b.Task.Attempt, PGID: pgid, StartedAt: d.Clock.Now().UTC(), Workdir: wd}); err != nil {
 				d.Log("%s pgid record: %v", k, err)
 			}
+			// D-24: §4.2 phase went to the SERVER and nowhere else, so a
+			// runtime that never got past `preparing` (npx cold start, a
+			// login prompt) looked identical in the log to one that was
+			// never claimed.
+			d.Log("%s phase preparing pgid=%d", k, pgid)
 			_ = d.Server.Phase(ctx, b.Task.ID, b.Task.Attempt, api.PhaseRequest{Phase: "preparing", PGID: pgid, WorkdirPath: wd})
 		},
 		OnRunning: func() {
+			d.Log("%s phase running", k)
 			_ = d.Server.Phase(ctx, b.Task.ID, b.Task.Attempt, api.PhaseRequest{Phase: "running", WorkdirPath: wd})
 		},
 	})
@@ -718,6 +898,10 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 
 	res := runner.Run(ctx)
 	close(hbStop)
+	// D-24: the turn ended. `usage` rides along because "what did it cost"
+	// and "why did it stop" are asked in the same breath, and the finish line
+	// below carries neither.
+	d.Log("%s turn outcome=%s stop=%s usage=%s", k, res.Outcome, res.StopReason, usageSummary(res.Usage))
 
 	d.mu.Lock()
 	delete(d.running, k)
@@ -758,7 +942,6 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	}
 	f.Workdir = d.finishWorkdir(wd)
 	finish(f)
-	d.Log("%s finished outcome=%s stop=%s", k, res.Outcome, f.StopReason)
 }
 
 // usageMidturn reports whether this attempt asks the runtime for in-turn

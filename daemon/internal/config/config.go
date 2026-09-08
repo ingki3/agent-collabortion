@@ -41,6 +41,16 @@ type Config struct {
 	//     stream, one without does not (loop.usageMidturn).
 	//  3. absent → ON, which is now only reachable through tier 2.
 	UsageMidturn *bool `json:"usage_midturn,omitempty"`
+	// LogLevel is the `daemon run` progress log's verbosity (D-24):
+	// "info" (default) or "debug". Absent → "info". `debug` adds one line
+	// per task_event — hundreds per turn — so it is something an operator
+	// turns on for a diagnosis, never the default.
+	//
+	// $COLAB_DAEMON_LOG wins over this field (LogLevelEffective): the
+	// daemon whose log you need is usually one already running under a
+	// supervisor, and restarting it with an env var set is cheaper than
+	// editing and re-reading its config.
+	LogLevel string `json:"log_level,omitempty"`
 	// Repos are the git repositories this machine offers for `worktree`
 	// isolation (daemon-protocol §3 `repos[]`). The wizard filters runtime
 	// candidates by them (E13-17) and, more importantly, `remote_url` is what
@@ -58,6 +68,14 @@ type Config struct {
 // configured" have to stay distinguishable, or every daemon.json written
 // before v0.8.5 would silently turn the feature off.
 func (c Config) UsageMidturnEnabled() bool { return c.UsageMidturn == nil || *c.UsageMidturn }
+
+// LogLevelEffective is LogLevel with $COLAB_DAEMON_LOG applied on top.
+func (c Config) LogLevelEffective() string {
+	if v := os.Getenv("COLAB_DAEMON_LOG"); v != "" {
+		return v
+	}
+	return c.LogLevel
+}
 
 // DefaultColabBin returns the colab binary beside the daemon executable when
 // it exists, otherwise "colab" (resolved on PATH by the adapter).
