@@ -5,7 +5,7 @@
 | 게이트 | PLAN.md §6.2 **G5** — "시나리오 A **8단계** + **Hermes** + **템플릿 3분 Director 실측**". 예산이 가장 큰 게이트. Hermes 미통과면 Reviewer의 colab Hermes 전환(§10.1)도 미룬다 |
 | 근거 | `plan/G5_REPORT.md`(Integrator T-I2 2부, **1판·2판 PR #100 · 재측정 §10 PR #105**, 각각 Hermes APPROVE — 수치를 `out/`·DB에서 독립 재계산), `e2e/p2/30~34_*.sh` 재현 스크립트, 통합이 드러낸 결함의 수정 PR **#97(D-7)·#103(S-24~S-31)**, 계약 PR **#94·#96(harness v0.8/v0.8.1 `tool_surface`)·#101(승인 op P2·blocked_q 멘션·기상 인용)**, P3-prep #93·#95 |
 | 작성 | Lead 2026-09-06 |
-| 상태 | **✅ G5 통과 — 조건부 확정(2026-09-06).** 다섯 항목이 실기에서 **PASS 162 · FAIL 0 · N/A 2**(재측정). 남은 칸은 **(e) 템플릿 3분의 사람 실측 하나**로, 기계 하한 10초·예상 2~2.5분이며 절차는 `G5_REPORT.md §6.3`이다. Director 위임("알아서 진행")에 따라 Lead는 이 칸을 **Director 실측 항목으로 남긴 채 P3를 연다** — 실측이 3분을 넘기면 그 시점에 온보딩 화면(S6·S9)을 P3 안에서 고친다(§5) |
+| 상태 | **✅ G5 통과 — 확정(2026-09-08).** 다섯 항목이 실기에서 **PASS 162 · FAIL 0 · N/A 2**(재측정). 마지막 칸이던 **(e) 템플릿 3분**을 Director 가 직접 재서 **3분 이내**로 통과했다(2026-09-08, dev `77c58b4` 스택 — Test Team 워크스페이스, 실기 런타임 Claude Code 2.1.258 + Hermes 0.20.6). 조건은 해소됐고 온보딩 화면(S6·S9) 수정 조항은 발동하지 않는다 |
 
 ## 1. DoD 판정 (런타임: Claude Code 2.1.258 + 어댑터 0.74.0, **Hermes 0.20.6**, haiku; 스택 dev `ada78a0`)
 
@@ -15,7 +15,7 @@
 | b | **Hermes 프로파일**로 같은 시나리오 + 폴백(E8-08) + 대안 없음(E8-09) | **통과** ¹ | `30_scenario_a_hermes.sh` **57/0**(88초, 연속 두 실행 동일): Researcher=hermes lane **동시 running 3**, 합류 2(그룹당 시스템 메시지 1), Lead 기상 3(START·JOIN·JOIN), 제출 후 진행률 1/2. probe `tool_surface` hermes=**cli_wrapper** / claude_code=**mcp**, 래퍼 절대 경로 호출 3건(lane당 1). 폴백 E8-08(workdir 재사용·`runtime_kind` 변경 시 콜드 스타트·같은 머신)·E8-09(알림 1건·다른 머신으로 안 넘김) 15/15. 비용: 세션 $0.3049, `task_usage` 7행 전부 `estimated=true`(FR-7.3 추정 배지 정상 경로; hermes는 모델을 보고하지 않아 프로파일 모델로 매김) |
 | c | **blocked 왕복** E3-05·06·07 + 웹 질문 카드 | **통과** | `31_blocked_roundtrip.sh` EVAL 순서 **29/0**: 카드 `blocked_q`·`lane.blocked_message_id`·위임자 즉시 기상 1(형제 상태 무관)·기상 메시지가 카드 id·본문 인용 + "카드 스레드 답글로 자식 멘션" 안내·합류가 blocked를 종료 취급하고 질문 재포함·답글 → 규칙 1 같은 lane·`reentry_count` 0→1·**`runtime.resume outcome=resumed`**. 웹 K3 배지 `질문 → @위임자`. **S-31 순서**(위임자가 즉시 답해 재진입 lane이 마지막으로 끝남) 별도 실행 **20/0**: 합류 정확히 1회, 위임자 기상 1회(재진입 통보 트리거 + 합류가 `coalesced_message_ids` — K-5·FR-3.4 모양 그대로) |
 | d | **루프 상한** E4-03 | **통과** | `32_loop_limit.sh` **15/0**: 워크스페이스 설정 PATCH 200, 상한 2 → 관측 왕복 3 → `paused(loop)`·`limit=pair_roundtrips`·`count=3`·`agents` 2·넘긴 트리거 task 0·Director HITL `source=system`. 부분 갱신 뒤 형제 키 보존(S-26) |
-| e | **템플릿 3분** — 템플릿에서 팀 생성 → 세션 시작 | **경로 통과 · 시간은 Director 실측 대기** | `34_template_3min.sh` **14/0**: 템플릿 3종·프로파일 매핑 9/9·에이전트 3명 일괄 생성·`definition_source` 기록·마법사 후보·세션 생성·첫 task 실행. 기계 소요(agent-browser DOM 조작 기준) 팀 생성→세션 시작 **10초**, 첫 task까지 10초. 사람 실측 절차 §6.3, 예상 2~2.5분 |
+| e | **템플릿 3분** — 템플릿에서 팀 생성 → 세션 시작 | **✅ 통과(Director 실측 2026-09-08, 3분 이내)** | `34_template_3min.sh` **14/0**: 템플릿 3종·프로파일 매핑 9/9·에이전트 3명 일괄 생성·`definition_source` 기록·마법사 후보·세션 생성·첫 task 실행. 기계 소요(agent-browser DOM 조작 기준) 팀 생성→세션 시작 **10초**, 첫 task까지 10초. **사람 실측**: 절차 §6.3 그대로, 팀 템플릿 → 리서치 팀 → 마법사 7단계 → S7 첫 카드까지 **3분 이내**. 실측 세션 "STO 시장 보고서 작성" 에서 에이전트 3명 프로파일 매핑 성공·Lead task 가 즉시 `running` 으로 도구 호출 시작 |
 
 ¹ 1판(#100 초판)은 45/6 — Hermes 턴이 세션에 아무것도 남기지 못했다(D-7). 원인은 협업 코어가 아니라 **데몬이 Hermes에게 도구를 건네는 자리**였다: Hermes ACP 어댑터는 `session/new.mcpServers`를 조용히 무시하고(initialize에 `mcpCapabilities` 없음) 셸 env를 위생화해 `colab`이 PATH에 없었다. 계약 v0.8/v0.8.1(`tool_surface`: `mcp`/`cli_wrapper`, attempt별 래퍼 + 브리프·턴 프롬프트의 `colab ` 치환)과 데몬 #97로 닫힌 뒤 57/0.
 
@@ -46,6 +46,8 @@
 - **Orca 운영**: 결함 ID는 백로그가 SSOT(보고서 번호 충돌 → 재번호), worker_done 뒤 재작업은 터미널 send + 브랜치 푸시 감시, 계약 `x-phase`는 `P2 + 주석` 관례(문자열 값이면 web 생성 타입 CI가 깨진다), 스펙에 PR 번호가 빈 채 task를 만들면 지울 수 없다(`task-update failed`로만 표기).
 
 ## 4. 확인 요청
+
+**Director 실측 완료(2026-09-08): 3분 이내 — G5 확정.** 아래는 그때의 요청문이다(기록용).
 
 Director가 할 것은 하나다 — **템플릿 3분 실측**(`G5_REPORT.md §6.3`: `/agents` → [팀 템플릿] → 리서치 팀 → 새 세션 마법사 7단계 → S7 첫 카드; 전제는 페어링·probe 완료). 3분 안이면 G5는 조건 없이 확정이고, 넘기면 넘긴 단계의 화면을 P3 안에서 고친다. 판정 근거는 PR #100·#105와 `e2e/p2/out/`에 있고 `bash e2e/p2/up.sh && bash e2e/p2/33_approval_completed.sh`(약 60초)로 재현된다.
 
