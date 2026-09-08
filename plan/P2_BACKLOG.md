@@ -42,6 +42,7 @@
 | D-21 | **차단(G7 1판, S-55 의 데몬 절반)** — 번들 `workdir.path` 를 자기 CWD 기준으로 절대화하고, `git worktree add <상대경로>` 로 **사용자 저장소 안**에 체크아웃을 만든다. 계약 v0.7.3: 상대면 `<workdir_root>` 기준으로 해석하고, spawn 전 디렉터리 존재를 확인해 없으면 경로를 문구에 넣어 `failed(config)`(지금 문구 `spawn: fork/exec …/npx: no such file or directory` 는 원인을 가린다) | T-I4 61_ X1b·X1c | **G7 2판 전** |
 | D-22 | **차단(G7 1판, S-56 의 데몬 절반)** — §6 workdir 보고가 `agent_id` 없이·세션 uuid 가 아닌 값으로 와서 서버가 조용히 skip 한다. `git`·`bytes` 도 매 보고에 실어야 GC 판정 입력이 생긴다(계약 v0.7.3 §6) | T-I4 64_ P1·P1b | **G7 2판 전** |
 | D-23 | 살아 있는 worktree 의 `disk_bytes` 가 서버에 늦게 도착한다 — 계약 §6 은 "probe 와 함께, 그리고 **lane 종료 시**" 보고라고 적었는데 데몬은 probe 직후(기본 24h)와 gc 명령 뒤 두 곳뿐이다. S13 용량 열·쿼터 분자(E13-16)가 첫 gc 스윕까지 과소. GC **판정** 입력은 §4.4 finish 로 오므로 차단 아님. attempt finish 뒤 `Workdirs` 보고 1회, 또는 `Finish.Workdir` 에 `bytes` | G7 2판 64_ P1d · PR #177 리뷰 NN2 | 낮음 |
+| D-24 | 데몬 `run` 의 stdout 로그가 probe 이후 멈춘다 — DB 에는 `tool/*` 이벤트가 계속 쌓이는데 로그 파일은 287바이트에서 정지(claim·attempt·turn 기록 없음). 실행에는 지장이 없으나 **장애 시 로그만으로 원인을 못 찾는다** | Director 실사용 2026-09-08 | 중 |
 
 ## W (웹)
 
@@ -54,6 +55,7 @@
 | ~~W-5~~ | **해결 — T-W2.** PRD FR-1.3 4행대로 **`running` 만 `working`** 이다. `dispatched`·`preparing` 은 아직 턴이 시작되지 않았고, 그것을 working 으로 세면 데몬이 claim 만 하고 멈춰도 칩이 "작업 중"이라 침묵과 실행을 구분할 수 없다. 웹의 파생 함수와 목 저장소 둘 다 고쳤다 | PR #21 N7 | — |
 | ~~W-6~~ | **해결 — T-W2.** 작성창이 `previewTriggers` 를 부르고 로컬 규칙 계산(`classifyMentions`)을 지웠다 — 규칙 1~8 과 lane 해소는 서버 상태를 봐야 해서 로컬로 흉내 내면 서버와 반대로 말한다(S-1 이 그랬다) | PR #21 R2 | — |
 | W-7 | 인박스 예산 HITL 범위 파생 `budgetScopeOf` 가 `session.status==="paused"` 만 보고 `paused_reason` 을 안 본다 — 세션이 다른 사유(HITL·offline)로 paused 인 동안 task 범위 예산 HITL 이 열리면 "세션 범위" 오표시. `paused_reason==="budget"` 까지 보기 | PR #166 리뷰 NN2 | 낮음 · K-12 와 같은 급 |
+| W-8 | Runtimes 카드의 Hermes 브리프 설명이 **옛 계약**이다 — "브리프: 지시 파일(CLAUDE.md·AGENTS.md)". harness v0.8.6(스파이크 5, 우회 B)에서 미추적 `COLAB_BRIEF.md` + 턴 프롬프트 포인터로 바뀌었다. probe 가 광고하는 `brief_transport` 를 그대로 렌더하도록 | Director 실사용 2026-09-08 | 낮음 |
 | W-3′ | mock previewTriggers가 `done/blocked` lane **재진입**을 `resolution 4 + lane_id + reentry:true`로 준다(`handlers.ts:571-573`). PRD lane 규칙·EVAL E2-04·05는 재진입을 **규칙 3**으로 두고 4는 "그 외 → 새 lane". §0-9(b) 부류 — mock 응답·p2-mock 기대값·재진입 테스트 함께 | PR #76 Lead 확인 | 다음 웹 작업 |
 | ~~W-5~~ | mock의 lane 해소 규칙(`handlers.ts` resolveLane류)을 지키는 것이 `web/e2e/p2-mock.sh`뿐이고 그 스모크는 CI 밖(mock 서버 필요)이다. `done` lane 있는 세션에서 preview → `resolution 3 · reentry true`를 vitest 1건으로 — W-2·W-3′ 부류가 다시 슬며시 바뀌어도 CI가 모른다 | PR #83 리뷰 NN1 | 다음 웹 작업 | **해결 — PR #130**
 | ~~W-6~~ | 인박스 항목이 purpose=budget HITL(task 범위, 세션은 active)에 `budgetOverride` 입력칸을 붙이지 않는다(`session_paused` 조건) → Director 가 웹에서 상향 금액을 정할 수 없음(E9-02·U7-1) | T-I3 실측 43_ | T-W4 | **해결 — PR #139**
@@ -119,6 +121,7 @@
 | S-60 | 사라진 머신으로 **이미 dispatch 된** task 는 재바인딩이 되살리지 않는다(`queued`·`deferred` 만 requeue) → heartbeat 만료로 `failed(timeout)` 까지 아무 일도 안 함 | T-I4 63_ R5g | 낮음 |
 | ~~S-61~~ | 재바인딩 뒤 옛 런타임의 workdir 행이 남아 `BundleWorkdirPaths` 가 사라진 머신 경로를 계속 고른다(T-I4 가 우회 U2 로 가리고 있었다) | PR #170 리뷰 NN3 | **해결 — PR #173**(`gc_blocked_reason IS DISTINCT FROM 'runtime_gone'` + 살아 있는 보고가 행을 되살림) |
 | S-62 | 마이그레이션 0019 **이전에 저장된 상대 경로 `workdir` 행**이 `ExistingForAgent` 로 그대로 번들에 실린다(절대성 검사 없음) — S-55 의 뒷문. `buildBundle` 에 `filepath.IsAbs` 방어 + 유닛, 또는 배포 시 `path_or_ref NOT LIKE '/%'` 행 정리. 함께: `noteWorkdirReportDropped` 가 세션 최신 task 에 note 를 붙임(NN2), 참가자 검사 실패가 "agent_id 없음" 으로 뭉개짐(NN3) | PR #173 리뷰 NN1~NN3 | 배포 전 |
+| S-63 | **페어링 안내가 가리키는 설치 스크립트를 서버가 서비스하지 않는다** — S12 `install_commands` 첫 줄이 `curl -fsSL <서버>/install.sh | sh` 인데 그 경로 핸들러가 없어 **404**. 계약(openapi `Pairing.install_commands`)은 "복사 버튼 2줄"만 정하고 스크립트 제공 주체를 안 적었다. 통합 시험은 `bin/daemon pair` 를 직접 불러 왔기에 드러나지 않았고, **사람이 처음 쓰는 경로에서만** 나타난다(Director 실사용 2026-09-08). 서버가 스크립트를 서빙 + 계약에 주체 명시 | Director 실사용 | **높음 · 배포 전** |
 
 ## C (CLI)
 
