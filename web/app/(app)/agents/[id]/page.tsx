@@ -169,7 +169,7 @@ export default function AgentEditPage() {
       {!canEdit && <p className="notice notice--info" data-testid="agent-readonly">{editReason} — 소유자는 {agent.owner?.display_name ?? "다른 멤버"} 입니다.</p>}
 
       <section className="card" style={{ marginBottom: 14 }} data-testid="agent-identity">
-        <h2 style={{ fontSize: 14, margin: "0 0 8px" }}>정체성</h2>
+        <h2 style={{ fontSize: "var(--fs-card)", margin: "0 0 8px" }}>정체성</h2>
         <label className="field">
           <span className="field__label">이름 (멘션 라벨 · 워크스페이스 내 유일)</span>
           <input className="input" value={name} maxLength={40} disabled={!canEdit} onChange={(e) => setName(e.target.value)} data-testid="agent-name" />
@@ -189,12 +189,12 @@ export default function AgentEditPage() {
       </section>
 
       <section className="card" style={{ marginBottom: 14 }} data-testid="agent-instructions">
-        <h2 style={{ fontSize: 14, margin: "0 0 8px" }}>instruction</h2>
+        <h2 style={{ fontSize: "var(--fs-card)", margin: "0 0 8px" }}>instruction</h2>
         <textarea className="textarea" style={{ minHeight: 160 }} value={instructions} disabled={!canEdit} onChange={(e) => setInstructions(e.target.value)} data-testid="agent-instructions-input" aria-label="시스템 프롬프트" />
       </section>
 
       <section className="card" style={{ marginBottom: 14 }} data-testid="agent-execution">
-        <h2 style={{ fontSize: 14, margin: "0 0 8px" }}>실행</h2>
+        <h2 style={{ fontSize: "var(--fs-card)", margin: "0 0 8px" }}>실행</h2>
         <AgentProfileEditor
           profiles={agent.profiles}
           caps={caps}
@@ -231,7 +231,7 @@ export default function AgentEditPage() {
       </section>
 
       <section className="card" style={{ borderColor: "var(--s-fail)" }} data-testid="agent-danger">
-        <h2 style={{ fontSize: 14, margin: "0 0 4px", color: "var(--s-fail-text)" }}>위험 영역</h2>
+        <h2 style={{ fontSize: "var(--fs-card)", margin: "0 0 4px", color: "var(--s-fail-text)" }}>위험 영역</h2>
         <p className="small muted" style={{ marginTop: 0 }}>
           <b>킬 스위치 — `respond_to: nobody`.</b> 이 에이전트를 즉시 정지시킵니다.
         </p>

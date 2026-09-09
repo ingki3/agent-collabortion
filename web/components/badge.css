@@ -19,8 +19,8 @@
   white-space: nowrap;
   vertical-align: middle;
 }
-.badge--md { font-size: 12px; padding: 3px 8px; }
-.badge--sm { font-size: 11px; padding: 2px 6px; }
+.badge--md { font-size: var(--fs-meta); padding: 3px 8px; }
+.badge--sm { font-size: var(--fs-meta); padding: 2px 6px; }
 
 .badge__glyph { font-size: 0.95em; }
 

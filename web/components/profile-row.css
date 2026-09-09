@@ -2,8 +2,8 @@
 .prof { display: flex; flex-direction: column; gap: 8px; }
 .prof__row { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
 .prof__row--default { border-color: var(--ink); }
-.prof__l1, .prof__l2 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
-.prof__star { font-size: 11px; color: var(--ink); }
-.prof__quiet { font-size: 11px; color: var(--ink-3); }
-.prof__sel { width: auto; min-width: 96px; font-size: 12px; padding: 4px 6px; }
+.prof__l1, .prof__l2 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--fs-body); }
+.prof__star { font-size: var(--fs-meta); color: var(--ink); }
+.prof__quiet { font-size: var(--fs-meta); color: var(--ink-2); }
+.prof__sel { width: auto; min-width: 96px; font-size: var(--fs-body); padding: 4px 6px; }
 .prof__spacer { flex: 1; }

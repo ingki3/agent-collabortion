@@ -516,7 +516,7 @@ export default function SessionPage() {
       <header className="s7__head">
         <div className="row" style={{ gap: 10 }}>
           <Link href="/sessions" className="small muted-3">← Sessions</Link>
-          <h1 style={{ margin: 0, fontSize: 18 }} data-testid="session-title">{session.title}</h1>
+          <h1 style={{ margin: 0, fontSize: "var(--fs-title)" }} data-testid="session-title">{session.title}</h1>
           <Badge kind="session" value={session.status} data-testid="session-status" />
           {session.status === "paused" && session.paused_reason && (
             <span className="small muted-3" data-testid="session-paused-reason">사유: {session.paused_reason}</span>
@@ -738,13 +738,13 @@ export default function SessionPage() {
         .s7__cols { display: grid; grid-template-columns: 268px minmax(0, 1fr) 268px; gap: 16px; align-items: start; }
         .s7__left, .s7__right { position: sticky; top: 12px; max-height: calc(100vh - 140px); overflow: auto; display: flex; flex-direction: column; gap: 8px; }
         .s7__center { display: flex; flex-direction: column; min-width: 0; }
-        .s7__h { margin: 4px 0 2px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+        .s7__h { margin: 4px 0 2px; font-size: var(--fs-sub); font-weight: 600; color: var(--ink-2); }
         .s7__chips { display: flex; flex-direction: column; gap: 4px; }
         .s7__timeline { flex: 1; display: flex; flex-direction: column; gap: 6px; padding-bottom: 12px; }
         .s7__composer { position: sticky; bottom: 0; background: var(--bg); padding: 8px 0 4px; }
         .s7__dim { opacity: 0.4; }
         .s7__tabs { display: none; gap: 6px; }
-        .s7__tab { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+        .s7__tab { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 3px 10px; font-size: var(--fs-body); cursor: pointer; }
         .s7__tab--on { border-color: var(--ink); font-weight: 600; }
         .s7__panel { position: relative; display: flex; justify-content: flex-end; }
         .s7__panel .s7-actions__dialog { position: static; width: 380px; margin-top: 8px; }

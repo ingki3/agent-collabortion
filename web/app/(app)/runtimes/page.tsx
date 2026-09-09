@@ -224,14 +224,14 @@ export default function RuntimesPage() {
         .rt__actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
         .rt__danger { border-color: var(--s-fail); color: var(--s-fail-text); }
         .rt__blocked {
-          margin-top: 8px; padding: 6px 8px; border-radius: 8px; font-size: 12px;
+          margin-top: 8px; padding: 6px 8px; border-radius: 8px; font-size: var(--fs-sub);
           border: 1px solid var(--s-fail); color: var(--s-fail-text);
           background: color-mix(in srgb, var(--s-fail) var(--soft-alpha), transparent);
         }
-        .rt__sessions { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+        .rt__sessions { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sub); }
         .rt__sessions li { display: flex; gap: 8px; align-items: baseline; }
         .rt__sessions-panel { margin-top: 8px; }
-        .rt__link { border: 0; background: none; padding: 0; color: var(--ink-2); text-decoration: underline; cursor: pointer; font-size: 12px; }
+        .rt__link { border: 0; background: none; padding: 0; color: var(--ink-2); text-decoration: underline; cursor: pointer; font-size: var(--fs-sub); }
       `}</style>
     </div>
   );

@@ -103,7 +103,7 @@ export default function AgentsPage() {
 
       {openTemplates && (
         <section className="card" style={{ marginBottom: 16 }} data-testid="team-templates">
-          <h2 style={{ fontSize: 14, margin: "0 0 4px" }}>팀 템플릿</h2>
+          <h2 style={{ fontSize: "var(--fs-card)", margin: "0 0 4px" }}>팀 템플릿</h2>
           <p className="small muted-3" style={{ marginTop: 0 }}>
             역할과 instruction 만 담깁니다. 프로파일은 이 워크스페이스에서 감지된 런타임에 맞춰 자동 매핑됩니다(FR-1.4).
           </p>
