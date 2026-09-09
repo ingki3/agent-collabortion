@@ -40,12 +40,17 @@
   --s-done: #16a34a;
   --s-fail: #dc2626;
 
-  /* 상태 text 6 — 텍스트 전용 짙은 변형 */
+  /*
+   * 상태 text 6 — 텍스트 전용 짙은 변형.
+   * wait·done 은 T-W7 에서 정정했다(Lead 판정): 이전 값 #b45309·#15803d 는 자기 soft 배경
+   * 위에서 4.42·4.39(--surface 위 4.05·4.01)로 4.5:1 에 못 미쳤다. .pen 은 P0 와이어프레임이고
+   * 지금 SSOT 는 COMPONENTS.md 다.
+   */
   --s-run-text: #1d4ed8;
-  --s-wait-text: #b45309;
+  --s-wait-text: #92400e;
   --s-block-text: #6d28d9;
   --s-pause-text: #be185d;
-  --s-done-text: #15803d;
+  --s-done-text: #166534;
   --s-fail-text: #b91c1c;
 
   /* soft 배경 = 상태색 알파 (파생값, 토큰 수에 들지 않음) */
