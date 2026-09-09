@@ -3,7 +3,7 @@
  * S11 Runtimes(SCREEN §4.8 · FR-9 · FR-9.2 · U12).
  *
  * 카드가 그리는 것은 `RuntimeCard` 가 맡고, 이 화면은 **행동 셋**을 붙인다:
- *   · Workdir 관리(S13) — 이 머신에 남은 작업 공간.
+ *   · 작업 폴더(S13) — 이 컴퓨터에 남은 작업 공간.
  *   · 세션 재바인딩(S17) — 유예를 넘겨 `paused(runtime_offline)` 가 된 세션은 **세션마다 따로** 결정한다
  *     (SCREEN §4.9 "여러 세션이 걸렸으면 세션마다 따로"). 그래서 버튼 하나가 아니라 목록이다.
  *   · 삭제 — 활성 세션이 걸려 있으면 서버가 `409 runtime_has_active_sessions` 로 막고 `Problem.sessions[]`
@@ -115,7 +115,7 @@ export default function RuntimesPage() {
         setBlocked((cur) => ({
           ...cur,
           [rt.id]: {
-            detail: e.problem.detail ?? "이 컴퓨터에 걸린 세션이 있습니다",
+            detail: e.problem.detail ?? "이 컴퓨터를 쓰는 중인 세션이 있습니다",
             sessions: e.problem.sessions ?? [],
           },
         }));
@@ -130,9 +130,9 @@ export default function RuntimesPage() {
   return (
     <div>
       <div className="page-head">
-        <h1>Runtimes</h1>
-        <Link href="/runtimes/new" className="btn btn--primary" aria-disabled={!canManage || undefined} title={!canManage ? "owner·admin 만 런타임을 추가할 수 있습니다" : undefined} onClick={(e) => !canManage && e.preventDefault()} data-testid="add-computer">
-          Add a computer
+        <h1>연결된 컴퓨터</h1>
+        <Link href="/runtimes/new" className="btn btn--primary" aria-disabled={!canManage || undefined} title={!canManage ? "소유자·관리자만 컴퓨터를 추가할 수 있습니다" : undefined} onClick={(e) => !canManage && e.preventDefault()} data-testid="add-computer">
+          컴퓨터 연결
         </Link>
       </div>
       {error && <p className="problem">{error}</p>}
@@ -142,7 +142,7 @@ export default function RuntimesPage() {
         <div className="empty" data-testid="empty-runtimes">
           <div className="empty__title">연결된 컴퓨터가 없습니다</div>
           <div className="empty__body">에이전트는 여러분의 컴퓨터에서 실행됩니다. 설치 명령 2줄로 연결하세요.</div>
-          <Link href="/runtimes/new" className="btn btn--primary">Add a computer</Link>
+          <Link href="/runtimes/new" className="btn btn--primary">컴퓨터 연결</Link>
         </div>
       ) : (
         <div className="story__grid">
@@ -153,9 +153,9 @@ export default function RuntimesPage() {
             return (
               <RuntimeCard key={rt.id} rt={rt}>
                 <div className="rt__actions" data-testid="runtime-actions">
-                  <Link href={`/runtimes/${rt.id}/workdirs`} className="btn btn--sm" data-testid="runtime-workdirs">Workdir 관리</Link>
+                  <Link href={`/runtimes/${rt.id}/workdirs`} className="btn btn--sm" data-testid="runtime-workdirs">작업 폴더</Link>
                   <button type="button" className="btn btn--sm" onClick={() => void openSessions(rt)} aria-expanded={openId === rt.id} data-testid="runtime-sessions-toggle">
-                    {grace.expired ? "세션 재바인딩" : "걸린 세션"}
+                    {grace.expired ? "세션 재바인딩" : "쓰는 중인 세션"}
                   </button>
                   {canManage && (
                     <button type="button" className="btn btn--sm rt__danger" disabled={busyId === rt.id} onClick={() => void removeRuntime(rt)} data-testid="runtime-delete">
@@ -186,7 +186,7 @@ export default function RuntimesPage() {
                     {!d ? (
                       <p className="small muted">세션을 읽는 중…</p>
                     ) : d.active_sessions.length === 0 ? (
-                      <p className="small muted-3">이 컴퓨터에 걸린 활성 세션이 없습니다.</p>
+                      <p className="small muted-3">이 컴퓨터를 쓰는 중인 세션이 없습니다.</p>
                     ) : (
                       <ul className="rt__sessions">
                         {d.active_sessions.map((s) => (

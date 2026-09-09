@@ -1,5 +1,5 @@
 "use client";
-/** S5 Sessions 목록 — P1 최소: 상태 배지 + 제목 + goal 한 줄 + 새 세션 CTA. 빈 상태(SCREEN §7). 실시간 session.updated. */
+/** S5 세션 목록 — P1 최소: 상태 배지 + 제목 + 목표 한 줄 + 새 세션 CTA. 빈 상태(SCREEN §7). 실시간 session.updated. */
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
@@ -59,12 +59,12 @@ export default function SessionsPage() {
   return (
     <div>
       <div className="page-head">
-        <h1>Sessions</h1>
+        <h1>세션</h1>
         <Link
           href="/sessions/new"
           className="btn btn--primary"
           aria-disabled={noRuntime || undefined}
-          title={noRuntime ? "먼저 컴퓨터를 연결하세요 — 세션은 런타임에 묶입니다(FR-2.1)" : undefined}
+          title={noRuntime ? "먼저 컴퓨터를 연결하세요 — 세션은 컴퓨터 한 대에 묶입니다" : undefined}
           onClick={(e) => noRuntime && e.preventDefault()}
           data-testid="new-session"
         >
@@ -77,15 +77,15 @@ export default function SessionsPage() {
       ) : noRuntime ? (
         <div className="empty" data-testid="empty-no-runtime">
           <div className="empty__title">먼저 컴퓨터를 연결하세요</div>
-          <div className="empty__body">세션은 에이전트가 실행될 런타임에 묶입니다. 연결되면 여기서 첫 세션을 만듭니다.</div>
+          <div className="empty__body">세션은 에이전트가 실행될 컴퓨터 한 대에 묶입니다. 연결되면 여기서 첫 세션을 만듭니다.</div>
           <Link href="/runtimes/new" className="btn btn--primary">
-            Add a computer
+            컴퓨터 연결
           </Link>
         </div>
       ) : items.length === 0 ? (
         <div className="empty" data-testid="empty-no-session">
           <div className="empty__title">첫 세션을 만들어 보세요</div>
-          <div className="empty__body">예: "국내 B2B SaaS 결제 시장 조사 보고서 10페이지" — goal 하나만 적으면 나머지는 기본값으로 시작됩니다.</div>
+          <div className="empty__body">예: "국내 B2B SaaS 결제 시장 조사 보고서 10페이지" — 목표 하나만 적으면 나머지는 기본값으로 시작됩니다.</div>
           <Link href="/sessions/new" className="btn btn--primary">
             새 세션
           </Link>

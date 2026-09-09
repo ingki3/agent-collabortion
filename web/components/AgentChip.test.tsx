@@ -82,7 +82,7 @@ describe("AgentChip — 파생 상태 표시", () => {
   it("assignee 표시와 sm 크기(둘째 줄 생략)", () => {
     render(<AgentChip name="Lead" role="lead" status="working" isAssignee size="sm" statusNote="숨김" />);
     const chip = screen.getByTestId("agent-chip");
-    expect(chip.textContent).toContain("assignee");
+    expect(chip.textContent).toContain("담당");
     expect(screen.queryByTestId("agent-chip-line2")).toBeNull();
   });
 });

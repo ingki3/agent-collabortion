@@ -6,20 +6,25 @@ export interface AppNavProps {
   workspaceName: string;
   /** 현재 경로(usePathname). 접두 일치로 활성 항목을 정한다. */
   current: string;
-  /** Inbox 뱃지 — action_required 개수만(SCREEN §4.6). null 이면 자리만 둔다(P1). */
+  /** 받은 요청 뱃지 — action_required 개수만(SCREEN §4.6). null 이면 자리만 둔다(P1). */
   inboxCount: number | null;
-  /** owner·admin 만 Settings 를 본다(SCREEN §3.1). 숨기는 것이 명세다 — U13 변형. */
+  /** owner·admin 만 설정을 본다(SCREEN §3.1). 숨기는 것이 명세다 — U13 변형. */
   showSettings: boolean;
   userName?: string;
   onLogout?: () => void;
 }
 
+/**
+ * 메뉴는 **한국어 한 벌**이다(COMPONENTS §8.4 "한 화면 안에서 언어를 섞지 않는다") — 옆 버튼이
+ * "새 에이전트"인데 메뉴만 영어면 두 언어가 한 화면에 선다. `key` 는 화면 식별자라 문구가 바뀌어도
+ * `data-testid` 가 따라 움직이지 않는다(예전에는 라벨을 소문자로 바꿔 testid 를 만들었다).
+ */
 export const NAV_ITEMS = [
-  { href: "/sessions", label: "Sessions" },
-  { href: "/inbox", label: "Inbox" },
-  { href: "/agents", label: "Agents" },
-  { href: "/runtimes", label: "Runtimes" },
-  { href: "/settings", label: "Settings" },
+  { href: "/sessions", key: "sessions", label: "세션" },
+  { href: "/inbox", key: "inbox", label: "받은 요청" },
+  { href: "/agents", key: "agents", label: "에이전트" },
+  { href: "/runtimes", key: "runtimes", label: "연결된 컴퓨터" },
+  { href: "/settings", key: "settings", label: "설정" },
 ] as const;
 
 export function AppNav({ workspaceName, current, inboxCount, showSettings, userName, onLogout }: AppNavProps) {
@@ -38,7 +43,7 @@ export function AppNav({ workspaceName, current, inboxCount, showSettings, userN
             href={item.href}
             className="app-nav__item"
             aria-current={active ? "page" : undefined}
-            data-testid={`nav-${item.label.toLowerCase()}`}
+            data-testid={`nav-${item.key}`}
           >
             <span>{item.label}</span>
             {item.href === "/inbox" && (

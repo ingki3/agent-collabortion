@@ -1,5 +1,5 @@
 "use client";
-/** S12 Add a computer — 단독 화면. 준비 완료되면 Runtimes 로. */
+/** S12 컴퓨터 연결 — 단독 화면. 준비 완료되면 Runtimes 로. */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PairingPanel } from "@/components/PairingPanel";
@@ -12,7 +12,7 @@ export default function AddComputerPage() {
   return (
     <div className="content--narrow">
       <div className="page-head">
-        <h1>Add a computer</h1>
+        <h1>컴퓨터 연결</h1>
         <Link href="/runtimes" className="btn btn--ghost btn--sm">
           Runtimes 로
         </Link>

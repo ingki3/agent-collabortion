@@ -13,13 +13,16 @@
  */
 import { useState } from "react";
 import "./session-actions.css";
-import type { Member, Session } from "@/lib/api/types";
+import type { Member, MemberRole, Session } from "@/lib/api/types";
+
+/** 워크스페이스 역할 — 화면에는 한국어 한 벌로(§8.4). */
+const ROLE_LABEL: Record<MemberRole, string> = { owner: "소유자", admin: "관리자", member: "멤버" };
 
 export type SessionActionKey = "pause" | "resume" | "complete" | "cancel" | "participants" | "director";
 
 export interface SessionActionsProps {
   session: Session;
-  /** 진행 중 lane 수 — 종료 확인 문구가 개수를 명시한다. */
+  /** 진행 중 작업 줄기 수 — 종료 확인 문구가 개수를 명시한다. */
   runningLanes: number;
   members: Member[];
   onPause: () => Promise<void> | void;
@@ -43,17 +46,17 @@ export function actionGate(s: Session, key: SessionActionKey): { allowed: boolea
   if (!isDirector) {
     return {
       allowed: false,
-      reason: s.my_role === "deputy" ? "Director 만 할 수 있습니다 (deputy 는 lane 중단만 즉시 가능)" : "Director 만 할 수 있습니다",
+      reason: s.my_role === "deputy" ? "Director 만 할 수 있습니다 (대리 Director 는 작업 줄기 중단만 즉시 가능)" : "Director 만 할 수 있습니다",
     };
   }
   switch (key) {
     case "pause":
-      return s.status === "active" ? { allowed: true } : { allowed: false, reason: "active 세션만 일시정지할 수 있습니다" };
+      return s.status === "active" ? { allowed: true } : { allowed: false, reason: "진행 중인 세션만 일시정지할 수 있습니다" };
     case "resume":
       if (s.status !== "paused") return { allowed: false, reason: "일시정지된 세션만 재개할 수 있습니다" };
       // 런타임 오프라인은 재개가 아니라 재바인딩·종료다(계약 resumeSession 409, FR-9.2).
       return s.paused_reason === "runtime_offline"
-        ? { allowed: false, reason: "런타임 오프라인은 재바인딩하거나 세션을 종료해야 합니다" }
+        ? { allowed: false, reason: "컴퓨터가 오프라인입니다 — 재바인딩하거나 세션을 종료해야 합니다" }
         : { allowed: true };
     default:
       return { allowed: true };
@@ -97,11 +100,11 @@ export function SessionActions(props: SessionActionsProps) {
       {dialog === "complete" && (
         <div className="s7-actions__dialog" role="dialog" aria-label="세션 종료 확인" data-testid="complete-confirm">
           <p className="small">
-            이 세션을 종료합니다(<code>manual</code>) — 종료 조건과 무관하게 Director 가 직접 끝냅니다.
+            이 세션을 종료합니다 — 종료 조건과 무관하게 Director 가 직접 끝냅니다.
           </p>
           {props.runningLanes > 0 && (
             <p className="small s7-actions__warn" data-testid="complete-running-lanes">
-              진행 중 lane 이 <b>{props.runningLanes}개</b> 있습니다. 계속하면 취소됩니다.
+              진행 중인 작업 줄기가 <b>{props.runningLanes}개</b> 있습니다. 계속하면 취소됩니다.
             </p>
           )}
           <div className="row">
@@ -125,9 +128,9 @@ export function SessionActions(props: SessionActionsProps) {
       {dialog === "cancel" && (
         <div className="s7-actions__dialog" role="dialog" aria-label="세션 취소 확인" data-testid="cancel-session-confirm">
           <p className="small">
-            세션을 <b>취소</b>합니다. 진행 중 턴은 편집 완료를 최대 30초 기다린 뒤 취소되고, 대기 중 task 는 바로 취소됩니다.
+            세션을 <b>취소</b>합니다. 진행 중인 턴은 편집이 끝나기를 최대 30초 기다린 뒤 취소되고, 대기 중인 일은 바로 취소됩니다.
           </p>
-          <p className="small muted-3">v1 에는 삭제가 없습니다 — 취소된 세션은 보관됩니다(SCREEN §8.2 Q2).</p>
+          <p className="small muted-3">삭제는 없습니다 — 취소된 세션은 그대로 보관됩니다.</p>
           <label className="s7-actions__field">
             <span className="small">사유(선택)</span>
             <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} data-testid="cancel-session-reason" />
@@ -153,7 +156,7 @@ export function SessionActions(props: SessionActionsProps) {
       {dialog === "director" && (
         <div className="s7-actions__dialog" role="dialog" aria-label="Director 교체" data-testid="director-dialog">
           <p className="small">
-            새 Director 를 고릅니다. 시스템 메시지로 남고, 열린 HITL 의 <code>director</code> 승인자가 새 Director 로 바뀝니다.
+            새 Director 를 고릅니다. 시스템 메시지로 남고, 답을 기다리는 확인 요청의 승인자도 새 Director 로 바뀝니다.
           </p>
           <label className="s7-actions__field">
             <span className="small">새 Director</span>
@@ -168,7 +171,7 @@ export function SessionActions(props: SessionActionsProps) {
                 .filter((m) => m.user.id !== s.director_user_id)
                 .map((m) => (
                   <option key={m.user.id} value={m.user.id}>
-                    {m.user.display_name} · {m.role}
+                    {m.user.display_name} · {ROLE_LABEL[m.role] ?? m.role}
                   </option>
                 ))}
             </select>

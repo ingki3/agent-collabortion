@@ -159,7 +159,7 @@ const INBOX: InboxItem[] = [
     card: { title: "보고서를 승인해 주세요", body: "승인 대상: 보고서.pdf", agent_name: "Writer", hitl_type: "approval" },
     actions: ["approve", "reject", "open_session"] }),
   inbox({ type: "lane_blocked", severity: "action_required",
-    card: { title: "Researcher: '국내만인가요, 글로벌 포함인가요?'", body: "위임자가 없는 lane 입니다 — 답글이 곧 지시가 됩니다.", agent_name: "Researcher" },
+    card: { title: "Researcher: '국내만인가요, 글로벌 포함인가요?'", body: "위임한 사람이 없는 작업 줄기입니다 — 답글이 곧 지시가 됩니다.", agent_name: "Researcher" },
     actions: ["reply", "open_session"] }),
   inbox({ type: "session_paused", severity: "attention",
     card: { title: "세션이 멈췄습니다", body: "예산 초과 — $21.40 / $20", paused_reason: "budget" },
@@ -186,7 +186,7 @@ export default function ComponentsPage() {
           {STATUSES.map((s) => (
             <div className="story__cell" key={s}>
               <div className="story__label">status={s}</div>
-              <AgentChip name="Backend" role="engineer" status={s} profile="Hermes · gpt" statusNote={s === "idle" ? "lane #3 예산 대기 — 둘째 줄로 줄바꿈된다(N2)" : undefined} isAssignee={s === "working"} />
+              <AgentChip name="Backend" role="engineer" status={s} profile="Hermes · gpt" statusNote={s === "idle" ? "작업 줄기 #3 예산 대기 — 둘째 줄로 줄바꿈된다(N2)" : undefined} isAssignee={s === "working"} />
             </div>
           ))}
           <div className="story__cell">

@@ -30,7 +30,7 @@ type Filter = "all" | "unread" | "action_required";
 const FILTER_LABEL: Record<Filter, string> = {
   all: "전체",
   unread: "미읽음",
-  action_required: "액션 필요",
+  action_required: "조치 필요",
 };
 
 export default function InboxPage() {
@@ -111,7 +111,7 @@ export default function InboxPage() {
   }, [items]);
 
   async function respond(item: InboxItem, body: HitlResponse) {
-    if (!item.ref_id) throw new Error("이 항목에는 HITL 요청 id 가 없습니다");
+    if (!item.ref_id) throw new Error("이 항목에는 응답할 요청이 연결돼 있지 않습니다");
     setBusy(true);
     try {
       const r = await api.post("/hitl-requests/{hitlRequestId}/response", {
@@ -200,7 +200,7 @@ export default function InboxPage() {
   return (
     <div className="s8" data-testid="inbox-page" data-filter={filter}>
       <div className="page-head">
-        <h1>Inbox</h1>
+        <h1>받은 요청</h1>
         <span className="s8__counts" data-testid="inbox-counts">
           조치 필요 <b data-testid="inbox-count-action">{summary?.action_required ?? 0}</b>
           {summary?.overdue ? <> · 기한 지남 <b data-testid="inbox-count-overdue">{summary.overdue}</b></> : null}

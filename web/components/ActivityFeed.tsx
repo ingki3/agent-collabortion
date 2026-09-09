@@ -153,7 +153,7 @@ export function ActivityFeed({ events, structured = true, loading, cut1 = false,
         })}
       </ol>
       {rows.some((r) => isFailure(r.latest)) && (
-        <div className="feed__failnote" data-testid="feed-has-failure">실패한 항목이 있습니다 — 자동 재시도 여부는 lane 카드가 말합니다.</div>
+        <div className="feed__failnote" data-testid="feed-has-failure">실패한 항목이 있습니다 — 자동 재시도 여부는 작업 줄기 카드가 말합니다.</div>
       )}
       {raw && <div className="feed__raw"><ActivityRail events={events} structured /></div>}
     </div>

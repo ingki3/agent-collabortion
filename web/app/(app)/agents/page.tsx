@@ -10,9 +10,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
+import { badgeSpec } from "@/components/badge-map";
 import { api, errorMessage } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
-import type { Agent, AgentRole, AgentTemplate, RespondTo } from "@/lib/api/types";
+import type { Agent, AgentRole, AgentStatus, AgentTemplate, RespondTo } from "@/lib/api/types";
 
 const RESPOND_TO_LABEL: Record<RespondTo, string> = {
   owner: "소유자만",
@@ -84,7 +85,7 @@ export default function AgentsPage() {
   return (
     <div>
       <div className="page-head">
-        <h1>Agents</h1>
+        <h1>에이전트</h1>
         <div className="row">
           <button type="button" className="btn" onClick={() => { setOpenTemplates((v) => !v); void loadTemplates(); }} data-testid="open-templates">
             팀 템플릿
@@ -105,7 +106,7 @@ export default function AgentsPage() {
         <section className="card" style={{ marginBottom: 16 }} data-testid="team-templates">
           <h2 style={{ fontSize: "var(--fs-card)", margin: "0 0 4px" }}>팀 템플릿</h2>
           <p className="small muted-3" style={{ marginTop: 0 }}>
-            역할과 instruction 만 담깁니다. 프로파일은 이 워크스페이스에서 감지된 런타임에 맞춰 자동 매핑됩니다(FR-1.4).
+            역할과 지시문만 담깁니다. 프로파일은 이 워크스페이스에서 감지된 도구에 맞춰 자동으로 짝지어집니다.
           </p>
           {templates === null ? <p className="muted small">불러오는 중…</p> : (
             <div className="story__grid">
@@ -141,7 +142,7 @@ export default function AgentsPage() {
         </select>
         <select className="select" style={{ width: "auto" }} value={status} onChange={(e) => setStatus(e.target.value)} aria-label="상태 필터">
           <option value="">상태 전체</option>
-          {["idle", "working", "waiting_human", "error", "offline", "disabled"].map((s) => <option key={s} value={s}>{s}</option>)}
+          {(["idle", "working", "waiting_human", "error", "offline", "disabled"] as AgentStatus[]).map((s) => <option key={s} value={s}>{badgeSpec("agent", s).label}</option>)}
         </select>
         <label className="small muted">
           <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> 내가 만든 것만

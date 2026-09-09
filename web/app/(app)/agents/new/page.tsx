@@ -82,8 +82,8 @@ export default function NewAgentPage() {
       {models.size === 0 && (
         <div className="empty" data-testid="new-agent-no-runtime">
           <div className="empty__title">먼저 컴퓨터를 연결하세요</div>
-          <div className="empty__body">프로파일의 모델 목록은 데몬 probe 결과로 채워집니다.</div>
-          <Link href="/runtimes/new" className="btn btn--primary">Add a computer</Link>
+          <div className="empty__body">프로파일의 모델 목록은 연결된 컴퓨터에서 감지한 것으로 채워집니다.</div>
+          <Link href="/runtimes/new" className="btn btn--primary">컴퓨터 연결</Link>
         </div>
       )}
       <form onSubmit={submit}>
@@ -96,7 +96,7 @@ export default function NewAgentPage() {
           <select className="select" value={role} onChange={(e) => setRole(e.target.value as AgentRole)} data-testid="agent-role">
             {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
-          {role === "lead" && <span className="field__hint" data-testid="lead-protocol-note">코디네이션 프로토콜이 instruction 에 자동 추가됩니다.</span>}
+          {role === "lead" && <span className="field__hint" data-testid="lead-protocol-note">협업 규칙이 지시문에 자동으로 붙습니다.</span>}
         </label>
         <label className="field">
           <span className="field__label">역할 설명</span>
@@ -104,19 +104,19 @@ export default function NewAgentPage() {
           <span className="field__hint">다른 에이전트의 로스터에 노출됩니다 — 위임 판단의 근거가 됩니다.</span>
         </label>
         <label className="field">
-          <span className="field__label">instruction</span>
+          <span className="field__label">지시문</span>
           <textarea className="textarea" required style={{ minHeight: 140 }} value={instructions} onChange={(e) => setInstructions(e.target.value)} data-testid="agent-instructions-input" />
         </label>
         <div className="row">
           <label className="field" style={{ flex: 1 }}>
-            <span className="field__label">런타임 종류</span>
+            <span className="field__label">에이전트 도구</span>
             <select className="select" value={kind} onChange={(e) => setKind(e.target.value as RuntimeKind)} data-testid="agent-kind">
               <option value="">고르세요</option>
               {[...models.keys()].map((k) => <option key={k} value={k}>{k}</option>)}
             </select>
           </label>
           <label className="field" style={{ flex: 1 }}>
-            <span className="field__label">모델 (probe 결과)</span>
+            <span className="field__label">모델 (감지된 목록)</span>
             <select className="select" value={model} onChange={(e) => setModel(e.target.value)} data-testid="agent-model">
               {kindModels.length === 0 && <option value="">감지된 모델 없음</option>}
               {kindModels.map((m) => <option key={m} value={m}>{m}</option>)}

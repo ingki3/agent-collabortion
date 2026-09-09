@@ -96,7 +96,7 @@ export function AgentChip(props: AgentChipProps) {
       <span className="agent-chip__text">
         <span className="agent-chip__line1">
           <span className="agent-chip__name">@{props.name}</span>
-          {props.isAssignee && <span className="agent-chip__assignee">assignee</span>}
+          {props.isAssignee && <span className="agent-chip__assignee">담당</span>}
           {props.archived && (
             <span className="agent-chip__archived" data-testid="agent-chip-archived">보관됨</span>
           )}

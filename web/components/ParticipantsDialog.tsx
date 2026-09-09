@@ -18,7 +18,7 @@ import type { Agent, Lane, Participant } from "@/lib/api/types";
 const BUSY_LANE = new Set<Lane["status"]>(["queued", "running", "waiting_human", "paused"]);
 
 export function removalBlock(agentId: string, lanes: Lane[], assigneeAgentId: string | null | undefined): string | null {
-  if (assigneeAgentId && agentId === assigneeAgentId) return "assignee 는 제거할 수 없습니다 — 먼저 다른 assignee 를 지정하세요";
+  if (assigneeAgentId && agentId === assigneeAgentId) return "담당 에이전트는 뺄 수 없습니다 — 먼저 다른 담당을 지정하세요";
   const busy = lanes.filter((l) => l.agent_id === agentId && BUSY_LANE.has(l.status));
   return busy.length > 0
     ? `진행 중 lane 이 ${busy.length}개 있습니다 — 먼저 끝내거나 중단하세요`
@@ -120,7 +120,7 @@ export function ParticipantsDialog(props: ParticipantsDialogProps) {
         </label>
         {picked && picked.invitable?.allowed === false && (
           <p className="small s7-actions__warn" data-testid="participant-not-invitable">
-            {picked.invitable.reason ?? "이 에이전트는 초대할 수 없습니다(respond_to)"}
+            {picked.invitable.reason ?? "이 에이전트는 응답 대상 설정 때문에 초대할 수 없습니다"}
           </p>
         )}
         {picked && picked.profiles.length > 1 && (

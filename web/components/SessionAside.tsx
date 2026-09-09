@@ -10,8 +10,8 @@ import { PausedBanner, type PausedBannerProps } from "./PausedBanner";
 import { humanDuration, relativeTime } from "@/lib/time";
 import type { Artifact, Decision, Session } from "@/lib/api/types";
 
-const ISOLATION_LABEL = { none: "격리 없음(none)", worktree: "worktree", container: "container" } as const;
-const AUTONOMY_LABEL = { guided: "guided — 기한이 지나도 계속 기다립니다", autonomous: "autonomous — 기한이 지나면 제안 기본값으로 진행(승인은 예외)", supervised: "supervised (v1.1)" } as const;
+const ISOLATION_LABEL = { none: "격리 없음", worktree: "워크트리", container: "컨테이너" } as const;
+const AUTONOMY_LABEL = { guided: "기다림 — 기한이 지나도 계속 답을 기다립니다", autonomous: "알아서 진행 — 기한이 지나면 제안값으로 진행(승인은 예외)", supervised: "매번 확인 (다음 버전)" } as const;
 
 export interface SessionAsideProps {
   session: Session;
@@ -50,7 +50,7 @@ export function SessionAside(props: SessionAsideProps) {
       )}
 
       <section className="aside__sec" data-testid="aside-goal">
-        <h2 className="aside__h">Goal</h2>
+        <h2 className="aside__h">목표</h2>
         <p className="aside__goal">{s.goal}</p>
         {s.acceptance_criteria.length > 0 && (
           <ul className="aside__list">
@@ -110,7 +110,7 @@ export function SessionAside(props: SessionAsideProps) {
               <li key={d.id} data-testid="decision-row">
                 <span className="aside__name">{d.summary}</span>
                 {d.auto && <span className="aside__auto" data-testid="decision-auto"> 자동</span>}
-                <span className="aside__quiet"> · {d.source === "hitl" ? "HITL" : "에이전트"} · {relativeTime(d.created_at)}</span>
+                <span className="aside__quiet"> · {d.source === "hitl" ? "사람 확인" : "에이전트"} · {relativeTime(d.created_at)}</span>
                 {d.rationale && <div className="aside__quiet">{d.rationale}</div>}
               </li>
             ))}
@@ -131,27 +131,27 @@ export function SessionAside(props: SessionAsideProps) {
             <span style={{ width: `${Math.min(100, pct ?? 0)}%` }} />
           </div>
         )}
-        {s.cost_estimated && <p className="aside__quiet">런타임이 사용량을 보고하지 않아 추정치입니다 — 하드 컷을 하지 않습니다(FR-7.3).</p>}
+        {s.cost_estimated && <p className="aside__quiet">이 컴퓨터가 사용량을 보고하지 않아 추정치입니다 — 금액으로 자동 중단하지 않습니다.</p>}
       </section>
 
       <section className="aside__sec" data-testid="aside-settings">
         <h2 className="aside__h">세션 설정</h2>
         <dl className="aside__dl">
-          <dt>런타임</dt>
+          <dt>컴퓨터</dt>
           <dd data-testid="aside-runtime">{props.runtimeName ?? (s.runtime_id ? s.runtime_id.slice(0, 8) : "자동 선택 — 첫 실행 시 고정")}</dd>
           <dt>격리</dt>
           <dd>{ISOLATION_LABEL[s.isolation.kind]}{s.isolation.repo_path ? ` · ${s.isolation.repo_path}` : ""}</dd>
-          <dt>autonomy</dt>
+          <dt>자율성</dt>
           <dd>{AUTONOMY_LABEL[s.autonomy]}</dd>
           <dt>한도</dt>
           <dd>
             {budget != null ? `$${budget}` : "예산 없음"} · {s.limits.time_limit ? humanDuration(s.limits.time_limit) : "시간 제한 없음"} ·
-            병렬 lane {s.limits.max_parallel_lanes ?? 5}
+            동시에 {s.limits.max_parallel_lanes ?? 5}줄기까지
           </dd>
           <dt>Director</dt>
-          <dd>{s.director?.display_name ?? "—"}{s.deputy_director ? ` · deputy ${s.deputy_director.display_name}` : ""}</dd>
+          <dd>{s.director?.display_name ?? "—"}{s.deputy_director ? ` · 대리 ${s.deputy_director.display_name}` : ""}</dd>
         </dl>
-        <p className="aside__quiet">런타임과 격리는 변경할 수 없습니다 — workdir 이 묶여 있습니다(SCREEN §4.5 상단 액션).</p>
+        <p className="aside__quiet">컴퓨터와 격리 방식은 바꿀 수 없습니다 — 작업 폴더가 거기 묶여 있습니다.</p>
       </section>
     </aside>
   );

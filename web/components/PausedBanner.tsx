@@ -29,7 +29,7 @@ export const PAUSE_TITLE: Record<PauseReason, string> = {
   budget: "예산 초과로 일시정지",
   time: "시간 상한 도달로 일시정지",
   loop: "루프 상한 도달로 일시정지",
-  runtime_offline: "런타임 오프라인으로 일시정지",
+  runtime_offline: "컴퓨터 오프라인으로 일시정지",
   director: "Director 가 일시정지했습니다",
 };
 
@@ -56,8 +56,8 @@ export function pausedSummary(d: PausedDetail, agentName?: (id: string) => strin
     case "runtime_offline": {
       const r = d.runtime;
       return r?.offline_since
-        ? `런타임이 ${relativeTime(r.offline_since)}부터 오프라인입니다`
-        : "세션 런타임이 오프라인입니다";
+        ? `이 세션의 컴퓨터가 ${relativeTime(r.offline_since)}부터 오프라인입니다`
+        : "이 세션의 컴퓨터가 오프라인입니다";
     }
     case "director":
       return "Director 가 일시정지했습니다 — 진행 중이던 턴은 마치고 대기 중입니다.";
@@ -107,11 +107,11 @@ export function PausedBanner({ detail, agentName, onResume, onRebind, onCancel, 
       {detail.reason === "loop" && detail.loop?.limit && (
         <p className="pbanner__hint" data-testid="paused-loop-limit" data-limit={detail.loop.limit} data-count={detail.loop.count ?? 0}>
           올려야 할 상한: <b>{LOOP_LIMIT_LABEL[detail.loop.limit]}</b> · 현재 {detail.loop.count ?? 0}회.
-          승인만 하면 같은 핑퐁이 반복됩니다 — lane 을 중단하거나 다시 지시해 방향을 바꿀 수도 있습니다.
+          승인만 하면 같은 주고받기가 반복됩니다 — 작업 줄기를 중단하거나 다시 지시해 방향을 바꿀 수도 있습니다.
         </p>
       )}
       {detail.reason === "runtime_offline" && (
-        <p className="pbanner__hint">이 사유는 재개할 수 없습니다 — 다른 런타임으로 재바인딩하거나 세션을 종료하세요(FR-9.2).</p>
+        <p className="pbanner__hint">이 사유는 재개할 수 없습니다 — 다른 컴퓨터로 재바인딩하거나 세션을 종료하세요.</p>
       )}
       <p className="pbanner__meta">일시정지 {relativeTime(detail.paused_at)}{gateNote ? ` · ${gateNote}` : ""}</p>
 
@@ -146,7 +146,7 @@ export function PausedBanner({ detail, agentName, onResume, onRebind, onCancel, 
         </button>
         {actions.has("rebind") && (
           <button type="button" className="btn btn--sm" disabled={busy || !onRebind} onClick={onRebind} data-testid="paused-rebind">
-            다른 런타임으로 재바인딩
+            다른 컴퓨터로 재바인딩
           </button>
         )}
         {actions.has("cancel") && (

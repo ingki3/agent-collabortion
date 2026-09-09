@@ -9,6 +9,7 @@
  */
 import { useEffect, useState } from "react";
 import { Badge } from "./Badge";
+import { failureLabel } from "@/lib/failure";
 import { clockTime, durationSince } from "@/lib/time";
 import type { Task, TaskAttempt } from "@/lib/api/types";
 
@@ -32,7 +33,7 @@ function AttemptLine({ a }: { a: TaskAttempt }) {
       {" · "}
       {durationSince(a.started_at, a.finished_at)}
       {a.resumed === false && <b className="lane-hist__cold" data-testid="task-cold-start"> · 콜드 스타트</b>}
-      {a.resumed === true && <span className="lane-hist__resumed"> · resume</span>}
+      {a.resumed === true && <span className="lane-hist__resumed"> · 이어서 실행</span>}
       {a.outcome ? ` · ${a.outcome}` : ""}
     </span>
   );
@@ -54,7 +55,7 @@ export function LaneTaskHistory({ laneId, load, onOpenTrigger }: LaneTaskHistory
 
   if (error) return <p className="lane-hist__quiet" data-testid="lane-tasks-error">{error}</p>;
   if (!tasks) return <p className="lane-hist__quiet">불러오는 중…</p>;
-  if (tasks.length === 0) return <p className="lane-hist__quiet" data-testid="lane-tasks-empty">아직 task 가 없습니다.</p>;
+  if (tasks.length === 0) return <p className="lane-hist__quiet" data-testid="lane-tasks-empty">아직 실행된 작업이 없습니다.</p>;
 
   return (
     <ol className="lane-hist" data-testid="lane-task-history">
@@ -65,7 +66,7 @@ export function LaneTaskHistory({ laneId, load, onOpenTrigger }: LaneTaskHistory
             <div className="lane-hist__l1">
               <span className="lane-hist__no" data-testid="task-label">{taskLabel(t, i)}</span>
               <Badge kind="task" value={t.status} size="sm" />
-              {t.failure_kind && <span className="lane-hist__why">{t.failure_kind}</span>}
+              {t.failure_kind && <span className="lane-hist__why">{failureLabel(t.failure_kind)}</span>}
               <span className="lane-hist__cost">
                 {t.usage ? `$${t.usage.cost_usd.toFixed(2)}${t.usage.estimated ? " 추정" : ""}` : "—"}
               </span>

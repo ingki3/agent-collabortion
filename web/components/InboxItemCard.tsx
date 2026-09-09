@@ -17,6 +17,8 @@ import "./inbox-item.css";
 import { Badge } from "./Badge";
 import { HitlBody, type HitlAction } from "./HitlBody";
 import { dueLabel } from "./HitlBody";
+import { failureLabel } from "@/lib/failure";
+import { PAUSE_REASON_LABEL } from "@/lib/session-label";
 import { clockTime, relativeTime } from "@/lib/time";
 import type { HitlRequest, HitlResponse, InboxItem } from "@/lib/api/types";
 import type { Tone } from "./badge-map";
@@ -30,10 +32,10 @@ export const TYPE_LABEL: Record<ItemType, string> = {
   lane_blocked: "에이전트 질문",
   session_paused: "세션 일시정지",
   run_failed: "작업 실패",
-  runtime_offline: "런타임 오프라인",
+  runtime_offline: "컴퓨터 오프라인",
   session_completed: "세션 완료",
   mention: "멘션",
-  workdir_gc_blocked: "workdir 정리 차단",
+  workdir_gc_blocked: "작업 폴더 정리 막힘",
 };
 
 /**
@@ -62,7 +64,7 @@ export const ACTION_LABEL: Record<InboxAction, string> = {
   restart: "다시 지시",
   rebind: "재바인딩",
   open_session: "세션 열기",
-  open_runtimes: "Runtimes 열기",
+  open_runtimes: "연결된 컴퓨터 열기",
 };
 
 /** `actions` 중 HITL 본문이 직접 처리하는 것(입력부와 붙어 있어야 한다). 나머지는 카드 하단 버튼이다. */
@@ -76,9 +78,11 @@ export function extraLine(item: InboxItem): string | null {
       // 부가 칸은 본문에 없는 것만 말한다: deputy 위임 시점(O5).
       return item.delegated ? "위임됨 · 지금부터 응답 가능" : null;
     case "session_paused":
-      return item.card?.paused_reason ? `사유 ${item.card.paused_reason} — 승인하면 같은 lane·workdir 로 이어갑니다` : null;
+      return item.card?.paused_reason
+        ? `${PAUSE_REASON_LABEL[item.card.paused_reason] ?? item.card.paused_reason} — 승인하면 하던 자리에서 그대로 이어갑니다`
+        : null;
     case "run_failed":
-      return item.card?.failure_kind ? `실패 분류 ${item.card.failure_kind} — 맥락을 더해 다시 지시하세요` : null;
+      return item.card?.failure_kind ? `${failureLabel(item.card.failure_kind)} — 맥락을 더해 다시 지시하세요` : null;
     case "runtime_offline":
       return item.card?.grace_ends_at ? `유예 만료 ${clockTime(item.card.grace_ends_at)}` : null;
     case "session_completed":

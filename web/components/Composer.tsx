@@ -65,8 +65,8 @@ export const RULE_NOTE: Record<number, string> = {
   3: "트리거 없음(규칙 3)",
   4: "스레드 답글(규칙 4)",
   5: "질문 답글(규칙 5)",
-  6: "assignee 기본(규칙 6)",
-  7: "assignee 폴백(규칙 7)",
+  6: "담당 에이전트 기본(규칙 6)",
+  7: "담당 에이전트 폴백(규칙 7)",
   8: "합류(규칙 8)",
 };
 
@@ -283,12 +283,12 @@ export function Composer(props: ComposerProps) {
           </span>
         )}
         {p.note_only && (
-          <span className="chip" data-testid="chip-note-only" title="FR-3.3 규칙 1 — /note 접두 메시지는 트리거 없음">
+          <span className="chip" data-testid="chip-note-only" title="/note 로 시작하는 메시지는 아무도 깨우지 않습니다(규칙 1)">
             기록만 — 아무도 깨우지 않습니다(규칙 1)
           </span>
         )}
         {p.implicit_routing_suppressed && !p.note_only && (
-          <span className="chip" data-testid="chip-no-trigger" title="FR-3.3 규칙 3 — @all·사람만 멘션이면 에이전트 트리거 없음">
+          <span className="chip" data-testid="chip-no-trigger" title="@all 이나 사람만 멘션하면 에이전트를 깨우지 않습니다(규칙 3)">
             트리거 없음 — @all·사람만 멘션(규칙 3)
           </span>
         )}
@@ -306,14 +306,14 @@ export function Composer(props: ComposerProps) {
               {t.profile?.model ? ` · ${t.profile.model}` : ""}
               {t.will_queue ? " · 실행 중 → 현재 턴 종료 후 처리됩니다" : ""}
               {t.lane.reentry ? " · 재진입" : ""}
-              {t.lane.lane_id === null ? " · 새 lane" : ""}
+              {t.lane.lane_id === null ? " · 새 작업 줄기" : ""}
               {t.deferred_until ? " · 5분 뒤 폴백" : ""}
             </span>
             <button
               type="button"
               className="chip__x"
               aria-label={`@${t.agent_name} 트리거 억제`}
-              title="이번 메시지에서만 깨우지 않음(FR-3.6). 멘션은 본문에 남습니다"
+              title="이번 메시지에서만 깨우지 않습니다. 멘션은 본문에 남습니다"
               onClick={() => suppress(t.agent_id, t.agent_name)}
             >
               ✕
@@ -342,13 +342,13 @@ export function Composer(props: ComposerProps) {
             disabled={props.disabled}
             onChange={(e) => setNewLane(e.target.checked)}
             data-testid="new-lane-toggle"
-            aria-label="새 lane으로 보내기"
+            aria-label="새 작업 줄기로 보내기"
           />
-          <span>새 lane으로 보내기</span>
+          <span>새 작업 줄기로 보내기</span>
         </label>
         {newLane && (
           <span className="composer__lane-note" data-testid="new-lane-note">
-            새 lane으로 전송됨 — 전송하면 해제됩니다
+            새 작업 줄기로 전송됨 — 전송하면 해제됩니다
           </span>
         )}
         <span className="composer__hint">⌘/Ctrl+Enter 로 전송 · @ 로 멘션</span>

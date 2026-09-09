@@ -1,8 +1,8 @@
 "use client";
 /**
- * S13 Workdir 관리(SCREEN §4.8 · FR-6.4 M4 · U6 9·10·11).
+ * S13 작업 폴더(SCREEN §4.8 · FR-6.4 M4 · U6 9·10·11).
  *
- * 목록 한 행 = 하나의 작업 공간이다: 종류 · 소유(에이전트 또는 lane) · 경로·브랜치 · 용량 · 마지막 사용 ·
+ * 목록 한 행 = 하나의 작업 공간이다: 종류 · 소유(에이전트 또는 작업 줄기) · 경로·브랜치 · 용량 · 마지막 사용 ·
  * 보존 만료일 · 상태. 상단은 워크스페이스 용량 상한 대비 사용률(E13-16 은 `>` 가 아니라 `≥` 다).
  *
  * **수동 정리는 행 단위 삭제다**(Lead 판정 2026-09-07). 계약에 "지금 GC 를 돌려라" op 이 없다 —
@@ -112,8 +112,8 @@ export default function WorkdirsPage() {
   return (
     <div data-testid="workdirs-page" data-runtime-id={runtimeId}>
       <div className="page-head">
-        <h1>Workdir 관리</h1>
-        <Link href="/runtimes" className="btn btn--ghost btn--sm">Runtimes</Link>
+        <h1>작업 폴더</h1>
+        <Link href="/runtimes" className="btn btn--ghost btn--sm">연결된 컴퓨터</Link>
       </div>
       <p className="small muted-3" data-testid="workdirs-runtime">{runtime?.name ?? runtimeId}</p>
 
@@ -126,14 +126,14 @@ export default function WorkdirsPage() {
         )}
         {quota.atLimit && (
           <div className="wd__quota-note" role="alert" data-testid="workdir-quota-full">
-            용량 상한에 도달했습니다 — 정리하기 전까지 새 세션을 만들 수 없습니다(FR-6.4).
+            용량 상한에 도달했습니다 — 정리하기 전까지 새 세션을 만들 수 없습니다.
           </div>
         )}
       </div>
 
       {blockedRows.length > 0 && (
         <div className="notice" role="status" data-testid="workdir-gc-blocked-alert">
-          자동 정리가 <b>{blockedRows.length}개</b>의 workdir 을 지우지 못했습니다 — 아래 행의 사유를 보고 병합하거나 커밋하세요.
+          자동 정리가 <b>{blockedRows.length}개</b>의 작업 폴더를 지우지 못했습니다 — 아래 행의 사유를 보고 병합하거나 커밋하세요.
         </div>
       )}
       {toast && <p className="wd__toast" role="status" data-testid="workdir-toast">{toast}</p>}
@@ -144,7 +144,7 @@ export default function WorkdirsPage() {
       ) : items.length === 0 ? (
         <div className="empty" data-testid="workdirs-empty">
           <div className="empty__title">이 컴퓨터에 남은 작업 공간이 없습니다</div>
-          <div className="empty__body">worktree 는 세션이 끝난 뒤 보존 기한(기본 14일)까지 남고, container·none 은 즉시 정리됩니다.</div>
+          <div className="empty__body">워크트리는 세션이 끝난 뒤 보존 기한(기본 14일)까지 남고, 컨테이너와 격리 없는 세션의 폴더는 즉시 정리됩니다.</div>
         </div>
       ) : (
         <ul className="wd__list" data-testid="workdir-list">
@@ -152,7 +152,8 @@ export default function WorkdirsPage() {
             const gc = gcBlockText(w);
             const blocked = deleteBlocked(w);
             const asked = refused[w.id];
-            const owner = w.agent_id ? `@${agentName(w.agent_id)}` : w.lane_id ? `lane ${w.lane_id.slice(0, 8)}` : "—";
+            // 소유가 작업 줄기면 **id 를 보여 주지 않는다**(§8.4) — 사람은 그 문자열로 아무 결정도 하지 못한다.
+            const owner = w.agent_id ? `@${agentName(w.agent_id)}` : w.lane_id ? "작업 줄기" : "—";
             return (
               <li
                 key={w.id}
@@ -226,7 +227,7 @@ export default function WorkdirsPage() {
                       </button>
                     )}
                     {w.kind === "worktree" && (
-                      <span className="small muted-3" data-testid="workdir-branch-note">워크트리만 지웁니다 — 브랜치는 남습니다.</span>
+                      <span className="small muted-3" data-testid="workdir-branch-note">작업 폴더만 지웁니다 — 브랜치는 남습니다.</span>
                     )}
                   </div>
                 )}

@@ -100,7 +100,7 @@ describe("제거 조건(계약 removeParticipant 409)", () => {
   });
 
   it("assignee 는 제거할 수 없고 사유가 다음 할 일을 말한다", () => {
-    expect(removalBlock("a1", [], "a1")).toContain("다른 assignee");
+    expect(removalBlock("a1", [], "a1")).toContain("먼저 다른 담당을 지정");
   });
 
   it("막힌 이유가 버튼 툴팁으로 나온다 — 비활성 + 사유(SCREEN §7)", () => {

@@ -15,7 +15,7 @@ import "./profile-row.css";
 import type { KindCapability } from "@/lib/runtime-options";
 import type { AgentProfile, RuntimeKind } from "@/lib/api/types";
 
-const NO_ADVERT = "이 런타임은 이 옵션의 지원 범위를 광고하지 않습니다";
+const NO_ADVERT = "이 도구가 고를 수 있는 값을 알려 주지 않았습니다";
 
 export interface AgentProfileEditorProps {
   profiles: AgentProfile[];
@@ -72,7 +72,7 @@ function OptionRow({
   if (advertised.length === 0) {
     return (
       <span className="prof__quiet" data-testid="profile-options-unadvertised" data-kind={kind}>
-        옵션 — {NO_ADVERT}. 프로파일은 런타임 기본값으로 동작하고, 데몬이 범위를 보고하면 여기서 고를 수 있습니다.
+        옵션 — {NO_ADVERT}. 프로파일은 기본값으로 동작하고, 고를 수 있는 값이 보고되면 여기서 선택할 수 있습니다.
       </span>
     );
   }
@@ -176,7 +176,7 @@ export function AgentProfileEditor(props: AgentProfileEditorProps) {
                   {props.profiles.filter((x) => x.id !== p.id).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
                 </select>
               </label>
-              <span className="prof__quiet">폴백은 같은 머신 안에서만 일어납니다(FR-1.6)</span>
+              <span className="prof__quiet">폴백은 같은 컴퓨터 안에서만 일어납니다</span>
               <span className="prof__spacer" />
               {!p.is_default && (
                 <button type="button" className="btn btn--sm" disabled={!props.canEdit} onClick={() => void props.onUpdate(p.id, { is_default: true })} data-testid="profile-make-default">

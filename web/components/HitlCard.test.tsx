@@ -59,7 +59,7 @@ describe("권한 3상태(SCREEN §7 · E7-09·E7-11)", () => {
     expect(screen.queryByTestId("hitl-lock")).toBeNull();
     // 화면을 숨기지 않는다 — 질문은 보이고 사유가 붙는다(SCREEN §7).
     expect(screen.getByTestId("hitl-question")).toBeTruthy();
-    expect(screen.getByTestId("hitl-no-right").textContent).toContain("Director·deputy");
+    expect(screen.getByTestId("hitl-no-right").textContent).toContain("Director·대리 Director");
   });
 
   it("권한이 없는 사람에게 시각을 약속하지 않는다 — 두 케이스의 차이가 곧 계약 문언이다", () => {
@@ -127,7 +127,7 @@ describe("타입별 입력부(FR-5.1 · SCREEN §2.3 C4)", () => {
     expect(screen.getByTestId("hitl-budget-input")).toBeTruthy();
     // task_id 가 있으면 task 상한이다 — 세션 상한이 아니다(E9-01 s-13).
     expect(screen.getByTestId("hitl-budget-field").getAttribute("data-scope")).toBe("task");
-    expect(screen.getByTestId("hitl-budget-field").textContent).toContain("새 task 상한");
+    expect(screen.getByTestId("hitl-budget-field").textContent).toContain("이 작업의 새 상한");
   });
 
   it("세션 범위(task_id 없음)는 '새 세션 상한' 이고 소진액이 최소값이다(E9-10)", () => {
@@ -202,12 +202,12 @@ describe("시스템 발행 문구 — purpose 가 판정 기준이다(0012)", ()
     for (const [purpose, reason] of Object.entries(PURPOSE_REASON)) {
       const line = hitlMetaLine({ source: "system", purpose: purpose as never, created_at: T0 });
       expect(line).toContain(reason);
-      expect(line).toContain("source: system");
+      expect(line).toContain("자동으로 올라온 요청");
     }
   });
 
   it("에이전트 발행에는 사유 줄이 없다 — 발행 이유가 곧 질문이다", () => {
-    expect(hitlMetaLine({ source: "agent", purpose: "agent", created_at: T0 })).toContain("source: agent");
+    expect(hitlMetaLine({ source: "agent", purpose: "agent", created_at: T0 })).toContain("에이전트가 요청");
     render(<HitlCard request={req()} />);
     expect(screen.getByTestId("hitl-author").textContent).toBe("Writer");
   });
