@@ -272,13 +272,13 @@ export default function InboxPage() {
       )}
 
       <style>{`
-        .s8__counts { color: var(--ink-3); font-size: 12px; }
+        .s8__counts { color: var(--ink-2); font-size: var(--fs-sub); }
         .s8__filters { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 8px 0 10px; }
-        .s8__filter { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+        .s8__filter { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 4px 12px; font-size: var(--fs-body); cursor: pointer; }
         .s8__filter--on { border-color: var(--ink); font-weight: 600; }
         .s8__spacer { flex: 1; }
         .s8__list { display: flex; flex-direction: column; gap: 8px; }
-        .s8__toast { margin: 0 0 8px; font-size: 12px; color: var(--s-done-text); }
+        .s8__toast { margin: 0 0 8px; font-size: var(--fs-sub); color: var(--s-done-text); }
         /* 인박스 응답만 모바일 웹 대상이다(SCREEN §8.2 Q6) — 한 열, 버튼은 줄바꿈해도 크기를 지킨다. */
         @media (max-width: 640px) {
           .s8__filters { gap: 4px; }

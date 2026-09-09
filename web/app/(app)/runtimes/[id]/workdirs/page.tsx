@@ -242,33 +242,33 @@ export default function WorkdirsPage() {
 
       <style>{`
         .wd__quota { margin: 8px 0 12px; }
-        .wd__quota-text { font-size: 12px; color: var(--ink-2); }
+        .wd__quota-text { font-size: var(--fs-sub); color: var(--ink-2); }
         .wd__bar { height: 6px; border-radius: 3px; background: var(--surface); margin-top: 4px; overflow: hidden; }
         .wd__bar > span { display: block; height: 100%; background: var(--ink-3); }
         .wd__quota--full .wd__bar > span { background: var(--s-fail); }
-        .wd__quota-note { margin-top: 4px; font-size: 12px; color: var(--s-fail-text); }
+        .wd__quota-note { margin-top: 4px; font-size: var(--fs-sub); color: var(--s-fail-text); }
         .wd__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
         .wd__row { border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 4px; }
-        .wd__main { display: flex; align-items: center; gap: 8px; font-size: 13px; flex-wrap: wrap; }
-        .wd__kind { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; font-size: 11px; color: var(--ink-2); }
-        .wd__path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-        .wd__branch { font-size: 11px; color: var(--ink-3); }
+        .wd__main { display: flex; align-items: center; gap: 8px; font-size: var(--fs-body); flex-wrap: wrap; }
+        .wd__kind { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; font-size: var(--fs-meta); color: var(--ink-2); }
+        .wd__path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-sub); }
+        .wd__branch { font-size: var(--fs-meta); color: var(--ink-2); }
         .wd__spacer { flex: 1; }
-        .wd__status { font-size: 11px; color: var(--ink-2); }
+        .wd__status { font-size: var(--fs-meta); color: var(--ink-2); }
         .wd__meta { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
         .wd__gc {
-          margin-top: 4px; padding: 6px 8px; border-radius: 8px; font-size: 12px;
+          margin-top: 4px; padding: 6px 8px; border-radius: 8px; font-size: var(--fs-sub);
           border: 1px solid var(--s-wait); color: var(--s-wait-text);
           background: color-mix(in srgb, var(--s-wait) var(--soft-alpha), transparent);
         }
         .wd__refused {
-          margin-top: 4px; padding: 6px 8px; border-radius: 8px; font-size: 12px;
+          margin-top: 4px; padding: 6px 8px; border-radius: 8px; font-size: var(--fs-sub);
           border: 1px solid var(--s-fail); color: var(--s-fail-text);
           background: color-mix(in srgb, var(--s-fail) var(--soft-alpha), transparent);
         }
         .wd__actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
         .wd__danger { border-color: var(--s-fail); color: var(--s-fail-text); }
-        .wd__toast { margin: 0 0 8px; font-size: 12px; color: var(--s-done-text); }
+        .wd__toast { margin: 0 0 8px; font-size: var(--fs-sub); color: var(--s-done-text); }
       `}</style>
     </div>
   );

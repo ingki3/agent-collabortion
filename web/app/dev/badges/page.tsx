@@ -34,7 +34,7 @@ export default function BadgesPage() {
       ))}
 
       <section style={{ marginTop: 32 }}>
-        <h2 className="h1" style={{ fontSize: 16 }}>
+        <h2 className="h1" style={{ fontSize: "var(--fs-card)" }}>
           inbox × 원인 상태 tone
         </h2>
         <p className="muted-3">심각도 배지의 색은 항목의 원인 상태를 따른다(SCREEN §5, 리뷰 #03 N4). 격자 셀 수에 들어가지 않는다.</p>
@@ -63,7 +63,7 @@ export default function BadgesPage() {
       </section>
 
       <section style={{ marginTop: 32 }}>
-        <h2 className="h1" style={{ fontSize: 16 }}>
+        <h2 className="h1" style={{ fontSize: "var(--fs-card)" }}>
           size
         </h2>
         <p>
@@ -73,10 +73,10 @@ export default function BadgesPage() {
       </section>
 
       <style>{`
-        .grid { border-collapse: collapse; margin-top: 12px; font-size: 12px; }
+        .grid { border-collapse: collapse; margin-top: 12px; font-size: var(--fs-sub); }
         .grid th, .grid td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: middle; }
         .grid th { background: var(--surface); color: var(--ink-2); font-weight: 500; }
-        .grid td.meta { color: var(--ink-3); font-family: ui-monospace, monospace; font-size: 11px; }
+        .grid td.meta { color: var(--ink-2); font-family: ui-monospace, monospace; font-size: var(--fs-meta); }
       `}</style>
     </main>
   );
@@ -85,7 +85,7 @@ export default function BadgesPage() {
 function KindTable({ kind }: { kind: BadgeKind }) {
   return (
     <section style={{ marginTop: 24 }} data-testid={`badge-kind-${kind}`}>
-      <h2 className="h1" style={{ fontSize: 16 }}>
+      <h2 className="h1" style={{ fontSize: "var(--fs-card)" }}>
         {kind} <span className="muted-3">({badgeValues(kind).length})</span>
       </h2>
       <table className="grid">

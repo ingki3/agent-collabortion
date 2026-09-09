@@ -1,11 +1,30 @@
 /*
- * Design tokens — agent-collaboration.pen 변수와 1:1 (COMPONENTS.md: 색 18개 + 글꼴 1개).
- * 다크 테마는 v1 범위 밖. 상태색을 텍스트에 쓸 때는 예외 없이 -text 변형(SCREEN §5).
+ * Design tokens — agent-collaboration.pen 변수와 1:1 (COMPONENTS.md: 색 18개 + 글꼴 1개 + 글자 계단 5).
+ *
+ * 색은 **두 벌**이다(COMPONENTS §8.3). 밝음이 :root 기본, 어두움은
+ *   (1) @media (prefers-color-scheme: dark) — 사용자가 수동 지정을 하지 않았을 때(시스템 따름)
+ *   (2) [data-theme="dark"] — 설정에서 고른 값(localStorage, layout.tsx 인라인 스크립트가 첫 페인트 전에 심는다)
+ * 두 블록이 같은 값을 옮겨 적지 않도록 어두움 원본은 `--dk-*` 로 :root 에 한 번만 둔다.
+ *
+ * 상태색을 텍스트에 쓸 때는 예외 없이 -text 변형(SCREEN §5). 어두움에서는 -text 가 solid 보다
+ * **밝다** — 배경이 어두우니 대비 방향이 뒤집힌다.
+ *
+ * 글자 계단(§8.2)은 토큰 5개가 전부다. 컴포넌트 CSS 에 px 를 손으로 적지 않는다.
+ * `--fs-meta` 가 하한이다 — 그보다 작은 값을 새로 만들지 않는다.
  */
 :root {
   --font: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
 
-  /* 기본 6 */
+  /* 글자 계단 5 (§8.2) */
+  --fs-title: 24px;  /* 화면 제목 */
+  --fs-card: 17px;   /* 카드·항목 제목 */
+  --fs-body: 14px;   /* 본문·버튼·입력 */
+  --fs-sub: 13px;    /* 보조 설명·부가 줄 */
+  --fs-meta: 12px;   /* 메타·배지 — 하한 */
+
+  color-scheme: light;
+
+  /* 기본 6 — 밝음 */
   --bg: #ffffff;
   --surface: #f4f4f5;
   --line: #d4d4d8;
@@ -21,22 +40,114 @@
   --s-done: #16a34a;
   --s-fail: #dc2626;
 
-  /* 상태 text 6 — 텍스트 전용 짙은 변형 */
+  /*
+   * 상태 text 6 — 텍스트 전용 짙은 변형.
+   * wait·done 은 T-W7 에서 정정했다(Lead 판정): 이전 값 #b45309·#15803d 는 자기 soft 배경
+   * 위에서 4.42·4.39(--surface 위 4.05·4.01)로 4.5:1 에 못 미쳤다. .pen 은 P0 와이어프레임이고
+   * 지금 SSOT 는 COMPONENTS.md 다.
+   */
   --s-run-text: #1d4ed8;
-  --s-wait-text: #b45309;
+  --s-wait-text: #92400e;
   --s-block-text: #6d28d9;
   --s-pause-text: #be185d;
-  --s-done-text: #15803d;
+  --s-done-text: #166534;
   --s-fail-text: #b91c1c;
 
-  /* soft 배경 = 상태색 12% 알파 (파생값, 토큰 수에 들지 않음) */
+  /* soft 배경 = 상태색 알파 (파생값, 토큰 수에 들지 않음) */
   --soft-alpha: 12%;
+  /* 다이얼로그 스크림·팝오버 그림자 — 어두움에서 방향이 뒤집혀 따로 둔다 */
+  --scrim: color-mix(in srgb, var(--ink) 35%, transparent);
+  --shadow-pop: 0 6px 20px rgb(0 0 0 / 10%);
+
+  /*
+   * 어두움 원본(§8.3). 여기서만 값을 정하고, 아래 두 블록은 의미 토큰에 옮기기만 한다.
+   * 기본 6은 밝음을 뒤집은 것이 아니라 따로 골랐다.
+   */
+  --dk-bg: #0f0f11;
+  --dk-surface: #18181b;
+  --dk-line: #2e2e33;
+  --dk-ink: #f4f4f5;
+  --dk-ink-2: #a1a1aa;
+  --dk-ink-3: #71717a;
+
+  /* 어두운 배경 전용 상태색 — 밝음 값(#2563eb·#7c3aed)은 여기서 읽히지 않는다 */
+  --dk-s-run: #60a5fa;
+  --dk-s-wait: #fbbf24;
+  --dk-s-block: #c4b5fd;
+  --dk-s-pause: #f472b6;
+  --dk-s-done: #4ade80;
+  --dk-s-fail: #f87171;
+
+  /* 어두움 -text 는 solid 보다 한 단 **밝다**(대비 방향이 뒤집힌다) */
+  --dk-s-run-text: #93c5fd;
+  --dk-s-wait-text: #fcd34d;
+  --dk-s-block-text: #ddd6fe;
+  --dk-s-pause-text: #f9a8d4;
+  --dk-s-done-text: #86efac;
+  --dk-s-fail-text: #fca5a5;
 }
 
-html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); }
+/* 시스템 따름 — 수동으로 "밝게"를 고른 경우에는 적용하지 않는다 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: var(--dk-bg);
+    --surface: var(--dk-surface);
+    --line: var(--dk-line);
+    --ink: var(--dk-ink);
+    --ink-2: var(--dk-ink-2);
+    --ink-3: var(--dk-ink-3);
+    --s-run: var(--dk-s-run);
+    --s-wait: var(--dk-s-wait);
+    --s-block: var(--dk-s-block);
+    --s-pause: var(--dk-s-pause);
+    --s-done: var(--dk-s-done);
+    --s-fail: var(--dk-s-fail);
+    --s-run-text: var(--dk-s-run-text);
+    --s-wait-text: var(--dk-s-wait-text);
+    --s-block-text: var(--dk-s-block-text);
+    --s-pause-text: var(--dk-s-pause-text);
+    --s-done-text: var(--dk-s-done-text);
+    --s-fail-text: var(--dk-s-fail-text);
+    /* soft 12% 는 어두운 바탕에서 배경이 죽는다 — 20% (§8.3) */
+    --soft-alpha: 20%;
+    --scrim: rgb(0 0 0 / 62%);
+    --shadow-pop: 0 6px 20px rgb(0 0 0 / 55%);
+  }
+}
+
+/* 설정에서 "어둡게"를 고른 경우 — 시스템 설정을 이긴다 */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: var(--dk-bg);
+  --surface: var(--dk-surface);
+  --line: var(--dk-line);
+  --ink: var(--dk-ink);
+  --ink-2: var(--dk-ink-2);
+  --ink-3: var(--dk-ink-3);
+  --s-run: var(--dk-s-run);
+  --s-wait: var(--dk-s-wait);
+  --s-block: var(--dk-s-block);
+  --s-pause: var(--dk-s-pause);
+  --s-done: var(--dk-s-done);
+  --s-fail: var(--dk-s-fail);
+  --s-run-text: var(--dk-s-run-text);
+  --s-wait-text: var(--dk-s-wait-text);
+  --s-block-text: var(--dk-s-block-text);
+  --s-pause-text: var(--dk-s-pause-text);
+  --s-done-text: var(--dk-s-done-text);
+  --s-fail-text: var(--dk-s-fail-text);
+  --soft-alpha: 20%;
+  --scrim: rgb(0 0 0 / 62%);
+  --shadow-pop: 0 6px 20px rgb(0 0 0 / 55%);
+}
+
+/* 기본 글자 크기는 브라우저 기본(16px)을 그대로 둔다 — 계단 토큰은 그보다 작은 쪽을 고정하는 하한선이다.
+   행간만 전역으로 올린다(§8.2: 여러 줄 설명은 1.5 이상). */
+html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); line-height: 1.5; }
 
 /* 최소 유틸 — 화면(S1~S17)은 P1 이후. 여기서는 골격 페이지만 쓴다 */
 .page { padding: 32px; }
-.h1 { margin: 0; font-size: 20px; font-weight: 600; color: var(--ink); }
+.h1 { margin: 0; font-size: var(--fs-title); font-weight: 600; color: var(--ink); line-height: 1.3; }
 .muted { color: var(--ink-2); }
-.muted-3 { color: var(--ink-3); }
+.muted-3 { color: var(--ink-2); }

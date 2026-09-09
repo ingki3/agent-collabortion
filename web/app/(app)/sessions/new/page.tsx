@@ -567,7 +567,7 @@ export default function NewSessionPage() {
             <span className="field__hint">승인(approval)은 autonomy 와 무관하게 절대 자동 진행되지 않습니다(FR-5.4).</span>
           </div>
 
-          <h2 style={{ fontSize: 14, margin: "16px 0 8px" }}>요약</h2>
+          <h2 style={{ fontSize: "var(--fs-card)", margin: "16px 0 8px" }}>요약</h2>
           <div className="card card--surface small" data-testid="wizard-summary">
             <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
               <li>제목 <b>{title || "—"}</b> · goal {goal.slice(0, 60) || "—"}</li>
