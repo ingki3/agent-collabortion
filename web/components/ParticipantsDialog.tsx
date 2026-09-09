@@ -21,7 +21,7 @@ export function removalBlock(agentId: string, lanes: Lane[], assigneeAgentId: st
   if (assigneeAgentId && agentId === assigneeAgentId) return "담당 에이전트는 뺄 수 없습니다 — 먼저 다른 담당을 지정하세요";
   const busy = lanes.filter((l) => l.agent_id === agentId && BUSY_LANE.has(l.status));
   return busy.length > 0
-    ? `진행 중 lane 이 ${busy.length}개 있습니다 — 먼저 끝내거나 중단하세요`
+    ? `진행 중인 작업 줄기가 ${busy.length}개 있습니다 — 먼저 끝내거나 중단하세요`
     : null;
 }
 

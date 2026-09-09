@@ -25,9 +25,9 @@ describe("PausedBanner — 루프 상한(U15-8)", () => {
   it("어느 상한에 몇 회 걸렸는지와 두 에이전트를 이름으로 보여준다", () => {
     render(<PausedBanner detail={loop} agentName={name} onResume={vi.fn()} />);
     expect(screen.getByTestId("paused-banner").getAttribute("data-reason")).toBe("loop");
-    expect(screen.getByTestId("paused-title").textContent).toContain("루프 상한");
+    expect(screen.getByTestId("paused-title").textContent).toContain("주고받기 상한");
     const sum = screen.getByTestId("paused-summary").textContent ?? "";
-    expect(sum).toContain("pair_roundtrips");
+    expect(sum).toContain("두 에이전트가 상한까지 주고받았습니다"); // 내부 키는 문장에 넣지 않는다(§8.4)
     expect(sum).toContain("@Backend ↔ @QA");
     expect(sum).toContain("5회");
     const hint = screen.getByTestId("paused-loop-limit");
@@ -37,8 +37,8 @@ describe("PausedBanner — 루프 상한(U15-8)", () => {
   });
 
   it("chain_depth·hops_per_hour 도 이름으로 구분된다 — 상한이 다르면 올릴 값이 다르다", () => {
-    expect(pausedSummary({ ...loop, loop: { limit: "chain_depth", count: 8 } }, name)).toContain("연쇄 깊이(chain_depth)");
-    expect(pausedSummary({ ...loop, loop: { limit: "hops_per_hour", count: 40 } }, name)).toContain("시간당 홉(hops_per_hour)");
+    expect(pausedSummary({ ...loop, loop: { limit: "chain_depth", count: 8 } }, name)).toContain("주고받기 연쇄가 상한까지 깊어졌습니다");
+    expect(pausedSummary({ ...loop, loop: { limit: "hops_per_hour", count: 40 } }, name)).toContain("한 시간에 오간 횟수가 상한에 닿았습니다");
   });
 
   it("계속 진행 승인은 루프 카운터를 리셋해 재개한다", async () => {

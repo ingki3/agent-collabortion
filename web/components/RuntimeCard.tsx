@@ -21,13 +21,13 @@ const KIND = { claude_code: "Claude Code", hermes: "Hermes", antigravity: "Antig
 const BRIEF = { acp_meta_system_prompt: "ACP _meta 시스템 프롬프트", instruction_file: "지시 파일(CLAUDE.md·AGENTS.md)" } as const;
 
 /**
- * **사람이 지금 해야 할 일**만 — 카드 본문에 그대로 선다. 비어 있으면 이 런타임은 그냥 쓸 수 있다는 뜻이다.
+ * **사람이 지금 해야 할 일**만 — 카드 본문에 그대로 선다. 비어 있으면 이 컴퓨터는 그냥 쓸 수 있다는 뜻이다.
  * 여기 있는 두 줄은 「자세히 보기」 안에 넣으면 안 된다: 접힌 채로는 아무도 로그인하러 가지 않는다.
  */
 export function capabilityAlerts(c: RuntimeCapability): string[] {
   const out: string[] = [];
   if (!c.logged_in) out.push("로그인이 필요합니다 — 이 컴퓨터로는 실행할 수 없습니다");
-  if (c.tool_disallow === false) out.push("도구 제한을 걸 수 없는 런타임입니다");
+  if (c.tool_disallow === false) out.push("도구 제한을 걸 수 없는 컴퓨터입니다");
   return out;
 }
 

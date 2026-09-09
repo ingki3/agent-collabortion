@@ -57,7 +57,7 @@ describe("RuntimeCard — RuntimeCapability 새 키(W-1)", () => {
       kind: "hermes", version: "0.20.6", adapter_version: null, logged_in: false, models: ["hermes-4"],
       protocol_version: 1, resume: false, usage: false, tool_disallow: false, brief_transport: "instruction_file", allow_once_missing: true,
     });
-    expect(alerts).toEqual(["로그인이 필요합니다 — 이 컴퓨터로는 실행할 수 없습니다", "도구 제한을 걸 수 없는 런타임입니다"]);
+    expect(alerts).toEqual(["로그인이 필요합니다 — 이 컴퓨터로는 실행할 수 없습니다", "도구 제한을 걸 수 없는 컴퓨터입니다"]);
     // 다 갖춘 런타임은 밖에 아무 줄도 세우지 않는다 — 조용한 것이 정상이다.
     expect(capabilityAlerts({ kind: "claude_code", logged_in: true, tool_disallow: true })).toEqual([]);
   });

@@ -233,7 +233,7 @@ export default function AgentEditPage() {
       <section className="card" style={{ borderColor: "var(--s-fail)" }} data-testid="agent-danger">
         <h2 style={{ fontSize: "var(--fs-card)", margin: "0 0 4px", color: "var(--s-fail-text)" }}>위험 영역</h2>
         <p className="small muted" style={{ marginTop: 0 }}>
-          <b>즉시 정지.</b> 이 에이전트가 누구에게도 응답하지 않게 만듭니다.
+          <b>즉시 정지합니다.</b> 이 에이전트가 누구에게도 응답하지 않게 만듭니다.
         </p>
         {agent.respond_to === "nobody" ? (
           <div className="row">

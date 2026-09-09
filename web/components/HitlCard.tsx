@@ -25,7 +25,7 @@ export const PURPOSE_REASON: Record<Exclude<Purpose, "agent">, string> = {
   user_approval: "종료 조건(Director 승인)",
   budget: "예산 상한 초과",
   time: "시간 상한 도달",
-  loop: "루프 상한 도달",
+  loop: "주고받기 상한 도달",
 };
 
 /** 메타 한 줄(COMPONENTS §2.3 `i2BcH`). 시스템 발행이면 사유 + `source: system`. */
