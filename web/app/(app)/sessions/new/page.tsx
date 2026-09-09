@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ConditionRow } from "@/components/ConditionRow";
+import { CONDITION_LABEL, ConditionRow } from "@/components/ConditionRow";
 import { api, errorMessage, isApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import type { Agent, IsolationKind, Member, RepoCheck, Runtime, RuntimeCandidate, SessionListItem } from "@/lib/api/types";
@@ -578,7 +578,7 @@ export default function NewSessionPage() {
               <li>격리 <b>{ISOLATION_LABEL[isolation]}</b>{isolation === "worktree" ? ` · ${repoPath}` : ""}</li>
               <li>컴퓨터 <b>{runtimeId ? online.find((r) => r.id === runtimeId)?.name ?? runtimeId : "자동 선택(첫 실행 때 고정)"}</b></li>
               <li>참여자 {pickedIds.map((id) => `@${invitable.find((a) => a.id === id)?.name}`).join(", ") || "—"} · 담당 <b>@{invitable.find((a) => a.id === assignee)?.name ?? "—"}</b></li>
-              <li>종료 조건 <b>{conds.join(op === "and" ? " AND " : " OR ")}</b>{conds.includes("artifact_submitted") ? ` · 제출자 ${submitterLabel}` : ""}{humanGate ? "" : " — 사람 승인 없음"}</li>
+              <li>종료 조건 <b>{conds.map((c) => CONDITION_LABEL[c] ?? c).join(op === "and" ? " 그리고 " : " 또는 ")}</b>{conds.includes("artifact_submitted") ? ` · 제출자 ${submitterLabel}` : ""}{humanGate ? "" : " — 사람 승인 없음"}</li>
               <li>한도 {budget ? `$${budget}` : "예산 없음"} · {timeLimit || "시간 제한 없음"} · 자율성 <b>{AUTONOMY.find((a) => a.value === autonomy)?.label ?? autonomy}</b></li>
             </ul>
           </div>

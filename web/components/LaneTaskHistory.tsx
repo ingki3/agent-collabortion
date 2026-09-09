@@ -9,9 +9,10 @@
  */
 import { useEffect, useState } from "react";
 import { Badge } from "./Badge";
-import { failureLabel } from "@/lib/failure";
+import { BADGE_MAP } from "./badge-map";
+import { FAILURE_LABEL, failureLabel } from "@/lib/failure";
 import { clockTime, durationSince } from "@/lib/time";
-import type { Task, TaskAttempt } from "@/lib/api/types";
+import type { FailureKind, Task, TaskAttempt } from "@/lib/api/types";
 
 export interface LaneTaskHistoryProps {
   laneId: string;
@@ -25,6 +26,18 @@ export function taskLabel(t: Task, index: number, attempt?: number): string {
   return attempt && attempt > 1 ? `#${index + 1}-${attempt} (재시도)` : base;
 }
 
+/**
+ * `TaskAttempt.outcome` 은 **자유 문자열**이다(계약: "이 시도가 끝난 사유(status 또는 failure_kind)").
+ * 어느 쪽이든 원문 enum 이라 화면에는 사람의 말로 세운다(§8.4) — 표에 없는 값이 오면 원문을 그대로 남긴다.
+ */
+export function outcomeLabel(outcome: string | null | undefined): string | null {
+  if (!outcome) return null;
+  const fail = FAILURE_LABEL[outcome as FailureKind];
+  if (fail) return fail;
+  const task = (BADGE_MAP.task as Record<string, { label: string }>)[outcome];
+  return task ? task.label : outcome;
+}
+
 function AttemptLine({ a }: { a: TaskAttempt }) {
   return (
     <span className="lane-hist__run">
@@ -34,7 +47,7 @@ function AttemptLine({ a }: { a: TaskAttempt }) {
       {durationSince(a.started_at, a.finished_at)}
       {a.resumed === false && <b className="lane-hist__cold" data-testid="task-cold-start"> · 콜드 스타트</b>}
       {a.resumed === true && <span className="lane-hist__resumed"> · 이어서 실행</span>}
-      {a.outcome ? ` · ${a.outcome}` : ""}
+      {a.outcome ? ` · ${outcomeLabel(a.outcome)}` : ""}
     </span>
   );
 }
