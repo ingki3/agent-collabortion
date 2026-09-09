@@ -149,7 +149,7 @@ export function SessionAside(props: SessionAsideProps) {
             동시에 {s.limits.max_parallel_lanes ?? 5}줄기까지
           </dd>
           <dt>Director</dt>
-          <dd>{s.director?.display_name ?? "—"}{s.deputy_director ? ` · 대리 ${s.deputy_director.display_name}` : ""}</dd>
+          <dd>{s.director?.display_name ?? "—"}{s.deputy_director ? ` · deputy ${s.deputy_director.display_name}` : ""}</dd>
         </dl>
         <p className="aside__quiet">컴퓨터와 격리 방식은 바꿀 수 없습니다 — 작업 폴더가 거기 묶여 있습니다.</p>
       </section>

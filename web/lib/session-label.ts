@@ -3,7 +3,7 @@ import type { SessionListItem } from "@/lib/api/types";
 
 /** 배지 안에 들어가는 짧은 사유(자리가 좁다). */
 const PAUSE_LABEL: Record<string, string> = {
-  budget: "예산", time: "시간", loop: "루프 상한", runtime_offline: "런타임 오프라인", director: "수동",
+  budget: "예산", time: "시간", loop: "루프 상한", runtime_offline: "컴퓨터 연결 끊김", director: "수동",
 };
 
 /** 문장 안에 들어가는 사유 — 인박스 카드가 쓴다(계약 `PauseReason` 5종). */

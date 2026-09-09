@@ -32,7 +32,7 @@ export const TYPE_LABEL: Record<ItemType, string> = {
   lane_blocked: "에이전트 질문",
   session_paused: "세션 일시정지",
   run_failed: "작업 실패",
-  runtime_offline: "컴퓨터 오프라인",
+  runtime_offline: "컴퓨터 연결 끊김",
   session_completed: "세션 완료",
   mention: "멘션",
   workdir_gc_blocked: "작업 폴더 정리 막힘",
@@ -62,7 +62,7 @@ export const ACTION_LABEL: Record<InboxAction, string> = {
   reply: "답글 작성",
   approve_continue: "계속 진행 승인",
   restart: "다시 지시",
-  rebind: "재바인딩",
+  rebind: "다른 컴퓨터로 옮기기",
   open_session: "세션 열기",
   open_runtimes: "연결된 컴퓨터 열기",
 };

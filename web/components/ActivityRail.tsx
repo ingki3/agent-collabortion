@@ -75,7 +75,7 @@ export function ActivityRail({ events, structured = true, loading, limit = 200 }
     <div className="rail" data-testid="activity-rail">
       {!structured && (
         <div className="rail__note" data-testid="rail-unstructured">
-          이 런타임은 도구 단위 기록을 제공하지 않습니다 — 메시지와 원본 출력만 표시합니다.
+          이 컴퓨터는 도구 단위 기록을 제공하지 않습니다 — 메시지와 원본 출력만 표시합니다.
         </div>
       )}
       {loading && rows.length === 0 && <div className="rail__note">불러오는 중…</div>}

@@ -49,7 +49,7 @@ export function offlineSentence(runtimeName: string | null | undefined, offlineS
  */
 export function lossWarning(diffCount: number): string {
   return (
-    `완료된 작업 줄기의 코드도 원래 컴퓨터의 브랜치에만 있습니다. 새 머신에서는 이 세션의 diff 아티팩트 ` +
+    `완료된 작업 줄기의 코드도 원래 컴퓨터의 브랜치에만 있습니다. 새 컴퓨터에서는 이 세션의 diff 아티팩트 ` +
     `${diffCount}개를 순서대로 적용해 복구합니다. 커밋 이력은 복원되지 않습니다.`
   );
 }
@@ -120,7 +120,7 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
     setError(null);
     try {
       // 종료는 `cancelled` 다(E14-07) — 아티팩트는 서버에 남아 회수된다.
-      await api.post("/sessions/{sessionId}/cancel", { path: { sessionId: session.id }, body: { reason: "런타임 오프라인 — 재바인딩 대신 종료" } });
+      await api.post("/sessions/{sessionId}/cancel", { path: { sessionId: session.id }, body: { reason: "컴퓨터 연결 끊김 — 옮기지 않고 종료" } });
       onDone?.("cancelled");
       onClose();
     } catch (e) {
@@ -132,7 +132,7 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
 
   return (
     <div className="rebind__scrim" role="presentation" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="rebind" role="dialog" aria-modal="true" aria-label="런타임 재바인딩" data-testid="rebind-dialog" data-isolation={isolation}>
+      <div className="rebind" role="dialog" aria-modal="true" aria-label="다른 컴퓨터로 옮기기" data-testid="rebind-dialog" data-isolation={isolation}>
         <div className="rebind__head">
           <b>다른 컴퓨터로 옮기기</b>
           <span className="rebind__spacer" />
@@ -148,10 +148,10 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
         {/* 2 대상 선택 */}
         <div className="rebind__section">
           <div className="rebind__label">
-            새 런타임
+            옮겨 갈 컴퓨터
             <span className="rebind__hint">
               {worktree
-                ? "worktree 격리 — 같은 remote URL 의 저장소를 가진 머신만 후보입니다(경로 문자열이 아닙니다)."
+                ? "워크트리 격리 — 같은 remote URL 의 저장소를 가진 컴퓨터만 후보입니다(경로 문자열이 아닙니다)."
                 : "격리 없음 — 온라인인 컴퓨터 전부가 후보입니다."}
             </span>
           </div>
@@ -159,7 +159,7 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
             <p className="muted small">후보를 확인하는 중…</p>
           ) : eligible.length === 0 ? (
             <p className="problem" data-testid="rebind-no-candidate">
-              후보가 없습니다 — {worktree ? "이 세션의 저장소와 같은 remote URL 을 가진 온라인 머신이 없습니다." : "온라인인 컴퓨터가 없습니다."}{" "}
+              후보가 없습니다 — {worktree ? "이 세션의 저장소와 같은 remote URL 을 가진 온라인 컴퓨터가 없습니다." : "온라인인 컴퓨터가 없습니다."}{" "}
               컴퓨터를 연결하거나 세션을 종료하세요.
             </p>
           ) : (
@@ -224,11 +224,11 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
             type="button"
             className="btn btn--sm btn--primary"
             disabled={blocked}
-            title={worktree && !ack ? "유실 경고를 확인해야 재바인딩할 수 있습니다" : !target ? "옮겨 갈 컴퓨터를 고르세요" : undefined}
+            title={worktree && !ack ? "유실 경고를 확인해야 옮길 수 있습니다" : !target ? "옮겨 갈 컴퓨터를 고르세요" : undefined}
             onClick={() => void rebind()}
             data-testid="rebind-submit"
           >
-            {chosen ? `${chosen.runtime.name} 으로 재바인딩` : "재바인딩"}
+            {chosen ? `${chosen.runtime.name} 으로 옮기기` : "옮기기"}
           </button>
           {confirmEnd ? (
             <button type="button" className="btn btn--sm rebind__danger" disabled={busy} onClick={() => void endSession()} data-testid="rebind-end-confirm">

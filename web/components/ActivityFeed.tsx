@@ -90,7 +90,7 @@ export function ActivityFeed({ events, structured = true, loading, cut1 = false,
     return (
       <div className="feed" data-testid="activity-feed" data-structured="false">
         <div className="feed__degraded" data-testid="feed-degraded">
-          이 런타임은 툴 단위 로그를 제공하지 않습니다 — 메시지와 원본 출력만 표시합니다.
+          이 컴퓨터는 도구 단위 기록을 제공하지 않습니다 — 메시지와 원본 출력만 표시합니다.
         </div>
         <ActivityRail events={events} structured loading={loading} />
       </div>

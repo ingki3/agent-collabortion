@@ -59,7 +59,7 @@ describe("권한 3상태(SCREEN §7 · E7-09·E7-11)", () => {
     expect(screen.queryByTestId("hitl-lock")).toBeNull();
     // 화면을 숨기지 않는다 — 질문은 보이고 사유가 붙는다(SCREEN §7).
     expect(screen.getByTestId("hitl-question")).toBeTruthy();
-    expect(screen.getByTestId("hitl-no-right").textContent).toContain("Director·대리 Director");
+    expect(screen.getByTestId("hitl-no-right").textContent).toContain("Director·deputy");
   });
 
   it("권한이 없는 사람에게 시각을 약속하지 않는다 — 두 케이스의 차이가 곧 계약 문언이다", () => {

@@ -25,7 +25,7 @@ export type LaneAction = NonNullable<Lane["actions"]>[number];
 
 export interface LaneCardProps {
   lane: Lane;
-  /** 호출자가 쓸 수 없는 동작의 사유(툴팁) — 없으면 "Director·대리 Director 만". */
+  /** 호출자가 쓸 수 없는 동작의 사유(툴팁) — 없으면 "Director·deputy 만"(§8.4 역할명 예외). */
   disabledReason?: string;
   onRestart?: (lane: Lane) => void;
   onCancel?: (lane: Lane) => void;
@@ -70,7 +70,7 @@ export function LaneCard(props: LaneCardProps) {
   const [openTasks, setOpenTasks] = useState(false);
   const actions = new Set<LaneAction>(lane.actions ?? []);
   const note = laneNote(lane);
-  const reason = props.disabledReason ?? "Director·대리 Director 만 할 수 있습니다";
+  const reason = props.disabledReason ?? "Director·deputy 만 할 수 있습니다";
 
   const btn = (key: LaneAction, label: string, onClick: (() => void) | undefined, primary = false) => {
     const allowed = actions.has(key);

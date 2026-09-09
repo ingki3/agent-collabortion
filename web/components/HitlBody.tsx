@@ -136,7 +136,7 @@ export function HitlBody(props: HitlBodyProps) {
     permission === "later"
       ? `Director 응답 대기 중 · ${clockTime(gateFrom)}부터 응답 가능`
       : permission === "never"
-        ? "Director·대리 Director 만 응답할 수 있습니다"
+        ? "Director·deputy 만 응답할 수 있습니다"
         : undefined;
 
   return (
@@ -181,7 +181,7 @@ export function HitlBody(props: HitlBodyProps) {
 
       {open && permission === "never" && (
         <p className="hitl__gate" data-testid="hitl-no-right">
-          응답 권한이 없습니다 — Director·대리 Director 만 답할 수 있습니다. 카드는 누구나 볼 수 있습니다.
+          응답 권한이 없습니다 — Director·deputy 만 답할 수 있습니다. 카드는 누구나 볼 수 있습니다.
         </p>
       )}
       {open && permission === "later" && (

@@ -183,7 +183,7 @@ export default function NewSessionPage() {
       pickedIds.flatMap((id) => {
         const a = invitable.find((x) => x.id === id);
         const prof = a?.profiles.find((p) => p.id === picked[id]) ?? a?.profiles.find((p) => p.is_default) ?? a?.profiles[0];
-        return prof && !runtimeKinds.has(prof.runtime_kind) ? [`@${a!.name} 의 프로파일(${prof.runtime_kind})은 선택한 런타임에 없습니다`] : [];
+        return prof && !runtimeKinds.has(prof.runtime_kind) ? [`@${a!.name} 의 프로파일(${prof.runtime_kind})은 선택한 컴퓨터에 없습니다`] : [];
       }),
     [pickedIds.join(","), picked, invitable, runtimeKinds],
   );
@@ -323,12 +323,12 @@ export default function NewSessionPage() {
             </select>
           </label>
           <label className="field">
-            <span className="field__label">대리 Director (선택)</span>
+            <span className="field__label">deputy (선택)</span>
             <select className="select" value={deputyId} onChange={(e) => setDeputyId(e.target.value)} data-testid="deputy-select">
               <option value="">없음</option>
               {members.filter((m) => m.user.id !== directorId).map((m) => <option key={m.user.id} value={m.user.id}>{m.user.display_name}</option>)}
             </select>
-            <span className="field__hint">대리 Director 는 <b>취소는 즉시</b>, <b>승인은 기한 절반이 지난 뒤</b> 할 수 있습니다.</span>
+            <span className="field__hint">deputy 는 <b>취소는 즉시</b>, <b>승인은 기한 절반이 지난 뒤</b> 할 수 있습니다.</span>
           </label>
         </section>
       )}
@@ -351,7 +351,7 @@ export default function NewSessionPage() {
           {isolation === "worktree" && (
             <div className="field" data-testid="repo-picker">
               <span className="field__label">저장소</span>
-              {repos.length === 0 && <p className="small muted-3">온라인 런타임이 보고한 저장소가 없습니다.</p>}
+              {repos.length === 0 && <p className="small muted-3">온라인인 컴퓨터가 보고한 저장소가 없습니다.</p>}
               <select className="select" value={repoPath} onChange={(e) => { setRepoPath(e.target.value); void checkRepo(e.target.value); }} data-testid="repo-select">
                 <option value="">고르세요</option>
                 {repos.map((r) => <option key={r.path} value={r.path}>{r.path} — {r.runtimeName}</option>)}
@@ -574,7 +574,7 @@ export default function NewSessionPage() {
           <div className="card card--surface small" data-testid="wizard-summary">
             <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
               <li>제목 <b>{title || "—"}</b> · 목표 {goal.slice(0, 60) || "—"}</li>
-              <li>Director <b>{members.find((m) => m.user.id === directorId)?.user.display_name ?? "—"}</b>{deputyId ? ` · 대리 ${members.find((m) => m.user.id === deputyId)?.user.display_name}` : " · 대리 없음"}</li>
+              <li>Director <b>{members.find((m) => m.user.id === directorId)?.user.display_name ?? "—"}</b>{deputyId ? ` · deputy ${members.find((m) => m.user.id === deputyId)?.user.display_name}` : " · deputy 없음"}</li>
               <li>격리 <b>{ISOLATION_LABEL[isolation]}</b>{isolation === "worktree" ? ` · ${repoPath}` : ""}</li>
               <li>컴퓨터 <b>{runtimeId ? online.find((r) => r.id === runtimeId)?.name ?? runtimeId : "자동 선택(첫 실행 때 고정)"}</b></li>
               <li>참여자 {pickedIds.map((id) => `@${invitable.find((a) => a.id === id)?.name}`).join(", ") || "—"} · 담당 <b>@{invitable.find((a) => a.id === assignee)?.name ?? "—"}</b></li>

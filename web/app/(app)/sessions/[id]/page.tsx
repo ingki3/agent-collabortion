@@ -587,7 +587,7 @@ export default function SessionPage() {
             lanes={lanes}
             selected={false}
             now={now}
-            disabledReason={isDirector ? undefined : "Director·대리 Director 만 할 수 있습니다"}
+            disabledReason={isDirector ? undefined : "Director·deputy 만 할 수 있습니다"}
             loadTasks={loadLaneTasks}
             onRestart={beginRestart}
             onCancel={(l) => setConfirmCancel(l)}
@@ -711,7 +711,7 @@ export default function SessionPage() {
             busy={busy}
             onResume={isDirector ? resume : undefined}
             onRebind={isDirector ? () => setRebindOpen(true) : undefined}
-            onCancelSession={isDirector ? () => void cancelSession("컴퓨터 오프라인 — 재바인딩 대신 종료") : undefined}
+            onCancelSession={isDirector ? () => void cancelSession("컴퓨터 연결 끊김 — 옮기지 않고 종료") : undefined}
           />
         </section>
       </div>

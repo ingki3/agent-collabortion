@@ -126,7 +126,7 @@ export function AgentProfileEditor(props: AgentProfileEditorProps) {
     <div className="prof" data-testid="profile-editor">
       {props.caps.size === 0 && (
         <p className="notice" data-testid="no-probe-models">
-          감지된 런타임이 없습니다 — 모델과 옵션 목록은 데몬 probe 결과로 채워집니다. 먼저 컴퓨터를 연결하세요.
+          감지된 에이전트 도구가 없습니다 — 모델과 옵션 목록은 연결된 컴퓨터에서 감지한 것으로 채워집니다. 먼저 컴퓨터를 연결하세요.
         </p>
       )}
       {props.profiles.map((p) => {
@@ -143,7 +143,7 @@ export function AgentProfileEditor(props: AgentProfileEditorProps) {
                 className="select prof__sel"
                 value={p.model}
                 disabled={!props.canEdit || models.length === 0}
-                title={!props.canEdit ? props.disabledReason : models.length === 0 ? "이 런타임 종류가 감지되지 않았습니다" : undefined}
+                title={!props.canEdit ? props.disabledReason : models.length === 0 ? "이 도구가 감지되지 않았습니다" : undefined}
                 onChange={(e) => void props.onUpdate(p.id, { model: e.target.value, runtime_kind: p.runtime_kind })}
                 aria-label={`${p.name} 모델`}
                 data-testid="profile-model"
@@ -204,7 +204,7 @@ export function AgentProfileEditor(props: AgentProfileEditorProps) {
         <div className="prof__row" data-testid="profile-new">
           <div className="prof__l1">
             <input className="input prof__sel" placeholder="이름 (예 fast)" value={name} onChange={(e) => setName(e.target.value)} aria-label="새 프로파일 이름" data-testid="new-profile-name" />
-            <select className="select prof__sel" value={kind} onChange={(e) => { setKind(e.target.value as RuntimeKind); setModel(""); setOptions({}); }} aria-label="런타임 종류" data-testid="new-profile-kind">
+            <select className="select prof__sel" value={kind} onChange={(e) => { setKind(e.target.value as RuntimeKind); setModel(""); setOptions({}); }} aria-label="에이전트 도구" data-testid="new-profile-kind">
               {(kinds.length ? kinds : (["claude_code"] as RuntimeKind[])).map((k) => <option key={k} value={k}>{k}</option>)}
             </select>
             <select className="select prof__sel" value={model} onChange={(e) => setModel(e.target.value)} aria-label="모델" data-testid="new-profile-model">

@@ -155,7 +155,7 @@ export default function RuntimesPage() {
                 <div className="rt__actions" data-testid="runtime-actions">
                   <Link href={`/runtimes/${rt.id}/workdirs`} className="btn btn--sm" data-testid="runtime-workdirs">작업 폴더</Link>
                   <button type="button" className="btn btn--sm" onClick={() => void openSessions(rt)} aria-expanded={openId === rt.id} data-testid="runtime-sessions-toggle">
-                    {grace.expired ? "세션 재바인딩" : "쓰는 중인 세션"}
+                    {grace.expired ? "세션 옮기기" : "쓰는 중인 세션"}
                   </button>
                   {canManage && (
                     <button type="button" className="btn btn--sm rt__danger" disabled={busyId === rt.id} onClick={() => void removeRuntime(rt)} data-testid="runtime-delete">
@@ -167,13 +167,13 @@ export default function RuntimesPage() {
                 {block && (
                   <div className="rt__blocked" role="alert" data-testid="runtime-delete-blocked">
                     <b>삭제할 수 없습니다</b> — {block.detail}
-                    <div className="small">먼저 아래 세션을 재바인딩하거나 종료하세요.</div>
+                    <div className="small">먼저 아래 세션을 다른 컴퓨터로 옮기거나 종료하세요.</div>
                     <ul className="rt__sessions">
                       {block.sessions.map((s, i) => (
                         <li key={s.id ?? i} data-testid="runtime-blocking-session">
                           {s.id ? <Link href={`/sessions/${s.id}`}>{s.title ?? s.id}</Link> : <span>{s.title ?? "세션"}</span>}
                           {s.id && (
-                            <button type="button" className="rt__link" onClick={() => void openRebind(s.id!)} data-testid="runtime-blocking-rebind">재바인딩</button>
+                            <button type="button" className="rt__link" onClick={() => void openRebind(s.id!)} data-testid="runtime-blocking-rebind">옮기기</button>
                           )}
                         </li>
                       ))}
@@ -194,7 +194,7 @@ export default function RuntimesPage() {
                             <Link href={`/sessions/${s.id}`}>{s.title}</Link>
                             <span className="small muted-3"> · {s.status}</span>
                             {s.status === "paused" && (
-                              <button type="button" className="rt__link" onClick={() => void openRebind(s.id)} data-testid="runtime-rebind">재바인딩</button>
+                              <button type="button" className="rt__link" onClick={() => void openRebind(s.id)} data-testid="runtime-rebind">옮기기</button>
                             )}
                           </li>
                         ))}

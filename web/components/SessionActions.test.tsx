@@ -48,7 +48,7 @@ describe("S7 — Director", () => {
     render(<SessionActions session={sess({ status: "paused", paused_reason: "runtime_offline" })} runningLanes={0} members={members} {...noop} />);
     const btn = screen.getByTestId("session-resume") as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
-    expect(btn.title).toContain("재바인딩");
+    expect(btn.title).toContain("다른 컴퓨터로 옮기");
   });
 
   it("종료 확인은 **진행 중 lane 개수를 명시**하고 그때만 confirm 을 실어 보낸다", () => {

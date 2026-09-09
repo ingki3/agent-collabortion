@@ -46,7 +46,7 @@ export function actionGate(s: Session, key: SessionActionKey): { allowed: boolea
   if (!isDirector) {
     return {
       allowed: false,
-      reason: s.my_role === "deputy" ? "Director 만 할 수 있습니다 (대리 Director 는 작업 줄기 중단만 즉시 가능)" : "Director 만 할 수 있습니다",
+      reason: s.my_role === "deputy" ? "Director 만 할 수 있습니다 (deputy 는 작업 줄기 중단만 즉시 가능)" : "Director 만 할 수 있습니다",
     };
   }
   switch (key) {
@@ -56,7 +56,7 @@ export function actionGate(s: Session, key: SessionActionKey): { allowed: boolea
       if (s.status !== "paused") return { allowed: false, reason: "일시정지된 세션만 재개할 수 있습니다" };
       // 런타임 오프라인은 재개가 아니라 재바인딩·종료다(계약 resumeSession 409, FR-9.2).
       return s.paused_reason === "runtime_offline"
-        ? { allowed: false, reason: "컴퓨터가 오프라인입니다 — 재바인딩하거나 세션을 종료해야 합니다" }
+        ? { allowed: false, reason: "컴퓨터가 연결되지 않았습니다 — 다른 컴퓨터로 옮기거나 세션을 종료해야 합니다" }
         : { allowed: true };
     default:
       return { allowed: true };
