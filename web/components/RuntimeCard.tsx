@@ -14,6 +14,7 @@
  * 밖에 남긴다. colab CLI 부재도 같은 이유로 밖에 있다(그 자리는 별도 경고다).
  */
 import "./runtime-card.css";
+import { Icon } from "./Icon";
 import { durationSince, relativeTime } from "@/lib/time";
 import type { Runtime, RuntimeCapability } from "@/lib/api/types";
 
@@ -85,8 +86,9 @@ export function RuntimeCard({ rt, children }: { rt: Runtime; children?: React.Re
     <div className="card rtcard" data-testid="runtime-card" data-status={rt.status} data-runtime-id={rt.id}>
       <div className="row" style={{ justifyContent: "space-between" }}>
         <b>{rt.name}</b>
-        <span className="small" style={{ color: online ? "var(--s-done-text)" : "var(--s-fail-text)" }}>
-          {online ? "● 온라인" : "✕ 오프라인"}
+        <span className="small rtcard__status" style={{ color: online ? "var(--s-done-text)" : "var(--s-fail-text)" }} data-testid="runtime-status">
+          <Icon name="dot" />
+          {online ? "온라인" : "오프라인"}
         </span>
       </div>
       <div className="small muted-3">

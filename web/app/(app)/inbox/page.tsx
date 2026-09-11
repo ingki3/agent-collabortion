@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { InboxItemCard, type InboxAction } from "@/components/InboxItemCard";
+import { PageHead } from "@/components/PageHead";
 import { api, errorMessage, newIdempotencyKey } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
@@ -199,13 +200,12 @@ export default function InboxPage() {
 
   return (
     <div className="s8" data-testid="inbox-page" data-filter={filter}>
-      <div className="page-head">
-        <h1>받은 요청</h1>
+      <PageHead screen="inbox">
         <span className="s8__counts" data-testid="inbox-counts">
           조치 필요 <b data-testid="inbox-count-action">{summary?.action_required ?? 0}</b>
           {summary?.overdue ? <> · 기한 지남 <b data-testid="inbox-count-overdue">{summary.overdue}</b></> : null}
         </span>
-      </div>
+      </PageHead>
 
       <nav className="s8__filters" aria-label="인박스 필터">
         {(["all", "unread", "action_required"] as Filter[]).map((f) => (
@@ -277,12 +277,13 @@ export default function InboxPage() {
         .s8__filter { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 4px 12px; font-size: var(--fs-body); cursor: pointer; }
         .s8__filter--on { border-color: var(--ink); font-weight: 600; }
         .s8__spacer { flex: 1; }
-        .s8__list { display: flex; flex-direction: column; gap: 8px; }
+        /* 넓은 화면에서는 열이 는다(§8.5) — 항목 카드는 답 입력이 있어 세션 카드보다 넓게(400px) 잡는다. */
+        .s8__list { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); align-items: start; }
         .s8__toast { margin: 0 0 8px; font-size: var(--fs-sub); color: var(--s-done-text); }
         /* 인박스 응답만 모바일 웹 대상이다(SCREEN §8.2 Q6) — 한 열, 버튼은 줄바꿈해도 크기를 지킨다. */
         @media (max-width: 640px) {
           .s8__filters { gap: 4px; }
-          .s8__list { gap: 10px; }
+          .s8__list { grid-template-columns: 1fr; gap: 10px; }
         }
       `}</style>
     </div>

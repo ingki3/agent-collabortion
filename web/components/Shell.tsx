@@ -1,6 +1,7 @@
 "use client";
 /**
- * 앱 셸 — 좌측 App Nav + 상단바 + 실시간 연결 배너. 워크스페이스 단위 SSE **하나**를 `StreamProvider` 로 열고
+ * 앱 셸 — 좌측 App Nav + 실시간 연결 배너. 상단 바는 없다(§8.5): 제목은 각 화면의 `PageHead` 가 쓰고,
+ * 워크스페이스 전환은 내비 위의 이름 자리가 맡는다 — 그 둘을 빼면 상단 바에 남는 것이 없어 47px 을 비워 두고 있었다. 워크스페이스 단위 SSE **하나**를 `StreamProvider` 로 열고
  * `inbox.summary`(뱃지)와 연결 상태를 받는다. 화면들(S5·S7·S11·S12)은 같은 연결을 구독한다 — 화면당 연결 1개(R4).
  */
 import { usePathname } from "next/navigation";
@@ -12,7 +13,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { StreamProvider, useStreamState, useWorkspaceStream } from "@/lib/realtime/StreamContext";
 import type { StreamEvent } from "@/lib/api/types";
 
-export function Shell({ children, title }: { children: React.ReactNode; title?: string }) {
+export function Shell({ children }: { children: React.ReactNode }) {
   const { me, workspace, loading } = useAuth();
 
   if (loading || !me) {
@@ -32,12 +33,12 @@ export function Shell({ children, title }: { children: React.ReactNode; title?: 
 
   return (
     <StreamProvider workspaceId={workspace.id}>
-      <ShellFrame title={title}>{children}</ShellFrame>
+      <ShellFrame>{children}</ShellFrame>
     </StreamProvider>
   );
 }
 
-function ShellFrame({ children, title }: { children: React.ReactNode; title?: string }) {
+function ShellFrame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { me, workspace, canManage, logout, selectWorkspace } = useAuth();
   const [inbox, setInbox] = useState<number | null>(null);
@@ -78,28 +79,13 @@ function ShellFrame({ children, title }: { children: React.ReactNode; title?: st
         showSettings={canManage}
         userName={me.user.display_name}
         onLogout={() => void logout()}
+        workspaces={me.workspaces}
+        currentWorkspaceId={workspace.id}
+        onSelectWorkspace={selectWorkspace}
       />
       <div className="shell__main">
         <ConnectionBanner state={conn} />
-        <header className="topbar">
-          <span className="topbar__title">{title ?? ""}</span>
-          {me.workspaces.length > 1 && (
-            <select
-              className="select"
-              style={{ width: "auto" }}
-              value={workspace.id}
-              onChange={(e) => selectWorkspace(e.target.value)}
-              aria-label="워크스페이스 선택"
-            >
-              {me.workspaces.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-          )}
-        </header>
-        <div className="content">{children}</div>
+        <main className="content">{children}</main>
       </div>
     </div>
   );

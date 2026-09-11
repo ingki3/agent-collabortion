@@ -85,9 +85,11 @@ describe("§8.3 다크 테마", () => {
     expect(css()).toContain(':root[data-theme="dark"]');
   });
 
-  it("어두움 기본 6은 §8.3 이 준 값", () => {
+  it("어두움 기본 6은 §8.3 이 준 값 (ink-2 는 T-W9 정정값)", () => {
+    // --dk-ink-2 는 §8.3 의 #a1a1aa 에서 #a6a6ae 로 정정했다 — soft 카드가 --surface 위에 놓이는 평면에서
+    // wait 4.41 로 4.5:1 에 못 미쳤다(PR #186 NN4). 수치는 contrast.test.ts 가 잰다. tokens.css 주석 참조.
     for (const v of ["--dk-bg: #0f0f11", "--dk-surface: #18181b", "--dk-line: #2e2e33",
-                     "--dk-ink: #f4f4f5", "--dk-ink-2: #a1a1aa", "--dk-ink-3: #71717a"]) {
+                     "--dk-ink: #f4f4f5", "--dk-ink-2: #a6a6ae", "--dk-ink-3: #71717a"]) {
       expect(css()).toContain(v);
     }
   });

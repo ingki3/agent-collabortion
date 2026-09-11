@@ -1,5 +1,8 @@
 /* S7 상단 액션과 그 다이얼로그(SCREEN §4.5 "상단 액션" · O2). */
 .s7-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; position: relative; }
+/* 비활성 사유(§8.5) — 버튼 줄 아래 한 줄. 사유가 여럿이면 · 로 잇는다. */
+.s7-actions__why { flex-basis: 100%; margin: 0; font-size: var(--fs-sub); color: var(--ink-2); text-align: right; word-break: keep-all; }
+.s7-actions__why span + span::before { content: " · "; }
 .s7-actions__dialog {
   position: absolute;
   top: 100%;

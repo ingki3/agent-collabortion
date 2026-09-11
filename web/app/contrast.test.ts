@@ -8,10 +8,12 @@
  * soft 배경은 합성해서 잰다 — `--soft-alpha` 가 밝음 12% / 어두움 20% 라 두 벌의 배경색이 다르다.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { BADGE_MAP, type Tone, type BadgeSpec } from "@/components/badge-map";
 
 const CSS = readFileSync(join(__dirname, "tokens.css"), "utf8");
+const ROOT = join(__dirname, "..");
 
 function decl(name: string): string {
   const m = CSS.match(new RegExp(`${name}: *(#[0-9a-f]{6});`, "i"));
@@ -48,6 +50,65 @@ function over(fg: string, bg: string, p: number) {
   return "#" + [0, 1, 2].map((i) => Math.round(chan(fg, i) * p + chan(bg, i) * (1 - p)).toString(16).padStart(2, "0")).join("");
 }
 
+type Theme = typeof LIGHT;
+
+/** `var(--s-wait)` · `var(--bg)` · `var(--ink)` 같은 토큰을 테마 값으로. 모르는 토큰이면 던진다 — 조용히 통과하지 않게. */
+function resolve(T: Theme, tok: string): string {
+  const m = tok.match(/^var\(--([a-z0-9-]+)\)$/);
+  if (!m) throw new Error(`census: 토큰이 아닌 색 ${tok} — 리터럴 색은 tokens.css 밖에서 쓰지 않는다`);
+  const n = m[1];
+  if (n === "bg") return T.bg;
+  if (n === "surface") return T.surface;
+  if (n === "ink") return T.ink;
+  if (n === "ink-2") return T.ink2;
+  if (n === "ink-3") return T.ink3;
+  const st = n.match(/^s-([a-z]+)(-text)?$/);
+  if (st && (TONES as readonly string[]).includes(st[1])) return st[2] ? T.text[st[1]] : T.solid[st[1]];
+  throw new Error(`census: 모르는 토큰 ${tok}`);
+}
+
+/**
+ * census — "상태색(또는 ink)을 `background` 로 쓰면서 같은 규칙에 `color` 를 둔 자리". solid 만 본다
+ * (`color-mix` 는 soft 라 위의 soft 단정이 맡는다). 결과는 [어디, 배경 토큰, 글자 토큰].
+ * PR #186 NN3 의 재현: 내비 배지를 `background: var(--s-wait); color: var(--bg)` 로 되돌리면 여기 잡힌다.
+ */
+interface SolidRule { where: string; bg: string; fg: string }
+function walk(dir: string, out: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    if (["node_modules", ".next", "__screenshots__", ".git", "dev"].includes(name)) continue;
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) walk(p, out);
+    else if (/\.(css|tsx)$/.test(name) && !/\.test\.tsx$/.test(name)) out.push(p);
+  }
+  return out;
+}
+function solidRules(): SolidRule[] {
+  const out: SolidRule[] = [];
+  for (const f of ["app", "components"].flatMap((d) => walk(join(ROOT, d)))) {
+    const src = readFileSync(f, "utf8");
+    const rel = f.slice(ROOT.length + 1);
+    const raw = rel.endsWith(".css") ? src : [...src.matchAll(/<style>\{`([\s\S]*?)`\}<\/style>/g)].map((m) => m[1]).join("\n");
+    const css = raw.replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const [, sel, body] = m;
+      const bg = body.match(/(?:^|;)\s*background(?:-color)?:\s*(var\(--(?:s-[a-z]+|ink)\))\s*(?:;|$)/);
+      const fg = body.match(/(?:^|;)\s*color:\s*([^;]+?)\s*(?:;|$)/);
+      if (bg && fg) out.push({ where: `${rel} ${sel.trim().replace(/\s+/g, " ")}`, bg: bg[1], fg: fg[1] });
+    }
+  }
+  return out;
+}
+const SOLID_RULES = solidRules();
+
+describe("solid census 의 범위", () => {
+  it("상태색·ink 를 배경으로 깔고 글자를 얹는 자리가 잡힌다 — primary 버튼·cmd·solid 배지", () => {
+    const where = SOLID_RULES.map((r) => r.where);
+    expect(where.some((w) => /\.btn--primary\b/.test(w))).toBe(true);
+    expect(where.some((w) => /\.cmd\b/.test(w))).toBe(true);
+    expect(SOLID_RULES.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
 for (const T of [LIGHT, DARK]) {
   describe(`${T.label} 대비`, () => {
     const planes = [["--bg", T.bg], ["--surface", T.surface]] as const;
@@ -75,14 +136,47 @@ for (const T of [LIGHT, DARK]) {
       for (const [, plane] of planes) expect(ratio(T.text[tone], plane)).toBeGreaterThanOrEqual(4.5);
     });
 
-    it.each(TONES)("보조 --ink-2 가 %s soft 카드(--bg 위) 안에서 4.5:1 이상", (tone) => {
-      // HITL 카드·배너처럼 soft 배경 위에 보조 문구가 얹히는 자리. 이 카드들은 --bg 위에 놓인다.
-      expect(ratio(T.ink2, over(T.solid[tone], T.bg, T.alpha))).toBeGreaterThanOrEqual(4.5);
+    /*
+     * soft 카드는 두 평면에 놓인다(§8.5 자물쇠 확장 (c), PR #186 NN4): --bg 위(HITL 카드·배너·인박스 항목)와
+     * --surface 위(내비의 받은 요청 배지, 마법사 요약 카드 안의 배지, 요약 메시지 안의 멘션). soft 는 알파라
+     * 밑 평면이 어두울수록 배경이 어두워져 --surface 쪽이 늘 더 빡빡하다 — 어두움 ink-2 는 이 평면에서
+     * #a1a1aa 가 wait 4.41 로 걸려 #a6a6ae 로 정정했다(tokens.css 주석).
+     */
+    const softPlanes = [["--bg", T.bg], ["--surface", T.surface]] as const;
+
+    it.each(TONES)("보조 --ink-2 가 %s soft 카드 안에서 4.5:1 이상 — --bg·--surface 두 평면", (tone) => {
+      for (const [, plane] of softPlanes) expect(ratio(T.ink2, over(T.solid[tone], plane, T.alpha))).toBeGreaterThanOrEqual(4.5);
     });
 
-    // solid 배지는 조합표상 fail 뿐이다(badge-map: failed·error·offline).
-    it("solid 배지(--bg 글자 on --s-fail)가 4.5:1 이상", () => {
-      expect(ratio(T.bg, T.solid.fail)).toBeGreaterThanOrEqual(4.5);
+    it.each(TONES)("--s-%s-text 가 자기 soft 배경(--surface 위)에서 4.5:1 이상", (tone) => {
+      expect(ratio(T.text[tone], over(T.solid[tone], T.surface, T.alpha))).toBeGreaterThanOrEqual(4.5);
+    });
+
+    it.each(TONES)("본문 --ink 가 %s soft 카드 안에서 4.5:1 이상 — 두 평면", (tone) => {
+      for (const [, plane] of softPlanes) expect(ratio(T.ink, over(T.solid[tone], plane, T.alpha))).toBeGreaterThanOrEqual(4.5);
+    });
+
+    /*
+     * solid 배지(§8.5 자물쇠 확장 (b), PR #186 NN3): 예전엔 fail 톤 하나만 쟀다. 조합표(badge-map)에서
+     * variant:"solid" 인 항목의 톤을 **전부** 모아 잰다 — 누가 조합표에서 waiting_human 을 solid 로 바꾸면
+     * 밝음 wait 는 3.19 라 여기서 걸린다.
+     */
+    const solidTones = [...new Set(Object.values(BADGE_MAP).flatMap((m) => Object.values(m as Record<string, BadgeSpec>).filter((sp) => sp.variant === "solid").map((sp) => sp.tone)))] as Exclude<Tone, "neutral">[];
+
+    it("조합표의 solid 톤이 하나 이상 있고 neutral 은 solid 가 아니다", () => {
+      expect(solidTones.length).toBeGreaterThan(0);
+      expect((solidTones as string[]).includes("neutral")).toBe(false);
+    });
+
+    it.each(solidTones)("solid 배지(--bg 글자 on --s-%s)가 4.5:1 이상 — 조합표의 solid 톤 전부", (tone) => {
+      expect(ratio(T.bg, T.solid[tone])).toBeGreaterThanOrEqual(4.5);
+    });
+
+    // 상태색을 배경으로 쓰면서 글자를 얹는 자리의 census — CSS 파일과 tsx 안의 <style> 블록 전부.
+    it.each(SOLID_RULES.map((r) => [r.where, r.bg, r.fg] as const))("%s — %s 배경에 %s 글자가 4.5:1 이상", (_w, bgTok, fgTok) => {
+      const bg = resolve(T, bgTok);
+      const fg = resolve(T, fgTok);
+      expect(ratio(fg, bg)).toBeGreaterThanOrEqual(4.5);
     });
 
     it("primary 버튼·cmd(--bg 글자 on --ink)가 4.5:1 이상", () => {

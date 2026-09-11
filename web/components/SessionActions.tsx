@@ -69,6 +69,20 @@ export function SessionActions(props: SessionActionsProps) {
   const [reason, setReason] = useState("");
   const [nextDirector, setNextDirector] = useState("");
 
+  /**
+   * 비활성 사유를 버튼 근처에서 말한다(§8.5) — `title` 은 마우스를 올려야 보이고 터치에서는 아예 없다.
+   * 같은 사유는 한 번만 적고(멤버는 네 버튼이 전부 "Director 만"), 버튼은 `aria-describedby` 로 그 줄을 가리킨다.
+   */
+  const whyIds = new Map<string, string>();
+  const whyId = (reason: string) => {
+    let id = whyIds.get(reason);
+    if (!id) {
+      id = `session-why-${whyIds.size + 1}`;
+      whyIds.set(reason, id);
+    }
+    return id;
+  };
+
   const btn = (key: SessionActionKey, label: string, onClick: () => void, primary = false) => {
     const gate = actionGate(s, key);
     return (
@@ -78,6 +92,7 @@ export function SessionActions(props: SessionActionsProps) {
         className={`btn btn--sm${primary ? " btn--primary" : ""}`}
         disabled={!gate.allowed || props.busy}
         title={gate.reason}
+        aria-describedby={gate.reason ? whyId(gate.reason) : undefined}
         onClick={onClick}
         data-testid={`session-${key}`}
         data-allowed={gate.allowed ? "true" : "false"}
@@ -87,15 +102,28 @@ export function SessionActions(props: SessionActionsProps) {
     );
   };
 
+  const buttons = [
+    s.status === "paused"
+      ? btn("resume", "재개", () => void props.onResume(), true)
+      : btn("pause", "일시정지", () => void props.onPause()),
+    btn("complete", "종료", () => setDialog("complete")),
+    btn("participants", "참여자", props.onOpenParticipants),
+    btn("director", "Director 교체", () => setDialog("director")),
+    btn("cancel", "세션 취소", () => setDialog("cancel")),
+  ];
+
   return (
     <div className="s7-actions" data-testid="session-actions" data-role={s.my_role}>
-      {s.status === "paused"
-        ? btn("resume", "재개", () => void props.onResume(), true)
-        : btn("pause", "일시정지", () => void props.onPause())}
-      {btn("complete", "종료", () => setDialog("complete"))}
-      {btn("participants", "참여자", props.onOpenParticipants)}
-      {btn("director", "Director 교체", () => setDialog("director"))}
-      {btn("cancel", "세션 취소", () => setDialog("cancel"))}
+      {buttons}
+      {whyIds.size > 0 && (
+        <p className="s7-actions__why" data-testid="session-actions-why">
+          {[...whyIds].map(([reason, id]) => (
+            <span key={id} id={id}>
+              {reason}
+            </span>
+          ))}
+        </p>
+      )}
 
       {dialog === "complete" && (
         <div className="s7-actions__dialog" role="dialog" aria-label="세션 종료 확인" data-testid="complete-confirm">

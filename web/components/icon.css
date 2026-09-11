@@ -1,0 +1,2 @@
+/* Icon — 아이콘 한 벌(§8.5). 크기는 SVG 속성이 정하고 여기서는 줄 안에 앉히기만 한다. */
+.icon { display: inline-block; flex: none; vertical-align: -0.15em; }

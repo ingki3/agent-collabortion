@@ -15,6 +15,8 @@ import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { capabilityAlerts, capabilityDetails } from "@/components/RuntimeCard";
 import { sessionBadgeLabel, PAUSE_REASON_LABEL } from "@/lib/session-label";
+import { PAGE_COPY, type Screen } from "@/components/PageHead";
+import { NAV_ITEMS } from "@/components/AppNav";
 
 const ROOT = join(__dirname, "..");
 
@@ -49,16 +51,24 @@ export interface Visible {
   text: string;
 }
 
+/** `${cond ? "a" : "b"}` → ` "a" "b" ` — 보간 안의 문자열 리터럴만 남긴다. 리터럴이 없으면 `…`. */
+function keepQuoted(expr: string): string {
+  const quoted = [...expr.matchAll(/"[^"\n]*"|'[^'\n]*'/g)].map((m) => m[0]);
+  return quoted.length ? ` ${quoted.join(" ")} ` : "…";
+}
+
 /** 사람이 읽을 수 있는 것만 — JSX 텍스트 노드 + 산문처럼 생긴 문자열 리터럴. */
 function visibleStrings(file: string, src: string): Visible[] {
   const out: Visible[] = [];
   const body = src
     .replace(/<style>\{`[\s\S]*?`\}<\/style>/g, "") // CSS 블록
     .replace(/^\s*import\s.*$/gm, "") // 모듈 경로
-    // `${lane.queue_position}` 은 코드다 — 보간 안의 식별자를 문구로 세면 안 된다(중첩 삼항까지 안쪽부터).
-    .replace(/\$\{[^{}]*\}/g, "…")
-    .replace(/\$\{[^{}]*\}/g, "…")
-    .replace(/\$\{[^{}]*\}/g, "…")
+    // `${lane.queue_position}` 은 코드다 — 보간 안의 **식별자**만 지우고 **따옴표 문자열은 살린다**(중첩 삼항까지
+    // 안쪽부터). 통째로 지우면 `${ok ? "런타임 오프라인" : "…"}` 같은 삼항 분기 문구가 사각지대가 된다(PR #188 NN1 —
+    // 주입 INJ2 가 359 초록으로 통과했다).
+    .replace(/\$\{[^{}]*\}/g, keepQuoted)
+    .replace(/\$\{[^{}]*\}/g, keepQuoted)
+    .replace(/\$\{[^{}]*\}/g, keepQuoted)
     // className·data-* 등 화면에 읽히지 않는 속성 값도 코드다.
     .replace(/\b(className|class|data-[a-z-]+|key|href|src|htmlFor|role|id)=\{?["'`][^"'`]*["'`]\}?/g, "");
   body.split("\n").forEach((line, i) => {
@@ -217,5 +227,83 @@ describe("S5 배지 — EVAL_USER U12 가 못박은 말(B1)", () => {
   it("같은 사건을 인박스와 배지가 같은 말로 부른다", () => {
     expect(PAUSE_REASON_LABEL.runtime_offline).toContain("컴퓨터");
     expect(PAUSE_REASON_LABEL.runtime_offline).not.toContain("런타임");
+  });
+});
+
+// ── 자물쇠 확장 (a) — `${…}` 안의 문구도 본다 (PR #188 NN1) ────────────────
+describe("보간식 안의 문구도 풀에 든다 (NN1)", () => {
+  it("삼항 분기의 문자열 리터럴이 살아남는다", () => {
+    const v = visibleStrings("x.tsx", '<b>{`${ok ? "이어서 실행" : "처음부터 실행"} · ${lane.queue_position}`}</b>');
+    // 템플릿 리터럴 하나가 풀의 항목 하나다 — 안의 문구는 남고 식별자는 … 로 지워진다.
+    const texts = v.map((x) => x.text);
+    expect(texts.some((t) => t.includes("이어서 실행") && t.includes("처음부터 실행"))).toBe(true);
+    expect(texts.some((t) => /queue_position|\bok\b/.test(t))).toBe(false);
+  });
+
+  it("옛말을 보간식에 숨기면 걸린다 — INJ2 재현", () => {
+    const v = visibleStrings("x.tsx", 'const l = `${paused ? "일시정지 · 런타임 오프라인" : "진행 중"}`;');
+    expect(v.some((x) => /런타임 오프라인/.test(x.text))).toBe(true);
+  });
+
+  it("실제 소스에서 보간식 안에 사는 문구가 풀에 있다", () => {
+    // RebindDialog 의 확인 버튼 — `${chosen.runtime.name} 으로 옮기기` 는 식별자와 문구가 한 리터럴에 섞인 예다.
+    expect(POOL.some((v) => v.file === "components/RebindDialog.tsx" && /으로 옮기기/.test(v.text))).toBe(true);
+  });
+});
+
+// ── 자물쇠 확장 (d) — 새 문구가 **실제로 쓰이는지** (PR #188 NN4) ─────────
+describe("새 문구의 존재 — 옛말 0건만으로는 안 잰다 (NN4)", () => {
+  const inPool = (file: string, text: string) => POOL.some((v) => v.file === file && v.text.includes(text));
+
+  it("EVAL_USER 가 이름으로 못박은 다이얼로그 제목 — `다른 컴퓨터로 옮기기`", () => {
+    expect(inPool("components/RebindDialog.tsx", "다른 컴퓨터로 옮기기")).toBe(true);
+  });
+
+  it("§8.4 표의 새말이 각자 제자리에 있다", () => {
+    expect(inPool("components/AppNav.tsx", "연결된 컴퓨터")).toBe(true);
+    expect(inPool("components/AppNav.tsx", "받은 요청")).toBe(true);
+    expect(inPool("app/(app)/runtimes/page.tsx", "작업 폴더")).toBe(true);
+    expect(inPool("app/(app)/runtimes/page.tsx", "쓰는 중인 세션")).toBe(true);
+    expect(inPool("app/(app)/runtimes/page.tsx", "컴퓨터 연결")).toBe(true);
+    expect(inPool("components/RuntimeCard.tsx", "도구 제한을 걸 수 없는 컴퓨터입니다")).toBe(true);
+  });
+
+  // §8.5 — 화면 제목 아래 한 줄 설명. 표(PAGE_COPY)에만 있고 화면이 안 쓰면 없는 것과 같다.
+  const PAGE_FILES: Record<Screen, string> = {
+    sessions: "app/(app)/sessions/page.tsx",
+    inbox: "app/(app)/inbox/page.tsx",
+    agents: "app/(app)/agents/page.tsx",
+    computers: "app/(app)/runtimes/page.tsx",
+    settings: "app/(app)/settings/page.tsx",
+  };
+  const SCREENS = Object.keys(PAGE_COPY) as Screen[];
+
+  it("다섯 화면 설명이 §8.4 의 말이고 한 줄이다", () => {
+    expect(SCREENS.sort()).toEqual(["agents", "computers", "inbox", "sessions", "settings"]);
+    for (const k of SCREENS) {
+      const { title, desc } = PAGE_COPY[k];
+      expect(desc.length).toBeGreaterThanOrEqual(15);
+      expect(desc.length).toBeLessThanOrEqual(60);
+      expect(desc).not.toMatch(/\n/);
+      expect(desc).toMatch(/[가-힣]/);
+      // 제목은 내비 라벨과 같은 말 — 메뉴에서 누른 것과 화면에 적힌 것이 다르면 안 된다.
+      expect(NAV_ITEMS.map((i) => i.label)).toContain(title);
+      // 설명은 문구 풀에 들어 있어야 자물쇠(옛말 0건)가 본다.
+      expect(inPool("components/PageHead.tsx", desc)).toBe(true);
+    }
+  });
+
+  it.each(SCREENS)("%s 화면이 PageHead 로 그 설명을 실제로 그린다", (k) => {
+    const src = readFileSync(join(ROOT, PAGE_FILES[k]), "utf8");
+    expect(src).toMatch(new RegExp(`<PageHead screen="${k}"`));
+  });
+
+  it("비활성 사유가 버튼 근처에 있다 — title 만으로는 안 된다 (§8.5)", () => {
+    const sessions = readFileSync(join(ROOT, PAGE_FILES.sessions), "utf8");
+    const runtimes = readFileSync(join(ROOT, PAGE_FILES.computers), "utf8");
+    expect(sessions).toMatch(/<DisabledHint id="new-session-hint">/);
+    expect(sessions).toMatch(/aria-describedby=\{noRuntime \? "new-session-hint"/);
+    expect(runtimes).toMatch(/<DisabledHint id="add-computer-hint">/);
+    expect(runtimes).toMatch(/aria-describedby=\{!canManage \? "add-computer-hint"/);
   });
 });
