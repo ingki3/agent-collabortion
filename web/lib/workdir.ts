@@ -14,9 +14,9 @@
 import type { Workdir, WorkdirKind, WorkdirStatus } from "@/lib/api/types";
 
 export const WORKDIR_KIND_LABEL: Record<WorkdirKind, string> = {
-  worktree: "worktree",
-  container: "container",
-  dir: "dir",
+  worktree: "워크트리",
+  container: "컨테이너",
+  dir: "폴더",
 };
 
 export const WORKDIR_STATUS_LABEL: Record<WorkdirStatus, string> = {
@@ -55,12 +55,12 @@ export function gcBlockText(w: Pick<Workdir, "gc_blocked_reason" | "commits_ahea
           w.commits_ahead != null && w.commits_ahead > 0
             ? `미병합 커밋 ${w.commits_ahead}개가 있어 정리하지 않았습니다`
             : "미병합 커밋이 있어 정리하지 않았습니다",
-        next: "이 커밋은 원래 머신의 이 브랜치에만 있습니다 — 먼저 병합하세요(E13-12).",
+        next: "이 커밋은 원래 컴퓨터의 이 브랜치에만 있습니다 — 먼저 병합하세요.",
       };
     case "uncommitted_changes":
       return {
         title: "미커밋 변경이 있어 정리하지 않았습니다",
-        next: "diff 만 제출하고 커밋하지 않은 경우입니다 — 커밋하거나 버린 뒤 다시 지우세요(E13-13).",
+        next: "변경만 제출하고 커밋하지 않은 경우입니다 — 커밋하거나 버린 뒤 다시 지우세요.",
       };
     default:
       return null;

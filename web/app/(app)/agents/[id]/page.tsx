@@ -78,7 +78,7 @@ export default function AgentEditPage() {
 
   const isOwner = !!agent && !!me && agent.owner_id === me.user.id;
   const canEdit = isOwner || canManage;
-  const editReason = "소유자와 owner·admin 만 수정할 수 있습니다";
+  const editReason = "만든 사람과 소유자·관리자만 수정할 수 있습니다";
 
   async function patch(body: Record<string, unknown>) {
     setBusy(true);
@@ -146,7 +146,7 @@ export default function AgentEditPage() {
     return (
       <div>
         <p className="problem">{error}</p>
-        <Link href="/agents" className="btn">Agents 로</Link>
+        <Link href="/agents" className="btn">에이전트 목록으로</Link>
       </div>
     );
   }
@@ -156,7 +156,7 @@ export default function AgentEditPage() {
     <div className="content--narrow" data-testid="agent-editor" data-agent-id={agent.id}>
       <div className="page-head">
         <div className="row">
-          <Link href="/agents" className="small muted-3">← Agents</Link>
+          <Link href="/agents" className="small muted-3">← 에이전트</Link>
           <h1>@{agent.name}</h1>
           <Badge kind="agent" value={agent.status} size="sm" />
         </div>
@@ -179,7 +179,7 @@ export default function AgentEditPage() {
           <select className="select" value={role} disabled={!canEdit} onChange={(e) => setRole(e.target.value as AgentRole)} data-testid="agent-role">
             {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
-          {role === "lead" && <span className="field__hint" data-testid="lead-protocol-note">코디네이션 프로토콜이 instruction 에 자동 추가됩니다.</span>}
+          {role === "lead" && <span className="field__hint" data-testid="lead-protocol-note">협업 규칙이 지시문에 자동으로 붙습니다.</span>}
         </label>
         <label className="field">
           <span className="field__label">역할 설명</span>
@@ -189,7 +189,7 @@ export default function AgentEditPage() {
       </section>
 
       <section className="card" style={{ marginBottom: 14 }} data-testid="agent-instructions">
-        <h2 style={{ fontSize: "var(--fs-card)", margin: "0 0 8px" }}>instruction</h2>
+        <h2 style={{ fontSize: "var(--fs-card)", margin: "0 0 8px" }}>지시문</h2>
         <textarea className="textarea" style={{ minHeight: 160 }} value={instructions} disabled={!canEdit} onChange={(e) => setInstructions(e.target.value)} data-testid="agent-instructions-input" aria-label="시스템 프롬프트" />
       </section>
 
@@ -206,21 +206,21 @@ export default function AgentEditPage() {
           error={profileError}
         />
         <label className="field" style={{ marginTop: 12 }}>
-          <span className="field__label">툴 · MCP 허용 목록 (쉼표로 구분)</span>
+          <span className="field__label">도구·MCP 허용 목록 (쉼표로 구분)</span>
           <input className="input" value={tools} disabled={!canEdit} onChange={(e) => setTools(e.target.value)} placeholder="Read, Edit, Bash" data-testid="agent-tools" />
         </label>
         <div className="row">
           <label className="field" style={{ flex: 1 }}>
-            <span className="field__label">동시 task 상한</span>
+            <span className="field__label">동시에 맡을 수 있는 일</span>
             <input className="input" type="number" min={1} value={maxConcurrent} disabled={!canEdit} onChange={(e) => setMaxConcurrent(e.target.value)} data-testid="agent-max-concurrent" />
           </label>
           <label className="field" style={{ flex: 1 }}>
-            <span className="field__label">task 당 예산 (USD · 비우면 없음)</span>
+            <span className="field__label">일 하나당 예산 (USD · 비우면 없음)</span>
             <input className="input" type="number" min={0} value={budgetPerTask} disabled={!canEdit} onChange={(e) => setBudgetPerTask(e.target.value)} data-testid="agent-budget" />
           </label>
         </div>
         <div className="field">
-          <span className="field__label">응답 대상 (respond_to)</span>
+          <span className="field__label">응답 대상</span>
           {RESPOND_TO.filter((r) => r.value !== "nobody").map((r) => (
             <label key={r.value} className="row small" style={{ gap: 6 }} data-testid={`respond-to-${r.value}`}>
               <input type="radio" name="respond_to" checked={agent.respond_to === r.value} disabled={!canEdit || busy} onChange={() => void setRespondTo(r.value)} />
@@ -233,7 +233,7 @@ export default function AgentEditPage() {
       <section className="card" style={{ borderColor: "var(--s-fail)" }} data-testid="agent-danger">
         <h2 style={{ fontSize: "var(--fs-card)", margin: "0 0 4px", color: "var(--s-fail-text)" }}>위험 영역</h2>
         <p className="small muted" style={{ marginTop: 0 }}>
-          <b>킬 스위치 — `respond_to: nobody`.</b> 이 에이전트를 즉시 정지시킵니다.
+          <b>즉시 정지합니다.</b> 이 에이전트가 누구에게도 응답하지 않게 만듭니다.
         </p>
         {agent.respond_to === "nobody" ? (
           <div className="row">
@@ -245,7 +245,7 @@ export default function AgentEditPage() {
         ) : confirmKill ? (
           <div className="notice" role="dialog" aria-label="킬 스위치 확인" data-testid="kill-switch-confirm">
             <p style={{ margin: "0 0 6px" }}>
-              <b>실행 중인 턴이 취소되고 대기 중 task 가 취소됩니다. 열린 HITL 은 남습니다.</b>
+              <b>실행 중인 턴과 대기 중인 일이 모두 취소됩니다. 답을 기다리는 확인 요청은 남습니다.</b>
             </p>
             <p className="small" style={{ margin: "0 0 8px" }}>답이 오면 그때 재개됩니다 — 정지를 풀기 전에는 아무것도 실행되지 않습니다.</p>
             <div className="row">
@@ -257,7 +257,7 @@ export default function AgentEditPage() {
           </div>
         ) : (
           <button type="button" className="btn btn--sm" disabled={!canEdit || busy} title={canEdit ? undefined : editReason} onClick={() => setConfirmKill(true)} data-testid="kill-switch">
-            이 에이전트 정지 (respond_to: nobody)
+            이 에이전트 정지
           </button>
         )}
         <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "12px 0" }} />
@@ -276,9 +276,9 @@ export default function AgentEditPage() {
           }}
           data-testid="agent-archive"
         >
-          보관(archive)
+          보관하기
         </button>
-        <p className="small muted-3" style={{ marginBottom: 0 }}>테스트 채팅(FR-1.8.1)은 P3 입니다 — 실행 경로와 토큰을 함께 보여주는 1:1 시험 대화가 여기 붙습니다.</p>
+        <p className="small muted-3" style={{ marginBottom: 0 }}>1:1 시험 대화는 아직 준비 중입니다 — 실행 경로와 토큰을 함께 보여 줄 자리입니다.</p>
       </section>
     </div>
   );

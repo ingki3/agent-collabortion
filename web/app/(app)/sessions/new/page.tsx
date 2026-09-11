@@ -13,20 +13,23 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ConditionRow } from "@/components/ConditionRow";
+import { CONDITION_LABEL, ConditionRow } from "@/components/ConditionRow";
 import { api, errorMessage, isApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import type { Agent, IsolationKind, Member, RepoCheck, Runtime, RuntimeCandidate, SessionListItem } from "@/lib/api/types";
 
-const STEPS = ["goal", "Director", "격리", "런타임", "참여자", "종료 조건", "한도·autonomy"] as const;
+const STEPS = ["목표", "Director", "격리", "컴퓨터", "참여자", "종료 조건", "한도·자율성"] as const;
 
 type CondType = "artifact_submitted" | "agent_approval" | "user_approval" | "manual";
 const COND_ORDER: CondType[] = ["artifact_submitted", "agent_approval", "user_approval", "manual"];
 
+/** 격리 방식 — 계약 enum(`none`·`worktree`·`container`)을 화면의 말로(§8.4). */
+const ISOLATION_LABEL: Record<IsolationKind, string> = { none: "격리 없음", worktree: "워크트리", container: "컨테이너" };
+
 const AUTONOMY = [
-  { value: "guided", label: "guided (기본)", note: "질문 기한이 지나면 계속 기다립니다", enabled: true },
-  { value: "autonomous", label: "autonomous", note: "질문 기한이 지나면 에이전트가 제안한 기본값으로 진행합니다. 승인 요청은 예외로 항상 기다립니다", enabled: true },
-  { value: "supervised", label: "supervised", note: "Lead 의 모든 위임을 Director 가 먼저 승인합니다", enabled: false },
+  { value: "guided", label: "기다림 (기본)", note: "질문 기한이 지나면 계속 기다립니다", enabled: true },
+  { value: "autonomous", label: "알아서 진행", note: "질문 기한이 지나면 에이전트가 제안한 기본값으로 진행합니다. 승인 요청은 예외로 항상 기다립니다", enabled: true },
+  { value: "supervised", label: "매번 확인", note: "Lead 의 모든 위임을 Director 가 먼저 승인합니다", enabled: false },
 ] as const;
 
 export default function NewSessionPage() {
@@ -180,7 +183,7 @@ export default function NewSessionPage() {
       pickedIds.flatMap((id) => {
         const a = invitable.find((x) => x.id === id);
         const prof = a?.profiles.find((p) => p.id === picked[id]) ?? a?.profiles.find((p) => p.is_default) ?? a?.profiles[0];
-        return prof && !runtimeKinds.has(prof.runtime_kind) ? [`@${a!.name} 의 프로파일(${prof.runtime_kind})은 선택한 런타임에 없습니다`] : [];
+        return prof && !runtimeKinds.has(prof.runtime_kind) ? [`@${a!.name} 의 프로파일(${prof.runtime_kind})은 선택한 컴퓨터에 없습니다`] : [];
       }),
     [pickedIds.join(","), picked, invitable, runtimeKinds],
   );
@@ -189,14 +192,14 @@ export default function NewSessionPage() {
   /** 화면에 쓰는 제출자 이름 — 지정이 없으면 역할(`assignee`) 그대로 말한다. */
   const submitterLabel = submitter ? `@${invitable.find((a) => a.id === submitter)?.name ?? submitter}` : "assignee";
   const stepBlocked = ((): string | null => {
-    if (step === 0) return title.trim() && goal.trim() ? null : "제목과 goal 을 입력하세요";
+    if (step === 0) return title.trim() && goal.trim() ? null : "제목과 목표를 입력하세요";
     if (step === 2 && isolation === "worktree") {
       if (!repoPath) return "저장소를 고르세요";
       if (checking) return "저장소 확인 중…";
       if (repoCheckError) return repoCheckError;
       if (!repoCheck?.ok) return repoCheck?.problems?.[0] ?? "저장소 검증이 필요합니다";
     }
-    if (step === 3 && isolation !== "none" && !runtimeId) return "런타임을 고르세요";
+    if (step === 3 && isolation !== "none" && !runtimeId) return "컴퓨터를 고르세요";
     if (step === 4 && pickedIds.length === 0) return "참여자를 1명 이상 고르세요";
     if (step === 5 && conds.length === 0) return "종료 조건을 하나 이상 고르세요";
     return null;
@@ -240,7 +243,7 @@ export default function NewSessionPage() {
       });
       router.replace(`/sessions/${s.id}`);
     } catch (err) {
-      if (isApiError(err) && err.code === "no_runtime") setError("먼저 컴퓨터를 연결하세요 — 런타임이 없으면 세션을 만들 수 없습니다.");
+      if (isApiError(err) && err.code === "no_runtime") setError("먼저 컴퓨터를 연결하세요 — 연결된 컴퓨터가 없으면 세션을 만들 수 없습니다.");
       else if (isApiError(err) && err.problem.errors?.length) setError(err.problem.errors.map((x) => `${x.field}: ${x.message}`).join(" · "));
       else setError(errorMessage(err));
     } finally {
@@ -254,8 +257,8 @@ export default function NewSessionPage() {
         <div className="page-head"><h1>새 세션</h1></div>
         <div className="empty" data-testid="new-session-no-runtime">
           <div className="empty__title">먼저 컴퓨터를 연결하세요</div>
-          <div className="empty__body">세션은 런타임에 묶입니다(FR-2.1). 실행되지 않을 세션을 만들면 원인을 모른 채 기다리게 됩니다.</div>
-          <Link href="/runtimes/new" className="btn btn--primary">Add a computer</Link>
+          <div className="empty__body">세션은 컴퓨터 한 대에 묶입니다. 실행되지 않을 세션을 만들면 원인을 모른 채 기다리게 됩니다.</div>
+          <Link href="/runtimes/new" className="btn btn--primary">컴퓨터 연결</Link>
         </div>
       </div>
     );
@@ -285,7 +288,7 @@ export default function NewSessionPage() {
             <input className="input" required maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="결제 시장 조사" data-testid="session-title" />
           </label>
           <label className="field">
-            <span className="field__label">goal (필수)</span>
+            <span className="field__label">목표 (필수)</span>
             <textarea className="textarea" required value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="국내 B2B SaaS 결제 시장 조사 보고서 10페이지" data-testid="session-goal" />
           </label>
           <div className="field">
@@ -306,7 +309,7 @@ export default function NewSessionPage() {
               <option value="">첨부 없음</option>
               {pastSessions.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
             </select>
-            {contextSessionId && <span className="field__hint" data-testid="context-token-note">요약 약 1,400 토큰 (상한 2,000) · 아티팩트는 링크만 실립니다(FR-4.4)</span>}
+            {contextSessionId && <span className="field__hint" data-testid="context-token-note">요약 약 1,400 토큰 (상한 2,000) · 아티팩트는 링크만 실립니다</span>}
           </label>
         </section>
       )}
@@ -325,30 +328,30 @@ export default function NewSessionPage() {
               <option value="">없음</option>
               {members.filter((m) => m.user.id !== directorId).map((m) => <option key={m.user.id} value={m.user.id}>{m.user.display_name}</option>)}
             </select>
-            <span className="field__hint">deputy 는 <b>취소는 즉시</b>, <b>승인은 기한 절반이 지난 뒤</b> 할 수 있습니다(t-3).</span>
+            <span className="field__hint">deputy 는 <b>취소는 즉시</b>, <b>승인은 기한 절반이 지난 뒤</b> 할 수 있습니다.</span>
           </label>
         </section>
       )}
 
       {step === 2 && (
         <section data-testid="wizard-isolation">
-          <p className="small muted">격리 방식이 다음 단계의 런타임 후보를 결정합니다.</p>
+          <p className="small muted">격리 방식이 다음 단계의 컴퓨터 후보를 결정합니다.</p>
           {(["none", "worktree", "container"] as IsolationKind[]).map((k) => (
             <label key={k} className={`card${isolation === k ? " card--surface" : ""}`} style={{ display: "block", marginBottom: 8, opacity: k === "container" ? 0.45 : 1 }} data-testid={`isolation-${k}`}>
               <input type="radio" name="isolation" value={k} checked={isolation === k} disabled={k === "container"} onChange={() => { setIsolation(k); setRuntimeId(null); }} />
-              {" "}<b>{k}</b>
-              {k === "container" && <span className="chip" style={{ marginLeft: 6 }}>v1.1</span>}
+              {" "}<b>{ISOLATION_LABEL[k]}</b>
+              {k === "container" && <span className="chip" style={{ marginLeft: 6 }}>다음 버전</span>}
               <div className="small muted-3" style={{ marginTop: 4 }}>
-                {k === "none" ? "격리 없이 런타임의 작업 디렉터리에서 실행합니다. 런타임을 자동 선택할 수 있습니다(첫 실행 시 고정)."
-                  : k === "worktree" ? "에이전트마다 git worktree 를 하나씩 만듭니다. 같은 remote URL 의 저장소를 가진 머신만 후보가 됩니다."
-                    : "컨테이너 격리는 v1.1 입니다."}
+                {k === "none" ? "격리 없이 그 컴퓨터의 작업 디렉터리에서 실행합니다. 컴퓨터를 자동으로 고를 수 있습니다(첫 실행 때 고정)."
+                  : k === "worktree" ? "에이전트마다 git 워크트리를 하나씩 만듭니다. 같은 remote URL 의 저장소를 가진 컴퓨터만 후보가 됩니다."
+                    : "컨테이너 격리는 다음 버전입니다."}
               </div>
             </label>
           ))}
           {isolation === "worktree" && (
             <div className="field" data-testid="repo-picker">
               <span className="field__label">저장소</span>
-              {repos.length === 0 && <p className="small muted-3">온라인 런타임이 보고한 저장소가 없습니다.</p>}
+              {repos.length === 0 && <p className="small muted-3">온라인인 컴퓨터가 보고한 저장소가 없습니다.</p>}
               <select className="select" value={repoPath} onChange={(e) => { setRepoPath(e.target.value); void checkRepo(e.target.value); }} data-testid="repo-select">
                 <option value="">고르세요</option>
                 {repos.map((r) => <option key={r.path} value={r.path}>{r.path} — {r.runtimeName}</option>)}
@@ -390,7 +393,7 @@ export default function NewSessionPage() {
               )}
               {/* 바인딩 규칙(U6 1단계) — 이 선택이 되돌릴 수 없는 이유를 함께 말한다. */}
               <span className="field__hint" data-testid="worktree-binding-note">
-                에이전트당 워크트리 1개 — 같은 에이전트의 lane 은 순차 실행됩니다. 브랜치는 <code>colab/&lt;세션&gt;/&lt;에이전트&gt;</code>,
+                에이전트당 워크트리 1개 — 같은 에이전트의 작업 줄기는 차례로 실행됩니다. 브랜치는 <code>colab/&lt;세션&gt;/&lt;에이전트&gt;</code>,
                 워크트리는 세션이 끝난 뒤 보존 기한까지 남습니다. 이 바인딩은 나중에 바꿀 수 없습니다.
               </span>
             </div>
@@ -413,8 +416,8 @@ export default function NewSessionPage() {
                 {" "}<b>자동 선택 (첫 실행 시 고정)</b>
                 <div className="small muted-3">
                   {candidates.auto_select_allowed
-                    ? "첫 task 를 보낼 때 온라인 런타임 하나로 고정됩니다(FR-2.1 M10)."
-                    : "worktree 격리에서는 고를 수 없습니다 — 워크트리는 저장소가 있는 그 머신에서만 만들 수 있습니다."}
+                    ? "첫 지시를 보낼 때 온라인인 컴퓨터 하나로 고정됩니다."
+                    : "워크트리 격리에서는 고를 수 없습니다 — 워크트리는 저장소가 있는 그 컴퓨터에서만 만들 수 있습니다."}
                 </div>
               </label>
               {candidates.candidates.map((c) => (
@@ -427,12 +430,12 @@ export default function NewSessionPage() {
                       : c.reason}
                   </div>
                   {c.runtime.colab_cli?.present === false && (
-                    <div className="small" style={{ color: "var(--s-fail-text)" }} data-testid="candidate-no-cli">colab CLI 미설치 — 세션이 조용히 아무 말도 못 합니다</div>
+                    <div className="small" style={{ color: "var(--s-fail-text)" }} data-testid="candidate-no-cli">colab 명령 미설치 — 세션이 조용히 아무 말도 못 합니다</div>
                   )}
                 </label>
               ))}
               {candidates.candidates.every((c) => !c.eligible) && (
-                <p className="problem" data-testid="no-candidate">조건에 맞는 런타임이 없습니다 — 격리 방식을 바꾸거나 저장소를 가진 컴퓨터를 연결하세요.</p>
+                <p className="problem" data-testid="no-candidate">조건에 맞는 컴퓨터가 없습니다 — 격리 방식을 바꾸거나 저장소를 가진 컴퓨터를 연결하세요.</p>
               )}
             </>
           )}
@@ -441,7 +444,7 @@ export default function NewSessionPage() {
 
       {step === 4 && (
         <section data-testid="wizard-participants">
-          <p className="small muted">에이전트를 고르고 프로파일과 assignee 를 정합니다.</p>
+          <p className="small muted">에이전트를 고르고 프로파일과 담당을 정합니다.</p>
           {invitable.map((a) => {
             const on = a.id in picked;
             const allowed = a.invitable.allowed;
@@ -463,7 +466,7 @@ export default function NewSessionPage() {
                       {a.profiles.map((pr) => <option key={pr.id} value={pr.id}>{pr.name} — {pr.runtime_kind} · {pr.model}</option>)}
                     </select>
                     <label>
-                      <input type="radio" name="assignee" checked={assignee === a.id} onChange={() => setAssignee(a.id)} data-testid="assignee-radio" /> assignee
+                      <input type="radio" name="assignee" checked={assignee === a.id} onChange={() => setAssignee(a.id)} data-testid="assignee-radio" /> 담당
                     </label>
                   </div>
                 )}
@@ -507,7 +510,7 @@ export default function NewSessionPage() {
                       data-testid="submitter-select"
                       aria-label="아티팩트 제출자"
                     >
-                      <option value="">assignee (기본) — 담당이 바뀌면 따라갑니다</option>
+                      <option value="">담당 에이전트 (기본) — 담당이 바뀌면 따라갑니다</option>
                       {pickedIds.map((id) => (
                         <option key={id} value={id}>@{invitable.find((a) => a.id === id)?.name ?? id}</option>
                       ))}
@@ -516,7 +519,7 @@ export default function NewSessionPage() {
                 )}
               </div>
             ))}
-            <ConditionRow type="criteria_met" met={null} variant="wizard" disabled disabledNote="v1.1 — 성공 기준 자동 판정은 아직 없습니다" />
+            <ConditionRow type="criteria_met" met={null} variant="wizard" disabled disabledNote="성공 기준 자동 판정은 다음 버전입니다" />
           </div>
           {!humanGate && conds.length > 0 && (
             <p className="notice" data-testid="no-human-gate-warning">⚠ 사람 승인 없이 완료됩니다 — 종료 조건에 Director 승인이나 수동 종료가 없습니다.</p>
@@ -526,7 +529,7 @@ export default function NewSessionPage() {
 
       {step === 6 && (
         <section data-testid="wizard-limits">
-          <p className="small muted">초과는 완료가 아니라 <b>일시정지</b>입니다 — Director 가 승인하면 같은 자리에서 이어집니다(FR-7.3).</p>
+          <p className="small muted">초과는 완료가 아니라 <b>일시정지</b>입니다 — Director 가 승인하면 같은 자리에서 이어집니다.</p>
           <div className="row">
             <label className="field" style={{ flex: 1 }}>
               <span className="field__label">예산 (USD)</span>
@@ -544,39 +547,39 @@ export default function NewSessionPage() {
           </div>
           <div className="row">
             <label className="field" style={{ flex: 1 }}>
-              <span className="field__label">최대 task (비우면 없음)</span>
+              <span className="field__label">최대 작업 수 (비우면 없음)</span>
               <input className="input" type="number" min={1} value={maxTasks} onChange={(e) => setMaxTasks(e.target.value)} data-testid="limit-tasks" />
             </label>
             <label className="field" style={{ flex: 1 }}>
-              <span className="field__label">최대 병렬 lane</span>
+              <span className="field__label">동시에 진행할 작업 줄기</span>
               <input className="input" type="number" min={1} value={maxLanes} onChange={(e) => setMaxLanes(e.target.value)} data-testid="limit-lanes" />
             </label>
           </div>
           {online.some((r) => r.capabilities.some((c) => c.usage === false)) && (
-            <p className="notice notice--info" data-testid="estimate-note">사용량을 보고하지 않는 런타임이 있습니다 — 그 실행의 비용은 추정치이고 하드 컷을 하지 않습니다.</p>
+            <p className="notice notice--info" data-testid="estimate-note">사용량을 보고하지 않는 컴퓨터가 있습니다 — 그 실행의 비용은 추정치이고 금액으로 자동 중단하지 않습니다.</p>
           )}
           <div className="field">
-            <span className="field__label">autonomy</span>
+            <span className="field__label">자율성</span>
             {AUTONOMY.map((a) => (
               <label key={a.value} className="card" style={{ display: "block", marginBottom: 6, opacity: a.enabled ? 1 : 0.45 }} data-testid={`autonomy-${a.value}`}>
                 <input type="radio" name="autonomy" disabled={!a.enabled} checked={autonomy === a.value} onChange={() => setAutonomy(a.value)} />
-                {" "}<b>{a.label}</b>{!a.enabled && <span className="chip" style={{ marginLeft: 6 }}>v1.1</span>}
+                {" "}<b>{a.label}</b>{!a.enabled && <span className="chip" style={{ marginLeft: 6 }}>다음 버전</span>}
                 <div className="small muted-3">{a.note}</div>
               </label>
             ))}
-            <span className="field__hint">승인(approval)은 autonomy 와 무관하게 절대 자동 진행되지 않습니다(FR-5.4).</span>
+            <span className="field__hint">승인 요청은 자율성 설정과 무관하게 절대 자동으로 진행되지 않습니다.</span>
           </div>
 
           <h2 style={{ fontSize: "var(--fs-card)", margin: "16px 0 8px" }}>요약</h2>
           <div className="card card--surface small" data-testid="wizard-summary">
             <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
-              <li>제목 <b>{title || "—"}</b> · goal {goal.slice(0, 60) || "—"}</li>
+              <li>제목 <b>{title || "—"}</b> · 목표 {goal.slice(0, 60) || "—"}</li>
               <li>Director <b>{members.find((m) => m.user.id === directorId)?.user.display_name ?? "—"}</b>{deputyId ? ` · deputy ${members.find((m) => m.user.id === deputyId)?.user.display_name}` : " · deputy 없음"}</li>
-              <li>격리 <b>{isolation}</b>{isolation === "worktree" ? ` · ${repoPath}` : ""}</li>
-              <li>런타임 <b>{runtimeId ? online.find((r) => r.id === runtimeId)?.name ?? runtimeId : "자동 선택(첫 실행 시 고정)"}</b></li>
-              <li>참여자 {pickedIds.map((id) => `@${invitable.find((a) => a.id === id)?.name}`).join(", ") || "—"} · assignee <b>@{invitable.find((a) => a.id === assignee)?.name ?? "—"}</b></li>
-              <li>종료 조건 <b>{conds.join(op === "and" ? " AND " : " OR ")}</b>{conds.includes("artifact_submitted") ? ` · 제출자 ${submitterLabel}` : ""}{humanGate ? "" : " — 사람 승인 없음"}</li>
-              <li>한도 {budget ? `$${budget}` : "예산 없음"} · {timeLimit || "시간 제한 없음"} · autonomy <b>{autonomy}</b></li>
+              <li>격리 <b>{ISOLATION_LABEL[isolation]}</b>{isolation === "worktree" ? ` · ${repoPath}` : ""}</li>
+              <li>컴퓨터 <b>{runtimeId ? online.find((r) => r.id === runtimeId)?.name ?? runtimeId : "자동 선택(첫 실행 때 고정)"}</b></li>
+              <li>참여자 {pickedIds.map((id) => `@${invitable.find((a) => a.id === id)?.name}`).join(", ") || "—"} · 담당 <b>@{invitable.find((a) => a.id === assignee)?.name ?? "—"}</b></li>
+              <li>종료 조건 <b>{conds.map((c) => CONDITION_LABEL[c] ?? c).join(op === "and" ? " 그리고 " : " 또는 ")}</b>{conds.includes("artifact_submitted") ? ` · 제출자 ${submitterLabel}` : ""}{humanGate ? "" : " — 사람 승인 없음"}</li>
+              <li>한도 {budget ? `$${budget}` : "예산 없음"} · {timeLimit || "시간 제한 없음"} · 자율성 <b>{AUTONOMY.find((a) => a.value === autonomy)?.label ?? autonomy}</b></li>
             </ul>
           </div>
         </section>

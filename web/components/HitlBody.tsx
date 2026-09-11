@@ -217,7 +217,7 @@ export function HitlBody(props: HitlBodyProps) {
           )}
           {bo && actions.includes("approve") && (
             <label className="hitl__field" data-testid="hitl-budget-field" data-scope={scope}>
-              <span>{scope === "session" ? "새 세션 상한 (USD)" : "새 task 상한 (USD)"}</span>
+              <span>{scope === "session" ? "새 세션 상한 (USD)" : "이 작업의 새 상한 (USD)"}</span>
               <input
                 className="input"
                 type="number"

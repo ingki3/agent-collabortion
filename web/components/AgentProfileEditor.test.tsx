@@ -88,8 +88,8 @@ describe("AgentProfileEditor — 광고된 옵션만 고를 수 있다", () => {
     expect(screen.queryByTestId("profile-option")).toBeNull();
     const note = screen.getByTestId("profile-options-unadvertised");
     expect(note.getAttribute("data-kind")).toBe("hermes");
-    expect(note.textContent).toContain("지원 범위를 광고하지 않습니다");
-    expect(note.textContent).toContain("런타임 기본값으로 동작");
+    expect(note.textContent).toContain("고를 수 있는 값을 알려 주지 않았습니다");
+    expect(note.textContent).toContain("기본값으로 동작");
   });
 
   it("모델 목록은 probe 결과이고, 감지된 런타임이 없으면 그 사실을 말한다", () => {

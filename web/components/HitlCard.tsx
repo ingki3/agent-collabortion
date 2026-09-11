@@ -25,18 +25,19 @@ export const PURPOSE_REASON: Record<Exclude<Purpose, "agent">, string> = {
   user_approval: "종료 조건(Director 승인)",
   budget: "예산 상한 초과",
   time: "시간 상한 도달",
-  loop: "루프 상한 도달",
+  loop: "주고받기 상한 도달",
 };
 
 /** 메타 한 줄(COMPONENTS §2.3 `i2BcH`). 시스템 발행이면 사유 + `source: system`. */
 export function hitlMetaLine(r: Pick<HitlRequest, "source" | "purpose" | "created_at">): string {
-  if (r.source !== "system") return `${clockTime(r.created_at)} · source: agent`;
+  if (r.source !== "system") return `${clockTime(r.created_at)} · 에이전트가 요청`;
   const p = r.purpose && r.purpose !== "agent" ? PURPOSE_REASON[r.purpose] : null;
-  return p ? `${p} 때문에 발행 · source: system` : "플랫폼이 발행 · source: system";
+  return p ? `${p} 때문에 자동으로 올라온 요청` : "시스템이 올린 요청";
 }
 
+/** 카드 머리 라벨 — `question`·`approval` 은 계약 enum 이고 화면에는 사람의 말로 선다(§8.4). */
 export function hitlKindLabel(r: Pick<HitlRequest, "type">): string {
-  return `HITL · ${r.type}`;
+  return r.type === "approval" ? "사람 확인 · 승인" : "사람 확인 · 질문";
 }
 
 export interface HitlCardProps {

@@ -227,6 +227,6 @@ describe("S6 3·4단계 — worktree 저장소 검증과 런타임 후보(P4)", 
     const auto = screen.getByTestId("runtime-auto");
     expect(auto.getAttribute("data-allowed")).toBe("false");
     expect((auto.querySelector("input") as HTMLInputElement).disabled).toBe(true);
-    expect(auto.textContent).toContain("worktree 격리에서는 고를 수 없습니다");
+    expect(auto.textContent).toContain("워크트리 격리에서는 고를 수 없습니다");
   });
 });

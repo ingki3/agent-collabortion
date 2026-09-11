@@ -15,7 +15,7 @@ import type { Pairing, PairingStatus, Runtime, StreamEvent } from "@/lib/api/typ
 export const PAIRING_STAGES: { key: PairingStatus; label: string }[] = [
   { key: "waiting", label: "대기 중" },
   { key: "connected", label: "연결됨" },
-  { key: "probing", label: "CLI 감지 중" },
+  { key: "probing", label: "도구 확인 중" },
   { key: "ready", label: "준비 완료" },
 ];
 
@@ -164,7 +164,7 @@ export function PairingPanel({ workspaceId, canManage, onReady, now = Date.now }
   if (!canManage) {
     return (
       <div className="notice notice--info" data-testid="pairing-forbidden">
-        런타임 추가는 owner·admin 만 할 수 있습니다. 관리자에게 요청하세요.
+        컴퓨터 추가는 소유자·관리자만 할 수 있습니다. 관리자에게 요청하세요.
       </div>
     );
   }
@@ -216,11 +216,11 @@ export function PairingPanel({ workspaceId, canManage, onReady, now = Date.now }
       </div>
       <p data-testid="pairing-status" data-status={pairing.status} className="muted small" style={{ margin: 0 }}>
         {pairing.status === "waiting" && "대기 중 — 명령을 실행하면 몇 초 안에 연결됩니다"}
-        {pairing.status === "connected" && "연결됨 — CLI 를 찾는 중입니다"}
-        {pairing.status === "probing" && "CLI 감지 중…"}
+        {pairing.status === "connected" && "연결됨 — 설치된 도구를 찾는 중입니다"}
+        {pairing.status === "probing" && "도구 확인 중…"}
         {pairing.status === "ready" && (
           <span style={{ color: "var(--s-done-text)" }}>
-            준비 완료 — {pairing.runtime?.name ?? "런타임"}
+            준비 완료 — {pairing.runtime?.name ?? "이 컴퓨터"}
           </span>
         )}
         {expired && "페어링이 만료되었습니다(30분). 새 명령을 발급하세요."}
@@ -243,7 +243,7 @@ export function PairingPanel({ workspaceId, canManage, onReady, now = Date.now }
           <ul>
             <li>방화벽·프록시: 컴퓨터에서 이 서버 주소로 나가는 HTTPS 가 열려 있어야 합니다.</li>
             <li>권한: 설치 명령이 홈 디렉터리(~/.colab)에 쓸 수 있어야 합니다.</li>
-            <li>CLI 미설치: Claude Code 또는 Hermes 가 PATH 에 있고 로그인돼 있어야 감지됩니다.</li>
+            <li>도구 미설치: Claude Code 또는 Hermes 가 PATH 에 있고 로그인돼 있어야 감지됩니다.</li>
             <li>토큰 만료: 발급 후 30분이 지나면 "다시 발급"으로 새 명령을 받으세요.</li>
           </ul>
         </details>

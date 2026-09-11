@@ -239,8 +239,9 @@ describe("부가 텍스트(COMPONENTS §2.4 `fDXjQ`, 기본 끔)", () => {
     // hitl_request 의 제안 기본값은 **본문이 이미 그린다** — 부가 칸이 되풀이하면 같은 문장이 두 줄이 된다.
     expect(extraLine(item())).toBeNull();
     expect(screen.queryByTestId("inbox-extra")).toBeNull();
-    expect(extraLine(item({ type: "session_paused", card: { paused_reason: "budget" } }))).toContain("budget");
-    expect(extraLine(item({ type: "run_failed", card: { failure_kind: "timeout" } }))).toContain("timeout");
+    // 사유·실패 분류는 **원문 enum 이 아니라 사람의 말**로 나온다(COMPONENTS §8.4).
+    expect(extraLine(item({ type: "session_paused", card: { paused_reason: "budget" } }))).toContain("예산 상한을 넘어");
+    expect(extraLine(item({ type: "run_failed", card: { failure_kind: "timeout" } }))).toContain("시간이 초과됐습니다");
     expect(extraLine(item({ type: "session_completed", card: { summary: "결정 3건" } }))).toBe("결정 3건");
   });
 });

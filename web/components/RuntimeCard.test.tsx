@@ -4,7 +4,7 @@
  */
 import { describe, expect, it, afterEach, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { RuntimeCard, capabilityNotes } from "./RuntimeCard";
+import { RuntimeCard, capabilityAlerts, capabilityDetails } from "./RuntimeCard";
 import type { Runtime } from "@/lib/api/types";
 
 afterEach(cleanup);
@@ -24,29 +24,46 @@ function rt(over: Partial<Runtime> = {}): Runtime {
 }
 
 describe("RuntimeCard — RuntimeCapability 새 키(W-1)", () => {
-  it("adapter_version · protocol_version · brief_transport 를 읽어 보여준다", () => {
+  it("adapter_version · protocol_version · brief_transport 를 읽어 「자세히 보기」 안에 둔다(§8.4)", () => {
     render(<RuntimeCard rt={rt()} />);
     const cap = screen.getByTestId("runtime-capability");
     expect(cap.getAttribute("data-kind")).toBe("claude_code");
-    expect(cap.textContent).toContain("어댑터 0.74.0");
-    expect(cap.textContent).toContain("ACP protocol v1");
-    expect(cap.textContent).toContain("ACP _meta 시스템 프롬프트");
+    // 값은 그대로 있어야 한다 — 접혔을 뿐 사라진 것이 아니다(문제가 나면 로그와 대조해야 한다).
+    const more = screen.getByTestId("runtime-capability-details");
+    expect(more.tagName).toBe("DETAILS");
+    expect(more.textContent).toContain("자세히 보기");
+    expect(more.textContent).toContain("어댑터 0.74.0");
+    expect(more.textContent).toContain("ACP protocol v1");
+    expect(more.textContent).toContain("ACP _meta 시스템 프롬프트");
   });
 
   it("없는 능력은 결과와 함께 말한다 — usage:false 는 추정 비용, resume:false 는 콜드 스타트", () => {
-    const notes = capabilityNotes({
+    const notes = capabilityDetails({
       kind: "hermes", version: "0.20.6", adapter_version: null, logged_in: true, models: ["hermes-4"],
       protocol_version: 1, resume: false, usage: false, tool_disallow: false, brief_transport: "instruction_file", allow_once_missing: true,
     }).join(" · ");
     expect(notes).toContain("어댑터 버전 실측 실패");
-    expect(notes).toContain("재진입이 늘 콜드 스타트");
+    expect(notes).toContain("매번 처음부터 시작합니다");
     expect(notes).toContain("비용이 추정치");
-    expect(notes).toContain("툴 허용 목록이 강제되지 않습니다");
     expect(notes).toContain("allow_once 부재");
   });
 
+  /**
+   * §8.4 의 핵심 — **사람이 지금 해야 할 일은 접지 않는다.** 접힌 채로는 아무도 로그인하러 가지 않는다.
+   * 그래서 `logged_in:false` 와 `tool_disallow:false` 만 밖에 서고, 나머지는 전부 「자세히 보기」 안이다.
+   */
+  it("행동이 필요한 줄만 밖에 남는다 — 로그인 필요 · 도구 제한 불가", () => {
+    const alerts = capabilityAlerts({
+      kind: "hermes", version: "0.20.6", adapter_version: null, logged_in: false, models: ["hermes-4"],
+      protocol_version: 1, resume: false, usage: false, tool_disallow: false, brief_transport: "instruction_file", allow_once_missing: true,
+    });
+    expect(alerts).toEqual(["로그인이 필요합니다 — 이 컴퓨터로는 실행할 수 없습니다", "도구 제한을 걸 수 없는 컴퓨터입니다"]);
+    // 다 갖춘 런타임은 밖에 아무 줄도 세우지 않는다 — 조용한 것이 정상이다.
+    expect(capabilityAlerts({ kind: "claude_code", logged_in: true, tool_disallow: true })).toEqual([]);
+  });
+
   it("로그인 안 된 런타임은 그 결과까지 말한다", () => {
-    expect(capabilityNotes({ kind: "claude_code", logged_in: false })[0]).toContain("실행할 수 없습니다");
+    expect(capabilityAlerts({ kind: "claude_code", logged_in: false })[0]).toContain("실행할 수 없습니다");
   });
 });
 

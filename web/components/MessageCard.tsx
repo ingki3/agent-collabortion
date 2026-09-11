@@ -20,7 +20,7 @@ export function kindBadgeFor(m: Pick<Message, "kind">, opts: { answer?: boolean;
     case "summary":
       return { glyph: "✓", label: "summary", tone: "done" };
     case "hitl":
-      return { glyph: "⏳︎", label: "HITL", tone: "wait" };
+      return { glyph: "⏳︎", label: "사람 확인", tone: "wait" };
     default:
       return null;
   }

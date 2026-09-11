@@ -18,13 +18,14 @@ import "./lane-card.css";
 import { Badge } from "./Badge";
 import { LaneTaskHistory } from "./LaneTaskHistory";
 import { durationSince, relativeTime } from "@/lib/time";
+import { failureLabel } from "@/lib/failure";
 import type { Lane, Task } from "@/lib/api/types";
 
 export type LaneAction = NonNullable<Lane["actions"]>[number];
 
 export interface LaneCardProps {
   lane: Lane;
-  /** 호출자가 쓸 수 없는 동작의 사유(툴팁) — 없으면 "Director·deputy 만". */
+  /** 호출자가 쓸 수 없는 동작의 사유(툴팁) — 없으면 "Director·deputy 만"(§8.4 역할명 예외). */
   disabledReason?: string;
   onRestart?: (lane: Lane) => void;
   onCancel?: (lane: Lane) => void;
@@ -32,7 +33,7 @@ export interface LaneCardProps {
   onRespondHitl?: (lane: Lane) => void;
   onApproveBudget?: (lane: Lane) => void;
   onSelect?: (lane: Lane) => void;
-  /** task 이력(O3) 로더 — 펼칠 때 호출한다. */
+  /** 이전 작업 이력(O3) 로더 — 펼칠 때 호출한다. */
   loadTasks?: (laneId: string) => Promise<Task[]>;
   selected?: boolean;
   now?: number;
@@ -52,11 +53,13 @@ export function laneNote(lane: Lane): string | null {
         ? `예산 초과로 대기 중 — $${lane.paused_over_usd.toFixed(2)} 초과 · 계속 진행 승인 필요`
         : "계속 진행 승인 필요";
     case "waiting_human":
-      return `⏳ ${lane.waiting_for ?? "Director 승인 대기"} · Inbox`;
+      return `⏳ ${lane.waiting_for ?? "Director 승인 대기"} · 받은 요청`;
     case "done":
       return lane.brief ?? null;
     case "failed":
-      return lane.failure_kind ? `실패 분류 ${lane.failure_kind}${lane.failure_kind === "cancelled" ? " — 사람이 중단함" : " · 자동 재시도 소진"}` : "실패";
+      return lane.failure_kind
+        ? `${failureLabel(lane.failure_kind)}${lane.failure_kind === "cancelled" ? "" : " · 자동 재시도 소진"}`
+        : "실패";
     default:
       return null;
   }
@@ -137,13 +140,13 @@ export function LaneCard(props: LaneCardProps) {
       <div className="lane__meta">
         <span data-testid="lane-elapsed">{durationSince(lane.created_at, lane.finished_at, props.now)}</span>
         {lane.reentry_count > 0 && (
-          <span className="lane__reentry" data-testid="lane-reentry" title="이 lane 이 done·blocked 에서 다시 열린 횟수(FR-6.2)">
+          <span className="lane__reentry" data-testid="lane-reentry" title="이 작업 줄기가 끝났다가 다시 열린 횟수">
             재진입 {lane.reentry_count}회
           </span>
         )}
         {lane.workdir_ref && <span className="lane__workdir" data-testid="lane-workdir">{lane.workdir_ref}</span>}
         {lane.has_runtime_session === false && lane.status === "running" && (
-          <span className="lane__cold" data-testid="lane-cold-start" title="런타임 세션이 없어 콜드 스타트합니다(재개 성공률 지표)">콜드 스타트</span>
+          <span className="lane__cold" data-testid="lane-cold-start" title="이어서 실행할 수 없어 처음부터 시작합니다">콜드 스타트</span>
         )}
         {lane.finished_at && <span className="lane__quiet">{relativeTime(lane.finished_at, props.now)}</span>}
       </div>
@@ -161,7 +164,7 @@ export function LaneCard(props: LaneCardProps) {
             onClick={() => setOpenTasks((v) => !v)}
             data-testid="lane-tasks-toggle"
           >
-            {openTasks ? "task 이력 접기" : "task 이력"}
+            {openTasks ? "이전 작업 접기" : "이전 작업"}
           </button>
           {openTasks && <LaneTaskHistory laneId={lane.id} load={props.loadTasks} />}
         </div>

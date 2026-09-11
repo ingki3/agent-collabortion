@@ -119,7 +119,7 @@ function Onboarding() {
           }}
         >
           <h1 className="auth__title">워크스페이스 이름</h1>
-          <p className="auth__sub">팀원 초대는 나중에 Settings 에서 합니다.</p>
+          <p className="auth__sub">팀원 초대는 나중에 설정에서 합니다.</p>
           <label className="field">
             <span className="field__label">이름</span>
             <input className="input" name="workspace_name" required maxLength={80} placeholder="마케팅팀" value={name} onChange={(e) => setName(e.target.value)} data-testid="workspace-name" />
@@ -133,7 +133,7 @@ function Onboarding() {
               className="btn btn--ghost"
               disabled={busy}
               onClick={() => void createWorkspace(DEFAULT_WORKSPACE_NAME, true)}
-              title={`"${DEFAULT_WORKSPACE_NAME}" 이름으로 만들고 넘어갑니다. 이름은 Settings 에서 바꿀 수 있습니다.`}
+              title={`"${DEFAULT_WORKSPACE_NAME}" 이름으로 만들고 넘어갑니다. 이름은 설정에서 바꿀 수 있습니다.`}
               data-testid="workspace-skip"
             >
               건너뛰기
@@ -172,13 +172,13 @@ function Onboarding() {
         <div>
           <h1 className="auth__title">에이전트</h1>
           <p className="auth__sub">
-            팀 템플릿(리서치 팀 / 개발 팀 / 콘텐츠 팀)은 P2 에서 열립니다. 지금은 Lead 하나를 기본값으로 만들어 첫 세션을 시작할 수 있습니다.
+            팀 템플릿(리서치 팀 / 개발 팀 / 콘텐츠 팀)은 아직 준비 중입니다. 지금은 Lead 하나를 기본값으로 만들어 첫 세션을 시작할 수 있습니다.
           </p>
           <div className="story__grid" style={{ marginBottom: 14 }}>
             {["리서치 팀", "개발 팀", "콘텐츠 팀"].map((t) => (
               <div key={t} className="card card--surface" aria-disabled="true" style={{ opacity: 0.5 }}>
                 <b>{t}</b>
-                <div className="small muted-3">템플릿 · P2</div>
+                <div className="small muted-3">템플릿 · 준비 중</div>
               </div>
             ))}
           </div>
@@ -187,7 +187,7 @@ function Onboarding() {
             <input className="input" value={agentName} maxLength={40} onChange={(e) => setAgentName(e.target.value)} data-testid="agent-name" />
             <span className="field__hint">
               프로파일: {pairing?.runtime?.capabilities[0]?.kind ?? "claude_code"} · {pairing?.runtime?.capabilities[0]?.models?.[0] ?? "default"}
-              {!pairing && " (런타임 미연결 — 기본값)"}
+              {!pairing && " (컴퓨터 미연결 — 기본값)"}
             </span>
           </label>
           <div className="row" style={{ justifyContent: "space-between" }}>

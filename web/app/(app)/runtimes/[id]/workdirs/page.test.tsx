@@ -74,7 +74,7 @@ describe("목록과 상단 사용률", () => {
     render(<WorkdirsPage />);
     await waitFor(() => expect(screen.getAllByTestId("workdir-row").length).toBe(3));
     const row = screen.getAllByTestId("workdir-row")[0];
-    expect(row.querySelector('[data-testid="workdir-kind"]')!.textContent).toBe("worktree");
+    expect(row.querySelector('[data-testid="workdir-kind"]')!.textContent).toBe("워크트리");
     expect(row.querySelector('[data-testid="workdir-branch"]')!.textContent).toBe("colab/S/backend");
     expect(row.querySelector('[data-testid="workdir-size"]')!.textContent).toBe("1.0GB");
     expect(row.querySelector('[data-testid="workdir-status"]')!.textContent).toBe("보존 중");

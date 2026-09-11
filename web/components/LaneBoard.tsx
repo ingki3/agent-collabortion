@@ -30,7 +30,7 @@ export function LaneBoard({ lanes, emptyHint, ...card }: LaneBoardProps) {
     return (
       <div className="board" data-testid="lane-board">
         <p className="small muted-3" data-testid="lane-board-empty">
-          {emptyHint ?? "아직 lane 이 없습니다 — @로 에이전트를 부르면 lane 이 생깁니다."}
+          {emptyHint ?? "아직 시작한 일이 없습니다 — @로 에이전트를 부르면 작업 줄기가 하나 생깁니다."}
         </p>
       </div>
     );

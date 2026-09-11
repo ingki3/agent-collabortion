@@ -48,7 +48,7 @@ describe("S7 — Director", () => {
     render(<SessionActions session={sess({ status: "paused", paused_reason: "runtime_offline" })} runningLanes={0} members={members} {...noop} />);
     const btn = screen.getByTestId("session-resume") as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
-    expect(btn.title).toContain("재바인딩");
+    expect(btn.title).toContain("다른 컴퓨터로 옮기");
   });
 
   it("종료 확인은 **진행 중 lane 개수를 명시**하고 그때만 confirm 을 실어 보낸다", () => {
@@ -107,7 +107,7 @@ describe("S7-D(deputy) · S7-P(일반 멤버) — 숨기지 않고 비활성 + �
 
   it("deputy 의 사유는 'lane 중단만 즉시 가능' 을 함께 말한다 — 취소는 되고 승인은 안 되는 비대칭 설명(U9 성공 기준)", () => {
     render(<SessionActions session={sess({ my_role: "deputy" })} runningLanes={0} members={members} {...noop} />);
-    expect((screen.getByTestId("session-pause") as HTMLButtonElement).title).toContain("lane 중단만 즉시");
+    expect((screen.getByTestId("session-pause") as HTMLButtonElement).title).toContain("작업 줄기 중단만 즉시");
   });
 
   it("종료된 세션은 역할과 무관하게 잠긴다", () => {

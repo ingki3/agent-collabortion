@@ -1783,7 +1783,7 @@ on("POST", "/__mock/inbox/seed", (req) => {
       ref_id: lane?.id ?? sess.id, due_at: null, overdue: false, delegated: false, card,
       actions: inboxActions(type, undefined, true), ...extra,
     }));
-  add("lane_blocked", { title: "Researcher: '국내만인가요, 글로벌 포함인가요?'", body: "위임자가 없는 lane 입니다 — 답글이 곧 지시가 됩니다.", agent_name: "Researcher", lane_id: lane?.id ?? null });
+  add("lane_blocked", { title: "Researcher: '국내만인가요, 글로벌 포함인가요?'", body: "위임한 사람이 없는 작업 줄기입니다 — 답글이 곧 지시가 됩니다.", agent_name: "Researcher", lane_id: lane?.id ?? null });
   add("session_paused", { title: "세션이 멈췄습니다", body: "예산 초과 — $21.40 / $20", paused_reason: "budget" });
   add("run_failed", { title: "작업이 실패했습니다", body: "자동 재시도가 소진되었습니다", failure_kind: "timeout", lane_id: lane?.id ?? null });
   add("runtime_offline", { title: "MacBook 이 오프라인입니다", body: "7일 유예 중 5일 남음", runtime_name: "demo-macbook", grace_ends_at: new Date(Date.now() + 5 * 864e5).toISOString() });

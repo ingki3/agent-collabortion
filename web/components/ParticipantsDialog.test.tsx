@@ -93,21 +93,21 @@ describe("초대 후보(FR-1.9 · Q3)", () => {
 describe("제거 조건(계약 removeParticipant 409)", () => {
   it("진행 중 lane 4상태 전부가 제거를 막는다", () => {
     for (const st of ["queued", "running", "waiting_human", "paused"] as const) {
-      expect(removalBlock("a2", [lane("a2", st)], "a1")).toContain("진행 중 lane");
+      expect(removalBlock("a2", [lane("a2", st)], "a1")).toContain("진행 중인 작업 줄기");
     }
     // 끝난 lane 은 막지 않는다.
     expect(removalBlock("a2", [lane("a2", "done"), lane("a2", "failed")], "a1")).toBeNull();
   });
 
   it("assignee 는 제거할 수 없고 사유가 다음 할 일을 말한다", () => {
-    expect(removalBlock("a1", [], "a1")).toContain("다른 assignee");
+    expect(removalBlock("a1", [], "a1")).toContain("먼저 다른 담당을 지정");
   });
 
   it("막힌 이유가 버튼 툴팁으로 나온다 — 비활성 + 사유(SCREEN §7)", () => {
     render(<ParticipantsDialog {...base} agents={[]} lanes={[lane("a2", "running")]} />);
     const rows = screen.getAllByTestId("participant-remove") as HTMLButtonElement[];
     expect(rows[1].disabled).toBe(true);
-    expect(rows[1].title).toContain("진행 중 lane");
+    expect(rows[1].title).toContain("진행 중인 작업 줄기");
   });
 });
 

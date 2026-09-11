@@ -49,8 +49,8 @@ describe("LaneCard — 7상태", () => {
     expect(laneNote(lane("running", { current_activity: "src/app.ts 편집 중" }))).toContain("src/app.ts 편집 중");
     expect(laneNote(lane("blocked", { waiting_for: "Lead", blocked_note: "국내만인가요?" }))).toContain("@Lead의 답을 기다림");
     expect(laneNote(lane("paused", { paused_over_usd: 1.4 }))).toContain("$1.40 초과");
-    expect(laneNote(lane("waiting_human", { waiting_for: "Director 승인 대기" }))).toContain("Inbox");
-    expect(laneNote(lane("failed", { failure_kind: "cancelled" }))).toContain("사람이 중단함");
+    expect(laneNote(lane("waiting_human", { waiting_for: "Director 승인 대기" }))).toContain("받은 요청");
+    expect(laneNote(lane("failed", { failure_kind: "cancelled" }))).toContain("사람이 중단했습니다");
     expect(laneNote(lane("failed", { failure_kind: "timeout" }))).toContain("자동 재시도 소진");
   });
 
@@ -117,6 +117,6 @@ describe("LaneBoard — 상태별 묶음", () => {
 
   it("빈 보드도 렌더한다 — 침묵도 정보다(§7)", () => {
     render(<LaneBoard lanes={[]} />);
-    expect(screen.getByTestId("lane-board-empty").textContent).toContain("아직 lane 이 없습니다");
+    expect(screen.getByTestId("lane-board-empty").textContent).toContain("아직 시작한 일이 없습니다");
   });
 });

@@ -18,18 +18,21 @@ import type { PausedDetail, PauseReason } from "@/lib/api/types";
 
 type ResolveAction = "resume" | "rebind" | "cancel";
 
-/** 루프 상한 이름 — 어느 상한에 걸렸는지가 Director 가 올려야 할 값을 정한다. */
+/**
+ * 루프 상한 이름 — 어느 상한에 걸렸는지가 Director 가 올려야 할 값을 정한다.
+ * **내부 키(`chain_depth` 등)는 문장에 넣지 않는다**(§8.4) — 필요하면 `data-limit` 속성으로 읽는다.
+ */
 export const LOOP_LIMIT_LABEL = {
-  chain_depth: "연쇄 깊이(chain_depth)",
-  hops_per_hour: "시간당 홉(hops_per_hour)",
-  pair_roundtrips: "두 에이전트 왕복(pair_roundtrips)",
+  chain_depth: "주고받기 연쇄가 상한까지 깊어졌습니다",
+  hops_per_hour: "한 시간에 오간 횟수가 상한에 닿았습니다",
+  pair_roundtrips: "두 에이전트가 상한까지 주고받았습니다",
 } as const;
 
 export const PAUSE_TITLE: Record<PauseReason, string> = {
   budget: "예산 초과로 일시정지",
   time: "시간 상한 도달로 일시정지",
-  loop: "루프 상한 도달로 일시정지",
-  runtime_offline: "런타임 오프라인으로 일시정지",
+  loop: "주고받기 상한 도달로 일시정지",
+  runtime_offline: "컴퓨터 연결 끊김으로 일시정지",
   director: "Director 가 일시정지했습니다",
 };
 
@@ -48,16 +51,16 @@ export function pausedSummary(d: PausedDetail, agentName?: (id: string) => strin
     }
     case "loop": {
       const l = d.loop;
-      if (!l?.limit) return "에이전트 간 왕복이 상한에 도달했습니다.";
+      if (!l?.limit) return "에이전트끼리 주고받기가 상한에 닿았습니다.";
       const who = (l.agents ?? []).map((id) => `@${agentName?.(id) ?? id.slice(0, 8)}`).join(" ↔ ");
       const pair = l.limit === "pair_roundtrips" && who ? `${who} ` : "";
-      return `${LOOP_LIMIT_LABEL[l.limit]} 상한에 도달했습니다 — ${pair}${l.count ?? 0}회`;
+      return `${LOOP_LIMIT_LABEL[l.limit]} — ${pair}${l.count ?? 0}회`;
     }
     case "runtime_offline": {
       const r = d.runtime;
       return r?.offline_since
-        ? `런타임이 ${relativeTime(r.offline_since)}부터 오프라인입니다`
-        : "세션 런타임이 오프라인입니다";
+        ? `이 세션의 컴퓨터가 ${relativeTime(r.offline_since)}부터 연결되지 않았습니다`
+        : "이 세션의 컴퓨터가 연결되지 않았습니다";
     }
     case "director":
       return "Director 가 일시정지했습니다 — 진행 중이던 턴은 마치고 대기 중입니다.";
@@ -106,12 +109,12 @@ export function PausedBanner({ detail, agentName, onResume, onRebind, onCancel, 
       <p className="pbanner__body" data-testid="paused-summary">{pausedSummary(detail, agentName)}</p>
       {detail.reason === "loop" && detail.loop?.limit && (
         <p className="pbanner__hint" data-testid="paused-loop-limit" data-limit={detail.loop.limit} data-count={detail.loop.count ?? 0}>
-          올려야 할 상한: <b>{LOOP_LIMIT_LABEL[detail.loop.limit]}</b> · 현재 {detail.loop.count ?? 0}회.
-          승인만 하면 같은 핑퐁이 반복됩니다 — lane 을 중단하거나 다시 지시해 방향을 바꿀 수도 있습니다.
+          올려야 할 상한: <b>{LOOP_LIMIT_LABEL[detail.loop.limit]}</b> · 지금까지 {detail.loop.count ?? 0}회.
+          승인만 하면 같은 주고받기가 반복됩니다 — 작업 줄기를 중단하거나 다시 지시해 방향을 바꿀 수도 있습니다.
         </p>
       )}
       {detail.reason === "runtime_offline" && (
-        <p className="pbanner__hint">이 사유는 재개할 수 없습니다 — 다른 런타임으로 재바인딩하거나 세션을 종료하세요(FR-9.2).</p>
+        <p className="pbanner__hint">이 사유는 재개할 수 없습니다 — 다른 컴퓨터로 옮기거나 세션을 종료하세요.</p>
       )}
       <p className="pbanner__meta">일시정지 {relativeTime(detail.paused_at)}{gateNote ? ` · ${gateNote}` : ""}</p>
 
@@ -146,7 +149,7 @@ export function PausedBanner({ detail, agentName, onResume, onRebind, onCancel, 
         </button>
         {actions.has("rebind") && (
           <button type="button" className="btn btn--sm" disabled={busy || !onRebind} onClick={onRebind} data-testid="paused-rebind">
-            다른 런타임으로 재바인딩
+            다른 컴퓨터로 옮기기
           </button>
         )}
         {actions.has("cancel") && (

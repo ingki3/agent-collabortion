@@ -98,7 +98,7 @@ describe("ActivityFeed — 5클래스가 각각 렌더된다", () => {
     const { rerender } = render(<ActivityFeed events={[]} />);
     expect(screen.getByTestId("feed-empty").textContent).toContain("대기 중");
     rerender(<ActivityFeed events={events} structured={false} />);
-    expect(screen.getByTestId("feed-degraded").textContent).toContain("툴 단위 로그를 제공하지 않습니다");
+    expect(screen.getByTestId("feed-degraded").textContent).toContain("도구 단위 기록을 제공하지 않습니다");
   });
 
   it("원본 레일 토글로 가공 없는 출력을 본다", () => {

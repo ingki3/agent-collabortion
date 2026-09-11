@@ -44,7 +44,7 @@ function TaskActivity({ taskId, cache, load }: { taskId: string; cache: Record<s
     if (!cache[taskId]) load(taskId);
   }, [taskId, cache, load]);
   const c = cache[taskId];
-  return <ActivityFeed events={c?.events ?? []} structured={c?.structured ?? true} loading={!c || c.loading} title="이 run 의 활동" />;
+  return <ActivityFeed events={c?.events ?? []} structured={c?.structured ?? true} loading={!c || c.loading} title="이 작업의 활동" />;
 }
 
 function sortByTime(a: Message, b: Message) {
@@ -474,13 +474,13 @@ export default function SessionPage() {
   }
 
   /**
-   * lane 카드의 "응답하러 가기" · "계속 진행 승인" — 그 lane 의 HITL 카드로 타임라인을 옮긴다.
+   * 작업 줄기 카드의 "응답하러 가기" · "계속 진행 승인" — 그 줄기의 확인 카드로 타임라인을 옮긴다.
    * lane 이 카드 메시지를 모르면(`hitl_request_id` 만 있는 경우) 요청 목록에서 찾는다.
    */
   function openLaneHitl(lane: Lane) {
     const h = hitls.find((x) => x.id === lane.hitl_request_id) ?? hitls.find((x) => x.lane_id === lane.id && x.status === "open");
     if (h?.message_id) jumpToMessage(h.message_id);
-    else setError("이 lane 의 HITL 카드를 찾지 못했습니다 — Inbox 에서 응답하세요.");
+    else setError("이 작업 줄기의 확인 카드를 찾지 못했습니다 — 받은 요청에서 응답하세요.");
   }
 
   function jumpToMessage(messageId: string) {
@@ -496,7 +496,7 @@ export default function SessionPage() {
     return (
       <div>
         <p className="problem">{error}</p>
-        <Link href="/sessions" className="btn">Sessions 로</Link>
+        <Link href="/sessions" className="btn">세션 목록으로</Link>
       </div>
     );
   }
@@ -515,7 +515,7 @@ export default function SessionPage() {
       <ConnectionBanner state={conn} />
       <header className="s7__head">
         <div className="row" style={{ gap: 10 }}>
-          <Link href="/sessions" className="small muted-3">← Sessions</Link>
+          <Link href="/sessions" className="small muted-3">← 세션</Link>
           <h1 style={{ margin: 0, fontSize: "var(--fs-title)" }} data-testid="session-title">{session.title}</h1>
           <Badge kind="session" value={session.status} data-testid="session-status" />
           {session.status === "paused" && session.paused_reason && (
@@ -556,7 +556,7 @@ export default function SessionPage() {
         <nav className="s7__tabs" aria-label="열 전환">
           {(["board", "timeline", "aside"] as Col[]).map((c) => (
             <button key={c} type="button" className={`s7__tab${col === c ? " s7__tab--on" : ""}`} onClick={() => setCol(c)} data-testid={`tab-${c}`}>
-              {c === "board" ? `lane ${lanes.length}` : c === "timeline" ? "타임라인" : "진행"}
+              {c === "board" ? `작업 줄기 ${lanes.length}` : c === "timeline" ? "타임라인" : "진행"}
             </button>
           ))}
         </nav>
@@ -582,7 +582,7 @@ export default function SessionPage() {
             ))}
             {participants.length === 0 && <span className="small muted-3">참여 에이전트 없음</span>}
           </div>
-          <h2 className="s7__h">Lane 보드</h2>
+          <h2 className="s7__h">작업 줄기</h2>
           <LaneBoard
             lanes={lanes}
             selected={false}
@@ -597,8 +597,8 @@ export default function SessionPage() {
             onSelect={(l) => setSelectedLane((cur) => (cur === l.id ? null : l.id))}
           />
           {confirmCancel && (
-            <div className="s7__confirm" role="dialog" aria-label="lane 중단 확인" data-testid="cancel-confirm">
-              <p className="small">이 lane 을 중단합니다. 새 지시 없이 종료됩니다.</p>
+            <div className="s7__confirm" role="dialog" aria-label="작업 줄기 중단 확인" data-testid="cancel-confirm">
+              <p className="small">이 작업 줄기를 중단합니다. 새 지시 없이 종료됩니다.</p>
               <p className="small muted-3">되돌리기 어려운 작업 중이면 최대 30초 보류 후 종료됩니다.</p>
               <div className="row">
                 <button type="button" className="btn btn--sm btn--primary" disabled={busy} onClick={() => void doCancel(confirmCancel)} data-testid="cancel-confirm-yes">중단</button>
@@ -613,7 +613,7 @@ export default function SessionPage() {
             {messages.length === 0 && (
               <div className="empty" data-testid="timeline-empty">
                 <div className="empty__title">아직 메시지가 없습니다</div>
-                <div className="empty__body">@로 에이전트를 불러 시작하세요. 멘션 없이 보내면 assignee 에게 갑니다.</div>
+                <div className="empty__body">@로 에이전트를 불러 시작하세요. 멘션 없이 보내면 담당 에이전트에게 갑니다.</div>
               </div>
             )}
             {messages.map((m) => {
@@ -711,7 +711,7 @@ export default function SessionPage() {
             busy={busy}
             onResume={isDirector ? resume : undefined}
             onRebind={isDirector ? () => setRebindOpen(true) : undefined}
-            onCancelSession={isDirector ? () => void cancelSession("런타임 오프라인 — 재바인딩 대신 종료") : undefined}
+            onCancelSession={isDirector ? () => void cancelSession("컴퓨터 연결 끊김 — 옮기지 않고 종료") : undefined}
           />
         </section>
       </div>

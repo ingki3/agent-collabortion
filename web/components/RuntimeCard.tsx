@@ -8,6 +8,10 @@
  *
  * 능력이 없는 것도 침묵이 아니라 문장으로 말한다(SCREEN §1 원칙 3·5):
  * `usage:false` 면 비용이 추정 배지가 되고(FR-7.3), `resume:false` 면 재진입이 늘 콜드 스타트다.
+ *
+ * **문구는 두 칸으로 갈린다**(COMPONENTS §8.4). 프로토콜 번호·어댑터 버전·브리프 전달 방식은 문제가 났을 때만
+ * 필요하므로 「자세히 보기」 안으로 접고, **사람이 지금 무언가 해야 하는 것**(로그인 필요 · 도구 제한 불가)만
+ * 밖에 남긴다. colab CLI 부재도 같은 이유로 밖에 있다(그 자리는 별도 경고다).
  */
 import "./runtime-card.css";
 import { durationSince, relativeTime } from "@/lib/time";
@@ -16,16 +20,29 @@ import type { Runtime, RuntimeCapability } from "@/lib/api/types";
 const KIND = { claude_code: "Claude Code", hermes: "Hermes", antigravity: "Antigravity" } as const;
 const BRIEF = { acp_meta_system_prompt: "ACP _meta 시스템 프롬프트", instruction_file: "지시 파일(CLAUDE.md·AGENTS.md)" } as const;
 
-/** 능력 한 줄 요약 — 있는 것은 조용히, **없는 것은 결과와 함께** 말한다. */
-export function capabilityNotes(c: RuntimeCapability): string[] {
+/**
+ * **사람이 지금 해야 할 일**만 — 카드 본문에 그대로 선다. 비어 있으면 이 컴퓨터는 그냥 쓸 수 있다는 뜻이다.
+ * 여기 있는 두 줄은 「자세히 보기」 안에 넣으면 안 된다: 접힌 채로는 아무도 로그인하러 가지 않는다.
+ */
+export function capabilityAlerts(c: RuntimeCapability): string[] {
   const out: string[] = [];
-  out.push(c.logged_in ? "로그인됨" : "로그인 필요 — 이 런타임으로는 실행할 수 없습니다");
+  if (!c.logged_in) out.push("로그인이 필요합니다 — 이 컴퓨터로는 실행할 수 없습니다");
+  if (c.tool_disallow === false) out.push("도구 제한을 걸 수 없는 컴퓨터입니다");
+  return out;
+}
+
+/**
+ * 문제가 났을 때만 필요한 줄 — 「자세히 보기」 안. 버전·프로토콜 번호는 **진단용 원문 그대로** 둔다
+ * (여기서까지 사람의 말로 바꾸면 로그와 대조할 수 없다).
+ */
+export function capabilityDetails(c: RuntimeCapability): string[] {
+  const out: string[] = [];
+  if (c.logged_in) out.push("로그인됨");
   out.push(`모델 ${c.models?.length ?? 0}개`);
   if (c.protocol_version != null) out.push(`ACP protocol v${c.protocol_version}`);
   out.push(c.adapter_version ? `어댑터 ${c.adapter_version}` : "어댑터 버전 실측 실패");
-  if (c.resume === false) out.push("resume 미지원 — 재진입이 늘 콜드 스타트입니다");
+  if (c.resume === false) out.push("이어서 실행 못함 — 매번 처음부터 시작합니다");
   if (c.usage === false) out.push("사용량 미보고 — 비용이 추정치가 됩니다(하드 컷 없음)");
-  if (c.tool_disallow === false) out.push("툴 차단 수단 없음 — 프로파일의 툴 허용 목록이 강제되지 않습니다");
   if (c.brief_transport) out.push(`브리프: ${BRIEF[c.brief_transport]}`);
   if (c.allow_once_missing) out.push("allow_once 부재 — 권한 협상이 매번 always 로 떨어집니다");
   return out;
@@ -55,7 +72,7 @@ export function graceView(
   }
   const paused = rt.paused_session_count ?? 0;
   return {
-    text: `${since} · 유예 만료(${new Date(end).toLocaleDateString("ko-KR")})${paused ? ` · 이 런타임에 묶인 세션 ${paused}개가 일시정지됨` : ""}`,
+    text: `${since} · 유예 만료(${new Date(end).toLocaleDateString("ko-KR")})${paused ? ` · 이 컴퓨터를 쓰는 세션 ${paused}개가 일시정지됨` : ""}`,
     expired: true,
     daysLeft: 0,
   };
@@ -78,21 +95,28 @@ export function RuntimeCard({ rt, children }: { rt: Runtime; children?: React.Re
 
       {cli && !cli.present && (
         <p className="rtcard__alarm" role="alert" data-testid="colab-cli-missing">
-          ⚠ colab CLI 가 설치되어 있지 않습니다. 에이전트는 colab CLI 로 서버에 말합니다 — 없으면 세션이 조용히 아무 말도 못 합니다.
-          이 머신에서 <code>colab</code> 을 설치한 뒤 데몬을 다시 시작하세요.
+          ⚠ colab 명령이 이 컴퓨터에 설치되어 있지 않습니다. 에이전트는 이 명령으로 서버에 말합니다 — 없으면 세션이 조용히 아무 말도 못 합니다.
+          이 컴퓨터에서 <code>colab</code> 을 설치한 뒤 데몬을 다시 시작하세요.
         </p>
       )}
       {cli?.present && (
-        <div className="small muted-3" data-testid="colab-cli-present">colab CLI {cli.version || "버전 미상"}</div>
+        <div className="small muted-3" data-testid="colab-cli-present">colab 명령 {cli.version || "버전 미상"}</div>
       )}
-      {!cli && <div className="small muted-3" data-testid="colab-cli-unknown">colab CLI 상태를 보고받지 못했습니다</div>}
+      {!cli && <div className="small muted-3" data-testid="colab-cli-unknown">colab 명령이 설치돼 있는지 보고받지 못했습니다</div>}
 
       <ul className="rtcard__caps" data-testid="runtime-capabilities">
-        {rt.capabilities.length === 0 && <li data-testid="runtime-no-cli">감지된 CLI 없음 — 이 머신에서는 세션을 실행할 수 없습니다</li>}
+        {rt.capabilities.length === 0 && <li data-testid="runtime-no-cli">실행할 수 있는 에이전트 도구가 없습니다 — 이 컴퓨터에서는 세션을 실행할 수 없습니다</li>}
         {rt.capabilities.map((c) => (
           <li key={c.kind} data-testid="runtime-capability" data-kind={c.kind} data-logged-in={String(c.logged_in)}>
             <b>{KIND[c.kind]}</b> {c.version ?? "버전 미상"}
-            <div className="rtcard__notes">{capabilityNotes(c).join(" · ")}</div>
+            {/* 행동이 필요한 줄은 접지 않는다 — 접힌 경고는 경고가 아니다(§8.4). */}
+            {capabilityAlerts(c).map((n) => (
+              <div key={n} className="rtcard__notes" data-testid="runtime-capability-alert">{n}</div>
+            ))}
+            <details data-testid="runtime-capability-details">
+              <summary>자세히 보기</summary>
+              <div className="rtcard__notes">{capabilityDetails(c).join(" · ")}</div>
+            </details>
           </li>
         ))}
       </ul>
@@ -103,7 +127,7 @@ export function RuntimeCard({ rt, children }: { rt: Runtime; children?: React.Re
             <li key={r.path} data-testid="runtime-repo" data-remote-url={r.remote_url ?? ""}>
               <code>{r.path}</code>
               {r.branch ? ` · ${r.branch}` : ""}
-              {r.clean === false ? <span className="rtcard__dirty"> · 클린 아님</span> : r.clean ? " · 클린" : ""}
+              {r.clean === false ? <span className="rtcard__dirty"> · 저장 안 한 변경 있음</span> : r.clean ? " · 변경 없음" : ""}
               {/* remote URL 이 재바인딩의 "같은 저장소" 키다(FR-9.2 F) — 경로만 보여 주면 후보 판정의 근거가 화면에서 사라진다. */}
               <div className="rtcard__remote" data-testid="runtime-repo-remote">{r.remote_url ?? "remote 없음"}</div>
             </li>
@@ -116,9 +140,9 @@ export function RuntimeCard({ rt, children }: { rt: Runtime; children?: React.Re
           {graceView(rt).text}
         </div>
       )}
-      <div className="small muted-3" style={{ marginTop: 6 }}>
-        실행 중 task {rt.running_task_count}
-        {rt.workdir_disk_bytes ? ` · workdir ${(rt.workdir_disk_bytes / 1e9).toFixed(1)}GB` : ""}
+      <div className="small muted-3" style={{ marginTop: 6 }} data-testid="runtime-running">
+        {rt.running_task_count > 0 ? `지금 하는 일 ${rt.running_task_count}개` : "지금 하는 일 없음"}
+        {rt.workdir_disk_bytes ? ` · 작업 폴더 ${(rt.workdir_disk_bytes / 1e9).toFixed(1)}GB` : ""}
       </div>
       {children}
     </div>
