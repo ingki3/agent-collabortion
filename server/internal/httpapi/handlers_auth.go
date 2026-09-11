@@ -42,7 +42,7 @@ func (s *Server) Login(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Logout(w http.ResponseWriter, r *http.Request) {
 	p := principalOf(r)
 	if p.User == nil {
-		writeProblem(w, apperr.Unauthorized("unauthorized", "login required"))
+		writeProblem(w, apperr.Unauthorized("unauthorized", "로그인이 필요합니다"))
 		return
 	}
 	if err := s.Auth.Logout(r.Context(), p.SessionToken); err != nil {

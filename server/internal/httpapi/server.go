@@ -170,7 +170,12 @@ func validationFromBind(err error) *Problem {
 	if strings.Contains(msg, "Idempotency-Key") {
 		code = "idempotency_key_required"
 	}
-	return &Problem{Status: http.StatusUnprocessableEntity, Code: code, Title: "Validation failed", Detail: msg,
+	detail := "요청 형식이 올바르지 않습니다 — 화면을 새로고침한 뒤 다시 시도해 주세요"
+	if code == "idempotency_key_required" {
+		detail = "같은 요청을 구분할 키가 빠졌습니다 — 화면을 새로고침한 뒤 다시 시도해 주세요"
+	}
+	// The binder's own text names the parameter; it stays in errors[] for whoever debugs the client.
+	return &Problem{Status: http.StatusUnprocessableEntity, Code: code, Title: apperr.Title(http.StatusUnprocessableEntity), Detail: detail,
 		Errors: []apperr.FieldError{{Field: "params", Code: code, Message: msg}}}
 }
 

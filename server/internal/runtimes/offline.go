@@ -353,13 +353,13 @@ func PlanRebind(in RebindInput) RebindPlan {
 		// still running it.
 		p.HTTPStatus = 409
 		p.Problem = apperr.Conflict("session_not_paused_offline",
-			"재바인딩은 `paused(runtime_offline)` 세션에만 할 수 있습니다")
+			"컴퓨터 연결이 끊겨 일시정지된 세션만 다른 컴퓨터로 옮길 수 있습니다")
 		return p
 	}
 	if in.Isolation == "worktree" && !in.AcknowledgeLoss {
 		p.HTTPStatus = 422
 		p.Problem = apperr.Validation(apperr.Field("acknowledge_loss", "required",
-			"worktree 격리에서는 죽은 머신의 커밋이 유실됩니다 — 경고를 확인해 주세요"))
+			"워크트리 격리에서는 끊긴 컴퓨터에 남은 커밋을 잃습니다 — 경고를 확인한 뒤 진행해 주세요"))
 		return p
 	}
 	if !in.TargetEligible {
@@ -367,7 +367,7 @@ func PlanRebind(in RebindInput) RebindPlan {
 		// API call must not bypass E14-05.
 		p.HTTPStatus = 422
 		p.Problem = apperr.Validation(apperr.Field("runtime_id", "not_a_candidate",
-			"이 런타임은 이 세션의 재바인딩 후보가 아닙니다(같은 remote URL 의 저장소가 없거나 오프라인)"))
+			"이 컴퓨터로는 옮길 수 없습니다 — 같은 저장소가 없거나 연결이 끊겨 있습니다"))
 		return p
 	}
 	if in.Isolation != "worktree" {
@@ -527,7 +527,7 @@ func (s *Service) Rebind(ctx context.Context, wsID, sessionID, targetRuntime uui
 	}
 	if tag.RowsAffected() == 0 {
 		return plan, apperr.Conflict("session_not_paused_offline",
-			"재바인딩은 `paused(runtime_offline)` 세션에만 할 수 있습니다")
+			"컴퓨터 연결이 끊겨 일시정지된 세션만 다른 컴퓨터로 옮길 수 있습니다")
 	}
 	// The lane's `runtime_session_ref` points at a session id that lives on the
 	// machine that is gone. Clearing it is what makes the next attempt a cold
@@ -741,7 +741,7 @@ func PlanRuntimeDelete(c DeleteCase) DeleteResult {
 	}
 	return DeleteResult{
 		HTTPStatus: 409, Code: DeleteCode, BlockingSessions: blocking, AsksRebindOrEnd: true,
-		Detail: fmt.Sprintf("이 컴퓨터에 걸린 세션 %d개가 아직 살아 있습니다 — 먼저 다른 컴퓨터로 재바인딩하거나 세션을 종료해 주세요(FR-9.2)", blocking),
+		Detail: fmt.Sprintf("이 컴퓨터를 쓰는 중인 세션이 %d개 있습니다 — 먼저 다른 컴퓨터로 옮기거나 세션을 종료해 주세요", blocking),
 	}
 }
 

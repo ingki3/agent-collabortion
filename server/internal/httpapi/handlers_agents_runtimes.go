@@ -195,7 +195,7 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, agentId gen
 	}
 	m, _ := s.Auth.Member(r.Context(), a.WorkspaceId, u.Id)
 	if a.OwnerId != u.Id && (m == nil || (m.Role != "owner" && m.Role != "admin")) {
-		writeProblem(w, apperr.Forbidden("not_agent_owner", "only the agent owner or a workspace owner/admin can edit this agent"))
+		writeProblem(w, apperr.Forbidden("not_agent_owner", "만든 사람과 워크스페이스 소유자·관리자만 이 에이전트를 수정할 수 있습니다"))
 		return
 	}
 	var in gen.AgentUpdate
@@ -251,7 +251,7 @@ func (s *Server) agentEditor(r *http.Request, agentId gen.AgentId) (*gen.User, *
 	}
 	m, _ := s.Auth.Member(r.Context(), a.WorkspaceId, u.Id)
 	if a.OwnerId != u.Id && (m == nil || (m.Role != "owner" && m.Role != "admin")) {
-		return nil, apperr.Forbidden("not_agent_owner", "only the agent owner or a workspace owner/admin can edit this agent")
+		return nil, apperr.Forbidden("not_agent_owner", "만든 사람과 워크스페이스 소유자·관리자만 이 에이전트를 수정할 수 있습니다")
 	}
 	return u, nil
 }

@@ -36,13 +36,13 @@ func (s *Server) CompleteSession(w http.ResponseWriter, r *http.Request, session
 	// Ending a session with work in flight throws that work away, so it takes a
 	// second, explicit act — and the count says how much is at stake.
 	if running > 0 && (in.Confirm == nil || !*in.Confirm) {
-		p := apperr.Conflict("running_lanes", "이 세션에는 진행 중인 lane이 있습니다 — confirm: true로 다시 요청하세요")
+		p := apperr.Conflict("running_lanes", "진행 중인 작업 줄기가 있습니다 — 그래도 끝내려면 확인 후 다시 요청해 주세요")
 		p.Extra = map[string]any{"running_lane_count": running}
 		writeProblem(w, p)
 		return
 	}
 	if _, err := s.Sessions.ApplyCompletionEvent(r.Context(), sessionId, sessions.Event{
-		Kind: "director_end", Note: "Director ended the session",
+		Kind: "director_end", Note: "Director 가 세션을 끝냈습니다",
 	}); err != nil {
 		writeErr(w, err)
 		return
@@ -68,11 +68,11 @@ func (s *Server) RecordDecision(w http.ResponseWriter, r *http.Request, sessionI
 	pr := principalOf(r)
 	if pr.Task == nil {
 		if pr.User == nil {
-			writeProblem(w, apperr.Unauthorized("unauthorized", "TaskToken required"))
+			writeProblem(w, apperr.Unauthorized("unauthorized", "에이전트만 쓸 수 있는 기능입니다"))
 			return
 		}
 		writeProblem(w, apperr.Forbidden("agent_only",
-			"decision record is an agent tool (openapi recordDecision is TaskToken-only); a person's decision is recorded by answering the HITL request"))
+			"결정 기록은 에이전트만 보낼 수 있습니다 — 사람의 결정은 받은 요청의 카드에 답하면 기록됩니다"))
 		return
 	}
 	if _, p := s.sessionAccess(r, sessionId); p != nil {
@@ -90,7 +90,7 @@ func (s *Server) RecordDecision(w http.ResponseWriter, r *http.Request, sessionI
 		return
 	}
 	if strings.TrimSpace(in.Summary) == "" {
-		writeProblem(w, apperr.Validation(apperr.Field("summary", "required", "summary is required")))
+		writeProblem(w, apperr.Validation(apperr.Field("summary", "required", "요약을 입력해 주세요")))
 		return
 	}
 	taskID := pr.Task.TaskID

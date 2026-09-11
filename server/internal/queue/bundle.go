@@ -874,11 +874,10 @@ func noteRelativeWorkdirRow(ctx context.Context, tx pgx.Tx, t *tasks.Row, badPat
 	return tasks.InsertServerEventOnce(ctx, tx, t.ID, t.Attempt, "runtime", "error", "workdir.relative", "failed",
 		map[string]any{
 			"failure_kind": "config",
-			"detail": "이 에이전트의 저장된 workdir 경로가 절대 경로가 아니라(" + trimPathForDetail(badPath) + ") " +
-				"번들에서 제외하고 워크트리를 새로 계획했습니다(daemon-protocol §4.1 v0.7.3, 마이그레이션 " +
-				"0019 이전 행). 상대 경로를 그대로 보내면 데몬이 자기 CWD 기준으로 절대화해 사용자 " +
-				"저장소 안에 체크아웃합니다. 이전 디렉터리는 디스크에 그대로 남아 있으니 미커밋 변경이 " +
-				"있는지 확인하세요.",
+			"detail": "이 에이전트의 저장된 작업 폴더 경로가 절대 경로가 아니라(" + trimPathForDetail(badPath) + ") " +
+				"쓰지 않고 작업 폴더를 새로 만들었습니다. 상대 경로를 그대로 보내면 컴퓨터가 자기 위치 기준으로 " +
+				"풀어 사용자 저장소 안에 체크아웃하기 때문입니다. 이전 폴더는 디스크에 그대로 남아 있으니 " +
+				"미커밋 변경이 있는지 확인해 주세요.",
 		}, now)
 }
 

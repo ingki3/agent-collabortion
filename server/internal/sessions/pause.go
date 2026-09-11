@@ -56,7 +56,7 @@ func PlanResume(reason string) ResumeRule {
 		return ResumeRule{Resumable: true}
 	case PauseRuntimeOffline:
 		return ResumeRule{
-			Hint: "런타임이 오프라인입니다 — 다시 연결하거나 다른 머신으로 재바인딩(rebindSession)하거나 세션을 취소하세요",
+			Hint: "컴퓨터 연결이 끊겼습니다 — 컴퓨터를 다시 연결하거나, 다른 컴퓨터로 옮기거나, 세션을 종료해 주세요",
 		}
 	}
 	return ResumeRule{Resumable: true}

@@ -238,7 +238,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 				Code    string                                `json:"code"`
 				Message string                                `json:"message"`
 			}{AgentId: tasks.NullUUID(&tr.AgentID), Code: "loop_limit",
-				Message: "루프 상한(" + v.Detail + ")에 걸려 세션이 일시정지되었습니다"})
+				Message: "루프 상한에 걸려 세션이 일시정지되었습니다 — " + v.LimitText()})
 			continue
 		}
 
@@ -549,7 +549,7 @@ func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID u
 		WHERE id = $1`, sessionID, detail, now); err != nil {
 		return err
 	}
-	question := "루프 상한(" + v.Detail + ")에 도달해 세션을 일시정지했습니다. 계속할까요?"
+	question := "루프 상한에 도달해 세션을 일시정지했습니다 — " + v.LimitText() + ". 계속할까요?"
 	var hitlID uuid.UUID
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO hitl_request (session_id, task_id, source, type, question, proposed_default, approver_spec, purpose, due_at, created_at)

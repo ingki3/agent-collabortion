@@ -76,7 +76,7 @@ func (s *Server) AddParticipant(w http.ResponseWriter, r *http.Request, sessionI
 		if tag.RowsAffected() == 0 {
 			return apperr.Conflict("already_participant", "이미 참여 중인 에이전트입니다")
 		}
-		_, err = s.Router.SystemPost(r.Context(), tx, sessionId, name+"이(가) 세션에 참여했습니다.")
+		_, err = s.Router.SystemPost(r.Context(), tx, sessionId, apperr.Josa(name, "이", "가")+" 세션에 참여했습니다.")
 		return err
 	})
 	if err != nil {
@@ -180,7 +180,7 @@ func (s *Server) RemoveParticipant(w http.ResponseWriter, r *http.Request, sessi
 		if assignee != nil && *assignee == agentId {
 			// Removing the assignee leaves the session with nobody to hand the
 			// initial task to (E16-A step 1).
-			return apperr.Conflict("assignee_participant", "assignee는 제거할 수 없습니다 — 먼저 다른 assignee를 지정하세요")
+			return apperr.Conflict("assignee_participant", "담당 에이전트는 뺄 수 없습니다 — 먼저 다른 에이전트를 담당으로 지정해 주세요")
 		}
 		var live int
 		if err := tx.QueryRow(r.Context(), `
@@ -191,7 +191,7 @@ func (s *Server) RemoveParticipant(w http.ResponseWriter, r *http.Request, sessi
 		if live > 0 {
 			// O2: the lane's workdir and its open question belong to this
 			// agent. Removing it would strand both.
-			pr := apperr.Conflict("running_lanes", "진행 중인 lane이 있습니다 — 먼저 끝내거나 중단하세요")
+			pr := apperr.Conflict("running_lanes", "진행 중인 작업 줄기가 있습니다 — 먼저 끝내거나 중단해 주세요")
 			pr.Extra = map[string]any{"running_lane_count": live}
 			return pr
 		}
@@ -204,7 +204,7 @@ func (s *Server) RemoveParticipant(w http.ResponseWriter, r *http.Request, sessi
 		if tag.RowsAffected() == 0 {
 			return apperr.NotFound("participant")
 		}
-		_, err = s.Router.SystemPost(r.Context(), tx, sessionId, name+"이(가) 세션에서 제외되었습니다.")
+		_, err = s.Router.SystemPost(r.Context(), tx, sessionId, apperr.Josa(name, "이", "가")+" 세션에서 제외되었습니다.")
 		return err
 	})
 	if err != nil {

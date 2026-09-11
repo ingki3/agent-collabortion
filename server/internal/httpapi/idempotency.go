@@ -23,7 +23,7 @@ const idempotencyTTL = 24 * time.Hour
 func readBody(w http.ResponseWriter, r *http.Request) ([]byte, *Problem) {
 	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 4<<20))
 	if err != nil {
-		return nil, apperr.Validation(apperr.Field("body", "too_large", err.Error()))
+		return nil, unreadable("body", "too_large", "요청이 너무 큽니다 — 4 MB 까지 보낼 수 있습니다", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(b))
 	return b, nil
@@ -65,8 +65,8 @@ func (s *Server) idempotentSeq(ctx context.Context, w http.ResponseWriter, scope
 		Scan(&storedHash, &storedStatus, &stored)
 	if err == nil {
 		if storedHash != reqHash {
-			writeProblem(w, &Problem{Status: http.StatusUnprocessableEntity, Code: "idempotency_key_reused", Title: "Validation failed",
-				Detail: "Idempotency-Key was already used with a different request"})
+			writeProblem(w, &Problem{Status: http.StatusUnprocessableEntity, Code: "idempotency_key_reused", Title: apperr.Title(http.StatusUnprocessableEntity),
+				Detail: "같은 요청 키로 다른 내용을 보냈습니다 — 화면을 새로고침한 뒤 다시 시도해 주세요"})
 			return
 		}
 		w.Header().Set("Idempotent-Replayed", "true")

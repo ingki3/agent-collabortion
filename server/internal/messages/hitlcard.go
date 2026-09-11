@@ -48,7 +48,11 @@ type HitlCard struct {
 // the session).
 func (c HitlCard) CardBody() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[HITL:%s] %s", c.Type, c.Question)
+	// The header is what a person reads when the card is not resolved to its
+	// request (a reload race, the CLI's message list): the screens' words, not
+	// the enum (COMPONENTS §8.4 — HITL is "사람 확인 / 확인 요청").
+	header := "[확인 요청 · " + hitlTypeLabel(c.Type) + "] "
+	b.WriteString(header + c.Question)
 	if c.Context != "" {
 		fmt.Fprintf(&b, "\n%s", c.Context)
 	}
@@ -59,6 +63,21 @@ func (c HitlCard) CardBody() string {
 		fmt.Fprintf(&b, "\n에이전트 제안: %s", c.ProposedDefault)
 	}
 	return b.String()
+}
+
+// hitlTypeLabel is hitl_request.type in the words of the card header.
+func hitlTypeLabel(t string) string {
+	switch t {
+	case "question":
+		return "질문"
+	case "choice":
+		return "선택"
+	case "approval":
+		return "승인"
+	case "info":
+		return "알림"
+	}
+	return t
 }
 
 // PostHitlCard inserts the card and publishes `message.created`. The caller

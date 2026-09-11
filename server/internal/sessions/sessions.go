@@ -96,33 +96,33 @@ type Viewer struct {
 func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.SessionCreate) (*gen.Session, error) {
 	var errs []apperr.FieldError
 	if strings.TrimSpace(in.Title) == "" || len(in.Title) > 200 {
-		errs = append(errs, apperr.Field("title", "length", "title must be 1–200 characters"))
+		errs = append(errs, apperr.Field("title", "length", "제목은 1~200자로 입력해 주세요"))
 	}
 	if strings.TrimSpace(in.Goal) == "" {
-		errs = append(errs, apperr.Field("goal", "required", "goal is required"))
+		errs = append(errs, apperr.Field("goal", "required", "목표를 입력해 주세요"))
 	}
 	if len(in.Participants) == 0 {
-		errs = append(errs, apperr.Field("participants", "min_items", "at least one participant"))
+		errs = append(errs, apperr.Field("participants", "min_items", "에이전트를 한 명 이상 초대해 주세요"))
 	}
 	switch in.Isolation.Kind {
 	case gen.IsolationKindNone:
 	case gen.IsolationKindContainer:
-		errs = append(errs, apperr.Field("isolation/kind", "unsupported", "container isolation is v1.1"))
+		errs = append(errs, apperr.Field("isolation/kind", "unsupported", "컨테이너 격리는 아직 지원하지 않습니다"))
 	case gen.IsolationKindWorktree:
 		// P4 opens this. The repository is checked before the session exists
 		// (E13-01): a session created on an unusable repository fails at the
 		// first `git worktree add`, after the person has filled in six steps.
 		if !in.RuntimeId.IsSpecified() || in.RuntimeId.IsNull() {
-			errs = append(errs, apperr.Field("runtime_id", "required_for_isolation", "worktree isolation requires a runtime"))
+			errs = append(errs, apperr.Field("runtime_id", "required_for_isolation", "워크트리 격리에는 컴퓨터를 골라야 합니다"))
 		}
 		if in.Isolation.RepoPath == nil || strings.TrimSpace(*in.Isolation.RepoPath) == "" {
-			errs = append(errs, apperr.Field("isolation/repo_path", "required", "worktree isolation needs the repository path on that machine (FR-6.4)"))
+			errs = append(errs, apperr.Field("isolation/repo_path", "required", "워크트리 격리에는 그 컴퓨터의 저장소 경로가 필요합니다"))
 		}
 	default:
-		errs = append(errs, apperr.Field("isolation/kind", "enum", "unknown isolation kind"))
+		errs = append(errs, apperr.Field("isolation/kind", "enum", "알 수 없는 격리 방식입니다"))
 	}
 	if in.Autonomy != nil && *in.Autonomy == gen.Supervised {
-		errs = append(errs, apperr.Field("autonomy", "unsupported", "supervised is v1.1"))
+		errs = append(errs, apperr.Field("autonomy", "unsupported", "감독 모드는 아직 지원하지 않습니다"))
 	}
 	if in.CompletionCondition != nil {
 		// E6-07. The P1 check was a substring test on the marshalled tree,
@@ -131,7 +131,7 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 		// self-scoring FR-2.2 forbids. Evaluate the parsed tree instead.
 		if b, err := json.Marshal(in.CompletionCondition); err == nil {
 			if err := ValidateTree(ParseTree(b)); err != nil {
-				errs = append(errs, apperr.Field("completion_condition", "criteria_met_alone", err.Error()))
+				errs = append(errs, apperr.Field("completion_condition", "criteria_met_alone", err.Error())) // ValidateTree speaks the screens' language
 			}
 		}
 	}
@@ -144,7 +144,7 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 		return nil, err
 	}
 	if nRuntimes == 0 {
-		return nil, apperr.Conflict("no_runtime", "connect a computer first")
+		return nil, apperr.Conflict("no_runtime", "연결된 컴퓨터가 없습니다 — 먼저 컴퓨터를 연결해 주세요")
 	}
 	// FR-6.4 last bullet / E13-16: the disk quota gates SESSION CREATION, not
 	// the workdir's creation. Blocking later would mean the person has already
@@ -164,7 +164,7 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 		id := uuid.UUID(in.RuntimeId.MustGet())
 		var rws uuid.UUID
 		if err := s.DB.QueryRow(ctx, `SELECT workspace_id FROM runtime WHERE id = $1`, id).Scan(&rws); err != nil || rws != wsID {
-			return nil, apperr.Validation(apperr.Field("runtime_id", "runtime_not_in_workspace", "runtime not in this workspace"))
+			return nil, apperr.Validation(apperr.Field("runtime_id", "runtime_not_in_workspace", "이 워크스페이스에 연결된 컴퓨터가 아닙니다"))
 		}
 		runtimeID = &id
 	}
@@ -184,7 +184,7 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 		}
 		var n int
 		if err := s.DB.QueryRow(ctx, `SELECT count(*) FROM member WHERE workspace_id = $1 AND user_id = $2`, wsID, *uid).Scan(&n); err != nil || n == 0 {
-			return nil, apperr.Validation(apperr.Field("director_user_id", "not_member", "director/deputy must be workspace members"))
+			return nil, apperr.Validation(apperr.Field("director_user_id", "not_member", "Director 와 deputy 는 워크스페이스 멤버여야 합니다"))
 		}
 	}
 
@@ -202,10 +202,10 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 		seen[aid] = true
 		a, err := agents.Load(ctx, s.DB, aid, &userID)
 		if err != nil || a.WorkspaceId != wsID {
-			return nil, apperr.Validation(apperr.Field(fmt.Sprintf("participants/%d/agent_id", i), "not_found", "agent not in this workspace"))
+			return nil, apperr.Validation(apperr.Field(fmt.Sprintf("participants/%d/agent_id", i), "not_found", "이 워크스페이스의 에이전트가 아닙니다"))
 		}
 		if !a.Invitable.Allowed {
-			reason := "cannot invite this agent"
+			reason := "초대할 수 없는 에이전트입니다"
 			if r, err := a.Invitable.Reason.Get(); err == nil {
 				reason = r
 			}
@@ -221,7 +221,7 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 				}
 			}
 			if !found {
-				return nil, apperr.Validation(apperr.Field(fmt.Sprintf("participants/%d/profile_id", i), "not_found", "profile does not belong to the agent"))
+				return nil, apperr.Validation(apperr.Field(fmt.Sprintf("participants/%d/profile_id", i), "not_found", "이 에이전트의 프로파일이 아닙니다"))
 			}
 		} else {
 			for _, pr := range a.Profiles {
@@ -234,7 +234,7 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 			}
 		}
 		if profileID == uuid.Nil {
-			return nil, apperr.Validation(apperr.Field(fmt.Sprintf("participants/%d", i), "no_profile", "agent has no profile"))
+			return nil, apperr.Validation(apperr.Field(fmt.Sprintf("participants/%d", i), "no_profile", "이 에이전트에는 프로파일이 없습니다"))
 		}
 		parts = append(parts, part{aid, profileID})
 	}
@@ -242,7 +242,7 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 	if in.AssigneeAgentId != nil {
 		assignee = uuid.UUID(*in.AssigneeAgentId)
 		if !seen[assignee] {
-			return nil, apperr.Validation(apperr.Field("assignee_agent_id", "not_participant", "assignee must be a participant"))
+			return nil, apperr.Validation(apperr.Field("assignee_agent_id", "not_participant", "담당 에이전트는 참여자 중에서 골라야 합니다"))
 		}
 	}
 
@@ -313,7 +313,7 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 	}
 	if !draft {
 		// E16-A step 1: the assignee's initial task, triggered by a system message.
-		msgID, err := s.Router.SystemPost(ctx, tx, sessionID, "Session started. Goal: "+in.Goal)
+		msgID, err := s.Router.SystemPost(ctx, tx, sessionID, "세션을 시작했습니다. 목표: "+in.Goal)
 		if err != nil {
 			return nil, err
 		}

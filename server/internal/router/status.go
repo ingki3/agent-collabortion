@@ -44,7 +44,7 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 	now := s.Clock.Now()
 	if status == "blocked" && note == "" {
 		return nil, apperr.Validation(apperr.Field("note", "required",
-			"blocked needs the question — the delegator has nothing to answer otherwise"))
+			"막힘 상태에는 질문을 함께 적어 주세요 — 위임한 쪽이 답할 것이 없습니다"))
 	}
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
@@ -149,7 +149,7 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 			return nil, err
 		}
 	default:
-		return nil, apperr.Validation(apperr.Field("status", "invalid", "status must be working, blocked or done"))
+		return nil, apperr.Validation(apperr.Field("status", "invalid", "상태는 working · blocked · done 중 하나여야 합니다"))
 	}
 
 	if _, err := tx.Exec(ctx, `UPDATE session SET updated_at = $2 WHERE id = $1`, sessionID, now); err != nil {

@@ -75,13 +75,13 @@ func (s *Service) Signup(ctx context.Context, displayName, email, password strin
 	email = strings.ToLower(strings.TrimSpace(email))
 	var errs []apperr.FieldError
 	if strings.TrimSpace(displayName) == "" || len(displayName) > 80 {
-		errs = append(errs, apperr.Field("display_name", "length", "display_name must be 1–80 characters"))
+		errs = append(errs, apperr.Field("display_name", "length", "이름은 1~80자로 입력해 주세요"))
 	}
 	if !emailRe.MatchString(email) {
-		errs = append(errs, apperr.Field("email", "format", "invalid email"))
+		errs = append(errs, apperr.Field("email", "format", "이메일 주소 형식이 아닙니다"))
 	}
 	if len(password) < 8 {
-		errs = append(errs, apperr.Field("password", "min_length", "password must be at least 8 characters"))
+		errs = append(errs, apperr.Field("password", "min_length", "비밀번호는 8자 이상이어야 합니다"))
 	}
 	if len(errs) > 0 {
 		return nil, "", apperr.Validation(errs...)
@@ -94,7 +94,7 @@ func (s *Service) Signup(ctx context.Context, displayName, email, password strin
 	err = s.DB.QueryRow(ctx, `INSERT INTO app_user (email, display_name, password_hash, created_at) VALUES ($1, $2, $3, $4) RETURNING id`,
 		email, strings.TrimSpace(displayName), ph, s.Clock.Now()).Scan(&userID)
 	if isUnique(err) {
-		return nil, "", apperr.Conflict("email_taken", "an account with this email already exists")
+		return nil, "", apperr.Conflict("email_taken", "이미 가입된 이메일입니다 — 로그인해 주세요")
 	}
 	if err != nil {
 		return nil, "", fmt.Errorf("auth: signup: %w", err)
@@ -110,20 +110,20 @@ func (s *Service) Login(ctx context.Context, email, password string, inviteToken
 	var ph *string
 	err := s.DB.QueryRow(ctx, `SELECT id, password_hash FROM app_user WHERE email = $1`, email).Scan(&userID, &ph)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, "", apperr.Unauthorized("account_not_found", "no account with this email")
+		return nil, "", apperr.Unauthorized("account_not_found", "이 이메일로 가입된 계정이 없습니다")
 	}
 	if err != nil {
 		return nil, "", err
 	}
 	if ph == nil {
-		return nil, "", apperr.Unauthorized("password_mismatch", "this account has no password login")
+		return nil, "", apperr.Unauthorized("password_mismatch", "이 계정은 비밀번호로 로그인할 수 없습니다")
 	}
 	ok, err := VerifyPassword(*ph, password)
 	if err != nil {
 		return nil, "", err
 	}
 	if !ok {
-		return nil, "", apperr.Unauthorized("password_mismatch", "wrong password")
+		return nil, "", apperr.Unauthorized("password_mismatch", "비밀번호가 맞지 않습니다")
 	}
 	return s.finishAuth(ctx, userID, inviteToken)
 }
@@ -319,13 +319,13 @@ func hasASCIIAlnum(s string) bool {
 // CreateWorkspace creates workspace + settings row + owner membership.
 func (s *Service) CreateWorkspace(ctx context.Context, userID uuid.UUID, name string, slug *string) (*gen.Workspace, error) {
 	if strings.TrimSpace(name) == "" || len(name) > 80 {
-		return nil, apperr.Validation(apperr.Field("name", "length", "name must be 1–80 characters"))
+		return nil, apperr.Validation(apperr.Field("name", "length", "이름은 1~80자로 입력해 주세요"))
 	}
 	sl := slugStem(name)
 	explicit := slug != nil && *slug != ""
 	if explicit {
 		if !slugRe.MatchString(*slug) {
-			return nil, apperr.Validation(apperr.Field("slug", "pattern", "slug must match ^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$"))
+			return nil, apperr.Validation(apperr.Field("slug", "pattern", "주소는 영문 소문자·숫자·하이픈(-)으로 1~40자, 하이픈으로 시작하거나 끝날 수 없습니다"))
 		}
 		sl = *slug
 	}
@@ -359,7 +359,7 @@ func (s *Service) CreateWorkspace(ctx context.Context, userID uuid.UUID, name st
 		if isUnique(err) {
 			_ = sp.Rollback(ctx) // ROLLBACK TO SAVEPOINT; the outer tx stays usable
 			if explicit {
-				return nil, apperr.Conflict("slug_taken", "this slug is already in use")
+				return nil, apperr.Conflict("slug_taken", "이미 쓰고 있는 주소입니다 — 다른 주소를 골라 주세요")
 			}
 			if i < 20 {
 				continue
@@ -482,20 +482,20 @@ func (s *Service) CreateInvite(ctx context.Context, wsID, userID uuid.UUID, emai
 		role = "member"
 	}
 	if role == "owner" {
-		return nil, apperr.Validation(apperr.Field("role", "invalid", "owner cannot be granted by invite"))
+		return nil, apperr.Validation(apperr.Field("role", "invalid", "소유자 역할은 초대로 줄 수 없습니다"))
 	}
 	if expiresInHours <= 0 {
 		expiresInHours = 168
 	}
 	if expiresInHours > 720 {
-		return nil, apperr.Validation(apperr.Field("expires_in_hours", "maximum", "at most 720 hours"))
+		return nil, apperr.Validation(apperr.Field("expires_in_hours", "maximum", "초대 유효 기간은 최대 720시간입니다"))
 	}
 	if email != nil {
 		e := strings.ToLower(strings.TrimSpace(*email))
 		if e == "" {
 			email = nil
 		} else if !emailRe.MatchString(e) {
-			return nil, apperr.Validation(apperr.Field("email", "format", "invalid email"))
+			return nil, apperr.Validation(apperr.Field("email", "format", "이메일 주소 형식이 아닙니다"))
 		} else {
 			email = &e
 		}
@@ -604,11 +604,11 @@ func (s *Service) PreviewInvite(ctx context.Context, token string) (*gen.InviteP
 	rows.Close()
 	switch inv.Status {
 	case gen.InviteStatusRevoked:
-		return nil, apperr.Gone("invite_revoked", "this invite was revoked")
+		return nil, apperr.Gone("invite_revoked", "취소된 초대입니다 — 새 초대를 받아 주세요")
 	case gen.InviteStatusExpired:
-		return nil, apperr.Gone("invite_expired", "this invite has expired")
+		return nil, apperr.Gone("invite_expired", "초대 링크가 만료되었습니다 — 새 초대를 받아 주세요")
 	case gen.InviteStatusAccepted:
-		return nil, apperr.Gone("invite_used", "this invite was already accepted")
+		return nil, apperr.Gone("invite_used", "이미 수락한 초대입니다")
 	}
 	w, err := s.GetWorkspace(ctx, inv.WorkspaceId)
 	if err != nil {
@@ -637,11 +637,11 @@ func (s *Service) AcceptInvite(ctx context.Context, token string, userID uuid.UU
 	}
 	switch inv.Status {
 	case gen.InviteStatusRevoked:
-		return nil, apperr.Gone("invite_revoked", "this invite was revoked")
+		return nil, apperr.Gone("invite_revoked", "취소된 초대입니다 — 새 초대를 받아 주세요")
 	case gen.InviteStatusExpired:
-		return nil, apperr.Gone("invite_expired", "this invite has expired")
+		return nil, apperr.Gone("invite_expired", "초대 링크가 만료되었습니다 — 새 초대를 받아 주세요")
 	case gen.InviteStatusAccepted:
-		return nil, apperr.Gone("invite_used", "this invite was already accepted")
+		return nil, apperr.Gone("invite_used", "이미 수락한 초대입니다")
 	}
 	if inv.Email.IsSpecified() && !inv.Email.IsNull() {
 		u, err := s.User(ctx, userID)
@@ -649,7 +649,7 @@ func (s *Service) AcceptInvite(ctx context.Context, token string, userID uuid.UU
 			return nil, err
 		}
 		if !strings.EqualFold(string(u.Email), string(inv.Email.MustGet())) {
-			return nil, apperr.Forbidden("invite_email_mismatch", "this invite was issued to a different email")
+			return nil, apperr.Forbidden("invite_email_mismatch", "다른 이메일로 보낸 초대입니다 — 초대받은 이메일로 로그인해 주세요")
 		}
 	}
 	now := s.Clock.Now()

@@ -45,11 +45,11 @@ func (s *Service) Candidates(ctx context.Context, wsID uuid.UUID, q CandidateQue
 	switch isolation {
 	case "none", "worktree", "container":
 	default:
-		return false, nil, apperr.Validation(apperr.Field("isolation", "enum", "isolation must be worktree, container or none"))
+		return false, nil, apperr.Validation(apperr.Field("isolation", "enum", "격리 방식은 worktree · container · none 중 하나여야 합니다"))
 	}
 	if isolation == "worktree" && remote == "" {
 		return false, nil, apperr.Validation(apperr.Field("remote_url", "required",
-			"worktree isolation needs the repository's remote_url (or a session_id to read it from)"))
+			"워크트리 격리에는 저장소의 remote URL 이 필요합니다 (또는 그것을 읽어 올 세션)"))
 	}
 
 	rows, err := s.DB.Query(ctx, `SELECT id FROM runtime WHERE workspace_id = $1 ORDER BY created_at`, wsID)

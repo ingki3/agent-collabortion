@@ -2,7 +2,10 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 )
@@ -41,14 +44,39 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func notImplemented(w http.ResponseWriter, _ *http.Request, op string) {
-	writeProblem(w, apperr.New(http.StatusNotImplemented, "not_implemented", op+" is not part of P1"))
+	writeProblem(w, apperr.New(http.StatusNotImplemented, "not_implemented", "아직 지원하지 않는 기능입니다 ("+op+")"))
 }
+
+// unreadable is the 422 for a body the server could not parse. The person
+// reads one sentence in the screens' language (errors[].message is what the
+// signup and session forms print — COMPONENTS §8.4); the decoder's own text,
+// which names the byte and the Go type, rides along as `cause` for whoever
+// debugs the client.
+func unreadable(field, code, msg string, err error) *Problem {
+	p := apperr.Validation(apperr.Field(field, code, msg))
+	if err != nil {
+		p.Extra = map[string]any{"cause": err.Error()}
+	}
+	return p
+}
+
+const bodyUnreadable = "요청 내용을 읽을 수 없습니다 — 화면을 새로고침한 뒤 다시 시도해 주세요"
 
 // decodeJSON reads a JSON body; a malformed body is a 422 (spec: validation).
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) *Problem {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20))
 	if err := dec.Decode(v); err != nil {
-		return apperr.Validation(apperr.Field("body", "malformed_json", err.Error()))
+		// A bad email is the one decode failure a person causes by typing
+		// (openapi_types.Email validates inside UnmarshalJSON), so it gets the
+		// form's own sentence under its own field.
+		if errors.Is(err, openapi_types.ErrValidationEmail) {
+			return unreadable("email", "format", "이메일 주소 형식이 아닙니다", err)
+		}
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			return unreadable("body", "too_large", "요청이 너무 큽니다 — 4 MB 까지 보낼 수 있습니다", err)
+		}
+		return unreadable("body", "malformed_json", bodyUnreadable, err)
 	}
 	return nil
 }
@@ -71,7 +99,7 @@ func validateLimit(limit *int) *Problem {
 	}
 	if *limit < limitMin || *limit > limitMax {
 		return apperr.Validation(apperr.Field("limit", "out_of_range",
-			"limit must be between 1 and 200"))
+			"한 번에 1~200개까지만 가져올 수 있습니다"))
 	}
 	return nil
 }

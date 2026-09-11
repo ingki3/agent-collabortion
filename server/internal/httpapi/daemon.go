@@ -284,6 +284,9 @@ func (s *Server) recordGCRefusal(ctx context.Context, ref workdirs.Refusal, now 
 	// sentence goes under `args`.
 	if err := s.writeServerEvent(ctx, taskID, attempt, "status", "error", "gc.refused", "info",
 		map[string]any{"command": "gc", "result_ref": "workdir:" + ref.WorkdirID.String(),
+			// The sentence is the contract's (daemon-protocol §6 v0.7: 서버는 피드에 "GC 거부: <reason>" 을
+			// 남긴다) and e2e/p3/57 greps for it — it stays even though "GC" is not a screen word
+			// (S-67 report: a contract change, not a server one).
 			"args": map[string]any{"note": "GC 거부: " + reason}},
 		now); err != nil {
 		s.Log.Warn("record gc refusal", "err", err, "workdir", ref.WorkdirID)
@@ -422,9 +425,9 @@ func (s *Server) noteWorkdirReportDropped(ctx context.Context, rep workdirs.Repo
 	// free-text field; `failure_kind: config` is what a malformed report is.
 	if err := s.writeServerEventOnce(ctx, taskID, attempt, "runtime", "error", "workdir:"+path, "failed",
 		map[string]any{"failure_kind": "config",
-			"detail": "workdir 보고(daemon-protocol §6) 행을 저장하지 못했습니다 — " + reason +
-				". path=" + trimForDetail(path) + ". 이 행의 git 사실이 도달하지 않으면 GC 판정이 " +
-				"'커밋 0 · 클린' 으로 읽어 미병합 커밋·미커밋 변경을 지울 수 있습니다(FR-6.4 M4)."},
+			"detail": "컴퓨터가 보낸 작업 폴더 보고를 저장하지 못했습니다 — " + reason +
+				". 경로: " + trimForDetail(path) + ". 이 보고가 없으면 정리 판정이 이 폴더를 " +
+				"'커밋 0 · 변경 없음' 으로 보고 미병합 커밋·미커밋 변경을 지울 수 있습니다."},
 		now); err != nil {
 		s.Log.Warn("note dropped workdir report", "err", err, "session", rep.SessionID, "path", path)
 	}

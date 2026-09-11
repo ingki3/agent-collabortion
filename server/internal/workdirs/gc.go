@@ -50,7 +50,7 @@ type RepoVerdict struct {
 }
 
 // remoteMissing is the one problem that warns without blocking.
-const remoteMissing = "remote 가 없습니다 — 이 머신이 사라지면 다른 컴퓨터로 재바인딩할 수 없습니다(FR-9.2)"
+const remoteMissing = "저장소에 remote 가 없습니다 — 이 컴퓨터가 끊기면 다른 컴퓨터로 옮길 수 없습니다"
 
 // CheckRepo turns a daemon repo report into the wizard's verdict.
 //
@@ -62,7 +62,7 @@ func CheckRepo(c RepoCheck) RepoVerdict {
 	case !c.Exists:
 		v.Problems = append(v.Problems, "그 경로가 이 컴퓨터에 없습니다")
 	case !c.IsGit:
-		v.Problems = append(v.Problems, "git 저장소가 아닙니다 — `worktree` 격리는 저장소가 필요합니다")
+		v.Problems = append(v.Problems, "git 저장소가 아닙니다 — 워크트리 격리에는 저장소가 필요합니다")
 	default:
 		if !c.Clean {
 			// A dirty tree is not permanent, but `git worktree add` from it is
@@ -401,7 +401,7 @@ func CheckDiskQuota(usedBytes int64, quotaGB int) QuotaVerdict {
 	}
 	return QuotaVerdict{
 		Blocked: true, Code: QuotaCode, DirectorAsked: true, HTTPStatus: 409,
-		Detail: fmt.Sprintf("작업 공간 용량 상한(%dGB)에 도달했습니다 — Runtimes 화면에서 오래된 workdir 을 정리한 뒤 다시 시도하세요", quotaGB),
+		Detail: fmt.Sprintf("작업 폴더 용량 상한(%dGB)에 도달했습니다 — 연결된 컴퓨터 화면에서 오래된 작업 폴더를 정리한 뒤 다시 시도해 주세요", quotaGB),
 	}
 }
 

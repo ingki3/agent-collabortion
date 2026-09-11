@@ -8,6 +8,8 @@
 package router
 
 import (
+	"github.com/ingki3/agent-collabortion/server/internal/apperr"
+
 	"regexp"
 	"strings"
 
@@ -197,7 +199,7 @@ func Decide(in Input) Decision {
 func disabledWarning(p Participant) Warning {
 	id := p.AgentID
 	return Warning{Code: "agent_disabled", AgentID: &id,
-		Message: p.Name + "은(는) 킬 스위치(respond_to: nobody)가 켜져 있어 트리거되지 않습니다"}
+		Message: apperr.Josa(p.Name, "은", "는") + " 응답 대상이 「아무도 아님」으로 꺼져 있어 깨우지 않습니다"}
 }
 
 // isNote is rule 1's prefix test. Leading whitespace is tolerated so a pasted
