@@ -94,7 +94,7 @@ func TestP4BundleRefusesWithoutWorkdirRoot(t *testing.T) {
 	if err := f.pool.QueryRow(ctx, `
 		SELECT count(*) FROM task_event
 		WHERE task_id = $1 AND class = 'runtime' AND verb = 'error'
-		  AND payload->>'detail' LIKE '%workdir_root%'`, taskID).Scan(&n); err != nil {
+		  AND payload->>'detail' LIKE '%작업 폴더의 기준 위치%'`, taskID).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	if n != 1 {

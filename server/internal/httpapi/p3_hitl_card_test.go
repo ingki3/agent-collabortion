@@ -107,7 +107,7 @@ func TestP3HitlCardAgentPath(t *testing.T) {
 	cards := f.hitlCards(t)
 	// The card body carries enough to answer without opening the request
 	// (SCREEN §4.6).
-	for _, want := range []string{"[HITL:choice]", "어느 쪽으로 갈까요?", "선택지: A · B", "에이전트 제안: A"} {
+	for _, want := range []string{"[확인 요청 · 선택]", "어느 쪽으로 갈까요?", "선택지: A · B", "에이전트 제안: A"} {
 		if !contains(cards[0].Content, want) {
 			t.Fatalf("card body = %q, missing %q", cards[0].Content, want)
 		}

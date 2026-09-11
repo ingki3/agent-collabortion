@@ -265,7 +265,7 @@ func TestP3LostPostFinishEnforcementIsOnTheFeed(t *testing.T) {
 	if notes != 1 {
 		t.Fatalf("budget.enforce_failed feed notes = %d, want 1 (S-47)", notes)
 	}
-	if !contains(string(payload), "다시 검사") {
+	if !contains(string(payload), "다시 확인") {
 		t.Fatalf("payload = %s, want the note that says the next heartbeat·finish re-checks", payload)
 	}
 }
