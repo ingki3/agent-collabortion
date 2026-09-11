@@ -56,6 +56,7 @@
 | ~~W-6~~ | **해결 — T-W2.** 작성창이 `previewTriggers` 를 부르고 로컬 규칙 계산(`classifyMentions`)을 지웠다 — 규칙 1~8 과 lane 해소는 서버 상태를 봐야 해서 로컬로 흉내 내면 서버와 반대로 말한다(S-1 이 그랬다) | PR #21 R2 | — |
 | W-7 | 인박스 예산 HITL 범위 파생 `budgetScopeOf` 가 `session.status==="paused"` 만 보고 `paused_reason` 을 안 본다 — 세션이 다른 사유(HITL·offline)로 paused 인 동안 task 범위 예산 HITL 이 열리면 "세션 범위" 오표시. `paused_reason==="budget"` 까지 보기 | PR #166 리뷰 NN2 | 낮음 · K-12 와 같은 급 |
 | W-8 | Runtimes 카드의 Hermes 브리프 설명이 **옛 계약**이다 — "브리프: 지시 파일(CLAUDE.md·AGENTS.md)". harness v0.8.6(스파이크 5, 우회 B)에서 미추적 `COLAB_BRIEF.md` + 턴 프롬프트 포인터로 바뀌었다. probe 가 광고하는 `brief_transport` 를 그대로 렌더하도록 | Director 실사용 2026-09-08 | 낮음 |
+| W-9 | `app/dev/*`(배지·컴포넌트 전시 페이지)가 **프로덕션 빌드에 포함**된다 — `/dev/badges`·`/dev/components` 가 빌드 출력에 있다. 배포 전 제외하거나 개발 전용 가드 | PR #188 리뷰 NN2 | 배포 전 |
 | W-3′ | mock previewTriggers가 `done/blocked` lane **재진입**을 `resolution 4 + lane_id + reentry:true`로 준다(`handlers.ts:571-573`). PRD lane 규칙·EVAL E2-04·05는 재진입을 **규칙 3**으로 두고 4는 "그 외 → 새 lane". §0-9(b) 부류 — mock 응답·p2-mock 기대값·재진입 테스트 함께 | PR #76 Lead 확인 | 다음 웹 작업 |
 | ~~W-5~~ | mock의 lane 해소 규칙(`handlers.ts` resolveLane류)을 지키는 것이 `web/e2e/p2-mock.sh`뿐이고 그 스모크는 CI 밖(mock 서버 필요)이다. `done` lane 있는 세션에서 preview → `resolution 3 · reentry true`를 vitest 1건으로 — W-2·W-3′ 부류가 다시 슬며시 바뀌어도 CI가 모른다 | PR #83 리뷰 NN1 | 다음 웹 작업 | **해결 — PR #130**
 | ~~W-6~~ | 인박스 항목이 purpose=budget HITL(task 범위, 세션은 active)에 `budgetOverride` 입력칸을 붙이지 않는다(`session_paused` 조건) → Director 가 웹에서 상향 금액을 정할 수 없음(E9-02·U7-1) | T-I3 실측 43_ | T-W4 | **해결 — PR #139**
@@ -125,6 +126,7 @@
 | S-64 | 설치 스크립트가 릴리스가 아니라 `main` 을 클론한다(`COLAB_INSTALL_REF` 기본값 비어 있음) — 배포 시 태그·릴리스 아티팩트를 가리켜야 한다 | PR #182 리뷰 NN3 | **배포 전** |
 | S-65 | 설치 스크립트의 go 버전 검사(존재만 보고 버전을 안 봄) · §4.3 `gc` 명령에는 상대 경로 `path_or_ref` 가 그대로 실린다(S-62 는 번들 통로만 막았다) · `/install.sh` 의 `Cache-Control` | PR #182 리뷰 NN1·NN2·NN5 | 중 |
 | S-66 | **집필 단계가 3분 무응답 판정에 잘린다** — 실사용 두 세션·여섯 시도가 전부 `stall`(no session/update for 3m). 조사·위임은 통과하고 긴 글을 쓰는 턴에서만 죽어 아티팩트가 0 개다. 도구 실행·모델 응답 중에는 무응답으로 세지 않거나 기준을 바꿔야 한다(계약 `limits.stall_seconds` 180) | Director 실사용 2026-09-08 (세션 2건) | **높음 · G8 전** |
+| S-67 | **서버가 만드는 문장도 내부 용어다** — `Problem.detail` 12곳과 `Session started. Goal:` 등. 웹은 §8.4 로 고쳤는데 서버 문장은 그대로라 **화면과 실서버가 갈라진다**(목이 서버를 흉내 낸 자리에서 드러났다). COMPONENTS §8.4 원칙을 서버 사용자 대면 문장에도 적용 | T-W8 PR #188 보고 | 중 · G8 전 |
 
 ## C (CLI)
 
