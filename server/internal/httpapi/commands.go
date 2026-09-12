@@ -37,7 +37,7 @@ func (s *Server) ExpireCommands(ctx context.Context) (int, error) {
 		if err := s.writeServerEvent(ctx, *e.TaskID, attempt, "status", "error", string(e.Type), "info",
 			// S-52: closed `status` payload — the sentence goes under `args`.
 			map[string]any{"command": string(e.Type), "result_ref": fmt.Sprintf("daemon_command:%d", e.ID),
-				"args": map[string]any{"note": "명령 미소비 만료 (24h TTL)"}},
+				"args": map[string]any{"note": "컴퓨터가 24시간 안에 명령을 받아 가지 않아 만료되었습니다"}},
 			now); err != nil {
 			s.Log.Warn("record expired command", "err", err, "command", e.ID)
 		}

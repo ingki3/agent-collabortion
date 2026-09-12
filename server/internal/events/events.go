@@ -281,7 +281,7 @@ func (s *Service) recordRejectedBatch(ctx context.Context, taskID uuid.UUID, att
 		return
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	detail := fmt.Sprintf("데몬이 보낸 task_event(seq %d)가 계약 스키마를 어겨 배치를 거절했습니다 — %s",
+	detail := fmt.Sprintf("컴퓨터가 보낸 진행 기록(%d번)이 약속된 형식과 달라 받지 않았습니다 — %s",
 		seq, cause.Error())
 	if err := tasks.InsertServerEventOnce(ctx, tx, taskID, attempt, "runtime", "error",
 		"task_event.schema_rejected", "failed",

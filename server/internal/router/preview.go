@@ -1,6 +1,8 @@
 package router
 
 import (
+	"github.com/ingki3/agent-collabortion/server/internal/apperr"
+
 	"context"
 	"errors"
 	"fmt"
@@ -97,7 +99,7 @@ func (s *Service) Preview(ctx context.Context, sessionID uuid.UUID, author Autho
 			Code    string                                `json:"code"`
 			Message string                                `json:"message"`
 		}{AgentId: tasks.NullUUID(authorDelegator), Code: "suppressed_delegator",
-			Message: names[*authorDelegator] + "은(는) 위임자이므로 합류 묶음으로 한 번에 전달됩니다"})
+			Message: apperr.Josa(names[*authorDelegator], "은", "는") + " 위임한 쪽이라 맡긴 작업이 다 끝날 때 한 번에 전달됩니다"})
 	}
 
 	newLane := in.NewLane != nil && *in.NewLane && author.Type == "user"

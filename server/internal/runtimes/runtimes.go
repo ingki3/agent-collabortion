@@ -128,7 +128,7 @@ func (s *Service) GetPairing(ctx context.Context, wsID, id uuid.UUID) (*gen.Pair
 		status = "expired"
 	}
 	if status == "expired" {
-		return nil, apperr.Gone("pairing_expired", "this pairing code has expired; create a new one")
+		return nil, apperr.Gone("pairing_expired", "연결 코드가 만료되었습니다 — 새 코드를 만들어 주세요")
 	}
 	p.Status = gen.PairingStatus(status)
 	p.InstallCommands = s.installCommands("<pairing_token>")
@@ -155,18 +155,18 @@ func (s *Service) Pair(ctx context.Context, code, hostname, os, daemonVersion st
 	err = tx.QueryRow(ctx, `SELECT id, workspace_id, status, name, expires_at FROM runtime_pairing WHERE code_hash = $1 FOR UPDATE`, hash(code)).
 		Scan(&pid, &wsID, &status, &name, &expires)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, "", apperr.Unauthorized("pairing_invalid", "unknown pairing code")
+		return uuid.Nil, "", apperr.Unauthorized("pairing_invalid", "연결 코드가 맞지 않습니다 — 화면의 코드를 다시 확인해 주세요")
 	}
 	if err != nil {
 		return uuid.Nil, "", err
 	}
 	if status != "waiting" {
-		return uuid.Nil, "", apperr.Gone("pairing_used", "this pairing code was already used")
+		return uuid.Nil, "", apperr.Gone("pairing_used", "이미 쓴 연결 코드입니다 — 새 코드를 만들어 주세요")
 	}
 	if !now.Before(expires) {
 		_, _ = tx.Exec(ctx, `UPDATE runtime_pairing SET status = 'expired' WHERE id = $1`, pid)
 		_ = tx.Commit(ctx)
-		return uuid.Nil, "", apperr.Gone("pairing_expired", "this pairing code has expired")
+		return uuid.Nil, "", apperr.Gone("pairing_expired", "연결 코드가 만료되었습니다 — 새 코드를 만들어 주세요")
 	}
 	rtName := hostname
 	if rtName == "" {

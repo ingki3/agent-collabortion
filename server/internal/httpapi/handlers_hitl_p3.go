@@ -73,7 +73,7 @@ func readHitlCreate(raw []byte) (hitlCreateFields, *Problem) {
 		Type string `json:"type"`
 	}
 	if err := json.Unmarshal(raw, &probe); err != nil {
-		return hitlCreateFields{}, apperr.Validation(apperr.Field("body", "malformed_json", err.Error()))
+		return hitlCreateFields{}, unreadable("body", "malformed_json", bodyUnreadable, err)
 	}
 	var in struct {
 		Type            string     `json:"type"`
@@ -89,7 +89,7 @@ func readHitlCreate(raw []byte) (hitlCreateFields, *Problem) {
 		ArtifactID      *uuid.UUID `json:"artifact_id"`
 	}
 	if err := json.Unmarshal(raw, &in); err != nil {
-		return hitlCreateFields{}, apperr.Validation(apperr.Field("body", "malformed_json", err.Error()))
+		return hitlCreateFields{}, unreadable("body", "malformed_json", bodyUnreadable, err)
 	}
 	f := hitlCreateFields{
 		Kind: in.Type, Options: in.Options, ProposedDefault: in.ProposedDefault,
@@ -108,7 +108,7 @@ func readHitlCreate(raw []byte) (hitlCreateFields, *Problem) {
 	if in.DueIn != "" {
 		d, err := parseISODuration(in.DueIn)
 		if err != nil {
-			return f, apperr.Validation(apperr.Field("due_in", "invalid", "due_in must be an ISO 8601 duration"))
+			return f, apperr.Validation(apperr.Field("due_in", "invalid", "기한은 ISO 8601 기간 형식(예: PT2H)으로 적어 주세요"))
 		}
 		f.DueIn = d
 	}
@@ -122,11 +122,11 @@ func (s *Server) CreateHitlRequest(w http.ResponseWriter, r *http.Request, sessi
 	scope := principalOf(r).Task
 	if scope == nil {
 		writeProblem(w, apperr.Unauthorized("task_token_required",
-			"createHitlRequest is called by the agent with its COLAB_TASK_TOKEN (openapi security TaskToken)"))
+			"확인 요청은 에이전트만 만들 수 있습니다"))
 		return
 	}
 	if scope.SessionID != sessionId {
-		writeProblem(w, apperr.Forbidden("outside_task_scope", "task token cannot access another session"))
+		writeProblem(w, apperr.Forbidden("outside_task_scope", "다른 세션에는 접근할 수 없습니다"))
 		return
 	}
 	body, p := readBody(w, r)
@@ -186,7 +186,7 @@ func (s *Server) createHitl(ctx context.Context, taskID, sessionID uuid.UUID, f 
 						"command":         "hitl ask",
 						"rejected_reason": "hitl_already_open",
 						"args": map[string]any{
-							"note":     "이미 열린 HITL 요청이 있어 두 번째 요청을 거절했습니다",
+							"note":     "이미 열려 있는 확인 요청이 있어 두 번째 요청은 받지 않았습니다",
 							"question": f.Question, "open_hitl_request_id": openID.String(),
 						},
 					}, now); err != nil {
@@ -197,7 +197,7 @@ func (s *Server) createHitl(ctx context.Context, taskID, sessionID uuid.UUID, f 
 				}
 			}
 			return 0, nil, apperr.Conflict(hitl.CodeAlreadyOpen,
-				"이 task에는 이미 열린 HITL 요청이 있습니다 (FR-7.1)")
+				"이미 열려 있는 확인 요청이 있습니다 — 그 답을 먼저 기다려 주세요")
 		}
 		return 0, nil, apperr.Validation(apperr.Field(plan.ErrorField, "invalid", plan.ErrorMessage))
 	}

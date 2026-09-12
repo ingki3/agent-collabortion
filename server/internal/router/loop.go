@@ -161,6 +161,20 @@ func samePair(a, b Hop) bool {
 		(a.FromAgent == b.ToAgent && a.ToAgent == b.FromAgent)
 }
 
+// LimitText says which limit tripped in the words the web's PausedBanner uses
+// (COMPONENTS §8.4: the internal key stays out of the sentence).
+func (v LoopVerdict) LimitText() string {
+	switch v.Detail {
+	case DetailChainDepth:
+		return "주고받기 연쇄가 상한까지 깊어졌습니다"
+	case DetailHopsPerHour:
+		return "한 시간에 오간 횟수가 상한에 닿았습니다"
+	case DetailPairRoundtrips:
+		return "두 에이전트가 상한까지 주고받았습니다"
+	}
+	return "주고받기가 상한에 닿았습니다"
+}
+
 // LimitCount is the number that tripped, whichever limit it was — PausedDetail
 // carries one `count` field and the banner needs it filled with the right one.
 func (v LoopVerdict) LimitCount() int {

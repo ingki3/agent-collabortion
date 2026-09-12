@@ -119,26 +119,26 @@ func PlanRegister(in RegisterInput) RegisterPlan {
 	switch in.Kind {
 	case KindQuestion, KindChoice, KindApproval, KindInfo:
 	default:
-		return reject(CodeValidation, "type", "type must be question, choice, approval or info (FR-5.1)")
+		return reject(CodeValidation, "type", "요청 종류는 question · choice · approval · info 중 하나여야 합니다")
 	}
 	if in.Question == "" {
-		return reject(CodeValidation, "question", "the request needs a question, summary or what (FR-5.1)")
+		return reject(CodeValidation, "question", "무엇을 물을지 적어 주세요 (question · summary · what 중 하나)")
 	}
 	// FR-5.1 names question AND choice on the same line. Implementing the rule
 	// for `question` alone leaves a `choice` that expires with nothing to
 	// proceed with (E7-05, E7-20).
 	if (in.Kind == KindQuestion || in.Kind == KindChoice) && in.ProposedDefault == "" {
 		return reject(CodeValidation, "proposed_default",
-			"question and choice require proposed_default — an expiring request needs a value to proceed with (FR-5.1)")
+			"질문과 선택 요청에는 기본 답이 필요합니다 — 답이 없이 만료되면 그 값으로 진행합니다")
 	}
 	if in.Kind == KindChoice && len(in.Options) < 2 {
-		return reject(CodeValidation, "options", "choice needs at least two options")
+		return reject(CodeValidation, "options", "선택 요청에는 보기가 둘 이상 필요합니다")
 	}
 	if !SupportedApproverSpec(p.ApproverSpec) {
 		// Fail closed (FR-5.4): a role-based spec stored unchecked is a spec
 		// nobody enforces, and every member becomes an approver.
 		return reject(CodeValidation, "approver_spec",
-			"v1 supports approver_spec director, any_member or a user uuid")
+			"답할 사람은 director · any_member 또는 사용자 id 중 하나로 지정해 주세요")
 	}
 	if in.AlreadyOpen {
 		// FR-7.1 step 4: one open request per task. The FIRST one stands — a

@@ -93,7 +93,7 @@ type SubmitInput struct {
 func (s *Service) Submit(ctx context.Context, sessionID uuid.UUID, in SubmitInput) (*Row, error) {
 	if int64(len(in.Content)) > MaxBytes {
 		return nil, apperr.New(413, "payload_too_large",
-			fmt.Sprintf("artifact body is %d bytes; the limit is %d (50 MB)", len(in.Content), MaxBytes))
+			fmt.Sprintf("파일이 너무 큽니다 — %d바이트를 받았고 상한은 %d바이트(50 MB)입니다", len(in.Content), MaxBytes))
 	}
 	now := s.Clock.Now()
 	tx, err := s.DB.Begin(ctx)
@@ -111,7 +111,7 @@ func (s *Service) Submit(ctx context.Context, sessionID uuid.UUID, in SubmitInpu
 		return nil, err
 	}
 	if status == "completed" || status == "cancelled" {
-		return nil, apperr.Conflict("session_closed", "this session is already closed")
+		return nil, apperr.Conflict("session_closed", "이미 끝난 세션입니다")
 	}
 
 	// The large object is created inside this transaction, so a failed insert

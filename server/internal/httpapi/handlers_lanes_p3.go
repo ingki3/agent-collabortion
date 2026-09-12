@@ -128,7 +128,7 @@ func (s *Server) restartLane(ctx context.Context, laneID, wsID, sessionID, userI
 	switch laneStatus {
 	case "running", "failed", "paused", "queued", "blocked", "waiting_human":
 	default:
-		return 0, nil, apperr.Conflict("lane_not_restartable", "이 lane은 다시 지시할 수 없습니다 (현재: "+laneStatus+")")
+		return 0, nil, apperr.Conflict("lane_not_restartable", "이 작업 줄기는 다시 지시할 수 없습니다 (현재 상태: "+apperr.StatusLabel(laneStatus)+")")
 	}
 
 	// 1. Cancel what is in flight, through the same procedure 중단 uses.

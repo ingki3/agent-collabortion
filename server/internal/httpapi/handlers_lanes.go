@@ -45,7 +45,7 @@ func (s *Server) laneControl(r *http.Request, laneID uuid.UUID) (*gen.User, uuid
 	// M7's half-deadline). Reusing the approval window here would make a
 	// runaway agent un-stoppable for twelve hours (E10-06).
 	if perm := tasks.MayCancel(u.Id, director, deputy); !perm.Allowed {
-		return nil, uuid.Nil, uuid.Nil, apperr.Forbidden("director_required", "only the session's Director or deputy can cancel a lane (FR-3.4)")
+		return nil, uuid.Nil, uuid.Nil, apperr.Forbidden("director_required", "작업 줄기는 이 세션의 Director 나 deputy 만 중단할 수 있습니다")
 	}
 	return u, wsID, sessionID, nil
 }
@@ -67,7 +67,7 @@ func (s *Server) ListLanes(w http.ResponseWriter, r *http.Request, sessionId gen
 	if params.Status != nil {
 		for _, st := range *params.Status {
 			if !st.Valid() {
-				writeProblem(w, apperr.Validation(apperr.Field("status", "enum", "unknown lane status: "+string(st))))
+				writeProblem(w, apperr.Validation(apperr.Field("status", "enum", "알 수 없는 작업 줄기 상태입니다: "+string(st))))
 				return
 			}
 			statuses = append(statuses, string(st))
@@ -111,7 +111,7 @@ func (s *Server) CancelLane(w http.ResponseWriter, r *http.Request, laneId gen.L
 		writeProblem(w, apperr.NotFound("lane"))
 		return
 	case errors.Is(err, tasks.ErrLaneNotCancellable):
-		writeProblem(w, apperr.Conflict("lane_not_cancellable", "lane is not running or queued"))
+		writeProblem(w, apperr.Conflict("lane_not_cancellable", "진행 중이거나 대기 중인 작업 줄기만 중단할 수 있습니다"))
 		return
 	case err != nil:
 		writeErr(w, err)
@@ -142,11 +142,11 @@ func (s *Server) publishLane(r *http.Request, wsID, sessionID uuid.UUID, lane *g
 func (s *Server) DelegateLane(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.DelegateLaneParams) {
 	pr := principalOf(r)
 	if pr.Task == nil {
-		writeProblem(w, apperr.Forbidden("agent_only", "lane delegate is an agent tool; humans use the composer's new-lane toggle"))
+		writeProblem(w, apperr.Forbidden("agent_only", "위임은 에이전트만 할 수 있습니다 — 사람은 글쓰기 칸의 「새 작업 줄기로 보내기」를 쓰세요"))
 		return
 	}
 	if pr.Task.SessionID != sessionId {
-		writeProblem(w, apperr.Forbidden("outside_task_scope", "task token cannot delegate in another session"))
+		writeProblem(w, apperr.Forbidden("outside_task_scope", "다른 세션에는 위임할 수 없습니다"))
 		return
 	}
 	body, p := readBody(w, r)
@@ -160,7 +160,7 @@ func (s *Server) DelegateLane(w http.ResponseWriter, r *http.Request, sessionId 
 		return
 	}
 	if strings.TrimSpace(in.Brief) == "" {
-		writeProblem(w, apperr.Validation(apperr.Field("brief", "required", "brief is required — it becomes the child's turn prompt")))
+		writeProblem(w, apperr.Validation(apperr.Field("brief", "required", "지시문을 적어 주세요 — 위임받는 에이전트가 그 글로 시작합니다")))
 		return
 	}
 	dep := []uuid.UUID{}

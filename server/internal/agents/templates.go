@@ -231,7 +231,7 @@ func (s *Service) ApplyTemplate(ctx context.Context, wsID, ownerID uuid.UUID, ke
 		var owner uuid.UUID
 		err := s.DB.QueryRow(ctx, `SELECT workspace_id FROM runtime WHERE id = $1`, *runtimeID).Scan(&owner)
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && owner != wsID) {
-			return nil, apperr.Validation(apperr.Field("runtime_id", "not_found", "no such runtime in this workspace"))
+			return nil, apperr.Validation(apperr.Field("runtime_id", "not_found", "이 워크스페이스에 연결된 컴퓨터가 아닙니다"))
 		}
 		if err != nil {
 			return nil, err

@@ -92,7 +92,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		return nil, err
 	}
 	if status == "completed" || status == "cancelled" {
-		return nil, apperr.Conflict("session_closed", "this session is already closed")
+		return nil, apperr.Conflict("session_closed", "이미 끝난 세션입니다")
 	}
 	tree := ParseTree(raw)
 	// "who: assignee" is resolved here, not at creation: the assignee can
@@ -456,9 +456,9 @@ func (s *Service) recordSummaryFailure(ctx context.Context, tx pgx.Tx, sessionID
 // what stops a reader from judging the platform's summarising by an assembly
 // it did without a model.
 func (s *Service) recordSummaryOrigin(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, by string, now time.Time) {
-	detail := "세션 요약을 플랫폼 LLM 이 작성했습니다 (§8.5)"
+	detail := "세션 요약을 플랫폼 모델이 작성했습니다"
 	if by == GeneratedByFallback {
-		detail = "플랫폼 LLM 키 없음 — 행 조립 요약입니다 (§8.5 폴백)"
+		detail = "플랫폼 모델 키가 없어 기록을 이어 붙인 요약입니다"
 	}
 	var taskID uuid.UUID
 	var attempt int

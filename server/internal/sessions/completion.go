@@ -37,18 +37,18 @@ type Tree struct {
 }
 
 // ErrInvalidTree is returned by ValidateTree; the handler maps it to 422.
-var ErrInvalidTree = errors.New("sessions: invalid completion condition")
+var ErrInvalidTree = errors.New("종료 조건이 올바르지 않습니다")
 
 // ValidateTree is the session-creation guard (E6-07). criteria_met may never
 // stand alone and may never sit under OR, where it would complete the session
 // by itself — FR-2.2 requires it to be ANDed with an approval.
 func ValidateTree(t Tree) error {
 	if len(t.Conditions) == 0 {
-		return fmt.Errorf("%w: at least one condition is required", ErrInvalidTree)
+		return fmt.Errorf("%w: 조건을 하나 이상 골라 주세요", ErrInvalidTree)
 	}
 	op := normOp(t.Op)
 	if op != "AND" && op != "OR" {
-		return fmt.Errorf("%w: op must be AND or OR, got %q", ErrInvalidTree, t.Op)
+		return fmt.Errorf("%w: 조합 방식은 AND 또는 OR 여야 합니다 (받은 값: %q)", ErrInvalidTree, t.Op)
 	}
 	hasCriteria, hasApproval := false, false
 	for _, c := range t.Conditions {
@@ -61,12 +61,12 @@ func ValidateTree(t Tree) error {
 			hasApproval = true
 		case CondArtifactSubmitted:
 		default:
-			return fmt.Errorf("%w: unknown condition type %q", ErrInvalidTree, c.Type)
+			return fmt.Errorf("%w: 알 수 없는 조건 %q", ErrInvalidTree, c.Type)
 		}
 	}
 	if hasCriteria && (!hasApproval || op != "AND") {
-		return fmt.Errorf("%w: criteria_met must be ANDed with an approval — the platform "+
-			"may not be the only judge of the work it scored", ErrInvalidTree)
+		return fmt.Errorf("%w: 「기준 충족」은 승인 조건과 AND 로 묶어야 합니다 — 플랫폼이 "+
+			"자기 채점만으로 세션을 끝낼 수 없습니다", ErrInvalidTree)
 	}
 	return nil
 }
@@ -129,7 +129,7 @@ func ApplyEvent(t Tree, st State, ev Event) Outcome {
 		if namesActor(t, CondAgentApproval, ev.Actor) {
 			met[CondAgentApproval] = true
 		} else {
-			o.CLIError = "review approve: this session designates a different reviewer"
+			o.CLIError = "이 세션의 리뷰어가 아닙니다 — 지정된 리뷰어만 승인할 수 있습니다"
 			o.MetAtoms = atoms(met)
 			return o
 		}
@@ -139,7 +139,7 @@ func ApplyEvent(t Tree, st State, ev Event) Outcome {
 		// nothing is stored) — a verdict nobody asked for must not reach the
 		// submitting lane's thread either.
 		if !namesActor(t, CondAgentApproval, ev.Actor) {
-			o.CLIError = "review reject: this session designates a different reviewer"
+			o.CLIError = "이 세션의 리뷰어가 아닙니다 — 지정된 리뷰어만 반려할 수 있습니다"
 			o.MetAtoms = atoms(met)
 			return o
 		}

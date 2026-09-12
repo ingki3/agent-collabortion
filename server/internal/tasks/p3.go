@@ -269,7 +269,7 @@ func (s *Service) NoteBudgetEnforceFailed(ctx context.Context, taskID uuid.UUID,
 		// operation — class=runtime · `detail` (S-52 rule 2).
 		return InsertServerEventOnce(ctx, tx, taskID, attempt, "runtime", "error", "budget.enforce_failed", "failed",
 			map[string]any{
-				"detail": "턴이 끝난 뒤 예산 재검사가 실패했습니다 — 다음 heartbeat·finish 에서 다시 검사합니다: " +
+				"detail": "턴이 끝난 뒤 예산을 다시 확인하지 못했습니다 — 다음 진행 보고 때 다시 확인합니다: " +
 					cause.Error(),
 			}, now)
 	})

@@ -205,7 +205,7 @@ type TriggerVerdict struct {
 func MayTrigger(in TriggerInput) TriggerVerdict {
 	v := TriggerVerdict{JudgedOn: in.OriginatorUserID}
 	if in.RespondTo == "nobody" {
-		v.Reason = "kill switch: respond_to is nobody"
+		v.Reason = "이 에이전트는 응답 대상이 「아무도 아님」이라 초대할 수 없습니다"
 		return v
 	}
 	if in.InSession && in.Participant {
@@ -227,12 +227,12 @@ func MayTrigger(in TriggerInput) TriggerVerdict {
 			}
 		}
 		if !v.Allowed {
-			v.Reason = "not on this agent's allowlist"
+			v.Reason = "이 에이전트의 허용 목록에 없는 사람입니다"
 		}
 	default: // owner
 		v.Allowed = in.OriginatorUserID == in.OwnerID
 		if !v.Allowed {
-			v.Reason = "only the owner can invite this agent"
+			v.Reason = "이 에이전트는 만든 사람만 초대할 수 있습니다"
 		}
 	}
 	return v

@@ -38,19 +38,19 @@ var v1RuntimeKinds = []string{"claude_code", "hermes"}
 func (s *Service) Create(ctx context.Context, wsID, ownerID uuid.UUID, in gen.AgentCreate) (*gen.Agent, error) {
 	var errs []apperr.FieldError
 	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 40 {
-		errs = append(errs, apperr.Field("name", "length", "name must be 1–40 characters"))
+		errs = append(errs, apperr.Field("name", "length", "이름은 1~40자로 입력해 주세요"))
 	}
 	if strings.ContainsAny(in.Name, "[]()@") {
-		errs = append(errs, apperr.Field("name", "invalid", "name cannot contain [ ] ( ) @"))
+		errs = append(errs, apperr.Field("name", "invalid", "이름에는 [ ] ( ) @ 를 쓸 수 없습니다"))
 	}
 	if strings.TrimSpace(in.RoleDescription) == "" {
-		errs = append(errs, apperr.Field("role_description", "required", "role_description is required"))
+		errs = append(errs, apperr.Field("role_description", "required", "역할 설명을 입력해 주세요"))
 	}
 	if strings.TrimSpace(in.Instructions) == "" {
-		errs = append(errs, apperr.Field("instructions", "required", "instructions is required"))
+		errs = append(errs, apperr.Field("instructions", "required", "지시문을 입력해 주세요"))
 	}
 	if len(in.Profiles) == 0 {
-		errs = append(errs, apperr.Field("profiles", "min_items", "at least one profile is required"))
+		errs = append(errs, apperr.Field("profiles", "min_items", "프로파일을 하나 이상 추가해 주세요"))
 	}
 	defaults := 0
 	for i, p := range in.Profiles {
@@ -58,14 +58,14 @@ func (s *Service) Create(ctx context.Context, wsID, ownerID uuid.UUID, in gen.Ag
 			defaults++
 		}
 		if !slices.Contains(v1RuntimeKinds, string(p.RuntimeKind)) {
-			errs = append(errs, apperr.Field(fmt.Sprintf("profiles/%d/runtime_kind", i), "unsupported", "v1 runtimes are claude_code and hermes"))
+			errs = append(errs, apperr.Field(fmt.Sprintf("profiles/%d/runtime_kind", i), "unsupported", "지금은 Claude Code 와 Hermes 만 고를 수 있습니다"))
 		}
 		if strings.TrimSpace(p.Model) == "" || strings.TrimSpace(p.Name) == "" {
-			errs = append(errs, apperr.Field(fmt.Sprintf("profiles/%d", i), "required", "profile needs name and model"))
+			errs = append(errs, apperr.Field(fmt.Sprintf("profiles/%d", i), "required", "프로파일에는 이름과 모델이 필요합니다"))
 		}
 	}
 	if defaults > 1 {
-		errs = append(errs, apperr.Field("profiles", "one_default", "exactly one profile can be is_default"))
+		errs = append(errs, apperr.Field("profiles", "one_default", "기본 프로파일은 정확히 하나여야 합니다"))
 	}
 	if len(errs) > 0 {
 		return nil, apperr.Validation(errs...)
@@ -112,7 +112,7 @@ func (s *Service) Create(ctx context.Context, wsID, ownerID uuid.UUID, in gen.Ag
 		wsID, in.Name, string(in.Role), in.RoleDescription, in.Instructions, tools, ownerID, string(respondTo), allow,
 		avatar, budget, maxConc, now).Scan(&id)
 	if isUnique(err) {
-		return nil, apperr.Conflict("name_taken", "an agent with this name already exists in the workspace")
+		return nil, apperr.Conflict("name_taken", "같은 이름의 에이전트가 있습니다 — 다른 이름을 골라 주세요")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("agents: insert: %w", err)
@@ -127,7 +127,7 @@ func (s *Service) Create(ctx context.Context, wsID, ownerID uuid.UUID, in gen.Ag
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9) RETURNING id`,
 			id, p.Name, string(p.RuntimeKind), p.Model, profileOptions(p.Options), profileEnv(p.Env), profileArgs(p.Args), isDefault, now).Scan(&pid); err != nil {
 			if isUnique(err) {
-				return nil, apperr.Validation(apperr.Field(fmt.Sprintf("profiles/%d/name", i), "duplicate", "profile names must be unique"))
+				return nil, apperr.Validation(apperr.Field(fmt.Sprintf("profiles/%d/name", i), "duplicate", "프로파일 이름이 겹칩니다 — 서로 다르게 지어 주세요"))
 			}
 			return nil, fmt.Errorf("agents: insert profile: %w", err)
 		}
@@ -175,7 +175,7 @@ func resolveCreateFallback(p gen.AgentProfileCreate, byName map[string]uuid.UUID
 			}
 		}
 		if !found {
-			return nil, field("fallback_profile_id", "not_found", "fallback_profile_id must be another profile of this agent")
+			return nil, field("fallback_profile_id", "not_found", "이 에이전트의 다른 프로파일만 대체 프로파일로 고를 수 있습니다")
 		}
 		target = &id
 	}
@@ -188,7 +188,7 @@ func resolveCreateFallback(p gen.AgentProfileCreate, byName map[string]uuid.UUID
 		target = &id
 	}
 	if target != nil && *target == self {
-		return nil, field("fallback_profile", "self_reference", "a profile cannot fall back to itself")
+		return nil, field("fallback_profile", "self_reference", "프로파일이 자기 자신을 대체 프로파일로 가리킬 수 없습니다")
 	}
 	return target, nil
 }
@@ -199,13 +199,13 @@ func resolveCreateFallback(p gen.AgentProfileCreate, byName map[string]uuid.UUID
 func (s *Service) CreateProfile(ctx context.Context, agentID uuid.UUID, in gen.AgentProfileCreate) (*gen.AgentProfile, error) {
 	var errs []apperr.FieldError
 	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 40 {
-		errs = append(errs, apperr.Field("name", "length", "name must be 1–40 characters"))
+		errs = append(errs, apperr.Field("name", "length", "이름은 1~40자로 입력해 주세요"))
 	}
 	if strings.TrimSpace(in.Model) == "" {
-		errs = append(errs, apperr.Field("model", "required", "model is required"))
+		errs = append(errs, apperr.Field("model", "required", "모델을 골라 주세요"))
 	}
 	if !slices.Contains(v1RuntimeKinds, string(in.RuntimeKind)) {
-		errs = append(errs, apperr.Field("runtime_kind", "unsupported", "v1 runtimes are claude_code and hermes"))
+		errs = append(errs, apperr.Field("runtime_kind", "unsupported", "지금은 Claude Code 와 Hermes 만 고를 수 있습니다"))
 	}
 	if len(errs) > 0 {
 		return nil, apperr.Validation(errs...)
@@ -238,7 +238,7 @@ func (s *Service) CreateProfile(ctx context.Context, agentID uuid.UUID, in gen.A
 		agentID, in.Name, string(in.RuntimeKind), in.Model, profileOptions(in.Options), profileEnv(in.Env), profileArgs(in.Args),
 		isDefault, fallback, now).Scan(&id)
 	if isUnique(err) {
-		return nil, apperr.Conflict("name_taken", "this agent already has a profile with that name")
+		return nil, apperr.Conflict("name_taken", "이 에이전트에 같은 이름의 프로파일이 있습니다")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("agents: create profile: %w", err)
@@ -258,13 +258,13 @@ func (s *Service) CreateProfile(ctx context.Context, agentID uuid.UUID, in gen.A
 func (s *Service) UpdateProfile(ctx context.Context, agentID, profileID uuid.UUID, in gen.AgentProfileUpdate) (*gen.AgentProfile, error) {
 	var errs []apperr.FieldError
 	if in.Name != nil && (strings.TrimSpace(*in.Name) == "" || len(*in.Name) > 40) {
-		errs = append(errs, apperr.Field("name", "length", "name must be 1–40 characters"))
+		errs = append(errs, apperr.Field("name", "length", "이름은 1~40자로 입력해 주세요"))
 	}
 	if in.Model != nil && strings.TrimSpace(*in.Model) == "" {
-		errs = append(errs, apperr.Field("model", "required", "model cannot be empty"))
+		errs = append(errs, apperr.Field("model", "required", "모델을 비울 수 없습니다"))
 	}
 	if in.RuntimeKind != nil && !slices.Contains(v1RuntimeKinds, string(*in.RuntimeKind)) {
-		errs = append(errs, apperr.Field("runtime_kind", "unsupported", "v1 runtimes are claude_code and hermes"))
+		errs = append(errs, apperr.Field("runtime_kind", "unsupported", "지금은 Claude Code 와 Hermes 만 고를 수 있습니다"))
 	}
 	if len(errs) > 0 {
 		return nil, apperr.Validation(errs...)
@@ -331,13 +331,13 @@ func (s *Service) UpdateProfile(ctx context.Context, agentID, profileID uuid.UUI
 			// unusable with nothing saying so, so the caller names the new
 			// default instead.
 			return nil, apperr.Conflict("last_default",
-				"make another profile the default instead of clearing this one")
+				"기본 프로파일은 비울 수 없습니다 — 다른 프로파일을 먼저 기본으로 지정해 주세요")
 		}
 		add("is_default", *in.IsDefault)
 	}
 	_, err = tx.Exec(ctx, "UPDATE agent_profile SET "+strings.Join(set, ", ")+" WHERE id = $1", args...)
 	if isUnique(err) {
-		return nil, apperr.Conflict("name_taken", "this agent already has a profile with that name")
+		return nil, apperr.Conflict("name_taken", "이 에이전트에 같은 이름의 프로파일이 있습니다")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("agents: update profile: %w", err)
@@ -364,7 +364,7 @@ func resolveFallback(ctx context.Context, q db.DBTX, agentID, self uuid.UUID, by
 		err := q.QueryRow(ctx, `SELECT agent_id FROM agent_profile WHERE id = $1`, id).Scan(&owner)
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && owner != agentID) {
 			return nil, apperr.Validation(apperr.Field("fallback_profile_id", "not_found",
-				"fallback_profile_id must be another profile of this agent"))
+				"이 에이전트의 다른 프로파일만 대체 프로파일로 고를 수 있습니다"))
 		}
 		if err != nil {
 			return nil, err
@@ -376,13 +376,13 @@ func resolveFallback(ctx context.Context, q db.DBTX, agentID, self uuid.UUID, by
 		id, ok := names[name]
 		if !ok {
 			return nil, apperr.Validation(apperr.Field("fallback_profile", "not_found",
-				"this agent has no profile named "+name))
+				"이 에이전트에는 「"+name+"」 프로파일이 없습니다"))
 		}
 		target = &id
 	}
 	if target != nil && self != uuid.Nil && *target == self {
 		return nil, apperr.Validation(apperr.Field("fallback_profile_id", "self_reference",
-			"a profile cannot fall back to itself"))
+			"프로파일이 자기 자신을 대체 프로파일로 가리킬 수 없습니다"))
 	}
 	return target, nil
 }
@@ -444,7 +444,7 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, caller uuid.UUID, in
 	}
 	if in.Name != nil {
 		if strings.TrimSpace(*in.Name) == "" || len(*in.Name) > 40 || strings.ContainsAny(*in.Name, "[]()@") {
-			return nil, apperr.Validation(apperr.Field("name", "invalid", "name must be 1–40 characters without [ ] ( ) @"))
+			return nil, apperr.Validation(apperr.Field("name", "invalid", "이름은 1~40자, [ ] ( ) @ 없이 지어 주세요"))
 		}
 		add("name", *in.Name)
 	}
@@ -489,7 +489,7 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, caller uuid.UUID, in
 	}
 	tag, err := s.DB.Exec(ctx, `UPDATE agent SET `+strings.Join(set, ", ")+` WHERE id = $1`, args...)
 	if isUnique(err) {
-		return nil, apperr.Conflict("name_taken", "an agent with this name already exists in the workspace")
+		return nil, apperr.Conflict("name_taken", "같은 이름의 에이전트가 있습니다 — 다른 이름을 골라 주세요")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("agents: update: %w", err)

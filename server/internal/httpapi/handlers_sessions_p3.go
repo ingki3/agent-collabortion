@@ -100,7 +100,7 @@ func (s *Server) PauseSession(w http.ResponseWriter, r *http.Request, sessionId 
 			return err
 		}
 		if status != "active" {
-			return apperr.Conflict("invalid_transition", "active 세션만 일시정지할 수 있습니다 (현재: "+status+")")
+			return apperr.Conflict("invalid_transition", "진행 중인 세션만 일시정지할 수 있습니다 (현재 상태: "+apperr.StatusLabel(status)+")")
 		}
 		detail := tasks.PausedDetail(sessions.PauseDirector, now)
 		raw, _ := json.Marshal(detail)
@@ -166,7 +166,7 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 			return err
 		}
 		if status != "paused" {
-			return apperr.Conflict("invalid_transition", "paused 세션만 재개할 수 있습니다 (현재: "+status+")")
+			return apperr.Conflict("invalid_transition", "일시정지된 세션만 재개할 수 있습니다 (현재 상태: "+apperr.StatusLabel(status)+")")
 		}
 		if in.Limits != nil {
 			merged, err := mergeLimits(limitsRaw, in.Limits)
@@ -326,7 +326,7 @@ func (s *Server) CancelSession(w http.ResponseWriter, r *http.Request, sessionId
 			return err
 		}
 		if status != "active" && status != "paused" {
-			return apperr.Conflict("invalid_transition", "active·paused 세션만 취소할 수 있습니다 (현재: "+status+")")
+			return apperr.Conflict("invalid_transition", "진행 중이거나 일시정지된 세션만 종료할 수 있습니다 (현재 상태: "+apperr.StatusLabel(status)+")")
 		}
 		offline := status == "paused" && derefString(pauseReason) == runtimes.PauseReasonOffline
 		if offline {
@@ -474,13 +474,13 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 		if !draft {
 			var errs []apperr.FieldError
 			if in.Isolation != nil {
-				errs = append(errs, apperr.Field("isolation", "immutable", "격리는 draft에서만 바꿀 수 있습니다"))
+				errs = append(errs, apperr.Field("isolation", "immutable", "격리 방식은 시작 전에만 바꿀 수 있습니다"))
 			}
 			if in.RuntimeId.IsSpecified() {
-				errs = append(errs, apperr.Field("runtime_id", "immutable", "런타임은 draft에서만 바꿀 수 있습니다"))
+				errs = append(errs, apperr.Field("runtime_id", "immutable", "컴퓨터는 시작 전에만 바꿀 수 있습니다"))
 			}
 			if in.CompletionCondition != nil {
-				errs = append(errs, apperr.Field("completion_condition", "immutable", "종료 조건은 draft에서만 바꿀 수 있습니다"))
+				errs = append(errs, apperr.Field("completion_condition", "immutable", "종료 조건은 시작 전에만 바꿀 수 있습니다"))
 			}
 			if len(errs) > 0 {
 				return apperr.Validation(errs...)
@@ -520,7 +520,7 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 			} else {
 				v, err := in.DeputyDirectorUserId.Get()
 				if err != nil {
-					return apperr.Validation(apperr.Field("deputy_director_user_id", "invalid", err.Error()))
+					return unreadable("deputy_director_user_id", "invalid", "deputy 로 지정할 사람을 다시 골라 주세요", err)
 				}
 				if err := s.requireMember(r.Context(), tx, sessionId, v); err != nil {
 					return err
@@ -583,7 +583,7 @@ func (s *Server) ChangeDirector(w http.ResponseWriter, r *http.Request, sessionI
 	// t-5: the current Director hands over, and an owner/admin can do it for
 	// them — a Director who leaves the company cannot hand over themselves.
 	if m == nil || (u.Id != director && m.Role != "owner" && m.Role != "admin") {
-		writeProblem(w, apperr.Forbidden("director_required", "현재 Director 또는 owner·admin만 교체할 수 있습니다"))
+		writeProblem(w, apperr.Forbidden("director_required", "현재 Director 나 소유자·관리자만 교체할 수 있습니다"))
 		return
 	}
 	var in struct {

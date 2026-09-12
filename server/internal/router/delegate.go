@@ -84,7 +84,7 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 		var pid uuid.UUID
 		err := tx.QueryRow(ctx, `SELECT id FROM agent_profile WHERE agent_id = $1 AND name = $2`, in.AgentID, *in.Profile).Scan(&pid)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, apperr.Validation(apperr.Field("profile", "not_found", "no such profile on this agent"))
+			return nil, apperr.Validation(apperr.Field("profile", "not_found", "이 에이전트에는 그 프로파일이 없습니다"))
 		}
 		if err != nil {
 			return nil, err
@@ -99,7 +99,7 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 			return nil, err
 		}
 		if n == 0 {
-			return nil, apperr.Validation(apperr.Field("depends_on", "not_found", "depends_on must name lanes of this session"))
+			return nil, apperr.Validation(apperr.Field("depends_on", "not_found", "이 세션의 작업 줄기만 선행 작업으로 지정할 수 있습니다"))
 		}
 	}
 

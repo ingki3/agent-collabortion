@@ -278,8 +278,7 @@ func (s *Service) NotePreviewDrift(ctx context.Context, taskID uuid.UUID, attemp
 		// `field` and `spec` are not keys the schema knows.
 		return InsertServerEventOnce(ctx, tx, taskID, attempt, "runtime", "error", "heartbeat.preview", "info",
 			map[string]any{
-				"detail": "데몬이 보낸 heartbeat preview 모양이 계약과 달라 무시했습니다 " +
-					"(field=preview, contracts/daemon-protocol.md §4.2 v0.3)",
+				"detail": "컴퓨터가 보낸 진행 미리보기(preview)가 약속된 형식과 달라 무시했습니다 — 화면의 미리보기만 비고 작업은 계속됩니다",
 			}, now)
 	})
 }
@@ -886,7 +885,7 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 		if err := InsertServerEventOnce(ctx, tx, u.taskID, u.attempt, "runtime", "report", "cost.unpriced", "info",
 			map[string]any{
 				"detail": "가격표에 없는 모델이라 비용을 추정할 수 없습니다 — 이 턴은 예산 계산에 $0으로 잡힙니다 " +
-					"(model=" + model + ", estimated)",
+					"(모델: " + model + ", 추정치)",
 			}, now); err != nil {
 			return err
 		}

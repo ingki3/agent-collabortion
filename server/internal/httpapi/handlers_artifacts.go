@@ -146,15 +146,15 @@ func readUpload(w http.ResponseWriter, r *http.Request) ([]byte, *Problem) {
 		if errors.As(err, &tooBig) {
 			return nil, tooLarge(-1)
 		}
-		return nil, apperr.Validation(apperr.Field("body", "unreadable", err.Error()))
+		return nil, unreadable("body", "unreadable", bodyUnreadable, err)
 	}
 	return b, nil
 }
 
 func tooLarge(got int64) *Problem {
-	detail := fmt.Sprintf("artifact bodies are limited to %d bytes (50 MB)", artifacts.MaxBytes)
+	detail := fmt.Sprintf("파일이 너무 큽니다 — 상한은 %d바이트(50 MB)입니다", artifacts.MaxBytes)
 	if got > 0 {
-		detail = fmt.Sprintf("declared %d bytes; %s", got, detail)
+		detail = fmt.Sprintf("%s (보낸 크기 %d바이트)", detail, got)
 	}
 	return apperr.New(http.StatusRequestEntityTooLarge, "payload_too_large", detail)
 }
@@ -166,7 +166,7 @@ func parseArtifactUpload(r *http.Request, body []byte) (*artifacts.SubmitInput, 
 	mt, mp, err := mime.ParseMediaType(ct)
 	if err != nil || mt != "multipart/form-data" || mp["boundary"] == "" {
 		return nil, apperr.Validation(apperr.Field("body", "unsupported_media_type",
-			"submitArtifact takes multipart/form-data {name, type, file, description}"))
+			"아티팩트는 multipart/form-data 로 name · type · file · description 을 보내야 합니다"))
 	}
 	in := &artifacts.SubmitInput{}
 	seenFile := false
@@ -177,7 +177,7 @@ func parseArtifactUpload(r *http.Request, body []byte) (*artifacts.SubmitInput, 
 			break
 		}
 		if err != nil {
-			return nil, apperr.Validation(apperr.Field("body", "malformed_multipart", err.Error()))
+			return nil, unreadable("body", "malformed_multipart", "첨부 형식이 올바르지 않습니다 — 파일을 다시 보내 주세요", err)
 		}
 		switch part.FormName() {
 		case "file":
@@ -185,7 +185,7 @@ func parseArtifactUpload(r *http.Request, body []byte) (*artifacts.SubmitInput, 
 			// 50 MB" (allowed) and "more" (413) is that byte.
 			data, err := io.ReadAll(io.LimitReader(part, artifacts.MaxBytes+1))
 			if err != nil {
-				return nil, apperr.Validation(apperr.Field("file", "unreadable", err.Error()))
+				return nil, unreadable("file", "unreadable", "파일을 읽을 수 없습니다 — 다시 보내 주세요", err)
 			}
 			if int64(len(data)) > artifacts.MaxBytes {
 				return nil, tooLarge(int64(len(data)))
@@ -195,7 +195,7 @@ func parseArtifactUpload(r *http.Request, body []byte) (*artifacts.SubmitInput, 
 		case "name", "type", "description":
 			v, err := io.ReadAll(io.LimitReader(part, fieldMax))
 			if err != nil {
-				return nil, apperr.Validation(apperr.Field(part.FormName(), "unreadable", err.Error()))
+				return nil, unreadable(part.FormName(), "unreadable", "값을 읽을 수 없습니다 — 다시 보내 주세요", err)
 			}
 			switch part.FormName() {
 			case "name":
@@ -210,13 +210,13 @@ func parseArtifactUpload(r *http.Request, body []byte) (*artifacts.SubmitInput, 
 	}
 	var errs []apperr.FieldError
 	if in.Name == "" {
-		errs = append(errs, apperr.Field("name", "required", "name is required"))
+		errs = append(errs, apperr.Field("name", "required", "이름을 입력해 주세요"))
 	}
 	if in.Type == "" {
-		errs = append(errs, apperr.Field("type", "required", "type is required (file · diff · branch · doc · …)"))
+		errs = append(errs, apperr.Field("type", "required", "종류를 골라 주세요 (file · diff · branch · doc · …)"))
 	}
 	if !seenFile {
-		errs = append(errs, apperr.Field("file", "required", "the file part is required"))
+		errs = append(errs, apperr.Field("file", "required", "파일을 첨부해 주세요"))
 	}
 	if len(errs) > 0 {
 		return nil, apperr.Validation(errs...)
@@ -348,7 +348,7 @@ func (s *Server) ReviewArtifact(w http.ResponseWriter, r *http.Request, artifact
 	pr := principalOf(r)
 	if pr.Task == nil {
 		writeProblem(w, apperr.Forbidden("agent_only",
-			"review is an agent tool (openapi reviewArtifact is TaskToken-only); a person answers the user_approval HITL instead"))
+			"리뷰 판정은 에이전트만 보낼 수 있습니다 — 사람은 받은 요청의 승인 카드에서 답합니다"))
 		return
 	}
 	a, p := s.artifactAccess(r, artifactId)
@@ -378,11 +378,11 @@ func (s *Server) ReviewArtifact(w http.ResponseWriter, r *http.Request, artifact
 		kind = "review_reject"
 		if comments == "" {
 			writeProblem(w, apperr.Validation(apperr.Field("comments", "required",
-				"reject needs the reason — it is what the submitting lane re-enters with")))
+				"반려에는 사유가 필요합니다 — 제출한 에이전트가 그 사유를 받고 다시 시작합니다")))
 			return
 		}
 	default:
-		writeProblem(w, apperr.Validation(apperr.Field("verdict", "enum", "verdict must be approve or reject")))
+		writeProblem(w, apperr.Validation(apperr.Field("verdict", "enum", "판정은 approve 또는 reject 여야 합니다")))
 		return
 	}
 

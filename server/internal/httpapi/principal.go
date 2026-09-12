@@ -76,7 +76,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			case strings.HasPrefix(tok, runtimes.DaemonTokenPrefix):
 				rt, ws, err := s.Runtimes.VerifyDaemonToken(r.Context(), tok)
 				if err != nil {
-					writeProblem(w, apperr.Unauthorized("invalid_daemon_token", "unknown daemon token"))
+					writeProblem(w, apperr.Unauthorized("invalid_daemon_token", "이 컴퓨터의 연결 토큰이 올바르지 않습니다 — 컴퓨터를 다시 연결해 주세요"))
 					return
 				}
 				p.Daemon = &DaemonScope{RuntimeID: rt, WorkspaceID: ws}
@@ -84,20 +84,20 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				sc, err := s.Tokens.Verify(r.Context(), s.DB, tok)
 				switch {
 				case errors.Is(err, tokens.ErrRevoked):
-					writeProblem(w, apperr.Unauthorized("token_revoked", "이 task는 재큐잉되어 토큰이 폐기되었다. 즉시 종료하라."))
+					writeProblem(w, apperr.Unauthorized("token_revoked", "이 할 일은 다시 배정되어 토큰이 폐기되었습니다. 지금 바로 멈추세요."))
 					return
 				case errors.Is(err, tokens.ErrExpired):
-					writeProblem(w, apperr.Unauthorized("token_expired", "task token expired"))
+					writeProblem(w, apperr.Unauthorized("token_expired", "토큰이 만료되었습니다"))
 					return
 				case err != nil:
-					writeProblem(w, apperr.Unauthorized("invalid_token", "unknown task token"))
+					writeProblem(w, apperr.Unauthorized("invalid_token", "올바르지 않은 토큰입니다"))
 					return
 				}
 				p.Task = sc
 			default:
 				u, err := s.Auth.Resolve(r.Context(), tok)
 				if err != nil {
-					writeProblem(w, apperr.Unauthorized("unauthorized", "invalid session token"))
+					writeProblem(w, apperr.Unauthorized("unauthorized", "로그인이 만료되었습니다 — 다시 로그인해 주세요"))
 					return
 				}
 				p.User, p.SessionToken = u, tok
@@ -128,9 +128,9 @@ func (s *Server) user(r *http.Request) (*gen.User, *Problem) {
 	p := principalOf(r)
 	if p.User == nil {
 		if p.Task != nil {
-			return nil, apperr.Forbidden("task_token_scope", "this operation needs a user session (colab-cli.md §1 token scope)")
+			return nil, apperr.Forbidden("task_token_scope", "사람만 쓸 수 있는 기능입니다 — 에이전트 토큰으로는 할 수 없습니다")
 		}
-		return nil, apperr.Unauthorized("unauthorized", "login required")
+		return nil, apperr.Unauthorized("unauthorized", "로그인이 필요합니다")
 	}
 	return p.User, nil
 }
@@ -146,7 +146,7 @@ func (s *Server) member(r *http.Request, wsID uuid.UUID) (*gen.User, *auth.Membe
 		return nil, nil, apperr.Internal(err)
 	}
 	if m == nil {
-		return nil, nil, apperr.Forbidden("not_member", "not a member of this workspace")
+		return nil, nil, apperr.Forbidden("not_member", "이 워크스페이스의 멤버가 아닙니다")
 	}
 	return u, m, nil
 }
@@ -158,7 +158,7 @@ func (s *Server) admin(r *http.Request, wsID uuid.UUID) (*gen.User, *Problem) {
 		return nil, p
 	}
 	if m.Role != "owner" && m.Role != "admin" {
-		return nil, apperr.Forbidden("admin_required", "owner or admin role required")
+		return nil, apperr.Forbidden("admin_required", "소유자·관리자만 할 수 있습니다")
 	}
 	return u, nil
 }
@@ -173,12 +173,12 @@ func (s *Server) sessionAccess(r *http.Request, sessionID uuid.UUID) (*gen.User,
 	}
 	if p.Task != nil {
 		if p.Task.SessionID != sessionID {
-			return nil, apperr.Forbidden("outside_task_scope", "task token cannot access another session")
+			return nil, apperr.Forbidden("outside_task_scope", "다른 세션에는 접근할 수 없습니다")
 		}
 		return nil, nil
 	}
 	if p.User == nil {
-		return nil, apperr.Unauthorized("unauthorized", "login required")
+		return nil, apperr.Unauthorized("unauthorized", "로그인이 필요합니다")
 	}
 	m, err := s.Auth.Member(r.Context(), wsID, p.User.Id)
 	if err != nil {
@@ -216,7 +216,7 @@ func (s *Server) sessionDirector(r *http.Request, sessionID uuid.UUID) (*gen.Use
 		return nil, uuid.Nil, apperr.NotFound("session")
 	}
 	if u.Id != director {
-		return nil, uuid.Nil, apperr.Forbidden("director_required", "only the session's Director can end the session")
+		return nil, uuid.Nil, apperr.Forbidden("director_required", "세션은 그 세션의 Director 만 끝낼 수 있습니다")
 	}
 	return u, wsID, nil
 }

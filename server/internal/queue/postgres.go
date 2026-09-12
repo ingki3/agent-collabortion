@@ -277,9 +277,9 @@ func noteMissingWorkdirRoot(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtim
 	return tasks.InsertServerEventOnce(ctx, tx, t.ID, t.Attempt, "runtime", "error", "workdir_root", "failed",
 		map[string]any{
 			"failure_kind": "config",
-			"detail": "이 런타임(" + runtimeID.String() + ")의 probe `workdir_root` 를 아직 받지 못해 " +
-				"절대 workdir 경로를 만들 수 없습니다(daemon-protocol §4.1 v0.7.3). 데몬이 probe 를 " +
-				"보내면 다음 claim 에서 이 task 가 나갑니다 — 상대 경로로 내보내지 않습니다.",
+			"detail": "이 컴퓨터(" + runtimeID.String() + ")가 작업 폴더의 기준 위치를 아직 알려 주지 않아 " +
+				"작업 폴더 경로를 정할 수 없습니다. 컴퓨터가 알려 주면 다음 차례에 이 할 일이 나갑니다 — " +
+				"그 전에는 상대 경로로 내보내지 않습니다.",
 		}, now)
 }
 

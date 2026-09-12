@@ -143,7 +143,7 @@ func validateSettings(in gen.WorkspaceSettingsUpdate) *Problem {
 		check := func(name string, v *int, max int) {
 			if v != nil && (*v < 1 || *v > max) {
 				errs = append(errs, apperr.Field("loop_limits."+name, "out_of_range",
-					fmt.Sprintf("%s must be between 1 and %d", name, max)))
+					fmt.Sprintf("1~%d 사이여야 합니다", max)))
 			}
 		}
 		check("max_chain_depth", l.MaxChainDepth, 100)
@@ -151,16 +151,16 @@ func validateSettings(in gen.WorkspaceSettingsUpdate) *Problem {
 		check("max_pair_roundtrips", l.MaxPairRoundtrips, 100)
 	}
 	if v := in.WorkdirRetentionDays; v != nil && *v < 0 {
-		errs = append(errs, apperr.Field("workdir_retention_days", "out_of_range", "must be >= 0"))
+		errs = append(errs, apperr.Field("workdir_retention_days", "out_of_range", "0 이상이어야 합니다"))
 	}
 	if in.WorkdirDiskQuotaGb.IsSpecified() && !in.WorkdirDiskQuotaGb.IsNull() && in.WorkdirDiskQuotaGb.MustGet() <= 0 {
-		errs = append(errs, apperr.Field("workdir_disk_quota_gb", "out_of_range", "must be > 0"))
+		errs = append(errs, apperr.Field("workdir_disk_quota_gb", "out_of_range", "0보다 커야 합니다"))
 	}
 	if v := in.DefaultIsolation; v != nil {
 		switch *v {
 		case "worktree", "container", "none":
 		default:
-			errs = append(errs, apperr.Field("default_isolation", "invalid", "unknown isolation kind"))
+			errs = append(errs, apperr.Field("default_isolation", "invalid", "알 수 없는 격리 방식입니다"))
 		}
 	}
 	if len(errs) > 0 {

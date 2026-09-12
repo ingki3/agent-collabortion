@@ -51,7 +51,7 @@ func (s *Server) RespondHitlRequest(w http.ResponseWriter, r *http.Request, hitl
 		// A task token identifies an agent attempt, and FR-5.3 gives the
 		// response right to people. An agent answering its own question is the
 		// loop HITL exists to break.
-		writeProblem(w, apperr.Forbidden("task_token_scope", "a HITL request is answered by a person (FR-5.3)"))
+		writeProblem(w, apperr.Forbidden("task_token_scope", "확인 요청에는 사람만 답할 수 있습니다"))
 		return
 	}
 	sess, serr := loadHitlSession(r.Context(), s.DB, row.SessionID)
@@ -102,7 +102,7 @@ func (s *Server) RespondHitlRequest(w http.ResponseWriter, r *http.Request, hitl
 	}
 	if in.BudgetOverrideUsd != nil && (row.Purpose == nil || *row.Purpose != hitl.PurposeBudget) {
 		writeProblem(w, apperr.Validation(apperr.Field("budget_override_usd", "not_applicable",
-			"budget_override_usd applies to the budget HITL only (FR-7.3 C2′)")))
+			"예산 상향은 예산 확인 요청에만 붙일 수 있습니다")))
 		return
 	}
 	if isSessionBudgetApproval(row, in) {
@@ -142,7 +142,7 @@ func (s *Server) RespondHitlRequest(w http.ResponseWriter, r *http.Request, hitl
 			switch {
 			case in.BudgetOverrideUsd == nil:
 				writeProblem(w, apperr.Validation(apperr.Field("budget_override_usd", "required",
-					"세션이 예산으로 멈춰 있습니다 — 승인은 새 세션 상한을 함께 받습니다 (승인이 곧 재개, K-10)")))
+					"세션이 예산 때문에 멈춰 있습니다 — 승인하려면 새 세션 예산 상한을 함께 정해 주세요 (승인하면 바로 재개됩니다)")))
 				return
 			case float64(*in.BudgetOverrideUsd) <= spent:
 				writeErr(w, sessions.BudgetTooLowError("budget_override_usd", spent))
@@ -174,18 +174,18 @@ func validateHitlResponse(row *hitlRow, in gen.HitlResponse) *Problem {
 	case hitl.KindApproval:
 		if in.Approved == nil {
 			return apperr.Validation(apperr.Field("approved", "required",
-				"an approval request is answered with approved: true or false"))
+				"승인 요청에는 승인 또는 거절을 골라 주세요"))
 		}
 		if !*in.Approved && strings.TrimSpace(derefString(in.Reason)) == "" {
 			// E6-04: the rejection reason is the decision record. Without it
 			// the log says a decision was made and not why.
 			return apperr.Validation(apperr.Field("reason", "required",
-				"a rejection records its reason in the decision log (E6-04)"))
+				"거절할 때는 사유를 적어 주세요 — 결정 기록에 남습니다"))
 		}
 	default:
 		if strings.TrimSpace(derefString(in.Answer)) == "" {
 			return apperr.Validation(apperr.Field("answer", "required",
-				"a question, choice or info request is answered with `answer`"))
+				"답을 입력해 주세요"))
 		}
 	}
 	return nil
@@ -197,7 +197,7 @@ func validateHitlResponse(row *hitlRow, in gen.HitlResponse) *Problem {
 // Problem.can_respond_from).
 func forbiddenRespond(row *hitlRow, plan hitl.RespondPlan, now time.Time) *Problem {
 	if plan.CanRespondFrom == nil {
-		p := apperr.Forbidden("not_approver", "이 요청에 응답할 권한이 없습니다 (FR-5.3)")
+		p := apperr.Forbidden("not_approver", "이 요청에 답할 권한이 없습니다")
 		p.Extra = map[string]any{"can_respond_from": nil}
 		return p
 	}
