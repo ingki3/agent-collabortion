@@ -90,6 +90,7 @@ func NewServer(d Deps) *Server {
 	if d.Log == nil {
 		d.Log = slog.Default()
 	}
+	problemLog = d.Log
 	if d.WebURL == "" {
 		d.WebURL = d.ServerURL
 	}

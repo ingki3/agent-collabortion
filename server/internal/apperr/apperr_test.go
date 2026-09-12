@@ -12,8 +12,8 @@ var hangul = regexp.MustCompile(`[가-힣]`)
 func TestJosa(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
 		{"세션", "세션을"},        // 받침 ㄴ
-		{"작업 폴더", "작업 폴더를"}, // 받침 없음
-		{"Lead", "Lead을(를)"},   // 한글이 아니면 둘 다
+		{"작업 폴더", "작업 폴더를"},  // 받침 없음
+		{"Lead", "Lead을(를)"}, // 한글이 아니면 둘 다
 		{"", "을(를)"},
 	} {
 		if got := Josa(c.in, "을", "를"); got != c.want {

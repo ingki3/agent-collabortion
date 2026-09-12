@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -12,7 +13,20 @@ import (
 
 type Problem = apperr.Problem
 
+// problemLog receives every 5xx writeProblem sends. The person gets one
+// sentence and the Go error rides along as `cause` in the body (apperr.Internal)
+// — but the body reaches only the client that asked, and a bug report is
+// usually written by someone else. NewServer points this at Deps.Log.
+var problemLog = slog.Default()
+
 func writeProblem(w http.ResponseWriter, p *Problem) {
+	if p.Status >= 500 {
+		attrs := []any{"status", p.Status, "code", p.Code}
+		if cause, ok := p.Extra["cause"]; ok {
+			attrs = append(attrs, "cause", cause)
+		}
+		problemLog.Error("http: 5xx problem", attrs...)
+	}
 	body := map[string]any{
 		"type":   "https://colab.dev/problems/" + p.Code,
 		"title":  p.Title,

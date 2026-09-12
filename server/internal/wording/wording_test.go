@@ -6,16 +6,24 @@ package wording
 // 대해 한다. 소스를 go/ast 로 훑어 **사람이 읽는 자리(sink)** 에 닿는 문자열
 // 리터럴만 모은다 — SQL·로그·식별자는 문구가 아니다.
 //
-// sink 는 네 종류다.
+// sink 는 일곱 종류다.
 //   - apperr 생성자: New(…, detail) · Unauthorized/Forbidden/Conflict/Gone(code, detail)
 //     · NotFound(noun) · Field(field, code, message)
 //   - 세션에 게시되는 시스템 메시지: *.SystemPost(ctx, tx, id, content)
 //   - 사람이 읽는 칸 이름: Detail · Title · Hint · Message · Note · FeedNote ·
-//     Question · Reason · CLIError · ErrorMessage · Problems, 그리고 task_event
-//     payload 의 "detail"·"note" 키(S-52)
+//     Question · Reason · CLIError · ErrorMessage · Problems · Content · Summary ·
+//     Rationale, 그리고 task_event payload 의 "detail"·"note" 키(S-52) 와
+//     `e.Payload[…] =` 대입(마스킹 치환문)
 //   - 지역 헬퍼: reject(code, field, msg) (hitl.Plan) · unreadable(field, code, msg, err) (httpapi)
+//     · field(name, code, msg) (agents) · insertDecision(…, summary, rationale, …) (httpapi)
+//   - `INSERT INTO decision` 을 직접 쓰는 Exec/QueryRow 의 값 인자 — decision.summary·
+//     rationale 은 openapi 공개 칸이고 S7 "결정" 절이 그린다(PR #192 리뷰 NN2·NN3)
+//   - 본문 전체가 문장을 조립하는 함수(sinkFuncs): LimitText · GCReasonText ·
+//     BuildSummaryBody · decisionLine · CardBody · hitlTypeLabel · ValidateTree ·
+//     apperr.Title/StatusLabel/NotFound/Validation/Internal — 반환값·switch 가지·Fprintf 조각까지
+//   - 표로 둔 패키지 변수(sinkVars): apperr.titles · statusLabels · NotFoundNouns
 //
-// 문자열 연결(+)·fmt.Sprintf·패키지 상수는 안쪽까지 따라간다.
+// 문자열 연결(+)·fmt.Sprintf·패키지 상수·nullable.NewNullableWithValue 는 안쪽까지 따라간다.
 
 import (
 	"go/ast"
@@ -60,11 +68,38 @@ var apperrArg = map[string]int{
 var sinkFields = map[string]bool{
 	"Detail": true, "Title": true, "Hint": true, "Message": true, "Note": true, "FeedNote": true,
 	"Question": true, "Reason": true, "CLIError": true, "ErrorMessage": true, "Problems": true,
+	"Content": true, "Summary": true, "Rationale": true,
+	"Decisions": true, "Artifacts": true, "Timeline": true, // sessions.SummaryFacts → 세션 요약 본문
 }
 
 var sinkMapKeys = map[string]bool{"detail": true, "note": true}
 
-var sinkLocalVars = map[string]bool{"question": true, "detail": true, "note": true, "reason": true, "hint": true, "header": true, "body": true, "summary": true}
+var sinkLocalVars = map[string]bool{"question": true, "detail": true, "note": true, "reason": true, "hint": true, "header": true, "body": true, "summary": true, "title": true}
+
+// sinkHelpers 는 사람 문장을 인자로 받는 지역 함수 — 이름 → 문장 인자의 위치들.
+// 패키지 한정자 없이 불리는 것만(pkg == "") 본다.
+var sinkHelpers = map[string][]int{
+	"reject":         {2}, // hitl.Plan: reject(code, field, msg)
+	"unreadable":     {2}, // httpapi: unreadable(field, code, msg, err)
+	"field":          {2}, // agents: field(name, code, msg)
+	"insertDecision": {3, 4},
+}
+
+// sinkFuncs 는 본문 전체가 사람 문장을 조립하는 함수 — 안의 문자열 리터럴을 전부 센다
+// (반환값·switch 가지·strings.Builder 에 쓰는 조각). 리뷰 NN2 의 "함수 반환값·여러 줄 조립".
+var sinkFuncs = map[string]bool{
+	"LimitText": true, "GCReasonText": true, "BuildSummaryBody": true, "CardBody": true,
+	"hitlTypeLabel": true, "Title": true, "StatusLabel": true, "NotFound": true,
+	"Validation": true, "Internal": true,
+	"ValidateTree": true, // sessions: err.Error() 가 그대로 Field message 가 된다
+	"decisionLine": true, // sessions: 요약의 결정 기록 한 줄
+}
+
+// sinkVars 는 값이 곧 화면 문장인 패키지 변수(표).
+var sinkVars = map[string]bool{"titles": true, "statusLabels": true, "NotFoundNouns": true}
+
+// decisionSQL 은 decision 행을 직접 쓰는 SQL — 그 Exec/QueryRow 의 값 인자는 사람이 읽는다.
+var decisionSQL = regexp.MustCompile(`INSERT\s+INTO\s+decision\b`)
 
 type sentence struct {
 	file string
@@ -122,6 +157,8 @@ type collector struct {
 	notFoundNouns []sentence
 	// apperrExcluded 면 apperr 생성자는 세지 않는다(데몬 API — daemonAPI).
 	apperrExcluded bool
+	// seen 은 실제로 만난 sinkFuncs·sinkVars 이름 — 이름이 바뀌면 자물쇠가 조용히 풀리므로 TestScope 가 대조한다.
+	seen map[string]bool
 }
 
 func (c *collector) add(e ast.Expr) {
@@ -153,7 +190,8 @@ func (c *collector) literals(e ast.Expr, depth int) []*ast.BasicLit {
 		}
 	case *ast.CallExpr:
 		if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
-			if id, ok := sel.X.(*ast.Ident); ok && id.Name == "fmt" && strings.HasPrefix(sel.Sel.Name, "Sprint") {
+			if id, ok := sel.X.(*ast.Ident); ok && (id.Name == "fmt" && strings.HasPrefix(sel.Sel.Name, "Sprint") ||
+				id.Name == "nullable" && sel.Sel.Name == "NewNullableWithValue") {
 				var out []*ast.BasicLit
 				for _, a := range x.Args {
 					out = append(out, c.literals(a, depth+1)...)
@@ -198,10 +236,21 @@ func (c *collector) visit(n ast.Node) bool {
 			}
 		case name == "SystemPost" && len(x.Args) >= 4:
 			c.add(x.Args[3])
-		case pkg == "" && name == "reject" && len(x.Args) == 3:
-			c.add(x.Args[2])
-		case pkg == "" && name == "unreadable" && len(x.Args) == 4: // httpapi.unreadable(field, code, msg, err)
-			c.add(x.Args[2])
+		case pkg == "" && sinkHelpers[name] != nil:
+			for _, i := range sinkHelpers[name] {
+				if i < len(x.Args) {
+					c.add(x.Args[i])
+				}
+			}
+		case (name == "Exec" || name == "QueryRow" || name == "Query") && len(x.Args) >= 2:
+			// tx.Exec(ctx, `INSERT INTO decision …`, id, summary, rationale, …) — 값 인자 전부
+			if lit, ok := x.Args[1].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				if sql, err := strconv.Unquote(lit.Value); err == nil && decisionSQL.MatchString(sql) {
+					for _, a := range x.Args[2:] {
+						c.add(a)
+					}
+				}
+			}
 		case pkg == "" && name == "append" && len(x.Args) >= 2:
 			if sel, ok := x.Args[0].(*ast.SelectorExpr); ok && sinkFields[sel.Sel.Name] {
 				for _, a := range x.Args[1:] {
@@ -234,24 +283,57 @@ func (c *collector) visit(n ast.Node) bool {
 				if sinkLocalVars[l.Name] {
 					c.add(x.Rhs[i])
 				}
+			case *ast.IndexExpr: // e.Payload[key] = "[마스킹됨 · …]" — 피드가 그대로 보여 준다
+				if sel, ok := l.X.(*ast.SelectorExpr); ok && sel.Sel.Name == "Payload" {
+					c.add(x.Rhs[i])
+				}
+			}
+		}
+	case *ast.FuncDecl:
+		if sinkFuncs[x.Name.Name] && x.Body != nil {
+			c.seen[x.Name.Name] = true
+			c.addAll(x.Body)
+			return false
+		}
+	case *ast.ValueSpec:
+		for i, n := range x.Names {
+			if sinkVars[n.Name] && i < len(x.Values) {
+				c.seen[n.Name] = true
+				c.addAll(x.Values[i])
 			}
 		}
 	}
 	return true
 }
 
+// addAll 은 노드 아래의 문자열 리터럴을 전부 문장으로 센다(sinkFuncs·sinkVars).
+func (c *collector) addAll(n ast.Node) {
+	ast.Inspect(n, func(m ast.Node) bool {
+		if lit, ok := m.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+			c.add(lit)
+		}
+		return true
+	})
+}
+
 func collect(t *testing.T) (pool []sentence, nouns []sentence, files []string) {
+	pool, nouns, files, _ = collectSeen(t)
+	return pool, nouns, files
+}
+
+func collectSeen(t *testing.T) (pool []sentence, nouns []sentence, files []string, seen map[string]bool) {
 	t.Helper()
 	root := moduleRoot(t)
 	files = sourceFiles(t, root)
 	fset := token.NewFileSet()
+	seen = map[string]bool{}
 	for _, f := range files {
 		af, err := parser.ParseFile(fset, filepath.Join(root, f), nil, 0)
 		if err != nil {
 			t.Fatalf("%s: %v", f, err)
 		}
 		c := &collector{fset: fset, file: f, consts: map[string]ast.Expr{},
-			apperrExcluded: daemonAPI[f]}
+			apperrExcluded: daemonAPI[f], seen: seen}
 		for _, d := range af.Decls {
 			gd, ok := d.(*ast.GenDecl)
 			if !ok || (gd.Tok != token.CONST && gd.Tok != token.VAR) {
@@ -273,7 +355,7 @@ func collect(t *testing.T) (pool []sentence, nouns []sentence, files []string) {
 		pool = append(pool, c.out...)
 		nouns = append(nouns, c.notFoundNouns...)
 	}
-	return pool, nouns, files
+	return pool, nouns, files, seen
 }
 
 // prose 는 사람이 읽는 글처럼 생긴 것 — 한글이 있거나 영어 단어가 둘 이상.
@@ -300,7 +382,7 @@ func hits(pool []sentence, re *regexp.Regexp, allow func(sentence) bool) []strin
 // ── 범위 — 자물쇠가 조용히 헐거워지지 않게 ─────────────────────────────────
 
 func TestScope(t *testing.T) {
-	pool, nouns, files := collect(t)
+	pool, nouns, files, seen := collectSeen(t)
 	var prose []sentence
 	for _, s := range pool {
 		if isProse(s.text) {
@@ -317,8 +399,46 @@ func TestScope(t *testing.T) {
 	if len(files) < 60 {
 		t.Errorf("소스 %d개만 훑었다 — internal·cmd 전부가 범위여야 한다", len(files))
 	}
-	if len(prose) < 220 {
-		t.Errorf("사람이 읽는 문장이 %d개뿐 — sink 규칙이 빠졌다(apperr·SystemPost·detail/note 칸)", len(prose))
+	if len(prose) < 330 { // PR #192 252 → T-S13b 349(sinkFuncs·sinkVars·decision·Content …)
+		t.Errorf("사람이 읽는 문장이 %d개뿐 — sink 규칙이 빠졌다(apperr·SystemPost·detail/note 칸·sinkFuncs·decision)", len(prose))
+	}
+	for name := range sinkFuncs {
+		if !seen[name] {
+			t.Errorf("sinkFuncs %q 를 어느 파일에서도 못 만났다 — 함수 이름이 바뀌었으면 표도 같이 고쳐라", name)
+		}
+	}
+	for name := range sinkVars {
+		if !seen[name] {
+			t.Errorf("sinkVars %q 를 어느 파일에서도 못 만났다", name)
+		}
+	}
+	// NN1 — daemonAPI 예외 목록은 여기 못박힌다. 파일을 더하려면 이 줄을 고쳐야 하고,
+	// 그러면 리뷰가 본다(web/lib/wording.test.ts 의 expect(EXCLUDE).toEqual 과 같은 자리).
+	// PR #192 리뷰 INJ6b: agents.go 를 목록에 넣고 Field 문장을 영어로 — 이 단정이 잡는다.
+	wantDaemonAPI := []string{ // 정렬 순
+		"internal/events/events.go",
+		"internal/eventschema/eventschema.go",
+		"internal/httpapi/daemon.go",
+	}
+	var gotDaemonAPI []string
+	for f := range daemonAPI {
+		gotDaemonAPI = append(gotDaemonAPI, f)
+	}
+	sort.Strings(gotDaemonAPI)
+	if strings.Join(gotDaemonAPI, "\n") != strings.Join(wantDaemonAPI, "\n") {
+		t.Errorf("daemonAPI 예외 목록이 바뀌었다:\n  got  %v\n  want %v", gotDaemonAPI, wantDaemonAPI)
+	}
+	for _, f := range wantDaemonAPI {
+		found := false
+		for _, g := range files {
+			if g == f {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("daemonAPI %q 가 소스에 없다 — 예외가 유령을 가리킨다", f)
+		}
 	}
 	if len(nouns) < 40 {
 		t.Errorf("apperr.NotFound 호출이 %d개뿐 — 수집이 새고 있다", len(nouns))
@@ -334,8 +454,21 @@ func TestScope(t *testing.T) {
 		"internal/workdirs/gc.go",      // GCReasonText · Problems
 		"internal/httpapi/budget.go",   // task_event detail · HITL question
 		"internal/queue/bundle.go",     // S-62 진단 이벤트 detail
-		"internal/httpapi/daemon.go",   // task_event note (GC 거부)
+		"internal/httpapi/daemon.go",   // task_event note (gc 거부 — v0.7.4 문장)
 		"internal/runtimes/offline.go", // CandidateVerdict.Reason
+		// PR #192 리뷰 NN2 — sink 밖에 있던 자리들
+		"internal/runtimes/candidates.go",          // Reason = nullable.NewNullableWithValue(…)
+		"internal/router/loop.go",                  // LimitText 반환값
+		"internal/sessions/summary.go",             // BuildSummaryBody · decisionLine
+		"internal/sessions/completion.go",          // ValidateTree → Field message
+		"internal/httpapi/handlers_sessions_p3.go", // INSERT INTO decision (NN3)
+		"internal/httpapi/hitl_sweep.go",           // insertDecision rationale
+		"internal/httpapi/handlers_inbox.go",       // title =
+		"internal/httpapi/handlers_artifacts.go",   // MessageCreate.Content
+		"internal/messages/hitlcard.go",            // CardBody · hitlTypeLabel
+		"internal/events/mask.go",                  // e.Payload[key] =
+		"internal/apperr/apperr.go",                // titles · statusLabels · Title/NotFound/…
+		"internal/agents/agents.go",                // field(…) 지역 헬퍼
 	} {
 		found := false
 		for _, s := range prose {
@@ -416,6 +549,7 @@ func TestNoInternalTerms(t *testing.T) {
 		{"pgid", regexp.MustCompile(`(?i)\bpgid\b`)},
 		{"stall", regexp.MustCompile(`(?i)\bstall\b`)},
 		{"claim · heartbeat · finish (데몬 프로토콜 동사)", regexp.MustCompile(`(?i)\b(claim|heartbeat|finish)\b`)},
+		{"GC → 작업 폴더 정리 (daemon-protocol §6 v0.7.4)", regexp.MustCompile(`\bGC\b`)},
 		{"rebind → 다른 컴퓨터로 옮기기", regexp.MustCompile(`(?i)rebind|재바인딩`)},
 		// 사양 번호·계약 이름은 주석에 — 사용자의 다음 행동을 바꾸지 않는다.
 		{"FR-x.y · E1-02 · §", regexp.MustCompile(`\bFR-\d|\bE\d{1,2}-\d{2}\b|§|\bPRD\b|daemon-protocol|openapi`)},
