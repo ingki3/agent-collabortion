@@ -12,7 +12,7 @@
 #          → HITL 승인 → attempt 2 번들에 resume(같은 ref) → resumed=true      (S-50 (a), E9-01·02)
 #   arm B  paused(budget) 인 task 를 세션 취소로 끝낸다 → 200 · paused_detail NULL  (S-50 (b), 0006)
 #   arm C  취소 명령이 걸린 뒤 턴이 스스로 끝난다(finish completed) → task completed ·
-#          피드에 "취소 요청이 턴 종료와 경합해 적용되지 않음" · 명령 소비            (S-51)
+#          피드에 "취소 요청이 턴 종료와 겹쳐 적용되지 않았습니다" · 명령 소비            (S-51)
 #
 # 전용 스택(다른 워커와 겹치지 않게 — P2_TASKS §0-13, 이 워커 포트 :8102 · pg :5447):
 #   docker run -d --name colab-pg-s9a -e POSTGRES_USER=colab -e POSTGRES_PASSWORD=colab \

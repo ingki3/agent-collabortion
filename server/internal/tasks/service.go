@@ -633,7 +633,7 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 						"command":         "cancel",
 						"rejected_reason": "cancel_raced_turn_end",
 						"args": map[string]any{
-							"note": "취소 요청이 턴 종료와 경합해 적용되지 않음 — 턴은 이미 끝나 있었습니다",
+							"note": "취소 요청이 턴 종료와 겹쳐 적용되지 않았습니다 — 턴은 이미 끝나 있었습니다",
 						},
 					}, now); err != nil {
 					return err

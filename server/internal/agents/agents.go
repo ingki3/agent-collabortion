@@ -183,7 +183,7 @@ func resolveCreateFallback(p gen.AgentProfileCreate, byName map[string]uuid.UUID
 		name := p.FallbackProfile.MustGet()
 		id, ok := byName[name]
 		if !ok {
-			return nil, field("fallback_profile", "not_found", "no profile named "+name+" in this request")
+			return nil, field("fallback_profile", "not_found", "이 요청에는 「"+name+"」 프로파일이 없습니다 — 함께 보낸 프로파일 이름 중에서 골라 주세요")
 		}
 		target = &id
 	}
