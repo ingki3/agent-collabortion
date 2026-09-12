@@ -21,7 +21,7 @@ package wording
 //   - 본문 전체가 문장을 조립하는 함수(sinkFuncs): LimitText · GCReasonText ·
 //     BuildSummaryBody · decisionLine · CardBody · hitlTypeLabel · ValidateTree ·
 //     apperr.Title/StatusLabel/NotFound/Validation/Internal — 반환값·switch 가지·Fprintf 조각까지
-//   - 표로 둔 패키지 변수(sinkVars): apperr.titles · statusLabels · NotFoundNouns
+//   - 표로 둔 패키지 변수(sinkVars): apperr.titles · statusLabels · NotFoundNouns · sessions.ErrInvalidTree
 //
 // 문자열 연결(+)·fmt.Sprintf·패키지 상수·nullable.NewNullableWithValue 는 안쪽까지 따라간다.
 
@@ -96,7 +96,8 @@ var sinkFuncs = map[string]bool{
 }
 
 // sinkVars 는 값이 곧 화면 문장인 패키지 변수(표).
-var sinkVars = map[string]bool{"titles": true, "statusLabels": true, "NotFoundNouns": true}
+var sinkVars = map[string]bool{"titles": true, "statusLabels": true, "NotFoundNouns": true,
+	"ErrInvalidTree": true} // sessions: %w 로 Field message 의 머리가 된다
 
 // decisionSQL 은 decision 행을 직접 쓰는 SQL — 그 Exec/QueryRow 의 값 인자는 사람이 읽는다.
 var decisionSQL = regexp.MustCompile(`INSERT\s+INTO\s+decision\b`)
