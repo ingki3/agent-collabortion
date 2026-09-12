@@ -74,10 +74,11 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .card { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; background: var(--bg); }
 .card--surface { background: var(--surface); }
 /*
- * 카드 목록 — 가용 폭에 따라 열이 는다(§8.5). 최소 폭 320px 은 컴퓨터 카드의 능력 목록·저장소 줄이
- * 접히지 않는 선이다. auto-fill 이라 카드가 하나여도 그 폭을 지킨다(auto-fit 처럼 화면 전체로 늘어지지 않는다).
+ * 카드 목록 — 가용 폭에 따라 열이 는다(§8.5). 최소 폭 --card-min(tokens.css, 320px)은 컴퓨터 카드의 능력 목록·
+ * 저장소 줄이 접히지 않는 선이다. auto-fill 이라 카드가 하나여도 그 폭을 지킨다(auto-fit 처럼 화면 전체로 늘어지지 않는다).
+ * 인박스(받은 요청)는 이 목록을 쓰지 않는다 — 한 열이다(§8.5, inbox/page.tsx .s8__list).
  */
-.cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); align-items: start; }
+.cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(var(--card-min), 1fr)); align-items: start; }
 .list { display: flex; flex-direction: column; gap: 8px; }
 /* 세션 카드 — 상태·시각이 위, 제목·목표가 아래. 목록(.cards) 안에서 열로 선다. */
 .session-card { display: flex; flex-direction: column; gap: 6px; min-width: 0;

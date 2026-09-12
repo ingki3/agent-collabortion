@@ -277,13 +277,17 @@ export default function InboxPage() {
         .s8__filter { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 4px 12px; font-size: var(--fs-body); cursor: pointer; }
         .s8__filter--on { border-color: var(--ink); font-weight: 600; }
         .s8__spacer { flex: 1; }
-        /* 넓은 화면에서는 열이 는다(§8.5) — 항목 카드는 답 입력이 있어 세션 카드보다 넓게(400px) 잡는다. */
-        .s8__list { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); align-items: start; }
+        /*
+         * 인박스는 **한 열**이다(§8.5, PR #191 R1) — 위에서 아래로 읽고 답하는 목록이라 열이 갈리면 순서가 흐려지고,
+         * 항목마다 답 입력·버튼이 있어 높이가 제각각이라 다열과 상성이 나쁘다. 열 하나의 폭은 --card-min(tokens.css) 이상,
+         * 760px 이하 — 1920px 에서 한 줄이 화면 폭만큼 늘어지지 않게 한다.
+         */
+        .s8__list { display: grid; gap: 10px; grid-template-columns: minmax(var(--card-min), 760px); align-items: start; }
         .s8__toast { margin: 0 0 8px; font-size: var(--fs-sub); color: var(--s-done-text); }
         /* 인박스 응답만 모바일 웹 대상이다(SCREEN §8.2 Q6) — 한 열, 버튼은 줄바꿈해도 크기를 지킨다. */
         @media (max-width: 640px) {
           .s8__filters { gap: 4px; }
-          .s8__list { grid-template-columns: 1fr; gap: 10px; }
+          .s8__list { grid-template-columns: minmax(0, 1fr); gap: 10px; }
         }
       `}</style>
     </div>

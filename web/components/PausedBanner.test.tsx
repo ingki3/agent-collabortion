@@ -103,3 +103,35 @@ describe("PausedBanner — 사유 5종마다 할 일이 다르다", () => {
     expect(btn.getAttribute("title")).toContain("부터 승인 가능");
   });
 });
+
+describe("비활성 사유는 화면 텍스트 + aria-describedby 다(§8.5, PR #191 NN1)", () => {
+  const paused_at = new Date(Date.now() - 60_000).toISOString();
+  it("멤버(resolve_actions 에 resume 없음) — 「Director 만 할 수 있습니다」가 버튼 옆에 보이고 버튼이 그 줄을 가리킨다", () => {
+    render(<PausedBanner detail={{ reason: "budget", paused_at, resolve_actions: ["cancel"] }} onResume={vi.fn()} />);
+    const btn = screen.getByTestId("paused-resume");
+    const why = screen.getByTestId("paused-why");
+    expect(why.textContent).toBe("Director 만 할 수 있습니다");
+    expect(btn.getAttribute("aria-describedby")).toBe(why.id);
+    expect(why.id).toBeTruthy();
+  });
+  it("deputy 기한 전 — 사유가 '…부터 승인 가능' 이고 같은 줄을 가리킨다", () => {
+    const later = new Date(Date.now() + 3600_000).toISOString();
+    render(<PausedBanner detail={{ reason: "budget", paused_at, resolve_actions: ["resume"], can_resolve_from: later }} onResume={vi.fn()} />);
+    const btn = screen.getByTestId("paused-resume");
+    const why = screen.getByTestId("paused-why");
+    expect(why.textContent).toContain("부터 승인 가능");
+    expect(btn.getAttribute("aria-describedby")).toBe(why.id);
+  });
+  it("컴퓨터 연결 끊김 — 사람이 아니라 사유가 막는다고 말한다(「Director 만」이 아니다)", () => {
+    render(<PausedBanner detail={{ reason: "runtime_offline", paused_at, resolve_actions: ["rebind", "cancel"] }} onResume={vi.fn()} onRebind={vi.fn()} onCancel={vi.fn()} />);
+    const why = screen.getByTestId("paused-why");
+    expect(why.textContent).toContain("재개할 수 없습니다");
+    expect(why.textContent).not.toContain("Director");
+    expect(screen.getByTestId("paused-resume").getAttribute("aria-describedby")).toBe(why.id);
+  });
+  it("Director 이고 기한이 없으면 사유 줄이 없고 aria-describedby 도 없다", () => {
+    render(<PausedBanner detail={{ reason: "budget", paused_at, resolve_actions: ["resume", "cancel"] }} onResume={vi.fn()} />);
+    expect(screen.queryByTestId("paused-why")).toBeNull();
+    expect(screen.getByTestId("paused-resume").getAttribute("aria-describedby")).toBeNull();
+  });
+});
