@@ -43,6 +43,7 @@
 | D-22 | **차단(G7 1판, S-56 의 데몬 절반)** — §6 workdir 보고가 `agent_id` 없이·세션 uuid 가 아닌 값으로 와서 서버가 조용히 skip 한다. `git`·`bytes` 도 매 보고에 실어야 GC 판정 입력이 생긴다(계약 v0.7.3 §6) | T-I4 64_ P1·P1b | **G7 2판 전** |
 | ~~D-23~~ | 살아 있는 worktree 의 `disk_bytes` 가 서버에 늦게 도착한다 — 계약 §6 은 "probe 와 함께, 그리고 **lane 종료 시**" 보고라고 적었는데 데몬은 probe 직후(기본 24h)와 gc 명령 뒤 두 곳뿐이다. S13 용량 열·쿼터 분자(E13-16)가 첫 gc 스윕까지 과소. GC **판정** 입력은 §4.4 finish 로 오므로 차단 아님. attempt finish 뒤 `Workdirs` 보고 1회, 또는 `Finish.Workdir` 에 `bytes` | G7 2판 64_ P1d · PR #177 리뷰 NN2 | 낮음 | **해결 — PR #181**
 | ~~D-24~~ | 데몬 `run` 의 stdout 로그가 probe 이후 멈춘다 — DB 에는 `tool/*` 이벤트가 계속 쌓이는데 로그 파일은 287바이트에서 정지(claim·attempt·turn 기록 없음). 실행에는 지장이 없으나 **장애 시 로그만으로 원인을 못 찾는다** | Director 실사용 2026-09-08 | 중 | **해결 — PR #181**(원인: 성공 경로에 로그 호출이 없었다)
+| D-25 | 데몬이 만드는 `task_event.detail` 3종이 내부 용어로 피드에 뜬다 — `loop.go` "workdir bundle path … →", `budget.go` "유효 예산", `runner.go` "mcp server dropped". 서버 문장은 S-67 로 고쳤으니 데몬도 §8.4 로. 함께 PR #181 리뷰 NN2~NN5(stall turn 줄·stall 워처 발화 로그·반복 오류 축약·log_level 문서화) | T-S13 PR #192 보고 · PR #181 리뷰 | 중 |
 
 ## W (웹)
 
