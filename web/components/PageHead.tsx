@@ -17,7 +17,8 @@ export const PAGE_COPY: Record<Screen, { title: string; desc: string }> = {
   inbox: { title: "받은 요청", desc: "에이전트가 사람의 답을 기다리는 요청입니다. 여기서 답하면 멈춘 일이 이어집니다." },
   agents: { title: "에이전트", desc: "함께 일할 에이전트를 만들고 역할과 지시를 정합니다." },
   computers: { title: "연결된 컴퓨터", desc: "에이전트가 실제로 실행되는 컴퓨터입니다. 연결 상태와 쓰는 중인 세션을 봅니다." },
-  settings: { title: "설정", desc: "이 워크스페이스와 내 화면의 설정입니다." },
+  // 할 수 있는 일을 말한다(§8.5 · PR #191 NN2) — 지금 그 화면에 실제로 있는 것만: 테마 선택. 워크스페이스 설정은 아직 자리다.
+  settings: { title: "설정", desc: "이 브라우저의 화면 테마를 고릅니다. 워크스페이스 설정은 준비 중입니다." },
 };
 
 export interface PageHeadProps {

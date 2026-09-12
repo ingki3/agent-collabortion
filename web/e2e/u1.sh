@@ -115,8 +115,9 @@ ab click '[data-testid="session-start"]' >/dev/null
 step "U1-13 S7 — goal 시스템 메시지 · 참여자 칩 · 에이전트 응답(실시간)"
 ab wait --url "**/sessions/*" >/dev/null || fail "S7 로 이동하지 않음"
 ab wait '[data-testid="session-detail"]' >/dev/null
-# 첫 시스템 메시지: 실서버는 `Session started. Goal: …`(영문), 목 API 는 `세션 시작 — goal: …` — 둘 다 허용(G3 W-3)
-ab wait --fn "['Session started. Goal:','세션 시작 — goal'].some(t => document.body.innerText.includes(t))" --timeout 15000 >/dev/null || fail "goal 시스템 메시지가 보이지 않음(실서버 'Session started. Goal:' / 목 '세션 시작 — goal')"
+# 첫 시스템 메시지: 실서버(S-67, sessions.go)와 목(lib/mock/wording.ts `session_started`)이 **같은 문장**을 낸다 —
+# `세션을 시작했습니다. 목표: …`. 한 문장만 허용한다(T-W10; 목·서버 대조는 lib/mock/server-wording.test.ts).
+ab wait --fn "document.body.innerText.includes('세션을 시작했습니다. 목표:')" --timeout 15000 >/dev/null || fail "goal 시스템 메시지가 보이지 않음('세션을 시작했습니다. 목표: …')"
 ab wait '[data-testid="participants"] [data-testid="agent-chip"]' >/dev/null || fail "참여자 칩 없음"
 shot "u1-13-s7-started"
 # 에이전트 답글이 새로고침 없이 도착하는지(실시간). 실서버는 데몬 실행 시간이 있으므로 넉넉히 기다린다.
