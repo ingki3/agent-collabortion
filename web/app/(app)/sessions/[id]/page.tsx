@@ -25,6 +25,7 @@ import { SessionAside } from "@/components/SessionAside";
 import { SessionActions } from "@/components/SessionActions";
 import { ParticipantsDialog } from "@/components/ParticipantsDialog";
 import { HitlCard } from "@/components/HitlCard";
+import { PAUSE_REASON_LABEL } from "@/lib/session-label";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { RebindDialog } from "@/components/RebindDialog";
 import { api, errorMessage, newIdempotencyKey } from "@/lib/api/client";
@@ -519,7 +520,9 @@ export default function SessionPage() {
           <h1 style={{ margin: 0, fontSize: "var(--fs-title)" }} data-testid="session-title">{session.title}</h1>
           <Badge kind="session" value={session.status} data-testid="session-status" />
           {session.status === "paused" && session.paused_reason && (
-            <span className="small muted-3" data-testid="session-paused-reason">사유: {session.paused_reason}</span>
+            <span className="small muted-3" data-testid="session-paused-reason" data-reason={session.paused_reason}>
+              {PAUSE_REASON_LABEL[session.paused_reason] ?? session.paused_reason}
+            </span>
           )}
           <span className="s7__spacer" />
           <SessionActions

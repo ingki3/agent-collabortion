@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { PageHead } from "@/components/PageHead";
 import { Badge } from "@/components/Badge";
 import { badgeSpec } from "@/components/badge-map";
 import { api, errorMessage } from "@/lib/api/client";
@@ -84,15 +85,14 @@ export default function AgentsPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1>에이전트</h1>
+      <PageHead screen="agents">
         <div className="row">
           <button type="button" className="btn" onClick={() => { setOpenTemplates((v) => !v); void loadTemplates(); }} data-testid="open-templates">
             팀 템플릿
           </button>
           <Link href="/agents/new" className="btn btn--primary" data-testid="new-agent">새 에이전트</Link>
         </div>
-      </div>
+      </PageHead>
       {error && <p className="problem" role="alert">{error}</p>}
 
       {applied && (
@@ -109,7 +109,7 @@ export default function AgentsPage() {
             역할과 지시문만 담깁니다. 프로파일은 이 워크스페이스에서 감지된 도구에 맞춰 자동으로 짝지어집니다.
           </p>
           {templates === null ? <p className="muted small">불러오는 중…</p> : (
-            <div className="story__grid">
+            <div className="cards">
               {templates.map((t) => (
                 <div key={t.key} className="card" data-testid="template-card" data-key={t.key}>
                   <b>{t.name}</b>
@@ -158,7 +158,7 @@ export default function AgentsPage() {
           <button type="button" className="btn btn--primary" onClick={() => { setOpenTemplates(true); void loadTemplates(); }}>팀 템플릿 보기</button>
         </div>
       ) : (
-        <div className="story__grid">
+        <div className="cards">
           {shown.map((a) => {
             const prof = a.profiles.find((p) => p.is_default) ?? a.profiles[0];
             return (

@@ -2,12 +2,13 @@
 /** S14 Settings — P2 이후. 내비 자리만 둔다(SCREEN §3.2). 권한 없음도 숨기지 않고 사유를 보인다(§7). */
 import { useAuth } from "@/lib/auth/AuthContext";
 import { ThemeSelect } from "@/components/ThemeSelect";
+import { PageHead } from "@/components/PageHead";
 
 export default function SettingsPage() {
   const { canManage } = useAuth();
   return (
-    <div>
-      <div className="page-head"><h1>설정</h1></div>
+    <div className="content--narrow">
+      <PageHead screen="settings" />
       {!canManage && <p className="notice">소유자·관리자만 설정을 바꿀 수 있습니다.</p>}
       {/*
         테마는 **이 브라우저**의 표시 설정이라 워크스페이스 권한(canManage)과 무관하다 —

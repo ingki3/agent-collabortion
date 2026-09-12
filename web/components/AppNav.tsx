@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { Icon, type IconName } from "./Icon";
 import "./app-nav.css";
 
 export interface AppNavProps {
@@ -12,6 +13,13 @@ export interface AppNavProps {
   showSettings: boolean;
   userName?: string;
   onLogout?: () => void;
+  /**
+   * 워크스페이스가 둘 이상일 때만 이름 자리가 선택 상자가 된다. 예전에는 상단 바에 있었는데,
+   * 상단 바는 그것 말고 넣을 것이 없어 47px 을 비워 두고 있었다(§8.5 "빈 상단 바를 없앤다").
+   */
+  workspaces?: { id: string; name: string }[];
+  currentWorkspaceId?: string;
+  onSelectWorkspace?: (id: string) => void;
 }
 
 /**
@@ -19,22 +27,49 @@ export interface AppNavProps {
  * "새 에이전트"인데 메뉴만 영어면 두 언어가 한 화면에 선다. `key` 는 화면 식별자라 문구가 바뀌어도
  * `data-testid` 가 따라 움직이지 않는다(예전에는 라벨을 소문자로 바꿔 testid 를 만들었다).
  */
-export const NAV_ITEMS = [
-  { href: "/sessions", key: "sessions", label: "세션" },
-  { href: "/inbox", key: "inbox", label: "받은 요청" },
-  { href: "/agents", key: "agents", label: "에이전트" },
-  { href: "/runtimes", key: "runtimes", label: "연결된 컴퓨터" },
-  { href: "/settings", key: "settings", label: "설정" },
-] as const;
+export const NAV_ITEMS: readonly { href: string; key: string; label: string; icon: IconName }[] = [
+  { href: "/sessions", key: "sessions", label: "세션", icon: "sessions" },
+  { href: "/inbox", key: "inbox", label: "받은 요청", icon: "inbox" },
+  { href: "/agents", key: "agents", label: "에이전트", icon: "agents" },
+  { href: "/runtimes", key: "runtimes", label: "연결된 컴퓨터", icon: "computers" },
+  { href: "/settings", key: "settings", label: "설정", icon: "settings" },
+];
 
-export function AppNav({ workspaceName, current, inboxCount, showSettings, userName, onLogout }: AppNavProps) {
+export function AppNav({
+  workspaceName,
+  current,
+  inboxCount,
+  showSettings,
+  userName,
+  onLogout,
+  workspaces,
+  currentWorkspaceId,
+  onSelectWorkspace,
+}: AppNavProps) {
   const items = NAV_ITEMS.filter((i) => i.href !== "/settings" || showSettings);
+  const canSwitch = !!workspaces && workspaces.length > 1 && !!onSelectWorkspace;
   return (
     <nav className="app-nav" aria-label="주 내비게이션" data-testid="app-nav">
       <div className="app-nav__brand">COLAB</div>
-      <div className="app-nav__ws" title={workspaceName}>
-        {workspaceName}
-      </div>
+      {canSwitch ? (
+        <select
+          className="select app-nav__ws-select"
+          value={currentWorkspaceId ?? ""}
+          onChange={(e) => onSelectWorkspace?.(e.target.value)}
+          aria-label="워크스페이스 선택"
+          data-testid="workspace-select"
+        >
+          {workspaces!.map((w) => (
+            <option key={w.id} value={w.id}>
+              {w.name}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <div className="app-nav__ws" title={workspaceName}>
+          {workspaceName}
+        </div>
+      )}
       {items.map((item) => {
         const active = current === item.href || current.startsWith(item.href + "/");
         return (
@@ -45,7 +80,10 @@ export function AppNav({ workspaceName, current, inboxCount, showSettings, userN
             aria-current={active ? "page" : undefined}
             data-testid={`nav-${item.key}`}
           >
-            <span>{item.label}</span>
+            <span className="app-nav__label">
+              <Icon name={item.icon} />
+              <span>{item.label}</span>
+            </span>
             {item.href === "/inbox" && (
               <span
                 className={`app-nav__badge${!inboxCount ? " app-nav__badge--zero" : ""}`}

@@ -67,7 +67,12 @@
   --dk-surface: #18181b;
   --dk-line: #2e2e33;
   --dk-ink: #f4f4f5;
-  --dk-ink-2: #a1a1aa;
+  /*
+   * ink-2 어두움 정정(T-W9 측정, PR #186 NN4): §8.3 의 #a1a1aa 는 soft 카드가 --surface 위에 놓일 때
+   * wait 4.41 · done 4.45 · block 4.50 으로 4.5:1 에 걸리거나 못 미쳤다(밝음은 5.85 이상). 한 단 올린
+   * #a6a6ae 는 최악(wait) 4.68 이고 --bg 위 7.92 다. contrast.test.ts 가 이 평면을 잰다.
+   */
+  --dk-ink-2: #a6a6ae;
   --dk-ink-3: #71717a;
 
   /* 어두운 배경 전용 상태색 — 밝음 값(#2563eb·#7c3aed)은 여기서 읽히지 않는다 */

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
+import { PageHead, DisabledHint } from "@/components/PageHead";
 import { api, errorMessage } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
@@ -56,21 +57,25 @@ export default function SessionsPage() {
 
   const noRuntime = runtimes !== null && runtimes.filter((r) => r.status === "online").length === 0;
 
+  // 비활성 사유는 버튼 아래에서도 말한다(§8.5) — 빈 상태 카드는 목록이 비었을 때만 보이기 때문이다.
+  const noRuntimeWhy = "먼저 컴퓨터를 연결하세요 — 세션은 컴퓨터 한 대에 묶입니다";
+
   return (
     <div>
-      <div className="page-head">
-        <h1>세션</h1>
+      <PageHead screen="sessions">
         <Link
           href="/sessions/new"
           className="btn btn--primary"
           aria-disabled={noRuntime || undefined}
-          title={noRuntime ? "먼저 컴퓨터를 연결하세요 — 세션은 컴퓨터 한 대에 묶입니다" : undefined}
+          aria-describedby={noRuntime ? "new-session-hint" : undefined}
+          title={noRuntime ? noRuntimeWhy : undefined}
           onClick={(e) => noRuntime && e.preventDefault()}
           data-testid="new-session"
         >
           새 세션
         </Link>
-      </div>
+        {noRuntime && <DisabledHint id="new-session-hint">{noRuntimeWhy}</DisabledHint>}
+      </PageHead>
       {error && <p className="problem">{error}</p>}
       {items === null ? (
         <p className="muted">불러오는 중…</p>
@@ -91,20 +96,20 @@ export default function SessionsPage() {
           </Link>
         </div>
       ) : (
-        <div className="list" data-testid="session-list">
+        <div className="cards" data-testid="session-list">
           {items.map((s) => (
-            <Link key={s.id} href={`/sessions/${s.id}`} className="list-row" data-testid="session-row">
-              <Badge kind="session" value={s.status} label={sessionBadgeLabel(s)} />
-              <span style={{ minWidth: 0 }}>
-                <div className="list-row__title">{s.title}</div>
-                <div className="list-row__sub">{s.goal}</div>
+            <Link key={s.id} href={`/sessions/${s.id}`} className="session-card" data-testid="session-row">
+              <span className="session-card__top">
+                <Badge kind="session" value={s.status} label={sessionBadgeLabel(s)} />
+                <span className="session-card__meta">
+                  {s.attention.hitl_open > 0 && <span style={{ color: "var(--s-wait-text)" }}>⏳︎ {s.attention.hitl_open}</span>}
+                  {s.attention.blocked > 0 && <span style={{ color: "var(--s-block-text)" }}>? {s.attention.blocked}</span>}
+                  {s.attention.failed > 0 && <span style={{ color: "var(--s-fail-text)" }}>✕ {s.attention.failed}</span>}
+                  <span>{relativeTime(s.last_activity_at ?? s.created_at)}</span>
+                </span>
               </span>
-              <span className="small muted-3 row" style={{ gap: 10 }}>
-                {s.attention.hitl_open > 0 && <span style={{ color: "var(--s-wait-text)" }}>⏳︎ {s.attention.hitl_open}</span>}
-                {s.attention.blocked > 0 && <span style={{ color: "var(--s-block-text)" }}>? {s.attention.blocked}</span>}
-                {s.attention.failed > 0 && <span style={{ color: "var(--s-fail-text)" }}>✕ {s.attention.failed}</span>}
-                <span>{relativeTime(s.last_activity_at ?? s.created_at)}</span>
-              </span>
+              <span className="session-card__title" title={s.title}>{s.title}</span>
+              <span className="session-card__sub" title={s.goal}>{s.goal}</span>
             </Link>
           ))}
         </div>

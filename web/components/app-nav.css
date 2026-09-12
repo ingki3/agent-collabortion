@@ -3,6 +3,11 @@
   border-right: 1px solid var(--line); background: var(--surface); padding: 14px 10px; gap: 4px; }
 .app-nav__brand { padding: 4px 10px 12px; font-size: var(--fs-sub); font-weight: 600; letter-spacing: 0.04em; color: var(--ink-2); }
 .app-nav__ws { padding: 0 10px 14px; font-size: var(--fs-card); font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 워크스페이스가 둘 이상일 때 이름 자리가 선택 상자가 된다(상단 바에서 옮겨 왔다 — §8.5). */
+.app-nav__ws-select { margin: 0 0 14px; font-weight: 600; }
+.app-nav__label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.app-nav__label .icon { color: var(--ink-2); }
+.app-nav__item[aria-current="page"] .app-nav__label .icon { color: var(--ink); }
 .app-nav__item { display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 8px 10px; border-radius: 8px; font-size: var(--fs-body); color: var(--ink-2); text-decoration: none; }
 .app-nav__item:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }

@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { PageHead, DisabledHint } from "@/components/PageHead";
 import { RebindDialog } from "@/components/RebindDialog";
 import { RuntimeCard, graceView } from "@/components/RuntimeCard";
 import { api, errorMessage, isApiError } from "@/lib/api/client";
@@ -127,14 +128,25 @@ export default function RuntimesPage() {
     }
   }
 
+  // 비활성 사유는 버튼 아래에서도 말한다(§8.5). 멤버는 카드의 삭제 버튼도 못 보므로 여기가 유일한 설명 자리다.
+  const cannotManageWhy = "소유자·관리자만 컴퓨터를 추가할 수 있습니다";
+
   return (
     <div>
-      <div className="page-head">
-        <h1>연결된 컴퓨터</h1>
-        <Link href="/runtimes/new" className="btn btn--primary" aria-disabled={!canManage || undefined} title={!canManage ? "소유자·관리자만 컴퓨터를 추가할 수 있습니다" : undefined} onClick={(e) => !canManage && e.preventDefault()} data-testid="add-computer">
+      <PageHead screen="computers">
+        <Link
+          href="/runtimes/new"
+          className="btn btn--primary"
+          aria-disabled={!canManage || undefined}
+          aria-describedby={!canManage ? "add-computer-hint" : undefined}
+          title={!canManage ? cannotManageWhy : undefined}
+          onClick={(e) => !canManage && e.preventDefault()}
+          data-testid="add-computer"
+        >
           컴퓨터 연결
         </Link>
-      </div>
+        {!canManage && <DisabledHint id="add-computer-hint">{cannotManageWhy}</DisabledHint>}
+      </PageHead>
       {error && <p className="problem">{error}</p>}
       {items === null ? (
         <p className="muted">불러오는 중…</p>
@@ -145,7 +157,7 @@ export default function RuntimesPage() {
           <Link href="/runtimes/new" className="btn btn--primary">컴퓨터 연결</Link>
         </div>
       ) : (
-        <div className="story__grid">
+        <div className="cards">
           {items.map((rt) => {
             const grace = graceView(rt);
             const d = detail[rt.id];
