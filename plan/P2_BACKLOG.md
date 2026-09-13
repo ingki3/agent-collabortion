@@ -59,6 +59,7 @@
 | W-8 | Runtimes 카드의 Hermes 브리프 설명이 **옛 계약**이다 — "브리프: 지시 파일(CLAUDE.md·AGENTS.md)". harness v0.8.6(스파이크 5, 우회 B)에서 미추적 `COLAB_BRIEF.md` + 턴 프롬프트 포인터로 바뀌었다. probe 가 광고하는 `brief_transport` 를 그대로 렌더하도록 | Director 실사용 2026-09-08 | 낮음 |
 | W-9 | `app/dev/*`(배지·컴포넌트 전시 페이지)가 **프로덕션 빌드에 포함**된다 — `/dev/badges`·`/dev/components` 가 빌드 출력에 있다. 배포 전 제외하거나 개발 전용 가드 | PR #188 리뷰 NN2 | 배포 전 |
 | W-10 | S7 우측 「세션 설정 → 컴퓨터」가 런타임 **id 앞 8자**(`21fccb22`)를 보인다 — 이름이어야 한다(§8.4 "컴퓨터"는 사람이 붙인 이름). `session.runtime_id` 로 `listRuntimes` 결과에서 이름을 찾고, 없으면(삭제됨) "연결 끊긴 컴퓨터" | 최종 실기 2026-09-13 | 낮음 · T-W6 |
+| W-11 | PR #199 리뷰 NN1·NN2·NN5 — `VERDICT_LABEL.unknown` 이 자물쇠에 안 걸림(`"미측정"` 으로 바꿔도 초록) · `visibleStrings()` 루프가 치환한 `body` 의 줄이 아니라 **원본 `line`** 을 다시 읽어 `${…}` 안 문구 복원이 실제로는 안 됨(PR #188 NN1 수정이 무효) · `transportLabel` "첫 답이 오면 표시" 미못박음. 한 줄씩. + **NN3**: `MOCK_ONLY.masking_owner_only` 분기·주석은 S-70 수정 뒤 되돌리고 `MOCK_ONLY` 표를 T-S12 서버 문장으로 옮겨 SERVER 대조에 넣기 | PR #199 리뷰 | 낮음 · T-S12 뒤 목 동기화 라운드 |
 | W-3′ | mock previewTriggers가 `done/blocked` lane **재진입**을 `resolution 4 + lane_id + reentry:true`로 준다(`handlers.ts:571-573`). PRD lane 규칙·EVAL E2-04·05는 재진입을 **규칙 3**으로 두고 4는 "그 외 → 새 lane". §0-9(b) 부류 — mock 응답·p2-mock 기대값·재진입 테스트 함께 | PR #76 Lead 확인 | 다음 웹 작업 |
 | ~~W-5~~ | mock의 lane 해소 규칙(`handlers.ts` resolveLane류)을 지키는 것이 `web/e2e/p2-mock.sh`뿐이고 그 스모크는 CI 밖(mock 서버 필요)이다. `done` lane 있는 세션에서 preview → `resolution 3 · reentry true`를 vitest 1건으로 — W-2·W-3′ 부류가 다시 슬며시 바뀌어도 CI가 모른다 | PR #83 리뷰 NN1 | 다음 웹 작업 | **해결 — PR #130**
 | ~~W-6~~ | 인박스 항목이 purpose=budget HITL(task 범위, 세션은 active)에 `budgetOverride` 입력칸을 붙이지 않는다(`session_paused` 조건) → Director 가 웹에서 상향 금액을 정할 수 없음(E9-02·U7-1) | T-I3 실측 43_ | T-W4 | **해결 — PR #139**
@@ -130,6 +131,8 @@
 | S-66 | **집필 단계가 3분 무응답 판정에 잘린다** — 실사용 두 세션·여섯 시도가 전부 `stall`(no session/update for 3m). 조사·위임은 통과하고 긴 글을 쓰는 턴에서만 죽어 아티팩트가 0 개다. 도구 실행·모델 응답 중에는 무응답으로 세지 않거나 기준을 바꿔야 한다(계약 `limits.stall_seconds` 180) | Director 실사용 2026-09-08 (세션 2건) | **높음 · G8 전** |
 | S-67 | **서버가 만드는 문장도 내부 용어다** — `Problem.detail` 12곳과 `Session started. Goal:` 등. 웹은 §8.4 로 고쳤는데 서버 문장은 그대로라 **화면과 실서버가 갈라진다**(목이 서버를 흉내 낸 자리에서 드러났다). COMPONENTS §8.4 원칙을 서버 사용자 대면 문장에도 적용 | T-W8 PR #188 보고 | 중 · G8 전 |
 | S-68 | `deleteWorkdir` 409 `workdir_dirty` 의 `Problem.detail` 이 계약(openapi #155 "gc_blocked_reason 과 같은 값")과 다르게 **문장**(`GCReasonText`)이다 — 목·골든·p4-mock 은 키를 기대하고 웹 S13 은 그 키로 사유를 분기한다. 서버가 키를 돌려주고 문장은 별도 칸(예: `title`)으로 | T-W10 PR #196 보고 | 중 |
+| S-69 | `GetWorkspaceSettings` 가 admin 을 요구한다 — openapi 는 "권한: 워크스페이스 멤버"(읽기), 갱신만 owner/admin. 멤버가 설정 탭을 열면 403 | T-W6 PR #199 보고 | 중 · T-S12 |
+| S-70 | `UpdateWorkspaceSettings` 가 `task_event_masking` 의 owner 전용(openapi "보안 탭 — owner만 변경")을 강제하지 않는다 — admin 이 바꿀 수 있다 | T-W6 PR #199 보고 | 중 · T-S12 |
 
 ## C (CLI)
 

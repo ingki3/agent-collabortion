@@ -448,6 +448,7 @@ goal과 성공 기준, **종료 조건 진행률**(조건별 충족 여부와 �
 | Workdir | 기본 격리 방식, `workdir_retention_days`(14) · `workdir_disk_quota_gb` · `runtime_offline_grace`(7일) | owner·admin |
 | 보안 | **활동 로그 페이로드 마스킹**(diff·셸 출력을 요약만 저장) | owner |
 | 알림 | 이메일·푸시, 세션 구독 기본값(전부/HITL만/종료만) | 개인 |
+| **대시보드**(P5, PR #199) | PRD §11 성공 지표 10개 표 — `getWorkspaceMetrics` 를 그대로 그린다. 표본 없으면 "아직 잴 수 없음" | 멤버(읽기) |
 
 기본값은 모두 PRD의 값을 그대로 쓴다. 각 항목에 **바꿨을 때의 영향**을 한 줄로 적는다(예: 루프 상한을 낮추면 정상 위임이 막힐 수 있음).
 
