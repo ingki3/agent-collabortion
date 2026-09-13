@@ -100,7 +100,25 @@
 
 배경: S-66(집필 단계 3분 stall) 은 T-D12(#204) 가 원인을 "긴 tool 입력 생성 중 session/update 0" 으로 확정하고 고쳤다(`onRawSDK → noteActivity`, 원시 스트림 항상 ON). 여기서는 **같은 조건**(Lead 위임 3 + Researcher 3 + Writer 집필)을 `72_scenario_a.sh RUNTIME=real` 로 돌려 고침 전후를 대조한다. 전 = `git archive fb97913^`(#203 까지) 로 빌드한 데몬(`DAEMON_BIN`), 후 = dev(#204).
 
-<!-- S66_TABLE -->
+실기 8회(haiku 6 · sonnet 2). 전부 `72_scenario_a.sh RUNTIME=real`, 판정 46/0. **stall 0/8 — 전에서도 후에서도 재현되지 않았다.** 표는 Writer attempt 2(집필 턴)만; 전체 표는 `e2e/p5/out-real/<run>/s66-table.tsv`(로컬, gitignore).
+
+| run | 데몬 | 모델 | 요구 길이 | 실제 아티팩트 | 집필 턴 | 서버 이벤트 최대 공백 | stall |
+|---|---|---|---|---|---|---|---|
+| run1 | dev #204 | haiku | 3000자 | 5.2 KB | 34.9s | 17.9s | 0 |
+| run2 | dev #204 | haiku | 3000자 | 9.3 KB | 59.7s | 30.9s | 0 |
+| run3 | dev #204 | haiku | 3000자 | 8.3 KB | 60.1s | 35.0s | 0 |
+| pre-3000 | **#204 이전**(`fb97913^`) | haiku | 3000자 | 5.3 KB | 41.6s | 22.9s | 0 |
+| pre-15000 | #204 이전 | haiku | 15000자 | 11.1 KB | 76.9s | 46.2s | 0 |
+| dev-15000 | dev #204 | haiku | 15000자 | 8.4 KB | 49.3s | 29.2s | 0 |
+| pre-sonnet | **#204 이전** | sonnet | 20000자 | **45.4 KB** | **437.2s** | **159.6s** | 0 (임계 180s 에 20s 못 미침) |
+| dev-sonnet | dev #204 | sonnet | 20000자 | 26.4 KB | 141.0s | 115.8s | 0 |
+
+- "서버 이벤트 최대 공백" 은 그 attempt 의 `task_event` 사이 최대 간격 — #204 이전 데몬이 세던 활동(session/update)의 무음 상한 근사다. #204 뒤 데몬은 원시 스트림(`raw:_claude/sdkMessage(on)`, 로그 `stall watch armed … counts=`)도 세므로 이 공백과 무관하게 stall 이 나지 않는다.
+- **재현이 안 된 이유(조건 차이)**: (1) **모델** — haiku 는 15000자를 시켜도 11 KB 까지만 쓰고 ~150 B/s 로 1분 안에 끝난다. (2) **한 Write 의 크기** — sonnet 은 45 KB 를 **두 번의 Write(20 KB 씩, 119s·160s) + Edit 여러 번**으로 나눠 썼다. #204 이전 데몬의 stall 은 **한 tool 입력의 무음 생성 > 180s** 라 한 Write 가 ≈ 30 KB 를 넘어야 난다(T-D12 실측 170 B/s). Director 의 원래 사건(2026-09-08)은 큰 모델이 긴 글을 한 Write 로 쓴 경우로 읽힌다. (3) 다중 에이전트 수는 무관 — 8회 모두 Lead+Researcher×3+Writer 였고 집필 턴 외에는 공백이 35s 를 넘지 않았다.
+- **전후 대조가 말해 주는 것**: pre-sonnet 의 160s 공백은 임계에 20s 남은 값이다 — 같은 조건에서 모델이 조금만 더 길게 한 번에 쓰면 #204 이전은 stall, 이후는 원시 델타로 활동이 이어져 안전하다(#204 유닛 `s66_stall_test.go` 가 그 경계를 페이크 클럭으로 잰다). 실기로 stall 자체를 보려면 한 Write ≥ 30 KB 를 강제해야 하는데(예: "한 파일에 한 번의 Write 로 40000자") 모델이 지시를 나눠 쓰는 경향이 있어 결정적이지 않다 — 필요하면 Director 의 원 세션 조건(모델·goal)으로 1회.
+- 로그: `e2e/p5/out-real/*/daemon-72.log`(dev 는 `stall watch armed limit=3m0s counts=session/update,request_permission,raw:_claude/sdkMessage(on)` 8줄/세션, `stall fired` 0), `72-real.log`, `72-artifact-dl.bin`.
+
+#204 가 바꾼 `e2e/p3/50_` C3d 패턴("쓸 수 있는 예산")도 재실행했다(격리 스택 :8110/:5454, 실기 haiku): **116/1 → C3f 는 스크립트의 `grep -c || echo 0` 두 줄 함정**(p4 README 에 적힌 것)이라 그 줄을 고쳤다(`{ grep -c … || true; } | head -1`). 서버 500 은 0건. <!-- 50_RERUN -->
 
 ## 6. 열린 결함 · 관찰 (번호 없음 — Lead 가 준다, §0-11)
 
