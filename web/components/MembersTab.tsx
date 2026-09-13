@@ -2,10 +2,13 @@
 /**
  * S14 멤버 탭(SCREEN §4.10 · U13) — 목록 · 역할 변경 · 제거 · 초대 링크 · 초대 목록(대기·만료·취소).
  *
- * 권한은 계약이 정한다: 목록은 멤버 누구나(listMembers), 나머지는 owner·admin. **owner 강등은 owner 만**(§2.3) —
- * 그래서 admin 이 보는 owner 행의 역할 선택은 잠기고 사유가 옆에 선다. 마지막 owner 강등·제거와 "그 멤버가 Director 인
- * 진행 중 세션" 은 서버가 409 로 막고, 화면은 그 `detail` 을 그대로 보인다(문장을 지어내지 않는다).
- * 서버가 아직 안 만든 op(역할 변경·제거는 T-S12 뒤)은 501 이 오면 그 문장을 보인다.
+ * 권한은 계약이 정한다: 목록은 멤버 누구나(listMembers), 나머지는 owner·admin. **소유자 층은 소유자만**(§2.3 "owner 강등은
+ * owner 만" — 서버 T-S14 #209 는 소유자로 **올리는** 것도 소유자만) — 그래서 admin 이 보는 owner 행의 역할 선택은 잠기고 사유가
+ * 옆에 서며, admin 의 선택에서 「소유자」 항목은 꺼진다. 마지막 owner 강등·제거와 "그 멤버가 Director 인 끝나지 않은 세션" 은
+ * 서버가 409 로 막고, 화면은 그 `detail` 을 그대로 보인다(문장을 지어내지 않는다 — 세션 수도 서버 문장 안에 있다).
+ *
+ * **자기 역할을 내리는 경로**(PR #209 리뷰 NN5): 서버는 허용하지만(마지막 소유자만 409) 되돌릴 사람이 자기가 아니게 된다.
+ * 소유자 행은 잠근다(사유: 다른 소유자가). 관리자가 자기를 멤버로 내리는 것은 확인 다이얼로그로 — 무엇이 사라지는지 명시(SCREEN §5).
  */
 import { useCallback, useEffect, useState } from "react";
 import { api, errorMessage, isApiError, newIdempotencyKey } from "@/lib/api/client";
@@ -29,6 +32,14 @@ export function roleChangeRight(me: MemberRole | null | undefined, target: Membe
   return { ok: true };
 }
 
+const ROLE_RANK: Record<MemberRole, number> = { owner: 2, admin: 1, member: 0 };
+/** 자기 행에서 지금보다 낮은 역할을 고른 것 — 확인 다이얼로그를 거친다(NN5). 소유자 행은 `roleChangeRight` 가 이미 잠근다. */
+export const isSelfDemotion = (target: Member, next: MemberRole, meUserId: string | null): boolean =>
+  target.user.id === meUserId && ROLE_RANK[next] < ROLE_RANK[target.role];
+/** 확인 다이얼로그의 본문 — 무엇이 사라지는지(SCREEN §5). */
+export const selfDemotionText = (from: MemberRole, to: MemberRole): string =>
+  `내 역할을 ${ROLE_LABEL[from]}에서 ${ROLE_LABEL[to]}로 내립니다. 멤버 초대·역할 변경·워크스페이스 설정 변경을 더는 할 수 없고, 되돌리려면 다른 소유자·관리자가 올려 줘야 합니다.`;
+
 export interface MembersTabProps {
   workspaceId: string;
   myRole: MemberRole | null;
@@ -45,6 +56,8 @@ export function MembersTab({ workspaceId, myRole, meUserId }: MembersTabProps) {
   const [role, setRole] = useState<Exclude<MemberRole, "owner">>("member");
   const [created, setCreated] = useState<Invite | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  /** 자기 강등 확인 대기 — 어느 행(memberId)을 어느 역할로. */
+  const [confirmSelf, setConfirmSelf] = useState<{ memberId: string; role: MemberRole } | null>(null);
   const canManage = myRole === "owner" || myRole === "admin";
 
   const load = useCallback(async () => {
@@ -65,12 +78,22 @@ export function MembersTab({ workspaceId, myRole, meUserId }: MembersTabProps) {
   }, [workspaceId, canManage]);
   useEffect(() => { void load(); }, [load]);
 
+  /** 선택이 바뀌었을 때 — 자기 강등이면 바로 보내지 않고 확인을 받는다(select 는 제어 컴포넌트라 취소하면 값이 되돌아온다). */
+  function pickRole(m: Member, next: MemberRole) {
+    if (next === m.role) return;
+    if (isSelfDemotion(m, next, meUserId)) {
+      setConfirmSelf({ memberId: m.id, role: next });
+      return;
+    }
+    void changeRole(m, next);
+  }
   async function changeRole(m: Member, next: MemberRole) {
     setBusy(true);
     setError(null);
     try {
       const updated = await api.patch("/workspaces/{workspaceId}/members/{memberId}", { path: { workspaceId, memberId: m.id }, body: { role: next } });
       setMembers((ms) => ms?.map((x) => (x.id === m.id ? updated : x)) ?? null);
+      setConfirmSelf(null);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -85,9 +108,8 @@ export function MembersTab({ workspaceId, myRole, meUserId }: MembersTabProps) {
       setMembers((ms) => ms?.filter((x) => x.id !== m.id) ?? null);
       setConfirmRemove(null);
     } catch (e) {
-      // 409 member_is_director 는 `sessions[]` 를 싣는다 — 어느 세션이 막는지 이름으로.
-      const blocking = isApiError(e) ? ((e.problem as { sessions?: { id: string; title: string }[] }).sessions ?? []) : [];
-      setError(blocking.length ? `${errorMessage(e)} — ${blocking.map((s) => s.title).join(", ")}` : errorMessage(e));
+      // 409 member_is_director 의 `detail` 이 세션 수까지 말한다("…진행 중 세션이 N개…") — 서버(#209)는 확장 칸을 싣지 않는다.
+      setError(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -159,10 +181,13 @@ export function MembersTab({ workspaceId, myRole, meUserId }: MembersTabProps) {
                     disabled={!right.ok || busy}
                     title={right.ok ? undefined : right.reason}
                     aria-label={`${m.user.display_name} 역할`}
-                    onChange={(e) => void changeRole(m, e.target.value as MemberRole)}
+                    onChange={(e) => pickRole(m, e.target.value as MemberRole)}
                     data-testid="member-role"
                   >
-                    {(Object.keys(ROLE_LABEL) as MemberRole[]).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+                    {(Object.keys(ROLE_LABEL) as MemberRole[]).map((r) => (
+                      // 소유자 역할을 주는 것도 소유자만(서버 PlanRoleChange) — 관리자에게는 그 항목이 꺼진다.
+                      <option key={r} value={r} disabled={r === "owner" && myRole !== "owner"}>{ROLE_LABEL[r]}</option>
+                    ))}
                   </select>
                   {!right.ok && canManage && <span className="small muted" data-testid="member-role-why">{right.reason}</span>}
                 </div>
@@ -176,13 +201,20 @@ export function MembersTab({ workspaceId, myRole, meUserId }: MembersTabProps) {
                   <button
                     type="button"
                     className="btn btn--sm"
-                    disabled={!canManage || busy || isMe}
-                    title={!canManage ? "소유자·관리자만 내보낼 수 있습니다" : isMe ? "자기 자신은 내보낼 수 없습니다" : undefined}
+                    disabled={!canManage || busy || isMe || (m.role === "owner" && myRole !== "owner")}
+                    title={!canManage ? "소유자·관리자만 내보낼 수 있습니다" : isMe ? "자기 자신은 내보낼 수 없습니다" : m.role === "owner" && myRole !== "owner" ? "소유자는 소유자만 내보낼 수 있습니다" : undefined}
                     onClick={() => setConfirmRemove(m.id)}
                     data-testid="member-remove"
                   >
                     내보내기
                   </button>
+                )}
+                {confirmSelf?.memberId === m.id && (
+                  <div className="row" style={{ gap: 6, gridColumn: "1 / -1" }} role="dialog" aria-label="내 역할 내리기 확인" data-testid="member-self-demote">
+                    <span className="small">{selfDemotionText(m.role, confirmSelf.role)}</span>
+                    <button type="button" className="btn btn--sm" disabled={busy} onClick={() => void changeRole(m, confirmSelf.role)} data-testid="member-self-demote-yes">내리기</button>
+                    <button type="button" className="btn btn--sm btn--ghost" onClick={() => setConfirmSelf(null)} data-testid="member-self-demote-no">취소</button>
+                  </div>
                 )}
               </div>
             );
