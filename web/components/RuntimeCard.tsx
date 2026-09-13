@@ -19,7 +19,6 @@ import { durationSince, relativeTime } from "@/lib/time";
 import type { Runtime, RuntimeCapability } from "@/lib/api/types";
 
 const KIND = { claude_code: "Claude Code", hermes: "Hermes", antigravity: "Antigravity" } as const;
-const BRIEF = { acp_meta_system_prompt: "ACP _meta 시스템 프롬프트", instruction_file: "지시 파일(CLAUDE.md·AGENTS.md)" } as const;
 
 /**
  * **사람이 지금 해야 할 일**만 — 카드 본문에 그대로 선다. 비어 있으면 이 컴퓨터는 그냥 쓸 수 있다는 뜻이다.
@@ -44,7 +43,10 @@ export function capabilityDetails(c: RuntimeCapability): string[] {
   out.push(c.adapter_version ? `어댑터 ${c.adapter_version}` : "어댑터 버전 실측 실패");
   if (c.resume === false) out.push("이어서 실행 못함 — 매번 처음부터 시작합니다");
   if (c.usage === false) out.push("사용량 미보고 — 비용이 추정치가 됩니다(하드 컷 없음)");
-  if (c.brief_transport) out.push(`브리프: ${BRIEF[c.brief_transport]}`);
+  // W-8: 브리프 전달 경로는 probe 가 광고한 값을 **그대로**(`acp_meta_system_prompt` · `instruction_file`) — 옛 설명 문구
+  // ("지시 파일(CLAUDE.md·AGENTS.md)")는 harness v0.8.6 에서 틀린 말이 됐다(미추적 COLAB_BRIEF.md + 턴 프롬프트 포인터).
+  // 진단 원문이라 사람 말로 바꾸지 않는다 — 계약이 바뀌어도 화면이 거짓말하지 않게.
+  if (c.brief_transport) out.push(`브리프 전달: ${c.brief_transport}`);
   if (c.allow_once_missing) out.push("allow_once 부재 — 권한 협상이 매번 always 로 떨어집니다");
   return out;
 }

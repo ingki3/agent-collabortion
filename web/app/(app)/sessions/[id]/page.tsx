@@ -25,14 +25,14 @@ import { SessionAside } from "@/components/SessionAside";
 import { SessionActions } from "@/components/SessionActions";
 import { ParticipantsDialog } from "@/components/ParticipantsDialog";
 import { HitlCard } from "@/components/HitlCard";
-import { PAUSE_REASON_LABEL } from "@/lib/session-label";
+import { PAUSE_REASON_LABEL, runtimeNameOf } from "@/lib/session-label";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { RebindDialog } from "@/components/RebindDialog";
 import { api, errorMessage, newIdempotencyKey } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
 import type {
-  Agent, Artifact, Decision, HitlRequest, HitlResponse, Lane, Member, Message, Participant, Session, StreamEvent,
+  Agent, Artifact, Decision, HitlRequest, HitlResponse, Lane, Member, Message, Participant, Runtime, Session, StreamEvent,
   Task, TaskEvent, TriggerPreview,
 } from "@/lib/api/types";
 
@@ -62,6 +62,8 @@ export default function SessionPage() {
   const [events, setEvents] = useState<Record<string, Events>>({});
   const [agents, setAgents] = useState<Agent[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  /** W-10: 우열 「세션 설정 → 컴퓨터」가 id 앞 8자 대신 **이름**을 보인다 — listRuntimes 에서 찾는다. */
+  const [runtimes, setRuntimes] = useState<Runtime[] | null>(null);
   const [lanes, setLanes] = useState<Lane[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[] | null>(null);
   const [decisions, setDecisions] = useState<Decision[] | null>(null);
@@ -93,16 +95,19 @@ export default function SessionPage() {
   const load = useCallback(async () => {
     if (!workspace) return;
     try {
-      const [s, page, ags, mems] = await Promise.all([
+      const [s, page, ags, mems, rts] = await Promise.all([
         api.get("/sessions/{sessionId}", { path: { sessionId } }),
         api.get("/sessions/{sessionId}/messages", { path: { sessionId }, query: { limit: 200 } }),
         api.get("/workspaces/{workspaceId}/agents", { path: { workspaceId: workspace.id } }),
         api.get("/workspaces/{workspaceId}/members", { path: { workspaceId: workspace.id } }),
+        // 컴퓨터 목록이 안 와도 세션 화면은 열려야 한다 — 그때 이름 대신 "연결 끊긴 컴퓨터"로 떨어지지 않게 null 로 둔다.
+        api.get("/workspaces/{workspaceId}/runtimes", { path: { workspaceId: workspace.id } }).catch(() => null),
       ]);
       setSession(s);
       setMessages(page.items.filter((m) => !m.parent_id).sort(sortByTime));
       setAgents(ags.items);
       setMembers(mems.items);
+      setRuntimes(rts);
       setError(null);
     } catch (e) {
       setError(errorMessage(e));
@@ -710,6 +715,7 @@ export default function SessionPage() {
             session={session}
             artifacts={artifacts}
             decisions={decisions}
+            runtimeName={runtimeNameOf(session, runtimes)}
             agentName={agentName}
             busy={busy}
             onResume={isDirector ? resume : undefined}

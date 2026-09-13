@@ -9,13 +9,14 @@
  *
  * 위험 영역 — **`respond_to: nobody` 는 킬 스위치**(FR-1.9). 켜기 전에 무슨 일이 일어나는지 그대로 확인시킨다:
  * "실행 중인 턴이 취소되고 대기 중 task 가 취소됩니다. 열린 HITL 은 남습니다."
- * 테스트 채팅(FR-1.8.1)은 P3 라 자리와 사유만 둔다.
+ * 시험 대화(FR-1.8.1, T-W6)는 실행 구역 아래 `TestChatPanel` — 세션 없이 1:1 로 답을 받아 설정을 확인한다.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Badge } from "@/components/Badge";
 import { AgentProfileEditor } from "@/components/AgentProfileEditor";
+import { TestChatPanel } from "@/components/TestChatPanel";
 import { capabilityIndex } from "@/lib/runtime-options";
 import { api, errorMessage } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -230,6 +231,12 @@ export default function AgentEditPage() {
         </div>
       </section>
 
+      <section className="card" style={{ marginBottom: 14 }} data-testid="agent-test-chat">
+        <h2 style={{ fontSize: "var(--fs-card)", margin: "0 0 4px" }}>시험 대화</h2>
+        <p className="small muted" style={{ marginTop: 0 }}>세션을 만들지 않고 이 에이전트와 1:1 로 대화해 봅니다.</p>
+        {workspace && <TestChatPanel agent={agent} runtimes={runtimes} workspaceId={workspace.id} />}
+      </section>
+
       <section className="card" style={{ borderColor: "var(--s-fail)" }} data-testid="agent-danger">
         <h2 style={{ fontSize: "var(--fs-card)", margin: "0 0 4px", color: "var(--s-fail-text)" }}>위험 영역</h2>
         <p className="small muted" style={{ marginTop: 0 }}>
@@ -278,7 +285,6 @@ export default function AgentEditPage() {
         >
           보관하기
         </button>
-        <p className="small muted-3" style={{ marginBottom: 0 }}>1:1 시험 대화는 아직 준비 중입니다 — 실행 경로와 토큰을 함께 보여 줄 자리입니다.</p>
       </section>
     </div>
   );
