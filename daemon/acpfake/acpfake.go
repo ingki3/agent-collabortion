@@ -14,6 +14,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -155,6 +158,18 @@ type Step struct {
 	// ends with stopReason cancelled. HangForever never answers at all.
 	Hang        bool `json:"hang,omitempty"`
 	HangForever bool `json:"hang_forever,omitempty"`
+	// Exec runs a shell command (`sh -c`) in the fake's own CWD and
+	// environment — the workdir and the COLAB_* set the daemon handed the
+	// runtime — so a CI scenario can act on the platform through the real
+	// `colab` CLI without a model (e2e/p5, T-I5). The command additionally
+	// sees ACPFAKE_PROMPT (this turn's prompt text), ACPFAKE_TURN (1-based
+	// turn number of this process) and ACPFAKE_SESSION. It is reported on
+	// the wire as one `execute` tool_call → tool_call_update (completed when
+	// exit 0, failed otherwise) carrying the combined output, so the
+	// server's activity feed sees a shell card exactly as it would from a
+	// real adapter. ExecTimeoutMs bounds it (0 → 120s).
+	Exec          string `json:"exec,omitempty"`
+	ExecTimeoutMs int    `json:"exec_timeout_ms,omitempty"`
 }
 
 type ToolCallStep struct {
@@ -306,6 +321,10 @@ type server struct {
 	lastMeta  map[string]any
 	lastMCP   []acp.MCPServer
 	turn      int
+	execSeq   int
+	// promptText is the text of the prompt being answered (Exec steps
+	// expose it as ACPFAKE_PROMPT).
+	promptText string
 	// refuseSession is the session a LoadNoProvenance load handed back. Hermes
 	// answers the next session/prompt on it with `stopReason: "refusal"` and
 	// does nothing (spike 4c wire log) — that is what makes a missed loss end
@@ -591,6 +610,11 @@ func (sv *server) handle(m message) {
 	case acp.MethodSessionPrompt:
 		var p acp.PromptParams
 		_ = json.Unmarshal(m.Params, &p)
+		var text strings.Builder
+		for _, b := range p.Prompt {
+			text.WriteString(b.Text)
+		}
+		sv.promptText = text.String()
 		sv.prompt(m.ID, p.SessionID)
 	default:
 		sv.replyErr(m.ID, &acp.RPCError{Code: -32601, Message: "method not found: " + m.Method})
@@ -743,12 +767,72 @@ func (sv *server) prompt(id *json.RawMessage, sid string) {
 			}
 		case st.Plan != nil:
 			sv.update(sid, map[string]any{"sessionUpdate": "plan", "entries": st.Plan})
+		case st.Exec != "":
+			sv.execStep(sid, st)
 		}
 	}
 	if sv.cancelled.Load() {
 		stop = "cancelled"
 	}
 	finish(stop)
+}
+
+// execStep runs Step.Exec and reports it as one execute tool call.
+func (sv *server) execStep(sid string, st Step) {
+	sv.execSeq++
+	id := fmt.Sprintf("exec-%d-%d", sv.turn, sv.execSeq)
+	title := st.Exec
+	if i := strings.IndexByte(title, '\n'); i >= 0 {
+		title = title[:i]
+	}
+	if len(title) > 80 {
+		title = title[:80]
+	}
+	sv.update(sid, map[string]any{"sessionUpdate": "tool_call", "toolCallId": id, "title": title, "kind": "execute",
+		"status": "in_progress", "content": []any{}, "locations": []any{}, "rawInput": map[string]any{"command": st.Exec}})
+	timeout := time.Duration(st.ExecTimeoutMs) * time.Millisecond
+	if timeout == 0 {
+		timeout = 120 * time.Second
+	}
+	cmd := exec.Command("sh", "-c", st.Exec)
+	cmd.Env = append(os.Environ(),
+		"ACPFAKE_PROMPT="+sv.promptText,
+		"ACPFAKE_TURN="+strconv.Itoa(sv.turn),
+		"ACPFAKE_SESSION="+sid)
+	cmd.Stdin = nil
+	var out strings.Builder
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	done := make(chan error, 1)
+	if err := cmd.Start(); err != nil {
+		done <- err
+	} else {
+		go func() { done <- cmd.Wait() }()
+	}
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(timeout):
+		_ = cmd.Process.Kill()
+		err = <-done
+		out.WriteString("\nacpfake: exec timed out")
+	}
+	code := 0
+	status := "completed"
+	if err != nil {
+		status = "failed"
+		code = 1
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		}
+	}
+	text := out.String()
+	if len(text) > 4000 {
+		text = text[len(text)-4000:]
+	}
+	sv.update(sid, map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": id, "status": status,
+		"content":   []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": text}}},
+		"rawOutput": map[string]any{"exitCode": code}})
 }
 
 func orDefault(s, d string) string {

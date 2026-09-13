@@ -228,7 +228,8 @@ chk C3d "A: 데몬이 **자기 §5 예산 취소**도 실행했다 (FR-7.3 M9)" 
 # `paused_reason` 만 지우고 `paused_detail` 은 남겨 `task_paused_detail_check`(0006)를 깨고 **500** 이 난다.
 # 결과: 그 attempt 의 finish 가 **영영 기록되지 않는다** — outcome·finished_at NULL, 그리고 finish 가
 # 유일한 기록자인 `lane.runtime_session_ref` 도 저장되지 않아 승인 뒤 재개가 **콜드 스타트**가 된다.
-FIN500="$(grep -c 'task_paused_detail_check' "$DLOG" 2>/dev/null || echo 0)"
+# `grep -c` 는 무매치면 0 을 찍고 exit 1 이라 `|| echo 0` 이 줄을 두 개 만든다(p4 README 함정) — 2026-09-14 재실행에서 C3f 만 그것으로 FAIL.
+FIN500="$({ grep -c 'task_paused_detail_check' "$DLOG" 2>/dev/null || true; } | head -1 | tr -d ' \n')"; FIN500="${FIN500:-0}"
 grep -n 'task_paused_detail_check' "$DLOG" > "$OUT/50-finish-500.txt" 2>/dev/null || true
 log "데몬이 받은 finish 500(task_paused_detail_check): ${FIN500}건 — out/50-finish-500.txt"
 chk C3e "A: attempt 1 의 finish 가 기록됐다 (신규 결함 — 예산 pause 뒤 finish 가 500)" yes \
