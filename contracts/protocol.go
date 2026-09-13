@@ -20,7 +20,7 @@ type Transport string
 
 const (
 	TransportACP Transport = "acp"
-	TransportCLI Transport = "cli" // reserved, v1.1
+	TransportCLI Transport = "cli" // reserved, v1.1 — finish.transport(v0.8 §4.5)·test_chat.transport 값으로만 쓰인다
 )
 
 // BriefTransport — how the brief reaches the runtime (harness.md §1, §10).
@@ -171,8 +171,12 @@ type TaskBundle struct {
 }
 
 type BundleTask struct {
-	ID                  string   `json:"id"`
-	Attempt             int      `json:"attempt"`
+	ID      string `json:"id"`
+	Attempt int    `json:"attempt"`
+	// Kind — "" 또는 "task" 는 세션 task, "test_chat" 은 테스트 채팅 턴(daemon-protocol v0.8 §4.5):
+	// ID = test_chat.id, Attempt = 사용자 턴 번호, TaskToken 없음, Lane/Session/TriggerMessage 빈 값.
+	Kind       string `json:"kind,omitempty"`
+	TestChatID string `json:"test_chat_id,omitempty"`
 	LaneID              string   `json:"lane_id"`
 	SessionID           string   `json:"session_id"`
 	AgentID             string   `json:"agent_id"`
@@ -232,6 +236,7 @@ type Command struct {
 	WorkdirIDs       []string      `json:"workdir_ids,omitempty"` // gc — 옛 모양(v0.6). v0.7 부터는 Workdirs 가 정본
 	Workdirs         []GCWorkdir   `json:"workdirs,omitempty"`    // gc — daemon-protocol v0.7 §4.3: 서버가 경로를 싣는다
 	SessionID        string        `json:"session_id,omitempty"`
+	TestChatID       string        `json:"test_chat_id,omitempty"` // gc — 테스트 채팅 임시 디렉터리(daemon-protocol v0.8 §4.5); SessionID 없음
 	Artifacts        []ArtifactRef `json:"artifacts,omitempty"`
 }
 
@@ -258,6 +263,7 @@ type Finish struct {
 	ResumeOutcome     string             `json:"resume_outcome,omitempty"` // resumed | cold_start
 	LastSeq           int                `json:"last_seq"`
 	Workdir           *FinishWorkdir     `json:"workdir,omitempty"` // daemon-protocol v0.7.2 §4.4 — worktree 격리에서만 git 이 실린다
+	Transport         Transport          `json:"transport,omitempty"` // daemon-protocol v0.8 §4.5 — 실제 경로(acp|cli); 서버는 test_chat.transport 에만 쓴다
 }
 
 // FinishWorkdir — finish 의 `workdir: {path, git?}` (daemon-protocol v0.7.2 §4.4).
