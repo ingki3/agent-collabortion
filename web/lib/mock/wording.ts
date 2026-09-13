@@ -241,7 +241,7 @@ export const METRIC_DEFS: readonly MetricDef[] = [
     note: "다른 에이전트가 넘긴 할 일 중 확인 요청도 막힘도 없이 완료된 비율." },
   { key: "parallel_wallclock_reduction", unit: "ratio", target: 0.4, target_op: "gt",
     label: "여러 작업 줄기를 함께 돌려 줄어든 시간의 비율",
-    note: "작업 줄기가 둘 이상인 완료 세션에서, 세션 시작부터 완료까지 걸린 시간이 각 할 일에 걸린 시간의 합보다 얼마나 짧았는지(1 - 전체 시간 ÷ 합)의 평균. 표본 수는 세션 수." },
+    note: "작업 줄기가 둘 이상인 완료 세션에서, 세션 시작부터 완료까지 걸린 시간이 각 할 일에 걸린 시간의 합보다 얼마나 짧았는지(1 - 전체 시간 ÷ 합)의 평균. 전체 시간에는 사람을 기다린 시간(확인 요청)도 들어간다. 표본 수는 세션 수." },
   { key: "task_success_rate_by_runtime", unit: "ratio", target: 0.85, target_op: "gt",
     label: "컴퓨터 종류별 할 일 성공률",
     note: "컴퓨터 종류별로 완료된 할 일 ÷ (완료 + 실패). 종류별 값과 목표는 따로 나눠 준다." },
