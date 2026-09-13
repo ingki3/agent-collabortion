@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 상태 | **착수(2026-09-08).** G7 통과·컷 2 발동 없음(`plan/G7_DECISION.md`, Director 확인 2026-09-08). G5 도 템플릿 3분 실측으로 확정(`plan/G5_DECISION.md`, PR #179) |
+| 상태 | **코드 작업 종료(2026-09-14) — G8 실측 대기.** 착수 2026-09-08. G7 통과·컷 2 발동 없음(`plan/G7_DECISION.md`, Director 확인 2026-09-08). G5 도 템플릿 3분 실측으로 확정(`plan/G5_DECISION.md`, PR #179) |
 | 근거 | `PLAN.md` §3 P5(마감)·§6.2 **G8**(F1 15분 실측 5회, 달력)·**G9**(출시 판정), `PRD.md` §7·§11, `SCREEN.md` S4·S14, `plan/P2_BACKLOG.md` 열린 행 |
 | 게이트 | **G8**: 신규 사용자 5명이 문서 없이 F1 을 15분 안에 끝낸다(중앙값 < 15분, **달력**). **G9**: 출시 판정 — 시나리오 A·B·C·D E2E CI 초록 + §11 대시보드 |
 | 원칙 | **G8 은 사람이 재는 것이라 압축되지 않는다.** 그 앞의 코드 작업(특히 온보딩을 막는 결함)을 먼저 끝내야 실측 5회가 헛되지 않는다 |
@@ -36,7 +36,7 @@ G8 은 신규 사용자가 문서 없이 F1 을 끝내는지 재는데, **지금
 
 e2e 번호: **70_ = T-S12**(테스트 채팅 실서버·데몬 페이크), **71_ = T-D12**, **72_~ = T-I5**.
 
-**P5a 진행(2026-09-13)**: T-W6 → PR **#199**(APPROVE, 머지; 후속 W-11) · T-S12 → PR **#200**(APPROVE, 머지; S-69·S-70 함께 닫힘; 후속 S-71·K-15) · T-D12 → PR **#204**(APPROVE, 머지; **S-66 원인 확정·고침**, D-20·D-25; 후속 D-26·D-27) · T-W11 → PR **#207**(APPROVE, 머지; Lead #208) · T-S14 → PR **#209**(APPROVE, 머지; S-72 4 op·S-71·S-73 changeDirector 500) · T-I5 → PR **#206**(APPROVE, 머지 — **CI e2e job 초록**: 72_A 46/0·73_B 48/0·74_C 42/0·75_D 22/0·76 perf·77 security·78 S7; §11 지표 10개 읽힘; S-66 전후 8회 stall 0; `plan/G8_PLAN.md` **Lead 확정**·`plan/G9_REPORT.md` 초안; 신규 결함 S-76·S-77) · T-W12 → PR **#212** · T-S15 → PR **#213**(S-76·S-77·S-64·S-65; Lead 웹 #214) · **T-S16**(S-78 chain_depth 인과 사슬 깊이 — Hermes 실측 F1 형 depth 9, **G8 전 마지막 코드 작업**) 진행 중 → 머지 = P5 코드 종료 → 배포(`make build` 로 sha 스탬프) → G8 실측(Director·달력, `plan/G8_PLAN.md`) → G9 판정(`plan/G9_REPORT.md` + chk_na 목록).
+**P5a 진행(2026-09-13)**: T-W6 → PR **#199**(APPROVE, 머지; 후속 W-11) · T-S12 → PR **#200**(APPROVE, 머지; S-69·S-70 함께 닫힘; 후속 S-71·K-15) · T-D12 → PR **#204**(APPROVE, 머지; **S-66 원인 확정·고침**, D-20·D-25; 후속 D-26·D-27) · T-W11 → PR **#207**(APPROVE, 머지; Lead #208) · T-S14 → PR **#209**(APPROVE, 머지; S-72 4 op·S-71·S-73 changeDirector 500) · T-I5 → PR **#206**(APPROVE, 머지 — **CI e2e job 초록**: 72_A 46/0·73_B 48/0·74_C 42/0·75_D 22/0·76 perf·77 security·78 S7; §11 지표 10개 읽힘; S-66 전후 8회 stall 0; `plan/G8_PLAN.md` **Lead 확정**·`plan/G9_REPORT.md` 초안; 신규 결함 S-76·S-77) · T-W12 → PR **#212** · T-S15 → PR **#213**(S-76·S-77·S-64·S-65; Lead 웹 #214) · T-S16 → PR **#216**(APPROVE, 머지 — S-78; F1 형 최대 깊이 2, 링 8, S-76 왕복 5). **P5 코드 작업 종료(2026-09-14).** 다음: 배포(`make build` 로 sha 스탬프) → **G8 실측(Director·달력, `plan/G8_PLAN.md`)** → G9 판정(`plan/G9_REPORT.md` + chk_na 목록 + S-80 처리).
 
 ## 2-b. P5a-UI — 시인성 (Director 실사용 지적, 2026-09-08)
 

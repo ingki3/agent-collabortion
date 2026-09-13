@@ -146,9 +146,10 @@
 | K-16 | `colab status set done` 뒤에도 도는 턴은 Director 가 중단할 수 없다(`409 lane_not_cancellable`, task 는 running) — 지시문 관례("done 은 마지막 호출")로 덮여 있음. S7 중단 버튼이 running 턴에 비활성이 되는 자리 | T-I5 PR #206 관찰 1 | 알고 있기 |
 | K-17 | `parallel_wallclock_reduction` 정의가 사람 대기(HITL)를 "전체"에 넣어 HITL 있는 세션은 병렬 효과와 무관하게 낮거나 음수 — note 에 명시(T-S15), 정의 변경은 계약 | T-I5 PR #206 관찰 2 | 낮음 | **해결 PR #213**(note 명시) + 웹 #214 |
 | W-12 | S7 의 요약 메시지(`kind=summary`)가 마크다운 원문(`##`·`-`)으로 보인다 | T-I5 PR #206 관찰 3 (`web/__screenshots__/p5-78-s7.png`) | 낮음 |
-| S-78 | **`router.chainDepth` 가 "마지막 사람 메시지 뒤 홉 수"** 라 형제 위임·합류 통보를 전부 깊이로 센다 — PRD FR-3.5 는 "멘션이 연쇄된 **깊이**"(Lead→실무자→리뷰어→Lead = 4). Hermes 실측(PR #213 리뷰 §3): F1 형 세션이 **chainDepth 9** → `paused(loop)`. G8 실측 오염 위험 | PR #213 미해결 1 · 리뷰 NN1 | **높음 · G8 전** · T-S16 |
+| S-78 | **`router.chainDepth` 가 "마지막 사람 메시지 뒤 홉 수"** 라 형제 위임·합류 통보를 전부 깊이로 센다 — PRD FR-3.5 는 "멘션이 연쇄된 **깊이**"(Lead→실무자→리뷰어→Lead = 4). Hermes 실측(PR #213 리뷰 §3): F1 형 세션이 **chainDepth 9** → `paused(loop)`. G8 실측 오염 위험 | PR #213 미해결 1 · 리뷰 NN1 | **높음 · G8 전** · T-S16 | **해결 PR #216**(session_hop.cause_hop_id, F1 형 최대 깊이 2) |
 | S-79 | PR #213 리뷰 NN2·NN3·NN5 — `gateHop` 이 판정과 부수효과(pauseForLoop)를 한 함수에 · `ErrLoopLimit` 문장의 `LimitText()` 조각이 wording sink 를 지나는지 · install.sh 3단 클론 폴백이 전체 클론까지(타임아웃 위험) | PR #213 리뷰 | 낮음 |
 | W-13 | PR #212 리뷰 NN2·NN3·NN5 — 화면 테스트 픽스처의 `about:blank`(헬퍼로) · `selfDemotionText` 가 소유자 강등에도 관리자 문장 · server-wording.test.ts 205개(28%) 한 파일 — describe 별 분리 | PR #212 리뷰 | 낮음 |
+| S-80 | `resumeSession` 이 `session_hop` 을 전부 지워 **`max_hops_per_hour` 까지 리셋**된다 — PRD FR-3.5 "시간당 상한은 리셋되지 않는다"(재개 반복으로 세 층이 동시에 비는 우회). PR #216 이전부터의 동작. 함께: `cause_hop_id` 에 FK 를 두지 않는 이유 주석, `loadHops` 200행 창 밖 원인은 깊이 1 로 떨어짐(느슨한 방향) | PR #216 리뷰 (7)·NN1~NN4 | **중 · G9 전** |
 
 ## C (CLI)
 
