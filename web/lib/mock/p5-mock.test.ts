@@ -9,10 +9,13 @@
  *   · invites — 201 Invite(required 전부) · owner 역할 422 · 취소 204 → status revoked
  *   · notification — 개인, 기본값 email:true push:false all
  *   · test chat — 201 TestChat(required) · 202 TestChatTurn · 진행 중 409 · SSE delta/turn 페이로드 모양 · 닫힘 410 · 닫기 멱등 200
- *     · 컴퓨터 오프라인 409 runtime_offline
+ *     · 컴퓨터 오프라인 409 runtime_offline · 다른 멤버 403 not_chat_owner · 멤버 아님/없는 id 404 · 빈 content 422
+ *   · 응답의 **키 집합**은 실서버(T-S12 #200, T-W11 이 curl 로 받은 것)와 같다 — user 턴엔 usage·error 없음, 실패 턴에만 error,
+ *     닫을 때 못 넘긴 턴은 `closed_before_answer` 문장, 넘긴 턴은 cancel → `사람이 중단했습니다`
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dispatch, METRIC_DEFS, type Req } from "./handlers";
+import { W } from "./wording";
 import { defaultSettings, resetStore, store, type Subscriber } from "./store";
 import { SETTINGS_DEFAULTS } from "@/lib/settings";
 import type { Invite, Member, MetricsReport, NotificationSettings, Runtime, Session, TestChat, TestChatTurn, WorkspaceSettings } from "@/lib/api/types";
@@ -59,6 +62,9 @@ describe("getWorkspaceMetrics — PRD §11 표 그대로", () => {
       expect(m.note.length).toBeGreaterThan(10);
     }
     expect(METRIC_DEFS.map((d) => d.key)).toEqual(ORDER);
+    // 실서버(curl)의 키 집합 — 보고서 4키, 지표 8키(+ breakdown 은 그 지표만).
+    expect(Object.keys(r).sort()).toEqual(["computed_at", "metrics", "window", "workspace_id"]);
+    for (const m of r.metrics) expect(Object.keys(m).filter((k) => k !== "breakdown").sort()).toEqual(["key", "label", "n", "note", "target", "target_op", "unit", "value"]);
   });
 
   it("표본이 없으면 value null · n 0 — 0 을 실측처럼 보이지 않는다", async () => {
@@ -79,9 +85,13 @@ describe("getWorkspaceMetrics — PRD §11 표 그대로", () => {
     }
   });
 
-  it("window 쿼리를 그대로 돌려준다 · 멤버 아닌 사람은 403", async () => {
+  it("window 쿼리를 그대로 돌려준다 · 기간 표기가 아니면 422(서버 handlers_metrics.go 의 문장) · 멤버 아닌 사람은 403", async () => {
     const id = await ws();
     expect((await must<MetricsReport>("GET", `/workspaces/${id}/metrics?window=P7D`)).window).toBe("P7D");
+    expect((await must<MetricsReport>("GET", `/workspaces/${id}/metrics?window=PT12H`)).window).toBe("PT12H");
+    const bad = await call("GET", `/workspaces/${id}/metrics?window=bogus`);
+    expect(bad.status).toBe(422);
+    expect((bad.body as { errors: { field: string; message: string }[] }).errors).toEqual([{ field: "window", message: W.metrics_window_format }]);
     cookie = "";
     expect((await call("GET", `/workspaces/${id}/metrics`)).status).toBe(401);
   });
@@ -144,7 +154,17 @@ describe("workspace settings — 부분 갱신 · 권한", () => {
     expect(me.user.id).not.toBe(seo.user.id);
     await login("seoyeon@colab.dev");
     expect((await call("PATCH", `/workspaces/${id}/settings`, { body: { workdir_retention_days: 3 } })).status).toBe(200);
-    expect((await call("PATCH", `/workspaces/${id}/settings`, { body: { task_event_masking: true } })).status).toBe(403);
+    // S-70(#200): 본문에 task_event_masking 이 있으면 403 owner_required, 거절은 통째(같은 본문의 다른 칸도 적용 안 됨).
+    const r = await call("PATCH", `/workspaces/${id}/settings`, { body: { task_event_masking: true, workdir_retention_days: 5 } });
+    expect(r.status).toBe(403);
+    expect((r.body as { code: string; detail: string }).code).toBe("owner_required");
+    expect((r.body as { detail: string }).detail).toBe("활동 기록 마스킹은 워크스페이스 소유자만 바꿀 수 있습니다");
+    expect((await must<WorkspaceSettings>("GET", `/workspaces/${id}/settings`)).workdir_retention_days).toBe(3);
+  });
+
+  it("GET 의 키 집합이 실서버(S-69 뒤 멤버 GET 200)와 같다", async () => {
+    const s = await must<WorkspaceSettings>("GET", `/workspaces/${await ws()}/settings`);
+    expect(Object.keys(s).sort()).toEqual(["budget_policy", "context_reuse", "default_isolation", "loop_limits", "runtime_offline_grace", "runtime_policy", "task_event_masking", "updated_at", "workdir_disk_quota_gb", "workdir_retention_days", "workspace_id"]);
   });
 });
 
@@ -272,7 +292,10 @@ describe("test chat — FR-1.8.1 · daemon-protocol §4.5", () => {
     // 이전 턴이 진행 중이면 409.
     const busy = await call("POST", `/test-chats/${chat.id}/turns`, { body: { content: "또" } });
     expect(busy.status).toBe(409);
-    expect((busy.body as { detail: string }).detail).toBe("이전 답이 아직 오는 중입니다 — 끝난 뒤 보내 주세요");
+    expect((busy.body as { code: string; detail: string }).code).toBe("turn_in_progress");
+    expect((busy.body as { detail: string }).detail).toBe(W.test_chat_turn_in_progress);
+    // 실서버 202 본문(curl)과 같은 키 집합 — user 턴에는 usage·error 키가 없다.
+    expect(Object.keys(turn).sort()).toEqual(["at", "content", "role"]);
     await vi.advanceTimersByTimeAsync(5000);
     const deltas = frames.filter((f) => f.type === "test_chat.delta");
     const turns = frames.filter((f) => f.type === "test_chat.turn");
@@ -294,6 +317,10 @@ describe("test chat — FR-1.8.1 · daemon-protocol §4.5", () => {
     expect(after.turns).toHaveLength(2);
     expect(after.transport).toBe(p.transport);
     expect(after.cost_usd).toBeGreaterThan(0);
+    // 실서버 GET(curl)의 키 집합 — TestChat 15키, agent 턴은 usage 만(error 는 실패한 턴에만).
+    expect(Object.keys(after).sort()).toEqual(["agent_id", "closed_at", "cost_usd", "created_at", "estimated", "id", "input_tokens", "output_tokens", "profile_id", "runtime_id", "status", "transport", "turns", "updated_at", "user_id", "workspace_id"]);
+    expect(Object.keys(after.turns[1]).sort()).toEqual(["at", "content", "role", "usage"]);
+    expect(Object.keys(after.turns[1].usage!).sort()).toEqual(["input_tokens", "output_tokens"]);
     expect((await call("POST", `/test-chats/${chat.id}/turns`, { body: { content: "다음" } })).status).toBe(202);
   });
 
@@ -305,7 +332,39 @@ describe("test chat — FR-1.8.1 · daemon-protocol §4.5", () => {
     expect((await call("POST", `/test-chats/${chat.id}/close`)).status).toBe(200);
     const r = await call("POST", `/test-chats/${chat.id}/turns`, { body: { content: "x" } });
     expect(r.status).toBe(410);
-    expect((r.body as { code: string }).code).toBe("test_chat_closed");
+    expect((r.body as { code: string; detail: string }).code).toBe("test_chat_closed");
+    expect((r.body as { detail: string }).detail).toBe(W.test_chat_closed);
+  });
+
+  it("빈 content 는 422(서버 handlers_testchat.go 의 문장) — 닫힘·진행 중 검사보다 먼저", async () => {
+    const chat = await must<TestChat>("POST", `/agents/${await agentId()}/test-chats`, { body: {} });
+    const r = await call("POST", `/test-chats/${chat.id}/turns`, { body: { content: "" } });
+    expect(r.status).toBe(422);
+    expect((r.body as { errors: { field: string; message: string }[] }).errors).toEqual([{ field: "content", message: "보낼 메시지를 적어 주세요" }]);
+  });
+
+  it("닫을 때 아직 넘기지 못한 턴 → 빈 agent 턴 + closed_before_answer 문장(실서버 close 200 본문과 같은 모양)", async () => {
+    const chat = await must<TestChat>("POST", `/agents/${await agentId()}/test-chats`, { body: {} });
+    expect((await call("POST", `/test-chats/${chat.id}/turns`, { body: { content: "안녕" } })).status).toBe(202);
+    const closed = await must<TestChat>("POST", `/test-chats/${chat.id}/close`);
+    expect(closed.status).toBe("closed");
+    expect(closed.turns).toHaveLength(2);
+    expect(closed.turns[1]).toEqual({ role: "agent", content: "", at: closed.closed_at, error: W.test_chat_closed_before_answer });
+    expect(Object.keys(closed.turns[1]).sort()).toEqual(["at", "content", "error", "role"]);
+  });
+
+  it("컴퓨터에 넘어간 턴이 있는 채팅을 닫으면 cancel — 턴 error 는 FailureText(cancelled) 문장, 답은 확정되지 않는다", async () => {
+    const id = await ws();
+    const chat = await must<TestChat>("POST", `/agents/${await agentId()}/test-chats`, { body: {} });
+    const { frames } = tap(id);
+    await call("POST", `/test-chats/${chat.id}/turns`, { body: { content: "안녕" } });
+    await vi.advanceTimersByTimeAsync(400); // 데몬이 받아 delta 를 내는 중
+    expect(frames.some((f) => f.type === "test_chat.delta")).toBe(true);
+    const closed = await must<TestChat>("POST", `/test-chats/${chat.id}/close`);
+    expect(closed.turns[1].error).toBe("사람이 중단했습니다");
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(frames.filter((f) => f.type === "test_chat.turn")).toHaveLength(0);
+    expect((await must<TestChat>("GET", `/test-chats/${chat.id}`)).turns).toHaveLength(2);
   });
 
   it("고른 컴퓨터가 오프라인이면 409 runtime_offline · 다른 사람의 채팅은 403", async () => {
@@ -314,13 +373,30 @@ describe("test chat — FR-1.8.1 · daemon-protocol §4.5", () => {
     await must("POST", `/__mock/runtimes/${rt.id}/offline`, { body: {} });
     const r = await call("POST", `/agents/${await agentId()}/test-chats`, { body: { runtime_id: rt.id } });
     expect(r.status).toBe(409);
-    expect((r.body as { code: string }).code).toBe("runtime_offline");
-    // 온라인 컴퓨터가 하나도 없으면 자동 선택도 409.
-    expect((await call("POST", `/agents/${await agentId()}/test-chats`, { body: {} })).status).toBe(409);
-    // 다른 사람이 연 채팅은 403.
+    expect((r.body as { code: string; detail: string }).code).toBe("runtime_offline");
+    expect((r.body as { detail: string }).detail).toBe(W.test_chat_runtime_offline);
+    // 온라인 컴퓨터가 하나도 없으면 자동 선택도 409 — 실서버 code 는 no_online_runtime.
+    const none = await call("POST", `/agents/${await agentId()}/test-chats`, { body: {} });
+    expect(none.status).toBe(409);
+    expect((none.body as { code: string; detail: string }).code).toBe("no_online_runtime");
+    expect((none.body as { detail: string }).detail).toBe(W.test_chat_no_online_runtime);
+    // 다른 멤버가 연 채팅은 403 not_chat_owner · 멤버가 아니면(없는 id 도) 404 — 서버 testChatAccess 와 같다.
     store().runtimes.get(rt.id)!.status = "online";
     const chat = await must<TestChat>("POST", `/agents/${await agentId()}/test-chats`, { body: {} });
     await login("seoyeon@colab.dev");
-    expect((await call("GET", `/test-chats/${chat.id}`)).status).toBe(403);
+    const other = await call("GET", `/test-chats/${chat.id}`);
+    expect(other.status).toBe(403);
+    expect((other.body as { code: string; detail: string }).code).toBe("not_chat_owner");
+    expect((other.body as { detail: string }).detail).toBe(W.test_chat_not_owner);
+    await login();
+    const missing = await call("GET", "/test-chats/00000000-0000-0000-0000-000000000000");
+    expect(missing.status).toBe(404);
+    expect((missing.body as { detail: string }).detail).toBe("시험 대화를 찾을 수 없습니다");
+    // 워크스페이스 멤버가 아닌 사람은 채팅이 있어도 404(다른 워크스페이스의 존재를 드러내지 않는다).
+    const u = [...store().users.values()].find((x) => !store().members.some((m) => m.workspace_id === chat.workspace_id && m.user.id === x.id));
+    if (u) {
+      await login(u.email);
+      expect((await call("GET", `/test-chats/${chat.id}`)).status).toBe(404);
+    }
   });
 });

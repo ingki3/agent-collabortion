@@ -157,10 +157,12 @@ export function defaultSettings(workspaceId: string): WorkspaceSettings {
   return {
     workspace_id: workspaceId,
     loop_limits: { max_chain_depth: 8, max_hops_per_hour: 60, max_pair_roundtrips: 5 },
-    budget_policy: { default_session_budget_usd: null, default_task_budget_usd: null, workspace_monthly_budget_usd: null, pricing_overrides: {} },
+    // 실서버의 새 워크스페이스(T-W11 curl): `budget_policy: {}` · `runtime_policy: {max_concurrent_tasks: 10}` — 안 정한 칸은 키 자체가
+    // 없다(null 이 아니라). 화면은 그 모양을 그대로 받아야 한다.
+    budget_policy: {},
     context_reuse: { max_summary_tokens: 2000, include_artifacts: "links" },
     default_isolation: "none",
-    runtime_policy: { max_concurrent_tasks: 10, per_kind: {} },
+    runtime_policy: { max_concurrent_tasks: 10 },
     workdir_retention_days: 14,
     workdir_disk_quota_gb: null,
     runtime_offline_grace: "P7D",

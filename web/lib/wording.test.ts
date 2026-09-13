@@ -15,6 +15,8 @@ import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { capabilityAlerts, capabilityDetails } from "@/components/RuntimeCard";
 import { sessionBadgeLabel, PAUSE_REASON_LABEL } from "@/lib/session-label";
+import { VERDICT_LABEL, NOT_MEASURABLE } from "@/lib/settings";
+import { transportLabel } from "@/lib/test-chat";
 import { PAGE_COPY, type Screen } from "@/components/PageHead";
 import { NAV_ITEMS } from "@/components/AppNav";
 
@@ -71,14 +73,16 @@ function visibleStrings(file: string, src: string): Visible[] {
     .replace(/\$\{[^{}]*\}/g, keepQuoted)
     // className·data-* 등 화면에 읽히지 않는 속성 값도 코드다.
     .replace(/\b(className|class|data-[a-z-]+|key|href|src|htmlFor|role|id)=\{?["'`][^"'`]*["'`]\}?/g, "");
-  body.split("\n").forEach((line, i) => {
-    const s = line.trim();
+  // 치환한 `body` 의 줄을 읽는다 — 원본 `src` 가 아니다(PR #199 리뷰 NN2 가 의심한 자리. 아래 "NN2" 테스트가 원본에는 없는
+  // 치환 결과만이 풀에 드는 것으로 이를 잰다).
+  body.split("\n").forEach((bodyLine, i) => {
+    const s = bodyLine.trim();
     if (s.startsWith("//") || s.startsWith("*") || s.startsWith("/*")) return; // 주석은 문구가 아니다
-    for (const m of line.matchAll(/>([^<>{}]+)</g)) {
+    for (const m of bodyLine.matchAll(/>([^<>{}]+)</g)) {
       const t = m[1].split(/\s+/).filter(Boolean).join(" ");
       if (t && !/^[\s;,.()[\]/*+&|-]*$/.test(t)) out.push({ file, line: i + 1, text: t });
     }
-    for (const m of line.matchAll(/"([^"\n]{2,})"|'([^'\n]{2,})'|`([^`\n]{2,})`/g)) {
+    for (const m of bodyLine.matchAll(/"([^"\n]{2,})"|'([^'\n]{2,})'|`([^`\n]{2,})`/g)) {
       const t = m[1] ?? m[2] ?? m[3];
       const prose = /[가-힣]/.test(t) || (t.includes(" ") && !/^(\/|http|@\/|\.)/.test(t));
       if (!prose) continue;
@@ -252,6 +256,15 @@ describe("보간식 안의 문구도 풀에 든다 (NN1)", () => {
     expect(v.some((x) => /런타임 오프라인/.test(x.text))).toBe(true);
   });
 
+  it("루프는 치환한 body 의 줄을 읽는다 — 원본에는 없는 치환 결과가 풀에 든다 (PR #199 NN2)", () => {
+    // 여러 줄에 걸친 `${…}` 는 원본에서는 어느 한 줄의 백틱 리터럴로도 잡히지 않는다(`[^`\n]`). keepQuoted 가 한 줄로 접은 뒤의
+    // body 를 읽어야만 안의 문구가 풀에 든다 — 원본 `line` 을 읽었다면 이 단언은 실패한다.
+    const v = visibleStrings("x.tsx", "const l = `${paused\n  ? \"일시정지 · 런타임 오프라인\"\n  : \"진행 중\"}`;");
+    expect(v.map((x) => x.text)).toEqual([' "일시정지 · 런타임 오프라인" "진행 중" ']);
+    // 같은 이유로 식별자는 지워진 채다 — 원본을 읽었다면 `paused` 가 남는다.
+    expect(v.some((x) => /\bpaused\b/.test(x.text))).toBe(false);
+  });
+
   it("실제 소스에서 보간식 안에 사는 문구가 풀에 있다", () => {
     // RebindDialog 의 확인 버튼 — `${chosen.runtime.name} 으로 옮기기` 는 식별자와 문구가 한 리터럴에 섞인 예다.
     expect(POOL.some((v) => v.file === "components/RebindDialog.tsx" && /으로 옮기기/.test(v.text))).toBe(true);
@@ -326,10 +339,27 @@ describe("새 문구의 존재 — 옛말 0건만으로는 안 잰다 (NN4)", ()
     expect(readFileSync(join(ROOT, "components/MetricsTable.tsx"), "utf8")).toMatch(/formatMetricValue\(m\.value, m\.unit\)/);
   });
 
+  it("대시보드 판정 라벨 셋 — 화면 텍스트+title 로 그려지는 VERDICT_LABEL 이 못박혀 있다 (PR #199 NN1)", () => {
+    // `"미측정"` 으로 바꿔도 초록이던 구멍 — 세 라벨의 존재를 재고, unknown 은 값 칸의 NOT_MEASURABLE 과 같은 말이어야 한다
+    // (같은 사건을 두 칸이 다른 말로 부르면 안 된다).
+    expect(VERDICT_LABEL).toEqual({ met: "목표 충족", missed: "목표 미달", unknown: NOT_MEASURABLE });
+    for (const label of Object.values(VERDICT_LABEL)) expect(inPool("lib/settings.ts", label)).toBe(true);
+    const table = readFileSync(join(ROOT, "components/MetricsTable.tsx"), "utf8");
+    expect(table).toMatch(/VERDICT_LABEL\[/);
+  });
+
   it("시험 대화 — '세션이 아니다' 안내 한 줄과 잠금 사유가 화면에 있다", () => {
     expect(inPool("components/TestChatPanel.tsx", "세션이 아닙니다")).toBe(true);
     expect(inPool("lib/test-chat.ts", "답을 기다리는 중입니다")).toBe(true);
     expect(inPool("lib/test-chat.ts", "닫힌 시험 대화입니다")).toBe(true);
+  });
+
+  it("시험 대화 — 실행 경로 자리는 값이 없을 때 '첫 답이 오면 표시'(FR-1.8.1 상시 배지) (PR #199 NN5)", () => {
+    expect(transportLabel(null)).toBe("첫 답이 오면 표시");
+    expect(transportLabel(undefined)).toBe("첫 답이 오면 표시");
+    expect(transportLabel("acp")).toBe("ACP");
+    expect(inPool("lib/test-chat.ts", "첫 답이 오면 표시")).toBe(true);
+    expect(readFileSync(join(ROOT, "components/TestChatPanel.tsx"), "utf8")).toMatch(/transportLabel\(/);
   });
 
   it("W-10 — 세션 설정의 컴퓨터는 이름이고, 없으면 '연결 끊긴 컴퓨터'. id 앞 8자(slice(0, 8))는 사라졌다", () => {

@@ -11,6 +11,8 @@
  *   - 목에만 있는 경로(서버가 아직 안 만든 op)의 문장은 여기 넣지 않는다 — 대조할 정답이 없다.
  */
 
+import type { Metric } from "@/lib/api/types";
+
 export interface ServerSentence {
   /** 서버 소스의 문장(리터럴 그대로). */
   text: string;
@@ -174,12 +176,34 @@ export const SERVER = {
   // ── 초대 (internal/auth/auth.go) — S14 멤버 탭 ──
   invite_owner_role: { text: "소유자 역할은 초대로 줄 수 없습니다", at: "internal/auth/auth.go" },
   invite_expiry_max: { text: "초대 유효 기간은 최대 720시간입니다", at: "internal/auth/auth.go" },
+  // ── 워크스페이스 설정 보안 탭 (internal/httpapi/handlers_settings.go) — S-70(T-S12 #200): 본문에 `task_event_masking` 이 있으면
+  //    owner 아닌 admin 은 403 `owner_required`, 거절은 통째(같은 본문의 다른 칸도 적용 안 됨). ──
+  masking_owner_required: { text: "활동 기록 마스킹은 워크스페이스 소유자만 바꿀 수 있습니다", at: "internal/httpapi/handlers_settings.go" },
+  // ── 관측 지표 (internal/httpapi/handlers_metrics.go) — `window` 가 ISO 8601 기간이 아니면 422 ──
+  metrics_window_format: { text: "집계 기간은 P30D · P2W · PT12H 같은 기간 표기로 적어 주세요", at: "internal/httpapi/handlers_metrics.go" },
+  // ── 시험 대화 (internal/testchat · httpapi/handlers_testchat.go) — T-S12 #200 ──
+  test_chat_no_default_profile: { text: "이 에이전트에 기본 프로파일이 없습니다 — 프로파일 하나를 기본으로 지정한 뒤 다시 시도해 주세요", at: "internal/testchat/testchat.go" },
+  test_chat_agent_archived: { text: "보관된 에이전트와는 시험 대화를 할 수 없습니다", at: "internal/testchat/testchat.go" },
+  test_chat_runtime_offline: { text: "선택한 컴퓨터가 연결돼 있지 않습니다 — 컴퓨터를 켜고 다시 연결하거나 다른 컴퓨터를 골라 주세요", at: "internal/testchat/testchat.go" },
+  test_chat_no_online_runtime: { text: "이 프로파일을 실행할 수 있는 연결된 컴퓨터가 없습니다 — 컴퓨터를 연결하거나 다른 프로파일로 시험해 주세요", at: "internal/testchat/testchat.go" },
+  test_chat_closed: { text: "이미 끝난 시험 대화입니다 — 새 시험 대화를 시작해 주세요", at: "internal/testchat/testchat.go" },
+  test_chat_turn_in_progress: { text: "에이전트가 아직 답하는 중입니다 — 답이 오면 다음 메시지를 보낼 수 있습니다", at: "internal/testchat/testchat.go" },
+  // 닫을 때 아직 컴퓨터에 넘기지 못한(queued) 턴 — 서버가 빈 agent 턴에 이 `error` 를 붙인다.
+  test_chat_closed_before_answer: { text: "답을 받기 전에 시험 대화를 끝냈습니다", at: "internal/testchat/testchat.go" },
+  // 진행 중(dispatched 이상) 턴이 있는 채팅을 닫으면 cancel → 데몬 finish(failed/cancelled) → `FailureText` 의 이 문장.
+  test_chat_cancelled: { text: "사람이 중단했습니다", at: "internal/testchat/daemon.go" },
+  test_chat_not_owner: { text: "이 시험 대화를 연 사람만 볼 수 있습니다", at: "internal/httpapi/handlers_testchat.go" },
+  // 404 — 서버는 `apperr.NotFoundNouns` 밖에서 조립한다(handlers_testchat.go `testChatNotFound`, 이유는 그 주석). 서버가 표로
+  // 옮기면 이 항목은 빨개지고 `NOT_FOUND_NOUN.test_chat` 으로 옮긴다.
+  test_chat_not_found: { text: "시험 대화를 찾을 수 없습니다", at: "internal/httpapi/handlers_testchat.go" },
+  test_chat_content_required: { text: "보낼 메시지를 적어 주세요", at: "internal/httpapi/handlers_testchat.go" },
 } as const satisfies Record<string, ServerSentence>;
 
 /**
- * **서버가 아직 만들지 않은 op** 의 목 문장(T-W6 — updateMemberRole·removeMember·notification·metrics·test chat 은
- * T-S12 가 동시에 만든다). 대조할 정답이 없으므로 `SERVER` 표에 넣지 않고 여기 따로 둔다 — T-S12 가 머지되면 Lead 가
- * 이 표를 `SERVER` 로 옮기며 `at` 을 채운다(PR 본문의 "목이 흉내 낸 서버 응답" 목록이 그 대조표다).
+ * **서버가 아직 만들지 않은 op** 의 목 문장 — T-S12(#200) 뒤에도 `unimplemented.go` 에 남아 있는
+ * updateMemberRole · removeMember · getNotificationSettings · updateNotificationSettings 의 것만. 대조할 정답이 없으므로
+ * `SERVER` 표에 넣지 않고 여기 따로 둔다 — 서버가 만들면 그 문장을 `SERVER` 로 옮기며 `at` 을 채운다.
+ * (시험 대화·지표·보안 탭 403 은 T-W11 에서 `SERVER` 로 옮겼다 — `server-wording.test.ts` 가 서버 소스와 대조한다.)
  * 규칙은 같다: §8.4 의 말, `Problem.detail` 한 문장, 화면 문구는 이 표를 통해서만.
  */
 export const MOCK_ONLY = {
@@ -188,19 +212,48 @@ export const MOCK_ONLY = {
   owner_demote_owner_only: "소유자 강등은 소유자만 할 수 있습니다",
   member_is_director: "이 멤버가 Director 인 진행 중 세션이 있습니다 — 먼저 Director 를 교체해 주세요",
   role_enum: "역할은 owner · admin · member 중 하나여야 합니다",
-  // 워크스페이스 설정 보안 탭(updateWorkspaceSettings — 계약은 owner 만, 서버 P2 구현은 아직 admin 까지 허용한다: T-W6 보고)
-  masking_owner_only: "활동 기록 마스킹은 소유자만 바꿀 수 있습니다",
-  // 시험 대화 (createTestChat · postTestChatTurn · closeTestChat)
-  test_chat_runtime_offline: "이 컴퓨터의 연결이 끊겨 있습니다 — 다른 컴퓨터를 골라 주세요",
-  test_chat_no_runtime: "이 프로파일을 실행할 수 있는 온라인 컴퓨터가 없습니다 — 먼저 컴퓨터를 연결해 주세요",
-  test_chat_turn_in_progress: "이전 답이 아직 오는 중입니다 — 끝난 뒤 보내 주세요",
-  test_chat_closed: "닫힌 시험 대화입니다 — 새로 열어 주세요",
-  test_chat_not_owner: "이 시험 대화를 연 사람만 볼 수 있습니다",
-  // 시험 대화 첫 턴 머리말(daemon-protocol §4.5 — 서버가 프롬프트 앞에 붙인다; 목은 에이전트 답에 그 사실을 비춘다)
-  test_chat_agent_reply_head: "이것은 시험 대화입니다 — 플랫폼 명령은 쓸 수 없습니다. ",
   // 알림 (updateNotificationSettings)
   subscription_enum: "구독 기본값은 전부 · 사람 확인만 · 종료만 중 하나여야 합니다",
 } as const;
+
+/**
+ * 관측 지표 10개의 정의 — 서버 `internal/metrics/metrics.go` 의 `Defs` 표(PRD §11 열 순서)를 **그대로** 옮긴 것.
+ * `label`·`note` 는 S14 「대시보드」에 그대로 보이는 문장이라(§8.4) 서버가 정하고, `server-wording.test.ts` 가 Go 소스를 파싱해
+ * 항목 단위(key·unit·target·target_op·label·note)로 대조한다 — 서버가 한 글자라도 바꾸면 여기가 빨개진다.
+ */
+export type MetricDef = Pick<Metric, "key" | "unit" | "target" | "target_op" | "label" | "note">;
+export const METRIC_DEFS: readonly MetricDef[] = [
+  { key: "f1_minutes", unit: "minutes", target: 15, target_op: "lt",
+    label: "컴퓨터 연결부터 첫 세션 완료까지 걸린 시간",
+    note: "사용자별로 첫 컴퓨터가 연결된 시각부터 그 사용자가 Director 인 첫 완료 세션이 끝난 시각까지, 그 중앙값(분). 표본 수는 그런 사용자 수." },
+  { key: "auto_complete_rate", unit: "ratio", target: 0.6, target_op: "gt",
+    label: "세션이 저절로 끝난 비율",
+    note: "완료된 세션 중 Director 가 직접 끝내지 않고 종료 조건으로 끝난 비율." },
+  { key: "hitl_response_minutes", unit: "minutes", target: 30, target_op: "lt",
+    label: "확인 요청에 사람이 답하기까지 걸린 시간",
+    note: "확인 요청이 만들어진 때부터 사람이 답한 때까지, 그 중앙값(분). 기한이 지나 자동으로 진행된 요청은 빼고 센다." },
+  { key: "delegation_autonomous_rate", unit: "ratio", target: 0.7, target_op: "gt",
+    label: "에이전트 사이의 위임이 사람 개입 없이 처리된 비율",
+    note: "다른 에이전트가 넘긴 할 일 중 확인 요청도 막힘도 없이 완료된 비율." },
+  { key: "parallel_wallclock_reduction", unit: "ratio", target: 0.4, target_op: "gt",
+    label: "여러 작업 줄기를 함께 돌려 줄어든 시간의 비율",
+    note: "작업 줄기가 둘 이상인 완료 세션에서, 세션 시작부터 완료까지 걸린 시간이 각 할 일에 걸린 시간의 합보다 얼마나 짧았는지(1 - 전체 시간 ÷ 합)의 평균. 표본 수는 세션 수." },
+  { key: "task_success_rate_by_runtime", unit: "ratio", target: 0.85, target_op: "gt",
+    label: "컴퓨터 종류별 할 일 성공률",
+    note: "컴퓨터 종류별로 완료된 할 일 ÷ (완료 + 실패). 종류별 값과 목표는 따로 나눠 준다." },
+  { key: "duplicate_after_resume_rate", unit: "ratio", target: 0.01, target_op: "lt",
+    label: "다시 이어 간 뒤 같은 메시지를 두 번 올린 비율",
+    note: "두 번째 이상 실행된 할 일 중 같은 내용의 메시지가 두 번 올라간 것이 관측된 비율." },
+  { key: "resume_success_rate", unit: "ratio", target: 0.9, target_op: "gt",
+    label: "다시 이어 갈 때 이전 대화를 그대로 이어받은 비율",
+    note: "이전 대화를 이어받으려 한 실행 중 실제로 이어받은(처음부터 다시 시작하지 않은) 비율." },
+  { key: "blocked_response_minutes", unit: "minutes", target: 5, target_op: "lt",
+    label: "막힌 질문에 답이 닿기까지 걸린 시간",
+    note: "작업 줄기가 막혀 질문을 올린 때부터 그 질문에 첫 답글이 달린 때까지, 그 중앙값(분)." },
+  { key: "weekly_active_sessions", unit: "count", target: 5, target_op: "gt",
+    label: "이번 주에 움직인 세션 수",
+    note: "최근 7일 안에 할 일이 하나라도 돌아간 세션 수. 표본 수는 이 워크스페이스에서 할 일을 돌린 적 있는 세션 수." },
+];
 
 export type ServerKey = keyof typeof SERVER;
 /** 문장만 — `W.no_runtime` 처럼 쓴다. */

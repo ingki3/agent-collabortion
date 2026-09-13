@@ -13,11 +13,14 @@
  *   (c) `josa` 는 `apperr.Josa` 와 같은 답을 낸다(받침 유무·비한글).
  *   (d) `handlers.ts` 는 표의 모든 키를 쓴다(죽은 행 없음), 옛 문장(PR #192 가 지목한 12곳의 말)은 남아 있지 않다.
  *   (e) 세션 시작 시스템 메시지 — 목·`e2e/u1.sh` 단언·서버 `sessions.go` 가 같은 머리말을 쓴다.
+ *   (f) 관측 지표 10개(`METRIC_DEFS`)는 서버 `internal/metrics/metrics.go` 의 `Defs` 와 **항목 단위로 같다**(key·unit·target·
+ *       target_op·label·note — Go 소스를 파싱해 비교). S14 「대시보드」가 그대로 보이는 문장이라 서버가 정한다(T-W11).
+ *   (g) T-S12(#200) 가 만든 op — 시험 대화·지표·보안 탭 403 — 의 문장은 `MOCK_ONLY` 에 남아 있지 않고 `SERVER` 에서 온다.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { josa, NOT_FOUND_NOUN, notFound, SERVER, STATUS_LABEL, TITLE, fmt, W } from "./wording";
+import { josa, METRIC_DEFS, MOCK_ONLY, NOT_FOUND_NOUN, notFound, SERVER, STATUS_LABEL, TITLE, fmt, W } from "./wording";
 
 const SERVER_ROOT = join(__dirname, "..", "..", "..", "server");
 const HANDLERS = readFileSync(join(__dirname, "handlers.ts"), "utf8");
@@ -46,7 +49,7 @@ describe("(a) SERVER 표의 문장은 server/ 소스의 그 파일에 글자 단
     expect(goSource(at)).toContain(text);
   });
   it("표가 비어 있지 않고 파일 경로는 server/ 기준 internal/… 이다", () => {
-    expect(Object.keys(SERVER).length).toBeGreaterThanOrEqual(50);
+    expect(Object.keys(SERVER).length).toBeGreaterThanOrEqual(65);
     for (const { at } of Object.values(SERVER)) expect(at).toMatch(/^internal\/[\w/]+\.go$/);
   });
 });
@@ -119,6 +122,14 @@ describe("(d) handlers.ts 는 표를 전부 쓰고 옛 문장을 남기지 않�
       "owner·admin 만 할 수 있습니다",
       "비밀번호 불일치",
       "세션 시작 — goal",
+      // T-W6 가 서버보다 먼저 지어 둔 시험 대화·보안 탭 문장(MOCK_ONLY 였던 것) — T-S12 #200 의 실제 문장으로 바뀌었다(T-W11)
+      "이전 답이 아직 오는 중입니다",
+      "닫힌 시험 대화입니다 — 새로 열어 주세요",
+      "이 컴퓨터의 연결이 끊겨 있습니다",
+      "온라인 컴퓨터가 없습니다",
+      "활동 기록 마스킹은 소유자만",
+      "취소됨 — 시험 대화를 닫았습니다",
+      "이것은 시험 대화입니다",
     ]) expect(HANDLERS, old).not.toContain(old);
   });
   it("Problem.title 을 손으로 적지 않는다 — 상태에서 정한다(apperr.Title)", () => {
@@ -141,5 +152,68 @@ describe("(e) 세션 시작 메시지 — 목·u1.sh·서버가 같은 머리말
     expect(U1).toContain(W.session_started.trimEnd());
     expect(U1).not.toContain("세션 시작 — goal");
     expect(U1).not.toContain("Session started. Goal:");
+  });
+});
+
+describe("(f) 관측 지표 10개 — 목 METRIC_DEFS 는 서버 metrics.Defs 와 항목 단위로 같다", () => {
+  /** Go `var Defs = []Def{ {Key: "…", Unit: "…", Target: n, TargetOp: "…", Label: "…", Note: "…"}, … }` 를 파싱한다. */
+  function goDefs(src: string) {
+    const m = src.match(/var Defs = \[\]Def\{([\s\S]*?)\n\}/);
+    if (!m) throw new Error("metrics.go 에 Defs 표가 없다");
+    const out: { key: string; unit: string; target: number; target_op: string; label: string; note: string }[] = [];
+    for (const item of m[1].split(/\},\s*\n/)) {
+      const f = (name: string) => item.match(new RegExp(`\\b${name}:\\s*"([^"]*)"`))?.[1];
+      const key = f("Key");
+      if (!key) continue;
+      out.push({
+        key, unit: f("Unit")!, target: Number(item.match(/\bTarget:\s*([\d.]+)/)![1]), target_op: f("TargetOp")!,
+        label: f("Label")!, note: f("Note")!,
+      });
+    }
+    return out;
+  }
+  const go = goDefs(goSource("internal/metrics/metrics.go"));
+
+  it("10개 · 같은 순서 · 같은 값(key·unit·target·target_op·label·note)", () => {
+    expect(go).toHaveLength(10);
+    expect(METRIC_DEFS.map((d) => ({ ...d }))).toEqual(go);
+  });
+  it("handlers.ts 는 지표 정의를 wording.ts 에서 가져온다(손으로 다시 적지 않는다)", () => {
+    expect(HANDLERS).toMatch(/import \{[^}]*\bMETRIC_DEFS\b[^}]*\} from "\.\/wording"/);
+    expect(HANDLERS).not.toMatch(/const METRIC_DEFS\b/);
+    expect(HANDLERS).toContain("W.metrics_window_format");
+  });
+});
+
+describe("(g) T-S12 #200 이 만든 op 의 문장은 MOCK_ONLY 가 아니라 SERVER 에서 온다", () => {
+  it("MOCK_ONLY 에는 서버가 아직 안 만든 멤버·알림 op 의 문장만 남았다", () => {
+    expect(Object.keys(MOCK_ONLY).sort()).toEqual(["last_owner", "member_is_director", "owner_demote_owner_only", "role_enum", "subscription_enum"]);
+    // 그 op 들은 실제로 아직 unimplemented.go 에 있다 — 서버가 만들면 이 단언이 빨개지고, 그때 SERVER 로 옮긴다.
+    const un = goSource("internal/httpapi/unimplemented.go");
+    for (const op of ["UpdateMemberRole", "RemoveMember", "GetNotificationSettings", "UpdateNotificationSettings"]) expect(un).toContain(`func (unimplemented) ${op}(`);
+    for (const op of ["CreateTestChat", "PostTestChatTurn", "CloseTestChat", "GetTestChat", "GetWorkspaceMetrics"]) expect(un).not.toContain(`func (unimplemented) ${op}(`);
+  });
+  it("시험 대화 — 409·410·403·404·422 의 code 와 문장이 서버와 같다", () => {
+    expect(HANDLERS).toContain('new Problem(409, "turn_in_progress", W.test_chat_turn_in_progress)');
+    expect(HANDLERS).toContain('new Problem(410, "test_chat_closed", W.test_chat_closed)');
+    expect(HANDLERS).toContain('new Problem(409, "runtime_offline", W.test_chat_runtime_offline)');
+    expect(HANDLERS).toContain('new Problem(409, "no_online_runtime", W.test_chat_no_online_runtime)');
+    expect(HANDLERS).toContain('new Problem(403, "not_chat_owner", W.test_chat_not_owner)');
+    expect(HANDLERS).toContain('new Problem(404, "not_found", W.test_chat_not_found)');
+    expect(HANDLERS).toContain('validation([{ field: "content", message: W.test_chat_content_required }])');
+    // 서버 `testChatAccess`: 워크스페이스 멤버가 아니면 404(403 not_member 가 아니다).
+    const fn = HANDLERS.match(/function testChatOf[\s\S]*?\n\}/)![0];
+    expect(fn).not.toContain("requireMember(");
+    expect(fn).toContain("W.test_chat_not_found");
+  });
+  it("보안 탭(S-70) — admin 의 task_event_masking PATCH 는 403 owner_required 서버 문장 · 목 전용 분기 없음", () => {
+    expect(HANDLERS).toContain('new Problem(403, "owner_required", W.masking_owner_required)');
+    expect(HANDLERS).not.toContain("masking_owner_only");
+    expect(readFileSync(join(__dirname, "wording.ts"), "utf8")).not.toContain("masking_owner_only");
+    expect(goSource("internal/httpapi/handlers_settings.go")).toContain('apperr.Forbidden("owner_required", "');
+  });
+  it("403 admin 의 code 도 서버(admin_required)와 같다", () => {
+    expect(HANDLERS).not.toContain('"not_admin"');
+    expect(goSource("internal/httpapi/principal.go")).toContain('apperr.Forbidden("admin_required", "');
   });
 });

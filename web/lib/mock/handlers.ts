@@ -12,7 +12,7 @@ import {
   defaultSettings, emit, makeAgent, makeRuntime, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges,
   sseFrame, store, stripUser, TEMPLATES, uuid, type MockInvite, type MockTask, type Store, type Subscriber,
 } from "./store";
-import { fmt, josa, MOCK_ONLY, NOT_FOUND_NOUN, notFound, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
+import { fmt, josa, METRIC_DEFS, MOCK_ONLY, NOT_FOUND_NOUN, notFound, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
 /**
  * RFC 9457 Problem — `title` 은 서버(`apperr.Title`)처럼 **상태 코드에서** 정한다. 문장(`detail`·`errors[].message`)은
@@ -208,7 +208,7 @@ on("GET", "/workspaces/{id}/runtimes", (req, p) => {
 on("POST", "/workspaces/{id}/runtimes/pairings", (req, p) => {
   const s = store();
   const { member } = requireMember(s, req, p.id);
-  if (member.role === "member") throw new Problem(403, "not_admin", W.admin_only);
+  if (member.role === "member") throw new Problem(403, "admin_required", W.admin_only);
   const token = `cpk_${uuid().replace(/-/g, "").slice(0, 16)}`;
   // **W-4 확정(2026-09-07)**: `install_commands` 는 **API 오리진**(`COLAB_SERVER_URL`, 기본 :8080)이고
   // 초대 링크만 웹 오리진(`COLAB_WEB_URL`, :3000)이다 — 서버 `runtimes.go:85` + `g3_test.go` S-5 가 그렇게
@@ -2084,13 +2084,14 @@ on("POST", "/__mock/workdir-quota", (req) => {
 // ═════════════════════════════════════════════════════════════════════════════
 // P5 (T-W6) — S14 설정 8탭 + 대시보드 · S10 시험 대화.
 // 응답 모양은 openapi 스키마를 **글자 단위로** 따른다(T-W10 의 교훈 — 목이 서버와 다른 말을 하면 화면 테스트가 실서버를
-// 대변하지 못한다). 서버(T-S12)가 동시에 만드는 op 의 문장은 `wording.ts` 의 `MOCK_ONLY` 에 있다.
+// 대변하지 못한다). 응답 모양과 문장은 실서버(T-S12 #200)를 curl 한 것과 필드 단위로 맞췄다(T-W11) — 문장은 `wording.ts` 의
+// `SERVER` 표(서버 소스와 대조), 서버가 아직 안 만든 멤버·알림 op 의 문장만 `MOCK_ONLY`.
 // ═════════════════════════════════════════════════════════════════════════════
 
 /** owner·admin 만 — 서버 `s.admin` 과 같은 403(`W.admin_only`). */
 function requireAdmin(s: Store, req: Req, workspaceId: string) {
   const r = requireMember(s, req, workspaceId);
-  if (r.member.role !== "owner" && r.member.role !== "admin") throw new Problem(403, "not_admin", W.admin_only);
+  if (r.member.role !== "owner" && r.member.role !== "admin") throw new Problem(403, "admin_required", W.admin_only);
   return r;
 }
 
@@ -2106,7 +2107,7 @@ function settingsOf(s: Store, workspaceId: string): WorkspaceSettings {
 }
 on("GET", "/workspaces/{id}/settings", (req, p) => {
   const s = store();
-  // 계약: 권한은 워크스페이스 멤버(읽기). 서버 P2 구현은 admin 을 요구한다(T-W6 보고) — 목은 계약을 따른다.
+  // 권한은 워크스페이스 멤버(읽기) — 서버도 S-69(#200) 뒤 멤버 GET 200.
   requireMember(s, req, p.id);
   return ok(settingsOf(s, p.id));
 });
@@ -2114,8 +2115,8 @@ on("PATCH", "/workspaces/{id}/settings", (req, p) => {
   const s = store();
   const { member } = requireAdmin(s, req, p.id);
   const b = body<WorkspaceSettingsUpdate>(req);
-  // 보안 탭(`task_event_masking`)은 owner 만 — openapi updateWorkspaceSettings.
-  if (b.task_event_masking !== undefined && member.role !== "owner") throw new Problem(403, "owner_only", MOCK_ONLY.masking_owner_only);
+  // 보안 탭(`task_event_masking`)은 owner 만 — 서버 S-70(#200): 본문에 그 칸이 있으면 admin 은 403 `owner_required`, 거절은 통째.
+  if (b.task_event_masking !== undefined && member.role !== "owner") throw new Problem(403, "owner_required", W.masking_owner_required);
   const errors: { field: string; message: string }[] = [];
   if (b.loop_limits) {
     const check = (name: keyof LoopLimits, max: number) => {
@@ -2256,21 +2257,11 @@ on("PATCH", "/me/notification-settings", (req) => {
 
 // ── 관측 대시보드(PRD §11 · openapi getWorkspaceMetrics) ──
 /**
- * §11 표의 **열 순서 그대로** 10개. `note` 는 getWorkspaceMetrics description 의 정의 문장. 목은 몇 개를 `value: null · n: 0`
- * 으로 두어 "아직 잴 수 없음" 경로가 화면에 보이게 한다(0 을 실측처럼 보이지 않는다). 나머지 값은 데모용 고정값이다.
+ * 10개의 정의(key·label·unit·target·target_op·note)는 서버 `metrics.Defs` 를 옮긴 `wording.ts` 의 `METRIC_DEFS` — 서버 소스와
+ * 대조된다. 값만 데모용 고정값이다: 몇 개를 `value: null · n: 0` 으로 두어 "아직 잴 수 없음" 경로가 화면에 보이게 한다
+ * (실서버의 빈 워크스페이스는 10개 전부 null · n 0 — T-W11 실측).
  */
-export const METRIC_DEFS: { key: Metric["key"]; label: string; unit: Metric["unit"]; target: number; target_op: Metric["target_op"]; note: string }[] = [
-  { key: "f1_minutes", label: "데몬 설치 → 첫 세션 완료까지 시간 (신규 사용자)", unit: "minutes", target: 15, target_op: "lt", note: "사용자별 첫 컴퓨터가 온라인이 된 시각 → 그 사용자가 Director 인 첫 completed 세션의 completed_at, 중앙값(분). n = 그런 사용자 수." },
-  { key: "auto_complete_rate", label: "세션 자동 완료 비율 (수동 종료 대비)", unit: "ratio", target: 0.6, target_op: "gt", note: "completed 세션 중 수동 종료(completeSession 호출)가 아닌 비율." },
-  { key: "hitl_response_minutes", label: "사람 확인 요청당 Director 응답 시간", unit: "minutes", target: 30, target_op: "lt", note: "hitl_request answered_at - created_at 중앙값(분), auto_answered 제외." },
-  { key: "delegation_autonomous_rate", label: "에이전트 간 위임 중 사람 개입 없이 처리된 비율", unit: "ratio", target: 0.7, target_op: "gt", note: "delegated_from_task_id 가 있는 task 중 HITL·blocked 없이 completed 된 비율." },
-  { key: "parallel_wallclock_reduction", label: "병렬 작업 줄기 세션의 wall-clock 단축", unit: "ratio", target: 0.4, target_op: "gt", note: "lane ≥ 2 인 완료 세션의 wall-clock(세션 시작→완료) 대비 그 세션 task started_at→finished_at 합의 단축 비율(1 - wall/sum). n = 세션 수." },
-  { key: "task_success_rate_by_runtime", label: "컴퓨터 종류별 할 일 성공률", unit: "ratio", target: 0.85, target_op: "gt", note: "runtime_kind 별 completed / (completed+failed); breakdown[] 에 종류별로." },
-  { key: "duplicate_after_resume_rate", label: "재개·재시도 후 중복 작업 발생률", unit: "ratio", target: 0.01, target_op: "lt", note: "attempt ≥ 2 인 task 중 posted_message_ids 재게시가 관측된 비율(같은 attempt 가 같은 멱등키로 두 번 게시)." },
-  { key: "resume_success_rate", label: "재진입 시 이어서 실행 성공률", unit: "ratio", target: 0.9, target_op: "gt", note: "resume_outcome 이 있는 attempt 중 resumed 비율." },
-  { key: "blocked_response_minutes", label: "답을 기다리는 질문이 위임자에게 닿아 답을 받기까지의 시간", unit: "minutes", target: 5, target_op: "lt", note: "lane blocked 진입 → blocked_message_id 답글 시각 중앙값(분)." },
-  { key: "weekly_active_sessions", label: "주간 활성 세션 / 활성 워크스페이스", unit: "count", target: 5, target_op: "gt", note: "최근 7일 안에 task 가 하나라도 돈 세션 수." },
-];
+export { METRIC_DEFS };
 /** 데모 값 — null 셋(f1 · hitl · duplicate)은 "아직 잴 수 없음" 경로다. */
 const METRIC_DEMO: Record<Metric["key"], { value: number | null; n: number }> = {
   f1_minutes: { value: null, n: 0 },
@@ -2288,6 +2279,8 @@ on("GET", "/workspaces/{id}/metrics", (req, p) => {
   const s = store();
   requireMember(s, req, p.id);
   const window = req.query.get("window") ?? "P30D";
+  // 서버 `metrics.ParseWindow` — ISO 8601 기간이 아니면 422(`window` 필드 문장).
+  if (!/^P(?!$)(\d+Y)?(\d+M)?(\d+W)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+S)?)?$/.test(window)) throw validation([{ field: "window", message: W.metrics_window_format }]);
   const metrics: Metric[] = METRIC_DEFS.map((d) => {
     const demo = METRIC_DEMO[d.key];
     const m: Metric = { ...d, value: demo.value, n: demo.n };
@@ -2304,13 +2297,22 @@ on("GET", "/workspaces/{id}/metrics", (req, p) => {
 });
 
 // ── 시험 대화(FR-1.8.1 · daemon-protocol §4.5) ──
+/**
+ * 서버 `testChatAccess`(#200): 연 사람만. 같은 워크스페이스의 다른 멤버는 403 `not_chat_owner`, 그 밖(멤버 아님·없는 id)은
+ * 404 — 채팅이 다른 워크스페이스에 있는지 드러내지 않는다(에이전트와 같은 규칙).
+ */
 function testChatOf(s: Store, req: Req, id: string): { chat: TestChat; user: User } {
+  const user = requireUser(s, req);
   const chat = s.testChats.get(id);
-  if (!chat) throw new Problem(404, "not_found", notFound("agent"));
-  const { user } = requireMember(s, req, chat.workspace_id);
-  if (chat.user_id !== user.id) throw new Problem(403, "not_test_chat_owner", MOCK_ONLY.test_chat_not_owner);
+  if (!chat) throw new Problem(404, "not_found", W.test_chat_not_found);
+  if (chat.user_id !== user.id) {
+    if (s.members.some((m) => m.workspace_id === chat.workspace_id && m.user.id === user.id)) throw new Problem(403, "not_chat_owner", W.test_chat_not_owner);
+    throw new Problem(404, "not_found", W.test_chat_not_found);
+  }
   return { chat, user };
 }
+/** 진행 중 턴 가운데 **컴퓨터에 넘어간**(dispatched 이상) 채팅 — 닫을 때 cancel 경로를 고르는 데 쓴다(§4.5). */
+const dispatchedChats = new Set<string>();
 on("POST", "/agents/{id}/test-chats", (req, p) => {
   const s = store();
   const agent = agentOf(s, req, p.id);
@@ -2318,23 +2320,35 @@ on("POST", "/agents/{id}/test-chats", (req, p) => {
   const key = req.headers.get("idempotency-key");
   if (key && s.idem.has(key)) return ok(s.idem.get(key), 201, { "Idempotent-Replayed": "true" });
   const b = body<{ profile_id?: string | null; runtime_id?: string | null }>(req);
-  const profile = b.profile_id ? agent.profiles.find((x) => x.id === b.profile_id) : agent.profiles.find((x) => x.is_default) ?? agent.profiles[0];
-  if (!profile) throw notFoundP("profile");
+  // 서버 `Create`: profile_id 는 그 에이전트의 것이어야(404 profile), 비우면 기본 프로파일(없으면 409), 보관된 에이전트는 409.
+  let profile: AgentProfile | undefined;
+  if (b.profile_id) {
+    profile = agent.profiles.find((x) => x.id === b.profile_id);
+    if (!profile) throw notFoundP("profile");
+  } else {
+    profile = agent.profiles.find((x) => x.is_default);
+    if (!profile) throw new Problem(409, "no_default_profile", W.test_chat_no_default_profile);
+  }
+  if (agent.archived_at) throw new Problem(409, "agent_archived", W.test_chat_agent_archived);
+  // 서버 `pickRuntime`: 명시하면 그 컴퓨터가 online 이어야(아니면 409 runtime_offline), 비우면 그 runtime_kind 를 광고하는
+  // online 컴퓨터 가운데 하나(없으면 409 no_online_runtime). logged_in 은 보지 않는다.
   let runtime: Runtime | undefined;
   if (b.runtime_id) {
     runtime = s.runtimes.get(b.runtime_id);
     if (!runtime || runtime.workspace_id !== agent.workspace_id) throw notFoundP("runtime");
-    if (runtime.status !== "online") throw new Problem(409, "runtime_offline", MOCK_ONLY.test_chat_runtime_offline);
+    if (runtime.status !== "online") throw new Problem(409, "runtime_offline", W.test_chat_runtime_offline);
   } else {
-    runtime = [...s.runtimes.values()].find((r) => r.workspace_id === agent.workspace_id && r.status === "online" && r.capabilities.some((c) => c.kind === profile.runtime_kind && c.logged_in));
-    if (!runtime) throw new Problem(409, "no_runtime", MOCK_ONLY.test_chat_no_runtime);
+    const kind = profile.runtime_kind;
+    runtime = [...s.runtimes.values()].find((r) => r.workspace_id === agent.workspace_id && r.status === "online" && r.capabilities.some((c) => c.kind === kind));
+    if (!runtime) throw new Problem(409, "no_online_runtime", W.test_chat_no_online_runtime);
   }
-  const cap = runtime.capabilities.find((c) => c.kind === profile.runtime_kind);
   const t = now();
+  // 실서버 201(T-W11 curl): estimated false · transport null · turns [] · closed_at null 로 시작한다. `estimated` 는 첫 답의
+  // 가격을 매길 때 정해진다.
   const chat: TestChat = {
     id: uuid(), workspace_id: agent.workspace_id, agent_id: agent.id, profile_id: profile.id, user_id: user.id, runtime_id: runtime.id,
     status: "open", transport: null, turns: [], input_tokens: 0, output_tokens: 0, cost_usd: 0,
-    estimated: cap ? cap.usage === false : false, created_at: t, updated_at: t, closed_at: null,
+    estimated: false, created_at: t, updated_at: t, closed_at: null,
   };
   s.testChats.set(chat.id, chat);
   if (key) s.idem.set(key, chat);
@@ -2346,14 +2360,16 @@ const turnInProgress = (chat: TestChat) => chat.turns.length > 0 && chat.turns[c
 on("POST", "/test-chats/{id}/turns", (req, p) => {
   const s = store();
   const { chat } = testChatOf(s, req, p.id);
-  if (chat.status === "closed") throw new Problem(410, "test_chat_closed", MOCK_ONLY.test_chat_closed);
-  if (turnInProgress(chat)) throw new Problem(409, "turn_in_progress", MOCK_ONLY.test_chat_turn_in_progress);
+  // 서버 `PostTurn`(#200): 빈 content 는 422 먼저, 닫힌 채팅 410, 이전 턴 진행 중 409.
+  const b = body<{ content?: string }>(req);
+  const content = b.content ?? "";
+  if (content === "") throw validation([{ field: "content", message: W.test_chat_content_required }]);
+  if (chat.status === "closed") throw new Problem(410, "test_chat_closed", W.test_chat_closed);
+  if (turnInProgress(chat)) throw new Problem(409, "turn_in_progress", W.test_chat_turn_in_progress);
   const key = req.headers.get("idempotency-key");
   if (key && s.idem.has(key)) return ok(s.idem.get(key), 202, { "Idempotent-Replayed": "true" });
-  const b = body<{ content?: string }>(req);
-  const content = b.content?.trim() ?? "";
-  if (!content) throw validation([{ field: "content", message: W.content_required }]);
-  const turn: TestChatTurn = { role: "user", content: b.content!, at: now() };
+  // 실서버 202 본문(curl): `{at, content, role}` — user 턴에는 usage·error 키가 없다.
+  const turn: TestChatTurn = { role: "user", content, at: now() };
   chat.turns.push(turn);
   chat.updated_at = turn.at;
   if (key) s.idem.set(key, turn);
@@ -2363,12 +2379,13 @@ on("POST", "/test-chats/{id}/turns", (req, p) => {
   const rt = chat.runtime_id ? s.runtimes.get(chat.runtime_id) : undefined;
   const cap = rt?.capabilities.find((c) => c.kind === profile?.runtime_kind);
   const transport: TestChat["transport"] = cap?.protocol_version != null ? "acp" : "cli";
-  const head = chat.turns.filter((x) => x.role === "user").length === 1 ? MOCK_ONLY.test_chat_agent_reply_head : "";
-  const reply = `${head}@${agent?.name ?? "agent"}(${profile?.runtime_kind ?? "?"} · ${profile?.model ?? "?"})가 답합니다: "${content}" 에 대해 — 설정대로 실행되었습니다.`;
+  // 답 본문은 가짜 에이전트의 말이다 — 서버 문장이 아니다(서버는 프롬프트 앞에 §4.5 머리 한 줄을 붙일 뿐, 답에는 손대지 않는다).
+  const reply = `@${agent?.name ?? "agent"}(${profile?.runtime_kind ?? "?"} · ${profile?.model ?? "?"})가 답합니다: "${content}" 에 대해 — 설정대로 실행되었습니다.`;
   const chunks = reply.match(/.{1,12}/g) ?? [reply];
   let i = 0;
   const tick = () => {
-    if (chat.status === "closed") return; // 닫히면(cancel) 답을 확정하지 않는다
+    if (chat.status === "closed") return; // 닫히면 cancel — 답은 close 가 error 턴으로 마감했다
+    dispatchedChats.add(chat.id);
     if (i < chunks.length) {
       emit(s, chat.workspace_id, "test_chat.delta", { test_chat_id: chat.id, text: chunks[i++] }, null, true);
       setTimeout(tick, 60);
@@ -2376,9 +2393,12 @@ on("POST", "/test-chats/{id}/turns", (req, p) => {
     }
     const inTok = 40 + content.length;
     const outTok = 20 + reply.length;
-    const agentTurn: TestChatTurn = { role: "agent", content: reply, at: now(), usage: { input_tokens: inTok, output_tokens: outTok }, error: null };
+    // 실서버 agent 턴(curl): `{at, content, role, usage:{input_tokens, output_tokens}}` — error 키는 실패한 턴에만 있다.
+    const agentTurn: TestChatTurn = { role: "agent", content: reply, at: now(), usage: { input_tokens: inTok, output_tokens: outTok } };
     chat.turns.push(agentTurn);
+    dispatchedChats.delete(chat.id);
     chat.transport = transport;
+    chat.estimated = cap?.usage === false; // 서버: usage 를 보고하지 않는 컴퓨터의 비용은 추정치
     chat.input_tokens += inTok;
     chat.output_tokens += outTok;
     chat.cost_usd = Number((chat.cost_usd + (inTok * 3 + outTok * 15) / 1e6).toFixed(6));
@@ -2392,8 +2412,12 @@ on("POST", "/test-chats/{id}/close", (req, p) => {
   const s = store();
   const { chat } = testChatOf(s, req, p.id);
   if (chat.status === "open") {
-    // 진행 중 턴은 cancel(§4.5) — 목은 그 턴을 error 로 닫는다.
-    if (turnInProgress(chat)) chat.turns.push({ role: "agent", content: "", at: now(), error: "취소됨 — 시험 대화를 닫았습니다" });
+    // 서버 `Close`(#200): 아직 컴퓨터에 안 넘어간(queued) 턴은 빈 agent 턴 + `closed_before_answer` 문장으로 마감하고, 넘어간 턴은
+    // cancel 명령 → 데몬 finish(failed/cancelled) → `FailureText` 문장. 목은 데몬 왕복을 곧바로 접는다(usage 는 없는 채).
+    if (turnInProgress(chat)) {
+      chat.turns.push({ role: "agent", content: "", at: now(), error: dispatchedChats.has(chat.id) ? W.test_chat_cancelled : W.test_chat_closed_before_answer });
+      dispatchedChats.delete(chat.id);
+    }
     chat.status = "closed";
     chat.closed_at = now();
     chat.updated_at = chat.closed_at;
