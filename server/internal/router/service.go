@@ -219,8 +219,17 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 		return nil, err
 	}
 
+	// S-78: every trigger of this message shares one cause — the hop that
+	// woke the turn writing it — so a message that mentions three agents is
+	// three hops at the same depth, not a chain of three.
+	var cause int64
+	if author.Type == "agent" && author.TaskID != nil {
+		if cause, _, err = causeOfTask(ctx, tx, *author.TaskID); err != nil {
+			return nil, err
+		}
+	}
 	for _, tr := range dec.Triggers {
-		next := Hop{ToAgent: tr.AgentID, At: now}
+		next := Hop{ToAgent: tr.AgentID, At: now, CauseID: cause}
 		if author.Type == "agent" && author.AgentID != nil {
 			next.FromAgent = *author.AgentID
 		}
@@ -498,8 +507,8 @@ func (s *Service) loopLimits(ctx context.Context, tx pgx.Tx, wsID uuid.UUID) (Li
 // both without loading a long session.
 func (s *Service) loadHops(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, now time.Time) ([]Hop, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT from_agent_id, to_agent_id, created_at FROM (
-			SELECT from_agent_id, to_agent_id, created_at, id
+		SELECT id, from_agent_id, to_agent_id, created_at, COALESCE(cause_hop_id, 0) FROM (
+			SELECT id, from_agent_id, to_agent_id, created_at, cause_hop_id
 			FROM session_hop WHERE session_id = $1 ORDER BY id DESC LIMIT 200
 		) h ORDER BY h.id`, sessionID)
 	if err != nil {
@@ -510,7 +519,7 @@ func (s *Service) loadHops(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, 
 	for rows.Next() {
 		var h Hop
 		var from *uuid.UUID
-		if err := rows.Scan(&from, &h.ToAgent, &h.At); err != nil {
+		if err := rows.Scan(&h.ID, &from, &h.ToAgent, &h.At, &h.CauseID); err != nil {
 			return nil, err
 		}
 		if from != nil {
@@ -519,6 +528,34 @@ func (s *Service) loadHops(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, 
 		out = append(out, h)
 	}
 	return out, rows.Err()
+}
+
+// causeOfTask is the causal link chain depth follows (S-78, loop.go
+// chainDepth): the hop that created `task` — the row recorded for its trigger
+// message toward its agent — as (id, that hop's own cause). A trigger written
+// from `task` has CauseID = id; a notice that wakes the task's agent because
+// work it asked for ended (join, blocked question, re-entry report) has
+// CauseID = cause, so the requester returns at its OWN depth rather than one
+// below the child that woke it.
+//
+// (0, 0) when the task has no hop: created before a loop resume erased the
+// session's hops, or by a path that records none. chainDepth then reads it as
+// "no cause".
+//
+// A queued task absorbs later messages (FR-3.4 coalescing), and the turn
+// answers all of them: the latest hop among the trigger and the coalesced
+// messages is the cause — the assignee's initial task, born from the
+// session-start message, is usually run for the Director's first mention.
+func causeOfTask(ctx context.Context, q pgx.Tx, taskID uuid.UUID) (id, cause int64, err error) {
+	err = q.QueryRow(ctx, `
+		SELECT h.id, COALESCE(h.cause_hop_id, 0) FROM task t
+		JOIN session_hop h ON h.session_id = t.session_id AND h.to_agent_id = t.agent_id
+		  AND (h.message_id = t.trigger_message_id OR h.message_id = ANY(t.coalesced_message_ids))
+		WHERE t.id = $1 ORDER BY h.id DESC LIMIT 1`, taskID).Scan(&id, &cause)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, 0, nil
+	}
+	return id, cause, err
 }
 
 // gateHop is FR-3.5 for ONE server-originated trigger: a delegation
@@ -559,15 +596,40 @@ func (s *Service) gateHop(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.U
 	return v, nil
 }
 
+// RecordHumanHop writes a person's hop toward `agent` for a trigger that did
+// not come through Post — the two other ways a person starts or re-roots an
+// agent's chain (S-78, FR-3.5 "사람이 개입하면 0"):
+//
+//   - session start: the Director created the session and its goal, and the
+//     assignee's initial task (sessions.Create, E16-A step 1) is that person's
+//     message to the assignee. Without the row a session the Director never
+//     writes into has no human hop at all, and chainDepth measures nothing in
+//     it — the chain the goal started would be rooted nowhere;
+//   - a HITL answer: the task resumes on a person's word (handlers_hitl), so
+//     the hops its next turn makes are one below the person, whatever depth
+//     the question was asked at. `msgID` is the task's trigger message, which
+//     is how causeOfTask finds the row for the resumed task.
+//
+// A human hop also ends a pair run and is not counted toward hops_per_hour,
+// exactly as a human message is.
+func (s *Service) RecordHumanHop(ctx context.Context, tx pgx.Tx, sessionID, agent, msgID uuid.UUID, now time.Time) error {
+	return s.recordHop(ctx, tx, sessionID, Hop{ToAgent: agent, At: now}, msgID, RulePlatform, true)
+}
+
 func (s *Service) recordHop(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, h Hop, msgID uuid.UUID, rule int, allowed bool) error {
 	var from *uuid.UUID
 	if !h.Human() {
 		f := h.FromAgent
 		from = &f
 	}
+	var cause *int64
+	if h.CauseID != 0 {
+		c := h.CauseID
+		cause = &c
+	}
 	_, err := tx.Exec(ctx, `
-		INSERT INTO session_hop (session_id, from_agent_id, to_agent_id, message_id, rule, allowed, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`, sessionID, from, h.ToAgent, msgID, rule, allowed, h.At)
+		INSERT INTO session_hop (session_id, from_agent_id, to_agent_id, message_id, rule, allowed, created_at, cause_hop_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, sessionID, from, h.ToAgent, msgID, rule, allowed, h.At, cause)
 	return err
 }
 

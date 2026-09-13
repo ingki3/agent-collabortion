@@ -124,7 +124,11 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 	// message is posted, the task is not), the session pauses with the limit
 	// named, and the caller gets a Problem instead of a lane: a 201 with no
 	// task would tell the agent its delegation is pending when it is not.
-	v, err := s.gateHop(ctx, tx, sessionID, wsID, director, Hop{FromAgent: callerAgent, ToAgent: in.AgentID, At: now}, msgID, 2, now)
+	cause, _, err := causeOfTask(ctx, tx, callerTask)
+	if err != nil {
+		return nil, err
+	}
+	v, err := s.gateHop(ctx, tx, sessionID, wsID, director, Hop{FromAgent: callerAgent, ToAgent: in.AgentID, At: now, CauseID: cause}, msgID, 2, now)
 	if err != nil {
 		return nil, err
 	}

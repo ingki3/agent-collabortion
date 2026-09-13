@@ -337,6 +337,11 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 			VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $8)`, laneID, sessionID, runtimeID, assignee, profileID, msgID, userID, now); err != nil {
 			return nil, err
 		}
+		// FR-3.5: the initial task is the Director's doing, so it is the human
+		// hop the session's chain depth starts from (S-78).
+		if err := s.Router.RecordHumanHop(ctx, tx, sessionID, assignee, msgID, now); err != nil {
+			return nil, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err

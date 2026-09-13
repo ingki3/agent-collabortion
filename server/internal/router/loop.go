@@ -37,10 +37,19 @@ const (
 // Hop is one trigger in the session's history. FromAgent == uuid.Nil means a
 // human wrote it: humans reset the chain and the pair counter and are never
 // counted toward max_hops_per_hour.
+//
+// ID and CauseID are the causal link chain depth is measured along (S-78):
+// CauseID is the ID of the hop that woke the turn which wrote this trigger —
+// for a mention or a delegation, the hop that created the author's task; for
+// a notice that wakes a requester (join, blocked question, re-entry report),
+// the requester's OWN cause, so the requester comes back at its own depth.
+// Zero means "no cause": a human wrote it, or the cause is not known.
 type Hop struct {
 	FromAgent uuid.UUID
 	ToAgent   uuid.UUID
 	At        time.Time
+	ID        int64
+	CauseID   int64
 }
 
 // Human reports whether this hop came from a person.
@@ -99,20 +108,57 @@ func exceeded(v LoopVerdict, detail string) LoopVerdict {
 	return v
 }
 
-// chainDepth is the depth of the mention chain STARTED BY A HUMAN that `next`
-// would extend. A human message resets it to 0, so the scan walks back only to
-// the most recent human hop.
+// chainDepth is the depth of `next` in the causal chain a human message
+// started (S-78). A hop's depth is its cause's depth + 1; a human hop is 1.
+// Depth follows CAUSES, not the row order: Lead → A, Lead → B, Lead → C are
+// three hops at the same depth, and the join notice that wakes Lead when they
+// end carries Lead's own cause, so Lead is back at depth 1 — Lead → 실무자 →
+// 리뷰어 → Lead is 4 (FR-3.5), not "every hop since the person spoke". The
+// old count made an F1-shaped session (delegate ×3, join, mention, re-entry,
+// delegate, join) pause at its 8th hop.
 //
-// A history with no human hop at all has no chain to measure: FR-3.5 defines
-// the limit as "사람의 메시지에서 시작해 멘션이 연쇄된 깊이", and an
-// agent-only history is caught by the other two limits instead (E4-07).
+// A human message still resets: a cause that predates the latest human hop
+// counts as that human's (depth 1), because the person intervened after it
+// (E4-02, E4-06). A hop whose cause is unknown is the human's too when a
+// human hop precedes it — the cause is older than the loaded window, or a
+// resume erased it, and either way a person is the root.
+//
+// A history with no human hop at all has no chain to measure and stays at 0:
+// FR-3.5 defines the limit as "사람의 메시지에서 시작해 멘션이 연쇄된 깊이",
+// and an agent-only history is caught by the other two limits instead
+// (E4-07). Zero propagates — a chain that does not start at a person is not
+// measured at any of its links.
 func chainDepth(history []Hop, next Hop) int {
-	for i := len(history) - 1; i >= 0; i-- {
-		if history[i].Human() {
-			return len(history) - i + 1
+	depths := make(map[int64]int, len(history)) // by hop ID
+	index := make(map[int64]int, len(history))  // hop ID → position in history
+	lastHuman := -1
+	depthOf := func(h Hop) int {
+		if h.Human() {
+			return 1
+		}
+		j, known := index[h.CauseID]
+		if h.CauseID == 0 || !known {
+			if lastHuman >= 0 {
+				return 1
+			}
+			return 0
+		}
+		if j < lastHuman {
+			return 1
+		}
+		if d := depths[h.CauseID]; d > 0 {
+			return d + 1
+		}
+		return 0
+	}
+	for i, h := range history {
+		depths[h.ID] = depthOf(h)
+		index[h.ID] = i
+		if h.Human() {
+			lastHuman = i
 		}
 	}
-	return 0
+	return depthOf(next)
 }
 
 // hopsInWindow counts agent→agent triggers in the rolling hour. Human messages
