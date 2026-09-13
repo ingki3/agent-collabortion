@@ -118,7 +118,7 @@
 - **전후 대조가 말해 주는 것**: pre-sonnet 의 160s 공백은 임계에 20s 남은 값이다 — 같은 조건에서 모델이 조금만 더 길게 한 번에 쓰면 #204 이전은 stall, 이후는 원시 델타로 활동이 이어져 안전하다(#204 유닛 `s66_stall_test.go` 가 그 경계를 페이크 클럭으로 잰다). 실기로 stall 자체를 보려면 한 Write ≥ 30 KB 를 강제해야 하는데(예: "한 파일에 한 번의 Write 로 40000자") 모델이 지시를 나눠 쓰는 경향이 있어 결정적이지 않다 — 필요하면 Director 의 원 세션 조건(모델·goal)으로 1회.
 - 로그: `e2e/p5/out-real/*/daemon-72.log`(dev 는 `stall watch armed limit=3m0s counts=session/update,request_permission,raw:_claude/sdkMessage(on)` 8줄/세션, `stall fired` 0), `72-real.log`, `72-artifact-dl.bin`.
 
-#204 가 바꾼 `e2e/p3/50_` C3d 패턴("쓸 수 있는 예산")도 재실행했다(격리 스택 :8110/:5454, 실기 haiku): **116/1 → C3f 는 스크립트의 `grep -c || echo 0` 두 줄 함정**(p4 README 에 적힌 것)이라 그 줄을 고쳤다(`{ grep -c … || true; } | head -1`). 서버 500 은 0건. <!-- 50_RERUN -->
+#204 가 바꾼 `e2e/p3/50_` C3d 패턴("쓸 수 있는 예산")도 재실행했다(격리 스택 :8110/:5454, 실기 haiku): **116/1 → C3f 는 스크립트의 `grep -c || echo 0` 두 줄 함정**(p4 README 에 적힌 것)이라 그 줄을 고쳤다(`{ grep -c … || true; } | head -1`). 서버 500 은 0건. 고친 뒤 재실행: **117/0**(2026-09-14, `e2e/p3/out-i5/50.log`).
 
 ## 6. 열린 결함 · 관찰 (번호 없음 — Lead 가 준다, §0-11)
 
