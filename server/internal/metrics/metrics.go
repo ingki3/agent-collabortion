@@ -77,7 +77,7 @@ var Defs = []Def{
 		Note:  "컴퓨터 종류별로 완료된 할 일 ÷ (완료 + 실패). 종류별 값과 목표는 따로 나눠 준다."},
 	{Key: "duplicate_after_resume_rate", Unit: "ratio", Target: 0.01, TargetOp: "lt",
 		Label: "다시 이어 간 뒤 같은 메시지를 두 번 올린 비율",
-		Note:  "두 번째 이상 실행된 할 일 중 같은 내용의 메시지가 두 번 올라간 것이 관측된 비율."},
+		Note:  "두 번째 이상 실행된 할 일 중 같은 내용의 메시지가 두 번 올라간 것이 관측된 비율. 멱등키가 아니라 내용이 같은지로 세므로, 에이전트가 같은 말을 두 번 한 경우도 함께 잡힙니다."},
 	{Key: "resume_success_rate", Unit: "ratio", Target: 0.9, TargetOp: "gt",
 		Label: "다시 이어 갈 때 이전 대화를 그대로 이어받은 비율",
 		Note:  "이전 대화를 이어받으려 한 실행 중 실제로 이어받은(처음부터 다시 시작하지 않은) 비율."},
@@ -234,6 +234,13 @@ SELECT avg(1 - s.wall / t.total), count(*)
 FROM s JOIN t ON t.session_id = s.id WHERE t.total > 0 AND s.wall >= 0`
 
 // 7. attempt ≥ 2 인 task 중 같은 내용의 메시지가 둘 이상 게시된 것이 관측된 비율.
+//
+// 계약은 "같은 attempt 가 같은 멱등키로 두 번 게시" 인데 message 에는 멱등키도
+// seq 도 없다(멱등은 idempotency_key 표와 task_event UNIQUE(task_id, attempt, seq)
+// 가 막고, 막힌 두 번째 게시는 행을 남기지 않는다). 그래서 이 스키마에서 관측
+// 가능한 것은 content 가 같은 두 행뿐이고, note 가 그 위양성(같은 말을 두 번)을
+// 그대로 밝힌다 — PR #200 리뷰 NN2. source_task_id + seq 로 좁히려면 message 에
+// seq 열이 필요하다(계약 변경 아님, 스키마 후속).
 const sqlDuplicateAfterResume = `
 WITH t AS (
 	SELECT t.id FROM task t JOIN session s ON s.id = t.session_id
