@@ -84,7 +84,17 @@ export function PausedBanner({ detail, agentName, onResume, onRebind, onCancel, 
 
   const gate = detail.can_resolve_from && Date.parse(detail.can_resolve_from) > Date.now();
   const gateNote = gate ? `${clockTime(detail.can_resolve_from)}부터 승인 가능` : null;
-  const cannot = gateNote ?? "Director 만 할 수 있습니다";
+  /**
+   * 비활성 사유 — 버튼 근처의 **화면 텍스트**로 말하고 버튼은 `aria-describedby` 로 그 줄을 가리킨다(§8.5,
+   * `SessionActions` 의 `whyId()` 와 같은 패턴 · PR #191 NN1). `title` 만으로는 마우스를 올려야 보이고 터치·접근성
+   * 트리에서는 비어 있다. 컴퓨터 연결 끊김은 사람이 아니라 사유가 막는 것이라 "재개할 수 없다" 고 말한다.
+   */
+  const cannot = !actions.has("resume")
+    ? detail.reason === "runtime_offline"
+      ? "이 사유는 재개할 수 없습니다 — 다른 컴퓨터로 옮기거나 세션을 종료하세요"
+      : "Director 만 할 수 있습니다"
+    : gateNote;
+  const whyId = cannot ? "paused-why" : undefined;
 
   async function resume() {
     if (detail.reason === "budget") {
@@ -113,9 +123,6 @@ export function PausedBanner({ detail, agentName, onResume, onRebind, onCancel, 
           승인만 하면 같은 주고받기가 반복됩니다 — 작업 줄기를 중단하거나 다시 지시해 방향을 바꿀 수도 있습니다.
         </p>
       )}
-      {detail.reason === "runtime_offline" && (
-        <p className="pbanner__hint">이 사유는 재개할 수 없습니다 — 다른 컴퓨터로 옮기거나 세션을 종료하세요.</p>
-      )}
       <p className="pbanner__meta">일시정지 {relativeTime(detail.paused_at)}{gateNote ? ` · ${gateNote}` : ""}</p>
 
       {detail.reason === "budget" && (
@@ -141,12 +148,18 @@ export function PausedBanner({ detail, agentName, onResume, onRebind, onCancel, 
           type="button"
           className="btn btn--primary btn--sm"
           disabled={!canResume || busy}
-          title={!actions.has("resume") || gate ? cannot : undefined}
+          title={cannot ?? undefined}
+          aria-describedby={whyId}
           onClick={() => void resume()}
           data-testid="paused-resume"
         >
           {detail.reason === "director" ? "재개" : "계속 진행 승인"}
         </button>
+        {cannot && (
+          <span className="pbanner__why" id={whyId} data-testid="paused-why">
+            {cannot}
+          </span>
+        )}
         {actions.has("rebind") && (
           <button type="button" className="btn btn--sm" disabled={busy || !onRebind} onClick={onRebind} data-testid="paused-rebind">
             다른 컴퓨터로 옮기기

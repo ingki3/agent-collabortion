@@ -22,6 +22,9 @@
   --fs-sub: 13px;    /* 보조 설명·부가 줄 */
   --fs-meta: 12px;   /* 메타·배지 — 하한 */
 
+  /* 레이아웃 (§8.5) — 카드 열의 최소 폭. .cards(app.css)와 인박스 한 열이 같은 값을 본다(PR #191 NN4). */
+  --card-min: 320px;
+
   color-scheme: light;
 
   /* 기본 6 — 밝음 */

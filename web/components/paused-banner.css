@@ -9,7 +9,9 @@
 .pbanner__hint { margin: 0; font-size: var(--fs-sub); color: var(--ink-2); }
 .pbanner__meta { margin: 0; font-size: var(--fs-meta); color: var(--ink-2); }
 .pbanner__field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-body); color: var(--ink-2); }
-.pbanner__actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.pbanner__actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; align-items: center; }
+/* 비활성 사유 — 버튼 옆의 화면 텍스트(§8.5). session-actions.css 의 .s7-actions__why 와 같은 역할. */
+.pbanner__why { font-size: var(--fs-sub); color: var(--ink-2); word-break: keep-all; }
 
 /* 사유별 색 — 런타임 오프라인은 실패 계열(COMPONENTS §2.7 색 변형) */
 .pbanner[data-reason="runtime_offline"] { border-color: var(--s-fail); background: color-mix(in srgb, var(--s-fail) var(--soft-alpha), transparent); }
