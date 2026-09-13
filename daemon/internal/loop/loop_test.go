@@ -595,7 +595,7 @@ func TestHeartbeatCarriesUsageBeforeFinish(t *testing.T) {
 	}
 }
 
-// D-18 tier 2 removed (Lead 2026-09-13, S-66): the raw SDK stream is on for
+// D-18 tier 2 removed (harness §7 v0.8.9, S-66): the raw SDK stream is on for
 // EVERY claude_code attempt, budget or not — it is the stall watch's only view
 // of a model generating a long tool input. The operator's `usage_midturn:
 // false` stays a hard kill switch; hermes never gets the stream (harness §3

@@ -79,7 +79,7 @@ stall 이 났을 때 로그에 남는 두 줄:
 claude_code 어댑터의 원시 SDK 스트림(`_claude/sdkMessage`)은 두 가지에 쓰인다: (1) 턴 **중간** usage 를
 heartbeat 에 실어 서버의 예산 검사(FR-7.3)가 턴이 끝나기 전에 동작하게 하고, (2) 모델이 긴 도구 입력(수십 KB 의
 Write)을 생성하는 동안 — 이때 어댑터는 `session/update` 를 하나도 보내지 않는다 — stall 워처에게 "살아 있다"는
-신호가 된다. 실측(2026-09-13, sonnet-5): 17 KB Write 동안 `session/update` 공백 101초, 원시 스트림 최대 간격 2초.
+신호가 된다(harness §7 v0.8.9). 실측(2026-09-13, sonnet-5): 17 KB Write 동안 `session/update` 공백 101초, 원시 스트림 최대 간격 2초.
 
 기본은 **켜짐**이고 예산이 없는 세션에서도 켜진다. `"usage_midturn": false` 로 끄면 (1)(2) 둘 다 꺼진다 — 예산은
 턴 끝에서만 강제되고, 3분 넘게 걸리는 긴 도구 입력은 stall 로 잘린다. 비용은 로컬 stdio 파이프의 메시지 4배 ·

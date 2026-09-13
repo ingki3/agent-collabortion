@@ -1197,9 +1197,9 @@ func (r *Runner) onRawSDK(method string, params json.RawMessage) {
 	// the permission request comes after the input is complete — but it
 	// sends one `content_block_delta/input_json_delta` per token. Counting
 	// only session/update killed every writing turn of two real sessions
-	// (6/6) as `stall`; counting this keeps the §7 meaning — "the runtime is
-	// alive and doing something is not a stall" — for the one phase where
-	// session/update goes quiet. Same reset, named, so the ledger shows it.
+	// (6/6) as `stall`; harness §7 v0.8.9 now names the raw stream as the
+	// third activity source, next to session/update and permission requests,
+	// for exactly this phase. Same reset, named, so the ledger shows it.
 	r.noteActivity("raw:" + head.Type)
 	switch head.Type {
 	case "stream_event":

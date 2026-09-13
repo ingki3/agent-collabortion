@@ -1108,7 +1108,7 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 // usage. Only claude_code has a channel for it (harness §7 v0.8.5); on hermes
 // the flag would buy nothing but `_meta`, which hermes drops anyway.
 //
-// The raw stream is bought for TWO purposes (Lead decision 2026-09-13, S-66):
+// The raw stream is bought for TWO purposes (harness §7 v0.8.9, S-66):
 //
 //   - the server's in-turn budget check (FR-7.3 M9) needs a non-zero `usage`
 //     on the heartbeat before the turn ends (D-17);
