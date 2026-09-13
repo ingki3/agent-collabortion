@@ -110,7 +110,7 @@ func TestRunLogsAttemptLifecycleAtDefaultLevel(t *testing.T) {
 
 	lines := cap.all()
 	inOrder(t, lines,
-		"t-log.1 claim lane=lane-obs",
+		"t-log.1 claim kind=task lane=lane-obs",
 		"t-log.1 workdir path=",
 		"t-log.1 phase preparing pgid=",
 		"t-log.1 phase running",
@@ -382,4 +382,31 @@ func TestNoWorkdirReportWhenPreparationFailed(t *testing.T) {
 	}
 	// The failure is still in the log — that is the D-24 half.
 	inOrder(t, cap.all(), "t-noprep.1 claim ", "t-noprep.1 workdir: disk full", "t-noprep.1 finish outcome=failed")
+}
+
+// PR #181 NN4 — a run of identical claim errors is folded: 1st, 10th, 100th …
+// then one "ok again after N" line. A server that is down for an hour used to
+// write 1,800 identical lines at the default level.
+func TestClaimErrorsAreFolded(t *testing.T) {
+	var lines []string
+	log := func(f string, a ...any) { lines = append(lines, fmt.Sprintf(f, a...)) }
+	var fold repeatFold
+	for i := 0; i < 250; i++ {
+		fold.note("dial tcp: connection refused", log)
+	}
+	fold.note("503 Service Unavailable", log)
+	fold.note("503 Service Unavailable", log)
+	fold.recovered(log)
+	fold.recovered(log) // idempotent: nothing to say
+	want := []string{
+		"claim: dial tcp: connection refused",
+		"claim: dial tcp: connection refused (repeated 10 times, still failing)",
+		"claim: dial tcp: connection refused (repeated 100 times, still failing)",
+		"claim: previous error repeated 250 times",
+		"claim: 503 Service Unavailable",
+		"claim: ok again after 2 failures (503 Service Unavailable)",
+	}
+	if strings.Join(lines, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("folded log:\n%s\nwant:\n%s", strings.Join(lines, "\n"), strings.Join(want, "\n"))
+	}
 }

@@ -221,7 +221,7 @@ chk C3c "A: attempt 1 의 프로세스가 남아 있지 않다"        0 "$(proc
 # `budget.go` 의 Estimated 가드가 처음 열렸다. 서버 명령과 이중이다.
 chk C3d "A: 데몬이 **자기 §5 예산 취소**도 실행했다 (FR-7.3 M9)" yes \
   "$(psqlq "select case when count(*)>0 then 'yes' else 'no' end from task_event
-            where task_id='$TA' and class='runtime' and verb='cancel' and payload->>'detail' like '%유효 예산%'")"
+            where task_id='$TA' and class='runtime' and verb='cancel' and payload->>'detail' like '%쓸 수 있는 예산%'")"
 # **신규 결함(서버)**: 서버가 예산으로 task 를 paused 시키면서 `cancel` 명령을 걸어 두는데,
 # 그 뒤 데몬이 보내는 finish(outcome=paused_budget|cancelled)를 `tasks.Finish` 가 `cancelRequested` 때문에
 # 통째로 `cancelled` 로 바꾼다(service.go 의 `decided = "cancelled"`). 그러면 `cancelLocked` 가

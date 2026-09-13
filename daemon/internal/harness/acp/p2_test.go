@@ -91,7 +91,7 @@ func TestMCPServersFilteredOnTheWire(t *testing.T) {
 			}
 			notes := 0
 			for _, e := range f.sink.all() {
-				if e.Class == "runtime" && e.Outcome == "info" && strings.Contains(detail(e), "mcp server") {
+				if e.Class == "runtime" && e.Outcome == "info" && strings.Contains(detail(e), "도구 서버") {
 					notes++
 				}
 			}

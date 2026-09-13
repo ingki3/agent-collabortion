@@ -3,6 +3,8 @@
 //	daemon pair <code> --server <url>   pair with the server, then probe
 //	daemon run                          orphan sweep → probe → claim loop
 //	daemon probe [--turn]               print the probe body (no server)
+//	daemon repos add|remove <path>      register a git repository for `worktree` isolation (D-20)
+//	daemon repos list                   print the registered repositories as the probe advertises them
 //	daemon version
 //
 // State lives in ~/.colab/daemon.json ($COLAB_DAEMON_CONFIG).
@@ -16,6 +18,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
@@ -24,6 +27,7 @@ import (
 	"github.com/ingki3/agent-collabortion/daemon/internal/api"
 	"github.com/ingki3/agent-collabortion/daemon/internal/config"
 	"github.com/ingki3/agent-collabortion/daemon/internal/dlog"
+	"github.com/ingki3/agent-collabortion/daemon/internal/gitrepo"
 	"github.com/ingki3/agent-collabortion/daemon/internal/loop"
 	"github.com/ingki3/agent-collabortion/daemon/internal/orphan"
 	"github.com/ingki3/agent-collabortion/daemon/internal/probe"
@@ -47,6 +51,8 @@ func main() {
 		err = cmdRun(os.Args[2:])
 	case "probe":
 		err = cmdProbe(os.Args[2:])
+	case "repos":
+		err = cmdRepos(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -58,7 +64,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: daemon pair <code> --server <url> | daemon run | daemon probe [--turn] | daemon version")
+	fmt.Fprintln(os.Stderr, "usage: daemon pair <code> --server <url> | daemon run | daemon probe [--turn] | daemon repos add|remove|list [<path>] | daemon version")
 }
 
 func cmdPair(args []string) error {
@@ -139,13 +145,14 @@ func cmdRun(args []string) error {
 	// setsid_run: stderr=STDOUT).
 	lg := dlog.New(os.Stdout, dlog.ParseLevel(cfg.LogLevelEffective()))
 	d := &loop.Daemon{
-		Cfg:       cfg,
-		Server:    api.New(cfg.ServerURL, cfg.DaemonToken),
-		Version:   version,
-		Orphans:   orphan.Store{Root: cfg.WorkdirRoot},
-		Log:       lg.Printf,
-		Debug:     lg.Debugf,
-		ProbeTurn: !*noTurn,
+		Cfg:        cfg,
+		ConfigPath: *cfgPath,
+		Server:     api.New(cfg.ServerURL, cfg.DaemonToken),
+		Version:    version,
+		Orphans:    orphan.Store{Root: cfg.WorkdirRoot},
+		Log:        lg.Printf,
+		Debug:      lg.Debugf,
+		ProbeTurn:  !*noTurn,
 	}
 	lg.Printf("colab-daemon %s runtime=%s server=%s workdir=%s capacity=%d log_level=%s", version, cfg.RuntimeID, cfg.ServerURL, cfg.WorkdirRoot, cfg.Capacity, lg.Level())
 	if err := d.Run(ctx); err != nil && err != context.Canceled {
@@ -167,4 +174,106 @@ func cmdProbe(args []string) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(p)
+}
+
+// cmdRepos is D-20: the user path that fills daemon.json `repos[]`, which the
+// probe advertises as daemon-protocol §3 `repos[]` — the ground for S6's
+// runtime filter (E13-17) and, above all, for FR-9.2 rebinding candidates
+// (E14-04·05 judge by remote_url). Until this existed only a machine that had
+// already run a `worktree` session was ever a candidate.
+//
+//	daemon repos add <path>     <path> must be inside a git working tree; the
+//	                            tree's top level is stored, absolute, once.
+//	daemon repos remove <path>
+//	daemon repos list           what the next probe will advertise
+//
+// A running daemon picks the change up on its next probe (start-up, daily,
+// or a server `probe` command) — it re-reads the file (loop.Daemon.ConfigPath).
+func cmdRepos(args []string) error {
+	fs := flag.NewFlagSet("repos", flag.ExitOnError)
+	cfgPath := fs.String("config", config.DefaultPath(), "config file")
+	var verb, path string
+	if len(args) > 0 && args[0] != "" && args[0][0] != '-' {
+		verb, args = args[0], args[1:]
+	}
+	if len(args) > 0 && args[0] != "" && args[0][0] != '-' {
+		path, args = args[0], args[1:]
+	}
+	_ = fs.Parse(args)
+	if verb == "" && fs.NArg() > 0 {
+		verb = fs.Arg(0)
+	}
+	if path == "" && fs.NArg() > 1 {
+		path = fs.Arg(1)
+	}
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		return err
+	}
+	switch verb {
+	case "list":
+		for _, r := range probe.Repos(probe.Options{WorkdirRoot: cfg.WorkdirRoot, Repos: cfg.Repos}) {
+			fmt.Printf("%s\tremote=%s\tbranch=%s\tclean=%v\n", r.Path, r.RemoteURL, r.Branch, r.Clean)
+		}
+		return nil
+	case "add", "remove":
+		if path == "" {
+			return fmt.Errorf("usage: daemon repos %s <path>", verb)
+		}
+	default:
+		return fmt.Errorf("usage: daemon repos add|remove <path> | daemon repos list")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	if verb == "remove" {
+		// Match the way `add` stored it: the working tree's top level, as
+		// git resolves it (symlinks included — /tmp vs /private/tmp on macOS).
+		top := abs
+		if t, err := gitrepo.TopLevel(abs); err == nil {
+			top = t
+		}
+		kept := cfg.Repos[:0]
+		removed := false
+		for _, r := range cfg.Repos {
+			if r == abs || r == path || r == top {
+				removed = true
+				continue
+			}
+			kept = append(kept, r)
+		}
+		if !removed {
+			return fmt.Errorf("%s is not registered (daemon repos list)", abs)
+		}
+		cfg.Repos = kept
+		if err := config.Save(*cfgPath, cfg); err != nil {
+			return err
+		}
+		fmt.Printf("removed %s (config %s)\n", abs, *cfgPath)
+		return nil
+	}
+	if st, err := os.Stat(abs); err != nil || !st.IsDir() {
+		return fmt.Errorf("%s is not a directory", abs)
+	}
+	if !gitrepo.IsRepo(abs) {
+		return fmt.Errorf("%s is not inside a git working tree — `worktree` isolation needs a repository to add worktrees to", abs)
+	}
+	top, err := gitrepo.TopLevel(abs)
+	if err != nil {
+		return err
+	}
+	for _, r := range cfg.Repos {
+		if r == top {
+			fmt.Printf("already registered: %s\n", top)
+			return nil
+		}
+	}
+	cfg.Repos = append(cfg.Repos, top)
+	if err := config.Save(*cfgPath, cfg); err != nil {
+		return err
+	}
+	fmt.Printf("added %s (config %s)\n", top, *cfgPath)
+	fmt.Printf("probe will advertise: path=%s remote=%s branch=%s\n", top, gitrepo.RemoteURL(top), gitrepo.Branch(top))
+	return nil
 }

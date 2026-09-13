@@ -141,18 +141,20 @@ func UnderRoot(root, p string) bool {
 // nothing to do with it, which sent the G7 investigation looking at node
 // installs for as long as it took to strace the spawn.
 func Verify(path string) error {
+	// These sentences reach the feed as `detail` (loop.workdirDetail), so
+	// they are in the person's words (COMPONENTS §8.4, D-25).
 	if path == "" {
-		return errors.New("workdir: no directory to run in")
+		return errors.New("작업 폴더가 정해지지 않아 실행할 곳이 없습니다")
 	}
 	fi, err := os.Stat(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("workdir does not exist: %s", path)
+		return fmt.Errorf("작업 폴더가 없습니다: %s", path)
 	}
 	if err != nil {
-		return fmt.Errorf("workdir %s: %w", path, err)
+		return fmt.Errorf("작업 폴더 %s 를 열 수 없습니다: %w", path, err)
 	}
 	if !fi.IsDir() {
-		return fmt.Errorf("workdir is not a directory: %s", path)
+		return fmt.Errorf("작업 폴더 자리에 폴더가 아닌 것이 있습니다: %s", path)
 	}
 	return nil
 }
@@ -197,9 +199,18 @@ func Prepare(root string, b contracts.TaskBundle) (string, error) {
 
 // Info is one workdir as reported to the server (daemon-protocol §6).
 type Info struct {
-	Kind       string    `json:"kind"`
-	Path       string    `json:"path"`
-	SessionID  string    `json:"session_id"`
+	// ID is the server's own id for the row when the daemon knows it — today
+	// only on a §4.5 test-chat receipt, where the contract puts the test
+	// chat id in both `id` and `test_chat_id`. Session rows carry it inside
+	// GC (the gc command echo) and leave this empty.
+	ID        string `json:"id,omitempty"`
+	Kind      string `json:"kind"`
+	Path      string `json:"path"`
+	SessionID string `json:"session_id"`
+	// TestChatID marks a daemon-protocol v0.8 §4.5 receipt: the row is for a
+	// test chat's temporary directory, is never stored as a workdir, and its
+	// `gc` consumes the chat's gc command. session_id stays empty on it.
+	TestChatID string    `json:"test_chat_id,omitempty"`
 	LaneID     string    `json:"lane_id,omitempty"`
 	AgentID    string    `json:"agent_id,omitempty"`
 	Bytes      int64     `json:"bytes"`

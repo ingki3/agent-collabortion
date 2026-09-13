@@ -45,7 +45,7 @@ func Classify(in ClassifyInput) Failure {
 		if in.LastRateLimit.ResetsAt > 0 {
 			nb = time.Unix(in.LastRateLimit.ResetsAt, 0).UTC()
 		}
-		return Failure{Kind: contracts.FailRateLimited, NotBefore: &nb, Detail: "rateLimit.status=rejected"}
+		return Failure{Kind: contracts.FailRateLimited, NotBefore: &nb, Detail: "사용량 한도에 걸렸습니다 — 초기화 시각 이후 다시 시도합니다"}
 	}
 	if isRPC && rpc.Code == -32603 {
 		// (2) errorKind
@@ -55,7 +55,7 @@ func Classify(in ClassifyInput) Failure {
 			if in.LastRateLimit != nil && in.LastRateLimit.ResetsAt > 0 {
 				nb = time.Unix(in.LastRateLimit.ResetsAt, 0).UTC()
 			}
-			return Failure{Kind: contracts.FailRateLimited, NotBefore: &nb, Detail: "errorKind=" + rpc.ErrorKind()}
+			return Failure{Kind: contracts.FailRateLimited, NotBefore: &nb, Detail: "사용량 한도에 걸렸습니다(" + rpc.ErrorKind() + ") — 잠시 뒤 다시 시도합니다"}
 		case "authentication_failed":
 			return Failure{Kind: contracts.FailAuth, Detail: rpc.Message}
 		case "billing_error", "account_on_hold":
@@ -85,7 +85,7 @@ func Classify(in ClassifyInput) Failure {
 		return Failure{Kind: contracts.FailAuth, Detail: firstLine(msg, in.Stderr)}
 	}
 	if in.Err != nil && errors.Is(in.Err, ErrProcessExited) {
-		return Failure{Kind: contracts.FailOther, Detail: "UnexpectedExit: " + firstLine(msg, in.Stderr)}
+		return Failure{Kind: contracts.FailOther, Detail: "실행 프로그램이 예기치 않게 끝났습니다: " + firstLine(msg, in.Stderr)}
 	}
 	return Failure{Kind: contracts.FailOther, Detail: firstLine(msg, in.Stderr)}
 }

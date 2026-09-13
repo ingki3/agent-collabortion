@@ -104,7 +104,7 @@ func TestClassifyAuthAndPrefixes(t *testing.T) {
 	if f := Classify(ClassifyInput{Err: ErrProtocolVersion}); f.Kind != contracts.FailConfig {
 		t.Fatalf("protocol → %s", f.Kind)
 	}
-	if f := Classify(ClassifyInput{Err: ErrProcessExited}); f.Kind != contracts.FailOther || !strings.Contains(f.Detail, "UnexpectedExit") {
+	if f := Classify(ClassifyInput{Err: ErrProcessExited}); f.Kind != contracts.FailOther || !strings.Contains(f.Detail, "예기치 않게 끝났습니다") {
 		t.Fatalf("exit → %+v", f)
 	}
 }
