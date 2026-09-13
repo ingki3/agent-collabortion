@@ -635,9 +635,15 @@ func (s *Server) ChangeDirector(w http.ResponseWriter, r *http.Request, sessionI
 		if _, err := s.Router.SystemPost(r.Context(), tx, sessionId, "Director가 교체되었습니다."); err != nil {
 			return err
 		}
+		// The column names are 0001's (actor_type · actor_id · object_type ·
+		// object_id) — this INSERT used to name columns that never existed
+		// and turned every Director change into a 500 after the system
+		// message had been composed (found by T-S14: removeMember's 409 asks
+		// the person to change the Director first, and that was impossible).
 		_, err = tx.Exec(r.Context(), `
-			INSERT INTO activity_log (workspace_id, actor_user_id, action, target_type, target_id, created_at)
-			VALUES ($1, $2, 'session.director_changed', 'session', $3, $4)`, wsID, u.Id, sessionId, now)
+			INSERT INTO activity_log (workspace_id, session_id, actor_type, actor_id, action, object_type, object_id, payload, created_at)
+			VALUES ($1, $3, 'user', $2, 'session.director_changed', 'session', $3, jsonb_build_object('director_user_id', $5::uuid), $4)`,
+			wsID, u.Id, sessionId, now, in.DirectorUserID)
 		return err
 	})
 	if err != nil {

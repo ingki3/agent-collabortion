@@ -94,14 +94,6 @@ func (unimplemented) GetMe(w http.ResponseWriter, r *http.Request) {
 	notImplemented(w, r, "GetMe")
 }
 
-func (unimplemented) GetNotificationSettings(w http.ResponseWriter, r *http.Request) {
-	notImplemented(w, r, "GetNotificationSettings")
-}
-
-func (unimplemented) UpdateNotificationSettings(w http.ResponseWriter, r *http.Request) {
-	notImplemented(w, r, "UpdateNotificationSettings")
-}
-
 func (unimplemented) GetMessage(w http.ResponseWriter, r *http.Request, messageId gen.MessageId) {
 	notImplemented(w, r, "GetMessage")
 }
@@ -264,14 +256,6 @@ func (unimplemented) RevokeInvite(w http.ResponseWriter, r *http.Request, worksp
 
 func (unimplemented) ListMembers(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.ListMembersParams) {
 	notImplemented(w, r, "ListMembers")
-}
-
-func (unimplemented) RemoveMember(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, memberId gen.MemberId) {
-	notImplemented(w, r, "RemoveMember")
-}
-
-func (unimplemented) UpdateMemberRole(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, memberId gen.MemberId) {
-	notImplemented(w, r, "UpdateMemberRole")
 }
 
 func (unimplemented) GetOnboardingStatus(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId) {
