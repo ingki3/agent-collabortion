@@ -140,6 +140,12 @@
 | S-72 | 웹 S14 설정이 부르는 4 op(updateMemberRole·removeMember·get/updateNotificationSettings)이 서버 501 — 실서버 멤버·알림 탭이 "아직 지원하지 않는 기능입니다" | T-W11 PR #207 보고 | **해결 PR #209** |
 | S-73 | `changeDirector` 가 activity_log INSERT 의 없는 열(actor_user_id·target_type·target_id) 때문에 **매번 500** — removeMember 409 가 시키는 "Director 먼저 교체" 길이 막혀 있었다. 어떤 테스트도 못 잡은 이유: changeDirector 왕복 테스트가 없었다 | T-S14 PR #209 발견 | **해결 PR #209**(열 이름) · 왕복 테스트 있음 |
 | S-75 | PR #209 리뷰 NN1·NN2·NN3·NN5 — openapi updateMemberRole 문언을 "owner 역할을 주거나 거두는 것은 owner 만"으로 넓히기(코드가 더 엄격, 계약 PR) · owner 동시 강등 경합 테스트 없음(FOR UPDATE 는 있음) · `member.notification_settings`(0002) 죽은 열 삭제 마이그레이션 · 자기 자신 강등 허용(화면은 T-W12) | PR #209 리뷰 | 낮음 |
+| S-76 | **위임↔합류 사이클이 FR-3.5 루프 상한을 타지 않는다** — `delegateLane`·합류 wake(router/status.go)가 `CheckLoopLimits`(postMessage 경로) 밖. 위임자가 합류 통보에 재위임하면 무한(70초에 529 task, 세션 active, `max_pair_roundtrips=5` 넘어도 `paused(loop)` 없음) | T-I5 PR #206 77_ S1x | **높음 · 배포 전** · T-S15 |
+| S-77 | 마스킹이 `task_event.payload.title` 을 지우지 않는다 — 실기 어댑터의 title = 셸 명령 전체라 인자 마스킹이 무효 | T-I5 PR #206 77_ S3d2 | 중 · T-S15 |
+| I-1 | PR #206 리뷰 NN1~NN5 — e2e/p5 `lib.sh`(70_/71_)·`lib_i5.sh`(72_~78_) 기본 스택 통일 · 단계별 `wait_for --timeout`(실패가 행이 아니라 단언이 되게) · 76_ "첫 출력" 표 셀에 "(페이크 — 모델 0)" 꼬리 · **G9 판정 때 `chk_na` 목록을 함께 읽는다** · out/ 덤프에 토큰 재점검 | PR #206 리뷰 | 낮음 |
+| K-16 | `colab status set done` 뒤에도 도는 턴은 Director 가 중단할 수 없다(`409 lane_not_cancellable`, task 는 running) — 지시문 관례("done 은 마지막 호출")로 덮여 있음. S7 중단 버튼이 running 턴에 비활성이 되는 자리 | T-I5 PR #206 관찰 1 | 알고 있기 |
+| K-17 | `parallel_wallclock_reduction` 정의가 사람 대기(HITL)를 "전체"에 넣어 HITL 있는 세션은 병렬 효과와 무관하게 낮거나 음수 — note 에 명시(T-S15), 정의 변경은 계약 | T-I5 PR #206 관찰 2 | 낮음 |
+| W-12 | S7 의 요약 메시지(`kind=summary`)가 마크다운 원문(`##`·`-`)으로 보인다 | T-I5 PR #206 관찰 3 (`web/__screenshots__/p5-78-s7.png`) | 낮음 |
 
 ## C (CLI)
 
