@@ -136,3 +136,110 @@
 - G8(F1 실측 5명·달력) — `plan/G8_PLAN.md` Lead 확정 → Director 실측.
 - 신규 1·2 의 번호·수정(Lead). 신규 1 은 무한 루프라 **배포 전** 후보.
 - S-64(설치가 main 을 클론) 는 G8 전 배포본에서 닫혀야 한다(P2_BACKLOG "배포 전").
+
+## 부록 A — S-66 실기 8회 전체 표 (attempt 별, 서버 DB 기준)
+
+### run1 (stall fired 0)
+
+| agent | task.attempt | outcome | turn_s | max_gap_s | last_event |
+|---|---|---|---|---|---|
+| Lead | fb4e8857.1 | completed | 21.0 | 5.2 | usage/report 15:33:49 |
+| Researcher | c7ace22d.1 | completed | 19.1 | 5.9 | usage/report 15:34:00 |
+| Researcher | 3cb0f49f.1 | completed | 18.0 | 5.7 | usage/report 15:34:00 |
+| Researcher | a4befa73.1 | completed | 17.0 | 4.7 | usage/report 15:33:59 |
+| Lead | 979c1fbf.1 | completed | 16.6 | 8.1 | usage/report 15:34:16 |
+| Writer | 6faad386.1 | completed | 13.0 | 5.1 | usage/report 15:34:26 |
+| Writer | 6faad386.2 | completed | 34.9 | 17.9 | usage/report 15:35:05 |
+| Lead | a4f6d011.1 | completed | 10.2 | 3.6 | usage/report 15:35:14 |
+
+### run2 (stall fired 0)
+
+| agent | task.attempt | outcome | turn_s | max_gap_s | last_event |
+|---|---|---|---|---|---|
+| Lead | f4e8dd04.1 | completed | 16.6 | 4.8 | usage/report 15:38:42 |
+| Researcher | af3b1791.1 | completed | 16.7 | 6.6 | usage/report 15:38:54 |
+| Researcher | f8008d8e.1 | completed | 16.8 | 4.8 | usage/report 15:38:54 |
+| Researcher | 10ee59cb.1 | completed | 22.7 | 9.6 | usage/report 15:39:01 |
+| Lead | 1fb6e4b9.1 | completed | 10.6 | 5.2 | usage/report 15:39:04 |
+| Writer | 3a0ae75c.1 | completed | 12.9 | 6.5 | usage/report 15:39:15 |
+| Writer | 3a0ae75c.2 | completed | 59.7 | 30.9 | usage/report 15:40:17 |
+| Lead | bb9ec52d.1 | completed | 10.3 | 3.6 | usage/report 15:40:25 |
+
+### run3 (stall fired 0)
+
+| agent | task.attempt | outcome | turn_s | max_gap_s | last_event |
+|---|---|---|---|---|---|
+| Lead | 8b951bc4.1 | completed | 17.6 | 6.6 | usage/report 15:41:09 |
+| Researcher | 39bbd916.1 | completed | 21.7 | 10.3 | usage/report 15:41:24 |
+| Researcher | b781d4b5.1 | completed | 19.5 | 8.3 | usage/report 15:41:23 |
+| Researcher | 3df3e35e.1 | completed | 14.7 | 3.3 | usage/report 15:41:19 |
+| Lead | 48c5e455.1 | completed | 14.6 | 7.4 | usage/report 15:41:35 |
+| Writer | cdb70d83.1 | completed | 9.9 | 3.5 | usage/report 15:41:40 |
+| Writer | cdb70d83.2 | completed | 60.1 | 35.0 | usage/report 15:42:43 |
+| Lead | 635b65fc.1 | completed | 12.4 | 4.9 | usage/report 15:42:53 |
+
+### pre204-3000 (stall fired 0)
+
+| agent | task.attempt | outcome | turn_s | max_gap_s | last_event |
+|---|---|---|---|---|---|
+| Lead | db513f9f.1 | completed | 17.2 | 4.6 | usage/report 15:43:37 |
+| Researcher | b4490533.1 | completed | 25.5 | 11.3 | usage/report 15:43:56 |
+| Researcher | 906bebdb.1 | completed | 15.6 | 5.3 | usage/report 15:43:47 |
+| Researcher | e8ee7862.1 | completed | 13.2 | 4.4 | usage/report 15:43:45 |
+| Lead | 0f3e490d.1 | completed | 12.1 | 5.9 | usage/report 15:43:58 |
+| Writer | d11b7aaf.1 | completed | 10.2 | 4.2 | usage/report 15:44:06 |
+| Writer | d11b7aaf.2 | completed | 41.6 | 22.9 | usage/report 15:44:52 |
+| Lead | 7c9882ab.1 | completed | 10.3 | 3.5 | usage/report 15:45:00 |
+
+### pre204-15000 (stall fired 0)
+
+| agent | task.attempt | outcome | turn_s | max_gap_s | last_event |
+|---|---|---|---|---|---|
+| Lead | 0fcf26b2.1 | completed | 13.2 | 6.3 | usage/report 15:45:41 |
+| Researcher | 429b20ab.1 | completed | 23.4 | 7.8 | usage/report 15:46:00 |
+| Researcher | 938d333d.1 | completed | 14.8 | 8.7 | usage/report 15:45:52 |
+| Researcher | 99703eed.1 | completed | 24.5 | 11.7 | usage/report 15:46:02 |
+| Lead | 3f98ab8b.1 | completed | 11.8 | 6.4 | usage/report 15:46:06 |
+| Writer | 09b20038.1 | completed | 25.9 | 8.3 | usage/report 15:46:29 |
+| Writer | 09b20038.2 | completed | 76.9 | 46.2 | usage/report 15:47:51 |
+| Lead | 57d147bc.1 | completed | 8.5 | 3.2 | usage/report 15:47:59 |
+
+### dev-15000 (stall fired 0)
+
+| agent | task.attempt | outcome | turn_s | max_gap_s | last_event |
+|---|---|---|---|---|---|
+| Lead | f8380e59.1 | completed | 16.2 | 7.1 | usage/report 15:48:41 |
+| Researcher | 05d83ddf.1 | completed | 18.0 | 6.0 | usage/report 15:48:53 |
+| Researcher | c145d950.1 | completed | 12.6 | 5.7 | usage/report 15:48:48 |
+| Researcher | b626f299.1 | completed | 17.3 | 7.1 | usage/report 15:48:53 |
+| Lead | e0cd5910.1 | completed | 14.2 | 6.9 | usage/report 15:49:06 |
+| Writer | 028549b9.1 | completed | 16.0 | 4.2 | usage/report 15:49:21 |
+| Writer | 028549b9.2 | completed | 49.3 | 29.2 | usage/report 15:50:12 |
+| Lead | d40b123b.1 | completed | 9.1 | 3.3 | usage/report 15:50:17 |
+
+### pre204-sonnet-20000 (stall fired 0)
+
+| agent | task.attempt | outcome | turn_s | max_gap_s | last_event |
+|---|---|---|---|---|---|
+| Lead | f48d65a1.1 | completed | 14.9 | 6.0 | usage/report 15:51:56 |
+| Researcher | 8d1f51b3.1 | completed | 15.4 | 3.9 | usage/report 15:52:05 |
+| Researcher | 66a04c53.1 | completed | 12.7 | 3.5 | usage/report 15:52:03 |
+| Researcher | a519aec9.1 | completed | 23.8 | 6.2 | usage/report 15:52:15 |
+| Lead | b30f8910.1 | completed | 9.5 | 2.8 | usage/report 15:52:23 |
+| Writer | ac63d912.1 | completed | 8.4 | 3.3 | usage/report 15:52:30 |
+| Writer | ac63d912.2 | completed | 437.2 | 159.6 | usage/report 15:59:50 |
+| Lead | 3c839b6f.1 | completed | 10.4 | 2.5 | usage/report 16:00:00 |
+
+### dev-sonnet-20000 (stall fired 0)
+
+| agent | task.attempt | outcome | turn_s | max_gap_s | last_event |
+|---|---|---|---|---|---|
+| Lead | e66f1f28.1 | completed | 13.1 | 3.7 | usage/report 16:00:38 |
+| Researcher | c356b47c.1 | completed | 11.0 | 2.8 | usage/report 16:00:43 |
+| Researcher | 08e2831c.1 | completed | 13.8 | 4.5 | usage/report 16:00:46 |
+| Researcher | b086d210.1 | completed | 11.9 | 3.7 | usage/report 16:00:44 |
+| Lead | bb177735.1 | completed | 11.2 | 2.9 | usage/report 16:00:57 |
+| Writer | 6cf105f2.1 | completed | 5.3 | 2.5 | usage/report 16:01:00 |
+| Writer | 6cf105f2.2 | completed | 141.0 | 115.8 | usage/report 16:03:24 |
+| Lead | 6d450388.1 | completed | 9.8 | 2.4 | usage/report 16:03:34 |
+
