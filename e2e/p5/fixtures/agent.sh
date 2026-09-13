@@ -167,7 +167,9 @@ Probe)  # 77_: 프로파일 env 로 받은 명령을 실행하고 결과를 남�
     printf '%s\t%s\t%s\n' "${COLAB_TASK_ID:-}" "$code" "$(printf '%s' "$out" | tr '\n\t' '  ' | cut -c1-400)" >> "${FAKE_OUT:-.}/probe-results.tsv"
     log "probe cmd exit=$code"
   fi
-  done_ ;;
+  # FAKE_NO_DONE=1: status 를 남기지 않는다 — `status set done` 은 lane 을 즉시 done 으로 만들어 그 뒤에도 도는
+  # 턴을 Director 가 "중단" 할 수 없게 한다(cancelLane 409 lane_not_cancellable, 77_ 첫 실행 실측).
+  [ "${FAKE_NO_DONE:-0}" = 1 ] || done_ ;;
 *) log "unknown role"; done_ ;;
 esac
 exit 0
