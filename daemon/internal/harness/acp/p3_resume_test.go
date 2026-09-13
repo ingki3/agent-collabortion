@@ -98,7 +98,7 @@ func TestRefusalTwiceFailsTheAttempt(t *testing.T) {
 	if res.Outcome != "failed" || res.Failure == nil || res.Failure.Kind != contracts.FailOther {
 		t.Fatalf("result %+v — want failed(other) after the second empty refusal (D-13)", res)
 	}
-	if !strings.Contains(res.Failure.Detail, "refusal") {
+	if !strings.Contains(res.Failure.Detail, "거절") {
 		t.Fatalf("detail = %q, want the reason on the event (D-13)", res.Failure.Detail)
 	}
 	if n := len(f.sink.find("runtime", "resume", "cold_start")); n != 1 {

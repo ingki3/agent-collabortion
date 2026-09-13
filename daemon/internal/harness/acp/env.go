@@ -31,8 +31,24 @@ type TaskEnv struct {
 	AgentName string
 }
 
+// ColabSurface reports whether this attempt gets a way to talk to the
+// platform at all — COLAB_* env, the colab MCP server, the hermes CLI
+// wrapper (harness §10). The contract keys it on ONE fact, the attempt
+// token (§2.1 v0.8.8): a bundle without `task_token` is a §4.5 test-chat
+// turn, and the agent is meant to be able to do nothing but answer.
+func (t TaskEnv) ColabSurface() bool { return t.TaskToken != "" }
+
 // colabVars is the COLAB_* set for this attempt (colab-cli.md §1).
+//
+// No token → no COLAB_* at all (harness §2.1 v0.8.8, daemon-protocol v0.8
+// §4.5): a test-chat turn has nothing the agent could say to the platform,
+// and COLAB_SERVER_URL without a token would only make the CLI/MCP fail with
+// a 401 the agent then tries to work around (§0-16 — tool failure is what
+// sends an agent exploring). ColabSurface is the same decision, named.
 func (t TaskEnv) colabVars() map[string]string {
+	if !t.ColabSurface() {
+		return nil
+	}
 	m := map[string]string{
 		"COLAB_SERVER_URL":   t.ServerURL,
 		"COLAB_TASK_ID":      t.TaskID,

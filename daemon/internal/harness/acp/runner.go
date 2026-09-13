@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -74,6 +75,11 @@ type Attempt struct {
 	// and the runner's first event cannot collide on seq 1. Zero is the
 	// normal case: the runner starts at 1 as it always did.
 	StartSeq int
+	// Log is the daemon's progress log (D-24). The runner writes two lines
+	// to it and nothing else: what the stall watch counts as activity when
+	// it starts, and what it had seen when it fires (S-66, PR #181 NN3).
+	// Nil → dropped.
+	Log func(format string, args ...any)
 }
 
 // RawInit is the claude_code raw `system/init` evidence (§12(c)).
@@ -140,6 +146,12 @@ type Runner struct {
 	sessionID    string
 	replaying    bool
 	lastActivity time.Time
+	// activity is the S-66 ledger: what the stall watch has counted since
+	// the prompt went out, per source, plus the last source it saw. It
+	// exists so the moment the watch fires — or the moment someone reads
+	// the log after it did — says WHAT was being counted, not just that
+	// nothing was.
+	activity     activityLedger
 	say          strings.Builder
 	think        strings.Builder
 	tools        map[string]*toolState
@@ -225,9 +237,24 @@ func (r *Runner) emit(class, verb, objectRef, outcome string, payload map[string
 	return seq
 }
 
-func (r *Runner) touch() {
+func (r *Runner) touch() { r.noteActivity("prompt") }
+
+// noteActivity is the ONE place the stall watch's clock is reset (harness
+// §7). Every source that counts as "the runtime is alive and doing
+// something" goes through here and is named, so the ledger the watch prints
+// is the definition of activity, not a guess at it (S-66 (a)):
+//
+//	session/update:<kind>     onUpdate        — every ACP session/update
+//	request_permission        decidePermission — the runtime asking §4
+//	raw:<type>                onRawSDK        — claude_code `_claude/sdkMessage`
+//	                                             (stream_event etc.; harness §7,
+//	                                             S-66: the ONLY traffic while the
+//	                                             model generates a long tool input)
+//	prompt                    promptTurn      — the turn's own start
+func (r *Runner) noteActivity(source string) {
 	r.mu.Lock()
 	r.lastActivity = r.clk.Now()
+	r.activity.note(source)
 	r.mu.Unlock()
 }
 
@@ -345,11 +372,11 @@ func (r *Runner) run(ctx context.Context) Result {
 	cfg := r.a.Cmd
 	cfg.Dir = r.a.Workdir
 	if cfg.Command == "" {
-		return r.fail(contracts.FailConfig, "no adapter command for runtime "+string(r.kind()), nil)
+		return r.fail(contracts.FailConfig, "이 컴퓨터에 "+string(r.kind())+" 를 실행할 명령이 없습니다", nil)
 	}
 	c, err := Spawn(ctx, cfg)
 	if err != nil {
-		return r.fail(contracts.FailConfig, "spawn: "+err.Error(), nil)
+		return r.fail(contracts.FailConfig, "실행 프로그램을 시작하지 못했습니다: "+err.Error(), nil)
 	}
 	r.c = c
 	c.Permission = r.decidePermission
@@ -382,7 +409,7 @@ func (r *Runner) run(ctx context.Context) Result {
 			pin = AdapterPin
 		}
 		if adapterVersion != pin {
-			res := r.fail(contracts.FailConfig, fmt.Sprintf("adapter version %q != pin %q", adapterVersion, pin), nil)
+			res := r.fail(contracts.FailConfig, fmt.Sprintf("실행 프로그램의 어댑터 버전이 다릅니다: %s (필요한 버전 %s)", adapterVersion, pin), nil)
 			res.AdapterVersion = adapterVersion
 			return res
 		}
@@ -486,7 +513,9 @@ func (r *Runner) run(ctx context.Context) Result {
 		r.mu.Unlock()
 		r.emit("runtime", "resume", sessionID, "cold_start", map[string]any{
 			"runtime_kind": string(r.kind()), "session_id": sessionID, "resume_reason": refusalAfterResume,
-			"detail": "resume 직후 첫 턴이 stopReason=refusal + 활동 0 — 콜드 스타트로 1회 재시도 (D-13)",
+			// D-13: refusal right after session/load with zero tool activity
+			// is read as a lost session; one cold-start retry.
+			"detail": "이어서 한 첫 응답이 거절이고 아무 일도 하지 않아 이전 대화가 유실된 것으로 보고 처음부터 다시 시작합니다 (1회)",
 		})
 		if err := r.setModel(ctx, sessionID); err != nil {
 			return r.fail(contracts.FailConfig, err.Error(), nil)
@@ -511,7 +540,7 @@ func (r *Runner) run(ctx context.Context) Result {
 
 	base := Result{SessionRef: ref, ResumeOutcome: resumeOutcome, AdapterVersion: adapterVersion}
 	if stalled {
-		res := r.fail(contracts.FailStall, fmt.Sprintf("no session/update for %s", contracts.StallTimeout), nil)
+		res := r.fail(contracts.FailStall, fmt.Sprintf("%s 동안 아무 활동이 없어 멈춘 것으로 판단했습니다 — 다시 시도합니다", r.stallTimeout()), nil)
 		res.SessionRef, res.ResumeOutcome = ref, resumeOutcome
 		return res
 	}
@@ -571,7 +600,9 @@ func (r *Runner) run(ctx context.Context) Result {
 		// session, so it is not a resume problem — it is a turn that produced
 		// no work, and reporting `completed` would tell the session that the
 		// task is done (spike 4c §3).
-		res := r.fail(contracts.FailOther, "resume 후 콜드 스타트 재시도도 stopReason=refusal + 활동 0 — 턴이 아무 일도 하지 않았다 (D-13, 스파이크 4c §3)", nil)
+		// D-13 (스파이크 4c §3): the resumed turn refused with zero activity,
+		// and so did the cold-start retry.
+		res := r.fail(contracts.FailOther, "이어서 하기와 처음부터 다시 하기 모두 응답을 거절하고 아무 일도 하지 않았습니다", nil)
 		res.SessionRef, res.ResumeOutcome, res.Models, res.StopReason, res.AdapterVersion = ref, resumeOutcome, models, pr.StopReason, adapterVersion
 		return res
 	}
@@ -653,6 +684,7 @@ func (r *Runner) resetTurn() {
 	// contributed has already been folded into r.usage by recordUsage.
 	r.turn = turnTokens{}
 	r.turnCost = nil
+	r.activity.reset()
 }
 
 // CancelReasonBudget is the §4.3 `cancel {reason}` value the SERVER uses when
@@ -731,7 +763,8 @@ func (r *Runner) applyCaps(init *InitializeResult) {
 	for _, s := range dropped {
 		r.emit("runtime", "start", "", "info", map[string]any{
 			"runtime_kind": string(r.kind()),
-			"detail":       fmt.Sprintf("mcp server %q dropped: transport %s is not in the runtime mcpCapabilities", s.Name, s.Transport()),
+			// D-25: PRD §8.2.3 mcpCapabilities filter, in the person's words.
+			"detail": fmt.Sprintf("도구 서버 %q 를 뺐습니다 — 이 컴퓨터의 에이전트가 %s 방식 연결을 받지 못합니다", s.Name, s.Transport()),
 		})
 	}
 }
@@ -914,16 +947,17 @@ func (r *Runner) setModel(ctx context.Context, sessionID string) error {
 
 func (r *Runner) onUpdate(p SessionUpdateParams) {
 	r.mu.Lock()
-	if r.replaying { // session/load replay: discarded (§6, G1 F4)
-		r.mu.Unlock()
+	replaying := r.replaying
+	r.mu.Unlock()
+	if replaying { // session/load replay: discarded (§6, G1 F4)
 		return
 	}
-	r.lastActivity = r.clk.Now()
-	r.mu.Unlock()
 	var u Update
 	if json.Unmarshal(p.Update, &u) != nil {
+		r.noteActivity("session/update")
 		return
 	}
+	r.noteActivity("session/update:" + u.SessionUpdate)
 	switch u.SessionUpdate {
 	case "agent_message_chunk":
 		t := u.ChunkText()
@@ -1157,6 +1191,16 @@ func (r *Runner) onRawSDK(method string, params json.RawMessage) {
 	if json.Unmarshal(p.Message, &head) != nil {
 		return
 	}
+	// S-66: the raw stream IS activity. While the model generates a long
+	// tool input (a 6 KB Write measured at 40 s, a 30 KB report at over 3
+	// minutes) the adapter sends NO session/update and asks NO permission —
+	// the permission request comes after the input is complete — but it
+	// sends one `content_block_delta/input_json_delta` per token. Counting
+	// only session/update killed every writing turn of two real sessions
+	// (6/6) as `stall`; counting this keeps the §7 meaning — "the runtime is
+	// alive and doing something is not a stall" — for the one phase where
+	// session/update goes quiet. Same reset, named, so the ledger shows it.
+	r.noteActivity("raw:" + head.Type)
 	switch head.Type {
 	case "stream_event":
 		r.foldTurnUsage(foldSDKStream(head.Event))
@@ -1211,7 +1255,7 @@ func (r *Runner) foldTurnUsage(t turnTokens) {
 // ---- permission (§4) ----------------------------------------------------------
 
 func (r *Runner) decidePermission(p RequestPermissionParams) PermissionOutcome {
-	r.touch()
+	r.noteActivity("request_permission")
 	cancelling := r.parkIfCancelling()
 	title := p.ToolCall.Title
 	if cancelling {
@@ -1346,11 +1390,21 @@ func (r *Runner) stallTimeout() time.Duration {
 	return contracts.StallTimeout
 }
 
+// startStallWatch arms harness §7: `running` with no activity for
+// stall_seconds → failure_kind=stall via the §5 procedure. What "activity"
+// is, is exactly the set of callers of noteActivity — and that set is
+// printed here, once per turn, so the log of a stalled attempt says what
+// was being counted (S-66 (a); PR #181 NN3 asked for the firing moment).
 func (r *Runner) startStallWatch(ctx context.Context) func() {
 	done := make(chan struct{})
 	var once sync.Once
 	stop := func() { once.Do(func() { close(done) }) }
 	limit := r.stallTimeout()
+	raw := "off"
+	if r.a.RawSDKMessages {
+		raw = "on"
+	}
+	r.log("stall watch armed limit=%s counts=session/update,request_permission,raw:_claude/sdkMessage(%s)", limit, raw)
 	go func() {
 		for {
 			r.mu.Lock()
@@ -1359,7 +1413,17 @@ func (r *Runner) startStallWatch(ctx context.Context) func() {
 			if idle >= limit {
 				r.mu.Lock()
 				r.stalled = true
+				ledger := r.activity.String()
+				inflight := ""
+				if r.lastTool != nil && !r.lastTool.done {
+					inflight = fmt.Sprintf(" tool_in_progress=%s(%s)", r.lastTool.kind, clip(r.lastTool.objectRef(), 120))
+				}
 				r.mu.Unlock()
+				// NN3: the moment the watch fires used to be silent — the
+				// first line about a stall was the finish, three minutes
+				// after the last one. This line says what was counted
+				// since the prompt and what it last saw.
+				r.log("stall fired idle=%s limit=%s%s counted=%s", idle.Round(time.Second), limit, inflight, ledger)
 				r.cancelProcedure(ctx, false)
 				return
 			}
@@ -1373,6 +1437,52 @@ func (r *Runner) startStallWatch(ctx context.Context) func() {
 		}
 	}()
 	return stop
+}
+
+// log writes to the daemon's progress log when the loop gave us one.
+func (r *Runner) log(format string, args ...any) {
+	if r.a.Log != nil {
+		r.a.Log(format, args...)
+	}
+}
+
+// activityLedger counts what the stall watch has seen, per source. Sources
+// are the strings noteActivity is called with; session/update is kept per
+// kind and the raw stream per message type, so a stalled turn's log
+// distinguishes "873 raw:stream_event, 0 session/update" (the model was
+// writing a long tool input) from "0 of anything" (the process is gone).
+type activityLedger struct {
+	counts map[string]int
+	last   string
+	lastAt time.Time
+}
+
+func (l *activityLedger) note(source string) {
+	if l.counts == nil {
+		l.counts = map[string]int{}
+	}
+	l.counts[source]++
+	l.last = source
+}
+
+// reset starts a new turn's ledger (D-13 retry).
+func (l *activityLedger) reset() { *l = activityLedger{} }
+
+// String renders `source=n` sorted by name, then `last=<source>`.
+func (l *activityLedger) String() string {
+	keys := make([]string, 0, len(l.counts))
+	for k := range l.counts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys)+1)
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", k, l.counts[k]))
+	}
+	if len(parts) == 0 {
+		parts = append(parts, "nothing")
+	}
+	return strings.Join(parts, ",") + " last=" + l.last
 }
 
 // ---- cancel (§5) --------------------------------------------------------------

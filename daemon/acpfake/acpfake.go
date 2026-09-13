@@ -137,7 +137,16 @@ type Step struct {
 	Permission *PermissionStep `json:"permission,omitempty"`
 	Usage      *UsageStep      `json:"usage,omitempty"`
 	SDKRequest *SDKRequestStep `json:"sdk_request,omitempty"`
-	Plan       []acp.PlanEntry `json:"plan,omitempty"`
+	// RawDeltas is the S-66 shape: the model generating a long tool input.
+	// The real adapter (claude-agent-acp, measured 2026-09-13) sends ONE
+	// `stream_event/content_block_delta/input_json_delta` per token and no
+	// session/update at all for the whole stretch — 6 KB in 40 s, 17 KB in
+	// 101 s — and the permission request only when the input is complete.
+	// Like every raw SDK message, sent only when the client asked for the
+	// stream; with it off the step is pure silence, which is exactly what a
+	// daemon with the stream off sees.
+	RawDeltas *RawDeltasStep  `json:"raw_deltas,omitempty"`
+	Plan      []acp.PlanEntry `json:"plan,omitempty"`
 	// EchoBrief emits the last received _meta.systemPrompt.append as a chunk
 	// (§12 (a)); EchoModel emits the current model (§12 (b)).
 	EchoBrief bool `json:"echo_brief,omitempty"`
@@ -190,6 +199,13 @@ type SDKRequestStep struct {
 	// OpeningOutput is the output_tokens the request STARTS with (real turns:
 	// 1~4). Zero → 4.
 	OpeningOutput int64 `json:"opening_output,omitempty"`
+}
+
+// RawDeltasStep emits Count input_json_delta stream events, IntervalMs apart
+// (real time). The loop honours session/cancel between deltas.
+type RawDeltasStep struct {
+	Count      int `json:"count"`
+	IntervalMs int `json:"interval_ms"`
 }
 
 type UsageStep struct {
@@ -716,6 +732,15 @@ func (sv *server) prompt(id *json.RawMessage, sid string) {
 			sv.update(sid, u)
 		case st.SDKRequest != nil:
 			sv.sdkRequest(sid, st.SDKRequest)
+		case st.RawDeltas != nil:
+			for i := 0; i < st.RawDeltas.Count && !sv.cancelled.Load(); i++ {
+				if sv.rawSDKOn() {
+					sv.sdkMessage(sid, map[string]any{"type": "stream_event", "parent_tool_use_id": nil,
+						"event": map[string]any{"type": "content_block_delta", "index": 1,
+							"delta": map[string]any{"type": "input_json_delta", "partial_json": "\"lorem "}}})
+				}
+				time.Sleep(time.Duration(st.RawDeltas.IntervalMs) * time.Millisecond)
+			}
 		case st.Plan != nil:
 			sv.update(sid, map[string]any{"sessionUpdate": "plan", "entries": st.Plan})
 		}

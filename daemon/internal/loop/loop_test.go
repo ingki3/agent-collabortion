@@ -487,7 +487,7 @@ func TestShutdownDrainOverrunStillFinishesCancelled(t *testing.T) {
 	}
 	over := false
 	for _, e := range srv.findEvents("runtime", "cancel", "info") {
-		if s, _ := e.Payload["detail"].(string); strings.Contains(s, "드레인 초과") {
+		if s, _ := e.Payload["detail"].(string); strings.Contains(s, "종료 대기 시간을 넘겨") {
 			over = true
 		}
 	}
@@ -595,10 +595,11 @@ func TestHeartbeatCarriesUsageBeforeFinish(t *testing.T) {
 	}
 }
 
-// D-18 (was: TestUsageMidturnConfigGate). The raw SDK stream is decided per
-// ATTEMPT by whether the bundle carries a budget, and that rule takes
-// precedence over daemon.json's machine-wide `usage_midturn` switch. hermes
-// never gets the stream (harness §3 v0.8.5) whatever the budget says.
+// D-18 tier 2 removed (Lead 2026-09-13, S-66): the raw SDK stream is on for
+// EVERY claude_code attempt, budget or not — it is the stall watch's only view
+// of a model generating a long tool input. The operator's `usage_midturn:
+// false` stays a hard kill switch; hermes never gets the stream (harness §3
+// v0.8.5) whatever the budget says.
 func TestUsageMidturnBudgetGate(t *testing.T) {
 	off := false
 	on := true
@@ -627,12 +628,11 @@ func TestUsageMidturnBudgetGate(t *testing.T) {
 		{"claude_code, task budget", nil, contracts.RuntimeClaudeCode, budgeted, true},
 		{"claude_code, session remainder only", nil, contracts.RuntimeClaudeCode, sessionOnly, true},
 		{"claude_code, approved override only", nil, contracts.RuntimeClaudeCode, overrideOnly, true},
-		{"claude_code, no budget anywhere", nil, contracts.RuntimeClaudeCode, none, false},
-		// Three tiers (Lead 2026-09-07): an operator's explicit false is a
-		// hard kill switch and outranks the automatic rule; the automatic
-		// rule outranks the default ON.
+		// S-66: no budget → still ON. The writing turns of an unbudgeted
+		// session died 6/6 as `stall` while the stream was off.
+		{"claude_code, no budget anywhere", nil, contracts.RuntimeClaudeCode, none, true},
 		{"operator kill switch beats a budget", &off, contracts.RuntimeClaudeCode, budgeted, false},
-		{"explicit on does not override the no-budget rule", &on, contracts.RuntimeClaudeCode, none, false},
+		{"explicit on, no budget", &on, contracts.RuntimeClaudeCode, none, true},
 		{"hermes never, budget set", nil, contracts.RuntimeHermes, budgeted, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

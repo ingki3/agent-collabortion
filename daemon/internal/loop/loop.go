@@ -33,6 +33,11 @@ type Daemon struct {
 	Version string
 	Orphans orphan.Store
 	Log     func(format string, args ...any)
+	// ConfigPath, when set, is re-read before every probe for the fields an
+	// operator edits while the daemon runs — today `repos[]` (D-20: `daemon
+	// repos add` writes the file; the next probe advertises it without a
+	// restart). Pairing state is never taken from the re-read.
+	ConfigPath string
 	// Debug is the progress log's detail tier (D-24, internal/dlog): one
 	// line per task_event the attempt puts on the wire. Nil → dropped, which
 	// is also what a daemon at the default level does.
@@ -81,6 +86,43 @@ type Daemon struct {
 	wg        sync.WaitGroup
 	// Claimed counts claim calls (tests).
 	Claimed int
+	// claimErrors folds a run of identical claim failures into a few log
+	// lines (PR #181 NN4).
+	claimErrors repeatFold
+}
+
+// repeatFold is the D-24 "반복 오류 축약": a server that is down makes the
+// claim loop fail every 2s, and at the default level that buried an
+// eight-hour session's few interesting lines under thousands of identical
+// ones. The first failure is logged, then the 10th, 100th, 1000th … of the
+// same message; a different message starts over; the first success after a
+// run says how many were folded.
+type repeatFold struct {
+	last  string
+	count int
+}
+
+func (f *repeatFold) note(msg string, log func(string, ...any)) {
+	if msg != f.last {
+		if f.count > 1 {
+			log("claim: previous error repeated %d times", f.count)
+		}
+		f.last, f.count = msg, 0
+	}
+	f.count++
+	switch {
+	case f.count == 1:
+		log("claim: %s", msg)
+	case f.count == 10, f.count == 100, f.count == 1000, f.count%10000 == 0:
+		log("claim: %s (repeated %d times, still failing)", msg, f.count)
+	}
+}
+
+func (f *repeatFold) recovered(log func(string, ...any)) {
+	if f.count > 0 {
+		log("claim: ok again after %d failures (%s)", f.count, f.last)
+	}
+	f.last, f.count = "", 0
 }
 
 type attemptRun struct {
@@ -153,6 +195,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err := toolwrap.SweepAll(d.Cfg.WorkdirRoot); err != nil {
 		d.Log("tool wrapper sweep: %v", err)
 	}
+	// daemon-protocol §4.5 (g): a test chat's directory is normally removed
+	// by the server's `gc` on close; when the server died first the command
+	// never came, so anything older than 24h under `.colab/testchat/` is
+	// swept here, in the same place as the other start-up leftovers.
+	for _, p := range workdir.SweepTestChats(d.Cfg.WorkdirRoot, d.Clock.Now(), workdir.TestChatMaxAge) {
+		d.Log("testchat sweep: removed %s (older than %s)", p, workdir.TestChatMaxAge)
+	}
 	d.probe(ctx)
 	nextProbe := d.Clock.After(d.ProbeInterval)
 	for ctx.Err() == nil {
@@ -185,13 +234,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				break
 			}
-			d.Log("claim: %v", err)
+			d.claimErrors.note(err.Error(), d.Log)
 			select {
 			case <-ctx.Done():
 			case <-d.Clock.After(2 * time.Second):
 			}
 			continue
 		}
+		d.claimErrors.recovered(d.Log)
 		if len(res.Tasks) == 0 && len(res.Commands) == 0 {
 			// D-24: an idle long-poll is the ONE thing in this loop that
 			// repeats forever, so it is the one line that cannot be at the
@@ -207,8 +257,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 			// Everything here is what a reader needs to tie the line to the
 			// server's feed (task·attempt·lane) and to know what is about to
 			// be spawned.
-			d.Log("%s claim lane=%s session=%s agent=%s runtime=%s model=%s isolation=%s",
-				key(b.Task.ID, b.Task.Attempt), b.Task.LaneID, b.Task.SessionID, b.Task.AgentName,
+			d.Log("%s claim kind=%s lane=%s session=%s agent=%s runtime=%s model=%s isolation=%s",
+				key(b.Task.ID, b.Task.Attempt), bundleKind(b), b.Task.LaneID, b.Task.SessionID, b.Task.AgentName,
 				b.Profile.RuntimeKind, b.Profile.Model, b.Workdir.Kind)
 			d.start(attemptCtx, b)
 		}
@@ -260,7 +310,7 @@ func (d *Daemon) stop(ctx context.Context, cancelAttempts context.CancelFunc) {
 	case <-d.Clock.After(d.shutdownDrain()):
 		d.Log("shutdown: cancel drain over %s — forcing", d.shutdownDrain())
 		for _, r := range runs {
-			r.runner.CancelNote("드레인 초과")
+			r.runner.CancelNote("종료 대기 시간을 넘겨 강제로 끝냈습니다")
 		}
 	}
 	cancelAttempts()
@@ -279,7 +329,15 @@ func (d *Daemon) probe(ctx context.Context) {
 		am[k] = v
 	}
 	d.mu.Unlock()
-	o := probe.Options{DaemonVersion: d.Version, WorkdirRoot: d.Cfg.WorkdirRoot, Turn: d.ProbeTurn, AllowOnceMissing: am, Command: d.ProbeCommand, ColabBin: d.Cfg.ColabBin, Repos: d.Cfg.Repos, UsageMidturnOff: !d.Cfg.UsageMidturnEnabled(), Clock: d.Clock, Log: func(s string) { d.Log("%s", s) }}
+	repos := d.Cfg.Repos
+	if d.ConfigPath != "" {
+		if fresh, err := config.Load(d.ConfigPath); err == nil {
+			repos = fresh.Repos
+		} else {
+			d.Log("probe: re-read %s: %v (using the repos loaded at start)", d.ConfigPath, err)
+		}
+	}
+	o := probe.Options{DaemonVersion: d.Version, WorkdirRoot: d.Cfg.WorkdirRoot, Turn: d.ProbeTurn, AllowOnceMissing: am, Command: d.ProbeCommand, ColabBin: d.Cfg.ColabBin, Repos: repos, UsageMidturnOff: !d.Cfg.UsageMidturnEnabled(), Clock: d.Clock, Log: func(s string) { d.Log("%s", s) }}
 	// probe.Run fills §3 colab_cli itself: the colab CLI is how every agent
 	// reaches the platform (MCP server and shell path are the same binary),
 	// so its absence rides on the probe instead of only the daemon log.
@@ -452,6 +510,10 @@ func (d *Daemon) holdsWorkdir(p string) bool {
 // what happened, and a refusal it keeps to itself is indistinguishable from a
 // daemon that is not listening.
 func (d *Daemon) gc(ctx context.Context, c contracts.Command) {
+	if c.TestChatID != "" {
+		d.gcTestChat(ctx, c)
+		return
+	}
 	targets := make([]workdir.Info, 0, len(c.Workdirs))
 	for _, w := range c.Workdirs {
 		// The receipt travels on a §6 row, so it needs the same identity every
@@ -522,6 +584,63 @@ func (d *Daemon) gc(ctx context.Context, c contracts.Command) {
 	if err := d.Server.Workdirs(rctx, d.Cfg.RuntimeID, api.WorkdirsRequest{Workdirs: report}); err != nil {
 		d.Log("gc: report: %v", err)
 	}
+}
+
+// gcTestChat is §4.5 (f): a `gc {test_chat_id, workdirs:[{id, path}]}` for a
+// test chat's temporary directory. The path is deleted only when it lies under
+// `<workdir_root>/.colab/testchat/` — the same realPath guard the other gc
+// paths use, one directory narrower — and the receipt is the §6 row the
+// contract spells out: `{id, kind: dir, path, test_chat_id, bytes: 0, gc:
+// {status}}` with NO session_id (the server matches on test_chat_id and never
+// stores the row). Anything else is `refused` with the reason; the server logs
+// it and the command is still consumed, so a bad path cannot loop for 24h.
+func (d *Daemon) gcTestChat(ctx context.Context, c contracts.Command) {
+	report := make([]workdir.Info, 0, len(c.Workdirs))
+	for _, w := range c.Workdirs {
+		row := workdir.Info{ID: w.ID, Kind: "dir", Path: w.Path, TestChatID: c.TestChatID, LastUsedAt: d.Clock.Now().UTC()}
+		res := workdir.GCResult{ID: w.ID}
+		switch {
+		case d.holdsWorkdir(w.Path):
+			// The turn the server cancelled alongside this gc is still
+			// running; the server re-issues gc until the receipt says deleted.
+			res.Status, res.Reason = workdir.GCRefused, workdir.GCReasonProcessAlive
+		default:
+			if err := workdir.RemoveTestChat(d.Cfg.WorkdirRoot, w.Path); err != nil {
+				res.Status, res.Reason = workdir.GCRefused, err.Error()
+				d.Log("gc testchat %s: %v", w.Path, err)
+			} else {
+				res.Status = workdir.GCDeleted
+			}
+		}
+		row.GC = &res
+		report = append(report, row)
+		d.Log("gc testchat=%s %s: %s %s", c.TestChatID, w.Path, res.Status, res.Reason)
+	}
+	if len(report) == 0 {
+		d.Log("gc testchat=%s: no workdirs named", c.TestChatID)
+		return
+	}
+	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := d.Server.Workdirs(rctx, d.Cfg.RuntimeID, api.WorkdirsRequest{Workdirs: report}); err != nil {
+		d.Log("gc testchat=%s: report: %v", c.TestChatID, err)
+	}
+}
+
+// IsTestChat reports whether the bundle is a daemon-protocol v0.8 §4.5 test
+// chat turn: `task.kind == "test_chat"`. Everything that differs for one —
+// the directory, the missing lane report, the gc shape — keys on this; the
+// colab surface (env · MCP · wrapper) keys on the token instead, as harness
+// §2.1 says (acp.TaskEnv.ColabSurface).
+func IsTestChat(b contracts.TaskBundle) bool { return b.Task.Kind == "test_chat" }
+
+// bundleKind is the claim line's `kind=`: "task" for a session task (the
+// field is optional on the wire), else what the server sent.
+func bundleKind(b contracts.TaskBundle) string {
+	if b.Task.Kind == "" {
+		return "task"
+	}
+	return b.Task.Kind
 }
 
 // reportLaneWorkdir is the D-23 §6 report: ONE row for the directory the
@@ -615,7 +734,7 @@ func (d *Daemon) finishWorkdir(wd string) *contracts.FinishWorkdir {
 // the message it replaced (`spawn: fork/exec …/npx: no such file or
 // directory`) named none.
 func workdirDetail(err error, b contracts.TaskBundle, root string) string {
-	return fmt.Sprintf("%v (isolation=%s, bundle workdir.path=%q, workdir_root=%s)",
+	return fmt.Sprintf("%v (격리 %s, 서버가 준 경로 %q, 이 컴퓨터의 기준 폴더 %s)",
 		err, b.Workdir.Kind, b.Workdir.Path, root)
 }
 
@@ -641,8 +760,17 @@ func (d *Daemon) taskEnv(b contracts.TaskBundle) acp.TaskEnv {
 
 // mcpServers is the session/new·load `mcpServers` list: the colab MCP server
 // only (harness §2, colab-cli.md §3), carrying the attempt's COLAB_* env.
+//
+// None at all when the bundle has no token (harness §2.1 v0.8.8, §4.5 test
+// chat): the MCP server is the agent's channel to the platform, and a test
+// chat has no platform to talk to. The wrapper (harness §10) and COLAB_*
+// (acp.Env) go off on the same condition.
 func (d *Daemon) mcpServers(b contracts.TaskBundle) []acp.MCPServer {
-	env := acp.Env(b.Profile.RuntimeKind, d.taskEnv(b), nil)
+	te := d.taskEnv(b)
+	if !te.ColabSurface() {
+		return nil
+	}
+	env := acp.Env(b.Profile.RuntimeKind, te, nil)
 	return []acp.MCPServer{acp.ColabMCPServer(d.Cfg.ColabBin, env)}
 }
 
@@ -661,12 +789,20 @@ func (d *Daemon) toolSurface(kind contracts.RuntimeKind) string {
 	return acp.DefaultToolSurface(kind)
 }
 
+// attemptEnv is the harness §2.1 environment of one attempt's runtime
+// process: allow-listed system vars, the profile's additions, and COLAB_*
+// only when the bundle carries a token (§2.1 v0.8.8). Tests that replace
+// SpawnConfig call this so the fake runs under the daemon's own env.
+func (d *Daemon) attemptEnv(b contracts.TaskBundle) []string {
+	return acp.Env(b.Profile.RuntimeKind, d.taskEnv(b), b.Profile.Env)
+}
+
 func (d *Daemon) spawnConfig(b contracts.TaskBundle, wd string) acp.Config {
 	if d.SpawnConfig != nil {
 		return d.SpawnConfig(b, wd)
 	}
 	cmd, args := acp.Command(b.Profile.RuntimeKind, b.Profile.AdapterPin, b.Profile.Args)
-	env := acp.Env(b.Profile.RuntimeKind, d.taskEnv(b), b.Profile.Env)
+	env := d.attemptEnv(b)
 	var stderr string
 	if d.Cfg.StderrDir != "" && os.MkdirAll(d.Cfg.StderrDir, 0o755) == nil {
 		stderr = filepath.Join(d.Cfg.StderrDir, key(b.Task.ID, b.Task.Attempt)+".stderr.txt")
@@ -689,6 +825,11 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		defer cancel()
 		_ = batcher.Close(fctx)
 		req.LastSeq = batcher.LastSeq()
+		// §4.5 v0.8 `finish.transport`: the path this daemon actually ran
+		// the attempt on. v1 is ACP only (contracts.Transport); it goes on
+		// every attempt, as the contract allows, and the server reads it for
+		// test chats.
+		req.Transport = contracts.TransportACP
 		var err error
 		for i := 0; i < 3; i++ {
 			if err = d.Server.Finish(fctx, b.Task.ID, b.Task.Attempt, req); err == nil || !api.IsNetwork(err) {
@@ -721,7 +862,11 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		// Deliberately after the finish call, not instead of it: §4.4's
 		// `Finish.Workdir.Git` is what the server folds into the row, and a
 		// §6 report that overtook it would be judged on staler git facts.
-		if req.Workdir != nil && req.Workdir.Path != "" {
+		//
+		// Not for a test chat (§4.5): its directory is not a workdir row —
+		// the server drops a row with no session_id, loudly (S-56(b)) — and
+		// the only §6 row it ever gets is the gc receipt.
+		if req.Workdir != nil && req.Workdir.Path != "" && !IsTestChat(b) {
 			d.reportLaneWorkdir(b, req.Workdir)
 		}
 	}
@@ -735,6 +880,11 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	prepare := d.PrepareWorkdir
 	if prepare == nil {
 		prepare = workdir.Prepare
+		if IsTestChat(b) {
+			// §4.5 (b): `<workdir_root>/.colab/testchat/<id>`, mkdir -p,
+			// never a checkout — and never outside that one directory.
+			prepare = workdir.PrepareTestChat
+		}
 	}
 	wd, err := prepare(d.Cfg.WorkdirRoot, b)
 	if err != nil {
@@ -760,9 +910,11 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		// outcome=info with the fact in `detail` (PRD §7 v0.16 / S-52 rule 2:
 		// `detail` is the runtime class's one free-text field, and the payload
 		// is closed to anything else).
-		detail := fmt.Sprintf("workdir bundle path %q → %s (isolation=%s, workdir_root=%s)",
+		// D-25: the person's words (COMPONENTS §8.4) — this is a feed line.
+		// The daemon log line above it keeps the same facts.
+		detail := fmt.Sprintf("서버가 준 작업 폴더 경로 %q → 이 컴퓨터에서는 %s 를 씁니다 (격리 %s, 기준 폴더 %s)",
 			b.Workdir.Path, wd, b.Workdir.Kind, d.Cfg.WorkdirRoot)
-		d.Log("%s %s", k, detail)
+		d.Log("%s workdir bundle path %q → %s (isolation=%s, workdir_root=%s)", k, b.Workdir.Path, wd, b.Workdir.Kind, d.Cfg.WorkdirRoot)
 		sink.Emit(contracts.TaskEvent{
 			TaskID: b.Task.ID, Attempt: b.Task.Attempt, Seq: nextSeq(), TS: d.Clock.Now().UTC(),
 			Class: "runtime", Verb: "report", ObjectRef: "workdir.path", Outcome: "info",
@@ -797,7 +949,7 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	// a wrapper FILE, and every text we hand the agent must name it by
 	// absolute path (v0.8.1 — the server cannot know a path we invent here).
 	surface := d.toolSurface(b.Profile.RuntimeKind)
-	if surface == acp.ToolSurfaceCLIWrapper {
+	if surface == acp.ToolSurfaceCLIWrapper && d.taskEnv(b).ColabSurface() {
 		wrapper, werr := toolwrap.Write(d.Cfg.WorkdirRoot, b.Task.ID, b.Task.Attempt, d.Cfg.ColabBin, acp.Env(b.Profile.RuntimeKind, d.taskEnv(b), nil))
 		if werr != nil {
 			d.Log("%s tool wrapper: %v", k, werr)
@@ -854,18 +1006,19 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		b.Prompt = brief.PrependPointer(wd, b.Prompt)
 	}
 
-	midturn := d.usageMidturn(b)
-	if b.Profile.RuntimeKind == contracts.RuntimeClaudeCode && !midturn && d.Cfg.UsageMidturnEnabled() {
-		// D-18 tier 2. One log line and nothing else: it is not a task event
-		// because nothing about the TASK changed — the session simply has no
-		// budget for the in-turn check to enforce.
-		d.Log("%s raw SDK stream off: no budget in the bundle (D-18)", k)
+	if !d.taskEnv(b).ColabSurface() {
+		// §4.5 / harness §2.1 v0.8.8: say so once, at the default level. A
+		// test chat whose agent "cannot post" is the design, and the log is
+		// where the next person checks that before suspecting the MCP setup.
+		d.Log("%s colab surface off: no task_token (kind=%s) — no COLAB_* env, no mcpServers, no CLI wrapper", k, bundleKind(b))
 	}
+	midturn := d.usageMidturn(b)
 	// The heartbeater exists before the runner because the runner calls back
 	// into it (OnUsage); its `r` is filled in on the next line.
 	hb := &heartbeater{d: d, b: b, bt: batcher}
 	runner := acp.New(acp.Attempt{
 		Bundle: b, Workdir: wd, Cmd: d.spawnConfig(b, wd), MCPServers: d.mcpServers(b), Sink: sink, Clock: d.Clock, DaemonVersion: d.Version,
+		Log: func(format string, args ...any) { d.Log(k+" "+format, args...) },
 		// The loop may already have spent seq 1 on the §4.1 note above.
 		StartSeq: seq,
 		// harness §7 v0.8.5: the raw SDK stream is what makes the heartbeat's
@@ -901,7 +1054,14 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	// D-24: the turn ended. `usage` rides along because "what did it cost"
 	// and "why did it stop" are asked in the same breath, and the finish line
 	// below carries neither.
-	d.Log("%s turn outcome=%s stop=%s usage=%s", k, res.Outcome, res.StopReason, usageSummary(res.Usage))
+	// PR #181 NN2: a failed turn carries its kind and detail HERE, not three
+	// lines later on the finish — `r.fail()` fills Failure, not StopReason,
+	// so `stop=` is empty exactly when a reader most needs a reason.
+	if res.Failure != nil {
+		d.Log("%s turn outcome=%s stop=%s failure=%s detail=%q usage=%s", k, res.Outcome, res.StopReason, res.Failure.Kind, res.Failure.Detail, usageSummary(res.Usage))
+	} else {
+		d.Log("%s turn outcome=%s stop=%s usage=%s", k, res.Outcome, res.StopReason, usageSummary(res.Usage))
+	}
 
 	d.mu.Lock()
 	delete(d.running, k)
@@ -948,33 +1108,29 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 // usage. Only claude_code has a channel for it (harness §7 v0.8.5); on hermes
 // the flag would buy nothing but `_meta`, which hermes drops anyway.
 //
-// D-18: the stream is bought for ONE purpose — the server's in-turn budget
-// check (FR-7.3 M9) needs a non-zero `usage` on the heartbeat before the turn
-// ends. A session with no budget at all has nothing for that check to
-// enforce, so the ~4× messages and ~2× bytes measured in PR #145 buy nothing.
+// The raw stream is bought for TWO purposes (Lead decision 2026-09-13, S-66):
 //
-// THREE TIERS, in this order (Lead decision 2026-09-07):
+//   - the server's in-turn budget check (FR-7.3 M9) needs a non-zero `usage`
+//     on the heartbeat before the turn ends (D-17);
+//   - the stall watch (harness §7) needs to SEE the model generating a long
+//     tool input — during a 17 KB Write the adapter sends 900+ raw
+//     `input_json_delta` events and not one session/update for 100 s, and
+//     the 30 KB report of a real writing turn crosses the 3-minute line.
+//     Two real sessions lost 6/6 writing turns to `stall` that way.
 //
-//  1. an operator's explicit `usage_midturn: false` in daemon.json — a hard
-//     kill switch, honoured even for a budgeted session. probe §9 then
-//     advertises `usage_midturn: false` too (the EFFECTIVE value), so the
-//     server knows to fall back to finish-time enforcement (E9-10) instead of
-//     waiting for in-turn numbers that will never arrive.
-//  2. the automatic per-attempt rule: budget set → on, no budget → off.
-//  3. the default, on.
-//
-// The automatic rule replaces the DEFAULT, not the switch. Tier 2 is a
-// per-attempt decision and does not change what the runtime is advertised as
-// being capable of — it is a choice not to ask, not an absence of the
-// ability — so it is recorded in the daemon log and nowhere else.
+// The second purpose is why D-18's tier 2 ("no budget in the bundle → stream
+// off", PR #145 measured ~4× messages / ~2× bytes on the local pipe) is gone:
+// an unbudgeted session has nothing for the budget check to enforce, but its
+// writing turns die all the same. What remains is the operator's explicit
+// `usage_midturn: false` in daemon.json — a hard kill switch; probe §9 then
+// advertises `usage_midturn: false` (the EFFECTIVE value) so the server falls
+// back to finish-time enforcement (E9-10). An operator who turns it off also
+// turns the stall protection for long tool inputs off, and the README says so.
 func (d *Daemon) usageMidturn(b contracts.TaskBundle) bool {
 	if b.Profile.RuntimeKind != contracts.RuntimeClaudeCode {
 		return false
 	}
-	if !d.Cfg.UsageMidturnEnabled() {
-		return false
-	}
-	return BundleHasBudget(b)
+	return d.Cfg.UsageMidturnEnabled()
 }
 
 // BundleHasBudget reports whether the bundle carries any budget the daemon

@@ -419,7 +419,7 @@ func TestHermesProviderErrorTextIsClassified(t *testing.T) {
 func TestAdapterPinMismatchIsConfig(t *testing.T) {
 	f := newFixture(t, acpfake.Script{AgentVersion: "0.73.0"}, bundle(contracts.RuntimeClaudeCode), nil)
 	res := f.run()
-	if res.Outcome != "failed" || res.Failure == nil || res.Failure.Kind != contracts.FailConfig || !strings.Contains(res.Failure.Detail, `"0.73.0" != pin "0.74.0"`) {
+	if res.Outcome != "failed" || res.Failure == nil || res.Failure.Kind != contracts.FailConfig || !strings.Contains(res.Failure.Detail, `0.73.0 (필요한 버전 0.74.0)`) {
 		t.Fatalf("result %+v", res)
 	}
 	if res.AdapterVersion != "0.73.0" {

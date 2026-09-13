@@ -76,7 +76,7 @@ func spend(cost float64) acpfake.Script {
 // budgetDetail returns the §4.4 feed line the attempt left, or "".
 func budgetDetail(f *fixture) string {
 	for _, e := range f.sink.find("runtime", "cancel", "info") {
-		if d, _ := e.Payload["detail"].(string); strings.Contains(d, "paused_budget") {
+		if d, _ := e.Payload["detail"].(string); strings.Contains(d, "예산 $") {
 			return d
 		}
 	}
@@ -102,7 +102,7 @@ func TestBudgetOverrunIsPausedNotFailed(t *testing.T) {
 	}
 	var said bool
 	for _, e := range f.sink.find("runtime", "cancel", "info") {
-		if d, _ := e.Payload["detail"].(string); strings.Contains(d, "paused_budget") {
+		if d, _ := e.Payload["detail"].(string); strings.Contains(d, "예산 $") {
 			said = true
 		}
 	}
@@ -168,7 +168,7 @@ func TestSessionRemainingCapsAnApprovedOverride(t *testing.T) {
 	if d == "" {
 		t.Fatalf("the feed never says why the attempt stopped: %+v", f.sink.find("runtime", "cancel", ""))
 	}
-	if !strings.Contains(d, "세션 잔여") {
+	if !strings.Contains(d, "세션 잔여 예산") {
 		t.Errorf("detail = %q, want it to name 세션 잔여 as the cap that bound — paused at $2 with a "+
 			"$3 override approved, the Director cannot otherwise tell which cap to lift (D-16)", d)
 	}
@@ -188,8 +188,8 @@ func TestTaskBudgetBindsWhenTheSessionHasRoom(t *testing.T) {
 			"even though the session has $5 left (D-16, §4.4 v0.7.1)", res.Outcome)
 	}
 	d := budgetDetail(f)
-	if !strings.Contains(d, "task 상한") {
-		t.Errorf("detail = %q, want it to name task 상한 as the cap that bound (D-16)", d)
+	if !strings.Contains(d, "할 일 상한") {
+		t.Errorf("detail = %q, want it to name 할 일 상한 as the cap that bound (D-16)", d)
 	}
 	if !strings.Contains(d, "$1.0000") {
 		t.Errorf("detail = %q, want the enforced cap $1.0000, not the session's $5", d)

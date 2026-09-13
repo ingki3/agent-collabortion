@@ -37,9 +37,9 @@ import (
 // $2 has to say WHICH $2 it was, or the Director cannot tell "raise this
 // task's cap" from "the session is out of money".
 const (
-	sideTask     = "task 상한"
-	sideOverride = "task 상한(승인 상향)"
-	sideSession  = "세션 잔여"
+	sideTask     = "할 일 상한"
+	sideOverride = "할 일 상한(승인된 상향)"
+	sideSession  = "세션 잔여 예산"
 )
 
 // effectiveBudget is daemon-protocol §4.4 v0.7.1 (D-16): the cap this attempt
@@ -131,9 +131,11 @@ func (r *Runner) flushBudgetNote() {
 	// cancel procedure, so it belongs on the cancel line.
 	r.emit("runtime", "cancel", "", "info", map[string]any{
 		"runtime_kind": string(r.kind()),
-		"detail": fmt.Sprintf("실측 비용 $%.4f 가 유효 예산 $%.4f 를 넘었다 — 넘긴 쪽은 %s "+
-			"(유효 예산 = min(task 상한, 세션 잔여), §4.4 v0.7.1 D-16) — paused_budget (FR-7.3 M9, E9-01)",
-			n.Cost, n.Limit, n.Side),
+		// D-25: the person's words (COMPONENTS §8.4). The rule that produced
+		// the number — min(task cap, session remainder), §4.4 v0.7.1 — stays
+		// in this comment; the sentence says which cap and what to do next.
+		"detail": fmt.Sprintf("실제 비용 $%.4f 가 쓸 수 있는 예산 $%.4f 를 넘어 멈췄습니다 — 넘긴 쪽: %s. "+
+			"이어가려면 예산을 올려 주세요", n.Cost, n.Limit, n.Side),
 	})
 }
 
