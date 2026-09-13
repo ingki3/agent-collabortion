@@ -767,6 +767,87 @@ func (e MessageState) Valid() bool {
 	}
 }
 
+// Defines values for MetricKey.
+const (
+	AutoCompleteRate           MetricKey = "auto_complete_rate"
+	BlockedResponseMinutes     MetricKey = "blocked_response_minutes"
+	DelegationAutonomousRate   MetricKey = "delegation_autonomous_rate"
+	DuplicateAfterResumeRate   MetricKey = "duplicate_after_resume_rate"
+	F1Minutes                  MetricKey = "f1_minutes"
+	HitlResponseMinutes        MetricKey = "hitl_response_minutes"
+	ParallelWallclockReduction MetricKey = "parallel_wallclock_reduction"
+	ResumeSuccessRate          MetricKey = "resume_success_rate"
+	TaskSuccessRateByRuntime   MetricKey = "task_success_rate_by_runtime"
+	WeeklyActiveSessions       MetricKey = "weekly_active_sessions"
+)
+
+// Valid indicates whether the value is a known member of the MetricKey enum.
+func (e MetricKey) Valid() bool {
+	switch e {
+	case AutoCompleteRate:
+		return true
+	case BlockedResponseMinutes:
+		return true
+	case DelegationAutonomousRate:
+		return true
+	case DuplicateAfterResumeRate:
+		return true
+	case F1Minutes:
+		return true
+	case HitlResponseMinutes:
+		return true
+	case ParallelWallclockReduction:
+		return true
+	case ResumeSuccessRate:
+		return true
+	case TaskSuccessRateByRuntime:
+		return true
+	case WeeklyActiveSessions:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MetricTargetOp.
+const (
+	Gt MetricTargetOp = "gt"
+	Lt MetricTargetOp = "lt"
+)
+
+// Valid indicates whether the value is a known member of the MetricTargetOp enum.
+func (e MetricTargetOp) Valid() bool {
+	switch e {
+	case Gt:
+		return true
+	case Lt:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MetricUnit.
+const (
+	Count   MetricUnit = "count"
+	Minutes MetricUnit = "minutes"
+	Ratio   MetricUnit = "ratio"
+)
+
+// Valid indicates whether the value is a known member of the MetricUnit enum.
+func (e MetricUnit) Valid() bool {
+	switch e {
+	case Count:
+		return true
+	case Minutes:
+		return true
+	case Ratio:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PairingStatus.
 const (
 	PairingStatusConnected PairingStatus = "connected"
@@ -2339,6 +2420,57 @@ type MessagePostResultSessionPaused string
 // MessageState `message_state` — pending_approval은 v1.1 supervised.
 type MessageState string
 
+// Metric defines model for Metric.
+type Metric struct {
+	// Breakdown `task_success_rate_by_runtime` 만. 런타임 종류별.
+	Breakdown *[]struct {
+		// Kind `runtime_kind` (FR-1.6)
+		Kind   RuntimeKind                `json:"kind"`
+		N      int                        `json:"n"`
+		Target float32                    `json:"target"`
+		Value  nullable.Nullable[float32] `json:"value"`
+	} `json:"breakdown,omitempty"`
+	Key MetricKey `json:"key"`
+
+	// Label 화면에 그대로 보이는 지표 이름(§8.4 문구 규칙).
+	Label string `json:"label"`
+
+	// N 표본 수. 0 이면 value 는 null.
+	N int `json:"n"`
+
+	// Note 세는 법 한 문장(getWorkspaceMetrics description 의 정의).
+	Note string `json:"note"`
+
+	// Target PRD §11 목표값(같은 단위). `task_success_rate_by_runtime` 은 종류별 목표가 `breakdown[].target` 에 있고 여기는 가장 낮은 값.
+	Target float32 `json:"target"`
+
+	// TargetOp `lt` = 목표보다 작아야 통과(시간), `gt` = 커야 통과(비율·개수).
+	TargetOp MetricTargetOp `json:"target_op"`
+	Unit     MetricUnit     `json:"unit"`
+
+	// Value 표본이 없으면 null. `unit` 이 `ratio` 면 0~1.
+	Value nullable.Nullable[float32] `json:"value"`
+}
+
+// MetricKey defines model for Metric.Key.
+type MetricKey string
+
+// MetricTargetOp `lt` = 목표보다 작아야 통과(시간), `gt` = 커야 통과(비율·개수).
+type MetricTargetOp string
+
+// MetricUnit defines model for Metric.Unit.
+type MetricUnit string
+
+// MetricsReport PRD §11 성공 지표 10개. `metrics` 는 §11 표의 열 순서다.
+type MetricsReport struct {
+	ComputedAt time.Time `json:"computed_at"`
+	Metrics    []Metric  `json:"metrics"`
+
+	// Window 집계 창(ISO 8601 duration).
+	Window      string             `json:"window"`
+	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+}
+
 // NotificationSettings defines model for NotificationSettings.
 type NotificationSettings struct {
 	// DefaultSubscription 세션 구독(FR-8 전부 / HITL만 / 종료만). 스키마 v0에 컬럼이 없다 — 미결(openapi.md).
@@ -3713,6 +3845,12 @@ type UpdateMemberRoleJSONBody struct {
 	Role MemberRole `json:"role"`
 }
 
+// GetWorkspaceMetricsParams defines parameters for GetWorkspaceMetrics.
+type GetWorkspaceMetricsParams struct {
+	// Window 집계 창(ISO 8601 duration). 기본 `P30D`. 10번(주간 활성)은 창과 무관하게 최근 7일.
+	Window *string `form:"window,omitempty" json:"window,omitempty"`
+}
+
 // ListRuntimeCandidatesParams defines parameters for ListRuntimeCandidates.
 type ListRuntimeCandidatesParams struct {
 	Isolation IsolationKind `form:"isolation" json:"isolation"`
@@ -4567,6 +4705,9 @@ type ServerInterface interface {
 	// UpdateMemberRole 멤버 역할 변경
 	// (PATCH /workspaces/{workspaceId}/members/{memberId})
 	UpdateMemberRole(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId, memberId MemberId)
+	// GetWorkspaceMetrics 관측 대시보드 — PRD §11 성공 지표 10개(P5, G9)
+	// (GET /workspaces/{workspaceId}/metrics)
+	GetWorkspaceMetrics(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId, params GetWorkspaceMetricsParams)
 	// GetOnboardingStatus S4 온보딩 체크리스트 상태
 	// (GET /workspaces/{workspaceId}/onboarding)
 	GetOnboardingStatus(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId)
@@ -7726,6 +7867,48 @@ func (siw *ServerInterfaceWrapper) UpdateMemberRole(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetWorkspaceMetrics operation middleware
+func (siw *ServerInterfaceWrapper) GetWorkspaceMetrics(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workspaceId" -------------
+	var workspaceId WorkspaceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workspaceId", r.PathValue("workspaceId"), &workspaceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetWorkspaceMetricsParams
+
+	// ------------- Optional query parameter "window" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "window", r.URL.Query(), &params.Window, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "window"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "window", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetWorkspaceMetrics(w, r, workspaceId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetOnboardingStatus operation middleware
 func (siw *ServerInterfaceWrapper) GetOnboardingStatus(w http.ResponseWriter, r *http.Request) {
 
@@ -8496,6 +8679,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/{sessionId}/decisions", wrapper.RecordDecision)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sessions/{sessionId}/cost", wrapper.GetSessionCost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/workspaces/{workspaceId}/cost", wrapper.GetWorkspaceCost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/workspaces/{workspaceId}/metrics", wrapper.GetWorkspaceMetrics)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/workspaces/{workspaceId}/stream", wrapper.StreamEvents)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/cli/context", wrapper.GetCliContext)
 
