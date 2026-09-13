@@ -24,8 +24,11 @@ import (
 // non-admin member of the workspace — and anyone outside it — must be refused,
 // or one member can raise another team's loop limits and budgets.
 
+// GetWorkspaceSettings — openapi: "권한: 워크스페이스 멤버(읽기). 변경은 PATCH".
+// S-69 (T-W6 대조): this asked for owner/admin, so a member opening the S14
+// tabs saw the 403 sentence where the contract promises the settings.
 func (s *Server) GetWorkspaceSettings(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId) {
-	if _, p := s.admin(r, workspaceId); p != nil {
+	if _, _, p := s.member(r, workspaceId); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -38,13 +41,25 @@ func (s *Server) GetWorkspaceSettings(w http.ResponseWriter, r *http.Request, wo
 }
 
 func (s *Server) UpdateWorkspaceSettings(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId) {
-	if _, p := s.admin(r, workspaceId); p != nil {
+	_, m, p := s.member(r, workspaceId)
+	if p != nil {
 		writeProblem(w, p)
+		return
+	}
+	if m.Role != "owner" && m.Role != "admin" {
+		writeProblem(w, apperr.Forbidden("admin_required", "소유자·관리자만 할 수 있습니다"))
 		return
 	}
 	var in gen.WorkspaceSettingsUpdate
 	if p := decodeJSON(w, r, &in); p != nil {
 		writeProblem(w, p)
+		return
+	}
+	// S-70 (T-W6 대조): openapi updateWorkspaceSettings — "`task_event_masking`
+	// (보안 탭)은 owner만" (SCREEN §4.10 보안 탭: owner). An admin could flip the
+	// masking that decides what of a diff or a shell output is stored at all.
+	if in.TaskEventMasking != nil && m.Role != "owner" {
+		writeProblem(w, apperr.Forbidden("owner_required", "활동 기록 마스킹은 워크스페이스 소유자만 바꿀 수 있습니다"))
 		return
 	}
 	if p := validateSettings(in); p != nil {
@@ -170,7 +185,9 @@ func validateSettings(in gen.WorkspaceSettingsUpdate) *Problem {
 }
 
 func loadSettings(ctx context.Context, q db.DBTX, wsID uuid.UUID) (*gen.WorkspaceSettings, error) {
-	var out gen.WorkspaceSettings
+	// Found while testing S-69: the required `workspace_id` was never set and
+	// every settings response carried the zero uuid.
+	out := gen.WorkspaceSettings{WorkspaceId: wsID}
 	var loop, budget, reuse, runtime []byte
 	var isolation string
 	var quota *int
