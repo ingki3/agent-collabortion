@@ -128,8 +128,8 @@
 | ~~S-61~~ | 재바인딩 뒤 옛 런타임의 workdir 행이 남아 `BundleWorkdirPaths` 가 사라진 머신 경로를 계속 고른다(T-I4 가 우회 U2 로 가리고 있었다) | PR #170 리뷰 NN3 | **해결 — PR #173**(`gc_blocked_reason IS DISTINCT FROM 'runtime_gone'` + 살아 있는 보고가 행을 되살림) |
 | ~~S-62~~ | 마이그레이션 0019 **이전에 저장된 상대 경로 `workdir` 행**이 `ExistingForAgent` 로 그대로 번들에 실린다(절대성 검사 없음) — S-55 의 뒷문. `buildBundle` 에 `filepath.IsAbs` 방어 + 유닛, 또는 배포 시 `path_or_ref NOT LIKE '/%'` 행 정리. 함께: `noteWorkdirReportDropped` 가 세션 최신 task 에 note 를 붙임(NN2), 참가자 검사 실패가 "agent_id 없음" 으로 뭉개짐(NN3) | PR #173 리뷰 NN1~NN3 | 배포 전 | **해결 — PR #182**
 | ~~S-63~~ | **페어링 안내가 가리키는 설치 스크립트를 서버가 서비스하지 않는다** — S12 `install_commands` 첫 줄이 `curl -fsSL <서버>/install.sh | sh` 인데 그 경로 핸들러가 없어 **404**. 계약(openapi `Pairing.install_commands`)은 "복사 버튼 2줄"만 정하고 스크립트 제공 주체를 안 적었다. 통합 시험은 `bin/daemon pair` 를 직접 불러 왔기에 드러나지 않았고, **사람이 처음 쓰는 경로에서만** 나타난다(Director 실사용 2026-09-08). 서버가 스크립트를 서빙 + 계약에 주체 명시 | Director 실사용 | **높음 · 배포 전** | **해결 — PR #182**(계약 #180·#183, 두 바이너리 설치·probe 로 검증)
-| S-64 | 설치 스크립트가 릴리스가 아니라 `main` 을 클론한다(`COLAB_INSTALL_REF` 기본값 비어 있음) — 배포 시 태그·릴리스 아티팩트를 가리켜야 한다 | PR #182 리뷰 NN3 | **배포 전** |
-| S-65 | 설치 스크립트의 go 버전 검사(존재만 보고 버전을 안 봄) · §4.3 `gc` 명령에는 상대 경로 `path_or_ref` 가 그대로 실린다(S-62 는 번들 통로만 막았다) · `/install.sh` 의 `Cache-Control` | PR #182 리뷰 NN1·NN2·NN5 | 중 |
+| S-64 | 설치 스크립트가 릴리스가 아니라 `main` 을 클론한다(`COLAB_INSTALL_REF` 기본값 비어 있음) — 배포 시 태그·릴리스 아티팩트를 가리켜야 한다 | PR #182 리뷰 NN3 | **배포 전** | **해결 PR #213**(internal/buildinfo ldflags 커밋 → COLAB_INSTALL_REF 기본값; 배포 빌드는 `make build` 필수) |
+| S-65 | 설치 스크립트의 go 버전 검사(존재만 보고 버전을 안 봄) · §4.3 `gc` 명령에는 상대 경로 `path_or_ref` 가 그대로 실린다(S-62 는 번들 통로만 막았다) · `/install.sh` 의 `Cache-Control` | PR #182 리뷰 NN1·NN2·NN5 | 중 | **해결 PR #213** |
 | S-66 | **집필 단계가 3분 무응답 판정에 잘린다** — 실사용 두 세션·여섯 시도가 전부 `stall`(no session/update for 3m). 조사·위임은 통과하고 긴 글을 쓰는 턴에서만 죽어 아티팩트가 0 개다. 도구 실행·모델 응답 중에는 무응답으로 세지 않거나 기준을 바꿔야 한다(계약 `limits.stall_seconds` 180) | Director 실사용 2026-09-08 (세션 2건) | Director 실사용 2026-09-08 (세션 2건) | **원인 확정(T-D12 실측)**: claude_code 가 툴 입력 생성 중 `session/update` 0건 → 데몬 stall 워처가 원시 스트림을 안 셌다. 계약 harness v0.8.9 §7, **고침 PR #204**(onRawSDK→noteActivity, 원시 스트림 항상 ON, 회귀 유닛 2) |
 | S-67 | **서버가 만드는 문장도 내부 용어다** — `Problem.detail` 12곳과 `Session started. Goal:` 등. 웹은 §8.4 로 고쳤는데 서버 문장은 그대로라 **화면과 실서버가 갈라진다**(목이 서버를 흉내 낸 자리에서 드러났다). COMPONENTS §8.4 원칙을 서버 사용자 대면 문장에도 적용 | T-W8 PR #188 보고 | 중 · G8 전 |
 | S-68 | `deleteWorkdir` 409 `workdir_dirty` 의 `Problem.detail` 이 계약(openapi #155 "gc_blocked_reason 과 같은 값")과 다르게 **문장**(`GCReasonText`)이다 — 목·골든·p4-mock 은 키를 기대하고 웹 S13 은 그 키로 사유를 분기한다. 서버가 키를 돌려주고 문장은 별도 칸(예: `title`)으로 | T-W10 PR #196 보고 | 중 |
@@ -140,12 +140,15 @@
 | S-72 | 웹 S14 설정이 부르는 4 op(updateMemberRole·removeMember·get/updateNotificationSettings)이 서버 501 — 실서버 멤버·알림 탭이 "아직 지원하지 않는 기능입니다" | T-W11 PR #207 보고 | **해결 PR #209** |
 | S-73 | `changeDirector` 가 activity_log INSERT 의 없는 열(actor_user_id·target_type·target_id) 때문에 **매번 500** — removeMember 409 가 시키는 "Director 먼저 교체" 길이 막혀 있었다. 어떤 테스트도 못 잡은 이유: changeDirector 왕복 테스트가 없었다 | T-S14 PR #209 발견 | **해결 PR #209**(열 이름) · 왕복 테스트 있음 |
 | S-75 | PR #209 리뷰 NN1·NN2·NN3·NN5 — openapi updateMemberRole 문언을 "owner 역할을 주거나 거두는 것은 owner 만"으로 넓히기(코드가 더 엄격, 계약 PR) · owner 동시 강등 경합 테스트 없음(FOR UPDATE 는 있음) · `member.notification_settings`(0002) 죽은 열 삭제 마이그레이션 · 자기 자신 강등 허용(화면은 T-W12) | PR #209 리뷰 | 낮음 |
-| S-76 | **위임↔합류 사이클이 FR-3.5 루프 상한을 타지 않는다** — `delegateLane`·합류 wake(router/status.go)가 `CheckLoopLimits`(postMessage 경로) 밖. 위임자가 합류 통보에 재위임하면 무한(70초에 529 task, 세션 active, `max_pair_roundtrips=5` 넘어도 `paused(loop)` 없음) | T-I5 PR #206 77_ S1x | **높음 · 배포 전** · T-S15 |
-| S-77 | 마스킹이 `task_event.payload.title` 을 지우지 않는다 — 실기 어댑터의 title = 셸 명령 전체라 인자 마스킹이 무효 | T-I5 PR #206 77_ S3d2 | 중 · T-S15 |
+| S-76 | **위임↔합류 사이클이 FR-3.5 루프 상한을 타지 않는다** — `delegateLane`·합류 wake(router/status.go)가 `CheckLoopLimits`(postMessage 경로) 밖. 위임자가 합류 통보에 재위임하면 무한(70초에 529 task, 세션 active, `max_pair_roundtrips=5` 넘어도 `paused(loop)` 없음) | T-I5 PR #206 77_ S1x | **높음 · 배포 전** · T-S15 | **해결 PR #213**(router.gateHop — Delegate·wake 가 CheckLoopLimits) |
+| S-77 | 마스킹이 `task_event.payload.title` 을 지우지 않는다 — 실기 어댑터의 title = 셸 명령 전체라 인자 마스킹이 무효 | T-I5 PR #206 77_ S3d2 | 중 · T-S15 | **해결 PR #213**(events.Mask title 첫 단어만) |
 | I-1 | PR #206 리뷰 NN1~NN5 — e2e/p5 `lib.sh`(70_/71_)·`lib_i5.sh`(72_~78_) 기본 스택 통일 · 단계별 `wait_for --timeout`(실패가 행이 아니라 단언이 되게) · 76_ "첫 출력" 표 셀에 "(페이크 — 모델 0)" 꼬리 · **G9 판정 때 `chk_na` 목록을 함께 읽는다** · out/ 덤프에 토큰 재점검 | PR #206 리뷰 | 낮음 |
 | K-16 | `colab status set done` 뒤에도 도는 턴은 Director 가 중단할 수 없다(`409 lane_not_cancellable`, task 는 running) — 지시문 관례("done 은 마지막 호출")로 덮여 있음. S7 중단 버튼이 running 턴에 비활성이 되는 자리 | T-I5 PR #206 관찰 1 | 알고 있기 |
-| K-17 | `parallel_wallclock_reduction` 정의가 사람 대기(HITL)를 "전체"에 넣어 HITL 있는 세션은 병렬 효과와 무관하게 낮거나 음수 — note 에 명시(T-S15), 정의 변경은 계약 | T-I5 PR #206 관찰 2 | 낮음 |
+| K-17 | `parallel_wallclock_reduction` 정의가 사람 대기(HITL)를 "전체"에 넣어 HITL 있는 세션은 병렬 효과와 무관하게 낮거나 음수 — note 에 명시(T-S15), 정의 변경은 계약 | T-I5 PR #206 관찰 2 | 낮음 | **해결 PR #213**(note 명시) + 웹 #214 |
 | W-12 | S7 의 요약 메시지(`kind=summary`)가 마크다운 원문(`##`·`-`)으로 보인다 | T-I5 PR #206 관찰 3 (`web/__screenshots__/p5-78-s7.png`) | 낮음 |
+| S-78 | **`router.chainDepth` 가 "마지막 사람 메시지 뒤 홉 수"** 라 형제 위임·합류 통보를 전부 깊이로 센다 — PRD FR-3.5 는 "멘션이 연쇄된 **깊이**"(Lead→실무자→리뷰어→Lead = 4). Hermes 실측(PR #213 리뷰 §3): F1 형 세션이 **chainDepth 9** → `paused(loop)`. G8 실측 오염 위험 | PR #213 미해결 1 · 리뷰 NN1 | **높음 · G8 전** · T-S16 |
+| S-79 | PR #213 리뷰 NN2·NN3·NN5 — `gateHop` 이 판정과 부수효과(pauseForLoop)를 한 함수에 · `ErrLoopLimit` 문장의 `LimitText()` 조각이 wording sink 를 지나는지 · install.sh 3단 클론 폴백이 전체 클론까지(타임아웃 위험) | PR #213 리뷰 | 낮음 |
+| W-13 | PR #212 리뷰 NN2·NN3·NN5 — 화면 테스트 픽스처의 `about:blank`(헬퍼로) · `selfDemotionText` 가 소유자 강등에도 관리자 문장 · server-wording.test.ts 205개(28%) 한 파일 — describe 별 분리 | PR #212 리뷰 | 낮음 |
 
 ## C (CLI)
 
