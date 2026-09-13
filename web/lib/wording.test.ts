@@ -119,6 +119,13 @@ describe("문구 자물쇠의 범위", () => {
       "app/(app)/sessions/new/page.tsx",
       "app/(app)/settings/page.tsx",
       "app/onboarding/page.tsx",
+      // T-W6 — S14 8탭·대시보드 · S10 시험 대화 · W-10 의 문구가 사는 곳
+      "components/SettingsTabs.tsx",
+      "components/MembersTab.tsx",
+      "components/MetricsTable.tsx",
+      "components/TestChatPanel.tsx",
+      "lib/settings.ts",
+      "lib/test-chat.ts",
     ]) {
       expect(FILES).toContain(f);
     }
@@ -296,6 +303,53 @@ describe("새 문구의 존재 — 옛말 0건만으로는 안 잰다 (NN4)", ()
   it.each(SCREENS)("%s 화면이 PageHead 로 그 설명을 실제로 그린다", (k) => {
     const src = readFileSync(join(ROOT, PAGE_FILES[k]), "utf8");
     expect(src).toMatch(new RegExp(`<PageHead screen="${k}"`));
+  });
+
+  // T-W6 — S14 · S10 · W-10 의 새말이 제자리에 있고 실제로 그려진다.
+  it("S14 탭 이름은 §8.4 의 말이고(런타임 정책 → 컴퓨터 정책 · Workdir → 작업 폴더) 탭 표가 화면에 쓰인다", () => {
+    for (const label of ["멤버", "컴퓨터 정책", "예산", "루프 상한", "컨텍스트", "작업 폴더", "보안", "알림", "대시보드"]) {
+      expect(inPool("lib/settings.ts", label)).toBe(true);
+    }
+    expect(readFileSync(join(ROOT, PAGE_FILES.settings), "utf8")).toMatch(/SETTINGS_TABS\.map\(/);
+  });
+
+  it("「바꿨을 때의 영향」 — U14 가 못박은 문장이 표에 있고 화면이 그 표를 그린다", () => {
+    expect(inPool("lib/settings.ts", "낮추면 정상적인 리뷰 왕복이 막힐 수 있습니다")).toBe(true);
+    expect(inPool("lib/settings.ts", "이후 diff·셸 출력은 요약만 저장됩니다. 기존 로그는 그대로")).toBe(true);
+    const tabs = readFileSync(join(ROOT, "components/SettingsTabs.tsx"), "utf8");
+    expect(tabs).toMatch(/impact=\{IMPACT\.max_pair_roundtrips\}/);
+    expect(tabs).toMatch(/impact=\{IMPACT\.task_event_masking\}/);
+  });
+
+  it("대시보드 — 표본이 없으면 '아직 잴 수 없음'(0 을 실측처럼 보이지 않는다)", () => {
+    expect(inPool("lib/settings.ts", "아직 잴 수 없음")).toBe(true);
+    expect(readFileSync(join(ROOT, "components/MetricsTable.tsx"), "utf8")).toMatch(/formatMetricValue\(m\.value, m\.unit\)/);
+  });
+
+  it("시험 대화 — '세션이 아니다' 안내 한 줄과 잠금 사유가 화면에 있다", () => {
+    expect(inPool("components/TestChatPanel.tsx", "세션이 아닙니다")).toBe(true);
+    expect(inPool("lib/test-chat.ts", "답을 기다리는 중입니다")).toBe(true);
+    expect(inPool("lib/test-chat.ts", "닫힌 시험 대화입니다")).toBe(true);
+  });
+
+  it("W-10 — 세션 설정의 컴퓨터는 이름이고, 없으면 '연결 끊긴 컴퓨터'. id 앞 8자(slice(0, 8))는 사라졌다", () => {
+    expect(inPool("lib/session-label.ts", "연결 끊긴 컴퓨터")).toBe(true);
+    const aside = readFileSync(join(ROOT, "components/SessionAside.tsx"), "utf8");
+    expect(aside).not.toMatch(/runtime_id\.slice\(0, 8\)/);
+    expect(readFileSync(join(ROOT, "app/(app)/sessions/[id]/page.tsx"), "utf8")).toMatch(/runtimeName=\{runtimeNameOf\(/);
+  });
+
+  it("W-8 — 컴퓨터 카드의 브리프 문구는 probe 값 그대로, 옛 설명(CLAUDE.md·AGENTS.md)은 없다", () => {
+    expect(hits(/CLAUDE\.md·AGENTS\.md|지시 파일\(/)).toEqual([]);
+    expect(inPool("components/RuntimeCard.tsx", "브리프 전달:")).toBe(true);
+  });
+
+  it("S14 비활성 사유 — 저장 버튼이 DisabledHint 를 aria-describedby 로 가리킨다(§8.5)", () => {
+    const tabs = readFileSync(join(ROOT, "components/SettingsTabs.tsx"), "utf8");
+    expect(tabs).toMatch(/<DisabledHint id=\{hintId\}>/);
+    expect(tabs).toMatch(/aria-describedby=\{!right\.ok \? hintId : undefined\}/);
+    const members = readFileSync(join(ROOT, "components/MembersTab.tsx"), "utf8");
+    expect(members).toMatch(/<DisabledHint id="members-manage-hint">/);
   });
 
   it("비활성 사유가 버튼 근처에 있다 — title 만으로는 안 된다 (§8.5)", () => {

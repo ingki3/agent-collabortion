@@ -138,7 +138,8 @@ export function SessionAside(props: SessionAsideProps) {
         <h2 className="aside__h">세션 설정</h2>
         <dl className="aside__dl">
           <dt>컴퓨터</dt>
-          <dd data-testid="aside-runtime">{props.runtimeName ?? (s.runtime_id ? s.runtime_id.slice(0, 8) : "자동 선택 — 첫 실행 시 고정")}</dd>
+          {/* W-10: id 앞 8자를 보이지 않는다 — 이름은 호출부가 `runtimeNameOf` 로 넘기고, 못 받았으면 자리 표시. */}
+          <dd data-testid="aside-runtime">{props.runtimeName ?? (s.runtime_id ? "이름 확인 중…" : "자동 선택 — 첫 실행 시 고정")}</dd>
           <dt>격리</dt>
           <dd>{ISOLATION_LABEL[s.isolation.kind]}{s.isolation.repo_path ? ` · ${s.isolation.repo_path}` : ""}</dd>
           <dt>자율성</dt>

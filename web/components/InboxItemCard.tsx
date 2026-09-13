@@ -102,7 +102,10 @@ export function extraLine(item: InboxItem): string | null {
  * 범위를 섞으면 라벨이 거짓말을 하고, 세션 소진액을 task 범위의 최소로 쓰면 정상적인 $3 상향이 막힌다.
  */
 export function budgetScopeOf(item: InboxItem): "task" | "session" {
-  return item.session?.status === "paused" ? "session" : "task";
+  // W-7·K-12: 세션이 **예산 때문에** 멈춘 것만 세션 범위다. 다른 사유(사람 확인·컴퓨터 연결 끊김)로 paused 인 동안
+  // task 범위 예산 HITL 이 열리면 그것은 여전히 "새 task 상한"이다 — `paused_reason` 까지 본다(PR #166 리뷰 NN2).
+  // 세션의 사유는 `card.paused_reason` 에 실린다(서버 handlers_inbox.go 가 모든 항목에 세션의 paused_reason 을 조인한다).
+  return item.session?.status === "paused" && item.card?.paused_reason === "budget" ? "session" : "task";
 }
 
 export interface InboxItemCardProps {

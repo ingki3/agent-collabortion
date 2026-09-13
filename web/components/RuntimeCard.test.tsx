@@ -34,7 +34,18 @@ describe("RuntimeCard — RuntimeCapability 새 키(W-1)", () => {
     expect(more.textContent).toContain("자세히 보기");
     expect(more.textContent).toContain("어댑터 0.74.0");
     expect(more.textContent).toContain("ACP protocol v1");
-    expect(more.textContent).toContain("ACP _meta 시스템 프롬프트");
+    // W-8(T-W6): 브리프 전달 경로는 probe 가 광고한 값 그대로 — 옛 설명("지시 파일(CLAUDE.md·AGENTS.md)")은 harness v0.8.6 에서 틀린 말이 됐다.
+    expect(more.textContent).toContain("브리프 전달: acp_meta_system_prompt");
+    expect(more.textContent).not.toContain("_meta 시스템 프롬프트");
+  });
+
+  it("W-8 — hermes 의 브리프 전달도 probe 값 그대로, 옛 문구(CLAUDE.md·AGENTS.md)는 없다", () => {
+    const notes = capabilityDetails({
+      kind: "hermes", version: "0.20.6", adapter_version: null, logged_in: true, models: ["hermes-4"],
+      protocol_version: 1, resume: false, usage: false, tool_disallow: false, brief_transport: "instruction_file", allow_once_missing: true,
+    }).join(" · ");
+    expect(notes).toContain("브리프 전달: instruction_file");
+    expect(notes).not.toMatch(/CLAUDE\.md|AGENTS\.md|지시 파일/);
   });
 
   it("없는 능력은 결과와 함께 말한다 — usage:false 는 추정 비용, resume:false 는 콜드 스타트", () => {

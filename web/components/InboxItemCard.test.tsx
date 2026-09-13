@@ -10,7 +10,7 @@
  */
 import { describe, expect, it, afterEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { ACTION_LABEL, InboxItemCard, TONE_BY_TYPE, TYPE_LABEL, extraLine } from "./InboxItemCard";
+import { ACTION_LABEL, InboxItemCard, TONE_BY_TYPE, TYPE_LABEL, budgetScopeOf, extraLine } from "./InboxItemCard";
 import type { HitlRequest, InboxItem } from "@/lib/api/types";
 
 afterEach(cleanup);
@@ -182,13 +182,24 @@ describe("예산 HITL — 항목 타입·세션 상태와 무관하게 상향 �
     expect(screen.queryByTestId("hitl-budget-input")).toBeNull();
   });
 
-  it("세션이 paused 면 세션 범위다 — 라벨이 'task 상한' 이면 거짓말이 된다(K-10)", () => {
+  it("세션이 paused(budget) 면 세션 범위다 — 라벨이 'task 상한' 이면 거짓말이 된다(K-10)", () => {
     const it0 = budgetItem({
       session: { id: "s1", title: "시장 조사", status: "paused" },
-      card: { title: "세션이 예산 $20.00를 넘었습니다", hitl_type: "approval", purpose: "budget" },
+      // 세션의 사유는 서버가 모든 항목의 card 에 조인한다(handlers_inbox.go) — W-7 은 이 칸까지 본다.
+      card: { title: "세션이 예산 $20.00를 넘었습니다", hitl_type: "approval", purpose: "budget", paused_reason: "budget" },
     });
     render(<InboxItemCard item={it0} onRespond={vi.fn()} />);
     expect(screen.getByTestId("hitl-budget-field").getAttribute("data-scope")).toBe("session");
+  });
+
+  it("W-7·K-12 — 세션이 다른 사유(컴퓨터 연결 끊김)로 paused 인 동안 열린 예산 HITL 은 여전히 task 범위다", () => {
+    const it0 = budgetItem({
+      session: { id: "s1", title: "시장 조사", status: "paused" },
+      card: { title: "작업이 예산 $1.00를 넘었습니다", hitl_type: "approval", purpose: "budget", paused_reason: "runtime_offline" },
+    });
+    expect(budgetScopeOf(it0)).toBe("task");
+    render(<InboxItemCard item={it0} onRespond={vi.fn()} />);
+    expect(screen.getByTestId("hitl-budget-field").getAttribute("data-scope")).toBe("task");
   });
 
   it("세션이 active 면 task 범위다 — 세션 상한을 올리는 자리가 아니다(E9-01 s-13)", () => {

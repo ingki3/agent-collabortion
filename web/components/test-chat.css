@@ -1,0 +1,22 @@
+/* S10 시험 대화(FR-1.8.1) — 실행 경로·토큰·비용이 항상 보이는 머리, 턴 목록, 입력. 색·크기는 tokens.css 변수만. */
+.tchat { display: flex; flex-direction: column; gap: 10px; }
+.tchat__setup { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.tchat__setup .field { margin-bottom: 0; flex: 1; min-width: 160px; }
+.tchat__stats { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: var(--fs-sub); }
+.tchat__stat { display: inline-flex; align-items: baseline; gap: 6px; }
+.tchat__stat dt { color: var(--ink-2); }
+.tchat__stat dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tchat__turns { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow: auto; padding: 4px 0; }
+.tchat__turn { display: flex; flex-direction: column; gap: 2px; max-width: 85%; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: var(--fs-body); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.tchat__turn--user { align-self: flex-end; background: var(--surface); }
+.tchat__turn--agent { align-self: flex-start; }
+.tchat__turn--stream { border-style: dashed; color: var(--ink-2); }
+.tchat__turn--error { border-color: var(--s-fail); color: var(--s-fail-text); }
+.tchat__meta { font-size: var(--fs-meta); color: var(--ink-2); }
+.tchat__empty { font-size: var(--fs-sub); color: var(--ink-2); padding: 12px; text-align: center; border: 1px dashed var(--line); border-radius: 8px; }
+.tchat__input { display: flex; flex-direction: column; gap: 6px; }
+.tchat__input .textarea { min-height: 64px; }
+.tchat__foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.tchat__note { margin: 0; font-size: var(--fs-sub); color: var(--ink-2); }
+/* 추정 배지 — 세션 우열의 비용 배지와 같은 모양(wait 톤 테두리 + -text 글자). */
+.tchat__badge { margin-left: 6px; font-size: var(--fs-meta); padding: 1px 5px; border-radius: 999px; border: 1px solid var(--s-wait); color: var(--s-wait-text); font-weight: 500; }

@@ -88,3 +88,20 @@ export type WorkdirKind = S["WorkdirKind"];
 export type WorkdirStatus = S["WorkdirStatus"];
 export type RuntimeDetail = S["RuntimeDetail"];
 export type RuntimeStatus = S["RuntimeStatus"];
+
+// ── P5 (T-W6) — S14 설정 8탭 + 대시보드 · S10 시험 대화 ──
+export type WorkspaceSettings = S["WorkspaceSettings"];
+export type WorkspaceSettingsUpdate = S["WorkspaceSettingsUpdate"];
+export type LoopLimits = S["LoopLimits"];
+export type BudgetPolicy = S["BudgetPolicy"];
+export type ContextReusePolicy = S["ContextReusePolicy"];
+export type RuntimePolicy = S["RuntimePolicy"];
+export type NotificationSettings = S["NotificationSettings"];
+export type SubscriptionLevel = S["SubscriptionLevel"];
+export type Invite = S["Invite"];
+export type MetricsReport = S["MetricsReport"];
+export type Metric = S["Metric"];
+export type MetricKey = Metric["key"];
+export type TestChat = S["TestChat"];
+export type TestChatTurn = S["TestChatTurn"];
+export type TestChatStatus = S["TestChatStatus"];

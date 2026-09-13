@@ -1,0 +1,60 @@
+/* S14 설정(SCREEN §4.10) — 탭 · 항목 행(값 + 「바꿨을 때의 영향」 한 줄) · 멤버 표 · 대시보드 표. 색·크기는 tokens.css 변수만. */
+
+/* 탭 — 9개가 한 줄에 안 들어가면 접힌다. 활성 탭은 밑줄이 아니라 채움으로(밑줄은 어두움에서 잘 안 보인다). */
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.tabs__tab {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; border: 1px solid transparent;
+  background: transparent; color: var(--ink-2); font-size: var(--fs-body); cursor: pointer; text-decoration: none;
+}
+.tabs__tab:hover { background: var(--surface); color: var(--ink); }
+.tabs__tab[aria-selected="true"] { background: var(--surface); border-color: var(--line); color: var(--ink); font-weight: 600; }
+.tabs__who { font-size: var(--fs-meta); color: var(--ink-2); font-weight: 400; }
+
+/* 탭 머리 — 탭이 무엇을 다루는지 한 줄 + 오른쪽에 저장 버튼과 비활성 사유(DisabledHint 패턴). */
+.tab-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; margin-bottom: 12px; }
+.tab-head h2 { margin: 0; font-size: var(--fs-card); font-weight: 600; }
+.tab-head__desc { margin: 2px 0 0; font-size: var(--fs-sub); color: var(--ink-2); }
+.tab-head__actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+
+/* 항목 행 — 라벨(+기본값) / 입력 / 영향 한 줄. 영향은 값 **아래**, 바꾸기 전에 읽히는 자리다(U14). */
+.srow { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 12px 0; border-top: 1px solid var(--line); }
+.srow:first-of-type { border-top: 0; padding-top: 4px; }
+.srow__label { font-size: var(--fs-body); font-weight: 500; }
+.srow__default { margin-left: 8px; font-size: var(--fs-meta); color: var(--ink-2); font-weight: 400; }
+.srow__ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.srow__ctl .input, .srow__ctl .select { width: auto; min-width: 120px; }
+.srow__ctl .input--num { width: 120px; }
+.srow__impact { margin: 0; font-size: var(--fs-sub); color: var(--ink-2); line-height: 1.5; word-break: keep-all; }
+.srow__impact::before { content: "→ "; color: var(--ink-3); }
+.srow__apply { margin: 8px 0 0; font-size: var(--fs-meta); color: var(--ink-2); }
+.srow__err { margin: 0; font-size: var(--fs-sub); color: var(--s-fail-text); }
+.srow__check { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-body); cursor: pointer; }
+.srow__check input { width: 16px; height: 16px; }
+
+/* 멤버 표 */
+.members { display: flex; flex-direction: column; gap: 6px; }
+.member { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px 12px; align-items: center;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.member__name { font-weight: 600; font-size: var(--fs-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member__sub { font-size: var(--fs-sub); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member__me { margin-left: 6px; font-size: var(--fs-meta); color: var(--ink-2); font-weight: 400; }
+.member .select { width: auto; }
+.invite-url { display: flex; gap: 8px; align-items: center; }
+.invite-url code { flex: 1; overflow-x: auto; white-space: nowrap; font-size: var(--fs-sub); padding: 6px 8px; background: var(--surface); border-radius: 6px; }
+
+/* 대시보드 표(PRD §11) — 지표 · 현재값 · 목표 · 표본. 판정은 글리프가 1차, 색은 보조(§5 배지 규칙). */
+.metrics { width: 100%; border-collapse: collapse; font-size: var(--fs-body); }
+.metrics th { text-align: left; font-weight: 500; color: var(--ink-2); font-size: var(--fs-sub); padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.metrics td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.metrics td.num, .metrics th.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.metrics__label { display: block; word-break: keep-all; }
+.metrics__note { margin-top: 2px; font-size: var(--fs-meta); color: var(--ink-2); }
+.metrics__note summary { cursor: pointer; }
+.metrics__sub td { padding-top: 4px; padding-bottom: 4px; font-size: var(--fs-sub); color: var(--ink-2); border-bottom: 0; }
+.metrics__sub td:first-child { padding-left: 24px; }
+.verdict { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; }
+.verdict--met { color: var(--s-done-text); }
+.verdict--missed { color: var(--s-fail-text); }
+.verdict--unknown { color: var(--ink-2); font-weight: 400; }
+.metrics-wrap { overflow-x: auto; }
+.metrics-meta { margin: 0 0 8px; font-size: var(--fs-sub); color: var(--ink-2); }

@@ -166,7 +166,41 @@ export const SERVER = {
   acknowledge_loss_required: { text: "워크트리 격리에서는 끊긴 컴퓨터에 남은 커밋을 잃습니다 — 경고를 확인한 뒤 진행해 주세요", at: "internal/runtimes/offline.go" },
   not_a_candidate: { text: "이 컴퓨터로는 옮길 수 없습니다 — 같은 저장소가 없거나 연결이 끊겨 있습니다", at: "internal/runtimes/offline.go" },
   runtime_has_active_sessions: { text: "이 컴퓨터를 쓰는 중인 세션이 %d개 있습니다 — 먼저 다른 컴퓨터로 옮기거나 세션을 종료해 주세요", at: "internal/runtimes/offline.go" },
+  // ── 워크스페이스 설정 (internal/httpapi/handlers_settings.go) — S14 (T-W6) ──
+  loop_limit_range: { text: "1~%d 사이여야 합니다", at: "internal/httpapi/handlers_settings.go" },
+  retention_min: { text: "0 이상이어야 합니다", at: "internal/httpapi/handlers_settings.go" },
+  quota_positive: { text: "0보다 커야 합니다", at: "internal/httpapi/handlers_settings.go" },
+  isolation_unknown: { text: "알 수 없는 격리 방식입니다", at: "internal/httpapi/handlers_settings.go" },
+  // ── 초대 (internal/auth/auth.go) — S14 멤버 탭 ──
+  invite_owner_role: { text: "소유자 역할은 초대로 줄 수 없습니다", at: "internal/auth/auth.go" },
+  invite_expiry_max: { text: "초대 유효 기간은 최대 720시간입니다", at: "internal/auth/auth.go" },
 } as const satisfies Record<string, ServerSentence>;
+
+/**
+ * **서버가 아직 만들지 않은 op** 의 목 문장(T-W6 — updateMemberRole·removeMember·notification·metrics·test chat 은
+ * T-S12 가 동시에 만든다). 대조할 정답이 없으므로 `SERVER` 표에 넣지 않고 여기 따로 둔다 — T-S12 가 머지되면 Lead 가
+ * 이 표를 `SERVER` 로 옮기며 `at` 을 채운다(PR 본문의 "목이 흉내 낸 서버 응답" 목록이 그 대조표다).
+ * 규칙은 같다: §8.4 의 말, `Problem.detail` 한 문장, 화면 문구는 이 표를 통해서만.
+ */
+export const MOCK_ONLY = {
+  // 멤버 (updateMemberRole · removeMember)
+  last_owner: "마지막 소유자는 강등하거나 제거할 수 없습니다",
+  owner_demote_owner_only: "소유자 강등은 소유자만 할 수 있습니다",
+  member_is_director: "이 멤버가 Director 인 진행 중 세션이 있습니다 — 먼저 Director 를 교체해 주세요",
+  role_enum: "역할은 owner · admin · member 중 하나여야 합니다",
+  // 워크스페이스 설정 보안 탭(updateWorkspaceSettings — 계약은 owner 만, 서버 P2 구현은 아직 admin 까지 허용한다: T-W6 보고)
+  masking_owner_only: "활동 기록 마스킹은 소유자만 바꿀 수 있습니다",
+  // 시험 대화 (createTestChat · postTestChatTurn · closeTestChat)
+  test_chat_runtime_offline: "이 컴퓨터의 연결이 끊겨 있습니다 — 다른 컴퓨터를 골라 주세요",
+  test_chat_no_runtime: "이 프로파일을 실행할 수 있는 온라인 컴퓨터가 없습니다 — 먼저 컴퓨터를 연결해 주세요",
+  test_chat_turn_in_progress: "이전 답이 아직 오는 중입니다 — 끝난 뒤 보내 주세요",
+  test_chat_closed: "닫힌 시험 대화입니다 — 새로 열어 주세요",
+  test_chat_not_owner: "이 시험 대화를 연 사람만 볼 수 있습니다",
+  // 시험 대화 첫 턴 머리말(daemon-protocol §4.5 — 서버가 프롬프트 앞에 붙인다; 목은 에이전트 답에 그 사실을 비춘다)
+  test_chat_agent_reply_head: "이것은 시험 대화입니다 — 플랫폼 명령은 쓸 수 없습니다. ",
+  // 알림 (updateNotificationSettings)
+  subscription_enum: "구독 기본값은 전부 · 사람 확인만 · 종료만 중 하나여야 합니다",
+} as const;
 
 export type ServerKey = keyof typeof SERVER;
 /** 문장만 — `W.no_runtime` 처럼 쓴다. */

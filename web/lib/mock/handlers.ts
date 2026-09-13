@@ -3,14 +3,16 @@
  * 에이전트 실행은 타이머로 흉내 낸다(task_event 원본 레일·typing·delta·답글 메시지·참여자 상태).
  */
 import type {
-  Agent, AgentProfile, AgentTemplate, Artifact, Decision, HitlRequest, InboxItem, Lane, Member, Message, Pairing,
-  Participant, Runtime, Session, SessionListItem, Task, TaskEvent, TriggerPreview, TriggerTarget, User, Workdir,
+  Agent, AgentProfile, AgentTemplate, Artifact, Decision, HitlRequest, InboxItem, Invite, Lane, LoopLimits, Member,
+  MemberRole, Message, Metric, MetricsReport, NotificationSettings, Pairing, Participant, Runtime, Session,
+  SessionListItem, Task, TaskEvent, TestChat, TestChatTurn, TriggerPreview, TriggerTarget, User, Workdir,
+  WorkspaceSettings, WorkspaceSettingsUpdate,
 } from "@/lib/api/types";
 import {
-  emit, makeAgent, makeRuntime, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges, sseFrame,
-  store, stripUser, TEMPLATES, uuid, type MockTask, type Store, type Subscriber,
+  defaultSettings, emit, makeAgent, makeRuntime, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges,
+  sseFrame, store, stripUser, TEMPLATES, uuid, type MockInvite, type MockTask, type Store, type Subscriber,
 } from "./store";
-import { fmt, josa, NOT_FOUND_NOUN, notFound, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
+import { fmt, josa, MOCK_ONLY, NOT_FOUND_NOUN, notFound, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
 /**
  * RFC 9457 Problem — `title` 은 서버(`apperr.Title`)처럼 **상태 코드에서** 정한다. 문장(`detail`·`errors[].message`)은
@@ -1339,6 +1341,13 @@ export function inboxActions(type: InboxItem["type"], hitlType: string | undefin
 /** 호출자 시점의 인박스 항목 — overdue·actions 를 볼 때마다 다시 계산한다. */
 function inboxFor(s: Store, it: InboxItem & { user_id: string }): InboxItem {
   const out = stripInbox(it);
+  // 서버(handlers_inbox.go selectInbox)는 읽을 때마다 세션을 조인해 `session.status` 와 `card.paused_reason` 을 **지금 값**으로
+  // 싣는다 — 항목이 만들어진 뒤 세션이 멈추거나 재개돼도 카드가 따라간다. 웹의 `budgetScopeOf`(W-7·K-12) 가 이 두 칸을 본다.
+  const sess = it.session_id ? s.sessions.get(it.session_id) : undefined;
+  if (sess) {
+    out.session = { id: sess.id, title: sess.title, status: sess.status };
+    out.card = { ...out.card, ...(sess.paused_reason ? { paused_reason: sess.paused_reason } : {}) };
+  }
   if (it.type === "hitl_request" && it.ref_id) {
     const h = s.hitls.get(it.ref_id);
     if (h) {
@@ -2070,4 +2079,324 @@ on("POST", "/__mock/workdir-quota", (req) => {
   const b = body<{ quota_gb?: number | null }>(req);
   s.workdirQuotaGb = b.quota_gb ?? null;
   return ok({ disk_quota_gb: s.workdirQuotaGb });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// P5 (T-W6) — S14 설정 8탭 + 대시보드 · S10 시험 대화.
+// 응답 모양은 openapi 스키마를 **글자 단위로** 따른다(T-W10 의 교훈 — 목이 서버와 다른 말을 하면 화면 테스트가 실서버를
+// 대변하지 못한다). 서버(T-S12)가 동시에 만드는 op 의 문장은 `wording.ts` 의 `MOCK_ONLY` 에 있다.
+// ═════════════════════════════════════════════════════════════════════════════
+
+/** owner·admin 만 — 서버 `s.admin` 과 같은 403(`W.admin_only`). */
+function requireAdmin(s: Store, req: Req, workspaceId: string) {
+  const r = requireMember(s, req, workspaceId);
+  if (r.member.role !== "owner" && r.member.role !== "admin") throw new Problem(403, "not_admin", W.admin_only);
+  return r;
+}
+
+// ── 워크스페이스 설정 ──
+function settingsOf(s: Store, workspaceId: string): WorkspaceSettings {
+  let cur = s.settings.get(workspaceId);
+  if (!cur) {
+    cur = defaultSettings(workspaceId);
+    s.settings.set(workspaceId, cur);
+  }
+  // 용량 상한은 S13(`/__mock/workdir-quota`)과 같은 값을 본다 — 두 화면이 다른 숫자를 보이지 않게.
+  return { ...cur, workdir_disk_quota_gb: s.workdirQuotaGb };
+}
+on("GET", "/workspaces/{id}/settings", (req, p) => {
+  const s = store();
+  // 계약: 권한은 워크스페이스 멤버(읽기). 서버 P2 구현은 admin 을 요구한다(T-W6 보고) — 목은 계약을 따른다.
+  requireMember(s, req, p.id);
+  return ok(settingsOf(s, p.id));
+});
+on("PATCH", "/workspaces/{id}/settings", (req, p) => {
+  const s = store();
+  const { member } = requireAdmin(s, req, p.id);
+  const b = body<WorkspaceSettingsUpdate>(req);
+  // 보안 탭(`task_event_masking`)은 owner 만 — openapi updateWorkspaceSettings.
+  if (b.task_event_masking !== undefined && member.role !== "owner") throw new Problem(403, "owner_only", MOCK_ONLY.masking_owner_only);
+  const errors: { field: string; message: string }[] = [];
+  if (b.loop_limits) {
+    const check = (name: keyof LoopLimits, max: number) => {
+      const v = b.loop_limits?.[name];
+      if (v != null && (v < 1 || v > max)) errors.push({ field: `loop_limits.${name}`, message: fmt(W.loop_limit_range, max) });
+    };
+    check("max_chain_depth", 100);
+    check("max_hops_per_hour", 10000);
+    check("max_pair_roundtrips", 100);
+  }
+  if (b.workdir_retention_days != null && b.workdir_retention_days < 0) errors.push({ field: "workdir_retention_days", message: W.retention_min });
+  if (b.workdir_disk_quota_gb != null && b.workdir_disk_quota_gb <= 0) errors.push({ field: "workdir_disk_quota_gb", message: W.quota_positive });
+  if (b.default_isolation != null && !["worktree", "container", "none"].includes(b.default_isolation)) errors.push({ field: "default_isolation", message: W.isolation_unknown });
+  if (errors.length) throw validation(errors);
+  const cur = s.settings.get(p.id) ?? defaultSettings(p.id);
+  // 서버(S-26)처럼 jsonb 그룹은 **키 단위로 얕게 합친다** — `{max_pair_roundtrips: 2}` 가 다른 두 키를 지우지 않는다.
+  const merge = <T extends object>(a: T, b?: T): T => (b ? { ...a, ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)) } : a);
+  const next: WorkspaceSettings = {
+    ...cur,
+    loop_limits: merge(cur.loop_limits, b.loop_limits),
+    budget_policy: merge(cur.budget_policy, b.budget_policy),
+    context_reuse: merge(cur.context_reuse, b.context_reuse),
+    runtime_policy: merge(cur.runtime_policy, b.runtime_policy),
+    default_isolation: b.default_isolation ?? cur.default_isolation,
+    workdir_retention_days: b.workdir_retention_days ?? cur.workdir_retention_days,
+    runtime_offline_grace: b.runtime_offline_grace ?? cur.runtime_offline_grace,
+    task_event_masking: b.task_event_masking ?? cur.task_event_masking,
+    updated_at: now(),
+  };
+  if (b.workdir_disk_quota_gb !== undefined) s.workdirQuotaGb = b.workdir_disk_quota_gb;
+  s.settings.set(p.id, next);
+  return ok(settingsOf(s, p.id));
+});
+
+// ── 멤버 역할·제거 ──
+function memberOf(s: Store, workspaceId: string, memberId: string): Member {
+  const m = s.members.find((x) => x.workspace_id === workspaceId && x.id === memberId);
+  if (!m) throw new Problem(404, "not_found", notFound("user"));
+  return m;
+}
+on("PATCH", "/workspaces/{id}/members/{mid}", (req, p) => {
+  const s = store();
+  const { member: me } = requireAdmin(s, req, p.id);
+  const target = memberOf(s, p.id, p.mid);
+  const b = body<{ role?: MemberRole }>(req);
+  if (!b.role || !["owner", "admin", "member"].includes(b.role)) throw validation([{ field: "role", message: MOCK_ONLY.role_enum }]);
+  // owner 강등은 owner 만(SCREEN §2.3). 마지막 owner 는 강등할 수 없다(409).
+  if (target.role === "owner" && b.role !== "owner") {
+    if (me.role !== "owner") throw new Problem(403, "owner_only", MOCK_ONLY.owner_demote_owner_only);
+    const owners = s.members.filter((m) => m.workspace_id === p.id && m.role === "owner");
+    if (owners.length <= 1) throw new Problem(409, "last_owner", MOCK_ONLY.last_owner);
+  }
+  target.role = b.role;
+  return ok(target);
+});
+on("DELETE", "/workspaces/{id}/members/{mid}", (req, p) => {
+  const s = store();
+  requireAdmin(s, req, p.id);
+  const target = memberOf(s, p.id, p.mid);
+  if (target.role === "owner" && s.members.filter((m) => m.workspace_id === p.id && m.role === "owner").length <= 1) {
+    throw new Problem(409, "last_owner", MOCK_ONLY.last_owner);
+  }
+  // 그 멤버가 Director 인 활성 세션이 있으면 409(먼저 Director 를 교체).
+  const directing = [...s.sessions.values()].filter((x) => x.workspace_id === p.id && x.director_user_id === target.user.id && (x.status === "active" || x.status === "paused"));
+  if (directing.length) throw new Problem(409, "member_is_director", MOCK_ONLY.member_is_director, { sessions: directing.map((x) => ({ id: x.id, title: x.title })) });
+  s.members.splice(s.members.indexOf(target), 1);
+  return { status: 204 };
+});
+
+// ── 초대 목록·생성·취소 ──
+function inviteOut(s: Store, inv: MockInvite, workspaceId: string): Invite {
+  const by = s.users.get(inv.invited_by);
+  const status = inv.status === "pending" && Date.parse(inv.expires_at) < Date.now() ? "expired" : inv.status;
+  return {
+    id: inv.id, workspace_id: workspaceId, email: inv.email ?? null, role: inv.role, token: inv.token,
+    url: `http://localhost:3000/invite/${inv.token}`, invited_by: by ? stripUser(by) : undefined,
+    expires_at: inv.expires_at, created_at: inv.created_at ?? inv.expires_at, accepted_at: inv.accepted_at ?? null, status,
+  };
+}
+on("GET", "/workspaces/{id}/invites", (req, p) => {
+  const s = store();
+  requireAdmin(s, req, p.id);
+  return ok([...s.invites.values()].filter((i) => i.workspace_id === p.id).map((i) => inviteOut(s, i, p.id)));
+});
+on("POST", "/workspaces/{id}/invites", (req, p) => {
+  const s = store();
+  const { user } = requireAdmin(s, req, p.id);
+  const key = req.headers.get("idempotency-key");
+  if (key && s.idem.has(key)) return ok(s.idem.get(key), 201, { "Idempotent-Replayed": "true" });
+  const b = body<{ email?: string | null; role?: MemberRole; expires_in_hours?: number }>(req);
+  const role = b.role ?? "member";
+  if (role === "owner") throw validation([{ field: "role", message: W.invite_owner_role }]);
+  const hours = b.expires_in_hours ?? 168;
+  if (hours > 720) throw validation([{ field: "expires_in_hours", message: W.invite_expiry_max }]);
+  let email: string | null = null;
+  if (b.email) {
+    email = b.email.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw validation([{ field: "email", message: W.email_format }]);
+  }
+  const token = `inv-${uuid().slice(0, 8)}`;
+  const inv: MockInvite = {
+    id: uuid(), token, workspace_id: p.id, role, invited_by: user.id, email, created_at: now(), accepted_at: null,
+    expires_at: new Date(Date.now() + Math.max(1, hours) * 3600e3).toISOString(), status: "pending",
+  };
+  s.invites.set(token, inv);
+  const out = inviteOut(s, inv, p.id);
+  if (key) s.idem.set(key, out);
+  return ok(out, 201);
+});
+on("DELETE", "/workspaces/{id}/invites/{iid}", (req, p) => {
+  const s = store();
+  requireAdmin(s, req, p.id);
+  const inv = [...s.invites.values()].find((i) => i.workspace_id === p.id && i.id === p.iid);
+  if (!inv) throw notFoundP("invite");
+  inv.status = "revoked";
+  return { status: 204 };
+});
+
+// ── 알림 설정(개인) ──
+const DEFAULT_NOTIFICATIONS: NotificationSettings = { email: true, push: false, default_subscription: "all" };
+on("GET", "/me/notification-settings", (req) => {
+  const s = store();
+  const u = requireUser(s, req);
+  return ok(s.notifications.get(u.id) ?? DEFAULT_NOTIFICATIONS);
+});
+on("PATCH", "/me/notification-settings", (req) => {
+  const s = store();
+  const u = requireUser(s, req);
+  const b = body<Partial<NotificationSettings>>(req);
+  if (b.default_subscription != null && !["all", "hitl_only", "completion_only"].includes(b.default_subscription)) {
+    throw validation([{ field: "default_subscription", message: MOCK_ONLY.subscription_enum }]);
+  }
+  const cur = s.notifications.get(u.id) ?? DEFAULT_NOTIFICATIONS;
+  const next: NotificationSettings = { email: b.email ?? cur.email, push: b.push ?? cur.push, default_subscription: b.default_subscription ?? cur.default_subscription };
+  s.notifications.set(u.id, next);
+  return ok(next);
+});
+
+// ── 관측 대시보드(PRD §11 · openapi getWorkspaceMetrics) ──
+/**
+ * §11 표의 **열 순서 그대로** 10개. `note` 는 getWorkspaceMetrics description 의 정의 문장. 목은 몇 개를 `value: null · n: 0`
+ * 으로 두어 "아직 잴 수 없음" 경로가 화면에 보이게 한다(0 을 실측처럼 보이지 않는다). 나머지 값은 데모용 고정값이다.
+ */
+export const METRIC_DEFS: { key: Metric["key"]; label: string; unit: Metric["unit"]; target: number; target_op: Metric["target_op"]; note: string }[] = [
+  { key: "f1_minutes", label: "데몬 설치 → 첫 세션 완료까지 시간 (신규 사용자)", unit: "minutes", target: 15, target_op: "lt", note: "사용자별 첫 컴퓨터가 온라인이 된 시각 → 그 사용자가 Director 인 첫 completed 세션의 completed_at, 중앙값(분). n = 그런 사용자 수." },
+  { key: "auto_complete_rate", label: "세션 자동 완료 비율 (수동 종료 대비)", unit: "ratio", target: 0.6, target_op: "gt", note: "completed 세션 중 수동 종료(completeSession 호출)가 아닌 비율." },
+  { key: "hitl_response_minutes", label: "사람 확인 요청당 Director 응답 시간", unit: "minutes", target: 30, target_op: "lt", note: "hitl_request answered_at - created_at 중앙값(분), auto_answered 제외." },
+  { key: "delegation_autonomous_rate", label: "에이전트 간 위임 중 사람 개입 없이 처리된 비율", unit: "ratio", target: 0.7, target_op: "gt", note: "delegated_from_task_id 가 있는 task 중 HITL·blocked 없이 completed 된 비율." },
+  { key: "parallel_wallclock_reduction", label: "병렬 작업 줄기 세션의 wall-clock 단축", unit: "ratio", target: 0.4, target_op: "gt", note: "lane ≥ 2 인 완료 세션의 wall-clock(세션 시작→완료) 대비 그 세션 task started_at→finished_at 합의 단축 비율(1 - wall/sum). n = 세션 수." },
+  { key: "task_success_rate_by_runtime", label: "컴퓨터 종류별 할 일 성공률", unit: "ratio", target: 0.85, target_op: "gt", note: "runtime_kind 별 completed / (completed+failed); breakdown[] 에 종류별로." },
+  { key: "duplicate_after_resume_rate", label: "재개·재시도 후 중복 작업 발생률", unit: "ratio", target: 0.01, target_op: "lt", note: "attempt ≥ 2 인 task 중 posted_message_ids 재게시가 관측된 비율(같은 attempt 가 같은 멱등키로 두 번 게시)." },
+  { key: "resume_success_rate", label: "재진입 시 이어서 실행 성공률", unit: "ratio", target: 0.9, target_op: "gt", note: "resume_outcome 이 있는 attempt 중 resumed 비율." },
+  { key: "blocked_response_minutes", label: "답을 기다리는 질문이 위임자에게 닿아 답을 받기까지의 시간", unit: "minutes", target: 5, target_op: "lt", note: "lane blocked 진입 → blocked_message_id 답글 시각 중앙값(분)." },
+  { key: "weekly_active_sessions", label: "주간 활성 세션 / 활성 워크스페이스", unit: "count", target: 5, target_op: "gt", note: "최근 7일 안에 task 가 하나라도 돈 세션 수." },
+];
+/** 데모 값 — null 셋(f1 · hitl · duplicate)은 "아직 잴 수 없음" 경로다. */
+const METRIC_DEMO: Record<Metric["key"], { value: number | null; n: number }> = {
+  f1_minutes: { value: null, n: 0 },
+  auto_complete_rate: { value: 0.67, n: 12 },
+  hitl_response_minutes: { value: null, n: 0 },
+  delegation_autonomous_rate: { value: 0.58, n: 31 },
+  parallel_wallclock_reduction: { value: 0.44, n: 4 },
+  task_success_rate_by_runtime: { value: 0.83, n: 60 },
+  duplicate_after_resume_rate: { value: null, n: 0 },
+  resume_success_rate: { value: 0.92, n: 25 },
+  blocked_response_minutes: { value: 3.5, n: 6 },
+  weekly_active_sessions: { value: 7, n: 7 },
+};
+on("GET", "/workspaces/{id}/metrics", (req, p) => {
+  const s = store();
+  requireMember(s, req, p.id);
+  const window = req.query.get("window") ?? "P30D";
+  const metrics: Metric[] = METRIC_DEFS.map((d) => {
+    const demo = METRIC_DEMO[d.key];
+    const m: Metric = { ...d, value: demo.value, n: demo.n };
+    if (d.key === "task_success_rate_by_runtime") {
+      m.breakdown = [
+        { kind: "claude_code", value: 0.97, target: 0.95, n: 40 },
+        { kind: "hermes", value: 0.83, target: 0.85, n: 20 },
+      ];
+    }
+    return m;
+  });
+  const report: MetricsReport = { workspace_id: p.id, window, computed_at: now(), metrics };
+  return ok(report);
+});
+
+// ── 시험 대화(FR-1.8.1 · daemon-protocol §4.5) ──
+function testChatOf(s: Store, req: Req, id: string): { chat: TestChat; user: User } {
+  const chat = s.testChats.get(id);
+  if (!chat) throw new Problem(404, "not_found", notFound("agent"));
+  const { user } = requireMember(s, req, chat.workspace_id);
+  if (chat.user_id !== user.id) throw new Problem(403, "not_test_chat_owner", MOCK_ONLY.test_chat_not_owner);
+  return { chat, user };
+}
+on("POST", "/agents/{id}/test-chats", (req, p) => {
+  const s = store();
+  const agent = agentOf(s, req, p.id);
+  const { user } = requireMember(s, req, agent.workspace_id);
+  const key = req.headers.get("idempotency-key");
+  if (key && s.idem.has(key)) return ok(s.idem.get(key), 201, { "Idempotent-Replayed": "true" });
+  const b = body<{ profile_id?: string | null; runtime_id?: string | null }>(req);
+  const profile = b.profile_id ? agent.profiles.find((x) => x.id === b.profile_id) : agent.profiles.find((x) => x.is_default) ?? agent.profiles[0];
+  if (!profile) throw notFoundP("profile");
+  let runtime: Runtime | undefined;
+  if (b.runtime_id) {
+    runtime = s.runtimes.get(b.runtime_id);
+    if (!runtime || runtime.workspace_id !== agent.workspace_id) throw notFoundP("runtime");
+    if (runtime.status !== "online") throw new Problem(409, "runtime_offline", MOCK_ONLY.test_chat_runtime_offline);
+  } else {
+    runtime = [...s.runtimes.values()].find((r) => r.workspace_id === agent.workspace_id && r.status === "online" && r.capabilities.some((c) => c.kind === profile.runtime_kind && c.logged_in));
+    if (!runtime) throw new Problem(409, "no_runtime", MOCK_ONLY.test_chat_no_runtime);
+  }
+  const cap = runtime.capabilities.find((c) => c.kind === profile.runtime_kind);
+  const t = now();
+  const chat: TestChat = {
+    id: uuid(), workspace_id: agent.workspace_id, agent_id: agent.id, profile_id: profile.id, user_id: user.id, runtime_id: runtime.id,
+    status: "open", transport: null, turns: [], input_tokens: 0, output_tokens: 0, cost_usd: 0,
+    estimated: cap ? cap.usage === false : false, created_at: t, updated_at: t, closed_at: null,
+  };
+  s.testChats.set(chat.id, chat);
+  if (key) s.idem.set(key, chat);
+  return ok(chat, 201);
+});
+on("GET", "/test-chats/{id}", (req, p) => ok(testChatOf(store(), req, p.id).chat));
+/** 진행 중 = 마지막 턴이 `user` 인 채(에이전트 답이 아직 없다). */
+const turnInProgress = (chat: TestChat) => chat.turns.length > 0 && chat.turns[chat.turns.length - 1].role === "user";
+on("POST", "/test-chats/{id}/turns", (req, p) => {
+  const s = store();
+  const { chat } = testChatOf(s, req, p.id);
+  if (chat.status === "closed") throw new Problem(410, "test_chat_closed", MOCK_ONLY.test_chat_closed);
+  if (turnInProgress(chat)) throw new Problem(409, "turn_in_progress", MOCK_ONLY.test_chat_turn_in_progress);
+  const key = req.headers.get("idempotency-key");
+  if (key && s.idem.has(key)) return ok(s.idem.get(key), 202, { "Idempotent-Replayed": "true" });
+  const b = body<{ content?: string }>(req);
+  const content = b.content?.trim() ?? "";
+  if (!content) throw validation([{ field: "content", message: W.content_required }]);
+  const turn: TestChatTurn = { role: "user", content: b.content!, at: now() };
+  chat.turns.push(turn);
+  chat.updated_at = turn.at;
+  if (key) s.idem.set(key, turn);
+  // 에이전트 답 — 데몬의 heartbeat preview(§4.5) 를 SSE `test_chat.delta` 로, finish 를 `test_chat.turn` 으로 흉내 낸다.
+  const agent = s.agents.get(chat.agent_id);
+  const profile = agent?.profiles.find((x) => x.id === chat.profile_id);
+  const rt = chat.runtime_id ? s.runtimes.get(chat.runtime_id) : undefined;
+  const cap = rt?.capabilities.find((c) => c.kind === profile?.runtime_kind);
+  const transport: TestChat["transport"] = cap?.protocol_version != null ? "acp" : "cli";
+  const head = chat.turns.filter((x) => x.role === "user").length === 1 ? MOCK_ONLY.test_chat_agent_reply_head : "";
+  const reply = `${head}@${agent?.name ?? "agent"}(${profile?.runtime_kind ?? "?"} · ${profile?.model ?? "?"})가 답합니다: "${content}" 에 대해 — 설정대로 실행되었습니다.`;
+  const chunks = reply.match(/.{1,12}/g) ?? [reply];
+  let i = 0;
+  const tick = () => {
+    if (chat.status === "closed") return; // 닫히면(cancel) 답을 확정하지 않는다
+    if (i < chunks.length) {
+      emit(s, chat.workspace_id, "test_chat.delta", { test_chat_id: chat.id, text: chunks[i++] }, null, true);
+      setTimeout(tick, 60);
+      return;
+    }
+    const inTok = 40 + content.length;
+    const outTok = 20 + reply.length;
+    const agentTurn: TestChatTurn = { role: "agent", content: reply, at: now(), usage: { input_tokens: inTok, output_tokens: outTok }, error: null };
+    chat.turns.push(agentTurn);
+    chat.transport = transport;
+    chat.input_tokens += inTok;
+    chat.output_tokens += outTok;
+    chat.cost_usd = Number((chat.cost_usd + (inTok * 3 + outTok * 15) / 1e6).toFixed(6));
+    chat.updated_at = agentTurn.at;
+    emit(s, chat.workspace_id, "test_chat.turn", { test_chat_id: chat.id, turn: agentTurn, transport, input_tokens: chat.input_tokens, output_tokens: chat.output_tokens }, null);
+  };
+  setTimeout(tick, 150);
+  return ok(turn, 202);
+});
+on("POST", "/test-chats/{id}/close", (req, p) => {
+  const s = store();
+  const { chat } = testChatOf(s, req, p.id);
+  if (chat.status === "open") {
+    // 진행 중 턴은 cancel(§4.5) — 목은 그 턴을 error 로 닫는다.
+    if (turnInProgress(chat)) chat.turns.push({ role: "agent", content: "", at: now(), error: "취소됨 — 시험 대화를 닫았습니다" });
+    chat.status = "closed";
+    chat.closed_at = now();
+    chat.updated_at = chat.closed_at;
+  }
+  return ok(chat);
 });

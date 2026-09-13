@@ -4,8 +4,8 @@
  * 계약(응답 형태·오류 코드·SSE 프레임)은 openapi 를 그대로 따른다 — 화면이 목에만 맞게 되는 것을 막기 위해서다.
  */
 import type {
-  Agent, AgentTemplate, Artifact, Decision, HitlRequest, InboxItem, Lane, Member, Message, Pairing, Participant,
-  Runtime, Session, StreamEventType, TaskEvent, User, Workdir, Workspace,
+  Agent, AgentTemplate, Artifact, Decision, HitlRequest, InboxItem, Lane, Member, Message, NotificationSettings, Pairing,
+  Participant, Runtime, Session, StreamEventType, TaskEvent, TestChat, User, Workdir, Workspace, WorkspaceSettings,
 } from "@/lib/api/types";
 
 export interface MockUser extends User {
@@ -19,6 +19,10 @@ export interface MockInvite {
   invited_by: string; // user id
   expires_at: string;
   status: "pending" | "accepted" | "expired" | "revoked";
+  /** S14 멤버 탭(T-W6) — 계약 `Invite` 의 나머지 칸. 예전 시드는 비워 두었으므로 선택이다. */
+  email?: string | null;
+  created_at?: string;
+  accepted_at?: string | null;
 }
 export interface MockTask {
   id: string;
@@ -83,6 +87,12 @@ export interface Store {
   workdirs: Map<string, Workdir & { runtime_id: string }>;
   /** P4 — 워크스페이스 workdir 용량 상한(GB). null 이면 미설정 = 무제한(E13-19). */
   workdirQuotaGb: number | null;
+  /** P5 (T-W6) — S14 워크스페이스 설정 행(계약 `WorkspaceSettings`, 기본값은 PRD §7 · openapi default). */
+  settings: Map<string, WorkspaceSettings>;
+  /** P5 (T-W6) — 알림 설정(개인, user id 키). 없으면 openapi 기본값(email true · push false · all). */
+  notifications: Map<string, NotificationSettings>;
+  /** P5 (T-W6) — S10 시험 대화(FR-1.8.1). 세션이 아니다 — sessions 에 넣지 않는다. */
+  testChats: Map<string, TestChat>;
   idem: Map<string, unknown>;
   events: StoredEvent[];
   eventSeq: number;
@@ -103,6 +113,7 @@ function seed(): Store {
     pairings: new Map(), agents: new Map(), sessions: new Map(), messages: new Map(), tasks: new Map(), taskEvents: new Map(),
     lanes: new Map(), artifacts: new Map(), decisions: new Map(), hitls: new Map(), inbox: new Map(),
     workdirs: new Map(), workdirQuotaGb: 50,
+    settings: new Map(), notifications: new Map(), testChats: new Map(),
     idem: new Map(), events: [], eventSeq: 0, subs: new Set(),
   };
   // 데모 워크스페이스: 초대 링크(S3)·비참여 에이전트 경고(E1-04) 검증용
@@ -119,12 +130,13 @@ function seed(): Store {
   }
   s.invites.set("demo-invite", {
     id: uuid(), token: "demo-invite", workspace_id: ws.id, role: "member", invited_by: demo.id,
-    expires_at: new Date(Date.now() + 7 * 864e5).toISOString(), status: "pending",
+    expires_at: new Date(Date.now() + 7 * 864e5).toISOString(), status: "pending", email: null, created_at: now(), accepted_at: null,
   });
   s.invites.set("expired-invite", {
     id: uuid(), token: "expired-invite", workspace_id: ws.id, role: "member", invited_by: demo.id,
-    expires_at: new Date(Date.now() - 864e5).toISOString(), status: "expired",
+    expires_at: new Date(Date.now() - 864e5).toISOString(), status: "expired", email: "late@colab.dev", created_at: new Date(Date.now() - 8 * 864e5).toISOString(), accepted_at: null,
   });
+  s.settings.set(ws.id, defaultSettings(ws.id));
   const rt = makeRuntime(ws.id, "demo-macbook");
   s.runtimes.set(rt.id, rt);
   for (const [name, role, desc] of [
@@ -135,6 +147,26 @@ function seed(): Store {
     s.agents.set(a.id, a);
   }
   return s;
+}
+
+/**
+ * `workspace_settings` 기본 행 — PRD §7 의 값 그대로(openapi `default`). 화면의 "기본값 표시"(U14)가 이 값과 같아야
+ * 하므로 여기서 한 번만 적고 `lib/settings.ts` 의 `SETTINGS_DEFAULTS` 가 같은 값을 든다(테스트가 둘을 대조한다).
+ */
+export function defaultSettings(workspaceId: string): WorkspaceSettings {
+  return {
+    workspace_id: workspaceId,
+    loop_limits: { max_chain_depth: 8, max_hops_per_hour: 60, max_pair_roundtrips: 5 },
+    budget_policy: { default_session_budget_usd: null, default_task_budget_usd: null, workspace_monthly_budget_usd: null, pricing_overrides: {} },
+    context_reuse: { max_summary_tokens: 2000, include_artifacts: "links" },
+    default_isolation: "none",
+    runtime_policy: { max_concurrent_tasks: 10, per_kind: {} },
+    workdir_retention_days: 14,
+    workdir_disk_quota_gb: null,
+    runtime_offline_grace: "P7D",
+    task_event_masking: false,
+    updated_at: now(),
+  };
 }
 
 export function stripUser(u: MockUser | User): User {
