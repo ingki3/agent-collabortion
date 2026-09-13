@@ -14,6 +14,7 @@ import (
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
+	"github.com/ingki3/agent-collabortion/server/internal/testchat"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
 	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
 )
@@ -183,6 +184,9 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 				Status string `json:"status"`
 				Reason string `json:"reason"`
 			} `json:"gc"`
+			// TestChatID marks the §4.5 receipt for a test chat's temporary
+			// directory: not a workdir row, only a gc command's consumption.
+			TestChatID string `json:"test_chat_id"`
 		} `json:"workdirs"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(&in); err != nil {
@@ -192,6 +196,14 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 	now := s.Clock.Now()
 	var gcReports []workdirs.GCReport
 	for _, wd := range in.Workdirs {
+		if wd.TestChatID != "" {
+			// daemon-protocol v0.8 §4.5: "서버는 test_chat_id 가 있는 행을 workdir
+			// 테이블에 넣지 않고 명령 소비에만 쓴다". The receipt (deleted or
+			// refused) consumes the chat's gc command; a refusal is logged —
+			// a test chat has no activity feed to put the sentence on.
+			s.consumeTestChatGC(r.Context(), d, wd.TestChatID, wd.Path, wd.GC, now)
+			continue
+		}
 		rep, why := s.workdirReport(r, d, wd.Kind, wd.Path, wd.SessionID, wd.AgentID, wd.LaneID)
 		if why != "" {
 			// S-56(b): loudly. Silence here is what let 차단 ② live through a
@@ -440,21 +452,30 @@ func (s *Server) noteWorkdirReportDropped(ctx context.Context, rep workdirs.Repo
 }
 
 // taskForDaemon checks the task belongs to the calling runtime.
-func (s *Server) taskForDaemon(w http.ResponseWriter, r *http.Request, d daemonCtx) (*tasks.Row, int, bool) {
+//
+// daemon-protocol v0.8 §4.5: when `task_id` names no task, it may name a TEST
+// CHAT — its turns ride the same phase/events/heartbeat/finish URLs with the
+// chat's id in the task slot and the turn number as the attempt. The chat
+// branch runs strictly AFTER the task lookup failed (T-S12 "테스트 채팅 분기는
+// task 조회 실패 뒤에만"), so a real task's path is exactly what it was. The
+// caller gets the chat as the 4th result and must route to daemonTestChat*.
+func (s *Server) taskForDaemon(w http.ResponseWriter, r *http.Request, d daemonCtx) (*tasks.Row, int, bool, *testchat.Row) {
 	taskID, err := uuid.Parse(r.PathValue("taskId"))
 	if err != nil {
 		writeProblem(w, apperr.Validation(apperr.Field("task_id", "format", "task_id must be a uuid")))
-		return nil, 0, false
+		return nil, 0, false, nil
 	}
 	attempt, err := strconv.Atoi(r.PathValue("attempt"))
 	if err != nil || attempt < 1 {
 		writeProblem(w, apperr.Validation(apperr.Field("attempt", "format", "attempt must be a positive integer")))
-		return nil, 0, false
+		return nil, 0, false, nil
 	}
 	t, err := tasks.Get(r.Context(), s.DB, taskID)
 	if err != nil {
-		writeProblem(w, apperr.NotFound("task"))
-		return nil, 0, false
+		if tc, ok := s.testChatForDaemon(w, r, d, taskID); ok {
+			return nil, attempt, true, tc
+		}
+		return nil, 0, false, nil
 	}
 	// The runtime that holds (task, attempt) is recorded on the attempt's token.
 	var holder *uuid.UUID
@@ -464,14 +485,18 @@ func (s *Server) taskForDaemon(w http.ResponseWriter, r *http.Request, d daemonC
 	}
 	if holder == nil || *holder != d.RuntimeID {
 		writeProblem(w, apperr.Forbidden("runtime_mismatch", "this attempt was not claimed by the calling runtime"))
-		return nil, 0, false
+		return nil, 0, false, nil
 	}
-	return t, attempt, true
+	return t, attempt, true, nil
 }
 
 func (s *Server) daemonPhase(w http.ResponseWriter, r *http.Request, d daemonCtx) {
-	t, attempt, ok := s.taskForDaemon(w, r, d)
+	t, attempt, ok, tc := s.taskForDaemon(w, r, d)
 	if !ok {
+		return
+	}
+	if tc != nil {
+		s.daemonTestChatPhase(w, r, d, tc, attempt)
 		return
 	}
 	var in struct {
@@ -524,8 +549,12 @@ func (s *Server) staleAttempt(w http.ResponseWriter, r *http.Request, d daemonCt
 }
 
 func (s *Server) daemonEvents(w http.ResponseWriter, r *http.Request, d daemonCtx) {
-	t, attempt, ok := s.taskForDaemon(w, r, d)
+	t, attempt, ok, tc := s.taskForDaemon(w, r, d)
 	if !ok {
+		return
+	}
+	if tc != nil {
+		s.daemonTestChatEvents(w, r, d, tc, attempt)
 		return
 	}
 	var in struct {
@@ -549,8 +578,12 @@ func (s *Server) daemonEvents(w http.ResponseWriter, r *http.Request, d daemonCt
 }
 
 func (s *Server) daemonHeartbeat(w http.ResponseWriter, r *http.Request, d daemonCtx) {
-	t, attempt, ok := s.taskForDaemon(w, r, d)
+	t, attempt, ok, tc := s.taskForDaemon(w, r, d)
 	if !ok {
+		return
+	}
+	if tc != nil {
+		s.daemonTestChatHeartbeat(w, r, d, tc, attempt)
 		return
 	}
 	// §4.2 v0.3: heartbeat is a liveness signal, so `preview` is decoded apart
@@ -664,8 +697,12 @@ func (s *Server) finishAndEnforce(ctx context.Context, taskID uuid.UUID, attempt
 }
 
 func (s *Server) daemonFinish(w http.ResponseWriter, r *http.Request, d daemonCtx) {
-	t, attempt, ok := s.taskForDaemon(w, r, d)
+	t, attempt, ok, tc := s.taskForDaemon(w, r, d)
 	if !ok {
+		return
+	}
+	if tc != nil {
+		s.daemonTestChatFinish(w, r, d, tc, attempt)
 		return
 	}
 	var in contracts.Finish

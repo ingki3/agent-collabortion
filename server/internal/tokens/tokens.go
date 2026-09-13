@@ -273,10 +273,17 @@ func ConsumeRebindCommands(ctx context.Context, q db.DBTX, runtimeID, sessionID 
 // receipt.
 //
 // production caller: httpapi.Server.daemonWorkdirs, after ApplyGCReports.
+//
+// A test chat's gc (daemon-protocol v0.8 §4.5: payload carries `test_chat_id`,
+// no session) is excluded here: its target is never a workdir row, so the
+// NOT EXISTS above would be trivially true and the command consumed by the
+// FIRST report of any kind — before the daemon ever deleted the directory.
+// ConsumeTestChatGCCommands consumes it on ITS receipt.
 func ConsumeGCCommands(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, now time.Time) error {
 	_, err := q.Exec(ctx, `
 		UPDATE daemon_command c SET consumed_at = $2, consumed_by = 'workdir_report'
 		WHERE c.runtime_id = $1 AND c.type = 'gc' AND c.consumed_at IS NULL
+		  AND c.payload->>'test_chat_id' IS NULL
 		  AND NOT EXISTS (
 		        SELECT 1 FROM workdir w
 		        WHERE w.id::text = ANY(gc_command_workdir_ids(c.payload))
@@ -288,12 +295,29 @@ func ConsumeGCCommands(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, now 
 	return nil
 }
 
+// ConsumeTestChatGCCommands marks the gc command for one test chat's temporary
+// directory consumed: the §6 report carried a row with that `test_chat_id` and
+// a `gc` receipt (deleted or refused — §4.5, same rule as ConsumeGCCommands).
+func ConsumeTestChatGCCommands(ctx context.Context, q db.DBTX, runtimeID, testChatID uuid.UUID, now time.Time) error {
+	_, err := q.Exec(ctx, `
+		UPDATE daemon_command SET consumed_at = $3, consumed_by = 'workdir_report'
+		WHERE runtime_id = $1 AND type = 'gc' AND consumed_at IS NULL AND payload->>'test_chat_id' = $2`,
+		runtimeID, testChatID.String(), now)
+	if err != nil {
+		return fmt.Errorf("tokens: consume test chat gc commands: %w", err)
+	}
+	return nil
+}
+
 // ExpiredCommand is a command dropped by ExpireCommands for the 24h TTL.
 type ExpiredCommand struct {
 	ID      int64
 	Type    contracts.CommandType
 	TaskID  *uuid.UUID
 	Attempt *int
+	// TestChat is true for a test chat's cancel/gc (payload test_chat_id, or
+	// task_id naming a chat — §4.5): there is no task feed to record it on.
+	TestChat bool
 }
 
 // ExpireCommands applies the two time bounds of §4.3 to the stored rows:
@@ -309,7 +333,9 @@ func ExpireCommands(ctx context.Context, q db.DBTX, now time.Time) ([]ExpiredCom
 	rows, err := q.Query(ctx, `
 		UPDATE daemon_command SET consumed_at = $1, consumed_by = 'ttl'
 		WHERE consumed_at IS NULL AND created_at <= $2
-		RETURNING id, type, task_id, attempt`, now, now.Add(-CommandTTL))
+		RETURNING id, type, task_id, attempt,
+		          payload->>'test_chat_id' IS NOT NULL OR EXISTS (SELECT 1 FROM test_chat c WHERE c.id = daemon_command.task_id)`,
+		now, now.Add(-CommandTTL))
 	if err != nil {
 		return nil, fmt.Errorf("tokens: expire commands: %w", err)
 	}
@@ -318,7 +344,7 @@ func ExpireCommands(ctx context.Context, q db.DBTX, now time.Time) ([]ExpiredCom
 	for rows.Next() {
 		var e ExpiredCommand
 		var typ string
-		if err := rows.Scan(&e.ID, &typ, &e.TaskID, &e.Attempt); err != nil {
+		if err := rows.Scan(&e.ID, &typ, &e.TaskID, &e.Attempt, &e.TestChat); err != nil {
 			return nil, err
 		}
 		e.Type = contracts.CommandType(typ)

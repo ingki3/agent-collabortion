@@ -22,7 +22,9 @@ func (s *Server) ExpireCommands(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	for _, e := range expired {
-		if e.TaskID == nil {
+		if e.TaskID == nil || e.TestChat {
+			// A test chat's command names the chat, not a task (§4.5); the
+			// chat has no feed, and the row would fail task_event's FK.
 			continue
 		}
 		attempt := 1

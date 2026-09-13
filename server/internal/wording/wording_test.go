@@ -54,6 +54,7 @@ var skipDir = map[string]bool{"gen": true, "testdb": true}
 // queue/bundle.go 의 brief 본문(에이전트 턴 프롬프트)은 sink 가 아니라 자연히 빠진다.
 var daemonAPI = map[string]bool{
 	"internal/httpapi/daemon.go":          true,
+	"internal/httpapi/daemon_testchat.go": true, // §4.5 테스트 채팅 턴의 phase·events·heartbeat·finish (T-S12)
 	"internal/eventschema/eventschema.go": true,
 	"internal/events/events.go":           true,
 }
@@ -70,6 +71,7 @@ var sinkFields = map[string]bool{
 	"Question": true, "Reason": true, "CLIError": true, "ErrorMessage": true, "Problems": true,
 	"Content": true, "Summary": true, "Rationale": true,
 	"Decisions": true, "Artifacts": true, "Timeline": true, // sessions.SummaryFacts → 세션 요약 본문
+	"Error": true, // testchat.Turn.Error — 테스트 채팅 턴의 오류 문장(openapi TestChatTurn.error, S10)
 }
 
 var sinkMapKeys = map[string]bool{"detail": true, "note": true}
@@ -83,6 +85,7 @@ var sinkHelpers = map[string][]int{
 	"unreadable":     {2}, // httpapi: unreadable(field, code, msg, err)
 	"field":          {2}, // agents: field(name, code, msg)
 	"insertDecision": {3, 4},
+	"errText":        {0}, // testchat: 턴의 error 문장 (Turn.Error = errText(…))
 }
 
 // sinkFuncs 는 본문 전체가 사람 문장을 조립하는 함수 — 안의 문자열 리터럴을 전부 센다
@@ -93,11 +96,14 @@ var sinkFuncs = map[string]bool{
 	"Validation": true, "Internal": true,
 	"ValidateTree": true, // sessions: err.Error() 가 그대로 Field message 가 된다
 	"decisionLine": true, // sessions: 요약의 결정 기록 한 줄
+	"FailureText":  true, // testchat: failure_kind → 테스트 채팅 턴의 error 문장 (§4.5, T-S12)
 }
 
 // sinkVars 는 값이 곧 화면 문장인 패키지 변수(표).
 var sinkVars = map[string]bool{"titles": true, "statusLabels": true, "NotFoundNouns": true,
-	"ErrInvalidTree": true} // sessions: %w 로 Field message 의 머리가 된다
+	"ErrInvalidTree": true, // sessions: %w 로 Field message 의 머리가 된다
+	"Defs":           true, // metrics: §11 지표의 label·note — S14 대시보드가 그대로 그린다 (T-S12)
+}
 
 // decisionSQL 은 decision 행을 직접 쓰는 SQL — 그 Exec/QueryRow 의 값 인자는 사람이 읽는다.
 var decisionSQL = regexp.MustCompile(`INSERT\s+INTO\s+decision\b`)
@@ -420,6 +426,7 @@ func TestScope(t *testing.T) {
 		"internal/events/events.go",
 		"internal/eventschema/eventschema.go",
 		"internal/httpapi/daemon.go",
+		"internal/httpapi/daemon_testchat.go",
 	}
 	var gotDaemonAPI []string
 	for f := range daemonAPI {
@@ -470,6 +477,11 @@ func TestScope(t *testing.T) {
 		"internal/events/mask.go",                  // e.Payload[key] =
 		"internal/apperr/apperr.go",                // titles · statusLabels · Title/NotFound/…
 		"internal/agents/agents.go",                // field(…) 지역 헬퍼
+		// T-S12 — 테스트 채팅·지표
+		"internal/testchat/testchat.go",         // createTestChat 409 · postTestChatTurn 409/410
+		"internal/testchat/daemon.go",           // FailureText · 만료 문장(턴 error)
+		"internal/metrics/metrics.go",           // Defs — §11 label·note
+		"internal/httpapi/handlers_testchat.go", // not_chat_owner
 	} {
 		found := false
 		for _, s := range prose {

@@ -33,6 +33,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
+	"github.com/ingki3/agent-collabortion/server/internal/testchat"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
 	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
 )
@@ -57,10 +58,13 @@ type Server struct {
 	Workdirs *workdirs.Service
 	Router   *router.Service
 	Tasks    *tasks.Service
-	Events   *events.Service
-	Queue    *queue.Postgres
-	Tokens   *tokens.Service
-	Hub      *realtime.Hub
+	// TestChats is FR-1.8.1 (daemon-protocol v0.8 §4.5): the session-less
+	// 1:1 chat whose turns ride the daemon protocol as token-less attempts.
+	TestChats *testchat.Service
+	Events    *events.Service
+	Queue     *queue.Postgres
+	Tokens    *tokens.Service
+	Hub       *realtime.Hub
 
 	// SecureCookies sets the Secure flag on the session cookie (HTTPS).
 	SecureCookies bool
@@ -115,6 +119,11 @@ func NewServer(d Deps) *Server {
 	notifier := queue.NewNotifier()
 	q := queue.NewPostgres(d.DB, d.Clock, tsk, notifier)
 	rt := router.New(d.DB, d.Clock, hub, notifier).WithTasks(tsk)
+	tc := testchat.New(d.DB, d.Clock, hub)
+	tc.Log = d.Log
+	// A queued test chat turn wakes the same long-poll a queued task does —
+	// the person is watching the screen for the answer.
+	tc.Notify = notifier.Notify
 	return &Server{
 		DB: d.DB, Clock: d.Clock, Log: d.Log, ServerURL: d.ServerURL,
 		Auth:      auth.New(d.DB, d.Clock, d.WebURL),
@@ -124,14 +133,15 @@ func NewServer(d Deps) *Server {
 		// §8.5's platform client is optional on purpose: with no
 		// ANTHROPIC_API_KEY the summary is composed from rows, as it was in P2,
 		// and every other part of the server runs unchanged (llm.FromEnv).
-		Sessions: sessions.New(d.DB, d.Clock, hub, rt).WithTasks(tsk).WithLLM(platformLLM(d.Log), d.Log),
-		Workdirs: workdirs.NewService(d.DB, d.Clock, hub, d.Log),
-		Router:   rt,
-		Tasks:    tsk,
-		Events:   events.New(d.DB, d.Clock, hub),
-		Queue:    q,
-		Tokens:   tok,
-		Hub:      hub,
+		Sessions:  sessions.New(d.DB, d.Clock, hub, rt).WithTasks(tsk).WithLLM(platformLLM(d.Log), d.Log),
+		Workdirs:  workdirs.NewService(d.DB, d.Clock, hub, d.Log),
+		Router:    rt,
+		Tasks:     tsk,
+		TestChats: tc,
+		Events:    events.New(d.DB, d.Clock, hub),
+		Queue:     q,
+		Tokens:    tok,
+		Hub:       hub,
 	}
 }
 
