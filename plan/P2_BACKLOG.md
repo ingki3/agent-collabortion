@@ -58,6 +58,7 @@
 | W-7 | 인박스 예산 HITL 범위 파생 `budgetScopeOf` 가 `session.status==="paused"` 만 보고 `paused_reason` 을 안 본다 — 세션이 다른 사유(HITL·offline)로 paused 인 동안 task 범위 예산 HITL 이 열리면 "세션 범위" 오표시. `paused_reason==="budget"` 까지 보기 | PR #166 리뷰 NN2 | 낮음 · K-12 와 같은 급 |
 | W-8 | Runtimes 카드의 Hermes 브리프 설명이 **옛 계약**이다 — "브리프: 지시 파일(CLAUDE.md·AGENTS.md)". harness v0.8.6(스파이크 5, 우회 B)에서 미추적 `COLAB_BRIEF.md` + 턴 프롬프트 포인터로 바뀌었다. probe 가 광고하는 `brief_transport` 를 그대로 렌더하도록 | Director 실사용 2026-09-08 | 낮음 |
 | W-9 | `app/dev/*`(배지·컴포넌트 전시 페이지)가 **프로덕션 빌드에 포함**된다 — `/dev/badges`·`/dev/components` 가 빌드 출력에 있다. 배포 전 제외하거나 개발 전용 가드 | PR #188 리뷰 NN2 | 배포 전 |
+| W-10 | S7 우측 「세션 설정 → 컴퓨터」가 런타임 **id 앞 8자**(`21fccb22`)를 보인다 — 이름이어야 한다(§8.4 "컴퓨터"는 사람이 붙인 이름). `session.runtime_id` 로 `listRuntimes` 결과에서 이름을 찾고, 없으면(삭제됨) "연결 끊긴 컴퓨터" | 최종 실기 2026-09-13 | 낮음 · T-W6 |
 | W-3′ | mock previewTriggers가 `done/blocked` lane **재진입**을 `resolution 4 + lane_id + reentry:true`로 준다(`handlers.ts:571-573`). PRD lane 규칙·EVAL E2-04·05는 재진입을 **규칙 3**으로 두고 4는 "그 외 → 새 lane". §0-9(b) 부류 — mock 응답·p2-mock 기대값·재진입 테스트 함께 | PR #76 Lead 확인 | 다음 웹 작업 |
 | ~~W-5~~ | mock의 lane 해소 규칙(`handlers.ts` resolveLane류)을 지키는 것이 `web/e2e/p2-mock.sh`뿐이고 그 스모크는 CI 밖(mock 서버 필요)이다. `done` lane 있는 세션에서 preview → `resolution 3 · reentry true`를 vitest 1건으로 — W-2·W-3′ 부류가 다시 슬며시 바뀌어도 CI가 모른다 | PR #83 리뷰 NN1 | 다음 웹 작업 | **해결 — PR #130**
 | ~~W-6~~ | 인박스 항목이 purpose=budget HITL(task 범위, 세션은 active)에 `budgetOverride` 입력칸을 붙이지 않는다(`session_paused` 조건) → Director 가 웹에서 상향 금액을 정할 수 없음(E9-02·U7-1) | T-I3 실측 43_ | T-W4 | **해결 — PR #139**

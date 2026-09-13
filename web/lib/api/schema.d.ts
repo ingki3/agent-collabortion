@@ -1720,6 +1720,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workspaces/{workspaceId}/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 관측 대시보드 — PRD §11 성공 지표 10개(P5, G9)
+         * @description 권한: 워크스페이스 멤버.
+         *     PRD §11 표의 **열 순서 그대로** 10개를 돌려준다 — 대시보드(S14 「대시보드」 탭)는 이 배열을 표로 그리기만 한다(G9 조건 "§11 표를 그대로 읽을 수 있음"). 표본이 없으면 `value: null`, `n: 0` 이고 화면은 "아직 잴 수 없음"을 보인다 — 0 을 실측처럼 보이지 않는다.
+         *     **정의(서버가 세는 법)** — 지표마다 `note` 에 같은 문장을 싣는다:
+         *     1. `f1_minutes` — 사용자별 **첫 런타임이 온라인이 된 시각 → 그 사용자가 Director 인 첫 `completed` 세션의 `completed_at`**, 중앙값(분). n = 그런 사용자 수.
+         *     2. `auto_complete_rate` — `completed` 세션 중 수동 종료(`completeSession` 호출)가 아닌 비율.
+         *     3. `hitl_response_minutes` — `hitl_request` `answered_at - created_at` 중앙값(분), `auto_answered` 제외.
+         *     4. `delegation_autonomous_rate` — `delegated_from_task_id` 가 있는 task 중 HITL·`blocked` 없이 `completed` 된 비율.
+         *     5. `parallel_wallclock_reduction` — lane ≥ 2 인 완료 세션의 wall-clock(세션 시작→완료) 대비 그 세션 task `started_at→finished_at` 합의 단축 비율(1 - wall/sum). n = 세션 수.
+         *     6. `task_success_rate_by_runtime` — `runtime_kind` 별 `completed / (completed+failed)`; `breakdown[]` 에 종류별로.
+         *     7. `duplicate_after_resume_rate` — attempt ≥ 2 인 task 중 `posted_message_ids` 재게시가 관측된 비율(같은 attempt 가 같은 멱등키로 두 번 게시).
+         *     8. `resume_success_rate` — `resume_outcome` 이 있는 attempt 중 `resumed` 비율.
+         *     9. `blocked_response_minutes` — lane `blocked` 진입 → `blocked_message_id` 답글 시각 중앙값(분).
+         *     10. `weekly_active_sessions` — 최근 7일 안에 task 가 하나라도 돈 세션 수.
+         */
+        get: operations["getWorkspaceMetrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workspaces/{workspaceId}/stream": {
         parameters: {
             query?: never;
@@ -2503,6 +2537,44 @@ export interface components {
                 output_tokens?: number;
             };
             error?: string | null;
+        };
+        /** @description PRD §11 성공 지표 10개. `metrics` 는 §11 표의 열 순서다. */
+        MetricsReport: {
+            /** Format: uuid */
+            workspace_id: string;
+            /** @description 집계 창(ISO 8601 duration). */
+            window: string;
+            /** Format: date-time */
+            computed_at: string;
+            metrics: components["schemas"]["Metric"][];
+        };
+        Metric: {
+            /** @enum {string} */
+            key: "f1_minutes" | "auto_complete_rate" | "hitl_response_minutes" | "delegation_autonomous_rate" | "parallel_wallclock_reduction" | "task_success_rate_by_runtime" | "duplicate_after_resume_rate" | "resume_success_rate" | "blocked_response_minutes" | "weekly_active_sessions";
+            /** @description 화면에 그대로 보이는 지표 이름(§8.4 문구 규칙). */
+            label: string;
+            /** @description 표본이 없으면 null. `unit` 이 `ratio` 면 0~1. */
+            value: number | null;
+            /** @enum {string} */
+            unit: "minutes" | "ratio" | "count";
+            /** @description PRD §11 목표값(같은 단위). `task_success_rate_by_runtime` 은 종류별 목표가 `breakdown[].target` 에 있고 여기는 가장 낮은 값. */
+            target: number;
+            /**
+             * @description `lt` = 목표보다 작아야 통과(시간), `gt` = 커야 통과(비율·개수).
+             * @enum {string}
+             */
+            target_op: "lt" | "gt";
+            /** @description 표본 수. 0 이면 value 는 null. */
+            n: number;
+            /** @description 세는 법 한 문장(getWorkspaceMetrics description 의 정의). */
+            note: string;
+            /** @description `task_success_rate_by_runtime` 만. 런타임 종류별. */
+            breakdown?: {
+                kind: components["schemas"]["RuntimeKind"];
+                value: number | null;
+                target: number;
+                n: number;
+            }[];
         };
         SessionRef: {
             /** Format: uuid */
@@ -6442,6 +6514,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CostReport"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    getWorkspaceMetrics: {
+        parameters: {
+            query?: {
+                /** @description 집계 창(ISO 8601 duration). 기본 `P30D`. 10번(주간 활성)은 창과 무관하게 최근 7일. */
+                window?: string;
+            };
+            header?: never;
+            path: {
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 집계. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricsReport"];
                 };
             };
             403: components["responses"]["Forbidden"];

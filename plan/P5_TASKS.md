@@ -26,6 +26,16 @@ G8 은 신규 사용자가 문서 없이 F1 을 끝내는지 재는데, **지금
 - **T-S12 서버**: **관측 대시보드 지표 10개**(PRD §11: F1 시간 · 자동 완료 비율 · HITL 응답 시간 · 위임 자율 처리 비율 · 병렬 wall-clock 단축 · 런타임별 task 성공률 · 재개 후 중복률 · resume 성공률 · **`blocked` 응답 시간(< 5분)** · 주간 활성 세션) 집계 op + S4 온보딩이 요구하는 서버 쪽.
 - **백로그 흡수**: S-54(서버 이벤트 리터럴 순회 유닛) · S-39(heartbeat 에 ref, 계약 §4.2 변경은 ask) · D-20(`daemon.json` `repos` 등록 경로) · K-14(§4.1 `workdir.id` 로 데몬 index 제거 — 서버·데몬 동시).
 
+**P5a 착수(2026-09-13, Director "나머지는 다음 순서대로")** — 계약 먼저(Lead PR): daemon-protocol **v0.8 §4.5 테스트 채팅**(새 엔드포인트 없이 `task.kind: test_chat` · id = test_chat · attempt = 턴 · 토큰 없음 · gc 로 임시 디렉터리), harness v0.8.8 §2.1(토큰 없으면 colab 표면 전부 끔), openapi **`getWorkspaceMetrics`**(§11 지표 10개, 정의를 description 에 못박음). 그 위에 세 작업:
+
+| 작업 | 범위 | 병렬 |
+|---|---|---|
+| **T-S12 서버** | 테스트 채팅 4 op 실구현(createTestChat·getTestChat·postTestChatTurn·closeTestChat, 데몬 경로 §4.5 — claim 이 test_chat 턴을 번들로 · phase/events/heartbeat/finish 가 `task` 가 아니라 `test_chat` 로 라우팅 · SSE `test_chat.delta/turn` · gc/cancel 명령) + **`getWorkspaceMetrics`** 10개 집계 + S-54 · S-39(ask) | 1차 ‖ T-W6 |
+| **T-W6 웹** | **S14 설정 8탭**(PRD §7 기본값 + 「바꿨을 때의 영향」 한 줄 + **대시보드 탭** = `getWorkspaceMetrics` 표) · **S10 테스트 채팅**(목으로 먼저, 서버 op 모양은 openapi) · W-8 · W-7 · K-12 파생 · **W-10**(세션 설정의 컴퓨터 이름) | 1차 ‖ T-S12 |
+| **T-D12 데몬** | §4.5 데몬 쪽(토큰 없는 번들 → `COLAB_*`·mcpServers·래퍼 끔, `.colab/testchat/<id>` mkdir·gc rm·24h 방어, `finish.transport`) + D-20 + D-25 + K-14(서버와 같이 — ask) | 2차(T-S12 머지 뒤) |
+
+e2e 번호: **70_ = T-S12**(테스트 채팅 실서버·데몬 페이크), **71_ = T-D12**, **72_~ = T-I5**.
+
 ## 2-b. P5a-UI — 시인성 (Director 실사용 지적, 2026-09-08)
 
 근거와 결정은 `COMPONENTS.md` **§8**(v0.6). 시안은 디자인 캔버스 "Colab UI 개선 시안".

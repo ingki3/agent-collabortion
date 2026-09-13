@@ -321,3 +321,8 @@ func (unimplemented) CreateSession(w http.ResponseWriter, r *http.Request, works
 func (unimplemented) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.StreamEventsParams) {
 	notImplemented(w, r, "StreamEvents")
 }
+
+// GetWorkspaceMetrics — openapi 0.1.2(PR #198), T-S12 가 구현한다.
+func (unimplemented) GetWorkspaceMetrics(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.GetWorkspaceMetricsParams) {
+	notImplemented(w, r, "GetWorkspaceMetrics")
+}

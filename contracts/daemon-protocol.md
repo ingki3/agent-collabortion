@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.7.4 — §6 gc 거부 피드 문장을 사용자의 말로(S-67, T-S13). v0.7.3 — T-I4(G7 1판) 차단 결함 반영: §4.1 `workdir.path` 는 **절대 경로**(서버가 probe `workdir_root` 로 조립)이고 데몬 방어 규칙 명시(①), §6 workdir 보고의 `session_id`·`agent_id` 필수 규칙과 서버의 §4.4 `Finish.Workdir` 소비 의무 명시(②). v0.7.2 — §4.4 finish `workdir.git` 이름을 §6 과 통일(`commits_ahead`·`merged`)하고 `protocol.go` `Finish.Workdir` 추가; §4.3 `rebind_prepare` 다운로드 위치 + 프롬프트 자리표시자 `{{COLAB_REBIND_DIR}}`(T-D9 PR #156 계약 결함 1·2). v0.7.1 — §4.4 유효 예산 = min(task 상한(override 우선), 세션 잔여)(PR #121 리뷰 NN3, D-16). v0.7 — §4.3 `gc` 페이로드에 서버가 경로를 싣고(`workdirs:[{id,path}]`), §6 보고 행 `gc: {status: deleted|refused, reason}` 로 결과·거부를 알린다(T-D5 계약 질문, G5 S-29·D-4). v0.6 — `dispatched` 5분 타임아웃은 재큐잉이 아니라 종료다(§4.1). v0.5는 probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
+| 버전 | v0.8 — **§4.5 테스트 채팅**(FR-1.8.1, P5a): 세션 없는 1:1 대화를 **같은 claim·phase·events·heartbeat·finish 로** 돌린다 — `task.kind: "test_chat"`, `task.id` = test_chat id, `attempt` = 사용자 턴 번호, `task_token` 없음(= colab 표면 전부 끔). 종료는 `gc` 로 임시 디렉터리 삭제. `finish.transport` 추가. v0.7.4 — §6 gc 거부 피드 문장을 사용자의 말로(S-67, T-S13). v0.7.3 — T-I4(G7 1판) 차단 결함 반영: §4.1 `workdir.path` 는 **절대 경로**(서버가 probe `workdir_root` 로 조립)이고 데몬 방어 규칙 명시(①), §6 workdir 보고의 `session_id`·`agent_id` 필수 규칙과 서버의 §4.4 `Finish.Workdir` 소비 의무 명시(②). v0.7.2 — §4.4 finish `workdir.git` 이름을 §6 과 통일(`commits_ahead`·`merged`)하고 `protocol.go` `Finish.Workdir` 추가; §4.3 `rebind_prepare` 다운로드 위치 + 프롬프트 자리표시자 `{{COLAB_REBIND_DIR}}`(T-D9 PR #156 계약 결함 1·2). v0.7.1 — §4.4 유효 예산 = min(task 상한(override 우선), 세션 잔여)(PR #121 리뷰 NN3, D-16). v0.7 — §4.3 `gc` 페이로드에 서버가 경로를 싣고(`workdirs:[{id,path}]`), §6 보고 행 `gc: {status: deleted|refused, reason}` 로 결과·거부를 알린다(T-D5 계약 질문, G5 S-29·D-4). v0.6 — `dispatched` 5분 타임아웃은 재큐잉이 아니라 종료다(§4.1). v0.5는 probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
 | 소유 | S + D. 변경은 Director 승인 PR로만 |
 | 근거 | PRD §8.1(큐), FR-7.1(상태 머신·heartbeat), FR-9.1(고아·토큰 폐기), FR-9.2(오프라인 유예), FR-6.4(workdir·GC), `harness.md`(오류 분류·재개) |
 | 원칙 | **데몬은 stateless, 상태는 서버.** 데몬은 서버가 준 것만 실행하고 결과를 보고한다. 모든 시각 판정(만료·유예·`not_before`)은 서버 클럭(`contracts/clock`) |
@@ -171,6 +171,30 @@ POST /v1/daemon/tasks/{task_id}/attempts/{attempt}/finish
 
   따라서 `TaskBundle`에 대체 프로파일 목록은 두지 않는다.
 - `paused_budget`: 데몬이 `usage_update` 누적으로 **유효 예산**을 넘겨 취소 절차를 밟은 경우(FR-7.3). `failure_kind` 없음. **유효 예산(v0.7.1, D-16)** = `min(task 상한, 세션 잔여)` — task 상한은 `budget_override_usd` 가 있으면 그것(승인된 상향), 없으면 `budget_usd`(에이전트 `budget_per_task`); 세션 잔여는 `limits.budget_usd`(서버가 번들에 실은 세션 잔여 예산). 어느 쪽이 먼저 닿든 `paused_budget` 이고, 넘긴 쪽을 `detail` 에 적는다. 우선순위(override > limits > task) 방식은 세션 잔여를 넘길 수 있어 쓰지 않는다.
+
+### 4.5 테스트 채팅 (FR-1.8.1, v0.8)
+
+에이전트 편집 화면(S10)의 **세션 없는 1:1 시험 대화**다. 새 엔드포인트를 만들지 않고 §4.1~§4.4 를 그대로 탄다 — 데몬에게 테스트 채팅의 한 사용자 턴은 "토큰 없는 attempt" 하나다.
+
+**번들 차이** (그 외는 §4.1 TaskBundle 과 같다):
+
+| 필드 | 값 |
+|---|---|
+| `task.kind` | `"test_chat"` (없거나 `"task"` 면 보통 task). `contracts/protocol.go` `BundleTask.Kind` |
+| `task.id` · `task.attempt` | **`id` = `test_chat.id`**, **`attempt` = 사용자 턴 번호(1부터)**. 그래서 `(task_id, attempt, seq)` 멱등·`phase`·`events`·`heartbeat`·`finish` 의 URL 이 그대로 맞고, 턴마다 `resume` 을 이어 **한 런타임 세션으로 대화가 이어진다**(§4.4 `runtime_session_ref` 를 서버가 `test_chat.runtime_session_ref` 에 저장해 다음 턴 번들 `resume` 에 싣는다) |
+| `task.lane_id` · `session_id` · `trigger_message_id` | 빈 문자열. `task.test_chat_id` 에 같은 id 를 한 번 더 싣는다(로그·래퍼 경로용) |
+| `task_token` | **빈 문자열.** 데몬은 토큰이 없으면 `COLAB_*` 환경 변수를 넣지 않고, `mcpServers` 를 싣지 않고, hermes 래퍼 실행 파일(harness §10)도 만들지 않는다 — 에이전트는 메시지 게시·위임·HITL 을 **할 수 없고 순수 응답만** 한다(FR-1.8.1, E15-03). 브리프도 서버가 `[2]`(colab 명령) 없이 만든다 |
+| `workdir` | `{kind: "dir", path: "<workdir_root>/.colab/testchat/<test_chat_id>", reuse: true}` — 데몬이 첫 턴에 `mkdir -p`. 저장소 체크아웃·worktree·container 를 쓰지 않는다 |
+| `prompt` | 사용자 턴 본문 그대로(첫 턴은 서버가 "이것은 시험 대화다 — 플랫폼 명령은 쓸 수 없다" 한 줄을 앞에 붙인다). 세션 히스토리는 없다 — 이전 턴은 `resume` 으로 이어진다 |
+| `limits` | `{budget_usd: <agent.budget_per_task>, stall_seconds: 180}` |
+
+**보고**: 데몬은 §4.2 그대로 보낸다. 서버는 테스트 채팅에 활동 피드가 없으므로 `task_event` 를 **저장하지 않고** 다음만 소비한다 — `message.say`(턴 단위로 합친 것) → 그 턴의 `agent` 응답 본문(openapi `TestChatTurn`), `usage.report`·`finish.usage` → `test_chat.input_tokens/output_tokens/cost_usd`(추정 규칙은 세션과 같다; 워크스페이스 집계 `test_chat_usd`), heartbeat `preview.text` → SSE `test_chat.delta`. `finish` 가 오면 SSE `test_chat.turn`. `failed` 면 그 턴의 `error` 에 `failure_kind` 를 §8.4 문장으로 적는다(턴은 남고 채팅은 열려 있다).
+
+**`finish.transport` (v0.8)**: 실제로 쓴 경로 `"acp"|"cli"` — `Finish.Transport`. 모든 attempt 에 실어도 되지만 서버가 쓰는 곳은 테스트 채팅(`test_chat.transport`, 화면에 "실행 경로")뿐이다.
+
+**동시성·claim**: `test_chat.runtime_id` 는 생성 시 고정된다(비우면 그 `runtime_kind` 가 온라인인 런타임 중 하나를 서버가 고른다 — openapi createTestChat). 턴은 그 런타임의 `capacity` 한 슬롯을 세션 task 와 똑같이 쓴다(FR-6.3 데몬 상한). 같은 채팅의 이전 턴이 끝나기 전에는 다음 턴을 만들지 않는다(openapi `409`). `preparing` 5분·`running` 3분 규칙(§4.1·§4.2)도 같되, **재큐잉하지 않는다** — 그 턴을 `error` 로 닫는다(시험 대화에 재시도는 잡음이다).
+
+**닫기·취소**: `closeTestChat` 은 진행 중 턴이 있으면 `cancel {task_id: <test_chat_id>, attempt, reason: "director"}` 를 싣고, 언제나 `gc {test_chat_id, workdirs: [{id: <test_chat_id>, path}]}` 를 싣는다(`session_id` 없음). 데몬은 그 경로가 `<workdir_root>/.colab/testchat/` 아래일 때만 `rm -rf` 하고 §6 보고 행 `{id: <test_chat_id>, kind: "dir", path, test_chat_id, bytes: 0, gc: {status: "deleted"}}` 로 알린다 — `session_id` 는 비운다(§6 의 필수 규칙은 세션 workdir 행에만 해당). 서버는 `test_chat_id` 가 있는 행을 `workdir` 테이블에 넣지 않고 명령 소비에만 쓴다. 방어: 데몬은 시작 시 `.colab/testchat/` 아래 **24h 넘은** 디렉터리를 지운다(서버가 죽어 gc 가 못 온 경우).
 
 ## 5. 토큰 폐기와 고아 (FR-9.1)
 
