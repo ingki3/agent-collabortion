@@ -42,3 +42,5 @@ e2e/p3/out-real/
 e2e/p4/out/
 # P5 E2E 산출물(70_ 의 claim 응답·데몬 토큰·쿠키)
 e2e/p5/out/
+# T-I5 실기(RUNTIME=real) 산출물 — 진짜 토큰·쿠키
+e2e/p5/out-real/

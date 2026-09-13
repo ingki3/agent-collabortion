@@ -105,13 +105,15 @@ create_agent_fake() {
   fi
 }
 # daemon_run_p5 CONFIG LOG → pid. RUNTIME=fake 면 PATH 앞에 FAKEBIN, HOME 은 FAKEHOME.
+# DAEMON_BIN 으로 다른 데몬 바이너리(예: #204 이전 아카이브 빌드)를 돌릴 수 있다 — S-66 전후 대조.
 daemon_run_p5() {
   local cwd="$P5_TMP_ROOT/daemon-cwd"; mkdir -p "$cwd"
+  local DAEMON="${DAEMON_BIN:-$BIN/daemon}"
   if [ "$RUNTIME" = fake ]; then
     [ -n "${FAKEBIN:-}" ] || fake_runtime_setup
-    ( cd "$cwd" && export PATH="$FAKEBIN:$BIN:$(stable_path)" HOME="$FAKEHOME" COLAB_DAEMON_CONFIG="$1"; setsid_run "$2" "$BIN/daemon" run )
+    ( cd "$cwd" && export PATH="$FAKEBIN:$BIN:$(stable_path)" HOME="$FAKEHOME" COLAB_DAEMON_CONFIG="$1"; setsid_run "$2" "$DAEMON" run )
   else
-    ( cd "$cwd" && export PATH="$BIN:$(stable_path)" COLAB_DAEMON_CONFIG="$1"; setsid_run "$2" "$BIN/daemon" run )
+    ( cd "$cwd" && export PATH="$BIN:$(stable_path)" COLAB_DAEMON_CONFIG="$1"; setsid_run "$2" "$DAEMON" run )
   fi
 }
 # daemon_pair_p5 CODE CONFIG WORKROOT CAPACITY [REPO...] — 페어링(HOME·PATH 는 daemon_run_p5 와 같게)
