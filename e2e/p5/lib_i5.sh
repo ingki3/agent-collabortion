@@ -155,3 +155,22 @@ if [ "$RUNTIME" = fake ]; then T_TURN="${T_TURN:-240}"; else T_TURN="${T_TURN:-9
 # 시나리오 A·C·D 의 지시문 — 페이크는 읽지 않지만(대본이 답한다) 실기 모드에서는 이것이 모델의 지시다.
 # 저장소 밖의 무해한 주제(X-2) + §0-16 기본 문구.
 P5_RULES="$P4_RULES"
+
+# ── 시나리오 D (프로파일 2개, 프로파일별 env) ──────────────────────────────
+# create_agent_2profiles_env WS NAME ROLE INS  K1 M1 ENV1_JSON  K2 M2 ENV2_JSON → agent id
+# p2 의 create_agent_2profiles 와 같되 프로파일마다 env 가 다르다 — 페이크는 프로파일 env 로 대본을 받으므로
+# "primary 는 실패하는 대본, spare 는 일하는 대본" 이 여기서 갈린다. 폴백 연결은 link_fallback(S-24 우회).
+create_agent_2profiles_env() {
+  local ws="$1" n="$2" r="$3" ins="$4" k1="$5" m1="$6" e1="$7" k2="$8" m2="$9" e2="${10}"
+  api_ok POST "/workspaces/$ws/agents" "$(jq -nc --arg n "$n" --arg r "$r" --arg i "$ins" \
+      --arg k1 "$k1" --arg m1 "$m1" --argjson e1 "$e1" --arg k2 "$k2" --arg m2 "$m2" --argjson e2 "$e2" \
+    '{name:$n,role:$r,role_description:($r+" 역할"),instructions:$i,
+      profiles:[{name:"primary",runtime_kind:$k1,model:$m1,is_default:true,env:$e1},
+                {name:"spare",  runtime_kind:$k2,model:$m2,is_default:false,env:$e2}]}')" | jq -r .id
+}
+# fake_env_error ROLE KIND MESSAGE → 매 턴 JSON-RPC -32603 오류로 답하는 대본의 프로파일 env (재시도 가능한 실패 = other)
+fake_env_error() {
+  local role="$1" kind="$2" msg="$3"
+  local extra; extra="$(jq -nc --arg m "$msg" '{turns:[{error:{code:-32603,message:$m}}]}')"
+  fake_env "$role" "$kind" "$extra"
+}

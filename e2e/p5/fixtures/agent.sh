@@ -18,6 +18,8 @@ TRACE="${FAKE_OUT:-.}/agent-trace.tsv"
 log()  { printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%H:%M:%S)" "$ROLE" "${COLAB_TASK_ID:-}" "${COLAB_TASK_ATTEMPT:-}" "$*" >> "$TRACE"; }
 has()  { printf '%s' "$TRIG" | grep -qF -- "$1"; }
 phas() { printf '%s' "$P" | grep -qF -- "$1"; }
+# 세션 시작 트리거(첫 턴). 서버 문장은 §8.4 로 바뀌었다(S-67) — 옛 영어 문장도 받아 둔다.
+is_start() { has "세션을 시작했습니다" || has "Session started"; }
 post() { # post BODY [MENTION]
   local out; out="$(colab message post --body "$1" ${2:+--mention "$2"} 2>&1)"; log "post → $(printf '%s' "$out" | tr -d '\n' | cut -c1-160)"; }
 done_() { colab status set done >/dev/null 2>&1; log "status done"; }
@@ -41,12 +43,14 @@ Lead)
     post "종합: 1) 시장 규모 — 완만한 성장 2) 경쟁 — 주요 5종 3) 채널 — 온라인 중심."
     out="$(colab lane delegate --agent Writer --brief "위 종합을 바탕으로 보고서 초안을 파일로 쓰고 artifact 로 제출하라" 2>&1)"
     log "delegate(Writer) → $(printf '%s' "$out" | tr -d '\n' | cut -c1-120)"
-  else
+  elif is_start; then
     for t in "시장 규모와 성장률" "경쟁 제품 다섯 가지" "가격대와 구매 채널"; do
       out="$(colab lane delegate --agent Researcher --brief "가상의 스마트 물병 제품 X 의 $t 를 조사해 요약하라" 2>&1)"
       log "delegate($t) → $(printf '%s' "$out" | tr -d '\n' | cut -c1-120)"
     done
     post "계획: 세 항목을 Researcher 에게 병렬로 위임했습니다."
+  else
+    post "확인했습니다."
   fi
   done_ ;;
 Researcher)
@@ -75,15 +79,15 @@ PM)
   if has "위임한 작업이 모두 끝났습니다"; then
     fe="$(colab session messages --limit 50 2>/dev/null | jq -r '.items[]?.content // empty' | grep -o 'FRONTEND-DIFF [0-9a-f-]*' | tail -1 | awk '{print $2}')"
     post "리뷰 부탁합니다. FRONTEND-DIFF ${fe:-?}" QA
-  elif [ "$AUTHOR" = QA ]; then
-    post "확인했습니다."
-  else
+  elif is_start; then
     printf '# SPEC\n급수 시간 계산과 패널 표시를 각각 구현한다.\n' > SPEC.md
     for pair in "Backend:src/pump.py 의 water_seconds 를 구현하라" "Frontend:src/ui.py 의 render 를 고쳐라"; do
       out="$(colab lane delegate --agent "${pair%%:*}" --brief "${pair#*:}" 2>&1)"
       log "delegate(${pair%%:*}) → $(printf '%s' "$out" | tr -d '\n' | cut -c1-120)"
     done
     post "스펙을 썼고 Backend·Frontend 에 위임했습니다."
+  else
+    post "확인했습니다."
   fi
   done_ ;;
 Backend)
@@ -127,7 +131,7 @@ QA)
 # 파일 하나 + `PART-N done` 게시 + 잠깐 쉼. 그 사이에 Director 의 개입이 들어온다.
 # 후속 턴(메시지·재지시)은 단계 1 에서만 답하고 나머지 단계는 아무것도 하지 않는다.
 Rsearch*)
-  if has "Session started"; then
+  if is_start; then
     case "$ARG" in
       [1-5]) printf '# note %s\n' "$ARG" > "note-0$ARG.md"; post "PART-$ARG done"; sleep "${FAKE_STEP_SLEEP:-6}" ;;
       fin)   post "ALL-DONE"; done_ ;;
