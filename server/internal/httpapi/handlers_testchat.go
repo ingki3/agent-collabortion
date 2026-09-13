@@ -61,7 +61,7 @@ func (s *Server) testChatAccess(r *http.Request, id uuid.UUID) (*testchat.Row, *
 	}
 	tc, err := testchat.Get(r.Context(), s.DB, id)
 	if errors.Is(err, testchat.ErrNotFound) {
-		return nil, apperr.NotFound("test_chat")
+		return nil, testChatNotFound()
 	}
 	if err != nil {
 		return nil, apperr.As(err)
@@ -73,7 +73,7 @@ func (s *Server) testChatAccess(r *http.Request, id uuid.UUID) (*testchat.Row, *
 		if m, err := s.Auth.Member(r.Context(), tc.WorkspaceID, u.Id); err == nil && m != nil {
 			return nil, apperr.Forbidden("not_chat_owner", "이 시험 대화를 연 사람만 볼 수 있습니다")
 		}
-		return nil, apperr.NotFound("test_chat")
+		return nil, testChatNotFound()
 	}
 	return tc, nil
 }
@@ -134,6 +134,16 @@ func (s *Server) CloseTestChat(w http.ResponseWriter, r *http.Request, testChatI
 		return
 	}
 	writeJSON(w, http.StatusOK, testChatAPI(out))
+}
+
+// testChatNotFound is the 404 for a chat the caller may not see. It is
+// composed here rather than through apperr.NotFound("test_chat") because
+// apperr.NotFoundNouns is mirrored item for item by
+// web/lib/mock/server-wording.test.ts (b), and T-S12 may not touch web/ —
+// adding the noun there turned the web CI job red on this PR. When the web
+// mirror gains `test_chat: 시험 대화`, move this back into the table.
+func testChatNotFound() *Problem {
+	return apperr.New(http.StatusNotFound, "not_found", "시험 대화를 찾을 수 없습니다")
 }
 
 func optionalUUID(n nullable.Nullable[openapi_types.UUID]) *uuid.UUID {
