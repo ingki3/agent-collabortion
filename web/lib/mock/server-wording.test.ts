@@ -17,7 +17,7 @@
  *       target_op·label·note — Go 소스를 파싱해 비교). S14 「대시보드」가 그대로 보이는 문장이라 서버가 정한다(T-W11).
  *   (g) T-S12(#200) 가 만든 op — 시험 대화·지표·보안 탭 403 — 의 문장은 `MOCK_ONLY` 에 남아 있지 않고 `SERVER` 에서 온다.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { josa, METRIC_DEFS, MOCK_ONLY, NOT_FOUND_NOUN, notFound, SERVER, STATUS_LABEL, TITLE, fmt, W } from "./wording";
@@ -189,9 +189,11 @@ describe("(g) T-S12 #200 이 만든 op 의 문장은 MOCK_ONLY 가 아니라 SER
   it("MOCK_ONLY 에는 서버가 아직 안 만든 멤버·알림 op 의 문장만 남았다", () => {
     expect(Object.keys(MOCK_ONLY).sort()).toEqual(["last_owner", "member_is_director", "owner_demote_owner_only", "role_enum", "subscription_enum"]);
     // 그 op 들은 실제로 아직 unimplemented.go 에 있다 — 서버가 만들면 이 단언이 빨개지고, 그때 SERVER 로 옮긴다.
-    const un = goSource("internal/httpapi/unimplemented.go");
-    for (const op of ["UpdateMemberRole", "RemoveMember", "GetNotificationSettings", "UpdateNotificationSettings"]) expect(un).toContain(`func (unimplemented) ${op}(`);
-    for (const op of ["CreateTestChat", "PostTestChatTurn", "CloseTestChat", "GetTestChat", "GetWorkspaceMetrics"]) expect(un).not.toContain(`func (unimplemented) ${op}(`);
+    // unimplemented.go 는 이미 구현된 op 의 스텁(Login 등)도 품고 있어 "스텁이 있다 = 미구현" 이 아니다.
+    // 미구현의 근거는 **Server 메서드의 부재**다 — httpapi/*.go 어디에도 `func (s *Server) <Op>(` 가 없을 때.
+    const serverImpl = readdirSync(join(SERVER_ROOT, "internal/httpapi")).filter((f) => f.endsWith(".go") && !f.endsWith("_test.go") && f !== "unimplemented.go").map((f) => goSource(`internal/httpapi/${f}`)).join("\n");
+    for (const op of ["UpdateMemberRole", "RemoveMember", "GetNotificationSettings", "UpdateNotificationSettings"]) expect(serverImpl).not.toContain(`func (s *Server) ${op}(`);
+    for (const op of ["CreateTestChat", "PostTestChatTurn", "CloseTestChat", "GetTestChat", "GetWorkspaceMetrics"]) expect(serverImpl).toContain(`func (s *Server) ${op}(`);
   });
   it("시험 대화 — 409·410·403·404·422 의 code 와 문장이 서버와 같다", () => {
     expect(HANDLERS).toContain('new Problem(409, "turn_in_progress", W.test_chat_turn_in_progress)');
