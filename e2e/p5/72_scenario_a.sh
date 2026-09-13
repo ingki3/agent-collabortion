@@ -20,8 +20,11 @@ trap cleanup EXIT
 
 # 실기 지시문(페이크는 fixtures/agent.sh 가 같은 규칙을 셸로 한다)
 source "$E2E_ROOT/e2e/p2/fixtures/scenario_a_agents.sh"
+# WRITER_CHARS: 실기 Writer 의 집필 길이(S-66 자극). 3000자 ≈ 5 KB · 35s(haiku 실측). #204 이전 데몬의 stall 은
+# "tool 입력 생성 3분 무음" 이라 ≈ 30 KB 부터 난다 — 전후 대조의 "재현" 판은 15000 이상으로 돌린다.
+WRITER_CHARS="${WRITER_CHARS:-3000}"
 WRITER_INS_P5="$WRITER_INS
-Before writing the draft, ask ONE question with colab_hitl_ask: question \"타깃 독자가 투자자인지 내부 경영진인지 정해 주세요\", default \"투자자\", choices \"투자자,경영진\". Then END YOUR TURN without writing anything. When you are resumed with the answer, write the draft (at least 3000 characters) and submit it. $P5_RULES"
+Before writing the draft, ask ONE question with colab_hitl_ask: question \"타깃 독자가 투자자인지 내부 경영진인지 정해 주세요\", default \"투자자\", choices \"투자자,경영진\". Then END YOUR TURN without writing anything. When you are resumed with the answer, write the draft as ONE file with a single Write call — at least $WRITER_CHARS Korean characters, no placeholders, no shortcuts — and submit it. $P5_RULES"
 
 step "0. claim 탭 (서버→데몬 TaskBundle 기록) · 페이크 런타임"
 rm -f "$TAP" "$OUT/tap-72-access.tsv"; : > "$TAP"; : > "$DLOG"
