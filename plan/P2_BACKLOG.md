@@ -61,7 +61,7 @@
 | W-8 | Runtimes 카드의 Hermes 브리프 설명이 **옛 계약**이다 — "브리프: 지시 파일(CLAUDE.md·AGENTS.md)". harness v0.8.6(스파이크 5, 우회 B)에서 미추적 `COLAB_BRIEF.md` + 턴 프롬프트 포인터로 바뀌었다. probe 가 광고하는 `brief_transport` 를 그대로 렌더하도록 | Director 실사용 2026-09-08 | 낮음 |
 | W-9 | `app/dev/*`(배지·컴포넌트 전시 페이지)가 **프로덕션 빌드에 포함**된다 — `/dev/badges`·`/dev/components` 가 빌드 출력에 있다. 배포 전 제외하거나 개발 전용 가드 | PR #188 리뷰 NN2 | 배포 전 |
 | W-10 | S7 우측 「세션 설정 → 컴퓨터」가 런타임 **id 앞 8자**(`21fccb22`)를 보인다 — 이름이어야 한다(§8.4 "컴퓨터"는 사람이 붙인 이름). `session.runtime_id` 로 `listRuntimes` 결과에서 이름을 찾고, 없으면(삭제됨) "연결 끊긴 컴퓨터" | 최종 실기 2026-09-13 | 낮음 · T-W6 |
-| W-11 | PR #199 리뷰 NN1·NN2·NN5 — `VERDICT_LABEL.unknown` 이 자물쇠에 안 걸림(`"미측정"` 으로 바꿔도 초록) · `visibleStrings()` 루프가 치환한 `body` 의 줄이 아니라 **원본 `line`** 을 다시 읽어 `${…}` 안 문구 복원이 실제로는 안 됨(PR #188 NN1 수정이 무효) · `transportLabel` "첫 답이 오면 표시" 미못박음. 한 줄씩. + **NN3**: `MOCK_ONLY.masking_owner_only` 분기·주석은 S-70 수정 뒤 되돌리고 `MOCK_ONLY` 표를 T-S12 서버 문장으로 옮겨 SERVER 대조에 넣기 | PR #199 리뷰 | 낮음 · T-S12 뒤 목 동기화 라운드 |
+| W-11 | PR #199 리뷰 NN1·NN2·NN5 — `VERDICT_LABEL.unknown` 이 자물쇠에 안 걸림(`"미측정"` 으로 바꿔도 초록) · `visibleStrings()` 루프가 치환한 `body` 의 줄이 아니라 **원본 `line`** 을 다시 읽어 `${…}` 안 문구 복원이 실제로는 안 됨(PR #188 NN1 수정이 무효) · `transportLabel` "첫 답이 오면 표시" 미못박음. 한 줄씩. + **NN3**: `MOCK_ONLY.masking_owner_only` 분기·주석은 S-70 수정 뒤 되돌리고 `MOCK_ONLY` 표를 T-S12 서버 문장으로 옮겨 SERVER 대조에 넣기 | PR #199 리뷰 | 낮음 · T-S12 뒤 목 동기화 라운드 | **해결 PR #207**(+ Lead #208) |
 | W-3′ | mock previewTriggers가 `done/blocked` lane **재진입**을 `resolution 4 + lane_id + reentry:true`로 준다(`handlers.ts:571-573`). PRD lane 규칙·EVAL E2-04·05는 재진입을 **규칙 3**으로 두고 4는 "그 외 → 새 lane". §0-9(b) 부류 — mock 응답·p2-mock 기대값·재진입 테스트 함께 | PR #76 Lead 확인 | 다음 웹 작업 |
 | ~~W-5~~ | mock의 lane 해소 규칙(`handlers.ts` resolveLane류)을 지키는 것이 `web/e2e/p2-mock.sh`뿐이고 그 스모크는 CI 밖(mock 서버 필요)이다. `done` lane 있는 세션에서 preview → `resolution 3 · reentry true`를 vitest 1건으로 — W-2·W-3′ 부류가 다시 슬며시 바뀌어도 CI가 모른다 | PR #83 리뷰 NN1 | 다음 웹 작업 | **해결 — PR #130**
 | ~~W-6~~ | 인박스 항목이 purpose=budget HITL(task 범위, 세션은 active)에 `budgetOverride` 입력칸을 붙이지 않는다(`session_paused` 조건) → Director 가 웹에서 상향 금액을 정할 수 없음(E9-02·U7-1) | T-I3 실측 43_ | T-W4 | **해결 — PR #139**
@@ -135,8 +135,11 @@
 | S-68 | `deleteWorkdir` 409 `workdir_dirty` 의 `Problem.detail` 이 계약(openapi #155 "gc_blocked_reason 과 같은 값")과 다르게 **문장**(`GCReasonText`)이다 — 목·골든·p4-mock 은 키를 기대하고 웹 S13 은 그 키로 사유를 분기한다. 서버가 키를 돌려주고 문장은 별도 칸(예: `title`)으로 | T-W10 PR #196 보고 | 중 |
 | S-69 | `GetWorkspaceSettings` 가 admin 을 요구한다 — openapi 는 "권한: 워크스페이스 멤버"(읽기), 갱신만 owner/admin. 멤버가 설정 탭을 열면 403 | T-W6 PR #199 보고 | **해결 PR #200** |
 | S-70 | `UpdateWorkspaceSettings` 가 `task_event_masking` 의 owner 전용(openapi "보안 탭 — owner만 변경")을 강제하지 않는다 — admin 이 바꿀 수 있다 | T-W6 PR #199 보고 | **해결 PR #200** |
-| S-71 | PR #200 리뷰 NN1~NN3 — `testchat.bundleResume` 의 runtime_kind 교차 가드(E8-08)에 테스트 없음(`if false` 로 바꿔도 초록) · `duplicate_after_resume_rate` 가 멱등키가 아니라 `message.content` 로 세어 위양성(같은 말 두 번) 가능 → `note` 에 "같은 내용으로 관측" 명시 또는 `source_task_id+seq` 근거로 좁히기 · `internal/testchat` 유닛 0개 | PR #200 리뷰 | 낮음 · 서버 소규모 라운드 |
+| S-71 | PR #200 리뷰 NN1~NN3 — `testchat.bundleResume` 의 runtime_kind 교차 가드(E8-08)에 테스트 없음(`if false` 로 바꿔도 초록) · `duplicate_after_resume_rate` 가 멱등키가 아니라 `message.content` 로 세어 위양성(같은 말 두 번) 가능 → `note` 에 "같은 내용으로 관측" 명시 또는 `source_task_id+seq` 근거로 좁히기 · `internal/testchat` 유닛 0개 | PR #200 리뷰 | 낮음 · 서버 소규모 라운드 | **해결 PR #209**(NN1 유닛·NN2 note 명시·NN3 유닛 5) — source_task_id+seq 근거는 스키마 후속 |
 | K-15 | 시험 대화 턴이 `runtime_policy.max_concurrent_tasks` 를 세션 task 와 **함께** 센다(계약 §4.5 "똑같이 한 슬롯") — 시험 대화가 켜져 있으면 세션 동시 실행 상한이 실질적으로 줄어든다. 의도된 설계, Director 가 체감하면 재검토 | PR #200 리뷰 NN5 | 알고 있기 |
+| S-72 | 웹 S14 설정이 부르는 4 op(updateMemberRole·removeMember·get/updateNotificationSettings)이 서버 501 — 실서버 멤버·알림 탭이 "아직 지원하지 않는 기능입니다" | T-W11 PR #207 보고 | **해결 PR #209** |
+| S-73 | `changeDirector` 가 activity_log INSERT 의 없는 열(actor_user_id·target_type·target_id) 때문에 **매번 500** — removeMember 409 가 시키는 "Director 먼저 교체" 길이 막혀 있었다. 어떤 테스트도 못 잡은 이유: changeDirector 왕복 테스트가 없었다 | T-S14 PR #209 발견 | **해결 PR #209**(열 이름) · 왕복 테스트 있음 |
+| S-75 | PR #209 리뷰 NN1·NN2·NN3·NN5 — openapi updateMemberRole 문언을 "owner 역할을 주거나 거두는 것은 owner 만"으로 넓히기(코드가 더 엄격, 계약 PR) · owner 동시 강등 경합 테스트 없음(FOR UPDATE 는 있음) · `member.notification_settings`(0002) 죽은 열 삭제 마이그레이션 · 자기 자신 강등 허용(화면은 T-W12) | PR #209 리뷰 | 낮음 |
 
 ## C (CLI)
 
