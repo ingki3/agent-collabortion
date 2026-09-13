@@ -141,7 +141,7 @@ func TestP5InstallScriptCarriesThisServersOrigin(t *testing.T) {
 // not write outside the user's own tree, and must say something a human can act
 // on when the toolchain it needs is missing.
 func TestP5InstallScriptStaysInTheUsersOwnDirectories(t *testing.T) {
-	script := install.Script("http://colab.test")
+	script := install.Script("http://colab.test", "", "")
 
 	for _, want := range []string{
 		"$HOME/.colab",       // 사용자 영역
@@ -188,3 +188,66 @@ func TestP5InstallScriptStaysInTheUsersOwnDirectories(t *testing.T) {
 // the binary being there and answering `--version` afterwards, which is exactly
 // what the contract's acceptance test (`colab_cli.present == true` on the first
 // probe) reads.
+
+// ---------------------------------------------------------------------------
+// S-64 / S-65 — the script installs THIS server's commit, refuses old Go,
+// and is never cached
+// ---------------------------------------------------------------------------
+
+// TestP5InstallScriptPinsTheServersOwnRef is S-64: `/install.sh` used to clone
+// `main` whatever the server ran, so five participants installing during one
+// G8 session would each get a different tree and none of them the server's.
+// The ref the server was built from (buildinfo.Ref, `-ldflags -X`) is the
+// script's default COLAB_INSTALL_REF.
+func TestP5InstallScriptPinsTheServersOwnRef(t *testing.T) {
+	pool := testdb.New(t)
+	s := NewServer(Deps{DB: pool, Clock: clock.NewFake(t0), ServerURL: "http://colab.test",
+		InstallRef: "0123456789abcdef0123456789abcdef01234567", InstallGoMin: "1.25.0"})
+	ts := httptest.NewServer(s.Handler())
+	t.Cleanup(ts.Close)
+	api := &client{t: t, srv: ts}
+
+	st, body, hdr := getRaw(t, api, install.Path)
+	if st != http.StatusOK {
+		t.Fatalf("GET %s = %d", install.Path, st)
+	}
+	if !strings.Contains(body, `REPO_REF="${COLAB_INSTALL_REF:-0123456789abcdef0123456789abcdef01234567}"`) {
+		t.Errorf("the script does not pin COLAB_INSTALL_REF to the server's build ref:\n%s", grepLine(body, "REPO_REF="))
+	}
+	if !strings.Contains(body, `GO_MIN="1.25.0"`) {
+		t.Errorf("the script does not carry the Go minimum (S-65): %s", grepLine(body, "GO_MIN="))
+	}
+	if strings.Contains(body, "@@") {
+		t.Error("unsubstituted placeholder in the served script")
+	}
+	// S-65: a cached copy is yesterday's ref.
+	if cc := hdr.Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", cc)
+	}
+
+	// A server that does not know its ref says so instead of pretending: the
+	// default stays empty and the script's own message names the fallback.
+	// (Rendered directly — NewServer would fill an empty ref from buildinfo,
+	// which depends on how this test binary was built.)
+	body2 := install.Script("http://colab.test", "", "1.25.0")
+	if !strings.Contains(body2, `REPO_REF="${COLAB_INSTALL_REF:-}"`) {
+		t.Errorf("an unknown ref must leave the default empty: %s", grepLine(body2, "REPO_REF="))
+	}
+	if !strings.Contains(body2, "기본 브랜치") {
+		t.Error("the script's fallback message must name what it falls back to")
+	}
+	// A ref with shell metacharacters never reaches the script (it is written
+	// into `sh` for every person who runs it).
+	if got := install.Script("http://colab.test", `v1"; rm -rf ~; "`, ""); !strings.Contains(got, `REPO_REF="${COLAB_INSTALL_REF:-}"`) {
+		t.Errorf("an unsafe ref was written into the script: %s", grepLine(got, "REPO_REF="))
+	}
+}
+
+func grepLine(body, needle string) string {
+	for _, l := range strings.Split(body, "\n") {
+		if strings.Contains(l, needle) {
+			return l
+		}
+	}
+	return "<no line contains " + needle + ">"
+}

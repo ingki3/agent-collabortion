@@ -11,13 +11,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
+	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
 )
 
 // ParseTree reads session.completion_condition. The stored shape allows nested
@@ -330,8 +330,8 @@ func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID
 	if err != nil {
 		return fmt.Errorf("sessions: gc workdirs: %w", err)
 	}
-	ids := []string{}
-	targets := []contracts.GCWorkdir{}
+	var ids []uuid.UUID
+	var paths []string
 	for rows.Next() {
 		var id uuid.UUID
 		var path string
@@ -339,8 +339,8 @@ func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID
 			rows.Close()
 			return err
 		}
-		ids = append(ids, id.String())
-		targets = append(targets, contracts.GCWorkdir{ID: id.String(), Path: path})
+		ids = append(ids, id)
+		paths = append(paths, path)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -353,14 +353,22 @@ func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID
 	// never held a uuid→path map, so a command with ids alone falls back to
 	// "every lane workdir of the session" — which is not what the retention
 	// rules decided. `workdir_ids` stays for a daemon still on v0.6.
+	// workdirs.BuildGCCommand is the one builder (S-65): a relative stored
+	// path never reaches the daemon, from any of the three gc paths.
 	//
 	// The rows stay `active` until the daemon's §6 report says `gc: deleted`
 	// (workdirs.ApplyGCReports): the server asked, it did not observe.
 	// Claiming the deletion here would make S13 show an empty machine that is
 	// still full.
-	return tokens.QueueCommand(ctx, tx, *runtimeID, contracts.Command{
-		Type: contracts.CmdGC, SessionID: sessionID.String(), WorkdirIDs: ids, Workdirs: targets,
-	})
+	cmd, skipped := workdirs.BuildGCCommand(sessionID, ids, paths)
+	if len(skipped) > 0 {
+		slog.Warn("sessions: gc skipped workdirs with a relative path (S-65) — not sent to the daemon",
+			"session", sessionID, "workdirs", skipped)
+	}
+	if len(cmd.Workdirs) == 0 {
+		return nil
+	}
+	return tokens.QueueCommand(ctx, tx, *runtimeID, cmd)
 }
 
 // publishDecision sends `decision.created` for a row just inserted. FR-4.2's

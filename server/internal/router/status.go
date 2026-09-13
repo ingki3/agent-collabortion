@@ -127,7 +127,7 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 			if err != nil {
 				return nil, err
 			}
-			if err := s.wake(ctx, tx, sessionID, wsID, *plan.DelegatorAgentID, qid,
+			if err := s.wake(ctx, tx, sessionID, wsID, director, agentID, *plan.DelegatorAgentID, qid,
 				wakeOnBlocked(qid, note, childName, agentID), now); err != nil {
 				return nil, err
 			}
@@ -186,7 +186,7 @@ func (s *Service) afterLaneDone(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 		// means QA never learns Frontend produced a new diff (리뷰#04-5).
 		// A lane that is not a delegation has nobody waiting for a bundle
 		// either, so it takes the same path.
-		if err := s.notifyReentry(ctx, tx, sessionID, wsID, triggerMsg, director, now); err != nil {
+		if err := s.notifyReentry(ctx, tx, sessionID, wsID, agentID, triggerMsg, director, now); err != nil {
 			return err
 		}
 	}
@@ -196,13 +196,18 @@ func (s *Service) afterLaneDone(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 	// Both notices can land on the same delegator. That is not two turns:
 	// wake() coalesces onto the lane's queued task (FR-3.4), so the delegator
 	// wakes once with both messages.
-	return s.maybeFireJoin(ctx, tx, sessionID, wsID, *delegTask, now)
+	return s.maybeFireJoin(ctx, tx, sessionID, wsID, director, agentID, *delegTask, now)
 }
 
 // maybeFireJoin fires the join exactly once per group. `blocked` children count
 // as ended (FR-6.2.1) — treating them as in progress would let one question
 // hold every sibling's result hostage.
-func (s *Service) maybeFireJoin(ctx context.Context, tx pgx.Tx, sessionID, wsID, delegTask uuid.UUID, now time.Time) error {
+//
+// `from` is the child whose end completed the group: the join notice is an
+// agent→agent hop from that child to the delegator (S-76), and the pair it
+// forms with the delegation that created the child is what
+// max_pair_roundtrips counts.
+func (s *Service) maybeFireJoin(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID, from, delegTask uuid.UUID, now time.Time) error {
 	var delegAgent uuid.UUID
 	var fired *time.Time
 	if err := tx.QueryRow(ctx, `SELECT agent_id, join_fired_at FROM task WHERE id = $1 FOR UPDATE`, delegTask).
@@ -265,12 +270,12 @@ func (s *Service) maybeFireJoin(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 	if err != nil {
 		return err
 	}
-	return s.wake(ctx, tx, sessionID, wsID, delegAgent, msgID, "", now)
+	return s.wake(ctx, tx, sessionID, wsID, director, from, delegAgent, msgID, "", now)
 }
 
 // notifyReentry tells whoever caused the work that it is finished. A human
 // author gets an inbox item; an agent author gets a task.
-func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, triggerMsg *uuid.UUID, director *uuid.UUID, now time.Time) error {
+func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID, from uuid.UUID, triggerMsg *uuid.UUID, director *uuid.UUID, now time.Time) error {
 	if triggerMsg == nil {
 		return nil
 	}
@@ -285,7 +290,7 @@ func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID 
 	}
 	switch {
 	case authorType == "agent" && authorID != nil:
-		return s.wake(ctx, tx, sessionID, wsID, *authorID, *triggerMsg, "요청하신 작업이 끝났습니다.", now)
+		return s.wake(ctx, tx, sessionID, wsID, director, from, *authorID, *triggerMsg, "요청하신 작업이 끝났습니다.", now)
 	case authorType == "user" && authorID != nil:
 		return insertInbox(ctx, tx, wsID, *authorID, inbox.TypeMention, inbox.Severity(inbox.TypeMention), sessionID, *triggerMsg, now)
 	case director != nil:
@@ -297,7 +302,14 @@ func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID 
 // wake creates a task for one agent on its own lane. It is the server's own
 // trigger, so it bypasses the mention rules — the point of FR-6.2.1 and FR-6.5
 // is that these wake-ups are deterministic rather than prompt-dependent.
-func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID, agentID, triggerMsg uuid.UUID, prefix string, now time.Time) error {
+//
+// It does NOT bypass FR-3.5 (S-76). `from` is the agent whose lane ending (or
+// question) causes the wake-up; the notice is a hop from it to `agentID`, and
+// it is gated like a mention would be. Without this a delegator that answers
+// every join by delegating again is a loop the limiter never sees: no message
+// in the cycle carries a mention. On a trip the notice is still posted — the
+// timeline says what happened — but no task is made and the session pauses.
+func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID, from, agentID, triggerMsg uuid.UUID, prefix string, now time.Time) error {
 	var profileID uuid.UUID
 	err := tx.QueryRow(ctx, `SELECT profile_id FROM session_participant WHERE session_id = $1 AND agent_id = $2`, sessionID, agentID).Scan(&profileID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -313,6 +325,13 @@ func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID, agentID,
 			return err
 		}
 		msg = id
+	}
+	v, err := s.gateHop(ctx, tx, sessionID, wsID, director, Hop{FromAgent: from, ToAgent: agentID, At: now}, msg, RulePlatform, now)
+	if err != nil {
+		return err
+	}
+	if !v.Allowed {
+		return nil
 	}
 	laneID, _, err := s.resolveLaneFor(ctx, tx, sessionID, Trigger{AgentID: agentID, Rule: 0}, profileID,
 		laneOpts{topLevelMent: true}, now)

@@ -181,7 +181,18 @@ func (s *Service) SweepGC(ctx context.Context) (SweepResult, error) {
 			ids = append(ids, c.WorkdirID)
 			paths = append(paths, c.Path)
 		}
-		cmd := BuildGCCommand(k.session, ids, paths)
+		cmd, skipped := BuildGCCommand(k.session, ids, paths)
+		if len(skipped) > 0 {
+			// S-65: a relative row (pre-0019) is never handed to the daemon —
+			// see BuildGCCommand. It stays `active` and is named here every
+			// pass; the directory is still on the machine and the person who
+			// removes it is the one who can see the path.
+			s.warn("workdirs: gc skipped workdirs with a relative path (S-65) — not sent to the daemon",
+				"session", k.session, "workdirs", skipped)
+		}
+		if len(cmd.Workdirs) == 0 {
+			continue
+		}
 		if err := tokens.QueueCommand(ctx, s.DB, k.runtime, cmd); err != nil {
 			s.warn("workdirs: queue gc command", "session", k.session, "err", err)
 			continue
@@ -190,7 +201,7 @@ func (s *Service) SweepGC(ctx context.Context) (SweepResult, error) {
 		// `gc: deleted` (ApplyGCReports): the server asked, it did not observe.
 		// Claiming the deletion here would make S13 show an empty machine that
 		// is still full.
-		out.Deleted += len(ids)
+		out.Deleted += len(cmd.Workdirs)
 	}
 	return out, nil
 }

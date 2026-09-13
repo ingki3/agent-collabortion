@@ -51,10 +51,11 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 	var sessionID, wsID, callerAgent uuid.UUID
 	var callerName string
 	var callerAttempt int
+	var director *uuid.UUID
 	err = tx.QueryRow(ctx, `
-		SELECT t.session_id, s.workspace_id, t.agent_id, a.name, t.attempt
+		SELECT t.session_id, s.workspace_id, t.agent_id, a.name, t.attempt, s.director_user_id
 		FROM task t JOIN session s ON s.id = t.session_id JOIN agent a ON a.id = t.agent_id
-		WHERE t.id = $1`, callerTask).Scan(&sessionID, &wsID, &callerAgent, &callerName, &callerAttempt)
+		WHERE t.id = $1`, callerTask).Scan(&sessionID, &wsID, &callerAgent, &callerName, &callerAttempt, &director)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, tasks.ErrNotFound
 	}
@@ -115,6 +116,36 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 		return nil, fmt.Errorf("router: delegate message: %w", err)
 	}
 
+	// FR-3.5 (S-76): the delegation is an agent→agent hop like any other and
+	// is gated BEFORE the lane exists. Skipping it let a delegation storm run
+	// past every limit — a delegator that re-delegates on each join notice is
+	// a loop with no mention in it, and this was the only path the limiter did
+	// not see. On a trip the mention message stays in the timeline (E4-01: the
+	// message is posted, the task is not), the session pauses with the limit
+	// named, and the caller gets a Problem instead of a lane: a 201 with no
+	// task would tell the agent its delegation is pending when it is not.
+	v, err := s.gateHop(ctx, tx, sessionID, wsID, director, Hop{FromAgent: callerAgent, ToAgent: in.AgentID, At: now}, msgID, 2, now)
+	if err != nil {
+		return nil, err
+	}
+	if !v.Allowed {
+		// colab-cli.md §4: the refused call is on the feed too, with the reason
+		// in the schema's own slot rather than a free-text note (S-52).
+		if err := tasks.InsertServerEvent(ctx, tx, callerTask, callerAttempt, "status", "delegate", in.AgentID.String(), "rejected",
+			map[string]any{"command": "lane delegate", "args": map[string]any{"brief": in.Brief}, "rejected_reason": "loop_limit"}, now); err != nil {
+			return nil, err
+		}
+		// The mention message is a timeline message; the pause's own frames
+		// (session.updated, the HITL card) are published by pauseForLoop.
+		if s.Hub != nil {
+			_ = messages.Publish(ctx, s.Hub, tx, wsID, sessionID, msgID)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return nil, ErrLoopLimit(v)
+	}
+
 	d := lanestate.Resolve(lanestate.Request{
 		AgentID: in.AgentID, ViaDelegate: true, DelegatorTaskID: callerTask,
 	})
@@ -142,11 +173,6 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $8) RETURNING id`,
 		laneID, sessionID, in.AgentID, profileID, msgID, callerTask, originator, now).Scan(&taskID); err != nil {
 		return nil, fmt.Errorf("router: delegate task: %w", err)
-	}
-	// The delegation is an agent→agent hop like any other, so it counts toward
-	// FR-3.5. Skipping it would let a delegation storm run past the limits.
-	if err := s.recordHop(ctx, tx, sessionID, Hop{FromAgent: callerAgent, ToAgent: in.AgentID, At: now}, msgID, 2, true); err != nil {
-		return nil, err
 	}
 	if err := s.recordStatusEvent(ctx, tx, callerTask, callerAttempt, "delegate", in.Brief, now); err != nil {
 		return nil, err

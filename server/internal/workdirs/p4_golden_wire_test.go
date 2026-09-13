@@ -125,7 +125,7 @@ func adaptCheckDiskQuota(usedBytes int64, quotaGB int) quotaVerdict {
 // production caller: internal/workdirs/sweep.go:184 (Service.Sweep) and
 // internal/httpapi/handlers_p4.go:236 (the manual workdir GC endpoint).
 func adaptBuildGCCommand(ids []uuid.UUID, paths []string) gcCommandPayload {
-	cmd := BuildGCCommand(p4Session, ids, paths)
+	cmd, _ := BuildGCCommand(p4Session, ids, paths)
 	out := gcCommandPayload{SessionID: cmd.SessionID}
 	for _, wd := range cmd.Workdirs {
 		out.Workdirs = append(out.Workdirs, struct {

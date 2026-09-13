@@ -521,6 +521,44 @@ func (s *Service) loadHops(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, 
 	return out, rows.Err()
 }
 
+// gateHop is FR-3.5 for ONE server-originated trigger: a delegation
+// (delegate.go) or a wake-up the server owes a delegator or an author
+// (status.go wake — join, blocked question, re-entry report). Post runs the
+// same check inline because it gates several triggers against one history.
+//
+// S-76: neither path used to be gated. `Delegate` recorded its hop and
+// `wake` recorded nothing, so a delegator that re-delegated on every join
+// notice ran a delegate ↔ join cycle that CheckLoopLimits never saw — 529
+// tasks in 70 seconds with the session still `active` (T-I5, 77_ S1x). A
+// delegation is an agent→agent hop and so is the notice that wakes the
+// delegator when the child ends; the limiter has to see both, or the one
+// loop that needs no mention at all is the one it cannot stop.
+//
+// The hop is recorded either way (allowed=false when it tripped) so the next
+// decision reads a complete history. On a trip the session pauses with the
+// limit named and the Director gets the HITL; the caller creates no task.
+func (s *Service) gateHop(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID,
+	next Hop, msgID uuid.UUID, rule int, now time.Time) (LoopVerdict, error) {
+	limits, err := s.loopLimits(ctx, tx, wsID)
+	if err != nil {
+		return LoopVerdict{}, err
+	}
+	history, err := s.loadHops(ctx, tx, sessionID, now)
+	if err != nil {
+		return LoopVerdict{}, err
+	}
+	v := CheckLoopLimits(history, next, limits, now)
+	if err := s.recordHop(ctx, tx, sessionID, next, msgID, rule, v.Allowed); err != nil {
+		return LoopVerdict{}, err
+	}
+	if !v.Allowed {
+		if err := s.pauseForLoop(ctx, tx, sessionID, wsID, director, v, now); err != nil {
+			return LoopVerdict{}, err
+		}
+	}
+	return v, nil
+}
+
 func (s *Service) recordHop(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, h Hop, msgID uuid.UUID, rule int, allowed bool) error {
 	var from *uuid.UUID
 	if !h.Human() {
