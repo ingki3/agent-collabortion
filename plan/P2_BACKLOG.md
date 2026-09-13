@@ -128,6 +128,7 @@
 | S-65 | 설치 스크립트의 go 버전 검사(존재만 보고 버전을 안 봄) · §4.3 `gc` 명령에는 상대 경로 `path_or_ref` 가 그대로 실린다(S-62 는 번들 통로만 막았다) · `/install.sh` 의 `Cache-Control` | PR #182 리뷰 NN1·NN2·NN5 | 중 |
 | S-66 | **집필 단계가 3분 무응답 판정에 잘린다** — 실사용 두 세션·여섯 시도가 전부 `stall`(no session/update for 3m). 조사·위임은 통과하고 긴 글을 쓰는 턴에서만 죽어 아티팩트가 0 개다. 도구 실행·모델 응답 중에는 무응답으로 세지 않거나 기준을 바꿔야 한다(계약 `limits.stall_seconds` 180) | Director 실사용 2026-09-08 (세션 2건) | **높음 · G8 전** |
 | S-67 | **서버가 만드는 문장도 내부 용어다** — `Problem.detail` 12곳과 `Session started. Goal:` 등. 웹은 §8.4 로 고쳤는데 서버 문장은 그대로라 **화면과 실서버가 갈라진다**(목이 서버를 흉내 낸 자리에서 드러났다). COMPONENTS §8.4 원칙을 서버 사용자 대면 문장에도 적용 | T-W8 PR #188 보고 | 중 · G8 전 |
+| S-68 | `deleteWorkdir` 409 `workdir_dirty` 의 `Problem.detail` 이 계약(openapi #155 "gc_blocked_reason 과 같은 값")과 다르게 **문장**(`GCReasonText`)이다 — 목·골든·p4-mock 은 키를 기대하고 웹 S13 은 그 키로 사유를 분기한다. 서버가 키를 돌려주고 문장은 별도 칸(예: `title`)으로 | T-W10 PR #196 보고 | 중 |
 
 ## C (CLI)
 
