@@ -56,18 +56,40 @@ func repoRoot(t *testing.T) string {
 // would keep passing for a change that has not been committed yet. Only the
 // three modules the script touches are copied — they depend on nothing outside
 // the checkout (`replace ../contracts`), so the build needs no network.
-func seedSourceRepo(t *testing.T, root string) string {
+//
+// It returns the repository path and the sha of its ONLY commit. S-64: the
+// script must install exactly that commit when the server names it — so the
+// fixture also grows a second commit on `main` that must NOT be what gets
+// built (a `main` HEAD that differs from the pinned ref is the whole defect).
+func seedSourceRepo(t *testing.T, root string) (string, string) {
 	t.Helper()
 	src := t.TempDir()
 	for _, name := range []string{"contracts", "daemon", "cli", "Makefile"} {
 		run(t, "", "cp", "-R", filepath.Join(root, name), filepath.Join(src, name))
 	}
-	run(t, src, "git", "init", "-q", "-b", "main")
-	run(t, src, "git", "add", "-A")
-	run(t, src, "git",
-		"-c", "user.name=colab test", "-c", "user.email=test@colab.invalid",
-		"commit", "-q", "-m", "installer fixture")
-	return src
+	git := func(args ...string) string {
+		cmd := exec.Command("git", append([]string{"-c", "user.name=colab test", "-c", "user.email=test@colab.invalid"}, args...)...)
+		cmd.Dir = src
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "-q", "-b", "main")
+	git("add", "-A")
+	git("commit", "-q", "-m", "installer fixture")
+	pinned := git("rev-parse", "HEAD")
+	// `main` moves on: a later commit that breaks the daemon build. The
+	// installer pinned to `pinned` never sees it; an installer that clones
+	// `main` fails here — which is S-64 as a test.
+	if err := os.WriteFile(filepath.Join(src, "daemon", "cmd", "daemon", "broken_on_main.go"),
+		[]byte("package main\n\nfunc init() { undefinedOnMain() }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "-A")
+	git("commit", "-q", "-m", "main moved on (does not build)")
+	return src, pinned
 }
 
 func run(t *testing.T, dir, name string, args ...string) {
@@ -117,7 +139,12 @@ func TestScriptInstallsBothBinaries(t *testing.T) {
 	home := t.TempDir()
 	scriptDir := t.TempDir()
 	script := filepath.Join(scriptDir, "install.sh")
-	if err := os.WriteFile(script, []byte(Script("http://colab.test")), 0o700); err != nil {
+	repo, pinned := seedSourceRepo(t, root)
+	// The server names its own commit (S-64) and the Go the build needs
+	// (S-65, go.work's line). The pinned sha is a COMMIT, not a branch: the
+	// script's `--branch` shortcut fails and the fetch-by-sha path is what
+	// runs — the path a real deployment takes.
+	if err := os.WriteFile(script, []byte(Script("http://colab.test", pinned, goWorkVersion(t, root))), 0o700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -129,7 +156,7 @@ func TestScriptInstallsBothBinaries(t *testing.T) {
 		// A login shell we can predict, so the PATH block lands in a file the
 		// assertions below can name.
 		"SHELL=/bin/sh",
-		"COLAB_INSTALL_REPO=file://" + seedSourceRepo(t, root),
+		"COLAB_INSTALL_REPO=file://" + repo,
 	}, goEnv(t)...)
 	start := time.Now()
 	out, err := cmd.CombinedOutput()
@@ -176,8 +203,18 @@ func TestScriptInstallsBothBinaries(t *testing.T) {
 		t.Errorf("installed colab reports %q, Makefile COLAB_VERSION is %q — the installer is carrying "+
 			"its own copy of the number", got, want)
 	}
-	if _, err := exec.Command(daemonBin, "version").CombinedOutput(); err != nil {
+	// S-64: the daemon carries the commit it was built from as its version —
+	// `daemon_version` in the probe, the S11 card, and the server's log line
+	// when it differs from the server's own ref.
+	dv, err := exec.Command(daemonBin, "version").CombinedOutput()
+	if err != nil {
 		t.Errorf("installed colab-daemon does not run: %v", err)
+	}
+	if !strings.Contains(string(dv), pinned) {
+		t.Errorf("colab-daemon version = %q, want it to carry the pinned commit %s", strings.TrimSpace(string(dv)), pinned)
+	}
+	if !strings.Contains(string(out), "커밋 "+pinned) {
+		t.Errorf("the installer never tells the person which commit it built")
 	}
 
 	// The PATH guidance covers BOTH binaries: the daemon's own probe resolves
@@ -213,4 +250,75 @@ func makefileVersion(t *testing.T, root string) string {
 	}
 	t.Fatal("Makefile has no COLAB_VERSION")
 	return ""
+}
+
+// goWorkVersion is the `go` line of the checkout's go.work — what the
+// Makefile stamps into the server as buildinfo.goMin.
+func goWorkVersion(t *testing.T, root string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(root, "go.work"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(line, "go "); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	t.Fatal("go.work has no go line")
+	return ""
+}
+
+// TestScriptRefusesOldGo is S-65: the toolchain check compares versions, not
+// mere presence. A `go` older than go.work's line stops the script before it
+// clones anything, with the number the person needs.
+func TestScriptRefusesOldGo(t *testing.T) {
+	haveTool(t, "go")
+	haveTool(t, "git")
+	fakeBin := t.TempDir()
+	// A `go` that answers `go version` with 1.21.0 and nothing else.
+	if err := os.WriteFile(filepath.Join(fakeBin, "go"), []byte("#!/bin/sh\necho 'go version go1.21.0 darwin/arm64'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitPath, _ := exec.LookPath("git")
+	if err := os.Symlink(gitPath, filepath.Join(fakeBin, "git")); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(t.TempDir(), "install.sh")
+	if err := os.WriteFile(script, []byte(Script("http://colab.test", "deadbeef", "1.25.0")), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", script)
+	cmd.Env = []string{"PATH=" + fakeBin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "SHELL=/bin/sh",
+		"COLAB_INSTALL_REPO=file:///nonexistent"}
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("the installer accepted go 1.21.0 against a 1.25.0 minimum:\n%s", out)
+	}
+	if !strings.Contains(string(out), "1.25.0") || !strings.Contains(string(out), "1.21.0") {
+		t.Errorf("the refusal must name both versions:\n%s", out)
+	}
+	if strings.Contains(string(out), "소스 받기") {
+		t.Errorf("the check must run BEFORE the clone:\n%s", out)
+	}
+}
+
+// TestScriptVersionCompare drives ver_ge alone — the arithmetic is the part a
+// BSD `sh` and a GNU one could disagree on.
+func TestScriptVersionCompare(t *testing.T) {
+	fn := script[strings.Index(script, "ver_ge() {"):]
+	fn = fn[:strings.Index(fn, "\n}\n")+3]
+	for _, c := range []struct {
+		have, min string
+		ok        bool
+	}{
+		{"1.25.0", "1.25.0", true}, {"1.25.1", "1.25.0", true}, {"1.26", "1.25.0", true}, {"2.0", "1.25.0", true},
+		{"1.26rc1", "1.25.0", true}, {"1.24.9", "1.25.0", false}, {"1.21", "1.25.0", false}, {"0", "1.25.0", false},
+	} {
+		cmd := exec.Command("sh", "-c", fn+"\nver_ge "+c.have+" "+c.min)
+		err := cmd.Run()
+		if (err == nil) != c.ok {
+			t.Errorf("ver_ge %s %s: ok=%v, want %v", c.have, c.min, err == nil, c.ok)
+		}
+	}
 }

@@ -63,7 +63,7 @@ SLOW="$(PROFILE_ENV="$(fake_env Slow claude "$(jq -nc --arg fix "$FIX" '{turns:[
   create_agent_kind "$WS" Slow researcher claude_code "$MODEL" "$PROBE_INS" '긴 턴')"
 # Probe 의 위임 대상 = Guard: 위임 브리프를 받으면 Guard 의 대본(Probe 역할)이 ok 를 게시한다.
 # 깨어날 때마다 다시 위임한다 — 합류(위임 완료 통보)로 깨어나도 또 위임하므로 **위임↔합류 사이클**이 된다.
-# 8회로 묶는다(첫 실행에서 무한 반복: 70초에 529회, 세션은 active 그대로 — FR-3.5 루프 상한이 이 경로를 안 본다. 보고).
+# 8회로 묶는다(S-76 이전: 무한 반복, 70초에 529회, 세션 active 그대로. 이제는 FR-3.5 가 이 경로도 봐서 그 전에 멈춘다).
 DELEG_CMD='n=$(cat "$FAKE_OUT/deleg-count" 2>/dev/null || echo 0); if [ "$n" -lt 8 ]; then echo $((n+1)) > "$FAKE_OUT/deleg-count"; colab lane delegate --agent Guard --brief "체인 확인 $n" 2>&1; fi'
 rm -f "$E2E_OUT/fake-records/deleg-count"
 DELEGATOR="$(PROFILE_ENV="$(fake_env Probe claude | jq -c --arg c "$DELEG_CMD" '. + {FAKE_CMD:$c}')" create_agent_kind "$WS" Delegator lead claude_code "$MODEL" "$PROBE_INS" '위임자')"
@@ -85,13 +85,21 @@ T_CHILD="$(psqlq "select id from task where delegated_from_task_id='$T_MEM' orde
 chk S1d "위임된 자식 task 가 생겼다 (Delegator → Guard)" yes "$( [ -n "$T_CHILD" ] && echo yes || echo no )"
 [ -n "$T_CHILD" ] && chk S1e "**자식 task 의 originator 도 멤버** (체인으로 상승 없음, PRD §9)" "$MEM_ID" "$(task_field "$T_CHILD" originator_user_id)"
 WAIT_S=120 wait_task "$T_CHILD" completed failed cancelled >/dev/null 2>&1 || true
-wait_until 120 '[ "$(psqlq "select count(*) from task t join agent a on a.id=t.agent_id where t.session_id='"'$S'"' and a.name='"'Guard'"'")" -ge 8 ]' || true
+# FR-3.5 (S-76, T-S15): 위임(delegateLane)과 합류 wake 도 홉이라 사이클은 상한에 걸려 세션이 paused(loop) 가 된다.
+# 기본 상한에서는 사람 메시지 뒤 8번째 에이전트 홉(= 4번째 합류 통보)에서 chain_depth 가 먼저 닿는다 —
+# 위임 4회 · Guard task 4개에서 멈추고, 8회 카운터(대본)는 끝까지 못 간다. 어느 상한이든 "멈춘다" 가 판정이다.
+wait_until 120 '[ "$(sess_status "$S")" = paused ]' || true
 wait_quiet "$S" 60 || true
 GUARD_N="$(psqlq "select count(*) from task t join agent a on a.id=t.agent_id where t.session_id='$S' and a.name='Guard'")"
-# FR-3.5: 같은 짝의 왕복이 max_pair_roundtrips(5)를 넘으면 세션이 loop 로 일시정지돼야 한다. 위임(delegateLane)과
-# 합류 wake 는 postMessage 의 루프 검사를 타지 않아 8회 사이클이 그대로 돈다(첫 실행 529회). 신규 결함 — 보고.
-chk_na S1x "위임↔합류 사이클 8회가 루프 상한(FR-3.5 max_pair_roundtrips=5)에 걸리는가 (신규 결함)" \
-  "guard_tasks=$GUARD_N session=$(sess_status "$S")" "delegateLane·합류 wake 가 루프 검사 밖 — 세션이 paused(loop) 가 되지 않는다"
+LOOP_LIMIT="$(psqlq "select coalesce(paused_detail->'loop'->>'limit','-') from session where id='$S'")"
+chk S1x "**위임↔합류 사이클이 루프 상한에 걸린다** (S-76: paused(loop), limit=$LOOP_LIMIT, guard_tasks=$GUARD_N)" \
+  "paused/loop" "$(sess_status "$S")/$(psqlq "select coalesce(paused_reason::text,'-') from session where id='$S'")"
+chk S1x2 "사이클이 대본의 8회 상한 전에 멈췄다 (Guard task < 8)" yes "$( [ "${GUARD_N:-0}" -lt 8 ] && echo yes || echo no )"
+chk S1x3 "Director 에게 시스템 HITL(purpose=loop) 이 갔다" 1 \
+  "$(psqlq "select count(*) from hitl_request where session_id='$S' and source='system' and purpose='loop'")"
+# 뒤 단계(토큰·취소·SSE)는 살아 있는 세션이 필요하다 — Director 가 재개한다(카운터 리셋, openapi resumeSession loop).
+chk S1x4 "Director 가 paused(loop) 세션을 재개한다 (200)" 200 "$(api POST "/sessions/$S/resume" '{"reset_loop_counters":true}' | api_code)"
+chk S1x5 "재개 뒤 세션 active" active "$(sess_status "$S")"
 # 살아 있는 task 토큰 확보: Slow 를 깨운다(턴 20s) → 대본이 토큰을 기록
 R="$(post_message "$S" "$(mention Slow "$SLOW") 천천히")"
 T_SLOW="$(jq -r '.triggers[0].task_id // empty' <<<"$R")"
@@ -145,12 +153,11 @@ MASKED="$(create_agent_fake "$WS" Masked researcher claude_code "$MODEL" "$PROBE
 SM="$(create_session_p3 "$WS" "masking on" "마스킹" "$MASKED" "$RUNTIME_ID" '{}' "$MASKED")"
 TM="$(session_initial_task "$SM")"; WAIT_S=120 wait_task "$TM" completed failed >/dev/null
 psqlq "select class||'/'||coalesce(verb,'-')||' '||coalesce(payload::text,'') from task_event where task_id='$TM' order by seq" > "$OUT/77-events-masked.txt"
-# summary(출력)·command(인자) 는 가려진다. **title 은 가려지지 않는다** — 어댑터가 tool_call.title 에 셸 명령
-# 전체를 싣는 모양(페이크도 같은 모양)이라 본문이 title 로 새어 저장된다. 신규 결함으로 보고(번호는 Lead).
+# summary(출력)·command(인자)·title(어댑터가 tool_call.title 에 셸 명령 전체를 싣는다 — S-77)이 가려진다.
 chk S3d "마스킹 ON: 셸 출력(summary)·명령 인자(command) 본문 없음" 0 \
   "$(psqlq "select count(*) from task_event where task_id='$TM' and (payload->>'summary' like '%SECRET-SHELL%' or payload->>'command' like '%SECRET-SHELL%')")"
-chk_na S3d2 "마스킹 ON: title 에도 본문 없음 (신규 결함 — title 미마스킹)" \
-  "$(psqlq "select count(*) from task_event where task_id='$TM' and payload->>'title' like '%SECRET-SHELL%'")" "payload.title 에 셸 명령 전체가 남는다 — 보고"
+chk S3d2 "마스킹 ON: title 에도 본문 없음 (S-77: 첫 단어만 남는다)" 0 \
+  "$(psqlq "select count(*) from task_event where task_id='$TM' and payload->>'title' like '%SECRET-SHELL%'")"
 chk S3e "마스킹 ON: diff 본문이 저장되지 않았다"   0 "$(cnt "$OUT/77-events-masked.txt" 'SECRET-DIFF-BODY-7731')"
 chk S3f "마스킹 ON: 요약([마스킹됨 · N자]) 이 남았다" yes "$( [ "$(cnt "$OUT/77-events-masked.txt" '마스킹됨')" -ge 1 ] && echo yes || echo no )"
 chk S3g "마스킹 ON: 카드 모양(파일 경로·명령 첫 토큰)은 남는다" yes "$( grep -q 'secret.txt' "$OUT/77-events-masked.txt" && grep -q 'echo' "$OUT/77-events-masked.txt" && echo yes || echo no )"

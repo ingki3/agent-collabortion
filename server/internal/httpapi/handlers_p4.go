@@ -233,7 +233,14 @@ func (s *Server) DeleteWorkdir(w http.ResponseWriter, r *http.Request, workdirId
 			"이 세션에 연결된 컴퓨터가 없어 삭제를 맡길 곳이 없습니다"))
 		return
 	}
-	cmd := workdirs.BuildGCCommand(sessionID, []uuid.UUID{id}, []string{path})
+	cmd, skipped := workdirs.BuildGCCommand(sessionID, []uuid.UUID{id}, []string{path})
+	if len(skipped) > 0 {
+		// S-65: a relative stored path (pre-0019) is not something the daemon
+		// may `rm -rf` — it would resolve against the daemon's CWD.
+		writeProblem(w, apperr.Conflict("workdir_relative_path",
+			"이 작업 폴더의 저장된 경로가 절대 경로가 아니라 컴퓨터에 삭제를 맡길 수 없습니다 — 그 컴퓨터에서 직접 지워 주세요"))
+		return
+	}
 	if err := tokens.QueueCommand(r.Context(), s.DB, *runtimeID, cmd); err != nil {
 		writeErr(w, err)
 		return

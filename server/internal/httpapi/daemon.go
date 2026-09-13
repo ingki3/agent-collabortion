@@ -115,6 +115,16 @@ func (s *Server) daemonProbe(w http.ResponseWriter, r *http.Request, d daemonCtx
 		writeErr(w, err)
 		return
 	}
+	// S-64: the installer stamps the daemon with the commit it built, so a
+	// daemon from another commit than this server is visible — in the S11
+	// card through `runtime.daemon_version` (the contract's own field, not a
+	// comparison the server adds) and here in the log. A log line, not a
+	// refusal: a `dev` daemon built by hand is the normal case on a
+	// developer's machine.
+	if ref := s.InstallRef; ref != "" && in.DaemonVersion != "" && in.DaemonVersion != ref {
+		s.Log.Info("daemon version differs from server build", "runtime", d.RuntimeID,
+			"daemon_version", in.DaemonVersion, "server_ref", ref)
+	}
 	// §4.3: a probe command is consumed by the next probe.
 	if err := tokens.ConsumeProbeCommands(r.Context(), s.DB, d.RuntimeID, s.Clock.Now()); err != nil {
 		s.Log.Warn("consume probe commands", "err", err)

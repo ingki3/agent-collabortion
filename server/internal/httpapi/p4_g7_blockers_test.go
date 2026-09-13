@@ -237,8 +237,8 @@ func TestP4GCReceiptClosesTheRow(t *testing.T) {
 	}
 	// The server asked for it (§4.3 `gc` carries {id, path}) — the same command
 	// the sweep builds.
-	if err := tokens.QueueCommand(ctx, f.pool, rtID,
-		workdirs.BuildGCCommand(sessionID, []uuid.UUID{wdID}, []string{"/w/worktrees/s/lead"})); err != nil {
+	gcCmd, _ := workdirs.BuildGCCommand(sessionID, []uuid.UUID{wdID}, []string{"/w/worktrees/s/lead"})
+	if err := tokens.QueueCommand(ctx, f.pool, rtID, gcCmd); err != nil {
 		t.Fatalf("queue gc command: %v", err)
 	}
 	// The receipt comes back on an entry the server can no longer bind — the

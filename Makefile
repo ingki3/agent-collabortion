@@ -48,9 +48,19 @@ migrate:
 test-db:
 	cd server && COLAB_TEST_DB_URL="$(PG_URL)" go test ./...
 
+# S-64: the server carries the commit it was built from (or a tag) and serves
+# it as /install.sh's COLAB_INSTALL_REF, so everyone who installs from this
+# server gets THIS tree. S-65: go.work's `go` line rides along as the toolchain
+# minimum the installer checks. Both fall back inside the binary (VCS stamp,
+# build toolchain) when a build skips these flags.
+COLAB_BUILD_REF ?= $(shell git rev-parse HEAD 2>/dev/null)
+COLAB_GO_MIN ?= $(shell sed -n 's/^go \([0-9.]*\).*/\1/p' go.work)
+SERVER_LDFLAGS := -X github.com/ingki3/agent-collabortion/server/internal/buildinfo.ref=$(COLAB_BUILD_REF) \
+                  -X github.com/ingki3/agent-collabortion/server/internal/buildinfo.goMin=$(COLAB_GO_MIN)
+
 build:
 	@mkdir -p bin
-	go build -o bin/server ./server/cmd/server
+	go build -ldflags "$(SERVER_LDFLAGS)" -o bin/server ./server/cmd/server
 	go build -o bin/daemon ./daemon/cmd/daemon
 	go build -ldflags "-X main.version=$(COLAB_VERSION)" -o bin/colab ./cli/cmd/colab
 

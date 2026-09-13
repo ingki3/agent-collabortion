@@ -33,8 +33,38 @@ var script string
 // server was started with (COLAB_SERVER_URL); the script must never carry a
 // hardcoded origin, because the machine running it is being pointed at this
 // deployment and no other.
-func Script(serverURL string) string {
-	return strings.ReplaceAll(script, "@@COLAB_SERVER_URL@@", strings.TrimRight(serverURL, "/"))
+//
+// ref is the commit (or tag) the SERVER was built from (buildinfo.Ref), and
+// becomes the script's default `COLAB_INSTALL_REF` (S-64). Empty means the
+// server does not know — a binary built outside a checkout — and the script
+// then says so and takes the repository's default branch, which is the P5
+// behaviour and the one thing five participants in one G8 session must not
+// get silently: each would receive whatever `main` was at that minute.
+//
+// goMin is the Go the source build needs (buildinfo.GoMin — the go.work line);
+// the script refuses an older toolchain up front instead of failing halfway
+// through a build (S-65). Empty disables the check.
+func Script(serverURL, ref, goMin string) string {
+	s := strings.ReplaceAll(script, "@@COLAB_SERVER_URL@@", strings.TrimRight(serverURL, "/"))
+	s = strings.ReplaceAll(s, "@@COLAB_INSTALL_REF@@", sanitizeRef(ref))
+	return strings.ReplaceAll(s, "@@COLAB_GO_MIN@@", sanitizeRef(goMin))
+}
+
+// sanitizeRef keeps the ref to what a git ref or sha can be. The value comes
+// from the linker or the VCS stamp, never a request, but it is being written
+// into a shell script served over HTTP — a stray quote there is a script that
+// does not parse for every person who runs it.
+func sanitizeRef(ref string) string {
+	var b strings.Builder
+	for _, r := range ref {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_', r == '/':
+			b.WriteRune(r)
+		default:
+			return ""
+		}
+	}
+	return b.String()
 }
 
 // CurlCommand is line 1 of `Pairing.install_commands`. Kept next to Path so the

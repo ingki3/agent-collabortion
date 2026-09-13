@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 )
 
 // Limits mirrors workspace_settings.loop_limits (PRD FR-3.5).
@@ -187,4 +189,12 @@ func (v LoopVerdict) LimitCount() int {
 		return v.PairRoundtrips
 	}
 	return 0
+}
+
+// ErrLoopLimit is what a server-originated trigger returns when FR-3.5 stopped
+// it (S-76). It is a Problem so the CLI shows the agent the same sentence the
+// Director sees on the banner — the delegation did NOT happen, and the agent
+// should stop rather than retry.
+func ErrLoopLimit(v LoopVerdict) error {
+	return apperr.Conflict("loop_limit", "루프 상한에 걸려 세션이 일시정지되었습니다 — "+v.LimitText())
 }

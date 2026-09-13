@@ -25,7 +25,13 @@ BIN_DIR="$COLAB_HOME/bin"
 DAEMON_NAME="colab-daemon"
 CLI_NAME="colab"
 REPO_URL="${COLAB_INSTALL_REPO:-https://github.com/ingki3/agent-collabortion.git}"
-REPO_REF="${COLAB_INSTALL_REF:-}"
+# 서버가 자기 빌드 커밋(또는 태그)을 심는다(S-64). 참가자 전원이 **서버와 같은 커밋**을 받아야
+# 하므로 기본값은 main 이 아니라 이 값이다. 비어 있으면 서버가 자기 커밋을 모르는 빌드다 —
+# 아래에서 그 사실을 말하고 저장소 기본 브랜치로 떨어진다.
+REPO_REF="${COLAB_INSTALL_REF:-@@COLAB_INSTALL_REF@@}"
+# go.work 의 go 버전 — 소스 빌드에 필요한 최소 버전(S-65). 저장소를 받기 전에 확인하므로
+# 서버가 자기 go.work 에서 읽어 심는다(숫자를 여기 또 적으면 갈라진다).
+GO_MIN="@@COLAB_GO_MIN@@"
 
 say()  { printf '%s\n' "$*"; }
 step() { printf '\033[36m▶\033[0m %s\n' "$*"; }
@@ -53,9 +59,9 @@ if [ -n "$missing" ]; then
   say "설치를 계속할 수 없습니다 — 다음이 필요합니다:$missing"
   say ""
   case "$missing" in *go*)
-    say "  • Go 1.25 이상: https://go.dev/dl/ 에서 받거나"
+    say "  • Go ${GO_MIN:-1.25} 이상: https://go.dev/dl/ 에서 받거나"
     say "      macOS  brew install go"
-    say "      Ubuntu/Debian  sudo apt install golang-go   (1.25 미만이면 go.dev/dl 을 쓰세요)"
+    say "      Ubuntu/Debian  sudo apt install golang-go   (${GO_MIN:-1.25} 미만이면 go.dev/dl 을 쓰세요)"
     ;;
   esac
   case "$missing" in *git*)
@@ -67,8 +73,31 @@ if [ -n "$missing" ]; then
   say "  curl -fsSL $COLAB_SERVER_URL/install.sh | sh"
   exit 1
 fi
-say "  go  $(go version 2>/dev/null | awk '{print $3}')"
+GO_HAVE="$(go version 2>/dev/null | awk '{print $3}' | sed 's/^go//')"
+say "  go  $GO_HAVE"
 say "  git $(git --version 2>/dev/null | awk '{print $3}')"
+# 버전 비교(S-65): 있는지만 보면 1.21 에서 빌드가 깨진 뒤에야 안다. `sort -V` 는 BSD 에 없으므로
+# 숫자 세 자리를 직접 견준다.
+ver_ge() { # ver_ge 1.25.1 1.25.0 → 0(참)
+  a1=$(printf '%s' "$1" | cut -d. -f1); a2=$(printf '%s' "$1" | cut -d. -f2); a3=$(printf '%s' "$1" | cut -d. -f3)
+  b1=$(printf '%s' "$2" | cut -d. -f1); b2=$(printf '%s' "$2" | cut -d. -f2); b3=$(printf '%s' "$2" | cut -d. -f3)
+  a1=${a1:-0}; a2=${a2:-0}; a3=${a3:-0}; b1=${b1:-0}; b2=${b2:-0}; b3=${b3:-0}
+  # rc·beta 접미사는 잘라 낸다(1.26rc1 → 1.26)
+  a2=${a2%%[!0-9]*}; a3=${a3%%[!0-9]*}; b2=${b2%%[!0-9]*}; b3=${b3%%[!0-9]*}
+  a2=${a2:-0}; a3=${a3:-0}; b2=${b2:-0}; b3=${b3:-0}
+  [ "$a1" -gt "$b1" ] && return 0; [ "$a1" -lt "$b1" ] && return 1
+  [ "$a2" -gt "$b2" ] && return 0; [ "$a2" -lt "$b2" ] && return 1
+  [ "$a3" -ge "$b3" ]
+}
+if [ -n "$GO_MIN" ] && ! ver_ge "${GO_HAVE:-0}" "$GO_MIN"; then
+  say ""
+  say "설치를 계속할 수 없습니다 — go $GO_MIN 이상이 필요한데 $GO_HAVE 입니다."
+  say "  https://go.dev/dl/ 에서 받거나   macOS  brew install go"
+  say ""
+  say "설치한 뒤 같은 명령을 다시 실행하세요:"
+  say "  curl -fsSL $COLAB_SERVER_URL/install.sh | sh"
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # 2. 소스에서 빌드 (임시 디렉터리, 끝나면 삭제)
@@ -76,20 +105,38 @@ say "  git $(git --version 2>/dev/null | awk '{print $3}')"
 work="$(mktemp -d "${TMPDIR:-/tmp}/colab-install.XXXXXX")"
 trap 'rm -rf "$work"' EXIT INT TERM
 
-step "소스 받기 ($REPO_URL${REPO_REF:+ @ $REPO_REF})"
 if [ -n "$REPO_REF" ]; then
-  git clone --quiet --depth 1 --branch "$REPO_REF" "$REPO_URL" "$work/src" \
-    || die "저장소를 받지 못했습니다: $REPO_URL ($REPO_REF)"
+  step "소스 받기 ($REPO_URL @ $REPO_REF — 서버와 같은 커밋)"
+  # 태그·브랜치면 --branch 로 얕게, 커밋이면 그 sha 를 얕게 fetch(GitHub·file:// 모두 됨),
+  # 둘 다 안 되는 오래된 git 이면 전체를 받아 checkout — 어느 길로 가든 결과는 같은 커밋이다.
+  if ! git clone --quiet --depth 1 --branch "$REPO_REF" "$REPO_URL" "$work/src" 2>/dev/null; then
+    rm -rf "$work/src"
+    if git init --quiet "$work/src" \
+       && git -C "$work/src" remote add origin "$REPO_URL" \
+       && git -C "$work/src" fetch --quiet --depth 1 origin "$REPO_REF" 2>/dev/null \
+       && git -C "$work/src" checkout --quiet FETCH_HEAD 2>/dev/null; then :
+    else
+      rm -rf "$work/src"
+      git clone --quiet "$REPO_URL" "$work/src" \
+        && git -C "$work/src" checkout --quiet "$REPO_REF" \
+        || die "저장소를 받지 못했습니다: $REPO_URL ($REPO_REF)"
+    fi
+  fi
 else
+  step "소스 받기 ($REPO_URL — 서버가 자기 커밋을 모르는 빌드라 기본 브랜치)"
   git clone --quiet --depth 1 "$REPO_URL" "$work/src" \
     || die "저장소를 받지 못했습니다: $REPO_URL"
 fi
+SRC_COMMIT="$(git -C "$work/src" rev-parse HEAD 2>/dev/null || echo unknown)"
+say "  커밋 $SRC_COMMIT"
 
 step "데몬 빌드"
 # GOWORK=off: 저장소 루트의 go.work 는 server 까지 묶고 있어 필요 없는 의존성을 전부 끌어온다.
 # daemon·cli 모듈은 contracts 를 replace 로만 참조하므로 각자 따로 빌드된다.
-( cd "$work/src/daemon" && GOWORK=off go build -o "$work/$DAEMON_NAME" ./cmd/daemon ) \
-  || die "빌드에 실패했습니다. go 버전이 1.25 이상인지 확인하세요: $(go version 2>/dev/null)"
+# 데몬 버전 = 빌드한 커밋(S-64). probe 가 이 값을 daemon_version 으로 광고하고 S11 카드가 보여
+# 주므로, 서버와 다른 커밋의 데몬은 눈에 보인다(서버는 다르면 로그만 남긴다 — 계약상 대조 칸 없음).
+( cd "$work/src/daemon" && GOWORK=off go build -ldflags "-X main.version=$SRC_COMMIT" -o "$work/$DAEMON_NAME" ./cmd/daemon ) \
+  || die "빌드에 실패했습니다. go 버전이 ${GO_MIN:-1.25} 이상인지 확인하세요: $(go version 2>/dev/null)"
 
 step "colab CLI 빌드"
 # 버전은 저장소 Makefile 의 COLAB_VERSION 을 그대로 쓴다(여기에 숫자를 또 적으면 둘이 갈라진다).

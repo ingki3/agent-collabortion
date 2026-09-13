@@ -417,14 +417,31 @@ func CheckDiskQuota(usedBytes int64, quotaGB int) QuotaVerdict {
 // exactly the directories JudgeGC refused to touch. `workdir_ids` stays for a
 // daemon still on v0.6.
 //
-// production caller: workdirs.Service.SweepGC and sessions.gcWorkdirs.
-func BuildGCCommand(sessionID uuid.UUID, ids []uuid.UUID, paths []string) contracts.Command {
+// ONLY ABSOLUTE PATHS GO ON THE WIRE (S-65, the gc half of S-62). A workdir
+// row written before migration 0019 can hold a RELATIVE path, and the daemon
+// absolutises whatever it is given against its own CWD — for a gc command that
+// is an `rm -rf` of a directory inside the user's repository. queue.buildBundle
+// and PlanWorktree already refuse such rows for the turn; this is the same
+// filter where the deletion is made. A relative row is left out of the
+// command entirely (id AND path — an id with no path would make a v0.6 daemon
+// fall back to "every lane workdir of the session"), and the caller sees it in
+// the returned list and decides what to tell whom. A command with nothing left
+// has an empty `Workdirs` and must not be queued.
+//
+// production caller: workdirs.Service.SweepGC, sessions.gcWorkdirs and
+// httpapi.DeleteWorkdir.
+func BuildGCCommand(sessionID uuid.UUID, ids []uuid.UUID, paths []string) (contracts.Command, []uuid.UUID) {
 	targets := make([]contracts.GCWorkdir, 0, len(ids))
 	strIDs := make([]string, 0, len(ids))
+	var skipped []uuid.UUID
 	for i, id := range ids {
 		p := ""
 		if i < len(paths) {
 			p = paths[i]
+		}
+		if !filepath.IsAbs(p) {
+			skipped = append(skipped, id)
+			continue
 		}
 		strIDs = append(strIDs, id.String())
 		targets = append(targets, contracts.GCWorkdir{ID: id.String(), Path: p})
@@ -434,5 +451,5 @@ func BuildGCCommand(sessionID uuid.UUID, ids []uuid.UUID, paths []string) contra
 		SessionID:  sessionID.String(),
 		WorkdirIDs: strIDs,
 		Workdirs:   targets,
-	}
+	}, skipped
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/artifacts"
 	"github.com/ingki3/agent-collabortion/server/internal/auth"
+	"github.com/ingki3/agent-collabortion/server/internal/buildinfo"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/events"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
@@ -73,6 +74,14 @@ type Server struct {
 	// installer served at install.Path is rendered with it, so a machine that
 	// runs the S12 card's first line is pointed back at THIS server (S-63).
 	ServerURL string
+	// InstallRef is the commit or tag `/install.sh` pins the source build to
+	// (S-64): this server's own build ref (buildinfo.Ref) unless a test sets
+	// it. Empty = the script falls back to the repository's default branch and
+	// says so.
+	InstallRef string
+	// InstallGoMin is the Go version the installer requires (S-65),
+	// buildinfo.GoMin by default.
+	InstallGoMin string
 }
 
 // Deps builds every service on one pool and clock (used by main and tests).
@@ -87,6 +96,9 @@ type Deps struct {
 	// links. Falls back to ServerURL — in `make dev` the web is :3000 and the
 	// server :8080 (G3 S-5).
 	WebURL string
+	// InstallRef / InstallGoMin override buildinfo for the installer (tests).
+	InstallRef   string
+	InstallGoMin string
 }
 
 // NewServer wires the services.
@@ -97,6 +109,12 @@ func NewServer(d Deps) *Server {
 	problemLog = d.Log
 	if d.WebURL == "" {
 		d.WebURL = d.ServerURL
+	}
+	if d.InstallRef == "" {
+		d.InstallRef = buildinfo.Ref()
+	}
+	if d.InstallGoMin == "" {
+		d.InstallGoMin = buildinfo.GoMin()
 	}
 	hub := realtime.New(d.DB, d.Clock)
 	tok := tokens.New(d.Clock)
@@ -126,6 +144,7 @@ func NewServer(d Deps) *Server {
 	tc.Notify = notifier.Notify
 	return &Server{
 		DB: d.DB, Clock: d.Clock, Log: d.Log, ServerURL: d.ServerURL,
+		InstallRef: d.InstallRef, InstallGoMin: d.InstallGoMin,
 		Auth:      auth.New(d.DB, d.Clock, d.WebURL),
 		Agents:    agents.New(d.DB, d.Clock),
 		Artifacts: artifacts.New(d.DB, d.Clock),
@@ -162,8 +181,14 @@ func (s *Server) Handler() http.Handler {
 	// `sh`. Unauthenticated by construction — the machine running it has no
 	// account yet, and this is the FIRST thing anyone does. `install.Path` is
 	// the same constant `runtimes.installCommands` prints.
+	//
+	// S-64: the script pins the source build to THIS server's commit. Five
+	// people installing during one G8 session get the same tree the server
+	// runs, not whatever `main` is at that minute. S-65: `Cache-Control:
+	// no-store` — a proxy or browser that kept yesterday's script would hand
+	// out yesterday's ref.
 	mux.HandleFunc("GET "+install.Path, func(w http.ResponseWriter, _ *http.Request) {
-		body := install.Script(s.ServerURL)
+		body := install.Script(s.ServerURL, s.InstallRef, s.InstallGoMin)
 		w.Header().Set("Content-Type", install.ContentType)
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
