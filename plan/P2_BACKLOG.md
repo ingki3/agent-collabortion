@@ -116,7 +116,7 @@
 | ~~S-51~~ | 턴 종료와 경합한 취소가 흡수되지 않는다 — `completed` finish 는 `cancelRequested` 를 보지 않아 task `completed`·lane `done` 인데 피드에는 '사람이 중단함' 이 남아 화면과 어긋난다 | G6 2판 §9.6 (`51_` 첫 회차) | T-S9a | **해결 — PR #151** (완료는 완료로 두고, 피드에 '취소 요청이 턴 종료와 경합해 적용되지 않음' 을 남기고 명령을 소비한다)
 | S-52 | 서버가 **자기가 쓰는** `task_event` 12곳에서 닫힌 스키마를 어긴다 — `status` payload 에 `note`(집합 밖), verb `note`(enum 밖). S-41(422)은 데몬 위반만 막고 서버 자신은 예외. 고치면 피드 문구가 바뀌어 e2e 기대값을 건드린다 → 핫픽스 라운드에서 12곳 + e2e 기대값 함께 | T-S9 PR #162 보고 | P4 핫픽스(T-I4 전) |
 | S-53 | 재바인딩 뒤 첫 턴 프롬프트의 diff 재적용 지시(`RebindPrompt`)가 **번들에 실리지 않는다** — `Rebind` 가 저장하지 않고 `buildBundle` 이 읽지 않아 openapi `rebindSession`·E14-06 미충족. #162 골든이 `plan.Prompt` 만 재서 못 봄. 결정: `session.rebind_prompt`(0018) + 매 attempt `<rebind>` 구간 + **completed finish 에서 비움**(claim 에서 비우면 재큐잉에 유실) | T-S9b 발견 | T-S9b |
-| S-54 | 서버 자체 `task_event` 16곳의 리터럴 payload 를 한 표로 순회해 `ValidateServerEvent` 에 통과시키는 유닛이 없다 — 런타임 가드는 "그 프로세스에서 실제로 실행된 호출"만 본다 | PR #168 리뷰 NN1 | 낮음 |
+| S-54 | 서버 자체 `task_event` 16곳의 리터럴 payload 를 한 표로 순회해 `ValidateServerEvent` 에 통과시키는 유닛이 없다 — 런타임 가드는 "그 프로세스에서 실제로 실행된 호출"만 본다 | PR #168 리뷰 NN1 | **해결 PR #200**(go/ast 20곳 순회) |
 | S-55 | **차단(G7 1판)** — TaskBundle 의 `workdir.path` 가 **상대 경로**(`<session-slug>/<agent-slug>`)라 `worktree` 격리 세션이 첫 턴부터 전부 `failed(config)`. 계약 v0.7.3 §4.1: **서버가 probe `workdir_root` 로 절대 경로를 조립해 싣는다**. 데몬 몫은 D-21 | T-I4 61_ X1·X1b·X1c | **G7 2판 전** |
 | S-56 | **차단(G7 1판)** — `worktree` workdir 의 git 사실이 서버에 도달하지 않아 GC 가 미병합 커밋·미커밋 변경을 지운다(FR-6.4 M4 무력화). 서버가 §4.4 `Finish.Workdir.Git` 을 읽지 않고, §6 보고는 짝이 안 맞아 skip 된다. 부수: `disk_bytes` 0, gc 영수증 미도달로 행이 안 닫힘. 데몬 몫은 D-22 | T-I4 64_ P1·P1b·P1c·P1d·G2d | **G7 2판 전** |
 | S-57 | **차단(G7 1판)** — `rebind_prepare` 다운로드가 401(서버가 `downloadArtifact` 에서 DaemonToken 을 받지 않음) → 재바인딩 뒤 diff 가 디스크에 없어 E14-06 불성립, 명령도 소비되지 않아 30초마다 재발행. 계약은 K-13 으로 고쳤다 | T-I4 63_ R5f | **G7 2판 전** |
@@ -131,8 +131,10 @@
 | S-66 | **집필 단계가 3분 무응답 판정에 잘린다** — 실사용 두 세션·여섯 시도가 전부 `stall`(no session/update for 3m). 조사·위임은 통과하고 긴 글을 쓰는 턴에서만 죽어 아티팩트가 0 개다. 도구 실행·모델 응답 중에는 무응답으로 세지 않거나 기준을 바꿔야 한다(계약 `limits.stall_seconds` 180) | Director 실사용 2026-09-08 (세션 2건) | **높음 · G8 전** |
 | S-67 | **서버가 만드는 문장도 내부 용어다** — `Problem.detail` 12곳과 `Session started. Goal:` 등. 웹은 §8.4 로 고쳤는데 서버 문장은 그대로라 **화면과 실서버가 갈라진다**(목이 서버를 흉내 낸 자리에서 드러났다). COMPONENTS §8.4 원칙을 서버 사용자 대면 문장에도 적용 | T-W8 PR #188 보고 | 중 · G8 전 |
 | S-68 | `deleteWorkdir` 409 `workdir_dirty` 의 `Problem.detail` 이 계약(openapi #155 "gc_blocked_reason 과 같은 값")과 다르게 **문장**(`GCReasonText`)이다 — 목·골든·p4-mock 은 키를 기대하고 웹 S13 은 그 키로 사유를 분기한다. 서버가 키를 돌려주고 문장은 별도 칸(예: `title`)으로 | T-W10 PR #196 보고 | 중 |
-| S-69 | `GetWorkspaceSettings` 가 admin 을 요구한다 — openapi 는 "권한: 워크스페이스 멤버"(읽기), 갱신만 owner/admin. 멤버가 설정 탭을 열면 403 | T-W6 PR #199 보고 | 중 · T-S12 |
-| S-70 | `UpdateWorkspaceSettings` 가 `task_event_masking` 의 owner 전용(openapi "보안 탭 — owner만 변경")을 강제하지 않는다 — admin 이 바꿀 수 있다 | T-W6 PR #199 보고 | 중 · T-S12 |
+| S-69 | `GetWorkspaceSettings` 가 admin 을 요구한다 — openapi 는 "권한: 워크스페이스 멤버"(읽기), 갱신만 owner/admin. 멤버가 설정 탭을 열면 403 | T-W6 PR #199 보고 | **해결 PR #200** |
+| S-70 | `UpdateWorkspaceSettings` 가 `task_event_masking` 의 owner 전용(openapi "보안 탭 — owner만 변경")을 강제하지 않는다 — admin 이 바꿀 수 있다 | T-W6 PR #199 보고 | **해결 PR #200** |
+| S-71 | PR #200 리뷰 NN1~NN3 — `testchat.bundleResume` 의 runtime_kind 교차 가드(E8-08)에 테스트 없음(`if false` 로 바꿔도 초록) · `duplicate_after_resume_rate` 가 멱등키가 아니라 `message.content` 로 세어 위양성(같은 말 두 번) 가능 → `note` 에 "같은 내용으로 관측" 명시 또는 `source_task_id+seq` 근거로 좁히기 · `internal/testchat` 유닛 0개 | PR #200 리뷰 | 낮음 · 서버 소규모 라운드 |
+| K-15 | 시험 대화 턴이 `runtime_policy.max_concurrent_tasks` 를 세션 task 와 **함께** 센다(계약 §4.5 "똑같이 한 슬롯") — 시험 대화가 켜져 있으면 세션 동시 실행 상한이 실질적으로 줄어든다. 의도된 설계, Director 가 체감하면 재검토 | PR #200 리뷰 NN5 | 알고 있기 |
 
 ## C (CLI)
 
