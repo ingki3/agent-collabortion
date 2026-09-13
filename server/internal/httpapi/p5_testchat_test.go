@@ -221,7 +221,7 @@ func TestP5TestChatLifecycle(t *testing.T) {
 	}
 	f.daemon(t, 200, att+"finish", map[string]any{
 		"outcome": "completed", "stop_reason": "end_turn", "transport": "acp", "last_seq": 4,
-		"usage": map[string]any{"input_tokens": 1200, "output_tokens": 300, "estimated": true, "model": "claude-sonnet-5"},
+		"usage":               map[string]any{"input_tokens": 1200, "output_tokens": 300, "estimated": true, "model": "claude-sonnet-5"},
 		"runtime_session_ref": map[string]any{"runtime_kind": "claude_code", "session_id": "acp-tc-1", "cwd": b.Workdir.Path, "created_at": f.fake.Now()},
 	})
 	select {
@@ -425,7 +425,8 @@ func TestP5TestChatCloseCancelsTurnInFlight(t *testing.T) {
 		}
 	}
 	// A chat closed while a turn was still QUEUED (never claimed) closes that
-	// turn itself — there is no machine to cancel and nothing to gc.
+	// turn itself — there is no attempt to cancel. The gc still goes out
+	// (§4.5 "언제나"), naming the path the bundle would have carried.
 	chat2 := f.create(t, map[string]any{})
 	f.turn(t, str(chat2, "id"), "아직 안 나간 턴")
 	closed := f.api.must(200, "POST", f.p+"/test-chats/"+str(chat2, "id")+"/close", nil)
@@ -437,10 +438,20 @@ func TestP5TestChatCloseCancelsTurnInFlight(t *testing.T) {
 	if len(bundles) != 0 {
 		t.Errorf("a closed chat's queued turn was claimed: %+v", bundles)
 	}
+	var gcs int
 	for _, c := range cmds {
-		if c.TestChatID == str(chat2, "id") {
-			t.Errorf("command for a chat that never reached a machine: %+v", c)
+		if c.Type == contracts.CmdCancel && c.TaskID == str(chat2, "id") {
+			t.Errorf("cancel for a turn that never reached a machine: %+v", c)
 		}
+		if c.Type == contracts.CmdGC && c.TestChatID == str(chat2, "id") {
+			gcs++
+			if want := "/Users/x/.colab/.colab/testchat/" + str(chat2, "id"); len(c.Workdirs) != 1 || c.Workdirs[0].Path != want {
+				t.Errorf("gc path = %+v, want %s", c.Workdirs, want)
+			}
+		}
+	}
+	if gcs != 1 {
+		t.Errorf("gc commands for the never-dispatched chat = %d, want 1 (§4.5 언제나 gc)", gcs)
 	}
 }
 

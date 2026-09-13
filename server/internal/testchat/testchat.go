@@ -327,13 +327,27 @@ func (s *Service) Close(ctx context.Context, id uuid.UUID) (*Row, error) {
 					return err
 				}
 			}
-			// The directory exists only once a turn has been dispatched (the
-			// daemon mkdir -p's on the first bundle); a chat closed before any
-			// turn went out has nothing on disk to delete.
-			if r.WorkdirPath != nil && *r.WorkdirPath != "" {
+			// §4.5 "언제나 gc". The path is the one the bundle carried; a chat
+			// closed before any turn was dispatched never had one, so it is
+			// assembled from the runtime's workdir_root the same way — the
+			// daemon's rm -rf of a directory that was never made is a no-op
+			// receipt, and the command is consumed like any other. Only a
+			// runtime that has not probed (no root) leaves nothing to name.
+			path := ""
+			if r.WorkdirPath != nil {
+				path = *r.WorkdirPath
+			}
+			if path == "" {
+				var root *string
+				_ = tx.QueryRow(ctx, `SELECT workdir_root FROM runtime WHERE id = $1`, *r.RuntimeID).Scan(&root)
+				if root != nil && *root != "" {
+					path = WorkdirPath(*root, r.ID)
+				}
+			}
+			if path != "" {
 				if err := tokens.QueueCommand(ctx, tx, *r.RuntimeID, contracts.Command{
 					Type: contracts.CmdGC, TestChatID: r.ID.String(),
-					Workdirs: []contracts.GCWorkdir{{ID: r.ID.String(), Path: *r.WorkdirPath}},
+					Workdirs: []contracts.GCWorkdir{{ID: r.ID.String(), Path: path}},
 				}); err != nil {
 					return err
 				}
