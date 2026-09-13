@@ -291,6 +291,72 @@ describe("S14 — 알림(개인) · 멤버", () => {
     expect(post.mock.calls[0][1].idempotencyKey).toBeTruthy();
   });
 
+  it("멤버 탭(admin): 자기 역할을 내리면 확인 다이얼로그(무엇이 사라지는지) — 취소면 PATCH 없음, 내리기면 PATCH (PR #209 NN5)", async () => {
+    tabParam = "members";
+    setRole("admin");
+    const mine = { ...members[0], role: "admin" as const };
+    const owner: Member = { id: "m3", workspace_id: "w1", user: { id: "u3", email: "own@example.com", display_name: "지훈", avatar_url: null, created_at: "2026-09-06T09:00:00Z" }, role: "owner", created_at: "2026-09-06T09:00:00Z" };
+    get.mockImplementation(async (path: string) => {
+      if (path === "/workspaces/{workspaceId}/members") return { items: [mine, members[1], owner], next_cursor: null };
+      if (path === "/workspaces/{workspaceId}/invites") return [];
+      throw new Error(`unexpected GET ${path}`);
+    });
+    const all = [mine, members[1], owner];
+    patch.mockImplementation(async (_p: string, opts: { path: { memberId: string }; body: { role: string } }) => ({ ...all.find((m) => m.id === opts.path.memberId)!, role: opts.body.role }));
+    render(<SettingsPage />);
+    const rows = await screen.findAllByTestId("member-row");
+    const me = rows.find((r) => r.textContent?.includes("(나)"))!;
+    const sel = within(me).getByTestId("member-role") as HTMLSelectElement;
+    expect(sel.disabled).toBe(false);
+    // 소유자로 올리는 것은 소유자만(서버 PlanRoleChange) — 관리자에게 「소유자」 항목은 꺼져 있다.
+    expect((within(me).getByRole("option", { name: "소유자" }) as HTMLOptionElement).disabled).toBe(true);
+    fireEvent.change(sel, { target: { value: "member" } });
+    const dialog = await screen.findByTestId("member-self-demote");
+    expect(dialog.textContent).toContain("내 역할을 관리자에서 멤버로 내립니다");
+    expect(dialog.textContent).toContain("멤버 초대·역할 변경·워크스페이스 설정 변경을 더는 할 수 없");
+    expect(dialog.textContent).toContain("다른 소유자·관리자가 올려 줘야");
+    expect(patch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("member-self-demote-no"));
+    expect(screen.queryByTestId("member-self-demote")).toBeNull();
+    expect(patch).not.toHaveBeenCalled();
+    fireEvent.change(sel, { target: { value: "member" } });
+    fireEvent.click(await screen.findByTestId("member-self-demote-yes"));
+    await waitFor(() => expect(patch).toHaveBeenCalledWith("/workspaces/{workspaceId}/members/{memberId}", { path: { workspaceId: "w1", memberId: "m1" }, body: { role: "member" } }));
+    await waitFor(() => expect(screen.queryByTestId("member-self-demote")).toBeNull());
+    // 다른 멤버를 올리는 것(admin 이 member → admin)은 확인 없이 바로 PATCH.
+    const other = rows.find((r) => r.textContent?.includes("서연"))!;
+    fireEvent.change(within(other).getByTestId("member-role"), { target: { value: "admin" } });
+    await waitFor(() => expect(patch).toHaveBeenCalledWith("/workspaces/{workspaceId}/members/{memberId}", { path: { workspaceId: "w1", memberId: "m2" }, body: { role: "admin" } }));
+    expect(screen.queryByTestId("member-self-demote")).toBeNull();
+    // 소유자 행 — 관리자는 역할도 못 바꾸고(사유) 내보내기도 잠긴다(서버 owner_only 를 화면이 미리 안다).
+    const ownerRow = rows.find((r) => r.textContent?.includes("지훈"))!;
+    expect((within(ownerRow).getByTestId("member-role") as HTMLSelectElement).disabled).toBe(true);
+    expect(within(ownerRow).getByTestId("member-role-why").textContent).toContain("소유자만");
+    expect((within(ownerRow).getByTestId("member-remove") as HTMLButtonElement).disabled).toBe(true);
+    expect(within(ownerRow).getByTestId("member-remove").getAttribute("title")).toBe("소유자는 소유자만 내보낼 수 있습니다");
+  });
+
+  it("멤버 탭(owner): 다른 멤버를 내리는 것은 확인 없이 PATCH · 제거 409 의 detail 은 서버 문장 그대로(확장 칸 없음)", async () => {
+    tabParam = "members";
+    const members3: Member[] = [...members, { id: "m3", workspace_id: "w1", user: { id: "u3", email: "own@example.com", display_name: "지훈", avatar_url: null, created_at: "2026-09-06T09:00:00Z" }, role: "admin", created_at: "2026-09-06T09:00:00Z" }];
+    get.mockImplementation(async (path: string) => {
+      if (path === "/workspaces/{workspaceId}/members") return { items: members3, next_cursor: null };
+      if (path === "/workspaces/{workspaceId}/invites") return [];
+      throw new Error(`unexpected GET ${path}`);
+    });
+    patch.mockImplementation(async (_p: string, opts: { body: { role: string } }) => ({ ...members3[2], role: opts.body.role }));
+    del.mockRejectedValue(new ApiError({ type: "about:blank", status: 409, title: "지금은 할 수 없음", code: "member_is_director", detail: "이 멤버가 Director 인 진행 중 세션이 1개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요" }));
+    render(<SettingsPage />);
+    const rows = await screen.findAllByTestId("member-row");
+    const admin = rows.find((r) => r.textContent?.includes("지훈"))!;
+    fireEvent.change(within(admin).getByTestId("member-role"), { target: { value: "member" } });
+    await waitFor(() => expect(patch).toHaveBeenCalledWith("/workspaces/{workspaceId}/members/{memberId}", { path: { workspaceId: "w1", memberId: "m3" }, body: { role: "member" } }));
+    expect(screen.queryByTestId("member-self-demote")).toBeNull();
+    fireEvent.click(within(admin).getByTestId("member-remove"));
+    fireEvent.click(within(admin).getByTestId("member-remove-yes"));
+    await waitFor(() => expect(screen.getByTestId("members-error").textContent).toBe("이 멤버가 Director 인 진행 중 세션이 1개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요"));
+  });
+
   it("멤버 탭(member): 초대 구역이 없고 사유가 있다 · 역할 선택 잠김", async () => {
     tabParam = "members";
     setRole("member");

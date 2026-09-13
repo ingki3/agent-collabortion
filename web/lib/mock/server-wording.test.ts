@@ -15,12 +15,14 @@
  *   (e) 세션 시작 시스템 메시지 — 목·`e2e/u1.sh` 단언·서버 `sessions.go` 가 같은 머리말을 쓴다.
  *   (f) 관측 지표 10개(`METRIC_DEFS`)는 서버 `internal/metrics/metrics.go` 의 `Defs` 와 **항목 단위로 같다**(key·unit·target·
  *       target_op·label·note — Go 소스를 파싱해 비교). S14 「대시보드」가 그대로 보이는 문장이라 서버가 정한다(T-W11).
- *   (g) T-S12(#200) 가 만든 op — 시험 대화·지표·보안 탭 403 — 의 문장은 `MOCK_ONLY` 에 남아 있지 않고 `SERVER` 에서 온다.
+ *   (g) T-S12(#200)·T-S14(#209) 가 만든 op — 시험 대화·지표·보안 탭 403 · 멤버 역할·제거 · 알림 설정 — 의 문장은 전부 `SERVER` 에서
+ *       온다. `MOCK_ONLY` 는 없다(서버가 안 만든 op 이 0건). 목의 오류 code·순서·판정 조건이 서버 소스(`auth/members.go`
+ *       PlanRoleChange · PlanRemoval, `handlers_members.go`, `auth/notifications.go`)와 같은지 문자열로 잰다(T-W12).
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { josa, METRIC_DEFS, MOCK_ONLY, NOT_FOUND_NOUN, notFound, SERVER, STATUS_LABEL, TITLE, fmt, W } from "./wording";
+import { josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, SERVER, STATUS_LABEL, TITLE, fmt, W } from "./wording";
 
 const SERVER_ROOT = join(__dirname, "..", "..", "..", "server");
 const HANDLERS = readFileSync(join(__dirname, "handlers.ts"), "utf8");
@@ -133,7 +135,9 @@ describe("(d) handlers.ts 는 표를 전부 쓰고 옛 문장을 남기지 않�
     ]) expect(HANDLERS, old).not.toContain(old);
   });
   it("Problem.title 을 손으로 적지 않는다 — 상태에서 정한다(apperr.Title)", () => {
-    expect(HANDLERS).not.toMatch(/new Problem\(\d+, "(?:unauthorized|forbidden|not found|gone|validation failed|conflict)"/);
+    // 둘째 인자는 code 다 — 옛 영어 title 이 그 자리에 남지 않았는지 잰다. `unauthorized` 는 서버 principal.go 의 401 code 그대로라 예외(T-W12).
+    expect(HANDLERS).not.toMatch(/new Problem\(\d+, "(?:forbidden|not found|gone|validation failed|conflict)"/);
+    expect(HANDLERS).not.toMatch(/new Problem\((?!401)\d+, "unauthorized"/);
     expect(HANDLERS).toContain("title: titleOf(status)");
   });
   it("404 는 명사표로 만든다 — detail 없는 not_found 가 없다", () => {
@@ -185,15 +189,64 @@ describe("(f) 관측 지표 10개 — 목 METRIC_DEFS 는 서버 metrics.Defs �
   });
 });
 
-describe("(g) T-S12 #200 이 만든 op 의 문장은 MOCK_ONLY 가 아니라 SERVER 에서 온다", () => {
-  it("MOCK_ONLY 에는 서버가 아직 안 만든 멤버·알림 op 의 문장만 남았다", () => {
-    expect(Object.keys(MOCK_ONLY).sort()).toEqual(["last_owner", "member_is_director", "owner_demote_owner_only", "role_enum", "subscription_enum"]);
-    // 그 op 들은 실제로 아직 unimplemented.go 에 있다 — 서버가 만들면 이 단언이 빨개지고, 그때 SERVER 로 옮긴다.
-    // unimplemented.go 는 이미 구현된 op 의 스텁(Login 등)도 품고 있어 "스텁이 있다 = 미구현" 이 아니다.
-    // 미구현의 근거는 **Server 메서드의 부재**다 — httpapi/*.go 어디에도 `func (s *Server) <Op>(` 가 없을 때.
-    const serverImpl = readdirSync(join(SERVER_ROOT, "internal/httpapi")).filter((f) => f.endsWith(".go") && !f.endsWith("_test.go") && f !== "unimplemented.go").map((f) => goSource(`internal/httpapi/${f}`)).join("\n");
-    for (const op of ["UpdateMemberRole", "RemoveMember", "GetNotificationSettings", "UpdateNotificationSettings"]) expect(serverImpl).not.toContain(`func (s *Server) ${op}(`);
-    for (const op of ["CreateTestChat", "PostTestChatTurn", "CloseTestChat", "GetTestChat", "GetWorkspaceMetrics"]) expect(serverImpl).toContain(`func (s *Server) ${op}(`);
+describe("(g) T-S12 #200 · T-S14 #209 가 만든 op 의 문장은 전부 SERVER 에서 온다 — MOCK_ONLY 는 없다", () => {
+  const WORDING = readFileSync(join(__dirname, "wording.ts"), "utf8");
+  const serverImpl = readdirSync(join(SERVER_ROOT, "internal/httpapi")).filter((f) => f.endsWith(".go") && !f.endsWith("_test.go") && f !== "unimplemented.go").map((f) => goSource(`internal/httpapi/${f}`)).join("\n");
+  it("MOCK_ONLY 표가 없고 handlers.ts 도 그것을 안 쓴다 — 서버가 안 만든 op 이 0건이다", () => {
+    expect(WORDING).not.toMatch(/export const MOCK_ONLY\b/);
+    expect(HANDLERS).not.toContain("MOCK_ONLY");
+    // 근거는 **Server 메서드의 존재**다(스텁 유무가 아니다 — unimplemented.go 는 구현된 op 의 스텁도 품는다).
+    for (const op of ["UpdateMemberRole", "RemoveMember", "GetNotificationSettings", "UpdateNotificationSettings",
+      "CreateTestChat", "PostTestChatTurn", "CloseTestChat", "GetTestChat", "GetWorkspaceMetrics"]) expect(serverImpl).toContain(`func (s *Server) ${op}(`);
+  });
+  it("멤버 역할 변경 — 서버 순서(권한 → enum 422 → 404 → 판정)와 PlanRoleChange 의 두 조건·code 가 같다", () => {
+    const fn = HANDLERS.match(/on\("PATCH", "\/workspaces\/\{id\}\/members\/\{mid\}"[\s\S]*?\n\}\);/)![0];
+    const order = ["requireAdmin(", 'code: "enum", message: W.role_enum', "memberOf(", 'new Problem(403, "owner_only", W.owner_only_role)', 'new Problem(409, "last_owner", W.last_owner_demote)'];
+    const idx = order.map((x) => fn.indexOf(x));
+    expect(idx.every((i) => i >= 0)).toBe(true);
+    expect([...idx].sort((a, b) => a - b)).toEqual(idx);
+    // 소유자 층 = 대상이 소유자 **또는** 새 역할이 소유자(서버 `touchesOwner`) — 강등만 보던 옛 목 분기는 없다.
+    expect(fn).toContain('target.role === "owner" || b.role === "owner"');
+    const members = goSource("internal/auth/members.go");
+    expect(members).toContain('touchesOwner := c.TargetRole == "owner" || c.NewRole == "owner"');
+    expect(members).toContain(`apperr.Forbidden(CodeOwnerOnly, "${W.owner_only_role}")`);
+    expect(members).toContain(`apperr.Conflict(CodeLastOwner, "${W.last_owner_demote}")`);
+    expect(goSource("internal/httpapi/handlers_members.go")).toContain(`apperr.Field("role", "enum", "${W.role_enum}")`);
+    expect(HANDLERS).not.toContain("owner_demote_owner_only");
+  });
+  it("멤버 제거 — PlanRemoval 의 세 조건(403 소유자만 → 409 마지막 소유자 → 409 Director %d개)과 활성 세션 집합이 서버와 같다", () => {
+    const fn = HANDLERS.match(/on\("DELETE", "\/workspaces\/\{id\}\/members\/\{mid\}"[\s\S]*?\n\}\);/)![0];
+    const order = ["requireAdmin(", "memberOf(", 'new Problem(403, "owner_only", W.owner_only_remove)', 'new Problem(409, "last_owner", W.last_owner_remove)', 'new Problem(409, "member_is_director", fmt(W.member_is_director, directing))'];
+    const idx = order.map((x) => fn.indexOf(x));
+    expect(idx.every((i) => i >= 0)).toBe(true);
+    expect([...idx].sort((a, b) => a - b)).toEqual(idx);
+    // 서버는 `sessions[]` 확장 칸을 싣지 않는다 — 세션 수는 문장 안에만.
+    expect(fn).not.toContain("sessions:");
+    expect(fmt(W.member_is_director, 2)).toBe("이 멤버가 Director 인 진행 중 세션이 2개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요");
+    const members = goSource("internal/auth/members.go");
+    expect(members).toContain(`apperr.Forbidden(CodeOwnerOnly, "${W.owner_only_remove}")`);
+    expect(members).toContain(`apperr.Conflict(CodeLastOwner, "${W.last_owner_remove}")`);
+    expect(members).toContain(`fmt.Sprintf("${W.member_is_director}", c.DirectorSessions)`);
+    // 활성 세션 = 끝나지 않은 세션 전부(draft 포함) — 서버 상수와 목 집합이 같은 네 값.
+    const goSet = members.match(/const activeSessionStatuses = `\(([^)]*)\)`/)![1].split(",").map((x) => x.trim().replace(/'/g, "")).sort();
+    const tsSet = HANDLERS.match(/const ACTIVE_SESSION = new Set<Session\["status"\]>\(\[([^\]]*)\]\)/)![1].split(",").map((x) => x.trim().replace(/"/g, "")).sort();
+    expect(tsSet).toEqual(goSet);
+    expect(goSet).toEqual(["active", "completing", "draft", "paused"]);
+  });
+  it("멤버 404 — 서버 memberNotFound 의 문장(명사표 밖) · 목은 notFound('user') 를 쓰지 않는다", () => {
+    expect(goSource("internal/httpapi/handlers_members.go")).toContain(`apperr.New(http.StatusNotFound, "not_found", "${W.member_not_found}")`);
+    expect(HANDLERS).toContain('new Problem(404, "not_found", W.member_not_found)');
+    expect(HANDLERS.match(/function memberOf[\s\S]*?\n\}/)![0]).not.toContain('notFound("user")');
+  });
+  it("알림 설정 — enum 422 의 field·code·문장, 기본값, 부분 갱신이 서버와 같다", () => {
+    const notif = goSource("internal/auth/notifications.go");
+    expect(notif).toContain(`apperr.Field("default_subscription", "enum", "${W.subscription_enum}")`);
+    expect(HANDLERS).toContain('validation([{ field: "default_subscription", code: "enum", message: W.subscription_enum }])');
+    // 기본값 email true · push false · all (openapi default = 0021 열 기본값).
+    expect(notif).toContain("gen.NotificationSettings{Email: true, Push: false, DefaultSubscription: gen.SubscriptionLevelAll}");
+    expect(HANDLERS).toContain('const DEFAULT_NOTIFICATIONS: NotificationSettings = { email: true, push: false, default_subscription: "all" };');
+    // 부분 갱신 — 빠진 키는 저장값 유지.
+    expect(HANDLERS).toContain("email: b.email ?? cur.email, push: b.push ?? cur.push, default_subscription: b.default_subscription ?? cur.default_subscription");
   });
   it("시험 대화 — 409·410·403·404·422 의 code 와 문장이 서버와 같다", () => {
     expect(HANDLERS).toContain('new Problem(409, "turn_in_progress", W.test_chat_turn_in_progress)');
@@ -213,6 +266,14 @@ describe("(g) T-S12 #200 이 만든 op 의 문장은 MOCK_ONLY 가 아니라 SER
     expect(HANDLERS).not.toContain("masking_owner_only");
     expect(readFileSync(join(__dirname, "wording.ts"), "utf8")).not.toContain("masking_owner_only");
     expect(goSource("internal/httpapi/handlers_settings.go")).toContain('apperr.Forbidden("owner_required", "');
+  });
+  it("Problem 봉투 — `type` 접두(https://colab.dev/problems/<code>)와 401 code(unauthorized)가 서버 problem.go·principal.go 와 같다 (T-W12 curl 대조)", () => {
+    expect(goSource("internal/httpapi/problem.go")).toContain('"type":   "https://colab.dev/problems/" + p.Code,');
+    expect(HANDLERS).toContain("type: `https://colab.dev/problems/${code ?? \"\"}`");
+    expect(HANDLERS).not.toContain('"about:blank"');
+    expect(goSource("internal/httpapi/principal.go")).toContain(`apperr.Unauthorized("unauthorized", "${W.login_required}")`);
+    expect(HANDLERS).toContain('new Problem(401, "unauthorized", W.login_required)');
+    expect(HANDLERS).not.toContain('"unauthenticated"');
   });
   it("403 admin 의 code 도 서버(admin_required)와 같다", () => {
     expect(HANDLERS).not.toContain('"not_admin"');

@@ -8,7 +8,7 @@
  *
  * 규칙:
  *   - `at` 은 `server/` 기준 경로. 그 파일에 `text` 가 리터럴로 있어야 한다(형식 문자열은 `%d`·`%s` 앞까지).
- *   - 목에만 있는 경로(서버가 아직 안 만든 op)의 문장은 여기 넣지 않는다 — 대조할 정답이 없다.
+ *   - 목에만 있는 경로(서버가 아직 안 만든 op)의 문장은 `SERVER` 에 넣지 않는다 — 대조할 정답이 없다. 지금은 그런 op 이 없다(T-W12).
  */
 
 import type { Metric } from "@/lib/api/types";
@@ -197,24 +197,28 @@ export const SERVER = {
   // 옮기면 이 항목은 빨개지고 `NOT_FOUND_NOUN.test_chat` 으로 옮긴다.
   test_chat_not_found: { text: "시험 대화를 찾을 수 없습니다", at: "internal/httpapi/handlers_testchat.go" },
   test_chat_content_required: { text: "보낼 메시지를 적어 주세요", at: "internal/httpapi/handlers_testchat.go" },
+  // ── 멤버 역할·제거 (internal/auth/members.go · httpapi/handlers_members.go) — T-S14 #209. 판정은 서버의 순수 함수
+  //    PlanRoleChange · PlanRemoval 그대로: 소유자 층(대상이 소유자 **또는** 새 역할이 소유자)은 소유자만(403 owner_only),
+  //    마지막 소유자는 강등·제거 불가(409 last_owner), 그 멤버가 Director 인 끝나지 않은 세션(draft·active·paused·completing)이
+  //    있으면 제거 불가(409 member_is_director, %d 개). ──
+  owner_only_role: { text: "소유자 역할을 주거나 거두는 것은 소유자만 할 수 있습니다", at: "internal/auth/members.go" },
+  last_owner_demote: { text: "마지막 소유자는 강등할 수 없습니다 — 먼저 다른 멤버를 소유자로 지정해 주세요", at: "internal/auth/members.go" },
+  owner_only_remove: { text: "소유자를 내보내는 것은 소유자만 할 수 있습니다", at: "internal/auth/members.go" },
+  last_owner_remove: { text: "마지막 소유자는 내보낼 수 없습니다 — 먼저 다른 멤버를 소유자로 지정해 주세요", at: "internal/auth/members.go" },
+  member_is_director: { text: "이 멤버가 Director 인 진행 중 세션이 %d개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요", at: "internal/auth/members.go" },
+  role_enum: { text: "역할은 소유자 · 관리자 · 멤버 중 하나여야 합니다", at: "internal/httpapi/handlers_members.go" },
+  // 404 — 서버는 `NotFoundNouns` 밖에서 조립한다(handlers_members.go `memberNotFound`, 이유는 test_chat_not_found 와 같다).
+  // 서버가 표로 옮기면 이 항목은 빨개지고 `NOT_FOUND_NOUN.member` 로 옮긴다.
+  member_not_found: { text: "멤버를 찾을 수 없습니다", at: "internal/httpapi/handlers_members.go" },
+  // ── 알림 설정(개인) (internal/auth/notifications.go) — T-S14 #209. 부분 갱신(빠진 키는 저장값 유지), enum 밖 422. ──
+  subscription_enum: { text: "구독 기본값은 전부 · 사람 확인만 · 종료만 중 하나여야 합니다", at: "internal/auth/notifications.go" },
 } as const satisfies Record<string, ServerSentence>;
 
 /**
- * **서버가 아직 만들지 않은 op** 의 목 문장 — T-S12(#200) 뒤에도 `unimplemented.go` 에 남아 있는
- * updateMemberRole · removeMember · getNotificationSettings · updateNotificationSettings 의 것만. 대조할 정답이 없으므로
- * `SERVER` 표에 넣지 않고 여기 따로 둔다 — 서버가 만들면 그 문장을 `SERVER` 로 옮기며 `at` 을 채운다.
- * (시험 대화·지표·보안 탭 403 은 T-W11 에서 `SERVER` 로 옮겼다 — `server-wording.test.ts` 가 서버 소스와 대조한다.)
- * 규칙은 같다: §8.4 의 말, `Problem.detail` 한 문장, 화면 문구는 이 표를 통해서만.
+ * `MOCK_ONLY` 는 없다(T-W12) — T-S14(#209)가 멤버 역할·제거 · 알림 설정 4 op 을 만들어 **서버가 안 만든 op 의 문장이 0건**이다.
+ * 목의 모든 문장은 `SERVER` 표를 거쳐 서버 소스와 대조된다. 새 op 이 목에 먼저 생기면 그때 다시 만들되, 규칙은 같다:
+ * §8.4 의 말, `Problem.detail` 한 문장, 서버가 만들면 `SERVER` 로 옮기며 `at` 을 채운다.
  */
-export const MOCK_ONLY = {
-  // 멤버 (updateMemberRole · removeMember)
-  last_owner: "마지막 소유자는 강등하거나 제거할 수 없습니다",
-  owner_demote_owner_only: "소유자 강등은 소유자만 할 수 있습니다",
-  member_is_director: "이 멤버가 Director 인 진행 중 세션이 있습니다 — 먼저 Director 를 교체해 주세요",
-  role_enum: "역할은 owner · admin · member 중 하나여야 합니다",
-  // 알림 (updateNotificationSettings)
-  subscription_enum: "구독 기본값은 전부 · 사람 확인만 · 종료만 중 하나여야 합니다",
-} as const;
 
 /**
  * 관측 지표 10개의 정의 — 서버 `internal/metrics/metrics.go` 의 `Defs` 표(PRD §11 열 순서)를 **그대로** 옮긴 것.
@@ -243,7 +247,7 @@ export const METRIC_DEFS: readonly MetricDef[] = [
     note: "컴퓨터 종류별로 완료된 할 일 ÷ (완료 + 실패). 종류별 값과 목표는 따로 나눠 준다." },
   { key: "duplicate_after_resume_rate", unit: "ratio", target: 0.01, target_op: "lt",
     label: "다시 이어 간 뒤 같은 메시지를 두 번 올린 비율",
-    note: "두 번째 이상 실행된 할 일 중 같은 내용의 메시지가 두 번 올라간 것이 관측된 비율." },
+    note: "두 번째 이상 실행된 할 일 중 같은 내용의 메시지가 두 번 올라간 것이 관측된 비율. 멱등키가 아니라 내용이 같은지로 세므로, 에이전트가 같은 말을 두 번 한 경우도 함께 잡힙니다." },
   { key: "resume_success_rate", unit: "ratio", target: 0.9, target_op: "gt",
     label: "다시 이어 갈 때 이전 대화를 그대로 이어받은 비율",
     note: "이전 대화를 이어받으려 한 실행 중 실제로 이어받은(처음부터 다시 시작하지 않은) 비율." },

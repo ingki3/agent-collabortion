@@ -233,7 +233,7 @@ export function WorkspaceSettingsTab({ tab, settings, role, onSave, fieldErrors 
 export function NotificationsTab({ settings, onSave, error }: {
   settings: NotificationSettings | null;
   onSave: (next: NotificationSettings) => Promise<NotificationSettings | null>;
-  /** 서버가 아직 이 op 을 안 만들었으면(501) 그 문장을 그대로 보인다 — 화면이 값을 지어내지 않는다. */
+  /** 읽기·저장이 거절되면(T-S14 #209: 익명 401 · 에이전트 토큰 403 · enum 밖 422) 그 문장을 그대로 보인다 — 화면이 값을 지어내지 않는다. */
   error?: string | null;
 }) {
   const [draft, setDraft] = useState<NotificationSettings | null>(settings);

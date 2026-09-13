@@ -12,7 +12,7 @@ import {
   defaultSettings, emit, makeAgent, makeRuntime, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges,
   sseFrame, store, stripUser, TEMPLATES, uuid, type MockInvite, type MockTask, type Store, type Subscriber,
 } from "./store";
-import { fmt, josa, METRIC_DEFS, MOCK_ONLY, NOT_FOUND_NOUN, notFound, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
+import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
 /**
  * RFC 9457 Problem — `title` 은 서버(`apperr.Title`)처럼 **상태 코드에서** 정한다. 문장(`detail`·`errors[].message`)은
@@ -25,8 +25,8 @@ export class Problem extends Error {
     this.title = titleOf(status);
   }
 }
-/** `apperr.Validation(fields…)` — detail 은 고정 문장, 필드별 문장은 `errors[]`. */
-const validation = (errors: { field: string; message: string }[]) => new Problem(422, "validation_failed", VALIDATION_DETAIL, { errors });
+/** `apperr.Validation(fields…)` — detail 은 고정 문장, 필드별 문장은 `errors[]`(`code` 는 서버가 `apperr.Field` 로 넣는 자리만). */
+const validation = (errors: { field: string; code?: string; message: string }[]) => new Problem(422, "validation_failed", VALIDATION_DETAIL, { errors });
 /** `apperr.NotFound(what)` — 명사표로 문장을 만든다. */
 const notFoundP = (what: keyof typeof NOT_FOUND_NOUN) => new Problem(404, "not_found", notFound(what));
 /** 409 `(현재 상태: …)` 꼬리 — 서버가 `apperr.StatusLabel` 로 붙이는 것과 같은 모양. */
@@ -72,8 +72,9 @@ export async function dispatch(req: Req): Promise<Res> {
   return problem(404, "not_found", `${req.method} ${req.path} 는 목 API 에 없습니다(P1 범위 밖이거나 미구현)`);
 }
 
+/** 서버 `writeProblem`(httpapi/problem.go) 과 같은 키 — `type` 은 `https://colab.dev/problems/<code>`(실서버 curl 실값, T-W12). */
 function problem(status: number, code?: string, detail?: string, extra?: Record<string, unknown>): Res {
-  return { status, body: { type: "about:blank", title: titleOf(status), status, code, detail, ...extra }, headers: { "Content-Type": "application/problem+json" } };
+  return { status, body: { type: `https://colab.dev/problems/${code ?? ""}`, title: titleOf(status), status, code, detail, ...extra }, headers: { "Content-Type": "application/problem+json" } };
 }
 const ok = (body: unknown, status = 200, headers?: Record<string, string>): Res => ({ status, body, headers });
 
@@ -85,7 +86,7 @@ function currentUser(s: Store, req: Req) {
 }
 function requireUser(s: Store, req: Req) {
   const u = currentUser(s, req);
-  if (!u) throw new Problem(401, "unauthenticated", W.login_required);
+  if (!u) throw new Problem(401, "unauthorized", W.login_required); // code 도 서버(principal.go)와 같게 — T-W12 curl 대조
   return u;
 }
 function requireMember(s: Store, req: Req, workspaceId: string) {
@@ -2084,8 +2085,8 @@ on("POST", "/__mock/workdir-quota", (req) => {
 // ═════════════════════════════════════════════════════════════════════════════
 // P5 (T-W6) — S14 설정 8탭 + 대시보드 · S10 시험 대화.
 // 응답 모양은 openapi 스키마를 **글자 단위로** 따른다(T-W10 의 교훈 — 목이 서버와 다른 말을 하면 화면 테스트가 실서버를
-// 대변하지 못한다). 응답 모양과 문장은 실서버(T-S12 #200)를 curl 한 것과 필드 단위로 맞췄다(T-W11) — 문장은 `wording.ts` 의
-// `SERVER` 표(서버 소스와 대조), 서버가 아직 안 만든 멤버·알림 op 의 문장만 `MOCK_ONLY`.
+// 대변하지 못한다). 응답 모양과 문장은 실서버(T-S12 #200 · T-S14 #209)를 curl 한 것과 필드 단위로 맞췄다(T-W11 · T-W12) — 문장은
+// 전부 `wording.ts` 의 `SERVER` 표(서버 소스와 대조). 서버가 아직 안 만든 op 은 없다.
 // ═════════════════════════════════════════════════════════════════════════════
 
 /** owner·admin 만 — 서버 `s.admin` 과 같은 403(`W.admin_only`). */
@@ -2151,37 +2152,40 @@ on("PATCH", "/workspaces/{id}/settings", (req, p) => {
   return ok(settingsOf(s, p.id));
 });
 
-// ── 멤버 역할·제거 ──
+// ── 멤버 역할·제거 (T-S14 #209 — auth/members.go PlanRoleChange · PlanRemoval 와 같은 순서·같은 판정) ──
+/** 서버 `memberNotFound` — 이 워크스페이스에 없는 멤버 id(다른 워크스페이스의 id 도 같은 404). */
 function memberOf(s: Store, workspaceId: string, memberId: string): Member {
   const m = s.members.find((x) => x.workspace_id === workspaceId && x.id === memberId);
-  if (!m) throw new Problem(404, "not_found", notFound("user"));
+  if (!m) throw new Problem(404, "not_found", W.member_not_found);
   return m;
 }
+const ownerCount = (s: Store, workspaceId: string) => s.members.filter((m) => m.workspace_id === workspaceId && m.role === "owner").length;
+/** 서버 `activeSessionStatuses` — 끝나지 않은 세션 전부(`runtimes.blockingSessions` 와 같은 집합). active·paused 만이 아니다. */
+const ACTIVE_SESSION = new Set<Session["status"]>(["draft", "active", "paused", "completing"]);
 on("PATCH", "/workspaces/{id}/members/{mid}", (req, p) => {
   const s = store();
   const { member: me } = requireAdmin(s, req, p.id);
-  const target = memberOf(s, p.id, p.mid);
+  // 서버 순서: 권한 → 본문(enum 422) → 멤버 조회(404) → 판정.
   const b = body<{ role?: MemberRole }>(req);
-  if (!b.role || !["owner", "admin", "member"].includes(b.role)) throw validation([{ field: "role", message: MOCK_ONLY.role_enum }]);
-  // owner 강등은 owner 만(SCREEN §2.3). 마지막 owner 는 강등할 수 없다(409).
-  if (target.role === "owner" && b.role !== "owner") {
-    if (me.role !== "owner") throw new Problem(403, "owner_only", MOCK_ONLY.owner_demote_owner_only);
-    const owners = s.members.filter((m) => m.workspace_id === p.id && m.role === "owner");
-    if (owners.length <= 1) throw new Problem(409, "last_owner", MOCK_ONLY.last_owner);
-  }
+  if (!b.role || !["owner", "admin", "member"].includes(b.role)) throw validation([{ field: "role", code: "enum", message: W.role_enum }]);
+  const target = memberOf(s, p.id, p.mid);
+  // PlanRoleChange — 소유자 층을 건드리는 것(대상이 소유자 **또는** 새 역할이 소유자)은 소유자만. 마지막 소유자는 강등 불가.
+  const touchesOwner = target.role === "owner" || b.role === "owner";
+  if (touchesOwner && me.role !== "owner") throw new Problem(403, "owner_only", W.owner_only_role);
+  if (target.role === "owner" && b.role !== "owner" && ownerCount(s, p.id) <= 1) throw new Problem(409, "last_owner", W.last_owner_demote);
   target.role = b.role;
   return ok(target);
 });
 on("DELETE", "/workspaces/{id}/members/{mid}", (req, p) => {
   const s = store();
-  requireAdmin(s, req, p.id);
+  const { member: me } = requireAdmin(s, req, p.id);
   const target = memberOf(s, p.id, p.mid);
-  if (target.role === "owner" && s.members.filter((m) => m.workspace_id === p.id && m.role === "owner").length <= 1) {
-    throw new Problem(409, "last_owner", MOCK_ONLY.last_owner);
-  }
-  // 그 멤버가 Director 인 활성 세션이 있으면 409(먼저 Director 를 교체).
-  const directing = [...s.sessions.values()].filter((x) => x.workspace_id === p.id && x.director_user_id === target.user.id && (x.status === "active" || x.status === "paused"));
-  if (directing.length) throw new Problem(409, "member_is_director", MOCK_ONLY.member_is_director, { sessions: directing.map((x) => ({ id: x.id, title: x.title })) });
+  // PlanRemoval — 소유자를 내보내는 것은 소유자만(403) → 마지막 소유자(409) → Director 인 끝나지 않은 세션(409, %d 개).
+  // 서버는 `sessions[]` 같은 확장 칸을 싣지 않는다 — 세션 수만 문장에 있다.
+  if (target.role === "owner" && me.role !== "owner") throw new Problem(403, "owner_only", W.owner_only_remove);
+  if (target.role === "owner" && ownerCount(s, p.id) <= 1) throw new Problem(409, "last_owner", W.last_owner_remove);
+  const directing = [...s.sessions.values()].filter((x) => x.workspace_id === p.id && x.director_user_id === target.user.id && ACTIVE_SESSION.has(x.status)).length;
+  if (directing > 0) throw new Problem(409, "member_is_director", fmt(W.member_is_director, directing));
   s.members.splice(s.members.indexOf(target), 1);
   return { status: 204 };
 });
@@ -2235,7 +2239,7 @@ on("DELETE", "/workspaces/{id}/invites/{iid}", (req, p) => {
   return { status: 204 };
 });
 
-// ── 알림 설정(개인) ──
+// ── 알림 설정(개인) — T-S14 #209 auth/notifications.go: 저장값 없으면 openapi 기본값, PATCH 는 부분 갱신(빠진 키는 저장값 유지) ──
 const DEFAULT_NOTIFICATIONS: NotificationSettings = { email: true, push: false, default_subscription: "all" };
 on("GET", "/me/notification-settings", (req) => {
   const s = store();
@@ -2247,7 +2251,7 @@ on("PATCH", "/me/notification-settings", (req) => {
   const u = requireUser(s, req);
   const b = body<Partial<NotificationSettings>>(req);
   if (b.default_subscription != null && !["all", "hitl_only", "completion_only"].includes(b.default_subscription)) {
-    throw validation([{ field: "default_subscription", message: MOCK_ONLY.subscription_enum }]);
+    throw validation([{ field: "default_subscription", code: "enum", message: W.subscription_enum }]);
   }
   const cur = s.notifications.get(u.id) ?? DEFAULT_NOTIFICATIONS;
   const next: NotificationSettings = { email: b.email ?? cur.email, push: b.push ?? cur.push, default_subscription: b.default_subscription ?? cur.default_subscription };

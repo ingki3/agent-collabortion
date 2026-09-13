@@ -198,7 +198,41 @@ describe("members · invites", () => {
     expect(r.status).toBe(403);
   });
 
-  it("Director 인 진행 중 세션이 있으면 제거 409 + sessions[]", async () => {
+  it("owner 강등은 owner 만 — 소유자로 **올리는** 것도 owner 만(서버 touchesOwner) · 마지막 owner 제거 409 · 없는 멤버 404 · enum 422 (T-S14 #209 실값)", async () => {
+    const id = await ws();
+    const me = await must<{ user: { id: string } }>("GET", "/me");
+    const mine = (await must<{ items: Member[] }>("GET", `/workspaces/${id}/members`)).items.find((m) => m.user.id === me.user.id)!;
+    const seo = await seoyeon(id);
+    // 실서버 78_ A.13 · A.14 (owner 로 잰다)
+    const bad = await call("PATCH", `/workspaces/${id}/members/${seo.id}`, { body: { role: "god" } });
+    expect(bad.status).toBe(422);
+    expect((bad.body as { errors: { field: string; code: string; message: string }[] }).errors[0]).toEqual({ field: "role", code: "enum", message: "역할은 소유자 · 관리자 · 멤버 중 하나여야 합니다" });
+    const nf = await call("PATCH", `/workspaces/${id}/members/00000000-0000-0000-0000-000000000000`, { body: { role: "admin" } });
+    expect(nf.status).toBe(404);
+    expect(nf.body).toMatchObject({ code: "not_found", detail: "멤버를 찾을 수 없습니다", title: "찾을 수 없음" });
+    // 마지막 owner 제거 → 409 last_owner (B.3) · 자기 자신도 마찬가지.
+    const last = await call("DELETE", `/workspaces/${id}/members/${mine.id}`);
+    expect(last.status).toBe(409);
+    expect(last.body).toMatchObject({ code: "last_owner", detail: "마지막 소유자는 내보낼 수 없습니다 — 먼저 다른 멤버를 소유자로 지정해 주세요" });
+    // admin 이 되어 소유자 층을 건드린다 — 강등(A.5)·자기 승격(A.6)·소유자 제거(B.2) 전부 403 owner_only.
+    await must("PATCH", `/workspaces/${id}/members/${seo.id}`, { body: { role: "admin" } });
+    await login("seoyeon@colab.dev");
+    const seo2 = await seoyeon(id);
+    const demote = await call("PATCH", `/workspaces/${id}/members/${mine.id}`, { body: { role: "member" } });
+    expect(demote.status).toBe(403);
+    expect(demote.body).toMatchObject({ code: "owner_only", detail: "소유자 역할을 주거나 거두는 것은 소유자만 할 수 있습니다", title: "권한 없음" });
+    const promote = await call("PATCH", `/workspaces/${id}/members/${seo2.id}`, { body: { role: "owner" } });
+    expect(promote.status).toBe(403);
+    expect((promote.body as { code: string }).code).toBe("owner_only");
+    const rm = await call("DELETE", `/workspaces/${id}/members/${mine.id}`);
+    expect(rm.status).toBe(403);
+    expect(rm.body).toMatchObject({ code: "owner_only", detail: "소유자를 내보내는 것은 소유자만 할 수 있습니다" });
+    // admin 이 자기를 member 로 내리는 것은 서버가 허용한다(200) — 화면이 확인을 받는 자리(NN5).
+    const self = await must<Member>("PATCH", `/workspaces/${id}/members/${seo2.id}`, { body: { role: "member" } });
+    expect(self.role).toBe("member");
+  });
+
+  it("Director 인 끝나지 않은 세션이 있으면 제거 409 member_is_director — 세션 수는 문장 안에, 확장 칸 없음 (#209)", async () => {
     const id = await ws();
     const seo = await seoyeon(id);
     const rt = (await must<Runtime[]>("GET", `/workspaces/${id}/runtimes`))[0];
@@ -207,7 +241,7 @@ describe("members · invites", () => {
     await must("PUT", `/sessions/${sess.id}/director`, { body: { director_user_id: seo.user.id } });
     const r = await call("DELETE", `/workspaces/${id}/members/${seo.id}`);
     expect(r.status).toBe(409);
-    expect((r.body as { sessions: { id: string }[] }).sessions.map((s) => s.id)).toEqual([sess.id]);
+    expect(r.body).toEqual({ type: "https://colab.dev/problems/member_is_director", status: 409, title: "지금은 할 수 없음", code: "member_is_director", detail: "이 멤버가 Director 인 진행 중 세션이 1개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요" });
     // 세션을 끝내면(Director 인 서연이 종료) 제거된다.
     await login("seoyeon@colab.dev");
     await must("POST", `/sessions/${sess.id}/cancel`, { body: {} });
