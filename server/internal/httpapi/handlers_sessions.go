@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
+	"github.com/ingki3/agent-collabortion/server/internal/realtime"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
@@ -485,6 +487,12 @@ func (s *Server) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceI
 			fmt.Fprint(w, ": ping\n\n")
 			flusher.Flush()
 		case e := <-sub.C:
+			// openapi streamEvents `test_chat_id`: S10 wants one chat's frames.
+			// A test chat has no session, so its frames are workspace-wide and
+			// this is the only place they can be narrowed.
+			if params.TestChatId != nil && !testChatFrameFor(e, *params.TestChatId) {
+				continue
+			}
 			data, err := e.MarshalJSON()
 			if err != nil {
 				continue
@@ -596,4 +604,20 @@ func (s *Server) SetTaskStatus(w http.ResponseWriter, r *http.Request, taskId ge
 		body["question_message_id"] = nil
 	}
 	writeJSON(w, http.StatusOK, body)
+}
+
+// testChatFrameFor keeps a `test_chat.*` frame only when its payload names the
+// requested chat; every other frame type passes (the S10 subscriber still
+// wants agent · runtime frames).
+func testChatFrameFor(e realtime.Event, want uuid.UUID) bool {
+	if !strings.HasPrefix(e.Type, "test_chat.") {
+		return true
+	}
+	var p struct {
+		TestChatID uuid.UUID `json:"test_chat_id"`
+	}
+	if err := json.Unmarshal(e.Payload, &p); err != nil {
+		return false
+	}
+	return p.TestChatID == want
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/ingki3/agent-collabortion/contracts/clock"
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
+	"github.com/ingki3/agent-collabortion/server/internal/testchat"
 )
 
 // Postgres implements Queue on the task table (daemon-protocol §4.1 rules).
@@ -194,10 +195,62 @@ func (p *Postgres) Claim(ctx context.Context, runtimeID string, capacity int, no
 			return nil, nerr
 		}
 	}
+	// daemon-protocol v0.8 §4.5: test chat turns ride the same claim, taking one
+	// `capacity` slot each — but only the slots the session tasks LEFT. They
+	// are handed out after the task loop so a person's test chat never displaces
+	// real work, and the runtime's own concurrency cap (FR-6.3, the 3rd layer)
+	// counts them alongside the tasks in flight. The session-task SQL above is
+	// untouched: a test chat is not a session and must not change how sessions
+	// dispatch.
+	if remaining := capacity - len(bundles); remaining > 0 {
+		slots, err := testChatSlots(ctx, tx, rt, remaining)
+		if err != nil {
+			return nil, err
+		}
+		chats, err := testchat.ClaimTurns(ctx, tx, rt, slots, now)
+		if err != nil {
+			return nil, err
+		}
+		bundles = append(bundles, chats...)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return bundles, nil
+}
+
+// testChatSlots is how many test chat turns this claim may still hand out:
+// the daemon's remaining capacity, bounded by the runtime cap
+// (`runtime_policy.max_concurrent_tasks`, default 10) minus everything already
+// running or dispatched on this runtime — session tasks, test chat turns, and
+// the bundles this very claim just built.
+func testChatSlots(ctx context.Context, tx pgx.Tx, runtimeID uuid.UUID, remaining int) (int, error) {
+	var runtimeCap, busyTasks int
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE((cfg.runtime_policy->>'max_concurrent_tasks')::int, 10),
+		       (SELECT count(*) FROM task b WHERE b.runtime_id = r.id AND b.status::text = ANY($2))
+		FROM runtime r LEFT JOIN workspace_settings cfg ON cfg.workspace_id = r.workspace_id
+		WHERE r.id = $1`, runtimeID, hitl.OccupyingStatuses()).Scan(&runtimeCap, &busyTasks); err != nil {
+		if isNoRows(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("queue: test chat slots: %w", err)
+	}
+	busyChats, err := testchat.InFlightOn(ctx, tx, runtimeID)
+	if err != nil {
+		return 0, fmt.Errorf("queue: test chat slots: %w", err)
+	}
+	// The tasks claimed a moment ago are already counted in busyTasks (they
+	// are `dispatched` inside this transaction), so only the runtime cap's
+	// headroom is left to apply.
+	slots := runtimeCap - busyTasks - busyChats
+	if slots > remaining {
+		slots = remaining
+	}
+	if slots < 0 {
+		slots = 0
+	}
+	return slots, nil
 }
 
 // ClaimWait is the long-poll form (§4.1 wait_ms ≤ 30s): it returns as soon as

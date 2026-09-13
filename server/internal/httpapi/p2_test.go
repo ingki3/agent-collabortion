@@ -385,11 +385,14 @@ func TestP2WorkspaceSettingsAuthz(t *testing.T) {
 	member.cookie = hdr.Get("Set-Cookie")
 	inv := f.api.must(201, "POST", f.p+"/workspaces/"+f.wsID+"/invites", map[string]any{})
 	member.must(200, "POST", f.p+"/invites/"+str(inv, "token")+"/accept", nil)
-	if st, out, _ := member.do("GET", f.p+"/workspaces/"+f.wsID+"/settings", nil); st != 403 || str(out, "code") != "admin_required" {
-		t.Fatalf("member GET settings = %d %v, want 403 admin_required", st, out)
+	// S-69: openapi getWorkspaceSettings is "권한: 워크스페이스 멤버(읽기)" — a
+	// member READS the settings (this line used to expect 403 admin_required,
+	// which was the defect T-W6 found when the S14 tabs opened as a member).
+	if st, out, _ := member.do("GET", f.p+"/workspaces/"+f.wsID+"/settings", nil); st != 200 || out["loop_limits"] == nil {
+		t.Fatalf("member GET settings = %d %v, want 200 with the settings (openapi: 멤버 읽기)", st, out)
 	}
-	if st, _, _ := member.do("PATCH", f.p+"/workspaces/"+f.wsID+"/settings", map[string]any{"task_event_masking": true}); st != 403 {
-		t.Fatalf("member PATCH settings = %d, want 403", st)
+	if st, out, _ := member.do("PATCH", f.p+"/workspaces/"+f.wsID+"/settings", map[string]any{"task_event_masking": true}); st != 403 || str(out, "code") != "admin_required" {
+		t.Fatalf("member PATCH settings = %d %v, want 403 admin_required", st, out)
 	}
 
 	// An outsider is not even told the workspace exists in settings terms.

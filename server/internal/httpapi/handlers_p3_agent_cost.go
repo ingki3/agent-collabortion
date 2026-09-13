@@ -211,7 +211,27 @@ func (s *Server) GetWorkspaceCost(w http.ResponseWriter, r *http.Request, worksp
 	out := costReportAPI(cost.Rollup(rows), 0)
 	out.From = nullableTime(params.From)
 	out.To = nullableTime(params.To)
+	// FR-1.8.1 / openapi getWorkspaceCost: test chats are not sessions, so
+	// their cost is not in by_session (or total_usd, which sums task usage) —
+	// it is reported apart as `test_chat_usd`, over the same window.
+	tcUSD, err := s.testChatUSD(r.Context(), workspaceId, params.From, params.To)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	out.TestChatUsd = &tcUSD
 	writeJSON(w, http.StatusOK, out)
+}
+
+// testChatUSD sums test_chat.cost_usd of the workspace inside [from, to) by
+// chat creation time — the same bound getWorkspaceCost applies to tasks.
+func (s *Server) testChatUSD(ctx context.Context, wsID uuid.UUID, from, to *time.Time) (float32, error) {
+	var usd float64
+	err := s.DB.QueryRow(ctx, `
+		SELECT COALESCE(sum(cost_usd), 0) FROM test_chat
+		WHERE workspace_id = $1 AND ($2::timestamptz IS NULL OR created_at >= $2) AND ($3::timestamptz IS NULL OR created_at < $3)`,
+		wsID, from, to).Scan(&usd)
+	return float32(usd), err
 }
 
 func itoa(n int) string {
@@ -256,8 +276,6 @@ func nullableFloat(v *float32) nullable.Nullable[float32] {
 	return nullable.NewNullableWithValue(*v)
 }
 
-var _ = context.Background
-var _ = time.Now
 var _ = apperr.Internal
 
 // taskStatusOf is the one-line read releaseHeldRequeues uses to check its own

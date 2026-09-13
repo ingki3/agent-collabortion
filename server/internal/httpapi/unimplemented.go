@@ -30,10 +30,6 @@ func (unimplemented) DeleteAgentProfile(w http.ResponseWriter, r *http.Request, 
 	notImplemented(w, r, "DeleteAgentProfile")
 }
 
-func (unimplemented) CreateTestChat(w http.ResponseWriter, r *http.Request, agentId gen.AgentId, params gen.CreateTestChatParams) {
-	notImplemented(w, r, "CreateTestChat")
-}
-
 func (unimplemented) Login(w http.ResponseWriter, r *http.Request) {
 	notImplemented(w, r, "Login")
 }
@@ -214,18 +210,6 @@ func (unimplemented) ListTaskEvents(w http.ResponseWriter, r *http.Request, task
 	notImplemented(w, r, "ListTaskEvents")
 }
 
-func (unimplemented) GetTestChat(w http.ResponseWriter, r *http.Request, testChatId gen.TestChatId) {
-	notImplemented(w, r, "GetTestChat")
-}
-
-func (unimplemented) CloseTestChat(w http.ResponseWriter, r *http.Request, testChatId gen.TestChatId) {
-	notImplemented(w, r, "CloseTestChat")
-}
-
-func (unimplemented) PostTestChatTurn(w http.ResponseWriter, r *http.Request, testChatId gen.TestChatId, params gen.PostTestChatTurnParams) {
-	notImplemented(w, r, "PostTestChatTurn")
-}
-
 func (unimplemented) DeleteWorkdir(w http.ResponseWriter, r *http.Request, workdirId openapi_types.UUID, params gen.DeleteWorkdirParams) {
 	notImplemented(w, r, "DeleteWorkdir")
 }
@@ -320,9 +304,4 @@ func (unimplemented) CreateSession(w http.ResponseWriter, r *http.Request, works
 
 func (unimplemented) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.StreamEventsParams) {
 	notImplemented(w, r, "StreamEvents")
-}
-
-// GetWorkspaceMetrics — openapi 0.1.2(PR #198), T-S12 가 구현한다.
-func (unimplemented) GetWorkspaceMetrics(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.GetWorkspaceMetricsParams) {
-	notImplemented(w, r, "GetWorkspaceMetrics")
 }

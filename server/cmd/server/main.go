@@ -99,6 +99,14 @@ func scheduler(ctx context.Context, srv *httpapi.Server, log interface {
 			} else if n > 0 {
 				log.Info("expired stale attempts", "requeued", n)
 			}
+			// daemon-protocol v0.8 §4.5: a test chat turn has the same 5-minute
+			// and 3-minute bounds but is never requeued — it is closed with an
+			// error the person sees.
+			if n, err := srv.ExpireTestChatTurns(ctx); err != nil {
+				log.Warn("expire test chat turns", "err", err)
+			} else if n > 0 {
+				log.Info("expired test chat turns", "n", n)
+			}
 		case <-purge.C:
 			if err := srv.Hub.Purge(ctx); err != nil {
 				log.Warn("stream purge", "err", err)
