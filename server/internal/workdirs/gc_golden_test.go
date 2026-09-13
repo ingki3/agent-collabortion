@@ -392,6 +392,14 @@ func mustPlanBrief(t *testing.T, c briefFileCase) briefFilePlan {
 }
 
 func TestBriefFilePollutionGolden(t *testing.T) {
+	// The daemon's mirror is the binding copy of this table (PR #152 Lead
+	// comment: daemon/internal/brief ... T-D9); the server keeps the rows but
+	// wires nothing, so this was a permanent FAIL marker in the server's
+	// p4golden baseline. Skipped with the Lead's leave (T-S16) — the expected
+	// values below are unchanged, and a server-side 그림자 훅 stays forbidden.
+	if planBriefFile == nil && planTurnPrompt == nil {
+		t.Skip("daemon mirror 가 정본 — PR #152")
+	}
 	// The same plan for every original state — 우회 B does not branch on it.
 	allCases := []briefFileCase{
 		{Path: "AGENTS.md", Existed: true, Tracked: true},

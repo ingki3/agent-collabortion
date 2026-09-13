@@ -80,7 +80,7 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 		}
 		s.publishLane(ctx, tx, laneID)
 	case "blocked":
-		delegator, delegatorName, err := delegatorOfLane(ctx, tx, laneID)
+		delegator, delegatorName, delegatorTask, err := delegatorOfLane(ctx, tx, laneID)
 		if err != nil {
 			return nil, err
 		}
@@ -127,7 +127,7 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 			if err != nil {
 				return nil, err
 			}
-			if err := s.wake(ctx, tx, sessionID, wsID, director, agentID, *plan.DelegatorAgentID, qid,
+			if err := s.wake(ctx, tx, sessionID, wsID, director, agentID, *plan.DelegatorAgentID, delegatorTask, qid,
 				wakeOnBlocked(qid, note, childName, agentID), now); err != nil {
 				return nil, err
 			}
@@ -270,7 +270,7 @@ func (s *Service) maybeFireJoin(ctx context.Context, tx pgx.Tx, sessionID, wsID 
 	if err != nil {
 		return err
 	}
-	return s.wake(ctx, tx, sessionID, wsID, director, from, delegAgent, msgID, "", now)
+	return s.wake(ctx, tx, sessionID, wsID, director, from, delegAgent, delegTask, msgID, "", now)
 }
 
 // notifyReentry tells whoever caused the work that it is finished. A human
@@ -280,8 +280,9 @@ func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 		return nil
 	}
 	var authorType string
-	var authorID *uuid.UUID
-	err := tx.QueryRow(ctx, `SELECT author_type::text, author_id FROM message WHERE id = $1`, *triggerMsg).Scan(&authorType, &authorID)
+	var authorID, authorTask *uuid.UUID
+	err := tx.QueryRow(ctx, `SELECT author_type::text, author_id, source_task_id FROM message WHERE id = $1`, *triggerMsg).
+		Scan(&authorType, &authorID, &authorTask)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -290,7 +291,11 @@ func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 	}
 	switch {
 	case authorType == "agent" && authorID != nil:
-		return s.wake(ctx, tx, sessionID, wsID, director, from, *authorID, *triggerMsg, "요청하신 작업이 끝났습니다.", now)
+		requester := uuid.Nil
+		if authorTask != nil {
+			requester = *authorTask
+		}
+		return s.wake(ctx, tx, sessionID, wsID, director, from, *authorID, requester, *triggerMsg, "요청하신 작업이 끝났습니다.", now)
 	case authorType == "user" && authorID != nil:
 		return insertInbox(ctx, tx, wsID, *authorID, inbox.TypeMention, inbox.Severity(inbox.TypeMention), sessionID, *triggerMsg, now)
 	case director != nil:
@@ -309,7 +314,13 @@ func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 // every join by delegating again is a loop the limiter never sees: no message
 // in the cycle carries a mention. On a trip the notice is still posted — the
 // timeline says what happened — but no task is made and the session pauses.
-func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID, from, agentID, triggerMsg uuid.UUID, prefix string, now time.Time) error {
+//
+// `requester` is the task of `agentID` that asked for the work now ending —
+// the delegating task, or the one that wrote the mention. The notice's hop
+// takes that task's own cause (S-78), so the requester wakes at its OWN chain
+// depth: a join is Lead coming back, not Lead one step below its child. Nil
+// when nothing is known, which chainDepth reads as "no cause".
+func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID, from, agentID, requester, triggerMsg uuid.UUID, prefix string, now time.Time) error {
 	var profileID uuid.UUID
 	err := tx.QueryRow(ctx, `SELECT profile_id FROM session_participant WHERE session_id = $1 AND agent_id = $2`, sessionID, agentID).Scan(&profileID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -326,7 +337,13 @@ func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID
 		}
 		msg = id
 	}
-	v, err := s.gateHop(ctx, tx, sessionID, wsID, director, Hop{FromAgent: from, ToAgent: agentID, At: now}, msg, RulePlatform, now)
+	var cause int64
+	if requester != uuid.Nil {
+		if _, cause, err = causeOfTask(ctx, tx, requester); err != nil {
+			return err
+		}
+	}
+	v, err := s.gateHop(ctx, tx, sessionID, wsID, director, Hop{FromAgent: from, ToAgent: agentID, At: now, CauseID: cause}, msg, RulePlatform, now)
 	if err != nil {
 		return err
 	}
@@ -374,22 +391,24 @@ func wakeOnBlocked(cardID uuid.UUID, note, childName string, childID uuid.UUID) 
 }
 
 // delegatorOfLane returns the agent that delegated this lane, with its display
-// name — the name is what the mention link on the question card shows (FR-3.2).
-func delegatorOfLane(ctx context.Context, q pgx.Tx, laneID uuid.UUID) (*uuid.UUID, string, error) {
+// name — the name is what the mention link on the question card shows (FR-3.2)
+// — and the delegating task, whose cause the wake-up inherits (S-78).
+func delegatorOfLane(ctx context.Context, q pgx.Tx, laneID uuid.UUID) (*uuid.UUID, string, uuid.UUID, error) {
 	var agent *uuid.UUID
 	var name string
+	var task uuid.UUID
 	err := q.QueryRow(ctx, `
-		SELECT d.agent_id, a.name FROM lane l
+		SELECT d.agent_id, a.name, d.id FROM lane l
 		JOIN task d ON d.id = l.delegated_from_task_id
 		JOIN agent a ON a.id = d.agent_id
-		WHERE l.id = $1`, laneID).Scan(&agent, &name)
+		WHERE l.id = $1`, laneID).Scan(&agent, &name, &task)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, "", nil
+		return nil, "", uuid.Nil, nil
 	}
 	if err != nil {
-		return nil, "", err
+		return nil, "", uuid.Nil, err
 	}
-	return agent, name, nil
+	return agent, name, task, nil
 }
 
 // agentDisplayName reads one agent's display name for a mention link.

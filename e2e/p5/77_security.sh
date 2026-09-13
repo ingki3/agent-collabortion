@@ -86,15 +86,18 @@ chk S1d "위임된 자식 task 가 생겼다 (Delegator → Guard)" yes "$( [ -n
 [ -n "$T_CHILD" ] && chk S1e "**자식 task 의 originator 도 멤버** (체인으로 상승 없음, PRD §9)" "$MEM_ID" "$(task_field "$T_CHILD" originator_user_id)"
 WAIT_S=120 wait_task "$T_CHILD" completed failed cancelled >/dev/null 2>&1 || true
 # FR-3.5 (S-76, T-S15): 위임(delegateLane)과 합류 wake 도 홉이라 사이클은 상한에 걸려 세션이 paused(loop) 가 된다.
-# 기본 상한에서는 사람 메시지 뒤 8번째 에이전트 홉(= 4번째 합류 통보)에서 chain_depth 가 먼저 닿는다 —
-# 위임 4회 · Guard task 4개에서 멈추고, 8회 카운터(대본)는 끝까지 못 간다. 어느 상한이든 "멈춘다" 가 판정이다.
+# 어느 상한인가는 계약이다(S-78, T-S16): chain_depth 는 인과 사슬 깊이라 위임 2 · 합류(위임자 자기 깊이) 1 을
+# 오가며 자라지 않고, 같은 두 에이전트의 왕복이므로 **max_pair_roundtrips 5** 가 6번째 위임을 막는다 —
+# 위임 5회 · Guard task 5개에서 멈추고, 8회 카운터(대본)는 끝까지 못 간다.
+# (T-S15 까지는 "마지막 사람 메시지 뒤 홉 수" 라 4번째 합류 통보(8번째 홉)에서 chain_depth 가 먼저 닿았다.)
 wait_until 120 '[ "$(sess_status "$S")" = paused ]' || true
 wait_quiet "$S" 60 || true
 GUARD_N="$(psqlq "select count(*) from task t join agent a on a.id=t.agent_id where t.session_id='$S' and a.name='Guard'")"
 LOOP_LIMIT="$(psqlq "select coalesce(paused_detail->'loop'->>'limit','-') from session where id='$S'")"
 chk S1x "**위임↔합류 사이클이 루프 상한에 걸린다** (S-76: paused(loop), limit=$LOOP_LIMIT, guard_tasks=$GUARD_N)" \
   "paused/loop" "$(sess_status "$S")/$(psqlq "select coalesce(paused_reason::text,'-') from session where id='$S'")"
-chk S1x2 "사이클이 대본의 8회 상한 전에 멈췄다 (Guard task < 8)" yes "$( [ "${GUARD_N:-0}" -lt 8 ] && echo yes || echo no )"
+chk S1x1 "**걸린 상한은 pair_roundtrips 다** — 위임↔합류 왕복은 깊이가 아니라 왕복이다 (S-78)" pair_roundtrips "$LOOP_LIMIT"
+chk S1x2 "6번째 위임이 막혔다 (Guard task = max_pair_roundtrips 5, 대본 8회 전)" 5 "$GUARD_N"
 chk S1x3 "Director 에게 시스템 HITL(purpose=loop) 이 갔다" 1 \
   "$(psqlq "select count(*) from hitl_request where session_id='$S' and source='system' and purpose='loop'")"
 # 뒤 단계(토큰·취소·SSE)는 살아 있는 세션이 필요하다 — Director 가 재개한다(카운터 리셋, openapi resumeSession loop).

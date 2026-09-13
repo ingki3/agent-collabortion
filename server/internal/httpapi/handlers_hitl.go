@@ -280,6 +280,21 @@ func (s *Server) answerAgentHitl(ctx context.Context, row *hitlRow, sess *hitlSe
 		WHERE id = $1`, row.ID, in.Approved, stored, userID, now, override, plan.RequeueHeld); err != nil {
 		return 0, nil, apperr.Internal(err)
 	}
+	if row.TaskID != nil {
+		// FR-3.5 (S-78): a person answered, so the task's chain restarts at
+		// them — whatever the agent does next is one hop below a human, not
+		// below the question. Also the "사람이 끼면" reset of the pair count.
+		var agentID uuid.UUID
+		var trigger *uuid.UUID
+		if err := tx.QueryRow(ctx, `SELECT agent_id, trigger_message_id FROM task WHERE id = $1`, *row.TaskID).Scan(&agentID, &trigger); err != nil {
+			return 0, nil, apperr.Internal(err)
+		}
+		if trigger != nil {
+			if err := s.Router.RecordHumanHop(ctx, tx, row.SessionID, agentID, *trigger, now); err != nil {
+				return 0, nil, apperr.Internal(err)
+			}
+		}
+	}
 	// FR-5.2: exactly one decision record per answer. `auto` stays false — a
 	// person answered (E7-12 is the other half).
 	decisionID, err := insertDecision(ctx, tx, row.SessionID, hitlDecisionSummary(row, in, stored), reason, "hitl", &row.ID, false, now)

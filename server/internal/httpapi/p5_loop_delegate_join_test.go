@@ -59,8 +59,11 @@ func TestS76DelegateJoinCycleStopsAtPairRoundtrips(t *testing.T) {
 	f := newP2Fixture(t)
 	ctx := t.Context()
 
-	// Only the pair limit is under test; chain depth would trip first at the
-	// default 8 (a delegate and a join are two hops each round).
+	// Only the pair limit is under test, so the other two are out of the way.
+	// (Chain depth used to trip first at the default 8 — a delegate and a
+	// join were two depth each round; since S-78 the join returns Lead to its
+	// own depth and the cycle runs at 2/1, see
+	// TestS78DelegateJoinCycleStopsAtPairRoundtripsUnderDefaults.)
 	f.api.must(200, "PATCH", f.p+"/workspaces/"+f.wsID+"/settings", map[string]any{
 		"loop_limits": map[string]any{"max_chain_depth": 100, "max_hops_per_hour": 100, "max_pair_roundtrips": 5},
 	})

@@ -104,8 +104,28 @@ func adaptLayout(isolation string, lanes []laneState) workdirLayout {
 	return workdirLayout{WorkdirCount: l.WorkdirCount, ConcurrentRuns: l.ConcurrentRuns}
 }
 
+// adaptLoop gives the golden's hops the causal link CheckLoopLimits measures
+// chain depth along (S-78). The table's hop has no task in it, so the turn
+// that wrote a hop from X is taken to be the one the latest hop TO X woke —
+// true of every E4 row, where each agent holds one task at a time. The
+// service fills CauseID from the trigger's task instead (service.go
+// causeOfTask); the expected values are untouched.
 func adaptLoop(history []hop, next hop, lim loopLimits, now time.Time) loopVerdict {
-	v := CheckLoopLimits(hops(history), toHop(next), Limits(lim), now)
+	linked := hops(history)
+	latestTo := map[uuid.UUID]int64{}
+	for i := range linked {
+		linked[i].ID = int64(i + 1)
+		if !linked[i].Human() {
+			linked[i].CauseID = latestTo[linked[i].FromAgent]
+		}
+		latestTo[linked[i].ToAgent] = linked[i].ID
+	}
+	n := toHop(next)
+	n.ID = int64(len(linked) + 1)
+	if !n.Human() {
+		n.CauseID = latestTo[n.FromAgent]
+	}
+	v := CheckLoopLimits(linked, n, Limits(lim), now)
 	return loopVerdict{
 		Allowed: v.Allowed, TaskCreated: v.TaskCreated, SessionState: v.SessionState,
 		PauseReason: v.PauseReason, Detail: v.Detail, HitlToDir: v.HitlToDir,
