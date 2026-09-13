@@ -255,7 +255,13 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// recordGCRefusal puts §6's "GC 거부: <reason>" on the activity feed. The gc
+// gcRefusedNote is the head of the feed sentence daemon-protocol §6 (v0.7.4)
+// fixes for a refused gc: "작업 폴더 정리를 컴퓨터가 거부했습니다: <reason>".
+// TestGCRefusedNoteMatchesContract reads it back out of the contract, so the
+// three copies (contract · here · e2e/p3/57) cannot drift apart unnoticed.
+const gcRefusedNote = "작업 폴더 정리를 컴퓨터가 거부했습니다: "
+
+// recordGCRefusal puts §6's refusal sentence on the activity feed. The gc
 // command carries a session, not a task, so the note lands on the last task of
 // the lane that ran in that directory — the place a person looking at why the
 // machine is still full will actually be.
@@ -284,10 +290,10 @@ func (s *Server) recordGCRefusal(ctx context.Context, ref workdirs.Refusal, now 
 	// sentence goes under `args`.
 	if err := s.writeServerEvent(ctx, taskID, attempt, "status", "error", "gc.refused", "info",
 		map[string]any{"command": "gc", "result_ref": "workdir:" + ref.WorkdirID.String(),
-			// The sentence is the contract's (daemon-protocol §6 v0.7: 서버는 피드에 "GC 거부: <reason>" 을
-			// 남긴다) and e2e/p3/57 greps for it — it stays even though "GC" is not a screen word
-			// (S-67 report: a contract change, not a server one).
-			"args": map[string]any{"note": "GC 거부: " + reason}},
+			// The sentence is the contract's (daemon-protocol §6 v0.7.4: 서버는 피드에
+			// "작업 폴더 정리를 컴퓨터가 거부했습니다: <reason>" 을 남긴다) and e2e/p3/57 greps
+			// for it — change the three together (contract · here · e2e).
+			"args": map[string]any{"note": gcRefusedNote + reason}},
 		now); err != nil {
 		s.Log.Warn("record gc refusal", "err", err, "workdir", ref.WorkdirID)
 	}

@@ -355,8 +355,10 @@ func (s *Server) CancelSession(w http.ResponseWriter, r *http.Request, sessionId
 			if _, err := tx.Exec(r.Context(), `
 				INSERT INTO decision (session_id, summary, rationale, source, created_at)
 				VALUES ($1, $2, $3, 'hitl', $4)`,
-				sessionId, "런타임이 돌아오지 않아 세션을 종료했습니다",
-				fmt.Sprintf("재바인딩 대신 종료를 선택했습니다 — 아티팩트 %d개는 서버에 남아 있습니다 (FR-9.2, E14-07)", end.ArtifactsRecovered),
+				// FR-9.2, E14-07 — decision.summary/rationale are public (openapi
+				// Decision) and S7 draws them, so they speak the screens' language.
+				sessionId, "컴퓨터가 돌아오지 않아 세션을 종료했습니다",
+				fmt.Sprintf("다른 컴퓨터로 옮기는 대신 종료를 선택했습니다 — 아티팩트 %d개는 서버에 남아 있습니다", end.ArtifactsRecovered),
 				now); err != nil {
 				return err
 			}

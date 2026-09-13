@@ -141,6 +141,18 @@ type SummaryContent struct {
 	Sections []string
 }
 
+// decisionLine is one "결정 기록" bullet of the summary. `auto` (E7-12) is
+// spelled out — an expiry that went with the agent's proposal must not read
+// like a person's answer. One function so the wording lock sees the words
+// (internal/wording sinkFuncs).
+func decisionLine(summary, source string, auto bool) string {
+	line := summary + " (" + source
+	if auto {
+		line += ", 기한 경과 자동 진행"
+	}
+	return line + ")"
+}
+
 // BuildSummaryBody renders FR-2.4's four sections.
 //
 // Every section is emitted even when it is empty. A session with no decisions
@@ -188,7 +200,7 @@ func BuildSummaryBody(f SummaryFacts) SummaryContent {
 		// will put in a budget report.
 		cost += " (추정)"
 	}
-	fmt.Fprintf(&b, "%s · lane %d개 · task %d개\n\n", cost, f.Lanes, f.Tasks)
+	fmt.Fprintf(&b, "%s · 작업 줄기 %d개 · 할 일 %d개\n\n", cost, f.Lanes, f.Tasks)
 
 	b.WriteString("### 타임라인\n")
 	if f.StartedAt != nil {
@@ -405,12 +417,7 @@ func (s *Service) summaryFacts(ctx context.Context, tx pgx.Tx, sessionID uuid.UU
 			var summary, source string
 			var auto bool
 			if rows.Scan(&summary, &source, &auto) == nil {
-				line := summary + " (" + source
-				if auto {
-					line += ", 기한 경과 자동 진행"
-				}
-				line += ")"
-				f.Decisions = append(f.Decisions, line)
+				f.Decisions = append(f.Decisions, decisionLine(summary, source, auto))
 			}
 		}
 		rows.Close()

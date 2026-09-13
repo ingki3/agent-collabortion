@@ -894,7 +894,7 @@ func TestP3RetryPromptCarriesNoHitlSection(t *testing.T) {
 // TestP3GCRefusedConsumesTheCommandAndReachesTheFeed is §6's refusal branch.
 // Before this, `refused` rows were reported on every probe forever: the server
 // consumed the command only when the workdir STOPPED being listed, so the
-// command was re-sent until the 24h TTL and "GC 거부" never reached a person.
+// command was re-sent until the 24h TTL and the refusal sentence never reached a person.
 func TestP3GCRefusedConsumesTheCommandAndReachesTheFeed(t *testing.T) {
 	f := newG4Fixture(t)
 	ctx := t.Context()
@@ -953,11 +953,11 @@ func TestP3GCRefusedConsumesTheCommandAndReachesTheFeed(t *testing.T) {
 		SELECT count(*) FROM task_event
 		-- S-52: "status" closes its payload, so the sentence lives in "args".
 		WHERE object_ref = '"gc.refused"'
-		  AND payload->'args'->>'note' = 'GC 거부: isolation_worktree_p4'`).Scan(&notes); err != nil {
+		  AND payload->'args'->>'note' = '작업 폴더 정리를 컴퓨터가 거부했습니다: isolation_worktree_p4'`).Scan(&notes); err != nil {
 		t.Fatal(err)
 	}
 	if notes != 1 {
-		t.Fatalf("feed entries for the refusal = %d, want 1 (§6 '서버는 피드에 GC 거부: <reason> 를 남긴다')", notes)
+		t.Fatalf("feed entries for the refusal = %d, want 1 (§6 v0.7.4 '서버는 피드에 작업 폴더 정리를 컴퓨터가 거부했습니다: <reason> 을 남긴다')", notes)
 	}
 }
 

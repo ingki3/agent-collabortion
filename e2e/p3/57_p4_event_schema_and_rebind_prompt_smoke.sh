@@ -81,7 +81,7 @@ WDID=$(Q "SELECT id FROM workdir WHERE session_id='$GSID' LIMIT 1")
 code -X DELETE "$S/workdirs/$WDID?force=true" >/dev/null
 GCMD=$(Q "SELECT count(*) FROM daemon_command WHERE type='gc' AND runtime_id='$RID'")
 [ "${GCMD:-0}" -ge 1 ] && ok "수동 GC 요청이 gc 명령을 큐잉했다 ($GCMD 건)" || bad "gc 명령 $GCMD 건, want ≥1"
-# 데몬이 거부를 돌려준다 → 서버가 피드에 "GC 거부: <reason>" 를 남긴다 (§6).
+# 데몬이 거부를 돌려준다 → 서버가 피드에 "작업 폴더 정리를 컴퓨터가 거부했습니다: <reason>" 을 남긴다 (§6 v0.7.4).
 curl -sS -X POST "$D/runtimes/$RID/workdirs" -H "Authorization: Bearer $DTOK" -H 'Content-Type: application/json' \
   -d "{\"workdirs\":[{\"kind\":\"worktree\",\"path\":\"/w/gc57/r\",\"session_id\":\"$GSID\",\"agent_id\":\"$R\",\"bytes\":2048,\"git\":{\"branch\":\"colab/gc57/r\",\"merged\":true,\"dirty\":false,\"commits_ahead\":0},\"gc\":{\"status\":\"refused\",\"reason\":\"isolation_worktree_57\"}}]}" >/dev/null
 sleep 1
@@ -89,7 +89,7 @@ CANCEL_NOTE=$(Q "SELECT count(*) FROM task_event WHERE task_id='$ETASK' AND clas
 CANCEL_BAD=$(Q "SELECT count(*) FROM task_event WHERE task_id='$ETASK' AND class='status' AND payload ? 'note'")
 [ "$CANCEL_NOTE" -ge 1 ] && ok "취소 행의 사람 문장이 payload.args.note 에 있다 ($CANCEL_NOTE 건)" || bad "args.note 취소 행 = $CANCEL_NOTE, want ≥1"
 [ "$CANCEL_BAD" = 0 ] && ok "status payload 최상위 note 0 건 (닫힌 스키마)" || bad "최상위 note 가 남아 있다: $CANCEL_BAD 건"
-GCREF=$(Q "SELECT count(*) FROM task_event WHERE object_ref=to_jsonb('gc.refused'::text) AND payload->>'command'='gc' AND payload->'args'->>'note' LIKE 'GC 거부:%'")
+GCREF=$(Q "SELECT count(*) FROM task_event WHERE object_ref=to_jsonb('gc.refused'::text) AND payload->>'command'='gc' AND payload->'args'->>'note' LIKE '작업 폴더 정리를 컴퓨터가 거부했습니다:%'")
 [ "$GCREF" -ge 1 ] && ok "gc 거부 행 = command:gc + args.note ($GCREF 건)" || bad "gc.refused 행 $GCREF 건, want ≥1"
 
 step "2. S-52 전수 — 서버가 쓴 행(seq ≥ 2^30) 중 스키마 위반 0"
