@@ -29,7 +29,8 @@ TAP_PID="$(tap_start "$TAP_PORT" "$TAP")"
 ok "tap :$TAP_PORT (pid $TAP_PID) · RUNTIME=$RUNTIME"
 
 step "1. 계정 · 워크스페이스 · 페어링(capacity 4)"
-signup "i5a+$STAMP@example.com" password123 Director >/dev/null
+EMAIL="i5a+$STAMP@example.com"
+signup "$EMAIL" password123 Director >/dev/null
 WS="$(create_workspace "G9 Scenario A $STAMP")"
 read -r PID_ PTOK <<<"$(create_pairing "$WS" | tr '\t' ' ')"
 rm -rf "$WORK"
@@ -45,7 +46,7 @@ LEAD="$(create_agent_fake "$WS" Lead lead claude_code "$MODEL" "$LEAD_INS" '팀�
 RSCH="$(create_agent_fake "$WS" Researcher researcher claude_code "$MODEL" "$RES_INS" '주어진 항목을 조사해 요약한다')"
 WRTR="$(create_agent_fake "$WS" Writer writer claude_code "$MODEL" "$WRITER_INS_P5" '보고서 초안을 쓰고 아티팩트로 제출한다')"
 SESSION="$(create_session_p2 "$WS" "제품 X 시장 조사" "$SCENARIO_GOAL" "$LEAD" "$RUNTIME_ID" "$WRTR" "$LEAD" "$RSCH" "$WRTR")"
-echo "$WS $SESSION $LEAD $RSCH $WRTR $RUNTIME_ID" > "$OUT/72-ids.txt"
+echo "$WS $SESSION $LEAD $RSCH $WRTR $RUNTIME_ID $EMAIL" > "$OUT/72-ids.txt"
 ok "session $SESSION"
 T0="$(now_ms)"
 

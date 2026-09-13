@@ -8,7 +8,7 @@
 #       claim p50/p95 · API p50/p95(부하 중 GET /sessions/{id}) · DB 커넥션 최대 · 재큐잉 0 · 이중 게시 0.
 #
 # 수치는 out/76-latency.tsv · out/76-load.tsv · out/76.json 에 표로. 판정 상한은 §9 그대로.
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/lib_i5.sh"
 STAMP="$(date +%s)"
 COOKIE="$OUT/cookies-76.txt"; rm -f "$COOKIE"
 WORK="$P5_TMP_ROOT/76/work"; MODEL="${LEAD_MODEL}"

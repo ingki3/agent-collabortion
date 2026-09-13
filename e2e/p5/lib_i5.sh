@@ -174,3 +174,6 @@ fake_env_error() {
   local extra; extra="$(jq -nc --arg m "$msg" '{turns:[{error:{code:-32603,message:$m}}]}')"
   fake_env "$role" "$kind" "$extra"
 }
+
+# Linux(CI) 에는 shasum 이 없을 수 있다(73_ 의 파일 지문).
+command -v shasum >/dev/null 2>&1 || shasum() { sha1sum "$@"; }

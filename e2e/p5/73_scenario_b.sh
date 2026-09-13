@@ -10,7 +10,7 @@
 # 판정은 `e2e/p4/61_scenario_b.sh`(G7) 그대로. 기본은 페이크 런타임(QA 는 hermes kind = cli_wrapper 경로,
 # 나머지는 claude_code kind). `RUNTIME=real` 이면 61_ 과 같은 실기다.
 # 실험 저장소는 이 저장소가 아니다(§0-18). 산출물: out/73-checks.tsv · out/73-*.txt
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/lib_i5.sh"
 STAMP="$(date +%s)"
 COOKIE="$OUT/cookies-73.txt"; rm -f "$COOKIE"
 CFG="$OUT/daemon-73.json"; WORK="$P5_TMP_ROOT/73/work"; DLOG="$OUT/daemon-73.log"

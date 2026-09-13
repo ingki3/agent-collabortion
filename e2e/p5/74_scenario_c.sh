@@ -10,7 +10,7 @@
 # (단계마다 `PART-N done` 게시 + FAKE_STEP_SLEEP 초) 돌아 개입할 시간을 만든다. C4 의 콜드 스타트는
 # 실기에서는 transcript 삭제로, 페이크에서는 `known_sessions: []`(session/load 거절 = resume_rejected)로 만든다.
 # 산출물: out/74-checks.tsv · out/74.json · out/74-prompt-*.txt · out/74-brief-*.txt
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/lib_i5.sh"
 STAMP="$(date +%s)"
 COOKIE="$OUT/cookies-74.txt"; rm -f "$COOKIE"
 CFG="$OUT/daemon-74.json"; WORK="$P5_TMP_ROOT/74/work"; DLOG="$OUT/daemon-74.log"

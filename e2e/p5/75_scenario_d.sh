@@ -8,7 +8,7 @@
 # 판정은 `e2e/p3/53_scenario_d.sh`(G6) 그대로. 페이크에서 "hermes 실패" 는 primary 프로파일 env 의 대본이
 # 매 턴 JSON-RPC 오류로 답하는 것이다(모델 오타와 같은 재시도 가능 실패 = failure_kind other).
 # 산출물: out/75-checks.tsv · out/75.json
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/lib_i5.sh"
 STAMP="$(date +%s)"
 COOKIE="$OUT/cookies-75.txt"; rm -f "$COOKIE"
 CFG="$OUT/daemon-75.json"; WORK="$P5_TMP_ROOT/75/work"; DLOG="$OUT/daemon-75.log"

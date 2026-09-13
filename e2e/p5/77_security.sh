@@ -11,7 +11,7 @@
 #   S5 SSE 가 남의 워크스페이스 이벤트를 안 흘린다 — B 워크스페이스 스트림에 A 세션 id 0건. 멤버 아닌 사용자의 A 스트림 403.
 #
 # 산출물: out/77-checks.tsv · out/77.json · out/77-*.txt
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/lib_i5.sh"
 STAMP="$(date +%s)"
 DIR_COOKIE="$OUT/cookies-77-dir.txt"; MEM_COOKIE="$OUT/cookies-77-mem.txt"; OUT_COOKIE="$OUT/cookies-77-out.txt"
 rm -f "$DIR_COOKIE" "$MEM_COOKIE" "$OUT_COOKIE"
