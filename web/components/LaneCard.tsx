@@ -14,6 +14,7 @@
  * **일반 "재시도" 버튼을 두지 않는다**(m6) — 사람은 항상 "다시 지시"로 맥락을 더한다.
  */
 import { useState } from "react";
+import { renderInline } from "@/lib/markdown";
 import "./lane-card.css";
 import { Badge } from "./Badge";
 import { LaneTaskHistory } from "./LaneTaskHistory";
@@ -132,7 +133,7 @@ export function LaneCard(props: LaneCardProps) {
         <Badge kind="lane" value={lane.status} size="sm" />
       </div>
       {lane.brief && lane.status !== "done" && (
-        <div className="lane__brief" data-testid="lane-brief">{lane.brief}</div>
+        <div className="lane__brief" data-testid="lane-brief">{renderInline(lane.brief)}</div>
       )}
       {note && (
         <div className="lane__note" data-testid="lane-note" data-status={lane.status}>{note}</div>

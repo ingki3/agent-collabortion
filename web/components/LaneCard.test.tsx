@@ -120,3 +120,13 @@ describe("LaneBoard — 상태별 묶음", () => {
     expect(screen.getByTestId("lane-board-empty").textContent).toContain("아직 시작한 일이 없습니다");
   });
 });
+
+// PR #229 리뷰 NN1: 작업 줄기 카드의 브리프(트리거 발췌)도 마크다운 인라인 — 별표가 그대로 보이지 않는다.
+describe("LaneCard — brief 는 인라인 마크다운", () => {
+  it("**굵게** 가 <strong> 으로, 별표는 남지 않는다", () => {
+    render(<LaneCard lane={lane("running", { brief: "**보고서 10페이지** — 상위 5개 비교" })} />);
+    const el = screen.getByTestId("lane-brief");
+    expect(el.querySelector("strong")?.textContent).toBe("보고서 10페이지");
+    expect(el.textContent).not.toContain("**");
+  });
+});
