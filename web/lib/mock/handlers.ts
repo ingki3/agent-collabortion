@@ -554,8 +554,10 @@ function simulateRun(s: Store, sess: Session, task: MockTask, reply: string) {
     const tcid = `call_${task.id.slice(0, 8)}`;
     pushEvent(s, sess, task, { class: "tool", verb: "read", object_ref: "README.md", outcome: "ok", tool: "Read", sentence: `${agent.name}가 README.md 를 읽었다 → ok`, payload: { tool_call_id: tcid, kind: "read" } } as Partial<TaskEvent> & Pick<TaskEvent, "class">);
   });
+  // `text` 는 **지금까지의 부분 출력 전체**(daemon-protocol §4.2 스냅숏) — 화면이 바꿔 끼운다(PR #228 W-16). 조각을 보내면 마지막 12자만 남는다.
   const chunks = reply.match(/.{1,12}/gs) ?? [reply];
-  chunks.forEach((c, i) => at(1500 + i * 60, () => emit(s, sess.workspace_id, "message.delta", { session_id: sess.id, task_id: task.id, agent_id: agent.id, text: c }, sess.id, true)));
+  let seen = 0;
+  chunks.forEach((c, i) => { seen += c.length; const snapshot = reply.slice(0, seen); at(1500 + i * 60, () => emit(s, sess.workspace_id, "message.delta", { session_id: sess.id, task_id: task.id, agent_id: agent.id, text: snapshot }, sess.id, true)); });
   at(1500 + chunks.length * 60 + 100, () => {
     emit(s, sess.workspace_id, "agent.typing", { session_id: sess.id, agent_id: agent.id, typing: false }, sess.id, true);
     const msg = addMessage(s, sess, { author_type: "agent", author_id: agent.id, author: { name: agent.name, avatar_url: null, role: agent.role }, kind: "text", content: reply, mentions: [], source_task_id: task.id, lane_id: task.lane_id });
