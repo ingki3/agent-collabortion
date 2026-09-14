@@ -1,0 +1,25 @@
+/* 세션 삭제 확인 다이얼로그 — 색은 tokens.css 변수만. 껍데기는 S17(rebind-dialog.css)과 같은 치수. */
+.del-session__scrim {
+  position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+  background: var(--scrim); padding: 20px;
+}
+.del-session {
+  width: min(520px, 100%); max-height: 88vh; overflow: auto; background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 12px;
+}
+.del-session__title { margin: 0; font-size: var(--fs-card); font-weight: 600; line-height: 1.35; word-break: keep-all; }
+.del-session__body { display: flex; flex-direction: column; gap: 6px; }
+.del-session__p { margin: 0; font-size: var(--fs-body); line-height: 1.5; }
+.del-session__p--warn { color: var(--s-fail-text); font-weight: 500; }
+.del-session__problem { margin: 0; }
+.del-session__workdirs {
+  border: 1px solid var(--s-wait); border-radius: 8px; padding: 10px 12px;
+  background: color-mix(in srgb, var(--s-wait) var(--soft-alpha), transparent);
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+}
+.del-session__list { margin: 0; padding-left: 18px; font-size: var(--fs-sub); line-height: 1.5; color: var(--ink); }
+.del-session__path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+.del-session__branch, .del-session__why { color: var(--ink-2); }
+.del-session__actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 4px; }
+.del-session__danger { border-color: var(--s-fail); color: var(--s-fail-text); }
+.del-session__danger:hover { background: color-mix(in srgb, var(--s-fail) var(--soft-alpha), transparent); }

@@ -80,11 +80,15 @@ button, input, textarea, select { font: inherit; color: inherit; }
  */
 .cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(var(--card-min), 1fr)); align-items: start; }
 .list { display: flex; flex-direction: column; gap: 8px; }
-/* 세션 카드 — 상태·시각이 위, 제목·목표가 아래. 목록(.cards) 안에서 열로 선다. */
-.session-card { display: flex; flex-direction: column; gap: 6px; min-width: 0;
-  padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; text-decoration: none; background: var(--bg); }
+/* 세션 카드 — 상태·시각이 위, 제목·목표가 아래. 목록(.cards) 안에서 열로 선다.
+   T-W13: 카드(article)는 자리만 잡고, 링크(.session-card__link)가 내용 전부를 담아 카드 전체를 덮는다 — 「…」 메뉴(.card-menu)는
+   링크의 형제로 오른쪽 위에 앉는다(a 안의 button 은 HTML 위반). 클릭 영역·키보드 이동은 예전 그대로다. */
+.session-card { position: relative; min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
 .session-card:hover { background: var(--surface); }
-.session-card__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.session-card__link { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 12px 14px; text-decoration: none; color: inherit; border-radius: 10px; }
+.session-card__link:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+/* 오른쪽 끝은 「…」 버튼 자리(28px + 여백) — 시각 메타가 버튼 밑에 깔리지 않게. */
+.session-card__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-right: 32px; }
 .session-card__title { font-weight: 600; font-size: var(--fs-card); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-card__sub { font-size: var(--fs-sub); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-card__meta { display: flex; align-items: center; gap: 10px; font-size: var(--fs-meta); color: var(--ink-2); white-space: nowrap; }

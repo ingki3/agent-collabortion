@@ -16,13 +16,16 @@
  *   (f) 관측 지표 10개(`METRIC_DEFS`)는 서버 `internal/metrics/metrics.go` 의 `Defs` 와 **항목 단위로 같다**(key·unit·target·
  *       target_op·label·note — Go 소스를 파싱해 비교). S14 「대시보드」가 그대로 보이는 문장이라 서버가 정한다(T-W11).
  *   (g) T-S12(#200)·T-S14(#209) 가 만든 op — 시험 대화·지표·보안 탭 403 · 멤버 역할·제거 · 알림 설정 — 의 문장은 전부 `SERVER` 에서
- *       온다. `MOCK_ONLY` 는 없다(서버가 안 만든 op 이 0건). 목의 오류 code·순서·판정 조건이 서버 소스(`auth/members.go`
- *       PlanRoleChange · PlanRemoval, `handlers_members.go`, `auth/notifications.go`)와 같은지 문자열로 잰다(T-W12).
+ *       온다. 목의 오류 code·순서·판정 조건이 서버 소스(`auth/members.go` PlanRoleChange · PlanRemoval, `handlers_members.go`,
+ *       `auth/notifications.go`)와 같은지 문자열로 잰다(T-W12).
+ *       `MOCK_ONLY` 는 **서버가 아직 안 만든 op 의 문장만** 담는다 — T-W13 시점엔 `deleteSession`(계약 #218, 서버 T-S17 동시 진행) 셋.
+ *       미구현의 근거는 `func (s *Server) DeleteSession(` 의 부재다(unimplemented.go 는 구현된 op 의 스텁도 품는다). T-S17 이 머지되면
+ *       여기가 빨개지고, 그때 세 문장을 T-S17 의 실제 문장으로 `SERVER` 에 옮긴다.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, SERVER, STATUS_LABEL, TITLE, fmt, W } from "./wording";
+import { josa, METRIC_DEFS, MOCK_ONLY, NOT_FOUND_NOUN, notFound, SERVER, STATUS_LABEL, TITLE, fmt, W } from "./wording";
 
 const SERVER_ROOT = join(__dirname, "..", "..", "..", "server");
 const HANDLERS = readFileSync(join(__dirname, "handlers.ts"), "utf8");
@@ -189,15 +192,34 @@ describe("(f) 관측 지표 10개 — 목 METRIC_DEFS 는 서버 metrics.Defs �
   });
 });
 
-describe("(g) T-S12 #200 · T-S14 #209 가 만든 op 의 문장은 전부 SERVER 에서 온다 — MOCK_ONLY 는 없다", () => {
-  const WORDING = readFileSync(join(__dirname, "wording.ts"), "utf8");
+describe("(g) T-S12 #200 · T-S14 #209 가 만든 op 의 문장은 전부 SERVER 에서 온다 — MOCK_ONLY 는 서버가 안 만든 op(deleteSession)만", () => {
   const serverImpl = readdirSync(join(SERVER_ROOT, "internal/httpapi")).filter((f) => f.endsWith(".go") && !f.endsWith("_test.go") && f !== "unimplemented.go").map((f) => goSource(`internal/httpapi/${f}`)).join("\n");
-  it("MOCK_ONLY 표가 없고 handlers.ts 도 그것을 안 쓴다 — 서버가 안 만든 op 이 0건이다", () => {
-    expect(WORDING).not.toMatch(/export const MOCK_ONLY\b/);
-    expect(HANDLERS).not.toContain("MOCK_ONLY");
+  it("T-S12·T-S14 op 은 서버에 있고 그 문장은 MOCK_ONLY 에 없다", () => {
     // 근거는 **Server 메서드의 존재**다(스텁 유무가 아니다 — unimplemented.go 는 구현된 op 의 스텁도 품는다).
     for (const op of ["UpdateMemberRole", "RemoveMember", "GetNotificationSettings", "UpdateNotificationSettings",
       "CreateTestChat", "PostTestChatTurn", "CloseTestChat", "GetTestChat", "GetWorkspaceMetrics"]) expect(serverImpl).toContain(`func (s *Server) ${op}(`);
+    for (const k of Object.keys(MOCK_ONLY)) expect(k).not.toMatch(/member|notification|test_chat|metrics|masking|role_enum|last_owner/);
+  });
+  it("MOCK_ONLY 에는 deleteSession(T-S17 미구현) 의 세 문장만 있고, DeleteSession 은 정말 서버에 없다 — 서버가 만들면 여기가 빨개진다", () => {
+    expect(Object.keys(MOCK_ONLY).sort()).toEqual(["delete_forbidden", "session_active", "workdir_unmerged"]);
+    expect(serverImpl).not.toContain("func (s *Server) DeleteSession(");
+    // 스텁은 있다(계약 #218 이 501 스텁을 만들었다) — "스텁이 있다 = 미구현" 이 아님을 다시 못박는 자리.
+    expect(goSource("internal/httpapi/unimplemented.go")).toContain("DeleteSession(");
+    for (const k of Object.keys(MOCK_ONLY)) expect(HANDLERS).toMatch(new RegExp(`\\bMOCK_ONLY\\.${k}\\b`));
+  });
+  it("deleteSession 목 — 계약 description 의 문장·code·순서(404 → 403 → 409 session_active → 409 workdir_unmerged + workdirs[] → 204)", () => {
+    // openapi.yaml 이 못박은 문장 하나 — description 에 따옴표로 있다. 서버(T-S17)도 이 문장을 써야 한다.
+    const openapi = readFileSync(join(SERVER_ROOT, "..", "contracts", "openapi.yaml"), "utf8");
+    expect(openapi).toContain(`\`409\`(\`code: session_active\`, "${MOCK_ONLY.session_active}"`);
+    expect(openapi).toContain("`409`(`code: workdir_unmerged`, `Problem.workdirs[]` 에 대상)");
+    const fn = HANDLERS.match(/on\("DELETE", "\/sessions\/\{id\}"[\s\S]*?\n\}\);/)![0];
+    const order = ['notFoundP("session")', 'new Problem(403, "director_or_admin_required", MOCK_ONLY.delete_forbidden)', 'new Problem(409, "session_active", MOCK_ONLY.session_active)', 'new Problem(409, "workdir_unmerged", MOCK_ONLY.workdir_unmerged, { workdirs: blocking })', '"session.deleted", { session_id: sess.id }', "return { status: 204 }"];
+    const idx = order.map((x) => fn.indexOf(x));
+    expect(idx.every((i) => i >= 0)).toBe(true);
+    expect([...idx].sort((a, b) => a - b)).toEqual(idx);
+    // 끝난 세션 셋 · 권한은 Director 또는 owner·admin.
+    expect(HANDLERS).toContain('const DELETABLE_SESSION = new Set<Session["status"]>(["draft", "completed", "cancelled"]);');
+    expect(fn).toContain('sess.director_user_id === user.id || member.role === "owner" || member.role === "admin"');
   });
   it("멤버 역할 변경 — 서버 순서(권한 → enum 422 → 404 → 판정)와 PlanRoleChange 의 두 조건·code 가 같다", () => {
     const fn = HANDLERS.match(/on\("PATCH", "\/workspaces\/\{id\}\/members\/\{mid\}"[\s\S]*?\n\}\);/)![0];

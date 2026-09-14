@@ -1,7 +1,7 @@
 /**
  * 아이콘 한 벌(COMPONENTS §8.5) — stroke 기반 16px 인라인 SVG. 이모지를 쓰지 않는다.
  *
- * 사이드바 다섯(세션·받은 요청·에이전트·연결된 컴퓨터·설정) + 상태 점 하나. 색은 `currentColor` 라
+ * 사이드바 다섯(세션·받은 요청·에이전트·연결된 컴퓨터·설정) + 상태 점 하나 + 더 보기(「…」, T-W13). 색은 `currentColor` 라
  * 놓이는 자리의 글자색을 그대로 따른다 — 아이콘만 따로 색을 갖지 않는다(상태 점은 호출부가 -text 토큰을 준다).
  * `aria-hidden` 이 기본이다: 아이콘 옆에는 언제나 글자가 있고(§8.4 "사용자의 말로"), 아이콘은 훑기 위한 보조다.
  */
@@ -47,6 +47,14 @@ const PATHS = {
   ),
   /** 상태 점 — 채움. 온라인/오프라인처럼 색으로 말하는 자리(글자가 옆에 있어야 한다) */
   dot: <circle cx="12" cy="12" r="5" fill="currentColor" stroke="none" />,
+  /** 더 보기(「…」) — 카드 옵션 메뉴 버튼(S5, T-W13). 가로 점 셋. 버튼의 aria-label 이 글자 몫을 한다. */
+  more: (
+    <>
+      <circle cx="5" cy="12" r="1" fill="currentColor" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" />
+      <circle cx="19" cy="12" r="1" fill="currentColor" />
+    </>
+  ),
 } as const;
 
 export type IconName = keyof typeof PATHS;

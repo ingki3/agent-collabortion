@@ -27,6 +27,7 @@ export function streamUrl(workspaceId: string, sessionIds?: string[]): string {
 export const STREAM_EVENT_TYPES: readonly StreamEventType[] = [
   "resync",
   "session.updated",
+  "session.deleted",
   "session.completion_progress",
   "participant.updated",
   "lane.updated",

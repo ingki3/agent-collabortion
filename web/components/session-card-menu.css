@@ -1,0 +1,24 @@
+/* S5 카드 「…」 메뉴 — 색은 tokens.css 변수만. 카드(.session-card, position: relative) 오른쪽 위에 앉는다. */
+.card-menu { position: absolute; top: 8px; right: 8px; }
+.card-menu__btn {
+  display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+  border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--ink-2); cursor: pointer; padding: 0;
+}
+.card-menu__btn:hover, .card-menu__btn[aria-expanded="true"] { background: var(--surface); border-color: var(--line); color: var(--ink); }
+.card-menu__btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.card-menu__list {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 20; min-width: 180px;
+  display: flex; flex-direction: column; gap: 2px; padding: 4px;
+  background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--ink) 14%, transparent);
+}
+.card-menu__item {
+  display: block; width: 100%; text-align: left; padding: 7px 10px; border: 0; border-radius: 7px; background: transparent;
+  font-size: var(--fs-body); color: inherit; text-decoration: none; cursor: pointer; white-space: nowrap;
+}
+.card-menu__item:hover, .card-menu__item:focus-visible { background: var(--surface); outline: none; }
+.card-menu__item--danger { color: var(--s-fail-text); }
+/* 권한·조건 비활성 — 숨기지 않고 흐리게(SCREEN §5). 사유는 바로 아래 DisabledHint. */
+.card-menu__item[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
+.card-menu__item[aria-disabled="true"]:hover { background: transparent; }
+.card-menu__list .disabled-hint { margin: 0 10px 4px; max-width: 220px; white-space: normal; text-align: left; }

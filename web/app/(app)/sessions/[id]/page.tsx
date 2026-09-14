@@ -13,7 +13,7 @@
  * 좁은 화면에서는 좌·우열이 탭으로 접힌다.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { AgentChip } from "@/components/AgentChip";
@@ -55,8 +55,12 @@ function sortByTime(a: Message, b: Message) {
 export default function SessionPage() {
   const { id: sessionId } = useParams<{ id: string }>();
   const search = useSearchParams();
+  const router = useRouter();
   const { workspace, me } = useAuth();
   const [session, setSession] = useState<Session | null>(null);
+  // `session.deleted` 를 받으면 목록으로 — 제목을 안내 줄에 실어 보낸다(S5 가 `?deleted=` 를 읽는다). onEvent 는 sessionId 만 잡으므로 ref.
+  const titleRef = useRef<string>("");
+  titleRef.current = session?.title ?? titleRef.current;
   const [messages, setMessages] = useState<Message[]>([]);
   const [replies, setReplies] = useState<Record<string, Message[]>>({});
   const [events, setEvents] = useState<Record<string, Events>>({});
@@ -237,6 +241,13 @@ export default function SessionPage() {
         setSession((s) => (s ? { ...s, ...p, participants: p.participants ?? s.participants } : s));
         break;
       }
+      case "session.deleted": {
+        // 물리 삭제(deleteSession) — 이 화면은 더 볼 것이 없다. 목록으로 돌아가고 S5 가 안내 한 줄을 그린다(계약 SSE 표 · SCREEN §4.3).
+        const p = ev.payload as { session_id?: string };
+        if ((p.session_id ?? ev.session_id) !== sessionId) return;
+        router.replace(`/sessions?deleted=${encodeURIComponent(titleRef.current)}`);
+        break;
+      }
       case "cost.updated": {
         const p = ev.payload as { session_id?: string; cost_usd?: number; estimated?: boolean };
         if (p.session_id && p.session_id !== sessionId) return;
@@ -257,7 +268,7 @@ export default function SessionPage() {
       default:
         break;
     }
-  }, [sessionId]);
+  }, [sessionId, router]);
   const conn = useWorkspaceStream(workspace?.id, onEvent, { onResync: () => { void load(); void loadSide(); } });
 
   useEffect(() => {

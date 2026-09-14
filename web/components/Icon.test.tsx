@@ -7,8 +7,8 @@ import { AppNav, NAV_ITEMS } from "./AppNav";
 afterEach(cleanup);
 
 describe("Icon", () => {
-  it("한 벌은 내비 다섯 + 상태 점", () => {
-    expect([...ICON_NAMES].sort()).toEqual(["agents", "computers", "dot", "inbox", "sessions", "settings"]);
+  it("한 벌은 내비 다섯 + 상태 점 + 더 보기(「…」)", () => {
+    expect([...ICON_NAMES].sort()).toEqual(["agents", "computers", "dot", "inbox", "more", "sessions", "settings"]);
   });
 
   it.each(ICON_NAMES)("%s — 16px · stroke currentColor · 글자 옆이라 aria-hidden", (name) => {

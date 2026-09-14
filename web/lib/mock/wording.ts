@@ -215,10 +215,18 @@ export const SERVER = {
 } as const satisfies Record<string, ServerSentence>;
 
 /**
- * `MOCK_ONLY` 는 없다(T-W12) — T-S14(#209)가 멤버 역할·제거 · 알림 설정 4 op 을 만들어 **서버가 안 만든 op 의 문장이 0건**이다.
- * 목의 모든 문장은 `SERVER` 표를 거쳐 서버 소스와 대조된다. 새 op 이 목에 먼저 생기면 그때 다시 만들되, 규칙은 같다:
- * §8.4 의 말, `Problem.detail` 한 문장, 서버가 만들면 `SERVER` 로 옮기며 `at` 을 채운다.
+ * 목에만 있는 op 의 문장 — **서버가 아직 안 만든 op**(T-W13 시점: `deleteSession`, 계약 PR #218 · 서버는 T-S17 이 동시에 만든다).
+ * `SERVER` 에 넣지 않는 이유는 대조할 정답이 없어서다. 규칙은 T-W6·T-W12 때와 같다: §8.4 의 말, `Problem.detail` 한 문장,
+ * 계약 description 이 문장을 못박았으면 **그대로**(`session_active`), 서버가 만들면 `SERVER` 로 옮기며 `at` 을 채운다.
+ * `server-wording.test.ts` (g) 가 "그 op 이 정말 미구현인가"(`func (s *Server) DeleteSession(` 부재)를 재므로 T-S17 이 머지되면
+ * 이 표는 빨개진다 — 그때 T-S17 의 문장으로 옮긴다.
  */
+export const MOCK_ONLY = {
+  // deleteSession(계약 description) — 권한 · 끝나지 않은 세션 · 미병합/미커밋 worktree
+  delete_forbidden: "Director 나 소유자·관리자만 삭제할 수 있습니다",
+  session_active: "진행 중인 세션은 먼저 종료하세요",
+  workdir_unmerged: "미병합 커밋이나 미커밋 변경이 남은 작업 폴더가 있어 삭제할 수 없습니다 — 먼저 병합하거나 정리해 주세요",
+} as const;
 
 /**
  * 관측 지표 10개의 정의 — 서버 `internal/metrics/metrics.go` 의 `Defs` 표(PRD §11 열 순서)를 **그대로** 옮긴 것.
