@@ -3,7 +3,7 @@
  * 제목을 `?deleted=` 에 실어 S5 가 안내 한 줄을 그린다. 다른 세션의 삭제는 무시한다.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { Me, Session, StreamEvent } from "@/lib/api/types";
 
 const replace = vi.fn();
@@ -77,5 +77,38 @@ describe("S7 — session.deleted", () => {
     await waitFor(() => expect(streamHandler).not.toBeNull());
     streamHandler!(ev("s2"));
     expect(replace).not.toHaveBeenCalled();
+  });
+});
+
+// W-16(2026-09-15, Director): 「작성 중…」 미리보기가 턴이 끝난 뒤에도 남고, heartbeat 마다 같은 글이 겹쳐 쌓였다.
+// preview.text 는 **지금까지의 부분 출력 전체**(daemon-protocol §4.2) — 바꿔 끼우고, lane 이 running 을 벗어나면 지운다.
+describe("S7 — message.delta 미리보기(작성 중…)", () => {
+  beforeEach(() => { Element.prototype.scrollIntoView = vi.fn(); }); // jsdom 에 없다 — 화면은 델타마다 맨 아래로 스크롤한다
+  const delta = (text: string): StreamEvent => ({ id: "10", type: "message.delta", at: "2026-09-14T09:01:00Z", workspace_id: "w1", session_id: "s1", payload: { session_id: "s1", task_id: "t1", agent_id: "a1", text } });
+  const laneEv = (status: string): StreamEvent => ({ id: "11", type: "lane.updated", at: "2026-09-14T09:01:05Z", workspace_id: "w1", session_id: "s1", payload: { id: "l1", session_id: "s1", agent_id: "a1", status, actions: [], depends_on: [], reentry_count: 0 } as never });
+
+  it("스냅숏은 이어 붙이지 않고 바꿔 끼운다", async () => {
+    render(<SessionPage />);
+    await waitFor(() => expect(streamHandler).not.toBeNull());
+    act(() => { streamHandler!(delta("Posted the")); streamHandler!(delta("Posted the wrap-up.")); });
+    await waitFor(() => expect(screen.getByTestId("message-delta").textContent).toContain("Posted the wrap-up."));
+    expect(screen.getByTestId("message-delta").textContent).not.toContain("Posted thePosted");
+    expect(screen.getByTestId("message-delta").textContent).toContain("작성 중…");
+  });
+
+  it("턴이 끝나면(lane 이 running 을 벗어나면) 미리보기가 사라진다", async () => {
+    render(<SessionPage />);
+    await waitFor(() => expect(streamHandler).not.toBeNull());
+    act(() => { streamHandler!(delta("마무리 중")); });
+    await waitFor(() => expect(screen.getByTestId("message-delta")).toBeTruthy());
+    act(() => { streamHandler!(laneEv("done")); });
+    await waitFor(() => expect(screen.queryByTestId("message-delta")).toBeNull());
+  });
+
+  it("아직 running 이면 남는다", async () => {
+    render(<SessionPage />);
+    await waitFor(() => expect(streamHandler).not.toBeNull());
+    act(() => { streamHandler!(delta("쓰는 중")); streamHandler!(laneEv("running")); });
+    await waitFor(() => expect(screen.getByTestId("message-delta")).toBeTruthy());
   });
 });

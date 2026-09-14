@@ -205,6 +205,9 @@ export default function SessionPage() {
         const l = ev.payload as unknown as Lane;
         if (l.session_id !== sessionId) return;
         setLanes((cur) => (cur.some((x) => x.id === l.id) ? cur.map((x) => (x.id === l.id ? l : x)) : [...cur, l]));
+        // 턴이 끝났다(running 이 아니다) — 「작성 중…」 미리보기는 그 턴의 것이라 함께 사라진다. 게시된
+        // 메시지만 남는 것이 규칙이고(PRD §7 고빈도 이벤트 비영속), 게시하지 않은 마지막 말은 활동 보기에 있다.
+        if (l.status !== "running") setDeltas((d) => { if (!(l.agent_id in d)) return d; const n = { ...d }; delete n[l.agent_id]; return n; });
         break;
       }
       case "hitl.created":
@@ -261,8 +264,10 @@ export default function SessionPage() {
         break;
       }
       case "message.delta": {
+        // `text` 는 **지금까지의 부분 출력 전체**다(daemon-protocol §4.2 v0.3 preview.text — 매 heartbeat 스냅숏).
+        // 이어 붙이면 heartbeat 마다 같은 글이 겹쳐 쌓인다 — 바꿔 끼운다.
         const p = ev.payload as { agent_id: string; text: string };
-        setDeltas((d) => ({ ...d, [p.agent_id]: (d[p.agent_id] ?? "") + p.text }));
+        setDeltas((d) => (d[p.agent_id] === p.text ? d : { ...d, [p.agent_id]: p.text }));
         break;
       }
       default:
