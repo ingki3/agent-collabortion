@@ -25,7 +25,7 @@ var ErrNotFound = errors.New("lanes: lane not found")
 
 // Load returns the lane with its current (latest) task. canControl is whether
 // the viewer is the session's Director or deputy: only they get the cancel
-// action (openapi Lane.actions). restart stays out (P2, 501).
+// action set (openapi Lane.actions) — see laneActions.
 func Load(ctx context.Context, q db.DBTX, id uuid.UUID, canControl bool) (*gen.Lane, error) {
 	var (
 		out                                        gen.Lane
@@ -82,10 +82,40 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, canControl bool) (*gen.L
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("lanes: current task: %w", err)
 	}
-	if canControl && (out.Status == gen.LaneStatusRunning || out.Status == gen.LaneStatusQueued) {
-		out.Actions = append(out.Actions, gen.LaneActionsCancel)
-	}
+	out.Actions = laneActions(out.Status, out.FailureKind, canControl)
 	return &out, nil
+}
+
+// laneActions is openapi Lane.actions — what the caller may do now. It is the
+// rule the web mock (`lib/mock/handlers.ts laneActions`) and the S7 lane card
+// have carried since P3; the server only ever emitted `cancel`, so 「다시 지시」
+// was disabled everywhere on a real server (S-83). open_question is navigation
+// and belongs to everyone; the rest are Director·deputy (FR-3.4 t-3). A lane
+// that failed with runtime_offline gets no restart — the fix is rebinding
+// (S17), and the card says so.
+func laneActions(status gen.LaneStatus, failure nullable.Nullable[gen.FailureKind], canControl bool) []gen.LaneActions {
+	acts := []gen.LaneActions{}
+	if status == gen.LaneStatusBlocked {
+		acts = append(acts, gen.LaneActionsOpenQuestion)
+	}
+	if !canControl {
+		return acts
+	}
+	switch status {
+	case gen.LaneStatusRunning:
+		acts = append(acts, gen.LaneActionsRestart, gen.LaneActionsCancel)
+	case gen.LaneStatusQueued:
+		acts = append(acts, gen.LaneActionsCancel)
+	case gen.LaneStatusWaitingHuman:
+		acts = append(acts, gen.LaneActionsRespondHitl)
+	case gen.LaneStatusPaused:
+		acts = append(acts, gen.LaneActionsApproveBudget, gen.LaneActionsCancel)
+	case gen.LaneStatusFailed:
+		if fk, err := failure.Get(); err != nil || fk != gen.FailureKindRuntimeOffline {
+			acts = append(acts, gen.LaneActionsRestart)
+		}
+	}
+	return acts
 }
 
 // List returns the session's lanes for the S7 board (openapi listLanes). The
