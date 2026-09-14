@@ -479,6 +479,9 @@ draft → active → (paused ⇄ active) → completing → completed
 
 **FR-2.4 세션 요약** — 완료 시 플랫폼이 결정 기록·아티팩트·비용·타임라인을 정리한 `session_summary` 메시지를 자동 게시. 길이 상한은 워크스페이스 설정(FR-4.4).
 
+
+**FR-2.7 세션 삭제 (P5)** — Director 또는 워크스페이스 owner·admin 이 **끝난 세션**(`draft`·`completed`·`cancelled`)을 물리 삭제한다. 메시지·lane·task·활동·HITL·아티팩트·결정·비용 기록이 함께 사라지고 워크스페이스 집계(§11)에서도 빠진다 — 확인 다이얼로그가 이를 명시한다. 진행 중 세션은 먼저 취소해야 하고(409), 미병합·미커밋 `worktree` 가 있으면 FR-6.4 M4 와 같은 이유로 거부한다(409). 남은 workdir 은 GC 명령으로 정리한다. `activity_log` 에 `session.deleted` 만 남는다.
+
 ### FR-3. 메시징 및 멘션 라우팅
 
 **FR-3.1 메시지 구조** — 세션은 하나의 메인 타임라인 + 스레드(reply). 작성자 타입 `user | agent | system`. 마크다운 지원. `source_task_id`로 어떤 run에서 나온 메시지인지 추적.

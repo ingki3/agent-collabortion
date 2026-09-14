@@ -1114,6 +1114,7 @@ const (
 	StreamEventTypeResync                    StreamEventType = "resync"
 	StreamEventTypeRuntimeUpdated            StreamEventType = "runtime.updated"
 	StreamEventTypeSessionCompletionProgress StreamEventType = "session.completion_progress"
+	StreamEventTypeSessionDeleted            StreamEventType = "session.deleted"
 	StreamEventTypeSessionUpdated            StreamEventType = "session.updated"
 	StreamEventTypeTaskEventAppended         StreamEventType = "task_event.appended"
 	StreamEventTypeTaskEventSuperseded       StreamEventType = "task_event.superseded"
@@ -1161,6 +1162,8 @@ func (e StreamEventType) Valid() bool {
 	case StreamEventTypeRuntimeUpdated:
 		return true
 	case StreamEventTypeSessionCompletionProgress:
+		return true
+	case StreamEventTypeSessionDeleted:
 		return true
 	case StreamEventTypeSessionUpdated:
 		return true
@@ -2625,9 +2628,12 @@ type Problem struct {
 		Id    *openapi_types.UUID `json:"id,omitempty"`
 		Title *string             `json:"title,omitempty"`
 	} `json:"sessions,omitempty"`
-	Status               int                    `json:"status"`
-	Title                string                 `json:"title"`
-	Type                 *string                `json:"type,omitempty"`
+	Status int     `json:"status"`
+	Title  string  `json:"title"`
+	Type   *string `json:"type,omitempty"`
+
+	// Workdirs 차단 사유가 된 작업 폴더(deleteSession 409 `workdir_unmerged`).
+	Workdirs             *[]Workdir             `json:"workdirs,omitempty"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
@@ -3015,6 +3021,7 @@ type SessionUpdate struct {
 // |---|---|---|
 // | `resync` | `{reason}` — 보존 창 밖의 `Last-Event-ID`. REST로 다시 읽어라 | 전역 |
 // | `session.updated` | `Session`(부분: status · paused_reason · paused_detail · cost_usd · runtime_id · last_activity_at) | S5 · S7 |
+// | `session.deleted` | `{session_id}` — 물리 삭제(deleteSession). S5 는 카드를 빼고, 그 세션을 보고 있던 S7 은 목록으로 돌아간다 | S5 · S7 |
 // | `session.completion_progress` | `{session_id, completion_progress}` | S7 |
 // | `participant.updated` | `Participant`(status · status_note · profile) | S7 |
 // | `lane.updated` | `Lane` | S7 |
@@ -4129,6 +4136,14 @@ func (a *Problem) UnmarshalJSON(b []byte) error {
 		delete(object, "type")
 	}
 
+	if raw, found := object["workdirs"]; found {
+		err = json.Unmarshal(raw, &a.Workdirs)
+		if err != nil {
+			return fmt.Errorf("error reading 'workdirs': %w", err)
+		}
+		delete(object, "workdirs")
+	}
+
 	if len(object) != 0 {
 		a.AdditionalProperties = make(map[string]interface{})
 		for fieldName, fieldBuf := range object {
@@ -4204,6 +4219,13 @@ func (a Problem) MarshalJSON() ([]byte, error) {
 		object["type"], err = json.Marshal(a.Type)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'type': %w", err)
+		}
+	}
+
+	if a.Workdirs != nil {
+		object["workdirs"], err = json.Marshal(a.Workdirs)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'workdirs': %w", err)
 		}
 	}
 
@@ -4558,6 +4580,9 @@ type ServerInterface interface {
 	// ListRuntimeWorkdirs workdir 목록(S13)
 	// (GET /runtimes/{runtimeId}/workdirs)
 	ListRuntimeWorkdirs(w http.ResponseWriter, r *http.Request, runtimeId RuntimeId, params ListRuntimeWorkdirsParams)
+	// DeleteSession 세션 삭제(물리 삭제 — 되돌릴 수 없다)
+	// (DELETE /sessions/{sessionId})
+	DeleteSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
 	// GetSession 세션 상세(S7 우열 · 상단)
 	// (GET /sessions/{sessionId})
 	GetSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
@@ -5829,6 +5854,32 @@ func (siw *ServerInterfaceWrapper) ListRuntimeWorkdirs(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListRuntimeWorkdirs(w, r, runtimeId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteSession operation middleware
+func (siw *ServerInterfaceWrapper) DeleteSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteSession(w, r, sessionId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8634,6 +8685,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/workspaces/{workspaceId}/sessions", wrapper.ListSessions)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/workspaces/{workspaceId}/sessions", wrapper.CreateSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/workspaces/{workspaceId}/runtime-candidates", wrapper.ListRuntimeCandidates)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/sessions/{sessionId}", wrapper.DeleteSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sessions/{sessionId}", wrapper.GetSession)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/sessions/{sessionId}", wrapper.UpdateSession)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/{sessionId}/start", wrapper.StartSession)
