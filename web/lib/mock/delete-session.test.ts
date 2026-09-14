@@ -11,7 +11,7 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import { dispatch, type Req } from "./handlers";
-import { MOCK_ONLY } from "./wording";
+import { W } from "./wording";
 import { resetStore, store, type Subscriber } from "./store";
 import type { Runtime, Session, Workdir } from "@/lib/api/types";
 
@@ -104,8 +104,8 @@ describe("409 session_active — 끝나지 않은 세션", () => {
     expect(sess.status).toBe("active");
     const r = await call("DELETE", `/sessions/${sess.id}`);
     expect(r.status).toBe(409);
-    expect(r.body).toEqual({ type: "https://colab.dev/problems/session_active", status: 409, title: "지금은 할 수 없음", code: "session_active", detail: MOCK_ONLY.session_active });
-    expect(MOCK_ONLY.session_active).toBe("진행 중인 세션은 먼저 종료하세요");
+    expect(r.body).toEqual({ type: "https://colab.dev/problems/session_active", status: 409, title: "지금은 할 수 없음", code: "session_active", detail: W.session_active });
+    expect(W.session_active).toBe("진행 중인 세션은 먼저 종료하세요");
     expect(await ids(id)).toContain(sess.id);
   });
 
@@ -125,7 +125,7 @@ describe("권한 — Director 또는 owner·admin", () => {
     await login("seoyeon@colab.dev"); // member · Director 아님
     const r = await call("DELETE", `/sessions/${sess.id}`);
     expect(r.status).toBe(403);
-    expect(r.body).toMatchObject({ code: "director_or_admin_required", detail: MOCK_ONLY.delete_forbidden });
+    expect(r.body).toMatchObject({ code: "director_or_admin_required", detail: W.delete_forbidden });
     // Director 로 바꾸면(owner 가 교체) 같은 member 가 지울 수 있다.
     await login();
     const seo = (await must<{ items: { user: { id: string; email: string } }[] }>("GET", `/workspaces/${id}/members`)).items.find((m) => m.user.email === "seoyeon@colab.dev")!;
@@ -173,7 +173,7 @@ describe("409 workdir_unmerged — 미병합/미커밋 worktree (FR-6.4 M4)", ()
     expect(r.status).toBe(409);
     const body = r.body as { code: string; detail: string; workdirs: Workdir[] };
     expect(body.code).toBe("workdir_unmerged");
-    expect(body.detail).toBe(MOCK_ONLY.workdir_unmerged);
+    expect(body.detail).toBe(W.workdir_unmerged);
     expect(body.workdirs.map((w) => w.gc_blocked_reason).sort()).toEqual(["uncommitted_changes", "unmerged_commits"]);
     for (const w of body.workdirs) {
       for (const k of ["id", "session_id", "kind", "path_or_ref", "status", "disk_bytes", "created_at", "updated_at", "branch", "dirty", "commits_ahead", "gc_blocked_reason"]) expect(w).toHaveProperty(k);
