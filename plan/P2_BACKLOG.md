@@ -145,7 +145,7 @@
 | I-1 | PR #206 리뷰 NN1~NN5 — e2e/p5 `lib.sh`(70_/71_)·`lib_i5.sh`(72_~78_) 기본 스택 통일 · 단계별 `wait_for --timeout`(실패가 행이 아니라 단언이 되게) · 76_ "첫 출력" 표 셀에 "(페이크 — 모델 0)" 꼬리 · **G9 판정 때 `chk_na` 목록을 함께 읽는다** · out/ 덤프에 토큰 재점검 | PR #206 리뷰 | 낮음 |
 | K-16 | `colab status set done` 뒤에도 도는 턴은 Director 가 중단할 수 없다(`409 lane_not_cancellable`, task 는 running) — 지시문 관례("done 은 마지막 호출")로 덮여 있음. S7 중단 버튼이 running 턴에 비활성이 되는 자리 | T-I5 PR #206 관찰 1 | 알고 있기 |
 | K-17 | `parallel_wallclock_reduction` 정의가 사람 대기(HITL)를 "전체"에 넣어 HITL 있는 세션은 병렬 효과와 무관하게 낮거나 음수 — note 에 명시(T-S15), 정의 변경은 계약 | T-I5 PR #206 관찰 2 | 낮음 | **해결 PR #213**(note 명시) + 웹 #214 |
-| W-12 | S7 의 요약 메시지(`kind=summary`)가 마크다운 원문(`##`·`-`)으로 보인다 | T-I5 PR #206 관찰 3 (`web/__screenshots__/p5-78-s7.png`) | 낮음 |
+| W-12 | S7 의 요약 메시지(`kind=summary`)가 마크다운 원문(`##`·`-`)으로 보인다 | T-I5 PR #206 관찰 3 (`web/__screenshots__/p5-78-s7.png`) | 낮음 | **해결 PR #229**(lib/markdown.tsx 의존성 0·XSS 0) + #230(lane brief) |
 | S-78 | **`router.chainDepth` 가 "마지막 사람 메시지 뒤 홉 수"** 라 형제 위임·합류 통보를 전부 깊이로 센다 — PRD FR-3.5 는 "멘션이 연쇄된 **깊이**"(Lead→실무자→리뷰어→Lead = 4). Hermes 실측(PR #213 리뷰 §3): F1 형 세션이 **chainDepth 9** → `paused(loop)`. G8 실측 오염 위험 | PR #213 미해결 1 · 리뷰 NN1 | **높음 · G8 전** · T-S16 | **해결 PR #216**(session_hop.cause_hop_id, F1 형 최대 깊이 2) |
 | S-79 | PR #213 리뷰 NN2·NN3·NN5 — `gateHop` 이 판정과 부수효과(pauseForLoop)를 한 함수에 · `ErrLoopLimit` 문장의 `LimitText()` 조각이 wording sink 를 지나는지 · install.sh 3단 클론 폴백이 전체 클론까지(타임아웃 위험) | PR #213 리뷰 | 낮음 |
 | W-13 | PR #212 리뷰 NN2·NN3·NN5 — 화면 테스트 픽스처의 `about:blank`(헬퍼로) · `selfDemotionText` 가 소유자 강등에도 관리자 문장 · server-wording.test.ts 205개(28%) 한 파일 — describe 별 분리 | PR #212 리뷰 | 낮음 |
@@ -156,6 +156,9 @@
 | S-83 | 서버 `lanes.Load` 가 `Lane.actions` 에 **`cancel` 만** 넣어(P2 "restart stays out" 주석 잔존) 실서버 S7 카드의 「다시 지시」·「응답하러 가기」·「계속 진행 승인」이 **항상 비활성**이었다. 웹 목이 옳은 규칙을 갖고 있어 화면 테스트가 못 잡았다 — **목이 서버보다 옳으면 화면 테스트는 초록이다**(server-wording 자물쇠는 문장만 대조, 동작 규칙은 대조 안 함) | Director 실사용 2026-09-14 | **해결 PR #224**(laneActions + 유닛 9) · 교훈: 목 규칙 ↔ 서버 규칙 대조 자물쇠 후보(I-2) |
 | I-2 | 목이 서버보다 옳은 규칙을 갖는 자리(Lane.actions·인박스 actions 등)를 **서버 실값과 대조하는 실서버 스모크**를 CI e2e 에(72_~78_ 는 acpfake 로 도니 lane actions 를 상태별로 단언할 수 있다) | S-83 교훈 | 중 · G9 전 |
 | W-15 | 「중단하고 다시 지시」 재지시 모드의 작성창 초안이 멘션을 원문 링크(`[@Writer](mention://agent/…)`)로 보인다 — 칩이나 `@Writer` 로 | 실기 2026-09-15 스크린샷 | 낮음 | **해결 PR #226**(작성창은 `@이름`, 링크는 전송 본문에만 — `toWire`/`toDisplay`) |
+| W-16 | 「작성 중…」 미리보기가 턴 종료 뒤에도 남고(지우는 조건이 message.created 뿐), `message.delta.text`(누적 스냅숏)를 이어 붙였다 | Director 실사용 2026-09-15 | **해결 PR #228**(스냅숏 교체·lane running 이탈 시 제거) |
+| W-17 | PR #229 리뷰 NN2~NN4 — 리터럴 색 단독 주입이 대비 자물쇠에 걸리는지 미확인 · `####` 이상은 `###` 로 접힘 · 표는 구분줄 필수(GFM) | PR #229 리뷰 | 낮음 |
+| W-18 | S7 자동 스크롤이 sticky 작성창 뒤에 마지막 카드·델타를 숨긴다(T-W14 관찰 3, 스크린샷은 window.scrollTo 로 우회) · 사람 메시지도 마크다운 렌더(작성자 구분 원하면 결정) | T-W14 PR #229 보고 | 낮음 |
 
 ## C (CLI)
 
