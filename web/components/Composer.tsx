@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./composer.css";
-import { activeMentionQuery, mentionLink, type MentionTarget } from "@/lib/mentions";
+import { activeMentionQuery, toWire, type MentionTarget } from "@/lib/mentions";
 import type { TriggerPreview } from "@/lib/api/types";
 
 export interface ComposerAgent {
@@ -101,10 +101,17 @@ export function Composer(props: ComposerProps) {
     taRef.current?.focus();
   }, [draftNonce, draftContent]);
 
+  // 화면 글 → 전송 본문(멘션 링크). 미리보기와 전송이 같은 것을 본다.
+  const mentionTargets = useMemo<MentionTarget[]>(() => [
+    ...props.agents.map((a) => ({ kind: "agent" as const, id: a.id, name: a.name })),
+    ...(props.members ?? []).map((m) => ({ kind: "user" as const, id: m.id, name: m.name })),
+  ], [props.agents, props.members]);
+  const wire = useMemo(() => toWire(text, mentionTargets), [text, mentionTargets]);
+
   // ── 서버 트리거 미리보기(FR-3.6) — 디바운스, 마지막 응답만 채택 ──
   useEffect(() => {
     if (!onPreview) return;
-    const content = text.trim();
+    const content = wire.trim();
     if (!content) {
       setPreview(null);
       setPreviewError(null);
@@ -132,7 +139,7 @@ export function Composer(props: ComposerProps) {
       live = false;
       clearTimeout(t);
     };
-  }, [text, parentId, newLane, suppressIds, onPreview, delay]);
+  }, [wire, parentId, newLane, suppressIds, onPreview, delay]);
 
   const query = useMemo(() => activeMentionQuery(text, caret), [text, caret]);
   const candidates = useMemo(() => {
@@ -155,7 +162,7 @@ export function Composer(props: ComposerProps) {
     if (!query) return;
     const before = text.slice(0, query.start);
     const after = text.slice(caret);
-    const link = mentionLink(t) + " ";
+    const link = `@${t.name} `; // 화면에는 이름만 — 링크는 toWire() 가 전송 직전에 만든다(W-15)
     const next = before + link + after;
     setText(next);
     const pos = before.length + link.length;
@@ -176,7 +183,7 @@ export function Composer(props: ComposerProps) {
   }, []);
 
   async function submit() {
-    const content = text.trim();
+    const content = wire.trim();
     if (!content || busy || props.disabled) return;
     setBusy(true);
     try {

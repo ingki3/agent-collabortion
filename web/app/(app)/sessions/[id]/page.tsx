@@ -286,7 +286,7 @@ export default function SessionPage() {
     if (!lane) return;
     const a = agents.find((x) => x.id === lane.agent_id);
     setRestart({ laneId: lane.id, agentName: a?.name ?? "agent" });
-    setDraft({ content: a ? `[@${a.name}](mention://agent/${a.id}) ` : "", nonce: Date.now() });
+    setDraft({ content: a ? `@${a.name} ` : "", nonce: Date.now() });
     setCol("timeline");
   }, [restartParam, lanes, agents]);
 
@@ -334,7 +334,7 @@ export default function SessionPage() {
 
   function beginRestart(lane: Lane) {
     const a = agentById.get(lane.agent_id);
-    const mention = a ? `[@${a.name}](mention://agent/${a.id}) ` : "";
+    const mention = a ? `@${a.name} ` : ""; // 화면 글 — 링크는 작성창이 전송 직전에 만든다(W-15)
     setRestart({ laneId: lane.id, agentName: a?.name ?? "agent" });
     setReplyTo(null);
     setDraft({ content: mention, nonce: Date.now() });
