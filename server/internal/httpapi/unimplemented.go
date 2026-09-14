@@ -289,8 +289,3 @@ func (unimplemented) CreateSession(w http.ResponseWriter, r *http.Request, works
 func (unimplemented) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.StreamEventsParams) {
 	notImplemented(w, r, "StreamEvents")
 }
-
-// DeleteSession — openapi 0.1.3(세션 삭제), T-S17 이 구현한다.
-func (unimplemented) DeleteSession(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	notImplemented(w, r, "DeleteSession")
-}

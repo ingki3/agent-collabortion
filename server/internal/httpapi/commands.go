@@ -27,11 +27,15 @@ func (s *Server) ExpireCommands(ctx context.Context) (int, error) {
 			// chat has no feed, and the row would fail task_event's FK.
 			continue
 		}
-		attempt := 1
+		// deleteSession cascades the task away while a `cancel`/`revoke` for
+		// it may still be unconsumed (a daemon that never came back). The
+		// feed row would fail task_event's FK; there is no feed to write on.
+		var attempt int
+		if err := s.DB.QueryRow(ctx, `SELECT attempt FROM task WHERE id = $1`, *e.TaskID).Scan(&attempt); err != nil {
+			continue
+		}
 		if e.Attempt != nil {
 			attempt = *e.Attempt
-		} else {
-			_ = s.DB.QueryRow(ctx, `SELECT attempt FROM task WHERE id = $1`, *e.TaskID).Scan(&attempt)
 		}
 		// The fourth server-side writer. It used to compute seq the same racy
 		// way as the other three and swallow the conflict into a Log.Warn, so

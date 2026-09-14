@@ -193,6 +193,10 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 			GC *struct {
 				Status string `json:"status"`
 				Reason string `json:"reason"`
+				// ID is where the daemon actually echoes the row id it was
+				// given (daemon/internal/workdir GCResult.ID) — the top-level
+				// `id` stays empty on a session row. Read both.
+				ID string `json:"id"`
 			} `json:"gc"`
 			// TestChatID marks the §4.5 receipt for a test chat's temporary
 			// directory: not a workdir row, only a gc command's consumption.
@@ -216,17 +220,30 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 		}
 		rep, why := s.workdirReport(r, d, wd.Kind, wd.Path, wd.SessionID, wd.AgentID, wd.LaneID)
 		if why != "" {
-			// S-56(b): loudly. Silence here is what let 차단 ② live through a
-			// whole gate — both halves computed correct values and the row was
-			// dropped in between with no trace.
-			s.Log.Warn("workdir report entry dropped", "reason", why, "path", wd.Path,
-				"session", wd.SessionID, "agent", wd.AgentID, "lane", wd.LaneID, "runtime", d.RuntimeID)
-			s.noteWorkdirReportDropped(r.Context(), rep, wd.Path, why, now)
+			receipt := wd.GC != nil && wd.GC.Status != ""
+			// daemon-protocol §6 v0.8.1: a receipt for a directory whose
+			// session was DELETED (deleteSession queued the gc, then the rows
+			// went with the session) is consumed and nothing else — there is
+			// no session to put a feed line on, and it is not a defect of the
+			// daemon's report. Every other dropped entry stays loud.
+			quiet := receipt && rep.SessionID == uuid.Nil && sessionGone(r, s, wd.SessionID)
+			if quiet {
+				s.Log.Debug("gc receipt for a deleted session's workdir", "path", wd.Path, "session", wd.SessionID, "runtime", d.RuntimeID)
+			} else {
+				// S-56(b): loudly. Silence here is what let 차단 ② live through a
+				// whole gate — both halves computed correct values and the row was
+				// dropped in between with no trace.
+				s.Log.Warn("workdir report entry dropped", "reason", why, "path", wd.Path,
+					"session", wd.SessionID, "agent", wd.AgentID, "lane", wd.LaneID, "runtime", d.RuntimeID)
+				s.noteWorkdirReportDropped(r.Context(), rep, wd.Path, why, now)
+			}
 			// (c) The gc receipt is not the row: a directory the daemon just
 			// DELETED may well be unbindable now, and refusing the receipt is
 			// what left `gc` commands unconsumed and rows open forever.
-			if id, err := uuid.Parse(wd.ID); err == nil && wd.GC != nil && wd.GC.Status != "" {
-				gcReports = append(gcReports, workdirs.GCReport{WorkdirID: id, Status: wd.GC.Status, Reason: wd.GC.Reason})
+			if receipt {
+				for _, id := range s.gcReceiptTargets(r.Context(), d.RuntimeID, wd.ID, wd.GC.ID, wd.Path) {
+					gcReports = append(gcReports, workdirs.GCReport{WorkdirID: id, Status: wd.GC.Status, Reason: wd.GC.Reason})
+				}
 			}
 			continue
 		}
@@ -271,10 +288,50 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 	for _, ref := range refusals {
 		s.recordGCRefusal(r.Context(), ref, now)
 	}
-	if err := tokens.ConsumeGCCommands(r.Context(), s.DB, d.RuntimeID, s.Clock.Now()); err != nil {
+	// The receipts this report carried: a target whose row no longer exists
+	// (deleteSession) counts as settled only when it is among them.
+	receipts := make([]uuid.UUID, 0, len(gcReports))
+	for _, rep := range gcReports {
+		receipts = append(receipts, rep.WorkdirID)
+	}
+	if err := tokens.ConsumeGCCommands(r.Context(), s.DB, d.RuntimeID, receipts, s.Clock.Now()); err != nil {
 		s.Log.Warn("consume gc commands", "err", err)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// gcReceiptTargets names the workdir row(s) a §6 receipt row is about when the
+// server could not bind the entry itself: the top-level `id`, the id the
+// daemon echoes inside `gc`, or — with neither — the ids the runtime's pending
+// gc commands carry for that path (the command was `{id, path}`, §4.3 v0.7).
+func (s *Server) gcReceiptTargets(ctx context.Context, runtimeID uuid.UUID, topID, gcID, path string) []uuid.UUID {
+	for _, raw := range []string{topID, gcID} {
+		if id, err := uuid.Parse(raw); err == nil {
+			return []uuid.UUID{id}
+		}
+	}
+	if path == "" {
+		return nil
+	}
+	ids, err := tokens.GCTargetsByPath(ctx, s.DB, runtimeID, path)
+	if err != nil {
+		s.Log.Warn("gc receipt by path", "err", err, "path", path)
+	}
+	return ids
+}
+
+// sessionGone is true when the report's session_id is a uuid that names no
+// session row — the deleteSession case, as opposed to a malformed report.
+func sessionGone(r *http.Request, s *Server, session string) bool {
+	sid, err := uuid.Parse(session)
+	if err != nil {
+		return false
+	}
+	var n int
+	if err := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM session WHERE id = $1`, sid).Scan(&n); err != nil {
+		return false
+	}
+	return n == 0
 }
 
 // gcRefusedNote is the head of the feed sentence daemon-protocol §6 (v0.7.4)

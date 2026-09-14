@@ -189,3 +189,36 @@ func nullableTime(t *time.Time) nullable.Nullable[time.Time] {
 	}
 	return nullable.NewNullableWithValue(*t)
 }
+
+// UnmergedWorktrees lists the session's `worktree` rows that still hold work
+// the branch alone does not keep — the deleteSession 409 `workdir_unmerged`
+// set (openapi 0.1.3), the same protection as FR-6.4 M4.
+//
+// A row blocks when it is not `deleted` and ANY of the three git facts says
+// work is here: `merged = false`, a dirty tree (tree_dirty, or the older
+// `dirty` OR when the split columns were never written), or commits ahead of
+// the base. `merged IS NULL` (no report yet) does not block on its own — the
+// server has no evidence either way, and the other two columns still speak.
+//
+// production caller: sessions.Service.Delete.
+func UnmergedWorktrees(ctx context.Context, q db.DBTX, sessionID uuid.UUID) ([]gen.Workdir, error) {
+	rows, err := q.Query(ctx, `
+		SELECT `+workdirCols+`
+		FROM workdir w JOIN session s ON s.id = w.session_id
+		WHERE w.session_id = $1 AND w.kind = 'worktree' AND w.status <> 'deleted'
+		  AND (w.merged = false OR COALESCE(w.tree_dirty, w.dirty, false) OR w.commits_ahead > 0)
+		ORDER BY w.created_at`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("workdirs: unmerged worktrees: %w", err)
+	}
+	defer rows.Close()
+	out := []gen.Workdir{}
+	for rows.Next() {
+		wd, _, err := scanWorkdir(rows)
+		if err != nil {
+			return nil, fmt.Errorf("workdirs: unmerged worktrees: %w", err)
+		}
+		out = append(out, wd)
+	}
+	return out, rows.Err()
+}
