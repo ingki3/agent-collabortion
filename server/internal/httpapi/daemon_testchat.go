@@ -172,6 +172,7 @@ func (s *Server) publishTestChatTurn(ctx context.Context, tc *testchat.Row, turn
 func (s *Server) consumeTestChatGC(ctx context.Context, d daemonCtx, chatID, path string, gc *struct {
 	Status string `json:"status"`
 	Reason string `json:"reason"`
+	ID     string `json:"id"`
 }, now time.Time) {
 	id, err := uuid.Parse(chatID)
 	if err != nil {

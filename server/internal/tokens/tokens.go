@@ -279,20 +279,62 @@ func ConsumeRebindCommands(ctx context.Context, q db.DBTX, runtimeID, sessionID 
 // NOT EXISTS above would be trivially true and the command consumed by the
 // FIRST report of any kind — before the daemon ever deleted the directory.
 // ConsumeTestChatGCCommands consumes it on ITS receipt.
-func ConsumeGCCommands(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, now time.Time) error {
+//
+// receipts are the workdir ids the report just carried a `gc` receipt for
+// (deleted or refused). They matter for a target whose ROW IS GONE —
+// deleteSession queues the gc and then cascades the rows away
+// (daemon-protocol §6 v0.8.1). Absence of the row must not count as the
+// receipt, for the same reason as the test chat above: the command would be
+// consumed by the first report of any kind, before the daemon ever saw it.
+// Such a target is settled only when this report named it.
+func ConsumeGCCommands(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, receipts []uuid.UUID, now time.Time) error {
+	ids := make([]string, 0, len(receipts))
+	for _, id := range receipts {
+		ids = append(ids, id.String())
+	}
 	_, err := q.Exec(ctx, `
 		UPDATE daemon_command c SET consumed_at = $2, consumed_by = 'workdir_report'
 		WHERE c.runtime_id = $1 AND c.type = 'gc' AND c.consumed_at IS NULL
 		  AND c.payload->>'test_chat_id' IS NULL
 		  AND NOT EXISTS (
-		        SELECT 1 FROM workdir w
-		        WHERE w.id::text = ANY(gc_command_workdir_ids(c.payload))
-		          AND w.status = 'active')`,
-		runtimeID, now)
+		        SELECT 1 FROM unnest(gc_command_workdir_ids(c.payload)) AS target(id)
+		        LEFT JOIN workdir w ON w.id::text = target.id
+		        WHERE (w.id IS NOT NULL AND w.status = 'active')
+		           OR (w.id IS NULL AND NOT (target.id = ANY($3::text[]))))`,
+		runtimeID, now, ids)
 	if err != nil {
 		return fmt.Errorf("tokens: consume gc commands: %w", err)
 	}
 	return nil
+}
+
+// GCTargetsByPath resolves §6 receipt rows that carry no id to the workdir ids
+// the runtime's pending gc commands named for that path. The daemon echoes the
+// id inside `gc.id`, but a receipt for a directory whose row is already gone
+// (deleteSession) may reach the server with the path alone; the command's own
+// payload {id, path} is the map back.
+func GCTargetsByPath(ctx context.Context, q db.DBTX, runtimeID uuid.UUID, path string) ([]uuid.UUID, error) {
+	rows, err := q.Query(ctx, `
+		SELECT DISTINCT t->>'id'
+		FROM daemon_command c, jsonb_array_elements(
+		       CASE WHEN jsonb_typeof(c.payload->'workdirs') = 'array' THEN c.payload->'workdirs' ELSE '[]'::jsonb END) t
+		WHERE c.runtime_id = $1 AND c.type = 'gc' AND c.consumed_at IS NULL AND t->>'path' = $2`,
+		runtimeID, path)
+	if err != nil {
+		return nil, fmt.Errorf("tokens: gc targets by path: %w", err)
+	}
+	defer rows.Close()
+	var out []uuid.UUID
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		if id, err := uuid.Parse(raw); err == nil {
+			out = append(out, id)
+		}
+	}
+	return out, rows.Err()
 }
 
 // ConsumeTestChatGCCommands marks the gc command for one test chat's temporary

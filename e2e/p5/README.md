@@ -12,6 +12,7 @@
 
 | 스크립트 | 무엇을 재는가 | 스택 |
 |---|---|---|
+| `79_delete_session.sh` | **deleteSession**(openapi 0.1.3, FR-2.7, T-S17) 서버 쪽 전부 — 데몬 **없이** curl 로: 완료 세션(claim → phase → 아티팩트 lo → finish → complete) → 멤버 403 · active 409 `session_active`(계약 문장) · Director 204 → 404 · 목록·비용·지표 표본에서 빠짐 · 자식 행 0 · large object 0 · `activity_log` `session.deleted` 1행(고아 0) · SSE `session.deleted` · worktree §6 보고(미병합) → cancel → 409 `workdir_unmerged` + `Problem.workdirs[]` → 병합 보고 → 204 → claim 의 gc `{id,path}` → 없는 행 영수증 200·소비·피드 0 · admin 204. 43 판정 | Postgres `colab-pg-s17` :5459 + server :8115 (`SERVER_URL`·`PG_PORT`·`PG_CONTAINER` 를 up.sh 에 export) |
 | `70_testchat.sh` | **테스트 채팅**(FR-1.8.1, daemon-protocol v0.8 §4.5) 서버 쪽 전부 — 데몬 **없이** 데몬 역할을 curl 로 흉내: createTestChat → 턴 202/409 → claim 이 주는 §4.5 번들(kind·id·attempt·토큰 없음·[2] 없음·workdir·첫 턴 머리 한 줄) → phase → heartbeat(preview → SSE `test_chat.delta`) → events(message.say 합침, task_event 0) → finish(transport·usage 추정·ref) → SSE `test_chat.turn` → getTestChat(agent 턴·토큰·transport·비용) → 턴 2 의 `resume` → failed(auth) 의 §8.4 문장 → 워크스페이스 `test_chat_usd` → close 의 gc(test_chat_id, session_id 없음)·410·§6 영수증으로 소비 → 진행 중 턴 close 의 cancel+gc. 끝에 **getWorkspaceMetrics**(10개·순서·표본 0 = null·422). 57 판정 | Postgres `colab-pg-s12` :5451 + server :8107 (웹·데몬·모델 호출 0회) |
 
 ## 재현
@@ -20,6 +21,11 @@
 bash e2e/p5/up.sh                      # colab-pg-s12 :5451 + server :8107 (bin/server 를 다시 빌드)
 bash e2e/p5/70_testchat.sh             # out/70-checks.tsv · 70-bundle-{1,2}.json · 70-sse.log · 70-testchat.json · 70-metrics.json
 bash e2e/p5/down.sh                    # pid·pgid 로만 종료(§0-10). Postgres 컨테이너는 남긴다
+
+# T-S17 (다른 포트 — 스택은 스크립트마다 격리)
+SERVER_URL=http://localhost:8115 PG_PORT=5459 PG_CONTAINER=colab-pg-s17 bash e2e/p5/up.sh
+bash e2e/p5/79_delete_session.sh       # out/79-checks.tsv · 79-claim-gc.json · 79-409-unmerged.json · 79-sse.log · 79-cost-{before,after}.json
+SERVER_URL=http://localhost:8115 PG_PORT=5459 PG_CONTAINER=colab-pg-s17 bash e2e/p5/down.sh
 ```
 
 ## 이 판에서 밟은 함정
