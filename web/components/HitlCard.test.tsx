@@ -221,3 +221,16 @@ describe("시스템 발행 문구 — purpose 가 판정 기준이다(0012)", ()
     expect(screen.getByTestId("hitl-card").getAttribute("data-purpose")).toBe("budget");
   });
 });
+
+// PRD FR-3.1 — 질문 본문은 **인라인** 마크다운만(짧은 본문). 블록 문법은 문자 그대로. 세부는 `lib/markdown.test.tsx`.
+describe("질문 본문 — 인라인 마크다운", () => {
+  it("굵게·코드·멘션 칩은 살고, 목록·제목 문법은 문자 그대로·HTML 은 태그가 되지 않는다", () => {
+    render(<HitlBody type="question" status="open" question={"**대상**은 `B2B` 인가요? [@Lead](mention://agent/a1)\n- 아니면 <b>x</b>"} canRespond onRespond={vi.fn()} />);
+    const q = screen.getByTestId("hitl-question");
+    expect(q.querySelector("strong")!.textContent).toBe("대상");
+    expect(q.querySelector("code")!.textContent).toBe("B2B");
+    expect(q.querySelector(".msg__mention")!.getAttribute("data-mention")).toBe("agent:a1");
+    expect(q.querySelector("ul, h1, b")).toBeNull();
+    expect(q.textContent).toContain("- 아니면 <b>x</b>");
+  });
+});

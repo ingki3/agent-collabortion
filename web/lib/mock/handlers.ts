@@ -354,7 +354,8 @@ on("POST", "/workspaces/{id}/sessions", (req, p) => {
   const sys = addMessage(s, sess, { author_type: "system", author_id: null, author: undefined, kind: "system", content: `${W.session_started}${sess.goal}`, mentions: [] });
   if (!b.draft) {
     const task = createTask(s, sess, assignee.agent_id, sys.id);
-    simulateRun(s, sess, task, `goal 을 받았습니다. "${sess.goal}" 를 3단계로 진행하겠습니다.\n1) 범위 확정 2) 조사·초안 3) 검토 후 제출\n필요하면 @로 지시를 추가하세요.`);
+    // 첫 답변은 **마크다운**이다(PRD FR-3.1, W-12) — 실제 에이전트가 그렇게 답하고, 화면이 원문(`**`·`-`)을 그대로 보이면 안 된다.
+    simulateRun(s, sess, task, `goal 을 받았습니다. **"${sess.goal}"** 를 3단계로 진행하겠습니다.\n\n1. 범위 확정\n2. 조사·초안\n3. 검토 후 제출\n\n필요하면 \`@이름\` 으로 지시를 추가하세요.`);
   }
   return ok({ ...sess, participants: participantsOf(s, sess) }, 201);
 });
@@ -2031,6 +2032,80 @@ on("POST", "/__mock/runtimes/{id}/offline", (req, p) => {
 });
 
 /** S13 을 그릴 workdir 3행 — 깨끗한 것 하나, 미병합 커밋 하나(E13-12), 미커밋 변경 하나(E13-13). */
+/**
+ * 마크다운이 든 에이전트 메시지 둘(text + summary)을 타임라인에 붙인다(PRD FR-3.1 · W-12, T-W14 스크린샷용).
+ * 제목·굵게·기울임·인라인 코드·목록(중첩)·인용·표·코드 블록·링크·멘션 칩·HTML 원문 — 렌더러가 지원하는 문법 전부.
+ */
+on("POST", "/__mock/sessions/{id}/seed-markdown", (req, p) => {
+  const s = store();
+  const sess = sessionOf(s, req, p.id);
+  requireMember(s, req, sess.workspace_id);
+  const parts = sess.participants ?? [];
+  const agent = s.agents.get(parts[0]?.agent_id ?? "");
+  const second = s.agents.get(parts[1]?.agent_id ?? "");
+  if (!agent) throw new Problem(409, "no_agent", "참여 에이전트가 없습니다");
+  const mention = second ? `[@${second.name}](mention://agent/${second.id})` : "[@all](mention://all/all)";
+  const author = { name: agent.name, avatar_url: null, role: agent.role };
+  const content = [
+      "## 조사 결과",
+      "상위 **5개** 사업자를 비교했습니다. 결제 흐름은 *카드 · 계좌이체 · 간편결제* 셋이고, 연동은 `REST` 가 기본입니다. 원문은 [금융감독원 공시](https://www.fss.or.kr/)를 봤습니다.",
+      "",
+      "### 사업자별 특징",
+      "- **토스페이먼츠** — 간편결제 비중이 가장 높다",
+      "  - 정산 D+1",
+      "  - 수수료 협상 여지 있음",
+      "- **나이스페이** — 오프라인 단말 연동이 강점",
+      "- 포트원 — 여러 PG 를 한 SDK 로 묶는다",
+      "",
+      "| 사업자 | 카드 수수료 | 정산 |",
+      "|---|---:|---|",
+      "| 토스페이먼츠 | 2.9% | D+1 |",
+      "| 나이스페이 | 3.1% | D+2 |",
+      "| 포트원 | PG 별 | PG 별 |",
+      "",
+      "> 주의: 표의 수수료는 공개된 기본 요율이고 실제 계약은 협상으로 달라진다.",
+      "",
+      "연동 예시:",
+      "",
+      "```ts",
+      "const res = await fetch(\"https://api.example.com/v1/payments\", {",
+      "  method: \"POST\",",
+      "  headers: { Authorization: `Bearer ${\"<key>\"}` },",
+      "});",
+      "```",
+      "",
+      `다음 단계로 ${mention} 가 초안 검토를 맡아 주세요. HTML 은 그대로 보입니다: <b>굵게 아님</b>`,
+    ].join("\n");
+  const text = addMessage(s, sess, { author_type: "agent", author_id: agent.id, author, kind: "text", mentions: parseMentions(content), content });
+  const summary = addMessage(s, sess, {
+    author_type: "agent", author_id: agent.id, author, kind: "summary", mentions: [],
+    content: [
+      "**정리** — 오늘 한 일",
+      "",
+      "1. 상위 5개 사업자 비교표 작성",
+      "2. 연동 방식(`REST`) 확인",
+      "3. 남은 것: ~~단말 연동 조사~~ → 다음 턴",
+    ].join("\n"),
+  });
+  return ok({ text_id: text.id, summary_id: summary.id }, 201);
+});
+
+/**
+ * 「작성 중…」 델타 하나를 흘린다(SSE `message.delta`, 게시 없음) — 열린 코드 펜스 같은 **미완성 마크다운**이 깨지지 않는지 보는 자리
+ * (T-W14 스크린샷). `text` 는 지금까지의 부분 출력 전체다(daemon-protocol §4.2 스냅숏).
+ */
+on("POST", "/__mock/sessions/{id}/seed-delta", (req, p) => {
+  const s = store();
+  const sess = sessionOf(s, req, p.id);
+  requireMember(s, req, sess.workspace_id);
+  const b = body<{ text?: string; agent_id?: string }>(req);
+  const agentId = b.agent_id ?? (sess.participants ?? [])[0]?.agent_id;
+  if (!agentId) throw new Problem(409, "no_agent", "참여 에이전트가 없습니다");
+  const text = b.text ?? "표를 **정리**하는 중입니다. 우선 수수료 열만:\n\n```ts\nconst rows = table.filter((r) => r.fee)\n  .map((r) => ({ name: r.name, fee";
+  emit(s, sess.workspace_id, "message.delta", { session_id: sess.id, task_id: null, agent_id: agentId, text }, sess.id, true);
+  return ok({ agent_id: agentId, text }, 201);
+});
+
 on("POST", "/__mock/sessions/{id}/seed-workdirs", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);

@@ -43,7 +43,8 @@ export function extractMentions(content: string): MentionTarget[] {
 }
 
 /**
- * 렌더용 분해: 텍스트와 멘션 조각의 배열. 마크다운 전체 렌더는 P1 범위 밖이라 멘션만 하이라이트한다.
+ * 렌더용 분해: 텍스트와 멘션 조각의 배열. 멘션만 하이라이트한다 — 본문 전체 렌더는 `lib/markdown.tsx` 가 맡고(FR-3.1, T-W14),
+ * 그쪽도 멘션은 **같은 문법**(위 LINK_RE 모양)으로 칩을 만든다.
  */
 export type ContentPart = { type: "text"; text: string } | { type: "mention"; target: MentionTarget };
 

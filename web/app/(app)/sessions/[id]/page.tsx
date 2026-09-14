@@ -17,7 +17,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { AgentChip } from "@/components/AgentChip";
-import { MessageCard, authorName } from "@/components/MessageCard";
+import { MessageBody, MessageCard, authorName } from "@/components/MessageCard";
 import { Composer, type ComposerAgent, type ComposerInput, type ComposerWarning } from "@/components/Composer";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { LaneBoard } from "@/components/LaneBoard";
@@ -685,7 +685,7 @@ export default function SessionPage() {
                   <span className="msg__author msg__author--agent">{agentById.get(agentId)?.name ?? "agent"}</span>
                   <span className="msg__meta">작성 중…</span>
                 </div>
-                <div className="msg__body">{text}▍</div>
+                <MessageBody content={text} typing />
               </article>
             ))}
             {typingAgents.length > 0 && (

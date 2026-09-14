@@ -20,6 +20,7 @@
 import { useState } from "react";
 import "./hitl-card.css";
 import { clockTime } from "@/lib/time";
+import { renderInline } from "@/lib/markdown";
 import type { HitlResponse, HitlStatus, HitlType } from "@/lib/api/types";
 
 /** 응답 컨트롤 종류 — 계약 `InboxItem.actions` 중 HITL 이 쓰는 값과 같은 철자를 쓴다. */
@@ -141,7 +142,8 @@ export function HitlBody(props: HitlBodyProps) {
 
   return (
     <div className="hitl__body" data-testid="hitl-body" data-type={type} data-status={status} data-permission={permission}>
-      <p className="hitl__q" data-testid="hitl-question">{props.question}</p>
+      {/* 질문은 짧은 본문 — 인라인 마크다운만(굵게·코드·링크·멘션 칩, FR-3.1). 블록 문법은 문자 그대로 남는다. */}
+      <p className="hitl__q" data-testid="hitl-question">{renderInline(props.question)}</p>
       {props.context && <p className="hitl__ctx" data-testid="hitl-context">{props.context}</p>}
 
       {/* 제안 기본값 — question·choice 는 필수(FR-5.1). 없는 타입에서는 자리를 만들지 않는다(COMPONENTS §2.3 `g71PvC` 기본 끔). */}
