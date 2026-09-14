@@ -150,6 +150,9 @@
 | S-79 | PR #213 리뷰 NN2·NN3·NN5 — `gateHop` 이 판정과 부수효과(pauseForLoop)를 한 함수에 · `ErrLoopLimit` 문장의 `LimitText()` 조각이 wording sink 를 지나는지 · install.sh 3단 클론 폴백이 전체 클론까지(타임아웃 위험) | PR #213 리뷰 | 낮음 |
 | W-13 | PR #212 리뷰 NN2·NN3·NN5 — 화면 테스트 픽스처의 `about:blank`(헬퍼로) · `selfDemotionText` 가 소유자 강등에도 관리자 문장 · server-wording.test.ts 205개(28%) 한 파일 — describe 별 분리 | PR #212 리뷰 | 낮음 |
 | S-80 | `resumeSession` 이 `session_hop` 을 전부 지워 **`max_hops_per_hour` 까지 리셋**된다 — PRD FR-3.5 "시간당 상한은 리셋되지 않는다"(재개 반복으로 세 층이 동시에 비는 우회). PR #216 이전부터의 동작. 함께: `cause_hop_id` 에 FK 를 두지 않는 이유 주석, `loadHops` 200행 창 밖 원인은 깊이 1 로 떨어짐(느슨한 방향) | PR #216 리뷰 (7)·NN1~NN4 | **중 · G9 전** |
+| S-81 | 서버가 §6 workdir 보고의 `gc.id` 를 안 읽고 상위 `id` 만 읽었다(실데몬은 `gc.id` 에 넣는다) — gc 영수증이 정산되지 않을 수 있던 자리 | T-S17 PR #220 발견·고침 | **해결 PR #220** |
+| S-82 | PR #220 리뷰 NN2~NN4 — `gcReceiptTargets` 우선순위 단언 없음 · 삭제 경합 반대 방향 미검증 · `sessionGone` 이 보고마다 count(*) | PR #220 리뷰 | 낮음 |
+| W-14 | PR #219 리뷰 NN2~NN5 — 새 스크린샷 2종 밝음만 · 메뉴 바깥 클릭이 mousedown 만(터치·focusout 없음) · S7 에서 삭제 뒤 목록 안내 미확인 · `deleteGate` 가 canDelete 를 호출자에게서 받음 | PR #219 리뷰 | 낮음 |
 
 ## C (CLI)
 
