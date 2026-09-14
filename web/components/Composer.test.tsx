@@ -142,21 +142,28 @@ describe("Composer — new_lane 토글은 전송 후 자동 해제된다 (t-2 ·
 });
 
 describe("Composer — 멘션 자동완성 · paused 안내", () => {
-  it("@ 를 치면 참여자가 먼저 나오고, 선택하면 mention:// 링크가 삽입된다", () => {
-    render(<Composer agents={[AGENTS[1], AGENTS[0]]} members={[{ id: "u1", name: "민지" }]} onSubmit={async () => []} />);
+  // W-15(2026-09-15, Director): 화면에는 `@이름` 만 보이고, 링크는 전송 본문에만 있다.
+  it("@ 를 치면 참여자가 먼저 나오고, 선택하면 화면에는 @이름 이 — 전송 본문은 mention:// 링크", async () => {
+    const onSubmit = vi.fn<SubmitFn>(async () => []);
+    render(<Composer agents={[AGENTS[1], AGENTS[0]]} members={[{ id: "u1", name: "민지" }]} onSubmit={onSubmit} />);
     const ta = screen.getByTestId("composer-input") as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "@", selectionStart: 1 } });
     const opts = screen.getByTestId("mention-menu").querySelectorAll('[role="option"]');
     expect(opts[0].textContent).toContain("@Lead");
     expect(opts[0].textContent).toContain("참여자");
     fireEvent.keyDown(ta, { key: "Enter" });
-    expect(ta.value).toBe("[@Lead](mention://agent/a-lead) ");
+    expect(ta.value).toBe("@Lead ");
+    expect(ta.value).not.toContain("mention://");
+    fireEvent.change(ta, { target: { value: "@Lead 범위를 좁혀줘", selectionStart: 12 } });
+    fireEvent.keyDown(ta, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0][0].content).toBe("[@Lead](mention://agent/a-lead) 범위를 좁혀줘");
   });
 
   // FR-3.2 의 형식은 `mention://<kind>/<id>` 이고 @all 도 예외가 아니다: `mention://all/all`.
   // `mention://all` 을 넣던 동안 서버는 그것을 멘션으로 읽지 못해 규칙 3(억제) 대신
   // 규칙 6 으로 assignee 를 깨웠다(E1-05 위반). 형식을 여기서 고정한다.
-  it("@all 은 mention://all/all 로 삽입된다 (FR-3.2 · E1-05)", () => {
+  it("@all 을 고르면 화면에는 @all 이 삽입된다", () => {
     render(<Composer agents={AGENTS} onSubmit={async () => []} />);
     const ta = screen.getByTestId("composer-input") as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "@all", selectionStart: 4 } });
@@ -164,7 +171,16 @@ describe("Composer — 멘션 자동완성 · paused 안내", () => {
     expect(opts.length).toBeGreaterThan(0);
     expect(opts[0].textContent).toContain("@all");
     fireEvent.keyDown(ta, { key: "Enter" });
-    expect(ta.value).toBe("[@all](mention://all/all) ");
+    expect(ta.value).toBe("@all ");
+  });
+  it("@all 의 전송 본문은 mention://all/all 이다 (FR-3.2 · E1-05)", async () => {
+    const onSubmit = vi.fn<SubmitFn>(async () => []);
+    render(<Composer agents={AGENTS} onSubmit={onSubmit} />);
+    const ta = screen.getByTestId("composer-input") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "@all 공지", selectionStart: 7 } });
+    fireEvent.keyDown(ta, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0][0].content).toBe("[@all](mention://all/all) 공지");
   });
 
   it("세션이 paused 면 작성창 위에 '재개 후 처리됩니다' 안내가 뜬다(U15-9)", () => {
