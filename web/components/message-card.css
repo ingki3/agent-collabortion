@@ -7,7 +7,7 @@
 .msg__author { font-weight: 600; font-size: var(--fs-body); }
 .msg__author--agent::before { content: "@"; color: var(--ink-2); }
 .msg__meta { font-size: var(--fs-meta); color: var(--ink-2); }
-.msg__body { font-size: var(--fs-body); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg__body { font-size: var(--fs-body); line-height: 1.5; overflow-wrap: anywhere; }
 .msg__mention { color: var(--s-run-text); font-weight: 500; background: color-mix(in srgb, var(--s-run) var(--soft-alpha), transparent); border-radius: 4px; padding: 0 3px; }
 .msg__actions { display: flex; gap: 8px; align-items: center; }
 .msg__link { font-size: var(--fs-sub); color: var(--ink-2); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
@@ -20,3 +20,29 @@
 .msg__kind[data-tone="block"] { color: var(--s-block-text); border-color: var(--s-block); background: color-mix(in srgb, var(--s-block) var(--soft-alpha), transparent); }
 .msg__kind[data-tone="done"] { color: var(--s-done-text); border-color: var(--s-done); background: color-mix(in srgb, var(--s-done) var(--soft-alpha), transparent); }
 .msg__kind[data-tone="wait"] { color: var(--s-wait-text); border-color: var(--s-wait); background: color-mix(in srgb, var(--s-wait) var(--soft-alpha), transparent); }
+
+/* ── 본문 마크다운(PRD FR-3.1, `lib/markdown.tsx`) — 토큰만, 글자 계단 §8.2 안(메시지 안 제목은 --fs-card 이하) ── */
+.md > * { margin: 0; }
+.md > * + * { margin-top: 6px; }
+.md-h { font-weight: 600; line-height: 1.35; }
+.md-h1 { font-size: var(--fs-card); }
+.md-h2 { font-size: var(--fs-body); font-weight: 700; }
+.md-h3 { font-size: var(--fs-body); color: var(--ink-2); }
+.md-p { line-height: 1.5; }
+.md-ul, .md-ol { padding-left: 22px; display: flex; flex-direction: column; gap: 2px; }
+.md-ul .md-ul, .md-ul .md-ol, .md-ol .md-ul, .md-ol .md-ol { margin-top: 2px; }
+.md-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-sub); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; overflow-wrap: anywhere; }
+/* 코드 블록만 pre — 가로 스크롤. 델타(열린 펜스)도 같은 상자다. */
+.md-pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-sub); line-height: 1.45; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; white-space: pre; overflow-x: auto; max-width: 100%; }
+.md-pre code { font: inherit; }
+.md-quote { margin: 0; padding: 2px 0 2px 10px; border-left: 3px solid var(--line); color: var(--ink-2); }
+.md-quote > * + * { margin-top: 4px; }
+.md-link { color: var(--s-run-text); text-decoration: underline; overflow-wrap: anywhere; }
+.md-table-wrap { overflow-x: auto; max-width: 100%; }
+.md-table { border-collapse: collapse; font-size: var(--fs-sub); }
+.md-table th, .md-table td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; vertical-align: top; }
+.md-table th { background: var(--surface); font-weight: 600; }
+.md-hr { border: 0; border-top: 1px solid var(--line); }
+/* 「작성 중…」 — 마지막 블록 끝에 커서. 열린 펜스 안이면 코드 상자 안에 찍힌다. */
+.msg__body[data-typing] .md > :last-child::after { content: "▍"; color: var(--ink-2); }
+.msg__body[data-typing] .md:empty::after { content: "▍"; color: var(--ink-2); }

@@ -1,6 +1,6 @@
 import { describe, expect, it, afterEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MessageCard, kindBadgeFor } from "./MessageCard";
+import { MessageBody, MessageCard, kindBadgeFor } from "./MessageCard";
 import type { Message } from "@/lib/api/types";
 
 afterEach(cleanup);
@@ -71,5 +71,58 @@ describe("MessageCard — kind 배지와 본문(COMPONENTS §2.2 K3)", () => {
     expect(screen.queryByTestId("rail")).toBeNull();
     fireEvent.click(screen.getByTestId("activity-toggle"));
     expect(screen.getByTestId("rail")).not.toBeNull();
+  });
+});
+
+// PRD FR-3.1 마크다운(Director 지적 2026-09-15 · W-12) — 본문은 `lib/markdown.tsx` 가 그린다. 문법별 세부는 `lib/markdown.test.tsx`.
+describe("MessageCard — 본문 마크다운(FR-3.1)", () => {
+  const md = "## 결과\n상위 **5개** 를 비교했습니다.\n\n- 항목 하나\n- 항목 둘\n\n```\nnpm test\n```";
+
+  it("에이전트 메시지의 마크다운이 제목·굵게·목록·코드 블록으로 그려진다(원문 그대로가 아니다)", () => {
+    render(<MessageCard message={base({ author_type: "agent", author: { name: "Lead" }, content: md })} />);
+    const body = document.querySelector(".msg__body")!;
+    expect(body.querySelector("h2")!.textContent).toBe("결과");
+    expect(body.querySelector("strong")!.textContent).toBe("5개");
+    expect(body.querySelectorAll("ul li")).toHaveLength(2);
+    expect(body.querySelector("pre code")!.textContent).toBe("npm test");
+    expect(body.textContent).not.toContain("**");
+    expect(body.textContent).not.toContain("## ");
+  });
+
+  it("요약(summary, W-12)·시스템 메시지도 같은 렌더러를 탄다", () => {
+    render(<MessageCard message={base({ kind: "summary", author_type: "agent", author: { name: "Lead" }, content: "**끝났습니다** — `3` 건" })} />);
+    render(<MessageCard message={base({ id: "m2", kind: "system", author_type: "system", content: "세션 시작 · *goal*" })} />);
+    const bodies = document.querySelectorAll(".msg__body");
+    expect(bodies[0].querySelector("strong")!.textContent).toBe("끝났습니다");
+    expect(bodies[0].querySelector("code")!.textContent).toBe("3");
+    expect(bodies[1].querySelector("em")!.textContent).toBe("goal");
+  });
+
+  it("멘션 칩은 마크다운 안에서도 그대로(굵게 안·목록 안)", () => {
+    render(<MessageCard message={base({ content: "- **[@Lead](mention://agent/a1)** 검토\n- [@all](mention://all/all)" })} />);
+    const chips = document.querySelectorAll(".msg__mention");
+    expect([...chips].map((c) => c.getAttribute("data-mention"))).toEqual(["agent:a1", "all:all"]);
+    expect(chips[0].parentElement!.tagName).toBe("STRONG");
+  });
+
+  it("HTML 은 문자 그대로 — 태그가 생기지 않는다(XSS 0)", () => {
+    render(<MessageCard message={base({ content: '<img src=x onerror="alert(1)"> [x](javascript:alert(1))' })} />);
+    const body = document.querySelector(".msg__body")!;
+    expect(body.querySelector("img, a, script")).toBeNull();
+    expect(body.textContent).toContain("<img src=x onerror=");
+    expect(body.textContent).toContain("[x](javascript:alert(1))");
+  });
+
+  it("「작성 중…」 델타 — 닫히지 않은 펜스도 열린 채로 그려지고 커서 표시(data-typing)가 붙는다", () => {
+    render(<MessageBody content={"정리하면\n```\nconst a ="} typing />);
+    const body = document.querySelector(".msg__body")!;
+    expect(body.getAttribute("data-typing")).toBe("true");
+    expect(body.querySelector("p")!.textContent).toBe("정리하면");
+    expect(body.querySelector("pre[data-open=\"true\"] code")!.textContent).toBe("const a =");
+  });
+
+  it("빈 델타도 깨지지 않는다", () => {
+    render(<MessageBody content="" typing />);
+    expect(document.querySelector(".msg__body .md")).not.toBeNull();
   });
 });

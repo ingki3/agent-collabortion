@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import "./message-card.css";
-import { splitContent } from "@/lib/mentions";
+import { Markdown } from "@/lib/markdown";
 import { clockTime, relativeTime } from "@/lib/time";
 import type { Message } from "@/lib/api/types";
 
@@ -32,18 +32,14 @@ export function authorName(m: Message): string {
   return m.author_type === "agent" ? "agent" : "member";
 }
 
-export function MessageBody({ content }: { content: string }) {
+/**
+ * 본문 — 마크다운(PRD FR-3.1, `lib/markdown.tsx`). 멘션 링크는 렌더러 안에서 예전과 같은 칩(`.msg__mention`)이 된다.
+ * 시스템 메시지·요약(W-12)·스레드 답글도 같은 경로다. 「작성 중…」 델타 블록은 `typing` 으로 커서를 붙인다.
+ */
+export function MessageBody({ content, typing }: { content: string; typing?: boolean }) {
   return (
-    <div className="msg__body">
-      {splitContent(content).map((p, i) =>
-        p.type === "text" ? (
-          <span key={i}>{p.text}</span>
-        ) : (
-          <span key={i} className="msg__mention" data-mention={`${p.target.kind}:${p.target.id}`}>
-            @{p.target.name}
-          </span>
-        ),
-      )}
+    <div className="msg__body" data-typing={typing ? "true" : undefined}>
+      <Markdown content={content} />
     </div>
   );
 }
