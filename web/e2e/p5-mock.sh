@@ -9,6 +9,8 @@
 #   S14  get/updateNotificationSettings(개인)
 #   S14  getWorkspaceMetrics — 10개 · §11 열 순서 · unit/target_op enum · value null ⇒ n 0
 #   S10  createTestChat 201(세션 0개) · postTestChatTurn 202 · 진행 중 409 · SSE test_chat.delta/turn · closeTestChat 200 · 닫힌 뒤 410
+#   S5   deleteSession(T-W13, 계약 #218 · 서버 T-S17 대조) — active 409 session_active · member 403 · cancelled 204 · 두 번째 404 · SSE session.deleted
+#        · (MOCK=1) 미병합 worktree 409 workdir_unmerged + Problem.workdirs[]
 #
 # 사용:
 #   COLAB_MOCK_API=1 npx next dev -p 3117 &
@@ -110,6 +112,54 @@ chk "getTestChat — 턴 2 · transport acp|cli · 토큰 > 0" "$(echo "$G" | py
 chk "closeTestChat 200 → closed" "$(curl -sS -b "$J" -X POST "$B/test-chats/$TCID/close" | py 'import sys,json;print(json.load(sys.stdin)["status"])')" "closed"
 chk "  닫힌 뒤 턴은 410" "$(code -X POST "$B/test-chats/$TCID/turns" -H 'content-type: application/json' -d '{"content":"x"}')" "410"
 chk "  닫기는 멱등 200" "$(code -X POST "$B/test-chats/$TCID/close")" "200"
+
+# ── S5 세션 삭제 (T-W13 · 계약 #218 deleteSession · 서버 T-S17 대조용) ─────────
+# 목이 흉내 낸 서버 응답: 진행 중 409 session_active · 권한 없는 member 403 · cancelled 204 · 두 번째 404 · SSE session.deleted {session_id}.
+# 미병합 worktree 409 workdir_unmerged + Problem.workdirs[] 는 시드(`/__mock/sessions/{id}/seed-workdirs`)가 목에만 있어 MOCK=1 일 때만.
+RT=$(curl -sS -b "$J" "$B/workspaces/$WS/runtimes" | py 'import sys,json;print(json.load(sys.stdin)[0]["id"])')
+DS=$(curl -sS -b "$J" -X POST "$B/workspaces/$WS/sessions" -H 'content-type: application/json' \
+  -d "{\"title\":\"지울 세션\",\"goal\":\"삭제 왕복\",\"isolation\":{\"kind\":\"none\"},\"runtime_id\":\"$RT\",\"participants\":[{\"agent_id\":\"$AG\"}],\"assignee_agent_id\":\"$AG\"}" \
+  | py 'import sys,json;print(json.load(sys.stdin)["id"])')
+chk "deleteSession 진행 중(active) → 409 session_active" "$(curl -sS -b "$J" -X DELETE "$B/sessions/$DS" | py 'import sys,json;d=json.load(sys.stdin);print(d["status"],d["code"],d["detail"])')" "409 session_active 진행 중인 세션은 먼저 종료하세요"
+curl -sS -b "$J" -X POST "$B/sessions/$DS/cancel" -H 'content-type: application/json' -d '{}' -o /dev/null
+chk "  cancelled 뒤 목록에 status=cancelled" "$(curl -sS -b "$J" "$B/workspaces/$WS/sessions" | py "import sys,json;print(next(s['status'] for s in json.load(sys.stdin)['items'] if s['id']=='$DS'))")" "cancelled"
+# 권한 — Director 도 owner·admin 도 아닌 member(서연) 는 403.
+J2="$(mktemp -t colab-p5-cookies2)"
+curl -sS -c "$J2" -o /dev/null -X POST "$B/auth/login" -H 'content-type: application/json' -d '{"email":"seoyeon@colab.dev","password":"password123"}'
+chk "  Director 아닌 member → 403" "$(curl -sS -b "$J2" -o /dev/null -w '%{http_code}' -X DELETE "$B/sessions/$DS")" "403"
+rm -f "$J2"
+SSE="$(mktemp -t colab-p5-sse2)"
+curl -sS -N -b "$J" --max-time 4 "$B/workspaces/$WS/stream" > "$SSE" 2>/dev/null &
+SSEPID=$!
+sleep 1
+chk "  owner(Director) → 204" "$(code -X DELETE "$B/sessions/$DS")" "204"
+chk "  두 번째 DELETE 는 404(멱등 아님)" "$(code -X DELETE "$B/sessions/$DS")" "404"
+chk "  GET 도 404 · 목록에서 빠짐" "$(code "$B/sessions/$DS") $(curl -sS -b "$J" "$B/workspaces/$WS/sessions" | py "import sys,json;print(any(s['id']=='$DS' for s in json.load(sys.stdin)['items']))")" "404 False"
+wait $SSEPID 2>/dev/null || true
+chk "  SSE session.deleted {session_id}" "$(python3 - "$SSE" "$DS" <<'PY'
+import sys, json
+raw = open(sys.argv[1]).read()
+hits = 0
+for frame in raw.split("\n\n"):
+    for line in frame.splitlines():
+        if line.startswith("data: "):
+            ev = json.loads(line[6:])
+            if ev["type"] == "session.deleted" and ev.get("payload") == {"session_id": sys.argv[2]}: hits += 1
+print(hits)
+PY
+)" "1"
+rm -f "$SSE"
+if [ "$MOCK" = "1" ]; then
+  DS2=$(curl -sS -b "$J" -X POST "$B/workspaces/$WS/sessions" -H 'content-type: application/json' \
+    -d "{\"title\":\"작업 폴더 남은 세션\",\"goal\":\"409 workdir_unmerged\",\"isolation\":{\"kind\":\"worktree\",\"repo_path\":\"/work/colab\"},\"runtime_id\":\"$RT\",\"participants\":[{\"agent_id\":\"$AG\"}],\"assignee_agent_id\":\"$AG\"}" \
+    | py 'import sys,json;print(json.load(sys.stdin)["id"])')
+  curl -sS -b "$J" -X POST "$B/sessions/$DS2/cancel" -H 'content-type: application/json' -d '{}' -o /dev/null
+  curl -sS -b "$J" -X POST "$B/__mock/sessions/$DS2/seed-workdirs" -H 'content-type: application/json' -d '{}' -o /dev/null
+  R=$(curl -sS -b "$J" -X DELETE "$B/sessions/$DS2")
+  chk "  미병합·미커밋 worktree → 409 workdir_unmerged + workdirs[2] (경로·브랜치·사유)" "$(echo "$R" | py 'import sys,json;d=json.load(sys.stdin);w=d.get("workdirs",[]);print(d["status"],d["code"],len(w),sorted(x["gc_blocked_reason"] for x in w),all("path_or_ref" in x and "branch" in x for x in w))')" "409 workdir_unmerged 2 ['uncommitted_changes', 'unmerged_commits'] True"
+  for WID in $(echo "$R" | py 'import sys,json;print(" ".join(x["id"] for x in json.load(sys.stdin)["workdirs"]))'); do curl -sS -b "$J" -X DELETE "$B/workdirs/$WID?force=true" -o /dev/null; done
+  chk "  작업 폴더 정리 뒤 → 204" "$(code -X DELETE "$B/sessions/$DS2")" "204"
+fi
 
 echo
 if [ "$fail" = "0" ]; then echo "✅ P5 목 스모크 통과"; else echo "❌ P5 목 스모크 실패"; exit 1; fi

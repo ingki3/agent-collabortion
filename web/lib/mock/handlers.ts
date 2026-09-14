@@ -12,7 +12,7 @@ import {
   defaultSettings, emit, makeAgent, makeRuntime, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges,
   sseFrame, store, stripUser, TEMPLATES, uuid, type MockInvite, type MockTask, type Store, type Subscriber,
 } from "./store";
-import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
+import { fmt, josa, METRIC_DEFS, MOCK_ONLY, NOT_FOUND_NOUN, notFound, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
 /**
  * RFC 9457 Problem — `title` 은 서버(`apperr.Title`)처럼 **상태 코드에서** 정한다. 문장(`detail`·`errors[].message`)은
@@ -1560,6 +1560,41 @@ on("POST", "/sessions/{id}/cancel", (req, p) => {
   sess.finished_at = now();
   emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status }, sess.id);
   return ok(sessionFor(s, sess, user.id));
+});
+/**
+ * deleteSession(계약 PR #218, FR-2.7) — **물리 삭제**. 서버(T-S17)는 동시에 만들어지므로 순서·code 는 계약 description 그대로:
+ *   1) 404(없음) → 2) 권한: Director 또는 owner·admin (403) → 3) 끝난 세션만 draft·completed·cancelled (409 session_active)
+ *   → 4) `deleted` 아닌 `worktree` 중 미병합/미커밋이 있으면 409 workdir_unmerged + `Problem.workdirs[]`
+ *   → 5) 세션의 전부(메시지·작업 줄기·할 일·활동·확인 요청·아티팩트·결정·받은 요청·workdir)를 지우고 204 + SSE session.deleted {session_id}.
+ * 멱등이 아니다 — 두 번째 호출은 1) 에서 404. 서버 문장은 `MOCK_ONLY`(T-S17 뒤 `SERVER` 로).
+ */
+const DELETABLE_SESSION = new Set<Session["status"]>(["draft", "completed", "cancelled"]);
+on("DELETE", "/sessions/{id}", (req, p) => {
+  const s = store();
+  const sess = s.sessions.get(p.id);
+  if (!sess) throw notFoundP("session");
+  const { user, member } = requireMember(s, req, sess.workspace_id);
+  const canDelete = sess.director_user_id === user.id || member.role === "owner" || member.role === "admin";
+  // 403 code 는 계약이 정하지 않았다 — 기존 director_required(Director 만)·admin_required(owner·admin) 와 다른 조건이라 새 이름. T-S17 과 대조할 자리.
+  if (!canDelete) throw new Problem(403, "director_or_admin_required", MOCK_ONLY.delete_forbidden);
+  if (!DELETABLE_SESSION.has(sess.status)) throw new Problem(409, "session_active", MOCK_ONLY.session_active);
+  const mine = [...s.workdirs.values()].filter((w) => w.session_id === sess.id && w.status !== "deleted");
+  // FR-6.4 M4 와 같은 보호 — `worktree` 만 본다(container·dir 은 병합할 브랜치가 없다). 응답에는 계약 `Workdir` 모양(runtime_id 없이).
+  const blocking = mine.filter((w) => w.kind === "worktree" && (w.dirty === true || w.gc_blocked_reason != null)).map(({ runtime_id: _r, ...wire }) => wire);
+  if (blocking.length) throw new Problem(409, "workdir_unmerged", MOCK_ONLY.workdir_unmerged, { workdirs: blocking });
+  // 남은 workdir 은 gc 명령을 싣고 행을 지운다(daemon-protocol v0.8.1) — 목에는 데몬이 없으므로 행만 지운다. 이미 `deleted` 인 행도
+  // 세션 소유라 함께 사라진다(물리 삭제).
+  for (const [id, w] of s.workdirs) if (w.session_id === sess.id) s.workdirs.delete(id);
+  for (const [id, m] of s.messages) if (m.session_id === sess.id) s.messages.delete(id);
+  for (const [id, t] of s.tasks) if (t.session_id === sess.id) { s.tasks.delete(id); s.taskEvents.delete(id); }
+  for (const [id, l] of s.lanes) if (l.session_id === sess.id) s.lanes.delete(id);
+  for (const [id, a] of s.artifacts) if (a.session_id === sess.id) s.artifacts.delete(id);
+  for (const [id, d] of s.decisions) if (d.session_id === sess.id) s.decisions.delete(id);
+  for (const [id, h] of s.hitls) if (h.session_id === sess.id) s.hitls.delete(id);
+  for (const [id, it] of s.inbox) if (it.session_id === sess.id) s.inbox.delete(id);
+  s.sessions.delete(sess.id);
+  emit(s, sess.workspace_id, "session.deleted", { session_id: sess.id }, sess.id);
+  return { status: 204 };
 });
 on("PUT", "/sessions/{id}/director", (req, p) => {
   const s = store();

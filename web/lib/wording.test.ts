@@ -19,6 +19,7 @@ import { VERDICT_LABEL, NOT_MEASURABLE } from "@/lib/settings";
 import { transportLabel } from "@/lib/test-chat";
 import { PAGE_COPY, type Screen } from "@/components/PageHead";
 import { NAV_ITEMS } from "@/components/AppNav";
+import { DELETE_DIALOG, SESSION_DELETED_NOTICE, SESSION_MENU } from "@/lib/wording";
 
 const ROOT = join(__dirname, "..");
 
@@ -130,6 +131,10 @@ describe("문구 자물쇠의 범위", () => {
       "components/TestChatPanel.tsx",
       "lib/settings.ts",
       "lib/test-chat.ts",
+      // T-W13 — S5 카드 옵션(…)·삭제 다이얼로그의 문구가 사는 곳
+      "lib/wording.ts",
+      "components/SessionCardMenu.tsx",
+      "components/DeleteSessionDialog.tsx",
     ]) {
       expect(FILES).toContain(f);
     }
@@ -380,6 +385,52 @@ describe("새 문구의 존재 — 옛말 0건만으로는 안 잰다 (NN4)", ()
     expect(tabs).toMatch(/aria-describedby=\{!right\.ok \? hintId : undefined\}/);
     const members = readFileSync(join(ROOT, "components/MembersTab.tsx"), "utf8");
     expect(members).toMatch(/<DisabledHint id="members-manage-hint">/);
+  });
+
+  // T-W13 — S5 카드 옵션(…) · 삭제 확인 다이얼로그(SCREEN §4.3 · §5). 표(lib/wording.ts)에만 있고 화면이 안 그리면 없는 것과 같다.
+  it("카드 옵션 — 메뉴 항목 둘 · 비활성 사유 둘(SCREEN §4.3 문장 그대로)이 표에 있고 메뉴가 그 표를 그린다", () => {
+    expect(SESSION_MENU).toMatchObject({ button: "세션 옵션", open: "세션 열기", delete: "삭제" });
+    expect(SESSION_MENU.blocked_active).toBe("진행 중인 세션은 먼저 종료하세요");
+    expect(SESSION_MENU.blocked_role).toBe("Director 나 소유자·관리자만 삭제할 수 있습니다");
+    for (const t of Object.values(SESSION_MENU)) expect(inPool("lib/wording.ts", t)).toBe(true);
+    const menu = readFileSync(join(ROOT, "components/SessionCardMenu.tsx"), "utf8");
+    expect(menu).toMatch(/aria-label=\{SESSION_MENU\.button\}/);
+    expect(menu).toMatch(/\{SESSION_MENU\.open\}/);
+    expect(menu).toMatch(/\{SESSION_MENU\.delete\}/);
+    // 비활성 사유는 항목 바로 아래 DisabledHint + aria-describedby (§8.5) — title 만이 아니다.
+    expect(menu).toMatch(/<DisabledHint id=\{hintId\}>\{gate\.reason\}<\/DisabledHint>/);
+    expect(menu).toMatch(/aria-describedby=\{!gate\.ok \? hintId : undefined\}/);
+    // 사유는 이 표에서만 — 메뉴 파일에 사유 문장 리터럴이 없다.
+    expect(menu).not.toContain("먼저 종료하세요");
+    expect(menu).not.toContain("소유자·관리자만");
+  });
+
+  it("삭제 다이얼로그 — §5 규칙(무엇이 사라지는지 · 되돌릴 수 없음 · 이 컴퓨터의 작업 폴더)과 409 머리말·S13 링크가 표에 있고 다이얼로그가 그 표를 그린다", () => {
+    expect(DELETE_DIALOG.title("X")).toContain("X");
+    expect(DELETE_DIALOG.loses).toMatch(/메시지/);
+    expect(DELETE_DIALOG.loses).toMatch(/작업 줄기/);
+    expect(DELETE_DIALOG.loses).toMatch(/아티팩트/);
+    expect(DELETE_DIALOG.loses).toMatch(/비용 기록/);
+    expect(DELETE_DIALOG.irreversible).toMatch(/되돌릴 수 없습니다/);
+    expect(DELETE_DIALOG.irreversible).toMatch(/이 컴퓨터의 작업 폴더/);
+    expect(DELETE_DIALOG.confirm).toBe("삭제");
+    expect(DELETE_DIALOG.cancel).toBe("취소");
+    expect(DELETE_DIALOG.workdirs_link).toBe("작업 폴더 관리");
+    for (const t of [DELETE_DIALOG.loses, DELETE_DIALOG.irreversible, DELETE_DIALOG.workdirs_head, DELETE_DIALOG.workdirs_link, DELETE_DIALOG.busy]) expect(inPool("lib/wording.ts", t)).toBe(true);
+    const dlg = readFileSync(join(ROOT, "components/DeleteSessionDialog.tsx"), "utf8");
+    for (const k of ["title(session.title)", "loses", "irreversible", "workdirs_head", "workdirs_link", "confirm", "cancel", "busy"]) expect(dlg).toContain(`DELETE_DIALOG.${k}`);
+    expect(dlg).toMatch(/role="alertdialog"/);
+    expect(dlg).toContain('className="btn del-session__danger"'); // 「삭제」 는 위험 색
+    expect(dlg).toMatch(/Link href=\{workdirsHref\(session\.runtime_id\)\}/); // S13 링크
+  });
+
+  it("S7 → S5 안내 한 줄이 표에 있고 두 화면이 그 표를 쓴다", () => {
+    expect(SESSION_DELETED_NOTICE.elsewhere("X")).toContain("X");
+    expect(SESSION_DELETED_NOTICE.mine("X")).toContain("X");
+    const s5 = readFileSync(join(ROOT, PAGE_FILES.sessions), "utf8");
+    expect(s5).toContain("SESSION_DELETED_NOTICE.elsewhere(");
+    expect(s5).toContain("SESSION_DELETED_NOTICE.mine(");
+    expect(readFileSync(join(ROOT, "app/(app)/sessions/[id]/page.tsx"), "utf8")).toMatch(/case "session\.deleted"/);
   });
 
   it("비활성 사유가 버튼 근처에 있다 — title 만으로는 안 된다 (§8.5)", () => {
