@@ -10,7 +10,7 @@ package loop
 // (c) 비면(옛 서버): `--allow` 없음 · export 없음 · 브리프 그대로.
 //
 // 회귀 주입(§0-12 모양, 빌드를 깨지 않게):
-//   - acp.ColabMCPServer 의 `commands.Args(allowed)` 를 `commands.Args(nil)` 로 → (a) args
+//   - acp.ColabMCPServer 의 `commands.Args(allowed)` 를 `commands.Args(allowed[:0])` 로 → (a) args
 //   - loop.wrapperEnv 의 `if e := …; e != ""` 를 `e != "" && false` 로 → (b) export
 //   - loop.runAttempt 의 RestrictCommands 호출을 지우고 `_ = brief.RestrictCommands` 로 → (a)(b) 브리프
 //   - brief.RestrictCommands 첫 줄을 `if true || len(allowed) == 0` 로 → (c) 는 그대로 통과하고 (a)(b) 가 깨진다
