@@ -12,7 +12,7 @@ import {
   defaultSettings, emit, makeAgent, makeRuntime, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges,
   sseFrame, store, stripUser, TEMPLATES, uuid, type MockInvite, type MockTask, type Store, type Subscriber,
 } from "./store";
-import { fmt, josa, METRIC_DEFS, MOCK_ONLY, NOT_FOUND_NOUN, notFound, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
+import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
 /**
  * RFC 9457 Problem — `title` 은 서버(`apperr.Title`)처럼 **상태 코드에서** 정한다. 문장(`detail`·`errors[].message`)은
@@ -305,10 +305,10 @@ function validateCondition(cc: CompletionCondition, participantIds: string[]): {
   const errors: { field: string; code: string; message: string }[] = [];
   condAtoms(cc).forEach((a, i) => {
     const field = `completion_condition/conditions/${i}/agent_id`;
-    if (a.type === "agent_approval" && !a.agent_id) errors.push({ field, code: "reviewer_required", message: MOCK_ONLY.reviewer_required });
+    if (a.type === "agent_approval" && !a.agent_id) errors.push({ field, code: "reviewer_required", message: W.reviewer_required });
     // `artifact_submitted` 의 지정 제출자도 참여자여야 한다 — 서버(T-S18)는 같은 코드에 제출자 문장.
     else if ((a.type === "agent_approval" || a.type === "artifact_submitted") && a.agent_id && !participantIds.includes(a.agent_id)) {
-      errors.push({ field, code: "reviewer_not_participant", message: a.type === "agent_approval" ? MOCK_ONLY.reviewer_not_participant : MOCK_ONLY.submitter_not_participant });
+      errors.push({ field, code: "reviewer_not_participant", message: a.type === "agent_approval" ? W.reviewer_not_participant : W.submitter_not_participant });
     }
   });
   return errors;
@@ -458,7 +458,7 @@ on("PATCH", "/sessions/{id}", (req, p) => {
   }
   if (b.completion_condition) {
     // 서버(T-S18)는 끝난 세션의 조건 수정도 422 immutable 로 답한다 — 409 가 아니다.
-    if (!CONDITION_EDITABLE.has(sess.status)) errors.push({ field: "completion_condition", code: "immutable", message: MOCK_ONLY.condition_immutable });
+    if (!CONDITION_EDITABLE.has(sess.status)) errors.push({ field: "completion_condition", code: "immutable", message: W.condition_immutable });
     else errors.push(...validateCondition(b.completion_condition, (sess.participants ?? []).map((x) => x.agent_id)));
   }
   if (b.title !== undefined && !b.title.trim()) errors.push({ field: "title", message: W.title_1_200 });

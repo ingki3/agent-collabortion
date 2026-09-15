@@ -304,36 +304,19 @@ describe("(g) T-S12 #200 · T-S14 #209 가 만든 op 의 문장은 전부 SERVER
   });
 });
 
-describe("(h) T-W15 — 리뷰어 검사(계약 #232 v0.1.4)의 문장은 서버 T-S18(PR #233)의 리터럴 그대로 · dev 에 오르면 글자 단위 대조", () => {
-  const serverSrc = ["internal/httpapi", "internal/sessions"].flatMap((d) =>
-    readdirSync(join(SERVER_ROOT, d)).filter((f) => f.endsWith(".go") && !f.endsWith("_test.go")).map((f) => goSource(`${d}/${f}`)),
-  ).join("\n");
-  const landed = serverSrc.includes('"reviewer_required"');
-
-  it("MOCK_ONLY 는 리뷰어 검사 넷이고 handlers.ts 가 전부 쓴다", () => {
-    expect(Object.keys(MOCK_ONLY).sort()).toEqual(["condition_immutable", "reviewer_not_participant", "reviewer_required", "submitter_not_participant"]);
-    for (const k of Object.keys(MOCK_ONLY)) expect(HANDLERS).toMatch(new RegExp(`\\bMOCK_ONLY\\.${k}\\b`));
-  });
-  it("문장은 T-S18 의 리터럴 그대로(PR #233 sessions.ValidateReviewers · handlers_sessions_p3.go) — 서버가 dev 에 오르면 그 파일에서 찾는다", () => {
-    expect(MOCK_ONLY.reviewer_required).toBe("「검토 승인」에는 리뷰어를 참여자 중에서 골라 주세요 — 리뷰어가 없으면 아무도 승인할 수 없어 세션이 끝나지 않습니다");
-    expect(MOCK_ONLY.reviewer_not_participant).toBe("리뷰어는 이 세션의 참여자 중에서 골라 주세요");
-    expect(MOCK_ONLY.submitter_not_participant).toBe("제출자는 이 세션의 참여자 중에서 골라 주세요");
-    expect(MOCK_ONLY.condition_immutable).toBe("끝났거나 끝나는 중인 세션의 종료 조건은 바꿀 수 없습니다");
-    if (landed) {
-      // T-S18 이 머지됐다 — 이제 정답이 있으니 글자 단위로 대조한다. 여기가 초록이면 MOCK_ONLY → SERVER 로 옮기는 일만 남는다.
-      for (const t of Object.values(MOCK_ONLY)) expect(serverSrc).toContain(t);
-    } else {
-      // 아직 dev 에 없다 — 부재의 근거(생성 코드 gen/ 는 enum 상수라 뺐다: 검증 **구현**의 부재를 잰다).
-      expect(serverSrc).not.toContain('"reviewer_not_participant"');
-    }
+describe("(h) T-W15/T-S18 — 리뷰어 검사(계약 #232 v0.1.4)의 문장은 SERVER 에서 온다", () => {
+  it("MOCK_ONLY 는 비어 있고 handlers.ts 는 W.<key> 를 쓴다", () => {
+    expect(Object.keys(MOCK_ONLY)).toEqual([]);
+    for (const k of ["reviewer_required", "reviewer_not_participant", "submitter_not_participant", "condition_immutable"]) expect(HANDLERS).toMatch(new RegExp(`\\bW\\.${k}\\b`));
+    expect(HANDLERS).not.toMatch(/\bMOCK_ONLY\./);
   });
   it("목 createSession · updateSession 의 422 순서·code·field 경로 — 서버와 같은 모양(completion_condition/conditions/<i>/agent_id)", () => {
     const fn = HANDLERS.match(/function validateCondition[\s\S]*?\n\}/)![0];
     expect(fn).toContain("`completion_condition/conditions/${i}/agent_id`");
-    expect(fn).toContain('code: "reviewer_required", message: MOCK_ONLY.reviewer_required');
-    expect(fn).toContain('code: "reviewer_not_participant", message: a.type === "agent_approval" ? MOCK_ONLY.reviewer_not_participant : MOCK_ONLY.submitter_not_participant');
+    expect(fn).toContain('code: "reviewer_required", message: W.reviewer_required');
+    expect(fn).toContain('code: "reviewer_not_participant", message: a.type === "agent_approval" ? W.reviewer_not_participant : W.submitter_not_participant');
     const patch = HANDLERS.match(/on\("PATCH", "\/sessions\/\{id\}"[\s\S]*?\n\}\);/)![0];
-    const order = ["requireDirector(sess, user.id)", "W.isolation_immutable", "W.runtime_immutable", 'code: "immutable", message: MOCK_ONLY.condition_immutable', "validateCondition(b.completion_condition", '"session.completion_progress", { session_id: sess.id, completion_progress: sess.completion_progress }'];
+    const order = ["requireDirector(sess, user.id)", "W.isolation_immutable", "W.runtime_immutable", 'code: "immutable", message: W.condition_immutable', "validateCondition(b.completion_condition", '"session.completion_progress", { session_id: sess.id, completion_progress: sess.completion_progress }'];
     const idx = order.map((x) => patch.indexOf(x));
     expect(idx.every((i) => i >= 0)).toBe(true);
     expect([...idx].sort((a, b) => a - b)).toEqual(idx);
