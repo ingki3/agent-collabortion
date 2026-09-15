@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 상태 | **제안(미확정)** — Director 요청(2026-09-15). 확정은 Director·Lead |
+| 상태 | **확정(Director, 2026-09-15)** — ① C1~C3 관찰 지표는 §11 과 별도 「관찰」 표(목표치 없음, 대시보드 별도 표, G9 뒤 구현) ② C5 역할별 행동 부분집합은 v1.1. PRD v0.17 |
 | 대상 | [camel-ai/oasis](https://github.com/camel-ai/oasis) — 읽은 커밋 `0004f5bfd61194324cb40623fa9b2578daf9aec9` (2026-08-27). 아래 코드 경로는 전부 이 커밋 기준(`https://github.com/camel-ai/oasis/blob/0004f5b/<경로>`) |
 | 논문 | [OASIS: Open Agent Social Interaction Simulations with One Million Agents](https://arxiv.org/abs/2411.11581) (arXiv 2411.11581, HTML 본문 [arxiv.org/html/2411.11581](https://arxiv.org/html/2411.11581)) |
 | 문서 | [docs.oasis.camel-ai.org](https://docs.oasis.camel-ai.org) = 저장소 `docs/` (Mintlify). 문서와 코드가 어긋난 곳이 있다(§1.6) |
