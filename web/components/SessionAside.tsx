@@ -7,7 +7,9 @@
 import "./session-aside.css";
 import { ConditionRow } from "./ConditionRow";
 import { PausedBanner, type PausedBannerProps } from "./PausedBanner";
+import { progressSummary, topOp } from "@/lib/completion";
 import { humanDuration, relativeTime } from "@/lib/time";
+import { FIX_CONDITION, PROGRESS } from "@/lib/wording";
 import type { Artifact, Decision, Session } from "@/lib/api/types";
 
 const ISOLATION_LABEL = { none: "격리 없음", worktree: "워크트리", container: "컨테이너" } as const;
@@ -23,6 +25,22 @@ export interface SessionAsideProps {
   onRebind?: () => void;
   onCancelSession?: () => void;
   busy?: boolean;
+  /** 진행률 행 「받은 요청에서 승인하세요」 — 타임라인의 그 확인 카드로. */
+  onOpenHitl?: (hitlRequestId: string) => void;
+  /** 「조건 고치기」 — Director 에게만 넘긴다(updateSession 권한). 없으면 버튼 대신 "Director 가 고쳐야" 한 줄. */
+  onFixCondition?: () => void;
+}
+
+/**
+ * 충족시킨 주체의 **이름** — `met_by` 는 에이전트 id · 사용자 id · "platform" 이라 그대로 보이면 안 된다(§8.4).
+ * 에이전트 조건은 지정 에이전트 이름(`agent_name`)이 정답이고, 사람 조건(`user_approval`·`manual`)은 Director 다.
+ */
+export function metByName(type: string, metBy: string | null | undefined, agentName: string | null | undefined, resolve?: (id: string) => string): string | null {
+  if (type === "user_approval" || type === "manual") return "Director";
+  if (agentName) return agentName;
+  if (!metBy || metBy === "platform") return null;
+  const r = resolve?.(metBy);
+  return r && r !== metBy && r !== metBy.slice(0, 8) ? r : null;
 }
 
 export function SessionAside(props: SessionAsideProps) {
@@ -30,6 +48,8 @@ export function SessionAside(props: SessionAsideProps) {
   const prog = s.completion_progress;
   const budget = s.limits.budget_usd ?? null;
   const pct = budget ? Math.round((s.cost_usd / budget) * 100) : null;
+  const closed = s.status === "completed" || s.status === "cancelled";
+  const blockedCount = prog.conditions.filter((c) => !c.met && !!c.blocked_reason).length;
 
   return (
     <aside className="aside" data-testid="session-aside">
@@ -61,13 +81,42 @@ export function SessionAside(props: SessionAsideProps) {
         )}
       </section>
 
+      {/* 종료 조건 진행률(SCREEN §4.5, T-W15 · S-84) — 조건마다 사람 말 한 줄 + 다음 행동. `blocked_reason` 이 있으면 ✗ 대신 이유와
+          Director 의 「조건 고치기」. 상단 한 줄이 남은 것과 막힌 개수를 센다 — 세션이 왜 안 닫히는지 이 칸만 보고 알 수 있어야 한다. */}
       <section className="aside__sec" data-testid="aside-progress">
         <h2 className="aside__h">
           종료 조건 진행률 <span className="aside__count" data-testid="progress-count">{prog.met}/{prog.total}</span>
         </h2>
+        <p className="aside__summary" data-testid="progress-summary">{progressSummary(prog, topOp(s.completion_condition), closed)}</p>
         {prog.conditions.map((c) => (
-          <ConditionRow key={c.path} type={c.type} met={c.met} nextActor={c.next_actor} metAt={c.met_at} />
+          <ConditionRow
+            key={c.path}
+            type={c.type}
+            met={c.met}
+            agentName={c.agent_name ?? null}
+            metBy={metByName(c.type, c.met_by, c.agent_name, props.agentName)}
+            metAt={c.met_at}
+            nextActor={c.next_actor}
+            blockedReason={c.blocked_reason ?? null}
+            hitlRequestId={c.hitl_request_id ?? null}
+            onOpenHitl={props.onOpenHitl}
+          />
         ))}
+        {blockedCount > 0 && !closed && (
+          <div className="aside__blocked" data-testid="progress-blocked">
+            <span className="aside__warn">{props.onFixCondition ? PROGRESS.blocked_director : PROGRESS.blocked_member}</span>
+            {props.onFixCondition && (
+              <button type="button" className="btn btn--sm" onClick={props.onFixCondition} disabled={props.busy} data-testid="fix-condition-open">
+                {FIX_CONDITION.button}
+              </button>
+            )}
+          </div>
+        )}
+        {blockedCount === 0 && props.onFixCondition && !closed && (
+          <button type="button" className="aside__link" onClick={props.onFixCondition} disabled={props.busy} data-testid="fix-condition-open">
+            {FIX_CONDITION.button}
+          </button>
+        )}
         {prog.human_gate === false && (
           <p className="aside__warn" data-testid="no-human-gate">사람 승인 없이 완료됩니다 — 종료 조건에 Director 승인이 없습니다.</p>
         )}

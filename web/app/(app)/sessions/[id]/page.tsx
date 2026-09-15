@@ -28,6 +28,7 @@ import { HitlCard } from "@/components/HitlCard";
 import { PAUSE_REASON_LABEL, runtimeNameOf } from "@/lib/session-label";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { RebindDialog } from "@/components/RebindDialog";
+import { FixConditionDialog } from "@/components/FixConditionDialog";
 import { api, errorMessage, newIdempotencyKey } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
@@ -88,6 +89,8 @@ export default function SessionPage() {
   const [busy, setBusy] = useState(false);
   /** S17 재바인딩 다이얼로그 — `paused(runtime_offline)` 배너의 두 선택지 중 하나(SCREEN §4.9 진입). */
   const [rebindOpen, setRebindOpen] = useState(false);
+  /** 「조건 고치기」(T-W15, S-84) — 리뷰어 없는 조건 등 구조상 충족될 수 없는 조건을 Director 가 고친다. */
+  const [fixCondOpen, setFixCondOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -505,6 +508,13 @@ export default function SessionPage() {
     else setError("이 작업 줄기의 확인 카드를 찾지 못했습니다 — 받은 요청에서 응답하세요.");
   }
 
+  /** 진행률 행 「받은 요청에서 승인하세요」 — `hitl_request_id` 로 타임라인의 확인 카드를 찾는다(카드가 없으면 받은 요청으로 안내). */
+  function openHitlById(hitlRequestId: string) {
+    const h = hitls.find((x) => x.id === hitlRequestId);
+    if (h?.message_id) jumpToMessage(h.message_id);
+    else setError("이 확인 요청의 카드를 찾지 못했습니다 — 받은 요청에서 응답하세요.");
+  }
+
   function jumpToMessage(messageId: string) {
     setCol("timeline");
     const el = document.querySelector(`[data-message-id="${messageId}"]`);
@@ -737,9 +747,20 @@ export default function SessionPage() {
             onResume={isDirector ? resume : undefined}
             onRebind={isDirector ? () => setRebindOpen(true) : undefined}
             onCancelSession={isDirector ? () => void cancelSession("컴퓨터 연결 끊김 — 옮기지 않고 종료") : undefined}
+            onOpenHitl={openHitlById}
+            // updateSession 은 Director 권한(계약) — deputy 는 재개·재바인딩은 되지만 조건은 못 고친다.
+            onFixCondition={session.my_role === "director" && !closed ? () => setFixCondOpen(true) : undefined}
           />
         </section>
       </div>
+      {fixCondOpen && session && (
+        <FixConditionDialog
+          session={session}
+          onClose={() => setFixCondOpen(false)}
+          // 응답 본문(Session)이 재계산된 진행률을 싣는다 — SSE `session.completion_progress` 가 또 와도 같은 값(멱등).
+          onSaved={(next) => setSession((cur) => (cur ? { ...cur, ...next, participants: next.participants ?? cur.participants } : next))}
+        />
+      )}
       {rebindOpen && session && (
         <RebindDialog
           session={{

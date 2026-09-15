@@ -13,15 +13,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CONDITION_LABEL, ConditionRow } from "@/components/ConditionRow";
+import { ConditionEditor } from "@/components/ConditionEditor";
+import { DEFAULT_DRAFT, conditionGate, draftNames, hasHumanGate, toCompletionCondition, type ConditionDraft } from "@/lib/completion";
+import { conditionSentence } from "@/lib/wording";
 import { api, errorMessage, isApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import type { Agent, IsolationKind, Member, RepoCheck, Runtime, RuntimeCandidate, SessionListItem } from "@/lib/api/types";
 
 const STEPS = ["목표", "Director", "격리", "컴퓨터", "참여자", "종료 조건", "한도·자율성"] as const;
-
-type CondType = "artifact_submitted" | "agent_approval" | "user_approval" | "manual";
-const COND_ORDER: CondType[] = ["artifact_submitted", "agent_approval", "user_approval", "manual"];
 
 /** 격리 방식 — 계약 enum(`none`·`worktree`·`container`)을 화면의 말로(§8.4). */
 const ISOLATION_LABEL: Record<IsolationKind, string> = { none: "격리 없음", worktree: "워크트리", container: "컨테이너" };
@@ -63,11 +62,9 @@ export default function NewSessionPage() {
   // 5 참여자
   const [picked, setPicked] = useState<Record<string, string | null>>({}); // agent id → profile id
   const [assignee, setAssignee] = useState<string>("");
-  // 6 종료 조건
-  const [conds, setConds] = useState<CondType[]>(["artifact_submitted", "user_approval"]);
-  const [op, setOp] = useState<"and" | "or">("and");
-  /** `artifact_submitted` 의 제출자. 빈 문자열이면 `who: "assignee"`(기본값, SCREEN §4.4 6단계). */
-  const [submitter, setSubmitter] = useState<string>("");
+  // 6 종료 조건 — 편집 상태는 `lib/completion.ts` 의 모양 하나(S7 「조건 고치기」와 같은 편집기, T-W15).
+  // 제출자 빈 문자열 = `who: "assignee"`(기본값, SCREEN §4.4 6단계) · 리뷰어 빈 문자열 = 아직 안 골랐다(다음 단계 비활성).
+  const [cond, setCond] = useState<ConditionDraft>(DEFAULT_DRAFT);
   // 7 한도
   const [budget, setBudget] = useState("20");
   const [timeLimit, setTimeLimit] = useState("PT4H");
@@ -168,10 +165,15 @@ export default function NewSessionPage() {
     setAssignee(lead ?? pickedIds[0] ?? "");
   }, [pickedIds.join(","), invitable, assignee]);
 
-  // 참여자에서 빠진 에이전트가 제출자로 남으면 아무도 못 채우는 종료 조건이 된다 — assignee 로 되돌린다.
+  // 참여자에서 빠진 에이전트가 제출자·리뷰어로 남으면 아무도 못 채우는 종료 조건이 된다 — 제출자는 담당 에이전트로 되돌리고,
+  // 리뷰어는 비운다(비면 6단계가 다시 막는다 — 리뷰어 없는 `agent_approval` 은 만들 수 없다, S-84).
   useEffect(() => {
-    if (submitter && !pickedIds.includes(submitter)) setSubmitter("");
-  }, [pickedIds.join(","), submitter]);
+    setCond((c) => {
+      const submitter = c.submitter && !pickedIds.includes(c.submitter) ? "" : c.submitter;
+      const reviewer = c.reviewer && !pickedIds.includes(c.reviewer) ? "" : c.reviewer;
+      return submitter === c.submitter && reviewer === c.reviewer ? c : { ...c, submitter, reviewer };
+    });
+  }, [pickedIds.join(",")]);
 
   /** 선택한 런타임에 없는 `runtime_kind` 의 프로파일은 경고(거부 아님). */
   const runtimeKinds = useMemo(() => {
@@ -188,9 +190,10 @@ export default function NewSessionPage() {
     [pickedIds.join(","), picked, invitable, runtimeKinds],
   );
 
-  const humanGate = conds.includes("user_approval") || conds.includes("manual");
-  /** 화면에 쓰는 제출자 이름 — 지정이 없으면 역할(`assignee`) 그대로 말한다. */
-  const submitterLabel = submitter ? `@${invitable.find((a) => a.id === submitter)?.name ?? submitter}` : "assignee";
+  const humanGate = hasHumanGate(cond);
+  const agentNameOf = (id: string) => invitable.find((a) => a.id === id)?.name ?? id;
+  /** 요약 문장 — 사람 말("보고서 제출 (담당 에이전트) 그리고 Director 승인"). */
+  const conditionSummary = conditionSentence(draftNames(cond, agentNameOf), cond.op);
   const stepBlocked = ((): string | null => {
     if (step === 0) return title.trim() && goal.trim() ? null : "제목과 목표를 입력하세요";
     if (step === 2 && isolation === "worktree") {
@@ -201,7 +204,10 @@ export default function NewSessionPage() {
     }
     if (step === 3 && isolation !== "none" && !runtimeId) return "컴퓨터를 고르세요";
     if (step === 4 && pickedIds.length === 0) return "참여자를 1명 이상 고르세요";
-    if (step === 5 && conds.length === 0) return "종료 조건을 하나 이상 고르세요";
+    if (step === 5) {
+      const g = conditionGate(cond, pickedIds);
+      if (!g.ok) return g.reason;
+    }
     return null;
   })();
 
@@ -223,14 +229,9 @@ export default function NewSessionPage() {
           participants: pickedIds.map((id) => ({ agent_id: id, profile_id: picked[id] ?? null })),
           assignee_agent_id: assignee || undefined,
           context: contextSessionId ? [{ type: "session" as const, ref: contextSessionId }] : [],
-          completion_condition: {
-            op,
-            // CompletionAtom: `who` 는 역할(`assignee`), `agent_id` 는 **`who` 대신** 쓰는 지정 에이전트다.
-            // 둘을 함께 보내지 않는다 — 계약이 배타로 적었다. E6-02 는 이 지정으로 판정된다.
-            conditions: conds.map((t) =>
-              t !== "artifact_submitted" ? { type: t } : submitter ? { type: t, agent_id: submitter } : { type: t, who: "assignee" },
-            ),
-          },
+          // CompletionAtom: `who` 는 역할(`assignee`), `agent_id` 는 **`who` 대신** 쓰는 지정 에이전트다. 둘을 함께 보내지 않는다 —
+          // 계약이 배타로 적었다. `agent_approval` 은 `agent_id`(리뷰어) 필수(v0.1.4, S-84). E6-02 는 이 지정으로 판정된다.
+          completion_condition: toCompletionCondition(cond),
           limits: {
             budget_usd: budget ? Number(budget) : null,
             budget_tokens: null,
@@ -244,7 +245,12 @@ export default function NewSessionPage() {
       router.replace(`/sessions/${s.id}`);
     } catch (err) {
       if (isApiError(err) && err.code === "no_runtime") setError("먼저 컴퓨터를 연결하세요 — 연결된 컴퓨터가 없으면 세션을 만들 수 없습니다.");
-      else if (isApiError(err) && err.problem.errors?.length) setError(err.problem.errors.map((x) => `${x.field}: ${x.message}`).join(" · "));
+      else if (isApiError(err) && err.problem.errors?.length) {
+        // 종료 조건의 422(reviewer_required · reviewer_not_participant, v0.1.4)는 칸 경로 대신 문장만 — 6단계로 돌아가 그 자리에서 고친다.
+        const cond = err.problem.errors.filter((x) => x.field?.startsWith("completion_condition"));
+        if (cond.length === err.problem.errors.length) setStep(5);
+        setError(err.problem.errors.map((x) => (x.field?.startsWith("completion_condition") ? x.message : `${x.field}: ${x.message}`)).join(" · "));
+      }
       else setError(errorMessage(err));
     } finally {
       setBusy(false);
@@ -479,51 +485,12 @@ export default function NewSessionPage() {
 
       {step === 5 && (
         <section data-testid="wizard-conditions">
-          <div className="row" style={{ marginBottom: 8 }}>
-            <span className="small muted">조건 결합</span>
-            <select className="select" style={{ width: "auto" }} value={op} onChange={(e) => setOp(e.target.value as "and" | "or")} data-testid="cond-op">
-              <option value="and">모두 충족 (AND)</option>
-              <option value="or">하나만 충족 (OR)</option>
-            </select>
-          </div>
-          <div className="stack" style={{ gap: 6 }}>
-            {COND_ORDER.map((t) => (
-              <div key={t} className="stack" style={{ gap: 4 }}>
-                <ConditionRow
-                  type={t}
-                  met={null}
-                  variant="wizard"
-                  selected={conds.includes(t)}
-                  who={t === "artifact_submitted" ? submitterLabel : undefined}
-                  onToggle={(next) => setConds((c) => (next ? [...c, t] : c.filter((x) => x !== t)))}
-                />
-                {/* 제출자를 고를 수 없으면 시나리오 A 3단계("**Writer 가** 아티팩트 제출")를 화면으로 만들 수 없다.
-                    E6-02 는 "지정 에이전트가 아니면 미충족" 이므로 그 지정이 여기서 나온다. 기본값은 assignee 다. */}
-                {t === "artifact_submitted" && conds.includes(t) && (
-                  <label className="row small" style={{ paddingLeft: 26 }}>
-                    <span className="muted">제출자</span>
-                    <select
-                      className="select"
-                      style={{ width: "auto" }}
-                      value={submitter}
-                      onChange={(e) => setSubmitter(e.target.value)}
-                      data-testid="submitter-select"
-                      aria-label="아티팩트 제출자"
-                    >
-                      <option value="">담당 에이전트 (기본) — 담당이 바뀌면 따라갑니다</option>
-                      {pickedIds.map((id) => (
-                        <option key={id} value={id}>@{invitable.find((a) => a.id === id)?.name ?? id}</option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-              </div>
-            ))}
-            <ConditionRow type="criteria_met" met={null} variant="wizard" disabled disabledNote="성공 기준 자동 판정은 다음 버전입니다" />
-          </div>
-          {!humanGate && conds.length > 0 && (
-            <p className="notice" data-testid="no-human-gate-warning">⚠ 사람 승인 없이 완료됩니다 — 종료 조건에 Director 승인이나 수동 종료가 없습니다.</p>
-          )}
+          <ConditionEditor
+            value={cond}
+            onChange={setCond}
+            participants={pickedIds.map((id) => ({ id, name: agentNameOf(id) }))}
+            assigneeId={assignee || null}
+          />
         </section>
       )}
 
@@ -578,7 +545,7 @@ export default function NewSessionPage() {
               <li>격리 <b>{ISOLATION_LABEL[isolation]}</b>{isolation === "worktree" ? ` · ${repoPath}` : ""}</li>
               <li>컴퓨터 <b>{runtimeId ? online.find((r) => r.id === runtimeId)?.name ?? runtimeId : "자동 선택(첫 실행 때 고정)"}</b></li>
               <li>참여자 {pickedIds.map((id) => `@${invitable.find((a) => a.id === id)?.name}`).join(", ") || "—"} · 담당 <b>@{invitable.find((a) => a.id === assignee)?.name ?? "—"}</b></li>
-              <li>종료 조건 <b>{conds.map((c) => CONDITION_LABEL[c] ?? c).join(op === "and" ? " 그리고 " : " 또는 ")}</b>{conds.includes("artifact_submitted") ? ` · 제출자 ${submitterLabel}` : ""}{humanGate ? "" : " — 사람 승인 없음"}</li>
+              <li>종료 조건 <b data-testid="summary-condition">{conditionSummary}</b>{humanGate ? "" : " — 사람 승인 없음"}</li>
               <li>한도 {budget ? `$${budget}` : "예산 없음"} · {timeLimit || "시간 제한 없음"} · 자율성 <b>{AUTONOMY.find((a) => a.value === autonomy)?.label ?? autonomy}</b></li>
             </ul>
           </div>
