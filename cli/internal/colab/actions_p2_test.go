@@ -653,16 +653,37 @@ func TestCliContextFetchedAtMostOncePerProcess(t *testing.T) {
 	}
 }
 
-// A command that needs nothing from the context must not fetch it at all.
-func TestArtifactGetDoesNotFetchCliContext(t *testing.T) {
+// A command that needs nothing from the context for its own request still
+// needs the role's command list (colab-cli.md v0.6 §2.5) — so without
+// COLAB_ALLOWED_COMMANDS the process makes its one cached /cli/context read,
+// and with it (the daemon wrapper's case, harness §10) none at all. Before
+// v0.6 this test asserted "never": the K-19 gate is what changed it.
+func TestArtifactGetFetchesCliContextOnlyForTheGate(t *testing.T) {
+	count := func(s *clienttest.Server) int {
+		n := 0
+		for _, r := range s.Requests {
+			if r.URL.Path == "/api/v1/cli/context" {
+				n++
+			}
+		}
+		return n
+	}
 	s := clienttest.New(t)
 	if _, err := colab.ArtifactGet(context.Background(), newClient(t, s),
 		colab.ArtifactGetArgs{Artifact: clienttest.ArtifactID}); err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range s.Requests {
-		if r.URL.Path == "/api/v1/cli/context" {
-			t.Fatal("artifact get needs no context value; it must not round trip")
-		}
+	if n := count(s); n != 1 {
+		t.Fatalf("/cli/context fetched %d times, want 1 (the gate's cached read)", n)
+	}
+	s2 := clienttest.New(t)
+	env := s2.Env(t.TempDir())
+	env[client.EnvAllowedCommands] = "artifact_get"
+	if _, err := colab.ArtifactGet(context.Background(), client.New(client.FromEnv(clienttest.Getenv(env))),
+		colab.ArtifactGetArgs{Artifact: clienttest.ArtifactID}); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(s2); n != 0 {
+		t.Fatalf("/cli/context fetched %d times with COLAB_ALLOWED_COMMANDS set, want 0", n)
 	}
 }

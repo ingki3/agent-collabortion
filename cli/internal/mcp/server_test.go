@@ -50,8 +50,10 @@ func dial(t *testing.T, c *client.Client) *conn {
 			t.Errorf("serve did not exit on stdin close")
 		}
 	})
-	return &conn{t: t, w: inW, dec: json.NewDecoder(outR)}
+	return &conn{t: t, w: inW, dec: newDecoder(outR)}
 }
+
+func newDecoder(r io.Reader) *json.Decoder { return json.NewDecoder(r) }
 
 func (c *conn) call(method string, params any) rpc {
 	c.t.Helper()

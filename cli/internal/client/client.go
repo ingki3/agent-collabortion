@@ -43,6 +43,12 @@ const (
 	EnvLaneID    = "COLAB_LANE_ID"
 	EnvSessionID = "COLAB_SESSION_ID"
 	EnvAgentName = "COLAB_AGENT_NAME"
+	// EnvAllowedCommands is the daemon wrapper's copy of the role's command
+	// subset (harness.md §10, K-19): a comma-separated list of ColabCommand
+	// names. When set it is THE list — no /cli/context round trip is made for
+	// it — so a refused command reaches no server at all. Unset means the
+	// list comes from getCliContext.allowed_commands (colab-cli.md §2.5).
+	EnvAllowedCommands = "COLAB_ALLOWED_COMMANDS"
 	// EnvAPIPrefix is the contract's optional override of the API root
 	// appended to COLAB_SERVER_URL (openapi.yaml servers[0].url = /api/v1).
 	EnvAPIPrefix = "COLAB_API_PREFIX"
@@ -73,10 +79,15 @@ type Config struct {
 	SessionID string
 	AgentName string
 	Attempt   int // 0 = unknown → resolved via /cli/context
-	StateDir  string
-	ClientSeq int // >0 forces the next Idempotency-Key seq (internal)
-	Timeout   time.Duration
-	HTTP      *http.Client
+	// AllowedCommands is the command subset a wrapper handed over (env, or
+	// `colab mcp serve --allow`). nil = not given → ask /cli/context; an
+	// empty non-nil list = given but empty → everything is allowed
+	// (colab-cli.md §2.5 · daemon-protocol §4.1 "비면 전부").
+	AllowedCommands []string
+	StateDir        string
+	ClientSeq       int // >0 forces the next Idempotency-Key seq (internal)
+	Timeout         time.Duration
+	HTTP            *http.Client
 }
 
 // Getenv abstracts os.Getenv so tests can inject an environment.
@@ -100,6 +111,9 @@ func FromEnv(getenv Getenv) Config {
 	}
 	if v := getenv(EnvAttempt); v != "" {
 		fmt.Sscanf(v, "%d", &c.Attempt)
+	}
+	if v := getenv(EnvAllowedCommands); strings.TrimSpace(v) != "" {
+		c.AllowedCommands = SplitCommands(v)
 	}
 	if v := getenv(EnvClientSeq); v != "" {
 		fmt.Sscanf(v, "%d", &c.ClientSeq)
@@ -171,6 +185,9 @@ type Error struct {
 	Title   string   `json:"title,omitempty"`
 	Detail  string   `json:"detail,omitempty"`
 	Problem *Problem `json:"problem,omitempty"`
+	// Extra is merged into the --json error object (colab.ErrorJSON) —
+	// command_not_allowed's role · command · allowed.
+	Extra map[string]any `json:"-"`
 }
 
 func (e *Error) Error() string {

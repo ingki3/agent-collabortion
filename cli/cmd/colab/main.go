@@ -8,6 +8,9 @@
 // P3 (colab-cli.md v0.5 §2.4): hitl ask · hitl approve-request ·
 // hitl request-info.
 // P4: `artifact submit --type diff` builds the workdir's own diff (FR-4.3).
+// v1.1 (colab-cli.md v0.6 §2.5, K-19): a command outside the role's
+// allowed_commands is refused before any request with exit 3
+// command_not_allowed; `mcp serve --allow` registers only the allowed tools.
 // Output is always JSON on stdout (agents parse it); --json is accepted for
 // clarity. Exit codes: 0 ok · 2 args · 3 refused · 4 no/revoked token ·
 // 5 server unreachable.
@@ -75,7 +78,9 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
                              asks a human for information (--question is an alias of --what)
                              All three return turn_end_required:true — register it and END YOUR TURN.
                              A task holds one open request at a time; a second is exit 3 hitl_already_open.
-  colab mcp serve            stdio MCP server exposing the same commands as tools
+  colab mcp serve [--allow <cmd,…>]
+                             stdio MCP server exposing the same commands as tools. --allow registers
+                             only the listed commands' tools (names as in COLAB_ALLOWED_COMMANDS)
   colab version            also as the flags --version · -v (the daemon probe runs colab --version)
 
   The four P2 write commands take an optional --idempotency-key (uuid); it is
@@ -83,6 +88,9 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
 
 env (daemon, contracts/colab-cli.md §1): COLAB_TASK_TOKEN COLAB_SERVER_URL(origin) COLAB_TASK_ID
      COLAB_TASK_ATTEMPT COLAB_LANE_ID COLAB_SESSION_ID COLAB_AGENT_NAME [COLAB_API_PREFIX]
+     [COLAB_ALLOWED_COMMANDS=session_get,message_post,…]  the role's command subset (harness §10);
+     without it the CLI reads getCliContext.allowed_commands once. A command outside the subset
+     is refused BEFORE any request: exit 3 command_not_allowed (colab-cli.md §2.5)
 exit: 0 ok · 2 args · 3 refused · 4 no/revoked token · 5 server unreachable
 `
 
@@ -121,10 +129,32 @@ func run(args []string, getenv client.Getenv, stdin io.Reader, stdout, stderr io
 		return runHitl(args[1:], getenv, stdout, stderr)
 	case "mcp":
 		if len(args) < 2 || args[1] != "serve" {
-			return usage(stderr, "usage: colab mcp serve")
+			return usage(stderr, "usage: colab mcp serve [--allow <cmd,…>]")
 		}
-		c := client.New(client.FromEnv(getenv))
-		if err := mcp.Serve(context.Background(), c, stdin, stdout, version); err != nil {
+		fs, _ := newFlagSet("mcp serve", stderr)
+		allow := fs.String("allow", "", "register only these commands' tools (comma-separated ColabCommand names, e.g. session_get,message_post); default: all")
+		if err := fs.Parse(args[2:]); err != nil {
+			return client.ExitUsage
+		}
+		if fs.NArg() > 0 {
+			return usage(stderr, "mcp serve: unexpected argument %q", fs.Arg(0))
+		}
+		cfg := client.FromEnv(getenv)
+		var o mcp.Options
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "allow" {
+				// --allow is the daemon's copy of the bundle's allowed_commands
+				// (harness §10): it is the tool table AND the gate list, so no
+				// tool call ever spends a /cli/context read just to be refused.
+				o.Allow = client.SplitCommands(*allow)
+				cfg.AllowedCommands = o.Allow
+				o.Unknown = func(name string) {
+					fmt.Fprintf(stderr, "colab mcp serve: --allow: %q is not a colab command; ignored\n", name)
+				}
+			}
+		})
+		c := client.New(cfg)
+		if err := mcp.ServeWith(context.Background(), c, stdin, stdout, version, o); err != nil {
 			fmt.Fprintln(stderr, "colab mcp serve:", err)
 			return client.ExitUnreachable
 		}

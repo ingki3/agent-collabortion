@@ -30,7 +30,11 @@ type CliContext struct {
 	SuppressedDelegatorAgentID *string       `json:"suppressed_delegator_agent_id"`
 	OpenHitlRequestID          *string       `json:"open_hitl_request_id"`
 	Participants               []Participant `json:"participants"`
-	ExpiresAt                  string        `json:"expires_at"`
+	// AllowedCommands is the role's command subset (v1.1 K-19, colab-cli.md
+	// §2.5). A pre-v1.1 server omits it (nil) and an empty list means no
+	// restriction — both allow everything (AllowedCommandSet).
+	AllowedCommands []string `json:"allowed_commands,omitempty"`
+	ExpiresAt       string   `json:"expires_at"`
 }
 
 // Participant — CliContext.participants[].
