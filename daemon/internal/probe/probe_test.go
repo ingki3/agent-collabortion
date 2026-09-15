@@ -1,0 +1,327 @@
+package probe
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/ingki3/agent-collabortion/contracts"
+	"github.com/ingki3/agent-collabortion/daemon/acpfake"
+	"github.com/ingki3/agent-collabortion/daemon/internal/harness/acp"
+)
+
+func TestMain(m *testing.M) {
+	acpfake.MaybeMain()
+	os.Exit(m.Run())
+}
+
+// PONG turn against the fake: version/models/usage/resume folded into the
+// capability; isolation raw init requested for claude_code.
+func TestPongFoldsCapability(t *testing.T) {
+	// KnownSessions makes the second process load the PONG session back —
+	// that load IS the resume measurement (backlog D-2).
+	script := acpfake.Script{AgentVersion: "0.74.0", Models: []string{"claude-sonnet-5", "claude-haiku-4-5"}, KnownSessions: []string{"sess-1"}, Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "PONG"}}, ModelUsage: true, Usage: &contractsUsage}}}
+	o := Options{DaemonVersion: "t", Turn: true, Timeout: 20 * time.Second, Command: func(k contracts.RuntimeKind) (string, []string, []string, bool) {
+		c, a, e := acpfake.Command(script, "")
+		return c, a, e, true
+	}}
+	cap := contracts.Capability{Kind: contracts.RuntimeClaudeCode}
+	res := Pong(context.Background(), contracts.RuntimeClaudeCode, o, &cap)
+	if res.Result.Outcome != "completed" || strings.TrimSpace(res.Result.Text) != "PONG" {
+		t.Fatalf("%+v", res.Result)
+	}
+	if !cap.LoggedIn || !cap.Usage || !cap.Resume || cap.AdapterVersion != "0.74.0" || len(cap.Models) != 2 {
+		t.Fatalf("cap %+v", cap)
+	}
+	if cap.ProtocolVersion != contracts.ACPProtocolVersion || !cap.ToolDisallow {
+		t.Fatalf("measured protocol/tool_disallow missing: %+v", cap)
+	}
+	if res.Result.RawInit == nil {
+		t.Fatal("raw init not requested for claude_code probe")
+	}
+}
+
+func TestPongAuthFailureMeansNotLoggedIn(t *testing.T) {
+	script := acpfake.Script{Turns: []acpfake.Turn{{Error: &rpcErr}}}
+	o := Options{Turn: true, Timeout: 20 * time.Second, Command: func(k contracts.RuntimeKind) (string, []string, []string, bool) {
+		c, a, e := acpfake.Command(script, "")
+		return c, a, e, true
+	}}
+	cap := contracts.Capability{Kind: contracts.RuntimeClaudeCode, LoggedIn: true}
+	Pong(context.Background(), contracts.RuntimeClaudeCode, o, &cap)
+	if cap.LoggedIn {
+		t.Fatal("auth failure should clear logged_in")
+	}
+}
+
+// R3 — adapter_version is measured, never the pin: a mismatched adapter is
+// reported with its real version (and the turn is a config failure).
+func TestPongReportsMeasuredAdapterVersion(t *testing.T) {
+	script := acpfake.Script{AgentVersion: "0.73.0", Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "PONG"}}}}}
+	o := Options{Turn: true, Timeout: 20 * time.Second, Command: func(k contracts.RuntimeKind) (string, []string, []string, bool) {
+		c, a, e := acpfake.Command(script, "")
+		return c, a, e, true
+	}}
+	cap := contracts.Capability{Kind: contracts.RuntimeClaudeCode}
+	res := Pong(context.Background(), contracts.RuntimeClaudeCode, o, &cap)
+	if res.Result.Outcome != "failed" || res.Result.Failure == nil || res.Result.Failure.Kind != contracts.FailConfig {
+		t.Fatalf("%+v", res.Result)
+	}
+	if cap.AdapterVersion != "0.73.0" {
+		t.Fatalf("adapter_version %q (must be the measured value, not the pin)", cap.AdapterVersion)
+	}
+}
+
+// R3 — a static probe (no turn) leaves adapter_version empty.
+func TestStaticDetectLeavesAdapterVersionEmpty(t *testing.T) {
+	cap, ok := Detect(context.Background(), contracts.RuntimeClaudeCode, Options{})
+	if !ok {
+		t.Skip("claude CLI not installed")
+	}
+	if cap.AdapterVersion != "" {
+		t.Fatalf("adapter_version %q reported without measurement", cap.AdapterVersion)
+	}
+}
+
+// D-2 — `resume` is measured, not assumed: a second process must really load
+// the session back (harness §6). The two ways it can fail are the two the
+// capability exists to warn about.
+func TestPongMeasuresResume(t *testing.T) {
+	cases := []struct {
+		name   string
+		script acpfake.Script
+		kind   contracts.RuntimeKind
+		want   bool
+	}{
+		{"claude loads it back", acpfake.Script{KnownSessions: []string{"sess-1"}}, contracts.RuntimeClaudeCode, true},
+		{"claude lost the session", acpfake.Script{}, contracts.RuntimeClaudeCode, false},
+		{"hermes loads it back", acpfake.Script{Kind: "hermes", KnownSessions: []string{"sess-1"}}, contracts.RuntimeHermes, true},
+		{"hermes answers null", acpfake.Script{Kind: "hermes"}, contracts.RuntimeHermes, false},
+		{"hermes rotates the provenance", acpfake.Script{Kind: "hermes", KnownSessions: []string{"sess-1"},
+			LoadProvenance: &acpfake.Provenance{ACPSessionID: "other", RootHermesSessionID: "other"}}, contracts.RuntimeHermes, false},
+		{"loadSession not advertised", acpfake.Script{KnownSessions: []string{"sess-1"}, NoLoadSession: true}, contracts.RuntimeClaudeCode, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			script := tc.script
+			script.Turns = []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "PONG"}}, Usage: &contractsUsage}}
+			o := Options{DaemonVersion: "t", Turn: true, Timeout: 30 * time.Second, Command: func(k contracts.RuntimeKind) (string, []string, []string, bool) {
+				c, a, e := acpfake.Command(script, "")
+				return c, a, e, true
+			}}
+			cap := contracts.Capability{Kind: tc.kind}
+			Pong(context.Background(), tc.kind, o, &cap)
+			if cap.Resume != tc.want {
+				t.Fatalf("resume=%v want %v", cap.Resume, tc.want)
+			}
+		})
+	}
+}
+
+// E12-06 / D-2 — a runtime that reports no usage advertises usage=false, so
+// the cost card degrades to "추정" (PRD §8.2.6) instead of the daemon
+// promising a number nobody measured. Hermes gets no raw system/init, so
+// tool_disallow is false for it — also a measurement, not an assumption.
+func TestPongMeasuresUsageAndToolDisallow(t *testing.T) {
+	cases := []struct {
+		name             string
+		kind             contracts.RuntimeKind
+		usage            *acp.PromptUsage
+		wantUsage, wantD bool
+	}{
+		{"claude with usage", contracts.RuntimeClaudeCode, &contractsUsage, true, true},
+		{"claude without usage", contracts.RuntimeClaudeCode, nil, false, true},
+		{"hermes has no raw init", contracts.RuntimeHermes, &contractsUsage, true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			script := acpfake.Script{KnownSessions: []string{"sess-1"}, Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "PONG"}}, Usage: tc.usage}}}
+			if tc.kind == contracts.RuntimeHermes {
+				script.Kind = "hermes"
+			}
+			o := Options{DaemonVersion: "t", Turn: true, Timeout: 30 * time.Second, Command: func(k contracts.RuntimeKind) (string, []string, []string, bool) {
+				c, a, e := acpfake.Command(script, "")
+				return c, a, e, true
+			}}
+			cap := contracts.Capability{Kind: tc.kind}
+			Pong(context.Background(), tc.kind, o, &cap)
+			if cap.Usage != tc.wantUsage || cap.ToolDisallow != tc.wantD {
+				t.Fatalf("usage=%v (want %v) tool_disallow=%v (want %v)", cap.Usage, tc.wantUsage, cap.ToolDisallow, tc.wantD)
+			}
+		})
+	}
+}
+
+// D-1 — the colab CLI is how every agent reaches the platform (the MCP server
+// the daemon registers and the shell path are the same binary). A missing or
+// broken one is advertised on the probe and logged; it is never a silent
+// tool failure in the middle of somebody's turn.
+func TestColabCLIPresenceIsReported(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "colab")
+	if err := os.WriteFile(good, []byte("#!/bin/sh\necho 'colab 0.4.2'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	broken := filepath.Join(dir, "colab-broken")
+	if err := os.WriteFile(broken, []byte("#!/bin/sh\nexit 3\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name        string
+		bin         string
+		wantPresent bool
+		wantVersion string
+	}{
+		{"installed", good, true, "0.4.2"},
+		{"not installed", filepath.Join(dir, "definitely-absent"), false, ""},
+		{"present but failing", broken, false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var logs []string
+			got := Colab(context.Background(), tc.bin, Options{Log: func(s string) { logs = append(logs, s) }})
+			if got.Present != tc.wantPresent || got.Version != tc.wantVersion {
+				t.Fatalf("colab %+v want present=%v version=%q", got, tc.wantPresent, tc.wantVersion)
+			}
+			if !tc.wantPresent && len(logs) == 0 {
+				t.Fatal("colab CLI failure was swallowed — nothing logged (D-1)")
+			}
+		})
+	}
+}
+
+// §9 v0.8 — tool_surface is advertised from what initialize said, per
+// runtime: claude_code advertises mcpCapabilities (mcp), Hermes does not
+// (cli_wrapper). G5 (b) was a probe reporting 11/11 green while the agent
+// had no channel at all, because this column did not exist.
+func TestPongAdvertisesToolSurface(t *testing.T) {
+	cases := []struct {
+		name    string
+		kind    contracts.RuntimeKind
+		script  acpfake.Script
+		surface string
+	}{
+		{"claude_code", contracts.RuntimeClaudeCode,
+			acpfake.Script{Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "PONG"}}}}}, acp.ToolSurfaceMCP},
+		{"hermes", contracts.RuntimeHermes,
+			acpfake.Script{Kind: "hermes", NoMCPCapabilities: true, Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "PONG"}}}}}, acp.ToolSurfaceCLIWrapper},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			script := c.script
+			o := Options{Turn: true, Timeout: 20 * time.Second, Command: func(contracts.RuntimeKind) (string, []string, []string, bool) {
+				cmd, a, e := acpfake.Command(script, "")
+				return cmd, a, e, true
+			}}
+			cap := contracts.Capability{Kind: c.kind}
+			Pong(context.Background(), c.kind, o, &cap)
+			if cap.ToolSurface != c.surface {
+				t.Fatalf("tool_surface %q want %q", cap.ToolSurface, c.surface)
+			}
+		})
+	}
+}
+
+// No turn, no measurement: an unmeasured surface is left blank rather than
+// guessed from the runtime name (the same rule as resume/usage, D-2).
+func TestDetectWithoutTurnLeavesToolSurfaceEmpty(t *testing.T) {
+	cap, ok := Detect(context.Background(), contracts.RuntimeClaudeCode, Options{})
+	if ok && cap.ToolSurface != "" {
+		t.Fatalf("tool_surface %q advertised without a turn", cap.ToolSurface)
+	}
+}
+
+// D-5 — §9 supported_options is a (kind, adapter_version) table, and an
+// unverified version advertises NOTHING. Empty means "no advertisement", not
+// "no options" (§9), and S10 leaves option editing disabled on empty — so a
+// guess here hands the user a control the adapter silently discards.
+func TestSupportedOptionsIsPinnedToTheAdapterVersion(t *testing.T) {
+	got := acp.SupportedOptions(contracts.RuntimeClaudeCode, acp.AdapterPin)
+	want := []string{"low", "medium", "high", "xhigh"}
+	if len(got["effort"]) != len(want) {
+		t.Fatalf("effort = %v, want %v (harness §9 example)", got["effort"], want)
+	}
+	for i, v := range want {
+		if got["effort"][i] != v {
+			t.Fatalf("effort = %v, want %v", got["effort"], want)
+		}
+	}
+	if o := acp.SupportedOptions(contracts.RuntimeClaudeCode, "0.99.0"); o != nil {
+		t.Errorf("an unverified adapter version advertised %v — empty is the honest answer (§9)", o)
+	}
+	if o := acp.SupportedOptions(contracts.RuntimeHermes, "0.20.6"); len(o) != 0 {
+		t.Errorf("hermes advertised %v — v1 has no profile-option channel at all (§3, §9)", o)
+	}
+	// Mutating the returned map must not edit the table.
+	got["effort"][0] = "tampered"
+	if again := acp.SupportedOptions(contracts.RuntimeClaudeCode, acp.AdapterPin); again["effort"][0] != "low" {
+		t.Error("SupportedOptions handed out the package table itself")
+	}
+
+	// And the probe actually CARRIES it — a table nothing reads leaves S10
+	// exactly as dead as no table at all (D-5).
+	script := acpfake.Script{Turns: []acpfake.Turn{{Steps: []acpfake.Step{{Chunk: "PONG"}}}}}
+	o := Options{Turn: true, Timeout: 20 * time.Second, Command: func(k contracts.RuntimeKind) (string, []string, []string, bool) {
+		c, a, e := acpfake.Command(script, "")
+		return c, a, e, true
+	}}
+	cap := contracts.Capability{Kind: contracts.RuntimeClaudeCode}
+	Pong(context.Background(), contracts.RuntimeClaudeCode, o, &cap)
+	if len(cap.SupportedOptions["effort"]) == 0 {
+		t.Fatalf("probe capability = %+v, want supported_options.effort filled for the pinned adapter (D-5)", cap)
+	}
+	// An adapter version the daemon has not verified advertises nothing.
+	cap2 := contracts.Capability{Kind: contracts.RuntimeClaudeCode}
+	o2 := o
+	unknown := acpfake.Script{AgentVersion: "0.73.0", Turns: script.Turns}
+	o2.Command = func(k contracts.RuntimeKind) (string, []string, []string, bool) {
+		c, a, e := acpfake.Command(unknown, "")
+		return c, a, e, true
+	}
+	Pong(context.Background(), contracts.RuntimeClaudeCode, o2, &cap2)
+	if len(cap2.SupportedOptions) != 0 {
+		t.Fatalf("an unverified adapter (%s) advertised %+v", cap2.AdapterVersion, cap2.SupportedOptions)
+	}
+}
+
+// §9 v0.8.5 usage_midturn — MEASURED, like every other field here. The probe
+// always enables the raw SDK stream for claude_code, so a runtime that puts
+// usage on it before the turn ends advertises true; hermes, which has no such
+// stream on any path (D-17 실측), advertises false and tells the server that
+// FR-7.3's in-turn enforcement degrades to the finish-time check there.
+func TestPongMeasuresUsageMidturn(t *testing.T) {
+	req := acpfake.SDKRequestStep{Input: 10, Output: 60, CacheRead: 13615, CacheWrite: 8184}
+	cases := []struct {
+		name  string
+		kind  contracts.RuntimeKind
+		steps []acpfake.Step
+		want  bool
+	}{
+		{"claude streams per-request usage", contracts.RuntimeClaudeCode,
+			[]acpfake.Step{{SDKRequest: &req}, {Chunk: "PONG"}}, true},
+		{"claude adapter sends none", contracts.RuntimeClaudeCode,
+			[]acpfake.Step{{Chunk: "PONG"}}, false},
+		{"hermes has no raw stream at all", contracts.RuntimeHermes,
+			[]acpfake.Step{{SDKRequest: &req}, {Chunk: "PONG"}}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			script := acpfake.Script{Turns: []acpfake.Turn{{Steps: tc.steps, Usage: &contractsUsage}}}
+			if tc.kind == contracts.RuntimeHermes {
+				script.Kind = "hermes"
+			}
+			o := Options{DaemonVersion: "t", Turn: true, Timeout: 30 * time.Second, Command: func(contracts.RuntimeKind) (string, []string, []string, bool) {
+				c, a, e := acpfake.Command(script, "")
+				return c, a, e, true
+			}}
+			cap := contracts.Capability{Kind: tc.kind}
+			Pong(context.Background(), tc.kind, o, &cap)
+			if cap.UsageMidturn != tc.want {
+				t.Fatalf("usage_midturn = %v, want %v", cap.UsageMidturn, tc.want)
+			}
+		})
+	}
+}

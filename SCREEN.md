@@ -195,6 +195,8 @@ Backend가 blocked → 서버가 질문 카드 게시 + 위임자(Lead) 즉시 �
 
 ### 4.3 S5 Sessions 목록
 
+**카드 옵션(…) — 삭제(P5, openapi `deleteSession`).** 카드 오른쪽 위 「…」 메뉴에 「삭제」. 끝난 세션(`draft`·`completed`·`cancelled`)에서만 활성 — 진행 중이면 비활성 + 사유("진행 중인 세션은 먼저 종료하세요"), Director·owner·admin 이 아니면 비활성 + 사유. 확인 다이얼로그(§5)는 무엇이 사라지는지 명시한다: 메시지·작업 줄기·아티팩트·비용 기록이 사라지고 되돌릴 수 없다, 이 컴퓨터의 작업 폴더도 정리된다. 미병합·미커밋 작업 폴더가 있으면 서버가 `409 workdir_unmerged` — 다이얼로그에 그 폴더를 나열하고 「작업 폴더 관리」 링크. 삭제되면 SSE `session.deleted` 로 카드가 사라진다.
+
 **표시 정보** — 행마다: 상태 배지, 제목, goal 한 줄, Director 아바타, 참여 에이전트 아바타 묶음, 진행률(종료 조건 충족 수/전체), 누적 비용 및 예산 대비 %, 마지막 활동 시각, **주의 배지**(HITL 대기 N · blocked N · 실패 N).
 
 **세션 상태 배지** (FR-2.3)
@@ -227,7 +229,7 @@ PRD의 순서를 그대로 따른다: **goal → Director → 격리 → 런타�
 | 3 격리 | `worktree`(저장소 선택) / `none` — **v1은 2종**, `container`는 v1.1 | worktree 선택 시 workdir 바인딩 규칙(에이전트당 1개)을 그림으로 설명. **이 선택이 4단계의 런타임 후보를 결정한다** |
 | 4 **런타임** | 온라인 런타임 중 선택, 또는 **"자동 선택(첫 실행 시 고정)"** | `worktree`면 remote URL이 일치하는 저장소를 가진 머신만 후보이고 자동 선택은 비활성. `none`이면 자동 선택 가능 — 첫 task dispatch 시 고정(FR-2.1 M10). 저장소 경로·remote URL·클린 여부를 데몬 probe로 검증해 표시(FR-9) |
 | 5 참여자 | 에이전트 다중 선택 + 각자 프로파일 + assignee 지정 | 선택한 런타임에 없는 `runtime_kind`의 프로파일은 경고. `respond_to`로 초대 불가한 에이전트는 목록에서 사유와 함께 비활성 |
-| 6 종료 조건 | `artifact_submitted` / `agent_approval` / `user_approval` / `manual` 조합(AND·OR) | 기본값 `artifact_submitted(assignee) AND user_approval`. **`agent_approval` 단독이면 "사람 승인 없이 완료됩니다" 경고**(m-m) |
+| 6 종료 조건 | `artifact_submitted` / `agent_approval` / `user_approval` / `manual` 조합(AND·OR) | 기본값 `artifact_submitted(assignee) AND user_approval`. **`agent_approval` 단독이면 "사람 승인 없이 완료됩니다" 경고**(m-m). **`agent_approval` 을 고르면 리뷰어를 참여자 중에서 반드시 고른다**(S-84, 2026-09-15 — 리뷰어 없는 조건은 아무도 승인할 수 없다; 서버 422). 조건 이름은 사람 말로: "보고서 제출" · "Director 승인" · "Lead 의 검토 승인" |
 | 7 한도·자율성 | 예산(USD), 시간, 최대 task, 최대 병렬 lane, **`autonomy`** | 초과는 완료가 아니라 `paused`임을 명시. 추정 비용만 주는 런타임이면 하드 컷을 하지 않음을 알림(FR-7.3) |
 
 **`autonomy` 선택** (C3, FR-2.1) — v1 동작을 실제로 바꾸는 값이므로 선택지에 **차이를 문장으로** 적는다.
@@ -243,6 +245,8 @@ PRD의 순서를 그대로 따른다: **goal → Director → 격리 → 런타�
 > **`criteria_met`은 v1 목록에 없다**(v1.1). 6단계 선택지는 네 개다.
 
 ### 4.5 S7 Session 상세 — 핵심 화면
+
+**종료 조건 진행률(v0.1.4, S-84)**: 조건마다 사람 말 한 줄("보고서 제출 ✓" · "Director 승인 — 받은 요청에서" · "Lead 의 검토 승인 — Lead 차례"). `blocked_reason` 이 있으면 ✗ 대신 **이유**("리뷰어가 지정되지 않았습니다 — 조건을 고치세요")와 Director 에게 「조건 고치기」(updateSession completion_condition, active 에서도 가능). 세션이 왜 안 닫히는지 이 칸만 보고 알 수 있어야 한다.
 
 3열 레이아웃. 좁은 화면에서는 좌·우 열이 접히고 탭으로 전환된다.
 
@@ -448,6 +452,7 @@ goal과 성공 기준, **종료 조건 진행률**(조건별 충족 여부와 �
 | Workdir | 기본 격리 방식, `workdir_retention_days`(14) · `workdir_disk_quota_gb` · `runtime_offline_grace`(7일) | owner·admin |
 | 보안 | **활동 로그 페이로드 마스킹**(diff·셸 출력을 요약만 저장) | owner |
 | 알림 | 이메일·푸시, 세션 구독 기본값(전부/HITL만/종료만) | 개인 |
+| **대시보드**(P5, PR #199) | PRD §11 성공 지표 10개 표 — `getWorkspaceMetrics` 를 그대로 그린다. 표본 없으면 "아직 잴 수 없음" | 멤버(읽기) |
 
 기본값은 모두 PRD의 값을 그대로 쓴다. 각 항목에 **바꿨을 때의 영향**을 한 줄로 적는다(예: 루프 상한을 낮추면 정상 위임이 막힐 수 있음).
 

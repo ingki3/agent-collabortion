@@ -1,0 +1,132 @@
+/*
+ * 전역 레이아웃·폼·버튼 유틸. 색은 tokens.css 변수만 쓴다(토큰 값 변경 금지).
+ * 화면별 스타일은 컴포넌트 CSS(app-nav.css 등)에 둔다.
+ */
+* { box-sizing: border-box; }
+a { color: inherit; }
+button, input, textarea, select { font: inherit; color: inherit; }
+
+/* 인증·온보딩 등 단일 카드 화면 */
+.auth { min-height: 100vh; display: grid; place-items: center; background: var(--surface); padding: 24px; }
+.auth__card { width: 100%; max-width: 400px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 28px; }
+.auth__brand { font-size: var(--fs-sub); font-weight: 600; color: var(--ink-2); letter-spacing: 0.04em; margin-bottom: 12px; }
+.auth__title { margin: 0 0 4px; font-size: var(--fs-title); font-weight: 600; }
+.auth__sub { margin: 0 0 20px; color: var(--ink-2); font-size: var(--fs-body); }
+.auth__foot { margin-top: 16px; font-size: var(--fs-sub); color: var(--ink-2); }
+
+/* 폼 */
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.field__label { font-size: var(--fs-body); font-weight: 500; color: var(--ink-2); }
+.field__hint { font-size: var(--fs-sub); color: var(--ink-2); }
+.input, .textarea, .select {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+  font-size: var(--fs-body); outline: none;
+}
+.input:focus, .textarea:focus, .select:focus { border-color: var(--ink); }
+.textarea { min-height: 96px; resize: vertical; line-height: 1.5; }
+
+/* 버튼 */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg);
+  font-size: var(--fs-body); font-weight: 500; cursor: pointer; white-space: nowrap;
+}
+.btn:hover { background: var(--surface); }
+.btn--primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn--primary:hover { background: var(--ink-2); }
+.btn--sm { padding: 4px 10px; font-size: var(--fs-sub); }
+.btn--ghost { border-color: transparent; }
+.btn--block { width: 100%; }
+/* 권한·조건 비활성: 숨기지 않고 흐리게 + title 툴팁(SCREEN §5) */
+.btn[disabled], .btn[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
+.btn[disabled]:hover { background: inherit; }
+.btn--primary[disabled]:hover { background: var(--ink); }
+
+/* 알림 문구 */
+.problem { margin: 0 0 12px; padding: 8px 10px; border-radius: 8px; font-size: var(--fs-body);
+  background: color-mix(in srgb, var(--s-fail) var(--soft-alpha), transparent); color: var(--s-fail-text);
+  border: 1px solid var(--s-fail); }
+.notice { margin: 0 0 12px; padding: 8px 10px; border-radius: 8px; font-size: var(--fs-body);
+  background: color-mix(in srgb, var(--s-wait) var(--soft-alpha), transparent); color: var(--s-wait-text);
+  border: 1px solid var(--s-wait); }
+.notice--info { background: var(--surface); color: var(--ink-2); border-color: var(--line); }
+
+/* 앱 셸 — 상단 바는 없다(§8.5). 내비 옆이 바로 본문이고, 제목은 각 화면의 PageHead 가 쓴다. */
+.shell { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+.shell__main { min-width: 0; display: flex; flex-direction: column; }
+/*
+ * 본문 폭(§8.5 "넓은 화면에서 콘텐츠가 좌상단에만 몰리지 않게"):
+ * - 카드 목록(.cards)은 가용 폭만큼 열을 늘린다 — 1280px 에서 2~3열, 1920px 에서 4열.
+ * - 읽는 본문(폼·설정)은 .content--narrow 로 줄 길이를 잡는다 — 넓게 펴면 한 줄이 너무 길어진다.
+ * 전체 상한(--content-max)은 4열 이상이 되지 않게 하는 선이다. 그 밖은 여백이다.
+ */
+.content { --content-max: 1680px; padding: 28px 32px 40px; flex: 1; min-width: 0; width: 100%; max-width: var(--content-max); }
+.content--narrow { max-width: 720px; }
+.muted { color: var(--ink-2); }
+/* §8.5 대비: ink-3 은 어두움에서 3.96:1 이라 텍스트에 못 쓴다 — 글리프·막대·테두리 전용.
+   .muted-3 은 전부 .small(=--fs-meta) 과 함께 쓰이므로 ink-2 로 올린다. */
+.muted-3 { color: var(--ink-2); }
+.small { font-size: var(--fs-meta); }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+
+/* 카드·목록 */
+.card { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; background: var(--bg); }
+.card--surface { background: var(--surface); }
+/*
+ * 카드 목록 — 가용 폭에 따라 열이 는다(§8.5). 최소 폭 --card-min(tokens.css, 320px)은 컴퓨터 카드의 능력 목록·
+ * 저장소 줄이 접히지 않는 선이다. auto-fill 이라 카드가 하나여도 그 폭을 지킨다(auto-fit 처럼 화면 전체로 늘어지지 않는다).
+ * 인박스(받은 요청)는 이 목록을 쓰지 않는다 — 한 열이다(§8.5, inbox/page.tsx .s8__list).
+ */
+.cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(var(--card-min), 1fr)); align-items: start; }
+.list { display: flex; flex-direction: column; gap: 8px; }
+/* 세션 카드 — 상태·시각이 위, 제목·목표가 아래. 목록(.cards) 안에서 열로 선다.
+   T-W13: 카드(article)는 자리만 잡고, 링크(.session-card__link)가 내용 전부를 담아 카드 전체를 덮는다 — 「…」 메뉴(.card-menu)는
+   링크의 형제로 오른쪽 위에 앉는다(a 안의 button 은 HTML 위반). 클릭 영역·키보드 이동은 예전 그대로다. */
+.session-card { position: relative; min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.session-card:hover { background: var(--surface); }
+.session-card__link { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 12px 14px; text-decoration: none; color: inherit; border-radius: 10px; }
+.session-card__link:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+/* 오른쪽 끝은 「…」 버튼 자리(28px + 여백) — 시각 메타가 버튼 밑에 깔리지 않게. */
+.session-card__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-right: 32px; }
+.session-card__title { font-weight: 600; font-size: var(--fs-card); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-card__sub { font-size: var(--fs-sub); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-card__meta { display: flex; align-items: center; gap: 10px; font-size: var(--fs-meta); color: var(--ink-2); white-space: nowrap; }
+
+/* 빈 상태(SCREEN §7) — 빈 화면을 그대로 두지 않는다 */
+.empty { border: 1px dashed var(--line); border-radius: 12px; padding: 32px 24px; text-align: center; color: var(--ink-2); }
+.empty__title { font-weight: 600; color: var(--ink); margin-bottom: 6px; }
+.empty__body { font-size: var(--fs-body); margin-bottom: 14px; }
+
+/* 코드·명령 */
+.cmd { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--ink); color: var(--bg);
+  border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-body); }
+.cmd code { flex: 1; overflow-x: auto; white-space: nowrap; }
+.cmd .btn { color: var(--bg); border-color: var(--ink-2); background: transparent; }
+.cmd .btn:hover { background: var(--ink-2); }
+
+/* 온보딩 단계 표시 */
+.steps { display: flex; gap: 6px; margin-bottom: 20px; font-size: var(--fs-sub); color: var(--ink-2); }
+.steps__item { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
+.steps__item--current { border-color: var(--ink); color: var(--ink); font-weight: 600; }
+.steps__item--done { color: var(--s-done-text); border-color: var(--s-done); }
+
+/* 연결 단계(S12) */
+.stages { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.stage { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); font-size: var(--fs-sub); color: var(--ink-2); }
+.stage--current { border-color: var(--s-run); color: var(--s-run-text); font-weight: 600; }
+.stage--done { border-color: var(--s-done); color: var(--s-done-text); }
+details.troubleshoot { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: var(--fs-sub); color: var(--ink-2); }
+details.troubleshoot summary { cursor: pointer; font-weight: 500; color: var(--ink); }
+details.troubleshoot ul { margin: 8px 0 0; padding-left: 18px; }
+
+/* 상단 실시간 연결 배너(SCREEN §6) */
+.conn-banner { padding: 6px 20px; font-size: var(--fs-body); background: color-mix(in srgb, var(--s-wait) var(--soft-alpha), transparent);
+  color: var(--s-wait-text); border-bottom: 1px solid var(--s-wait); }
+
+/* dev 스토리 */
+.story { margin-bottom: 32px; }
+.story h2 { font-size: var(--fs-card); margin: 0 0 8px; }
+.story__grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.story__cell { border: 1px dashed var(--line); border-radius: 8px; padding: 12px; }
+.story__label { font-size: var(--fs-meta); color: var(--ink-2); margin-bottom: 8px; font-family: ui-monospace, monospace; }

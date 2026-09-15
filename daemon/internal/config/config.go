@@ -1,0 +1,153 @@
+// Package config is ~/.colab/daemon.json.
+package config
+
+import (
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+)
+
+// Config is the persisted daemon state (pairing result + local settings).
+type Config struct {
+	ServerURL   string `json:"server_url"`
+	RuntimeID   string `json:"runtime_id,omitempty"`
+	DaemonToken string `json:"daemon_token,omitempty"`
+	WorkdirRoot string `json:"workdir_root,omitempty"`
+	Capacity    int    `json:"capacity,omitempty"`
+	// StderrDir keeps per-attempt runtime stderr logs. Empty → <workdir_root>/.colab/logs.
+	StderrDir string `json:"stderr_dir,omitempty"`
+	// ColabBin is the colab CLI registered as the attempt's MCP server
+	// (`colab mcp serve`, harness §2 / colab-cli.md §3). Empty → the `colab`
+	// next to the daemon executable if present, else `colab` on PATH.
+	ColabBin string `json:"colab_bin,omitempty"`
+	// UsageMidturn asks claude_code for the adapter's raw SDK stream, which
+	// is the only place a pinned runtime reports usage DURING a turn
+	// (harness §7 v0.8.5, D-17) — without it the heartbeat's `usage` is zero
+	// until the turn ends and the server's in-turn budget check (FR-7.3)
+	// never fires. It is not free: measured on one 12.2s turn the stream cost
+	// ~4× the messages and ~2× the bytes. Absent → ON. Set false to turn it
+	// off machine-wide.
+	//
+	// D-18 (P4) made this the TOP of a three-tier decision, not the only one
+	// (Lead 2026-09-07):
+	//
+	//  1. `false` here is a hard kill switch — honoured even for a session
+	//     that has a budget, and probe §9 then advertises `usage_midturn:
+	//     false` (the EFFECTIVE value) so the server falls back to
+	//     finish-time budget enforcement (E9-10) instead of waiting for
+	//     in-turn numbers this machine will never send.
+	//  2. otherwise the attempt decides: a bundle with a budget gets the
+	//     stream, one without does not (loop.usageMidturn).
+	//  3. absent → ON, which is now only reachable through tier 2.
+	UsageMidturn *bool `json:"usage_midturn,omitempty"`
+	// LogLevel is the `daemon run` progress log's verbosity (D-24):
+	// "info" (default) or "debug". Absent → "info". `debug` adds one line
+	// per task_event — hundreds per turn — so it is something an operator
+	// turns on for a diagnosis, never the default.
+	//
+	// $COLAB_DAEMON_LOG wins over this field (LogLevelEffective): the
+	// daemon whose log you need is usually one already running under a
+	// supervisor, and restarting it with an env var set is cheaper than
+	// editing and re-reading its config.
+	LogLevel string `json:"log_level,omitempty"`
+	// Repos are the git repositories this machine offers for `worktree`
+	// isolation (daemon-protocol §3 `repos[]`). The wizard filters runtime
+	// candidates by them (E13-17) and, more importantly, `remote_url` is what
+	// decides whether this machine can take over a session whose original
+	// runtime went offline (FR-9.2, E14-04·05) — a machine that never lists
+	// its repositories is never a rebinding candidate.
+	//
+	// Repositories already backing a worktree workdir are added
+	// automatically, so this list is for the ones a session has not used yet.
+	Repos []string `json:"repos,omitempty"`
+}
+
+// UsageMidturnEnabled is UsageMidturn with its default (ON) applied. A
+// pointer + this accessor rather than a plain bool: `false` and "not
+// configured" have to stay distinguishable, or every daemon.json written
+// before v0.8.5 would silently turn the feature off.
+func (c Config) UsageMidturnEnabled() bool { return c.UsageMidturn == nil || *c.UsageMidturn }
+
+// LogLevelEffective is LogLevel with $COLAB_DAEMON_LOG applied on top.
+func (c Config) LogLevelEffective() string {
+	if v := os.Getenv("COLAB_DAEMON_LOG"); v != "" {
+		return v
+	}
+	return c.LogLevel
+}
+
+// DefaultColabBin returns the colab binary beside the daemon executable when
+// it exists, otherwise "colab" (resolved on PATH by the adapter).
+func DefaultColabBin() string {
+	if exe, err := os.Executable(); err == nil {
+		p := filepath.Join(filepath.Dir(exe), "colab")
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p
+		}
+	}
+	return "colab"
+}
+
+// DefaultPath is $COLAB_DAEMON_CONFIG or ~/.colab/daemon.json.
+func DefaultPath() string {
+	if p := os.Getenv("COLAB_DAEMON_CONFIG"); p != "" {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
+	return filepath.Join(home, ".colab", "daemon.json")
+}
+
+// Load reads the file; a missing file yields an empty Config.
+func Load(path string) (Config, error) {
+	var c Config
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return c.withDefaults(), nil
+	}
+	if err != nil {
+		return c, err
+	}
+	if err := json.Unmarshal(b, &c); err != nil {
+		return c, err
+	}
+	return c.withDefaults(), nil
+}
+
+func (c Config) withDefaults() Config {
+	if c.WorkdirRoot == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			home = "."
+		}
+		c.WorkdirRoot = filepath.Join(home, ".colab", "work")
+	}
+	if c.Capacity <= 0 {
+		c.Capacity = 10 // PRD §9: 데몬당 기본 10
+	}
+	if c.StderrDir == "" {
+		c.StderrDir = filepath.Join(c.WorkdirRoot, ".colab", "logs")
+	}
+	if c.ColabBin == "" {
+		c.ColabBin = DefaultColabBin()
+	}
+	return c
+}
+
+// Save writes the file with 0600 (it holds the daemon token).
+func Save(path string, c Config) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(b, '\n'), 0o600)
+}
+
+// Paired reports whether pairing has happened.
+func (c Config) Paired() bool { return c.RuntimeID != "" && c.DaemonToken != "" && c.ServerURL != "" }

@@ -1,0 +1,11 @@
+/* 테마 선택(§8.3) — 라디오 세 칸. 색·크기는 tokens.css 변수만. */
+.theme-pick { display: flex; flex-direction: column; gap: 8px; }
+.theme-pick__opts { display: flex; gap: 6px; flex-wrap: wrap; }
+.theme-pick__opt {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px;
+  font-size: var(--fs-body); color: var(--ink-2); background: var(--bg);
+}
+.theme-pick__opt:hover { background: var(--surface); }
+.theme-pick__opt:has(input:checked) { border-color: var(--ink); color: var(--ink); font-weight: 600; }
+.theme-pick__note { margin: 0; font-size: var(--fs-sub); color: var(--ink-2); }

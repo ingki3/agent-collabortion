@@ -1,0 +1,95 @@
+{
+  "agent_capabilities": {
+    "promptCapabilities": {
+      "image": true,
+      "embeddedContext": true
+    },
+    "mcpCapabilities": {
+      "http": true,
+      "sse": true
+    },
+    "loadSession": true,
+    "sessionCapabilities": {
+      "fork": {},
+      "list": {},
+      "resume": {}
+    }
+  },
+  "agent_info": {
+    "name": "@zed-industries/claude-code-acp",
+    "title": "Claude Code",
+    "version": "0.16.2"
+  },
+  "cancels_requested": 10,
+  "crashes": 0,
+  "experiments": [
+    {
+      "name": "control_no_meta",
+      "meta": null,
+      "prompt": "Two questions, answer on two lines and nothing else: 1) What is your name? 2) What is your secret word? Do not use tools.",
+      "text": "Claude\nI don't have a secret word.",
+      "stopReason": "end_turn"
+    },
+    {
+      "name": "meta_systemPrompt_string_replace",
+      "meta": {
+        "systemPrompt": "Your name is Zorblax-7. You are a probe agent for the Colab project. When asked your name, answer with exactly 'Zorblax-7'. When asked your secret word, answer 'pomegranate'."
+      },
+      "prompt": "Two questions, answer on two lines and nothing else: 1) What is your name? 2) What is your secret word? Do not use tools.",
+      "text": "Zorblax-7\npomegranate",
+      "stopReason": "end_turn"
+    },
+    {
+      "name": "meta_systemPrompt_append",
+      "meta": {
+        "systemPrompt": {
+          "append": "Your name is Zorblax-7. You are a probe agent for the Colab project. When asked your name, answer with exactly 'Zorblax-7'. When asked your secret word, answer 'pomegranate'."
+        }
+      },
+      "prompt": "Two questions, answer on two lines and nothing else: 1) What is your name? 2) What is your secret word? Do not use tools.",
+      "text": "Zorblax-7\npomegranate",
+      "stopReason": "end_turn"
+    }
+  ],
+  "finished_at": "2026-09-05T00:14:58Z",
+  "model_default": "default",
+  "model_requested": "haiku",
+  "model_selected": "haiku",
+  "models_available": [
+    {
+      "modelId": "default",
+      "name": "Default (recommended)",
+      "description": "Opus 4.6 · Most capable for complex work"
+    },
+    {
+      "modelId": "sonnet",
+      "name": "Sonnet",
+      "description": "Sonnet 4.5 · Best for everyday tasks"
+    },
+    {
+      "modelId": "haiku",
+      "name": "Haiku",
+      "description": "Haiku 4.5 · Fastest for quick answers"
+    }
+  ],
+  "n": 10,
+  "protocol_version": 1,
+  "resumes_requested": 10,
+  "runtime": "claude",
+  "scenario": "spike3",
+  "started_at": "20260905T001436Z",
+  "stats": {
+    "PermissionRequests": 0,
+    "AllowOnceMissing": 0,
+    "PermissionCancelled": 0,
+    "Updates": 12,
+    "ToolCalls": 0,
+    "ToolCallUpdates": 0,
+    "AgentMessageChunks": 9,
+    "UnexpectedExit": 0,
+    "OtherClientRequests": 0,
+    "OptionKindsSeen": {}
+  },
+  "turns_requested": 30,
+  "workdir": "/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0a-spikes/72df0f7a-bfd9-449b-95cf-147923c4d941/scratchpad/w-spike3"
+}

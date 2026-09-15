@@ -1,0 +1,224 @@
+# P2 백로그 — P1 리뷰·통합에서 이월된 항목
+
+| 항목 | 내용 |
+|---|---|
+| 목적 | P1 PR 리뷰(Hermes)와 Integrator가 남긴 비차단 지적·후속을 한곳에 모은다. `plan/P2_TASKS.md`를 만들 때 스트림별 작업에 흡수한다 |
+| 출처 | PR #18·#20·#21·#22·#25·#26·#28 리뷰 코멘트, `plan/G3_REPORT.md`(작성 중) |
+
+## S (서버)
+
+| # | 항목 | 출처 | 비고 |
+|---|---|---|---|
+| ~~S-1~~ | 라우터 규칙 3(`@all`·사람만 멘션 → 트리거 없음) — 지금은 규칙 6으로 떨어져 assignee task 생성. 웹 미리보기 칩("트리거 없음")과 서버가 반대로 말함 | PR #22 N1 | P2b 라우터 전체에 포함(E1-05·06) |
+| S-2 | `session.runtime_id` ↔ `workspace_id` 일치를 DB에서 강제 — 복합 FK `session(workspace_id, runtime_id) → runtime(workspace_id, id)`(0005). `rebindSession`(FR-9.2)이 세 번째 고정 경로가 되므로 같은 가드 필수 | PR #28 NN2 | P2 착수 시 |
+| S-3 | 고정 UPDATE 가드 회귀 테스트(순수 SQL로 재현 어려움 — 주석으로 대체 가능) | PR #28 NN1 | 낮음 |
+| S-4 | `ServerSeqBase` 위 seq 유일성은 `max(seq)+1`로 고침(완료). 동시 커밋 창도 T-S2 에서 닫았다 — `tasks.InsertServerEvent` 가 `pg_advisory_xact_lock((task, attempt))` 아래에서 seq 를 계산한다. 유실도 500 도 없다 | PR #22 N4 | 낮음 |
+| S-5 | TaskEvent `object_ref`·`payload` 계약 정렬 완료(v0.4). `sentence` 렌더 폴백이 payload를 쓰는지 재확인 | PR #22 R2 | P2b 피드 5클래스 |
+
+## D (데몬)
+
+| # | 항목 | 출처 | 비고 |
+|---|---|---|---|
+| D-1 | probe가 `colab --version`을 확인 — CLI가 없으면 MCP·셸 경로 둘 다 없는데 조용히 실패 | PR #20 NN1 | P2 초반 |
+| D-2 | probe의 `resume`·`usage`·`tool_disallow`를 상수가 아니라 실측으로(E12-06 `usage=false` 경로) | PR #20 NN2 | P2 초반 |
+| D-3 | `acpprobe`(스파이크 cmd) 제거 — `harness/acp`로 승격 완료 | PR #20 결함 6 | 정리 |
+| D-4 | worktree·GC·`rebind_prepare`·예산 강제는 P3·P4 | PR #20 결함 7 | 단계대로 |
+| ~~D-5~~ | probe `capabilities[].supported_options` 채우기 — `(kind, adapter_version)` 표. claude_code 0.74.0: `effort` 허용 값. Hermes: 비움 | T-W2 계약 빈칸(harness v0.5) | **T-I2 전.** 비어 있으면 웹이 옵션 편집을 비활성으로 둔다 — 빈 채로 두면 S10이 사실상 죽는다 | **해결 — PR #121**
+| ~~D-6~~ | 데몬 `recordUsage`가 `cost_usd`를 한 번도 대입하지 않고 `0 + estimated:false`를 보낸다(ACP `Usage`에 비용 필드 없음). harness v0.7: 비용을 모르면 **`cost_usd` 생략 + `estimated:true`**. `Estimated`가 `pr.Usage == nil`일 때만 켜지는 것을 고쳐라 | G4 3판 W16 (PR #87 리뷰 §2) | P3 비용 화면(E9-07) 전 | **해결 — PR #93.**
+| ~~D-7~~ | **G5 (b) 차단** — Hermes ACP 어댑터가 `mcpServers`를 무시하고(initialize에 `mcpCapabilities` 없음) 셸 도구를 위생화된 env로 띄워 `COLAB_*`·`PATH`가 안 내려간다 → Hermes 에이전트가 플랫폼에 말할 수단이 없다(메시지 0, status 0). harness v0.8: attempt별 래퍼 `<workdir_root>/.colab/bin/<task>.<attempt>/colab` + 브리프 [2] 절대 경로 + `tool_surface` 광고 | G5 T-I2 2부 escalation | **G5 전** | **해결 — PR #97**(`internal/toolwrap`, 실기 스모크로 위생화 셸에서 래퍼 동작 확인).
+| ~~D-8~~ | `toolwrap.cliRe`가 명령 위치의 `colab <소문자 서브커맨드>`만 잡고 `colab --flag`(예 `` `colab --version` ``)는 치환하지 않는다. 지금 브리프·프롬프트의 명령은 전부 서브커맨드라 실해 없음; `([a-z]|-)`로 넓히거나 계약에 "서브커맨드 또는 플래그" 명시 | PR #97 리뷰 NN2 | 낮음 | **해결 — PR #121**
+| ~~D-9~~ | `daemon/internal/acpfake` 가 내부 패키지라 server 모듈의 시뮬레이터(`server/test/sim`, P3a #108)가 임포트 못 한다 — 테스트 로컬 `replayAttempt` 로 대체 중. 공개 패키지(`daemon/acpfake`)로 이동하면 시뮬레이터가 실제 ACP 대역으로 돈다 | P3a PR #108 질문 1 | T-D5 | **해결 — PR #121**
+| D-10 | `isSessionGone` 의 `not found` 부분일치가 넓다(`cwd not found` 류도 유실로) — 보수적 방향이라 무해; 어댑터 코드 안정화 뒤 `-32002` 만 | PR #111 리뷰 NN1 | 낮음 |
+| ~~D-11~~ | 유실 이벤트(`runtime.resume outcome=cold_start`)에 원 rpc 코드·메시지 한 칸 — S7 피드에서 "왜 콜드 스타트인지" | PR #111 리뷰 NN2 | T-D5 | **해결 — PR #121**
+| ~~D-12~~ | hermes `sessionProvenance: {}`·빈 `acpSessionId` 는 reason 이 `provenance_mismatch` 로 남는다(결과는 같은 cold_start) — `no_provenance` 로 | PR #115 리뷰 NN1 | T-D5 | **해결 — PR #121**
+| ~~D-13~~ | resume 직후 첫 prompt 가 `stopReason=refusal` 로 편집·게시 0 으로 끝나면 task 가 `completed` 가 된다(§2.2 가 refusal 을 성공으로 읽음) — Lead 결정: 콜드 스타트 1회 재시도, 재시도도 refusal 이면 `failed(other)` + 사유 이벤트 | 스파이크 4c §3 | T-D5 | **해결 — PR #121**
+| ~~D-14~~ | daemon-protocol v0.7 이후 `api.Command` 래퍼를 `contracts.Command` 로 접는 후속 정리(T-D5 가 남김) | PR #121 | 다음 데몬 작업 | **해결 — PR #129**
+| ~~D-15~~ | `closeProcess()` 를 `emitStep(5)` 없이 부르는 경로가 생기면 취소 순서 골든이 못 잡는다 — `closeProcess` 안에서 5단계 이벤트를 내게 묶기 | PR #121 리뷰 NN1 | 낮음 | **해결 — PR #129**
+| ~~D-16~~ | `budgetLimit` 우선순위가 `Task.BudgetOverrideUSD > Limits.BudgetUSD > Task.BudgetUSD` — Lead 결정: 유효 예산 = **min(override 또는 task 예산, 세션 잔여)**. harness §4.4 문언 보강(Lead) + 데몬 반영 | PR #121 리뷰 NN3 | 다음 데몬 작업 + 계약 | **해결 — PR #129**
+| ~~D-17~~ | 데몬 `Runner.recordUsage` 가 `session/prompt` 응답에서만 호출돼 턴 중 heartbeat 의 usage 가 전부 0 — daemon-protocol §4.2 위반, 서버 턴 중 예산 강제가 실기에서 0회. 런타임이 턴 중 usage 를 못 주면 최소한 finish 전 heartbeat 1회에 최종 usage(핫픽스 T-D7) | T-I3 실측 (c) | T-D7 | **해결 — PR #145**(harness v0.8.5: claude_code 원시 스트림 누적·dedup·result.total_cost_usd 실측, hermes finish 전 heartbeat 1회, usage_midturn 광고)
+| D-18 | `emitRawSDKMessages` 원시 스트림은 메시지 4배·바이트 2배 — 예산이 설정되지 않은 세션에서는 OFF 로 두는 스위치(지금은 데몬 config `usage_midturn` 전역 스위치, 기본 ON) | PR #145 (T-D7) | P4 비용 항목 → T-D9 |
+| D-19 | 서버의 예산 pause 취소(cancel reason=budget)를 받았을 때 runner.go 의 cancelled 분기가 budgetHit 보다 먼저라 finish outcome 이 `cancelled` 로 갈 여지(§4.4 는 `paused_budget`). 서버는 #151 로 reason=budget 취소를 승격하지 않게 됐지만 데몬 보고도 맞춰야 한다 | T-S9a 관찰(PR #151) | T-D9 |
+| D-20 | `daemon.json` `repos[]`(probe §3 재바인딩 후보의 근거)를 채우는 사용자 경로가 없다 — worktree 를 한 번이라도 돌린 머신만 자동 발견되고, 한 번도 안 돌린 머신은 재바인딩 후보가 되지 않는다(E13-17 manual). 계약 §3 에 등록 방법 한 줄(데몬 CLI `colab-daemon repos add <path>` 또는 S6/S11 등록 → 명령) + T-W5 S6/S11 화면 | T-D9 PR #156 계약 결함 4 | T-W5 뒤 · 계약 | **해결 PR #204**(`repos add|remove|list`) |
+| D-21 | **차단(G7 1판, S-55 의 데몬 절반)** — 번들 `workdir.path` 를 자기 CWD 기준으로 절대화하고, `git worktree add <상대경로>` 로 **사용자 저장소 안**에 체크아웃을 만든다. 계약 v0.7.3: 상대면 `<workdir_root>` 기준으로 해석하고, spawn 전 디렉터리 존재를 확인해 없으면 경로를 문구에 넣어 `failed(config)`(지금 문구 `spawn: fork/exec …/npx: no such file or directory` 는 원인을 가린다) | T-I4 61_ X1b·X1c | **G7 2판 전** |
+| D-22 | **차단(G7 1판, S-56 의 데몬 절반)** — §6 workdir 보고가 `agent_id` 없이·세션 uuid 가 아닌 값으로 와서 서버가 조용히 skip 한다. `git`·`bytes` 도 매 보고에 실어야 GC 판정 입력이 생긴다(계약 v0.7.3 §6) | T-I4 64_ P1·P1b | **G7 2판 전** |
+| ~~D-23~~ | 살아 있는 worktree 의 `disk_bytes` 가 서버에 늦게 도착한다 — 계약 §6 은 "probe 와 함께, 그리고 **lane 종료 시**" 보고라고 적었는데 데몬은 probe 직후(기본 24h)와 gc 명령 뒤 두 곳뿐이다. S13 용량 열·쿼터 분자(E13-16)가 첫 gc 스윕까지 과소. GC **판정** 입력은 §4.4 finish 로 오므로 차단 아님. attempt finish 뒤 `Workdirs` 보고 1회, 또는 `Finish.Workdir` 에 `bytes` | G7 2판 64_ P1d · PR #177 리뷰 NN2 | 낮음 | **해결 — PR #181**
+| ~~D-24~~ | 데몬 `run` 의 stdout 로그가 probe 이후 멈춘다 — DB 에는 `tool/*` 이벤트가 계속 쌓이는데 로그 파일은 287바이트에서 정지(claim·attempt·turn 기록 없음). 실행에는 지장이 없으나 **장애 시 로그만으로 원인을 못 찾는다** | Director 실사용 2026-09-08 | 중 | **해결 — PR #181**(원인: 성공 경로에 로그 호출이 없었다)
+| D-25 | 데몬이 만드는 `task_event.detail` 3종이 내부 용어로 피드에 뜬다 — `loop.go` "workdir bundle path … →", `budget.go` "유효 예산", `runner.go` "mcp server dropped". 서버 문장은 S-67 로 고쳤으니 데몬도 §8.4 로. 함께 PR #181 리뷰 NN2~NN5(stall turn 줄·stall 워처 발화 로그·반복 오류 축약·log_level 문서화) | T-S13 PR #192 보고 · PR #181 리뷰 | 중 | **해결 PR #204**(12문장 + daemon/internal/wording 자물쇠) |
+| D-26 | hermes 는 원시 스트림이 없어 긴 툴 입력 생성 중 stall 판정 위험이 남는다(harness v0.8.9 §7) — hermes 가 그 구간에 무엇을 보내는지 T-D12 관측 뒤 결정 | harness v0.8.9 | 중 | 중 · T-D12 관측: hermes 6KB Write 33초 완전 무음 — 데몬으로 못 고침, hermes 어댑터 쪽 |
+| D-27 | PR #204 리뷰 NN2~NN4 — `workdir.go` 오류 문장이 한국어라 데몬 stderr 로그에 섞인다(서버는 `cause` 로 원문 분리, 데몬은 없음) · `sideSession="세션 잔여 예산"` 이 `sideTask="할 일 상한"` 과 결이 다름(→ "세션 예산") · acpfake `RawDeltas` 가 고정 문자열 반복(실기보다 관대한 픽스처) | PR #204 리뷰 | 낮음 |
+
+## W (웹)
+
+| # | 항목 | 출처 | 비고 |
+|---|---|---|---|
+| ~~W-1~~ | **해결 — T-W2.** `RuntimeCard` 가 새 키 7종을 읽고, **없는 능력은 결과와 함께** 말한다(`usage:false` → 비용이 추정치, `resume:false` → 재진입이 늘 콜드 스타트). probe 최상위 `colab_cli.present:false` 는 경고다 | PR #27 | — |
+| ~~W-2~~ | **해결 — T-W2.** `TaskEventWire` 캐스팅 제거 + `object_ref` 를 문자열로만 읽는다(계약 v0.4) | PR #22 R2 | — |
+| ~~W-3~~ | **해결 — T-W2.** `new_lane` 토글 + **전송 후 자동 해제**. 해제되지 않으면 이후 모든 멘션이 lane 을 새로 만들어 해소 규칙 3 이 죽으므로 컴포넌트 테스트로 고정했다 | PR #21 N2 | — |
+| ~~W-4~~ | `install_commands`의 서버 호스트(:8080 직접 vs :3000 프록시) 실서버 기준 확정 | PR #21 N6 | Integrator 결과로 | **해결 — PR #130**
+| ~~W-5~~ | **해결 — T-W2.** PRD FR-1.3 4행대로 **`running` 만 `working`** 이다. `dispatched`·`preparing` 은 아직 턴이 시작되지 않았고, 그것을 working 으로 세면 데몬이 claim 만 하고 멈춰도 칩이 "작업 중"이라 침묵과 실행을 구분할 수 없다. 웹의 파생 함수와 목 저장소 둘 다 고쳤다 | PR #21 N7 | — |
+| ~~W-6~~ | **해결 — T-W2.** 작성창이 `previewTriggers` 를 부르고 로컬 규칙 계산(`classifyMentions`)을 지웠다 — 규칙 1~8 과 lane 해소는 서버 상태를 봐야 해서 로컬로 흉내 내면 서버와 반대로 말한다(S-1 이 그랬다) | PR #21 R2 | — |
+| W-7 | 인박스 예산 HITL 범위 파생 `budgetScopeOf` 가 `session.status==="paused"` 만 보고 `paused_reason` 을 안 본다 — 세션이 다른 사유(HITL·offline)로 paused 인 동안 task 범위 예산 HITL 이 열리면 "세션 범위" 오표시. `paused_reason==="budget"` 까지 보기 | PR #166 리뷰 NN2 | 낮음 · K-12 와 같은 급 |
+| W-8 | Runtimes 카드의 Hermes 브리프 설명이 **옛 계약**이다 — "브리프: 지시 파일(CLAUDE.md·AGENTS.md)". harness v0.8.6(스파이크 5, 우회 B)에서 미추적 `COLAB_BRIEF.md` + 턴 프롬프트 포인터로 바뀌었다. probe 가 광고하는 `brief_transport` 를 그대로 렌더하도록 | Director 실사용 2026-09-08 | 낮음 |
+| W-9 | `app/dev/*`(배지·컴포넌트 전시 페이지)가 **프로덕션 빌드에 포함**된다 — `/dev/badges`·`/dev/components` 가 빌드 출력에 있다. 배포 전 제외하거나 개발 전용 가드 | PR #188 리뷰 NN2 | 배포 전 |
+| W-10 | S7 우측 「세션 설정 → 컴퓨터」가 런타임 **id 앞 8자**(`21fccb22`)를 보인다 — 이름이어야 한다(§8.4 "컴퓨터"는 사람이 붙인 이름). `session.runtime_id` 로 `listRuntimes` 결과에서 이름을 찾고, 없으면(삭제됨) "연결 끊긴 컴퓨터" | 최종 실기 2026-09-13 | 낮음 · T-W6 |
+| W-11 | PR #199 리뷰 NN1·NN2·NN5 — `VERDICT_LABEL.unknown` 이 자물쇠에 안 걸림(`"미측정"` 으로 바꿔도 초록) · `visibleStrings()` 루프가 치환한 `body` 의 줄이 아니라 **원본 `line`** 을 다시 읽어 `${…}` 안 문구 복원이 실제로는 안 됨(PR #188 NN1 수정이 무효) · `transportLabel` "첫 답이 오면 표시" 미못박음. 한 줄씩. + **NN3**: `MOCK_ONLY.masking_owner_only` 분기·주석은 S-70 수정 뒤 되돌리고 `MOCK_ONLY` 표를 T-S12 서버 문장으로 옮겨 SERVER 대조에 넣기 | PR #199 리뷰 | 낮음 · T-S12 뒤 목 동기화 라운드 | **해결 PR #207**(+ Lead #208) |
+| W-3′ | mock previewTriggers가 `done/blocked` lane **재진입**을 `resolution 4 + lane_id + reentry:true`로 준다(`handlers.ts:571-573`). PRD lane 규칙·EVAL E2-04·05는 재진입을 **규칙 3**으로 두고 4는 "그 외 → 새 lane". §0-9(b) 부류 — mock 응답·p2-mock 기대값·재진입 테스트 함께 | PR #76 Lead 확인 | 다음 웹 작업 |
+| ~~W-5~~ | mock의 lane 해소 규칙(`handlers.ts` resolveLane류)을 지키는 것이 `web/e2e/p2-mock.sh`뿐이고 그 스모크는 CI 밖(mock 서버 필요)이다. `done` lane 있는 세션에서 preview → `resolution 3 · reentry true`를 vitest 1건으로 — W-2·W-3′ 부류가 다시 슬며시 바뀌어도 CI가 모른다 | PR #83 리뷰 NN1 | 다음 웹 작업 | **해결 — PR #130**
+| ~~W-6~~ | 인박스 항목이 purpose=budget HITL(task 범위, 세션은 active)에 `budgetOverride` 입력칸을 붙이지 않는다(`session_paused` 조건) → Director 가 웹에서 상향 금액을 정할 수 없음(E9-02·U7-1) | T-I3 실측 43_ | T-W4 | **해결 — PR #139**
+
+### S 추가 (G3 수정 리뷰에서)
+
+| # | 항목 | 출처 | 비고 |
+|---|---|---|---|
+| ~~S-6~~ | ~~SSE 응답에 `Cache-Control: no-cache, no-transform`~~ **해결 — T-S2**(`handlers_sessions.go` 스트림 헤더) | PR #34 NN1 | — |
+| ~~S-7~~ | ~~`createWorkspace` 슬러그 유일 제약 재시도가 같은 트랜잭션 안 → 같은 이름 두 번째 워크스페이스가 `25P02` 500~~ **해결 — PR #43**(savepoint + 이름 해시 stem). 전수 조사도 그 PR에서 끝났다(재시도하던 곳은 `auth.go`·`runtimes.go` 둘뿐). 실기 확인: `plan/G3_DECISION.md` §3-1 | PR #34 NN2 → G3_DECISION S-6 | — |
+| S-8 | 취소 흡수(`cancelRequested`)가 명령의 **존재**만 보고 `consumed_at`을 안 본다. 24h TTL 소비 후에도 흡수가 남을 수 있다 | PR #33 NN3 | 낮음 |
+| ~~S-9~~ | **진단 정정 + 해결 — T-S2.** 유니크 제약은 0002(214-215)가 이미 `(task_id, attempt, seq)` 로 바꿨다 — 아래 진단의 전제가 낡았다. 남은 위험은 서버 발행 이벤트의 **동시 `max(seq)+1` 계산**이고, 자리는 셋이 아니라 **넷**이다(`NotePreviewDrift`·director 취소 노트·`router.Post` 상태 이벤트·`httpapi/commands.go` 명령 24h 만료 노트). `ON CONFLICT DO NOTHING` 은 충돌을 오류에서 **조용한 유실**로 바꾼 것이라 해결이 아니었다 — 네 자리를 `tasks.InsertServerEvent` 하나로 모으고 `pg_advisory_xact_lock((task, attempt))` 아래에서 seq 를 계산한다. 피드는 사람이 개입 여부를 판단하는 화면이라 노트 유실이 500 보다 나쁘다(FR-7.2). ~~서버 발행 task_event의 seq 계산이 attempt 스코프(`max(seq)+1 WHERE task_id AND attempt`)인데 유니크 제약은 `(task_id, seq)`(0001) → attempt 2의 첫 서버 이벤트가 attempt 1과 충돌. 피해는 피드 노트 1건 유실(heartbeat·취소는 안전) ~~ | PR #43 NN1 | — |
+| ~~S-10~~ | ~~`auth.AcceptInvite` 동시 수락 TOCTOU → 500~~ **해결 — T-S2**(`ON CONFLICT (workspace_id, user_id) DO NOTHING`. 두 번 수락은 오류가 아니다) | PR #43 전수 조사 | — |
+| ~~S-11~~ | **해결 — T-S2**(`validateLimit`, 범위 밖은 422. `07_adversarial.sh` D8 기대도 갱신). ~~요청 파라미터의 스키마 제약이 강제되지 않는다. `limit`은 계약상 `minimum:1 maximum:200`인데 서버는 `-1`·`0`·`999999`를 200으로 받고 **조용히 기본값 50으로 강제**한다(타입 오류만 422). 네 저장소(messages·agents·sessions·events)가 모두 clamp하므로 **자원 고갈 위험은 없다** — 계약↔구현 불일치이고, 500을 요청한 클라이언트가 50을 받고도 모른다 ~~ | Lead 적대적 검증 D8 | — |
+| S-13 | `createProfile`·`updateProfile`이 `options`를 런타임 `supported_options` 밖이면 **422**(openapi L1053 규칙 — 광고할 키가 없어 지금까지 구현 불가였다). 빈 광고 = 허용 없음 | T-W2 계약 빈칸(harness v0.5) | T-S3 뒤 또는 T-I2 전 |
+| ~~S-12~~ | **해결 — T-S2.** 두 operation 을 켜면서 owner·admin 게이트를 함께 넣었고, 루프 상한 0(상한을 조용히 끄는 값)도 422 로 막는다. `07_adversarial.sh` D2 기대를 403/404 로 좁혔다. ~~P2에서 authz를 반드시 넣을 것. 지금은 501이라 남의 워크스페이스 설정도 바뀌지 않지만, 501은 인가가 아니라 미구현이다. `e2e/p1/07_adversarial.sh` D2의 기대를 그때 `403/404`로 좁힌다 ~~ | Lead 적대적 검증 D2 | — |
+| S-14 | **다운로드가 응답 끝까지 DB 트랜잭션(=풀 커넥션)을 잡는다.** large object 는 트랜잭션 안에서만 읽히므로 `artifacts.Open` → `io.Copy` 구조 자체는 대안이 없고 설계는 맞다. 문제는 그 옆이다 — `http.Server` 에 `WriteTimeout` 이 없고(`cmd/server/main.go` 는 `ReadHeaderTimeout` 만 준다) 풀도 기본 크기라, 느린 클라이언트 N 개가 커넥션 N 개를 무기한 점유한다. **P3 웹 다운로드를 켜기 전에** `WriteTimeout` 또는 다운로드 전용 컨텍스트 데드라인을 반드시 넣는다 | PR #65 NN1 | P3 전 필수 |
+| S-15 | **`artifact_review` 의 `ON CONFLICT (artifact_id) DO UPDATE` 가 재리뷰로 이전 판정을 덮어쓴다.** 거절 사유는 `decision_id` 로 결정 기록에 남아 E6-04("아티팩트는 사라지지 않는다")는 지켜지지만, 행 자체에는 이력이 없다 — 같은 아티팩트를 reject 했다가 approve 하면 reject 가 행에서 사라진다. P3 리뷰 UI 가 이력(누가 언제 무엇을 뒤집었나)을 그리려면 PK 를 `(artifact_id, reviewed_at)` 류로 바꾸거나 별도 이력 테이블이 필요하다 | PR #65 NN3 | P3 리뷰 UI 설계 시 |
+| ~~S-16~~ | `listParticipants`(x-phase **P2**)가 아직 501. 웹은 세션 상세의 `participants`를 써서 G4 2판을 막지 않지만, T-S2가 "P2 op 전부"를 받고 남긴 마지막 하나 | T-S4(PR #75) 남김 | 다음 서버 작업 | **해결 — PR #95.**
+| ~~S-17~~ | `tasks.Service.LanePublish` 훅이 `nil`이면 **조용히** 발행을 건너뛴다(`tasks/service.go:585`). 프로덕션 배선은 `httpapi/server.go:89` 한 곳이고 `TestClaimPublishesLaneRunning`이 누락을 잡지만, 다른 바이너리 조립(워커·CLI 임베드)에서는 조용히 빠질 수 있다 → `nil`이면 `slog.Warn("tasks: LanePublish unwired")` 한 줄 | PR #78 리뷰 NN1 | 낮음 | **해결 — PR #124**
+| ~~S-18~~ | PR #78 본문의 "lane.updated 발행 20곳"은 status 전이(15: UPDATE 12 + INSERT 3)에 카드 변경 자리(phase 보고 등 5)를 더한 정의다. 다음 대조가 15와 20을 다시 맞추지 않도록 정의를 코드 주석(`tasks.publish`)에 명시 | PR #78 리뷰 NN2 | 문서 | **해결 — PR #124**
+| ~~S-19~~ | 비용 롤업(`tasks.Finish` 커밋 뒤 별도 tx, `SUM(task_usage)`)이 실패하면 데몬 재시도가 `finished != nil` 멱등 경로로 빠져 `costed`가 안 켜지고 그 attempt의 롤업이 다시 돌지 않는다 — 세션의 마지막 finish면 `session.cost_usd`가 영구 뒤처짐. DB 장애 외 도달 불가라 비차단. 후보: 멱등 경로에서도 롤업(SUM이라 무해) 또는 `getSessionCost`가 SUM을 직접 읽기. (S-17의 nil 훅 로그는 `ParticipantPublish`에도 적용) | PR #85 리뷰 NN1·NN2 | 낮음 | **해결 — PR #124**
+| ~~S-20~~ | 비용 롤업(#85)이 `estimated` 행을 **워크스페이스 가격표 × 토큰**으로 채우고 세션 비용에 추정 배지를 단다(harness v0.7: 가격표는 워크스페이스 소유, 추정은 서버). 가격표 스키마·기본값은 PRD §8.2.6 | G4 3판 W16 | P3 비용 화면 전, D-6과 함께 | **해결 — PR #95**(`internal/cost`, `pricing_overrides` 우선, 0011 `task_usage.model`).
+| ~~S-21~~ | `cost.Defaults`에 Claude 계열 단가만 있다. Hermes가 비용을 안 주는 경로면 모델 미상 → 배지만 켜지고 $0. G5 Hermes 실기 전에 그 모델들 단가 또는 "Hermes는 자체 보고" 확인 | PR #95 리뷰 NN1 | G5 | **해결 — PR #124**
+| ~~S-22~~ | `cost.Load`가 settings 행 없음·override JSON 불량을 모두 빈 표로 삼킨다 — finish를 500으로 안 만드는 의도는 맞으나 관리자가 알 길이 없다. 로그 한 줄 | PR #95 리뷰 NN2 | 낮음 | **해결 — PR #124**
+| ~~S-23~~ | `rollUpCost`의 `repriceEstimates`가 매 finish마다 세션 전체 `task_usage`를 훑는다. 지금은 무해; P4 GC 전에 `WHERE estimated AND (cost_usd = 0 OR updated_at < settings.updated_at)` 류로 좁힐 것 | PR #95 리뷰 NN3 | P4 전 | **해결 — PR #124**
+| ~~S-24~~ | `createAgent` 가 `AgentProfileCreate.fallback_profile(_id)` 를 INSERT 에서 조용히 버린다; `createAgentProfile`·`updateAgentProfile` 은 x-phase P2 인데 501 → E8-08 폴백 연결을 DB 로 우회 | G5 보고서 §3.3 (PR #100) | G5 hotfix(서버, 진행 중) | **해결 — PR #103**
+| ~~S-25~~ | 종료 조건 `user_approval` 을 채울 HTTP 입구가 없다 — `director_approve` 이벤트는 있으나 호출자 없음. **Lead 결정: 계약 PR #101 로 `respondHitlRequest` 의 플랫폼 발행 approval 승인·거절을 P2 로** | G5 §2.2 | G5 hotfix | **해결 — PR #103**
+| ~~S-26~~ | `updateWorkspaceSettings` 의 `mergeJSON` 이 merge 가 아니라 replace — 한 키만 보내면 같은 객체의 다른 키가 null | G5 §5 | G5 hotfix | **해결 — PR #103**
+| ~~S-27~~ | `blocked_q` 카드에 위임자 멘션이 없어 K3 배지가 `질문 → @위임자` 대신 `질문` | G5 §4.4, 계약 #101 | G5 hotfix | **해결 — PR #103**
+| ~~S-28~~ | 위임자 즉시 기상 시스템 메시지가 카드 id·본문을 인용하지 않고(E3-05 (3)), 답글에 자식 멘션이 필요하다는 안내가 없다(규칙 4) | G5 §4.1·§4.3, 계약 #101 | G5 hotfix | **해결 — PR #103**
+| ~~S-29~~ | 세션 완료 시 서버가 `gc` 명령을 내지 않아 격리 `none` workdir 가 남는다(E6-03) | G5 §2.3 | G5 hotfix | **해결 — PR #103**
+| ~~S-30~~ | 템플릿 매핑 실패 시 프로파일 없는 에이전트가 남고 P2 에 프로파일을 붙일 op 가 없다(S-24 와 함께 닫힘) | G5 §6.4 | G5 hotfix | **해결 — PR #103**
+| ~~S-31~~ | `afterLaneDone` 이 `reentry > 0` 이면 `notifyReentry` 로 빠져 `maybeFireJoin` 을 안 부른다 — 재진입 lane 이 그룹의 마지막으로 끝나면 합류(FR-6.5)가 영영 발화하지 않는다 | G5 §4.3.1 (세션 f80b092b) | G5 hotfix — 조용한 손실, 우선 1순위 | **해결 — PR #103**
+| ~~S-32~~ | `updateWorkspaceSettings` 의 '명시 null = unset' 주석과 실제가 다르다 — 생성 타입이 `*int omitempty` 라 null 이 생략과 같아 키를 지울 수 없다(오동작 아님). `nullable.Nullable` 로 바꾸거나 주석 정정 | PR #103 리뷰 NN1 | 낮음 | **해결 — PR #124**
+| ~~S-33~~ | 승인(S-25) 후 `session_completed` 인박스 행 단언이 테스트에 없다 — `listInbox` 가 P3 라 HTTP 관측 불가지만 `inbox` 테이블 count 로 고정 가능 | PR #103 리뷰 NN2 | 낮음 | **해결 — PR #124**
+| ~~S-34~~ | `gcWorkdirs` 가 `runtime_id IS NULL` 이면 조용히 반환 — `none` 격리는 도달 불가지만 로그 한 줄 | PR #103 리뷰 NN3 | P4 GC | **해결 — PR #124**
+| ~~S-35~~ | `daemon_command.delivered_at` 을 프로덕션 코드가 어디서도 채우지 않는다(대입 0곳) — 명령은 claim·events·heartbeat 응답으로 전달되고 데몬이 받지만(재측정에서 gc 가 `command gc ignored (P4)` 로 찍힘) 서버 기록은 영원히 NULL 이라 '최소 한 번' 전달(E11-05)·재전달 판단을 증명할 수 없다. 보고서 §10.3 의 '유휴 데몬 전달 불가'는 틀린 진단(#105 리뷰 NN1) | G5 재측정 §10.3 | P3 첫 서버 작업 | **해결 — PR #124**
+| ~~S-36~~ | 재개 프롬프트의 "이미 게시한 메시지" 가 UUID 뿐이라 에이전트가 대조할 수 없다(히스토리 줄에 id 없음) — 재게시 0 은 workdir 덕. `id — 앞 80자` 로 렌더 + 히스토리 줄에 id | 스파이크 4c §5-1 (PR #117) | T-S5 | **해결 — PR #124**
+| ~~S-37~~ | 브리프에 §8.4 의 [3] coordination·[6] Context·[7] Decision Log 가 없다(`bundle.go` 주석 "P2" 인데 P2 에서 안 만들어짐) — decision 테이블·기록 op 는 있는데 읽는 쪽이 없다. HITL 답변·승인 여부는 `<resumed>` 에 | 스파이크 4c §5-2 | T-S5 (시나리오 C 전) | **해결 — PR #124**
+| ~~S-38~~ | `historyLimit = 30` 인데 EVAL E8-12 는 50 — 상수를 50 으로, 설정화는 P4 | 스파이크 4c §5-4 | T-S5 | **해결 — PR #124**
+| S-39 | `lane.runtime_session_ref` 가 finish 에서만 저장돼 크래시한 attempt 는 resume 자원이 없다(다음 attempt 는 항상 콜드 스타트). 실측상 콜드 스타트 성적이 같아 고치지 않음 — 세션 생성 직후 ref 를 heartbeat 에 싣는 것은 §4.2 계약 변경 | 스파이크 4c §5-5·§0.2 | P4, 알고 있기 |
+| S-40 | 사소: 턴 프롬프트 영어 · `failure_kind` 원문 노출 · `none` 격리에서 `git status` 문구 | 스파이크 4c §5-6 | 낮음 |
+| S-41 | 서버가 `contracts/task_event.schema.json` 을 어긴 task_event(닫힌 enum·additionalProperties:false 위반)를 **200 으로 받는다** — T-D5 첫 구현이 5곳 어겼는데 아무도 몰랐다(데몬은 memSink 검사로 자기 방어). 서버 ingest 에 스키마 검증(422 + 피드) | PR #121 자기 정정 | T-S5 후속 또는 P4 |
+| S-42 | 취소 골든(`tasks/cancel_golden_test.go`)의 5단계(`signal_process_group`) 순서 단언이 단계 **부재**를 참으로 둔다(index -1 → `signal < drain` 공허, `ImmediateKill=false`) — 1~4단계는 부재를 FAIL 로 잡는데 5단계만 구멍. 데몬 사본은 §0-8 로 못 고쳐 별도 테스트(#129)로 막았다. 골든 저자(Reviewer)가 원본 수정 | PR #129 (T-D6 발견) | 리뷰어 후속 |
+| ~~S-43~~ | `listInbox` 항목의 `SessionRef.status` 가 빈 문자열 — openapi required 인데 서버가 id·title 만 채운다 | T-W3 PR #130 관찰 | #124 재작업에 포함 지시 | **해결 — PR #124**
+| ~~S-44~~ | `enforceBudgetFor` 가 heartbeat 한 곳에서만 호출되고 `budget.go` 주석의 'Finish rollup 에서도' 가 거짓 → 사후 강제 없음. Lead 결정 A: completed task 는 유지, 세션 잔여 초과 → 세션 paused(budget)+HITL(task_id 비움), task 상한 초과 → lane paused(budget)+HITL(task_id 채움), 승인 시 lane 재개 + override 승계 | T-I3 실측 (c) | **해소(T-S6)**. `httpapi.finishAndEnforce` 가 §4.4 finish 커밋·롤업 뒤 enforce, terminal task 는 lane 을 park, claim 쿼리가 paused lane 을 거른다. 회귀 `TestP3BudgetEnforcedAtFinish`·`…SessionScope`·`…EstimatedNeverCuts`·`…RejectionKeepsTheGate`(E9-10), 실서버 `e2e/p3/41_budget_finish_smoke.sh` 13/13(고치기 전 origin/dev 는 FAIL 5 로 재현) |
+| ~~S-45~~ | 시스템 발행 HITL 3곳(`httpapi/budget.go` 예산 · `sessions/complete.go` user_approval · `router/service.go` 루프)이 에이전트 경로와 달리 kind='hitl' 타임라인 메시지를 게시하지 않고 `hitl_request.message_id` NULL → S7 카드 0(SCREEN §4.5) | T-I3 실측 43_ | T-S7 | **해결 — PR #142**
+| ~~S-46~~ | `ResumeSession` 이 pause 가 park 한 task 를 재큐잉하지 않아 영영 paused(#136 은 큐가 남은 lane 의 게이트만 품) | T-S6 발견 | T-S7 | **해결 — PR #142**
+| ~~S-47~~ | finish 뒤 enforce 가 실패하면(별도 tx) task 상한 초과 lane 이 안 잠긴 채 다음 task 가 dispatch 되어 첫 heartbeat 에서야 잡힘 — 한 턴 지연, 로그 Warn 뿐 | PR #136 리뷰 NN1 | T-S8 | **해결 — PR #147**
+| ~~S-48~~ | 예산 강제 경로가 **추정 금액을 0 으로 떨어뜨린다** — ACP 런타임은 cost_usd 를 안 줘 task_usage 가 100% estimated(가격표로 매긴 값이 있는데도) → D-17 을 고쳐도 강제가 발동하지 않음. FR-7.3·E9-05: 추정치는 하드 컷 없이 **누적·비교해 세션 paused+드레인+알림** | T-I3 실측 (c), K-8 의 서버 절반 | T-S8 | **해결 — PR #147**
+| S-49 | 예산 상향 `too_low` 검사가 두 핸들러(K-10 세션 승인 `greatest(session.cost_usd, sum(task_usage))` vs `resumeSession` "새 상한은 현재 소진액 이상")에서 기준·문구가 다르다 — 통일 | PR #147 리뷰 NN2 | 낮음 |
+| ~~S-50~~ | **예산으로 `paused` 된 task 의 `finish` 가 500**(`task_paused_detail_check`, 23514). `tasks.Finish` 가 `completed` 아닌 outcome 을 그 attempt 의 cancel 명령을 근거로 `cancelled` 로 승격하는데 그 취소는 **예산 pause 자신**이었고, `cancelLocked` 가 `paused_reason` 만 지우고 `paused_detail` 을 남겨 0006 CHECK 를 깬다 → attempt 기록·`lane.runtime_session_ref` 유실 → 승인 뒤 재개가 콜드 스타트(E9-02 '재개 우선' 미충족) | G6 2판 §9.5 (3/3) | T-S9a | **해결 — PR #151**
+| ~~S-51~~ | 턴 종료와 경합한 취소가 흡수되지 않는다 — `completed` finish 는 `cancelRequested` 를 보지 않아 task `completed`·lane `done` 인데 피드에는 '사람이 중단함' 이 남아 화면과 어긋난다 | G6 2판 §9.6 (`51_` 첫 회차) | T-S9a | **해결 — PR #151** (완료는 완료로 두고, 피드에 '취소 요청이 턴 종료와 경합해 적용되지 않음' 을 남기고 명령을 소비한다)
+| S-52 | 서버가 **자기가 쓰는** `task_event` 12곳에서 닫힌 스키마를 어긴다 — `status` payload 에 `note`(집합 밖), verb `note`(enum 밖). S-41(422)은 데몬 위반만 막고 서버 자신은 예외. 고치면 피드 문구가 바뀌어 e2e 기대값을 건드린다 → 핫픽스 라운드에서 12곳 + e2e 기대값 함께 | T-S9 PR #162 보고 | P4 핫픽스(T-I4 전) |
+| S-53 | 재바인딩 뒤 첫 턴 프롬프트의 diff 재적용 지시(`RebindPrompt`)가 **번들에 실리지 않는다** — `Rebind` 가 저장하지 않고 `buildBundle` 이 읽지 않아 openapi `rebindSession`·E14-06 미충족. #162 골든이 `plan.Prompt` 만 재서 못 봄. 결정: `session.rebind_prompt`(0018) + 매 attempt `<rebind>` 구간 + **completed finish 에서 비움**(claim 에서 비우면 재큐잉에 유실) | T-S9b 발견 | T-S9b |
+| S-54 | 서버 자체 `task_event` 16곳의 리터럴 payload 를 한 표로 순회해 `ValidateServerEvent` 에 통과시키는 유닛이 없다 — 런타임 가드는 "그 프로세스에서 실제로 실행된 호출"만 본다 | PR #168 리뷰 NN1 | **해결 PR #200**(go/ast 20곳 순회) |
+| S-55 | **차단(G7 1판)** — TaskBundle 의 `workdir.path` 가 **상대 경로**(`<session-slug>/<agent-slug>`)라 `worktree` 격리 세션이 첫 턴부터 전부 `failed(config)`. 계약 v0.7.3 §4.1: **서버가 probe `workdir_root` 로 절대 경로를 조립해 싣는다**. 데몬 몫은 D-21 | T-I4 61_ X1·X1b·X1c | **G7 2판 전** |
+| S-56 | **차단(G7 1판)** — `worktree` workdir 의 git 사실이 서버에 도달하지 않아 GC 가 미병합 커밋·미커밋 변경을 지운다(FR-6.4 M4 무력화). 서버가 §4.4 `Finish.Workdir.Git` 을 읽지 않고, §6 보고는 짝이 안 맞아 skip 된다. 부수: `disk_bytes` 0, gc 영수증 미도달로 행이 안 닫힘. 데몬 몫은 D-22 | T-I4 64_ P1·P1b·P1c·P1d·G2d | **G7 2판 전** |
+| S-57 | **차단(G7 1판)** — `rebind_prepare` 다운로드가 401(서버가 `downloadArtifact` 에서 DaemonToken 을 받지 않음) → 재바인딩 뒤 diff 가 디스크에 없어 E14-06 불성립, 명령도 소비되지 않아 30초마다 재발행. 계약은 K-13 으로 고쳤다 | T-I4 63_ R5f | **G7 2판 전** |
+| S-58 | **차단(G7 1판)** — 재바인딩이 세션의 `isolation.repo_path` 를 새 런타임 것으로 옮기지 않는다(후보 조회가 이미 `matched_repo` 를 주는데 쓰지 않음) → 새 머신 데몬이 없는 저장소에서 워크트리를 만들려다 `failed(config)` | T-I4 63_ R5h·R7g | **G7 2판 전** |
+| S-59 | `review reject` 답글이 그 자체로 lane 재진입을 일으키지 않는다 — 에이전트가 쓴 멘션 없는 메시지라 라우팅 규칙 4에 걸린다. 계약(openapi `reviewArtifact`)은 재진입을 약속하므로 **서버가 명시적으로 재진입**시켜야 한다(K-13 문언 정정 반영) | T-I4 61_ B5g | 중 · G7 2판 전 |
+| S-60 | 사라진 머신으로 **이미 dispatch 된** task 는 재바인딩이 되살리지 않는다(`queued`·`deferred` 만 requeue) → heartbeat 만료로 `failed(timeout)` 까지 아무 일도 안 함 | T-I4 63_ R5g | 낮음 |
+| ~~S-61~~ | 재바인딩 뒤 옛 런타임의 workdir 행이 남아 `BundleWorkdirPaths` 가 사라진 머신 경로를 계속 고른다(T-I4 가 우회 U2 로 가리고 있었다) | PR #170 리뷰 NN3 | **해결 — PR #173**(`gc_blocked_reason IS DISTINCT FROM 'runtime_gone'` + 살아 있는 보고가 행을 되살림) |
+| ~~S-62~~ | 마이그레이션 0019 **이전에 저장된 상대 경로 `workdir` 행**이 `ExistingForAgent` 로 그대로 번들에 실린다(절대성 검사 없음) — S-55 의 뒷문. `buildBundle` 에 `filepath.IsAbs` 방어 + 유닛, 또는 배포 시 `path_or_ref NOT LIKE '/%'` 행 정리. 함께: `noteWorkdirReportDropped` 가 세션 최신 task 에 note 를 붙임(NN2), 참가자 검사 실패가 "agent_id 없음" 으로 뭉개짐(NN3) | PR #173 리뷰 NN1~NN3 | 배포 전 | **해결 — PR #182**
+| ~~S-63~~ | **페어링 안내가 가리키는 설치 스크립트를 서버가 서비스하지 않는다** — S12 `install_commands` 첫 줄이 `curl -fsSL <서버>/install.sh | sh` 인데 그 경로 핸들러가 없어 **404**. 계약(openapi `Pairing.install_commands`)은 "복사 버튼 2줄"만 정하고 스크립트 제공 주체를 안 적었다. 통합 시험은 `bin/daemon pair` 를 직접 불러 왔기에 드러나지 않았고, **사람이 처음 쓰는 경로에서만** 나타난다(Director 실사용 2026-09-08). 서버가 스크립트를 서빙 + 계약에 주체 명시 | Director 실사용 | **높음 · 배포 전** | **해결 — PR #182**(계약 #180·#183, 두 바이너리 설치·probe 로 검증)
+| S-64 | 설치 스크립트가 릴리스가 아니라 `main` 을 클론한다(`COLAB_INSTALL_REF` 기본값 비어 있음) — 배포 시 태그·릴리스 아티팩트를 가리켜야 한다 | PR #182 리뷰 NN3 | **배포 전** | **해결 PR #213**(internal/buildinfo ldflags 커밋 → COLAB_INSTALL_REF 기본값; 배포 빌드는 `make build` 필수) |
+| S-65 | 설치 스크립트의 go 버전 검사(존재만 보고 버전을 안 봄) · §4.3 `gc` 명령에는 상대 경로 `path_or_ref` 가 그대로 실린다(S-62 는 번들 통로만 막았다) · `/install.sh` 의 `Cache-Control` | PR #182 리뷰 NN1·NN2·NN5 | 중 | **해결 PR #213** |
+| S-66 | **집필 단계가 3분 무응답 판정에 잘린다** — 실사용 두 세션·여섯 시도가 전부 `stall`(no session/update for 3m). 조사·위임은 통과하고 긴 글을 쓰는 턴에서만 죽어 아티팩트가 0 개다. 도구 실행·모델 응답 중에는 무응답으로 세지 않거나 기준을 바꿔야 한다(계약 `limits.stall_seconds` 180) | Director 실사용 2026-09-08 (세션 2건) | Director 실사용 2026-09-08 (세션 2건) | **원인 확정(T-D12 실측)**: claude_code 가 툴 입력 생성 중 `session/update` 0건 → 데몬 stall 워처가 원시 스트림을 안 셌다. 계약 harness v0.8.9 §7, **고침 PR #204**(onRawSDK→noteActivity, 원시 스트림 항상 ON, 회귀 유닛 2) |
+| S-67 | **서버가 만드는 문장도 내부 용어다** — `Problem.detail` 12곳과 `Session started. Goal:` 등. 웹은 §8.4 로 고쳤는데 서버 문장은 그대로라 **화면과 실서버가 갈라진다**(목이 서버를 흉내 낸 자리에서 드러났다). COMPONENTS §8.4 원칙을 서버 사용자 대면 문장에도 적용 | T-W8 PR #188 보고 | 중 · G8 전 |
+| S-68 | `deleteWorkdir` 409 `workdir_dirty` 의 `Problem.detail` 이 계약(openapi #155 "gc_blocked_reason 과 같은 값")과 다르게 **문장**(`GCReasonText`)이다 — 목·골든·p4-mock 은 키를 기대하고 웹 S13 은 그 키로 사유를 분기한다. 서버가 키를 돌려주고 문장은 별도 칸(예: `title`)으로 | T-W10 PR #196 보고 | 중 |
+| S-69 | `GetWorkspaceSettings` 가 admin 을 요구한다 — openapi 는 "권한: 워크스페이스 멤버"(읽기), 갱신만 owner/admin. 멤버가 설정 탭을 열면 403 | T-W6 PR #199 보고 | **해결 PR #200** |
+| S-70 | `UpdateWorkspaceSettings` 가 `task_event_masking` 의 owner 전용(openapi "보안 탭 — owner만 변경")을 강제하지 않는다 — admin 이 바꿀 수 있다 | T-W6 PR #199 보고 | **해결 PR #200** |
+| S-71 | PR #200 리뷰 NN1~NN3 — `testchat.bundleResume` 의 runtime_kind 교차 가드(E8-08)에 테스트 없음(`if false` 로 바꿔도 초록) · `duplicate_after_resume_rate` 가 멱등키가 아니라 `message.content` 로 세어 위양성(같은 말 두 번) 가능 → `note` 에 "같은 내용으로 관측" 명시 또는 `source_task_id+seq` 근거로 좁히기 · `internal/testchat` 유닛 0개 | PR #200 리뷰 | 낮음 · 서버 소규모 라운드 | **해결 PR #209**(NN1 유닛·NN2 note 명시·NN3 유닛 5) — source_task_id+seq 근거는 스키마 후속 |
+| K-15 | 시험 대화 턴이 `runtime_policy.max_concurrent_tasks` 를 세션 task 와 **함께** 센다(계약 §4.5 "똑같이 한 슬롯") — 시험 대화가 켜져 있으면 세션 동시 실행 상한이 실질적으로 줄어든다. 의도된 설계, Director 가 체감하면 재검토 | PR #200 리뷰 NN5 | 알고 있기 |
+| S-72 | 웹 S14 설정이 부르는 4 op(updateMemberRole·removeMember·get/updateNotificationSettings)이 서버 501 — 실서버 멤버·알림 탭이 "아직 지원하지 않는 기능입니다" | T-W11 PR #207 보고 | **해결 PR #209** |
+| S-73 | `changeDirector` 가 activity_log INSERT 의 없는 열(actor_user_id·target_type·target_id) 때문에 **매번 500** — removeMember 409 가 시키는 "Director 먼저 교체" 길이 막혀 있었다. 어떤 테스트도 못 잡은 이유: changeDirector 왕복 테스트가 없었다 | T-S14 PR #209 발견 | **해결 PR #209**(열 이름) · 왕복 테스트 있음 |
+| S-75 | PR #209 리뷰 NN1·NN2·NN3·NN5 — openapi updateMemberRole 문언을 "owner 역할을 주거나 거두는 것은 owner 만"으로 넓히기(코드가 더 엄격, 계약 PR) · owner 동시 강등 경합 테스트 없음(FOR UPDATE 는 있음) · `member.notification_settings`(0002) 죽은 열 삭제 마이그레이션 · 자기 자신 강등 허용(화면은 T-W12) | PR #209 리뷰 | 낮음 |
+| S-76 | **위임↔합류 사이클이 FR-3.5 루프 상한을 타지 않는다** — `delegateLane`·합류 wake(router/status.go)가 `CheckLoopLimits`(postMessage 경로) 밖. 위임자가 합류 통보에 재위임하면 무한(70초에 529 task, 세션 active, `max_pair_roundtrips=5` 넘어도 `paused(loop)` 없음) | T-I5 PR #206 77_ S1x | **높음 · 배포 전** · T-S15 | **해결 PR #213**(router.gateHop — Delegate·wake 가 CheckLoopLimits) |
+| S-77 | 마스킹이 `task_event.payload.title` 을 지우지 않는다 — 실기 어댑터의 title = 셸 명령 전체라 인자 마스킹이 무효 | T-I5 PR #206 77_ S3d2 | 중 · T-S15 | **해결 PR #213**(events.Mask title 첫 단어만) |
+| I-1 | PR #206 리뷰 NN1~NN5 — e2e/p5 `lib.sh`(70_/71_)·`lib_i5.sh`(72_~78_) 기본 스택 통일 · 단계별 `wait_for --timeout`(실패가 행이 아니라 단언이 되게) · 76_ "첫 출력" 표 셀에 "(페이크 — 모델 0)" 꼬리 · **G9 판정 때 `chk_na` 목록을 함께 읽는다** · out/ 덤프에 토큰 재점검 | PR #206 리뷰 | 낮음 |
+| K-16 | `colab status set done` 뒤에도 도는 턴은 Director 가 중단할 수 없다(`409 lane_not_cancellable`, task 는 running) — 지시문 관례("done 은 마지막 호출")로 덮여 있음. S7 중단 버튼이 running 턴에 비활성이 되는 자리 | T-I5 PR #206 관찰 1 | 알고 있기 |
+| K-17 | `parallel_wallclock_reduction` 정의가 사람 대기(HITL)를 "전체"에 넣어 HITL 있는 세션은 병렬 효과와 무관하게 낮거나 음수 — note 에 명시(T-S15), 정의 변경은 계약 | T-I5 PR #206 관찰 2 | 낮음 | **해결 PR #213**(note 명시) + 웹 #214 |
+| W-12 | S7 의 요약 메시지(`kind=summary`)가 마크다운 원문(`##`·`-`)으로 보인다 | T-I5 PR #206 관찰 3 (`web/__screenshots__/p5-78-s7.png`) | 낮음 | **해결 PR #229**(lib/markdown.tsx 의존성 0·XSS 0) + #230(lane brief) |
+| S-78 | **`router.chainDepth` 가 "마지막 사람 메시지 뒤 홉 수"** 라 형제 위임·합류 통보를 전부 깊이로 센다 — PRD FR-3.5 는 "멘션이 연쇄된 **깊이**"(Lead→실무자→리뷰어→Lead = 4). Hermes 실측(PR #213 리뷰 §3): F1 형 세션이 **chainDepth 9** → `paused(loop)`. G8 실측 오염 위험 | PR #213 미해결 1 · 리뷰 NN1 | **높음 · G8 전** · T-S16 | **해결 PR #216**(session_hop.cause_hop_id, F1 형 최대 깊이 2) |
+| S-79 | PR #213 리뷰 NN2·NN3·NN5 — `gateHop` 이 판정과 부수효과(pauseForLoop)를 한 함수에 · `ErrLoopLimit` 문장의 `LimitText()` 조각이 wording sink 를 지나는지 · install.sh 3단 클론 폴백이 전체 클론까지(타임아웃 위험) | PR #213 리뷰 | 낮음 |
+| W-13 | PR #212 리뷰 NN2·NN3·NN5 — 화면 테스트 픽스처의 `about:blank`(헬퍼로) · `selfDemotionText` 가 소유자 강등에도 관리자 문장 · server-wording.test.ts 205개(28%) 한 파일 — describe 별 분리 | PR #212 리뷰 | 낮음 |
+| S-80 | `resumeSession` 이 `session_hop` 을 전부 지워 **`max_hops_per_hour` 까지 리셋**된다 — PRD FR-3.5 "시간당 상한은 리셋되지 않는다"(재개 반복으로 세 층이 동시에 비는 우회). PR #216 이전부터의 동작. 함께: `cause_hop_id` 에 FK 를 두지 않는 이유 주석, `loadHops` 200행 창 밖 원인은 깊이 1 로 떨어짐(느슨한 방향) | PR #216 리뷰 (7)·NN1~NN4 | **중 · G9 전** | **해결 PR #240**(재개 = 사람 hop, 시간당 유지) |
+| S-81 | 서버가 §6 workdir 보고의 `gc.id` 를 안 읽고 상위 `id` 만 읽었다(실데몬은 `gc.id` 에 넣는다) — gc 영수증이 정산되지 않을 수 있던 자리 | T-S17 PR #220 발견·고침 | **해결 PR #220** |
+| S-82 | PR #220 리뷰 NN2~NN4 — `gcReceiptTargets` 우선순위 단언 없음 · 삭제 경합 반대 방향 미검증 · `sessionGone` 이 보고마다 count(*) | PR #220 리뷰 | 낮음 |
+| S-84 | 리뷰어 없는 `agent_approval` 조건을 서버가 받아 주어 세션이 영영 안 닫혔다(Director 세션 "STO 시장 조사") — 진행률은 ✗ 만 보임 | Director 실사용 2026-09-15 | **해결** 계약 #232 · 서버 PR #233(422 reviewer_required/reviewer_not_participant · blocked_reason · active 에서 조건 수정) · 웹 T-W15 |
+| S-85 | PR #233 리뷰 NN1·NN2 — `sessionAgents` 의 assignee 폴백(participant 행 없는 assignee)에 테스트 없음(`loadCompletionFacts` 와 한쪽만 덮임) · `ValidateTree` 실패를 전부 `criteria_met_alone` 코드로 냄(사유가 늘면 거짓) | PR #233 리뷰 | 낮음 |
+| W-19 | 세션 마법사가 `agent_approval` 을 리뷰어 없이 보낼 수 있었고 조건 이름이 내부 용어였다 | Director 실사용 2026-09-15 | **해결 PR #234**(리뷰어 선택 필수·사람 말·진행률 요약/막힌 이유/「조건 고치기」) + #238 |
+| W-20 | PR #234 리뷰 NN1~NN4 — 요약 문장이 2개 이상일 때 "이름, 이름 N개" 어순 · (h) 테스트가 브랜치가 dev 보다 뒤면 `landed=false` 갈래만 도는 함정(이제 SERVER 대조로 해소) · 멤버 시점 스크린샷 없음 · `topOp()` 단일 원자 and 가정 | PR #234 리뷰 | 낮음 |
+| W-14 | PR #219 리뷰 NN2~NN5 — 새 스크린샷 2종 밝음만 · 메뉴 바깥 클릭이 mousedown 만(터치·focusout 없음) · S7 에서 삭제 뒤 목록 안내 미확인 · `deleteGate` 가 canDelete 를 호출자에게서 받음 | PR #219 리뷰 | 낮음 |
+| S-83 | 서버 `lanes.Load` 가 `Lane.actions` 에 **`cancel` 만** 넣어(P2 "restart stays out" 주석 잔존) 실서버 S7 카드의 「다시 지시」·「응답하러 가기」·「계속 진행 승인」이 **항상 비활성**이었다. 웹 목이 옳은 규칙을 갖고 있어 화면 테스트가 못 잡았다 — **목이 서버보다 옳으면 화면 테스트는 초록이다**(server-wording 자물쇠는 문장만 대조, 동작 규칙은 대조 안 함) | Director 실사용 2026-09-14 | **해결 PR #224**(laneActions + 유닛 9) · 교훈: 목 규칙 ↔ 서버 규칙 대조 자물쇠 후보(I-2) |
+| I-2 | 목이 서버보다 옳은 규칙을 갖는 자리(Lane.actions·인박스 actions 등)를 **서버 실값과 대조하는 실서버 스모크**를 CI e2e 에(72_~78_ 는 acpfake 로 도니 lane actions 를 상태별로 단언할 수 있다) | S-83 교훈 | 중 · G9 전 |
+| W-15 | 「중단하고 다시 지시」 재지시 모드의 작성창 초안이 멘션을 원문 링크(`[@Writer](mention://agent/…)`)로 보인다 — 칩이나 `@Writer` 로 | 실기 2026-09-15 스크린샷 | 낮음 | **해결 PR #226**(작성창은 `@이름`, 링크는 전송 본문에만 — `toWire`/`toDisplay`) |
+| W-16 | 「작성 중…」 미리보기가 턴 종료 뒤에도 남고(지우는 조건이 message.created 뿐), `message.delta.text`(누적 스냅숏)를 이어 붙였다 | Director 실사용 2026-09-15 | **해결 PR #228**(스냅숏 교체·lane running 이탈 시 제거) |
+| W-17 | PR #229 리뷰 NN2~NN4 — 리터럴 색 단독 주입이 대비 자물쇠에 걸리는지 미확인 · `####` 이상은 `###` 로 접힘 · 표는 구분줄 필수(GFM) | PR #229 리뷰 | 낮음 |
+| W-18 | S7 자동 스크롤이 sticky 작성창 뒤에 마지막 카드·델타를 숨긴다(T-W14 관찰 3, 스크린샷은 window.scrollTo 로 우회) · 사람 메시지도 마크다운 렌더(작성자 구분 원하면 결정) | T-W14 PR #229 보고 | 낮음 |
+| K-18 | PRD v0.17 §11 「관찰」 표 5행(트리거 사슬 규모·깊이·합류 폭·라우팅 집중·빈 턴 비율) — `getWorkspaceMetrics` 와 **별도 op**(G9 "10개 그대로" 분리) + S14 대시보드 아래 별도 표 + FR-7.2 빈 턴 정보 카드(서버 finish 시 판정, 키 추가 없음) | OASIS 리뷰 C1~C3, Director 확정 | G9 뒤 · 계약 |
+| K-19 | 역할별 행동 부분집합(`available_actions` — 예: reviewer 는 위임 불가, researcher 는 review approve 불가)을 프롬프트가 아니라 **표면**(colab CLI/MCP 도구 목록)으로 | OASIS 리뷰 C5, Director 확정 | **v1.1** |
+| I-3 | e2e 스크립트 머리·README 표에 "예상 비용 한 줄"(에이전트 턴 수·실기 예상 비용·소요; 페이크는 $0) | OASIS 리뷰 C7 | 낮음 · 다음 e2e 수정 때 |
+
+## C (CLI)
+
+| # | 항목 | 출처 | 비고 |
+|---|---|---|---|
+| ~~C-1~~ | `/cli/context` 호출 시점("시작 시 1회" vs 필요 시) 문서와 구현 정렬 | PR #18 N3 | **해소(T-C4)**. 계약이 v0.4 §1 에서 "필요할 때 호출하고 프로세스 안에서 캐시(프로세스당 최대 1회)"로 정리됐고 구현이 그대로다 — 회귀 `TestCliContextFetchedAtMostOncePerProcess`·`TestArtifactGetDoesNotFetchCliContext`, HITL 경로는 `TestHitlIsOneRequest`(E7-04 를 낡은 컨텍스트 캐시로 대신 판정하지 않는다) |
+| ~~C-2~~ | `colab-cli.md` §2.1 `--tail` ↔ `--limit` 표기 통일 | PR #18 N5 | **해소(T-C4)**. 계약 v0.4 §2.1 이 `--limit` 로 통일됐고 CLI 에 `--tail` 은 없다(도움말 포함). `TestUsageTextAdvertisesOnlyRealFlags` 가 도움말과 실제 플래그의 어긋남을 계속 잡는다 |
+| ~~C-3~~ | CLI 버전이 `var version = "dev"`이고 빌드 어디에도 `-ldflags -X main.version`이 없다. probe의 `versionRe`가 출력에서 먼저 걸리는 **contracts 버전**(0.1.0)을 `colab_cli.version`으로 싣는다 — `present` 판정은 정상이나 S11 카드가 "colab CLI 0.1.0"을 보인다. 배포 빌드(Makefile)에 ldflags 를 넣고 CLI 버전이 왼쪽에 오게 | PR #71 리뷰 NN1 + hotfix 워커 | **해소(T-C4)**. Makefile `COLAB_VERSION ?= 0.3.0` → `go build -ldflags "-X main.version=$(COLAB_VERSION)"`, **그리고 기본값도 `0.3.0-dev`** — `go build` 만 한 바이너리도 probe 에 x.y.z 를 준다(`"dev"` 가 x.y.z 가 아니었던 것이 근본 원인이다). CLI 버전은 여전히 출력 왼쪽. 회귀 `TestVersionFirstMatchIsTheCLIVersion` 이 probe 와 같은 정규식으로 첫 매치를 검사한다 |
+| ~~C-4~~ | CLI `hitl` 3종·MCP 툴이 openapi 에 없는 `POST /v1/tasks/{T}/hitl` 을 불러 실서버 404(colab-cli §2.4 의 잘못된 경로를 그대로 구현; 목 서버가 같은 오답을 공유해 스모크 통과) | T-I3 실측 | **해결 — PR #134**(경로 = createHitlRequest, 목을 openapi 에서 베낌, 실서버 스모크 41_) |
+
+## 계약·문서
+
+| # | 항목 | 출처 |
+|---|---|---|
+| K-1 | EVAL 제안 행: E8-13 "finish가 non-nil runtime_session_ref를 저장하고 다음 claim resume에 실린다", E11-11 "claim은 세션 워크스페이스의 런타임에만 준다" | Integrator |
+| K-2 | PRD §7 스키마 ↔ 계약 키 표기 통일(`runtime_session_ref` 키 이름 `runtime_kind`) | PR #26 |
+| K-3 | `harness.md` §2.2 `preparing` heartbeat 비대상, §4.3 명령 소비 표 — 데몬 쪽 문서(`daemon/README`)에 반영 | PR #22 |
+| ~~K-4~~ | **P3로 미룸** — 자동 발행된 `user_approval`의 **취소 조건**. FR-2.2는 "나머지 조건이 모두 충족되면 자동 발행"만 정하고, 발행 뒤 조건이 다시 미충족이 되면(예: 아티팩트 철회) 이미 발행된 HITL이 어떻게 되는지 정의가 없다 — Director 인박스에 유효하지 않은 승인 요청이 남는다. P3 HITL 전이를 설계할 때 정한다. EVAL 행(E6-12 후보)은 그때 추가 | P2a Hermes | **해결 — PR #124(계약 #116)**
+| K-5 | **G5 전 결정** — 규칙 8 억제가 **lane 상태**에 묶여 있어, 자식 lane 이 `done` 된 뒤 같은 lane 이 한 줄 더 쓰면(재진입) 위임자가 다시 깨어난다. E1-17 문언("억제 기간은 합류 발화 전까지")대로이지만 FR-6.5 "합류는 정확히 한 번"과 맞물리면 위임자가 합류 뒤 자식 한 줄마다 깨어난다. 억제 해제 시점을 "합류 발화"가 아니라 "위임자가 그 lane 에 다시 지시"로 둘지 결정 필요 | G4_REPORT §5 관찰 1 (PR #73 리뷰 NN3) | G5 전 |
+| K-6 | 인박스 `mention` 항목의 `actions` 가 COMPONENTS §2.4 표와 다르다 — 서버 쪽이 맞아 보이므로 문서(COMPONENTS) 수정 후보. Lead 판정 | T-W3 PR #130 관찰 | 문서 |
+| ~~K-7~~ | colab-cli §2.4 HITL 경로(`/tasks/{T}/hitl`) ↔ openapi(`/sessions/{S}/hitl-requests`) 충돌 — openapi 가 API SSOT | T-I3 | **해결 — 계약 PR #133(v0.5.1)** |
+| ~~K-8~~ | ACP 경로는 `cost_usd` 를 안 줘 `task_usage` 가 100% `estimated` → 서버가 가격표로 매긴 값도 '추정' 이라 E9-01 의 '실측 → 취소 명령' 분기는 실기 도달 불가(E9-05 추정 컷 금지). Lead 판정: 계약 유지(추정은 paused+드레인), E9-01 실측 분기는 대역/acpfake 로만. 가격표 추정을 '실측 급' 으로 승격할지는 P4 비용 항목에서 | T-I3 실측 | P4 결정 | **해소 — #145 가 result.total_cost_usd 실측 비용을 실어 E9-01 실측 분기가 실기 도달(G6 2판 33/37 행)**
+| ~~K-9~~ | openapi `InboxItem.card` 에 HITL `purpose` 가 없어 웹이 approval 항목마다 GET /hitl-requests/{id} 를 한 번 더 읽는다(#139 NN1). 계약 커밋은 브랜치 `contracts/inbox-card-purpose-2`(생성 타입 변경이 `handlers_inbox.go` 리터럴을 깨 서버 적응과 함께 머지해야 함) | T-W4 PR #139 | T-S8 (계약 커밋 얹기) | **해결 — PR #147**
+| ~~K-10~~ | 세션 범위 예산·시간 HITL(`task_id` 비움)을 `respondHitlRequest` 로 승인해도 세션이 재개되지 않는다(openapi 가 `resumeSession` 을 답으로 적음) — Lead 결정: **승인 = 재개까지 한 동작**(paused → active, park 된 task 재큐잉, 세션 잔여 = 승인 금액). 계약 문언은 브랜치 `contracts/inbox-card-purpose-2` | T-S7 PR #142 | T-S8 | **해결 — PR #147**
+| K-11 | harness §7 dedup 문언(입력=message_start, 출력=message_delta)은 어댑터 0.74.0 관찰 — 워커는 message_delta 만으로 충분하다고 제안, 리뷰어는 문언 유지 권고. 어댑터 버전이 바뀌면 재확인 | PR #145 | 낮음 |
+| K-12 | `InboxItem.card` 에 예산 HITL 의 범위(task/세션)를 알 칸이 없다(`task_id`·`scope` 없음) — 웹은 `purpose=budget` + `session.status=paused` 로 파생(T-W5). 세션이 다른 이유로 paused 인 채 task 범위 예산 HITL 이 뜨는 순간에만 어긋난다 | T-W5 질문 2 | 낮음 |
+| K-13 | `openapi` `downloadArtifact` 의 security 에 **DaemonToken 이 없었다** — §4.3 `rebind_prepare` 는 데몬에게 다운로드를 지시하므로 계약 내부 모순이었다(T-I4 실측 401). 함께: `reviewArtifact` 의 "해소 규칙 1로 재진입" 문언이 라우팅 규칙 4와 충돌 → "서버가 명시적으로 재진입" 으로 정정 | T-I4 63_ R5f · 61_ B5g | **해결 — 계약 PR(v0.7.3 · openapi)** |
+| K-14 | daemon-protocol §4.1 TaskBundle 에 `workdir.id?` 를 싣고 §6 보고가 그 `id` 를 회신하면 데몬의 `<root>/.colab/workdirs/` index 파일이 불필요해진다(지금은 경로가 슬러그라 세션·에이전트 uuid 를 복원할 수 없어 준비 시점에 적어 둔다). 서버·데몬 양쪽 변경 + 재측정이라 G7 뒤로 | PR #172 리뷰 NN4 | P5 |
+
+## OASIS 후보 (T-R1 리서치, 번호는 Lead)
+
+근거·대응표·전체 후보 14건은 `plan/research/OASIS_REVIEW.md`. **Director 확정(2026-09-15)**: C1~C3 은 PRD v0.17 §11 별도 「관찰」 표(목표치 없음) — 구현은 G9 뒤 별도 op/대시보드 별도 표(**K-18**); C3 빈 턴 판정은 서버 finish 시, task_event 키 추가 없음(S-52); C5 는 v1.1(**K-19**); C7 e2e 비용 한 줄은 다음 e2e 수정 때(**I-3**).
+
+| # | 항목 | 출처 | 비고 |
+|---|---|---|---|
+| — | **관찰 행 5개의 구현 자리** — C1(사슬 규모·깊이·폭)·C2(규칙 번호 분포·트리거 점유율)·C3(빈 턴 비율)를 `getWorkspaceMetrics` 에 얹을지(G9 "10개 그대로" 조건과 분리 필요) 별도 읽기 op 로 할지. 데이터는 `session_hop(rule, cause_hop_id, chain_depth)`·`lane.delegated_from_task_id`·`task_event` 에 있어 SQL 1벌 | OASIS_REVIEW §3 C1·C2 | Lead 결정. G8 실측 5명의 로그를 이 SQL 로 먼저 읽어 보는 것이 가장 싼 검증 |
+| — | **빈 턴 판정과 계약 키** — 서버가 finish 시 attempt 의 `task_event` 에 `message.say`·`status.*`·`tool.edit_file` 이 없으면 정보 카드. `task_event` 스키마는 닫혀 있으므로(`runtime.turn_end` payload 키 추가 또는 서버 자체 이벤트) 계약 결정 | OASIS_REVIEW §3 C3, PRD FR-7.2 `[제안 v0.17]` | 오류가 아니라 정보 카드. refusal(D-13)과 구분 |
+| — | **e2e 스크립트 비용 한 줄** — `e2e/p*/README.md` 표와 각 스크립트 머리에 에이전트 턴 수·실기 예상 비용·소요 시간(페이크 런타임은 $0 명시). OASIS `examples/experiment/README.md` 관례("36 agents × 0.1 × 2 steps ≈ 7.2 inferences ≈ 14 API requests") | OASIS_REVIEW §3 C7 | 문서만. 실기 대조(`DAEMON_BIN`) 전에 얼마가 드는지 |
+| — | (v1.1) **역할별 행동 부분집합** — `agent.role → allowed ops`(예: reviewer 는 `lane delegate` 불가, non-lead 는 세션 `status set done` 불가). 서버 403 + 피드 거부 카드, MCP 서버는 툴 목록 자체를 줄인다. OASIS `available_actions` 가 프롬프트가 아니라 **표면**으로 막는 방식 | OASIS_REVIEW §3 C5 | 계약 변경. S-84(reviewer 필수 422)와 같은 결의 결정 — Director 판단. 기본은 넓게, `custom` 은 전부 허용 |
+| — | (v1.1) **합의 형성 지표** — 아티팩트가 `review approve` 까지 거친 `reject` 왕복 수 중앙값, 세션당 `decision record` 수 | OASIS_REVIEW §3 C6 | G9 뒤 §11 개정 때. LLM 판정 없이 결정적으로 |
+| — | (v1.1, 낮음) 세션 템플릿 저장 시 로스터·권한 스모크(acpfake) — 리허설(C8)은 제품으로는 안 하지만, 템플릿의 참여자·리뷰어 조건이 서버 검증(422 등)을 통과하는지만 페이크로 확인 | OASIS_REVIEW §3 C8 | 배관만 검증된다는 한계를 화면에 적어야 한다 |
+
+## 테스트 자산 (P1에서 만든 것)
+
+| 항목 | 내용 |
+|---|---|
+| `e2e/p1/01`~`06` | 실제 런타임 수직 슬라이스·kill -9·취소·U1 브라우저·초대·S12 |
+| **`e2e/p1/07_adversarial.sh`** | 경계 항목 D1~D10(TaskToken 범위·워크스페이스 경계·501 표면·멱등키·미인증·SSE 인가·데몬 토큰·잘못된 입력·**아티팩트 제출/리뷰 경계**). **에이전트 턴 0** — 서버가 떠 있으면 언제든 돌릴 수 있다. P2에서 operation이 늘 때마다 여기에 행을 더한다 |
+| CI `contracts` 잡 | openapi strict lint · task_event JSON Schema · 프로즈 키 스캔 · 서버·웹 생성물 드리프트 게이트 |
+
+## 운영 (PLAN §10.7 되먹임)
+
+- Hermes Reviewer가 잡은 결함 중 **통합에서만 드러나는 것**(payload 위치, CHECK 키, 워크스페이스 claim, **SSE 응답 압축**)이 넷 — 스트림 단위 테스트가 목 데이터로 초록이어도 계약 양쪽을 실기로 잇는 테스트가 필요. P2a 골든 테스트에 "계약 왕복" 항목 추가.
+- 코디네이터 `/login`이 worker 세션을 전부 무효화 — 재로그인은 fan-out 사이에만.
+- 한도: 4 worker 동시는 5시간 창을 20~30분에 소진. P2는 **동시 2개**로. worker는 `--model opus`(Fable 한도가 먼저 소진됨, 2026-09-06 Director 결정).
+- Hermes의 `gh`·`git worktree` 호출이 승인 게이트에서 멈춘다 — 리뷰 결과 파일을 Lead가 게시하는 방식 유지, 임시 워크트리는 Lead가 정리.

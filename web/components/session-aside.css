@@ -1,0 +1,24 @@
+/* S7 우열(SCREEN §4.5) — 폭 268px 기준. 색은 tokens.css 변수만. */
+.aside { display: flex; flex-direction: column; gap: 14px; }
+.aside__sec { display: flex; flex-direction: column; gap: 5px; }
+.aside__h { margin: 0; font-size: var(--fs-meta); font-weight: 600; color: var(--ink-2); letter-spacing: 0.02em; display: flex; justify-content: space-between; gap: 8px; }
+.aside__count { color: var(--ink); font-variant-numeric: tabular-nums; }
+.aside__goal { margin: 0; font-size: var(--fs-body); }
+.aside__list { margin: 0; padding-left: 16px; font-size: var(--fs-sub); color: var(--ink-2); display: flex; flex-direction: column; gap: 4px; }
+.aside__name { color: var(--ink); }
+.aside__ver { margin-left: 4px; font-size: var(--fs-meta); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.aside__quiet { margin: 0; font-size: var(--fs-meta); color: var(--ink-2); }
+.aside__warn { margin: 0; font-size: var(--fs-meta); color: var(--s-wait-text); }
+.aside__ok { color: var(--s-done-text); }
+.aside__auto { color: var(--s-run-text); font-size: var(--fs-meta); }
+.aside__cost { margin: 0; font-size: var(--fs-card); font-variant-numeric: tabular-nums; }
+.aside__badge { margin-left: 6px; font-size: var(--fs-meta); padding: 1px 5px; border-radius: 999px; border: 1px solid var(--s-wait); color: var(--s-wait-text); }
+.aside__bar { height: 4px; background: var(--surface); border-radius: 999px; overflow: hidden; }
+.aside__bar > span { display: block; height: 100%; background: var(--s-run); }
+.aside__dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: var(--fs-meta); }
+.aside__dl dt { color: var(--ink-2); }
+.aside__dl dd { margin: 0; color: var(--ink-2); }
+/* T-W15 — 진행률 상단 한 줄("남은 것: …") · 막힌 조건 안내 + 「조건 고치기」. */
+.aside__summary { margin: 0 0 4px; font-size: var(--fs-sub); color: var(--ink); }
+.aside__blocked { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin-top: 6px; padding: 8px 10px; border: 1px solid var(--s-wait); border-radius: 8px; background: color-mix(in srgb, var(--s-wait) var(--soft-alpha), transparent); }
+.aside__link { align-self: flex-start; margin-top: 4px; font-size: var(--fs-meta); color: var(--ink-2); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }

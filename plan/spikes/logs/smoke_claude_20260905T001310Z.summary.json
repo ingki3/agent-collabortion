@@ -1,0 +1,76 @@
+{
+  "agent_capabilities": {
+    "promptCapabilities": {
+      "image": true,
+      "embeddedContext": true
+    },
+    "mcpCapabilities": {
+      "http": true,
+      "sse": true
+    },
+    "loadSession": true,
+    "sessionCapabilities": {
+      "fork": {},
+      "list": {},
+      "resume": {}
+    }
+  },
+  "agent_info": {
+    "name": "@zed-industries/claude-code-acp",
+    "title": "Claude Code",
+    "version": "0.16.2"
+  },
+  "cancels_requested": 10,
+  "crashes": 0,
+  "finished_at": "2026-09-05T00:13:20Z",
+  "model_default": "default",
+  "model_requested": "haiku",
+  "model_selected": "haiku",
+  "models_available": [
+    {
+      "modelId": "default",
+      "name": "Default (recommended)",
+      "description": "Opus 4.6 · Most capable for complex work"
+    },
+    {
+      "modelId": "sonnet",
+      "name": "Sonnet",
+      "description": "Sonnet 4.5 · Best for everyday tasks"
+    },
+    {
+      "modelId": "haiku",
+      "name": "Haiku",
+      "description": "Haiku 4.5 · Fastest for quick answers"
+    }
+  ],
+  "n": 10,
+  "protocol_version": 1,
+  "resumes_requested": 10,
+  "runtime": "claude",
+  "scenario": "smoke",
+  "session_id": "901d72df-24d8-4d5d-aab6-f61e5baab593",
+  "session_meta": null,
+  "started_at": "20260905T001310Z",
+  "stats": {
+    "PermissionRequests": 0,
+    "AllowOnceMissing": 0,
+    "PermissionCancelled": 0,
+    "Updates": 3,
+    "ToolCalls": 0,
+    "ToolCallUpdates": 0,
+    "AgentMessageChunks": 2,
+    "UnexpectedExit": 0,
+    "OtherClientRequests": 0,
+    "OptionKindsSeen": {}
+  },
+  "turn": {
+    "StopReason": "end_turn",
+    "Text": "PONG",
+    "ToolCalls": 0,
+    "Permissions": 0,
+    "Duration": 1850647917,
+    "LateChunks": 0
+  },
+  "turns_requested": 30,
+  "workdir": "/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0a-spikes/72df0f7a-bfd9-449b-95cf-147923c4d941/scratchpad/w-smoke"
+}

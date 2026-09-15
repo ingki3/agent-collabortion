@@ -1,0 +1,251 @@
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/oapi-codegen/nullable"
+
+	"github.com/ingki3/agent-collabortion/server/internal/apperr"
+	"github.com/ingki3/agent-collabortion/server/internal/db"
+	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+)
+
+// Workspace settings (SCREEN §2.3). P2 turns these on because FR-3.5's loop
+// limits are "워크스페이스 설정에서 조정" and the router now reads them.
+//
+// S-12: 501 was never authorisation. The moment the operation exists, a
+// non-admin member of the workspace — and anyone outside it — must be refused,
+// or one member can raise another team's loop limits and budgets.
+
+// GetWorkspaceSettings — openapi: "권한: 워크스페이스 멤버(읽기). 변경은 PATCH".
+// S-69 (T-W6 대조): this asked for owner/admin, so a member opening the S14
+// tabs saw the 403 sentence where the contract promises the settings.
+func (s *Server) GetWorkspaceSettings(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId) {
+	if _, _, p := s.member(r, workspaceId); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	out, err := loadSettings(r.Context(), s.DB, workspaceId)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) UpdateWorkspaceSettings(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId) {
+	_, m, p := s.member(r, workspaceId)
+	if p != nil {
+		writeProblem(w, p)
+		return
+	}
+	if m.Role != "owner" && m.Role != "admin" {
+		writeProblem(w, apperr.Forbidden("admin_required", "소유자·관리자만 할 수 있습니다"))
+		return
+	}
+	var in gen.WorkspaceSettingsUpdate
+	if p := decodeJSON(w, r, &in); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	// S-70 (T-W6 대조): openapi updateWorkspaceSettings — "`task_event_masking`
+	// (보안 탭)은 owner만" (SCREEN §4.10 보안 탭: owner). An admin could flip the
+	// masking that decides what of a diff or a shell output is stored at all.
+	if in.TaskEventMasking != nil && m.Role != "owner" {
+		writeProblem(w, apperr.Forbidden("owner_required", "활동 기록 마스킹은 워크스페이스 소유자만 바꿀 수 있습니다"))
+		return
+	}
+	if p := validateSettings(in); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	now := s.Clock.Now()
+	sets, args := []string{}, []any{workspaceId}
+	add := func(expr string, v any) {
+		args = append(args, v)
+		sets = append(sets, fmt.Sprintf("%s = $%d", expr, len(args)))
+	}
+	// S-26: a jsonb settings group is PATCHed key by key. Assigning the
+	// marshalled body replaced the whole object, so `{"max_pair_roundtrips": 2}`
+	// silently reset max_chain_depth and max_hops_per_hour to null — the router
+	// then fell back to DefaultLimits() and S14 showed null where an admin had
+	// set a value. `||` is Postgres' shallow object merge: the keys present in
+	// the request win, the rest of the object stays.
+	//
+	// S-32, correcting what this comment used to claim. Inside a jsonb GROUP an
+	// explicit `null` does NOT unset the key: the generated fields of
+	// LoopLimits, BudgetPolicy, ContextReuse and RuntimePolicy are `*int` /
+	// `*string` with `omitempty`, so `{"max_chain_depth": null}` and an omitted
+	// key both arrive as a nil pointer and both marshal to nothing — the `||`
+	// merge then leaves the stored value alone. That is a limitation of the
+	// generated shape, not a misbehaviour: nothing is lost and nothing is
+	// silently overwritten. Clearing one key of a group means writing the whole
+	// group without it, which the contract has no verb for yet.
+	//
+	// The TOP-LEVEL nullable columns are different and do work as documented:
+	// `workdir_disk_quota_gb` is `nullable.Nullable[int]`, so a specified null
+	// is distinguishable from an omitted key and writes SQL NULL (below).
+	mergeInto := func(col string, v any) {
+		args = append(args, marshalJSON(v))
+		sets = append(sets, fmt.Sprintf("%s = %s || $%d::jsonb", col, col, len(args)))
+	}
+	if in.LoopLimits != nil {
+		mergeInto("loop_limits", in.LoopLimits)
+	}
+	if in.BudgetPolicy != nil {
+		mergeInto("budget_policy", in.BudgetPolicy)
+	}
+	if in.ContextReuse != nil {
+		mergeInto("context_reuse", in.ContextReuse)
+	}
+	if in.RuntimePolicy != nil {
+		mergeInto("runtime_policy", in.RuntimePolicy)
+	}
+	if in.DefaultIsolation != nil {
+		add("default_isolation", string(*in.DefaultIsolation))
+	}
+	if in.WorkdirRetentionDays != nil {
+		add("workdir_retention_days", *in.WorkdirRetentionDays)
+	}
+	if in.WorkdirDiskQuotaGb.IsSpecified() {
+		if in.WorkdirDiskQuotaGb.IsNull() {
+			add("workdir_disk_quota_gb", nil)
+		} else {
+			add("workdir_disk_quota_gb", in.WorkdirDiskQuotaGb.MustGet())
+		}
+	}
+	if in.RuntimeOfflineGrace != nil {
+		add("runtime_offline_grace", *in.RuntimeOfflineGrace)
+	}
+	if in.TaskEventMasking != nil {
+		add("task_event_masking", *in.TaskEventMasking)
+	}
+	add("updated_at", now)
+
+	q := "UPDATE workspace_settings SET " + strings.Join(sets, ", ") + " WHERE workspace_id = $1"
+	tag, err := s.DB.Exec(r.Context(), q, args...)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		// 0001 creates the row with the workspace, but a workspace made before
+		// that guard existed would 404 here rather than silently do nothing.
+		writeProblem(w, apperr.NotFound("workspace_settings"))
+		return
+	}
+	out, err := loadSettings(r.Context(), s.DB, workspaceId)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// validateSettings rejects values the router would then have to defend against
+// at every read. A loop limit of 0 disables the limit silently, which is the
+// one thing FR-3.5 must not allow by accident.
+func validateSettings(in gen.WorkspaceSettingsUpdate) *Problem {
+	var errs []apperr.FieldError
+	if l := in.LoopLimits; l != nil {
+		check := func(name string, v *int, max int) {
+			if v != nil && (*v < 1 || *v > max) {
+				errs = append(errs, apperr.Field("loop_limits."+name, "out_of_range",
+					fmt.Sprintf("1~%d 사이여야 합니다", max)))
+			}
+		}
+		check("max_chain_depth", l.MaxChainDepth, 100)
+		check("max_hops_per_hour", l.MaxHopsPerHour, 10000)
+		check("max_pair_roundtrips", l.MaxPairRoundtrips, 100)
+	}
+	if v := in.WorkdirRetentionDays; v != nil && *v < 0 {
+		errs = append(errs, apperr.Field("workdir_retention_days", "out_of_range", "0 이상이어야 합니다"))
+	}
+	if in.WorkdirDiskQuotaGb.IsSpecified() && !in.WorkdirDiskQuotaGb.IsNull() && in.WorkdirDiskQuotaGb.MustGet() <= 0 {
+		errs = append(errs, apperr.Field("workdir_disk_quota_gb", "out_of_range", "0보다 커야 합니다"))
+	}
+	if v := in.DefaultIsolation; v != nil {
+		switch *v {
+		case "worktree", "container", "none":
+		default:
+			errs = append(errs, apperr.Field("default_isolation", "invalid", "알 수 없는 격리 방식입니다"))
+		}
+	}
+	if len(errs) > 0 {
+		return apperr.Validation(errs...)
+	}
+	return nil
+}
+
+func loadSettings(ctx context.Context, q db.DBTX, wsID uuid.UUID) (*gen.WorkspaceSettings, error) {
+	// Found while testing S-69: the required `workspace_id` was never set and
+	// every settings response carried the zero uuid.
+	out := gen.WorkspaceSettings{WorkspaceId: wsID}
+	var loop, budget, reuse, runtime []byte
+	var isolation string
+	var quota *int
+	var graceSeconds float64
+	err := q.QueryRow(ctx, `
+		SELECT loop_limits, budget_policy, context_reuse, runtime_policy, default_isolation::text,
+		       workdir_retention_days, workdir_disk_quota_gb,
+		       EXTRACT(epoch FROM runtime_offline_grace)::float8, task_event_masking, updated_at
+		FROM workspace_settings WHERE workspace_id = $1`, wsID).
+		Scan(&loop, &budget, &reuse, &runtime, &isolation,
+			&out.WorkdirRetentionDays, &quota, &graceSeconds, &out.TaskEventMasking, &out.UpdatedAt)
+	if err == pgx.ErrNoRows {
+		return nil, apperr.NotFound("workspace_settings")
+	}
+	if err != nil {
+		return nil, err
+	}
+	out.DefaultIsolation = gen.IsolationKind(isolation)
+	out.RuntimeOfflineGrace = isoDuration(time.Duration(graceSeconds) * time.Second)
+	if quota != nil {
+		out.WorkdirDiskQuotaGb = nullable.NewNullableWithValue(*quota)
+	} else {
+		out.WorkdirDiskQuotaGb = nullable.NewNullNullable[int]()
+	}
+	_ = json.Unmarshal(loop, &out.LoopLimits)
+	_ = json.Unmarshal(budget, &out.BudgetPolicy)
+	_ = json.Unmarshal(reuse, &out.ContextReuse)
+	_ = json.Unmarshal(runtime, &out.RuntimePolicy)
+	return &out, nil
+}
+
+// isoDuration renders a Postgres interval as the ISO 8601 form the contract
+// asks for. Only whole days and hours occur in practice (default P7D).
+func isoDuration(d time.Duration) string {
+	if d <= 0 {
+		return "PT0S"
+	}
+	days := int(d / (24 * time.Hour))
+	rest := d - time.Duration(days)*24*time.Hour
+	out := "P"
+	if days > 0 {
+		out += fmt.Sprintf("%dD", days)
+	}
+	if rest > 0 {
+		out += fmt.Sprintf("T%dS", int(rest/time.Second))
+	}
+	if out == "P" {
+		return "PT0S"
+	}
+	return out
+}
+
+// marshalJSON renders one settings group for the `||` merge above. It was
+// called mergeJSON while it merged nothing; the name is now what it does.
+func marshalJSON(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return []byte("{}")
+	}
+	return b
+}

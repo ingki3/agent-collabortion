@@ -1,0 +1,1235 @@
+package tasks
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/ingki3/agent-collabortion/contracts"
+	"github.com/ingki3/agent-collabortion/contracts/clock"
+	"github.com/ingki3/agent-collabortion/server/internal/cost"
+	"github.com/ingki3/agent-collabortion/server/internal/db"
+	"github.com/ingki3/agent-collabortion/server/internal/realtime"
+	"github.com/ingki3/agent-collabortion/server/internal/tokens"
+)
+
+var (
+	ErrNotFound     = errors.New("tasks: task not found")
+	ErrStaleAttempt = errors.New("tasks: attempt is not the current one")
+	// ErrInvalidSessionRef — finish carried a runtime_session_ref without the
+	// keys harness.md §6 requires (runtime_kind, session_id). Rejected before the
+	// lane CHECK (0004) can turn it into a 500.
+	ErrInvalidSessionRef = errors.New("tasks: runtime_session_ref needs runtime_kind and session_id")
+	ErrLaneNotFound      = errors.New("tasks: lane not found")
+	// ErrLaneNotCancellable — cancelLane on a lane that is not running/queued
+	// (openapi cancelLane: already-terminal lanes answer 409).
+	ErrLaneNotCancellable = errors.New("tasks: lane is not running or queued")
+)
+
+type Service struct {
+	DB     *pgxpool.Pool
+	Clock  clock.Clock
+	Tokens *tokens.Service
+	Hub    *realtime.Hub
+
+	// LanePublish emits `lane.updated` for a lane this service just moved.
+	// It is a hook rather than a direct call because loading the contract
+	// Lane lives in internal/lanes, which imports this package —
+	// httpapi.NewServer wires lanes.Publish in. nil in unit tests with no hub.
+	LanePublish func(ctx context.Context, q db.DBTX, laneID uuid.UUID)
+
+	// ParticipantPublish emits `participant.updated` for the agent whose task
+	// this service just moved. Same hook shape and the same reason as
+	// LanePublish: deriving FR-1.3's status lives in internal/sessions, which
+	// imports this package. nil in unit tests with no hub.
+	ParticipantPublish func(ctx context.Context, q db.DBTX, sessionID, agentID uuid.UUID)
+}
+
+func New(pool *pgxpool.Pool, c clock.Clock, t *tokens.Service, h *realtime.Hub) *Service {
+	return &Service{DB: pool, Clock: c, Tokens: t, Hub: h}
+}
+
+// Row is one task row (columns the API and the queue need).
+type Row struct {
+	ID                  uuid.UUID
+	LaneID              uuid.UUID
+	SessionID           uuid.UUID
+	WorkspaceID         uuid.UUID
+	RuntimeID           *uuid.UUID
+	AgentID             uuid.UUID
+	ProfileID           uuid.UUID
+	TriggerMessageID    *uuid.UUID
+	DelegatedFromTaskID *uuid.UUID
+	RestartedFromTaskID *uuid.UUID
+	OriginatorUserID    *uuid.UUID
+	CoalescedMessageIDs []uuid.UUID
+	Attempt             int
+	MaxAttempts         int
+	PendingHitl         bool
+	BudgetOverride      *float64
+	Status              Status
+	PausedReason        *string
+	FailureKind         *string
+	NotBefore           *time.Time
+	StopReason          *string
+	HeartbeatAt         *time.Time
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	DispatchedAt        *time.Time
+	StartedAt           *time.Time
+	FinishedAt          *time.Time
+}
+
+const selectTask = `
+	SELECT t.id, t.lane_id, t.session_id, s.workspace_id, t.runtime_id, t.agent_id, t.profile_id,
+	       t.trigger_message_id, t.delegated_from_task_id, t.restarted_from_task_id, t.originator_user_id,
+	       t.coalesced_message_ids, t.attempt, t.max_attempts, t.pending_hitl, t.budget_override,
+	       t.status, t.paused_reason, t.failure_kind, t.not_before, t.stop_reason, t.heartbeat_at,
+	       t.created_at, t.updated_at, t.dispatched_at, t.started_at, t.finished_at
+	FROM task t JOIN session s ON s.id = t.session_id`
+
+func scanTask(row pgx.Row) (*Row, error) {
+	var t Row
+	var status, pausedReason, failureKind *string
+	err := row.Scan(&t.ID, &t.LaneID, &t.SessionID, &t.WorkspaceID, &t.RuntimeID, &t.AgentID, &t.ProfileID,
+		&t.TriggerMessageID, &t.DelegatedFromTaskID, &t.RestartedFromTaskID, &t.OriginatorUserID,
+		&t.CoalescedMessageIDs, &t.Attempt, &t.MaxAttempts, &t.PendingHitl, &t.BudgetOverride,
+		&status, &pausedReason, &failureKind, &t.NotBefore, &t.StopReason, &t.HeartbeatAt,
+		&t.CreatedAt, &t.UpdatedAt, &t.DispatchedAt, &t.StartedAt, &t.FinishedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("tasks: scan: %w", err)
+	}
+	t.Status = Status(*status)
+	t.PausedReason = pausedReason
+	t.FailureKind = failureKind
+	if t.CoalescedMessageIDs == nil {
+		t.CoalescedMessageIDs = []uuid.UUID{}
+	}
+	return &t, nil
+}
+
+// Get loads a task (no lock).
+func Get(ctx context.Context, q db.DBTX, id uuid.UUID) (*Row, error) {
+	return scanTask(q.QueryRow(ctx, selectTask+` WHERE t.id = $1`, id))
+}
+
+func lockTask(ctx context.Context, tx pgx.Tx, id uuid.UUID) (*Row, error) {
+	return scanTask(tx.QueryRow(ctx, selectTask+` WHERE t.id = $1 FOR UPDATE OF t`, id))
+}
+
+// Attempt is one task_attempt row (Task.attempts[]).
+type Attempt struct {
+	Attempt      int
+	RuntimeID    *uuid.UUID
+	DispatchedAt *time.Time
+	StartedAt    *time.Time
+	FinishedAt   *time.Time
+	Outcome      *string
+	FailureKind  *string
+	Resumed      *bool
+	StopReason   *string
+}
+
+func ListAttempts(ctx context.Context, q db.DBTX, taskID uuid.UUID) ([]Attempt, error) {
+	rows, err := q.Query(ctx, `
+		SELECT attempt, runtime_id, dispatched_at, started_at, finished_at, outcome, failure_kind, resumed, stop_reason
+		FROM task_attempt WHERE task_id = $1 ORDER BY attempt`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Attempt
+	for rows.Next() {
+		var a Attempt
+		if err := rows.Scan(&a.Attempt, &a.RuntimeID, &a.DispatchedAt, &a.StartedAt, &a.FinishedAt, &a.Outcome, &a.FailureKind, &a.Resumed, &a.StopReason); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// Usage is the task_usage row.
+type Usage struct {
+	InputTokens, OutputTokens, CacheRead int64
+	CostUSD                              float64
+	Estimated                            bool
+	UpdatedAt                            time.Time
+}
+
+func GetUsage(ctx context.Context, q db.DBTX, taskID uuid.UUID) (*Usage, error) {
+	var u Usage
+	err := q.QueryRow(ctx, `SELECT input_tokens, output_tokens, cache_read, cost_usd, estimated, updated_at FROM task_usage WHERE task_id = $1`, taskID).
+		Scan(&u.InputTokens, &u.OutputTokens, &u.CacheRead, &u.CostUSD, &u.Estimated, &u.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return &u, err
+}
+
+// MarkDispatched is the claim transition: queued → dispatched with token issue.
+// Called by the queue inside its claim transaction.
+func (s *Service) MarkDispatched(ctx context.Context, tx pgx.Tx, t *Row, runtimeID uuid.UUID, now time.Time) (string, error) {
+	if _, err := Transition(t.Status, Dispatched); err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE task SET status = 'dispatched', runtime_id = $2, dispatched_at = $3, heartbeat_at = NULL, updated_at = $3
+		WHERE id = $1`, t.ID, runtimeID, now); err != nil {
+		return "", fmt.Errorf("tasks: dispatch: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO task_attempt (task_id, attempt, runtime_id, dispatched_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (task_id, attempt) DO UPDATE SET runtime_id = EXCLUDED.runtime_id, dispatched_at = EXCLUDED.dispatched_at`,
+		t.ID, t.Attempt, runtimeID, now); err != nil {
+		return "", fmt.Errorf("tasks: attempt row: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'running', updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+		return "", err
+	}
+	token, err := s.Tokens.Issue(ctx, tx, tokens.Scope{
+		TaskID: t.ID, Attempt: t.Attempt, LaneID: t.LaneID, SessionID: t.SessionID, AgentID: t.AgentID, RuntimeID: &runtimeID,
+	})
+	if err != nil {
+		return "", err
+	}
+	t.Status, t.RuntimeID, t.DispatchedAt = Dispatched, &runtimeID, &now
+	s.publish(ctx, tx, t)
+	return token, nil
+}
+
+// Phase records the daemon's preparing / running report (daemon-protocol §4.2).
+func (s *Service) Phase(ctx context.Context, taskID uuid.UUID, attempt int, phase string) error {
+	now := s.Clock.Now()
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		t, err := lockTask(ctx, tx, taskID)
+		if err != nil {
+			return err
+		}
+		if t.Attempt != attempt {
+			return ErrStaleAttempt
+		}
+		var to Status
+		switch phase {
+		case "preparing":
+			to = Preparing
+		case "running":
+			to = Running
+		default:
+			return fmt.Errorf("tasks: unknown phase %q", phase)
+		}
+		if t.Status == to {
+			return nil // idempotent repeat
+		}
+		if _, err := Transition(t.Status, to); err != nil {
+			return err
+		}
+		started := t.StartedAt
+		if to == Running && started == nil {
+			started = &now
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE task SET status = $2, heartbeat_at = $3, started_at = $4, updated_at = $3 WHERE id = $1`,
+			t.ID, string(to), now, started); err != nil {
+			return fmt.Errorf("tasks: phase: %w", err)
+		}
+		if to == Running {
+			_, _ = tx.Exec(ctx, `UPDATE task_attempt SET started_at = COALESCE(started_at, $3) WHERE task_id = $1 AND attempt = $2`, t.ID, t.Attempt, now)
+		}
+		t.Status, t.HeartbeatAt, t.StartedAt = to, &now, started
+		s.publish(ctx, tx, t)
+		return nil
+	})
+}
+
+// Heartbeat refreshes heartbeat_at (every 15s while running).
+func (s *Service) Heartbeat(ctx context.Context, taskID uuid.UUID, attempt int, now time.Time) error {
+	tag, err := s.DB.Exec(ctx, `
+		UPDATE task SET heartbeat_at = $3 WHERE id = $1 AND attempt = $2 AND status IN ('preparing', 'running')`,
+		taskID, attempt, now)
+	if err != nil {
+		return fmt.Errorf("tasks: heartbeat: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrStaleAttempt
+	}
+	return nil
+}
+
+// NotePreviewDrift records the one feed warning a daemon whose heartbeat
+// `preview` does not match daemon-protocol §4.2 v0.3 earns. The heartbeat
+// itself already succeeded — a bad extra field must not cost the attempt
+// (G3 C-1) — so the drift is visible instead of fatal, and only once per
+// attempt: a heartbeat every 15s would otherwise bury the feed.
+func (s *Service) NotePreviewDrift(ctx context.Context, taskID uuid.UUID, attempt int, now time.Time) error {
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		// S-52: `runtime` payload's free-text slot is `detail`; `note`,
+		// `field` and `spec` are not keys the schema knows.
+		return InsertServerEventOnce(ctx, tx, taskID, attempt, "runtime", "error", "heartbeat.preview", "info",
+			map[string]any{
+				"detail": "컴퓨터가 보낸 진행 미리보기(preview)가 약속된 형식과 달라 무시했습니다 — 화면의 미리보기만 비고 작업은 계속됩니다",
+			}, now)
+	})
+}
+
+// Requeue ends the current attempt with reason and either queues attempt+1
+// (retryable kinds with attempts left) or fails the task. The attempt's token
+// is revoked either way (daemon-protocol §5, §7).
+func (s *Service) Requeue(ctx context.Context, taskID uuid.UUID, reason contracts.FailureKind, notBefore *time.Time, now time.Time) error {
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		t, err := lockTask(ctx, tx, taskID)
+		if err != nil {
+			return err
+		}
+		return s.requeueLocked(ctx, tx, t, reason, notBefore, now)
+	})
+}
+
+func (s *Service) requeueLocked(ctx context.Context, tx pgx.Tx, t *Row, reason contracts.FailureKind, notBefore *time.Time, now time.Time) error {
+	if Terminal(t.Status) {
+		return nil
+	}
+	// E10-04: once a person cancelled the lane, no attempt is requeued — a
+	// daemon that dies or reports failed after the cancel command still ends
+	// the task as cancelled (no new task).
+	if requested, err := cancelRequested(ctx, tx, t.ID, t.Attempt); err != nil {
+		return err
+	} else if requested {
+		return s.cancelLocked(ctx, tx, t, string(reason), now)
+	}
+	if err := s.Tokens.Revoke(ctx, tx, t.ID, t.Attempt, "requeue"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO task_attempt (task_id, attempt, runtime_id, finished_at, outcome, failure_kind)
+		VALUES ($1, $2, $3, $4, $5, $6::failure_kind)
+		ON CONFLICT (task_id, attempt) DO UPDATE SET finished_at = EXCLUDED.finished_at, outcome = EXCLUDED.outcome, failure_kind = EXCLUDED.failure_kind`,
+		t.ID, t.Attempt, t.RuntimeID, now, string(reason), string(reason)); err != nil {
+		return fmt.Errorf("tasks: record attempt: %w", err)
+	}
+	// Queued-or-failed, and how many retries are left, is PlanAttempt's call —
+	// the same planner the bundle and the HITL answer go through, so a retry
+	// cannot drift from a resume (FR-7.1 M5). `AlternateProfile` is left false
+	// here because this call does not read it: E8-09's Director notice is
+	// decided one line below from what ApplyProfileFallback found in the
+	// database, which is the only place that knows.
+	plan := PlanAttempt(AttemptInput{
+		TaskID: t.ID, Attempt: t.Attempt, MaxAttempts: t.MaxAttempts,
+		Cause: CauseOfFailure(reason), PrevWorkdir: "-",
+	})
+	if plan.TaskStatus == string(Queued) {
+		if _, err := Transition(t.Status, Queued); err != nil {
+			return err
+		}
+		// daemon-protocol §4.4 (v0.4): the SERVER swaps the profile, not the
+		// daemon. The session is pinned to a runtime, so re-queueing here keeps
+		// the work on the same machine by construction — the one thing E8-09
+		// forbids is moving it elsewhere.
+		fb, err := s.ApplyProfileFallback(ctx, tx, t, reason, now)
+		if err != nil {
+			return err
+		}
+		if fb.NotifyDirector {
+			if err := noteNoFallback(ctx, tx, t, now); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE task SET status = 'queued', attempt = attempt + 1, failure_kind = NULL, not_before = $2,
+			       profile_id = $4, runtime_id = NULL, heartbeat_at = NULL, dispatched_at = NULL, started_at = NULL, updated_at = $3
+			WHERE id = $1`, t.ID, notBefore, now, t.ProfileID); err != nil {
+			return fmt.Errorf("tasks: requeue: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'queued', updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+			return err
+		}
+		t.Status, t.Attempt, t.FailureKind, t.NotBefore, t.RuntimeID = Queued, t.Attempt+1, nil, notBefore, nil
+	} else {
+		if _, err := Transition(t.Status, Failed); err != nil {
+			return err
+		}
+		fk := string(reason)
+		if _, err := tx.Exec(ctx, `
+			UPDATE task SET status = 'failed', failure_kind = $2, finished_at = $3, heartbeat_at = NULL, updated_at = $3 WHERE id = $1`,
+			t.ID, fk, now); err != nil {
+			return fmt.Errorf("tasks: fail: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'failed', finished_at = $2, updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+			return err
+		}
+		t.Status, t.FailureKind, t.FinishedAt = Failed, &fk, &now
+	}
+	s.publish(ctx, tx, t)
+	return nil
+}
+
+// ExpireStale is the scheduler sweep (daemon-protocol §7):
+//   - dispatched/preparing with no running report 5 minutes after dispatch → timeout (E5-02, §4.1)
+//   - running with no heartbeat for 3 minutes → runtime_offline,
+//     runtime marked offline (E5-03, E11-03; §4.2 v0.2 — preparing is not a heartbeat subject)
+//   - runtimes silent for 3 minutes → offline
+func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
+	n := 0
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		// §4.1: dispatched and preparing are bounded by 5 minutes from dispatch;
+		// preparing is not a heartbeat subject (§4.2 v0.2, N5).
+		ids, err := collectIDs(tx.Query(ctx, `
+			SELECT id FROM task WHERE status IN ('dispatched', 'preparing') AND dispatched_at < $1 FOR UPDATE SKIP LOCKED`,
+			now.Add(-contracts.DispatchedTimeout)))
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			t, err := lockTask(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if err := s.applySweep(ctx, tx, t, idleSince(t, now), now); err != nil {
+				return err
+			}
+			n++
+		}
+		ids, err = collectIDs(tx.Query(ctx, `
+			SELECT id FROM task WHERE status = 'running'
+			  AND COALESCE(heartbeat_at, started_at, dispatched_at) < $1 FOR UPDATE SKIP LOCKED`,
+			now.Add(-contracts.HeartbeatExpiry)))
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			t, err := lockTask(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			rt := t.RuntimeID
+			if err := s.applySweep(ctx, tx, t, idleSince(t, now), now); err != nil {
+				return err
+			}
+			if rt != nil {
+				if _, err := tx.Exec(ctx, `
+					UPDATE runtime SET status = 'offline', offline_since = COALESCE(offline_since, $2), updated_at = $2
+					WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < $3)`, *rt, now, now.Add(-contracts.HeartbeatExpiry)); err != nil {
+					return err
+				}
+			}
+			n++
+		}
+		// FR-3.3 rule 7: the assignee fallback's window closed with no reply
+		// from the primary agent, so the deferred task becomes a real one
+		// (E1-14). A reply inside the window already cancelled it, so anything
+		// still `deferred` here is genuinely unanswered.
+		tag, err := tx.Exec(ctx, `
+			UPDATE task SET status = 'queued', not_before = NULL, updated_at = $1
+			WHERE status = 'deferred' AND not_before IS NOT NULL AND not_before <= $1`, now)
+		if err != nil {
+			return err
+		}
+		n += int(tag.RowsAffected())
+
+		_, err = tx.Exec(ctx, `
+			UPDATE runtime SET status = 'offline', offline_since = COALESCE(offline_since, $1), updated_at = $1
+			WHERE status = 'online' AND (last_seen_at IS NULL OR last_seen_at < $2)`, now, now.Add(-contracts.HeartbeatExpiry))
+		return err
+	})
+	return n, err
+}
+
+// Finish applies the daemon's end-of-attempt report (daemon-protocol §4.4).
+// Idempotent per attempt: a repeat returns the recorded status. The returned
+// status is the task's final state (server decides — §4.4).
+func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f contracts.Finish) (Status, error) {
+	now := s.Clock.Now()
+	var final Status
+	var costed bool
+	var wsID, sessionID uuid.UUID
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		t, err := lockTask(ctx, tx, taskID)
+		if err != nil {
+			return err
+		}
+		wsID, sessionID = t.WorkspaceID, t.SessionID
+		if attempt != t.Attempt {
+			var outcome *string
+			if err := tx.QueryRow(ctx, `SELECT outcome FROM task_attempt WHERE task_id = $1 AND attempt = $2`, t.ID, attempt).Scan(&outcome); err == nil && outcome != nil {
+				final = Status(*outcome)
+				return nil
+			}
+			return ErrStaleAttempt
+		}
+		var finished *time.Time
+		var outcome *string
+		_ = tx.QueryRow(ctx, `SELECT finished_at, outcome FROM task_attempt WHERE task_id = $1 AND attempt = $2`, t.ID, attempt).Scan(&finished, &outcome)
+		if finished != nil || Terminal(t.Status) {
+			// S-19: the repeat still rolls up. The roll-up is a SUM over
+			// task_usage, not an increment, so running it again is harmless —
+			// and if the FIRST finish's roll-up failed (its own transaction,
+			// after this one committed) this is the only thing that ever
+			// retries it. Without this line a session whose last finish lost
+			// its roll-up shows a permanently stale cost_usd.
+			costed = true
+			final = t.Status
+			return nil
+		}
+		// daemon-protocol §4.4: `resume_outcome` is "resumed" | "cold_start" |
+		// null, and the null is not a false. An attempt that never had a
+		// session to resume must leave the column NULL, or the NEXT attempt
+		// reads "the previous one cold started" and throws away the ref this
+		// very finish is storing (measured: TestResumeRefRidesNextClaim).
+		var resumed *bool
+		switch f.ResumeOutcome {
+		case "resumed":
+			t := true
+			resumed = &t
+		case "cold_start":
+			fa := false
+			resumed = &fa
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO task_attempt (task_id, attempt, runtime_id, finished_at, outcome, resumed, stop_reason)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (task_id, attempt) DO UPDATE SET finished_at = EXCLUDED.finished_at, outcome = EXCLUDED.outcome,
+			  resumed = EXCLUDED.resumed, stop_reason = EXCLUDED.stop_reason`,
+			t.ID, attempt, t.RuntimeID, now, f.Outcome, resumed, f.StopReason); err != nil {
+			return fmt.Errorf("tasks: finish attempt: %w", err)
+		}
+		// harness v0.7.1: `estimated: true` means the runtime did not price the
+		// turn, and the 0 that rides along is a type artefact — contracts.Usage
+		// cannot omit a float64 — not a measurement. Storing it would be the
+		// original defect one layer down, so the server drops it here and the
+		// roll-up fills the number from the workspace price table (S-20). Only
+		// an `estimated: false` zero is a real zero.
+		reported := f.Usage.CostUSD
+		if f.Usage.Estimated {
+			reported = 0
+		}
+		// The model is stored because the estimate is per-model. It is the one
+		// the daemon MEASURED (harness §7 `_meta.quota.model_usage[].model`),
+		// which is what model_drift is about: pricing a drifted turn at the
+		// profile's rate would bill the model that did not run it.
+		var model *string
+		if f.Usage.Model != "" {
+			m := f.Usage.Model
+			model = &m
+		}
+		// An EMPTY usage report is "no information", not "zero". Since P3 the
+		// heartbeat records the turn's running usage (FR-7.3 M9), so a finish
+		// that carries nothing — a cancelled attempt often does — would erase
+		// what the turn actually cost and the session's total would fall
+		// (measured on the :8094 stack: a cancel after $2.20 reported $0).
+		empty := f.Usage.InputTokens == 0 && f.Usage.OutputTokens == 0 &&
+			f.Usage.CacheReadTokens == 0 && f.Usage.CostUSD == 0
+		if !empty {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO task_usage (task_id, input_tokens, output_tokens, cache_read, cost_usd, estimated, model, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+				ON CONFLICT (task_id) DO UPDATE SET input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
+				  cache_read = EXCLUDED.cache_read, cost_usd = EXCLUDED.cost_usd, estimated = EXCLUDED.estimated,
+				  model = COALESCE(EXCLUDED.model, task_usage.model), updated_at = EXCLUDED.updated_at`,
+				t.ID, f.Usage.InputTokens, f.Usage.OutputTokens, f.Usage.CacheReadTokens, reported, f.Usage.Estimated, model, now); err != nil {
+				return fmt.Errorf("tasks: usage: %w", err)
+			}
+		}
+		costed = true
+		// harness.md §6: the ref is stored verbatim (contracts.RuntimeSessionRef →
+		// jsonb with the contract keys) — it is the only basis for the next
+		// attempt's TaskBundle.resume. The lane CHECK (0004) requires
+		// runtime_kind + session_id; reject earlier with a typed error.
+		ref, err := ValidateSessionRef(f.RuntimeSessionRef)
+		if err != nil {
+			return err
+		}
+		if ref != nil {
+			if _, err := tx.Exec(ctx, `UPDATE lane SET runtime_session_ref = $2, updated_at = $3 WHERE id = $1`, t.LaneID, ref, now); err != nil {
+				return fmt.Errorf("tasks: runtime_session_ref: %w", err)
+			}
+		}
+		decided := f.Outcome
+		if decided != "completed" {
+			// A cancel command was issued for this attempt (cancelLane): the
+			// daemon's failed/paused report after it is the cancel taking
+			// effect, not a retryable failure (E10-04: no requeue).
+			//
+			// S-50: the budget pause's OWN cancel is excluded. §8.2.2 makes a
+			// budget pause stop the turn through the same `cancel` command, so
+			// every `paused_budget` finish arrived with one outstanding and was
+			// promoted to `cancelled` — which is E9-01 read backwards ("a
+			// budget overrun is not a failure", the Director can resume it) and
+			// then died on `task_paused_detail_check`, losing the attempt row
+			// and the `runtime_session_ref` that is the next attempt's only
+			// resume basis (G6 2판 §9.5, 3/3). director · kill_switch · loop ·
+			// session_paused cancels are somebody ELSE asking the turn to stop,
+			// and they still decide the outcome.
+			if requested, err := nonBudgetCancelRequested(ctx, tx, t.ID, attempt); err != nil {
+				return err
+			} else if requested {
+				decided = "cancelled"
+			} else if decided == "cancelled" {
+				// S-50, the other direction (#151 review NN1). The promotion
+				// above stops the SERVER from turning a budget pause into a
+				// cancellation, but a daemon that reports `outcome: cancelled`
+				// for the very same budget cancel walks straight past it — it
+				// arrives already saying "cancelled", so there is nothing to
+				// promote and cancelLocked runs on a row that is already
+				// `paused(budget)`.
+				//
+				// That is E9-01 read backwards ("a budget overrun is not a
+				// failure"): the Director can approve a raise and resume, and a
+				// `cancelled` task has nothing to resume. Only a cancel set
+				// that is ENTIRELY budget downgrades — the moment a director ·
+				// kill_switch · loop · session_paused cancel is also present,
+				// somebody else asked the turn to stop and E10-04 stands
+				// unchanged.
+				if budgetOnly, err := budgetOnlyCancelRequested(ctx, tx, t.ID, attempt); err != nil {
+					return err
+				} else if budgetOnly {
+					decided = "paused_budget"
+				}
+			}
+		}
+		if decided != f.Outcome {
+			// The attempt row records the SERVER's decision, not the daemon's
+			// report. §4.4 is explicit that "위 열거는 서버 응답의 최종 상태이지
+			// 데몬 판단이 아니다", and this row is read back as the answer to a
+			// REPEAT finish (the idempotency branch above returns
+			// `Status(task_attempt.outcome)`). Leaving the daemon's word there
+			// makes a retried finish report `cancelled` for a task the server
+			// parked as `paused(budget)` — the two halves of the same attempt
+			// disagreeing, which is how the resume the Director approved goes
+			// looking for a task that says it was cancelled (#151 review NN1).
+			if _, err := tx.Exec(ctx, `
+				UPDATE task_attempt SET outcome = $3 WHERE task_id = $1 AND attempt = $2`,
+				t.ID, attempt, decided); err != nil {
+				return fmt.Errorf("tasks: finish attempt outcome: %w", err)
+			}
+		}
+		if f.Outcome == "completed" && decided == "completed" {
+			if requested, err := nonBudgetCancelRequested(ctx, tx, t.ID, attempt); err != nil {
+				return err
+			} else if requested {
+				// S-51: the cancel lost the race with the turn's own end. The task
+				// is genuinely `completed` and that is what the screen must show —
+				// but the feed already carries "사람이 중단함" from the moment the
+				// button was pressed, so without this line the timeline says a
+				// person stopped a turn that finished on its own. Consuming the
+				// command here is belt-and-braces: daemonFinish consumes it before
+				// this runs, and a direct Finish caller (the queue's own paths,
+				// tests) would otherwise leave it to the 24h TTL.
+				// S-52: the cancel WAS rejected, and `rejected_reason` is the
+				// schema's own slot for exactly that (its examples are
+				// token_revoked·hitl_already_open). The sentence goes to `args`.
+				if err := InsertServerEventOnce(ctx, tx, t.ID, attempt, "status", "cancel", "cancel_raced_turn_end", "info",
+					map[string]any{
+						"command":         "cancel",
+						"rejected_reason": "cancel_raced_turn_end",
+						"args": map[string]any{
+							"note": "취소 요청이 턴 종료와 겹쳐 적용되지 않았습니다 — 턴은 이미 끝나 있었습니다",
+						},
+					}, now); err != nil {
+					return err
+				}
+				if err := tokens.ConsumeAttemptCommands(ctx, tx, t.ID, attempt, now); err != nil {
+					return err
+				}
+			}
+		}
+		if decided == "completed" && t.PendingHitl {
+			// daemon-protocol §4.4: the daemon does not decide `waiting_human`.
+			// It reports a finished turn and the SERVER reads pending_hitl —
+			// this is FR-7.1's HITL transition, and it is the only place the
+			// task leaves `running` for a question (E7-03).
+			if err := s.waitingHumanLocked(ctx, tx, t, attempt, now); err != nil {
+				return err
+			}
+			final = t.Status
+			return nil
+		}
+		switch decided {
+		case "completed":
+			if _, err := Transition(t.Status, Completed); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `UPDATE task SET status = 'completed', finished_at = $2, stop_reason = $3, heartbeat_at = NULL, updated_at = $2 WHERE id = $1`,
+				t.ID, now, f.StopReason); err != nil {
+				return err
+			}
+			if err := s.Tokens.Revoke(ctx, tx, t.ID, attempt, "completed"); err != nil {
+				return err
+			}
+			// lane: another queued task on this lane keeps it queued, else done.
+			// A lane the agent put in `blocked` keeps that status: the turn
+			// ending is exactly what `colab status set blocked` asked for, and
+			// overwriting it with `done` loses the question the delegator has
+			// yet to answer (FR-6.2.1).
+			if _, err := tx.Exec(ctx, `
+				UPDATE lane SET status = CASE WHEN EXISTS (SELECT 1 FROM task WHERE lane_id = $1 AND status = 'queued') THEN 'queued'::lane_status ELSE 'done'::lane_status END,
+				  finished_at = $2, updated_at = $2 WHERE id = $1 AND status <> 'blocked'`, t.LaneID, now); err != nil {
+				return err
+			}
+			// S-53: a turn that COMPLETED after a rebind has replayed the
+			// diffs, so the instruction stops travelling. It is cleared here
+			// rather than when the bundle is built because a bundle can be
+			// built and then lost — a requeue (E5-03 runtime_offline) on the
+			// first attempt after a rebind would otherwise leave attempt 2 with
+			// a cold-start prompt and no word about the diffs to apply, and
+			// E14-06 would break silently.
+			if _, err := tx.Exec(ctx, `
+				UPDATE session SET rebind_prompt = NULL, updated_at = $2
+				WHERE id = $1 AND rebind_prompt IS NOT NULL`, t.SessionID, now); err != nil {
+				return err
+			}
+			t.Status, t.FinishedAt = Completed, &now
+		case "cancelled":
+			if err := s.cancelLocked(ctx, tx, t, f.StopReason, now); err != nil {
+				return err
+			}
+			final = t.Status
+			return nil
+		case "paused_budget":
+			// The task is ALREADY `paused(budget)` when the server is what
+			// found the overrun: applyBudgetPause parks the row and asks the
+			// daemon to stop, and this finish is that request being carried out
+			// (S-50). `paused → paused` is not an edge FR-7.1 has, and adding
+			// one would say a pause can re-pause; there is simply nothing to
+			// transition. What this branch still owes the row is the same in
+			// both cases, and the attempt record and the lane's
+			// `runtime_session_ref` — written above, for every outcome — are
+			// what the Director's approval resumes from.
+			if t.Status != Paused {
+				if _, err := Transition(t.Status, Paused); err != nil {
+					return err
+				}
+			}
+			if _, err := tx.Exec(ctx, `UPDATE task SET status = 'paused', paused_reason = 'budget', finished_at = NULL, heartbeat_at = NULL, updated_at = $2 WHERE id = $1`,
+				t.ID, now); err != nil {
+				return err
+			}
+			if err := s.Tokens.Revoke(ctx, tx, t.ID, attempt, "paused"); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'paused', updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+				return err
+			}
+			t.Status = Paused
+		default: // failed
+			kind := f.FailureKind
+			if kind == "" {
+				kind = contracts.FailOther
+			}
+			if err := s.requeueLocked(ctx, tx, t, kind, f.NotBefore, now); err != nil {
+				return err
+			}
+			final = t.Status
+			return nil
+		}
+		s.publish(ctx, tx, t)
+		final = t.Status
+		return nil
+	})
+	if err == nil && costed {
+		// Deliberately its own transaction, AFTER the attempt is committed.
+		// Finish holds task row locks; sessions.ApplyCompletionEvent locks the
+		// SESSION first and then its tasks (the completed branch cancels the
+		// queued ones), so writing session.cost_usd inside the finish tx makes
+		// the two orders opposite and a concurrent pair deadlocks. The rollup
+		// recomputes the whole sum rather than adding a delta, so running it
+		// separately — or losing it to a crash and letting the next finish do
+		// it — still lands on the right number.
+		if err := s.rollUpCost(ctx, wsID, sessionID, now); err != nil {
+			return final, err
+		}
+	}
+	return final, err
+}
+
+// rollUpCost folds the attempt's usage into session.cost_usd and publishes
+// `cost.updated` (openapi StreamEvent, S5 · S7).
+//
+// The column existed and was read — the budget pause banner and the session
+// summary both quote it — but nothing ever wrote it, so every session cost
+// $0.00 and `cost.updated` had no publisher. The rollup is a SUM over
+// task_usage rather than an increment: an attempt's usage row is upserted, so
+// adding a delta would double-count a re-reported finish.
+//
+// `estimated` is true when ANY attempt's cost was estimated — a total that
+// mixes a measured and an estimated number is an estimate.
+func (s *Service) rollUpCost(ctx context.Context, wsID, sessionID uuid.UUID, now time.Time) error {
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		if err := repriceEstimates(ctx, tx, wsID, sessionID, now); err != nil {
+			return err
+		}
+		var cost float64
+		var estimated bool
+		if err := tx.QueryRow(ctx, `
+			SELECT COALESCE(sum(u.cost_usd), 0), COALESCE(bool_or(u.estimated), false)
+			FROM task_usage u JOIN task t ON t.id = u.task_id WHERE t.session_id = $1`, sessionID).
+			Scan(&cost, &estimated); err != nil {
+			return fmt.Errorf("tasks: cost rollup: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE session SET cost_usd = $2, updated_at = $3 WHERE id = $1`, sessionID, cost, now); err != nil {
+			return fmt.Errorf("tasks: session cost: %w", err)
+		}
+		if s.Hub != nil {
+			sid := sessionID
+			_ = s.Hub.Publish(ctx, tx, wsID, &sid, "cost.updated", map[string]any{
+				"session_id": sessionID, "cost_usd": cost, "estimated": estimated,
+			})
+		}
+		return nil
+	})
+}
+
+// repriceEstimates fills in the cost of the session's estimated usage rows
+// from the workspace price table (S-20, harness v0.7.1 "가격표는 워크스페이스
+// 소유 … 추정은 서버가 롤업 시 토큰 × 단가로").
+//
+// It runs INSIDE the roll-up rather than at finish so that correcting a price
+// (or configuring one for the first time) applies to the session's whole
+// history at the next finish, instead of freezing whatever rate happened to be
+// configured the minute each attempt ended. Recomputing is safe because the
+// inputs — tokens and model — do not change; only rows the daemon marked
+// `estimated` are touched, so a measured cost is never overwritten.
+//
+// An unknown model is left alone. `estimated: true` with cost 0 then keeps
+// saying "we do not know", which is the honest answer and the reason the badge
+// exists; inventing a rate would be worse than the $0 this whole change is
+// about, because a made-up number cannot be told from a measured one.
+func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID, now time.Time) error {
+	table, err := cost.Load(ctx, tx, wsID)
+	if err != nil {
+		return fmt.Errorf("tasks: pricing: %w", err)
+	}
+	type row struct {
+		taskID  uuid.UUID
+		attempt int
+		usd     float64
+		model   string
+	}
+	// The cursor is drained before any write: tx is one connection, and a
+	// write issued mid-iteration would find it busy.
+	//
+	// ORDER BY task_id is not cosmetic — two finishes in the same session roll
+	// up concurrently, and locking the same rows in the same order is what
+	// keeps the pair from deadlocking.
+	// S-23: only rows that can actually change are scanned. An estimate is
+	// worth re-pricing when it has no price yet (cost_usd = 0) or when the
+	// price table has been edited since it was priced (`<=`, not `<`: an
+	// injected clock can stamp both in the same instant) — otherwise the same
+	// arithmetic produces the same number, and a session with hundreds of
+	// attempts re-reads all of them on every finish.
+	rows, err := tx.Query(ctx, `
+		SELECT u.task_id, t.attempt, u.input_tokens, u.output_tokens, u.cache_read, u.cost_usd,
+		       COALESCE(NULLIF(u.model, ''), p.model, '')
+		FROM task_usage u
+		JOIN task t ON t.id = u.task_id
+		LEFT JOIN agent_profile p ON p.id = t.profile_id
+		LEFT JOIN workspace_settings ws ON ws.workspace_id = $2
+		WHERE t.session_id = $1 AND u.estimated
+		  AND (u.cost_usd = 0 OR ws.updated_at IS NULL OR u.updated_at <= ws.updated_at)
+		ORDER BY u.task_id`, sessionID, wsID)
+	if err != nil {
+		return fmt.Errorf("tasks: pricing rows: %w", err)
+	}
+	var todo []row
+	var unpriced []row
+	for rows.Next() {
+		var id uuid.UUID
+		var attempt int
+		var in, out, cacheRead int64
+		var stored float64
+		var model string
+		if err := rows.Scan(&id, &attempt, &in, &out, &cacheRead, &stored, &model); err != nil {
+			rows.Close()
+			return fmt.Errorf("tasks: pricing scan: %w", err)
+		}
+		usd, ok := table.Estimate(model, in, out, cacheRead)
+		if !ok {
+			// S-48: an unpriced model is not $0, and since the budget is now
+			// enforced against the ESTIMATE the difference is the difference
+			// between a limit that holds and one that never trips. The row
+			// still keeps its 0 — inventing a rate is worse — but the feed
+			// says so once, so "예산이 안 걸렸다" has a reason on screen
+			// rather than only in the price table.
+			if in > 0 || out > 0 || cacheRead > 0 {
+				unpriced = append(unpriced, row{taskID: id, attempt: attempt, model: model})
+			}
+			continue
+		}
+		if usd == stored {
+			continue
+		}
+		todo = append(todo, row{taskID: id, usd: usd})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("tasks: pricing rows: %w", err)
+	}
+	for _, u := range unpriced {
+		model := u.model
+		if model == "" {
+			model = "(모델 미상)"
+		}
+		// S-52: verb `note` is in no enum and this is not a platform
+		// operation — it is the server saying it could not price a turn.
+		// class=runtime · verb=report · `detail` (S-52 rule 2).
+		if err := InsertServerEventOnce(ctx, tx, u.taskID, u.attempt, "runtime", "report", "cost.unpriced", "info",
+			map[string]any{
+				"detail": "가격표에 없는 모델이라 비용을 추정할 수 없습니다 — 이 턴은 예산 계산에 $0으로 잡힙니다 " +
+					"(모델: " + model + ", 추정치)",
+			}, now); err != nil {
+			return err
+		}
+	}
+	if len(todo) == 0 {
+		return nil
+	}
+	b := &pgx.Batch{}
+	for _, r := range todo {
+		b.Queue(`UPDATE task_usage SET cost_usd = $2, updated_at = $3 WHERE task_id = $1 AND estimated`, r.taskID, r.usd, now)
+	}
+	br := tx.SendBatch(ctx, b)
+	for range todo {
+		if _, err := br.Exec(); err != nil {
+			_ = br.Close()
+			return fmt.Errorf("tasks: pricing update: %w", err)
+		}
+	}
+	if err := br.Close(); err != nil {
+		return fmt.Errorf("tasks: pricing update: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) inTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("tasks: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// publish emits the two frames one task-row change produces: `task.updated`
+// for the task and `lane.updated` for the S7 card that shows it.
+//
+// They are one call on purpose. Every place this is reached is a place the lane
+// card changed — six of the seven also move lane.status (claim → running,
+// requeue → queued, finish → done/queued/paused, cancel/fail → failed, session
+// pause → paused) and the seventh (Phase) changes the card's current-task line.
+// Before G4's second web pass only the daemon's finish published a lane at all,
+// so S7 never saw a lane while it ran: three Researchers running in parallel
+// for fourteen seconds produced no frame (W5). Keeping the two together means a
+// transition added later cannot forget the board.
+func (s *Service) publish(ctx context.Context, q db.DBTX, t *Row) {
+	// S-18, the definition PR #78's "20 발행 자리" counted: this function is
+	// called at every place a task ROW changes — the 15 status transitions
+	// (12 UPDATEs + 3 INSERTs) plus the 5 places that change what the lane card
+	// shows without changing status (Phase, pending_hitl, budget_override,
+	// attempt bump, paused_detail). 15 ≠ 20 is not a discrepancy; the two
+	// numbers count different things, and the next audit should compare against
+	// this sentence rather than re-deriving it.
+	if s.LanePublish == nil {
+		// S-17: a nil hook used to skip publishing in silence. Production wires
+		// it in one place (httpapi.NewServer), so a second binary assembling
+		// this service without the hook would lose every lane card update with
+		// nothing in the log to say so.
+		warnUnwired("tasks: LanePublish unwired — lane.updated frames will not be published")
+	}
+	if s.ParticipantPublish == nil {
+		warnUnwired("tasks: ParticipantPublish unwired — participant.updated frames will not be published")
+	}
+	if s.Hub != nil {
+		sid := t.SessionID
+		_ = s.Hub.Publish(ctx, q, t.WorkspaceID, &sid, "task.updated", ToAPI(t, nil, nil))
+	}
+	if s.LanePublish != nil {
+		s.LanePublish(ctx, q, t.LaneID)
+	}
+	// The agent's chip is derived from these same task rows (FR-1.3), so a task
+	// moving is exactly when it can have changed. Nothing published it before
+	// and S7's chips sat at `idle` through three parallel turns (W7).
+	if s.ParticipantPublish != nil {
+		s.ParticipantPublish(ctx, q, t.SessionID, t.AgentID)
+	}
+}
+
+func collectIDs(rows pgx.Rows, err error) ([]uuid.UUID, error) {
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// CancelLane is cancelLane (openapi, FR-3.4 "중단", E10-04). The lane must be
+// running or queued. Its current task is cancelled at once when nothing holds
+// it yet (queued/deferred); a dispatched/preparing/running attempt gets a
+// daemon `cancel` command {after_current_tool: true, reason: director}
+// (daemon-protocol §4.3) and ends when the daemon's finish arrives — the
+// command is consumed by that finish and re-sent on every response until
+// then. The feed records "사람이 중단함" either way. Returns the task and
+// whether it was cancelled immediately.
+func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*Row, bool, error) {
+	now := s.Clock.Now()
+	var out *Row
+	immediate := false
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		var laneStatus string
+		err := tx.QueryRow(ctx, `SELECT status FROM lane WHERE id = $1 FOR UPDATE`, laneID).Scan(&laneStatus)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrLaneNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("tasks: lock lane: %w", err)
+		}
+		if laneStatus != "running" && laneStatus != "queued" {
+			return ErrLaneNotCancellable
+		}
+		var taskID uuid.UUID
+		err = tx.QueryRow(ctx, `
+			SELECT id FROM task WHERE lane_id = $1 AND status IN ('deferred', 'queued', 'dispatched', 'preparing', 'running')
+			ORDER BY created_at DESC LIMIT 1`, laneID).Scan(&taskID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrLaneNotCancellable
+		}
+		if err != nil {
+			return fmt.Errorf("tasks: current task: %w", err)
+		}
+		t, err := lockTask(ctx, tx, taskID)
+		if err != nil {
+			return err
+		}
+		// A second "중단" while the first cancel is still pending: the command
+		// already rides every response (§4.3); nothing to add.
+		if requested, err := cancelRequested(ctx, tx, t.ID, t.Attempt); err != nil {
+			return err
+		} else if requested {
+			out = t
+			return nil
+		}
+		if err := InsertServerEvent(ctx, tx, t.ID, t.Attempt, "status", "cancel", "director", "ok",
+			// S-52: closed `status` payload — the sentence, the actor and the
+			// reason are the command's arguments.
+			map[string]any{"command": "lane cancel", "args": map[string]any{
+				"note": "사람이 중단함", "requested_by": byUserID.String(), "reason": "director",
+			}}, now); err != nil {
+			return err
+		}
+		switch t.Status {
+		case Dispatched, Preparing, Running:
+			if t.RuntimeID != nil {
+				if err := tokens.QueueCommand(ctx, tx, *t.RuntimeID, cancelCommandFor(t, "director")); err != nil {
+					return err
+				}
+				out = t
+				return nil
+			}
+		}
+		if err := s.cancelLocked(ctx, tx, t, "director", now); err != nil {
+			return err
+		}
+		immediate = true
+		out = t
+		return nil
+	})
+	return out, immediate, err
+}
+
+// cancelRequested reports whether a cancel command was issued for (task, attempt).
+//
+// Its callers are the ones that ask "is a stop already on its way?" before
+// queueing another one — every reason counts there, the budget pause's own
+// included, or a pause would queue a second cancel on top of the first.
+func cancelRequested(ctx context.Context, q db.DBTX, taskID uuid.UUID, attempt int) (bool, error) {
+	var ok bool
+	err := q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM daemon_command WHERE task_id = $1 AND attempt = $2 AND type = 'cancel')`, taskID, attempt).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("tasks: cancel requested: %w", err)
+	}
+	return ok, nil
+}
+
+// nonBudgetCancelRequested is the other question: was the attempt stopped by
+// somebody OTHER than the budget pause itself?
+//
+// The reason rides in the §4.3 payload (contracts.Command.Reason — director |
+// budget | kill_switch | loop | session_paused). A `budget` cancel is issued by
+// applyBudgetPause in the same breath as it writes `paused(budget)`, so reading
+// it back as "a cancel was requested" makes the pause cancel itself (S-50).
+// Every other reason is a decision taken about the attempt and still decides
+// how it ends (E10-04).
+//
+// production callers: tasks.Finish — the outcome promotion and the S-51 note.
+func nonBudgetCancelRequested(ctx context.Context, q db.DBTX, taskID uuid.UUID, attempt int) (bool, error) {
+	var ok bool
+	err := q.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM daemon_command
+		                WHERE task_id = $1 AND attempt = $2 AND type = 'cancel'
+		                  AND COALESCE(payload->>'reason', '') <> 'budget')`, taskID, attempt).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("tasks: cancel requested: %w", err)
+	}
+	return ok, nil
+}
+
+// budgetOnlyCancelRequested reports whether this attempt has at least one
+// cancel command and every one of them is the budget pause's own.
+//
+// "At least one" matters: a daemon that reports `cancelled` with NO cancel
+// command behind it was stopped by something else entirely (a user's Ctrl-C in
+// the terminal, an adapter giving up), and turning that into `paused(budget)`
+// would invent a budget event and offer the Director a resume for a turn that
+// nothing paused.
+//
+// production caller: tasks.Finish — the S-50 downgrade (#151 review NN1).
+func budgetOnlyCancelRequested(ctx context.Context, q db.DBTX, taskID uuid.UUID, attempt int) (bool, error) {
+	var total, budget int
+	err := q.QueryRow(ctx, `
+		SELECT count(*), count(*) FILTER (WHERE COALESCE(payload->>'reason', '') = 'budget')
+		FROM daemon_command WHERE task_id = $1 AND attempt = $2 AND type = 'cancel'`,
+		taskID, attempt).Scan(&total, &budget)
+	if err != nil {
+		return false, fmt.Errorf("tasks: budget-only cancel: %w", err)
+	}
+	return total > 0 && total == budget, nil
+}
+
+// cancelLocked ends the task as cancelled (failure_kind cancelled — openapi
+// cancelLane), records the attempt, revokes its token and marks the lane
+// failed(cancelled). No requeue.
+func (s *Service) cancelLocked(ctx context.Context, tx pgx.Tx, t *Row, stopReason string, now time.Time) error {
+	// FR-3.4's table, in one place: lane failed, task cancelled(cancelled), a
+	// feed line saying a person stopped it, no new task and no re-queue.
+	//
+	// `paused_detail` goes with `paused_reason`. The two are one fact and
+	// migration 0006 says so (`paused_detail IS NULL OR paused_reason IS NOT
+	// NULL`); clearing only the reason turned EVERY paused → cancelled
+	// transition into a 500, whatever brought it here — a budget pause the
+	// daemon then closed, a 중단 pressed on a parked task, a loop pause that
+	// requeued (S-50 (b), G6 2판 §9.5).
+	res := PlanCancelResult("")
+	if _, err := Transition(t.Status, Cancelled); err != nil {
+		return err
+	}
+	var stop *string
+	if stopReason != "" {
+		stop = &stopReason
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE task SET status = 'cancelled', failure_kind = 'cancelled', paused_reason = NULL, paused_detail = NULL,
+		       finished_at = $2, stop_reason = $3,
+		       heartbeat_at = NULL, updated_at = $2 WHERE id = $1`, t.ID, now, stop); err != nil {
+		return fmt.Errorf("tasks: cancel: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO task_attempt (task_id, attempt, runtime_id, finished_at, outcome, failure_kind, stop_reason)
+		VALUES ($1, $2, $3, $4, 'cancelled', 'cancelled', $5)
+		ON CONFLICT (task_id, attempt) DO UPDATE SET finished_at = COALESCE(task_attempt.finished_at, EXCLUDED.finished_at),
+		  outcome = 'cancelled', failure_kind = 'cancelled', stop_reason = COALESCE(task_attempt.stop_reason, EXCLUDED.stop_reason)`,
+		t.ID, t.Attempt, t.RuntimeID, now, stop); err != nil {
+		return fmt.Errorf("tasks: cancel attempt: %w", err)
+	}
+	if err := s.Tokens.Revoke(ctx, tx, t.ID, t.Attempt, "cancelled"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE lane SET status = $2, finished_at = $3, updated_at = $3 WHERE id = $1`, t.LaneID, res.LaneStatus, now); err != nil {
+		return err
+	}
+	fk := res.FailureKind
+	t.Status, t.FailureKind, t.FinishedAt, t.StopReason, t.PausedReason = Status(res.TaskStatus), &fk, &now, stop, nil
+	s.publish(ctx, tx, t)
+	return nil
+}
+
+// failLocked ends the attempt AND the task, with no retry. It shares
+// requeueLocked's bookkeeping — cancel absorption, token revocation, the
+// task_attempt row — so the two exits cannot drift apart.
+//
+// Revoking the token matters as much as the status here: a zombie daemon that
+// wakes up after the timeout must not be able to report into a task the server
+// has already closed (daemon-protocol §4.1 v0.6, §5).
+func (s *Service) failLocked(ctx context.Context, tx pgx.Tx, t *Row, reason contracts.FailureKind, now time.Time) error {
+	if Terminal(t.Status) {
+		return nil
+	}
+	if requested, err := cancelRequested(ctx, tx, t.ID, t.Attempt); err != nil {
+		return err
+	} else if requested {
+		return s.cancelLocked(ctx, tx, t, string(reason), now)
+	}
+	if err := s.Tokens.Revoke(ctx, tx, t.ID, t.Attempt, string(reason)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO task_attempt (task_id, attempt, runtime_id, finished_at, outcome, failure_kind)
+		VALUES ($1, $2, $3, $4, $5, $6::failure_kind)
+		ON CONFLICT (task_id, attempt) DO UPDATE SET finished_at = EXCLUDED.finished_at, outcome = EXCLUDED.outcome, failure_kind = EXCLUDED.failure_kind`,
+		t.ID, t.Attempt, t.RuntimeID, now, string(reason), string(reason)); err != nil {
+		return fmt.Errorf("tasks: record attempt: %w", err)
+	}
+	if _, err := Transition(t.Status, Failed); err != nil {
+		return err
+	}
+	fk := string(reason)
+	if _, err := tx.Exec(ctx, `
+		UPDATE task SET status = 'failed', failure_kind = $2, finished_at = $3, heartbeat_at = NULL, updated_at = $3 WHERE id = $1`,
+		t.ID, fk, now); err != nil {
+		return fmt.Errorf("tasks: fail: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'failed', finished_at = $2, updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+		return err
+	}
+	t.Status, t.FailureKind, t.FinishedAt = Failed, &fk, &now
+	s.publish(ctx, tx, t)
+	return nil
+}
+
+// applySweep carries out PlanSweep's verdict. The classification — which
+// silence this is, whether it ends the task or starts a new attempt — lives in
+// PlanSweep so the golden table drives the same decision the sweep makes.
+//
+// Production call site for PlanSweep: here, from ExpireStale (both branches).
+func (s *Service) applySweep(ctx context.Context, tx pgx.Tx, t *Row, idle time.Duration, now time.Time) error {
+	o, stale := PlanSweep(t.Status, idle, t.Attempt, t.MaxAttempts)
+	if !stale {
+		return nil
+	}
+	reason := contracts.FailureKind(o.FailureKind)
+	if o.TaskStatus == Failed {
+		return s.failLocked(ctx, tx, t, reason, now)
+	}
+	return s.requeueLocked(ctx, tx, t, reason, nil, now)
+}
+
+// unwiredOnce keeps the nil-hook warning to one line per process: publish runs
+// on every transition, and a warning per transition would bury the one that
+// matters.
+var unwiredOnce sync.Map
+
+func warnUnwired(msg string) {
+	if _, loaded := unwiredOnce.LoadOrStore(msg, true); loaded {
+		return
+	}
+	slog.Warn(msg)
+}

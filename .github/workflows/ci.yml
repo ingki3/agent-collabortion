@@ -1,0 +1,175 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+
+jobs:
+  # 계약은 네 스트림의 유일한 공유 지점이다(contracts/README.md). 지금까지 CI가
+  # 계약 자체를 검증하지 않아, 잘못된 YAML(플로우 매핑 안의 따옴표 없는 쉼표)이
+  # 스키마에 엉뚱한 속성을 만든 채 머지됐다. 그 부류를 여기서 막는다.
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: false
+      - name: openapi lint (strict)
+        run: npx -y @redocly/cli@2 lint contracts/openapi.yaml --extends recommended-strict
+      - name: task_event schema is valid JSON Schema
+        # strict=false: 문서용 확장 키(x-render-class)를 허용한다.
+        run: |
+          npx -y ajv-cli@5 compile -s contracts/task_event.schema.json --spec=draft2020 --strict=false
+      - name: no prose-like keys (flow-mapping comma split)
+        run: |
+          python3 - <<'PY'
+          import yaml, sys
+          doc = yaml.safe_load(open('contracts/openapi.yaml'))
+          bad = []
+          def walk(n, p):
+              if isinstance(n, dict):
+                  for k, v in n.items():
+                      ks = str(k)
+                      if ' ' in ks and (ks.endswith('.') or ks.endswith(')') or ks.endswith(').')):
+                          bad.append(f"{p}/{ks!r}")
+                      walk(v, f"{p}/{ks}")
+              elif isinstance(n, list):
+                  for i, v in enumerate(n):
+                      walk(v, f"{p}[{i}]")
+          walk(doc, '')
+          if bad:
+              print("prose-like keys (unquoted description with a comma inside { }):")
+              print("\n".join(bad)); sys.exit(1)
+          print("ok")
+          PY
+      - name: generated code matches contracts (server)
+        run: |
+          cd server && go generate ./internal/httpapi/gen
+          cd .. && git diff --exit-code -- server/internal/httpapi/gen \
+            || { echo "::error::server/internal/httpapi/gen is stale — run 'cd server && go generate ./internal/httpapi/gen'"; exit 1; }
+      - name: generated types match contracts (web)
+        run: |
+          cd web && npm ci --silent && npm run gen:api
+          cd .. && git diff --exit-code -- web/lib/api \
+            || { echo "::error::web/lib/api is stale — run 'cd web && npm run gen:api'"; exit 1; }
+
+  go:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: colab
+          POSTGRES_PASSWORD: colab
+          POSTGRES_DB: colab
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U colab"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # server/internal/db integration test (migrate → tables → idempotent)
+      COLAB_TEST_DB_URL: postgres://colab:colab@localhost:5432/colab?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: true
+          cache-dependency-path: '**/go.sum'
+      - name: vet
+        run: for m in contracts server daemon cli; do (cd $m && go vet ./...) || exit 1; done
+      - name: test
+        run: for m in contracts server daemon cli; do (cd $m && go test ./...) || exit 1; done
+      - name: build
+        run: make build
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  # G9 조건: 시나리오 A·B·C·D E2E 가 **CI 에서** 초록 (PLAN §6.2). 모델은 없다 — 데몬 모듈의 acpfake 를
+  # 런타임 자리(hermes · claude_code 어댑터의 npx)에 놓고 서버·데몬·CLI 는 실물로 돌린다(e2e/p5/lib.sh).
+  # 웹은 next build + 앱 셸 200 까지(agent-browser 는 로컬에서만). 시간 상한 15분(T-I5).
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: colab
+          POSTGRES_PASSWORD: colab
+          POSTGRES_DB: colab
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U colab"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PG_EXTERNAL: "1"
+      PSQL_URL: postgres://colab:colab@localhost:5432/colab?sslmode=disable
+      RUNTIME: fake
+      P5_TMP_ROOT: /tmp/colab-p5-ci
+      WITH_WEB: "1"
+      # 실기 로그인 상태에 의존하는 것이 없어야 한다 — 러너에는 아무 키도 없다.
+      ANTHROPIC_API_KEY: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: true
+          cache-dependency-path: '**/go.sum'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: tools
+        run: |
+          psql --version && jq --version && python3 --version
+      - name: e2e (fake runtime)
+        run: bash e2e/p5/ci.sh
+      - name: summary
+        if: always()
+        run: |
+          [ -f e2e/p5/out/ci-summary.tsv ] && { echo '```'; column -t -s $'\t' e2e/p5/out/ci-summary.tsv; echo '```'; } >> "$GITHUB_STEP_SUMMARY" || true
+      - name: artifacts (logs · checks · json — 토큰이 든 파일은 뺀다)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-p5-out
+          path: |
+            e2e/p5/out/*.log
+            e2e/p5/out/*-checks.tsv
+            e2e/p5/out/*.json
+            e2e/p5/out/*.tsv
+            e2e/p5/out/*.txt
+            !e2e/p5/out/tap-*.jsonl
+            !e2e/p5/out/cookies-*.txt
+            !e2e/p5/out/daemon-*.json
+          retention-days: 14

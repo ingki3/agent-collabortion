@@ -20,3 +20,28 @@ tmp/
 
 # Orca / agent worktrees
 .worktrees/
+
+# Claude Code session files (wakeup lock 등)
+.claude/
+
+# P1 통합 E2E 산출물(토큰·쿠키 포함)
+e2e/p1/out/
+
+# P2 통합 E2E 산출물(토큰·쿠키·claim 탭 포함)
+e2e/p2/out/
+
+# P3 스파이크 산출물(측정 로그·세션 덤프·토큰; spike04c/out 등)
+plan/spikes/*/out/
+# 로그인 쿠키 잔여물(e2e·스파이크 스크립트가 만든다)
+cookies*.txt
+# P3 E2E 산출물(목 서버 캡처·래퍼 — 래퍼는 토큰을 담는다)
+e2e/p3/out/
+# 41_cli_hitl_real.sh 의 실서버 산출물(진짜 ctk_ 토큰·쿠키·claim 응답)
+e2e/p3/out-real/
+# P4 E2E 산출물(60_ 실서버 스모크의 claim 응답 = 진짜 ctk_ 토큰·쿠키)
+e2e/p4/out/
+# P5 E2E 산출물(70_ 의 claim 응답·데몬 토큰·쿠키)
+e2e/p5/out/
+# T-I5 실기(RUNTIME=real) 산출물 — 진짜 토큰·쿠키
+e2e/p5/out-real/
+e2e/p3/out-i5/

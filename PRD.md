@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 문서 버전 | **v0.11 (Draft)** — 개발 계획 리뷰 #01이 드러낸 컷 표·스파이크 시점 2건 반영. 이전 버전은 `prd/` |
+| 문서 버전 | **v0.17 (Draft)** — OASIS 리뷰 반영(Director 확정 2026-09-15): §11 별도 「관찰」 표 5행(트리거 사슬 규모·깊이·합류 폭·라우팅 집중·빈 턴), FR-7.2 빈 턴 카드, §12 라우팅의 구조적 집중; C5 역할별 행동 부분집합은 v1.1. v0.16 — 스파이크 5(PR #153) 판정: §8.4 M3 표를 "추적 여부 무관, 별도 미추적 `COLAB_BRIEF.md`" 한 행으로 바꾸고 `skip-worktree` 안 폐기, 턴 프롬프트 첫 줄 브리프 경로 지시 고정, §12 위험 표 정정. v0.15는 K-5 결정: FR-3.3 규칙 8의 억제 기간과 합류 뒤 위임자 기상 한도(FR-3.4 병합)를 명시. v0.14는 P2a 골든 테이블 작성에서 드러난 공백 2건: FR-3.5에 **재개 시 루프 카운터** 규칙과 상한 종류 구분 요구 추가, FR-3.3 lane 해소 "3단계" 오기를 4단계로 정정. v0.13은 G1 판정 반영: CLI 어댑터 v1 제외 확정, 어댑터 패키지 개명, `rate_limited` 분류, Hermes 유실 감지 규칙. v0.12는 §7 agent.status. 이전 버전은 `prd/` |
 | 작성일 | 2026-09-03 |
 | 파생 문서 | **`SCREEN.md`** (화면 설계 SSOT) — 이 PRD를 화면으로 옮기며 드러난 공백이 v0.9 변경 요약에 반영되어 있다. **`PLAN.md`** (개발 계획 SSOT, 이전 버전·리뷰는 `plan/`) — §10·§12를 주차로 펼치며 드러난 것이 v0.11에 반영되어 있다 |
 | 리뷰 이력 | `PRD_REVIEW_01` → v0.5 · `PRD_REVIEW_02` → v0.6 · `PRD_REVIEW_03` → v0.7 · `PRD_REVIEW_04` (`blocked` 경로 공백 6 / 소소한 것 8) → v0.8. **전건 반영, 반대 항목 없음** |
@@ -10,6 +10,16 @@
 | 대조 문서 | `prd/PRD_00_other-agent.md` — 같은 요구사항으로 작성된 다른 설계안. 큰 결정은 대체로 수렴하며, 차이와 판단은 §12 "검토했으나 v1에 넣지 않은 것" |
 | 참고 프로젝트 | [multica-ai/multica](https://github.com/multica-ai/multica) (이슈 기반 협업, CLI 런타임 데몬), [block/buzz](https://github.com/block/buzz) (ACP 하네스, 활동 피드, 승인 게이트), Orca (병렬 워크트리) |
 | 실행 스택 | **ACP 1차 + CLI 폴백** (Claude Code, Hermes, Antigravity) + 플랫폼 내부 기능은 Anthropic Claude API |
+
+### v0.17 변경 요약 (OASIS 리뷰 반영 — Director 확정 2026-09-15)
+
+**Director 확정(2026-09-15)**: ① 관찰 지표(C1~C3)는 §11 의 G9 지표 10개와 **별도 「관찰」 표**로 두고 목표치를 걸지 않는다(대시보드도 별도 표, G9 뒤 구현). ② 역할별 행동 부분집합(C5)은 **v1.1**. 근거와 대응표·후보 전체는 `plan/research/OASIS_REVIEW.md`(T-R1). 본문의 해당 자리에 `[v0.17]` 꼬리표로 문장을 **덧붙였고** 기존 문장은 바꾸지 않았다. 셋 다 **관찰만** 이며 §11 의 G9 지표 10개와 계약(`getWorkspaceMetrics`)은 건드리지 않는다.
+
+| # | 제안 | 근거(OASIS) | 반영 위치 |
+|---|---|---|---|
+| C1 | 세션 트리거 사슬 관찰 지표 3개(규모·깊이·폭, 목표치 없음) — FR-3.5 상한(8·60·5)이 맞는지 **분포**로 본다 | 정보 확산 지표 scale·depth·max breadth(논문 §4.1) | §11 |
+| C2 | 라우팅의 구조적 집중(규칙 6·7 폴백 비율, 에이전트별 트리거 점유율) 관찰 + 리스크 행 | RecSys 절제 실험 — 노출 규칙이 집단 결과를 좌우한다(논문 §5) | §11, §12 |
+| C3 | 빈 턴(메시지·플랫폼 조작·편집 0 으로 끝난 턴)도 렌더하고 비율을 관찰 | `do_nothing` 이 1급 행동으로 trace 에 남는다 | FR-7.2, §11 |
 
 ### v0.2 변경 요약
 
@@ -68,7 +78,7 @@
 |---|---|---|---|
 | N1 | 합류를 1회로 통일했으나 §8.3 규약이 "위임자에게 회신 멘션"을 계속 지시해 무효화 | 규약을 "완료 보고는 상태 갱신 + 아티팩트로, 위임자를 멘션하지 않는다"로 교체. **서버가 자식→위임자 멘션을 트리거하지 않고 합류 묶음에 싣는다.** 합류 그룹 = 같은 `delegated_from_task_id`에서 나온 자식 집합 | §8.3, FR-3.3, FR-6.5 |
 | N2 | 취소 판별자를 "명시 멘션"으로 바꿨더니 에이전트·일반 멤버의 멘션도 남의 턴을 죽임 | **`mid_turn_policy`를 삭제하고 취소를 UI 버튼 전용으로.** 어떤 메시지도 진행 중인 턴을 취소하지 않는다 (리뷰 원안 대신 수정안, 아래 설명) | FR-3.4, FR-2.1, §6, §7 |
-| N3 | 트리거가 어느 lane에 붙는지 규칙 없음 | **격리 방식과 무관한 3단계 lane 해소 규칙** 추가 (리뷰 원안 대신 수정안) | FR-3.3 |
+| N3 | 트리거가 어느 lane에 붙는지 규칙 없음 | **격리 방식과 무관한 4단계 lane 해소 규칙** 추가 (리뷰 원안 대신 수정안) | FR-3.3 |
 | N4 | 상태 머신이 `waiting_human ↔ running` 양방향이라 "프로세스는 이미 종료" 서술과 모순 | `running → waiting_human → queued` 단방향. HITL 호출은 `pending_hitl` 플래그만 세우고 `turn_end`에 전이. task당 열린 HITL 1개 | FR-7.1, FR-5.4 |
 
 **Major 11건** — M1 작업 디렉토리를 **Workdir**로 개명(용어 충돌), M2 Claude Code CLI 어댑터를 v1 조건부 항목으로 명시, M3 `.git/info/exclude`는 추적 파일에 무효 → `skip-worktree` + 마커 구간만 복원, M4 GC 조건에 "작업 트리 클린" 추가, M5 중단 버튼 스펙(대상 lane·입력), M6 서버측 억제 휴리스틱 **제거**(수정안), M7 승인은 자동 진행 금지 + deputy 승인 권한 + `overdue` 플래그, M8 `nobody`의 실행 중·대기 task 처리, M9 예산 초과를 `paused(budget)` 재개 가능 상태로, M10 첫 dispatch 시 `runtime_id` 고정, M11 데몬 크래시 시 고아 프로세스 정리.
@@ -139,6 +149,22 @@ v0.7은 `blocked` 상태를 **추가**했지만 그것이 기존 규칙들과 �
 | P7 | **사람의 세션 역할이 정의되지 않았다.** FR-5.3 한 문장뿐이라 화면 문서가 `participant`/`observer`를 만들었고, PRD가 허용한 게시를 금지하는 결과가 됐다 | **FR-5.3 재작성.** 사람은 Director·deputy·워크스페이스 멤버 셋. 멤버는 열람·게시 가능, 비공개 세션은 v1.1. `participant`는 에이전트 전용 용어 | FR-5.3 |
 
 **교훈으로 남길 것** — P7은 "PRD가 말하지 않은 것을 파생 문서가 채우면, 그 채움이 PRD 규칙을 위반해도 아무도 모른다"는 사례다. 앞으로 파생 문서가 새 개념을 도입하면 **PRD에 없는 개념임을 명시**하고 되돌려 확인받는다. `screen/SCREEN_01.md` §8.2가 그 역할을 했다.
+
+### v0.13 변경 요약 (G1 판정 반영 — `plan/G1_DECISION.md`)
+
+| # | 문제 | 조치 | 위치 |
+|---|---|---|---|
+| G1-1 | 조건부 항목 "Claude Code CLI 어댑터" 미결 | 스파이크 1 통과 → **v1 제외 확정**, 폴백 스펙은 문서 유지 | §10 |
+| G1-2 | 어댑터 패키지 `@zed-industries/claude-code-acp`가 2026-02 이후 동결 | `@agentclientprotocol/claude-agent-acp@0.74.0`으로 개명·고정 | §8.2.3, §12 |
+| G1-3 | 계정 사용 한도 오류가 재시도 분류에 없음 | `rate_limited` — 리셋 시각까지 재큐잉(`task.not_before`) | FR-7.1 |
+| G1-4 | Hermes 유실 감지 규칙 | `session/load` null 또는 provenance 불일치가 1차, refusal 규칙은 보조 | §8.2.5, §12 |
+| G1-5 | 어댑터가 사용자 전역 설정(MCP·hooks)을 세션에 싣는다 | 하네스 계약에서 `settingSources` 제한 + `strictMcpConfig` — `contracts/harness.md` | §8.2 |
+
+### v0.12 변경 요약 (스키마 v0 구현 반영)
+
+| # | 문제 | 조치 | 위치 |
+|---|---|---|---|
+| S1′ | §7 agent 표에 `status` 컬럼이 있었으나 FR-1.3(v0.10)은 "저장하지 않고 파생·계산"으로 확정 | §7에서 컬럼 제거, ENUM 값 집합만 유지. `error` 파생에 필요한 실패 분류는 `task.failure_kind`(auth·quota·config·network·runtime_offline·stall·timeout·cancelled·other)로 | §7 |
 
 ### v0.11 변경 요약 (개발 계획 리뷰 #01 반영)
 
@@ -463,6 +489,9 @@ draft → active → (paused ⇄ active) → completing → completed
 
 **FR-2.4 세션 요약** — 완료 시 플랫폼이 결정 기록·아티팩트·비용·타임라인을 정리한 `session_summary` 메시지를 자동 게시. 길이 상한은 워크스페이스 설정(FR-4.4).
 
+
+**FR-2.7 세션 삭제 (P5)** — Director 또는 워크스페이스 owner·admin 이 **끝난 세션**(`draft`·`completed`·`cancelled`)을 물리 삭제한다. 메시지·lane·task·활동·HITL·아티팩트·결정·비용 기록이 함께 사라지고 워크스페이스 집계(§11)에서도 빠진다 — 확인 다이얼로그가 이를 명시한다. 진행 중 세션은 먼저 취소해야 하고(409), 미병합·미커밋 `worktree` 가 있으면 FR-6.4 M4 와 같은 이유로 거부한다(409). 남은 workdir 은 GC 명령으로 정리한다. `activity_log` 에 `session.deleted` 만 남는다.
+
 ### FR-3. 메시징 및 멘션 라우팅
 
 **FR-3.1 메시지 구조** — 세션은 하나의 메인 타임라인 + 스레드(reply). 작성자 타입 `user | agent | system`. 마크다운 지원. `source_task_id`로 어떤 run에서 나온 메시지인지 추적.
@@ -486,7 +515,7 @@ UI에서 `@` 입력 시 자동완성이 링크를 삽입한다. 에이전트에�
 5. 사용자가 에이전트 메시지에 답글 → 그 에이전트. 스레드 안의 답글 → 스레드 소유 에이전트.
 6. 그 외 사용자 메시지 → 세션 `assignee`.
 7. 규칙 5로 비-assignee가 트리거된 경우, assignee 폴백 task를 5분 지연 예약하고 주 에이전트가 응답하면 취소.
-8. **자식 lane이 자기 위임자를 멘션해도 트리거하지 않는다.** 게시는 하되 합류 묶음(FR-6.5)에 실어 한 번만 전달한다. §8.3이 위임자 멘션을 금지하지만 프롬프트 규칙은 어겨질 수 있으므로 서버에도 같은 규칙을 둔다(N1).
+8. **자식 lane이 자기 위임자를 멘션해도 트리거하지 않는다.** 게시는 하되 합류 묶음(FR-6.5)에 실어 한 번만 전달한다. §8.3이 위임자 멘션을 금지하지만 프롬프트 규칙은 어겨질 수 있으므로 서버에도 같은 규칙을 둔다(N1). **억제는 합류 그룹이 발화하기 전까지다(v0.15, K-5 결정).** 합류 뒤 자식이 위임자를 멘션하면 **일반 멘션으로 라우팅**하되, 위임자가 한 줄마다 깨어나는 것은 FR-3.4의 **lane 단위 병합**이 막는다 — 첫 멘션이 위임자 task 하나를 만들고 위임자가 그 task를 마치기 전의 후속 멘션은 그 `queued` task에 병합된다(`coalesced_message_ids`). 새 규칙을 두지 않는 이유: "위임자가 다시 지시할 때까지 억제"는 자식의 후속 발견을 조용히 묻고, 억제 해제 시점을 lane 상태 외에 한 곳 더 기억해야 한다. 합류 1회 불변식(FR-6.5)은 **합류 시스템 메시지**에 대한 것이지 합류 뒤 일반 대화에 대한 것이 아니다.
    - **억제 범위는 위임자 한 명이다.** 자식이 `@PM @QA`를 함께 멘션하면 PM(위임자)만 억제되고 QA는 정상 트리거된다.
    - **억제 기간은 그 lane이 속한 합류 그룹이 발화하기 전까지다** (리뷰#04-6). 합류가 끝난 뒤에는 일반 멘션으로 동작한다 — 그때는 묶어서 전달할 합류가 더 없으므로 억제할 이유도 없다. 이 한정 덕에 "합류 후 재진입한 자식이 위임자에게 말을 걸 수 없는" 막다른 길이 사라지고, FR-6.5의 통보 규칙도 한 줄 줄어든다.
    - 억제 기간 동안 자식이 위임자에게 **질문**하려면 `colab status set blocked`를 쓴다(FR-6.2.1). 서버는 질문과 완료 보고를 구분할 수 없지만, 상태 변경은 구분할 수 있다.
@@ -543,7 +572,8 @@ UI에서 `@` 입력 시 자동완성이 링크를 삽입한다. 에이전트에�
 | `max_pair_roundtrips` | 5 | 같은 두 에이전트가 **연속으로** 주고받은 횟수. 사이에 제3자나 사람이 끼면 리셋 |
 
 - `max_chain_depth`는 FR-6.2의 위임 DAG 깊이보다 커야 한다. Lead → 실무자 → 리뷰어 → Lead 정도가 깊이 4이므로 기본 8이면 정상 위임을 막지 않는다.
-- 초과 시 세션 `paused` + Director에게 HITL 알림. 상한은 워크스페이스 설정에서 조정.
+- 초과 시 세션 `paused` + Director에게 HITL 알림. 상한은 워크스페이스 설정에서 조정. **어느 상한에 걸렸는지 구분해 기록한다** — `paused(loop)` 하나로 뭉치면 Director가 무엇을 조정해야 할지 알 수 없다.
+- **재개했을 때 카운터.** Director가 `paused(loop)` 세션을 재개하면 `max_chain_depth`와 `max_pair_roundtrips`는 **0으로 리셋**되고, `max_hops_per_hour`는 **리셋되지 않는다**(시간 창이 지나야 준다). 위 두 개는 이미 "사람이 개입하면 리셋"이 정의이고 재개는 사람의 개입이다 — 리셋하지 않으면 재개하자마자 같은 상한에 다시 걸려 재개가 무의미해진다. 반대로 셋 다 리셋하면 재개를 반복해 상한을 무한히 우회할 수 있으므로, **시간당 상한이 그 우회를 받아낸다.**
 - **서버측 억제는 구조적 규칙으로만 한다.** 자식→위임자 완료 보고 멘션은 트리거하지 않는다(규칙 8). 이것은 관계로 판정하므로 오탐이 없다.
 - **내용 기반 억제(빈 확인 메시지 휴리스틱)는 넣지 않는다.** "본문이 짧고 요청 신호가 없으면 억제"는 `@QA 리뷰 부탁해` 같은 **정상 위임을 조용히 삼킨다** — 짧고, 물음표도 숫자도 없다. 길이가 아니라 "요청을 하는가"가 판별자여야 하는데 LLM 없이는 판정할 수 없고, §8.1에 따라 동기 API 경로에서는 LLM을 호출하지 않는다. 핑퐁은 위의 `max_pair_roundtrips`가 결정적으로 잡는다. **오탐으로 일을 잃는 것보다 몇 턴 낭비가 낫다.**
 - §8.3의 "빈 확인 메시지 금지"는 프롬프트 규칙으로 남긴다. 어겨도 상한이 받아낸다.
@@ -761,7 +791,7 @@ deferred → queued → dispatched → preparing → running → waiting_human
 2. 에이전트가 지시를 따르지 않고 작업을 계속할 수 있다. 그동안 게시된 메시지와 편집은 **그대로 기록한다** — 이미 일어난 일이다.
 3. **`turn_end`가 도착하면** `waiting_human`으로 전이한다.
 4. **task당 열린 HITL은 하나로 제한한다.** 두 번째 호출은 "이미 대기 중인 요청이 있다"로 거부하고, 활동 피드에 남긴다. 하나의 턴이 답을 두 개 기다리면 재개 프롬프트가 모호해진다.
-- 재시도: `runtime_offline`, 네트워크, 프로세스 stall은 2~3회 자동(같은 머신 안에 대체 프로파일이 있으면 전환), 인증/쿼터/설정 오류는 재시도 없음.
+- 재시도: `runtime_offline`, 네트워크, 프로세스 stall은 2~3회 자동(같은 머신 안에 대체 프로파일이 있으면 전환), 인증/쿼터/설정 오류는 재시도 없음. **`rate_limited`(G1 F3)**: 계정 사용 한도는 `session/prompt`의 JSON-RPC 오류 `-32603 "You've hit your limit … resets HH:MM"`으로 오고 프로세스는 살아 있다 — 쿼터 오류가 아니라 **리셋 시각까지 `queued`로 되돌리는 재시도 가능 분류**로 다룬다(`task.not_before`).
 
 **재시도는 처음부터 다시 하지 않는다 (M5).** 중단된 task는 이미 파일을 절반 고치고 메시지를 두 개 게시했을 수 있다. `task_id + seq` 멱등 키는 메시지 중복 게시만 막고 파일 편집·셸 명령은 막지 못한다. 따라서 재시도는 HITL 재개(FR-5.4)와 **같은 코드 경로**를 쓴다.
 
@@ -797,6 +827,7 @@ deferred → queued → dispatched → preparing → running → waiting_human
 - **스트림을 합친다.** 청크로 도착한 텍스트는 하나의 항목이다. 사람은 메시지를 읽지 패킷을 읽지 않는다.
 - **부풀리지 않는다.** 인식된 동작은 의미 카드를, 인식하지 못한 동작은 깨끗한 일반 행을 받는다. 더 풍부해 보이려고 의미를 지어내지 않는다.
 - **기본은 정제, 원본은 요청 시.** 원본 레일은 안전망이고, 둘 사이의 전환은 같은 진실의 확대·축소이지 다른 피드가 아니다.
+- `[v0.17]` **빈 턴도 렌더한다.** 턴이 메시지 0·플랫폼 조작(`colab` 호출) 0·파일 편집 0 으로 `end_turn` 하면 "아무것도 하지 않고 턴을 끝냈다" 를 **정보 카드**(오류 아님)로 남긴다. 위의 "절대 캄캄해지지 않는다" 는 턴 **중**의 침묵을 다루고, 이 문장은 턴이 **끝난 뒤** 남는 공백을 다룬다 — 멘션이 낭비됐는지(§8.3 규약 위반) 정당한 무응답인지는 Director 가 카드를 보고 판단한다. refusal 은 별도(재시도, D-13). 판정 위치(서버 finish 시)와 `task_event` 키는 계약 결정(`plan/research/OASIS_REVIEW.md` C3).
 
 *강등* — 런타임이 구조화 이벤트를 주지 못하면(§8.2.6) 메시지 카드와 원본 레일만 남는다. 이때도 "이 런타임은 툴 단위 로그를 제공하지 않습니다"를 명시해 침묵과 구분한다.
 
@@ -887,7 +918,8 @@ workspace 1─N agent (name, role, role_description, instructions, tools,
                      owner_id, respond_to, respond_to_allowlist[],
                      avatar_url, budget_per_task, max_concurrent_tasks,
                      definition_source, definition_version,
-                     status: idle|working|waiting_human|error|offline|disabled,
+                     -- status 컬럼 없음: FR-1.3에 따라 task 상태에서 파생·계산한다 (v0.12, 스키마 v0에서 발견).
+                     -- 값 집합(idle|working|waiting_human|error|offline|disabled)은 ENUM 타입으로만 존재
                      archived_at)
 agent     1─N agent_profile (name, runtime_kind, model, options(jsonb),
                              env(jsonb), args[], is_default, fallback_profile_id?)
@@ -951,7 +983,7 @@ workspace 1─N activity_log
   - resume이 거부되면(§8.2.5) lane의 ref를 비우고 콜드 스타트한다.
   - `provenance`는 세션 동일성 검증에 쓴다(Hermes 유실 감지).
 - `message.state`는 `supervised` 모드에서 Director 승인 전 메시지를 담는다. v1.1 기능이지만 마이그레이션을 피하려고 스키마는 v1에 넣는다(M10).
-- `task_event`는 활동 피드의 렌더 단위다(FR-7.2). `class`는 렌더 클래스, `verb`/`object_ref`/`outcome`은 한 문장 렌더용이며, 제자리 갱신은 새 행을 쓰고 이전 행의 `superseded_by`를 채우는 방식으로 이력을 잃지 않고 표현한다.
+- `task_event`는 활동 피드의 렌더 단위다(FR-7.2). `class`는 렌더 클래스, `verb`/`object_ref`/`outcome`은 한 문장 렌더용이며, 제자리 갱신은 새 행을 쓰고 이전 행의 `superseded_by`를 채우는 방식으로 이력을 잃지 않고 표현한다. **서버가 스스로 만드는 이벤트도 닫힌 스키마를 지킨다(v0.16, S-52)**: 사람의 플랫폼 조작·플랫폼이 사람에게 하는 말(cancel·set_status·hitl·gc.refused·명령 TTL 만료)은 `class=status` 에 두고 사람이 읽는 문장은 `payload.args.note` 에, 서버 자체 진단(preview 드리프트·미가격 비용·예산 강제 실패·스키마 거절)은 `class=runtime` + `detail` 에 둔다. 서버 insert 경로도 데몬 경로와 같은 검증을 거친다.
 
 **고빈도 이벤트는 영속화하지 않는다.** 프레즌스, 타이핑·생성 중 표시, 토큰 델타 같은 신호는 실시간 채널로만 흐르고 `task_event`·`activity_log`·검색 색인에 들어가지 않는다. 영속 대상은 "나중에 누가 왜 그랬는지 물을 수 있는 것"으로 한정한다. 이 구분이 없으면 감사 로그가 스트리밍 잡음에 묻힌다.
 
@@ -1030,7 +1062,7 @@ interface RuntimeHarness {
 
 | | Claude Code | Hermes | Antigravity |
 |---|---|---|---|
-| 1차 경로 | **ACP** (`claude-code-acp` 어댑터) | **ACP** (`hermes acp`, 네이티브) | **CLI 폴백** (ACP 어댑터 없음) |
+| 1차 경로 | **ACP** (`@agentclientprotocol/claude-agent-acp` 어댑터 — 구 `claude-code-acp`, G1) | **ACP** (`hermes acp`, 네이티브) | **CLI 폴백** (ACP 어댑터 없음) |
 | 폴백 경로 | CLI (`claude -p`, §8.2.4) | CLI (`hermes -z`) | — |
 | 지시 파일 | `CLAUDE.md` | `AGENTS.md` | `AGENTS.md` (`GEMINI.md`가 있으면 우선) |
 | MCP | ✓ | ✓ (런타임 `mcpCapabilities`에 맞춰 stdio/http 필터) | ✗ → `colab` CLI 셸 호출로 대체 |
@@ -1069,7 +1101,7 @@ claude -p --input-format stream-json --output-format stream-json --verbose \
 |---|---|---|
 | Claude Code | 헤드리스에서 `AskUserQuestion`이 빈 답을 반환 | **ACP·CLI 두 경로 모두에서** disallow하고 HITL은 `colab hitl ask`로 일원화. CLI는 `--disallowedTools`, ACP는 어댑터의 툴 차단 수단(`tool_disallow` 능력)을 쓴다 — 수단 확인은 스파이크 항목(M11). 차단이 불가능하면 브리프에 "이 툴을 쓰지 말라"고 명시하고 호출 시 활동 피드에 경고를 남긴다 |
 | Claude Code | resume 거부 시 "no conversation found" 류 메시지 | `resume_rejected`로 분류해 새 세션으로 재시도 |
-| Hermes | `state.db`에 없는 세션을 **오류 없이 새로 생성** | 세션 provenance 불일치, 또는 `stopReason=="refusal" && 턴 활동 0`으로 유실 감지 |
+| Hermes | `state.db`에 없는 세션을 **오류 없이 새로 생성** | **`session/load` 결과가 `null`이면 유실, 아니면 `_meta.hermes.sessionProvenance.acpSessionId == 요청 id` 확인**(스파이크 4a: 3/3 감지, 오탐 0). `stopReason=="refusal" && 턴 활동 0`은 실기에서 발동하지 않아 보조 규칙으로 강등(G1 F7) |
 | Hermes | 상위 LLM이 4xx/5xx여도 `end_turn` 보고 | stderr에서 프로바이더 오류를 별도 감지 |
 | Hermes | 마지막 메시지 청크가 프롬프트 응답 **뒤에** 도착 | 250ms 정적 대기 + 2초 드레인 후 완료 판정 |
 | Antigravity | resume 거부를 구분할 수 없음(빈 conversation id) | 항상 새 세션 폴백 준비 |
@@ -1126,20 +1158,20 @@ Lead 역할의 브리프 파일에는 다음 섹션이 추가된다 (multica Squ
 
 **지시 파일이 워크트리를 오염시키지 않게 한다 (M6)** — `worktree` 격리에서 workdir는 저장소 체크아웃 그 자체다. 여기에 `CLAUDE.md`/`AGENTS.md`를 그냥 쓰면 (a) 저장소가 원래 갖고 있던 같은 이름 파일을 덮어써 프로젝트 규칙이 사라지고, (b) `git status`에 잡혀 에이전트가 커밋해버린다.
 
-- 원본 파일이 있으면 **덮어쓰지 않고**, 구분 마커 사이에 우리 브리프를 **덧붙인다**.
-- **파일이 추적 중인지에 따라 숨기는 방법이 다르다 (M3).** `.git/info/exclude`는 **untracked 파일에만** 효과가 있다. 대부분의 Claude Code 프로젝트는 `CLAUDE.md`를 이미 추적하므로 exclude만으로는 `modified`로 노출된다.
+- **저장소의 지시 파일(`CLAUDE.md`/`AGENTS.md`)은 원본 상태와 무관하게 읽지도 쓰지도 않는다 (M3, v0.16 정정).** 브리프는 **별도 미추적 파일 `<workdir>/COLAB_BRIEF.md`** 에 쓰고 `.git/info/exclude` 에 등록한다. 스파이크 5(`plan/spikes/SPIKE_05.md`)가 v0.15 까지의 안(추적 파일에 마커 append + `skip-worktree`)을 떨어뜨렸다: `skip-worktree` 는 `git status` 를 클린으로 보이게 하지만 **에이전트의 정당한 편집을 커밋에서 조용히 빼고**(12런 중 커밋 0) `switch`·`merge` 를 자력으로 풀 수 없게 막는다 — 시나리오 B(브랜치에 커밋)와 정면 충돌한다.
 
-| 원본 상태 | 숨기기 | lane 종료 시 |
-|---|---|---|
-| 추적되지 않음 (또는 파일 없음) | `.git/info/exclude`에 경로 등록 | 우리가 만든 파일이면 삭제, 등록 해제 |
-| **추적 중** | `git update-index --skip-worktree <path>` | `--no-skip-worktree`로 해제 후 마커 구간만 제거 |
+| 원본 상태 | 브리프 위치 | 숨기기 | lane 종료 시 |
+|---|---|---|---|
+| 무관(지시 파일이 있든, 추적 중이든, 없든) | `<workdir>/COLAB_BRIEF.md`(마커 구간으로 감싼 전문) | `.git/info/exclude` 에 경로 등록 | 파일 삭제, 등록 해제 |
 
-- **복원은 마커 구간만 제거한다.** 파일 전체를 원본으로 되돌리지 않는다 — 에이전트가 작업의 일부로 `CLAUDE.md`를 정당하게 수정했을 수 있고, 통째 복원은 그 수정을 지운다.
+- 지시 파일이 남지 않으므로 복원할 것도 없다. 에이전트가 `CLAUDE.md`/`AGENTS.md` 를 작업의 일부로 고치고 커밋하는 것은 평범한 git 작업으로 그대로 동작한다.
 - `.gitignore`는 저장소가 소유한 파일이므로 건드리지 않는다.
+- `claude_code` 는 파일 경로가 아니라 `_meta.systemPrompt.append` 로 받으므로 이 절의 파일은 `instruction_file` 런타임(hermes)에만 생긴다. `settingSources: []` 아래에서 Claude Code 는 저장소의 `CLAUDE.md` 도 읽지 않는다(스파이크 5 §2.1) — 그것을 열려면 G1 F2 격리를 다시 여는 일이므로 v1 에서는 열지 않는다.
 
 **턴 프롬프트**
 
 - 트리거 메시지 인용, 위임 브리프, 최근 히스토리 N개, "응답은 `colab message post`로 게시하라"는 지시만 담는다.
+- **`instruction_file` 런타임(hermes)의 턴 프롬프트 맨 앞 한 줄은 고정이다(v0.16, 스파이크 5 §6.3)**: "먼저 `<workdir 절대 경로>/COLAB_BRIEF.md` 를 읽어라". 브리프 [1]~[5] 의 바이트 동일 규칙(E12-11)은 그 파일 안에서 유지한다. 비용: 매 턴 앞에 파일 읽기 도구 호출 1회(실측 4/4).
 - **"중단하고 다시 지시"로 재시작할 때**(FR-3.4)는 **새 지시만** 담는다. `<resumed>` 구간을 쓰지 않는다 — 사람이 방향을 바꾼 것이므로 이전 작업을 이어가면 안 된다(B). 런타임 resume 위에서 재시작하면 이전 지시는 이미 런타임 세션 안에 있으므로 다시 넣으면 중복이 되고, 콜드 스타트라면 히스토리 구간에 이미 들어 있다(m-o).
 - **재개·재시도 프롬프트**(FR-5.4, FR-7.1)에는 `<resumed>` 구간을 두고 중단 사유, 이미 게시한 메시지 목록, HITL 답변과 승인 여부, "workdir의 현재 상태를 먼저 확인하라"는 지시를 담는다.
 - 히스토리 구간에는 `included` / `total` / `truncated`를 함께 적어, 잘렸다는 사실을 에이전트가 알고 필요하면 `colab session messages`로 더 읽게 한다.
@@ -1183,7 +1215,7 @@ v0.4 대비 **컨테이너 격리 · Antigravity · `.agent.md` · Build with AI
 - [ ] 워크스페이스·멤버 CRUD
 - [ ] **데몬 + Runtimes 화면 + ACP 하네스** — 핸드셰이크, 권한 협상(`allow_once` 탐색), 이벤트 정규화, 취소 절차, 프로세스 그룹 정리
 - [ ] **런타임 2종**: Claude Code(ACP), Hermes(ACP). 구현 순서: **ACP 하네스 → Claude Code → Hermes**
-- [ ] **(조건부) Claude Code CLI 어댑터** — 스파이크 1에서 `claude-code-acp`가 불안정하다고 판정되면 v1에 포함한다. §12의 "드리프트 시 CLI 폴백으로 강등" 완화책도 이 어댑터가 있어야 성립하므로, 스파이크 결과에 따라 **v1 필수 또는 v1.1**로 확정한다(M2)
+- [x] ~~(조건부) Claude Code CLI 어댑터~~ — **G1(2026-09-05)에서 v1 제외 확정**: 스파이크 1 통과(크래시 0, resume 11/11, `allow_once` 부재 0%). §8.2.4 폴백 스펙은 문서로 유지. 원문: 스파이크 1에서 `claude-code-acp`가 불안정하다고 판정되면 v1에 포함한다. §12의 "드리프트 시 CLI 폴백으로 강등" 완화책도 이 어댑터가 있어야 성립하므로, 스파이크 결과에 따라 **v1 필수 또는 v1.1**로 확정한다(M2)
 - [ ] 에이전트 CRUD(폼), **프로파일(멀티) 편집기**, 팀 템플릿(FR-1.4), 동적 생성 금지
 - [ ] 호출 권한 게이트(`respond_to` = 초대 권한, 세션 참여 = 트리거 허용)
 - [ ] 세션 생성(goal, **Director**, `runtime_id`, 참여자+프로파일, **격리 worktree/none**, **종료 조건 4종: `artifact_submitted` · `agent_approval` · `user_approval` · `manual`**, 예산 상한). `criteria_met`(플랫폼 LLM 판정)만 v1.1 — 시나리오 B가 `agent_approval`을 쓰므로 이것이 빠지면 v1에서 성립하지 않는다(t-4)
@@ -1254,6 +1286,16 @@ v0.4 대비 **컨테이너 격리 · Antigravity · `.agent.md` · Build with AI
 
 *목표 6(벤더 혼합) 검증 지표*: 두 종류 이상의 런타임을 섞어 쓰는 워크스페이스 비율. 제품 성공 지표가 아니라 목표 6이 실제 수요였는지 확인하는 용도이므로 목표치를 걸지 않고 관찰만 한다.
 
+`[v0.17]` **관찰 행(목표치 없음, 위 10개와 별도 표)** — 위 목표 6 지표와 같은 성격이다. 데이터는 `session_hop(rule, cause_hop_id, chain_depth)`·`lane.delegated_from_task_id`·`task_event` 에 이미 있다. `getWorkspaceMetrics` 10개(G9 조건)에 섞지 않고 별도 op 또는 아래 표로 둘지는 Lead 가 정한다(`plan/research/OASIS_REVIEW.md` §3 C1~C3).
+
+| 관찰 행 `[v0.17]` | 세는 법 | 무엇을 보려고 |
+|---|---|---|
+| `[v0.17]` 트리거 사슬 규모 | 사람 메시지 1건이 만든 파생 task 수(같은 리셋 구간), 중앙값·p95 | 사람 한 마디가 얼마나 많은 턴을 부르는가 |
+| `[v0.17]` 트리거 사슬 깊이 | 세션이 도달한 최대 `chain_depth`, 분포 | `max_chain_depth` 8 이 정상 위임을 막는지·너무 느슨한지(S-76·S-78 류를 미리) |
+| `[v0.17]` 합류 폭 | 합류 그룹의 최대 자식 lane 수, 분포 | 병렬이 실제로 쓰이는가 |
+| `[v0.17]` 라우팅 집중 | task 를 만든 FR-3.3 규칙 번호 분포(특히 6·7 폴백 비율)와 에이전트별 트리거 점유율 | Director 가 멘션 없이 써서 assignee 에게 전부 쏠리는 패턴 |
+| `[v0.17]` 빈 턴 비율 | 메시지·플랫폼 조작·편집 0 으로 끝난 attempt / 전체 attempt | 멘션이 낭비되는 정도(FR-7.2 빈 턴 카드) |
+
 ---
 
 ## 12. 리스크 및 오픈 이슈
@@ -1279,13 +1321,14 @@ v0.4 대비 **컨테이너 격리 · Antigravity · `.agent.md` · Build with AI
 | **재진입마다 런타임 대화가 끊겨 콜드 스타트** | `runtime_session_ref`를 lane에 둔다(§7). 모든 재진입이 예외 없이 resume을 탄다 |
 | **재지시가 이전 지시를 이어감** | 재지시는 새 task(`restarted_from_task_id`)이고 프롬프트에 `<resumed>`를 넣지 않는다(B) |
 | **데몬 크래시 후 고아 프로세스와 재큐잉된 task가 같은 workdir에 이중 쓰기** | pgid 디스크 기록 + 재시작 시 claim 전 정리, 재큐잉 시 `COLAB_TASK_TOKEN` 폐기(FR-9.1) |
-| 지시 파일이 저장소를 오염 | 마커 사이 append + **추적 파일은 `skip-worktree`, 미추적 파일은 `.git/info/exclude`** + 종료 시 마커 구간만 제거(§8.4) |
+| 지시 파일이 저장소를 오염 | 저장소의 지시 파일은 건드리지 않고 **별도 미추적 `COLAB_BRIEF.md` + `.git/info/exclude`** + 턴 프롬프트 첫 줄이 경로 지시 + 종료 시 파일 삭제(§8.4, v0.16 — 스파이크 5가 `skip-worktree` 안을 떨어뜨렸다) |
 | (v1.1) 컨테이너 격리 시 CLI 인증 전달 | 이미지에 CLI 포함 + 호스트 인증 디렉토리 read-only 마운트, 스파이크로 확정 |
 | (v1.1) Antigravity가 MCP를 헤드리스에서 못 받고 비용 미보고 | `colab` CLI 셸 호출로 대체, 추정 비용은 하드 컷 대신 `paused` |
+| `[v0.17]` **라우팅의 구조적 집중** — 규칙 6·7이 멘션 없는 사람 메시지를 전부 assignee 에게, 합류가 결과를 전부 위임자 한 명에게 보낸다. 규칙은 결정적이라 "편향" 이 아니라 **집중**이고, Director 가 멘션을 안 쓰면 병렬이 생기지 않고 Lead 가 병목이 된다(OASIS 절제 실험: 노출 규칙이 집단 결과를 좌우) | 규칙을 바꾸지 않는다(FR-3.5 "내용 기반 억제 안 함"). §11 관찰 행(규칙 번호 분포·트리거 점유율)으로 **재기만** 하고, G8 실측 5명의 로그에서 먼저 읽는다. 규칙 변경은 그 뒤 별도 결정 |
 
 **오픈 이슈 / 스파이크** — 1~2는 v1 착수 전, 3~5는 1주차, 6~8은 해당 기능 착수 전.
 
-1. **`claude-code-acp` 어댑터의 성숙도·유지보수 상태 실측.** Claude Code CLI 직접 구동(§8.2.4) 대비 안정성이 떨어지면 Claude Code만 CLI를 1차로 되돌린다. 하네스 구조는 그대로 두고 경로만 바꾼다. **이 결정이 v1 범위를 좌우하므로 1주차에 내린다.**
+1. ~~`claude-code-acp` 어댑터의 성숙도·유지보수 상태 실측.~~ **G1 통과** (`plan/spikes/SPIKE_01.md`, `plan/G1_DECISION.md`). 지시한 `@zed-industries/claude-code-acp`는 2026-02 이후 동결, 후속 `@agentclientprotocol/claude-agent-acp` 0.74.0으로 고정. 원문: Claude Code CLI 직접 구동(§8.2.4) 대비 안정성이 떨어지면 Claude Code만 CLI를 1차로 되돌린다. 하네스 구조는 그대로 두고 경로만 바꾼다. **이 결정이 v1 범위를 좌우하므로 1주차에 내린다.**
 2. **ACP 경로에서 툴을 차단하는 수단**(`AskUserQuestion`). 어댑터 옵션·설정 파일 중 무엇이 되는지 확인. 불가하면 브리프 지시 + 활동 피드 경고로 대체(M11).
 3. **ACP `session/new`에 시스템 프롬프트 필드가 있는가.** 없으면 §8.4의 1번 경로를 삭제하고 지시 파일을 유일 경로로 확정(M6).
 4. **HITL 재개 경로 검증** — 두 단계로 나눈다(`PLAN.md` §4). **4a(1주차)**: 런타임 능력 — Claude Code ACP resume 후 답변 프롬프트로 이전 컨텍스트가 유지되는지, Hermes 유실 감지가 실제로 동작하는지. **4c(HITL 구현 착수 전)**: 콜드 스타트만으로 작업을 이어갈 수 있는지(C1) — lane `runtime_session_ref`와 `<resumed>` 프롬프트가 있어야 실제 조건이 되므로 1주차에는 할 수 없다.

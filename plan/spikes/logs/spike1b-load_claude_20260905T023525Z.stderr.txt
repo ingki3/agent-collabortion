@@ -1,0 +1,217 @@
+[session/query] sessionId=b30b459c-7702-4afe-a3bd-a16cb853d4d7 resume=none apiType=native baseUrl=native
+Session b30b459c-7702-4afe-a3bd-a16cb853d4d7: session title update failed: Error: ACP connection closed
+Session b30b459c-7702-4afe-a3bd-a16cb853d4d7: cancellation failed during teardown Error: Claude Code process exited with code 143
+    at qC.getProcessExitError (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:11331)
+    at ChildProcess.n (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:15571)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at m (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:4918)
+    at ChildProcess.<anonymous> (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:5122)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at ChildProcess._handle.onexit (node:internal/child_process:293:12) {
+  telemetryMessage: 'Claude Code process exited with code 143',
+  errorClass: 'process_exited_nonzero',
+  exitCode: 143
+}
+Session b30b459c-7702-4afe-a3bd-a16cb853d4d7: cancellation failed during teardown Error: Claude Code process exited with code 143
+    at qC.getProcessExitError (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:11331)
+    at ChildProcess.n (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:15571)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at m (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:4918)
+    at ChildProcess.<anonymous> (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:5122)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at ChildProcess._handle.onexit (node:internal/child_process:293:12) {
+  telemetryMessage: 'Claude Code process exited with code 143',
+  errorClass: 'process_exited_nonzero',
+  exitCode: 143
+}
+Session b30b459c-7702-4afe-a3bd-a16cb853d4d7: cancellation failed during teardown Error: Claude Code process exited with code 143
+    at qC.getProcessExitError (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:11331)
+    at ChildProcess.n (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:15571)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at m (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:4918)
+    at ChildProcess.<anonymous> (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:5122)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at ChildProcess._handle.onexit (node:internal/child_process:293:12) {
+  telemetryMessage: 'Claude Code process exited with code 143',
+  errorClass: 'process_exited_nonzero',
+  exitCode: 143
+}
+[session/query] sessionId=b30b459c-7702-4afe-a3bd-a16cb853d4d7 resume=b30b459c-7702-4afe-a3bd-a16cb853d4d7 apiType=native baseUrl=native
+Session b30b459c-7702-4afe-a3bd-a16cb853d4d7: cancellation failed during teardown Error: Claude Code process exited with code 143
+    at qC.getProcessExitError (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:11331)
+    at ChildProcess.n (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:15571)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at m (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:4918)
+    at ChildProcess.<anonymous> (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:5122)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at ChildProcess._handle.onexit (node:internal/child_process:293:12) {
+  telemetryMessage: 'Claude Code process exited with code 143',
+  errorClass: 'process_exited_nonzero',
+  exitCode: 143
+}
+Session b30b459c-7702-4afe-a3bd-a16cb853d4d7: cancellation failed during teardown Error: Claude Code process exited with code 143
+    at qC.getProcessExitError (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:11331)
+    at ChildProcess.n (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:15571)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at m (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:4918)
+    at ChildProcess.<anonymous> (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:5122)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at ChildProcess._handle.onexit (node:internal/child_process:293:12) {
+  telemetryMessage: 'Claude Code process exited with code 143',
+  errorClass: 'process_exited_nonzero',
+  exitCode: 143
+}
+Session b30b459c-7702-4afe-a3bd-a16cb853d4d7: cancellation failed during teardown Error: Claude Code process exited with code 143
+    at qC.getProcessExitError (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:11331)
+    at ChildProcess.n (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:15571)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at m (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:4918)
+    at ChildProcess.<anonymous> (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:5122)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at ChildProcess._handle.onexit (node:internal/child_process:293:12) {
+  telemetryMessage: 'Claude Code process exited with code 143',
+  errorClass: 'process_exited_nonzero',
+  exitCode: 143
+}
+[session/query] sessionId=17680509-5122-41e8-aa7e-48e7d994166b resume=none apiType=native baseUrl=native
+Session 17680509-5122-41e8-aa7e-48e7d994166b: session title update failed: Error: ACP connection closed
+Session 17680509-5122-41e8-aa7e-48e7d994166b: cancellation failed during teardown Error: Claude Code process exited with code 143
+    at qC.getProcessExitError (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:11331)
+    at ChildProcess.n (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:15571)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at m (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:4918)
+    at ChildProcess.<anonymous> (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:5122)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at ChildProcess._handle.onexit (node:internal/child_process:293:12) {
+  telemetryMessage: 'Claude Code process exited with code 143',
+  errorClass: 'process_exited_nonzero',
+  exitCode: 143
+}
+Session 17680509-5122-41e8-aa7e-48e7d994166b: cancellation failed during teardown Error: Claude Code process exited with code 143
+    at qC.getProcessExitError (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:11331)
+    at ChildProcess.n (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:15571)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at m (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:4918)
+    at ChildProcess.<anonymous> (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:5122)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at ChildProcess._handle.onexit (node:internal/child_process:293:12) {
+  telemetryMessage: 'Claude Code process exited with code 143',
+  errorClass: 'process_exited_nonzero',
+  exitCode: 143
+}
+Session 17680509-5122-41e8-aa7e-48e7d994166b: cancellation failed during teardown Error: Claude Code process exited with code 143
+    at qC.getProcessExitError (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:11331)
+    at ChildProcess.n (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:15571)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at m (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:4918)
+    at ChildProcess.<anonymous> (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:5122)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at ChildProcess._handle.onexit (node:internal/child_process:293:12) {
+  telemetryMessage: 'Claude Code process exited with code 143',
+  errorClass: 'process_exited_nonzero',
+  exitCode: 143
+}
+[session/query] sessionId=17680509-5122-41e8-aa7e-48e7d994166b resume=17680509-5122-41e8-aa7e-48e7d994166b apiType=native baseUrl=native
+Session 17680509-5122-41e8-aa7e-48e7d994166b: cancellation failed during teardown Error: Claude Code process exited with code 143
+    at qC.getProcessExitError (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:11331)
+    at ChildProcess.n (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:15571)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at m (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:4918)
+    at ChildProcess.<anonymous> (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:5122)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at ChildProcess._handle.onexit (node:internal/child_process:293:12) {
+  telemetryMessage: 'Claude Code process exited with code 143',
+  errorClass: 'process_exited_nonzero',
+  exitCode: 143
+}
+Session 17680509-5122-41e8-aa7e-48e7d994166b: cancellation failed during teardown Error: Claude Code process exited with code 143
+    at qC.getProcessExitError (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:11331)
+    at ChildProcess.n (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:15571)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at m (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:4918)
+    at ChildProcess.<anonymous> (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:5122)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at ChildProcess._handle.onexit (node:internal/child_process:293:12) {
+  telemetryMessage: 'Claude Code process exited with code 143',
+  errorClass: 'process_exited_nonzero',
+  exitCode: 143
+}
+Session 17680509-5122-41e8-aa7e-48e7d994166b: cancellation failed during teardown Error: Claude Code process exited with code 143
+    at qC.getProcessExitError (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:11331)
+    at ChildProcess.n (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:15571)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at m (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:4918)
+    at ChildProcess.<anonymous> (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:5122)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at ChildProcess._handle.onexit (node:internal/child_process:293:12) {
+  telemetryMessage: 'Claude Code process exited with code 143',
+  errorClass: 'process_exited_nonzero',
+  exitCode: 143
+}
+[session/query] sessionId=17680509-5122-41e8-aa7e-48e7d994166b resume=17680509-5122-41e8-aa7e-48e7d994166b apiType=native baseUrl=native
+Session 17680509-5122-41e8-aa7e-48e7d994166b: cancellation failed during teardown Error: Claude Code process exited with code 143
+    at qC.getProcessExitError (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:11331)
+    at ChildProcess.n (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:15571)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at m (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:4918)
+    at ChildProcess.<anonymous> (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:5122)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at ChildProcess._handle.onexit (node:internal/child_process:293:12) {
+  telemetryMessage: 'Claude Code process exited with code 143',
+  errorClass: 'process_exited_nonzero',
+  exitCode: 143
+}
+Session 17680509-5122-41e8-aa7e-48e7d994166b: cancellation failed during teardown Error: Claude Code process exited with code 143
+    at qC.getProcessExitError (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:11331)
+    at ChildProcess.n (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:15571)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at m (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:4918)
+    at ChildProcess.<anonymous> (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:5122)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at ChildProcess._handle.onexit (node:internal/child_process:293:12) {
+  telemetryMessage: 'Claude Code process exited with code 143',
+  errorClass: 'process_exited_nonzero',
+  exitCode: 143
+}
+Session 17680509-5122-41e8-aa7e-48e7d994166b: cancellation failed during teardown Error: Claude Code process exited with code 143
+    at qC.getProcessExitError (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:11331)
+    at ChildProcess.n (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:15571)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at m (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:4918)
+    at ChildProcess.<anonymous> (file:///Users/simplist/.npm/_npx/4055adb4950fd71b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:100:5122)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:531:35)
+    at ChildProcess._handle.onexit (node:internal/child_process:293:12) {
+  telemetryMessage: 'Claude Code process exited with code 143',
+  errorClass: 'process_exited_nonzero',
+  exitCode: 143
+}

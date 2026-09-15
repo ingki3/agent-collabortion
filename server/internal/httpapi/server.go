@@ -1,0 +1,233 @@
+// Package httpapi serves contracts/openapi.yaml (generated router in gen/)
+// for the P1 operation set, the /v1/daemon/* protocol from
+// contracts/daemon-protocol.md, and the SSE stream. Everything outside P1
+// answers 501 not_implemented (unimplemented.go).
+package httpapi
+
+import (
+	"context"
+	"io"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/ingki3/agent-collabortion/contracts"
+	"github.com/ingki3/agent-collabortion/contracts/clock"
+	"github.com/ingki3/agent-collabortion/server/internal/agents"
+	"github.com/ingki3/agent-collabortion/server/internal/apperr"
+	"github.com/ingki3/agent-collabortion/server/internal/artifacts"
+	"github.com/ingki3/agent-collabortion/server/internal/auth"
+	"github.com/ingki3/agent-collabortion/server/internal/buildinfo"
+	"github.com/ingki3/agent-collabortion/server/internal/db"
+	"github.com/ingki3/agent-collabortion/server/internal/events"
+	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/install"
+	"github.com/ingki3/agent-collabortion/server/internal/lanes"
+	"github.com/ingki3/agent-collabortion/server/internal/llm"
+	"github.com/ingki3/agent-collabortion/server/internal/queue"
+	"github.com/ingki3/agent-collabortion/server/internal/realtime"
+	"github.com/ingki3/agent-collabortion/server/internal/router"
+	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
+	"github.com/ingki3/agent-collabortion/server/internal/sessions"
+	"github.com/ingki3/agent-collabortion/server/internal/tasks"
+	"github.com/ingki3/agent-collabortion/server/internal/testchat"
+	"github.com/ingki3/agent-collabortion/server/internal/tokens"
+	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
+)
+
+// BasePath is the OpenAPI servers[0].url.
+const BasePath = "/api/v1"
+
+// Server implements gen.ServerInterface for P1 and the daemon endpoints.
+type Server struct {
+	unimplemented
+
+	DB        *pgxpool.Pool
+	Clock     clock.Clock
+	Log       *slog.Logger
+	Auth      *auth.Service
+	Agents    *agents.Service
+	Artifacts *artifacts.Service
+	Runtimes  *runtimes.Service
+	Sessions  *sessions.Service
+	// Workdirs is FR-6.4's GC scheduler (P4). It reads rows and issues the
+	// `gc` commands JudgeGC asked for; the judgement itself is a pure function.
+	Workdirs *workdirs.Service
+	Router   *router.Service
+	Tasks    *tasks.Service
+	// TestChats is FR-1.8.1 (daemon-protocol v0.8 §4.5): the session-less
+	// 1:1 chat whose turns ride the daemon protocol as token-less attempts.
+	TestChats *testchat.Service
+	Events    *events.Service
+	Queue     *queue.Postgres
+	Tokens    *tokens.Service
+	Hub       *realtime.Hub
+
+	// SecureCookies sets the Secure flag on the session cookie (HTTPS).
+	SecureCookies bool
+
+	// ServerURL is this deployment's own origin (COLAB_SERVER_URL). The
+	// installer served at install.Path is rendered with it, so a machine that
+	// runs the S12 card's first line is pointed back at THIS server (S-63).
+	ServerURL string
+	// InstallRef is the commit or tag `/install.sh` pins the source build to
+	// (S-64): this server's own build ref (buildinfo.Ref) unless a test sets
+	// it. Empty = the script falls back to the repository's default branch and
+	// says so.
+	InstallRef string
+	// InstallGoMin is the Go version the installer requires (S-65),
+	// buildinfo.GoMin by default.
+	InstallGoMin string
+}
+
+// Deps builds every service on one pool and clock (used by main and tests).
+type Deps struct {
+	DB    *pgxpool.Pool
+	Clock clock.Clock
+	Log   *slog.Logger
+	// ServerURL is the API origin (COLAB_SERVER_URL): daemon install
+	// commands and the CLI point here.
+	ServerURL string
+	// WebURL is the origin people open in a browser (COLAB_WEB_URL): invite
+	// links. Falls back to ServerURL — in `make dev` the web is :3000 and the
+	// server :8080 (G3 S-5).
+	WebURL string
+	// InstallRef / InstallGoMin override buildinfo for the installer (tests).
+	InstallRef   string
+	InstallGoMin string
+}
+
+// NewServer wires the services.
+func NewServer(d Deps) *Server {
+	if d.Log == nil {
+		d.Log = slog.Default()
+	}
+	problemLog = d.Log
+	if d.WebURL == "" {
+		d.WebURL = d.ServerURL
+	}
+	if d.InstallRef == "" {
+		d.InstallRef = buildinfo.Ref()
+	}
+	if d.InstallGoMin == "" {
+		d.InstallGoMin = buildinfo.GoMin()
+	}
+	hub := realtime.New(d.DB, d.Clock)
+	tok := tokens.New(d.Clock)
+	tsk := tasks.New(d.DB, d.Clock, tok, hub)
+	// The task layer moves lane.status (claim → running, finish → done, …) but
+	// cannot import internal/lanes, which imports it. The hook closes that loop
+	// so S7 gets a frame for every transition (G4 2판 W5).
+	tsk.LanePublish = func(ctx context.Context, q db.DBTX, laneID uuid.UUID) {
+		if err := lanes.Publish(ctx, hub, q, laneID); err != nil {
+			d.Log.Warn("publish lane.updated", "err", err, "lane", laneID)
+		}
+	}
+	// Same closure trick for the agent chip: FR-1.3's derivation lives in
+	// internal/sessions, which imports tasks (G4 2판 W7).
+	tsk.ParticipantPublish = func(ctx context.Context, q db.DBTX, sessionID, agentID uuid.UUID) {
+		if err := sessions.PublishParticipant(ctx, hub, q, sessionID, agentID); err != nil {
+			d.Log.Warn("publish participant.updated", "err", err, "session", sessionID, "agent", agentID)
+		}
+	}
+	notifier := queue.NewNotifier()
+	q := queue.NewPostgres(d.DB, d.Clock, tsk, notifier)
+	rt := router.New(d.DB, d.Clock, hub, notifier).WithTasks(tsk)
+	tc := testchat.New(d.DB, d.Clock, hub)
+	tc.Log = d.Log
+	// A queued test chat turn wakes the same long-poll a queued task does —
+	// the person is watching the screen for the answer.
+	tc.Notify = notifier.Notify
+	return &Server{
+		DB: d.DB, Clock: d.Clock, Log: d.Log, ServerURL: d.ServerURL,
+		InstallRef: d.InstallRef, InstallGoMin: d.InstallGoMin,
+		Auth:      auth.New(d.DB, d.Clock, d.WebURL),
+		Agents:    agents.New(d.DB, d.Clock),
+		Artifacts: artifacts.New(d.DB, d.Clock),
+		Runtimes:  runtimes.New(d.DB, d.Clock, hub, d.ServerURL).WithLog(d.Log).WithTasks(tsk),
+		// §8.5's platform client is optional on purpose: with no
+		// ANTHROPIC_API_KEY the summary is composed from rows, as it was in P2,
+		// and every other part of the server runs unchanged (llm.FromEnv).
+		Sessions:  sessions.New(d.DB, d.Clock, hub, rt).WithTasks(tsk).WithLLM(platformLLM(d.Log), d.Log),
+		Workdirs:  workdirs.NewService(d.DB, d.Clock, hub, d.Log),
+		Router:    rt,
+		Tasks:     tsk,
+		TestChats: tc,
+		Events:    events.New(d.DB, d.Clock, hub),
+		Queue:     q,
+		Tokens:    tok,
+		Hub:       hub,
+	}
+}
+
+// Handler returns the full HTTP handler: generated OpenAPI router under
+// /api/v1, the daemon protocol under /v1/daemon, /healthz.
+func (s *Server) Handler() http.Handler {
+	api := gen.HandlerWithOptions(s, gen.StdHTTPServerOptions{
+		BaseURL: BasePath,
+		ErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+			writeProblem(w, validationFromBind(err))
+		},
+	})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "contracts": contracts.Version})
+	})
+	// S-63: the daemon installer the S12 card tells a new person to pipe into
+	// `sh`. Unauthenticated by construction — the machine running it has no
+	// account yet, and this is the FIRST thing anyone does. `install.Path` is
+	// the same constant `runtimes.installCommands` prints.
+	//
+	// S-64: the script pins the source build to THIS server's commit. Five
+	// people installing during one G8 session get the same tree the server
+	// runs, not whatever `main` is at that minute. S-65: `Cache-Control:
+	// no-store` — a proxy or browser that kept yesterday's script would hand
+	// out yesterday's ref.
+	mux.HandleFunc("GET "+install.Path, func(w http.ResponseWriter, _ *http.Request) {
+		body := install.Script(s.ServerURL, s.InstallRef, s.InstallGoMin)
+		w.Header().Set("Content-Type", install.ContentType)
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, body)
+	})
+	s.daemonRoutes(mux)
+	mux.Handle("/", api)
+	return s.authenticate(mux)
+}
+
+func validationFromBind(err error) *Problem {
+	msg := err.Error()
+	code := "invalid_parameter"
+	if strings.Contains(msg, "Idempotency-Key") {
+		code = "idempotency_key_required"
+	}
+	detail := "요청 형식이 올바르지 않습니다 — 화면을 새로고침한 뒤 다시 시도해 주세요"
+	if code == "idempotency_key_required" {
+		detail = "같은 요청을 구분할 키가 빠졌습니다 — 화면을 새로고침한 뒤 다시 시도해 주세요"
+	}
+	// The binder's own text names the parameter; it stays in errors[] for whoever debugs the client.
+	return &Problem{Status: http.StatusUnprocessableEntity, Code: code, Title: apperr.Title(http.StatusUnprocessableEntity), Detail: detail,
+		Errors: []apperr.FieldError{{Field: "params", Code: code, Message: msg}}}
+}
+
+// platformLLM builds the §8.5 client from the environment.
+//
+// Returning nil is a supported outcome, not a failure. A workspace with no
+// Anthropic account must still be able to finish a session, and every isolated
+// test stack would otherwise need a live key; `sessions.summarise` composes the
+// summary from rows in that case, exactly as P2 did.
+func platformLLM(log *slog.Logger) llm.Client {
+	c := llm.FromEnv(log)
+	if c == nil {
+		if log != nil {
+			log.Info("platform LLM not configured (ANTHROPIC_API_KEY unset) — session summaries are composed from rows")
+		}
+		return nil
+	}
+	return c
+}

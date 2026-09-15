@@ -1,0 +1,377 @@
+Error handling request {
+  id: 6,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: '2592b06b-f7de-4c4a-aded-e49ffdd0358c',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 7,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: '2592b06b-f7de-4c4a-aded-e49ffdd0358c',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 8,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: '2592b06b-f7de-4c4a-aded-e49ffdd0358c',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 3,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: '2592b06b-f7de-4c4a-aded-e49ffdd0358c',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 7,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: 'da5e80b5-cf8a-4308-af88-50fb68bb7543',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 8,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: 'da5e80b5-cf8a-4308-af88-50fb68bb7543',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 9,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: 'da5e80b5-cf8a-4308-af88-50fb68bb7543',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 10,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: 'da5e80b5-cf8a-4308-af88-50fb68bb7543',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 3,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: 'da5e80b5-cf8a-4308-af88-50fb68bb7543',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 7,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: 'b1ba37ae-1562-43d5-b378-4ecd055eb0d4',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 8,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: 'b1ba37ae-1562-43d5-b378-4ecd055eb0d4',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 9,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: 'b1ba37ae-1562-43d5-b378-4ecd055eb0d4',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 10,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: 'b1ba37ae-1562-43d5-b378-4ecd055eb0d4',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 3,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: 'b1ba37ae-1562-43d5-b378-4ecd055eb0d4',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 7,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: 'e99cf339-2af9-4551-a9ac-33bf83d44df6',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 8,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: 'e99cf339-2af9-4551-a9ac-33bf83d44df6',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 9,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: 'e99cf339-2af9-4551-a9ac-33bf83d44df6',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 10,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: 'e99cf339-2af9-4551-a9ac-33bf83d44df6',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 3,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: 'e99cf339-2af9-4551-a9ac-33bf83d44df6',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 7,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: '3505ee45-09e8-4742-9612-f2fd8786ca57',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 8,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: '3505ee45-09e8-4742-9612-f2fd8786ca57',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 9,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: '3505ee45-09e8-4742-9612-f2fd8786ca57',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 10,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: '3505ee45-09e8-4742-9612-f2fd8786ca57',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 3,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: '3505ee45-09e8-4742-9612-f2fd8786ca57',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 7,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: '7fe02d8c-86b0-469a-9b3e-4bc6b9718411',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 8,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: '7fe02d8c-86b0-469a-9b3e-4bc6b9718411',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 9,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: '7fe02d8c-86b0-469a-9b3e-4bc6b9718411',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 10,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: '7fe02d8c-86b0-469a-9b3e-4bc6b9718411',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}
+Error handling request {
+  id: 3,
+  jsonrpc: '2.0',
+  method: 'session/prompt',
+  params: {
+    sessionId: '7fe02d8c-86b0-469a-9b3e-4bc6b9718411',
+    prompt: [ [Object] ]
+  }
+} {
+  code: -32603,
+  message: "Internal error: You've hit your limit · resets 11am (Asia/Seoul)",
+  data: undefined
+}

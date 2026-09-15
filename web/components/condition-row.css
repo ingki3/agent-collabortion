@@ -1,0 +1,16 @@
+/* Condition Row(COMPONENTS §2.5) — S6 마법사(테두리)와 S7 우열 진행률(테두리 없음). */
+.cond { display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left; background: none; }
+.cond--wizard { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+.cond--wizard.cond--selected { border-color: var(--ink); }
+.cond--progress { border: 0; padding: 2px 0; }
+.cond--disabled { opacity: 0.45; cursor: not-allowed; }
+.cond__check { width: 14px; font-size: var(--fs-body); color: var(--ink-2); }
+.cond__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.cond__name { font-size: var(--fs-body); }
+.cond__desc { font-size: var(--fs-sub); color: var(--ink-2); }
+.cond[data-met="true"] .cond__check { color: var(--s-done-text); }
+.cond[data-met="true"] .cond__name { color: var(--ink-2); }
+/* T-W15 — 막힌 조건(blocked_reason): ✗ 대신 이유 문장, 주의 색. 링크는 「받은 요청에서 승인하세요」. */
+.cond--blocked .cond__check { color: var(--s-wait-text); }
+.cond__desc--blocked { color: var(--s-wait-text); }
+.cond__link { font-size: var(--fs-sub); color: var(--ink-2); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-align: left; }

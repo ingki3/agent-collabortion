@@ -1,0 +1,85 @@
+{
+  "agent_capabilities": {
+    "_meta": {
+      "claudeCode": {
+        "promptQueueing": true
+      }
+    },
+    "promptCapabilities": {
+      "image": true,
+      "embeddedContext": true
+    },
+    "mcpCapabilities": {
+      "http": true,
+      "sse": true
+    },
+    "auth": {
+      "logout": {}
+    },
+    "providers": {},
+    "loadSession": true,
+    "sessionCapabilities": {
+      "additionalDirectories": {},
+      "close": {},
+      "delete": {},
+      "fork": {},
+      "list": {},
+      "resume": {},
+      "subagents": {}
+    }
+  },
+  "agent_info": {
+    "name": "@agentclientprotocol/claude-agent-acp",
+    "title": "Claude Agent",
+    "version": "0.74.0"
+  },
+  "cancels_requested": 10,
+  "crashes": 0,
+  "e2b_load": {
+    "load_append": {
+      "turn1_models": [
+        "claude-haiku-4-5-20251001"
+      ],
+      "turn1_ok": true,
+      "turn1_text": "Zorblax-7\npomegranate",
+      "turn2_models": [
+        "claude-haiku-4-5-20251001"
+      ],
+      "turn2_ok": true,
+      "turn2_text": "Zorblax-7\npomegranate"
+    },
+    "load_replace_string": {
+      "turn1_models": [
+        "claude-haiku-4-5-20251001"
+      ],
+      "turn1_ok": true,
+      "turn1_text": "Zorblax-7\npomegranate"
+    },
+    "new_ok": true,
+    "new_text": "Zorblax-7\npomegranate"
+  },
+  "finished_at": "2026-09-05T02:34:49Z",
+  "model_default": "claude-fable-5-1[1m]",
+  "model_requested": "haiku",
+  "model_selected": "haiku",
+  "n": 10,
+  "protocol_version": 1,
+  "resumes_requested": 10,
+  "runtime": "claude",
+  "scenario": "spike1b-load",
+  "started_at": "20260905T023428Z",
+  "stats": {
+    "PermissionRequests": 0,
+    "AllowOnceMissing": 0,
+    "PermissionCancelled": 0,
+    "Updates": 35,
+    "ToolCalls": 0,
+    "ToolCallUpdates": 0,
+    "AgentMessageChunks": 8,
+    "UnexpectedExit": 0,
+    "OtherClientRequests": 0,
+    "OptionKindsSeen": {}
+  },
+  "turns_requested": 30,
+  "workdir": "/private/tmp/claude-501/-Users-simplist-orca-workspaces-agent-collaboration-p0b-spike1b/b93dcf2d-a507-4f8a-adf7-1ed6f52fae44/scratchpad/w1b"
+}
