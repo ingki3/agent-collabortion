@@ -627,9 +627,16 @@ func (s *Service) recordHop(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID,
 		c := h.CauseID
 		cause = &c
 	}
+	// A resume (S-80) records a human hop with no message — message_id is
+	// nullable and a zero uuid would break the FK.
+	var msg *uuid.UUID
+	if msgID != uuid.Nil {
+		m := msgID
+		msg = &m
+	}
 	_, err := tx.Exec(ctx, `
 		INSERT INTO session_hop (session_id, from_agent_id, to_agent_id, message_id, rule, allowed, created_at, cause_hop_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, sessionID, from, h.ToAgent, msgID, rule, allowed, h.At, cause)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, sessionID, from, h.ToAgent, msg, rule, allowed, h.At, cause)
 	return err
 }
 
