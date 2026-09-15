@@ -2,6 +2,8 @@
 # e2e/p5/70_testchat.sh — T-S12 실서버 스모크: 테스트 채팅(FR-1.8.1, daemon-protocol v0.8 §4.5)
 # + 관측 지표(openapi getWorkspaceMetrics) — **데몬 없이**, 데몬 역할은 curl 로 흉내.
 #
+# 비용 한 줄(I-3): 에이전트 턴 0(데몬 없이 curl) · $0 · ≈ 15s
+#
 # 재는 것 (판정 표 out/70-checks.tsv):
 #   A. createTestChat → postTestChatTurn(202 · 진행 중 409) → claim 이 §4.5 번들을 준다
 #      (task.kind=test_chat · id=test_chat.id · attempt=턴 번호 · task_token 없음 · 브리프에 [2] 없음 ·

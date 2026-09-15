@@ -3,6 +3,8 @@
 #   agent_approval 리뷰어 필수(422) · 진행률 agent_name/blocked_reason/next_actor · active 에서 종료 조건 수정
 # — **데몬 없이**, 데몬 역할(claim·phase·finish)은 curl 로 흉내(70_·79_ 의 레시피).
 #
+# 비용 한 줄(I-3): 에이전트 턴 0(데몬 없이 curl) · $0 · ≈ 15s
+#
 # 재는 것 (판정 표 out/80-checks.tsv):
 #   A. createSession 검증 — 리뷰어 없는 agent_approval → 422 reviewer_required(errors[].field 가 그 원자를
 #      가리킨다) · 참여자 아닌 리뷰어 → 422 reviewer_not_participant · artifact_submitted 의 agent_id 도 같은 코드

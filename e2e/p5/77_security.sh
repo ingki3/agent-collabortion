@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # e2e/p5/77_security.sh — **보안 점검 (PRD §9 보안 행)**. 페이크 런타임(모델 0회). 실패는 **번호 없이** 보고(§0-11).
 #
+# 비용 한 줄(I-3): 페이크 턴 ≈ 12(Probe·Guard 사이클 5 · Slow 2 · Masked) · $0 · ≈ 40s. 실기: haiku ≈ $0.06 · ≈ 5분
+#
 #   S1 originator 기준 권한 — 에이전트 체인으로 상승 없음:
 #      멤버가 건 task 의 originator = 멤버 · 그 task 가 위임한 자식 task 의 originator 도 멤버(체인 보존).
 #      task 토큰으로 Director 전용 op(complete·pause·cancelLane·respondHitl) → 401/403. 멤버 쿠키로 cancelLane → 403(E10-05).

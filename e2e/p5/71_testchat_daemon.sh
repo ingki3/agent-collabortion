@@ -3,6 +3,8 @@
 # 70_ 이 데몬을 curl 로 흉내내 서버를 쟀다면, 이 판은 그 반대다 — 실서버(T-S12) + **실기 데몬 바이너리** +
 # acpfake(= `hermes` 이름으로 PATH 앞에 놓은 테스트 바이너리, 모델 호출 없음).
 #
+# 비용 한 줄(I-3): 실기 고정 — claude_code haiku 테스트 채팅 턴 2~3 ≈ $0.02 · ≈ 2분 (CI 는 안 돈다)
+#
 # 재는 것 (판정 표 out/71-checks.tsv):
 #   A. createTestChat → 턴 1: 데몬이 §4.5 번들을 "토큰 없는 attempt" 로 돌린다 —
 #      <root>/.colab/testchat/<id> 를 만들고 그 안에서 런타임을 띄웠고(record 파일 위치), session/new 에

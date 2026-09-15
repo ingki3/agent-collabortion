@@ -55,6 +55,18 @@ Lead)
   done_ ;;
 Researcher)
   topic="$(brief_text)"
+  # **barrier**(T-I6): 페이크 턴은 0.2s 라 "위임 3 이 병렬" 을 재는 72_ A2d 가 CI 에서 흔들렸다(PR #249 attempt 1:
+  # got=2 — 첫 lane 이 셋째 lane 의 시작 전에 끝났다). 형제 lane 셋이 **모두 running 인 순간**을 만들어 둔다:
+  # 자기 표식을 남기고 표식 N 개(FAKE_BARRIER_N, 기본 3)가 모일 때까지 기다린 뒤 잠깐 더 붙들어(FAKE_BARRIER_HOLD)
+  # 72_ 의 wait_step 이 DB 로 그 순간을 잡게 한다. 상한(FAKE_BARRIER_TIMEOUT)이 지나면 그냥 진행한다 — 데몬이
+  # 병렬로 안 돌리면 겹침이 3 이 못 되고 A2d 가 **제대로** FAIL 이다(단언을 느슨하게 하지 않는다).
+  if [ "${FAKE_BARRIER_N:-3}" -gt 1 ] && [ -n "${COLAB_SESSION_ID:-}" ]; then
+    bdir="${FAKE_OUT:-.}/barrier-$COLAB_SESSION_ID"; mkdir -p "$bdir"; : > "$bdir/${COLAB_TASK_ID:-$$}"
+    n=0; while [ $n -lt $(( ${FAKE_BARRIER_TIMEOUT:-30} * 10 )) ]; do
+      [ "$(ls "$bdir" | wc -l | tr -d ' ')" -ge "${FAKE_BARRIER_N:-3}" ] && break; sleep 0.1; n=$((n+1)); done
+    log "barrier: $(ls "$bdir" | wc -l | tr -d ' ')/${FAKE_BARRIER_N:-3} after $((n/10))s"
+    sleep "${FAKE_BARRIER_HOLD:-2}"
+  fi
   printf '# 조사 메모\n%s\n' "$topic" > note.md
   post "조사 결과 — ${topic:-항목}: 근사치로 정리했습니다. (1) 국내 시장은 완만한 성장, (2) 주요 경쟁 5종, (3) 온라인 채널 중심." Lead
   done_ ;;
@@ -157,6 +169,30 @@ Faller|Lonely)
   aid="$(submit doc "$PWD/guide-y.md" product-y-guide.md)"
   log "guide artifact=$aid"
   done_ ;;
+# ── 역할 게이트 (82_, K-19) ─────────────────────────────────────────────────
+# Gate: 역할과 무관하게 **`lane delegate` 를 시도**하고 결과(exit·JSON)를 남긴 뒤, 토큰을 기록하고 하네스가
+# `go` 파일을 줄 때까지 턴을 붙든다(서버 층은 하네스가 그 토큰으로 직접 POST /lanes 를 친다 — 토큰은 finish 뒤
+# 401 이라 턴이 살아 있어야 한다). 그 다음 message post(모든 역할이 허용) → done.
+#   콜랩 명령의 자리: 프롬프트가 래퍼 절대 경로(harness §10, hermes)를 이름하면 그 래퍼로, 아니면 PATH 의 colab 으로.
+#   흔적: $FAKE_OUT/gate-<task>.json {role, exit, out, cli}, $FAKE_OUT/gate-<task>.token
+Gate)
+  gdir="${FAKE_OUT:-.}"
+  # 합류 통보(위임한 lane 이 다 끝남)로 깨어난 턴은 시도하지 않는다 — 다시 위임하면 합류↔위임 사이클(77_ 보고)이다.
+  if has "위임한 작업이 모두 끝났습니다"; then post "확인했습니다."; done_; exit 0; fi
+  cli="$(printf '%s\n' "$P" | grep -o '[^ `"]*/\.colab/bin/[^ `"]*/colab' | head -1)"; [ -n "$cli" ] || cli=colab
+  out="$("$cli" lane delegate --agent "${FAKE_DELEGATE_TO:-Lead}" --brief "대신 써 주세요" 2>"$gdir/gate-${COLAB_TASK_ID:-x}.err")"; code=$?
+  log "delegate via $cli → exit $code: $(printf '%s' "$out" | tr -d '\n' | cut -c1-160)"
+  jq -nc --arg role "${COLAB_AGENT_NAME:-}" --argjson code "$code" --arg out "$out" --arg cli "$cli" --arg err "$(cat "$gdir/gate-${COLAB_TASK_ID:-x}.err")" \
+    '{agent:$role, exit:$code, cli:$cli, out:(try ($out|fromjson) catch $out), stderr:$err}' > "$gdir/gate-${COLAB_TASK_ID:-x}.json"
+  printf '%s' "${COLAB_TASK_TOKEN:-}" > "$gdir/gate-${COLAB_TASK_ID:-x}.token"
+  n=0; while [ $n -lt $(( ${FAKE_GATE_HOLD:-90} * 10 )) ] && [ ! -f "$gdir/gate-${COLAB_TASK_ID:-x}.go" ]; do sleep 0.1; n=$((n+1)); done
+  log "hold released after $((n/10))s (go=$([ -f "$gdir/gate-${COLAB_TASK_ID:-x}.go" ] && echo yes || echo timeout))"
+  post "게이트 시도를 마쳤습니다 (exit $code)."
+  done_ ;;
+# Asker: HITL 질문 하나 열고 턴 종료(lane → waiting_human, I-2 lane.actions 대조용). 재개되면 한 줄 게시.
+Asker)
+  if [ "$RESUMED" = 1 ] || phas "<hitl_answer"; then post "답을 받았습니다."; done_
+  else out="$(colab hitl ask --question "계속할까요" --default 예 --choices 예,아니오 2>&1)"; log "hitl ask → $(printf '%s' "$out" | tr -d '\n' | cut -c1-120)"; fi ;;
 # ── 성능·보안 (76_·77_) ─────────────────────────────────────────────────────
 Echo)   # 게시 → 답 한 줄 (지연 측정)
   post "echo: $(brief_text | cut -c1-60)"

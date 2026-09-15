@@ -15,6 +15,12 @@ export E2E_OUT="${E2E_OUT:-$P5_DIR/out}"
 mkdir -p "$E2E_OUT"
 source "$P5_DIR/../p4/lib.sh"
 
+# CI(T-I6, e2e/p5/ci.sh): docker 가 없다 — Postgres 는 service 컨테이너이고 `PSQL_URL` 로 닿는다.
+# lib_i5.sh 와 같은 분기(81_·84_ 가 ci.sh 안에서 이 lib 로 돈다).
+if [ -n "${PSQL_URL:-}" ]; then
+  psqlq() { psql "$PSQL_URL" -qtA -F $'\t' -v ON_ERROR_STOP=1 -c "$1"; }
+fi
+
 # ── 데몬 역할을 curl 로 (데몬 없이) ─────────────────────────────────────────
 # T-S12 의 70_ 은 데몬 바이너리를 띄우지 않는다: claim → phase → events → heartbeat → finish 를
 # daemon-protocol §4 모양 그대로 curl 로 흉내내 **서버 쪽 계약**만 잰다. 데몬 몫(§4.5 의

@@ -3,6 +3,8 @@
 #   K-18 관찰 표 getWorkspaceObservations · FR-7.2 빈 턴 카드 · K-19 역할별 colab 명령(403 command_not_allowed)
 # — **데몬 없이**, 데몬 역할(claim·phase·events·finish)은 curl 로 흉내(70_·79_·80_ 의 레시피).
 #
+# 비용 한 줄(I-3): 에이전트 턴 0(데몬 없이 curl) · $0 · ≈ 15s
+#
 # 재는 것 (판정 표 out/81-checks.tsv):
 #   A. 관찰 표 모양 — 멤버 200 · 5행 §11 순서 · label/note 한국어 · 표본 없는 행은 n 0·null ·
 #      routing_concentration 만 breakdown(9종) · window 에코 · 잘못된 window 422 · 비멤버 403.
