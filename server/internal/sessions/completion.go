@@ -172,6 +172,12 @@ func ApplyEvent(t Tree, st State, ev Event) Outcome {
 		o.HitlIssued, o.HitlSource = true, "system"
 		o.MetAtoms = atoms(met)
 		return o
+	case EventConditionChanged:
+		// S-84: the Director replaced the tree (updateSession, active·paused).
+		// No atom is satisfied by that; the atoms already met stay met (openapi
+		// updateSession: "이미 충족된 원자는 그대로 유지") and the new tree is
+		// read over them below — a tree that is satisfied as it stands
+		// completes, one missing only user_approval gets the platform's request.
 	}
 
 	o.MetAtoms = atoms(met)

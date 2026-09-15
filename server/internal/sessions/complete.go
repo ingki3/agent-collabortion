@@ -226,6 +226,18 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		}
 	}
 
+	if out.HitlIssued && ev.Kind == EventConditionChanged {
+		// S-84: a condition change re-reads the tree; if the platform's
+		// user_approval request is already open from before the change, the
+		// Director has one card to answer, not two.
+		var open bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (SELECT 1 FROM hitl_request WHERE session_id = $1 AND source = 'system' AND purpose = $2 AND status = 'open')`,
+			sessionID, CondUserApproval).Scan(&open); err != nil {
+			return nil, fmt.Errorf("sessions: open approval: %w", err)
+		}
+		out.HitlIssued = !open
+	}
 	if out.HitlIssued {
 		// FR-2.2: user_approval and the budget question are issued BY THE
 		// PLATFORM, so task_id stays empty and source is `system` (§7).
@@ -273,10 +285,14 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 	// before, so an artifact submission moved the bar only on reload (W13).
 	if s.Hub != nil {
 		metRaw, _ := json.Marshal(met)
+		prog, err := progressOf(ctx, tx, sessionID, raw, metRaw, assignee)
+		if err != nil {
+			return nil, err
+		}
 		sid := sessionID
 		_ = s.Hub.Publish(ctx, tx, wsID, &sid, "session.completion_progress", map[string]any{
 			"session_id":          sessionID,
-			"completion_progress": progress(raw, metRaw),
+			"completion_progress": prog,
 		})
 	}
 

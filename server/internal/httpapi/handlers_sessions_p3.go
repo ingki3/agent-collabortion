@@ -462,17 +462,26 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 		return
 	}
 	now := s.Clock.Now()
+	// condChanged is set when a started session's completion tree was
+	// replaced (S-84): the tree is re-read over the atoms already met AFTER
+	// the row is committed, through the same path every other completion
+	// event takes.
+	condChanged := false
 	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
 		var status string
-		var limitsRaw []byte
-		if err := tx.QueryRow(r.Context(), `SELECT status::text, limits FROM session WHERE id = $1 FOR UPDATE`, sessionId).
-			Scan(&status, &limitsRaw); err != nil {
+		var limitsRaw, condRaw []byte
+		var assignee *uuid.UUID
+		if err := tx.QueryRow(r.Context(), `SELECT status::text, limits, completion_condition, assignee_agent_id FROM session WHERE id = $1 FOR UPDATE`, sessionId).
+			Scan(&status, &limitsRaw, &condRaw, &assignee); err != nil {
 			return err
 		}
 		draft := status == "draft"
 		// The runtime and the isolation are fixed once work has started: the
 		// workdirs are bound to both, and changing either would orphan them
-		// (openapi updateSession, SCREEN §4.5).
+		// (openapi updateSession, SCREEN §4.5). The completion condition is
+		// not (v0.1.4, S-84): a session stuck on a condition nobody can
+		// satisfy is rescued by changing it, so `active` and `paused` accept
+		// it — only a session that is over, or already summarising, does not.
 		if !draft {
 			var errs []apperr.FieldError
 			if in.Isolation != nil {
@@ -481,8 +490,8 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 			if in.RuntimeId.IsSpecified() {
 				errs = append(errs, apperr.Field("runtime_id", "immutable", "컴퓨터는 시작 전에만 바꿀 수 있습니다"))
 			}
-			if in.CompletionCondition != nil {
-				errs = append(errs, apperr.Field("completion_condition", "immutable", "종료 조건은 시작 전에만 바꿀 수 있습니다"))
+			if in.CompletionCondition != nil && status != "active" && status != "paused" {
+				errs = append(errs, apperr.Field("completion_condition", "immutable", "끝났거나 끝나는 중인 세션의 종료 조건은 바꿀 수 없습니다"))
 			}
 			if len(errs) > 0 {
 				return apperr.Validation(errs...)
@@ -530,14 +539,41 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 				add("deputy_director_user_id", v)
 			}
 		}
+		if in.CompletionCondition != nil {
+			// "검증은 createSession 과 같고" (openapi updateSession): the
+			// tree-only guard (E6-07) and the S-84 reviewer guard, the latter
+			// against the session's CURRENT participants + assignee.
+			raw, err := json.Marshal(in.CompletionCondition)
+			if err != nil {
+				return unreadable("completion_condition", "invalid", "종료 조건을 다시 골라 주세요", err)
+			}
+			tree := sessions.ParseTree(raw)
+			if err := sessions.ValidateTree(tree); err != nil {
+				return apperr.Validation(apperr.Field("completion_condition", "criteria_met_alone", err.Error())) // ValidateTree speaks the screens' language
+			}
+			participants, err := sessionAgents(r.Context(), tx, sessionId, assignee)
+			if err != nil {
+				return err
+			}
+			if errs := sessions.ValidateReviewers(tree, func(id uuid.UUID) bool { return participants[id] }); len(errs) > 0 {
+				return apperr.Validation(errs...)
+			}
+			add("completion_condition", raw)
+			if !draft {
+				condChanged = true
+				if _, err := tx.Exec(r.Context(), `
+					INSERT INTO activity_log (workspace_id, session_id, actor_type, actor_id, action, object_type, object_id, payload, created_at)
+					VALUES ($1, $2, 'user', $3, 'session.completion_condition_changed', 'session', $2,
+					        jsonb_build_object('from', $4::jsonb, 'to', $5::jsonb, 'status', $6::text), $7)`,
+					wsID, sessionId, u.Id, condRaw, raw, status, now); err != nil {
+					return fmt.Errorf("updateSession: activity line: %w", err)
+				}
+			}
+		}
 		if draft {
 			if in.Isolation != nil {
 				raw, _ := json.Marshal(in.Isolation)
 				add("isolation", raw)
-			}
-			if in.CompletionCondition != nil {
-				raw, _ := json.Marshal(in.CompletionCondition)
-				add("completion_condition", raw)
 			}
 			if in.RuntimeId.IsSpecified() {
 				if in.RuntimeId.IsNull() {
@@ -557,8 +593,44 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 		writeErr(w, err)
 		return
 	}
+	if condChanged {
+		// The new tree over the old met flags: a tree that is satisfied as it
+		// stands goes active → completing → completed here, one whose only
+		// missing atom is user_approval gets the platform's request, and
+		// either way `session.completion_progress` is published (openapi
+		// updateSession v0.1.4).
+		if _, err := s.Sessions.ApplyCompletionEvent(r.Context(), sessionId, sessions.Event{
+			Kind: sessions.EventConditionChanged, Note: "Director 가 종료 조건을 바꿨습니다",
+		}); err != nil {
+			writeErr(w, err)
+			return
+		}
+	}
 	s.publishSession(r.Context(), wsID, sessionId, u)
 	s.sessionOut(r.Context(), w, sessionId, u)
+}
+
+// sessionAgents is "참여자 = participants[] + assignee" (openapi createSession,
+// S-84) for a session that already exists: the set the reviewer guard checks
+// against on updateSession.
+func sessionAgents(ctx context.Context, q pgx.Tx, sessionID uuid.UUID, assignee *uuid.UUID) (map[uuid.UUID]bool, error) {
+	rows, err := q.Query(ctx, `SELECT agent_id FROM session_participant WHERE session_id = $1`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[uuid.UUID]bool{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	if assignee != nil {
+		out[*assignee] = true
+	}
+	return out, rows.Err()
 }
 
 func (s *Server) ChangeDirector(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
