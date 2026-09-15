@@ -154,6 +154,8 @@
 | S-82 | PR #220 리뷰 NN2~NN4 — `gcReceiptTargets` 우선순위 단언 없음 · 삭제 경합 반대 방향 미검증 · `sessionGone` 이 보고마다 count(*) | PR #220 리뷰 | 낮음 |
 | S-84 | 리뷰어 없는 `agent_approval` 조건을 서버가 받아 주어 세션이 영영 안 닫혔다(Director 세션 "STO 시장 조사") — 진행률은 ✗ 만 보임 | Director 실사용 2026-09-15 | **해결** 계약 #232 · 서버 PR #233(422 reviewer_required/reviewer_not_participant · blocked_reason · active 에서 조건 수정) · 웹 T-W15 |
 | S-85 | PR #233 리뷰 NN1·NN2 — `sessionAgents` 의 assignee 폴백(participant 행 없는 assignee)에 테스트 없음(`loadCompletionFacts` 와 한쪽만 덮임) · `ValidateTree` 실패를 전부 `criteria_met_alone` 코드로 냄(사유가 늘면 거짓) | PR #233 리뷰 | 낮음 |
+| W-19 | 세션 마법사가 `agent_approval` 을 리뷰어 없이 보낼 수 있었고 조건 이름이 내부 용어였다 | Director 실사용 2026-09-15 | **해결 PR #234**(리뷰어 선택 필수·사람 말·진행률 요약/막힌 이유/「조건 고치기」) + #238 |
+| W-20 | PR #234 리뷰 NN1~NN4 — 요약 문장이 2개 이상일 때 "이름, 이름 N개" 어순 · (h) 테스트가 브랜치가 dev 보다 뒤면 `landed=false` 갈래만 도는 함정(이제 SERVER 대조로 해소) · 멤버 시점 스크린샷 없음 · `topOp()` 단일 원자 and 가정 | PR #234 리뷰 | 낮음 |
 | W-14 | PR #219 리뷰 NN2~NN5 — 새 스크린샷 2종 밝음만 · 메뉴 바깥 클릭이 mousedown 만(터치·focusout 없음) · S7 에서 삭제 뒤 목록 안내 미확인 · `deleteGate` 가 canDelete 를 호출자에게서 받음 | PR #219 리뷰 | 낮음 |
 | S-83 | 서버 `lanes.Load` 가 `Lane.actions` 에 **`cancel` 만** 넣어(P2 "restart stays out" 주석 잔존) 실서버 S7 카드의 「다시 지시」·「응답하러 가기」·「계속 진행 승인」이 **항상 비활성**이었다. 웹 목이 옳은 규칙을 갖고 있어 화면 테스트가 못 잡았다 — **목이 서버보다 옳으면 화면 테스트는 초록이다**(server-wording 자물쇠는 문장만 대조, 동작 규칙은 대조 안 함) | Director 실사용 2026-09-14 | **해결 PR #224**(laneActions + 유닛 9) · 교훈: 목 규칙 ↔ 서버 규칙 대조 자물쇠 후보(I-2) |
 | I-2 | 목이 서버보다 옳은 규칙을 갖는 자리(Lane.actions·인박스 actions 등)를 **서버 실값과 대조하는 실서버 스모크**를 CI e2e 에(72_~78_ 는 acpfake 로 도니 lane actions 를 상태별로 단언할 수 있다) | S-83 교훈 | 중 · G9 전 |
