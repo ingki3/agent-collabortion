@@ -53,6 +53,9 @@ type Service struct {
 }
 
 func New(pool *pgxpool.Pool, c clock.Clock, t *tokens.Service, h *realtime.Hub) *Service {
+	if h != nil {
+		serverEventHub.Store(h)
+	}
 	return &Service{DB: pool, Clock: c, Tokens: t, Hub: h}
 }
 
@@ -640,6 +643,20 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 				}
 				if err := tokens.ConsumeAttemptCommands(ctx, tx, t.ID, attempt, now); err != nil {
 					return err
+				}
+			}
+			// FR-7.2 (v1.1): the turn ended on its own with nothing to show.
+			// Judged here, on the attempt's committed record, because finish is
+			// the one moment the record is complete — a turn the runtime or the
+			// server cut short (max_tokens, cancel, budget) is not "did
+			// nothing", so only `end_turn`.
+			if f.StopReason == "end_turn" {
+				if empty, err := emptyTurn(ctx, tx, t.ID, attempt); err != nil {
+					return err
+				} else if empty {
+					if err := noteEmptyTurn(ctx, tx, t.ID, attempt, now); err != nil {
+						return err
+					}
 				}
 			}
 		}

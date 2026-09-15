@@ -13,8 +13,10 @@ import (
 
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
+	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/llm"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
+	"github.com/ingki3/agent-collabortion/server/internal/roles"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
@@ -403,6 +405,9 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 			ID: t.ID.String(), Attempt: t.Attempt, LaneID: t.LaneID.String(), SessionID: t.SessionID.String(),
 			AgentID: t.AgentID.String(), AgentName: agentName,
 			BudgetUSD: budgetPerTask, BudgetOverrideUSD: override,
+			// K-19: the daemon trims the MCP tool list and the hermes wrapper
+			// to this (daemon-protocol §4.1 v0.8.2, harness §10).
+			AllowedCommands: roles.AllowedCommandStrings(gen.AgentRole(agentRole)),
 		},
 		TaskToken: token,
 		Profile: contracts.BundleProfile{

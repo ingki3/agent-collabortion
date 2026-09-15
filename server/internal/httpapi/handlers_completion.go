@@ -79,6 +79,10 @@ func (s *Server) RecordDecision(w http.ResponseWriter, r *http.Request, sessionI
 		writeProblem(w, p)
 		return
 	}
+	if p := s.commandAllowed(r, gen.DecisionRecord); p != nil {
+		writeProblem(w, p)
+		return
+	}
 	body, p := readBody(w, r)
 	if p != nil {
 		writeProblem(w, p)
@@ -103,6 +107,12 @@ func (s *Server) RecordDecision(w http.ResponseWriter, r *http.Request, sessionI
 		id, err := s.Sessions.RecordDecision(r.Context(), sessionId, in.Summary, rationale, source, ref)
 		if err != nil {
 			return 0, nil, apperr.As(err)
+		}
+		// colab-cli.md §4 (see SubmitArtifact): the decision on the feed.
+		if err := s.writeServerEvent(r.Context(), taskID, pr.Task.Attempt, "status", "record_decision", id.String(), "ok",
+			map[string]any{"command": "decision record", "result_ref": id.String(),
+				"args": map[string]any{"summary": in.Summary}}, s.Clock.Now()); err != nil {
+			s.Log.Warn("record decision event", "err", err, "task", taskID)
 		}
 		out, err := s.Sessions.ListDecisions(r.Context(), sessionId)
 		if err != nil {
@@ -129,6 +139,10 @@ func (s *Server) RecordDecision(w http.ResponseWriter, r *http.Request, sessionI
 
 func (s *Server) ListDecisions(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
 	if _, p := s.sessionAccess(r, sessionId); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	if p := s.commandAllowed(r, gen.SessionGet); p != nil { // openapi: x-colab-cli `session get`
 		writeProblem(w, p)
 		return
 	}

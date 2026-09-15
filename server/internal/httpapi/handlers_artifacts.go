@@ -44,6 +44,10 @@ func (s *Server) SubmitArtifact(w http.ResponseWriter, r *http.Request, sessionI
 		writeProblem(w, p)
 		return
 	}
+	if p := s.commandAllowed(r, gen.ArtifactSubmit); p != nil {
+		writeProblem(w, p)
+		return
+	}
 	// The declared length is checked before a byte is read: a client that says
 	// it is sending 4 GB gets 413 instead of four gigabytes of server time.
 	if r.ContentLength > artifacts.MaxBytes+multipartSlack {
@@ -95,6 +99,20 @@ func (s *Server) SubmitArtifact(w http.ResponseWriter, r *http.Request, sessionI
 			return 0, nil, apperr.As(err)
 		}
 		api := artifactAPI(fresh)
+		// colab-cli.md §4: every CLI call is a `status` row on the attempt's
+		// feed. Until v1.1 submit · review · decision had none (only message
+		// post · status set · lane delegate · hitl did), which left the FR-7.2
+		// empty-turn judgment blind to a turn whose only act was a
+		// submission. Own transaction, after the fact: the submission stands
+		// whether or not the note lands, and a replayed request never
+		// reaches this closure.
+		if pr.Task != nil {
+			if err := s.writeServerEvent(r.Context(), pr.Task.TaskID, pr.Task.Attempt, "status", "submit_artifact", row.ID.String(), "ok",
+				map[string]any{"command": "artifact submit", "result_ref": row.ID.String(),
+					"args": map[string]any{"name": in.Name, "type": in.Type}}, s.Clock.Now()); err != nil {
+				s.Log.Warn("record artifact submit", "err", err, "task", pr.Task.TaskID)
+			}
+		}
 		// `artifact.created` had no publisher at all, so a submitted artifact
 		// showed up in S7's 산출물 tab only after a reload (G4 2판 W13). It is
 		// sent from here rather than from artifacts.Submit because the row the
@@ -308,6 +326,10 @@ func (s *Server) GetArtifact(w http.ResponseWriter, r *http.Request, artifactId 
 		writeProblem(w, p)
 		return
 	}
+	if p := s.commandAllowed(r, gen.ArtifactGet); p != nil {
+		writeProblem(w, p)
+		return
+	}
 	writeJSON(w, http.StatusOK, artifactAPI(a))
 }
 
@@ -318,6 +340,10 @@ func (s *Server) GetArtifact(w http.ResponseWriter, r *http.Request, artifactId 
 func (s *Server) DownloadArtifact(w http.ResponseWriter, r *http.Request, artifactId gen.ArtifactId) {
 	a, p := s.downloadAccess(r, artifactId)
 	if p != nil {
+		writeProblem(w, p)
+		return
+	}
+	if p := s.commandAllowed(r, gen.ArtifactGet); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -385,6 +411,14 @@ func (s *Server) ReviewArtifact(w http.ResponseWriter, r *http.Request, artifact
 		writeProblem(w, apperr.Validation(apperr.Field("verdict", "enum", "판정은 approve 또는 reject 여야 합니다")))
 		return
 	}
+	cmd := gen.ReviewApprove
+	if kind == "review_reject" {
+		cmd = gen.ReviewReject
+	}
+	if p := s.commandAllowed(r, cmd); p != nil {
+		writeProblem(w, p)
+		return
+	}
 
 	call := func() (int, any, *Problem) {
 		// The same real path the E6 golden table describes: the tree decides
@@ -416,6 +450,12 @@ func (s *Server) ReviewArtifact(w http.ResponseWriter, r *http.Request, artifact
 		stored, err := s.Artifacts.RecordReview(r.Context(), a.ID, rev)
 		if err != nil {
 			return 0, nil, apperr.As(err)
+		}
+		// colab-cli.md §4 (see SubmitArtifact): the verdict on the feed.
+		if err := s.writeServerEvent(r.Context(), taskID, pr.Task.Attempt, "status", "review", a.ID.String(), "ok",
+			map[string]any{"command": "review " + string(in.Verdict), "result_ref": a.ID.String(),
+				"args": map[string]any{"comments": comments}}, s.Clock.Now()); err != nil {
+			s.Log.Warn("record review", "err", err, "task", taskID)
 		}
 		prog, err := s.Sessions.Progress(r.Context(), a.SessionID)
 		if err != nil {

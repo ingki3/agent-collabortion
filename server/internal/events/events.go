@@ -263,13 +263,10 @@ func deref(p *string) string {
 	return *p
 }
 
-// sentenceFor is the FR-7.2 one-line fallback render: "<verb> <object> → <outcome>".
+// sentenceFor is the FR-7.2 one-line fallback render — tasks.EventSentence,
+// shared with the server-written rows' own announcement.
 func sentenceFor(class, verb, objectRef, outcome string) string {
-	obj := ""
-	if objectRef != "" {
-		obj = " " + objectRef
-	}
-	return fmt.Sprintf("%s.%s%s → %s", class, verb, obj, outcome)
+	return tasks.EventSentence(class, verb, objectRef, outcome)
 }
 
 // recordRejectedBatch is S-41's feed half. It runs outside the ingest
