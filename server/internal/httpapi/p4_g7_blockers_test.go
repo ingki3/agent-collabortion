@@ -322,7 +322,9 @@ func TestP4RejectReEntersTheSubmittingLane(t *testing.T) {
 	if err := f.pool.QueryRow(ctx, `SELECT lane_id FROM task WHERE id = $1`, writerTask).Scan(&writerLane); err != nil {
 		t.Fatal(err)
 	}
-	// The researcher is the designated reviewer (FR-2.2 agent_approval, E6-06).
+	// The researcher is the designated reviewer (FR-2.2 agent_approval, E6-06)
+	// — and carries the reviewer role, which K-19 requires for `review reject`.
+	f.setRole(t, f.rUUID, "reviewer")
 	if _, err := f.pool.Exec(ctx, `
 		UPDATE session SET completion_condition = jsonb_build_object('op', 'and', 'conditions',
 		    jsonb_build_array(jsonb_build_object('type', 'agent_approval', 'agent_id', $2::text)))

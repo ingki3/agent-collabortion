@@ -226,7 +226,8 @@ func TestP3HitlAnswerRequeues(t *testing.T) {
 // agent handles, not a failure.
 func TestP3RejectedApprovalResumes(t *testing.T) {
 	f := newP2Fixture(t)
-	tok, taskID := f.agentToken(t, f.sessionID, f.wUUID, "W")
+	// K-19: `hitl approve-request` is the Lead's (a writer gets 403).
+	tok, taskID := f.agentToken(t, f.sessionID, f.leadUUID, "Lead")
 	out := f.hitlOn(t, tok, map[string]any{"type": "approval", "summary": "초안 승인 요청"}, 201)
 	id := str(out["hitl_request"].(map[string]any), "id")
 	f.endTurn(t, taskID)
@@ -849,7 +850,7 @@ func TestP3HitlAnswerReachesTheResumePrompt(t *testing.T) {
 // it repeats.
 func TestP3RejectedApprovalReachesTheResumePrompt(t *testing.T) {
 	f := newP2Fixture(t)
-	tok, taskID := f.agentToken(t, f.sessionID, f.wUUID, "W")
+	tok, taskID := f.agentToken(t, f.sessionID, f.leadUUID, "Lead") // K-19: the Lead asks for approval
 	out := f.hitlOn(t, tok, map[string]any{"type": "approval", "summary": "초안 승인 요청"}, 201)
 	id := str(out["hitl_request"].(map[string]any), "id")
 	f.endTurn(t, taskID)

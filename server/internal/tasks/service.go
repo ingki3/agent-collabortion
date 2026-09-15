@@ -53,6 +53,9 @@ type Service struct {
 }
 
 func New(pool *pgxpool.Pool, c clock.Clock, t *tokens.Service, h *realtime.Hub) *Service {
+	if h != nil {
+		serverEventHub.Store(h)
+	}
 	return &Service{DB: pool, Clock: c, Tokens: t, Hub: h}
 }
 
