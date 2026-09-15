@@ -156,6 +156,8 @@
 | S-85 | PR #233 리뷰 NN1·NN2 — `sessionAgents` 의 assignee 폴백(participant 행 없는 assignee)에 테스트 없음(`loadCompletionFacts` 와 한쪽만 덮임) · `ValidateTree` 실패를 전부 `criteria_met_alone` 코드로 냄(사유가 늘면 거짓) | PR #233 리뷰 | 낮음 |
 | W-19 | 세션 마법사가 `agent_approval` 을 리뷰어 없이 보낼 수 있었고 조건 이름이 내부 용어였다 | Director 실사용 2026-09-15 | **해결 PR #234**(리뷰어 선택 필수·사람 말·진행률 요약/막힌 이유/「조건 고치기」) + #238 |
 | W-20 | PR #234 리뷰 NN1~NN4 — 요약 문장이 2개 이상일 때 "이름, 이름 N개" 어순 · (h) 테스트가 브랜치가 dev 보다 뒤면 `landed=false` 갈래만 도는 함정(이제 SERVER 대조로 해소) · 멤버 시점 스크린샷 없음 · `topOp()` 단일 원자 and 가정 | PR #234 리뷰 | 낮음 |
+| V-1 | v1.1 첫 라운드 리뷰 NN 모음 — #247 NN1(관찰 표 「다시 세기」 없음)·NN2(routing value 와 breakdown 관계 표기)·NN4(미지 kind 원시 출력) · #246 NN1(빈 턴의 메시지 절이 status 절에 가려짐 — 단독 고정 테스트)·NN2(commandVerbs 읽기 3종 없음 — 표 완전성 유닛)·NN3(commandAllowed 매 호출 SELECT role) · #250 NN1(83_ 주석 정정)·NN2(데몬 labels ↔ 웹 COMMAND_LABEL 자물쇠)·NN3(Known() 이 labels 로 판정) · #251 NN2(commands_test 가 server/ 없으면 Skip)·NN3(role 모를 때 문장 변형 — 계약 #249 에 적음)·NN4(Allow 가 c.ctx 직접 참조) | v1.1 리뷰 | 낮음 |
+| I-4 | CI e2e 72_ A2d "동시 3개 got=2" 흔들림(PR #249) — 샘플 시점 문제, 폴링+단계 timeout 으로 결정적으로 | PR #249 CI | T-I6 |
 | W-14 | PR #219 리뷰 NN2~NN5 — 새 스크린샷 2종 밝음만 · 메뉴 바깥 클릭이 mousedown 만(터치·focusout 없음) · S7 에서 삭제 뒤 목록 안내 미확인 · `deleteGate` 가 canDelete 를 호출자에게서 받음 | PR #219 리뷰 | 낮음 |
 | S-83 | 서버 `lanes.Load` 가 `Lane.actions` 에 **`cancel` 만** 넣어(P2 "restart stays out" 주석 잔존) 실서버 S7 카드의 「다시 지시」·「응답하러 가기」·「계속 진행 승인」이 **항상 비활성**이었다. 웹 목이 옳은 규칙을 갖고 있어 화면 테스트가 못 잡았다 — **목이 서버보다 옳으면 화면 테스트는 초록이다**(server-wording 자물쇠는 문장만 대조, 동작 규칙은 대조 안 함) | Director 실사용 2026-09-14 | **해결 PR #224**(laneActions + 유닛 9) · 교훈: 목 규칙 ↔ 서버 규칙 대조 자물쇠 후보(I-2) |
 | I-2 | 목이 서버보다 옳은 규칙을 갖는 자리(Lane.actions·인박스 actions 등)를 **서버 실값과 대조하는 실서버 스모크**를 CI e2e 에(72_~78_ 는 acpfake 로 도니 lane actions 를 상태별로 단언할 수 있다) | S-83 교훈 | 중 · G9 전 |
@@ -163,8 +165,8 @@
 | W-16 | 「작성 중…」 미리보기가 턴 종료 뒤에도 남고(지우는 조건이 message.created 뿐), `message.delta.text`(누적 스냅숏)를 이어 붙였다 | Director 실사용 2026-09-15 | **해결 PR #228**(스냅숏 교체·lane running 이탈 시 제거) |
 | W-17 | PR #229 리뷰 NN2~NN4 — 리터럴 색 단독 주입이 대비 자물쇠에 걸리는지 미확인 · `####` 이상은 `###` 로 접힘 · 표는 구분줄 필수(GFM) | PR #229 리뷰 | 낮음 |
 | W-18 | S7 자동 스크롤이 sticky 작성창 뒤에 마지막 카드·델타를 숨긴다(T-W14 관찰 3, 스크린샷은 window.scrollTo 로 우회) · 사람 메시지도 마크다운 렌더(작성자 구분 원하면 결정) | T-W14 PR #229 보고 | 낮음 |
-| K-18 | PRD v0.17 §11 「관찰」 표 5행(트리거 사슬 규모·깊이·합류 폭·라우팅 집중·빈 턴 비율) — `getWorkspaceMetrics` 와 **별도 op**(G9 "10개 그대로" 분리) + S14 대시보드 아래 별도 표 + FR-7.2 빈 턴 정보 카드(서버 finish 시 판정, 키 추가 없음) | OASIS 리뷰 C1~C3, Director 확정 | G9 뒤 · 계약 |
-| K-19 | 역할별 행동 부분집합(`available_actions` — 예: reviewer 는 위임 불가, researcher 는 review approve 불가)을 프롬프트가 아니라 **표면**(colab CLI/MCP 도구 목록)으로 | OASIS 리뷰 C5, Director 확정 | **v1.1** |
+| K-18 | PRD v0.17 §11 「관찰」 표 5행(트리거 사슬 규모·깊이·합류 폭·라우팅 집중·빈 턴 비율) — `getWorkspaceMetrics` 와 **별도 op**(G9 "10개 그대로" 분리) + S14 대시보드 아래 별도 표 + FR-7.2 빈 턴 정보 카드(서버 finish 시 판정, 키 추가 없음) | OASIS 리뷰 C1~C3, Director 확정 | G9 뒤 · 계약 | **해결** 계약 #244 · 서버 #246 · 웹 #247/#248 (T-I6 e2e 편입 진행) |
+| K-19 | 역할별 행동 부분집합(`available_actions` — 예: reviewer 는 위임 불가, researcher 는 review approve 불가)을 프롬프트가 아니라 **표면**(colab CLI/MCP 도구 목록)으로 | OASIS 리뷰 C5, Director 확정 | **v1.1** | **해결** 계약 #244 · 서버 #246 · 데몬 #250 · CLI #251 · 웹 #247 (T-I6 82_ 진행) |
 | I-3 | e2e 스크립트 머리·README 표에 "예상 비용 한 줄"(에이전트 턴 수·실기 예상 비용·소요; 페이크는 $0) | OASIS 리뷰 C7 | 낮음 · 다음 e2e 수정 때 |
 
 ## C (CLI)
