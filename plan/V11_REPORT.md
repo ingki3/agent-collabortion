@@ -9,7 +9,7 @@
 
 ## 1. CI 초록 증거
 
-- **run**: `<<CI_RUN_URL>>` (이 PR, head `<<HEAD>>`) — `e2e` job **success**, `<<E2E_TIME>>`(상한 15분). 72_ 흔들림 연속 3회 0: `<<RUNS_3>>`.
+- **run**: https://github.com/ingki3/agent-collabortion/actions/runs/34995413656 (PR #253, head `d53d70a`, merge `b6782fb`) — `e2e` job **success** 3회 연속(attempt 1·2·3, 각 283s·285s·287s = 5m15s 안팎, 상한 15분): 10/10 PASS 모두, **72_ 47/0 × 3**(A2d0·A2d), 82_ 66/0(N/A 1 = agent-browser DOM, CI 에 없음), 81_ 56/0, 84_ 35/0. attempt 1 의 `web` job 은 S14 설정 테스트 `settings-dirty` 로 실패 — 이 PR 이 건드리지 않은 웹 유닛의 **기존 흔들림**(dev run 34988310438 · PR #249 attempt 1 도 같은 파일), attempt 2 초록·로컬 3/3 초록(§6).
 - job 안 표(`ci-summary.tsv`, 아티팩트 `e2e-p5-out`) — 로컬(맥, docker Postgres, 같은 `bash e2e/p5/ci.sh`) 10/10 PASS · 245s:
 
 | 스크립트 | 결과 | PASS/FAIL | 시간(로컬) | 재는 것 |
@@ -48,7 +48,7 @@
 - **사건**: PR #249 CI run 34989845714 **attempt 1** `A2d 동시 3개 (위임 3이 병렬) got=2 want=3`(attempt 2 는 통과). 나머지 45/1.
 - **원인**: 페이크 턴이 0.2s 라 첫 Researcher lane 이 셋째 lane 의 `started_at` 전에 끝난다 — 스윕(`running_overlap`)이 2 를 본다. 병렬성 결함이 아니라 **표본 시점에 3 중 2 만 running**.
 - **고침(단언 그대로)**: 대본 Researcher 에 **barrier**(형제 표식 3 개가 모일 때까지 ≤ 30s, 모이면 2s 더 붙듦; 안 모이면 그냥 진행 → A2d 가 제대로 FAIL) + 하네스 `wait_step`(lib_i5, **I-1**: 단계별 대기가 판정 행) 으로 "Researcher task 3 이 동시에 running" 을 0.3s 폴링(`A2d0`).
-- **결과**: 로컬 연속 3회 3/3(overlap 3, 6s) · CI `<<RUNS_3>>`.
+- **결과**: 로컬 연속 3회 3/3(overlap 3, 6s) · CI 연속 3회 3/3(run 34995413656 attempt 1·2·3, 72_ 47/0 · A2d0 폴링이 3 을 잡았다).
 
 ## 4. 실기 대조 1회 — claude_code reviewer 1턴 (`RUNTIME=real bash e2e/p5/82_role_gate.sh`, 9/0)
 
@@ -68,6 +68,7 @@
 | 층 | 무엇 | 근거 | 영향 · 제안 |
 |---|---|---|---|
 | 데몬 | **capacity 초과 창**: claim 루프가 `free = capacity - len(d.running)` 을 다시 세는데, claim 응답의 task 는 `runAttempt` 안에서 workdir 준비·래퍼 작성 뒤에야 `d.running` 에 들어간다(`loop.go` claim 루프 vs `d.running[k] = run`). 그 사이 다음 claim 이 `capacity` 만큼 또 나간다 | 82_ 1차 실행 데몬 로그(capacity 3): R·RH·C 가 `phase running` 인 채로 Idle 이 claim·running(01:13:48, `turn outcome` 전) → 4 동시. 그래서 82_ (f) 의 queued 를 세션 `limits.max_parallel_lanes` 로 바꿨다 | 짧은 턴이 많을 때 capacity 가 N+k 로 샌다(S13 capacity 열·E13-16 분모). 제안: `start()` 에서 `d.running` 에 자리(placeholder)를 먼저 잡고 runAttempt 가 채우기 |
+| 웹 유닛(기존) | `app/(app)/settings/page.test.tsx` S14 「루프 상한/작업 폴더 탭 … 바꾼 칸만 PATCH」가 `settings-dirty` 를 못 찾고 간헐 실패 | 이 PR run attempt 1 · dev run 34988310438 · PR #249 attempt 1(같은 파일, 다른 케이스). 로컬 3회 21/21 | 웹 코드 무관(이 PR 은 e2e 만). 대기 없이 `getByTestId` 를 쓰는 자리로 보인다 — T-W 몫 |
 | e2e(로컬 함정) | 탭 포트 겹침 — 73_ 탭 :8120 · 74_ :8121 · 84_ `SERVER_URL+10` 이 T-I6 서버(:8120)·72_ 탭과 겹칠 수 있다 | README 함정 절 | `TAP_PORT_72/73/74/82` export. CI(:8109)는 무관 |
 
 결함 아님(확인): Director 의 POST /lanes·/decisions 403 은 `agent_only`(설계) · S7 lane 카드의 빈 턴 한 줄은 이력 「활동」을 연 뒤에만(T-W16 Lead A, 설계).
