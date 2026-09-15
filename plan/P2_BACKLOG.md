@@ -142,7 +142,7 @@
 | S-75 | PR #209 리뷰 NN1·NN2·NN3·NN5 — openapi updateMemberRole 문언을 "owner 역할을 주거나 거두는 것은 owner 만"으로 넓히기(코드가 더 엄격, 계약 PR) · owner 동시 강등 경합 테스트 없음(FOR UPDATE 는 있음) · `member.notification_settings`(0002) 죽은 열 삭제 마이그레이션 · 자기 자신 강등 허용(화면은 T-W12) | PR #209 리뷰 | 낮음 |
 | S-76 | **위임↔합류 사이클이 FR-3.5 루프 상한을 타지 않는다** — `delegateLane`·합류 wake(router/status.go)가 `CheckLoopLimits`(postMessage 경로) 밖. 위임자가 합류 통보에 재위임하면 무한(70초에 529 task, 세션 active, `max_pair_roundtrips=5` 넘어도 `paused(loop)` 없음) | T-I5 PR #206 77_ S1x | **높음 · 배포 전** · T-S15 | **해결 PR #213**(router.gateHop — Delegate·wake 가 CheckLoopLimits) |
 | S-77 | 마스킹이 `task_event.payload.title` 을 지우지 않는다 — 실기 어댑터의 title = 셸 명령 전체라 인자 마스킹이 무효 | T-I5 PR #206 77_ S3d2 | 중 · T-S15 | **해결 PR #213**(events.Mask title 첫 단어만) |
-| I-1 | PR #206 리뷰 NN1~NN5 — e2e/p5 `lib.sh`(70_/71_)·`lib_i5.sh`(72_~78_) 기본 스택 통일 · 단계별 `wait_for --timeout`(실패가 행이 아니라 단언이 되게) · 76_ "첫 출력" 표 셀에 "(페이크 — 모델 0)" 꼬리 · **G9 판정 때 `chk_na` 목록을 함께 읽는다** · out/ 덤프에 토큰 재점검 | PR #206 리뷰 | 낮음 |
+| I-1 | PR #206 리뷰 NN1~NN5 — e2e/p5 `lib.sh`(70_/71_)·`lib_i5.sh`(72_~78_) 기본 스택 통일 · 단계별 `wait_for --timeout`(실패가 행이 아니라 단언이 되게) · 76_ "첫 출력" 표 셀에 "(페이크 — 모델 0)" 꼬리 · **G9 판정 때 `chk_na` 목록을 함께 읽는다** · out/ 덤프에 토큰 재점검 | PR #206 리뷰 | 낮음 | 부분 해결 PR #253(wait_step) — lib 통일·chk_na 목록은 남음 |
 | K-16 | `colab status set done` 뒤에도 도는 턴은 Director 가 중단할 수 없다(`409 lane_not_cancellable`, task 는 running) — 지시문 관례("done 은 마지막 호출")로 덮여 있음. S7 중단 버튼이 running 턴에 비활성이 되는 자리 | T-I5 PR #206 관찰 1 | 알고 있기 |
 | K-17 | `parallel_wallclock_reduction` 정의가 사람 대기(HITL)를 "전체"에 넣어 HITL 있는 세션은 병렬 효과와 무관하게 낮거나 음수 — note 에 명시(T-S15), 정의 변경은 계약 | T-I5 PR #206 관찰 2 | 낮음 | **해결 PR #213**(note 명시) + 웹 #214 |
 | W-12 | S7 의 요약 메시지(`kind=summary`)가 마크다운 원문(`##`·`-`)으로 보인다 | T-I5 PR #206 관찰 3 (`web/__screenshots__/p5-78-s7.png`) | 낮음 | **해결 PR #229**(lib/markdown.tsx 의존성 0·XSS 0) + #230(lane brief) |
@@ -157,17 +157,20 @@
 | W-19 | 세션 마법사가 `agent_approval` 을 리뷰어 없이 보낼 수 있었고 조건 이름이 내부 용어였다 | Director 실사용 2026-09-15 | **해결 PR #234**(리뷰어 선택 필수·사람 말·진행률 요약/막힌 이유/「조건 고치기」) + #238 |
 | W-20 | PR #234 리뷰 NN1~NN4 — 요약 문장이 2개 이상일 때 "이름, 이름 N개" 어순 · (h) 테스트가 브랜치가 dev 보다 뒤면 `landed=false` 갈래만 도는 함정(이제 SERVER 대조로 해소) · 멤버 시점 스크린샷 없음 · `topOp()` 단일 원자 and 가정 | PR #234 리뷰 | 낮음 |
 | V-1 | v1.1 첫 라운드 리뷰 NN 모음 — #247 NN1(관찰 표 「다시 세기」 없음)·NN2(routing value 와 breakdown 관계 표기)·NN4(미지 kind 원시 출력) · #246 NN1(빈 턴의 메시지 절이 status 절에 가려짐 — 단독 고정 테스트)·NN2(commandVerbs 읽기 3종 없음 — 표 완전성 유닛)·NN3(commandAllowed 매 호출 SELECT role) · #250 NN1(83_ 주석 정정)·NN2(데몬 labels ↔ 웹 COMMAND_LABEL 자물쇠)·NN3(Known() 이 labels 로 판정) · #251 NN2(commands_test 가 server/ 없으면 Skip)·NN3(role 모를 때 문장 변형 — 계약 #249 에 적음)·NN4(Allow 가 c.ctx 직접 참조) | v1.1 리뷰 | 낮음 |
-| I-4 | CI e2e 72_ A2d "동시 3개 got=2" 흔들림(PR #249) — 샘플 시점 문제, 폴링+단계 timeout 으로 결정적으로 | PR #249 CI | T-I6 |
+| D-28 | 데몬 capacity 초과 창 — claim 루프의 free 계산(loop.go:216)이 runAttempt 의 running 등록(:1070)보다 먼저 돌아 짧은 턴이 몰리면 capacity 3 에 4 동시(실측). 초과분은 다음 루프에서 free≤0 으로 잡혀 무한정 늘지 않음. S13 capacity 열·E13-16 분모와 어긋남. placeholder 등록 방식 제안 | T-I6 PR #253 REPORT §6 · 리뷰 확인 | 중 |
+| W-21 | 웹 S14 설정 유닛(settings/page.test.tsx settings-dirty)이 CI 에서 가끔 흔들린다(dev 에서도, 로컬 3/3 통과) — 재시도 없이 결정적으로 | T-I6 PR #253 · PR #214 도 같은 파일 | 낮음 |
+| I-5 | 로컬 e2e 탭 포트 겹침(73_ :8120 · 84_ SERVER_URL+10) → `TAP_PORT_*` export 로 분리 · 82_ 는 WEB_URL 필요(README 한 줄) · 첫 CI 실측치 확인(15분 상한, 지금 ≈5m15s) | T-I6 PR #253 · 리뷰 NN1·NN2 | 낮음 |
+| I-4 | CI e2e 72_ A2d "동시 3개 got=2" 흔들림(PR #249) — 샘플 시점 문제, 폴링+단계 timeout 으로 결정적으로 | PR #249 CI | T-I6 | **해결 PR #253**(barrier + wait_step, 연속 3회 초록) |
 | W-14 | PR #219 리뷰 NN2~NN5 — 새 스크린샷 2종 밝음만 · 메뉴 바깥 클릭이 mousedown 만(터치·focusout 없음) · S7 에서 삭제 뒤 목록 안내 미확인 · `deleteGate` 가 canDelete 를 호출자에게서 받음 | PR #219 리뷰 | 낮음 |
 | S-83 | 서버 `lanes.Load` 가 `Lane.actions` 에 **`cancel` 만** 넣어(P2 "restart stays out" 주석 잔존) 실서버 S7 카드의 「다시 지시」·「응답하러 가기」·「계속 진행 승인」이 **항상 비활성**이었다. 웹 목이 옳은 규칙을 갖고 있어 화면 테스트가 못 잡았다 — **목이 서버보다 옳으면 화면 테스트는 초록이다**(server-wording 자물쇠는 문장만 대조, 동작 규칙은 대조 안 함) | Director 실사용 2026-09-14 | **해결 PR #224**(laneActions + 유닛 9) · 교훈: 목 규칙 ↔ 서버 규칙 대조 자물쇠 후보(I-2) |
-| I-2 | 목이 서버보다 옳은 규칙을 갖는 자리(Lane.actions·인박스 actions 등)를 **서버 실값과 대조하는 실서버 스모크**를 CI e2e 에(72_~78_ 는 acpfake 로 도니 lane actions 를 상태별로 단언할 수 있다) | S-83 교훈 | 중 · G9 전 |
+| I-2 | 목이 서버보다 옳은 규칙을 갖는 자리(Lane.actions·인박스 actions 등)를 **서버 실값과 대조하는 실서버 스모크**를 CI e2e 에(72_~78_ 는 acpfake 로 도니 lane actions 를 상태별로 단언할 수 있다) | S-83 교훈 | 중 · G9 전 | **해결 PR #253**(82_ lane.actions 상태별 단언) |
 | W-15 | 「중단하고 다시 지시」 재지시 모드의 작성창 초안이 멘션을 원문 링크(`[@Writer](mention://agent/…)`)로 보인다 — 칩이나 `@Writer` 로 | 실기 2026-09-15 스크린샷 | 낮음 | **해결 PR #226**(작성창은 `@이름`, 링크는 전송 본문에만 — `toWire`/`toDisplay`) |
 | W-16 | 「작성 중…」 미리보기가 턴 종료 뒤에도 남고(지우는 조건이 message.created 뿐), `message.delta.text`(누적 스냅숏)를 이어 붙였다 | Director 실사용 2026-09-15 | **해결 PR #228**(스냅숏 교체·lane running 이탈 시 제거) |
 | W-17 | PR #229 리뷰 NN2~NN4 — 리터럴 색 단독 주입이 대비 자물쇠에 걸리는지 미확인 · `####` 이상은 `###` 로 접힘 · 표는 구분줄 필수(GFM) | PR #229 리뷰 | 낮음 |
 | W-18 | S7 자동 스크롤이 sticky 작성창 뒤에 마지막 카드·델타를 숨긴다(T-W14 관찰 3, 스크린샷은 window.scrollTo 로 우회) · 사람 메시지도 마크다운 렌더(작성자 구분 원하면 결정) | T-W14 PR #229 보고 | 낮음 |
-| K-18 | PRD v0.17 §11 「관찰」 표 5행(트리거 사슬 규모·깊이·합류 폭·라우팅 집중·빈 턴 비율) — `getWorkspaceMetrics` 와 **별도 op**(G9 "10개 그대로" 분리) + S14 대시보드 아래 별도 표 + FR-7.2 빈 턴 정보 카드(서버 finish 시 판정, 키 추가 없음) | OASIS 리뷰 C1~C3, Director 확정 | G9 뒤 · 계약 | **해결** 계약 #244 · 서버 #246 · 웹 #247/#248 (T-I6 e2e 편입 진행) |
-| K-19 | 역할별 행동 부분집합(`available_actions` — 예: reviewer 는 위임 불가, researcher 는 review approve 불가)을 프롬프트가 아니라 **표면**(colab CLI/MCP 도구 목록)으로 | OASIS 리뷰 C5, Director 확정 | **v1.1** | **해결** 계약 #244 · 서버 #246 · 데몬 #250 · CLI #251 · 웹 #247 (T-I6 82_ 진행) |
-| I-3 | e2e 스크립트 머리·README 표에 "예상 비용 한 줄"(에이전트 턴 수·실기 예상 비용·소요; 페이크는 $0) | OASIS 리뷰 C7 | 낮음 · 다음 e2e 수정 때 |
+| K-18 | PRD v0.17 §11 「관찰」 표 5행(트리거 사슬 규모·깊이·합류 폭·라우팅 집중·빈 턴 비율) — `getWorkspaceMetrics` 와 **별도 op**(G9 "10개 그대로" 분리) + S14 대시보드 아래 별도 표 + FR-7.2 빈 턴 정보 카드(서버 finish 시 판정, 키 추가 없음) | OASIS 리뷰 C1~C3, Director 확정 | G9 뒤 · 계약 | **해결** 계약 #244 · 서버 #246 · 웹 #247/#248 + T-I6 #253(CI 81_/82_/84_) |
+| K-19 | 역할별 행동 부분집합(`available_actions` — 예: reviewer 는 위임 불가, researcher 는 review approve 불가)을 프롬프트가 아니라 **표면**(colab CLI/MCP 도구 목록)으로 | OASIS 리뷰 C5, Director 확정 | **v1.1** | **해결** 계약 #244 · 서버 #246 · 데몬 #250 · CLI #251 · 웹 #247 + T-I6 #253(82_ 세 층, 실기 9/0) |
+| I-3 | e2e 스크립트 머리·README 표에 "예상 비용 한 줄"(에이전트 턴 수·실기 예상 비용·소요; 페이크는 $0) | OASIS 리뷰 C7 | 낮음 · 다음 e2e 수정 때 | **해결 PR #253** |
 
 ## C (CLI)
 
