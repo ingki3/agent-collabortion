@@ -289,3 +289,8 @@ func (unimplemented) CreateSession(w http.ResponseWriter, r *http.Request, works
 func (unimplemented) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.StreamEventsParams) {
 	notImplemented(w, r, "StreamEvents")
 }
+
+// GetWorkspaceObservations — openapi 0.1.5(K-18 관찰 표), T-S19 가 구현한다.
+func (unimplemented) GetWorkspaceObservations(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.GetWorkspaceObservationsParams) {
+	notImplemented(w, r, "GetWorkspaceObservations")
+}

@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 문서 버전 | **v0.17 (Draft)** — OASIS 리뷰 반영(Director 확정 2026-09-15): §11 별도 「관찰」 표 5행(트리거 사슬 규모·깊이·합류 폭·라우팅 집중·빈 턴), FR-7.2 빈 턴 카드, §12 라우팅의 구조적 집중; C5 역할별 행동 부분집합은 v1.1. v0.16 — 스파이크 5(PR #153) 판정: §8.4 M3 표를 "추적 여부 무관, 별도 미추적 `COLAB_BRIEF.md`" 한 행으로 바꾸고 `skip-worktree` 안 폐기, 턴 프롬프트 첫 줄 브리프 경로 지시 고정, §12 위험 표 정정. v0.15는 K-5 결정: FR-3.3 규칙 8의 억제 기간과 합류 뒤 위임자 기상 한도(FR-3.4 병합)를 명시. v0.14는 P2a 골든 테이블 작성에서 드러난 공백 2건: FR-3.5에 **재개 시 루프 카운터** 규칙과 상한 종류 구분 요구 추가, FR-3.3 lane 해소 "3단계" 오기를 4단계로 정정. v0.13은 G1 판정 반영: CLI 어댑터 v1 제외 확정, 어댑터 패키지 개명, `rate_limited` 분류, Hermes 유실 감지 규칙. v0.12는 §7 agent.status. 이전 버전은 `prd/` |
+| 문서 버전 | **v0.18 (Draft)** — v1.1 첫 라운드: FR-1.9.1 역할별 행동 부분집합(K-19, 표), FR-7.2 빈 턴 판정·기록(K-18), §11 관찰 표의 op(`getWorkspaceObservations`). v0.17 — OASIS 리뷰 반영(Director 확정 2026-09-15): §11 별도 「관찰」 표 5행(트리거 사슬 규모·깊이·합류 폭·라우팅 집중·빈 턴), FR-7.2 빈 턴 카드, §12 라우팅의 구조적 집중; C5 역할별 행동 부분집합은 v1.1. v0.16 — 스파이크 5(PR #153) 판정: §8.4 M3 표를 "추적 여부 무관, 별도 미추적 `COLAB_BRIEF.md`" 한 행으로 바꾸고 `skip-worktree` 안 폐기, 턴 프롬프트 첫 줄 브리프 경로 지시 고정, §12 위험 표 정정. v0.15는 K-5 결정: FR-3.3 규칙 8의 억제 기간과 합류 뒤 위임자 기상 한도(FR-3.4 병합)를 명시. v0.14는 P2a 골든 테이블 작성에서 드러난 공백 2건: FR-3.5에 **재개 시 루프 카운터** 규칙과 상한 종류 구분 요구 추가, FR-3.3 lane 해소 "3단계" 오기를 4단계로 정정. v0.13은 G1 판정 반영: CLI 어댑터 v1 제외 확정, 어댑터 패키지 개명, `rate_limited` 분류, Hermes 유실 감지 규칙. v0.12는 §7 agent.status. 이전 버전은 `prd/` |
 | 작성일 | 2026-09-03 |
 | 파생 문서 | **`SCREEN.md`** (화면 설계 SSOT) — 이 PRD를 화면으로 옮기며 드러난 공백이 v0.9 변경 요약에 반영되어 있다. **`PLAN.md`** (개발 계획 SSOT, 이전 버전·리뷰는 `plan/`) — §10·§12를 주차로 펼치며 드러난 것이 v0.11에 반영되어 있다 |
 | 리뷰 이력 | `PRD_REVIEW_01` → v0.5 · `PRD_REVIEW_02` → v0.6 · `PRD_REVIEW_03` → v0.7 · `PRD_REVIEW_04` (`blocked` 경로 공백 6 / 소소한 것 8) → v0.8. **전건 반영, 반대 항목 없음** |
@@ -438,6 +438,17 @@ max_concurrent_tasks: 3
 
 에이전트 상태는 `disabled`로 표시하며 `offline`(런타임 연결 끊김)과 구분한다. 다시 `owner` 등으로 되돌리면 새 트리거부터 정상 동작한다.
 
+**FR-1.9.1 역할별 행동 부분집합 (v1.1, K-19 — OASIS 리뷰 C5, Director 확정 2026-09-15)** — 에이전트가 플랫폼에 할 수 있는 말(`colab` 명령)은 **역할이 정한다.** 프롬프트(§8.3)로 "하지 말라"고 이르는 것이 아니라 **표면**으로 막는다: 데몬이 MCP 툴 목록을 역할의 부분집합으로 자르고, CLI 는 그 밖의 명령을 서버에 보내기 전에 거부하며(exit 3 `command_not_allowed`), 서버도 같은 표로 `403 command_not_allowed` 를 낸다(세 층이 같은 표를 본다). 표는 `openapi` `Agent.allowed_commands`(읽기 전용 파생값)·`CliContext.allowed_commands`·데몬 번들 `task.allowed_commands` 로 흐른다.
+
+| 역할 | 허용 명령 | 막는 것과 이유 |
+|---|---|---|
+| `lead` | 전부 | 코디네이터 |
+| `researcher` · `writer` · `engineer` | `session get/messages` · `artifact get/submit` · `message post` · `status set` · `decision record` · `hitl ask/request-info` | `lane delegate`(위임은 Lead 의 일 — 실무자가 위임하면 사슬이 깊어진다, FR-3.5) · `review approve/reject`(자기 산출물을 자기가 승인하지 않게) · `hitl approve-request`(완료 승인 요청은 Lead 가) |
+| `reviewer` | `session get/messages` · `artifact get` · `message post` · `status set` · `decision record` · `review approve/reject` · `hitl ask/request-info` | `lane delegate` · `artifact submit`(리뷰어는 산출물을 내지 않는다 — 반려 사유는 `review reject --reason`) · `hitl approve-request` |
+| `custom` | 전부 | Director 가 instructions 로 정한다 |
+
+세션 참여 자체(FR-1.9)와는 독립이다 — 참여했어도 역할 밖 명령은 없다. 표를 바꾸는 것은 계약 변경(`colab-cli.md` §2.5).
+
 ### FR-2. Session (goal / Director / 종료 조건)
 
 **FR-2.1 생성 폼**
@@ -827,7 +838,7 @@ deferred → queued → dispatched → preparing → running → waiting_human
 - **스트림을 합친다.** 청크로 도착한 텍스트는 하나의 항목이다. 사람은 메시지를 읽지 패킷을 읽지 않는다.
 - **부풀리지 않는다.** 인식된 동작은 의미 카드를, 인식하지 못한 동작은 깨끗한 일반 행을 받는다. 더 풍부해 보이려고 의미를 지어내지 않는다.
 - **기본은 정제, 원본은 요청 시.** 원본 레일은 안전망이고, 둘 사이의 전환은 같은 진실의 확대·축소이지 다른 피드가 아니다.
-- `[v0.17]` **빈 턴도 렌더한다.** 턴이 메시지 0·플랫폼 조작(`colab` 호출) 0·파일 편집 0 으로 `end_turn` 하면 "아무것도 하지 않고 턴을 끝냈다" 를 **정보 카드**(오류 아님)로 남긴다. 위의 "절대 캄캄해지지 않는다" 는 턴 **중**의 침묵을 다루고, 이 문장은 턴이 **끝난 뒤** 남는 공백을 다룬다 — 멘션이 낭비됐는지(§8.3 규약 위반) 정당한 무응답인지는 Director 가 카드를 보고 판단한다. refusal 은 별도(재시도, D-13). 판정 위치(서버 finish 시)와 `task_event` 키는 계약 결정(`plan/research/OASIS_REVIEW.md` C3).
+- `[v0.17]` **빈 턴도 렌더한다.** 턴이 메시지 0·플랫폼 조작(`colab` 호출) 0·파일 편집 0 으로 `end_turn` 하면 "아무것도 하지 않고 턴을 끝냈다" 를 **정보 카드**(오류 아님)로 남긴다. 위의 "절대 캄캄해지지 않는다" 는 턴 **중**의 침묵을 다루고, 이 문장은 턴이 **끝난 뒤** 남는 공백을 다룬다 — 멘션이 낭비됐는지(§8.3 규약 위반) 정당한 무응답인지는 Director 가 카드를 보고 판단한다. refusal 은 별도(재시도, D-13). 판정 위치(서버 finish 시)와 `task_event` 키는 계약 결정(`plan/research/OASIS_REVIEW.md` C3). **판정과 기록(v1.1, K-18)**: 서버가 `finish` 에서 그 attempt 의 `task_event` 에 `status`(플랫폼 조작) 0건·`tool edit_file` 0건·게시 메시지 0건이면 `{class: status, verb: turn_end, object_ref: "empty_turn", outcome: info, payload: {command: "turn_end", args: {note: "아무것도 하지 않고 턴을 끝냈습니다"}}}` 한 행을 남긴다 — 닫힌 스키마 안(S-52), 새 키 없음. 관찰 표 `empty_turn_rate` 가 이 행을 센다.
 
 *강등* — 런타임이 구조화 이벤트를 주지 못하면(§8.2.6) 메시지 카드와 원본 레일만 남는다. 이때도 "이 런타임은 툴 단위 로그를 제공하지 않습니다"를 명시해 침묵과 구분한다.
 
