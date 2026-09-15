@@ -799,7 +799,7 @@ export interface paths {
         /**
          * 세션 생성(S6 마법사 제출)
          * @description 권한: 워크스페이스 멤버. 생성자가 기본 Director(`director_user_id` 생략 시). 참여자 각각에 대해 호출자의 `respond_to` 초대 권한을 검사한다(FR-1.9, E10-09·11).
-         *     검증(`422`, `Problem.errors[]`): `isolation.kind`가 `worktree`·`container`면 `runtime_id` 필수(E15-11) · `criteria_met` 단독 불가(E6-07) · `container`는 v1.1(`kind: container` 거부) · `supervised`는 v1.1 · worktree면 저장소 검증(`checkRepo`) 통과 필요 · 참여자 프로파일의 `runtime_kind`가 선택 런타임에 없으면 `warnings[]`(거부 아님). 런타임 0개면 `409 no_runtime`(SCREEN §2.1). 디스크 상한 도달이면 `409 workdir_quota_exceeded`(E13-16).
+         *     검증(`422`, `Problem.errors[]`): `isolation.kind`가 `worktree`·`container`면 `runtime_id` 필수(E15-11) · `criteria_met` 단독 불가(E6-07) · **`agent_approval` 은 `agent_id`(리뷰어) 필수이고 그 에이전트가 참여자여야 한다**(`errors[].code: reviewer_required` / `reviewer_not_participant`, v0.1.4 — 리뷰어 없는 조건은 아무도 승인할 수 없어 세션이 영영 안 닫힌다, S-84) · `container`는 v1.1(`kind: container` 거부) · `supervised`는 v1.1 · worktree면 저장소 검증(`checkRepo`) 통과 필요 · 참여자 프로파일의 `runtime_kind`가 선택 런타임에 없으면 `warnings[]`(거부 아님). 런타임 0개면 `409 no_runtime`(SCREEN §2.1). 디스크 상한 도달이면 `409 workdir_quota_exceeded`(E13-16).
          *     생성 직후 상태는 `active`이고 assignee에게 초기 task가 만들어진다(E16-A 1단계). `draft`로 저장하려면 `draft: true`.
          */
         post: operations["createSession"];
@@ -862,7 +862,7 @@ export interface paths {
         /**
          * 세션 설정 편집(goal · 성공 기준 · 한도 · autonomy · deputy)
          * @description 권한: Director.
-         *     **런타임과 격리는 변경 불가**(workdir이 묶여 있다 — SCREEN §4.5 상단 액션). `draft` 상태에서만 `completion_condition`·`isolation`·`runtime_id`도 바꿀 수 있다.
+         *     **런타임과 격리는 변경 불가**(workdir이 묶여 있다 — SCREEN §4.5 상단 액션). `draft` 상태에서만 `isolation`·`runtime_id`를 바꿀 수 있다. **`completion_condition` 은 `active`·`paused` 에서도 Director 가 바꿀 수 있다**(v0.1.4, S-84 — 리뷰어 없는 조건에 걸린 세션을 구하는 길; 검증은 createSession 과 같고, 바꾸면 진행률을 다시 계산해 `session.completion_progress` 를 보낸다. 이미 충족된 원자는 그대로 유지).
          */
         patch: operations["updateSession"];
         trace?: never;
@@ -2623,7 +2623,7 @@ export interface components {
             who?: string;
             /**
              * Format: uuid
-             * @description `artifact_submitted` · `agent_approval`의 지정 에이전트(`who` 대신).
+             * @description `artifact_submitted` · `agent_approval`의 지정 에이전트(`who` 대신). **`agent_approval` 에는 필수**(v0.1.4, S-84).
              */
             agent_id?: string;
         };
@@ -2651,6 +2651,18 @@ export interface components {
                  * @description `user_approval` 대기 중이면 그 HITL.
                  */
                 hitl_request_id?: string | null;
+                /**
+                 * Format: uuid
+                 * @description `artifact_submitted`·`agent_approval` 의 지정 에이전트(v0.1.4).
+                 */
+                agent_id?: string | null;
+                /** @description 그 에이전트의 이름 — 화면은 "Lead 의 검토 승인" 처럼 사람 말로 그린다(§8.4). */
+                agent_name?: string | null;
+                /**
+                 * @description 이 조건이 **지금 구조상 충족될 수 없는** 이유(v0.1.4, S-84). 옛 세션(리뷰어 없는 `agent_approval`)이나 리뷰어가 세션을 떠난 경우. 화면은 ✗ 대신 이유를 그대로 보이고 Director 에게 조건 수정을 안내한다. 새 세션은 createSession 검증이 막는다.
+                 * @enum {string|null}
+                 */
+                blocked_reason?: "reviewer_missing" | "reviewer_not_participant" | "agent_archived" | null;
             }[];
         };
         SessionContext: {

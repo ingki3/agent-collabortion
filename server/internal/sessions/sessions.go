@@ -508,19 +508,27 @@ func (s *Service) Progress(ctx context.Context, sessionID uuid.UUID) (gen.Comple
 // from session.completion_met rather than being recomputed: E6-04 pins that an
 // artifact_submitted flag survives a Director rejection, and a recomputation
 // has no way to remember that.
+// progressCond is the element type of gen.CompletionProgress.Conditions — the
+// generator emits it as an anonymous struct, so name it once here. agent_id ·
+// agent_name · blocked_reason (openapi 0.1.4, S-84) are filled by T-S18.
+type progressCond = struct {
+	AgentId       nullable.Nullable[openapi_types.UUID]                            `json:"agent_id,omitempty"`
+	AgentName     nullable.Nullable[string]                                        `json:"agent_name,omitempty"`
+	BlockedReason nullable.Nullable[gen.CompletionProgressConditionsBlockedReason] `json:"blocked_reason,omitempty"`
+	HitlRequestId nullable.Nullable[openapi_types.UUID]                            `json:"hitl_request_id,omitempty"`
+	Met           bool                                                             `json:"met"`
+	MetAt         nullable.Nullable[time.Time]                                     `json:"met_at,omitempty"`
+	MetBy         nullable.Nullable[string]                                        `json:"met_by,omitempty"`
+	NextActor     nullable.Nullable[string]                                        `json:"next_actor,omitempty"`
+	Path          string                                                           `json:"path"`
+	Type          string                                                           `json:"type"`
+}
+
 func progress(tree, metRaw []byte) gen.CompletionProgress {
 	var p gen.CompletionProgress
 	met := map[string]bool{}
 	_ = json.Unmarshal(metRaw, &met)
-	p.Conditions = make([]struct {
-		HitlRequestId nullable.Nullable[openapi_types.UUID] `json:"hitl_request_id,omitempty"`
-		Met           bool                                  `json:"met"`
-		MetAt         nullable.Nullable[time.Time]          `json:"met_at,omitempty"`
-		MetBy         nullable.Nullable[string]             `json:"met_by,omitempty"`
-		NextActor     nullable.Nullable[string]             `json:"next_actor,omitempty"`
-		Path          string                                `json:"path"`
-		Type          string                                `json:"type"`
-	}, 0)
+	p.Conditions = make([]progressCond, 0)
 	var node any
 	if json.Unmarshal(tree, &node) != nil {
 		return p
@@ -546,15 +554,7 @@ func progress(tree, metRaw []byte) gen.CompletionProgress {
 		if met[typ] {
 			p.Met++
 		}
-		p.Conditions = append(p.Conditions, struct {
-			HitlRequestId nullable.Nullable[openapi_types.UUID] `json:"hitl_request_id,omitempty"`
-			Met           bool                                  `json:"met"`
-			MetAt         nullable.Nullable[time.Time]          `json:"met_at,omitempty"`
-			MetBy         nullable.Nullable[string]             `json:"met_by,omitempty"`
-			NextActor     nullable.Nullable[string]             `json:"next_actor,omitempty"`
-			Path          string                                `json:"path"`
-			Type          string                                `json:"type"`
-		}{Path: path, Type: typ, Met: met[typ]})
+		p.Conditions = append(p.Conditions, progressCond{Path: path, Type: typ, Met: met[typ]})
 	}
 	walk(node, "")
 	p.HumanGate = &human
