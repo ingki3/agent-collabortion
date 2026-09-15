@@ -29,6 +29,7 @@ import (
 
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
+	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
 // Row is one line of the §11 observation table (openapi ObservationRow).
@@ -87,7 +88,7 @@ var ruleKinds = []string{"1", "2", "3", "4", "5", "6", "7", "8", "platform"}
 
 // EmptyTurnObjectRef is the object_ref of the FR-7.2 row tasks.Finish writes
 // for a turn that did nothing; empty_turn_rate counts exactly that row.
-const EmptyTurnObjectRef = "empty_turn"
+const EmptyTurnObjectRef = tasks.EmptyTurnObjectRef
 
 // Compute returns the five rows for wsID over [now-window, now], in §11 order.
 func Compute(ctx context.Context, q db.DBTX, wsID uuid.UUID, window time.Duration, now time.Time) ([]Row, error) {
