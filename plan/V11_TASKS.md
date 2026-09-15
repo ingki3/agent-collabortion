@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 상태 | **착수(2026-09-15).** v1.0.0 태그 뒤 Director: "시작해. 개발 마무리, 테스트까지 완전히 진행해." |
+| 상태 | **구현 4/4 머지(2026-09-16)** — T-S19 #246 · T-W16 #247(+#248 동기화) · T-D13 #250 · T-C7 #251, 계약 #244·#249. T-I6 진행 중. 착수 2026-09-15. v1.0.0 태그 뒤 Director: "시작해. 개발 마무리, 테스트까지 완전히 진행해." |
 | 근거 | `PRD.md` v0.18 FR-1.9.1·FR-7.2·§11 관찰 표, `contracts/openapi.yaml` 0.1.5(`getWorkspaceObservations`·`ColabCommand`·`allowed_commands`), `colab-cli.md` v0.6 §2.5, `daemon-protocol.md` v0.8.2, `harness.md` v0.8.10, `plan/P2_BACKLOG.md` K-18·K-19·I-3 |
 | 게이트 | 없음(v1.1 첫 라운드). 판정은 각 PR 의 CI + Hermes 리뷰 + 실서버 대조(Lead) |
 
