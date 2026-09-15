@@ -188,6 +188,19 @@
 | K-13 | `openapi` `downloadArtifact` 의 security 에 **DaemonToken 이 없었다** — §4.3 `rebind_prepare` 는 데몬에게 다운로드를 지시하므로 계약 내부 모순이었다(T-I4 실측 401). 함께: `reviewArtifact` 의 "해소 규칙 1로 재진입" 문언이 라우팅 규칙 4와 충돌 → "서버가 명시적으로 재진입" 으로 정정 | T-I4 63_ R5f · 61_ B5g | **해결 — 계약 PR(v0.7.3 · openapi)** |
 | K-14 | daemon-protocol §4.1 TaskBundle 에 `workdir.id?` 를 싣고 §6 보고가 그 `id` 를 회신하면 데몬의 `<root>/.colab/workdirs/` index 파일이 불필요해진다(지금은 경로가 슬러그라 세션·에이전트 uuid 를 복원할 수 없어 준비 시점에 적어 둔다). 서버·데몬 양쪽 변경 + 재측정이라 G7 뒤로 | PR #172 리뷰 NN4 | P5 |
 
+## OASIS 후보 (T-R1 리서치, 번호는 Lead)
+
+근거·대응표·전체 후보 14건은 `plan/research/OASIS_REVIEW.md`. 여기에는 PRD 밖에서 처리할 것과 v1.1 후보만 둔다. "지금" 3건(C1~C3)은 `PRD.md` "v0.17 변경 제안" 절에 `[제안 v0.17]` 로 들어가 있고 **미확정**이다.
+
+| # | 항목 | 출처 | 비고 |
+|---|---|---|---|
+| — | **관찰 행 5개의 구현 자리** — C1(사슬 규모·깊이·폭)·C2(규칙 번호 분포·트리거 점유율)·C3(빈 턴 비율)를 `getWorkspaceMetrics` 에 얹을지(G9 "10개 그대로" 조건과 분리 필요) 별도 읽기 op 로 할지. 데이터는 `session_hop(rule, cause_hop_id, chain_depth)`·`lane.delegated_from_task_id`·`task_event` 에 있어 SQL 1벌 | OASIS_REVIEW §3 C1·C2 | Lead 결정. G8 실측 5명의 로그를 이 SQL 로 먼저 읽어 보는 것이 가장 싼 검증 |
+| — | **빈 턴 판정과 계약 키** — 서버가 finish 시 attempt 의 `task_event` 에 `message.say`·`status.*`·`tool.edit_file` 이 없으면 정보 카드. `task_event` 스키마는 닫혀 있으므로(`runtime.turn_end` payload 키 추가 또는 서버 자체 이벤트) 계약 결정 | OASIS_REVIEW §3 C3, PRD FR-7.2 `[제안 v0.17]` | 오류가 아니라 정보 카드. refusal(D-13)과 구분 |
+| — | **e2e 스크립트 비용 한 줄** — `e2e/p*/README.md` 표와 각 스크립트 머리에 에이전트 턴 수·실기 예상 비용·소요 시간(페이크 런타임은 $0 명시). OASIS `examples/experiment/README.md` 관례("36 agents × 0.1 × 2 steps ≈ 7.2 inferences ≈ 14 API requests") | OASIS_REVIEW §3 C7 | 문서만. 실기 대조(`DAEMON_BIN`) 전에 얼마가 드는지 |
+| — | (v1.1) **역할별 행동 부분집합** — `agent.role → allowed ops`(예: reviewer 는 `lane delegate` 불가, non-lead 는 세션 `status set done` 불가). 서버 403 + 피드 거부 카드, MCP 서버는 툴 목록 자체를 줄인다. OASIS `available_actions` 가 프롬프트가 아니라 **표면**으로 막는 방식 | OASIS_REVIEW §3 C5 | 계약 변경. S-84(reviewer 필수 422)와 같은 결의 결정 — Director 판단. 기본은 넓게, `custom` 은 전부 허용 |
+| — | (v1.1) **합의 형성 지표** — 아티팩트가 `review approve` 까지 거친 `reject` 왕복 수 중앙값, 세션당 `decision record` 수 | OASIS_REVIEW §3 C6 | G9 뒤 §11 개정 때. LLM 판정 없이 결정적으로 |
+| — | (v1.1, 낮음) 세션 템플릿 저장 시 로스터·권한 스모크(acpfake) — 리허설(C8)은 제품으로는 안 하지만, 템플릿의 참여자·리뷰어 조건이 서버 검증(422 등)을 통과하는지만 페이크로 확인 | OASIS_REVIEW §3 C8 | 배관만 검증된다는 한계를 화면에 적어야 한다 |
+
 ## 테스트 자산 (P1에서 만든 것)
 
 | 항목 | 내용 |
