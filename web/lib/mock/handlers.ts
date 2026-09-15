@@ -12,7 +12,7 @@ import {
   allowedCommands, defaultSettings, emit, makeAgent, makeRuntime, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges,
   sseFrame, store, stripUser, TEMPLATES, uuid, type MockInvite, type MockTask, type Store, type Subscriber,
 } from "./store";
-import { fmt, josa, METRIC_DEFS, MOCK_ONLY, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
+import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
 /**
  * RFC 9457 Problem — `title` 은 서버(`apperr.Title`)처럼 **상태 코드에서** 정한다. 문장(`detail`·`errors[].message`)은
@@ -1386,7 +1386,7 @@ on("POST", "/__mock/sessions/{id}/seed-empty-turn", (req, p) => {
   setLaneStatus(s, sess, task.lane_id, { status: "running", has_runtime_session: true });
   pushEvent(s, sess, task, { class: "runtime", verb: "start", object_ref: null, outcome: "resumed", payload: { runtime_kind: "claude_code", session_id: `acp-${task.id.slice(0, 8)}` }, sentence: `${agent.name}가 세션을 이어받았다 → resumed` });
   pushEvent(s, sess, task, { class: "message", verb: "think", object_ref: null, outcome: "ok", payload: { kind: "thought", chars: 96 }, sentence: `${agent.name}가 생각했다 → ok` });
-  const empty = pushEvent(s, sess, task, { class: "status", verb: "turn_end", object_ref: "empty_turn", outcome: "info", payload: { command: "turn_end", args: { note: MOCK_ONLY.empty_turn_note } }, sentence: null });
+  const empty = pushEvent(s, sess, task, { class: "status", verb: "turn_end", object_ref: "empty_turn", outcome: "info", payload: { command: "turn_end", args: { note: W.empty_turn_note } }, sentence: null });
   pushEvent(s, sess, task, { class: "runtime", verb: "turn_end", object_ref: null, outcome: "ok", sentence: "턴 종료 → ok" });
   task.status = "completed";
   task.finished_at = now();
