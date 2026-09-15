@@ -1803,7 +1803,7 @@ type CompletionAtom struct {
 	AgentId *openapi_types.UUID `json:"agent_id,omitempty"`
 	Type    CompletionAtomType  `json:"type"`
 
-	// Who `artifact_submitted`: `assignee` 또는 역할명.
+	// Who `artifact_submitted`: `assignee` 또는 역할명. **생략하면 서버는 해석하지 않는다** — 진행률이 `blocked_reason: reviewer_missing` 으로 알린다(PR #233 리뷰; 빈 값을 assignee 로 채워 진행률을 낙관적으로 보이지 않게).
 	Who *string `json:"who,omitempty"`
 }
 
