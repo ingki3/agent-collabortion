@@ -12,7 +12,7 @@ GO_MODULES := contracts server daemon cli
 # without this the binary said "colab dev (contracts x.y.z)" and probe
 # reported the CONTRACTS version as the CLI's — S11 showed "colab CLI 0.1.0"
 # (backlog C-3). Bump it with the CLI's command surface: 0.3.0 is P3 (HITL).
-COLAB_VERSION ?= 0.3.0
+COLAB_VERSION ?= 1.0.0
 PG_CONTAINER := colab-pg
 PG_PORT ?= 5433  # 5432는 로컬 ssh 터널 등이 흔히 점유한다
 PG_URL ?= postgres://colab:colab@localhost:$(PG_PORT)/colab?sslmode=disable
