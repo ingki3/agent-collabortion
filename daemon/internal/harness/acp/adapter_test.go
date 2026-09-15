@@ -115,7 +115,7 @@ func TestSniffHermesTextPrefixOnly(t *testing.T) {
 // R2 — the colab MCP entry carries exactly the attempt's COLAB_* env.
 func TestColabMCPServerFromEnv(t *testing.T) {
 	env := Env(contracts.RuntimeClaudeCode, TaskEnv{TaskToken: "ctk_1", ServerURL: "http://s", TaskID: "t", Attempt: 3, LaneID: "l", SessionID: "s", AgentName: "Lead"}, map[string]string{"MY_KEY": "v"})
-	s := ColabMCPServer("", env)
+	s := ColabMCPServer("", env, nil)
 	if s.Name != "colab" || s.Command != "colab" || strings.Join(s.Args, " ") != "mcp serve" {
 		t.Fatalf("%+v", s)
 	}
@@ -132,7 +132,7 @@ func TestColabMCPServerFromEnv(t *testing.T) {
 			t.Fatalf("%s=%q want %q", k, got[k], v)
 		}
 	}
-	if s2 := ColabMCPServer("/opt/colab/bin/colab", env); s2.Command != "/opt/colab/bin/colab" {
+	if s2 := ColabMCPServer("/opt/colab/bin/colab", env, nil); s2.Command != "/opt/colab/bin/colab" {
 		t.Fatalf("%+v", s2)
 	}
 }

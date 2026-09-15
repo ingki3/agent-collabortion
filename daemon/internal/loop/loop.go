@@ -16,6 +16,7 @@ import (
 	"github.com/ingki3/agent-collabortion/contracts/clock"
 	"github.com/ingki3/agent-collabortion/daemon/internal/api"
 	"github.com/ingki3/agent-collabortion/daemon/internal/brief"
+	"github.com/ingki3/agent-collabortion/daemon/internal/commands"
 	"github.com/ingki3/agent-collabortion/daemon/internal/config"
 	"github.com/ingki3/agent-collabortion/daemon/internal/harness/acp"
 	"github.com/ingki3/agent-collabortion/daemon/internal/orphan"
@@ -771,7 +772,21 @@ func (d *Daemon) mcpServers(b contracts.TaskBundle) []acp.MCPServer {
 		return nil
 	}
 	env := acp.Env(b.Profile.RuntimeKind, te, nil)
-	return []acp.MCPServer{acp.ColabMCPServer(d.Cfg.ColabBin, env)}
+	return []acp.MCPServer{acp.ColabMCPServer(d.Cfg.ColabBin, env, b.Task.AllowedCommands)}
+}
+
+// wrapperEnv is what the hermes wrapper exports (harness §10): the attempt's
+// COLAB_* set, plus `COLAB_ALLOWED_COMMANDS` (v0.8.10, K-19) when the bundle
+// restricts the role — the CLI reads it and refuses the rest with exit 3
+// (colab-cli.md §2.5). It is NOT added to the runtime process env (§2.1 is a
+// closed allow-list; the wrapper is the CLI's only environment on this
+// surface anyway).
+func (d *Daemon) wrapperEnv(b contracts.TaskBundle) []string {
+	env := acp.Env(b.Profile.RuntimeKind, d.taskEnv(b), nil)
+	if e := commands.EnvEntry(b.Task.AllowedCommands); e != "" {
+		env = append(env, e)
+	}
+	return env
 }
 
 // toolSurface is the harness §10 surface to PREPARE this attempt for: the
@@ -944,13 +959,22 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		finish(contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: detail})
 		return
 	}
+	// harness §10 v0.8.10 (K-19): the bundle's `task.allowed_commands` is the
+	// role's subset of colab commands, and it goes to three places — the MCP
+	// server argv (mcpServers), the wrapper's env (below) and brief [2]
+	// (here, before the wrapper rewrite so the names it writes get the
+	// wrapper path too). Empty → everything: no flag, no variable, no lines.
+	if d.taskEnv(b).ColabSurface() && len(b.Task.AllowedCommands) > 0 {
+		b.Brief.Text = brief.RestrictCommands(b.Brief.Text, b.Task.AllowedCommands)
+		d.Log("%s allowed commands: %s (denied: %s)", k, commands.List(b.Task.AllowedCommands), commands.List(commands.Denied(b.Task.AllowedCommands)))
+	}
 	// harness §10: a cli_wrapper runtime ignores mcpServers and sanitises the
 	// env of its shell tools, so the attempt's only channel to the platform is
 	// a wrapper FILE, and every text we hand the agent must name it by
 	// absolute path (v0.8.1 — the server cannot know a path we invent here).
 	surface := d.toolSurface(b.Profile.RuntimeKind)
 	if surface == acp.ToolSurfaceCLIWrapper && d.taskEnv(b).ColabSurface() {
-		wrapper, werr := toolwrap.Write(d.Cfg.WorkdirRoot, b.Task.ID, b.Task.Attempt, d.Cfg.ColabBin, acp.Env(b.Profile.RuntimeKind, d.taskEnv(b), nil))
+		wrapper, werr := toolwrap.Write(d.Cfg.WorkdirRoot, b.Task.ID, b.Task.Attempt, d.Cfg.ColabBin, d.wrapperEnv(b))
 		if werr != nil {
 			d.Log("%s tool wrapper: %v", k, werr)
 			finish(contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: "tool wrapper: " + werr.Error(), Workdir: d.finishWorkdir(wd)})
@@ -1062,6 +1086,12 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	} else {
 		d.Log("%s turn outcome=%s stop=%s usage=%s", k, res.Outcome, res.StopReason, usageSummary(res.Usage))
 	}
+	// K-19 evidence (claude_code with the raw stream on): the colab tools the
+	// runtime actually registered, from the raw system/init — the log line
+	// that shows `--allow` reached the tool list, or did not.
+	if res.RawInit != nil && len(res.RawInit.Tools) > 0 {
+		d.Log("%s colab tools registered: %s", k, strings.Join(colabTools(res.RawInit.Tools), ","))
+	}
 
 	d.mu.Lock()
 	delete(d.running, k)
@@ -1102,6 +1132,18 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	}
 	f.Workdir = d.finishWorkdir(wd)
 	finish(f)
+}
+
+// colabTools picks the colab MCP tools out of a raw system/init tool list
+// (`mcp__colab__colab_message_post` → `colab_message_post`).
+func colabTools(tools []string) []string {
+	var out []string
+	for _, t := range tools {
+		if n, ok := strings.CutPrefix(t, "mcp__"+acp.ColabMCPName+"__"); ok {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // usageMidturn reports whether this attempt asks the runtime for in-turn

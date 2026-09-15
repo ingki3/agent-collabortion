@@ -449,7 +449,7 @@ func TestAdapterPinMismatchIsConfig(t *testing.T) {
 func TestColabMCPServerRegistered(t *testing.T) {
 	b := bundle(contracts.RuntimeClaudeCode)
 	env := acp.Env(contracts.RuntimeClaudeCode, acp.TaskEnv{TaskToken: b.TaskToken, ServerURL: "http://s", TaskID: b.Task.ID, Attempt: 1, LaneID: b.Task.LaneID, SessionID: b.Task.SessionID, AgentName: b.Task.AgentName}, nil)
-	mcp := []acp.MCPServer{acp.ColabMCPServer("/opt/colab", env)}
+	mcp := []acp.MCPServer{acp.ColabMCPServer("/opt/colab", env, nil)}
 	checkParams := func(t *testing.T, method string, raw json.RawMessage) {
 		t.Helper()
 		var p struct {
@@ -787,7 +787,7 @@ func TestRawInitIsolation(t *testing.T) {
 	env := acp.Env(contracts.RuntimeClaudeCode, acp.TaskEnv{TaskToken: "ctk_test", ServerURL: "http://s", TaskID: "t", Attempt: 1}, nil)
 	f := newFixture(t, acpfake.Script{}, bundle(contracts.RuntimeClaudeCode), func(a *acp.Attempt) {
 		a.RawSDKMessages = true
-		a.MCPServers = []acp.MCPServer{acp.ColabMCPServer("", env)}
+		a.MCPServers = []acp.MCPServer{acp.ColabMCPServer("", env, nil)}
 	})
 	res := f.run()
 	if res.RawInit == nil {
