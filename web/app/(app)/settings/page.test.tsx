@@ -4,7 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import type { Me, Member, MetricsReport, WorkspaceSettings } from "@/lib/api/types";
+import type { Me, Member, MetricsReport, ObservationReport, WorkspaceSettings } from "@/lib/api/types";
 import { ApiError } from "@/lib/api/client";
 
 const push = vi.fn();
@@ -73,8 +73,22 @@ const report = (): MetricsReport => ({
   ],
 });
 
+/** 「관찰」 표(v1.1 K-18) — 분포형 둘(하나는 p95 없음) · 표본 0 하나 · 비율형 둘(하나는 breakdown). */
+const observations = (): ObservationReport => ({
+  workspace_id: "w1", window: "P30D", computed_at: "2026-09-15T09:00:00Z",
+  rows: [
+    { key: "chain_scale", label: "트리거 사슬 규모", note: "사람 메시지 하나가 만든 할 일 수", n: 14, value: null, median: 2, p95: 6 },
+    { key: "chain_depth", label: "트리거 사슬 깊이", note: "가장 깊은 인과 사슬", n: 3, value: null, median: 3, p95: null },
+    { key: "join_breadth", label: "합류 폭", note: "한 위임에서 갈라진 자식 수", n: 0, value: null, median: null, p95: null },
+    { key: "routing_concentration", label: "라우팅 집중", note: "규칙 번호 분포", n: 20, value: 0.35, median: null, p95: null,
+      breakdown: [{ kind: "2", share: 0.4, n: 8 }, { kind: "6", share: 0.3, n: 6 }, { kind: "7", share: 0.05, n: 1 }, { kind: "platform", share: 0.25, n: 5 }] },
+    { key: "empty_turn_rate", label: "빈 턴 비율", note: "아무것도 안 한 실행 비율", n: 31, value: 0.129, median: null, p95: null },
+  ],
+});
+
 function wireGet() {
   get.mockImplementation(async (path: string) => {
+    if (path === "/workspaces/{workspaceId}/observations") return observations();
     if (path === "/workspaces/{workspaceId}/settings") return settings();
     if (path === "/workspaces/{workspaceId}/members") return { items: members, next_cursor: null };
     if (path === "/workspaces/{workspaceId}/invites") return [];
@@ -254,6 +268,79 @@ describe("S14 — 대시보드(PRD §11)", () => {
     get.mockImplementation(async () => { throw new ApiError({ type: "about:blank", title: "아직 지원하지 않음", status: 501, detail: "아직 지원하지 않는 기능입니다 (GetWorkspaceMetrics)" }); });
     render(<SettingsPage />);
     await waitFor(() => expect(screen.getByTestId("metrics-error").textContent).toContain("아직 지원하지 않는 기능입니다"));
+  });
+
+  // ── 「관찰」 표(v1.1 K-18, T-W16) — 지표 표 **아래** 별도 표, 목표치 없음 ──
+  it("관찰 표 — 지표 표 아래 · 제목 아래 '목표치 없이 분포만 봅니다' · 5행 enum 순서 · 목표·판정 열 없음", async () => {
+    tabParam = "dashboard";
+    render(<SettingsPage />);
+    await screen.findByTestId("observations-table");
+    const metrics = screen.getByTestId("metrics-table");
+    const obs = screen.getByTestId("observations-table");
+    // DOM 순서: 지표 표 → 관찰 표. 한 표로 합치지 않았다(Director 결정).
+    expect(metrics.compareDocumentPosition(obs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId("observations-title").textContent).toBe("관찰");
+    expect(screen.getByTestId("observations-subtitle").textContent).toBe("목표치 없이 분포만 봅니다");
+    const rows = screen.getAllByTestId("observation-row");
+    expect(rows.map((r) => r.getAttribute("data-key"))).toEqual(["chain_scale", "chain_depth", "join_breadth", "routing_concentration", "empty_turn_rate"]);
+    const heads = within(obs).getAllByRole("columnheader").map((h) => h.textContent);
+    expect(heads).toEqual(["관찰", "값", "표본"]);
+    expect(within(obs).queryAllByTestId("metric-verdict")).toHaveLength(0);
+    // 이름은 서버 label 그대로, 세는 법은 접혀 있다.
+    expect(within(rows[0]).getByText("트리거 사슬 규모")).toBeTruthy();
+    expect(within(rows[0]).getByText("세는 법")).toBeTruthy();
+    expect(within(rows[0]).getByText("사람 메시지 하나가 만든 할 일 수")).toBeTruthy();
+  });
+
+  it("관찰 표 — 분포형은 '중앙값 · p95'(p95 없으면 중앙값만) · 비율형은 % · 표본 0 은 '아직 잴 수 없음'", async () => {
+    tabParam = "dashboard";
+    render(<SettingsPage />);
+    await screen.findByTestId("observations-table");
+    const rows = screen.getAllByTestId("observation-row");
+    const val = (i: number) => within(rows[i]).getByTestId("observation-value").textContent;
+    const n = (i: number) => within(rows[i]).getByTestId("observation-n").textContent;
+    expect(val(0)).toBe("중앙값 2 · p95 6");
+    expect(n(0)).toBe("14");
+    expect(val(1)).toBe("중앙값 3");
+    expect(val(2)).toBe("아직 잴 수 없음");
+    expect(n(2)).toBe("0");
+    expect(rows[2].getAttribute("data-measurable")).toBe("false");
+    expect(val(3)).toBe("35%");
+    expect(val(4)).toBe("12.9%");
+    expect(rows[4].getAttribute("data-measurable")).toBe("true");
+  });
+
+  it("관찰 표 — routing_concentration 의 breakdown 이 하위 행(규칙 번호 + 사람 말 · 비율 · n)으로, 다른 행에는 없다", async () => {
+    tabParam = "dashboard";
+    render(<SettingsPage />);
+    await screen.findByTestId("observations-table");
+    const sub = screen.getAllByTestId("observation-breakdown");
+    expect(sub.map((r) => r.getAttribute("data-kind"))).toEqual(["2", "6", "7", "platform"]);
+    expect(sub[0].textContent).toContain("규칙 2 · 에이전트 멘션");
+    expect(sub[0].textContent).toContain("40%");
+    expect(sub[0].textContent).toContain("8");
+    expect(sub[1].textContent).toContain("규칙 6 · 담당 에이전트 폴백");
+    expect(sub[3].textContent).toContain("플랫폼");
+    // 하위 행은 routing_concentration 바로 아래에 붙는다.
+    const rows = screen.getAllByTestId("observation-row");
+    expect(rows[3].nextElementSibling).toBe(sub[0]);
+    expect(sub[3].nextElementSibling).toBe(rows[4]);
+  });
+
+  it("관찰 op 만 501 이어도(T-S19 전) 지표 표는 그대로 — 오류는 관찰 표 자리에", async () => {
+    tabParam = "dashboard";
+    get.mockImplementation(async (path: string) => {
+      if (path === "/workspaces/{workspaceId}/metrics") return report();
+      if (path === "/workspaces/{workspaceId}/observations") throw new ApiError({ type: "about:blank", title: "아직 지원하지 않음", status: 501, detail: "아직 지원하지 않는 기능입니다 (GetWorkspaceObservations)" });
+      if (path === "/workspaces/{workspaceId}/settings") return settings();
+      throw new Error(`unexpected GET ${path}`);
+    });
+    render(<SettingsPage />);
+    await screen.findByTestId("metrics-table");
+    await waitFor(() => expect(screen.getByTestId("observations-error").textContent).toContain("GetWorkspaceObservations"));
+    expect(screen.getAllByTestId("metric-row")).toHaveLength(10);
+    expect(screen.queryByTestId("observations-table")).toBeNull();
+    expect(screen.queryByTestId("metrics-error")).toBeNull();
   });
 });
 

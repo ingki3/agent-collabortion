@@ -20,6 +20,7 @@ import { Badge } from "./Badge";
 import { LaneTaskHistory } from "./LaneTaskHistory";
 import { durationSince, relativeTime } from "@/lib/time";
 import { failureLabel } from "@/lib/failure";
+import { EMPTY_TURN } from "@/lib/wording";
 import type { Lane, Task } from "@/lib/api/types";
 
 export type LaneAction = NonNullable<Lane["actions"]>[number];
@@ -36,8 +37,16 @@ export interface LaneCardProps {
   onSelect?: (lane: Lane) => void;
   /** 이전 작업 이력(O3) 로더 — 펼칠 때 호출한다. */
   loadTasks?: (laneId: string) => Promise<Task[]>;
+  /** 이력의 할 일 하나의 활동 피드(T-W16) — 이력 행의 「활동」 토글이 그린다. */
+  renderTaskActivity?: (taskId: string) => React.ReactNode;
   selected?: boolean;
   now?: number;
+  /**
+   * 빈 턴(FR-7.2 v0.17) — 이 작업 줄기의 현재 할 일이 아무것도 하지 않고 턴을 끝냈다는 것을 **이 화면이 본** 경우 그 문장
+   * (`payload.args.note` 그대로). 계약 `Lane` 에는 칸이 없어 정본은 활동 피드의 정보 카드이고, 카드 note 는 SSE 로 본 세션 안에서만
+   * 보인다(Lead 결정 2026-09-15 — 새로고침 뒤에는 활동 보기를 열면 다시 보인다).
+   */
+  emptyTurnNote?: string | null;
 }
 
 /** 상태별 "부가 정보" 한 줄(COMPONENTS §2.1 부가 열). 없으면 null — 자리만 차지하지 않는다. */
@@ -138,6 +147,11 @@ export function LaneCard(props: LaneCardProps) {
       {note && (
         <div className="lane__note" data-testid="lane-note" data-status={lane.status}>{note}</div>
       )}
+      {props.emptyTurnNote && (
+        <div className="lane__note lane__note--info" data-testid="lane-empty-turn" title={EMPTY_TURN.kind}>
+          <span aria-hidden="true">ⓘ </span>{props.emptyTurnNote}
+        </div>
+      )}
       <div className="lane__meta">
         <span data-testid="lane-elapsed">{durationSince(lane.created_at, lane.finished_at, props.now)}</span>
         {lane.reentry_count > 0 && (
@@ -167,7 +181,7 @@ export function LaneCard(props: LaneCardProps) {
           >
             {openTasks ? "이전 작업 접기" : "이전 작업"}
           </button>
-          {openTasks && <LaneTaskHistory laneId={lane.id} load={props.loadTasks} />}
+          {openTasks && <LaneTaskHistory laneId={lane.id} load={props.loadTasks} renderActivity={props.renderTaskActivity} />}
         </div>
       )}
     </article>

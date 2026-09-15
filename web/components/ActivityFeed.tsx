@@ -8,12 +8,15 @@
  * - 침묵·유휴는 "대기 중…", 응답 없음도 렌더한다(FR-7.2 "침묵도 렌더한다").
  * - 원본 레일 토글로 가공 없는 출력을 본다.
  * - 런타임이 구조화 이벤트를 주지 않으면(`structured=false`) 그 사실을 명시하고 레일만 남긴다(SCREEN §1 원칙 5).
+ * - **빈 턴도 렌더한다**(FR-7.2 v0.17): 메시지 0·플랫폼 조작 0·편집 0 으로 `end_turn` 한 턴은 서버가 남긴 `status/turn_end/empty_turn/info`
+ *   행을 **정보 카드**(ⓘ, 오류 아님)로 — 문장은 `payload.args.note` 그대로. 침묵 중("대기 중…")과 달리 턴이 **끝난 뒤** 남는 공백이다.
  */
 import { useState } from "react";
 import "./activity-feed.css";
 import { ActivityRail, foldEvents } from "./ActivityRail";
-import { feedSentence, isFailure, payloadOf, renderClassWithCut, type RenderClass } from "@/lib/feed";
+import { emptyTurnNote, feedSentence, isEmptyTurn, isFailure, payloadOf, renderClassWithCut, type RenderClass } from "@/lib/feed";
 import { clockTime } from "@/lib/time";
+import { EMPTY_TURN } from "@/lib/wording";
 import type { TaskEvent } from "@/lib/api/types";
 
 /** 클래스별 글리프 — ● 동작(플랫폼 조작·편집·셸), ○ 턴 생명주기(COMPONENTS §2.8 K6). 아이콘은 결과로 바뀌지 않는다. */
@@ -112,6 +115,7 @@ export function ActivityFeed({ events, structured = true, loading, cut1 = false,
           const cls = renderClassWithCut(e, cut1);
           const pending = e.outcome === "started";
           const p = payloadOf(e);
+          const empty = isEmptyTurn(e);
           // 카드 상세 — 편집·셸의 결과 요약(`summary`)은 접어 둔다. 피드는 훑는 자리이고,
           // 마스킹이 켜진 워크스페이스에서는 이 요약이 diff·셸 출력을 대신하는 **유일한 내용**이다.
           const detailText = (cls === "file_edit" || cls === "shell") ? (p.summary ?? null) : null;
@@ -120,16 +124,21 @@ export function ActivityFeed({ events, structured = true, loading, cut1 = false,
             <li
               key={first.id}
               className="feed__row"
-              data-testid={`feed-row-${cls}`}
+              data-testid={empty ? "feed-row-empty-turn" : `feed-row-${cls}`}
               data-render-class={cls}
               data-outcome={e.outcome ?? ""}
               data-pending={pending ? "true" : "false"}
+              data-info={empty ? "true" : undefined}
               data-event-id={e.id}
             >
-              <span className="feed__glyph" aria-hidden="true">{GLYPH[cls]}</span>
+              <span className="feed__glyph" aria-hidden="true">{empty ? "ⓘ" : GLYPH[cls]}</span>
               <span className="feed__body">
-                <span className="feed__sentence">{feedSentence(e)}</span>
-                <Detail cls={cls} e={e} />
+                {empty ? (
+                  <span className="feed__sentence" data-testid="feed-empty-turn-note" title={EMPTY_TURN.kind}>{emptyTurnNote(e)}</span>
+                ) : (
+                  <span className="feed__sentence">{feedSentence(e)}</span>
+                )}
+                {!empty && <Detail cls={cls} e={e} />}
                 {pending && <span className="feed__pending" data-testid="feed-pending"> · 진행 중…</span>}
                 {e.masked && <span className="feed__quiet"> · 마스킹됨</span>}
                 {detailText && (

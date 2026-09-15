@@ -11,7 +11,7 @@
  *   - 목에만 있는 경로(서버가 아직 안 만든 op)의 문장은 `SERVER` 에 넣지 않는다 — 대조할 정답이 없다. 지금은 그런 op 이 없다(T-W12).
  */
 
-import type { Metric } from "@/lib/api/types";
+import type { Metric, ObservationRow } from "@/lib/api/types";
 
 export interface ServerSentence {
   /** 서버 소스의 문장(리터럴 그대로). */
@@ -239,7 +239,14 @@ export const SERVER = {
  * 만들었고 아래 문장은 **그 PR 의 `sessions.ValidateReviewers` · `handlers_sessions_p3.go` 리터럴 그대로**다 — 머지되면 `SERVER` 로
  * 옮기며 `at` 을 채운다(`server-wording.test.ts` (h) 가 dev 에 리터럴이 생기는 순간부터 글자 단위로 대조한다).
  */
-export const MOCK_ONLY = {} as const satisfies Record<string, string>; // 비어 있다 — T-S18 #233 이 리뷰어 검사를 만들어 SERVER 로 옮겼다
+/**
+ * T-W16 시점: **빈 턴 행의 문장**(PRD FR-7.2 v0.18 "판정과 기록" — `payload.args.note`). 서버 T-S19 가 finish 에서 남기고, 문장은 PRD 가
+ * 못박았다("아무것도 하지 않고 턴을 끝냈습니다"). 서버가 머지되면 `SERVER` 로 옮기며 `at` 을 채운다 — `server-wording.test.ts` (i) 가 dev 에
+ * 그 리터럴이 오르는 순간부터 글자 단위로 대조한다. 화면 쪽 같은 문장은 `lib/wording.ts` `EMPTY_TURN.note`(note 가 없을 때의 폴백).
+ */
+export const MOCK_ONLY = {
+  empty_turn_note: "아무것도 하지 않고 턴을 끝냈습니다",
+} as const satisfies Record<string, string>;
 
 /**
  * 관측 지표 10개의 정의 — 서버 `internal/metrics/metrics.go` 의 `Defs` 표(PRD §11 열 순서)를 **그대로** 옮긴 것.
@@ -278,6 +285,26 @@ export const METRIC_DEFS: readonly MetricDef[] = [
   { key: "weekly_active_sessions", unit: "count", target: 5, target_op: "gt",
     label: "이번 주에 움직인 세션 수",
     note: "최근 7일 안에 할 일이 하나라도 돌아간 세션 수. 표본 수는 이 워크스페이스에서 할 일을 돌린 적 있는 세션 수." },
+];
+
+/**
+ * 「관찰」 표 5행의 정의(key·label·note) — openapi 0.1.5 `getWorkspaceObservations` description 의 정의 1~5 를 옮긴 것(v1.1 K-18, T-W16).
+ * `label` 은 PRD §11 관찰 행의 이름, `note` 는 계약 description 의 "세는 법" 문장을 §8.4 의 말로. 서버 T-S19 가 같은 표를 만들면
+ * `METRIC_DEFS` 처럼 `server-wording.test.ts` 가 Go 소스를 파싱해 항목 단위로 대조한다 — 그때까지는 목에만 있다(MOCK_ONLY 규칙).
+ * 순서는 계약 `rows` 의 표 순서(ObservationRow.key enum 순서).
+ */
+export type ObservationDef = Pick<ObservationRow, "key" | "label" | "note">;
+export const OBSERVATION_DEFS: readonly ObservationDef[] = [
+  { key: "chain_scale", label: "트리거 사슬 규모",
+    note: "사람이 올린 메시지 하나가 다음 사람 메시지 전까지 만든 할 일의 수, 그 중앙값과 p95. 표본 수는 사람 메시지 수." },
+  { key: "chain_depth", label: "트리거 사슬 깊이",
+    note: "세션이 도달한 가장 깊은 인과 사슬 깊이(사람 메시지 → 에이전트 → 에이전트 …), 그 중앙값과 p95. 표본 수는 세션 수." },
+  { key: "join_breadth", label: "합류 폭",
+    note: "한 번의 위임에서 갈라진 자식 작업 줄기의 수, 그 중앙값과 p95. 표본 수는 합류 그룹 수." },
+  { key: "routing_concentration", label: "라우팅 집중",
+    note: "할 일을 만든 라우팅 규칙 번호의 분포. 값은 멘션 없이 담당 에이전트에게 간 비율(규칙 6·7 폴백). 표본 수는 라우팅된 메시지 수." },
+  { key: "empty_turn_rate", label: "빈 턴 비율",
+    note: "메시지 게시·플랫폼 조작·파일 편집이 하나도 없이 끝난 실행 ÷ 전체 완료 실행. 표본 수는 완료 실행 수. 활동 피드의 빈 턴 카드와 같은 판정." },
 ];
 
 export type ServerKey = keyof typeof SERVER;

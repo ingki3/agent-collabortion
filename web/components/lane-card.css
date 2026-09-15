@@ -36,3 +36,7 @@
 .lane-hist__resumed { color: var(--s-done-text); }
 .lane-hist__quiet { color: var(--ink-2); font-size: var(--fs-meta); margin: 4px 0; }
 .lane-hist__run { color: var(--ink-2); }
+/* 빈 턴 한 줄(FR-7.2 v0.17) — 오류가 아닌 정보. 상태색을 쓰지 않는다. */
+.lane__note--info { color: var(--ink-2); }
+/* 이력 행의 「활동」 펼침(T-W16) — 좌열 268px 안에 피드가 들어가므로 여백을 줄인다. */
+.lane-hist__activity { margin-top: 4px; padding-left: 4px; border-left: 2px solid var(--line); }

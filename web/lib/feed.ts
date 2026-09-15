@@ -18,6 +18,7 @@
  * | 6 | else | raw |
  */
 import type { TaskEvent } from "@/lib/api/types";
+import { EMPTY_TURN } from "@/lib/wording";
 
 export type RenderClass = "message" | "platform" | "file_edit" | "shell" | "error" | "raw";
 
@@ -124,4 +125,19 @@ export function isPending(e: TaskEvent): boolean {
 
 export function isFailure(e: TaskEvent): boolean {
   return e.outcome === "failed" || e.outcome === "rejected" || (e.class === "runtime" && e.verb === "error");
+}
+
+// ── 빈 턴(FR-7.2 v0.17 · v1.1 K-18) ──────────────────────────────────────────
+/**
+ * 서버가 finish 에서 남기는 한 행 — `{class: status, verb: turn_end, object_ref: "empty_turn", outcome: info}`(PRD FR-7.2, 닫힌 스키마 안).
+ * 렌더 클래스는 규칙 2(platform)지만 **오류가 아니라 정보 카드**(ⓘ)로 그린다 — 렌더러가 클래스 위에 한 겹을 얹는 유일한 자리다.
+ */
+export function isEmptyTurn(e: Pick<TaskEvent, "class" | "verb" | "object_ref">): boolean {
+  return e.class === "status" && e.verb === "turn_end" && e.object_ref === "empty_turn";
+}
+
+/** 카드 문장 — `payload.args.note` **그대로**. 없을 때만 화면 표의 같은 문장. */
+export function emptyTurnNote(e: TaskEvent): string {
+  const note = payloadOf(e).args?.note;
+  return typeof note === "string" && note.trim() ? note : EMPTY_TURN.note;
 }

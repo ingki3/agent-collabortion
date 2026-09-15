@@ -130,3 +130,57 @@ describe("LaneCard — brief 는 인라인 마크다운", () => {
     expect(el.textContent).not.toContain("**");
   });
 });
+
+// ── 빈 턴 한 줄(FR-7.2 v0.17 · T-W16) ───────────────────────────────────────
+describe("LaneCard — 빈 턴 한 줄은 정보(ⓘ), 상태색 없음, 보드가 줄기 id 로 나눠 준다", () => {
+  it("emptyTurnNote 가 있으면 done 카드에 ⓘ + 문장(그대로), 없으면 자리도 없다", () => {
+    const { rerender } = render(<LaneCard lane={lane("done", { brief: null, finished_at: "2026-09-06T10:05:00Z" })} emptyTurnNote="아무것도 하지 않고 턴을 끝냈습니다" />);
+    const note = screen.getByTestId("lane-empty-turn");
+    expect(note.textContent).toBe("ⓘ 아무것도 하지 않고 턴을 끝냈습니다");
+    expect(note.getAttribute("title")).toBe("정보");
+    expect(note.className).toContain("lane__note--info");
+    // 사람이 만든 줄기라 brief 가 없다 — 상태 note 도 없고 빈 턴 줄만 남는다.
+    expect(screen.queryByTestId("lane-note")).toBeNull();
+    rerender(<LaneCard lane={lane("done", { brief: null })} emptyTurnNote={null} />);
+    expect(screen.queryByTestId("lane-empty-turn")).toBeNull();
+  });
+
+  it("LaneBoard — emptyTurns 맵의 줄기만 한 줄을 받는다", () => {
+    const a = lane("done", { id: "l-a", brief: null });
+    const b = lane("done", { id: "l-b" });
+    render(<LaneBoard lanes={[a, b]} emptyTurns={{ "l-a": "아무것도 하지 않고 턴을 끝냈습니다" }} />);
+    const cards = screen.getAllByTestId("lane-card");
+    expect(cards.find((c) => c.getAttribute("data-lane-id") === "l-a")!.querySelector('[data-testid="lane-empty-turn"]')).not.toBeNull();
+    expect(cards.find((c) => c.getAttribute("data-lane-id") === "l-b")!.querySelector('[data-testid="lane-empty-turn"]')).toBeNull();
+  });
+});
+
+describe("LaneCard — 이력 행의 「활동」(T-W16): 메시지 없는 턴의 카드에 닿는 길", () => {
+  const task = (id: string) => ({
+    id, lane_id: "l-done", session_id: "s1", runtime_id: null, agent_id: "ag1", profile_id: "p1", trigger_message_id: null, delegated_from_task_id: null,
+    restarted_from_task_id: null, originator_user_id: null, coalesced_message_ids: [], attempt: 1, max_attempts: 3, pending_hitl: false, budget_override: null,
+    status: "completed" as const, paused_reason: null, failure_kind: null, created_at: "2026-09-06T10:00:00Z", updated_at: "2026-09-06T10:01:00Z",
+  });
+
+  it("renderTaskActivity 가 있으면 행마다 「활동」 토글 — 누르면 그 할 일 id 로 그린다, 하나만 펼친다", async () => {
+    const renderTaskActivity = vi.fn((id: string) => <div data-testid="fake-activity">활동:{id}</div>);
+    render(<LaneCard lane={lane("done")} loadTasks={async () => [task("t-1"), task("t-2")]} renderTaskActivity={renderTaskActivity} />);
+    fireEvent.click(screen.getByTestId("lane-tasks-toggle"));
+    const toggles = await screen.findAllByTestId("task-activity-toggle");
+    expect(toggles).toHaveLength(2);
+    expect(toggles[0].textContent).toBe("활동");
+    fireEvent.click(toggles[0]);
+    expect(screen.getByTestId("fake-activity").textContent).toBe("활동:t-1");
+    expect(renderTaskActivity).toHaveBeenCalledWith("t-1");
+    fireEvent.click(screen.getAllByTestId("task-activity-toggle")[1]);
+    expect(screen.getAllByTestId("fake-activity")).toHaveLength(1);
+    expect(screen.getByTestId("fake-activity").textContent).toBe("활동:t-2");
+  });
+
+  it("renderTaskActivity 가 없으면 토글도 없다", async () => {
+    render(<LaneCard lane={lane("done")} loadTasks={async () => [task("t-1")]} />);
+    fireEvent.click(screen.getByTestId("lane-tasks-toggle"));
+    await screen.findByTestId("lane-task-history");
+    expect(screen.queryByTestId("task-activity-toggle")).toBeNull();
+  });
+});

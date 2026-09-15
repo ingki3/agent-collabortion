@@ -16,6 +16,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Badge } from "@/components/Badge";
 import { AgentProfileEditor } from "@/components/AgentProfileEditor";
+import { RoleCommands } from "@/components/RoleCommands";
 import { TestChatPanel } from "@/components/TestChatPanel";
 import { capabilityIndex } from "@/lib/runtime-options";
 import { api, errorMessage } from "@/lib/api/client";
@@ -181,6 +182,7 @@ export default function AgentEditPage() {
             {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
           {role === "lead" && <span className="field__hint" data-testid="lead-protocol-note">협업 규칙이 지시문에 자동으로 붙습니다.</span>}
+          <RoleCommands role={role} commands={agent.allowed_commands} preview={role !== agent.role} />
         </label>
         <label className="field">
           <span className="field__label">역할 설명</span>
