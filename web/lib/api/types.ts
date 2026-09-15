@@ -105,3 +105,9 @@ export type MetricKey = Metric["key"];
 export type TestChat = S["TestChat"];
 export type TestChatTurn = S["TestChatTurn"];
 export type TestChatStatus = S["TestChatStatus"];
+
+// ── v1.1 (T-W16) — S14 「관찰」 표(K-18) · 역할별 colab 명령(K-19) ──
+export type ObservationReport = S["ObservationReport"];
+export type ObservationRow = S["ObservationRow"];
+export type ObservationKey = ObservationRow["key"];
+export type ColabCommand = S["ColabCommand"];

@@ -1,0 +1,7 @@
+/* S10 역할 구역의 허용 명령 목록(v1.1 K-19) — 읽기 전용 안내 블록. 입력 칸이 아니라 힌트 계단(--fs-sub)이다. */
+.role-cmds { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.role-cmds__line { margin: 0; font-size: var(--fs-sub); color: var(--ink-2); line-height: 1.5; word-break: keep-all; }
+.role-cmds__head { color: var(--ink); }
+.role-cmds__can { color: var(--ink); font-weight: 600; }
+.role-cmds__cannot { color: var(--ink-2); }
+.role-cmds__meta { font-size: var(--fs-meta); color: var(--ink-2); }

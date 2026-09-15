@@ -5,7 +5,8 @@
 import { describe, expect, it, afterEach } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ActivityFeed } from "./ActivityFeed";
-import { renderClass, renderClassWithCut } from "@/lib/feed";
+import { emptyTurnNote, isEmptyTurn, renderClass, renderClassWithCut } from "@/lib/feed";
+import { EMPTY_TURN } from "@/lib/wording";
 import type { TaskEvent } from "@/lib/api/types";
 
 afterEach(cleanup);
@@ -149,5 +150,47 @@ describe("파일 편집·셸 카드 상세(P4)", () => {
   it("요약이 없으면 상세 토글을 만들지 않는다 — 빈 서랍은 열게 만들 뿐이다", () => {
     render(<ActivityFeed events={[ev({ class: "tool", verb: "edit_file", outcome: "ok", payload: { tool_call_id: "c5", kind: "edit", path: "a.ts", lines_added: 1 } })]} />);
     expect(screen.queryByTestId("feed-detail-toggle")).toBeNull();
+  });
+});
+
+// ── 빈 턴 카드(FR-7.2 v0.17 · v1.1 K-18, T-W16) ──────────────────────────────
+describe("빈 턴 — status/turn_end/empty_turn/info 는 정보 카드(ⓘ), 오류가 아니다", () => {
+  const emptyRow = () => ev({ class: "status", verb: "turn_end", object_ref: "empty_turn", outcome: "info", payload: { command: "turn_end", args: { note: "아무것도 하지 않고 턴을 끝냈습니다" } } });
+
+  it("isEmptyTurn — class·verb·object_ref 셋이 다 맞아야 한다", () => {
+    expect(isEmptyTurn({ class: "status", verb: "turn_end", object_ref: "empty_turn" })).toBe(true);
+    expect(isEmptyTurn({ class: "runtime", verb: "turn_end", object_ref: null })).toBe(false);
+    expect(isEmptyTurn({ class: "status", verb: "turn_end", object_ref: "x" })).toBe(false);
+    expect(isEmptyTurn({ class: "status", verb: "cancel", object_ref: "empty_turn" })).toBe(false);
+  });
+
+  it("카드 — payload.args.note 그대로 · ⓘ 글리프 · data-info · 렌더 클래스는 platform(규칙 2) 그대로 · 실패 강조 없음", () => {
+    render(<ActivityFeed events={[ev({ class: "runtime", verb: "start", outcome: "resumed", sentence: "세션을 이어받았다 → resumed" }), emptyRow(), ev({ class: "runtime", verb: "turn_end", outcome: "ok", sentence: "턴 종료 → ok" })]} />);
+    const row = screen.getByTestId("feed-row-empty-turn");
+    expect(row.getAttribute("data-info")).toBe("true");
+    expect(row.getAttribute("data-render-class")).toBe("platform");
+    expect(row.getAttribute("data-outcome")).toBe("info");
+    expect(row.querySelector(".feed__glyph")!.textContent).toBe("ⓘ");
+    expect(screen.getByTestId("feed-empty-turn-note").textContent).toBe("아무것도 하지 않고 턴을 끝냈습니다");
+    expect(screen.getByTestId("feed-empty-turn-note").getAttribute("title")).toBe("정보");
+    // 오류 카드가 아니다 — error 행도, "실패한 항목" 안내도 없다.
+    expect(screen.queryByTestId("feed-row-error")).toBeNull();
+    expect(screen.queryByTestId("feed-has-failure")).toBeNull();
+    expect(screen.queryByTestId("feed-row-platform")).toBeNull(); // 그 행은 empty-turn testid 로 나간다
+    // 문장은 note 다 — 서버 sentence 폴백("status/turn_end empty_turn → info")이 아니다.
+    expect(row.textContent).not.toContain("empty_turn");
+  });
+
+  it("note 가 없으면 화면 표의 같은 문장으로 — 서버 sentence 가 있어도 note 자리엔 그 문장", () => {
+    render(<ActivityFeed events={[ev({ class: "status", verb: "turn_end", object_ref: "empty_turn", outcome: "info", sentence: "빈 턴 → info", payload: { command: "turn_end", args: {} } })]} />);
+    expect(screen.getByTestId("feed-empty-turn-note").textContent).toBe(EMPTY_TURN.note);
+    expect(emptyTurnNote(ev({ class: "status", verb: "turn_end", object_ref: "empty_turn", payload: { command: "turn_end", args: { note: "  " } } }))).toBe(EMPTY_TURN.note);
+    expect(emptyTurnNote(ev({ class: "status", verb: "turn_end", object_ref: "empty_turn", payload: { command: "turn_end", args: { note: "서버가 준 문장" } } }))).toBe("서버가 준 문장");
+  });
+
+  it("다른 status 행(플랫폼 조작)은 그대로 platform 카드다 — 겹을 얹는 자리는 빈 턴뿐", () => {
+    render(<ActivityFeed events={[ev({ class: "status", verb: "post_message", outcome: "ok", object_ref: "m-1", sentence: "Lead 가 메시지를 게시했다 → ok", payload: { command: "message post", result_ref: "m-1" } })]} />);
+    expect(screen.getByTestId("feed-row-platform")).toBeTruthy();
+    expect(screen.queryByTestId("feed-row-empty-turn")).toBeNull();
   });
 });

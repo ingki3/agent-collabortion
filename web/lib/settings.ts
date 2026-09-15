@@ -4,7 +4,7 @@
  *
  * 화면(`app/(app)/settings/page.tsx`)은 이 표를 그리기만 한다. 테스트는 여기(payload 모양·판정)와 화면(탭·권한)을 따로 잰다.
  */
-import type { IsolationKind, MemberRole, Metric, RuntimeKind, WorkspaceSettings, WorkspaceSettingsUpdate } from "@/lib/api/types";
+import type { IsolationKind, MemberRole, Metric, ObservationKey, ObservationRow, RuntimeKind, WorkspaceSettings, WorkspaceSettingsUpdate } from "@/lib/api/types";
 
 // ── 탭 ──────────────────────────────────────────────────────────────────────
 export type SettingsTab = "members" | "runtime" | "budget" | "loop" | "context" | "workdir" | "security" | "notifications" | "dashboard";
@@ -23,7 +23,7 @@ export const SETTINGS_TABS: readonly { key: SettingsTab; label: string; who: "ad
   { key: "workdir", label: "작업 폴더", who: "admin", desc: "기본 격리 방식과 작업 폴더의 보존·용량·연결 끊김 유예" },
   { key: "security", label: "보안", who: "owner", desc: "활동 기록에 무엇을 남길지" },
   { key: "notifications", label: "알림", who: "personal", desc: "내게 오는 이메일·푸시와 세션 구독 기본값" },
-  { key: "dashboard", label: "대시보드", who: "read", desc: "팀이 목표 지표(10개)에 닿았는지" },
+  { key: "dashboard", label: "대시보드", who: "read", desc: "팀이 목표 지표(10개)에 닿았는지 · 목표 없는 관찰 5행" },
 ];
 export const DEFAULT_TAB: SettingsTab = "members";
 export const isSettingsTab = (v: string | null | undefined): v is SettingsTab => SETTINGS_TABS.some((t) => t.key === v);
@@ -146,4 +146,30 @@ export function formatMetricValue(value: number | null, unit: Metric["unit"]): s
 /** 목표 열 — `lt`/`gt` 를 사람 말로. */
 export function formatMetricTarget(m: Pick<Metric, "target" | "target_op" | "unit">): string {
   return `${m.target_op === "lt" ? "<" : ">"} ${formatMetricValue(m.target, m.unit)}`;
+}
+
+// ── 「관찰」 표(PRD §11 관찰 행 · openapi getWorkspaceObservations, v1.1 K-18) ──────────────────────
+/** 분포형 셋(중앙값·p95) — 나머지 둘(라우팅 집중·빈 턴 비율)은 비율형(`value`). 계약 ObservationRow description 그대로. */
+export const DISTRIBUTION_KEYS: ReadonlySet<ObservationKey> = new Set<ObservationKey>(["chain_scale", "chain_depth", "join_breadth"]);
+export const isDistribution = (row: Pick<ObservationRow, "key">): boolean => DISTRIBUTION_KEYS.has(row.key);
+
+/** 개수 — 정수면 그대로, 아니면 소수 한 자리(중앙값 2.5 같은 것). */
+export function formatCount(value: number | null): string {
+  if (value == null) return NOT_MEASURABLE;
+  return Number.isInteger(value) ? String(value) : String(Math.round(value * 10) / 10);
+}
+
+/**
+ * 값 칸 — 분포형은 "중앙값 3 · p95 9", 비율형은 "12.5%". **표본이 0 이면 "아직 잴 수 없음"**(지표 표와 같은 규칙 — 0 을 실측처럼
+ * 보이지 않는다). 값이 null 이어도 같은 말.
+ */
+export function formatObservation(row: Pick<ObservationRow, "key" | "n" | "value" | "median" | "p95">, words: { median: string; p95: string }): string {
+  if (row.n === 0) return NOT_MEASURABLE;
+  if (isDistribution(row)) {
+    if (row.median == null) return NOT_MEASURABLE;
+    const parts = [`${words.median} ${formatCount(row.median)}`];
+    if (row.p95 != null) parts.push(`${words.p95} ${formatCount(row.p95)}`);
+    return parts.join(" · ");
+  }
+  return formatMetricValue(row.value, "ratio");
 }

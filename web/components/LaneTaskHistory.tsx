@@ -7,7 +7,7 @@
  * 재지시는 새 task(`#2 (재지시)`), 재시도는 같은 task 의 attempt(`#2-2 (재시도)`).
  * resume 실패(콜드 스타트)는 §11 지표가 무너지는 신호이므로 눈에 띄게 표시한다.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Badge } from "./Badge";
 import { BADGE_MAP } from "./badge-map";
 import { FAILURE_LABEL, failureLabel } from "@/lib/failure";
@@ -18,6 +18,11 @@ export interface LaneTaskHistoryProps {
   laneId: string;
   load: (laneId: string) => Promise<Task[]>;
   onOpenTrigger?: (messageId: string) => void;
+  /**
+   * 할 일 하나의 활동 피드(T-W16) — 있으면 행마다 「활동」 토글이 생긴다. 메시지를 남기지 않은 턴(빈 턴, FR-7.2 v0.17)은 타임라인에
+   * 「활동 보기」 자리가 없어 여기가 그 카드에 닿는 유일한 길이다.
+   */
+  renderActivity?: (taskId: string) => ReactNode;
 }
 
 /** 순번 라벨 — 시간순 index 와 `restarted_from_task_id` 로 정한다. */
@@ -52,9 +57,11 @@ function AttemptLine({ a }: { a: TaskAttempt }) {
   );
 }
 
-export function LaneTaskHistory({ laneId, load, onOpenTrigger }: LaneTaskHistoryProps) {
+export function LaneTaskHistory({ laneId, load, onOpenTrigger, renderActivity }: LaneTaskHistoryProps) {
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** 펼친 활동 하나(할 일 id) — 여러 개를 동시에 펼치면 카드가 로그가 된다. */
+  const [openActivity, setOpenActivity] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -103,6 +110,22 @@ export function LaneTaskHistory({ laneId, load, onOpenTrigger }: LaneTaskHistory
                   <AttemptLine a={a} />
                 </div>
               ))}
+            {renderActivity && (
+              <div className="lane-hist__l2">
+                <button
+                  type="button"
+                  className="msg__link"
+                  aria-expanded={openActivity === t.id}
+                  onClick={() => setOpenActivity((cur) => (cur === t.id ? null : t.id))}
+                  data-testid="task-activity-toggle"
+                >
+                  {openActivity === t.id ? "활동 접기" : "활동"}
+                </button>
+              </div>
+            )}
+            {renderActivity && openActivity === t.id && (
+              <div className="lane-hist__activity" data-testid="task-activity">{renderActivity(t.id)}</div>
+            )}
           </li>
         );
       })}

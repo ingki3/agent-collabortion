@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  daysIso, DEFAULT_TAB, diffSettings, formatMetricTarget, formatMetricValue, IMPACT, isoDays, isSettingsTab, metricVerdict,
+  daysIso, DEFAULT_TAB, diffSettings, DISTRIBUTION_KEYS, formatCount, formatMetricTarget, formatMetricValue, formatObservation, IMPACT, isDistribution, isoDays, isSettingsTab, metricVerdict,
   saveRight, SETTINGS_DEFAULTS, SETTINGS_TABS, NOT_MEASURABLE,
 } from "./settings";
 import { defaultSettings } from "./mock/store";
@@ -148,5 +148,31 @@ describe("대시보드 판정·표기(PRD §11)", () => {
     expect(formatMetricTarget({ target: 15, target_op: "lt", unit: "minutes" })).toBe("< 15분");
     expect(formatMetricTarget({ target: 0.6, target_op: "gt", unit: "ratio" })).toBe("> 60%");
     expect(formatMetricTarget({ target: 5, target_op: "gt", unit: "count" })).toBe("> 5");
+  });
+});
+
+// ── 「관찰」 표(v1.1 K-18, T-W16) — 값 칸 표기 ──────────────────────────────
+describe("formatObservation — 분포형은 중앙값·p95, 비율형은 %, 표본 0 은 '아직 잴 수 없음'", () => {
+  const words = { median: "중앙값", p95: "p95" };
+  it("분포형", () => {
+    expect(formatObservation({ key: "chain_scale", n: 14, value: null, median: 2, p95: 6 }, words)).toBe("중앙값 2 · p95 6");
+    expect(formatObservation({ key: "chain_depth", n: 3, value: null, median: 3, p95: null }, words)).toBe("중앙값 3");
+    expect(formatObservation({ key: "join_breadth", n: 5, value: null, median: 2.5, p95: 4.25 }, words)).toBe("중앙값 2.5 · p95 4.3");
+    expect(formatObservation({ key: "join_breadth", n: 0, value: null, median: null, p95: null }, words)).toBe("아직 잴 수 없음");
+    // n 이 있어도 값이 없으면 같은 말 — 0 을 만들어 내지 않는다.
+    expect(formatObservation({ key: "join_breadth", n: 2, value: null, median: null, p95: null }, words)).toBe("아직 잴 수 없음");
+  });
+  it("비율형", () => {
+    expect(formatObservation({ key: "empty_turn_rate", n: 31, value: 0.129, median: null, p95: null }, words)).toBe("12.9%");
+    expect(formatObservation({ key: "routing_concentration", n: 20, value: 0, median: null, p95: null }, words)).toBe("0%"); // 0 은 값이다
+    expect(formatObservation({ key: "empty_turn_rate", n: 0, value: null, median: null, p95: null }, words)).toBe("아직 잴 수 없음");
+    expect(formatObservation({ key: "empty_turn_rate", n: 4, value: null, median: null, p95: null }, words)).toBe("아직 잴 수 없음");
+  });
+  it("분포형 셋 · 개수 표기", () => {
+    expect([...DISTRIBUTION_KEYS].sort()).toEqual(["chain_depth", "chain_scale", "join_breadth"]);
+    expect(isDistribution({ key: "routing_concentration" })).toBe(false);
+    expect(formatCount(3)).toBe("3");
+    expect(formatCount(2.75)).toBe("2.8");
+    expect(formatCount(null)).toBe("아직 잴 수 없음");
   });
 });

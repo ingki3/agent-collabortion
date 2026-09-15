@@ -4,7 +4,7 @@
  * 계약(응답 형태·오류 코드·SSE 프레임)은 openapi 를 그대로 따른다 — 화면이 목에만 맞게 되는 것을 막기 위해서다.
  */
 import type {
-  Agent, AgentTemplate, Artifact, Decision, HitlRequest, InboxItem, Lane, Member, Message, NotificationSettings, Pairing,
+  Agent, AgentTemplate, Artifact, ColabCommand, Decision, HitlRequest, InboxItem, Lane, Member, Message, NotificationSettings, Pairing,
   Participant, Runtime, Session, StreamEventType, TaskEvent, TestChat, User, Workdir, Workspace, WorkspaceSettings,
 } from "@/lib/api/types";
 
@@ -194,11 +194,33 @@ export function makeRuntime(workspaceId: string, name: string): Runtime {
   };
 }
 
+/**
+ * 역할별 허용 명령(v1.1 K-19) — `colab-cli.md` §2.5 표를 **목이 따로** 든다(웹의 `lib/commands.ts` 와 같은 표를 공유하지 않는다 — 한쪽이
+ * 틀리면 다른 쪽이 잡아야 하므로; `lib/wording.test.ts` 가 둘 다 §2.5 원문과 대조한다). 서버처럼 role 로 계산한 읽기 전용 파생값이고,
+ * 순서는 계약 enum 순서. `custom`·`lead` 는 전부.
+ */
+const COLAB_COMMANDS: readonly ColabCommand[] = [
+  "session_get", "session_messages", "artifact_get", "message_post", "status_set", "decision_record",
+  "lane_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info",
+];
+const ROLE_DENIED: Record<Agent["role"], readonly ColabCommand[]> = {
+  lead: [],
+  researcher: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request"],
+  writer: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request"],
+  engineer: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request"],
+  reviewer: ["lane_delegate", "artifact_submit", "hitl_approve_request"],
+  custom: [],
+};
+export function allowedCommands(role: Agent["role"]): ColabCommand[] {
+  const denied = new Set(ROLE_DENIED[role] ?? []);
+  return COLAB_COMMANDS.filter((c) => !denied.has(c));
+}
+
 export function makeAgent(workspaceId: string, ownerId: string, name: string, role: Agent["role"], desc: string, profile?: { runtime_kind: Agent["profiles"][number]["runtime_kind"]; model: string }): Agent {
   const t = now();
   const id = uuid();
   return {
-    id, workspace_id: workspaceId, name, role, role_description: desc, instructions: `You are ${name}.`, tools: [], owner_id: ownerId,
+    id, workspace_id: workspaceId, name, role, allowed_commands: allowedCommands(role), role_description: desc, instructions: `You are ${name}.`, tools: [], owner_id: ownerId,
     respond_to: "workspace", respond_to_allowlist: [], avatar_url: null, budget_per_task: null, max_concurrent_tasks: 3,
     definition_source: null, definition_version: null, definition_update_available: null, status: "idle",
     profiles: [{ id: uuid(), agent_id: id, name: "default", runtime_kind: profile?.runtime_kind ?? "claude_code", model: profile?.model ?? "claude-sonnet-5", options: {}, env: {}, args: [], is_default: true, fallback_profile_id: null, created_at: t, updated_at: t }],

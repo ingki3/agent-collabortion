@@ -168,3 +168,89 @@ export const FIX_CONDITION = {
   cancel: "취소",
   busy: "저장 중…",
 } as const;
+
+// ── v1.1 첫 라운드(T-W16) — S14 「관찰」 표(K-18) · S10 역할의 허용 명령(K-19) · 빈 턴 카드(FR-7.2) ──
+
+/**
+ * `ColabCommand`(계약 enum 13개, `colab-cli.md` §2) → 사람 말. S10 역할 구역이 "이 에이전트가 할 수 있는 일: …" 로 그린다.
+ * 명령 이름은 내부어라 화면에 나오지 않는다 — 이 표만 나온다. 13개 전부를 `lib/wording.test.ts` 가 계약 enum 과 대조한다.
+ */
+export const COMMAND_LABEL = {
+  session_get: "세션 읽기",
+  session_messages: "메시지 읽기",
+  artifact_get: "산출물 읽기",
+  message_post: "메시지 게시",
+  status_set: "상태 알리기",
+  decision_record: "결정 기록",
+  lane_delegate: "위임",
+  artifact_submit: "산출물 제출",
+  review_approve: "검토 승인",
+  review_reject: "검토 반려",
+  hitl_ask: "사람에게 질문",
+  hitl_approve_request: "완료 승인 요청",
+  hitl_request_info: "사람에게 정보 요청",
+} as const;
+
+/** S10 역할 구역 — 허용 명령 목록의 머리말·"전부"·못 하는 것 한 줄(FR-1.9.1 표의 "막는 것과 이유" 열을 사람 말로). */
+export const ROLE_COMMANDS = {
+  head: "이 에이전트가 할 수 있는 일:",
+  all: "전부",
+  /** 「전부」 뒤 괄호 — lead 는 코디네이터라서, custom 은 Director 가 지시문으로 정해서. */
+  all_lead: "코디네이터는 모든 명령을 씁니다",
+  all_custom: "역할 대신 지시문이 정합니다",
+  /** "<못 하는 것>은 못 합니다 — <이유>" 의 뒤 절. */
+  cannot: (denied: string) => `${denied}은 못 합니다`,
+  reason_worker: "위임·검토 승인·완료 승인 요청은 Lead 의 일",
+  reason_reviewer: "위임·완료 승인 요청은 Lead 의 일, 산출물 대신 검토 반려 사유를 남깁니다",
+  /** 저장 전 미리보기 — 고른 역할이 저장된 역할과 다를 때. */
+  preview: "저장하면 이 목록으로 바뀝니다",
+  readonly: "역할이 정합니다 — 여기서 고칠 수 없습니다",
+} as const;
+
+/** S14 「관찰」 표(PRD §11 관찰 행 — 목표치 없음, 지표 10개 표와 **별도**, Director 확정 2026-09-15). */
+export const OBSERVATIONS = {
+  title: "관찰",
+  subtitle: "목표치 없이 분포만 봅니다",
+  col_name: "관찰",
+  col_value: "값",
+  col_n: "표본",
+  median: "중앙값",
+  p95: "p95",
+  note_summary: "세는 법",
+  /** `breakdown[]` 의 하위 행 머리 — "규칙 6 · 담당 에이전트 폴백". */
+  rule: (n: string) => `규칙 ${n}`,
+  reload: "다시 세기",
+  counting: "세는 중…",
+} as const;
+
+/**
+ * `routing_concentration.breakdown[].kind` — FR-3.3 규칙 번호("1"~"8") 또는 "platform" 을 사람 말로.
+ * 규칙 번호는 PRD 의 것이라 그대로 두고(Director 가 PRD 와 대조한다) 뒤에 무엇인지 한 마디를 붙인다. 배열 인덱스 = 규칙 번호 - 1.
+ */
+export const ROUTING_RULE_LABEL: readonly string[] = [
+  "기록만",
+  "에이전트 멘션",
+  "@all·사람만 멘션",
+  "에이전트가 멘션",
+  "답글",
+  "담당 에이전트 폴백",
+  "지연 폴백",
+  "위임자 멘션 억제",
+];
+export const ROUTING_PLATFORM_LABEL = "플랫폼(위임·다시 지시)";
+export function routingKindLabel(kind: string): string {
+  if (kind === "platform") return ROUTING_PLATFORM_LABEL;
+  const what = /^[1-8]$/.test(kind) ? ROUTING_RULE_LABEL[Number(kind) - 1] : undefined;
+  return what ? `${OBSERVATIONS.rule(kind)} · ${what}` : kind;
+}
+
+/**
+ * 빈 턴(FR-7.2 v0.17) — 메시지 0·플랫폼 조작 0·편집 0 으로 끝난 턴. 서버가 finish 에서 `status/turn_end/empty_turn/info` 행을 남기고
+ * 문장은 `payload.args.note` 에 싣는다. 화면은 그 note 를 **그대로** 보이고, note 가 없을 때만 여기 문장을 쓴다(같은 문장).
+ * 오류가 아니다 — 정보 카드(ⓘ). 멘션이 낭비됐는지 정당한 무응답인지는 Director 가 카드를 보고 판단한다.
+ */
+export const EMPTY_TURN = {
+  note: "아무것도 하지 않고 턴을 끝냈습니다",
+  /** 카드의 종류 표시(스크린리더·툴팁). */
+  kind: "정보",
+} as const;

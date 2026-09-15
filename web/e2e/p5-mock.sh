@@ -11,6 +11,9 @@
 #   S10  createTestChat 201(세션 0개) · postTestChatTurn 202 · 진행 중 409 · SSE test_chat.delta/turn · closeTestChat 200 · 닫힌 뒤 410
 #   S5   deleteSession(T-W13, 계약 #218 · 서버 T-S17 대조) — active 409 session_active · member 403 · cancelled 204 · 두 번째 404 · SSE session.deleted
 #        · (MOCK=1) 미병합 worktree 409 workdir_unmerged + Problem.workdirs[]
+#   S14  getWorkspaceObservations(T-W16, 계약 #244 0.1.5 · 서버 T-S19 대조) — 5행 enum 순서 · required 7칸 · 분포형/비율형 칸 · breakdown · 422 · 403
+#   S10  Agent.allowed_commands(T-W16 · T-S19 대조) — role 파생 · lead 13 · researcher 9 · reviewer 10 · PATCH 재계산 · 보낸 값 무시
+#   S7   (MOCK=1) 빈 턴 시드 — status/turn_end/empty_turn/info 행 · payload.args.note · 줄기 done · current_task
 #   S6·S7 종료 조건(T-W15, 계약 #232 0.1.4 · 서버 T-S18 대조) — createSession 422 reviewer_required/reviewer_not_participant · 진행률 conditions[] 키
 #        · updateSession completion_condition 은 active 에서도(Director) + SSE session.completion_progress · 403 · 끝난 세션 422 immutable · isolation 422 immutable
 #        · (MOCK=1) 리뷰어 없는 옛 세션 시드 → blocked_reason reviewer_missing → 조건 고치기로 해소(met 유지)
@@ -79,6 +82,27 @@ M=$(curl -sS -b "$J" "$B/workspaces/$WS/metrics")
 chk "getWorkspaceMetrics 10개 · §11 열 순서" "$(echo "$M" | py 'import sys,json;m=json.load(sys.stdin)["metrics"];print(len(m), [x["key"] for x in m]==["f1_minutes","auto_complete_rate","hitl_response_minutes","delegation_autonomous_rate","parallel_wallclock_reduction","task_success_rate_by_runtime","duplicate_after_resume_rate","resume_success_rate","blocked_response_minutes","weekly_active_sessions"])')" "10 True"
 chk "  unit·target_op enum · value null ⇒ n 0" "$(echo "$M" | py 'import sys,json;m=json.load(sys.stdin)["metrics"];print(all(x["unit"] in ("minutes","ratio","count") and x["target_op"] in ("lt","gt") for x in m), all(x["n"]==0 for x in m if x["value"] is None))')" "True True"
 chk "  breakdown 은 task_success_rate_by_runtime 에만" "$(echo "$M" | py 'import sys,json;m=json.load(sys.stdin)["metrics"];print([x["key"] for x in m if x.get("breakdown")])')" "['task_success_rate_by_runtime']"
+
+# ── S14 「관찰」 표 (T-W16 · 계약 #244 openapi 0.1.5 getWorkspaceObservations · 서버 T-S19 대조용) ─────────
+# 목이 흉내 낸 서버 응답: 5행 enum 순서 · required 7칸 · 분포형은 median/p95 · 비율형은 value · n 0 이면 전부 null ·
+# breakdown 은 routing_concentration 에만(kind "1"~"8"|platform, share 합 1) · window 422(지표와 같은 문장) · 비멤버 403.
+O=$(curl -sS -b "$J" "$B/workspaces/$WS/observations")
+chk "getWorkspaceObservations 5행 · enum 순서 · 보고서 4키" "$(echo "$O" | py 'import sys,json;d=json.load(sys.stdin);r=d["rows"];print(len(r), [x["key"] for x in r]==["chain_scale","chain_depth","join_breadth","routing_concentration","empty_turn_rate"], sorted(d)==["computed_at","rows","window","workspace_id"])')" "5 True True"
+chk "  행마다 required 7칸(key·label·note·n·value·median·p95) · 목표 열 없음" "$(echo "$O" | py 'import sys,json;r=json.load(sys.stdin)["rows"];print(all(sorted(k for k in x if k!="breakdown")==["key","label","median","n","note","p95","value"] for x in r), any("target" in x for x in r))')" "True False"
+chk "  분포형은 value null · 비율형은 median/p95 null · n 0 ⇒ 전부 null" "$(echo "$O" | py 'import sys,json;r=json.load(sys.stdin)["rows"];D={"chain_scale","chain_depth","join_breadth"};print(all(x["value"] is None for x in r if x["key"] in D), all(x["median"] is None and x["p95"] is None for x in r if x["key"] not in D), all(x["value"] is None and x["median"] is None and x["p95"] is None for x in r if x["n"]==0))')" "True True True"
+chk "  breakdown 은 routing_concentration 에만 · kind 규칙 번호|platform · share 합 1 · value = 규칙 6·7 합" "$(echo "$O" | py 'import sys,json,re;r=json.load(sys.stdin)["rows"];rc=[x for x in r if x.get("breakdown")];b=rc[0]["breakdown"];print([x["key"] for x in rc], all(re.fullmatch(r"[1-8]|platform",y["kind"]) for y in b), round(sum(y["share"] for y in b),2), round(sum(y["share"] for y in b if y["kind"] in ("6","7")),2)==round(rc[0]["value"],2))')" "['routing_concentration'] True 1.0 True"
+chk "  window 쿼리 그대로 · 기간 표기 아니면 422" "$(curl -sS -b "$J" "$B/workspaces/$WS/observations?window=P7D" | py 'import sys,json;print(json.load(sys.stdin)["window"])') $(code "$B/workspaces/$WS/observations?window=30d")" "P7D 422"
+
+# ── S10 역할의 허용 명령 (T-W16 · 계약 #244 Agent.allowed_commands · 서버 T-S19 대조용) ─────────
+# 목이 흉내 낸 서버 응답: 모든 Agent 응답에 allowed_commands(role 로 계산, 계약 enum 순서) · lead/custom 13 · researcher 9 · reviewer 10 ·
+# PATCH role 이 바뀌면 다시 계산 · 보내온 allowed_commands 는 무시(읽기 전용 파생값).
+AGS=$(curl -sS -b "$J" "$B/workspaces/$WS/agents")
+chk "listAgents — Lead 13개 · Researcher 9개(위임·검토 승인/반려·완료 승인 요청 없음)" "$(echo "$AGS" | py 'import sys,json;a={x["name"]:x["allowed_commands"] for x in json.load(sys.stdin)["items"]};print(len(a["Lead"]), len(a["Researcher"]), all(c not in a["Researcher"] for c in ("lane_delegate","review_approve","review_reject","hitl_approve_request")), "artifact_submit" in a["Researcher"])')" "13 9 True True"
+RV=$(curl -sS -b "$J" -X POST "$B/workspaces/$WS/agents" -H 'content-type: application/json' -d '{"name":"Reviewer-smoke","role":"reviewer","role_description":"검토","instructions":"검토한다","profiles":[{"runtime_kind":"claude_code","model":"claude-sonnet-5"}]}')
+RVID=$(echo "$RV" | py 'import sys,json;print(json.load(sys.stdin)["id"])')
+chk "createAgent(reviewer) → 10개 · 산출물 제출 없음 · 검토 승인/반려 있음 · enum 순서" "$(echo "$RV" | py 'import sys,json;c=json.load(sys.stdin)["allowed_commands"];print(len(c), "artifact_submit" in c, "review_approve" in c and "review_reject" in c, c==[x for x in ["session_get","session_messages","artifact_get","message_post","status_set","decision_record","lane_delegate","artifact_submit","review_approve","review_reject","hitl_ask","hitl_approve_request","hitl_request_info"] if x in c])')" "10 False True True"
+chk "  PATCH role custom + allowed_commands 보내도 → 13개(파생값, 보낸 값 무시)" "$(curl -sS -b "$J" -X PATCH "$B/agents/$RVID" -H 'content-type: application/json' -d '{"role":"custom","allowed_commands":["message_post"]}' | py 'import sys,json;print(len(json.load(sys.stdin)["allowed_commands"]))')" "13"
+curl -sS -b "$J" -X DELETE "$B/agents/$RVID" -o /dev/null   # 보관 — 뒤의 items[1] 셈이 흔들리지 않게
 
 # ── S10 시험 대화 ─────────────────────────────────────────────────────────
 AG=$(curl -sS -b "$J" "$B/workspaces/$WS/agents" | py 'import sys,json;print(json.load(sys.stdin)["items"][0]["id"])')
@@ -216,6 +240,19 @@ if [ "$MOCK" = "1" ]; then
 fi
 curl -sS -b "$J" -X POST "$B/sessions/$CSID/cancel" -H 'content-type: application/json' -d '{}' -o /dev/null
 chk "  끝난 세션의 completion_condition → 422 immutable" "$(curl -sS -b "$J" -X PATCH "$B/sessions/$CSID" -H 'content-type: application/json' -d '{"completion_condition":{"op":"and","conditions":[{"type":"manual"}]}}' | py 'import sys,json;d=json.load(sys.stdin);print(d["status"],d["errors"][0]["field"],d["errors"][0]["code"])')" "422 completion_condition immutable"
+
+# ── 빈 턴 카드 (T-W16 · PRD FR-7.2 v0.18 「판정과 기록」 · 서버 T-S19 대조용) ─────────
+# 서버가 finish 에서 남기는 한 행: {class: status, verb: turn_end, object_ref: empty_turn, outcome: info, payload: {command: turn_end, args: {note}}} —
+# 새 키 없음. 목은 (MOCK=1) 시드로 같은 행을 만든다. 실서버 대조는 T-I6 e2e 81_ 이 에이전트 없는 빈 턴으로 잰다.
+if [ "$MOCK" = "1" ]; then
+  ETBODY=$(BODY '빈 턴 세션' '{"op":"and","conditions":[{"type":"manual"}]}')
+  ETS=$(curl -sS -b "$J" -X POST "$B/workspaces/$WS/sessions" -H 'content-type: application/json' -d "$ETBODY" | py 'import sys,json;print(json.load(sys.stdin)["id"])')
+  ET=$(curl -sS -b "$J" -X POST "$B/__mock/sessions/$ETS/seed-empty-turn" -H 'content-type: application/json' -d "{\"agent_id\":\"$AG2\"}")
+  ETT=$(echo "$ET" | py 'import sys,json;print(json.load(sys.stdin)["task_id"])')
+  ETL=$(echo "$ET" | py 'import sys,json;print(json.load(sys.stdin)["lane_id"])')
+  chk "  (MOCK) 빈 턴 행 — status/turn_end/empty_turn/info · payload {command, args.note} 그대로 · 문장" "$(curl -sS -b "$J" "$B/tasks/$ETT/events" | py 'import sys,json;e=[x for x in json.load(sys.stdin)["items"] if x["class"]=="status"];x=e[0];print(len(e), x["verb"], x["object_ref"], x["outcome"], sorted(x["payload"])==["args","command"], x["payload"]["args"]["note"])')" "1 turn_end empty_turn info True 아무것도 하지 않고 턴을 끝냈습니다"
+  chk "  (MOCK) 줄기는 done · brief 없음 · current_task.id 가 그 할 일" "$(curl -sS -b "$J" "$B/sessions/$ETS/lanes" | py "import sys,json;l=[x for x in json.load(sys.stdin) if x['id']=='$ETL'][0];print(l['status'], l['brief'], l['current_task']['id']=='$ETT')")" "done None True"
+fi
 
 echo
 if [ "$fail" = "0" ]; then echo "✅ P5 목 스모크 통과"; else echo "❌ P5 목 스모크 실패"; exit 1; fi

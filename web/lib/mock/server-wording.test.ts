@@ -22,12 +22,16 @@
  *       다시 채웠다. 미구현의 근거는 서버 소스에 `reviewer_required` 리터럴이 없다는 것이다. T-S18 이 머지되면 (h) 가 빨개지고, 그때
  *       세 문장을 T-S18 의 실제 문장으로 `SERVER` 에 옮긴다.
  *   (h) T-W15 — MOCK_ONLY 는 리뷰어 검사 넷뿐이고 문장은 T-S18(PR #233) 의 리터럴 그대로다. dev 에 그 리터럴이 오르면 글자 단위로 대조하고,
- *       아직이면 부재를 잰다. updateSession 의 immutable 두 문장은 서버(handlers_sessions_p3.go)에서 온다.
+ *       아직이면 부재를 잰다. updateSession 의 immutable 두 문장은 서버(handlers_sessions_p3.go)에서 온다. (T-S18 머지 뒤 비었다.)
+ *   (i) T-W16(v1.1, 서버 T-S19 와 동시) — MOCK_ONLY 는 **빈 턴 행의 문장 하나**(`empty_turn_note`, PRD FR-7.2 가 못박은 문장)뿐이고, 화면 폴백
+ *       `lib/wording.ts` EMPTY_TURN.note 와 같다. 서버 소스에 그 리터럴이 오르면(T-S19 finish) 이 테스트가 빨개진다 — 그때 `SERVER` 로 옮긴다.
+ *       「관찰」 표 5행의 정의(`OBSERVATION_DEFS`)도 같은 규칙: 서버에 `chain_scale` 리터럴이 생기면 (f) 처럼 Go 표를 파싱해 대조하도록 바꾼다.
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { josa, METRIC_DEFS, MOCK_ONLY, NOT_FOUND_NOUN, notFound, SERVER, STATUS_LABEL, TITLE, fmt, W } from "./wording";
+import { josa, METRIC_DEFS, MOCK_ONLY, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, SERVER, STATUS_LABEL, TITLE, fmt, W } from "./wording";
+import { EMPTY_TURN } from "@/lib/wording";
 
 const SERVER_ROOT = join(__dirname, "..", "..", "..", "server");
 const HANDLERS = readFileSync(join(__dirname, "handlers.ts"), "utf8");
@@ -305,10 +309,10 @@ describe("(g) T-S12 #200 · T-S14 #209 가 만든 op 의 문장은 전부 SERVER
 });
 
 describe("(h) T-W15/T-S18 — 리뷰어 검사(계약 #232 v0.1.4)의 문장은 SERVER 에서 온다", () => {
-  it("MOCK_ONLY 는 비어 있고 handlers.ts 는 W.<key> 를 쓴다", () => {
-    expect(Object.keys(MOCK_ONLY)).toEqual([]);
+  it("리뷰어 검사 문장은 MOCK_ONLY 에 없고 handlers.ts 는 W.<key> 를 쓴다", () => {
+    for (const k of Object.keys(MOCK_ONLY)) expect(k).not.toMatch(/reviewer|submitter|immutable/);
     for (const k of ["reviewer_required", "reviewer_not_participant", "submitter_not_participant", "condition_immutable"]) expect(HANDLERS).toMatch(new RegExp(`\\bW\\.${k}\\b`));
-    expect(HANDLERS).not.toMatch(/\bMOCK_ONLY\./);
+    expect(HANDLERS).not.toMatch(/\bMOCK_ONLY\.(reviewer|submitter|condition)/);
   });
   it("목 createSession · updateSession 의 422 순서·code·field 경로 — 서버와 같은 모양(completion_condition/conditions/<i>/agent_id)", () => {
     const fn = HANDLERS.match(/function validateCondition[\s\S]*?\n\}/)![0];
@@ -322,5 +326,50 @@ describe("(h) T-W15/T-S18 — 리뷰어 검사(계약 #232 v0.1.4)의 문장은 
     expect([...idx].sort((a, b) => a - b)).toEqual(idx);
     // 계약: draft·active·paused 에서 completion_condition 수정 가능.
     expect(HANDLERS).toContain('const CONDITION_EDITABLE = new Set<Session["status"]>(["draft", "active", "paused"]);');
+  });
+});
+
+describe("(i) T-W16/T-S19 — 빈 턴 문장과 관찰 표 정의는 서버가 아직 없으니 MOCK_ONLY 규칙으로", () => {
+  const PRD = readFileSync(join(SERVER_ROOT, "..", "PRD.md"), "utf8");
+  const OPENAPI = readFileSync(join(SERVER_ROOT, "..", "contracts", "openapi.yaml"), "utf8");
+  /** server/internal 의 구현 Go 소스 전부(테스트·생성물 제외). */
+  function goImpl(dir = join(SERVER_ROOT, "internal"), out: string[] = []): string[] {
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name);
+      if (name === "gen" || name === "testdata") continue;
+      if (statSync(p).isDirectory()) goImpl(p, out);
+      else if (name.endsWith(".go") && !name.endsWith("_test.go")) out.push(readFileSync(p, "utf8"));
+    }
+    return out;
+  }
+  const impl = goImpl().join("\n");
+
+  it("MOCK_ONLY 는 empty_turn_note 하나 — PRD FR-7.2 의 문장 그대로, 화면 폴백(EMPTY_TURN.note)과 같다", () => {
+    expect(Object.keys(MOCK_ONLY)).toEqual(["empty_turn_note"]);
+    expect(PRD).toContain(`args: {note: "${MOCK_ONLY.empty_turn_note}"}`);
+    expect(EMPTY_TURN.note).toBe(MOCK_ONLY.empty_turn_note);
+    expect(HANDLERS).toContain("args: { note: MOCK_ONLY.empty_turn_note }");
+    // 행 모양은 PRD 그대로 — class·verb·object_ref·outcome·payload.command.
+    expect(HANDLERS).toContain('class: "status", verb: "turn_end", object_ref: "empty_turn", outcome: "info", payload: { command: "turn_end", args: { note: MOCK_ONLY.empty_turn_note } }');
+  });
+
+  it("서버(T-S19)가 아직 그 문장을 만들지 않았다 — 리터럴이 dev 에 오르면 SERVER 로 옮겨라", () => {
+    // 이 단언이 빨개지는 것이 T-S19 머지의 신호다: MOCK_ONLY.empty_turn_note 를 SERVER 로 옮기고 at 을 채운다.
+    expect(impl, "T-S19 가 머지됐다 — wording.ts 의 empty_turn_note 를 SERVER 로 옮기고 at 을 채워라").not.toContain(MOCK_ONLY.empty_turn_note);
+    expect(goSource("internal/httpapi/unimplemented.go")).toContain("GetWorkspaceObservations(");
+  });
+
+  it("OBSERVATION_DEFS 는 계약 enum 순서의 5행이고 label 은 PRD §11 관찰 행 이름 · 서버에 chain_scale 리터럴이 생기면 (f) 처럼 대조로 바꿔라", () => {
+    const enumLine = OPENAPI.match(/enum: \[chain_scale, chain_depth, join_breadth, routing_concentration, empty_turn_rate\]/);
+    expect(enumLine).not.toBeNull();
+    expect(OBSERVATION_DEFS.map((d) => d.key)).toEqual(["chain_scale", "chain_depth", "join_breadth", "routing_concentration", "empty_turn_rate"]);
+    for (const d of OBSERVATION_DEFS) expect(PRD).toContain(`| \`[v0.17]\` ${d.label} |`);
+    for (const d of OBSERVATION_DEFS) {
+      // note 는 §8.4 의 말 — 내부어(task·lane·attempt·hop)를 그대로 쓰지 않는다(서버가 만들면 그 문장으로 바꾼다).
+      expect(d.note).not.toMatch(/\b(task|lane|attempt|hop)\b/);
+    }
+    expect(impl, "T-S19 가 머지됐다 — OBSERVATION_DEFS 를 서버 표와 항목 단위로 대조하도록 (f) 처럼 바꿔라").not.toContain('"chain_scale"');
+    expect(HANDLERS).toMatch(/import \{[^}]*\bOBSERVATION_DEFS\b[^}]*\} from "\.\/wording"/);
+    expect(HANDLERS).not.toMatch(/const OBSERVATION_DEFS\b/);
   });
 });
