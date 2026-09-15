@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # e2e/p5/75_scenario_d.sh — **시나리오 D — 프로파일 전환** (PRD §4 D · EVAL E16-D, E8-08·E8-09).
 #
+# 비용 한 줄(I-3): 페이크 턴 ≈ 4(실패 2 · 대체 1 · 재큐잉) · $0 · ≈ 6s. 실기: haiku ≈ $0.02 · ≈ 3분
+#
 #   C  hermes 프로파일이 실패(모델 오타) → 같은 머신의 claude_code 대체 프로파일로 재큐잉, workdir 재사용,
 #      runtime_session_ref 는 새 런타임 것(콜드 스타트), 폴백한 프로파일이 **아티팩트를 같은 workdir 에서** 제출
 #   D  대체 프로파일이 없으면 → 재큐잉은 하되 다른 머신으로 넘기지 않고 Director 알림 1건

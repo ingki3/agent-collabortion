@@ -135,6 +135,19 @@ wait_until() { # wait_until TIMEOUT "shell test"
   while [ "$(date +%s)" -lt "$dl" ]; do eval "$1" && return 0; sleep "${WAIT_TICK:-2}"; done
   return 1
 }
+# wait_step ID 설명 TIMEOUT "shell test" [TICK] — 단계별 대기를 **판정 행**으로(I-1, PR #206 리뷰 NN):
+#   조건이 TIMEOUT 초 안에 참이 되면 PASS(걸린 초), 아니면 FAIL — 걸려 있는 대기가 "행이 아니라 단언" 이 된다.
+#   72_ A2d 흔들림(CI, PR #249 attempt 1: got=2)의 자리: 3 lane 이 동시에 running 인 순간을 **폴링으로 잡고**
+#   못 잡으면 여기서 FAIL 이다(대본 쪽 barrier 는 fixtures/agent.sh Researcher).
+wait_step() {
+  local id="$1" what="$2" timeout="$3" test="$4" tick="${5:-0.5}" t0 dl
+  t0="$(date +%s)"; dl=$(( t0 + timeout ))
+  while [ "$(date +%s)" -lt "$dl" ]; do
+    if eval "$test"; then chk "$id" "$what" yes "yes"; printf '    (%ss)\n' "$(( $(date +%s) - t0 ))" >&2; return 0; fi
+    sleep "$tick"
+  done
+  chk "$id" "$what (timeout ${timeout}s)" yes "timeout"; return 1
+}
 sess_status() { psqlq "select status::text from session where id='$1'"; }
 wait_quiet() { # 세션의 모든 task 가 멈출 때까지
   local dl=$(( $(date +%s) + ${2:-600} ))

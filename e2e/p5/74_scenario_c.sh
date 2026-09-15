@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # e2e/p5/74_scenario_c.sh — **시나리오 C — Director 개입** (PRD §4 C · EVAL E16-C, E8-06, E10-01·04).
 #
+# 비용 한 줄(I-3): 페이크 턴 ≈ 8(긴 턴 1 + 개입·재지시·중단·콜드 스타트) · $0 · ≈ 40s. 실기: haiku ≈ $0.05 · ≈ 6분
+#
 #   C1 running 중 `@R …` 메시지 → 진행 중 턴은 계속(kill 0·취소 0), 새 지시는 같은 lane 의 queued task → 이어서 실행
 #   C2 "중단하고 다시 지시"(restartLane) → 취소 + 새 task(attempt 1, restarted_from), lane running 유지, <resumed> 없음
 #   C3 "중단"(cancelLane) → lane failed(cancelled), 피드 "사람이 중단함", 새 task 0

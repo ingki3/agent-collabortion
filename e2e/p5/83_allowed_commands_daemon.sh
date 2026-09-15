@@ -2,6 +2,8 @@
 # e2e/p5/83_allowed_commands_daemon.sh — T-D13 실기 스모크: 번들 `task.allowed_commands`(K-19) 의 **데몬 몫**
 #   (harness §10 v0.8.10 · daemon-protocol §4.1 v0.8.2). 실기 claude_code 1턴, reviewer 역할.
 #
+# 비용 한 줄(I-3): 실기 고정 — claude_code haiku 1턴 ≈ $0.01 · ≈ 60s(빌드 포함) (CI 는 안 돈다)
+#
 # 재는 것 (판정 표 out/d13/83-checks.tsv):
 #   D.1 데몬 로그 `allowed commands: <reviewer 10개> (denied: lane_delegate,artifact_submit,hitl_approve_request)`
 #       — 서버(T-S19)가 번들에 실은 값을 데몬이 읽었다.

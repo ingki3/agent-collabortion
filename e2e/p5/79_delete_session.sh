@@ -2,6 +2,8 @@
 # e2e/p5/79_delete_session.sh — T-S17 실서버 스모크: deleteSession(openapi 0.1.3, FR-2.7)
 # — **데몬 없이**, 데몬 역할(claim·phase·finish·§6 보고)은 curl 로 흉내(70_ 의 레시피).
 #
+# 비용 한 줄(I-3): 에이전트 턴 0(데몬 없이 curl) · $0 · ≈ 15s
+#
 # 재는 것 (판정 표 out/79-checks.tsv):
 #   A. 완료 세션 하나를 만든다: 세션 → claim → phase → 아티팩트(task 토큰, large object) → finish(usage)
 #      → completeSession → completed. 비용 by_session 에 있고, 지표 표본에 든다.
