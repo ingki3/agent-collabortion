@@ -1761,6 +1761,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workspaces/{workspaceId}/observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 관찰 표 — PRD v0.17 §11 「관찰」 5행(목표치 없음, K-18)
+         * @description 권한: 워크스페이스 멤버.
+         *     `getWorkspaceMetrics`(G9 지표 10개)와 **별도**다 — 목표치를 걸지 않고 분포만 보인다(Director 확정 2026-09-15). S14 「대시보드」 탭은 지표 표 **아래** 별도 표로 그린다. 표본이 없으면 `n: 0`, 값은 null.
+         *     **정의(PRD v0.17 §11 관찰 표 그대로)** — `note` 에 같은 문장:
+         *     1. `chain_scale` — 사람 메시지(사람 hop) 1건이 만든 파생 task 수(다음 사람 hop 전까지), 중앙값·p95. n = 사람 hop 수.
+         *     2. `chain_depth` — 세션이 도달한 최대 `chain_depth`(session_hop 인과 사슬), 중앙값·p95. n = 세션 수.
+         *     3. `join_breadth` — 합류 그룹(같은 `delegated_from_task_id`)의 자식 lane 수, 중앙값·p95. n = 그룹 수.
+         *     4. `routing_concentration` — task 를 만든 FR-3.3 규칙 번호 분포(`breakdown[].kind` = 규칙 번호 문자열, `share` = 비율)와 규칙 6·7 폴백 비율(`value`). n = hop 수.
+         *     5. `empty_turn_rate` — 메시지 게시·플랫폼 조작·파일 편집이 0 인 채 `end_turn` 한 attempt / 전체 완료 attempt. n = attempt 수. (FR-7.2 빈 턴 카드와 같은 판정)
+         */
+        get: operations["getWorkspaceObservations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workspaces/{workspaceId}/stream": {
         parameters: {
             query?: never;
@@ -1873,6 +1902,11 @@ export interface components {
          * @enum {string}
          */
         AgentRole: "lead" | "researcher" | "writer" | "engineer" | "reviewer" | "custom";
+        /**
+         * @description colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19.
+         * @enum {string}
+         */
+        ColabCommand: "session_get" | "session_messages" | "artifact_get" | "message_post" | "status_set" | "decision_record" | "lane_delegate" | "artifact_submit" | "review_approve" | "review_reject" | "hitl_ask" | "hitl_approve_request" | "hitl_request_info";
         /**
          * @description `agent_status` — 저장하지 않고 FR-1.3 순서로 파생한다.
          * @enum {string}
@@ -2409,6 +2443,8 @@ export interface components {
             workspace_id: string;
             name: string;
             role: components["schemas"]["AgentRole"];
+            /** @description **역할이 정하는 colab 명령 부분집합**(v1.1, K-19 — PRD FR-1.9.1 표, `colab-cli.md` §2.5). 읽기 전용 파생값: 서버가 role 로 계산한다. 이 밖의 명령은 CLI/MCP 표면에 없고(데몬이 툴 목록을 자르고 CLI 가 exit 3) 서버도 `403 command_not_allowed` 로 거부한다. `custom` 은 전부. */
+            allowed_commands?: components["schemas"]["ColabCommand"][];
             role_description: string;
             instructions: string;
             /** @description 허용 도구/스킬/MCP 서버. */
@@ -2582,6 +2618,36 @@ export interface components {
                 kind: components["schemas"]["RuntimeKind"];
                 value: number | null;
                 target: number;
+                n: number;
+            }[];
+        };
+        /** @description PRD v0.17 §11 「관찰」 표. `rows` 는 표의 행 순서. */
+        ObservationReport: {
+            /** Format: uuid */
+            workspace_id: string;
+            window: string;
+            /** Format: date-time */
+            computed_at: string;
+            rows: components["schemas"]["ObservationRow"][];
+        };
+        ObservationRow: {
+            /** @enum {string} */
+            key: "chain_scale" | "chain_depth" | "join_breadth" | "routing_concentration" | "empty_turn_rate";
+            /** @description 화면에 그대로 보이는 이름(§8.4). */
+            label: string;
+            /** @description 세는 법 한 문장. */
+            note: string;
+            n: number;
+            /** @description 비율형(`routing_concentration` 폴백 비율·`empty_turn_rate`)의 값. 분포형은 null. */
+            value: number | null;
+            /** @description 분포형(`chain_scale`·`chain_depth`·`join_breadth`)의 중앙값. 비율형은 null. */
+            median: number | null;
+            p95: number | null;
+            /** @description `routing_concentration` 만 — 규칙 번호별 비율. */
+            breakdown?: {
+                /** @description FR-3.3 규칙 번호("1"~"8") 또는 "platform". */
+                kind: string;
+                share: number;
                 n: number;
             }[];
         };
@@ -3636,6 +3702,8 @@ export interface components {
                 role?: components["schemas"]["AgentRole"];
                 mention_link: string;
             }[];
+            /** @description 이 task 의 에이전트가 쓸 수 있는 colab 명령(역할 부분집합, v1.1 K-19). CLI 는 이 밖의 명령을 서버에 보내기 전에 exit 3 `command_not_allowed` 로 거부한다. */
+            allowed_commands?: components["schemas"]["ColabCommand"][];
             /** Format: date-time */
             expires_at: string;
         };
@@ -6587,6 +6655,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MetricsReport"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    getWorkspaceObservations: {
+        parameters: {
+            query?: {
+                window?: string;
+            };
+            header?: never;
+            path: {
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 관찰 표. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservationReport"];
                 };
             };
             403: components["responses"]["Forbidden"];
