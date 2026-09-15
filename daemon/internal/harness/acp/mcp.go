@@ -1,6 +1,10 @@
 package acp
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/ingki3/agent-collabortion/daemon/internal/commands"
+)
 
 // MCP transports of `mcpServers[]`. stdio carries no `type` on the wire (it
 // is the ACP baseline); http and sse do, and are only accepted by an agent
@@ -83,11 +87,16 @@ const DefaultColabBin = "colab"
 // attempt env (§2.1: TOKEN, SERVER_URL, TASK_ID, TASK_ATTEMPT, LANE_ID,
 // SESSION_ID, AGENT_NAME) passed explicitly. strictMcpConfig (§3) admits
 // only what is listed here, so this is the single MCP server the agent sees.
-func ColabMCPServer(bin string, env []string) MCPServer {
+//
+// allowed is the bundle's `task.allowed_commands` (harness §10 v0.8.10,
+// K-19): non-empty → `--allow a,b,…` on the argv and the server registers only
+// those tools; empty → the P1 argv, every tool (an older server, or a role
+// with everything).
+func ColabMCPServer(bin string, env []string, allowed []string) MCPServer {
 	if bin == "" {
 		bin = DefaultColabBin
 	}
-	s := MCPServer{Name: ColabMCPName, Command: bin, Args: []string{"mcp", "serve"}, Env: []EnvVar{}}
+	s := MCPServer{Name: ColabMCPName, Command: bin, Args: append([]string{"mcp", "serve"}, commands.Args(allowed)...), Env: []EnvVar{}}
 	for _, kv := range env {
 		if !strings.HasPrefix(kv, ReservedEnvPrefix) {
 			continue

@@ -85,6 +85,15 @@ Write)을 생성하는 동안 — 이때 어댑터는 `session/update` 를 하�
 턴 끝에서만 강제되고, 3분 넘게 걸리는 긴 도구 입력은 stall 로 잘린다. 비용은 로컬 stdio 파이프의 메시지 4배 ·
 바이트 2배(PR #145 실측)이고 서버 트래픽은 늘지 않는다. hermes 에는 이런 스트림이 없다(harness §7).
 
+### 역할별 colab 명령 (K-19, harness §10 v0.8.10)
+
+번들 `task.allowed_commands`(daemon-protocol §4.1 v0.8.2)는 역할이 쓸 수 있는 colab 명령의 부분집합이다(colab-cli §2.5,
+서버가 정한다). 데몬은 같은 목록을 세 곳에 놓는다 — colab MCP 서버 argv `mcp serve --allow a,b,…`(claude_code; CLI 가
+그 툴만 등록), hermes 래퍼의 `export COLAB_ALLOWED_COMMANDS=a,b,…`(CLI 가 exit 3 으로 거부), 브리프 [2] 끝의 두 줄(허용
+명령 목록 + "이 역할은 … 을 쓰지 않는다" — 막힌 명령은 명령 이름이 아니라 사람 말로, `internal/commands`). 비어 있으면
+전부(옛 서버·lead·custom)이고 아무것도 바뀌지 않는다. 턴이 끝나면 raw system/init 의 콜랩 툴 목록을 로그에 남긴다
+(`colab tools registered: …`) — `--allow` 가 툴 목록까지 닿았는지 보는 자리.
+
 ## 디렉터리 (`<workdir_root>/.colab/`)
 
 | 경로 | 무엇 | 정리 |

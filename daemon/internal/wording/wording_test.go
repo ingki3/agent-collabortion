@@ -40,10 +40,13 @@ var sinkHelpers = map[string][]int{
 var sinkFuncs = map[string]bool{
 	"workdirDetail": true, // loop: §4.1 데몬 방어의 detail
 	"Verify":        true, // workdir: 그 err.Error() 가 workdirDetail 의 머리가 된다
+	"commandLines":  true, // brief: [2] 의 허용 명령·"이 역할은 … 을 쓰지 않는다" 한 줄 (K-19, T-D13)
 }
 
 // sinkVars 는 값이 곧 문장 조각인 패키지 상수 — 예산 초과 문장의 "넘긴 쪽".
-var sinkVars = map[string]bool{"sideTask": true, "sideOverride": true, "sideSession": true}
+var sinkVars = map[string]bool{"sideTask": true, "sideOverride": true, "sideSession": true,
+	"labels": true, // commands: 명령의 사람 말(웹 COMMAND_LABEL 과 같은 표) — 브리프 [2] 의 "쓰지 않는다" 줄이 쓴다
+}
 
 type sentence struct {
 	file string
