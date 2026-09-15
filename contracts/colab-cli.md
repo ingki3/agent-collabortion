@@ -75,7 +75,7 @@
 | `review_approve` · `review_reject` | ✓ | — | ✓ | ✓ |
 | `lane_delegate` · `hitl_approve_request` | ✓ | — | — | ✓ |
 
-- CLI 는 `getCliContext.allowed_commands` 를 읽어(첫 호출 캐시) 표 밖의 명령을 **서버에 보내기 전에** `3 command_not_allowed` 로 거부한다 — 메시지: "이 역할(<role>)은 <명령>을 쓸 수 없습니다". MCP 서버(§3)는 `allowed_commands` 에 있는 툴만 등록한다.
+- CLI 는 `getCliContext.allowed_commands` 를 읽어(첫 호출 캐시) 표 밖의 명령을 **서버에 보내기 전에** `3 command_not_allowed` 로 거부한다 — 메시지(서버 `403 command_not_allowed` 와 글자 단위로 같다): "이 역할(<role>)은 <명령> 를 쓸 수 없습니다" — <명령> 은 CLI 표기(`lane delegate`), <role> 은 enum 그대로(§8.4 예외); 래퍼 env 모드(`COLAB_ALLOWED_COMMANDS`)에서는 role 을 알 수 없어 괄호를 생략한다. MCP 서버(§3)는 `allowed_commands` 에 있는 툴만 등록한다.
 - 서버는 같은 표로 `403 command_not_allowed` 를 낸다(우회 방어). `custom` 은 전부 허용.
 - 데몬 번들 `task.allowed_commands`(daemon-protocol §4.1)가 같은 값이다 — hermes 래퍼(harness §10)는 그 목록으로 MCP 툴 목록을 자른다.
 
