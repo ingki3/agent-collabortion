@@ -275,10 +275,35 @@ func TestP2CompletionTreeValidation(t *testing.T) {
 		{"type": "criteria_met"}, {"type": "user_approval"}}}); st != 201 {
 		t.Fatalf("criteria_met AND user_approval = %d %v, want 201", st, out)
 	}
+	// S-84 (openapi 0.1.4): the reviewer must be a participant. R is not one
+	// here (participants: Lead only), so the same tree is 422 — and 201 once R
+	// is invited. Before 0.1.4 this line expected 201 with R outside the
+	// session, which is exactly the shape that could never close.
 	if st, out := create(map[string]any{"op": "and", "conditions": []map[string]any{
-		{"type": "agent_approval", "agent_id": f.r}}}); st != 201 {
+		{"type": "agent_approval", "agent_id": f.r}}}); st != 422 || fieldCode(out, "completion_condition/conditions/0/agent_id") != "reviewer_not_participant" {
+		t.Fatalf("agent_approval(R, not a participant) = %d %v, want 422 reviewer_not_participant", st, out)
+	}
+	st, out, _ := f.api.do("POST", f.p+"/workspaces/"+f.wsID+"/sessions", map[string]any{
+		"title": "S", "goal": "g", "isolation": map[string]any{"kind": "none"},
+		"participants": []map[string]any{{"agent_id": f.lead}, {"agent_id": f.r}},
+		"completion_condition": map[string]any{"op": "and", "conditions": []map[string]any{
+			{"type": "agent_approval", "agent_id": f.r}}},
+	})
+	if st != 201 {
 		t.Fatalf("agent_approval alone = %d %v, want 201 — a different role reviews", st, out)
 	}
+}
+
+// fieldCode returns errors[].code of the Problem entry for `field`, "" if none.
+func fieldCode(out map[string]any, field string) string {
+	errs, _ := out["errors"].([]any)
+	for _, raw := range errs {
+		e, _ := raw.(map[string]any)
+		if str(e, "field") == field {
+			return str(e, "code")
+		}
+	}
+	return ""
 }
 
 // TestP2DecisionLog is FR-4.2. recordDecision is TaskToken-only (openapi

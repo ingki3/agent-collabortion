@@ -245,6 +245,17 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 			return nil, apperr.Validation(apperr.Field("assignee_agent_id", "not_participant", "담당 에이전트는 참여자 중에서 골라야 합니다"))
 		}
 	}
+	if in.CompletionCondition != nil {
+		// S-84 (openapi 0.1.4): the atoms an agent satisfies must name one of
+		// the session's agents. This runs after the participants are known
+		// because that is what it checks against; ValidateTree above is the
+		// tree-only half.
+		if b, err := json.Marshal(in.CompletionCondition); err == nil {
+			if errs := ValidateReviewers(ParseTree(b), func(id uuid.UUID) bool { return seen[id] }); len(errs) > 0 {
+				return nil, apperr.Validation(errs...)
+			}
+		}
+	}
 
 	isolation := map[string]any{"kind": string(in.Isolation.Kind)}
 	if in.Isolation.RepoPath != nil {
@@ -437,7 +448,9 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, v Viewer) (*gen.Session,
 	out.StartedAt = tasks.NullTime(startedAt)
 	out.FinishedAt = tasks.NullTime(finishedAt)
 	out.LastActivityAt = tasks.NullTime(lastActivity)
-	out.CompletionProgress = progress(completion, met)
+	if out.CompletionProgress, err = progressOf(ctx, q, id, completion, met, assignee); err != nil {
+		return nil, err
+	}
 	if d, err := auth.LoadUser(ctx, q, out.DirectorUserId); err == nil {
 		out.Director = d
 	}
@@ -492,25 +505,13 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, v Viewer) (*gen.Session,
 // so the caller learns whether its submission actually moved the session
 // without a second round trip to getSession.
 func (s *Service) Progress(ctx context.Context, sessionID uuid.UUID) (gen.CompletionProgress, error) {
-	var tree, met []byte
-	err := s.DB.QueryRow(ctx, `SELECT completion_condition, completion_met FROM session WHERE id = $1`, sessionID).Scan(&tree, &met)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return gen.CompletionProgress{}, apperr.NotFound("session")
-	}
-	if err != nil {
-		return gen.CompletionProgress{}, err
-	}
-	return progress(tree, met), nil
+	return LoadProgress(ctx, s.DB, sessionID)
 }
 
-// progress counts atoms of the completion tree; P1 has no satisfaction logic.
-// progress renders the completion tree for S7's right rail. The met flags come
-// from session.completion_met rather than being recomputed: E6-04 pins that an
-// artifact_submitted flag survives a Director rejection, and a recomputation
-// has no way to remember that.
 // progressCond is the element type of gen.CompletionProgress.Conditions — the
 // generator emits it as an anonymous struct, so name it once here. agent_id ·
-// agent_name · blocked_reason (openapi 0.1.4, S-84) are filled by T-S18.
+// agent_name · blocked_reason (openapi 0.1.4, S-84) are filled by
+// buildProgress (reviewer.go).
 type progressCond = struct {
 	AgentId       nullable.Nullable[openapi_types.UUID]                            `json:"agent_id,omitempty"`
 	AgentName     nullable.Nullable[string]                                        `json:"agent_name,omitempty"`
@@ -522,47 +523,6 @@ type progressCond = struct {
 	NextActor     nullable.Nullable[string]                                        `json:"next_actor,omitempty"`
 	Path          string                                                           `json:"path"`
 	Type          string                                                           `json:"type"`
-}
-
-func progress(tree, metRaw []byte) gen.CompletionProgress {
-	var p gen.CompletionProgress
-	met := map[string]bool{}
-	_ = json.Unmarshal(metRaw, &met)
-	p.Conditions = make([]progressCond, 0)
-	var node any
-	if json.Unmarshal(tree, &node) != nil {
-		return p
-	}
-	human := false
-	var walk func(n any, path string)
-	walk = func(n any, path string) {
-		m, ok := n.(map[string]any)
-		if !ok {
-			return
-		}
-		if conds, ok := m["conditions"].([]any); ok {
-			for i, c := range conds {
-				walk(c, fmt.Sprintf("%s/conditions/%d", path, i))
-			}
-			return
-		}
-		typ, _ := m["type"].(string)
-		if typ == "user_approval" || typ == "manual" {
-			human = true
-		}
-		p.Total++
-		if met[typ] {
-			p.Met++
-		}
-		p.Conditions = append(p.Conditions, progressCond{Path: path, Type: typ, Met: met[typ]})
-	}
-	walk(node, "")
-	p.HumanGate = &human
-	// `satisfied` is the tree's verdict, not `met == total`: under OR one atom
-	// is enough, and S7 renders "완료로 갑니다" from this field. Leaving it at
-	// the zero value made a finished session look unfinished to every reader.
-	p.Satisfied = Satisfied(ParseTree(tree), met)
-	return p
 }
 
 // LoadParticipants returns session_participant rows with FR-1.3 derived status
