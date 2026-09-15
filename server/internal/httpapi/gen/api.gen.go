@@ -221,6 +221,30 @@ func (e CompletionGroupOp) Valid() bool {
 	}
 }
 
+// Defines values for CompletionProgressConditionsBlockedReason.
+const (
+	CompletionProgressConditionsBlockedReasonAgentArchived          CompletionProgressConditionsBlockedReason = "agent_archived"
+	CompletionProgressConditionsBlockedReasonLessThannil            CompletionProgressConditionsBlockedReason = "<nil>"
+	CompletionProgressConditionsBlockedReasonReviewerMissing        CompletionProgressConditionsBlockedReason = "reviewer_missing"
+	CompletionProgressConditionsBlockedReasonReviewerNotParticipant CompletionProgressConditionsBlockedReason = "reviewer_not_participant"
+)
+
+// Valid indicates whether the value is a known member of the CompletionProgressConditionsBlockedReason enum.
+func (e CompletionProgressConditionsBlockedReason) Valid() bool {
+	switch e {
+	case CompletionProgressConditionsBlockedReasonAgentArchived:
+		return true
+	case CompletionProgressConditionsBlockedReasonLessThannil:
+		return true
+	case CompletionProgressConditionsBlockedReasonReviewerMissing:
+		return true
+	case CompletionProgressConditionsBlockedReasonReviewerNotParticipant:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ContextReusePolicyIncludeArtifacts.
 const (
 	ContextReusePolicyIncludeArtifactsFull  ContextReusePolicyIncludeArtifacts = "full"
@@ -1775,7 +1799,7 @@ type ColabCLI struct {
 
 // CompletionAtom defines model for CompletionAtom.
 type CompletionAtom struct {
-	// AgentId `artifact_submitted` · `agent_approval`의 지정 에이전트(`who` 대신).
+	// AgentId `artifact_submitted` · `agent_approval`의 지정 에이전트(`who` 대신). **`agent_approval` 에는 필수**(v0.1.4, S-84).
 	AgentId *openapi_types.UUID `json:"agent_id,omitempty"`
 	Type    CompletionAtomType  `json:"type"`
 
@@ -1803,6 +1827,15 @@ type CompletionGroupOp string
 // CompletionProgress S7 우열 "종료 조건 진행률" — 조건별 충족 여부와 누구 차례인지.
 type CompletionProgress struct {
 	Conditions []struct {
+		// AgentId `artifact_submitted`·`agent_approval` 의 지정 에이전트(v0.1.4).
+		AgentId nullable.Nullable[openapi_types.UUID] `json:"agent_id,omitempty"`
+
+		// AgentName 그 에이전트의 이름 — 화면은 "Lead 의 검토 승인" 처럼 사람 말로 그린다(§8.4).
+		AgentName nullable.Nullable[string] `json:"agent_name,omitempty"`
+
+		// BlockedReason 이 조건이 **지금 구조상 충족될 수 없는** 이유(v0.1.4, S-84). 옛 세션(리뷰어 없는 `agent_approval`)이나 리뷰어가 세션을 떠난 경우. 화면은 ✗ 대신 이유를 그대로 보이고 Director 에게 조건 수정을 안내한다. 새 세션은 createSession 검증이 막는다.
+		BlockedReason nullable.Nullable[CompletionProgressConditionsBlockedReason] `json:"blocked_reason,omitempty"`
+
 		// HitlRequestId `user_approval` 대기 중이면 그 HITL.
 		HitlRequestId nullable.Nullable[openapi_types.UUID] `json:"hitl_request_id,omitempty"`
 		Met           bool                                  `json:"met"`
@@ -1827,6 +1860,9 @@ type CompletionProgress struct {
 	Satisfied bool `json:"satisfied"`
 	Total     int  `json:"total"`
 }
+
+// CompletionProgressConditionsBlockedReason 이 조건이 **지금 구조상 충족될 수 없는** 이유(v0.1.4, S-84). 옛 세션(리뷰어 없는 `agent_approval`)이나 리뷰어가 세션을 떠난 경우. 화면은 ✗ 대신 이유를 그대로 보이고 Director 에게 조건 수정을 안내한다. 새 세션은 createSession 검증이 막는다.
+type CompletionProgressConditionsBlockedReason string
 
 // ContextReusePolicy FR-4.4.
 type ContextReusePolicy struct {
