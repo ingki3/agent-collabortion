@@ -193,8 +193,17 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 			}
 			if reset {
 				// FR-3.5: without the reset the next message re-trips the same
-				// counter and the session pauses again immediately.
-				if _, err := tx.Exec(r.Context(), `DELETE FROM session_hop WHERE session_id = $1`, sessionId); err != nil {
+				// counter and the session pauses again immediately. The reset is a
+				// HUMAN hop, not a wipe (S-80): chain_depth and pair_roundtrips
+				// restart below the person, while max_hops_per_hour keeps counting —
+				// "시간당 상한은 리셋되지 않는다" — so repeated resumes cannot empty
+				// all three layers at once. Deleting the rows (what this did before)
+				// also erased the audit trail the loop verdict was built from.
+				var assignee uuid.UUID
+				if err := tx.QueryRow(r.Context(), `SELECT assignee_agent_id FROM session WHERE id = $1`, sessionId).Scan(&assignee); err != nil {
+					return err
+				}
+				if err := s.Router.RecordHumanHop(r.Context(), tx, sessionId, assignee, uuid.Nil, now); err != nil {
 					return err
 				}
 			}
