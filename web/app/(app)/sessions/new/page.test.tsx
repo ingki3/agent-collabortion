@@ -109,7 +109,7 @@ describe("S6 6단계 — artifact_submitted 의 제출자(W-4)", () => {
   it("기본값은 assignee 다 — 지정 없이 보내면 `{type, who: 'assignee'}` 하나뿐이다", async () => {
     await walkToConditions([LEAD.id, WRITER.id]);
     expect((screen.getByTestId("submitter-select") as HTMLSelectElement).value).toBe("");
-    expect(screen.getAllByTestId("condition-row").find((el) => el.dataset.type === "artifact_submitted")!.textContent).toContain("(assignee)");
+    expect(screen.getAllByTestId("condition-row").find((el) => el.dataset.type === "artifact_submitted")!.textContent).toContain("(담당 에이전트)");
 
     expect(await start()).toEqual({
       op: "and",
@@ -149,6 +149,110 @@ describe("S6 6단계 — artifact_submitted 의 제출자(W-4)", () => {
     const row = screen.getAllByTestId("condition-row").find((el) => el.dataset.type === "artifact_submitted")!;
     fireEvent.click(row);
     expect(screen.queryByTestId("submitter-select")).toBeNull();
+  });
+});
+
+/**
+ * T-W15(S-84 · W-19) — 6단계의 조건 이름은 사람 말이고, `agent_approval` 을 고르면 **리뷰어 선택이 필수**다(계약 v0.1.4: `agent_id` 없는
+ * `agent_approval` 은 422 `reviewer_required`). Director 실사용에서 리뷰어 없는 조건 때문에 세션이 영영 안 닫혔다 — 마법사가 여기서 막지
+ * 않으면 사람은 S7 진행률에서야 그 사실을 만난다.
+ */
+describe("S6 6단계 — 사람 말 · 리뷰어 필수 · 요약 문장(T-W15)", () => {
+  const rowOf = (type: string) => screen.getAllByTestId("condition-row").find((el) => el.dataset.type === type)!;
+  const nextBtn = () => screen.getByTestId("wizard-next") as HTMLButtonElement;
+
+  it("네 조건의 이름이 사람 말이다 — 보고서 제출 · 에이전트 검토 승인 · Director 승인 · 수동 종료(계약 enum 은 화면에 없다)", async () => {
+    await walkToConditions([LEAD.id, WRITER.id]);
+    expect(rowOf("artifact_submitted").querySelector('[data-testid="condition-name"]')!.textContent).toBe("보고서 제출 (담당 에이전트)");
+    expect(rowOf("agent_approval").querySelector('[data-testid="condition-name"]')!.textContent).toBe("에이전트 검토 승인");
+    expect(rowOf("user_approval").querySelector('[data-testid="condition-name"]')!.textContent).toBe("Director 승인");
+    expect(rowOf("manual").querySelector('[data-testid="condition-name"]')!.textContent).toBe("수동 종료");
+    const text = screen.getByTestId("wizard-conditions").textContent!;
+    for (const raw of ["artifact_submitted", "agent_approval", "user_approval", "assignee"]) expect(text).not.toContain(raw);
+  });
+
+  it("에이전트 검토 승인을 고르면 리뷰어를 고를 때까지 다음이 비활성이고 사유가 근처에 있다", async () => {
+    await walkToConditions([LEAD.id, WRITER.id]);
+    expect(nextBtn().disabled).toBe(false);
+    fireEvent.click(rowOf("agent_approval"));
+    expect(screen.getByTestId("reviewer-select")).toBeTruthy();
+    expect(nextBtn().disabled).toBe(true);
+    expect(screen.getByTestId("wizard-blocked").textContent).toContain("리뷰어를 고르세요");
+    expect(screen.getByTestId("reviewer-required").textContent).toContain("아무도 승인할 수 없어");
+    // 리뷰어를 고르면 열린다 — 행 이름도 "Lead 의 검토 승인" 으로 바뀐다.
+    fireEvent.change(screen.getByTestId("reviewer-select"), { target: { value: LEAD.id } });
+    expect(nextBtn().disabled).toBe(false);
+    expect(screen.queryByTestId("reviewer-required")).toBeNull();
+    expect(rowOf("agent_approval").querySelector('[data-testid="condition-name"]')!.textContent).toBe("Lead 의 검토 승인");
+  });
+
+  it("리뷰어를 고르면 `{type: agent_approval, agent_id}` 로 보낸다(계약 CompletionAtom — agent_approval 에 agent_id 필수)", async () => {
+    await walkToConditions([LEAD.id, WRITER.id]);
+    fireEvent.click(rowOf("agent_approval"));
+    fireEvent.change(screen.getByTestId("reviewer-select"), { target: { value: LEAD.id } });
+    expect(await start()).toEqual({
+      op: "and",
+      conditions: [{ type: "artifact_submitted", who: "assignee" }, { type: "agent_approval", agent_id: LEAD.id }, { type: "user_approval" }],
+    });
+  });
+
+  it("담당 에이전트를 리뷰어로 고르면 막지 않고 안내만 한다(자기 것을 자기가 검토하지 않게)", async () => {
+    await walkToConditions([LEAD.id, WRITER.id]); // Lead 가 담당(역할 lead 우선)
+    fireEvent.click(rowOf("agent_approval"));
+    fireEvent.change(screen.getByTestId("reviewer-select"), { target: { value: LEAD.id } });
+    expect(screen.getByTestId("reviewer-is-assignee").textContent).toContain("다른 에이전트를 권합니다");
+    expect(nextBtn().disabled).toBe(false);
+    fireEvent.change(screen.getByTestId("reviewer-select"), { target: { value: WRITER.id } });
+    expect(screen.queryByTestId("reviewer-is-assignee")).toBeNull();
+  });
+
+  it("리뷰어로 고른 에이전트를 참여자에서 빼면 리뷰어가 비고 다시 막힌다 — 리뷰어 없는 조건을 만들지 않는다", async () => {
+    await walkToConditions([LEAD.id, WRITER.id]);
+    fireEvent.click(rowOf("agent_approval"));
+    fireEvent.change(screen.getByTestId("reviewer-select"), { target: { value: WRITER.id } });
+    fireEvent.click(screen.getByTestId("wizard-back")); // 5 참여자
+    const card = screen.getAllByTestId("participant-option").find((el) => el.dataset.agentId === WRITER.id)!;
+    fireEvent.click(card.querySelector('input[type="checkbox"]')!); // Writer 해제
+    next();
+    await waitFor(() => expect((screen.getByTestId("reviewer-select") as HTMLSelectElement).value).toBe(""));
+    expect(nextBtn().disabled).toBe(true);
+    expect(screen.getByTestId("wizard-blocked").textContent).toContain("리뷰어를 고르세요");
+  });
+
+  it("요약 단계 문장이 사람 말이다 — \"보고서 제출 (담당 에이전트) 그리고 Lead 의 검토 승인 그리고 Director 승인\"", async () => {
+    await walkToConditions([LEAD.id, WRITER.id]);
+    fireEvent.click(rowOf("agent_approval"));
+    fireEvent.change(screen.getByTestId("reviewer-select"), { target: { value: LEAD.id } });
+    next(); // 7 한도 + 요약
+    expect(screen.getByTestId("summary-condition").textContent).toBe("보고서 제출 (담당 에이전트) 그리고 Lead 의 검토 승인 그리고 Director 승인");
+  });
+
+  it("OR 이면 \"또는\" 으로 잇고, 제출자를 지정하면 그 이름이 괄호에 든다", async () => {
+    await walkToConditions([LEAD.id, WRITER.id]);
+    fireEvent.change(screen.getByTestId("cond-op"), { target: { value: "or" } });
+    fireEvent.change(screen.getByTestId("submitter-select"), { target: { value: WRITER.id } });
+    next();
+    expect(screen.getByTestId("summary-condition").textContent).toBe("보고서 제출 (@Writer) 또는 Director 승인");
+  });
+
+  it("서버가 422 reviewer_required 로 거절하면 6단계로 돌아가 문장만 보인다(칸 경로 없이)", async () => {
+    const { ApiError } = await import("@/lib/api/client");
+    post.mockRejectedValueOnce(new ApiError({ type: "https://colab.dev/problems/validation_failed", title: "입력값 확인 필요", status: 422, code: "validation_failed", detail: "입력값을 확인해 주세요", errors: [{ field: "completion_condition/conditions/1/agent_id", code: "reviewer_required", message: "「검토 승인」에는 리뷰어를 참여자 중에서 골라 주세요" }] }));
+    await walkToConditions([LEAD.id, WRITER.id]);
+    next(); // 7
+    fireEvent.click(screen.getByTestId("session-start"));
+    await waitFor(() => expect(screen.getByTestId("wizard-conditions")).toBeTruthy());
+    const err = document.querySelector(".problem")!.textContent!;
+    expect(err).toBe("「검토 승인」에는 리뷰어를 참여자 중에서 골라 주세요");
+    expect(err).not.toContain("completion_condition");
+  });
+
+  it("조건을 전부 끄면 다음이 비활성 + 사유", async () => {
+    await walkToConditions([LEAD.id, WRITER.id]);
+    fireEvent.click(rowOf("artifact_submitted"));
+    fireEvent.click(rowOf("user_approval"));
+    expect(nextBtn().disabled).toBe(true);
+    expect(screen.getByTestId("wizard-blocked").textContent).toBe("종료 조건을 하나 이상 고르세요");
   });
 });
 

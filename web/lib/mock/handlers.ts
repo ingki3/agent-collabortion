@@ -3,7 +3,7 @@
  * 에이전트 실행은 타이머로 흉내 낸다(task_event 원본 레일·typing·delta·답글 메시지·참여자 상태).
  */
 import type {
-  Agent, AgentProfile, AgentTemplate, Artifact, Decision, HitlRequest, InboxItem, Invite, Lane, LoopLimits, Member,
+  Agent, AgentProfile, AgentTemplate, Artifact, CompletionCondition, CompletionProgress, Decision, HitlRequest, InboxItem, Invite, Lane, LoopLimits, Member,
   MemberRole, Message, Metric, MetricsReport, NotificationSettings, Pairing, Participant, Runtime, Session,
   SessionListItem, Task, TaskEvent, TestChat, TestChatTurn, TriggerPreview, TriggerTarget, User, Workdir,
   WorkspaceSettings, WorkspaceSettingsUpdate,
@@ -12,7 +12,7 @@ import {
   defaultSettings, emit, makeAgent, makeRuntime, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges,
   sseFrame, store, stripUser, TEMPLATES, uuid, type MockInvite, type MockTask, type Store, type Subscriber,
 } from "./store";
-import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
+import { fmt, josa, METRIC_DEFS, MOCK_ONLY, NOT_FOUND_NOUN, notFound, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
 /**
  * RFC 9457 Problem — `title` 은 서버(`apperr.Title`)처럼 **상태 코드에서** 정한다. 문장(`detail`·`errors[].message`)은
@@ -288,6 +288,73 @@ on("POST", "/workspaces/{id}/agents", (req, p) => {
   return ok(a, 201);
 });
 
+
+// ── 종료 조건(T-W15, 계약 v0.1.4 · S-84) — 검증과 진행률 계산. createSession · updateSession · 시드가 같은 함수를 쓴다. ──
+type CondAtom = { type: string; who?: string; agent_id?: string };
+const DEFAULT_CONDITION: CompletionCondition = { op: "and", conditions: [{ type: "artifact_submitted", who: "assignee" }, { type: "user_approval" }] };
+/** 최상위 그룹의 원자들(평평하게). 원자 하나면 그대로. */
+function condAtoms(cc: CompletionCondition): CondAtom[] {
+  return "conditions" in cc ? (cc.conditions.filter((c) => "type" in c) as CondAtom[]) : [cc as CondAtom];
+}
+/**
+ * createSession/updateSession 의 리뷰어 검사 — `agent_approval` 은 `agent_id` 필수 + 참여자여야 한다(`errors[].code`
+ * `reviewer_required` / `reviewer_not_participant`). 리뷰어 없는 조건은 아무도 승인할 수 없어 세션이 영영 안 닫힌다.
+ * 필드 경로는 서버 관례(`participants/<i>/agent_id`)와 같은 모양 — `completion_condition/conditions/<i>/agent_id`.
+ */
+function validateCondition(cc: CompletionCondition, participantIds: string[]): { field: string; code: string; message: string }[] {
+  const errors: { field: string; code: string; message: string }[] = [];
+  condAtoms(cc).forEach((a, i) => {
+    const field = `completion_condition/conditions/${i}/agent_id`;
+    if (a.type === "agent_approval" && !a.agent_id) errors.push({ field, code: "reviewer_required", message: MOCK_ONLY.reviewer_required });
+    // `artifact_submitted` 의 지정 제출자도 참여자여야 한다 — 서버(T-S18)는 같은 코드에 제출자 문장.
+    else if ((a.type === "agent_approval" || a.type === "artifact_submitted") && a.agent_id && !participantIds.includes(a.agent_id)) {
+      errors.push({ field, code: "reviewer_not_participant", message: a.type === "agent_approval" ? MOCK_ONLY.reviewer_not_participant : MOCK_ONLY.submitter_not_participant });
+    }
+  });
+  return errors;
+}
+/**
+ * 진행률(CompletionProgress) — 조건마다 `agent_id`·`agent_name`·`next_actor`·`blocked_reason`·`hitl_request_id` 를 채운다.
+ * **이미 충족된 원자는 그대로 유지**(계약 updateSession: 같은 path·type·지정 에이전트면 `met`·`met_at`·`met_by` 를 잇는다).
+ * `artifact_submitted` 는 아티팩트 목록으로 판정하고, 그 외는 이전 값(목에는 승인 흐름이 없다 — 시드가 met 를 놓는다).
+ */
+function computeProgress(s: Store, sess: Session, prev?: CompletionProgress | null): CompletionProgress {
+  const cc = sess.completion_condition ?? DEFAULT_CONDITION;
+  const op = "op" in cc ? cc.op : "and";
+  const parts = sess.participants ?? [];
+  const partIds = parts.map((p) => p.agent_id);
+  const assignee = parts.find((p) => p.is_assignee) ?? parts[0];
+  const nameOf = (id: string | undefined) => (id ? parts.find((p) => p.agent_id === id)?.agent.name ?? s.agents.get(id)?.name ?? null : null);
+  const conditions: CompletionProgress["conditions"] = condAtoms(cc).map((a, i) => {
+    const path = `/conditions/${i}`;
+    const agentId = a.type === "artifact_submitted" && !a.agent_id ? assignee?.agent_id ?? null : a.agent_id ?? null;
+    const agentName = nameOf(agentId ?? undefined);
+    const old = prev?.conditions.find((c) => c.path === path && c.type === a.type && (c.agent_id ?? null) === agentId);
+    let met = old?.met ?? false;
+    let met_at = old?.met_at ?? null;
+    let met_by = old?.met_by ?? null;
+    if (a.type === "artifact_submitted" && !met) {
+      const art = [...s.artifacts.values()].find((x) => x.session_id === sess.id && (!agentId || x.submitted_by?.agent_id === agentId));
+      if (art) { met = true; met_at = art.created_at; met_by = art.submitted_by?.agent_id ?? null; }
+    }
+    let blocked_reason: CompletionProgress["conditions"][number]["blocked_reason"] = null;
+    if (a.type === "agent_approval" && !met) {
+      if (!a.agent_id) blocked_reason = "reviewer_missing";
+      else if (!partIds.includes(a.agent_id)) blocked_reason = "reviewer_not_participant";
+      else if (s.agents.get(a.agent_id)?.archived_at) blocked_reason = "agent_archived";
+    }
+    const hitl = a.type === "user_approval" && !met
+      ? [...s.hitls.values()].find((h) => h.session_id === sess.id && h.status === "open" && h.purpose === "user_approval") ?? null
+      : null;
+    const next_actor = met || blocked_reason ? null : a.type === "user_approval" || a.type === "manual" ? "director" : agentName;
+    return { path, type: a.type, met, met_at, met_by, next_actor, hitl_request_id: hitl?.id ?? null, agent_id: agentId, agent_name: agentName, blocked_reason };
+  });
+  const metCount = conditions.filter((c) => c.met).length;
+  const satisfied = conditions.length > 0 && (op === "and" ? metCount === conditions.length : metCount > 0);
+  const human_gate = conditions.some((c) => c.type === "user_approval" || c.type === "manual");
+  return { met: metCount, total: conditions.length, satisfied, human_gate, conditions };
+}
+
 // ── sessions ──
 function participantsOf(s: Store, sess: Session): Participant[] {
   return (sess.participants ?? []).map((p) => ({ ...p, status: participantStatus(s, sess.id, p.agent_id) }));
@@ -313,12 +380,14 @@ on("GET", "/workspaces/{id}/sessions", (req, p) => {
 on("POST", "/workspaces/{id}/sessions", (req, p) => {
   const s = store();
   const { user } = requireMember(s, req, p.id);
-  const b = body<{ title?: string; goal?: string; participants?: { agent_id: string; profile_id?: string | null }[]; assignee_agent_id?: string; isolation?: { kind: string; repo_path?: string; remote_url?: string | null }; runtime_id?: string | null; director_user_id?: string; autonomy?: Session["autonomy"]; draft?: boolean }>(req);
-  const errors: { field: string; message: string }[] = [];
+  const b = body<{ title?: string; goal?: string; participants?: { agent_id: string; profile_id?: string | null }[]; assignee_agent_id?: string; isolation?: { kind: string; repo_path?: string; remote_url?: string | null }; runtime_id?: string | null; director_user_id?: string; autonomy?: Session["autonomy"]; draft?: boolean; completion_condition?: CompletionCondition; limits?: Partial<Session["limits"]>; acceptance_criteria?: string[] }>(req);
+  const errors: { field: string; code?: string; message: string }[] = [];
   if (!b.title?.trim()) errors.push({ field: "title", message: W.title_1_200 });
   if (!b.goal?.trim()) errors.push({ field: "goal", message: W.goal_required });
   if (!b.participants?.length) errors.push({ field: "participants", message: W.participants_required });
   if (b.isolation?.kind === "container") errors.push({ field: "isolation.kind", message: W.container_unsupported });
+  // v0.1.4 — `agent_approval` 은 리뷰어 필수 + 참여자(S-84). 다른 422 와 한 응답에 모은다(errors[]).
+  if (b.completion_condition) errors.push(...validateCondition(b.completion_condition, (b.participants ?? []).map((x) => x.agent_id)));
   if (errors.length) throw validation(errors);
   const online = [...s.runtimes.values()].filter((r) => r.workspace_id === p.id && r.status === "online");
   if (online.length === 0) throw new Problem(409, "no_runtime", W.no_runtime);
@@ -343,12 +412,14 @@ on("POST", "/workspaces/{id}/sessions", (req, p) => {
     // **`remote_url` 을 버리지 않는다** — 재바인딩 후보 판정의 유일한 키다(FR-9.2 F, E14-04·05).
     // 실서버는 `checkRepo` 결과로 이 칸을 채운다.
     isolation: { kind: (b.isolation?.kind as Session["isolation"]["kind"]) ?? "none", ...(b.isolation?.repo_path ? { repo_path: b.isolation.repo_path } : {}), remote_url: b.isolation?.remote_url ?? null },
-    completion_condition: { op: "and", conditions: [{ type: "artifact_submitted", who: "assignee" }, { type: "user_approval" }] },
-    completion_progress: { met: 0, total: 2, satisfied: false, human_gate: true, conditions: [{ path: "/conditions/0", type: "artifact_submitted", met: false, next_actor: assignee.agent.name }, { path: "/conditions/1", type: "user_approval", met: false, next_actor: "director" }] },
-    limits: { budget_usd: 20, budget_tokens: null, time_limit: "PT4H", max_tasks: null, max_parallel_lanes: 5 }, autonomy: b.autonomy ?? "guided",
+    completion_condition: b.completion_condition ?? DEFAULT_CONDITION,
+    completion_progress: { met: 0, total: 0, satisfied: false, human_gate: true, conditions: [] },
+    limits: { budget_usd: 20, budget_tokens: null, time_limit: "PT4H", max_tasks: null, max_parallel_lanes: 5, ...(b.limits ?? {}) }, autonomy: b.autonomy ?? "guided",
     status: b.draft ? "draft" : "active", paused_reason: null, cost_usd: 0, cost_estimated: false, participants: parts, context: [], my_role: "director",
     created_by: user.id, created_at: t, updated_at: t, started_at: b.draft ? null : t, finished_at: null, last_activity_at: t,
   };
+  if (b.acceptance_criteria) sess.acceptance_criteria = b.acceptance_criteria;
+  sess.completion_progress = computeProgress(s, sess);
   s.sessions.set(id, sess);
   // goal 시스템 메시지(U1 13단계) + assignee 초기 task(E16-A 1단계)
   const sys = addMessage(s, sess, { author_type: "system", author_id: null, author: undefined, kind: "system", content: `${W.session_started}${sess.goal}`, mentions: [] });
@@ -365,6 +436,73 @@ on("GET", "/sessions/{id}", (req, p) => {
   if (!sess) throw notFoundP("session");
   const { user } = requireMember(s, req, sess.workspace_id);
   return ok(sessionFor(s, sess, user.id));
+});
+
+
+/**
+ * updateSession(계약 PATCH /sessions/{sessionId}) — 권한 Director. 시작 뒤에는 `isolation`·`runtime_id` 를 못 바꾸고(422 immutable, 서버 문장),
+ * **`completion_condition` 은 `active`·`paused` 에서도**(v0.1.4, S-84 — 리뷰어 없는 조건에 걸린 세션을 구하는 길). 검증은 createSession 과
+ * 같고, 바꾸면 진행률을 다시 계산해 `session.completion_progress` 를 보낸다(이미 충족된 원자는 유지). 끝난 세션은 422 immutable(서버 T-S18 과 같은 코드).
+ */
+const CONDITION_EDITABLE = new Set<Session["status"]>(["draft", "active", "paused"]);
+on("PATCH", "/sessions/{id}", (req, p) => {
+  const s = store();
+  const sess = sessionOf(s, req, p.id);
+  const { user } = requireMember(s, req, sess.workspace_id);
+  requireDirector(sess, user.id);
+  const b = body<{ title?: string; goal?: string; acceptance_criteria?: string[]; deputy_director_user_id?: string | null; limits?: Partial<Session["limits"]>; autonomy?: Session["autonomy"]; completion_condition?: CompletionCondition; isolation?: unknown; runtime_id?: string | null }>(req);
+  const errors: { field: string; code?: string; message: string }[] = [];
+  if (sess.status !== "draft") {
+    if (b.isolation !== undefined) errors.push({ field: "isolation", code: "immutable", message: W.isolation_immutable });
+    if (b.runtime_id !== undefined) errors.push({ field: "runtime_id", code: "immutable", message: W.runtime_immutable });
+  }
+  if (b.completion_condition) {
+    // 서버(T-S18)는 끝난 세션의 조건 수정도 422 immutable 로 답한다 — 409 가 아니다.
+    if (!CONDITION_EDITABLE.has(sess.status)) errors.push({ field: "completion_condition", code: "immutable", message: MOCK_ONLY.condition_immutable });
+    else errors.push(...validateCondition(b.completion_condition, (sess.participants ?? []).map((x) => x.agent_id)));
+  }
+  if (b.title !== undefined && !b.title.trim()) errors.push({ field: "title", message: W.title_1_200 });
+  if (b.goal !== undefined && !b.goal.trim()) errors.push({ field: "goal", message: W.goal_required });
+  if (errors.length) throw validation(errors);
+  if (b.title !== undefined) sess.title = b.title.trim();
+  if (b.goal !== undefined) sess.goal = b.goal.trim();
+  if (b.acceptance_criteria !== undefined) sess.acceptance_criteria = b.acceptance_criteria;
+  if (b.autonomy !== undefined) sess.autonomy = b.autonomy;
+  if (b.limits) sess.limits = { ...sess.limits, ...b.limits };
+  if (b.deputy_director_user_id !== undefined) {
+    sess.deputy_director_user_id = b.deputy_director_user_id;
+    const du = b.deputy_director_user_id ? s.users.get(b.deputy_director_user_id) : undefined;
+    sess.deputy_director = du ? stripUser(du) : undefined;
+  }
+  sess.updated_at = now();
+  if (b.completion_condition) {
+    sess.completion_condition = b.completion_condition;
+    sess.completion_progress = computeProgress(s, sess, sess.completion_progress);
+    emit(s, sess.workspace_id, "session.completion_progress", { session_id: sess.id, completion_progress: sess.completion_progress }, sess.id);
+  }
+  emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status, title: sess.title, updated_at: sess.updated_at }, sess.id);
+  return ok(sessionFor(s, sess, user.id));
+});
+/**
+ * dev·테스트용 — **리뷰어 없는 옛 세션**(계약 밖 경로, `__mock` 접두). v0.1.4 전에 만들어진 `agent_approval` 에 `agent_id` 가 없는
+ * 세션을 흉내 낸다(Director 실사용 2026-09-15 의 그 세션). 진행률은 `blocked_reason: reviewer_missing` 이 되고 S7 이 이유와
+ * 「조건 고치기」 를 보인다. 본문 `met_artifact: true` 면 보고서 제출을 충족된 것으로 놓는다("보고서 제출 ✓ · 검토 승인 막힘").
+ */
+on("POST", "/__mock/sessions/{id}/seed-legacy-condition", (req, p) => {
+  const s = store();
+  const sess = sessionOf(s, req, p.id);
+  const b = body<{ met_artifact?: boolean; with_user_approval?: boolean }>(req);
+  const conditions: CompletionCondition[] = [{ type: "artifact_submitted", who: "assignee" }, { type: "agent_approval" }];
+  if (b.with_user_approval) conditions.push({ type: "user_approval" });
+  sess.completion_condition = { op: "and", conditions };
+  const assignee = (sess.participants ?? []).find((x) => x.is_assignee) ?? sess.participants?.[0];
+  const prev: CompletionProgress | null = b.met_artifact && assignee
+    ? { met: 1, total: 1, satisfied: false, human_gate: false, conditions: [{ path: "/conditions/0", type: "artifact_submitted", met: true, met_at: now(), met_by: assignee.agent_id, agent_id: assignee.agent_id }] }
+    : null;
+  sess.completion_progress = computeProgress(s, sess, prev);
+  sess.updated_at = now();
+  emit(s, sess.workspace_id, "session.completion_progress", { session_id: sess.id, completion_progress: sess.completion_progress }, sess.id);
+  return ok(sessionFor(s, sess, sess.director_user_id));
 });
 
 /**

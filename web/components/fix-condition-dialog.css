@@ -1,0 +1,13 @@
+/* 「조건 고치기」 다이얼로그 — 껍데기는 S17(rebind-dialog.css)·삭제(delete-session-dialog.css)와 같은 치수. 색은 tokens.css 변수만. */
+.fix-cond__scrim {
+  position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+  background: var(--scrim); padding: 20px;
+}
+.fix-cond {
+  width: min(560px, 100%); max-height: 88vh; overflow: auto; background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 12px;
+}
+.fix-cond__title { margin: 0; font-size: var(--fs-card); font-weight: 600; line-height: 1.35; }
+.fix-cond__note { margin: 0; font-size: var(--fs-sub); color: var(--ink-2); }
+.fix-cond__problem { margin: 0; }
+.fix-cond__actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; margin-top: 4px; }

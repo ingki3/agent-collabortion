@@ -216,6 +216,9 @@ export const SERVER = {
   member_not_found: { text: "멤버를 찾을 수 없습니다", at: "internal/httpapi/handlers_members.go" },
   // ── 알림 설정(개인) (internal/auth/notifications.go) — T-S14 #209. 부분 갱신(빠진 키는 저장값 유지), enum 밖 422. ──
   subscription_enum: { text: "구독 기본값은 전부 · 사람 확인만 · 종료만 중 하나여야 합니다", at: "internal/auth/notifications.go" },
+  // ── updateSession (internal/httpapi/handlers_sessions_p3.go) — T-W15 가 목에 PATCH /sessions/{id} 를 처음 만들었다. 시작 뒤 못 바꾸는 두 칸(422 immutable). ──
+  isolation_immutable: { text: "격리 방식은 시작 전에만 바꿀 수 있습니다", at: "internal/httpapi/handlers_sessions_p3.go" },
+  runtime_immutable: { text: "컴퓨터는 시작 전에만 바꿀 수 있습니다", at: "internal/httpapi/handlers_sessions_p3.go" },
 } as const satisfies Record<string, ServerSentence>;
 
 /**
@@ -225,8 +228,22 @@ export const SERVER = {
  * `server-wording.test.ts` (g) 가 "그 op 이 정말 미구현인가"(`func (s *Server) DeleteSession(` 부재)를 재므로 T-S17 이 머지되면
  * 이 표는 빨개진다 — 그때 T-S17 의 문장으로 옮긴다.
  */
-/** 서버가 안 만든 op 의 문장 — 지금은 비어 있다(T-S17 #220 이 deleteSession 을 만들어 SERVER 로 옮겼다). 다음 "웹 먼저" 작업이 다시 채운다. */
-export const MOCK_ONLY = {} as const;
+/**
+ * 서버가 **아직 dev 에 안 올린** 검증의 문장 — T-W15 시점: createSession/updateSession 의 **리뷰어 검사**(계약 PR #232 v0.1.4, `errors[].code`
+ * `reviewer_required` · `reviewer_not_participant`)와 **끝난 세션의 조건 수정 거절**(422 immutable). 서버는 T-S18(PR #233, 열림)이 동시에
+ * 만들었고 아래 문장은 **그 PR 의 `sessions.ValidateReviewers` · `handlers_sessions_p3.go` 리터럴 그대로**다 — 머지되면 `SERVER` 로
+ * 옮기며 `at` 을 채운다(`server-wording.test.ts` (h) 가 dev 에 리터럴이 생기는 순간부터 글자 단위로 대조한다).
+ */
+export const MOCK_ONLY = {
+  /** 422 `reviewer_required` — `agent_approval` 에 `agent_id` 가 없다(T-S18 sessions.go ValidateReviewers). */
+  reviewer_required: "「검토 승인」에는 리뷰어를 참여자 중에서 골라 주세요 — 리뷰어가 없으면 아무도 승인할 수 없어 세션이 끝나지 않습니다",
+  /** 422 `reviewer_not_participant` — 리뷰어가 이 세션의 참여자가 아니다. */
+  reviewer_not_participant: "리뷰어는 이 세션의 참여자 중에서 골라 주세요",
+  /** 422 `reviewer_not_participant` — `artifact_submitted` 의 `agent_id` 도 같은 코드, 제출자 문장. */
+  submitter_not_participant: "제출자는 이 세션의 참여자 중에서 골라 주세요",
+  /** 422 `immutable` — `completing`·`completed`·`cancelled` 에서는 종료 조건을 바꿀 수 없다(계약: draft·active·paused). */
+  condition_immutable: "끝났거나 끝나는 중인 세션의 종료 조건은 바꿀 수 없습니다",
+} as const satisfies Record<string, string>;
 
 /**
  * 관측 지표 10개의 정의 — 서버 `internal/metrics/metrics.go` 의 `Defs` 표(PRD §11 열 순서)를 **그대로** 옮긴 것.

@@ -18,9 +18,11 @@
  *   (g) T-S12(#200)·T-S14(#209) 가 만든 op — 시험 대화·지표·보안 탭 403 · 멤버 역할·제거 · 알림 설정 — 의 문장은 전부 `SERVER` 에서
  *       온다. 목의 오류 code·순서·판정 조건이 서버 소스(`auth/members.go` PlanRoleChange · PlanRemoval, `handlers_members.go`,
  *       `auth/notifications.go`)와 같은지 문자열로 잰다(T-W12).
- *       `MOCK_ONLY` 는 **서버가 아직 안 만든 op 의 문장만** 담는다 — T-S17 #220 뒤 비어 있다.
- *       미구현의 근거는 `func (s *Server) DeleteSession(` 의 부재다(unimplemented.go 는 구현된 op 의 스텁도 품는다). T-S17 이 머지되면
- *       여기가 빨개지고, 그때 세 문장을 T-S17 의 실제 문장으로 `SERVER` 에 옮긴다.
+ *       `MOCK_ONLY` 는 **서버가 아직 안 만든 검증의 문장만** 담는다 — T-S17 #220 뒤 비었다가 T-W15(리뷰어 검사, 계약 #232 v0.1.4)가
+ *       다시 채웠다. 미구현의 근거는 서버 소스에 `reviewer_required` 리터럴이 없다는 것이다. T-S18 이 머지되면 (h) 가 빨개지고, 그때
+ *       세 문장을 T-S18 의 실제 문장으로 `SERVER` 에 옮긴다.
+ *   (h) T-W15 — MOCK_ONLY 는 리뷰어 검사 넷뿐이고 문장은 T-S18(PR #233) 의 리터럴 그대로다. dev 에 그 리터럴이 오르면 글자 단위로 대조하고,
+ *       아직이면 부재를 잰다. updateSession 의 immutable 두 문장은 서버(handlers_sessions_p3.go)에서 온다.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -200,12 +202,11 @@ describe("(g) T-S12 #200 · T-S14 #209 가 만든 op 의 문장은 전부 SERVER
       "CreateTestChat", "PostTestChatTurn", "CloseTestChat", "GetTestChat", "GetWorkspaceMetrics"]) expect(serverImpl).toContain(`func (s *Server) ${op}(`);
     for (const k of Object.keys(MOCK_ONLY)) expect(k).not.toMatch(/member|notification|test_chat|metrics|masking|role_enum|last_owner/);
   });
-  it("deleteSession(T-S17 #220) 은 서버에 있고 그 세 문장은 SERVER 에서 온다 — MOCK_ONLY 는 비어 있다", () => {
-    expect(Object.keys(MOCK_ONLY)).toEqual([]);
+  it("deleteSession(T-S17 #220) 은 서버에 있고 그 세 문장은 SERVER 에서 온다 — MOCK_ONLY 에 삭제 문장은 없다", () => {
+    for (const k of Object.keys(MOCK_ONLY)) expect(k).not.toMatch(/delete|session_active|workdir_unmerged/);
     expect(serverImpl).toContain("func (s *Server) DeleteSession(");
     expect(goSource("internal/httpapi/unimplemented.go")).not.toContain("DeleteSession(");
     for (const k of ["delete_forbidden", "session_active", "workdir_unmerged"]) expect(HANDLERS).toMatch(new RegExp(`\\bW\\.${k}\\b`));
-    expect(HANDLERS).not.toMatch(/\bMOCK_ONLY\./);
   });
   it("deleteSession 목 — 계약 description 의 문장·code·순서(404 → 403 → 409 session_active → 409 workdir_unmerged + workdirs[] → 204)", () => {
     // openapi.yaml 이 못박은 문장 하나 — description 에 따옴표로 있다. 서버(T-S17)도 이 문장을 써야 한다.
@@ -300,5 +301,43 @@ describe("(g) T-S12 #200 · T-S14 #209 가 만든 op 의 문장은 전부 SERVER
   it("403 admin 의 code 도 서버(admin_required)와 같다", () => {
     expect(HANDLERS).not.toContain('"not_admin"');
     expect(goSource("internal/httpapi/principal.go")).toContain('apperr.Forbidden("admin_required", "');
+  });
+});
+
+describe("(h) T-W15 — 리뷰어 검사(계약 #232 v0.1.4)의 문장은 서버 T-S18(PR #233)의 리터럴 그대로 · dev 에 오르면 글자 단위 대조", () => {
+  const serverSrc = ["internal/httpapi", "internal/sessions"].flatMap((d) =>
+    readdirSync(join(SERVER_ROOT, d)).filter((f) => f.endsWith(".go") && !f.endsWith("_test.go")).map((f) => goSource(`${d}/${f}`)),
+  ).join("\n");
+  const landed = serverSrc.includes('"reviewer_required"');
+
+  it("MOCK_ONLY 는 리뷰어 검사 넷이고 handlers.ts 가 전부 쓴다", () => {
+    expect(Object.keys(MOCK_ONLY).sort()).toEqual(["condition_immutable", "reviewer_not_participant", "reviewer_required", "submitter_not_participant"]);
+    for (const k of Object.keys(MOCK_ONLY)) expect(HANDLERS).toMatch(new RegExp(`\\bMOCK_ONLY\\.${k}\\b`));
+  });
+  it("문장은 T-S18 의 리터럴 그대로(PR #233 sessions.ValidateReviewers · handlers_sessions_p3.go) — 서버가 dev 에 오르면 그 파일에서 찾는다", () => {
+    expect(MOCK_ONLY.reviewer_required).toBe("「검토 승인」에는 리뷰어를 참여자 중에서 골라 주세요 — 리뷰어가 없으면 아무도 승인할 수 없어 세션이 끝나지 않습니다");
+    expect(MOCK_ONLY.reviewer_not_participant).toBe("리뷰어는 이 세션의 참여자 중에서 골라 주세요");
+    expect(MOCK_ONLY.submitter_not_participant).toBe("제출자는 이 세션의 참여자 중에서 골라 주세요");
+    expect(MOCK_ONLY.condition_immutable).toBe("끝났거나 끝나는 중인 세션의 종료 조건은 바꿀 수 없습니다");
+    if (landed) {
+      // T-S18 이 머지됐다 — 이제 정답이 있으니 글자 단위로 대조한다. 여기가 초록이면 MOCK_ONLY → SERVER 로 옮기는 일만 남는다.
+      for (const t of Object.values(MOCK_ONLY)) expect(serverSrc).toContain(t);
+    } else {
+      // 아직 dev 에 없다 — 부재의 근거(생성 코드 gen/ 는 enum 상수라 뺐다: 검증 **구현**의 부재를 잰다).
+      expect(serverSrc).not.toContain('"reviewer_not_participant"');
+    }
+  });
+  it("목 createSession · updateSession 의 422 순서·code·field 경로 — 서버와 같은 모양(completion_condition/conditions/<i>/agent_id)", () => {
+    const fn = HANDLERS.match(/function validateCondition[\s\S]*?\n\}/)![0];
+    expect(fn).toContain("`completion_condition/conditions/${i}/agent_id`");
+    expect(fn).toContain('code: "reviewer_required", message: MOCK_ONLY.reviewer_required');
+    expect(fn).toContain('code: "reviewer_not_participant", message: a.type === "agent_approval" ? MOCK_ONLY.reviewer_not_participant : MOCK_ONLY.submitter_not_participant');
+    const patch = HANDLERS.match(/on\("PATCH", "\/sessions\/\{id\}"[\s\S]*?\n\}\);/)![0];
+    const order = ["requireDirector(sess, user.id)", "W.isolation_immutable", "W.runtime_immutable", 'code: "immutable", message: MOCK_ONLY.condition_immutable', "validateCondition(b.completion_condition", '"session.completion_progress", { session_id: sess.id, completion_progress: sess.completion_progress }'];
+    const idx = order.map((x) => patch.indexOf(x));
+    expect(idx.every((i) => i >= 0)).toBe(true);
+    expect([...idx].sort((a, b) => a - b)).toEqual(idx);
+    // 계약: draft·active·paused 에서 completion_condition 수정 가능.
+    expect(HANDLERS).toContain('const CONDITION_EDITABLE = new Set<Session["status"]>(["draft", "active", "paused"]);');
   });
 });

@@ -19,7 +19,7 @@ import { VERDICT_LABEL, NOT_MEASURABLE } from "@/lib/settings";
 import { transportLabel } from "@/lib/test-chat";
 import { PAGE_COPY, type Screen } from "@/components/PageHead";
 import { NAV_ITEMS } from "@/components/AppNav";
-import { DELETE_DIALOG, SESSION_DELETED_NOTICE, SESSION_MENU } from "@/lib/wording";
+import { BLOCKED_REASON, CONDITION_EDITOR, CONDITION_NAME, DELETE_DIALOG, FIX_CONDITION, PROGRESS, SESSION_DELETED_NOTICE, SESSION_MENU, conditionName } from "@/lib/wording";
 
 const ROOT = join(__dirname, "..");
 
@@ -135,6 +135,12 @@ describe("문구 자물쇠의 범위", () => {
       "lib/wording.ts",
       "components/SessionCardMenu.tsx",
       "components/DeleteSessionDialog.tsx",
+      // T-W15 — 종료 조건(마법사 6단계 · S7 진행률 · 조건 고치기)의 문구가 사는 곳
+      "lib/completion.ts",
+      "components/ConditionRow.tsx",
+      "components/ConditionEditor.tsx",
+      "components/FixConditionDialog.tsx",
+      "components/SessionAside.tsx",
     ]) {
       expect(FILES).toContain(f);
     }
@@ -440,5 +446,78 @@ describe("새 문구의 존재 — 옛말 0건만으로는 안 잰다 (NN4)", ()
     expect(sessions).toMatch(/aria-describedby=\{noRuntime \? "new-session-hint"/);
     expect(runtimes).toMatch(/<DisabledHint id="add-computer-hint">/);
     expect(runtimes).toMatch(/aria-describedby=\{!canManage \? "add-computer-hint"/);
+  });
+});
+
+// ── T-W15 — 종료 조건의 말(S-84 · W-19, SCREEN §4.4 6단계 · §4.5 "종료 조건 진행률") ─────────────────────────
+describe("종료 조건 — 이름은 사람 말이고 한곳(lib/wording.ts)에서만 나온다 (T-W15)", () => {
+  const inPool = (file: string, text: string) => POOL.some((v) => v.file === file && v.text.includes(text));
+  const src = (f: string) => readFileSync(join(ROOT, f), "utf8");
+
+  it("계약 enum 넷 + v1.1 하나의 이름이 SCREEN §4.4 의 말이다 — 보고서 제출 · Director 승인 · <에이전트> 의 검토 승인 · 수동 종료", () => {
+    expect(CONDITION_NAME).toEqual({ artifact_submitted: "보고서 제출", agent_approval: "에이전트 검토 승인", user_approval: "Director 승인", manual: "수동 종료", criteria_met: "성공 기준 충족" });
+    expect(conditionName("agent_approval", "Lead")).toBe("Lead 의 검토 승인");
+    expect(conditionName("agent_approval", null)).toBe("에이전트 검토 승인");
+    for (const t of Object.values(CONDITION_NAME)) expect(inPool("lib/wording.ts", t)).toBe(true);
+  });
+
+  it("옛 이름(아티팩트 제출 · 에이전트 승인)과 계약 enum 이 화면 문자열에 없다 — CONDITION_LABEL 표는 사라졌다", () => {
+    expect(hits(/아티팩트 제출|에이전트 승인(?!을)/, (v) => v.file === "lib/wording.ts" && /검토 승인/.test(v.text))).toEqual([]);
+    // 조건 이름을 손으로 다시 적은 자리가 없다 — 이름은 conditionName 하나에서만.
+    for (const f of ["components/ConditionRow.tsx", "components/ConditionEditor.tsx", "components/SessionAside.tsx", "app/(app)/sessions/new/page.tsx", "components/FixConditionDialog.tsx"]) {
+      expect(src(f)).not.toMatch(/CONDITION_LABEL/);
+      expect(src(f)).not.toContain('"보고서 제출"');
+      expect(src(f)).not.toContain('"Director 승인"');
+    }
+  });
+
+  it("막힌 이유 — 계약 blocked_reason enum 셋 전부에 문장이 있고 ConditionRow 가 그 표를 그린다", () => {
+    expect(Object.keys(BLOCKED_REASON).sort()).toEqual(["agent_archived", "reviewer_missing", "reviewer_not_participant"]);
+    expect(BLOCKED_REASON.reviewer_missing).toBe("리뷰어가 지정되지 않아 아무도 승인할 수 없습니다");
+    for (const t of Object.values(BLOCKED_REASON)) expect(inPool("lib/wording.ts", t)).toBe(true);
+    expect(src("components/ConditionRow.tsx")).toMatch(/blockedReasonText\(p\.blockedReason\)/);
+    // 이유 문장은 표에서만 — 컴포넌트에 리터럴이 없다.
+    expect(src("components/ConditionRow.tsx")).not.toContain("리뷰어가 지정되지 않아");
+  });
+
+  it("진행률 두 번째 줄 — 받은 요청에서 승인하세요 · <누구> 차례 · 상단 요약 '남은 것: … 막힘 N개' 가 표에 있고 화면이 그 표를 쓴다", () => {
+    expect(PROGRESS.user_approval_next).toBe("받은 요청에서 승인하세요");
+    expect(PROGRESS.turn("Lead")).toBe("Lead 차례");
+    expect(PROGRESS.summary(["Director 승인"], 1, "and")).toBe("남은 것: Director 승인 1개 · 막힘 1개");
+    expect(PROGRESS.met_by("Writer", "9/13")).toBe("Writer, 9/13");
+    for (const t of [PROGRESS.user_approval_next, PROGRESS.manual_next, PROGRESS.summary_satisfied, PROGRESS.summary_completed, PROGRESS.blocked_director, PROGRESS.blocked_member]) expect(inPool("lib/wording.ts", t)).toBe(true);
+    const aside = src("components/SessionAside.tsx");
+    expect(aside).toMatch(/progressSummary\(prog, topOp\(s\.completion_condition\), closed\)/);
+    expect(aside).toMatch(/PROGRESS\.blocked_director : PROGRESS\.blocked_member/);
+    expect(aside).toMatch(/\{FIX_CONDITION\.button\}/);
+  });
+
+  it("마법사 6단계 — 리뷰어 필수 사유 · 담당 안내 · 요약 접속사(그리고/또는)가 표에 있고 편집기가 그 표를 그린다", () => {
+    expect(CONDITION_EDITOR.reviewer_required).toContain("리뷰어를 고르세요");
+    expect(CONDITION_EDITOR.reviewer_is_assignee).toContain("다른 에이전트를 권합니다");
+    expect(CONDITION_EDITOR.join_and).toBe(" 그리고 ");
+    expect(CONDITION_EDITOR.join_or).toBe(" 또는 ");
+    for (const t of [CONDITION_EDITOR.reviewer_required, CONDITION_EDITOR.reviewer_is_assignee, CONDITION_EDITOR.need_one, CONDITION_EDITOR.no_human_gate, CONDITION_EDITOR.submitter_default]) expect(inPool("lib/wording.ts", t)).toBe(true);
+    const editor = src("components/ConditionEditor.tsx");
+    for (const k of ["reviewer_required", "reviewer_is_assignee", "reviewer_placeholder", "submitter_default", "no_human_gate", "op_and", "op_or"]) expect(editor).toContain(`CONDITION_EDITOR.${k}`);
+    // 마법사와 다이얼로그가 **같은 편집기**를 그린다 — 두 자리가 다른 편집기를 가지면 한쪽에서만 리뷰어를 잊는다.
+    expect(src("app/(app)/sessions/new/page.tsx")).toMatch(/<ConditionEditor\b/);
+    expect(src("components/FixConditionDialog.tsx")).toMatch(/<ConditionEditor\b/);
+    expect(src("app/(app)/sessions/new/page.tsx")).not.toMatch(/submitter-select|reviewer-select/); // 편집기 안에만 있다
+  });
+
+  it("「조건 고치기」 — 제목·안내·버튼이 표에 있고 다이얼로그가 그 표를 쓴다 · S7 이 Director 에게만 넘긴다", () => {
+    expect(FIX_CONDITION.button).toBe("조건 고치기");
+    for (const t of Object.values(FIX_CONDITION)) expect(inPool("lib/wording.ts", t)).toBe(true);
+    const dlg = src("components/FixConditionDialog.tsx");
+    for (const k of ["title", "note", "save", "cancel", "busy"]) expect(dlg).toContain(`FIX_CONDITION.${k}`);
+    expect(dlg).toMatch(/aria-describedby=\{!gate\.ok \? hintId : undefined\}/); // 저장 비활성 사유는 근처에(§8.5)
+    expect(src("app/(app)/sessions/[id]/page.tsx")).toMatch(/onFixCondition=\{session\.my_role === "director" && !closed \? \(\) => setFixCondOpen\(true\) : undefined\}/);
+  });
+
+  it("내부 역할명 assignee 가 화면 문자열에 없다 — 담당 에이전트", () => {
+    // 옛 마법사 행 "(assignee)" 와 요약 "제출자 assignee" 가 그 자리다. S6 요약의 `assignee` 상태 변수(JSX 식 안)는 코드지 문구가 아니다.
+    expect(hits(/\(assignee\)|제출자 assignee/)).toEqual([]);
+    expect(hits(/\bassignee\b/, (v) => /invitable\.find/.test(v.text))).toEqual([]);
   });
 });

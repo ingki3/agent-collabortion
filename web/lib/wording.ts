@@ -66,3 +66,105 @@ export const SESSION_DELETED_NOTICE = {
   /** 다이얼로그에서 내가 지운 경우 — 카드가 빠진 자리를 설명한다. */
   mine: (sessionTitle: string) => `「${sessionTitle}」 세션을 삭제했습니다.`,
 } as const;
+
+// ── 종료 조건 — S6 6단계 · S7 진행률 · 조건 고치기(T-W15, S-84 · W-19, SCREEN §4.4 6단계 · §4.5 "종료 조건 진행률") ──
+//
+// Director 지적(2026-09-15): "복잡하고 종료 조건의 파악이 어렵다". 조건 종류는 계약 enum 그대로 넷이고 화면은 **사람 말**로 부른다.
+// 같은 조건을 마법사·요약·진행률·다이얼로그가 다른 이름으로 부르지 않게 이름은 `conditionName` 하나에서만 나온다.
+
+/** 계약 CompletionAtom.type → 화면의 말. `agent_approval` 은 리뷰어 이름이 있으면 "Lead 의 검토 승인", 없으면(아직 안 골랐거나 옛 세션) 일반형. */
+export const CONDITION_NAME = {
+  artifact_submitted: "보고서 제출",
+  agent_approval: "에이전트 검토 승인",
+  user_approval: "Director 승인",
+  manual: "수동 종료",
+  /** v1.1 — 마법사에서 비활성으로만 보인다. */
+  criteria_met: "성공 기준 충족",
+} as const;
+export function conditionName(type: string, agentName?: string | null): string {
+  if (type === "agent_approval" && agentName) return `${agentName} 의 검토 승인`;
+  return (CONDITION_NAME as Record<string, string>)[type] ?? type;
+}
+
+/** 마법사 행의 설명 한 줄 — 무엇을 하면 충족되는지. */
+export const CONDITION_DESC: Record<keyof typeof CONDITION_NAME, string> = {
+  artifact_submitted: "제출자로 지정한 에이전트가 산출물을 제출하면 충족됩니다",
+  agent_approval: "리뷰어로 고른 에이전트가 검토를 승인하면 충족됩니다",
+  user_approval: "Director 가 받은 요청에서 승인하면 충족됩니다 — 사람이 거는 마지막 관문",
+  manual: "Director 가 「종료」 버튼으로 직접 끝냅니다",
+  criteria_met: "성공 기준 자동 판정은 다음 버전입니다",
+};
+
+/** 조건 편집기(마법사 6단계 · 조건 고치기 다이얼로그가 같은 것을 그린다). */
+export const CONDITION_EDITOR = {
+  op_label: "조건 결합",
+  op_and: "모두 충족해야 끝",
+  op_or: "하나만 충족하면 끝",
+  /** 요약 문장의 접속사 — "보고서 제출 그리고 Director 승인". */
+  join_and: " 그리고 ",
+  join_or: " 또는 ",
+  submitter: "제출자",
+  /** 제출자 미지정 — 담당 에이전트를 따라간다(계약 `who: assignee`). */
+  submitter_default: "담당 에이전트 (기본) — 담당이 바뀌면 따라갑니다",
+  submitter_default_short: "담당 에이전트",
+  reviewer: "리뷰어",
+  reviewer_placeholder: "리뷰어를 고르세요",
+  /** 안내만 — 막지 않는다(자기 것을 자기가 검토하지 않게). */
+  reviewer_is_assignee: "담당 에이전트가 자기 결과를 검토하게 됩니다 — 다른 에이전트를 권합니다",
+  /** 다음 단계·저장을 막는 사유(§8.5 — 근처에서 말한다). */
+  need_one: "종료 조건을 하나 이상 고르세요",
+  reviewer_required: "리뷰어를 고르세요 — 리뷰어가 없으면 아무도 승인할 수 없어 세션이 끝나지 않습니다",
+  reviewer_not_participant: "리뷰어는 참여자 중에서 골라야 합니다",
+  no_human_gate: "사람 승인 없이 완료됩니다 — 종료 조건에 Director 승인이나 수동 종료가 없습니다.",
+  /** v1.1 행의 비활성 사유. */
+  criteria_met_note: "성공 기준 자동 판정은 다음 버전입니다",
+} as const;
+
+/** 요약 문장 — "보고서 제출 그리고 Director 승인" (`conditionName` 을 접속사로 잇는다). */
+export function conditionSentence(names: string[], op: "and" | "or"): string {
+  return names.join(op === "and" ? CONDITION_EDITOR.join_and : CONDITION_EDITOR.join_or);
+}
+
+/** S7 진행률 행의 두 번째 줄 — 충족했으면 누가·언제, 아니면 다음 행동. */
+export const PROGRESS = {
+  /** "받은 요청에서 승인하세요" — `hitl_request_id` 가 있으면 그 카드로 가는 링크. */
+  user_approval_next: "받은 요청에서 승인하세요",
+  /** "Lead 차례" — `next_actor`(또는 지정 에이전트)가 할 일이 남았다. */
+  turn: (actor: string) => `${actor} 차례`,
+  manual_next: "Director 가 「종료」 로 끝냅니다",
+  waiting: "대기 중",
+  /** 충족 — "(Writer, 9/13)". */
+  met_by: (who: string | null, when: string | null) => (who && when ? `${who}, ${when}` : (who ?? when ?? "충족")),
+  /** 상단 한 줄 — "남은 것: Director 승인 1개 · 막힘 1개". 막힌 조건은 이름 대신 개수로 센다(이유는 행이 말한다). */
+  summary: (remaining: string[], blocked: number, op: "and" | "or") => {
+    const parts: string[] = [];
+    if (remaining.length) parts.push(`${remaining.join(", ")} ${remaining.length}개`);
+    if (blocked) parts.push(`막힘 ${blocked}개`);
+    return `남은 것: ${parts.join(" · ")}${op === "or" && remaining.length + blocked > 1 ? " — 하나만 충족하면 끝" : ""}`;
+  },
+  summary_satisfied: "조건을 모두 충족했습니다 — 곧 완료됩니다",
+  summary_completed: "세션이 끝났습니다",
+  /** 막힌 조건이 있을 때 — 누가 고칠 수 있는지. */
+  blocked_director: "조건을 고쳐야 세션이 끝날 수 있습니다",
+  blocked_member: "Director 가 조건을 고쳐야 세션이 끝날 수 있습니다",
+} as const;
+
+/** `CompletionProgress.conditions[].blocked_reason` — ✗ 대신 이 문장을 보인다(계약 v0.1.4). */
+export const BLOCKED_REASON: Record<string, string> = {
+  reviewer_missing: "리뷰어가 지정되지 않아 아무도 승인할 수 없습니다",
+  reviewer_not_participant: "리뷰어가 이 세션의 참여자가 아니어서 승인할 수 없습니다",
+  agent_archived: "리뷰어 에이전트가 보관되어 승인할 수 없습니다",
+};
+export function blockedReasonText(reason: string): string {
+  return BLOCKED_REASON[reason] ?? "지금 구조상 충족될 수 없는 조건입니다";
+}
+
+/** 「조건 고치기」 다이얼로그(updateSession completion_condition — active·paused 에서도, Director). */
+export const FIX_CONDITION = {
+  button: "조건 고치기",
+  title: "종료 조건 고치기",
+  note: "바꾸면 진행률을 다시 계산합니다. 이미 충족된 조건은 그대로 유지됩니다.",
+  save: "저장",
+  cancel: "취소",
+  busy: "저장 중…",
+} as const;

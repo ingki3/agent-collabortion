@@ -18,3 +18,7 @@
 .aside__dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: var(--fs-meta); }
 .aside__dl dt { color: var(--ink-2); }
 .aside__dl dd { margin: 0; color: var(--ink-2); }
+/* T-W15 — 진행률 상단 한 줄("남은 것: …") · 막힌 조건 안내 + 「조건 고치기」. */
+.aside__summary { margin: 0 0 4px; font-size: var(--fs-sub); color: var(--ink); }
+.aside__blocked { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin-top: 6px; padding: 8px 10px; border: 1px solid var(--s-wait); border-radius: 8px; background: color-mix(in srgb, var(--s-wait) var(--soft-alpha), transparent); }
+.aside__link { align-self: flex-start; margin-top: 4px; font-size: var(--fs-meta); color: var(--ink-2); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
