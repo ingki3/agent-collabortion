@@ -61,6 +61,9 @@ func LaneDelegate(ctx context.Context, c *client.Client, a LaneDelegateArgs) (*L
 	if strings.TrimSpace(a.Brief) == "" {
 		return nil, client.Usage("--brief is required")
 	}
+	if err := c.Allow(ctx, client.CmdLaneDelegate); err != nil {
+		return nil, err
+	}
 	sid, err := c.SessionID(ctx, a.Session)
 	if err != nil {
 		return nil, err
@@ -145,6 +148,9 @@ func StatusSet(ctx context.Context, c *client.Client, a StatusSetArgs) (*StatusS
 	default:
 		return nil, client.Usage("unknown status %q (working | blocked | done)", a.Status)
 	}
+	if err := c.Allow(ctx, client.CmdStatusSet); err != nil {
+		return nil, err
+	}
 	tid, err := c.TaskID(ctx, a.Task)
 	if err != nil {
 		return nil, err
@@ -187,6 +193,9 @@ type DecisionRecordResult struct {
 func DecisionRecord(ctx context.Context, c *client.Client, a DecisionRecordArgs) (*DecisionRecordResult, error) {
 	if strings.TrimSpace(a.Summary) == "" {
 		return nil, client.Usage("--summary is required")
+	}
+	if err := c.Allow(ctx, client.CmdDecisionRecord); err != nil {
+		return nil, err
 	}
 	sid, err := c.SessionID(ctx, a.Session)
 	if err != nil {
@@ -285,6 +294,11 @@ func ArtifactSubmit(ctx context.Context, c *client.Client, a ArtifactSubmitArgs)
 	isDiff := strings.EqualFold(typ, ArtifactTypeDiff)
 	if !isDiff && strings.TrimSpace(a.Base) != "" {
 		return nil, client.Usage("--base applies to --type diff only (this is --type %s)", typ)
+	}
+	// Gate before the body is read or the diff is built: a reviewer's
+	// `artifact submit` is refused without touching the workdir.
+	if err := c.Allow(ctx, client.CmdArtifactSubmit); err != nil {
+		return nil, err
 	}
 
 	var (
@@ -418,6 +432,9 @@ func ArtifactGet(ctx context.Context, c *client.Client, a ArtifactGetArgs) (*Art
 	if id == "" {
 		return nil, client.Usage("artifact get: <id> is required")
 	}
+	if err := c.Allow(ctx, client.CmdArtifactGet); err != nil {
+		return nil, err
+	}
 	meta, err := c.GetArtifact(ctx, id)
 	if err != nil {
 		return nil, err
@@ -529,7 +546,7 @@ type ReviewResult struct {
 // completion condition (FR-2.2); an agent the condition did not designate
 // gets 403 not_designated_reviewer → exit 3 and nothing is stored (E6-06).
 func ReviewApprove(ctx context.Context, c *client.Client, a ReviewArgs) (*ReviewResult, error) {
-	return review(ctx, c, a, client.VerdictApprove, a.Note)
+	return review(ctx, c, client.CmdReviewApprove, a, client.VerdictApprove, a.Note)
 }
 
 // ReviewReject — verdict `reject`. `--reason` is required: the server posts
@@ -539,7 +556,7 @@ func ReviewReject(ctx context.Context, c *client.Client, a ReviewArgs) (*ReviewR
 	if strings.TrimSpace(a.Reason) == "" {
 		return nil, client.Usage("review reject: --reason is required (it is posted on the artifact thread)")
 	}
-	return review(ctx, c, a, client.VerdictReject, a.Reason)
+	return review(ctx, c, client.CmdReviewReject, a, client.VerdictReject, a.Reason)
 }
 
 // ServerNotDesignatedReviewer is the server's code for "the completion
@@ -550,10 +567,13 @@ const ServerNotDesignatedReviewer = "not_designated_reviewer"
 // CodeNotReviewer is the CLI code for E6-06 (exit 3).
 const CodeNotReviewer = "not_reviewer"
 
-func review(ctx context.Context, c *client.Client, a ReviewArgs, verdict, comments string) (*ReviewResult, error) {
+func review(ctx context.Context, c *client.Client, cmd client.Command, a ReviewArgs, verdict, comments string) (*ReviewResult, error) {
 	id := strings.TrimSpace(a.Artifact)
 	if id == "" {
 		return nil, client.Usage("review %s: --artifact <id> is required (openapi reviewArtifact is POST /artifacts/{id}/review)", verdict)
+	}
+	if err := c.Allow(ctx, cmd); err != nil {
+		return nil, err
 	}
 	res, err := c.ReviewArtifact(ctx, id, client.ReviewCreate{Verdict: verdict, Comments: comments}, a.IdempotencyKey)
 	if err != nil {

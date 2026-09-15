@@ -61,6 +61,14 @@ type Server struct {
 	Prefix   string // API prefix the fake mounts (default /api/v1)
 	Attempt  int    // CliContext.attempt (default Attempt)
 	LastSeq  int    // CliContext.last_seq = max(X-Colab-Client-Seq) (v0.3); header-less posts fall back to the UUIDv5 probe; settable (E8-04)
+	// AllowedCommands is CliContext.allowed_commands (v1.1 K-19). nil = the
+	// field is omitted, as a pre-v1.1 server does — the default, so every
+	// existing test keeps its Researcher delegating and reviewing; a non-nil
+	// list is emitted as is (an empty one as `[]`).
+	AllowedCommands []string
+	// Role is the calling agent's role as its own participants[] row
+	// reports it (default researcher) — what the K-19 refusal sentence names.
+	Role     string
 	Posted   []Posted
 	ByKey    map[string]Posted
 	Requests []*http.Request // every request seen (auth header preserved)
@@ -142,17 +150,25 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case r.Method == "GET" && path == "/cli/context":
-		writeJSON(w, 200, map[string]any{
+		role := s.Role
+		if role == "" {
+			role = "researcher"
+		}
+		cc := map[string]any{
 			"task_id": TaskID, "lane_id": LaneID, "session_id": SessionID, "agent_id": AgentID,
 			"agent_name": AgentName, "workspace_id": "77777777-7777-4777-8777-777777777777", "attempt": s.Attempt, "last_seq": s.LastSeq,
 			"delegated_from_task_id": nil, "suppressed_delegator_agent_id": DelegatorID, "open_hitl_request_id": nil,
 			"participants": []map[string]any{
-				{"agent_id": AgentID, "name": AgentName, "role": "researcher", "mention_link": mention(AgentName, AgentID)},
+				{"agent_id": AgentID, "name": AgentName, "role": role, "mention_link": mention(AgentName, AgentID)},
 				{"agent_id": ReviewerID, "name": ReviewerName, "role": "reviewer", "mention_link": mention(ReviewerName, ReviewerID)},
 				{"agent_id": DelegatorID, "name": Delegator, "role": "lead", "mention_link": mention(Delegator, DelegatorID)},
 			},
 			"expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
-		})
+		}
+		if s.AllowedCommands != nil {
+			cc["allowed_commands"] = s.AllowedCommands
+		}
+		writeJSON(w, 200, cc)
 	case r.Method == "GET" && path == "/sessions/"+SessionID:
 		writeJSON(w, 200, map[string]any{
 			"id": SessionID, "title": "Market research", "goal": "Find 3 competitors",
