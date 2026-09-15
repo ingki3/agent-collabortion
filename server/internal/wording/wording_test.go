@@ -102,7 +102,7 @@ var sinkFuncs = map[string]bool{
 // sinkVars 는 값이 곧 화면 문장인 패키지 변수(표).
 var sinkVars = map[string]bool{"titles": true, "statusLabels": true, "NotFoundNouns": true,
 	"ErrInvalidTree": true, // sessions: %w 로 Field message 의 머리가 된다
-	"Defs":           true, // metrics: §11 지표의 label·note — S14 대시보드가 그대로 그린다 (T-S12)
+	"Defs":           true, // metrics: §11 지표의 label·note — S14 대시보드가 그대로 그린다 (T-S12); observations: §11 관찰 표 (T-S19)
 }
 
 // decisionSQL 은 decision 행을 직접 쓰는 SQL — 그 Exec/QueryRow 의 값 인자는 사람이 읽는다.
@@ -481,6 +481,7 @@ func TestScope(t *testing.T) {
 		"internal/testchat/testchat.go",         // createTestChat 409 · postTestChatTurn 409/410
 		"internal/testchat/daemon.go",           // FailureText · 만료 문장(턴 error)
 		"internal/metrics/metrics.go",           // Defs — §11 label·note
+		"internal/observations/observations.go", // Defs — §11 관찰 표 label·note (T-S19)
 		"internal/httpapi/handlers_testchat.go", // not_chat_owner
 	} {
 		found := false

@@ -161,6 +161,22 @@ func chainDepth(history []Hop, next Hop) int {
 	return depthOf(next)
 }
 
+// MaxChainDepth is the deepest hop a session reached, by the SAME reading
+// CheckLoopLimits enforces (each hop judged against the history before it).
+// It exists for the §11 observation table (observations.chain_depth): a
+// second implementation of the depth rule in SQL would drift from this one
+// the next time the rule moves (S-78 moved it once already), and the point of
+// the row is to show what the limiter actually saw.
+func MaxChainDepth(history []Hop) int {
+	deepest := 0
+	for i := range history {
+		if d := chainDepth(history[:i], history[i]); d > deepest {
+			deepest = d
+		}
+	}
+	return deepest
+}
+
 // hopsInWindow counts agent→agent triggers in the rolling hour. Human messages
 // are not counted at all (E4-06).
 func hopsInWindow(history []Hop, now time.Time) int {
