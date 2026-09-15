@@ -216,6 +216,8 @@ export const SERVER = {
   reviewer_not_participant: { text: "리뷰어는 이 세션의 참여자 중에서 골라 주세요", at: "internal/sessions/reviewer.go" },
   submitter_not_participant: { text: "제출자는 이 세션의 참여자 중에서 골라 주세요", at: "internal/sessions/reviewer.go" },
   condition_immutable: { text: "끝났거나 끝나는 중인 세션의 종료 조건은 바꿀 수 없습니다", at: "internal/httpapi/handlers_sessions_p3.go" },
+  // ── 빈 턴 카드 (T-S19 #246 · internal/tasks/emptyturn.go) — FR-7.2
+  empty_turn_note: { text: "아무것도 하지 않고 턴을 끝냈습니다", at: "internal/tasks/emptyturn.go" },
   // 404 — 서버는 `NotFoundNouns` 밖에서 조립한다(handlers_members.go `memberNotFound`, 이유는 test_chat_not_found 와 같다).
   // 서버가 표로 옮기면 이 항목은 빨개지고 `NOT_FOUND_NOUN.member` 로 옮긴다.
   member_not_found: { text: "멤버를 찾을 수 없습니다", at: "internal/httpapi/handlers_members.go" },
@@ -244,9 +246,7 @@ export const SERVER = {
  * 못박았다("아무것도 하지 않고 턴을 끝냈습니다"). 서버가 머지되면 `SERVER` 로 옮기며 `at` 을 채운다 — `server-wording.test.ts` (i) 가 dev 에
  * 그 리터럴이 오르는 순간부터 글자 단위로 대조한다. 화면 쪽 같은 문장은 `lib/wording.ts` `EMPTY_TURN.note`(note 가 없을 때의 폴백).
  */
-export const MOCK_ONLY = {
-  empty_turn_note: "아무것도 하지 않고 턴을 끝냈습니다",
-} as const satisfies Record<string, string>;
+export const MOCK_ONLY = {} as const satisfies Record<string, string>; // 비어 있다 — T-S19 #246 이 빈 턴 문장을 만들어 SERVER 로 옮겼다
 
 /**
  * 관측 지표 10개의 정의 — 서버 `internal/metrics/metrics.go` 의 `Defs` 표(PRD §11 열 순서)를 **그대로** 옮긴 것.
@@ -289,22 +289,22 @@ export const METRIC_DEFS: readonly MetricDef[] = [
 
 /**
  * 「관찰」 표 5행의 정의(key·label·note) — openapi 0.1.5 `getWorkspaceObservations` description 의 정의 1~5 를 옮긴 것(v1.1 K-18, T-W16).
- * `label` 은 PRD §11 관찰 행의 이름, `note` 는 계약 description 의 "세는 법" 문장을 §8.4 의 말로. 서버 T-S19 가 같은 표를 만들면
- * `METRIC_DEFS` 처럼 `server-wording.test.ts` 가 Go 소스를 파싱해 항목 단위로 대조한다 — 그때까지는 목에만 있다(MOCK_ONLY 규칙).
+ * `label`·`note` 는 서버 `internal/observations/observations.go` 의 `Defs` 표 **그대로**(T-S19 #246) — `server-wording.test.ts` (i) 가
+ * Go 소스를 파싱해 항목 단위로 대조한다(METRIC_DEFS 와 같은 방식).
  * 순서는 계약 `rows` 의 표 순서(ObservationRow.key enum 순서).
  */
 export type ObservationDef = Pick<ObservationRow, "key" | "label" | "note">;
 export const OBSERVATION_DEFS: readonly ObservationDef[] = [
   { key: "chain_scale", label: "트리거 사슬 규모",
-    note: "사람이 올린 메시지 하나가 다음 사람 메시지 전까지 만든 할 일의 수, 그 중앙값과 p95. 표본 수는 사람 메시지 수." },
+    note: "사람이 쓴 메시지 하나가 다음 사람 메시지 전까지 에이전트 사이에 일으킨 할 일 수, 그 중앙값과 상위 5% 값. 표본 수는 에이전트를 깨운 사람 메시지 수." },
   { key: "chain_depth", label: "트리거 사슬 깊이",
-    note: "세션이 도달한 가장 깊은 인과 사슬 깊이(사람 메시지 → 에이전트 → 에이전트 …), 그 중앙값과 p95. 표본 수는 세션 수." },
+    note: "세션 안에서 사람의 메시지에서 시작해 에이전트 사이의 멘션이 이어진 가장 깊은 단계, 그 중앙값과 상위 5% 값. 표본 수는 세션 수." },
   { key: "join_breadth", label: "합류 폭",
-    note: "한 번의 위임에서 갈라진 자식 작업 줄기의 수, 그 중앙값과 p95. 표본 수는 합류 그룹 수." },
+    note: "한 할 일이 위임으로 만든 작업 줄기의 수(합류 그룹의 크기), 그 중앙값과 상위 5% 값. 표본 수는 위임 그룹 수." },
   { key: "routing_concentration", label: "라우팅 집중",
-    note: "할 일을 만든 라우팅 규칙 번호의 분포. 값은 멘션 없이 담당 에이전트에게 간 비율(규칙 6·7 폴백). 표본 수는 라우팅된 메시지 수." },
+    note: "할 일이 어느 라우팅 규칙으로 만들어졌는지의 비율. 값은 멘션 없이 담당 에이전트에게 간 비율(규칙 6·7). 표본 수는 할 일을 만든 트리거 수." },
   { key: "empty_turn_rate", label: "빈 턴 비율",
-    note: "메시지 게시·플랫폼 조작·파일 편집이 하나도 없이 끝난 실행 ÷ 전체 완료 실행. 표본 수는 완료 실행 수. 활동 피드의 빈 턴 카드와 같은 판정." },
+    note: "메시지 게시·플랫폼 조작·파일 편집이 하나도 없이 끝난 실행 ÷ 완료된 실행 전체. 표본 수는 완료된 실행 수." },
 ];
 
 export type ServerKey = keyof typeof SERVER;

@@ -12,7 +12,7 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import { dispatch, OBSERVATION_DEFS, type Req } from "./handlers";
-import { MOCK_ONLY, W } from "./wording";
+import { W } from "./wording";
 import { resetStore, store, type Subscriber } from "./store";
 import type { Agent, ColabCommand, Lane, ObservationReport, Session, TaskEvent } from "@/lib/api/types";
 
@@ -158,8 +158,8 @@ describe("빈 턴 시드 — PRD FR-7.2 「판정과 기록」 모양 그대로"
     const evs = (await must<{ items: TaskEvent[] }>("GET", `/tasks/${seeded.task_id}/events`)).items;
     const row = evs.find((e) => e.id === seeded.event_id)!;
     expect(row).toMatchObject({ class: "status", verb: "turn_end", object_ref: "empty_turn", outcome: "info", sentence: null });
-    expect(row.payload).toEqual({ command: "turn_end", args: { note: MOCK_ONLY.empty_turn_note } });
-    expect(MOCK_ONLY.empty_turn_note).toBe("아무것도 하지 않고 턴을 끝냈습니다");
+    expect(row.payload).toEqual({ command: "turn_end", args: { note: W.empty_turn_note } });
+    expect(W.empty_turn_note).toBe("아무것도 하지 않고 턴을 끝냈습니다");
     // 이 실행에는 메시지 게시·플랫폼 조작·편집이 없다(판정 조건) — status 행은 빈 턴 행 하나뿐, tool edit_file 0.
     expect(evs.filter((e) => e.class === "status")).toHaveLength(1);
     expect(evs.some((e) => e.class === "tool" && e.verb === "edit_file")).toBe(false);

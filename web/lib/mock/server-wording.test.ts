@@ -329,47 +329,31 @@ describe("(h) T-W15/T-S18 — 리뷰어 검사(계약 #232 v0.1.4)의 문장은 
   });
 });
 
-describe("(i) T-W16/T-S19 — 빈 턴 문장과 관찰 표 정의는 서버가 아직 없으니 MOCK_ONLY 규칙으로", () => {
-  const PRD = readFileSync(join(SERVER_ROOT, "..", "PRD.md"), "utf8");
+describe("(i) T-W16/T-S19 — 빈 턴 문장은 SERVER 에서, 관찰 표 정의는 서버 observations.Defs 와 항목 단위로 같다", () => {
   const OPENAPI = readFileSync(join(SERVER_ROOT, "..", "contracts", "openapi.yaml"), "utf8");
-  /** server/internal 의 구현 Go 소스 전부(테스트·생성물 제외). */
-  function goImpl(dir = join(SERVER_ROOT, "internal"), out: string[] = []): string[] {
-    for (const name of readdirSync(dir)) {
-      const p = join(dir, name);
-      if (name === "gen" || name === "testdata") continue;
-      if (statSync(p).isDirectory()) goImpl(p, out);
-      else if (name.endsWith(".go") && !name.endsWith("_test.go")) out.push(readFileSync(p, "utf8"));
+  function goObsDefs(src: string) {
+    const m = src.match(/var Defs = \[\]Def\{([\s\S]*?)\n\}/);
+    if (!m) throw new Error("observations.go 에 Defs 표가 없다");
+    const out: { key: string; label: string; note: string }[] = [];
+    for (const item of m[1].split(/\{Key:/).slice(1)) {
+      const key = item.match(/^\s*"([^"]+)"/)?.[1];
+      const label = item.match(/Label:\s*"([^"]*)"/)?.[1];
+      const note = item.match(/Note:\s*"([^"]*)"/)?.[1];
+      if (key && label !== undefined && note !== undefined) out.push({ key, label, note });
     }
     return out;
   }
-  const impl = goImpl().join("\n");
-
-  it("MOCK_ONLY 는 empty_turn_note 하나 — PRD FR-7.2 의 문장 그대로, 화면 폴백(EMPTY_TURN.note)과 같다", () => {
-    expect(Object.keys(MOCK_ONLY)).toEqual(["empty_turn_note"]);
-    expect(PRD).toContain(`args: {note: "${MOCK_ONLY.empty_turn_note}"}`);
-    expect(EMPTY_TURN.note).toBe(MOCK_ONLY.empty_turn_note);
-    expect(HANDLERS).toContain("args: { note: MOCK_ONLY.empty_turn_note }");
-    // 행 모양은 PRD 그대로 — class·verb·object_ref·outcome·payload.command.
-    expect(HANDLERS).toContain('class: "status", verb: "turn_end", object_ref: "empty_turn", outcome: "info", payload: { command: "turn_end", args: { note: MOCK_ONLY.empty_turn_note } }');
+  it("MOCK_ONLY 는 비어 있고 빈 턴 문장은 SERVER.empty_turn_note(internal/tasks/emptyturn.go)에서 온다", () => {
+    expect(Object.keys(MOCK_ONLY)).toEqual([]);
+    expect(EMPTY_TURN.note).toBe(W.empty_turn_note);
+    expect(HANDLERS).toContain('class: "status", verb: "turn_end", object_ref: "empty_turn", outcome: "info", payload: { command: "turn_end", args: { note: W.empty_turn_note } }');
+    expect(goSource("internal/httpapi/unimplemented.go")).not.toContain("GetWorkspaceObservations(");
   });
-
-  it("서버(T-S19)가 아직 그 문장을 만들지 않았다 — 리터럴이 dev 에 오르면 SERVER 로 옮겨라", () => {
-    // 이 단언이 빨개지는 것이 T-S19 머지의 신호다: MOCK_ONLY.empty_turn_note 를 SERVER 로 옮기고 at 을 채운다.
-    expect(impl, "T-S19 가 머지됐다 — wording.ts 의 empty_turn_note 를 SERVER 로 옮기고 at 을 채워라").not.toContain(MOCK_ONLY.empty_turn_note);
-    expect(goSource("internal/httpapi/unimplemented.go")).toContain("GetWorkspaceObservations(");
-  });
-
-  it("OBSERVATION_DEFS 는 계약 enum 순서의 5행이고 label 은 PRD §11 관찰 행 이름 · 서버에 chain_scale 리터럴이 생기면 (f) 처럼 대조로 바꿔라", () => {
-    const enumLine = OPENAPI.match(/enum: \[chain_scale, chain_depth, join_breadth, routing_concentration, empty_turn_rate\]/);
-    expect(enumLine).not.toBeNull();
-    expect(OBSERVATION_DEFS.map((d) => d.key)).toEqual(["chain_scale", "chain_depth", "join_breadth", "routing_concentration", "empty_turn_rate"]);
-    for (const d of OBSERVATION_DEFS) expect(PRD).toContain(`| \`[v0.17]\` ${d.label} |`);
-    for (const d of OBSERVATION_DEFS) {
-      // note 는 §8.4 의 말 — 내부어(task·lane·attempt·hop)를 그대로 쓰지 않는다(서버가 만들면 그 문장으로 바꾼다).
-      expect(d.note).not.toMatch(/\b(task|lane|attempt|hop)\b/);
-    }
-    expect(impl, "T-S19 가 머지됐다 — OBSERVATION_DEFS 를 서버 표와 항목 단위로 대조하도록 (f) 처럼 바꿔라").not.toContain('"chain_scale"');
+  it("OBSERVATION_DEFS 는 계약 enum 순서의 5행이고 key·label·note 가 서버 observations.Defs 와 같다", () => {
+    expect(OPENAPI).toMatch(/enum: \[chain_scale, chain_depth, join_breadth, routing_concentration, empty_turn_rate\]/);
+    const go = goObsDefs(goSource("internal/observations/observations.go"));
+    expect(go).toHaveLength(5);
+    expect(OBSERVATION_DEFS.map((d) => ({ key: d.key, label: d.label, note: d.note }))).toEqual(go);
     expect(HANDLERS).toMatch(/import \{[^}]*\bOBSERVATION_DEFS\b[^}]*\} from "\.\/wording"/);
-    expect(HANDLERS).not.toMatch(/const OBSERVATION_DEFS\b/);
   });
 });
