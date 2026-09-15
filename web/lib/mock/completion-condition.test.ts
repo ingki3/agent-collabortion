@@ -12,7 +12,7 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import { dispatch, type Req } from "./handlers";
-import { MOCK_ONLY, W } from "./wording";
+import { W } from "./wording";
 import { resetStore, store, type Subscriber } from "./store";
 import type { Agent, Session } from "@/lib/api/types";
 
@@ -62,7 +62,7 @@ describe("createSession — 리뷰어 검사(422 두 코드)", () => {
     expect(res.status).toBe(422);
     const b = res.body as { code: string; errors: { field: string; code: string; message: string }[] };
     expect(b.code).toBe("validation_failed");
-    expect(b.errors).toEqual([{ field: "completion_condition/conditions/1/agent_id", code: "reviewer_required", message: MOCK_ONLY.reviewer_required }]);
+    expect(b.errors).toEqual([{ field: "completion_condition/conditions/1/agent_id", code: "reviewer_required", message: W.reviewer_required }]);
   });
 
   it("리뷰어가 참여자가 아니면 422 reviewer_not_participant", async () => {
@@ -162,14 +162,14 @@ describe("updateSession — completion_condition 은 active·paused 에서도(Di
     await must("POST", `/sessions/${s.id}/cancel`, { body: { reason: "x" } });
     const res = await call("PATCH", `/sessions/${s.id}`, { body: { completion_condition: { op: "and", conditions: [{ type: "manual" }] } } });
     expect(res.status).toBe(422);
-    expect((res.body as { errors: unknown[] }).errors).toEqual([{ field: "completion_condition", code: "immutable", message: MOCK_ONLY.condition_immutable }]);
+    expect((res.body as { errors: unknown[] }).errors).toEqual([{ field: "completion_condition", code: "immutable", message: W.condition_immutable }]);
   });
 
   it("artifact_submitted 의 지정 제출자가 참여자가 아니어도 같은 코드(reviewer_not_participant) · 제출자 문장", async () => {
     const s = await activeSession();
     const res = await call("PATCH", `/sessions/${s.id}`, { body: { completion_condition: { op: "and", conditions: [{ type: "artifact_submitted", agent_id: "00000000-0000-0000-0000-000000000000" }, { type: "user_approval" }] } } });
     expect(res.status).toBe(422);
-    expect((res.body as { errors: unknown[] }).errors).toEqual([{ field: "completion_condition/conditions/0/agent_id", code: "reviewer_not_participant", message: MOCK_ONLY.submitter_not_participant }]);
+    expect((res.body as { errors: unknown[] }).errors).toEqual([{ field: "completion_condition/conditions/0/agent_id", code: "reviewer_not_participant", message: W.submitter_not_participant }]);
   });
 
   it("시작 뒤 isolation·runtime_id 는 422 immutable — 서버 문장 그대로", async () => {
