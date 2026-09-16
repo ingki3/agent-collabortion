@@ -143,6 +143,7 @@ describe("S14 — 워크스페이스 탭 · 권한 · 저장 payload", () => {
     expect(screen.getByTestId("row-pair-roundtrips-impact").textContent).toBe("낮추면 정상적인 리뷰 왕복이 막힐 수 있습니다");
     const save = screen.getByTestId("settings-save") as HTMLButtonElement;
     expect(save.disabled).toBe(true); // 바꾼 것이 없다
+    // W-21: 행이 보인 직후의 입력이 결정적으로 남는다 — 초안 되돌림이 effect 가 아니라 렌더 중이라(SettingsTabs.test.tsx) 대기가 필요 없다.
     fireEvent.change(screen.getByLabelText("둘이 연속으로 주고받는 횟수"), { target: { value: "2" } });
     expect(screen.getByTestId("settings-dirty").textContent).toContain("바꾼 항목: 1개");
     expect(save.disabled).toBe(false);

@@ -15,15 +15,16 @@ const ROOT = __dirname;
 
 /** next.config.mjs 를 NODE_ENV 별로 새로 평가한다(모듈 캐시를 피하려고 쿼리를 붙인다). */
 async function configUnder(env: string, extra: Record<string, string | undefined> = {}) {
-  const saved = { NODE_ENV: process.env.NODE_ENV, COLAB_DEV_PAGES: process.env.COLAB_DEV_PAGES };
-  process.env.NODE_ENV = env;
-  process.env.COLAB_DEV_PAGES = extra.COLAB_DEV_PAGES;
+  const penv = process.env as Record<string, string | undefined>; // NODE_ENV 는 타입상 읽기 전용 — 테스트에서만 잠시 바꾼다
+  const saved = { NODE_ENV: penv.NODE_ENV, COLAB_DEV_PAGES: penv.COLAB_DEV_PAGES };
+  penv.NODE_ENV = env;
+  penv.COLAB_DEV_PAGES = extra.COLAB_DEV_PAGES;
   try {
     const m = await import(/* @vite-ignore */ `./next.config.mjs?env=${env}&dev=${extra.COLAB_DEV_PAGES ?? ""}`);
     return m.default as { pageExtensions: string[]; compress: boolean };
   } finally {
-    process.env.NODE_ENV = saved.NODE_ENV;
-    process.env.COLAB_DEV_PAGES = saved.COLAB_DEV_PAGES;
+    penv.NODE_ENV = saved.NODE_ENV;
+    penv.COLAB_DEV_PAGES = saved.COLAB_DEV_PAGES;
   }
 }
 
