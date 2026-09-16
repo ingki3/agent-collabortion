@@ -80,3 +80,20 @@ func TestReleaseLeavesHumanLinesAndStripsBareLegacyLine(t *testing.T) {
 		t.Errorf("exclude file = %q, want only the person's line", body)
 	}
 }
+
+// PR #265 리뷰 NN1: a hand-edited exclude file whose closing bracket is gone.
+// Without the `if inBlock` guard the user's own patterns inside that block
+// vanish — the one place this code can lose someone's data. Pin it.
+func TestStripExcludeBlockKeepsUnterminatedBlock(t *testing.T) {
+	in := []byte(excludeStart + "\n.colab-workdir.json\nmy-secret-dir/\n")
+	got := string(stripExcludeBlock(in, ".colab-workdir.json"))
+	if !strings.Contains(got, "my-secret-dir/") {
+		t.Fatalf("unterminated block lost the user's pattern:\n%q", got)
+	}
+	if !strings.Contains(got, excludeStart) {
+		t.Fatalf("unterminated block lost its opening bracket:\n%q", got)
+	}
+	if strings.Contains(got, ".colab-workdir.json") {
+		t.Fatalf("our own pattern should still be removed:\n%q", got)
+	}
+}
