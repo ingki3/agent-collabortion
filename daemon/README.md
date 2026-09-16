@@ -43,7 +43,7 @@ colab-daemon repos remove ~/dev/app
 | 키 | 뜻 | 기본 |
 |---|---|---|
 | `workdir_root` | 작업 폴더의 기준. lane 폴더 `sessions/<세션>/<lane>`, worktree, 그리고 `.colab/`(pgid 기록 · 로그 · 래퍼 · 테스트 채팅 임시 폴더)이 이 아래 생긴다 | `~/.colab/work` |
-| `capacity` | 동시에 돌릴 attempt 수(데몬 상한, FR-6.3) | `10` |
+| `capacity` | 동시에 돌릴 attempt 수(데몬 상한, FR-6.3). claim 부터 finish 보고까지가 한 자리다 — 준비 중(worktree 생성)이거나 finish 를 보내는 중인 attempt 도 자리를 쥔다(D-28) | `10` |
 | `repos` | `repos add` 가 채우는 저장소 목록 (위) | 없음 |
 | `colab_bin` | 에이전트에게 주는 `colab` 실행 파일 | 데몬 옆의 `colab`, 없으면 PATH |
 | `stderr_dir` | attempt 마다 런타임 stderr 를 남기는 곳 | `<workdir_root>/.colab/logs` |
