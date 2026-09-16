@@ -746,9 +746,12 @@ func (d *Daemon) finishWorkdir(wd string) *contracts.FinishWorkdir {
 // root — because the fault always lives in the gap between two of them, and
 // the message it replaced (`spawn: fork/exec …/npx: no such file or
 // directory`) named none.
+//
+// D-27: the head of the sentence is the error's PERSON register
+// (workdir.DetailOf); the English register goes to the log in runAttempt.
 func workdirDetail(err error, b contracts.TaskBundle, root string) string {
-	return fmt.Sprintf("%v (격리 %s, 서버가 준 경로 %q, 이 컴퓨터의 기준 폴더 %s)",
-		err, b.Workdir.Kind, b.Workdir.Path, root)
+	return fmt.Sprintf("%s (격리 %s, 서버가 준 경로 %q, 이 컴퓨터의 기준 폴더 %s)",
+		workdir.DetailOf(err), b.Workdir.Kind, b.Workdir.Path, root)
 }
 
 func (d *Daemon) killAfter() time.Duration {
@@ -991,7 +994,9 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	// attempt of the session died that way (T-I4 차단 ①).
 	if verr := workdir.Verify(wd); verr != nil {
 		detail := workdirDetail(verr, b, d.Cfg.WorkdirRoot)
-		d.Log("%s %s", k, detail)
+		// D-27: the log gets the English register (`cause`), the feed the
+		// person's — same facts, same order, one language per surface.
+		d.Log("%s workdir verify: %v (isolation=%s, bundle path=%q, workdir_root=%s)", k, verr, b.Workdir.Kind, b.Workdir.Path, d.Cfg.WorkdirRoot)
 		sink.Emit(contracts.TaskEvent{
 			TaskID: b.Task.ID, Attempt: b.Task.Attempt, Seq: nextSeq(), TS: d.Clock.Now().UTC(),
 			Class: "runtime", Verb: "error", Outcome: "failed",

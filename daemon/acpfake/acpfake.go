@@ -12,6 +12,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"os"
 	"os/exec"
@@ -218,9 +219,31 @@ type SDKRequestStep struct {
 
 // RawDeltasStep emits Count input_json_delta stream events, IntervalMs apart
 // (real time). The loop honours session/cancel between deltas.
+//
+// Each delta carries a DIFFERENT `partial_json` (rawDeltaJSON): the real
+// adapter's deltas are the tokens of a tool input, and no two consecutive
+// ones are alike. A fixture that repeated one fixed fragment (PR #204 리뷰
+// NN4) was more lenient than the machine — a stall watch that keyed on
+// message identity, or a fold that deduplicated, would have passed here and
+// failed there.
 type RawDeltasStep struct {
 	Count      int `json:"count"`
 	IntervalMs int `json:"interval_ms"`
+}
+
+// rawDeltaJSON is the i-th token of a fake tool input being generated: the
+// index and a short hash of it, so every fragment differs in both length
+// and bytes, the way the model's do. The fragments concatenate to something
+// JSON-string-shaped (an opening quote first, words after), which is what
+// the real `partial_json` pieces of a Write's `content` look like.
+func rawDeltaJSON(i int) string {
+	h := fnv.New32a()
+	_, _ = fmt.Fprintf(h, "delta-%d", i)
+	word := strconv.FormatUint(uint64(h.Sum32()), 36)
+	if i == 0 {
+		return "\"" + word
+	}
+	return " " + word + strings.Repeat("x", i%7)
 }
 
 type UsageStep struct {
@@ -761,7 +784,7 @@ func (sv *server) prompt(id *json.RawMessage, sid string) {
 				if sv.rawSDKOn() {
 					sv.sdkMessage(sid, map[string]any{"type": "stream_event", "parent_tool_use_id": nil,
 						"event": map[string]any{"type": "content_block_delta", "index": 1,
-							"delta": map[string]any{"type": "input_json_delta", "partial_json": "\"lorem "}}})
+							"delta": map[string]any{"type": "input_json_delta", "partial_json": rawDeltaJSON(i)}}})
 				}
 				time.Sleep(time.Duration(st.RawDeltas.IntervalMs) * time.Millisecond)
 			}
