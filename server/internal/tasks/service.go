@@ -1099,19 +1099,36 @@ func Cancellable(s Status) bool {
 	return false
 }
 
-// cancelRequested reports whether a cancel command was issued for (task, attempt).
+// cancelRequested reports whether a cancel command for (task, attempt) is
+// still in force.
 //
 // Its callers are the ones that ask "is a stop already on its way?" before
-// queueing another one — every reason counts there, the budget pause's own
-// included, or a pause would queue a second cancel on top of the first.
+// queueing another one, and the ones that absorb a later failure into
+// `cancelled` (requeueLocked · failLocked, E10-04) — every reason counts
+// there, the budget pause's own included, or a pause would queue a second
+// cancel on top of the first.
+//
+// S-8 (PR #33 리뷰 NN3): a command the 24h TTL sweep expired (`consumed_by =
+// 'ttl'`, tokens.ExpireCommands) is no longer a request — nobody is stopping
+// this attempt any more, and absorbing a failure a day later into "the
+// person's cancel took effect" would report a stop that never happened. A
+// command consumed by the attempt's own FINISH still counts: daemonFinish
+// consumes before tasks.Finish runs, and that finish IS the cancel landing.
 func cancelRequested(ctx context.Context, q db.DBTX, taskID uuid.UUID, attempt int) (bool, error) {
 	var ok bool
-	err := q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM daemon_command WHERE task_id = $1 AND attempt = $2 AND type = 'cancel')`, taskID, attempt).Scan(&ok)
+	err := q.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM daemon_command
+		                WHERE task_id = $1 AND attempt = $2 AND `+cancelInForce+`)`, taskID, attempt).Scan(&ok)
 	if err != nil {
 		return false, fmt.Errorf("tasks: cancel requested: %w", err)
 	}
 	return ok, nil
 }
+
+// cancelInForce is the daemon_command predicate the three cancel questions
+// share: a cancel command that the TTL sweep has not expired (S-8). Consumed
+// by anything else — the attempt's finish above all — it still counts.
+const cancelInForce = `type = 'cancel' AND COALESCE(consumed_by, '') <> 'ttl'`
 
 // nonBudgetCancelRequested is the other question: was the attempt stopped by
 // somebody OTHER than the budget pause itself?
@@ -1128,7 +1145,7 @@ func nonBudgetCancelRequested(ctx context.Context, q db.DBTX, taskID uuid.UUID, 
 	var ok bool
 	err := q.QueryRow(ctx, `
 		SELECT EXISTS (SELECT 1 FROM daemon_command
-		                WHERE task_id = $1 AND attempt = $2 AND type = 'cancel'
+		                WHERE task_id = $1 AND attempt = $2 AND `+cancelInForce+`
 		                  AND COALESCE(payload->>'reason', '') <> 'budget')`, taskID, attempt).Scan(&ok)
 	if err != nil {
 		return false, fmt.Errorf("tasks: cancel requested: %w", err)
@@ -1150,7 +1167,7 @@ func budgetOnlyCancelRequested(ctx context.Context, q db.DBTX, taskID uuid.UUID,
 	var total, budget int
 	err := q.QueryRow(ctx, `
 		SELECT count(*), count(*) FILTER (WHERE COALESCE(payload->>'reason', '') = 'budget')
-		FROM daemon_command WHERE task_id = $1 AND attempt = $2 AND type = 'cancel'`,
+		FROM daemon_command WHERE task_id = $1 AND attempt = $2 AND `+cancelInForce,
 		taskID, attempt).Scan(&total, &budget)
 	if err != nil {
 		return false, fmt.Errorf("tasks: budget-only cancel: %w", err)
