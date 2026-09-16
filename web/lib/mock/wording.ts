@@ -132,7 +132,7 @@ export const SERVER = {
   idempotency_key_required: { text: "같은 요청을 구분할 키가 빠졌습니다 — 화면을 새로고침한 뒤 다시 시도해 주세요", at: "internal/httpapi/server.go" },
   // ── 작업 줄기 (internal/httpapi/handlers_lanes.go · handlers_lanes_p3.go) ──
   lane_control: { text: "작업 줄기는 이 세션의 Director 나 deputy 만 중단할 수 있습니다", at: "internal/httpapi/handlers_lanes.go" },
-  lane_not_cancellable: { text: "진행 중이거나 대기 중인 작업 줄기만 중단할 수 있습니다", at: "internal/httpapi/handlers_lanes.go" },
+  lane_not_cancellable: { text: "중단할 수 있는 진행 중 턴이 없습니다", at: "internal/httpapi/handlers_lanes.go" },
   new_instruction_required: { text: "새 지시를 적어 주세요", at: "internal/httpapi/handlers_lanes_p3.go" },
   lane_not_restartable: { text: "이 작업 줄기는 다시 지시할 수 없습니다 (현재 상태: ", at: "internal/httpapi/handlers_lanes_p3.go" },
   // ── 세션 제어 (internal/httpapi/handlers_sessions_p3.go · sessions/pause.go · sessions/budget.go) ──
