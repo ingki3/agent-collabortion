@@ -9,6 +9,7 @@
 # 사용:
 #   COLAB_MOCK_API=1 npx next dev -p 3113 &
 #   BASE_URL=http://localhost:3113 bash e2e/p3-shots.sh
+# ⚠ 2/4 가 /dev/components 를 연다 — `next dev` 위에서만(프로덕션 빌드에는 /dev/* 가 없다, W-9). 빌드라면 COLAB_DEV_PAGES=1.
 #
 # agent-browser screenshot [selector] path [--full] — 전체 페이지 플래그는 `--full` 이고 **경로 뒤**다.
 # `--full-page` 는 없는 옵션이라 경로로 해석돼 `web/--full-page` 파일이 생긴다(PR #21 리뷰 R3).
