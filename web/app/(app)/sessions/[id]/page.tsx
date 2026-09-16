@@ -655,7 +655,7 @@ export default function SessionPage() {
           />
           {confirmCancel && (
             <div className="s7__confirm" role="dialog" aria-label="작업 줄기 중단 확인" data-testid="cancel-confirm">
-              <p className="small">이 작업 줄기를 중단합니다. 새 지시 없이 종료됩니다.</p>
+              <p className="small">{confirmCancel.status === "done" ? "제출은 끝났습니다 — 아직 도는 실행만 멈춥니다(작업 줄기는 끝난 채로 남습니다)." : "이 작업 줄기를 중단합니다. 새 지시 없이 종료됩니다."}</p>
               <p className="small muted-3">되돌리기 어려운 작업 중이면 최대 30초 보류 후 종료됩니다.</p>
               <div className="row">
                 <button type="button" className="btn btn--sm btn--primary" disabled={busy} onClick={() => void doCancel(confirmCancel)} data-testid="cancel-confirm-yes">중단</button>

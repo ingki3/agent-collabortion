@@ -189,3 +189,69 @@ describe("빈 턴 시드 — PRD FR-7.2 「판정과 기록」 모양 그대로"
     expect(got.some((g) => g.type === "lane.updated" && (g.payload as Lane).status === "done")).toBe(true);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * K-16(계약 cancelLane v0.1.6, PR #255) — 취소 판정은 lane 이 아니라 **현재 할 일**. `colab status set done` 뒤에도 그 턴의 프로세스가
+ * 돌면(현재 task running) done lane 에 `actions: ["cancel"]` 이 실리고 취소가 202 다 — lane 은 done 그대로, 할 일만 cancelled.
+ * 도는 할 일이 없는 done lane 은 예전대로 409 lane_not_cancellable. 권한(멤버)은 목록에서도 빠지고 403.
+ */
+describe("K-16 — done 인데 실행이 아직 도는 줄기의 취소(계약 v0.1.6)", () => {
+  async function seeded() {
+    await login();
+    const w = await ws();
+    const agents = await must<{ items: Agent[] }>("GET", `/workspaces/${w}/agents`);
+    const sess = await must<Session>("POST", `/workspaces/${w}/sessions`, { body: { title: "K-16", goal: "done 뒤 취소", isolation: { kind: "none" }, participants: [{ agent_id: agents.items[0].id }], assignee_agent_id: agents.items[0].id } });
+    const seed = await must<{ lane_id: string; task_id: string; lane: Lane }>("POST", `/__mock/sessions/${sess.id}/seed-done-running`, {});
+    return { sess, seed };
+  }
+
+  it("시드: lane done · current_task running · actions 에 cancel(restart 는 없다)", async () => {
+    const { sess, seed } = await seeded();
+    const lanes = await must<Lane[]>("GET", `/sessions/${sess.id}/lanes`);
+    const lane = lanes.find((l) => l.id === seed.lane_id)!;
+    expect(lane.status).toBe("done");
+    expect(lane.current_task?.id).toBe(seed.task_id);
+    expect(lane.current_task?.status).toBe("running");
+    expect(lane.actions).toEqual(["cancel"]);
+    expect(lane.brief).toBe("경쟁사 5곳 정리 완료");
+  });
+
+  it("취소 202 — lane 은 done 그대로(산출물은 제출됐다), 할 일만 cancelled, actions 는 빈다, 활동 '사람이 중단함'", async () => {
+    const { sess, seed } = await seeded();
+    const res = await call("POST", `/lanes/${seed.lane_id}/cancel`, {});
+    expect(res.status).toBe(202);
+    const lane = res.body as Lane;
+    expect(lane.status).toBe("done");
+    expect(lane.failure_kind).toBeNull();
+    expect(lane.current_task?.status).toBe("cancelled");
+    expect(lane.current_task?.failure_kind).toBe("cancelled");
+    expect(lane.actions).toEqual([]);
+    const events = (await must<{ items: TaskEvent[] }>("GET", `/tasks/${seed.task_id}/events`)).items;
+    expect(events.some((e) => e.class === "status" && e.verb === "cancel" && e.sentence === "사람이 중단함")).toBe(true);
+    // 두 번째 취소는 이제 409 — 도는 할 일이 없다.
+    const again = await call("POST", `/lanes/${seed.lane_id}/cancel`, {});
+    expect(again.status).toBe(409);
+    expect((again.body as { code: string }).code).toBe("lane_not_cancellable");
+    void sess;
+  });
+
+  it("보통의 done lane(도는 할 일 없음)은 예전대로 409 · actions 에 cancel 없음", async () => {
+    await login();
+    const w = await ws();
+    const agents = await must<{ items: Agent[] }>("GET", `/workspaces/${w}/agents`);
+    const sess = await must<Session>("POST", `/workspaces/${w}/sessions`, { body: { title: "K-16b", goal: "보통 done", isolation: { kind: "none" }, participants: [{ agent_id: agents.items[0].id }], assignee_agent_id: agents.items[0].id } });
+    const [done] = await must<Lane[]>("POST", `/__mock/sessions/${sess.id}/seed-lanes`, { body: { statuses: ["done"] } });
+    expect(done.actions).toEqual([]);
+    const res = await call("POST", `/lanes/${done.id}/cancel`, {});
+    expect(res.status).toBe(409);
+  });
+
+  it("일반 멤버 시점 — done+running 이어도 목록에서 빠지고 403(E10-05 와 같다)", async () => {
+    const { sess, seed } = await seeded();
+    await must("POST", `/__mock/sessions/${sess.id}/role`, { body: { role: "member" } });
+    const lanes = await must<Lane[]>("GET", `/sessions/${sess.id}/lanes`);
+    expect(lanes.find((l) => l.id === seed.lane_id)!.actions).toEqual([]);
+    expect((await call("POST", `/lanes/${seed.lane_id}/cancel`, {})).status).toBe(403);
+  });
+});
