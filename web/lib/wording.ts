@@ -15,12 +15,25 @@ export const DELETABLE_STATUS: ReadonlySet<SessionStatus> = new Set<SessionStatu
 /**
  * 삭제 가부 — 화면은 판정하지 않는다(서버가 409·403 으로 다시 검사한다). 여기 있는 비활성은 §8.5 "왜 비활성인지 근처에서
  * 말한다" 를 위한 사유 선택이다. 상태가 먼저다: 진행 중이면 권한이 있어도 "먼저 종료" 가 다음 행동이기 때문.
+ *
+ * 권한 규칙(계약 deleteSession: Director 또는 owner·admin)은 **여기서** 판정한다(W-14, PR #219 NN5 — 호출자마다 `canDelete` 를
+ * 따로 계산하면 카드와 다른 자리가 다른 규칙을 쓸 수 있다). 호출자는 세션(상태·Director)과 나(사용자 id·관리 권한)를 넘긴다.
  */
 export type DeleteGate = { ok: true } | { ok: false; reason: string };
-export function deleteGate(status: SessionStatus, canDelete: boolean): DeleteGate {
-  if (!DELETABLE_STATUS.has(status)) return { ok: false, reason: SESSION_MENU.blocked_active };
-  if (!canDelete) return { ok: false, reason: SESSION_MENU.blocked_role };
+export interface DeleteGateMe {
+  /** 로그인한 사용자 id — 세션 Director 와 비교한다. */
+  userId: string | null | undefined;
+  /** 워크스페이스 owner·admin(AuthContext `canManage`). */
+  canManage: boolean;
+}
+export function deleteGate(session: { status: SessionStatus; director: { id: string } }, me: DeleteGateMe): DeleteGate {
+  if (!DELETABLE_STATUS.has(session.status)) return { ok: false, reason: SESSION_MENU.blocked_active };
+  if (!canDeleteSession(session, me)) return { ok: false, reason: SESSION_MENU.blocked_role };
   return { ok: true };
+}
+/** 계약 deleteSession 의 권한 — Director 또는 owner·admin. 목(`handlers.ts` deleteSession)과 서버가 같은 규칙. */
+export function canDeleteSession(session: { director: { id: string } }, me: DeleteGateMe): boolean {
+  return (!!me.userId && session.director.id === me.userId) || me.canManage;
 }
 
 /** 카드 「…」 메뉴 — 항목 둘(세션 열기·삭제)과 비활성 사유 둘(SCREEN §4.3). */
