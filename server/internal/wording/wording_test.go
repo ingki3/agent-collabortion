@@ -91,7 +91,8 @@ var sinkHelpers = map[string][]int{
 // sinkFuncs 는 본문 전체가 사람 문장을 조립하는 함수 — 안의 문자열 리터럴을 전부 센다
 // (반환값·switch 가지·strings.Builder 에 쓰는 조각). 리뷰 NN2 의 "함수 반환값·여러 줄 조립".
 var sinkFuncs = map[string]bool{
-	"LimitText": true, "GCReasonText": true, "BuildSummaryBody": true, "CardBody": true,
+	"LimitText": true, "PausedText": true, "QuestionText": true, // router: FR-3.5 문장의 조각과 전체 (S-79)
+	"GCReasonText": true, "BuildSummaryBody": true, "CardBody": true,
 	"hitlTypeLabel": true, "Title": true, "StatusLabel": true, "NotFound": true,
 	"Validation": true, "Internal": true,
 	"ValidateTree": true, // sessions: err.Error() 가 그대로 Field message 가 된다
@@ -102,7 +103,7 @@ var sinkFuncs = map[string]bool{
 // sinkVars 는 값이 곧 화면 문장인 패키지 변수(표).
 var sinkVars = map[string]bool{"titles": true, "statusLabels": true, "NotFoundNouns": true,
 	"ErrInvalidTree": true, // sessions: %w 로 Field message 의 머리가 된다
-	"Defs":           true, // metrics: §11 지표의 label·note — S14 대시보드가 그대로 그린다 (T-S12)
+	"Defs":           true, // metrics: §11 지표의 label·note — S14 대시보드가 그대로 그린다 (T-S12); observations: §11 관찰 표 (T-S19)
 }
 
 // decisionSQL 은 decision 행을 직접 쓰는 SQL — 그 Exec/QueryRow 의 값 인자는 사람이 읽는다.
@@ -481,6 +482,7 @@ func TestScope(t *testing.T) {
 		"internal/testchat/testchat.go",         // createTestChat 409 · postTestChatTurn 409/410
 		"internal/testchat/daemon.go",           // FailureText · 만료 문장(턴 error)
 		"internal/metrics/metrics.go",           // Defs — §11 label·note
+		"internal/observations/observations.go", // Defs — §11 관찰 표 label·note (T-S19)
 		"internal/httpapi/handlers_testchat.go", // not_chat_owner
 	} {
 		found := false
@@ -584,5 +586,39 @@ func TestRoleNamesStayEnglish(t *testing.T) {
 	pool, _, _ := collect(t)
 	if h := hits(pool, regexp.MustCompile(`디렉터[^리]|디렉터$|감독관|연출자|부감독`), nil); len(h) > 0 {
 		t.Errorf("Director·deputy 는 영어 그대로(§8.4 예외):\n  %s", strings.Join(h, "\n  "))
+	}
+}
+
+// TestLoopLimitSentencesAreLocked is S-79 (PR #213 리뷰 NN3): FR-3.5 의 문장은
+// 조각(LimitText — 어느 상한인가)과 전체(PausedText · QuestionText — 멈췄다는
+// 말과 물음)로 나뉘어 조립된다. 셋 다 sinkFuncs 라 리터럴이 전부 풀에 들어와야
+// 한다 — 어느 하나가 표에서 빠지면 그 조각만 자물쇠 밖으로 새고, ErrLoopLimit 이
+// 만드는 409 detail 은 "런타임" 같은 낡은 말을 다시 품을 수 있다.
+func TestLoopLimitSentencesAreLocked(t *testing.T) {
+	pool, _, _, seen := collectSeen(t)
+	for _, fn := range []string{"LimitText", "PausedText", "QuestionText"} {
+		if !seen[fn] {
+			t.Errorf("router.%s 를 sinkFuncs 로 만나지 못했다", fn)
+		}
+	}
+	want := []string{
+		"주고받기 연쇄가 상한까지 깊어졌습니다",       // LimitText — chain_depth
+		"한 시간에 오간 횟수가 상한에 닿았습니다",     // LimitText — hops_per_hour
+		"두 에이전트가 상한까지 주고받았습니다",       // LimitText — pair_roundtrips
+		"루프 상한에 걸려 세션이 일시정지되었습니다 — ", // PausedText — ErrLoopLimit · Post warning
+		"루프 상한에 도달해 세션을 일시정지했습니다 — ", // QuestionText — the system HITL
+		". 계속할까요?",
+	}
+	for _, w := range want {
+		found := false
+		for _, s := range pool {
+			if s.file == "internal/router/loop.go" && s.text == w {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("internal/router/loop.go 의 조각 %q 가 풀에 없다 — sinkFuncs 표를 확인하라", w)
+		}
 	}
 }

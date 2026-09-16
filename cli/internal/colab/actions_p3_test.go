@@ -275,14 +275,18 @@ func TestHitlRevokedToken(t *testing.T) {
 	}
 }
 
-// C-1 for this path: with COLAB_TASK_ID in the environment — what the daemon
-// always sets — a HITL registration is exactly one request. Two things ride
-// on that: /cli/context is fetched only when a command needs a value from it
-// (colab-cli.md v0.5 §1), and the "already open" check belongs to the server,
+// C-1 for this path: with COLAB_TASK_ID and COLAB_ALLOWED_COMMANDS in the
+// environment — what the daemon wrapper sets (harness §10) — a HITL
+// registration is exactly one request. Two things ride on that: /cli/context
+// is fetched only when a command needs a value from it (colab-cli.md v0.5
+// §1; since v0.6 §2.5 the role's command list is such a value, which the
+// env supplies here), and the "already open" check belongs to the server,
 // not to a context snapshot the CLI may have taken minutes ago (E7-04).
 func TestHitlIsOneRequest(t *testing.T) {
 	s := clienttest.New(t)
-	if _, err := colab.HitlAsk(context.Background(), newClient(t, s),
+	env := s.Env(t.TempDir())
+	env[client.EnvAllowedCommands] = "hitl_ask,message_post"
+	if _, err := colab.HitlAsk(context.Background(), client.New(client.FromEnv(clienttest.Getenv(env))),
 		colab.HitlAskArgs{Question: "독자?", Default: "투자자"}); err != nil {
 		t.Fatal(err)
 	}

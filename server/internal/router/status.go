@@ -343,12 +343,15 @@ func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID
 			return err
 		}
 	}
-	v, err := s.gateHop(ctx, tx, sessionID, wsID, director, Hop{FromAgent: from, ToAgent: agentID, At: now, CauseID: cause}, msg, RulePlatform, now)
+	v, err := s.judgeHop(ctx, tx, sessionID, wsID, Hop{FromAgent: from, ToAgent: agentID, At: now, CauseID: cause}, msg, RulePlatform, now)
 	if err != nil {
 		return err
 	}
 	if !v.Allowed {
-		return nil
+		// The wake-up is dropped and the session stops here; the notice
+		// message stays on the timeline. Nobody is answered with a Problem —
+		// this is the server's own trigger, and the pause's card is the word.
+		return s.pauseForLoop(ctx, tx, sessionID, wsID, director, v, now)
 	}
 	laneID, _, err := s.resolveLaneFor(ctx, tx, sessionID, Trigger{AgentID: agentID, Rule: 0}, profileID,
 		laneOpts{topLevelMent: true}, now)

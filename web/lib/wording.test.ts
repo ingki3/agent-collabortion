@@ -19,7 +19,7 @@ import { VERDICT_LABEL, NOT_MEASURABLE } from "@/lib/settings";
 import { transportLabel } from "@/lib/test-chat";
 import { PAGE_COPY, type Screen } from "@/components/PageHead";
 import { NAV_ITEMS } from "@/components/AppNav";
-import { BLOCKED_REASON, CONDITION_EDITOR, CONDITION_NAME, DELETE_DIALOG, FIX_CONDITION, PROGRESS, SESSION_DELETED_NOTICE, SESSION_MENU, conditionName } from "@/lib/wording";
+import { BLOCKED_REASON, COMMAND_LABEL, CONDITION_EDITOR, CONDITION_NAME, DELETE_DIALOG, EMPTY_TURN, FIX_CONDITION, OBSERVATIONS, PROGRESS, ROLE_COMMANDS, ROUTING_PLATFORM_LABEL, ROUTING_RULE_LABEL, SESSION_DELETED_NOTICE, SESSION_MENU, conditionName, routingKindLabel } from "@/lib/wording";
 
 const ROOT = join(__dirname, "..");
 
@@ -141,6 +141,13 @@ describe("문구 자물쇠의 범위", () => {
       "components/ConditionEditor.tsx",
       "components/FixConditionDialog.tsx",
       "components/SessionAside.tsx",
+      // T-W16 — 관찰 표 · 역할의 허용 명령 · 빈 턴 카드의 문구가 사는 곳
+      "components/ObservationsTable.tsx",
+      "components/RoleCommands.tsx",
+      "components/ActivityFeed.tsx",
+      "components/LaneCard.tsx",
+      "lib/commands.ts",
+      "lib/feed.ts",
     ]) {
       expect(FILES).toContain(f);
     }
@@ -484,6 +491,9 @@ describe("종료 조건 — 이름은 사람 말이고 한곳(lib/wording.ts)에
     expect(PROGRESS.user_approval_next).toBe("받은 요청에서 승인하세요");
     expect(PROGRESS.turn("Lead")).toBe("Lead 차례");
     expect(PROGRESS.summary(["Director 승인"], 1, "and")).toBe("남은 것: Director 승인 1개 · 막힘 1개");
+    expect(PROGRESS.summary(["보고서 제출", "Director 승인"], 0, "and")).toBe("남은 것: 보고서 제출 1개 · Director 승인 1개"); // 2개 이상도 같은 어순(W-20)
+    expect(PROGRESS.summary(["보고서 제출", "Director 승인"], 0, "or")).toBe("남은 것: 보고서 제출 1개 · Director 승인 1개 — 하나만 충족하면 끝");
+    expect(PROGRESS.summary(["Director 승인"], 0, "single")).toBe("남은 것: Director 승인 1개");
     expect(PROGRESS.met_by("Writer", "9/13")).toBe("Writer, 9/13");
     for (const t of [PROGRESS.user_approval_next, PROGRESS.manual_next, PROGRESS.summary_satisfied, PROGRESS.summary_completed, PROGRESS.blocked_director, PROGRESS.blocked_member]) expect(inPool("lib/wording.ts", t)).toBe(true);
     const aside = src("components/SessionAside.tsx");
@@ -519,5 +529,89 @@ describe("종료 조건 — 이름은 사람 말이고 한곳(lib/wording.ts)에
     // 옛 마법사 행 "(assignee)" 와 요약 "제출자 assignee" 가 그 자리다. S6 요약의 `assignee` 상태 변수(JSX 식 안)는 코드지 문구가 아니다.
     expect(hits(/\(assignee\)|제출자 assignee/)).toEqual([]);
     expect(hits(/\bassignee\b/, (v) => /invitable\.find/.test(v.text))).toEqual([]);
+  });
+});
+
+// ── T-W16 — v1.1 첫 라운드의 말(관찰 표 K-18 · 역할의 허용 명령 K-19 · 빈 턴 카드 FR-7.2) ─────────────────────────
+describe("v1.1 — 관찰 표·허용 명령·빈 턴의 말은 한곳(lib/wording.ts)에서만 나온다 (T-W16)", () => {
+  const inPool = (file: string, text: string) => POOL.some((v) => v.file === file && v.text.includes(text));
+  const src = (f: string) => readFileSync(join(ROOT, f), "utf8");
+  /** 주석을 뺀 소스 — "손으로 다시 적지 않았다" 는 코드에 대한 말이다(주석이 사건을 설명하는 것은 막지 않는다). */
+  const code = (f: string) => src(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  it("ColabCommand 13개 전부에 사람 말이 있고, 명령 이름(밑줄 표기)은 화면 문자열에 없다", () => {
+    const openapi = readFileSync(join(ROOT, "..", "contracts", "openapi.yaml"), "utf8");
+    const m = openapi.match(/ColabCommand:\n\s+type: string\n[^\n]*\n\s+enum: \[([^\]]+)\]/)!;
+    const names = m[1].split(",").map((x) => x.trim());
+    expect(names).toHaveLength(13);
+    expect(Object.keys(COMMAND_LABEL).sort()).toEqual([...names].sort());
+    for (const v of Object.values(COMMAND_LABEL)) expect(inPool("lib/wording.ts", v)).toBe(true);
+    // `lane_delegate`·`hitl_ask` 같은 명령 이름은 코드다 — 화면 문자열 풀에 없다.
+    expect(hits(new RegExp(`\\b(${names.join("|")})\\b`))).toEqual([]);
+    // 화면은 이 표만 그린다 — 컴포넌트에 명령의 사람 말 리터럴이 없다.
+    for (const f of ["components/RoleCommands.tsx", "lib/commands.ts", "app/(app)/agents/[id]/page.tsx", "app/(app)/agents/new/page.tsx"]) {
+      expect(src(f)).not.toContain('"산출물 제출"');
+      expect(src(f)).not.toContain('"위임"');
+    }
+  });
+
+  it("S10 역할 구역 — 머리말·전부·못 하는 것·읽기 전용 안내가 표에 있고 RoleCommands 가 그 표를 그린다 · 두 S10 화면이 그 컴포넌트를 쓴다", () => {
+    expect(ROLE_COMMANDS.head).toBe("이 에이전트가 할 수 있는 일:");
+    expect(ROLE_COMMANDS.all).toBe("전부");
+    expect(ROLE_COMMANDS.cannot("위임")).toBe("위임은 못 합니다");
+    expect(ROLE_COMMANDS.reason_worker).toContain("Lead 의 일");
+    for (const t of [ROLE_COMMANDS.head, ROLE_COMMANDS.all, ROLE_COMMANDS.all_lead, ROLE_COMMANDS.all_custom, ROLE_COMMANDS.reason_worker, ROLE_COMMANDS.reason_reviewer, ROLE_COMMANDS.preview, ROLE_COMMANDS.readonly]) expect(inPool("lib/wording.ts", t)).toBe(true);
+    const rc = src("components/RoleCommands.tsx");
+    for (const k of ["head", "preview", "readonly"]) expect(rc).toContain(`ROLE_COMMANDS.${k}`);
+    expect(rc).toMatch(/summarizeCommands\(/);
+    expect(src("app/(app)/agents/[id]/page.tsx")).toMatch(/<RoleCommands role=\{role\} commands=\{agent\.allowed_commands\} preview=\{role !== agent\.role\} \/>/);
+    expect(src("app/(app)/agents/new/page.tsx")).toMatch(/<RoleCommands role=\{role\} \/>/);
+  });
+
+  it("관찰 표 — 제목 '관찰' · 부제 '목표치 없이 분포만 봅니다' · 열 이름 · '아직 잴 수 없음' 이 표에 있고 ObservationsTable 이 그 표를 그린다", () => {
+    expect(OBSERVATIONS.title).toBe("관찰");
+    expect(OBSERVATIONS.subtitle).toBe("목표치 없이 분포만 봅니다");
+    expect(OBSERVATIONS.note_summary).toBe("세는 법"); // 지표 표의 접기와 같은 말
+    for (const t of [OBSERVATIONS.title, OBSERVATIONS.subtitle, OBSERVATIONS.col_name, OBSERVATIONS.col_value, OBSERVATIONS.col_n, OBSERVATIONS.median, OBSERVATIONS.note_summary, OBSERVATIONS.counting]) expect(inPool("lib/wording.ts", t)).toBe(true);
+    const table = src("components/ObservationsTable.tsx");
+    for (const k of ["title", "subtitle", "col_name", "col_value", "col_n", "note_summary"]) expect(table).toContain(`OBSERVATIONS.${k}`);
+    expect(table).toMatch(/formatObservation\(row, \{ median: OBSERVATIONS\.median, p95: OBSERVATIONS\.p95 \}\)/);
+    expect(code("components/ObservationsTable.tsx")).not.toContain("목표"); // 목표 열이 없다 — 지표 표와 합치지 않았다
+    expect(code("components/ObservationsTable.tsx")).not.toMatch(/Verdict|metricVerdict/);
+    // 지표 표 컴포넌트가 관찰 표를 **아래에** 그린다(같은 탭, 별도 표).
+    const metrics = src("components/MetricsTable.tsx");
+    expect(metrics.indexOf("<MetricsTableView report={report} />")).toBeLessThan(metrics.indexOf("<ObservationsTableView report={observations} onReload={() => void load()} />"));
+    // V-1: 「다시 세기」 는 지표 표와 같은 load(두 op 함께) — 관찰 표 머리와 관찰 오류 자리, 둘 다 표의 말(reload)로.
+    expect(OBSERVATIONS.reload).toBe("다시 세기");
+    expect(src("components/ObservationsTable.tsx")).toContain("{OBSERVATIONS.reload}");
+    expect(metrics).toMatch(/observations-reload[\s\S]*\{OBSERVATIONS\.reload\}/);
+    expect(inPool("lib/wording.ts", OBSERVATIONS.routing_value_hint)).toBe(true);
+    expect(src("components/ObservationsTable.tsx")).toContain("{OBSERVATIONS.routing_value_hint}");
+  });
+
+  it("라우팅 규칙 번호 → 사람 말 — 1~8 과 platform 전부, '규칙 N · …' 모양, 모르는 값은 원시 값 + '(새 규칙)' (V-1)", () => {
+    expect(ROUTING_RULE_LABEL).toHaveLength(8);
+    expect(routingKindLabel("1")).toBe("규칙 1 · 기록만");
+    expect(routingKindLabel("6")).toBe("규칙 6 · 담당 에이전트 폴백");
+    expect(routingKindLabel("platform")).toBe(ROUTING_PLATFORM_LABEL);
+    expect(routingKindLabel("9")).toBe("9 (새 규칙)");
+    expect(routingKindLabel("delegate")).toBe("delegate (새 규칙)");
+    expect(OBSERVATIONS.unknown_kind_tail).toBe("(새 규칙)");
+    for (const t of [...ROUTING_RULE_LABEL, ROUTING_PLATFORM_LABEL]) expect(inPool("lib/wording.ts", t)).toBe(true);
+  });
+
+  it("빈 턴 — 문장은 PRD FR-7.2 그대로, 활동 피드·작업 줄기 카드가 같은 표(EMPTY_TURN)를 쓴다 · 오류 카드가 아니다", () => {
+    expect(EMPTY_TURN.note).toBe("아무것도 하지 않고 턴을 끝냈습니다");
+    expect(EMPTY_TURN.kind).toBe("정보");
+    expect(readFileSync(join(ROOT, "..", "PRD.md"), "utf8")).toContain(`note: "${EMPTY_TURN.note}"`);
+    for (const t of Object.values(EMPTY_TURN)) expect(inPool("lib/wording.ts", t)).toBe(true);
+    expect(src("lib/feed.ts")).toContain("EMPTY_TURN.note");
+    expect(src("components/ActivityFeed.tsx")).toMatch(/title=\{EMPTY_TURN\.kind\}>\{emptyTurnNote\(e\)\}/);
+    expect(src("components/LaneCard.tsx")).toMatch(/title=\{EMPTY_TURN\.kind\}/);
+    // 문장을 손으로 다시 적은 자리가 없다.
+    for (const f of ["components/ActivityFeed.tsx", "components/LaneCard.tsx", "lib/feed.ts", "app/(app)/sessions/[id]/page.tsx"]) expect(code(f)).not.toContain("아무것도 하지 않고");
+    // 정보 카드 — 실패 색·error 클래스를 타지 않는다.
+    expect(src("components/activity-feed.css")).toMatch(/\.feed__row\[data-info="true"\] \.feed__glyph \{ color: var\(--ink-2\); \}/);
+    expect(src("components/lane-card.css")).toMatch(/\.lane__note--info \{ color: var\(--ink-2\); \}/);
   });
 });

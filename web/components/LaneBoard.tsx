@@ -20,12 +20,14 @@ export const LANE_GROUP_ORDER: readonly LaneStatus[] = [
   "done",
 ];
 
-export type LaneBoardProps = Omit<LaneCardProps, "lane"> & {
+export type LaneBoardProps = Omit<LaneCardProps, "lane" | "emptyTurnNote"> & {
   lanes: Lane[];
   emptyHint?: string;
+  /** 작업 줄기 id → 빈 턴 문장(FR-7.2) — 이 화면이 그 이벤트를 본 줄기만. */
+  emptyTurns?: Record<string, string>;
 };
 
-export function LaneBoard({ lanes, emptyHint, ...card }: LaneBoardProps) {
+export function LaneBoard({ lanes, emptyHint, emptyTurns, ...card }: LaneBoardProps) {
   if (lanes.length === 0) {
     return (
       <div className="board" data-testid="lane-board">
@@ -48,7 +50,7 @@ export function LaneBoard({ lanes, emptyHint, ...card }: LaneBoardProps) {
               <span className="board__count">{group.length}</span>
             </h3>
             {group.map((l) => (
-              <LaneCard key={l.id} lane={l} {...card} />
+              <LaneCard key={l.id} lane={l} emptyTurnNote={emptyTurns?.[l.id] ?? null} {...card} />
             ))}
           </section>
         );

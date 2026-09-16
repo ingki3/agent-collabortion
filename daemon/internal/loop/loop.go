@@ -16,6 +16,7 @@ import (
 	"github.com/ingki3/agent-collabortion/contracts/clock"
 	"github.com/ingki3/agent-collabortion/daemon/internal/api"
 	"github.com/ingki3/agent-collabortion/daemon/internal/brief"
+	"github.com/ingki3/agent-collabortion/daemon/internal/commands"
 	"github.com/ingki3/agent-collabortion/daemon/internal/config"
 	"github.com/ingki3/agent-collabortion/daemon/internal/harness/acp"
 	"github.com/ingki3/agent-collabortion/daemon/internal/orphan"
@@ -73,8 +74,19 @@ type Daemon struct {
 	// attempts. 0 → defaultShutdownDrain.
 	ShutdownDrain time.Duration
 
-	mu           sync.Mutex
-	running      map[string]*attemptRun
+	mu      sync.Mutex
+	running map[string]*attemptRun
+	// reserved holds the slot of a claimed attempt that is not in `running`
+	// (D-28): claimed and still preparing, or exited and still reporting its
+	// finish. `free` below counts both. The claim loop used to count only
+	// `running`, and an attempt enters that map only after its workdir,
+	// wrapper and brief are prepared — during that window the next claim
+	// went out for the full `capacity` again, and a burst of short turns ran
+	// capacity+1 at once (T-I6 REPORT §6: 4 on a capacity of 3). The key is
+	// the same as running's; `start` takes the reservation on the claim
+	// goroutine, BEFORE the attempt goroutine exists, and the deferred
+	// `release` gives it back after runAttempt's finish call.
+	reserved     map[string]struct{}
 	seen         map[string]bool
 	allowMissing map[contracts.RuntimeKind]bool
 	// surface caches the MEASURED harness §10 tool_surface per runtime (the
@@ -164,6 +176,7 @@ func (d *Daemon) init() {
 		d.Orphans.Root = d.Cfg.WorkdirRoot
 	}
 	d.running = map[string]*attemptRun{}
+	d.reserved = map[string]struct{}{}
 	d.seen = map[string]bool{}
 	d.allowMissing = map[contracts.RuntimeKind]bool{}
 	d.surface = map[contracts.RuntimeKind]string{}
@@ -212,7 +225,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		default:
 		}
 		d.mu.Lock()
-		free := d.Cfg.Capacity - len(d.running)
+		free := d.Cfg.Capacity - d.occupiedLocked()
 		d.mu.Unlock()
 		if free <= 0 {
 			select {
@@ -521,6 +534,14 @@ func (d *Daemon) gc(ctx context.Context, c contracts.Command) {
 		// and the command is then never consumed — it is re-issued every 30s
 		// until the 24h TTL writes "명령 미소비 만료" into the feed (§4.3).
 		row := workdir.Describe(d.Cfg.WorkdirRoot, w.Path, c.SessionID)
+		if row.ID == "" {
+			// §6 v0.8.3: the row is keyed by id. The command's id IS the
+			// server's row id for this path (§4.3 `{id, path}`), so a
+			// directory with no name tag — an older daemon prepared it —
+			// still answers by id, and a directory already gone (deleted by
+			// hand, or this is the re-issue after `deleted`) too.
+			row.ID = w.ID
+		}
 		row.GC = &workdir.GCResult{ID: w.ID}
 		targets = append(targets, row)
 	}
@@ -662,6 +683,12 @@ func bundleKind(b contracts.TaskBundle) string {
 func (d *Daemon) reportLaneWorkdir(b contracts.TaskBundle, fw *contracts.FinishWorkdir) {
 	k := key(b.Task.ID, b.Task.Attempt)
 	row := workdir.Describe(d.Cfg.WorkdirRoot, fw.Path, b.Task.SessionID)
+	// K-14 (§6 v0.8.3): "`id` 는 번들이 준 값을 그대로". The bundle is what
+	// §4.1 said for THIS attempt; the name tag Describe read is the same
+	// value written at preparation, and the bundle wins where they differ.
+	if b.Workdir.ID != "" {
+		row.ID = b.Workdir.ID
+	}
 	if b.Workdir.Kind != "" {
 		row.Kind = b.Workdir.Kind
 	}
@@ -688,7 +715,13 @@ func (d *Daemon) reportLaneWorkdir(b contracts.TaskBundle, fw *contracts.FinishW
 		d.Log("%s workdir report: %v", k, err)
 		return
 	}
-	d.Log("%s workdir report kind=%s bytes=%d %s", k, row.Kind, row.Bytes, gitSummary(row.Git))
+	// D-24 + K-14: the id is the fact a person checking S13 against this log
+	// needs — "(없음)" is the pair fallback (older server, `dir` first attempt).
+	id := row.ID
+	if id == "" {
+		id = "(none)"
+	}
+	d.Log("%s workdir report id=%s kind=%s bytes=%d %s", k, id, row.Kind, row.Bytes, gitSummary(row.Git))
 }
 
 // usageSummary is the §4.4 `usage` block on one line (D-24). Cache counters
@@ -733,9 +766,12 @@ func (d *Daemon) finishWorkdir(wd string) *contracts.FinishWorkdir {
 // root — because the fault always lives in the gap between two of them, and
 // the message it replaced (`spawn: fork/exec …/npx: no such file or
 // directory`) named none.
+//
+// D-27: the head of the sentence is the error's PERSON register
+// (workdir.DetailOf); the English register goes to the log in runAttempt.
 func workdirDetail(err error, b contracts.TaskBundle, root string) string {
-	return fmt.Sprintf("%v (격리 %s, 서버가 준 경로 %q, 이 컴퓨터의 기준 폴더 %s)",
-		err, b.Workdir.Kind, b.Workdir.Path, root)
+	return fmt.Sprintf("%s (격리 %s, 서버가 준 경로 %q, 이 컴퓨터의 기준 폴더 %s)",
+		workdir.DetailOf(err), b.Workdir.Kind, b.Workdir.Path, root)
 }
 
 func (d *Daemon) killAfter() time.Duration {
@@ -746,11 +782,44 @@ func (d *Daemon) killAfter() time.Duration {
 }
 
 func (d *Daemon) start(ctx context.Context, b contracts.TaskBundle) {
+	k := key(b.Task.ID, b.Task.Attempt)
+	// D-28: the slot is taken HERE, on the claim goroutine, so the next
+	// `free` the loop computes already counts this attempt. The goroutine
+	// below moves the reservation to `running` once the runner exists, or
+	// gives it back on any earlier exit.
+	d.mu.Lock()
+	d.reserved[k] = struct{}{}
+	d.mu.Unlock()
 	d.wg.Add(1)
 	go func() {
 		defer d.wg.Done()
+		defer d.release(k)
 		d.runAttempt(ctx, b)
 	}()
+}
+
+// occupiedLocked is the number of slots the claim loop must not hand out
+// again: attempts running plus attempts claimed and still preparing (D-28).
+// Caller holds d.mu. A key is in at most one of the two maps — runAttempt
+// moves it under the same lock — so the sum never double-counts.
+func (d *Daemon) occupiedLocked() int {
+	return len(d.running) + len(d.reserved)
+}
+
+// release gives an attempt's slot back (D-28) once runAttempt has returned
+// — after its finish call on every path, the early exits included — and
+// nudges `slotFreed` so a loop parked on `free <= 0` claims again instead
+// of waiting for the next probe tick. The maps are cleared defensively:
+// the normal path has moved the key from `running` to `reserved` itself.
+func (d *Daemon) release(k string) {
+	d.mu.Lock()
+	delete(d.reserved, k)
+	delete(d.running, k)
+	d.mu.Unlock()
+	select {
+	case d.slotFreed <- struct{}{}:
+	default:
+	}
 }
 
 // taskEnv is the harness §2.1 COLAB_* set for one attempt.
@@ -771,7 +840,21 @@ func (d *Daemon) mcpServers(b contracts.TaskBundle) []acp.MCPServer {
 		return nil
 	}
 	env := acp.Env(b.Profile.RuntimeKind, te, nil)
-	return []acp.MCPServer{acp.ColabMCPServer(d.Cfg.ColabBin, env)}
+	return []acp.MCPServer{acp.ColabMCPServer(d.Cfg.ColabBin, env, b.Task.AllowedCommands)}
+}
+
+// wrapperEnv is what the hermes wrapper exports (harness §10): the attempt's
+// COLAB_* set, plus `COLAB_ALLOWED_COMMANDS` (v0.8.10, K-19) when the bundle
+// restricts the role — the CLI reads it and refuses the rest with exit 3
+// (colab-cli.md §2.5). It is NOT added to the runtime process env (§2.1 is a
+// closed allow-list; the wrapper is the CLI's only environment on this
+// surface anyway).
+func (d *Daemon) wrapperEnv(b contracts.TaskBundle) []string {
+	env := acp.Env(b.Profile.RuntimeKind, d.taskEnv(b), nil)
+	if e := commands.EnvEntry(b.Task.AllowedCommands); e != "" {
+		env = append(env, e)
+	}
+	return env
 }
 
 // toolSurface is the harness §10 surface to PREPARE this attempt for: the
@@ -931,7 +1014,9 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	// attempt of the session died that way (T-I4 차단 ①).
 	if verr := workdir.Verify(wd); verr != nil {
 		detail := workdirDetail(verr, b, d.Cfg.WorkdirRoot)
-		d.Log("%s %s", k, detail)
+		// D-27: the log gets the English register (`cause`), the feed the
+		// person's — same facts, same order, one language per surface.
+		d.Log("%s workdir verify: %v (isolation=%s, bundle path=%q, workdir_root=%s)", k, verr, b.Workdir.Kind, b.Workdir.Path, d.Cfg.WorkdirRoot)
 		sink.Emit(contracts.TaskEvent{
 			TaskID: b.Task.ID, Attempt: b.Task.Attempt, Seq: nextSeq(), TS: d.Clock.Now().UTC(),
 			Class: "runtime", Verb: "error", Outcome: "failed",
@@ -944,13 +1029,22 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		finish(contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: detail})
 		return
 	}
+	// harness §10 v0.8.10 (K-19): the bundle's `task.allowed_commands` is the
+	// role's subset of colab commands, and it goes to three places — the MCP
+	// server argv (mcpServers), the wrapper's env (below) and brief [2]
+	// (here, before the wrapper rewrite so the names it writes get the
+	// wrapper path too). Empty → everything: no flag, no variable, no lines.
+	if d.taskEnv(b).ColabSurface() && len(b.Task.AllowedCommands) > 0 {
+		b.Brief.Text = brief.RestrictCommands(b.Brief.Text, b.Task.AllowedCommands)
+		d.Log("%s allowed commands: %s (denied: %s)", k, commands.List(b.Task.AllowedCommands), commands.List(commands.Denied(b.Task.AllowedCommands)))
+	}
 	// harness §10: a cli_wrapper runtime ignores mcpServers and sanitises the
 	// env of its shell tools, so the attempt's only channel to the platform is
 	// a wrapper FILE, and every text we hand the agent must name it by
 	// absolute path (v0.8.1 — the server cannot know a path we invent here).
 	surface := d.toolSurface(b.Profile.RuntimeKind)
 	if surface == acp.ToolSurfaceCLIWrapper && d.taskEnv(b).ColabSurface() {
-		wrapper, werr := toolwrap.Write(d.Cfg.WorkdirRoot, b.Task.ID, b.Task.Attempt, d.Cfg.ColabBin, acp.Env(b.Profile.RuntimeKind, d.taskEnv(b), nil))
+		wrapper, werr := toolwrap.Write(d.Cfg.WorkdirRoot, b.Task.ID, b.Task.Attempt, d.Cfg.ColabBin, d.wrapperEnv(b))
 		if werr != nil {
 			d.Log("%s tool wrapper: %v", k, werr)
 			finish(contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: "tool wrapper: " + werr.Error(), Workdir: d.finishWorkdir(wd)})
@@ -1043,6 +1137,9 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	})
 	run := &attemptRun{bundle: b, runner: runner, workdir: wd}
 	d.mu.Lock()
+	// D-28: reservation → running under one lock, so `free` never sees the
+	// slot as both or as neither.
+	delete(d.reserved, k)
 	d.running[k] = run
 	d.mu.Unlock()
 	hb.r = runner
@@ -1062,9 +1159,23 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	} else {
 		d.Log("%s turn outcome=%s stop=%s usage=%s", k, res.Outcome, res.StopReason, usageSummary(res.Usage))
 	}
+	// K-19 evidence (claude_code with the raw stream on): the colab tools the
+	// runtime actually registered, from the raw system/init — the log line
+	// that shows `--allow` reached the tool list, or did not.
+	if res.RawInit != nil && len(res.RawInit.Tools) > 0 {
+		d.Log("%s colab tools registered: %s", k, strings.Join(colabTools(res.RawInit.Tools), ","))
+	}
 
 	d.mu.Lock()
+	// D-28: the slot stays held (`reserved`) until the finish below has been
+	// SENT — the server counts an attempt as running from claim to finish,
+	// and a claim that went out between the process exit and the finish
+	// call put capacity+1 on the server's books. `running` is left now all
+	// the same: a cancel or gc arriving from here on has no process to act
+	// on. The deferred release in `start` gives the slot back and nudges
+	// the loop.
 	delete(d.running, k)
+	d.reserved[k] = struct{}{}
 	for s := range d.seen {
 		if len(s) > len(k) && s[len(s)-len(k):] == k {
 			delete(d.seen, s)
@@ -1082,10 +1193,6 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		// the next one on this daemon is prepared for the measured one.
 		d.Log("%s tool_surface measured=%s prepared=%s", k, res.ToolSurface, surface)
 	}
-	select {
-	case d.slotFreed <- struct{}{}:
-	default:
-	}
 	_ = d.Orphans.Remove(b.Task.ID, b.Task.Attempt) // E11-02
 
 	f := contracts.Finish{Outcome: res.Outcome, StopReason: res.StopReason, Usage: res.Usage, RuntimeSessionRef: res.SessionRef, ResumeOutcome: res.ResumeOutcome}
@@ -1102,6 +1209,18 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	}
 	f.Workdir = d.finishWorkdir(wd)
 	finish(f)
+}
+
+// colabTools picks the colab MCP tools out of a raw system/init tool list
+// (`mcp__colab__colab_message_post` → `colab_message_post`).
+func colabTools(tools []string) []string {
+	var out []string
+	for _, t := range tools {
+		if n, ok := strings.CutPrefix(t, "mcp__"+acp.ColabMCPName+"__"); ok {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // usageMidturn reports whether this attempt asks the runtime for in-turn

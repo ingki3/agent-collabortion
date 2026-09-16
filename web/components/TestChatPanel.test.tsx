@@ -5,7 +5,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Agent, Runtime, StreamEvent, TestChat } from "@/lib/api/types";
-import { ApiError } from "@/lib/api/client";
 
 const get = vi.fn();
 const post = vi.fn();
@@ -23,6 +22,7 @@ vi.mock("@/lib/realtime/StreamContext", () => ({
 }));
 
 import { TestChatPanel } from "./TestChatPanel";
+import { problemFixture } from "@/lib/mock/problem-fixture";
 
 const agent: Agent = {
   id: "a1", workspace_id: "w1", name: "Lead", role: "lead", role_description: "팀을 이끈다", instructions: "", tools: [], owner_id: "u1",
@@ -131,7 +131,7 @@ describe("TestChatPanel", () => {
 
   it("409(이전 턴 진행 중)는 서버 문장을 보이고 열린 채로 남는다", async () => {
     await openChat();
-    post.mockImplementationOnce(async () => { throw new ApiError({ type: "about:blank", title: "지금은 할 수 없음", status: 409, code: "turn_in_progress", detail: "이전 답이 아직 오는 중입니다 — 끝난 뒤 보내 주세요" }); });
+    post.mockImplementationOnce(async () => { throw problemFixture("turn_in_progress", 409, { detail: "이전 답이 아직 오는 중입니다 — 끝난 뒤 보내 주세요" }); });
     fireEvent.change(screen.getByTestId("test-chat-input"), { target: { value: "또" } });
     fireEvent.click(screen.getByTestId("test-chat-send"));
     await waitFor(() => expect(screen.getByTestId("test-chat-error").textContent).toBe("이전 답이 아직 오는 중입니다 — 끝난 뒤 보내 주세요"));
@@ -140,7 +140,7 @@ describe("TestChatPanel", () => {
 
   it("410(닫힘)은 closed 로 — 입력 잠금 + '새로 열기'", async () => {
     await openChat();
-    post.mockImplementationOnce(async () => { throw new ApiError({ type: "about:blank", title: "더 이상 쓸 수 없음", status: 410, code: "test_chat_closed", detail: "닫힌 시험 대화입니다 — 새로 열어 주세요" }); });
+    post.mockImplementationOnce(async () => { throw problemFixture("test_chat_closed", 410, { detail: "닫힌 시험 대화입니다 — 새로 열어 주세요" }); });
     fireEvent.change(screen.getByTestId("test-chat-input"), { target: { value: "x" } });
     fireEvent.click(screen.getByTestId("test-chat-send"));
     await waitFor(() => expect(screen.getByTestId("test-chat").getAttribute("data-phase")).toBe("closed"));
@@ -150,7 +150,7 @@ describe("TestChatPanel", () => {
   });
 
   it("열 때 컴퓨터가 오프라인이면(409 runtime_offline) 사유를 보이고 다시 고를 수 있다", async () => {
-    post.mockImplementationOnce(async () => { throw new ApiError({ type: "about:blank", title: "지금은 할 수 없음", status: 409, code: "runtime_offline", detail: "이 컴퓨터의 연결이 끊겨 있습니다 — 다른 컴퓨터를 골라 주세요" }); });
+    post.mockImplementationOnce(async () => { throw problemFixture("runtime_offline", 409, { detail: "이 컴퓨터의 연결이 끊겨 있습니다 — 다른 컴퓨터를 골라 주세요" }); });
     render(<TestChatPanel agent={agent} runtimes={[rt()]} workspaceId="w1" />);
     fireEvent.change(screen.getByTestId("test-chat-runtime"), { target: { value: "r1" } });
     fireEvent.click(screen.getByTestId("test-chat-open"));

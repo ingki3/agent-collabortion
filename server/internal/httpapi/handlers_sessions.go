@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
+	"github.com/ingki3/agent-collabortion/server/internal/roles"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
@@ -91,6 +93,10 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, sessionId ge
 		writeProblem(w, p)
 		return
 	}
+	if p := s.commandAllowed(r, gen.SessionGet); p != nil {
+		writeProblem(w, p)
+		return
+	}
 	v := sessions.Viewer{}
 	if u != nil {
 		v.UserID = &u.Id
@@ -122,6 +128,10 @@ func (s *Server) ListParticipants(w http.ResponseWriter, r *http.Request, sessio
 
 func (s *Server) ListMessages(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.ListMessagesParams) {
 	if _, p := s.sessionAccess(r, sessionId); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	if p := s.commandAllowed(r, gen.SessionMessages); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -192,6 +202,10 @@ func (s *Server) PostMessage(w http.ResponseWriter, r *http.Request, sessionId g
 	key := params.IdempotencyKey.String()
 	u, p := s.sessionAccess(r, sessionId)
 	if p != nil {
+		writeProblem(w, p)
+		return
+	}
+	if p := s.commandAllowed(r, gen.MessagePost); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -376,9 +390,18 @@ func (s *Server) GetCliContext(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	// K-19: the role's command subset (colab-cli.md §2.5). The CLI caches it
+	// on first call and refuses the rest with exit 3 before sending. The
+	// role is the request's cached read (agentRole), shared with the gate.
+	role, err := s.agentRole(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	allowed := roles.AllowedCommands(gen.AgentRole(role))
 	out := gen.CliContext{
 		TaskId: sc.TaskID, LaneId: sc.LaneID, SessionId: sc.SessionID, AgentId: sc.AgentID, WorkspaceId: sess.WorkspaceId,
-		Attempt: sc.Attempt, LastSeq: lastSeq, ExpiresAt: sc.ExpiresAt,
+		Attempt: sc.Attempt, LastSeq: lastSeq, ExpiresAt: sc.ExpiresAt, AllowedCommands: &allowed,
 		DelegatedFromTaskId:        tasks.NullUUID(t.DelegatedFromTaskID),
 		SuppressedDelegatorAgentId: nullable.NewNullNullable[openapi_types.UUID](),
 		OpenHitlRequestId:          nullable.NewNullNullable[openapi_types.UUID](),
@@ -448,6 +471,12 @@ func (s *Server) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceI
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+	// S-14: the stream is the one response meant to stay open for hours; the
+	// listener's WriteTimeout would cut every subscriber off at 60s. No
+	// deadline for this connection — liveness is the heartbeat below.
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		s.Log.Warn("stream write deadline", "err", err)
+	}
 	w.WriteHeader(http.StatusOK)
 
 	write := func(id, typ string, data []byte) {
@@ -553,6 +582,10 @@ func (s *Server) SetTaskStatus(w http.ResponseWriter, r *http.Request, taskId ge
 	pr := principalOf(r)
 	if pr.Task == nil || pr.Task.TaskID != taskId {
 		writeProblem(w, apperr.Forbidden("outside_task_scope", "자기 할 일의 상태만 바꿀 수 있습니다"))
+		return
+	}
+	if p := s.commandAllowed(r, gen.StatusSet); p != nil {
+		writeProblem(w, p)
 		return
 	}
 	var in gen.SetTaskStatusJSONBody

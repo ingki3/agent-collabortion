@@ -3,7 +3,7 @@
  *
  * 서버(PR #192, S-67)가 `Problem.detail`·`title`·`errors[].message`·시스템 메시지를 §8.4 의 말로 바꿨다.
  * 목이 서버와 다른 말을 하면 화면 테스트가 실서버를 못 대변하므로, 서버가 만드는 문장은 전부 여기서만 적고
- * `handlers.ts` 는 이 표를 쓴다. `server-wording.test.ts` 가 각 항목을 `server/` 소스의 그 파일과 **글자 단위로**
+ * `handlers.ts` 는 이 표를 쓴다. `server-wording/*.test.ts` 가 각 항목을 `server/` 소스의 그 파일과 **글자 단위로**
  * 대조한다 — 서버가 문장을 바꾸면 여기가 빨개진다.
  *
  * 규칙:
@@ -11,7 +11,7 @@
  *   - 목에만 있는 경로(서버가 아직 안 만든 op)의 문장은 `SERVER` 에 넣지 않는다 — 대조할 정답이 없다. 지금은 그런 op 이 없다(T-W12).
  */
 
-import type { Metric } from "@/lib/api/types";
+import type { Metric, ObservationRow } from "@/lib/api/types";
 
 export interface ServerSentence {
   /** 서버 소스의 문장(리터럴 그대로). */
@@ -132,7 +132,7 @@ export const SERVER = {
   idempotency_key_required: { text: "같은 요청을 구분할 키가 빠졌습니다 — 화면을 새로고침한 뒤 다시 시도해 주세요", at: "internal/httpapi/server.go" },
   // ── 작업 줄기 (internal/httpapi/handlers_lanes.go · handlers_lanes_p3.go) ──
   lane_control: { text: "작업 줄기는 이 세션의 Director 나 deputy 만 중단할 수 있습니다", at: "internal/httpapi/handlers_lanes.go" },
-  lane_not_cancellable: { text: "진행 중이거나 대기 중인 작업 줄기만 중단할 수 있습니다", at: "internal/httpapi/handlers_lanes.go" },
+  lane_not_cancellable: { text: "중단할 수 있는 진행 중 턴이 없습니다", at: "internal/httpapi/handlers_lanes.go" },
   new_instruction_required: { text: "새 지시를 적어 주세요", at: "internal/httpapi/handlers_lanes_p3.go" },
   lane_not_restartable: { text: "이 작업 줄기는 다시 지시할 수 없습니다 (현재 상태: ", at: "internal/httpapi/handlers_lanes_p3.go" },
   // ── 세션 제어 (internal/httpapi/handlers_sessions_p3.go · sessions/pause.go · sessions/budget.go) ──
@@ -216,6 +216,8 @@ export const SERVER = {
   reviewer_not_participant: { text: "리뷰어는 이 세션의 참여자 중에서 골라 주세요", at: "internal/sessions/reviewer.go" },
   submitter_not_participant: { text: "제출자는 이 세션의 참여자 중에서 골라 주세요", at: "internal/sessions/reviewer.go" },
   condition_immutable: { text: "끝났거나 끝나는 중인 세션의 종료 조건은 바꿀 수 없습니다", at: "internal/httpapi/handlers_sessions_p3.go" },
+  // ── 빈 턴 카드 (T-S19 #246 · internal/tasks/emptyturn.go) — FR-7.2
+  empty_turn_note: { text: "아무것도 하지 않고 턴을 끝냈습니다", at: "internal/tasks/emptyturn.go" },
   // 404 — 서버는 `NotFoundNouns` 밖에서 조립한다(handlers_members.go `memberNotFound`, 이유는 test_chat_not_found 와 같다).
   // 서버가 표로 옮기면 이 항목은 빨개지고 `NOT_FOUND_NOUN.member` 로 옮긴다.
   member_not_found: { text: "멤버를 찾을 수 없습니다", at: "internal/httpapi/handlers_members.go" },
@@ -230,20 +232,25 @@ export const SERVER = {
  * 목에만 있는 op 의 문장 — **서버가 아직 안 만든 op**(T-W13 시점: `deleteSession`, 계약 PR #218 · 서버는 T-S17 이 동시에 만든다).
  * `SERVER` 에 넣지 않는 이유는 대조할 정답이 없어서다. 규칙은 T-W6·T-W12 때와 같다: §8.4 의 말, `Problem.detail` 한 문장,
  * 계약 description 이 문장을 못박았으면 **그대로**(`session_active`), 서버가 만들면 `SERVER` 로 옮기며 `at` 을 채운다.
- * `server-wording.test.ts` (g) 가 "그 op 이 정말 미구현인가"(`func (s *Server) DeleteSession(` 부재)를 재므로 T-S17 이 머지되면
+ * `server-wording/*.test.ts` (g) 가 "그 op 이 정말 미구현인가"(`func (s *Server) DeleteSession(` 부재)를 재므로 T-S17 이 머지되면
  * 이 표는 빨개진다 — 그때 T-S17 의 문장으로 옮긴다.
  */
 /**
  * 서버가 **아직 dev 에 안 올린** 검증의 문장 — T-W15 시점: createSession/updateSession 의 **리뷰어 검사**(계약 PR #232 v0.1.4, `errors[].code`
  * `reviewer_required` · `reviewer_not_participant`)와 **끝난 세션의 조건 수정 거절**(422 immutable). 서버는 T-S18(PR #233, 열림)이 동시에
  * 만들었고 아래 문장은 **그 PR 의 `sessions.ValidateReviewers` · `handlers_sessions_p3.go` 리터럴 그대로**다 — 머지되면 `SERVER` 로
- * 옮기며 `at` 을 채운다(`server-wording.test.ts` (h) 가 dev 에 리터럴이 생기는 순간부터 글자 단위로 대조한다).
+ * 옮기며 `at` 을 채운다(`server-wording/*.test.ts` (h) 가 dev 에 리터럴이 생기는 순간부터 글자 단위로 대조한다).
  */
-export const MOCK_ONLY = {} as const satisfies Record<string, string>; // 비어 있다 — T-S18 #233 이 리뷰어 검사를 만들어 SERVER 로 옮겼다
+/**
+ * T-W16 시점: **빈 턴 행의 문장**(PRD FR-7.2 v0.18 "판정과 기록" — `payload.args.note`). 서버 T-S19 가 finish 에서 남기고, 문장은 PRD 가
+ * 못박았다("아무것도 하지 않고 턴을 끝냈습니다"). 서버가 머지되면 `SERVER` 로 옮기며 `at` 을 채운다 — `server-wording/*.test.ts` (i) 가 dev 에
+ * 그 리터럴이 오르는 순간부터 글자 단위로 대조한다. 화면 쪽 같은 문장은 `lib/wording.ts` `EMPTY_TURN.note`(note 가 없을 때의 폴백).
+ */
+export const MOCK_ONLY = {} as const satisfies Record<string, string>; // 비어 있다 — T-S19 #246 이 빈 턴 문장을 만들어 SERVER 로 옮겼다
 
 /**
  * 관측 지표 10개의 정의 — 서버 `internal/metrics/metrics.go` 의 `Defs` 표(PRD §11 열 순서)를 **그대로** 옮긴 것.
- * `label`·`note` 는 S14 「대시보드」에 그대로 보이는 문장이라(§8.4) 서버가 정하고, `server-wording.test.ts` 가 Go 소스를 파싱해
+ * `label`·`note` 는 S14 「대시보드」에 그대로 보이는 문장이라(§8.4) 서버가 정하고, `server-wording/*.test.ts` 가 Go 소스를 파싱해
  * 항목 단위(key·unit·target·target_op·label·note)로 대조한다 — 서버가 한 글자라도 바꾸면 여기가 빨개진다.
  */
 export type MetricDef = Pick<Metric, "key" | "unit" | "target" | "target_op" | "label" | "note">;
@@ -278,6 +285,26 @@ export const METRIC_DEFS: readonly MetricDef[] = [
   { key: "weekly_active_sessions", unit: "count", target: 5, target_op: "gt",
     label: "이번 주에 움직인 세션 수",
     note: "최근 7일 안에 할 일이 하나라도 돌아간 세션 수. 표본 수는 이 워크스페이스에서 할 일을 돌린 적 있는 세션 수." },
+];
+
+/**
+ * 「관찰」 표 5행의 정의(key·label·note) — openapi 0.1.5 `getWorkspaceObservations` description 의 정의 1~5 를 옮긴 것(v1.1 K-18, T-W16).
+ * `label`·`note` 는 서버 `internal/observations/observations.go` 의 `Defs` 표 **그대로**(T-S19 #246) — `server-wording/*.test.ts` (i) 가
+ * Go 소스를 파싱해 항목 단위로 대조한다(METRIC_DEFS 와 같은 방식).
+ * 순서는 계약 `rows` 의 표 순서(ObservationRow.key enum 순서).
+ */
+export type ObservationDef = Pick<ObservationRow, "key" | "label" | "note">;
+export const OBSERVATION_DEFS: readonly ObservationDef[] = [
+  { key: "chain_scale", label: "트리거 사슬 규모",
+    note: "사람이 쓴 메시지 하나가 다음 사람 메시지 전까지 에이전트 사이에 일으킨 할 일 수, 그 중앙값과 상위 5% 값. 표본 수는 에이전트를 깨운 사람 메시지 수." },
+  { key: "chain_depth", label: "트리거 사슬 깊이",
+    note: "세션 안에서 사람의 메시지에서 시작해 에이전트 사이의 멘션이 이어진 가장 깊은 단계, 그 중앙값과 상위 5% 값. 표본 수는 세션 수." },
+  { key: "join_breadth", label: "합류 폭",
+    note: "한 할 일이 위임으로 만든 작업 줄기의 수(합류 그룹의 크기), 그 중앙값과 상위 5% 값. 표본 수는 위임 그룹 수." },
+  { key: "routing_concentration", label: "라우팅 집중",
+    note: "할 일이 어느 라우팅 규칙으로 만들어졌는지의 비율. 값은 멘션 없이 담당 에이전트에게 간 비율(규칙 6·7). 표본 수는 할 일을 만든 트리거 수." },
+  { key: "empty_turn_rate", label: "빈 턴 비율",
+    note: "메시지 게시·플랫폼 조작·파일 편집이 하나도 없이 끝난 실행 ÷ 완료된 실행 전체. 표본 수는 완료된 실행 수." },
 ];
 
 export type ServerKey = keyof typeof SERVER;

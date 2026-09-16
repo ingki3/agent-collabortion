@@ -31,3 +31,6 @@
 .feed__exit[data-ok="false"] { color: var(--s-fail-text); }
 .feed__more { border: 0; background: none; padding: 0 0 0 6px; font-size: var(--fs-sub); color: var(--ink-2); text-decoration: underline; cursor: pointer; }
 .feed__detail { display: block; margin-top: 4px; font-size: var(--fs-sub); color: var(--ink-2); white-space: pre-wrap; }
+/* 빈 턴 정보 카드(FR-7.2 v0.17) — 오류가 아니다. 글리프 ⓘ 는 보조 잉크, 문장은 본문 잉크 그대로(실패 강조 없음). */
+.feed__row[data-info="true"] .feed__glyph { color: var(--ink-2); }
+.feed__row[data-info="true"] .feed__sentence { color: var(--ink-2); font-style: normal; }

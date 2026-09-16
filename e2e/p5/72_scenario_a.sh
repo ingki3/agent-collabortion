@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # e2e/p5/72_scenario_a.sh — **시나리오 A 전체** (PRD §4 A 4~8단계 · EVAL E1-15·E1-21·E6-01·E7·FR-2.4).
 #
+# 비용 한 줄(I-3): 페이크 턴 ≈ 9(Lead 3 · Researcher 3 · Writer 2 + 요약 폴백) · $0 · ≈ 10s. 실기(RUNTIME=real): 같은 턴 haiku ≈ $0.05 · ≈ 5분
+#
 #   Lead 위임 3 → Researcher lane 3 병렬 → 합류 1회 → Lead 종합 · Writer 위임 → Writer **HITL 질문**
 #   (proposed_default, 턴 종료) → Director 답 → Writer 새 attempt(resume 우선) → 아티팩트 제출 →
 #   `artifact_submitted` 충족 → 플랫폼이 `user_approval` HITL 발행 → Director 승인 → **completed** → 요약 1개.
@@ -53,7 +55,11 @@ echo "$WS $SESSION $LEAD $RSCH $WRTR $RUNTIME_ID $EMAIL" > "$OUT/72-ids.txt"
 ok "session $SESSION"
 T0="$(now_ms)"
 
-step "3. Writer 의 HITL 질문까지 (Lead 위임 → Researcher 3 → 합류 → Writer 위임 → hitl ask)"
+step "3. Researcher 3 lane 동시 running (폴링 · 단계 timeout, I-1) → Writer 의 HITL 질문까지 (합류 → Writer 위임 → hitl ask)"
+# A2d 의 자리(CI 흔들림, PR #249 attempt 1: got=2). 페이크 대본의 barrier(fixtures/agent.sh Researcher)가 셋이 모일 때까지
+# 붙들고, 여기서 그 순간을 DB 로 잡는다. 못 잡으면 이 행이 FAIL 이고 뒤의 A2d(스윕)도 FAIL — 두 눈으로 같은 것을 본다.
+wait_step A2d0 "Researcher task 3개가 **동시에** running (FR-6.3, 폴링)" "$T_TURN" \
+  '[ "$(psqlq "select count(*) from task t join agent a on a.id=t.agent_id where t.session_id='"'"'$SESSION'"'"' and a.name='"'"'Researcher'"'"' and t.status='"'"'running'"'"'")" = 3 ]' 0.3 || true
 H1="$(wait_hitl "$SESSION" $((T_TURN*3)))"
 chk A_H1 "Writer 가 HITL 질문을 열었다 (FR-5.1)" yes "$( [ -n "$H1" ] && echo yes || echo no )"
 if [ -n "$H1" ]; then

@@ -3,6 +3,8 @@
 # — openapi updateMemberRole · removeMember · getNotificationSettings · updateNotificationSettings (S-72).
 # 데몬 없이, 계정 셋(owner · admin · member)과 내보내질 넷째(victim)로 계약의 권한 줄을 그대로 왕복한다.
 #
+# 비용 한 줄(I-3): 에이전트 턴 0(데몬 없이 curl) · $0 · ≈ 10s
+#
 # 재는 것 (판정 표 out/78-checks.tsv):
 #   A. updateMemberRole — 멤버 403 · admin 이 멤버 승격 200 · admin 이 owner 강등 403(owner_only) ·
 #      admin 이 자기를 owner 로 403 · 마지막 owner 강등 409(last_owner) · owner 둘일 때 강등 200 ·

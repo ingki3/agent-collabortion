@@ -128,11 +128,14 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 	if err != nil {
 		return nil, err
 	}
-	v, err := s.gateHop(ctx, tx, sessionID, wsID, director, Hop{FromAgent: callerAgent, ToAgent: in.AgentID, At: now, CauseID: cause}, msgID, 2, now)
+	v, err := s.judgeHop(ctx, tx, sessionID, wsID, Hop{FromAgent: callerAgent, ToAgent: in.AgentID, At: now, CauseID: cause}, msgID, 2, now)
 	if err != nil {
 		return nil, err
 	}
 	if !v.Allowed {
+		if err := s.pauseForLoop(ctx, tx, sessionID, wsID, director, v, now); err != nil {
+			return nil, err
+		}
 		// colab-cli.md §4: the refused call is on the feed too, with the reason
 		// in the schema's own slot rather than a free-text note (S-52).
 		if err := tasks.InsertServerEvent(ctx, tx, callerTask, callerAttempt, "status", "delegate", in.AgentID.String(), "rejected",

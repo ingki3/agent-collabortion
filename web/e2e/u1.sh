@@ -116,7 +116,7 @@ step "U1-13 S7 — goal 시스템 메시지 · 참여자 칩 · 에이전트 응
 ab wait --url "**/sessions/*" >/dev/null || fail "S7 로 이동하지 않음"
 ab wait '[data-testid="session-detail"]' >/dev/null
 # 첫 시스템 메시지: 실서버(S-67, sessions.go)와 목(lib/mock/wording.ts `session_started`)이 **같은 문장**을 낸다 —
-# `세션을 시작했습니다. 목표: …`. 한 문장만 허용한다(T-W10; 목·서버 대조는 lib/mock/server-wording.test.ts).
+# `세션을 시작했습니다. 목표: …`. 한 문장만 허용한다(T-W10; 목·서버 대조는 lib/mock/server-wording/e-session-started.test.ts).
 ab wait --fn "document.body.innerText.includes('세션을 시작했습니다. 목표:')" --timeout 15000 >/dev/null || fail "goal 시스템 메시지가 보이지 않음('세션을 시작했습니다. 목표: …')"
 ab wait '[data-testid="participants"] [data-testid="agent-chip"]' >/dev/null || fail "참여자 칩 없음"
 shot "u1-13-s7-started"

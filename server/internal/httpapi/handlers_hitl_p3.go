@@ -139,6 +139,10 @@ func (s *Server) CreateHitlRequest(w http.ResponseWriter, r *http.Request, sessi
 		writeProblem(w, p)
 		return
 	}
+	if p := s.commandAllowed(r, hitlCommand(f.Kind)); p != nil {
+		writeProblem(w, p)
+		return
+	}
 	key := ""
 	if params.IdempotencyKey != nil {
 		key = params.IdempotencyKey.String()

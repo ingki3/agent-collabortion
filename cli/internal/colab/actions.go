@@ -20,6 +20,9 @@ type SessionGetArgs struct {
 // server sent it (goal · acceptance_criteria · completion_progress ·
 // participants with derived status · isolation · director).
 func SessionGet(ctx context.Context, c *client.Client, a SessionGetArgs) (map[string]any, error) {
+	if err := c.Allow(ctx, client.CmdSessionGet); err != nil {
+		return nil, err
+	}
 	sid, err := c.SessionID(ctx, a.Session)
 	if err != nil {
 		return nil, err
@@ -56,6 +59,9 @@ func SessionMessages(ctx context.Context, c *client.Client, a SessionMessagesArg
 			return nil, client.Usage("--limit must be 1..200 (got %d)", *a.Limit)
 		}
 		limit = *a.Limit
+	}
+	if err := c.Allow(ctx, client.CmdSessionMessages); err != nil {
+		return nil, err
 	}
 	sid, err := c.SessionID(ctx, a.Session)
 	if err != nil {
@@ -108,6 +114,9 @@ type MessagePostResult struct {
 func MessagePost(ctx context.Context, c *client.Client, a MessagePostArgs) (*MessagePostResult, error) {
 	if strings.TrimSpace(a.Body) == "" {
 		return nil, client.Usage("--body is required")
+	}
+	if err := c.Allow(ctx, client.CmdMessagePost); err != nil {
+		return nil, err
 	}
 	sid, err := c.SessionID(ctx, a.Session)
 	if err != nil {
@@ -248,6 +257,9 @@ func ErrorJSON(err error) map[string]any {
 	}
 	if e.Problem != nil {
 		m["problem"] = e.Problem
+	}
+	for k, v := range e.Extra {
+		m[k] = v
 	}
 	return map[string]any{"error": m}
 }

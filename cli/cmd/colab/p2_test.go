@@ -734,8 +734,12 @@ func TestArtifactSubmitRefusesOversizeBeforeUploading(t *testing.T) {
 	if code != client.ExitUsage {
 		t.Fatalf("code = %d, want 2 (refused locally), v = %v", code, v)
 	}
-	if len(s.Requests) != 0 {
-		t.Fatalf("%d requests reached the server; the cap must be checked before uploading", len(s.Requests))
+	// The K-19 gate's one GET /cli/context (colab-cli.md v0.6 §2.5) is not an
+	// upload; nothing else may reach the server.
+	for _, r := range s.Requests {
+		if r.Method != "GET" || r.URL.Path != "/api/v1/cli/context" {
+			t.Fatalf("%s %s reached the server; the cap must be checked before uploading", r.Method, r.URL.Path)
+		}
 	}
 	// Exactly at the ceiling is allowed.
 	ok := filepath.Join(t.TempDir(), "atlimit.bin")

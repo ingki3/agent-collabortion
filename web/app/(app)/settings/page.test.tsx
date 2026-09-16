@@ -4,8 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import type { Me, Member, MetricsReport, WorkspaceSettings } from "@/lib/api/types";
-import { ApiError } from "@/lib/api/client";
+import type { Me, Member, MetricsReport, ObservationReport, WorkspaceSettings } from "@/lib/api/types";
 
 const push = vi.fn();
 let tabParam: string | null = null;
@@ -40,6 +39,7 @@ function setRole(r: typeof role) {
 }
 
 import SettingsPage from "./page";
+import { problemFixture } from "@/lib/mock/problem-fixture";
 
 const settings = (): WorkspaceSettings => ({
   workspace_id: "w1",
@@ -73,8 +73,22 @@ const report = (): MetricsReport => ({
   ],
 });
 
+/** 「관찰」 표(v1.1 K-18) — 분포형 둘(하나는 p95 없음) · 표본 0 하나 · 비율형 둘(하나는 breakdown). */
+const observations = (): ObservationReport => ({
+  workspace_id: "w1", window: "P30D", computed_at: "2026-09-15T09:00:00Z",
+  rows: [
+    { key: "chain_scale", label: "트리거 사슬 규모", note: "사람 메시지 하나가 만든 할 일 수", n: 14, value: null, median: 2, p95: 6 },
+    { key: "chain_depth", label: "트리거 사슬 깊이", note: "가장 깊은 인과 사슬", n: 3, value: null, median: 3, p95: null },
+    { key: "join_breadth", label: "합류 폭", note: "한 위임에서 갈라진 자식 수", n: 0, value: null, median: null, p95: null },
+    { key: "routing_concentration", label: "라우팅 집중", note: "규칙 번호 분포", n: 20, value: 0.35, median: null, p95: null,
+      breakdown: [{ kind: "2", share: 0.4, n: 8 }, { kind: "6", share: 0.3, n: 6 }, { kind: "7", share: 0.05, n: 1 }, { kind: "platform", share: 0.25, n: 5 }] },
+    { key: "empty_turn_rate", label: "빈 턴 비율", note: "아무것도 안 한 실행 비율", n: 31, value: 0.129, median: null, p95: null },
+  ],
+});
+
 function wireGet() {
   get.mockImplementation(async (path: string) => {
+    if (path === "/workspaces/{workspaceId}/observations") return observations();
     if (path === "/workspaces/{workspaceId}/settings") return settings();
     if (path === "/workspaces/{workspaceId}/members") return { items: members, next_cursor: null };
     if (path === "/workspaces/{workspaceId}/invites") return [];
@@ -129,6 +143,7 @@ describe("S14 — 워크스페이스 탭 · 권한 · 저장 payload", () => {
     expect(screen.getByTestId("row-pair-roundtrips-impact").textContent).toBe("낮추면 정상적인 리뷰 왕복이 막힐 수 있습니다");
     const save = screen.getByTestId("settings-save") as HTMLButtonElement;
     expect(save.disabled).toBe(true); // 바꾼 것이 없다
+    // W-21: 행이 보인 직후의 입력이 결정적으로 남는다 — 초안 되돌림이 effect 가 아니라 렌더 중이라(SettingsTabs.test.tsx) 대기가 필요 없다.
     fireEvent.change(screen.getByLabelText("둘이 연속으로 주고받는 횟수"), { target: { value: "2" } });
     expect(screen.getByTestId("settings-dirty").textContent).toContain("바꾼 항목: 1개");
     expect(save.disabled).toBe(false);
@@ -187,7 +202,7 @@ describe("S14 — 워크스페이스 탭 · 권한 · 저장 payload", () => {
   it("422 는 errors[] 를 그 칸 옆에 그린다(서버 문장 그대로)", async () => {
     tabParam = "loop";
     patch.mockImplementation(async () => {
-      throw new ApiError({ type: "about:blank", title: "입력값 확인 필요", status: 422, code: "validation_failed", detail: "입력값을 확인해 주세요", errors: [{ field: "loop_limits.max_chain_depth", code: "out_of_range", message: "1~100 사이여야 합니다" }] });
+      throw problemFixture("validation_failed", 422, { detail: "입력값을 확인해 주세요", errors: [{ field: "loop_limits.max_chain_depth", code: "out_of_range", message: "1~100 사이여야 합니다" }] });
     });
     render(<SettingsPage />);
     await screen.findByTestId("row-chain-depth");
@@ -215,7 +230,7 @@ describe("S14 — 워크스페이스 탭 · 권한 · 저장 payload", () => {
   it("서버가 설정 읽기를 거절하면(403 — P2 서버는 admin 을 요구한다) 문장을 그대로 보이고 폼을 그리지 않는다", async () => {
     tabParam = "loop";
     get.mockImplementation(async (path: string) => {
-      if (path === "/workspaces/{workspaceId}/settings") throw new ApiError({ type: "about:blank", title: "권한 없음", status: 403, detail: "소유자·관리자만 할 수 있습니다" });
+      if (path === "/workspaces/{workspaceId}/settings") throw problemFixture("admin_required", 403, { detail: "소유자·관리자만 할 수 있습니다" });
       return {};
     });
     render(<SettingsPage />);
@@ -251,9 +266,116 @@ describe("S14 — 대시보드(PRD §11)", () => {
 
   it("서버가 501 이면(T-S12 전) 그 문장을 그대로", async () => {
     tabParam = "dashboard";
-    get.mockImplementation(async () => { throw new ApiError({ type: "about:blank", title: "아직 지원하지 않음", status: 501, detail: "아직 지원하지 않는 기능입니다 (GetWorkspaceMetrics)" }); });
+    get.mockImplementation(async () => { throw problemFixture("not_implemented", 501, { detail: "아직 지원하지 않는 기능입니다 (GetWorkspaceMetrics)" }); });
     render(<SettingsPage />);
     await waitFor(() => expect(screen.getByTestId("metrics-error").textContent).toContain("아직 지원하지 않는 기능입니다"));
+  });
+
+  // ── 「관찰」 표(v1.1 K-18, T-W16) — 지표 표 **아래** 별도 표, 목표치 없음 ──
+  it("관찰 표 — 지표 표 아래 · 제목 아래 '목표치 없이 분포만 봅니다' · 5행 enum 순서 · 목표·판정 열 없음", async () => {
+    tabParam = "dashboard";
+    render(<SettingsPage />);
+    await screen.findByTestId("observations-table");
+    const metrics = screen.getByTestId("metrics-table");
+    const obs = screen.getByTestId("observations-table");
+    // DOM 순서: 지표 표 → 관찰 표. 한 표로 합치지 않았다(Director 결정).
+    expect(metrics.compareDocumentPosition(obs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId("observations-title").textContent).toBe("관찰");
+    expect(screen.getByTestId("observations-subtitle").textContent).toBe("목표치 없이 분포만 봅니다");
+    const rows = screen.getAllByTestId("observation-row");
+    expect(rows.map((r) => r.getAttribute("data-key"))).toEqual(["chain_scale", "chain_depth", "join_breadth", "routing_concentration", "empty_turn_rate"]);
+    const heads = within(obs).getAllByRole("columnheader").map((h) => h.textContent);
+    expect(heads).toEqual(["관찰", "값", "표본"]);
+    expect(within(obs).queryAllByTestId("metric-verdict")).toHaveLength(0);
+    // 이름은 서버 label 그대로, 세는 법은 접혀 있다.
+    expect(within(rows[0]).getByText("트리거 사슬 규모")).toBeTruthy();
+    expect(within(rows[0]).getByText("세는 법")).toBeTruthy();
+    expect(within(rows[0]).getByText("사람 메시지 하나가 만든 할 일 수")).toBeTruthy();
+  });
+
+  it("관찰 표 — 분포형은 '중앙값 · p95'(p95 없으면 중앙값만) · 비율형은 % · 표본 0 은 '아직 잴 수 없음'", async () => {
+    tabParam = "dashboard";
+    render(<SettingsPage />);
+    await screen.findByTestId("observations-table");
+    const rows = screen.getAllByTestId("observation-row");
+    const val = (i: number) => within(rows[i]).getByTestId("observation-value").textContent;
+    const n = (i: number) => within(rows[i]).getByTestId("observation-n").textContent;
+    expect(val(0)).toBe("중앙값 2 · p95 6");
+    expect(n(0)).toBe("14");
+    expect(val(1)).toBe("중앙값 3");
+    expect(val(2)).toBe("아직 잴 수 없음");
+    expect(n(2)).toBe("0");
+    expect(rows[2].getAttribute("data-measurable")).toBe("false");
+    // routing_concentration 의 값 옆에는 무엇의 비율인지 한 줄(V-1) — 값 자체는 35%.
+    expect(val(3)).toBe("35%규칙 6·7 폴백 비율 — 아래는 규칙별 분포");
+    expect(within(rows[3]).getByTestId("observation-value-hint").textContent).toBe("규칙 6·7 폴백 비율 — 아래는 규칙별 분포");
+    expect(within(rows[4]).queryByTestId("observation-value-hint")).toBeNull();
+    expect(val(4)).toBe("12.9%");
+    expect(rows[4].getAttribute("data-measurable")).toBe("true");
+  });
+
+  it("관찰 표 — routing_concentration 의 breakdown 이 하위 행(규칙 번호 + 사람 말 · 비율 · n)으로, 다른 행에는 없다", async () => {
+    tabParam = "dashboard";
+    render(<SettingsPage />);
+    await screen.findByTestId("observations-table");
+    const sub = screen.getAllByTestId("observation-breakdown");
+    expect(sub.map((r) => r.getAttribute("data-kind"))).toEqual(["2", "6", "7", "platform"]);
+    expect(sub[0].textContent).toContain("규칙 2 · 에이전트 멘션");
+    expect(sub[0].textContent).toContain("40%");
+    expect(sub[0].textContent).toContain("8");
+    expect(sub[1].textContent).toContain("규칙 6 · 담당 에이전트 폴백");
+    expect(sub[3].textContent).toContain("플랫폼");
+    // 하위 행은 routing_concentration 바로 아래에 붙는다.
+    const rows = screen.getAllByTestId("observation-row");
+    expect(rows[3].nextElementSibling).toBe(sub[0]);
+    expect(sub[3].nextElementSibling).toBe(rows[4]);
+  });
+
+  it("관찰 표 「다시 세기」 — 지표 표의 버튼과 같은 load: 두 op 을 함께 다시 부른다(V-1) · 모르는 kind 는 원시 값 + (새 규칙)", async () => {
+    tabParam = "dashboard";
+    get.mockImplementation(async (path: string) => {
+      if (path === "/workspaces/{workspaceId}/observations") {
+        const o = observations();
+        o.rows[3].breakdown = [...(o.rows[3].breakdown ?? []), { kind: "9", share: 0, n: 0 }];
+        return o;
+      }
+      if (path === "/workspaces/{workspaceId}/metrics") return report();
+      throw new Error(`unexpected GET ${path}`);
+    });
+    render(<SettingsPage />);
+    await screen.findByTestId("observations-table");
+    const calls = () => get.mock.calls.map((c) => c[0] as string);
+    expect(calls().filter((p) => p.endsWith("/metrics"))).toHaveLength(1);
+    expect(calls().filter((p) => p.endsWith("/observations"))).toHaveLength(1);
+    fireEvent.click(within(screen.getByTestId("observations-wrap")).getByTestId("observations-reload"));
+    await waitFor(() => expect(calls().filter((p) => p.endsWith("/observations"))).toHaveLength(2));
+    expect(calls().filter((p) => p.endsWith("/metrics"))).toHaveLength(2);
+    // 상단 버튼도 같은 동작.
+    fireEvent.click(screen.getByTestId("metrics-reload"));
+    await waitFor(() => expect(calls().filter((p) => p.endsWith("/observations"))).toHaveLength(3));
+    expect(calls().filter((p) => p.endsWith("/metrics"))).toHaveLength(3);
+    const unknown = screen.getAllByTestId("observation-breakdown").find((r) => r.getAttribute("data-kind") === "9")!;
+    expect(unknown.textContent).toContain("9 (새 규칙)");
+  });
+
+  it("관찰 op 만 501 이어도(T-S19 전) 지표 표는 그대로 — 오류는 관찰 표 자리에", async () => {
+    tabParam = "dashboard";
+    get.mockImplementation(async (path: string) => {
+      if (path === "/workspaces/{workspaceId}/metrics") return report();
+      if (path === "/workspaces/{workspaceId}/observations") throw problemFixture("not_implemented", 501, { detail: "아직 지원하지 않는 기능입니다 (GetWorkspaceObservations)" });
+      if (path === "/workspaces/{workspaceId}/settings") return settings();
+      throw new Error(`unexpected GET ${path}`);
+    });
+    render(<SettingsPage />);
+    await screen.findByTestId("metrics-table");
+    await waitFor(() => expect(screen.getByTestId("observations-error").textContent).toContain("GetWorkspaceObservations"));
+    expect(screen.getAllByTestId("metric-row")).toHaveLength(10);
+    expect(screen.queryByTestId("observations-table")).toBeNull();
+    expect(screen.queryByTestId("metrics-error")).toBeNull();
+    // 오류 자리에도 「다시 세기」 — 같은 load(두 op 함께).
+    fireEvent.click(within(screen.getByTestId("observations-error")).getByTestId("observations-reload"));
+    await waitFor(() => expect(get.mock.calls.filter((c) => (c[0] as string).endsWith("/observations"))).toHaveLength(2));
+    expect(get.mock.calls.filter((c) => (c[0] as string).endsWith("/metrics"))).toHaveLength(2);
   });
 });
 
@@ -345,7 +467,7 @@ describe("S14 — 알림(개인) · 멤버", () => {
       throw new Error(`unexpected GET ${path}`);
     });
     patch.mockImplementation(async (_p: string, opts: { body: { role: string } }) => ({ ...members3[2], role: opts.body.role }));
-    del.mockRejectedValue(new ApiError({ type: "about:blank", status: 409, title: "지금은 할 수 없음", code: "member_is_director", detail: "이 멤버가 Director 인 진행 중 세션이 1개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요" }));
+    del.mockRejectedValue(problemFixture("member_is_director", 409, { detail: "이 멤버가 Director 인 진행 중 세션이 1개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요" }));
     render(<SettingsPage />);
     const rows = await screen.findAllByTestId("member-row");
     const admin = rows.find((r) => r.textContent?.includes("지훈"))!;

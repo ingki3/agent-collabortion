@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # e2e/p5/73_scenario_b.sh — **시나리오 B 전체** (PRD §4 B · EVAL E16-B, E13-01~08, FR-6.4·6.1·6.5, §8.4).
 #
+# 비용 한 줄(I-3): 페이크 턴 ≈ 8(PM 3 · Backend 1 · Frontend 2 · QA 2) · $0 · ≈ 10s. 실기: haiku ≈ $0.05 · ≈ 6분
+#
 #   B1 세션(worktree, `agent_approval(QA)` 단독) → PM 스펙 + @Backend @Frontend 병렬 위임
 #   B2 워크트리 에이전트당 1개 · 브랜치 colab/<S>/<agent>   B3 각자 `artifact submit --type diff`
 #   B4 QA 번들에 남의 workdir 경로 0(E13-08)   B5 QA 반려 → Frontend 기존 lane 재진입 · diff version 2

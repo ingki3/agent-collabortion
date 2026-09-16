@@ -21,6 +21,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/roles"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -633,6 +634,10 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, caller *uuid.UUID) (*gen
 		return nil, fmt.Errorf("agents: load: %w", err)
 	}
 	a.Role = gen.AgentRole(role)
+	// FR-1.9.1 (K-19): read-only, derived from the role — the same table the
+	// CLI context, the daemon bundle and the 403 gate read.
+	cmds := roles.AllowedCommands(a.Role)
+	a.AllowedCommands = &cmds
 	a.RespondTo = gen.RespondTo(respondTo)
 	a.Tools = tools
 	if a.Tools == nil {

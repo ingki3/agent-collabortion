@@ -3,7 +3,7 @@
  * 제목을 `?deleted=` 에 실어 S5 가 안내 한 줄을 그린다. 다른 세션의 삭제는 무시한다.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Me, Session, StreamEvent } from "@/lib/api/types";
 
 const replace = vi.fn();
@@ -96,6 +96,26 @@ describe("S7 — message.delta 미리보기(작성 중…)", () => {
     expect(screen.getByTestId("message-delta").textContent).toContain("작성 중…");
   });
 
+  it("자동 스크롤은 작성창(sticky) 높이만큼 scroll-margin-bottom 을 두고 내린다 — 마지막 카드·델타가 작성창 뒤에 숨지 않는다(W-18)", async () => {
+    // jsdom 은 레이아웃이 없다 — 작성창의 offsetHeight 만 72 로 흉내 낸다.
+    const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get() { return (this as HTMLElement).classList.contains("s7__composer") ? 72 : 0; } });
+    try {
+      render(<SessionPage />);
+      await waitFor(() => expect(streamHandler).not.toBeNull());
+      act(() => { streamHandler!(delta("Posted the wrap-up.")); });
+      await waitFor(() => expect(screen.getByTestId("message-delta").textContent).toContain("Posted the wrap-up."));
+      const end = screen.getByTestId("timeline-end");
+      expect(end.style.scrollMarginBottom).toBe("72px");
+      expect(end.scrollIntoView).toHaveBeenCalledWith({ block: "end" });
+      // 끝 표식은 작성창 **앞**(같은 열 안, 타임라인의 마지막)에 있다 — 표식이 작성창 뒤라면 여백이 의미가 없다.
+      const composer = document.querySelector(".s7__composer")!;
+      expect(end.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    } finally {
+      if (desc) Object.defineProperty(HTMLElement.prototype, "offsetHeight", desc);
+    }
+  });
+
   it("턴이 끝나면(lane 이 running 을 벗어나면) 미리보기가 사라진다", async () => {
     render(<SessionPage />);
     await waitFor(() => expect(streamHandler).not.toBeNull());
@@ -110,5 +130,67 @@ describe("S7 — message.delta 미리보기(작성 중…)", () => {
     await waitFor(() => expect(streamHandler).not.toBeNull());
     act(() => { streamHandler!(delta("쓰는 중")); streamHandler!(laneEv("running")); });
     await waitFor(() => expect(screen.getByTestId("message-delta")).toBeTruthy());
+  });
+});
+
+// T-W16(v1.1 K-18, FR-7.2 v0.17): 빈 턴 행(status/turn_end/empty_turn)을 SSE 로 보면 — 활동 보기를 열지 않았어도 — 그 할 일이
+// `current_task` 인 작업 줄기 카드에 한 줄을 얹는다. 계약 `Lane` 에 칸이 없어 이 화면이 본 동안만이다(Lead 결정 2026-09-15).
+describe("S7 — 빈 턴 한 줄(작업 줄기 카드)", () => {
+  const laneEv = (id: string, taskId: string, status = "done"): StreamEvent => ({
+    id: "12", type: "lane.updated", at: "2026-09-14T09:01:05Z", workspace_id: "w1", session_id: "s1",
+    payload: { id, session_id: "s1", agent_id: "a1", agent_name: "Researcher", status, actions: [], depends_on: [], reentry_count: 0, brief: null, current_task: { id: taskId, lane_id: id, status: "completed" } } as never,
+  });
+  const emptyEv = (taskId: string): StreamEvent => ({
+    id: "13", type: "task_event.appended", at: "2026-09-14T09:01:04Z", workspace_id: "w1", session_id: "s1",
+    payload: { id: `e-${taskId}`, task_id: taskId, attempt: 1, seq: 3, class: "status", verb: "turn_end", object_ref: "empty_turn", outcome: "info", payload: { command: "turn_end", args: { note: "아무것도 하지 않고 턴을 끝냈습니다" } }, created_at: "2026-09-14T09:01:04Z" } as never,
+  });
+
+  it("빈 턴 행 → 그 할 일의 줄기 카드에 ⓘ 한 줄, 다른 줄기에는 없다", async () => {
+    render(<SessionPage />);
+    await waitFor(() => expect(streamHandler).not.toBeNull());
+    act(() => { streamHandler!(emptyEv("t-empty")); streamHandler!(laneEv("l-empty", "t-empty")); streamHandler!(laneEv("l-other", "t-other")); });
+    await waitFor(() => expect(screen.getAllByTestId("lane-card")).toHaveLength(2));
+    const cards = screen.getAllByTestId("lane-card");
+    const byId = (id: string) => cards.find((c) => c.getAttribute("data-lane-id") === id)!;
+    expect(byId("l-empty").querySelector('[data-testid="lane-empty-turn"]')!.textContent).toBe("ⓘ 아무것도 하지 않고 턴을 끝냈습니다");
+    expect(byId("l-other").querySelector('[data-testid="lane-empty-turn"]')).toBeNull();
+  });
+
+  it("순서가 반대여도(줄기 먼저, 행 나중) 같다 — 파생은 렌더 시점에 잇는다", async () => {
+    render(<SessionPage />);
+    await waitFor(() => expect(streamHandler).not.toBeNull());
+    act(() => { streamHandler!(laneEv("l-empty", "t-empty")); });
+    await waitFor(() => expect(screen.getAllByTestId("lane-card")).toHaveLength(1));
+    expect(screen.queryByTestId("lane-empty-turn")).toBeNull();
+    act(() => { streamHandler!(emptyEv("t-empty")); });
+    await waitFor(() => expect(screen.getByTestId("lane-empty-turn")).toBeTruthy());
+  });
+});
+
+// 새로고침 뒤(SSE 를 못 본 화면): 작업 줄기 카드 → 「이전 작업」 → 「활동」 으로 그 할 일의 이벤트를 읽으면 피드에 정보 카드가 그려지고,
+// 같은 읽기가 카드의 ⓘ 한 줄도 채운다.
+describe("S7 — 빈 턴, 새로고침 뒤 경로(이전 작업 → 활동)", () => {
+  it("이력의 「활동」이 이벤트를 읽는다 → 피드의 정보 카드 + 카드 한 줄", async () => {
+    const laneObj = { id: "l-empty", session_id: "s1", agent_id: "a1", agent_name: "Researcher", status: "done", actions: [], depends_on: [], reentry_count: 0, brief: null, current_task: { id: "t-empty", lane_id: "l-empty", status: "completed" }, created_at: "2026-09-14T09:00:00Z", updated_at: "2026-09-14T09:01:00Z", finished_at: "2026-09-14T09:01:00Z" };
+    const taskObj = { id: "t-empty", lane_id: "l-empty", session_id: "s1", agent_id: "a1", status: "completed", attempt: 1, max_attempts: 3, trigger_message_id: null, restarted_from_task_id: null, created_at: "2026-09-14T09:00:00Z", attempts: [] };
+    const emptyRow = { id: "e1", task_id: "t-empty", attempt: 1, seq: 2, class: "status", verb: "turn_end", object_ref: "empty_turn", outcome: "info", payload: { command: "turn_end", args: { note: "아무것도 하지 않고 턴을 끝냈습니다" } }, created_at: "2026-09-14T09:01:00Z" };
+    get.mockImplementation((path: string) => {
+      if (path === "/sessions/{sessionId}") return Promise.resolve(session);
+      if (path.endsWith("/messages")) return Promise.resolve({ items: [], next_cursor: null });
+      if (path.endsWith("/runtimes")) return Promise.resolve([]);
+      if (path.endsWith("/lanes")) return Promise.resolve([laneObj]);
+      if (path === "/lanes/{laneId}/tasks") return Promise.resolve([taskObj]);
+      if (path === "/tasks/{taskId}/events") return Promise.resolve({ items: [emptyRow], structured: true });
+      if (path.endsWith("/artifacts") || path.endsWith("/decisions")) return Promise.resolve([]);
+      return Promise.resolve({ items: [] });
+    });
+    render(<SessionPage />);
+    await waitFor(() => expect(screen.getAllByTestId("lane-card")).toHaveLength(1));
+    expect(screen.queryByTestId("lane-empty-turn")).toBeNull(); // 아직 아무 이벤트도 못 봤다
+    fireEvent.click(screen.getByTestId("lane-tasks-toggle"));
+    fireEvent.click(await screen.findByTestId("task-activity-toggle"));
+    await waitFor(() => expect(screen.getByTestId("feed-row-empty-turn")).toBeTruthy());
+    expect(screen.getByTestId("feed-empty-turn-note").textContent).toBe("아무것도 하지 않고 턴을 끝냈습니다");
+    await waitFor(() => expect(screen.getByTestId("lane-empty-turn").textContent).toBe("ⓘ 아무것도 하지 않고 턴을 끝냈습니다"));
   });
 });

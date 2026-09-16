@@ -105,27 +105,58 @@ fi
 work="$(mktemp -d "${TMPDIR:-/tmp}/colab-install.XXXXXX")"
 trap 'rm -rf "$work"' EXIT INT TERM
 
+# 클론 한 단계의 상한(초). 서버가 멈춘 채 연결만 받으면 git 은 한없이 기다린다 —
+# 상한이 없으면 설치가 "멈춘 것처럼" 보이고 사람은 왜인지 모른다(S-79). 전체 클론은
+# 저장소가 커질수록 오래 걸리므로 얕은 단계의 5배를 준다. macOS 에 `timeout` 이 없어
+# 아래 run_timeout 이 그 일을 한다.
+CLONE_TIMEOUT="${COLAB_CLONE_TIMEOUT:-120}"
+FULL_CLONE_TIMEOUT="${COLAB_FULL_CLONE_TIMEOUT:-$((CLONE_TIMEOUT * 5))}"
+
+# run_timeout SECS cmd… — cmd 가 SECS 안에 끝나지 않으면 죽인다(그때 반환값은 0 이 아니다).
+run_timeout() {
+  _secs=$1; shift
+  "$@" & _pid=$!
+  ( _i=0
+    while kill -0 "$_pid" 2>/dev/null && [ "$_i" -lt "$_secs" ]; do sleep 1; _i=$((_i + 1)); done
+    kill -0 "$_pid" 2>/dev/null && kill "$_pid" 2>/dev/null ) 2>/dev/null & _watch=$!
+  _rc=0
+  wait "$_pid" 2>/dev/null || _rc=$?
+  kill "$_watch" 2>/dev/null || true
+  wait "$_watch" 2>/dev/null || true
+  return "$_rc"
+}
+
+# shallow_ref — 얕게 REPO_REF 를 받는 두 길. 태그·브랜치면 --branch 로, 커밋이면 그 sha 를
+# 얕게 fetch(GitHub·file:// 모두 됨). 어느 길로 가든 결과는 같은 커밋이다.
+shallow_ref() {
+  rm -rf "$work/src"
+  if run_timeout "$CLONE_TIMEOUT" git clone --quiet --depth 1 --branch "$REPO_REF" "$REPO_URL" "$work/src" 2>/dev/null; then
+    return 0
+  fi
+  rm -rf "$work/src"
+  git init --quiet "$work/src" \
+    && git -C "$work/src" remote add origin "$REPO_URL" \
+    && run_timeout "$CLONE_TIMEOUT" git -C "$work/src" fetch --quiet --depth 1 origin "$REPO_REF" 2>/dev/null \
+    && git -C "$work/src" checkout --quiet FETCH_HEAD 2>/dev/null
+}
+
 if [ -n "$REPO_REF" ]; then
   step "소스 받기 ($REPO_URL @ $REPO_REF — 서버와 같은 커밋)"
-  # 태그·브랜치면 --branch 로 얕게, 커밋이면 그 sha 를 얕게 fetch(GitHub·file:// 모두 됨),
-  # 둘 다 안 되는 오래된 git 이면 전체를 받아 checkout — 어느 길로 가든 결과는 같은 커밋이다.
-  if ! git clone --quiet --depth 1 --branch "$REPO_REF" "$REPO_URL" "$work/src" 2>/dev/null; then
+  # 얕은 두 길 → 한 번 더(순간적인 네트워크 오류) → 둘 다 안 되는 오래된 git 이면 마지막으로
+  # 전체를 받아 checkout. 전체 클론이 맨 뒤인 이유: 가장 오래 걸리고, 얕은 길이 되는
+  # 저장소에서는 필요가 없다(S-79).
+  if shallow_ref; then :
+  elif shallow_ref; then :
+  else
     rm -rf "$work/src"
-    if git init --quiet "$work/src" \
-       && git -C "$work/src" remote add origin "$REPO_URL" \
-       && git -C "$work/src" fetch --quiet --depth 1 origin "$REPO_REF" 2>/dev/null \
-       && git -C "$work/src" checkout --quiet FETCH_HEAD 2>/dev/null; then :
-    else
-      rm -rf "$work/src"
-      git clone --quiet "$REPO_URL" "$work/src" \
-        && git -C "$work/src" checkout --quiet "$REPO_REF" \
-        || die "저장소를 받지 못했습니다: $REPO_URL ($REPO_REF)"
-    fi
+    run_timeout "$FULL_CLONE_TIMEOUT" git clone --quiet "$REPO_URL" "$work/src" \
+      && git -C "$work/src" checkout --quiet "$REPO_REF" \
+      || die "저장소를 받지 못했습니다: $REPO_URL ($REPO_REF) — 네트워크와 저장소 주소를 확인하고 다시 실행하세요(단계마다 ${CLONE_TIMEOUT}초, 전체 받기 ${FULL_CLONE_TIMEOUT}초 상한)"
   fi
 else
   step "소스 받기 ($REPO_URL — 서버가 자기 커밋을 모르는 빌드라 기본 브랜치)"
-  git clone --quiet --depth 1 "$REPO_URL" "$work/src" \
-    || die "저장소를 받지 못했습니다: $REPO_URL"
+  run_timeout "$CLONE_TIMEOUT" git clone --quiet --depth 1 "$REPO_URL" "$work/src" \
+    || die "저장소를 받지 못했습니다: $REPO_URL — 네트워크와 저장소 주소를 확인하고 다시 실행하세요(${CLONE_TIMEOUT}초 상한)"
 fi
 SRC_COMMIT="$(git -C "$work/src" rev-parse HEAD 2>/dev/null || echo unknown)"
 say "  커밋 $SRC_COMMIT"

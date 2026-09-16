@@ -209,6 +209,7 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 	}
 	now := s.Clock.Now()
 	var gcReports []workdirs.GCReport
+	gone := sessionGoneMemo{}
 	for _, wd := range in.Workdirs {
 		if wd.TestChatID != "" {
 			// daemon-protocol v0.8 §4.5: "서버는 test_chat_id 가 있는 행을 workdir
@@ -218,7 +219,16 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 			s.consumeTestChatGC(r.Context(), d, wd.TestChatID, wd.Path, wd.GC, now)
 			continue
 		}
-		rep, why := s.workdirReport(r, d, wd.Kind, wd.Path, wd.SessionID, wd.AgentID, wd.LaneID)
+		// daemon-protocol v0.8.3 §6 (K-14): an entry that echoes the bundle's
+		// `workdir.id` is bound by that id — session·agent·lane come off the
+		// row, so a daemon that restarted and knows only the id it wrote into
+		// the directory still lands on the right row. The pair (session_id,
+		// agent_id, path) is the fallback for an entry with no id, or with an
+		// id the server does not know.
+		rep, why := s.workdirReportByID(r, d, wd.ID, wd.Kind, wd.Path)
+		if rep.ID == nil && why == "" {
+			rep, why = s.workdirReport(r, d, wd.Kind, wd.Path, wd.SessionID, wd.AgentID, wd.LaneID)
+		}
 		if why != "" {
 			receipt := wd.GC != nil && wd.GC.Status != ""
 			// daemon-protocol §6 v0.8.1: a receipt for a directory whose
@@ -226,7 +236,7 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 			// went with the session) is consumed and nothing else — there is
 			// no session to put a feed line on, and it is not a defect of the
 			// daemon's report. Every other dropped entry stays loud.
-			quiet := receipt && rep.SessionID == uuid.Nil && sessionGone(r, s, wd.SessionID)
+			quiet := receipt && rep.SessionID == uuid.Nil && gone.is(r, s, wd.SessionID)
 			if quiet {
 				s.Log.Debug("gc receipt for a deleted session's workdir", "path", wd.Path, "session", wd.SessionID, "runtime", d.RuntimeID)
 			} else {
@@ -320,18 +330,34 @@ func (s *Server) gcReceiptTargets(ctx context.Context, runtimeID uuid.UUID, topI
 	return ids
 }
 
-// sessionGone is true when the report's session_id is a uuid that names no
-// session row — the deleteSession case, as opposed to a malformed report.
+// sessionGoneMemo answers "does this session row still exist?" once per
+// session per report (S-82, PR #220 리뷰 NN4): a report listing many
+// directories of one deleted session used to ask the database the same
+// question for each of them.
+type sessionGoneMemo map[string]bool
+
+// is is true when `session` is a uuid that names no session row — the
+// deleteSession case, as opposed to a malformed report.
+func (m sessionGoneMemo) is(r *http.Request, s *Server, session string) bool {
+	if v, ok := m[session]; ok {
+		return v
+	}
+	v := sessionGone(r, s, session)
+	m[session] = v
+	return v
+}
+
+// sessionGone is the one query behind sessionGoneMemo.
 func sessionGone(r *http.Request, s *Server, session string) bool {
 	sid, err := uuid.Parse(session)
 	if err != nil {
 		return false
 	}
-	var n int
-	if err := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM session WHERE id = $1`, sid).Scan(&n); err != nil {
+	var exists bool
+	if err := s.DB.QueryRow(r.Context(), `SELECT EXISTS (SELECT 1 FROM session WHERE id = $1)`, sid).Scan(&exists); err != nil {
 		return false
 	}
-	return n == 0
+	return !exists
 }
 
 // gcRefusedNote is the head of the feed sentence daemon-protocol §6 (v0.7.4)
@@ -451,6 +477,48 @@ func (s *Server) workdirReport(r *http.Request, d daemonCtx, kind, path, session
 	}
 	if rep.AgentID == nil && rep.LaneID == nil {
 		return rep, "agent_id·lane_id 가 둘 다 없어 이 행을 어디에도 묶을 수 없습니다. agent 사유: " + agentWhy
+	}
+	return rep, ""
+}
+
+// workdirReportByID is §6 v0.8.3's first key: the entry's `id` is the row the
+// bundle carried. The row's session is checked against the calling daemon the
+// same way workdirReport checks a reported session_id — the id is input, not
+// authority, and a daemon token may only write rows of its own workspace on
+// its own machine.
+//
+// A missing or unknown id returns a Report with ID == nil and no reason: the
+// caller then tries the pair. A KNOWN id whose row the daemon may not touch
+// (another workspace, a session pinned elsewhere) returns the reason, so the
+// entry is dropped loudly rather than re-keyed onto the pair.
+func (s *Server) workdirReportByID(r *http.Request, d daemonCtx, id, kind, path string) (workdirs.Report, string) {
+	rep := workdirs.Report{Kind: kind, Path: path}
+	wid, err := uuid.Parse(id)
+	if err != nil || wid == uuid.Nil {
+		return rep, ""
+	}
+	var sid uuid.UUID
+	var agentID, laneID *uuid.UUID
+	var rowKind string
+	var ws uuid.UUID
+	var runtimeID *uuid.UUID
+	if err := s.DB.QueryRow(r.Context(), `
+		SELECT w.session_id, w.agent_id, w.lane_id, w.kind::text, s.workspace_id, s.runtime_id
+		FROM workdir w JOIN session s ON s.id = w.session_id
+		WHERE w.id = $1`, wid).Scan(&sid, &agentID, &laneID, &rowKind, &ws, &runtimeID); err != nil {
+		return rep, ""
+	}
+	if ws != d.WorkspaceID {
+		return rep, "이 데몬 토큰의 워크스페이스가 아닌 세션입니다(" + sid.String() + ")"
+	}
+	if runtimeID != nil && *runtimeID != d.RuntimeID {
+		return rep, "이 세션은 다른 런타임에 고정돼 있습니다(" + runtimeID.String() + ")"
+	}
+	rep.ID = &wid
+	rep.SessionID = sid
+	rep.AgentID, rep.LaneID = agentID, laneID
+	if rep.Kind == "" {
+		rep.Kind = rowKind
 	}
 	return rep, ""
 }

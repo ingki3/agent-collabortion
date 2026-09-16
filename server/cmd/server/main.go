@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -50,7 +51,7 @@ func main() {
 			os.Exit(1)
 		}
 		log.Info("schema up to date", "migrations_applied", n)
-		pool, err := db.Open(ctx, dbURL)
+		pool, err := db.OpenWith(ctx, dbURL, poolOptions(log))
 		if err != nil {
 			log.Error("db open failed", "err", err)
 			os.Exit(1)
@@ -62,7 +63,7 @@ func main() {
 		go scheduler(ctx, srv, log)
 	}
 
-	httpSrv := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
+	httpSrv := httpServer(addr, handler, log)
 	go func() {
 		log.Info("listening", "addr", addr, "contracts", contracts.Version)
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -154,3 +155,61 @@ func envOr(key, def string) string {
 	}
 	return def
 }
+
+// DefaultWriteTimeout bounds how long ONE response may take to be written
+// (S-14). Without it a client that stops reading holds its handler — and for
+// a download, the database connection the handler's transaction owns — for
+// good. The two responses that legitimately outlive it extend their own
+// deadline per connection: an artifact download (httpapi.DownloadArtifact,
+// sized by the body) and the SSE stream (httpapi.StreamEvents, no deadline).
+const DefaultWriteTimeout = 60 * time.Second
+
+// httpServer is the listener's configuration. COLAB_HTTP_WRITE_TIMEOUT (a Go
+// duration, e.g. 90s) overrides the write bound; "0" disables it, which is
+// the pre-S-14 behaviour and is logged as such. "0" is for experiments only
+// (PR #260 리뷰 NN4) — a deployment never wants an unbounded write, and the
+// two responses that legitimately run long already extend their own deadline.
+func httpServer(addr string, handler http.Handler, log warnLogger) *http.Server {
+	srv := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second, WriteTimeout: DefaultWriteTimeout}
+	if v := os.Getenv("COLAB_HTTP_WRITE_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		switch {
+		case err != nil || d < 0:
+			log.Warn("COLAB_HTTP_WRITE_TIMEOUT ignored", "value", v, "err", err, "using", DefaultWriteTimeout)
+		case d == 0:
+			log.Warn("COLAB_HTTP_WRITE_TIMEOUT=0: responses have no write bound — a stalled client holds its handler and its database connection")
+			srv.WriteTimeout = 0
+		default:
+			srv.WriteTimeout = d
+		}
+	}
+	return srv
+}
+
+// poolOptions reads the pool size (S-14): COLAB_DB_MAX_CONNS · COLAB_DB_MIN_CONNS,
+// whole numbers; unset or unparsable keeps pgx's default (max(4, NumCPU)).
+func poolOptions(log warnLogger) db.Options {
+	var o db.Options
+	for _, e := range []struct {
+		key string
+		dst *int32
+	}{{"COLAB_DB_MAX_CONNS", &o.MaxConns}, {"COLAB_DB_MIN_CONNS", &o.MinConns}} {
+		v := os.Getenv(e.key)
+		if v == "" {
+			continue
+		}
+		n, err := strconv.ParseInt(v, 10, 32)
+		if err != nil || n <= 0 {
+			log.Warn(e.key+" ignored", "value", v, "err", err)
+			continue
+		}
+		*e.dst = int32(n)
+	}
+	if o.MinConns > o.MaxConns && o.MaxConns > 0 {
+		log.Warn("COLAB_DB_MIN_CONNS exceeds COLAB_DB_MAX_CONNS; min lowered", "min", o.MinConns, "max", o.MaxConns)
+		o.MinConns = o.MaxConns
+	}
+	return o
+}
+
+type warnLogger interface{ Warn(string, ...any) }

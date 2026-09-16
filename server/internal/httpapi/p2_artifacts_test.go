@@ -69,6 +69,16 @@ func (f *p2Fixture) agentToken(t *testing.T, sessionID string, agent uuid.UUID, 
 	return tok, taskID
 }
 
+// setRole changes an agent's role. K-19 (v1.1) ties `review approve/reject`
+// and `hitl approve-request` to the role table, so a test whose writer used
+// to review sets the role the contract gives that command.
+func (f *p2Fixture) setRole(t *testing.T, agent uuid.UUID, role string) {
+	t.Helper()
+	if _, err := f.pool.Exec(t.Context(), `UPDATE agent SET role = $2 WHERE id = $1`, agent, role); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // multipartBody builds a submitArtifact body exactly as the CLI encodes one
 // (cli/internal/client/ops_p2.go SubmitArtifact).
 func multipartBody(t *testing.T, name, typ, desc string, data []byte) (string, []byte) {
@@ -344,6 +354,12 @@ func TestArtifactBoundaries(t *testing.T) {
 //	E6-06  anybody else gets 403 not_designated_reviewer and NOTHING is stored.
 func TestReviewE6_05_06_RealPath(t *testing.T) {
 	f := newP2Fixture(t)
+	// K-19 (v1.1): only a `reviewer` role has `review approve/reject` at all,
+	// so both agents that review here carry that role — E6-06 is then the
+	// DESIGNATION gate refusing R, not the role table (command_not_allowed
+	// is TestV11CommandNotAllowed's).
+	f.setRole(t, f.wUUID, "reviewer")
+	f.setRole(t, f.rUUID, "reviewer")
 	// Scenario B's tree: agent_approval alone, designating W (the QA role).
 	sess := f.artifactSession(t, map[string]any{"op": "and", "conditions": []map[string]any{
 		{"type": "agent_approval", "agent_id": f.w},
@@ -412,6 +428,7 @@ func TestReviewE6_05_06_RealPath(t *testing.T) {
 // back on the submitting lane's thread so it re-enters (E16-B step 5).
 func TestReviewRejectPostsReasonAndDecision(t *testing.T) {
 	f := newP2Fixture(t)
+	f.setRole(t, f.wUUID, "reviewer") // K-19: reviewing is the reviewer role's
 	sess := f.artifactSession(t, map[string]any{"op": "and", "conditions": []map[string]any{
 		{"type": "agent_approval", "agent_id": f.w},
 	}})

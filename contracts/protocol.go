@@ -186,6 +186,10 @@ type BundleTask struct {
 	DelegatedFromTaskID string   `json:"delegated_from_task_id,omitempty"`
 	BudgetUSD           *float64 `json:"budget_usd,omitempty"`
 	BudgetOverrideUSD   *float64 `json:"budget_override_usd,omitempty"`
+	// AllowedCommands — 역할별 colab 명령 부분집합(colab-cli.md §2.5, K-19, v0.8.2).
+	// 데몬은 session/new.mcpServers 의 툴 목록과 hermes 래퍼를 이 목록으로 자른다.
+	// 비어 있으면 전부(옛 서버 호환).
+	AllowedCommands []string `json:"allowed_commands,omitempty"`
 }
 
 type BundleProfile struct {
@@ -199,6 +203,8 @@ type BundleProfile struct {
 }
 
 type BundleWorkdir struct {
+	// ID — 서버 workdir 행의 uuid(daemon-protocol v0.8.3 §4.1, K-14). §6 보고 행이 그대로 회신한다. 옛 서버는 비운다.
+	ID       string `json:"id,omitempty"`
 	Kind     string `json:"kind"` // worktree | dir
 	Path     string `json:"path,omitempty"`
 	RepoPath string `json:"repo_path,omitempty"`

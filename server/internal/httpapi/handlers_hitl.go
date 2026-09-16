@@ -139,13 +139,14 @@ func (s *Server) RespondHitlRequest(w http.ResponseWriter, r *http.Request, hitl
 			return
 		}
 		if status == "paused" && derefString(reason) == sessions.PauseBudget {
-			switch {
-			case in.BudgetOverrideUsd == nil:
+			if in.BudgetOverrideUsd == nil {
 				writeProblem(w, apperr.Validation(apperr.Field("budget_override_usd", "required",
 					"세션이 예산 때문에 멈춰 있습니다 — 승인하려면 새 세션 예산 상한을 함께 정해 주세요 (승인하면 바로 재개됩니다)")))
 				return
-			case float64(*in.BudgetOverrideUsd) <= spent:
-				writeErr(w, sessions.BudgetTooLowError("budget_override_usd", spent))
+			}
+			// S-49: the one criterion and sentence, shared with resumeSession.
+			if err := sessions.CheckBudgetRaise("budget_override_usd", float64(*in.BudgetOverrideUsd), spent); err != nil {
+				writeErr(w, err)
 				return
 			}
 		}

@@ -68,6 +68,7 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, canControl bool) (*gen.L
 	out.Actions = []gen.LaneActions{}
 
 	var taskID uuid.UUID
+	cancellable := false
 	err = q.QueryRow(ctx, `SELECT id FROM task WHERE lane_id = $1 ORDER BY created_at DESC LIMIT 1`, id).Scan(&taskID)
 	if err == nil {
 		t, err := tasks.Get(ctx, q, taskID)
@@ -76,13 +77,14 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, canControl bool) (*gen.L
 		}
 		cur := tasks.ToAPI(t, nil, nil)
 		out.CurrentTask = &cur
+		cancellable = tasks.Cancellable(t.Status)
 		if out.Status == gen.LaneStatusFailed && t.FailureKind != nil {
 			out.FailureKind = nullable.NewNullableWithValue(gen.FailureKind(*t.FailureKind))
 		}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("lanes: current task: %w", err)
 	}
-	out.Actions = laneActions(out.Status, out.FailureKind, canControl)
+	out.Actions = laneActions(out.Status, out.FailureKind, cancellable, canControl)
 	return &out, nil
 }
 
@@ -93,7 +95,12 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, canControl bool) (*gen.L
 // and belongs to everyone; the rest are Director·deputy (FR-3.4 t-3). A lane
 // that failed with runtime_offline gets no restart — the fix is rebinding
 // (S17), and the card says so.
-func laneActions(status gen.LaneStatus, failure nullable.Nullable[gen.FailureKind], canControl bool) []gen.LaneActions {
+//
+// `taskCancellable` is tasks.Cancellable of the current task (K-16, openapi
+// 0.1.6): a `done` lane whose turn is still running carries `cancel`, because
+// cancelLane judges by that task and the S7 button must not go grey while the
+// process it stops is alive.
+func laneActions(status gen.LaneStatus, failure nullable.Nullable[gen.FailureKind], taskCancellable, canControl bool) []gen.LaneActions {
 	acts := []gen.LaneActions{}
 	if status == gen.LaneStatusBlocked {
 		acts = append(acts, gen.LaneActionsOpenQuestion)
@@ -113,6 +120,10 @@ func laneActions(status gen.LaneStatus, failure nullable.Nullable[gen.FailureKin
 	case gen.LaneStatusFailed:
 		if fk, err := failure.Get(); err != nil || fk != gen.FailureKindRuntimeOffline {
 			acts = append(acts, gen.LaneActionsRestart)
+		}
+	case gen.LaneStatusDone:
+		if taskCancellable {
+			acts = append(acts, gen.LaneActionsCancel)
 		}
 	}
 	return acts

@@ -58,3 +58,8 @@
 .verdict--unknown { color: var(--ink-2); font-weight: 400; }
 .metrics-wrap { overflow-x: auto; }
 .metrics-meta { margin: 0 0 8px; font-size: var(--fs-sub); color: var(--ink-2); }
+/* 「관찰」 표(v1.1 K-18) — 지표 표 아래 별도 표. 제목은 카드 계단, 부제 한 줄은 metrics-meta 와 같은 보조 잉크. */
+.observations { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); }
+.observations__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.observations__title { margin: 0 0 2px; font-size: var(--fs-card); font-weight: 600; }
+.observations__hint { display: block; font-size: var(--fs-sub); color: var(--ink-2); font-weight: 400; }

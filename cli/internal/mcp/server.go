@@ -10,6 +10,13 @@
 // Every tool calls the same internal/colab action the CLI subcommand calls,
 // so a tool and its command produce byte-identical JSON.
 //
+// `colab mcp serve --allow <cmd,…>` (colab-cli.md v0.6 §2.5·§3, harness §10)
+// registers only the listed commands' tools — the daemon passes the bundle's
+// task.allowed_commands, the role's subset — so a model never sees a tool its
+// role cannot use. Without --allow every tool is registered and the actions'
+// own gate (client.Allow, fed by getCliContext.allowed_commands) still
+// refuses with command_not_allowed.
+//
 // No SDK dependency: the daemon injects this server as the only MCP server
 // (harness.md §3, strictMcpConfig) and the surface is a handful of tools, so
 // a hand-rolled JSON-RPC loop keeps the CLI a single static binary.
@@ -144,13 +151,51 @@ type Server struct {
 	c       *client.Client
 	version string
 	out     io.Writer
+	tools   []Tool   // what tools/list answers: Tools, or the --allow subset
+	allow   []string // the --allow list as given (nil = everything)
 	mu      sync.Mutex
+}
+
+// Options tunes Serve.
+type Options struct {
+	// Allow is the `--allow` list: ColabCommand names whose tools are
+	// registered. nil (flag absent) or empty registers every tool. Names
+	// that are not commands are ignored — a newer server's command an older
+	// CLI does not know cannot be registered anyway — and reported through
+	// Unknown when it is set.
+	Allow   []string
+	Unknown func(name string)
+}
+
+// FilterTools is the tools/list table for an --allow list: Tools in their
+// stable order, kept when the command (tool name minus `colab_`) is in
+// allow. An empty allow keeps everything (daemon-protocol §4.1 "비면 전부").
+func FilterTools(allow []string) []Tool {
+	if len(allow) == 0 {
+		return Tools
+	}
+	set := map[string]bool{}
+	for _, a := range allow {
+		set[client.Command(a).ToolName()] = true
+	}
+	out := make([]Tool, 0, len(Tools))
+	for _, t := range Tools {
+		if set[t.Name] {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // Serve runs the JSON-RPC loop until in is closed or ctx is done. Every line
 // on in is one message; every response is one line on out.
 func Serve(ctx context.Context, c *client.Client, in io.Reader, out io.Writer, version string) error {
-	s := &Server{c: c, version: version, out: out}
+	return ServeWith(ctx, c, in, out, version, Options{})
+}
+
+// ServeWith is Serve with Options.
+func ServeWith(ctx context.Context, c *client.Client, in io.Reader, out io.Writer, version string, o Options) error {
+	s := NewServer(c, out, version, o)
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 0, 64<<10), 16<<20)
 	for sc.Scan() {
@@ -189,6 +234,19 @@ func (s *Server) handleLine(ctx context.Context, line []byte) {
 	s.write(response{JSONRPC: "2.0", ID: req.ID, Result: res})
 }
 
+// NewServer builds a Server for one connection; Serve/ServeWith run its loop.
+// Exposed for tests that drive Handle directly.
+func NewServer(c *client.Client, out io.Writer, version string, o Options) *Server {
+	if o.Unknown != nil {
+		for _, a := range o.Allow {
+			if !client.IsCommand(a) {
+				o.Unknown(a)
+			}
+		}
+	}
+	return &Server{c: c, version: version, out: out, tools: FilterTools(o.Allow), allow: o.Allow}
+}
+
 func (s *Server) write(r response) {
 	b, err := json.Marshal(r)
 	if err != nil {
@@ -213,7 +271,7 @@ func (s *Server) Handle(ctx context.Context, method string, params json.RawMessa
 	case "ping":
 		return map[string]any{}, nil
 	case "tools/list":
-		return map[string]any{"tools": Tools}, nil
+		return map[string]any{"tools": s.tools}, nil
 	case "tools/call":
 		var p struct {
 			Name      string          `json:"name"`
@@ -233,6 +291,17 @@ func (s *Server) Handle(ctx context.Context, method string, params json.RawMessa
 func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage) (any, *rpcError) {
 	if len(args) == 0 {
 		args = json.RawMessage("{}")
+	}
+	if cmd := client.Command(strings.TrimPrefix(name, "colab_")); !s.registered(name) && client.IsCommand(string(cmd)) {
+		// A real tool that --allow left out: the same refusal the CLI gives
+		// (client.NotAllowed), as a tool result the model can read — not a
+		// protocol error, which reads like a typo. The role is named only if
+		// a context was already fetched; never a round trip for the sentence.
+		role := ""
+		if cc := s.c.CachedContext(); cc != nil {
+			role = cc.OwnRole()
+		}
+		return s.errorResult(client.NotAllowed(role, cmd, s.allow)), nil
 	}
 	var (
 		v   any
@@ -339,17 +408,32 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 		return nil, &rpcError{Code: codeInvalidParams, Message: fmt.Sprintf("unknown tool %q", name)}
 	}
 	if err != nil {
-		ej := colab.ErrorJSON(err)
-		return map[string]any{
-			"isError":           true,
-			"content":           []map[string]any{{"type": "text", "text": string(colab.MarshalIndent(ej))}},
-			"structuredContent": ej,
-		}, nil
+		return s.errorResult(err), nil
 	}
 	return map[string]any{
 		"content":           []map[string]any{{"type": "text", "text": string(colab.MarshalIndent(v))}},
 		"structuredContent": v,
 	}, nil
+}
+
+func (s *Server) registered(name string) bool {
+	for _, t := range s.tools {
+		if t.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// errorResult is a command failure (exit 2..5) as a tool result with
+// isError=true carrying the same error JSON the CLI prints.
+func (s *Server) errorResult(err error) map[string]any {
+	ej := colab.ErrorJSON(err)
+	return map[string]any{
+		"isError":           true,
+		"content":           []map[string]any{{"type": "text", "text": string(colab.MarshalIndent(ej))}},
+		"structuredContent": ej,
+	}
 }
 
 // parseMention accepts ["@A","@B"], "@A,@B" or null. colab_lane_delegate's

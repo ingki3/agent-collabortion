@@ -34,6 +34,7 @@ vi.mock("@/lib/auth/AuthContext", () => ({
 }));
 
 import NewSessionPage from "./page";
+import { problemFixture } from "@/lib/mock/problem-fixture";
 
 const runtime: Runtime = {
   id: "r1", workspace_id: "w1", name: "MacBook", host: null, status: "online", daemon_version: "0.4.0",
@@ -237,7 +238,7 @@ describe("S6 6단계 — 사람 말 · 리뷰어 필수 · 요약 문장(T-W15)"
 
   it("서버가 422 reviewer_required 로 거절하면 6단계로 돌아가 문장만 보인다(칸 경로 없이)", async () => {
     const { ApiError } = await import("@/lib/api/client");
-    post.mockRejectedValueOnce(new ApiError({ type: "https://colab.dev/problems/validation_failed", title: "입력값 확인 필요", status: 422, code: "validation_failed", detail: "입력값을 확인해 주세요", errors: [{ field: "completion_condition/conditions/1/agent_id", code: "reviewer_required", message: "「검토 승인」에는 리뷰어를 참여자 중에서 골라 주세요" }] }));
+    post.mockRejectedValueOnce(problemFixture("validation_failed", 422, { detail: "입력값을 확인해 주세요", errors: [{ field: "completion_condition/conditions/1/agent_id", code: "reviewer_required", message: "「검토 승인」에는 리뷰어를 참여자 중에서 골라 주세요" }] }));
     await walkToConditions([LEAD.id, WRITER.id]);
     next(); // 7
     fireEvent.click(screen.getByTestId("session-start"));

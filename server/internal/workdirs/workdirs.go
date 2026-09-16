@@ -8,16 +8,23 @@ package workdirs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 )
 
 // Report is one entry of the §6 report, or the workdir a `phase` report names.
 type Report struct {
+	// ID is the row the daemon is talking about — the `workdir.id` the bundle
+	// carried (daemon-protocol v0.8.3 §4.1, K-14) echoed back in §6. When set,
+	// Record updates THAT row and the (session, path) pair is not consulted;
+	// when nil the pair is the key, as it was for every daemon before v0.8.3.
+	ID         *uuid.UUID
 	Kind       string // workdir_kind: worktree | container | dir
 	Path       string
 	SessionID  uuid.UUID
@@ -53,15 +60,101 @@ func Kind(s string) string {
 	}
 }
 
-// Record upserts the row for (session, path) and binds the lane(s) that run in
+// Record upserts the row a report is about and binds the lane(s) that run in
 // it. It is idempotent: the daemon re-reports the same directories on every
-// probe, and §6 carries no row id for the server to match on.
+// probe.
+//
+// Two keys, in this order (daemon-protocol v0.8.3 §6, K-14):
+//
+//  1. `rep.ID` — the id the bundle carried and the daemon echoed. The row is
+//     updated in place; its session and path are the server's and are not
+//     rewritten from the report.
+//  2. (session, path) — the pair, for a report with no id: a daemon older than
+//     v0.8.3, a §4.2 `phase` report (which carries only the path), or a `dir`
+//     lane's first attempt (the bundle names no path for `dir`, so there is no
+//     row yet to put an id on).
+//
+// An id that names no row falls through to the pair: the daemon's memory of
+// an id is input, not authority, and losing the report over it would re-open
+// the silence 차단 ② was (T-I4).
 //
 // Binding follows FR-6.1 / C3. `container`·`none` report a lane_id — one
 // workdir per lane, so that lane points at it. `worktree` reports an agent_id
 // — one workdir shared by that agent's lanes in the session, so every one of
 // them that has no workdir yet points at it.
 func Record(ctx context.Context, q db.DBTX, rep Report, now time.Time) (uuid.UUID, error) {
+	if rep.ID != nil && *rep.ID != uuid.Nil {
+		id, found, err := recordByID(ctx, q, rep, now)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if found {
+			return id, bindLane(ctx, q, id, rep, now)
+		}
+	}
+	id, err := recordByPair(ctx, q, rep, now)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return id, bindLane(ctx, q, id, rep, now)
+}
+
+// recordByID is key 1 of Record. `found` is false when no row has that id —
+// or when the report names a session and the row belongs to another one,
+// which is the same thing: a daemon may only touch the rows the server gave
+// it, and the id is checked against what the report itself says.
+//
+// The SET list mirrors recordByPair's ON CONFLICT branch — the two must say
+// the same thing about a report, or a v0.8.3 daemon and an older one would
+// leave different rows behind for the same directory.
+func recordByID(ctx context.Context, q db.DBTX, rep Report, now time.Time) (uuid.UUID, bool, error) {
+	var kind *string
+	if rep.Kind != "" {
+		k := Kind(rep.Kind)
+		kind = &k
+	}
+	var id uuid.UUID
+	err := q.QueryRow(ctx, `
+		UPDATE workdir SET
+			agent_id      = COALESCE($2, workdir.agent_id),
+			lane_id       = COALESCE($3, workdir.lane_id),
+			kind          = COALESCE($4::workdir_kind, workdir.kind),
+			branch        = COALESCE($5, workdir.branch),
+			disk_bytes    = CASE WHEN $6::bigint > 0 THEN $6::bigint ELSE workdir.disk_bytes END,
+			last_used_at  = COALESCE($7, workdir.last_used_at),
+			dirty         = COALESCE($8, workdir.dirty),
+			merged        = COALESCE($10, workdir.merged),
+			commits_ahead = COALESCE($11, workdir.commits_ahead),
+			tree_dirty    = COALESCE($12, workdir.tree_dirty),
+			status        = CASE WHEN workdir.gc_blocked_reason = 'runtime_gone'
+			                     THEN 'active'::workdir_status ELSE workdir.status END,
+			gc_blocked_reason = CASE WHEN workdir.gc_blocked_reason = 'runtime_gone'
+			                         THEN NULL ELSE workdir.gc_blocked_reason END,
+			updated_at    = $9
+		WHERE id = $1 AND ($13::uuid IS NULL OR workdir.session_id = $13)
+		RETURNING id`,
+		*rep.ID, rep.AgentID, rep.LaneID, kind, rep.Branch,
+		max64(rep.Bytes, 0), rep.LastUsedAt, rep.Dirty, now,
+		rep.Merged, rep.CommitsAhead, rep.TreeDirty, nilIfZero(rep.SessionID)).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, false, nil
+	}
+	if err != nil {
+		return uuid.Nil, false, fmt.Errorf("workdirs: update by id: %w", err)
+	}
+	return id, true, nil
+}
+
+func nilIfZero(u uuid.UUID) *uuid.UUID {
+	if u == uuid.Nil {
+		return nil
+	}
+	return &u
+}
+
+// recordByPair is key 2 of Record: the (session, path) upsert every daemon
+// before v0.8.3 relied on, and what a report with no usable id still gets.
+func recordByPair(ctx context.Context, q db.DBTX, rep Report, now time.Time) (uuid.UUID, error) {
 	if rep.Path == "" || rep.SessionID == uuid.Nil {
 		return uuid.Nil, fmt.Errorf("workdirs: report needs session_id and path")
 	}
@@ -106,23 +199,32 @@ func Record(ctx context.Context, q db.DBTX, rep Report, now time.Time) (uuid.UUI
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("workdirs: upsert: %w", err)
 	}
+	return id, nil
+}
+
+// bindLane points the lane(s) that run in the row at it (FR-6.1 / C3). The
+// session is read off the row, not the report: a by-id report may carry none
+// (a daemon that restarted knows only the id it wrote into the directory).
+func bindLane(ctx context.Context, q db.DBTX, id uuid.UUID, rep Report, now time.Time) error {
 	switch {
 	case rep.LaneID != nil:
 		if _, err := q.Exec(ctx, `
 			UPDATE lane SET workdir_id = $1, updated_at = $2
-			WHERE id = $3 AND session_id = $4 AND workdir_id IS DISTINCT FROM $1`,
-			id, now, *rep.LaneID, rep.SessionID); err != nil {
-			return id, fmt.Errorf("workdirs: bind lane: %w", err)
+			WHERE id = $3 AND session_id = (SELECT session_id FROM workdir WHERE id = $1)
+			  AND workdir_id IS DISTINCT FROM $1`,
+			id, now, *rep.LaneID); err != nil {
+			return fmt.Errorf("workdirs: bind lane: %w", err)
 		}
 	case rep.AgentID != nil:
 		if _, err := q.Exec(ctx, `
 			UPDATE lane SET workdir_id = $1, updated_at = $2
-			WHERE session_id = $3 AND agent_id = $4 AND workdir_id IS NULL`,
-			id, now, rep.SessionID, *rep.AgentID); err != nil {
-			return id, fmt.Errorf("workdirs: bind agent lanes: %w", err)
+			WHERE session_id = (SELECT session_id FROM workdir WHERE id = $1) AND agent_id = $3
+			  AND workdir_id IS NULL`,
+			id, now, *rep.AgentID); err != nil {
+			return fmt.Errorf("workdirs: bind agent lanes: %w", err)
 		}
 	}
-	return id, nil
+	return nil
 }
 
 func max64(a, b int64) int64 {

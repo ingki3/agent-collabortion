@@ -37,6 +37,8 @@ make test          # go vet/test 전부 + web typecheck
 
 `curl localhost:8080/healthz` → `{"ok":true,"contracts":"..."}`
 
+서버 환경 변수: `COLAB_HTTP_WRITE_TIMEOUT`(응답 쓰기 상한, 기본 `60s`; `0` 은 상한 없음 — **시험용**, 배포에서는 쓰지 않는다. 아티팩트 다운로드·SSE 는 스스로 연장한다), `COLAB_DB_MAX_CONNS`·`COLAB_DB_MIN_CONNS`(DB 풀 크기).
+
 ## 브랜치 흐름
 
 ```

@@ -16,25 +16,30 @@ func TestLaneActions(t *testing.T) {
 	offline := nullable.NewNullableWithValue(gen.FailureKindRuntimeOffline)
 	stall := nullable.NewNullableWithValue(gen.FailureKindStall)
 	cases := []struct {
-		name    string
-		status  gen.LaneStatus
-		failure nullable.Nullable[gen.FailureKind]
-		control bool
-		want    []gen.LaneActions
+		name        string
+		status      gen.LaneStatus
+		failure     nullable.Nullable[gen.FailureKind]
+		cancellable bool // tasks.Cancellable(current task) — K-16
+		control     bool
+		want        []gen.LaneActions
 	}{
-		{"running director", gen.LaneStatusRunning, none, true, []gen.LaneActions{gen.LaneActionsRestart, gen.LaneActionsCancel}},
-		{"running member", gen.LaneStatusRunning, none, false, []gen.LaneActions{}},
-		{"queued director", gen.LaneStatusQueued, none, true, []gen.LaneActions{gen.LaneActionsCancel}},
-		{"blocked member — navigation is for everyone", gen.LaneStatusBlocked, none, false, []gen.LaneActions{gen.LaneActionsOpenQuestion}},
-		{"waiting_human director", gen.LaneStatusWaitingHuman, none, true, []gen.LaneActions{gen.LaneActionsRespondHitl}},
-		{"paused director", gen.LaneStatusPaused, none, true, []gen.LaneActions{gen.LaneActionsApproveBudget, gen.LaneActionsCancel}},
-		{"failed stall director → restart", gen.LaneStatusFailed, stall, true, []gen.LaneActions{gen.LaneActionsRestart}},
-		{"failed runtime_offline director → rebind, no restart", gen.LaneStatusFailed, offline, true, []gen.LaneActions{}},
-		{"done director", gen.LaneStatusDone, none, true, []gen.LaneActions{}},
+		{"running director", gen.LaneStatusRunning, none, true, true, []gen.LaneActions{gen.LaneActionsRestart, gen.LaneActionsCancel}},
+		{"running member", gen.LaneStatusRunning, none, true, false, []gen.LaneActions{}},
+		{"queued director", gen.LaneStatusQueued, none, true, true, []gen.LaneActions{gen.LaneActionsCancel}},
+		{"blocked member — navigation is for everyone", gen.LaneStatusBlocked, none, false, false, []gen.LaneActions{gen.LaneActionsOpenQuestion}},
+		{"waiting_human director", gen.LaneStatusWaitingHuman, none, false, true, []gen.LaneActions{gen.LaneActionsRespondHitl}},
+		{"paused director", gen.LaneStatusPaused, none, false, true, []gen.LaneActions{gen.LaneActionsApproveBudget, gen.LaneActionsCancel}},
+		{"failed stall director → restart", gen.LaneStatusFailed, stall, false, true, []gen.LaneActions{gen.LaneActionsRestart}},
+		{"failed runtime_offline director → rebind, no restart", gen.LaneStatusFailed, offline, false, true, []gen.LaneActions{}},
+		{"done director, turn finished", gen.LaneStatusDone, none, false, true, []gen.LaneActions{}},
+		// K-16 (openapi 0.1.6): `status set done` was called while the turn's
+		// process is still alive — the Director can stop it.
+		{"done director, turn still running → cancel", gen.LaneStatusDone, none, true, true, []gen.LaneActions{gen.LaneActionsCancel}},
+		{"done member, turn still running → nothing (FR-3.4 t-3)", gen.LaneStatusDone, none, true, false, []gen.LaneActions{}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := laneActions(c.status, c.failure, c.control)
+			got := laneActions(c.status, c.failure, c.cancellable, c.control)
 			if len(got) != len(c.want) {
 				t.Fatalf("got %v want %v", got, c.want)
 			}

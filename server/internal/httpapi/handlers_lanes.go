@@ -94,11 +94,12 @@ func (s *Server) ListLanes(w http.ResponseWriter, r *http.Request, sessionId gen
 	writeJSON(w, http.StatusOK, out)
 }
 
-// CancelLane is POST /lanes/{laneId}/cancel (FR-3.4 "중단", E10-04). P1
-// minimal: Director/deputy only; the lane must be running or queued (else
-// 409); a running attempt gets the daemon `cancel` command and ends when its
-// finish arrives, a queued task is cancelled at once. 202 with the lane;
-// completion is `lane.updated` (openapi cancelLane).
+// CancelLane is POST /lanes/{laneId}/cancel (FR-3.4 "중단", E10-04).
+// Director/deputy only; the lane's CURRENT task must be cancellable (K-16,
+// openapi 0.1.6 — a `done` lane whose turn is still running counts; nothing
+// left to stop is 409); a running attempt gets the daemon `cancel` command
+// and ends when its finish arrives, a queued task is cancelled at once. 202
+// with the lane; completion is `lane.updated` (openapi cancelLane).
 func (s *Server) CancelLane(w http.ResponseWriter, r *http.Request, laneId gen.LaneId) {
 	u, wsID, sessionID, p := s.laneControl(r, laneId)
 	if p != nil {
@@ -111,7 +112,13 @@ func (s *Server) CancelLane(w http.ResponseWriter, r *http.Request, laneId gen.L
 		writeProblem(w, apperr.NotFound("lane"))
 		return
 	case errors.Is(err, tasks.ErrLaneNotCancellable):
-		writeProblem(w, apperr.Conflict("lane_not_cancellable", "진행 중이거나 대기 중인 작업 줄기만 중단할 수 있습니다"))
+		// K-16 (openapi 0.1.6, PR #260 리뷰 NN3): the judgement is the current
+		// task, so a `done` lane whose turn still runs IS cancellable and the
+		// old sentence ("진행 중이거나 대기 중인 작업 줄기만…") named the wrong
+		// condition. The sentence is mirrored letter-for-letter by
+		// web/lib/mock/wording.ts (server-wording.test.ts); the web copy is
+		// synced by the Lead from this PR's body.
+		writeProblem(w, apperr.Conflict("lane_not_cancellable", "중단할 수 있는 진행 중 턴이 없습니다"))
 		return
 	case err != nil:
 		writeErr(w, err)
@@ -147,6 +154,10 @@ func (s *Server) DelegateLane(w http.ResponseWriter, r *http.Request, sessionId 
 	}
 	if pr.Task.SessionID != sessionId {
 		writeProblem(w, apperr.Forbidden("outside_task_scope", "다른 세션에는 위임할 수 없습니다"))
+		return
+	}
+	if p := s.commandAllowed(r, gen.LaneDelegate); p != nil {
+		writeProblem(w, p)
 		return
 	}
 	body, p := readBody(w, r)

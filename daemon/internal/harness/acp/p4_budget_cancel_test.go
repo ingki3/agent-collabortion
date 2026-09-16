@@ -118,3 +118,56 @@ func TestBudgetCancelThroughClassify(t *testing.T) {
 		t.Fatalf("result %+v — want paused_budget with no failure_kind (D-19)", res)
 	}
 }
+
+// D-19, branch order (T-D14): BOTH signals at once — the daemon has measured
+// an overrun of its own (the turn's usage crossed the cap) AND a cancel
+// arrived. The verdict is decided by the cancel's REASON, never by which
+// check happens to run first in Run():
+//
+//   - reason=budget → paused_budget (two witnesses to the same fact);
+//   - reason=director → cancelled: a person's cancel ends the task even
+//     when the money ran out in the same turn — reporting a pause would
+//     have the session wait for a budget raise on a task nobody wants
+//     resumed.
+//
+// 회귀 주입: swap `case "cancelled": applyCancelOutcome(&res, cancelReq)` for
+// the old `if r.budgetHit() {…paused_budget…}` first → the director row
+// reports paused_budget; drop budgetCancel() from applyCancelOutcome → the
+// budget row reports cancelled.
+func TestBudgetHitAndCancelDecidedByReason(t *testing.T) {
+	for _, tc := range []struct {
+		reason      string
+		wantOutcome string
+		wantFailure bool
+	}{
+		{"budget", "paused_budget", false},
+		{"director", "cancelled", true},
+	} {
+		t.Run("reason="+tc.reason, func(t *testing.T) {
+			cost := 2.4
+			s := acpfake.Script{Turns: []acpfake.Turn{{
+				Steps: []acpfake.Step{{Chunk: "spending"}, {SleepMs: 400}, {Chunk: "never"}},
+				// The cancelled turn still reports a MEASURED cost over the
+				// $2 the session has left — recordUsage runs on the
+				// `cancelled` stopReason too.
+				Usage: &acpfake.PromptUsage{InputTokens: 100, OutputTokens: 50, CostUSD: &cost},
+			}}}
+			f := newFixture(t, s, budgetBundle(2.0, nil), nil)
+			var res acp.Result
+			done := make(chan struct{})
+			go func() { res = f.run(); close(done) }()
+			waitFor(t, func() bool { return f.sink.nPreviews() > 0 })
+			f.runner.Cancel(context.Background(), acp.CancelRequest{Reason: tc.reason})
+			<-done
+			if budgetDetail(f) == "" {
+				t.Fatal("the fixture did not produce a measured overrun (no §4.4 feed line) — the test proves nothing about the order")
+			}
+			if res.Outcome != tc.wantOutcome {
+				t.Fatalf("outcome = %q, want %s (D-19 branch order: the cancel's reason decides)", res.Outcome, tc.wantOutcome)
+			}
+			if (res.Failure != nil) != tc.wantFailure {
+				t.Errorf("failure = %+v, want present=%v", res.Failure, tc.wantFailure)
+			}
+		})
+	}
+}

@@ -195,14 +195,19 @@ func TestCancelProcedureGolden(t *testing.T) {
 		drain := indexOfStep(p.Steps, "drain")
 		signal := indexOfStep(p.Steps, "signal_process_group")
 
-		if perm < 0 || cancel < 0 || drain < 0 {
-			t.Fatalf("steps = %v, want answer_permission → session_cancel → drain (harness §5)", p.Steps)
+		// S-42 (PR #129, T-D6 발견): the fifth step used to be asserted only
+		// when present (`signal >= 0 && …`), so a procedure that never
+		// signals the process group — leaving the tree alive after the
+		// drain — passed this row; steps 1–4 already failed on absence.
+		// The expected sequence is unchanged; only the hole is closed.
+		if perm < 0 || cancel < 0 || drain < 0 || signal < 0 {
+			t.Fatalf("steps = %v, want answer_permission → session_cancel → drain → signal_process_group (harness §5)", p.Steps)
 		}
 		if !(perm < cancel && cancel < drain) {
 			t.Errorf("steps = %v, wrong order: a pending permission left unanswered blocks the "+
 				"agent loop, so session/cancel never gets processed (harness §5 steps 2-4)", p.Steps)
 		}
-		if signal >= 0 && signal < drain {
+		if signal < drain {
 			t.Errorf("steps = %v — the process group is signalled only AFTER the drain; killing "+
 				"mid-turn breaks the runtime's stored history (§8.2.2)", p.Steps)
 		}

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # e2e/p5/78_web_s7.sh — **웹 S7 한 화면**(세션 상세) headless. 72_ 가 만든 세션을 연다.
 #
+# 비용 한 줄(I-3): 에이전트 턴 0(72_ 의 세션을 연다) · $0 · ≈ 3s(agent-browser 면 +10s)
+#
 #   agent-browser 가 있으면(로컬): 로그인 → /sessions/<id> → 3열(lane 보드·타임라인·aside) DOM 판정 + 스크린샷.
 #   없으면(CI): next build 산출물이 뜨는지만 — /login 200 · /sessions/<id> 200 · 앱 셸(HTML) 에 마운트 지점.
 #   72_ 의 out/72-ids.txt 가 없으면(단독 실행) 새 세션 하나를 API 로 만든다(런타임 없이 — 화면만).

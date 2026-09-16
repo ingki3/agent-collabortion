@@ -43,7 +43,7 @@ colab-daemon repos remove ~/dev/app
 | 키 | 뜻 | 기본 |
 |---|---|---|
 | `workdir_root` | 작업 폴더의 기준. lane 폴더 `sessions/<세션>/<lane>`, worktree, 그리고 `.colab/`(pgid 기록 · 로그 · 래퍼 · 테스트 채팅 임시 폴더)이 이 아래 생긴다 | `~/.colab/work` |
-| `capacity` | 동시에 돌릴 attempt 수(데몬 상한, FR-6.3) | `10` |
+| `capacity` | 동시에 돌릴 attempt 수(데몬 상한, FR-6.3). claim 부터 finish 보고까지가 한 자리다 — 준비 중(worktree 생성)이거나 finish 를 보내는 중인 attempt 도 자리를 쥔다(D-28) | `10` |
 | `repos` | `repos add` 가 채우는 저장소 목록 (위) | 없음 |
 | `colab_bin` | 에이전트에게 주는 `colab` 실행 파일 | 데몬 옆의 `colab`, 없으면 PATH |
 | `stderr_dir` | attempt 마다 런타임 stderr 를 남기는 곳 | `<workdir_root>/.colab/logs` |
@@ -85,13 +85,30 @@ Write)을 생성하는 동안 — 이때 어댑터는 `session/update` 를 하�
 턴 끝에서만 강제되고, 3분 넘게 걸리는 긴 도구 입력은 stall 로 잘린다. 비용은 로컬 stdio 파이프의 메시지 4배 ·
 바이트 2배(PR #145 실측)이고 서버 트래픽은 늘지 않는다. hermes 에는 이런 스트림이 없다(harness §7).
 
+### 역할별 colab 명령 (K-19, harness §10 v0.8.10)
+
+번들 `task.allowed_commands`(daemon-protocol §4.1 v0.8.2)는 역할이 쓸 수 있는 colab 명령의 부분집합이다(colab-cli §2.5,
+서버가 정한다). 데몬은 같은 목록을 세 곳에 놓는다 — colab MCP 서버 argv `mcp serve --allow a,b,…`(claude_code; CLI 가
+그 툴만 등록), hermes 래퍼의 `export COLAB_ALLOWED_COMMANDS=a,b,…`(CLI 가 exit 3 으로 거부), 브리프 [2] 끝의 두 줄(허용
+명령 목록 + "이 역할은 … 을 쓰지 않는다" — 막힌 명령은 명령 이름이 아니라 사람 말로, `internal/commands`). 비어 있으면
+전부(옛 서버·lead·custom)이고 아무것도 바뀌지 않는다. 턴이 끝나면 raw system/init 의 콜랩 툴 목록을 로그에 남긴다
+(`colab tools registered: …`) — `--allow` 가 툴 목록까지 닿았는지 보는 자리.
+
+### capacity 는 claim 부터 finish 보고까지 (D-28, T-D14)
+
+claim 루프의 `free = capacity − (running + reserved)`. `start()` 가 claim 고루틴에서 자리를 **예약**하고, attempt 는 runner 가
+생기면 `running` 으로 옮기며, 턴이 끝나면 finish 가 서버에 닿을 때까지 다시 자리를 쥔다(`release` 한 곳에서 반납 + 다음 claim 을
+깨운다). 이전에는 `running` 만 세어 workdir·래퍼·브리프 준비 중인 attempt 가 안 보였고, 짧은 턴이 몰리면 capacity 보다 하나 더
+돌았다(T-I6 실측 3 에 4; 실기 대조 `e2e/p5/85_capacity_daemon.sh` BEFORE=1: capacity 1 에 origin/dev 겹침 1 / HEAD 0).
+서버는 claim~finish 를 running 으로 세므로 S13 capacity 열과 같은 눈금이다. 유닛 `internal/loop/d28_capacity_test.go`.
+
 ## 디렉터리 (`<workdir_root>/.colab/`)
 
 | 경로 | 무엇 | 정리 |
 |---|---|---|
 | `attempts/<task>.<attempt>.json` | 살아 있는 프로세스 그룹 기록(FR-9.1) | 정상 종료 시 삭제, 시작 시 고아 정리 |
 | `bin/<task>.<attempt>/colab` | hermes 용 CLI 래퍼(harness §10) — 토큰이 들어 있다 | finish 시 삭제, 시작 시 일괄 삭제 |
-| `workdirs/` | §6 보고에 쓰는 작업 폴더 신원 사이드카 | gc 시 삭제 |
+| `workdirs/` | §6 보고 신원 사이드카 — **v0.8.3 번들(`workdir.id`)부터는 쓰지 않는다**(K-14, T-D15): 신원은 작업 폴더 안 표식 `<path>/.colab-workdir.json`(id 한 줄; 체크아웃이면 `.git/info/exclude` 에 등록해 `git status` 에 안 뜬다)이고 §6 행은 그 id 를 회신한다. 여기에는 **id 없는 번들**(옛 서버, `dir` lane 첫 attempt — Lead T-S21 결정 A)만 기록하고, 같은 폴더에 표식이 생기면 지운다. 폐기 시점은 `internal/workdir/marker.go` 주석 | gc 시 · 표식 기록 시 삭제 |
 | `logs/` | attempt 별 런타임 stderr | 남는다 |
 | `rebind/<session>/` | 재연결 시 내려받은 아티팩트 | — |
 | `testchat/<test_chat_id>/` | 테스트 채팅(S10, daemon-protocol §4.5) 임시 폴더 — 토큰 없는 턴이 여기서 돈다 | 채팅을 닫으면 서버 gc 로 삭제, 시작 시 24h 넘은 것 삭제 |

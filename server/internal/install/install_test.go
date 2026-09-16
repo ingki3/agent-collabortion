@@ -1,6 +1,8 @@
 package install
 
 import (
+	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -320,5 +322,58 @@ func TestScriptVersionCompare(t *testing.T) {
 		if (err == nil) != c.ok {
 			t.Errorf("ver_ge %s %s: ok=%v, want %v", c.have, c.min, err == nil, c.ok)
 		}
+	}
+}
+
+// TestScriptCloneTimesOut is S-79 (PR #213 review NN5): a git server that
+// accepts the connection and never answers used to hang the installer for
+// good — the three-stage clone fallback ended in a FULL clone with no cap,
+// and a person piping the script into `sh` saw "소스 받기" and nothing else.
+// Every stage now has a bound (COLAB_CLONE_TIMEOUT · COLAB_FULL_CLONE_TIMEOUT),
+// the full clone is the last resort after a shallow retry, and the failure
+// says what to check.
+func TestScriptCloneTimesOut(t *testing.T) {
+	haveTool(t, "go")
+	haveTool(t, "git")
+	// A git:// endpoint that reads and never replies.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() { _, _ = io.Copy(io.Discard, c) }()
+		}
+	}()
+	script := filepath.Join(t.TempDir(), "install.sh")
+	if err := os.WriteFile(script, []byte(Script("http://colab.test", "deadbeef", goWorkVersion(t, repoRoot(t)))), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", script)
+	cmd.Env = append([]string{
+		"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "SHELL=/bin/sh",
+		"COLAB_INSTALL_REPO=git://" + ln.Addr().String() + "/colab.git",
+		"COLAB_CLONE_TIMEOUT=1", "COLAB_FULL_CLONE_TIMEOUT=1",
+	}, goEnv(t)...)
+	start := time.Now()
+	out, err := cmd.CombinedOutput()
+	took := time.Since(start)
+	t.Logf("installer gave up after %s:\n%s", took.Round(time.Millisecond), out)
+	if err == nil {
+		t.Fatalf("the installer reported success against a server that never answered:\n%s", out)
+	}
+	// Five bounded stages (shallow ×2, retried once, then the full clone) at
+	// 1s each plus the watcher's 1s tick: well under 30s. Without the caps
+	// this hangs until the test's own deadline.
+	if took > 30*time.Second {
+		t.Fatalf("the installer took %s to give up — a stage has no timeout (S-79)", took)
+	}
+	if !strings.Contains(string(out), "저장소를 받지 못했습니다") || !strings.Contains(string(out), "상한") {
+		t.Errorf("the failure must say the repository could not be fetched and name the bound:\n%s", out)
 	}
 }

@@ -4,15 +4,15 @@
  */
 import type {
   Agent, AgentProfile, AgentTemplate, Artifact, CompletionCondition, CompletionProgress, Decision, HitlRequest, InboxItem, Invite, Lane, LoopLimits, Member,
-  MemberRole, Message, Metric, MetricsReport, NotificationSettings, Pairing, Participant, Runtime, Session,
+  MemberRole, Message, Metric, MetricsReport, NotificationSettings, ObservationReport, ObservationRow, Pairing, Participant, Runtime, Session,
   SessionListItem, Task, TaskEvent, TestChat, TestChatTurn, TriggerPreview, TriggerTarget, User, Workdir,
   WorkspaceSettings, WorkspaceSettingsUpdate,
 } from "@/lib/api/types";
 import {
-  defaultSettings, emit, makeAgent, makeRuntime, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges,
+  allowedCommands, defaultSettings, emit, makeAgent, makeRuntime, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges,
   sseFrame, store, stripUser, TEMPLATES, uuid, type MockInvite, type MockTask, type Store, type Subscriber,
 } from "./store";
-import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
+import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
 /**
  * RFC 9457 Problem — `title` 은 서버(`apperr.Title`)처럼 **상태 코드에서** 정한다. 문장(`detail`·`errors[].message`)은
@@ -559,8 +559,12 @@ function createLane(s: Store, sess: Session, agentId: string, brief: string | nu
   emit(s, sess.workspace_id, "lane.updated", lane, sess.id);
   return lane;
 }
-/** 호출자가 지금 할 수 있는 동작(Lane.actions). 목은 항상 Director 시점이다. */
-function laneActions(_sess: Session, status: Lane["status"]): Lane["actions"] {
+/**
+ * 호출자가 지금 할 수 있는 동작(Lane.actions). 목은 항상 Director 시점이다.
+ * 취소 판정은 **lane 상태가 아니라 현재 할 일**이다(계약 cancelLane v0.1.6, K-16): `colab status set done` 뒤에도 그 턴의 프로세스가
+ * 돌고 있으면(현재 task `running`) done lane 에도 `cancel` 이 실린다 — 서버 `laneActions` 와 같은 규칙.
+ */
+function laneActions(_sess: Session, status: Lane["status"], currentTask?: Pick<Task, "status"> | null): Lane["actions"] {
   switch (status) {
     case "running":
       return ["restart", "cancel"];
@@ -574,6 +578,8 @@ function laneActions(_sess: Session, status: Lane["status"]): Lane["actions"] {
       return ["approve_budget", "cancel"];
     case "failed":
       return ["restart"];
+    case "done":
+      return currentTask?.status === "running" ? ["cancel"] : [];
     default:
       return [];
   }
@@ -596,8 +602,14 @@ function setLaneStatus(s: Store, sess: Session, laneId: string, patch: Partial<L
   const lane = s.lanes.get(laneId);
   if (!lane) return;
   Object.assign(lane, patch, { updated_at: now() });
-  lane.actions = laneActions(sess, lane.status);
+  refreshCurrentTask(s, lane);
+  lane.actions = laneActions(sess, lane.status, lane.current_task);
   emit(s, sess.workspace_id, "lane.updated", lane, sess.id);
+}
+/** 서버 `lanes.go` 처럼 `current_task` = 이 줄기의 가장 최근 할 일. 화면이 task_event 의 task_id 를 줄기와 잇는 열쇠다(빈 턴 카드 한 줄). */
+function refreshCurrentTask(s: Store, lane: Lane) {
+  const latest = [...s.tasks.values()].filter((t) => t.lane_id === lane.id).sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
+  if (latest) lane.current_task = toTask(s, latest);
 }
 function createTask(s: Store, sess: Session, agentId: string, triggerId: string | null, opts: { laneId?: string; brief?: string | null; restartedFrom?: string | null } = {}): MockTask {
   const laneId = opts.laneId ?? createLane(s, sess, agentId, opts.brief ?? null).id;
@@ -608,6 +620,8 @@ function createTask(s: Store, sess: Session, agentId: string, triggerId: string 
   };
   s.tasks.set(t.id, t);
   s.taskEvents.set(t.id, []);
+  const lane = s.lanes.get(laneId);
+  if (lane) refreshCurrentTask(s, lane);
   return t;
 }
 
@@ -953,7 +967,11 @@ on("GET", "/lanes/{id}/tasks", (req, p) => {
   const items = [...s.tasks.values()].filter((t) => t.lane_id === lane.id).sort((a, b) => a.created_at.localeCompare(b.created_at));
   return ok(items.map((t) => toTask(s, t)));
 });
-/** 중단(FR-3.4) — 진행 중 턴만 취소한다. lane `failed(cancelled)`. `paused`는 실패가 아니지만 명시 종료는 이것이다. */
+/**
+ * 중단(FR-3.4) — 진행 중 턴만 취소한다. lane `failed(cancelled)`. `paused`는 실패가 아니지만 명시 종료는 이것이다.
+ * **판정은 lane 이 아니라 현재 할 일**(계약 v0.1.6, K-16): lane 이 `done` 이어도 현재 할 일이 `running` 이면 취소할 수 있고, 그때는
+ * lane 을 `done` 그대로 두고 할 일만 `cancelled` 로 끝낸다(산출물은 이미 제출됐다). `done`·`failed` 인데 도는 할 일이 없으면 409.
+ */
 on("POST", "/lanes/{id}/cancel", (req, p) => {
   const s = store();
   const lane = s.lanes.get(p.id);
@@ -962,7 +980,9 @@ on("POST", "/lanes/{id}/cancel", (req, p) => {
   const { user: actor } = requireMember(s, req, sess.workspace_id);
   // E10-05 — 버튼이 비활성인 것은 강제가 아니다. API 도 막는다.
   if (!mayControlLane(sess, actor.id)) throw new Problem(403, "director_required", W.lane_control);
-  if (lane.status === "done" || lane.status === "failed") throw new Problem(409, "lane_not_cancellable", W.lane_not_cancellable);
+  refreshCurrentTask(s, lane);
+  const doneButRunning = lane.status === "done" && lane.current_task?.status === "running";
+  if ((lane.status === "done" || lane.status === "failed") && !doneButRunning) throw new Problem(409, "lane_not_cancellable", W.lane_not_cancellable);
   for (const t of s.tasks.values()) {
     if (t.lane_id !== lane.id || t.status === "completed" || t.status === "cancelled") continue;
     t.status = "cancelled";
@@ -970,7 +990,8 @@ on("POST", "/lanes/{id}/cancel", (req, p) => {
     t.finished_at = now();
     pushEvent(s, sess, t, { class: "status", verb: "cancel", object_ref: lane.id, outcome: "cancelled", sentence: "사람이 중단함" });
   }
-  setLaneStatus(s, sess, lane.id, { status: "failed", failure_kind: "cancelled", current_activity: null, finished_at: now() });
+  if (doneButRunning) setLaneStatus(s, sess, lane.id, { current_activity: null });
+  else setLaneStatus(s, sess, lane.id, { status: "failed", failure_kind: "cancelled", current_activity: null, finished_at: now() });
   emitParticipant(s, sess, lane.agent_id, null);
   return ok(s.lanes.get(lane.id), 202);
 });
@@ -1179,6 +1200,8 @@ on("PATCH", "/agents/{id}", (req, p) => {
   for (const k of ["role", "role_description", "instructions", "tools", "max_concurrent_tasks", "respond_to", "respond_to_allowlist", "budget_per_task"] as const) {
     if (b[k] !== undefined) (a as Record<string, unknown>)[k] = b[k];
   }
+  // `allowed_commands` 는 읽기 전용 파생값(K-19) — 보내온 값은 무시하고 role 로 다시 계산한다.
+  a.allowed_commands = allowedCommands(a.role);
   // 킬 스위치(FR-1.9) — respond_to: nobody 는 실행 중 턴을 취소하고 대기 중 task 를 취소한다. 열린 HITL 은 남는다.
   if (b.respond_to === "nobody") {
     for (const t of s.tasks.values()) {
@@ -1355,6 +1378,54 @@ on("POST", "/__mock/sessions/{id}/seed-lanes", (req, p) => {
     made.push(s.lanes.get(lane.id)!);
   });
   return ok(made, 201);
+});
+
+/**
+ * dev·테스트용 — **빈 턴**(FR-7.2 v0.17 · v1.1 K-18)을 한 번에 만든다(계약 밖 경로, `__mock` 접두). 사람이 멘션한 에이전트가 메시지 0·
+ * 플랫폼 조작 0·편집 0 으로 턴을 끝낸 모양: 줄기 하나(brief 없음 — 사람이 만든 줄기) + 할 일 하나 + task_event 셋(시작 → **빈 턴 행** → 턴 종료).
+ * 빈 턴 행은 PRD FR-7.2 "판정과 기록" 그대로 `{class: status, verb: turn_end, object_ref: "empty_turn", outcome: info, payload: {command: "turn_end",
+ * args: {note}}}` — 닫힌 스키마 안, 새 키 없음. 서버(T-S19)가 finish 에서 같은 행을 남긴다.
+ */
+on("POST", "/__mock/sessions/{id}/seed-empty-turn", (req, p) => {
+  const s = store();
+  const sess = sessionOf(s, req, p.id);
+  const b = body<{ agent_id?: string }>(req);
+  const agentId = b.agent_id ?? (sess.participants ?? [])[0]?.agent_id;
+  const agent = agentId ? s.agents.get(agentId) : undefined;
+  if (!agent) throw notFoundP("agent");
+  const task = createTask(s, sess, agent.id, null, { brief: null });
+  task.status = "running";
+  task.started_at = now();
+  setLaneStatus(s, sess, task.lane_id, { status: "running", has_runtime_session: true });
+  pushEvent(s, sess, task, { class: "runtime", verb: "start", object_ref: null, outcome: "resumed", payload: { runtime_kind: "claude_code", session_id: `acp-${task.id.slice(0, 8)}` }, sentence: `${agent.name}가 세션을 이어받았다 → resumed` });
+  pushEvent(s, sess, task, { class: "message", verb: "think", object_ref: null, outcome: "ok", payload: { kind: "thought", chars: 96 }, sentence: `${agent.name}가 생각했다 → ok` });
+  const empty = pushEvent(s, sess, task, { class: "status", verb: "turn_end", object_ref: "empty_turn", outcome: "info", payload: { command: "turn_end", args: { note: W.empty_turn_note } }, sentence: null });
+  pushEvent(s, sess, task, { class: "runtime", verb: "turn_end", object_ref: null, outcome: "ok", sentence: "턴 종료 → ok" });
+  task.status = "completed";
+  task.finished_at = now();
+  setLaneStatus(s, sess, task.lane_id, { status: "done", current_activity: null, finished_at: task.finished_at, brief: null });
+  return ok({ lane_id: task.lane_id, task_id: task.id, event_id: empty.id }, 201);
+});
+
+/**
+ * dev·테스트용 — **done 인데 실행이 아직 도는 줄기**(K-16, 계약 cancelLane v0.1.6)를 만든다(계약 밖 경로, `__mock` 접두).
+ * 에이전트가 `colab status set done` 으로 산출물을 제출하고 lane 을 done 으로 만든 뒤에도 그 턴의 프로세스가 돌고 있는 모양:
+ * lane `done`(brief 있음) + 현재 할 일 `running` → `actions: ["cancel"]`. 카드가 「중단」을 내고, 취소하면 lane 은 done 그대로·할 일만 cancelled.
+ */
+on("POST", "/__mock/sessions/{id}/seed-done-running", (req, p) => {
+  const s = store();
+  const sess = sessionOf(s, req, p.id);
+  const b = body<{ agent_id?: string }>(req);
+  const agentId = b.agent_id ?? (sess.participants ?? [])[0]?.agent_id;
+  const agent = agentId ? s.agents.get(agentId) : undefined;
+  if (!agent) throw notFoundP("agent");
+  const task = createTask(s, sess, agent.id, null, { brief: "경쟁사 5곳 정리" });
+  task.status = "running";
+  task.started_at = now();
+  pushEvent(s, sess, task, { class: "runtime", verb: "start", object_ref: null, outcome: "ok", payload: { runtime_kind: "claude_code", session_id: `acp-${task.id.slice(0, 8)}` }, sentence: `${agent.name}가 세션을 시작했다 → ok` });
+  pushEvent(s, sess, task, { class: "status", verb: "set_status", object_ref: "done", outcome: "ok", sentence: `${agent.name}가 상태를 done 으로 바꿨다 → ok` });
+  setLaneStatus(s, sess, task.lane_id, { status: "done", has_runtime_session: true, current_activity: "정리 뒤 파일을 닫는 중…", finished_at: now(), brief: "경쟁사 5곳 정리 완료" });
+  return ok({ lane_id: task.lane_id, task_id: task.id, lane: s.lanes.get(task.lane_id) }, 201);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2547,6 +2618,40 @@ on("GET", "/workspaces/{id}/metrics", (req, p) => {
     return m;
   });
   const report: MetricsReport = { workspace_id: p.id, window, computed_at: now(), metrics };
+  return ok(report);
+});
+
+// ── 「관찰」 표(PRD §11 관찰 행 · openapi 0.1.5 getWorkspaceObservations, v1.1 K-18) ──
+/**
+ * 5행의 정의(key·label·note)는 `wording.ts` 의 `OBSERVATION_DEFS`(서버 T-S19 가 만들면 대조). 값은 데모용 고정값 — 분포형 셋은
+ * `median`·`p95` 에 값을 두고 `value` 는 null, 비율형 둘은 `value` 에 두고 `median`·`p95` 는 null(계약 ObservationRow description).
+ * **일부는 null 로**: `join_breadth` 는 n 0(합류가 아직 없는 워크스페이스 — "아직 잴 수 없음" 경로), `chain_depth` 는 p95 없음(표본이 적어
+ * 중앙값만). `routing_concentration` 만 `breakdown[]`(규칙 번호별 비율 + platform).
+ */
+export { OBSERVATION_DEFS };
+const OBSERVATION_DEMO: Record<ObservationRow["key"], Pick<ObservationRow, "n" | "value" | "median" | "p95" | "breakdown">> = {
+  chain_scale: { n: 14, value: null, median: 2, p95: 6 },
+  chain_depth: { n: 3, value: null, median: 3, p95: null },
+  join_breadth: { n: 0, value: null, median: null, p95: null },
+  routing_concentration: {
+    n: 20, value: 0.35, median: null, p95: null,
+    breakdown: [
+      { kind: "2", share: 0.4, n: 8 },
+      { kind: "5", share: 0.1, n: 2 },
+      { kind: "6", share: 0.3, n: 6 },
+      { kind: "7", share: 0.05, n: 1 },
+      { kind: "platform", share: 0.15, n: 3 },
+    ],
+  },
+  empty_turn_rate: { n: 31, value: 0.129, median: null, p95: null },
+};
+on("GET", "/workspaces/{id}/observations", (req, p) => {
+  const s = store();
+  requireMember(s, req, p.id);
+  const window = req.query.get("window") ?? "P30D";
+  if (!/^P(?!$)(\d+Y)?(\d+M)?(\d+W)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+S)?)?$/.test(window)) throw validation([{ field: "window", message: W.metrics_window_format }]);
+  const rows: ObservationRow[] = OBSERVATION_DEFS.map((d) => ({ ...d, ...OBSERVATION_DEMO[d.key] }));
+  const report: ObservationReport = { workspace_id: p.id, window, computed_at: now(), rows };
   return ok(report);
 });
 

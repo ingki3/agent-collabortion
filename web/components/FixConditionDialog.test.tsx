@@ -5,7 +5,6 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { ApiError } from "@/lib/api/client";
 import type { Session } from "@/lib/api/types";
 
 const patch = vi.fn();
@@ -15,6 +14,7 @@ vi.mock("@/lib/api/client", async () => {
 });
 
 import { FixConditionDialog } from "./FixConditionDialog";
+import { problemFixture } from "@/lib/mock/problem-fixture";
 
 const participant = (id: string, name: string, is_assignee = false): NonNullable<Session["participants"]>[number] => ({
   session_id: "s1", agent_id: id, agent: { id, name, role: "custom", role_description: "" }, profile: { id: `p-${id}`, agent_id: id, name: "default", runtime_kind: "claude_code", model: "m", options: {}, env: {}, args: [], is_default: true, fallback_profile_id: null, created_at: "2026-09-06T09:00:00Z", updated_at: "2026-09-06T09:00:00Z" },
@@ -69,7 +69,7 @@ describe("FixConditionDialog", () => {
   });
 
   it("서버가 422 로 거절하면 errors[].message 를 다이얼로그 안에서 그대로 보인다", async () => {
-    patch.mockRejectedValueOnce(new ApiError({ type: "https://colab.dev/problems/validation_failed", title: "입력값 확인 필요", status: 422, code: "validation_failed", detail: "입력값을 확인해 주세요", errors: [{ field: "completion_condition/conditions/1/agent_id", code: "reviewer_not_participant", message: "리뷰어는 이 세션의 참여자여야 합니다" }] }));
+    patch.mockRejectedValueOnce(problemFixture("validation_failed", 422, { detail: "입력값을 확인해 주세요", errors: [{ field: "completion_condition/conditions/1/agent_id", code: "reviewer_not_participant", message: "리뷰어는 이 세션의 참여자여야 합니다" }] }));
     render(<FixConditionDialog session={legacy} onSaved={vi.fn()} onClose={vi.fn()} />);
     fireEvent.change(screen.getByTestId("reviewer-select"), { target: { value: "a-lead" } });
     fireEvent.click(screen.getByTestId("fix-condition-save"));

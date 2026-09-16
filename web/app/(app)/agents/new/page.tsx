@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { capabilityIndex } from "@/lib/runtime-options";
 import { api, errorMessage, isApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { RoleCommands } from "@/components/RoleCommands";
 import type { AgentRole, Runtime, RuntimeKind } from "@/lib/api/types";
 
 const ROLES: AgentRole[] = ["lead", "researcher", "writer", "engineer", "reviewer", "custom"];
@@ -97,6 +98,7 @@ export default function NewAgentPage() {
             {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
           {role === "lead" && <span className="field__hint" data-testid="lead-protocol-note">협업 규칙이 지시문에 자동으로 붙습니다.</span>}
+          <RoleCommands role={role} />
         </label>
         <label className="field">
           <span className="field__label">역할 설명</span>

@@ -213,17 +213,18 @@ func PrepareWorktree(root string, b contracts.TaskBundle) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// §6 v0.7.3: `worktree` rows need the session uuid AND the agent_id, and
-	// the checkout's directory name carries neither (the server names it with
-	// slugs). Written on every preparation, not only the first — a record the
-	// disk lost heals on the agent's next lane.
-	if root != "" {
-		if err := RecordWorkdir(root, Record{
-			Kind: "worktree", Path: abs, SessionID: b.Task.SessionID,
-			AgentID: b.Task.AgentID, AgentName: b.Task.AgentName, Branch: branch,
-		}); err != nil {
-			return "", fmt.Errorf("workdir index: %w", err)
-		}
+	// K-14 (v0.8.3): the bundle's `workdir.id` goes into the checkout's name
+	// tag (marker.go, excluded from `git status`) and the §6 report echoes
+	// it. An older server sends no id: that keeps the v0.7.3 index record,
+	// which the report reads for the session uuid AND the agent_id that the
+	// slugged directory name cannot supply. Written on every preparation,
+	// not only the first — a tag or record the disk lost heals on the
+	// agent's next lane.
+	if err := tag(root, abs, b.Workdir.ID, Record{
+		Kind: "worktree", Path: abs, SessionID: b.Task.SessionID,
+		AgentID: b.Task.AgentID, AgentName: b.Task.AgentName, Branch: branch,
+	}); err != nil {
+		return "", err
 	}
 	return abs, nil
 }
@@ -307,7 +308,11 @@ func worktreeLocked(repo, path string) (bool, error) {
 // ListWorktrees enumerates this machine's `worktree` checkouts for the §6
 // report, with the identity and the git block filled in.
 //
-// TWO SOURCES, and both are needed (v0.7.3, T-I4 차단 ②):
+// The identity on each row is the checkout's name tag (marker.go): the
+// server's row id, which is all §6 v0.8.3 needs ("재시작 뒤에는
+// `<path>/.colab-workdir.json` 한 줄(id 만)을 읽는다"). A checkout with no
+// tag — prepared by an older daemon, or from a bundle an older server sent
+// without an id — falls back to the two v0.7.3 sources:
 //
 //   - the index (index.go) — the session uuid and the agent_id the bundle
 //     stated. A row without them is dropped by the server without a word, so
@@ -332,7 +337,7 @@ func ListWorktrees(root string) []Info {
 		seen[abs] = true
 		size, last := DiskUsage(abs)
 		info := Info{
-			Kind: "worktree", Path: abs, SessionID: sessionFallback,
+			ID: ReadMarker(abs), Kind: "worktree", Path: abs, SessionID: sessionFallback,
 			Bytes: size, LastUsedAt: last, Git: Git(abs),
 		}
 		if rec, ok := idx[abs]; ok {

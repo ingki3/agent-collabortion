@@ -30,7 +30,7 @@ vi.mock("@/lib/auth/AuthContext", () => ({
 vi.mock("@/lib/realtime/StreamContext", () => ({ useWorkspaceStream: () => undefined }));
 
 import WorkdirsPage from "./page";
-import { ApiError } from "@/lib/api/client";
+import { problemFixture } from "@/lib/mock/problem-fixture";
 
 const runtime: Runtime = {
   id: "r1", workspace_id: "w1", name: "데스크탑", host: null, status: "online", daemon_version: "0.4.0",
@@ -131,7 +131,7 @@ describe("수동 삭제 — 기본 차단 → 사유 → 확인 → force", () =
   });
 
   it("409 workdir_dirty 를 받으면 사유를 보여 주고, 확인해야 force 로 다시 보낸다", async () => {
-    del.mockRejectedValueOnce(new ApiError({ type: "about:blank", title: "conflict", status: 409, code: "workdir_dirty", detail: "unmerged_commits" }));
+    del.mockRejectedValueOnce(problemFixture("workdir_dirty", 409, { detail: "unmerged_commits" }));
     render(<WorkdirsPage />);
     await waitFor(() => expect(screen.getAllByTestId("workdir-row").length).toBe(3));
     const row = screen.getAllByTestId("workdir-row").find((r) => r.getAttribute("data-workdir-id") === "w-unmerged")!;
@@ -146,7 +146,7 @@ describe("수동 삭제 — 기본 차단 → 사유 → 확인 → force", () =
   });
 
   it("'그만두기' 는 아무것도 보내지 않는다 — 확인 화면은 되돌릴 수 있어야 한다", async () => {
-    del.mockRejectedValueOnce(new ApiError({ type: "about:blank", title: "conflict", status: 409, code: "workdir_dirty", detail: "uncommitted_changes" }));
+    del.mockRejectedValueOnce(problemFixture("workdir_dirty", 409, { detail: "uncommitted_changes" }));
     render(<WorkdirsPage />);
     await waitFor(() => expect(screen.getAllByTestId("workdir-row").length).toBe(3));
     const row = screen.getAllByTestId("workdir-row").find((r) => r.getAttribute("data-workdir-id") === "w-dirty")!;

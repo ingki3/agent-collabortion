@@ -32,6 +32,7 @@ import { FixConditionDialog } from "@/components/FixConditionDialog";
 import { api, errorMessage, newIdempotencyKey } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
+import { emptyTurnNote, isEmptyTurn } from "@/lib/feed";
 import type {
   Agent, Artifact, Decision, HitlRequest, HitlResponse, Lane, Member, Message, Participant, Runtime, Session, StreamEvent,
   Task, TaskEvent, TriggerPreview,
@@ -70,6 +71,11 @@ export default function SessionPage() {
   /** W-10: 우열 「세션 설정 → 컴퓨터」가 id 앞 8자 대신 **이름**을 보인다 — listRuntimes 에서 찾는다. */
   const [runtimes, setRuntimes] = useState<Runtime[] | null>(null);
   const [lanes, setLanes] = useState<Lane[]>([]);
+  /**
+   * 빈 턴(FR-7.2 v0.17) — 할 일 id → `payload.args.note`. 이 화면이 본 `status/turn_end/empty_turn` 행(SSE 또는 활동 보기)만.
+   * 계약 `Lane` 에 칸이 없으므로 정본은 활동 피드의 정보 카드이고, 작업 줄기 카드의 한 줄은 여기서 파생한다(Lead 결정 2026-09-15).
+   */
+  const [emptyTurns, setEmptyTurns] = useState<Record<string, string>>({});
   const [artifacts, setArtifacts] = useState<Artifact[] | null>(null);
   const [decisions, setDecisions] = useState<Decision[] | null>(null);
   /** 세션의 HITL 요청 — 타임라인의 `hitl` 메시지가 `message_id` 로 자기 요청을 찾는다. */
@@ -93,6 +99,7 @@ export default function SessionPage() {
   const [fixCondOpen, setFixCondOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
   const bottomRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30_000);
@@ -153,6 +160,8 @@ export default function SessionPage() {
     try {
       const r = await api.get("/tasks/{taskId}/events", { path: { taskId }, query: { limit: 200 } });
       setEvents((c) => ({ ...c, [taskId]: { events: r.items, structured: r.structured ?? true, loading: false } }));
+      const empty = r.items.find(isEmptyTurn);
+      if (empty) setEmptyTurns((m) => (m[taskId] ? m : { ...m, [taskId]: emptyTurnNote(empty) }));
     } catch {
       setEvents((c) => ({ ...c, [taskId]: { events: [], structured: true, loading: false } }));
     }
@@ -161,6 +170,8 @@ export default function SessionPage() {
   const loadLaneTasks = useCallback(async (laneId: string): Promise<Task[]> => {
     return api.get("/lanes/{laneId}/tasks", { path: { laneId } });
   }, []);
+  /** 이력 행의 「활동」 — 메시지 없는 턴(빈 턴)의 카드는 여기서만 닿는다. 같은 캐시라 한 번 읽은 할 일은 다시 읽지 않는다. */
+  const renderTaskActivity = useCallback((taskId: string) => <TaskActivity taskId={taskId} cache={events} load={loadEvents} />, [events, loadEvents]);
 
   // ── 실시간 ──
   const onEvent = useCallback((ev: StreamEvent) => {
@@ -187,6 +198,8 @@ export default function SessionPage() {
       }
       case "task_event.appended": {
         const te = ev.payload as unknown as TaskEvent;
+        // 빈 턴 행은 활동 보기를 열지 않았어도 기억한다 — 작업 줄기 카드가 한 줄을 보이기 위해.
+        if (isEmptyTurn(te)) setEmptyTurns((m) => (m[te.task_id] ? m : { ...m, [te.task_id]: emptyTurnNote(te) }));
         setEvents((c) => {
           const cur = c[te.task_id];
           if (!cur) return c;
@@ -279,8 +292,15 @@ export default function SessionPage() {
   }, [sessionId, router]);
   const conn = useWorkspaceStream(workspace?.id, onEvent, { onResync: () => { void load(); void loadSide(); } });
 
+  // 새 메시지·델타마다 맨 아래로. 작성창은 sticky(bottom: 0)라 뷰포트 아래를 자기 높이만큼 덮는다 — 끝 표식을 그냥 `block: "end"` 로
+  // 맞추면 마지막 카드·델타가 작성창 **뒤에** 숨는다(W-18, T-W14 관찰 3). 그래서 스크롤 직전에 작성창 높이를 재서 끝 표식의
+  // `scroll-margin-bottom` 으로 두고 내린다 — scrollIntoView 가 그 여백까지 드러낸다(scroll-margin 은 표준, Chrome 69+·Safari 14.1+).
+  // 작성창 높이는 답글 표시·안내 줄·textarea 줄 수에 따라 달라 CSS 상수로 둘 수 없다.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "end" });
+    const end = bottomRef.current;
+    if (!end) return;
+    end.style.scrollMarginBottom = `${composerRef.current?.offsetHeight ?? 0}px`;
+    end.scrollIntoView({ block: "end" });
   }, [messages.length, deltas]);
 
   /**
@@ -305,6 +325,15 @@ export default function SessionPage() {
   }, [agents, participants]);
   const composerMembers = useMemo(() => members.map((m) => ({ id: m.user.id, name: m.user.display_name })), [members]);
   const agentById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
+  /** 작업 줄기 id → 빈 턴 문장 — 줄기의 현재 할 일(`current_task`)이 빈 턴으로 끝났을 때만. */
+  const laneEmptyTurns = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const l of lanes) {
+      const tid = l.current_task?.id;
+      if (tid && emptyTurns[tid]) out[l.id] = emptyTurns[tid];
+    }
+    return out;
+  }, [lanes, emptyTurns]);
   const agentName = useCallback((id: string) => agentById.get(id)?.name ?? id.slice(0, 8), [agentById]);
 
   const preview = useCallback(
@@ -619,10 +648,12 @@ export default function SessionPage() {
           <h2 className="s7__h">작업 줄기</h2>
           <LaneBoard
             lanes={lanes}
+            emptyTurns={laneEmptyTurns}
             selected={false}
             now={now}
             disabledReason={isDirector ? undefined : "Director·deputy 만 할 수 있습니다"}
             loadTasks={loadLaneTasks}
+            renderTaskActivity={renderTaskActivity}
             onRestart={beginRestart}
             onCancel={(l) => setConfirmCancel(l)}
             onOpenQuestion={jumpToMessage}
@@ -632,11 +663,11 @@ export default function SessionPage() {
           />
           {confirmCancel && (
             <div className="s7__confirm" role="dialog" aria-label="작업 줄기 중단 확인" data-testid="cancel-confirm">
-              <p className="small">이 작업 줄기를 중단합니다. 새 지시 없이 종료됩니다.</p>
+              <p className="small">{confirmCancel.status === "done" ? "제출은 끝났습니다 — 아직 도는 실행만 멈춥니다(작업 줄기는 끝난 채로 남습니다)." : "이 작업 줄기를 중단합니다. 새 지시 없이 종료됩니다."}</p>
               <p className="small muted-3">되돌리기 어려운 작업 중이면 최대 30초 보류 후 종료됩니다.</p>
               <div className="row">
                 <button type="button" className="btn btn--sm btn--primary" disabled={busy} onClick={() => void doCancel(confirmCancel)} data-testid="cancel-confirm-yes">중단</button>
-                <button type="button" className="btn btn--sm" onClick={() => setConfirmCancel(null)}>취소</button>
+                <button type="button" className="btn btn--sm" onClick={() => setConfirmCancel(null)} data-testid="cancel-confirm-no">취소</button>
               </div>
             </div>
           )}
@@ -703,10 +734,10 @@ export default function SessionPage() {
                 {typingAgents.map((n) => `@${n}`).join(", ")} 입력 중…
               </p>
             )}
-            <div ref={bottomRef} />
+            <div ref={bottomRef} data-testid="timeline-end" />
           </div>
 
-          <footer className="s7__composer">
+          <footer className="s7__composer" ref={composerRef}>
             {restart && (
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <span />

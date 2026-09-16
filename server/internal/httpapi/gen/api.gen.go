@@ -176,6 +176,57 @@ func (e AutonomyLevel) Valid() bool {
 	}
 }
 
+// Defines values for ColabCommand.
+const (
+	ArtifactGet        ColabCommand = "artifact_get"
+	ArtifactSubmit     ColabCommand = "artifact_submit"
+	DecisionRecord     ColabCommand = "decision_record"
+	HitlApproveRequest ColabCommand = "hitl_approve_request"
+	HitlAsk            ColabCommand = "hitl_ask"
+	HitlRequestInfo    ColabCommand = "hitl_request_info"
+	LaneDelegate       ColabCommand = "lane_delegate"
+	MessagePost        ColabCommand = "message_post"
+	ReviewApprove      ColabCommand = "review_approve"
+	ReviewReject       ColabCommand = "review_reject"
+	SessionGet         ColabCommand = "session_get"
+	SessionMessages    ColabCommand = "session_messages"
+	StatusSet          ColabCommand = "status_set"
+)
+
+// Valid indicates whether the value is a known member of the ColabCommand enum.
+func (e ColabCommand) Valid() bool {
+	switch e {
+	case ArtifactGet:
+		return true
+	case ArtifactSubmit:
+		return true
+	case DecisionRecord:
+		return true
+	case HitlApproveRequest:
+		return true
+	case HitlAsk:
+		return true
+	case HitlRequestInfo:
+		return true
+	case LaneDelegate:
+		return true
+	case MessagePost:
+		return true
+	case ReviewApprove:
+		return true
+	case ReviewReject:
+		return true
+	case SessionGet:
+		return true
+	case SessionMessages:
+		return true
+	case StatusSet:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CompletionAtomType.
 const (
 	CompletionAtomTypeAgentApproval     CompletionAtomType = "agent_approval"
@@ -872,6 +923,33 @@ func (e MetricUnit) Valid() bool {
 	}
 }
 
+// Defines values for ObservationRowKey.
+const (
+	ObservationRowKeyChainDepth           ObservationRowKey = "chain_depth"
+	ObservationRowKeyChainScale           ObservationRowKey = "chain_scale"
+	ObservationRowKeyEmptyTurnRate        ObservationRowKey = "empty_turn_rate"
+	ObservationRowKeyJoinBreadth          ObservationRowKey = "join_breadth"
+	ObservationRowKeyRoutingConcentration ObservationRowKey = "routing_concentration"
+)
+
+// Valid indicates whether the value is a known member of the ObservationRowKey enum.
+func (e ObservationRowKey) Valid() bool {
+	switch e {
+	case ObservationRowKeyChainDepth:
+		return true
+	case ObservationRowKeyChainScale:
+		return true
+	case ObservationRowKeyEmptyTurnRate:
+		return true
+	case ObservationRowKeyJoinBreadth:
+		return true
+	case ObservationRowKeyRoutingConcentration:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PairingStatus.
 const (
 	PairingStatusConnected PairingStatus = "connected"
@@ -928,19 +1006,19 @@ func (e PauseReason) Valid() bool {
 
 // Defines values for PausedDetailLoopLimit.
 const (
-	ChainDepth     PausedDetailLoopLimit = "chain_depth"
-	HopsPerHour    PausedDetailLoopLimit = "hops_per_hour"
-	PairRoundtrips PausedDetailLoopLimit = "pair_roundtrips"
+	PausedDetailLoopLimitChainDepth     PausedDetailLoopLimit = "chain_depth"
+	PausedDetailLoopLimitHopsPerHour    PausedDetailLoopLimit = "hops_per_hour"
+	PausedDetailLoopLimitPairRoundtrips PausedDetailLoopLimit = "pair_roundtrips"
 )
 
 // Valid indicates whether the value is a known member of the PausedDetailLoopLimit enum.
 func (e PausedDetailLoopLimit) Valid() bool {
 	switch e {
-	case ChainDepth:
+	case PausedDetailLoopLimitChainDepth:
 		return true
-	case HopsPerHour:
+	case PausedDetailLoopLimitHopsPerHour:
 		return true
-	case PairRoundtrips:
+	case PausedDetailLoopLimitPairRoundtrips:
 		return true
 	default:
 		return false
@@ -1510,8 +1588,10 @@ func (e ListSessionsParamsSort) Valid() bool {
 
 // Agent 정의 필드 + 인스턴스 필드(FR-1.8). `status`는 파생값.
 type Agent struct {
-	ArchivedAt nullable.Nullable[time.Time] `json:"archived_at,omitempty"`
-	AvatarUrl  nullable.Nullable[string]    `json:"avatar_url,omitempty"`
+	// AllowedCommands **역할이 정하는 colab 명령 부분집합**(v1.1, K-19 — PRD FR-1.9.1 표, `colab-cli.md` §2.5). 읽기 전용 파생값: 서버가 role 로 계산한다. 이 밖의 명령은 CLI/MCP 표면에 없고(데몬이 툴 목록을 자르고 CLI 가 exit 3) 서버도 `403 command_not_allowed` 로 거부한다. `custom` 은 전부.
+	AllowedCommands *[]ColabCommand              `json:"allowed_commands,omitempty"`
+	ArchivedAt      nullable.Nullable[time.Time] `json:"archived_at,omitempty"`
+	AvatarUrl       nullable.Nullable[string]    `json:"avatar_url,omitempty"`
 
 	// BudgetPerTask USD. HITL 예산 승인으로는 바뀌지 않는다(C2′).
 	BudgetPerTask    nullable.Nullable[float32] `json:"budget_per_task,omitempty"`
@@ -1759,8 +1839,11 @@ type BudgetPolicy struct {
 
 // CliContext `TaskToken`이 가리키는 범위. CLI는 이 값으로 경로 파라미터를 채운다.
 type CliContext struct {
-	AgentId             openapi_types.UUID                    `json:"agent_id"`
-	AgentName           *string                               `json:"agent_name,omitempty"`
+	AgentId   openapi_types.UUID `json:"agent_id"`
+	AgentName *string            `json:"agent_name,omitempty"`
+
+	// AllowedCommands 이 task 의 에이전트가 쓸 수 있는 colab 명령(역할 부분집합, v1.1 K-19). CLI 는 이 밖의 명령을 서버에 보내기 전에 exit 3 `command_not_allowed` 로 거부한다.
+	AllowedCommands     *[]ColabCommand                       `json:"allowed_commands,omitempty"`
 	Attempt             int                                   `json:"attempt"`
 	DelegatedFromTaskId nullable.Nullable[openapi_types.UUID] `json:"delegated_from_task_id,omitempty"`
 	ExpiresAt           time.Time                             `json:"expires_at"`
@@ -1796,6 +1879,9 @@ type ColabCLI struct {
 	// Version 미설치·실행 실패면 빈 문자열.
 	Version string `json:"version"`
 }
+
+// ColabCommand colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19.
+type ColabCommand string
 
 // CompletionAtom defines model for CompletionAtom.
 type CompletionAtom struct {
@@ -2517,6 +2603,43 @@ type NotificationSettings struct {
 	Email               bool              `json:"email"`
 	Push                bool              `json:"push"`
 }
+
+// ObservationReport PRD v0.17 §11 「관찰」 표. `rows` 는 표의 행 순서.
+type ObservationReport struct {
+	ComputedAt  time.Time          `json:"computed_at"`
+	Rows        []ObservationRow   `json:"rows"`
+	Window      string             `json:"window"`
+	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+}
+
+// ObservationRow defines model for ObservationRow.
+type ObservationRow struct {
+	// Breakdown `routing_concentration` 만 — 규칙 번호별 비율.
+	Breakdown *[]struct {
+		// Kind FR-3.3 규칙 번호("1"~"8") 또는 "platform".
+		Kind  string  `json:"kind"`
+		N     int     `json:"n"`
+		Share float32 `json:"share"`
+	} `json:"breakdown,omitempty"`
+	Key ObservationRowKey `json:"key"`
+
+	// Label 화면에 그대로 보이는 이름(§8.4).
+	Label string `json:"label"`
+
+	// Median 분포형(`chain_scale`·`chain_depth`·`join_breadth`)의 중앙값. 비율형은 null.
+	Median nullable.Nullable[float32] `json:"median"`
+	N      int                        `json:"n"`
+
+	// Note 세는 법 한 문장.
+	Note string                     `json:"note"`
+	P95  nullable.Nullable[float32] `json:"p95"`
+
+	// Value 비율형(`routing_concentration` 폴백 비율·`empty_turn_rate`)의 값. 분포형은 null.
+	Value nullable.Nullable[float32] `json:"value"`
+}
+
+// ObservationRowKey defines model for ObservationRow.Key.
+type ObservationRowKey string
 
 // OnboardingStatus defines model for OnboardingStatus.
 type OnboardingStatus struct {
@@ -3894,6 +4017,11 @@ type GetWorkspaceMetricsParams struct {
 	Window *string `form:"window,omitempty" json:"window,omitempty"`
 }
 
+// GetWorkspaceObservationsParams defines parameters for GetWorkspaceObservations.
+type GetWorkspaceObservationsParams struct {
+	Window *string `form:"window,omitempty" json:"window,omitempty"`
+}
+
 // ListRuntimeCandidatesParams defines parameters for ListRuntimeCandidates.
 type ListRuntimeCandidatesParams struct {
 	Isolation IsolationKind `form:"isolation" json:"isolation"`
@@ -4769,6 +4897,9 @@ type ServerInterface interface {
 	// GetWorkspaceMetrics 관측 대시보드 — PRD §11 성공 지표 10개(P5, G9)
 	// (GET /workspaces/{workspaceId}/metrics)
 	GetWorkspaceMetrics(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId, params GetWorkspaceMetricsParams)
+	// GetWorkspaceObservations 관찰 표 — PRD v0.17 §11 「관찰」 5행(목표치 없음, K-18)
+	// (GET /workspaces/{workspaceId}/observations)
+	GetWorkspaceObservations(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId, params GetWorkspaceObservationsParams)
 	// GetOnboardingStatus S4 온보딩 체크리스트 상태
 	// (GET /workspaces/{workspaceId}/onboarding)
 	GetOnboardingStatus(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId)
@@ -7996,6 +8127,48 @@ func (siw *ServerInterfaceWrapper) GetWorkspaceMetrics(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// GetWorkspaceObservations operation middleware
+func (siw *ServerInterfaceWrapper) GetWorkspaceObservations(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workspaceId" -------------
+	var workspaceId WorkspaceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workspaceId", r.PathValue("workspaceId"), &workspaceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetWorkspaceObservationsParams
+
+	// ------------- Optional query parameter "window" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "window", r.URL.Query(), &params.Window, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "window"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "window", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetWorkspaceObservations(w, r, workspaceId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetOnboardingStatus operation middleware
 func (siw *ServerInterfaceWrapper) GetOnboardingStatus(w http.ResponseWriter, r *http.Request) {
 
@@ -8768,6 +8941,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sessions/{sessionId}/cost", wrapper.GetSessionCost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/workspaces/{workspaceId}/cost", wrapper.GetWorkspaceCost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/workspaces/{workspaceId}/metrics", wrapper.GetWorkspaceMetrics)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/workspaces/{workspaceId}/observations", wrapper.GetWorkspaceObservations)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/workspaces/{workspaceId}/stream", wrapper.StreamEvents)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/cli/context", wrapper.GetCliContext)
 

@@ -39,8 +39,8 @@ vi.mock("@/lib/realtime/StreamContext", () => ({
 }));
 
 import SessionsPage from "./page";
-import { ApiError } from "@/lib/api/client";
 import { SESSION_MENU } from "@/lib/wording";
+import { problemFixture } from "@/lib/mock/problem-fixture";
 
 const other = { id: "u2", email: "other@example.com", display_name: "서연", avatar_url: null, created_at: "2026-09-06T09:00:00Z" };
 const item = (id: string, over: Partial<SessionListItem> = {}): SessionListItem => ({
@@ -143,7 +143,7 @@ describe("삭제 성공 경로 — 카드 즉시 제거, SSE 로도 제거(멱�
   });
 
   it("409 이면 카드는 그대로, 다이얼로그 안에 서버 문장", async () => {
-    del.mockRejectedValueOnce(new ApiError({ type: "https://colab.dev/problems/session_active", title: "지금은 할 수 없음", status: 409, code: "session_active", detail: "진행 중인 세션은 먼저 종료하세요" }));
+    del.mockRejectedValueOnce(problemFixture("session_active", 409, { detail: "진행 중인 세션은 먼저 종료하세요" }));
     await mount();
     fireEvent.click(openMenu("s1"));
     fireEvent.click(screen.getByTestId("delete-session-confirm"));

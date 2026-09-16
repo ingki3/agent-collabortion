@@ -9,18 +9,37 @@
  */
 import type { SessionStatus, Workdir } from "@/lib/api/types";
 
+/**
+ * `completion_condition` 최상위의 결합 — `and`·`or`, 또는 **원자 하나**(`single`: 결합이 없다). 원자 하나를 `and` 로 뭉뚱그리지
+ * 않는다(W-20, PR #234 NN4) — 요약이 "하나만 충족하면 끝" 을 붙일지는 or 에서만, 원자 하나에는 물을 것이 없다.
+ */
+export type TopOp = "and" | "or" | "single";
+
 /** 끝난 세션 — 계약 deleteSession "`draft`·`completed`·`cancelled` 만". 그 외는 409 `session_active`. */
 export const DELETABLE_STATUS: ReadonlySet<SessionStatus> = new Set<SessionStatus>(["draft", "completed", "cancelled"]);
 
 /**
  * 삭제 가부 — 화면은 판정하지 않는다(서버가 409·403 으로 다시 검사한다). 여기 있는 비활성은 §8.5 "왜 비활성인지 근처에서
  * 말한다" 를 위한 사유 선택이다. 상태가 먼저다: 진행 중이면 권한이 있어도 "먼저 종료" 가 다음 행동이기 때문.
+ *
+ * 권한 규칙(계약 deleteSession: Director 또는 owner·admin)은 **여기서** 판정한다(W-14, PR #219 NN5 — 호출자마다 `canDelete` 를
+ * 따로 계산하면 카드와 다른 자리가 다른 규칙을 쓸 수 있다). 호출자는 세션(상태·Director)과 나(사용자 id·관리 권한)를 넘긴다.
  */
 export type DeleteGate = { ok: true } | { ok: false; reason: string };
-export function deleteGate(status: SessionStatus, canDelete: boolean): DeleteGate {
-  if (!DELETABLE_STATUS.has(status)) return { ok: false, reason: SESSION_MENU.blocked_active };
-  if (!canDelete) return { ok: false, reason: SESSION_MENU.blocked_role };
+export interface DeleteGateMe {
+  /** 로그인한 사용자 id — 세션 Director 와 비교한다. */
+  userId: string | null | undefined;
+  /** 워크스페이스 owner·admin(AuthContext `canManage`). */
+  canManage: boolean;
+}
+export function deleteGate(session: { status: SessionStatus; director: { id: string } }, me: DeleteGateMe): DeleteGate {
+  if (!DELETABLE_STATUS.has(session.status)) return { ok: false, reason: SESSION_MENU.blocked_active };
+  if (!canDeleteSession(session, me)) return { ok: false, reason: SESSION_MENU.blocked_role };
   return { ok: true };
+}
+/** 계약 deleteSession 의 권한 — Director 또는 owner·admin. 목(`handlers.ts` deleteSession)과 서버가 같은 규칙. */
+export function canDeleteSession(session: { director: { id: string } }, me: DeleteGateMe): boolean {
+  return (!!me.userId && session.director.id === me.userId) || me.canManage;
 }
 
 /** 카드 「…」 메뉴 — 항목 둘(세션 열기·삭제)과 비활성 사유 둘(SCREEN §4.3). */
@@ -136,9 +155,15 @@ export const PROGRESS = {
   /** 충족 — "(Writer, 9/13)". */
   met_by: (who: string | null, when: string | null) => (who && when ? `${who}, ${when}` : (who ?? when ?? "충족")),
   /** 상단 한 줄 — "남은 것: Director 승인 1개 · 막힘 1개". 막힌 조건은 이름 대신 개수로 센다(이유는 행이 말한다). */
-  summary: (remaining: string[], blocked: number, op: "and" | "or") => {
-    const parts: string[] = [];
-    if (remaining.length) parts.push(`${remaining.join(", ")} ${remaining.length}개`);
+  /**
+   * 상단 한 줄 — "남은 것: <이름> N개 · <이름> N개 · 막힘 N개". 이름마다 자기 개수를 붙인다(W-20, PR #234 NN1 — 예전엔 "이름, 이름 2개" 로
+   * 개수가 목록 뒤에 하나만 붙어 어순이 어색했다). 같은 이름이 둘이면(같은 리뷰어의 검토 둘) 묶어 "… 2개". OR 은 조건이 둘 이상일 때만
+   * "하나만 충족하면 끝" 을 덧붙인다 — 원자 하나(`op: "single"`)는 결합이 없다.
+   */
+  summary: (remaining: string[], blocked: number, op: TopOp) => {
+    const counts = new Map<string, number>();
+    for (const name of remaining) counts.set(name, (counts.get(name) ?? 0) + 1);
+    const parts = [...counts].map(([name, n]) => `${name} ${n}개`);
     if (blocked) parts.push(`막힘 ${blocked}개`);
     return `남은 것: ${parts.join(" · ")}${op === "or" && remaining.length + blocked > 1 ? " — 하나만 충족하면 끝" : ""}`;
   },
@@ -167,4 +192,96 @@ export const FIX_CONDITION = {
   save: "저장",
   cancel: "취소",
   busy: "저장 중…",
+} as const;
+
+// ── v1.1 첫 라운드(T-W16) — S14 「관찰」 표(K-18) · S10 역할의 허용 명령(K-19) · 빈 턴 카드(FR-7.2) ──
+
+/**
+ * `ColabCommand`(계약 enum 13개, `colab-cli.md` §2) → 사람 말. S10 역할 구역이 "이 에이전트가 할 수 있는 일: …" 로 그린다.
+ * 명령 이름은 내부어라 화면에 나오지 않는다 — 이 표만 나온다. 13개 전부를 `lib/wording.test.ts` 가 계약 enum 과 대조한다.
+ */
+export const COMMAND_LABEL = {
+  session_get: "세션 읽기",
+  session_messages: "메시지 읽기",
+  artifact_get: "산출물 읽기",
+  message_post: "메시지 게시",
+  status_set: "상태 알리기",
+  decision_record: "결정 기록",
+  lane_delegate: "위임",
+  artifact_submit: "산출물 제출",
+  review_approve: "검토 승인",
+  review_reject: "검토 반려",
+  hitl_ask: "사람에게 질문",
+  hitl_approve_request: "완료 승인 요청",
+  hitl_request_info: "사람에게 정보 요청",
+} as const;
+
+/** S10 역할 구역 — 허용 명령 목록의 머리말·"전부"·못 하는 것 한 줄(FR-1.9.1 표의 "막는 것과 이유" 열을 사람 말로). */
+export const ROLE_COMMANDS = {
+  head: "이 에이전트가 할 수 있는 일:",
+  all: "전부",
+  /** 「전부」 뒤 괄호 — lead 는 코디네이터라서, custom 은 Director 가 지시문으로 정해서. */
+  all_lead: "코디네이터는 모든 명령을 씁니다",
+  all_custom: "역할 대신 지시문이 정합니다",
+  /** "<못 하는 것>은 못 합니다 — <이유>" 의 뒤 절. */
+  cannot: (denied: string) => `${denied}은 못 합니다`,
+  reason_worker: "위임·검토 승인·완료 승인 요청은 Lead 의 일",
+  reason_reviewer: "위임·완료 승인 요청은 Lead 의 일, 산출물 대신 검토 반려 사유를 남깁니다",
+  /** 저장 전 미리보기 — 고른 역할이 저장된 역할과 다를 때. */
+  preview: "저장하면 이 목록으로 바뀝니다",
+  readonly: "역할이 정합니다 — 여기서 고칠 수 없습니다",
+} as const;
+
+/** S14 「관찰」 표(PRD §11 관찰 행 — 목표치 없음, 지표 10개 표와 **별도**, Director 확정 2026-09-15). */
+export const OBSERVATIONS = {
+  title: "관찰",
+  subtitle: "목표치 없이 분포만 봅니다",
+  col_name: "관찰",
+  col_value: "값",
+  col_n: "표본",
+  median: "중앙값",
+  p95: "p95",
+  note_summary: "세는 법",
+  /** `breakdown[]` 의 하위 행 머리 — "규칙 6 · 담당 에이전트 폴백". */
+  rule: (n: string) => `규칙 ${n}`,
+  /** 「다시 세기」 — 지표 표와 **같은 버튼**(두 op 을 함께 다시 부른다, V-1 #247 NN1). 관찰 표 머리에도 놓는다. */
+  reload: "다시 세기",
+  counting: "세는 중…",
+  /** `routing_concentration.value` 옆 한 줄 — 값이 무엇의 비율인지(계약: 규칙 6·7 폴백 비율, 아래 하위 행은 규칙별 분포). V-1 #247 NN2. */
+  routing_value_hint: "규칙 6·7 폴백 비율 — 아래는 규칙별 분포",
+  /** 모르는 `breakdown[].kind` 의 꼬리 — 원시 값을 그대로 두고 "새 규칙" 임을 말한다(V-1 #247 NN4). */
+  unknown_kind_tail: "(새 규칙)",
+} as const;
+
+/**
+ * `routing_concentration.breakdown[].kind` — FR-3.3 규칙 번호("1"~"8") 또는 "platform" 을 사람 말로.
+ * 규칙 번호는 PRD 의 것이라 그대로 두고(Director 가 PRD 와 대조한다) 뒤에 무엇인지 한 마디를 붙인다. 배열 인덱스 = 규칙 번호 - 1.
+ */
+export const ROUTING_RULE_LABEL: readonly string[] = [
+  "기록만",
+  "에이전트 멘션",
+  "@all·사람만 멘션",
+  "에이전트가 멘션",
+  "답글",
+  "담당 에이전트 폴백",
+  "지연 폴백",
+  "위임자 멘션 억제",
+];
+export const ROUTING_PLATFORM_LABEL = "플랫폼(위임·다시 지시)";
+export function routingKindLabel(kind: string): string {
+  if (kind === "platform") return ROUTING_PLATFORM_LABEL;
+  const what = /^[1-8]$/.test(kind) ? ROUTING_RULE_LABEL[Number(kind) - 1] : undefined;
+  // 모르는 값(계약이 규칙을 더했는데 화면이 아직 모를 때) — 원시 값 그대로 + "(새 규칙)" 꼬리. 숨기거나 지어내지 않는다.
+  return what ? `${OBSERVATIONS.rule(kind)} · ${what}` : `${kind} ${OBSERVATIONS.unknown_kind_tail}`;
+}
+
+/**
+ * 빈 턴(FR-7.2 v0.17) — 메시지 0·플랫폼 조작 0·편집 0 으로 끝난 턴. 서버가 finish 에서 `status/turn_end/empty_turn/info` 행을 남기고
+ * 문장은 `payload.args.note` 에 싣는다. 화면은 그 note 를 **그대로** 보이고, note 가 없을 때만 여기 문장을 쓴다(같은 문장).
+ * 오류가 아니다 — 정보 카드(ⓘ). 멘션이 낭비됐는지 정당한 무응답인지는 Director 가 카드를 보고 판단한다.
+ */
+export const EMPTY_TURN = {
+  note: "아무것도 하지 않고 턴을 끝냈습니다",
+  /** 카드의 종류 표시(스크린리더·툴팁). */
+  kind: "정보",
 } as const;

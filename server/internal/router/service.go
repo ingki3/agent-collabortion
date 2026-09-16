@@ -15,6 +15,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/ingki3/agent-collabortion/contracts/clock"
+	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
@@ -25,7 +26,13 @@ import (
 )
 
 var (
-	ErrSessionNotFound = errors.New("router: session not found")
+	// ErrSessionNotFound wraps the 404 Problem so every handler that answers
+	// with apperr.As says "세션을 찾을 수 없습니다" rather than 500. The row is
+	// read under FOR UPDATE, so this is also what a message queued behind a
+	// deleteSession gets once the delete commits (S-82 — the reverse race,
+	// TestS82DeleteRacesPostMessage): before, it surfaced as `internal` with
+	// the router's own sentence in `cause`.
+	ErrSessionNotFound = fmt.Errorf("router: session not found: %w", apperr.NotFound("session"))
 	ErrParentNotFound  = errors.New("router: parent message not found")
 )
 
@@ -247,7 +254,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 				Code    string                                `json:"code"`
 				Message string                                `json:"message"`
 			}{AgentId: tasks.NullUUID(&tr.AgentID), Code: "loop_limit",
-				Message: "루프 상한에 걸려 세션이 일시정지되었습니다 — " + v.LimitText()})
+				Message: v.PausedText()})
 			continue
 		}
 
@@ -558,10 +565,11 @@ func causeOfTask(ctx context.Context, q pgx.Tx, taskID uuid.UUID) (id, cause int
 	return id, cause, err
 }
 
-// gateHop is FR-3.5 for ONE server-originated trigger: a delegation
-// (delegate.go) or a wake-up the server owes a delegator or an author
-// (status.go wake — join, blocked question, re-entry report). Post runs the
-// same check inline because it gates several triggers against one history.
+// judgeHop is FR-3.5's VERDICT for one server-originated trigger: a
+// delegation (delegate.go) or a wake-up the server owes a delegator or an
+// author (status.go wake — join, blocked question, re-entry report). Post
+// runs the same check inline because it gates several triggers against one
+// history.
 //
 // S-76: neither path used to be gated. `Delegate` recorded its hop and
 // `wake` recorded nothing, so a delegator that re-delegated on every join
@@ -572,9 +580,14 @@ func causeOfTask(ctx context.Context, q pgx.Tx, taskID uuid.UUID) (id, cause int
 // loop that needs no mention at all is the one it cannot stop.
 //
 // The hop is recorded either way (allowed=false when it tripped) so the next
-// decision reads a complete history. On a trip the session pauses with the
-// limit named and the Director gets the HITL; the caller creates no task.
-func (s *Service) gateHop(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID,
+// decision reads a complete history. What this function does NOT do is stop
+// the session: that is pauseForLoop, and the caller invokes it (S-79, PR #213
+// 리뷰 NN2) — the verdict and its consequence used to be one function, so a
+// caller that returned 409 and one that went quiet were both standing on a
+// session already paused without the code saying so. Every site now reads
+// judge → (tripped) pause → its own answer, and a third caller cannot forget
+// the pause because nothing pauses for it.
+func (s *Service) judgeHop(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID,
 	next Hop, msgID uuid.UUID, rule int, now time.Time) (LoopVerdict, error) {
 	limits, err := s.loopLimits(ctx, tx, wsID)
 	if err != nil {
@@ -587,11 +600,6 @@ func (s *Service) gateHop(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.U
 	v := CheckLoopLimits(history, next, limits, now)
 	if err := s.recordHop(ctx, tx, sessionID, next, msgID, rule, v.Allowed); err != nil {
 		return LoopVerdict{}, err
-	}
-	if !v.Allowed {
-		if err := s.pauseForLoop(ctx, tx, sessionID, wsID, director, v, now); err != nil {
-			return LoopVerdict{}, err
-		}
 	}
 	return v, nil
 }
@@ -656,7 +664,7 @@ func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID u
 		WHERE id = $1`, sessionID, detail, now); err != nil {
 		return err
 	}
-	question := "루프 상한에 도달해 세션을 일시정지했습니다 — " + v.LimitText() + ". 계속할까요?"
+	question := v.QuestionText()
 	var hitlID uuid.UUID
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO hitl_request (session_id, task_id, source, type, question, proposed_default, approver_spec, purpose, due_at, created_at)

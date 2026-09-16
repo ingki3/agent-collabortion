@@ -91,7 +91,7 @@ func HitlAsk(ctx context.Context, c *client.Client, a HitlAskArgs) (*HitlResult,
 			return nil, client.Usage("hitl ask: --default %q must be one of --choices (%s)", a.Default, strings.Join(opts, ", "))
 		}
 	}
-	return createHitl(ctx, c, a.Session, a.IdempotencyKey, client.HitlCreate{
+	return createHitl(ctx, c, client.CmdHitlAsk, a.Session, a.IdempotencyKey, client.HitlCreate{
 		Type: typ, Question: a.Question, Context: a.Context,
 		ProposedDefault: a.Default, Options: opts,
 	})
@@ -116,7 +116,7 @@ func HitlApproveRequest(ctx context.Context, c *client.Client, a HitlApproveRequ
 	if strings.TrimSpace(a.Summary) == "" {
 		return nil, client.Usage("hitl approve-request: --summary is required (what you are asking approval for)")
 	}
-	return createHitl(ctx, c, a.Session, a.IdempotencyKey, client.HitlCreate{
+	return createHitl(ctx, c, client.CmdHitlApproveRequest, a.Session, a.IdempotencyKey, client.HitlCreate{
 		Type: client.HitlApproval, Summary: a.Summary, ArtifactID: strings.TrimSpace(a.Artifact),
 	})
 }
@@ -145,7 +145,7 @@ func HitlRequestInfo(ctx context.Context, c *client.Client, a HitlRequestInfoArg
 	if strings.TrimSpace(a.What) == "" {
 		return nil, client.Usage("hitl request-info: --what is required (the information you need)")
 	}
-	return createHitl(ctx, c, a.Session, a.IdempotencyKey, client.HitlCreate{
+	return createHitl(ctx, c, client.CmdHitlRequestInfo, a.Session, a.IdempotencyKey, client.HitlCreate{
 		Type: client.HitlInfo, What: a.What, Why: a.Why,
 	})
 }
@@ -158,7 +158,10 @@ func HitlRequestInfo(ctx context.Context, c *client.Client, a HitlRequestInfoArg
 // does (harness.md §2.1) — and /cli/context otherwise, so the one-request
 // property of C-1 holds on the normal path. The task is not resolved at all
 // here: it rides in the TaskToken.
-func createHitl(ctx context.Context, c *client.Client, session, key string, body client.HitlCreate) (*HitlResult, error) {
+func createHitl(ctx context.Context, c *client.Client, cmd client.Command, session, key string, body client.HitlCreate) (*HitlResult, error) {
+	if err := c.Allow(ctx, cmd); err != nil {
+		return nil, err
+	}
 	sid, err := c.SessionID(ctx, session)
 	if err != nil {
 		return nil, err

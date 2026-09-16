@@ -16,6 +16,13 @@
 // and reads it back when it reports. The file lives under
 // `<root>/.colab/workdirs/` — beside the orphan records of §5, never inside
 // the checkout, which would put it in the user's `git status`.
+//
+// SUPERSEDED for v0.8.3 bundles (K-14, T-D15). The bundle now carries the
+// row's id and the daemon echoes it (marker.go); a record is written only for
+// a bundle WITHOUT an id — an older server, or a `dir` lane's first attempt
+// (Lead T-S21 decision A) — and is forgotten the moment the same directory
+// gets a name tag. This file is the fallback for one round; see marker.go
+// for when to delete it.
 package workdir
 
 import (
@@ -174,12 +181,15 @@ func (i *Info) apply(rec Record) {
 }
 
 // Describe builds one §6 report row for a path the server named (a `gc`
-// command carries paths, §4.3). Everything the row needs is either in the
-// index or measurable on disk — including `git` and `bytes`, which §6 v0.7.3
-// requires on EVERY report because they are the only input GC judges from.
+// command carries paths, §4.3) or an attempt just left (the lane-end
+// report). Everything the row needs is either in the directory's name tag
+// (marker.go — the row id, v0.8.3), in the index (the v0.7.3 pair, for a
+// directory with no tag) or measurable on disk — including `git` and
+// `bytes`, which §6 v0.7.3 requires on EVERY report because they are the
+// only input GC judges from.
 func Describe(root, path, sessionID string) Info {
 	abs := absClean(path)
-	info := Info{Kind: "dir", Path: abs, SessionID: sessionID}
+	info := Info{ID: ReadMarker(abs), Kind: "dir", Path: abs, SessionID: sessionID}
 	if rec, ok := LookupWorkdir(root, abs); ok {
 		info.apply(rec)
 		if sessionID != "" {
