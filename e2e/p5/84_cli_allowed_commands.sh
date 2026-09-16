@@ -22,7 +22,8 @@
 #      colab_lane_delegate 호출 → isError command_not_allowed · 탭 0줄 · colab_session_get → 결과 · --allow 없이 13.
 #   D. 서버 우회 방어 한 줄 — 같은 토큰으로 curl 직접 POST /lanes → 403 command_not_allowed(81_ D.8 재확인, "세 층").
 #
-# 스택(T-C7 배정, V11_TASKS §0): server :8119 · pg :5463 · 컨테이너 colab-pg-c7. 탭은 :8129(SERVER_URL 포트+10).
+# 스택(T-C7 배정, V11_TASKS §0): server :8119 · pg :5463 · 컨테이너 colab-pg-c7. 탭은 `TAP_PORT_84`(기본 SERVER_URL 포트+10 = :8129) —
+# 72_~74_·82_ 와 같은 `TAP_PORT_<번호>` 관례(I-5): 다른 스택의 서버·탭과 겹치면 export 로 옮긴다.
 # 사용: SERVER_URL=http://localhost:8119 PG_PORT=5463 PG_CONTAINER=colab-pg-c7 bash e2e/p5/up.sh
 #       bash e2e/p5/84_cli_allowed_commands.sh
 #       SERVER_URL=http://localhost:8119 PG_PORT=5463 PG_CONTAINER=colab-pg-c7 bash e2e/p5/down.sh
@@ -41,7 +42,7 @@ step "0. colab 바이너리(HEAD $(git rev-parse --short HEAD)) · 탭 프록시
 # 바이너리는 A.5·A.7·B.2·C.1~C.3 이 FAIL 이어야 한다(서버 403 이 exit 3 을 대신 내므로 A.1 만으로는 못 가른다).
 COLAB="${COLAB_BIN:-$BIN/colab-c7}"
 [ -n "${COLAB_BIN:-}" ] || (cd cli && go build -o "$COLAB" ./cmd/colab) || die "colab build"
-TAP_PORT=$(( ${SERVER_URL##*:} + 10 )); TAP_URL="http://127.0.0.1:$TAP_PORT"; TAPLOG="$OUT/84-tap.log"; : > "$TAPLOG"
+TAP_PORT="${TAP_PORT_84:-$(( ${SERVER_URL##*:} + 10 ))}"; TAP_URL="http://127.0.0.1:$TAP_PORT"; TAPLOG="$OUT/84-tap.log"; : > "$TAPLOG"
 setsid_run "$OUT/84-tap.out" python3 "$(dirname "$0")/fixtures/tap_proxy.py" "$TAP_PORT" "$SERVER_URL" "$TAPLOG" > "$OUT/84-tap.pid"
 trap 'kill "$(cat "$OUT/84-tap.pid")" 2>/dev/null' EXIT
 for i in $(seq 1 40); do curl -fsS "$TAP_URL/healthz" >/dev/null 2>&1 && break; sleep 0.25; done
