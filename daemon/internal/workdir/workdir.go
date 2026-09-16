@@ -231,25 +231,31 @@ func Prepare(root string, b contracts.TaskBundle) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// §6 v0.7.3: the report needs the session uuid and the lane, and neither
-	// survives in the directory name once the server names the path.
-	if root != "" {
-		if err := RecordWorkdir(root, Record{
-			Kind: "dir", Path: abs, SessionID: b.Task.SessionID,
-			AgentID: b.Task.AgentID, AgentName: b.Task.AgentName, LaneID: b.Task.LaneID,
-		}); err != nil {
-			return "", fmt.Errorf("workdir index: %w", err)
-		}
+	// K-14 (v0.8.3): the bundle's `workdir.id` goes into the directory's name
+	// tag (marker.go) and the §6 report echoes it. A `dir` lane's FIRST
+	// attempt has no id (the server cannot make the row before the daemon
+	// names the path — Lead T-S21 decision A), and an older server sends
+	// none at all: those keep the v0.7.3 index record, which the report reads
+	// for the session uuid and the lane that the directory name cannot supply.
+	if err := tag(root, abs, b.Workdir.ID, Record{
+		Kind: "dir", Path: abs, SessionID: b.Task.SessionID,
+		AgentID: b.Task.AgentID, AgentName: b.Task.AgentName, LaneID: b.Task.LaneID,
+	}); err != nil {
+		return "", err
 	}
 	return abs, nil
 }
 
 // Info is one workdir as reported to the server (daemon-protocol §6).
 type Info struct {
-	// ID is the server's own id for the row when the daemon knows it — today
-	// only on a §4.5 test-chat receipt, where the contract puts the test
-	// chat id in both `id` and `test_chat_id`. Session rows carry it inside
-	// GC (the gc command echo) and leave this empty.
+	// ID is the server's own id for the row (daemon-protocol v0.8.3 §6,
+	// K-14): the bundle's `workdir.id`, echoed on the lane-end report and
+	// read back from the directory's name tag (marker.go) on every later
+	// one — a probe's full report after a restart has no bundle in hand. The
+	// server finds the row by it; session_id·agent_id·lane_id are the
+	// fallback key for a row with none (an older daemon's directory, or a
+	// `dir` lane's first attempt). On a §4.5 test-chat receipt it is the
+	// test chat id, as the contract puts it in both `id` and `test_chat_id`.
 	ID        string `json:"id,omitempty"`
 	Kind      string `json:"kind"`
 	Path      string `json:"path"`
@@ -362,7 +368,7 @@ func List(root string) ([]Info, error) {
 			}
 			p := filepath.Join(base, s.Name(), l.Name())
 			size, last := DiskUsage(p)
-			out = append(out, Info{Kind: "dir", Path: p, SessionID: s.Name(), LaneID: l.Name(), Bytes: size, LastUsedAt: last})
+			out = append(out, Info{ID: ReadMarker(p), Kind: "dir", Path: p, SessionID: s.Name(), LaneID: l.Name(), Bytes: size, LastUsedAt: last})
 		}
 	}
 	// §6 "데몬은 workdir 목록을 probe와 함께 보고한다" — the list is the whole

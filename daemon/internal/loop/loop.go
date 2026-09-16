@@ -534,6 +534,14 @@ func (d *Daemon) gc(ctx context.Context, c contracts.Command) {
 		// and the command is then never consumed — it is re-issued every 30s
 		// until the 24h TTL writes "명령 미소비 만료" into the feed (§4.3).
 		row := workdir.Describe(d.Cfg.WorkdirRoot, w.Path, c.SessionID)
+		if row.ID == "" {
+			// §6 v0.8.3: the row is keyed by id. The command's id IS the
+			// server's row id for this path (§4.3 `{id, path}`), so a
+			// directory with no name tag — an older daemon prepared it —
+			// still answers by id, and a directory already gone (deleted by
+			// hand, or this is the re-issue after `deleted`) too.
+			row.ID = w.ID
+		}
 		row.GC = &workdir.GCResult{ID: w.ID}
 		targets = append(targets, row)
 	}
@@ -675,6 +683,12 @@ func bundleKind(b contracts.TaskBundle) string {
 func (d *Daemon) reportLaneWorkdir(b contracts.TaskBundle, fw *contracts.FinishWorkdir) {
 	k := key(b.Task.ID, b.Task.Attempt)
 	row := workdir.Describe(d.Cfg.WorkdirRoot, fw.Path, b.Task.SessionID)
+	// K-14 (§6 v0.8.3): "`id` 는 번들이 준 값을 그대로". The bundle is what
+	// §4.1 said for THIS attempt; the name tag Describe read is the same
+	// value written at preparation, and the bundle wins where they differ.
+	if b.Workdir.ID != "" {
+		row.ID = b.Workdir.ID
+	}
 	if b.Workdir.Kind != "" {
 		row.Kind = b.Workdir.Kind
 	}
@@ -701,7 +715,13 @@ func (d *Daemon) reportLaneWorkdir(b contracts.TaskBundle, fw *contracts.FinishW
 		d.Log("%s workdir report: %v", k, err)
 		return
 	}
-	d.Log("%s workdir report kind=%s bytes=%d %s", k, row.Kind, row.Bytes, gitSummary(row.Git))
+	// D-24 + K-14: the id is the fact a person checking S13 against this log
+	// needs — "(없음)" is the pair fallback (older server, `dir` first attempt).
+	id := row.ID
+	if id == "" {
+		id = "(none)"
+	}
+	d.Log("%s workdir report id=%s kind=%s bytes=%d %s", k, id, row.Kind, row.Bytes, gitSummary(row.Git))
 }
 
 // usageSummary is the §4.4 `usage` block on one line (D-24). Cache counters

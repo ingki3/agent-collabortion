@@ -362,24 +362,40 @@ func hasPattern(body []byte, pattern string) bool {
 	return false
 }
 
-// stripExcludeBlock removes our bracketed block, and — defensively — a bare
-// pattern line that an older daemon may have written without brackets.
+// stripExcludeBlock removes the pattern from our bracketed blocks — and the
+// brackets of a block that is then empty — plus, defensively, a bare pattern
+// line that an older daemon may have written without brackets. A block that
+// still holds another of our patterns (the workdir name tag, K-14, stays
+// registered for the checkout's whole life while the brief's entry comes and
+// goes per lane) keeps its brackets, so the next release still finds a block
+// to strip rather than a bare line it did not write.
 func stripExcludeBlock(body []byte, pattern string) []byte {
 	lines := strings.Split(string(body), "\n")
 	out := make([]string, 0, len(lines))
+	var block []string // lines of the block being read, brackets included
 	inBlock := false
 	for _, l := range lines {
 		t := strings.TrimSpace(l)
 		switch {
 		case t == excludeStart:
 			inBlock = true
-		case t == excludeEnd:
+			block = append(block[:0], l)
+		case t == excludeEnd && inBlock:
 			inBlock = false
+			if len(block) > 1 {
+				out = append(out, append(block, l)...)
+			}
 		case inBlock && t == pattern:
-		case !inBlock && t == pattern:
+		case inBlock:
+			block = append(block, l)
+		case t == pattern:
 		default:
 			out = append(out, l)
 		}
+	}
+	if inBlock {
+		// An unterminated block (a hand-edited file): keep what was read.
+		out = append(out, block...)
 	}
 	s := strings.Join(out, "\n")
 	// Collapse the blank line the removal can leave at the end.
