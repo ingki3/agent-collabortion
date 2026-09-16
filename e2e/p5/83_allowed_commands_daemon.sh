@@ -18,8 +18,10 @@
 #       로그에 남기지 않는다). 세션 goal 이 그 줄을 그대로 인용해 게시하라고 시킨다.
 #   D.6 task 가 completed.
 #
-# 스택(T-D13 배정): server :8118 · pg :5462 · 컨테이너 colab-pg-d13. **실측(2026-09-16): :5462 는 다른
-# 워커의 colab-pg-review182 가 7일째 점유** → 기본 PG_PORT 를 5472 로 둔다(컨테이너 이름은 배정대로).
+# 스택(T-D13 배정): server :8118 · pg :5462 · 컨테이너 colab-pg-d13. 기본 PG_PORT 는 5472 — T-D13 작성
+# 시점(2026-09-16)에 :5462 를 **PR #250 리뷰어 자신의 잔여물(colab-pg-review182)** 이 점유하고 있어 우회했다
+# (#250 리뷰 NN1: "다른 워커의" 가 아니었다 — 리뷰 중 정리됨). 컨테이너 colab-pg-d13 이 :5472 로 이미 있어
+# 기본값은 그대로 둔다; 배정 포트로 돌리려면 PG_PORT=5462 로 새 컨테이너를 띄운다.
 # 사용: bash e2e/p5/83_allowed_commands_daemon.sh          # 스택이 없으면 up.sh 를 같은 포트로 띄운다
 #       SERVER_URL=http://localhost:8118 PG_PORT=5472 PG_CONTAINER=colab-pg-d13 bash e2e/p5/down.sh
 # 비용: haiku 1턴(≈ 수 센트). 로그인된 claude_code 가 필요하다(RUNTIME=real 고정 — 페이크는 유닛이 잰다).

@@ -18,8 +18,9 @@
 // the role (server/internal/roles) and the CLI enforces it. What lives here is
 // the NAME MAPPING (enum → CLI spelling → person's word), and commands_test.go
 // checks the set against the contract enum (openapi ColabCommand), the §3
-// tool-name list and the web's COMMAND_LABEL table, so a 14th command cannot
-// appear on one side only.
+// tool-name list and the web's COMMAND_LABEL table (13/13, read from
+// web/lib/wording.ts at test time), so a 14th command cannot appear on one
+// side only.
 package commands
 
 import (
@@ -72,11 +73,23 @@ var labels = map[string]string{
 	"hitl_request_info":    "사람에게 정보 요청",
 }
 
+// known is `all` as a set — the ONE definition of "a command this daemon
+// knows". `labels` is a rendering of that set, not its definition (PR #250
+// 리뷰 NN3): deleting a label must make Label fall back to the CLI spelling,
+// never make the command unknown.
+var known = func() map[string]bool {
+	m := make(map[string]bool, len(all))
+	for _, c := range all {
+		m[c] = true
+	}
+	return m
+}()
+
 // All is the closed set in §2 order.
 func All() []string { return append([]string(nil), all...) }
 
-// Known reports whether cmd is in the set this daemon knows.
-func Known(cmd string) bool { _, ok := labels[cmd]; return ok }
+// Known reports whether cmd is in All().
+func Known(cmd string) bool { return known[cmd] }
 
 // List is the wire form shared by the flag and the variable: comma-joined,
 // in the order the bundle gave, "" for an empty list.

@@ -86,6 +86,10 @@ func TestToolNamesMatchContractSection3(t *testing.T) {
 	}
 }
 
+// 데몬 labels ↔ 웹 COMMAND_LABEL 자물쇠 (#250 리뷰 NN2 · V-1). 웹 파일을 읽어(서버 md 를
+// 파싱하듯) 키 집합과 글자를 대조한다 — 13/13. 파일이 없으면 Skip 이 아니라 실패다: 이 표는
+// 화면(S10 역할 카드)과 브리프 [2] 가 같은 말을 쓴다는 약속이고, 웹 없는 체크아웃은 그 약속을
+// 잴 수 없다.
 func TestLabelsMatchWebWording(t *testing.T) {
 	text := readRepo(t, "web/lib/wording.ts")
 	i := strings.Index(text, "export const COMMAND_LABEL = {")
@@ -98,13 +102,54 @@ func TestLabelsMatchWebWording(t *testing.T) {
 	for _, m := range regexp.MustCompile(`(?m)^\s*([a-z_]+): "([^"]+)",`).FindAllStringSubmatch(block, -1) {
 		web[m[1]] = m[2]
 	}
-	if len(web) != len(labels) {
-		t.Fatalf("웹 %d개, 데몬 %d개", len(web), len(labels))
+	if len(web) != len(all) || len(labels) != len(all) {
+		t.Fatalf("웹 %d개, 데몬 labels %d개, All() %d개 — 셋이 같아야 한다", len(web), len(labels), len(all))
 	}
-	for c, l := range labels {
-		if web[c] != l {
-			t.Errorf("%s: 웹 %q 데몬 %q", c, web[c], l)
+	matched := 0
+	for _, c := range all {
+		switch {
+		case web[c] == "":
+			t.Errorf("%s: 웹 COMMAND_LABEL 에 없다", c)
+		case labels[c] == "":
+			t.Errorf("%s: 데몬 labels 에 없다", c)
+		case web[c] != labels[c]:
+			t.Errorf("%s: 웹 %q 데몬 %q", c, web[c], labels[c])
+		default:
+			matched++
 		}
+	}
+	for c := range web {
+		if !Known(c) {
+			t.Errorf("%s: 웹에만 있다 — All() 에 없는 명령", c)
+		}
+	}
+	t.Logf("labels ↔ COMMAND_LABEL %d/%d", matched, len(all))
+}
+
+// NN3 — Known 은 All() 로 판정한다. 라벨을 지워도 명령은 아는 것이고(Label 은 CLI 철자로
+// 폴백), 라벨에만 있는 이름은 모르는 것이다.
+func TestKnownIsAllNotLabels(t *testing.T) {
+	for _, c := range all {
+		if !Known(c) {
+			t.Errorf("Known(%s) = false", c)
+		}
+	}
+	if Known("brand_new") {
+		t.Error("Known(brand_new) = true")
+	}
+	saved := labels["lane_delegate"]
+	delete(labels, "lane_delegate")
+	defer func() { labels["lane_delegate"] = saved }()
+	if !Known("lane_delegate") {
+		t.Error("라벨을 지웠다고 명령이 미지의 것이 됐다 — Known 이 labels 로 판정한다(NN3)")
+	}
+	if got := Label("lane_delegate"); got != "lane delegate" {
+		t.Errorf("Label without a label = %q, want the CLI spelling", got)
+	}
+	labels["ghost_cmd"] = "유령"
+	defer delete(labels, "ghost_cmd")
+	if Known("ghost_cmd") {
+		t.Error("labels 에만 있는 이름을 안다고 한다(NN3)")
 	}
 }
 
