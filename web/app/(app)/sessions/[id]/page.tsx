@@ -667,7 +667,7 @@ export default function SessionPage() {
               <p className="small muted-3">되돌리기 어려운 작업 중이면 최대 30초 보류 후 종료됩니다.</p>
               <div className="row">
                 <button type="button" className="btn btn--sm btn--primary" disabled={busy} onClick={() => void doCancel(confirmCancel)} data-testid="cancel-confirm-yes">중단</button>
-                <button type="button" className="btn btn--sm" onClick={() => setConfirmCancel(null)}>취소</button>
+                <button type="button" className="btn btn--sm" onClick={() => setConfirmCancel(null)} data-testid="cancel-confirm-no">취소</button>
               </div>
             </div>
           )}
