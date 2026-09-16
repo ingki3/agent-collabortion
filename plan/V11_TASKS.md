@@ -19,3 +19,16 @@ P2~P5 §0 그대로. e2e 번호 **81_ 부터**(e2e/p5/, v1.1 도 같은 폴더).
 | **T-D13 데몬** | 번들 `allowed_commands` → MCP 서버 `--allow` · 래퍼 `COLAB_ALLOWED_COMMANDS` · 브리프 [2] 허용 명령만 · acpfake 대조 | 2차(T-S19 뒤) ‖ T-C7 |
 | **T-C7 CLI** | `getCliContext.allowed_commands` 캐시 → exit 3 `command_not_allowed` · `colab mcp serve --allow` 툴 등록 필터 · `COLAB_ALLOWED_COMMANDS` | 2차 ‖ T-D13 |
 | **T-I6 통합** | e2e 81_(관찰 표 실값·빈 턴 카드) · 82_(역할별 명령 — reviewer 가 delegate 하면 세 층 모두 거부) CI 편입 · I-3 비용 한 줄 · 실기 대조 1회 | 3차 |
+
+## 2. 2라운드 — 백로그 정리 (2026-09-16, Director "끝까지 쭉 진행해")
+
+계약 #255(openapi 0.1.6: S-75 문언 · K-16 cancelLane 판정은 현재 task). 4 스트림 동시:
+
+| 작업 | 범위 |
+|---|---|
+| **T-S20 서버** | K-16 · S-75 · S-79 · S-82 · S-85 · V-1 서버 · S-8 · S-14 · S-15 · S-49 · S-42 |
+| **T-D14 데몬** | D-28 capacity 창 · D-27 · V-1 데몬 · D-19 · D-10 · D-26(제안만) |
+| **T-W17 웹** | W-9 · W-13 · W-14 · W-17 · W-18 · W-20 · W-21 · V-1 웹 · K-16 카드 |
+| **T-C8 CLI** | V-1 CLI · S-40 · I-5(84_) |
+
+포트: S20 :8121/:5465 · D14 :8122/:5466 · W17 :3016/:3117 · C8 :8123/:5467. 3라운드 후보: K-14(workdir.id — 서버·데몬 동시 + 재측정), D-26 계약.
