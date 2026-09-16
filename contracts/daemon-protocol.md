@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.8.2 — §4.1 `task.allowed_commands`(K-19 역할별 명령 부분집합; 데몬이 MCP 툴 목록을 자른다). v0.8.1 — §6: 세션 삭제(openapi deleteSession)로 이미 지워진 workdir 을 가리키는 §6 보고 행은 서버가 조용히 소비한다(gc 명령은 세션 삭제 전에 실린다). v0.8 — **§4.5 테스트 채팅**(FR-1.8.1, P5a): 세션 없는 1:1 대화를 **같은 claim·phase·events·heartbeat·finish 로** 돌린다 — `task.kind: "test_chat"`, `task.id` = test_chat id, `attempt` = 사용자 턴 번호, `task_token` 없음(= colab 표면 전부 끔). 종료는 `gc` 로 임시 디렉터리 삭제. `finish.transport` 추가. v0.7.4 — §6 gc 거부 피드 문장을 사용자의 말로(S-67, T-S13). v0.7.3 — T-I4(G7 1판) 차단 결함 반영: §4.1 `workdir.path` 는 **절대 경로**(서버가 probe `workdir_root` 로 조립)이고 데몬 방어 규칙 명시(①), §6 workdir 보고의 `session_id`·`agent_id` 필수 규칙과 서버의 §4.4 `Finish.Workdir` 소비 의무 명시(②). v0.7.2 — §4.4 finish `workdir.git` 이름을 §6 과 통일(`commits_ahead`·`merged`)하고 `protocol.go` `Finish.Workdir` 추가; §4.3 `rebind_prepare` 다운로드 위치 + 프롬프트 자리표시자 `{{COLAB_REBIND_DIR}}`(T-D9 PR #156 계약 결함 1·2). v0.7.1 — §4.4 유효 예산 = min(task 상한(override 우선), 세션 잔여)(PR #121 리뷰 NN3, D-16). v0.7 — §4.3 `gc` 페이로드에 서버가 경로를 싣고(`workdirs:[{id,path}]`), §6 보고 행 `gc: {status: deleted|refused, reason}` 로 결과·거부를 알린다(T-D5 계약 질문, G5 S-29·D-4). v0.6 — `dispatched` 5분 타임아웃은 재큐잉이 아니라 종료다(§4.1). v0.5는 probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
+| 버전 | v0.8.3 — §4.1 `workdir.id`·§6 id 회신(K-14: 데몬 index 폐기, workdir 안 표식 파일). v0.8.2 — §4.1 `task.allowed_commands`(K-19 역할별 명령 부분집합; 데몬이 MCP 툴 목록을 자른다). v0.8.1 — §6: 세션 삭제(openapi deleteSession)로 이미 지워진 workdir 을 가리키는 §6 보고 행은 서버가 조용히 소비한다(gc 명령은 세션 삭제 전에 실린다). v0.8 — **§4.5 테스트 채팅**(FR-1.8.1, P5a): 세션 없는 1:1 대화를 **같은 claim·phase·events·heartbeat·finish 로** 돌린다 — `task.kind: "test_chat"`, `task.id` = test_chat id, `attempt` = 사용자 턴 번호, `task_token` 없음(= colab 표면 전부 끔). 종료는 `gc` 로 임시 디렉터리 삭제. `finish.transport` 추가. v0.7.4 — §6 gc 거부 피드 문장을 사용자의 말로(S-67, T-S13). v0.7.3 — T-I4(G7 1판) 차단 결함 반영: §4.1 `workdir.path` 는 **절대 경로**(서버가 probe `workdir_root` 로 조립)이고 데몬 방어 규칙 명시(①), §6 workdir 보고의 `session_id`·`agent_id` 필수 규칙과 서버의 §4.4 `Finish.Workdir` 소비 의무 명시(②). v0.7.2 — §4.4 finish `workdir.git` 이름을 §6 과 통일(`commits_ahead`·`merged`)하고 `protocol.go` `Finish.Workdir` 추가; §4.3 `rebind_prepare` 다운로드 위치 + 프롬프트 자리표시자 `{{COLAB_REBIND_DIR}}`(T-D9 PR #156 계약 결함 1·2). v0.7.1 — §4.4 유효 예산 = min(task 상한(override 우선), 세션 잔여)(PR #121 리뷰 NN3, D-16). v0.7 — §4.3 `gc` 페이로드에 서버가 경로를 싣고(`workdirs:[{id,path}]`), §6 보고 행 `gc: {status: deleted|refused, reason}` 로 결과·거부를 알린다(T-D5 계약 질문, G5 S-29·D-4). v0.6 — `dispatched` 5분 타임아웃은 재큐잉이 아니라 종료다(§4.1). v0.5는 probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
 | 소유 | S + D. 변경은 Director 승인 PR로만 |
 | 근거 | PRD §8.1(큐), FR-7.1(상태 머신·heartbeat), FR-9.1(고아·토큰 폐기), FR-9.2(오프라인 유예), FR-6.4(workdir·GC), `harness.md`(오류 분류·재개) |
 | 원칙 | **데몬은 stateless, 상태는 서버.** 데몬은 서버가 준 것만 실행하고 결과를 보고한다. 모든 시각 판정(만료·유예·`not_before`)은 서버 클럭(`contracts/clock`) |
@@ -81,7 +81,10 @@ POST /v1/daemon/runtimes/{runtime_id}/claim
             "allowed_commands?": ["session_get", …] },   // v0.8.2 K-19 — 역할별 colab 명령(colab-cli §2.5). 데몬은 MCP 툴 목록·래퍼를 이 목록으로 자른다. 비면 전부
   "task_token": "ctk_…",
   "profile": { "runtime_kind", "model", "options", "env", "args", "tools", "adapter_pin" },
-  "workdir": { "kind": "worktree|dir", "path?", "repo_path?", "branch?", "reuse": true|false },
+  "workdir": { "id?", "kind": "worktree|dir", "path?", "repo_path?", "branch?", "reuse": true|false },
+  //  id (v0.8.3, K-14): 서버 `workdir` 행의 uuid. 서버는 번들을 조립할 때 행을 먼저 만들어(없으면) id 를 싣고,
+  //  데몬은 §6 보고 행에 **그 id 를 그대로 회신**한다 — 데몬의 `<root>/.colab/workdirs/` index 파일은 이제 필요 없다
+  //  (경로 슬러그에서 세션·에이전트 uuid 를 복원할 필요가 없다). id 가 없는 옛 서버 번들에서는 예전처럼 index 로.
   //  path 는 **절대 경로**다 (v0.7.3, T-I4 차단 ①). 서버가 그 런타임의 probe `workdir_root`(§3)와
   //  세션·에이전트로 조립해 싣는다 — 데몬이 정하면 서버가 E13-08(남의 워크트리 경로를 번들에 싣지
   //  않는다)을 판정할 수 없고, GC 명령(§4.3)·workdir 행도 서버가 경로를 소유한다. 상대 경로를 실으면
@@ -214,6 +217,7 @@ POST /v1/daemon/runtimes/{runtime_id}/workdirs   {workdirs: [{id?, kind, path, s
 ```
 
 - 데몬은 workdir 목록을 probe와 함께, 그리고 lane 종료 시 보고한다. S13이 이 데이터를 보여준다.
+- **`id` 는 번들이 준 값을 그대로(v0.8.3, K-14).** 번들 `workdir.id` 가 있으면 보고 행 `id` 에 그것을 싣고 서버는 id 로 행을 찾는다(session_id·agent_id 짝 맞추기는 id 가 없을 때의 폴백). probe 시 전체 보고도 데몬이 기억하는 id 로 — 재시작 뒤에는 `<path>/.colab-workdir.json` 한 줄(id 만)을 읽는다(index 디렉터리 대신 workdir 안에 표식).
 - **행을 서버가 저장할 수 있게 채운다 (v0.7.3, T-I4 차단 ②).** `session_id` 는 그 workdir 을 만든 **세션의 uuid** 이고(슬러그·디렉터리 이름이 아니다), `worktree` 격리에서는 `agent_id` 가 **필수**다(그 격리의 workdir 은 에이전트당 1개라 agent 없이는 어느 행인지 정해지지 않는다 — 서버는 짝을 못 맞추면 조용히 건너뛴다). `git` 블록과 `bytes` 도 매 보고에 싣는다: **GC 판정의 유일한 입력**이라 비면 서버는 "커밋 0 · 클린"으로 읽어 미병합 커밋·미커밋 변경을 지운다(FR-6.4 M4 무력화).
 - **서버는 §4.4 `finish` 의 `Finish.Workdir.Git` 도 같은 행에 반영한다 (v0.7.3).** attempt 가 만든 사실이 다음 probe 를 기다리지 않고 도착해야 그 사이에 도는 GC 스윕이 옳게 판정한다.
 - GC 판정은 **서버**가 한다(보존 기한·용량 상한·미병합/미커밋 차단 — E13-09~13). 서버가 `gc {session_id, workdirs:[{id, path}]}` 명령을 내리면 데몬이 삭제하고 결과를 보고한다. 데몬은 스스로 지우지 않는다.
