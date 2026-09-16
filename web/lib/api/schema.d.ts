@@ -277,7 +277,7 @@ export interface paths {
         head?: never;
         /**
          * 멤버 역할 변경
-         * @description 권한: owner · admin. **owner 강등은 owner만**(SCREEN §2.3). 마지막 owner는 강등할 수 없다(`409`).
+         * @description 권한: owner · admin. **owner 역할을 주거나 거두는 것(승격·강등)은 owner만**(SCREEN §2.3; v0.1.6 — PR #209 리뷰 NN1, 서버 구현과 일치). 마지막 owner는 강등할 수 없다(`409`).
          */
         patch: operations["updateMemberRole"];
         trace?: never;
@@ -1296,7 +1296,7 @@ export interface paths {
         /**
          * 중단(FR-3.4)
          * @description 권한: Director · deputy(즉시). 다른 멤버는 `403`.
-         *     진행 중 턴만 취소한다(§8.2.2, 30초 보류 규칙). 결과 lane `failed`, task `cancelled`(`failure_kind: cancelled`), 활동 피드 "사람이 중단함"(E10-04). `paused(budget)` task를 명시 종료할 때도 이것이다(E9-03). `queued` lane이면 task를 `cancelled`로. 이미 종료 상태면 `409`.
+         *     진행 중 턴만 취소한다(§8.2.2, 30초 보류 규칙). 결과 lane `failed`, task `cancelled`(`failure_kind: cancelled`), 활동 피드 "사람이 중단함"(E10-04). `paused(budget)` task를 명시 종료할 때도 이것이다(E9-03). `queued` lane이면 task를 `cancelled`로. 이미 종료 상태면 `409`. **판정은 lane 이 아니라 현재 task 다(v0.1.6, K-16)**: `colab status set done` 뒤에도 그 턴의 프로세스가 아직 돌고 있으면(현재 task `running`) 취소할 수 있고 `Lane.actions` 에 `cancel` 이 실린다 — lane 상태만 보고 `409 lane_not_cancellable` 을 내지 않는다. 그때 lane 은 `done` 그대로 두고 task 만 `cancelled` 로 끝낸다(산출물은 이미 제출됐다).
          */
         post: operations["cancelLane"];
         delete?: never;
