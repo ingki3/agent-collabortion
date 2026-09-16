@@ -143,7 +143,7 @@
 | S-76 | **위임↔합류 사이클이 FR-3.5 루프 상한을 타지 않는다** — `delegateLane`·합류 wake(router/status.go)가 `CheckLoopLimits`(postMessage 경로) 밖. 위임자가 합류 통보에 재위임하면 무한(70초에 529 task, 세션 active, `max_pair_roundtrips=5` 넘어도 `paused(loop)` 없음) | T-I5 PR #206 77_ S1x | **높음 · 배포 전** · T-S15 | **해결 PR #213**(router.gateHop — Delegate·wake 가 CheckLoopLimits) |
 | S-77 | 마스킹이 `task_event.payload.title` 을 지우지 않는다 — 실기 어댑터의 title = 셸 명령 전체라 인자 마스킹이 무효 | T-I5 PR #206 77_ S3d2 | 중 · T-S15 | **해결 PR #213**(events.Mask title 첫 단어만) |
 | I-1 | PR #206 리뷰 NN1~NN5 — e2e/p5 `lib.sh`(70_/71_)·`lib_i5.sh`(72_~78_) 기본 스택 통일 · 단계별 `wait_for --timeout`(실패가 행이 아니라 단언이 되게) · 76_ "첫 출력" 표 셀에 "(페이크 — 모델 0)" 꼬리 · **G9 판정 때 `chk_na` 목록을 함께 읽는다** · out/ 덤프에 토큰 재점검 | PR #206 리뷰 | 낮음 | 부분 해결 PR #253(wait_step) — lib 통일·chk_na 목록은 남음 | **해결** #253 wait_step + #257 · chk_na 목록은 G9 판정에 기록됨 |
-| K-16 | `colab status set done` 뒤에도 도는 턴은 Director 가 중단할 수 없다(`409 lane_not_cancellable`, task 는 running) — 지시문 관례("done 은 마지막 호출")로 덮여 있음. S7 중단 버튼이 running 턴에 비활성이 되는 자리 | T-I5 PR #206 관찰 1 | 알고 있기 | **해결** 계약 #255 · 서버 #260 · 웹 #259(409 문장은 T-S21+웹 동기화) |
+| K-16 | `colab status set done` 뒤에도 도는 턴은 Director 가 중단할 수 없다(`409 lane_not_cancellable`, task 는 running) — 지시문 관례("done 은 마지막 호출")로 덮여 있음. S7 중단 버튼이 running 턴에 비활성이 되는 자리 | T-I5 PR #206 관찰 1 | 알고 있기 | **해결** 계약 #255 · 서버 #260 · 웹 #259(409 문장은 T-S21+웹 동기화) | **해결** 계약 #255 · 서버 #260/#263(409 문장) · 웹 #259/#264 |
 | K-17 | `parallel_wallclock_reduction` 정의가 사람 대기(HITL)를 "전체"에 넣어 HITL 있는 세션은 병렬 효과와 무관하게 낮거나 음수 — note 에 명시(T-S15), 정의 변경은 계약 | T-I5 PR #206 관찰 2 | 낮음 | **해결 PR #213**(note 명시) + 웹 #214 |
 | W-12 | S7 의 요약 메시지(`kind=summary`)가 마크다운 원문(`##`·`-`)으로 보인다 | T-I5 PR #206 관찰 3 (`web/__screenshots__/p5-78-s7.png`) | 낮음 | **해결 PR #229**(lib/markdown.tsx 의존성 0·XSS 0) + #230(lane brief) |
 | S-78 | **`router.chainDepth` 가 "마지막 사람 메시지 뒤 홉 수"** 라 형제 위임·합류 통보를 전부 깊이로 센다 — PRD FR-3.5 는 "멘션이 연쇄된 **깊이**"(Lead→실무자→리뷰어→Lead = 4). Hermes 실측(PR #213 리뷰 §3): F1 형 세션이 **chainDepth 9** → `paused(loop)`. G8 실측 오염 위험 | PR #213 미해결 1 · 리뷰 NN1 | **높음 · G8 전** · T-S16 | **해결 PR #216**(session_hop.cause_hop_id, F1 형 최대 깊이 2) |
@@ -162,6 +162,8 @@
 | I-5 | 로컬 e2e 탭 포트 겹침(73_ :8120 · 84_ SERVER_URL+10) → `TAP_PORT_*` export 로 분리 · 82_ 는 WEB_URL 필요(README 한 줄) · 첫 CI 실측치 확인(15분 상한, 지금 ≈5m15s) | T-I6 PR #253 · 리뷰 NN1·NN2 | 낮음 | **해결** CLI #257(TAP_PORT_84) · 웹/README 일부 #253 |
 | K-20 | p3golden 3건이 dev 기준선에서 실패(절차 골든 — 데몬·CLI 몫 미배선 마커: `TestCliBudgetFlagGolden` E9-06 CLI 폴백 등, v1.1 CLI 폴백 범위) — Skip 마커로 기준선을 초록으로 할지 CLI 폴백을 구현할지 결정 | PR #260 리뷰 NN2 | 낮음 |
 | W-22 | S7 좌열 중단 확인 상자가 sticky 안쪽 스크롤 맨 아래라 작업 줄기가 셋이면 900px 뷰포트 밖 | T-W17 PR #259 관찰 | 낮음 |
+| S-86 | PR #263 리뷰 NN1·NN2 — §6 id 경로의 런타임 고정 검사에 테스트 없음(두 곳 검사 문자열 복제 → 공용 헬퍼) | PR #263 리뷰 | 낮음 |
+| D-29 | PR #265 리뷰 NN2 — `.colab-workdir.json` 표식이 `.git/info/exclude` 에 영구 등록(index 폐기 때 청소) | PR #265 리뷰 | 낮음 |
 | I-4 | CI e2e 72_ A2d "동시 3개 got=2" 흔들림(PR #249) — 샘플 시점 문제, 폴링+단계 timeout 으로 결정적으로 | PR #249 CI | T-I6 | **해결 PR #253**(barrier + wait_step, 연속 3회 초록) |
 | W-14 | PR #219 리뷰 NN2~NN5 — 새 스크린샷 2종 밝음만 · 메뉴 바깥 클릭이 mousedown 만(터치·focusout 없음) · S7 에서 삭제 뒤 목록 안내 미확인 · `deleteGate` 가 canDelete 를 호출자에게서 받음 | PR #219 리뷰 | 낮음 | **해결 PR #259** |
 | S-83 | 서버 `lanes.Load` 가 `Lane.actions` 에 **`cancel` 만** 넣어(P2 "restart stays out" 주석 잔존) 실서버 S7 카드의 「다시 지시」·「응답하러 가기」·「계속 진행 승인」이 **항상 비활성**이었다. 웹 목이 옳은 규칙을 갖고 있어 화면 테스트가 못 잡았다 — **목이 서버보다 옳으면 화면 테스트는 초록이다**(server-wording 자물쇠는 문장만 대조, 동작 규칙은 대조 안 함) | Director 실사용 2026-09-14 | **해결 PR #224**(laneActions + 유닛 9) · 교훈: 목 규칙 ↔ 서버 규칙 대조 자물쇠 후보(I-2) |
@@ -200,7 +202,7 @@
 | K-11 | harness §7 dedup 문언(입력=message_start, 출력=message_delta)은 어댑터 0.74.0 관찰 — 워커는 message_delta 만으로 충분하다고 제안, 리뷰어는 문언 유지 권고. 어댑터 버전이 바뀌면 재확인 | PR #145 | 낮음 |
 | K-12 | `InboxItem.card` 에 예산 HITL 의 범위(task/세션)를 알 칸이 없다(`task_id`·`scope` 없음) — 웹은 `purpose=budget` + `session.status=paused` 로 파생(T-W5). 세션이 다른 이유로 paused 인 채 task 범위 예산 HITL 이 뜨는 순간에만 어긋난다 | T-W5 질문 2 | 낮음 |
 | K-13 | `openapi` `downloadArtifact` 의 security 에 **DaemonToken 이 없었다** — §4.3 `rebind_prepare` 는 데몬에게 다운로드를 지시하므로 계약 내부 모순이었다(T-I4 실측 401). 함께: `reviewArtifact` 의 "해소 규칙 1로 재진입" 문언이 라우팅 규칙 4와 충돌 → "서버가 명시적으로 재진입" 으로 정정 | T-I4 63_ R5f · 61_ B5g | **해결 — 계약 PR(v0.7.3 · openapi)** |
-| K-14 | daemon-protocol §4.1 TaskBundle 에 `workdir.id?` 를 싣고 §6 보고가 그 `id` 를 회신하면 데몬의 `<root>/.colab/workdirs/` index 파일이 불필요해진다(지금은 경로가 슬러그라 세션·에이전트 uuid 를 복원할 수 없어 준비 시점에 적어 둔다). 서버·데몬 양쪽 변경 + 재측정이라 G7 뒤로 | PR #172 리뷰 NN4 | P5 |
+| K-14 | daemon-protocol §4.1 TaskBundle 에 `workdir.id?` 를 싣고 §6 보고가 그 `id` 를 회신하면 데몬의 `<root>/.colab/workdirs/` index 파일이 불필요해진다(지금은 경로가 슬러그라 세션·에이전트 uuid 를 복원할 수 없어 준비 시점에 적어 둔다). 서버·데몬 양쪽 변경 + 재측정이라 G7 뒤로 | PR #172 리뷰 NN4 | P5 | **해결** 계약 #261 · 서버 #263 · 데몬 #265(index 폴백은 dir 첫 attempt 만) — 재측정 58_/64_/07 동일 |
 
 ## OASIS 후보 (T-R1 리서치, 번호는 Lead)
 
