@@ -400,6 +400,29 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 			return nil, errNoWorkdirRoot
 		}
 	}
+	// K-14 (daemon-protocol v0.8.3 §4.1): the bundle carries the workdir row's
+	// id, so the daemon's §6 report can name the row instead of reconstructing
+	// (session, agent) from a slugged path. The row is made HERE, before the
+	// bundle leaves, for `worktree` — the server owns that path. For `dir` the
+	// daemon owns the path (Lead T-S21 결정 A): only a row an earlier attempt of
+	// this lane already bound is carried; the first attempt goes out without an
+	// id and its §6 report takes the pair fallback.
+	var wdBranch *string
+	if wdPlan.Created && wdPlan.Branch != "" {
+		br := wdPlan.Branch
+		wdBranch = &br
+	}
+	wdID, err := workdirs.EnsureBundleRow(ctx, tx, workdirs.BundleRow{
+		SessionID: t.SessionID, AgentID: t.AgentID, LaneID: t.LaneID,
+		Kind: workdirKind, Path: wdPlan.Path, Branch: wdBranch,
+	}, now)
+	if err != nil {
+		return nil, fmt.Errorf("queue: bundle workdir row: %w", err)
+	}
+	wdIDStr := ""
+	if wdID != uuid.Nil {
+		wdIDStr = wdID.String()
+	}
 	b := &contracts.TaskBundle{
 		Task: contracts.BundleTask{
 			ID: t.ID.String(), Attempt: t.Attempt, LaneID: t.LaneID.String(), SessionID: t.SessionID.String(),
@@ -414,6 +437,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 			RuntimeKind: contracts.RuntimeKind(runtimeKind), Model: model, Options: options, Env: env, Args: args, Tools: tools, AdapterPin: adapterPin,
 		},
 		Workdir: contracts.BundleWorkdir{
+			ID:   wdIDStr,
 			Kind: workdirKind, RepoPath: isolation.RepoPath,
 			Path: wdPlan.Path, Branch: wdPlan.Branch,
 			// `reuse` is true for a retry, a lane re-entry, AND — under
