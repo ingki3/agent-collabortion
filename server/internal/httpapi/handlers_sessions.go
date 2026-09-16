@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -470,6 +471,12 @@ func (s *Server) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceI
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+	// S-14: the stream is the one response meant to stay open for hours; the
+	// listener's WriteTimeout would cut every subscriber off at 60s. No
+	// deadline for this connection — liveness is the heartbeat below.
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		s.Log.Warn("stream write deadline", "err", err)
+	}
 	w.WriteHeader(http.StatusOK)
 
 	write := func(id, typ string, data []byte) {
