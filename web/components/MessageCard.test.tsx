@@ -98,6 +98,13 @@ describe("MessageCard — 본문 마크다운(FR-3.1)", () => {
     expect(bodies[1].querySelector("em")!.textContent).toBe("goal");
   });
 
+  it("사람 메시지도 같은 렌더러로 마크다운이 그려진다 — 작성자 구분 없음(W-18 결정, 2026-09-16)", () => {
+    const c = render(<MessageCard message={base({ author_type: "user", content: "**확인**했습니다\n\n- 항목 하나\n- 항목 둘" })} />).container;
+    expect(c.querySelector(".msg__body strong")!.textContent).toBe("확인");
+    expect(c.querySelectorAll(".msg__body li")).toHaveLength(2);
+    expect(c.querySelector(".msg__body")!.textContent).not.toContain("**");
+  });
+
   it("멘션 칩은 마크다운 안에서도 그대로(굵게 안·목록 안)", () => {
     render(<MessageCard message={base({ content: "- **[@Lead](mention://agent/a1)** 검토\n- [@all](mention://all/all)" })} />);
     const chips = document.querySelectorAll(".msg__mention");

@@ -99,6 +99,7 @@ export default function SessionPage() {
   const [fixCondOpen, setFixCondOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
   const bottomRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30_000);
@@ -291,8 +292,15 @@ export default function SessionPage() {
   }, [sessionId, router]);
   const conn = useWorkspaceStream(workspace?.id, onEvent, { onResync: () => { void load(); void loadSide(); } });
 
+  // 새 메시지·델타마다 맨 아래로. 작성창은 sticky(bottom: 0)라 뷰포트 아래를 자기 높이만큼 덮는다 — 끝 표식을 그냥 `block: "end"` 로
+  // 맞추면 마지막 카드·델타가 작성창 **뒤에** 숨는다(W-18, T-W14 관찰 3). 그래서 스크롤 직전에 작성창 높이를 재서 끝 표식의
+  // `scroll-margin-bottom` 으로 두고 내린다 — scrollIntoView 가 그 여백까지 드러낸다(scroll-margin 은 표준, Chrome 69+·Safari 14.1+).
+  // 작성창 높이는 답글 표시·안내 줄·textarea 줄 수에 따라 달라 CSS 상수로 둘 수 없다.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "end" });
+    const end = bottomRef.current;
+    if (!end) return;
+    end.style.scrollMarginBottom = `${composerRef.current?.offsetHeight ?? 0}px`;
+    end.scrollIntoView({ block: "end" });
   }, [messages.length, deltas]);
 
   /**
@@ -726,10 +734,10 @@ export default function SessionPage() {
                 {typingAgents.map((n) => `@${n}`).join(", ")} 입력 중…
               </p>
             )}
-            <div ref={bottomRef} />
+            <div ref={bottomRef} data-testid="timeline-end" />
           </div>
 
-          <footer className="s7__composer">
+          <footer className="s7__composer" ref={composerRef}>
             {restart && (
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <span />
