@@ -92,24 +92,38 @@ func NotAllowedSentence(role string, cmd Command) string {
 	return fmt.Sprintf(notAllowedFormat, role, cmd.CLIName())
 }
 
-// notAllowedFormat is byte-for-byte the server's fmt string
-// (commands_gate_test in this package reads it out of the server source).
+// notAllowedFormat is byte-for-byte the contract's sentence and the server's
+// fmt string (commands_test.go reads both — colab-cli.md §2.5 always, the
+// server source when it is in reach — and fails on any difference).
 const notAllowedFormat = "이 역할(%s)은 %s 를 쓸 수 없습니다"
 
-// AllowedCommands is the list the gate reads, with where it came from:
-// Config.AllowedCommands (COLAB_ALLOWED_COMMANDS / --allow) when given,
-// otherwise getCliContext.allowed_commands — fetched once and cached like
-// every other context read. nil means "no list": a pre-v1.1 server, or a
-// list that was given empty — both allow everything.
-func (c *Client) AllowedCommands(ctx context.Context) ([]string, error) {
+// gate is what Allow reads — the list and the role for the sentence, with
+// where they came from. A wrapper-given list (Config.AllowedCommands:
+// COLAB_ALLOWED_COMMANDS / --allow) is used as is, and the role only if a
+// context read already happened (CachedContext) — never a round trip just
+// for the sentence. Otherwise both come from the one cached Context() read,
+// like every other context value. A nil list means "no list": a pre-v1.1
+// server, or a list that was given empty — both allow everything.
+func (c *Client) gate(ctx context.Context) (list []string, role string, err error) {
 	if c.cfg.AllowedCommands != nil {
-		return nonEmpty(c.cfg.AllowedCommands), nil
+		if cc := c.CachedContext(); cc != nil {
+			role = cc.OwnRole()
+		}
+		return nonEmpty(c.cfg.AllowedCommands), role, nil
 	}
 	cc, err := c.Context(ctx)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return nonEmpty(cc.AllowedCommands), nil
+	return nonEmpty(cc.AllowedCommands), cc.OwnRole(), nil
+}
+
+// AllowedCommands is the list the gate reads: Config.AllowedCommands when
+// given, otherwise getCliContext.allowed_commands (fetched once and cached).
+// nil means "no list" — everything is allowed.
+func (c *Client) AllowedCommands(ctx context.Context) ([]string, error) {
+	list, _, err := c.gate(ctx)
+	return list, err
 }
 
 func nonEmpty(list []string) []string {
@@ -125,7 +139,7 @@ func nonEmpty(list []string) []string {
 // otherwise the one cached /cli/context read is the only traffic. A list
 // that is absent or empty allows every command.
 func (c *Client) Allow(ctx context.Context, cmd Command) error {
-	list, err := c.AllowedCommands(ctx)
+	list, role, err := c.gate(ctx)
 	if err != nil {
 		return err
 	}
@@ -136,10 +150,6 @@ func (c *Client) Allow(ctx context.Context, cmd Command) error {
 		if a == string(cmd) {
 			return nil
 		}
-	}
-	role := ""
-	if cc := c.ctx; cc != nil { // only if already fetched — never a round trip just for the sentence
-		role = cc.OwnRole()
 	}
 	return NotAllowed(role, cmd, list)
 }
