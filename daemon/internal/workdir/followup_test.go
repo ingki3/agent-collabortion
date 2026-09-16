@@ -133,8 +133,8 @@ func TestResolvePathHasNoCWDFallback(t *testing.T) {
 	// not about the adapter binary.
 	if err := Verify(ResolvePath("", "sess-slug/backend")); err == nil {
 		t.Fatal("an unresolvable workdir must not reach the spawn")
-	} else if !strings.Contains(err.Error(), "실행할 곳이 없습니다") {
-		t.Errorf("Verify = %v, want the \"실행할 곳이 없습니다\" refusal", err)
+	} else if !strings.Contains(DetailOf(err), "실행할 곳이 없습니다") {
+		t.Errorf("Verify = %v, want the \"실행할 곳이 없습니다\" refusal", DetailOf(err))
 	}
 	// Through `Prepare`, the whole way: refused, and nothing created in the CWD.
 	//

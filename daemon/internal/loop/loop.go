@@ -74,8 +74,19 @@ type Daemon struct {
 	// attempts. 0 → defaultShutdownDrain.
 	ShutdownDrain time.Duration
 
-	mu           sync.Mutex
-	running      map[string]*attemptRun
+	mu      sync.Mutex
+	running map[string]*attemptRun
+	// reserved holds the slot of a claimed attempt that is not in `running`
+	// (D-28): claimed and still preparing, or exited and still reporting its
+	// finish. `free` below counts both. The claim loop used to count only
+	// `running`, and an attempt enters that map only after its workdir,
+	// wrapper and brief are prepared — during that window the next claim
+	// went out for the full `capacity` again, and a burst of short turns ran
+	// capacity+1 at once (T-I6 REPORT §6: 4 on a capacity of 3). The key is
+	// the same as running's; `start` takes the reservation on the claim
+	// goroutine, BEFORE the attempt goroutine exists, and the deferred
+	// `release` gives it back after runAttempt's finish call.
+	reserved     map[string]struct{}
 	seen         map[string]bool
 	allowMissing map[contracts.RuntimeKind]bool
 	// surface caches the MEASURED harness §10 tool_surface per runtime (the
@@ -165,6 +176,7 @@ func (d *Daemon) init() {
 		d.Orphans.Root = d.Cfg.WorkdirRoot
 	}
 	d.running = map[string]*attemptRun{}
+	d.reserved = map[string]struct{}{}
 	d.seen = map[string]bool{}
 	d.allowMissing = map[contracts.RuntimeKind]bool{}
 	d.surface = map[contracts.RuntimeKind]string{}
@@ -213,7 +225,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		default:
 		}
 		d.mu.Lock()
-		free := d.Cfg.Capacity - len(d.running)
+		free := d.Cfg.Capacity - d.occupiedLocked()
 		d.mu.Unlock()
 		if free <= 0 {
 			select {
@@ -734,9 +746,12 @@ func (d *Daemon) finishWorkdir(wd string) *contracts.FinishWorkdir {
 // root — because the fault always lives in the gap between two of them, and
 // the message it replaced (`spawn: fork/exec …/npx: no such file or
 // directory`) named none.
+//
+// D-27: the head of the sentence is the error's PERSON register
+// (workdir.DetailOf); the English register goes to the log in runAttempt.
 func workdirDetail(err error, b contracts.TaskBundle, root string) string {
-	return fmt.Sprintf("%v (격리 %s, 서버가 준 경로 %q, 이 컴퓨터의 기준 폴더 %s)",
-		err, b.Workdir.Kind, b.Workdir.Path, root)
+	return fmt.Sprintf("%s (격리 %s, 서버가 준 경로 %q, 이 컴퓨터의 기준 폴더 %s)",
+		workdir.DetailOf(err), b.Workdir.Kind, b.Workdir.Path, root)
 }
 
 func (d *Daemon) killAfter() time.Duration {
@@ -747,11 +762,44 @@ func (d *Daemon) killAfter() time.Duration {
 }
 
 func (d *Daemon) start(ctx context.Context, b contracts.TaskBundle) {
+	k := key(b.Task.ID, b.Task.Attempt)
+	// D-28: the slot is taken HERE, on the claim goroutine, so the next
+	// `free` the loop computes already counts this attempt. The goroutine
+	// below moves the reservation to `running` once the runner exists, or
+	// gives it back on any earlier exit.
+	d.mu.Lock()
+	d.reserved[k] = struct{}{}
+	d.mu.Unlock()
 	d.wg.Add(1)
 	go func() {
 		defer d.wg.Done()
+		defer d.release(k)
 		d.runAttempt(ctx, b)
 	}()
+}
+
+// occupiedLocked is the number of slots the claim loop must not hand out
+// again: attempts running plus attempts claimed and still preparing (D-28).
+// Caller holds d.mu. A key is in at most one of the two maps — runAttempt
+// moves it under the same lock — so the sum never double-counts.
+func (d *Daemon) occupiedLocked() int {
+	return len(d.running) + len(d.reserved)
+}
+
+// release gives an attempt's slot back (D-28) once runAttempt has returned
+// — after its finish call on every path, the early exits included — and
+// nudges `slotFreed` so a loop parked on `free <= 0` claims again instead
+// of waiting for the next probe tick. The maps are cleared defensively:
+// the normal path has moved the key from `running` to `reserved` itself.
+func (d *Daemon) release(k string) {
+	d.mu.Lock()
+	delete(d.reserved, k)
+	delete(d.running, k)
+	d.mu.Unlock()
+	select {
+	case d.slotFreed <- struct{}{}:
+	default:
+	}
 }
 
 // taskEnv is the harness §2.1 COLAB_* set for one attempt.
@@ -946,7 +994,9 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	// attempt of the session died that way (T-I4 차단 ①).
 	if verr := workdir.Verify(wd); verr != nil {
 		detail := workdirDetail(verr, b, d.Cfg.WorkdirRoot)
-		d.Log("%s %s", k, detail)
+		// D-27: the log gets the English register (`cause`), the feed the
+		// person's — same facts, same order, one language per surface.
+		d.Log("%s workdir verify: %v (isolation=%s, bundle path=%q, workdir_root=%s)", k, verr, b.Workdir.Kind, b.Workdir.Path, d.Cfg.WorkdirRoot)
 		sink.Emit(contracts.TaskEvent{
 			TaskID: b.Task.ID, Attempt: b.Task.Attempt, Seq: nextSeq(), TS: d.Clock.Now().UTC(),
 			Class: "runtime", Verb: "error", Outcome: "failed",
@@ -1067,6 +1117,9 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	})
 	run := &attemptRun{bundle: b, runner: runner, workdir: wd}
 	d.mu.Lock()
+	// D-28: reservation → running under one lock, so `free` never sees the
+	// slot as both or as neither.
+	delete(d.reserved, k)
 	d.running[k] = run
 	d.mu.Unlock()
 	hb.r = runner
@@ -1094,7 +1147,15 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	}
 
 	d.mu.Lock()
+	// D-28: the slot stays held (`reserved`) until the finish below has been
+	// SENT — the server counts an attempt as running from claim to finish,
+	// and a claim that went out between the process exit and the finish
+	// call put capacity+1 on the server's books. `running` is left now all
+	// the same: a cancel or gc arriving from here on has no process to act
+	// on. The deferred release in `start` gives the slot back and nudges
+	// the loop.
 	delete(d.running, k)
+	d.reserved[k] = struct{}{}
 	for s := range d.seen {
 		if len(s) > len(k) && s[len(s)-len(k):] == k {
 			delete(d.seen, s)
@@ -1111,10 +1172,6 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		// Never silent: the attempt was prepared for the wrong surface, so
 		// the next one on this daemon is prepared for the measured one.
 		d.Log("%s tool_surface measured=%s prepared=%s", k, res.ToolSurface, surface)
-	}
-	select {
-	case d.slotFreed <- struct{}{}:
-	default:
 	}
 	_ = d.Orphans.Remove(b.Task.ID, b.Task.Attempt) // E11-02
 

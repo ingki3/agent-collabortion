@@ -128,7 +128,12 @@ bash e2e/p5/ci.sh                                   # 72~78 · 81 · 82 · 84 �
 bash e2e/p5/up_i5.sh && bash e2e/p5/82_role_gate.sh # 82_ 하나(페이크, 세 층)
 RUNTIME=real bash e2e/p5/82_role_gate.sh            # 실기 절 R 만 — claude_code 로그인 필요
 bash e2e/p5/83_allowed_commands_daemon.sh           # 실기 데몬 몫(자기 스택 :8118/:5472)
+BEFORE=1 bash e2e/p5/85_capacity_daemon.sh          # 실기 데몬 D-28 capacity 창(자기 스택 :8122/:5466) — dev 바이너리 before + HEAD after
 ```
+
+`85_` 는 실기(claude_code haiku 2턴, `BEFORE=1` 이면 4턴)라 `ci.sh` 에 넣지 않는다. capacity 1 데몬에 세션 2 개를 연달아 만들어
+서버 쪽 겹침(`task_attempt` 의 `dispatched_at`/`finished_at`)과 데몬 로그의 claim 순서를 잰다 — T-D14 실측 origin/dev(5cb9aa6)
+겹침 1·첫 finish 전 claim 2 / HEAD 겹침 0·claim 1. 페이크 판은 유닛 `daemon/internal/loop/d28_capacity_test.go`(capacity 3 에 20턴).
 
 ### 72_ A2d 흔들림 — 원인과 고침(I-1)
 

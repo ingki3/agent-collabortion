@@ -9,8 +9,11 @@
 package workdir
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -332,5 +335,41 @@ func TestUnrecordedCheckoutIsStillReported(t *testing.T) {
 	}
 	if rows[0].Git == nil {
 		t.Error("git block missing on the fallback row")
+	}
+}
+
+// D-27 (PR #204 리뷰 NN2) — a Verify failure speaks in two registers: the
+// person's sentence for the feed (DetailOf) and English for the daemon's
+// stderr log (Error()). Neither leaks into the other, and both name the
+// path; the wrapped os error stays reachable for errors.Is.
+func TestVerifyErrorHasTwoRegisters(t *testing.T) {
+	root := t.TempDir()
+	missing := filepath.Join(root, "gone")
+	file := filepath.Join(root, "a-file")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hangul := regexp.MustCompile(`[가-힣]`)
+	for _, tc := range []struct{ name, path string }{{"empty", ""}, {"missing", missing}, {"file", file}} {
+		err := Verify(tc.path)
+		if err == nil {
+			t.Fatalf("%s: want an error", tc.name)
+		}
+		detail, cause := DetailOf(err), err.Error()
+		if !hangul.MatchString(detail) {
+			t.Errorf("%s: detail %q is not in the person's language", tc.name, detail)
+		}
+		if hangul.MatchString(cause) {
+			t.Errorf("%s: cause %q carries Hangul into the log (NN2)", tc.name, cause)
+		}
+		if tc.path != "" && (!strings.Contains(detail, tc.path) || !strings.Contains(cause, tc.path)) {
+			t.Errorf("%s: both registers must name the path — detail %q cause %q", tc.name, detail, cause)
+		}
+	}
+	if err := Verify(missing); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Verify(missing) = %v, want errors.Is(fs.ErrNotExist) through Unwrap", err)
+	}
+	if got := DetailOf(errors.New("plain")); got != "plain" {
+		t.Errorf("DetailOf(plain) = %q", got)
 	}
 }

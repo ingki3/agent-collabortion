@@ -38,8 +38,7 @@ var sinkHelpers = map[string][]int{
 
 // sinkFuncs 는 본문 전체가 사람 문장을 조립하는 함수.
 var sinkFuncs = map[string]bool{
-	"workdirDetail": true, // loop: §4.1 데몬 방어의 detail
-	"Verify":        true, // workdir: 그 err.Error() 가 workdirDetail 의 머리가 된다
+	"workdirDetail": true, // loop: §4.1 데몬 방어의 detail — 머리는 workdir.Error.Detail(Detail: 칸 sink 가 잡는다, D-27)
 	"commandLines":  true, // brief: [2] 의 허용 명령·"이 역할은 … 을 쓰지 않는다" 한 줄 (K-19, T-D13)
 }
 
@@ -400,7 +399,7 @@ func TestScope(t *testing.T) {
 		"internal/harness/acp/budget.go",   // 유효 예산 (D-25 2)
 		"internal/harness/acp/runner.go",   // mcp server dropped (D-25 3) · stall · D-13 · adapter pin
 		"internal/harness/acp/classify.go", // rate limit · UnexpectedExit
-		"internal/workdir/workdir.go",      // Verify
+		"internal/workdir/workdir.go",      // Verify 의 Error{Detail: …} (D-27 — Cause 는 영어, 로그 몫)
 	} {
 		found := false
 		for _, s := range prose {

@@ -43,7 +43,7 @@ colab-daemon repos remove ~/dev/app
 | 키 | 뜻 | 기본 |
 |---|---|---|
 | `workdir_root` | 작업 폴더의 기준. lane 폴더 `sessions/<세션>/<lane>`, worktree, 그리고 `.colab/`(pgid 기록 · 로그 · 래퍼 · 테스트 채팅 임시 폴더)이 이 아래 생긴다 | `~/.colab/work` |
-| `capacity` | 동시에 돌릴 attempt 수(데몬 상한, FR-6.3) | `10` |
+| `capacity` | 동시에 돌릴 attempt 수(데몬 상한, FR-6.3). claim 부터 finish 보고까지가 한 자리다 — 준비 중(worktree 생성)이거나 finish 를 보내는 중인 attempt 도 자리를 쥔다(D-28) | `10` |
 | `repos` | `repos add` 가 채우는 저장소 목록 (위) | 없음 |
 | `colab_bin` | 에이전트에게 주는 `colab` 실행 파일 | 데몬 옆의 `colab`, 없으면 PATH |
 | `stderr_dir` | attempt 마다 런타임 stderr 를 남기는 곳 | `<workdir_root>/.colab/logs` |
@@ -93,6 +93,14 @@ Write)을 생성하는 동안 — 이때 어댑터는 `session/update` 를 하�
 명령 목록 + "이 역할은 … 을 쓰지 않는다" — 막힌 명령은 명령 이름이 아니라 사람 말로, `internal/commands`). 비어 있으면
 전부(옛 서버·lead·custom)이고 아무것도 바뀌지 않는다. 턴이 끝나면 raw system/init 의 콜랩 툴 목록을 로그에 남긴다
 (`colab tools registered: …`) — `--allow` 가 툴 목록까지 닿았는지 보는 자리.
+
+### capacity 는 claim 부터 finish 보고까지 (D-28, T-D14)
+
+claim 루프의 `free = capacity − (running + reserved)`. `start()` 가 claim 고루틴에서 자리를 **예약**하고, attempt 는 runner 가
+생기면 `running` 으로 옮기며, 턴이 끝나면 finish 가 서버에 닿을 때까지 다시 자리를 쥔다(`release` 한 곳에서 반납 + 다음 claim 을
+깨운다). 이전에는 `running` 만 세어 workdir·래퍼·브리프 준비 중인 attempt 가 안 보였고, 짧은 턴이 몰리면 capacity 보다 하나 더
+돌았다(T-I6 실측 3 에 4; 실기 대조 `e2e/p5/85_capacity_daemon.sh` BEFORE=1: capacity 1 에 origin/dev 겹침 1 / HEAD 0).
+서버는 claim~finish 를 running 으로 세므로 S13 capacity 열과 같은 눈금이다. 유닛 `internal/loop/d28_capacity_test.go`.
 
 ## 디렉터리 (`<workdir_root>/.colab/`)
 
