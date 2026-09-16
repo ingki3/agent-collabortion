@@ -112,7 +112,10 @@ func (s *Server) CancelLane(w http.ResponseWriter, r *http.Request, laneId gen.L
 		writeProblem(w, apperr.NotFound("lane"))
 		return
 	case errors.Is(err, tasks.ErrLaneNotCancellable):
-		writeProblem(w, apperr.Conflict("lane_not_cancellable", "지금 진행 중이거나 대기 중인 턴이 있는 작업 줄기만 중단할 수 있습니다"))
+		// The sentence is mirrored letter-for-letter by web/lib/mock/wording.ts
+		// (server-wording.test.ts); a K-16 rewording ("…턴이 있는 작업 줄기만")
+		// goes through the web's own lock, not this PR.
+		writeProblem(w, apperr.Conflict("lane_not_cancellable", "진행 중이거나 대기 중인 작업 줄기만 중단할 수 있습니다"))
 		return
 	case err != nil:
 		writeErr(w, err)
