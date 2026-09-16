@@ -306,7 +306,10 @@ describe("S14 — 대시보드(PRD §11)", () => {
     expect(val(2)).toBe("아직 잴 수 없음");
     expect(n(2)).toBe("0");
     expect(rows[2].getAttribute("data-measurable")).toBe("false");
-    expect(val(3)).toBe("35%");
+    // routing_concentration 의 값 옆에는 무엇의 비율인지 한 줄(V-1) — 값 자체는 35%.
+    expect(val(3)).toBe("35%규칙 6·7 폴백 비율 — 아래는 규칙별 분포");
+    expect(within(rows[3]).getByTestId("observation-value-hint").textContent).toBe("규칙 6·7 폴백 비율 — 아래는 규칙별 분포");
+    expect(within(rows[4]).queryByTestId("observation-value-hint")).toBeNull();
     expect(val(4)).toBe("12.9%");
     expect(rows[4].getAttribute("data-measurable")).toBe("true");
   });
@@ -328,6 +331,33 @@ describe("S14 — 대시보드(PRD §11)", () => {
     expect(sub[3].nextElementSibling).toBe(rows[4]);
   });
 
+  it("관찰 표 「다시 세기」 — 지표 표의 버튼과 같은 load: 두 op 을 함께 다시 부른다(V-1) · 모르는 kind 는 원시 값 + (새 규칙)", async () => {
+    tabParam = "dashboard";
+    get.mockImplementation(async (path: string) => {
+      if (path === "/workspaces/{workspaceId}/observations") {
+        const o = observations();
+        o.rows[3].breakdown = [...(o.rows[3].breakdown ?? []), { kind: "9", share: 0, n: 0 }];
+        return o;
+      }
+      if (path === "/workspaces/{workspaceId}/metrics") return report();
+      throw new Error(`unexpected GET ${path}`);
+    });
+    render(<SettingsPage />);
+    await screen.findByTestId("observations-table");
+    const calls = () => get.mock.calls.map((c) => c[0] as string);
+    expect(calls().filter((p) => p.endsWith("/metrics"))).toHaveLength(1);
+    expect(calls().filter((p) => p.endsWith("/observations"))).toHaveLength(1);
+    fireEvent.click(within(screen.getByTestId("observations-wrap")).getByTestId("observations-reload"));
+    await waitFor(() => expect(calls().filter((p) => p.endsWith("/observations"))).toHaveLength(2));
+    expect(calls().filter((p) => p.endsWith("/metrics"))).toHaveLength(2);
+    // 상단 버튼도 같은 동작.
+    fireEvent.click(screen.getByTestId("metrics-reload"));
+    await waitFor(() => expect(calls().filter((p) => p.endsWith("/observations"))).toHaveLength(3));
+    expect(calls().filter((p) => p.endsWith("/metrics"))).toHaveLength(3);
+    const unknown = screen.getAllByTestId("observation-breakdown").find((r) => r.getAttribute("data-kind") === "9")!;
+    expect(unknown.textContent).toContain("9 (새 규칙)");
+  });
+
   it("관찰 op 만 501 이어도(T-S19 전) 지표 표는 그대로 — 오류는 관찰 표 자리에", async () => {
     tabParam = "dashboard";
     get.mockImplementation(async (path: string) => {
@@ -342,6 +372,10 @@ describe("S14 — 대시보드(PRD §11)", () => {
     expect(screen.getAllByTestId("metric-row")).toHaveLength(10);
     expect(screen.queryByTestId("observations-table")).toBeNull();
     expect(screen.queryByTestId("metrics-error")).toBeNull();
+    // 오류 자리에도 「다시 세기」 — 같은 load(두 op 함께).
+    fireEvent.click(within(screen.getByTestId("observations-error")).getByTestId("observations-reload"));
+    await waitFor(() => expect(get.mock.calls.filter((c) => (c[0] as string).endsWith("/observations"))).toHaveLength(2));
+    expect(get.mock.calls.filter((c) => (c[0] as string).endsWith("/metrics"))).toHaveLength(2);
   });
 });
 

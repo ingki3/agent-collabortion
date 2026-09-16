@@ -244,8 +244,13 @@ export const OBSERVATIONS = {
   note_summary: "세는 법",
   /** `breakdown[]` 의 하위 행 머리 — "규칙 6 · 담당 에이전트 폴백". */
   rule: (n: string) => `규칙 ${n}`,
+  /** 「다시 세기」 — 지표 표와 **같은 버튼**(두 op 을 함께 다시 부른다, V-1 #247 NN1). 관찰 표 머리에도 놓는다. */
   reload: "다시 세기",
   counting: "세는 중…",
+  /** `routing_concentration.value` 옆 한 줄 — 값이 무엇의 비율인지(계약: 규칙 6·7 폴백 비율, 아래 하위 행은 규칙별 분포). V-1 #247 NN2. */
+  routing_value_hint: "규칙 6·7 폴백 비율 — 아래는 규칙별 분포",
+  /** 모르는 `breakdown[].kind` 의 꼬리 — 원시 값을 그대로 두고 "새 규칙" 임을 말한다(V-1 #247 NN4). */
+  unknown_kind_tail: "(새 규칙)",
 } as const;
 
 /**
@@ -266,7 +271,8 @@ export const ROUTING_PLATFORM_LABEL = "플랫폼(위임·다시 지시)";
 export function routingKindLabel(kind: string): string {
   if (kind === "platform") return ROUTING_PLATFORM_LABEL;
   const what = /^[1-8]$/.test(kind) ? ROUTING_RULE_LABEL[Number(kind) - 1] : undefined;
-  return what ? `${OBSERVATIONS.rule(kind)} · ${what}` : kind;
+  // 모르는 값(계약이 규칙을 더했는데 화면이 아직 모를 때) — 원시 값 그대로 + "(새 규칙)" 꼬리. 숨기거나 지어내지 않는다.
+  return what ? `${OBSERVATIONS.rule(kind)} · ${what}` : `${kind} ${OBSERVATIONS.unknown_kind_tail}`;
 }
 
 /**
