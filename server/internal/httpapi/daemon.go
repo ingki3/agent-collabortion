@@ -209,6 +209,7 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 	}
 	now := s.Clock.Now()
 	var gcReports []workdirs.GCReport
+	gone := sessionGoneMemo{}
 	for _, wd := range in.Workdirs {
 		if wd.TestChatID != "" {
 			// daemon-protocol v0.8 §4.5: "서버는 test_chat_id 가 있는 행을 workdir
@@ -226,7 +227,7 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 			// went with the session) is consumed and nothing else — there is
 			// no session to put a feed line on, and it is not a defect of the
 			// daemon's report. Every other dropped entry stays loud.
-			quiet := receipt && rep.SessionID == uuid.Nil && sessionGone(r, s, wd.SessionID)
+			quiet := receipt && rep.SessionID == uuid.Nil && gone.is(r, s, wd.SessionID)
 			if quiet {
 				s.Log.Debug("gc receipt for a deleted session's workdir", "path", wd.Path, "session", wd.SessionID, "runtime", d.RuntimeID)
 			} else {
@@ -320,18 +321,34 @@ func (s *Server) gcReceiptTargets(ctx context.Context, runtimeID uuid.UUID, topI
 	return ids
 }
 
-// sessionGone is true when the report's session_id is a uuid that names no
-// session row — the deleteSession case, as opposed to a malformed report.
+// sessionGoneMemo answers "does this session row still exist?" once per
+// session per report (S-82, PR #220 리뷰 NN4): a report listing many
+// directories of one deleted session used to ask the database the same
+// question for each of them.
+type sessionGoneMemo map[string]bool
+
+// is is true when `session` is a uuid that names no session row — the
+// deleteSession case, as opposed to a malformed report.
+func (m sessionGoneMemo) is(r *http.Request, s *Server, session string) bool {
+	if v, ok := m[session]; ok {
+		return v
+	}
+	v := sessionGone(r, s, session)
+	m[session] = v
+	return v
+}
+
+// sessionGone is the one query behind sessionGoneMemo.
 func sessionGone(r *http.Request, s *Server, session string) bool {
 	sid, err := uuid.Parse(session)
 	if err != nil {
 		return false
 	}
-	var n int
-	if err := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM session WHERE id = $1`, sid).Scan(&n); err != nil {
+	var exists bool
+	if err := s.DB.QueryRow(r.Context(), `SELECT EXISTS (SELECT 1 FROM session WHERE id = $1)`, sid).Scan(&exists); err != nil {
 		return false
 	}
-	return n == 0
+	return !exists
 }
 
 // gcRefusedNote is the head of the feed sentence daemon-protocol §6 (v0.7.4)

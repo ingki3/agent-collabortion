@@ -15,6 +15,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/ingki3/agent-collabortion/contracts/clock"
+	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
@@ -25,7 +26,13 @@ import (
 )
 
 var (
-	ErrSessionNotFound = errors.New("router: session not found")
+	// ErrSessionNotFound wraps the 404 Problem so every handler that answers
+	// with apperr.As says "세션을 찾을 수 없습니다" rather than 500. The row is
+	// read under FOR UPDATE, so this is also what a message queued behind a
+	// deleteSession gets once the delete commits (S-82 — the reverse race,
+	// TestS82DeleteRacesPostMessage): before, it surfaced as `internal` with
+	// the router's own sentence in `cause`.
+	ErrSessionNotFound = fmt.Errorf("router: session not found: %w", apperr.NotFound("session"))
 	ErrParentNotFound  = errors.New("router: parent message not found")
 )
 
