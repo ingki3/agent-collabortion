@@ -325,6 +325,23 @@ func SpentUSD(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (float64, err
 	return spent, nil
 }
 
+// CheckBudgetRaise is THE rule for a new session ceiling (S-49): the raise
+// must be strictly above what the session has already spent (SpentUSD), or
+// the very next usage report re-trips the pause and the Director sees the
+// banner again with nothing changed (FR-7.3). Two handlers — the K-10
+// session-budget approval (`budget_override_usd`) and resumeSession
+// (`limits.budget_usd`) — used to each carry their own comparison and their
+// own sentence; this is the one place both the criterion and the wording
+// live. `field` names the request field the 422 points at. Zero is no
+// ceiling at all and is not a raise to judge — the caller decides whether
+// its field may be zero (resume: limits with no budget; approval: required).
+func CheckBudgetRaise(field string, newLimitUSD, spentUSD float64) error {
+	if newLimitUSD <= spentUSD {
+		return BudgetTooLowError(field, spentUSD)
+	}
+	return nil
+}
+
 // BudgetTooLowError is the one wording for a raise that is not a raise. Two
 // handlers with two sentences taught the Director that the number to beat
 // depends on which button they pressed (S-49).
