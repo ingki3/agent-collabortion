@@ -17,6 +17,11 @@
 # 모델 호출이 없다. 프로세스 종료는 pid·포트만(§0-10).
 #
 #   bash e2e/p3/58_worktree_wiring_smoke.sh
+#   COLAB_D10_DAEMON_BIN=<path> bash e2e/p3/58_worktree_wiring_smoke.sh   # 다른 데몬 바이너리(before/after 대조)
+#
+# (4) 는 T-D15(K-14, daemon-protocol v0.8.3 §4.1·§6): 번들 `workdir.id` 가 있는 lane 하나를 더 돌려
+#     표식 파일 `<path>/.colab-workdir.json` · `git status` 클린 · §6 행 id · 데몬 재시작 뒤 probe
+#     전체 보고의 id · gc 영수증 id 를 잰다. v0.8.3 이전 데몬(origin/dev)은 이 구간만 빨갛다.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -77,8 +82,13 @@ printf '# Widget catalog\n\n- bolt\n' > "$REPO/catalog.md"
 git -C "$REPO" add -A && git -C "$REPO" commit -qm seed
 check "임시 저장소 ($REPO — 이 저장소가 아니다)" $?
 
-( cd "$ROOT/daemon" && go build -o "$WORK/daemon" ./cmd/daemon ) >>"$LOG" 2>&1
-check "daemon 바이너리 빌드" $?
+if [ -n "${COLAB_D10_DAEMON_BIN:-}" ]; then
+  cp "$COLAB_D10_DAEMON_BIN" "$WORK/daemon"
+  check "daemon 바이너리 = $COLAB_D10_DAEMON_BIN (대조용)" $?
+else
+  ( cd "$ROOT/daemon" && go build -o "$WORK/daemon" ./cmd/daemon ) >>"$LOG" 2>&1
+  check "daemon 바이너리 빌드" $?
+fi
 # acpfake 는 TestMain 에서 ACPFAKE=1 이면 스스로 ACP 서버가 된다. 그 테스트
 # 바이너리를 `hermes` 라는 이름으로 PATH 앞에 두면, 데몬은 자기 코드 그대로
 # `hermes acp` 를 spawn 한다 — 실기 배선을 재면서 모델 호출은 없다.
@@ -118,7 +128,7 @@ CEOF
 lsof -ti ":$PORT" 2>/dev/null | xargs -r kill 2>/dev/null
 python3 "$ROOT/e2e/p3/mock_daemon_server.py" --port "$PORT" \
   --state "$WORK/server.jsonl" --pid "$WORK/server.pid" --queue "$WORK/queue.json" \
-  --commands "$WORK/commands.json" >>"$LOG" 2>&1 &
+  --commands "$WORK/commands.json" --more "$WORK/queue-more.json" >>"$LOG" 2>&1 &
 SRVBG=$!
 wait_for 20 'curl -sf -X POST "http://127.0.0.1:'"$PORT"'/v1/daemon/pair" -d "{}" >/dev/null'
 check "목 서버 기동 (:$PORT)" $?
@@ -237,6 +247,76 @@ python3 "$ROOT/e2e/p3/58_assert.py" receipt "$WORK/server.jsonl" "$WT" "$SESSION
 check "삭제 영수증(deleted)도 같은 신원을 싣는다" $?
 git -C "$REPO" rev-parse --verify --quiet "refs/heads/colab/$SESSION/backend" >/dev/null
 check "브랜치는 남았다 (E13-10)" $?
+rm -f "$WORK/commands.json"
+
+# ---------------------------------------------------------------------------
+say "(4) K-14 — v0.8.3 번들(workdir.id) lane 1회: 표식 · §6 id · 재시작 · 영수증"
+# ---------------------------------------------------------------------------
+# 이번 번들은 **T-S21 서버가 보내는 모양**이다: 절대 경로 + `workdir.id`(서버 workdir 행 uuid).
+# 페이크의 기록 파일은 체크아웃 밖에 둔다 — 여기서 재는 것은 체크아웃의 `git status` 다.
+WDID="c0ffee58-0000-4000-8000-0000000000d1"
+WT2="$WDROOT/worktrees/sess-slug/backend"
+NPRE="$(reports)"
+python3 - "$WORK/queue-more.json" "$REPO" "$SESSION" "$AGENT" "$LANE" "$WDID" "$WT2" "$WORK/acpfake-cwd-2.jsonl" <<'QPY'
+import json, sys
+out, repo, session, agent, lane, wdid, path, rec = sys.argv[1:9]
+script = {"kind": "hermes", "no_mcp_capabilities": True,
+          "turns": [{"steps": [{"chunk": "ok"}]}]}
+json.dump([{
+  "task": {"id": "t-58b", "attempt": 1, "lane_id": lane, "session_id": session,
+           "agent_id": agent, "agent_name": "backend", "trigger_message_id": "m2"},
+  "task_token": "ctk_58b",
+  "profile": {"runtime_kind": "hermes", "model": "sonnet", "adapter_pin": "",
+              "env": {"ACPFAKE": "1", "ACPFAKE_SCRIPT": json.dumps(script), "ACPFAKE_RECORD": rec}},
+  "workdir": {"id": wdid, "kind": "worktree", "repo_path": repo, "path": path, "reuse": False},
+  "brief": {"transport": "instruction_file", "text": "You are Backend."},
+  "prompt": "Implement the widget again.", "resume": None, "limits": {"stall_seconds": 180},
+}], open(out, "w"))
+QPY
+finishes() { python3 -c 'import json,sys; print(sum(1 for l in open(sys.argv[1]) if l.strip() and json.loads(l)["kind"]=="finish"))' "$WORK/server.jsonl"; }
+wait_for 90 '[ "$(finishes)" -ge 2 ]'
+check "두 번째 lane finish 도달 (t-58b)" $?
+wait_for 30 '[ "$(reports)" -gt "'"$NPRE"'" ]'
+check "lane 종료 §6 보고 도달 (D-23)" $?
+[ -d "$WT2" ]
+check "체크아웃이 번들의 절대 경로에 생겼다 ($WT2)" $?
+MARK="$(cat "$WT2/.colab-workdir.json" 2>/dev/null | tr -d '[:space:]')"
+[ "$MARK" = "{\"id\":\"$WDID\"}" ]
+check "표식 파일 <path>/.colab-workdir.json = id 한 줄 (실제: ${MARK:-없음})" $?
+[ -z "$(git -C "$WT2" status --porcelain 2>/dev/null)" ]
+check "체크아웃 git status 클린 — 표식이 안 뜬다 (E13-03~06, .git/info/exclude)" $?
+[ -z "$(git -C "$REPO" status --porcelain)" ]
+check "사용자 저장소 git status 클린" $?
+! grep -rq "$WT2" "$WDROOT/.colab/workdirs" 2>/dev/null
+check "index 디렉터리에 그 경로의 기록이 없다 (index 폐기 — id 있는 번들은 표식만)" $?
+python3 "$ROOT/e2e/p3/58_assert.py" idrow "$WORK/server.jsonl" "$WT2" "$WDID" "$SESSION" "$AGENT" >>"$LOG" 2>&1
+check "lane 종료 §6 행 id = 번들 workdir.id (+ session·agent·git·bytes)" $?
+
+# 재시작: 데몬은 번들을 잊는다. 시작 probe 의 전체 보고가 표식에서 id 를 읽어야 한다.
+N3="$(reports)"
+kill -9 "$(cat "$WORK/daemon.pid")" 2>/dev/null; sleep 1
+( cd "$WORK" && exec env COLAB_DAEMON_CONFIG="$WORK/daemon.json" PATH="$WORK/bin:$PATH" \
+  "$WORK/daemon" run >>"$LOG" 2>&1 ) &
+echo $! > "$WORK/daemon.pid"
+wait_for 60 '[ "$(reports)" -gt "'"$N3"'" ]'
+check "재시작한 데몬의 probe 전체 보고 도달" $?
+# 재시작 뒤의 행은 표식(id)만 안다 — session·agent 는 디렉터리 이름 폴백(sess-slug)이라 id 만 본다.
+python3 - "$WORK/server.jsonl" "$WT2" "$WDID" >>"$LOG" 2>&1 <<'PYEOF'
+import json, sys
+rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+reps = [r["body"] for r in rows if r["kind"] == "workdirs"]
+last = [w for w in reps[-1].get("workdirs", []) if w.get("path") == sys.argv[2]]
+print("probe row after restart =", json.dumps(last, ensure_ascii=False))
+sys.exit(0 if last and last[-1].get("id") == sys.argv[3] and last[-1].get("git") else 1)
+PYEOF
+check "재시작 뒤 probe 행 id = 표식의 id (§6: 재시작 뒤에는 표식 파일을 읽는다)" $?
+
+N4="$(reports)"
+issue "[{\"type\":\"gc\",\"session_id\":\"$SESSION\",\"workdirs\":[{\"id\":\"$WDID\",\"path\":\"$WT2\"}]}]"
+wait_for 60 '[ ! -d "$WT2" ] && [ "$(reports)" -gt "'"$N4"'" ]'
+check "gc 가 체크아웃을 수거했다 (표식은 디렉터리와 함께 사라진다)" $?
+python3 "$ROOT/e2e/p3/58_assert.py" idreceipt "$WORK/server.jsonl" "$WT2" "$WDID" deleted >>"$LOG" 2>&1
+check "gc 영수증 행 id = gc.id = 번들 workdir.id, deleted" $?
 rm -f "$WORK/commands.json"
 
 printf '\n--- 산출물: %s / %s ---\n' "$LOG" "$WORK" | tee -a "$LOG"
