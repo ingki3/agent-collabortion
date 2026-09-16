@@ -94,11 +94,12 @@ func (s *Server) ListLanes(w http.ResponseWriter, r *http.Request, sessionId gen
 	writeJSON(w, http.StatusOK, out)
 }
 
-// CancelLane is POST /lanes/{laneId}/cancel (FR-3.4 "중단", E10-04). P1
-// minimal: Director/deputy only; the lane must be running or queued (else
-// 409); a running attempt gets the daemon `cancel` command and ends when its
-// finish arrives, a queued task is cancelled at once. 202 with the lane;
-// completion is `lane.updated` (openapi cancelLane).
+// CancelLane is POST /lanes/{laneId}/cancel (FR-3.4 "중단", E10-04).
+// Director/deputy only; the lane's CURRENT task must be cancellable (K-16,
+// openapi 0.1.6 — a `done` lane whose turn is still running counts; nothing
+// left to stop is 409); a running attempt gets the daemon `cancel` command
+// and ends when its finish arrives, a queued task is cancelled at once. 202
+// with the lane; completion is `lane.updated` (openapi cancelLane).
 func (s *Server) CancelLane(w http.ResponseWriter, r *http.Request, laneId gen.LaneId) {
 	u, wsID, sessionID, p := s.laneControl(r, laneId)
 	if p != nil {
@@ -111,7 +112,7 @@ func (s *Server) CancelLane(w http.ResponseWriter, r *http.Request, laneId gen.L
 		writeProblem(w, apperr.NotFound("lane"))
 		return
 	case errors.Is(err, tasks.ErrLaneNotCancellable):
-		writeProblem(w, apperr.Conflict("lane_not_cancellable", "진행 중이거나 대기 중인 작업 줄기만 중단할 수 있습니다"))
+		writeProblem(w, apperr.Conflict("lane_not_cancellable", "지금 진행 중이거나 대기 중인 턴이 있는 작업 줄기만 중단할 수 있습니다"))
 		return
 	case err != nil:
 		writeErr(w, err)

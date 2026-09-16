@@ -28,9 +28,10 @@ var (
 	// lane CHECK (0004) can turn it into a 500.
 	ErrInvalidSessionRef = errors.New("tasks: runtime_session_ref needs runtime_kind and session_id")
 	ErrLaneNotFound      = errors.New("tasks: lane not found")
-	// ErrLaneNotCancellable — cancelLane on a lane that is not running/queued
-	// (openapi cancelLane: already-terminal lanes answer 409).
-	ErrLaneNotCancellable = errors.New("tasks: lane is not running or queued")
+	// ErrLaneNotCancellable — cancelLane on a lane whose current task is not
+	// Cancellable (openapi cancelLane 0.1.6, K-16: the task decides, not the
+	// lane's status; a lane with nothing left to stop answers 409).
+	ErrLaneNotCancellable = errors.New("tasks: lane's current task is not cancellable")
 )
 
 type Service struct {
@@ -999,19 +1000,28 @@ func collectIDs(rows pgx.Rows, err error) ([]uuid.UUID, error) {
 	return ids, rows.Err()
 }
 
-// CancelLane is cancelLane (openapi, FR-3.4 "중단", E10-04). The lane must be
-// running or queued. Its current task is cancelled at once when nothing holds
-// it yet (queued/deferred); a dispatched/preparing/running attempt gets a
-// daemon `cancel` command {after_current_tool: true, reason: director}
-// (daemon-protocol §4.3) and ends when the daemon's finish arrives — the
-// command is consumed by that finish and re-sent on every response until
-// then. The feed records "사람이 중단함" either way. Returns the task and
-// whether it was cancelled immediately.
+// CancelLane is cancelLane (openapi, FR-3.4 "중단", E10-04). The judgment is
+// the lane's CURRENT task, not the lane's status (openapi 0.1.6, K-16): a
+// lane the agent already put in `done` with `colab status set done` can still
+// have its turn's process running — the contract's "done 은 마지막 호출"
+// convention only makes that window short — and the Director could not stop
+// it (`409 lane_not_cancellable`, task `running`, T-I5 관찰 1). The current
+// task is cancelled at once when nothing holds it yet (deferred/queued); a
+// dispatched/preparing/running attempt gets a daemon `cancel` command
+// {after_current_tool: true, reason: director} (daemon-protocol §4.3) and ends
+// when the daemon's finish arrives — the command is consumed by that finish
+// and re-sent on every response until then. The feed records "사람이 중단함"
+// either way. A lane already `done` stays `done` (its output was submitted);
+// only the task ends `cancelled` — cancelLocked keeps that. Returns the task
+// and whether it was cancelled immediately.
 func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*Row, bool, error) {
 	now := s.Clock.Now()
 	var out *Row
 	immediate := false
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		// The lane row is locked for the same reason it always was — two
+		// 중단 presses, or a 중단 racing `status set done`, serialise here.
+		// Its status is no longer consulted.
 		var laneStatus string
 		err := tx.QueryRow(ctx, `SELECT status FROM lane WHERE id = $1 FOR UPDATE`, laneID).Scan(&laneStatus)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1020,13 +1030,10 @@ func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*
 		if err != nil {
 			return fmt.Errorf("tasks: lock lane: %w", err)
 		}
-		if laneStatus != "running" && laneStatus != "queued" {
-			return ErrLaneNotCancellable
-		}
+		// The current task is what Lane.current_task shows (lanes.Load): the
+		// newest task of the lane, whatever its status.
 		var taskID uuid.UUID
-		err = tx.QueryRow(ctx, `
-			SELECT id FROM task WHERE lane_id = $1 AND status IN ('deferred', 'queued', 'dispatched', 'preparing', 'running')
-			ORDER BY created_at DESC LIMIT 1`, laneID).Scan(&taskID)
+		err = tx.QueryRow(ctx, `SELECT id FROM task WHERE lane_id = $1 ORDER BY created_at DESC LIMIT 1`, laneID).Scan(&taskID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrLaneNotCancellable
 		}
@@ -1036,6 +1043,9 @@ func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*
 		t, err := lockTask(ctx, tx, taskID)
 		if err != nil {
 			return err
+		}
+		if !Cancellable(t.Status) {
+			return ErrLaneNotCancellable
 		}
 		// A second "중단" while the first cancel is still pending: the command
 		// already rides every response (§4.3); nothing to add.
@@ -1071,6 +1081,22 @@ func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*
 		return nil
 	})
 	return out, immediate, err
+}
+
+// Cancellable is the set of task statuses cancelLane acts on (K-16): the task
+// is waiting to run or its turn's process may still be alive. A paused,
+// waiting_human or terminal task answers `409 lane_not_cancellable` — the
+// first two have their own exits (resume · answer) and the last has nothing
+// left to stop.
+//
+// production callers: CancelLane and lanes.laneActions (`Lane.actions`
+// carries `cancel` exactly when this is true for the current task).
+func Cancellable(s Status) bool {
+	switch s {
+	case Deferred, Queued, Dispatched, Preparing, Running:
+		return true
+	}
+	return false
 }
 
 // cancelRequested reports whether a cancel command was issued for (task, attempt).
@@ -1170,7 +1196,11 @@ func (s *Service) cancelLocked(ctx context.Context, tx pgx.Tx, t *Row, stopReaso
 	if err := s.Tokens.Revoke(ctx, tx, t.ID, t.Attempt, "cancelled"); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE lane SET status = $2, finished_at = $3, updated_at = $3 WHERE id = $1`, t.LaneID, res.LaneStatus, now); err != nil {
+	// K-16: a lane the agent already closed with `status set done` keeps
+	// `done` — the output was submitted and the join (FR-6.5) has fired; what
+	// is being stopped is a process that outlived the lane. Every other lane
+	// lands where FR-3.4's table says (failed).
+	if _, err := tx.Exec(ctx, `UPDATE lane SET status = $2, finished_at = $3, updated_at = $3 WHERE id = $1 AND status <> 'done'`, t.LaneID, res.LaneStatus, now); err != nil {
 		return err
 	}
 	fk := res.FailureKind

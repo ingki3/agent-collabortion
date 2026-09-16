@@ -192,3 +192,88 @@ func TestCancelLaneQueuedAndTerminal(t *testing.T) {
 		t.Fatalf("cancel unknown lane = %v, want ErrLaneNotFound", err)
 	}
 }
+
+// K-16 (openapi 0.1.6): cancelLane judges by the CURRENT TASK, not the lane's
+// status. An agent that called `colab status set done` while its turn's
+// process was still running left the Director with `409 lane_not_cancellable`
+// and a task that kept running (T-I5 관찰 1). Now the running attempt gets the
+// cancel command, the daemon's finish ends the task `cancelled` — and the
+// lane stays `done`, because its output was submitted and the join already
+// fired.
+func TestCancelLaneJudgesByCurrentTask(t *testing.T) {
+	s, _, seed := newService(t)
+	ctx := context.Background()
+	taskID := testdb.AddTask(t, s.DB, seed, seed.SessionID, t0)
+	dispatch(t, s, seed, taskID)
+	for _, ph := range []string{"preparing", "running"} {
+		if err := s.Phase(ctx, taskID, 1, ph); err != nil {
+			t.Fatal(err)
+		}
+	}
+	laneID := row(t, s, taskID).LaneID
+	// `colab status set done` closes the lane; the turn is still alive.
+	if _, err := s.DB.Exec(ctx, `UPDATE lane SET status = 'done', finished_at = $2 WHERE id = $1`, laneID, t0); err != nil {
+		t.Fatal(err)
+	}
+
+	got, immediate, err := s.CancelLane(ctx, laneID, seed.UserID)
+	if err != nil || immediate {
+		t.Fatalf("CancelLane(done lane, running task) = immediate %v err %v, want the pending cancel (K-16)", immediate, err)
+	}
+	if got.Status != Running {
+		t.Fatalf("task = %s, want running until the daemon's finish", got.Status)
+	}
+	var cmds int
+	_ = s.DB.QueryRow(ctx, `SELECT count(*) FROM daemon_command WHERE task_id = $1 AND type = 'cancel'`, taskID).Scan(&cmds)
+	if cmds != 1 {
+		t.Fatalf("cancel commands = %d, want 1 — the running process is what gets stopped", cmds)
+	}
+	if n := cancelFeedNotes(t, s, taskID); n != 1 {
+		t.Fatalf("feed rows = %d, want 1", n)
+	}
+
+	if _, err := s.Finish(ctx, taskID, 1, contracts.Finish{Outcome: "cancelled", StopReason: "cancelled"}); err != nil {
+		t.Fatal(err)
+	}
+	r := row(t, s, taskID)
+	if r.Status != Cancelled || r.FailureKind == nil || *r.FailureKind != "cancelled" {
+		t.Fatalf("task after finish = %s/%v, want cancelled/cancelled", r.Status, r.FailureKind)
+	}
+	if st := laneStatus(t, s, laneID); st != "done" {
+		t.Fatalf("lane = %q, want done — the output was submitted; only the process outliving the lane was stopped (K-16)", st)
+	}
+
+	// Nothing left to stop: the same lane answers 409 now.
+	if _, _, err := s.CancelLane(ctx, laneID, seed.UserID); !errors.Is(err, ErrLaneNotCancellable) {
+		t.Fatalf("second cancel = %v, want ErrLaneNotCancellable", err)
+	}
+}
+
+// The other half of K-16: the lane's status alone never makes a task
+// cancellable. A `running` lane whose current task is already terminal (a
+// row the sweep or a finish closed while the lane update raced) is 409, and
+// a paused task keeps its own exits (resume · cancel via the session).
+func TestCancelLaneCancellableSet(t *testing.T) {
+	for st, want := range map[Status]bool{
+		Deferred: true, Queued: true, Dispatched: true, Preparing: true, Running: true,
+		WaitingHuman: false, Paused: false, Completed: false, Failed: false, Cancelled: false,
+	} {
+		if got := Cancellable(st); got != want {
+			t.Errorf("Cancellable(%s) = %v, want %v", st, got, want)
+		}
+	}
+
+	s, _, seed := newService(t)
+	ctx := context.Background()
+	taskID := testdb.AddTask(t, s.DB, seed, seed.SessionID, t0)
+	laneID := row(t, s, taskID).LaneID
+	if _, err := s.DB.Exec(ctx, `UPDATE task SET status = 'completed', finished_at = $2 WHERE id = $1`, taskID, t0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB.Exec(ctx, `UPDATE lane SET status = 'running' WHERE id = $1`, laneID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.CancelLane(ctx, laneID, seed.UserID); !errors.Is(err, ErrLaneNotCancellable) {
+		t.Fatalf("running lane with a completed task = %v, want ErrLaneNotCancellable — the task decides (K-16)", err)
+	}
+}
