@@ -102,6 +102,13 @@ type memberRow struct {
 	OwnerCount int
 }
 
+// afterLockMember runs between lockMember's read and the planner's write —
+// nil in production. It is the seam TestUpdateMemberRoleConcurrentDemotion
+// (S-75, PR #209 리뷰 NN2) widens the window with: without a delay here the
+// two demotions in one process never overlap and the test proves nothing
+// about the lock.
+var afterLockMember func()
+
 // lockMember locks the workspace row (so two concurrent demotions cannot both
 // see "two owners") and reads the target member plus the owner count.
 func lockMember(ctx context.Context, tx pgx.Tx, wsID, memberID uuid.UUID) (*memberRow, error) {
@@ -140,6 +147,9 @@ func (s *Service) UpdateMemberRole(ctx context.Context, wsID, memberID, callerUs
 	m, err := lockMember(ctx, tx, wsID, memberID)
 	if err != nil {
 		return nil, err
+	}
+	if afterLockMember != nil {
+		afterLockMember()
 	}
 	if p := PlanRoleChange(RoleChangeCase{CallerRole: callerRole, TargetRole: m.Role, NewRole: newRole, OwnerCount: m.OwnerCount}); p != nil {
 		return nil, p

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -390,9 +391,10 @@ func (s *Server) GetCliContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// K-19: the role's command subset (colab-cli.md §2.5). The CLI caches it
-	// on first call and refuses the rest with exit 3 before sending.
-	var role string
-	if err := s.DB.QueryRow(r.Context(), `SELECT role::text FROM agent WHERE id = $1`, sc.AgentID).Scan(&role); err != nil {
+	// on first call and refuses the rest with exit 3 before sending. The
+	// role is the request's cached read (agentRole), shared with the gate.
+	role, err := s.agentRole(r)
+	if err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -469,6 +471,12 @@ func (s *Server) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceI
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+	// S-14: the stream is the one response meant to stay open for hours; the
+	// listener's WriteTimeout would cut every subscriber off at 60s. No
+	// deadline for this connection — liveness is the heartbeat below.
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		s.Log.Warn("stream write deadline", "err", err)
+	}
 	w.WriteHeader(http.StatusOK)
 
 	write := func(id, typ string, data []byte) {

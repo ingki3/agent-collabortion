@@ -239,6 +239,21 @@ func (v LoopVerdict) LimitText() string {
 	return "주고받기가 상한에 닿았습니다"
 }
 
+// PausedText is the sentence the agent and the Director both read when FR-3.5
+// stopped a trigger — ErrLoopLimit's detail and Post's `loop_limit` warning.
+// LimitText is its tail; the whole sentence is composed here so the wording
+// lock (internal/wording, sinkFuncs) sees every piece of it in one place
+// (S-79, PR #213 리뷰 NN3).
+func (v LoopVerdict) PausedText() string {
+	return "루프 상한에 걸려 세션이 일시정지되었습니다 — " + v.LimitText()
+}
+
+// QuestionText is the system HITL's question (pauseForLoop): the same limit
+// named, then the ask.
+func (v LoopVerdict) QuestionText() string {
+	return "루프 상한에 도달해 세션을 일시정지했습니다 — " + v.LimitText() + ". 계속할까요?"
+}
+
 // LimitCount is the number that tripped, whichever limit it was — PausedDetail
 // carries one `count` field and the banner needs it filled with the right one.
 func (v LoopVerdict) LimitCount() int {
@@ -258,5 +273,5 @@ func (v LoopVerdict) LimitCount() int {
 // Director sees on the banner — the delegation did NOT happen, and the agent
 // should stop rather than retry.
 func ErrLoopLimit(v LoopVerdict) error {
-	return apperr.Conflict("loop_limit", "루프 상한에 걸려 세션이 일시정지되었습니다 — "+v.LimitText())
+	return apperr.Conflict("loop_limit", v.PausedText())
 }

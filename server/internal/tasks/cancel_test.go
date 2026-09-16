@@ -192,3 +192,162 @@ func TestCancelLaneQueuedAndTerminal(t *testing.T) {
 		t.Fatalf("cancel unknown lane = %v, want ErrLaneNotFound", err)
 	}
 }
+
+// K-16 (openapi 0.1.6): cancelLane judges by the CURRENT TASK, not the lane's
+// status. An agent that called `colab status set done` while its turn's
+// process was still running left the Director with `409 lane_not_cancellable`
+// and a task that kept running (T-I5 관찰 1). Now the running attempt gets the
+// cancel command, the daemon's finish ends the task `cancelled` — and the
+// lane stays `done`, because its output was submitted and the join already
+// fired.
+func TestCancelLaneJudgesByCurrentTask(t *testing.T) {
+	s, _, seed := newService(t)
+	ctx := context.Background()
+	taskID := testdb.AddTask(t, s.DB, seed, seed.SessionID, t0)
+	dispatch(t, s, seed, taskID)
+	for _, ph := range []string{"preparing", "running"} {
+		if err := s.Phase(ctx, taskID, 1, ph); err != nil {
+			t.Fatal(err)
+		}
+	}
+	laneID := row(t, s, taskID).LaneID
+	// `colab status set done` closes the lane; the turn is still alive.
+	if _, err := s.DB.Exec(ctx, `UPDATE lane SET status = 'done', finished_at = $2 WHERE id = $1`, laneID, t0); err != nil {
+		t.Fatal(err)
+	}
+
+	got, immediate, err := s.CancelLane(ctx, laneID, seed.UserID)
+	if err != nil || immediate {
+		t.Fatalf("CancelLane(done lane, running task) = immediate %v err %v, want the pending cancel (K-16)", immediate, err)
+	}
+	if got.Status != Running {
+		t.Fatalf("task = %s, want running until the daemon's finish", got.Status)
+	}
+	var cmds int
+	_ = s.DB.QueryRow(ctx, `SELECT count(*) FROM daemon_command WHERE task_id = $1 AND type = 'cancel'`, taskID).Scan(&cmds)
+	if cmds != 1 {
+		t.Fatalf("cancel commands = %d, want 1 — the running process is what gets stopped", cmds)
+	}
+	if n := cancelFeedNotes(t, s, taskID); n != 1 {
+		t.Fatalf("feed rows = %d, want 1", n)
+	}
+
+	if _, err := s.Finish(ctx, taskID, 1, contracts.Finish{Outcome: "cancelled", StopReason: "cancelled"}); err != nil {
+		t.Fatal(err)
+	}
+	r := row(t, s, taskID)
+	if r.Status != Cancelled || r.FailureKind == nil || *r.FailureKind != "cancelled" {
+		t.Fatalf("task after finish = %s/%v, want cancelled/cancelled", r.Status, r.FailureKind)
+	}
+	if st := laneStatus(t, s, laneID); st != "done" {
+		t.Fatalf("lane = %q, want done — the output was submitted; only the process outliving the lane was stopped (K-16)", st)
+	}
+
+	// Nothing left to stop: the same lane answers 409 now.
+	if _, _, err := s.CancelLane(ctx, laneID, seed.UserID); !errors.Is(err, ErrLaneNotCancellable) {
+		t.Fatalf("second cancel = %v, want ErrLaneNotCancellable", err)
+	}
+}
+
+// The other half of K-16: the lane's status alone never makes a task
+// cancellable. A `running` lane whose current task is already terminal (a
+// row the sweep or a finish closed while the lane update raced) is 409, and
+// a paused task keeps its own exits (resume · cancel via the session).
+func TestCancelLaneCancellableSet(t *testing.T) {
+	for st, want := range map[Status]bool{
+		Deferred: true, Queued: true, Dispatched: true, Preparing: true, Running: true,
+		WaitingHuman: false, Paused: false, Completed: false, Failed: false, Cancelled: false,
+	} {
+		if got := Cancellable(st); got != want {
+			t.Errorf("Cancellable(%s) = %v, want %v", st, got, want)
+		}
+	}
+
+	s, _, seed := newService(t)
+	ctx := context.Background()
+	taskID := testdb.AddTask(t, s.DB, seed, seed.SessionID, t0)
+	laneID := row(t, s, taskID).LaneID
+	if _, err := s.DB.Exec(ctx, `UPDATE task SET status = 'completed', finished_at = $2 WHERE id = $1`, taskID, t0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB.Exec(ctx, `UPDATE lane SET status = 'running' WHERE id = $1`, laneID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.CancelLane(ctx, laneID, seed.UserID); !errors.Is(err, ErrLaneNotCancellable) {
+		t.Fatalf("running lane with a completed task = %v, want ErrLaneNotCancellable — the task decides (K-16)", err)
+	}
+}
+
+// S-8 (PR #33 리뷰 NN3): cancel absorption reads `consumed_at`/`consumed_by`.
+// A cancel command the 24h TTL sweep expired is no longer a request — a
+// failure that arrives after it is a plain failure (requeued as E5 says),
+// not "the person's cancel took effect". A command consumed by the attempt's
+// own finish still is the cancel landing.
+func TestCancelRequestedIgnoresTTLExpiredCommands(t *testing.T) {
+	s, c, seed := newService(t)
+	ctx := context.Background()
+	taskID := testdb.AddTask(t, s.DB, seed, seed.SessionID, t0)
+	dispatch(t, s, seed, taskID)
+	for _, ph := range []string{"preparing", "running"} {
+		if err := s.Phase(ctx, taskID, 1, ph); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := s.CancelLane(ctx, row(t, s, taskID).LaneID, seed.UserID); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := cancelRequested(ctx, s.DB, taskID, 1); err != nil || !ok {
+		t.Fatalf("unconsumed cancel: requested = %v err %v, want true", ok, err)
+	}
+
+	// Consumed by the finish (what daemonFinish does before tasks.Finish):
+	// still a request.
+	if err := tokens.ConsumeAttemptCommands(ctx, s.DB, taskID, 1, c.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := cancelRequested(ctx, s.DB, taskID, 1); err != nil || !ok {
+		t.Fatalf("cancel consumed by finish: requested = %v err %v, want true — that finish IS the cancel landing", ok, err)
+	}
+
+	// Expired by the TTL sweep: not a request any more.
+	if _, err := s.DB.Exec(ctx, `UPDATE daemon_command SET consumed_at = $2, consumed_by = 'ttl' WHERE task_id = $1 AND type = 'cancel'`, taskID, c.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := cancelRequested(ctx, s.DB, taskID, 1); err != nil || ok {
+		t.Fatalf("cancel expired by ttl: requested = %v err %v, want false (S-8)", ok, err)
+	}
+
+	// And what that means for the attempt: a failure report now is a
+	// failure, requeued — not absorbed into cancelled.
+	final, err := s.Finish(ctx, taskID, 1, contracts.Finish{Outcome: "failed", FailureKind: contracts.FailOther})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := row(t, s, taskID)
+	if final == Cancelled || r.Status == Cancelled {
+		t.Fatalf("finish(failed) after a ttl-expired cancel = %s (task %s), want NOT cancelled — nobody was stopping this attempt any more (S-8)", final, r.Status)
+	}
+
+	// The sweep's own path: the real ExpireCommands is what writes 'ttl'.
+	other := testdb.AddTask(t, s.DB, seed, testdb.AddSession(t, s.DB, seed, nil, t0), t0)
+	dispatch(t, s, seed, other)
+	for _, ph := range []string{"preparing", "running"} {
+		if err := s.Phase(ctx, other, 1, ph); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := s.CancelLane(ctx, row(t, s, other).LaneID, seed.UserID); err != nil {
+		t.Fatal(err)
+	}
+	// created_at is the database's now(); the sweep compares against the
+	// service clock, so the row is aged rather than the clock advanced.
+	if _, err := s.DB.Exec(ctx, `UPDATE daemon_command SET created_at = created_at - interval '25 hours' WHERE task_id = $1`, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tokens.ExpireCommands(ctx, s.DB, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := cancelRequested(ctx, s.DB, other, 1); err != nil || ok {
+		t.Fatalf("after ExpireCommands: requested = %v err %v, want false", ok, err)
+	}
+}

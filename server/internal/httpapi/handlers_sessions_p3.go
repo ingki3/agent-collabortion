@@ -182,8 +182,10 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 			// Resuming a budget pause on the old limit re-trips it on the very
 			// next usage report, and the Director sees the banner again with
 			// nothing changed (FR-7.3).
-			if lim := budgetOf(limitsRaw); lim > 0 && lim <= spent {
-				return sessions.BudgetTooLowError("limits.budget_usd", spent)
+			if lim := budgetOf(limitsRaw); lim > 0 {
+				if err := sessions.CheckBudgetRaise("limits.budget_usd", lim, spent); err != nil {
+					return err
+				}
 			}
 		}
 		if rule.ResetLoopCounters {
@@ -558,7 +560,7 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 			}
 			tree := sessions.ParseTree(raw)
 			if err := sessions.ValidateTree(tree); err != nil {
-				return apperr.Validation(apperr.Field("completion_condition", "criteria_met_alone", err.Error())) // ValidateTree speaks the screens' language
+				return apperr.Validation(apperr.Field("completion_condition", sessions.TreeErrorCode(err), err.Error())) // ValidateTree speaks the screens' language; the code names the reason (S-85)
 			}
 			participants, err := sessionAgents(r.Context(), tx, sessionId, assignee)
 			if err != nil {

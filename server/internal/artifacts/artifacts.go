@@ -163,7 +163,8 @@ func (s *Service) Submit(ctx context.Context, sessionID uuid.UUID, in SubmitInpu
 }
 
 // selectSQL is the read model: the row, its agent's display name, whether it
-// is the newest version of its name, and the review if one landed.
+// is the newest version of its name, and the LATEST review if one landed
+// (artifact_review_latest, migration 0024 — the table itself is the history).
 const selectSQL = `
 	SELECT a.id, a.session_id, a.name, a.version, a.type, a.storage_ref, a.size_bytes, a.content_type,
 	       a.description, a.submitted_by_task_id, a.submitted_by_agent_id, a.submitted_by_user_id,
@@ -172,7 +173,7 @@ const selectSQL = `
 	       r.verdict::text, r.comments, r.reviewer_agent_id, r.reviewer_task_id, r.decision_id, r.reviewed_at
 	FROM artifact a
 	LEFT JOIN agent ag ON ag.id = a.submitted_by_agent_id
-	LEFT JOIN artifact_review r ON r.artifact_id = a.id`
+	LEFT JOIN artifact_review_latest r ON r.artifact_id = a.id`
 
 func scan(row pgx.Row) (*Row, error) {
 	var a Row
@@ -288,22 +289,44 @@ func (s *Service) Open(ctx context.Context, a *Row) (*Content, error) {
 	return c, nil
 }
 
-// RecordReview stores the verdict. `reject` does not remove or supersede the
-// artifact: it stays readable at its version and the reason travels back on
-// the submitting lane's thread (openapi reviewArtifact).
+// RecordReview stores the verdict as a NEW row (S-15, migration 0024): a
+// re-review does not overwrite the previous judgment — the table is the
+// history, and the artifact's `review` is the latest row of it. `reject`
+// does not remove or supersede the artifact: it stays readable at its
+// version and the reason travels back on the submitting lane's thread
+// (openapi reviewArtifact).
 func (s *Service) RecordReview(ctx context.Context, artifactID uuid.UUID, rev ReviewRow) (*ReviewRow, error) {
 	now := s.Clock.Now()
 	rev.ArtifactID, rev.ReviewedAt = artifactID, now
 	_, err := s.DB.Exec(ctx, `
 		INSERT INTO artifact_review (artifact_id, verdict, comments, reviewer_agent_id, reviewer_task_id, decision_id, reviewed_at)
-		VALUES ($1, $2::review_verdict, $3, $4, $5, $6, $7)
-		ON CONFLICT (artifact_id) DO UPDATE SET
-			verdict = EXCLUDED.verdict, comments = EXCLUDED.comments,
-			reviewer_agent_id = EXCLUDED.reviewer_agent_id, reviewer_task_id = EXCLUDED.reviewer_task_id,
-			decision_id = EXCLUDED.decision_id, reviewed_at = EXCLUDED.reviewed_at`,
+		VALUES ($1, $2::review_verdict, $3, $4, $5, $6, $7)`,
 		artifactID, rev.Verdict, rev.Comments, rev.ReviewerAgentID, rev.ReviewerTaskID, rev.DecisionID, now)
 	if err != nil {
 		return nil, fmt.Errorf("artifacts: record review: %w", err)
 	}
 	return &rev, nil
+}
+
+// ReviewHistory is every judgment recorded for the artifact, newest first
+// (S-15). Nothing on the API reads it yet — the review UI's "who reversed
+// what, when" is the consumer; until then it is what the tests hold the
+// append-only rule to.
+func (s *Service) ReviewHistory(ctx context.Context, artifactID uuid.UUID) ([]ReviewRow, error) {
+	rows, err := s.DB.Query(ctx, `
+		SELECT artifact_id, verdict::text, comments, reviewer_agent_id, reviewer_task_id, decision_id, reviewed_at
+		FROM artifact_review WHERE artifact_id = $1 ORDER BY reviewed_at DESC, id DESC`, artifactID)
+	if err != nil {
+		return nil, fmt.Errorf("artifacts: review history: %w", err)
+	}
+	defer rows.Close()
+	var out []ReviewRow
+	for rows.Next() {
+		var r ReviewRow
+		if err := rows.Scan(&r.ArtifactID, &r.Verdict, &r.Comments, &r.ReviewerAgentID, &r.ReviewerTaskID, &r.DecisionID, &r.ReviewedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }

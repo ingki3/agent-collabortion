@@ -23,6 +23,11 @@ func TestPlanRoleChange(t *testing.T) {
 		{"owner demotes one of two owners", RoleChangeCase{"owner", "owner", "admin", 2}, 0, ""},
 		{"owner promotes to owner", RoleChangeCase{"owner", "member", "owner", 1}, 0, ""},
 		{"owner re-states owner (no demotion)", RoleChangeCase{"owner", "owner", "owner", 1}, 0, ""},
+		// S-75 (PR #209 리뷰 NN5): the caller demoting THEMSELF is the same
+		// row as "one of two owners" — the planner has no notion of self,
+		// and the contract does not forbid it. The confirmation dialog is
+		// the web's (T-W12), not a server rule.
+		{"owner demotes themself, another owner remains", RoleChangeCase{"owner", "owner", "member", 2}, 0, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p := PlanRoleChange(c.in)

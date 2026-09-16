@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -333,6 +334,14 @@ func (s *Server) GetArtifact(w http.ResponseWriter, r *http.Request, artifactId 
 	writeJSON(w, http.StatusOK, artifactAPI(a))
 }
 
+// DownloadWriteBudget is how long a download of size bytes may take to be
+// written before the server gives up on the client (S-14): two minutes of
+// grace plus one second per 64 KiB — a client that cannot sustain 64 KiB/s
+// is holding a database connection for nothing. 50 MB gets about 15 minutes.
+func DownloadWriteBudget(size int64) time.Duration {
+	return 2*time.Minute + time.Duration(size/(64<<10))*time.Second
+}
+
 // DownloadArtifact streams the body. Content-Length is declared because the
 // CLI compares it against the bytes it actually wrote (colab-cli README): with
 // a chunked response a truncated download and a complete one look the same,
@@ -356,6 +365,15 @@ func (s *Server) DownloadArtifact(w http.ResponseWriter, r *http.Request, artifa
 	w.Header().Set("Content-Type", c.ContentType)
 	w.Header().Set("Content-Length", strconv.FormatInt(c.Size, 10))
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": c.Name}))
+	// S-14: the listener's WriteTimeout (cmd/server, 60s) is for ordinary
+	// responses; a 50 MB body to a slow client is not one. The deadline is
+	// extended for THIS connection, sized by the body — a stalled client is
+	// still cut off, and with it the transaction holding the pool connection.
+	// The socket deadline is the OS clock's, not s.Clock (a test's fake clock
+	// would put it in the past and close the connection at once).
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(DownloadWriteBudget(c.Size))); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		s.Log.Warn("artifact download write deadline", "artifact", a.ID, "err", err)
+	}
 	w.WriteHeader(http.StatusOK)
 	if r.Method == http.MethodHead {
 		return

@@ -15,13 +15,34 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Options is what the server exposes of the pool (S-14): a download holds a
+// connection for the whole response (artifacts.Open reads the large object
+// inside a transaction), so the pool's size — pgx's default is
+// max(4, NumCPU) — is the number of slow downloads that can run before every
+// other request waits. Zero keeps pgx's default.
+type Options struct {
+	MaxConns int32
+	MinConns int32
+}
+
 // Open parses url, builds a pgx pool and waits until the database accepts a
 // connection or ctx expires. Postgres started moments ago by `make db` may
 // still be booting, so a failed Ping is retried instead of returned.
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
+	return OpenWith(ctx, url, Options{})
+}
+
+// OpenWith is Open with the pool sized by opts.
+func OpenWith(ctx context.Context, url string, opts Options) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf("db: parse url: %w", err)
+	}
+	if opts.MaxConns > 0 {
+		cfg.MaxConns = opts.MaxConns
+	}
+	if opts.MinConns > 0 {
+		cfg.MinConns = opts.MinConns
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
