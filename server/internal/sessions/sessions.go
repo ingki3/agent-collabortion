@@ -131,7 +131,7 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 		// self-scoring FR-2.2 forbids. Evaluate the parsed tree instead.
 		if b, err := json.Marshal(in.CompletionCondition); err == nil {
 			if err := ValidateTree(ParseTree(b)); err != nil {
-				errs = append(errs, apperr.Field("completion_condition", "criteria_met_alone", err.Error())) // ValidateTree speaks the screens' language
+				errs = append(errs, apperr.Field("completion_condition", TreeErrorCode(err), err.Error())) // ValidateTree speaks the screens' language; the code names the reason (S-85)
 			}
 		}
 	}

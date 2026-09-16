@@ -36,19 +36,51 @@ type Tree struct {
 	Conditions []Condition `json:"conditions"`
 }
 
-// ErrInvalidTree is returned by ValidateTree; the handler maps it to 422.
+// ErrInvalidTree is the head of every ValidateTree failure; the handler maps
+// it to 422.
 var ErrInvalidTree = errors.New("종료 조건이 올바르지 않습니다")
+
+// Field codes ValidateTree answers with (openapi Problem.errors[].code on
+// `completion_condition`). PR #233 review NN2: every failure used to go out as
+// `criteria_met_alone`, which was true only while that was the only rule —
+// the code is what the web branches on, so each reason has its own.
+const (
+	TreeCodeRequired         = "required"           // no conditions at all
+	TreeCodeInvalidOp        = "invalid_op"         // op is neither AND nor OR
+	TreeCodeUnknownType      = "unknown_type"       // a condition type the platform does not know
+	TreeCodeCriteriaMetAlone = "criteria_met_alone" // E6-07: criteria_met without an ANDed approval
+)
+
+// TreeError is one ValidateTree failure: the code the screens branch on and
+// the sentence the person reads. It unwraps to ErrInvalidTree.
+type TreeError struct {
+	Code string
+	msg  string
+}
+
+func (e *TreeError) Error() string { return ErrInvalidTree.Error() + ": " + e.msg }
+func (e *TreeError) Unwrap() error { return ErrInvalidTree }
+
+// TreeErrorCode is the field code for a ValidateTree error — `invalid` for
+// anything that is not a TreeError, so a handler never invents a code.
+func TreeErrorCode(err error) string {
+	var te *TreeError
+	if errors.As(err, &te) {
+		return te.Code
+	}
+	return "invalid"
+}
 
 // ValidateTree is the session-creation guard (E6-07). criteria_met may never
 // stand alone and may never sit under OR, where it would complete the session
 // by itself — FR-2.2 requires it to be ANDed with an approval.
 func ValidateTree(t Tree) error {
 	if len(t.Conditions) == 0 {
-		return fmt.Errorf("%w: 조건을 하나 이상 골라 주세요", ErrInvalidTree)
+		return &TreeError{TreeCodeRequired, "조건을 하나 이상 골라 주세요"}
 	}
 	op := normOp(t.Op)
 	if op != "AND" && op != "OR" {
-		return fmt.Errorf("%w: 조합 방식은 AND 또는 OR 여야 합니다 (받은 값: %q)", ErrInvalidTree, t.Op)
+		return &TreeError{TreeCodeInvalidOp, fmt.Sprintf("조합 방식은 AND 또는 OR 여야 합니다 (받은 값: %q)", t.Op)}
 	}
 	hasCriteria, hasApproval := false, false
 	for _, c := range t.Conditions {
@@ -61,12 +93,12 @@ func ValidateTree(t Tree) error {
 			hasApproval = true
 		case CondArtifactSubmitted:
 		default:
-			return fmt.Errorf("%w: 알 수 없는 조건 %q", ErrInvalidTree, c.Type)
+			return &TreeError{TreeCodeUnknownType, fmt.Sprintf("알 수 없는 조건 %q", c.Type)}
 		}
 	}
 	if hasCriteria && (!hasApproval || op != "AND") {
-		return fmt.Errorf("%w: 「기준 충족」은 승인 조건과 AND 로 묶어야 합니다 — 플랫폼이 "+
-			"자기 채점만으로 세션을 끝낼 수 없습니다", ErrInvalidTree)
+		return &TreeError{TreeCodeCriteriaMetAlone, "「기준 충족」은 승인 조건과 AND 로 묶어야 합니다 — 플랫폼이 " +
+			"자기 채점만으로 세션을 끝낼 수 없습니다"}
 	}
 	return nil
 }

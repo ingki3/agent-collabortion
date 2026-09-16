@@ -558,7 +558,7 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 			}
 			tree := sessions.ParseTree(raw)
 			if err := sessions.ValidateTree(tree); err != nil {
-				return apperr.Validation(apperr.Field("completion_condition", "criteria_met_alone", err.Error())) // ValidateTree speaks the screens' language
+				return apperr.Validation(apperr.Field("completion_condition", sessions.TreeErrorCode(err), err.Error())) // ValidateTree speaks the screens' language; the code names the reason (S-85)
 			}
 			participants, err := sessionAgents(r.Context(), tx, sessionId, assignee)
 			if err != nil {
