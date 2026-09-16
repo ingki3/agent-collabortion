@@ -36,9 +36,21 @@ const ROLE_RANK: Record<MemberRole, number> = { owner: 2, admin: 1, member: 0 };
 /** 자기 행에서 지금보다 낮은 역할을 고른 것 — 확인 다이얼로그를 거친다(NN5). 소유자 행은 `roleChangeRight` 가 이미 잠근다. */
 export const isSelfDemotion = (target: Member, next: MemberRole, meUserId: string | null): boolean =>
   target.user.id === meUserId && ROLE_RANK[next] < ROLE_RANK[target.role];
-/** 확인 다이얼로그의 본문 — 무엇이 사라지는지(SCREEN §5). */
-export const selfDemotionText = (from: MemberRole, to: MemberRole): string =>
-  `내 역할을 ${ROLE_LABEL[from]}에서 ${ROLE_LABEL[to]}로 내립니다. 멤버 초대·역할 변경·워크스페이스 설정 변경을 더는 할 수 없고, 되돌리려면 다른 소유자·관리자가 올려 줘야 합니다.`;
+/**
+ * 확인 다이얼로그의 본문 — 무엇이 사라지는지(SCREEN §5), **출발 역할별로 다르다**(W-13, PR #212 리뷰 NN3 — 소유자 강등에도 관리자 문장을 쓰던 것).
+ * - 소유자 → 관리자: 관리자도 멤버 초대·역할 변경·설정 변경은 하므로, 사라지는 것은 소유자만의 일(소유자 역할을 주고 거두기 · 보안 설정)이다.
+ * - 소유자 → 멤버 · 관리자 → 멤버: 멤버 초대·역할 변경·워크스페이스 설정 변경이 사라진다.
+ * - 되돌리는 사람: 소유자로 되돌리는 것은 다른 소유자만(§2.3 "owner 역할은 owner 만"), 관리자로는 소유자·관리자 누구나.
+ * 소유자 행의 셀렉트는 `roleChangeRight` 가 잠그므로 지금 화면에서 소유자 출발 문장이 보이는 경로는 없지만, 문장은 역할별로 옳게 둔다.
+ */
+export const selfDemotionText = (from: MemberRole, to: MemberRole): string => {
+  const head = `내 역할을 ${ROLE_LABEL[from]}에서 ${ROLE_LABEL[to]}로 내립니다.`;
+  const loses = from === "owner" && to === "admin"
+    ? "소유자 역할을 주거나 거두는 것과 보안 설정 변경을 더는 할 수 없고"
+    : "멤버 초대·역할 변경·워크스페이스 설정 변경을 더는 할 수 없고";
+  const restore = from === "owner" ? "되돌리려면 다른 소유자가 올려 줘야 합니다." : "되돌리려면 다른 소유자·관리자가 올려 줘야 합니다.";
+  return `${head} ${loses}, ${restore}`;
+};
 
 export interface MembersTabProps {
   workspaceId: string;

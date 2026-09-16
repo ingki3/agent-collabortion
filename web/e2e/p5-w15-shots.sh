@@ -8,6 +8,7 @@
 #   p5-w15-04-s7-blocked-{light,dark}.png      S7 진행률 막힘 — 리뷰어 없는 옛 세션: ✗ 대신 이유 + 「조건 고치기」 + "남은 것: … 막힘 1개"
 #   p5-w15-05-fix-dialog-{light,dark}.png      「조건 고치기」 다이얼로그(6단계와 같은 편집기) — 리뷰어 비어 저장 비활성 + 사유
 #   p5-w15-06-s7-fixed-{light,dark}.png        고친 뒤 — 막힘 해소, 보고서 제출 ✓ 유지
+#   p5-w15-07-s7-blocked-member-light.png      멤버 시점(W-20) — 같은 막힘을 Director 아닌 멤버가 본다: "Director 가 조건을 고쳐야 …" · 「조건 고치기」 없음
 #
 # 사용:
 #   COLAB_MOCK_API=1 npx next build && COLAB_MOCK_API=1 npx next start -p 3117 &
@@ -116,6 +117,19 @@ for THEME in light dark; do
   shot "p5-w15-05-fix-dialog-$THEME"
   ab click '[data-testid="fix-condition-cancel"]' >/dev/null
 done
+
+step "멤버 시점 — 같은 막힘, 「조건 고치기」 없음 · 'Director 가 조건을 고쳐야 …'(밝음, W-20)"
+apic "fetch('/api/v1/__mock/sessions/$SID/role', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{\"role\":\"member\"}' }).then(r => r.status)" >/dev/null
+set_theme light
+open_wait "/sessions/$SID" '[data-testid="progress-blocked"]'
+MEMBER_LINE=$(apic '(function(){return document.querySelector("[data-testid=progress-blocked]").textContent})()')
+echo "  막힘 줄: $MEMBER_LINE"
+case "$MEMBER_LINE" in *"Director 가 조건을 고쳐야"*) ;; *) echo "❌ 멤버 시점 문장이 아니다: $MEMBER_LINE"; exit 1;; esac
+HAS_FIX=$(apic '(function(){return document.querySelector("[data-testid=fix-condition-open]") ? "yes" : "no"})()')
+[ "$HAS_FIX" = "no" ] || { echo "❌ 멤버에게 「조건 고치기」 가 보인다"; exit 1; }
+shot "p5-w15-07-s7-blocked-member-light"
+# Director 로 되돌린다 — 아래 왕복은 Director 만 할 수 있다.
+apic "fetch('/api/v1/__mock/sessions/$SID/role', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{\"role\":\"director\"}' }).then(r => r.status)" >/dev/null
 
 step "조건 고치기 왕복 — 리뷰어를 Lead 로 → 막힘 해소, 보고서 제출 ✓ 유지"
 set_theme light

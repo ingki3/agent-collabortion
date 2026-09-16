@@ -559,8 +559,12 @@ function createLane(s: Store, sess: Session, agentId: string, brief: string | nu
   emit(s, sess.workspace_id, "lane.updated", lane, sess.id);
   return lane;
 }
-/** 호출자가 지금 할 수 있는 동작(Lane.actions). 목은 항상 Director 시점이다. */
-function laneActions(_sess: Session, status: Lane["status"]): Lane["actions"] {
+/**
+ * 호출자가 지금 할 수 있는 동작(Lane.actions). 목은 항상 Director 시점이다.
+ * 취소 판정은 **lane 상태가 아니라 현재 할 일**이다(계약 cancelLane v0.1.6, K-16): `colab status set done` 뒤에도 그 턴의 프로세스가
+ * 돌고 있으면(현재 task `running`) done lane 에도 `cancel` 이 실린다 — 서버 `laneActions` 와 같은 규칙.
+ */
+function laneActions(_sess: Session, status: Lane["status"], currentTask?: Pick<Task, "status"> | null): Lane["actions"] {
   switch (status) {
     case "running":
       return ["restart", "cancel"];
@@ -574,6 +578,8 @@ function laneActions(_sess: Session, status: Lane["status"]): Lane["actions"] {
       return ["approve_budget", "cancel"];
     case "failed":
       return ["restart"];
+    case "done":
+      return currentTask?.status === "running" ? ["cancel"] : [];
     default:
       return [];
   }
@@ -596,8 +602,8 @@ function setLaneStatus(s: Store, sess: Session, laneId: string, patch: Partial<L
   const lane = s.lanes.get(laneId);
   if (!lane) return;
   Object.assign(lane, patch, { updated_at: now() });
-  lane.actions = laneActions(sess, lane.status);
   refreshCurrentTask(s, lane);
+  lane.actions = laneActions(sess, lane.status, lane.current_task);
   emit(s, sess.workspace_id, "lane.updated", lane, sess.id);
 }
 /** 서버 `lanes.go` 처럼 `current_task` = 이 줄기의 가장 최근 할 일. 화면이 task_event 의 task_id 를 줄기와 잇는 열쇠다(빈 턴 카드 한 줄). */
@@ -961,7 +967,11 @@ on("GET", "/lanes/{id}/tasks", (req, p) => {
   const items = [...s.tasks.values()].filter((t) => t.lane_id === lane.id).sort((a, b) => a.created_at.localeCompare(b.created_at));
   return ok(items.map((t) => toTask(s, t)));
 });
-/** 중단(FR-3.4) — 진행 중 턴만 취소한다. lane `failed(cancelled)`. `paused`는 실패가 아니지만 명시 종료는 이것이다. */
+/**
+ * 중단(FR-3.4) — 진행 중 턴만 취소한다. lane `failed(cancelled)`. `paused`는 실패가 아니지만 명시 종료는 이것이다.
+ * **판정은 lane 이 아니라 현재 할 일**(계약 v0.1.6, K-16): lane 이 `done` 이어도 현재 할 일이 `running` 이면 취소할 수 있고, 그때는
+ * lane 을 `done` 그대로 두고 할 일만 `cancelled` 로 끝낸다(산출물은 이미 제출됐다). `done`·`failed` 인데 도는 할 일이 없으면 409.
+ */
 on("POST", "/lanes/{id}/cancel", (req, p) => {
   const s = store();
   const lane = s.lanes.get(p.id);
@@ -970,7 +980,9 @@ on("POST", "/lanes/{id}/cancel", (req, p) => {
   const { user: actor } = requireMember(s, req, sess.workspace_id);
   // E10-05 — 버튼이 비활성인 것은 강제가 아니다. API 도 막는다.
   if (!mayControlLane(sess, actor.id)) throw new Problem(403, "director_required", W.lane_control);
-  if (lane.status === "done" || lane.status === "failed") throw new Problem(409, "lane_not_cancellable", W.lane_not_cancellable);
+  refreshCurrentTask(s, lane);
+  const doneButRunning = lane.status === "done" && lane.current_task?.status === "running";
+  if ((lane.status === "done" || lane.status === "failed") && !doneButRunning) throw new Problem(409, "lane_not_cancellable", W.lane_not_cancellable);
   for (const t of s.tasks.values()) {
     if (t.lane_id !== lane.id || t.status === "completed" || t.status === "cancelled") continue;
     t.status = "cancelled";
@@ -978,7 +990,8 @@ on("POST", "/lanes/{id}/cancel", (req, p) => {
     t.finished_at = now();
     pushEvent(s, sess, t, { class: "status", verb: "cancel", object_ref: lane.id, outcome: "cancelled", sentence: "사람이 중단함" });
   }
-  setLaneStatus(s, sess, lane.id, { status: "failed", failure_kind: "cancelled", current_activity: null, finished_at: now() });
+  if (doneButRunning) setLaneStatus(s, sess, lane.id, { current_activity: null });
+  else setLaneStatus(s, sess, lane.id, { status: "failed", failure_kind: "cancelled", current_activity: null, finished_at: now() });
   emitParticipant(s, sess, lane.agent_id, null);
   return ok(s.lanes.get(lane.id), 202);
 });
@@ -1392,6 +1405,27 @@ on("POST", "/__mock/sessions/{id}/seed-empty-turn", (req, p) => {
   task.finished_at = now();
   setLaneStatus(s, sess, task.lane_id, { status: "done", current_activity: null, finished_at: task.finished_at, brief: null });
   return ok({ lane_id: task.lane_id, task_id: task.id, event_id: empty.id }, 201);
+});
+
+/**
+ * dev·테스트용 — **done 인데 실행이 아직 도는 줄기**(K-16, 계약 cancelLane v0.1.6)를 만든다(계약 밖 경로, `__mock` 접두).
+ * 에이전트가 `colab status set done` 으로 산출물을 제출하고 lane 을 done 으로 만든 뒤에도 그 턴의 프로세스가 돌고 있는 모양:
+ * lane `done`(brief 있음) + 현재 할 일 `running` → `actions: ["cancel"]`. 카드가 「중단」을 내고, 취소하면 lane 은 done 그대로·할 일만 cancelled.
+ */
+on("POST", "/__mock/sessions/{id}/seed-done-running", (req, p) => {
+  const s = store();
+  const sess = sessionOf(s, req, p.id);
+  const b = body<{ agent_id?: string }>(req);
+  const agentId = b.agent_id ?? (sess.participants ?? [])[0]?.agent_id;
+  const agent = agentId ? s.agents.get(agentId) : undefined;
+  if (!agent) throw notFoundP("agent");
+  const task = createTask(s, sess, agent.id, null, { brief: "경쟁사 5곳 정리" });
+  task.status = "running";
+  task.started_at = now();
+  pushEvent(s, sess, task, { class: "runtime", verb: "start", object_ref: null, outcome: "ok", payload: { runtime_kind: "claude_code", session_id: `acp-${task.id.slice(0, 8)}` }, sentence: `${agent.name}가 세션을 시작했다 → ok` });
+  pushEvent(s, sess, task, { class: "status", verb: "set_status", object_ref: "done", outcome: "ok", sentence: `${agent.name}가 상태를 done 으로 바꿨다 → ok` });
+  setLaneStatus(s, sess, task.lane_id, { status: "done", has_runtime_session: true, current_activity: "정리 뒤 파일을 닫는 중…", finished_at: now(), brief: "경쟁사 5곳 정리 완료" });
+  return ok({ lane_id: task.lane_id, task_id: task.id, lane: s.lanes.get(task.lane_id) }, 201);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

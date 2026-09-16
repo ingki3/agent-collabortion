@@ -33,6 +33,15 @@ describe("블록", () => {
     expect(c.querySelector("h2.md-h.md-h2")!.textContent).toBe("계획");
   });
 
+  it("#### · ##### · ###### 전부 ### 로 접힌다 — h4 이하가 DOM 에 생기지 않는다(W-17, 규칙은 markdown.tsx HEADING_RE 주석)", () => {
+    expect(parseBlocks("#### 넷\n##### 다섯\n###### 여섯").map((b) => (b.type === "h" ? b.level : b.type))).toEqual([3, 3, 3]);
+    const c = dom("#### 넷\n##### 다섯\n###### 여섯");
+    expect(c.querySelectorAll("h3.md-h.md-h3")).toHaveLength(3);
+    expect(c.querySelectorAll("h4, h5, h6")).toHaveLength(0);
+    // 일곱 개 이상은 제목이 아니다(CommonMark 와 같다).
+    expect(parseBlocks("####### 일곱")).toEqual([{ type: "p", text: "####### 일곱" }]);
+  });
+
   it("#태그 처럼 공백이 없으면 제목이 아니다", () => {
     expect(parseBlocks("#123 이슈")).toEqual([{ type: "p", text: "#123 이슈" }]);
   });
@@ -107,6 +116,16 @@ describe("블록", () => {
 
   it("구분줄 없는 | 는 그냥 글이다", () => {
     expect(parseBlocks("a | b")).toEqual([{ type: "p", text: "a | b" }]);
+  });
+
+  it("표는 구분줄이 있어야 표다(GFM) — 머리행 뒤가 구분줄이 아니면 여러 줄이어도 문단, 구분줄 뒤에만 행이 붙는다(W-17, 규칙은 TABLE_SEP_RE 주석)", () => {
+    // 구분줄 없이 파이프 줄 셋 — 표가 아니라 문단 하나(줄바꿈은 <br>).
+    expect(parseBlocks("| a | b |\n| c | d |\n| e | f |")).toEqual([{ type: "p", text: "| a | b |\n| c | d |\n| e | f |" }]);
+    expect(dom("| a | b |\n| c | d |").querySelector("table")).toBeNull();
+    // 구분줄이 있으면 표 — 정렬 표시(:---:)도 구분줄이다.
+    expect(parseBlocks("| a | b |\n|:---:|---:|\n| c | d |")).toEqual([{ type: "table", head: ["a", "b"], rows: [["c", "d"]] }]);
+    // 구분줄만으로는 표가 되지 않는다(머리행이 먼저).
+    expect(parseBlocks("|---|---|\n| c | d |").some((b) => b.type === "table")).toBe(false);
   });
 
   it("--- 가로줄은 목록이 아니다", () => {

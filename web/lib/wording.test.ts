@@ -491,6 +491,9 @@ describe("종료 조건 — 이름은 사람 말이고 한곳(lib/wording.ts)에
     expect(PROGRESS.user_approval_next).toBe("받은 요청에서 승인하세요");
     expect(PROGRESS.turn("Lead")).toBe("Lead 차례");
     expect(PROGRESS.summary(["Director 승인"], 1, "and")).toBe("남은 것: Director 승인 1개 · 막힘 1개");
+    expect(PROGRESS.summary(["보고서 제출", "Director 승인"], 0, "and")).toBe("남은 것: 보고서 제출 1개 · Director 승인 1개"); // 2개 이상도 같은 어순(W-20)
+    expect(PROGRESS.summary(["보고서 제출", "Director 승인"], 0, "or")).toBe("남은 것: 보고서 제출 1개 · Director 승인 1개 — 하나만 충족하면 끝");
+    expect(PROGRESS.summary(["Director 승인"], 0, "single")).toBe("남은 것: Director 승인 1개");
     expect(PROGRESS.met_by("Writer", "9/13")).toBe("Writer, 9/13");
     for (const t of [PROGRESS.user_approval_next, PROGRESS.manual_next, PROGRESS.summary_satisfied, PROGRESS.summary_completed, PROGRESS.blocked_director, PROGRESS.blocked_member]) expect(inPool("lib/wording.ts", t)).toBe(true);
     const aside = src("components/SessionAside.tsx");
@@ -577,15 +580,23 @@ describe("v1.1 — 관찰 표·허용 명령·빈 턴의 말은 한곳(lib/wordi
     expect(code("components/ObservationsTable.tsx")).not.toMatch(/Verdict|metricVerdict/);
     // 지표 표 컴포넌트가 관찰 표를 **아래에** 그린다(같은 탭, 별도 표).
     const metrics = src("components/MetricsTable.tsx");
-    expect(metrics.indexOf("<MetricsTableView report={report} />")).toBeLessThan(metrics.indexOf("<ObservationsTableView report={observations} />"));
+    expect(metrics.indexOf("<MetricsTableView report={report} />")).toBeLessThan(metrics.indexOf("<ObservationsTableView report={observations} onReload={() => void load()} />"));
+    // V-1: 「다시 세기」 는 지표 표와 같은 load(두 op 함께) — 관찰 표 머리와 관찰 오류 자리, 둘 다 표의 말(reload)로.
+    expect(OBSERVATIONS.reload).toBe("다시 세기");
+    expect(src("components/ObservationsTable.tsx")).toContain("{OBSERVATIONS.reload}");
+    expect(metrics).toMatch(/observations-reload[\s\S]*\{OBSERVATIONS\.reload\}/);
+    expect(inPool("lib/wording.ts", OBSERVATIONS.routing_value_hint)).toBe(true);
+    expect(src("components/ObservationsTable.tsx")).toContain("{OBSERVATIONS.routing_value_hint}");
   });
 
-  it("라우팅 규칙 번호 → 사람 말 — 1~8 과 platform 전부, '규칙 N · …' 모양, 모르는 값은 그대로", () => {
+  it("라우팅 규칙 번호 → 사람 말 — 1~8 과 platform 전부, '규칙 N · …' 모양, 모르는 값은 원시 값 + '(새 규칙)' (V-1)", () => {
     expect(ROUTING_RULE_LABEL).toHaveLength(8);
     expect(routingKindLabel("1")).toBe("규칙 1 · 기록만");
     expect(routingKindLabel("6")).toBe("규칙 6 · 담당 에이전트 폴백");
     expect(routingKindLabel("platform")).toBe(ROUTING_PLATFORM_LABEL);
-    expect(routingKindLabel("9")).toBe("9");
+    expect(routingKindLabel("9")).toBe("9 (새 규칙)");
+    expect(routingKindLabel("delegate")).toBe("delegate (새 규칙)");
+    expect(OBSERVATIONS.unknown_kind_tail).toBe("(새 규칙)");
     for (const t of [...ROUTING_RULE_LABEL, ROUTING_PLATFORM_LABEL]) expect(inPool("lib/wording.ts", t)).toBe(true);
   });
 

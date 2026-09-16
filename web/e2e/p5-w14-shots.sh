@@ -79,8 +79,12 @@ for THEME in light dark; do
   # 목이 델타 스냅숏 하나를 SSE 로 흘린다(게시 없음) — 열린 펜스가 코드 상자로, 끝에 커서.
   apic "fetch('/api/v1/__mock/sessions/$SID/seed-delta', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).then(r => r.status)" >/dev/null
   ab wait '[data-testid="message-delta"] pre[data-open="true"]' --timeout 10000 >/dev/null
-  # 화면의 자동 스크롤(bottomRef)은 sticky 작성창 뒤에 마지막 카드를 두고 멈춘다 — 창을 끝까지 내려 델타 카드를 드러낸다.
-  apic "(function(){window.scrollTo(0, document.documentElement.scrollHeight);return 'ok'})()" >/dev/null
+  # W-18: 화면의 자동 스크롤이 작성창 높이만큼 scroll-margin 을 두고 내리므로 델타 카드가 작성창 뒤에 숨지 않는다 — 우회(window.scrollTo) 없이
+  # 그대로 찍고, 델타 카드의 아래변이 작성창의 윗변보다 위에 있는지 **잰다**(단언). 렌더 뒤 한 프레임 기다린다.
+  sleep 1
+  GAP=$(apic '(function(){var d=document.querySelector("[data-testid=message-delta]").getBoundingClientRect();var c=document.querySelector(".s7__composer").getBoundingClientRect();return Math.round(c.top-d.bottom)})()')
+  echo "  델타 카드 아래변 ↔ 작성창 윗변: ${GAP}px"
+  [ "$GAP" -ge 0 ] || { echo "❌ 델타 카드가 작성창 뒤에 ${GAP}px 숨어 있다(W-18)"; exit 1; }
   shot "p5-w14-02-s7-delta-$THEME"
 done
 

@@ -53,9 +53,9 @@ describe("진행률 — 정상", () => {
     expect(screen.getByTestId("progress-count").textContent).toBe("1/3");
   });
 
-  it("상단 한 줄 — 남은 것: Lead 의 검토 승인, Director 승인 2개", () => {
+  it("상단 한 줄 — 남은 것: Lead 의 검토 승인 1개 · Director 승인 1개 (이름마다 개수, W-20)", () => {
     mount(normal);
-    expect(screen.getByTestId("progress-summary").textContent).toBe("남은 것: Lead 의 검토 승인, Director 승인 2개");
+    expect(screen.getByTestId("progress-summary").textContent).toBe("남은 것: Lead 의 검토 승인 1개 · Director 승인 1개");
     expect(screen.queryByTestId("progress-blocked")).toBeNull();
   });
 

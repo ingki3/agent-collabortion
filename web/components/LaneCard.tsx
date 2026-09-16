@@ -3,7 +3,8 @@
  * Lane Card(COMPONENTS §2.1 `x1YCq` · SCREEN §4.5 좌열) — lane 보드의 카드. **7상태를 하나의 컴포넌트로.**
  *
  * lane 보드는 장식이 아니라 유일한 제어판이다(SCREEN §1 원칙 2) — 어떤 메시지도 진행 중인 턴을 취소하지 않고,
- * 취소는 여기 버튼이다. 버튼 집합은 상태가 아니라 **서버가 준 `actions`** 로 정한다(권한은 서버 판정).
+ * 취소는 여기 버튼이다. 버튼 집합은 상태가 아니라 **서버가 준 `actions`** 로 정한다(권한은 서버 판정). done 이어도 `actions` 에
+ * cancel 이 있으면(현재 할 일이 아직 running — K-16, 계약 v0.1.6) 「중단」을 낸다.
  * 권한이 없으면 숨기지 않고 비활성 + 사유 툴팁(SCREEN §1 원칙 4).
  *
  * 상태별 조합 (COMPONENTS §2.1 표):
@@ -127,7 +128,12 @@ export function LaneCard(props: LaneCardProps) {
     }
   } else if (lane.status === "queued") {
     buttons.push(btn("cancel", "중단", props.onCancel && (() => props.onCancel!(lane))));
+  } else if (lane.status === "done" && actions.has("cancel")) {
+    // K-16(계약 v0.1.6 cancelLane): `colab status set done` 뒤에도 그 턴의 프로세스가 아직 돌면 서버가 현재 할 일로 판정해
+    // `actions` 에 cancel 을 싣는다 — 카드는 서버가 준 목록 그대로 「중단」을 낸다(산출물은 이미 제출됐고 실행만 멈춘다).
+    buttons.push(btn("cancel", "중단", props.onCancel && (() => props.onCancel!(lane))));
   }
+  const doneStillRunning = lane.status === "done" && actions.has("cancel");
 
   return (
     <article
@@ -146,6 +152,9 @@ export function LaneCard(props: LaneCardProps) {
       )}
       {note && (
         <div className="lane__note" data-testid="lane-note" data-status={lane.status}>{note}</div>
+      )}
+      {doneStillRunning && (
+        <div className="lane__note lane__note--info" data-testid="lane-done-running">제출은 끝났지만 실행이 아직 돌고 있습니다 — 「중단」은 그 실행만 멈춥니다</div>
       )}
       {props.emptyTurnNote && (
         <div className="lane__note lane__note--info" data-testid="lane-empty-turn" title={EMPTY_TURN.kind}>

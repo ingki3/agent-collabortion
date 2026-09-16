@@ -147,8 +147,8 @@ function SessionsView() {
         <div className="cards" data-testid="session-list">
           {items.map((s) => {
             const href = `/sessions/${s.id}`;
-            // 권한은 계약 deleteSession 그대로 — Director 또는 owner·admin. 판정은 서버가 다시 한다(403).
-            const gate = deleteGate(s.status, s.director.id === me?.user.id || canManage);
+            // 권한은 계약 deleteSession 그대로(Director 또는 owner·admin) — 판정은 deleteGate 안에서, 서버가 다시 한다(403).
+            const gate = deleteGate(s, { userId: me?.user.id, canManage });
             return (
               <article key={s.id} className="session-card" data-testid="session-row" data-session-id={s.id} data-status={s.status}>
                 <Link href={href} className="session-card__link" data-testid="session-link">

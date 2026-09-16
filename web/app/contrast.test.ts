@@ -100,6 +100,58 @@ function solidRules(): SolidRule[] {
 }
 const SOLID_RULES = solidRules();
 
+/**
+ * 리터럴 색 census(W-17, PR #229 NN2) — 위 solid census 는 "토큰 배경 + 글자" 짝만 보므로, `color: #333` 처럼 **리터럴 색 하나만**
+ * 끼어든 규칙은 걸리지 않았다. 여기서는 app·components 의 CSS(파일·tsx 안 <style>)에서 `color`·`background(-color)`·`border(-color)`·
+ * `fill`·`stroke`·`outline(-color)` 값에 리터럴(#hex · rgb/hsl · 이름색)이 있으면 전부 모은다 — tokens.css 밖에서는 0건이어야 한다.
+ * `transparent`·`inherit`·`currentColor`·`none` 과 `var(--…)`·`color-mix(… var(--…) …)` 는 리터럴이 아니다.
+ */
+const COLOR_PROPS = /^(?:background(?:-color)?|color|border(?:-color|-top-color|-right-color|-bottom-color|-left-color)?|fill|stroke|outline(?:-color)?|box-shadow|text-decoration-color|caret-color)$/;
+const LITERAL_COLOR = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(|\b(?:white|black|red|blue|green|gray|grey|yellow|orange|purple|pink|silver|navy|teal|maroon|olive|aqua|lime|fuchsia)\b/i;
+interface LiteralColor { where: string; prop: string; value: string }
+function literalColors(css: string, rel: string): LiteralColor[] {
+  const out: LiteralColor[] = [];
+  const clean = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const m of clean.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const [, sel, body] = m;
+    for (const decl of body.split(";")) {
+      const i = decl.indexOf(":");
+      if (i < 0) continue;
+      const prop = decl.slice(0, i).trim();
+      const value = decl.slice(i + 1).trim();
+      if (!COLOR_PROPS.test(prop)) continue;
+      if (LITERAL_COLOR.test(value)) out.push({ where: `${rel} ${sel.trim().replace(/\s+/g, " ")}`, prop, value });
+    }
+  }
+  return out;
+}
+function cssOf(f: string): string {
+  const src = readFileSync(f, "utf8");
+  return f.endsWith(".css") ? src : [...src.matchAll(/<style>\{`([\s\S]*?)`\}<\/style>/g)].map((m) => m[1]).join("\n");
+}
+const LITERALS = ["app", "components"].flatMap((d) => walk(join(ROOT, d))).filter((f) => !f.endsWith("tokens.css")).flatMap((f) => literalColors(cssOf(f), f.slice(ROOT.length + 1)));
+
+describe("리터럴 색 census — tokens.css 밖에서는 리터럴 색이 0건(W-17)", () => {
+  it("app·components 의 CSS(파일·<style>)에 리터럴 색이 없다 — 색은 토큰으로만", () => {
+    expect(LITERALS).toEqual([]);
+  });
+  it("tokens.css 자체는 리터럴로 정의한다(census 의 예외가 실제로 그 파일뿐) — 토큰 선언(--x: #hex)은 프로퍼티가 아니라 census 밖", () => {
+    expect((CSS.match(/--[a-z0-9-]+:\s*#[0-9a-f]{6}\b/gi) ?? []).length).toBeGreaterThan(10);
+    expect(literalColors(CSS, "app/tokens.css")).toEqual([]); // 선언만 있고 색을 쓰는 규칙은 없다
+  });
+  it("회귀 재현 — color 하나만 리터럴로 끼워도 걸린다(#hex · rgb() · 이름색 · box-shadow 안)", () => {
+    expect(literalColors(".md-code { color: #333; }", "x.css")).toEqual([{ where: "x.css .md-code", prop: "color", value: "#333" }]);
+    expect(literalColors(".a { background: rgb(0 0 0 / 40%); }", "x.css")).toHaveLength(1);
+    expect(literalColors(".a { border-color: red; }", "x.css")).toHaveLength(1);
+    expect(literalColors(".a { box-shadow: 0 1px 2px rgba(0,0,0,.2); }", "x.css")).toHaveLength(1);
+    // 토큰·color-mix·transparent·주석 안의 색은 걸리지 않는다.
+    expect(literalColors(".a { color: var(--ink); background: color-mix(in srgb, var(--s-wait) 12%, transparent); border-color: transparent; } /* #fff */", "x.css")).toEqual([]);
+    // tsx 안 <style> 블록도 같은 파서를 지난다.
+    const tsx = "export function X() { return <style>{`.a { color: #123456; }`}</style>; }";
+    expect(literalColors([...tsx.matchAll(/<style>\{`([\s\S]*?)`\}<\/style>/g)].map((m) => m[1]).join("\n"), "x.tsx")).toHaveLength(1);
+  });
+});
+
 describe("solid census 의 범위", () => {
   it("상태색·ink 를 배경으로 깔고 글자를 얹는 자리가 잡힌다 — primary 버튼·cmd·solid 배지", () => {
     const where = SOLID_RULES.map((r) => r.where);

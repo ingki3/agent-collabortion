@@ -6,7 +6,7 @@
  * 그 값을 "바꾼 것"으로 기록한다(S-26 `||` 합치기). 항목마다 기본값(PRD §7)과 「바꿨을 때의 영향」 한 줄을 값 아래에 둔다
  * (SCREEN §4.10 · U14 "사용자가 바꾸기 전에 읽음"). 권한이 없으면 입력을 잠그고 사유를 저장 버튼 아래에 쓴다(DisabledHint).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { DisabledHint } from "./PageHead";
 import {
   daysIso, IMPACT, INCLUDE_ARTIFACTS_LABEL, ISOLATION_LABEL, isoDays, RUNTIME_KIND_LABEL, RUNTIME_KINDS, SETTINGS_DEFAULTS,
@@ -92,7 +92,15 @@ export function WorkspaceSettingsTab({ tab, settings, role, onSave, fieldErrors 
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   // 탭을 옮기거나 서버가 새 값을 주면 초안을 버린다 — 다른 탭의 미저장 초안이 이 탭의 payload 에 섞이지 않게.
-  useEffect(() => setDraft(settings), [settings, tab]);
+  // **렌더 중에** 되돌린다(React "adjusting state when a prop changes"), useEffect 가 아니다(W-21): 예전에는
+  // `useEffect(() => setDraft(settings), [settings, tab])` 였는데, 마운트 직후의 그 effect 는 passive 라 나중에(스케줄러) 돌고,
+  // 그 사이에 들어온 첫 입력(setDraft)이 effect 의 setDraft(settings) 에 **덮여 사라졌다** — 유닛(settings-dirty)이 CI 에서
+  // 가끔 흔들린 원인이고, 사람에게도 "서버 응답 직후 첫 타이핑이 사라지는" 창이었다. 렌더 중 되돌림은 같은 렌더에서 끝나 창이 없다.
+  const [base, setBase] = useState({ settings, tab });
+  if (base.settings !== settings || base.tab !== tab) {
+    setBase({ settings, tab });
+    setDraft(settings);
+  }
   const patch = useMemo(() => diffSettings(settings, draft), [settings, draft]);
   const canSave = saveRight(tab, role).ok;
   const lock = !canSave || busy;
@@ -239,7 +247,12 @@ export function NotificationsTab({ settings, onSave, error }: {
   const [draft, setDraft] = useState<NotificationSettings | null>(settings);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
-  useEffect(() => setDraft(settings), [settings]);
+  // 서버 값이 바뀌면 초안을 버린다 — 워크스페이스 탭과 같은 이유로 렌더 중에(W-21, 위 주석).
+  const [base, setBase] = useState(settings);
+  if (base !== settings) {
+    setBase(settings);
+    setDraft(settings);
+  }
   const dirty = !!draft && !!settings && JSON.stringify(draft) !== JSON.stringify(settings);
 
   async function save() {

@@ -96,6 +96,26 @@ describe("S7 — message.delta 미리보기(작성 중…)", () => {
     expect(screen.getByTestId("message-delta").textContent).toContain("작성 중…");
   });
 
+  it("자동 스크롤은 작성창(sticky) 높이만큼 scroll-margin-bottom 을 두고 내린다 — 마지막 카드·델타가 작성창 뒤에 숨지 않는다(W-18)", async () => {
+    // jsdom 은 레이아웃이 없다 — 작성창의 offsetHeight 만 72 로 흉내 낸다.
+    const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get() { return (this as HTMLElement).classList.contains("s7__composer") ? 72 : 0; } });
+    try {
+      render(<SessionPage />);
+      await waitFor(() => expect(streamHandler).not.toBeNull());
+      act(() => { streamHandler!(delta("Posted the wrap-up.")); });
+      await waitFor(() => expect(screen.getByTestId("message-delta").textContent).toContain("Posted the wrap-up."));
+      const end = screen.getByTestId("timeline-end");
+      expect(end.style.scrollMarginBottom).toBe("72px");
+      expect(end.scrollIntoView).toHaveBeenCalledWith({ block: "end" });
+      // 끝 표식은 작성창 **앞**(같은 열 안, 타임라인의 마지막)에 있다 — 표식이 작성창 뒤라면 여백이 의미가 없다.
+      const composer = document.querySelector(".s7__composer")!;
+      expect(end.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    } finally {
+      if (desc) Object.defineProperty(HTMLElement.prototype, "offsetHeight", desc);
+    }
+  });
+
   it("턴이 끝나면(lane 이 running 을 벗어나면) 미리보기가 사라진다", async () => {
     render(<SessionPage />);
     await waitFor(() => expect(streamHandler).not.toBeNull());

@@ -110,9 +110,14 @@ export function MetricsTab({ workspaceId }: { workspaceId: string }) {
       {error && <p className="problem" role="alert" data-testid="metrics-error">{error}</p>}
       {!report && !error && <p className="muted">세는 중…</p>}
       {report && <MetricsTableView report={report} />}
-      {obsError && <p className="problem" role="alert" data-testid="observations-error">{obsError}</p>}
+      {obsError && (
+        <p className="problem" role="alert" data-testid="observations-error">
+          {obsError}{" "}
+          <button type="button" className="btn btn--sm" onClick={() => void load()} data-testid="observations-reload">{OBSERVATIONS.reload}</button>
+        </p>
+      )}
       {!observations && !obsError && <p className="muted">{OBSERVATIONS.counting}</p>}
-      {observations && <ObservationsTableView report={observations} />}
+      {observations && <ObservationsTableView report={observations} onReload={() => void load()} />}
     </section>
   );
 }

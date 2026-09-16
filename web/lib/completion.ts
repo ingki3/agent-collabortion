@@ -11,7 +11,7 @@
  *   - `artifact_submitted` 의 제출자는 `who: "assignee"`(기본) 또는 `agent_id`(지정) — 둘을 함께 보내지 않는다.
  */
 import type { CompletionAtom, CompletionCondition, CompletionProgress } from "@/lib/api/types";
-import { CONDITION_EDITOR, PROGRESS, conditionName } from "@/lib/wording";
+import { CONDITION_EDITOR, PROGRESS, conditionName, type TopOp } from "@/lib/wording";
 
 export type CondType = "artifact_submitted" | "agent_approval" | "user_approval" | "manual";
 export const COND_ORDER: readonly CondType[] = ["artifact_submitted", "agent_approval", "user_approval", "manual"];
@@ -86,7 +86,7 @@ export function draftNames(d: ConditionDraft, nameOf: (agentId: string) => strin
 type ProgressCond = CompletionProgress["conditions"][number];
 
 /** 상단 한 줄 — 남은 조건 이름과 막힌 개수. 트리 op 은 `completion_condition` 최상위에서 읽는다(진행률에는 없다). */
-export function progressSummary(prog: CompletionProgress, op: "and" | "or", closed: boolean): string {
+export function progressSummary(prog: CompletionProgress, op: TopOp, closed: boolean): string {
   if (closed) return PROGRESS.summary_completed;
   if (prog.satisfied) return PROGRESS.summary_satisfied;
   const open = prog.conditions.filter((c) => !c.met);
@@ -95,7 +95,10 @@ export function progressSummary(prog: CompletionProgress, op: "and" | "or", clos
   return PROGRESS.summary(remaining, blocked, op);
 }
 
-/** `completion_condition` 최상위의 결합 — 원자 하나면 and 로 본다. */
-export function topOp(cc: CompletionCondition | null | undefined): "and" | "or" {
-  return cc && "op" in cc ? cc.op : "and";
+/**
+ * `completion_condition` 최상위의 결합 — 트리면 그 `op`, **원자 하나면 `single`**(결합이 없다 — W-20, PR #234 NN4: 예전엔 and 로
+ * 뭉뚱그렸다). 없으면(옛 세션·아직 없음) `single` — 조건 하나짜리와 같이 결합을 묻지 않는다.
+ */
+export function topOp(cc: CompletionCondition | null | undefined): TopOp {
+  return cc && "op" in cc ? cc.op : "single";
 }

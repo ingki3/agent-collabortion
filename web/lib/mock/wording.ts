@@ -3,7 +3,7 @@
  *
  * 서버(PR #192, S-67)가 `Problem.detail`·`title`·`errors[].message`·시스템 메시지를 §8.4 의 말로 바꿨다.
  * 목이 서버와 다른 말을 하면 화면 테스트가 실서버를 못 대변하므로, 서버가 만드는 문장은 전부 여기서만 적고
- * `handlers.ts` 는 이 표를 쓴다. `server-wording.test.ts` 가 각 항목을 `server/` 소스의 그 파일과 **글자 단위로**
+ * `handlers.ts` 는 이 표를 쓴다. `server-wording/*.test.ts` 가 각 항목을 `server/` 소스의 그 파일과 **글자 단위로**
  * 대조한다 — 서버가 문장을 바꾸면 여기가 빨개진다.
  *
  * 규칙:
@@ -232,25 +232,25 @@ export const SERVER = {
  * 목에만 있는 op 의 문장 — **서버가 아직 안 만든 op**(T-W13 시점: `deleteSession`, 계약 PR #218 · 서버는 T-S17 이 동시에 만든다).
  * `SERVER` 에 넣지 않는 이유는 대조할 정답이 없어서다. 규칙은 T-W6·T-W12 때와 같다: §8.4 의 말, `Problem.detail` 한 문장,
  * 계약 description 이 문장을 못박았으면 **그대로**(`session_active`), 서버가 만들면 `SERVER` 로 옮기며 `at` 을 채운다.
- * `server-wording.test.ts` (g) 가 "그 op 이 정말 미구현인가"(`func (s *Server) DeleteSession(` 부재)를 재므로 T-S17 이 머지되면
+ * `server-wording/*.test.ts` (g) 가 "그 op 이 정말 미구현인가"(`func (s *Server) DeleteSession(` 부재)를 재므로 T-S17 이 머지되면
  * 이 표는 빨개진다 — 그때 T-S17 의 문장으로 옮긴다.
  */
 /**
  * 서버가 **아직 dev 에 안 올린** 검증의 문장 — T-W15 시점: createSession/updateSession 의 **리뷰어 검사**(계약 PR #232 v0.1.4, `errors[].code`
  * `reviewer_required` · `reviewer_not_participant`)와 **끝난 세션의 조건 수정 거절**(422 immutable). 서버는 T-S18(PR #233, 열림)이 동시에
  * 만들었고 아래 문장은 **그 PR 의 `sessions.ValidateReviewers` · `handlers_sessions_p3.go` 리터럴 그대로**다 — 머지되면 `SERVER` 로
- * 옮기며 `at` 을 채운다(`server-wording.test.ts` (h) 가 dev 에 리터럴이 생기는 순간부터 글자 단위로 대조한다).
+ * 옮기며 `at` 을 채운다(`server-wording/*.test.ts` (h) 가 dev 에 리터럴이 생기는 순간부터 글자 단위로 대조한다).
  */
 /**
  * T-W16 시점: **빈 턴 행의 문장**(PRD FR-7.2 v0.18 "판정과 기록" — `payload.args.note`). 서버 T-S19 가 finish 에서 남기고, 문장은 PRD 가
- * 못박았다("아무것도 하지 않고 턴을 끝냈습니다"). 서버가 머지되면 `SERVER` 로 옮기며 `at` 을 채운다 — `server-wording.test.ts` (i) 가 dev 에
+ * 못박았다("아무것도 하지 않고 턴을 끝냈습니다"). 서버가 머지되면 `SERVER` 로 옮기며 `at` 을 채운다 — `server-wording/*.test.ts` (i) 가 dev 에
  * 그 리터럴이 오르는 순간부터 글자 단위로 대조한다. 화면 쪽 같은 문장은 `lib/wording.ts` `EMPTY_TURN.note`(note 가 없을 때의 폴백).
  */
 export const MOCK_ONLY = {} as const satisfies Record<string, string>; // 비어 있다 — T-S19 #246 이 빈 턴 문장을 만들어 SERVER 로 옮겼다
 
 /**
  * 관측 지표 10개의 정의 — 서버 `internal/metrics/metrics.go` 의 `Defs` 표(PRD §11 열 순서)를 **그대로** 옮긴 것.
- * `label`·`note` 는 S14 「대시보드」에 그대로 보이는 문장이라(§8.4) 서버가 정하고, `server-wording.test.ts` 가 Go 소스를 파싱해
+ * `label`·`note` 는 S14 「대시보드」에 그대로 보이는 문장이라(§8.4) 서버가 정하고, `server-wording/*.test.ts` 가 Go 소스를 파싱해
  * 항목 단위(key·unit·target·target_op·label·note)로 대조한다 — 서버가 한 글자라도 바꾸면 여기가 빨개진다.
  */
 export type MetricDef = Pick<Metric, "key" | "unit" | "target" | "target_op" | "label" | "note">;
@@ -289,7 +289,7 @@ export const METRIC_DEFS: readonly MetricDef[] = [
 
 /**
  * 「관찰」 표 5행의 정의(key·label·note) — openapi 0.1.5 `getWorkspaceObservations` description 의 정의 1~5 를 옮긴 것(v1.1 K-18, T-W16).
- * `label`·`note` 는 서버 `internal/observations/observations.go` 의 `Defs` 표 **그대로**(T-S19 #246) — `server-wording.test.ts` (i) 가
+ * `label`·`note` 는 서버 `internal/observations/observations.go` 의 `Defs` 표 **그대로**(T-S19 #246) — `server-wording/*.test.ts` (i) 가
  * Go 소스를 파싱해 항목 단위로 대조한다(METRIC_DEFS 와 같은 방식).
  * 순서는 계약 `rows` 의 표 순서(ObservationRow.key enum 순서).
  */
