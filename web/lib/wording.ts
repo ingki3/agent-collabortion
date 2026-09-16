@@ -9,6 +9,12 @@
  */
 import type { SessionStatus, Workdir } from "@/lib/api/types";
 
+/**
+ * `completion_condition` 최상위의 결합 — `and`·`or`, 또는 **원자 하나**(`single`: 결합이 없다). 원자 하나를 `and` 로 뭉뚱그리지
+ * 않는다(W-20, PR #234 NN4) — 요약이 "하나만 충족하면 끝" 을 붙일지는 or 에서만, 원자 하나에는 물을 것이 없다.
+ */
+export type TopOp = "and" | "or" | "single";
+
 /** 끝난 세션 — 계약 deleteSession "`draft`·`completed`·`cancelled` 만". 그 외는 409 `session_active`. */
 export const DELETABLE_STATUS: ReadonlySet<SessionStatus> = new Set<SessionStatus>(["draft", "completed", "cancelled"]);
 
@@ -149,9 +155,15 @@ export const PROGRESS = {
   /** 충족 — "(Writer, 9/13)". */
   met_by: (who: string | null, when: string | null) => (who && when ? `${who}, ${when}` : (who ?? when ?? "충족")),
   /** 상단 한 줄 — "남은 것: Director 승인 1개 · 막힘 1개". 막힌 조건은 이름 대신 개수로 센다(이유는 행이 말한다). */
-  summary: (remaining: string[], blocked: number, op: "and" | "or") => {
-    const parts: string[] = [];
-    if (remaining.length) parts.push(`${remaining.join(", ")} ${remaining.length}개`);
+  /**
+   * 상단 한 줄 — "남은 것: <이름> N개 · <이름> N개 · 막힘 N개". 이름마다 자기 개수를 붙인다(W-20, PR #234 NN1 — 예전엔 "이름, 이름 2개" 로
+   * 개수가 목록 뒤에 하나만 붙어 어순이 어색했다). 같은 이름이 둘이면(같은 리뷰어의 검토 둘) 묶어 "… 2개". OR 은 조건이 둘 이상일 때만
+   * "하나만 충족하면 끝" 을 덧붙인다 — 원자 하나(`op: "single"`)는 결합이 없다.
+   */
+  summary: (remaining: string[], blocked: number, op: TopOp) => {
+    const counts = new Map<string, number>();
+    for (const name of remaining) counts.set(name, (counts.get(name) ?? 0) + 1);
+    const parts = [...counts].map(([name, n]) => `${name} ${n}개`);
     if (blocked) parts.push(`막힘 ${blocked}개`);
     return `남은 것: ${parts.join(" · ")}${op === "or" && remaining.length + blocked > 1 ? " — 하나만 충족하면 끝" : ""}`;
   },

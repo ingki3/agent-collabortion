@@ -69,13 +69,19 @@ describe("progressSummary — 남은 것 · 막힘", () => {
     expect(progressSummary(prog, "and", false)).toBe("남은 것: Director 승인 1개 · 막힘 1개");
   });
   it("막힘 없으면 이름만 · 충족이면 곧 완료 · 끝났으면 끝났습니다", () => {
-    expect(progressSummary({ met: 0, total: 2, satisfied: false, conditions: [cond("agent_approval", false, { agent_name: "Lead" }), cond("user_approval", false)] }, "and", false)).toBe("남은 것: Lead 의 검토 승인, Director 승인 2개");
+    // 2개 이상이면 이름마다 개수(W-20) — "이름, 이름 2개" 가 아니다.
+    expect(progressSummary({ met: 0, total: 2, satisfied: false, conditions: [cond("agent_approval", false, { agent_name: "Lead" }), cond("user_approval", false)] }, "and", false)).toBe("남은 것: Lead 의 검토 승인 1개 · Director 승인 1개");
+    // 같은 이름이 둘이면 묶는다.
+    expect(progressSummary({ met: 0, total: 2, satisfied: false, conditions: [cond("agent_approval", false, { agent_name: "Lead" }), cond("agent_approval", false, { agent_name: "Lead" })] }, "and", false)).toBe("남은 것: Lead 의 검토 승인 2개");
     expect(progressSummary({ met: 2, total: 2, satisfied: true, conditions: [] }, "and", false)).toBe("조건을 모두 충족했습니다 — 곧 완료됩니다");
     expect(progressSummary({ met: 0, total: 2, satisfied: false, conditions: [] }, "and", true)).toBe("세션이 끝났습니다");
   });
-  it("topOp — 원자 하나면 and", () => {
-    expect(topOp({ type: "manual" })).toBe("and");
+  it("topOp — 원자 하나면 single(결합이 없다), 트리면 그 op, 없으면 single (W-20)", () => {
+    expect(topOp({ type: "manual" })).toBe("single");
     expect(topOp({ op: "or", conditions: [] })).toBe("or");
-    expect(topOp(null)).toBe("and");
+    expect(topOp({ op: "and", conditions: [] })).toBe("and");
+    expect(topOp(null)).toBe("single");
+    // single 은 요약에 '하나만 충족하면 끝' 을 붙이지 않는다 — 조건 하나에 결합을 물을 것이 없다.
+    expect(progressSummary({ met: 0, total: 1, satisfied: false, conditions: [cond("user_approval", false)] }, "single", false)).toBe("남은 것: Director 승인 1개");
   });
 });

@@ -491,6 +491,9 @@ describe("종료 조건 — 이름은 사람 말이고 한곳(lib/wording.ts)에
     expect(PROGRESS.user_approval_next).toBe("받은 요청에서 승인하세요");
     expect(PROGRESS.turn("Lead")).toBe("Lead 차례");
     expect(PROGRESS.summary(["Director 승인"], 1, "and")).toBe("남은 것: Director 승인 1개 · 막힘 1개");
+    expect(PROGRESS.summary(["보고서 제출", "Director 승인"], 0, "and")).toBe("남은 것: 보고서 제출 1개 · Director 승인 1개"); // 2개 이상도 같은 어순(W-20)
+    expect(PROGRESS.summary(["보고서 제출", "Director 승인"], 0, "or")).toBe("남은 것: 보고서 제출 1개 · Director 승인 1개 — 하나만 충족하면 끝");
+    expect(PROGRESS.summary(["Director 승인"], 0, "single")).toBe("남은 것: Director 승인 1개");
     expect(PROGRESS.met_by("Writer", "9/13")).toBe("Writer, 9/13");
     for (const t of [PROGRESS.user_approval_next, PROGRESS.manual_next, PROGRESS.summary_satisfied, PROGRESS.summary_completed, PROGRESS.blocked_director, PROGRESS.blocked_member]) expect(inPool("lib/wording.ts", t)).toBe(true);
     const aside = src("components/SessionAside.tsx");
