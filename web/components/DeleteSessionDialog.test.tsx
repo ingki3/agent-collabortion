@@ -12,7 +12,7 @@ vi.mock("@/lib/api/client", async () => {
   return { ...actual, api: { ...actual.api, delete: (...a: unknown[]) => del(...a) } };
 });
 
-import { ApiError } from "@/lib/api/client";
+import { problemFixture } from "@/lib/mock/problem-fixture";
 import { DeleteSessionDialog, workdirsHref } from "./DeleteSessionDialog";
 import { DELETE_DIALOG } from "@/lib/wording";
 
@@ -22,8 +22,7 @@ const wd = (over: Partial<Workdir>): Workdir => ({
   status: "retained", disk_bytes: 1, last_used_at: null, retain_until: null, dirty: false, merged: false, commits_ahead: 3, gc_blocked_reason: "unmerged_commits",
   created_at: "2026-09-14T00:00:00Z", updated_at: "2026-09-14T00:00:00Z", ...over,
 });
-const problem = (status: number, code: string, detail: string, extra: Record<string, unknown> = {}) =>
-  new ApiError({ type: `https://colab.dev/problems/${code}`, title: "지금은 할 수 없음", status, code, detail, ...extra });
+const problem = (status: number, code: string, detail: string, extra: Record<string, unknown> = {}) => problemFixture(code, status, { detail, extra });
 
 beforeEach(() => del.mockReset());
 afterEach(cleanup);

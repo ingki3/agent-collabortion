@@ -5,7 +5,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { Me, Member, MetricsReport, ObservationReport, WorkspaceSettings } from "@/lib/api/types";
-import { ApiError } from "@/lib/api/client";
 
 const push = vi.fn();
 let tabParam: string | null = null;
@@ -40,6 +39,7 @@ function setRole(r: typeof role) {
 }
 
 import SettingsPage from "./page";
+import { problemFixture } from "@/lib/mock/problem-fixture";
 
 const settings = (): WorkspaceSettings => ({
   workspace_id: "w1",
@@ -202,7 +202,7 @@ describe("S14 — 워크스페이스 탭 · 권한 · 저장 payload", () => {
   it("422 는 errors[] 를 그 칸 옆에 그린다(서버 문장 그대로)", async () => {
     tabParam = "loop";
     patch.mockImplementation(async () => {
-      throw new ApiError({ type: "about:blank", title: "입력값 확인 필요", status: 422, code: "validation_failed", detail: "입력값을 확인해 주세요", errors: [{ field: "loop_limits.max_chain_depth", code: "out_of_range", message: "1~100 사이여야 합니다" }] });
+      throw problemFixture("validation_failed", 422, { detail: "입력값을 확인해 주세요", errors: [{ field: "loop_limits.max_chain_depth", code: "out_of_range", message: "1~100 사이여야 합니다" }] });
     });
     render(<SettingsPage />);
     await screen.findByTestId("row-chain-depth");
@@ -230,7 +230,7 @@ describe("S14 — 워크스페이스 탭 · 권한 · 저장 payload", () => {
   it("서버가 설정 읽기를 거절하면(403 — P2 서버는 admin 을 요구한다) 문장을 그대로 보이고 폼을 그리지 않는다", async () => {
     tabParam = "loop";
     get.mockImplementation(async (path: string) => {
-      if (path === "/workspaces/{workspaceId}/settings") throw new ApiError({ type: "about:blank", title: "권한 없음", status: 403, detail: "소유자·관리자만 할 수 있습니다" });
+      if (path === "/workspaces/{workspaceId}/settings") throw problemFixture("admin_required", 403, { detail: "소유자·관리자만 할 수 있습니다" });
       return {};
     });
     render(<SettingsPage />);
@@ -266,7 +266,7 @@ describe("S14 — 대시보드(PRD §11)", () => {
 
   it("서버가 501 이면(T-S12 전) 그 문장을 그대로", async () => {
     tabParam = "dashboard";
-    get.mockImplementation(async () => { throw new ApiError({ type: "about:blank", title: "아직 지원하지 않음", status: 501, detail: "아직 지원하지 않는 기능입니다 (GetWorkspaceMetrics)" }); });
+    get.mockImplementation(async () => { throw problemFixture("not_implemented", 501, { detail: "아직 지원하지 않는 기능입니다 (GetWorkspaceMetrics)" }); });
     render(<SettingsPage />);
     await waitFor(() => expect(screen.getByTestId("metrics-error").textContent).toContain("아직 지원하지 않는 기능입니다"));
   });
@@ -332,7 +332,7 @@ describe("S14 — 대시보드(PRD §11)", () => {
     tabParam = "dashboard";
     get.mockImplementation(async (path: string) => {
       if (path === "/workspaces/{workspaceId}/metrics") return report();
-      if (path === "/workspaces/{workspaceId}/observations") throw new ApiError({ type: "about:blank", title: "아직 지원하지 않음", status: 501, detail: "아직 지원하지 않는 기능입니다 (GetWorkspaceObservations)" });
+      if (path === "/workspaces/{workspaceId}/observations") throw problemFixture("not_implemented", 501, { detail: "아직 지원하지 않는 기능입니다 (GetWorkspaceObservations)" });
       if (path === "/workspaces/{workspaceId}/settings") return settings();
       throw new Error(`unexpected GET ${path}`);
     });
@@ -433,7 +433,7 @@ describe("S14 — 알림(개인) · 멤버", () => {
       throw new Error(`unexpected GET ${path}`);
     });
     patch.mockImplementation(async (_p: string, opts: { body: { role: string } }) => ({ ...members3[2], role: opts.body.role }));
-    del.mockRejectedValue(new ApiError({ type: "about:blank", status: 409, title: "지금은 할 수 없음", code: "member_is_director", detail: "이 멤버가 Director 인 진행 중 세션이 1개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요" }));
+    del.mockRejectedValue(problemFixture("member_is_director", 409, { detail: "이 멤버가 Director 인 진행 중 세션이 1개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요" }));
     render(<SettingsPage />);
     const rows = await screen.findAllByTestId("member-row");
     const admin = rows.find((r) => r.textContent?.includes("지훈"))!;
