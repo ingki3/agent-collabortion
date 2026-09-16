@@ -390,9 +390,10 @@ func (s *Server) GetCliContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// K-19: the role's command subset (colab-cli.md §2.5). The CLI caches it
-	// on first call and refuses the rest with exit 3 before sending.
-	var role string
-	if err := s.DB.QueryRow(r.Context(), `SELECT role::text FROM agent WHERE id = $1`, sc.AgentID).Scan(&role); err != nil {
+	// on first call and refuses the rest with exit 3 before sending. The
+	// role is the request's cached read (agentRole), shared with the gate.
+	role, err := s.agentRole(r)
+	if err != nil {
 		writeErr(w, err)
 		return
 	}
