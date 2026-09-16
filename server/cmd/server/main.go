@@ -166,7 +166,9 @@ const DefaultWriteTimeout = 60 * time.Second
 
 // httpServer is the listener's configuration. COLAB_HTTP_WRITE_TIMEOUT (a Go
 // duration, e.g. 90s) overrides the write bound; "0" disables it, which is
-// the pre-S-14 behaviour and is logged as such.
+// the pre-S-14 behaviour and is logged as such. "0" is for experiments only
+// (PR #260 리뷰 NN4) — a deployment never wants an unbounded write, and the
+// two responses that legitimately run long already extend their own deadline.
 func httpServer(addr string, handler http.Handler, log warnLogger) *http.Server {
 	srv := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second, WriteTimeout: DefaultWriteTimeout}
 	if v := os.Getenv("COLAB_HTTP_WRITE_TIMEOUT"); v != "" {
