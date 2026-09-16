@@ -280,7 +280,7 @@ func TestFinishReportsWorkdirOnce(t *testing.T) {
 		t.Errorf("last_used_at is zero")
 	}
 	// …and it goes AFTER the finish, so §4.4's git block reaches the row first.
-	inOrder(t, cap.all(), "t-d23.1 finish outcome=", "t-d23.1 workdir report kind=dir bytes=4096")
+	inOrder(t, cap.all(), "t-d23.1 finish outcome=", "t-d23.1 workdir report id=(none) kind=dir bytes=4096")
 }
 
 // D-23 — a `worktree` lane. §6 v0.7.3 makes `agent_id` mandatory there and

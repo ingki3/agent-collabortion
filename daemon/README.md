@@ -108,7 +108,7 @@ claim 루프의 `free = capacity − (running + reserved)`. `start()` 가 claim 
 |---|---|---|
 | `attempts/<task>.<attempt>.json` | 살아 있는 프로세스 그룹 기록(FR-9.1) | 정상 종료 시 삭제, 시작 시 고아 정리 |
 | `bin/<task>.<attempt>/colab` | hermes 용 CLI 래퍼(harness §10) — 토큰이 들어 있다 | finish 시 삭제, 시작 시 일괄 삭제 |
-| `workdirs/` | §6 보고에 쓰는 작업 폴더 신원 사이드카 | gc 시 삭제 |
+| `workdirs/` | §6 보고 신원 사이드카 — **v0.8.3 번들(`workdir.id`)부터는 쓰지 않는다**(K-14, T-D15): 신원은 작업 폴더 안 표식 `<path>/.colab-workdir.json`(id 한 줄; 체크아웃이면 `.git/info/exclude` 에 등록해 `git status` 에 안 뜬다)이고 §6 행은 그 id 를 회신한다. 여기에는 **id 없는 번들**(옛 서버, `dir` lane 첫 attempt — Lead T-S21 결정 A)만 기록하고, 같은 폴더에 표식이 생기면 지운다. 폐기 시점은 `internal/workdir/marker.go` 주석 | gc 시 · 표식 기록 시 삭제 |
 | `logs/` | attempt 별 런타임 stderr | 남는다 |
 | `rebind/<session>/` | 재연결 시 내려받은 아티팩트 | — |
 | `testchat/<test_chat_id>/` | 테스트 채팅(S10, daemon-protocol §4.5) 임시 폴더 — 토큰 없는 턴이 여기서 돈다 | 채팅을 닫으면 서버 gc 로 삭제, 시작 시 24h 넘은 것 삭제 |

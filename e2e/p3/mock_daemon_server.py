@@ -24,6 +24,12 @@ COMMANDS = []
 # every request so a script can hand the daemon a `probe` or a `gc` at the
 # moment it wants one (58). Absent file → no commands, which is 55's shape.
 COMMANDS_FILE = None
+# --more <file>: a JSON list of bundles appended to the queue when the file
+# appears, served once (renamed `.served.N` like --commands). A script that
+# wants a SECOND lane after it has looked at the first (58 phase 4: a v0.8.3
+# bundle with `workdir.id` after the v0.7 one) writes it here — the initial
+# --queue is handed out whole on the first claim.
+MORE_FILE = None
 
 
 SERVED = [0]
@@ -54,6 +60,23 @@ def commands():
     # non-reentrant lock — the first served command deadlocked the server.
     # The renamed `.served.N` file is the evidence instead.
     return cmds
+
+
+def more():
+    """Append --more's bundles to the queue, once per write of the file."""
+    if not MORE_FILE or not os.path.exists(MORE_FILE):
+        return
+    try:
+        with open(MORE_FILE) as f:
+            extra = json.load(f) or []
+    except Exception:
+        return
+    SERVED[0] += 1
+    try:
+        os.rename(MORE_FILE, MORE_FILE + ".served.%d" % SERVED[0])
+    except OSError:
+        return
+    QUEUE.extend(extra)
 
 
 def record(kind, body):
@@ -98,6 +121,7 @@ class H(BaseHTTPRequestHandler):
             return self._send({"ok": True})
         if p.endswith("/claim"):
             with LOCK:
+                more()
                 out = [b for b in QUEUE if b["task"]["id"] not in GIVEN]
                 for b in out:
                     GIVEN.add(b["task"]["id"])
@@ -142,11 +166,12 @@ class H(BaseHTTPRequestHandler):
 
 
 def main():
-    global STATE, COMMANDS_FILE
+    global STATE, COMMANDS_FILE, MORE_FILE
     args = dict(zip(sys.argv[1::2], sys.argv[2::2]))
     port = int(args.get("--port", "8099"))
     STATE = args["--state"]
     COMMANDS_FILE = args.get("--commands")
+    MORE_FILE = args.get("--more")
     q = args.get("--queue")
     if q and os.path.exists(q):
         QUEUE.extend(json.load(open(q)))
