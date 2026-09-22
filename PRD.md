@@ -745,7 +745,7 @@ UI에서 `@` 입력 시 자동완성이 링크를 삽입한다. 에이전트에�
 
 **FR-4.3 아티팩트 저장소** — `colab artifact submit --name --type --file`. 버전 관리(같은 이름 재제출 시 v2). 세션 사이드바에 노출. 워크트리 격리 세션에서는 diff/브랜치 참조도 아티팩트 타입으로 등록 가능.
 
-**FR-4.4 컨텍스트 재사용** — **v0.19 에서 목적이 FR-4.5 와 겹친다**(V19-A Z-3): 같은 팀과 이어 쓰는 것은 방의 정의이고, 다른 방은 FR-4.5 로 읽는다. 유지한다면 대상은 **보관된 방**이고, 버린다면 마법사와 함께 뺀다 — §12.1 의 열린 결정. 아래는 v0.18 원문이다.
+**FR-4.4 컨텍스트 재사용** — **v0.19 에서 버린다**(§12.1-7 확정): 같은 팀과 이어 쓰는 것은 방의 정의이고, 다른 방은 FR-4.5 로 읽는다. **정리 대상 셋**(R0 에서): §7 `room_context` 표, 계약 `Session.context[]`·`context_reuse_override`, 워크스페이스 설정의 「컨텍스트 재사용 상한」. 아래 v0.18 원문은 기록으로만 남긴다.
 
 완료된 세션을 새 세션의 컨텍스트로 첨부 가능 (요약 + 아티팩트 링크). 요약 길이 상한은 **워크스페이스 설정** `context_reuse.max_summary_tokens` (기본 2,000) 와 `context_reuse.include_artifacts` (기본: 링크만) 로 조정한다. 세션 생성 시 개별 오버라이드 가능.
 
@@ -1082,7 +1082,7 @@ CLI는 task마다 발급되는 단기 토큰(`COLAB_TASK_TOKEN`)으로 인증하
 | **Rooms**(방 목록, v0.19) | 방 카드(이름·설명·마지막 활동·안 읽음·열린 미션 수·참여자 아바타), 검색·정렬, **「새 방」은 이름 한 칸**(마법사 없음, FR-2.1) |
 | **Room 상세**(방, v0.19) | 좌: 참여자(사람·에이전트) + **서브 미션 보드** · 가운데: 타임라인(+ 미션 칩으로 거르기) · 우: **미션에 따라 바뀌는 칸**(goal·종료 조건 진행률·그 미션의 비용)과 **방 전체 칸**(아티팩트·결정 기록·누적 비용·방 설정·**맥락 읽기 기록**). 상단에 **열린 미션 칩**과 「새 미션」·「이걸 미션으로」 |
 | **Room 설정** | 참여자 초대·퇴장, `visibility`, 런타임·격리(첫 dispatch 전에만), 한도(예산·동시 일·동시 lane), autonomy, **참고 방 링크**, 보관·삭제 |
-| **미션**(work) | 미션 열기 폼(goal·assignee·종료 조건·Director·예산), 진행률·요약, 취소·삭제, **에이전트의 미션 제안 확인**(FR-2A.1). 방 화면 안에서 열린다 — 별도 라우트는 두지 않는다 |
+| **미션**(work) | 미션 열기 폼(goal·assignee·종료 조건·Director·예산), 진행률·요약, 취소·삭제, **에이전트의 미션 제안 확인**(FR-2A.1). 방 화면 안에서 열린다 — 별도 페이지는 없고 **`/rooms/:id?work=:workId`** 로 바로 열 수 있다(받은 요청·알림·시스템 메시지에서 링크하려면 필요) |
 | (v0.18 의 Sessions·Session 상세는 위 넷으로 대체된다 — 마법사는 없앤다) |
 | **Inbox** | HITL 응답 UI(Director·방장) — 에이전트의 제안 기본값을 함께 표시, **방·미션 바로가기**, 미션 제안 항목 |
 | **Settings** | 멤버, 런타임 정책, 예산 정책, 루프 상한(체인 깊이·시간당 빈도), **컨텍스트 재사용 상한**, 기본 격리 방식, **작업 공간 보존 기한·용량 상한**, 활동 로그 페이로드 마스킹, 알림 |
@@ -1117,9 +1117,14 @@ room      1─N room_participant (agent_id? | user_id?, role: owner|deputy|membe
                                 joined_at, left_at?,
                                 last_read_message_id?)                -- 사람·에이전트 같은 표; 안 읽음은 방 단위(사람 행만)
 room      1─N room_link (target_room_id, created_by)                  -- 참고 방(FR-4.5)
-room      1─N work (title, goal, acceptance_criteria[], director_user_id,
-                    assignee_agent_id, completion_condition(jsonb), limits(jsonb),
-                    autonomy?, status, cost_usd, created_by)          -- 옛 session 의 goal 쪽
+room      1─N work (title, goal, acceptance_criteria[], director_user_id, deputy_user_id?,
+                    assignee_agent_id?, completion_condition(jsonb), limits(jsonb),
+                    autonomy?, status: draft|active|paused|completing|completed|cancelled,
+                    paused_reason?, blocked_reason?, cost_usd, created_by, finished_at?)   -- 옛 session 의 goal 쪽
+room      1─N work_proposal (proposed_by_task_id, goal, rationale, trigger_message_id?,
+                    status: open|accepted|rejected|expired, decided_by?, work_id?)      -- FR-2A.1 에이전트 제안 → 사람이 연다(S26)
+room      1─N room_read_log (reader_task_id, reader_agent_id, originator_user_id?,
+                    target_room_id, allowed: bool, denied_reason?, summary_bytes, created_at)  -- FR-4.5 양쪽 기록(S23). task_event 는 닫힌 스키마라 여기 둔다
 room      1─N room_agent_profile (agent_id, profile_id)               -- 방에서 쓰는 프로파일
 room      1─N room_context (type: doc|url|file|room, ref, summary)
 room      1─N workdir (agent_id?, lane_id?, kind: worktree|container|dir,
@@ -1156,7 +1161,7 @@ room      1─N hitl_request (work_id?, task_id?, source: agent|system, type,   
                             approved, answer, answered_by, answered_at)
 room      1─N artifact (work_id?, name, version, type, storage_ref, submitted_by_task_id)
 room      1─N decision (work_id?, summary, rationale, source: hitl|agent, ref_id)
-member    1─N inbox_item (type, severity, session_id→room_id, work_id?, lane_id?, ref_id, read_at)   -- v0.19: 미션·서브 미션 단위 구독의 칸(R1 에 미리)
+member    1─N inbox_item (type, severity, session_id, work_id?, lane_id?, ref_id, read_at)   -- session_id 는 방 id 로 읽는다(다른 자식 표와 같은 규칙); work_id·lane_id 는 미션·서브 미션 구독 칸(R1 에 미리)
 workspace 1─1 workspace_settings (loop_limits, budget_policy, context_reuse,
                                   default_isolation, runtime_policy,
                                   workdir_retention_days, workdir_disk_quota_gb,
@@ -1458,12 +1463,12 @@ v1.1 까지의 세션 모델 위에 **방**을 얹는다. 순서는 "계약 → 
 
 | 단계 | 내용 | 끝났다고 보는 기준 |
 |---|---|---|
-| R0 계약 | `room`·`work` 리소스, 방 참여 op, `work` 종료 조건 이동, `colab room list/read`(FR-4.5), 데몬 번들의 `room_id`·`work_id?` | openapi lint 초록 + 생성물 재생성 + **`daemon-protocol`·`harness`·`colab-cli` 개정**(번들·브리프·명령이 같은 §번호를 각자 파싱한다), 옛 `session*` op 은 **별칭으로 한 판 유지** |
+| R0 계약 | `room`·`work` 리소스, 방 참여 op(**`addParticipant` 를 `{agent_id | user_id}` oneOf 로** — 지금은 agent_id 필수라 사람을 못 넣는다), `work_proposal`·`room_read_log`·`listActivityLog`, 목록 스키마 분리(옛 `Session` 16칸 중 8칸이 미션 것), `work` 종료 조건 이동, `colab room list/read`(FR-4.5), 데몬 번들의 `room_id`·`work_id?` | openapi lint 초록 + 생성물 재생성 + **`daemon-protocol`·`harness`·`colab-cli` 개정**(번들·브리프·명령이 같은 §번호를 각자 파싱한다), 옛 `session*` op 은 **별칭으로 한 판 유지** |
 | R1 서버 | 방·일 테이블(0025~ — **`session` 을 `room` 으로 RENAME 하고 goal 쪽 열만 `work` 로 빼낸다**: 자식 14표의 FK 11개가 그대로 따라오고 데이터는 0행 이동), **변환 SQL 과 검증 스크립트(행 수 대조)를 여기서 만든다**, `inbox_item.work_id`·`lane_id` 칸 미리, 라우팅·상한·HITL 의 단위 이동, FR-4.5 읽기 권한·기록 | 기존 e2e 전부 초록(세션 = 방+일 하나로 읽힌 채) + 새 e2e(방 2개·일 2개·다른 방 읽기) |
 | R2 화면 | 방 목록·방 화면(일 칩·참여자 초대·설정), 일 열기/종료, 다른 방 읽기 흔적 표시, **알림·안 읽음 단위**(`[V19-C]` 방 3단 구독은 끝나지 않는 방에 너무 성기다 — **일·lane 스레드**를 구독 단위로 내린다. `inbox_item.work_id`·`lane_id` 칸은 **R1 에 미리** 넣어 나중에 마이그레이션 없이 붙인다) | 마법사 제거, S5·S7 이 방 기준으로 다시 그려짐, 안 읽음이 방 20개에서 동작 |
-| R2 서브 순서(리뷰 #270 R1-3) | (a) `/rooms` 라우트 신설 + `/sessions/*` 는 리다이렉트로 공존 → (b) S5·S7 재작성 → (c) S18~S21 신규(방 만들기·초대·설정·미션 열기) → (d) **그 뒤에** 마법사 삭제(먼저 지우면 방 만들기 경로가 사라진다) → (e) R1.5 문구 자물쇠(기존 문구 단언 테스트가 같은 PR 에서 바뀐다 — 자물쇠와 옛 단언이 충돌하는 시점을 한 PR 안에 가둔다) → (f) 별칭 제거 | 각 단계가 혼자 CI 초록. 두 라우트 공존 규칙 = 옛 경로는 새 경로로 302 |
+| R2 서브 순서(리뷰 #270 R1-3 · SCR-B §5.3~5.4) | (a0) R0 산물로 SSE·op 이름 확정 → (a) `/rooms` 신설, `/sessions/*` 는 `/rooms/*` 로 **307**(마법사 `/sessions/new` 는 제외) → (M1) 목(`lib/mock`) 개정 → (M2) `STREAM_EVENT_TYPES`·openapi enum 에 새 SSE 타입(없으면 조용히 버려진다) → (b) S5·S7 재작성 → (c) S18~S21 → (M3) S22~S26 → (M4) **안 읽음**(`markRoomRead`·배지·`room.unread`) → (M5) S8 받은 요청 개정 → (M6) S9·S11·S13·S14·S17 수정 → (M7) S15 활동 로그 승격 + `listActivityLog` → (d) **그 뒤에** 마법사 삭제 + `/sessions/new` 307 → (e) **R1.5 문구 자물쇠**(서버 Go 리터럴까지 한 PR — server-wording 자물쇠가 글자 단위로 대조하므로 쪼갤 수 없다; 규모: 화면 문자열 107·웹 테스트 90 블록·서버 Go 40파일·e2e 셸 20파일) → (M8) 스크린샷·EVAL_USER 갱신 | 각 단계가 혼자 CI 초록. **별칭 제거는 R2 에 없다 — R4 조건(설치된 CLI 갱신 뒤)에서만** |
 | R3 에이전트 표면 | `colab room *` 명령·MCP 툴, **브리프 [4](세션/방 맥락) 에 방 설명 + 그 턴의 일**(`[1]` 은 Agent Identity 라 건드리지 않는다 — `[1]~[5]` 바이트 동일 규칙 E12-11 때문에 일이 바뀌면 프리픽스가 달라지는 대가를 §8.4 에 적는다), `ColabCommand` enum 의 `room_read` 는 **R0 계약에서** 추가 | 실기 1턴에서 다른 방 읽기가 권한대로 되고 기록이 남는다 |
-| R1.5 문구 전환 | 화면·서버 문장의 "세션"을 **방·미션·서브 미션**으로(§3.2 표를 `COMPONENTS.md` §8.4 자물쇠에 넣는다 — 「작업 줄기」→「서브 미션」 포함. 자물쇠가 한 번에 빨개지므로 한 라운드로 몰아서), 골든 빌드태그 CI 통과 | wording 자물쇠 초록(§3.2 표 전수), p3golden·p4golden 초록 |
+| R1.5 문구 전환(실행 시점은 **R2 (e)** — 화면이 새 구조로 서 있어야 문구를 바꿀 수 있다) | 화면·서버 문장의 "세션"을 **방·미션·서브 미션**으로(§3.2 표를 `COMPONENTS.md` §8.4 자물쇠에 넣는다 — 「작업 줄기」→「서브 미션」 포함. 자물쇠가 한 번에 빨개지므로 한 라운드로 몰아서), 골든 빌드태그 CI 통과 | wording 자물쇠 초록(§3.2 표 전수), p3golden·p4golden 초록 |
 | R4 이관·정리 | **R1 의 변환 SQL 을 실데이터에 돌린다**(덤프 → 변환 → 행 수 대조), `session*` 별칭 제거는 **이미 설치된 CLI 가 갱신된 뒤**(install.sh 는 서버 커밋을 고정하지만 설치본은 스스로 갱신되지 않는다), 문서 정리 | 실사용 워크스페이스에서 데이터 손실 0, 별칭 제거 뒤에도 실기 세션 완주 |
 
 **이관(R4) 규칙**: 세션 1 → 방 1 + 일 1. 방 이름 = 세션 제목, 방 설명 = goal 첫 줄, 일 goal = 세션 goal. 자식 행은 `session_id` 를 방 id 로 그대로 읽고 `work_id` 를 새 일로 채운다. 완료된 세션은 **보관된 방**이 된다(일은 `completed`). 되돌리기는 없다 — 전환 전 DB 덤프를 남긴다.
