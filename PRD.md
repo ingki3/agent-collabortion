@@ -585,7 +585,7 @@ max_concurrent_tasks: 3
 
 **FR-2.4 방 상태** — `active` ⇄ `archived`(읽기 전용, 새 트리거 없음) + 삭제(FR-2.6). **방은 `completed` 되지 않는다.**
 
-`[V19-B]` **방을 멈추는 칸.** FR-2A.3 의 "방 상한을 넘기면 그 방의 모든 일과 일 밖 task 가 멈춘다"·FR-9.2 의 런타임 소실을 강제할 자리가 필요하다. `status` 에 `paused` 를 더하지 않고 **`room.blocked_reason`**(`budget` · `runtime_offline` · `loop` · null)을 둔다 — 상태 머신을 늘리면 `archived` 와의 조합이 폭발하고, 큐 게이트는 한 줄이면 되기 때문이다(claim 이 `blocked_reason IS NOT NULL` 인 방의 task 를 주지 않는다). 해제는 승인 HITL 의 결과다. **R0 계약의 `Room` 스키마가 이 칸을 알아야 한다** — §12.1 의 결정 항목.
+`[V19-B]` **방을 멈추는 칸.** FR-2A.3 의 "방 상한을 넘기면 그 방의 모든 일과 일 밖 task 가 멈춘다"·FR-9.2 의 런타임 소실을 강제할 자리가 필요하다. `status` 에 `paused` 를 더하지 않고 **`room.blocked_reason`**(`budget` · `runtime_offline` · `loop` · **`manual`** · null)을 둔다. **`manual` 은 사람이 건다**(SCR-A G-11 — v1 「세션 취소」의 자리): 방장·부방장·워크스페이스 owner·admin 이 「이 방 멈춤」을 누르면 진행 중인 모든 턴이 FR-3.4 의 「중단」과 같은 방식으로 끝나고 새 트리거가 막힌다. 해제도 같은 사람이 한다 — 상태 머신을 늘리면 `archived` 와의 조합이 폭발하고, 큐 게이트는 한 줄이면 되기 때문이다(claim 이 `blocked_reason IS NOT NULL` 인 방의 task 를 주지 않는다). 해제는 승인 HITL 의 결과다. **R0 계약의 `Room` 스키마가 이 칸을 알아야 한다** — §12.1 의 결정 항목.
 
 `[V19-C]` **보관의 뜻.** `archived` 는 **새 활동만 닫고 과거를 남긴다** — 메시지·일·아티팩트·결정 기록이 그대로 보존되고 **검색에도 계속 걸린다**. 보관된 방에서는 새 메시지·새 일·새 트리거가 거부되고, 진행 중 task 가 있으면 보관을 거부한다. **보관은 되돌릴 수 있다**(해제하면 참여자까지 그대로) — 해제 권한은 보관과 같다(방장·부방장·워크스페이스 owner·admin). 삭제(FR-2.6)만 영구적이다 — 이 구분이 없으면 사람이 "지우기 아까운 방"을 삭제한다.
 
@@ -614,7 +614,7 @@ max_concurrent_tasks: 3
 **FR-2A.3 한도와 `paused`** — 예산·시간·루프 상한은 종료 조건이 아니다(v0.18 과 같다). 바뀐 것은 범위다.
 
 - **일의 상한**을 넘기면 그 일이 `paused` 되고 Director 에게 계속 진행 승인 HITL 이 간다.
-- **방의 상한**을 넘기면 **그 방의 모든 일과 일 밖 task 가 멈춘다**. 방장에게 승인 HITL 이 간다.
+- **방의 상한**을 넘기면 **그 방의 모든 일과 일 밖 task 가 멈춘다**. 방장에게 승인 HITL 이 간다. **방장이 답하지 않으면**(SCR-A G-10) 미션의 deputy 규칙과 같게 **기한 절반 경과 후 부방장**이, 부방장이 없으면 **워크스페이스 owner 중 가장 오래된 한 명**이 답할 수 있다 — 일 밖 task 의 HITL(FR-2A.1, `room_owner`)도 같은 경로를 탄다. 방장 한 사람의 부재로 방이 영구 정지하지 않게 한다.
 - 실행 시점 유효 상한은 `min(방 잔여, 일 잔여, task 상한)`. 데몬에 싣는 값도 이 최솟값이다(daemon-protocol §4.1 `limits`).
 
 **FR-2A.4 일 상태와 요약** — v0.18 FR-2.3 의 상태 머신(`draft → active → (paused ⇄ active) → completing → completed | cancelled`)을 일에 그대로 쓴다. `completing` 에서 요약을 만들어 **방에 메시지로 남긴다** — 일은 닫히고 방은 계속된다.
@@ -1111,7 +1111,7 @@ workspace 1─N room (name, description, owner_user_id, deputy_owner_user_id?,  
                     visibility: workspace|invited,                            -- FR-5.3
                     runtime_id?, isolation(jsonb)?, limits(jsonb)?, autonomy?,
                     default_director_user_id?, status: active|archived,
-                    blocked_reason: budget|runtime_offline|loop|null,         -- FR-2.4 방을 멈추는 칸
+                    blocked_reason: budget|runtime_offline|loop|manual|null,  -- FR-2.4 방을 멈추는 칸(manual = 사람이 건 긴급 정지)
                     created_by, created_at)
 room      1─N room_participant (agent_id? | user_id?, role: owner|deputy|member,
                                 joined_at, left_at?,
@@ -1150,7 +1150,7 @@ task      1─N task_event (seq, class, verb, object_ref, outcome,
 task      1─1 task_usage (input_tokens, output_tokens, cache_read, cost_usd, estimated)
 room      1─N hitl_request (work_id?, task_id?, source: agent|system, type,   -- approver_spec: director|room_owner|any_member|user:<id>
                             question, options[], proposed_default,
-                            approver_spec: director|any_member|user_id,
+                            approver_spec: director|room_owner|any_member|user_id,   -- v0.19 room_owner(D-4)
                             due_at, overdue,
                             status: open|answered|auto_answered,
                             approved, answer, answered_by, answered_at)
@@ -1484,7 +1484,7 @@ v1.1 까지의 세션 모델 위에 **방**을 얹는다. 순서는 "계약 → 
 
 | 지표 | 목표 (v1 출시 3개월) |
 |---|---|
-| 데몬 설치 → **첫 일 완료**까지 시간 (신규 사용자, v0.19) | 중앙값 < 15분 |
+| 데몬 설치 → **첫 미션 완료**까지 시간 (신규 사용자, v0.19) | 중앙값 < 15분 — 온보딩 대본(SCREEN F1)은 **미션을 열고 끝내는 단계까지** 포함해야 이 지표를 잰다(SCR-A P-9) |
 | **일** 자동 완료 비율 (수동 종료 대비) | > 60% |
 | HITL 요청당 Director 응답 시간 | 중앙값 < 30분 |
 | 에이전트 간 위임 메시지 중 사람 개입 없이 처리된 비율 | > 70% |
