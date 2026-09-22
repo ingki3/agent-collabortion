@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 문서 버전 | **v0.18 (Draft)** — v1.1 첫 라운드: FR-1.9.1 역할별 행동 부분집합(K-19, 표), FR-7.2 빈 턴 판정·기록(K-18), §11 관찰 표의 op(`getWorkspaceObservations`). v0.17 — OASIS 리뷰 반영(Director 확정 2026-09-15): §11 별도 「관찰」 표 5행(트리거 사슬 규모·깊이·합류 폭·라우팅 집중·빈 턴), FR-7.2 빈 턴 카드, §12 라우팅의 구조적 집중; C5 역할별 행동 부분집합은 v1.1. v0.16 — 스파이크 5(PR #153) 판정: §8.4 M3 표를 "추적 여부 무관, 별도 미추적 `COLAB_BRIEF.md`" 한 행으로 바꾸고 `skip-worktree` 안 폐기, 턴 프롬프트 첫 줄 브리프 경로 지시 고정, §12 위험 표 정정. v0.15는 K-5 결정: FR-3.3 규칙 8의 억제 기간과 합류 뒤 위임자 기상 한도(FR-3.4 병합)를 명시. v0.14는 P2a 골든 테이블 작성에서 드러난 공백 2건: FR-3.5에 **재개 시 루프 카운터** 규칙과 상한 종류 구분 요구 추가, FR-3.3 lane 해소 "3단계" 오기를 4단계로 정정. v0.13은 G1 판정 반영: CLI 어댑터 v1 제외 확정, 어댑터 패키지 개명, `rate_limited` 분류, Hermes 유실 감지 규칙. v0.12는 §7 agent.status. 이전 버전은 `prd/` |
+| 문서 버전 | **v0.19 (Draft)** — **구조 전환: 세션 → 방(Room) + 일(Work)**(Director 요청 2026-09-22). §3.1 이 새 뼈대이고 §5 머리의 대응표가 나머지 FR 을 읽는 법을 정한다. v0.18 — v1.1 첫 라운드: FR-1.9.1 역할별 행동 부분집합(K-19, 표), FR-7.2 빈 턴 판정·기록(K-18), §11 관찰 표의 op(`getWorkspaceObservations`). v0.17 — OASIS 리뷰 반영(Director 확정 2026-09-15): §11 별도 「관찰」 표 5행(트리거 사슬 규모·깊이·합류 폭·라우팅 집중·빈 턴), FR-7.2 빈 턴 카드, §12 라우팅의 구조적 집중; C5 역할별 행동 부분집합은 v1.1. v0.16 — 스파이크 5(PR #153) 판정: §8.4 M3 표를 "추적 여부 무관, 별도 미추적 `COLAB_BRIEF.md`" 한 행으로 바꾸고 `skip-worktree` 안 폐기, 턴 프롬프트 첫 줄 브리프 경로 지시 고정, §12 위험 표 정정. v0.15는 K-5 결정: FR-3.3 규칙 8의 억제 기간과 합류 뒤 위임자 기상 한도(FR-3.4 병합)를 명시. v0.14는 P2a 골든 테이블 작성에서 드러난 공백 2건: FR-3.5에 **재개 시 루프 카운터** 규칙과 상한 종류 구분 요구 추가, FR-3.3 lane 해소 "3단계" 오기를 4단계로 정정. v0.13은 G1 판정 반영: CLI 어댑터 v1 제외 확정, 어댑터 패키지 개명, `rate_limited` 분류, Hermes 유실 감지 규칙. v0.12는 §7 agent.status. 이전 버전은 `prd/` |
 | 작성일 | 2026-09-03 |
 | 파생 문서 | **`SCREEN.md`** (화면 설계 SSOT) — 이 PRD를 화면으로 옮기며 드러난 공백이 v0.9 변경 요약에 반영되어 있다. **`PLAN.md`** (개발 계획 SSOT, 이전 버전·리뷰는 `plan/`) — §10·§12를 주차로 펼치며 드러난 것이 v0.11에 반영되어 있다 |
 | 리뷰 이력 | `PRD_REVIEW_01` → v0.5 · `PRD_REVIEW_02` → v0.6 · `PRD_REVIEW_03` → v0.7 · `PRD_REVIEW_04` (`blocked` 경로 공백 6 / 소소한 것 8) → v0.8. **전건 반영, 반대 항목 없음** |
@@ -10,6 +10,27 @@
 | 대조 문서 | `prd/PRD_00_other-agent.md` — 같은 요구사항으로 작성된 다른 설계안. 큰 결정은 대체로 수렴하며, 차이와 판단은 §12 "검토했으나 v1에 넣지 않은 것" |
 | 참고 프로젝트 | [multica-ai/multica](https://github.com/multica-ai/multica) (이슈 기반 협업, CLI 런타임 데몬), [block/buzz](https://github.com/block/buzz) (ACP 하네스, 활동 피드, 승인 게이트), Orca (병렬 워크트리) |
 | 실행 스택 | **ACP 1차 + CLI 폴백** (Claude Code, Hermes, Antigravity) + 플랫폼 내부 기능은 Anthropic Claude API |
+
+### v0.19 변경 요약 (구조 전환 — 방과 일, Director 요청 2026-09-22)
+
+**무엇이 바뀌나.** 협업의 단위가 **세션(하나의 goal)** 에서 **방(Room, 지속되는 대화 공간)** 으로 바뀐다. 방은 이름만으로 만들어지고(마법사 없음), 사람과 에이전트를 아무 때나 초대하며, 그 안에서 **여러 개의 일(Work)** 이 시작되고 끝난다. 방의 히스토리·결정·산출물은 **그 방의 모든 에이전트가 같은 것을 본다.** 한 에이전트는 여러 방에 참여하고, 방마다 자기 맥락(런타임 세션·작업 폴더)을 따로 갖는다. 다른 방의 맥락이 필요하면 **요청해서 읽는다**(FR-4.5, 권한은 사람 originator 기준).
+
+| 바뀌는 것 | 전(v0.18) | 후(v0.19) |
+|---|---|---|
+| 협업 단위 | 세션 1개 = goal 1개, 끝나면 닫힌다 | **방**은 지속되고, 그 안의 **일**이 goal·종료 조건을 갖는다 |
+| 만들기 | 7단계 마법사(격리·런타임·참여자·종료 조건·한도·autonomy) | **이름 한 칸.** 나머지는 방 설정의 기본값(워크스페이스 상속), 필요할 때 바꾼다 |
+| 참여 | 세션 생성 시 참여자 확정 | 방에 **언제든 초대·퇴장**(사람·에이전트 모두) |
+| 종료 조건·Director | 세션에 붙는다 | **일**에 붙는다. 방에는 **방장**(멤버·설정)만 있다 |
+| 맥락 | 세션 안에서 공유, 다른 세션은 생성 시 첨부만 | 방 안에서 공유 + **실행 중에 다른 방을 읽는다**(FR-4.5) |
+| 에이전트 | 세션마다 참여 | 여러 방에 동시 참여, **방마다 자기 맥락** |
+
+**왜.** v1 의 마법사는 "일 하나"를 전제로 만들어졌는데, 실제로 사람은 **한 팀과 계속 이야기하면서 그때그때 일을 시킨다**(Director 실사용). 세션 모델에서는 이어지는 대화가 매번 새 세션이 되어 맥락이 끊기고, 같은 팀을 매번 다시 모아야 했다.
+
+**전환 원칙**
+1. **방은 완료되지 않는다.** 보관(archive)·삭제만 있다. 완료·요약·승인은 일의 것이다.
+2. **모든 메시지가 일이 되지는 않는다.** 멘션은 방 안에서 task 를 만들지만, 종료 조건을 걸고 추적할 때만 **일**을 연다(FR-2A).
+3. **기존 세션은 "일 하나를 가진 방"으로 이관한다**(§10 이관).
+4. 라우팅(FR-3)·실행(FR-6·7)·HITL(FR-5)의 규칙은 **그대로다**. 바뀌는 것은 그 규칙이 매달리는 단위다.
 
 ### v0.17 변경 요약 (OASIS 리뷰 반영 — Director 확정 2026-09-15)
 
@@ -258,22 +279,58 @@ multica가 "이슈 트래커"를 협업 표면으로 삼았다면, 본 서비스
 | **Runtime Profile** | 에이전트에 붙는 실행 설정 1벌: `{런타임 종류, 모델, effort/옵션, 환경변수, 인자}`. 에이전트는 프로파일을 여러 개 가질 수 있고 하나가 기본. |
 | **Agent** | 이름·역할·instruction·런타임 프로파일들을 가진 등록된 AI 참여자. 워크스페이스 소속, 여러 세션에 참여 가능. |
 | **Role** | 역할 태그와 역할 설명. `lead`, `researcher`, `writer`, `engineer`, `reviewer`, `custom`. `lead`는 코디네이션 프로토콜을 추가로 받는다. |
-| **Session** | 하나의 **goal**을 달성하기 위한 협업 단위. Director, 참여 에이전트, 종료 조건, 격리 방식, 공유 컨텍스트, 메시지 스트림을 가진다. multica의 Issue에 대응. |
-| **Director** | 세션마다 지정되는 **사람 한 명**. HITL 요청의 수신자이자 `user_approval` 종료 조건의 승인자. 세션 생성자가 기본값이며 변경 가능. |
-| **Goal** | 세션의 목표 문장 + 성공 기준(acceptance criteria). |
-| **Completion Condition** | 세션 종료 조건. 산출물 제출, 리뷰어 승인, Director 승인, 기준 충족의 조합. 예산·시간 상한은 종료가 아니라 `paused`이므로 여기 속하지 않는다(FR-2.2). |
+| **Room** (방) | **협업의 기본 단위(v0.19).** 지속되는 대화 공간. 참여자(사람·에이전트), 메시지 스트림, 공유 맥락, 방 설정(런타임·격리·한도 기본값)을 가진다. 이름만으로 만들어지고 완료되지 않는다 — 보관·삭제만. |
+| **Work** (일) | 방 안에서 **goal 과 종료 조건을 갖는 추적 단위**. 이전 버전의 Session 이 여기 대응한다. 한 방에 여러 개가 동시에 열릴 수 있고, 끝나면 요약이 방에 남는다. |
+| **방장** | 방의 멤버·설정을 바꿀 수 있는 사람. 생성자가 기본이며 변경 가능. 워크스페이스 owner·admin 도 같은 권한. |
+| **Session**(옛 용어) | v0.18 까지의 협업 단위. v0.19 부터 **방 + 일 하나**로 읽는다. 옛 문장이 "세션"이라 말할 때 어느 쪽을 가리키는지는 §5 머리의 대응표. 런타임 쪽 `runtime_session_ref`(CLI 런타임의 대화 세션)는 **다른 뜻**이며 그대로다. |
+| **Director** | **일마다** 지정되는 사람 한 명(v0.19). HITL 요청의 수신자이자 `user_approval` 종료 조건의 승인자. 일을 연 사람이 기본값이며 변경 가능. 일에 속하지 않은 방 안 질문은 **방장**에게 간다. |
+| **Goal** | **일**의 목표 문장 + 성공 기준(acceptance criteria). 방에는 goal 이 없다(설명 한 줄만). |
+| **Completion Condition** | **일**의 종료 조건. 산출물 제출, 리뷰어 승인, Director 승인, 기준 충족의 조합. 예산·시간 상한은 종료가 아니라 `paused`이므로 여기 속하지 않는다(FR-2A.2). |
 | **Message** | 세션 내 발화. 작성자는 user / agent / system. 스레드(parent) 구조 지원. |
 | **Mention** | `[@표시명](mention://agent/<id>)` 형식의 링크. 에이전트 트리거의 유일한 결정적 수단. |
 | **Task (Run)** | 하나의 트리거(멘션, 배정, 응답)로 생성되어 특정 런타임에 dispatch되는 에이전트 실행 단위. |
 | **HITL Request** | 에이전트가 Director에게 올리는 구조화된 요청 (질문 / 선택 / 승인 / 정보 요청). 응답 전까지 해당 task는 `waiting_human`. |
 | **Artifact** | 세션에서 생성된 산출물 (문서, 파일, 코드 diff, 표). 종료 조건의 대상. |
-| **Shared Context** | 세션 설명·첨부 자료·아티팩트·메시지 히스토리·결정 기록의 집합. 모든 에이전트가 동일한 뷰를 갖는다. |
-| **Lane** | 병렬 실행 트랙. 위임 하나가 lane 하나를 만들며, 같은 에이전트가 여러 lane을 가질 수 있다. 동시성·의존성(DAG)·보드 표시의 단위. |
+| **Shared Context** (방 맥락) | 방의 설명·첨부 자료·아티팩트·메시지 히스토리·결정 기록의 집합. **그 방의 모든 에이전트가 같은 것을 본다**(FR-4.1). |
+| **Agent Context** (에이전트 맥락) | 에이전트가 **방마다** 따로 갖는 것: 런타임 대화 세션(`lane.runtime_session_ref`), 작업 폴더, 그 방에서 자기가 한 일. 방이 다르면 섞이지 않는다 — 한 에이전트가 여러 방에 있어도 A 방의 작업이 B 방 프롬프트에 자동으로 들어가지 않는다. |
+| **Room Read** (다른 방 읽기) | 실행 중인 에이전트가 **요청해서** 다른 방의 요약·히스토리·산출물을 읽는 것(FR-4.5). 권한은 그 task 를 일으킨 **사람 originator** 기준이며, 읽은 사실은 양쪽 방에 남는다. |
+| **Lane** | 병렬 실행 트랙. 위임 하나가 lane 하나를 만들며, 같은 에이전트가 여러 lane을 가질 수 있다. 동시성·의존성(DAG)·보드 표시의 단위. **lane 은 방에 속하고, 일이 있으면 그 일에도 매인다**(v0.19). |
 | **Workdir** (작업 공간) | 에이전트가 실제로 파일을 읽고 쓰는 디렉토리. lane과 **분리된 개념**이며, 격리 방식이 바인딩을 정한다 — `worktree`는 에이전트당 하나를 공유하고, `container`·`none`은 lane당 하나(FR-6.1). **Workspace(최상위 테넌트)와 혼동하지 말 것** — 문서 전체에서 작업 디렉토리는 항상 Workdir로 쓴다. |
+
+
+### 3.1 구조 — 방과 일 (v0.19)
+
+```
+Workspace
+ └─ Room (방)  ── 지속. 이름 + 설명 한 줄. 완료 없음(보관·삭제만)
+     ├─ 참여자: 사람(멤버) + 에이전트  ← 언제든 초대·퇴장
+     ├─ 방 맥락: 메시지·결정 기록·산출물·첨부        ← 방 안 모든 에이전트가 같은 것을 본다
+     ├─ 방 설정: 런타임·격리·한도·autonomy(워크스페이스 기본값 상속)
+     ├─ Work (일) ×N  ── goal · 종료 조건 · Director · 예산 · 상태(draft→active→…→completed)
+     │    └─ Lane ×N → Task ×N
+     └─ Lane ×N → Task ×N   ← 일에 속하지 않은 실행(질문·잡일)도 있다
+```
+
+**세 문장으로.** 방은 **누구와 이야기하는가**, 일은 **무엇을 끝내는가**, lane·task 는 **누가 지금 무엇을 하는가**다.
+
+**FR 이 매달리는 단위(v0.19)**
+
+| 규칙 | 단위 | 근거 |
+|---|---|---|
+| 멘션 라우팅·루프 상한(FR-3) | **방** | 대화가 방 단위라 트리거·억제도 방 안에서 판정된다. 한 사람 메시지가 여는 사슬은 방 안에서 센다 |
+| 병렬 lane·합류(FR-6) | **방**(일이 있으면 일에도 매인다) | 위임은 대화 중에 일어난다. 일 밖 위임도 가능해야 한다 |
+| 종료 조건·요약·Director 승인(FR-2A·FR-5) | **일** | 끝이 있는 것에만 끝 판정이 있다 |
+| 예산·시간 상한(FR-2A.3) | **방** ∩ **일** | 둘 다 걸 수 있고, 실행은 **작은 쪽**을 따른다 |
+| 런타임 고정·격리·작업 폴더(FR-6.1·FR-9) | **방** | 한 방의 에이전트들은 같은 머신에서 같은 저장소를 본다. 방이 다르면 폴더도 다르다 |
+| 맥락 공유(FR-4) | **방**(안) · **요청**(밖) | 방 안은 자동, 다른 방은 FR-4.5 로 읽는다 |
+
+**방과 세션의 관계(이관).** v0.18 의 세션 하나는 **일 하나를 가진 방 하나**와 같다. 그래서 이관은 기계적이다(§10). 반대로 방을 세션으로 되돌릴 수는 없다 — 일이 둘 이상이면 나눌 기준이 없다.
 
 ---
 
 ## 4. 사용자 시나리오
+
+아래 시나리오는 v0.18 문장 그대로다. v0.19 로는 **각 시나리오가 방 하나 안의 일 하나**이고, 달라지는 것은 시작 방식(마법사 → 방에서 「이걸 일로」)과 끝난 뒤(세션이 닫히는 대신 **일이 닫히고 방은 남아** 다음 일로 이어진다)뿐이다. 시나리오 E 가 새 구조가 여는 흐름이다.
 
 ### 시나리오 A — 시장 조사 보고서 (비개발)
 
@@ -306,9 +363,28 @@ multica가 "이슈 트래커"를 협업 표면으로 삼았다면, 본 서비스
 - Researcher의 Hermes 프로파일이 실패 → 데몬이 **같은 머신 안에서** 대체 프로파일(Claude Code)로 재시도한다. 워크트리와 아티팩트 디렉토리를 잃지 않는다.
 - 같은 머신에 대안이 없으면 task는 `queued`로 대기하고 Director에게 알린다. **다른 머신으로 넘기지 않는다**(C4).
 
+### 시나리오 E — 계속 쓰는 방 (v0.19 가 여는 것)
+
+1. Director 가 방 **「결제팀」** 을 이름만으로 만들고 Lead·Researcher·Writer 를 초대한다. 설정은 손대지 않는다(워크스페이스 기본값).
+2. 잡담처럼 묻는다 — "@Researcher 경쟁사 수수료 정책 어떻게 돼?" 일은 열리지 않는다. task 하나가 돌고 답이 방에 남는다.
+3. 이틀 뒤 같은 방에서 "이걸로 보고서 쓰자" → 그 메시지에서 **「이걸 일로」**. goal·종료 조건·Director 가 붙고 Writer 가 일한다. 2번의 답은 **방 맥락에 이미 있어 다시 설명하지 않는다**.
+4. 일이 끝나면 요약이 방에 남고 **방은 그대로**다. 다음 주 "지난번 보고서 업데이트" 는 같은 방에서 이어진다.
+5. 옆방 **「인프라」** 의 결정이 필요해지면 Writer 가 `colab room read --room 인프라` 로 읽는다 — Director 가 두 방 모두의 멤버라서 허용되고, 읽은 사실이 양쪽 방에 남는다.
+6. 같은 Writer 는 **「마케팅」** 방에도 참여 중이다. 두 방의 작업 폴더·런타임 대화 세션은 따로라 서로 섞이지 않는다.
+
 ---
 
 ## 5. 기능 요구사항
+
+**v0.19 를 읽는 법 — "세션"이 나오면 이 표로 옮겨 읽는다.** 아래 FR 들은 v0.18 에 쓰인 문장을 그대로 두고, 매달리는 단위만 바뀌었다(§3.1). 규칙 자체는 바뀌지 않았다.
+
+| 옛 문장의 "세션" | v0.19 에서 가리키는 것 |
+|---|---|
+| 세션 생성·참여자·초대·런타임 고정·격리·작업 폴더·라우팅·루프 상한·인박스 알림·SSE 구독 | **방**(Room) |
+| goal·acceptance criteria·종료 조건·완료·`completing`·요약·Director 승인·세션 비용 집계 | **일**(Work) |
+| `paused`(예산·시간·루프) | **일** 이 멈춘다. 방 예산이 바닥나면 **그 방의 모든 일**이 멈춘다(FR-2A.3) |
+| `session_id`(DB·계약) | 이관 뒤에도 당분간 **방 id**를 가리킨다 — 일 id 는 `work_id` 로 새로 둔다(§7·§10) |
+| `runtime_session_ref`·`session/new`·`session/load`(ACP) | **런타임의 대화 세션**. 방·일과 무관하다 — 이름만 같다 |
 
 ### FR-1. Agent 등록 및 관리
 
@@ -448,60 +524,67 @@ max_concurrent_tasks: 3
 | `custom` | 전부 | Director 가 instructions 로 정한다 |
 
 세션 참여 자체(FR-1.9)와는 독립이다 — 참여했어도 역할 밖 명령은 없다. 표를 바꾸는 것은 계약 변경(`colab-cli.md` §2.5).
+### FR-2. Room (방)
 
-### FR-2. Session (goal / Director / 종료 조건)
-
-**FR-2.1 생성 폼**
+**FR-2.1 방 만들기 — 칸 하나.**
 
 | 필드 | 설명 |
 |---|---|
-| `title` | 세션 제목 |
-| `goal` | 목표 문장 (필수) |
-| `acceptance_criteria` | 성공 기준 체크리스트 (선택, 종료 판정에 사용) |
-| `director_user_id` | **Director** (필수). 기본값 생성자. 워크스페이스 멤버 중 선택. 진행 중 변경 가능하며, **바꿀 수 있는 사람은 현재 Director와 워크스페이스 owner·admin이다**(t-5). 변경은 시스템 메시지와 `activity_log`에 기록. |
-| `runtime_id` | **실행 머신 (C4).** `isolation`이 `worktree`·`container`면 **필수**. `none`이면 비워둘 수 있으나, **첫 task가 dispatch되는 시점에 선택된 머신으로 고정된다**(M10) — 고정하지 않으면 재개·재시도가 다른 머신을 골라 `runtime_session_ref`와 workdir이 둘 다 무효가 된다. 이후 세션의 모든 lane이 이 머신에서 실행된다. |
-| `participants` | 참여 에이전트 목록 + 각자의 프로파일 + 그중 `assignee`(기본 담당, 보통 lead) |
-| `context` | 첨부 자료: 문서, URL, 파일, 이전 세션 링크 |
-| `isolation` | 작업 공간 격리 방식 (필수): `worktree` (저장소 경로 지정) / `container` (이미지 선택) / `none`. 격리 방식이 workdir 바인딩 규칙을 정한다(FR-6.4) |
-| `completion` | 종료 조건 (FR-2.2) |
-| `limits` | 예산 상한(USD/토큰), 시간 상한, 최대 task 수, 최대 병렬 lane 수. **초과는 종료가 아니라 `paused`** (FR-2.2 아래 설명) |
-| `autonomy` | `supervised`(모든 위임 전 Director 승인) / `guided`(HITL 요청만) / `autonomous`(종료 시만 보고) |
+| `name` | 방 이름 (필수, 이것만 있으면 만들어진다) |
+| `description` | 한 줄 설명 (선택). goal 이 아니다 — 무엇을 끝내는지는 일이 정한다 |
 
-세션 생성 시 데몬은 선택된 `runtime_id`에 대해 `repo_path` 존재 여부와 git 상태(클린 여부, 기본 브랜치)를 검증하고, 실패하면 폼에서 막는다.
+나머지(런타임·격리·한도·autonomy·참여자)는 **방 설정**이며 워크스페이스 기본값을 상속한다. 만들기 화면에서 묻지 않고, 방을 연 뒤 바꾼다. **마법사는 없앤다** — v1 의 7단계는 "일 하나"를 전제로 했는데 방은 계속 쓰는 공간이라 그 시점에 정할 수 있는 것이 이름뿐이다.
 
-**FR-2.2 종료 조건 (Completion Condition)** — 다음 원자 조건을 AND/OR로 조합. UI는 체크박스 + 조합 방식 선택.
+**FR-2.2 참여 — 언제든 초대·퇴장**
 
-| 조건 타입 | 판정 방식 | 발행 주체 |
+- 방장(또는 워크스페이스 owner·admin)이 사람과 에이전트를 **아무 때나** 초대하고 내보낸다. 초대 자체가 그 방 안에서의 트리거 허용이다(FR-1.9 의 규칙을 방에 적용).
+- **초대된 에이전트는 방 맥락을 처음부터 본다**(FR-4.1) — 합류 시점 이전의 히스토리도 읽을 수 있다. 사람이 새 팀원에게 스레드를 보여 주는 것과 같다. 민감한 방은 초대를 막는 것으로 통제한다.
+- 퇴장한 에이전트의 lane·task 는 남고(기록), 새 트리거만 막힌다. 퇴장은 취소가 아니다 — 진행 중 턴은 FR-3.4 로 중단한다.
+- 사람은 워크스페이스 멤버만 초대할 수 있다. 방 참여는 워크스페이스 권한을 **넘지 않는다**.
+
+**FR-2.3 방 설정**(전부 선택, 워크스페이스 기본값 상속)
+
+| 설정 | 기본 | 뜻 |
 |---|---|---|
-| `artifact_submitted` | 지정된 역할/에이전트가 `submit_artifact` 툴을 호출 | 에이전트 |
-| `agent_approval` | 지정 에이전트(예: reviewer)가 `colab review approve` 호출 | 에이전트 |
-| `user_approval` | **Director**가 승인 (HITL `approval` 타입) | **플랫폼** — 나머지 조건이 모두 충족되면 자동 발행 |
-| `criteria_met` | **플랫폼 LLM**(§8.1)이 acceptance_criteria를 구조화 출력으로 평가해 전부 true. **단독 사용 불가** — 항상 승인 계열과 AND | 플랫폼 |
-| `manual` | Director가 직접 종료 | 사람 |
+| `runtime_id` | 없음 → **첫 task dispatch 때 고정** | 이 방의 일은 한 머신에서 돈다(C4 그대로, 단위만 방) |
+| `isolation` | 워크스페이스 기본(`none`) | `worktree` 면 저장소 경로. **작업 폴더는 방×에이전트 단위**(FR-6.1) |
+| `limits` | 워크스페이스 기본 | 방 예산·시간·동시 lane 상한. 일에도 따로 걸 수 있고 **작은 쪽**이 이긴다 |
+| `autonomy` | `guided` | 방 기본값. 일이 덮어쓸 수 있다 |
+| `default_director` | 방장 | 새 일의 Director 기본값 |
 
-기본값: `artifact_submitted(assignee) AND user_approval`.
+**FR-2.4 방 상태** — `active` ⇄ `archived`(읽기 전용, 새 트리거 없음) + 삭제(FR-2.6). **방은 `completed` 되지 않는다.**
 
-- **예산·시간 상한은 종료 조건이 아니다.** 초과는 완료가 아니라 `paused`이므로 `limits`에 속한다(FR-2.1). 상한에 닿으면 세션이 `paused`되고 Director에게 "계속 진행할지" HITL 승인 요청이 발행된다. 종료 조건 조합 UI에서는 뺀다.
-- **시스템이 발행하는 HITL**: `user_approval`과 예산·시간 초과 요청은 에이전트 turn이 아니라 플랫폼이 만든다. 이 경우 `hitl_request.task_id`는 비고 `source: system`으로 기록한다(§7).
-- `criteria_met`의 판정자는 참여 에이전트가 아니라 플랫폼 LLM이다. 참여 에이전트가 자기 작업의 합격 여부를 판정하면 조기 완료가 난다.
-- **`agent_approval` 단독 사용은 허용한다** (시나리오 B가 그렇다). `criteria_met`에는 단독 사용을 막았으면서 이쪽은 허용하는 이유는, `criteria_met`이 **자기 작업을 스스로 채점**하는 구조인 반면 `agent_approval`은 **다른 역할의 에이전트가 리뷰**하는 구조이기 때문이다. 다만 사람 게이트 없이 세션이 닫히므로, 세션 생성 시 "사람 승인 없이 완료됩니다"를 명시적으로 표시한다(m-m).
+**FR-2.5 방 요약(선택)** — 방이 길어지면 사람이 「여기까지 정리」를 눌러 그 시점까지의 요약을 방에 남긴다. 자동 요약은 **일**이 끝날 때만 한다(FR-2A.4) — 방은 끝이 없어 자동 요약의 기준 시점이 없다.
 
-**FR-2.3 세션 상태 머신**
+**FR-2.6 방 삭제** — 방장 또는 워크스페이스 owner·admin. **진행 중인 일이 있으면 거부**(먼저 끝내거나 취소). 메시지·일·lane·task·활동·HITL·아티팩트·결정·비용이 함께 사라지고 워크스페이스 집계에서도 빠진다. 미병합·미커밋 작업 폴더가 있으면 거부한다(FR-6.4 M4 와 같은 이유). `activity_log` 에 `room.deleted` 한 줄만 남는다.
 
-```
-draft → active → (paused ⇄ active) → completing → completed
-                        ↓
-                    cancelled
-```
+### FR-2A. Work (일) — goal 과 종료 조건
 
-- `completing`: 종료 조건 충족 후 결과 요약(summary) 생성 및 아티팩트 정리 단계.
-- `paused`: 예산/시간 상한, 루프 상한, 또는 Director가 일시정지. **진행 중 task의 처리는 원인에 따라 다르다** — Director의 일시정지는 현재 턴을 마치게 두고(드레인), 예산·시간 상한 초과는 §8.2.2 절차로 **취소**한다(FR-7.3). 상한을 넘긴 뒤 계속 쓰게 두면 상한의 의미가 없다.
-- **세션이 `paused`인 동안 `queued` task는 dispatch되지 않는다** (C3′). 재개 시 큐 순서대로 dispatch한다. 예산 초과로 멈춘 세션에서 대기 task가 실행되면 예산을 더 쓴다.
+**FR-2A.1 일 시작** — 방 안에서 누구나(사람) 연다. 세 가지 길이 있고 전부 같은 레코드를 만든다.
 
-**FR-2.4 세션 요약** — 완료 시 플랫폼이 결정 기록·아티팩트·비용·타임라인을 정리한 `session_summary` 메시지를 자동 게시. 길이 상한은 워크스페이스 설정(FR-4.4).
+| 길 | 어떻게 |
+|---|---|
+| 메시지에서 | 메시지 옆 「이걸 일로」 → goal 은 그 메시지 본문이 기본값 |
+| 새 일 버튼 | goal 입력 + (선택) 종료 조건·Director·예산 |
+| 에이전트가 제안 | Lead 가 `colab work propose --goal` → **사람이 확인해야 열린다**(에이전트가 스스로 일을 열지 못한다 — 무한 자기 위임을 막는다) |
 
+기본값: goal 만 필수, 종료 조건 `artifact_submitted(assignee) AND user_approval`, Director = 연 사람, 예산 = 방 설정.
 
-**FR-2.7 세션 삭제 (P5)** — Director 또는 워크스페이스 owner·admin 이 **끝난 세션**(`draft`·`completed`·`cancelled`)을 물리 삭제한다. 메시지·lane·task·활동·HITL·아티팩트·결정·비용 기록이 함께 사라지고 워크스페이스 집계(§11)에서도 빠진다 — 확인 다이얼로그가 이를 명시한다. 진행 중 세션은 먼저 취소해야 하고(409), 미병합·미커밋 `worktree` 가 있으면 FR-6.4 M4 와 같은 이유로 거부한다(409). 남은 workdir 은 GC 명령으로 정리한다. `activity_log` 에 `session.deleted` 만 남는다.
+**일이 아닌 실행도 있다.** 방에서 에이전트를 멘션하면 task 가 돈다 — 종료 조건을 걸고 추적하고 싶을 때만 일을 연다. 일에 속하지 않은 task 의 HITL 은 **방장**에게 간다.
+
+**FR-2A.2 종료 조건** — v0.18 FR-2.2 의 표·규칙을 그대로 쓴다(원자 4종 + AND/OR, `agent_approval` 은 리뷰어 지정 필수, `criteria_met` 단독 불가). 단위만 일이다.
+
+**FR-2A.3 한도와 `paused`** — 예산·시간·루프 상한은 종료 조건이 아니다(v0.18 과 같다). 바뀐 것은 범위다.
+
+- **일의 상한**을 넘기면 그 일이 `paused` 되고 Director 에게 계속 진행 승인 HITL 이 간다.
+- **방의 상한**을 넘기면 **그 방의 모든 일과 일 밖 task 가 멈춘다**. 방장에게 승인 HITL 이 간다.
+- 실행 시점 유효 상한은 `min(방 잔여, 일 잔여, task 상한)`. 데몬에 싣는 값도 이 최솟값이다(daemon-protocol §4.1 `limits`).
+
+**FR-2A.4 일 상태와 요약** — v0.18 FR-2.3 의 상태 머신(`draft → active → (paused ⇄ active) → completing → completed | cancelled`)을 일에 그대로 쓴다. `completing` 에서 요약을 만들어 **방에 메시지로 남긴다** — 일은 닫히고 방은 계속된다.
+
+**FR-2A.5 여러 일의 동시 진행** — 한 방에 일이 여러 개 열려 있을 수 있다. 화면은 방 상단에 「진행 중인 일」 칩으로 보이고, 메시지·lane 은 자기가 속한 일을 가리킨다(없으면 "일 없음"). 동시 실행 상한은 방 설정이 정한다.
+
+**FR-2A.6 일 삭제·취소** — 취소는 v0.18 과 같다(`active`·`paused` → `cancelled`). 삭제는 일만 지우고 방과 메시지는 남긴다 — 메시지는 방의 것이기 때문이다.
 
 ### FR-3. 메시징 및 멘션 라우팅
 
@@ -593,16 +676,18 @@ UI에서 `@` 입력 시 자동완성이 링크를 삽입한다. 에이전트에�
 
 ### FR-4. 공유 컨텍스트
 
+**v0.19**: 맥락은 **방 안에서 자동으로 공유**되고, 다른 방은 **요청해서 읽는다**(FR-4.5). 에이전트 자신의 맥락(런타임 대화 세션·작업 폴더)은 **방마다 따로**다(§3 용어표 Agent Context).
+
 **FR-4.1 컨텍스트 구성** — 각 run에 다음이 제공된다. multica처럼 **안정적인 브리프는 파일**(런타임의 프로젝트 지시 파일, 예: Claude Code의 `CLAUDE.md`)로, **턴별 내용은 프롬프트**로 전달한다.
 
 | 구간 | 내용 | 전달 방식 |
 |---|---|---|
-| 안정 브리프 | 에이전트 identity + instructions, 워크스페이스 규칙, 세션 goal/criteria/종료조건, 참여자 로스터(멘션 링크·역할 설명 포함), 첨부 컨텍스트 요약, 툴/CLI 사용 규약 | **런타임 지시 파일이 기본 경로**(Claude Code `CLAUDE.md`, Antigravity·Hermes `AGENTS.md`). 시스템 프롬프트 전달 수단이 있는 경로에서는 그쪽을 우선한다 — 판정 규칙은 §8.4 |
+| 안정 브리프 | 에이전트 identity + instructions, 워크스페이스 규칙, **방 설명 + (그 턴이 속한) 일의 goal/criteria/종료조건**, 참여자 로스터(멘션 링크·역할 설명 포함), 첨부 컨텍스트 요약, 툴/CLI 사용 규약 | **런타임 지시 파일이 기본 경로**(Claude Code `CLAUDE.md`, Antigravity·Hermes `AGENTS.md`). 시스템 프롬프트 전달 수단이 있는 경로에서는 그쪽을 우선한다 — 판정 규칙은 §8.4 |
 | 결정 기록 | HITL 답변, 확정된 결정 목록 | 브리프 파일 뒤쪽 섹션 |
-| 세션 히스토리 | 최근 N개 메시지 + 관련 스레드 (전체는 CLI로 조회) | 턴 프롬프트 |
+| 방 히스토리 | 방의 최근 N개 메시지 + 관련 스레드 (전체는 CLI 로 조회). **합류 이전 메시지도 읽을 수 있다**(FR-2.2) | 턴 프롬프트 |
 | 트리거 | 트리거 메시지(들) 원문 인용, 위임 브리프, 프로파일 정보 | 턴 프롬프트 |
 
-에이전트는 `colab session get`, `colab session messages --thread <id> --tail 30` 로 필요한 만큼 읽는다.
+에이전트는 `colab room get`, `colab room messages --thread <id> --tail 30` 로 필요한 만큼 읽는다(옛 `session get`·`session messages` 는 같은 것을 가리키는 별칭으로 한 판 유지 — `colab-cli.md`).
 
 **FR-4.2 결정 기록(Decision Log)** — HITL 응답과 에이전트의 `colab decision record` 호출을 세션 단위 목록으로 보존. 새 에이전트가 합류해도 "왜"를 알 수 있게 한다.
 
@@ -613,6 +698,26 @@ UI에서 `@` 입력 시 자동완성이 링크를 삽입한다. 에이전트에�
 **FR-4.4 컨텍스트 재사용** — 완료된 세션을 새 세션의 컨텍스트로 첨부 가능 (요약 + 아티팩트 링크). 요약 길이 상한은 **워크스페이스 설정** `context_reuse.max_summary_tokens` (기본 2,000) 와 `context_reuse.include_artifacts` (기본: 링크만) 로 조정한다. 세션 생성 시 개별 오버라이드 가능.
 
 - **v1 범위 (P4)**: 세션 생성 폼에서 이전 세션을 골라 첨부하는 것과 상한 설정은 **v1**이다. v1.1의 "세션 컨텍스트 재사용 UI"는 **어떤 부분이 주입됐는지 미리보고 취사선택하는 화면**을 말한다 — v1은 요약 전체를 상한까지 넣는다.
+
+**FR-4.5 다른 방 읽기 (v0.19)** — 실행 중인 에이전트가 **요청해서** 다른 방의 맥락을 읽는다. 자동 주입은 하지 않는다: 방이 늘수록 프롬프트가 부풀고, 읽을 이유가 없는 방까지 섞이면 어느 방의 결정인지 에이전트가 헷갈린다.
+
+```
+colab room list [--query <말>]                     → 읽을 수 있는 방 목록(이름·설명·마지막 활동·내가 참여 중인가)
+colab room read --room <id> [--tail N] [--query]   → 그 방의 요약 + 최근 메시지 + 결정 기록 + 산출물 목록
+colab artifact get <id>                            → (기존) 산출물 본문
+```
+
+**권한 — 사람 originator 기준(FR-9 보안 원칙 그대로).** 에이전트가 읽을 수 있는 방은 다음을 **둘 다** 만족하는 방이다.
+
+1. **그 task 를 일으킨 사람 originator** 가 그 방의 참여자다 — 에이전트를 거쳐 권한이 오르지 않는다.
+2. 그 에이전트가 그 방의 참여자이거나, 현재 방에 **참고 방 링크**(`room_link`)로 그 방이 연결되어 있다.
+
+둘 중 하나라도 아니면 `403`이고 **목록에도 보이지 않는다**(존재를 숨긴다). 참고 방 링크는 방장이 건다 — "이 방은 저 방을 참고한다"를 사람이 명시하는 자리이며, 1번은 그래도 검사한다.
+
+- **읽은 사실을 남긴다.** 읽기는 **양쪽 방**의 활동에 기록된다(읽은 방: "…가 이 방을 읽었습니다", 읽힌 방: "…의 요청으로 이 방이 읽혔습니다"). 맥락이 새어 나가는 경로를 사람이 볼 수 있어야 한다.
+- **읽기는 읽기다.** 다른 방에 메시지를 쓰거나 일을 열 수 없다. 옮기고 싶으면 사람이 그 방에서 하거나, 산출물로 제출한다.
+- **양·비용**: 한 턴에 읽을 수 있는 방 수·분량에 상한(워크스페이스 설정 `room_read.max_rooms_per_turn` 기본 3, `max_tokens` 기본 4,000). 넘으면 잘라 주고 그 사실을 알린다.
+- 읽은 내용은 그 턴의 프롬프트에만 들어간다 — **에이전트의 방 맥락에 영구 편입되지 않는다**. 필요하면 에이전트가 `colab decision record` 로 현재 방에 옮겨 적는다.
 
 ### FR-5. HITL (Human-in-the-loop)
 
@@ -934,22 +1039,26 @@ workspace 1─N agent (name, role, role_description, instructions, tools,
                      archived_at)
 agent     1─N agent_profile (name, runtime_kind, model, options(jsonb),
                              env(jsonb), args[], is_default, fallback_profile_id?)
-workspace 1─N session (title, goal, acceptance_criteria[], director_user_id,
-                       deputy_director_user_id?, assignee_agent_id,
-                       runtime_id,                          -- C4: 실행 머신 고정
-                       isolation(jsonb: {kind, repo_path?|image?}),
-                       completion_condition(jsonb), limits(jsonb), autonomy,
-                       context_reuse_override(jsonb)?, status, cost_usd, created_by)
-session   1─N session_participant (agent_id, profile_id, joined_at)
-session   1─N session_context (type: doc|url|file|session, ref, summary)
-session   1─N workdir (agent_id?, lane_id?, kind: worktree|container|dir,
+workspace 1─N room (name, description, owner_user_id,              -- v0.19 방
+                    runtime_id?, isolation(jsonb)?, limits(jsonb)?, autonomy?,
+                    default_director_user_id?, status: active|archived,
+                    created_by, created_at)
+room      1─N room_participant (agent_id? | user_id?, role: member,
+                                joined_at, left_at?)                  -- 사람·에이전트 같은 표
+room      1─N room_link (target_room_id, created_by)                  -- 참고 방(FR-4.5)
+room      1─N work (title, goal, acceptance_criteria[], director_user_id,
+                    assignee_agent_id, completion_condition(jsonb), limits(jsonb),
+                    autonomy?, status, cost_usd, created_by)          -- 옛 session 의 goal 쪽
+room      1─N room_agent_profile (agent_id, profile_id)               -- 방에서 쓰는 프로파일
+room      1─N room_context (type: doc|url|file|room, ref, summary)
+room      1─N workdir (agent_id?, lane_id?, kind: worktree|container|dir,
                              path_or_ref, branch?, status: active|retained|deleted,
                              disk_bytes, last_used_at, retain_until)
-session   1─N message (author_type, author_id, parent_id, content,
+room      1─N message (author_type, author_id, parent_id, content, work_id?,
                        mentions[], source_task_id,
                        kind: text|hitl|blocked_q|system|summary,
                        state: posted|pending_approval)      -- M10: supervised 모드
-session   1─N lane (parent_lane_id, agent_id, profile_id, depends_on[],
+room      1─N lane (work_id?, parent_lane_id, agent_id, profile_id, depends_on[],
                     workdir_id,                       -- C3: 격리 방식이 공유 여부 결정
                     delegated_from_task_id,           -- 합류 그룹 키 (FR-6.5)
                     runtime_session_ref(jsonb: {kind, session_id, provenance}),
@@ -968,14 +1077,14 @@ lane      1─N task (agent_id, profile_id, trigger_message_id,
 task      1─N task_event (seq, class, verb, object_ref, outcome,
                           tool, input, output, usage, superseded_by)
 task      1─1 task_usage (input_tokens, output_tokens, cache_read, cost_usd, estimated)
-session   1─N hitl_request (task_id?, source: agent|system, type,
+room      1─N hitl_request (work_id?, task_id?, source: agent|system, type,
                             question, options[], proposed_default,
                             approver_spec: director|any_member|user_id,
                             due_at, overdue,
                             status: open|answered|auto_answered,
                             approved, answer, answered_by, answered_at)
-session   1─N artifact (name, version, type, storage_ref, submitted_by_task_id)
-session   1─N decision (summary, rationale, source: hitl|agent, ref_id)
+room      1─N artifact (work_id?, name, version, type, storage_ref, submitted_by_task_id)
+room      1─N decision (work_id?, summary, rationale, source: hitl|agent, ref_id)
 member    1─N inbox_item (type, severity, session_id, ref_id, read_at)
 workspace 1─1 workspace_settings (loop_limits, budget_policy, context_reuse,
                                   default_isolation, runtime_policy,
@@ -984,6 +1093,8 @@ workspace 1─1 workspace_settings (loop_limits, budget_policy, context_reuse,
 workspace 1─N activity_log
 ```
 
+- **v0.19 이관 규칙**: 옛 `session` 행 하나 → `room` 하나 + `work` 하나. 자식 표(message·lane·task·artifact·decision·hitl·workdir)의 `session_id` 는 **방 id 로 읽는다**(열 이름은 당분간 유지, §10). goal 쪽 칸(goal·acceptance_criteria·completion_condition·director_user_id·status·cost_usd)은 `work` 로 옮긴다. `work_id` 는 nullable — 일에 속하지 않는 메시지·lane·task 가 있다(FR-2A.1).
+- **사람과 에이전트를 같은 표(`room_participant`)에 둔다.** 방에서 둘의 차이는 "트리거되는가"뿐이고, 초대·퇴장·목록·권한 검사는 같은 코드가 처리해야 갈라지지 않는다.
 - 멘션은 `message.mentions[]`에 `{kind, id}`로 정규화해 저장하고, 본문에는 원문 링크를 유지한다.
 - `agent`는 정의에서 온 필드와 인스턴스 필드를 함께 갖는다(FR-1.8). `definition_source`(파일 경로·팩 id·수동)와 `definition_version`을 보관해 업데이트 여부를 표시한다.
 - `session.director_user_id` 변경, `agent.respond_to` 변경은 `activity_log`와 시스템 메시지에 남긴다.
@@ -1270,7 +1381,23 @@ v0.4 대비 **컨테이너 격리 · Antigravity · `.agent.md` · Build with AI
 - [ ] **위험 명령 사전 승인** (`tool_approval` HITL) — 패턴 매칭으로 걸러낸 위험 명령만 Director 승인 후 실행 (§8.2.2)
 - [ ] **세션 긴급 정지** — 세션의 모든 lane을 한 번에 취소하는 조작. 현재는 lane 단위 중단(FR-3.4)과 에이전트 단위 킬 스위치(FR-1.9)뿐이라 세션 전체가 폭주하면 하나씩 눌러야 한다
 
-### v2
+### v2.0 — 구조 전환: 방과 일 (v0.19, 다음 메이저)
+
+v1.1 까지의 세션 모델 위에 **방**을 얹는다. 순서는 "계약 → 서버 → 화면 → 에이전트 표면 → 이관" 이고, 각 단계는 **앞 단계가 머지된 뒤**에 시작한다(v1 에서 쓴 방식 그대로).
+
+| 단계 | 내용 | 끝났다고 보는 기준 |
+|---|---|---|
+| R0 계약 | `room`·`work` 리소스, 방 참여 op, `work` 종료 조건 이동, `colab room list/read`(FR-4.5), 데몬 번들의 `room_id`·`work_id?` | openapi lint 초록 + 생성물 재생성, 옛 `session*` op 은 **별칭으로 한 판 유지** |
+| R1 서버 | 방·일 테이블(0025~), 이관 마이그레이션, 라우팅·상한·HITL 의 단위 이동, FR-4.5 읽기 권한·기록 | 기존 e2e 전부 초록(세션 = 방+일 하나로 읽힌 채) + 새 e2e(방 2개·일 2개·다른 방 읽기) |
+| R2 화면 | 방 목록·방 화면(일 칩·참여자 초대·설정), 일 열기/종료, 다른 방 읽기 흔적 표시 | 마법사 제거, S5·S7 이 방 기준으로 다시 그려짐 |
+| R3 에이전트 표면 | `colab room *` 명령·MCP 툴, 브리프 [1] 에 방 설명 + 그 턴의 일, 역할별 허용 명령에 `room_read` 편입 | 실기 1턴에서 다른 방 읽기가 권한대로 되고 기록이 남는다 |
+| R4 이관·정리 | 옛 세션 → 방+일 변환 실측, `session*` 별칭 제거, 문서 정리 | 실사용 워크스페이스에서 데이터 손실 0 |
+
+**이관(R4) 규칙**: 세션 1 → 방 1 + 일 1. 방 이름 = 세션 제목, 방 설명 = goal 첫 줄, 일 goal = 세션 goal. 자식 행은 `session_id` 를 방 id 로 그대로 읽고 `work_id` 를 새 일로 채운다. 완료된 세션은 **보관된 방**이 된다(일은 `completed`). 되돌리기는 없다 — 전환 전 DB 덤프를 남긴다.
+
+**v2 에서 같이 볼 것**: 한 에이전트가 여러 방에서 동시에 도는 동안의 동시성 상한(에이전트당 `max_concurrent_tasks` 가 방을 가로질러 적용된다 — §9), 방이 많아질 때의 목록·검색, 방 단위 알림 설정.
+
+### v2 (그 밖)
 
 - [ ] 추가 런타임(Codex, Goose, Cursor, OpenCode 등) — ACP 어댑터가 있으면 프리셋 등록만으로 추가
 - [ ] 클라우드 런타임 — 유휴 시 스스로 종료하는 수명 관리, 프레즌스를 갱신 임대(lease)로 처리
@@ -1313,6 +1440,11 @@ v0.4 대비 **컨테이너 격리 · Antigravity · `.agent.md` · Build with AI
 
 | 리스크 | 완화 |
 |---|---|
+| **구조 전환(v0.19)이 이관 중 맥락을 잃는다** | 세션 1 → 방 1 + 일 1 은 기계적이라 손실 지점이 적다. 전환 전 덤프 + 이관 뒤 "방 수 = 옛 세션 수, 메시지 수 동일" 를 스크립트로 대조(§10 R4) |
+| **다른 방 읽기(FR-4.5)가 맥락 유출 경로가 된다** | 사람 originator 권한 + 에이전트 참여(또는 방장이 건 참고 방 링크) **둘 다** 요구, 목록에서도 숨김, 읽은 사실을 양쪽 방에 기록, 턴당 방 수·분량 상한 |
+| **방이 오래 살면서 맥락이 부풀고 비싸진다** | 프롬프트는 최근 N 개 + 스레드만(FR-4.1), 나머지는 CLI 조회. 사람이 「여기까지 정리」로 요약을 남긴다(FR-2.5). 방 예산 상한(FR-2A.3) |
+| **한 에이전트가 여러 방에서 동시에 돌아 상한이 새거나 서로의 맥락을 섞는다** | 에이전트 맥락은 **방마다** 분리(§3 용어표) — 런타임 대화 세션·작업 폴더가 방 단위. 동시성은 에이전트 `max_concurrent_tasks` 가 방을 가로질러 적용된다(§9) |
+| **일 없는 대화에서 나온 task 의 책임자가 불분명** | 일 밖 HITL 은 **방장**에게 간다(FR-2A.1). 그래도 애매하면 그 자리에서 "일로 만들기"를 권하는 안내를 띄운다 |
 | **HITL 재개가 런타임 resume에 의존하는데 그 신뢰도가 런타임마다 다름** | 콜드 스타트 폴백을 1급 경로로 설계(FR-5.4). 브리프 + 히스토리 + 결정 기록만으로 이어갈 수 있어야 한다 — 스파이크 4번으로 검증 |
 | **재시도가 부분 실행을 중복 적용** | 같은 workdir 재사용 + resume 우선 + `attempt ≥ 2` 프롬프트에 "이미 한 일" 주입(FR-7.1). 성공 지표로 중복 발생률 추적 |
 | Hermes가 유실된 세션을 오류 없이 새로 만들고, LLM 오류에도 `end_turn`을 보고 | 세션 provenance 비교 + "refusal & 활동 0" 감지, stderr 프로바이더 오류 스니핑 (multica 검증 방식) |
@@ -1359,6 +1491,15 @@ v0.4 대비 **컨테이너 격리 · Antigravity · `.agent.md` · Build with AI
 | **세션 긴급 정지** | lane 단위 중단으로 대부분 처리되고, 폭주는 루프 상한(FR-3.5)이 먼저 잡는다 | 실제로 "여러 lane을 연속으로 눌러야 했다"는 사례가 나오면 |
 
 **채택하지 않기로 한 것** — **에이전트별 Ed25519 키페어와 서명 이벤트 로그**(Buzz 방식). 다른 설계안은 이를 엔터프라이즈 감사의 근거로 들지만, Buzz에서 서명이 필요한 이유는 Nostr 릴레이가 **분산 신뢰 없는 환경**이기 때문이다. 우리는 서버가 단일 신뢰 지점이므로 서명이 추가로 막는 것이 없다 — DB에 쓸 수 있는 공격자는 서명 검증 로직도 바꿀 수 있다. `activity_log`와 해시 체인으로 같은 감사 요구를 충족하면서 서명 검증 오버헤드를 지지 않는다. 부록 B의 같은 판단과 일관된다.
+
+---
+
+### 12.1 v0.19 전환에서 Director 가 정할 것 (열림)
+
+1. **방 하나 = 런타임 하나** 를 유지할지. 지금은 유지(§FR-2.3) — 한 방의 에이전트가 같은 저장소를 봐야 위임·리뷰가 성립한다. 방에서 머신을 섞고 싶다면 **일마다 런타임**으로 내려야 하고, 그러면 작업 폴더 규칙(FR-6.1)이 일 단위로 바뀐다.
+2. **일을 에이전트가 스스로 열 수 있게 할지**. 지금은 제안만 하고 사람이 연다(FR-2A.1) — 자동 개설을 허용하면 목표가 스스로 번식한다.
+3. **옛 `session_id` 열 이름을 언제 바꿀지**. 지금 계획은 "방 id 로 읽고 이름은 유지"(§7·§10 R4) — 이름을 바꾸면 계약·골든·e2e 가 한 번에 흔들린다.
+4. **방 목록이 늘어날 때의 기본 정렬·검색**(마지막 활동순? 안 읽음 우선?) — R2 화면 전에 정한다.
 
 ---
 
