@@ -1085,7 +1085,7 @@ CLI는 task마다 발급되는 단기 토큰(`COLAB_TASK_TOKEN`)으로 인증하
 | **미션**(work) | 미션 열기 폼(goal·assignee·종료 조건·Director·예산), 진행률·요약, 취소·삭제, **에이전트의 미션 제안 확인**(FR-2A.1). 방 화면 안에서 열린다 — 별도 페이지는 없고 **`/rooms/:id?work=:workId`** 로 바로 열 수 있다(받은 요청·알림·시스템 메시지에서 링크하려면 필요) |
 | (v0.18 의 Sessions·Session 상세는 위 넷으로 대체된다 — 마법사는 없앤다) |
 | **Inbox** | HITL 응답 UI(Director·방장) — 에이전트의 제안 기본값을 함께 표시, **방·미션 바로가기**, 미션 제안 항목 |
-| **Settings** | 멤버, 런타임 정책, 예산 정책, 루프 상한(체인 깊이·시간당 빈도), **컨텍스트 재사용 상한**, 기본 격리 방식, **작업 공간 보존 기한·용량 상한**, 활동 로그 페이로드 마스킹, 알림 |
+| **Settings** | 멤버, 런타임 정책, 예산 정책, 루프 상한(체인 깊이·시간당 빈도), ~~컨텍스트 재사용 상한~~(v0.19 에서 제거 — FR-4.4 폐기), **방 기본값**(격리·한도·autonomy·visibility), 기본 격리 방식, **작업 공간 보존 기한·용량 상한**, 활동 로그 페이로드 마스킹, 알림 |
 
 멘션 자동완성, 트리거 미리보기, 실시간 스트리밍(에이전트 타이핑 표시)은 필수.
 
@@ -1141,7 +1141,7 @@ room      1─N lane (work_id?, parent_lane_id, agent_id, profile_id, depends_on
                                                       -- 리뷰#04-4: task가 아니라 lane에 있다
                     status: queued|running|waiting_human|blocked|paused|done|failed,
                     blocked_note, blocked_message_id, reentry_count)
-lane      1─N task (agent_id, profile_id, trigger_message_id,
+lane      1─N task (agent_id, profile_id, trigger_message_id,   -- v0.19: + queued_reason: room_lanes|agent_global|runtime|workspace|null (§3.1, 서브 미션 대기 사유)
                     delegated_from_task_id, restarted_from_task_id,   -- B: 재지시
                     originator_user_id,
                     coalesced_message_ids[], attempt, max_attempts,
@@ -1153,7 +1153,7 @@ lane      1─N task (agent_id, profile_id, trigger_message_id,
 task      1─N task_event (seq, class, verb, object_ref, outcome,
                           tool, input, output, usage, superseded_by)
 task      1─1 task_usage (input_tokens, output_tokens, cache_read, cost_usd, estimated)
-room      1─N hitl_request (work_id?, task_id?, source: agent|system, type,   -- approver_spec: director|room_owner|any_member|user:<id>
+room      1─N hitl_request (work_id?, task_id?, source: agent|system, type,   -- approver_spec: director|room_owner|any_member|user_id
                             question, options[], proposed_default,
                             approver_spec: director|room_owner|any_member|user_id,   -- v0.19 room_owner(D-4)
                             due_at, overdue,
@@ -1455,7 +1455,7 @@ v0.4 대비 **컨테이너 격리 · Antigravity · `.agent.md` · Build with AI
 - [ ] Hermes `HERMES_HOME` 오버레이(에이전트별 스킬·메모리 분리)
 - [ ] **채널 계층** — 워크스페이스와 세션 사이에 도메인 단위(`#payments`)를 두고 멤버 권한·에이전트 로스터·기본 격리를 상속시킨다. 세션이 수십 개가 되면 평평한 목록으로는 탐색이 무너진다 (아래 참고)
 - [ ] **위험 명령 사전 승인** (`tool_approval` HITL) — 패턴 매칭으로 걸러낸 위험 명령만 Director 승인 후 실행 (§8.2.2)
-- [ ] **세션 긴급 정지** — 세션의 모든 lane을 한 번에 취소하는 조작. 현재는 lane 단위 중단(FR-3.4)과 에이전트 단위 킬 스위치(FR-1.9)뿐이라 세션 전체가 폭주하면 하나씩 눌러야 한다
+- [ ] **세션 긴급 정지** — 세션의 모든 lane을 한 번에 취소하는 조작. 현재는 lane 단위 중단(FR-3.4)과 에이전트 단위 킬 스위치(FR-1.9)뿐이라 세션 전체가 폭주하면 하나씩 눌러야 한다 → **v0.19 에서 v2.0 으로 흡수**: 방 단위 「이 방 멈춤」(`room.blocked_reason: manual`, FR-2.4)이 정본이다. v1.1 항목으로는 만들지 않는다.
 
 ### v2.0 — 구조 전환: 방과 일 (v0.19, 다음 메이저)
 
@@ -1493,7 +1493,7 @@ v1.1 까지의 세션 모델 위에 **방**을 얹는다. 순서는 "계약 → 
 | **일** 자동 완료 비율 (수동 종료 대비) | > 60% |
 | HITL 요청당 Director 응답 시간 | 중앙값 < 30분 |
 | 에이전트 간 위임 메시지 중 사람 개입 없이 처리된 비율 | > 70% |
-| 병렬 lane 사용 세션의 wall-clock 단축 | 단일 에이전트 대비 40% |
+| 병렬 서브 미션을 쓴 **미션**의 wall-clock 단축 | 단일 에이전트 대비 40% |
 | 런타임별 task 성공률 | Claude Code > 95%, 기타 > 85% |
 | 재개·재시도 후 중복 작업(같은 메시지 재게시, 편집 중복 적용) 발생률 | < 1% |
 | 재진입 시 런타임 세션 resume 성공률 (콜드 스타트로 떨어지지 않는 비율) | > 90% |
