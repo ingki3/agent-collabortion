@@ -1437,7 +1437,7 @@ S7 우열의 **(가) 미션 칸**이 곧 이 화면이다(§4.6). **별도 라�
 ## 9. 다음 단계
 
 1. **§8.3(나) 의 다섯 자리를 Lead 가 판단한다.** **D-13**(`task.queued_reason` 이 §7 `task` 행에 없다)은 **R0·R1 스키마 전에** 정해져야 한다 — 서브 미션 대기 사유가 여기 걸린다. D-14·D-15 는 §6·§11 의 문장 정리, D-16 은 계약 표기 통일, **D-17**(v1.1 「세션 긴급 정지」 ↔ v2.0 `blocked_reason: manual`)은 어느 쪽이 정본인지의 문제다.
-2. **부록 A 의 화면→op 표를 R0 의 입력으로 넘긴다.** 신규 op 31개 · 확장 12개 · SSE 13종이고, **op 이름은 SCR-B 초안 그대로이며 Lead 가 R0 에서 확정한다.** 특히 셋은 컷할 수 없다 — `previewTriggers` 확장(E5, 귀속 규칙 3 을 서버가 판정) · `createRoom` 의 런타임 0개 허용(C11) · SSE enum 과 `STREAM_EVENT_TYPES` 를 같은 PR 에(M2).
+2. **부록 A 의 화면→op 표를 R0 의 입력으로 넘긴다.** 신규 op 28개(N1~N26) · 확장 12개 · SSE 13종이고, **op 이름은 SCR-B 초안 그대로이며 Lead 가 R0 에서 확정한다.** 특히 셋은 컷할 수 없다 — `previewTriggers` 확장(E5, 귀속 규칙 3 을 서버가 판정) · `createRoom` 의 런타임 0개 허용(C11) · SSE enum 과 `STREAM_EVENT_TYPES` 를 같은 PR 에(M2).
 3. **S7 방 화면을 와이어프레임으로 만든다.** 나머지 화면이 여기서 파생되는 규칙(미션 칩 ↔ 우열 연동·권한 비활성 사유의 층·우열 접힘·실시간)을 공유한다. **칩 ↔ 우열 연동이 실제로 읽히는지**와 **268px 에 미션 칸이 드는지**가 관건이다.
 4. **§3.4 용어표를 `COMPONENTS.md` §8.4 로 옮긴다**(R1.5 = R2 서브 순서 (e)). 자물쇠는 「옛말 0건」 + 「새말 1건 이상」 두 방향을 다 재고, **「아티팩트」를 옛말 목록에 넣지 않는다** — 넣으면 계약과 반대로 잠긴다.
 5. **S18 + 첫 dispatch 시스템 메시지 + `isolation_confirm` 카드 세 자리를 한 묶음으로 구현한다.** 셋 중 하나라도 빠지면 W-1·W-2 사고가 그대로 난다 — 이 셋은 따로 컷할 수 없는 한 덩어리다. **이제 셋 다 §4 에 명세가 있다**(§4.5·§4.6·§4.14).
@@ -1450,7 +1450,7 @@ S7 우열의 **(가) 미션 칸**이 곧 이 화면이다(§4.6). **별도 라�
 
 > **출처는 `plan/research/SCR19_impl.md`(SCR-B) §1 이고, op 이름은 그 초안 그대로다.** 이 부록은 **「화면이 무엇을 부르는가」의 목록**이지 계약이 아니다 — **이름·경로·스키마는 Lead 가 R0 에서 확정한다.** 화면이 먼저인 이유는 §머리말 「계약(R0)은 화면이 부르는 것에서 나온다」다.
 >
-> 판정 요약: 기존 op 그대로 **41** · 이름 별칭 **4**(`rebindSession`·`getSessionCost`·`setSessionSubscription`·`getMessage`) · 단위 이동 별칭 **6**(session 동사 → work) · 기존 op 확장 **12** · **신규 31**.
+> 판정 요약: 기존 op 그대로 **41** · 이름 별칭 **4**(`rebindSession`·`getSessionCost`·`setSessionSubscription`·`getMessage`) · 단위 이동 별칭 **6**(session 동사 → work) · 기존 op 확장 **12** · **신규 28**(N1~N26 — N5 `archive/unarchive`·N26 `block/unblock` 은 짝이라 op 은 28개. 리뷰 #276 R1-1 정정).
 >
 > **「세션 op 을 방 op 으로 개명하면 된다」가 성립하지 않는다.** `SessionListItem` 16칸 중 **goal·status·paused_reason·director·completion_progress·cost_usd·budget_usd·cost_estimated 여덟 칸이 미션의 것**이라 방 목록 카드로 쓸 수 없다(§4.3 이 「상태 배지와 goal 이 빠진다」고 적은 그 칸들이다). 별칭은 **op 이름**에만 걸고 스키마는 새로 만든다.
 
