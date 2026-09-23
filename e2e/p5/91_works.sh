@@ -106,6 +106,8 @@ PV="$(preview "$ROOM" '{"content":"잡담"}')"
 chk B.5 "-/none" "$(jq -r '(.work.id//"-")+"/"+.work_source' <<<"$PV")" "규칙 4 none — 새 방에는 옛 호환 규칙이 없다(T-R1b2)"
 M4="$(post "$ROOM" '{"content":"잡담"}' | jq -r .message.id)"
 chk B.6 "-" "$(msg_work "$M4")" "  … 게시된 잡담 work_id 없음"
+# T-S-toapi: 미션 칩 거르기는 서버 응답 칸(Message.work_id)으로 동작한다 — 거르지 않은 목록을 클라이언트가 work_id 로 거른 것 = 서버 ?work_id= 목록, 미션 없음은 null.
+chk B.7 "$(api_ok GET "/sessions/$ROOM/messages?work_id=$W2" | jq -r '[.items[].id]|sort|join(",")')/-" "$(api_ok GET "/sessions/$ROOM/messages" | jq -r --arg w "$W2" '[.items[]|select(.work_id==$w)|.id]|sort|join(",")')/$(api_ok GET "/messages/$M4" | jq -r 'if has("work_id") then (.work_id // "-") else "키 없음" end')" "미션 칩 = 응답의 work_id 로 거른 것(getMessage 의 미션 없음 = null)"
 
 # ───────────────────────────── C ─────────────────────────────────────────────
 step "C. 미션별 예산·일시정지 독립 (FR-2A.3)"

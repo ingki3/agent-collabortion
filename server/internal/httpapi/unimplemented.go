@@ -94,10 +94,6 @@ func (unimplemented) GetMe(w http.ResponseWriter, r *http.Request) {
 	notImplemented(w, r, "GetMe")
 }
 
-func (unimplemented) GetMessage(w http.ResponseWriter, r *http.Request, messageId gen.MessageId) {
-	notImplemented(w, r, "GetMessage")
-}
-
 func (unimplemented) DeleteRuntime(w http.ResponseWriter, r *http.Request, runtimeId gen.RuntimeId) {
 	notImplemented(w, r, "DeleteRuntime")
 }
