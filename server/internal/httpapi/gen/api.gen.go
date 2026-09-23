@@ -520,8 +520,10 @@ const (
 	InboxItemActionsAnswer          InboxItemActions = "answer"
 	InboxItemActionsApprove         InboxItemActions = "approve"
 	InboxItemActionsApproveContinue InboxItemActions = "approve_continue"
+	InboxItemActionsOpenRoom        InboxItemActions = "open_room"
 	InboxItemActionsOpenRuntimes    InboxItemActions = "open_runtimes"
 	InboxItemActionsOpenSession     InboxItemActions = "open_session"
+	InboxItemActionsOpenWork        InboxItemActions = "open_work"
 	InboxItemActionsRebind          InboxItemActions = "rebind"
 	InboxItemActionsReject          InboxItemActions = "reject"
 	InboxItemActionsReply           InboxItemActions = "reply"
@@ -537,9 +539,13 @@ func (e InboxItemActions) Valid() bool {
 		return true
 	case InboxItemActionsApproveContinue:
 		return true
+	case InboxItemActionsOpenRoom:
+		return true
 	case InboxItemActionsOpenRuntimes:
 		return true
 	case InboxItemActionsOpenSession:
+		return true
+	case InboxItemActionsOpenWork:
 		return true
 	case InboxItemActionsRebind:
 		return true

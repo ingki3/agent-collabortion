@@ -4354,7 +4354,7 @@ export interface components {
                 summary?: string | null;
             };
             /** @description 인라인 동작(타입·권한별). */
-            actions: ("answer" | "approve" | "reject" | "reply" | "approve_continue" | "restart" | "rebind" | "open_session" | "open_runtimes")[];
+            actions: ("answer" | "approve" | "reject" | "reply" | "approve_continue" | "restart" | "rebind" | "open_session" | "open_room" | "open_work" | "open_runtimes")[];
             /** Format: date-time */
             read_at: string | null;
             /** Format: date-time */

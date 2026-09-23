@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Colab Server API
-  version: 0.2.0-draft
+  version: 0.2.1-draft
   summary: Colab 서버 REST API — P1~P3(수직 슬라이스 · 협업 코어 · HITL/재개/예산)에서 웹(W)과 colab CLI(C)가 호출하는 전부.
   description: |
     # 읽는 법
@@ -5953,7 +5953,7 @@ components:
         actions:
           type: array
           description: 인라인 동작(타입·권한별).
-          items: { type: string, enum: [answer, approve, reject, reply, approve_continue, restart, rebind, open_session, open_runtimes] }
+          items: { type: string, enum: [answer, approve, reject, reply, approve_continue, restart, rebind, open_session, open_room, open_work, open_runtimes] }
         read_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
         room_id: { type: [string, 'null'], format: uuid, description: v0.2.0 — `session_id` 와 같은 값. }
