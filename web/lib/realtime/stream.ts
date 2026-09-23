@@ -51,6 +51,20 @@ export const STREAM_EVENT_TYPES: readonly StreamEventType[] = [
   "cost.updated",
   "test_chat.delta",
   "test_chat.turn",
+  // v0.2.0 계약(PRD v0.19 R0) — 계약 enum 과 같은 PR 에서 맞춘다(목록에 없는 타입은 조용히 버려진다).
+  "room.updated",
+  "room.deleted",
+  "room.unread",
+  "work.created",
+  "work.updated",
+  "work.closed",
+  "work.completion_progress",
+  "participant.joined",
+  "participant.left",
+  "room_read.recorded",
+  "room_link.updated",
+  "work_proposal.created",
+  "work_proposal.resolved",
 ];
 
 /** EventSource 를 열고 닫는 함수를 돌려준다. React 밖에서도 쓸 수 있다. */

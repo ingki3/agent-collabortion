@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | v0.6 — §2.5 역할별 허용 명령(K-19: 표·exit 3 `command_not_allowed`·MCP 툴 목록 자르기). v0.5.2 — §2.3 `artifact submit --type diff` 의미(--file 생략 = workdir 의 3층 변경을 merge-base 기준 한 diff, `--base`, 메타 두 자리, 기본 이름 `<agent>.diff`; T-C6 PR #160). v0.5.1 — §2.4 HITL 3행의 경로를 openapi 와 맞춤(`POST /v1/sessions/{S}/hitl-requests`; 옛 `/tasks/{T}/hitl` 은 존재하지 않아 CLI #126 이 404 — T-I3 발견, K-7·C-4). v0.5 — §2.4 `choice`(`--choices`)·`request-info` 를 v1 로 승격(EVAL v0.6 E7-20·E7-21, T-C4 질문), §3 MCP 툴에 `colab_hitl_request_info`. v0.4 — T-C2가 찾은 openapi 불일치 5건 정리: `review`는 아티팩트 스코프, `artifact submit`은 multipart 4필드(`--url` 없음), `decision record`는 `--summary`·`--rationale` 둘뿐, `turn_end_required` 이름 유지(openapi를 이쪽으로 통일), `/cli/context`는 필요 시 1회 캐시(C-1)·`--limit` 표기(C-2). v0.3은 PR #22 리뷰 R1: CLI가 `X-Colab-Client-Seq` 헤더로 seq를 보낸다(서버가 last_seq를 max로 계산). v0.2는 멱등키 UUIDv5·COLAB_TASK_ATTEMPT·warnings 코드 |
+| 버전 | **v0.7 — 방·미션(PRD v0.19 R0)**: §2.1 `colab room list`·`colab room read`(다른 방 읽기, FR-4.5) · §2.2 `colab work propose`(미션 제안, FR-2A.1) — §2.4a(§2.5 표 파서 범위 밖에 둔다). `colab session get`·`session messages` 는 R4 까지 `room get`·`room messages` 와 같은 것을 가리키는 별칭. **세 명령의 `ColabCommand` enum 편입과 §2.5 역할 표 반영은 R3(에이전트 표면)에서 구현과 함께** 한다 — enum 값을 먼저 넣으면 서버 roles·웹 명령 표·CLI 가 한꺼번에 빨개진다. v0.6 — §2.5 역할별 허용 명령(K-19: 표·exit 3 `command_not_allowed`·MCP 툴 목록 자르기). v0.5.2 — §2.3 `artifact submit --type diff` 의미(--file 생략 = workdir 의 3층 변경을 merge-base 기준 한 diff, `--base`, 메타 두 자리, 기본 이름 `<agent>.diff`; T-C6 PR #160). v0.5.1 — §2.4 HITL 3행의 경로를 openapi 와 맞춤(`POST /v1/sessions/{S}/hitl-requests`; 옛 `/tasks/{T}/hitl` 은 존재하지 않아 CLI #126 이 404 — T-I3 발견, K-7·C-4). v0.5 — §2.4 `choice`(`--choices`)·`request-info` 를 v1 로 승격(EVAL v0.6 E7-20·E7-21, T-C4 질문), §3 MCP 툴에 `colab_hitl_request_info`. v0.4 — T-C2가 찾은 openapi 불일치 5건 정리: `review`는 아티팩트 스코프, `artifact submit`은 multipart 4필드(`--url` 없음), `decision record`는 `--summary`·`--rationale` 둘뿐, `turn_end_required` 이름 유지(openapi를 이쪽으로 통일), `/cli/context`는 필요 시 1회 캐시(C-1)·`--limit` 표기(C-2). v0.3은 PR #22 리뷰 R1: CLI가 `X-Colab-Client-Seq` 헤더로 seq를 보낸다(서버가 last_seq를 max로 계산). v0.2는 멱등키 UUIDv5·COLAB_TASK_ATTEMPT·warnings 코드 |
 | 소유 | C + D. 변경은 Director 승인 PR로만 |
 | 근거 | PRD FR-7.4(툴 표면), FR-3.3(라우팅), FR-5.1·5.4(HITL), FR-6.2·6.2.1(lane·blocked), FR-6.5(합류), FR-2.2(종료 조건), FR-1.5(동적 생성 금지), FR-9.1(토큰 폐기), EVAL §E1·E3·E6·E7·E15 |
 | 원칙 | 에이전트가 플랫폼에 되돌아오는 **유일한 경로**. 어떤 런타임이든 셸이 있으면 같다. MCP 서버는 같은 명령을 같은 이름의 툴로 노출한다 |
@@ -65,6 +65,19 @@
 - **task당 열린 HITL은 하나**: 두 번째 호출은 `3 hitl_already_open`(E7-04).
 - "턴을 끝내라"는 반환 필드 `turn_end_required: true`로 표현한다. **이름을 `end_turn`으로 줄이지 않는다 (v0.4)** — ACP `stopReason: end_turn`은 "턴이 끝났다"는 **사실**이고 이 필드는 "턴을 끝내라"는 **지시**다. 서버·데몬이 둘을 같은 코드베이스에서 다루므로 같은 이름을 쓰면 grep 한 번에 구분되지 않는다(P1에서 `kind`↔`runtime_kind`가 같은 이유로 모든 finish를 500으로 만들었다). openapi도 이 이름으로 통일했다. 브리프 [2]가 같은 말을 한다. 에이전트가 무시하고 계속하면 그동안의 게시·편집은 그대로 기록되고 `turn_end`에 `waiting_human`으로 전이한다(FR-7.1, E7-02).
 - Director가 답해야 할 질문은 `hitl ask`, 위임자가 답할 질문은 `status set blocked`. 브리프에 구분을 적는다(E7-19).
+
+### 2.4a 방 명령 (v0.7, PRD v0.19 — R3 에서 구현)
+
+| 명령 | HTTP (`openapi.yaml` `x-colab-cli`) | 반환 | 단계 |
+|---|---|---|---|
+| `colab room get` · `colab room messages [--since] [--limit] [--thread] [--work <id>]` | `GET /v1/sessions/{S}` · `…/messages`(방 id 는 세션 id 와 같다) | 방 이름·설명 + 그 턴의 미션 · 메시지 | R3 (옛 `session *` 별칭) |
+| `colab room list [--query <말>]` | `GET /v1/cli/rooms` | **이 턴이 읽을 수 있는 방만**(FR-4.5 두 조건을 호출 순간 판정) — 이름·설명·마지막 활동·에이전트 참여 여부·링크 경유 여부 | R3 |
+| `colab room read --room <id> [--tail N] [--query <말>]` | `GET /v1/cli/rooms/{id}/read` | 요약 + 최근 메시지 + 결정 기록 + 아티팩트 목록. **읽기 전용**이고 그 턴의 프롬프트에만 쓴다 — 옮기려면 `decision record`. 거부면 exit 3 + 사유(`originator_not_participant`·`originator_left`·`agent_not_allowed`·`no_originator`) | R3 |
+| `colab work propose --goal <목표> --why <근거>` | `POST /v1/rooms/{S}/work-proposals` | 제안 id. **에이전트는 미션을 열 수 없다** — 사람이 확인해야 열린다(FR-2A.1) | R3 |
+
+- 읽은 사실은 서버가 양쪽 방에 남긴다(`room_read_log` + 읽힌 방 시스템 메시지). CLI 는 따로 기록하지 않는다.
+- 분량 상한(`room_read.max_rooms_per_turn` 3 · `max_tokens` 4000)을 넘기면 서버가 잘라 주고 `truncated: true` — CLI 는 그 사실을 출력에 그대로 싣는다.
+- 역할 표(§2.5) 반영은 R3: 권고는 `room_list`·`room_read` 는 **모든 역할**(맥락 읽기는 위험 행동이 아니고 권한은 사람 기준으로 서버가 막는다), `work_propose` 는 `lead`·`custom`.
 
 ### 2.5 역할별 허용 명령 (v0.6, K-19 — PRD FR-1.9.1)
 
