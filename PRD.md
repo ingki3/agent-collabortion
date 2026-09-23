@@ -1149,7 +1149,7 @@ room      1─N lane (work_id?, parent_lane_id, agent_id, profile_id, depends_on
                                                       -- 리뷰#04-4: task가 아니라 lane에 있다
                     status: queued|running|waiting_human|blocked|paused|done|failed,
                     blocked_note, blocked_message_id, reentry_count)
-lane      1─N task (agent_id, profile_id, trigger_message_id,   -- v0.19: + queued_reason: room_lanes|agent_global|runtime|workspace|null (§3.1, 서브 미션 대기 사유)
+lane      1─N task (agent_id, profile_id, trigger_message_id,
                     delegated_from_task_id, restarted_from_task_id,   -- B: 재지시
                     originator_user_id,
                     coalesced_message_ids[], attempt, max_attempts,
@@ -1157,6 +1157,7 @@ lane      1─N task (agent_id, profile_id, trigger_message_id,   -- v0.19: + qu
                     budget_override,                                   -- C2′: task 예산 승인값
                     status: deferred|queued|dispatched|preparing|running
                             |waiting_human|paused|completed|failed|cancelled,
+                    queued_reason: room_lanes|agent_global|runtime|workspace|null,   -- v0.19 §3.1, 서브 미션 대기 사유
                     failure_kind, started_at, finished_at)
 task      1─N task_event (seq, class, verb, object_ref, outcome,
                           tool, input, output, usage, superseded_by)
