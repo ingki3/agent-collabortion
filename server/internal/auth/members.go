@@ -11,8 +11,8 @@ package auth
 //                     마지막 owner 는 강등할 수 없다(409).
 //   removeMember      권한: owner · admin. 마지막 owner 는 제거할 수 없다(409).
 //                     v0.2.3(PRD §12.1-4): 떠나는 사람의 방장·Director 자리는 거부하지
-//                     않고 승계한다(OnLeave → rooms.LeaveWorkspace). 옛 409
-//                     member_is_director 는 없어졌다.
+//                     않고 승계한다(OnLeave → rooms.LeaveWorkspace). "먼저 Director 를
+//                     교체하라"는 옛 409 는 없어졌다.
 //
 // 계약이 말하지 않아 여기서 정한 것(PR 본문에 적는다 — Lead 가 풀 수 있다):
 //   - 소유자로 **올리는** 것도 소유자만 한다. "owner 강등은 owner 만" 의 취지가

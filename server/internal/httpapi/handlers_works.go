@@ -77,13 +77,15 @@ func lockWork(ctx context.Context, tx pgx.Tx, workID uuid.UUID) (status string, 
 
 // pauseWorkTx is FR-2.3's Director pause on one mission. It DRAINS: the turn
 // in flight finishes (E5-06) and the claim's mission gate stops anything new.
-func (s *Server) pauseWorkTx(ctx context.Context, tx pgx.Tx, workID uuid.UUID, legacy bool, now time.Time) error {
+// notActive is the caller's 409 — the old session surface and the works API
+// each keep their own sentence.
+func (s *Server) pauseWorkTx(ctx context.Context, tx pgx.Tx, workID uuid.UUID, notActive func(status string) error, now time.Time) error {
 	status, _, _, err := lockWork(ctx, tx, workID)
 	if err != nil {
 		return err
 	}
 	if status != "active" {
-		return apperr.Conflict("invalid_transition", "진행 중인 "+sessions.Noun(legacy)+"만 일시정지할 수 있습니다 (현재 상태: "+apperr.StatusLabel(status)+")")
+		return notActive(status)
 	}
 	raw, _ := json.Marshal(tasks.PausedDetail(sessions.PauseDirector, now))
 	if _, err := tx.Exec(ctx, `
@@ -680,10 +682,10 @@ func adoptThread(ctx context.Context, tx pgx.Tx, roomID, root, workID uuid.UUID)
 		return fmt.Errorf("createWork: adopt tasks: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		UPDATE lane l SET work_id = $3
+		UPDATE lane l SET work_id = $2
 		WHERE l.session_id = $1 AND l.work_id IS NULL
-		  AND EXISTS (SELECT 1 FROM task t WHERE t.lane_id = l.id AND t.work_id = $3)`,
-		roomID, root, workID); err != nil {
+		  AND EXISTS (SELECT 1 FROM task t WHERE t.lane_id = l.id AND t.work_id = $2)`,
+		roomID, workID); err != nil {
 		return fmt.Errorf("createWork: adopt lanes: %w", err)
 	}
 	return nil
@@ -953,7 +955,9 @@ func (s *Server) PauseWork(w http.ResponseWriter, r *http.Request, workId gen.Wo
 		return
 	}
 	if err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
-		return s.pauseWorkTx(r.Context(), tx, workId, false, s.Clock.Now())
+		return s.pauseWorkTx(r.Context(), tx, workId, func(status string) error {
+			return apperr.Conflict("invalid_transition", "진행 중인 미션만 일시정지할 수 있습니다 (현재 상태: "+apperr.StatusLabel(status)+")")
+		}, s.Clock.Now())
 	}); err != nil {
 		writeErr(w, err)
 		return
@@ -1047,7 +1051,7 @@ func (s *Server) ResumeWork(w http.ResponseWriter, r *http.Request, workId gen.W
 			if lim, ok := workTimeLimit(limitsRaw); ok && startedAt != nil {
 				if elapsed := now.Sub(*startedAt); elapsed >= lim {
 					return apperr.Validation(apperr.Field("limits.time_limit", "too_low",
-						"이미 "+isoDuration(elapsed.Truncate(time.Minute))+"이 지났습니다 — 새 시간 상한은 그보다 길어야 합니다"))
+						"이미 "+workDuration(elapsed.Truncate(time.Minute))+"이 지났습니다 — 새 시간 상한은 그보다 길어야 합니다"))
 				}
 			}
 		}
@@ -1351,7 +1355,7 @@ func (s *Server) pauseWorkForTime(ctx context.Context, workID uuid.UUID, limit, 
 		if wk, err = sessions.LoadWorkRow(ctx, tx, workID); err != nil {
 			return err
 		}
-		lim, el := isoDuration(limit), isoDuration(elapsed.Truncate(time.Minute))
+		lim, el := workDuration(limit), workDuration(elapsed.Truncate(time.Minute))
 		question := fmt.Sprintf("미션 「%s」이 시간 상한 %s에 도달했습니다 (경과 %s). 계속 진행할까요?", wk.Title, lim, el)
 		var hitlID uuid.UUID
 		if err := tx.QueryRow(ctx, `
@@ -1423,9 +1427,9 @@ func (s *Server) resumeWorkForTime(ctx context.Context, workID uuid.UUID, extens
 		next := cur + extension
 		if started != nil && now.Sub(*started) >= next {
 			return apperr.Validation(apperr.Field("time_extension", "too_low",
-				"이미 "+isoDuration(now.Sub(*started).Truncate(time.Minute))+"이 지났습니다 — 그보다 길게 연장해 주세요"))
+				"이미 "+workDuration(now.Sub(*started).Truncate(time.Minute))+"이 지났습니다 — 그보다 길게 연장해 주세요"))
 		}
-		merged, err := mergeWorkLimits(limits, &gen.WorkLimits{TimeLimit: nullable.NewNullableWithValue(isoDuration(next))})
+		merged, err := mergeWorkLimits(limits, &gen.WorkLimits{TimeLimit: nullable.NewNullableWithValue(workDuration(next))})
 		if err != nil {
 			return err
 		}
@@ -1440,4 +1444,34 @@ func (s *Server) resumeWorkForTime(ctx context.Context, workID uuid.UUID, extens
 		}
 		return liftParkedLanes(ctx, tx, scope, now)
 	})
+}
+
+// workDuration renders a mission time as ISO 8601 the way a person writes it
+// (PT3H, PT1H30M, P1DT2H) — WorkLimits.time_limit and the time request's
+// sentence.
+func workDuration(d time.Duration) string {
+	if d <= 0 {
+		return "PT0S"
+	}
+	d = d.Truncate(time.Second)
+	days := d / (24 * time.Hour)
+	d -= days * 24 * time.Hour
+	h, m, sec := d/time.Hour, (d%time.Hour)/time.Minute, (d%time.Minute)/time.Second
+	out := "P"
+	if days > 0 {
+		out += fmt.Sprintf("%dD", days)
+	}
+	if h > 0 || m > 0 || sec > 0 {
+		out += "T"
+		if h > 0 {
+			out += fmt.Sprintf("%dH", h)
+		}
+		if m > 0 {
+			out += fmt.Sprintf("%dM", m)
+		}
+		if sec > 0 {
+			out += fmt.Sprintf("%dS", sec)
+		}
+	}
+	return out
 }

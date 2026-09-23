@@ -100,7 +100,9 @@ func (s *Server) PauseSession(w http.ResponseWriter, r *http.Request, sessionId 
 		if err != nil {
 			return err
 		}
-		return s.pauseWorkTx(r.Context(), tx, workID, true, now)
+		return s.pauseWorkTx(r.Context(), tx, workID, func(status string) error {
+			return apperr.Conflict("invalid_transition", "진행 중인 세션만 일시정지할 수 있습니다 (현재 상태: "+apperr.StatusLabel(status)+")")
+		}, now)
 	})
 	if err != nil {
 		writeErr(w, err)

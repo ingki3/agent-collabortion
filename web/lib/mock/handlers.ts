@@ -2501,12 +2501,23 @@ on("DELETE", "/workspaces/{id}/members/{mid}", (req, p) => {
   const s = store();
   const { member: me } = requireAdmin(s, req, p.id);
   const target = memberOf(s, p.id, p.mid);
-  // PlanRemoval — 소유자를 내보내는 것은 소유자만(403) → 마지막 소유자(409) → Director 인 끝나지 않은 세션(409, %d 개).
-  // 서버는 `sessions[]` 같은 확장 칸을 싣지 않는다 — 세션 수만 문장에 있다.
+  // PlanRemoval — 소유자를 내보내는 것은 소유자만(403) → 마지막 소유자(409). openapi 0.2.3(PRD §12.1-4, T-R1b2):
+  // Director 인 끝나지 않은 세션은 거부하지 않고 승계 — 그 방의 방장(세션을 만든 사람)이, 방장 자신이 떠나면 가장 오래된
+  // 소유자가 이어받는다(서버 rooms.LeaveWorkspace). 옛 409(Director 교체 요구)는 없다.
   if (target.role === "owner" && me.role !== "owner") throw new Problem(403, "owner_only", W.owner_only_remove);
   if (target.role === "owner" && ownerCount(s, p.id) <= 1) throw new Problem(409, "last_owner", W.last_owner_remove);
-  const directing = [...s.sessions.values()].filter((x) => x.workspace_id === p.id && x.director_user_id === target.user.id && ACTIVE_SESSION.has(x.status)).length;
-  if (directing > 0) throw new Problem(409, "member_is_director", fmt(W.member_is_director, directing));
+  const heir = s.members
+    .filter((m) => m.workspace_id === p.id && m.role === "owner" && m.user.id !== target.user.id)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at))[0]?.user.id;
+  for (const x of s.sessions.values()) {
+    if (x.workspace_id !== p.id || x.director_user_id !== target.user.id || !ACTIVE_SESSION.has(x.status)) continue;
+    const next = x.created_by !== target.user.id ? x.created_by : heir;
+    const u = next ? s.users.get(next) : undefined;
+    if (u) {
+      x.director_user_id = u.id;
+      x.director = stripUser(u);
+    }
+  }
   s.members.splice(s.members.indexOf(target), 1);
   return { status: 204 };
 });
