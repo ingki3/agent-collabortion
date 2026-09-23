@@ -6,11 +6,11 @@ import type {
   Agent, AgentProfile, AgentTemplate, Artifact, CompletionCondition, CompletionProgress, Decision, HitlRequest, InboxItem, Invite, Lane, LoopLimits, Member,
   MemberRole, Message, Metric, MetricsReport, NotificationSettings, ObservationReport, ObservationRow, Pairing, Participant, Runtime, Session,
   SessionListItem, Task, TaskEvent, TestChat, TestChatTurn, TriggerPreview, TriggerTarget, User, Workdir,
-  WorkspaceSettings, WorkspaceSettingsUpdate,
+  WorkspaceSettings, WorkspaceSettingsUpdate, Room, RoomListItem, RoomParticipantRef, RoomRole, RoomUpdate, WorkListItem,
 } from "@/lib/api/types";
 import {
   allowedCommands, defaultSettings, emit, makeAgent, makeRuntime, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges,
-  sseFrame, store, stripUser, TEMPLATES, uuid, type MockInvite, type MockTask, type Store, type Subscriber,
+  sseFrame, store, stripUser, TEMPLATES, uuid, type MockInvite, type MockRoom, type MockTask, type Store, type Subscriber,
 } from "./store";
 import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
@@ -907,7 +907,7 @@ on("GET", "/tasks/{id}/events", (req, p) => {
 // ── realtime ──
 on("GET", "/workspaces/{id}/stream", (req, p) => {
   const s = store();
-  requireMember(s, req, p.id);
+  const { user: streamUser } = requireMember(s, req, p.id);
   const sessionIds = req.query.get("session_id")?.split(",").filter(Boolean) ?? null;
   const lastId = Number(req.headers.get("last-event-id") ?? req.query.get("last_event_id") ?? 0);
   const enc = new TextEncoder();
@@ -920,9 +920,9 @@ on("GET", "/workspaces/{id}/stream", (req, p) => {
       if (lastId > 0) {
         const oldest = s.events[0]?.id ?? 0;
         if (lastId < oldest - 1) write(sseFrame({ id: s.eventSeq, type: "resync", workspace_id: p.id, session_id: null, at: now(), payload: { reason: "out_of_window" }, ephemeral: false }));
-        else for (const ev of s.events) if (ev.id > lastId && ev.workspace_id === p.id && (!sessionIds || !ev.session_id || sessionIds.includes(ev.session_id))) write(sseFrame(ev));
+        else for (const ev of s.events) if (ev.id > lastId && ev.workspace_id === p.id && (!sessionIds || !ev.session_id || sessionIds.includes(ev.session_id)) && (!ev.to_user || ev.to_user === streamUser.id)) write(sseFrame(ev));
       }
-      sub = { workspace_id: p.id, session_ids: sessionIds, write };
+      sub = { workspace_id: p.id, session_ids: sessionIds, user_id: streamUser.id, write };
       s.subs.add(sub);
       ping = setInterval(() => { try { write(`: ping\n\n`); } catch { /* closed */ } }, 15000);
     },
@@ -1781,6 +1781,20 @@ on("POST", "/sessions/{id}/cancel", (req, p) => {
  * 멱등이 아니다 — 두 번째 호출은 1) 에서 404. 서버 문장은 `SERVER`(T-S17 #220 과 글자 단위 동일).
  */
 const DELETABLE_SESSION = new Set<Session["status"]>(["draft", "completed", "cancelled"]);
+/** 세션(= 방) id 에 딸린 행을 전부 지운다 — deleteSession · deleteRoom 이 같은 목록을 쓴다(방 id = 세션 id). */
+function purgeRoomRows(s: Store, id: string) {
+  for (const [k, w] of s.workdirs) if (w.session_id === id) s.workdirs.delete(k);
+  for (const [k, m] of s.messages) if (m.session_id === id) s.messages.delete(k);
+  for (const [k, t] of s.tasks) if (t.session_id === id) { s.tasks.delete(k); s.taskEvents.delete(k); }
+  for (const [k, l] of s.lanes) if (l.session_id === id) s.lanes.delete(k);
+  for (const [k, a] of s.artifacts) if (a.session_id === id) s.artifacts.delete(k);
+  for (const [k, d] of s.decisions) if (d.session_id === id) s.decisions.delete(k);
+  for (const [k, h] of s.hitls) if (h.session_id === id) s.hitls.delete(k);
+  for (const [k, it] of s.inbox) if (it.session_id === id) s.inbox.delete(k);
+  for (const k of [...s.roomReads.keys()]) if (k.startsWith(`${id}:`)) s.roomReads.delete(k);
+  s.sessions.delete(id);
+  s.rooms.delete(id);
+}
 on("DELETE", "/sessions/{id}", (req, p) => {
   const s = store();
   const sess = s.sessions.get(p.id);
@@ -1796,15 +1810,7 @@ on("DELETE", "/sessions/{id}", (req, p) => {
   if (blocking.length) throw new Problem(409, "workdir_unmerged", W.workdir_unmerged, { workdirs: blocking });
   // 남은 workdir 은 gc 명령을 싣고 행을 지운다(daemon-protocol v0.8.1) — 목에는 데몬이 없으므로 행만 지운다. 이미 `deleted` 인 행도
   // 세션 소유라 함께 사라진다(물리 삭제).
-  for (const [id, w] of s.workdirs) if (w.session_id === sess.id) s.workdirs.delete(id);
-  for (const [id, m] of s.messages) if (m.session_id === sess.id) s.messages.delete(id);
-  for (const [id, t] of s.tasks) if (t.session_id === sess.id) { s.tasks.delete(id); s.taskEvents.delete(id); }
-  for (const [id, l] of s.lanes) if (l.session_id === sess.id) s.lanes.delete(id);
-  for (const [id, a] of s.artifacts) if (a.session_id === sess.id) s.artifacts.delete(id);
-  for (const [id, d] of s.decisions) if (d.session_id === sess.id) s.decisions.delete(id);
-  for (const [id, h] of s.hitls) if (h.session_id === sess.id) s.hitls.delete(id);
-  for (const [id, it] of s.inbox) if (it.session_id === sess.id) s.inbox.delete(id);
-  s.sessions.delete(sess.id);
+  purgeRoomRows(s, sess.id);
   emit(s, sess.workspace_id, "session.deleted", { session_id: sess.id }, sess.id);
   return { status: 204 };
 });
@@ -2793,4 +2799,301 @@ on("POST", "/test-chats/{id}/close", (req, p) => {
     chat.updated_at = chat.closed_at;
   }
   return ok(chat);
+});
+
+
+// ── 방(v0.19, T-R2-W1) — listRooms · createRoom · getRoom · updateRoom · archive/unarchive · deleteRoom · markRoomRead · listWorks ──
+//
+// 서버(T-R1b3 #291)를 흉내 낸다: 권한은 `rooms.Decide`·`Deny` 표(404 → 409 room_archived → 403) 그대로, 문장은 `SERVER` 표.
+// **옛 세션에서 방을 파생한다** — 방 id = 세션 id(§7 이관 규칙), 이름 = 세션 제목, 설명은 비운다(SCREEN §4.3 "goal 로 채우지 않는다"),
+// 방장 = 세션 Director. `createRoom` 으로 만든 방에는 세션이 없다(서버와 같다 — 새 방의 옛 `/sessions/{id}` 는 404).
+// 미션은 옛 세션 하나(legacy work, 미션 id = 세션 id)뿐이다 — 칩 줄 대비의 최소(listWorks).
+
+type RoomAct = "view" | "post" | "configure" | "archive" | "delete" | "mark_read" | "invite" | "link" | "block" | "transfer_owner" | "summarize";
+interface Standing { roomRole: RoomRole | null; wsRole: Member["role"] | null; visibility: MockRoom["visibility"]; archived: boolean }
+const wsAdmin = (f: Standing) => f.wsRole === "owner" || f.wsRole === "admin";
+/** `rooms.Decide` 그대로(authz.go) — 행 하나가 SCREEN §2.3 「방 층」 한 칸이다. */
+function roomDecide(a: RoomAct, f: Standing): boolean {
+  if (!f.wsRole) return false;
+  const view = f.roomRole != null || wsAdmin(f) || f.visibility === "workspace";
+  if (!view) return false;
+  const post = f.roomRole != null || f.visibility === "workspace";
+  const steward = f.roomRole === "owner" || f.roomRole === "deputy" || wsAdmin(f);
+  const head = f.roomRole === "owner" || wsAdmin(f);
+  switch (a) {
+    case "view": return true;
+    case "post": return post && !f.archived;
+    case "summarize": return (post || wsAdmin(f)) && !f.archived;
+    case "invite": case "link": case "block": return steward && !f.archived;
+    case "configure": case "archive": return steward;
+    case "delete": case "transfer_owner": return head;
+    case "mark_read": return f.roomRole != null;
+  }
+}
+/** `rooms.Deny` 그대로 — 볼 수 없으면 404(invited 방은 없는 것과 같다), 보관이 막은 것은 409, 나머지는 403. */
+function roomDeny(a: RoomAct, f: Standing): Problem {
+  if (!f.wsRole || !roomDecide("view", f)) return notFoundP("room");
+  if (f.archived && roomDecide(a, { ...f, archived: false })) return new Problem(409, "room_archived", W.room_archived);
+  if (a === "delete" || a === "transfer_owner") return new Problem(403, "room_owner_required", W.room_owner_required);
+  if (a === "mark_read") return new Problem(403, "not_participant", W.room_not_participant);
+  return new Problem(403, "room_steward_required", W.room_steward_required);
+}
+const ROOM_CAPS: [NonNullable<Room["my_capabilities"]>[number], RoomAct][] = [
+  ["post", "post"], ["invite", "invite"], ["configure", "configure"], ["link", "link"], ["block", "block"],
+  ["archive", "archive"], ["delete", "delete"], ["transfer_owner", "transfer_owner"], ["summarize", "summarize"],
+];
+
+/** 옛 세션마다 방 행을 채우고, 지워진 세션의 방을 뺀다 — 읽을 때마다(목은 세션을 여러 곳에서 만든다). */
+function syncRooms(s: Store) {
+  for (const sess of s.sessions.values()) {
+    if (s.rooms.has(sess.id)) continue;
+    const people: MockRoom["people"] = [{ user_id: sess.director_user_id, role: "owner", joined_at: sess.created_at }];
+    if (sess.deputy_director_user_id && sess.deputy_director_user_id !== sess.director_user_id) people.push({ user_id: sess.deputy_director_user_id, role: "deputy", joined_at: sess.created_at });
+    s.rooms.set(sess.id, {
+      id: sess.id, workspace_id: sess.workspace_id, name: sess.title, description: "", status: "active", visibility: "workspace",
+      owner_user_id: sess.director_user_id, deputy_owner_user_id: sess.deputy_director_user_id ?? null, isolation: sess.isolation,
+      limits: { budget_usd: sess.limits.budget_usd ?? null, time_limit: sess.limits.time_limit ?? null, max_concurrent_works: 3, max_parallel_lanes: sess.limits.max_parallel_lanes ?? 5 },
+      autonomy: sess.autonomy, blocked_reason: null, blocked_detail: null, people, legacy: true, created_by: sess.created_by, created_at: sess.created_at, updated_at: sess.updated_at,
+    });
+  }
+  for (const [id, r] of s.rooms) if (r.legacy && !s.sessions.has(id)) s.rooms.delete(id);
+}
+function standingOf(s: Store, r: MockRoom, userId: string): Standing {
+  const m = s.members.find((x) => x.workspace_id === r.workspace_id && x.user.id === userId);
+  return { roomRole: r.people.find((p) => p.user_id === userId)?.role ?? null, wsRole: m?.role ?? null, visibility: r.visibility, archived: r.status === "archived" };
+}
+/** 방을 찾고 권한을 본다 — 없거나 볼 수 없으면 404, 할 수 없으면 `roomDeny`. */
+function roomGate(s: Store, req: Req, roomId: string, act: RoomAct): { room: MockRoom; user: User; f: Standing } {
+  syncRooms(s);
+  const user = requireUser(s, req);
+  const room = s.rooms.get(roomId);
+  if (!room) throw notFoundP("room");
+  const f = standingOf(s, room, user.id);
+  if (!roomDecide(act, f)) throw roomDeny(act, f);
+  return { room, user, f };
+}
+const roomMessages = (s: Store, roomId: string) => [...s.messages.values()].filter((m) => m.session_id === roomId);
+const byTime = (a: Message, b: Message) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
+function roomLastActivity(s: Store, r: MockRoom): string | null {
+  const ms = roomMessages(s, r.id);
+  return ms.length ? ms.reduce((a, b) => (byTime(a, b) >= 0 ? a : b)).created_at : null;
+}
+/** `room_participant.last_read_message_id` 이후, 내가 쓰지 않은 메시지 수(서버 `unreadPredicate`). 참여자가 아니면 0. */
+function roomUnread(s: Store, r: MockRoom, userId: string): number {
+  if (!r.people.some((p) => p.user_id === userId)) return 0;
+  const marker = s.messages.get(s.roomReads.get(`${r.id}:${userId}`) ?? "");
+  return roomMessages(s, r.id).filter((m) => m.author_id !== userId && (!marker || byTime(m, marker) > 0)).length;
+}
+const OPEN_WORK = new Set<Session["status"]>(["active", "paused", "completing"]);
+const roomActiveWorks = (s: Store, r: MockRoom) => (s.sessions.get(r.id) && OPEN_WORK.has(s.sessions.get(r.id)!.status) ? 1 : 0);
+/** 「내가 답할 것만」 — 내가 승인자인 열린 확인 요청 · 내가 Director(deputy)인 미션의 막힘·실패 서브 미션(서버 att 절). */
+function roomAttention(s: Store, r: MockRoom, userId: string): RoomListItem["attention"] {
+  const sess = s.sessions.get(r.id);
+  const directs = !!sess && (sess.director_user_id === userId || sess.deputy_director_user_id === userId);
+  const hitl_open = [...s.hitls.values()].filter((h) => h.session_id === r.id && h.status === "open"
+    && (h.approver_spec === userId || (h.approver_spec === "room_owner" && r.owner_user_id === userId) || (h.approver_spec === "director" && directs))).length;
+  const lanes = [...s.lanes.values()].filter((l) => l.session_id === r.id && directs);
+  return { hitl_open, blocked: lanes.filter((l) => l.status === "blocked").length, failed: lanes.filter((l) => l.status === "failed").length };
+}
+function roomParticipants(s: Store, r: MockRoom): RoomParticipantRef[] {
+  const people: RoomParticipantRef[] = r.people.map((p) => {
+    const u = s.users.get(p.user_id);
+    return { kind: "user", id: p.user_id, name: u?.display_name || u?.email || "알 수 없는 사람", avatar_url: u?.avatar_url ?? null };
+  });
+  const agents: RoomParticipantRef[] = (s.sessions.get(r.id)?.participants ?? []).map((p) => ({ kind: "agent", id: p.agent_id, name: p.agent.name, avatar_url: null }));
+  return [...people, ...agents];
+}
+function toRoomListItem(s: Store, r: MockRoom, userId: string): RoomListItem {
+  return {
+    id: r.id, name: r.name, description: r.description, status: r.status, blocked_reason: r.blocked_reason, unread_count: roomUnread(s, r, userId),
+    active_work_count: roomActiveWorks(s, r), attention: roomAttention(s, r, userId), participants: roomParticipants(s, r),
+    my_room_role: r.people.find((p) => p.user_id === userId)?.role ?? null, last_activity_at: roomLastActivity(s, r),
+  };
+}
+function toRoom(s: Store, r: MockRoom, userId: string): Room {
+  const f = standingOf(s, r, userId);
+  const sess = s.sessions.get(r.id);
+  const tasks = [...s.tasks.values()].filter((t) => t.session_id === r.id);
+  return {
+    id: r.id, workspace_id: r.workspace_id, name: r.name, description: r.description, status: r.status, visibility: r.visibility,
+    owner_user_id: r.owner_user_id, deputy_owner_user_id: r.deputy_owner_user_id, runtime_id: sess?.runtime_id ?? null, isolation: r.isolation, limits: r.limits,
+    autonomy: r.autonomy, default_director_user_id: null, blocked_reason: r.blocked_reason, blocked_detail: r.blocked_detail ?? null,
+    counts: { works_active: roomActiveWorks(s, r), lanes_active: [...s.lanes.values()].filter((l) => l.session_id === r.id && ["queued", "running", "waiting_human", "paused"].includes(l.status)).length, tasks_active: tasks.filter((t) => ACTIVE_TASK.has(t.status)).length },
+    cost_usd: sess?.cost_usd ?? 0, cost_estimated: sess?.cost_estimated ?? false, unread_count: roomUnread(s, r, userId), my_room_role: f.roomRole,
+    my_capabilities: ROOM_CAPS.filter(([, a]) => roomDecide(a, f)).map(([c]) => c),
+    created_by: r.created_by, created_at: r.created_at, updated_at: r.updated_at, last_activity_at: roomLastActivity(s, r),
+  };
+}
+/** 진행 중인 할 일 — 보관 거절(서버 `activeTaskStatusesSQL`). */
+const ACTIVE_TASK = new Set(["deferred", "queued", "dispatched", "preparing", "running", "waiting_human", "paused"]);
+/** `room.updated` — 서버 `publishRoom` 의 부분 칸(보는 사람 모양 칸은 싣지 않는다). */
+function emitRoom(s: Store, r: MockRoom) {
+  emit(s, r.workspace_id, "room.updated", {
+    id: r.id, name: r.name, description: r.description, status: r.status, visibility: r.visibility,
+    blocked_reason: r.blocked_reason, blocked_detail: r.blocked_detail ?? null, last_activity_at: roomLastActivity(s, r),
+  }, r.id);
+}
+const roomNameErrors = (name: string | undefined, desc: string | undefined, nameRequired: boolean) => {
+  const errors: { field: string; code?: string; message: string }[] = [];
+  if (nameRequired || name !== undefined) {
+    const n = (name ?? "").trim();
+    if (!n || [...n].length > 200) errors.push({ field: "name", code: "length", message: W.room_name_1_200 });
+  }
+  if (desc !== undefined && [...desc.trim()].length > 500) errors.push({ field: "description", code: "length", message: W.room_description_500 });
+  return errors;
+};
+
+on("GET", "/workspaces/{id}/rooms", (req, p) => {
+  const s = store();
+  const { user, member } = requireMember(s, req, p.id);
+  syncRooms(s);
+  const q = (req.query.get("q") ?? "").trim().toLowerCase();
+  const flag = (k: string, d: boolean) => (req.query.has(k) ? req.query.get(k) === "true" : d);
+  const unreadOnly = flag("unread_only", false), participating = flag("participating", true), archived = flag("include_archived", false);
+  const limit = Math.min(Math.max(Number(req.query.get("limit") ?? 50) || 50, 1), 200);
+  const admin = member.role === "owner" || member.role === "admin";
+  const items = [...s.rooms.values()]
+    .filter((r) => r.workspace_id === p.id)
+    .map((r) => ({ r, it: toRoomListItem(s, r, user.id) }))
+    .filter(({ r, it }) => admin || r.visibility === "workspace" || it.my_room_role != null)
+    .filter(({ it }) => !participating || it.my_room_role != null)
+    .filter(({ it }) => archived || it.status === "active")
+    .filter(({ it }) => !q || it.name.toLowerCase().includes(q) || it.description.toLowerCase().includes(q))
+    .filter(({ it }) => !unreadOnly || it.unread_count > 0)
+    // 정렬은 마지막 활동순 하나(§12.1-11) — 활동이 없으면 만든 시각.
+    .sort((a, b) => (b.it.last_activity_at ?? b.r.created_at).localeCompare(a.it.last_activity_at ?? a.r.created_at) || b.r.id.localeCompare(a.r.id))
+    .slice(0, limit)
+    .map(({ it }) => it);
+  return ok({ items, next_cursor: null });
+});
+on("POST", "/workspaces/{id}/rooms", (req, p) => {
+  const s = store();
+  const { user } = requireMember(s, req, p.id);
+  const key = req.headers.get("idempotency-key");
+  if (key && s.idem.has(`room:${key}`)) return ok(s.idem.get(`room:${key}`), 201, { "Idempotent-Replayed": "true" });
+  const b = body<{ name?: string; description?: string }>(req);
+  const errors = roomNameErrors(b.name, b.description, true);
+  if (errors.length) throw validation(errors);
+  // 워크스페이스 기본값을 상속한다(서버 loadRoomDefaults) — 격리는 새 방에서 늘 `none`(저장소 경로를 칸 하나로 물을 수 없다).
+  const d = settingsOf(s, p.id).room_defaults ?? {};
+  const t = now();
+  const r: MockRoom = {
+    id: uuid(), workspace_id: p.id, name: b.name!.trim(), description: (b.description ?? "").trim(), status: "active", visibility: d.visibility ?? "workspace",
+    owner_user_id: user.id, deputy_owner_user_id: null, isolation: { kind: "none" },
+    limits: { max_parallel_lanes: 5, max_concurrent_works: 3, ...(d.limits ?? {}) }, autonomy: d.autonomy ?? "guided",
+    blocked_reason: null, blocked_detail: null, people: [{ user_id: user.id, role: "owner", joined_at: t }], legacy: false, created_by: user.id, created_at: t, updated_at: t,
+  };
+  s.rooms.set(r.id, r);
+  emitRoom(s, r);
+  const out = toRoom(s, r, user.id);
+  if (key) s.idem.set(`room:${key}`, out);
+  return ok(out, 201);
+});
+on("GET", "/rooms/{id}", (req, p) => {
+  const s = store();
+  const { room, user } = roomGate(s, req, p.id, "view");
+  return ok(toRoom(s, room, user.id));
+});
+on("PATCH", "/rooms/{id}", (req, p) => {
+  const s = store();
+  const { room, user } = roomGate(s, req, p.id, "configure");
+  const b = body<RoomUpdate>(req);
+  const errors = roomNameErrors(b.name, b.description, false);
+  if (b.visibility !== undefined && b.visibility !== "workspace" && b.visibility !== "invited") errors.push({ field: "visibility", code: "enum", message: W.room_visibility_enum });
+  if (errors.length) throw validation(errors);
+  if (b.name !== undefined) room.name = b.name.trim();
+  if (b.description !== undefined) room.description = b.description.trim();
+  if (b.visibility !== undefined) room.visibility = b.visibility;
+  room.updated_at = now();
+  emitRoom(s, room);
+  return ok(toRoom(s, room, user.id));
+});
+for (const [path, archive] of [["/rooms/{id}/archive", true], ["/rooms/{id}/unarchive", false]] as const) {
+  on("POST", path, (req, p) => {
+    const s = store();
+    const { room, user } = roomGate(s, req, p.id, "archive");
+    const want = archive ? "archived" : "active";
+    if (room.status !== want) {
+      if (archive) {
+        const n = [...s.tasks.values()].filter((t) => t.session_id === room.id && ACTIVE_TASK.has(t.status)).length;
+        if (n > 0) throw new Problem(409, "tasks_active", W.room_tasks_active, { tasks_active: n });
+      }
+      room.status = want;
+      room.updated_at = now();
+      emitRoom(s, room);
+    }
+    return ok(toRoom(s, room, user.id));
+  });
+}
+/** deleteRoom(FR-2.6) — 방장·ws owner·admin. 진행 중 미션 → 409 works_active, 미병합 worktree → 409 workdir_unmerged. SSE room.deleted + session.deleted(R4 까지 둘 다). */
+on("DELETE", "/rooms/{id}", (req, p) => {
+  const s = store();
+  const { room } = roomGate(s, req, p.id, "delete");
+  const active = roomActiveWorks(s, room);
+  if (active > 0) throw new Problem(409, "works_active", W.room_works_active, { works_active: active });
+  const blocking = [...s.workdirs.values()].filter((w) => w.session_id === room.id && w.status !== "deleted" && w.kind === "worktree" && (w.dirty === true || w.gc_blocked_reason != null)).map(({ runtime_id: _r, ...wire }) => wire);
+  if (blocking.length) throw new Problem(409, "workdir_unmerged", W.workdir_unmerged, { workdirs: blocking });
+  purgeRoomRows(s, room.id);
+  emit(s, room.workspace_id, "room.deleted", { room_id: room.id }, room.id);
+  emit(s, room.workspace_id, "session.deleted", { session_id: room.id }, room.id);
+  return { status: 204 };
+});
+/** markRoomRead — 표식을 **앞으로만** 옮긴다. `room.unread` 는 부른 사람에게만(다른 탭·기기). */
+on("POST", "/rooms/{id}/read", (req, p) => {
+  const s = store();
+  const { room, user } = roomGate(s, req, p.id, "mark_read");
+  const b = body<{ last_read_message_id?: string }>(req);
+  const m = b.last_read_message_id ? s.messages.get(b.last_read_message_id) : undefined;
+  if (!m || m.session_id !== room.id) throw validation([{ field: "last_read_message_id", code: "not_in_room", message: W.room_not_in_room }]);
+  const k = `${room.id}:${user.id}`;
+  const cur = s.messages.get(s.roomReads.get(k) ?? "");
+  if (!cur || byTime(m, cur) > 0) s.roomReads.set(k, m.id);
+  const unread = roomUnread(s, room, user.id);
+  emit(s, room.workspace_id, "room.unread", { room_id: room.id, unread_count: unread, last_read_message_id: s.roomReads.get(k) }, room.id, false, user.id);
+  return ok({ room_id: room.id, unread_count: unread });
+});
+/** listWorks 최소 — 옛 세션 하나가 이 방의 미션 하나다(미션 id = 세션 id). 새 방은 미션이 없다. */
+on("GET", "/rooms/{id}/works", (req, p) => {
+  const s = store();
+  const { room } = roomGate(s, req, p.id, "view");
+  const sess = s.sessions.get(room.id);
+  const want = req.query.get("status")?.split(",").filter(Boolean);
+  const items: WorkListItem[] = sess && (!want || want.includes(sess.status)) ? [{
+    id: sess.id, room_id: room.id, title: sess.title, goal: sess.goal, status: sess.status, paused_reason: null,
+    waiting_human: [...s.hitls.values()].some((h) => h.session_id === sess.id && h.status === "open"), director: sess.director!,
+    assignee_agent_id: sess.assignee_agent_id, completion_progress: { met: sess.completion_progress.met, total: sess.completion_progress.total },
+    cost_usd: sess.cost_usd, budget_usd: sess.limits.budget_usd ?? null, last_activity_at: sess.last_activity_at ?? null, finished_at: sess.finished_at ?? null,
+  }] : [];
+  return ok({ items, next_cursor: null });
+});
+/**
+ * 목 전용 — S5 스크린샷·테스트가 서버 경로 없이 방의 모양을 만든다: 멈춤 사유 · 보관 · 공개 범위 · 설명 · 안 읽음(다른 사람이 쓴 메시지 N개) ·
+ * 사람 참여자(이메일 + 역할). 멈춤·안 읽음은 실서버에서 데몬·다른 사람이 만드는 상태다.
+ */
+on("POST", "/__mock/rooms/{id}/seed", (req, p) => {
+  const s = store();
+  syncRooms(s);
+  const room = s.rooms.get(p.id);
+  if (!room) throw notFoundP("room");
+  const b = body<{ blocked_reason?: MockRoom["blocked_reason"]; status?: MockRoom["status"]; visibility?: MockRoom["visibility"]; description?: string; unread?: number; people?: { email: string; role: RoomRole }[]; drop_user_email?: string }>(req);
+  if (b.blocked_reason !== undefined) room.blocked_reason = b.blocked_reason;
+  if (b.status) room.status = b.status;
+  if (b.visibility) room.visibility = b.visibility;
+  if (b.description !== undefined) room.description = b.description;
+  for (const pp of b.people ?? []) {
+    const u = [...s.users.values()].find((x) => x.email === pp.email);
+    if (u && !room.people.some((x) => x.user_id === u.id)) room.people.push({ user_id: u.id, role: pp.role, joined_at: now() });
+  }
+  if (b.drop_user_email) room.people = room.people.filter((x) => s.users.get(x.user_id)?.email !== b.drop_user_email);
+  for (let i = 0; i < (b.unread ?? 0); i++) {
+    const at = new Date(Date.now() + i).toISOString();
+    const m: Message = {
+      id: uuid(), session_id: room.id, parent_id: null, source_task_id: null, lane_id: null, state: "posted", reply_count: 0, is_note: false,
+      author_type: "system", author_id: null, kind: "system", content: `안 읽음 시드 ${i + 1}`, mentions: [], created_at: at, edited_at: null,
+    };
+    s.messages.set(m.id, m);
+  }
+  room.updated_at = now();
+  emitRoom(s, room);
+  return ok({ ok: true });
 });

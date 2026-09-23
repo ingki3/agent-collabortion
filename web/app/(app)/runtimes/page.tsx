@@ -183,7 +183,7 @@ export default function RuntimesPage() {
                     <ul className="rt__sessions">
                       {block.sessions.map((s, i) => (
                         <li key={s.id ?? i} data-testid="runtime-blocking-session">
-                          {s.id ? <Link href={`/sessions/${s.id}`}>{s.title ?? s.id}</Link> : <span>{s.title ?? "세션"}</span>}
+                          {s.id ? <Link href={`/rooms/${s.id}`}>{s.title ?? s.id}</Link> : <span>{s.title ?? "세션"}</span>}
                           {s.id && (
                             <button type="button" className="rt__link" onClick={() => void openRebind(s.id!)} data-testid="runtime-blocking-rebind">옮기기</button>
                           )}
@@ -203,7 +203,7 @@ export default function RuntimesPage() {
                       <ul className="rt__sessions">
                         {d.active_sessions.map((s) => (
                           <li key={s.id} data-testid="runtime-active-session" data-session-status={s.status}>
-                            <Link href={`/sessions/${s.id}`}>{s.title}</Link>
+                            <Link href={`/rooms/${s.id}`}>{s.title}</Link>
                             <span className="small muted-3"> · {s.status}</span>
                             {s.status === "paused" && (
                               <button type="button" className="rt__link" onClick={() => void openRebind(s.id)} data-testid="runtime-rebind">옮기기</button>

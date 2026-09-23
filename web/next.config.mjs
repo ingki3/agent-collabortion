@@ -10,6 +10,12 @@ const mock = process.env.COLAB_MOCK_API === "1";
 const devPages = process.env.NODE_ENV !== "production" || process.env.COLAB_DEV_PAGES === "1";
 export const pageExtensions = devPages ? ["dev.tsx", "tsx", "ts", "jsx", "js"] : ["tsx", "ts", "jsx", "js"];
 
+export const SESSION_REDIRECTS = [
+  { source: "/sessions", destination: "/rooms", statusCode: 307 },
+  { source: "/sessions/:id((?!new$)[^/]+)", destination: "/rooms/:id", statusCode: 307 },
+  { source: "/sessions/:id((?!new$)[^/]+)/:rest+", destination: "/rooms/:id/:rest+", statusCode: 307 },
+];
+
 const nextConfig = {
   reactStrictMode: true,
   pageExtensions,
@@ -17,6 +23,12 @@ const nextConfig = {
   // 스트림을 gzip 으로 감싸 **버퍼링**한다 → EventSource 는 열리지만(onopen) 프레임이 한 건도 안 온다(G3 W-2, S12 가 `대기 중` 에 머묾).
   // curl 은 Accept-Encoding 을 안 보내 재현되지 않았다. 압축은 배포의 리버스 프록시가 맡는다.
   compress: false,
+  // v0.19 (T-R2-W1): 세션 → 방. 옛 주소 `/sessions`·`/sessions/<id>…` 는 `/rooms/…` 로 **307**(임시 — 되돌릴 수 있고, 브라우저가 영구
+  // 캐시하지 않는다). 방 id = 옛 세션 id(§7 이관 규칙)라 경로 조각은 그대로 옮긴다. 쿼리(`?deleted=` 등)는 Next 가 그대로 넘긴다.
+  // **`/sessions/new`(마법사)는 예외로 남긴다** — 삭제는 T-R2-W4 뒤. `(?!new$)` 가 그 한 조각만 비킨다.
+  async redirects() {
+    return SESSION_REDIRECTS;
+  },
   // 실서버 모드: /api/v1/* 를 Go 서버(:8080)로 프록시한다(같은 오리진 → 쿠키 그대로, openapi `servers[0]`).
   // 목 모드(COLAB_MOCK_API=1): app/api/v1/[...path]/route.ts 가 받는다(프록시 없음).
   async rewrites() {

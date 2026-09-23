@@ -347,7 +347,7 @@ export default function ComponentsPage() {
         <div className="story__grid">
           <div className="story__cell" style={{ height: 420, overflow: "hidden" }}>
             <div className="story__label">owner · inbox 3</div>
-            <div style={{ height: 380 }}><AppNav workspaceName="마케팅팀" current="/sessions" inboxCount={3} showSettings userName="민지" onLogout={() => {}} /></div>
+            <div style={{ height: 380 }}><AppNav workspaceName="마케팅팀" current="/rooms" inboxCount={3} showSettings userName="민지" onLogout={() => {}} /></div>
           </div>
           <div className="story__cell" style={{ height: 420, overflow: "hidden" }}>
             <div className="story__label">member · Settings 없음 · inbox 0</div>

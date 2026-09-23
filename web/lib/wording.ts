@@ -285,3 +285,158 @@ export const EMPTY_TURN = {
   /** 카드의 종류 표시(스크린리더·툴팁). */
   kind: "정보",
 } as const;
+
+// ── 방(v0.19, T-R2-W1) — S5 방 목록 · S25 방 찾기 · S18 방 만들기(SCREEN §4.3·§4.4·§4.5) ──
+//
+// **수를 문장에 보간하지 않는다**(COMPONENTS §8.5 v0.19) — 「진행 중인 미션 **2**」·「미션 **2**개가 진행 중입니다」의 수는 슬롯이다.
+// 그래서 수가 드는 문장은 `[앞, 뒤]` 두 토막(`Slotted`)으로 두고 화면이 `앞{수}뒤` 로 그린다(`<Slot>`). 문구 자물쇠가 두 토막을
+// 그대로 잰다 — 템플릿 리터럴 안에 넣으면 그 문장이 자물쇠 밖으로 빠진다.
+// **「멈춤」과 「일시정지」의 층**(§8.4 v0.19): 방 `blocked_reason` 은 「멈춤」이다. 이 표에 「일시정지」는 없다.
+
+/** `앞{수}뒤` — 수 자리가 있는 문장의 두 토막. */
+export type Slotted = readonly [head: string, tail: string];
+
+/** 방 멈춤 배지의 라벨(COMPONENTS §9.5 `room` kind) — 사유별. `manual` 에 역할을 넣지 않는다(누가 멈췄는지는 방 배너가 이름으로). */
+export const ROOM_BLOCKED_LABEL = {
+  budget: "예산으로 멈춤",
+  runtime_offline: "컴퓨터 연결 끊김으로 멈춤",
+  loop: "루프 상한으로 멈춤",
+  manual: "직접 멈춤",
+} as const;
+
+/** S5 카드 · S25 제어 · 빈 상태(SCREEN §4.3 · §4.4 · §7). */
+export const ROOM_LIST = {
+  new_room: "새 방",
+  /** 안 읽음 배지 — 숫자만 있는 요소라 라벨을 단다(SCREEN §7 "숫자만 있는 요소에는 라벨"). */
+  unread_label: ["안 읽은 메시지 ", "개"] as Slotted,
+  works_active: ["진행 중인 미션 ", ""] as Slotted,
+  works_none: "열린 미션 없음",
+  /** 주의 배지 셋 — 각 수에 라벨(§4.3 "세 숫자에 각각 라벨"). 내 것만 센다. */
+  attention_hitl: ["내가 답할 요청 ", ""] as Slotted,
+  attention_blocked: ["막힘 ", ""] as Slotted,
+  attention_failed: ["실패 ", ""] as Slotted,
+  participants_label: ["참여자 ", "명"] as Slotted,
+  // 한 글자 토막은 줄을 나눈다 — 한 줄에 두면 문구 자물쇠의 리터럴 스캐너(2자 이상)가 따옴표 짝을 잘못 맞춰 뒤 토막을 놓친다.
+  more_participants: [
+    "+",
+    "",
+  ] as Slotted,
+  archived: "보관됨",
+  /** S25 제어. */
+  search_label: "방 찾기",
+  search_placeholder: "방 이름·설명 검색",
+  unread_only: "안 읽음만",
+  participating: "내가 참여한 방만",
+  include_archived: "보관 포함",
+  sort_fixed: "정렬: 마지막 활동순",
+  /** 「내가 참여한 방만」이 켜져 있어 안 보이는 공개 방(SCREEN §4.4 · SCR-A 막힘 5). 0 이면 그리지 않는다. */
+  more_public: ["워크스페이스에 공개된 방이 ", "개 더 있습니다"] as Slotted,
+  more_public_action: "「내가 참여한 방만」 끄기",
+  /** 빈 상태(§4.3 · §7). */
+  empty_title: "첫 방을 만들어 보세요",
+  empty_examples: ["결제팀 — 결제 관련 논의와 작업", "인프라 — 배포·모니터링"],
+  empty_no_computer: "컴퓨터를 연결하면 에이전트가 일을 시작할 수 있습니다",
+  empty_no_computer_link: "컴퓨터 연결",
+  /** 검색 결과 0(§4.4) — 〈말〉 자리는 검색어다. */
+  no_match: [
+    "「",
+    "」에 걸리는 방이 없습니다",
+  ] as Slotted,
+  no_match_filters: "조건에 맞는 방이 없습니다",
+  retry_with_archived: "보관 포함해서 다시 찾기",
+  loading: "불러오는 중…",
+} as const;
+
+/** 카드 「…」 메뉴(SCREEN §4.3) — 보관·보관 해제·삭제. 삭제에는 「되돌릴 수 없음」을 붙인다(FR-2.4 [V19-C]). */
+export const ROOM_MENU = {
+  button: "방 옵션",
+  archive: "보관",
+  unarchive: "보관 해제",
+  delete: "삭제",
+  delete_tail: "되돌릴 수 없음",
+  /** 비활성 사유 — 층을 적는다(§2.3 · §5 "Director만 가능" 이 아니라 누구의 일인지). */
+  archive_role: "방장·부방장이나 워크스페이스 소유자·관리자만 보관할 수 있습니다",
+  delete_role: "방장이나 워크스페이스 소유자·관리자만 삭제할 수 있습니다",
+  /** 진행 중인 미션이 있을 때(§4.3 문장) — 수는 슬롯. */
+  delete_works: ["미션 ", "개가 진행 중입니다 — 먼저 끝내거나 취소하세요"] as Slotted,
+} as const;
+
+/** 보관 확인(§4.3 · §5 "보관은 되돌릴 수 있다고 적는다"). */
+export const ARCHIVE_DIALOG = {
+  title: (name: string) => `「${name}」 방을 보관할까요?`,
+  body: "새 대화와 새 미션만 막습니다. 메시지·미션·아티팩트는 그대로 남고 검색에도 걸립니다. 언제든 되돌릴 수 있습니다.",
+  confirm: "보관",
+  cancel: "취소",
+  busy: "보관 중…",
+} as const;
+
+/** 방 삭제 확인(§4.3 · FR-2.6) — 사라지는 것을 나열한다. 작업 폴더는 지우는 목록에 넣지 않는다. */
+export const DELETE_ROOM_DIALOG = {
+  title: (name: string) => `「${name}」 방을 삭제할까요?`,
+  loses: "메시지·미션·서브 미션·할 일·사람 확인 요청·활동 기록·아티팩트·결정 기록·비용 기록이 함께 사라집니다(워크스페이스 집계에서도 빠집니다). 활동 로그에는 방을 지웠다는 한 줄만 남습니다.",
+  workdirs: "이 방의 작업 폴더 중 병합·정리된 것은 정리 대상으로 넘어갑니다.",
+  irreversible: "되돌릴 수 없습니다.",
+  confirm: "삭제",
+  cancel: "취소",
+  busy: "삭제 중…",
+  workdirs_head: "삭제를 막은 작업 폴더:",
+  workdirs_link: "작업 폴더 관리",
+} as const;
+
+/** 방이 지워진 뒤 S5 의 안내 한 줄 — 내가 지운 것과 다른 곳(S7)에서 지워진 것. */
+export const ROOM_DELETED_NOTICE = {
+  elsewhere: (name: string) => `「${name}」 방이 삭제되어 목록으로 돌아왔습니다.`,
+  mine: (name: string) => `「${name}」 방을 삭제했습니다.`,
+} as const;
+
+/** S18 방 만들기(SCREEN §4.5). */
+export const CREATE_ROOM = {
+  title: "새 방",
+  name: "이름",
+  name_placeholder: "결제팀",
+  description: "한 줄 설명(선택)",
+  description_placeholder: "결제 관련 논의와 작업",
+  name_required: "방 이름을 적어 주세요",
+  duplicate: "같은 이름의 방이 이미 있습니다 — 작업 폴더 브랜치 이름이 헷갈릴 수 있습니다",
+  settings_link: "방 설정",
+  settings_later: "만든 뒤 바꿀 수 있습니다",
+  /** ⓘ 한 줄의 뒤 절 — 앞 절은 워크스페이스 기본값에서 만든다(`roomDefaultsLine`). */
+  info_tail: "방 설정에서 미리 바꿀 수 있습니다",
+  runtime_first_run: "컴퓨터는 첫 실행 때 정해집니다",
+  isolation: { none: "격리 없음", worktree: "워크트리로 나눔", container: "컨테이너로 나눔" },
+  cancel: "취소",
+  create: "만들기",
+  busy: "만드는 중…",
+} as const;
+
+/**
+ * S18 ⓘ 한 줄의 앞 절 — **워크스페이스 기본값을 읽어 쓴다**(§4.5 "문장을 고정하지 않는다"). 기본 격리는 `room_defaults.isolation_kind`,
+ * 없으면 옛 `default_isolation`(서버 loadRoomDefaults 와 같은 순서). 설정을 못 읽었으면 계약 기본값(`none`).
+ */
+export function roomDefaultsLine(settings: { default_isolation?: string | null; room_defaults?: { isolation_kind?: string | null } | null } | null): string {
+  const kind = (settings?.room_defaults?.isolation_kind ?? settings?.default_isolation ?? "none") as keyof typeof CREATE_ROOM.isolation;
+  return `${CREATE_ROOM.isolation[kind] ?? CREATE_ROOM.isolation.none} · ${CREATE_ROOM.runtime_first_run}`;
+}
+
+/** 새로 만든 방(옛 S7 이 아직 없는 방)의 임시 화면 — S7 재작성(T-R2-W2) 전까지. */
+export const ROOM_PENDING = {
+  back: "방 목록으로",
+  body: "방을 만들었습니다. 참여자 초대·대화·미션은 새 방 화면이 열리면 여기서 시작합니다.",
+} as const;
+
+export type RoomGate = { ok: true } | { ok: false; reason: string; count?: undefined } | { ok: false; reason: Slotted; count: number };
+export interface RoomGateMe {
+  /** 워크스페이스 owner·admin(AuthContext `canManage`). */
+  canManage: boolean;
+}
+/** 보관 가부 — 방장·부방장·ws owner·admin(서버 `rooms.Decide` ActArchive). 진행 중 할 일은 목록에서 모른다 — 서버 409 가 다이얼로그에서 말한다. */
+export function archiveGate(room: { my_room_role: string | null }, me: RoomGateMe): RoomGate {
+  if (room.my_room_role === "owner" || room.my_room_role === "deputy" || me.canManage) return { ok: true };
+  return { ok: false, reason: ROOM_MENU.archive_role };
+}
+/** 삭제 가부 — 진행 중인 미션이 먼저(권한이 있어도 다음 행동은 "먼저 끝내기"), 그다음 방장·ws owner·admin(ActDelete). */
+export function deleteRoomGate(room: { my_room_role: string | null; active_work_count: number }, me: RoomGateMe): RoomGate {
+  if (room.active_work_count > 0) return { ok: false, reason: ROOM_MENU.delete_works, count: room.active_work_count };
+  if (room.my_room_role === "owner" || me.canManage) return { ok: true };
+  return { ok: false, reason: ROOM_MENU.delete_role };
+}

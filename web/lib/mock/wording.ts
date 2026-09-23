@@ -229,6 +229,18 @@ export const SERVER = {
   // ── updateSession (internal/httpapi/handlers_sessions_p3.go) — T-W15 가 목에 PATCH /sessions/{id} 를 처음 만들었다. 시작 뒤 못 바꾸는 두 칸(422 immutable). ──
   isolation_immutable: { text: "격리 방식은 시작 전에만 바꿀 수 있습니다", at: "internal/httpapi/handlers_sessions_p3.go" },
   runtime_immutable: { text: "컴퓨터는 시작 전에만 바꿀 수 있습니다", at: "internal/httpapi/handlers_sessions_p3.go" },
+  // ── 방 (T-R1b3 #291 · internal/httpapi/handlers_rooms.go · rooms/authz.go · sessions/room_ops.go) — T-R2-W1 목(listRooms·createRoom·getRoom·
+  //    updateRoom·archive·deleteRoom·markRoomRead). 권한 판정은 서버 `rooms.Decide`·`Deny` 표 그대로(404 → 409 room_archived → 403). ──
+  room_name_1_200: { text: "방 이름은 1~200자로 입력해 주세요", at: "internal/httpapi/handlers_rooms.go" },
+  room_description_500: { text: "설명은 500자까지 쓸 수 있습니다", at: "internal/httpapi/handlers_rooms.go" },
+  room_visibility_enum: { text: "알 수 없는 공개 범위입니다", at: "internal/httpapi/handlers_rooms.go" },
+  room_tasks_active: { text: "진행 중인 할 일이 있어 보관할 수 없습니다 — 끝나거나 중단된 뒤 보관해 주세요", at: "internal/httpapi/handlers_rooms.go" },
+  room_not_in_room: { text: "이 방의 메시지가 아닙니다", at: "internal/httpapi/handlers_rooms.go" },
+  room_works_active: { text: "진행 중인 미션이 있어 방을 삭제할 수 없습니다 — 먼저 끝내거나 취소해 주세요", at: "internal/sessions/room_ops.go" },
+  room_archived: { text: "보관된 방입니다 — 먼저 보관을 해제해 주세요", at: "internal/rooms/authz.go" },
+  room_owner_required: { text: "방장이나 소유자·관리자만 할 수 있습니다", at: "internal/rooms/authz.go" },
+  room_steward_required: { text: "방장·부방장이나 소유자·관리자만 할 수 있습니다", at: "internal/rooms/authz.go" },
+  room_not_participant: { text: "이 방의 참여자가 아닙니다", at: "internal/rooms/authz.go" },
 } as const satisfies Record<string, ServerSentence>;
 
 /**

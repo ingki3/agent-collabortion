@@ -16,7 +16,9 @@
  *   여기 적힌 inbox tone 은 기본값일 뿐이고 호출부가 Badge 의 `tone` 으로 덮어쓴다.
  */
 
-export type BadgeKind = "lane" | "task" | "session" | "agent" | "inbox";
+import { ROOM_BLOCKED_LABEL } from "@/lib/wording";
+
+export type BadgeKind = "lane" | "task" | "session" | "agent" | "inbox" | "room";
 
 /** 색 토큰 계열. neutral = --ink-3 / --ink-2 (상태색 아님). */
 export type Tone = "run" | "wait" | "block" | "pause" | "done" | "fail" | "neutral";
@@ -84,6 +86,16 @@ export const BADGE_MAP = {
     action_required: spec("!", "wait", "조치 필요"),
     attention: spec("▲", "pause", "주의"),
     info: spec("i", "run", "알림"),
+  },
+  /**
+   * v0.19 방 멈춤 사유 4종(`blocked_reason`, null 이면 배지 없음) — COMPONENTS §9.5. 전부 ⏸ soft: `manual` 도 같은 글리프이고 사람이 걸었다는
+   * 것은 라벨이 말한다. 라벨은 「멈춤」(§8.4 v0.19 층 분담 — 방은 「멈춤」, 미션·서브 미션·할 일의 paused 는 「일시정지」). `work` kind 는 S7(W2) 몫.
+   */
+  room: {
+    budget: spec("⏸\uFE0E", "pause", ROOM_BLOCKED_LABEL.budget),
+    runtime_offline: spec("⏸\uFE0E", "pause", ROOM_BLOCKED_LABEL.runtime_offline),
+    loop: spec("⏸\uFE0E", "pause", ROOM_BLOCKED_LABEL.loop),
+    manual: spec("⏸\uFE0E", "pause", ROOM_BLOCKED_LABEL.manual),
   },
 } as const satisfies Record<BadgeKind, Record<string, BadgeSpec>>;
 

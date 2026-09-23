@@ -65,11 +65,11 @@ afterEach(cleanup);
 const ev = (sessionId: string): StreamEvent => ({ id: "9", type: "session.deleted", at: "2026-09-14T09:01:00Z", workspace_id: "w1", session_id: sessionId, payload: { session_id: sessionId } });
 
 describe("S7 — session.deleted", () => {
-  it("내 세션이 지워지면 /sessions?deleted=<제목> 으로 돌아간다", async () => {
+  it("내 세션이 지워지면 /rooms?deleted=<제목> 으로 돌아간다(T-R2-W1 — 옛 /sessions 는 307, S5 는 방 목록)", async () => {
     render(<SessionPage />);
     await waitFor(() => expect(screen.getByTestId("session-title").textContent).toBe("결제 시장 조사"));
     streamHandler!(ev("s1"));
-    expect(replace).toHaveBeenCalledWith(`/sessions?deleted=${encodeURIComponent("결제 시장 조사")}`);
+    expect(replace).toHaveBeenCalledWith(`/rooms?deleted=${encodeURIComponent("결제 시장 조사")}`);
   });
 
   it("다른 세션의 삭제는 무시한다", async () => {
