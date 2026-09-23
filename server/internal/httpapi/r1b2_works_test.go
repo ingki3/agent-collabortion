@@ -290,6 +290,10 @@ func TestR1b2LegacySessionInAManyMissionRoom(t *testing.T) {
 		t.Fatal(err)
 	}
 	w2 := f.openWork(t, f.api, f.sessionID, map[string]any{"goal": "새 미션"})
+	// Move the session's own mission to the END of the heap: a join on
+	// room_id returns heap order, and with the old mission first a fan-out
+	// passes by luck (T-R1b1 lesson).
+	f.exec(t, `UPDATE work SET title = title WHERE id = $1`, legacyWork)
 	for i := 0; i < 3; i++ {
 		s := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
 		if str(s, "title") != legacy {
@@ -484,5 +488,84 @@ func TestR1b2ClosedMissionTakesNoNewTasks(t *testing.T) {
 	room := f.api.must(200, "PATCH", f.roomPath(rid), map[string]any{"limits": map[string]any{"max_concurrent_works": 4}})
 	if lim := room["limits"].(map[string]any); lim["max_concurrent_works"].(float64) != 4 || lim["max_parallel_lanes"].(float64) != 5 {
 		t.Fatalf("room limits after PATCH = %v", lim)
+	}
+}
+
+// TestR1b2AuditViewOnEveryRoomRead is #291 re-review NN1: the audit line
+// (FR-5.3 P-Q — a ws owner·admin reading an invited room they are not in)
+// is written by the room gate itself, so the roster, the links, S23 and the
+// missions count as the same look getRoom does — once per person·room·day.
+func TestR1b2AuditViewOnEveryRoomRead(t *testing.T) {
+	f := newRoomsFixture(t)
+	rid := str(f.mkRoom(t, f.member, "Mem 의 비공개 방"), "id")
+	f.member.must(200, "PATCH", f.roomPath(rid), map[string]any{"visibility": "invited"})
+	audits := func() int {
+		return f.count(t, `SELECT count(*) FROM activity_log WHERE action = 'room.audit_viewed' AND session_id = $1`, rid)
+	}
+	for _, path := range []string{"/participants", "/links", "/reads", "/works", "/work-proposals"} {
+		f.exec(t, `DELETE FROM activity_log WHERE action = 'room.audit_viewed' AND session_id = $1`, rid)
+		st, _, _ := f.api.do("GET", f.roomPath(rid)+path, nil)
+		if path == "/work-proposals" {
+			// Proposals are the room's people's (ActProposals): the auditing
+			// owner is refused, and a refusal is no look.
+			if st != 403 || audits() != 0 {
+				t.Fatalf("%s by a non-participant owner = %d with %d audit lines, want 403 and none", path, st, audits())
+			}
+			continue
+		}
+		if st != 200 || audits() != 1 {
+			t.Fatalf("GET %s by the auditing owner = %d with %d audit lines, want 200 and 1", path, st, audits())
+		}
+		f.api.must(200, "GET", f.roomPath(rid)+path, nil)
+		if audits() != 1 {
+			t.Fatalf("GET %s twice = %d lines, want 1 (once per day)", path, audits())
+		}
+	}
+}
+
+// TestR1b2CompletionCollectsOnlyItsDirectories: a mission's end collects the
+// `none` directories of ITS lanes (E6-03's last column); a directory another
+// open mission's lane still points at stays — the old session-wide gc would
+// have deleted the files that mission is working in.
+func TestR1b2CompletionCollectsOnlyItsDirectories(t *testing.T) {
+	f := newRoomsFixture(t)
+	ctx := t.Context()
+	var rt string
+	if err := f.pool.QueryRow(ctx, `SELECT id::text FROM runtime WHERE workspace_id = $1 LIMIT 1`, f.wsID).Scan(&rt); err != nil {
+		t.Fatal(err)
+	}
+	f.exec(t, `UPDATE room SET runtime_id = $2 WHERE id = $1`, f.sessionID, rt)
+	w2 := str(f.openWork(t, f.api, f.sessionID, map[string]any{"goal": "옆 미션"}), "id")
+	lane := func(work string) string {
+		var id string
+		if err := f.pool.QueryRow(ctx, `
+			INSERT INTO lane (session_id, agent_id, profile_id, status, created_at, updated_at, work_id)
+			SELECT $1, $2, p.profile_id, 'done', now(), now(), $3::uuid FROM room_participant p WHERE p.room_id = $1 AND p.agent_id = $2
+			RETURNING id::text`, f.sessionID, f.r, work).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	var legacy string
+	_ = f.pool.QueryRow(ctx, `SELECT legacy_work_id::text FROM room WHERE id = $1`, f.sessionID).Scan(&legacy)
+	mine, theirs := lane(legacy), lane(w2)
+	var dMine, dTheirs string
+	for _, x := range []struct {
+		lane, path string
+		out        *string
+	}{{mine, "/tmp/colab/mine", &dMine}, {theirs, "/tmp/colab/theirs", &dTheirs}} {
+		if err := f.pool.QueryRow(ctx, `
+			INSERT INTO workdir (session_id, lane_id, kind, path_or_ref, status) VALUES ($1, $2, 'dir', $3, 'active') RETURNING id::text`,
+			f.sessionID, x.lane, x.path).Scan(x.out); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/complete", map[string]any{"confirm": true})
+	var targets string
+	if err := f.pool.QueryRow(ctx, `SELECT coalesce(string_agg(payload::text, ' '), '') FROM daemon_command WHERE session_id = $1 AND type = 'gc'`, f.sessionID).Scan(&targets); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(targets, dMine) || contains(targets, dTheirs) || contains(targets, "/tmp/colab/theirs") {
+		t.Fatalf("gc after the session's mission ended = %s — want its own directory only, never the open mission's", targets)
 	}
 }

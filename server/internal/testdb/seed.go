@@ -105,15 +105,16 @@ func AddTask(t *testing.T, pool *pgxpool.Pool, s Seed, sessionID uuid.UUID, now 
 	t.Helper()
 	ctx := context.Background()
 	var msgID, laneID, taskID uuid.UUID
-	// FR-3.1.1 (T-R1b1): a session's message, lane and task belong to its one
-	// mission — the claim gates a task on ITS mission (queue.Claim).
-	if err := pool.QueryRow(ctx, `INSERT INTO message (session_id, author_type, author_id, content, created_at, work_id) VALUES ($1, 'user', $2, 'hello', $3, (SELECT id FROM work WHERE room_id = $1)) RETURNING id`, sessionID, s.UserID, now).Scan(&msgID); err != nil {
+	// FR-3.1.1 (T-R1b1): a session's message, lane and task belong to its
+	// mission (room.legacy_work_id — the room may hold others since T-R1b2) —
+	// the claim gates a task on ITS mission (queue.Claim).
+	if err := pool.QueryRow(ctx, `INSERT INTO message (session_id, author_type, author_id, content, created_at, work_id) VALUES ($1, 'user', $2, 'hello', $3, (SELECT legacy_work_id FROM room WHERE id = $1)) RETURNING id`, sessionID, s.UserID, now).Scan(&msgID); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO lane (session_id, agent_id, profile_id, created_at, updated_at, work_id) VALUES ($1, $2, $3, $4, $4, (SELECT id FROM work WHERE room_id = $1)) RETURNING id`, sessionID, s.AgentID, s.ProfileID, now).Scan(&laneID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO lane (session_id, agent_id, profile_id, created_at, updated_at, work_id) VALUES ($1, $2, $3, $4, $4, (SELECT legacy_work_id FROM room WHERE id = $1)) RETURNING id`, sessionID, s.AgentID, s.ProfileID, now).Scan(&laneID); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, originator_user_id, created_at, updated_at, work_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, (SELECT id FROM work WHERE room_id = $2)) RETURNING id`,
+	if err := pool.QueryRow(ctx, `INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, originator_user_id, created_at, updated_at, work_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, (SELECT legacy_work_id FROM room WHERE id = $2)) RETURNING id`,
 		laneID, sessionID, s.AgentID, s.ProfileID, msgID, s.UserID, now).Scan(&taskID); err != nil {
 		t.Fatal(err)
 	}
