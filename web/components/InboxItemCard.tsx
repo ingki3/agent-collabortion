@@ -79,6 +79,9 @@ export const ACTION_LABEL: Record<InboxAction, string> = {
   restart: "다시 지시",
   rebind: "다른 컴퓨터로 옮기기",
   open_session: "세션 열기",
+  // v0.2.1 계약 — 방·미션 바로가기(SCREEN §4.14). 화면 반영은 R2.
+  open_room: "방 열기",
+  open_work: "미션 열기",
   open_runtimes: "연결된 컴퓨터 열기",
 };
 
