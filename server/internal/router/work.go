@@ -79,10 +79,15 @@ func attribute(ctx context.Context, q db.DBTX, roomID uuid.UUID, in gen.MessageC
 		}
 		return Attribution{WorkID: &id, Source: WorkChosen}, nil
 	}
-	// 2. the thread's mission.
+	// 2. the thread's mission — while it is open. A closed mission takes no
+	// new messages (rule 1 refuses it with 422 closed); a reply in its thread
+	// falls through to the next rule instead of queueing a task that the
+	// claim would never hand out (T-R1b2: "일은 닫히고 방은 계속된다").
 	if th.Parent != nil {
 		var w *uuid.UUID
-		if err := q.QueryRow(ctx, `SELECT work_id FROM message WHERE id = $1`, *th.Parent).Scan(&w); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		if err := q.QueryRow(ctx, `
+			SELECT m.work_id FROM message m JOIN work wk ON wk.id = m.work_id
+			WHERE m.id = $1 AND wk.status NOT IN ('completed', 'cancelled')`, *th.Parent).Scan(&w); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return Attribution{}, err
 		}
 		if w != nil {
@@ -95,10 +100,13 @@ func attribute(ctx context.Context, q db.DBTX, roomID uuid.UUID, in gen.MessageC
 			continue
 		}
 		var w *uuid.UUID
+		// Its turn may outlive its mission (completion does not cut a running
+		// turn); a closed mission's lane is not one a new message can join.
 		err := q.QueryRow(ctx, `
-			SELECT work_id FROM lane
-			 WHERE session_id = $1 AND agent_id = $2 AND status = 'running' AND work_id IS NOT NULL
-			 ORDER BY updated_at DESC, id LIMIT 1`, roomID, tr.AgentID).Scan(&w)
+			SELECT l.work_id FROM lane l JOIN work wk ON wk.id = l.work_id
+			 WHERE l.session_id = $1 AND l.agent_id = $2 AND l.status = 'running'
+			   AND wk.status NOT IN ('completed', 'cancelled')
+			 ORDER BY l.updated_at DESC, l.id LIMIT 1`, roomID, tr.AgentID).Scan(&w)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return Attribution{}, err
 		}

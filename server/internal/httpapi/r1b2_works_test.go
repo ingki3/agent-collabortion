@@ -433,3 +433,56 @@ func TestR1b2OneToManyReads(t *testing.T) {
 		t.Fatalf("runtime workdirs = %d rows, want 1 (one directory)", len(l))
 	}
 }
+
+// TestR1b2ClosedMissionTakesNoNewTasks: a mission that has closed takes no new
+// work through FR-3.1.1's rules 2·3 or through lane reuse — the three ways a
+// message could still be filed under it (each found by e2e 91_). A task
+// filed under a closed mission is never claimed: the message would sit
+// there with nobody ever answering.
+func TestR1b2ClosedMissionTakesNoNewTasks(t *testing.T) {
+	f := newRoomsFixture(t)
+	rid := f.worksRoom(t)
+	post := func(body map[string]any) map[string]any {
+		f.fake.Advance(time.Minute)
+		return f.api.must(201, "POST", f.p+"/sessions/"+rid+"/messages", body, "Idempotency-Key", uuid.NewString())
+	}
+	w := f.openWork(t, f.api, rid, map[string]any{"goal": "짧게 끝낼 미션", "assignee_agent_id": f.r})
+	wid := str(w, "id")
+	root := post(map[string]any{"content": router.MentionLink("R", f.rUUID) + " 시작", "work_id": wid})
+	rootID := str(root["message"].(map[string]any), "id")
+	// R's lane of the mission is RUNNING when the mission closes (a turn
+	// outlives its mission's completion).
+	f.exec(t, `UPDATE lane SET status = 'running' WHERE work_id = $1 AND agent_id = $2`, wid, f.r)
+	f.api.must(200, "POST", workPath(f, wid)+"/complete", map[string]any{"confirm": true})
+
+	taskWork := func(out map[string]any) string {
+		tr, _ := out["triggers"].([]any)
+		if len(tr) == 0 {
+			t.Fatalf("no trigger: %v", out)
+		}
+		var w *string
+		_ = f.pool.QueryRow(t.Context(), `SELECT work_id::text FROM task WHERE id = $1`, str(tr[0].(map[string]any), "task_id")).Scan(&w)
+		if w == nil {
+			return "-"
+		}
+		return *w
+	}
+	// Rule 2: a reply in the closed mission's thread.
+	if pv := f.api.must(200, "POST", f.p+"/sessions/"+rid+"/messages/preview", map[string]any{"content": "추가 질문", "parent_id": rootID}); str(pv, "work_source") != "none" {
+		t.Fatalf("reply in a closed mission's thread → %v / %v, want none", pv["work"], pv["work_source"])
+	}
+	// Rule 3: mentioning the agent whose lane of the closed mission still runs.
+	out := post(map[string]any{"content": router.MentionLink("R", f.rUUID) + " 다른 일 부탁"})
+	if n := f.count(t, `SELECT count(*) FROM message WHERE id = $1 AND work_id IS NULL`, str(out["message"].(map[string]any), "id")); n != 1 {
+		t.Fatal("rule 3 filed a new message under a closed mission")
+	}
+	// Lane reuse: the task must not land on the closed mission's lane.
+	if got := taskWork(out); got != "-" {
+		t.Fatalf("the new task runs for mission %s — a closed mission's lane was reused", got)
+	}
+	// And the room's limits PATCH (91_ H) keeps what it does not name.
+	room := f.api.must(200, "PATCH", f.roomPath(rid), map[string]any{"limits": map[string]any{"max_concurrent_works": 4}})
+	if lim := room["limits"].(map[string]any); lim["max_concurrent_works"].(float64) != 4 || lim["max_parallel_lanes"].(float64) != 5 {
+		t.Fatalf("room limits after PATCH = %v", lim)
+	}
+}

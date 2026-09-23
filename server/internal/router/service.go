@@ -279,6 +279,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 			threadRootLane: th.RootLane,
 			topLevelMent:   tr.Rule == 2 && parent == nil,
 			forceNewLane:   newLane,
+			work:           attr.WorkID,
 		}
 		if tr.Rule == RulePlatform && platform != nil && platform.LaneID != uuid.Nil {
 			// 해소 규칙 1 with the lane named outright: the caller knows which
@@ -287,6 +288,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 			// there. Same lane, `reentry_count`+1 — never a new lane.
 			opts.threadRootLane = platform.LaneID
 			opts.forceNewLane = false
+			opts.pinned = true
 		}
 		laneID, _, err := s.resolveLaneFor(ctx, tx, sessionID, tr, profiles[tr.AgentID], opts, now)
 		if err != nil {
@@ -432,15 +434,32 @@ type laneOpts struct {
 	threadRootLane uuid.UUID
 	topLevelMent   bool
 	forceNewLane   bool
+	// work is the mission the trigger runs for (FR-3.1.1; nil = none). Only
+	// lanes of that mission — or bound to none yet — are candidates (T-R1b2).
+	work *uuid.UUID
+	// pinned: the caller named the lane outright (a platform trigger — the
+	// lane that submitted a rejected artifact). It is re-entered whatever
+	// mission the triggering message was filed under; the task then runs for
+	// the lane's own mission (bindLaneWork).
+	pinned bool
 }
 
 // resolveLaneFor applies PRD FR-3.3's lane resolution (rules 1–4) to one
 // trigger. The decision itself is lanestate.Resolve — this only loads the
 // candidates and writes the result.
 func (s *Service) resolveLaneFor(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, tr Trigger, profileID uuid.UUID, o laneOpts, now time.Time) (uuid.UUID, bool, error) {
+	// PRD v0.19: a lane belongs to at most one mission ("그 lane 이 매인 일"),
+	// so the lanes a trigger may land on are its own mission's and the unbound
+	// ones. With several missions per room (T-R1b2) the agent's newest lane is
+	// easily another mission's — a closed one, even — and reusing it ran the
+	// message for THAT mission (bindLaneWork keeps a bound lane's mission):
+	// a "미션 없음" chat line queued under a completed mission never ran. In a
+	// one-mission room every lane is that mission's and nothing changes.
 	rows, err := tx.Query(ctx, `
 		SELECT id, agent_id, status::text, reentry_count, GREATEST(created_at, updated_at)
-		FROM lane WHERE session_id = $1 AND agent_id = $2 ORDER BY created_at`, sessionID, tr.AgentID)
+		FROM lane WHERE session_id = $1 AND agent_id = $2
+		  AND (work_id IS NULL OR work_id IS NOT DISTINCT FROM $3::uuid OR ($4 AND id = $5))
+		ORDER BY created_at`, sessionID, tr.AgentID, o.work, o.pinned, o.threadRootLane)
 	if err != nil {
 		return uuid.Nil, false, err
 	}
@@ -779,7 +798,7 @@ func (s *Service) scheduleFallback(ctx context.Context, tx pgx.Tx, sessionID uui
 		return uuid.Nil, uuid.Nil, false, nil
 	}
 	laneID, _, err := s.resolveLaneFor(ctx, tx, sessionID, Trigger{AgentID: fb.AgentID, Rule: 7}, profileID,
-		laneOpts{topLevelMent: true}, now)
+		laneOpts{topLevelMent: true, work: work}, now)
 	if err != nil {
 		return uuid.Nil, uuid.Nil, false, err
 	}

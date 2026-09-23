@@ -481,7 +481,10 @@ func (s *Server) UpdateRoom(w http.ResponseWriter, r *http.Request, roomId gen.R
 		}
 		if l := in.Limits; l != nil {
 			patch := map[string]any{}
-			var unset []string
+			// Never a nil slice: pgx sends nil as NULL, and `jsonb - NULL` is
+			// NULL — a PATCH that unset nothing wiped the room's limits into a
+			// NOT NULL violation (500, found by e2e 91_).
+			unset := []string{}
 			if l.MaxConcurrentWorks != nil {
 				patch["max_concurrent_works"] = *l.MaxConcurrentWorks
 			}

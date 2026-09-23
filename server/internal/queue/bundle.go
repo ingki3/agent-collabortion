@@ -440,6 +440,9 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	b := &contracts.TaskBundle{
 		Task: contracts.BundleTask{
 			ID: t.ID.String(), Attempt: t.Attempt, LaneID: t.LaneID.String(), SessionID: t.SessionID.String(),
+			// daemon-protocol v0.9.0: the room (= the old session id, both until
+			// R4) and the mission the task runs for, empty outside any mission.
+			RoomID: t.SessionID.String(), WorkID: uuidString(t.WorkID),
 			AgentID: t.AgentID.String(), AgentName: agentName,
 			BudgetUSD: budgetPerTask, BudgetOverrideUSD: override,
 			// K-19: the daemon trims the MCP tool list and the hermes wrapper
@@ -950,4 +953,12 @@ func trimPathForDetail(v string) string {
 		return v[:120] + "…"
 	}
 	return v
+}
+
+// uuidString is an optional id as the protocol's omitempty string.
+func uuidString(id *uuid.UUID) string {
+	if id == nil {
+		return ""
+	}
+	return id.String()
 }

@@ -367,18 +367,9 @@ func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID
 		// this is the server's own trigger, and the pause's card is the word.
 		return s.pauseForLoop(ctx, tx, sessionID, wsID, v, now)
 	}
-	laneID, _, err := s.resolveLaneFor(ctx, tx, sessionID, Trigger{AgentID: agentID, Rule: 0}, profileID,
-		laneOpts{topLevelMent: true}, now)
-	if err != nil {
-		return err
-	}
-	originator, err := inheritedOriginator(ctx, tx, waker, requester)
-	if err != nil {
-		return err
-	}
 	// FR-3.1.1: the wake-up runs for the mission of the work that asked for
-	// it — the requester's own lane's — unless the lane it lands on already
-	// has one.
+	// it — the requester's own lane's — and lands on a lane of that mission
+	// (resolveLaneFor's candidates, T-R1b2).
 	var requesterWork *uuid.UUID
 	if requester != uuid.Nil {
 		if err := tx.QueryRow(ctx, `
@@ -386,6 +377,15 @@ func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID
 			Scan(&requesterWork); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
+	}
+	laneID, _, err := s.resolveLaneFor(ctx, tx, sessionID, Trigger{AgentID: agentID, Rule: 0}, profileID,
+		laneOpts{topLevelMent: true, work: requesterWork}, now)
+	if err != nil {
+		return err
+	}
+	originator, err := inheritedOriginator(ctx, tx, waker, requester)
+	if err != nil {
+		return err
 	}
 	laneWork, err := bindLaneWork(ctx, tx, laneID, requesterWork)
 	if err != nil {
