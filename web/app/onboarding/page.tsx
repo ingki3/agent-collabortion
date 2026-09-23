@@ -50,7 +50,7 @@ function Onboarding() {
 
   // 이미 워크스페이스가 있으면(초대 수락 등) 온보딩을 건너뛴다 — 단, 이 화면에서 방금 만든 경우는 제외
   useEffect(() => {
-    if (!loading && me && workspace && !ws && step === 1) router.replace("/sessions");
+    if (!loading && me && workspace && !ws && step === 1) router.replace("/rooms");
   }, [loading, me, workspace, ws, step, router]);
 
   async function createWorkspace(wsName: string, skipped = false) {
@@ -191,7 +191,7 @@ function Onboarding() {
             </span>
           </label>
           <div className="row" style={{ justifyContent: "space-between" }}>
-            <button type="button" className="btn btn--ghost" onClick={() => router.replace("/sessions")} data-testid="agent-skip">
+            <button type="button" className="btn btn--ghost" onClick={() => router.replace("/rooms")} data-testid="agent-skip">
               건너뛰기
             </button>
             <button type="button" className="btn btn--primary" onClick={() => void createLead()} disabled={busy} data-testid="agent-create">

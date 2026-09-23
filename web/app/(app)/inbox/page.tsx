@@ -134,7 +134,7 @@ export default function InboxPage() {
   }
 
   async function act(item: InboxItem, action: InboxAction) {
-    const sessionHref = item.session_id ? `/sessions/${item.session_id}` : null;
+    const sessionHref = item.session_id ? `/rooms/${item.session_id}` : null;
     switch (action) {
       case "open_session":
       case "reply":

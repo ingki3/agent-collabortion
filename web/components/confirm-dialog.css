@@ -1,0 +1,17 @@
+/* 확인 다이얼로그(일반화) — 색은 tokens.css 변수만. 치수는 세션 삭제 다이얼로그(delete-session-dialog.css)와 같다. */
+.confirm-dlg__scrim {
+  position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+  background: var(--scrim); padding: 20px;
+}
+.confirm-dlg {
+  width: min(520px, 100%); max-height: 88vh; overflow: auto; background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 12px;
+}
+.confirm-dlg__title { margin: 0; font-size: var(--fs-card); font-weight: 600; line-height: 1.35; word-break: keep-all; }
+.confirm-dlg__body { display: flex; flex-direction: column; gap: 6px; }
+.confirm-dlg__p { margin: 0; font-size: var(--fs-body); line-height: 1.5; }
+.confirm-dlg__p--warn { color: var(--s-fail-text); font-weight: 500; }
+.confirm-dlg__problem { margin: 0; }
+.confirm-dlg__actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 4px; }
+.confirm-dlg__danger { border-color: var(--s-fail); color: var(--s-fail-text); }
+.confirm-dlg__danger:hover { background: color-mix(in srgb, var(--s-fail) var(--soft-alpha), transparent); }

@@ -9,10 +9,17 @@
  */
 import "./page-head.css";
 
-export type Screen = "sessions" | "inbox" | "agents" | "computers" | "settings";
+export type Screen = "rooms" | "sessions" | "inbox" | "agents" | "computers" | "settings";
 
 /** 제목은 내비 라벨과 같은 말(AppNav.NAV_ITEMS). 설명은 한 줄 — 넘어가면 그 화면이 두 가지 일을 한다는 뜻이다. */
 export const PAGE_COPY: Record<Screen, { title: string; desc: string }> = {
+  // v0.19 (T-R2-W1) — S5 방 목록. 앞 절만으로는 「방」이 채팅방으로 읽히므로 뒤 절이 방에 돈·격리가 붙는다는 것을 말한다(SCREEN §4.3).
+  // 제목이 한 글자라 줄을 나눈다 — 한 줄에 두면 문구 자물쇠의 리터럴 스캐너(2자 이상)가 따옴표 짝을 잘못 맞춰 설명을 놓친다.
+  rooms: {
+    title: "방",
+    desc: "같은 팀과 계속 이야기하고, 끝낼 일이 생기면 미션을 엽니다. 예산·컴퓨터·격리는 방마다 따로 겁니다.",
+  },
+  // 옛 S5 — `/sessions` 는 `/rooms` 로 307 이라 내비에 없다. 문구 전환(R1.5)이 이 행과 옛 화면을 함께 지운다.
   sessions: { title: "세션", desc: "에이전트 팀에게 맡긴 일 하나가 세션입니다. 진행을 보고 새 일을 시작합니다." },
   inbox: { title: "받은 요청", desc: "에이전트가 사람의 답을 기다리는 요청입니다. 여기서 답하면 멈춘 일이 이어집니다." },
   agents: { title: "에이전트", desc: "함께 일할 에이전트를 만들고 역할과 지시를 정합니다." },

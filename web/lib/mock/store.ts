@@ -7,6 +7,37 @@ import type {
   Agent, AgentTemplate, Artifact, ColabCommand, Decision, HitlRequest, InboxItem, Lane, Member, Message, NotificationSettings, Pairing,
   Participant, Runtime, Session, StreamEventType, TaskEvent, TestChat, User, Workdir, Workspace, WorkspaceSettings,
 } from "@/lib/api/types";
+import type { components } from "@/lib/api/schema";
+
+type RoomSchema = components["schemas"]["Room"];
+
+/**
+ * 방(v0.19, T-R2-W1) — 계약 `Room` 의 저장 칸. **옛 세션에서 파생한 방은 id 가 세션 id 와 같다**(§7 이관 규칙 — 서버 0025 도 같다).
+ * `createRoom` 으로 만든 방은 세션이 없다(서버처럼 — 새 방에는 옛 `/sessions/{id}` 가 없다). 사람 참여자만 여기 든다 —
+ * 에이전트 참여자는 옛 세션의 `participants` 에서 읽는다(목이 두 벌을 들지 않게).
+ */
+export interface MockRoom {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string;
+  status: RoomSchema["status"];
+  visibility: RoomSchema["visibility"];
+  owner_user_id: string;
+  deputy_owner_user_id: string | null;
+  isolation: RoomSchema["isolation"];
+  limits: RoomSchema["limits"];
+  autonomy: RoomSchema["autonomy"];
+  blocked_reason: RoomSchema["blocked_reason"];
+  blocked_detail?: RoomSchema["blocked_detail"];
+  /** 사람 참여자(방장·부방장·멤버). 나간 사람은 빠진다(목은 `left_at` 을 들지 않는다). */
+  people: { user_id: string; role: NonNullable<RoomSchema["my_room_role"]>; joined_at: string }[];
+  /** 옛 세션에서 파생한 방 — 세션이 지워지면 방도 없다. */
+  legacy: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface MockUser extends User {
   password: string;
@@ -56,10 +87,14 @@ export interface StoredEvent {
   at: string;
   payload: unknown;
   ephemeral: boolean;
+  /** 한 사람에게만 가는 프레임(`room.unread`). 백필도 그 사람에게만. */
+  to_user?: string;
 }
 export interface Subscriber {
   workspace_id: string;
   session_ids: string[] | null;
+  /** 구독한 사람 — `room.unread` 처럼 한 사람에게만 가는 프레임을 거른다(서버 `Hub.PublishTo`). */
+  user_id?: string;
   write: (frame: string) => void;
 }
 
@@ -93,6 +128,10 @@ export interface Store {
   notifications: Map<string, NotificationSettings>;
   /** P5 (T-W6) — S10 시험 대화(FR-1.8.1). 세션이 아니다 — sessions 에 넣지 않는다. */
   testChats: Map<string, TestChat>;
+  /** v0.19 (T-R2-W1) — 방. 옛 세션의 방은 읽을 때 파생해 채운다(`handlers.ts` syncRooms). */
+  rooms: Map<string, MockRoom>;
+  /** 안 읽음 표식 — `${roomId}:${userId}` → 마지막으로 읽은 메시지 id(§12.1-6, 방 단위 · 사람 행만). */
+  roomReads: Map<string, string>;
   idem: Map<string, unknown>;
   events: StoredEvent[];
   eventSeq: number;
@@ -113,7 +152,7 @@ function seed(): Store {
     pairings: new Map(), agents: new Map(), sessions: new Map(), messages: new Map(), tasks: new Map(), taskEvents: new Map(),
     lanes: new Map(), artifacts: new Map(), decisions: new Map(), hitls: new Map(), inbox: new Map(),
     workdirs: new Map(), workdirQuotaGb: 50,
-    settings: new Map(), notifications: new Map(), testChats: new Map(),
+    settings: new Map(), notifications: new Map(), testChats: new Map(), rooms: new Map(), roomReads: new Map(),
     idem: new Map(), events: [], eventSeq: 0, subs: new Set(),
   };
   // 데모 워크스페이스: 초대 링크(S3)·비참여 에이전트 경고(E1-04) 검증용
@@ -250,8 +289,8 @@ export function participantStatus(s: Store, sessionId: string, agentId: string):
 }
 
 /** SSE 발행 — 링 버퍼(백필) + 구독자에게 프레임. */
-export function emit(s: Store, workspaceId: string, type: StreamEventType, payload: unknown, sessionId: string | null = null, ephemeral = false): void {
-  const ev: StoredEvent = { id: ++s.eventSeq, type, workspace_id: workspaceId, session_id: sessionId, at: now(), payload, ephemeral };
+export function emit(s: Store, workspaceId: string, type: StreamEventType, payload: unknown, sessionId: string | null = null, ephemeral = false, toUser?: string): void {
+  const ev: StoredEvent = { id: ++s.eventSeq, type, workspace_id: workspaceId, session_id: sessionId, at: now(), payload, ephemeral, to_user: toUser };
   if (!ephemeral) {
     s.events.push(ev);
     if (s.events.length > 2000) s.events.splice(0, s.events.length - 2000);
@@ -260,6 +299,7 @@ export function emit(s: Store, workspaceId: string, type: StreamEventType, paylo
   for (const sub of s.subs) {
     if (sub.workspace_id !== workspaceId) continue;
     if (sub.session_ids && sessionId && !sub.session_ids.includes(sessionId)) continue;
+    if (toUser && sub.user_id !== toUser) continue;
     try {
       sub.write(frame);
     } catch {

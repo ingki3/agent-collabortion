@@ -264,7 +264,7 @@ export default function SessionPage() {
         // 물리 삭제(deleteSession) — 이 화면은 더 볼 것이 없다. 목록으로 돌아가고 S5 가 안내 한 줄을 그린다(계약 SSE 표 · SCREEN §4.3).
         const p = ev.payload as { session_id?: string };
         if ((p.session_id ?? ev.session_id) !== sessionId) return;
-        router.replace(`/sessions?deleted=${encodeURIComponent(titleRef.current)}`);
+        router.replace(`/rooms?deleted=${encodeURIComponent(titleRef.current)}`);
         break;
       }
       case "cost.updated": {
@@ -557,7 +557,7 @@ export default function SessionPage() {
     return (
       <div>
         <p className="problem">{error}</p>
-        <Link href="/sessions" className="btn">세션 목록으로</Link>
+        <Link href="/rooms" className="btn">세션 목록으로</Link>
       </div>
     );
   }
@@ -576,7 +576,7 @@ export default function SessionPage() {
       <ConnectionBanner state={conn} />
       <header className="s7__head">
         <div className="row" style={{ gap: 10 }}>
-          <Link href="/sessions" className="small muted-3">← 세션</Link>
+          <Link href="/rooms" className="small muted-3">← 세션</Link>
           <h1 style={{ margin: 0, fontSize: "var(--fs-title)" }} data-testid="session-title">{session.title}</h1>
           <Badge kind="session" value={session.status} data-testid="session-status" />
           {session.status === "paused" && session.paused_reason && (

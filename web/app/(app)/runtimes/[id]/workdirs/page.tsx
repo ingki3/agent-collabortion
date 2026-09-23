@@ -174,7 +174,7 @@ export default function WorkdirsPage() {
                 </div>
                 <div className="wd__meta small muted-3">
                   <span data-testid="workdir-owner">{owner}</span>
-                  {w.session?.title && <> · <Link href={`/sessions/${w.session_id}`}>{w.session.title}</Link></>}
+                  {w.session?.title && <> · <Link href={`/rooms/${w.session_id}`}>{w.session.title}</Link></>}
                   {" · "}<span data-testid="workdir-size">{formatBytes(w.disk_bytes)}</span>
                   {" · 마지막 사용 "}{relativeTime(w.last_used_at)}
                   {" · 보존 "}<span data-testid="workdir-retention">{retentionLabel(w)}</span>

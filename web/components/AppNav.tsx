@@ -28,7 +28,8 @@ export interface AppNavProps {
  * `data-testid` 가 따라 움직이지 않는다(예전에는 라벨을 소문자로 바꿔 testid 를 만들었다).
  */
 export const NAV_ITEMS: readonly { href: string; key: string; label: string; icon: IconName }[] = [
-  { href: "/sessions", key: "sessions", label: "세션", icon: "sessions" },
+  // v0.19 (T-R2-W1): 「방」이 S5 다. 옛 `/sessions` 는 next.config 에서 `/rooms` 로 307.
+  { href: "/rooms", key: "rooms", label: "방", icon: "sessions" },
   { href: "/inbox", key: "inbox", label: "받은 요청", icon: "inbox" },
   { href: "/agents", key: "agents", label: "에이전트", icon: "agents" },
   { href: "/runtimes", key: "runtimes", label: "연결된 컴퓨터", icon: "computers" },
