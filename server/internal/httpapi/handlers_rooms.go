@@ -273,6 +273,22 @@ type roomDefaults struct {
 	limits                          map[string]any
 }
 
+// inheritedIsolation is the isolation kind a new room takes from the
+// workspace default (openapi 0.2.5 createRoom — it used to be `none` always,
+// so SCREEN §4.5's ⓘ line read a default the room never got). `worktree` is
+// inherited as the kind alone: the repository path belongs to a computer, and
+// S20 fills it before the first dispatch (FR-2.1.1). A worktree room is also
+// what keeps isolation_confirm quiet — the claim asks only a `none` room
+// (queue askIsolation), because the workspace already chose to split.
+// `container` has no room form in v1 (updateRoom refuses it), so a legacy
+// default_isolation of container starts the room at `none`.
+func inheritedIsolation(kind string) string {
+	if kind == string(gen.IsolationKindWorktree) {
+		return kind
+	}
+	return string(gen.IsolationKindNone)
+}
+
 // loadRoomDefaults reads workspace_settings.room_defaults over the contract's
 // defaults. The isolation default is the old `default_isolation` column
 // unless room_defaults names one — S14's two controls must not disagree about
@@ -310,12 +326,7 @@ func loadRoomDefaults(ctx context.Context, q db.DBTX, wsID uuid.UUID) (*roomDefa
 			}
 		}
 	}
-	if d.isolation != "none" {
-		// A worktree needs a repository path, which a one-field form cannot
-		// ask for (FR-2.1.1: "저장소를 쓰는 방은 첫 dispatch 전에 격리를 고르게
-		// 한다"). The room starts `none`; S20 sets the path before the first run.
-		d.isolation = "none"
-	}
+	d.isolation = inheritedIsolation(d.isolation)
 	return d, nil
 }
 
@@ -619,7 +630,7 @@ func (s *Server) setArchived(w http.ResponseWriter, r *http.Request, roomID uuid
 		}
 		if archive {
 			var n int
-			if err := tx.QueryRow(r.Context(), `SELECT count(*) FROM task WHERE session_id = $1 AND status IN `+activeTaskStatusesSQL, roomID).Scan(&n); err != nil {
+			if err := tx.QueryRow(r.Context(), `SELECT `+rooms.ActiveTaskCountSQL("$1"), roomID).Scan(&n); err != nil {
 				return err
 			}
 			if n > 0 {
@@ -652,10 +663,6 @@ func (s *Server) setArchived(w http.ResponseWriter, r *http.Request, roomID uuid
 	}
 	s.roomOut(r.Context(), w, http.StatusOK, roomID, u.Id)
 }
-
-// activeTaskStatusesSQL is "a task still in flight" (FR-7.1's non-terminal
-// states) — the archive refusal.
-const activeTaskStatusesSQL = `('deferred', 'queued', 'dispatched', 'preparing', 'running', 'waiting_human', 'paused')`
 
 // ---------------------------------------------------------------------------
 // unread

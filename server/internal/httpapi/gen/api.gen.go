@@ -3437,8 +3437,11 @@ type Room struct {
 	OwnerUserId    openapi_types.UUID          `json:"owner_user_id"`
 	Runtime        *Runtime                    `json:"runtime,omitempty"`
 
-	// RuntimeId 첫 dispatch 때 고정(FR-2.1.1). 그 전에는 null.
+	// RuntimeId 방 설정에서 미리 고를 수 있고, 첫 dispatch 때 고정된다(FR-2.1.1). 고정 여부는 runtime_pinned.
 	RuntimeId nullable.Nullable[openapi_types.UUID] `json:"runtime_id"`
+
+	// RuntimePinned v0.2.7 — 첫 dispatch 가 일어나 컴퓨터·격리를 더 바꿀 수 없다(updateRoom 409 runtime_pinned 와 같은 판정). S20 이 읽기 전용으로 그린다.
+	RuntimePinned *bool `json:"runtime_pinned,omitempty"`
 
 	// Status `room.status` (FR-2.4). 방은 완료되지 않는다 — 보관만 있고 되돌릴 수 있다.
 	Status      RoomStatus `json:"status"`
