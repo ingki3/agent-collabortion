@@ -8,14 +8,15 @@
  */
 import { useMemo, useState } from "react";
 import { DisabledHint } from "./PageHead";
+import { RoomDefaultsRows, RoomReadRows, SubscriptionsSection } from "./SettingsRoomTabs";
 import {
-  daysIso, IMPACT, INCLUDE_ARTIFACTS_LABEL, ISOLATION_LABEL, isoDays, RUNTIME_KIND_LABEL, RUNTIME_KINDS, SETTINGS_DEFAULTS,
+  daysIso, IMPACT, isoDays, RUNTIME_KIND_LABEL, RUNTIME_KINDS, SETTINGS_DEFAULTS,
   SETTINGS_TABS, SUBSCRIPTION_LABEL, saveRight, type SettingsTab, diffSettings,
 } from "@/lib/settings";
-import type { IsolationKind, MemberRole, NotificationSettings, WorkspaceSettings, WorkspaceSettingsUpdate } from "@/lib/api/types";
+import type { MemberRole, NotificationSettings, WorkspaceSettings, WorkspaceSettingsUpdate } from "@/lib/api/types";
 import "./settings.css";
 
-export type WorkspaceTab = Exclude<SettingsTab, "members" | "notifications" | "dashboard">;
+export type WorkspaceTab = Exclude<SettingsTab, "members" | "notifications" | "dashboard" | "audit">;
 
 /** 항목 행 — 라벨(+기본값) · 입력 · 영향 한 줄. */
 export function SettingRow({ label, defaultValue, impact, children, error, testid }: {
@@ -187,26 +188,14 @@ export function WorkspaceSettingsTab({ tab, settings, role, onSave, fieldErrors 
         </>
       )}
 
-      {tab === "context" && (
-        <>
-          <SettingRow label="이전 세션 요약의 최대 토큰" defaultValue={SETTINGS_DEFAULTS.context_reuse.max_summary_tokens} impact={IMPACT.max_summary_tokens} error={err("context_reuse.max_summary_tokens")} testid="row-summary-tokens">
-            <input className="input input--num" type="number" min={0} step={100} disabled={lock} value={str(draft.context_reuse.max_summary_tokens)} aria-label="이전 세션 요약의 최대 토큰" onChange={(e) => set((d) => ({ ...d, context_reuse: { ...d.context_reuse, max_summary_tokens: num(e.target.value) } }))} />
-          </SettingRow>
-          <SettingRow label="산출물을 함께 넘길지" defaultValue={INCLUDE_ARTIFACTS_LABEL[SETTINGS_DEFAULTS.context_reuse.include_artifacts]} impact={IMPACT.include_artifacts} testid="row-include-artifacts">
-            <select className="select" disabled={lock} value={draft.context_reuse.include_artifacts ?? "links"} aria-label="산출물을 함께 넘길지" onChange={(e) => set((d) => ({ ...d, context_reuse: { ...d.context_reuse, include_artifacts: e.target.value as "links" | "none" | "full" } }))}>
-              {(Object.keys(INCLUDE_ARTIFACTS_LABEL) as (keyof typeof INCLUDE_ARTIFACTS_LABEL)[]).map((k) => <option key={k} value={k}>{INCLUDE_ARTIFACTS_LABEL[k]}</option>)}
-            </select>
-          </SettingRow>
-        </>
-      )}
+      {tab === "rooms" && <RoomDefaultsRows draft={draft} set={set} lock={lock} err={err} />}
+
+      {/* v0.19: 「컨텍스트 재사용 상한」(FR-4.4)은 버렸다(SCREEN §4.17 · §12.1-7) — 다른 방 읽기 상한(FR-4.5)만 남는다. */}
+      {tab === "context" && <RoomReadRows draft={draft} set={set} lock={lock} err={err} />}
 
       {tab === "workdir" && (
         <>
-          <SettingRow label="기본 격리 방식" defaultValue={ISOLATION_LABEL[SETTINGS_DEFAULTS.default_isolation]} impact={IMPACT.default_isolation} error={err("default_isolation")} testid="row-isolation">
-            <select className="select" disabled={lock} value={draft.default_isolation} aria-label="기본 격리 방식" onChange={(e) => set((d) => ({ ...d, default_isolation: e.target.value as IsolationKind }))}>
-              {(Object.keys(ISOLATION_LABEL) as IsolationKind[]).map((k) => <option key={k} value={k}>{ISOLATION_LABEL[k]}</option>)}
-            </select>
-          </SettingRow>
+          {/* 기본 격리 방식은 「방 기본값」 탭으로 옮겼다(SCREEN §4.17 표 — 「기본 격리 방식은 방 기본값 탭」). */}
           <SettingRow label="작업 폴더 보존 (일)" defaultValue={SETTINGS_DEFAULTS.workdir_retention_days} impact={IMPACT.workdir_retention_days(draft.workdir_retention_days)} error={err("workdir_retention_days")} testid="row-retention">
             <input className="input input--num" type="number" min={0} disabled={lock} value={str(draft.workdir_retention_days)} aria-label="작업 폴더 보존" onChange={(e) => set((d) => ({ ...d, workdir_retention_days: Number(e.target.value) || 0 }))} />
           </SettingRow>
@@ -238,8 +227,10 @@ export function WorkspaceSettingsTab({ tab, settings, role, onSave, fieldErrors 
 }
 
 // ── 알림 탭(개인) ─────────────────────────────────────────────────────────────
-export function NotificationsTab({ settings, onSave, error }: {
+export function NotificationsTab({ settings, onSave, error, workspaceId }: {
   settings: NotificationSettings | null;
+  /** v0.19 구독 단위 3층(방·미션·서브 미션) — 워크스페이스의 방을 고른다. 없으면 그 구역을 그리지 않는다. */
+  workspaceId?: string;
   onSave: (next: NotificationSettings) => Promise<NotificationSettings | null>;
   /** 읽기·저장이 거절되면(T-S14 #209: 익명 401 · 에이전트 토큰 403 · enum 밖 422) 그 문장을 그대로 보인다 — 화면이 값을 지어내지 않는다. */
   error?: string | null;
@@ -294,6 +285,7 @@ export function NotificationsTab({ settings, onSave, error }: {
           </SettingRow>
         </>
       )}
+      {workspaceId && <SubscriptionsSection workspaceId={workspaceId} />}
     </section>
   );
 }

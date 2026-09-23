@@ -13,7 +13,13 @@
  * 화면이 버튼을 만들어 내면 403 을 누르게 된다.
  */
 import { useState } from "react";
+import Link from "next/link";
 import "./inbox-item.css";
+import { IsolationConfirmBody, RoomPausedBody } from "./InboxRoomBodies";
+import {
+  delegationLine, INBOX_V19, ISOLATION_CARD, needsDelegationLine, quoteLine, RECIPIENT_BASIS, roomNameOf, SHORTCUT_ACTIONS, shortcutsOf, workTitleOf,
+  type BlockedDetail,
+} from "@/lib/inbox-v19";
 import { Badge } from "./Badge";
 import { HitlBody, type HitlAction } from "./HitlBody";
 import { dueLabel } from "./HitlBody";
@@ -85,6 +91,13 @@ export const ACTION_LABEL: Record<InboxAction, string> = {
   open_runtimes: "연결된 컴퓨터 열기",
 };
 
+/**
+ * 계약 enum 밖에서 서버가 주는 동작(handlers_inbox → `inbox.Actions`: `workdir_gc_blocked`·`workdir_quota` 의 `open_workdirs`).
+ * 라벨이 없는 동작은 **그리지 않는다** — 이름 없는 버튼은 누를 수 없는 버튼보다 나쁘다.
+ */
+const EXTRA_ACTION_LABEL: Record<string, string> = { open_workdirs: INBOX_V19.open_workdirs };
+export const actionLabel = (a: string): string | null => (ACTION_LABEL as Record<string, string>)[a] ?? EXTRA_ACTION_LABEL[a] ?? null;
+
 /** `actions` 중 HITL 본문이 직접 처리하는 것(입력부와 붙어 있어야 한다). 나머지는 카드 하단 버튼이다. */
 const INLINE_HITL: readonly InboxAction[] = ["answer", "approve", "reject"];
 
@@ -104,7 +117,10 @@ export function extraLine(item: InboxItem): string | null {
     case "runtime_offline":
       return item.card?.grace_ends_at ? `유예 만료 ${clockTime(item.card.grace_ends_at)}` : null;
     case "session_completed":
+    case "work_completed":
       return item.card?.summary ?? null;
+    case "work_paused":
+      return item.card?.paused_reason ? (PAUSE_REASON_LABEL[item.card.paused_reason] ?? item.card.paused_reason) : null;
     default:
       return null;
   }
@@ -146,13 +162,50 @@ export interface InboxItemCardProps {
   onMarkRead?: (item: InboxItem) => void;
   busy?: boolean;
   now?: number;
+  /**
+   * v0.19(§4.14) 카드가 목록 밖에서 더 아는 것 — 인박스 페이지가 채운다. 전부 선택이고, 없으면 그 줄을 그리지 않는다(지어내지 않는다).
+   *   · `roomNames` — 방 이름(0.2.9 `InboxItem.room` 을 서버가 아직 안 채울 때의 목록 폴백)
+   *   · `blocked`   — `room_paused` 의 방 `blocked_detail`(getRoom, 카드당 1회 — Lead Q5)
+   *   · `ownerName` — 위임 줄의 「방장 〈민호〉」
+   *   · `respondFrom` — 위임받은 사람이 답할 수 있게 되는 시각(`HitlRequest.can_respond_from` · `blocked_detail.delegate_at`)
+   *   · `options`   — `isolation_confirm` 의 저장소 고르기 선택지(getHitlRequest, Lead Q6)
+   */
+  roomNames?: ReadonlyMap<string, string>;
+  blocked?: BlockedDetail | null;
+  ownerName?: string | null;
+  respondFrom?: string | null;
+  options?: string[] | null;
+  /**
+   * 서버가 `recipient_basis` 를 비워 보낼 때의 대신(인박스 페이지가 방의 방장과 나를 대조해 정한다). 서버 값이 있으면 쓰지 않는다.
+   * 실서버(dev c5afee6)의 room_paused·isolation_confirm 행이 근거 없이 들어간다(roomgate·router insert — W4a 보고).
+   */
+  basisFallback?: InboxItem["recipient_basis"];
 }
 
-export function InboxItemCard({ item, hitl: detail, onRespond, onApproveContinue, onAction, onMarkRead, busy, now }: InboxItemCardProps) {
+export function InboxItemCard({ item, hitl: detail, onRespond, onApproveContinue, onAction, onMarkRead, busy, now, roomNames, blocked, ownerName, respondFrom, options, basisFallback }: InboxItemCardProps) {
   const hitl = item.type === "hitl_request" ? item.card : null;
   const actions = (item.actions ?? []) as InboxAction[];
   const inline = actions.filter((a): a is HitlAction => (INLINE_HITL as readonly string[]).includes(a));
-  const rest = actions.filter((a) => !(INLINE_HITL as readonly string[]).includes(a));
+  // 방 층 두 타입은 본문이 결과 이름의 버튼을 그린다 — 여기서 `approve_continue` 를 한 번 더 그리지 않는다.
+  const roomLevel = item.type === "isolation_confirm" || item.type === "room_paused";
+  const links = shortcutsOf(item);
+  // 바로가기 링크가 있으면 같은 이동(세션·방·미션 열기)을 버튼으로 한 번 더 그리지 않는다.
+  const rest = actions.filter((a) =>
+    !(INLINE_HITL as readonly string[]).includes(a) && !(links.room && SHORTCUT_ACTIONS.has(a)) && !(roomLevel && a === "approve_continue") && actionLabel(a) != null);
+  const canRespondRoom = item.type === "isolation_confirm" ? actions.includes("approve") : item.type === "room_paused" ? actions.includes("approve_continue") : false;
+  const roomName = roomNameOf(item, roomNames);
+  const workTitle = workTitleOf(item);
+  const quote = quoteLine(item);
+  const basis = item.recipient_basis ?? basisFallback ?? null;
+  // 근거가 없는 옛 항목(0.2.0 전)은 위임 줄 대신 부가 칸(`extraLine`)이 「위임됨 · 지금부터 응답 가능」을 말한다.
+  const delegation = basis && (needsDelegationLine(item) || basis === "deputy")
+    ? delegationLine({ ...item, recipient_basis: basis }, { canRespond: roomLevel ? canRespondRoom : inline.length > 0, from: respondFrom ?? blocked?.delegate_at ?? null, ownerName, now })
+    : null;
+  const basisText = basis
+    ? item.type === "isolation_confirm" && basis === "room_deputy" && ownerName && delegation && !delegation.locked
+      ? ISOLATION_CARD.basis_delegated(ownerName)
+      : RECIPIENT_BASIS[basis]
+    : null;
   const overdue = item.overdue === true;
   // 예산으로 멈춘 세션만 금액을 받는다 — 시간·루프·수동은 올릴 금액이 없다(SCREEN §4.5 O6 표).
   const raiseBudget = item.type === "session_paused" && item.card?.paused_reason === "budget" && actions.includes("approve_continue");
@@ -180,12 +233,18 @@ export function InboxItemCard({ item, hitl: detail, onRespond, onApproveContinue
       data-overdue={overdue ? "true" : "false"}
       data-delegated={item.delegated ? "true" : "false"}
     >
-      <div className="inbox-item__head">
+      <div className={`inbox-item__head${roomNames || item.room || item.room_id ? " inbox-item__head--ctx" : ""}`}>
         <Badge kind="inbox" value={item.severity} size="sm" tone={TONE_BY_TYPE[item.type]} />
         <span className="inbox-item__type" data-testid="inbox-type">{TYPE_LABEL[item.type]}</span>
-        {item.session?.title && (
+        {/* 맥락 한 줄(§4.14) — 방 이름은 줄이지 않는다. 말줄임은 미션 제목부터(CSS: __work 가 먼저 줄어든다). */}
+        {(roomNames || item.room || item.room_id) ? (
+          <span className="inbox-item__room" data-testid="inbox-room" aria-label={INBOX_V19.room_aria(roomName)}>· {roomName}</span>
+        ) : null}
+        {workTitle ? (
+          <span className="inbox-item__work" data-testid="inbox-session" title={workTitle}>· {workTitle}</span>
+        ) : !(roomNames || item.room || item.room_id) && item.session?.title ? (
           <span className="inbox-item__session" data-testid="inbox-session">· {item.session.title}</span>
-        )}
+        ) : null}
         <span className="inbox-item__spacer" />
         <span
           className={`inbox-item__due${overdue ? " inbox-item__due--overdue" : ""}`}
@@ -200,7 +259,37 @@ export function InboxItemCard({ item, hitl: detail, onRespond, onApproveContinue
         )}
       </div>
 
-      {hitl && hitl.hitl_type ? (
+      {quote && <p className="inbox-item__quote" data-testid="inbox-quote" title={quote}>{quote}</p>}
+      {(basisText || delegation) && (
+        <p className="inbox-item__basis" data-testid="inbox-basis" data-basis={basis ?? ""} data-locked={delegation?.locked ? "true" : "false"}>
+          {basisText && <b>{basisText}</b>}
+          {basisText && delegation && " · "}
+          {delegation && <span data-testid="inbox-delegation">{delegation.text}</span>}
+        </p>
+      )}
+
+      {item.type === "isolation_confirm" ? (
+        <IsolationConfirmBody
+          question={item.card?.title}
+          computer={item.card?.runtime_name ?? null}
+          hitlType={item.card?.hitl_type ?? null}
+          options={options}
+          proposedDefault={item.card?.proposed_default ?? null}
+          canRespond={canRespondRoom && !delegation?.locked}
+          busy={busy}
+          settingsHref={links.room ? `${links.room}/settings` : null}
+          onRespond={onRespond && ((body) => onRespond(item, body))}
+        />
+      ) : item.type === "room_paused" ? (
+        <RoomPausedBody
+          question={item.card?.body}
+          detail={blocked}
+          purpose={item.card?.purpose ?? null}
+          canRespond={canRespondRoom && !delegation?.locked}
+          busy={busy}
+          onRespond={onRespond && ((body) => onRespond(item, body))}
+        />
+      ) : hitl && hitl.hitl_type ? (
         // 세션을 열지 않고 답한다(F2) — 타임라인 카드와 **같은 하위 컴포넌트**.
         <HitlBody
           type={hitl.hitl_type}
@@ -211,7 +300,8 @@ export function InboxItemCard({ item, hitl: detail, onRespond, onApproveContinue
           dueAt={item.due_at}
           overdue={overdue}
           canRespond={inline.length > 0}
-          canRespondFrom={null}
+          canRespondFrom={respondFrom ?? null}
+          hideGate={!!delegation}
           actions={inline}
           budgetOverride={hitlBudget}
           onRespond={onRespond && ((body) => onRespond(item, body))}
@@ -226,7 +316,7 @@ export function InboxItemCard({ item, hitl: detail, onRespond, onApproveContinue
         </div>
       )}
 
-      {extraLine(item) && (
+      {extraLine(item) && !(delegation && item.type === "hitl_request") && (
         <p className="inbox-item__extra" data-testid="inbox-extra">{extraLine(item)}</p>
       )}
 
@@ -265,9 +355,17 @@ export function InboxItemCard({ item, hitl: detail, onRespond, onApproveContinue
               }}
               data-testid={`inbox-action-${a}`}
             >
-              {ACTION_LABEL[a]}
+              {actionLabel(a)}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* 두 바로가기(PRD §6) — 미션이 없는 항목은 방 하나만. */}
+      {(links.room || links.work) && (
+        <div className="inbox-item__links" data-testid="inbox-links">
+          {links.room && <Link href={links.room} className="msg__link" data-testid="inbox-open-room">{INBOX_V19.open_room}</Link>}
+          {links.work && <Link href={links.work} className="msg__link" data-testid="inbox-open-work">{INBOX_V19.open_work}</Link>}
         </div>
       )}
     </article>

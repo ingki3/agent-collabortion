@@ -13,8 +13,9 @@ const base = (): WorkspaceSettings => ({ ...defaultSettings("w1"), workdir_disk_
 
 describe("탭 표 — SCREEN §4.10 의 8탭 + 대시보드", () => {
   it("9개, 순서 그대로, 이름은 §8.4 의 말", () => {
-    expect(SETTINGS_TABS.map((t) => t.key)).toEqual(["members", "runtime", "budget", "loop", "context", "workdir", "security", "notifications", "dashboard"]);
-    expect(SETTINGS_TABS.map((t) => t.label)).toEqual(["멤버", "컴퓨터 정책", "예산", "루프 상한", "컨텍스트", "작업 폴더", "보안", "알림", "대시보드"]);
+    // v0.19(T-R2-W4a): 「방 기본값」(§4.17 표 셋째 행) · 「활동 로그」(S15, §4.18 설정 안의 탭).
+    expect(SETTINGS_TABS.map((t) => t.key)).toEqual(["members", "runtime", "rooms", "budget", "loop", "context", "workdir", "security", "notifications", "dashboard", "audit"]);
+    expect(SETTINGS_TABS.map((t) => t.label)).toEqual(["멤버", "컴퓨터 정책", "방 기본값", "예산", "루프 상한", "컨텍스트", "작업 폴더", "보안", "알림", "대시보드", "활동 로그"]);
     for (const t of SETTINGS_TABS) expect(t.label).not.toMatch(/런타임|Workdir/);
     expect(DEFAULT_TAB).toBe("members");
     expect(isSettingsTab("loop")).toBe(true);

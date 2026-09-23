@@ -14,6 +14,7 @@ import {
   sseFrame, store, stripUser, TEMPLATES, uuid, type MockInvite, type MockRoom, type MockTask, type MockWork, type Store, type Subscriber,
 } from "./store";
 import { registerRoomDialogs } from "./rooms-dialogs";
+import { registerR2W4a } from "./r2w4a";
 import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
 /**
@@ -58,6 +59,8 @@ function on(method: string, pattern: string, h: Handler) {
 }
 // 방의 다이얼로그·설정 op(T-R2-W3) — 본문은 ./rooms-dialogs.ts(S7 재작성과 이 파일을 나눠 쓰려고 등록 한 줄만 둔다).
 registerRoomDialogs({ on, routes, Problem, requireUser, syncRooms, standingOf, roomDecide, roomDeny, toRoom, emitRoom, validateCondition });
+// S8 v0.19 · S15 활동 로그 · 알림 구독 3층 · S9/S11 방 칸(T-R2-W4a) — 본문은 ./r2w4a.ts(다른 웹 워커와 이 파일을 나눠 쓰려고 등록 한 줄만 둔다).
+registerR2W4a({ on, routes, Problem, requireUser, syncRooms, standingOf, roomDecide, emitRoom, addInboxItem, emitInboxSummary, inboxSeverity, inboxActions, roomWorks, notFound: (w) => notFound(w as never), W, hitlDueMs: () => HITL_DUE_IN_MS });
 
 export async function dispatch(req: Req): Promise<Res> {
   for (const r of routes) {
@@ -1555,13 +1558,20 @@ export function inboxSortRank(severity: InboxItem["severity"], overdue: boolean)
 
 /** 심각도(FR-8 · 서버 `inbox.Severity` 와 같은 분류). */
 export function inboxSeverity(type: InboxItem["type"]): InboxItem["severity"] {
+  // 서버 `inbox.Severity`(internal/inbox/inbox.go) 와 한 줄씩 같다 — r2w4a-mock.test.ts 가 Go 소스를 읽어 대조한다.
   switch (type) {
     case "hitl_request":
     case "lane_blocked":
     case "session_paused":
+    case "room_paused":
+    case "work_paused":
+    case "isolation_confirm":
       return "action_required";
     case "run_failed":
     case "runtime_offline":
+    case "workdir_gc_blocked":
+    case "workdir_quota":
+    case "work_proposed":
       return "attention";
     default:
       return "info";
@@ -1573,10 +1583,16 @@ export function inboxSeverity(type: InboxItem["type"]): InboxItem["severity"] {
  * 서버 `inbox.Actions` 와 같은 표다.
  */
 export function inboxActions(type: InboxItem["type"], hitlType: string | undefined, canRespond: boolean): NonNullable<InboxItem["actions"]> {
+  // 서버 `inbox.Actions` 와 같은 표(r2w4a-mock.test.ts 가 대조). `open_workdirs`·`delete_workdir` 는 서버가 주지만 계약 enum 밖이다(W4a 보고).
+  type A = NonNullable<InboxItem["actions"]>;
   switch (type) {
     case "hitl_request":
       if (!canRespond) return ["open_session"];
       return hitlType === "approval" ? ["approve", "reject", "open_session"] : ["answer", "open_session"];
+    case "isolation_confirm":
+      return canRespond ? ["approve", "reject", "open_room"] : ["open_room"];
+    case "room_paused":
+      return canRespond ? ["approve_continue", "open_room"] : ["open_room"];
     case "lane_blocked":
     case "mention":
       return ["reply", "open_session"];
@@ -1584,8 +1600,20 @@ export function inboxActions(type: InboxItem["type"], hitlType: string | undefin
       return canRespond ? ["approve_continue", "open_session"] : ["open_session"];
     case "run_failed":
       return canRespond ? ["restart", "open_session"] : ["open_session"];
+    case "workdir_gc_blocked":
+      return ["open_workdirs", "delete_workdir"] as unknown as A;
     case "runtime_offline":
       return ["open_runtimes"];
+    case "session_completed":
+      return ["open_session"];
+    case "workdir_quota":
+      return ["open_workdirs"] as unknown as A;
+    case "room_invited":
+    case "work_proposed":
+      return ["open_room"];
+    case "work_paused":
+    case "work_completed":
+      return ["open_work"];
     default:
       return ["open_session"];
   }

@@ -21,7 +21,9 @@ const get = vi.fn();
 const post = vi.fn();
 vi.mock("@/lib/api/client", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api/client")>("@/lib/api/client");
-  return { ...actual, api: { ...actual.api, get: (...a: unknown[]) => get(...a), post: (...a: unknown[]) => post(...a) } };
+  // markRoomRead(안 읽음, T-R2-W4a)는 화면이 메시지를 받을 때마다 저절로 부른다 — 테스트가 줄 세운 post 응답을 가로채지 않게 따로 답한다.
+  const read = (...a: unknown[]) => (a[0] === "/rooms/{roomId}/read" ? Promise.resolve({ room_id: "r1", unread_count: 0 }) : post(...a));
+  return { ...actual, api: { ...actual.api, get: (...a: unknown[]) => get(...a), post: read } };
 });
 
 const me: Me = {

@@ -77,6 +77,9 @@ export const NOT_FOUND_NOUN: Record<string, string> = {
   room_link: "참고 방 연결",
   work: "미션",
   work_proposal: "미션 제안",
+  // getMessage 의 404 — 서버는 apperr.NotFound 를 거치지 않고 messageNotFound()(handlers_message_get.go)가 같은 모양으로 짓는다.
+  // 그래서 NotFoundNouns 에는 없고, (b) 가 그 문장에서 명사를 읽어 대조한다.
+  message: "메시지",
 };
 
 /** `apperr.Josa` — 마지막 글자에 받침이 있으면 `with`, 없으면 `without`, 한글이 아니면 `with(without)`. */
