@@ -108,6 +108,9 @@ func (s *Server) UpdateWorkspaceSettings(w http.ResponseWriter, r *http.Request,
 	if in.RuntimePolicy != nil {
 		mergeInto("runtime_policy", in.RuntimePolicy)
 	}
+	if in.RoomRead != nil {
+		mergeInto("room_read", in.RoomRead)
+	}
 	if in.DefaultIsolation != nil {
 		add("default_isolation", string(*in.DefaultIsolation))
 	}
@@ -165,6 +168,16 @@ func validateSettings(in gen.WorkspaceSettingsUpdate) *Problem {
 		check("max_hops_per_hour", l.MaxHopsPerHour, 10000)
 		check("max_pair_roundtrips", l.MaxPairRoundtrips, 100)
 	}
+	// FR-4.5 분량 상한 — 계약 RoomReadPolicy 의 minimum(1 · 500) 그대로. 0 은 읽기를
+	// 조용히 끄는 값이라 상한이 아니다.
+	if l := in.RoomRead; l != nil {
+		if v := l.MaxRoomsPerTurn; v != nil && *v < 1 {
+			errs = append(errs, apperr.Field("room_read.max_rooms_per_turn", "out_of_range", "1 이상이어야 합니다"))
+		}
+		if v := l.MaxTokens; v != nil && *v < 500 {
+			errs = append(errs, apperr.Field("room_read.max_tokens", "out_of_range", "500 이상이어야 합니다"))
+		}
+	}
 	if v := in.WorkdirRetentionDays; v != nil && *v < 0 {
 		errs = append(errs, apperr.Field("workdir_retention_days", "out_of_range", "0 이상이어야 합니다"))
 	}
@@ -188,17 +201,17 @@ func loadSettings(ctx context.Context, q db.DBTX, wsID uuid.UUID) (*gen.Workspac
 	// Found while testing S-69: the required `workspace_id` was never set and
 	// every settings response carried the zero uuid.
 	out := gen.WorkspaceSettings{WorkspaceId: wsID}
-	var loop, budget, reuse, runtime []byte
+	var loop, budget, reuse, runtime, roomRead []byte
 	var isolation string
 	var quota *int
 	var graceSeconds float64
 	err := q.QueryRow(ctx, `
 		SELECT loop_limits, budget_policy, context_reuse, runtime_policy, default_isolation::text,
 		       workdir_retention_days, workdir_disk_quota_gb,
-		       EXTRACT(epoch FROM runtime_offline_grace)::float8, task_event_masking, updated_at
+		       EXTRACT(epoch FROM runtime_offline_grace)::float8, task_event_masking, updated_at, room_read
 		FROM workspace_settings WHERE workspace_id = $1`, wsID).
 		Scan(&loop, &budget, &reuse, &runtime, &isolation,
-			&out.WorkdirRetentionDays, &quota, &graceSeconds, &out.TaskEventMasking, &out.UpdatedAt)
+			&out.WorkdirRetentionDays, &quota, &graceSeconds, &out.TaskEventMasking, &out.UpdatedAt, &roomRead)
 	if err == pgx.ErrNoRows {
 		return nil, apperr.NotFound("workspace_settings")
 	}
@@ -216,6 +229,7 @@ func loadSettings(ctx context.Context, q db.DBTX, wsID uuid.UUID) (*gen.Workspac
 	_ = json.Unmarshal(budget, &out.BudgetPolicy)
 	_ = json.Unmarshal(reuse, &out.ContextReuse)
 	_ = json.Unmarshal(runtime, &out.RuntimePolicy)
+	_ = json.Unmarshal(roomRead, &out.RoomRead)
 	return &out, nil
 }
 
