@@ -95,9 +95,9 @@ WAIT_S=120 wait_task "$T_CHILD" completed failed cancelled >/dev/null 2>&1 || tr
 wait_until 120 '[ "$(sess_status "$S")" = paused ]' || true
 wait_quiet "$S" 60 || true
 GUARD_N="$(psqlq "select count(*) from task t join agent a on a.id=t.agent_id where t.session_id='$S' and a.name='Guard'")"
-LOOP_LIMIT="$(psqlq "select coalesce(paused_detail->'loop'->>'limit','-') from session where id='$S'")"
+LOOP_LIMIT="$(psqlq "select coalesce(paused_detail->'loop'->>'limit','-') from work where room_id='$S'")"
 chk S1x "**위임↔합류 사이클이 루프 상한에 걸린다** (S-76: paused(loop), limit=$LOOP_LIMIT, guard_tasks=$GUARD_N)" \
-  "paused/loop" "$(sess_status "$S")/$(psqlq "select coalesce(paused_reason::text,'-') from session where id='$S'")"
+  "paused/loop" "$(sess_status "$S")/$(psqlq "select coalesce(paused_reason::text,'-') from work where room_id='$S'")"
 chk S1x1 "**걸린 상한은 pair_roundtrips 다** — 위임↔합류 왕복은 깊이가 아니라 왕복이다 (S-78)" pair_roundtrips "$LOOP_LIMIT"
 chk S1x2 "6번째 위임이 막혔다 (Guard task = max_pair_roundtrips 5, 대본 8회 전)" 5 "$GUARD_N"
 chk S1x3 "Director 에게 시스템 HITL(purpose=loop) 이 갔다" 1 \

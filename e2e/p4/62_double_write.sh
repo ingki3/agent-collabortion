@@ -175,7 +175,7 @@ step "6. 세션 종료 뒤 위생 (§8.4 v0.16)"
 wait_quiet "$S" 900 || true
 sleep 5
 api_ok POST "/sessions/$S/complete" '{"confirm":true}' >/dev/null || true
-wait_until 180 '[ "$(psqlq "select status::text from session where id='"'$S'"'")" = completed ]' || true
+wait_until 180 '[ "$(psqlq "select status::text from work where room_id='"'$S'"'")" = completed ]' || true
 git -C "$WT" status --porcelain > "$OUT/62-status.txt" 2>&1 || true
 chk D6  "세션 종료 뒤 COLAB_BRIEF.md 없음 (E13-05)" 0 "$(ls "$WT/COLAB_BRIEF.md" 2>/dev/null | wc -l | tr -d ' ')"
 chk D6b "exclude 항목 해제 (E13-06)" 0 "$(cnt "$REPO/.git/info/exclude" 'COLAB_BRIEF')"

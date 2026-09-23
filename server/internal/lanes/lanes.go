@@ -188,7 +188,7 @@ func Publish(ctx context.Context, hub *realtime.Hub, q db.DBTX, laneID uuid.UUID
 		return err
 	}
 	var wsID uuid.UUID
-	if err := q.QueryRow(ctx, `SELECT workspace_id FROM session WHERE id = $1`, l.SessionId).Scan(&wsID); err != nil {
+	if err := q.QueryRow(ctx, `SELECT workspace_id FROM room WHERE id = $1`, l.SessionId).Scan(&wsID); err != nil {
 		return fmt.Errorf("lanes: publish: workspace of %s: %w", l.SessionId, err)
 	}
 	sid := uuid.UUID(l.SessionId)

@@ -311,7 +311,7 @@ func (s *Server) downloadAccess(r *http.Request, id uuid.UUID) (*artifacts.Row, 
 	}
 	var wsID uuid.UUID
 	var runtimeID *uuid.UUID
-	if err := s.DB.QueryRow(r.Context(), `SELECT workspace_id, runtime_id FROM session WHERE id = $1`, a.SessionID).
+	if err := s.DB.QueryRow(r.Context(), `SELECT workspace_id, runtime_id FROM room WHERE id = $1`, a.SessionID).
 		Scan(&wsID, &runtimeID); err != nil {
 		return nil, apperr.NotFound("artifact")
 	}

@@ -233,10 +233,10 @@ func TestP2SessionGateInTheDatabase(t *testing.T) {
 	for _, ag := range []uuid.UUID{f.leadUUID, f.rUUID, f.wUUID} {
 		f.post(t, map[string]any{"content": router.MentionLink("x", ag) + " 해줘"})
 	}
-	if _, err := f.pool.Exec(ctx, `UPDATE session SET limits = '{"max_parallel_lanes": 5}' WHERE id = $1`, f.sessionID); err != nil {
+	if _, err := f.pool.Exec(ctx, `UPDATE room SET limits = '{"max_parallel_lanes": 5}' WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.pool.Exec(ctx, `UPDATE session SET status = 'paused', paused_reason = 'director' WHERE id = $1`, f.sessionID); err != nil {
+	if _, err := f.pool.Exec(ctx, `UPDATE work SET status = 'paused', paused_reason = 'director' WHERE room_id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	got, err := f.srv.Queue.Claim(ctx, runtimeID.String(), 10, f.fake.Now())
@@ -246,7 +246,7 @@ func TestP2SessionGateInTheDatabase(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("claimed %d from a paused session, want 0 (FR-2.3 C3′, E5-04)", len(got))
 	}
-	if _, err := f.pool.Exec(ctx, `UPDATE session SET status = 'active', paused_reason = NULL WHERE id = $1`, f.sessionID); err != nil {
+	if _, err := f.pool.Exec(ctx, `UPDATE work SET status = 'active', paused_reason = NULL WHERE room_id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	got, err = f.srv.Queue.Claim(ctx, runtimeID.String(), 10, f.fake.Now())

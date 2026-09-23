@@ -91,7 +91,7 @@ SH="$(create_session_p3 "$WS" "제품 Y 초안 확정 (deputy 게이트)" "$P3_G
 SC_="$(create_session_p3 "$WS" "제품 Y 설명서 (취소)" "$P3_GOAL" "$LONGA" "$RUNTIME" \
       "$(jq -nc --arg d "$DEP_ID" '{deputy_director_user_id:$d}')" "$LONGA")"
 chk M1 "세션 H 에 deputy 가 지정됐다" "$DEP_ID" \
-  "$(psqlq "select coalesce(deputy_director_user_id::text,'-') from session where id='$SH'")"
+  "$(psqlq "select coalesce(deputy_user_id::text,'-') from work where room_id='$SH'")"
 TH="$(session_initial_task "$SH")"; TC="$(session_initial_task "$SC_")"
 T0="$(now_ms)"
 

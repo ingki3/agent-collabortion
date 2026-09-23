@@ -53,7 +53,7 @@ func (f *p2Fixture) overrunSession(t *testing.T, agent uuid.UUID, name string, c
 func TestP3ResumeSessionRequeuesParkedTasks(t *testing.T) {
 	f := newP2Fixture(t)
 	if _, err := f.pool.Exec(t.Context(), `
-		UPDATE session SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+		UPDATE room SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	// No per-task budget: the session remainder is this task's only ceiling, so
@@ -68,7 +68,7 @@ func TestP3ResumeSessionRequeuesParkedTasks(t *testing.T) {
 
 	var sessionStatus, sessionReason string
 	if err := f.pool.QueryRow(t.Context(), `
-		SELECT status::text, COALESCE(paused_reason::text, '') FROM session WHERE id = $1`, f.sessionID).
+		SELECT status::text, COALESCE(paused_reason::text, '') FROM work WHERE room_id = $1`, f.sessionID).
 		Scan(&sessionStatus, &sessionReason); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestP3ResumeSessionRequeuesParkedTasks(t *testing.T) {
 func TestP3ResumeSessionKeepsRefusedBudgetTask(t *testing.T) {
 	f := newP2Fixture(t)
 	if _, err := f.pool.Exec(t.Context(), `
-		UPDATE session SET limits = '{"budget_usd": 3}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+		UPDATE room SET limits = '{"budget_usd": 3}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(t.Context(), `UPDATE agent SET budget_per_task = 1 WHERE id = $1`, f.rUUID); err != nil {

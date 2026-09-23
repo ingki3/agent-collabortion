@@ -42,8 +42,11 @@ func TestP4RebindPromptReachesTheBundle(t *testing.T) {
 	// The session ran under `worktree` on a machine that has gone away, and it
 	// submitted two diff artifacts before it did.
 	if _, err := f.pool.Exec(ctx, `
-		UPDATE session SET isolation = '{"kind":"worktree","remote_url":"git@github.com:acme/app.git"}',
-		       status = 'paused', paused_reason = 'runtime_offline' WHERE id = $1`, sessionID); err != nil {
+		UPDATE room SET isolation = '{"kind":"worktree","remote_url":"git@github.com:acme/app.git"}' WHERE id = $1`, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `
+		UPDATE work SET status = 'paused', paused_reason = 'runtime_offline' WHERE room_id = $1`, sessionID); err != nil {
 		t.Fatal(err)
 	}
 	addDiffArtifact(t, f, sessionID, "step-1")
@@ -72,7 +75,7 @@ func TestP4RebindPromptReachesTheBundle(t *testing.T) {
 
 	// (1) stored, and in the bundle.
 	var stored string
-	if err := f.pool.QueryRow(ctx, `SELECT COALESCE(rebind_prompt, '') FROM session WHERE id = $1`, sessionID).Scan(&stored); err != nil {
+	if err := f.pool.QueryRow(ctx, `SELECT COALESCE(rebind_prompt, '') FROM room WHERE id = $1`, sessionID).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	if stored == "" {
@@ -91,7 +94,7 @@ func TestP4RebindPromptReachesTheBundle(t *testing.T) {
 
 	// (3) the turn completes: the diffs are in the workdir now.
 	f.endTurn(t, taskID)
-	if err := f.pool.QueryRow(ctx, `SELECT COALESCE(rebind_prompt, '') FROM session WHERE id = $1`, sessionID).Scan(&stored); err != nil {
+	if err := f.pool.QueryRow(ctx, `SELECT COALESCE(rebind_prompt, '') FROM room WHERE id = $1`, sessionID).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	if stored != "" {

@@ -193,7 +193,7 @@ func (s *Service) RemoveMember(ctx context.Context, wsID, memberID, callerUserID
 	}
 	var directing int
 	if err := tx.QueryRow(ctx, `
-		SELECT count(*) FROM session WHERE workspace_id = $1 AND director_user_id = $2 AND status IN `+activeSessionStatuses,
+		SELECT count(*) FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.workspace_id = $1 AND wk.director_user_id = $2 AND wk.status IN `+activeSessionStatuses,
 		wsID, m.UserID).Scan(&directing); err != nil {
 		return err
 	}

@@ -54,7 +54,7 @@ func TestJudgeHopDoesNotPause(t *testing.T) {
 
 	var status string
 	var recorded, refused int
-	if err := tx.QueryRow(ctx, `SELECT status::text FROM session WHERE id = $1`, seed.SessionID).Scan(&status); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT status::text FROM work WHERE room_id = $1`, seed.SessionID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE NOT allowed) FROM session_hop WHERE session_id = $1`, seed.SessionID).Scan(&recorded, &refused); err != nil {
@@ -71,7 +71,7 @@ func TestJudgeHopDoesNotPause(t *testing.T) {
 	if err := s.pauseForLoop(ctx, tx, seed.SessionID, seed.WorkspaceID, &seed.UserID, second, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if err := tx.QueryRow(ctx, `SELECT status::text FROM session WHERE id = $1`, seed.SessionID).Scan(&status); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT status::text FROM work WHERE room_id = $1`, seed.SessionID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
 	if status != "paused" {

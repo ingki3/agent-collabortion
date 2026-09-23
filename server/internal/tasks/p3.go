@@ -238,7 +238,7 @@ func (s *Service) RecordTurnUsage(ctx context.Context, taskID uuid.UUID, u contr
 		}
 		var wsID, sessionID uuid.UUID
 		if err := tx.QueryRow(ctx, `
-			SELECT s.workspace_id, t.session_id FROM task t JOIN session s ON s.id = t.session_id
+			SELECT s.workspace_id, t.session_id FROM task t JOIN room s ON s.id = t.session_id
 			WHERE t.id = $1`, taskID).Scan(&wsID, &sessionID); err != nil {
 			return fmt.Errorf("tasks: turn usage session: %w", err)
 		}

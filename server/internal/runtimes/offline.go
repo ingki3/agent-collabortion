@@ -133,14 +133,15 @@ func PlanOffline(c OfflineCase) OfflineOutcome {
 func (s *Service) SweepOffline(ctx context.Context) (int, error) {
 	now := s.Clock.Now()
 	rows, err := s.DB.Query(ctx, `
-		SELECT sess.id, sess.workspace_id, sess.director_user_id, sess.status::text,
+		SELECT sess.id, sess.workspace_id, wk.director_user_id, wk.status::text,
 		       r.id, r.offline_since,
 		       COALESCE(ws.runtime_offline_grace, interval '7 days'),
 		       (SELECT count(*) FROM task t WHERE t.session_id = sess.id AND t.status IN ('queued', 'deferred'))
-		FROM session sess
+		FROM room sess
+		JOIN work wk ON wk.room_id = sess.id
 		JOIN runtime r ON r.id = sess.runtime_id
 		LEFT JOIN workspace_settings ws ON ws.workspace_id = sess.workspace_id
-		WHERE sess.status = 'active' AND r.status = 'offline' AND r.offline_since IS NOT NULL`)
+		WHERE wk.status = 'active' AND r.status = 'offline' AND r.offline_since IS NOT NULL`)
 	if err != nil {
 		return 0, fmt.Errorf("runtimes: offline sweep: %w", err)
 	}
@@ -197,9 +198,9 @@ func (s *Service) pauseForOffline(ctx context.Context, sessionID, wsID, director
 	// only a session still `active` moves, so two overlapping passes cannot
 	// both pause it and both notify.
 	tag, err := tx.Exec(ctx, `
-		UPDATE session SET status = 'paused', paused_reason = 'runtime_offline', paused_detail = $2,
+		UPDATE work SET status = 'paused', paused_reason = 'runtime_offline', paused_detail = $2,
 		       updated_at = $3
-		WHERE id = $1 AND status = 'active'`, sessionID, detail, now)
+		WHERE room_id = $1 AND status = 'active'`, sessionID, detail, now)
 	if err != nil {
 		return err
 	}
@@ -445,7 +446,7 @@ func (s *Service) Rebind(ctx context.Context, wsID, sessionID, targetRuntime uui
 	}
 	var state string
 	var pauseReason *string
-	if err := s.DB.QueryRow(ctx, `SELECT status::text, paused_reason::text FROM session WHERE id = $1`, sessionID).
+	if err := s.DB.QueryRow(ctx, `SELECT status::text, paused_reason::text FROM work WHERE room_id = $1`, sessionID).
 		Scan(&state, &pauseReason); errors.Is(err, pgx.ErrNoRows) {
 		return RebindPlan{}, apperr.NotFound("session")
 	} else if err != nil {
@@ -514,16 +515,28 @@ func (s *Service) Rebind(ctx context.Context, wsID, sessionID, targetRuntime uui
 	if verdict.MatchedRepoPath != "" && kind == "worktree" {
 		repoPath = verdict.MatchedRepoPath
 	}
+	// Room first, then work (lock order): the room half is guarded by the
+	// work's state so a room that is not paused(runtime_offline) never moves,
+	// and the work half re-checks the guard under its own row lock.
 	tag, err := tx.Exec(ctx, `
-		UPDATE session SET runtime_id = $2, status = 'active', paused_reason = NULL, paused_detail = NULL,
+		UPDATE room SET runtime_id = $2,
 		       rebind_prompt = $4,
 		       isolation = CASE WHEN $5::text IS NULL THEN isolation
 		                        ELSE jsonb_set(isolation, '{repo_path}', to_jsonb($5::text), true) END,
 		       updated_at = $3
-		WHERE id = $1 AND status = 'paused' AND paused_reason = 'runtime_offline'`,
+		WHERE id = $1 AND EXISTS (SELECT 1 FROM work wk WHERE wk.room_id = room.id
+		                          AND wk.status = 'paused' AND wk.paused_reason = 'runtime_offline')`,
 		sessionID, targetRuntime, now, rebindPrompt, repoPath)
 	if err != nil {
 		return plan, err
+	}
+	if tag.RowsAffected() > 0 {
+		if tag, err = tx.Exec(ctx, `
+			UPDATE work SET status = 'active', paused_reason = NULL, paused_detail = NULL, updated_at = $2
+			WHERE room_id = $1 AND status = 'paused' AND paused_reason = 'runtime_offline'`,
+			sessionID, now); err != nil {
+			return plan, err
+		}
 	}
 	if tag.RowsAffected() == 0 {
 		return plan, apperr.Conflict("session_not_paused_offline",
@@ -790,9 +803,10 @@ type blockingSession struct {
 
 func (s *Service) blockingSessions(ctx context.Context, runtimeID uuid.UUID) ([]blockingSession, error) {
 	rows, err := s.DB.Query(ctx, `
-		SELECT id, title, status::text, COALESCE(paused_reason::text, '')
-		FROM session WHERE runtime_id = $1 AND status IN ('draft', 'active', 'paused', 'completing')
-		ORDER BY created_at`, runtimeID)
+		SELECT s.id, wk.title, wk.status::text, COALESCE(wk.paused_reason::text, '')
+		FROM room s JOIN work wk ON wk.room_id = s.id
+		WHERE s.runtime_id = $1 AND wk.status IN ('draft', 'active', 'paused', 'completing')
+		ORDER BY s.created_at`, runtimeID)
 	if err != nil {
 		return nil, fmt.Errorf("runtimes: blocking sessions: %w", err)
 	}

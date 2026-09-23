@@ -347,8 +347,8 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID) (*Detail, error) {
 		       r.created_at, r.updated_at,
 		       COALESCE((SELECT ws.runtime_offline_grace FROM workspace_settings ws WHERE ws.workspace_id = r.workspace_id), interval '7 days'),
 		       (SELECT count(*) FROM task t WHERE t.runtime_id = r.id AND t.status IN ('dispatched','preparing','running')),
-		       (SELECT count(*) FROM session s WHERE s.runtime_id = r.id AND s.status = 'paused' AND s.paused_reason = 'runtime_offline'),
-		       COALESCE((SELECT sum(w.disk_bytes) FROM workdir w JOIN session s ON s.id = w.session_id WHERE s.runtime_id = r.id AND w.status <> 'deleted'), 0)
+		       (SELECT count(*) FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.runtime_id = r.id AND wk.status = 'paused' AND wk.paused_reason = 'runtime_offline'),
+		       COALESCE((SELECT sum(w.disk_bytes) FROM workdir w JOIN room s ON s.id = w.session_id WHERE s.runtime_id = r.id AND w.status <> 'deleted'), 0)
 		FROM runtime r WHERE r.id = $1`, id).Scan(
 		&r.Id, &r.WorkspaceId, &r.Name, &host, &status, &version, &lastSeen, &r.Capabilities, &r.Repos, &colabCLI, &offlineSince,
 		&r.CreatedAt, &r.UpdatedAt, &grace, &running, &paused, &disk)
@@ -379,7 +379,7 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID) (*Detail, error) {
 	}
 	r.ColabCli = colabCLI
 	d := &Detail{Runtime: r, ActiveSessions: []gen.SessionRef{}}
-	rows, err := q.Query(ctx, `SELECT id, title, status FROM session WHERE runtime_id = $1 AND status IN ('active','paused','completing') ORDER BY created_at`, id)
+	rows, err := q.Query(ctx, `SELECT s.id, wk.title, wk.status FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.runtime_id = $1 AND wk.status IN ('active','paused','completing') ORDER BY s.created_at`, id)
 	if err != nil {
 		return nil, err
 	}

@@ -87,7 +87,7 @@ CP1="$(completion_progress "$SESSION")"; log "completion_progress: $CP1"
 chk P1b "artifact_submitted 충족"                     true "$(jq -r '.conditions[]|select(.type=="artifact_submitted")|.met' <<<"$CP1")"
 chk P1c "user_approval 미충족"                        false "$(jq -r '.conditions[]|select(.type=="user_approval")|.met' <<<"$CP1")"
 chk P1d "진행률 1/2"                                  "1/2" "$(jq -r '"\(.met)/\(.total)"' <<<"$CP1")"
-chk P1e "세션은 active 유지 (E6-01)"                  active "$(psqlq "select status from session where id='$SESSION'")"
+chk P1e "세션은 active 유지 (E6-01)"                  active "$(psqlq "select status from work where room_id='$SESSION'")"
 chk P1f "human_gate=true (사람 승인이 남았다)"        true "$(jq -r .human_gate <<<"$CP1")"
 HITL="$(hitl_of "$SESSION")"
 chk P2  "플랫폼이 approval HITL 을 발행했다"          yes "$( [ -n "$HITL" ] && echo yes || echo no )"
@@ -112,7 +112,7 @@ REJ_CODE="$(api POST "/hitl-requests/$HITL_R/response" \
 REJ_OK=no; [ "${REJ_CODE:0:1}" = 2 ] && REJ_OK=yes
 chk R1 "거절이 정식 경로로 받아들여진다 (HTTP $REJ_CODE)" yes "$REJ_OK"
 sleep 2
-chk R2 "거절해도 세션은 active 유지 (E6-04)"         active "$(psqlq "select status from session where id='$SESSION_R'")"
+chk R2 "거절해도 세션은 active 유지 (E6-04)"         active "$(psqlq "select status from work where room_id='$SESSION_R'")"
 CPR="$(completion_progress "$SESSION_R")"
 chk R3 "artifact_submitted 플래그가 유지된다"        true "$(jq -r '.conditions[]|select(.type=="artifact_submitted")|.met' <<<"$CPR")"
 chk R4 "user_approval 은 충족되지 않았다"            false "$(jq -r '.conditions[]|select(.type=="user_approval")|.met' <<<"$CPR")"
@@ -143,12 +143,12 @@ chk P5b "같은 멱등키 재요청도 2xx 로 첫 결과를 돌려준다 (E7-08
   "$( [ "${REPLAY:0:1}" = 2 ] && echo yes || echo no )"
 sleep 2
 
-S_STATUS="$(psqlq "select status from session where id='$SESSION'")"
+S_STATUS="$(psqlq "select status from work where room_id='$SESSION'")"
 chk P6  "세션이 completed 다"                          completed "$S_STATUS"
-chk P6b "finished_at 이 찍혔다"                        yes "$(psqlq "select case when finished_at is null then 'no' else 'yes' end from session where id='$SESSION'")"
+chk P6b "finished_at 이 찍혔다"                        yes "$(psqlq "select case when finished_at is null then 'no' else 'yes' end from work where room_id='$SESSION'")"
 chk P6c "paused_reason·paused_detail 이 비워졌다"      1 \
-  "$(psqlq "select count(*) from session where id='$SESSION' and paused_reason is null and paused_detail is null")"
-MET="$(psqlq "select completion_met::text from session where id='$SESSION'")"
+  "$(psqlq "select count(*) from work where room_id='$SESSION' and paused_reason is null and paused_detail is null")"
+MET="$(psqlq "select completion_met::text from work where room_id='$SESSION'")"
 printf '%s\n' "$MET" > "$OUT/a3-met.json"
 log "completion_met = $MET"
 chk P7  "**user_approval 원자가 충족됐다** (S-25 해소)" true "$(jq -r '.user_approval // false' <<<"$MET")"

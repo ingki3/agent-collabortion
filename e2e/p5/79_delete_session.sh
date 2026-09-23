@@ -35,7 +35,7 @@ claim() { daemon_api "runtimes/$RID/claim" '{"capacity":5,"wait_ms":0}'; }
 # as COOKIEFILE METHOD PATH [JSON] → 다른 계정으로 api
 as() { local c="$1"; shift; COOKIE="$c" api "$@"; }
 count_children() { # SESSION → 자식 행 합계(세션을 가리키는 표 전부)
-  psqlq "select (select count(*) from session_participant where session_id='$1')
+  psqlq "select (select count(*) from room_participant where room_id='$1' and agent_id is not null)
             + (select count(*) from lane where session_id='$1') + (select count(*) from task where session_id='$1')
             + (select count(*) from message where session_id='$1') + (select count(*) from artifact where session_id='$1')
             + (select count(*) from hitl_request where session_id='$1') + (select count(*) from decision where session_id='$1')
@@ -92,7 +92,7 @@ LO="$(psqlq "select substr(storage_ref,6) from artifact where id='$ART_ID'")"
 chk A.2 1 "$(psqlq "select count(*) from pg_largeobject_metadata where oid=${LO:-0}")" "본문은 large object pglo:$LO"
 finish_turn "$T_DONE"
 api_ok POST "/sessions/$S_DONE/complete" '{"confirm":true}' >/dev/null
-chk A.3 completed "$(psqlq "select status from session where id='$S_DONE'")" "completeSession → completed"
+chk A.3 completed "$(psqlq "select status from work where room_id='$S_DONE'")" "completeSession → completed"
 COST0="$(api_ok GET "/workspaces/$WS/cost")"; echo "$COST0" | jq . > "$OUT/79-cost-before.json"
 chk A.4 1 "$(jq -r --arg s "$S_DONE" '[.by_session[]|select(.id==$s)]|length' <<<"$COST0")" "getWorkspaceCost.by_session 에 세션이 있다"
 MET0="$(api_ok GET "/workspaces/$WS/metrics")"; echo "$MET0" | jq . > "$OUT/79-metrics-before.json"
@@ -148,11 +148,11 @@ chk C.1 200 "$(report "$S_WT" false false 1)" "§6 보고: 미병합 커밋 1"
 WD="$(psqlq "select id from workdir where session_id='$S_WT'")"
 chk C.2 "worktree/f/1" "$(psqlq "select kind::text||'/'||case when merged then 't' else 'f' end||'/'||commits_ahead from workdir where id='${WD:-00000000-0000-0000-0000-000000000000}'")" "workdir 행(merged=false, ahead=1)"
 api_ok POST "/sessions/$S_WT/cancel" '{"reason":"여기까지"}' >/dev/null
-chk C.3 cancelled "$(psqlq "select status from session where id='$S_WT'")" "cancelSession → cancelled"
+chk C.3 cancelled "$(psqlq "select status from work where room_id='$S_WT'")" "cancelSession → cancelled"
 R="$(api DELETE "/sessions/$S_WT")"; api_body <<<"$R" | jq . > "$OUT/79-409-unmerged.json"
 chk C.4 "409/workdir_unmerged" "$(api_code <<<"$R")/$(api_body <<<"$R" | jq -r .code)" "미병합 worktree → 409 workdir_unmerged"
 chk C.5 "$WD/worktree/$WT_PATH" "$(api_body <<<"$R" | jq -r '.workdirs[0].id+"/"+.workdirs[0].kind+"/"+.workdirs[0].path_or_ref')" "Problem.workdirs[0] = 그 행"
-chk C.6 1 "$(psqlq "select count(*) from session where id='$S_WT'")" "세션은 남아 있다"
+chk C.6 1 "$(psqlq "select count(*) from room where id='$S_WT'")" "세션은 남아 있다"
 chk C.7 200 "$(report "$S_WT" true false 0)" "§6 보고: 병합됨 · 클린"
 chk C.8 204 "$(api DELETE "/sessions/$S_WT" | api_code)" "삭제 → 204"
 chk C.9 0 "$(psqlq "select count(*) from workdir where id='${WD:-00000000-0000-0000-0000-000000000000}'")" "workdir 행 0 (행을 먼저 지운다)"
@@ -170,7 +170,7 @@ S_ADM="$(mk_session "관리자가 지운다 $RUN" '{"kind":"none"}')"
 IFS=$'\t' read -r T_ADM _ <<<"$(run_turn "$S_ADM")"; [ -n "$T_ADM" ] && finish_turn "$T_ADM"
 api_ok POST "/sessions/$S_ADM/cancel" '{"reason":"끝"}' >/dev/null
 chk C.16 204 "$(as "$COOKIE_ADM" DELETE "/sessions/$S_ADM" | api_code)" "admin(Director 아님) → 204"
-chk C.17 1 "$(psqlq "select count(*) from session where id='$S_ACT'")" "진행 중 세션은 그대로"
+chk C.17 1 "$(psqlq "select count(*) from room where id='$S_ACT'")" "진행 중 세션은 그대로"
 
 step "결과: $CHECKS"
 printf '%s\n' "PASS $(grep -c $'\tPASS\t' "$CHECKS") · FAIL $FAILS" | tee "$OUT/79-summary.txt"

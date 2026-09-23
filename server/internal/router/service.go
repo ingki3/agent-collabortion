@@ -113,7 +113,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 	var wsID uuid.UUID
 	var status string
 	var assignee, director *uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT workspace_id, status, assignee_agent_id, director_user_id FROM session WHERE id = $1 FOR UPDATE`, sessionID).
+	err = tx.QueryRow(ctx, `SELECT s.workspace_id, wk.status, wk.assignee_agent_id, wk.director_user_id FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionID).
 		Scan(&wsID, &status, &assignee, &director)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrSessionNotFound
@@ -384,7 +384,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 		}
 	}
 
-	if _, err := tx.Exec(ctx, `UPDATE session SET updated_at = $2 WHERE id = $1`, sessionID, now); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE room SET updated_at = $2 WHERE id = $1`, sessionID, now); err != nil {
 		return nil, err
 	}
 	msg, err := messages.Get(ctx, tx, msgID)
@@ -652,7 +652,7 @@ func (s *Service) recordHop(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID,
 // NAMES the limit, and the Director gets a system-issued HITL.
 func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID, v LoopVerdict, now time.Time) error {
 	var status string
-	if err := tx.QueryRow(ctx, `SELECT status::text FROM session WHERE id = $1`, sessionID).Scan(&status); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT status::text FROM work WHERE room_id = $1`, sessionID).Scan(&status); err != nil {
 		return err
 	}
 	if status == "paused" {
@@ -660,8 +660,8 @@ func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID u
 	}
 	detail := tasks.WithLoop(tasks.PausedDetail("loop", now), v.Detail, v.LimitCount(), v.Agents)
 	if _, err := tx.Exec(ctx, `
-		UPDATE session SET status = 'paused', paused_reason = 'loop', paused_detail = $2, updated_at = $3
-		WHERE id = $1`, sessionID, detail, now); err != nil {
+		UPDATE work SET status = 'paused', paused_reason = 'loop', paused_detail = $2, updated_at = $3
+		WHERE room_id = $1`, sessionID, detail, now); err != nil {
 		return err
 	}
 	question := v.QuestionText()
@@ -778,7 +778,7 @@ func (s *Service) publishMessage(ctx context.Context, tx pgx.Tx, sessionID, msgI
 		return
 	}
 	var wsID uuid.UUID
-	if err := tx.QueryRow(ctx, `SELECT workspace_id FROM session WHERE id = $1`, sessionID).Scan(&wsID); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT workspace_id FROM room WHERE id = $1`, sessionID).Scan(&wsID); err != nil {
 		return
 	}
 	_ = messages.Publish(ctx, s.Hub, tx, wsID, sessionID, msgID)
@@ -793,8 +793,8 @@ func (s *Service) publishMessage(ctx context.Context, tx pgx.Tx, sessionID, msgI
 func loadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID) ([]Participant, map[uuid.UUID]uuid.UUID, error) {
 	rows, err := q.Query(ctx, `
 		SELECT sp.agent_id, a.name, a.respond_to = 'nobody', sp.profile_id
-		FROM session_participant sp JOIN agent a ON a.id = sp.agent_id
-		WHERE sp.session_id = $1 ORDER BY sp.joined_at`, sessionID)
+		FROM room_participant sp JOIN agent a ON a.id = sp.agent_id
+		WHERE sp.room_id = $1 ORDER BY sp.joined_at`, sessionID)
 	if err != nil {
 		return nil, nil, err
 	}

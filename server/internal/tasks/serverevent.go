@@ -114,7 +114,7 @@ func announceServerEvent(ctx context.Context, tx pgx.Tx, id, taskID uuid.UUID, a
 	}
 	var wsID, sessionID uuid.UUID
 	if err := tx.QueryRow(ctx, `
-		SELECT s.workspace_id, t.session_id FROM task t JOIN session s ON s.id = t.session_id WHERE t.id = $1`, taskID).
+		SELECT s.workspace_id, t.session_id FROM task t JOIN room s ON s.id = t.session_id WHERE t.id = $1`, taskID).
 		Scan(&wsID, &sessionID); err != nil {
 		slog.Warn("announce server task_event", "err", err, "task", taskID)
 		return

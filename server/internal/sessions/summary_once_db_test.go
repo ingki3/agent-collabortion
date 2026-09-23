@@ -106,9 +106,14 @@ func seedSummarySession(ctx context.Context, t *testing.T, pool *pgxpool.Pool, n
 		t.Fatalf("user: %v", err)
 	}
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO session (workspace_id, title, goal, director_user_id, isolation, status, created_by, created_at, updated_at)
-		VALUES ($1, 's', 'g', $2, '{"kind":"none"}', 'completing', $2, $3, $3) RETURNING id`, wsID, userID, now).Scan(&sessionID); err != nil {
+		INSERT INTO room (workspace_id, name, owner_user_id, isolation, created_by, created_at, updated_at)
+		VALUES ($1, 's', $2, '{"kind":"none"}', $2, $3, $3) RETURNING id`, wsID, userID, now).Scan(&sessionID); err != nil {
 		t.Fatalf("session: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO work (room_id, title, goal, director_user_id, status, created_by, created_at, updated_at)
+		VALUES ($1, 's', 'g', $2, 'completing', $2, $3, $3)`, sessionID, userID, now); err != nil {
+		t.Fatalf("work: %v", err)
 	}
 	return sessionID
 }

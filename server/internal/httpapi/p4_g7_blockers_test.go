@@ -285,7 +285,7 @@ func TestP4DaemonDownloadsArtifact(t *testing.T) {
 
 	// Scope: the session pinned to THIS runtime, and nothing else.
 	other := testdb.AddRuntime(t, f.pool, mustUUID(t, f.wsID), "mac-2", f.fake.Now())
-	if _, err := f.pool.Exec(ctx, `UPDATE session SET runtime_id = $2 WHERE id = $1`, sessionID, other); err != nil {
+	if _, err := f.pool.Exec(ctx, `UPDATE room SET runtime_id = $2 WHERE id = $1`, sessionID, other); err != nil {
 		t.Fatal(err)
 	}
 	if st, _, _ := d.raw("GET", f.p+"/artifacts/"+artID.String()+"/content", nil); st != 404 {
@@ -326,9 +326,9 @@ func TestP4RejectReEntersTheSubmittingLane(t *testing.T) {
 	// — and carries the reviewer role, which K-19 requires for `review reject`.
 	f.setRole(t, f.rUUID, "reviewer")
 	if _, err := f.pool.Exec(ctx, `
-		UPDATE session SET completion_condition = jsonb_build_object('op', 'and', 'conditions',
+		UPDATE work SET completion_condition = jsonb_build_object('op', 'and', 'conditions',
 		    jsonb_build_array(jsonb_build_object('type', 'agent_approval', 'agent_id', $2::text)))
-		WHERE id = $1`, sessionID, f.rUUID.String()); err != nil {
+		WHERE room_id = $1`, sessionID, f.rUUID.String()); err != nil {
 		t.Fatal(err)
 	}
 	// The artifact is submitted BY that task, with that task's token — the lane
@@ -390,7 +390,7 @@ func worktreeSessionOn(t *testing.T, f *p2Fixture, sessionID uuid.UUID) uuid.UUI
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(t.Context(), `
-		UPDATE session SET isolation = '{"kind":"worktree","repo_path":"/Users/x/app","remote_url":"git@github.com:acme/app.git"}',
+		UPDATE room SET isolation = '{"kind":"worktree","repo_path":"/Users/x/app","remote_url":"git@github.com:acme/app.git"}',
 		       runtime_id = $2 WHERE id = $1`, sessionID, rtID); err != nil {
 		t.Fatal(err)
 	}

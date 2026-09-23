@@ -102,12 +102,12 @@ wait_task_paused() {
 wait_session_paused() {
   local dl=$(( $(date +%s) + ${2:-420} ))
   while [ "$(date +%s)" -lt "$dl" ]; do
-    [ "$(psqlq "select status from session where id='$1'")" = paused ] && return 0
+    [ "$(psqlq "select status from work where room_id='$1'")" = paused ] && return 0
     sleep 3
   done
   return 1
 }
-sess_field() { psqlq "select coalesce(($2)::text,'-') from session where id='$1'"; }
+sess_field() { psqlq "select coalesce(($2)::text,'-') from work where room_id='$1'"; }
 usage_cost() { psqlq "select coalesce(round(cost_usd::numeric,6)::text,'-') from task_usage where task_id='$1'"; }
 usage_est()  { psqlq "select coalesce(estimated::text,'-') from task_usage where task_id='$1'"; }
 gt() { python3 -c "import sys;print('yes' if float(sys.argv[1] or 0)>float(sys.argv[2]) else 'no')" "$1" "$2"; }
@@ -158,7 +158,7 @@ SH="$(create_session_p3 "$WS" "제품 Y 설명서 (hermes)"      "$GOAL" "$AG_H"
 TA="$(session_initial_task "$SA")"; TB="$(session_initial_task "$SB")"
 TC="$(session_initial_task "$SC_")"; TD="$(session_initial_task "$SD")"; TH="$(session_initial_task "$SH")"
 chk S0c "D: 세션 limits.budget_usd = \$$SESS_LIMIT" "$SESS_LIMIT" \
-  "$(eqnum "$(psqlq "select (limits->>'budget_usd') from session where id='$SD'")" "$SESS_LIMIT")"
+  "$(eqnum "$(psqlq "select (limits->>'budget_usd') from room where id='$SD'")" "$SESS_LIMIT")"
 ok "A=$TA B=$TB C=$TC D=$TD H=$TH"
 T0="$(now_ms)"
 
@@ -348,7 +348,7 @@ chk N1c "C: **그 정지를 결정한 값이 추정이었다**" true \
   "$(psqlq "select coalesce(bool_or(payload->>'detail' like '추정 비용이%')::text,'-') from task_event
             where task_id='$TC' and class='runtime' and verb='report' and object_ref=to_jsonb('budget'::text)")"
 chk N1d "C: 정지 시점 금액쌍이 paused_detail 에 남았다 (한도 \$$EST_BUDGET)" "$EST_BUDGET" \
-  "$(eqnum "$(psqlq "select coalesce((paused_detail->'budget'->>'limit_usd'),'-') from session where id='$SC_'")" "$EST_BUDGET")"
+  "$(eqnum "$(psqlq "select coalesce((paused_detail->'budget'->>'limit_usd'),'-') from work where room_id='$SC_'")" "$EST_BUDGET")"
 chk N2  "C: **세션이 paused(budget)**"                     paused "$(sess_field "$SC_" status)"
 chk N2b "C: paused_reason=budget"                          budget "$(sess_field "$SC_" paused_reason)"
 chk N3  "C: 활동 피드에 \"진행 중인 턴은 끝까지\" 기록 (E9-05)" 1 \
@@ -366,7 +366,7 @@ chk N4d "C: 타임라인 카드 1장 (S-45)"                      1 \
 chk N5  "C: 인박스는 **HITL 항목 1건**"                    1 \
   "$(psqlq "select count(*) from inbox_item where ref_id='$HC' and type='hitl_request'")"
 chk N5b "C: 옛 session_paused 카드는 없다 (한 정지에 카드 한 장)" 0 \
-  "$(psqlq "select count(*) from inbox_item i join session s on s.id=i.session_id
+  "$(psqlq "select count(*) from inbox_item i join room s on s.id=i.session_id
             where s.id='$SC_' and i.type='session_paused'")"
 fi
 # 드레인 — 서버는 진행 중 턴을 끊지 않는다. 턴은 제 할 일을 마치고 정상 종료(`turn_end`/`end_turn`)한다.
@@ -400,7 +400,7 @@ chk N10 "승인이 받아들여진다 (HTTP $RCC)" yes "$( [ "${RCC:0:1}" = 2 ] 
 sleep 6
 chk N10b "C: 세션이 **active** 로 돌아왔다 (K-10)"         active "$(sess_field "$SC_" status)"
 chk N10c "C: limits.budget_usd = 승인 금액 \$$EST_NEW"    "$EST_NEW" \
-  "$(eqnum "$(psqlq "select (limits->>'budget_usd') from session where id='$SC_'")" "$EST_NEW")"
+  "$(eqnum "$(psqlq "select (limits->>'budget_usd') from room where id='$SC_'")" "$EST_NEW")"
 chk N10d "C: paused_reason 이 지워졌다"                    - "$(sess_field "$SC_" paused_reason)"
 
 step "11. K-10 · S-46 — D: **세션 범위** 실측 초과 → 웹 승인 → park 된 task 재큐잉"
@@ -412,7 +412,7 @@ chk M1  "D: 세션이 paused(budget)"                         paused "$(sess_fie
 chk M1b "D: paused_reason=budget"                          budget "$(sess_field "$SD" paused_reason)"
 chk M1c "D: 세션 합계가 상한을 넘었다"                     yes "$(gt "$D_COST" "$SESS_LIMIT")"
 chk M1d "D: paused_detail 이 **세션** 금액쌍을 인용한다 (S-48)" "$SESS_LIMIT" \
-  "$(eqnum "$(psqlq "select coalesce((paused_detail->'budget'->>'limit_usd'),'-') from session where id='$SD'")" "$SESS_LIMIT")"
+  "$(eqnum "$(psqlq "select coalesce((paused_detail->'budget'->>'limit_usd'),'-') from work where room_id='$SD'")" "$SESS_LIMIT")"
 chk M2  "D: HITL 의 task_id 가 비어 있다 (세션 범위)"      - "$(hitl_field "$HD" task_id)"
 chk M2b "D: purpose=budget · source=system"                "budget|system" \
   "$(psqlq "select coalesce(purpose,'-')||'|'||source::text from hitl_request where id='$HD'")"
@@ -456,7 +456,7 @@ chk M6  "D: 웹 승인이 도달했다"                            answered "$(h
 sleep 6
 chk M6b "D: 세션이 active (K-10)"                          active "$(sess_field "$SD" status)"
 chk M6c "D: limits.budget_usd = \$$SESS_NEW"               "$SESS_NEW" \
-  "$(eqnum "$(psqlq "select (limits->>'budget_usd') from session where id='$SD'")" "$SESS_NEW")"
+  "$(eqnum "$(psqlq "select (limits->>'budget_usd') from room where id='$SD'")" "$SESS_NEW")"
 chk M7  "D: **park 된 task 가 재큐잉됐다** (S-46)"         yes \
   "$( [ "$(in_set "$(task_field "$TD" status)" queued dispatched running completed)" = yes ] && echo yes || echo no )"
 DEADLINE=$(( $(date +%s) + 240 ))
@@ -506,8 +506,8 @@ psqlq "select t.id, t.status::text, t.attempt, coalesce(u.cost_usd::text,'-'), c
               coalesce(u.model,'-')
        from task t left join task_usage u on u.task_id=t.id
        where t.session_id in ('$SA','$SB','$SC_','$SD','$SH') order by t.created_at" > "$OUT/50-usage.tsv"
-psqlq "select id, status::text, coalesce(paused_reason::text,'-'), coalesce(limits::text,'-'), round(cost_usd::numeric,6)::text
-       from session where id in ('$SA','$SB','$SC_','$SD','$SH')" > "$OUT/50-sessions.tsv"
+psqlq "select s.id, wk.status::text, coalesce(wk.paused_reason::text,'-'), coalesce(s.limits::text,'-'), round(wk.cost_usd::numeric,6)::text
+       from room s join work wk on wk.room_id=s.id where s.id in ('$SA','$SB','$SC_','$SD','$SH')" > "$OUT/50-sessions.tsv"
 
 step "결과"
 printf '판정: PASS %d · FAIL %d\n' "$pass" "$fail" >&2

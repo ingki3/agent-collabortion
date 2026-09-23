@@ -41,7 +41,7 @@ curl -sS -X POST "$D/runtimes/$RID/probe" -H "Authorization: Bearer $DTOK" -H 'C
   -d '{"runtimes":[{"kind":"claude_code","available":true,"version":"1.0.0","capabilities":{"usage":true,"resume":true}}]}' >/dev/null
 # 에이전트 단위 예산은 없다 — 세션 잔여가 유일한 상한이라 초과는 SESSION 범위다(D-16).
 SESS=$(api -X POST "$S/workspaces/$WS/sessions" -d "{\"title\":\"S\",\"goal\":\"g\",\"isolation\":{\"kind\":\"none\"},\"assignee_agent_id\":\"$R\",\"participants\":[{\"agent_id\":\"$R\"},{\"agent_id\":\"$W\"}],\"runtime_id\":\"$RID\",\"limits\":{\"budget_usd\":1}}" | jq -r .id)
-LIM=$(Q "SELECT limits->>'budget_usd' FROM session WHERE id='$SESS'")
+LIM=$(Q "SELECT limits->>'budget_usd' FROM room WHERE id='$SESS'")
 [ "$LIM" = 1 ] && ok "session $SESS · limits.budget_usd = \$1" || bad "limits = $LIM"
 
 step "2. 두 task 를 claim — W 는 running 인 채로 둔다(정지가 취소할 턴)"
@@ -61,7 +61,7 @@ FIN=$(curl -sS -X POST "$D/tasks/$TR/attempts/$AR/finish" -H "Authorization: Bea
 echo "$FIN" | jq -r .status | grep -q completed && ok "R finish → completed" || bad "finish: $FIN"
 
 step "4. S-45 — 시스템 발행 HITL 의 타임라인 카드"
-SS=$(Q "SELECT status||'('||COALESCE(paused_reason::text,'-')||')' FROM session WHERE id='$SESS'")
+SS=$(Q "SELECT status||'('||COALESCE(paused_reason::text,'-')||')' FROM work WHERE room_id='$SESS'")
 [ "$SS" = "paused(budget)" ] && ok "session = $SS (E9-04)" || bad "session = $SS, want paused(budget)"
 HID=$(Q "SELECT id FROM hitl_request WHERE session_id='$SESS' AND purpose='budget'")
 HT=$(Q "SELECT COALESCE(task_id::text,'-') FROM hitl_request WHERE id='$HID'")

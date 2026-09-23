@@ -53,8 +53,8 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 	var callerAttempt int
 	var director *uuid.UUID
 	err = tx.QueryRow(ctx, `
-		SELECT t.session_id, s.workspace_id, t.agent_id, a.name, t.attempt, s.director_user_id
-		FROM task t JOIN session s ON s.id = t.session_id JOIN agent a ON a.id = t.agent_id
+		SELECT t.session_id, s.workspace_id, t.agent_id, a.name, t.attempt, wk.director_user_id
+		FROM task t JOIN room s ON s.id = t.session_id JOIN work wk ON wk.room_id = s.id JOIN agent a ON a.id = t.agent_id
 		WHERE t.id = $1`, callerTask).Scan(&sessionID, &wsID, &callerAgent, &callerName, &callerAttempt, &director)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, tasks.ErrNotFound
@@ -62,7 +62,7 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 	if err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, `SELECT 1 FROM session WHERE id = $1 FOR UPDATE`, sessionID); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionID); err != nil {
 		return nil, err
 	}
 
@@ -72,8 +72,8 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 	var profileID uuid.UUID
 	var targetName string
 	err = tx.QueryRow(ctx, `
-		SELECT sp.profile_id, a.name FROM session_participant sp JOIN agent a ON a.id = sp.agent_id
-		WHERE sp.session_id = $1 AND sp.agent_id = $2`, sessionID, in.AgentID).Scan(&profileID, &targetName)
+		SELECT sp.profile_id, a.name FROM room_participant sp JOIN agent a ON a.id = sp.agent_id
+		WHERE sp.room_id = $1 AND sp.agent_id = $2`, sessionID, in.AgentID).Scan(&profileID, &targetName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.Validation(apperr.Field("agent_id", "not_participant",
 			"이 에이전트는 세션 참여자가 아닙니다 — `colab hitl ask`로 Director에게 참여자 추가를 요청하세요"))

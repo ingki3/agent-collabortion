@@ -97,7 +97,7 @@ const selectTask = `
 	       t.coalesced_message_ids, t.attempt, t.max_attempts, t.pending_hitl, t.budget_override,
 	       t.status, t.paused_reason, t.failure_kind, t.not_before, t.stop_reason, t.heartbeat_at,
 	       t.created_at, t.updated_at, t.dispatched_at, t.started_at, t.finished_at
-	FROM task t JOIN session s ON s.id = t.session_id`
+	FROM task t JOIN room s ON s.id = t.session_id`
 
 func scanTask(row pgx.Row) (*Row, error) {
 	var t Row
@@ -702,7 +702,7 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			// a cold-start prompt and no word about the diffs to apply, and
 			// E14-06 would break silently.
 			if _, err := tx.Exec(ctx, `
-				UPDATE session SET rebind_prompt = NULL, updated_at = $2
+				UPDATE room SET rebind_prompt = NULL, updated_at = $2
 				WHERE id = $1 AND rebind_prompt IS NOT NULL`, t.SessionID, now); err != nil {
 				return err
 			}
@@ -794,7 +794,7 @@ func (s *Service) rollUpCost(ctx context.Context, wsID, sessionID uuid.UUID, now
 			Scan(&cost, &estimated); err != nil {
 			return fmt.Errorf("tasks: cost rollup: %w", err)
 		}
-		if _, err := tx.Exec(ctx, `UPDATE session SET cost_usd = $2, updated_at = $3 WHERE id = $1`, sessionID, cost, now); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE work SET cost_usd = $2, updated_at = $3 WHERE room_id = $1`, sessionID, cost, now); err != nil {
 			return fmt.Errorf("tasks: session cost: %w", err)
 		}
 		if s.Hub != nil {

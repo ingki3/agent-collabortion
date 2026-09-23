@@ -82,8 +82,8 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 	var cost float64
 	var assignee, director *uuid.UUID
 	err = tx.QueryRow(ctx, `
-		SELECT workspace_id, status::text, completion_condition, completion_met, limits, cost_usd, assignee_agent_id, director_user_id
-		FROM session WHERE id = $1 FOR UPDATE`, sessionID).
+		SELECT s.workspace_id, wk.status::text, wk.completion_condition, wk.completion_met, s.limits, wk.cost_usd, wk.assignee_agent_id, wk.director_user_id
+		FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionID).
 		Scan(&wsID, &status, &raw, &metRaw, &limitsRaw, &cost, &assignee, &director)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.NotFound("session")
@@ -115,7 +115,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 	for _, a := range out.MetAtoms {
 		met[a] = true
 	}
-	if _, err := tx.Exec(ctx, `UPDATE session SET completion_met = $2, updated_at = $3 WHERE id = $1`, sessionID, met, now); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE work SET completion_met = $2, updated_at = $3 WHERE room_id = $1`, sessionID, met, now); err != nil {
 		return nil, err
 	}
 
@@ -144,7 +144,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 			detail = tasks.WithBudget(detail, float32(budgetLimit(limitsRaw)), float32(cost))
 		}
 		if _, err := tx.Exec(ctx, `
-			UPDATE session SET status = 'paused', paused_reason = $2, paused_detail = $3, updated_at = $4 WHERE id = $1`,
+			UPDATE work SET status = 'paused', paused_reason = $2, paused_detail = $3, updated_at = $4 WHERE room_id = $1`,
 			sessionID, out.PauseReason, detail, now); err != nil {
 			return nil, err
 		}
@@ -159,7 +159,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		// active → completing → completed. The intermediate state is real: no
 		// new task dispatches while the summary runs (FR-2.3, E5-08).
 		if _, err := tx.Exec(ctx, `
-			UPDATE session SET status = 'completing', updated_at = $2 WHERE id = $1`, sessionID, now); err != nil {
+			UPDATE work SET status = 'completing', updated_at = $2 WHERE room_id = $1`, sessionID, now); err != nil {
 			return nil, err
 		}
 		// FR-2.4 with a model on the path (P4, §8.5). `alreadyPosted` is read
@@ -205,8 +205,8 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 			return nil, fmt.Errorf("sessions: summary count: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `
-			UPDATE session SET status = 'completed', paused_reason = NULL, paused_detail = NULL,
-			       finished_at = $2, updated_at = $2 WHERE id = $1`, sessionID, now); err != nil {
+			UPDATE work SET status = 'completed', paused_reason = NULL, paused_detail = NULL,
+			       finished_at = $2, updated_at = $2 WHERE room_id = $1`, sessionID, now); err != nil {
 			return nil, err
 		}
 		// Queued work is moot once the session is over; leaving it queued means
@@ -316,7 +316,7 @@ func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID
 	var kind string
 	var runtimeID *uuid.UUID
 	if err := tx.QueryRow(ctx, `
-		SELECT COALESCE(isolation->>'kind', ''), runtime_id FROM session WHERE id = $1`, sessionID).
+		SELECT COALESCE(isolation->>'kind', ''), runtime_id FROM room WHERE id = $1`, sessionID).
 		Scan(&kind, &runtimeID); err != nil {
 		return fmt.Errorf("sessions: gc isolation: %w", err)
 	}
@@ -524,7 +524,7 @@ func (s *Service) RecordDecision(ctx context.Context, sessionID uuid.UUID, summa
 		return uuid.Nil, fmt.Errorf("sessions: record decision: %w", err)
 	}
 	var wsID uuid.UUID
-	if err := s.DB.QueryRow(ctx, `SELECT workspace_id FROM session WHERE id = $1`, sessionID).Scan(&wsID); err == nil {
+	if err := s.DB.QueryRow(ctx, `SELECT workspace_id FROM room WHERE id = $1`, sessionID).Scan(&wsID); err == nil {
 		s.publishDecision(ctx, s.DB, wsID, sessionID, id)
 	}
 	return id, nil

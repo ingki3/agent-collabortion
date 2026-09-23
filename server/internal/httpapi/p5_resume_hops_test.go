@@ -37,7 +37,7 @@ func TestS80ResumeKeepsHourlyHops(t *testing.T) {
 		t.Fatal(err)
 	}
 	var status string
-	if err := f.pool.QueryRow(ctx, `SELECT status::text FROM session WHERE id = $1`, f.sessionID).Scan(&status); err != nil {
+	if err := f.pool.QueryRow(ctx, `SELECT status::text FROM work WHERE room_id = $1`, f.sessionID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
 	if status != "paused" {

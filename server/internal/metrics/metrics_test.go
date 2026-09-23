@@ -90,10 +90,10 @@ func TestMetricsFromSeed(t *testing.T) {
 	      VALUES ($1, 'h1', 'ready', $2, $3, $4, $5, $5, $5)`, s.WorkspaceID, s.RuntimeID, s.UserID, at(0), at(100))
 	// S1: completed by its conditions (auto), 2 lanes, 30-minute wall clock.
 	s1 := s.SessionID
-	exec(`UPDATE session SET status = 'completed', started_at = $2, finished_at = $3, completion_met = '{"artifact_submitted":true}' WHERE id = $1`, s1, at(100), at(70))
+	exec(`UPDATE work SET status = 'completed', started_at = $2, finished_at = $3, completion_met = '{"artifact_submitted":true}' WHERE room_id = $1`, s1, at(100), at(70))
 	// S2: ended by the Director (manual), 1 lane.
 	s2 := testdb.AddSession(t, pool, s, &s.RuntimeID, at(30))
-	exec(`UPDATE session SET status = 'completed', started_at = $2, finished_at = $3, completion_met = '{"manual":true}' WHERE id = $1`, s2, at(30), at(10))
+	exec(`UPDATE work SET status = 'completed', started_at = $2, finished_at = $3, completion_met = '{"manual":true}' WHERE room_id = $1`, s2, at(30), at(10))
 	// S3: completed but too old for the window — 3. counts only within it.
 	// Its Director is a second user, so 1. (per-user FIRST completed session)
 	// is not skewed by a session that ended before the machine was paired.
@@ -102,7 +102,7 @@ func TestMetricsFromSeed(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO app_user (email, display_name, created_at) VALUES ('u2@example.com', 'U2', $1) RETURNING id`, t0).Scan(&u2); err != nil {
 		t.Fatal(err)
 	}
-	exec(`UPDATE session SET status = 'completed', director_user_id = $3, started_at = $2, finished_at = $2, completion_met = '{"manual":true}' WHERE id = $1`, s3, at(60*24*40), u2)
+	exec(`UPDATE work SET status = 'completed', director_user_id = $3, started_at = $2, finished_at = $2, completion_met = '{"manual":true}' WHERE room_id = $1`, s3, at(60*24*40), u2)
 
 	// 3. HITL — 20 min and 10 min answered here (T2's below adds a 0), one auto-answered (excluded).
 	hitl := func(sess uuid.UUID, created, answered time.Time, status string) {

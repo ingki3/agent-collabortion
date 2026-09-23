@@ -121,7 +121,7 @@ func TestP5TestChatLifecycle(t *testing.T) {
 	}
 	// Not a session, not a lane, not a task (FR-1.8.1 "세션이 아니다").
 	var sessions, tokens int
-	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM session WHERE workspace_id = $1`, mustUUID(t, f.wsID)).Scan(&sessions)
+	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM room WHERE workspace_id = $1`, mustUUID(t, f.wsID)).Scan(&sessions)
 	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM task_token`).Scan(&tokens)
 	if sessions != 1 || tokens != 0 { // the fixture's own session only
 		t.Fatalf("sessions=%d task_tokens=%d after createTestChat — a chat must create neither", sessions, tokens)
@@ -620,7 +620,7 @@ func TestP5TestChatCreateRules(t *testing.T) {
 func TestP5TestChatTakesLeftoverCapacityOnly(t *testing.T) {
 	f := newTestChatFixture(t)
 	// Pin the fixture's session to this runtime so the task is claimable here.
-	if _, err := f.pool.Exec(t.Context(), `UPDATE session SET runtime_id = $2 WHERE id = $1`, mustUUID(t, f.sessionID), f.rtID); err != nil {
+	if _, err := f.pool.Exec(t.Context(), `UPDATE room SET runtime_id = $2 WHERE id = $1`, mustUUID(t, f.sessionID), f.rtID); err != nil {
 		t.Fatal(err)
 	}
 	chat := f.create(t, map[string]any{})

@@ -67,8 +67,8 @@ S="$(create_session_p4 "$WS" "$TITLE" "$GOAL" "$PM" "$RUNTIME_ID" "$REPO" "$(con
 [ -n "$S" ] && [ "$S" != null ] || die "세션 생성 실패"
 T_PM="$(session_initial_task "$S")"
 chk B1  "worktree 격리 세션이 열린다 (repo_path 검증 통과)" yes "$( [ -n "$S" ] && echo yes || echo no )"
-chk B1b "isolation.kind = worktree" worktree "$(psqlq "select isolation->>'kind' from session where id='$S'")"
-chk B1c "종료 조건 = agent_approval 단독" agent_approval "$(psqlq "select completion_condition->'conditions'->0->>'type' from session where id='$S'")"
+chk B1b "isolation.kind = worktree" worktree "$(psqlq "select isolation->>'kind' from room where id='$S'")"
+chk B1c "종료 조건 = agent_approval 단독" agent_approval "$(psqlq "select completion_condition->'conditions'->0->>'type' from work where room_id='$S'")"
 T0="$(now_ms)"
 
 step "2b. 데몬 기동"

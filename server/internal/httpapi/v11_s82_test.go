@@ -68,14 +68,14 @@ func TestS82DeleteRacesPostMessage(t *testing.T) {
 	f := newP2Fixture(t)
 	ctx := context.Background()
 	sessionID := mustUUID(t, f.sessionID)
-	if _, err := f.pool.Exec(ctx, `UPDATE session SET status = 'completed', updated_at = $2 WHERE id = $1`, sessionID, f.fake.Now()); err != nil {
+	if _, err := f.pool.Exec(ctx, `UPDATE work SET status = 'completed', updated_at = $2 WHERE room_id = $1`, sessionID, f.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
 	hold, err := f.pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := hold.Exec(ctx, `SELECT id FROM session WHERE id = $1 FOR UPDATE`, sessionID); err != nil {
+	if _, err := hold.Exec(ctx, `SELECT id FROM room WHERE id = $1 FOR UPDATE`, sessionID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -136,7 +136,7 @@ func TestS82SessionGoneMemoAsksOnce(t *testing.T) {
 	}
 	// Once memoised, the answer no longer comes from the database: deleting
 	// the live session leaves the memo's "not gone" in place for this report.
-	if _, err := f.pool.Exec(t.Context(), `DELETE FROM session WHERE id = $1`, mustUUID(t, f.sessionID)); err != nil {
+	if _, err := f.pool.Exec(t.Context(), `DELETE FROM room WHERE id = $1`, mustUUID(t, f.sessionID)); err != nil {
 		t.Fatal(err)
 	}
 	if m.is(r, f.srv, f.sessionID) {

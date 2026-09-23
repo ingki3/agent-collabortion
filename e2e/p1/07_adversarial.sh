@@ -45,7 +45,7 @@ if [ -z "${TOK:-}" ]; then
 else
   MYSESS="$(psqlq "select k.session_id from task_token t join task k on k.id=t.task_id where t.token='$TOK'")"
   chk "자기 세션 읽기 200"                200 "$(tcode "$TOK" "$API/sessions/$MYSESS")"
-  OTHER="$(psqlq "select id from session where id <> '$MYSESS' limit 1")"
+  OTHER="$(psqlq "select id from room where id <> '$MYSESS' limit 1")"
   [ -n "$OTHER" ] && chk_in "다른 세션 읽기 차단(403/404)" "403 404" "$(tcode "$TOK" "$API/sessions/$OTHER")"
   chk_in "워크스페이스 목록 차단"          "401 403" "$(tcode "$TOK" "$API/workspaces")"
   chk_in "에이전트 목록 차단"              "401 403 404" "$(tcode "$TOK" "$API/workspaces/$WS/agents")"
@@ -222,7 +222,7 @@ else
   rm -f "$BIGF"
 
   # TaskToken 범위: 자기 세션 밖으로는 제출도 조회도 못 한다(G2 Q8).
-  OTHER_SESS="$(psqlq "select id from session where id <> '$A_SESS' limit 1")"
+  OTHER_SESS="$(psqlq "select id from room where id <> '$A_SESS' limit 1")"
   if [ -n "${OTHER_SESS:-}" ]; then
     chk_in "다른 세션에 제출 차단"          "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $A_TOK" \
         -X POST "$API/sessions/$OTHER_SESS/artifacts" -F 'name=x' -F 'type=doc' -F "file=@$ART_F")"

@@ -115,7 +115,7 @@ set_loop_limit() {
   api_ok PATCH "/workspaces/$1/settings" "$(jq -nc --arg k "$2" --argjson v "$3" '{loop_limits:{($k):$v}}')"
 }
 # session_paused SESSION → status  paused_reason  paused_detail
-session_paused() { psqlq "select status::text, coalesce(paused_reason::text,'-'), coalesce(paused_detail::text,'-') from session where id='$1'"; }
+session_paused() { psqlq "select status::text, coalesce(paused_reason::text,'-'), coalesce(paused_detail::text,'-') from work where room_id='$1'"; }
 # ── 판정 헬퍼 (30~34 가 공유한다 — 10_ 은 자기 안에 같은 것을 갖고 있다) ──
 # g5_chk_init FILE → 체크 표를 연다. chk ID 설명 기대 실제 / chk_ge ID 설명 최소 실제
 g5_chk_init() { CHK="$1"; printf 'id\twhat\tverdict\tvalue\n' > "$CHK"; pass=0; fail=0; }

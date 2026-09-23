@@ -32,7 +32,7 @@ func (s *Server) DeleteSession(w http.ResponseWriter, r *http.Request, sessionId
 		return
 	}
 	var wsID, director uuid.UUID
-	err := s.DB.QueryRow(r.Context(), `SELECT workspace_id, director_user_id FROM session WHERE id = $1`, sessionId).
+	err := s.DB.QueryRow(r.Context(), `SELECT s.workspace_id, wk.director_user_id FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1`, sessionId).
 		Scan(&wsID, &director)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeProblem(w, apperr.NotFound("session"))

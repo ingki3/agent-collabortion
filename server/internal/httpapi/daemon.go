@@ -25,7 +25,7 @@ import (
 // isolation produces.
 func workdirKindOf(r *http.Request, s *Server, sessionID uuid.UUID) string {
 	var raw []byte
-	if err := s.DB.QueryRow(r.Context(), `SELECT isolation FROM session WHERE id = $1`, sessionID).Scan(&raw); err != nil {
+	if err := s.DB.QueryRow(r.Context(), `SELECT isolation FROM room WHERE id = $1`, sessionID).Scan(&raw); err != nil {
 		return "dir"
 	}
 	var iso struct {
@@ -354,7 +354,7 @@ func sessionGone(r *http.Request, s *Server, session string) bool {
 		return false
 	}
 	var exists bool
-	if err := s.DB.QueryRow(r.Context(), `SELECT EXISTS (SELECT 1 FROM session WHERE id = $1)`, sid).Scan(&exists); err != nil {
+	if err := s.DB.QueryRow(r.Context(), `SELECT EXISTS (SELECT 1 FROM room WHERE id = $1)`, sid).Scan(&exists); err != nil {
 		return false
 	}
 	return !exists
@@ -430,7 +430,7 @@ func (s *Server) workdirReport(r *http.Request, d daemonCtx, kind, path, session
 	}
 	var ws uuid.UUID
 	var runtimeID *uuid.UUID
-	if err := s.DB.QueryRow(r.Context(), `SELECT workspace_id, runtime_id FROM session WHERE id = $1`, sid).Scan(&ws, &runtimeID); err != nil {
+	if err := s.DB.QueryRow(r.Context(), `SELECT workspace_id, runtime_id FROM room WHERE id = $1`, sid).Scan(&ws, &runtimeID); err != nil {
 		return rep, "그런 세션이 없습니다(" + sid.String() + ")"
 	}
 	if ws != d.WorkspaceID {
@@ -461,7 +461,7 @@ func (s *Server) workdirReport(r *http.Request, d daemonCtx, kind, path, session
 		agentWhy = "agent_id 가 uuid 가 아닙니다(" + trimForDetail(agent) + ")"
 	} else {
 		var n int
-		switch err := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM session_participant WHERE session_id = $1 AND agent_id = $2`, sid, id).Scan(&n); {
+		switch err := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM room_participant WHERE room_id = $1 AND agent_id = $2`, sid, id).Scan(&n); {
 		case err != nil:
 			agentWhy = "참가자 조회에 실패했습니다(" + trimForDetail(err.Error()) + ")"
 		case n == 0:
@@ -504,7 +504,7 @@ func (s *Server) workdirReportByID(r *http.Request, d daemonCtx, id, kind, path 
 	var runtimeID *uuid.UUID
 	if err := s.DB.QueryRow(r.Context(), `
 		SELECT w.session_id, w.agent_id, w.lane_id, w.kind::text, s.workspace_id, s.runtime_id
-		FROM workdir w JOIN session s ON s.id = w.session_id
+		FROM workdir w JOIN room s ON s.id = w.session_id
 		WHERE w.id = $1`, wid).Scan(&sid, &agentID, &laneID, &rowKind, &ws, &runtimeID); err != nil {
 		return rep, ""
 	}

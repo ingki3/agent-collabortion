@@ -48,13 +48,14 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	err := tx.QueryRow(ctx, `
 		SELECT a.name, a.role, a.role_description, a.instructions, a.tools, a.budget_per_task,
 		       p.runtime_kind, p.model, p.options, p.env, p.args,
-		       s.title, s.goal, s.acceptance_criteria, s.isolation, s.limits, u.display_name,
+		       wk.title, wk.goal, wk.acceptance_criteria, s.isolation, s.limits, u.display_name,
 		       l.runtime_session_ref, l.reentry_count, w.path_or_ref
 		FROM task t
 		JOIN agent a ON a.id = t.agent_id
 		JOIN agent_profile p ON p.id = t.profile_id
-		JOIN session s ON s.id = t.session_id
-		JOIN app_user u ON u.id = s.director_user_id
+		JOIN room s ON s.id = t.session_id
+		JOIN work wk ON wk.room_id = s.id
+		JOIN app_user u ON u.id = wk.director_user_id
 		JOIN lane l ON l.id = t.lane_id
 		LEFT JOIN workdir w ON w.id = l.workdir_id
 		WHERE t.id = $1`, t.ID).Scan(
@@ -88,8 +89,8 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	// Roster (brief [5])
 	rows, err := tx.Query(ctx, `
 		SELECT a.id, a.name, a.role, a.role_description,
-		       EXISTS (SELECT 1 FROM task x WHERE x.agent_id = a.id AND x.session_id = sp.session_id AND x.status IN ('dispatched','preparing','running'))
-		FROM session_participant sp JOIN agent a ON a.id = sp.agent_id WHERE sp.session_id = $1 ORDER BY sp.joined_at`, t.SessionID)
+		       EXISTS (SELECT 1 FROM task x WHERE x.agent_id = a.id AND x.session_id = sp.room_id AND x.status IN ('dispatched','preparing','running'))
+		FROM room_participant sp JOIN agent a ON a.id = sp.agent_id WHERE sp.room_id = $1 ORDER BY sp.joined_at`, t.SessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +285,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	// `<resumed>`, before the history — because nothing else in the prompt is
 	// true until the workdir has the previous machine's work in it.
 	var rebindPrompt string
-	_ = tx.QueryRow(ctx, `SELECT COALESCE(rebind_prompt, '') FROM session WHERE id = $1`, t.SessionID).Scan(&rebindPrompt)
+	_ = tx.QueryRow(ctx, `SELECT COALESCE(rebind_prompt, '') FROM room WHERE id = $1`, t.SessionID).Scan(&rebindPrompt)
 
 	// Turn prompt
 	var prompt strings.Builder
@@ -618,7 +619,7 @@ func reusedSessionSummaries(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID)
 	var raw []byte
 	if err := tx.QueryRow(ctx, `
 		SELECT COALESCE(s.context_reuse_override, ws.context_reuse, '{}'::jsonb)
-		FROM session s
+		FROM room s
 		LEFT JOIN workspace_settings ws ON ws.workspace_id = s.workspace_id
 		WHERE s.id = $1`, sessionID).Scan(&raw); err != nil {
 		return "", fmt.Errorf("queue: context reuse policy: %w", err)
@@ -640,13 +641,14 @@ func reusedSessionSummaries(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID)
 	// `session_context` rows of type `session` are the previous sessions the
 	// wizard attached (§7 session_context.type).
 	rows, err := tx.Query(ctx, `
-		SELECT prev.title,
+		SELECT prevw.title,
 		       COALESCE((SELECT m.content FROM message m
 		                  WHERE m.session_id = prev.id AND m.kind = 'summary'
 		                  ORDER BY m.created_at DESC LIMIT 1), ''),
 		       (SELECT count(*) FROM artifact a WHERE a.session_id = prev.id)
 		FROM session_context sc
-		JOIN session prev ON prev.id::text = sc.ref
+		JOIN room prev ON prev.id::text = sc.ref
+		JOIN work prevw ON prevw.room_id = prev.id
 		WHERE sc.session_id = $1 AND sc.type = 'session'
 		ORDER BY sc.created_at`, sessionID)
 	if err != nil {

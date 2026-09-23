@@ -136,7 +136,7 @@ agent_budget() { psqlq "select coalesce(budget_per_task::text,'-') from agent wh
 # task_usage TASK → cost_usd  estimated
 task_usage() { psqlq "select coalesce(cost_usd::text,'0'), coalesce(estimated::text,'-') from task_usage where task_id='$1'"; }
 # session_limits SESSION → limits jsonb
-session_limits() { psqlq "select coalesce(limits::text,'{}') from session where id='$1'"; }
+session_limits() { psqlq "select coalesce(limits::text,'{}') from room where id='$1'"; }
 
 # ── 인박스 ───────────────────────────────────────────────────────────────────
 inbox_rows() { psqlq "select type::text, severity::text, coalesce(ref_id::text,'-'), coalesce(read_at::text,'-')

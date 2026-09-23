@@ -126,12 +126,14 @@ chk P1d "worktree workdir 의 disk_bytes 가 턴 직후 보고됐다 (S13 용량
 
 step "3. 세션 A·B·C 종료 → 보존 기한 30일 경과 (D 는 active 로 둔다)"
 for s in "$S_A" "$S_B" "$S_C"; do api_ok POST "/sessions/$s/complete" '{"confirm":true}' >/dev/null || true; done
-wait_until 300 '[ "$(psqlq "select count(*) from session where id in ('"'$S_A'"','"'$S_B'"','"'$S_C'"') and status='"'completed'"'")" = 3 ]' || bad "세션 3개가 completed 로 가지 않았다"
-# **클럭 우회(§0-13)**: 보존 기한(기본 14일)은 세션 종료 시각부터다. 서버 클럭을 못 돌리므로
-# `finished_at` 을 30일 전으로 민다. active 세션 D 는 `created_at`·`started_at` 만 민다 —
-# `finished_at` 이 없다는 것 자체가 E13-18 의 판정 근거다.
-psqlq "update session set finished_at = now() - interval '30 days' where id in ('$S_A','$S_B','$S_C')" >/dev/null
-psqlq "update session set created_at = now() - interval '30 days', started_at = now() - interval '30 days' where id='$S_D'" >/dev/null
+wait_until 300 '[ "$(psqlq "select count(*) from work where room_id in ('"'$S_A'"','"'$S_B'"','"'$S_C'"') and status='"'completed'"'")" = 3 ]' || bad "세션 3개가 completed 로 가지 않았다"
+# **클럭 우회(§0-13)**: 보존 기한(기본 14일)은 작업 폴더의 마지막 사용 시각부터다(T-R1a NN8 — 방은
+# 끝나지 않으므로 세션 종료가 기준점일 수 없다). 서버 클럭을 못 돌리므로 A·B·C 의 `workdir.last_used_at`
+# 을 30일 전으로 민다. active 세션 D 는 방·미션의 `created_at`·`started_at` 만 민다 — 오래된 세션이어도
+# 폴더를 최근에 썼으면 지우지 않는다(E13-18).
+psqlq "update workdir set last_used_at = now() - interval '30 days' where session_id in ('$S_A','$S_B','$S_C')" >/dev/null
+psqlq "update room set created_at = now() - interval '30 days' where id='$S_D'" >/dev/null
+psqlq "update work set created_at = now() - interval '30 days', started_at = now() - interval '30 days' where room_id='$S_D'" >/dev/null
 BR_B="colab/$T_B/gcclean"
 WT_A="$WT_A0"; WT_B="$WT_B0"; WT_D="$WT_D0"
 chk P1e "판정 전: B 워크트리가 디스크에 있다"    yes "$( [ -d "$WT_B" ] && echo yes || echo no )"
@@ -162,7 +164,7 @@ git -C "$REPO" branch --list 'colab/*' > "$OUT/64-branches.txt" 2>&1 || true
 git -C "$REPO" worktree list > "$OUT/64-worktrees.txt" 2>&1 || true
 
 step "7. G4 — active 세션은 14일이 지나도 보존 (E13-18)"
-chk G4  "D: 세션은 여전히 active"        active "$(psqlq "select status::text from session where id='$S_D'")"
+chk G4  "D: 세션은 여전히 active"        active "$(psqlq "select status::text from work where room_id='$S_D'")"
 chk G4b "D: gc 명령 0건"                 0 "$(gc_commands "$S_D")"
 chk G4c "D: 워크트리가 디스크에 있다"    yes "$( [ -d "$WT_D" ] && echo yes || echo no )"
 chk G4d "D: gc_blocked_reason 없음 — 알림도 없다(경고 피로 방지)" "-" \

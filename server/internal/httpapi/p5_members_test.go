@@ -224,7 +224,7 @@ func TestP5RemoveMemberAuthz(t *testing.T) {
 		}
 	})
 	t.Run("Director of a cancelled session is removable", func(t *testing.T) {
-		if _, err := f.pool.Exec(t.Context(), `UPDATE session SET status = 'cancelled' WHERE id = $1`, f.sessionID); err != nil {
+		if _, err := f.pool.Exec(t.Context(), `UPDATE work SET status = 'cancelled' WHERE room_id = $1`, f.sessionID); err != nil {
 			t.Fatal(err)
 		}
 		st, out, _ := f.admin.do("DELETE", f.memberPath(f.otherID), nil)

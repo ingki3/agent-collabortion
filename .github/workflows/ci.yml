@@ -87,6 +87,10 @@ jobs:
           cache-dependency-path: '**/go.sum'
       - name: vet
         run: for m in contracts server daemon cli; do (cd $m && go vet ./...) || exit 1; done
+      # 골든 표 12파일은 빌드 태그 뒤에 있어 위의 vet·test 가 컴파일조차 하지 않는다
+      # (V19_impl §4 위험 4). 기대값은 태그로 돌리되 컴파일은 매 PR 에서 감시한다.
+      - name: vet (golden build tags)
+        run: for m in server daemon; do (cd $m && go vet -tags p3golden ./... && go vet -tags p4golden ./...) || exit 1; done
       - name: test
         run: for m in contracts server daemon cli; do (cd $m && go test ./...) || exit 1; done
       - name: build

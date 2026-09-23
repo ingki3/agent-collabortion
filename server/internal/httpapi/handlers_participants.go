@@ -68,7 +68,7 @@ func (s *Server) AddParticipant(w http.ResponseWriter, r *http.Request, sessionI
 			profileID = &id
 		}
 		tag, err := tx.Exec(r.Context(), `
-			INSERT INTO session_participant (session_id, agent_id, profile_id, joined_at)
+			INSERT INTO room_participant (room_id, agent_id, profile_id, joined_at)
 			VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`, sessionId, in.AgentID, *profileID, now)
 		if err != nil {
 			return err
@@ -115,7 +115,7 @@ func (s *Server) UpdateParticipant(w http.ResponseWriter, r *http.Request, sessi
 	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
 		var exists bool
 		if err := tx.QueryRow(r.Context(), `
-			SELECT EXISTS (SELECT 1 FROM session_participant WHERE session_id = $1 AND agent_id = $2)`, sessionId, agentId).Scan(&exists); err != nil {
+			SELECT EXISTS (SELECT 1 FROM room_participant WHERE room_id = $1 AND agent_id = $2)`, sessionId, agentId).Scan(&exists); err != nil {
 			return err
 		}
 		if !exists {
@@ -134,13 +134,13 @@ func (s *Server) UpdateParticipant(w http.ResponseWriter, r *http.Request, sessi
 			// the profile they were dispatched with — changing it mid-turn
 			// would price the turn at a model that did not run it.
 			if _, err := tx.Exec(r.Context(), `
-				UPDATE session_participant SET profile_id = $3 WHERE session_id = $1 AND agent_id = $2`,
+				UPDATE room_participant SET profile_id = $3 WHERE room_id = $1 AND agent_id = $2`,
 				sessionId, agentId, *in.ProfileID); err != nil {
 				return err
 			}
 		}
 		if in.Assignee != nil && *in.Assignee {
-			if _, err := tx.Exec(r.Context(), `UPDATE session SET assignee_agent_id = $2, updated_at = $3 WHERE id = $1`,
+			if _, err := tx.Exec(r.Context(), `UPDATE work SET assignee_agent_id = $2, updated_at = $3 WHERE room_id = $1`,
 				sessionId, agentId, now); err != nil {
 				return err
 			}
@@ -174,7 +174,7 @@ func (s *Server) RemoveParticipant(w http.ResponseWriter, r *http.Request, sessi
 	now := s.Clock.Now()
 	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
 		var assignee *uuid.UUID
-		if err := tx.QueryRow(r.Context(), `SELECT assignee_agent_id FROM session WHERE id = $1`, sessionId).Scan(&assignee); err != nil {
+		if err := tx.QueryRow(r.Context(), `SELECT assignee_agent_id FROM work WHERE room_id = $1`, sessionId).Scan(&assignee); err != nil {
 			return err
 		}
 		if assignee != nil && *assignee == agentId {
@@ -197,7 +197,7 @@ func (s *Server) RemoveParticipant(w http.ResponseWriter, r *http.Request, sessi
 		}
 		var name string
 		_ = tx.QueryRow(r.Context(), `SELECT name FROM agent WHERE id = $1`, agentId).Scan(&name)
-		tag, err := tx.Exec(r.Context(), `DELETE FROM session_participant WHERE session_id = $1 AND agent_id = $2`, sessionId, agentId)
+		tag, err := tx.Exec(r.Context(), `DELETE FROM room_participant WHERE room_id = $1 AND agent_id = $2`, sessionId, agentId)
 		if err != nil {
 			return err
 		}

@@ -52,7 +52,7 @@ func (f *p2Fixture) oldShapeSession(t *testing.T, tree map[string]any) string {
 	t.Helper()
 	sess := f.artifactSession(t, and(atom("user_approval")))
 	raw, _ := json.Marshal(tree)
-	if _, err := f.pool.Exec(t.Context(), `UPDATE session SET completion_condition = $2 WHERE id = $1`, sess, raw); err != nil {
+	if _, err := f.pool.Exec(t.Context(), `UPDATE work SET completion_condition = $2 WHERE room_id = $1`, sess, raw); err != nil {
 		t.Fatal(err)
 	}
 	return sess
@@ -163,7 +163,7 @@ func TestP5ProgressBlockedReason(t *testing.T) {
 	})
 	t.Run("reviewer_not_participant — the reviewer left the session", func(t *testing.T) {
 		sess := f.artifactSession(t, and(atom("agent_approval", "agent_id", f.r)))
-		if _, err := f.pool.Exec(t.Context(), `DELETE FROM session_participant WHERE session_id = $1 AND agent_id = $2`, sess, f.r); err != nil {
+		if _, err := f.pool.Exec(t.Context(), `DELETE FROM room_participant WHERE room_id = $1 AND agent_id = $2`, sess, f.r); err != nil {
 			t.Fatal(err)
 		}
 		by, _ := f.conds(t, sess)
@@ -189,7 +189,7 @@ func TestP5ProgressBlockedReason(t *testing.T) {
 		if st, out := f.submit(t, sess, wTok, "draft.md", "doc", []byte("초안")); st != 201 {
 			t.Fatalf("submit = %d %v", st, out)
 		}
-		if _, err := f.pool.Exec(t.Context(), `DELETE FROM session_participant WHERE session_id = $1 AND agent_id = $2`, sess, f.w); err != nil {
+		if _, err := f.pool.Exec(t.Context(), `DELETE FROM room_participant WHERE room_id = $1 AND agent_id = $2`, sess, f.w); err != nil {
 			t.Fatal(err)
 		}
 		by, _ := f.conds(t, sess)
@@ -358,7 +358,7 @@ func TestP5UpdateCompletionConditionActive(t *testing.T) {
 			if status != "completing" {
 				finished = "now()"
 			}
-			if _, err := f.pool.Exec(t.Context(), `UPDATE session SET status = $2::session_status, finished_at = `+finished+` WHERE id = $1`, sess, status); err != nil {
+			if _, err := f.pool.Exec(t.Context(), `UPDATE work SET status = $2::session_status, finished_at = `+finished+` WHERE room_id = $1`, sess, status); err != nil {
 				t.Fatal(err)
 			}
 			if st, out := f.patchCond(t, f.api, sess, and(atom("manual"))); st != 422 || fieldCode(out, "completion_condition") != "immutable" {

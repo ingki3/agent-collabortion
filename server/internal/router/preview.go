@@ -33,7 +33,7 @@ func (s *Service) Preview(ctx context.Context, sessionID uuid.UUID, author Autho
 	var wsID uuid.UUID
 	var status string
 	var assignee *uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT workspace_id, status::text, assignee_agent_id FROM session WHERE id = $1`, sessionID).
+	err = tx.QueryRow(ctx, `SELECT s.workspace_id, wk.status::text, wk.assignee_agent_id FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1`, sessionID).
 		Scan(&wsID, &status, &assignee)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrSessionNotFound

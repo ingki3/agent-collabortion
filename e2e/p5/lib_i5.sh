@@ -148,7 +148,7 @@ wait_step() {
   done
   chk "$id" "$what (timeout ${timeout}s)" yes "timeout"; return 1
 }
-sess_status() { psqlq "select status::text from session where id='$1'"; }
+sess_status() { psqlq "select status::text from work where room_id='$1'"; }
 wait_quiet() { # 세션의 모든 task 가 멈출 때까지
   local dl=$(( $(date +%s) + ${2:-600} ))
   while [ "$(date +%s)" -lt "$dl" ]; do

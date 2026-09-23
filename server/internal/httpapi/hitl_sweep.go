@@ -38,7 +38,7 @@ func (s *Server) SweepHitlDeadlines(ctx context.Context) (int, error) {
 	rows, err := s.DB.Query(ctx, `
 		SELECT h.id, h.session_id, h.task_id, h.type::text, s.autonomy::text,
 		       COALESCE(h.proposed_default, ''), h.question
-		FROM hitl_request h JOIN session s ON s.id = h.session_id
+		FROM hitl_request h JOIN room s ON s.id = h.session_id
 		WHERE h.status = 'open' AND h.due_at <= $1
 		ORDER BY h.due_at`, now)
 	if err != nil {

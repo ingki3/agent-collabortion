@@ -30,7 +30,7 @@ func TestLoad(t *testing.T) {
 // agreed with Lead) plus the runner's own bookkeeping table.
 var prdTables = []string{
 	"workspace", "member", "app_user", "agent", "agent_profile", "runtime", "workdir",
-	"session", "session_participant", "session_context", "lane", "task", "task_event",
+	"session_participant", "session_context", "lane", "task", "task_event",
 	"task_usage", "message", "hitl_request", "inbox_item", "artifact", "decision",
 	"activity_log", "workspace_settings", "test_chat",
 	"schema_migrations",
@@ -39,6 +39,8 @@ var prdTables = []string{
 	"idempotency_key", "stream_event", "task_token", "daemon_command", "task_attempt",
 	// 0006_p2_routing.sql (FR-3.5 루프 상한이 읽는 트리거 이력)
 	"session_hop",
+	// 0025_v19_rooms.sql (PRD v0.19 §7 — session 을 room 으로 개명, goal 쪽 칸은 work 로)
+	"room", "work", "room_participant", "room_link", "work_proposal", "room_read_log",
 }
 
 // prdEnums pins every state set to the exact PRD labels (task item 2).

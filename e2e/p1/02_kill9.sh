@@ -11,7 +11,7 @@ SLEEP_S="${SLEEP_S:-210}"
 MENTION="$(mention Lead "$AGENT")"
 
 step "0. 잔여 queued task 정리(03_cancel 이 남긴 attempt 2 — D 결함으로 cancelled 대신 재큐잉됨) + 데몬 기동"
-LEFT="$(psqlq "update task set status='cancelled', updated_at=now() where status='queued' and session_id in (select id from session where workspace_id='$WS' and title='E2E 취소') returning id" | wc -l | tr -d ' ')"; log "cancelled leftover queued tasks: $LEFT (로컬 테스트 DB 정리)"
+LEFT="$(psqlq "update task set status='cancelled', updated_at=now() where status='queued' and session_id in (select s.id from room s join work wk on wk.room_id=s.id where s.workspace_id='$WS' and wk.title='E2E 취소') returning id" | wc -l | tr -d ' ')"; log "cancelled leftover queued tasks: $LEFT (로컬 테스트 DB 정리)"
 if [ -f "$OUT/daemon-a.pid" ] && kill -0 "$(cat "$OUT/daemon-a.pid")" 2>/dev/null; then DPID="$(cat "$OUT/daemon-a.pid")"; else
   daemon_start "$CFG" "$DLOG" > "$OUT/daemon-a.pid"; DPID="$(cat "$OUT/daemon-a.pid")"; sleep 3; fi
 ok "daemon pid $DPID"

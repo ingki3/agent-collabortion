@@ -61,7 +61,7 @@ SID=$(echo "$SESS" | jq -r .id)
 [ "$SID" != null ] || { bad "createSession: $SESS"; exit 1; }
 C1=$(code -X POST "$S/sessions/$SID/complete" -d "{\"confirm\":true}")
 N=$(Q "SELECT count(*) FROM message WHERE session_id='$SID' AND kind='summary'")
-ST=$(Q "SELECT status FROM session WHERE id='$SID'")
+ST=$(Q "SELECT status FROM work WHERE room_id='$SID'")
 [ "$C1" = 200 ] && [ "$N" = 1 ] && [ "$ST" = completed ] && ok "complete=200 · summary 메시지 $N · 세션 $ST" || bad "complete=$C1 summary=$N status=$ST (want 200/1/completed)"
 # 두 번째 패스: 이미 completed 라 409 이고, 요약이 늘지 않는다(FR-2.4 '요약 1개').
 C2=$(code -X POST "$S/sessions/$SID/complete" -d "{\"confirm\":true}")
@@ -83,8 +83,9 @@ GSID=$(echo "$SESS2" | jq -r .id)
 curl -sS -X POST "$D/runtimes/$RID/workdirs" -H "Authorization: Bearer $DTOK" -H 'Content-Type: application/json' \
   -d "{\"workdirs\":[{\"kind\":\"worktree\",\"path\":\"/w/gc/r\",\"session_id\":\"$GSID\",\"agent_id\":\"$R\",\"bytes\":2048,\"git\":{\"branch\":\"colab/gc/r\",\"merged\":false,\"dirty\":true,\"commits_ahead\":0}}]}" >/dev/null
 code -X POST "$S/sessions/$GSID/complete" -d "{\"confirm\":true}" >/dev/null
-# 보존 기한을 지나게 만든다(클럭 대신 finished_at 을 30일 전으로).
-Q "UPDATE session SET finished_at = now() - interval '30 days' WHERE id='$GSID'" >/dev/null
+# 보존 기한을 지나게 만든다(클럭 대신 작업 폴더의 마지막 사용을 30일 전으로 — T-R1a NN8: 기준점은
+# 세션 종료가 아니라 workdir.last_used_at 이다).
+Q "UPDATE workdir SET last_used_at = now() - interval '30 days' WHERE session_id='$GSID'" >/dev/null
 Q "SELECT pg_sleep(0)" >/dev/null
 sleep 62   # 스윕은 분 단위 tick 이다
 REASON=$(Q "SELECT COALESCE(gc_blocked_reason,'') FROM workdir WHERE session_id='$GSID'")
@@ -105,8 +106,8 @@ OSID=$(echo "$OSESS" | jq -r .id)
 # 클럭을 앞으로 돌릴 수 없으므로 런타임이 8일 전부터 오프라인이었던 것으로 만든다.
 Q "UPDATE runtime SET status='offline', offline_since = now() - interval '8 days', last_seen_at = now() - interval '8 days' WHERE id='$RID'" >/dev/null
 sleep 62
-OST=$(Q "SELECT status FROM session WHERE id='$OSID'")
-ORE=$(Q "SELECT COALESCE(paused_reason::text,'') FROM session WHERE id='$OSID'")
+OST=$(Q "SELECT status FROM work WHERE room_id='$OSID'")
+ORE=$(Q "SELECT COALESCE(paused_reason::text,'') FROM work WHERE room_id='$OSID'")
 OIN=$(Q "SELECT count(*) FROM inbox_item WHERE type='runtime_offline' AND session_id='$OSID'")
 [ "$OST" = paused ] && [ "$ORE" = runtime_offline ] && ok "세션 = $OST($ORE) (E14-02)" || bad "세션 = $OST($ORE), want paused(runtime_offline)"
 [ "$OIN" = 1 ] && ok "Director 인박스 runtime_offline 1건" || bad "runtime_offline 인박스 $OIN 건, want 1"
