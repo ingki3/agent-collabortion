@@ -191,4 +191,3 @@ func decodeCursor(c string) (time.Time, uuid.UUID, error) {
 	}
 	return t, id, nil
 }
-
