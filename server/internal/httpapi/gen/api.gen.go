@@ -3503,7 +3503,9 @@ type RoomLink struct {
 
 // RoomListItem S5 방 카드(SCREEN §4.3). 상태 배지·goal 은 없다 — 방에는 둘 다 없다.
 type RoomListItem struct {
-	ActiveWorkCount int `json:"active_work_count"`
+	// ActiveTaskCount v0.2.5 — 진행 중 할 일 수. 0 이 아니면 보관이 409 tasks_active 라 카드 메뉴가 미리 비활성으로 그린다(SCREEN §4.3).
+	ActiveTaskCount *int `json:"active_task_count,omitempty"`
+	ActiveWorkCount int  `json:"active_work_count"`
 
 	// Attention 내가 답할 것만 센다.
 	Attention struct {
@@ -3528,6 +3530,9 @@ type RoomListItem struct {
 
 	// UnreadCount `room_participant.last_read_message_id` 이후 메시지 수 — 목록에서 한 번에 센다.
 	UnreadCount int `json:"unread_count"`
+
+	// Visibility `room.visibility` (FR-5.3). `invited` 방은 초대되지 않은 사람에게 목록·검색에서도 숨는다(ws owner·admin 은 감사 열람).
+	Visibility *RoomVisibility `json:"visibility,omitempty"`
 }
 
 // RoomParticipant `room_participant` — 사람과 에이전트가 한 표(PRD §7).
