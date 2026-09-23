@@ -447,3 +447,7 @@ func (unimplemented) ListReadableRooms(w http.ResponseWriter, r *http.Request, p
 func (unimplemented) ReadRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ReadRoomParams) {
 	notImplemented(w, r, "ReadRoom")
 }
+
+func (unimplemented) SetRoomSubscription(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	notImplemented(w, r, "SetRoomSubscription")
+}

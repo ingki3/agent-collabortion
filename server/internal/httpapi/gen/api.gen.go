@@ -1358,6 +1358,30 @@ func (e RoomStatus) Valid() bool {
 	}
 }
 
+// Defines values for RoomSubscriptionLevel.
+const (
+	RoomSubscriptionLevelAll      RoomSubscriptionLevel = "all"
+	RoomSubscriptionLevelHitlOnly RoomSubscriptionLevel = "hitl_only"
+	RoomSubscriptionLevelMyWorks  RoomSubscriptionLevel = "my_works"
+	RoomSubscriptionLevelOff      RoomSubscriptionLevel = "off"
+)
+
+// Valid indicates whether the value is a known member of the RoomSubscriptionLevel enum.
+func (e RoomSubscriptionLevel) Valid() bool {
+	switch e {
+	case RoomSubscriptionLevelAll:
+		return true
+	case RoomSubscriptionLevelHitlOnly:
+		return true
+	case RoomSubscriptionLevelMyWorks:
+		return true
+	case RoomSubscriptionLevelOff:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RoomVisibility.
 const (
 	RoomVisibilityInvited   RoomVisibility = "invited"
@@ -2149,6 +2173,15 @@ type Agent struct {
 	// RoomCount v0.2.0 — 참여 중인 방 수(호출자가 볼 수 있는 것만 센다).
 	RoomCount *int `json:"room_count,omitempty"`
 
+	// Rooms v0.2.9 — 호출자가 볼 수 있는 참여 방(이름만). 볼 수 없는 방은 hidden_room_count 로만.
+	Rooms *[]struct {
+		Id   openapi_types.UUID `json:"id"`
+		Name string             `json:"name"`
+	} `json:"rooms,omitempty"`
+
+	// RunningTaskCount v0.2.9 — 지금 도는 할 일 수(방을 가로질러, max_concurrent_tasks 와 같은 셈).
+	RunningTaskCount *int `json:"running_task_count,omitempty"`
+
 	// Status `agent_status` — 저장하지 않고 FR-1.3 순서로 파생한다.
 	Status AgentStatus `json:"status"`
 
@@ -2374,6 +2407,9 @@ type BlockedDetail struct {
 
 	// NextApproverRole v0.2.8 — 배너의 「14:30부터 부방장 〈서연〉이」 문장 역할명.
 	NextApproverRole nullable.Nullable[BlockedDetailNextApproverRole] `json:"next_approver_role,omitempty"`
+
+	// OpenWorksRemainingUsd v0.2.9 — 열린 미션 잔여 예산 합계(방 멈춤 해소 카드 「승인하면 미션 N개가 한꺼번에…잔여 합계 $X」).
+	OpenWorksRemainingUsd nullable.Nullable[float32] `json:"open_works_remaining_usd,omitempty"`
 
 	// Reason `room.blocked_reason` (FR-2.4 · §12.1-9). null 이면 멈추지 않았다. `manual` 은 사람이 건 긴급 정지(권한자가 직접 푼다), 나머지는 승인 HITL(또는 재바인딩)로 풀린다. 큐는 값이 있는 방의 task 를 주지 않는다.
 	Reason       *RoomBlockedReason                    `json:"reason,omitempty"`
@@ -2813,6 +2849,12 @@ type InboxItem struct {
 	// RefId 타입별 — hitl_request · message · task · runtime id.
 	RefId nullable.Nullable[openapi_types.UUID] `json:"ref_id"`
 
+	// Room v0.2.9 — 카드 맥락 한 줄의 방 이름(SCREEN §4.14 — 줄이지 않는다).
+	Room nullable.Nullable[struct {
+		Id   openapi_types.UUID `json:"id"`
+		Name string             `json:"name"`
+	}] `json:"room,omitempty"`
+
 	// RoomId v0.2.0 — `session_id` 와 같은 값.
 	RoomId    nullable.Nullable[openapi_types.UUID] `json:"room_id,omitempty"`
 	Session   *SessionRef                           `json:"session,omitempty"`
@@ -2936,7 +2978,10 @@ type Lane struct {
 		Fired         *bool `json:"fired,omitempty"`
 		SiblingCount  *int  `json:"sibling_count,omitempty"`
 	} `json:"join_group,omitempty"`
-	ParentLaneId nullable.Nullable[openapi_types.UUID] `json:"parent_lane_id"`
+
+	// MySubscription v0.2.9 — 호출자의 서브 미션 알림 켜기/끄기. null 이면 따로 정하지 않았다(미션·방 구독을 따른다).
+	MySubscription nullable.Nullable[bool]               `json:"my_subscription,omitempty"`
+	ParentLaneId   nullable.Nullable[openapi_types.UUID] `json:"parent_lane_id"`
 
 	// PausedOverUsd paused(budget)일 때 초과 금액.
 	PausedOverUsd nullable.Nullable[float32] `json:"paused_over_usd,omitempty"`
@@ -3460,9 +3505,12 @@ type Room struct {
 	// MyCapabilities 호출자가 이 방에서 할 수 있는 동작 — 버튼 활성·비활성 판정(SCREEN §2.3).
 	MyCapabilities *[]RoomMyCapabilities       `json:"my_capabilities,omitempty"`
 	MyRoomRole     nullable.Nullable[RoomRole] `json:"my_room_role"`
-	Name           string                      `json:"name"`
-	OwnerUserId    openapi_types.UUID          `json:"owner_user_id"`
-	Runtime        *Runtime                    `json:"runtime,omitempty"`
+
+	// MySubscription v0.2.9 — 방 알림 구독(FR-8, SCREEN §4.17): 전부 · 내가 참여한 미션만 · HITL만 · 끄기. 미션 구독(SubscriptionLevel)이 있으면 그 미션은 미션 구독을 따른다.
+	MySubscription *RoomSubscriptionLevel `json:"my_subscription,omitempty"`
+	Name           string                 `json:"name"`
+	OwnerUserId    openapi_types.UUID     `json:"owner_user_id"`
+	Runtime        *Runtime               `json:"runtime,omitempty"`
 
 	// RuntimeId 방 설정에서 미리 고를 수 있고, 첫 dispatch 때 고정된다(FR-2.1.1). 고정 여부는 runtime_pinned.
 	RuntimeId nullable.Nullable[openapi_types.UUID] `json:"runtime_id"`
@@ -3683,6 +3731,9 @@ type RoomRole string
 // RoomStatus `room.status` (FR-2.4). 방은 완료되지 않는다 — 보관만 있고 되돌릴 수 있다.
 type RoomStatus string
 
+// RoomSubscriptionLevel v0.2.9 — 방 알림 구독(FR-8, SCREEN §4.17): 전부 · 내가 참여한 미션만 · HITL만 · 끄기. 미션 구독(SubscriptionLevel)이 있으면 그 미션은 미션 구독을 따른다.
+type RoomSubscriptionLevel string
+
 // RoomSummarize 「여기까지 정리」(FR-2.5) — 범위를 사람이 고르고 그 범위를 요약 메시지에 기록한다.
 type RoomSummarize struct {
 	FromMessageId *openapi_types.UUID `json:"from_message_id,omitempty"`
@@ -3737,7 +3788,10 @@ type Runtime struct {
 	// PausedSessionCount 유예를 넘겨 `paused(runtime_offline)`된 세션 수.
 	PausedSessionCount *int          `json:"paused_session_count,omitempty"`
 	Repos              []RuntimeRepo `json:"repos"`
-	RunningTaskCount   int           `json:"running_task_count"`
+
+	// RoomCount v0.2.9 — 이 컴퓨터에 묶인 방 수(runtime_id 고정된 방).
+	RoomCount        *int `json:"room_count,omitempty"`
+	RunningTaskCount int  `json:"running_task_count"`
 
 	// Status `runtime_status`
 	Status    RuntimeStatus `json:"status"`
@@ -3831,7 +3885,10 @@ type RuntimeDetail struct {
 	// PausedSessionCount 유예를 넘겨 `paused(runtime_offline)`된 세션 수.
 	PausedSessionCount *int          `json:"paused_session_count,omitempty"`
 	Repos              []RuntimeRepo `json:"repos"`
-	RunningTaskCount   int           `json:"running_task_count"`
+
+	// RoomCount v0.2.9 — 이 컴퓨터에 묶인 방 수(runtime_id 고정된 방).
+	RoomCount        *int `json:"room_count,omitempty"`
+	RunningTaskCount int  `json:"running_task_count"`
 
 	// Status `runtime_status`
 	Status    RuntimeStatus `json:"status"`
@@ -4932,6 +4989,12 @@ type ListRoomReadsParams struct {
 	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// SetRoomSubscriptionJSONBody defines parameters for SetRoomSubscription.
+type SetRoomSubscriptionJSONBody struct {
+	// Level v0.2.9 — 방 알림 구독(FR-8, SCREEN §4.17): 전부 · 내가 참여한 미션만 · HITL만 · 끄기. 미션 구독(SubscriptionLevel)이 있으면 그 미션은 미션 구독을 따른다.
+	Level RoomSubscriptionLevel `json:"level"`
+}
+
 // SummarizeRoomParams defines parameters for SummarizeRoom.
 type SummarizeRoomParams struct {
 	// IdempotencyKey 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
@@ -5481,6 +5544,9 @@ type UpdateRoomParticipantJSONRequestBody = RoomParticipantUpdate
 
 // MarkRoomReadJSONRequestBody defines body for MarkRoomRead for application/json ContentType.
 type MarkRoomReadJSONRequestBody MarkRoomReadJSONBody
+
+// SetRoomSubscriptionJSONRequestBody defines body for SetRoomSubscription for application/json ContentType.
+type SetRoomSubscriptionJSONRequestBody SetRoomSubscriptionJSONBody
 
 // SummarizeRoomJSONRequestBody defines body for SummarizeRoom for application/json ContentType.
 type SummarizeRoomJSONRequestBody = RoomSummarize
@@ -6303,6 +6369,9 @@ type ServerInterface interface {
 	// ListRoomReads 맥락 읽기 기록(S23)
 	// (GET /rooms/{roomId}/reads)
 	ListRoomReads(w http.ResponseWriter, r *http.Request, roomId RoomId, params ListRoomReadsParams)
+	// SetRoomSubscription 방 알림 구독
+	// (PUT /rooms/{roomId}/subscription)
+	SetRoomSubscription(w http.ResponseWriter, r *http.Request, roomId RoomId)
 	// SummarizeRoom 여기까지 정리(범위 요약)
 	// (POST /rooms/{roomId}/summaries)
 	SummarizeRoom(w http.ResponseWriter, r *http.Request, roomId RoomId, params SummarizeRoomParams)
@@ -8162,6 +8231,32 @@ func (siw *ServerInterfaceWrapper) ListRoomReads(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListRoomReads(w, r, roomId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetRoomSubscription operation middleware
+func (siw *ServerInterfaceWrapper) SetRoomSubscription(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", r.PathValue("roomId"), &roomId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roomId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetRoomSubscription(w, r, roomId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -12259,6 +12354,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/rooms/{roomId}/summaries", wrapper.SummarizeRoom)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/rooms/{roomId}/owner", wrapper.TransferRoomOwner)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/rooms/{roomId}/deputy", wrapper.SetRoomDeputy)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/rooms/{roomId}/subscription", wrapper.SetRoomSubscription)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/rooms/{roomId}/participants", wrapper.ListRoomParticipants)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/rooms/{roomId}/participants", wrapper.AddRoomParticipant)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/rooms/{roomId}/participants/{participantId}", wrapper.RemoveRoomParticipant)
