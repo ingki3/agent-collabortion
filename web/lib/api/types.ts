@@ -125,6 +125,10 @@ export type RoomDefaults = S["RoomDefaults"];
 export type RoomParticipantRef = S["RoomParticipantRef"];
 export type WorkListItem = S["WorkListItem"];
 export type WorkStatus = S["WorkStatus"];
+export type Work = S["Work"];
+export type WorkSource = S["WorkSource"];
+export type RoomParticipant = S["RoomParticipant"];
+export type BlockedDetail = S["BlockedDetail"];
 /**
  * `listRooms`·`listWorks` 는 계약에서 `allOf: [Page, {items: X[]}]` 라 생성 타입의 `items` 가 `unknown[] & X[]` 로 접힌다(`Page.items` 가 `{}`).
  * 봉투의 `items` 를 그 op 의 항목 타입으로 읽는다 — 모양은 계약이 정하고 이 함수는 타입만 좁힌다.

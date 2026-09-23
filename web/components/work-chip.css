@@ -1,0 +1,33 @@
+/* 미션 칩(COMPONENTS §9.1) — 색은 tokens.css 변수만. 선택은 색이 아니라 굵은 테두리 + ✓ (글리프가 1차 신호). */
+.work-chips { position: relative; display: flex; flex-direction: column; gap: 6px; }
+.work-chips__row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.work-chips--empty { flex-direction: row; }
+.work-chip {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 16em;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--ink);
+  padding: 3px 10px; font: inherit; font-size: var(--fs-body); line-height: 1.4; cursor: pointer;
+}
+.work-chip:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.work-chip[aria-pressed="true"] { border: 2px solid var(--ink); padding: 2px 9px; font-weight: 600; }
+.work-chip__check { font-weight: 700; }
+.work-chip__glyph { flex-shrink: 0; }
+.work-chip__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 12em; }
+.work-chip--more { color: var(--ink-2); }
+/* 카드 안 라벨 — 같은 모양, 누를 수 없다(커서·포커스 링 없음). 글자는 --fs-meta(12px 하한). */
+.work-chip--label {
+  cursor: default; font-size: var(--fs-meta); color: var(--ink-2); padding: 0 8px; line-height: 1.6; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block;
+}
+.work-chips__new { display: inline-flex; flex-direction: column; gap: 2px; margin-left: auto; }
+.work-chips__pop {
+  list-style: none; margin: 0; padding: 6px; display: flex; flex-direction: column; gap: 2px; max-width: 520px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-pop);
+}
+.work-chips__item {
+  display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; border: 0; background: transparent; color: var(--ink);
+  padding: 4px 8px; border-radius: 6px; font: inherit; font-size: var(--fs-body); cursor: pointer;
+}
+.work-chips__item:hover, .work-chips__item:focus-visible { background: var(--bg); outline: none; }
+.work-chips__item[aria-pressed="true"] { font-weight: 600; }
+.work-chips__detail { color: var(--ink-2); font-size: var(--fs-sub); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

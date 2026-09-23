@@ -18,7 +18,7 @@
 
 import { ROOM_BLOCKED_LABEL } from "@/lib/wording";
 
-export type BadgeKind = "lane" | "task" | "session" | "agent" | "inbox" | "room";
+export type BadgeKind = "lane" | "task" | "session" | "agent" | "inbox" | "room" | "work";
 
 /** 색 토큰 계열. neutral = --ink-3 / --ink-2 (상태색 아님). */
 export type Tone = "run" | "wait" | "block" | "pause" | "done" | "fail" | "neutral";
@@ -65,6 +65,18 @@ export const BADGE_MAP = {
   },
   /** PRD FR-2.3 세션 상태 6종 — SCREEN §4.3 표 */
   session: {
+    draft: spec("○", "neutral", "초안"),
+    active: spec("●", "run", "진행 중"),
+    paused: spec("⏸\uFE0E", "pause", "일시정지"),
+    completing: spec("●", "run", "마무리 중"),
+    completed: spec("✓", "done", "완료"),
+    cancelled: spec("–", "neutral", "취소됨"),
+  },
+  /**
+   * v0.19 미션 상태 6종(`work.status`, COMPONENTS §9.5) — 기존 `session` 과 **같은 말·같은 글리프**. `session` 을 이름만 바꾸지 않는다:
+   * 이관 기간에 두 kind 가 공존하고(R4 에서 `session` 을 뺀다), 이름만 바꾸면 옛 kind 를 가리키는 테스트·목이 조용히 통과한다.
+   */
+  work: {
     draft: spec("○", "neutral", "초안"),
     active: spec("●", "run", "진행 중"),
     paused: spec("⏸\uFE0E", "pause", "일시정지"),

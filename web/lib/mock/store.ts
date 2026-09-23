@@ -39,6 +39,10 @@ export interface MockRoom {
   updated_at: string;
 }
 
+type WorkSchema = components["schemas"]["Work"];
+/** v0.19 (T-R2-W2) — `createWork` 로 연 미션의 저장 칸(계약 `Work` 에서 보는 사람 모양 칸 `my_work_role`·`subscription` 을 뺀 것). */
+export type MockWork = Omit<WorkSchema, "my_work_role" | "subscription" | "director" | "deputy">;
+
 export interface MockUser extends User {
   password: string;
 }
@@ -132,6 +136,14 @@ export interface Store {
   rooms: Map<string, MockRoom>;
   /** 안 읽음 표식 — `${roomId}:${userId}` → 마지막으로 읽은 메시지 id(§12.1-6, 방 단위 · 사람 행만). */
   roomReads: Map<string, string>;
+  /**
+   * v0.19 (T-R2-W2) — `createRoom` 으로 만든 방의 **뒷받침 세션** id. 서버에서 방의 메시지·서브 미션·할 일·확인 요청은 `/sessions/{방 id}/…`
+   * 로 읽히고(방 id = 세션 id), 목의 그 핸들러들은 `s.sessions` 를 본다. 그래서 새 방에도 같은 id 의 세션 행을 두되 **옛 세션이 아니다** —
+   * `getSession`·`listSessions`·`listWorks` 는 이 집합의 세션을 없는 것으로 다룬다(서버: 새 방은 `legacy_work_id` 가 없다).
+   */
+  roomOnly: Set<string>;
+  /** v0.19 (T-R2-W2) — `createWork` 로 연 미션. 옛 세션의 미션(미션 id = 세션 id)은 여기 없고 세션에서 읽는다. */
+  works: Map<string, MockWork>;
   idem: Map<string, unknown>;
   events: StoredEvent[];
   eventSeq: number;
@@ -153,6 +165,7 @@ function seed(): Store {
     lanes: new Map(), artifacts: new Map(), decisions: new Map(), hitls: new Map(), inbox: new Map(),
     workdirs: new Map(), workdirQuotaGb: 50,
     settings: new Map(), notifications: new Map(), testChats: new Map(), rooms: new Map(), roomReads: new Map(),
+    roomOnly: new Set(), works: new Map(),
     idem: new Map(), events: [], eventSeq: 0, subs: new Set(),
   };
   // 데모 워크스페이스: 초대 링크(S3)·비참여 에이전트 경고(E1-04) 검증용

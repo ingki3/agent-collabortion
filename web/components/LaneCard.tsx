@@ -48,6 +48,15 @@ export interface LaneCardProps {
    * 보인다(Lead 결정 2026-09-15 — 새로고침 뒤에는 활동 보기를 열면 다시 보인다).
    */
   emptyTurnNote?: string | null;
+  /**
+   * v0.19 방 화면(T-R2-W2) — 카드의 **미션 라벨**(COMPONENTS §9 부가 정보 `bXrz6` 재사용 · §3.2 「미션 〈…〉」/「미션 없음」).
+   * `(전체)` 보기에서만 넘긴다 — 칩이 골라져 있으면 감춘다(양방향 규칙, SCREEN §4.6). 없으면 그리지 않는다(옛 S7).
+   */
+  workLabel?: React.ReactNode;
+  /** v0.19 — `queued` 의 대기 사유(`queued_reason` 4값을 사람 말로, 상한 수는 슬롯). 있으면 대기 순번 줄을 대신한다. */
+  queuedReason?: React.ReactNode;
+  /** v0.19 — `paused` 가 어느 층의 예산인가(「⏸ 일시정지 · 할 일 예산」…) · 할 일 층이면 「이 승인은 이 할 일에만 적용됩니다」. */
+  pausedLayer?: { label: string; taskOnly?: string | null } | null;
 }
 
 /** 상태별 "부가 정보" 한 줄(COMPONENTS §2.1 부가 열). 없으면 null — 자리만 차지하지 않는다. */
@@ -150,8 +159,17 @@ export function LaneCard(props: LaneCardProps) {
       {lane.brief && lane.status !== "done" && (
         <div className="lane__brief" data-testid="lane-brief">{renderInline(lane.brief)}</div>
       )}
-      {note && (
+      {props.workLabel && <div className="lane__work">{props.workLabel}</div>}
+      {props.queuedReason && lane.status === "queued" ? (
+        <div className="lane__note" data-testid="lane-queued-reason" data-reason={lane.queued_reason ?? undefined}>{props.queuedReason}</div>
+      ) : note ? (
         <div className="lane__note" data-testid="lane-note" data-status={lane.status}>{note}</div>
+      ) : null}
+      {props.pausedLayer && lane.status === "paused" && (
+        <div className="lane__note" data-testid="lane-paused-layer">
+          <span className="lane__layer">{props.pausedLayer.label}</span>
+          {props.pausedLayer.taskOnly && <span className="lane__quiet" data-testid="lane-task-only"> · {props.pausedLayer.taskOnly}</span>}
+        </div>
       )}
       {doneStillRunning && (
         <div className="lane__note lane__note--info" data-testid="lane-done-running">제출은 끝났지만 실행이 아직 돌고 있습니다 — 「중단」은 그 실행만 멈춥니다</div>

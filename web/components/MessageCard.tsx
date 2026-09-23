@@ -61,6 +61,12 @@ export interface MessageCardProps {
   /** 스레드 안 답글로 렌더 중인가(질문 카드 답글이면 answer 배지). */
   asAnswer?: boolean;
   now?: number;
+  /** v0.19 방 화면(T-R2-W2) — 미션 라벨(`(전체)` 보기일 때만 넘긴다, SCREEN §4.6 가운데 표). */
+  workLabel?: React.ReactNode;
+  /** v0.19 — 머리줄 오른쪽 끝의 메시지 메뉴(「…」 → 「이걸 미션으로」). */
+  menu?: React.ReactNode;
+  /** v0.19 — 본문 아래 한 줄(미션 열림·닫힘 시스템 카드의 「이 미션으로 거르기」 링크 등). */
+  footer?: React.ReactNode;
 }
 
 export function MessageCard(props: MessageCardProps) {
@@ -97,8 +103,11 @@ export function MessageCard(props: MessageCardProps) {
           {clockTime(m.created_at)} · {relativeTime(m.created_at, props.now)}
           {m.is_note ? " · note" : ""}
         </span>
+        {props.workLabel}
+        {props.menu && <span className="msg__menu">{props.menu}</span>}
       </div>
       <MessageBody content={m.content} />
+      {props.footer}
       <div className="msg__actions">
         {replyCount > 0 && (
           <button type="button" className="msg__link" onClick={toggleThread} aria-expanded={open} data-testid="thread-toggle">
