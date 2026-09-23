@@ -38,6 +38,13 @@ type SweepResult struct {
 	Blocked int
 }
 
+// liveLaneSQL is the GC gate: some lane using workdir `w` is still alive
+// (not done/failed). Worktree directories are shared by an agent's lanes in a
+// room, container/none ones belong to one lane; either way the lanes pointing
+// at the row are the ones that could touch it next.
+const liveLaneSQL = `EXISTS (SELECT 1 FROM lane l WHERE l.workdir_id = w.id
+	AND l.status IN ('queued', 'running', 'waiting_human', 'blocked', 'paused'))`
+
 type gcRow struct {
 	GCCase
 	SessionID    uuid.UUID
@@ -52,33 +59,41 @@ type gcRow struct {
 
 // SweepGC is FR-6.4's retention pass.
 //
-// It looks only at `active` workdirs of sessions that have ENDED. A running
-// session's directories are not candidates at any age — retention counts from
-// the session's end, and collecting a live checkout deletes the files an agent
-// is editing right now (E13-18).
+// It looks only at `active` workdirs that no live lane is using. A directory
+// some lane still runs, waits, or is blocked in is not a candidate at any age —
+// collecting a live checkout deletes the files an agent is editing right now
+// (E13-18).
+//
+// The reference point is the directory's own last use, not the session's end
+// (PRD v0.19 NN8, T-R1a): a room never completes, so `finished_at` would stop
+// GC forever, and a room-wide "no open mission" gate would keep an idle
+// agent's folder alive for as long as anyone else in the room works (Lead
+// answer, T-R1a Q2). JudgeGC is unchanged; the sweep feeds it
+// SessionStatus = "completed" for a directory with no live lane (the only rows
+// it selects) and SinceSessionEnd = now − COALESCE(last_used_at, created_at).
 //
 // production caller: cmd/server.scheduler (the one-minute purge tick).
 func (s *Service) SweepGC(ctx context.Context) (SweepResult, error) {
 	now := s.Clock.Now()
 	// `retain_until` is the contract's answer to S13's "언제까지" column
 	// (openapi Workdir). It is derived, not authoritative — JudgeGC computes
-	// the same window from `finished_at` — but a column the screen reads has to
-	// exist, and deriving it in one UPDATE keeps it from drifting away from the
-	// judgement when a workspace changes `workdir_retention_days`.
+	// the same window from the last use — but a column the screen reads has
+	// to exist, and deriving it in one UPDATE keeps it from drifting away from
+	// the judgement when a workspace changes `workdir_retention_days`.
 	if _, err := s.DB.Exec(ctx, `
-		UPDATE workdir w SET retain_until = s.finished_at + make_interval(days => COALESCE(ws.workdir_retention_days, $1)),
+		UPDATE workdir w SET retain_until = COALESCE(w.last_used_at, w.created_at) + make_interval(days => COALESCE(ws.workdir_retention_days, $1)),
 		       updated_at = $2
-		FROM session s
+		FROM room s
 		LEFT JOIN workspace_settings ws ON ws.workspace_id = s.workspace_id
 		WHERE s.id = w.session_id AND w.status = 'active'
-		  AND s.status IN ('completed', 'cancelled') AND s.finished_at IS NOT NULL
-		  AND w.retain_until IS DISTINCT FROM s.finished_at + make_interval(days => COALESCE(ws.workdir_retention_days, $1))`,
+		  AND NOT `+liveLaneSQL+`
+		  AND w.retain_until IS DISTINCT FROM COALESCE(w.last_used_at, w.created_at) + make_interval(days => COALESCE(ws.workdir_retention_days, $1))`,
 		DefaultRetentionDays, now); err != nil {
 		s.warn("workdirs: refresh retain_until", "err", err)
 	}
 	rows, err := s.DB.Query(ctx, `
 		SELECT w.id, w.path_or_ref, w.kind::text, w.session_id, s.workspace_id, s.runtime_id,
-		       s.director_user_id, s.title, s.status::text, s.finished_at,
+		       wk.director_user_id, wk.title, 'completed', COALESCE(w.last_used_at, w.created_at),
 		       COALESCE(s.isolation->>'kind', ''),
 		       COALESCE(ws.workdir_retention_days, $1),
 		       COALESCE(w.merged, false), w.commits_ahead,
@@ -88,9 +103,10 @@ func (s *Service) SweepGC(ctx context.Context) (SweepResult, error) {
 		                WHERE c.type = 'gc' AND c.consumed_at IS NULL
 		                  AND w.id::text = ANY(gc_command_workdir_ids(c.payload)))
 		FROM workdir w
-		JOIN session s ON s.id = w.session_id
+		JOIN room s ON s.id = w.session_id
+		JOIN work wk ON wk.room_id = s.id
 		LEFT JOIN workspace_settings ws ON ws.workspace_id = s.workspace_id
-		WHERE w.status = 'active' AND s.status IN ('completed', 'cancelled')`, DefaultRetentionDays)
+		WHERE w.status = 'active' AND NOT `+liveLaneSQL, DefaultRetentionDays)
 	if err != nil {
 		return SweepResult{}, fmt.Errorf("workdirs: gc sweep: %w", err)
 	}
