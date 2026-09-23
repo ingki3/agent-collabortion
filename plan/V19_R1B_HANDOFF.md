@@ -56,3 +56,13 @@ router/preview.go:36 · router/delegate.go:57 · router/status.go:61
 
 ---
 
+
+---
+
+## R1b1(T-R1b1) 이 남기는 것 — R1b2·R1b3 가 받을 것 (2026-09-23)
+
+- **임시 호환 규칙 「legacy single-work room」**(`router.legacySingleWorkRoom`, Lead Q1 승인) — FR-3.1.1 규칙 3 과 4 사이에 "방에 미션이 **정확히 하나**면(상태 무관) 그 미션" 을 끼워 둔다. 옛 `/sessions/*` 클라이언트가 `work_id` 없이 게시해도 세션=미션 동작(멈춘·완료된 세션의 메시지가 dispatch 되지 않음, 브리프·비용 귀속)이 유지된다. preview 의 `work_source` 는 계약 enum 이 닫혀 있어 `chosen` 으로 싣는다. **R1b2 가 방에 두 번째 미션을 열 수 있게 하는 순간 이 전제를 "옛 경로(createSession · 0025 이관)로 만든 방" 으로 좁혀야 한다** — 같은 함수가 `routingAssignee`(규칙 6 의 assignee)와 `loadHitlRow`·`loadHitlSession`(미션 없는 시스템 요청의 Director)의 폴백이기도 하다.
+- **방 멈춤의 미러**(`roomgate`, Lead Q2 승인) — `budget`·`loop` 로 방이 막히면 그 방의 active 미션을 같은 사유로 `paused` 에 두고 `work.paused_detail.room_blocked = true` 표식을 단다(옛 Session 모양 유지). 해제는 표식 있는 것만 되살린다. **`loop` 는 계약 `WorkPauseReason` 에 없다 — R1b2 의 Work 응답은 표식 있는 paused 를 방 사유로 투영해야 한다**(`paused_reason: loop` 를 미션에 싣지 말 것).
+- **아직 `work_id` 를 쓰지 않는 새 행**: `artifact`·`decision`·대부분의 `inbox_item`·종료 조건 승인 HITL(`sessions/complete.go` — `loadHitlRow` 가 호환 규칙으로 메운다). R1b1 마이그레이션(`*_r1b1_room_gate.sql`)이 R1b1 이전 행은 전부 메웠다.
+- **미션 시간 상한**: 기존 강제 경로가 없어(P3 이후 `time_extension` 501) R1b1 도 만들지 않았다 — 예산만 미션·방 두 층이다.
+- 위 42곳 중 R1b1 이 1:N 에서도 옳게 고친 줄은 PR 본문 체크리스트에 있다. 남은 줄은 그대로 R1b2·R1b3 몫이다.
