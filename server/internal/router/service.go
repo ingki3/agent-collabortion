@@ -18,10 +18,12 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/inbox"
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/lanestate"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
+	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -110,14 +112,18 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
+	// The ROOM row is the lock (V19_R1B_HANDOFF (b) router/service.go:116):
+	// every post to a room serialises here, and locking "the room's mission"
+	// alongside it would lock every mission of the room once there are several.
 	var wsID uuid.UUID
-	var status string
-	var assignee, director *uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT s.workspace_id, wk.status, wk.assignee_agent_id, wk.director_user_id FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionID).
-		Scan(&wsID, &status, &assignee, &director)
+	err = tx.QueryRow(ctx, `SELECT workspace_id FROM room WHERE id = $1 FOR UPDATE`, sessionID).Scan(&wsID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrSessionNotFound
 	}
+	if err != nil {
+		return nil, err
+	}
+	assignee, err := routingAssignee(ctx, tx, sessionID, in)
 	if err != nil {
 		return nil, err
 	}
@@ -167,6 +173,14 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 		}
 	}
 
+	// FR-3.1.1: the mission this message (and the lanes/tasks it makes)
+	// belongs to — decided BEFORE the insert, from the same premises the
+	// preview reads.
+	attr, err := attribute(ctx, tx, sessionID, in, author, th, dec)
+	if err != nil {
+		return nil, err
+	}
+
 	var authorID *uuid.UUID
 	switch author.Type {
 	case "user":
@@ -176,9 +190,9 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 	}
 	var msgID uuid.UUID
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO message (session_id, author_type, author_id, parent_id, content, mentions, source_task_id, kind, state, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'text', 'posted', $8) RETURNING id`,
-		sessionID, author.Type, authorID, parent, in.Content, dec.Mentions, author.TaskID, now).Scan(&msgID); err != nil {
+		INSERT INTO message (session_id, author_type, author_id, parent_id, content, mentions, source_task_id, kind, state, created_at, work_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'text', 'posted', $8, $9) RETURNING id`,
+		sessionID, author.Type, authorID, parent, in.Content, dec.Mentions, author.TaskID, now, attr.WorkID).Scan(&msgID); err != nil {
 		return nil, fmt.Errorf("router: insert message: %w", err)
 	}
 
@@ -246,7 +260,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 		}
 		history = append(history, next)
 		if !v.Allowed {
-			if err := s.pauseForLoop(ctx, tx, sessionID, wsID, director, v, now); err != nil {
+			if err := s.pauseForLoop(ctx, tx, sessionID, wsID, v, now); err != nil {
 				return nil, err
 			}
 			result.Warnings = append(result.Warnings, struct {
@@ -272,6 +286,10 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 			opts.forceNewLane = false
 		}
 		laneID, _, err := s.resolveLaneFor(ctx, tx, sessionID, tr, profiles[tr.AgentID], opts, now)
+		if err != nil {
+			return nil, err
+		}
+		laneWork, err := bindLaneWork(ctx, tx, laneID, attr.WorkID)
 		if err != nil {
 			return nil, err
 		}
@@ -311,10 +329,10 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 		} else {
 			if err := tx.QueryRow(ctx, `
 				INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, originator_user_id,
-				                  coalesced_message_ids, status, created_at, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $8) RETURNING id`,
+				                  coalesced_message_ids, status, created_at, updated_at, work_id)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $8, $9) RETURNING id`,
 				laneID, sessionID, tr.AgentID, profiles[tr.AgentID], msgID, originator,
-				arrival.CoalescedMessageIDs, now).Scan(&taskID); err != nil {
+				arrival.CoalescedMessageIDs, now, laneWork).Scan(&taskID); err != nil {
 				return nil, fmt.Errorf("router: insert task: %w", err)
 			}
 		}
@@ -342,7 +360,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 			}
 		}
 		if primary != uuid.Nil {
-			laneID, taskID, ok, err := s.scheduleFallback(ctx, tx, sessionID, *fb, primary, profiles[fb.AgentID], msgID, originator, now)
+			laneID, taskID, ok, err := s.scheduleFallback(ctx, tx, sessionID, *fb, primary, profiles[fb.AgentID], msgID, originator, attr.WorkID, now)
 			if err != nil {
 				return nil, err
 			}
@@ -508,16 +526,29 @@ func (s *Service) loopLimits(ctx context.Context, tx pgx.Tx, wsID uuid.UUID) (Li
 	return lim, nil
 }
 
-// loadHops reads the trigger history the limits reason over. The rolling hour
-// bounds hops_per_hour, but chain depth and pair roundtrips walk backwards to
-// the last human message, so the window alone is not enough — 200 rows covers
-// both without loading a long session.
+// loadHops reads the trigger history the limits reason over: every hop from
+// the room's LAST HUMAN hop on, plus the rolling hour.
+//
+// The rolling hour bounds hops_per_hour; chain depth and pair roundtrips walk
+// backwards to the last human hop. The window used to be "the last 200 rows",
+// which was safe for a session and is not for a room (NN3, V19_impl §4 위험
+// 3): a room lives for weeks, and 200 agent hops in a row put the last person
+// outside the window — chainDepth then saw an agent-only history, answered 0
+// (its E4-07 reading of "no person, no chain") and max_chain_depth switched
+// itself off exactly where a runaway chain is longest. Reading from the last
+// human hop keeps that person in view however long the run since; a room with
+// no human hop at all is read whole (it cannot be long without a person — a
+// loop there trips hops_per_hour first). session_hop_human (migration r1b1_room_gate) finds the
+// anchor.
 func (s *Service) loadHops(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, now time.Time) ([]Hop, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT id, from_agent_id, to_agent_id, created_at, COALESCE(cause_hop_id, 0) FROM (
-			SELECT id, from_agent_id, to_agent_id, created_at, cause_hop_id
-			FROM session_hop WHERE session_id = $1 ORDER BY id DESC LIMIT 200
-		) h ORDER BY h.id`, sessionID)
+		SELECT id, from_agent_id, to_agent_id, created_at, COALESCE(cause_hop_id, 0)
+		FROM session_hop
+		WHERE session_id = $1
+		  AND (id >= COALESCE((SELECT max(id) FROM session_hop
+		                        WHERE session_id = $1 AND from_agent_id IS NULL), 0)
+		       OR created_at > $2)
+		ORDER BY id`, sessionID, now.Add(-HopWindow))
 	if err != nil {
 		return nil, err
 	}
@@ -648,27 +679,34 @@ func (s *Service) recordHop(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID,
 	return err
 }
 
-// pauseForLoop is FR-3.5's consequence: the session pauses with a reason that
-// NAMES the limit, and the Director gets a system-issued HITL.
-func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID, v LoopVerdict, now time.Time) error {
-	var status string
-	if err := tx.QueryRow(ctx, `SELECT status::text FROM work WHERE room_id = $1`, sessionID).Scan(&status); err != nil {
+// pauseForLoop is FR-3.5's consequence, at the ROOM (PRD v0.19 §3.1: routing
+// and the loop limits are the room's): the room's gate goes up with
+// `blocked_reason: loop`, the reason detail NAMES the limit, and the room
+// owner gets a system-issued HITL (approver_spec room_owner — absent owner
+// delegation, FR-2A.3). The room's active missions are parked with the same
+// reason and marked as the room's (roomgate package comment), which is what
+// the old `/sessions/*` shape shows as `paused(loop)`.
+func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, v LoopVerdict, now time.Time) error {
+	room, err := roomgate.Lock(ctx, tx, sessionID)
+	if err != nil {
 		return err
 	}
-	if status == "paused" {
-		return nil // already stopped; one pause per session, not one per trigger
+	if room.BlockedReason != nil {
+		return nil // already stopped; one block per room, not one per trigger
 	}
 	detail := tasks.WithLoop(tasks.PausedDetail("loop", now), v.Detail, v.LimitCount(), v.Agents)
-	if _, err := tx.Exec(ctx, `
-		UPDATE work SET status = 'paused', paused_reason = 'loop', paused_detail = $2, updated_at = $3
-		WHERE room_id = $1`, sessionID, detail, now); err != nil {
+	agents := make([]openapi_types.UUID, 0, len(v.Agents))
+	for _, a := range v.Agents {
+		agents = append(agents, openapi_types.UUID(a))
+	}
+	if _, err := roomgate.Block(ctx, tx, sessionID, roomgate.ReasonLoop, gen.BlockedDetail{LoopAgents: &agents}, &detail, now); err != nil {
 		return err
 	}
 	question := v.QuestionText()
 	var hitlID uuid.UUID
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO hitl_request (session_id, task_id, source, type, question, proposed_default, approver_spec, purpose, due_at, created_at)
-		VALUES ($1, NULL, 'system', 'approval', $2, NULL, 'director', 'loop', $3, $4) RETURNING id`,
+		VALUES ($1, NULL, 'system', 'approval', $2, NULL, 'room_owner', 'loop', $3, $4) RETURNING id`,
 		sessionID, question,
 		now.Add(24*time.Hour), now).Scan(&hitlID); err != nil {
 		return fmt.Errorf("router: loop hitl: %w", err)
@@ -685,14 +723,14 @@ func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID u
 	if _, err := tx.Exec(ctx, `UPDATE hitl_request SET message_id = $2 WHERE id = $1`, hitlID, msgID); err != nil {
 		return fmt.Errorf("router: loop hitl card: %w", err)
 	}
-	if director != nil {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
-			SELECT m.id, 'session_paused', 'action_required', $1, $2, $3
-			FROM member m WHERE m.workspace_id = $4 AND m.user_id = $5`,
-			sessionID, hitlID, now, wsID, *director); err != nil {
-			return err
-		}
+	// FR-8 v0.19: the whole room stopped — `room_paused` (action_required)
+	// for the room owner, whose answer lifts the gate.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
+		SELECT m.id, $6::inbox_item_type, $7::inbox_severity, $1, $2, $3
+		FROM member m WHERE m.workspace_id = $4 AND m.user_id = $5`,
+		sessionID, hitlID, now, wsID, room.Owner, inbox.TypeRoomPaused, inbox.Severity(inbox.TypeRoomPaused)); err != nil {
+		return err
 	}
 	// FR-2.3: what happens to a turn already running depends on WHY we paused.
 	// A loop pause is not a budget breach — the work in flight is legitimate —
@@ -709,13 +747,14 @@ func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID u
 			"paused_detail": detail,
 		})
 	}
+	roomgate.PublishUpdated(ctx, s.Hub, tx, sessionID)
 	return nil
 }
 
 // scheduleFallback inserts rule 7's deferred assignee task. It is `deferred`
 // with not_before = +5m, so the queue cannot hand it out early and the sweep
 // promotes it when the window closes.
-func (s *Service) scheduleFallback(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, fb Fallback, primary, profileID, msgID uuid.UUID, originator *uuid.UUID, now time.Time) (uuid.UUID, uuid.UUID, bool, error) {
+func (s *Service) scheduleFallback(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, fb Fallback, primary, profileID, msgID uuid.UUID, originator, work *uuid.UUID, now time.Time) (uuid.UUID, uuid.UUID, bool, error) {
 	// One pending fallback per lane is enough; a second reply inside the same
 	// window must not stack two assignee wake-ups.
 	var dup int
@@ -730,12 +769,16 @@ func (s *Service) scheduleFallback(ctx context.Context, tx pgx.Tx, sessionID uui
 	if err != nil {
 		return uuid.Nil, uuid.Nil, false, err
 	}
+	laneWork, err := bindLaneWork(ctx, tx, laneID, work)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, false, err
+	}
 	var taskID uuid.UUID
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, originator_user_id,
-		                  status, not_before, fallback_for_task_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, 'deferred', $7, $8, $9, $9) RETURNING id`,
-		laneID, sessionID, fb.AgentID, profileID, msgID, originator, fb.DueAt, primary, now).Scan(&taskID); err != nil {
+		                  status, not_before, fallback_for_task_id, created_at, updated_at, work_id)
+		VALUES ($1, $2, $3, $4, $5, $6, 'deferred', $7, $8, $9, $9, $10) RETURNING id`,
+		laneID, sessionID, fb.AgentID, profileID, msgID, originator, fb.DueAt, primary, now, laneWork).Scan(&taskID); err != nil {
 		return uuid.Nil, uuid.Nil, false, fmt.Errorf("router: fallback task: %w", err)
 	}
 	return laneID, taskID, true, nil
