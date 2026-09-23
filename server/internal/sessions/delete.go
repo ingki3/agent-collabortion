@@ -81,7 +81,7 @@ func (s *Service) Delete(ctx context.Context, sessionID, actor uuid.UUID) error 
 	var title, status string
 	err = tx.QueryRow(ctx, `
 		SELECT s.workspace_id, s.runtime_id, wk.title, wk.status::text
-		FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionID).
+		FROM room s `+LegacyJoin+` WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionID).
 		Scan(&wsID, &runtimeID, &title, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return apperr.NotFound("session")
@@ -91,6 +91,20 @@ func (s *Service) Delete(ctx context.Context, sessionID, actor uuid.UUID) error 
 	}
 	if !CanDelete(status) {
 		return apperr.Conflict("session_active", DeleteActiveDetail)
+	}
+	// Deleting the session deletes its ROOM (every child cascades), so a
+	// mission opened in that room later (T-R1b2) that is still running goes
+	// with it — the same 409 as the session's own mission.
+	var others []string
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(array_agg(status::text), '{}') FROM work WHERE room_id = $1 AND id <> (SELECT legacy_work_id FROM room WHERE id = $1)`,
+		sessionID).Scan(&others); err != nil {
+		return apperr.Internal(fmt.Errorf("sessions: delete missions: %w", err))
+	}
+	for _, st := range others {
+		if !CanDelete(st) {
+			return apperr.Conflict("session_active", DeleteActiveDetail)
+		}
 	}
 
 	blocking, err := workdirs.UnmergedWorktrees(ctx, tx, sessionID)

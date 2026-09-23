@@ -145,6 +145,11 @@ func plant() error {
 		s.workspace, s.user, s.runtime, simEpoch).Scan(&s.session); err != nil {
 		return err
 	}
+	// An old-path session room carries its mission's mark (T-R1b2). Its own
+	// statement: a CTE's UPDATE does not see the room its sibling inserted.
+	if err := q(`UPDATE room SET legacy_work_id = (SELECT id FROM work WHERE room_id = $1) WHERE id = $1`, s.session); err != nil {
+		return err
+	}
 	return q(`INSERT INTO room_participant (room_id, agent_id, profile_id, joined_at) VALUES ($1, $2, $3, $4)`,
 		s.session, s.agent, s.profile, simEpoch)
 }

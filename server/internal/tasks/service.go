@@ -803,14 +803,57 @@ func (s *Service) rollUpCost(ctx context.Context, wsID, sessionID uuid.UUID, now
 			Scan(&cost, &estimated); err != nil {
 			return fmt.Errorf("tasks: cost rollup: %w", err)
 		}
-		if _, err := tx.Exec(ctx, `UPDATE work SET cost_usd = $2, updated_at = $3 WHERE room_id = $1`, sessionID, cost, now); err != nil {
-			return fmt.Errorf("tasks: session cost: %w", err)
+		// PRD v0.19 FR-2A.3: each mission's cost is ITS tasks' (a room with
+		// several missions used to write the room total into every one of
+		// them — V19_R1B_HANDOFF (a)). Only the missions whose sum moved are
+		// written; the room total is the frame's `room_cost_usd`.
+		rows, err := tx.Query(ctx, `
+			UPDATE work wk SET cost_usd = c.cost, updated_at = $2
+			FROM (SELECT t.work_id, COALESCE(sum(u.cost_usd), 0) AS cost, COALESCE(bool_or(u.estimated), false) AS est
+			        FROM task t JOIN task_usage u ON u.task_id = t.id
+			       WHERE t.session_id = $1 AND t.work_id IS NOT NULL GROUP BY t.work_id) c
+			WHERE wk.id = c.work_id AND wk.cost_usd IS DISTINCT FROM c.cost::numeric(12, 4)
+			RETURNING wk.id, c.cost, c.est`, sessionID, now)
+		if err != nil {
+			return fmt.Errorf("tasks: mission cost: %w", err)
+		}
+		type workCost struct {
+			id   uuid.UUID
+			cost float64
+			est  bool
+		}
+		var moved []workCost
+		for rows.Next() {
+			var w workCost
+			if err := rows.Scan(&w.id, &w.cost, &w.est); err != nil {
+				rows.Close()
+				return err
+			}
+			moved = append(moved, w)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("tasks: mission cost: %w", err)
 		}
 		if s.Hub != nil {
 			sid := sessionID
-			_ = s.Hub.Publish(ctx, tx, wsID, &sid, "cost.updated", map[string]any{
+			// openapi 0.2.0 StreamEvent: the room total and — when a mission's
+			// sum moved — that mission's. `session_id`/`cost_usd` stay for the
+			// old surface until R4.
+			frame := map[string]any{
 				"session_id": sessionID, "cost_usd": cost, "estimated": estimated,
-			})
+				"room_id": sessionID, "room_cost_usd": cost,
+			}
+			if len(moved) == 0 {
+				_ = s.Hub.Publish(ctx, tx, wsID, &sid, "cost.updated", frame)
+			}
+			for _, w := range moved {
+				f := map[string]any{"work_id": w.id, "work_cost_usd": w.cost}
+				for k, v := range frame {
+					f[k] = v
+				}
+				_ = s.Hub.Publish(ctx, tx, wsID, &sid, "cost.updated", f)
+			}
 		}
 		return nil
 	})

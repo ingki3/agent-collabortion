@@ -65,10 +65,27 @@ func ParseTree(raw []byte) Tree {
 	return t
 }
 
-// ApplyCompletionEvent folds one event into a session's completion state and
+// ApplyCompletionEvent is ApplyWorkEvent for the old `/sessions/*` surface:
+// the session's mission is its room's legacy work.
+func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID, ev Event) (*Outcome, error) {
+	workID, err := LegacyWork(ctx, s.DB, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return s.ApplyWorkEvent(ctx, workID, ev)
+}
+
+// ApplyWorkEvent folds one event into a mission's completion state and
 // carries out the consequence: issuing the platform's user_approval request,
 // pausing on a budget limit, or running the completing → completed step.
-func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID, ev Event) (*Outcome, error) {
+//
+// Everything is keyed by the MISSION (PRD v0.19 FR-2A.4 — a room holds
+// several): its row is the one locked and written, its tasks are the ones
+// paused or cancelled, its summary is posted once per mission and its
+// directories are the ones collected. The room is locked too (room first, the
+// one lock order every writer of both keeps) because the summary and the
+// timeline card are the room's messages.
+func (s *Service) ApplyWorkEvent(ctx context.Context, workID uuid.UUID, ev Event) (*Outcome, error) {
 	now := s.Clock.Now()
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
@@ -76,23 +93,25 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
-	var wsID uuid.UUID
+	var wsID, sessionID uuid.UUID
 	var status string
-	var raw, metRaw, limitsRaw []byte
+	var raw, metRaw, limitsRaw, workLimitsRaw []byte
 	var cost float64
 	var assignee, director *uuid.UUID
+	var legacy bool
 	err = tx.QueryRow(ctx, `
-		SELECT s.workspace_id, wk.status::text, wk.completion_condition, wk.completion_met, s.limits, wk.cost_usd, wk.assignee_agent_id, wk.director_user_id
-		FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionID).
-		Scan(&wsID, &status, &raw, &metRaw, &limitsRaw, &cost, &assignee, &director)
+		SELECT s.workspace_id, s.id, wk.status::text, wk.completion_condition, wk.completion_met, s.limits, wk.limits,
+		       wk.cost_usd, wk.assignee_agent_id, wk.director_user_id, s.legacy_work_id IS NOT DISTINCT FROM wk.id
+		FROM work wk JOIN room s ON s.id = wk.room_id WHERE wk.id = $1 FOR UPDATE OF s, wk`, workID).
+		Scan(&wsID, &sessionID, &status, &raw, &metRaw, &limitsRaw, &workLimitsRaw, &cost, &assignee, &director, &legacy)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, apperr.NotFound("session")
+		return nil, apperr.NotFound("work")
 	}
 	if err != nil {
 		return nil, err
 	}
 	if status == "completed" || status == "cancelled" {
-		return nil, apperr.Conflict("session_closed", "이미 끝난 세션입니다")
+		return nil, closedConflict(legacy)
 	}
 	tree := ParseTree(raw)
 	// "who: assignee" is resolved here, not at creation: the assignee can
@@ -115,7 +134,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 	for _, a := range out.MetAtoms {
 		met[a] = true
 	}
-	if _, err := tx.Exec(ctx, `UPDATE work SET completion_met = $2, updated_at = $3 WHERE room_id = $1`, sessionID, met, now); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE work SET completion_met = $2, updated_at = $3 WHERE id = $1`, workID, met, now); err != nil {
 		return nil, err
 	}
 
@@ -129,9 +148,9 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 			summary, source = "리뷰어가 아티팩트를 반려했습니다", "agent"
 		}
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO decision (session_id, summary, rationale, source, ref_id, created_at)
-			VALUES ($1, $2, $3, $4::decision_source, $5, $6) RETURNING id`,
-			sessionID, summary, out.RejectReason, source, ev.Ref, now).Scan(&out.DecisionID); err != nil {
+			INSERT INTO decision (session_id, summary, rationale, source, ref_id, created_at, work_id)
+			VALUES ($1, $2, $3, $4::decision_source, $5, $6, $7) RETURNING id`,
+			sessionID, summary, out.RejectReason, source, ev.Ref, now, workID).Scan(&out.DecisionID); err != nil {
 			return nil, fmt.Errorf("sessions: reject decision: %w", err)
 		}
 		s.publishDecision(ctx, tx, wsID, sessionID, out.DecisionID)
@@ -141,17 +160,29 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 	case "paused":
 		detail := tasks.PausedDetail(out.PauseReason, now)
 		if out.PauseReason == "budget" {
-			detail = tasks.WithBudget(detail, float32(budgetLimit(limitsRaw)), float32(cost))
+			// The mission's own ceiling when it has one (FR-2A.3), else the
+			// room's — the banner names the limit that was reached.
+			lim := budgetLimit(workLimitsRaw)
+			if lim <= 0 {
+				lim = budgetLimit(limitsRaw)
+			}
+			detail = tasks.WithBudget(detail, float32(lim), float32(cost))
 		}
 		if _, err := tx.Exec(ctx, `
-			UPDATE work SET status = 'paused', paused_reason = $2, paused_detail = $3, updated_at = $4 WHERE room_id = $1`,
-			sessionID, out.PauseReason, detail, now); err != nil {
+			UPDATE work SET status = 'paused', paused_reason = $2, paused_detail = $3, updated_at = $4 WHERE id = $1`,
+			workID, out.PauseReason, detail, now); err != nil {
 			return nil, err
 		}
 		// FR-2.3 / §8.2.2: a budget pause CANCELS the turn in flight. Letting it
-		// finish spends exactly the money the pause exists to stop.
+		// finish spends exactly the money the pause exists to stop. Only this
+		// mission's turns — the room's other missions run on (FR-2A.3).
 		if s.Tasks != nil {
-			if err := s.Tasks.PauseSessionTasks(ctx, tx, sessionID, out.PauseReason, nil, now); err != nil {
+			if err := s.Tasks.PauseWorkTasks(ctx, tx, workID, out.PauseReason, nil, now); err != nil {
+				return nil, err
+			}
+		}
+		if director != nil {
+			if err := s.WorkInbox(ctx, tx, wsID, *director, TypeWorkPaused, sessionID, workID, now); err != nil {
 				return nil, err
 			}
 		}
@@ -159,7 +190,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		// active → completing → completed. The intermediate state is real: no
 		// new task dispatches while the summary runs (FR-2.3, E5-08).
 		if _, err := tx.Exec(ctx, `
-			UPDATE work SET status = 'completing', updated_at = $2 WHERE room_id = $1`, sessionID, now); err != nil {
+			UPDATE work SET status = 'completing', updated_at = $2 WHERE id = $1`, workID, now); err != nil {
 			return nil, err
 		}
 		// FR-2.4 with a model on the path (P4, §8.5). `alreadyPosted` is read
@@ -169,13 +200,13 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		// indistinguishable and the reader cannot tell which is current.
 		var alreadyPosted bool
 		if err := tx.QueryRow(ctx, `
-			SELECT EXISTS (SELECT 1 FROM message WHERE session_id = $1 AND kind = 'summary' AND summary_range IS NULL)`,
-			sessionID).Scan(&alreadyPosted); err != nil {
+			SELECT EXISTS (SELECT 1 FROM message WHERE work_id = $1 AND kind = 'summary' AND summary_range IS NULL)`,
+			workID).Scan(&alreadyPosted); err != nil {
 			return nil, fmt.Errorf("sessions: summary presence: %w", err)
 		}
-		summary := s.summarise(ctx, tx, sessionID, alreadyPosted)
+		summary := s.summarise(ctx, tx, workID, alreadyPosted)
 		if summary.Post {
-			msgID, inserted, err := postSummaryOnce(ctx, tx, sessionID, summary.Body, now)
+			msgID, inserted, err := postSummaryOnce(ctx, tx, sessionID, workID, summary.Body, now)
 			if err != nil {
 				return nil, err
 			}
@@ -190,38 +221,58 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 			// Lead T-S9 ask 3 (i): who wrote it. `message` has no payload
 			// column and openapi's Message has no field for it, so the feed's
 			// `detail` carries it — the same place the failure category goes.
-			s.recordSummaryOrigin(ctx, tx, sessionID, summary.GeneratedBy, now)
+			s.recordSummaryOrigin(ctx, tx, workID, summary.GeneratedBy, now)
 		}
 		if summary.FeedError {
 			// E6-11: the failure is recorded and the session still completes.
 			// The category is what tells an operator whether to change the
 			// prompt or the model, so it is the object_ref rather than a
 			// generic "요약 실패".
-			s.recordSummaryFailure(ctx, tx, sessionID, summary.ErrorCategory, now)
+			s.recordSummaryFailure(ctx, tx, workID, summary.ErrorCategory, now)
 		}
 		if err := tx.QueryRow(ctx, `
-			SELECT count(*) FROM message WHERE session_id = $1 AND kind = 'summary' AND summary_range IS NULL`,
-			sessionID).Scan(&out.SummaryMsgs); err != nil {
+			SELECT count(*) FROM message WHERE work_id = $1 AND kind = 'summary' AND summary_range IS NULL`,
+			workID).Scan(&out.SummaryMsgs); err != nil {
 			return nil, fmt.Errorf("sessions: summary count: %w", err)
 		}
+		// FR-2A.4: the mission remembers the message that closed it.
 		if _, err := tx.Exec(ctx, `
 			UPDATE work SET status = 'completed', paused_reason = NULL, paused_detail = NULL,
-			       finished_at = $2, updated_at = $2 WHERE room_id = $1`, sessionID, now); err != nil {
+			       finished_at = $2, updated_at = $2,
+			       summary_message_id = (SELECT id FROM message WHERE work_id = $1 AND kind = 'summary' AND summary_range IS NULL
+			                             ORDER BY created_at DESC, id DESC LIMIT 1)
+			WHERE id = $1`, workID, now); err != nil {
 			return nil, err
 		}
-		// Queued work is moot once the session is over; leaving it queued means
-		// a resumed daemon picks it up after the fact.
+		if s.Hub != nil {
+			sid := sessionID
+			var summaryID *uuid.UUID
+			_ = tx.QueryRow(ctx, `SELECT summary_message_id FROM work WHERE id = $1`, workID).Scan(&summaryID)
+			_ = s.Hub.Publish(ctx, tx, wsID, &sid, "work.closed", map[string]any{
+				"work_id": workID, "room_id": sessionID, "status": "completed", "summary_message_id": summaryID,
+			})
+		}
+		// Queued work is moot once the mission is over; leaving it queued means
+		// a resumed daemon picks it up after the fact. The room's other
+		// missions — and its talk outside any mission — keep theirs.
 		if _, err := tx.Exec(ctx, `
 			UPDATE task SET status = 'cancelled', finished_at = $2, updated_at = $2
-			WHERE session_id = $1 AND status IN ('queued', 'deferred')`, sessionID, now); err != nil {
+			WHERE work_id = $1 AND status IN ('queued', 'deferred')`, workID, now); err != nil {
 			return nil, err
 		}
 		if director != nil {
-			if err := s.inbox(ctx, tx, wsID, *director, inbox.TypeSessionCompleted, inbox.Severity(inbox.TypeSessionCompleted), sessionID, sessionID, now); err != nil {
+			if legacy {
+				// The old item beside the new one until R4 (§10): an old client
+				// reads session_completed, a v0.19 one work_completed.
+				if err := s.inbox(ctx, tx, wsID, *director, inbox.TypeSessionCompleted, inbox.Severity(inbox.TypeSessionCompleted), sessionID, sessionID, &workID, now); err != nil {
+					return nil, err
+				}
+			}
+			if err := s.WorkInbox(ctx, tx, wsID, *director, TypeWorkCompleted, sessionID, workID, now); err != nil {
 				return nil, err
 			}
 		}
-		if err := s.gcWorkdirs(ctx, tx, sessionID, now); err != nil {
+		if err := s.gcWorkdirs(ctx, tx, sessionID, workID, now); err != nil {
 			return nil, err
 		}
 	}
@@ -232,8 +283,8 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		// Director has one card to answer, not two.
 		var open bool
 		if err := tx.QueryRow(ctx, `
-			SELECT EXISTS (SELECT 1 FROM hitl_request WHERE session_id = $1 AND source = 'system' AND purpose = $2 AND status = 'open')`,
-			sessionID, CondUserApproval).Scan(&open); err != nil {
+			SELECT EXISTS (SELECT 1 FROM hitl_request WHERE work_id = $1 AND source = 'system' AND purpose = $2 AND status = 'open')`,
+			workID, CondUserApproval).Scan(&open); err != nil {
 			return nil, fmt.Errorf("sessions: open approval: %w", err)
 		}
 		out.HitlIssued = !open
@@ -252,9 +303,9 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 			question, purpose = "예산 상한에 도달했습니다. 계속 진행할까요?", "budget"
 		}
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO hitl_request (session_id, task_id, source, type, question, approver_spec, purpose, due_at, created_at)
-			VALUES ($1, NULL, 'system', 'approval', $2, 'director', $3, $4, $5) RETURNING id`,
-			sessionID, question, purpose, now.Add(24*time.Hour), now).Scan(&hitlID); err != nil {
+			INSERT INTO hitl_request (session_id, task_id, source, type, question, approver_spec, purpose, due_at, created_at, work_id)
+			VALUES ($1, NULL, 'system', 'approval', $2, 'director', $3, $4, $5, $6) RETURNING id`,
+			sessionID, question, purpose, now.Add(24*time.Hour), now, workID).Scan(&hitlID); err != nil {
 			return nil, fmt.Errorf("sessions: approval hitl: %w", err)
 		}
 		// S-45: the timeline card. This request is what E6-01's "⬜ Director
@@ -263,7 +314,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		// nothing (SCREEN §4.5). `source_task_id` stays empty: the platform
 		// issued it, no task did.
 		msgID, err := messages.PostHitlCard(ctx, s.Hub, tx, wsID, sessionID, messages.HitlCard{
-			Type: "approval", Question: question,
+			Type: "approval", Question: question, WorkID: &workID,
 		}, now)
 		if err != nil {
 			return nil, err
@@ -273,7 +324,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		}
 		out.HitlTaskID = uuid.Nil
 		if director != nil {
-			if err := s.inbox(ctx, tx, wsID, *director, inbox.TypeHitlRequest, inbox.Severity(inbox.TypeHitlRequest), sessionID, hitlID, now); err != nil {
+			if err := s.inbox(ctx, tx, wsID, *director, inbox.TypeHitlRequest, inbox.Severity(inbox.TypeHitlRequest), sessionID, hitlID, &workID, now); err != nil {
 				return nil, err
 			}
 		}
@@ -290,8 +341,15 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 			return nil, err
 		}
 		sid := sessionID
-		_ = s.Hub.Publish(ctx, tx, wsID, &sid, "session.completion_progress", map[string]any{
-			"session_id":          sessionID,
+		if legacy {
+			// The old frame for the old surface, until R4 (§10).
+			_ = s.Hub.Publish(ctx, tx, wsID, &sid, "session.completion_progress", map[string]any{
+				"session_id":          sessionID,
+				"completion_progress": prog,
+			})
+		}
+		_ = s.Hub.Publish(ctx, tx, wsID, &sid, "work.completion_progress", map[string]any{
+			"work_id":             workID,
 			"completion_progress": prog,
 		})
 	}
@@ -312,7 +370,12 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 // shared by all of one agent's lanes (C3) and outlives the session under the
 // retention policy — deleting it on completion would take an uncommitted
 // branch with it.
-func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, now time.Time) error {
+//
+// PRD v0.19 FR-6.4: a room holds several missions, so a mission's end
+// collects only the directories of ITS lanes — a directory another open
+// mission's lane (or a lane outside any mission) still points at stays for
+// the sweep to judge on its own clock (workdirs.disposableNow).
+func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID, workID uuid.UUID, now time.Time) error {
 	var kind string
 	var runtimeID *uuid.UUID
 	if err := tx.QueryRow(ctx, `
@@ -334,7 +397,7 @@ func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID
 		// would cause. One line, only when there is actually something to
 		// collect.
 		var orphans int
-		_ = tx.QueryRow(ctx, `SELECT count(*) FROM workdir WHERE session_id = $1 AND status <> 'deleted'`, sessionID).Scan(&orphans)
+		_ = tx.QueryRow(ctx, `SELECT count(*) FROM workdir w WHERE w.session_id = $1 AND w.status <> 'deleted' AND `+missionDirSQL, sessionID, workID).Scan(&orphans)
 		if orphans > 0 {
 			slog.Warn("sessions: session has workdirs but no runtime — gc not issued",
 				"session", sessionID, "workdirs", orphans, "isolation", kind)
@@ -342,7 +405,8 @@ func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID
 		return nil
 	}
 	rows, err := tx.Query(ctx, `
-		SELECT id, path_or_ref FROM workdir WHERE session_id = $1 AND status <> 'deleted' ORDER BY created_at`, sessionID)
+		SELECT w.id, w.path_or_ref FROM workdir w WHERE w.session_id = $1 AND w.status <> 'deleted' AND `+missionDirSQL+`
+		ORDER BY w.created_at`, sessionID, workID)
 	if err != nil {
 		return fmt.Errorf("sessions: gc workdirs: %w", err)
 	}
@@ -387,6 +451,16 @@ func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID
 	return tokens.QueueCommand(ctx, tx, *runtimeID, cmd)
 }
 
+// missionDirSQL is "workdir w belongs to mission $2 alone": no lane outside
+// that mission — in another mission still open, or outside any mission —
+// points at it. A directory no lane points at was the session's (1:1 rooms)
+// and goes with it as before.
+const missionDirSQL = `NOT EXISTS (
+	SELECT 1 FROM lane l LEFT JOIN work lw ON lw.id = l.work_id
+	 WHERE (l.workdir_id = w.id OR l.id = w.lane_id)
+	   AND l.work_id IS DISTINCT FROM $2
+	   AND (l.work_id IS NULL OR lw.status NOT IN ('completed', 'cancelled')))`
+
 // publishDecision sends `decision.created` for a row just inserted. FR-4.2's
 // log exists so a reader can find out WHY — a decision that only appears after
 // a reload is one the person watching the session never sees being made.
@@ -396,9 +470,9 @@ func (s *Service) publishDecision(ctx context.Context, q db.DBTX, wsID, sessionI
 	}
 	var d DecisionRow
 	if err := q.QueryRow(ctx, `
-		SELECT id, summary, rationale, source::text, ref_id, created_at
+		SELECT id, summary, rationale, source::text, ref_id, created_at, work_id
 		FROM decision WHERE id = $1`, decisionID).
-		Scan(&d.ID, &d.Summary, &d.Rationale, &d.Source, &d.RefID, &d.CreatedAt); err != nil {
+		Scan(&d.ID, &d.Summary, &d.Rationale, &d.Source, &d.RefID, &d.CreatedAt, &d.WorkID); err != nil {
 		return
 	}
 	sid := sessionID
@@ -428,13 +502,16 @@ func (s *Service) publishDecision(ctx context.Context, q db.DBTX, wsID, sessionI
 // removing the NOT EXISTS was the injection nothing caught).
 //
 // production caller: sessions.Service.ApplyCompletionEvent (complete.go).
-func postSummaryOnce(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, body string, now time.Time) (uuid.UUID, bool, error) {
+//
+// "Exactly one" is per MISSION (FR-2A.4): a room whose first mission already
+// left its summary still gets one for the second.
+func postSummaryOnce(ctx context.Context, tx pgx.Tx, sessionID, workID uuid.UUID, body string, now time.Time) (uuid.UUID, bool, error) {
 	var msgID uuid.UUID
 	err := tx.QueryRow(ctx, `
-		INSERT INTO message (session_id, author_type, author_id, content, kind, created_at)
-		SELECT $1, 'system', NULL, $2, 'summary', $3
-		WHERE NOT EXISTS (SELECT 1 FROM message WHERE session_id = $1 AND kind = 'summary' AND summary_range IS NULL)
-		RETURNING id`, sessionID, body, now).Scan(&msgID)
+		INSERT INTO message (session_id, author_type, author_id, content, kind, created_at, work_id)
+		SELECT $1, 'system', NULL, $2, 'summary', $3, $4
+		WHERE NOT EXISTS (SELECT 1 FROM message WHERE work_id = $4 AND kind = 'summary' AND summary_range IS NULL)
+		RETURNING id`, sessionID, body, now, workID).Scan(&msgID)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		// Somebody else got there first. Not an error: the session has its one
@@ -446,17 +523,17 @@ func postSummaryOnce(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, body s
 	return msgID, true, nil
 }
 
-func (s *Service) recordSummaryFailure(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, category string, now time.Time) {
+func (s *Service) recordSummaryFailure(ctx context.Context, tx pgx.Tx, workID uuid.UUID, category string, now time.Time) {
 	if category == "" {
 		category = "unknown"
 	}
 	var taskID uuid.UUID
 	var attempt int
 	if err := tx.QueryRow(ctx, `
-		SELECT id, attempt FROM task WHERE session_id = $1 ORDER BY created_at DESC LIMIT 1`,
-		sessionID).Scan(&taskID, &attempt); err != nil {
+		SELECT id, attempt FROM task WHERE work_id = $1 ORDER BY created_at DESC LIMIT 1`,
+		workID).Scan(&taskID, &attempt); err != nil {
 		s.logWarn("sessions: summary failed with no task to record it on",
-			"session", sessionID, "category", category)
+			"work", workID, "category", category)
 		return
 	}
 	// class `runtime` with `detail`, not `status` with a free-text `note`:
@@ -469,7 +546,7 @@ func (s *Service) recordSummaryFailure(ctx context.Context, tx pgx.Tx, sessionID
 			"detail":      "세션 요약을 만들지 못했습니다 — " + category,
 			"stop_reason": category,
 		}, now); err != nil {
-		s.logWarn("sessions: record summary failure", "session", sessionID, "err", err)
+		s.logWarn("sessions: record summary failure", "work", workID, "err", err)
 	}
 }
 
@@ -479,7 +556,7 @@ func (s *Service) recordSummaryFailure(ctx context.Context, tx pgx.Tx, sessionID
 // and only one of them is what FR-2.4 promises. Saying which on the feed is
 // what stops a reader from judging the platform's summarising by an assembly
 // it did without a model.
-func (s *Service) recordSummaryOrigin(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, by string, now time.Time) {
+func (s *Service) recordSummaryOrigin(ctx context.Context, tx pgx.Tx, workID uuid.UUID, by string, now time.Time) {
 	detail := "세션 요약을 플랫폼 모델이 작성했습니다"
 	if by == GeneratedByFallback {
 		detail = "플랫폼 모델 키가 없어 기록을 이어 붙인 요약입니다"
@@ -487,23 +564,59 @@ func (s *Service) recordSummaryOrigin(ctx context.Context, tx pgx.Tx, sessionID 
 	var taskID uuid.UUID
 	var attempt int
 	if err := tx.QueryRow(ctx, `
-		SELECT id, attempt FROM task WHERE session_id = $1 ORDER BY created_at DESC LIMIT 1`,
-		sessionID).Scan(&taskID, &attempt); err != nil {
+		SELECT id, attempt FROM task WHERE work_id = $1 ORDER BY created_at DESC LIMIT 1`,
+		workID).Scan(&taskID, &attempt); err != nil {
 		return
 	}
 	if err := tasks.InsertServerEventOnce(ctx, tx, taskID, attempt, "runtime", "report",
 		"summary.generated_by:"+by, "info", map[string]any{"detail": detail}, now); err != nil {
-		s.logWarn("sessions: record summary origin", "session", sessionID, "err", err)
+		s.logWarn("sessions: record summary origin", "work", workID, "err", err)
 	}
 }
 
-func (s *Service) inbox(ctx context.Context, tx pgx.Tx, wsID, userID uuid.UUID, typ, severity string, sessionID, refID uuid.UUID, now time.Time) error {
+func (s *Service) inbox(ctx context.Context, tx pgx.Tx, wsID, userID uuid.UUID, typ, severity string, sessionID, refID uuid.UUID, workID *uuid.UUID, now time.Time) error {
 	_, err := tx.Exec(ctx, `
-		INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
-		SELECT m.id, $1::inbox_item_type, $2::inbox_severity, $3, $4, $5
+		INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at, work_id, recipient_basis)
+		SELECT m.id, $1::inbox_item_type, $2::inbox_severity, $3, $4, $5, $8, $9
 		FROM member m WHERE m.workspace_id = $6 AND m.user_id = $7`,
-		typ, severity, sessionID, refID, now, wsID, userID)
+		typ, severity, sessionID, refID, now, wsID, userID, workID, basisFor(workID))
 	return err
+}
+
+// The v0.2.0 mission item types (openapi InboxItemType, PRD v0.19 FR-8).
+const (
+	TypeWorkPaused    = inbox.TypeWorkPaused
+	TypeWorkCompleted = inbox.TypeWorkCompleted
+)
+
+// WorkInbox puts a mission item (work_paused · work_completed) in the
+// Director's inbox: ref_id is the mission, so the card opens
+// /rooms/:id?work=:workId (PRD §9 미션 행).
+func (s *Service) WorkInbox(ctx context.Context, tx pgx.Tx, wsID, userID uuid.UUID, typ string, roomID, workID uuid.UUID, now time.Time) error {
+	return WorkInboxItem(ctx, tx, wsID, userID, typ, roomID, workID, now)
+}
+
+// WorkInboxItem is WorkInbox for callers outside the package.
+func WorkInboxItem(ctx context.Context, q db.DBTX, wsID, userID uuid.UUID, typ string, roomID, workID uuid.UUID, now time.Time) error {
+	_, err := q.Exec(ctx, `
+		INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at, work_id, recipient_basis)
+		SELECT m.id, $1::inbox_item_type, $2::inbox_severity, $3, $4, $5, $4, 'director'
+		FROM member m WHERE m.workspace_id = $6 AND m.user_id = $7`,
+		typ, inbox.Severity(typ), roomID, workID, now, wsID, userID)
+	if err != nil {
+		return fmt.Errorf("sessions: %s inbox: %w", typ, err)
+	}
+	return nil
+}
+
+// basisFor is InboxItem.recipient_basis for the Director-addressed items this
+// package writes: a mission's item reaches the person as its Director.
+func basisFor(workID *uuid.UUID) *string {
+	if workID == nil {
+		return nil
+	}
+	b := inbox.BasisDirector
+	return &b
 }
 
 // RecordDecision is FR-4.2. The log exists so an agent joining later can find
@@ -516,9 +629,13 @@ func (s *Service) RecordDecision(ctx context.Context, sessionID uuid.UUID, summa
 	if rationale != "" {
 		rat = &rationale
 	}
+	// The decision belongs to the mission of the task that recorded it
+	// (FR-3.1.1 — a task runs for its lane's mission; T-R1b2 fills the column
+	// R1b1 left empty).
 	err := s.DB.QueryRow(ctx, `
-		INSERT INTO decision (session_id, summary, rationale, source, ref_id, created_at)
-		VALUES ($1, $2, $3, $4::decision_source, $5, $6) RETURNING id`,
+		INSERT INTO decision (session_id, summary, rationale, source, ref_id, created_at, work_id)
+		VALUES ($1, $2, $3, $4::decision_source, $5, $6,
+		        (SELECT COALESCE(l.work_id, t.work_id) FROM task t JOIN lane l ON l.id = t.lane_id WHERE t.id = $5)) RETURNING id`,
 		sessionID, summary, rat, source, refID, s.Clock.Now()).Scan(&id)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("sessions: record decision: %w", err)
@@ -538,11 +655,12 @@ type DecisionRow struct {
 	Source    string
 	RefID     *uuid.UUID
 	CreatedAt time.Time
+	WorkID    *uuid.UUID
 }
 
 func (s *Service) ListDecisions(ctx context.Context, sessionID uuid.UUID) ([]DecisionRow, error) {
 	rows, err := s.DB.Query(ctx, `
-		SELECT id, summary, rationale, source::text, ref_id, created_at
+		SELECT id, summary, rationale, source::text, ref_id, created_at, work_id
 		FROM decision WHERE session_id = $1 ORDER BY created_at`, sessionID)
 	if err != nil {
 		return nil, err
@@ -551,7 +669,7 @@ func (s *Service) ListDecisions(ctx context.Context, sessionID uuid.UUID) ([]Dec
 	out := []DecisionRow{}
 	for rows.Next() {
 		var d DecisionRow
-		if err := rows.Scan(&d.ID, &d.Summary, &d.Rationale, &d.Source, &d.RefID, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.Summary, &d.Rationale, &d.Source, &d.RefID, &d.CreatedAt, &d.WorkID); err != nil {
 			return nil, err
 		}
 		out = append(out, d)

@@ -440,6 +440,9 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	b := &contracts.TaskBundle{
 		Task: contracts.BundleTask{
 			ID: t.ID.String(), Attempt: t.Attempt, LaneID: t.LaneID.String(), SessionID: t.SessionID.String(),
+			// daemon-protocol v0.9.0: the room (= the old session id, both until
+			// R4) and the mission the task runs for, empty outside any mission.
+			RoomID: t.SessionID.String(), WorkID: uuidString(t.WorkID),
 			AgentID: t.AgentID.String(), AgentName: agentName,
 			BudgetUSD: budgetPerTask, BudgetOverrideUSD: override,
 			// K-19: the daemon trims the MCP tool list and the hermes wrapper
@@ -654,14 +657,15 @@ func reusedSessionSummaries(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID)
 	// `session_context` rows of type `session` are the previous sessions the
 	// wizard attached (§7 session_context.type).
 	rows, err := tx.Query(ctx, `
-		SELECT prevw.title,
+		SELECT COALESCE(prevw.title, prev.name),
 		       COALESCE((SELECT m.content FROM message m
 		                  WHERE m.session_id = prev.id AND m.kind = 'summary' AND m.summary_range IS NULL
 		                  ORDER BY m.created_at DESC LIMIT 1), ''),
 		       (SELECT count(*) FROM artifact a WHERE a.session_id = prev.id)
 		FROM session_context sc
 		JOIN room prev ON prev.id::text = sc.ref
-		JOIN work prevw ON prevw.room_id = prev.id
+		-- the previous session's own mission (V19_R1B_HANDOFF: one row per room)
+		LEFT JOIN work prevw ON prevw.id = prev.legacy_work_id
 		WHERE sc.session_id = $1 AND sc.type = 'session'
 		ORDER BY sc.created_at`, sessionID)
 	if err != nil {
@@ -949,4 +953,12 @@ func trimPathForDetail(v string) string {
 		return v[:120] + "…"
 	}
 	return v
+}
+
+// uuidString is an optional id as the protocol's omitempty string.
+func uuidString(id *uuid.UUID) string {
+	if id == nil {
+		return ""
+	}
+	return id.String()
 }

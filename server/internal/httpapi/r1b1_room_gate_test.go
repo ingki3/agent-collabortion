@@ -452,9 +452,9 @@ func TestR1b1IsolationConfirm(t *testing.T) {
 }
 
 // TestR1b1MessageAttribution is FR-3.1.1's four rules and the preview chip,
-// in a room with two missions (the test lifts R1b1's work_room_single for its
-// own database — R1b2 lifts it for real) so rule 4 and the legacy
-// single-work rule can be told apart.
+// in a room with two missions so rule 4 and the legacy session rule can be
+// told apart (T-R1b2: the rule holds for an old-path room — this fixture's —
+// when `work_id` is absent; `work_id: null` is the chip's 「미션 없음」).
 func TestR1b1MessageAttribution(t *testing.T) {
 	f := newP2Fixture(t)
 	w1 := f.workID(t)
@@ -464,7 +464,6 @@ func TestR1b1MessageAttribution(t *testing.T) {
 		t.Fatalf("preview in a one-mission room = %v / %v, want the room's mission (legacy single-work rule, chosen)", pv["work"], pv["work_source"])
 	}
 
-	f.exec(t, `DROP INDEX work_room_single`)
 	var w2 uuid.UUID
 	var dir uuid.UUID
 	_ = f.pool.QueryRow(t.Context(), `SELECT director_user_id FROM work WHERE id = $1`, w1).Scan(&dir)
@@ -480,12 +479,17 @@ func TestR1b1MessageAttribution(t *testing.T) {
 		_ = f.pool.QueryRow(t.Context(), `SELECT work_id FROM message WHERE id = $1`, str(m, "id")).Scan(&w)
 		return w
 	}
-	// 4. two missions, nothing chosen, no thread, nobody running: none.
-	pv = f.preview(t, map[string]any{"content": "잡담"})
+	// The old client (no work_id key) in the old-path room still lands on
+	// its session's mission with a second mission open (T-R1b2).
+	if w := msgWork(f.post(t, map[string]any{"content": "옛 화면"})); w == nil || *w != w1 {
+		t.Fatalf("old client message work = %v, want the session's mission %s", w, w1)
+	}
+	// 4. two missions, 「미션 없음」 on the chip, no thread, nobody running: none.
+	pv = f.preview(t, map[string]any{"content": "잡담", "work_id": nil})
 	if pv["work"] != nil || str(pv, "work_source") != "none" {
 		t.Fatalf("preview = %v / %v, want no mission (rule 4)", pv["work"], pv["work_source"])
 	}
-	if w := msgWork(f.post(t, map[string]any{"content": "잡담"})); w != nil {
+	if w := msgWork(f.post(t, map[string]any{"content": "잡담", "work_id": nil})); w != nil {
 		t.Fatalf("message work = %v, want none", w)
 	}
 	// 1. chosen — and the lane and task it makes carry it.
@@ -534,7 +538,6 @@ func TestR1b1BudgetReadsTheTasksOwnMission(t *testing.T) {
 	f := newP2Fixture(t)
 	f.exec(t, `UPDATE agent SET budget_per_task = NULL`)
 	f.exec(t, `UPDATE room SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID)
-	f.exec(t, `DROP INDEX work_room_single`)
 	var dir uuid.UUID
 	_ = f.pool.QueryRow(t.Context(), `SELECT director_user_id FROM work WHERE room_id = $1`, f.sessionID).Scan(&dir)
 	f.exec(t, `INSERT INTO work (room_id, title, goal, director_user_id, status, paused_reason, created_by)

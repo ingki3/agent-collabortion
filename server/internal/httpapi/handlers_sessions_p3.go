@@ -37,7 +37,7 @@ func (s *Server) sessionControl(r *http.Request, sessionID uuid.UUID, allowDeput
 	var wsID, director uuid.UUID
 	var deputy *uuid.UUID
 	err := s.DB.QueryRow(r.Context(), `
-		SELECT s.workspace_id, wk.director_user_id, wk.deputy_user_id FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1`, sessionID).
+		SELECT s.workspace_id, wk.director_user_id, wk.deputy_user_id FROM room s `+sessions.LegacyJoin+` WHERE s.id = $1`, sessionID).
 		Scan(&wsID, &director, &deputy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, uuid.Nil, apperr.NotFound("session")
@@ -96,25 +96,13 @@ func (s *Server) PauseSession(w http.ResponseWriter, r *http.Request, sessionId 
 	}
 	now := s.Clock.Now()
 	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
-		var status string
-		if err := tx.QueryRow(r.Context(), `SELECT wk.status::text FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionId).Scan(&status); err != nil {
+		workID, err := lockLegacyWork(r.Context(), tx, sessionId)
+		if err != nil {
 			return err
 		}
-		if status != "active" {
+		return s.pauseWorkTx(r.Context(), tx, workID, func(status string) error {
 			return apperr.Conflict("invalid_transition", "진행 중인 세션만 일시정지할 수 있습니다 (현재 상태: "+apperr.StatusLabel(status)+")")
-		}
-		detail := tasks.PausedDetail(sessions.PauseDirector, now)
-		raw, _ := json.Marshal(detail)
-		if _, err := tx.Exec(r.Context(), `
-			UPDATE work SET status = 'paused', paused_reason = 'director', paused_detail = $2, updated_at = $3
-			WHERE room_id = $1`, sessionId, raw, now); err != nil {
-			return err
-		}
-		// FR-2.3: a Director pause DRAINS. PauseSessionTasks reads
-		// tasks.PlanDispatch, which is where "director → drain, budget → cancel"
-		// lives, so the running turn is left alone here (E5-06) and the claim
-		// query's `s.status = 'active'` guard stops anything new (C3′).
-		return s.Tasks.PauseSessionTasks(r.Context(), tx, sessionId, sessions.PauseDirector, raw, now)
+		}, now)
 	})
 	if err != nil {
 		writeErr(w, err)
@@ -133,7 +121,7 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 		}
 	}
 	var reason *string
-	if err := s.DB.QueryRow(r.Context(), `SELECT paused_reason::text FROM work WHERE room_id = $1`, sessionId).Scan(&reason); err != nil {
+	if err := s.DB.QueryRow(r.Context(), `SELECT wk.paused_reason::text FROM room s `+sessions.LegacyJoin+` WHERE s.id = $1`, sessionId).Scan(&reason); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeProblem(w, apperr.NotFound("session"))
 		} else {
@@ -156,8 +144,9 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 		var status string
 		var limitsRaw, pausedDetail []byte
 		var blocked *string
-		if err := tx.QueryRow(r.Context(), `SELECT wk.status::text, s.limits, wk.paused_detail, s.blocked_reason::text FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionId).
-			Scan(&status, &limitsRaw, &pausedDetail, &blocked); err != nil {
+		var workID uuid.UUID
+		if err := tx.QueryRow(r.Context(), `SELECT wk.id, wk.status::text, s.limits, wk.paused_detail, s.blocked_reason::text FROM room s `+sessions.LegacyJoin+` WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionId).
+			Scan(&workID, &status, &limitsRaw, &pausedDetail, &blocked); err != nil {
 			return err
 		}
 		// S-49: the same reading the K-10 approval uses. `cost_usd` alone lags
@@ -204,7 +193,7 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 				// all three layers at once. Deleting the rows (what this did before)
 				// also erased the audit trail the loop verdict was built from.
 				var assignee uuid.UUID
-				if err := tx.QueryRow(r.Context(), `SELECT assignee_agent_id FROM work WHERE room_id = $1`, sessionId).Scan(&assignee); err != nil {
+				if err := tx.QueryRow(r.Context(), `SELECT assignee_agent_id FROM work WHERE id = $1`, workID).Scan(&assignee); err != nil {
 					return err
 				}
 				if err := s.Router.RecordHumanHop(r.Context(), tx, sessionId, assignee, uuid.Nil, now); err != nil {
@@ -212,7 +201,8 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 				}
 			}
 		}
-		if roomgate.IsMirror(pausedDetail) && blocked != nil && *blocked == derefString(reason) {
+		mirror := roomgate.IsMirror(pausedDetail) && blocked != nil && *blocked == derefString(reason)
+		if mirror {
 			// PRD v0.19: this `paused` is the ROOM's gate seen through the old
 			// session shape (roomgate mirror). Resuming the session lifts the
 			// gate, which brings the mission back with it.
@@ -222,7 +212,7 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 			roomgate.PublishUpdated(r.Context(), s.Hub, tx, sessionId)
 		} else if _, err := tx.Exec(r.Context(), `
 			UPDATE work SET status = 'active', paused_reason = NULL, paused_detail = NULL, updated_at = $2
-			WHERE room_id = $1`, sessionId, now); err != nil {
+			WHERE id = $1`, workID, now); err != nil {
 			return err
 		}
 		// S-46: the pause PARKED the turns it cancelled (§8.2.2 — a budget or
@@ -242,7 +232,13 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 			// the same reason an approved per-task raise does.
 			resumeCause = tasks.CauseBudgetApproved
 		}
-		if _, err := s.Tasks.ResumeSessionTasks(r.Context(), tx, sessionId, derefString(reason), resumeCause, now); err != nil {
+		// A room's gate parked every task of the room (in or out of a
+		// mission); the session's own pause parked its mission's (T-R1b2).
+		scope := workScope(workID)
+		if mirror {
+			scope = roomScope(sessionId)
+		}
+		if err := s.resumeScopeTasks(r.Context(), tx, scope, derefString(reason), resumeCause, now); err != nil {
 			return err
 		}
 		// S-44: the pause parked the lanes it stopped (tasks.pauseLocked), and
@@ -253,18 +249,14 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 		// parked above (its own budget request is open or was refused) has
 		// nothing to hand out, and saying `queued` there would be a card that
 		// claims work is waiting when the task is still parked.
-		if _, err := tx.Exec(r.Context(), `
-			UPDATE lane l SET status = 'queued', finished_at = NULL, updated_at = $2
-			WHERE l.session_id = $1 AND l.status = 'paused'
-			  AND EXISTS (SELECT 1 FROM task t WHERE t.lane_id = l.id AND t.status = 'queued')`,
-			sessionId, now); err != nil {
+		if err := liftParkedLanes(r.Context(), tx, scope, now); err != nil {
 			return err
 		}
 		if rule.ClosesSystemHitl {
 			// openapi resumeSession: resuming IS the answer to the system HITL
 			// the pause issued. Closing it with `answered(approved)` keeps the
 			// Director's inbox honest — the request really was decided.
-			if err := s.closeSessionBudgetHitl(r.Context(), tx, sessionId, u.Id, derefString(reason), now); err != nil {
+			if err := s.closeSessionBudgetHitl(r.Context(), tx, scope, u.Id, derefString(reason), sessions.Noun(true), now); err != nil {
 				return err
 			}
 		}
@@ -282,22 +274,27 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 // closeSessionBudgetHitl answers the platform's own pause request. It is
 // `answered` rather than `cancelled` (K-4's state) because a person did decide:
 // they pressed 재개.
-func (s *Server) closeSessionBudgetHitl(ctx context.Context, tx pgx.Tx, sessionID, userID uuid.UUID, purpose string, now time.Time) error {
+//
+// scope is the unit the pause stopped: a mission's own requests (work_id), or
+// — a room's gate seen through the old session shape — every request of the
+// room.
+func (s *Server) closeSessionBudgetHitl(ctx context.Context, tx pgx.Tx, scope taskScopeSQL, userID uuid.UUID, purpose, noun string, now time.Time) error {
 	rows, err := tx.Query(ctx, `
-		SELECT id, question FROM hitl_request
-		WHERE session_id = $1 AND status = 'open' AND source = 'system' AND task_id IS NULL AND purpose = $2`,
-		sessionID, purpose)
+		SELECT id, question, session_id, work_id FROM hitl_request
+		WHERE `+scope.col+` = $1 AND status = 'open' AND source = 'system' AND task_id IS NULL AND purpose = $2`,
+		scope.id, purpose)
 	if err != nil {
 		return err
 	}
 	type row struct {
-		id uuid.UUID
-		q  string
+		id, room uuid.UUID
+		q        string
+		work     *uuid.UUID
 	}
 	var open []row
 	for rows.Next() {
 		var rr row
-		if err := rows.Scan(&rr.id, &rr.q); err != nil {
+		if err := rows.Scan(&rr.id, &rr.q, &rr.room, &rr.work); err != nil {
 			rows.Close()
 			return err
 		}
@@ -313,7 +310,7 @@ func (s *Server) closeSessionBudgetHitl(ctx context.Context, tx pgx.Tx, sessionI
 			WHERE id = $1`, o.id, userID, now); err != nil {
 			return err
 		}
-		if _, err := insertDecision(ctx, tx, sessionID, "세션 재개 승인: "+o.q, "", "hitl", &o.id, false, now); err != nil {
+		if _, err := insertDecision(ctx, tx, o.room, noun+" 재개 승인: "+o.q, "", "hitl", &o.id, false, now, o.work); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE inbox_item SET read_at = COALESCE(read_at, $2) WHERE ref_id = $1`, o.id, now); err != nil {
@@ -342,8 +339,9 @@ func (s *Server) CancelSession(w http.ResponseWriter, r *http.Request, sessionId
 	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
 		var status string
 		var pauseReason *string
-		if err := tx.QueryRow(r.Context(), `SELECT wk.status::text, wk.paused_reason::text FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionId).
-			Scan(&status, &pauseReason); err != nil {
+		var workID uuid.UUID
+		if err := tx.QueryRow(r.Context(), `SELECT wk.id, wk.status::text, wk.paused_reason::text FROM room s `+sessions.LegacyJoin+` WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionId).
+			Scan(&workID, &status, &pauseReason); err != nil {
 			return err
 		}
 		if status != "active" && status != "paused" {
@@ -374,22 +372,17 @@ func (s *Server) CancelSession(w http.ResponseWriter, r *http.Request, sessionId
 				return err
 			}
 			if _, err := tx.Exec(r.Context(), `
-				INSERT INTO decision (session_id, summary, rationale, source, created_at)
-				VALUES ($1, $2, $3, 'hitl', $4)`,
+				INSERT INTO decision (session_id, summary, rationale, source, created_at, work_id)
+				VALUES ($1, $2, $3, 'hitl', $4, $5)`,
 				// FR-9.2, E14-07 — decision.summary/rationale are public (openapi
 				// Decision) and S7 draws them, so they speak the screens' language.
 				sessionId, "컴퓨터가 돌아오지 않아 세션을 종료했습니다",
 				fmt.Sprintf("다른 컴퓨터로 옮기는 대신 종료를 선택했습니다 — 아티팩트 %d개는 서버에 남아 있습니다", end.ArtifactsRecovered),
-				now); err != nil {
+				now, workID); err != nil {
 				return err
 			}
 		}
-		if _, err := tx.Exec(r.Context(), `
-			UPDATE work SET status = 'cancelled', paused_reason = NULL, paused_detail = NULL,
-			       finished_at = $2, updated_at = $2 WHERE room_id = $1`, sessionId, now); err != nil {
-			return err
-		}
-		return s.cancelSessionWork(r.Context(), tx, sessionId, now)
+		return s.cancelWorkTx(r.Context(), tx, sessionId, workID, now)
 	})
 	if err != nil {
 		writeErr(w, err)
@@ -399,14 +392,44 @@ func (s *Server) CancelSession(w http.ResponseWriter, r *http.Request, sessionId
 	s.sessionOut(r.Context(), w, sessionId, u)
 }
 
-// cancelSessionWork ends every task the session still holds: queued ones at
+// cancelWorkTx closes one mission as `cancelled` (FR-2A.6 · FR-2.3): the row,
+// every task that runs for it, and the platform's requests that lose their
+// premise with it. The room lives on, and so do its other missions — their
+// tasks and requests are not this mission's (T-R1b2). A room-scoped request
+// (the room's budget or loop gate) is closed only when no other open mission
+// is left to need the room (the old one-session room keeps its old outcome).
+func (s *Server) cancelWorkTx(ctx context.Context, tx pgx.Tx, roomID, workID uuid.UUID, now time.Time) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE work SET status = 'cancelled', paused_reason = NULL, paused_detail = NULL,
+		       finished_at = $2, updated_at = $2 WHERE id = $1`, workID, now); err != nil {
+		return err
+	}
+	if err := s.cancelScopeTasks(ctx, tx, workScope(workID), now); err != nil {
+		return err
+	}
+	var others int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM work WHERE room_id = $1 AND id <> $2 AND status IN ('draft', 'active', 'paused', 'completing')`,
+		roomID, workID).Scan(&others); err != nil {
+		return err
+	}
+	if err := closeOrphanSystemHitl(ctx, tx, workScope(workID), now); err != nil {
+		return err
+	}
+	if others == 0 {
+		return closeOrphanSystemHitl(ctx, tx, roomOnlyScope(roomID), now)
+	}
+	return nil
+}
+
+// cancelScopeTasks ends every task the scope still holds: queued ones at
 // once, in-flight ones through the §8.2.2 procedure (a `cancel` command the
 // daemon carries out — never an immediate kill).
-func (s *Server) cancelSessionWork(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, now time.Time) error {
+func (s *Server) cancelScopeTasks(ctx context.Context, tx pgx.Tx, scope taskScopeSQL, now time.Time) error {
 	rows, err := tx.Query(ctx, `
-		SELECT id FROM task WHERE session_id = $1
+		SELECT id FROM task WHERE `+scope.col+` = $1
 		  AND status IN ('deferred', 'queued', 'dispatched', 'preparing', 'running', 'waiting_human', 'paused')
-		ORDER BY created_at`, sessionID)
+		ORDER BY created_at`, scope.id)
 	if err != nil {
 		return err
 	}
@@ -428,20 +451,21 @@ func (s *Server) cancelSessionWork(ctx context.Context, tx pgx.Tx, sessionID uui
 			return err
 		}
 	}
-	// K-4: the platform's own open requests lose their premise when the session
-	// ends. They are closed `cancelled`, not answered — nobody decided them.
-	return closeOrphanSystemHitl(ctx, tx, sessionID, now)
+	return nil
 }
 
 // closeOrphanSystemHitl is K-4 (Lead decision, 2026-09-06): a platform-issued
 // request whose condition is no longer true is closed `cancelled` and taken out
 // of the inbox. No decision is recorded — a decision that nobody made is the
 // worst thing to leave in the log — and the web renders the card as 취소됨.
-func closeOrphanSystemHitl(ctx context.Context, q pgx.Tx, sessionID uuid.UUID, now time.Time) error {
+//
+// K-4: the platform's own open requests lose their premise when the mission
+// ends. They are closed `cancelled`, not answered — nobody decided them.
+func closeOrphanSystemHitl(ctx context.Context, q pgx.Tx, scope taskScopeSQL, now time.Time) error {
 	rows, err := q.Query(ctx, `
 		UPDATE hitl_request SET status = 'cancelled'
-		WHERE session_id = $1 AND status = 'open' AND source = 'system'
-		RETURNING id`, sessionID)
+		WHERE `+scope.col+` = $1 AND status = 'open' AND source = 'system'`+scope.extra+`
+		RETURNING id`, scope.id)
 	if err != nil {
 		return err
 	}
@@ -492,10 +516,11 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 		var status string
 		var limitsRaw, condRaw []byte
 		var assignee *uuid.UUID
+		var workID uuid.UUID
 		if err := tx.QueryRow(r.Context(), `
-			SELECT wk.status::text, s.limits, wk.completion_condition, wk.assignee_agent_id
-			FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionId).
-			Scan(&status, &limitsRaw, &condRaw, &assignee); err != nil {
+			SELECT wk.id, wk.status::text, s.limits, wk.completion_condition, wk.assignee_agent_id
+			FROM room s `+sessions.LegacyJoin+` WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionId).
+			Scan(&workID, &status, &limitsRaw, &condRaw, &assignee); err != nil {
 			return err
 		}
 		draft := status == "draft"
@@ -526,7 +551,7 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 		roomSet := []string{"updated_at = $2"}
 		roomArgs := []any{sessionId, now}
 		workSet := []string{"updated_at = $2"}
-		workArgs := []any{sessionId, now}
+		workArgs := []any{workID, now}
 		addRoom := func(col string, v any) {
 			roomArgs = append(roomArgs, v)
 			roomSet = append(roomSet, fmt.Sprintf("%s = $%d", col, len(roomArgs)))
@@ -630,7 +655,7 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 			}
 		}
 		if len(workSet) > 1 {
-			if _, err := tx.Exec(r.Context(), `UPDATE work SET `+joinComma(workSet)+` WHERE room_id = $1`, workArgs...); err != nil {
+			if _, err := tx.Exec(r.Context(), `UPDATE work SET `+joinComma(workSet)+` WHERE id = $1`, workArgs...); err != nil {
 				return err
 			}
 		}
@@ -686,9 +711,9 @@ func (s *Server) ChangeDirector(w http.ResponseWriter, r *http.Request, sessionI
 		writeProblem(w, p)
 		return
 	}
-	var wsID, director uuid.UUID
-	if err := s.DB.QueryRow(r.Context(), `SELECT s.workspace_id, wk.director_user_id FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1`, sessionId).
-		Scan(&wsID, &director); err != nil {
+	var wsID, director, workID uuid.UUID
+	if err := s.DB.QueryRow(r.Context(), `SELECT s.workspace_id, wk.director_user_id, wk.id FROM room s `+sessions.LegacyJoin+` WHERE s.id = $1`, sessionId).
+		Scan(&wsID, &director, &workID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeProblem(w, apperr.NotFound("session"))
 		} else {
@@ -719,50 +744,15 @@ func (s *Server) ChangeDirector(w http.ResponseWriter, r *http.Request, sessionI
 		if err := s.requireMember(r.Context(), tx, sessionId, in.DirectorUserID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(r.Context(), `UPDATE work SET director_user_id = $2, updated_at = $3 WHERE room_id = $1`,
-			sessionId, in.DirectorUserID, now); err != nil {
-			return err
-		}
-		if err := addRoomMember(r.Context(), tx, sessionId, in.DirectorUserID, now); err != nil {
-			return err
-		}
-		// The open `director` requests follow the role, not the person: an
-		// approver_spec pointing at a Director who left is a request nobody can
-		// answer (openapi changeDirector).
-		rows, err := tx.Query(r.Context(), `
-			SELECT id FROM hitl_request WHERE session_id = $1 AND status = 'open' AND approver_spec = 'director'`, sessionId)
-		if err != nil {
-			return err
-		}
-		var ids []uuid.UUID
-		for rows.Next() {
-			var id uuid.UUID
-			if err := rows.Scan(&id); err != nil {
-				rows.Close()
-				return err
-			}
-			ids = append(ids, id)
-		}
-		rows.Close()
-		for _, id := range ids {
-			if _, err := tx.Exec(r.Context(), `
-				INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
-				SELECT mm.id, $4::inbox_item_type, $5::inbox_severity, $1, $2, $3
-				FROM member mm WHERE mm.workspace_id = $6 AND mm.user_id = $7
-				  AND NOT EXISTS (SELECT 1 FROM inbox_item i WHERE i.member_id = mm.id AND i.ref_id = $2)`,
-				sessionId, id, now, inbox.TypeHitlRequest, inbox.Severity(inbox.TypeHitlRequest), wsID, in.DirectorUserID); err != nil {
-				return err
-			}
-		}
-		if _, err := s.Router.SystemPost(r.Context(), tx, sessionId, "Director가 교체되었습니다."); err != nil {
+		if err := s.directorHandedOver(r.Context(), tx, wsID, sessionId, workID, in.DirectorUserID, "Director가 교체되었습니다.", now); err != nil {
 			return err
 		}
 		// The column names are 0001's (actor_type · actor_id · object_type ·
 		// object_id) — this INSERT used to name columns that never existed
 		// and turned every Director change into a 500 after the system
-		// message had been composed (found by T-S14: removeMember's 409 asks
+		// message had been composed (found by T-S14: removeMember's 409 asked
 		// the person to change the Director first, and that was impossible).
-		_, err = tx.Exec(r.Context(), `
+		_, err := tx.Exec(r.Context(), `
 			INSERT INTO activity_log (workspace_id, session_id, actor_type, actor_id, action, object_type, object_id, payload, created_at)
 			VALUES ($1, $3, 'user', $2, 'session.director_changed', 'session', $3, jsonb_build_object('director_user_id', $5::uuid), $4)`,
 			wsID, u.Id, sessionId, now, in.DirectorUserID)

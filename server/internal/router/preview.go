@@ -33,14 +33,15 @@ func (s *Service) Preview(ctx context.Context, sessionID uuid.UUID, author Autho
 	// V19_R1B_HANDOFF (c) router/preview.go:36: the room, not "the room's
 	// mission" — the assignee comes from the mission the message would join.
 	var wsID uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT workspace_id FROM room WHERE id = $1`, sessionID).Scan(&wsID)
+	var legacy *uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT workspace_id, legacy_work_id FROM room WHERE id = $1`, sessionID).Scan(&wsID, &legacy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrSessionNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	assignee, err := routingAssignee(ctx, tx, sessionID, in)
+	assignee, err := routingAssignee(ctx, tx, sessionID, in, legacy)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +73,7 @@ func (s *Service) Preview(ctx context.Context, sessionID uuid.UUID, author Autho
 	out := &gen.TriggerPreview{Triggers: []gen.TriggerTarget{}}
 	// FR-3.1.1: the chip says which mission the message will join, and by
 	// which rule — the same attribute() Post runs.
-	attr, err := attribute(ctx, tx, sessionID, in, author, th, dec)
+	attr, err := attribute(ctx, tx, sessionID, in, author, th, dec, legacy)
 	if err != nil {
 		return nil, err
 	}

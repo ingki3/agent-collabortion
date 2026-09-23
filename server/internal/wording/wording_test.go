@@ -9,7 +9,7 @@ package wording
 // sink 는 일곱 종류다.
 //   - apperr 생성자: New(…, detail) · Unauthorized/Forbidden/Conflict/Gone(code, detail)
 //     · NotFound(noun) · Field(field, code, message)
-//   - 세션에 게시되는 시스템 메시지: *.SystemPost(ctx, tx, id, content)
+//   - 세션에 게시되는 시스템 메시지: *.SystemPost(ctx, tx, id, content) · *.SystemPostWork(ctx, tx, id, work, content)
 //   - 사람이 읽는 칸 이름: Detail · Title · Hint · Message · Note · FeedNote ·
 //     Question · Reason · CLIError · ErrorMessage · Problems · Content · Summary ·
 //     Rationale, 그리고 task_event payload 의 "detail"·"note" 키(S-52) 와
@@ -81,11 +81,13 @@ var sinkLocalVars = map[string]bool{"question": true, "detail": true, "note": tr
 // sinkHelpers 는 사람 문장을 인자로 받는 지역 함수 — 이름 → 문장 인자의 위치들.
 // 패키지 한정자 없이 불리는 것만(pkg == "") 본다.
 var sinkHelpers = map[string][]int{
-	"reject":         {2}, // hitl.Plan: reject(code, field, msg)
-	"unreadable":     {2}, // httpapi: unreadable(field, code, msg, err)
-	"field":          {2}, // agents: field(name, code, msg)
-	"insertDecision": {3, 4},
-	"errText":        {0}, // testchat: 턴의 error 문장 (Turn.Error = errText(…))
+	"reject":             {2}, // hitl.Plan: reject(code, field, msg)
+	"unreadable":         {2}, // httpapi: unreadable(field, code, msg, err)
+	"field":              {2}, // agents: field(name, code, msg)
+	"insertDecision":     {3, 4},
+	"systemPostWork":     {4}, // httpapi: 미션 타임라인 한 줄 (T-R1b2)
+	"directorHandedOver": {6},
+	"errText":            {0}, // testchat: 턴의 error 문장 (Turn.Error = errText(…))
 }
 
 // sinkFuncs 는 본문 전체가 사람 문장을 조립하는 함수 — 안의 문자열 리터럴을 전부 센다
@@ -244,6 +246,8 @@ func (c *collector) visit(n ast.Node) bool {
 			}
 		case name == "SystemPost" && len(x.Args) >= 4:
 			c.add(x.Args[3])
+		case name == "SystemPostWork" && len(x.Args) >= 5: // T-R1b2: 미션 타임라인의 시스템 메시지
+			c.add(x.Args[4])
 		case pkg == "" && sinkHelpers[name] != nil:
 			for _, i := range sinkHelpers[name] {
 				if i < len(x.Args) {

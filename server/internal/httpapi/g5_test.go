@@ -254,8 +254,8 @@ func TestG5CompletedSessionCollectsWorkdirs(t *testing.T) {
 	}
 	var laneID uuid.UUID
 	if err := f.pool.QueryRow(ctx, `
-		INSERT INTO lane (session_id, agent_id, profile_id, status, created_at, updated_at)
-		SELECT $1, $2, p.profile_id, 'done', now(), now() FROM room_participant p
+		INSERT INTO lane (session_id, agent_id, profile_id, status, created_at, updated_at, work_id)
+		SELECT $1, $2, p.profile_id, 'done', now(), now(), r.legacy_work_id FROM room_participant p JOIN room r ON r.id = p.room_id
 		WHERE p.room_id = $1 AND p.agent_id = $2 RETURNING id`, f.sessionID, f.r).Scan(&laneID); err != nil {
 		t.Fatal(err)
 	}
@@ -546,8 +546,15 @@ func TestP3OtherHitlRequestsAreAnswered(t *testing.T) {
 	hitl := f.issueCompletionApproval(t)
 	f.api.must(422, "POST", f.p+"/hitl-requests/"+hitl+"/response",
 		map[string]any{"approved": true, "budget_override_usd": 10}, "Idempotency-Key", uuid.NewString())
-	// The session time limit is not in the P3 server slice, and says so.
-	f.api.must(501, "POST", f.p+"/hitl-requests/"+mk("time", "system", nil)+"/response",
+	// The mission time limit (T-R1b2, FR-2A.3 — it was 501 before there was
+	// one): approving the time request IS the resume, so it carries the
+	// extension, and the extension is refused on any other request.
+	timeReq := mk("time", "system", nil)
+	f.api.must(422, "POST", f.p+"/hitl-requests/"+timeReq+"/response",
+		map[string]any{"approved": true}, "Idempotency-Key", uuid.NewString())
+	f.api.must(200, "POST", f.p+"/hitl-requests/"+timeReq+"/response",
+		map[string]any{"approved": true, "time_extension": "PT1H"}, "Idempotency-Key", uuid.NewString())
+	f.api.must(422, "POST", f.p+"/hitl-requests/"+f.issueCompletionApproval(t)+"/response",
 		map[string]any{"approved": true, "time_extension": "PT1H"}, "Idempotency-Key", uuid.NewString())
 }
 

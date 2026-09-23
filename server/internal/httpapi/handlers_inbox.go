@@ -74,20 +74,18 @@ const selectInbox = `
 	FROM inbox_item i
 	JOIN member m ON m.id = i.member_id
 	LEFT JOIN room s ON s.id = i.session_id
-	-- The item's mission is its work_id. An item written before work_id was
-	-- filled belongs to the room's mission only when the room has exactly one
-	-- — a JOIN on room_id would repeat the item once per mission (T-R1b3,
-	-- R1b 인계 (d) handlers_inbox.go:69).
-	LEFT JOIN LATERAL (
-	  SELECT w.title, w.status, w.director_user_id, w.deputy_user_id, w.paused_reason FROM work w
-	  WHERE w.id = i.work_id
-	     OR (i.work_id IS NULL AND w.room_id = s.id AND (SELECT count(*) FROM work o WHERE o.room_id = s.id) = 1)
-	  LIMIT 1) wk ON true
 	-- room_paused · isolation_confirm (migration r1b1_room_gate) are room-owner approvals: their
 	-- ref is the request, and the card reads it exactly like hitl_request's.
 	LEFT JOIN hitl_request h ON h.id = i.ref_id AND i.type IN ('hitl_request', 'room_paused', 'isolation_confirm')
 	LEFT JOIN task t ON t.id = h.task_id
-	LEFT JOIN agent a ON a.id = t.agent_id`
+	LEFT JOIN agent a ON a.id = t.agent_id
+	-- The item's mission is its work_id, else its request's (a request carries
+	-- its mission from R1b1 on). An item with neither is the old session's —
+	-- the room's legacy work — unless it is a room-level card. Never a JOIN on
+	-- room_id: that repeats the item once per mission (T-R1b3 · T-R1b2,
+	-- V19_R1B_HANDOFF (d) handlers_inbox.go:69).
+	LEFT JOIN work wk ON wk.id = COALESCE(i.work_id, h.work_id,
+	      CASE WHEN i.type NOT IN ('room_paused', 'isolation_confirm') THEN s.legacy_work_id END)`
 
 func scanInbox(rows pgx.Rows) ([]inboxRow, error) {
 	var out []inboxRow

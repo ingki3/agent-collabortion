@@ -75,6 +75,8 @@ export const NOT_FOUND_NOUN: Record<string, string> = {
   inbox_item: "받은 요청",
   hitl_request: "확인 요청",
   room_link: "참고 방 연결",
+  work: "미션",
+  work_proposal: "미션 제안",
 };
 
 /** `apperr.Josa` — 마지막 글자에 받침이 있으면 `with`, 없으면 `without`, 한글이 아니면 `with(without)`. */
@@ -201,13 +203,12 @@ export const SERVER = {
   test_chat_content_required: { text: "보낼 메시지를 적어 주세요", at: "internal/httpapi/handlers_testchat.go" },
   // ── 멤버 역할·제거 (internal/auth/members.go · httpapi/handlers_members.go) — T-S14 #209. 판정은 서버의 순수 함수
   //    PlanRoleChange · PlanRemoval 그대로: 소유자 층(대상이 소유자 **또는** 새 역할이 소유자)은 소유자만(403 owner_only),
-  //    마지막 소유자는 강등·제거 불가(409 last_owner), 그 멤버가 Director 인 끝나지 않은 세션(draft·active·paused·completing)이
-  //    있으면 제거 불가(409 member_is_director, %d 개). ──
+  //    마지막 소유자는 강등·제거 불가(409 last_owner). openapi 0.2.3(T-R1b2): Director 인 끝나지 않은 세션은 거부 대신 승계
+  //    — 옛 409 member_is_director 는 없어졌다. ──
   owner_only_role: { text: "소유자 역할을 주거나 거두는 것은 소유자만 할 수 있습니다", at: "internal/auth/members.go" },
   last_owner_demote: { text: "마지막 소유자는 강등할 수 없습니다 — 먼저 다른 멤버를 소유자로 지정해 주세요", at: "internal/auth/members.go" },
   owner_only_remove: { text: "소유자를 내보내는 것은 소유자만 할 수 있습니다", at: "internal/auth/members.go" },
   last_owner_remove: { text: "마지막 소유자는 내보낼 수 없습니다 — 먼저 다른 멤버를 소유자로 지정해 주세요", at: "internal/auth/members.go" },
-  member_is_director: { text: "이 멤버가 Director 인 진행 중 세션이 %d개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요", at: "internal/auth/members.go" },
   role_enum: { text: "역할은 소유자 · 관리자 · 멤버 중 하나여야 합니다", at: "internal/httpapi/handlers_members.go" },
   // ── deleteSession (T-S17 #220 · internal/sessions/delete.go) — 순서 404 → 403 → 409 session_active → 409 workdir_unmerged
   delete_forbidden: { text: "Director 나 소유자·관리자만 삭제할 수 있습니다", at: "internal/sessions/delete.go" },

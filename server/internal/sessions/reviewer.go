@@ -187,7 +187,7 @@ func blockedReason(c Condition, f completionFacts) *gen.CompletionProgressCondit
 func LoadProgress(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (gen.CompletionProgress, error) {
 	var tree, met []byte
 	var assignee *uuid.UUID
-	err := q.QueryRow(ctx, `SELECT completion_condition, completion_met, assignee_agent_id FROM work WHERE room_id = $1`, sessionID).
+	err := q.QueryRow(ctx, `SELECT wk.completion_condition, wk.completion_met, wk.assignee_agent_id FROM room s `+LegacyJoin+` WHERE s.id = $1`, sessionID).
 		Scan(&tree, &met, &assignee)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return gen.CompletionProgress{}, apperr.NotFound("session")
@@ -196,6 +196,23 @@ func LoadProgress(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (gen.Comp
 		return gen.CompletionProgress{}, err
 	}
 	return progressOf(ctx, q, sessionID, tree, met, assignee)
+}
+
+// LoadWorkProgress is LoadProgress for one mission (Work.completion_progress).
+// The participants the S-84 columns check against are its room's.
+func LoadWorkProgress(ctx context.Context, q db.DBTX, workID uuid.UUID) (gen.CompletionProgress, error) {
+	var tree, met []byte
+	var assignee *uuid.UUID
+	var roomID uuid.UUID
+	err := q.QueryRow(ctx, `SELECT room_id, completion_condition, completion_met, assignee_agent_id FROM work WHERE id = $1`, workID).
+		Scan(&roomID, &tree, &met, &assignee)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return gen.CompletionProgress{}, apperr.NotFound("work")
+	}
+	if err != nil {
+		return gen.CompletionProgress{}, err
+	}
+	return progressOf(ctx, q, roomID, tree, met, assignee)
 }
 
 // progressOf is LoadProgress for a caller that already holds the columns

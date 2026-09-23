@@ -195,16 +195,19 @@ WITH first_rt AS (
 	FROM runtime_pairing WHERE workspace_id = $1 AND ready_at IS NOT NULL GROUP BY created_by),
 first_done AS (
 	SELECT wk.director_user_id AS user_id, min(wk.finished_at) AS done_at
-	FROM room s JOIN work wk ON wk.room_id = s.id
+	FROM work wk JOIN room s ON s.id = wk.room_id
 	WHERE s.workspace_id = $1 AND wk.status = 'completed' AND wk.finished_at IS NOT NULL GROUP BY wk.director_user_id)
 SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (d.done_at - r.online_at)) / 60), count(*)
 FROM first_rt r JOIN first_done d USING (user_id)
 WHERE d.done_at >= r.online_at AND d.done_at >= $2`
 
 // 2. completed 세션 중 completion_met.manual(= completeSession, director_end)이 아닌 비율.
+//
+// 1·2 는 행 하나가 미션 하나다(§11 분모 = 미션, §12.1-10) — 미션에서 제 방으로
+// 가는 조인은 한 줄이라 방에 미션이 여럿이어도 불지 않는다(T-R1b2, 인계 (a)).
 const sqlAutoComplete = `
 SELECT avg(CASE WHEN COALESCE((wk.completion_met->>'manual')::boolean, false) THEN 0 ELSE 1 END), count(*)
-FROM room s JOIN work wk ON wk.room_id = s.id
+FROM work wk JOIN room s ON s.id = wk.room_id
 WHERE s.workspace_id = $1 AND wk.status = 'completed' AND wk.finished_at >= $2`
 
 // 3. hitl_request answered_at - created_at 중앙값(분), auto_answered 제외.
@@ -226,22 +229,19 @@ WHERE s.workspace_id = $1 AND t.delegated_from_task_id IS NOT NULL
 // sum(그 미션 task 의 started_at→finished_at). 평균. n = 미션 수.
 //
 // 방에 미션이 여럿이면 lane·task 를 방(session_id)으로 모으는 순간 다른 미션의
-// 줄기와 시간이 섞인다(T-R1b3, 인계 목록 (a) metrics.go:229). 행의 미션은 work_id 이고,
-// work_id 가 비어 있는 행(R1b 가 새 행을 채우기 전)은 **방에 미션이 하나뿐일 때만**
-// 그 미션의 것으로 센다 — 미션이 여럿인 방의 빈 칸은 「미션 밖」 실행이다(FR-2A.1).
+// 줄기와 시간이 섞인다(T-R1b3, 인계 목록 (a) metrics.go:229). 행의 미션은 work_id
+// 이고, 비어 있으면 「미션 밖」 실행이다(FR-2A.1) — 0025·r1b1 이관이 옛 행을 전부
+// 채웠고 R1b 코드가 새 행을 채우므로 "방의 유일한 미션" 폴백은 없앴다(T-R1b2).
 const sqlParallelReduction = `
 WITH w AS (
-	SELECT wk.id, wk.room_id, extract(epoch FROM (wk.finished_at - COALESCE(wk.started_at, wk.created_at))) AS wall,
-	       (SELECT count(*) FROM work o WHERE o.room_id = wk.room_id) = 1 AS sole
+	SELECT wk.id, extract(epoch FROM (wk.finished_at - COALESCE(wk.started_at, wk.created_at))) AS wall
 	FROM work wk JOIN room s ON s.id = wk.room_id
 	WHERE s.workspace_id = $1 AND wk.status = 'completed' AND wk.finished_at >= $2),
 x AS (
 	SELECT w.id, w.wall,
-	       (SELECT count(*) FROM lane l
-	         WHERE l.work_id = w.id OR (l.work_id IS NULL AND w.sole AND l.session_id = w.room_id)) AS lanes,
+	       (SELECT count(*) FROM lane l WHERE l.work_id = w.id) AS lanes,
 	       (SELECT sum(extract(epoch FROM (t.finished_at - t.started_at))) FROM task t
-	         WHERE (t.work_id = w.id OR (t.work_id IS NULL AND w.sole AND t.session_id = w.room_id))
-	           AND t.started_at IS NOT NULL AND t.finished_at IS NOT NULL) AS total
+	         WHERE t.work_id = w.id AND t.started_at IS NOT NULL AND t.finished_at IS NOT NULL) AS total
 	FROM w)
 SELECT avg(1 - x.wall / x.total), count(*)
 FROM x WHERE x.lanes >= 2 AND x.total > 0 AND x.wall >= 0`

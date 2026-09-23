@@ -128,6 +128,13 @@ func scheduler(ctx context.Context, srv *httpapi.Server, log interface {
 			} else if n > 0 {
 				log.Info("hitl deadlines handled", "n", n)
 			}
+			// FR-2A.3 (T-R1b2): a mission past its `limits.time_limit` is
+			// paused `time` and its Director asked whether to go on.
+			if n, err := srv.SweepWorkTimeLimits(ctx); err != nil {
+				log.Warn("mission time limit sweep", "err", err)
+			} else if n > 0 {
+				log.Info("missions paused for their time limit", "n", n)
+			}
 			// FR-9.2: a machine that has been gone longer than
 			// `runtime_offline_grace` parks its sessions in
 			// `paused(runtime_offline)` and asks the Director to rebind or end.

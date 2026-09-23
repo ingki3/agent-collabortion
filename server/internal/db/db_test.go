@@ -43,6 +43,7 @@ var prdTables = []string{
 	"room", "work", "room_participant", "room_link", "work_proposal", "room_read_log",
 	// 방 API(T-R1b3) — 서브 미션 알림 구독(FR-8)
 	"lane_subscription",
+	"work_subscription", // r1b2_works — setWorkSubscription (FR-8)
 }
 
 // prdEnums pins every state set to the exact PRD labels (task item 2).

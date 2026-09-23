@@ -271,10 +271,19 @@ func (s *Server) applyBudgetPause(ctx context.Context, tx pgx.Tx, b *budgetState
 	}
 	switch stopUnit {
 	case scopeWork:
-		if _, err := tx.Exec(ctx, `
+		tag, err := tx.Exec(ctx, `
 			UPDATE work SET status = 'paused', paused_reason = 'budget', paused_detail = $2, updated_at = $3
-			WHERE id = $1 AND status = 'active'`, *b.WorkID, raw, now); err != nil {
+			WHERE id = $1 AND status = 'active'`, *b.WorkID, raw, now)
+		if err != nil {
 			return err
+		}
+		if tag.RowsAffected() > 0 {
+			// FR-8 받은 요청 work_paused (T-R1b2): the mission stopped, and its
+			// Director is the one who can let it go on.
+			if err := sessions.WorkInboxItem(ctx, tx, b.WorkspaceID, b.Director, inbox.TypeWorkPaused, b.SessionID, *b.WorkID, now); err != nil {
+				return err
+			}
+			s.publishWork(ctx, tx, b.WorkspaceID, *b.WorkID, "work.updated")
 		}
 	case scopeRoom:
 		if _, err := roomgate.Lock(ctx, tx, b.SessionID); err != nil {
@@ -422,7 +431,7 @@ func (s *Server) applyBudgetPause(ctx context.Context, tx pgx.Tx, b *budgetState
 	// This covers the post-turn path S-44 added too: it reaches the same
 	// insert, with taskRef naming the task that crossed the line.
 	if err := s.attachHitlCard(ctx, tx, b.WorkspaceID, b.SessionID, hitlID, messages.HitlCard{
-		Type: o.HitlType, Question: question, SourceTaskID: taskRef,
+		Type: o.HitlType, Question: question, SourceTaskID: taskRef, WorkID: workRef,
 	}, now); err != nil {
 		return err
 	}

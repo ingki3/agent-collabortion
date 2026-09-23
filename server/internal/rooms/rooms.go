@@ -358,17 +358,19 @@ func List(ctx context.Context, q db.DBTX, wsID, userID uuid.UUID, wsRole string,
 		  LEFT JOIN LATERAL (SELECT max(m.created_at) AS at FROM message m WHERE m.session_id = r.id) la ON true
 		  -- "내가 답할 것만": a request whose approver I am, and blocked/failed
 		  -- lanes of the open missions I direct (or deputise), plus the room's
-		  -- mission-less lanes when I own the room. The mission of a lane is
-		  -- its work_id, or the room's one mission for rows written before
-		  -- work_id was filled (the same fallback workdirs/sweep uses).
+		  -- mission-less lanes and room-level requests when I own the room.
+		  -- The mission of a row is its work_id (T-R1b2 writes it everywhere;
+		  -- a NULL is outside any mission — "any mission of the room" would
+		  -- count one room's request once per Director).
 		  LEFT JOIN LATERAL (
 		    SELECT
 		      (SELECT count(*) FROM hitl_request h
 		         WHERE h.session_id = r.id AND h.status = 'open'
 		           AND (h.approver_spec = ($2::uuid)::text
+		                OR (h.approver_spec = 'room_owner' AND r.owner_user_id = $2)
 		                OR (h.approver_spec = 'director' AND $2 IN (
-		                      SELECT w.director_user_id FROM work w WHERE (w.id = h.work_id OR (h.work_id IS NULL AND w.room_id = r.id))
-		                      UNION SELECT w.deputy_user_id FROM work w WHERE (w.id = h.work_id OR (h.work_id IS NULL AND w.room_id = r.id)))))) AS hitl_open,
+		                      SELECT w.director_user_id FROM work w WHERE w.id = COALESCE(h.work_id, r.legacy_work_id)
+		                      UNION SELECT w.deputy_user_id FROM work w WHERE w.id = COALESCE(h.work_id, r.legacy_work_id))))) AS hitl_open,
 		      (SELECT count(*) FROM lane l WHERE l.session_id = r.id AND l.status = 'blocked' AND `+laneMineSQL+`) AS blocked,
 		      (SELECT count(*) FROM lane l WHERE l.session_id = r.id AND l.status = 'failed' AND `+laneMineSQL+`) AS failed
 		  ) att ON true
@@ -441,9 +443,9 @@ func List(ctx context.Context, q db.DBTX, wsID, userID uuid.UUID, wsRole string,
 // laneMineSQL is "this lane's mission is one I direct or deputise, and the
 // mission is open — or it has no mission and I own the room".
 const laneMineSQL = `(
-	EXISTS (SELECT 1 FROM work w WHERE (w.id = l.work_id OR (l.work_id IS NULL AND w.room_id = r.id))
+	EXISTS (SELECT 1 FROM work w WHERE w.id = l.work_id
 	          AND w.status IN ` + openWorkStatuses + ` AND $2 IN (w.director_user_id, w.deputy_user_id))
-	OR (l.work_id IS NULL AND NOT EXISTS (SELECT 1 FROM work w WHERE w.room_id = r.id) AND r.owner_user_id = $2))`
+	OR (l.work_id IS NULL AND r.owner_user_id = $2))`
 
 func escapeLike(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)

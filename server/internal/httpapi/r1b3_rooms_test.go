@@ -570,10 +570,10 @@ func TestR1b3PerPersonFrames(t *testing.T) {
 	}
 }
 
-// TestR1b3OneToMany is the R1b 인계 check for this PR's queries: drop
-// `work_room_single` (R1b2 will) in this test's private database, give the
-// fixture room a second mission, and see that the room list, getRoom, the
-// inbox and §11 metric 5 count each thing once.
+// TestR1b3OneToMany is the R1b 인계 check for this PR's queries: give the
+// fixture room a second mission (T-R1b2 dropped `work_room_single`) and see
+// that the room list, getRoom, the inbox and §11 metric 5 count each thing
+// once.
 func TestR1b3OneToMany(t *testing.T) {
 	f := newRoomsFixture(t)
 	ctx := t.Context()
@@ -583,7 +583,6 @@ func TestR1b3OneToMany(t *testing.T) {
 			t.Fatalf("%s: %v", sql, err)
 		}
 	}
-	exec(`DROP INDEX work_room_single`)
 	var w1, w2, dir string
 	if err := f.pool.QueryRow(ctx, `SELECT id::text, director_user_id::text FROM work WHERE room_id = $1`, f.sessionID).Scan(&w1, &dir); err != nil {
 		t.Fatal(err)

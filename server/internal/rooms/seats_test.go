@@ -42,3 +42,28 @@ func TestDirectorSuccessor(t *testing.T) {
 		t.Errorf("owner-Director leaves → room successor %v, got %v", next, got)
 	}
 }
+
+// TestRoomSuccessor is openapi 0.2.3 removeMember: the room's deputy first,
+// the oldest workspace owner otherwise — and never the person leaving, even
+// when they held the deputy seat of a room they also own (impossible by the
+// seat rules, but the function must not hand the room back to them).
+func TestRoomSuccessor(t *testing.T) {
+	leaving, dep, o1, o2 := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	for _, tc := range []struct {
+		name   string
+		deputy *uuid.UUID
+		want   uuid.UUID
+	}{
+		{"부방장이 있으면 부방장", &dep, dep},
+		{"부방장이 없으면 ws owner 최고참", nil, o1},
+		{"떠나는 사람이 부방장 칸에 있으면 건너뛴다", &leaving, o1},
+	} {
+		got, ok := RoomSuccessor(tc.deputy, []uuid.UUID{leaving, o1, o2}, leaving)
+		if !ok || got != tc.want {
+			t.Errorf("%s: got %v ok=%v, want %v", tc.name, got, ok, tc.want)
+		}
+	}
+	if _, ok := RoomSuccessor(nil, []uuid.UUID{leaving}, leaving); ok {
+		t.Error("no owner left: ok must be false")
+	}
+}

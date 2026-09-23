@@ -15,6 +15,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/install"
 	"github.com/ingki3/agent-collabortion/server/internal/rooms"
 	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
+	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
 )
 
@@ -226,7 +227,7 @@ func (s *Server) sessionDirector(r *http.Request, sessionID uuid.UUID) (*gen.Use
 		return nil, uuid.Nil, p
 	}
 	var wsID, director uuid.UUID
-	err := s.DB.QueryRow(r.Context(), `SELECT s.workspace_id, wk.director_user_id FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1`, sessionID).
+	err := s.DB.QueryRow(r.Context(), `SELECT s.workspace_id, wk.director_user_id FROM room s `+sessions.LegacyJoin+` WHERE s.id = $1`, sessionID).
 		Scan(&wsID, &director)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, uuid.Nil, apperr.NotFound("session")

@@ -47,7 +47,10 @@ type Attribution struct {
 // attribute is FR-3.1.1 for one message. Post and Preview both call it with
 // the same premises, so the chip never promises a mission the post does not
 // use.
-func attribute(ctx context.Context, q db.DBTX, roomID uuid.UUID, in gen.MessageCreate, author Author, th thread, dec Decision) (Attribution, error) {
+//
+// legacy is the room's old-path mark (room.legacy_work_id, read with the room
+// row the caller already locks).
+func attribute(ctx context.Context, q db.DBTX, roomID uuid.UUID, in gen.MessageCreate, author Author, th thread, dec Decision, legacy *uuid.UUID) (Attribution, error) {
 	if author.Type == "agent" && author.TaskID != nil {
 		var w *uuid.UUID
 		err := q.QueryRow(ctx, `
@@ -76,10 +79,15 @@ func attribute(ctx context.Context, q db.DBTX, roomID uuid.UUID, in gen.MessageC
 		}
 		return Attribution{WorkID: &id, Source: WorkChosen}, nil
 	}
-	// 2. the thread's mission.
+	// 2. the thread's mission — while it is open. A closed mission takes no
+	// new messages (rule 1 refuses it with 422 closed); a reply in its thread
+	// falls through to the next rule instead of queueing a task that the
+	// claim would never hand out (T-R1b2: "일은 닫히고 방은 계속된다").
 	if th.Parent != nil {
 		var w *uuid.UUID
-		if err := q.QueryRow(ctx, `SELECT work_id FROM message WHERE id = $1`, *th.Parent).Scan(&w); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		if err := q.QueryRow(ctx, `
+			SELECT m.work_id FROM message m JOIN work wk ON wk.id = m.work_id
+			WHERE m.id = $1 AND wk.status NOT IN ('completed', 'cancelled')`, *th.Parent).Scan(&w); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return Attribution{}, err
 		}
 		if w != nil {
@@ -92,10 +100,13 @@ func attribute(ctx context.Context, q db.DBTX, roomID uuid.UUID, in gen.MessageC
 			continue
 		}
 		var w *uuid.UUID
+		// Its turn may outlive its mission (completion does not cut a running
+		// turn); a closed mission's lane is not one a new message can join.
 		err := q.QueryRow(ctx, `
-			SELECT work_id FROM lane
-			 WHERE session_id = $1 AND agent_id = $2 AND status = 'running' AND work_id IS NOT NULL
-			 ORDER BY updated_at DESC, id LIMIT 1`, roomID, tr.AgentID).Scan(&w)
+			SELECT l.work_id FROM lane l JOIN work wk ON wk.id = l.work_id
+			 WHERE l.session_id = $1 AND l.agent_id = $2 AND l.status = 'running'
+			   AND wk.status NOT IN ('completed', 'cancelled')
+			 ORDER BY l.updated_at DESC, l.id LIMIT 1`, roomID, tr.AgentID).Scan(&w)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return Attribution{}, err
 		}
@@ -103,56 +114,44 @@ func attribute(ctx context.Context, q db.DBTX, roomID uuid.UUID, in gen.MessageC
 			return Attribution{WorkID: w, Source: WorkRunningLane}, nil
 		}
 	}
-	// Temporary: the legacy single-work room rule (T-R1b1 Q1, Lead).
-	if w, err := legacySingleWorkRoom(ctx, q, roomID); err != nil {
-		return Attribution{}, err
-	} else if w != nil {
+	// Temporary: the legacy session rule (T-R1b1 Q1, narrowed by T-R1b2).
+	if w := legacySessionWork(in, legacy); w != nil {
 		return Attribution{WorkID: w, Source: WorkChosen}, nil
 	}
 	// 4. no mission.
 	return Attribution{Source: WorkNone}, nil
 }
 
-// legacySingleWorkRoom is a TEMPORARY compatibility rule between rules 3 and 4
-// (T-R1b1 Q1, Lead-approved; plan/V19_R1B_HANDOFF.md).
+// legacySessionWork is a TEMPORARY compatibility rule between rules 3 and 4
+// (T-R1b1 Q1, Lead-approved; narrowed by T-R1b2 as plan/V19_R1B_HANDOFF.md
+// asked).
 //
 // The old `/sessions/*` clients post without `work_id` — for them the session
 // IS its one mission. Rule 4 would file almost every such message under "no
 // mission", and a task outside any mission answers only to the room gate: a
 // session the Director paused, or one that completed, would start dispatching
 // again on the next message, and the mission's brief and cost would lose the
-// run. While a room has exactly one mission, that mission is the answer —
-// reported as `chosen` (the closed WorkSource enum has no "legacy" value).
+// run.
 //
-// The rule counts the room's missions WHATEVER their status: a completed old
-// session is still "the" mission of its room, and its new messages must keep
-// waiting behind it as they did (claim: task's mission must be active).
+// R1b1 read "the room has exactly one mission"; with several missions per
+// room (T-R1b2) that premise is gone, so the rule now holds for rooms made by
+// the OLD path only — createSession and the 0025 migration mark their room
+// with `legacy_work_id` — and names that session's mission, whatever its
+// status (a completed old session is still "the" mission of its room, and its
+// new messages keep waiting behind it as they did: the claim wants the task's
+// mission active). A room made by createRoom has no mark: its top-level chat
+// is honestly "no mission".
 //
-// During R1b1 `work_room_single` holds, so every room qualifies. R1b2, which
-// lets a room open a second mission, must narrow the premise to rooms made by
-// the old path (createSession · 0025 migration) — from then on a new room's
-// top-level chat is honestly "no mission".
-func legacySingleWorkRoom(ctx context.Context, q db.DBTX, roomID uuid.UUID) (*uuid.UUID, error) {
-	rows, err := q.Query(ctx, `SELECT id FROM work WHERE room_id = $1 LIMIT 2`, roomID)
-	if err != nil {
-		return nil, fmt.Errorf("router: legacy single-work room: %w", err)
+// It applies only when the `work_id` key is ABSENT — how an old client posts.
+// A v0.19 client that sends `work_id: null` has chosen "미션 없음" on the chip
+// and gets rules 2~4 (openapi MessageCreate.work_id "비우면 규칙 2~4").
+// Reported as `chosen` (the closed WorkSource enum has no "legacy" value).
+func legacySessionWork(in gen.MessageCreate, legacy *uuid.UUID) *uuid.UUID {
+	if legacy == nil || in.WorkId.IsSpecified() {
+		return nil
 	}
-	defer rows.Close()
-	var ids []uuid.UUID
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if len(ids) != 1 {
-		return nil, nil
-	}
-	return &ids[0], nil
+	w := *legacy
+	return &w
 }
 
 // bindLaneWork makes `laneID` carry mission `work` unless it already carries
@@ -190,20 +189,15 @@ func workRef(ctx context.Context, q db.DBTX, a Attribution) (*struct {
 
 // routingAssignee is rule 6's assignee (FR-3.3 "그 외 사용자 메시지 → 세션
 // assignee"). The assignee is a mission's (FR-2A.1), so it is the chosen
-// mission's, else the room's only mission's (the legacy single-work room
-// rule above); nil when there is neither — a room's plain chat has nobody to
-// route to implicitly.
-func routingAssignee(ctx context.Context, q db.DBTX, roomID uuid.UUID, in gen.MessageCreate) (*uuid.UUID, error) {
+// mission's, else the old session's (the legacy session rule above); nil when
+// there is neither — a room's plain chat has nobody to route to implicitly.
+func routingAssignee(ctx context.Context, q db.DBTX, roomID uuid.UUID, in gen.MessageCreate, legacy *uuid.UUID) (*uuid.UUID, error) {
 	var work *uuid.UUID
 	if in.WorkId.IsSpecified() && !in.WorkId.IsNull() {
 		id := uuid.UUID(in.WorkId.MustGet())
 		work = &id
 	} else {
-		w, err := legacySingleWorkRoom(ctx, q, roomID)
-		if err != nil {
-			return nil, err
-		}
-		work = w
+		work = legacySessionWork(in, legacy)
 	}
 	if work == nil {
 		return nil, nil

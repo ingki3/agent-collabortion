@@ -317,6 +317,11 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 	if err := tx.QueryRow(ctx, `INSERT INTO work (`+strings.Join(workCols, ", ")+`) VALUES (`+placeholders(len(workArgs))+`) RETURNING id`, workArgs...).Scan(&workID); err != nil {
 		return nil, fmt.Errorf("sessions: insert work: %w", err)
 	}
+	// The old path's mark (T-R1b2): this room IS this session, so the old
+	// `/sessions/*` surface and the legacy attribution rule find this mission.
+	if _, err := tx.Exec(ctx, `UPDATE room SET legacy_work_id = $2 WHERE id = $1`, sessionID, workID); err != nil {
+		return nil, fmt.Errorf("sessions: legacy work: %w", err)
+	}
 	for _, p := range parts {
 		if _, err := tx.Exec(ctx, `INSERT INTO room_participant (room_id, agent_id, profile_id, joined_at) VALUES ($1, $2, $3, $4)`, sessionID, p.agentID, p.profileID, now); err != nil {
 			return nil, err
@@ -336,13 +341,10 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 	}
 	if !draft {
 		// E16-A step 1: the assignee's initial task, triggered by a system message.
-		msgID, err := s.Router.SystemPost(ctx, tx, sessionID, "세션을 시작했습니다. 목표: "+in.Goal)
-		if err != nil {
-			return nil, err
-		}
 		// FR-3.1.1: everything the session start makes belongs to its one
 		// mission — the start notice, the assignee's lane and its first task.
-		if _, err := tx.Exec(ctx, `UPDATE message SET work_id = $2 WHERE id = $1`, msgID, workID); err != nil {
+		msgID, err := s.Router.SystemPostWork(ctx, tx, sessionID, &workID, "세션을 시작했습니다. 목표: "+in.Goal)
+		if err != nil {
 			return nil, err
 		}
 		var profileID uuid.UUID
@@ -419,8 +421,8 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, v Viewer) (*gen.Session,
 		       s.runtime_id, s.isolation, wk.completion_condition, wk.completion_met, s.limits, s.autonomy, s.context_reuse_override, wk.status, wk.paused_reason, wk.paused_detail,
 		       wk.cost_usd, s.created_by, s.created_at, GREATEST(s.updated_at, wk.updated_at), wk.started_at, wk.finished_at,
 		       (SELECT max(created_at) FROM message m WHERE m.session_id = s.id), r.status,
-		       (SELECT COALESCE(bool_or(u.estimated), false) FROM task_usage u JOIN task t ON t.id = u.task_id WHERE t.session_id = s.id)
-		FROM room s JOIN work wk ON wk.room_id = s.id LEFT JOIN runtime r ON r.id = s.runtime_id WHERE s.id = $1`, id).Scan(
+		       (SELECT COALESCE(bool_or(u.estimated), false) FROM task_usage u JOIN task t ON t.id = u.task_id WHERE t.work_id = wk.id)
+		FROM room s `+LegacyJoin+` LEFT JOIN runtime r ON r.id = s.runtime_id WHERE s.id = $1`, id).Scan(
 		&out.Id, &out.WorkspaceId, &out.Title, &out.Goal, &out.AcceptanceCriteria, &out.DirectorUserId, &deputy, &assignee,
 		&runtimeID, &isolation, &completion, &met, &limits, &autonomy, &reuse, &status, &pausedReason, &out.PausedDetail,
 		&cost, &out.CreatedBy, &out.CreatedAt, &out.UpdatedAt, &startedAt, &finishedAt, &lastActivity, &runtimeStatus, &costEstimated)
@@ -567,13 +569,17 @@ func ListParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID) ([]ge
 // participantScope reads the two session-level facts the derived status needs:
 // who the session's assignee is (the `assignee` chip) and whether the session's
 // runtime is offline (FR-1.3 puts `offline` above `working`).
+//
+// The assignee is the old session's (its legacy mission's). A room made by
+// createRoom has none and its roster still derives — the join is LEFT so the
+// room's `participant.updated` frames do not depend on it being a session.
 func participantScope(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (uuid.UUID, *uuid.UUID, *string, error) {
 	var wsID uuid.UUID
 	var assignee *uuid.UUID
 	var runtimeStatus *string
 	err := q.QueryRow(ctx, `
 		SELECT s.workspace_id, wk.assignee_agent_id, r.status::text
-		FROM room s JOIN work wk ON wk.room_id = s.id LEFT JOIN runtime r ON r.id = s.runtime_id WHERE s.id = $1`, sessionID).
+		FROM room s LEFT `+LegacyJoin+` LEFT JOIN runtime r ON r.id = s.runtime_id WHERE s.id = $1`, sessionID).
 		Scan(&wsID, &assignee, &runtimeStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, nil, nil, apperr.NotFound("session")
@@ -709,11 +715,11 @@ func (s *Service) List(ctx context.Context, wsID uuid.UUID, o ListOptions) ([]ge
 	if o.Cursor != nil {
 		if cid, err := uuid.Parse(*o.Cursor); err == nil {
 			args = append(args, cid)
-			where = append(where, fmt.Sprintf("(GREATEST(s.updated_at, wk.updated_at), s.id) < (SELECT GREATEST(cr.updated_at, cw.updated_at), cr.id FROM room cr JOIN work cw ON cw.room_id = cr.id WHERE cr.id = $%d)", len(args)))
+			where = append(where, fmt.Sprintf("(GREATEST(s.updated_at, wk.updated_at), s.id) < (SELECT GREATEST(cr.updated_at, cw.updated_at), cr.id FROM room cr JOIN work cw ON cw.id = cr.legacy_work_id WHERE cr.id = $%d)", len(args)))
 		}
 	}
 	args = append(args, o.Limit+1)
-	rows, err := s.DB.Query(ctx, `SELECT s.id FROM room s JOIN work wk ON wk.room_id = s.id WHERE `+strings.Join(where, " AND ")+fmt.Sprintf(` ORDER BY GREATEST(s.updated_at, wk.updated_at) DESC, s.id DESC LIMIT $%d`, len(args)), args...)
+	rows, err := s.DB.Query(ctx, `SELECT s.id FROM room s `+LegacyJoin+` WHERE `+strings.Join(where, " AND ")+fmt.Sprintf(` ORDER BY GREATEST(s.updated_at, wk.updated_at) DESC, s.id DESC LIMIT $%d`, len(args)), args...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -816,6 +822,10 @@ func DecisionAPI(sessionID uuid.UUID, d DecisionRow) gen.Decision {
 		out.RefId = nullable.NewNullableWithValue(openapi_types.UUID(*d.RefID))
 	} else {
 		out.RefId = nullable.NewNullNullable[openapi_types.UUID]()
+	}
+	if d.WorkID != nil {
+		// v0.2.0: the decision's mission (none = the room's own).
+		out.WorkId = nullable.NewNullableWithValue(openapi_types.UUID(*d.WorkID))
 	}
 	return out
 }

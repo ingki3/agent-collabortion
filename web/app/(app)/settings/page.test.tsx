@@ -467,7 +467,7 @@ describe("S14 — 알림(개인) · 멤버", () => {
       throw new Error(`unexpected GET ${path}`);
     });
     patch.mockImplementation(async (_p: string, opts: { body: { role: string } }) => ({ ...members3[2], role: opts.body.role }));
-    del.mockRejectedValue(problemFixture("member_is_director", 409, { detail: "이 멤버가 Director 인 진행 중 세션이 1개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요" }));
+    del.mockRejectedValue(problemFixture("last_owner", 409, { detail: "마지막 소유자는 내보낼 수 없습니다 — 먼저 다른 멤버를 소유자로 지정해 주세요" }));
     render(<SettingsPage />);
     const rows = await screen.findAllByTestId("member-row");
     const admin = rows.find((r) => r.textContent?.includes("지훈"))!;
@@ -476,7 +476,7 @@ describe("S14 — 알림(개인) · 멤버", () => {
     expect(screen.queryByTestId("member-self-demote")).toBeNull();
     fireEvent.click(within(admin).getByTestId("member-remove"));
     fireEvent.click(within(admin).getByTestId("member-remove-yes"));
-    await waitFor(() => expect(screen.getByTestId("members-error").textContent).toBe("이 멤버가 Director 인 진행 중 세션이 1개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요"));
+    await waitFor(() => expect(screen.getByTestId("members-error").textContent).toBe("마지막 소유자는 내보낼 수 없습니다 — 먼저 다른 멤버를 소유자로 지정해 주세요"));
   });
 
   it("멤버 탭(member): 초대 구역이 없고 사유가 있다 · 역할 선택 잠김", async () => {

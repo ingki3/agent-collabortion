@@ -29,7 +29,7 @@ func (s *Server) CompleteSession(w http.ResponseWriter, r *http.Request, session
 	}
 	var running int
 	if err := s.DB.QueryRow(r.Context(), `
-		SELECT count(*) FROM lane WHERE session_id = $1 AND status IN ('queued', 'running')`, sessionId).Scan(&running); err != nil {
+		SELECT count(*) FROM lane WHERE work_id = (SELECT legacy_work_id FROM room WHERE id = $1) AND status IN ('queued', 'running')`, sessionId).Scan(&running); err != nil {
 		writeErr(w, err)
 		return
 	}

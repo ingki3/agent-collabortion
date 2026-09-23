@@ -349,7 +349,10 @@ func ReuseSection(title, summary string, plan ContextReusePlan) string {
 // transaction that flips the session to `completed`, so "exactly one summary"
 // is enforced by the insert's WHERE NOT EXISTS rather than by this function
 // having remembered.
-func (s *Service) summarise(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, alreadyPosted bool) SummaryPlan {
+//
+// PRD v0.19 FR-2A.4: it summarises ONE mission — the room keeps living and the
+// room's other missions are not this one's story.
+func (s *Service) summarise(ctx context.Context, tx pgx.Tx, workID uuid.UUID, alreadyPosted bool) SummaryPlan {
 	// The fact gathering runs in a SAVEPOINT. A failed statement aborts the
 	// whole pgx transaction (25P02), and this one is nested inside the
 	// completing → completed transition: one bad read in a cosmetic step would
@@ -358,10 +361,10 @@ func (s *Service) summarise(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID,
 	// through the back door.
 	facts := SummaryFacts{}
 	if sp, err := tx.Begin(ctx); err == nil {
-		facts = s.summaryFacts(ctx, sp, sessionID)
+		facts = s.summaryFacts(ctx, sp, workID)
 		if err := sp.Commit(ctx); err != nil {
 			_ = sp.Rollback(ctx)
-			s.logWarn("sessions: summary facts rolled back", "session", sessionID, "err", err)
+			s.logWarn("sessions: summary facts rolled back", "work", workID, "err", err)
 			facts = SummaryFacts{}
 		}
 	}
@@ -387,7 +390,7 @@ func (s *Service) summarise(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID,
 	plan := PlanSummary(res, err, alreadyPosted)
 	plan.GeneratedBy = GeneratedByLLM
 	if plan.FeedError && s.Log != nil {
-		s.Log.Warn("sessions: session summary failed", "session", sessionID,
+		s.Log.Warn("sessions: session summary failed", "work", workID,
 			"category", plan.ErrorCategory, "err", err)
 	}
 	return plan
@@ -397,22 +400,25 @@ func (s *Service) summarise(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID,
 // never silently an empty one for the decision log (FR-4.2) — an empty section
 // reads as "nothing was decided" — so a query error is logged and the section
 // says so.
-func (s *Service) summaryFacts(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) SummaryFacts {
+//
+// Every section reads the mission's own rows (`work_id`): its decisions, its
+// artifacts, its lanes and tasks.
+func (s *Service) summaryFacts(ctx context.Context, tx pgx.Tx, workID uuid.UUID) SummaryFacts {
 	var f SummaryFacts
 	var started, ended *time.Time
 	var estimated *bool
 	if err := tx.QueryRow(ctx, `
 		SELECT title, goal, cost_usd, started_at, finished_at,
-		       (SELECT bool_or(estimated) FROM task_usage u JOIN task t ON t.id = u.task_id WHERE t.session_id = $1)
-		FROM work WHERE room_id = $1`, sessionID).
+		       (SELECT bool_or(estimated) FROM task_usage u JOIN task t ON t.id = u.task_id WHERE t.work_id = $1)
+		FROM work WHERE id = $1`, workID).
 		Scan(&f.Title, &f.Goal, &f.CostUSD, &started, &ended, &estimated); err != nil {
-		s.logWarn("sessions: summary facts", "session", sessionID, "err", err)
+		s.logWarn("sessions: summary facts", "work", workID, "err", err)
 	}
 	f.StartedAt, f.EndedAt = started, ended
 	f.Estimated = estimated != nil && *estimated
 
 	if rows, err := tx.Query(ctx, `
-		SELECT summary, source::text, auto FROM decision WHERE session_id = $1 ORDER BY created_at`, sessionID); err == nil {
+		SELECT summary, source::text, auto FROM decision WHERE work_id = $1 ORDER BY created_at`, workID); err == nil {
 		for rows.Next() {
 			var summary, source string
 			var auto bool
@@ -422,13 +428,13 @@ func (s *Service) summaryFacts(ctx context.Context, tx pgx.Tx, sessionID uuid.UU
 		}
 		rows.Close()
 	} else {
-		s.logWarn("sessions: summary decisions", "session", sessionID, "err", err)
+		s.logWarn("sessions: summary decisions", "work", workID, "err", err)
 		f.Decisions = append(f.Decisions, "(결정 기록을 읽지 못했습니다 — 타임라인을 확인하세요)")
 	}
 
 	if rows, err := tx.Query(ctx, `
 		SELECT DISTINCT ON (name) name, type::text, version FROM artifact
-		WHERE session_id = $1 ORDER BY name, version DESC`, sessionID); err == nil {
+		WHERE work_id = $1 ORDER BY name, version DESC`, workID); err == nil {
 		for rows.Next() {
 			var name, typ string
 			var version int
@@ -439,15 +445,15 @@ func (s *Service) summaryFacts(ctx context.Context, tx pgx.Tx, sessionID uuid.UU
 		rows.Close()
 	}
 
-	_ = tx.QueryRow(ctx, `SELECT count(*) FROM lane WHERE session_id = $1`, sessionID).Scan(&f.Lanes)
-	_ = tx.QueryRow(ctx, `SELECT count(*) FROM task WHERE session_id = $1 AND status = 'completed'`, sessionID).Scan(&f.Tasks)
+	_ = tx.QueryRow(ctx, `SELECT count(*) FROM lane WHERE work_id = $1`, workID).Scan(&f.Lanes)
+	_ = tx.QueryRow(ctx, `SELECT count(*) FROM task WHERE work_id = $1 AND status = 'completed'`, workID).Scan(&f.Tasks)
 
 	// A lane has no title of its own (§7) — it is one agent's line of work, so
 	// the agent's name is what a reader recognises in a timeline.
 	if rows, err := tx.Query(ctx, `
 		SELECT a.name, l.status::text, l.finished_at
 		FROM lane l JOIN agent a ON a.id = l.agent_id
-		WHERE l.session_id = $1 AND l.finished_at IS NOT NULL ORDER BY l.finished_at`, sessionID); err == nil {
+		WHERE l.work_id = $1 AND l.finished_at IS NOT NULL ORDER BY l.finished_at`, workID); err == nil {
 		for rows.Next() {
 			var name, status string
 			var at *time.Time

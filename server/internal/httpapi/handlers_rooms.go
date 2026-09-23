@@ -38,7 +38,23 @@ func (s *Server) roomGate(r *http.Request, roomID uuid.UUID, act rooms.Action) (
 	if err != nil {
 		return nil, nil, apperr.As(err)
 	}
+	if act == rooms.ActView && r.Method == http.MethodGet {
+		// FR-5.3 P-Q in ONE place (#291 re-review NN1): every read of the room
+		// — getRoom, its roster, its links, S23, its missions — is the same
+		// audit look, so a handler added later cannot forget it.
+		s.auditViewSoft(r.Context(), a, u.Id)
+	}
 	return u, a, nil
+}
+
+// auditViewSoft is auditView for a read: the audit line is a side effect, and
+// failing to write it (a database fault — ON CONFLICT covers the rest) must
+// not stop an owner·admin from reading the room the audit is about (#291
+// re-review NN3). The failure is logged.
+func (s *Server) auditViewSoft(ctx context.Context, a *rooms.Access, userID uuid.UUID) {
+	if err := s.auditView(ctx, a, userID); err != nil && s.Log != nil {
+		s.Log.Warn("audit view not recorded", "room", a.RoomID, "user", userID, "err", err)
+	}
 }
 
 // roomOut answers with the room as the caller sees it (my_room_role,
@@ -324,13 +340,9 @@ func (s *Server) GetRoom(w http.ResponseWriter, r *http.Request, roomId gen.Room
 		writeJSON(w, http.StatusOK, out)
 		return
 	}
-	u, a, pr := s.roomGate(r, roomId, rooms.ActView)
+	_, a, pr := s.roomGate(r, roomId, rooms.ActView)
 	if pr != nil {
 		writeProblem(w, pr)
-		return
-	}
-	if err := s.auditView(r.Context(), a, u.Id); err != nil {
-		writeErr(w, err)
 		return
 	}
 	out, err := rooms.Load(r.Context(), s.DB, a, s.Clock.Now())
@@ -469,7 +481,10 @@ func (s *Server) UpdateRoom(w http.ResponseWriter, r *http.Request, roomId gen.R
 		}
 		if l := in.Limits; l != nil {
 			patch := map[string]any{}
-			var unset []string
+			// Never a nil slice: pgx sends nil as NULL, and `jsonb - NULL` is
+			// NULL — a PATCH that unset nothing wiped the room's limits into a
+			// NOT NULL violation (500, found by e2e 91_).
+			unset := []string{}
 			if l.MaxConcurrentWorks != nil {
 				patch["max_concurrent_works"] = *l.MaxConcurrentWorks
 			}
@@ -899,7 +914,7 @@ func (s *Server) onMemberLeft(ctx context.Context, tx pgx.Tx, wsID, userID uuid.
 	if err != nil {
 		return err
 	}
-	for _, m := range moved {
+	for _, m := range moved.Rooms {
 		line := displayName(ctx, tx, m.From) + " 님이 워크스페이스를 떠나 " + displayName(ctx, tx, m.To) + " 님이 방장을 이어받았습니다."
 		if _, err := s.Router.SystemPost(ctx, tx, m.RoomID, line); err != nil {
 			return err
@@ -910,6 +925,19 @@ func (s *Server) onMemberLeft(ctx context.Context, tx pgx.Tx, wsID, userID uuid.
 			return err
 		}
 		s.publishRoom(ctx, tx, wsID, m.RoomID)
+	}
+	// openapi 0.2.3 removeMember: an open mission's Director seat passes to
+	// its room's owner, announced on the mission's timeline (PRD §12).
+	for _, d := range moved.Directors {
+		line := displayName(ctx, tx, d.From) + " 님이 워크스페이스를 떠나 " + displayName(ctx, tx, d.To) + " 님이 이 미션의 Director 를 이어받았습니다."
+		if err := s.directorHandedOver(ctx, tx, wsID, d.RoomID, d.WorkID, d.To, line, now); err != nil {
+			return err
+		}
+		rid, to := d.RoomID, d.To
+		if err := logActivity(ctx, tx, wsID, &rid, nil, "work.director_succeeded", "work", &d.WorkID,
+			map[string]any{"title": d.Title, "from": d.From, "to": to}, now); err != nil {
+			return err
+		}
 	}
 	return nil
 }

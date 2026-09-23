@@ -133,15 +133,20 @@ func PlanOffline(c OfflineCase) OfflineOutcome {
 func (s *Service) SweepOffline(ctx context.Context) (int, error) {
 	now := s.Clock.Now()
 	rows, err := s.DB.Query(ctx, `
-		SELECT sess.id, sess.workspace_id, wk.director_user_id, wk.status::text,
+		SELECT sess.id, sess.workspace_id, COALESCE(lw.director_user_id, sess.owner_user_id), 'active',
 		       r.id, r.offline_since,
 		       COALESCE(ws.runtime_offline_grace, interval '7 days'),
 		       (SELECT count(*) FROM task t WHERE t.session_id = sess.id AND t.status IN ('queued', 'deferred'))
 		FROM room sess
-		JOIN work wk ON wk.room_id = sess.id
+		LEFT JOIN work lw ON lw.id = sess.legacy_work_id
 		JOIN runtime r ON r.id = sess.runtime_id
 		LEFT JOIN workspace_settings ws ON ws.workspace_id = sess.workspace_id
-		WHERE wk.status = 'active' AND r.status = 'offline' AND r.offline_since IS NOT NULL`)
+		-- One candidate per ROOM (V19_R1B_HANDOFF (a)): the machine is the
+		-- room's, and pauseForOffline stops every active mission of it at
+		-- once. The notice goes to the old session's Director, else — a room
+		-- made by createRoom — its owner (FR-9.2 v0.19).
+		WHERE EXISTS (SELECT 1 FROM work wk WHERE wk.room_id = sess.id AND wk.status = 'active')
+		  AND r.status = 'offline' AND r.offline_since IS NOT NULL`)
 	if err != nil {
 		return 0, fmt.Errorf("runtimes: offline sweep: %w", err)
 	}
@@ -446,7 +451,15 @@ func (s *Service) Rebind(ctx context.Context, wsID, sessionID, targetRuntime uui
 	}
 	var state string
 	var pauseReason *string
-	if err := s.DB.QueryRow(ctx, `SELECT status::text, paused_reason::text FROM work WHERE room_id = $1`, sessionID).
+	// The room is what moves (FR-9.2 v0.19), so its state is "paused for the
+	// lost computer" when ANY of its missions is — the sweep parks them all at
+	// once. Otherwise the old session's mission speaks for it (V19_R1B_HANDOFF
+	// (c): the old QueryRow picked an arbitrary mission once there were two).
+	if err := s.DB.QueryRow(ctx, `
+		SELECT wk.status::text, wk.paused_reason::text FROM work wk JOIN room s ON s.id = wk.room_id
+		WHERE wk.room_id = $1
+		ORDER BY (wk.paused_reason = 'runtime_offline') IS TRUE DESC, (wk.id = s.legacy_work_id) IS TRUE DESC, wk.created_at DESC
+		LIMIT 1`, sessionID).
 		Scan(&state, &pauseReason); errors.Is(err, pgx.ErrNoRows) {
 		return RebindPlan{}, apperr.NotFound("session")
 	} else if err != nil {
@@ -803,9 +816,17 @@ type blockingSession struct {
 
 func (s *Service) blockingSessions(ctx context.Context, runtimeID uuid.UUID) ([]blockingSession, error) {
 	rows, err := s.DB.Query(ctx, `
-		SELECT s.id, wk.title, wk.status::text, COALESCE(wk.paused_reason::text, '')
-		FROM room s JOIN work wk ON wk.room_id = s.id
-		WHERE s.runtime_id = $1 AND wk.status IN ('draft', 'active', 'paused', 'completing')
+		SELECT s.id, COALESCE(lw.title, s.name), o.status::text, COALESCE(o.paused_reason::text, '')
+		FROM room s
+		LEFT JOIN work lw ON lw.id = s.legacy_work_id
+		-- One row per ROOM (V19_R1B_HANDOFF (d)): a room with two open missions
+		-- is one room on this computer. A mission still running decides over
+		-- one parked for the lost computer.
+		JOIN LATERAL (SELECT wk.status, wk.paused_reason FROM work wk
+		               WHERE wk.room_id = s.id AND wk.status IN ('draft', 'active', 'paused', 'completing')
+		               ORDER BY (wk.paused_reason = 'runtime_offline') IS TRUE, (wk.id = s.legacy_work_id) IS TRUE DESC, wk.created_at
+		               LIMIT 1) o ON true
+		WHERE s.runtime_id = $1
 		ORDER BY s.created_at`, runtimeID)
 	if err != nil {
 		return nil, fmt.Errorf("runtimes: blocking sessions: %w", err)

@@ -44,8 +44,9 @@ func TestPlanRoleChange(t *testing.T) {
 	}
 }
 
-// TestPlanRemoval is removeMember: last owner 409, Director of an unfinished
-// session 409 (with the count in the sentence), owner removal owner-only.
+// TestPlanRemoval is removeMember: last owner 409, owner removal owner-only.
+// A Director seat no longer refuses (openapi 0.2.3 — it passes to the room's
+// owner, rooms.LeaveWorkspace).
 func TestPlanRemoval(t *testing.T) {
 	for _, c := range []struct {
 		name   string
@@ -53,13 +54,11 @@ func TestPlanRemoval(t *testing.T) {
 		status int
 		code   string
 	}{
-		{"admin removes member", RemovalCase{"admin", "member", 1, 0}, 0, ""},
-		{"admin removes admin", RemovalCase{"admin", "admin", 1, 0}, 0, ""},
-		{"admin removes owner", RemovalCase{"admin", "owner", 2, 0}, 403, CodeOwnerOnly},
-		{"owner removes the only owner", RemovalCase{"owner", "owner", 1, 0}, 409, CodeLastOwner},
-		{"owner removes one of two owners", RemovalCase{"owner", "owner", 2, 0}, 0, ""},
-		{"member directs a session", RemovalCase{"owner", "member", 1, 2}, 409, CodeMemberIsDirector},
-		{"last owner beats director (checked first)", RemovalCase{"owner", "owner", 1, 3}, 409, CodeLastOwner},
+		{"admin removes member", RemovalCase{"admin", "member", 1}, 0, ""},
+		{"admin removes admin", RemovalCase{"admin", "admin", 1}, 0, ""},
+		{"admin removes owner", RemovalCase{"admin", "owner", 2}, 403, CodeOwnerOnly},
+		{"owner removes the only owner", RemovalCase{"owner", "owner", 1}, 409, CodeLastOwner},
+		{"owner removes one of two owners", RemovalCase{"owner", "owner", 2}, 0, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p := PlanRemoval(c.in)
@@ -73,9 +72,6 @@ func TestPlanRemoval(t *testing.T) {
 				t.Fatalf("want %d %s, got %v", c.status, c.code, p)
 			}
 		})
-	}
-	if p := PlanRemoval(RemovalCase{"owner", "member", 1, 2}); p.Detail != "이 멤버가 Director 인 진행 중 세션이 2개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요" {
-		t.Fatalf("detail = %q", p.Detail)
 	}
 }
 

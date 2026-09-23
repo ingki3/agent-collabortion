@@ -232,21 +232,18 @@ describe("members · invites", () => {
     expect(self.role).toBe("member");
   });
 
-  it("Director 인 끝나지 않은 세션이 있으면 제거 409 member_is_director — 세션 수는 문장 안에, 확장 칸 없음 (#209)", async () => {
+  it("Director 인 끝나지 않은 세션이 있어도 제거된다 — 그 방의 방장이 Director 를 잇는다 (openapi 0.2.3, T-R1b2)", async () => {
     const id = await ws();
     const seo = await seoyeon(id);
     const rt = (await must<Runtime[]>("GET", `/workspaces/${id}/runtimes`))[0];
     const ags = (await must<{ items: { id: string }[] }>("GET", `/workspaces/${id}/agents`)).items;
     const sess = await must<Session>("POST", `/workspaces/${id}/sessions`, { body: { title: "제거 차단", goal: "g", isolation: { kind: "none" }, runtime_id: rt.id, participants: [{ agent_id: ags[0].id }], assignee_agent_id: ags[0].id } });
     await must("PUT", `/sessions/${sess.id}/director`, { body: { director_user_id: seo.user.id } });
-    const r = await call("DELETE", `/workspaces/${id}/members/${seo.id}`);
-    expect(r.status).toBe(409);
-    expect(r.body).toEqual({ type: "https://colab.dev/problems/member_is_director", status: 409, title: "지금은 할 수 없음", code: "member_is_director", detail: "이 멤버가 Director 인 진행 중 세션이 1개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요" });
-    // 세션을 끝내면(Director 인 서연이 종료) 제거된다.
-    await login("seoyeon@colab.dev");
-    await must("POST", `/sessions/${sess.id}/cancel`, { body: {} });
-    await login();
     expect((await call("DELETE", `/workspaces/${id}/members/${seo.id}`)).status).toBe(204);
+    // 세션을 만든 사람(= 방장)이 Director 를 이어받는다.
+    const after = await must<Session>("GET", `/sessions/${sess.id}`);
+    expect(after.director_user_id).toBe(sess.created_by);
+    expect(after.director_user_id).not.toBe(seo.user.id);
   });
 
   it("초대 201 Invite(required 전부) · owner 역할 422 · 취소 204 → revoked", async () => {

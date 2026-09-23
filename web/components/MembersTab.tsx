@@ -120,7 +120,7 @@ export function MembersTab({ workspaceId, myRole, meUserId }: MembersTabProps) {
       setMembers((ms) => ms?.filter((x) => x.id !== m.id) ?? null);
       setConfirmRemove(null);
     } catch (e) {
-      // 409 member_is_director 의 `detail` 이 세션 수까지 말한다("…진행 중 세션이 N개…") — 서버(#209)는 확장 칸을 싣지 않는다.
+      // 409(마지막 소유자 등)의 `detail` 은 서버 문장 그대로 보인다. Director 자리는 거부 대신 승계된다(openapi 0.2.3).
       setError(errorMessage(e));
     } finally {
       setBusy(false);

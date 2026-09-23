@@ -214,5 +214,10 @@ func (s *Server) roomViewer(r *http.Request, roomID, userID uuid.UUID) *Problem 
 	if !rooms.Decide(rooms.ActView, a.Standing) {
 		return roomNotFound()
 	}
+	if r.Method == http.MethodGet {
+		// S23 is the room's content (who read what) — the same audit look
+		// as getRoom (#291 re-review NN1).
+		s.auditViewSoft(r.Context(), a, userID)
+	}
 	return nil
 }
