@@ -3,7 +3,7 @@
 #
 # 비용 한 줄(I-3): 에이전트 턴 0(72_ 의 세션을 연다) · $0 · ≈ 3s(agent-browser 면 +10s)
 #
-#   agent-browser 가 있으면(로컬): 로그인 → /sessions/<id> → 3열(lane 보드·타임라인·aside) DOM 판정 + 스크린샷.
+#   agent-browser 가 있으면(로컬): 로그인 → /rooms/<id> → 3열(서브 미션 보드·타임라인·미션 칸) DOM 판정 + 스크린샷.
 #   없으면(CI): next build 산출물이 뜨는지만 — /login 200 · /sessions/<id> → /rooms/<id> 307 · /rooms/<id> 200 · 앱 셸(HTML) 에 마운트 지점.
 #   72_ 의 out/72-ids.txt 가 없으면(단독 실행) 새 세션 하나를 API 로 만든다(런타임 없이 — 화면만).
 source "$(dirname "$0")/lib_i5.sh"
@@ -29,10 +29,11 @@ if command -v agent-browser >/dev/null 2>&1 && [ -n "${EMAIL:-}" ] && [ "${WITH_
   export AGENT_BROWSER_SESSION="colab-p5-78-$$"
   web_login "$EMAIL" password123
   ab open "$WEB_URL/rooms/$SESSION" >/dev/null
-  abwait '[data-testid="lane-board"]' 30 || abwait '[data-testid="session-detail"]' 30 || true
+  abwait '[data-testid="lane-board"]' 30 || abwait '[data-testid="room-detail"]' 30 || true
   sleep 2
   chk W2 "S7 lane 보드가 그려진다"        yes "$( [ "$(abcount '[data-testid="lane-board"]')" -ge 1 ] && echo yes || echo no )"
-  chk W2b "S7 세션 상세가 그려진다 (session-detail)"       yes "$( [ "$(abcount '[data-testid="session-detail"]')" -ge 1 ] && echo yes || echo no )"
+  # v0.19 R2-W2: /rooms/<id> 는 새 방 화면(3열 + 미션 칩 줄)이다 — 옛 세션의 방도 같은 화면을 연다.
+  chk W2b "S7 방 화면이 그려진다 (room-detail · 미션 칩 줄)"       yes "$( [ "$(abcount '[data-testid="room-detail"]')" -ge 1 ] && [ "$(abcount '[data-testid="work-chips"]')" -ge 1 ] && echo yes || echo no )"
   chk W2c "메시지 카드 ≥ 1"              yes "$( [ "$(abcount '[data-testid="message-card"]')" -ge 1 ] && echo yes || echo no )"
   mkdir -p "$E2E_ROOT/web/__screenshots__"
   ab screenshot "$E2E_ROOT/web/__screenshots__/p5-78-s7.png" >/dev/null 2>&1 && ok "📸 web/__screenshots__/p5-78-s7.png" || true

@@ -8,7 +8,7 @@
 #   r2-w1-04-s5-menu-light.png         「…」 메뉴 — 진행 중인 미션이 있어 삭제 비활성 + 사유
 #   r2-w1-05-s25-nomatch-light.png     검색 결과 0 — 「〈말〉」에 걸리는 방이 없습니다 + 보관 포함해서 다시 찾기
 #   r2-w1-06-s18-{light,dark}.png      방 만들기 모달 — 이름·설명 · ⓘ 한 줄 · 방 설정(만든 뒤) · 같은 이름 경고
-#   r2-w1-07-created-light.png         만들기 → /rooms/<id>(새 방 임시 화면 — S7 재작성은 W2)
+#   r2-w1-07-created-light.png         만들기 → /rooms/<id>(W1 당시는 임시 화면 — W2 뒤로는 S7 방 화면)
 #
 # 사용:
 #   COLAB_MOCK_API=1 npm run build && COLAB_MOCK_API=1 npx next start -p 3141 &
@@ -143,7 +143,7 @@ step "07 — 만들기 → /rooms/<id>"
 open_wait /rooms/new '[data-testid="create-room-dialog"]'
 ab fill '[data-testid="create-room-name"]' '인프라 2' >/dev/null
 ab click '[data-testid="create-room-submit"]' >/dev/null
-ab wait '[data-testid="room-pending"]' --timeout 20000 >/dev/null
+ab wait '[data-testid="room-detail"]' --timeout 20000 >/dev/null # T-R2-W2 뒤로는 새 방 화면(S7)이 바로 열린다
 assert_js 'location.pathname.startsWith("/rooms/") && location.pathname !== "/rooms/new"' "방 화면으로 이동"
 shot r2-w1-07-created-light
 

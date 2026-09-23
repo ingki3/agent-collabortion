@@ -19,7 +19,8 @@ import { VERDICT_LABEL, NOT_MEASURABLE } from "@/lib/settings";
 import { transportLabel } from "@/lib/test-chat";
 import { PAGE_COPY, type Screen } from "@/components/PageHead";
 import { NAV_ITEMS } from "@/components/AppNav";
-import { ARCHIVE_DIALOG, CREATE_ROOM, DELETE_ROOM_DIALOG, ROOM_BLOCKED_LABEL, ROOM_DELETED_NOTICE, ROOM_LIST, ROOM_MENU, ROOM_PENDING, roomDefaultsLine } from "@/lib/wording";
+import { ARCHIVE_DIALOG, CREATE_ROOM, DELETE_ROOM_DIALOG, ROOM_BLOCKED_LABEL, ROOM_DELETED_NOTICE, ROOM_LIST, ROOM_MENU, roomDefaultsLine } from "@/lib/wording";
+import { BLOCK_DIALOG, ROOM_BANNER, ROOM_CENTER, ROOM_HEAD, ROOM_LEFT, ROOM_NOTICES, ROOM_PANEL, ROOM_TABS, SUMMARIZE_DIALOG, WORK_CHIPS, WORK_PANEL, WORK_PAUSE_LABEL, WORK_SELECTOR } from "@/lib/wording";
 import { BLOCKED_REASON, COMMAND_LABEL, CONDITION_EDITOR, CONDITION_NAME, DELETE_DIALOG, EMPTY_TURN, FIX_CONDITION, OBSERVATIONS, PROGRESS, ROLE_COMMANDS, ROUTING_PLATFORM_LABEL, ROUTING_RULE_LABEL, SESSION_DELETED_NOTICE, SESSION_MENU, conditionName, routingKindLabel } from "@/lib/wording";
 
 const ROOT = join(__dirname, "..");
@@ -625,7 +626,11 @@ describe("v0.19 방 — 새 화면의 말은 한곳(lib/wording.ts)에서만 나
   const inPool = (file: string, text: string) => POOL.some((v) => v.file === file && v.text.includes(text));
   const src = (f: string) => readFileSync(join(ROOT, f), "utf8");
   const code = (f: string) => src(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-  const ROOM_FILES = ["app/(app)/rooms/RoomsView.tsx", "app/(app)/rooms/[id]/page.tsx", "components/RoomCard.tsx", "components/RoomCardMenu.tsx", "components/RoomSearchBar.tsx", "components/RoomDialogs.tsx", "components/CreateRoomDialog.tsx", "lib/rooms.ts"];
+  const ROOM_FILES = [
+    "app/(app)/rooms/RoomsView.tsx", "app/(app)/rooms/[id]/page.tsx", "components/RoomCard.tsx", "components/RoomCardMenu.tsx", "components/RoomSearchBar.tsx", "components/RoomDialogs.tsx", "components/CreateRoomDialog.tsx", "lib/rooms.ts",
+    // T-R2-W2 — S7 방 화면 · S22 미션 패널
+    "components/RoomHead.tsx", "components/RoomBlockedBanner.tsx", "components/RoomParticipants.tsx", "components/WorkChipRow.tsx", "components/WorkPanel.tsx", "components/RoomPanel.tsx", "lib/room-view.ts",
+  ];
   /** 표의 문장 전부(함수는 예시 인자로, 슬롯은 두 토막으로). */
   const texts = (o: object, fns = true): string[] =>
     Object.values(o).flatMap((v) => (typeof v === "string" ? [v] : typeof v === "function" ? (fns ? [v("X")] : []) : Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.length >= 2) : typeof v === "object" && v ? texts(v, fns) : []));
@@ -643,7 +648,7 @@ describe("v0.19 방 — 새 화면의 말은 한곳(lib/wording.ts)에서만 나
   });
 
   it("새 표의 문장이 옛말(세션·작업 줄기·걸린 세션·산출물)을 쓰지 않는다 — 옛 문구 전환 전에도 새 문구는 새말로(§3.4 d-1)", () => {
-    for (const t of texts({ ROOM_BLOCKED_LABEL, ROOM_LIST, ROOM_MENU, ARCHIVE_DIALOG, DELETE_ROOM_DIALOG, ROOM_DELETED_NOTICE, CREATE_ROOM, ROOM_PENDING })) {
+    for (const t of texts({ ROOM_BLOCKED_LABEL, ROOM_LIST, ROOM_MENU, ARCHIVE_DIALOG, DELETE_ROOM_DIALOG, ROOM_DELETED_NOTICE, CREATE_ROOM })) {
       expect(t).not.toMatch(/세션|작업 줄기|산출물/);
     }
     // 새 화면 파일의 화면 문자열도 같다.
@@ -664,7 +669,7 @@ describe("v0.19 방 — 새 화면의 말은 한곳(lib/wording.ts)에서만 나
     expect(DELETE_ROOM_DIALOG.irreversible).toMatch(/되돌릴 수 없습니다/);
     expect(ROOM_MENU.delete_tail).toBe("되돌릴 수 없음");
     // 함수 문장(제목 「〈이름〉」)은 풀에 `「…」 …` 로 든다 — 여기서는 고정 문장만 잰다.
-    for (const t of texts({ ROOM_LIST, ROOM_MENU, ARCHIVE_DIALOG, DELETE_ROOM_DIALOG, CREATE_ROOM, ROOM_PENDING }, false)) expect(inPool("lib/wording.ts", t), t).toBe(true);
+    for (const t of texts({ ROOM_LIST, ROOM_MENU, ARCHIVE_DIALOG, DELETE_ROOM_DIALOG, CREATE_ROOM }, false)) expect(inPool("lib/wording.ts", t), t).toBe(true);
     expect(inPool("lib/wording.ts", "「…」 방을 삭제할까요?")).toBe(true);
   });
 
@@ -720,3 +725,77 @@ describe("v0.19 방 — 새 화면의 말은 한곳(lib/wording.ts)에서만 나
     expect(code("components/CreateRoomDialog.tsx")).not.toMatch(/격리 없음|첫 실행 때/); // 문장은 표에서만
   });
 });
+
+// ── v0.19 T-R2-W2 — S7 방 화면 · S22 미션 패널의 **새 문구**(SCREEN §4.6 · §4.8 · §5 · COMPONENTS §9). 옛 「세션」 문구 전환은 R1.5 몫. ─────────
+describe("v0.19 방 화면 — 새 문구는 표에서만, 층 분담 · 수는 칸 · 자동 귀속은 「자동: 」 (T-R2-W2)", () => {
+  const src = (f: string) => readFileSync(join(ROOT, f), "utf8");
+  const inPool = (file: string, text: string) => POOL.some((v) => v.file === file && v.text.includes(text));
+  const texts = (o: object): string[] =>
+    Object.values(o).flatMap((v) => (typeof v === "string" ? [v] : typeof v === "function" ? [v("X")] : Array.isArray(v) ? v.filter((x) => typeof x === "string") : typeof v === "object" && v ? texts(v) : []));
+  const TABLES = { ROOM_HEAD, BLOCK_DIALOG, SUMMARIZE_DIALOG, WORK_CHIPS, WORK_PAUSE_LABEL, ROOM_BANNER, ROOM_NOTICES, ROOM_LEFT, ROOM_CENTER, WORK_SELECTOR, WORK_PANEL, ROOM_PANEL, ROOM_TABS };
+
+  it("새 표의 문장이 옛말(세션·작업 줄기·산출물)과 내부 역할명(assignee 제외 규칙은 기존 자물쇠)을 쓰지 않는다", () => {
+    for (const t of texts(TABLES)) expect(t, t).not.toMatch(/세션|작업 줄기|산출물/);
+  });
+
+  it("방 층의 표(머리·멈춤 배너·확인)에 「일시정지」가 없다 — 방은 「멈춤」(§8.4 v0.19 층 분담). 서브 미션·미션 층은 「일시정지」", () => {
+    for (const t of texts({ ROOM_HEAD, ROOM_BANNER, BLOCK_DIALOG, ROOM_NOTICES })) expect(t, t).not.toContain("일시정지");
+    expect(ROOM_LEFT.paused_task).toBe("⏸ 일시정지 · 할 일 예산");
+    expect(ROOM_LEFT.paused_work).toBe("⏸ 일시정지 · 미션 예산");
+    expect(ROOM_LEFT.paused_room).toBe("⏸ 멈춤 · 방 예산");
+    expect(ROOM_LEFT.paused_task_only).toBe("이 승인은 이 할 일에만 적용됩니다");
+  });
+
+  it("수는 문장에 보간하지 않는다 — 멈춘 수 · 세 층 · 대기 상한 · 확인 문장은 두 토막(Slotted)이고 화면은 <Slot> 으로 그린다", () => {
+    for (const s2 of [ROOM_BANNER.stopped, ROOM_HEAD.layer_works, ROOM_HEAD.layer_lanes, ROOM_HEAD.layer_tasks, ROOM_HEAD.needs_me, BLOCK_DIALOG.turns, BLOCK_DIALOG.works, ROOM_LEFT.queued_room_lanes, ROOM_LEFT.queued_agent_global, WORK_CHIPS.past, WORK_CHIPS.paused, ROOM_PANEL.count_artifacts]) {
+      expect(Array.isArray(s2)).toBe(true);
+      expect(s2).toHaveLength(2);
+    }
+    expect(ROOM_BANNER.stopped.join("2")).toBe("미션 2개와 대화 전부가 멈췄습니다");
+    expect(BLOCK_DIALOG.turns.join("3")).toBe("이 방의 진행 중인 턴 3개가 중단되고 새 트리거가 막힙니다.");
+    expect(ROOM_LEFT.queued_room_lanes.join("5")).toBe("이 방의 동시 서브 미션 상한(5)에 닿았습니다");
+    expect(ROOM_LEFT.queued_agent_global.join("3")).toBe("이 에이전트가 다른 방 일로 꽉 찼습니다(동시 3개)");
+    expect(src("components/RoomBlockedBanner.tsx")).toMatch(/<Slot text=\{ROOM_BANNER\.stopped\} n=\{stopped\} \/>/);
+    expect(src("components/RoomHead.tsx")).toMatch(/<Slot text=\{BLOCK_DIALOG\.turns\} n=\{props\.runningTurns\} \/>/);
+    expect(src("app/(app)/rooms/[id]/page.tsx")).toMatch(/<Slot text=\{ROOM_LEFT\.queued_room_lanes\}/);
+  });
+
+  it("방 멈춤 배너는 끼어들고(role=alert) 미션 배너는 조용하다(role=status) — COMPONENTS §9.4", () => {
+    expect(src("components/RoomBlockedBanner.tsx")).toMatch(/className="room-banner" role="alert"/);
+    expect(src("components/WorkPanel.tsx")).toMatch(/className="pbanner" role="status"/);
+  });
+
+  it("(전체)·(미션 없음)의 미션 동작 비활성 사유는 SCREEN §4.6 문장 그대로, 버튼 아래 글자(DisabledHint + aria-describedby)", () => {
+    expect(WORK_PANEL.pick_first).toBe("어느 미션인지 먼저 고르세요 — 위 칩에서 미션을 누르면 이 버튼이 켜집니다");
+    expect(WORK_PANEL.no_end).toBe("미션 없이 오간 대화에는 끝이 없습니다");
+    const panel = src("components/WorkPanel.tsx");
+    expect(panel).toMatch(/<DisabledHint id="work-actions-why">\{disabledWhy\}<\/DisabledHint>/);
+    expect(panel).toMatch(/aria-describedby=\{disabledWhy \? "work-actions-why" : undefined\}/);
+  });
+
+  it("미션 선택기 — 자동 귀속은 「자동: 」 접두(열림과 시각적으로 다르다, COMPONENTS §9.2) · 문구는 §9.2 그대로", () => {
+    expect(WORK_SELECTOR.auto_prefix).toBe("자동: ");
+    expect(WORK_SELECTOR.into("보고서")).toBe("이 메시지는 미션 「보고서」에 들어갑니다");
+    expect(WORK_SELECTOR.into_none).toBe("미션 없음에 들어갑니다");
+    expect(WORK_SELECTOR.auto_tail).toBe(" — 바꾸려면 선택기를 누르세요");
+    expect(src("components/Composer.tsx")).toContain("{WORK_SELECTOR.auto_prefix}");
+  });
+
+  it("칩 줄 — 특수 칩은 글자 그대로 「전체」·「미션 없음」, 그룹 이름 「미션 거르개」, ⏳ 는 aria-label 「사람 대기」", () => {
+    expect([WORK_CHIPS.all, WORK_CHIPS.none, WORK_CHIPS.group, WORK_CHIPS.waiting]).toEqual(["전체", "미션 없음", "미션 거르개", "사람 대기"]);
+    const row = src("components/WorkChipRow.tsx");
+    expect(row).toMatch(/role="group" aria-label=\{WORK_CHIPS\.group\}/);
+    expect(row).toMatch(/aria-live="polite"/);
+    expect(row).toMatch(/aria-pressed=\{on\}/);
+  });
+
+  it("좁은 화면 탭 넷(§4.8) · 방 누적 비용의 한 줄 · 빈 방 안내가 표에서 나와 화면에 쓰인다", () => {
+    expect([ROOM_TABS.timeline, ROOM_TABS.board, ROOM_TABS.work, ROOM_TABS.room]).toEqual(["타임라인", "보드", "미션", "방"]);
+    expect(ROOM_PANEL.not_sum).toBe("미션 비용의 합이 아닙니다 — 미션 밖 대화 비용이 함께 듭니다");
+    expect(ROOM_CENTER.empty_title).toBe("이제 무엇을 하나요?");
+    for (const t of [ROOM_PANEL.not_sum, ROOM_CENTER.empty_title, WORK_PANEL.no_assignee, ROOM_NOTICES.audit, ROOM_LEFT.elsewhere]) expect(inPool("lib/wording.ts", t), t).toBe(true);
+    expect(src("components/RoomPanel.tsx")).toContain("{ROOM_PANEL.not_sum}");
+    expect(src("components/RoomParticipants.tsx")).toContain("ROOM_LEFT.elsewhere");
+  });
+});
+

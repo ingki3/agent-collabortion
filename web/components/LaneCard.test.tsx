@@ -203,3 +203,52 @@ describe("LaneCard — 이력 행의 「활동」(T-W16): 메시지 없는 턴�
     expect(screen.queryByTestId("task-activity-toggle")).toBeNull();
   });
 });
+
+// ── v0.19 방 화면(T-R2-W2) — 보드 순서·접힘 · 미션 라벨 · 대기 사유 · 예산 층 ──
+describe("LaneBoard — done·failed 는 기본 접힘(SCREEN §4.6 SCR-C I), 나머지 다섯 묶음은 항상 펼친다", () => {
+  const FOLDED = new Set<LaneStatus>(["done", "failed"]);
+  const all = ALL.map((s) => lane(s));
+  it("묶음 순서는 사람이 할 일 우선이고, 접힌 묶음은 수만 보이고 카드를 그리지 않는다", () => {
+    const onToggle = vi.fn();
+    render(<LaneBoard lanes={all} fold={{ statuses: FOLDED, open: new Set(), onToggle, labels: { open: "펼치기", close: "접기" } }} />);
+    const groups = [...document.querySelectorAll("[data-testid^=lane-group-]")].filter((g) => g.tagName === "SECTION").map((g) => g.getAttribute("data-status"));
+    expect(groups).toEqual(["blocked", "waiting_human", "paused", "running", "queued", "failed", "done"]);
+    for (const s of ["done", "failed"]) {
+      const g = screen.getByTestId(`lane-group-${s}`);
+      expect(g.getAttribute("data-folded")).toBe("true");
+      expect(g.querySelector("[data-testid=lane-card]")).toBeNull();
+      expect(g.querySelector(".board__count")!.textContent).toBe("1");
+    }
+    for (const s of ["blocked", "waiting_human", "paused", "running", "queued"]) {
+      expect(screen.getByTestId(`lane-group-${s}`).querySelector("[data-testid=lane-card]")).not.toBeNull();
+      expect(screen.queryByTestId(`lane-group-toggle-${s}`)).toBeNull();
+    }
+    fireEvent.click(screen.getByTestId("lane-group-toggle-done"));
+    expect(onToggle).toHaveBeenCalledWith("done");
+  });
+  it("펼친 묶음(open)은 카드를 그린다", () => {
+    render(<LaneBoard lanes={all} fold={{ statuses: FOLDED, open: new Set<LaneStatus>(["done"]), onToggle: vi.fn(), labels: { open: "펼치기", close: "접기" } }} />);
+    expect(screen.getByTestId("lane-group-done").querySelector("[data-testid=lane-card]")).not.toBeNull();
+    expect(screen.getByTestId("lane-group-toggle-done").getAttribute("aria-expanded")).toBe("true");
+  });
+  it("fold 가 없으면(옛 S7) 전부 펼친다", () => {
+    render(<LaneBoard lanes={all} />);
+    expect(screen.getByTestId("lane-group-done").querySelector("[data-testid=lane-card]")).not.toBeNull();
+  });
+  it("decorate — 미션 라벨 · queued 대기 사유(대기 순번 줄을 대신) · paused 예산 층", () => {
+    render(
+      <LaneBoard
+        lanes={[lane("queued", { queued_reason: "room_lanes", queue_position: 2 }), lane("paused", { paused_over_usd: 1.2 })]}
+        decorate={(l) => ({
+          workLabel: <span data-testid="deco-label">미션 「보고서」</span>,
+          queuedReason: l.status === "queued" ? "이 방의 동시 서브 미션 상한(5)에 닿았습니다" : undefined,
+          pausedLayer: l.status === "paused" ? { label: "⏸ 일시정지 · 할 일 예산", taskOnly: "이 승인은 이 할 일에만 적용됩니다" } : null,
+        })}
+      />,
+    );
+    expect(screen.getAllByTestId("deco-label")).toHaveLength(2);
+    expect(screen.getByTestId("lane-queued-reason").textContent).toBe("이 방의 동시 서브 미션 상한(5)에 닿았습니다");
+    expect(screen.getByTestId("lane-queued-reason").getAttribute("data-reason")).toBe("room_lanes");
+    expect(screen.getByTestId("lane-paused-layer").textContent).toBe("⏸ 일시정지 · 할 일 예산 · 이 승인은 이 할 일에만 적용됩니다");
+  });
+});

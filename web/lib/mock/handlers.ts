@@ -8,9 +8,10 @@ import type {
   SessionListItem, Task, TaskEvent, TestChat, TestChatTurn, TriggerPreview, TriggerTarget, User, Workdir,
   WorkspaceSettings, WorkspaceSettingsUpdate, Room, RoomListItem, RoomParticipantRef, RoomRole, RoomUpdate, WorkListItem,
 } from "@/lib/api/types";
+import type { components } from "@/lib/api/schema";
 import {
   allowedCommands, defaultSettings, emit, makeAgent, makeRuntime, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges,
-  sseFrame, store, stripUser, TEMPLATES, uuid, type MockInvite, type MockRoom, type MockTask, type Store, type Subscriber,
+  sseFrame, store, stripUser, TEMPLATES, uuid, type MockInvite, type MockRoom, type MockTask, type MockWork, type Store, type Subscriber,
 } from "./store";
 import { registerRoomDialogs } from "./rooms-dialogs";
 import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
@@ -377,7 +378,7 @@ function toListItem(s: Store, sess: Session): SessionListItem {
 on("GET", "/workspaces/{id}/sessions", (req, p) => {
   const s = store();
   requireMember(s, req, p.id);
-  const items = [...s.sessions.values()].filter((x) => x.workspace_id === p.id).sort((a, b) => (b.last_activity_at ?? b.created_at).localeCompare(a.last_activity_at ?? a.created_at)).map((x) => toListItem(s, x));
+  const items = [...s.sessions.values()].filter((x) => x.workspace_id === p.id && !s.roomOnly.has(x.id)).sort((a, b) => (b.last_activity_at ?? b.created_at).localeCompare(a.last_activity_at ?? a.created_at)).map((x) => toListItem(s, x));
   return ok({ items, next_cursor: null });
 });
 on("POST", "/workspaces/{id}/sessions", (req, p) => {
@@ -436,7 +437,8 @@ on("POST", "/workspaces/{id}/sessions", (req, p) => {
 on("GET", "/sessions/{id}", (req, p) => {
   const s = store();
   const sess = s.sessions.get(p.id);
-  if (!sess) throw notFoundP("session");
+  // 새 방의 뒷받침 세션은 옛 세션이 아니다 — 서버처럼 404(새 방에는 legacy_work_id 가 없다).
+  if (!sess || s.roomOnly.has(sess.id)) throw notFoundP("session");
   const { user } = requireMember(s, req, sess.workspace_id);
   return ok(sessionFor(s, sess, user.id));
 });
@@ -528,10 +530,18 @@ function sessionFor(s: Store, sess: Session, userId: string): Session {
 }
 
 // ── messages ──
+/** 메시지 시각은 단조 증가 — 같은 ms 에 여러 건이 오면 시간순(앵커·이전 대화 더 보기)이 uuid 순으로 섞인다. 서버는 DB now() + id 커서. */
+let lastMsgAt = 0;
+function nextMsgAt(): string {
+  lastMsgAt = Math.max(Date.now(), lastMsgAt + 1);
+  return new Date(lastMsgAt).toISOString();
+}
 function addMessage(s: Store, sess: Session, m: Partial<Message> & Pick<Message, "author_type" | "author_id" | "kind" | "content" | "mentions">): Message {
   const msg: Message = {
     id: uuid(), session_id: sess.id, parent_id: null, source_task_id: null, lane_id: null, state: "posted", reply_count: 0, is_note: false,
-    created_at: now(), edited_at: null, ...m,
+    // 귀속(FR-3.1.1) — 부른 쪽이 정하지 않으면 옛 세션의 방은 그 세션의 미션(서버 legacySessionWork), 새 방은 미션 없음.
+    work_id: legacyWorkOf(s, sess.id),
+    created_at: nextMsgAt(), edited_at: null, ...m,
   };
   s.messages.set(msg.id, msg);
   if (msg.parent_id) {
@@ -547,7 +557,7 @@ function addMessage(s: Store, sess: Session, m: Partial<Message> & Pick<Message,
   return msg;
 }
 /** lane 하나. `brief` 는 첫 트리거 메시지 발췌다(카드의 위임 요약). */
-function createLane(s: Store, sess: Session, agentId: string, brief: string | null): Lane {
+function createLane(s: Store, sess: Session, agentId: string, brief: string | null, workId: string | null = legacyWorkOf(s, sess.id)): Lane {
   const a = s.agents.get(agentId);
   const t = now();
   const lane: Lane = {
@@ -556,7 +566,7 @@ function createLane(s: Store, sess: Session, agentId: string, brief: string | nu
     delegated_from_task_id: null, has_runtime_session: false, brief, status: "queued", blocked_note: null,
     blocked_message_id: null, waiting_for: null, hitl_request_id: null, paused_over_usd: null, failure_kind: null,
     reentry_count: 0, current_activity: null, queue_position: null, actions: laneActions(sess, "queued"),
-    created_at: t, updated_at: t, finished_at: null,
+    created_at: t, updated_at: t, finished_at: null, work_id: workId, work_title: workTitleOf(s, workId), queued_reason: null,
   };
   s.lanes.set(lane.id, lane);
   emit(s, sess.workspace_id, "lane.updated", lane, sess.id);
@@ -614,8 +624,11 @@ function refreshCurrentTask(s: Store, lane: Lane) {
   const latest = [...s.tasks.values()].filter((t) => t.lane_id === lane.id).sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
   if (latest) lane.current_task = toTask(s, latest);
 }
-function createTask(s: Store, sess: Session, agentId: string, triggerId: string | null, opts: { laneId?: string; brief?: string | null; restartedFrom?: string | null } = {}): MockTask {
-  const laneId = opts.laneId ?? createLane(s, sess, agentId, opts.brief ?? null).id;
+function createTask(s: Store, sess: Session, agentId: string, triggerId: string | null, opts: { laneId?: string; brief?: string | null; restartedFrom?: string | null; workId?: string | null } = {}): MockTask {
+  const laneId = opts.laneId ?? createLane(s, sess, agentId, opts.brief ?? null, opts.workId === undefined ? legacyWorkOf(s, sess.id) : opts.workId).id;
+  // 줄기는 한 미션에만 매인다 — 아직 안 매인 줄기에 미션 메시지가 닿으면 그 미션에 매인다(서버 bindLaneWork).
+  const bound = s.lanes.get(laneId);
+  if (bound && opts.workId && !bound.work_id) { bound.work_id = opts.workId; bound.work_title = workTitleOf(s, opts.workId); }
   const t: MockTask = {
     id: uuid(), session_id: sess.id, agent_id: agentId, lane_id: laneId, status: "queued", attempt: 1,
     trigger_message_id: triggerId, created_at: now(), restarted_from_task_id: opts.restartedFrom ?? null,
@@ -715,7 +728,7 @@ function simulateRun(s: Store, sess: Session, task: MockTask, reply: string) {
   chunks.forEach((c, i) => { seen += c.length; const snapshot = reply.slice(0, seen); at(1500 + i * 60, () => emit(s, sess.workspace_id, "message.delta", { session_id: sess.id, task_id: task.id, agent_id: agent.id, text: snapshot }, sess.id, true)); });
   at(1500 + chunks.length * 60 + 100, () => {
     emit(s, sess.workspace_id, "agent.typing", { session_id: sess.id, agent_id: agent.id, typing: false }, sess.id, true);
-    const msg = addMessage(s, sess, { author_type: "agent", author_id: agent.id, author: { name: agent.name, avatar_url: null, role: agent.role }, kind: "text", content: reply, mentions: [], source_task_id: task.id, lane_id: task.lane_id });
+    const msg = addMessage(s, sess, { author_type: "agent", author_id: agent.id, author: { name: agent.name, avatar_url: null, role: agent.role }, kind: "text", content: reply, mentions: [], source_task_id: task.id, lane_id: task.lane_id, work_id: s.lanes.get(task.lane_id)?.work_id ?? null });
     pushEvent(s, sess, task, { class: "status", verb: "post_message", object_ref: msg.id, outcome: "ok", sentence: `${agent.name}가 메시지를 게시했다 → ok` });
     pushEvent(s, sess, task, { class: "usage", verb: "report", object_ref: null, outcome: "report", usage: { input_tokens: 1200, output_tokens: 180, cost_usd: 0.02 } });
     pushEvent(s, sess, task, { class: "runtime", verb: "turn_end", object_ref: null, outcome: "ok", sentence: `턴 종료 → ok` });
@@ -726,7 +739,9 @@ function simulateRun(s: Store, sess: Session, task: MockTask, reply: string) {
     if (cur) { cur.finished_at = task.finished_at; cur.outcome = "completed"; cur.cost_usd = 0.02; }
     setLaneStatus(s, sess, task.lane_id, { status: "done", current_activity: null, finished_at: task.finished_at, brief: reply.slice(0, 60) });
     sess.cost_usd = Math.round((sess.cost_usd + 0.02) * 100) / 100;
-    emit(s, sess.workspace_id, "cost.updated", { session_id: sess.id, cost_usd: sess.cost_usd, estimated: false }, sess.id);
+    // v0.2.0 — 방 누적과 미션 비용 두 수(계약 SSE 표). 옛 칸(session_id·cost_usd)도 R4 까지 함께.
+    const wid = s.lanes.get(task.lane_id)?.work_id ?? null;
+    emit(s, sess.workspace_id, "cost.updated", { session_id: sess.id, cost_usd: sess.cost_usd, estimated: false, room_id: sess.id, room_cost_usd: sess.cost_usd, ...(wid ? { work_id: wid, work_cost_usd: workCost(s, wid) } : {}) }, sess.id);
     emitParticipant(s, sess, agent.id, null);
   });
 }
@@ -741,14 +756,29 @@ on("GET", "/sessions/{id}/messages", (req, p) => {
   requireMember(s, req, sess.workspace_id);
   const thread = req.query.get("thread");
   const includeReplies = req.query.get("include_replies") === "true";
-  let items = [...s.messages.values()].filter((m) => m.session_id === sess.id);
+  let items = [...s.messages.values()].filter((m) => m.session_id === sess.id).map((m) => ({ ...m, work_id: msgWork(s, m) }));
   if (thread) items = items.filter((m) => m.id === thread || m.parent_id === thread);
   else if (!includeReplies) items = items.filter((m) => !m.parent_id);
-  items.sort((a, b) => a.created_at.localeCompare(b.created_at));
-  const limit = Number(req.query.get("limit") ?? 50);
+  // v0.2.0 — 미션 칩 거르기(`work_id` · `no_work`)와 앵커(`around_message_id`, 위아래 25건).
+  const workId = req.query.get("work_id");
+  if (workId) items = items.filter((m) => m.work_id === workId);
+  else if (req.query.get("no_work") === "true") items = items.filter((m) => m.work_id == null);
+  items.sort(byTime);
+  const limit = Math.min(Math.max(Number(req.query.get("limit") ?? 50) || 50, 1), 200);
   const total = items.length;
-  items = items.slice(-limit);
-  return ok({ items, before_cursor: null, after_cursor: items.at(-1)?.created_at ?? null, has_more_before: total > items.length, has_more_after: false, total: thread ? total : null });
+  const before = req.query.get("before");
+  const around = req.query.get("around_message_id");
+  let lo = Math.max(0, total - limit);
+  let hi = total;
+  if (around) {
+    const at = items.findIndex((m) => m.id === around);
+    if (at >= 0) { lo = Math.max(0, at - 25); hi = Math.min(total, at + 26); }
+  } else if (before) {
+    const at = items.findIndex((m) => m.id === before);
+    if (at >= 0) { hi = at; lo = Math.max(0, at - limit); }
+  }
+  items = items.slice(lo, hi);
+  return ok({ items, before_cursor: items[0]?.id ?? null, after_cursor: items.at(-1)?.id ?? null, has_more_before: lo > 0, has_more_after: hi < total, total: thread ? total : null });
 });
 /**
  * 라우터(FR-3.3) — 규칙 1(`/note`) · 2(명시 멘션) · 3(`@all`·사람만 멘션 → 트리거 없음) · 6(그 외 → assignee).
@@ -831,15 +861,18 @@ on("POST", "/sessions/{id}/messages/preview", (req, p) => {
   const sess = s.sessions.get(p.id);
   if (!sess) throw notFoundP("session");
   requireMember(s, req, sess.workspace_id);
-  const b = body<{ content?: string; parent_id?: string | null; new_lane?: boolean; suppress_agent_ids?: string[] }>(req);
+  const b = body<{ content?: string; parent_id?: string | null; new_lane?: boolean; suppress_agent_ids?: string[]; work_id?: string | null }>(req);
   const content = b.content ?? "";
-  return ok(routeMessage(s, sess, {
+  const out = routeMessage(s, sess, {
     content,
     mentions: parseMentions(content),
     parentId: b.parent_id ?? null,
     newLane: b.new_lane ?? false,
     suppress: new Set(b.suppress_agent_ids ?? []),
-  }));
+  });
+  // v0.2.0 — 이 메시지가 들어갈 미션(FR-3.1.1). 게시와 같은 함수(`attribute`)로 판정한다.
+  const a = attribute(s, sess, b, out);
+  return ok({ ...out, work: a.workId ? { id: a.workId, title: workTitleOf(s, a.workId) ?? "" } : null, work_source: a.source });
 });
 
 on("POST", "/sessions/{id}/messages", (req, p) => {
@@ -850,9 +883,10 @@ on("POST", "/sessions/{id}/messages", (req, p) => {
   const key = req.headers.get("idempotency-key");
   if (!key) throw new Problem(422, "idempotency_key_required", W.idempotency_key_required, { errors: [{ field: "Idempotency-Key", message: "required" }] });
   if (s.idem.has(key)) return ok(s.idem.get(key), 201, { "Idempotent-Replayed": "true" });
-  const b = body<{ content?: string; parent_id?: string | null; new_lane?: boolean; suppress_agent_ids?: string[] }>(req);
+  const b = body<{ content?: string; parent_id?: string | null; new_lane?: boolean; suppress_agent_ids?: string[]; work_id?: string | null }>(req);
   if (!b.content?.trim()) throw validation([{ field: "content", message: W.content_required }]);
-  if (sess.status === "completed" || sess.status === "cancelled") throw new Problem(409, "invalid_transition", "종료된 세션에는 게시할 수 없습니다");
+  if (s.roomOnly.has(sess.id)) roomGate(s, req, sess.id, "post");
+  else if (sess.status === "completed" || sess.status === "cancelled") throw new Problem(409, "invalid_transition", "종료된 세션에는 게시할 수 없습니다");
   let parentId = b.parent_id ?? null;
   if (parentId) {
     const parent = s.messages.get(parentId);
@@ -863,7 +897,8 @@ on("POST", "/sessions/{id}/messages", (req, p) => {
   const isNote = b.content.startsWith("/note ");
   const suppress = new Set(b.suppress_agent_ids ?? []);
   const preview = routeMessage(s, sess, { content: b.content, mentions, parentId, newLane: b.new_lane ?? false, suppress });
-  const msg = addMessage(s, sess, { author_type: "user", author_id: user.id, author: { name: user.display_name, avatar_url: null }, kind: "text", content: b.content, mentions, parent_id: parentId, is_note: isNote });
+  const attr = attribute(s, sess, { ...b, parent_id: parentId }, preview);
+  const msg = addMessage(s, sess, { author_type: "user", author_id: user.id, author: { name: user.display_name, avatar_url: null }, kind: "text", content: b.content, mentions, parent_id: parentId, is_note: isNote, work_id: attr.workId });
 
   const warnings = [...preview.warnings];
   for (const id of suppress) {
@@ -871,8 +906,9 @@ on("POST", "/sessions/{id}/messages", (req, p) => {
     if (a) warnings.push({ code: "suppressed", message: `@${a.name} 트리거 억제됨(FR-3.6)`, agent_id: a.id });
   }
   const triggers: { agent_id: string; task_id: string; lane_id: string; coalesced: boolean; deferred_until: null }[] = [];
-  // 세션이 paused 면 lane·task 는 만들되 dispatch 하지 않는다(C3′ · U15-9)
-  const dispatchable = sess.status === "active";
+  // 세션이 paused 면 lane·task 는 만들되 dispatch 하지 않는다(C3′ · U15-9). 방이 멈췄거나 매인 미션이 일시정지면 큐에 남는다(서버 claim 게이트).
+  const attrWork = attr.workId ? workView(s, attr.workId) : null;
+  const dispatchable = (s.roomOnly.has(sess.id) || sess.status === "active") && !s.rooms.get(sess.id)?.blocked_reason && (!attrWork || attrWork.status === "active");
   for (const t of preview.triggers) {
     const queued = [...s.tasks.values()].find((x) => x.session_id === sess.id && x.agent_id === t.agent_id && x.status === "queued");
     if (queued) { triggers.push({ agent_id: t.agent_id, task_id: queued.id, lane_id: queued.lane_id, coalesced: true, deferred_until: null }); continue; }
@@ -882,7 +918,7 @@ on("POST", "/sessions/{id}/messages", (req, p) => {
       const lane = s.lanes.get(laneId)!;
       setLaneStatus(s, sess, laneId, { status: "queued", reentry_count: lane.reentry_count + 1, finished_at: null, brief });
     }
-    const task = createTask(s, sess, t.agent_id, msg.id, { laneId, brief });
+    const task = createTask(s, sess, t.agent_id, msg.id, { laneId, brief, workId: attr.workId });
     triggers.push({ agent_id: t.agent_id, task_id: task.id, lane_id: task.lane_id, coalesced: false, deferred_until: null });
     const agent = s.agents.get(t.agent_id)!;
     if (dispatchable) simulateRun(s, sess, task, `안녕하세요, ${agent.name}입니다. "${brief}" 잘 받았습니다. 바로 진행하겠습니다.`);
@@ -952,7 +988,8 @@ on("GET", "/sessions/{id}/lanes", (req, p) => {
   let items = [...s.lanes.values()].filter((l) => l.session_id === sess.id);
   if (filter?.length) items = items.filter((l) => filter.includes(l.status));
   items.sort((a, b) => a.created_at.localeCompare(b.created_at));
-  return ok(items.map((l) => laneFor(sess, l, user.id)));
+  // v0.2.0 — 매인 미션(`work_id`·`work_title`). 옛 시드의 줄기는 칸이 없으니 방의 기본(옛 세션의 미션)으로 읽는다.
+  return ok(items.map((l) => { const wid = laneWork(s, l); return { ...laneFor(sess, l, user.id), work_id: wid, work_title: workTitleOf(s, wid), queued_reason: l.queued_reason ?? null }; }));
 });
 on("GET", "/lanes/{id}", (req, p) => {
   const s = store();
@@ -1795,6 +1832,8 @@ function purgeRoomRows(s: Store, id: string) {
   for (const [k, h] of s.hitls) if (h.session_id === id) s.hitls.delete(k);
   for (const [k, it] of s.inbox) if (it.session_id === id) s.inbox.delete(k);
   for (const k of [...s.roomReads.keys()]) if (k.startsWith(`${id}:`)) s.roomReads.delete(k);
+  for (const [k, w] of s.works) if (w.room_id === id) s.works.delete(k);
+  s.roomOnly.delete(id);
   s.sessions.delete(id);
   s.rooms.delete(id);
 }
@@ -2849,7 +2888,7 @@ const ROOM_CAPS: [NonNullable<Room["my_capabilities"]>[number], RoomAct][] = [
 /** 옛 세션마다 방 행을 채우고, 지워진 세션의 방을 뺀다 — 읽을 때마다(목은 세션을 여러 곳에서 만든다). */
 function syncRooms(s: Store) {
   for (const sess of s.sessions.values()) {
-    if (s.rooms.has(sess.id)) continue;
+    if (s.rooms.has(sess.id) || s.roomOnly.has(sess.id)) continue;
     const people: MockRoom["people"] = [{ user_id: sess.director_user_id, role: "owner", joined_at: sess.created_at }];
     if (sess.deputy_director_user_id && sess.deputy_director_user_id !== sess.director_user_id) people.push({ user_id: sess.deputy_director_user_id, role: "deputy", joined_at: sess.created_at });
     s.rooms.set(sess.id, {
@@ -2888,7 +2927,7 @@ function roomUnread(s: Store, r: MockRoom, userId: string): number {
   return roomMessages(s, r.id).filter((m) => m.author_id !== userId && (!marker || byTime(m, marker) > 0)).length;
 }
 const OPEN_WORK = new Set<Session["status"]>(["active", "paused", "completing"]);
-const roomActiveWorks = (s: Store, r: MockRoom) => (s.sessions.get(r.id) && OPEN_WORK.has(s.sessions.get(r.id)!.status) ? 1 : 0);
+const roomActiveWorks = (s: Store, r: MockRoom) => roomWorks(s, r).filter((w) => OPEN_WORK.has(w.status)).length;
 /** 「내가 답할 것만」 — 내가 승인자인 열린 확인 요청 · 내가 Director(deputy)인 미션의 막힘·실패 서브 미션(서버 att 절). */
 function roomAttention(s: Store, r: MockRoom, userId: string): RoomListItem["attention"] {
   const sess = s.sessions.get(r.id);
@@ -2987,6 +3026,7 @@ on("POST", "/workspaces/{id}/rooms", (req, p) => {
     blocked_reason: null, blocked_detail: null, people: [{ user_id: user.id, role: "owner", joined_at: t }], legacy: false, created_by: user.id, created_at: t, updated_at: t,
   };
   s.rooms.set(r.id, r);
+  makeBackingSession(s, r, user);
   emitRoom(s, r);
   const out = toRoom(s, r, user.id);
   if (key) s.idem.set(`room:${key}`, out);
@@ -3055,19 +3095,275 @@ on("POST", "/rooms/{id}/read", (req, p) => {
   emit(s, room.workspace_id, "room.unread", { room_id: room.id, unread_count: unread, last_read_message_id: s.roomReads.get(k) }, room.id, false, user.id);
   return ok({ room_id: room.id, unread_count: unread });
 });
-/** listWorks 최소 — 옛 세션 하나가 이 방의 미션 하나다(미션 id = 세션 id). 새 방은 미션이 없다. */
+// ── 미션(v0.19, T-R2-W2) — listWorks · getWork · createWork · pause/resume/complete/cancel · 귀속(FR-3.1.1) ──
+//
+// 미션은 두 곳에 산다: **옛 세션의 미션**(미션 id = 세션 id, 세션 칸에서 읽는다 — 서버 0025 의 legacy_work_id)과 `createWork` 로 연 미션(`s.works`).
+// 새 방(`createRoom`)은 같은 id 의 **뒷받침 세션**(`s.roomOnly`)을 두어 `/sessions/{방 id}/…` 핸들러가 그대로 돈다 — 그 세션은 미션이 아니다.
+
+type WorkOut = components["schemas"]["Work"];
+const CLOSED_WORK = new Set(["completed", "cancelled"]);
+/** 옛 세션의 방이면 그 세션의 미션 id, 새 방이면 null — 서버 legacySessionWork 의 목. */
+function legacyWorkOf(s: Store, roomId: string): string | null {
+  return s.sessions.has(roomId) && !s.roomOnly.has(roomId) ? roomId : null;
+}
+/** 메시지의 귀속 — 옛 시드는 칸이 없으니 방의 기본(옛 세션의 미션)으로 읽는다. */
+function msgWork(s: Store, m: Message): string | null {
+  return m.work_id !== undefined ? m.work_id : legacyWorkOf(s, m.session_id);
+}
+function laneWork(s: Store, l: Lane): string | null {
+  return l.work_id !== undefined ? l.work_id : legacyWorkOf(s, l.session_id);
+}
+/** 새 방의 뒷받침 세션 — 참여자·메시지·서브 미션·비용이 여기 쌓인다. `getSession` 은 404. */
+function makeBackingSession(s: Store, r: MockRoom, user: User) {
+  const t = r.created_at;
+  const sess: Session = {
+    id: r.id, workspace_id: r.workspace_id, title: r.name, goal: "", acceptance_criteria: [], director_user_id: user.id, director: stripUser(user),
+    deputy_director_user_id: null, assignee_agent_id: null, runtime_id: null, isolation: { kind: "none", remote_url: null },
+    completion_condition: DEFAULT_CONDITION, completion_progress: { met: 0, total: 0, satisfied: false, human_gate: true, conditions: [] },
+    limits: { budget_usd: r.limits.budget_usd ?? null, budget_tokens: null, time_limit: r.limits.time_limit ?? null, max_tasks: null, max_parallel_lanes: r.limits.max_parallel_lanes ?? 5 },
+    autonomy: r.autonomy, status: "active", paused_reason: null, cost_usd: 0, cost_estimated: false, participants: [], context: [], my_role: "director",
+    created_by: user.id, created_at: t, updated_at: t, started_at: t, finished_at: null, last_activity_at: null,
+  };
+  s.sessions.set(r.id, sess);
+  s.roomOnly.add(r.id);
+}
+/** 미션 한 벌을 한 모양으로 — 옛 세션의 미션은 세션 칸에서, 새 미션은 `s.works` 에서. */
+function workView(s: Store, id: string): (MockWork & { legacy: boolean }) | null {
+  const w = s.works.get(id);
+  if (w) return { ...w, cost_usd: workCost(s, id), legacy: false };
+  const sess = s.sessions.get(id);
+  if (!sess || s.roomOnly.has(id)) return null;
+  const reason = sess.paused_reason === "budget" || sess.paused_reason === "time" || sess.paused_reason === "director" ? sess.paused_reason : null;
+  return {
+    id: sess.id, room_id: sess.id, title: sess.title, goal: sess.goal, acceptance_criteria: sess.acceptance_criteria, director_user_id: sess.director_user_id,
+    deputy_user_id: sess.deputy_director_user_id ?? null, assignee_agent_id: sess.assignee_agent_id, completion_condition: sess.completion_condition,
+    completion_progress: sess.completion_progress, limits: { budget_usd: sess.limits.budget_usd ?? null, budget_tokens: sess.limits.budget_tokens ?? null, time_limit: sess.limits.time_limit ?? null, max_tasks: sess.limits.max_tasks ?? null },
+    autonomy: sess.autonomy, status: sess.status, paused_reason: reason, paused_detail: reason ? sess.paused_detail : undefined, cost_usd: sess.cost_usd, cost_estimated: sess.cost_estimated,
+    summary_message_id: null, opened_from_message_id: null, created_by: sess.created_by, created_at: sess.created_at, updated_at: sess.updated_at,
+    started_at: sess.started_at ?? null, finished_at: sess.finished_at ?? null, last_activity_at: sess.last_activity_at ?? null, legacy: true,
+  };
+}
+function workTitleOf(s: Store, id: string | null): string | null {
+  return id ? workView(s, id)?.title ?? null : null;
+}
+/** 미션 비용 — 그 미션에 매인 서브 미션의 할 일 비용 합(방 누적과 다른 수, §4.6). 옛 세션의 미션은 세션 비용. */
+function workCost(s: Store, id: string): number {
+  if (!s.works.has(id)) return s.sessions.get(id)?.cost_usd ?? 0;
+  let c = 0;
+  for (const t of s.tasks.values()) {
+    const l = s.lanes.get(t.lane_id);
+    if (l && laneWork(s, l) === id) c += t.cost_usd ?? 0;
+  }
+  return Math.round(c * 100) / 100;
+}
+function roomWorks(s: Store, r: { id: string }): (MockWork & { legacy: boolean })[] {
+  const out: (MockWork & { legacy: boolean })[] = [];
+  const legacy = legacyWorkOf(s, r.id);
+  if (legacy) out.push(workView(s, legacy)!);
+  for (const w of s.works.values()) if (w.room_id === r.id) out.push(workView(s, w.id)!);
+  return out;
+}
+function workWaiting(s: Store, w: { id: string; legacy: boolean }): boolean {
+  return [...s.hitls.values()].some((h) => {
+    if (h.status !== "open") return false;
+    if (w.legacy) return h.session_id === w.id;
+    const l = h.lane_id ? s.lanes.get(h.lane_id) : undefined;
+    return !!l && laneWork(s, l) === w.id;
+  });
+}
+function toWorkListItem(s: Store, w: MockWork & { legacy: boolean }): WorkListItem {
+  const director = s.users.get(w.director_user_id);
+  return {
+    id: w.id, room_id: w.room_id, title: w.title, goal: w.goal, status: w.status, paused_reason: w.paused_reason, waiting_human: workWaiting(s, w),
+    director: director ? stripUser(director) : { id: w.director_user_id, email: "", display_name: "", avatar_url: null, created_at: w.created_at },
+    assignee_agent_id: w.assignee_agent_id, completion_progress: { met: w.completion_progress.met, total: w.completion_progress.total },
+    cost_usd: w.cost_usd, budget_usd: w.limits.budget_usd ?? null, last_activity_at: w.last_activity_at ?? null, finished_at: w.finished_at ?? null,
+  };
+}
+function toWork(s: Store, w: MockWork & { legacy: boolean }, userId: string): WorkOut {
+  const { legacy: _l, ...rest } = w;
+  const d = s.users.get(w.director_user_id);
+  const dep = w.deputy_user_id ? s.users.get(w.deputy_user_id) : undefined;
+  return {
+    ...rest, director: d ? stripUser(d) : undefined, deputy: dep ? stripUser(dep) : undefined,
+    my_work_role: w.director_user_id === userId ? "director" : w.deputy_user_id === userId ? "deputy" : "member",
+  };
+}
+/** 미션을 찾고 그 방을 볼 수 있는지 본다 — 없거나 방을 못 보면 404(서버 workGate). */
+function workGate(s: Store, req: Req, workId: string) {
+  const w = workView(s, workId);
+  if (!w) throw notFoundP("work");
+  const g = roomGate(s, req, w.room_id, "view");
+  return { w, ...g };
+}
+function emitWork(s: Store, w: MockWork & { legacy: boolean }, type: "work.created" | "work.updated") {
+  const r = s.rooms.get(w.room_id);
+  if (r) emit(s, r.workspace_id, type, toWorkListItem(s, w), w.room_id);
+}
+/** 미션의 상태를 바꾼다 — 옛 세션의 미션이면 세션 칸을(옛 화면·S5 가 같은 행을 본다), 새 미션이면 `s.works` 를. */
+function setWork(s: Store, id: string, patch: Partial<MockWork>) {
+  const t = now();
+  const w = s.works.get(id);
+  if (w) Object.assign(w, patch, { updated_at: t });
+  else {
+    const sess = s.sessions.get(id);
+    if (!sess) return;
+    if (patch.status) sess.status = patch.status;
+    if (patch.paused_reason !== undefined) sess.paused_reason = patch.paused_reason;
+    if (patch.finished_at !== undefined) sess.finished_at = patch.finished_at;
+    sess.updated_at = t;
+    emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status, paused_reason: sess.paused_reason }, sess.id);
+  }
+  const v = workView(s, id)!;
+  if (patch.status && CLOSED_WORK.has(patch.status)) {
+    const r = s.rooms.get(v.room_id);
+    if (r) emit(s, r.workspace_id, "work.closed", { work_id: id, room_id: v.room_id, status: patch.status, summary_message_id: v.summary_message_id ?? null }, v.room_id);
+  }
+  emitWork(s, v, "work.updated");
+}
+/**
+ * 귀속(FR-3.1.1) — 서버 `router.attribute` 순서 그대로: 1 작성창에서 고른 미션(`work_id` 값) · 2 스레드의 (열린) 미션 · 3 멘션 대상의
+ * 실행 중 서브 미션의 (열린) 미션 · 옛 세션 규칙(키가 **없을** 때만) · 4 미션 없음. `work_id: null` 은 "미션 없음을 골랐다" 가 아니라
+ * "규칙 2~4 로" 다(서버 legacySessionWork 주석).
+ */
+function attribute(s: Store, sess: Session, b: { work_id?: string | null; parent_id?: string | null }, dec: TriggerPreview): { workId: string | null; source: components["schemas"]["WorkSource"] } {
+  const open = (id: string | null | undefined) => (id ? workView(s, id) : null);
+  if (b.work_id) {
+    const w = open(b.work_id);
+    if (!w || w.room_id !== sess.id) throw validation([{ field: "work_id", code: "not_in_room", message: W.work_not_in_room }]);
+    if (CLOSED_WORK.has(w.status)) throw validation([{ field: "work_id", code: "closed", message: W.work_closed_post }]);
+    return { workId: w.id, source: "chosen" };
+  }
+  if (b.parent_id) {
+    const parent = s.messages.get(b.parent_id);
+    const w = parent ? open(msgWork(s, parent)) : null;
+    if (w && !CLOSED_WORK.has(w.status)) return { workId: w.id, source: "thread" };
+  }
+  for (const t of dec.triggers) {
+    if (t.rule !== 2) continue;
+    const running = [...s.lanes.values()].filter((l) => l.session_id === sess.id && l.agent_id === t.agent_id && l.status === "running")
+      .sort((a, c) => c.updated_at.localeCompare(a.updated_at));
+    for (const l of running) {
+      const w = open(laneWork(s, l));
+      if (w && !CLOSED_WORK.has(w.status)) return { workId: w.id, source: "running_lane" };
+    }
+  }
+  if (!("work_id" in b)) {
+    const legacy = legacyWorkOf(s, sess.id);
+    if (legacy) return { workId: legacy, source: "chosen" };
+  }
+  return { workId: null, source: "none" };
+}
+
 on("GET", "/rooms/{id}/works", (req, p) => {
   const s = store();
   const { room } = roomGate(s, req, p.id, "view");
-  const sess = s.sessions.get(room.id);
   const want = req.query.get("status")?.split(",").filter(Boolean);
-  const items: WorkListItem[] = sess && (!want || want.includes(sess.status)) ? [{
-    id: sess.id, room_id: room.id, title: sess.title, goal: sess.goal, status: sess.status, paused_reason: null,
-    waiting_human: [...s.hitls.values()].some((h) => h.session_id === sess.id && h.status === "open"), director: sess.director!,
-    assignee_agent_id: sess.assignee_agent_id, completion_progress: { met: sess.completion_progress.met, total: sess.completion_progress.total },
-    cost_usd: sess.cost_usd, budget_usd: sess.limits.budget_usd ?? null, last_activity_at: sess.last_activity_at ?? null, finished_at: sess.finished_at ?? null,
-  }] : [];
+  const items = roomWorks(s, room)
+    .filter((w) => !want || want.includes(w.status))
+    // 서버 sessions.ListWorks 와 같은 순서 — created_at DESC, id DESC.
+    .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
+    .map((w) => toWorkListItem(s, w));
   return ok({ items, next_cursor: null });
+});
+on("GET", "/works/{id}", (req, p) => {
+  const s = store();
+  const { w, user } = workGate(s, req, p.id);
+  return ok(toWork(s, w, user.id));
+});
+// createWork 는 T-R2-W3 의 ./rooms-dialogs.ts(서버 openWork 순서 · 동시 상한 · 원 메시지 귀속)가 받는다 — 같은 `s.works` 에 쓴다.
+function requireWorkDirector(w: MockWork, userId: string) {
+  if (w.director_user_id !== userId) throw new Problem(403, "director_required", W.work_director_required);
+}
+on("POST", "/works/{id}/pause", (req, p) => {
+  const s = store();
+  const { w, user } = workGate(s, req, p.id);
+  requireWorkDirector(w, user.id);
+  if (w.status !== "active") throw new Problem(409, "invalid_transition", withStatus(W.work_pause_transition, w.status));
+  setWork(s, w.id, { status: "paused", paused_reason: "director" });
+  return ok(toWork(s, workView(s, w.id)!, user.id));
+});
+on("POST", "/works/{id}/resume", (req, p) => {
+  const s = store();
+  const { w, room, user } = workGate(s, req, p.id);
+  requireWorkDirector(w, user.id);
+  if (room.blocked_reason) throw new Problem(409, "room_blocked", W.work_resume_room_blocked);
+  if (w.status !== "paused") throw new Problem(409, "invalid_transition", withStatus(W.work_resume_transition, w.status));
+  setWork(s, w.id, { status: "active", paused_reason: null });
+  return ok(toWork(s, workView(s, w.id)!, user.id));
+});
+on("POST", "/works/{id}/complete", (req, p) => {
+  const s = store();
+  const { w, user } = workGate(s, req, p.id);
+  requireWorkDirector(w, user.id);
+  if (CLOSED_WORK.has(w.status)) throw new Problem(409, "invalid_transition", withStatus(W.work_cancel_transition, w.status));
+  setWork(s, w.id, { status: "completed", finished_at: now() });
+  return ok(toWork(s, workView(s, w.id)!, user.id));
+});
+on("POST", "/works/{id}/cancel", (req, p) => {
+  const s = store();
+  const { w, user } = workGate(s, req, p.id);
+  requireWorkDirector(w, user.id);
+  if (w.status !== "active" && w.status !== "paused") throw new Problem(409, "invalid_transition", withStatus(W.work_cancel_transition, w.status));
+  setWork(s, w.id, { status: "cancelled", finished_at: now() });
+  return ok(toWork(s, workView(s, w.id)!, user.id));
+});
+
+// ── 방 참여자 · 멈춤 · 여기까지 정리(T-R2-W2) ──
+// listRoomParticipants 는 T-R2-W3 의 ./rooms-dialogs.ts 가 받는다(사람 + 에이전트 한 목록 · 「다른 방에서 작업 중」 근거 상태 포함).
+const BLOCKED_TEXT: Record<NonNullable<MockRoom["blocked_reason"]>, string> = {
+  budget: W.room_blocked_budget, loop: W.room_blocked_loop, runtime_offline: W.room_blocked_runtime_offline, manual: W.room_blocked_manual,
+};
+/** 방 멈춤(`manual`) — 서버 BlockRoom: 이미 멈췄으면 409, 진행 중 턴은 FR-3.4 「중단」, 시스템 메시지 한 줄, `room.updated`. */
+on("POST", "/rooms/{id}/block", (req, p) => {
+  const s = store();
+  const { room, user } = roomGate(s, req, p.id, "block");
+  if (room.blocked_reason) throw new Problem(409, "already_blocked", W.room_already_blocked + BLOCKED_TEXT[room.blocked_reason]);
+  const sess = s.sessions.get(room.id);
+  const stopped = roomWorks(s, room).filter((w) => w.status === "active").length;
+  room.blocked_reason = "manual";
+  room.blocked_detail = { reason: "manual", works_stopped: stopped, blocked_by_user: stripUser(user), blocked_at: now(), approver: null, delegate_at: null };
+  room.updated_at = now();
+  if (sess) {
+    // FR-3.4 「중단」 — 진행 중 턴을 끝낸다(할 일도 함께 — 에이전트 상태 파생이 할 일에서 온다).
+    for (const l of [...s.lanes.values()].filter((x) => x.session_id === room.id && x.status === "running")) {
+      for (const t of s.tasks.values()) if (t.lane_id === l.id && t.status === "running") { t.status = "failed"; t.failure_kind = "cancelled"; t.finished_at = now(); }
+      setLaneStatus(s, sess, l.id, { status: "failed", failure_kind: "cancelled", finished_at: now() });
+    }
+    addMessage(s, sess, { author_type: "system", author_id: null, kind: "system", content: user.display_name + W.room_block_system, mentions: [], work_id: null });
+  }
+  emitRoom(s, room);
+  return ok(toRoom(s, room, user.id));
+});
+on("POST", "/rooms/{id}/unblock", (req, p) => {
+  const s = store();
+  const { room, user } = roomGate(s, req, p.id, "block");
+  if (!room.blocked_reason) throw new Problem(409, "not_blocked", W.room_not_blocked);
+  if (room.blocked_reason !== "manual") throw new Problem(409, "not_manual", BLOCKED_TEXT[room.blocked_reason] + W.room_not_manual_tail);
+  room.blocked_reason = null;
+  room.blocked_detail = null;
+  room.updated_at = now();
+  const sess = s.sessions.get(room.id);
+  if (sess) addMessage(s, sess, { author_type: "system", author_id: null, kind: "system", content: user.display_name + W.room_unblock_system, mentions: [], work_id: null });
+  emitRoom(s, room);
+  return ok(toRoom(s, room, user.id));
+});
+/** 여기까지 정리(FR-2.5) — 범위(since 또는 from·to)를 요약 메시지(`kind: summary`)에 싣는다. 본문은 목의 한 줄(서버는 범위 본문을 만든다). */
+on("POST", "/rooms/{id}/summaries", (req, p) => {
+  const s = store();
+  const { room } = roomGate(s, req, p.id, "summarize");
+  const b = body<{ since?: string; from_message_id?: string; to_message_id?: string }>(req);
+  const byIds = !!(b.from_message_id || b.to_message_id);
+  if (b.since && byIds) throw validation([{ field: "since", code: "exclusive", message: W.summary_range_exclusive }]);
+  if (!b.since && !byIds) throw validation([{ field: "since", code: "required", message: W.summary_range_required }]);
+  const inRange = roomMessages(s, room.id).filter((m) => m.kind !== "summary" && (!b.since || m.created_at >= b.since)).sort(byTime);
+  if (inRange.length === 0) throw validation([{ field: "since", code: "empty_range", message: W.summary_range_empty }]);
+  const sess = s.sessions.get(room.id)!;
+  const msg = addMessage(s, sess, {
+    author_type: "system", author_id: null, kind: "summary", mentions: [], work_id: null,
+    content: `여기까지 정리 — 메시지 ${inRange.length}건(목 요약)`,
+  });
+  return ok(msg, 202);
 });
 /**
  * 목 전용 — S5 스크린샷·테스트가 서버 경로 없이 방의 모양을 만든다: 멈춤 사유 · 보관 · 공개 범위 · 설명 · 안 읽음(다른 사람이 쓴 메시지 N개) ·
@@ -3078,8 +3374,28 @@ on("POST", "/__mock/rooms/{id}/seed", (req, p) => {
   syncRooms(s);
   const room = s.rooms.get(p.id);
   if (!room) throw notFoundP("room");
-  const b = body<{ blocked_reason?: MockRoom["blocked_reason"]; status?: MockRoom["status"]; visibility?: MockRoom["visibility"]; description?: string; unread?: number; people?: { email: string; role: RoomRole }[]; drop_user_email?: string }>(req);
-  if (b.blocked_reason !== undefined) room.blocked_reason = b.blocked_reason;
+  const b = body<{
+    blocked_reason?: MockRoom["blocked_reason"]; blocked_detail?: { approver_email?: string; blocked_by_email?: string; delegate_in_min?: number; budget_usd?: number; cost_usd?: number };
+    status?: MockRoom["status"]; visibility?: MockRoom["visibility"]; description?: string; unread?: number; people?: { email: string; role: RoomRole }[]; drop_user_email?: string;
+    /** T-R2-W2 — 방 화면 스크린샷용: 참여 에이전트 · 미션 · 미션에 매인 메시지·서브 미션. `work` 는 `works` 의 순번(null = 미션 없음). */
+    agents?: string[]; works?: { title: string; goal?: string; status?: MockWork["status"]; paused_reason?: MockWork["paused_reason"]; budget_usd?: number; cost_usd?: number; director_email?: string }[];
+    messages?: { content: string; work?: number | null; agent?: string }[];
+    lanes?: { agent: string; status: Lane["status"]; work?: number | null; brief?: string; queued_reason?: Lane["queued_reason"]; paused_over_usd?: number; failure_kind?: Lane["failure_kind"] }[];
+  }>(req);
+  const byEmail = (e?: string) => (e ? [...s.users.values()].find((x) => x.email === e) : undefined);
+  if (b.blocked_reason !== undefined) {
+    room.blocked_reason = b.blocked_reason;
+    const d = b.blocked_detail ?? {};
+    const approver = byEmail(d.approver_email) ?? s.users.get(room.owner_user_id);
+    const by = byEmail(d.blocked_by_email) ?? s.users.get(room.owner_user_id);
+    room.blocked_detail = b.blocked_reason ? {
+      reason: b.blocked_reason, works_stopped: roomWorks(s, room).filter((w) => OPEN_WORK.has(w.status)).length, blocked_at: now(),
+      blocked_by_user: b.blocked_reason === "manual" && by ? stripUser(by) : null,
+      approver: b.blocked_reason !== "manual" && approver ? stripUser(approver) : null,
+      delegate_at: d.delegate_in_min != null ? new Date(Date.now() + d.delegate_in_min * 60000).toISOString() : null,
+      budget_usd: d.budget_usd ?? null, cost_usd: d.cost_usd ?? null,
+    } : null;
+  }
   if (b.status) room.status = b.status;
   if (b.visibility) room.visibility = b.visibility;
   if (b.description !== undefined) room.description = b.description;
@@ -3096,7 +3412,63 @@ on("POST", "/__mock/rooms/{id}/seed", (req, p) => {
     };
     s.messages.set(m.id, m);
   }
+  const sess = s.sessions.get(room.id);
+  for (const name of b.agents ?? []) {
+    const a = [...s.agents.values()].find((x) => x.workspace_id === room.workspace_id && x.name === name);
+    if (!a || !sess || (sess.participants ?? []).some((x) => x.agent_id === a.id)) continue;
+    (sess.participants ??= []).push({
+      session_id: sess.id, agent_id: a.id, agent: { id: a.id, name: a.name, role: a.role, role_description: a.role_description, avatar_url: null, respond_to: a.respond_to },
+      profile: a.profiles[0], status: "idle", status_note: null, is_assignee: false, mention_link: `[@${a.name}](mention://agent/${a.id})`, warnings: [], joined_at: now(),
+    });
+  }
+  const workIds: string[] = [];
+  for (const [i, spec] of (b.works ?? []).entries()) {
+    const t = new Date(Date.now() - (10 - i) * 60000).toISOString();
+    const director = byEmail(spec.director_email) ?? s.users.get(room.owner_user_id)!;
+    const w: MockWork = {
+      id: uuid(), room_id: room.id, title: spec.title, goal: spec.goal ?? spec.title, acceptance_criteria: [], director_user_id: director.id, deputy_user_id: null,
+      assignee_agent_id: null, completion_condition: { type: "user_approval" } as CompletionCondition,
+      completion_progress: { met: 0, total: 1, satisfied: false, human_gate: true, conditions: [{ path: "/conditions/0", type: "user_approval", met: false, met_at: null, met_by: null, next_actor: "director", hitl_request_id: null, agent_id: null, agent_name: null, blocked_reason: null }] },
+      limits: { budget_usd: spec.budget_usd ?? null, budget_tokens: null, time_limit: null, max_tasks: null }, autonomy: room.autonomy,
+      status: spec.status ?? "active", paused_reason: spec.paused_reason ?? null, cost_usd: 0, cost_estimated: false,
+      paused_detail: spec.paused_reason === "budget" ? { reason: "budget", paused_at: t, budget: { limit_usd: spec.budget_usd ?? 20, spent_usd: spec.cost_usd ?? 21.4 }, resolve_actions: ["resume"] } : undefined,
+      summary_message_id: null, opened_from_message_id: null, created_by: director.id, created_at: t, updated_at: t, started_at: t,
+      finished_at: spec.status === "completed" || spec.status === "cancelled" ? t : null, last_activity_at: t,
+    };
+    s.works.set(w.id, w);
+    workIds.push(w.id);
+    if (spec.cost_usd && sess) {
+      // 미션 비용 = 매인 할 일 비용 합 — 비용만 있는 끝난 할 일 하나를 둔다(카드는 done 묶음에 접힌다).
+      const lane = createLane(s, sess, sess.participants?.[0]?.agent_id ?? [...s.agents.values()][0].id, "자료 정리", w.id);
+      const task = createTask(s, sess, lane.agent_id, null, { laneId: lane.id, workId: w.id });
+      task.status = "completed"; task.cost_usd = spec.cost_usd;
+      setLaneStatus(s, sess, lane.id, { status: "done", finished_at: t });
+      sess.cost_usd = Math.round((sess.cost_usd + spec.cost_usd) * 100) / 100;
+    }
+  }
+  const pick = (i: number | null | undefined) => (i == null ? null : workIds[i] ?? null);
+  for (const m of b.messages ?? []) {
+    if (!sess) break;
+    const a = m.agent ? [...s.agents.values()].find((x) => x.name === m.agent) : undefined;
+    const u = s.users.get(room.owner_user_id);
+    addMessage(s, sess, a
+      ? { author_type: "agent", author_id: a.id, author: { name: a.name, avatar_url: null, role: a.role }, kind: "text", content: m.content, mentions: [], work_id: pick(m.work) }
+      : { author_type: "user", author_id: u?.id ?? null, author: { name: u?.display_name ?? "", avatar_url: null }, kind: "text", content: m.content, mentions: [], work_id: pick(m.work) });
+  }
+  for (const l of b.lanes ?? []) {
+    const a = [...s.agents.values()].find((x) => x.name === l.agent);
+    if (!a || !sess) continue;
+    const lane = createLane(s, sess, a.id, l.brief ?? null, pick(l.work));
+    const task = createTask(s, sess, a.id, null, { laneId: lane.id, workId: pick(l.work) });
+    task.status = l.status === "done" ? "completed" : l.status === "failed" ? "failed" : l.status;
+    if (l.status === "running") task.started_at = now();
+    setLaneStatus(s, sess, lane.id, {
+      status: l.status, queued_reason: l.queued_reason ?? null, queue_position: l.status === "queued" ? 1 : null, paused_over_usd: l.paused_over_usd ?? null,
+      failure_kind: l.failure_kind ?? (l.status === "failed" ? "timeout" : null), finished_at: l.status === "done" || l.status === "failed" ? now() : null,
+      current_activity: l.status === "running" ? "자료를 읽는 중…" : null, blocked_note: l.status === "blocked" ? "범위를 확인해 주세요" : null,
+    });
+  }
   room.updated_at = now();
   emitRoom(s, room);
-  return ok({ ok: true });
+  return ok({ ok: true, works: workIds });
 });

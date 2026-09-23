@@ -241,6 +241,26 @@ export const SERVER = {
   room_owner_required: { text: "방장이나 소유자·관리자만 할 수 있습니다", at: "internal/rooms/authz.go" },
   room_steward_required: { text: "방장·부방장이나 소유자·관리자만 할 수 있습니다", at: "internal/rooms/authz.go" },
   room_not_participant: { text: "이 방의 참여자가 아닙니다", at: "internal/rooms/authz.go" },
+  // ── 방 화면(T-R2-W2) — blockRoom·unblockRoom(internal/httpapi/handlers_rooms_r1b1.go) · 미션 op(handlers_works.go) · 귀속(router/work.go) ──
+  room_already_blocked: { text: "이미 멈춰 있는 방입니다 — ", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  room_not_blocked: { text: "멈춰 있지 않은 방입니다", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  room_not_manual_tail: { text: " — 이 멈춤은 확인 요청에 답하거나 컴퓨터를 다시 연결해야 풀립니다", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  room_blocked_budget: { text: "예산 상한에 걸려 멈춘 방입니다", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  room_blocked_loop: { text: "에이전트끼리 주고받기가 상한에 걸려 멈춘 방입니다", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  room_blocked_runtime_offline: { text: "컴퓨터 연결이 끊겨 멈춘 방입니다", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  room_blocked_manual: { text: "사람이 멈춘 방입니다", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  room_block_system: { text: "님이 이 방을 멈췄습니다 — 진행 중인 턴을 끝내고 새 실행을 막습니다. 멈춤을 풀면 기다리던 일이 이어집니다.", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  room_unblock_system: { text: "님이 방 멈춤을 풀었습니다.", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  summary_range_exclusive: { text: "기간과 메시지 범위는 함께 고를 수 없습니다 — 하나만 골라 주세요", at: "internal/httpapi/handlers_rooms.go" },
+  summary_range_required: { text: "정리할 범위를 골라 주세요", at: "internal/httpapi/handlers_rooms.go" },
+  summary_range_empty: { text: "이 범위에는 정리할 메시지가 없습니다", at: "internal/sessions/room_ops.go" },
+  work_director_required: { text: "이 미션의 Director 만 할 수 있습니다", at: "internal/httpapi/handlers_works.go" },
+  work_pause_transition: { text: "진행 중인 미션만 일시정지할 수 있습니다 (현재 상태: ", at: "internal/httpapi/handlers_works.go" },
+  work_resume_transition: { text: "일시정지된 미션만 재개할 수 있습니다 (현재 상태: ", at: "internal/httpapi/handlers_works.go" },
+  work_cancel_transition: { text: "진행 중이거나 일시정지된 미션만 취소할 수 있습니다 (현재 상태: ", at: "internal/httpapi/handlers_works.go" },
+  work_resume_room_blocked: { text: "방 전체가 멈춰 있어 이 미션도 멈췄습니다 — 방장이 방을 다시 움직여야 합니다", at: "internal/httpapi/handlers_works.go" },
+  work_not_in_room: { text: "이 방의 미션이 아닙니다", at: "internal/router/work.go" },
+  work_closed_post: { text: "끝난 미션에는 메시지를 넣을 수 없습니다 — 미션 없이 보내거나 열린 미션을 고르세요", at: "internal/router/work.go" },
 } as const satisfies Record<string, ServerSentence>;
 
 /**

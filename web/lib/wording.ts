@@ -418,10 +418,297 @@ export function roomDefaultsLine(settings: { default_isolation?: string | null; 
   return `${CREATE_ROOM.isolation[kind] ?? CREATE_ROOM.isolation.none} · ${CREATE_ROOM.runtime_first_run}`;
 }
 
-/** 새로 만든 방(옛 S7 이 아직 없는 방)의 임시 화면 — S7 재작성(T-R2-W2) 전까지. */
-export const ROOM_PENDING = {
+// ── S7 방 화면 · S22 미션 패널(v0.19, T-R2-W2 — SCREEN §4.6 · §4.8 · §5 · §7) ──
+//
+// 층 분담(§8.4 v0.19): 방은 「멈춤」, 미션·서브 미션·할 일의 paused 는 「일시정지」. 수는 슬롯(`Slotted`) — 「미션 **2**개와 대화 전부」.
+// 역할어: 방 역할은 한국어(방장·부방장), 미션 역할은 영어(Director·deputy) — 층을 함께 적는다.
+
+/** 상단 머리 — 세 층 요약 · 「나에게 필요한 것」 · 액션. */
+export const ROOM_HEAD = {
   back: "방 목록으로",
-  body: "방을 만들었습니다. 참여자 초대·대화·미션은 새 방 화면이 열리면 여기서 시작합니다.",
+  loading: "불러오는 중…",
+  /** 세 층 요약 — 가운뎃점으로 이은 세 수가 한 덩어리로 읽히지 않게 수마다 라벨(§4.6 · §7 「숫자만 있는 요소에는 라벨」). 0 인 층은 생략한다. */
+  layers_label: "이 방의 미션·서브 미션·할 일 수",
+  layer_works: ["미션 ", "개"] as Slotted,
+  layer_lanes: ["서브 미션 ", "개"] as Slotted,
+  layer_tasks: ["할 일 ", "개"] as Slotted,
+  layer_works_none: "미션 없음",
+  /** 이 방에서 내가 누를 수 있는 것의 수 — 중복 없이(§4.6). 0 이면 그리지 않는다. */
+  needs_me: ["나에게 필요한 것 ", ""] as Slotted,
+  participants: "참여자",
+  settings: "방 설정",
+  block: "이 방 멈춤",
+  unblock: "멈춤 해제",
+  more: "방 메뉴",
+  summarize: "여기까지 정리",
+  reads: "맥락 오간 기록",
+  archive: "보관",
+  unarchive: "보관 해제",
+  delete: "삭제",
+  delete_tail: "되돌릴 수 없음",
+  leave: "이 방에서 나가기",
+  /** 비활성 사유 — 층을 적는다(§2.3 · §5). */
+  block_role: "방장·부방장이나 워크스페이스 소유자·관리자만 이 방을 멈출 수 있습니다",
+  archived: "보관된 방입니다 — 먼저 보관을 해제하세요",
+  leave_not_participant: "이 방의 참여자만 나갈 수 있습니다",
+  skip_to_composer: "작성창으로 건너뛰기",
+} as const;
+
+/** 「이 방 멈춤」 확인(§4.6) — 수는 슬롯. 중단된 서브 미션은 「실패 · 사람이 중단」으로 남는다(내부 키를 문장에 넣지 않는다). */
+export const BLOCK_DIALOG = {
+  title: "이 방을 멈출까요?",
+  turns: ["이 방의 진행 중인 턴 ", "개가 중단되고 새 트리거가 막힙니다."] as Slotted,
+  works: ["미션 ", "개와 미션 밖 대화 전부가 멈춥니다."] as Slotted,
+  resume: "중단된 서브 미션은 실패(사람이 중단)로 남고, 멈춤을 풀면 「다시 지시」로 이어갈 수 있습니다.",
+  confirm: "이 방 멈춤",
+  busy: "멈추는 중…",
+  cancel: "취소",
+} as const;
+
+/** 「여기까지 정리」 범위 다이얼로그(§4.6 · FR-2.5). 「직접 고르기」(타임라인에서 시작·끝 집기)는 이 판에 없다. */
+export const SUMMARIZE_DIALOG = {
+  title: "여기까지 정리",
+  range: "범위",
+  days7: "최근 7일",
+  days30: "최근 30일",
+  preview: ["메시지 ", "건이 이 범위에 듭니다"] as Slotted,
+  result: "요약은 방에 메시지로 남고 범위와 인용한 메시지가 함께 기록됩니다 — 요약이 틀리면 원문으로 내려갈 수 있습니다.",
+  confirm: "정리",
+  busy: "정리하는 중…",
+  cancel: "취소",
+} as const;
+
+/** 미션 칩 줄(COMPONENTS §9.1). 특수 칩 둘은 글자 그대로 `전체`·`미션 없음`. */
+export const WORK_CHIPS = {
+  group: "미션 거르개",
+  all: "전체",
+  none: "미션 없음",
+  /** ⏳ 는 상태가 아니라 파생(열린 확인 요청) — 툴팁이 아니라 aria-label. */
+  waiting: "사람 대기",
+  past: ["지난 미션 ", "개"] as Slotted,
+  paused: ["일시정지 ", ""] as Slotted,
+  overflow: ["미션 ", "개 더"] as Slotted,
+  new_work: "+ 새 미션",
+  /** 「일시정지 N ▾」 펼침 한 줄 — 이름 · 사유 · 승인 권한자. */
+  approver: "승인: ",
+  /** 칩을 누르면 가운데·우열 두 곳이 바뀐다 — 조용한 안내(aria-live). */
+  announce_all: "전체 미션을 봅니다",
+  announce_none: "미션 없이 오간 대화만 봅니다",
+  /** 받침에 따라 조사가 갈리지 않게 「〈이름〉 미션으로」(「미션」은 받침이 있어 늘 「으로」). */
+  announce_work: (title: string) => `「${title}」 미션으로 걸렀습니다`,
+  announce_lanes: ["서브 미션 ", "개"] as Slotted,
+  announce_messages: ["메시지 ", "개"] as Slotted,
+} as const;
+
+/** 미션 `paused` 사유의 이름(미션 층 — 방 사유는 여기 오지 않는다, §4.6). */
+export const WORK_PAUSE_LABEL = {
+  budget: "미션 예산 초과",
+  time: "시간 상한 도달",
+  director: "Director 가 일시정지",
+} as const;
+
+/** 방 멈춤 배너(COMPONENTS §9.4) — 사유 문장 + 멈춘 수(슬롯) + 위임 줄. `role="alert"`. */
+export const ROOM_BANNER = {
+  budget: ["이 방의 예산 $", "을 넘겼습니다"] as Slotted,
+  budget_plain: "이 방의 예산을 넘겼습니다",
+  runtime_offline: [
+    "컴퓨터 「",
+    "」와 연결이 끊겼습니다",
+  ] as Slotted,
+  runtime_offline_plain: "컴퓨터와 연결이 끊겼습니다",
+  loop: "에이전트 간 왕복이 방 상한에 닿았습니다",
+  manual: [
+    "「",
+    "」님이 이 방을 멈췄습니다",
+  ] as Slotted,
+  manual_plain: "누군가 이 방을 멈췄습니다",
+  stopped: ["미션 ", "개와 대화 전부가 멈췄습니다"] as Slotted,
+  stopped_no_works: "미션 밖 대화 전부가 멈췄습니다",
+  /** 내가 승인 권한자가 아닐 때 — 누가 언제부터(FR-2A.3). */
+  waiting: ["「", "」의 승인을 기다립니다"] as Slotted,
+  delegate: ["", "부터 다음 권한자가 답할 수 있습니다"] as Slotted,
+  approve: "계속 진행 승인",
+  approve_where: "받은 요청에서 승인합니다",
+  rebind: "컴퓨터 바꾸기",
+  unblock: "멈춤 해제",
+} as const;
+
+/** 보관·감사 열람·컴퓨터 없음 배너(§4.6 · §2.4 · §7). */
+export const ROOM_NOTICES = {
+  archived: "보관된 방입니다 — 새 메시지·새 미션을 받지 않습니다",
+  unarchive: "보관 해제",
+  unarchive_role: "방장·부방장이나 워크스페이스 소유자·관리자만 보관을 해제할 수 있습니다",
+  audit: "감사 목적으로 열람 중입니다 — 게시하려면 참여해야 합니다",
+  no_computer: "연결된 컴퓨터가 없어 에이전트가 아직 일을 시작할 수 없습니다",
+  no_computer_link: "컴퓨터 연결",
+} as const;
+
+/** 좌열 — 참여자 한 목록 + 서브 미션 보드(§4.6 좌열 · §5 사람 칩). */
+export const ROOM_LEFT = {
+  participants: "참여자",
+  invite: "초대·퇴장",
+  owner: "방장",
+  deputy: "부방장",
+  /** 이 방에 실행 중인 할 일이 없는데 working — 프로파일 자리를 바꿔 넣는다(더하지 않는다). 어느 방인지는 적지 않는다. */
+  elsewhere: "다른 방에서 작업 중",
+  alone: "아직 아무도 없습니다",
+  alone_cta: "참여자 초대",
+  board: "서브 미션 보드",
+  board_empty: "아직 위임이 없습니다",
+  board_empty_assignee: "담당 에이전트가 계획을 세우는 중입니다",
+  board_empty_no_assignee: "이 미션에는 제출자가 없습니다 — 에이전트를 멘션해 시작하세요",
+  board_empty_no_work: "에이전트를 부르면 여기에 나타납니다",
+  /** 카드의 미션 라벨(§3.2) — 「미션 〈…〉」 또는 「미션 없음」. */
+  work_label: (title: string) => `미션 「${title}」`,
+  no_work_label: "미션 없음",
+  /** `queued_reason` 4값의 사람 말(§4.6 표) — 상한 수는 슬롯. */
+  queued_room_lanes: ["이 방의 동시 서브 미션 상한(", ")에 닿았습니다"] as Slotted,
+  queued_room_lanes_plain: "이 방의 동시 서브 미션 상한에 닿았습니다",
+  queued_agent_global: ["이 에이전트가 다른 방 일로 꽉 찼습니다(동시 ", "개)"] as Slotted,
+  queued_agent_global_plain: "이 에이전트가 다른 방 일로 꽉 찼습니다",
+  queued_runtime: "이 컴퓨터의 동시 상한에 닿았습니다",
+  /** 워크트리 방인데 아직 컴퓨터가 정해지지 않았다(runtime_id null) — 저장소가 있는 컴퓨터가 붙기를 기다린다(T-S-wt #302). */
+  queued_runtime_repo: "저장소가 있는 컴퓨터를 기다립니다",
+  queued_workspace: "워크스페이스 동시 상한에 닿았습니다",
+  /** `paused` 는 어느 층의 예산인가(§4.6 · §5 「멈춘 것은 층을 함께 적는다」). */
+  paused_task: "⏸ 일시정지 · 할 일 예산",
+  paused_work: "⏸ 일시정지 · 미션 예산",
+  paused_room: "⏸ 멈춤 · 방 예산",
+  paused_task_only: "이 승인은 이 할 일에만 적용됩니다",
+  /** 접힌 묶음(done·failed)의 펼침 단추 — 라벨은 배지 말, 수는 슬롯. */
+  fold_open: "펼치기",
+  fold_close: "접기",
+  cancel_confirm: "이 서브 미션을 중단합니다. 새 지시 없이 끝납니다.",
+  cancel_confirm_done: "제출은 끝났습니다 — 아직 도는 실행만 멈춥니다(서브 미션은 끝난 채로 남습니다).",
+  cancel_hold: "되돌리기 어려운 작업 중이면 최대 30초 보류 후 끝납니다.",
+  cancel_yes: "중단",
+  cancel_no: "취소",
+  control_role: "그 미션의 Director·deputy 나 방장·부방장만 할 수 있습니다",
+} as const;
+
+/** 가운데 — 타임라인 · 페이지네이션 · 메시지 메뉴 · 빈 방 안내(§4.6 가운데 · §7). */
+export const ROOM_CENTER = {
+  timeline: "메시지 타임라인",
+  load_older: "이전 대화 더 보기",
+  to_latest: "최신으로",
+  empty_title: "이제 무엇을 하나요?",
+  empty_invite: "참여자 초대",
+  empty_talk: "그냥 말 걸기",
+  empty_open_work: "미션 열기",
+  empty_settings: "방 설정",
+  empty_messages: "@로 에이전트를 불러 시작하세요",
+  empty_filtered: "이 거르개에 맞는 메시지가 없습니다",
+  msg_menu: "메시지 메뉴",
+  to_work: "이걸 미션으로",
+  has_work: (title: string) => `이미 미션 「${title}」에 속한 메시지입니다`,
+  /** 시스템 메시지(미션 열림·닫힘)의 칩 링크 — 그 미션 칩을 고른다. */
+  open_work_chip: "이 미션으로 거르기",
+  summary_of: (title: string) => `미션 「${title}」 요약`,
+  summary_room: "여기까지 정리",
+  typing: "입력 중…",
+  writing: "작성 중…",
+} as const;
+
+/** 작성창 미션 선택기(COMPONENTS §9.2) — 열림 / 잠김 / 자동. 자동은 「자동: 」 접두로 열림과 갈린다. */
+export const WORK_SELECTOR = {
+  label: "귀속될 미션",
+  none: "미션 없음",
+  into: (title: string) => `이 메시지는 미션 「${title}」에 들어갑니다`,
+  into_none: "미션 없음에 들어갑니다",
+  auto_prefix: "자동: ",
+  auto_tail: " — 바꾸려면 선택기를 누르세요",
+  locked: (title: string) => `이 스레드는 미션 「${title}」의 것입니다`,
+  /** 빈 방의 placeholder — 첫 지시 예시(§4.6, SCR-A P-3). 에이전트 이름은 이 방의 첫 참여 에이전트. */
+  first_order: (agent: string) => `@${agent} 국내 B2B SaaS 결제 시장을 조사해서 보고서 10페이지로 정리해 줘`,
+  placeholder: "메시지 — @로 에이전트를 부릅니다",
+  archived: "보관된 방입니다 — 먼저 보관을 해제하세요",
+  audit: "감사 목적으로 열람 중입니다 — 게시하려면 참여해야 합니다",
+  closed_work: "끝난 미션입니다 — 미션 없이 보내거나 열린 미션을 고르세요",
+} as const;
+
+/** 우열 (가) 미션 칸 · (나) 방 전체 칸(§4.6 우열 · §4.8 S22). */
+export const WORK_PANEL = {
+  title: "미션",
+  recent: (title: string) => `최근 활동: 「${title}」 · 다른 미션을 보려면 위 칩을 누르세요`,
+  none_view: "이 방에서 미션 없이 오간 대화입니다",
+  not_applicable: "미션이 없어 해당 없음",
+  pick_first: "어느 미션인지 먼저 고르세요 — 위 칩에서 미션을 누르면 이 버튼이 켜집니다",
+  no_end: "미션 없이 오간 대화에는 끝이 없습니다",
+  no_works_title: "아직 연 미션이 없습니다.",
+  no_works_body: "끝을 정해 추적하고 싶은 일이 생기면 미션을 엽니다",
+  no_works_alt: "이미 오간 메시지에서 열려면 그 메시지의 「…」 → 「이걸 미션으로」",
+  director: "Director",
+  deputy: "deputy",
+  goal: "미션 목표",
+  progress: "종료 조건 진행률",
+  cost: "미션 비용",
+  cost_this: "이 미션 ",
+  estimated: "추정",
+  pause: "일시정지",
+  resume: "재개",
+  complete: "종료",
+  cancel: "취소",
+  not_director: (name: string) => `「${name}」님이 이 미션의 Director 입니다`,
+  assignee: "제출자: ",
+  no_assignee: "제출자 없음 — 종료 조건이 「Director 승인」 하나입니다",
+  ended: "끝난 미션입니다",
+  ended_completed: "완료",
+  ended_cancelled: "취소됨",
+  summary_link: "요약 메시지 보기",
+  not_found: "이 방에 그 미션이 없습니다",
+  back_to_room: "방 화면으로",
+  paused_budget: ["이 미션의 예산 $", "을 넘겼습니다"] as Slotted,
+  paused_budget_now: ["현재 $", ""] as Slotted,
+  paused_time: "시간 상한에 도달했습니다",
+  paused_director: "Director가 일시정지했습니다",
+  approve: "계속 진행 승인",
+} as const;
+
+export const ROOM_PANEL = {
+  title: "방 전체",
+  count_artifacts: ["아티팩트 ", ""] as Slotted,
+  count_decisions: ["결정 ", ""] as Slotted,
+  count_cost: ["누적 $", ""] as Slotted,
+  artifacts: "아티팩트",
+  decisions: "결정 기록",
+  room_cost: "방 누적 비용",
+  not_sum: "미션 비용의 합이 아닙니다 — 미션 밖 대화 비용이 함께 듭니다",
+  reads: "맥락 오간 기록",
+  reads_link: "기록 보기",
+  reads_empty: "이 방의 맥락이 오간 적이 없습니다",
+  reads_out: ["읽음 ", ""] as Slotted,
+  reads_in: ["읽힘 ", ""] as Slotted,
+  settings: "방 설정 요약",
+  settings_link: "방 설정",
+  no_work_group: "미션 없음",
+  more: ["더 보기 ", ""] as Slotted,
+  artifacts_empty: "아직 제출된 아티팩트가 없습니다",
+  decisions_empty: "아직 기록된 결정이 없습니다",
+  from_hitl: "사람 확인",
+  from_agent: "에이전트",
+  row_computer: "컴퓨터",
+  row_isolation: "격리",
+  row_autonomy: "자율성",
+  row_limits: "한도",
+  row_director: "기본 Director",
+  row_visibility: "공개 범위",
+  computer_first_run: "첫 실행 때 정해집니다",
+  no_budget: "예산 없음",
+  no_time: "시간 제한 없음",
+  concurrent_works: ["동시 미션 ", "개"] as Slotted,
+  concurrent_lanes: ["동시 서브 미션 ", "개"] as Slotted,
+  director_opener: "미션을 연 사람",
+  visibility: { workspace: "워크스페이스 전체", invited: "초대된 사람만" },
+  autonomy: { guided: "질문 기한이 지나면 계속 기다립니다", autonomous: "질문 기한이 지나면 제안한 기본값으로 진행합니다", supervised: "모든 위임을 Director가 먼저 승인합니다" },
+} as const;
+
+/** 좁은 화면(≤1100px) 열 탭 넷(§4.8). */
+export const ROOM_TABS = {
+  label: "열 전환",
+  timeline: "타임라인",
+  board: "보드",
+  work: "미션",
+  room: "방",
 } as const;
 
 export type RoomGate = { ok: true } | { ok: false; reason: string; count?: undefined } | { ok: false; reason: Slotted; count: number };

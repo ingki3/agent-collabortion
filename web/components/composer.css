@@ -25,3 +25,8 @@
   border: 1px solid var(--s-pause); border-radius: 8px; padding: 4px 8px; margin-bottom: 6px; }
 .composer__foot .composer__hint { margin-left: auto; }
 .composer__chips[data-previewing="true"] { opacity: 0.75; }
+/* v0.19 방 화면(T-R2-W2) — 미션 선택기(COMPONENTS §9.2). 자동 귀속은 「자동: 」 접두(굵게)로 사람이 고른 것과 갈린다. */
+.composer__work { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.composer__work-select { font: inherit; font-size: var(--fs-sub); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; max-width: 14em; }
+.chip--work { color: var(--ink); }
+.chip--work[data-source="running_lane"] { border-style: dashed; }

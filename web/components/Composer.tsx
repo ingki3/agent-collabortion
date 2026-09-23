@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./composer.css";
 import { activeMentionQuery, toWire, type MentionTarget } from "@/lib/mentions";
+import { WORK_SELECTOR } from "@/lib/wording";
 import type { TriggerPreview } from "@/lib/api/types";
 
 export interface ComposerAgent {
@@ -37,6 +38,20 @@ export interface ComposerInput {
   /** "새 lane으로 보내기"(t-2). 전송 후 자동 해제된다. */
   newLane: boolean;
   suppressAgentIds: string[];
+  /**
+   * v0.19 — 작성창 미션 선택기의 값(FR-3.1.1 규칙 1). `undefined` 면 키를 보내지 않는다(옛 S7). `null` 은 「미션 없음」을 골랐다는 뜻이
+   * 아니라 **규칙 2~4 로 정해 달라**는 것이다(서버 router.attribute — 스레드·실행 중 서브 미션이 자동으로 귀속시킬 수 있다).
+   */
+  workId?: string | null;
+}
+
+/** v0.19 방 화면(T-R2-W2) — 미션 선택기(COMPONENTS §9.2). 상태 셋: 열림 · 잠김(스레드) · 자동(규칙 3). 판정은 서버 미리보기가 한다. */
+export interface ComposerWorkSelector {
+  /** 고를 수 있는 미션(열린 미션). */
+  options: { id: string; title: string }[];
+  /** 지금 값 — 기본은 고른 칩(미션이면 그 미션, `(전체)`·`(미션 없음)` 이면 null). */
+  value: string | null;
+  onChange: (id: string | null) => void;
 }
 
 export interface ComposerProps {
@@ -56,6 +71,10 @@ export interface ComposerProps {
   previewDelayMs?: number;
   /** 외부에서 채워 넣는 초안(lane 카드의 "중단하고 다시 지시" — 멘션이 미리 채워진다). */
   draft?: { content: string; nonce: number } | null;
+  /** v0.19 — 미션 선택기 + 귀속 칩. 없으면 그리지 않는다(옛 S7). */
+  workSelector?: ComposerWorkSelector;
+  /** textarea 에 붙일 ref — 「작성창으로 건너뛰기」·빈 방 「그냥 말 걸기」가 초점을 준다. */
+  inputRef?: React.Ref<HTMLTextAreaElement>;
 }
 
 /** 규칙 번호 → 사람 문구. 미리보기 칩의 근거를 숨기지 않는다. */
@@ -91,6 +110,7 @@ export function Composer(props: ComposerProps) {
   const suppressIds = useMemo(() => (suppressKey ? suppressKey.split(",") : []), [suppressKey]);
   const { onPreview } = props;
   const delay = props.previewDelayMs ?? 250;
+  const workId = props.workSelector ? props.workSelector.value : undefined;
 
   // 외부 초안(lane "중단하고 다시 지시") — nonce 가 바뀔 때만 덮어쓴다.
   const draftNonce = props.draft?.nonce;
@@ -120,7 +140,7 @@ export function Composer(props: ComposerProps) {
     let live = true;
     setPreviewing(true);
     const t = setTimeout(() => {
-      onPreview({ content, parentId, newLane, suppressAgentIds: suppressIds })
+      onPreview({ content, parentId, newLane, suppressAgentIds: suppressIds, workId })
         .then((p) => {
           if (!live) return;
           setPreview(p);
@@ -139,7 +159,7 @@ export function Composer(props: ComposerProps) {
       live = false;
       clearTimeout(t);
     };
-  }, [wire, parentId, newLane, suppressIds, onPreview, delay]);
+  }, [wire, parentId, newLane, suppressIds, onPreview, delay, workId]);
 
   const query = useMemo(() => activeMentionQuery(text, caret), [text, caret]);
   const candidates = useMemo(() => {
@@ -187,7 +207,7 @@ export function Composer(props: ComposerProps) {
     if (!content || busy || props.disabled) return;
     setBusy(true);
     try {
-      const warnings = await props.onSubmit({ content, parentId, newLane, suppressAgentIds: suppressIds });
+      const warnings = await props.onSubmit({ content, parentId, newLane, suppressAgentIds: suppressIds, workId });
       setServerWarnings(warnings ?? []);
       setText("");
       setSuppressed(new Map());
@@ -230,6 +250,14 @@ export function Composer(props: ComposerProps) {
 
   const p = preview ?? EMPTY;
   const disabled = props.disabled || busy;
+  const ws = props.workSelector;
+  // 귀속 칩(FR-3.1.1) — 서버 미리보기의 `work`·`work_source` 를 그대로 말한다. 미리보기 전에는 선택기 값으로.
+  const source = preview?.work_source ?? (ws?.value ? "chosen" : "none");
+  const attributed = preview ? (preview.work ?? null) : ws?.value ? { id: ws.value, title: ws.options.find((o) => o.id === ws.value)?.title ?? "" } : null;
+  const locked = source === "thread" && !!attributed;
+  const auto = source === "running_lane" && !!attributed;
+  const shown = locked || auto ? attributed!.id : (ws?.value ?? "");
+  const lockedHintId = "work-selector-locked";
 
   return (
     <div className="composer" data-testid="composer">
@@ -269,7 +297,12 @@ export function Composer(props: ComposerProps) {
         </div>
       )}
       <textarea
-        ref={taRef}
+        ref={(el) => {
+          taRef.current = el;
+          const r = props.inputRef;
+          if (typeof r === "function") r(el);
+          else if (r) (r as React.MutableRefObject<HTMLTextAreaElement | null>).current = el;
+        }}
         className="composer__ta"
         value={text}
         placeholder={props.placeholder ?? "메시지 — @로 에이전트를 부릅니다"}
@@ -283,6 +316,40 @@ export function Composer(props: ComposerProps) {
         onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
         onKeyDown={onKeyDown}
       />
+      {ws && (
+        <div className="composer__work" data-testid="work-selector" data-mode={locked ? "locked" : auto ? "auto" : "open"}>
+          <select
+            className="composer__work-select"
+            aria-label={WORK_SELECTOR.label}
+            value={shown}
+            disabled={props.disabled || locked}
+            aria-describedby={locked ? lockedHintId : undefined}
+            onChange={(e) => ws.onChange(e.target.value || null)}
+            data-testid="work-selector-select"
+          >
+            <option value="">{WORK_SELECTOR.none}</option>
+            {ws.options.map((o) => (
+              <option key={o.id} value={o.id}>{o.title}</option>
+            ))}
+            {attributed && !ws.options.some((o) => o.id === attributed.id) && <option value={attributed.id}>{attributed.title}</option>}
+          </select>
+          <span className="chip chip--work" id={locked ? lockedHintId : undefined} data-testid="chip-work" data-source={source} data-work-id={attributed?.id ?? undefined}>
+            {locked ? (
+              WORK_SELECTOR.locked(attributed!.title)
+            ) : auto ? (
+              <>
+                <b data-testid="chip-work-auto">{WORK_SELECTOR.auto_prefix}</b>
+                {WORK_SELECTOR.into(attributed!.title)}
+                {WORK_SELECTOR.auto_tail}
+              </>
+            ) : attributed ? (
+              WORK_SELECTOR.into(attributed.title)
+            ) : (
+              WORK_SELECTOR.into_none
+            )}
+          </span>
+        </div>
+      )}
       <div className="composer__chips" data-testid="composer-chips" data-previewing={previewing ? "true" : "false"}>
         {previewError && (
           <span className="chip chip--warn" data-testid="chip-preview-error">

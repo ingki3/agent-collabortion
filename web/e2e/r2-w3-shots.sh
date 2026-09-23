@@ -13,7 +13,7 @@
 #   r2-w3-09-s20-readonly-light.png         S20 방 참여자(권한 밖) — 읽기 전용 사유 한 줄
 #   r2-w3-10-s26-resolved-light.png         S26 이미 처리된 제안 — 「이 제안은 … 에 거절했습니다」 + 사유
 #
-# S21·S26 은 S7(T-R2-W2)이 `RoomQueryDialogs` 를 마운트하기 전이라 개발 전용 `/dev/room-dialogs?room=` 에서 띄운다 — 빌드에 COLAB_DEV_PAGES=1.
+# S21·S26 은 S7(T-R2-W2)에 마운트된 `RoomQueryDialogs` 로 방 화면 위에 뜬다(`/rooms/<id>?work=new` · `?work_proposal=`). 개발 전용 페이지는 지웠다.
 #
 # 사용:
 #   COLAB_MOCK_API=1 COLAB_DEV_PAGES=1 npx next build && COLAB_MOCK_API=1 COLAB_DEV_PAGES=1 npx next start -p 3161 &
@@ -120,7 +120,7 @@ for theme in light dark; do
   shot_full "r2-w3-05-s23-reads-$theme"
 
   step "06 — S21 새 미션 ($theme)"
-  open_wait "/dev/room-dialogs?room=$ROOM&work=new" '[data-testid="rd-create-work-assignee"]'
+  open_wait "/rooms/$ROOM?work=new" '[data-testid="rd-create-work-assignee"]'
   ab fill '[data-testid="rd-create-work-goal"]' '결제 실패율을 원인별로 정리한 10쪽 보고서' >/dev/null
   ab select '[data-testid="rd-create-work-assignee"]' "$LEAD" >/dev/null
   ab click '[data-testid="rd-create-work-more"] summary' >/dev/null
@@ -130,19 +130,19 @@ for theme in light dark; do
   shot_full "r2-w3-06-s21-new-$theme"
 
   step "07 — S26 미션 제안 ($theme)"
-  open_wait "/dev/room-dialogs?room=$ROOM&work_proposal=$PROP" '[data-testid="rd-proposal-accept"]'
+  open_wait "/rooms/$ROOM?work_proposal=$PROP" '[data-testid="rd-proposal-accept"]'
   shot "r2-w3-07-s26-proposal-$theme"
 done
 set_theme light
 
 step "08 — S21 동시 미션 상한(밝음)"
-open_wait "/dev/room-dialogs?room=$CAP&work=new" '[data-testid="rd-create-work-cap"]'
+open_wait "/rooms/$CAP?work=new" '[data-testid="rd-create-work-cap"]'
 ab fill '[data-testid="rd-create-work-goal"]' '두 번째 미션' >/dev/null
 assert_js 'document.querySelector("[data-testid=rd-create-work-open]").getAttribute("aria-disabled") === "true"' "상한 — 열기 비활성"
 shot_full r2-w3-08-s21-cap-light
 
 step "10 — S26 이미 거절된 제안(밝음)"
-open_wait "/dev/room-dialogs?room=$ROOM&work_proposal=$PROP2" '[data-testid="rd-proposal-resolved"]'
+open_wait "/rooms/$ROOM?work_proposal=$PROP2" '[data-testid="rd-proposal-resolved"]'
 shot r2-w3-10-s26-resolved-light
 
 step "09 — S20 방 참여자(권한 밖, 준호) — 읽기 전용"

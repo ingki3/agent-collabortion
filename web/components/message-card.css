@@ -46,3 +46,7 @@
 /* 「작성 중…」 — 마지막 블록 끝에 커서. 열린 펜스 안이면 코드 상자 안에 찍힌다. */
 .msg__body[data-typing] .md > :last-child::after { content: "▍"; color: var(--ink-2); }
 .msg__body[data-typing] .md:empty::after { content: "▍"; color: var(--ink-2); }
+/* v0.19 방 화면(T-R2-W2) — 메시지 메뉴는 머리줄 오른쪽 끝 */
+.msg__menu { margin-left: auto; position: relative; }
+.msg-menu { position: relative; display: inline-block; }
+.msg-menu__list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; min-width: 200px; }
