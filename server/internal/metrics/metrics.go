@@ -194,21 +194,23 @@ WITH first_rt AS (
 	SELECT created_by AS user_id, min(ready_at) AS online_at
 	FROM runtime_pairing WHERE workspace_id = $1 AND ready_at IS NOT NULL GROUP BY created_by),
 first_done AS (
-	SELECT director_user_id AS user_id, min(finished_at) AS done_at
-	FROM session WHERE workspace_id = $1 AND status = 'completed' AND finished_at IS NOT NULL GROUP BY director_user_id)
+	SELECT wk.director_user_id AS user_id, min(wk.finished_at) AS done_at
+	FROM room s JOIN work wk ON wk.room_id = s.id
+	WHERE s.workspace_id = $1 AND wk.status = 'completed' AND wk.finished_at IS NOT NULL GROUP BY wk.director_user_id)
 SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (d.done_at - r.online_at)) / 60), count(*)
 FROM first_rt r JOIN first_done d USING (user_id)
 WHERE d.done_at >= r.online_at AND d.done_at >= $2`
 
 // 2. completed 세션 중 completion_met.manual(= completeSession, director_end)이 아닌 비율.
 const sqlAutoComplete = `
-SELECT avg(CASE WHEN COALESCE((completion_met->>'manual')::boolean, false) THEN 0 ELSE 1 END), count(*)
-FROM session WHERE workspace_id = $1 AND status = 'completed' AND finished_at >= $2`
+SELECT avg(CASE WHEN COALESCE((wk.completion_met->>'manual')::boolean, false) THEN 0 ELSE 1 END), count(*)
+FROM room s JOIN work wk ON wk.room_id = s.id
+WHERE s.workspace_id = $1 AND wk.status = 'completed' AND wk.finished_at >= $2`
 
 // 3. hitl_request answered_at - created_at 중앙값(분), auto_answered 제외.
 const sqlHitlResponse = `
 SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (h.answered_at - h.created_at)) / 60), count(*)
-FROM hitl_request h JOIN session s ON s.id = h.session_id
+FROM hitl_request h JOIN room s ON s.id = h.session_id
 WHERE s.workspace_id = $1 AND h.status = 'answered' AND h.answered_at IS NOT NULL AND h.answered_at >= $2`
 
 // 4. delegated_from_task_id 가 있는 끝난 task 중, HITL 도 lane blocked 도 없이 completed 된 비율.
@@ -216,16 +218,16 @@ const sqlDelegationAutonomous = `
 SELECT avg(CASE WHEN t.status = 'completed'
                  AND NOT EXISTS (SELECT 1 FROM hitl_request h WHERE h.task_id = t.id)
                  AND l.status <> 'blocked' AND l.blocked_message_id IS NULL THEN 1 ELSE 0 END), count(*)
-FROM task t JOIN lane l ON l.id = t.lane_id JOIN session s ON s.id = t.session_id
+FROM task t JOIN lane l ON l.id = t.lane_id JOIN room s ON s.id = t.session_id
 WHERE s.workspace_id = $1 AND t.delegated_from_task_id IS NOT NULL
   AND t.status IN ('completed', 'failed', 'cancelled') AND COALESCE(t.finished_at, t.updated_at) >= $2`
 
 // 5. lane ≥ 2 인 완료 세션: 1 - wall(세션 시작→완료) / sum(task started_at→finished_at). 평균. n = 세션 수.
 const sqlParallelReduction = `
 WITH s AS (
-	SELECT s.id, extract(epoch FROM (s.finished_at - COALESCE(s.started_at, s.created_at))) AS wall
-	FROM session s
-	WHERE s.workspace_id = $1 AND s.status = 'completed' AND s.finished_at >= $2
+	SELECT s.id, extract(epoch FROM (wk.finished_at - COALESCE(wk.started_at, s.created_at))) AS wall
+	FROM room s JOIN work wk ON wk.room_id = s.id
+	WHERE s.workspace_id = $1 AND wk.status = 'completed' AND wk.finished_at >= $2
 	  AND (SELECT count(*) FROM lane l WHERE l.session_id = s.id) >= 2),
 t AS (
 	SELECT session_id, sum(extract(epoch FROM (finished_at - started_at))) AS total
@@ -243,7 +245,7 @@ FROM s JOIN t ON t.session_id = s.id WHERE t.total > 0 AND s.wall >= 0`
 // seq 열이 필요하다(계약 변경 아님, 스키마 후속).
 const sqlDuplicateAfterResume = `
 WITH t AS (
-	SELECT t.id FROM task t JOIN session s ON s.id = t.session_id
+	SELECT t.id FROM task t JOIN room s ON s.id = t.session_id
 	WHERE s.workspace_id = $1 AND t.attempt >= 2 AND t.updated_at >= $2)
 SELECT avg(CASE WHEN EXISTS (
 	SELECT 1 FROM message m WHERE m.source_task_id = t.id GROUP BY m.content HAVING count(*) >= 2) THEN 1 ELSE 0 END), count(*)
@@ -252,13 +254,13 @@ FROM t`
 // 8. resume_outcome 이 있는 attempt(resumed IS NOT NULL) 중 resumed 비율.
 const sqlResumeSuccess = `
 SELECT avg(CASE WHEN a.resumed THEN 1 ELSE 0 END), count(*)
-FROM task_attempt a JOIN task t ON t.id = a.task_id JOIN session s ON s.id = t.session_id
+FROM task_attempt a JOIN task t ON t.id = a.task_id JOIN room s ON s.id = t.session_id
 WHERE s.workspace_id = $1 AND a.resumed IS NOT NULL AND COALESCE(a.finished_at, a.started_at, a.dispatched_at, t.updated_at) >= $2`
 
 // 9. lane blocked 진입(질문 카드 message.kind = blocked_q 의 created_at) → 그 카드의 첫 답글. 중앙값(분).
 const sqlBlockedResponse = `
 SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (r.first_reply - q.created_at)) / 60), count(*)
-FROM message q JOIN session s ON s.id = q.session_id
+FROM message q JOIN room s ON s.id = q.session_id
 JOIN LATERAL (SELECT min(created_at) AS first_reply FROM message r WHERE r.parent_id = q.id AND r.created_at > q.created_at) r
      ON r.first_reply IS NOT NULL
 WHERE s.workspace_id = $1 AND q.kind = 'blocked_q' AND q.created_at >= $2`
@@ -269,7 +271,7 @@ func successByRuntime(ctx context.Context, q db.DBTX, wsID uuid.UUID, since time
 	rows, err := q.Query(ctx, `
 		SELECT p.runtime_kind::text,
 		       count(*) FILTER (WHERE t.status = 'completed'), count(*) FILTER (WHERE t.status = 'failed')
-		FROM task t JOIN agent_profile p ON p.id = t.profile_id JOIN session s ON s.id = t.session_id
+		FROM task t JOIN agent_profile p ON p.id = t.profile_id JOIN room s ON s.id = t.session_id
 		WHERE s.workspace_id = $1 AND t.status IN ('completed', 'failed') AND COALESCE(t.finished_at, t.updated_at) >= $2
 		GROUP BY 1`, wsID, since)
 	if err != nil {
@@ -316,7 +318,7 @@ func weeklyActive(ctx context.Context, q db.DBTX, wsID uuid.UUID, now time.Time,
 	var active, ever int
 	if err := q.QueryRow(ctx, `
 		SELECT count(DISTINCT t.session_id) FILTER (WHERE t.started_at >= $2), count(DISTINCT t.session_id)
-		FROM task t JOIN session s ON s.id = t.session_id
+		FROM task t JOIN room s ON s.id = t.session_id
 		WHERE s.workspace_id = $1 AND t.started_at IS NOT NULL`, wsID, now.Add(-7*24*time.Hour)).Scan(&active, &ever); err != nil {
 		return err
 	}

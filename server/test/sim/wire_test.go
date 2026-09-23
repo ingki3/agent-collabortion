@@ -135,12 +135,17 @@ func plant() error {
 		return err
 	}
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO session (workspace_id, title, goal, director_user_id, runtime_id, isolation, status, created_by, created_at, updated_at, started_at)
-		VALUES ($1, 'sim', 'g', $2, $3, '{"kind": "none"}'::jsonb, 'active', $2, $4, $4, $4) RETURNING id`,
+		WITH r AS (
+			INSERT INTO room (workspace_id, name, owner_user_id, runtime_id, isolation, created_by, created_at, updated_at)
+			VALUES ($1, 'sim', $2, $3, '{"kind": "none"}'::jsonb, $2, $4, $4) RETURNING id),
+		wk AS (
+			INSERT INTO work (room_id, title, goal, director_user_id, status, created_by, created_at, updated_at, started_at)
+			SELECT id, 'sim', 'g', $2, 'active', $2, $4, $4, $4 FROM r)
+		SELECT id FROM r`,
 		s.workspace, s.user, s.runtime, simEpoch).Scan(&s.session); err != nil {
 		return err
 	}
-	return q(`INSERT INTO session_participant (session_id, agent_id, profile_id, joined_at) VALUES ($1, $2, $3, $4)`,
+	return q(`INSERT INTO room_participant (room_id, agent_id, profile_id, joined_at) VALUES ($1, $2, $3, $4)`,
 		s.session, s.agent, s.profile, simEpoch)
 }
 

@@ -45,7 +45,7 @@ func (f *membersFixture) setStatus(t *testing.T, id, status string) {
 	if status == "paused" {
 		paused = "'director'"
 	}
-	if _, err := f.pool.Exec(t.Context(), `UPDATE session SET status = $2::session_status, finished_at = `+finished+`, paused_reason = `+paused+` WHERE id = $1`, id, status); err != nil {
+	if _, err := f.pool.Exec(t.Context(), `UPDATE work SET status = $2::session_status, finished_at = `+finished+`, paused_reason = `+paused+` WHERE room_id = $1`, id, status); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -58,14 +58,14 @@ func (f *membersFixture) addUsage(t *testing.T, sessionID string, usd float64) u
 	var laneID, taskID uuid.UUID
 	if err := f.pool.QueryRow(ctx, `
 		INSERT INTO lane (session_id, agent_id, profile_id, status, created_at, updated_at)
-		SELECT $1, $2, p.profile_id, 'done', now(), now() FROM session_participant p
-		WHERE p.session_id = $1 AND p.agent_id = $2 RETURNING id`, sessionID, f.lead).Scan(&laneID); err != nil {
+		SELECT $1, $2, p.profile_id, 'done', now(), now() FROM room_participant p
+		WHERE p.room_id = $1 AND p.agent_id = $2 RETURNING id`, sessionID, f.lead).Scan(&laneID); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.pool.QueryRow(ctx, `
 		INSERT INTO task (lane_id, session_id, agent_id, profile_id, status, started_at, finished_at, created_at, updated_at)
-		SELECT $1, $2, $3, p.profile_id, 'completed', now() - interval '2 minutes', now(), now(), now() FROM session_participant p
-		WHERE p.session_id = $2 AND p.agent_id = $3 RETURNING id`, laneID, sessionID, f.lead).Scan(&taskID); err != nil {
+		SELECT $1, $2, $3, p.profile_id, 'completed', now() - interval '2 minutes', now(), now(), now() FROM room_participant p
+		WHERE p.room_id = $2 AND p.agent_id = $3 RETURNING id`, laneID, sessionID, f.lead).Scan(&taskID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(ctx, `
@@ -101,13 +101,13 @@ func TestP5DeleteSessionAuthz(t *testing.T) {
 		if st != 403 || str(out, "code") != "director_or_admin_required" || str(out, "detail") != sessions.DeleteForbiddenDetail {
 			t.Fatalf("= %d %v", st, out)
 		}
-		if f.count(t, `SELECT count(*) FROM session WHERE id = $1`, id) != 1 {
+		if f.count(t, `SELECT count(*) FROM room WHERE id = $1`, id) != 1 {
 			t.Fatal("a member deleted a session")
 		}
 	})
 	t.Run("Director (plain member role) → 204", func(t *testing.T) {
 		id := f.newSessionWithStatus(t, "completed")
-		if _, err := f.pool.Exec(t.Context(), `UPDATE session SET director_user_id = $2 WHERE id = $1`, id, f.memberUserID); err != nil {
+		if _, err := f.pool.Exec(t.Context(), `UPDATE work SET director_user_id = $2 WHERE room_id = $1`, id, f.memberUserID); err != nil {
 			t.Fatal(err)
 		}
 		if st, out := f.del(f.member, id); st != 204 {
@@ -163,7 +163,7 @@ func TestP5DeleteSessionStatus(t *testing.T) {
 			if str(out, "detail") != sessions.DeleteActiveDetail {
 				t.Fatalf("detail = %q, want the contract's %q", str(out, "detail"), sessions.DeleteActiveDetail)
 			}
-			if f.count(t, `SELECT count(*) FROM session WHERE id = $1`, id) != 1 {
+			if f.count(t, `SELECT count(*) FROM room WHERE id = $1`, id) != 1 {
 				t.Fatalf("%s session was deleted", status)
 			}
 		})
@@ -174,7 +174,7 @@ func TestP5DeleteSessionStatus(t *testing.T) {
 			if st, out := f.del(f.api, id); st != 204 {
 				t.Fatalf("= %d %v", st, out)
 			}
-			if f.count(t, `SELECT count(*) FROM session WHERE id = $1`, id) != 0 {
+			if f.count(t, `SELECT count(*) FROM room WHERE id = $1`, id) != 0 {
 				t.Fatalf("%s session still exists", status)
 			}
 		})
@@ -247,7 +247,7 @@ func TestP5DeleteSessionUnmergedWorktree(t *testing.T) {
 			t.Errorf("workdirs[%s] = %v", want, wd)
 		}
 	}
-	if f.count(t, `SELECT count(*) FROM session WHERE id = $1`, id) != 1 {
+	if f.count(t, `SELECT count(*) FROM room WHERE id = $1`, id) != 1 {
 		t.Fatal("session deleted despite the unmerged worktree")
 	}
 	if f.count(t, `SELECT count(*) FROM daemon_command WHERE runtime_id = $1 AND type = 'gc'`, rtID) != 0 {
@@ -305,15 +305,15 @@ func TestP5DeleteSessionCascade(t *testing.T) {
 	for _, sql := range []string{
 		`INSERT INTO hitl_request (session_id, task_id, source, type, question, approver_spec, status, created_at, due_at) VALUES ($1, $2, 'agent', 'approval', 'q', 'director', 'open', now(), now())`,
 		`INSERT INTO decision (session_id, summary, rationale, source, ref_id, created_at) VALUES ($1, 's', 'r', 'agent', $2, now())`,
-		`INSERT INTO activity_log (workspace_id, session_id, actor_type, action, object_id, created_at) VALUES ((SELECT workspace_id FROM session WHERE id = $1), $1, 'system', 'session.started', $2, now())`,
-		`INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at) SELECT m.id, 'hitl_request', 'action_required', $1, $2, now() FROM member m WHERE m.user_id = (SELECT director_user_id FROM session WHERE id = $1) LIMIT 1`,
+		`INSERT INTO activity_log (workspace_id, session_id, actor_type, action, object_id, created_at) VALUES ((SELECT workspace_id FROM room WHERE id = $1), $1, 'system', 'session.started', $2, now())`,
+		`INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at) SELECT m.id, 'hitl_request', 'action_required', $1, $2, now() FROM member m WHERE m.user_id = (SELECT director_user_id FROM work WHERE room_id = $1) LIMIT 1`,
 		`INSERT INTO session_hop (session_id, to_agent_id, rule, created_at) VALUES ($1, (SELECT agent_id FROM task WHERE id = $2), 1, now())`,
 	} {
 		if _, err := f.pool.Exec(ctx, sql, id, taskID); err != nil {
 			t.Fatalf("%s: %v", sql, err)
 		}
 	}
-	tables := []string{"session_participant", "lane", "task", "task_usage", "message", "hitl_request", "artifact", "decision", "inbox_item", "session_hop", "task_token"}
+	tables := []string{"room_participant", "lane", "task", "task_usage", "message", "hitl_request", "artifact", "decision", "inbox_item", "session_hop", "task_token"}
 	before := map[string]int{}
 	for _, tb := range tables {
 		before[tb] = f.count(t, `SELECT count(*) FROM `+tb+` t WHERE `+sessionJoin(tb)+` = $1`, id)
@@ -428,6 +428,8 @@ func sessionJoin(table string) string {
 		return `(SELECT session_id FROM task WHERE task.id = t.task_id)`
 	case "task_token":
 		return `t.session_id`
+	case "room_participant":
+		return `t.room_id`
 	}
 	return `t.session_id`
 }
@@ -480,7 +482,7 @@ func TestP5DeleteSessionGC(t *testing.T) {
 	// be consumed by the deleted session's receipt.
 	other := f.newSessionWithStatus(t, "completed")
 	otherSID := mustUUID(t, other)
-	if _, err := f.pool.Exec(ctx, `UPDATE session SET runtime_id = $2, isolation = '{"kind":"worktree","repo_path":"/Users/x/app"}' WHERE id = $1`, otherSID, rtID); err != nil {
+	if _, err := f.pool.Exec(ctx, `UPDATE room SET runtime_id = $2, isolation = '{"kind":"worktree","repo_path":"/Users/x/app"}' WHERE id = $1`, otherSID, rtID); err != nil {
 		t.Fatal(err)
 	}
 	var otherWD uuid.UUID
@@ -555,7 +557,7 @@ func TestP5DeleteSessionGC(t *testing.T) {
 	// carried only by path.
 	id2 := f.newSessionWithStatus(t, "cancelled")
 	sid2 := mustUUID(t, id2)
-	if _, err := f.pool.Exec(ctx, `UPDATE session SET runtime_id = $2, isolation = '{"kind":"worktree","repo_path":"/Users/x/app"}' WHERE id = $1`, sid2, rtID); err != nil {
+	if _, err := f.pool.Exec(ctx, `UPDATE room SET runtime_id = $2, isolation = '{"kind":"worktree","repo_path":"/Users/x/app"}' WHERE id = $1`, sid2, rtID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(ctx, `

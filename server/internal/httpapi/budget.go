@@ -56,12 +56,13 @@ func (s *Server) loadBudgetState(ctx context.Context, q pgx.Tx, taskID uuid.UUID
 		                (SELECT tt.budget_override FROM task tt
 		                  WHERE tt.lane_id = t.lane_id AND tt.budget_override IS NOT NULL
 		                  ORDER BY tt.created_at DESC, tt.id DESC LIMIT 1)),
-		       s.limits, t.status::text, s.status::text, s.director_user_id, a.name,
+		       s.limits, t.status::text, wk.status::text, wk.director_user_id, a.name,
 		       COALESCE(u.cost_usd, 0), COALESCE(u.estimated, false),
 		       COALESCE((SELECT sum(uu.cost_usd) FROM task_usage uu JOIN task tt ON tt.id = uu.task_id
 		                 WHERE tt.session_id = t.session_id), 0)
 		FROM task t
-		JOIN session s ON s.id = t.session_id
+		JOIN room s ON s.id = t.session_id
+		JOIN work wk ON wk.room_id = s.id
 		JOIN agent a ON a.id = t.agent_id
 		LEFT JOIN task_usage u ON u.task_id = t.id
 		WHERE t.id = $1`, taskID).
@@ -162,8 +163,8 @@ func (s *Server) applyBudgetPause(ctx context.Context, tx pgx.Tx, b *budgetState
 
 	if o.SessionState == "paused" {
 		if _, err := tx.Exec(ctx, `
-			UPDATE session SET status = 'paused', paused_reason = 'budget', paused_detail = $2, updated_at = $3
-			WHERE id = $1`, b.SessionID, raw, now); err != nil {
+			UPDATE work SET status = 'paused', paused_reason = 'budget', paused_detail = $2, updated_at = $3
+			WHERE room_id = $1`, b.SessionID, raw, now); err != nil {
 			return err
 		}
 	}

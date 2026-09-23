@@ -249,14 +249,14 @@ func TestG5CompletedSessionCollectsWorkdirs(t *testing.T) {
 	f := newG4Fixture(t)
 	ctx := t.Context()
 
-	if _, err := f.pool.Exec(ctx, `UPDATE session SET runtime_id = $2 WHERE id = $1`, f.sessionID, f.runtimeID); err != nil {
+	if _, err := f.pool.Exec(ctx, `UPDATE room SET runtime_id = $2 WHERE id = $1`, f.sessionID, f.runtimeID); err != nil {
 		t.Fatal(err)
 	}
 	var laneID uuid.UUID
 	if err := f.pool.QueryRow(ctx, `
 		INSERT INTO lane (session_id, agent_id, profile_id, status, created_at, updated_at)
-		SELECT $1, $2, p.profile_id, 'done', now(), now() FROM session_participant p
-		WHERE p.session_id = $1 AND p.agent_id = $2 RETURNING id`, f.sessionID, f.r).Scan(&laneID); err != nil {
+		SELECT $1, $2, p.profile_id, 'done', now(), now() FROM room_participant p
+		WHERE p.room_id = $1 AND p.agent_id = $2 RETURNING id`, f.sessionID, f.r).Scan(&laneID); err != nil {
 		t.Fatal(err)
 	}
 	var workdirID uuid.UUID
@@ -338,7 +338,7 @@ func TestG5WorktreeSessionIsNotCollectedOnCompletion(t *testing.T) {
 	f := newG4Fixture(t)
 	ctx := t.Context()
 	if _, err := f.pool.Exec(ctx, `
-		UPDATE session SET runtime_id = $2, isolation = '{"kind":"worktree","repo_path":"/repo"}' WHERE id = $1`,
+		UPDATE room SET runtime_id = $2, isolation = '{"kind":"worktree","repo_path":"/repo"}' WHERE id = $1`,
 		f.sessionID, f.runtimeID); err != nil {
 		t.Fatal(err)
 	}
@@ -601,7 +601,7 @@ func (f *p2Fixture) completionMet(t *testing.T) map[string]bool {
 	t.Helper()
 	met := map[string]bool{}
 	var raw []byte
-	if err := f.pool.QueryRow(t.Context(), `SELECT completion_met FROM session WHERE id = $1`, f.sessionID).Scan(&raw); err != nil {
+	if err := f.pool.QueryRow(t.Context(), `SELECT completion_met FROM work WHERE room_id = $1`, f.sessionID).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	if err := json.Unmarshal(raw, &met); err != nil {

@@ -105,7 +105,7 @@ func (s *Service) sessionIsolation(ctx context.Context, wsID, sessionID uuid.UUI
 	var raw []byte
 	var ws uuid.UUID
 	var runtimeID *uuid.UUID
-	err := s.DB.QueryRow(ctx, `SELECT workspace_id, isolation, runtime_id FROM session WHERE id = $1`, sessionID).Scan(&ws, &raw, &runtimeID)
+	err := s.DB.QueryRow(ctx, `SELECT workspace_id, isolation, runtime_id FROM room WHERE id = $1`, sessionID).Scan(&ws, &raw, &runtimeID)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && ws != wsID) {
 		return "", "", apperr.NotFound("session")
 	}

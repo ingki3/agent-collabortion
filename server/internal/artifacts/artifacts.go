@@ -103,7 +103,7 @@ func (s *Service) Submit(ctx context.Context, sessionID uuid.UUID, in SubmitInpu
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
 	var status string
-	err = tx.QueryRow(ctx, `SELECT status::text FROM session WHERE id = $1 FOR UPDATE`, sessionID).Scan(&status)
+	err = tx.QueryRow(ctx, `SELECT wk.status::text FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionID).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.NotFound("session")
 	}

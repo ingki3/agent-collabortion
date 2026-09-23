@@ -87,10 +87,11 @@ func (p *Postgres) Claim(ctx context.Context, runtimeID string, capacity int, no
 			       (SELECT count(DISTINCT b.lane_id) FROM busy b WHERE b.session_id = t.session_id) AS busy_lanes,
 			       (SELECT count(*) FROM busy b WHERE b.agent_id = t.agent_id) AS busy_agent,
 			       (SELECT count(*) FROM busy b WHERE b.runtime_id = r.id) AS busy_runtime,
-			       (SELECT count(*) FROM busy b JOIN session bs ON bs.id = b.session_id
+			       (SELECT count(*) FROM busy b JOIN room bs ON bs.id = b.session_id
 			         WHERE bs.workspace_id = r.workspace_id) AS busy_workspace
 			  FROM task t
-			  JOIN session s ON s.id = t.session_id
+			  JOIN room s ON s.id = t.session_id
+			  JOIN work wk ON wk.room_id = s.id
 			  JOIN lane l ON l.id = t.lane_id
 			  JOIN agent a ON a.id = t.agent_id
 			  JOIN runtime r ON r.id = $1
@@ -98,7 +99,7 @@ func (p *Postgres) Claim(ctx context.Context, runtimeID string, capacity int, no
 			  -- defaults instead of stopping dispatch altogether.
 			  LEFT JOIN workspace_settings cfg ON cfg.workspace_id = r.workspace_id
 			 WHERE t.status = 'queued'
-			   AND s.status = 'active'
+			   AND wk.status = 'active'
 			   -- FR-7.3 / S-44: a lane parked at paused does not dispatch. The
 			   -- budget pause that follows a finished turn has no task to park
 			   -- (the task is completed), so the lane row IS the gate on the
@@ -159,7 +160,7 @@ func (p *Postgres) Claim(ctx context.Context, runtimeID string, capacity int, no
 		// E11-10: fix the session to the first runtime that claims it. The
 		// workspace guard mirrors the SELECT so the session can never be pinned
 		// to a runtime outside its workspace.
-		if _, err := tx.Exec(ctx, `UPDATE session SET runtime_id = $2, updated_at = $3
+		if _, err := tx.Exec(ctx, `UPDATE room SET runtime_id = $2, updated_at = $3
 			WHERE id = $1 AND runtime_id IS NULL
 			  AND workspace_id = (SELECT workspace_id FROM runtime WHERE id = $2)`, t.SessionID, rt, now); err != nil {
 			return nil, err

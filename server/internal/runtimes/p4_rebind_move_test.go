@@ -37,14 +37,18 @@ func TestP4RebindMovesTheRepositoryAndRevivesWork(t *testing.T) {
 
 	sessionID, oldRT := seedOfflineSession(ctx, t, pool, t0)
 	var wsID, userID uuid.UUID
-	if err := pool.QueryRow(ctx, `SELECT workspace_id, director_user_id FROM session WHERE id = $1`, sessionID).
+	if err := pool.QueryRow(ctx, `SELECT s.workspace_id, wk.director_user_id FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1`, sessionID).
 		Scan(&wsID, &userID); err != nil {
 		t.Fatal(err)
 	}
 	const remote = "git@github.com:acme/app.git"
 	if _, err := pool.Exec(ctx, `
-		UPDATE session SET isolation = jsonb_build_object('kind', 'worktree', 'repo_path', '/old/app', 'remote_url', $2::text),
-		       status = 'paused', paused_reason = 'runtime_offline' WHERE id = $1`, sessionID, remote); err != nil {
+		UPDATE room SET isolation = jsonb_build_object('kind', 'worktree', 'repo_path', '/old/app', 'remote_url', $2::text)
+		WHERE id = $1`, sessionID, remote); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE work SET status = 'paused', paused_reason = 'runtime_offline' WHERE room_id = $1`, sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -87,7 +91,7 @@ func TestP4RebindMovesTheRepositoryAndRevivesWork(t *testing.T) {
 
 	// S-58: the repository moved with the session.
 	var repoPath string
-	if err := pool.QueryRow(ctx, `SELECT isolation->>'repo_path' FROM session WHERE id = $1`, sessionID).Scan(&repoPath); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT isolation->>'repo_path' FROM room WHERE id = $1`, sessionID).Scan(&repoPath); err != nil {
 		t.Fatal(err)
 	}
 	if repoPath != "/new/app" {
@@ -96,7 +100,7 @@ func TestP4RebindMovesTheRepositoryAndRevivesWork(t *testing.T) {
 	}
 	// The rest of the isolation object survives.
 	var kind, gotRemote string
-	if err := pool.QueryRow(ctx, `SELECT isolation->>'kind', isolation->>'remote_url' FROM session WHERE id = $1`, sessionID).
+	if err := pool.QueryRow(ctx, `SELECT isolation->>'kind', isolation->>'remote_url' FROM room WHERE id = $1`, sessionID).
 		Scan(&kind, &gotRemote); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +182,7 @@ func seedLane(ctx context.Context, t *testing.T, pool *pgxpool.Pool, wsID, sessi
 		VALUES ($1, 'default', 'claude_code', 'claude-sonnet-5', true, $2, $2) RETURNING id`, agentID, now).Scan(&profileID); err != nil {
 		t.Fatalf("profile: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO session_participant (session_id, agent_id, profile_id, joined_at) VALUES ($1, $2, $3, $4)`,
+	if _, err := pool.Exec(ctx, `INSERT INTO room_participant (room_id, agent_id, profile_id, joined_at) VALUES ($1, $2, $3, $4)`,
 		sessionID, agentID, profileID, now); err != nil {
 		t.Fatalf("participant: %v", err)
 	}

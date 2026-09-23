@@ -611,7 +611,7 @@ func TestReviewIsAgentOnly(t *testing.T) {
 func (f *p2Fixture) sessionStatus(t *testing.T, sessionID string) string {
 	t.Helper()
 	var s string
-	if err := f.pool.QueryRow(t.Context(), `SELECT status::text FROM session WHERE id = $1`, mustUUID(t, sessionID)).Scan(&s); err != nil {
+	if err := f.pool.QueryRow(t.Context(), `SELECT status::text FROM work WHERE room_id = $1`, mustUUID(t, sessionID)).Scan(&s); err != nil {
 		t.Fatal(err)
 	}
 	return s
@@ -752,7 +752,7 @@ func TestArtifactBlobIsUnlinkedWithTheRow(t *testing.T) {
 	if n := blobCount(oid); n != 1 {
 		t.Fatalf("blob %d exists = %d, want 1", oid, n)
 	}
-	if _, err := f.pool.Exec(ctx, `DELETE FROM session WHERE id = $1`, mustUUID(t, sess)); err != nil {
+	if _, err := f.pool.Exec(ctx, `DELETE FROM room WHERE id = $1`, mustUUID(t, sess)); err != nil {
 		t.Fatal(err)
 	}
 	var rows int

@@ -111,7 +111,7 @@ func noteNoFallback(ctx context.Context, tx pgx.Tx, t *Row, now time.Time) error
 	_, err := tx.Exec(ctx, `
 		INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
 		SELECT m.id, $4::inbox_item_type, $5::inbox_severity, s.id, $1, $2
-		FROM session s JOIN member m ON m.workspace_id = s.workspace_id AND m.user_id = s.director_user_id
+		FROM room s JOIN work wk ON wk.room_id = s.id JOIN member m ON m.workspace_id = s.workspace_id AND m.user_id = wk.director_user_id
 		WHERE s.id = $3
 		  AND NOT EXISTS (SELECT 1 FROM inbox_item i WHERE i.ref_id = $1 AND i.type = $4::inbox_item_type)`,
 		t.ID, now, t.SessionID, inbox.TypeRunFailed, inbox.Severity(inbox.TypeRunFailed))

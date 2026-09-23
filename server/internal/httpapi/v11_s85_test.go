@@ -43,7 +43,7 @@ func TestS85SessionAgentsAssigneeFallback(t *testing.T) {
 	sess := f.artifactSession(t, and(atom("user_approval")))
 	// The assignee (Lead) loses their participant row; the session still
 	// names them as assignee.
-	if _, err := f.pool.Exec(t.Context(), `DELETE FROM session_participant WHERE session_id = $1 AND agent_id = $2`, sess, f.leadUUID); err != nil {
+	if _, err := f.pool.Exec(t.Context(), `DELETE FROM room_participant WHERE room_id = $1 AND agent_id = $2`, sess, f.leadUUID); err != nil {
 		t.Fatal(err)
 	}
 	if st, out := f.patchCond(t, f.api, sess, and(atom("agent_approval", "agent_id", f.lead))); st != 200 {
@@ -51,7 +51,7 @@ func TestS85SessionAgentsAssigneeFallback(t *testing.T) {
 	}
 	// The control: an agent who is neither participant nor assignee is
 	// refused — the fallback is for the assignee alone.
-	if _, err := f.pool.Exec(t.Context(), `DELETE FROM session_participant WHERE session_id = $1 AND agent_id = $2`, sess, f.rUUID); err != nil {
+	if _, err := f.pool.Exec(t.Context(), `DELETE FROM room_participant WHERE room_id = $1 AND agent_id = $2`, sess, f.rUUID); err != nil {
 		t.Fatal(err)
 	}
 	if st, out := f.patchCond(t, f.api, sess, and(atom("agent_approval", "agent_id", f.r))); st != 422 || fieldCode(out, "completion_condition/conditions/0/agent_id") != "reviewer_not_participant" {

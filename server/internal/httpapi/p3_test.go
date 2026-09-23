@@ -317,7 +317,7 @@ func TestP3HitlDeadlineSweep(t *testing.T) {
 
 	// autonomous: a question proceeds with the agent's proposal, and the
 	// decision is marked automatic (E7-12).
-	if _, err := f.pool.Exec(t.Context(), `UPDATE session SET autonomy = 'autonomous' WHERE id = $1`, f.sessionID); err != nil {
+	if _, err := f.pool.Exec(t.Context(), `UPDATE room SET autonomy = 'autonomous' WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	tok2, task2 := f.agentToken(t, f.sessionID, f.wUUID, "W")
@@ -493,7 +493,7 @@ func TestP3SessionPauseResume(t *testing.T) {
 	f := newP2Fixture(t)
 	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/pause", nil)
 	var status, reason string
-	if err := f.pool.QueryRow(t.Context(), `SELECT status::text, COALESCE(paused_reason::text, '') FROM session WHERE id = $1`, f.sessionID).Scan(&status, &reason); err != nil {
+	if err := f.pool.QueryRow(t.Context(), `SELECT status::text, COALESCE(paused_reason::text, '') FROM work WHERE room_id = $1`, f.sessionID).Scan(&status, &reason); err != nil {
 		t.Fatal(err)
 	}
 	if status != "paused" || reason != "director" {
@@ -508,7 +508,7 @@ func TestP3SessionPauseResume(t *testing.T) {
 	// runtime_offline is the reason this endpoint cannot fix: nothing here
 	// makes the machine reachable (openapi resumeSession).
 	if _, err := f.pool.Exec(t.Context(), `
-		UPDATE session SET status = 'paused', paused_reason = 'runtime_offline' WHERE id = $1`, f.sessionID); err != nil {
+		UPDATE work SET status = 'paused', paused_reason = 'runtime_offline' WHERE room_id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	st, body, _ := f.api.do("POST", f.p+"/sessions/"+f.sessionID+"/resume", nil)
@@ -519,14 +519,18 @@ func TestP3SessionPauseResume(t *testing.T) {
 	// A budget pause resumed on the old limit re-trips immediately, so the
 	// server refuses it (FR-7.3).
 	if _, err := f.pool.Exec(t.Context(), `
-		UPDATE session SET paused_reason = 'budget', cost_usd = 5, limits = '{"budget_usd": 4}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+		UPDATE room SET limits = '{"budget_usd": 4}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(t.Context(), `
+		UPDATE work SET paused_reason = 'budget', cost_usd = 5 WHERE room_id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if st, body, _ := f.api.do("POST", f.p+"/sessions/"+f.sessionID+"/resume", nil); st != 422 {
 		t.Fatalf("budget resume without a raise = %d %v, want 422", st, body)
 	}
 	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/resume", map[string]any{"limits": map[string]any{"budget_usd": 10}})
-	if err := f.pool.QueryRow(t.Context(), `SELECT status::text FROM session WHERE id = $1`, f.sessionID).Scan(&status); err != nil {
+	if err := f.pool.QueryRow(t.Context(), `SELECT status::text FROM work WHERE room_id = $1`, f.sessionID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
 	if status != "active" {
@@ -975,7 +979,7 @@ func TestP3EstimatedOverrunDrainsOverHTTP(t *testing.T) {
 	ctx := t.Context()
 	_, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
 	f.runTask(t, taskID)
-	if _, err := f.pool.Exec(ctx, `UPDATE session SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+	if _, err := f.pool.Exec(ctx, `UPDATE room SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(ctx, `UPDATE agent SET budget_per_task = NULL WHERE id = $1`, f.rUUID); err != nil {
@@ -1018,7 +1022,7 @@ func TestP3SessionRemainderCapsTheTaskBudget(t *testing.T) {
 	f := newP2Fixture(t)
 	ctx := t.Context()
 	_, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
-	if _, err := f.pool.Exec(ctx, `UPDATE session SET limits = '{"budget_usd": 2}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+	if _, err := f.pool.Exec(ctx, `UPDATE room SET limits = '{"budget_usd": 2}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(ctx, `UPDATE agent SET budget_per_task = 5 WHERE id = $1`, f.rUUID); err != nil {

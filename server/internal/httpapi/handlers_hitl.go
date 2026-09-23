@@ -127,7 +127,7 @@ func (s *Server) RespondHitlRequest(w http.ResponseWriter, r *http.Request, hitl
 		// $0.00 there and a $0.01 raise would pass this guard and re-trip the
 		// pause on the very next heartbeat.
 		if err := s.DB.QueryRow(r.Context(), `
-			SELECT s.status::text, s.paused_reason::text FROM session s WHERE s.id = $1`, row.SessionID).
+			SELECT wk.status::text, wk.paused_reason::text FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1`, row.SessionID).
 			Scan(&status, &reason); err != nil {
 			writeErr(w, err)
 			return
@@ -417,7 +417,7 @@ func (s *Server) resumeSessionForBudget(ctx context.Context, sessionID uuid.UUID
 		var reason *string
 		var limitsRaw []byte
 		if err := tx.QueryRow(ctx, `
-			SELECT status::text, paused_reason::text, limits FROM session WHERE id = $1 FOR UPDATE`, sessionID).
+			SELECT wk.status::text, wk.paused_reason::text, s.limits FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionID).
 			Scan(&status, &reason, &limitsRaw); err != nil {
 			return err
 		}
@@ -438,8 +438,12 @@ func (s *Server) resumeSessionForBudget(ctx context.Context, sessionID uuid.UUID
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			UPDATE session SET limits = $2, status = 'active', paused_reason = NULL, paused_detail = NULL, updated_at = $3
-			WHERE id = $1`, sessionID, merged, now); err != nil {
+			UPDATE room SET limits = $2, updated_at = $3 WHERE id = $1`, sessionID, merged, now); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE work SET status = 'active', paused_reason = NULL, paused_detail = NULL, updated_at = $2
+			WHERE room_id = $1`, sessionID, now); err != nil {
 			return err
 		}
 		// S-46's re-queue, reused: the pause PARKED the turns it cancelled, so
@@ -614,9 +618,9 @@ func loadHitlRow(ctx context.Context, q db.DBTX, id uuid.UUID) (*hitlRow, error)
 		       h.approver_spec, h.purpose, h.artifact_id, h.budget_override_usd, h.message_id, h.requeue_held,
 		       h.due_at, h.overdue, h.status::text,
 		       h.approved, h.answer, h.answered_by, h.answered_at, h.created_at,
-		       s.director_user_id, s.deputy_director_user_id, t.status::text
+		       wk.director_user_id, wk.deputy_user_id, t.status::text
 		FROM hitl_request h
-		JOIN session s ON s.id = h.session_id
+		JOIN work wk ON wk.room_id = h.session_id
 		LEFT JOIN task t ON t.id = h.task_id
 		LEFT JOIN agent a ON a.id = t.agent_id
 		WHERE h.id = $1`, id).

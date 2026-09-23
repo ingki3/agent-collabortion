@@ -247,7 +247,7 @@ func TestV11WorkdirIDOfAnotherWorkspaceIsRefused(t *testing.T) {
 	if err := f.pool.QueryRow(ctx, `INSERT INTO workspace (name, slug) VALUES ('other', 'other-' || substr(md5(random()::text), 1, 8)) RETURNING id`).Scan(&otherWS); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.pool.Exec(ctx, `UPDATE session SET workspace_id = $2 WHERE id = $1`, sessionID, otherWS); err != nil {
+	if _, err := f.pool.Exec(ctx, `UPDATE room SET workspace_id = $2 WHERE id = $1`, sessionID, otherWS); err != nil {
 		t.Fatal(err)
 	}
 	d.must(200, "POST", "/v1/daemon/runtimes/"+rtID.String()+"/workdirs", map[string]any{

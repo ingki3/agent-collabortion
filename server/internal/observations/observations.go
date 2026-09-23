@@ -155,7 +155,7 @@ func ratio(ctx context.Context, q db.DBTX, sql string, wsID uuid.UUID, since tim
 const sqlChainScale = `
 WITH hops AS (
 	SELECT h.id, h.session_id, h.from_agent_id, h.created_at
-	FROM session_hop h JOIN session s ON s.id = h.session_id
+	FROM session_hop h JOIN room s ON s.id = h.session_id
 	WHERE s.workspace_id = $1 AND h.allowed),
 human AS (
 	SELECT id, session_id, created_at, lead(id) OVER (PARTITION BY session_id ORDER BY id) AS next_id
@@ -175,7 +175,7 @@ const sqlJoinBreadth = `
 SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY g.n),
        percentile_cont(0.95) WITHIN GROUP (ORDER BY g.n), count(*)
 FROM (SELECT count(*) AS n
-      FROM lane l JOIN session s ON s.id = l.session_id
+      FROM lane l JOIN room s ON s.id = l.session_id
       WHERE s.workspace_id = $1 AND l.delegated_from_task_id IS NOT NULL AND l.created_at >= $2
       GROUP BY l.delegated_from_task_id) g`
 
@@ -187,7 +187,7 @@ SELECT avg(CASE WHEN EXISTS (
 	WHERE e.task_id = a.task_id AND e.attempt = a.attempt
 	  AND e.class = 'status' AND e.verb = 'turn_end' AND e.object_ref = to_jsonb('` + EmptyTurnObjectRef + `'::text))
 	THEN 1 ELSE 0 END), count(*)
-FROM task_attempt a JOIN task t ON t.id = a.task_id JOIN session s ON s.id = t.session_id
+FROM task_attempt a JOIN task t ON t.id = a.task_id JOIN room s ON s.id = t.session_id
 WHERE s.workspace_id = $1 AND a.outcome = 'completed' AND a.finished_at >= $2`
 
 // 2. 세션이 도달한 최대 chain_depth. 깊이의 규칙은 router.chainDepth 하나뿐이라
@@ -198,9 +198,9 @@ WHERE s.workspace_id = $1 AND a.outcome = 'completed' AND a.finished_at >= $2`
 func chainDepth(ctx context.Context, q db.DBTX, wsID uuid.UUID, since time.Time, r *Row) error {
 	rows, err := q.Query(ctx, `
 		SELECT h.session_id, h.id, h.from_agent_id, h.to_agent_id, h.created_at, COALESCE(h.cause_hop_id, 0)
-		FROM session_hop h JOIN session s ON s.id = h.session_id
+		FROM session_hop h JOIN room s ON s.id = h.session_id
 		WHERE s.workspace_id = $1
-		  AND h.session_id IN (SELECT h2.session_id FROM session_hop h2 JOIN session s2 ON s2.id = h2.session_id
+		  AND h.session_id IN (SELECT h2.session_id FROM session_hop h2 JOIN room s2 ON s2.id = h2.session_id
 		                       WHERE s2.workspace_id = $1 AND h2.created_at >= $2)
 		ORDER BY h.session_id, h.id`, wsID, since)
 	if err != nil {
@@ -262,7 +262,7 @@ func percentile(xs []float64, p float64) float64 {
 func routingConcentration(ctx context.Context, q db.DBTX, wsID uuid.UUID, since time.Time, r *Row) error {
 	rows, err := q.Query(ctx, `
 		SELECT h.rule, count(*)
-		FROM session_hop h JOIN session s ON s.id = h.session_id
+		FROM session_hop h JOIN room s ON s.id = h.session_id
 		WHERE s.workspace_id = $1 AND h.allowed AND h.created_at >= $2
 		GROUP BY h.rule`, wsID, since)
 	if err != nil {

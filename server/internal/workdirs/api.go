@@ -18,7 +18,7 @@ import (
 
 const workdirCols = `w.id, w.session_id, w.agent_id, w.lane_id, w.kind::text, w.path_or_ref,
 	 w.branch, w.status::text, w.disk_bytes, w.last_used_at, w.retain_until, w.dirty,
-	 w.created_at, w.updated_at, s.title, s.status::text,
+	 w.created_at, w.updated_at, wk.title, wk.status::text,
 	 w.merged, w.commits_ahead, w.gc_blocked_reason`
 
 func scanWorkdir(row pgx.Row) (gen.Workdir, uuid.UUID, error) {
@@ -74,7 +74,7 @@ func scanWorkdir(row pgx.Row) (gen.Workdir, uuid.UUID, error) {
 // Load returns one workdir as the contract's Workdir (SSE `workdir.updated`).
 func Load(ctx context.Context, q db.DBTX, id uuid.UUID) (gen.Workdir, error) {
 	wd, _, err := scanWorkdir(q.QueryRow(ctx, `
-		SELECT `+workdirCols+` FROM workdir w JOIN session s ON s.id = w.session_id WHERE w.id = $1`, id))
+		SELECT `+workdirCols+` FROM workdir w JOIN room s ON s.id = w.session_id JOIN work wk ON wk.room_id = s.id WHERE w.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return wd, apperr.NotFound("workdir")
 	}
@@ -105,7 +105,7 @@ func ListForRuntime(ctx context.Context, q db.DBTX, ql ListQuery) ([]gen.Workdir
 	}
 	rows, err := q.Query(ctx, `
 		SELECT `+workdirCols+`
-		FROM workdir w JOIN session s ON s.id = w.session_id
+		FROM workdir w JOIN room s ON s.id = w.session_id JOIN work wk ON wk.room_id = s.id
 		WHERE s.runtime_id = $1
 		  AND ($2::text IS NULL OR w.status::text = $2)
 		  AND ($2::text IS NOT NULL OR w.status <> 'deleted')
@@ -129,7 +129,7 @@ func ListForRuntime(ctx context.Context, q db.DBTX, ql ListQuery) ([]gen.Workdir
 	}
 	var total int64
 	if err := q.QueryRow(ctx, `
-		SELECT COALESCE(sum(w.disk_bytes), 0) FROM workdir w JOIN session s ON s.id = w.session_id
+		SELECT COALESCE(sum(w.disk_bytes), 0) FROM workdir w JOIN room s ON s.id = w.session_id
 		WHERE s.runtime_id = $1 AND w.status <> 'deleted'`, ql.RuntimeID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
@@ -142,7 +142,7 @@ func RuntimeDiskUsed(ctx context.Context, q db.DBTX, wsID uuid.UUID) (int64, err
 	var used int64
 	err := q.QueryRow(ctx, `
 		SELECT COALESCE(sum(w.disk_bytes), 0)
-		FROM workdir w JOIN session s ON s.id = w.session_id
+		FROM workdir w JOIN room s ON s.id = w.session_id
 		WHERE s.workspace_id = $1 AND w.status <> 'deleted'`, wsID).Scan(&used)
 	return used, err
 }
@@ -204,7 +204,7 @@ func nullableTime(t *time.Time) nullable.Nullable[time.Time] {
 func UnmergedWorktrees(ctx context.Context, q db.DBTX, sessionID uuid.UUID) ([]gen.Workdir, error) {
 	rows, err := q.Query(ctx, `
 		SELECT `+workdirCols+`
-		FROM workdir w JOIN session s ON s.id = w.session_id
+		FROM workdir w JOIN room s ON s.id = w.session_id JOIN work wk ON wk.room_id = s.id
 		WHERE w.session_id = $1 AND w.kind = 'worktree' AND w.status <> 'deleted'
 		  AND (w.merged = false OR COALESCE(w.tree_dirty, w.dirty, false) OR w.commits_ahead > 0)
 		ORDER BY w.created_at`, sessionID)

@@ -57,8 +57,8 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 	var reentry int
 	var director *uuid.UUID
 	err = tx.QueryRow(ctx, `
-		SELECT t.lane_id, t.session_id, t.agent_id, s.workspace_id, t.trigger_message_id, l.reentry_count, s.director_user_id
-		FROM task t JOIN lane l ON l.id = t.lane_id JOIN session s ON s.id = t.session_id
+		SELECT t.lane_id, t.session_id, t.agent_id, s.workspace_id, t.trigger_message_id, l.reentry_count, wk.director_user_id
+		FROM task t JOIN lane l ON l.id = t.lane_id JOIN room s ON s.id = t.session_id JOIN work wk ON wk.room_id = s.id
 		WHERE t.id = $1 FOR UPDATE OF t, l`, taskID).
 		Scan(&laneID, &sessionID, &agentID, &wsID, &triggerMsg, &reentry, &director)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -152,7 +152,7 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 		return nil, apperr.Validation(apperr.Field("status", "invalid", "상태는 working · blocked · done 중 하나여야 합니다"))
 	}
 
-	if _, err := tx.Exec(ctx, `UPDATE session SET updated_at = $2 WHERE id = $1`, sessionID, now); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE room SET updated_at = $2 WHERE id = $1`, sessionID, now); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -322,7 +322,7 @@ func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 // when nothing is known, which chainDepth reads as "no cause".
 func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID, from, agentID, requester, triggerMsg uuid.UUID, prefix string, now time.Time) error {
 	var profileID uuid.UUID
-	err := tx.QueryRow(ctx, `SELECT profile_id FROM session_participant WHERE session_id = $1 AND agent_id = $2`, sessionID, agentID).Scan(&profileID)
+	err := tx.QueryRow(ctx, `SELECT profile_id FROM room_participant WHERE room_id = $1 AND agent_id = $2`, sessionID, agentID).Scan(&profileID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil // no longer a participant: nothing to wake
 	}

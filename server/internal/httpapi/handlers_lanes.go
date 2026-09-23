@@ -26,8 +26,8 @@ func (s *Server) laneControl(r *http.Request, laneID uuid.UUID) (*gen.User, uuid
 	var sessionID, wsID, director uuid.UUID
 	var deputy *uuid.UUID
 	err := s.DB.QueryRow(r.Context(), `
-		SELECT l.session_id, s.workspace_id, s.director_user_id, s.deputy_director_user_id
-		FROM lane l JOIN session s ON s.id = l.session_id WHERE l.id = $1`, laneID).Scan(&sessionID, &wsID, &director, &deputy)
+		SELECT l.session_id, s.workspace_id, wk.director_user_id, wk.deputy_user_id
+		FROM lane l JOIN room s ON s.id = l.session_id JOIN work wk ON wk.room_id = s.id WHERE l.id = $1`, laneID).Scan(&sessionID, &wsID, &director, &deputy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, uuid.Nil, uuid.Nil, apperr.NotFound("lane")
 	}
@@ -77,7 +77,7 @@ func (s *Server) ListLanes(w http.ResponseWriter, r *http.Request, sessionId gen
 	if u != nil {
 		var director uuid.UUID
 		var deputy *uuid.UUID
-		if err := s.DB.QueryRow(r.Context(), `SELECT director_user_id, deputy_director_user_id FROM session WHERE id = $1`, sessionId).
+		if err := s.DB.QueryRow(r.Context(), `SELECT director_user_id, deputy_user_id FROM work WHERE room_id = $1`, sessionId).
 			Scan(&director, &deputy); err != nil {
 			writeErr(w, err)
 			return

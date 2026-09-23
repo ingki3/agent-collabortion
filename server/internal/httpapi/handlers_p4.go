@@ -186,8 +186,8 @@ func (s *Server) DeleteWorkdir(w http.ResponseWriter, r *http.Request, workdirId
 	var director uuid.UUID
 	var path, kind string
 	if err := s.DB.QueryRow(r.Context(), `
-		SELECT s.workspace_id, s.id, s.runtime_id, s.director_user_id, w.path_or_ref, w.kind::text
-		FROM workdir w JOIN session s ON s.id = w.session_id WHERE w.id = $1`, id).
+		SELECT s.workspace_id, s.id, s.runtime_id, wk.director_user_id, w.path_or_ref, w.kind::text
+		FROM workdir w JOIN room s ON s.id = w.session_id JOIN work wk ON wk.room_id = s.id WHERE w.id = $1`, id).
 		Scan(&wsID, &sessionID, &runtimeID, &director, &path, &kind); err != nil {
 		writeProblem(w, apperr.NotFound("workdir"))
 		return

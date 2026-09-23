@@ -87,7 +87,7 @@ func TestSweepOfflineLeavesSessionsInsideTheGraceWindow(t *testing.T) {
 		t.Fatalf("sweep inside the grace window paused %d sessions (err %v), want 0 (E14-09)", n, err)
 	}
 	var status string
-	if err := pool.QueryRow(ctx, `SELECT status::text FROM session WHERE id = $1`, sessionID).Scan(&status); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT status::text FROM work WHERE room_id = $1`, sessionID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
 	if status != "active" {
@@ -100,7 +100,7 @@ func assertOfflineState(ctx context.Context, t *testing.T, pool *pgxpool.Pool,
 	t.Helper()
 	var status, reason string
 	if err := pool.QueryRow(ctx, `
-		SELECT status::text, COALESCE(paused_reason::text, '') FROM session WHERE id = $1`,
+		SELECT status::text, COALESCE(paused_reason::text, '') FROM work WHERE room_id = $1`,
 		sessionID).Scan(&status, &reason); err != nil {
 		t.Fatal(err)
 	}
@@ -144,9 +144,14 @@ func seedOfflineSession(ctx context.Context, t *testing.T, pool *pgxpool.Pool, n
 		t.Fatalf("runtime: %v", err)
 	}
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO session (workspace_id, title, goal, director_user_id, runtime_id, isolation, status,
-		                     created_by, created_at, updated_at, started_at)
-		VALUES ($1, 's', 'g', $2, $3, '{"kind":"worktree"}', 'active', $2, $4, $4, $4) RETURNING id`,
+		WITH r AS (
+			INSERT INTO room (workspace_id, name, owner_user_id, runtime_id, isolation,
+			                  created_by, created_at, updated_at)
+			VALUES ($1, 's', $2, $3, '{"kind":"worktree"}', $2, $4, $4) RETURNING id),
+		wk AS (
+			INSERT INTO work (room_id, title, goal, director_user_id, status, created_by, created_at, updated_at, started_at)
+			SELECT id, 's', 'g', $2, 'active', $2, $4, $4, $4 FROM r)
+		SELECT id FROM r`,
 		wsID, userID, runtimeID, now).Scan(&sessionID); err != nil {
 		t.Fatalf("session: %v", err)
 	}

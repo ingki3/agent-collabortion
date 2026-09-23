@@ -38,8 +38,8 @@ type hitlSession struct {
 func loadHitlSession(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (*hitlSession, error) {
 	var h hitlSession
 	err := q.QueryRow(ctx, `
-		SELECT workspace_id, director_user_id, deputy_director_user_id, autonomy::text, status::text
-		FROM session WHERE id = $1`, sessionID).
+		SELECT s.workspace_id, wk.director_user_id, wk.deputy_user_id, s.autonomy::text, wk.status::text
+		FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1`, sessionID).
 		Scan(&h.WorkspaceID, &h.Director, &h.Deputy, &h.Autonomy, &h.Status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.NotFound("session")

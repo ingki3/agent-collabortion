@@ -36,7 +36,7 @@ func (s *Server) sessionControl(r *http.Request, sessionID uuid.UUID, allowDeput
 	var wsID, director uuid.UUID
 	var deputy *uuid.UUID
 	err := s.DB.QueryRow(r.Context(), `
-		SELECT workspace_id, director_user_id, deputy_director_user_id FROM session WHERE id = $1`, sessionID).
+		SELECT s.workspace_id, wk.director_user_id, wk.deputy_user_id FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1`, sessionID).
 		Scan(&wsID, &director, &deputy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, uuid.Nil, apperr.NotFound("session")
@@ -96,7 +96,7 @@ func (s *Server) PauseSession(w http.ResponseWriter, r *http.Request, sessionId 
 	now := s.Clock.Now()
 	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
 		var status string
-		if err := tx.QueryRow(r.Context(), `SELECT status::text FROM session WHERE id = $1 FOR UPDATE`, sessionId).Scan(&status); err != nil {
+		if err := tx.QueryRow(r.Context(), `SELECT wk.status::text FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionId).Scan(&status); err != nil {
 			return err
 		}
 		if status != "active" {
@@ -105,8 +105,8 @@ func (s *Server) PauseSession(w http.ResponseWriter, r *http.Request, sessionId 
 		detail := tasks.PausedDetail(sessions.PauseDirector, now)
 		raw, _ := json.Marshal(detail)
 		if _, err := tx.Exec(r.Context(), `
-			UPDATE session SET status = 'paused', paused_reason = 'director', paused_detail = $2, updated_at = $3
-			WHERE id = $1`, sessionId, raw, now); err != nil {
+			UPDATE work SET status = 'paused', paused_reason = 'director', paused_detail = $2, updated_at = $3
+			WHERE room_id = $1`, sessionId, raw, now); err != nil {
 			return err
 		}
 		// FR-2.3: a Director pause DRAINS. PauseSessionTasks reads
@@ -132,7 +132,7 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 		}
 	}
 	var reason *string
-	if err := s.DB.QueryRow(r.Context(), `SELECT paused_reason::text FROM session WHERE id = $1`, sessionId).Scan(&reason); err != nil {
+	if err := s.DB.QueryRow(r.Context(), `SELECT paused_reason::text FROM work WHERE room_id = $1`, sessionId).Scan(&reason); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeProblem(w, apperr.NotFound("session"))
 		} else {
@@ -154,7 +154,7 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
 		var status string
 		var limitsRaw []byte
-		if err := tx.QueryRow(r.Context(), `SELECT status::text, limits FROM session WHERE id = $1 FOR UPDATE`, sessionId).
+		if err := tx.QueryRow(r.Context(), `SELECT wk.status::text, s.limits FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionId).
 			Scan(&status, &limitsRaw); err != nil {
 			return err
 		}
@@ -174,7 +174,7 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 				return err
 			}
 			limitsRaw = merged
-			if _, err := tx.Exec(r.Context(), `UPDATE session SET limits = $2 WHERE id = $1`, sessionId, limitsRaw); err != nil {
+			if _, err := tx.Exec(r.Context(), `UPDATE room SET limits = $2 WHERE id = $1`, sessionId, limitsRaw); err != nil {
 				return err
 			}
 		}
@@ -202,7 +202,7 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 				// all three layers at once. Deleting the rows (what this did before)
 				// also erased the audit trail the loop verdict was built from.
 				var assignee uuid.UUID
-				if err := tx.QueryRow(r.Context(), `SELECT assignee_agent_id FROM session WHERE id = $1`, sessionId).Scan(&assignee); err != nil {
+				if err := tx.QueryRow(r.Context(), `SELECT assignee_agent_id FROM work WHERE room_id = $1`, sessionId).Scan(&assignee); err != nil {
 					return err
 				}
 				if err := s.Router.RecordHumanHop(r.Context(), tx, sessionId, assignee, uuid.Nil, now); err != nil {
@@ -211,8 +211,8 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 			}
 		}
 		if _, err := tx.Exec(r.Context(), `
-			UPDATE session SET status = 'active', paused_reason = NULL, paused_detail = NULL, updated_at = $2
-			WHERE id = $1`, sessionId, now); err != nil {
+			UPDATE work SET status = 'active', paused_reason = NULL, paused_detail = NULL, updated_at = $2
+			WHERE room_id = $1`, sessionId, now); err != nil {
 			return err
 		}
 		// S-46: the pause PARKED the turns it cancelled (§8.2.2 — a budget or
@@ -332,7 +332,7 @@ func (s *Server) CancelSession(w http.ResponseWriter, r *http.Request, sessionId
 	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
 		var status string
 		var pauseReason *string
-		if err := tx.QueryRow(r.Context(), `SELECT status::text, paused_reason::text FROM session WHERE id = $1 FOR UPDATE`, sessionId).
+		if err := tx.QueryRow(r.Context(), `SELECT wk.status::text, wk.paused_reason::text FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionId).
 			Scan(&status, &pauseReason); err != nil {
 			return err
 		}
@@ -375,8 +375,8 @@ func (s *Server) CancelSession(w http.ResponseWriter, r *http.Request, sessionId
 			}
 		}
 		if _, err := tx.Exec(r.Context(), `
-			UPDATE session SET status = 'cancelled', paused_reason = NULL, paused_detail = NULL,
-			       finished_at = $2, updated_at = $2 WHERE id = $1`, sessionId, now); err != nil {
+			UPDATE work SET status = 'cancelled', paused_reason = NULL, paused_detail = NULL,
+			       finished_at = $2, updated_at = $2 WHERE room_id = $1`, sessionId, now); err != nil {
 			return err
 		}
 		return s.cancelSessionWork(r.Context(), tx, sessionId, now)
@@ -482,7 +482,9 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 		var status string
 		var limitsRaw, condRaw []byte
 		var assignee *uuid.UUID
-		if err := tx.QueryRow(r.Context(), `SELECT status::text, limits, completion_condition, assignee_agent_id FROM session WHERE id = $1 FOR UPDATE`, sessionId).
+		if err := tx.QueryRow(r.Context(), `
+			SELECT wk.status::text, s.limits, wk.completion_condition, wk.assignee_agent_id
+			FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionId).
 			Scan(&status, &limitsRaw, &condRaw, &assignee); err != nil {
 			return err
 		}
@@ -508,14 +510,26 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 				return apperr.Validation(errs...)
 			}
 		}
-		set := []string{"updated_at = $2"}
-		args := []any{sessionId, now}
+		// v0.19 (T-R1a): the old session row is now room ⋈ work. Each column
+		// is written on the table that owns it — room first, then work (the
+		// one lock order every writer of both keeps).
+		roomSet := []string{"updated_at = $2"}
+		roomArgs := []any{sessionId, now}
+		workSet := []string{"updated_at = $2"}
+		workArgs := []any{sessionId, now}
+		addRoom := func(col string, v any) {
+			roomArgs = append(roomArgs, v)
+			roomSet = append(roomSet, fmt.Sprintf("%s = $%d", col, len(roomArgs)))
+		}
 		add := func(col string, v any) {
-			args = append(args, v)
-			set = append(set, fmt.Sprintf("%s = $%d", col, len(args)))
+			workArgs = append(workArgs, v)
+			workSet = append(workSet, fmt.Sprintf("%s = $%d", col, len(workArgs)))
 		}
 		if in.Title != nil {
 			add("title", *in.Title)
+			// §10 이관 규칙 "방 이름 = 세션 제목": under the 1:1 synthesis the
+			// old title is both the room's name and the work's title.
+			addRoom("name", *in.Title)
 		}
 		if in.Goal != nil {
 			add("goal", *in.Goal)
@@ -524,21 +538,21 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 			add("acceptance_criteria", *in.AcceptanceCriteria)
 		}
 		if in.Autonomy != nil {
-			add("autonomy", string(*in.Autonomy))
+			addRoom("autonomy", string(*in.Autonomy))
 		}
 		if in.Limits != nil {
 			merged, err := mergeLimits(limitsRaw, in.Limits)
 			if err != nil {
 				return err
 			}
-			add("limits", merged)
+			addRoom("limits", merged)
 		}
 		// S-32: an explicit null is an UNSET, and only a nullable type can tell
 		// it from an omitted key. `deputy_director_user_id: null` clears the
 		// deputy; leaving the key out keeps whoever is there.
 		if in.DeputyDirectorUserId.IsSpecified() {
 			if in.DeputyDirectorUserId.IsNull() {
-				add("deputy_director_user_id", nil)
+				add("deputy_user_id", nil)
 			} else {
 				v, err := in.DeputyDirectorUserId.Get()
 				if err != nil {
@@ -547,7 +561,10 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 				if err := s.requireMember(r.Context(), tx, sessionId, v); err != nil {
 					return err
 				}
-				add("deputy_director_user_id", v)
+				if err := addRoomMember(r.Context(), tx, sessionId, v, now); err != nil {
+					return err
+				}
+				add("deputy_user_id", v)
 			}
 		}
 		if in.CompletionCondition != nil {
@@ -584,21 +601,30 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 		if draft {
 			if in.Isolation != nil {
 				raw, _ := json.Marshal(in.Isolation)
-				add("isolation", raw)
+				addRoom("isolation", raw)
 			}
 			if in.RuntimeId.IsSpecified() {
 				if in.RuntimeId.IsNull() {
-					add("runtime_id", nil)
+					addRoom("runtime_id", nil)
 				} else if v, err := in.RuntimeId.Get(); err == nil {
-					add("runtime_id", v)
+					addRoom("runtime_id", v)
 				}
 			}
 		}
-		if len(set) == 1 {
+		if len(roomSet) == 1 && len(workSet) == 1 {
 			return nil
 		}
-		_, err := tx.Exec(r.Context(), `UPDATE session SET `+joinComma(set)+` WHERE id = $1`, args...)
-		return err
+		if len(roomSet) > 1 {
+			if _, err := tx.Exec(r.Context(), `UPDATE room SET `+joinComma(roomSet)+` WHERE id = $1`, roomArgs...); err != nil {
+				return err
+			}
+		}
+		if len(workSet) > 1 {
+			if _, err := tx.Exec(r.Context(), `UPDATE work SET `+joinComma(workSet)+` WHERE room_id = $1`, workArgs...); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		writeErr(w, err)
@@ -625,7 +651,7 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 // S-84) for a session that already exists: the set the reviewer guard checks
 // against on updateSession.
 func sessionAgents(ctx context.Context, q pgx.Tx, sessionID uuid.UUID, assignee *uuid.UUID) (map[uuid.UUID]bool, error) {
-	rows, err := q.Query(ctx, `SELECT agent_id FROM session_participant WHERE session_id = $1`, sessionID)
+	rows, err := q.Query(ctx, `SELECT agent_id FROM room_participant WHERE room_id = $1 AND agent_id IS NOT NULL`, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -651,7 +677,7 @@ func (s *Server) ChangeDirector(w http.ResponseWriter, r *http.Request, sessionI
 		return
 	}
 	var wsID, director uuid.UUID
-	if err := s.DB.QueryRow(r.Context(), `SELECT workspace_id, director_user_id FROM session WHERE id = $1`, sessionId).
+	if err := s.DB.QueryRow(r.Context(), `SELECT s.workspace_id, wk.director_user_id FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1`, sessionId).
 		Scan(&wsID, &director); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeProblem(w, apperr.NotFound("session"))
@@ -683,8 +709,11 @@ func (s *Server) ChangeDirector(w http.ResponseWriter, r *http.Request, sessionI
 		if err := s.requireMember(r.Context(), tx, sessionId, in.DirectorUserID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(r.Context(), `UPDATE session SET director_user_id = $2, updated_at = $3 WHERE id = $1`,
+		if _, err := tx.Exec(r.Context(), `UPDATE work SET director_user_id = $2, updated_at = $3 WHERE room_id = $1`,
 			sessionId, in.DirectorUserID, now); err != nil {
+			return err
+		}
+		if err := addRoomMember(r.Context(), tx, sessionId, in.DirectorUserID, now); err != nil {
 			return err
 		}
 		// The open `director` requests follow the role, not the person: an
@@ -740,7 +769,7 @@ func (s *Server) ChangeDirector(w http.ResponseWriter, r *http.Request, sessionI
 func (s *Server) requireMember(ctx context.Context, q pgx.Tx, sessionID, userID uuid.UUID) error {
 	var ok bool
 	if err := q.QueryRow(ctx, `
-		SELECT EXISTS (SELECT 1 FROM member m JOIN session s ON s.workspace_id = m.workspace_id
+		SELECT EXISTS (SELECT 1 FROM member m JOIN room s ON s.workspace_id = m.workspace_id
 		               WHERE s.id = $1 AND m.user_id = $2)`, sessionID, userID).Scan(&ok); err != nil {
 		return err
 	}
@@ -748,6 +777,16 @@ func (s *Server) requireMember(ctx context.Context, q pgx.Tx, sessionID, userID 
 		return apperr.Validation(apperr.Field("user_id", "not_member", "워크스페이스 멤버가 아닙니다"))
 	}
 	return nil
+}
+
+// addRoomMember keeps room_participant's human rows in step with the old
+// session's people (0025 seeds Director·deputy as `member`): a person who
+// becomes Director or deputy is a member of the room from then on.
+func addRoomMember(ctx context.Context, tx pgx.Tx, roomID, userID uuid.UUID, now time.Time) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO room_participant (room_id, user_id, role, joined_at) VALUES ($1, $2, 'member', $3)
+		ON CONFLICT (room_id, user_id) WHERE user_id IS NOT NULL DO NOTHING`, roomID, userID, now)
+	return err
 }
 
 func (s *Server) inSessionTx(ctx context.Context, fn func(tx pgx.Tx) error) error {

@@ -234,7 +234,7 @@ func TestP2LoopLimitPauses(t *testing.T) {
 	}
 	var status, reason *string
 	var detail *gen.PausedDetail
-	if err := f.pool.QueryRow(ctx, `SELECT status::text, paused_reason::text, paused_detail FROM session WHERE id = $1`, f.sessionID).
+	if err := f.pool.QueryRow(ctx, `SELECT status::text, paused_reason::text, paused_detail FROM work WHERE room_id = $1`, f.sessionID).
 		Scan(&status, &reason, &detail); err != nil {
 		t.Fatal(err)
 	}

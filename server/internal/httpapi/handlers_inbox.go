@@ -59,13 +59,14 @@ type inboxRow struct {
 }
 
 const selectInbox = `
-	SELECT i.id, i.member_id, m.workspace_id, i.type::text, i.severity::text, i.session_id, s.title, s.status::text,
+	SELECT i.id, i.member_id, m.workspace_id, i.type::text, i.severity::text, i.session_id, wk.title, wk.status::text,
 	       i.ref_id, i.read_at, i.created_at,
 	       h.type::text, h.question, h.context, h.proposed_default, h.due_at, h.overdue, h.status::text,
-	       h.purpose::text, h.approver_spec, h.created_at, a.name, s.director_user_id, s.deputy_director_user_id, s.paused_reason::text
+	       h.purpose::text, h.approver_spec, h.created_at, a.name, wk.director_user_id, wk.deputy_user_id, wk.paused_reason::text
 	FROM inbox_item i
 	JOIN member m ON m.id = i.member_id
-	LEFT JOIN session s ON s.id = i.session_id
+	LEFT JOIN room s ON s.id = i.session_id
+	LEFT JOIN work wk ON wk.room_id = s.id
 	LEFT JOIN hitl_request h ON h.id = i.ref_id AND i.type = 'hitl_request'
 	LEFT JOIN task t ON t.id = h.task_id
 	LEFT JOIN agent a ON a.id = t.agent_id`

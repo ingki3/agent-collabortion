@@ -48,7 +48,7 @@ func (f *p2Fixture) sessionPause(t *testing.T) (status, reason string, detail *g
 	t.Helper()
 	var st string
 	var rs *string
-	if err := f.pool.QueryRow(t.Context(), `SELECT status::text, paused_reason::text, paused_detail FROM session WHERE id = $1`, f.sessionID).
+	if err := f.pool.QueryRow(t.Context(), `SELECT status::text, paused_reason::text, paused_detail FROM work WHERE room_id = $1`, f.sessionID).
 		Scan(&st, &rs, &detail); err != nil {
 		t.Fatal(err)
 	}
