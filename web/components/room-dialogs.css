@@ -1,0 +1,84 @@
+/* 방의 다이얼로그·설정 화면(T-R2-W3) — S19 · S20 · S24 · S23 · S21 · S26. 색은 tokens.css 변수만(글자에 --ink-3 을 쓰지 않는다 — 다크에서 대비 미달). */
+
+/* ── 넓은 다이얼로그 껍데기(ConfirmDialog 의 scrim·틀을 그대로, 폭만 넓게) ── */
+.rd-dlg { width: min(720px, 100%); gap: 14px; }
+.rd-dlg__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.rd-dlg__sub { margin: 2px 0 0; font-size: var(--fs-sub); color: var(--ink-2); line-height: 1.5; word-break: keep-all; }
+.rd-section { display: flex; flex-direction: column; gap: 8px; }
+.rd-section__title { margin: 0; font-size: var(--fs-body); font-weight: 600; }
+.rd-section__note { margin: 0; font-size: var(--fs-sub); color: var(--ink-2); line-height: 1.5; word-break: keep-all; }
+.rd-hint { margin: 0; font-size: var(--fs-sub); color: var(--ink-2); word-break: keep-all; }
+.rd-warn { margin: 0; font-size: var(--fs-sub); color: var(--s-wait-text); line-height: 1.5; word-break: keep-all; }
+.rd-err { margin: 0; font-size: var(--fs-meta); color: var(--s-fail-text); }
+.rd-dlg .disabled-hint, .rd-page .disabled-hint { text-align: left; max-width: none; }
+.rd-dlg .btn[aria-disabled="true"], .rd-page .btn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
+
+/* ── 행 목록(참여자 · 연결된 방 · 초대 후보) ── */
+.rd-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; }
+.rd-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.rd-row:first-child { border-top: 0; }
+.rd-row__icon { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: var(--fs-meta); font-weight: 600; background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
+.rd-row__icon--agent { border-radius: 7px; }
+.rd-row__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rd-row__name { font-size: var(--fs-body); font-weight: 500; overflow-wrap: anywhere; }
+.rd-row__meta { font-size: var(--fs-sub); color: var(--ink-2); overflow-wrap: anywhere; }
+.rd-row__side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; max-width: 46%; }
+.rd-row__side .disabled-hint { text-align: right; }
+.rd-role { display: inline-block; font-size: var(--fs-meta); padding: 1px 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink); margin-left: 6px; }
+.rd-more { position: relative; }
+.rd-more > summary { list-style: none; cursor: pointer; }
+.rd-more > summary::-webkit-details-marker { display: none; }
+.rd-more__menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 2; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 4px; display: flex; flex-direction: column; min-width: 160px; }
+
+/* ── 탭(사람 / 에이전트) ── */
+.rd-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.rd-tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 10px; font: inherit; font-size: var(--fs-body); color: var(--ink-2); cursor: pointer; }
+.rd-tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
+
+/* ── S20 설정 화면 ── */
+.rd-page { display: flex; flex-direction: column; gap: 16px; max-width: 880px; }
+.rd-page__head { display: flex; flex-direction: column; gap: 4px; }
+.rd-page__title { margin: 0; font-size: var(--fs-title); }
+.rd-group { border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.rd-group__head { display: flex; flex-direction: column; gap: 2px; }
+.rd-group__title { margin: 0; font-size: var(--fs-card); font-weight: 600; }
+.rd-group__impact { margin: 0; font-size: var(--fs-sub); color: var(--ink-2); line-height: 1.5; word-break: keep-all; }
+.rd-group__actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.rd-choice { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.rd-choice[aria-disabled="true"] { opacity: 0.55; }
+.rd-choice__text { display: flex; flex-direction: column; gap: 2px; }
+.rd-choice__label { font-size: var(--fs-body); font-weight: 500; }
+.rd-choice__note { font-size: var(--fs-sub); color: var(--ink-2); word-break: keep-all; }
+.rd-v11 { display: inline-block; font-size: var(--fs-meta); padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; margin-left: 6px; color: var(--ink); }
+.rd-fields { display: flex; flex-wrap: wrap; gap: 10px; }
+.rd-fields > * { flex: 1 1 180px; min-width: 0; }
+.rd-field { display: flex; flex-direction: column; gap: 4px; }
+.rd-field__label { font-size: var(--fs-sub); font-weight: 500; }
+.rd-kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: var(--fs-body); }
+.rd-kv dt { color: var(--ink-2); }
+.rd-kv dd { margin: 0; }
+.rd-saved { font-size: var(--fs-sub); color: var(--ink-2); }
+
+/* ── S23 표 ── */
+.rd-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sub); }
+.rd-table th, .rd-table td { text-align: left; padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+.rd-table th { color: var(--ink-2); font-weight: 500; border-top: 0; }
+.rd-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+.rd-chip { display: inline-block; font-size: var(--fs-meta); padding: 1px 6px; border: 1px solid var(--s-wait); border-radius: 999px; color: var(--s-wait-text); margin-left: 6px; white-space: nowrap; }
+.rd-filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+
+/* ── S21 · S26 ── */
+.rd-quote { margin: 0; padding: 8px 12px; border-left: 3px solid var(--line); background: var(--surface); border-radius: 6px; font-size: var(--fs-sub); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rd-cond { margin: 0; font-size: var(--fs-body); font-weight: 500; }
+.rd-fold > summary { cursor: pointer; font-size: var(--fs-sub); color: var(--ink-2); padding: 4px 0; }
+.rd-fold[open] > summary { margin-bottom: 8px; }
+.rd-fold__body { display: flex; flex-direction: column; gap: 12px; }
+.rd-criteria { display: flex; flex-direction: column; gap: 6px; }
+.rd-criteria__row { display: flex; gap: 6px; }
+
+@media (max-width: 640px) {
+  .rd-row { flex-wrap: wrap; }
+  .rd-row__side { max-width: 100%; align-items: flex-start; width: 100%; }
+  .rd-row__side .disabled-hint { text-align: left; }
+  .rd-kv { grid-template-columns: 1fr; }
+}
