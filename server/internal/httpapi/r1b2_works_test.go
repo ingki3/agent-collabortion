@@ -290,10 +290,10 @@ func TestR1b2LegacySessionInAManyMissionRoom(t *testing.T) {
 		t.Fatal(err)
 	}
 	w2 := f.openWork(t, f.api, f.sessionID, map[string]any{"goal": "새 미션"})
-	// Move the session's own mission to the END of the heap: a join on
-	// room_id returns heap order, and with the old mission first a fan-out
-	// passes by luck (T-R1b1 lesson).
-	f.exec(t, `UPDATE work SET title = title WHERE id = $1`, legacyWork)
+	// Put the session's own mission LAST in every order a room_id join could
+	// return — heap (the UPDATE moves the tuple) and the work_room(room_id,
+	// created_at) index — so a fan-out cannot pass by luck (T-R1b1 lesson).
+	f.exec(t, `UPDATE work SET created_at = now() + interval '1 hour' WHERE id = $1`, legacyWork)
 	for i := 0; i < 3; i++ {
 		s := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
 		if str(s, "title") != legacy {
