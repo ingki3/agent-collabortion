@@ -8,6 +8,7 @@
  */
 import { useEffect, useId, useRef } from "react";
 import "./confirm-dialog.css";
+import { DisabledHint } from "./PageHead";
 
 export interface ConfirmDialogProps {
   title: string;
@@ -25,12 +26,15 @@ export interface ConfirmDialogProps {
   onConfirm: () => void;
   onClose: () => void;
   testId: string;
+  /** 확인을 아직 누를 수 없는 이유 — 있으면 확인 버튼이 비활성이고 이 문장이 버튼 아래 글자로 선다(§1 원칙 5). */
+  confirmBlocked?: string | null;
 }
 
-export function ConfirmDialog({ title, children, confirmLabel, busyLabel, cancelLabel, busy, danger, error, extra, onConfirm, onClose, testId }: ConfirmDialogProps) {
+export function ConfirmDialog({ title, children, confirmLabel, busyLabel, cancelLabel, busy, danger, error, extra, onConfirm, onClose, testId, confirmBlocked }: ConfirmDialogProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const titleId = `${useId()}-title`;
   const bodyId = `${useId()}-body`;
+  const blockedId = `${useId()}-blocked`;
   useEffect(() => {
     cancelRef.current?.focus();
   }, []);
@@ -53,13 +57,15 @@ export function ConfirmDialog({ title, children, confirmLabel, busyLabel, cancel
           <button
             type="button"
             className={danger ? "btn confirm-dlg__danger" : "btn btn--primary"}
-            disabled={busy}
+            disabled={busy || !!confirmBlocked}
+            aria-describedby={confirmBlocked ? blockedId : undefined}
             onClick={onConfirm}
             data-testid={`${testId}-confirm`}
           >
             {busy ? busyLabel : confirmLabel}
           </button>
         </div>
+        {confirmBlocked && <DisabledHint id={blockedId}>{confirmBlocked}</DisabledHint>}
       </div>
     </div>
   );

@@ -95,7 +95,7 @@ function Onboarding() {
           ],
         },
       });
-      router.replace("/sessions/new");
+      router.replace("/rooms/new");
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -172,7 +172,7 @@ function Onboarding() {
         <div>
           <h1 className="auth__title">에이전트</h1>
           <p className="auth__sub">
-            팀 템플릿(리서치 팀 / 개발 팀 / 콘텐츠 팀)은 아직 준비 중입니다. 지금은 Lead 하나를 기본값으로 만들어 첫 세션을 시작할 수 있습니다.
+            팀 템플릿(리서치 팀 / 개발 팀 / 콘텐츠 팀)은 아직 준비 중입니다. 지금은 Lead 하나를 기본값으로 만들어 첫 방을 만들 수 있습니다.
           </p>
           <div className="story__grid" style={{ marginBottom: 14 }}>
             {["리서치 팀", "개발 팀", "콘텐츠 팀"].map((t) => (
@@ -195,7 +195,7 @@ function Onboarding() {
               건너뛰기
             </button>
             <button type="button" className="btn btn--primary" onClick={() => void createLead()} disabled={busy} data-testid="agent-create">
-              {busy ? "만드는 중…" : "Lead 만들고 첫 세션 만들기"}
+              {busy ? "만드는 중…" : "Lead 만들고 첫 방 만들기"}
             </button>
           </div>
         </div>

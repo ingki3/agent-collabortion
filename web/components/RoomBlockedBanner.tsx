@@ -4,7 +4,8 @@
  *
  * 이 방의 **모든 미션과 미션 밖 할 일이 멈춘 상태**라 미션 배너와 무게가 다르다 — `role="alert"`(읽던 흐름을 끊어도 된다).
  * **몇 개가 멈췄는지 반드시 센다** — 그 수(`blocked_detail.works_stopped`)는 문장에 보간하지 않고 슬롯(`<Slot>`)이다.
- * 내가 승인 권한자가 아니면 누가 언제부터 답할 수 있는지를 적는다(FR-2A.3 위임 경로).
+ * 내가 승인 권한자가 아니면 누가 언제부터 답할 수 있는지를 적는다(FR-2A.3 위임 경로) — 다음 권한자의 이름·역할은 `next_approver`·
+ * `next_approver_role`(0.2.8)에서, 없으면 「다음 권한자」로 줄인다.
  */
 import "./room-banner.css";
 import { Slot } from "./Slot";
@@ -35,6 +36,9 @@ export function RoomBlockedBanner({ room, me, agentName, busy, onUnblock, onAppr
   const approver = d.approver ?? null;
   const iApprove = !!me && approver?.id === me;
   const canUnblock = (room.my_capabilities ?? []).includes("block");
+  // 다음 권한자(0.2.8) — 이름과 역할이 오면 누구인지 적고, 없으면 「다음 권한자」로 줄인다(#305 NN1).
+  const next = d.next_approver ?? null;
+  const nextText = d.next_approver_role === "room_deputy" ? ROOM_BANNER.next_room_deputy : d.next_approver_role === "workspace_owner" ? ROOM_BANNER.next_workspace_owner : ROOM_BANNER.next_plain;
 
   let lead: React.ReactNode;
   switch (reason) {
@@ -75,7 +79,14 @@ export function RoomBlockedBanner({ room, me, agentName, busy, onUnblock, onAppr
           {d.delegate_at && (
             <>
               {" · "}
-              <Slot text={ROOM_BANNER.delegate} n={clockTime(d.delegate_at).slice(0, 5)} />
+              {next ? (
+                <span data-testid="room-banner-next" data-role={d.next_approver_role ?? ""}>
+                  <Slot text={ROOM_BANNER.delegate_at} n={clockTime(d.delegate_at).slice(0, 5)} />
+                  <Slot text={nextText} n={next.display_name} />
+                </span>
+              ) : (
+                <Slot text={ROOM_BANNER.delegate} n={clockTime(d.delegate_at).slice(0, 5)} />
+              )}
             </>
           )}
         </p>

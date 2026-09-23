@@ -10,7 +10,7 @@
  *   · summarizeRoom — 범위 필수 · 서로 배타 · 202 summary 메시지
  *   · listRoomParticipants — 사람(방 역할) + 에이전트 한 목록
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dispatch, type Req } from "./handlers";
 import { W } from "./wording";
 import { resetStore, store, type Subscriber } from "./store";
@@ -184,6 +184,27 @@ describe("listMessages — work_id · no_work · around_message_id", () => {
     expect(latest.has_more_before).toBe(true);
     const older = await must<MessagePage>("GET", `/sessions/${r.id}/messages?limit=50&before=${latest.items[0].id}`);
     expect(older.items.at(-1)!.created_at <= latest.items[0].created_at).toBe(true);
+  });
+});
+
+describe("메시지 시각 — 만드는 곳이 달라도 한 시계(깜빡임 회귀, T-R2-W4b)", () => {
+  // CI 에서 위 두 케이스가 가끔 빨갰다: 미션 열기 시스템 메시지(rooms-dialogs.ts)는 `now()`, 게시·멈춤 메시지(handlers.ts `addMessage`)는
+  // 단조 시계 `nextMsgAt()` 였다. 같은 ms 에 떨어지면 목록 순서가 uuid 에 맡겨져 「미션을 열었습니다」가 뒤로 섞였다. 앞선 테스트가 단조
+  // 시계를 벽시계보다 앞으로 밀어 두면 안 겹치고, 아니면 겹친다 — 그래서 실행 순서에 따라 깜빡였다. 시계를 멈춰 겹침을 매번 만든다.
+  afterEach(() => vi.useRealTimers());
+  it("시계가 멈춰도 미션 열기 시스템 메시지 → 게시 → 멈춤 메시지가 시각 순서 그대로(같은 ms 없음)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2099-01-01T00:00:00Z")); // 단조 시계보다 앞 — 첫 메시지가 벽시계와 같은 ms 에 떨어진다
+    const id = await ws();
+    const r = await newRoom(id);
+    const w = await must<Work>("POST", `/rooms/${r.id}/works`, { body: { goal: "보고서" } });
+    await post(r.id, "미션 것", { work_id: w.id });
+    await must<Room>("POST", `/rooms/${r.id}/block`);
+    const items = (await must<MessagePage>("GET", `/sessions/${r.id}/messages`)).items;
+    expect(items.map((m) => m.content)).toEqual([expect.stringContaining("미션을 열었습니다"), "미션 것", "데모" + W.room_block_system]);
+    const at = items.map((m) => m.created_at);
+    expect(new Set(at).size).toBe(at.length);
+    expect([...at].sort()).toEqual(at);
   });
 });
 
