@@ -163,6 +163,22 @@ CI(PR #249 run 34989845714 attempt 1)에서 `A2d 동시 3개 (위임 3이 병렬
 - 대본이 **토큰을 남기고 턴을 붙드는** 레시피(Gate): 서버 층 (c) 는 finish 뒤 401 이라 살아 있는 토큰이 필요하다. `gate-<task>.token` →
   하네스가 curl → `gate-<task>.go` 로 놓아준다(상한 90s). 합류 통보로 깨어난 턴은 시도하지 않는다(위임↔합류 사이클, 77_ 보고).
 
+## T-R1b1 — 방 단위 게이트(PRD v0.19 FR-2.4 · FR-2A.3 · FR-2.1.1 · FR-3.1.1 · FR-3.5) — 88_
+
+| 스크립트 | 무엇을 재나 | lib | 비용 한 줄(I-3) |
+|---|---|---|---|
+| `88_room_gate.sh` | **방의 멈춤 칸 `room.blocked_reason` 과 그 둘레** — 데몬 없이 curl(claim·phase·heartbeat·finish 흉내), 절마다 워크스페이스·컴퓨터를 새로 짝짓는다. A 방 예산(heartbeat usage) → `blocked_reason budget` · 옛 getSession paused(budget) 그대로(미러) · 요청 `room_owner` · 새 task 안 나감 · `unblockRoom` 409 `not_manual` · 승인 한 번에 풀림 · E 루프(시간당 1) → `loop` · `room_paused` · B 방장 부재 위임(부방장 없으면 owner 최고참 · 부방장 우선 · 절반 전 403 `deputy_not_yet` + 시각 · 멤버 403 null) → 승인이 방을 푼다 · 사람 hop 1 · H **경계** — Director 가 멈춘 미션은 방 해제에 끌려오지 않는다 · C manual 멈춤·해제(권한 · cancel 명령 · 시스템 메시지·activity_log · 409 둘) · D 에이전트 동시 상한이 방을 가로지른다 → `queued_reason agent_global`(task·lane) · F 저장소 있는 컴퓨터로 첫 실행 → `isolation_confirm` 보류 → 승인 → worktree + 고정 + 「이 방은 …에서 돕니다」 · G 귀속 preview `running_lane`·`thread`·`chosen`(R1b1 호환 규칙). 57 판정 | `lib.sh` | 턴 0 · $0 · ≈ 5s |
+
+스택(T-R1b1): server **:8130** · pg **:5479**(`colab-pg-r1b1-5479`). CI 는 `ci.sh` 의 SCRIPTS 에 들어 있다(i5 스택 위에서 81_ 처럼).
+
+```bash
+SERVER_URL=http://localhost:8130 PG_PORT=5479 PG_CONTAINER=colab-pg-r1b1-5479 bash e2e/p5/up.sh
+bash e2e/p5/88_room_gate.sh            # out/88-checks.tsv · 88-A-hb.json · 88-C-block.json · 88-E-*.json · 88-G-preview-3.json
+SERVER_URL=http://localhost:8130 PG_PORT=5479 PG_CONTAINER=colab-pg-r1b1-5479 bash e2e/p5/down.sh
+```
+
+부방장 지정·방 나가기 API 는 R1b2·R1b3 몫이라 **room.deputy_owner_user_id·member 행·loop_limits 는 psql** 로 심는다. 서버 바이너리에 클럭 주입이 없어 기한 절반은 `backdate_hitl`(created_at·due_at 을 같이 민다, p3 lib) 로 잰다.
+
 ## T-R1c — 다른 방 읽기(PRD v0.19 FR-4.5) — 90_
 
 | 스크립트 | 무엇을 재나 | lib | 비용 한 줄(I-3) |
