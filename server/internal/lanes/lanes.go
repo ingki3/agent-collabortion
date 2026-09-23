@@ -34,14 +34,18 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, canControl bool) (*gen.L
 		status                                     string
 		hasRef                                     bool
 		finishedAt                                 *time.Time
+		work                                       *uuid.UUID
+		workTitle                                  *string
 	)
 	err := q.QueryRow(ctx, `
 		SELECT l.id, l.session_id, l.parent_lane_id, l.agent_id, l.profile_id, l.depends_on, l.workdir_id, l.delegated_from_task_id,
 		       l.runtime_session_ref IS NOT NULL, l.status::text, l.blocked_note, l.blocked_message_id, l.reentry_count,
-		       l.brief, l.created_at, l.updated_at, l.finished_at, a.name
-		FROM lane l JOIN agent a ON a.id = l.agent_id WHERE l.id = $1`, id).
+		       l.brief, l.created_at, l.updated_at, l.finished_at, a.name, l.work_id, wk.title
+		FROM lane l JOIN agent a ON a.id = l.agent_id
+		LEFT JOIN work wk ON wk.id = l.work_id
+		WHERE l.id = $1`, id).
 		Scan(&out.Id, &out.SessionId, &parent, &out.AgentId, &out.ProfileId, &out.DependsOn, &workdir, &delegatedFrom,
-			&hasRef, &status, &blockedNote, &blockedMsg, &out.ReentryCount, &brief, &out.CreatedAt, &out.UpdatedAt, &finishedAt, &agentName)
+			&hasRef, &status, &blockedNote, &blockedMsg, &out.ReentryCount, &brief, &out.CreatedAt, &out.UpdatedAt, &finishedAt, &agentName, &work, &workTitle)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -61,6 +65,9 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, canControl bool) (*gen.L
 	out.FinishedAt = tasks.NullTime(finishedAt)
 	out.HasRuntimeSession = &hasRef
 	out.AgentName = agentName
+	// openapi 0.2.0: the mission the lane is bound to, null = 「미션 없음」.
+	out.WorkId = tasks.NullUUID(work)
+	out.WorkTitle = tasks.NullString(workTitle)
 	if out.DependsOn == nil {
 		out.DependsOn = []openapi_types.UUID{}
 	}

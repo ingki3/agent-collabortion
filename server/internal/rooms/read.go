@@ -380,7 +380,7 @@ func (s *Service) fill(ctx context.Context, q db.DBTX, res *Result, tail int, qu
 	}
 
 	rows, err := q.Query(ctx, `
-		SELECT id, summary, rationale, source::text, ref_id, created_at
+		SELECT id, summary, rationale, source::text, ref_id, created_at, work_id
 		FROM decision WHERE session_id = $1 ORDER BY created_at DESC, id DESC`, res.RoomID)
 	if err != nil {
 		return fmt.Errorf("rooms: decisions: %w", err)
@@ -388,7 +388,7 @@ func (s *Service) fill(ctx context.Context, q db.DBTX, res *Result, tail int, qu
 	var decs []sessions.DecisionRow
 	for rows.Next() {
 		var d sessions.DecisionRow
-		if err := rows.Scan(&d.ID, &d.Summary, &d.Rationale, &d.Source, &d.RefID, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.Summary, &d.Rationale, &d.Source, &d.RefID, &d.CreatedAt, &d.WorkID); err != nil {
 			rows.Close()
 			return err
 		}

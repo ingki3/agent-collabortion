@@ -37,6 +37,7 @@ func ToAPI(t *Row, attempts []Attempt, usage *Usage) gen.Task {
 		DispatchedAt:        NullTime(t.DispatchedAt),
 		StartedAt:           NullTime(t.StartedAt),
 		FinishedAt:          NullTime(t.FinishedAt),
+		WorkId:              NullUUID(t.WorkID),
 	}
 	if t.PausedReason != nil {
 		out.PausedReason = nullable.NewNullableWithValue(gen.PauseReason(*t.PausedReason))

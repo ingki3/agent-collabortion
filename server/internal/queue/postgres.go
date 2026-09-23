@@ -410,6 +410,14 @@ func (p *Postgres) askIsolation(ctx context.Context, tx pgx.Tx, runtimeID uuid.U
 	return nil
 }
 
+// afterWorktreePremise runs between settleWorktree's locked read and its
+// write — nil in production. It is the seam TestWorktreeFirstClaimRace (#302
+// 리뷰 NN1) holds two claims in, so both reach the write together: the room is
+// kept to one computer by two guards (the read's row lock SKIP LOCKED, and
+// FillWorktree's `runtime_id IS NULL`), and without the overlap a test could
+// not tell whether either still stands.
+var afterWorktreePremise func()
+
 // settleWorktree is the first claim of every worktree room of this workspace
 // that has no computer yet (roomgate.PlanWorktree). The rooms are locked SKIP
 // LOCKED like askIsolation's: two computers polling at once, one settles the
@@ -453,6 +461,9 @@ func (p *Postgres) settleWorktree(ctx context.Context, tx pgx.Tx, runtimeID uuid
 		return err
 	}
 	for _, r := range list {
+		if afterWorktreePremise != nil {
+			afterWorktreePremise()
+		}
 		switch settle, repo := roomgate.PlanWorktree(r.repo, r.repos); settle {
 		case roomgate.SettleFill:
 			if _, err := roomgate.FillWorktree(ctx, tx, p.hub(), r.id, runtimeID, repo, now); err != nil {

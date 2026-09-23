@@ -41,13 +41,18 @@ type Row struct {
 	ReplyCount   int
 	CreatedAt    time.Time
 	EditedAt     *time.Time
+	// WorkID is the mission the message belongs to (openapi 0.2.0
+	// Message.work_id, FR-3.1.1), nil for one outside any mission. The web's
+	// mission chip filters by it — a row without it reads as 「미션 없음」.
+	WorkID *uuid.UUID
 }
 
 const selectMessage = `
 	SELECT m.id, m.session_id, m.author_type, m.author_id,
 	       COALESCE(u.display_name, a.name), COALESCE(u.avatar_url, a.avatar_url), a.role,
 	       m.parent_id, m.content, m.mentions, m.source_task_id, t.lane_id, m.kind, m.state,
-	       (SELECT count(*) FROM message r WHERE r.parent_id = m.id), m.created_at, m.edited_at
+	       (SELECT count(*) FROM message r WHERE r.parent_id = m.id), m.created_at, m.edited_at,
+	       m.work_id
 	FROM message m
 	LEFT JOIN app_user u ON m.author_type = 'user' AND u.id = m.author_id
 	LEFT JOIN agent a ON m.author_type = 'agent' AND a.id = m.author_id
@@ -58,7 +63,8 @@ func scan(row pgx.Row) (*Row, error) {
 	var mentions []byte
 	var role *string
 	err := row.Scan(&m.ID, &m.SessionID, &m.AuthorType, &m.AuthorID, &m.AuthorName, &m.AuthorAvatar, &role,
-		&m.ParentID, &m.Content, &mentions, &m.SourceTaskID, &m.LaneID, &m.Kind, &m.State, &m.ReplyCount, &m.CreatedAt, &m.EditedAt)
+		&m.ParentID, &m.Content, &mentions, &m.SourceTaskID, &m.LaneID, &m.Kind, &m.State, &m.ReplyCount, &m.CreatedAt, &m.EditedAt,
+		&m.WorkID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -255,6 +261,7 @@ func ToAPI(m *Row) gen.Message {
 		ReplyCount:   &m.ReplyCount,
 		CreatedAt:    m.CreatedAt,
 		EditedAt:     tasks.NullTime(m.EditedAt),
+		WorkId:       tasks.NullUUID(m.WorkID),
 	}
 	isNote := strings.HasPrefix(m.Content, "/note")
 	out.IsNote = &isNote
