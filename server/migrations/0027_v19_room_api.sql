@@ -1,4 +1,4 @@
--- 0026_v19_room_api.sql — 방 API 가 쓰는 저장 자리 (PRD v0.19 FR-2 · FR-4.5 · FR-8 · T-R1b3)
+-- 0027_v19_room_api.sql — 방 API 가 쓰는 저장 자리 (PRD v0.19 FR-2 · FR-4.5 · FR-8 · T-R1b3)
 --
 -- 번호는 PR 을 올리는 순간 origin/dev 의 마지막 + 1 로 이름만 바뀐다(Lead 규칙) —
 -- 이 파일 안이나 코드 어디에서도 번호를 부르지 않는다.

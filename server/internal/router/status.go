@@ -127,7 +127,7 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 			if err != nil {
 				return nil, err
 			}
-			if err := s.wake(ctx, tx, sessionID, wsID, director, agentID, *plan.DelegatorAgentID, delegatorTask, qid,
+			if err := s.wake(ctx, tx, sessionID, wsID, director, agentID, *plan.DelegatorAgentID, taskID, delegatorTask, qid,
 				wakeOnBlocked(qid, note, childName, agentID), now); err != nil {
 				return nil, err
 			}
@@ -145,7 +145,7 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 		}
 		s.publishLane(ctx, tx, laneID)
 		out.TurnEndRequired = true
-		if err := s.afterLaneDone(ctx, tx, sessionID, wsID, laneID, agentID, triggerMsg, reentry, director, now); err != nil {
+		if err := s.afterLaneDone(ctx, tx, sessionID, wsID, laneID, agentID, taskID, triggerMsg, reentry, director, now); err != nil {
 			return nil, err
 		}
 	default:
@@ -170,7 +170,7 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 //	the JOIN fires once per delegation group, when every child has ended;
 //	a RE-ENTRY completion tells whoever asked for the re-entry, which is
 //	usually not the delegator (scenario B: QA asked, Lead delegated).
-func (s *Service) afterLaneDone(ctx context.Context, tx pgx.Tx, sessionID, wsID, laneID, agentID uuid.UUID, triggerMsg *uuid.UUID, reentry int, director *uuid.UUID, now time.Time) error {
+func (s *Service) afterLaneDone(ctx context.Context, tx pgx.Tx, sessionID, wsID, laneID, agentID, taskID uuid.UUID, triggerMsg *uuid.UUID, reentry int, director *uuid.UUID, now time.Time) error {
 	var delegTask *uuid.UUID
 	if err := tx.QueryRow(ctx, `SELECT delegated_from_task_id FROM lane WHERE id = $1`, laneID).Scan(&delegTask); err != nil {
 		return err
@@ -186,7 +186,7 @@ func (s *Service) afterLaneDone(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 		// means QA never learns Frontend produced a new diff (리뷰#04-5).
 		// A lane that is not a delegation has nobody waiting for a bundle
 		// either, so it takes the same path.
-		if err := s.notifyReentry(ctx, tx, sessionID, wsID, agentID, triggerMsg, director, now); err != nil {
+		if err := s.notifyReentry(ctx, tx, sessionID, wsID, agentID, taskID, triggerMsg, director, now); err != nil {
 			return err
 		}
 	}
@@ -196,7 +196,7 @@ func (s *Service) afterLaneDone(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 	// Both notices can land on the same delegator. That is not two turns:
 	// wake() coalesces onto the lane's queued task (FR-3.4), so the delegator
 	// wakes once with both messages.
-	return s.maybeFireJoin(ctx, tx, sessionID, wsID, director, agentID, *delegTask, now)
+	return s.maybeFireJoin(ctx, tx, sessionID, wsID, director, agentID, taskID, *delegTask, now)
 }
 
 // maybeFireJoin fires the join exactly once per group. `blocked` children count
@@ -207,7 +207,7 @@ func (s *Service) afterLaneDone(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 // agent→agent hop from that child to the delegator (S-76), and the pair it
 // forms with the delegation that created the child is what
 // max_pair_roundtrips counts.
-func (s *Service) maybeFireJoin(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID, from, delegTask uuid.UUID, now time.Time) error {
+func (s *Service) maybeFireJoin(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID, from, waker, delegTask uuid.UUID, now time.Time) error {
 	var delegAgent uuid.UUID
 	var fired *time.Time
 	if err := tx.QueryRow(ctx, `SELECT agent_id, join_fired_at FROM task WHERE id = $1 FOR UPDATE`, delegTask).
@@ -270,12 +270,12 @@ func (s *Service) maybeFireJoin(ctx context.Context, tx pgx.Tx, sessionID, wsID 
 	if err != nil {
 		return err
 	}
-	return s.wake(ctx, tx, sessionID, wsID, director, from, delegAgent, delegTask, msgID, "", now)
+	return s.wake(ctx, tx, sessionID, wsID, director, from, delegAgent, waker, delegTask, msgID, "", now)
 }
 
 // notifyReentry tells whoever caused the work that it is finished. A human
 // author gets an inbox item; an agent author gets a task.
-func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID, from uuid.UUID, triggerMsg *uuid.UUID, director *uuid.UUID, now time.Time) error {
+func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID, from, waker uuid.UUID, triggerMsg *uuid.UUID, director *uuid.UUID, now time.Time) error {
 	if triggerMsg == nil {
 		return nil
 	}
@@ -295,7 +295,7 @@ func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 		if authorTask != nil {
 			requester = *authorTask
 		}
-		return s.wake(ctx, tx, sessionID, wsID, director, from, *authorID, requester, *triggerMsg, "요청하신 작업이 끝났습니다.", now)
+		return s.wake(ctx, tx, sessionID, wsID, director, from, *authorID, waker, requester, *triggerMsg, "요청하신 작업이 끝났습니다.", now)
 	case authorType == "user" && authorID != nil:
 		return insertInbox(ctx, tx, wsID, *authorID, inbox.TypeMention, inbox.Severity(inbox.TypeMention), sessionID, *triggerMsg, now)
 	case director != nil:
@@ -320,7 +320,16 @@ func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 // takes that task's own cause (S-78), so the requester wakes at its OWN chain
 // depth: a join is Lead coming back, not Lead one step below its child. Nil
 // when nothing is known, which chainDepth reads as "no cause".
-func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID, from, agentID, requester, triggerMsg uuid.UUID, prefix string, now time.Time) error {
+//
+// `waker` is the task whose status change causes the wake-up (the child that
+// asked, ended, or ended the re-entry). The woken task inherits ITS person
+// originator (PRD FR-4.5 [V19-B], NN7): this INSERT used to leave the column
+// out, so a Lead woken by a join — the turn that most needs another room's
+// context — had no originator and every room read was refused. When the waker
+// has none either, the requester's is next: it is the same chain of asking.
+// Never the room owner or the Director — that is the escalation FR-4.5 exists
+// to stop, and a NULL here is answered `no_originator`, not papered over.
+func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID, from, agentID, waker, requester, triggerMsg uuid.UUID, prefix string, now time.Time) error {
 	var profileID uuid.UUID
 	err := tx.QueryRow(ctx, `SELECT profile_id FROM room_participant WHERE room_id = $1 AND agent_id = $2`, sessionID, agentID).Scan(&profileID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -358,19 +367,41 @@ func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID
 	if err != nil {
 		return err
 	}
+	originator, err := inheritedOriginator(ctx, tx, waker, requester)
+	if err != nil {
+		return err
+	}
 	var existing uuid.UUID
 	err = tx.QueryRow(ctx, `SELECT id FROM task WHERE lane_id = $1 AND status = 'queued' ORDER BY created_at LIMIT 1 FOR UPDATE`, laneID).Scan(&existing)
 	if err == nil {
-		_, err = tx.Exec(ctx, `UPDATE task SET coalesced_message_ids = array_append(coalesced_message_ids, $2), updated_at = $3 WHERE id = $1`, existing, msg, now)
+		// A queued task that absorbs the notice keeps its own originator; one
+		// that had none takes the waker's (the turn it will run is this one).
+		_, err = tx.Exec(ctx, `
+			UPDATE task SET coalesced_message_ids = array_append(coalesced_message_ids, $2),
+			                originator_user_id = COALESCE(originator_user_id, $4), updated_at = $3
+			WHERE id = $1`, existing, msg, now, originator)
 		return err
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
 	_, err = tx.Exec(ctx, `
-		INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, 'queued', $6, $6)`, laneID, sessionID, agentID, profileID, msg, now)
+		INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, originator_user_id, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7, $7)`, laneID, sessionID, agentID, profileID, msg, originator, now)
 	return err
+}
+
+// inheritedOriginator is wake()'s NN7 rule: the waker's person originator,
+// else the requester's, else none. uuid.Nil ids are "not known".
+func inheritedOriginator(ctx context.Context, tx pgx.Tx, waker, requester uuid.UUID) (*uuid.UUID, error) {
+	var out *uuid.UUID
+	err := tx.QueryRow(ctx, `
+		SELECT COALESCE((SELECT originator_user_id FROM task WHERE id = $1),
+		                (SELECT originator_user_id FROM task WHERE id = $2))`, waker, requester).Scan(&out)
+	if err != nil {
+		return nil, fmt.Errorf("router: wake originator: %w", err)
+	}
+	return out, nil
 }
 
 // wakeOnBlocked is the system message the delegator wakes on (openapi

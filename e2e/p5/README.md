@@ -163,6 +163,32 @@ CI(PR #249 run 34989845714 attempt 1)에서 `A2d 동시 3개 (위임 3이 병렬
 - 대본이 **토큰을 남기고 턴을 붙드는** 레시피(Gate): 서버 층 (c) 는 finish 뒤 401 이라 살아 있는 토큰이 필요하다. `gate-<task>.token` →
   하네스가 curl → `gate-<task>.go` 로 놓아준다(상한 90s). 합류 통보로 깨어난 턴은 시도하지 않는다(위임↔합류 사이클, 77_ 보고).
 
+## T-R1c — 다른 방 읽기(PRD v0.19 FR-4.5) — 90_
+
+| 스크립트 | 무엇을 재나 | lib | 비용 한 줄(I-3) |
+|---|---|---|---|
+| `90_room_read.sh` | **listReadableRooms · readRoom · listRoomReads(S23)** 서버 쪽 전부 — 데몬 없이 curl(claim·phase·finish 흉내). 방 다섯(참여 · 서연 비참여 · 링크 · 불허) 으로 FR-4.5 두 조건을 **읽는 순간** 판정: A 허용 + 기록 양쪽(room_read_log · 읽힌 방 시스템 메시지 · activity_log 양쪽 · 피드 status/read · SSE `room_read.recorded` 양쪽 · S23 out/in) · B 링크 경유(via_link) · C 요청자 비참여 403 — **없는 방 id 와 구별 불가** · 목록 숨김 · S23 denied other_room null · agent_not_allowed · D originator 떠남(left_at) → 다음 read 403 `originator_left` + 사람 쪽 문장(이 사유만 방 이름) → 돌아오면 200 · E **originator 승계(NN7)** — 위임 자식 · blocked 질문 기상 · 합류 기상 · 재시도(attempt 2) · HITL 재개(attempt 3) · 재지시(restartLane) 전부 서연 + 그 토큰으로 read 200 · F 사람 없는 사슬 → `no_originator`, 합류 기상 task 도 NULL(방장 대체 없음) · G 상한 — `room_read` 설정(1방·500토큰) → truncated · 같은 턴 두 번째 방은 빈 내용 + 기록 0 · 같은 방 다시는 칸을 안 먹는다. 65 판정 | `lib.sh` | 턴 0 · $0 · ≈ 30s |
+
+스택(T-R1c 배정): server **:8131** · pg **:5481**(`colab-pg-r1c-5481`). CI 는 `ci.sh` 의 SCRIPTS 에 들어 있다(i5 스택 위에서 81_ 처럼).
+
+```bash
+SERVER_URL=http://localhost:8131 PG_PORT=5481 PG_CONTAINER=colab-pg-r1c-5481 bash e2e/p5/up.sh
+bash e2e/p5/90_room_read.sh            # out/90-checks.tsv · 90-list.json · 90-read-*.json · 90-reads-*.json
+SERVER_URL=http://localhost:8131 PG_PORT=5481 PG_CONTAINER=colab-pg-r1c-5481 bash e2e/p5/down.sh
+```
+
+방 초대·나가기·참고 링크 API 는 R1b3 몫이라 **사람 행(left_at)·room_link 는 psql** 로 심는다 — API 가 들어오면 그 호출로 바꾼다.
+
+### 이 판(T-R1c)에서 밟은 함정
+
+- **claim 은 줄 선 task 를 전부 내준다.** 찾는 task 만 골라 쓰고 나머지 번들을 버리면 그 task 는 `dispatched` 로 남아 다시는
+  claim 에 안 나온다(합류가 영영 안 온다). `take` 가 받은 번들을 `out/90-bundles.jsonl` 에 두고 꺼내 쓴다.
+- **에이전트는 만든 사람만 방에 초대할 수 있다**(403 `not_invitable`). "민수의 방" 은 서연이 만들고 사람 행을 민수로 바꿨다.
+- **줄에 남은 기상 task 가 다음 멘션을 흡수한다**(FR-3.4). F 의 originator 없는 합류 task 를 닫지 않으면 G 의 멘션이 거기 합쳐져
+  "originator 없는 턴" 이 된다 — 합쳐질 때 `originator_user_id` 는 **비어 있을 때만** 채운다(`COALESCE`), 있던 것을 덮지 않는다.
+- 다른 방의 시작 task(방마다 담당 에이전트 1개)는 Lead 의 `max_concurrent_tasks`(3) 칸을 먹는다 — 판정과 무관하니 만들자마자 닫는다.
+- psql 의 `boolean||text` 는 `true`/`false` 다(`t` 가 아니다).
+
 ## T-R1b3 — 방 API (89_, PRD v0.19 FR-2 · FR-2.2 · FR-4.5 링크 · FR-5.3 · FR-8 · §12.1-4)
 
 | 스크립트 | 무엇을 재는가 | lib | 비용 한 줄(I-3) |
