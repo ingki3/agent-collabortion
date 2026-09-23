@@ -812,6 +812,7 @@ func DecisionAPI(sessionID uuid.UUID, d DecisionRow) gen.Decision {
 	out := gen.Decision{
 		Id: d.ID, SessionId: sessionID, Summary: d.Summary,
 		Source: gen.DecisionSource(d.Source), CreatedAt: d.CreatedAt,
+		Auto: &d.Auto,
 	}
 	if d.Rationale != nil {
 		out.Rationale = nullable.NewNullableWithValue(*d.Rationale)

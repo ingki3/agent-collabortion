@@ -125,6 +125,10 @@ func (s *Server) ListLanes(w http.ResponseWriter, r *http.Request, sessionId gen
 		writeErr(w, err)
 		return
 	}
+	if err := lanes.FillMySubscription(r.Context(), s.DB, out, u.Id); err != nil {
+		writeErr(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 

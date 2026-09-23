@@ -12,11 +12,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/oapi-codegen/nullable"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/ingki3/agent-collabortion/server/internal/agents"
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/auth"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
+	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
 	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
@@ -213,6 +215,14 @@ func Load(ctx context.Context, q db.DBTX, a *Access, now time.Time) (*gen.Room, 
 				if err := fillApprover(ctx, q, a.RoomID, &d, now); err != nil {
 					return nil, err
 				}
+				rem, err := roomgate.OpenWorksRemaining(ctx, q, a.RoomID, *blockedReason)
+				if err != nil {
+					return nil, err
+				}
+				d.OpenWorksRemainingUsd = nullable.NewNullNullable[float32]()
+				if rem != nil {
+					d.OpenWorksRemainingUsd = nullable.NewNullableWithValue(float32(*rem))
+				}
 			}
 			out.BlockedDetail = nullable.NewNullableWithValue(d)
 		}
@@ -231,6 +241,12 @@ func Load(ctx context.Context, q db.DBTX, a *Access, now time.Time) (*gen.Room, 
 			out.Runtime = &rt.Runtime
 		}
 	}
+	// openapi 0.2.9 — the caller's own level (never another person's).
+	sub, err := MySubscription(ctx, q, a.RoomID, a.UserID)
+	if err != nil {
+		return nil, err
+	}
+	out.MySubscription = &sub
 	out.MyRoomRole = nullable.NewNullNullable[gen.RoomRole]()
 	if a.RoomRole != "" {
 		out.MyRoomRole = nullable.NewNullableWithValue(gen.RoomRole(a.RoomRole))
@@ -255,7 +271,8 @@ func Load(ctx context.Context, q db.DBTX, a *Access, now time.Time) (*gen.Room, 
 // deputy or the oldest workspace owner (FR-2A.3). Computed from the open
 // request at read time, never stored. A manual stop has no request — the
 // people who may lift it are the stewards, and the banner names who stopped
-// it instead.
+// it instead. next_approver(_role) (openapi 0.2.8) come out of the same
+// roomgate.Approvers.Now judgement as approver and delegate_at.
 func fillApprover(ctx context.Context, q db.DBTX, roomID uuid.UUID, d *gen.BlockedDetail, now time.Time) error {
 	var created, due time.Time
 	err := q.QueryRow(ctx, `
@@ -273,14 +290,19 @@ func fillApprover(ctx context.Context, q db.DBTX, roomID uuid.UUID, d *gen.Block
 	if err != nil {
 		return err
 	}
-	who, next := ap.Now(created, due, now)
-	if u, err := auth.LoadUser(ctx, q, who); err == nil {
+	turn := ap.Now(created, due, now)
+	if u, err := auth.LoadUser(ctx, q, turn.Approver); err == nil {
 		d.Approver = nullable.NewNullableWithValue(*u)
 	}
-	if next != nil {
-		d.DelegateAt = nullable.NewNullableWithValue(next.UTC())
-	} else {
-		d.DelegateAt = nullable.NewNullNullable[time.Time]()
+	d.DelegateAt = nullable.NewNullNullable[time.Time]()
+	d.NextApprover = nullable.NewNullNullable[gen.User]()
+	d.NextApproverRole = nullable.NewNullNullable[gen.BlockedDetailNextApproverRole]()
+	if turn.DelegateAt != nil {
+		d.DelegateAt = nullable.NewNullableWithValue(turn.DelegateAt.UTC())
+		if u, err := auth.LoadUser(ctx, q, *turn.Next); err == nil {
+			d.NextApprover = nullable.NewNullableWithValue(*u)
+			d.NextApproverRole = nullable.NewNullableWithValue(gen.BlockedDetailNextApproverRole(turn.NextRole))
+		}
 	}
 	return nil
 }
@@ -692,13 +714,18 @@ func ListLinks(ctx context.Context, q db.DBTX, roomID uuid.UUID) ([]gen.RoomLink
 }
 
 // ---------------------------------------------------------------------------
-// Agent.room_count · hidden_room_count
+// Agent.room_count · hidden_room_count · rooms · running_task_count
 // ---------------------------------------------------------------------------
 
-// FillAgentRoomCounts sets Agent.room_count (rooms the agent is in that the
-// viewer can see) and hidden_room_count (the rest — a number, never names)
-// for a page of agents in one statement. wsRole is the viewer's member.role:
-// an owner·admin sees every room (audit).
+// FillAgentRoomCounts fills the Agent fields that depend on who is looking
+// (v0.2.0 room_count · hidden_room_count, 0.2.9 rooms[]) and running_task_count.
+// Each room the agent is in is judged with Decide(ActView) on the caller's
+// standing — the same judgement getRoom answers 404 with — so a room this
+// list names is one the caller can open, and the rest are only counted
+// (hidden_room_count, never named). running_task_count is every task of the
+// agent holding a slot (hitl.OccupyingStatuses) across rooms, visible or not:
+// it is the number max_concurrent_tasks is measured against, and the queue
+// counts it the same way.
 func FillAgentRoomCounts(ctx context.Context, q db.DBTX, list []gen.Agent, viewer uuid.UUID, wsRole string) error {
 	if len(list) == 0 {
 		return nil
@@ -707,37 +734,74 @@ func FillAgentRoomCounts(ctx context.Context, q db.DBTX, list []gen.Agent, viewe
 	for i, a := range list {
 		ids[i] = a.Id
 	}
-	admin := wsRole == "owner" || wsRole == "admin"
+	type room = struct {
+		Id   openapi_types.UUID `json:"id"`
+		Name string             `json:"name"`
+	}
+	type agg struct {
+		rooms  []room
+		hidden int
+	}
+	by := map[uuid.UUID]*agg{}
+	for _, id := range ids {
+		by[id] = &agg{rooms: []room{}}
+	}
 	rows, err := q.Query(ctx, `
-		SELECT p.agent_id,
-		       count(*) FILTER (WHERE $3 OR r.visibility = 'workspace' OR me.id IS NOT NULL),
-		       count(*) FILTER (WHERE NOT ($3 OR r.visibility = 'workspace' OR me.id IS NOT NULL))
+		SELECT p.agent_id, r.id, r.name, r.visibility::text, r.status::text, COALESCE(me.role::text, '')
 		FROM room_participant p
 		JOIN room r ON r.id = p.room_id
 		LEFT JOIN room_participant me ON me.room_id = r.id AND me.user_id = $2 AND me.left_at IS NULL
 		WHERE p.agent_id = ANY($1) AND p.left_at IS NULL
-		GROUP BY p.agent_id`, ids, viewer, admin)
+		ORDER BY r.name, r.id`, ids, viewer)
 	if err != nil {
-		return fmt.Errorf("rooms: agent room counts: %w", err)
+		return fmt.Errorf("rooms: agent rooms: %w", err)
 	}
-	defer rows.Close()
-	counts := map[uuid.UUID][2]int{}
 	for rows.Next() {
-		var id uuid.UUID
-		var seen, hidden int
-		if err := rows.Scan(&id, &seen, &hidden); err != nil {
+		var agent, roomID uuid.UUID
+		var name, vis, status, myRole string
+		if err := rows.Scan(&agent, &roomID, &name, &vis, &status, &myRole); err != nil {
+			rows.Close()
 			return err
 		}
-		counts[id] = [2]int{seen, hidden}
+		f := Standing{WorkspaceRole: wsRole, RoomRole: myRole, Visibility: vis, Archived: status == string(gen.RoomStatusArchived)}
+		if Decide(ActView, f) {
+			by[agent].rooms = append(by[agent].rooms, room{Id: roomID, Name: name})
+		} else {
+			by[agent].hidden++
+		}
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	running := map[uuid.UUID]int{}
+	rows, err = q.Query(ctx, `
+		SELECT agent_id, count(*) FROM task
+		WHERE agent_id = ANY($1) AND status::text = ANY($2)
+		GROUP BY agent_id`, ids, hitl.OccupyingStatuses())
+	if err != nil {
+		return fmt.Errorf("rooms: agent running tasks: %w", err)
+	}
+	for rows.Next() {
+		var id uuid.UUID
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			rows.Close()
+			return err
+		}
+		running[id] = n
+	}
+	rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
 	}
 	for i := range list {
-		c := counts[list[i].Id]
-		seen, hidden := c[0], c[1]
+		a := by[list[i].Id]
+		seen, hidden, rs, n := len(a.rooms), a.hidden, a.rooms, running[list[i].Id]
 		list[i].RoomCount = &seen
 		list[i].HiddenRoomCount = &hidden
+		list[i].Rooms = &rs
+		list[i].RunningTaskCount = &n
 	}
 	return nil
 }

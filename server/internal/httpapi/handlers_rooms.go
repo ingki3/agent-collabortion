@@ -947,3 +947,29 @@ func (s *Server) onMemberLeft(ctx context.Context, tx pgx.Tx, wsID, userID uuid.
 	}
 	return nil
 }
+
+// SetRoomSubscription is openapi 0.2.9 setRoomSubscription (FR-8, SCREEN
+// §4.17): the caller's own level for the room. Who may is rooms.Decide
+// ActSubscribe — the room's participants, like setLaneSubscription; a room
+// the caller cannot see is 404.
+func (s *Server) SetRoomSubscription(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	u, _, p := s.roomGate(r, roomId, rooms.ActSubscribe)
+	if p != nil {
+		writeProblem(w, p)
+		return
+	}
+	var in gen.SetRoomSubscriptionJSONBody
+	if p := decodeJSON(w, r, &in); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	if !in.Level.Valid() {
+		writeProblem(w, apperr.Validation(apperr.Field("level", "enum", "방 구독은 전부 · 내가 참여한 미션만 · 확인 요청만 · 끄기 중 하나입니다")))
+		return
+	}
+	if err := rooms.SetSubscription(r.Context(), s.DB, roomId, u.Id, in.Level, s.Clock.Now()); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

@@ -162,6 +162,31 @@ func Block(ctx context.Context, tx pgx.Tx, roomID uuid.UUID, reason string, deta
 	return stopped, nil
 }
 
+// OpenWorksRemaining is openapi 0.2.9 BlockedDetail.open_works_remaining_usd
+// — the S5/S7 release card's 「승인하면 미션 N개가 한꺼번에 … 잔여 합계 $X」.
+// The missions are the ones lifting the gate sets moving again, counted as
+// Block counts works_stopped: the parked ones Unblock resumes for a mirrored
+// reason, the active ones the gate holds otherwise. A mission's remaining
+// budget is its own limits.budget_usd (WorkListItem.budget_usd) minus its
+// cost, never below 0; a mission with no budget adds nothing. nil when none
+// of them has a budget — there is no sum to show.
+func OpenWorksRemaining(ctx context.Context, q db.DBTX, roomID uuid.UUID, reason string) (*float64, error) {
+	held, args := `status = 'active'`, []any{roomID}
+	if Mirrors(reason) {
+		held = `status = 'paused' AND paused_reason::text = $2 AND COALESCE((paused_detail->>'` + MirrorKey + `')::boolean, false)`
+		args = append(args, reason)
+	}
+	var sum *float64
+	err := q.QueryRow(ctx, `
+		SELECT sum(GREATEST((limits->>'budget_usd')::numeric - cost_usd, 0))::float8
+		  FROM work
+		 WHERE room_id = $1 AND jsonb_typeof(limits->'budget_usd') = 'number' AND `+held, args...).Scan(&sum)
+	if err != nil {
+		return nil, fmt.Errorf("roomgate: open works remaining: %w", err)
+	}
+	return sum, nil
+}
+
 // Unblock takes the gate down when it is up for `reason`, and brings back the
 // missions the block parked (marked ones only — see the package comment). It
 // returns those missions so the caller can re-queue what they parked.
@@ -269,10 +294,27 @@ func LoadApprovers(ctx context.Context, q db.DBTX, roomID uuid.UUID) (Approvers,
 
 // Delegate is who may answer once half the deadline has passed.
 func (a Approvers) Delegate() *uuid.UUID {
+	d, _ := a.delegate()
+	return d
+}
+
+// Delegate roles — openapi 0.2.8 BlockedDetail.next_approver_role.
+const (
+	DelegateDeputy  = "room_deputy"
+	DelegateWsOwner = "workspace_owner"
+)
+
+// delegate is the one place the chain's second link is chosen: the deputy,
+// else the oldest other workspace owner. The role says which of the two it
+// was, for the banner's 「부방장 〈서연〉이」 sentence.
+func (a Approvers) delegate() (*uuid.UUID, string) {
 	if a.Deputy != nil {
-		return a.Deputy
+		return a.Deputy, DelegateDeputy
 	}
-	return a.WsOwner
+	if a.WsOwner != nil {
+		return a.WsOwner, DelegateWsOwner
+	}
+	return nil, ""
 }
 
 // AuthzInput fills hitl.Authorize's room fields.
@@ -284,20 +326,36 @@ func (a Approvers) AuthzInput(in hitl.AuthzInput) hitl.AuthzInput {
 	return in
 }
 
-// Now is the banner's `approver`/`delegate_at` for a request raised at
-// `created` with deadline `due`: the owner until half the deadline, the
-// delegate from then on (the owner can still answer — the banner names the
-// person who newly can).
-func (a Approvers) Now(created, due, now time.Time) (uuid.UUID, *time.Time) {
+// Turn is the banner's approver chain at one instant (openapi BlockedDetail
+// approver · delegate_at · next_approver · next_approver_role).
+type Turn struct {
+	// Approver is who answers now.
+	Approver uuid.UUID
+	// DelegateAt is when Next may answer too; nil once that has happened or
+	// when there is nobody to hand to.
+	DelegateAt *time.Time
+	// Next is the person who can answer from DelegateAt, NextRole which link
+	// of the chain they are (DelegateDeputy | DelegateWsOwner). Both are set
+	// exactly when DelegateAt is.
+	Next     *uuid.UUID
+	NextRole string
+}
+
+// Now is the banner's chain for a request raised at `created` with deadline
+// `due`: the owner until half the deadline, the delegate from then on (the
+// owner can still answer — the banner names the person who newly can).
+// Before half it also names that delegate, so the approver, the instant and
+// the next person all come out of one judgement.
+func (a Approvers) Now(created, due, now time.Time) Turn {
 	half := created.Add(due.Sub(created) / 2)
-	d := a.Delegate()
+	d, role := a.delegate()
 	if d == nil {
-		return a.Owner, nil
+		return Turn{Approver: a.Owner}
 	}
 	if now.Before(half) {
-		return a.Owner, &half
+		return Turn{Approver: a.Owner, DelegateAt: &half, Next: d, NextRole: role}
 	}
-	return *d, nil
+	return Turn{Approver: *d}
 }
 
 // ---------------------------------------------------------------------------
