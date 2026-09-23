@@ -30,6 +30,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/llm"
 	"github.com/ingki3/agent-collabortion/server/internal/queue"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
+	"github.com/ingki3/agent-collabortion/server/internal/rooms"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
 	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
@@ -63,9 +64,11 @@ type Server struct {
 	// 1:1 chat whose turns ride the daemon protocol as token-less attempts.
 	TestChats *testchat.Service
 	Events    *events.Service
-	Queue     *queue.Postgres
-	Tokens    *tokens.Service
-	Hub       *realtime.Hub
+	// Rooms is FR-4.5 (v0.19): another room read on request, and the trail.
+	Rooms  *rooms.Service
+	Queue  *queue.Postgres
+	Tokens *tokens.Service
+	Hub    *realtime.Hub
 
 	// SecureCookies sets the Secure flag on the session cookie (HTTPS).
 	SecureCookies bool
@@ -142,12 +145,13 @@ func NewServer(d Deps) *Server {
 	// A queued test chat turn wakes the same long-poll a queued task does —
 	// the person is watching the screen for the answer.
 	tc.Notify = notifier.Notify
+	arts := artifacts.New(d.DB, d.Clock)
 	return &Server{
 		DB: d.DB, Clock: d.Clock, Log: d.Log, ServerURL: d.ServerURL,
 		InstallRef: d.InstallRef, InstallGoMin: d.InstallGoMin,
 		Auth:      auth.New(d.DB, d.Clock, d.WebURL),
 		Agents:    agents.New(d.DB, d.Clock),
-		Artifacts: artifacts.New(d.DB, d.Clock),
+		Artifacts: arts,
 		Runtimes:  runtimes.New(d.DB, d.Clock, hub, d.ServerURL).WithLog(d.Log).WithTasks(tsk),
 		// §8.5's platform client is optional on purpose: with no
 		// ANTHROPIC_API_KEY the summary is composed from rows, as it was in P2,
@@ -158,6 +162,7 @@ func NewServer(d Deps) *Server {
 		Tasks:     tsk,
 		TestChats: tc,
 		Events:    events.New(d.DB, d.Clock, hub),
+		Rooms:     &rooms.Service{DB: d.DB, Clock: d.Clock, Hub: hub, Router: rt, Artifacts: arts},
 		Queue:     q,
 		Tokens:    tok,
 		Hub:       hub,
