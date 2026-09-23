@@ -197,6 +197,24 @@ func (e AutonomyLevel) Valid() bool {
 	}
 }
 
+// Defines values for BlockedDetailNextApproverRole.
+const (
+	BlockedDetailNextApproverRoleRoomDeputy     BlockedDetailNextApproverRole = "room_deputy"
+	BlockedDetailNextApproverRoleWorkspaceOwner BlockedDetailNextApproverRole = "workspace_owner"
+)
+
+// Valid indicates whether the value is a known member of the BlockedDetailNextApproverRole enum.
+func (e BlockedDetailNextApproverRole) Valid() bool {
+	switch e {
+	case BlockedDetailNextApproverRoleRoomDeputy:
+		return true
+	case BlockedDetailNextApproverRoleWorkspaceOwner:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ColabCommand.
 const (
 	ArtifactGet        ColabCommand = "artifact_get"
@@ -2351,11 +2369,20 @@ type BlockedDetail struct {
 	// LoopAgents `loop` 일 때 왕복한 두 에이전트.
 	LoopAgents *[]openapi_types.UUID `json:"loop_agents,omitempty"`
 
+	// NextApprover v0.2.8 — delegate_at 부터 답할 수 있는 다음 사람(부방장 또는 ws owner 최고참). 없으면 null.
+	NextApprover nullable.Nullable[User] `json:"next_approver,omitempty"`
+
+	// NextApproverRole v0.2.8 — 배너의 「14:30부터 부방장 〈서연〉이」 문장 역할명.
+	NextApproverRole nullable.Nullable[BlockedDetailNextApproverRole] `json:"next_approver_role,omitempty"`
+
 	// Reason `room.blocked_reason` (FR-2.4 · §12.1-9). null 이면 멈추지 않았다. `manual` 은 사람이 건 긴급 정지(권한자가 직접 푼다), 나머지는 승인 HITL(또는 재바인딩)로 풀린다. 큐는 값이 있는 방의 task 를 주지 않는다.
 	Reason       *RoomBlockedReason                    `json:"reason,omitempty"`
 	RuntimeId    nullable.Nullable[openapi_types.UUID] `json:"runtime_id,omitempty"`
 	WorksStopped *int                                  `json:"works_stopped,omitempty"`
 }
+
+// BlockedDetailNextApproverRole defines model for BlockedDetail.NextApproverRole.
+type BlockedDetailNextApproverRole string
 
 // BudgetPolicy FR-7.3. 스키마 v0는 `jsonb '{}'` — 키는 이 문서가 정한다(미결 항목 참조).
 type BudgetPolicy struct {

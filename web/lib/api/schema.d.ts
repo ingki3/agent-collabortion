@@ -4584,6 +4584,10 @@ export interface components {
              * @description 다음 위임자가 답할 수 있게 되는 시각.
              */
             delegate_at?: string | null;
+            /** @description v0.2.8 — delegate_at 부터 답할 수 있는 다음 사람(부방장 또는 ws owner 최고참). 없으면 null. */
+            next_approver?: components["schemas"]["User"] | null;
+            /** @description v0.2.8 — 배너의 「14:30부터 부방장 〈서연〉이」 문장 역할명. */
+            next_approver_role?: ("room_deputy" | "workspace_owner") | null;
             budget_usd?: number | null;
             cost_usd?: number | null;
             /** @description `loop` 일 때 왕복한 두 에이전트. */

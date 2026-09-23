@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Colab Server API
-  version: 0.2.7-draft
+  version: 0.2.8-draft
   summary: Colab 서버 REST API — P1~P3(수직 슬라이스 · 협업 코어 · HITL/재개/예산)에서 웹(W)과 colab CLI(C)가 호출하는 전부.
   description: |
     # 읽는 법
@@ -6194,6 +6194,8 @@ components:
         blocked_at: { type: string, format: date-time }
         approver: { oneOf: [{ $ref: '#/components/schemas/User' }, { type: 'null' }], description: '지금 답할 수 있는 사람(방장 → 기한 절반 후 부방장 → owner 최고참, FR-2A.3).' }
         delegate_at: { type: [string, 'null'], format: date-time, description: 다음 위임자가 답할 수 있게 되는 시각. }
+        next_approver: { oneOf: [{ $ref: '#/components/schemas/User' }, { type: 'null' }], description: 'v0.2.8 — delegate_at 부터 답할 수 있는 다음 사람(부방장 또는 ws owner 최고참). 없으면 null.' }
+        next_approver_role: { oneOf: [{ type: string, enum: [room_deputy, workspace_owner] }, { type: 'null' }], description: 'v0.2.8 — 배너의 「14:30부터 부방장 〈서연〉이」 문장 역할명.' }
         budget_usd: { type: [number, 'null'] }
         cost_usd: { type: [number, 'null'] }
         loop_agents: { type: array, items: { type: string, format: uuid }, description: '`loop` 일 때 왕복한 두 에이전트.' }
