@@ -20,6 +20,14 @@ const (
 	// (E13-12·13). Added in P4 by Lead decision (T-S9 ask 1); the contract's
 	// InboxItemType grows the same value.
 	TypeWorkdirGCBlocked = "workdir_gc_blocked"
+	// TypeRoomPaused is the room gate (PRD v0.19 FR-2.4 · FR-8): budget or
+	// loop stopped the WHOLE room and its owner is asked to let it go on.
+	// ref_id is that request.
+	TypeRoomPaused = "room_paused"
+	// TypeIsolationConfirm is FR-2.1.1: the room's first run would land on a
+	// computer with a repository while isolation is `none`. ref_id is the
+	// room-owner approval (approve = worktree, reject = none).
+	TypeIsolationConfirm = "isolation_confirm"
 )
 
 // The three severities (inbox_severity, SCREEN §4.6).
@@ -42,7 +50,7 @@ const (
 // badge a permanent number nobody reads.
 func Severity(itemType string) string {
 	switch itemType {
-	case TypeHitlRequest, TypeLaneBlocked, TypeSessionPaused:
+	case TypeHitlRequest, TypeLaneBlocked, TypeSessionPaused, TypeRoomPaused, TypeIsolationConfirm:
 		return ActionRequired
 	case TypeRunFailed, TypeRuntimeOffline, TypeWorkdirGCBlocked:
 		return Attention
@@ -67,6 +75,16 @@ func Actions(itemType, hitlType string, canRespond bool) []string {
 		default:
 			return []string{"answer", "open_session"}
 		}
+	case TypeIsolationConfirm:
+		if canRespond {
+			return []string{"approve", "reject", "open_session"}
+		}
+		return []string{"open_session"}
+	case TypeRoomPaused:
+		if canRespond {
+			return []string{"approve_continue", "open_session"}
+		}
+		return []string{"open_session"}
 	case TypeLaneBlocked, TypeMention:
 		return []string{"reply", "open_session"}
 	case TypeSessionPaused:

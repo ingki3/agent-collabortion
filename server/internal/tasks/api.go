@@ -44,6 +44,12 @@ func ToAPI(t *Row, attempts []Attempt, usage *Usage) gen.Task {
 	if t.FailureKind != nil {
 		out.FailureKind = nullable.NewNullableWithValue(gen.FailureKind(*t.FailureKind))
 	}
+	// PRD §3.1: only a WAITING task has a reason to wait. The field is left
+	// out (not null) otherwise so a task that never queued answers exactly as
+	// it did before 0.2.0.
+	if t.QueuedReason != nil && t.Status == Queued {
+		out.QueuedReason = nullable.NewNullableWithValue(gen.QueuedReason(*t.QueuedReason))
+	}
 	if t.CoalescedMessageIds() == nil {
 		out.CoalescedMessageIds = []openapi_types.UUID{}
 	}

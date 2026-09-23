@@ -524,11 +524,13 @@ func TestVerticalSlice(t *testing.T) {
 	}
 	var streamed int
 	_ = pool.QueryRow(t.Context(), `SELECT count(*) FROM stream_event WHERE workspace_id = $1 AND type = 'message.created'`, wsID).Scan(&streamed)
-	// 2 user posts + 5 agent replies + the session-start system message. The
-	// start message is not ROUTED, but it is still a message on the timeline,
-	// so it gets a frame like every other one (G4 2판 W10).
-	if streamed != 8 {
-		t.Fatalf("stream message.created rows = %d, want 8", streamed)
+	// 2 user posts + 5 agent replies + the session-start system message + the
+	// "이 방은 〈컴퓨터〉에서 돕니다" notice the first claim posts when it pins
+	// the room (PRD v0.19 FR-2.1.1, T-R1b1). Neither system message is ROUTED,
+	// but each is still a message on the timeline, so it gets a frame like
+	// every other one (G4 2판 W10).
+	if streamed != 9 {
+		t.Fatalf("stream message.created rows = %d, want 9", streamed)
 	}
 	fmt.Fprintln(io.Discard, agent, other)
 }

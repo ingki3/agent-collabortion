@@ -30,14 +30,17 @@ func (s *Service) Preview(ctx context.Context, sessionID uuid.UUID, author Autho
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
+	// V19_R1B_HANDOFF (c) router/preview.go:36: the room, not "the room's
+	// mission" — the assignee comes from the mission the message would join.
 	var wsID uuid.UUID
-	var status string
-	var assignee *uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT s.workspace_id, wk.status::text, wk.assignee_agent_id FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1`, sessionID).
-		Scan(&wsID, &status, &assignee)
+	err = tx.QueryRow(ctx, `SELECT workspace_id FROM room WHERE id = $1`, sessionID).Scan(&wsID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrSessionNotFound
 	}
+	if err != nil {
+		return nil, err
+	}
+	assignee, err := routingAssignee(ctx, tx, sessionID, in)
 	if err != nil {
 		return nil, err
 	}
@@ -67,6 +70,27 @@ func (s *Service) Preview(ctx context.Context, sessionID uuid.UUID, author Autho
 	})
 
 	out := &gen.TriggerPreview{Triggers: []gen.TriggerTarget{}}
+	// FR-3.1.1: the chip says which mission the message will join, and by
+	// which rule — the same attribute() Post runs.
+	attr, err := attribute(ctx, tx, sessionID, in, author, th, dec)
+	if err != nil {
+		return nil, err
+	}
+	src := gen.WorkSource(attr.Source)
+	out.WorkSource = &src
+	if ref, err := workRef(ctx, tx, attr); err != nil {
+		return nil, err
+	} else if ref != nil {
+		out.Work = nullable.NewNullableWithValue(struct {
+			Id    openapi_types.UUID `json:"id"`
+			Title string             `json:"title"`
+		}{Id: ref.Id, Title: ref.Title})
+	} else {
+		out.Work = nullable.NewNullNullable[struct {
+			Id    openapi_types.UUID `json:"id"`
+			Title string             `json:"title"`
+		}]()
+	}
 	out.NoteOnly = isNote(in.Content)
 	names := map[uuid.UUID]string{}
 	for _, p := range participants {

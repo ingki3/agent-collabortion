@@ -313,7 +313,8 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 		workCols = append(workCols, "completion_condition")
 		workArgs = append(workArgs, in.CompletionCondition)
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO work (`+strings.Join(workCols, ", ")+`) VALUES (`+placeholders(len(workArgs))+`)`, workArgs...); err != nil {
+	var workID uuid.UUID
+	if err := tx.QueryRow(ctx, `INSERT INTO work (`+strings.Join(workCols, ", ")+`) VALUES (`+placeholders(len(workArgs))+`) RETURNING id`, workArgs...).Scan(&workID); err != nil {
 		return nil, fmt.Errorf("sessions: insert work: %w", err)
 	}
 	for _, p := range parts {
@@ -339,6 +340,11 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 		if err != nil {
 			return nil, err
 		}
+		// FR-3.1.1: everything the session start makes belongs to its one
+		// mission — the start notice, the assignee's lane and its first task.
+		if _, err := tx.Exec(ctx, `UPDATE message SET work_id = $2 WHERE id = $1`, msgID, workID); err != nil {
+			return nil, err
+		}
 		var profileID uuid.UUID
 		for _, p := range parts {
 			if p.agentID == assignee {
@@ -346,8 +352,8 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 			}
 		}
 		var laneID uuid.UUID
-		if err := tx.QueryRow(ctx, `INSERT INTO lane (session_id, agent_id, profile_id, status, created_at, updated_at) VALUES ($1, $2, $3, 'queued', $4, $4) RETURNING id`,
-			sessionID, assignee, profileID, now).Scan(&laneID); err != nil {
+		if err := tx.QueryRow(ctx, `INSERT INTO lane (session_id, agent_id, profile_id, status, created_at, updated_at, work_id) VALUES ($1, $2, $3, 'queued', $4, $4, $5) RETURNING id`,
+			sessionID, assignee, profileID, now, workID).Scan(&laneID); err != nil {
 			return nil, err
 		}
 		// The assignee's lane is born `queued`: that is a lane status being set,
@@ -355,8 +361,8 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 		// subscriber is already listening even though this session is new).
 		_ = lanes.Publish(ctx, s.Hub, tx, laneID)
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO task (lane_id, session_id, runtime_id, agent_id, profile_id, trigger_message_id, originator_user_id, status, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $8)`, laneID, sessionID, runtimeID, assignee, profileID, msgID, userID, now); err != nil {
+			INSERT INTO task (lane_id, session_id, runtime_id, agent_id, profile_id, trigger_message_id, originator_user_id, status, created_at, updated_at, work_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $8, $9)`, laneID, sessionID, runtimeID, assignee, profileID, msgID, userID, now, workID); err != nil {
 			return nil, err
 		}
 		// FR-3.5: the initial task is the Director's doing, so it is the human

@@ -57,8 +57,13 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 	var reentry int
 	var director *uuid.UUID
 	err = tx.QueryRow(ctx, `
-		SELECT t.lane_id, t.session_id, t.agent_id, s.workspace_id, t.trigger_message_id, l.reentry_count, wk.director_user_id
-		FROM task t JOIN lane l ON l.id = t.lane_id JOIN room s ON s.id = t.session_id JOIN work wk ON wk.room_id = s.id
+		SELECT t.lane_id, t.session_id, t.agent_id, s.workspace_id, t.trigger_message_id, l.reentry_count,
+		       -- FR-6.2.1 v0.19: the lane's OWN mission's Director, and the room
+		       -- owner for a lane outside any mission (V19_R1B_HANDOFF (c)
+		       -- router/status.go:61).
+		       COALESCE(wk.director_user_id, s.owner_user_id)
+		FROM task t JOIN lane l ON l.id = t.lane_id JOIN room s ON s.id = t.session_id
+		LEFT JOIN work wk ON wk.id = COALESCE(l.work_id, t.work_id)
 		WHERE t.id = $1 FOR UPDATE OF t, l`, taskID).
 		Scan(&laneID, &sessionID, &agentID, &wsID, &triggerMsg, &reentry, &director)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -360,7 +365,7 @@ func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID
 		// The wake-up is dropped and the session stops here; the notice
 		// message stays on the timeline. Nobody is answered with a Problem —
 		// this is the server's own trigger, and the pause's card is the word.
-		return s.pauseForLoop(ctx, tx, sessionID, wsID, director, v, now)
+		return s.pauseForLoop(ctx, tx, sessionID, wsID, v, now)
 	}
 	laneID, _, err := s.resolveLaneFor(ctx, tx, sessionID, Trigger{AgentID: agentID, Rule: 0}, profileID,
 		laneOpts{topLevelMent: true}, now)
@@ -368,6 +373,21 @@ func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID
 		return err
 	}
 	originator, err := inheritedOriginator(ctx, tx, waker, requester)
+	if err != nil {
+		return err
+	}
+	// FR-3.1.1: the wake-up runs for the mission of the work that asked for
+	// it — the requester's own lane's — unless the lane it lands on already
+	// has one.
+	var requesterWork *uuid.UUID
+	if requester != uuid.Nil {
+		if err := tx.QueryRow(ctx, `
+			SELECT COALESCE(l.work_id, t.work_id) FROM task t JOIN lane l ON l.id = t.lane_id WHERE t.id = $1`, requester).
+			Scan(&requesterWork); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+	}
+	laneWork, err := bindLaneWork(ctx, tx, laneID, requesterWork)
 	if err != nil {
 		return err
 	}
@@ -386,8 +406,8 @@ func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID
 		return err
 	}
 	_, err = tx.Exec(ctx, `
-		INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, originator_user_id, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7, $7)`, laneID, sessionID, agentID, profileID, msg, originator, now)
+		INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, originator_user_id, status, created_at, updated_at, work_id)
+		VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7, $7, $8)`, laneID, sessionID, agentID, profileID, msg, originator, now, laneWork)
 	return err
 }
 

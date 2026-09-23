@@ -47,14 +47,37 @@ type SweepResult struct {
 // says: completeSession/cancelSession cancel the tasks but leave the lanes
 // where they were (a never-claimed lane stays `queued`), and counting those
 // would keep every finished session's directory forever — the old gate read
-// the session status for exactly this reason. The lane's mission is its
-// work_id, or the room's one work for lanes written before R1b fills the
-// column (R1a: one work per room, work_room_single).
+// the session status for exactly this reason. The lane's mission is its OWN
+// work_id (T-R1b1: the r1b1_room_gate migration filled the column for every lane written before R1b1,
+// and R1b1 writes it; the R1a fallback "the room's one work" is gone — with
+// several missions in a room it would read another mission's end as this
+// lane's). A lane outside any mission is alive on its own status.
 const liveLaneSQL = `EXISTS (SELECT 1 FROM lane l WHERE l.workdir_id = w.id
 	AND l.status IN ('queued', 'running', 'waiting_human', 'blocked', 'paused')
 	AND NOT EXISTS (SELECT 1 FROM work lw
-	                WHERE (lw.id = l.work_id OR (l.work_id IS NULL AND lw.room_id = l.session_id))
-	                  AND lw.status IN ('completed', 'cancelled')))`
+	                WHERE lw.id = l.work_id AND lw.status IN ('completed', 'cancelled')))`
+
+// disposableNow is FR-6.4 v0.19's clock for a `container`·`none` directory
+// (one lane each): it goes the moment the mission its lane is tied to CLOSES,
+// and a lane outside any mission keeps it for `workdir_retention_days` after
+// its last use. A lane that is done while its mission is still open keeps its
+// folder — the mission can send the agent back into it (lane rule 3 re-entry),
+// and deleting it under an open mission is what R1a's "no live lane" gate did.
+//
+// production caller: SweepGC.
+func disposableNow(openMission, outsideMission bool, sinceLastUse time.Duration, retentionDays int) bool {
+	if openMission {
+		return false
+	}
+	if outsideMission {
+		days := retentionDays
+		if days < 0 {
+			days = DefaultRetentionDays
+		}
+		return sinceLastUse >= time.Duration(days)*24*time.Hour
+	}
+	return true
+}
 
 type gcRow struct {
 	GCCase
@@ -102,9 +125,16 @@ func (s *Service) SweepGC(ctx context.Context) (SweepResult, error) {
 		DefaultRetentionDays, now); err != nil {
 		s.warn("workdirs: refresh retain_until", "err", err)
 	}
+	// V19_R1B_HANDOFF 우선 처리 (sweep.go:118): one row per DIRECTORY. The
+	// old `JOIN work ON work.room_id = room.id` returned a directory once per
+	// mission of its room — a GC that deletes files must never judge (and
+	// command) the same directory twice. Who is told and what the card is
+	// titled come from the mission of the directory's latest lane, else the
+	// room's owner and name (FR-6.4: 방장 for a directory outside missions).
 	rows, err := s.DB.Query(ctx, `
 		SELECT w.id, w.path_or_ref, w.kind::text, w.session_id, s.workspace_id, s.runtime_id,
-		       wk.director_user_id, wk.title, 'completed', COALESCE(w.last_used_at, w.created_at),
+		       COALESCE(lm.director_user_id, s.owner_user_id), COALESCE(lm.title, s.name),
+		       'completed', COALESCE(w.last_used_at, w.created_at),
 		       COALESCE(s.isolation->>'kind', ''),
 		       COALESCE(ws.workdir_retention_days, $1),
 		       COALESCE(w.merged, false), w.commits_ahead,
@@ -112,10 +142,15 @@ func (s *Service) SweepGC(ctx context.Context) (SweepResult, error) {
 		       w.gc_notified_at, COALESCE(w.gc_blocked_reason, ''),
 		       EXISTS (SELECT 1 FROM daemon_command c
 		                WHERE c.type = 'gc' AND c.consumed_at IS NULL
-		                  AND w.id::text = ANY(gc_command_workdir_ids(c.payload)))
+		                  AND w.id::text = ANY(gc_command_workdir_ids(c.payload))),
+		       EXISTS (SELECT 1 FROM lane l JOIN work lw ON lw.id = l.work_id
+		                WHERE l.workdir_id = w.id AND lw.status NOT IN ('completed', 'cancelled')),
+		       EXISTS (SELECT 1 FROM lane l WHERE l.workdir_id = w.id AND l.work_id IS NULL)
 		FROM workdir w
 		JOIN room s ON s.id = w.session_id
-		JOIN work wk ON wk.room_id = s.id
+		LEFT JOIN LATERAL (
+		       SELECT lw.director_user_id, lw.title FROM lane l JOIN work lw ON lw.id = l.work_id
+		        WHERE l.workdir_id = w.id ORDER BY l.updated_at DESC, l.id LIMIT 1) lm ON true
 		LEFT JOIN workspace_settings ws ON ws.workspace_id = s.workspace_id
 		WHERE w.status = 'active' AND NOT `+liveLaneSQL, DefaultRetentionDays)
 	if err != nil {
@@ -126,10 +161,11 @@ func (s *Service) SweepGC(ctx context.Context) (SweepResult, error) {
 		var r gcRow
 		var finished *time.Time
 		var kind string
+		var openMission, outsideMission bool
 		if err := rows.Scan(&r.WorkdirID, &r.Path, &kind, &r.SessionID, &r.WorkspaceID, &r.RuntimeID,
 			&r.Director, &r.SessionTitle, &r.SessionStatus, &finished, &r.GCCase.Isolation,
 			&r.RetentionDays, &r.Merged, &r.CommitsAhead, &r.TreeDirty,
-			&r.NotifiedAt, &r.KnownReason, &r.CommandOpen); err != nil {
+			&r.NotifiedAt, &r.KnownReason, &r.CommandOpen, &openMission, &outsideMission); err != nil {
 			rows.Close()
 			return SweepResult{}, err
 		}
@@ -141,6 +177,11 @@ func (s *Service) SweepGC(ctx context.Context) (SweepResult, error) {
 			// has a CHECK), but the workdir's own kind is the same fact from
 			// the daemon's side and is a better guess than "worktree".
 			r.GCCase.Isolation = kind
+		}
+		if r.GCCase.Isolation != "worktree" && !disposableNow(openMission, outsideMission, r.SinceSessionEnd, r.RetentionDays) {
+			// JudgeGC deletes a `none`/`container` directory the moment it is
+			// fed "ended"; FR-6.4 v0.19 says WHEN that is (disposableNow).
+			r.SessionStatus = "active"
 		}
 		cases = append(cases, r)
 	}
