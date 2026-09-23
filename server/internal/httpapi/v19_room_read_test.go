@@ -230,17 +230,24 @@ func TestRoomReadPermissionOverHTTP(t *testing.T) {
 		t.Fatalf("readable with no originator = %v, want none", keys(got))
 	}
 
-	// A person cannot use the agent endpoints. S23 is room participants plus
-	// ws owner·admin (audit read, PRD FR-5.3 — review #290 R1-1): a plain
-	// member outside the room is 403, the workspace owner is not.
+	// A person cannot use the agent endpoints. S23 is whoever may view the
+	// room — rooms.Decide(ActView), the one table (review #290 R1-1 · #291
+	// NN3): a plain member reads a workspace-visible room's S23 like its
+	// timeline; an invited room they are not in does not exist (404); the
+	// workspace owner reads it for audit.
 	if st, _ := f.rawGet(t, f.p+"/cli/rooms", ""); st != 401 {
 		t.Fatalf("listReadableRooms without a token = %d, want 401", st)
 	}
 	outsider := f.addMember(t, "s23-outsider@example.com", "Outsider")
-	if st, _, _ := outsider.do("GET", f.p+"/rooms/"+f.c.String()+"/reads", nil); st != 403 {
-		t.Fatalf("S23 of a room a plain member is not in = %d, want 403", st)
+	s23 := f.p + "/rooms/" + f.c.String() + "/reads"
+	if st, _, _ := outsider.do("GET", s23, nil); st != 200 {
+		t.Fatalf("S23 of a workspace-visible room, plain member = %d, want 200", st)
 	}
-	if st, _, _ := f.api.do("GET", f.p+"/rooms/"+f.c.String()+"/reads", nil); st != 200 {
+	f.exec(t, `UPDATE room SET visibility = 'invited' WHERE id = $1`, f.c)
+	if st, out, _ := outsider.do("GET", s23, nil); st != 404 || str(out, "code") != "not_found" {
+		t.Fatalf("S23 of an invited room a plain member is not in = %d %v, want 404", st, out)
+	}
+	if st, _, _ := f.api.do("GET", s23, nil); st != 200 {
 		t.Fatalf("S23 for the workspace owner (audit read) = %d, want 200", st)
 	}
 }

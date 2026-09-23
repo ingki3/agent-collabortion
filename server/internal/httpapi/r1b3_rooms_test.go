@@ -6,6 +6,7 @@ package httpapi
 // (pure); these subtests check that the handlers ask it and act on it.
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -120,6 +121,10 @@ func TestR1b3RoomLifecycle(t *testing.T) {
 		f.member.must(200, "PATCH", rp, map[string]any{"visibility": "invited"})
 		if st, _, _ := f.other.do("GET", rp, nil); st != 404 {
 			t.Fatalf("uninvited member GET = %d, want 404", st)
+		}
+		// The old /sessions/* aliases read the same room (review #291 R1-1).
+		if st, _, _ := f.other.do("GET", f.p+"/sessions/"+roomID+"/messages", nil); st != 404 {
+			t.Fatalf("uninvited member GET /sessions/{id}/messages = %d, want 404", st)
 		}
 		list := items(f.other.must(200, "GET", f.p+"/workspaces/"+f.wsID+"/rooms?participating=false", nil))
 		if hasRoom(list, roomID) {
@@ -392,17 +397,26 @@ func TestR1b3OwnerSuccession(t *testing.T) {
 	f := newRoomsFixture(t)
 	room := f.mkRoom(t, f.other, "Oth 의 방")
 	rid := str(room, "id")
+	// Two ws owners, joined an hour apart: the OLDEST one inherits (§12.1-4),
+	// whichever way their ids sort (review #291 NN2 — with one owner any
+	// ORDER BY gave the same answer).
+	var dirUser string
+	if err := f.pool.QueryRow(t.Context(), `SELECT user_id::text FROM member WHERE workspace_id = $1 AND role = 'owner'`, f.wsID).Scan(&dirUser); err != nil {
+		t.Fatal(err)
+	}
+	f.api.must(200, "PATCH", f.memberPath(f.adminID), map[string]any{"role": "owner"})
+	if _, err := f.pool.Exec(t.Context(), `
+		UPDATE member SET created_at = (SELECT created_at FROM member WHERE workspace_id = $1 AND user_id = $2) + interval '1 hour'
+		WHERE id = $3`, f.wsID, dirUser, f.adminID); err != nil {
+		t.Fatal(err)
+	}
 	f.api.must(204, "DELETE", f.memberPath(f.otherID), nil)
 	var owner string
 	if err := f.pool.QueryRow(t.Context(), `SELECT owner_user_id::text FROM room WHERE id = $1`, rid).Scan(&owner); err != nil {
 		t.Fatal(err)
 	}
-	var dirUser string
-	if err := f.pool.QueryRow(t.Context(), `SELECT user_id::text FROM member WHERE workspace_id = $1 AND role = 'owner' ORDER BY created_at LIMIT 1`, f.wsID).Scan(&dirUser); err != nil {
-		t.Fatal(err)
-	}
 	if owner != dirUser {
-		t.Fatalf("owner = %s, want oldest ws owner %s", owner, dirUser)
+		t.Fatalf("owner = %s, want the oldest ws owner %s (not the one who joined later)", owner, dirUser)
 	}
 	if n := f.count(t, `SELECT count(*) FROM room_participant WHERE room_id = $1 AND user_id = $2 AND role = 'owner' AND left_at IS NULL`, rid, dirUser); n != 1 {
 		t.Fatal("successor has no live owner row")
@@ -415,6 +429,71 @@ func TestR1b3OwnerSuccession(t *testing.T) {
 	}
 	if n := f.count(t, `SELECT count(*) FROM message WHERE session_id = $1 AND kind = 'system' AND content LIKE '%방장을 이어받았습니다.'`, rid); n != 1 {
 		t.Fatal("succession line missing")
+	}
+}
+
+// TestR1b3InvitedSessionAliases (review #291 R1-1): an invited room does not
+// exist for an uninvited member on the old /sessions/* aliases either — every
+// read that goes through sessionAccess answers 404, the body never leaves.
+// Participants, the auditing ws owner and the room's agents (task token) read
+// as before, and a workspace-visible room stays open to every member.
+func TestR1b3InvitedSessionAliases(t *testing.T) {
+	f := newRoomsFixture(t)
+	sp := f.p + "/sessions/" + f.sessionID
+	const secret = "SECRET-BODY-42"
+	f.post(t, map[string]any{"content": secret})
+	tok, _ := f.agentToken(t, f.sessionID, f.leadUUID, "Lead")
+	agent := &client{t: t, srv: f.api.srv, bearer: tok}
+
+	reads := []string{"/messages", "/artifacts", "/decisions", "/cost", "/lanes", "/hitl-requests", "/participants", ""}
+	t.Run("workspace 공개 방: 초대 안 된 멤버도 읽는다(v0.18 연속)", func(t *testing.T) {
+		for _, suffix := range reads {
+			if st, out, _ := f.other.do("GET", sp+suffix, nil); st != 200 {
+				t.Fatalf("GET %s (workspace room, member) = %d %v, want 200", suffix, st, out)
+			}
+		}
+	})
+
+	f.api.must(200, "PATCH", f.roomPath(f.sessionID), map[string]any{"visibility": "invited"})
+	t.Run("invited 방: 초대 안 된 멤버에게 /sessions/* 전부 404", func(t *testing.T) {
+		for _, suffix := range reads {
+			st, out, _ := f.other.do("GET", sp+suffix, nil)
+			if st != 404 || str(out, "code") != "not_found" {
+				t.Fatalf("uninvited GET %s = %d %v, want 404 not_found", suffix, st, out)
+			}
+		}
+	})
+	t.Run("참여자·감사 owner·에이전트 토큰은 그대로 읽는다", func(t *testing.T) {
+		f.api.must(201, "POST", f.roomPath(f.sessionID)+"/participants", map[string]any{"user_id": f.memberUserID})
+		for _, c := range []struct {
+			who string
+			c   *client
+		}{{"invited member", f.member}, {"room owner", f.api}, {"agent task token", agent}} {
+			st, raw, _ := c.c.raw("GET", sp+"/messages", nil)
+			if st != 200 || !strings.Contains(string(raw), secret) {
+				t.Fatalf("%s GET /messages = %d, want 200 with the body", c.who, st)
+			}
+		}
+		// ws admin, not a participant: audit read.
+		if st, _, _ := f.admin.do("GET", sp+"/messages", nil); st != 200 {
+			t.Fatalf("ws admin audit GET /messages = %d, want 200", st)
+		}
+	})
+	t.Run("나간 참여자는 다시 없다", func(t *testing.T) {
+		f.member.must(204, "DELETE", f.roomPath(f.sessionID)+"/participants/"+participantOf(t, f.api, f.roomPath(f.sessionID), f.memberUserID), nil)
+		if st, _, _ := f.member.do("GET", sp+"/messages", nil); st != 404 {
+			t.Fatalf("left member GET /messages = %d, want 404", st)
+		}
+	})
+}
+
+// TestR1b3LanesOfMissionlessRoom (review #291 NN4): a room with no mission
+// has no Director — its lane board is empty, not a 500.
+func TestR1b3LanesOfMissionlessRoom(t *testing.T) {
+	f := newRoomsFixture(t)
+	rid := str(f.mkRoom(t, f.member, "빈 방"), "id")
+	if out := f.member.mustList(200, "GET", f.p+"/sessions/"+rid+"/lanes", nil); len(out) != 0 {
+		t.Fatalf("lanes of a missionless room = %v", out)
 	}
 }
 

@@ -77,14 +77,21 @@ func (s *Server) ListLanes(w http.ResponseWriter, r *http.Request, sessionId gen
 	if u != nil {
 		var director uuid.UUID
 		var deputy *uuid.UUID
-		if err := s.DB.QueryRow(r.Context(), `SELECT director_user_id, deputy_user_id FROM work WHERE room_id = $1`, sessionId).
-			Scan(&director, &deputy); err != nil {
+		// A room with no mission (v0.19 — created by createRoom, nothing
+		// started yet) has no Director: nobody controls its lanes, and that is
+		// not a server error (review #291 NN4).
+		err := s.DB.QueryRow(r.Context(), `SELECT director_user_id, deputy_user_id FROM work WHERE room_id = $1`, sessionId).
+			Scan(&director, &deputy)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+		case err != nil:
 			writeErr(w, err)
 			return
+		default:
+			// The same gate the cancel handler applies, so the board never
+			// shows a button that 403s (FR-5.3 last bullet).
+			canControl = tasks.MayCancel(u.Id, director, deputy).ButtonEnabled
 		}
-		// The same gate the cancel handler applies, so the board never shows a
-		// button that 403s (FR-5.3 last bullet).
-		canControl = tasks.MayCancel(u.Id, director, deputy).ButtonEnabled
 	}
 	out, err := lanes.List(r.Context(), s.DB, sessionId, statuses, canControl)
 	if err != nil {

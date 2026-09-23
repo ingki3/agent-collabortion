@@ -31,6 +31,10 @@ type roomSight struct {
 	admin   bool
 	seen    map[uuid.UUID]bool
 	noCache map[uuid.UUID]time.Time
+	// now is the wall clock (a test moves it). The window is measured against
+	// the writer's commit, which is real time, so this is not the server's
+	// injected clock.
+	now func() time.Time
 }
 
 // sightFreshWindow is how long after a roster/visibility frame a room is
@@ -39,7 +43,7 @@ const sightFreshWindow = 5 * time.Second
 
 func newRoomSight(db *pgxpool.Pool, user uuid.UUID, wsRole string) *roomSight {
 	return &roomSight{db: db, user: user, admin: wsRole == "owner" || wsRole == "admin",
-		seen: map[uuid.UUID]bool{}, noCache: map[uuid.UUID]time.Time{}}
+		seen: map[uuid.UUID]bool{}, noCache: map[uuid.UUID]time.Time{}, now: time.Now}
 }
 
 // frame reports whether e may be written to this connection.
@@ -51,7 +55,7 @@ func (v *roomSight) frame(ctx context.Context, e realtime.Event) bool {
 	switch e.Type {
 	case "participant.joined", "participant.left", "room.updated":
 		delete(v.seen, room)
-		v.noCache[room] = time.Now().Add(sightFreshWindow)
+		v.noCache[room] = v.now().Add(sightFreshWindow)
 	case "room.deleted", "session.deleted":
 		// The room is gone; a card for it may be on anyone's screen who could
 		// see it a moment ago, and the frame reveals nothing but the id.
@@ -64,7 +68,7 @@ func (v *roomSight) frame(ctx context.Context, e realtime.Event) bool {
 	// A room that no longer exists or cannot be read is not shown — the
 	// safe side of a failed read is silence, not a leak.
 	ok := err == nil && rooms.Decide(rooms.ActView, a.Standing)
-	if until, fresh := v.noCache[room]; fresh && time.Now().Before(until) {
+	if until, fresh := v.noCache[room]; fresh && v.now().Before(until) {
 		return ok
 	}
 	delete(v.noCache, room)

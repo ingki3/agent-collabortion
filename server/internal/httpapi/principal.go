@@ -13,6 +13,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/auth"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/install"
+	"github.com/ingki3/agent-collabortion/server/internal/rooms"
 	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
 )
@@ -189,6 +190,21 @@ func (s *Server) sessionAccess(r *http.Request, sessionID uuid.UUID) (*gen.User,
 	}
 	if m == nil {
 		return nil, apperr.NotFound("session") // do not reveal other workspaces' sessions
+	}
+	// The session is a room (v0.19): an invited room does not exist for a
+	// member who was not invited (FR-5.3), on the old /sessions/* aliases as
+	// on /rooms/* — rooms.Decide is the one table (review #291 R1-1). A task
+	// token never reaches here: it is scoped to its own session above.
+	a, err := rooms.LoadAccess(r.Context(), s.DB, sessionID, p.User.Id)
+	if err != nil {
+		pr := apperr.As(err)
+		if pr.Status == http.StatusNotFound {
+			return nil, apperr.NotFound("session")
+		}
+		return nil, pr
+	}
+	if !rooms.Decide(rooms.ActView, a.Standing) {
+		return nil, apperr.NotFound("session")
 	}
 	return p.User, nil
 }
