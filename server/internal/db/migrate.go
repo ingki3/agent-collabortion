@@ -75,9 +75,23 @@ func load(fsys fs.FS) ([]Migration, error) {
 // version. Already-applied versions are compared by checksum and a mismatch
 // aborts with ErrDirtyMigration.
 func MigratePool(ctx context.Context, pool *pgxpool.Pool) (int, error) {
+	return migrateTo(ctx, pool, 0)
+}
+
+// migrateTo is MigratePool stopping after version maxVersion (0 = all). Only
+// tests stop early: the 0025 migration test seeds the 0024 schema first.
+func migrateTo(ctx context.Context, pool *pgxpool.Pool, maxVersion int) (int, error) {
 	all, err := Load()
 	if err != nil {
 		return 0, err
+	}
+	if maxVersion > 0 {
+		for i, m := range all {
+			if m.Version > maxVersion {
+				all = all[:i]
+				break
+			}
+		}
 	}
 
 	conn, err := pool.Acquire(ctx)
