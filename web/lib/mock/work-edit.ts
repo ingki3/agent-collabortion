@@ -11,7 +11,7 @@
  */
 import type { CompletionCondition, CompletionProgress, RoomParticipant, User } from "@/lib/api/types";
 import type { components } from "@/lib/api/schema";
-import { emit, now, store, stripUser, uuid, type MockRoom, type MockWork, type Store } from "./store";
+import { emit, nextMsgAt, now, store, stripUser, uuid, type MockRoom, type MockWork, type Store } from "./store";
 import { VALIDATION_DETAIL, W, type ServerSentence } from "./wording";
 import { RW } from "./rooms-dialogs-wording";
 import type { Req, Res } from "./handlers";
@@ -84,7 +84,7 @@ export function registerWorkEdit(ctx: WorkEditCtx): void {
   const systemPost = (s: Store, room: MockRoom, content: string, workId: string) => {
     const m = {
       id: uuid(), session_id: room.id, parent_id: null, source_task_id: null, lane_id: null, state: "posted", reply_count: 0, is_note: false,
-      author_type: "system", author_id: null, kind: "system", content, mentions: [], created_at: now(), edited_at: null, work_id: workId,
+      author_type: "system", author_id: null, kind: "system", content, mentions: [], created_at: nextMsgAt(), edited_at: null, work_id: workId,
     };
     s.messages.set(m.id, m as never);
     emit(s, room.workspace_id, "message.created", m, room.id);

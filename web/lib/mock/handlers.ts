@@ -10,7 +10,7 @@ import type {
 } from "@/lib/api/types";
 import type { components } from "@/lib/api/schema";
 import {
-  allowedCommands, defaultSettings, emit, makeAgent, makeRuntime, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges,
+  allowedCommands, defaultSettings, emit, makeAgent, makeRuntime, nextMsgAt, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges,
   sseFrame, store, stripUser, TEMPLATES, uuid, type MockInvite, type MockRoom, type MockTask, type MockWork, type Store, type Subscriber,
 } from "./store";
 import { registerRoomDialogs } from "./rooms-dialogs";
@@ -533,12 +533,6 @@ function sessionFor(s: Store, sess: Session, userId: string): Session {
 }
 
 // ── messages ──
-/** 메시지 시각은 단조 증가 — 같은 ms 에 여러 건이 오면 시간순(앵커·이전 대화 더 보기)이 uuid 순으로 섞인다. 서버는 DB now() + id 커서. */
-let lastMsgAt = 0;
-function nextMsgAt(): string {
-  lastMsgAt = Math.max(Date.now(), lastMsgAt + 1);
-  return new Date(lastMsgAt).toISOString();
-}
 function addMessage(s: Store, sess: Session, m: Partial<Message> & Pick<Message, "author_type" | "author_id" | "kind" | "content" | "mentions">): Message {
   const msg: Message = {
     id: uuid(), session_id: sess.id, parent_id: null, source_task_id: null, lane_id: null, state: "posted", reply_count: 0, is_note: false,
@@ -3412,7 +3406,7 @@ on("POST", "/__mock/rooms/{id}/seed", (req, p) => {
   }
   if (b.drop_user_email) room.people = room.people.filter((x) => s.users.get(x.user_id)?.email !== b.drop_user_email);
   for (let i = 0; i < (b.unread ?? 0); i++) {
-    const at = new Date(Date.now() + i).toISOString();
+    const at = nextMsgAt();
     const m: Message = {
       id: uuid(), session_id: room.id, parent_id: null, source_task_id: null, lane_id: null, state: "posted", reply_count: 0, is_note: false,
       author_type: "system", author_id: null, kind: "system", content: `안 읽음 시드 ${i + 1}`, mentions: [], created_at: at, edited_at: null,

@@ -16,7 +16,7 @@ import type {
   AgentProfile, CompletionCondition, Member, Message, Room, RoomRole, RoomUpdate, Session, User, WorkListItem,
 } from "@/lib/api/types";
 import type { components } from "@/lib/api/schema";
-import { emit, now, participantStatus, store, stripUser, uuid, type MockRoom, type MockWork, type Store } from "./store";
+import { emit, nextMsgAt, now, participantStatus, store, stripUser, uuid, type MockRoom, type MockWork, type Store } from "./store";
 import { josa, notFound, VALIDATION_DETAIL, W } from "./wording";
 import { RW } from "./rooms-dialogs-wording";
 import type { Req, Res } from "./handlers";
@@ -183,7 +183,7 @@ export function registerRoomDialogs(ctx: RoomDialogsCtx): void {
   const systemPost = (s: Store, room: MockRoom, content: string, workId?: string) => {
     const m: Message = {
       id: uuid(), session_id: room.id, parent_id: null, source_task_id: null, lane_id: null, state: "posted", reply_count: 0, is_note: false,
-      author_type: "system", author_id: null, kind: "system", content, mentions: [], created_at: now(), edited_at: null,
+      author_type: "system", author_id: null, kind: "system", content, mentions: [], created_at: nextMsgAt(), edited_at: null,
       ...(workId ? { work_id: workId } : {}),
     } as Message;
     s.messages.set(m.id, m);
