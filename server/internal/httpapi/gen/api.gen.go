@@ -3513,6 +3513,9 @@ type RoomListItem struct {
 		Failed   int `json:"failed"`
 		HitlOpen int `json:"hitl_open"`
 	} `json:"attention"`
+
+	// AuditView v0.2.6 — 호출자가 참여하지 않은 invited 방을 ws owner·admin 감사 열람으로 보고 있다(SCREEN §4.4 「감사 열람」 칩). 서버 AuditViewed 판정과 같은 식.
+	AuditView     *bool                                `json:"audit_view,omitempty"`
 	BlockedReason nullable.Nullable[RoomBlockedReason] `json:"blocked_reason"`
 	Description   string                               `json:"description"`
 
