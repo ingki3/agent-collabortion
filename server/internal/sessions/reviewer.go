@@ -134,7 +134,7 @@ func loadCompletionFacts(ctx context.Context, q db.DBTX, sessionID uuid.UUID, t 
 	}
 	rows, err := q.Query(ctx, `
 		SELECT a.id, a.name, a.archived_at IS NOT NULL,
-		       EXISTS (SELECT 1 FROM session_participant sp WHERE sp.session_id = $1 AND sp.agent_id = a.id)
+		       EXISTS (SELECT 1 FROM room_participant sp WHERE sp.room_id = $1 AND sp.agent_id = a.id)
 		FROM agent a WHERE a.id = ANY($2)`, sessionID, ids)
 	if err != nil {
 		return f, fmt.Errorf("sessions: completion agents: %w", err)
@@ -187,7 +187,7 @@ func blockedReason(c Condition, f completionFacts) *gen.CompletionProgressCondit
 func LoadProgress(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (gen.CompletionProgress, error) {
 	var tree, met []byte
 	var assignee *uuid.UUID
-	err := q.QueryRow(ctx, `SELECT completion_condition, completion_met, assignee_agent_id FROM session WHERE id = $1`, sessionID).
+	err := q.QueryRow(ctx, `SELECT completion_condition, completion_met, assignee_agent_id FROM work WHERE room_id = $1`, sessionID).
 		Scan(&tree, &met, &assignee)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return gen.CompletionProgress{}, apperr.NotFound("session")

@@ -78,12 +78,20 @@ func AddSession(t *testing.T, pool *pgxpool.Pool, s Seed, runtimeID *uuid.UUID, 
 	t.Helper()
 	ctx := context.Background()
 	var id uuid.UUID
-	if err := pool.QueryRow(ctx, `INSERT INTO session (workspace_id, title, goal, director_user_id, assignee_agent_id, runtime_id, isolation, status, created_by, created_at, updated_at, started_at)
-		VALUES ($1, 'S', 'goal', $2, $3, $4, '{"kind":"none"}', 'active', $2, $5, $5, $5) RETURNING id`, s.WorkspaceID, s.UserID, s.AgentID, runtimeID, now).Scan(&id); err != nil {
+	// A session is a room plus its one work since 0025 (PRD v0.19 §7).
+	if err := pool.QueryRow(ctx, `INSERT INTO room (workspace_id, name, description, owner_user_id, default_director_user_id, runtime_id, isolation, created_by, created_at, updated_at)
+		VALUES ($1, 'S', 'goal', $2, $2, $3, '{"kind":"none"}', $2, $4, $4) RETURNING id`, s.WorkspaceID, s.UserID, runtimeID, now).Scan(&id); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO session_participant (session_id, agent_id, profile_id, joined_at) VALUES ($1, $2, $3, $4)`, id, s.AgentID, s.ProfileID, now); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO work (room_id, title, goal, director_user_id, assignee_agent_id, status, created_by, created_at, updated_at, started_at)
+		VALUES ($1, 'S', 'goal', $2, $3, 'active', $2, $4, $4, $4)`, id, s.UserID, s.AgentID, now); err != nil {
+		t.Fatalf("seed work: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO room_participant (room_id, agent_id, profile_id, joined_at) VALUES ($1, $2, $3, $4)`, id, s.AgentID, s.ProfileID, now); err != nil {
 		t.Fatalf("seed participant: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO room_participant (room_id, user_id, role, joined_at) VALUES ($1, $2, 'owner', $3)`, id, s.UserID, now); err != nil {
+		t.Fatalf("seed owner: %v", err)
 	}
 	return id
 }

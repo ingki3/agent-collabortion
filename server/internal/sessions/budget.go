@@ -315,10 +315,10 @@ func PlanBudgetAnswer(in BudgetAnswerInput) BudgetResume {
 func SpentUSD(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (float64, error) {
 	var spent float64
 	err := q.QueryRow(ctx, `
-		SELECT greatest(s.cost_usd, COALESCE((SELECT sum(u.cost_usd) FROM task_usage u
-		                                        JOIN task t ON t.id = u.task_id
-		                                       WHERE t.session_id = s.id), 0))
-		FROM session s WHERE s.id = $1`, sessionID).Scan(&spent)
+		SELECT greatest(wk.cost_usd, COALESCE((SELECT sum(u.cost_usd) FROM task_usage u
+		                                         JOIN task t ON t.id = u.task_id
+		                                        WHERE t.session_id = wk.room_id), 0))
+		FROM work wk WHERE wk.room_id = $1`, sessionID).Scan(&spent)
 	if err != nil {
 		return 0, fmt.Errorf("sessions: spent: %w", err)
 	}

@@ -404,7 +404,7 @@ func (s *Service) summaryFacts(ctx context.Context, tx pgx.Tx, sessionID uuid.UU
 	if err := tx.QueryRow(ctx, `
 		SELECT title, goal, cost_usd, started_at, finished_at,
 		       (SELECT bool_or(estimated) FROM task_usage u JOIN task t ON t.id = u.task_id WHERE t.session_id = $1)
-		FROM session WHERE id = $1`, sessionID).
+		FROM work WHERE room_id = $1`, sessionID).
 		Scan(&f.Title, &f.Goal, &f.CostUSD, &started, &ended, &estimated); err != nil {
 		s.logWarn("sessions: summary facts", "session", sessionID, "err", err)
 	}

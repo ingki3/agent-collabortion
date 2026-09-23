@@ -284,36 +284,47 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
-	cols := []string{"workspace_id", "title", "goal", "acceptance_criteria", "director_user_id", "deputy_director_user_id", "assignee_agent_id", "runtime_id", "isolation", "autonomy", "status", "created_by", "created_at", "updated_at", "started_at"}
+	// A v0.18 session is a room with exactly one work (PRD v0.19 §3.1): the
+	// room carries where and how it runs, the work carries what it is for
+	// (0025). The room's name/description/owner follow the §10 migration rule
+	// so a session made today looks the same as one migrated from before.
+	title := strings.TrimSpace(in.Title)
+	roomCols := []string{"workspace_id", "name", "description", "owner_user_id", "default_director_user_id", "runtime_id", "isolation", "autonomy", "created_by", "created_at", "updated_at"}
+	roomArgs := []any{wsID, title, firstLine(in.Goal), userID, director, runtimeID, isolation, autonomy, userID, now, now}
+	if in.Limits != nil {
+		roomCols = append(roomCols, "limits")
+		roomArgs = append(roomArgs, in.Limits)
+	}
+	if in.ContextReuseOverride != nil {
+		roomCols = append(roomCols, "context_reuse_override")
+		roomArgs = append(roomArgs, in.ContextReuseOverride)
+	}
+	var sessionID uuid.UUID
+	if err := tx.QueryRow(ctx, `INSERT INTO room (`+strings.Join(roomCols, ", ")+`) VALUES (`+placeholders(len(roomArgs))+`) RETURNING id`, roomArgs...).Scan(&sessionID); err != nil {
+		return nil, fmt.Errorf("sessions: insert room: %w", err)
+	}
 	var startedAt *time.Time
 	if !draft {
 		startedAt = &now
 	}
-	args := []any{wsID, strings.TrimSpace(in.Title), in.Goal, criteria, director, deputy, assignee, runtimeID, isolation, autonomy, status, userID, now, now, startedAt}
+	workCols := []string{"room_id", "title", "goal", "acceptance_criteria", "director_user_id", "deputy_user_id", "assignee_agent_id", "status", "created_by", "created_at", "updated_at", "started_at"}
+	workArgs := []any{sessionID, title, in.Goal, criteria, director, deputy, assignee, status, userID, now, now, startedAt}
 	if in.CompletionCondition != nil {
-		cols = append(cols, "completion_condition")
-		args = append(args, in.CompletionCondition)
+		workCols = append(workCols, "completion_condition")
+		workArgs = append(workArgs, in.CompletionCondition)
 	}
-	if in.Limits != nil {
-		cols = append(cols, "limits")
-		args = append(args, in.Limits)
-	}
-	if in.ContextReuseOverride != nil {
-		cols = append(cols, "context_reuse_override")
-		args = append(args, in.ContextReuseOverride)
-	}
-	ph := make([]string, len(args))
-	for i := range args {
-		ph[i] = fmt.Sprintf("$%d", i+1)
-	}
-	var sessionID uuid.UUID
-	if err := tx.QueryRow(ctx, `INSERT INTO session (`+strings.Join(cols, ", ")+`) VALUES (`+strings.Join(ph, ", ")+`) RETURNING id`, args...).Scan(&sessionID); err != nil {
-		return nil, fmt.Errorf("sessions: insert: %w", err)
+	if _, err := tx.Exec(ctx, `INSERT INTO work (`+strings.Join(workCols, ", ")+`) VALUES (`+placeholders(len(workArgs))+`)`, workArgs...); err != nil {
+		return nil, fmt.Errorf("sessions: insert work: %w", err)
 	}
 	for _, p := range parts {
-		if _, err := tx.Exec(ctx, `INSERT INTO session_participant (session_id, agent_id, profile_id, joined_at) VALUES ($1, $2, $3, $4)`, sessionID, p.agentID, p.profileID, now); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO room_participant (room_id, agent_id, profile_id, joined_at) VALUES ($1, $2, $3, $4)`, sessionID, p.agentID, p.profileID, now); err != nil {
 			return nil, err
 		}
+	}
+	// The people, seeded exactly as 0025 seeds a migrated room: the creator
+	// owns it, the Director and deputy are members.
+	if err := seedPeople(ctx, tx, sessionID, userID, director, deputy, now); err != nil {
+		return nil, err
 	}
 	if in.Context != nil {
 		for _, c := range *in.Context {
@@ -373,7 +384,7 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 // WorkspaceOf returns the session's workspace (authorization).
 func (s *Service) WorkspaceOf(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
 	var ws uuid.UUID
-	err := s.DB.QueryRow(ctx, `SELECT workspace_id FROM session WHERE id = $1`, id).Scan(&ws)
+	err := s.DB.QueryRow(ctx, `SELECT workspace_id FROM room WHERE id = $1`, id).Scan(&ws)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, apperr.NotFound("session")
 	}
@@ -398,12 +409,12 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, v Viewer) (*gen.Session,
 		costEstimated                             bool
 	)
 	err := q.QueryRow(ctx, `
-		SELECT s.id, s.workspace_id, s.title, s.goal, s.acceptance_criteria, s.director_user_id, s.deputy_director_user_id, s.assignee_agent_id,
-		       s.runtime_id, s.isolation, s.completion_condition, s.completion_met, s.limits, s.autonomy, s.context_reuse_override, s.status, s.paused_reason, s.paused_detail,
-		       s.cost_usd, s.created_by, s.created_at, s.updated_at, s.started_at, s.finished_at,
+		SELECT s.id, s.workspace_id, wk.title, wk.goal, wk.acceptance_criteria, wk.director_user_id, wk.deputy_user_id, wk.assignee_agent_id,
+		       s.runtime_id, s.isolation, wk.completion_condition, wk.completion_met, s.limits, s.autonomy, s.context_reuse_override, wk.status, wk.paused_reason, wk.paused_detail,
+		       wk.cost_usd, s.created_by, s.created_at, GREATEST(s.updated_at, wk.updated_at), wk.started_at, wk.finished_at,
 		       (SELECT max(created_at) FROM message m WHERE m.session_id = s.id), r.status,
 		       (SELECT COALESCE(bool_or(u.estimated), false) FROM task_usage u JOIN task t ON t.id = u.task_id WHERE t.session_id = s.id)
-		FROM session s LEFT JOIN runtime r ON r.id = s.runtime_id WHERE s.id = $1`, id).Scan(
+		FROM room s JOIN work wk ON wk.room_id = s.id LEFT JOIN runtime r ON r.id = s.runtime_id WHERE s.id = $1`, id).Scan(
 		&out.Id, &out.WorkspaceId, &out.Title, &out.Goal, &out.AcceptanceCriteria, &out.DirectorUserId, &deputy, &assignee,
 		&runtimeID, &isolation, &completion, &met, &limits, &autonomy, &reuse, &status, &pausedReason, &out.PausedDetail,
 		&cost, &out.CreatedBy, &out.CreatedAt, &out.UpdatedAt, &startedAt, &finishedAt, &lastActivity, &runtimeStatus, &costEstimated)
@@ -555,8 +566,8 @@ func participantScope(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (uuid
 	var assignee *uuid.UUID
 	var runtimeStatus *string
 	err := q.QueryRow(ctx, `
-		SELECT s.workspace_id, s.assignee_agent_id, r.status::text
-		FROM session s LEFT JOIN runtime r ON r.id = s.runtime_id WHERE s.id = $1`, sessionID).
+		SELECT s.workspace_id, wk.assignee_agent_id, r.status::text
+		FROM room s JOIN work wk ON wk.room_id = s.id LEFT JOIN runtime r ON r.id = s.runtime_id WHERE s.id = $1`, sessionID).
 		Scan(&wsID, &assignee, &runtimeStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, nil, nil, apperr.NotFound("session")
@@ -577,13 +588,13 @@ func loadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID, agent
 	}
 	rows, err := q.Query(ctx, `
 		SELECT sp.agent_id, sp.profile_id, sp.joined_at, a.name, a.role, a.role_description, a.avatar_url, a.respond_to, a.archived_at IS NOT NULL,
-		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status IN ('dispatched','preparing','running')),
-		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status = 'waiting_human'),
-		       `+tasks.LastFailureKindSQL("AND t.session_id = sp.session_id")+`,
-		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status IN ('queued','deferred') AND t.attempt > 1),
-		       EXISTS (SELECT 1 FROM lane l WHERE l.agent_id = a.id AND l.session_id = sp.session_id AND l.status = 'blocked'),
-		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status = 'paused' AND t.paused_reason = 'budget')
-		FROM session_participant sp JOIN agent a ON a.id = sp.agent_id WHERE sp.session_id = $1`+only+` ORDER BY sp.joined_at`, args...)
+		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.room_id AND t.status IN ('dispatched','preparing','running')),
+		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.room_id AND t.status = 'waiting_human'),
+		       `+tasks.LastFailureKindSQL("AND t.session_id = sp.room_id")+`,
+		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.room_id AND t.status IN ('queued','deferred') AND t.attempt > 1),
+		       EXISTS (SELECT 1 FROM lane l WHERE l.agent_id = a.id AND l.session_id = sp.room_id AND l.status = 'blocked'),
+		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.room_id AND t.status = 'paused' AND t.paused_reason = 'budget')
+		FROM room_participant sp JOIN agent a ON a.id = sp.agent_id WHERE sp.room_id = $1`+only+` ORDER BY sp.joined_at`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -671,15 +682,15 @@ func (s *Service) List(ctx context.Context, wsID uuid.UUID, o ListOptions) ([]ge
 	args := []any{wsID}
 	if len(o.Status) > 0 {
 		args = append(args, o.Status)
-		where = append(where, fmt.Sprintf("s.status::text = ANY($%d)", len(args)))
+		where = append(where, fmt.Sprintf("wk.status::text = ANY($%d)", len(args)))
 	}
 	if o.DirectorUserID != nil {
 		args = append(args, *o.DirectorUserID)
-		where = append(where, fmt.Sprintf("s.director_user_id = $%d", len(args)))
+		where = append(where, fmt.Sprintf("wk.director_user_id = $%d", len(args)))
 	}
 	if o.AgentID != nil {
 		args = append(args, *o.AgentID)
-		where = append(where, fmt.Sprintf("EXISTS (SELECT 1 FROM session_participant sp WHERE sp.session_id = s.id AND sp.agent_id = $%d)", len(args)))
+		where = append(where, fmt.Sprintf("EXISTS (SELECT 1 FROM room_participant sp WHERE sp.room_id = s.id AND sp.agent_id = $%d)", len(args)))
 	}
 	if o.RuntimeID != nil {
 		args = append(args, *o.RuntimeID)
@@ -687,16 +698,16 @@ func (s *Service) List(ctx context.Context, wsID uuid.UUID, o ListOptions) ([]ge
 	}
 	if o.Query != nil && *o.Query != "" {
 		args = append(args, "%"+*o.Query+"%")
-		where = append(where, fmt.Sprintf("(s.title ILIKE $%d OR s.goal ILIKE $%d)", len(args), len(args)))
+		where = append(where, fmt.Sprintf("(wk.title ILIKE $%d OR wk.goal ILIKE $%d)", len(args), len(args)))
 	}
 	if o.Cursor != nil {
 		if cid, err := uuid.Parse(*o.Cursor); err == nil {
 			args = append(args, cid)
-			where = append(where, fmt.Sprintf("(s.updated_at, s.id) < (SELECT updated_at, id FROM session WHERE id = $%d)", len(args)))
+			where = append(where, fmt.Sprintf("(GREATEST(s.updated_at, wk.updated_at), s.id) < (SELECT GREATEST(cr.updated_at, cw.updated_at), cr.id FROM room cr JOIN work cw ON cw.room_id = cr.id WHERE cr.id = $%d)", len(args)))
 		}
 	}
 	args = append(args, o.Limit+1)
-	rows, err := s.DB.Query(ctx, `SELECT s.id FROM session s WHERE `+strings.Join(where, " AND ")+fmt.Sprintf(` ORDER BY s.updated_at DESC, s.id DESC LIMIT $%d`, len(args)), args...)
+	rows, err := s.DB.Query(ctx, `SELECT s.id FROM room s JOIN work wk ON wk.room_id = s.id WHERE `+strings.Join(where, " AND ")+fmt.Sprintf(` ORDER BY GREATEST(s.updated_at, wk.updated_at) DESC, s.id DESC LIMIT $%d`, len(args)), args...)
 	if err != nil {
 		return nil, nil, err
 	}

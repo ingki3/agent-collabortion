@@ -80,7 +80,8 @@ func (s *Service) Delete(ctx context.Context, sessionID, actor uuid.UUID) error 
 	var runtimeID *uuid.UUID
 	var title, status string
 	err = tx.QueryRow(ctx, `
-		SELECT workspace_id, runtime_id, title, status::text FROM session WHERE id = $1 FOR UPDATE`, sessionID).
+		SELECT s.workspace_id, s.runtime_id, wk.title, wk.status::text
+		FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionID).
 		Scan(&wsID, &runtimeID, &title, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return apperr.NotFound("session")
@@ -109,7 +110,7 @@ func (s *Service) Delete(ctx context.Context, sessionID, actor uuid.UUID) error 
 	if _, err := tx.Exec(ctx, `DELETE FROM activity_log WHERE session_id = $1`, sessionID); err != nil {
 		return apperr.Internal(fmt.Errorf("sessions: delete activity: %w", err))
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM session WHERE id = $1`, sessionID); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM room WHERE id = $1`, sessionID); err != nil {
 		return apperr.Internal(fmt.Errorf("sessions: delete session: %w", err))
 	}
 	if _, err := tx.Exec(ctx, `
