@@ -20750,7 +20750,7 @@
                               "id": "fZuDO",
                               "name": "L",
                               "fill": "$ink",
-                              "content": "종료",
+                              "content": "수동 종료",
                               "fontFamily": "$font",
                               "fontSize": 12,
                               "fontWeight": "600"
@@ -23087,7 +23087,7 @@
                               "id": "aUvyt",
                               "name": "L",
                               "fill": "$ink",
-                              "content": "종료",
+                              "content": "수동 종료",
                               "fontFamily": "$font",
                               "fontSize": 12,
                               "fontWeight": "600"
@@ -24662,7 +24662,7 @@
                               "id": "v5Hmv1",
                               "name": "L",
                               "fill": "$ink",
-                              "content": "종료",
+                              "content": "수동 종료",
                               "fontFamily": "$font",
                               "fontSize": 12,
                               "fontWeight": "600"
@@ -26437,7 +26437,7 @@
                           "fill": "$ink",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "요청자가 그 방의 참여자가 아닙니다",
+                          "content": "이 턴은 사람의 요청에서 시작하지 않아 다른 방을 읽을 수 없습니다",
                           "fontFamily": "$font",
                           "fontSize": 12,
                           "fontWeight": "normal"
@@ -28586,7 +28586,7 @@
       "id": "zdY5N",
       "x": 0,
       "y": 6640,
-      "name": "Section · v0.19 방·미션 화면",
+      "name": "Section · v0.19 방·미션 화면 (SCREEN v0.19.2)",
       "width": 1440,
       "layout": "vertical",
       "gap": 6,
@@ -28617,7 +28617,7 @@
     },
     {
       "type": "frame",
-      "id": "l5eXk3",
+      "id": "fWk35",
       "x": 4800,
       "y": 7900,
       "name": "S19 참여자 초대·퇴장 (v0.19, 다이얼로그)",
@@ -28631,7 +28631,7 @@
       "children": [
         {
           "type": "frame",
-          "id": "HKPKE",
+          "id": "D3Ww4",
           "name": "Dialog",
           "width": 640,
           "fill": "$bg",
@@ -28644,7 +28644,7 @@
           "children": [
             {
               "type": "text",
-              "id": "Pr0Uc",
+              "id": "TCPfc",
               "name": "Title",
               "fill": "$ink",
               "content": "참여자",
@@ -28654,7 +28654,7 @@
             },
             {
               "type": "text",
-              "id": "jb2B5",
+              "id": "CHRoE",
               "name": "Sec1",
               "fill": "$ink-3",
               "content": "지금 있는 사람·에이전트",
@@ -28664,7 +28664,7 @@
             },
             {
               "type": "frame",
-              "id": "t72vS",
+              "id": "YhIpI",
               "name": "Row",
               "width": "fill_container",
               "gap": 8,
@@ -28673,14 +28673,14 @@
               "children": [
                 {
                   "type": "frame",
-                  "id": "vv83x",
+                  "id": "oZ0lf",
                   "name": "L",
                   "gap": 8,
                   "alignItems": "center",
                   "children": [
                     {
                       "type": "text",
-                      "id": "MAD1z",
+                      "id": "UTN9J",
                       "name": "N",
                       "fill": "$ink",
                       "content": "서연 (나)",
@@ -28690,7 +28690,7 @@
                     },
                     {
                       "type": "text",
-                      "id": "thcIm",
+                      "id": "PwjZr",
                       "name": "R",
                       "fill": "$ink-3",
                       "content": "방장",
@@ -28702,7 +28702,7 @@
                 },
                 {
                   "type": "frame",
-                  "id": "XnVYz",
+                  "id": "tRPMO",
                   "name": "Btn 내보내기",
                   "opacity": 0.45,
                   "fill": "$bg",
@@ -28716,7 +28716,7 @@
                   "children": [
                     {
                       "type": "text",
-                      "id": "bR00p",
+                      "id": "wbzkT",
                       "name": "L",
                       "fill": "$ink",
                       "content": "이 방에서 나가기",
@@ -28730,7 +28730,7 @@
             },
             {
               "type": "frame",
-              "id": "JhVVM",
+              "id": "rSx1i",
               "name": "Row",
               "width": "fill_container",
               "gap": 8,
@@ -28739,14 +28739,14 @@
               "children": [
                 {
                   "type": "frame",
-                  "id": "cACFR",
+                  "id": "fx2bl",
                   "name": "L",
                   "gap": 8,
                   "alignItems": "center",
                   "children": [
                     {
                       "type": "text",
-                      "id": "lt7Ke",
+                      "id": "uRxaQ",
                       "name": "N",
                       "fill": "$ink",
                       "content": "민호",
@@ -28756,7 +28756,7 @@
                     },
                     {
                       "type": "text",
-                      "id": "e2kL6",
+                      "id": "s1k91",
                       "name": "R",
                       "fill": "$ink-3",
                       "content": "부방장",
@@ -28768,7 +28768,7 @@
                 },
                 {
                   "type": "frame",
-                  "id": "i4rulz",
+                  "id": "t10Abu",
                   "name": "Btn ⋯",
                   "fill": "$bg",
                   "cornerRadius": 6,
@@ -28781,7 +28781,7 @@
                   "children": [
                     {
                       "type": "text",
-                      "id": "AIPx9",
+                      "id": "lcUwR",
                       "name": "L",
                       "fill": "$ink",
                       "content": "⋯",
@@ -28795,7 +28795,7 @@
             },
             {
               "type": "frame",
-              "id": "ZfjeG",
+              "id": "oQx44",
               "name": "Row",
               "width": "fill_container",
               "gap": 8,
@@ -28804,14 +28804,14 @@
               "children": [
                 {
                   "type": "frame",
-                  "id": "uanNV",
+                  "id": "WtiJR",
                   "name": "L",
                   "gap": 8,
                   "alignItems": "center",
                   "children": [
                     {
                       "type": "text",
-                      "id": "g99Rv",
+                      "id": "aWgUR",
                       "name": "N",
                       "fill": "$ink",
                       "content": "@Writer",
@@ -28821,7 +28821,7 @@
                     },
                     {
                       "type": "text",
-                      "id": "YXhcJ",
+                      "id": "dRg49",
                       "name": "R",
                       "fill": "$ink-3",
                       "content": "writer · Claude Code",
@@ -28831,7 +28831,7 @@
                     },
                     {
                       "type": "text",
-                      "id": "W11TnY",
+                      "id": "HC7de",
                       "name": "E",
                       "fill": "$ink-3",
                       "content": "working",
@@ -28843,7 +28843,7 @@
                 },
                 {
                   "type": "frame",
-                  "id": "J7olP",
+                  "id": "h65HJo",
                   "name": "Btn 내보내기",
                   "fill": "$bg",
                   "cornerRadius": 6,
@@ -28856,7 +28856,7 @@
                   "children": [
                     {
                       "type": "text",
-                      "id": "vdxaN",
+                      "id": "tbfxy",
                       "name": "L",
                       "fill": "$ink",
                       "content": "내보내기",
@@ -28870,7 +28870,7 @@
             },
             {
               "type": "frame",
-              "id": "rYI2B",
+              "id": "PJj0o",
               "name": "Row",
               "width": "fill_container",
               "gap": 8,
@@ -28879,14 +28879,14 @@
               "children": [
                 {
                   "type": "frame",
-                  "id": "osyln",
+                  "id": "WbPtH",
                   "name": "L",
                   "gap": 8,
                   "alignItems": "center",
                   "children": [
                     {
                       "type": "text",
-                      "id": "f6O8Kh",
+                      "id": "uHy9V",
                       "name": "N",
                       "fill": "$ink",
                       "content": "@Researcher",
@@ -28896,7 +28896,7 @@
                     },
                     {
                       "type": "text",
-                      "id": "cMCpm",
+                      "id": "pfsgz",
                       "name": "R",
                       "fill": "$ink-3",
                       "content": "researcher · Codex",
@@ -28906,7 +28906,7 @@
                     },
                     {
                       "type": "text",
-                      "id": "EraQV",
+                      "id": "C5WBPN",
                       "name": "E",
                       "fill": "$ink-3",
                       "content": "idle",
@@ -28918,7 +28918,7 @@
                 },
                 {
                   "type": "frame",
-                  "id": "CPv2o",
+                  "id": "Hha06",
                   "name": "Btn 내보내기",
                   "fill": "$bg",
                   "cornerRadius": 6,
@@ -28931,7 +28931,7 @@
                   "children": [
                     {
                       "type": "text",
-                      "id": "h2WRq",
+                      "id": "VAlJ1",
                       "name": "L",
                       "fill": "$ink",
                       "content": "내보내기",
@@ -28945,7 +28945,7 @@
             },
             {
               "type": "text",
-              "id": "rldIg",
+              "id": "bED8h",
               "name": "Hint owner",
               "fill": "$ink-3",
               "content": "(본인 행) 방장입니다 — 먼저 방 설정에서 방장을 넘기세요. 다른 참여자는 언제든 「이 방에서 나가기」를 할 수 있습니다",
@@ -28955,7 +28955,7 @@
             },
             {
               "type": "frame",
-              "id": "Ov7E0",
+              "id": "sYlyz",
               "name": "Divider",
               "width": "fill_container",
               "height": 1,
@@ -28963,7 +28963,7 @@
             },
             {
               "type": "frame",
-              "id": "cxVlW",
+              "id": "o6DFd",
               "name": "Row",
               "width": "fill_container",
               "gap": 8,
@@ -28971,7 +28971,7 @@
               "children": [
                 {
                   "type": "frame",
-                  "id": "hZ6PY",
+                  "id": "GbVwR",
                   "name": "Tab 사람",
                   "stroke": "$ink",
                   "padding": [
@@ -28981,7 +28981,7 @@
                   "children": [
                     {
                       "type": "text",
-                      "id": "HajNk",
+                      "id": "gUHDX",
                       "name": "L",
                       "fill": "$ink-2",
                       "content": "사람",
@@ -28993,7 +28993,7 @@
                 },
                 {
                   "type": "frame",
-                  "id": "xviMG",
+                  "id": "MQdSW",
                   "name": "Tab 에이전트",
                   "stroke": "$ink",
                   "strokeWidth": {
@@ -29006,7 +29006,7 @@
                   "children": [
                     {
                       "type": "text",
-                      "id": "c8E8zZ",
+                      "id": "j7aBCP",
                       "name": "L",
                       "fill": "$ink",
                       "content": "에이전트",
@@ -29020,7 +29020,7 @@
             },
             {
               "type": "frame",
-              "id": "FSCyp",
+              "id": "wIKGj",
               "name": "Search",
               "width": "fill_container",
               "cornerRadius": 6,
@@ -29033,7 +29033,7 @@
               "children": [
                 {
                   "type": "text",
-                  "id": "VJNBz",
+                  "id": "r5usSx",
                   "name": "L",
                   "fill": "$ink-3",
                   "content": "이름으로 찾기",
@@ -29044,8 +29044,20 @@
               ]
             },
             {
+              "type": "text",
+              "id": "W5P9rn",
+              "name": "Invite warn (S-S)",
+              "fill": "$s-wait-text",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "초대한 에이전트는 이 방의 지난 대화 전부를 읽습니다 — 민감한 대화가 있으면 초대하지 마세요",
+              "fontFamily": "$font",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            },
+            {
               "type": "frame",
-              "id": "G7udK",
+              "id": "t0f1r",
               "name": "Agent row @Ops",
               "width": "fill_container",
               "layout": "vertical",
@@ -29053,7 +29065,7 @@
               "children": [
                 {
                   "type": "frame",
-                  "id": "hrSTG",
+                  "id": "n8GGp",
                   "name": "Row",
                   "width": "fill_container",
                   "gap": 8,
@@ -29062,14 +29074,14 @@
                   "children": [
                     {
                       "type": "frame",
-                      "id": "rhAaa",
+                      "id": "hEnTv",
                       "name": "L",
                       "gap": 8,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "fBfZf",
+                          "id": "YlKyx",
                           "name": "N",
                           "fill": "$ink",
                           "content": "@Ops",
@@ -29079,7 +29091,7 @@
                         },
                         {
                           "type": "frame",
-                          "id": "BSuZJ",
+                          "id": "XFxjf",
                           "name": "Profile",
                           "cornerRadius": 4,
                           "stroke": "$line",
@@ -29091,7 +29103,7 @@
                           "children": [
                             {
                               "type": "text",
-                              "id": "dc9bR",
+                              "id": "XcBFE",
                               "name": "L",
                               "fill": "$ink",
                               "content": "Hermes ▾",
@@ -29105,7 +29117,7 @@
                     },
                     {
                       "type": "frame",
-                      "id": "rjsjS",
+                      "id": "fCqCP",
                       "name": "Btn 초대",
                       "fill": "$bg",
                       "cornerRadius": 6,
@@ -29118,7 +29130,7 @@
                       "children": [
                         {
                           "type": "text",
-                          "id": "ha1TM",
+                          "id": "M1NpKW",
                           "name": "L",
                           "fill": "$ink",
                           "content": "초대",
@@ -29132,7 +29144,7 @@
                 },
                 {
                   "type": "text",
-                  "id": "dGQ63",
+                  "id": "zgqIA",
                   "name": "Warn",
                   "fill": "$s-wait-text",
                   "textGrowth": "fixed-width",
@@ -29146,7 +29158,7 @@
             },
             {
               "type": "frame",
-              "id": "EkoH8",
+              "id": "q7pKqx",
               "name": "Agent row @Legal",
               "width": "fill_container",
               "layout": "vertical",
@@ -29154,7 +29166,7 @@
               "children": [
                 {
                   "type": "frame",
-                  "id": "jz5HY",
+                  "id": "zFZq8",
                   "name": "Row",
                   "width": "fill_container",
                   "gap": 8,
@@ -29163,7 +29175,7 @@
                   "children": [
                     {
                       "type": "frame",
-                      "id": "wEREC",
+                      "id": "g4HfcO",
                       "name": "L",
                       "opacity": 0.5,
                       "gap": 8,
@@ -29171,7 +29183,7 @@
                       "children": [
                         {
                           "type": "text",
-                          "id": "dPDTq",
+                          "id": "m6XR4",
                           "name": "N",
                           "fill": "$ink",
                           "content": "@Legal",
@@ -29181,7 +29193,7 @@
                         },
                         {
                           "type": "frame",
-                          "id": "BNG6H",
+                          "id": "BJwUy",
                           "name": "Profile",
                           "cornerRadius": 4,
                           "stroke": "$line",
@@ -29193,7 +29205,7 @@
                           "children": [
                             {
                               "type": "text",
-                              "id": "CDeK6",
+                              "id": "bOnqi",
                               "name": "L",
                               "fill": "$ink",
                               "content": "Claude Code ▾",
@@ -29207,7 +29219,7 @@
                     },
                     {
                       "type": "frame",
-                      "id": "IVbGw",
+                      "id": "wkcou",
                       "name": "Btn 초대",
                       "opacity": 0.45,
                       "fill": "$bg",
@@ -29221,7 +29233,7 @@
                       "children": [
                         {
                           "type": "text",
-                          "id": "vi4ee",
+                          "id": "nPSEg",
                           "name": "L",
                           "fill": "$ink",
                           "content": "초대",
@@ -29235,7 +29247,7 @@
                 },
                 {
                   "type": "text",
-                  "id": "r7Rx7L",
+                  "id": "OtMtf",
                   "name": "Warn",
                   "fill": "$ink-3",
                   "textGrowth": "fixed-width",
@@ -29249,7 +29261,7 @@
             },
             {
               "type": "frame",
-              "id": "Fayai",
+              "id": "XUPp0",
               "name": "Row",
               "width": "fill_container",
               "gap": 8,
@@ -29258,7 +29270,7 @@
               "children": [
                 {
                   "type": "frame",
-                  "id": "hJHrY",
+                  "id": "Exge0",
                   "name": "Btn 닫기",
                   "fill": "$bg",
                   "cornerRadius": 6,
@@ -29271,7 +29283,7 @@
                   "children": [
                     {
                       "type": "text",
-                      "id": "ojytD",
+                      "id": "sonGx",
                       "name": "L",
                       "fill": "$ink",
                       "content": "닫기",
