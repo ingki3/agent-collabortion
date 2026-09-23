@@ -541,10 +541,12 @@ const (
 	InboxItemActionsAnswer          InboxItemActions = "answer"
 	InboxItemActionsApprove         InboxItemActions = "approve"
 	InboxItemActionsApproveContinue InboxItemActions = "approve_continue"
+	InboxItemActionsDeleteWorkdir   InboxItemActions = "delete_workdir"
 	InboxItemActionsOpenRoom        InboxItemActions = "open_room"
 	InboxItemActionsOpenRuntimes    InboxItemActions = "open_runtimes"
 	InboxItemActionsOpenSession     InboxItemActions = "open_session"
 	InboxItemActionsOpenWork        InboxItemActions = "open_work"
+	InboxItemActionsOpenWorkdirs    InboxItemActions = "open_workdirs"
 	InboxItemActionsRebind          InboxItemActions = "rebind"
 	InboxItemActionsReject          InboxItemActions = "reject"
 	InboxItemActionsReply           InboxItemActions = "reply"
@@ -560,6 +562,8 @@ func (e InboxItemActions) Valid() bool {
 		return true
 	case InboxItemActionsApproveContinue:
 		return true
+	case InboxItemActionsDeleteWorkdir:
+		return true
 	case InboxItemActionsOpenRoom:
 		return true
 	case InboxItemActionsOpenRuntimes:
@@ -567,6 +571,8 @@ func (e InboxItemActions) Valid() bool {
 	case InboxItemActionsOpenSession:
 		return true
 	case InboxItemActionsOpenWork:
+		return true
+	case InboxItemActionsOpenWorkdirs:
 		return true
 	case InboxItemActionsRebind:
 		return true
@@ -2805,6 +2811,8 @@ type InboxItem struct {
 
 	// Card 타입별 카드 내용(SCREEN §4.6 표). 세션을 열지 않고 처리할 수 있게 충분히 담는다.
 	Card *struct {
+		// ActorName v0.2.10 — isolation_confirm 은 첫 턴을 일으킨 사람, room_invited 는 초대한 사람(SCREEN §4.14).
+		ActorName nullable.Nullable[string] `json:"actor_name,omitempty"`
 		AgentName nullable.Nullable[string] `json:"agent_name,omitempty"`
 		Body      *string                   `json:"body,omitempty"`
 
@@ -2822,8 +2830,11 @@ type InboxItem struct {
 		ProposedDefault nullable.Nullable[string] `json:"proposed_default,omitempty"`
 
 		// Purpose HITL 항목이면 `HitlRequest.purpose` 를 그대로 싣는다(K-9) — 웹이 task 범위 예산 HITL(세션은 active)에 상향 입력을 붙이려면 카드에서 바로 읽어야 한다. 비-HITL 항목은 null.
-		Purpose     nullable.Nullable[InboxItemCardPurpose] `json:"purpose,omitempty"`
-		RuntimeName nullable.Nullable[string]               `json:"runtime_name,omitempty"`
+		Purpose nullable.Nullable[InboxItemCardPurpose] `json:"purpose,omitempty"`
+
+		// Quote v0.2.10 — isolation_confirm 의 트리거 메시지 인용(한 줄로 자른 본문).
+		Quote       nullable.Nullable[string] `json:"quote,omitempty"`
+		RuntimeName nullable.Nullable[string] `json:"runtime_name,omitempty"`
 
 		// Summary session_completed 결과 요약.
 		Summary nullable.Nullable[string] `json:"summary,omitempty"`

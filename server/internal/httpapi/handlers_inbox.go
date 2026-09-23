@@ -304,6 +304,7 @@ func (s *Server) inboxAPI(ctx context.Context, r *inboxRow, viewer uuid.UUID, no
 // it at each branch above would bury the branch.
 func fillInboxCard(out *gen.InboxItem, title, body string, r *inboxRow) {
 	out.Card = &struct {
+		ActorName       nullable.Nullable[string]             `json:"actor_name,omitempty"`
 		AgentName       nullable.Nullable[string]             `json:"agent_name,omitempty"`
 		Body            *string                               `json:"body,omitempty"`
 		FailureKind     *gen.FailureKind                      `json:"failure_kind,omitempty"`
@@ -319,6 +320,7 @@ func fillInboxCard(out *gen.InboxItem, title, body string, r *inboxRow) {
 		// (`source: system`, `approval`) cannot tell a budget pause from a
 		// completion approval (#139 NN1, 0012).
 		Purpose     nullable.Nullable[gen.InboxItemCardPurpose] `json:"purpose,omitempty"`
+		Quote       nullable.Nullable[string]                   `json:"quote,omitempty"`
 		RuntimeName nullable.Nullable[string]                   `json:"runtime_name,omitempty"`
 		Summary     nullable.Nullable[string]                   `json:"summary,omitempty"`
 		Title       *string                                     `json:"title,omitempty"`

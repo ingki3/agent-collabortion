@@ -69,6 +69,12 @@ router/preview.go:36 · router/delegate.go:57 · router/status.go:61
 
 ## R1 이후 남은 후속 (2026-09-24)
 
-- **#304 NN1** — `TestWorktreeFirstClaimRace` 가 이중 방어를 둘 다 떼어도 초록(패자의 UPDATE 가 READ COMMITTED 재평가로 0행이 되어 스스로 물러남). 구현은 #302 리뷰 프로브로 안전 확인됨 — 자물쇠만 #302 리뷰 프로브(p2Fixture + runtime 복제 + SettleFill 앞 지연)로 교체할 것.
-- **#304 범위 밖** — `decision.auto` 열이 있는데 `DecisionAPI` 가 싣지 않는다(보고만).
+- ~~**#304 NN1**~~ **닫힘(#309)** — `TestWorktreeFirstClaimRace` 가 이중 방어를 둘 다 떼어도 초록(패자의 UPDATE 가 READ COMMITTED 재평가로 0행이 되어 스스로 물러남). 구현은 #302 리뷰 프로브로 안전 확인됨 — 자물쇠만 #302 리뷰 프로브(p2Fixture + runtime 복제 + SettleFill 앞 지연)로 교체할 것.
+- ~~**#304 범위 밖**~~ **닫힘(#309)** — `decision.auto` 열이 있는데 `DecisionAPI` 가 싣지 않는다(보고만).
 - **#303 NN1** — 종료 조건 편집기 어휘 「보고서 제출」·「담당 에이전트」 vs SCREEN 「아티팩트 제출」·「제출자」 → R1.5 문구 라운드.
+- **#309 NN1** — 받은 요청 항목이, 사람이 invited 방에서 내보내진 **뒤에도** 방 이름을 싣는다(`InboxItem.room` + `room_invited` 카드 본문). `listInbox` 에서 읽는 순간 `Decide(ActView)` 로 걸러 `room: null`·본문 이름 가림(FR-4.5 「읽는 시점에 다시 검사」와 같은 취지).
+- **#309 NN2** — `TestR2WorktreeFirstClaimRace` 주석 "둘 다 뗀 변조를 잡는다"가 사실과 다르다(방어가 셋 — 셋을 다 떼야 잡힘). 주석 정정 또는 이음새를 FillWorktree UPDATE 직후·커밋 전으로.
+- **계약 문장** — setRoomSubscription 권한은 **방 참여자만**(Lead 판정, 구독·안 읽음은 room_participant 행 단위). openapi 설명 「방을 볼 수 있는 사람」을 고칠 것.
+- **#311 서버 발견 4건**(T-R2-W4a): ① 방 예산 멈춤이 `room_paused` 가 아니라 `hitl_request` 로 들어간다(budget.go:442 — 루프만 room_paused) ② room_paused·isolation_confirm 항목 `recipient_basis` 가 비어 있다 ③ inbox.Actions 가 open_workdirs·delete_workdir 를 낸다(계약 0.2.10 에서 enum 에 편입) ④ isolation_confirm 카드에 트리거한 사람·인용 칸이 없다(0.2.10 card.actor_name·quote). + #311 NN3 room_invited 초대한 사람(card.actor_name).
+- **#311 NN1** — 새 메시지 직후 내비 안 읽음 합계(디바운스 reload)와 목록 카드(즉시 +1)가 잠깐 갈린다. **NN2** — SCREEN 필터 칩 「액션 필요」→「조치 필요」로 맞출 것(R1.5).
+- **#310 NN1** — 「여기까지 정리」 직접 고르기가 타임라인에서 집는 방식이 아니라 다이얼로그 입력 두 칸.

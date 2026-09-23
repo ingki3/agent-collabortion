@@ -2078,7 +2078,7 @@ export interface paths {
         get?: never;
         /**
          * 방 알림 구독
-         * @description 권한: 방을 볼 수 있는 사람(본인 구독). v0.2.9 — 옛 setSessionSubscription 의 방판(값 집합이 다르다: RoomSubscriptionLevel).
+         * @description 권한: **방 참여자**(본인 구독 — 구독·안 읽음은 room_participant 행 단위, v0.2.10 정정). v0.2.9 — 옛 setSessionSubscription 의 방판(값 집합이 다르다: RoomSubscriptionLevel).
          */
         put: operations["setRoomSubscription"];
         post?: never;
@@ -4389,9 +4389,13 @@ export interface components {
                 lane_id?: string | null;
                 /** @description session_completed 결과 요약. */
                 summary?: string | null;
+                /** @description v0.2.10 — isolation_confirm 은 첫 턴을 일으킨 사람, room_invited 는 초대한 사람(SCREEN §4.14). */
+                actor_name?: string | null;
+                /** @description v0.2.10 — isolation_confirm 의 트리거 메시지 인용(한 줄로 자른 본문). */
+                quote?: string | null;
             };
             /** @description 인라인 동작(타입·권한별). */
-            actions: ("answer" | "approve" | "reject" | "reply" | "approve_continue" | "restart" | "rebind" | "open_session" | "open_room" | "open_work" | "open_runtimes")[];
+            actions: ("answer" | "approve" | "reject" | "reply" | "approve_continue" | "restart" | "rebind" | "open_session" | "open_room" | "open_work" | "open_runtimes" | "open_workdirs" | "delete_workdir")[];
             /** Format: date-time */
             read_at: string | null;
             /** Format: date-time */

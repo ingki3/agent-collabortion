@@ -89,6 +89,9 @@ export const ACTION_LABEL: Record<InboxAction, string> = {
   open_room: "방 열기",
   open_work: "미션 열기",
   open_runtimes: "연결된 컴퓨터 열기",
+  // v0.2.10 계약 — 작업 폴더 정리 막힘(workdir_gc_blocked) 카드의 두 동작. 문구는 lib/inbox-v19.ts 와 같다.
+  open_workdirs: "작업 폴더 열기",
+  delete_workdir: "작업 폴더 지우기",
 };
 
 /**
