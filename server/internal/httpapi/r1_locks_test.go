@@ -128,8 +128,11 @@ func TestR1LocksBundleBudgetIsTheTasksMission(t *testing.T) {
 		if !ok {
 			t.Fatalf("no bundle for mission %s's task (claimed %v)", c.name, got)
 		}
-		if v == nil || *v != c.want {
-			t.Fatalf("mission %s task limits.budget_usd = %v, want %v — its own mission's limit", c.name, v, c.want)
+		if v == nil {
+			t.Fatalf("mission %s task limits.budget_usd = null, want %v", c.name, c.want)
+		}
+		if *v != c.want {
+			t.Fatalf("mission %s task limits.budget_usd = %v, want %v — its own mission's limit", c.name, *v, c.want)
 		}
 	}
 }
