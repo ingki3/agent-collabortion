@@ -535,6 +535,10 @@ func summaryBytes(res *Result) int {
 // room's activity say an unreadable room was asked for — without naming it,
 // except for originator_left, whose sentence names the room so the person
 // who left can see what their leaving blocked (SCREEN §4.13, G-7).
+//
+// It stores target_room_id even when the room is hidden from the caller: the
+// row is the audit trail. Every read path (entriesSQL) masks it for
+// direction=denied — keep it that way (review #290 NN1).
 func (s *Service) recordDenied(ctx context.Context, tx pgx.Tx, rd *reader, t *target, v Verdict, d *Denial, now time.Time) error {
 	// The target id is kept only when the room exists in this workspace; the
 	// API hides it anyway (other_room: null) unless the reason reveals it.
