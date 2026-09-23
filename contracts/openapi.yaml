@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Colab Server API
-  version: 0.2.8-draft
+  version: 0.2.9-draft
   summary: Colab 서버 REST API — P1~P3(수직 슬라이스 · 협업 코어 · HITL/재개/예산)에서 웹(W)과 colab CLI(C)가 호출하는 전부.
   description: |
     # 읽는 법
@@ -3334,6 +3334,33 @@ paths:
         '422': { $ref: '#/components/responses/ValidationError' }
         default: { $ref: '#/components/responses/Problem' }
 
+  /rooms/{roomId}/subscription:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    put:
+      tags: [rooms]
+      operationId: setRoomSubscription
+      summary: 방 알림 구독
+      description: |
+        권한: 방을 볼 수 있는 사람(본인 구독). v0.2.9 — 옛 setSessionSubscription 의 방판(값 집합이 다르다: RoomSubscriptionLevel).
+      x-prd: [FR-8]
+      x-screen: [S14, S7]
+      x-phase: R2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [level]
+              properties:
+                level: { $ref: '#/components/schemas/RoomSubscriptionLevel' }
+      responses:
+        '204': { description: 설정됨. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
   /rooms/{roomId}/participants:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -4765,6 +4792,7 @@ components:
         paused_session_count: { type: integer, description: 유예를 넘겨 `paused(runtime_offline)`된 세션 수. }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        room_count: { type: integer, description: 'v0.2.9 — 이 컴퓨터에 묶인 방 수(runtime_id 고정된 방).' }
 
     ColabCLI:
       type: object
@@ -4977,6 +5005,8 @@ components:
         updated_at: { type: string, format: date-time }
         room_count: { type: integer, description: v0.2.0 — 참여 중인 방 수(호출자가 볼 수 있는 것만 센다). }
         hidden_room_count: { type: integer, description: v0.2.0 — 호출자가 볼 수 없는 방 수(이름은 주지 않는다). }
+        rooms: { type: array, description: 'v0.2.9 — 호출자가 볼 수 있는 참여 방(이름만). 볼 수 없는 방은 hidden_room_count 로만.', items: { type: object, required: [id, name], properties: { id: { type: string, format: uuid }, name: { type: string } } } }
+        running_task_count: { type: integer, description: 'v0.2.9 — 지금 도는 할 일 수(방을 가로질러, max_concurrent_tasks 와 같은 셈).' }
 
     AgentCreate:
       type: object
@@ -5665,6 +5695,7 @@ components:
         work_id: { type: [string, 'null'], format: uuid, description: v0.2.0 — 매인 미션. null 이면 「미션 없음」. }
         work_title: { type: [string, 'null'] }
         queued_reason: { oneOf: [{ $ref: '#/components/schemas/QueuedReason' }, { type: 'null' }], description: v0.2.0 — 대기 중인 첫 task 의 사유. }
+        my_subscription: { type: [boolean, 'null'], description: 'v0.2.9 — 호출자의 서브 미션 알림 켜기/끄기. null 이면 따로 정하지 않았다(미션·방 구독을 따른다).' }
 
     TaskUsage:
       type: object
@@ -5970,6 +6001,7 @@ components:
         work_id: { type: [string, 'null'], format: uuid, description: v0.2.0. }
         lane_id: { type: [string, 'null'], format: uuid, description: v0.2.0. }
         recipient_basis: { oneOf: [{ type: string, enum: [director, deputy, room_owner, room_deputy, workspace_owner] }, { type: 'null' }], description: v0.2.0 — 카드의 「Director 로서」·「방장으로서」. }
+        room: { oneOf: [{ type: object, required: [id, name], properties: { id: { type: string, format: uuid }, name: { type: string } } }, { type: 'null' }], description: 'v0.2.9 — 카드 맥락 한 줄의 방 이름(SCREEN §4.14 — 줄이지 않는다).' }
 
     InboxSummary:
       type: object
@@ -6147,6 +6179,10 @@ components:
       type: string
       enum: [budget, time, director]
       description: '미션 `paused_reason` (FR-2A.3). 루프 상한·컴퓨터 소실은 방 단위라 여기 오지 않는다 — `RoomBlockedReason`.'
+    RoomSubscriptionLevel:
+      type: string
+      enum: [all, my_works, hitl_only, off]
+      description: 'v0.2.9 — 방 알림 구독(FR-8, SCREEN §4.17): 전부 · 내가 참여한 미션만 · HITL만 · 끄기. 미션 구독(SubscriptionLevel)이 있으면 그 미션은 미션 구독을 따른다.'
     WorkProposalStatus:
       type: string
       enum: [open, accepted, rejected]
@@ -6200,6 +6236,7 @@ components:
         cost_usd: { type: [number, 'null'] }
         loop_agents: { type: array, items: { type: string, format: uuid }, description: '`loop` 일 때 왕복한 두 에이전트.' }
         runtime_id: { type: [string, 'null'], format: uuid }
+        open_works_remaining_usd: { type: [number, 'null'], description: 'v0.2.9 — 열린 미션 잔여 예산 합계(방 멈춤 해소 카드 「승인하면 미션 N개가 한꺼번에…잔여 합계 $X」).' }
     RoomParticipantRef:
       type: object
       required: [kind, id, name]
@@ -6276,6 +6313,7 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         last_activity_at: { type: [string, 'null'], format: date-time }
+        my_subscription: { $ref: '#/components/schemas/RoomSubscriptionLevel' }
     RoomCreate:
       type: object
       description: 방 만들기(S18) — 이름 한 칸. 나머지는 워크스페이스 기본값을 상속한다. 연결된 컴퓨터가 0개여도 만들어진다.

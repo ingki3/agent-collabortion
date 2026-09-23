@@ -2065,6 +2065,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/rooms/{roomId}/subscription": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 방 알림 구독
+         * @description 권한: 방을 볼 수 있는 사람(본인 구독). v0.2.9 — 옛 setSessionSubscription 의 방판(값 집합이 다르다: RoomSubscriptionLevel).
+         */
+        put: operations["setRoomSubscription"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/rooms/{roomId}/participants": {
         parameters: {
             query?: never;
@@ -3014,6 +3037,8 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+            /** @description v0.2.9 — 이 컴퓨터에 묶인 방 수(runtime_id 고정된 방). */
+            room_count?: number;
         };
         /** @description 머신에 설치된 colab CLI. **런타임 속성이 아니라 머신 속성**이라 `capabilities[]`가 아니라 probe 최상위에 한 번 실린다(daemon-protocol.md §3, v0.5) — 런타임이 둘이어도 바이너리는 하나고, 런타임이 0개인 머신에서도 보고돼야 한다. 에이전트는 colab CLI로 서버에 말하므로 `present: false`면 세션이 조용히 아무 말도 못 한다: S11·S12 카드는 이걸 경고로 드러낸다. */
         ColabCLI: {
@@ -3226,6 +3251,14 @@ export interface components {
             room_count?: number;
             /** @description v0.2.0 — 호출자가 볼 수 없는 방 수(이름은 주지 않는다). */
             hidden_room_count?: number;
+            /** @description v0.2.9 — 호출자가 볼 수 있는 참여 방(이름만). 볼 수 없는 방은 hidden_room_count 로만. */
+            rooms?: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+            }[];
+            /** @description v0.2.9 — 지금 도는 할 일 수(방을 가로질러, max_concurrent_tasks 와 같은 셈). */
+            running_task_count?: number;
         };
         AgentCreate: {
             /** @description 멘션 라벨. 워크스페이스 내 유일. */
@@ -3958,6 +3991,8 @@ export interface components {
             work_title?: string | null;
             /** @description v0.2.0 — 대기 중인 첫 task 의 사유. */
             queued_reason?: components["schemas"]["QueuedReason"] | null;
+            /** @description v0.2.9 — 호출자의 서브 미션 알림 켜기/끄기. null 이면 따로 정하지 않았다(미션·방 구독을 따른다). */
+            my_subscription?: boolean | null;
         };
         TaskUsage: {
             /** Format: int64 */
@@ -4378,6 +4413,12 @@ export interface components {
             lane_id?: string | null;
             /** @description v0.2.0 — 카드의 「Director 로서」·「방장으로서」. */
             recipient_basis?: ("director" | "deputy" | "room_owner" | "room_deputy" | "workspace_owner") | null;
+            /** @description v0.2.9 — 카드 맥락 한 줄의 방 이름(SCREEN §4.14 — 줄이지 않는다). */
+            room?: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+            } | null;
         };
         InboxSummary: {
             /** @description 내비 뱃지 값. */
@@ -4528,6 +4569,11 @@ export interface components {
          */
         WorkPauseReason: "budget" | "time" | "director";
         /**
+         * @description v0.2.9 — 방 알림 구독(FR-8, SCREEN §4.17): 전부 · 내가 참여한 미션만 · HITL만 · 끄기. 미션 구독(SubscriptionLevel)이 있으면 그 미션은 미션 구독을 따른다.
+         * @enum {string}
+         */
+        RoomSubscriptionLevel: "all" | "my_works" | "hitl_only" | "off";
+        /**
          * @description `work_proposal.status` (FR-2A.1). 기한이 없어 `expired` 는 없다.
          * @enum {string}
          */
@@ -4594,6 +4640,8 @@ export interface components {
             loop_agents?: string[];
             /** Format: uuid */
             runtime_id?: string | null;
+            /** @description v0.2.9 — 열린 미션 잔여 예산 합계(방 멈춤 해소 카드 「승인하면 미션 N개가 한꺼번에…잔여 합계 $X」). */
+            open_works_remaining_usd?: number | null;
         };
         RoomParticipantRef: {
             kind: components["schemas"]["ParticipantKind"];
@@ -4686,6 +4734,7 @@ export interface components {
             updated_at: string;
             /** Format: date-time */
             last_activity_at?: string | null;
+            my_subscription?: components["schemas"]["RoomSubscriptionLevel"];
         };
         /** @description 방 만들기(S18) — 이름 한 칸. 나머지는 워크스페이스 기본값을 상속한다. 연결된 컴퓨터가 0개여도 만들어진다. */
         RoomCreate: {
@@ -8495,6 +8544,36 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    setRoomSubscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    level: components["schemas"]["RoomSubscriptionLevel"];
+                };
+            };
+        };
+        responses: {
+            /** @description 설정됨. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             default: components["responses"]["Problem"];
         };
     };
