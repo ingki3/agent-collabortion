@@ -200,6 +200,16 @@ func (s *Server) publishWorkClosed(ctx context.Context, q db.DBTX, wsID, roomID,
 	})
 }
 
+// publishWorkDeleted emits `work.deleted` {work_id, room_id} (openapi 0.2.4):
+// the chip row drops the mission; its messages stay in the room.
+func (s *Server) publishWorkDeleted(ctx context.Context, q db.DBTX, wsID, roomID, workID uuid.UUID) {
+	if s.Hub == nil {
+		return
+	}
+	rid := roomID
+	_ = s.Hub.Publish(ctx, q, wsID, &rid, "work.deleted", map[string]any{"work_id": workID, "room_id": roomID})
+}
+
 // ---------------------------------------------------------------------------
 // Gates
 // ---------------------------------------------------------------------------
@@ -562,9 +572,20 @@ func (s *Server) openWork(ctx context.Context, tx pgx.Tx, a *rooms.Access, u *ge
 			p.Extra = map[string]any{"work_id": *owner}
 			return uuid.Nil, p
 		}
+		// The router stores a reply to a reply against the thread's root, but
+		// a thread is a tree (message.parent_id): the mission adopts it from
+		// the top, whatever depth the chosen message sits at (#294 NN5).
 		root := id
 		if parent != nil {
-			root = *parent
+			if err := tx.QueryRow(ctx, `
+				WITH RECURSIVE up AS (
+					SELECT id, parent_id FROM message WHERE id = $1
+					UNION ALL
+					SELECT m.id, m.parent_id FROM message m JOIN up ON m.id = up.parent_id
+				)
+				SELECT id FROM up WHERE parent_id IS NULL`, id).Scan(&root); err != nil {
+				return uuid.Nil, fmt.Errorf("createWork: thread root: %w", err)
+			}
 		}
 		fromMsg, threadRoot = &id, &root
 	}
@@ -669,15 +690,22 @@ func concurrentWorksConflict(ctx context.Context, q pgx.Tx, roomID uuid.UUID, li
 // already filed under another mission stays there — and so do the lanes and
 // tasks that thread started (the tasks it triggered, their lanes).
 func adoptThread(ctx context.Context, tx pgx.Tx, roomID, root, workID uuid.UUID) error {
-	if _, err := tx.Exec(ctx, `
+	// threadOf is every message under the root, at any depth (#294 NN5).
+	const threadOf = `
+		WITH RECURSIVE th AS (
+			SELECT id FROM message WHERE id = $2 AND session_id = $1
+			UNION
+			SELECT m.id FROM message m JOIN th ON m.parent_id = th.id WHERE m.session_id = $1
+		)`
+	if _, err := tx.Exec(ctx, threadOf+`
 		UPDATE message SET work_id = $3
-		WHERE session_id = $1 AND (id = $2 OR parent_id = $2) AND work_id IS NULL`, roomID, root, workID); err != nil {
+		WHERE id IN (SELECT id FROM th) AND work_id IS NULL`, roomID, root, workID); err != nil {
 		return fmt.Errorf("createWork: adopt thread: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `
+	if _, err := tx.Exec(ctx, threadOf+`
 		UPDATE task t SET work_id = $3
 		WHERE t.session_id = $1 AND t.work_id IS NULL
-		  AND t.trigger_message_id IN (SELECT id FROM message WHERE session_id = $1 AND (id = $2 OR parent_id = $2))`,
+		  AND t.trigger_message_id IN (SELECT id FROM th)`,
 		roomID, root, workID); err != nil {
 		return fmt.Errorf("createWork: adopt tasks: %w", err)
 	}
@@ -931,6 +959,7 @@ func (s *Server) DeleteWork(w http.ResponseWriter, r *http.Request, workId gen.W
 			return err
 		}
 		s.publishRoom(r.Context(), tx, a.WorkspaceID, wk.RoomId)
+		s.publishWorkDeleted(r.Context(), tx, a.WorkspaceID, wk.RoomId, workId)
 		return nil
 	})
 	if err != nil {
