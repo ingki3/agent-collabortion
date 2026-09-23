@@ -3270,34 +3270,7 @@ on("GET", "/works/{id}", (req, p) => {
   const { w, user } = workGate(s, req, p.id);
   return ok(toWork(s, w, user.id));
 });
-/** createWork — S21 은 W3 몫이지만 방 화면(칩 줄·미션 칸)을 목으로 보이려면 미션을 열 길이 있어야 한다. 검증은 최소(목표 필수 · 방 멈춤 · 보관). */
-on("POST", "/rooms/{id}/works", (req, p) => {
-  const s = store();
-  const { room, user } = roomGate(s, req, p.id, "post");
-  const b = body<{ goal?: string; title?: string; assignee_agent_id?: string | null; director_user_id?: string | null; limits?: MockWork["limits"]; from_message_id?: string | null; completion_condition?: CompletionCondition; acceptance_criteria?: string[] }>(req);
-  if (!b.goal?.trim()) throw validation([{ field: "goal", code: "required", message: W.work_goal_required }]);
-  if (room.blocked_reason) throw new Problem(409, "room_blocked", W.work_room_blocked);
-  const t = now();
-  const goal = b.goal.trim();
-  const cc: CompletionCondition = b.completion_condition ?? (b.assignee_agent_id
-    ? { op: "and", conditions: [{ type: "artifact_submitted", agent_id: b.assignee_agent_id }, { type: "user_approval" }] } as CompletionCondition
-    : { type: "user_approval" } as CompletionCondition);
-  const w: MockWork = {
-    id: uuid(), room_id: room.id, title: (b.title ?? goal.split("\n")[0]).trim().slice(0, 200), goal, acceptance_criteria: b.acceptance_criteria ?? [],
-    director_user_id: b.director_user_id ?? user.id, deputy_user_id: null, assignee_agent_id: b.assignee_agent_id ?? null,
-    completion_condition: cc, completion_progress: { met: 0, total: 0, satisfied: false, human_gate: true, conditions: [] },
-    limits: { budget_usd: null, budget_tokens: null, time_limit: null, max_tasks: null, ...(b.limits ?? {}) }, autonomy: room.autonomy,
-    status: "active", paused_reason: null, cost_usd: 0, cost_estimated: false, summary_message_id: null, opened_from_message_id: b.from_message_id ?? null,
-    created_by: user.id, created_at: t, updated_at: t, started_at: t, finished_at: null, last_activity_at: t,
-  };
-  const sess = s.sessions.get(room.id);
-  if (sess) w.completion_progress = computeProgress(s, { ...sess, completion_condition: cc }, null);
-  s.works.set(w.id, w);
-  if (b.from_message_id) { const m = s.messages.get(b.from_message_id); if (m && m.session_id === room.id && msgWork(s, m) == null) m.work_id = w.id; }
-  const v = workView(s, w.id)!;
-  emitWork(s, v, "work.created");
-  return ok(toWork(s, v, user.id), 201);
-});
+// createWork 는 T-R2-W3 의 ./rooms-dialogs.ts(서버 openWork 순서 · 동시 상한 · 원 메시지 귀속)가 받는다 — 같은 `s.works` 에 쓴다.
 function requireWorkDirector(w: MockWork, userId: string) {
   if (w.director_user_id !== userId) throw new Problem(403, "director_required", W.work_director_required);
 }
@@ -3336,31 +3309,7 @@ on("POST", "/works/{id}/cancel", (req, p) => {
 });
 
 // ── 방 참여자 · 멈춤 · 여기까지 정리(T-R2-W2) ──
-type RoomParticipantOut = components["schemas"]["RoomParticipant"];
-/** 사람(방 역할) + 에이전트(뒷받침·옛 세션 참여자) 한 목록. 에이전트 상태는 워크스페이스 전역 할 일에서 — 이 방에 실행 중인 것이 없는데 working 이면 「다른 방에서 작업 중」의 근거. */
-function roomParticipantsFull(s: Store, r: MockRoom): RoomParticipantOut[] {
-  const people: RoomParticipantOut[] = r.people.map((pp) => {
-    const u = s.users.get(pp.user_id);
-    return { id: `${r.id}:${pp.user_id}`, room_id: r.id, kind: "user", user: u ? stripUser(u) : undefined, room_role: pp.role, joined_at: pp.joined_at, left_at: null };
-  });
-  const sess = s.sessions.get(r.id);
-  const agents: RoomParticipantOut[] = (sess?.participants ?? []).map((pp) => {
-    const a = s.agents.get(pp.agent_id);
-    const here = participantStatus(s, r.id, pp.agent_id);
-    const elsewhere = [...s.tasks.values()].some((t) => t.agent_id === pp.agent_id && t.status === "running" && t.session_id !== r.id);
-    const status = here === "idle" && elsewhere ? "working" : here;
-    return {
-      id: `${r.id}:${pp.agent_id}`, room_id: r.id, kind: "agent", agent: a, profile: pp.profile, status, status_note: pp.status_note ?? null,
-      room_role: "member", joined_at: pp.joined_at, left_at: null,
-    };
-  });
-  return [...people, ...agents];
-}
-on("GET", "/rooms/{id}/participants", (req, p) => {
-  const s = store();
-  const { room } = roomGate(s, req, p.id, "view");
-  return ok({ items: roomParticipantsFull(s, room) });
-});
+// listRoomParticipants 는 T-R2-W3 의 ./rooms-dialogs.ts 가 받는다(사람 + 에이전트 한 목록 · 「다른 방에서 작업 중」 근거 상태 포함).
 const BLOCKED_TEXT: Record<NonNullable<MockRoom["blocked_reason"]>, string> = {
   budget: W.room_blocked_budget, loop: W.room_blocked_loop, runtime_offline: W.room_blocked_runtime_offline, manual: W.room_blocked_manual,
 };

@@ -14,6 +14,7 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "r1" }),
   useRouter: () => ({ push, replace }),
   useSearchParams: () => search,
+  usePathname: () => "/rooms/r1",
 }));
 
 const get = vi.fn();
@@ -277,7 +278,7 @@ describe("S7 — 상단 · 배너 · 좁은 화면", () => {
     expect(screen.getByTestId("room-cost-not-sum").textContent).toBe("미션 비용의 합이 아닙니다 — 미션 밖 대화 비용이 함께 듭니다");
   });
 
-  it("「이걸 미션으로」 — 이미 미션에 속한 메시지는 비활성 + 사유, 미션 밖 메시지는 S21 자리(?work=from)로", async () => {
+  it("「이걸 미션으로」 — 이미 미션에 속한 메시지는 비활성 + 사유, 미션 밖 메시지는 S21(?work=from&message=) 을 연다", async () => {
     await ready();
     const cards = screen.getAllByTestId("message-card");
     fireEvent.click(within(cards[0]).getByTestId("message-menu"));
@@ -286,6 +287,24 @@ describe("S7 — 상단 · 배너 · 좁은 화면", () => {
     expect(document.getElementById(item.getAttribute("aria-describedby")!)!.textContent).toBe("이미 미션 「보고서 초안」에 속한 메시지입니다");
     fireEvent.click(within(cards[1]).getByTestId("message-menu"));
     fireEvent.click(within(cards[1]).getByTestId("message-to-work"));
-    expect(push).toHaveBeenCalledWith("/rooms/r1?work=from&message=2", { scroll: false });
+    expect(replace).toHaveBeenCalledWith("/rooms/r1?work=from&message=2", { scroll: false });
+  });
+
+  it("S21 · S19 연결 — 「+ 새 미션」은 ?work=new, ?work=new 로 들어오면 미션 열기 다이얼로그, 「이 방에서 나가기」는 참여자 다이얼로그", async () => {
+    await ready();
+    fireEvent.click(screen.getByTestId("new-work"));
+    expect(replace).toHaveBeenCalledWith("/rooms/r1?work=new", { scroll: false });
+    cleanup();
+    search = new URLSearchParams("work=new");
+    render(<RoomPage />);
+    expect(await screen.findByTestId("rd-create-work-goal")).toBeInTheDocument();
+    cleanup();
+    search = new URLSearchParams();
+    await ready();
+    fireEvent.click(screen.getByTestId("room-more"));
+    const leave = screen.getByTestId("room-menu-leave");
+    expect(leave.getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(leave);
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
 });

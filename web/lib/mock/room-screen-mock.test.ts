@@ -78,7 +78,7 @@ describe("미션 op", () => {
     const frames = tap(id);
     const w = await must<Work>("POST", `/rooms/${r.id}/works`, { body: { goal: "보고서 초안\n10페이지" } });
     expect(w).toMatchObject({ room_id: r.id, title: "보고서 초안", status: "active", my_work_role: "director", assignee_agent_id: null });
-    expect(w.completion_condition).toEqual({ type: "user_approval" }); // 제출자가 없으면 user_approval 단독(FR-2A.1)
+    expect(w.completion_condition).toEqual({ op: "and", conditions: [{ type: "user_approval" }] }); // 제출자가 없으면 user_approval 단독(FR-2A.1, W3 openWork)
     const items = (await must<{ items: WorkListItem[] }>("GET", `/rooms/${r.id}/works`)).items;
     expect(items.map((x) => x.id)).toEqual([w.id]);
     expect(Object.keys(items[0]).sort()).toEqual(expect.arrayContaining(["id", "room_id", "title", "goal", "status", "paused_reason", "waiting_human", "director", "assignee_agent_id", "completion_progress", "cost_usd", "budget_usd", "last_activity_at"]));
@@ -169,7 +169,8 @@ describe("listMessages — work_id · no_work · around_message_id", () => {
     await post(r.id, "미션 것", { work_id: w.id });
     await post(r.id, "미션 밖", { work_id: null });
     const q = async (qs: string) => (await must<MessagePage>("GET", `/sessions/${r.id}/messages?${qs}`)).items.map((m) => m.content);
-    expect(await q(`work_id=${w.id}`)).toEqual(["미션 것"]);
+    // 미션을 연 시스템 메시지도 그 미션의 것이다(서버 SystemPost 가 work_id 를 싣는다).
+    expect(await q(`work_id=${w.id}`)).toEqual([expect.stringContaining("미션을 열었습니다"), "미션 것"]);
     expect(await q("no_work=true")).toEqual(["미션 밖"]);
     const ids: string[] = [];
     for (let i = 0; i < 60; i++) ids.push((await post(r.id, `m${i}`, { work_id: null })).message.id);

@@ -255,8 +255,6 @@ export const SERVER = {
   summary_range_required: { text: "정리할 범위를 골라 주세요", at: "internal/httpapi/handlers_rooms.go" },
   summary_range_empty: { text: "이 범위에는 정리할 메시지가 없습니다", at: "internal/sessions/room_ops.go" },
   work_director_required: { text: "이 미션의 Director 만 할 수 있습니다", at: "internal/httpapi/handlers_works.go" },
-  work_goal_required: { text: "목표를 입력해 주세요", at: "internal/httpapi/handlers_works.go" },
-  work_room_blocked: { text: "이 방은 멈춰 있습니다 — 방을 다시 움직인 뒤 미션을 열어 주세요", at: "internal/httpapi/handlers_works.go" },
   work_pause_transition: { text: "진행 중인 미션만 일시정지할 수 있습니다 (현재 상태: ", at: "internal/httpapi/handlers_works.go" },
   work_resume_transition: { text: "일시정지된 미션만 재개할 수 있습니다 (현재 상태: ", at: "internal/httpapi/handlers_works.go" },
   work_cancel_transition: { text: "진행 중이거나 일시정지된 미션만 취소할 수 있습니다 (현재 상태: ", at: "internal/httpapi/handlers_works.go" },

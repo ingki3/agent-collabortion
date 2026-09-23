@@ -13,7 +13,7 @@
  * `work_id` 로 한 번 더 거른다** — 서버가 세 파라미터를 아직 안 읽는다(Lead 판정 A, 서버 후속 T-S-wt).
  * 실시간: 셸의 워크스페이스 SSE 하나를 구독하고 `room_id`(없으면 `session_id`)로 거른다 — 미션 단위 거르기는 `payload.work_id` 로 클라이언트가(§6).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { MessageBody, MessageCard, authorName } from "@/components/MessageCard";
@@ -22,7 +22,8 @@ import { ActivityFeed } from "@/components/ActivityFeed";
 import { LaneBoard } from "@/components/LaneBoard";
 import { HitlCard } from "@/components/HitlCard";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
-import { ParticipantsDialog } from "@/components/ParticipantsDialog";
+import { RoomParticipantsDialog } from "@/components/RoomParticipantsDialog";
+import { RoomQueryDialogs, useRoomDialogQuery } from "@/components/RoomQueryDialogs";
 import { ArchiveRoomDialog, DeleteRoomDialog } from "@/components/RoomDialogs";
 import { RoomHead } from "@/components/RoomHead";
 import { RoomBlockedBanner } from "@/components/RoomBlockedBanner";
@@ -44,7 +45,7 @@ import {
   ROOM_CENTER, ROOM_HEAD, ROOM_LEFT, ROOM_NOTICES, ROOM_TABS, WORK_CHIPS, WORK_SELECTOR, roomDefaultsLine,
 } from "@/lib/wording";
 import type {
-  Agent, Artifact, Decision, HitlRequest, HitlResponse, Lane, LaneStatus, Member, Message, Participant, Room, RoomParticipant, Runtime,
+  Agent, Artifact, Decision, HitlRequest, HitlResponse, Lane, LaneStatus, Member, Message, Room, RoomParticipant, Runtime,
   StreamEvent, Task, TaskEvent, TriggerPreview, Work, WorkListItem,
 } from "@/lib/api/types";
 
@@ -124,8 +125,6 @@ export default function RoomPage() {
   const [busy, setBusy] = useState(false);
   const [dialog, setDialog] = useState<"archive" | "delete" | null>(null);
   const [showParticipants, setShowParticipants] = useState(false);
-  const [sessionParts, setSessionParts] = useState<Participant[]>([]);
-  const [participantWarnings, setParticipantWarnings] = useState<string[]>([]);
   const [panelOpen, setPanelOpen] = useState(false);
   const [boardOpen, setBoardOpen] = useState<Set<LaneStatus>>(new Set());
   const [now, setNow] = useState(Date.now());
@@ -608,32 +607,15 @@ export default function RoomPage() {
     const q = selParam(s);
     router.replace(q ? `/rooms/${roomId}?work=${encodeURIComponent(q)}` : `/rooms/${roomId}`, { scroll: false });
   };
-  /** S21(미션 열기)은 W3 — 여기서는 그 자리(`?work=new` · `?work=from&message=`)로 보낸다. */
-  const openNewWork = () => router.push(`/rooms/${roomId}?work=new`, { scroll: false });
-  const openWorkFrom = (m: Message) => router.push(`/rooms/${roomId}?work=from&message=${m.id}`, { scroll: false });
+  /** S21 미션 열기 · S26 제안(T-R2-W3 `RoomQueryDialogs`) — 쿼리(`?work=new` · `?work=from&message=` · `?work_proposal=`)로 뜬다. */
+  const dialogQuery = useRoomDialogQuery();
+  const openNewWork = () => dialogQuery.openNewWork();
+  const openWorkFrom = (m: Message) => dialogQuery.openFromMessage(m.id);
+  /** 인용·멘션 제시에 쓸 메시지 — 서버 getMessage 가 오기 전까지 이 화면이 가진 것에서 찾는다. */
+  const findMessage = (mid: string) => messages.find((m) => m.id === mid) ?? Object.values(replies).flat().find((m) => m.id === mid) ?? null;
 
-  const openParticipants = async () => {
-    setShowParticipants((v) => !v);
-    const p = await api.get("/sessions/{sessionId}/participants", { path: { sessionId: roomId } }).catch(() => null);
-    if (p) setSessionParts(p as Participant[]);
-  };
-  const addParticipant = (agentId: string, profileId: string | null) => act(async () => {
-    const p = await api.post("/sessions/{sessionId}/participants", { path: { sessionId: roomId }, body: { agent_id: agentId, profile_id: profileId } });
-    setParticipantWarnings(p.warnings ?? []);
-    await Promise.all([loadParticipants(), openParticipantsRefresh()]);
-  });
-  const removeParticipant = (agentId: string) => act(async () => {
-    await api.delete("/sessions/{sessionId}/participants/{agentId}", { path: { sessionId: roomId, agentId } });
-    await Promise.all([loadParticipants(), openParticipantsRefresh()]);
-  });
-  const setAssignee = (agentId: string) => act(async () => {
-    await api.patch("/sessions/{sessionId}/participants/{agentId}", { path: { sessionId: roomId, agentId }, body: { assignee: true } });
-    await openParticipantsRefresh();
-  });
-  async function openParticipantsRefresh() {
-    const p = await api.get("/sessions/{sessionId}/participants", { path: { sessionId: roomId } }).catch(() => null);
-    if (p) setSessionParts(p as Participant[]);
-  }
+  /** S19 참여자(T-R2-W3 `RoomParticipantsDialog`) — 초대·퇴장 · 부방장 · 본인 「이 방에서 나가기」가 한 다이얼로그. */
+  const openParticipants = () => setShowParticipants(true);
 
   // ── 그리기 ──
   if (!workspace) return null;
@@ -701,7 +683,8 @@ export default function RoomPage() {
           room={room}
           needs={needs.length}
           onJumpNeed={jumpNeed}
-          onParticipants={() => void openParticipants()}
+          onParticipants={openParticipants}
+          onLeave={openParticipants}
           busy={busy}
           onBlock={async () => {
             const r = await api.post("/rooms/{roomId}/block", { path: { roomId } });
@@ -724,23 +707,6 @@ export default function RoomPage() {
             return messages.filter((m) => m.created_at >= since && m.kind !== "summary").length;
           }}
         />
-        {showParticipants && (
-          <div className="s7__panel">
-            <ParticipantsDialog
-              participants={sessionParts}
-              agents={agents}
-              lanes={lanes}
-              assigneeAgentId={null}
-              canManage={caps.has("invite")}
-              warnings={participantWarnings}
-              onAdd={addParticipant}
-              onRemove={removeParticipant}
-              onSetAssignee={setAssignee}
-              onClose={() => { setShowParticipants(false); setParticipantWarnings([]); }}
-              busy={busy}
-            />
-          </div>
-        )}
         <WorkChipRow works={works} sel={sel} onSelect={select} onNewWork={openNewWork} newWorkDisabled={newWorkWhy} announce={announce} />
         <nav className="s7__tabs" aria-label={ROOM_TABS.label}>
           {(["timeline", "board", "work", "room"] as Col[]).map((c) => (
@@ -793,14 +759,14 @@ export default function RoomPage() {
         <section className="s7__left" data-testid="s7-left">
           <div className="row" style={{ justifyContent: "space-between" }}>
             <h2 className="s7__h">{ROOM_LEFT.participants}</h2>
-            <button type="button" className="msg__link" onClick={() => void openParticipants()} data-testid="participants-invite">{ROOM_LEFT.invite}</button>
+            <button type="button" className="msg__link" onClick={openParticipants} data-testid="participants-invite">{ROOM_LEFT.invite}</button>
           </div>
           <RoomParticipants participants={participants} lanes={lanes} archivedAgent={(id) => agentById.get(id)?.archived_at != null} />
           {people.length <= 1 && roomAgents.length === 0 && (
             <p className="small muted" data-testid="participants-alone">
               {ROOM_LEFT.alone}
               {" · "}
-              <button type="button" className="msg__link" onClick={() => void openParticipants()}>{ROOM_LEFT.alone_cta}</button>
+              <button type="button" className="msg__link" onClick={openParticipants}>{ROOM_LEFT.alone_cta}</button>
             </p>
           )}
           <h2 className="s7__h">{ROOM_LEFT.board}</h2>
@@ -860,7 +826,7 @@ export default function RoomPage() {
               <div className="empty" data-testid="room-fresh">
                 <div className="empty__title">{ROOM_CENTER.empty_title}</div>
                 <div className="row" style={{ gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-                  <button type="button" className="btn btn--primary btn--sm" onClick={() => void openParticipants()} data-testid="fresh-invite">{ROOM_CENTER.empty_invite}</button>
+                  <button type="button" className="btn btn--primary btn--sm" onClick={openParticipants} data-testid="fresh-invite">{ROOM_CENTER.empty_invite}</button>
                   <button type="button" className="btn btn--sm" onClick={() => inputRef.current?.focus()} data-testid="fresh-talk">{ROOM_CENTER.empty_talk}</button>
                   <button type="button" className="btn btn--sm" onClick={openNewWork} disabled={!!newWorkWhy} data-testid="fresh-work">{ROOM_CENTER.empty_open_work}</button>
                 </div>
@@ -1012,6 +978,24 @@ export default function RoomPage() {
         </section>
       </div>
 
+      {showParticipants && (
+        <RoomParticipantsDialog
+          roomId={roomId}
+          onClose={() => { setShowParticipants(false); void loadParticipants(); void loadRoom().catch(() => undefined); }}
+          onLeft={() => router.replace("/rooms")}
+        />
+      )}
+      <Suspense fallback={null}>
+        <RoomQueryDialogs
+          roomId={roomId}
+          findMessage={findMessage}
+          onWorkOpened={(w) => {
+            // 미션이 열리면 그 칩이 선택된 방 화면(S22) — 목록은 work.created 로도 오지만 먼저 읽어 칩이 바로 선다.
+            void loadRoom().catch(() => undefined);
+            select({ kind: "work", id: w.id });
+          }}
+        />
+      </Suspense>
       {dialog === "archive" && (
         <ArchiveRoomDialog room={room} onArchived={(r) => { setRoom(r); setDialog(null); }} onClose={() => setDialog(null)} />
       )}

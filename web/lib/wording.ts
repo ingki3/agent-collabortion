@@ -450,7 +450,7 @@ export const ROOM_HEAD = {
   /** 비활성 사유 — 층을 적는다(§2.3 · §5). */
   block_role: "방장·부방장이나 워크스페이스 소유자·관리자만 이 방을 멈출 수 있습니다",
   archived: "보관된 방입니다 — 먼저 보관을 해제하세요",
-  leave_later: "참여자 화면에서 나갈 수 있습니다",
+  leave_not_participant: "이 방의 참여자만 나갈 수 있습니다",
   skip_to_composer: "작성창으로 건너뛰기",
 } as const;
 

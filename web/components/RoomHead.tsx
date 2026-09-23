@@ -22,6 +22,8 @@ export interface RoomHeadProps {
   needs: number;
   onJumpNeed: () => void;
   onParticipants: () => void;
+  /** 「이 방에서 나가기」 — S19 본인 행과 같은 경로(참여자 다이얼로그). */
+  onLeave: () => void;
   busy?: boolean;
   onBlock: () => Promise<void>;
   onUnblock: () => void;
@@ -154,8 +156,11 @@ export function RoomHead(props: RoomHeadProps) {
                   {!caps.has("delete") && <DisabledHint id={deleteHint}>{ROOM_MENU.delete_role}</DisabledHint>}
                 </div>
                 <div className="card-menu__entry">
-                  <button type="button" role="menuitem" className="card-menu__item" aria-disabled aria-describedby={leaveHint} data-testid="room-menu-leave">{ROOM_HEAD.leave}</button>
-                  <DisabledHint id={leaveHint}>{ROOM_HEAD.leave_later}</DisabledHint>
+                  <button type="button" role="menuitem" className="card-menu__item" aria-disabled={!room.my_room_role || undefined} aria-describedby={!room.my_room_role ? leaveHint : undefined}
+                    onClick={() => { if (!room.my_room_role) return; menu.close(); props.onLeave(); }} data-testid="room-menu-leave">
+                    {ROOM_HEAD.leave}
+                  </button>
+                  {!room.my_room_role && <DisabledHint id={leaveHint}>{ROOM_HEAD.leave_not_participant}</DisabledHint>}
                 </div>
               </div>
             )}

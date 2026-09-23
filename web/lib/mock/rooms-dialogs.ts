@@ -16,7 +16,7 @@ import type {
   AgentProfile, CompletionCondition, Member, Message, Room, RoomRole, RoomUpdate, Session, User, WorkListItem,
 } from "@/lib/api/types";
 import type { components } from "@/lib/api/schema";
-import { emit, now, participantStatus, store, stripUser, uuid, type MockRoom, type Store } from "./store";
+import { emit, now, participantStatus, store, stripUser, uuid, type MockRoom, type MockWork, type Store } from "./store";
 import { josa, notFound, VALIDATION_DETAIL, W } from "./wording";
 import { RW } from "./rooms-dialogs-wording";
 import type { Req, Res } from "./handlers";
@@ -152,6 +152,11 @@ export function registerRoomDialogs(ctx: RoomDialogsCtx): void {
     return { room, user, f };
   };
   const sessOf = (s: Store, roomId: string): Session | undefined => s.sessions.get(roomId);
+  /**
+   * 옛 세션(미션 하나)인 방의 세션 — T-R2-W2 목은 새 방에도 같은 id 의 **뒷받침 세션**(`s.roomOnly`)을 둔다(참여자·메시지·서브 미션이 거기
+   * 쌓인다). 그 세션은 미션이 아니다 — 미션 목록·Director 셈은 이것으로 본다.
+   */
+  const legacyOf = (s: Store, roomId: string): Session | undefined => (s.roomOnly.has(roomId) ? undefined : s.sessions.get(roomId));
   const runtimeIdOf = (s: Store, room: MockRoom) => {
     const e = rd(s).extra.get(room.id);
     return e && e.runtime_id !== undefined ? e.runtime_id : sessOf(s, room.id)?.runtime_id ?? null;
@@ -164,14 +169,13 @@ export function registerRoomDialogs(ctx: RoomDialogsCtx): void {
     const base = ctx.toRoom(s, room, userId);
     const rid = runtimeIdOf(s, room);
     const rt = rid ? s.runtimes.get(rid) : undefined;
-    const mine = rd(s).works.filter((w) => w.room_id === room.id && RUNNING.has(w.status)).length;
     return {
       ...base,
       runtime_id: rid,
       runtime_pinned: pinned(s, room),
       ...(rt ? { runtime: rt } : {}),
       default_director_user_id: extraOf(s, room.id).default_director_user_id,
-      counts: { ...base.counts, works_active: (base.counts?.works_active ?? 0) + mine },
+      // works_active 는 toRoom 이 이미 센다(옛 세션의 미션 + `s.works`, T-R2-W2).
     };
   };
 
@@ -206,8 +210,14 @@ export function registerRoomDialogs(ctx: RoomDialogsCtx): void {
     const prof = a?.profiles.find((x) => x.id === r.profile_id) ?? a?.profiles.find((x) => x.is_default) ?? a?.profiles[0];
     return {
       id: pid(s, room.id, "a", r.agent_id), room_id: room.id, kind: "agent", ...(a ? { agent: a } : {}), ...(prof ? { profile: prof } : {}),
-      status: participantStatus(s, room.id, r.agent_id), status_note: null, room_role: "member", joined_at: r.joined_at, left_at: null,
+      status: agentStatusHere(s, room.id, r.agent_id), status_note: null, room_role: "member", joined_at: r.joined_at, left_at: null,
     };
+  };
+  /** 에이전트 상태는 워크스페이스 전역 할 일에서 파생된다(FR-1.3) — 이 방이 idle 이어도 다른 방에서 실행 중이면 working(T-R2-W2 「다른 방에서 작업 중」). */
+  const agentStatusHere = (s: Store, roomId: string, agentId: string): RoomParticipant["status"] => {
+    const here = participantStatus(s, roomId, agentId);
+    if (here !== "idle") return here;
+    return [...s.tasks.values()].some((t) => t.agent_id === agentId && t.status === "running" && t.session_id !== roomId) ? "working" : here;
   };
   const ROLE_ORDER: Record<string, number> = { owner: 0, deputy: 1, member: 2 };
   const listParticipants = (s: Store, room: MockRoom): RoomParticipant[] => [
@@ -218,16 +228,17 @@ export function registerRoomDialogs(ctx: RoomDialogsCtx): void {
 
   /** 미션 목록 — 옛 세션(미션 id = 세션 id) + 이 모듈이 연 미션. */
   const worksOf = (s: Store, room: MockRoom): WorkListItem[] => {
-    const sess = sessOf(s, room.id);
+    const sess = legacyOf(s, room.id);
     const legacy: WorkListItem[] = sess ? [{
       id: sess.id, room_id: room.id, title: sess.title, goal: sess.goal, status: sess.status, paused_reason: null,
       waiting_human: [...s.hitls.values()].some((h) => h.session_id === sess.id && h.status === "open"), director: sess.director!,
       assignee_agent_id: sess.assignee_agent_id, completion_progress: { met: sess.completion_progress.met, total: sess.completion_progress.total },
       cost_usd: sess.cost_usd, budget_usd: sess.limits.budget_usd ?? null, last_activity_at: sess.last_activity_at ?? null, finished_at: sess.finished_at ?? null,
     }] : [];
-    const mine: WorkListItem[] = rd(s).works.filter((w) => w.room_id === room.id).map((w) => ({
+    // 미션 저장소는 `s.works` 하나(T-R2-W2 와 공유 — getWork·pause/resume·귀속이 같은 행을 본다).
+    const mine: WorkListItem[] = [...s.works.values()].filter((w) => w.room_id === room.id).map((w) => ({
       id: w.id, room_id: w.room_id, title: w.title, goal: w.goal, status: w.status, paused_reason: w.paused_reason, waiting_human: false,
-      director: w.director!, assignee_agent_id: w.assignee_agent_id, completion_progress: { met: w.completion_progress.met, total: w.completion_progress.total },
+      director: s.users.get(w.director_user_id) ? stripUser(s.users.get(w.director_user_id)!) : { id: w.director_user_id, email: "", display_name: "", avatar_url: null, created_at: w.created_at }, assignee_agent_id: w.assignee_agent_id, completion_progress: { met: w.completion_progress.met, total: w.completion_progress.total },
       cost_usd: w.cost_usd, budget_usd: w.limits.budget_usd ?? null, last_activity_at: w.last_activity_at ?? null, finished_at: w.finished_at ?? null,
     }));
     return [...legacy, ...mine];
@@ -238,12 +249,7 @@ export function registerRoomDialogs(ctx: RoomDialogsCtx): void {
     const { room, user } = gate(s, req, p.id, "view");
     return ok(roomOut(s, room, user.id));
   });
-  prepend("GET", "/rooms/{id}/works", (req, p) => {
-    const s = store();
-    const { room } = gate(s, req, p.id, "view");
-    const want = req.query.get("status")?.split(",").filter(Boolean);
-    return ok({ items: worksOf(s, room).filter((w) => !want || want.includes(w.status)), next_cursor: null });
-  });
+  // `GET /rooms/{id}/works` 는 덮지 않는다 — T-R2-W2 의 handlers.ts 가 `s.works`(이 모듈이 연 미션 포함)·waiting_human·미션 비용까지 싣는다.
 
   on("GET", "/rooms/{id}/participants", (req, p) => {
     const s = store();
@@ -604,8 +610,13 @@ export function registerRoomDialogs(ctx: RoomDialogsCtx): void {
       opened_from_message_id: b.from_message_id ?? null, my_work_role: director === user.id ? "director" : deputy === user.id ? "deputy" : "member",
       created_by: user.id, created_at: t, updated_at: t, started_at: b.draft ? null : t, finished_at: null, last_activity_at: t,
     };
-    rd(s).works.push(w);
-    if (b.from_message_id) rd(s).msgWork.set(b.from_message_id, w.id);
+    { const { director: _d, deputy: _p, my_work_role: _r, subscription: _s, ...row } = w; s.works.set(w.id, row as MockWork); }
+    if (b.from_message_id) {
+      rd(s).msgWork.set(b.from_message_id, w.id);
+      // 사후 귀속(FR-3.1.1) — 원 메시지가 미션 밖이었으면 이 미션으로(타임라인 라벨·칩 거르기가 같은 칸을 본다).
+      const m = s.messages.get(b.from_message_id);
+      if (m && m.work_id == null) m.work_id = w.id;
+    }
     systemPost(s, room, name(s, user.id) + RW.sys_work_opened + goal, w.id);
     emit(s, room.workspace_id, "work.created", worksOf(s, room).find((x) => x.id === w.id), room.id);
     ctx.emitRoom(s, room);
