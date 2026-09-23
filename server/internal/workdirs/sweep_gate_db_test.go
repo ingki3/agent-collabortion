@@ -37,8 +37,10 @@ func TestSweepGCGateIsTheWorkdir(t *testing.T) {
 		t.Fatal(err)
 	}
 	var laneID uuid.UUID
-	if err := pool.QueryRow(ctx, `INSERT INTO lane (session_id, agent_id, profile_id, workdir_id, status)
-		VALUES ($1, $2, $3, $4, 'running') RETURNING id`, sessionID, feID, profileID, wd).Scan(&laneID); err != nil {
+	// The session's lane carries its mission (T-R1b1 writes work_id for every
+	// lane a session makes; the r1b1_room_gate migration filled the ones written before).
+	if err := pool.QueryRow(ctx, `INSERT INTO lane (session_id, agent_id, profile_id, workdir_id, status, work_id)
+		VALUES ($1, $2, $3, $4, 'running', (SELECT id FROM work WHERE room_id = $1)) RETURNING id`, sessionID, feID, profileID, wd).Scan(&laneID); err != nil {
 		t.Fatal(err)
 	}
 	svc := NewService(pool, clock.NewFake(now), nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
