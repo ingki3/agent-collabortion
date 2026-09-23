@@ -4118,10 +4118,10 @@ export interface components {
              */
             artifact_id?: string | null;
             /**
-             * @description HITL 의 용도. **플랫폼 발행이면 용도별 고정값** — 종료 조건 승인 `user_approval`(E6-01) · 예산 `budget`(E9-01·04) · 시간 `time` · 루프 `loop`(E4-03); 에이전트 발행(source=agent)은 `agent`. source=system + type=approval 만으로는 완료 승인과 예산·루프 정지를 구분할 수 없어 이 칸이 판정 기준이다(0012, PR #103·#108).
+             * @description HITL 의 용도. **플랫폼 발행이면 용도별 고정값** — 종료 조건 승인 `user_approval`(E6-01) · 예산 `budget`(E9-01·04) · 시간 `time` · 루프 `loop`(E4-03) · **첫 실행 격리 확인 `isolation`**(v0.2.2, FR-2.1.1 — 승인=worktree, 거절=none 유지, 답까지 첫 dispatch 보류); 에이전트 발행(source=agent)은 `agent`. source=system + type=approval 만으로는 완료 승인과 예산·루프 정지를 구분할 수 없어 이 칸이 판정 기준이다(0012, PR #103·#108).
              * @enum {string|null}
              */
-            purpose?: "agent" | "user_approval" | "budget" | "time" | "loop" | null;
+            purpose?: "agent" | "user_approval" | "budget" | "time" | "loop" | "isolation" | null;
             /** @description `director` · `room_owner`(v0.2.0 — 미션 밖 task·방 상한·격리 확인, 부재 위임 FR-2A.3) · `any_member` · 사용자 uuid. */
             approver_spec: string;
             /** Format: date-time */
@@ -4341,7 +4341,7 @@ export interface components {
                  * @description HITL 항목이면 `HitlRequest.purpose` 를 그대로 싣는다(K-9) — 웹이 task 범위 예산 HITL(세션은 active)에 상향 입력을 붙이려면 카드에서 바로 읽어야 한다. 비-HITL 항목은 null.
                  * @enum {string|null}
                  */
-                purpose?: "agent" | "user_approval" | "budget" | "time" | "loop" | null;
+                purpose?: "agent" | "user_approval" | "budget" | "time" | "loop" | "isolation" | null;
                 failure_kind?: components["schemas"]["FailureKind"];
                 runtime_name?: string | null;
                 /** Format: date-time */

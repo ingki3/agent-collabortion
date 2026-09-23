@@ -26,6 +26,8 @@ export const PURPOSE_REASON: Record<Exclude<Purpose, "agent">, string> = {
   budget: "예산 상한 초과",
   time: "시간 상한 도달",
   loop: "주고받기 상한 도달",
+  // v0.2.2 계약 — 첫 실행 격리 확인(FR-2.1.1). 화면 반영은 R2.
+  isolation: "첫 실행 격리 확인",
 };
 
 /** 메타 한 줄(COMPONENTS §2.3 `i2BcH`). 시스템 발행이면 사유 + `source: system`. */

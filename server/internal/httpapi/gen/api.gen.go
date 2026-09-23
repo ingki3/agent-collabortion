@@ -423,6 +423,7 @@ func (e FailureKind) Valid() bool {
 const (
 	HitlRequestPurposeAgent        HitlRequestPurpose = "agent"
 	HitlRequestPurposeBudget       HitlRequestPurpose = "budget"
+	HitlRequestPurposeIsolation    HitlRequestPurpose = "isolation"
 	HitlRequestPurposeLessThannil  HitlRequestPurpose = "<nil>"
 	HitlRequestPurposeLoop         HitlRequestPurpose = "loop"
 	HitlRequestPurposeTime         HitlRequestPurpose = "time"
@@ -435,6 +436,8 @@ func (e HitlRequestPurpose) Valid() bool {
 	case HitlRequestPurposeAgent:
 		return true
 	case HitlRequestPurposeBudget:
+		return true
+	case HitlRequestPurposeIsolation:
 		return true
 	case HitlRequestPurposeLessThannil:
 		return true
@@ -564,6 +567,7 @@ func (e InboxItemActions) Valid() bool {
 const (
 	InboxItemCardPurposeAgent        InboxItemCardPurpose = "agent"
 	InboxItemCardPurposeBudget       InboxItemCardPurpose = "budget"
+	InboxItemCardPurposeIsolation    InboxItemCardPurpose = "isolation"
 	InboxItemCardPurposeLessThannil  InboxItemCardPurpose = "<nil>"
 	InboxItemCardPurposeLoop         InboxItemCardPurpose = "loop"
 	InboxItemCardPurposeTime         InboxItemCardPurpose = "time"
@@ -576,6 +580,8 @@ func (e InboxItemCardPurpose) Valid() bool {
 	case InboxItemCardPurposeAgent:
 		return true
 	case InboxItemCardPurposeBudget:
+		return true
+	case InboxItemCardPurposeIsolation:
 		return true
 	case InboxItemCardPurposeLessThannil:
 		return true
@@ -2675,7 +2681,7 @@ type HitlRequest struct {
 	// ProposedDefault "에이전트 제안: …"으로 함께 표시.
 	ProposedDefault nullable.Nullable[string] `json:"proposed_default"`
 
-	// Purpose HITL 의 용도. **플랫폼 발행이면 용도별 고정값** — 종료 조건 승인 `user_approval`(E6-01) · 예산 `budget`(E9-01·04) · 시간 `time` · 루프 `loop`(E4-03); 에이전트 발행(source=agent)은 `agent`. source=system + type=approval 만으로는 완료 승인과 예산·루프 정지를 구분할 수 없어 이 칸이 판정 기준이다(0012, PR #103·#108).
+	// Purpose HITL 의 용도. **플랫폼 발행이면 용도별 고정값** — 종료 조건 승인 `user_approval`(E6-01) · 예산 `budget`(E9-01·04) · 시간 `time` · 루프 `loop`(E4-03) · **첫 실행 격리 확인 `isolation`**(v0.2.2, FR-2.1.1 — 승인=worktree, 거절=none 유지, 답까지 첫 dispatch 보류); 에이전트 발행(source=agent)은 `agent`. source=system + type=approval 만으로는 완료 승인과 예산·루프 정지를 구분할 수 없어 이 칸이 판정 기준이다(0012, PR #103·#108).
 	Purpose   nullable.Nullable[HitlRequestPurpose] `json:"purpose,omitempty"`
 	Question  string                                `json:"question"`
 	SessionId openapi_types.UUID                    `json:"session_id"`
@@ -2693,7 +2699,7 @@ type HitlRequest struct {
 	Type HitlType `json:"type"`
 }
 
-// HitlRequestPurpose HITL 의 용도. **플랫폼 발행이면 용도별 고정값** — 종료 조건 승인 `user_approval`(E6-01) · 예산 `budget`(E9-01·04) · 시간 `time` · 루프 `loop`(E4-03); 에이전트 발행(source=agent)은 `agent`. source=system + type=approval 만으로는 완료 승인과 예산·루프 정지를 구분할 수 없어 이 칸이 판정 기준이다(0012, PR #103·#108).
+// HitlRequestPurpose HITL 의 용도. **플랫폼 발행이면 용도별 고정값** — 종료 조건 승인 `user_approval`(E6-01) · 예산 `budget`(E9-01·04) · 시간 `time` · 루프 `loop`(E4-03) · **첫 실행 격리 확인 `isolation`**(v0.2.2, FR-2.1.1 — 승인=worktree, 거절=none 유지, 답까지 첫 dispatch 보류); 에이전트 발행(source=agent)은 `agent`. source=system + type=approval 만으로는 완료 승인과 예산·루프 정지를 구분할 수 없어 이 칸이 판정 기준이다(0012, PR #103·#108).
 type HitlRequestPurpose string
 
 // HitlResponse 타입에 맞는 필드만 쓴다 — question/choice는 `answer`, approval은 `approved`(+ `reason`, 예산이면 `budget_override_usd`, 시간이면 `time_extension`), info는 `answer` + `attachments`.
