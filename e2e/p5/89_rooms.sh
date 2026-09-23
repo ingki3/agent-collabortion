@@ -5,7 +5,8 @@
 # 비용 한 줄(I-3): 에이전트 턴 0(데몬 없이 curl) · $0 · ≈ 20s
 #
 # 재는 것 (판정 표 out/89-checks.tsv):
-#   A. 방 만들기 — 컴퓨터 0대에서도 201 · 이름 한 칸 · 만든 사람이 방장 · my_capabilities · 빈 이름 422 · room_defaults 상속
+#   A. 방 만들기 — 컴퓨터 0대에서도 201 · 이름 한 칸 · 만든 사람이 방장 · my_capabilities · 빈 이름 422 · room_defaults 상속 ·
+#      격리 기본값 상속(room_defaults.isolation_kind · default_isolation → kind 만, 경로 없음 — openapi 0.2.5)
 #   B. 초대 — invited 방은 초대 안 된 멤버에게 404·목록 밖·옛 /sessions/{id}/messages·lanes 도 404 · 사람 초대 201 · room_invited(open_room) · 에이전트 초대는
 #      부른 사람의 FR-1.9 로(403 not_invitable → owner 가 201 + warnings) · 이미 있음 409 · 워크스페이스 밖 422
 #   C. 나가기 — 방장 409 is_owner · 열린 미션 Director 409 is_director · 본인 204 → 404 · 다시 초대하면 같은 행 ·
@@ -13,7 +14,7 @@
 #   D. 링크 — 대상 방 참여자 아님 403 not_participant_of_target(없는 방도 같은 답) · 201 · 양쪽 시스템 메시지 ·
 #      중복 409 · 대상 방 쪽 방장이 풀기 204
 #   E. 보관/해제 — 보관 200 · 보관된 방에 초대 409 room_archived · 기본 목록 밖 · include_archived · 해제 200 ·
-#      진행 중 할 일이 있는 방 409 tasks_active
+#      진행 중 할 일이 있는 방 409 tasks_active · 카드 active_task_count 가 그 409 의 수와 같다(0.2.5)
 #   F. 삭제 — 진행 중 미션 409 works_active · 부방장 403 · 방장 204 → 404 · activity_log room.deleted 한 줄
 #   G. 안 읽음 — 남의 메시지만 · 목록과 getRoom 같은 수 · markRoomRead → 0 · 뒤로 안 간다
 #   H. SSE — room_id 거르기(다른 방 프레임 0) · invited 방 프레임이 초대 안 된 사람 스트림에 0 · room.unread 는 본인만 ·
@@ -88,6 +89,17 @@ as oth; call POST "/workspaces/$WS/rooms" '{"name":"89 참고"}'
 RB="$(jq -r .id <<<"$BODY")"
 chk A.6 invited "$(jq -r .visibility <<<"$BODY")" "room_defaults.visibility 를 상속"
 as dir; api_ok PATCH "/workspaces/$WS/settings" '{"room_defaults":{"visibility":"workspace"}}' >/dev/null
+# 격리 기본값 상속(0.2.5) — 두 자리 모두. 저장소 경로는 방 설정(S20)이 첫 실행 전에 채운다.
+as dir; api_ok PATCH "/workspaces/$WS/settings" '{"room_defaults":{"isolation_kind":"worktree"}}' >/dev/null
+as mem; call POST "/workspaces/$WS/rooms" '{"name":"89 워크트리 기본"}'
+chk A.7 "201/worktree/false" "$CODE/$(jq -r '.isolation.kind+"/"+(.isolation|has("repo_path")|tostring)' <<<"$BODY")" "room_defaults.isolation_kind=worktree 를 상속 — kind 만"
+as dir; api_ok PATCH "/workspaces/$WS/settings" '{"room_defaults":{"isolation_kind":"none"}}' >/dev/null
+psqlq "update workspace_settings set room_defaults = room_defaults - 'isolation_kind', default_isolation = 'worktree' where workspace_id='$WS'" >/dev/null
+as mem; call POST "/workspaces/$WS/rooms" '{"name":"89 옛 기본값"}'
+chk A.8 "201/worktree" "$CODE/$(jq -r .isolation.kind <<<"$BODY")" "room_defaults 가 비면 default_isolation=worktree 를 상속"
+psqlq "update workspace_settings set default_isolation = 'none' where workspace_id='$WS'" >/dev/null
+as mem; call POST "/workspaces/$WS/rooms" '{"name":"89 격리 없음"}'
+chk A.9 none "$(jq -r .isolation.kind <<<"$BODY")" "기본 none 은 none"
 
 # SSE 를 연다: oth 는 워크스페이스 전체, mem 은 RB 만(room_id), dir 는 session_id 별칭으로 RA 만.
 sse oth "$OUT/89-sse-oth.log"
@@ -110,6 +122,7 @@ chk B.2b 404 "$(api GET "/sessions/$RA/lanes" | api_code)" "옛 /sessions/{id}/l
 as dir; call GET "/rooms/$RA"
 chk B.3 "200/null/false" "$CODE/$(jq -r '(.my_room_role|tostring)+"/"+((.my_capabilities|index("post"))!=null|tostring)' <<<"$BODY")" "ws owner 는 감사 열람(게시 버튼 없음)"
 chk B.4 1 "$(psqlq "select count(*) from activity_log where session_id='$RA' and action='room.audit_viewed'")" "감사 열람이 activity_log 에"
+chk B.4a invited "$(api_ok GET "/workspaces/$WS/rooms?participating=false" | jq -r --arg r "$RA" '.items[]|select(.id==$r)|.visibility')" "감사 목록에서도 invited 방은 invited 로 싣는다(0.2.5 — 「공개된 방이 N개 더」)"
 as mem; call POST "/rooms/$RA/participants" "$(jq -nc --arg u "$OTH_UID" '{user_id:$u}')"
 chk B.5 "201/user/member" "$CODE/$(jq -r '.kind+"/"+.room_role' <<<"$BODY")" "사람 초대 → 201"
 as oth; INB="$(api_ok GET "/inbox?workspace_id=$WS" | jq -c --arg r "$RA" '[.items[]|select(.type=="room_invited" and .room_id==$r)][0]')"
@@ -191,6 +204,8 @@ as dir; IFS=$'\t' read -r RID DTOK <<<"$(pair_curl "$WS" "mac-89" '[{"kind":"cla
 S="$(create_session "$WS" "$AG" "89 세션" "목표")"
 call POST "/rooms/$S/archive"
 chk E.6 "409/tasks_active" "$CODE/$(code_of)" "진행 중 할 일 → 409 tasks_active"
+N409="$(jq -r .tasks_active <<<"$BODY")"
+chk E.7 "$N409" "$(api_ok GET "/workspaces/$WS/rooms?participating=false" | jq -r --arg r "$S" '.items[]|select(.id==$r)|.active_task_count')" "카드 active_task_count = 409 의 tasks_active(한 정의)"
 
 # ───────────────────────────── F ─────────────────────────────────────────────
 step "F. 삭제 — works_active · 부방장 403 · 방장 204"

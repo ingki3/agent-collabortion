@@ -128,6 +128,15 @@ const (
 	activeTaskStatuses = `('deferred', 'queued', 'dispatched', 'preparing', 'running', 'waiting_human', 'paused')`
 )
 
+// ActiveTaskCountSQL is "the room's tasks still in flight" (FR-7.1's
+// non-terminal states) as a scalar subquery over the room id expression
+// `room` — ONE definition for archiveRoom's 409 tasks_active, Room.counts and
+// the S5 card's active_task_count (openapi 0.2.5), so the card cannot draw
+// 「보관」 enabled for a room the server would refuse.
+func ActiveTaskCountSQL(room string) string {
+	return `(SELECT count(*) FROM task t WHERE t.session_id = ` + room + ` AND t.status IN ` + activeTaskStatuses + `)`
+}
+
 // Load is getRoom for one viewer. The counts, the room's own cost and the
 // viewer's unread marker are read here, not stored.
 //
@@ -151,7 +160,7 @@ func Load(ctx context.Context, q db.DBTX, a *Access, now time.Time) (*gen.Room, 
 		       r.blocked_reason::text, r.blocked_detail, r.created_by, r.created_at, r.updated_at,
 		       (SELECT count(*) FROM work w WHERE w.room_id = r.id AND w.status IN `+openWorkStatuses+`),
 		       (SELECT count(*) FROM lane l WHERE l.session_id = r.id AND l.status IN `+liveLaneStatuses+`),
-		       (SELECT count(*) FROM task t WHERE t.session_id = r.id AND t.status IN `+activeTaskStatuses+`),
+		       `+ActiveTaskCountSQL("r.id")+`,
 		       (SELECT COALESCE(sum(u.cost_usd), 0)::float8 FROM task_usage u JOIN task t ON t.id = u.task_id WHERE t.session_id = r.id),
 		       (SELECT COALESCE(bool_or(u.estimated), false) FROM task_usage u JOIN task t ON t.id = u.task_id WHERE t.session_id = r.id),
 		       (SELECT max(created_at) FROM message m WHERE m.session_id = r.id)
@@ -341,12 +350,12 @@ func List(ctx context.Context, q db.DBTX, wsID, userID uuid.UUID, wsRole string,
 	}
 	args = append(args, o.Limit+1)
 	rows, err := q.Query(ctx, `
-		SELECT x.id, x.name, x.description, x.status, x.blocked_reason, x.my_role, x.unread, x.active_works,
-		       x.hitl_open, x.blocked, x.failed, x.last_activity, x.sort_at, x.participants
+		SELECT x.id, x.name, x.description, x.status, x.visibility, x.blocked_reason, x.my_role, x.unread, x.active_works,
+		       x.active_tasks, x.hitl_open, x.blocked, x.failed, x.last_activity, x.sort_at, x.participants
 		FROM (
 		  SELECT r.id, r.name, r.description, r.status::text AS status, r.visibility::text AS visibility,
 		         r.blocked_reason::text AS blocked_reason, p.role::text AS my_role,
-		         COALESCE(ur.n, 0) AS unread, aw.n AS active_works,
+		         COALESCE(ur.n, 0) AS unread, aw.n AS active_works, `+ActiveTaskCountSQL("r.id")+` AS active_tasks,
 		         att.hitl_open, att.blocked, att.failed,
 		         la.at AS last_activity, COALESCE(la.at, r.created_at) AS sort_at,
 		         ro.list AS participants
@@ -399,15 +408,22 @@ func List(ctx context.Context, q db.DBTX, wsID, userID uuid.UUID, wsRole string,
 	for rows.Next() {
 		var lastSort time.Time
 		var it gen.RoomListItem
-		var status string
+		var status, visibility string
+		var activeTasks int
 		var blocked, myRole *string
 		var last *time.Time
 		var parts []byte
-		if err := rows.Scan(&it.Id, &it.Name, &it.Description, &status, &blocked, &myRole, &it.UnreadCount, &it.ActiveWorkCount,
-			&it.Attention.HitlOpen, &it.Attention.Blocked, &it.Attention.Failed, &last, &lastSort, &parts); err != nil {
+		if err := rows.Scan(&it.Id, &it.Name, &it.Description, &status, &visibility, &blocked, &myRole, &it.UnreadCount, &it.ActiveWorkCount,
+			&activeTasks, &it.Attention.HitlOpen, &it.Attention.Blocked, &it.Attention.Failed, &last, &lastSort, &parts); err != nil {
 			return nil, nil, err
 		}
 		it.Status = gen.RoomStatus(status)
+		// Shown as it is, invited included — an owner·admin's audit listing
+		// keeps the room's own visibility so S5 can count 「공개된 방이 N개
+		// 더」 without guessing (T-S-roomlist 3).
+		vis := gen.RoomVisibility(visibility)
+		it.Visibility = &vis
+		it.ActiveTaskCount = &activeTasks
 		it.BlockedReason = nullable.NewNullNullable[gen.RoomBlockedReason]()
 		if blocked != nil {
 			it.BlockedReason = nullable.NewNullableWithValue(gen.RoomBlockedReason(*blocked))
