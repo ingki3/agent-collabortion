@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Colab Server API
-  version: 0.2.1-draft
+  version: 0.2.2-draft
   summary: Colab 서버 REST API — P1~P3(수직 슬라이스 · 협업 코어 · HITL/재개/예산)에서 웹(W)과 colab CLI(C)가 호출하는 전부.
   description: |
     # 읽는 법
@@ -5764,8 +5764,8 @@ components:
         artifact_id: { type: [string, 'null'], format: uuid, description: approval 대상 아티팩트. }
         purpose:
           type: [string, 'null']
-          enum: [agent, user_approval, budget, time, loop, null]
-          description: "HITL 의 용도. **플랫폼 발행이면 용도별 고정값** — 종료 조건 승인 `user_approval`(E6-01) · 예산 `budget`(E9-01·04) · 시간 `time` · 루프 `loop`(E4-03); 에이전트 발행(source=agent)은 `agent`. source=system + type=approval 만으로는 완료 승인과 예산·루프 정지를 구분할 수 없어 이 칸이 판정 기준이다(0012, PR #103·#108)."
+          enum: [agent, user_approval, budget, time, loop, isolation, null]
+          description: "HITL 의 용도. **플랫폼 발행이면 용도별 고정값** — 종료 조건 승인 `user_approval`(E6-01) · 예산 `budget`(E9-01·04) · 시간 `time` · 루프 `loop`(E4-03) · **첫 실행 격리 확인 `isolation`**(v0.2.2, FR-2.1.1 — 승인=worktree, 거절=none 유지, 답까지 첫 dispatch 보류); 에이전트 발행(source=agent)은 `agent`. source=system + type=approval 만으로는 완료 승인과 예산·루프 정지를 구분할 수 없어 이 칸이 판정 기준이다(0012, PR #103·#108)."
         approver_spec: { type: string, description: '`director` · `room_owner`(v0.2.0 — 미션 밖 task·방 상한·격리 확인, 부재 위임 FR-2A.3) · `any_member` · 사용자 uuid.' }
         due_at: { type: string, format: date-time }
         overdue: { type: boolean }
@@ -5943,7 +5943,7 @@ components:
             proposed_default: { type: [string, 'null'] }
             hitl_type: { $ref: '#/components/schemas/HitlType' }
             paused_reason: { $ref: '#/components/schemas/PauseReason' }
-            purpose: { type: [string, 'null'], enum: [agent, user_approval, budget, time, loop, null], description: "HITL 항목이면 `HitlRequest.purpose` 를 그대로 싣는다(K-9) — 웹이 task 범위 예산 HITL(세션은 active)에 상향 입력을 붙이려면 카드에서 바로 읽어야 한다. 비-HITL 항목은 null." }
+            purpose: { type: [string, 'null'], enum: [agent, user_approval, budget, time, loop, isolation, null], description: "HITL 항목이면 `HitlRequest.purpose` 를 그대로 싣는다(K-9) — 웹이 task 범위 예산 HITL(세션은 active)에 상향 입력을 붙이려면 카드에서 바로 읽어야 한다. 비-HITL 항목은 null." }
             failure_kind: { $ref: '#/components/schemas/FailureKind' }
             runtime_name: { type: [string, 'null'] }
             grace_ends_at: { type: [string, 'null'], format: date-time }
