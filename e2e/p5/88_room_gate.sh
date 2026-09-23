@@ -22,6 +22,9 @@
 #   F. isolation_confirm: 저장소가 있는 컴퓨터로 none 방의 첫 실행 → 보류(task 0 · runtime_id null · 요청 1 ·
 #      받은 요청 isolation_confirm · purpose isolation) → 승인 → worktree + 그 저장소 · 컴퓨터 고정 ·
 #      「이 방은 …에서 돕니다」 · 번들 workdir.kind worktree.
+#   W. 경로 없는 worktree 방의 첫 실행(T-S-wt · SCREEN §4.5 ⓘ): room_defaults worktree 로 createRoom(kind 만) →
+#      저장소 없는 컴퓨터는 집지 않고 queued_reason runtime · 저장소 둘 → 방장에게 choice(purpose isolation) →
+#      고른 저장소로 고정·「…의 〈저장소〉 에서 워크트리로 돕니다」·번들 worktree · 저장소 하나 → 묻지 않고 바로 나간다.
 #   G. 귀속(FR-3.1.1) previewTriggers: 실행 중 lane 의 에이전트 멘션 → work_source running_lane · 스레드 답글 →
 #      thread · 그 밖(방당 미션 1, R1b1 호환 규칙) → chosen · 게시된 메시지·task 의 work_id = 그 미션.
 #
@@ -214,6 +217,40 @@ chk F.7 "worktree/$REPO/$RID" "$(psqlq "select (isolation->>'kind')||'/'||(isola
 chk F.8 1 "$(psqlq "select count(*) from message where session_id='$SF' and kind='system' and content like '이 방은 mac-f에서 돕니다%'")" "「이 방은 mac-f에서 돕니다 …」 시스템 메시지"
 CL="$(claim)"; B="$(bundle_of "$CL" "$SF")"
 chk F.9 "worktree/$REPO" "$(jq -r '(.workdir.kind // "-")+"/"+(.workdir.repo_path // "-")' <<<"$B")" "첫 실행이 나간다 — 번들 workdir 이 worktree(그 저장소)"
+
+# ───────────────────────────── W ─────────────────────────────────────────────
+step "W. 경로 없는 worktree 방의 첫 실행 (T-S-wt — 조용히 queued 로 멈추지 않는다)"
+fresh w
+probe_repos() { daemon_api "runtimes/$RID/probe" "$(jq -nc --arg root "/tmp/colab-r1b1-$RUN" --argjson repos "$1" --argjson caps "$CAPS" \
+  '{daemon_version:"0.1.0",hostname:"mac-w",capabilities:$caps,repos:[$repos[]|{path:.,remote_url:"",branch:"main",clean:true}],workdir_root:$root,disk:{used_bytes:0},colab_cli:{present:true,version:"0.1.0"}}')" >/dev/null; }
+# mk_room NAME → createRoom(이름 한 칸) + Lead 초대 + Lead 멘션 한 줄 → 방 id
+mk_room() {
+  local id; id="$(api_ok POST "/workspaces/$WS/rooms" "$(jq -nc --arg n "$1" '{name:$n}')" -H "Idempotency-Key: $(uuid)" | jq -r .id)"
+  api_ok POST "/rooms/$id/participants" "$(jq -nc --arg a "$LEAD" '{agent_id:$a}')" >/dev/null
+  post_message "$id" "$(mention Lead "$LEAD") 인사 한 줄" >/dev/null
+  printf '%s' "$id"
+}
+api_ok PATCH "/workspaces/$WS/settings" '{"room_defaults":{"isolation_kind":"worktree"}}' >/dev/null
+SW="$(mk_room "W 워크트리 $RUN")"
+chk W.1 "worktree/-/-" "$(psqlq "select (isolation->>'kind')||'/'||coalesce(isolation->>'repo_path','-')||'/'||coalesce(runtime_id::text,'-') from room where id='$SW'")" "전제: 격리 kind 만 상속 · 경로·컴퓨터 없음"
+chk W.2 0 "$(n_of "$(claim)" "$SW")" "저장소 없는 컴퓨터는 집지 않는다"
+LW="$(psqlq "select lane_id from task where session_id='$SW' and status='queued' limit 1")"
+chk W.3 "runtime/-" "$(api_ok GET "/sessions/$SW/lanes" | jq -r --arg l "$LW" '[.[]|select(.id==$l)][0].queued_reason // "-"')/$(room_col "$SW" runtime_id)" "기다리는 이유 queued_reason runtime(「저장소가 있는 컴퓨터를 기다립니다」) · 고정 안 됨"
+RA="/tmp/colab-r1b1-$RUN/repo-a"; RB="/tmp/colab-r1b1-$RUN/repo-b"
+probe_repos "$(jq -nc --arg a "$RA" --arg b "$RB" '[$a,$b]')"
+chk W.4 0 "$(n_of "$(claim)" "$SW")" "저장소 둘 → 방장이 고를 때까지 보류"
+HW="$(psqlq "select id from hitl_request where session_id='$SW' and purpose='isolation' and status='open'")"
+chk W.5 "room_owner/choice/isolation/2" "$(api_ok GET "/hitl-requests/$HW" | jq -r '.approver_spec+"/"+.type+"/"+(.purpose//"-")+"/"+(.options|length|tostring)')" "어느 저장소로 나눌까요 — choice · 보기 = 저장소 둘"
+chk W.6 isolation_confirm "$(api_ok GET "/inbox?workspace_id=$WS" | jq -r --arg h "$HW" '[.items[]|select(.ref_id==$h)][0].type // "-"')" "받은 요청 isolation_confirm(같은 자리)"
+IFS=$'\t' read -r CODE BODY <<<"$(respond_hitl "$HW" "$(jq -nc --arg b "$RB" '{answer:$b}')")"
+chk W.7 200 "$CODE" "방장이 repo-b 를 고른다"
+CL="$(claim)"; B="$(bundle_of "$CL" "$SW")"
+chk W.8 "worktree/$RB/$RID" "$(jq -r '(.workdir.kind // "-")+"/"+(.workdir.repo_path // "-")' <<<"$B")/$(room_col "$SW" runtime_id)" "고른 저장소로 첫 실행이 나간다 · 컴퓨터 고정"
+chk W.9 1 "$(psqlq "select count(*) from message where session_id='$SW' and kind='system' and content like '이 방은 mac-w의 $RB 에서 워크트리로 돕니다%'")" "「이 방은 mac-w의 …/repo-b 에서 워크트리로 돕니다」"
+probe_repos "$(jq -nc --arg a "$RA" '[$a]')"
+SW1="$(mk_room "W 저장소 하나 $RUN")"
+CL="$(claim)"; B="$(bundle_of "$CL" "$SW1")"
+chk W.10 "worktree/$RA/0" "$(jq -r '(.workdir.kind // "-")+"/"+(.workdir.repo_path // "-")' <<<"$B")/$(psqlq "select count(*) from hitl_request where session_id='$SW1' and purpose='isolation'")" "저장소 하나 → 묻지 않고 그 저장소로 첫 실행(같은 claim)"
 
 # ───────────────────────────── G ─────────────────────────────────────────────
 step "G. 메시지 미션 귀속 — previewTriggers work·work_source (FR-3.1.1)"

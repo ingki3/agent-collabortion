@@ -22,9 +22,11 @@ export interface ConditionEditorProps {
   participants: ConditionEditorParticipant[];
   /** 담당 에이전트 — 리뷰어로 고르면 안내 한 줄. */
   assigneeId?: string | null;
+  /** 리뷰어 필수 문장을 그 자리의 말로(S21 미션 열기는 「세션」이 아니라 방의 말을 쓴다). 비우면 표의 문장. */
+  reviewerRequiredText?: string;
 }
 
-export function ConditionEditor({ value, onChange, participants, assigneeId }: ConditionEditorProps) {
+export function ConditionEditor({ value, onChange, participants, assigneeId, reviewerRequiredText }: ConditionEditorProps) {
   const nameOf = (id: string) => participants.find((p) => p.id === id)?.name ?? id;
   const submitterLabel = value.submitter ? `@${nameOf(value.submitter)}` : CONDITION_EDITOR.submitter_default_short;
   const toggle = (t: CondType, next: boolean) =>
@@ -91,7 +93,7 @@ export function ConditionEditor({ value, onChange, participants, assigneeId }: C
                     ))}
                   </select>
                 </label>
-                {!value.reviewer && <span className="small" style={{ color: "var(--s-wait-text)" }} data-testid="reviewer-required">{CONDITION_EDITOR.reviewer_required}</span>}
+                {!value.reviewer && <span className="small" style={{ color: "var(--s-wait-text)" }} data-testid="reviewer-required">{reviewerRequiredText ?? CONDITION_EDITOR.reviewer_required}</span>}
                 {value.reviewer && value.reviewer === assigneeId && (
                   <span className="small muted" data-testid="reviewer-is-assignee">{CONDITION_EDITOR.reviewer_is_assignee}</span>
                 )}

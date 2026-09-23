@@ -90,9 +90,11 @@ func Require(ctx context.Context, q db.DBTX, roomID, userID uuid.UUID, act Actio
 
 // AuditViewed reports whether this read is a workspace owner·admin looking
 // into an invited room they are not in — the one kind of reading FR-5.3 asks
-// to leave a trace of (`room.audit_viewed`).
-func (a *Access) AuditViewed() bool {
-	return a.RoomRole == "" && a.Visibility == VisInvited && a.wsAdmin()
+// to leave a trace of (`room.audit_viewed`). It is Standing's so the room
+// read (getRoom's trace) and the S5 card (RoomListItem.audit_view, openapi
+// 0.2.6) are one expression.
+func (f Standing) AuditViewed() bool {
+	return f.RoomRole == "" && f.Visibility == VisInvited && f.wsAdmin()
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +139,17 @@ func ActiveTaskCountSQL(room string) string {
 	return `(SELECT count(*) FROM task t WHERE t.session_id = ` + room + ` AND t.status IN ` + activeTaskStatuses + `)`
 }
 
+// RuntimePinnedSQL is "the room has made its first run" — some task of the
+// room has an attempt — as a boolean over the room id expression `room`. ONE
+// definition for updateRoom's 409 runtime_pinned and Room.runtime_pinned
+// (openapi 0.2.7), so S20 never draws the computer and isolation editable
+// for a room the server then refuses to change. It is NOT `runtime_id IS NOT
+// NULL`: S20 may name a computer before the first run, and a worktree room is
+// settled on its first claim before any attempt exists.
+func RuntimePinnedSQL(room string) string {
+	return `EXISTS (SELECT 1 FROM task_attempt ta JOIN task t ON t.id = ta.task_id WHERE t.session_id = ` + room + `)`
+}
+
 // Load is getRoom for one viewer. The counts, the room's own cost and the
 // viewer's unread marker are read here, not stored.
 //
@@ -153,6 +166,7 @@ func Load(ctx context.Context, q db.DBTX, a *Access, now time.Time) (*gen.Room, 
 		estimated                         bool
 		worksActive, lanesActive, tActive int
 		lastActivity                      *time.Time
+		pinned                            bool
 	)
 	err := q.QueryRow(ctx, `
 		SELECT r.id, r.workspace_id, r.name, r.description, r.status::text, r.visibility::text, r.owner_user_id,
@@ -163,12 +177,13 @@ func Load(ctx context.Context, q db.DBTX, a *Access, now time.Time) (*gen.Room, 
 		       `+ActiveTaskCountSQL("r.id")+`,
 		       (SELECT COALESCE(sum(u.cost_usd), 0)::float8 FROM task_usage u JOIN task t ON t.id = u.task_id WHERE t.session_id = r.id),
 		       (SELECT COALESCE(bool_or(u.estimated), false) FROM task_usage u JOIN task t ON t.id = u.task_id WHERE t.session_id = r.id),
-		       (SELECT max(created_at) FROM message m WHERE m.session_id = r.id)
+		       (SELECT max(created_at) FROM message m WHERE m.session_id = r.id),
+		       `+RuntimePinnedSQL("r.id")+`
 		FROM room r WHERE r.id = $1`, a.RoomID).Scan(
 		&out.Id, &out.WorkspaceId, &out.Name, &out.Description, &status, &visibility, &out.OwnerUserId,
 		&deputy, &runtimeID, &isolation, &limits, &autonomy, &defDirector,
 		&blockedReason, &blockedDetail, &out.CreatedBy, &out.CreatedAt, &out.UpdatedAt,
-		&worksActive, &lanesActive, &tActive, &cost, &estimated, &lastActivity)
+		&worksActive, &lanesActive, &tActive, &cost, &estimated, &lastActivity, &pinned)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.NotFound("room")
 	}
@@ -179,6 +194,9 @@ func Load(ctx context.Context, q db.DBTX, a *Access, now time.Time) (*gen.Room, 
 	out.Visibility = gen.RoomVisibility(visibility)
 	out.DeputyOwnerUserId = tasks.NullUUID(deputy)
 	out.RuntimeId = tasks.NullUUID(runtimeID)
+	// openapi 0.2.7: S20 greys the computer and isolation out on the same
+	// judgement updateRoom's 409 runtime_pinned makes (RuntimePinnedSQL).
+	out.RuntimePinned = &pinned
 	out.DefaultDirectorUserId = tasks.NullUUID(defDirector)
 	_ = json.Unmarshal(isolation, &out.Isolation)
 	out.Limits = ParseLimits(limits)
@@ -432,6 +450,10 @@ func List(ctx context.Context, q db.DBTX, wsID, userID uuid.UUID, wsRole string,
 		if myRole != nil {
 			it.MyRoomRole = nullable.NewNullableWithValue(gen.RoomRole(*myRole))
 		}
+		// openapi 0.2.6: S5's 「감사 열람」 chip — the judgement getRoom's
+		// room.audit_viewed trace makes, on this row's own facts.
+		audit := Standing{WorkspaceRole: wsRole, RoomRole: derefStr(myRole), Visibility: visibility}.AuditViewed()
+		it.AuditView = &audit
 		it.LastActivityAt = tasks.NullTime(last)
 		it.Participants = []gen.RoomParticipantRef{}
 		if err := json.Unmarshal(parts, &it.Participants); err != nil {
@@ -718,4 +740,11 @@ func FillAgentRoomCounts(ctx context.Context, q db.DBTX, list []gen.Agent, viewe
 		list[i].HiddenRoomCount = &hidden
 	}
 	return nil
+}
+
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }

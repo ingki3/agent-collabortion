@@ -13,6 +13,7 @@ import {
   allowedCommands, defaultSettings, emit, makeAgent, makeRuntime, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges,
   sseFrame, store, stripUser, TEMPLATES, uuid, type MockInvite, type MockRoom, type MockTask, type MockWork, type Store, type Subscriber,
 } from "./store";
+import { registerRoomDialogs } from "./rooms-dialogs";
 import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
 /**
@@ -55,6 +56,8 @@ function on(method: string, pattern: string, h: Handler) {
   const re = new RegExp("^" + pattern.replace(/\{(\w+)\}/g, (_, k) => { keys.push(k); return "([^/]+)"; }) + "$");
   routes.push({ method, re, keys, h });
 }
+// 방의 다이얼로그·설정 op(T-R2-W3) — 본문은 ./rooms-dialogs.ts(S7 재작성과 이 파일을 나눠 쓰려고 등록 한 줄만 둔다).
+registerRoomDialogs({ on, routes, Problem, requireUser, syncRooms, standingOf, roomDecide, roomDeny, toRoom, emitRoom, validateCondition });
 
 export async function dispatch(req: Req): Promise<Res> {
   for (const r of routes) {
