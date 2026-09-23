@@ -230,12 +230,18 @@ func TestRoomReadPermissionOverHTTP(t *testing.T) {
 		t.Fatalf("readable with no originator = %v, want none", keys(got))
 	}
 
-	// A person cannot use the agent endpoints, and S23 is participants only.
+	// A person cannot use the agent endpoints. S23 is room participants plus
+	// ws owner·admin (audit read, PRD FR-5.3 — review #290 R1-1): a plain
+	// member outside the room is 403, the workspace owner is not.
 	if st, _ := f.rawGet(t, f.p+"/cli/rooms", ""); st != 401 {
 		t.Fatalf("listReadableRooms without a token = %d, want 401", st)
 	}
-	if st, _, _ := f.api.do("GET", f.p+"/rooms/"+f.c.String()+"/reads", nil); st != 403 {
-		t.Fatalf("S23 of a room Dir is not in = %d, want 403", st)
+	outsider := f.addMember(t, "s23-outsider@example.com", "Outsider")
+	if st, _, _ := outsider.do("GET", f.p+"/rooms/"+f.c.String()+"/reads", nil); st != 403 {
+		t.Fatalf("S23 of a room a plain member is not in = %d, want 403", st)
+	}
+	if st, _, _ := f.api.do("GET", f.p+"/rooms/"+f.c.String()+"/reads", nil); st != 200 {
+		t.Fatalf("S23 for the workspace owner (audit read) = %d, want 200", st)
 	}
 }
 

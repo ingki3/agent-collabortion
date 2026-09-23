@@ -200,7 +200,7 @@ func roomNotFound() *Problem {
 }
 
 // roomParticipant is "방 참여자 누구나": a person with a live room_participant
-// row. A room of a workspace the person is not in is 404 (not revealed); a
+// row, or a workspace owner·admin (audit read, PRD FR-5.3). A room of a workspace the person is not in is 404 (not revealed); a
 // member who is not in the room is 403.
 func (s *Server) roomParticipant(r *http.Request, roomID, userID uuid.UUID) *Problem {
 	var wsID uuid.UUID
@@ -221,6 +221,11 @@ func (s *Server) roomParticipant(r *http.Request, roomID, userID uuid.UUID) *Pro
 	}
 	if m == nil {
 		return roomNotFound()
+	}
+	// ws owner·admin read every room for audit (PRD FR-5.3). S23 must not be
+	// more closed than the room itself (review #290 R1-1).
+	if m.Role == "owner" || m.Role == "admin" {
+		return nil
 	}
 	if active == nil || !*active {
 		return apperr.Forbidden("not_participant", "이 방의 참여자만 볼 수 있습니다")

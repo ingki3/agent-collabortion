@@ -190,4 +190,7 @@ func decodeCursor(c string) (time.Time, uuid.UUID, error) {
 		return time.Time{}, uuid.Nil, ErrBadCursor
 	}
 	return t, id, nil
-}
+}// recordDenied stores target_room_id even when the room is hidden from the
+// caller: the row is the audit trail for FR-4.5 「거부도 말한다」. Every read path
+// (entriesSQL) masks it for direction=denied — keep it that way (review #290 NN1).
+
