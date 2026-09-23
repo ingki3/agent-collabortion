@@ -146,6 +146,9 @@ func TestApproversChain(t *testing.T) {
 	if a.Owner != seed.UserID || a.Delegate() != nil {
 		t.Fatalf("sole owner = %+v, want the owner and nobody to hand to", a)
 	}
+	if tn := a.Now(now, now.Add(24*time.Hour), now); tn.Approver != seed.UserID || tn.DelegateAt != nil || tn.Next != nil || tn.NextRole != "" {
+		t.Fatalf("sole owner turn = %+v, want the owner and no next approver", tn)
+	}
 	mk := func(email string, role string, at time.Time) uuid.UUID {
 		t.Helper()
 		var id uuid.UUID
@@ -167,11 +170,12 @@ func TestApproversChain(t *testing.T) {
 		t.Fatalf("delegate = %v, want the oldest other owner %s (not %s, not the admin)", d, older, younger)
 	}
 	created, due := now, now.Add(24*time.Hour)
-	if who, next := a.Now(created, due, now.Add(time.Hour)); who != seed.UserID || next == nil || !next.Equal(now.Add(12*time.Hour)) {
-		t.Fatalf("before half = %s next=%v, want the owner until +12h", who, next)
+	if tn := a.Now(created, due, now.Add(time.Hour)); tn.Approver != seed.UserID || tn.DelegateAt == nil || !tn.DelegateAt.Equal(now.Add(12*time.Hour)) ||
+		tn.Next == nil || *tn.Next != older || tn.NextRole != DelegateWsOwner {
+		t.Fatalf("before half = %+v, want the owner until +12h, then the oldest owner as workspace_owner", tn)
 	}
-	if who, next := a.Now(created, due, now.Add(13*time.Hour)); who != older || next != nil {
-		t.Fatalf("after half = %s next=%v, want the delegate", who, next)
+	if tn := a.Now(created, due, now.Add(13*time.Hour)); tn.Approver != older || tn.DelegateAt != nil || tn.Next != nil || tn.NextRole != "" {
+		t.Fatalf("after half = %+v, want the delegate and nobody next", tn)
 	}
 	deputy := mk("dep@example.com", "member", now)
 	if _, err := pool.Exec(ctx, `UPDATE room SET deputy_owner_user_id = $2 WHERE id = $1`, seed.SessionID, deputy); err != nil {
@@ -182,5 +186,11 @@ func TestApproversChain(t *testing.T) {
 	}
 	if d := a.Delegate(); d == nil || *d != deputy {
 		t.Fatalf("delegate = %v, want the room's deputy first", d)
+	}
+	if tn := a.Now(created, due, now.Add(time.Hour)); tn.Next == nil || *tn.Next != deputy || tn.NextRole != DelegateDeputy {
+		t.Fatalf("before half with a deputy = %+v, want the deputy as room_deputy", tn)
+	}
+	if tn := a.Now(created, due, now.Add(13*time.Hour)); tn.Approver != deputy || tn.Next != nil {
+		t.Fatalf("after half with a deputy = %+v, want the deputy answering", tn)
 	}
 }

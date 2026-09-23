@@ -204,6 +204,18 @@ func (s *Server) inboxAPI(ctx context.Context, r *inboxRow, viewer uuid.UUID, no
 	if r.RecipientBasis != nil {
 		out.RecipientBasis = nullable.NewNullableWithValue(gen.InboxItemRecipientBasis(*r.RecipientBasis))
 	}
+	// openapi 0.2.9: the card's context line names the room in full (SCREEN
+	// §4.14). An item of no room (a workspace-level card) says null.
+	out.Room = nullable.NewNullNullable[struct {
+		Id   openapi_types.UUID `json:"id"`
+		Name string             `json:"name"`
+	}]()
+	if r.SessionID != nil && r.RoomName != nil {
+		out.Room = nullable.NewNullableWithValue(struct {
+			Id   openapi_types.UUID `json:"id"`
+			Name string             `json:"name"`
+		}{Id: *r.SessionID, Name: *r.RoomName})
+	}
 	if r.SessionID != nil && r.SessionName != nil && r.SessionStatus != nil {
 		// status is required on SessionRef (openapi) — a card without it is a
 		// contract violation, not a thinner card.

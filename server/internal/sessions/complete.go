@@ -470,9 +470,8 @@ func (s *Service) publishDecision(ctx context.Context, q db.DBTX, wsID, sessionI
 	}
 	var d DecisionRow
 	if err := q.QueryRow(ctx, `
-		SELECT id, summary, rationale, source::text, ref_id, created_at, work_id
-		FROM decision WHERE id = $1`, decisionID).
-		Scan(&d.ID, &d.Summary, &d.Rationale, &d.Source, &d.RefID, &d.CreatedAt, &d.WorkID); err != nil {
+		SELECT `+DecisionColumns+`
+		FROM decision WHERE id = $1`, decisionID).Scan(d.Dest()...); err != nil {
 		return
 	}
 	sid := sessionID
@@ -656,11 +655,25 @@ type DecisionRow struct {
 	RefID     *uuid.UUID
 	CreatedAt time.Time
 	WorkID    *uuid.UUID
+	// Auto is `decision.auto` — the decision came from an auto_answered
+	// request (openapi Decision.auto, E7-12 「자동」).
+	Auto bool
+}
+
+// DecisionColumns is the SELECT list DecisionRow.Dest scans, in its order.
+// listDecisions, the `decision.created` frame and readRoom all read with the
+// pair, so a column added to the row cannot reach one of them and not the
+// others (decision.auto was in the table and in none of the three).
+const DecisionColumns = `id, summary, rationale, source::text, ref_id, created_at, work_id, auto`
+
+// Dest is the Scan destinations for DecisionColumns.
+func (d *DecisionRow) Dest() []any {
+	return []any{&d.ID, &d.Summary, &d.Rationale, &d.Source, &d.RefID, &d.CreatedAt, &d.WorkID, &d.Auto}
 }
 
 func (s *Service) ListDecisions(ctx context.Context, sessionID uuid.UUID) ([]DecisionRow, error) {
 	rows, err := s.DB.Query(ctx, `
-		SELECT id, summary, rationale, source::text, ref_id, created_at, work_id
+		SELECT `+DecisionColumns+`
 		FROM decision WHERE session_id = $1 ORDER BY created_at`, sessionID)
 	if err != nil {
 		return nil, err
@@ -669,7 +682,7 @@ func (s *Service) ListDecisions(ctx context.Context, sessionID uuid.UUID) ([]Dec
 	out := []DecisionRow{}
 	for rows.Next() {
 		var d DecisionRow
-		if err := rows.Scan(&d.ID, &d.Summary, &d.Rationale, &d.Source, &d.RefID, &d.CreatedAt, &d.WorkID); err != nil {
+		if err := rows.Scan(d.Dest()...); err != nil {
 			return nil, err
 		}
 		out = append(out, d)

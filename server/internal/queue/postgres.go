@@ -25,6 +25,16 @@ type Postgres struct {
 	Clock    clock.Clock
 	Tasks    *tasks.Service
 	Notifier *Notifier
+
+	// AfterWorktreePremise runs between settleWorktree's locked read and its
+	// write — nil in production. It is the seam TestR2WorktreeFirstClaimRace
+	// (#302 · #304 리뷰 NN1) holds two claims in, so both reach the write
+	// together: the room is kept to one computer by two guards (the read's
+	// row lock SKIP LOCKED, and FillWorktree's `runtime_id IS NULL`), and
+	// without the overlap a test could not tell whether either still stands.
+	// A field, not a package var, so the httpapi fixture — a real server's
+	// queue — can hold it.
+	AfterWorktreePremise func()
 }
 
 var _ Queue = (*Postgres)(nil)
@@ -410,14 +420,6 @@ func (p *Postgres) askIsolation(ctx context.Context, tx pgx.Tx, runtimeID uuid.U
 	return nil
 }
 
-// afterWorktreePremise runs between settleWorktree's locked read and its
-// write — nil in production. It is the seam TestWorktreeFirstClaimRace (#302
-// 리뷰 NN1) holds two claims in, so both reach the write together: the room is
-// kept to one computer by two guards (the read's row lock SKIP LOCKED, and
-// FillWorktree's `runtime_id IS NULL`), and without the overlap a test could
-// not tell whether either still stands.
-var afterWorktreePremise func()
-
 // settleWorktree is the first claim of every worktree room of this workspace
 // that has no computer yet (roomgate.PlanWorktree). The rooms are locked SKIP
 // LOCKED like askIsolation's: two computers polling at once, one settles the
@@ -461,8 +463,8 @@ func (p *Postgres) settleWorktree(ctx context.Context, tx pgx.Tx, runtimeID uuid
 		return err
 	}
 	for _, r := range list {
-		if afterWorktreePremise != nil {
-			afterWorktreePremise()
+		if p.AfterWorktreePremise != nil {
+			p.AfterWorktreePremise()
 		}
 		switch settle, repo := roomgate.PlanWorktree(r.repo, r.repos); settle {
 		case roomgate.SettleFill:

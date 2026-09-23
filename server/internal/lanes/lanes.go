@@ -221,3 +221,43 @@ func Publish(ctx context.Context, hub *realtime.Hub, q db.DBTX, laneID uuid.UUID
 	sid := uuid.UUID(l.SessionId)
 	return hub.Publish(ctx, q, wsID, &sid, "lane.updated", l)
 }
+
+// FillMySubscription is openapi 0.2.9 Lane.my_subscription for listLanes: the
+// caller's setLaneSubscription value, null when they never set one (the
+// mission's and the room's subscription decide). It is per-caller, so
+// Load/Publish leave it out — a broadcast `lane.updated` frame has no single
+// caller, like `actions`.
+func FillMySubscription(ctx context.Context, q db.DBTX, list []gen.Lane, viewer uuid.UUID) error {
+	if len(list) == 0 {
+		return nil
+	}
+	ids := make([]uuid.UUID, len(list))
+	for i, l := range list {
+		ids[i] = l.Id
+	}
+	rows, err := q.Query(ctx, `SELECT lane_id, enabled FROM lane_subscription WHERE lane_id = ANY($1) AND user_id = $2`, ids, viewer)
+	if err != nil {
+		return fmt.Errorf("lanes: subscriptions: %w", err)
+	}
+	defer rows.Close()
+	set := map[uuid.UUID]bool{}
+	for rows.Next() {
+		var id uuid.UUID
+		var on bool
+		if err := rows.Scan(&id, &on); err != nil {
+			return err
+		}
+		set[id] = on
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range list {
+		if on, ok := set[list[i].Id]; ok {
+			list[i].MySubscription = nullable.NewNullableWithValue(on)
+		} else {
+			list[i].MySubscription = nullable.NewNullNullable[bool]()
+		}
+	}
+	return nil
+}
