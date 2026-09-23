@@ -73,6 +73,12 @@ export interface HitlBodyProps {
   busy?: boolean;
   /** 인박스는 카드 폭이 넓어 한 줄, 타임라인은 좁아 두 줄 — 자리에 따른 밀도만 바꾼다. */
   dense?: boolean;
+  /**
+   * 권한 안내 줄(「응답 권한이 없습니다 — Director·deputy 만…」·「🔒 HH:MM부터…」)을 그리지 않는다. v0.19 인박스 카드는 머리에
+   * **수신자 근거와 위임 줄**(「부방장으로서 · 14:30부터 답할 수 있습니다」)을 이미 적는다 — 방 층 요청의 승인자는 Director 가 아니라
+   * 방장이라 이 줄의 문장이 틀린 층을 말하게 된다(T-R2-W4a).
+   */
+  hideGate?: boolean;
 }
 
 /** 기한 한 줄 — overdue 면 빨강 굵게(COMPONENTS §2.4 `ZHNoQ`). */
@@ -181,12 +187,12 @@ export function HitlBody(props: HitlBodyProps) {
         </p>
       )}
 
-      {open && permission === "never" && (
+      {open && permission === "never" && !props.hideGate && (
         <p className="hitl__gate" data-testid="hitl-no-right">
           응답 권한이 없습니다 — Director·deputy 만 답할 수 있습니다. 카드는 누구나 볼 수 있습니다.
         </p>
       )}
-      {open && permission === "later" && (
+      {open && permission === "later" && !props.hideGate && (
         <p className="hitl__gate" data-testid="hitl-gate">
           {lock} 응답 가능 — 기한의 절반이 지나면 deputy 에게 위임됩니다(FR-5.2).
         </p>
@@ -300,7 +306,7 @@ export function HitlBody(props: HitlBodyProps) {
                 거절
               </button>
             )}
-            {lock && permission === "later" && (
+            {lock && permission === "later" && !props.hideGate && (
               <span className="hitl__gate" data-testid="hitl-lock">{lock}</span>
             )}
           </div>

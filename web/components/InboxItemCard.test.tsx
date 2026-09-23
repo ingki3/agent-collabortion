@@ -68,10 +68,11 @@ describe("심각도 배지 — 글리프는 심각도, 색은 원인 상태(리�
 });
 
 describe("버튼은 서버가 준 actions 로만 나온다", () => {
-  it("응답 권한이 없으면 '세션 열기' 하나뿐이다(E7-11 · U10-1)", () => {
+  it("응답 권한이 없으면 '방 열기' 바로가기 하나뿐이다(E7-11 · U10-1 · v0.19 §4.14 — 이동은 버튼이 아니라 바로가기)", () => {
     render(<InboxItemCard item={item({ actions: ["open_session"] })} onAction={vi.fn()} />);
     expect(screen.queryByTestId("hitl-answer")).toBeNull();
-    expect(screen.getByTestId("inbox-action-open_session")).toBeTruthy();
+    expect(screen.queryByTestId("inbox-action-open_session")).toBeNull();
+    expect(screen.getByTestId("inbox-open-room").getAttribute("href")).toBe("/rooms/s1");
   });
 
   it("run_failed 의 인라인 동작은 '재시도' 가 아니라 '다시 지시' 다(리뷰 #01 C4)", () => {
@@ -110,7 +111,7 @@ describe("hitl_request — 인박스에서 맥락 없이 답한다(F2, U3)", () 
     render(<InboxItemCard item={item({ card: { title: "보고서를 승인해 주세요", hitl_type: "approval" }, actions: ["approve", "reject", "open_session"] })} onRespond={vi.fn()} />);
     expect(screen.getByTestId("hitl-approve")).toBeTruthy();
     expect(screen.getByTestId("hitl-reject")).toBeTruthy();
-    expect(screen.getByTestId("inbox-action-open_session")).toBeTruthy();
+    expect(screen.getByTestId("inbox-open-room")).toBeTruthy();
   });
 
   it("deputy 위임 항목은 '위임됨 · 지금부터 응답 가능' 이라고 밝힌다(O5, U9-4)", () => {

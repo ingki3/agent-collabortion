@@ -18,6 +18,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { COMPUTER_ROOMS } from "@/lib/screens-v19";
 import { useParams } from "next/navigation";
 import { api, errorMessage, isApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -174,7 +175,8 @@ export default function WorkdirsPage() {
                 </div>
                 <div className="wd__meta small muted-3">
                   <span data-testid="workdir-owner">{owner}</span>
-                  {w.session?.title && <> · <Link href={`/rooms/${w.session_id}`}>{w.session.title}</Link></>}
+                  {/* 쓰는 중인 방(§4.16) — 작업 폴더는 방×에이전트 단위다(FR-6.1). `session_id` 가 방 id 다(§7 이관 규칙). */}
+                  {w.session?.title && <> · <span data-testid="workdir-room">{COMPUTER_ROOMS.using_room} <Link href={`/rooms/${w.session_id}`}>{w.session.title}</Link></span></>}
                   {" · "}<span data-testid="workdir-size">{formatBytes(w.disk_bytes)}</span>
                   {" · 마지막 사용 "}{relativeTime(w.last_used_at)}
                   {" · 보존 "}<span data-testid="workdir-retention">{retentionLabel(w)}</span>

@@ -162,9 +162,9 @@ describe("workspace settings — 부분 갱신 · 권한", () => {
     expect((await must<WorkspaceSettings>("GET", `/workspaces/${id}/settings`)).workdir_retention_days).toBe(3);
   });
 
-  it("GET 의 키 집합이 실서버(S-69 뒤 멤버 GET 200)와 같다", async () => {
+  it("GET 의 키 집합이 실서버(S-69 뒤 멤버 GET 200 · v0.2.0 room_defaults·room_read)와 같다", async () => {
     const s = await must<WorkspaceSettings>("GET", `/workspaces/${await ws()}/settings`);
-    expect(Object.keys(s).sort()).toEqual(["budget_policy", "context_reuse", "default_isolation", "loop_limits", "runtime_offline_grace", "runtime_policy", "task_event_masking", "updated_at", "workdir_disk_quota_gb", "workdir_retention_days", "workspace_id"]);
+    expect(Object.keys(s).sort()).toEqual(["budget_policy", "context_reuse", "default_isolation", "loop_limits", "room_defaults", "room_read", "runtime_offline_grace", "runtime_policy", "task_event_masking", "updated_at", "workdir_disk_quota_gb", "workdir_retention_days", "workspace_id"]);
   });
 });
 

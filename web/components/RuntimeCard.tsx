@@ -13,6 +13,7 @@
  * 필요하므로 「자세히 보기」 안으로 접고, **사람이 지금 무언가 해야 하는 것**(로그인 필요 · 도구 제한 불가)만
  * 밖에 남긴다. colab CLI 부재도 같은 이유로 밖에 있다(그 자리는 별도 경고다).
  */
+import { COMPUTER_ROOMS } from "@/lib/screens-v19";
 import "./runtime-card.css";
 import { Icon } from "./Icon";
 import { durationSince, relativeTime } from "@/lib/time";
@@ -140,13 +141,18 @@ export function RuntimeCard({ rt, children }: { rt: Runtime; children?: React.Re
       )}
 
       {!online && (rt.grace_ends_at || rt.offline_since) && (
+        // v0.19(§4.16): 유예를 넘기면 멈추는 단위는 **방**이다 — 계약 0.2.9 `room_count` 가 오면 옛 「세션 N개가 일시정지됨」 대신 방 줄을 쓴다.
         <div className="small" style={{ marginTop: 8, color: "var(--s-fail-text)" }} data-testid="runtime-grace" data-grace-expired={String(graceView(rt).expired)}>
-          {graceView(rt).text}
+          {graceView(rt.room_count != null ? { ...rt, paused_session_count: 0 } : rt).text}
+          {rt.room_count != null && rt.room_count > 0 && graceView(rt).expired && (
+            <div data-testid="runtime-rooms-stopped">{COMPUTER_ROOMS.stopped(rt.room_count)}</div>
+          )}
         </div>
       )}
       <div className="small muted-3" style={{ marginTop: 6 }} data-testid="runtime-running">
         {rt.running_task_count > 0 ? `지금 하는 일 ${rt.running_task_count}개` : "지금 하는 일 없음"}
         {rt.workdir_disk_bytes ? ` · 작업 폴더 ${(rt.workdir_disk_bytes / 1e9).toFixed(1)}GB` : ""}
+        {rt.room_count ? <span data-testid="runtime-rooms"> · {COMPUTER_ROOMS.bound(rt.room_count)}</span> : null}
       </div>
       {children}
     </div>

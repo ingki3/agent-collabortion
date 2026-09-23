@@ -4,10 +4,12 @@
  *
  * 화면(`app/(app)/settings/page.tsx`)은 이 표를 그리기만 한다. 테스트는 여기(payload 모양·판정)와 화면(탭·권한)을 따로 잰다.
  */
+import { ROOM_DEFAULTS_TAB, ROOM_READ } from "@/lib/screens-v19";
+import { AUDIT } from "@/lib/audit";
 import type { IsolationKind, MemberRole, Metric, ObservationKey, ObservationRow, RuntimeKind, WorkspaceSettings, WorkspaceSettingsUpdate } from "@/lib/api/types";
 
 // ── 탭 ──────────────────────────────────────────────────────────────────────
-export type SettingsTab = "members" | "runtime" | "budget" | "loop" | "context" | "workdir" | "security" | "notifications" | "dashboard";
+export type SettingsTab = "members" | "runtime" | "rooms" | "budget" | "loop" | "context" | "workdir" | "security" | "notifications" | "dashboard" | "audit";
 
 /**
  * SCREEN §4.10 표의 8탭 + 9번째 「대시보드」(PRD §11, G9). `who` 는 그 표의 권한 열 —
@@ -17,13 +19,18 @@ export type SettingsTab = "members" | "runtime" | "budget" | "loop" | "context" 
 export const SETTINGS_TABS: readonly { key: SettingsTab; label: string; who: "admin" | "owner" | "personal" | "read"; desc: string }[] = [
   { key: "members", label: "멤버", who: "admin", desc: "누가 이 워크스페이스에 있고 무엇을 할 수 있는지" },
   { key: "runtime", label: "컴퓨터 정책", who: "admin", desc: "컴퓨터 한 대가 동시에 맡는 일의 상한" },
+  // v0.19(§4.17, T-R2-W4a) — 방 만들기가 이름 한 칸이 되면서 이 값이 모든 방의 실제 값이 된다. 문구는 lib/screens-v19.ts.
+  { key: "rooms", label: ROOM_DEFAULTS_TAB.label, who: "admin", desc: ROOM_DEFAULTS_TAB.desc },
   { key: "budget", label: "예산", who: "admin", desc: "새 세션·할 일에 기본으로 붙는 비용 상한" },
   { key: "loop", label: "루프 상한", who: "admin", desc: "에이전트끼리 주고받기가 끝없이 돌지 않게 하는 상한" },
-  { key: "context", label: "컨텍스트", who: "admin", desc: "이전 세션의 요약을 얼마나 넘길지" },
+  // v0.19: 「컨텍스트 재사용 상한」(FR-4.4)은 버렸다(§12.1-7) — 이 탭은 다른 방 읽기 상한(FR-4.5)만 남는다.
+  { key: "context", label: "컨텍스트", who: "admin", desc: ROOM_READ.tab_desc },
   { key: "workdir", label: "작업 폴더", who: "admin", desc: "기본 격리 방식과 작업 폴더의 보존·용량·연결 끊김 유예" },
   { key: "security", label: "보안", who: "owner", desc: "활동 기록에 무엇을 남길지" },
   { key: "notifications", label: "알림", who: "personal", desc: "내게 오는 이메일·푸시와 세션 구독 기본값" },
   { key: "dashboard", label: "대시보드", who: "read", desc: "팀이 목표 지표(10개)에 닿았는지 · 목표 없는 관찰 5행" },
+  // v0.19 M7 — S15 활동 로그는 설정 안의 탭으로(최상위 내비가 아니다, §4.18). 누르면 `/settings/audit` 로 간다.
+  { key: "audit", label: AUDIT.tab, who: "admin", desc: AUDIT.tab_desc },
 ];
 export const DEFAULT_TAB: SettingsTab = "members";
 export const isSettingsTab = (v: string | null | undefined): v is SettingsTab => SETTINGS_TABS.some((t) => t.key === v);
@@ -106,6 +113,16 @@ export function diffSettings(orig: WorkspaceSettings, draft: WorkspaceSettings):
   group("budget_policy");
   group("context_reuse");
   group("runtime_policy");
+  // v0.19 두 묶음(room_defaults · room_read)도 같은 규칙 — 바뀐 키만. room_defaults.limits 는 한 칸이라 통째로(서버가 limits 를 한 값으로 받는다).
+  for (const k of ["room_defaults", "room_read"] as const) {
+    const a = (orig[k] ?? {}) as Record<string, unknown>;
+    const b = (draft[k] ?? {}) as Record<string, unknown>;
+    const changed: Record<string, unknown> = {};
+    for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+      if (JSON.stringify(a[key] ?? null) !== JSON.stringify(b[key] ?? null)) changed[key] = b[key];
+    }
+    if (Object.keys(changed).length) (out as Record<string, unknown>)[k] = changed;
+  }
   if (orig.default_isolation !== draft.default_isolation) out.default_isolation = draft.default_isolation;
   if (orig.workdir_retention_days !== draft.workdir_retention_days) out.workdir_retention_days = draft.workdir_retention_days;
   if ((orig.workdir_disk_quota_gb ?? null) !== (draft.workdir_disk_quota_gb ?? null)) out.workdir_disk_quota_gb = draft.workdir_disk_quota_gb ?? null;

@@ -39,6 +39,7 @@ import { api, errorMessage, isApiError, newIdempotencyKey } from "@/lib/api/clie
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
 import { emptyTurnNote, isEmptyTurn } from "@/lib/feed";
+import { useMarkRoomRead } from "@/lib/unread";
 import {
   BOARD_FOLDED, filterLanes, isAuditView, isOpenWork, matchesSel, needsMe, panelMode, parseSel, pausedLayer, postBlockedBy, sameSel, selParam,
   type ChipSel,
@@ -141,6 +142,8 @@ export default function RoomPage() {
   const composerRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const focusedOnce = useRef(false);
+  // 안 읽음(M4) — 보고 있는 동안 마지막 메시지까지 읽음으로 옮긴다. 참여하지 않은 사람(공개 방·감사 열람)은 표식이 없다(서버 403).
+  useMarkRoomRead(roomId, messages, room?.my_room_role != null);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30_000);
@@ -790,7 +793,7 @@ export default function RoomPage() {
             const h = hitls.find((x) => x.status === "open" && x.can_respond && (x.purpose === "budget" || x.purpose === "loop"));
             return h?.message_id ? () => jumpToMessage(h.message_id!) : undefined;
           })()}
-          rebindHref={room.runtime_id ? `/runtimes/${room.runtime_id}` : "/runtimes"}
+          rebindHref={room.runtime_id ? `/runtimes/${room.runtime_id}/rebind?room=${roomId}` : "/runtimes"}
         />
       )}
       {archived && (

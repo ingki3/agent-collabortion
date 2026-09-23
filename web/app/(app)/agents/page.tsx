@@ -12,6 +12,8 @@ import Link from "next/link";
 import { PageHead } from "@/components/PageHead";
 import { Badge } from "@/components/Badge";
 import { badgeSpec } from "@/components/badge-map";
+import { AgentRooms } from "@/components/AgentRooms";
+import { AGENT_ROOMS } from "@/lib/screens-v19";
 import { api, errorMessage } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import type { Agent, AgentRole, AgentStatus, AgentTemplate, RespondTo } from "@/lib/api/types";
@@ -33,6 +35,8 @@ export default function AgentsPage() {
   const [role, setRole] = useState<string>("");
   const [status, setStatus] = useState<string>("");
   const [mine, setMine] = useState(false);
+  /** 참여 방 필터(§4.15 「필터(… · 참여 방)」) — 볼 수 있는 방만 고를 수 있다. */
+  const [roomF, setRoomF] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -80,8 +84,14 @@ export default function AgentsPage() {
     if (role) list = list.filter((a) => a.role === role);
     if (status) list = list.filter((a) => a.status === status);
     if (mine && me) list = list.filter((a) => a.owner_id === me.user.id);
+    if (roomF) list = list.filter((a) => (a.rooms ?? []).some((r) => r.id === roomF));
     return list;
-  }, [agents, role, status, mine, me]);
+  }, [agents, role, status, mine, me, roomF]);
+  const roomOptions = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of agents ?? []) for (const r of a.rooms ?? []) m.set(r.id, r.name);
+    return [...m.entries()];
+  }, [agents]);
 
   return (
     <div>
@@ -144,6 +154,12 @@ export default function AgentsPage() {
           <option value="">상태 전체</option>
           {(["idle", "working", "waiting_human", "error", "offline", "disabled"] as AgentStatus[]).map((s) => <option key={s} value={s}>{badgeSpec("agent", s).label}</option>)}
         </select>
+        {roomOptions.length > 0 && (
+          <select className="select" style={{ width: "auto" }} value={roomF} onChange={(e) => setRoomF(e.target.value)} aria-label={AGENT_ROOMS.filter_room} data-testid="agent-filter-room">
+            <option value="">{AGENT_ROOMS.filter_room_all}</option>
+            {roomOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+        )}
         <label className="small muted">
           <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> 내가 만든 것만
         </label>
@@ -162,7 +178,9 @@ export default function AgentsPage() {
           {shown.map((a) => {
             const prof = a.profiles.find((p) => p.is_default) ?? a.profiles[0];
             return (
-              <Link key={a.id} href={`/agents/${a.id}`} className="card" data-testid="agent-card" data-agent-id={a.id} style={{ textDecoration: "none", display: "block" }}>
+              // 카드 = 링크(편집) + 방 줄(펼침 버튼). 버튼을 링크 안에 두면 누를 수 없어 둘을 형제로 둔다(S5 카드와 같은 모양).
+              <div key={a.id} className="card" data-testid="agent-card" data-agent-id={a.id}>
+              <Link href={`/agents/${a.id}`} style={{ textDecoration: "none", display: "block", color: "inherit" }} data-testid="agent-card-link">
                 <div className="row" style={{ justifyContent: "space-between" }}>
                   <b>@{a.name}</b>
                   <Badge kind="agent" value={a.status} size="sm" />
@@ -177,6 +195,8 @@ export default function AgentsPage() {
                 </div>
                 {a.definition_source && <div className="small muted-3">템플릿 {a.definition_source} v{a.definition_version}</div>}
               </Link>
+              <AgentRooms agent={a} />
+              </div>
             );
           })}
         </div>

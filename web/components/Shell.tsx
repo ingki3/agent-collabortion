@@ -11,6 +11,7 @@ import { AppNav } from "./AppNav";
 import { ConnectionBanner } from "./ConnectionBanner";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { StreamProvider, useStreamState, useWorkspaceStream } from "@/lib/realtime/StreamContext";
+import { useRoomsUnreadTotal } from "@/lib/unread";
 import type { StreamEvent } from "@/lib/api/types";
 
 export function Shell({ children }: { children: React.ReactNode }) {
@@ -68,6 +69,7 @@ function ShellFrame({ children }: { children: React.ReactNode }) {
   const onResync = useCallback(() => void refreshInbox(), [refreshInbox]);
   useWorkspaceStream(workspace?.id, onEvent, { onResync });
   const conn = useStreamState() ?? "connecting";
+  const roomsUnread = useRoomsUnreadTotal(workspace?.id); // 「방」 옆 안 읽음 합계(v0.19 M4)
   if (!me || !workspace) return null;
 
   return (
@@ -76,6 +78,7 @@ function ShellFrame({ children }: { children: React.ReactNode }) {
         workspaceName={workspace.name}
         current={pathname}
         inboxCount={inbox}
+        roomsUnread={roomsUnread}
         showSettings={canManage}
         userName={me.user.display_name}
         onLogout={() => void logout()}
