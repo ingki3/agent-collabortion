@@ -56,17 +56,33 @@ type inboxRow struct {
 	SessionDirector *uuid.UUID
 	SessionDeputy   *uuid.UUID
 	SessionPaused   *string
+
+	// v0.2.0 (T-R1b3): the room · mission · sub-mission the item is about, why
+	// it is in this person's inbox, and the room's name for room-level cards.
+	WorkID         *uuid.UUID
+	LaneID         *uuid.UUID
+	RecipientBasis *string
+	RoomName       *string
 }
 
 const selectInbox = `
 	SELECT i.id, i.member_id, m.workspace_id, i.type::text, i.severity::text, i.session_id, wk.title, wk.status::text,
 	       i.ref_id, i.read_at, i.created_at,
 	       h.type::text, h.question, h.context, h.proposed_default, h.due_at, h.overdue, h.status::text,
-	       h.purpose::text, h.approver_spec, h.created_at, a.name, wk.director_user_id, wk.deputy_user_id, wk.paused_reason::text
+	       h.purpose::text, h.approver_spec, h.created_at, a.name, wk.director_user_id, wk.deputy_user_id, wk.paused_reason::text,
+	       i.work_id, i.lane_id, i.recipient_basis, s.name
 	FROM inbox_item i
 	JOIN member m ON m.id = i.member_id
 	LEFT JOIN room s ON s.id = i.session_id
-	LEFT JOIN work wk ON wk.room_id = s.id
+	-- The item's mission is its work_id. An item written before work_id was
+	-- filled belongs to the room's mission only when the room has exactly one
+	-- — a JOIN on room_id would repeat the item once per mission (T-R1b3,
+	-- R1b 인계 (d) handlers_inbox.go:69).
+	LEFT JOIN LATERAL (
+	  SELECT w.title, w.status, w.director_user_id, w.deputy_user_id, w.paused_reason FROM work w
+	  WHERE w.id = i.work_id
+	     OR (i.work_id IS NULL AND w.room_id = s.id AND (SELECT count(*) FROM work o WHERE o.room_id = s.id) = 1)
+	  LIMIT 1) wk ON true
 	-- room_paused · isolation_confirm (migration r1b1_room_gate) are room-owner approvals: their
 	-- ref is the request, and the card reads it exactly like hitl_request's.
 	LEFT JOIN hitl_request h ON h.id = i.ref_id AND i.type IN ('hitl_request', 'room_paused', 'isolation_confirm')
@@ -80,7 +96,8 @@ func scanInbox(rows pgx.Rows) ([]inboxRow, error) {
 		if err := rows.Scan(&r.ID, &r.MemberID, &r.WorkspaceID, &r.Type, &r.Severity, &r.SessionID, &r.SessionName, &r.SessionStatus,
 			&r.RefID, &r.ReadAt, &r.CreatedAt,
 			&r.HitlType, &r.HitlQuestion, &r.HitlContext, &r.HitlDefault, &r.HitlDueAt, &r.HitlOverdue, &r.HitlStatus,
-			&r.HitlPurpose, &r.HitlSpec, &r.HitlCreatedAt, &r.HitlAgentName, &r.SessionDirector, &r.SessionDeputy, &r.SessionPaused); err != nil {
+			&r.HitlPurpose, &r.HitlSpec, &r.HitlCreatedAt, &r.HitlAgentName, &r.SessionDirector, &r.SessionDeputy, &r.SessionPaused,
+			&r.WorkID, &r.LaneID, &r.RecipientBasis, &r.RoomName); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -182,6 +199,12 @@ func (s *Server) inboxAPI(ctx context.Context, r *inboxRow, viewer uuid.UUID, no
 		SessionId: tasks.NullUUID(r.SessionID), RefId: tasks.NullUUID(r.RefID),
 		ReadAt: tasks.NullTime(r.ReadAt), CreatedAt: r.CreatedAt,
 		DueAt: nullableTime(nil),
+		// v0.2.0: room_id is session_id under its new name (R4 까지 같은 값).
+		RoomId: tasks.NullUUID(r.SessionID), WorkId: tasks.NullUUID(r.WorkID), LaneId: tasks.NullUUID(r.LaneID),
+	}
+	out.RecipientBasis = nullable.NewNullNullable[gen.InboxItemRecipientBasis]()
+	if r.RecipientBasis != nil {
+		out.RecipientBasis = nullable.NewNullableWithValue(gen.InboxItemRecipientBasis(*r.RecipientBasis))
 	}
 	if r.SessionID != nil && r.SessionName != nil && r.SessionStatus != nil {
 		// status is required on SessionRef (openapi) — a card without it is a
@@ -248,6 +271,14 @@ func (s *Server) inboxAPI(ctx context.Context, r *inboxRow, viewer uuid.UUID, no
 	case inbox.TypeRunFailed:
 		title = "작업이 실패했습니다"
 		canRespond = viewer == derefUUID(r.SessionDirector)
+	case inbox.TypeRoomInvited:
+		title = "방에 초대되었습니다"
+		if r.RoomName != nil {
+			body = *r.RoomName
+		}
+	case inbox.TypeWorkdirQuota:
+		title = "작업 폴더가 용량 상한에 닿았습니다"
+		body = "정리하기 전까지 새 작업 폴더를 만들 수 없습니다 — 끝난 방의 작업 폴더를 정리해 주세요"
 	}
 	acts := inbox.Actions(r.Type, hitlType, canRespond)
 	out.Actions = make([]gen.InboxItemActions, 0, len(acts))

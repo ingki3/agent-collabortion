@@ -36,6 +36,8 @@ func NewService(pool *pgxpool.Pool, c clock.Clock, h *realtime.Hub, log *slog.Lo
 type SweepResult struct {
 	Deleted int
 	Blocked int
+	// QuotaNotices is how many `workdir_quota` items this pass wrote.
+	QuotaNotices int
 }
 
 // liveLaneSQL is the GC gate: some lane using workdir `w` is still alive.
@@ -271,7 +273,40 @@ func (s *Service) SweepGC(ctx context.Context) (SweepResult, error) {
 		// is still full.
 		out.Deleted += len(cmd.Workdirs)
 	}
+	if n, err := s.notifyQuota(ctx, now); err != nil {
+		s.warn("workdirs: quota notice", "err", err)
+	} else {
+		out.QuotaNotices = n
+	}
 	return out, nil
+}
+
+// notifyQuota is FR-6.4's disk quota as a `workdir_quota` item (openapi
+// InboxItemType v0.2.0): a workspace whose folders hold `workdir_disk_quota_gb`
+// or more tells its owners — the people who can raise the quota or clear S13.
+// One unread item per owner at a time: the sweep runs every minute, and the
+// rule E14-10 pins for the offline sweep holds here too. Returns how many
+// items this pass wrote.
+func (s *Service) notifyQuota(ctx context.Context, now time.Time) (int, error) {
+	tag, err := s.DB.Exec(ctx, `
+		WITH used AS (
+		  SELECT r.workspace_id, sum(w.disk_bytes) AS bytes
+		  FROM workdir w JOIN room r ON r.id = w.session_id
+		  WHERE w.status <> 'deleted' GROUP BY r.workspace_id)
+		INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, recipient_basis, created_at)
+		SELECT m.id, 'workdir_quota'::inbox_item_type, $1::inbox_severity, NULL, NULL, 'workspace_owner', $2
+		FROM workspace_settings ws
+		JOIN used u ON u.workspace_id = ws.workspace_id
+		JOIN member m ON m.workspace_id = ws.workspace_id AND m.role = 'owner'
+		WHERE ws.workdir_disk_quota_gb IS NOT NULL AND ws.workdir_disk_quota_gb > 0
+		  AND u.bytes >= ws.workdir_disk_quota_gb::bigint * $3
+		  AND NOT EXISTS (SELECT 1 FROM inbox_item i
+		                  WHERE i.member_id = m.id AND i.type = 'workdir_quota' AND i.read_at IS NULL)`,
+		inbox.Severity(inbox.TypeWorkdirQuota), now, gib)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 // recordBlocked writes FR-6.4's "삭제하지 않고 알린다" and returns whether this

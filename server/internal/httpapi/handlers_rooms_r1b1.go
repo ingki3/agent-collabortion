@@ -17,6 +17,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
+	"github.com/ingki3/agent-collabortion/server/internal/rooms"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
@@ -33,47 +34,13 @@ import (
 // blockRoom · unblockRoom — 「이 방 멈춤」(manual)
 // ---------------------------------------------------------------------------
 
-// roomManager is the gate for the manual switch: the room owner and deputy,
-// and the workspace's owners and admins (FR-2.4). A non-member gets the 404
-// every room-scoped op gives, so the id's existence does not leak.
-func (s *Server) roomManager(r *http.Request, roomID uuid.UUID) (*gen.User, *roomgate.State, *Problem) {
-	u, p := s.user(r)
-	if p != nil {
-		return nil, nil, p
-	}
-	st, err := roomgate.Load(r.Context(), s.DB, roomID)
-	if errors.Is(err, roomgate.ErrNotFound) {
-		return nil, nil, apperr.NotFound("room")
-	}
-	if err != nil {
-		return nil, nil, apperr.Internal(err)
-	}
-	m, err := s.Auth.Member(r.Context(), st.WorkspaceID, u.Id)
-	if err != nil {
-		return nil, nil, apperr.Internal(err)
-	}
-	if m == nil {
-		return nil, nil, apperr.NotFound("room")
-	}
-	if !mayManageRoom(st, u.Id, m.Role) {
-		return nil, nil, apperr.Forbidden("not_room_manager",
-			"방장·부방장이나 워크스페이스 소유자·관리자만 이 방을 멈추거나 풀 수 있습니다")
-	}
-	return u, st, nil
-}
-
-// mayManageRoom is FR-2.4's list of who may put the manual stop up and take
-// it down: the same people, so a stop can always be undone by whoever could
-// have made it.
-func mayManageRoom(st *roomgate.State, userID uuid.UUID, wsRole string) bool {
-	if userID == st.Owner || (st.Deputy != nil && userID == *st.Deputy) {
-		return true
-	}
-	return wsRole == "owner" || wsRole == "admin"
-}
+// Who may put the manual stop up and take it down is rooms.Decide(ActBlock)
+// — the stewards (방장·부방장·ws owner·admin, FR-2.4), the same people both
+// ways so a stop can always be undone by whoever could have made it. A caller
+// who cannot see the room gets 404; an archived room 409 room_archived.
 
 func (s *Server) BlockRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
-	u, _, p := s.roomManager(r, roomId)
+	u, _, p := s.roomGate(r, roomId, rooms.ActBlock)
 	if p != nil {
 		writeProblem(w, p)
 		return
@@ -112,11 +79,11 @@ func (s *Server) BlockRoom(w http.ResponseWriter, r *http.Request, roomId gen.Ro
 		return
 	}
 	roomgate.PublishUpdated(r.Context(), s.Hub, s.DB, roomId)
-	s.roomOut(r.Context(), w, roomId, u.Id)
+	s.roomOut(r.Context(), w, http.StatusOK, roomId, u.Id)
 }
 
 func (s *Server) UnblockRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
-	u, _, p := s.roomManager(r, roomId)
+	u, _, p := s.roomGate(r, roomId, rooms.ActBlock)
 	if p != nil {
 		writeProblem(w, p)
 		return
@@ -155,7 +122,7 @@ func (s *Server) UnblockRoom(w http.ResponseWriter, r *http.Request, roomId gen.
 	}
 	s.Queue.Notifier.Notify()
 	roomgate.PublishUpdated(r.Context(), s.Hub, s.DB, roomId)
-	s.roomOut(r.Context(), w, roomId, u.Id)
+	s.roomOut(r.Context(), w, http.StatusOK, roomId, u.Id)
 }
 
 // blockedReasonText names a stop for the 409s (SCREEN §4.6's banner words).
@@ -366,117 +333,4 @@ func requeuePausedLanes(ctx context.Context, tx pgx.Tx, col string, id uuid.UUID
 		WHERE l.`+col+` = $1 AND l.status = 'paused'
 		  AND EXISTS (SELECT 1 FROM task t WHERE t.lane_id = l.id AND t.status = 'queued')`, id, now)
 	return err
-}
-
-// ---------------------------------------------------------------------------
-// The Room the switch answers with (openapi Room)
-// ---------------------------------------------------------------------------
-
-func (s *Server) roomOut(ctx context.Context, w http.ResponseWriter, roomID, viewer uuid.UUID) {
-	out, err := roomAPI(ctx, s.DB, roomID, viewer, s.Clock.Now())
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-// roomAPI renders a room (openapi Room) for `viewer`. The gate's banner
-// fields that move with time — who may answer now and when the next one may
-// (`approver` · `delegate_at`, FR-2A.3) — are computed here from the open
-// request, not stored.
-func roomAPI(ctx context.Context, q db.DBTX, roomID, viewer uuid.UUID, now time.Time) (*gen.Room, error) {
-	var out gen.Room
-	var (
-		deputy, runtimeID, defaultDirector *uuid.UUID
-		isolation, limits, blockedDetail   []byte
-		status, visibility, autonomy       string
-		blocked                            *string
-	)
-	err := q.QueryRow(ctx, `
-		SELECT id, workspace_id, name, description, status::text, visibility::text, owner_user_id, deputy_owner_user_id,
-		       runtime_id, isolation, limits, autonomy::text, default_director_user_id, blocked_reason::text, blocked_detail,
-		       created_by, created_at, updated_at
-		FROM room WHERE id = $1`, roomID).Scan(
-		&out.Id, &out.WorkspaceId, &out.Name, &out.Description, &status, &visibility, &out.OwnerUserId, &deputy,
-		&runtimeID, &isolation, &limits, &autonomy, &defaultDirector, &blocked, &blockedDetail,
-		&out.CreatedBy, &out.CreatedAt, &out.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, apperr.NotFound("room")
-	}
-	if err != nil {
-		return nil, err
-	}
-	out.Status = gen.RoomStatus(status)
-	out.Visibility = gen.RoomVisibility(visibility)
-	out.Autonomy = gen.AutonomyLevel(autonomy)
-	out.DeputyOwnerUserId = tasks.NullUUID(deputy)
-	out.RuntimeId = tasks.NullUUID(runtimeID)
-	out.DefaultDirectorUserId = tasks.NullUUID(defaultDirector)
-	_ = json.Unmarshal(isolation, &out.Isolation)
-	_ = json.Unmarshal(limits, &out.Limits)
-	out.BlockedReason = nullable.NewNullNullable[gen.RoomBlockedReason]()
-	out.BlockedDetail = nullable.NewNullNullable[gen.BlockedDetail]()
-	if blocked != nil {
-		out.BlockedReason = nullable.NewNullableWithValue(gen.RoomBlockedReason(*blocked))
-		var d gen.BlockedDetail
-		_ = json.Unmarshal(blockedDetail, &d)
-		if err := fillApprover(ctx, q, roomID, &d, now); err != nil {
-			return nil, err
-		}
-		out.BlockedDetail = nullable.NewNullableWithValue(d)
-	}
-	out.MyRoomRole = nullable.NewNullNullable[gen.RoomRole]()
-	var role *string
-	var lastRead *uuid.UUID
-	err = q.QueryRow(ctx, `SELECT role::text, last_read_message_id FROM room_participant WHERE room_id = $1 AND user_id = $2 AND left_at IS NULL`, roomID, viewer).
-		Scan(&role, &lastRead)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, err
-	}
-	if role != nil {
-		out.MyRoomRole = nullable.NewNullableWithValue(gen.RoomRole(*role))
-	}
-	// §12.1-6: unread is per room, counted from the viewer's read mark.
-	if err := q.QueryRow(ctx, `
-		SELECT count(*) FROM message m WHERE m.session_id = $1
-		  AND ($2::uuid IS NULL OR m.created_at > (SELECT created_at FROM message WHERE id = $2))`, roomID, lastRead).
-		Scan(&out.UnreadCount); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-// fillApprover is the banner's "지금 답할 수 있는 사람" for a stop an approval
-// lifts: the owner, and from half the open request's deadline the deputy or
-// the oldest workspace owner (FR-2A.3). A manual stop has no request — the
-// people who may lift it are the managers, and the banner names who stopped
-// it instead.
-func fillApprover(ctx context.Context, q db.DBTX, roomID uuid.UUID, d *gen.BlockedDetail, now time.Time) error {
-	var created, due time.Time
-	err := q.QueryRow(ctx, `
-		SELECT created_at, due_at FROM hitl_request
-		WHERE session_id = $1 AND status = 'open' AND source = 'system' AND task_id IS NULL
-		  AND approver_spec = 'room_owner' AND purpose IN ('budget', 'loop')
-		ORDER BY created_at DESC LIMIT 1`, roomID).Scan(&created, &due)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	a, err := roomgate.LoadApprovers(ctx, q, roomID)
-	if err != nil {
-		return err
-	}
-	who, next := a.Now(created, due, now)
-	if u, err := auth.LoadUser(ctx, q, who); err == nil {
-		d.Approver = nullable.NewNullableWithValue(*u)
-	}
-	if next != nil {
-		d.DelegateAt = nullable.NewNullableWithValue(next.UTC())
-	} else {
-		d.DelegateAt = nullable.NewNullNullable[time.Time]()
-	}
-	return nil
 }

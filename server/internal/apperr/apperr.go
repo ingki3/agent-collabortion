@@ -92,6 +92,7 @@ var NotFoundNouns = map[string]string{
 	"task":               "할 일",
 	"inbox_item":         "받은 요청",
 	"hitl_request":       "확인 요청",
+	"room_link":          "참고 방 연결",
 }
 
 // NotFound is the 404 for a resource the caller named. `what` is a key of

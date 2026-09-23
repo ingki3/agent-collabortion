@@ -600,7 +600,7 @@ func loadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID, agent
 		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.room_id AND t.status IN ('queued','deferred') AND t.attempt > 1),
 		       EXISTS (SELECT 1 FROM lane l WHERE l.agent_id = a.id AND l.session_id = sp.room_id AND l.status = 'blocked'),
 		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.room_id AND t.status = 'paused' AND t.paused_reason = 'budget')
-		FROM room_participant sp JOIN agent a ON a.id = sp.agent_id WHERE sp.room_id = $1`+only+` ORDER BY sp.joined_at`, args...)
+		FROM room_participant sp JOIN agent a ON a.id = sp.agent_id WHERE sp.room_id = $1 AND sp.left_at IS NULL`+only+` ORDER BY sp.joined_at`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -696,7 +696,7 @@ func (s *Service) List(ctx context.Context, wsID uuid.UUID, o ListOptions) ([]ge
 	}
 	if o.AgentID != nil {
 		args = append(args, *o.AgentID)
-		where = append(where, fmt.Sprintf("EXISTS (SELECT 1 FROM room_participant sp WHERE sp.room_id = s.id AND sp.agent_id = $%d)", len(args)))
+		where = append(where, fmt.Sprintf("EXISTS (SELECT 1 FROM room_participant sp WHERE sp.room_id = s.id AND sp.agent_id = $%d AND sp.left_at IS NULL)", len(args)))
 	}
 	if o.RuntimeID != nil {
 		args = append(args, *o.RuntimeID)

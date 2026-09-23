@@ -146,7 +146,7 @@ func NewServer(d Deps) *Server {
 	// the person is watching the screen for the answer.
 	tc.Notify = notifier.Notify
 	arts := artifacts.New(d.DB, d.Clock)
-	return &Server{
+	srv := &Server{
 		DB: d.DB, Clock: d.Clock, Log: d.Log, ServerURL: d.ServerURL,
 		InstallRef: d.InstallRef, InstallGoMin: d.InstallGoMin,
 		Auth:      auth.New(d.DB, d.Clock, d.WebURL),
@@ -167,6 +167,8 @@ func NewServer(d Deps) *Server {
 		Tokens:    tok,
 		Hub:       hub,
 	}
+	srv.Auth.OnLeave = srv.onMemberLeft
+	return srv
 }
 
 // Handler returns the full HTTP handler: generated OpenAPI router under

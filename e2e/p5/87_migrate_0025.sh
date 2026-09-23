@@ -99,7 +99,8 @@ snap() { # DIR — 옛·새 서버에 같은 GET 을 던져 jq -S 로 저장
   local d="$1" s p
   api_ok GET "/workspaces/$WS/sessions" | jq -S . > "$d/list.json"
   api_ok GET "/workspaces/$WS/cost" | jq -S . > "$d/ws-cost.json"
-  api_ok GET "/inbox?workspace_id=$WS" | jq -S . > "$d/inbox.json"
+  # v0.2.0 이 InboxItem 에 더한 칸(room_id · work_id · lane_id · recipient_basis, T-R1b3)은 옛 서버에 없다 — 옛 칸만 대조.
+  api_ok GET "/inbox?workspace_id=$WS" | jq -S 'del(.items[].room_id, .items[].work_id, .items[].lane_id, .items[].recipient_basis)' > "$d/inbox.json"
   [ -z "$T1" ] || api_ok GET "/tasks/$T1" | jq -S . > "$d/task-t1.json"   # listSessionTasks 는 501 이라 claim 한 task 하나
   for s in "$S1" "$S2" "$S3" "$S4" "$S5"; do
     for p in "" /participants /messages /lanes /hitl-requests /artifacts /decisions /cost; do
@@ -116,7 +117,7 @@ step "B. verify_0025_pre → 0025 적용 → verify_0025"
 psqlf server/migrations/verify/verify_0025_pre.sql >/dev/null || die "verify_0025_pre failed"
 psqlq "select tbl||'='||n from verify_0025.counts order by tbl" | tr '\n' ' ' > "$OUT/87-pre-counts.txt"; echo >> "$OUT/87-pre-counts.txt"
 COLAB_DB_URL="$DBURL" "$OUT/87-migrate-new" > "$OUT/87-migrate.log" 2>&1 || die "migrate failed (see $OUT/87-migrate.log)"
-chk B.1 25 "$(psqlq "select max(version) from schema_migrations")" "HEAD 가 0025 를 적용했다"
+chk B.1 1 "$(psqlq "select count(*) from schema_migrations where version = 25")" "HEAD 가 0025 를 적용했다(뒤 번호도 함께 — R1b 가 더한다)"
 psqlf server/migrations/verify/verify_0025.sql > "$OUT/87-verify.tsv" || die "verify_0025 failed"
 chk_ge B.2 40 "$(wc -l < "$OUT/87-verify.tsv" | tr -d ' ')" "검사 행 수"
 chk B.3 "" "$(awk -F'\t' '$2 != 0 {printf "%s=%s; ", $1, $2}' "$OUT/87-verify.tsv")" "verify_0025 의 모든 검사 0 (어긋난 것만 나열)"

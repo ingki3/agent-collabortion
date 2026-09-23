@@ -67,9 +67,14 @@ func (s *Server) AddParticipant(w http.ResponseWriter, r *http.Request, sessionI
 			}
 			profileID = &id
 		}
+		// room_participant is the one roster (T-R1b3): leaving is `left_at`, so
+		// inviting an agent that left re-opens its row.
 		tag, err := tx.Exec(r.Context(), `
 			INSERT INTO room_participant (room_id, agent_id, profile_id, joined_at)
-			VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`, sessionId, in.AgentID, *profileID, now)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (room_id, agent_id) WHERE agent_id IS NOT NULL
+			DO UPDATE SET left_at = NULL, joined_at = EXCLUDED.joined_at, profile_id = EXCLUDED.profile_id
+			WHERE room_participant.left_at IS NOT NULL`, sessionId, in.AgentID, *profileID, now)
 		if err != nil {
 			return err
 		}
@@ -115,7 +120,7 @@ func (s *Server) UpdateParticipant(w http.ResponseWriter, r *http.Request, sessi
 	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
 		var exists bool
 		if err := tx.QueryRow(r.Context(), `
-			SELECT EXISTS (SELECT 1 FROM room_participant WHERE room_id = $1 AND agent_id = $2)`, sessionId, agentId).Scan(&exists); err != nil {
+			SELECT EXISTS (SELECT 1 FROM room_participant WHERE room_id = $1 AND agent_id = $2 AND left_at IS NULL)`, sessionId, agentId).Scan(&exists); err != nil {
 			return err
 		}
 		if !exists {
@@ -134,7 +139,7 @@ func (s *Server) UpdateParticipant(w http.ResponseWriter, r *http.Request, sessi
 			// the profile they were dispatched with — changing it mid-turn
 			// would price the turn at a model that did not run it.
 			if _, err := tx.Exec(r.Context(), `
-				UPDATE room_participant SET profile_id = $3 WHERE room_id = $1 AND agent_id = $2`,
+				UPDATE room_participant SET profile_id = $3 WHERE room_id = $1 AND agent_id = $2 AND left_at IS NULL`,
 				sessionId, agentId, *in.ProfileID); err != nil {
 				return err
 			}
@@ -197,7 +202,7 @@ func (s *Server) RemoveParticipant(w http.ResponseWriter, r *http.Request, sessi
 		}
 		var name string
 		_ = tx.QueryRow(r.Context(), `SELECT name FROM agent WHERE id = $1`, agentId).Scan(&name)
-		tag, err := tx.Exec(r.Context(), `DELETE FROM room_participant WHERE room_id = $1 AND agent_id = $2`, sessionId, agentId)
+		tag, err := tx.Exec(r.Context(), `UPDATE room_participant SET left_at = $3 WHERE room_id = $1 AND agent_id = $2 AND left_at IS NULL`, sessionId, agentId, now)
 		if err != nil {
 			return err
 		}
@@ -211,6 +216,5 @@ func (s *Server) RemoveParticipant(w http.ResponseWriter, r *http.Request, sessi
 		writeErr(w, err)
 		return
 	}
-	_ = now
 	w.WriteHeader(http.StatusNoContent)
 }

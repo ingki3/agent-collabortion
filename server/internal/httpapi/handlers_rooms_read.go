@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/oapi-codegen/nullable"
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
@@ -144,14 +143,14 @@ func roomReadDenied(d *rooms.Denial) *Problem {
 	return p
 }
 
-// ListRoomReads is S23 (openapi listRoomReads): any participant of the room.
+// ListRoomReads is S23 (openapi listRoomReads): anyone who may view the room.
 func (s *Server) ListRoomReads(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListRoomReadsParams) {
 	u, p := s.user(r)
 	if p != nil {
 		writeProblem(w, p)
 		return
 	}
-	if p := s.roomParticipant(r, roomId, u.Id); p != nil {
+	if p := s.roomViewer(r, roomId, u.Id); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -199,36 +198,21 @@ func roomNotFound() *Problem {
 	return apperr.New(http.StatusNotFound, "not_found", "방을 찾을 수 없습니다")
 }
 
-// roomParticipant is "방 참여자 누구나": a person with a live room_participant
-// row, or a workspace owner·admin (audit read, PRD FR-5.3). A room of a workspace the person is not in is 404 (not revealed); a
-// member who is not in the room is 403.
-func (s *Server) roomParticipant(r *http.Request, roomID, userID uuid.UUID) *Problem {
-	var wsID uuid.UUID
-	var active *bool
-	err := s.DB.QueryRow(r.Context(), `
-		SELECT rm.workspace_id,
-		       (SELECT p.left_at IS NULL FROM room_participant p WHERE p.room_id = rm.id AND p.user_id = $2)
-		FROM room rm WHERE rm.id = $1`, roomID, userID).Scan(&wsID, &active)
-	if errors.Is(err, pgx.ErrNoRows) {
+// roomViewer is S23's gate: whoever may view the room (rooms.Decide ActView
+// — participants, ws owner·admin for audit, and every member of a
+// workspace-visible room). S23 must be no more open and no more closed than
+// the room itself (review #290 R1-1 · #291 NN3), so it asks the one table
+// rather than keeping its own. An invisible room is 404 like a missing one.
+func (s *Server) roomViewer(r *http.Request, roomID, userID uuid.UUID) *Problem {
+	a, err := rooms.LoadAccess(r.Context(), s.DB, roomID, userID)
+	if err != nil {
+		if pr := apperr.As(err); pr.Status != http.StatusNotFound {
+			return pr
+		}
 		return roomNotFound()
 	}
-	if err != nil {
-		return apperr.Internal(err)
-	}
-	m, err := s.Auth.Member(r.Context(), wsID, userID)
-	if err != nil {
-		return apperr.Internal(err)
-	}
-	if m == nil {
+	if !rooms.Decide(rooms.ActView, a.Standing) {
 		return roomNotFound()
-	}
-	// ws owner·admin read every room for audit (PRD FR-5.3). S23 must not be
-	// more closed than the room itself (review #290 R1-1).
-	if m.Role == "owner" || m.Role == "admin" {
-		return nil
-	}
-	if active == nil || !*active {
-		return apperr.Forbidden("not_participant", "이 방의 참여자만 볼 수 있습니다")
 	}
 	return nil
 }

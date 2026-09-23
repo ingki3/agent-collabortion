@@ -661,7 +661,7 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 // S-84) for a session that already exists: the set the reviewer guard checks
 // against on updateSession.
 func sessionAgents(ctx context.Context, q pgx.Tx, sessionID uuid.UUID, assignee *uuid.UUID) (map[uuid.UUID]bool, error) {
-	rows, err := q.Query(ctx, `SELECT agent_id FROM room_participant WHERE room_id = $1 AND agent_id IS NOT NULL`, sessionID)
+	rows, err := q.Query(ctx, `SELECT agent_id FROM room_participant WHERE room_id = $1 AND agent_id IS NOT NULL AND left_at IS NULL`, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -795,7 +795,8 @@ func (s *Server) requireMember(ctx context.Context, q pgx.Tx, sessionID, userID 
 func addRoomMember(ctx context.Context, tx pgx.Tx, roomID, userID uuid.UUID, now time.Time) error {
 	_, err := tx.Exec(ctx, `
 		INSERT INTO room_participant (room_id, user_id, role, joined_at) VALUES ($1, $2, 'member', $3)
-		ON CONFLICT (room_id, user_id) WHERE user_id IS NOT NULL DO NOTHING`, roomID, userID, now)
+		ON CONFLICT (room_id, user_id) WHERE user_id IS NOT NULL
+		DO UPDATE SET left_at = NULL, joined_at = EXCLUDED.joined_at WHERE room_participant.left_at IS NOT NULL`, roomID, userID, now)
 	return err
 }
 

@@ -74,6 +74,7 @@ export const NOT_FOUND_NOUN: Record<string, string> = {
   task: "할 일",
   inbox_item: "받은 요청",
   hitl_request: "확인 요청",
+  room_link: "참고 방 연결",
 };
 
 /** `apperr.Josa` — 마지막 글자에 받침이 있으면 `with`, 없으면 `without`, 한글이 아니면 `with(without)`. */
