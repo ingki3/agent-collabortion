@@ -270,7 +270,8 @@ export interface paths {
         post?: never;
         /**
          * 멤버 제거
-         * @description 권한: owner · admin. 마지막 owner는 제거할 수 없다(`409`). 그 멤버가 Director인 활성 세션이 있으면 `409`(먼저 Director를 교체).
+         * @description 권한: owner · admin. 마지막 owner는 제거할 수 없다(`409`).
+         *     **v0.2.3(PRD v0.19 §12.1-4)**: 떠나는 사람이 맡던 자리는 **거부하지 않고 승계**한다 — 방장이면 부방장, 없으면 ws owner 최고참이 방장이 되고, 열린 미션의 Director 면 **그 방의 방장**(승계 뒤의 방장)이 Director 가 된다. 각 승계는 그 방(미션) 타임라인 시스템 메시지와 `activity_log` 에 남는다. 옛 `409 member_is_director` 는 없어졌다.
          */
         delete: operations["removeMember"];
         options?: never;
