@@ -6,7 +6,7 @@
 #
 # 재는 것 (판정 표 out/89-checks.tsv):
 #   A. 방 만들기 — 컴퓨터 0대에서도 201 · 이름 한 칸 · 만든 사람이 방장 · my_capabilities · 빈 이름 422 · room_defaults 상속
-#   B. 초대 — invited 방은 초대 안 된 멤버에게 404·목록 밖 · 사람 초대 201 · room_invited(open_room) · 에이전트 초대는
+#   B. 초대 — invited 방은 초대 안 된 멤버에게 404·목록 밖·옛 /sessions/{id}/messages·lanes 도 404 · 사람 초대 201 · room_invited(open_room) · 에이전트 초대는
 #      부른 사람의 FR-1.9 로(403 not_invitable → owner 가 201 + warnings) · 이미 있음 409 · 워크스페이스 밖 422
 #   C. 나가기 — 방장 409 is_owner · 열린 미션 Director 409 is_director · 본인 204 → 404 · 다시 초대하면 같은 행 ·
 #      참여자가 남을 초대 403 · 방장 넘기기 · 부방장
@@ -103,6 +103,10 @@ chk B.0 "summary/1" "$(psqlq "select kind||'/'||(summary_range ? 'message_ids'):
 as oth; call GET "/rooms/$RA"
 chk B.1 404 "$CODE" "invited 방 — 초대 안 된 멤버에게 404(존재 숨김)"
 chk B.2 0 "$(api_ok GET "/workspaces/$WS/rooms?participating=false" | jq -r --arg r "$RA" '[.items[]|select(.id==$r)]|length')" "목록(참여 안 한 방 포함)에도 없다"
+# 옛 /sessions/* 별칭도 같은 방이다(리뷰 #291 R1-1 — 방 카드만 숨고 대화가 열려 있던 역전).
+call GET "/sessions/$RA/messages"
+chk B.2a "404/0" "$CODE/$(grep -c "$SUMM" <<<"$BODY")" "옛 /sessions/{id}/messages 도 404 — 본문이 안 나간다"
+chk B.2b 404 "$(api GET "/sessions/$RA/lanes" | api_code)" "옛 /sessions/{id}/lanes 도 404(500 아님 — NN4)"
 as dir; call GET "/rooms/$RA"
 chk B.3 "200/null/false" "$CODE/$(jq -r '(.my_room_role|tostring)+"/"+((.my_capabilities|index("post"))!=null|tostring)' <<<"$BODY")" "ws owner 는 감사 열람(게시 버튼 없음)"
 chk B.4 1 "$(psqlq "select count(*) from activity_log where session_id='$RA' and action='room.audit_viewed'")" "감사 열람이 activity_log 에"
@@ -134,6 +138,7 @@ psqlq "update work set director_user_id='$MEM_UID' where id='$W1'" >/dev/null
 call DELETE "/rooms/$RA/participants/$OTH_P"
 chk C.3 204 "$CODE" "본인 나가기 → 204"
 chk C.4 404 "$(api GET "/rooms/$RA" | api_code)" "나간 뒤 invited 방은 다시 404"
+chk C.4a 404 "$(api GET "/sessions/$RA/messages" | api_code)" "나간 뒤 옛 /sessions/{id}/messages 도 404"
 as mem; api_ok POST "/rooms/$RA/participants" "$(jq -nc --arg u "$OTH_UID" '{user_id:$u}')" >/dev/null
 chk C.5 "$OTH_P" "$(pid_of mem "$RA" "$OTH_UID")" "다시 초대 → 같은 행(left_at 해제)"
 as oth; call POST "/rooms/$RA/participants" "$(jq -nc --arg u "$ADM_UID" '{user_id:$u}')"
