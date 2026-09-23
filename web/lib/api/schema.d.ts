@@ -2315,6 +2315,7 @@ export interface paths {
         /**
          * 미션 수동 종료(`manual`)
          * @description 권한: 그 미션의 director. 요약을 만들어 방에 메시지로 남긴다(FR-2A.4).
+         *     실행 중인 서브 미션이 있으면 `409 running_lanes`(개수를 `Problem` 확장에) — 화면이 확인을 받은 뒤 `confirm: true` 로 다시 보내면 그 서브 미션들을 중단하고 끝낸다(v0.2.4).
          */
         post: operations["completeWork"];
         delete?: never;
@@ -4455,6 +4456,7 @@ export interface components {
          *     | `room.unread` | `{room_id, unread_count, last_read_message_id}` — 내 다른 탭·기기에도 | S5 · 내비 |
          *     | `work.created` · `work.updated` | `WorkListItem`(부분) | S7 칩 줄 · 우열 |
          *     | `work.closed` | `{work_id, room_id, status, summary_message_id?}` | S7 |
+         *     | `work.deleted` | `{work_id, room_id}` — v0.2.4, 미션 삭제(메시지는 방에 남는다) | S7 칩 줄 |
          *     | `work.completion_progress` | `{work_id, completion_progress}` | S7 · S22 |
          *     | `participant.joined` · `participant.left` | `{room_id, participant: RoomParticipant}` · `{room_id, participant_id, kind, left_at}` | S7 · S19 |
          *     | `room_read.recorded` | `{room_id, direction, entry: RoomRead}` | S23 · S7 |
@@ -4467,7 +4469,7 @@ export interface components {
             /** @description 커서(= SSE id). */
             id: string;
             /** @enum {string} */
-            type: "resync" | "session.updated" | "session.deleted" | "session.completion_progress" | "participant.updated" | "lane.updated" | "task.updated" | "task_event.appended" | "task_event.superseded" | "message.created" | "message.updated" | "message.delta" | "agent.typing" | "hitl.created" | "hitl.updated" | "artifact.created" | "decision.created" | "inbox.item_created" | "inbox.item_updated" | "inbox.summary" | "runtime.updated" | "pairing.updated" | "workdir.updated" | "cost.updated" | "test_chat.delta" | "test_chat.turn" | "room.updated" | "room.deleted" | "room.unread" | "work.created" | "work.updated" | "work.closed" | "work.completion_progress" | "participant.joined" | "participant.left" | "room_read.recorded" | "room_link.updated" | "work_proposal.created" | "work_proposal.resolved";
+            type: "resync" | "session.updated" | "session.deleted" | "session.completion_progress" | "participant.updated" | "lane.updated" | "task.updated" | "task_event.appended" | "task_event.superseded" | "message.created" | "message.updated" | "message.delta" | "agent.typing" | "hitl.created" | "hitl.updated" | "artifact.created" | "decision.created" | "inbox.item_created" | "inbox.item_updated" | "inbox.summary" | "runtime.updated" | "pairing.updated" | "workdir.updated" | "cost.updated" | "test_chat.delta" | "test_chat.turn" | "room.updated" | "room.deleted" | "room.unread" | "work.created" | "work.updated" | "work.closed" | "work.deleted" | "work.completion_progress" | "participant.joined" | "participant.left" | "room_read.recorded" | "room_link.updated" | "work_proposal.created" | "work_proposal.resolved";
             /** Format: date-time */
             at: string;
             /** Format: uuid */
@@ -8948,7 +8950,17 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description 실행 중인 서브 미션이 있어도 끝낸다.
+                     * @default false
+                     */
+                    confirm?: boolean;
+                };
+            };
+        };
         responses: {
             /** @description 성공. */
             200: {
