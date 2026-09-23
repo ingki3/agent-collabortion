@@ -145,7 +145,8 @@ func (s *Server) UpdateParticipant(w http.ResponseWriter, r *http.Request, sessi
 			}
 		}
 		if in.Assignee != nil && *in.Assignee {
-			if _, err := tx.Exec(r.Context(), `UPDATE work SET assignee_agent_id = $2, updated_at = $3 WHERE room_id = $1`,
+			// The old session's assignee is its own mission's (T-R1b2).
+			if _, err := tx.Exec(r.Context(), `UPDATE work SET assignee_agent_id = $2, updated_at = $3 WHERE id = (SELECT legacy_work_id FROM room WHERE id = $1)`,
 				sessionId, agentId, now); err != nil {
 				return err
 			}
@@ -178,11 +179,15 @@ func (s *Server) RemoveParticipant(w http.ResponseWriter, r *http.Request, sessi
 	}
 	now := s.Clock.Now()
 	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
-		var assignee *uuid.UUID
-		if err := tx.QueryRow(r.Context(), `SELECT assignee_agent_id FROM work WHERE room_id = $1`, sessionId).Scan(&assignee); err != nil {
+		// Any open mission of the room that has this agent as its assignee
+		// (T-R1b2 — the old QueryRow read one arbitrary mission).
+		var assigned bool
+		if err := tx.QueryRow(r.Context(), `
+			SELECT EXISTS (SELECT 1 FROM work WHERE room_id = $1 AND assignee_agent_id = $2
+			               AND status IN ('draft', 'active', 'paused', 'completing'))`, sessionId, agentId).Scan(&assigned); err != nil {
 			return err
 		}
-		if assignee != nil && *assignee == agentId {
+		if assigned {
 			// Removing the assignee leaves the session with nobody to hand the
 			// initial task to (E16-A step 1).
 			return apperr.Conflict("assignee_participant", "담당 에이전트는 뺄 수 없습니다 — 먼저 다른 에이전트를 담당으로 지정해 주세요")

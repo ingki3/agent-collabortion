@@ -19,8 +19,8 @@ func TestS65GCNeverCarriesARelativePath(t *testing.T) {
 	}
 	var laneID uuid.UUID
 	if err := f.pool.QueryRow(ctx, `
-		INSERT INTO lane (session_id, agent_id, profile_id, status, created_at, updated_at)
-		SELECT $1, $2, p.profile_id, 'done', now(), now() FROM room_participant p
+		INSERT INTO lane (session_id, agent_id, profile_id, status, created_at, updated_at, work_id)
+		SELECT $1, $2, p.profile_id, 'done', now(), now(), r.legacy_work_id FROM room_participant p JOIN room r ON r.id = p.room_id
 		WHERE p.room_id = $1 AND p.agent_id = $2 RETURNING id`, f.sessionID, f.r).Scan(&laneID); err != nil {
 		t.Fatal(err)
 	}

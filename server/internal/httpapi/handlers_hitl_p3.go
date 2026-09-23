@@ -37,11 +37,11 @@ type hitlSession struct {
 }
 
 // loadHitlSession reads the room and the mission a request is judged in:
-// `workID` (the asking task's mission), else the room's only mission (the
-// legacy single-work room rule, router.legacySingleWorkRoom). With neither the
-// room answers for itself — its owner stands where the Director would
-// (FR-2A.1: a run outside any mission asks the room owner).
-// V19_R1B_HANDOFF (c) handlers_hitl_p3.go:42.
+// `workID` (the asking task's mission), else — a room made by the old path —
+// the old session's mission (room.legacy_work_id, T-R1b2's narrowing of the
+// legacy single-work room rule). With neither the room answers for itself —
+// its owner stands where the Director would (FR-2A.1: a run outside any
+// mission asks the room owner). V19_R1B_HANDOFF (c) handlers_hitl_p3.go:42.
 func loadHitlSession(ctx context.Context, q db.DBTX, sessionID uuid.UUID, workID *uuid.UUID) (*hitlSession, error) {
 	var h hitlSession
 	err := q.QueryRow(ctx, `
@@ -49,8 +49,7 @@ func loadHitlSession(ctx context.Context, q db.DBTX, sessionID uuid.UUID, workID
 		       CASE WHEN wk.id IS NULL THEN s.deputy_owner_user_id ELSE wk.deputy_user_id END,
 		       COALESCE(wk.autonomy, s.autonomy)::text, COALESCE(wk.status::text, 'active')
 		FROM room s
-		LEFT JOIN work wk ON wk.id = COALESCE($2::uuid,
-		      (SELECT w1.id FROM work w1 WHERE w1.room_id = s.id AND (SELECT count(*) FROM work w2 WHERE w2.room_id = s.id) = 1))
+		LEFT JOIN work wk ON wk.id = COALESCE($2::uuid, s.legacy_work_id)
 		WHERE s.id = $1`, sessionID, workID).
 		Scan(&h.WorkspaceID, &h.Director, &h.Deputy, &h.Autonomy, &h.Status)
 	if errors.Is(err, pgx.ErrNoRows) {

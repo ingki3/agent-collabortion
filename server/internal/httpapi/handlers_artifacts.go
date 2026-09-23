@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -87,11 +88,15 @@ func (s *Server) SubmitArtifact(w http.ResponseWriter, r *http.Request, sessionI
 		if in.AgentID != nil {
 			actor = *in.AgentID
 		}
-		if _, err := s.Sessions.ApplyCompletionEvent(r.Context(), sessionId,
-			sessions.Event{Kind: "artifact_submit", Actor: actor, Ref: &row.ID}); err != nil {
-			return 0, nil, apperr.As(err)
+		// PRD v0.19: the artifact counts toward ITS mission's condition — a
+		// submission outside any mission counts toward none.
+		if row.WorkID != nil {
+			if _, err := s.Sessions.ApplyWorkEvent(r.Context(), *row.WorkID,
+				sessions.Event{Kind: "artifact_submit", Actor: actor, Ref: &row.ID}); err != nil {
+				return 0, nil, apperr.As(err)
+			}
 		}
-		prog, err := s.Sessions.Progress(r.Context(), sessionId)
+		prog, err := s.artifactProgress(r.Context(), row.WorkID)
 		if err != nil {
 			return 0, nil, apperr.As(err)
 		}
@@ -442,11 +447,18 @@ func (s *Server) ReviewArtifact(w http.ResponseWriter, r *http.Request, artifact
 		// The same real path the E6 golden table describes: the tree decides
 		// whether this agent may review at all, and approving is what closes
 		// the session when `agent_approval` stands alone (E6-05).
-		out, err := s.Sessions.ApplyCompletionEvent(r.Context(), a.SessionID, sessions.Event{
-			Kind: kind, Actor: pr.Task.AgentID, Note: comments, Ref: &a.ID,
-		})
-		if err != nil {
-			return 0, nil, apperr.As(err)
+		// The review is judged against the artifact's OWN mission's tree
+		// (T-R1b2). An artifact outside any mission has no designated
+		// reviewer to check and no condition to move; the review is recorded.
+		out := &sessions.Outcome{}
+		if a.WorkID != nil {
+			o, err := s.Sessions.ApplyWorkEvent(r.Context(), *a.WorkID, sessions.Event{
+				Kind: kind, Actor: pr.Task.AgentID, Note: comments, Ref: &a.ID,
+			})
+			if err != nil {
+				return 0, nil, apperr.As(err)
+			}
+			out = o
 		}
 		if out.CLIError != "" {
 			// The code string is a contract: colab-cli.md §2.3 maps exactly
@@ -475,7 +487,7 @@ func (s *Server) ReviewArtifact(w http.ResponseWriter, r *http.Request, artifact
 				"args": map[string]any{"comments": comments}}, s.Clock.Now()); err != nil {
 			s.Log.Warn("record review", "err", err, "task", taskID)
 		}
-		prog, err := s.Sessions.Progress(r.Context(), a.SessionID)
+		prog, err := s.artifactProgress(r.Context(), a.WorkID)
 		if err != nil {
 			return 0, nil, apperr.As(err)
 		}
@@ -552,10 +564,33 @@ func (s *Server) postRejectReason(r *http.Request, a *artifacts.Row, reviewer, r
 	return &out.Message, nil
 }
 
+// artifactProgress is the completion_progress submit/review answer with: the
+// artifact's mission's, or an empty one for an artifact outside any mission.
+func (s *Server) artifactProgress(ctx context.Context, workID *uuid.UUID) (gen.CompletionProgress, error) {
+	if workID == nil {
+		return gen.CompletionProgress{Conditions: []struct {
+			AgentId       nullable.Nullable[openapi_types.UUID]                            `json:"agent_id,omitempty"`
+			AgentName     nullable.Nullable[string]                                        `json:"agent_name,omitempty"`
+			BlockedReason nullable.Nullable[gen.CompletionProgressConditionsBlockedReason] `json:"blocked_reason,omitempty"`
+			HitlRequestId nullable.Nullable[openapi_types.UUID]                            `json:"hitl_request_id,omitempty"`
+			Met           bool                                                             `json:"met"`
+			MetAt         nullable.Nullable[time.Time]                                     `json:"met_at,omitempty"`
+			MetBy         nullable.Nullable[string]                                        `json:"met_by,omitempty"`
+			NextActor     nullable.Nullable[string]                                        `json:"next_actor,omitempty"`
+			Path          string                                                           `json:"path"`
+			Type          string                                                           `json:"type"`
+		}{}}, nil
+	}
+	return sessions.LoadWorkProgress(ctx, s.DB, *workID)
+}
+
 func artifactAPI(a *artifacts.Row) gen.Artifact {
 	out := gen.Artifact{
 		Id: a.ID, SessionId: a.SessionID, Name: a.Name, Version: a.Version, Type: a.Type,
 		StorageRef: a.StorageRef, CreatedAt: a.CreatedAt,
+	}
+	if a.WorkID != nil {
+		out.WorkId = nullable.NewNullableWithValue(openapi_types.UUID(*a.WorkID))
 	}
 	size := a.SizeBytes
 	out.SizeBytes = &size

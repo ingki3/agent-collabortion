@@ -11,12 +11,12 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 )
 
-// Since 0025 (PRD v0.19 §7) a v0.18 session is stored as a `room` plus the
-// room's single `work`: the room keeps the id, the runtime, isolation, limits
-// and autonomy; the work holds the goal side (title, goal, criteria, Director,
-// status, cost). `/sessions/*` still answers the old `Session` shape by
-// joining the two 1:1 (`work_room_single` guarantees the join never fans out
-// during R1a).
+// Since 0025 (PRD v0.19 §7) a v0.18 session is stored as a `room` plus a
+// `work`: the room keeps the id, the runtime, isolation, limits and autonomy;
+// the work holds the goal side (title, goal, criteria, Director, status,
+// cost). A room may hold several missions since T-R1b2; `/sessions/*` still
+// answers the old `Session` shape by joining the room to ITS mission,
+// room.legacy_work_id (LegacyJoin), which never fans out.
 
 // firstLine is the §10 migration rule's room description: the goal's first
 // line. 0025 derives it with split_part(goal, E'\n', 1); this is the same cut.

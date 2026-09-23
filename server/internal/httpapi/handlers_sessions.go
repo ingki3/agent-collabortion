@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/oapi-codegen/nullable"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -380,7 +381,19 @@ func (s *Server) GetCliContext(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	sess, err := sessions.Load(r.Context(), s.DB, sc.SessionID, sessions.Viewer{})
+	// The ROOM and its roster (T-R1b2): the old session projection is 404 in
+	// a room made by createRoom, and an agent working there needs its context
+	// as much as one in an old-path room.
+	var wsID uuid.UUID
+	if err := s.DB.QueryRow(r.Context(), `SELECT workspace_id FROM room WHERE id = $1`, sc.SessionID).Scan(&wsID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeProblem(w, apperr.NotFound("session"))
+		} else {
+			writeErr(w, err)
+		}
+		return
+	}
+	roster, err := sessions.ListParticipants(r.Context(), s.DB, sc.SessionID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -400,7 +413,7 @@ func (s *Server) GetCliContext(w http.ResponseWriter, r *http.Request) {
 	}
 	allowed := roles.AllowedCommands(gen.AgentRole(role))
 	out := gen.CliContext{
-		TaskId: sc.TaskID, LaneId: sc.LaneID, SessionId: sc.SessionID, AgentId: sc.AgentID, WorkspaceId: sess.WorkspaceId,
+		TaskId: sc.TaskID, LaneId: sc.LaneID, SessionId: sc.SessionID, AgentId: sc.AgentID, WorkspaceId: wsID,
 		Attempt: sc.Attempt, LastSeq: lastSeq, ExpiresAt: sc.ExpiresAt, AllowedCommands: &allowed,
 		DelegatedFromTaskId:        tasks.NullUUID(t.DelegatedFromTaskID),
 		SuppressedDelegatorAgentId: nullable.NewNullNullable[openapi_types.UUID](),
@@ -412,8 +425,8 @@ func (s *Server) GetCliContext(w http.ResponseWriter, r *http.Request) {
 		Name        string             `json:"name"`
 		Role        *gen.AgentRole     `json:"role,omitempty"`
 	}, 0)
-	if sess.Participants != nil {
-		for _, p := range *sess.Participants {
+	{
+		for _, p := range roster {
 			role := p.Agent.Role
 			link := ""
 			if p.MentionLink != nil {

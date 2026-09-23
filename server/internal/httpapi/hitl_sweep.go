@@ -34,11 +34,16 @@ func (s *Server) SweepHitlDeadlines(ctx context.Context) (int, error) {
 		autonomy string
 		def      string
 		question string
+		work     *uuid.UUID
 	}
 	rows, err := s.DB.Query(ctx, `
-		SELECT h.id, h.session_id, h.task_id, h.type::text, s.autonomy::text,
-		       COALESCE(h.proposed_default, ''), h.question
+		SELECT h.id, h.session_id, h.task_id, h.type::text, COALESCE(wk.autonomy, s.autonomy)::text,
+		       COALESCE(h.proposed_default, ''), h.question, wk.id
 		FROM hitl_request h JOIN room s ON s.id = h.session_id
+		LEFT JOIN task t ON t.id = h.task_id
+		-- The request's mission decides its autonomy (T-R1b2): a mission may
+		-- run under another autonomy than its room.
+		LEFT JOIN work wk ON wk.id = COALESCE(h.work_id, t.work_id)
 		WHERE h.status = 'open' AND h.due_at <= $1
 		ORDER BY h.due_at`, now)
 	if err != nil {
@@ -47,7 +52,7 @@ func (s *Server) SweepHitlDeadlines(ctx context.Context) (int, error) {
 	var list []due
 	for rows.Next() {
 		var d due
-		if err := rows.Scan(&d.id, &d.session, &d.task, &d.kind, &d.autonomy, &d.def, &d.question); err != nil {
+		if err := rows.Scan(&d.id, &d.session, &d.task, &d.kind, &d.autonomy, &d.def, &d.question, &d.work); err != nil {
 			rows.Close()
 			return 0, err
 		}
@@ -83,7 +88,7 @@ func (s *Server) SweepHitlDeadlines(ctx context.Context) (int, error) {
 			// and "nobody answered and we used the agent's proposal" read
 			// identically in the log without it.
 			if _, err := insertDecision(ctx, tx, d.session,
-				d.question+" → "+p.Answer, "기한 만료로 에이전트 제안대로 진행", "hitl", &d.id, true, now); err != nil {
+				d.question+" → "+p.Answer, "기한 만료로 에이전트 제안대로 진행", "hitl", &d.id, true, now, d.work); err != nil {
 				return err
 			}
 			_, err := tx.Exec(ctx, `UPDATE inbox_item SET read_at = COALESCE(read_at, $2) WHERE ref_id = $1`, d.id, now)

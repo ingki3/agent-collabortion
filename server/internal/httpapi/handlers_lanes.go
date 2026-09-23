@@ -26,8 +26,13 @@ func (s *Server) laneControl(r *http.Request, laneID uuid.UUID) (*gen.User, uuid
 	var sessionID, wsID, director uuid.UUID
 	var deputy *uuid.UUID
 	err := s.DB.QueryRow(r.Context(), `
-		SELECT l.session_id, s.workspace_id, wk.director_user_id, wk.deputy_user_id
-		FROM lane l JOIN room s ON s.id = l.session_id JOIN work wk ON wk.room_id = s.id WHERE l.id = $1`, laneID).Scan(&sessionID, &wsID, &director, &deputy)
+		SELECT l.session_id, s.workspace_id,
+		       -- The lane's OWN mission decides (V19_R1B_HANDOFF (c)); a lane
+		       -- outside any mission answers to the room's owner and deputy
+		       -- (FR-2A.1), like router.status does.
+		       COALESCE(wk.director_user_id, s.owner_user_id),
+		       CASE WHEN wk.id IS NULL THEN s.deputy_owner_user_id ELSE wk.deputy_user_id END
+		FROM lane l JOIN room s ON s.id = l.session_id LEFT JOIN work wk ON wk.id = l.work_id WHERE l.id = $1`, laneID).Scan(&sessionID, &wsID, &director, &deputy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, uuid.Nil, uuid.Nil, apperr.NotFound("lane")
 	}
@@ -73,24 +78,46 @@ func (s *Server) ListLanes(w http.ResponseWriter, r *http.Request, sessionId gen
 			statuses = append(statuses, string(st))
 		}
 	}
-	canControl := false
+	// The same gate the cancel handler applies (laneControl), per lane, so the
+	// board never shows a button that 403s (FR-5.3 last bullet): the lane's
+	// mission's Director·deputy, or the room's owner·deputy for a lane
+	// outside any mission (review #291 NN4 — a room with no mission is not
+	// a server error).
+	var canControl func(work *uuid.UUID) bool
 	if u != nil {
-		var director uuid.UUID
-		var deputy *uuid.UUID
-		// A room with no mission (v0.19 — created by createRoom, nothing
-		// started yet) has no Director: nobody controls its lanes, and that is
-		// not a server error (review #291 NN4).
-		err := s.DB.QueryRow(r.Context(), `SELECT director_user_id, deputy_user_id FROM work WHERE room_id = $1`, sessionId).
-			Scan(&director, &deputy)
-		switch {
-		case errors.Is(err, pgx.ErrNoRows):
-		case err != nil:
+		type seat struct {
+			director uuid.UUID
+			deputy   *uuid.UUID
+		}
+		seats := map[uuid.UUID]seat{}
+		rows, err := s.DB.Query(r.Context(), `SELECT id, director_user_id, deputy_user_id FROM work WHERE room_id = $1`, sessionId)
+		if err != nil {
 			writeErr(w, err)
 			return
-		default:
-			// The same gate the cancel handler applies, so the board never
-			// shows a button that 403s (FR-5.3 last bullet).
-			canControl = tasks.MayCancel(u.Id, director, deputy).ButtonEnabled
+		}
+		for rows.Next() {
+			var id uuid.UUID
+			var st seat
+			if err := rows.Scan(&id, &st.director, &st.deputy); err != nil {
+				rows.Close()
+				writeErr(w, err)
+				return
+			}
+			seats[id] = st
+		}
+		rows.Close()
+		var room seat
+		if err := s.DB.QueryRow(r.Context(), `SELECT owner_user_id, deputy_owner_user_id FROM room WHERE id = $1`, sessionId).
+			Scan(&room.director, &room.deputy); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			writeErr(w, err)
+			return
+		}
+		canControl = func(work *uuid.UUID) bool {
+			st := room
+			if work != nil {
+				st = seats[*work]
+			}
+			return tasks.MayCancel(u.Id, st.director, st.deputy).ButtonEnabled
 		}
 	}
 	out, err := lanes.List(r.Context(), s.DB, sessionId, statuses, canControl)

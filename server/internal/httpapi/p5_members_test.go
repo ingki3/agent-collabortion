@@ -201,22 +201,35 @@ func TestP5RemoveMemberAuthz(t *testing.T) {
 			t.Fatalf("= %d %v", st, out)
 		}
 	})
-	t.Run("Director of an unfinished session → 409 member_is_director, ChangeDirector unblocks", func(t *testing.T) {
-		// The P2 fixture's session is directed by "Dir" (the owner). Hand it to
-		// the plain member so the removal is blocked by the Director rule alone.
+	t.Run("Director of an unfinished session → 204, the room's owner takes the seat (openapi 0.2.3)", func(t *testing.T) {
+		// The P2 fixture's session is directed by "Dir" (the room's owner). Hand
+		// it to the plain member; removing them used to be 409
+		// member_is_director — since 0.2.3 the seat passes to the room's owner.
 		f.api.must(200, "PUT", f.p+"/sessions/"+f.sessionID+"/director", map[string]any{"director_user_id": f.memberUserID})
 		st, out, _ := f.admin.do("DELETE", f.memberPath(f.memberID), nil)
-		if st != 409 || str(out, "code") != "member_is_director" || !exists(f.memberID) {
-			t.Fatalf("= %d %v", st, out)
-		}
-		// A finished session does not block: cancel it and the member goes.
-		f.api.must(200, "PUT", f.p+"/sessions/"+f.sessionID+"/director", map[string]any{"director_user_id": f.otherUserID})
-		st, out, _ = f.admin.do("DELETE", f.memberPath(f.memberID), nil)
 		if st != 204 || exists(f.memberID) {
-			t.Fatalf("after Director change = %d %v exists=%v", st, out, exists(f.memberID))
+			t.Fatalf("= %d %v exists=%v", st, out, exists(f.memberID))
+		}
+		var director, owner string
+		if err := f.pool.QueryRow(t.Context(), `
+			SELECT wk.director_user_id::text, s.owner_user_id::text FROM room s JOIN work wk ON wk.id = s.legacy_work_id WHERE s.id = $1`,
+			f.sessionID).Scan(&director, &owner); err != nil {
+			t.Fatal(err)
+		}
+		if director != owner || director == f.memberUserID {
+			t.Fatalf("director = %s, want the room owner %s", director, owner)
 		}
 		if n := f.activity(t, "member.removed"); n != 1 {
 			t.Fatalf("activity_log member.removed = %d, want 1", n)
+		}
+		if n := f.activity(t, "work.director_succeeded"); n != 1 {
+			t.Fatalf("activity_log work.director_succeeded = %d, want 1", n)
+		}
+		var lines int
+		if err := f.pool.QueryRow(t.Context(), `
+			SELECT count(*) FROM message WHERE session_id = $1 AND author_type = 'system' AND content LIKE '%Director 를 이어받았습니다%' AND work_id IS NOT NULL`,
+			f.sessionID).Scan(&lines); err != nil || lines != 1 {
+			t.Fatalf("succession line on the mission timeline = %d (%v), want 1", lines, err)
 		}
 		// The removed person is an outsider now — not even told the member list exists.
 		if st, out, _ := f.member.do("GET", f.p+"/workspaces/"+f.wsID+"/members", nil); st != 403 || str(out, "code") != "not_member" {

@@ -12,7 +12,8 @@ import (
 // a row here fails the "unlisted" half.
 func TestDecideTable(t *testing.T) {
 	all := []Action{ActView, ActPost, ActInvite, ActConfigure, ActLink, ActBlock, ActArchive,
-		ActDelete, ActTransferOwner, ActSetDeputy, ActSummarize, ActLeave, ActMarkRead, ActSubscribe}
+		ActDelete, ActTransferOwner, ActSetDeputy, ActSummarize, ActLeave, ActMarkRead, ActSubscribe,
+		ActOpenWork, ActProposals}
 	steward := []Action{ActView, ActPost, ActInvite, ActConfigure, ActLink, ActBlock, ActArchive, ActSummarize}
 	cases := []struct {
 		name  string
@@ -21,18 +22,18 @@ func TestDecideTable(t *testing.T) {
 	}{
 		// ── 방장: everything.
 		{"방장 · workspace 방", Standing{WorkspaceRole: "member", RoomRole: RoleOwner, Visibility: VisWorkspace},
-			append(append([]Action{}, steward...), ActDelete, ActTransferOwner, ActSetDeputy, ActLeave, ActMarkRead, ActSubscribe)},
+			append(append([]Action{}, steward...), ActDelete, ActTransferOwner, ActSetDeputy, ActLeave, ActMarkRead, ActSubscribe, ActOpenWork, ActProposals)},
 		{"방장 · invited 방", Standing{WorkspaceRole: "member", RoomRole: RoleOwner, Visibility: VisInvited},
-			append(append([]Action{}, steward...), ActDelete, ActTransferOwner, ActSetDeputy, ActLeave, ActMarkRead, ActSubscribe)},
+			append(append([]Action{}, steward...), ActDelete, ActTransferOwner, ActSetDeputy, ActLeave, ActMarkRead, ActSubscribe, ActOpenWork, ActProposals)},
 		// ── 부방장: the steward set, never delete / hand over / appoint (FR-5.3 부방장 행).
 		{"부방장", Standing{WorkspaceRole: "member", RoomRole: RoleDeputy, Visibility: VisInvited},
-			append(append([]Action{}, steward...), ActLeave, ActMarkRead, ActSubscribe)},
+			append(append([]Action{}, steward...), ActLeave, ActMarkRead, ActSubscribe, ActOpenWork, ActProposals)},
 		// ── 방 참여자(사람): read, post, summarise, leave.
 		{"참여자 · invited 방", Standing{WorkspaceRole: "member", RoomRole: RoleMember, Visibility: VisInvited},
-			[]Action{ActView, ActPost, ActSummarize, ActLeave, ActMarkRead, ActSubscribe}},
+			[]Action{ActView, ActPost, ActSummarize, ActLeave, ActMarkRead, ActSubscribe, ActOpenWork, ActProposals}},
 		// A workspace ADMIN who is also a plain participant has the admin column.
 		{"참여자인 ws admin", Standing{WorkspaceRole: "admin", RoomRole: RoleMember, Visibility: VisInvited},
-			append(append([]Action{}, steward...), ActDelete, ActTransferOwner, ActSetDeputy, ActLeave, ActMarkRead, ActSubscribe)},
+			append(append([]Action{}, steward...), ActDelete, ActTransferOwner, ActSetDeputy, ActLeave, ActMarkRead, ActSubscribe, ActOpenWork, ActProposals)},
 		// ── ws owner·admin, not a participant: audit view of every room, the
 		// admin column of the table, but posting only after joining (invited).
 		{"ws owner · 비참여 · invited 방(감사)", Standing{WorkspaceRole: "owner", Visibility: VisInvited},
@@ -47,9 +48,9 @@ func TestDecideTable(t *testing.T) {
 		{"워크스페이스 밖", Standing{WorkspaceRole: "", RoomRole: RoleOwner, Visibility: VisWorkspace}, nil},
 		// ── archived: new activity closed, the past and its stewards kept.
 		{"방장 · 보관된 방", Standing{WorkspaceRole: "member", RoomRole: RoleOwner, Visibility: VisWorkspace, Archived: true},
-			[]Action{ActView, ActConfigure, ActArchive, ActDelete, ActTransferOwner, ActSetDeputy, ActLeave, ActMarkRead, ActSubscribe}},
+			[]Action{ActView, ActConfigure, ActArchive, ActDelete, ActTransferOwner, ActSetDeputy, ActLeave, ActMarkRead, ActSubscribe, ActProposals}},
 		{"참여자 · 보관된 방", Standing{WorkspaceRole: "member", RoomRole: RoleMember, Visibility: VisWorkspace, Archived: true},
-			[]Action{ActView, ActLeave, ActMarkRead, ActSubscribe}},
+			[]Action{ActView, ActLeave, ActMarkRead, ActSubscribe, ActProposals}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -115,15 +115,18 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 	// The ROOM row is the lock (V19_R1B_HANDOFF (b) router/service.go:116):
 	// every post to a room serialises here, and locking "the room's mission"
 	// alongside it would lock every mission of the room once there are several.
+	// The same read fetches the old-path mark the legacy attribution rule
+	// needs (#292 NN3: no extra query per message).
 	var wsID uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT workspace_id FROM room WHERE id = $1 FOR UPDATE`, sessionID).Scan(&wsID)
+	var legacy *uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT workspace_id, legacy_work_id FROM room WHERE id = $1 FOR UPDATE`, sessionID).Scan(&wsID, &legacy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrSessionNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	assignee, err := routingAssignee(ctx, tx, sessionID, in)
+	assignee, err := routingAssignee(ctx, tx, sessionID, in, legacy)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +179,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 	// FR-3.1.1: the mission this message (and the lanes/tasks it makes)
 	// belongs to — decided BEFORE the insert, from the same premises the
 	// preview reads.
-	attr, err := attribute(ctx, tx, sessionID, in, author, th, dec)
+	attr, err := attribute(ctx, tx, sessionID, in, author, th, dec, legacy)
 	if err != nil {
 		return nil, err
 	}
@@ -540,15 +543,23 @@ func (s *Service) loopLimits(ctx context.Context, tx pgx.Tx, wsID uuid.UUID) (Li
 // no human hop at all is read whole (it cannot be long without a person — a
 // loop there trips hops_per_hour first). session_hop_human (migration r1b1_room_gate) finds the
 // anchor.
+//
+// HopReadCap is the safety net under that window (#292 review NN2): the
+// newest HopReadCap rows at most. Every limit fires long before it in any
+// workspace a person configured (max_chain_depth 8, max_hops_per_hour 60 by
+// default) — it bounds memory for a workspace that raised the limits to
+// "effectively off", where the window would otherwise grow with the room.
 func (s *Service) loadHops(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, now time.Time) ([]Hop, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT id, from_agent_id, to_agent_id, created_at, COALESCE(cause_hop_id, 0)
-		FROM session_hop
-		WHERE session_id = $1
-		  AND (id >= COALESCE((SELECT max(id) FROM session_hop
-		                        WHERE session_id = $1 AND from_agent_id IS NULL), 0)
-		       OR created_at > $2)
-		ORDER BY id`, sessionID, now.Add(-HopWindow))
+		SELECT id, from_agent_id, to_agent_id, created_at, cause FROM (
+		  SELECT id, from_agent_id, to_agent_id, created_at, COALESCE(cause_hop_id, 0) AS cause
+		  FROM session_hop
+		  WHERE session_id = $1
+		    AND (id >= COALESCE((SELECT max(id) FROM session_hop
+		                          WHERE session_id = $1 AND from_agent_id IS NULL), 0)
+		         OR created_at > $2)
+		  ORDER BY id DESC LIMIT $3) w
+		ORDER BY id`, sessionID, now.Add(-HopWindow), HopReadCap)
 	if err != nil {
 		return nil, err
 	}
@@ -567,6 +578,9 @@ func (s *Service) loadHops(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, 
 	}
 	return out, rows.Err()
 }
+
+// HopReadCap bounds loadHops (see there). A variable so a test can shrink it.
+var HopReadCap = 5000
 
 // causeOfTask is the causal link chain depth follows (S-78, loop.go
 // chainDepth): the hop that created `task` — the row recorded for its trigger
@@ -799,9 +813,16 @@ func (s *Service) cancelFallbacksFor(ctx context.Context, tx pgx.Tx, primary uui
 // start notice, the join bundle and the re-entry notice all reached S7 only on
 // reload before (G4 2판 W10). Routing is what SystemPost skips — not the frame.
 func (s *Service) SystemPost(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, content string) (uuid.UUID, error) {
+	return s.SystemPostWork(ctx, tx, sessionID, nil, content)
+}
+
+// SystemPostWork is SystemPost for a line that speaks about one mission
+// (FR-3.1.1): the row carries its work_id from the insert on, so the
+// `message.created` frame already names the mission.
+func (s *Service) SystemPostWork(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, workID *uuid.UUID, content string) (uuid.UUID, error) {
 	var id uuid.UUID
-	if err := tx.QueryRow(ctx, `INSERT INTO message (session_id, author_type, author_id, content, kind, created_at) VALUES ($1, 'system', NULL, $2, 'system', $3) RETURNING id`,
-		sessionID, strings.TrimSpace(content), s.Clock.Now()).Scan(&id); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO message (session_id, author_type, author_id, content, kind, created_at, work_id) VALUES ($1, 'system', NULL, $2, 'system', $3, $4) RETURNING id`,
+		sessionID, strings.TrimSpace(content), s.Clock.Now(), workID).Scan(&id); err != nil {
 		return uuid.Nil, err
 	}
 	s.publishMessage(ctx, tx, sessionID, id)

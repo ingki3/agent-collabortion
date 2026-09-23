@@ -51,6 +51,12 @@ const (
 	ActMarkRead Action = "mark_read"
 	// ActSubscribe is the caller's own notification switch for a sub-mission.
 	ActSubscribe Action = "subscribe"
+	// ActOpenWork opens a mission — 「새 미션」, 「이걸 미션으로」, or accepting an
+	// agent's proposal (openapi createWork · resolveWorkProposal: "방 참여자
+	// (사람) 누구나"). An archived room opens nothing new.
+	ActOpenWork Action = "open_work"
+	// ActProposals reads the room's mission proposals (S26 — "방 참여자(사람)").
+	ActProposals Action = "proposals"
 )
 
 // Room roles (RoomRole). "" = not a (current) participant.
@@ -131,8 +137,10 @@ func Decide(a Action, f Standing) bool {
 		return f.head()
 	case ActLeave:
 		return f.RoomRole != ""
-	case ActMarkRead, ActSubscribe:
+	case ActMarkRead, ActSubscribe, ActProposals:
 		return f.RoomRole != ""
+	case ActOpenWork:
+		return f.RoomRole != "" && !f.Archived
 	}
 	return false
 }
@@ -173,7 +181,7 @@ func Deny(a Action, f Standing) *apperr.Problem {
 		}
 	}
 	switch a {
-	case ActPost, ActSummarize:
+	case ActPost, ActSummarize, ActOpenWork, ActProposals:
 		return apperr.Forbidden("not_participant", "이 방의 참여자만 할 수 있습니다 — 방장에게 초대를 요청해 주세요")
 	case ActDelete, ActTransferOwner, ActSetDeputy:
 		return apperr.Forbidden("room_owner_required", "방장이나 소유자·관리자만 할 수 있습니다")

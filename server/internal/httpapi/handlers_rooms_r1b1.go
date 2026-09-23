@@ -307,8 +307,9 @@ func (s *Server) unblockRoomForLoop(ctx context.Context, roomID uuid.UUID, now t
 }
 
 // loopResetAgent is who the reset hop points at: the first agent of the loop
-// that tripped (the gate's own detail), else the room's only mission's
-// assignee. A human hop resets the counters whoever it names — the target
+// that tripped (the gate's own detail), else an assignee of the room — the
+// old session's, else the oldest mission's (T-R1b2: deterministic with
+// several missions). A human hop resets the counters whoever it names — the target
 // only has to be an agent of the room.
 func loopResetAgent(ctx context.Context, q db.DBTX, roomID uuid.UUID, blockedDetail []byte) (uuid.UUID, error) {
 	var d gen.BlockedDetail
@@ -316,7 +317,10 @@ func loopResetAgent(ctx context.Context, q db.DBTX, roomID uuid.UUID, blockedDet
 		return uuid.UUID((*d.LoopAgents)[0]), nil
 	}
 	var agent *uuid.UUID
-	err := q.QueryRow(ctx, `SELECT assignee_agent_id FROM work WHERE room_id = $1 ORDER BY created_at LIMIT 1`, roomID).Scan(&agent)
+	err := q.QueryRow(ctx, `
+		SELECT w.assignee_agent_id FROM work w JOIN room r ON r.id = w.room_id
+		WHERE w.room_id = $1 AND w.assignee_agent_id IS NOT NULL
+		ORDER BY (w.id = r.legacy_work_id) IS TRUE DESC, w.created_at LIMIT 1`, roomID).Scan(&agent)
 	if errors.Is(err, pgx.ErrNoRows) || agent == nil {
 		return uuid.Nil, nil
 	}

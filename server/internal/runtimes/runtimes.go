@@ -347,7 +347,10 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID) (*Detail, error) {
 		       r.created_at, r.updated_at,
 		       COALESCE((SELECT ws.runtime_offline_grace FROM workspace_settings ws WHERE ws.workspace_id = r.workspace_id), interval '7 days'),
 		       (SELECT count(*) FROM task t WHERE t.runtime_id = r.id AND t.status IN ('dispatched','preparing','running')),
-		       (SELECT count(*) FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.runtime_id = r.id AND wk.status = 'paused' AND wk.paused_reason = 'runtime_offline'),
+		       -- rooms (the old "sessions"), not missions — a room with two paused
+		       -- missions is one room waiting for this computer (V19_R1B_HANDOFF (a)).
+		       (SELECT count(*) FROM room s WHERE s.runtime_id = r.id
+		                 AND EXISTS (SELECT 1 FROM work wk WHERE wk.room_id = s.id AND wk.status = 'paused' AND wk.paused_reason = 'runtime_offline')),
 		       COALESCE((SELECT sum(w.disk_bytes) FROM workdir w JOIN room s ON s.id = w.session_id WHERE s.runtime_id = r.id AND w.status <> 'deleted'), 0)
 		FROM runtime r WHERE r.id = $1`, id).Scan(
 		&r.Id, &r.WorkspaceId, &r.Name, &host, &status, &version, &lastSeen, &r.Capabilities, &r.Repos, &colabCLI, &offlineSince,
@@ -379,7 +382,17 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID) (*Detail, error) {
 	}
 	r.ColabCli = colabCLI
 	d := &Detail{Runtime: r, ActiveSessions: []gen.SessionRef{}}
-	rows, err := q.Query(ctx, `SELECT s.id, wk.title, wk.status FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.runtime_id = $1 AND wk.status IN ('active','paused','completing') ORDER BY s.created_at`, id)
+	// One row per ROOM with an open mission (V19_R1B_HANDOFF (d)): the old
+	// session's title and state when the room is one, else the room's name
+	// and its liveliest open mission's state.
+	rows, err := q.Query(ctx, `
+		SELECT s.id, COALESCE(lw.title, s.name),
+		       (SELECT wk.status FROM work wk WHERE wk.room_id = s.id AND wk.status IN ('active','paused','completing')
+		         ORDER BY (wk.id = s.legacy_work_id) DESC, CASE wk.status WHEN 'active' THEN 0 WHEN 'completing' THEN 1 ELSE 2 END, wk.created_at
+		         LIMIT 1)
+		FROM room s LEFT JOIN work lw ON lw.id = s.legacy_work_id
+		WHERE s.runtime_id = $1 AND EXISTS (SELECT 1 FROM work wk WHERE wk.room_id = s.id AND wk.status IN ('active','paused','completing'))
+		ORDER BY s.created_at`, id)
 	if err != nil {
 		return nil, err
 	}

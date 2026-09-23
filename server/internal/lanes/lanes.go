@@ -144,30 +144,38 @@ func laneActions(status gen.LaneStatus, failure nullable.Nullable[gen.FailureKin
 // List returns the session's lanes for the S7 board (openapi listLanes). The
 // response is a **bare array** — the contract says `type: array`, like
 // listArtifacts. statuses filters by lane_status; empty means all seven.
-func List(ctx context.Context, q db.DBTX, sessionID uuid.UUID, statuses []string, canControl bool) ([]gen.Lane, error) {
+//
+// canControl is asked per lane with the lane's mission (nil = outside any
+// mission): who may stop a lane is its OWN mission's Director and deputy
+// (PRD v0.19 — a room holds several missions, T-R1b2), so the buttons match
+// what cancelLane accepts.
+func List(ctx context.Context, q db.DBTX, sessionID uuid.UUID, statuses []string, canControl func(work *uuid.UUID) bool) ([]gen.Lane, error) {
 	rows, err := q.Query(ctx, `
-		SELECT id FROM lane
+		SELECT id, work_id FROM lane
 		WHERE session_id = $1 AND (cardinality($2::text[]) = 0 OR status::text = ANY($2))
 		ORDER BY created_at`, sessionID, statuses)
 	if err != nil {
 		return nil, fmt.Errorf("lanes: list: %w", err)
 	}
 	var ids []uuid.UUID
+	var works []*uuid.UUID
 	for rows.Next() {
 		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
+		var work *uuid.UUID
+		if err := rows.Scan(&id, &work); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		ids = append(ids, id)
+		works = append(works, work)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	out := make([]gen.Lane, 0, len(ids))
-	for _, id := range ids {
-		l, err := Load(ctx, q, id, canControl)
+	for i, id := range ids {
+		l, err := Load(ctx, q, id, canControl != nil && canControl(works[i]))
 		if err != nil {
 			return nil, err
 		}

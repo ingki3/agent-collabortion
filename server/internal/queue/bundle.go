@@ -654,14 +654,15 @@ func reusedSessionSummaries(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID)
 	// `session_context` rows of type `session` are the previous sessions the
 	// wizard attached (§7 session_context.type).
 	rows, err := tx.Query(ctx, `
-		SELECT prevw.title,
+		SELECT COALESCE(prevw.title, prev.name),
 		       COALESCE((SELECT m.content FROM message m
 		                  WHERE m.session_id = prev.id AND m.kind = 'summary' AND m.summary_range IS NULL
 		                  ORDER BY m.created_at DESC LIMIT 1), ''),
 		       (SELECT count(*) FROM artifact a WHERE a.session_id = prev.id)
 		FROM session_context sc
 		JOIN room prev ON prev.id::text = sc.ref
-		JOIN work prevw ON prevw.room_id = prev.id
+		-- the previous session's own mission (V19_R1B_HANDOFF: one row per room)
+		LEFT JOIN work prevw ON prevw.id = prev.legacy_work_id
 		WHERE sc.session_id = $1 AND sc.type = 'session'
 		ORDER BY sc.created_at`, sessionID)
 	if err != nil {

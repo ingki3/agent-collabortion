@@ -3,23 +3,24 @@ package auth
 // 멤버 역할 변경·제거 — openapi updateMemberRole · removeMember (S14 멤버 탭, S-72).
 //
 // 판정은 순수 함수(PlanRoleChange · PlanRemoval)에 두고 DB 는 그 입력(역할·
-// 소유자 수·Director 인 진행 중 세션 수)만 읽는다 — 권한 4상태와 409 두 조건을
-// DB 없이 표로 재기 위해서다(runtimes.PlanRuntimeDelete 와 같은 모양).
+// 소유자 수)만 읽는다 — 권한 4상태와 409 조건을 DB 없이 표로 재기 위해서다
+// (runtimes.PlanRuntimeDelete 와 같은 모양).
 //
 // 계약 문장(openapi):
 //   updateMemberRole  권한: owner · admin. owner 강등은 owner 만(SCREEN §2.3).
 //                     마지막 owner 는 강등할 수 없다(409).
 //   removeMember      권한: owner · admin. 마지막 owner 는 제거할 수 없다(409).
-//                     그 멤버가 Director 인 활성 세션이 있으면 409(먼저 Director 를 교체).
+//                     v0.2.3(PRD §12.1-4): 떠나는 사람의 방장·Director 자리는 거부하지
+//                     않고 승계한다(OnLeave → rooms.LeaveWorkspace). 옛 409
+//                     member_is_director 는 없어졌다.
 //
 // 계약이 말하지 않아 여기서 정한 것(PR 본문에 적는다 — Lead 가 풀 수 있다):
 //   - 소유자로 **올리는** 것도 소유자만 한다. "owner 강등은 owner 만" 의 취지가
 //     관리자가 소유자 층을 건드리지 못하게 하는 것이라면, 관리자가 자기를
 //     소유자로 올리는 길을 열어 두는 순간 그 규칙은 비어 버린다.
 //   - 소유자를 **내보내는** 것도 소유자만 한다(강등보다 약한 동작이 아니다).
-//   - "활성 세션" 은 runtimes.blockingSessions 와 같은 집합 — draft · active ·
-//     paused · completing(끝나지 않은 세션 전부). 사라진 Director 를 가진
-//     draft 도 시작할 사람이 없기는 마찬가지다.
+//   - 승계하는 "열린 미션" 은 draft · active · paused · completing(끝나지 않은
+//     미션 전부) — 사라진 Director 를 가진 draft 도 시작할 사람이 없기는 마찬가지다.
 
 import (
 	"context"
@@ -36,9 +37,8 @@ import (
 // Problem codes the screens can branch on (web/lib/mock/handlers.ts uses the
 // same three).
 const (
-	CodeOwnerOnly        = "owner_only"
-	CodeLastOwner        = "last_owner"
-	CodeMemberIsDirector = "member_is_director"
+	CodeOwnerOnly = "owner_only"
+	CodeLastOwner = "last_owner"
 )
 
 // ErrMemberNotFound — no member with that id in this workspace. The handler
@@ -66,12 +66,13 @@ func PlanRoleChange(c RoleChangeCase) *apperr.Problem {
 	return nil
 }
 
-// RemovalCase is what PlanRemoval decides on.
+// RemovalCase is what PlanRemoval decides on. A Director seat is not in it:
+// since openapi 0.2.3 the seat passes to the room's owner instead of blocking
+// the removal (rooms.LeaveWorkspace).
 type RemovalCase struct {
-	CallerRole       string
-	TargetRole       string
-	OwnerCount       int
-	DirectorSessions int // unfinished sessions whose Director is the target user
+	CallerRole string
+	TargetRole string
+	OwnerCount int
 }
 
 // PlanRemoval returns nil when the member may be removed, else the Problem.
@@ -82,16 +83,8 @@ func PlanRemoval(c RemovalCase) *apperr.Problem {
 	if c.TargetRole == "owner" && c.OwnerCount <= 1 {
 		return apperr.Conflict(CodeLastOwner, "마지막 소유자는 내보낼 수 없습니다 — 먼저 다른 멤버를 소유자로 지정해 주세요")
 	}
-	if c.DirectorSessions > 0 {
-		return apperr.Conflict(CodeMemberIsDirector,
-			fmt.Sprintf("이 멤버가 Director 인 진행 중 세션이 %d개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요", c.DirectorSessions))
-	}
 	return nil
 }
-
-// activeSessionStatuses is the "활성 세션" set — the same rows
-// runtimes.blockingSessions refuses to orphan.
-const activeSessionStatuses = `('draft', 'active', 'paused', 'completing')`
 
 // memberRow is the target as the planners see it, read under the workspace
 // row lock.
@@ -191,13 +184,7 @@ func (s *Service) RemoveMember(ctx context.Context, wsID, memberID, callerUserID
 	if err != nil {
 		return err
 	}
-	var directing int
-	if err := tx.QueryRow(ctx, `
-		SELECT count(*) FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.workspace_id = $1 AND wk.director_user_id = $2 AND wk.status IN `+activeSessionStatuses,
-		wsID, m.UserID).Scan(&directing); err != nil {
-		return err
-	}
-	if p := PlanRemoval(RemovalCase{CallerRole: callerRole, TargetRole: m.Role, OwnerCount: m.OwnerCount, DirectorSessions: directing}); p != nil {
+	if p := PlanRemoval(RemovalCase{CallerRole: callerRole, TargetRole: m.Role, OwnerCount: m.OwnerCount}); p != nil {
 		return p
 	}
 	if s.OnLeave != nil {

@@ -315,12 +315,12 @@ func PlanBudgetAnswer(in BudgetAnswerInput) BudgetResume {
 func SpentUSD(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (float64, error) {
 	// The old session's spend is the ROOM's (PRD v0.19: the session budget is
 	// the room's, 0025 kept `limits` on the room). The live sum is over every
-	// task of the room; the stored roll-up is taken as max() over the room's
-	// missions rather than joined — a join fans out once a room has several
-	// (V19_R1B_HANDOFF (a)).
+	// task of the room; the stored roll-up is each mission's own (T-R1b2 split
+	// it), so the room's is their sum — never a join, which fans out once a
+	// room has several (V19_R1B_HANDOFF (a)).
 	var spent float64
 	err := q.QueryRow(ctx, `
-		SELECT greatest(COALESCE((SELECT max(wk.cost_usd) FROM work wk WHERE wk.room_id = $1), 0),
+		SELECT greatest(COALESCE((SELECT sum(wk.cost_usd) FROM work wk WHERE wk.room_id = $1), 0),
 		                COALESCE((SELECT sum(u.cost_usd) FROM task_usage u
 		                            JOIN task t ON t.id = u.task_id
 		                           WHERE t.session_id = $1), 0))`, sessionID).Scan(&spent)
@@ -331,9 +331,8 @@ func SpentUSD(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (float64, err
 }
 
 // WorkSpentUSD is one mission's spend (FR-2A.3 "일의 상한"): the live sum over
-// the tasks that ran for it. The mission's stored cost_usd is not used — the
-// finish roll-up still totals the room (R1b3 splits it), so it would charge a
-// mission for its neighbours' work.
+// the tasks that ran for it (the stored roll-up lags it the same way SpentUSD
+// explains).
 //
 // production caller: httpapi.budgetStopOf (the mission-scoped K-10 approval).
 func WorkSpentUSD(ctx context.Context, q db.DBTX, workID uuid.UUID) (float64, error) {

@@ -118,8 +118,8 @@ func TestSweepGCNoneFollowsTheMission(t *testing.T) {
 // TestSweepGCOneRowPerDirectory is V19_R1B_HANDOFF 우선 처리 sweep.go:118: the
 // sweep joined "the room's mission" (`JOIN work ON work.room_id = room.id`),
 // so once a room holds two missions every directory came back twice — and a
-// GC that deletes files queued each twice. The test lifts R1b1's
-// work_room_single for its own database (R1b2 lifts it for real).
+// GC that deletes files queued each twice (T-R1b2 dropped work_room_single,
+// so a second mission is an ordinary INSERT).
 func TestSweepGCOneRowPerDirectory(t *testing.T) {
 	pool := testdb.New(t)
 	ctx := context.Background()
@@ -127,7 +127,6 @@ func TestSweepGCOneRowPerDirectory(t *testing.T) {
 	seed := testdb.Plant(t, pool, now)
 	for _, q := range []string{
 		`UPDATE room SET runtime_id = '` + seed.RuntimeID.String() + `' WHERE id = '` + seed.SessionID.String() + `'`,
-		`DROP INDEX work_room_single`,
 		`INSERT INTO work (room_id, title, goal, director_user_id, status, created_by)
 		 VALUES ('` + seed.SessionID.String() + `', 'M2', 'g', '` + seed.UserID.String() + `', 'active', '` + seed.UserID.String() + `')`,
 	} {

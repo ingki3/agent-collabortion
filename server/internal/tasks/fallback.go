@@ -107,12 +107,19 @@ func (s *Service) ApplyProfileFallback(ctx context.Context, tx pgx.Tx, t *Row, r
 // noteNoFallback is E8-09's "Director 알림". Once per task: a three-attempt
 // retry would otherwise post the same notice three times, and the Director
 // learns nothing new the second time.
+//
+// The Director is the task's OWN mission's (V19_R1B_HANDOFF (d) — the old
+// room join picked one of the room's missions); a task outside any mission
+// tells the room's owner (FR-2A.1).
 func noteNoFallback(ctx context.Context, tx pgx.Tx, t *Row, now time.Time) error {
 	_, err := tx.Exec(ctx, `
-		INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
-		SELECT m.id, $4::inbox_item_type, $5::inbox_severity, s.id, $1, $2
-		FROM room s JOIN work wk ON wk.room_id = s.id JOIN member m ON m.workspace_id = s.workspace_id AND m.user_id = wk.director_user_id
-		WHERE s.id = $3
+		INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at, work_id, recipient_basis)
+		SELECT m.id, $4::inbox_item_type, $5::inbox_severity, s.id, $1, $2, wk.id,
+		       CASE WHEN wk.id IS NULL THEN 'room_owner' ELSE 'director' END
+		FROM task t JOIN lane l ON l.id = t.lane_id JOIN room s ON s.id = t.session_id
+		LEFT JOIN work wk ON wk.id = COALESCE(l.work_id, t.work_id)
+		JOIN member m ON m.workspace_id = s.workspace_id AND m.user_id = COALESCE(wk.director_user_id, s.owner_user_id)
+		WHERE t.id = $1 AND s.id = $3
 		  AND NOT EXISTS (SELECT 1 FROM inbox_item i WHERE i.ref_id = $1 AND i.type = $4::inbox_item_type)`,
 		t.ID, now, t.SessionID, inbox.TypeRunFailed, inbox.Severity(inbox.TypeRunFailed))
 	return err

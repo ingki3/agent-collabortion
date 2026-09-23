@@ -114,10 +114,12 @@ func TestMetricsFromSeed(t *testing.T) {
 	hitl(s2, at(25), at(5), "auto_answered")
 
 	// Lanes and tasks on S1. T0 is the delegator; T1 · T2 were delegated from
-	// it; T3 failed. Profile is claude_code (Plant).
+	// it; T3 failed. Profile is claude_code (Plant). Each carries its
+	// session's mission, as the router writes it (FR-3.1.1 — metric 5 reads a
+	// mission's lanes by work_id since T-R1b2 dropped the one-mission fallback).
 	lane := func(sess uuid.UUID) uuid.UUID {
 		var id uuid.UUID
-		if err := pool.QueryRow(ctx, `INSERT INTO lane (session_id, agent_id, profile_id, status, created_at, updated_at) VALUES ($1, $2, $3, 'done', $4, $4) RETURNING id`,
+		if err := pool.QueryRow(ctx, `INSERT INTO lane (session_id, agent_id, profile_id, status, created_at, updated_at, work_id) VALUES ($1, $2, $3, 'done', $4, $4, (SELECT legacy_work_id FROM room WHERE id = $1)) RETURNING id`,
 			sess, s.AgentID, s.ProfileID, at(100)).Scan(&id); err != nil {
 			t.Fatal(err)
 		}
@@ -126,8 +128,8 @@ func TestMetricsFromSeed(t *testing.T) {
 	l1, l2 := lane(s1), lane(s1)
 	task := func(l, sess uuid.UUID, status string, attempt int, from *uuid.UUID, started, finished time.Time) uuid.UUID {
 		var id uuid.UUID
-		if err := pool.QueryRow(ctx, `INSERT INTO task (lane_id, session_id, agent_id, profile_id, status, attempt, delegated_from_task_id, created_at, updated_at, started_at, finished_at)
-		      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $8, $9) RETURNING id`,
+		if err := pool.QueryRow(ctx, `INSERT INTO task (lane_id, session_id, agent_id, profile_id, status, attempt, delegated_from_task_id, created_at, updated_at, started_at, finished_at, work_id)
+		      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $8, $9, (SELECT legacy_work_id FROM room WHERE id = $2)) RETURNING id`,
 			l, sess, s.AgentID, s.ProfileID, status, attempt, from, started, finished).Scan(&id); err != nil {
 			t.Fatal(err)
 		}

@@ -83,8 +83,12 @@ func AddSession(t *testing.T, pool *pgxpool.Pool, s Seed, runtimeID *uuid.UUID, 
 		VALUES ($1, 'S', 'goal', $2, $2, $3, '{"kind":"none"}', $2, $4, $4) RETURNING id`, s.WorkspaceID, s.UserID, runtimeID, now).Scan(&id); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO work (room_id, title, goal, director_user_id, assignee_agent_id, status, created_by, created_at, updated_at, started_at)
-		VALUES ($1, 'S', 'goal', $2, $3, 'active', $2, $4, $4, $4)`, id, s.UserID, s.AgentID, now); err != nil {
+	// … made by the old path, so the room carries its session's mark
+	// (room.legacy_work_id, T-R1b2) as createSession's rooms do.
+	if _, err := pool.Exec(ctx, `
+		WITH w AS (INSERT INTO work (room_id, title, goal, director_user_id, assignee_agent_id, status, created_by, created_at, updated_at, started_at)
+		           VALUES ($1, 'S', 'goal', $2, $3, 'active', $2, $4, $4, $4) RETURNING id)
+		UPDATE room SET legacy_work_id = (SELECT id FROM w) WHERE id = $1`, id, s.UserID, s.AgentID, now); err != nil {
 		t.Fatalf("seed work: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO room_participant (room_id, agent_id, profile_id, joined_at) VALUES ($1, $2, $3, $4)`, id, s.AgentID, s.ProfileID, now); err != nil {

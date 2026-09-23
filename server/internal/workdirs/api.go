@@ -18,8 +18,15 @@ import (
 
 const workdirCols = `w.id, w.session_id, w.agent_id, w.lane_id, w.kind::text, w.path_or_ref,
 	 w.branch, w.status::text, w.disk_bytes, w.last_used_at, w.retain_until, w.dirty,
-	 w.created_at, w.updated_at, wk.title, wk.status::text,
+	 w.created_at, w.updated_at, COALESCE(wk.title, s.name), COALESCE(wk.status::text, 'active'),
 	 w.merged, w.commits_ahead, w.gc_blocked_reason`
+
+// workdirFrom is the room a directory lives in and the old session's mission
+// for its SessionRef (title · status). One row per directory: joining the
+// room's missions returned a directory once per mission (V19_R1B_HANDOFF (c)
+// workdirs/api.go:77 · (d) :108 · :207). A room made by createRoom shows its
+// own name.
+const workdirFrom = `FROM workdir w JOIN room s ON s.id = w.session_id LEFT JOIN work wk ON wk.id = s.legacy_work_id`
 
 func scanWorkdir(row pgx.Row) (gen.Workdir, uuid.UUID, error) {
 	var wd gen.Workdir
@@ -74,7 +81,7 @@ func scanWorkdir(row pgx.Row) (gen.Workdir, uuid.UUID, error) {
 // Load returns one workdir as the contract's Workdir (SSE `workdir.updated`).
 func Load(ctx context.Context, q db.DBTX, id uuid.UUID) (gen.Workdir, error) {
 	wd, _, err := scanWorkdir(q.QueryRow(ctx, `
-		SELECT `+workdirCols+` FROM workdir w JOIN room s ON s.id = w.session_id JOIN work wk ON wk.room_id = s.id WHERE w.id = $1`, id))
+		SELECT `+workdirCols+` `+workdirFrom+` WHERE w.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return wd, apperr.NotFound("workdir")
 	}
@@ -105,7 +112,7 @@ func ListForRuntime(ctx context.Context, q db.DBTX, ql ListQuery) ([]gen.Workdir
 	}
 	rows, err := q.Query(ctx, `
 		SELECT `+workdirCols+`
-		FROM workdir w JOIN room s ON s.id = w.session_id JOIN work wk ON wk.room_id = s.id
+		`+workdirFrom+`
 		WHERE s.runtime_id = $1
 		  AND ($2::text IS NULL OR w.status::text = $2)
 		  AND ($2::text IS NOT NULL OR w.status <> 'deleted')
@@ -204,7 +211,7 @@ func nullableTime(t *time.Time) nullable.Nullable[time.Time] {
 func UnmergedWorktrees(ctx context.Context, q db.DBTX, sessionID uuid.UUID) ([]gen.Workdir, error) {
 	rows, err := q.Query(ctx, `
 		SELECT `+workdirCols+`
-		FROM workdir w JOIN room s ON s.id = w.session_id JOIN work wk ON wk.room_id = s.id
+		`+workdirFrom+`
 		WHERE w.session_id = $1 AND w.kind = 'worktree' AND w.status <> 'deleted'
 		  AND (w.merged = false OR COALESCE(w.tree_dirty, w.dirty, false) OR w.commits_ahead > 0)
 		ORDER BY w.created_at`, sessionID)

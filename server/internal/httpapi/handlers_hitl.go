@@ -96,12 +96,24 @@ func (s *Server) RespondHitlRequest(w http.ResponseWriter, r *http.Request, hitl
 		writeProblem(w, forbiddenRespond(row, plan, now))
 		return
 	}
-	if in.TimeExtension != nil {
-		// The `time` purpose is issued by the session time limit, which is not
-		// part of T-S5 (P3_TASKS §2 names budget). Refusing is the honest
-		// answer: storing an extension nothing reads would look implemented.
-		notImplemented(w, r, "RespondHitlRequest time_extension (session time limit is not in the P3 server slice)")
-		return
+	if in.TimeExtension != nil || isWorkTimeApproval(row, in) {
+		// FR-2A.3 (T-R1b2): the `time` purpose is the mission time limit
+		// (SweepWorkTimeLimits). Approving it IS the resume, so it carries
+		// the extension — like K-10's budget raise.
+		if row.Purpose == nil || *row.Purpose != hitl.PurposeTime || row.WorkID == nil {
+			writeProblem(w, apperr.Validation(apperr.Field("time_extension", "not_applicable",
+				"시간 연장은 미션 시간 상한 확인 요청에만 붙일 수 있습니다")))
+			return
+		}
+		if in.TimeExtension == nil {
+			writeProblem(w, apperr.Validation(apperr.Field("time_extension", "required",
+				"미션이 시간 상한 때문에 멈춰 있습니다 — 승인하려면 연장할 시간을 함께 정해 주세요 (예: PT2H)")))
+			return
+		}
+		if d, err := parseISODuration(*in.TimeExtension); err != nil || d <= 0 {
+			writeProblem(w, apperr.Validation(apperr.Field("time_extension", "invalid", "연장할 시간은 PT2H 처럼 적어 주세요")))
+			return
+		}
 	}
 	if in.BudgetOverrideUsd != nil && (row.Purpose == nil || *row.Purpose != hitl.PurposeBudget) {
 		writeProblem(w, apperr.Validation(apperr.Field("budget_override_usd", "not_applicable",
@@ -320,7 +332,7 @@ func (s *Server) answerAgentHitl(ctx context.Context, row *hitlRow, sess *hitlSe
 	}
 	// FR-5.2: exactly one decision record per answer. `auto` stays false — a
 	// person answered (E7-12 is the other half).
-	decisionID, err := insertDecision(ctx, tx, row.SessionID, hitlDecisionSummary(row, in, stored), reason, "hitl", &row.ID, false, now)
+	decisionID, err := insertDecision(ctx, tx, row.SessionID, hitlDecisionSummary(row, in, stored), reason, "hitl", &row.ID, false, now, row.WorkID)
 	if err != nil {
 		return 0, nil, apperr.Internal(err)
 	}
@@ -407,6 +419,16 @@ func (s *Server) answerAgentHitl(ctx context.Context, row *hitlRow, sess *hitlSe
 		// the one person we know is looking at it.
 		s.publishSession(ctx, sess.WorkspaceID, row.SessionID, &gen.User{Id: userID})
 	}
+	if isWorkTimeApproval(row, in) && in.TimeExtension != nil {
+		ext, _ := parseISODuration(*in.TimeExtension)
+		if err := s.resumeWorkForTime(ctx, *row.WorkID, ext, now); err != nil {
+			return 0, nil, apperr.As(err)
+		}
+		s.Queue.Notifier.Notify()
+		if wk, err := sessions.LoadWorkRow(ctx, s.DB, *row.WorkID); err == nil {
+			s.afterWorkChange(ctx, sess.WorkspaceID, wk)
+		}
+	}
 	if row.Purpose != nil && *row.Purpose == hitl.PurposeLoop && row.TaskID == nil && in.Approved != nil && *in.Approved {
 		// PRD v0.19 FR-3.5 · §12.1-9: the loop gate is lifted by the room
 		// owner's approval — the answer IS the resume (no separate call).
@@ -455,6 +477,13 @@ func isSessionBudgetApproval(row *hitlRow, in gen.HitlResponse) bool {
 		in.Approved != nil && *in.Approved
 }
 
+// isWorkTimeApproval is the mission time request (purpose `time`, task_id
+// empty — SweepWorkTimeLimits) answered with approval.
+func isWorkTimeApproval(row *hitlRow, in gen.HitlResponse) bool {
+	return row.Purpose != nil && *row.Purpose == hitl.PurposeTime && row.TaskID == nil &&
+		in.Approved != nil && *in.Approved
+}
+
 // hitlDecisionSummary is the one line the decision log carries.
 func hitlDecisionSummary(row *hitlRow, in gen.HitlResponse, stored string) string {
 	switch row.Type {
@@ -472,16 +501,20 @@ func hitlDecisionSummary(row *hitlRow, in gen.HitlResponse, stored string) strin
 // an expiry that proceeded with the agent's proposal (openapi Decision.auto,
 // E7-12); it is a column rather than a convention because the two read
 // identically in the log otherwise.
-func insertDecision(ctx context.Context, q db.DBTX, sessionID uuid.UUID, summary, rationale, source string, refID *uuid.UUID, auto bool, now time.Time) (uuid.UUID, error) {
+//
+// workID is the mission the decision belongs to (PRD v0.19 — the request's;
+// nil for a room's own request): the mission summary and the S7 sidebar read
+// a mission's decisions by it.
+func insertDecision(ctx context.Context, q db.DBTX, sessionID uuid.UUID, summary, rationale, source string, refID *uuid.UUID, auto bool, now time.Time, workID *uuid.UUID) (uuid.UUID, error) {
 	var id uuid.UUID
 	var rat *string
 	if rationale != "" {
 		rat = &rationale
 	}
 	err := q.QueryRow(ctx, `
-		INSERT INTO decision (session_id, summary, rationale, source, ref_id, auto, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-		sessionID, summary, rat, source, refID, auto, now).Scan(&id)
+		INSERT INTO decision (session_id, summary, rationale, source, ref_id, auto, created_at, work_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+		sessionID, summary, rat, source, refID, auto, now, workID).Scan(&id)
 	return id, err
 }
 
@@ -503,8 +536,13 @@ func (s *Server) answerCompletionApproval(ctx context.Context, hitlID, userID uu
 
 	var status string
 	var sessionID uuid.UUID
-	if err := tx.QueryRow(ctx, `SELECT status::text, session_id FROM hitl_request WHERE id = $1 FOR UPDATE`, hitlID).
-		Scan(&status, &sessionID); err != nil {
+	var workID *uuid.UUID
+	// The approval belongs to ITS mission (T-R1b2 writes work_id on it); an
+	// old row without one is the old session's.
+	if err := tx.QueryRow(ctx, `
+		SELECT h.status::text, h.session_id, COALESCE(h.work_id, r.legacy_work_id)
+		FROM hitl_request h JOIN room r ON r.id = h.session_id WHERE h.id = $1 FOR UPDATE OF h`, hitlID).
+		Scan(&status, &sessionID, &workID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, nil, apperr.NotFound("hitl_request")
 		}
@@ -544,7 +582,10 @@ func (s *Server) answerCompletionApproval(ctx context.Context, hitlID, userID uu
 		kind = "director_reject"
 	}
 	ref := hitlID
-	outcome, err := s.Sessions.ApplyCompletionEvent(ctx, sessionID, sessions.Event{
+	if workID == nil {
+		return 0, nil, apperr.NotFound("work")
+	}
+	outcome, err := s.Sessions.ApplyWorkEvent(ctx, *workID, sessions.Event{
 		Kind: kind, Actor: userID, Note: reason, Ref: &ref,
 	})
 	if err != nil {
@@ -621,14 +662,13 @@ func loadHitlRow(ctx context.Context, q db.DBTX, id uuid.UUID) (*hitlRow, error)
 		FROM hitl_request h
 		JOIN room r ON r.id = h.session_id
 		LEFT JOIN task t ON t.id = h.task_id
-		-- The request's mission; for a platform request written without one
-		-- (completion approval) the room's only mission — the legacy
-		-- single-work room rule (router.legacySingleWorkRoom). A room_owner
-		-- request is the room's own and never borrows a mission's Director.
+		-- The request's mission (T-R1b2 writes it on every request, the
+		-- migration filled the old ones); a request still without one in a room
+		-- made by the old path is the old session's (room.legacy_work_id). A
+		-- room_owner request is the room's own and never borrows a mission's
+		-- Director.
 		LEFT JOIN work wk ON wk.id = COALESCE(h.work_id, t.work_id,
-		      CASE WHEN h.approver_spec <> 'room_owner' THEN
-		        (SELECT w1.id FROM work w1 WHERE w1.room_id = h.session_id
-		            AND (SELECT count(*) FROM work w2 WHERE w2.room_id = h.session_id) = 1) END)
+		      CASE WHEN h.approver_spec <> 'room_owner' THEN r.legacy_work_id END)
 		LEFT JOIN agent a ON a.id = t.agent_id
 		WHERE h.id = $1`, id).
 		Scan(&h.ID, &h.SessionID, &h.TaskID, &h.LaneID, &h.AgentID, &h.AgentName,
