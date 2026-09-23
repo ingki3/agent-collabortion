@@ -4613,6 +4613,9 @@ export interface components {
             /** @description `room_participant.last_read_message_id` 이후 메시지 수 — 목록에서 한 번에 센다. */
             unread_count: number;
             active_work_count: number;
+            visibility?: components["schemas"]["RoomVisibility"];
+            /** @description v0.2.5 — 진행 중 할 일 수. 0 이 아니면 보관이 409 tasks_active 라 카드 메뉴가 미리 비활성으로 그린다(SCREEN §4.3). */
+            active_task_count?: number;
             /** @description 내가 답할 것만 센다. */
             attention: {
                 hitl_open: number;
