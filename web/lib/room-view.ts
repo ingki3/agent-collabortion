@@ -78,9 +78,13 @@ export function chipRow(works: WorkListItem[], sel: ChipSel): ChipRow {
   return { show: works.length > 0, chips, overflow, past, paused: paused.length >= 2 ? paused : [] };
 }
 
-/** 메시지·서브 미션 거르기 — `(미션 없음)` 은 `work_id = null` 만(§4.6). */
+/**
+ * 메시지·서브 미션 거르기 — `(미션 없음)` 은 `work_id = null` 만(§4.6).
+ * **칸이 아예 없으면(`undefined`) 서버가 말하지 않은 것**이지 「미션 없음」이 아니다 — 거르지 않고 서버의 거르기(`work_id`·`no_work`
+ * 파라미터)를 믿는다. `null` 과 구분하지 않으면 칸을 안 싣는 서버에서 미션 칩을 고르는 순간 타임라인이 텅 빈다(T-R2-W2 실서버 관측).
+ */
 export function matchesSel(workId: string | null | undefined, sel: ChipSel): boolean {
-  if (sel.kind === "all") return true;
+  if (sel.kind === "all" || workId === undefined) return true;
   if (sel.kind === "none") return workId == null;
   return workId === sel.id;
 }

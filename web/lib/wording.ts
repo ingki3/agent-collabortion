@@ -494,7 +494,8 @@ export const WORK_CHIPS = {
   /** 칩을 누르면 가운데·우열 두 곳이 바뀐다 — 조용한 안내(aria-live). */
   announce_all: "전체 미션을 봅니다",
   announce_none: "미션 없이 오간 대화만 봅니다",
-  announce_work: (title: string) => `미션 「${title}」으로 걸렀습니다`,
+  /** 받침에 따라 조사가 갈리지 않게 「〈이름〉 미션으로」(「미션」은 받침이 있어 늘 「으로」). */
+  announce_work: (title: string) => `「${title}」 미션으로 걸렀습니다`,
   announce_lanes: ["서브 미션 ", "개"] as Slotted,
   announce_messages: ["메시지 ", "개"] as Slotted,
 } as const;

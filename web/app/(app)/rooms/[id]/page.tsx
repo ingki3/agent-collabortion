@@ -656,7 +656,9 @@ export default function RoomPage() {
   const hitlByMessage = new Map(hitls.filter((h) => h.message_id).map((h) => [h.message_id!, h]));
   const typingAgents = Object.entries(typing).filter(([, v]) => v).map(([id]) => agentById.get(id)?.name ?? "agent");
   const showLabels = sel.kind === "all";
+  // 칸이 없으면(undefined) 라벨을 그리지 않는다 — 「미션 없음」이라고 단정할 근거가 없다(matchesSel 과 같은 규칙).
   const labelFor = (workId: string | null | undefined) => (workId ? ROOM_LEFT.work_label(workTitle(workId)) : ROOM_LEFT.no_work_label);
+  const workLabelOf = (workId: string | null | undefined, testId: string) => (showLabels && workId !== undefined ? <WorkLabel text={labelFor(workId)} testId={testId} /> : undefined);
   const people = participants.filter((p) => p.kind === "user" && !p.left_at);
   const freshRoom = msgLoaded && messages.length === 0 && !hasOlder && sel.kind === "all" && people.length <= 1 && roomAgents.length === 0;
   const selectedWorkOpen = sel.kind === "work" && openWorks.some((w) => w.id === sel.id) ? sel.id : null;
@@ -823,7 +825,7 @@ export default function RoomPage() {
               const maxConc = agentById.get(l.agent_id)?.max_concurrent_tasks ?? null;
               return {
                 // 미션 라벨은 양방향 — (전체)에서 보이고 칩을 고르면 감춘다(§4.6).
-                workLabel: showLabels ? <WorkLabel text={labelFor(l.work_id)} testId="lane-work-label" /> : undefined,
+                workLabel: workLabelOf(l.work_id, "lane-work-label"),
                 queuedReason: !reason ? undefined
                   : reason === "room_lanes" ? (room.limits?.max_parallel_lanes != null ? <Slot text={ROOM_LEFT.queued_room_lanes} n={room.limits.max_parallel_lanes} /> : ROOM_LEFT.queued_room_lanes_plain)
                   : reason === "agent_global" ? (maxConc != null ? <Slot text={ROOM_LEFT.queued_agent_global} n={maxConc} /> : ROOM_LEFT.queued_agent_global_plain)
@@ -915,7 +917,7 @@ export default function RoomPage() {
                     activity={agentMsg ? <TaskActivity taskId={m.source_task_id!} cache={events} load={loadEvents} /> : undefined}
                     askee={askee}
                     now={now}
-                    workLabel={showLabels ? <WorkLabel text={labelFor(m.work_id)} testId="message-work-label" /> : undefined}
+                    workLabel={workLabelOf(m.work_id, "message-work-label")}
                     menu={m.kind !== "system" && m.kind !== "summary" ? <MessageMenu id={m.id} why={toWorkWhy} onToWork={() => openWorkFrom(m)} /> : undefined}
                     footer={
                       m.kind === "summary" ? (

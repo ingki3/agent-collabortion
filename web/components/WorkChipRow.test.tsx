@@ -19,7 +19,7 @@ const w = (id: string, title: string, status: WorkListItem["status"] = "active",
 describe("WorkChipRow", () => {
   it("한 그룹(「미션 거르개」) · 선택은 aria-pressed + ✓(색만으로 표시하지 않는다) · 누르면 선택을 올린다", () => {
     const onSelect = vi.fn();
-    render(<WorkChipRow works={[w("w1", "보고서 초안"), w("w2", "수수료 비교", "paused")]} sel={{ kind: "work", id: "w1" }} onSelect={onSelect} announce="미션 「보고서 초안」으로 걸렀습니다" />);
+    render(<WorkChipRow works={[w("w1", "보고서 초안"), w("w2", "수수료 비교", "paused")]} sel={{ kind: "work", id: "w1" }} onSelect={onSelect} announce="「보고서 초안」 미션으로 걸렀습니다" />);
     expect(screen.getByRole("group", { name: "미션 거르개" })).toBeInTheDocument();
     const chips = screen.getAllByTestId("work-chip");
     expect(chips.map((c) => c.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
@@ -34,7 +34,7 @@ describe("WorkChipRow", () => {
     expect(onSelect).toHaveBeenLastCalledWith({ kind: "none" });
     // 두 곳이 바뀐 사실은 조용한 안내로(§9.1 규칙 4)
     expect(screen.getByTestId("chip-announce")).toHaveAttribute("aria-live", "polite");
-    expect(screen.getByTestId("chip-announce").textContent).toBe("미션 「보고서 초안」으로 걸렀습니다");
+    expect(screen.getByTestId("chip-announce").textContent).toBe("「보고서 초안」 미션으로 걸렀습니다");
   });
 
   it("⏳ 는 상태가 아니라 파생 — 툴팁이 아니라 aria-label 「사람 대기」", () => {

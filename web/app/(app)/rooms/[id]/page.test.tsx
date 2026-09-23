@@ -166,7 +166,7 @@ describe("S7 — 미션 칩은 거르개이자 선택자(타임라인·보드·�
     // 작성창 선택기의 기본값 = 지금 고른 칩
     expect((screen.getByTestId("work-selector-select") as HTMLSelectElement).value).toBe("w1");
     // 조용한 안내 — 두 곳이 바뀐 것을 소리로도
-    expect(screen.getByTestId("chip-announce").textContent).toBe("미션 「보고서 초안」으로 걸렀습니다 · 서브 미션 1개 · 메시지 1개");
+    expect(screen.getByTestId("chip-announce").textContent).toBe("「보고서 초안」 미션으로 걸렀습니다 · 서브 미션 1개 · 메시지 1개");
     // 미션 동작 — 고른 미션에 보낸다
     post.mockResolvedValueOnce(work("w1", { status: "paused", paused_reason: "director" }));
     fireEvent.click(screen.getByTestId("work-action-pause"));

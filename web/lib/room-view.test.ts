@@ -65,6 +65,12 @@ describe("칩 줄(§4.6 · COMPONENTS §9.1)", () => {
 describe("거르기 — 칩 하나가 타임라인·보드·우열을 함께 바꾼다", () => {
   const ms = [msg("1", "w1"), msg("2", null), msg("3", "w2")];
   const ls = [lane("a", "w1"), lane("b", null), lane("c", "w2")];
+  it("칸이 없으면(undefined) 서버가 말하지 않은 것 — 거르지 않는다(null 은 「미션 없음」)", () => {
+    const unknown = { id: "u", created_at: "u" } as unknown as Message;
+    expect(filterMessages([unknown], { kind: "work", id: "w1" })).toHaveLength(1);
+    expect(filterMessages([unknown], { kind: "none" })).toHaveLength(1);
+    expect(filterMessages([msg("n", null)], { kind: "work", id: "w1" })).toHaveLength(0);
+  });
   it("(전체)는 거르지 않고, (미션 없음)은 work_id = null 만, 미션 칩은 그 미션만", () => {
     expect(filterMessages(ms, { kind: "all" }).map((m) => m.id)).toEqual(["1", "2", "3"]);
     expect(filterMessages(ms, { kind: "none" }).map((m) => m.id)).toEqual(["2"]);
