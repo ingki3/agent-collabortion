@@ -476,6 +476,22 @@ export const SUMMARIZE_DIALOG = {
   confirm: "정리",
   busy: "정리하는 중…",
   cancel: "취소",
+  /** 「직접 고르기」 — 시작·끝 메시지를 타임라인에서 집는다(§4.6 「여기까지 정리」 범위 표, T-R2-W4b). */
+  pick: "직접 고르기",
+  pick_start: "타임라인에서 고르기",
+  pick_again: "다시 고르기",
+  pick_from: "시작",
+  pick_to: "끝",
+  pick_need: "시작과 끝 메시지를 타임라인에서 고르세요",
+} as const;
+
+/** 「직접 고르기」 중 타임라인 위 안내 줄과 메시지마다의 집기 단추. */
+export const SUMMARY_PICK = {
+  bar_from: "정리를 시작할 메시지를 누르세요",
+  bar_to: "정리를 끝낼 메시지를 누르세요",
+  here_from: "여기서 시작",
+  here_to: "여기까지",
+  cancel: "그만 고르기",
 } as const;
 
 /** 미션 칩 줄(COMPONENTS §9.1). 특수 칩 둘은 글자 그대로 `전체`·`미션 없음`. */
@@ -527,6 +543,11 @@ export const ROOM_BANNER = {
   /** 내가 승인 권한자가 아닐 때 — 누가 언제부터(FR-2A.3). */
   waiting: ["「", "」의 승인을 기다립니다"] as Slotted,
   delegate: ["", "부터 다음 권한자가 답할 수 있습니다"] as Slotted,
+  /** 다음 권한자를 서버가 알려 줄 때(0.2.8 `next_approver`·`next_approver_role`) — 「14:30부터 부방장 「서연」님이 답할 수 있습니다」. */
+  delegate_at: ["", "부터 "] as Slotted,
+  next_room_deputy: ["부방장 「", "」님이 답할 수 있습니다"] as Slotted,
+  next_workspace_owner: ["워크스페이스 소유자 「", "」님이 답할 수 있습니다"] as Slotted,
+  next_plain: ["「", "」님이 답할 수 있습니다"] as Slotted,
   approve: "계속 진행 승인",
   approve_where: "받은 요청에서 승인합니다",
   rebind: "컴퓨터 바꾸기",

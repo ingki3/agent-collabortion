@@ -123,7 +123,7 @@ describe("문구 자물쇠의 범위", () => {
       "components/RuntimeCard.tsx",
       "components/RebindDialog.tsx",
       "components/PausedBanner.tsx",
-      "app/(app)/sessions/new/page.tsx",
+      "components/CreateWorkDialog.tsx", // S6 마법사가 지워진 자리(T-R2-W4b) — 조건 편집기를 그리는 곳
       "app/(app)/settings/page.tsx",
       "app/onboarding/page.tsx",
       // T-W6 — S14 8탭·대시보드 · S10 시험 대화 · W-10 의 문구가 사는 곳
@@ -476,7 +476,7 @@ describe("종료 조건 — 이름은 사람 말이고 한곳(lib/wording.ts)에
   it("옛 이름(아티팩트 제출 · 에이전트 승인)과 계약 enum 이 화면 문자열에 없다 — CONDITION_LABEL 표는 사라졌다", () => {
     expect(hits(/아티팩트 제출|에이전트 승인(?!을)/, (v) => v.file === "lib/wording.ts" && /검토 승인/.test(v.text))).toEqual([]);
     // 조건 이름을 손으로 다시 적은 자리가 없다 — 이름은 conditionName 하나에서만.
-    for (const f of ["components/ConditionRow.tsx", "components/ConditionEditor.tsx", "components/SessionAside.tsx", "app/(app)/sessions/new/page.tsx", "components/FixConditionDialog.tsx"]) {
+    for (const f of ["components/ConditionRow.tsx", "components/ConditionEditor.tsx", "components/SessionAside.tsx", "components/CreateWorkDialog.tsx", "components/WorkEditDialogs.tsx", "components/FixConditionDialog.tsx"]) {
       expect(src(f)).not.toMatch(/CONDITION_LABEL/);
       expect(src(f)).not.toContain('"보고서 제출"');
       expect(src(f)).not.toContain('"Director 승인"');
@@ -515,10 +515,13 @@ describe("종료 조건 — 이름은 사람 말이고 한곳(lib/wording.ts)에
     for (const t of [CONDITION_EDITOR.reviewer_required, CONDITION_EDITOR.reviewer_is_assignee, CONDITION_EDITOR.need_one, CONDITION_EDITOR.no_human_gate, CONDITION_EDITOR.submitter_default]) expect(inPool("lib/wording.ts", t)).toBe(true);
     const editor = src("components/ConditionEditor.tsx");
     for (const k of ["reviewer_required", "reviewer_is_assignee", "reviewer_placeholder", "submitter_default", "no_human_gate", "op_and", "op_or"]) expect(editor).toContain(`CONDITION_EDITOR.${k}`);
-    // 마법사와 다이얼로그가 **같은 편집기**를 그린다 — 두 자리가 다른 편집기를 가지면 한쪽에서만 리뷰어를 잊는다.
-    expect(src("app/(app)/sessions/new/page.tsx")).toMatch(/<ConditionEditor\b/);
-    expect(src("components/FixConditionDialog.tsx")).toMatch(/<ConditionEditor\b/);
-    expect(src("app/(app)/sessions/new/page.tsx")).not.toMatch(/submitter-select|reviewer-select/); // 편집기 안에만 있다
+    // 미션 열기·편집(S21)과 조건 고치기가 **같은 편집기**를 그린다 — 두 자리가 다른 편집기를 가지면 한쪽에서만 리뷰어를 잊는다.
+    // (S6 마법사는 T-R2-W4b 에서 지워졌다 — 그 6단계가 S21 로 왔다.)
+    expect(existsSync(join(ROOT, "app/(app)/sessions/new"))).toBe(false);
+    for (const f of ["components/CreateWorkDialog.tsx", "components/WorkEditDialogs.tsx", "components/FixConditionDialog.tsx"]) {
+      expect(src(f)).toMatch(/<ConditionEditor\b/);
+      expect(src(f)).not.toMatch(/submitter-select|reviewer-select/); // 편집기 안에만 있다
+    }
   });
 
   it("「조건 고치기」 — 제목·안내·버튼이 표에 있고 다이얼로그가 그 표를 쓴다 · S7 이 Director 에게만 넘긴다", () => {

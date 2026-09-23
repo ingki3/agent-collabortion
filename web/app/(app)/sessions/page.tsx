@@ -107,7 +107,7 @@ function SessionsView() {
     <div>
       <PageHead screen="sessions">
         <Link
-          href="/sessions/new"
+          href="/rooms/new"
           className="btn btn--primary"
           aria-disabled={noRuntime || undefined}
           aria-describedby={noRuntime ? "new-session-hint" : undefined}
@@ -139,7 +139,7 @@ function SessionsView() {
         <div className="empty" data-testid="empty-no-session">
           <div className="empty__title">첫 세션을 만들어 보세요</div>
           <div className="empty__body">예: "국내 B2B SaaS 결제 시장 조사 보고서 10페이지" — 목표 하나만 적으면 나머지는 기본값으로 시작됩니다.</div>
-          <Link href="/sessions/new" className="btn btn--primary">
+          <Link href="/rooms/new" className="btn btn--primary">
             새 세션
           </Link>
         </div>

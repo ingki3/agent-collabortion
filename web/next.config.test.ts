@@ -76,7 +76,7 @@ describe("next.config.mjs", () => {
   });
 });
 
-// ── v0.19 T-R2-W1 — `/sessions…` → `/rooms…` 307, 마법사(`/sessions/new`)만 예외 ─────────────────────────────
+// ── v0.19 T-R2-W1 — `/sessions…` → `/rooms…` 307 · T-R2-W4b — 마법사(`/sessions/new`) 삭제 → `/rooms/new` ─────────────────────────────
 describe("세션 → 방 주소 (T-R2-W1)", () => {
   // Next 가 redirects 의 source 를 해석하는 것과 같은 path-to-regexp(next 에 묶인 사본)로 잰다.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -99,8 +99,8 @@ describe("세션 → 방 주소 (T-R2-W1)", () => {
     expect(await redirectOf("/sessions/abc/settings")).toEqual({ to: "/rooms/abc/settings", status: 307 });
   });
 
-  it("마법사 /sessions/new 는 예외 — 옮기지 않는다(삭제는 W4 뒤)", async () => {
-    expect(await redirectOf("/sessions/new")).toBeNull();
+  it("마법사 /sessions/new 는 지워졌다(T-R2-W4b) — 방 만들기 /rooms/new 로 307", async () => {
+    expect(await redirectOf("/sessions/new")).toEqual({ to: "/rooms/new", status: 307 });
     // 이름이 new 로 시작할 뿐인 id 는 예외가 아니다.
     expect(await redirectOf("/sessions/newer")).toEqual({ to: "/rooms/newer", status: 307 });
   });
@@ -108,7 +108,7 @@ describe("세션 → 방 주소 (T-R2-W1)", () => {
   it("영구(308)가 아니다 — 되돌릴 수 있는 이관이라 브라우저가 캐시하지 않게", () => {
     const src = readFileSync(path.join(ROOT, "next.config.mjs"), "utf8");
     expect(src).not.toMatch(/permanent:\s*true/);
-    expect(src.match(/statusCode: 307/g)).toHaveLength(3);
+    expect(src.match(/statusCode: 307/g)).toHaveLength(4);
   });
 
   it("앱 안의 기본 착지점은 /rooms 다 — 옛 /sessions 로 보내 한 번 더 튕기지 않는다", () => {

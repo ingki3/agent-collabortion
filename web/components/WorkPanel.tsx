@@ -7,6 +7,8 @@
  * `(전체)`·`(미션 없음)` 에서 미션 동작은 **통째로 비활성**이고 사유는 버튼 아래 글자다(`DisabledHint`, Lead 판정 4).
  * 끝난 미션(S22)은 읽기 전용 + 「끝난 미션입니다」.
  * 미션 `paused` 해소 배너는 **미션 사유만**(예산·시간·수동) — 방 사유는 전폭 배너로 올라간다(§4.6). 배너는 조용하다(`role="status"`).
+ * 편집 동작(T-R2-W4b): 「설정 편집」(S21 폼 편집 모드) · 「Director 교체」 · 막힌 조건의 「조건 고치기」 — 권한은 `lib/work-edit.ts` 한 곳.
+ * Director 교체만 층이 다르다(그 미션의 director **또는 ws owner·admin**) — 사유도 따로 선다.
  */
 import { useState } from "react";
 import "./session-aside.css";
@@ -19,7 +21,8 @@ import { metByName } from "./SessionAside";
 import { progressSummary, topOp } from "@/lib/completion";
 import { humanDuration } from "@/lib/time";
 import { panelActionsEnabled, type PanelMode } from "@/lib/room-view";
-import { PROGRESS, ROOM_HEAD, WORK_CHIPS, WORK_PANEL } from "@/lib/wording";
+import { ROOM_HEAD, WORK_CHIPS, WORK_PANEL } from "@/lib/wording";
+import { WORK_EDIT, changeDirectorBlocked } from "@/lib/work-edit";
 import type { Work } from "@/lib/api/types";
 
 export interface WorkPanelProps {
@@ -40,6 +43,14 @@ export interface WorkPanelProps {
   newWorkDisabled?: string | null;
   onOpenSummary?: (messageId: string) => void;
   onBackToRoom?: () => void;
+  /** 「설정 편집」 — S21 폼 편집 모드. */
+  onEdit?: () => void;
+  /** 「Director 교체」 — changeWorkDirector. */
+  onChangeDirector?: () => void;
+  /** 「조건 고치기」 — 막힌 조건이 있을 때 Director 에게. */
+  onFixCondition?: () => void;
+  /** 워크스페이스 owner·admin — Director 교체 권한(계약 changeWorkDirector). */
+  canManage?: boolean;
 }
 
 const CLOSED = new Set(["completed", "cancelled"]);
@@ -86,6 +97,11 @@ export function WorkPanel(props: WorkPanelProps) {
     : closed ? null
     : !isDirector && work ? WORK_PANEL.not_director(work.director?.display_name ?? "") : null;
   const actDisabled = !actionsOn || closed || !isDirector || props.busy;
+  // Director 교체 — 그 미션의 director 또는 ws owner·admin. 칩을 고르지 않았으면 다른 동작과 같은 사유(pick_first)로 막힌다.
+  const directorBlocked = actionsOn && work && !closed ? changeDirectorBlocked(work, !!props.canManage) : null;
+  const directorDisabled = !actionsOn || closed || !!directorBlocked || !!props.busy;
+  // 교체는 층이 하나 더 있다(owner·admin) — 다른 동작의 사유 아래 한 줄 더 적어 그 길을 말한다.
+  const directorWhy = directorBlocked;
 
   const actions = (
     <div className="work-panel__actions" data-testid="work-actions" data-enabled={actDisabled ? "false" : "true"}>
@@ -105,8 +121,19 @@ export function WorkPanel(props: WorkPanelProps) {
         <button type="button" className="btn btn--sm" disabled={actDisabled} aria-describedby={disabledWhy ? "work-actions-why" : undefined} onClick={props.onCancel} data-testid="work-action-cancel">
           {WORK_PANEL.cancel}
         </button>
+        {props.onEdit && (
+          <button type="button" className="btn btn--sm" disabled={actDisabled} aria-describedby={disabledWhy ? "work-actions-why" : undefined} onClick={props.onEdit} data-testid="work-action-edit">
+            {WORK_EDIT.edit}
+          </button>
+        )}
+        {props.onChangeDirector && (
+          <button type="button" className="btn btn--sm" disabled={directorDisabled} aria-describedby={directorWhy ? "work-director-why" : disabledWhy ? "work-actions-why" : undefined} onClick={props.onChangeDirector} data-testid="work-action-director">
+            {WORK_EDIT.change_director}
+          </button>
+        )}
       </div>
       {disabledWhy && <DisabledHint id="work-actions-why">{disabledWhy}</DisabledHint>}
+      {directorWhy && <DisabledHint id="work-director-why">{directorWhy}</DisabledHint>}
     </div>
   );
 
@@ -221,7 +248,16 @@ export function WorkPanel(props: WorkPanelProps) {
           onOpenHitl={props.onOpenHitl}
         />
       ))}
-      {blockedCount > 0 && !closed && <p className="aside__warn" data-testid="progress-blocked">{PROGRESS.blocked_member}</p>}
+      {blockedCount > 0 && !closed && (
+        <div className="aside__blocked" data-testid="progress-blocked">
+          <span className="aside__warn">{mayResolve && props.onFixCondition ? WORK_EDIT.blocked_director : WORK_EDIT.blocked_member}</span>
+          {mayResolve && props.onFixCondition && (
+            <button type="button" className="btn btn--sm" onClick={props.onFixCondition} disabled={props.busy} data-testid="work-fix-condition">
+              {WORK_EDIT.fix_condition}
+            </button>
+          )}
+        </div>
+      )}
       <h3 className="aside__h">{WORK_PANEL.cost}</h3>
       <p className="aside__cost" data-testid="work-cost">
         {WORK_PANEL.cost_this}${work.cost_usd.toFixed(2)}

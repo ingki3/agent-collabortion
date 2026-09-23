@@ -72,3 +72,7 @@
 .room-head__act { display: inline-flex; flex-direction: column; gap: 2px; max-width: 16em; }
 .room-head__menu.card-menu { position: relative; top: auto; right: auto; }
 .room-head__range { border: 0; padding: 0; margin: 0 0 8px; display: flex; flex-direction: column; gap: 4px; }
+.room-head__picked { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin: 0 0 8px; }
+.room-head__picked-dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; margin: 0; font-size: var(--fs-sub); }
+.room-head__picked-dl dt { color: var(--ink-2); }
+.room-head__picked-dl dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
