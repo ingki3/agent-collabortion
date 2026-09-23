@@ -58,6 +58,7 @@ export const STREAM_EVENT_TYPES: readonly StreamEventType[] = [
   "work.created",
   "work.updated",
   "work.closed",
+  "work.deleted",
   "work.completion_progress",
   "participant.joined",
   "participant.left",

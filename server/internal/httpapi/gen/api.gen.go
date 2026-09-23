@@ -1521,6 +1521,7 @@ const (
 	StreamEventTypeWorkClosed                StreamEventType = "work.closed"
 	StreamEventTypeWorkCompletionProgress    StreamEventType = "work.completion_progress"
 	StreamEventTypeWorkCreated               StreamEventType = "work.created"
+	StreamEventTypeWorkDeleted               StreamEventType = "work.deleted"
 	StreamEventTypeWorkProposalCreated       StreamEventType = "work_proposal.created"
 	StreamEventTypeWorkProposalResolved      StreamEventType = "work_proposal.resolved"
 	StreamEventTypeWorkUpdated               StreamEventType = "work.updated"
@@ -1599,6 +1600,8 @@ func (e StreamEventType) Valid() bool {
 	case StreamEventTypeWorkCompletionProgress:
 		return true
 	case StreamEventTypeWorkCreated:
+		return true
+	case StreamEventTypeWorkDeleted:
 		return true
 	case StreamEventTypeWorkProposalCreated:
 		return true
@@ -4064,6 +4067,7 @@ type SessionUpdate struct {
 // | `room.unread` | `{room_id, unread_count, last_read_message_id}` — 내 다른 탭·기기에도 | S5 · 내비 |
 // | `work.created` · `work.updated` | `WorkListItem`(부분) | S7 칩 줄 · 우열 |
 // | `work.closed` | `{work_id, room_id, status, summary_message_id?}` | S7 |
+// | `work.deleted` | `{work_id, room_id}` — v0.2.4, 미션 삭제(메시지는 방에 남는다) | S7 칩 줄 |
 // | `work.completion_progress` | `{work_id, completion_progress}` | S7 · S22 |
 // | `participant.joined` · `participant.left` | `{room_id, participant: RoomParticipant}` · `{room_id, participant_id, kind, left_at}` | S7 · S19 |
 // | `room_read.recorded` | `{room_id, direction, entry: RoomRead}` | S23 · S7 |
@@ -5156,6 +5160,12 @@ type DeleteWorkdirParams struct {
 	Force *bool `form:"force,omitempty" json:"force,omitempty"`
 }
 
+// CompleteWorkJSONBody defines parameters for CompleteWork.
+type CompleteWorkJSONBody struct {
+	// Confirm 실행 중인 서브 미션이 있어도 끝낸다.
+	Confirm *bool `json:"confirm,omitempty"`
+}
+
 // ChangeWorkDirectorJSONBody defines parameters for ChangeWorkDirector.
 type ChangeWorkDirectorJSONBody struct {
 	DeputyUserId   nullable.Nullable[openapi_types.UUID] `json:"deputy_user_id,omitempty"`
@@ -5505,6 +5515,9 @@ type ResolveWorkProposalJSONRequestBody = WorkProposalResolution
 
 // UpdateWorkJSONRequestBody defines body for UpdateWork for application/json ContentType.
 type UpdateWorkJSONRequestBody = WorkUpdate
+
+// CompleteWorkJSONRequestBody defines body for CompleteWork for application/json ContentType.
+type CompleteWorkJSONRequestBody CompleteWorkJSONBody
 
 // ChangeWorkDirectorJSONRequestBody defines body for ChangeWorkDirector for application/json ContentType.
 type ChangeWorkDirectorJSONRequestBody ChangeWorkDirectorJSONBody
