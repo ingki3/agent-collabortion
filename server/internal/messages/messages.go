@@ -87,7 +87,21 @@ type ListOptions struct {
 	Before         *uuid.UUID // older than this message
 	After          *uuid.UUID // newer than this message
 	Limit          int
+	// openapi v0.2.0 (T-S-wt): the mission chip. WorkID keeps one mission's
+	// messages, NoWork those of no mission (`work_id IS NULL`). Both are
+	// WHERE clauses, so a page is `Limit` messages AFTER the filter — never a
+	// page of 50 that the filter then empties.
+	WorkID *uuid.UUID
+	NoWork bool
+	// Around centres the page on one message (the unread anchor, a quote):
+	// AroundHalf before it, the message itself, AroundHalf after — the same
+	// (created_at, id) order as the before/after cursors. Limit is ignored.
+	Around *uuid.UUID
 }
+
+// AroundHalf is listMessages' around_message_id window on each side
+// (openapi: 「위아래 25건」).
+const AroundHalf = 25
 
 // List returns messages in chronological order plus paging flags.
 func List(ctx context.Context, q db.DBTX, sessionID uuid.UUID, o ListOptions) (items []*Row, hasBefore, hasAfter bool, total *int, err error) {
@@ -105,6 +119,15 @@ func List(ctx context.Context, q db.DBTX, sessionID uuid.UUID, o ListOptions) (i
 	if len(o.Kinds) > 0 {
 		args = append(args, o.Kinds)
 		where = append(where, fmt.Sprintf("m.kind::text = ANY($%d)", len(args)))
+	}
+	if o.WorkID != nil {
+		args = append(args, *o.WorkID)
+		where = append(where, fmt.Sprintf("m.work_id = $%d", len(args)))
+	} else if o.NoWork {
+		where = append(where, "m.work_id IS NULL")
+	}
+	if o.Around != nil {
+		return listAround(ctx, q, where, args, *o.Around)
 	}
 	if o.Before != nil {
 		args = append(args, *o.Before)
@@ -160,6 +183,59 @@ func List(ctx context.Context, q db.DBTX, sessionID uuid.UUID, o ListOptions) (i
 		items = []*Row{}
 	}
 	return items, hasBefore, hasAfter, total, nil
+}
+
+// listAround is List's around_message_id page: the filtered messages up to
+// AroundHalf older than the anchor, the anchor itself when the filter keeps
+// it, and up to AroundHalf newer — chronological, with the flags saying
+// whether the before/after cursors have more.
+func listAround(ctx context.Context, q db.DBTX, where []string, args []any, anchor uuid.UUID) (items []*Row, hasBefore, hasAfter bool, total *int, err error) {
+	args = append(args, anchor)
+	a := len(args)
+	page := func(cmp, order string, limit int) ([]*Row, error) {
+		sql := selectMessage + " WHERE " + strings.Join(where, " AND ") +
+			fmt.Sprintf(" AND (m.created_at, m.id) %s (SELECT created_at, id FROM message WHERE id = $%d)", cmp, a) +
+			fmt.Sprintf(" ORDER BY m.created_at %s, m.id %s LIMIT %d", order, order, limit)
+		rows, err := q.Query(ctx, sql, args...)
+		if err != nil {
+			return nil, fmt.Errorf("messages: list around: %w", err)
+		}
+		defer rows.Close()
+		var out []*Row
+		for rows.Next() {
+			m, err := scan(rows)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, m)
+		}
+		return out, rows.Err()
+	}
+	older, err := page("<", "DESC", AroundHalf+1)
+	if err != nil {
+		return nil, false, false, nil, err
+	}
+	self, err := page("=", "ASC", 1)
+	if err != nil {
+		return nil, false, false, nil, err
+	}
+	newer, err := page(">", "ASC", AroundHalf+1)
+	if err != nil {
+		return nil, false, false, nil, err
+	}
+	if hasBefore = len(older) > AroundHalf; hasBefore {
+		older = older[:AroundHalf]
+	}
+	if hasAfter = len(newer) > AroundHalf; hasAfter {
+		newer = newer[:AroundHalf]
+	}
+	items = make([]*Row, 0, len(older)+1+len(newer))
+	for i := len(older) - 1; i >= 0; i-- {
+		items = append(items, older[i])
+	}
+	items = append(items, self...)
+	items = append(items, newer...)
+	return items, hasBefore, hasAfter, nil, nil
 }
 
 // ToAPI maps a row to the contract Message.

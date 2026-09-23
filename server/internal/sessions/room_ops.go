@@ -66,7 +66,7 @@ func (s *Service) DeleteRoom(ctx context.Context, roomID, actor uuid.UUID) error
 		p.Extra = map[string]any{"works_active": active}
 		return p
 	}
-	blocking, err := workdirs.UnmergedWorktrees(ctx, tx, roomID)
+	blocking, err := workdirs.UnmergedRoomWorktrees(ctx, tx, roomID)
 	if err != nil {
 		return apperr.Internal(err)
 	}
