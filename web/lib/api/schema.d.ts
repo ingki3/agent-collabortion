@@ -4646,9 +4646,11 @@ export interface components {
             deputy_owner_user_id: string | null;
             /**
              * Format: uuid
-             * @description 첫 dispatch 때 고정(FR-2.1.1). 그 전에는 null.
+             * @description 방 설정에서 미리 고를 수 있고, 첫 dispatch 때 고정된다(FR-2.1.1). 고정 여부는 runtime_pinned.
              */
             runtime_id: string | null;
+            /** @description v0.2.7 — 첫 dispatch 가 일어나 컴퓨터·격리를 더 바꿀 수 없다(updateRoom 409 runtime_pinned 와 같은 판정). S20 이 읽기 전용으로 그린다. */
+            runtime_pinned?: boolean;
             runtime?: components["schemas"]["Runtime"];
             isolation: components["schemas"]["Isolation"];
             limits: components["schemas"]["RoomLimits"];
