@@ -4,9 +4,9 @@
 |---|---|
 | 대상 | `contracts/openapi.yaml` (OpenAPI 3.1, `info.version 0.2.0-draft` — v0.2.0 은 PRD v0.19 방·미션 R0, 아래 §2 D17~D21) |
 | 단계 | PLAN.md §3 P0-b "OpenAPI 초안 — P1~P3에서 쓸 리소스 전부" (S+W) |
-| 근거 | `server/migrations/0001_init.sql`(리소스·필드·ENUM SSOT), `PRD.md` v0.12 FR-1~FR-9 · §7 · §8.1 · §9, `SCREEN.md` v0.3 §2 · §4 · §6, `EVAL.md` v0.1 |
+| 근거 | `server/migrations/0001_init.sql`(리소스·필드·ENUM SSOT), `PRD.md` v0.19 FR-1~FR-9 · §7 · §8.1 · §9, `SCREEN.md` v0.19.2 §2 · 부록 A · §4 · §6, `EVAL.md` v0.1 |
 | 검증 | `npx -y @redocly/cli lint contracts/openapi.yaml` → **오류 0 · 경고 0**(`recommended`). `--extends recommended-strict`도 0/0 |
-| 크기 | operation **94** (태그 15) · 스키마 106 · `x-colab-cli` 표시 operation 13 |
+| 크기 | operation **137** (태그 17) · 스키마 150 · `x-colab-cli` 표시 operation 16 (v0.2.0) |
 
 ---
 
