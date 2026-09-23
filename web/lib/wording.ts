@@ -567,6 +567,8 @@ export const ROOM_LEFT = {
   queued_agent_global: ["이 에이전트가 다른 방 일로 꽉 찼습니다(동시 ", "개)"] as Slotted,
   queued_agent_global_plain: "이 에이전트가 다른 방 일로 꽉 찼습니다",
   queued_runtime: "이 컴퓨터의 동시 상한에 닿았습니다",
+  /** 워크트리 방인데 아직 컴퓨터가 정해지지 않았다(runtime_id null) — 저장소가 있는 컴퓨터가 붙기를 기다린다(T-S-wt #302). */
+  queued_runtime_repo: "저장소가 있는 컴퓨터를 기다립니다",
   queued_workspace: "워크스페이스 동시 상한에 닿았습니다",
   /** `paused` 는 어느 층의 예산인가(§4.6 · §5 「멈춘 것은 층을 함께 적는다」). */
   paused_task: "⏸ 일시정지 · 할 일 예산",

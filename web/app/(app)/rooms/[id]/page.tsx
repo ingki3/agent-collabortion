@@ -795,7 +795,8 @@ export default function RoomPage() {
                 queuedReason: !reason ? undefined
                   : reason === "room_lanes" ? (room.limits?.max_parallel_lanes != null ? <Slot text={ROOM_LEFT.queued_room_lanes} n={room.limits.max_parallel_lanes} /> : ROOM_LEFT.queued_room_lanes_plain)
                   : reason === "agent_global" ? (maxConc != null ? <Slot text={ROOM_LEFT.queued_agent_global} n={maxConc} /> : ROOM_LEFT.queued_agent_global_plain)
-                  : reason === "runtime" ? ROOM_LEFT.queued_runtime : ROOM_LEFT.queued_workspace,
+                  : reason === "runtime" ? (room.isolation?.kind === "worktree" && !room.runtime_id ? ROOM_LEFT.queued_runtime_repo : ROOM_LEFT.queued_runtime)
+                  : ROOM_LEFT.queued_workspace,
                 pausedLayer: layer ? { label: layer === "task" ? ROOM_LEFT.paused_task : layer === "work" ? ROOM_LEFT.paused_work : ROOM_LEFT.paused_room, taskOnly: layer === "task" ? ROOM_LEFT.paused_task_only : null } : null,
               };
             }}

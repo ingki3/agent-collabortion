@@ -251,7 +251,7 @@ describe("S21 미션 열기 — createWork", () => {
     const w2 = await must<S["Work"]>("POST", `/rooms/${r.id}/works`, { goal: "번역", assignee_agent_id: agentIds()[0] });
     expect(w2.completion_condition).toEqual({ op: "and", conditions: [{ type: "artifact_submitted", who: "assignee" }, { type: "user_approval" }] });
     expect(frames.filter((f) => f.type === "work.created")).toHaveLength(2);
-    expect((await must<{ items: { id: string }[] }>("GET", `/rooms/${r.id}/works`)).items.map((w) => w.id)).toEqual([w1.id, w2.id]);
+    expect((await must<{ items: { id: string }[] }>("GET", `/rooms/${r.id}/works`)).items.map((w) => w.id).sort()).toEqual([w1.id, w2.id].sort()); // 순서는 서버 created_at DESC(같은 ms 면 id) — 여기서는 둘 다 실리는지만
     expect((await must<Room>("GET", `/rooms/${r.id}`)).counts?.works_active).toBe(2);
   });
 

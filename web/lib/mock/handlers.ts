@@ -3261,7 +3261,8 @@ on("GET", "/rooms/{id}/works", (req, p) => {
   const want = req.query.get("status")?.split(",").filter(Boolean);
   const items = roomWorks(s, room)
     .filter((w) => !want || want.includes(w.status))
-    .sort((a, b) => (b.last_activity_at ?? b.created_at).localeCompare(a.last_activity_at ?? a.created_at))
+    // 서버 sessions.ListWorks 와 같은 순서 — created_at DESC, id DESC.
+    .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
     .map((w) => toWorkListItem(s, w));
   return ok({ items, next_cursor: null });
 });

@@ -255,6 +255,13 @@ describe("S7 — 상단 · 배너 · 좁은 화면", () => {
     expect(document.getElementById(b.getAttribute("aria-describedby")!)!.textContent).toBe("방장·부방장이나 워크스페이스 소유자·관리자만 이 방을 멈출 수 있습니다");
   });
 
+  it("대기 사유 runtime — 워크트리 방에 컴퓨터가 아직 없으면 「저장소가 있는 컴퓨터를 기다립니다」", async () => {
+    roomNow = { ...room, isolation: { kind: "worktree", remote_url: null }, runtime_id: null };
+    get.mockImplementation((path: string, o?: never) => (path === "/sessions/{sessionId}/lanes" ? Promise.resolve([{ ...lane("q1", null, "queued"), queued_reason: "runtime" }]) : routes(path, o)));
+    await ready();
+    expect(screen.getByTestId("lane-queued-reason").textContent).toBe("저장소가 있는 컴퓨터를 기다립니다");
+  });
+
   it("좁은 화면 탭은 넷 — 타임라인 · 보드 · 미션 · 방", async () => {
     await ready();
     expect(["tab-timeline", "tab-board", "tab-work", "tab-room"].map((t) => screen.getByTestId(t).textContent)).toEqual(["타임라인", "보드", "미션", "방"]);
