@@ -38,7 +38,10 @@ func (s *Server) SweepHitlDeadlines(ctx context.Context) (int, error) {
 	}
 	rows, err := s.DB.Query(ctx, `
 		SELECT h.id, h.session_id, h.task_id, h.type::text, COALESCE(wk.autonomy, s.autonomy)::text,
-		       COALESCE(h.proposed_default, ''), h.question, wk.id
+		       -- T-S-wt: an isolation question (the repository a worktree room
+		       -- splits from) is never auto-answered — without a default the
+		       -- choice waits like an approval does (PlanExpiry).
+		       CASE WHEN h.purpose = 'isolation' THEN '' ELSE COALESCE(h.proposed_default, '') END, h.question, wk.id
 		FROM hitl_request h JOIN room s ON s.id = h.session_id
 		LEFT JOIN task t ON t.id = h.task_id
 		-- The request's mission decides its autonomy (T-R1b2): a mission may

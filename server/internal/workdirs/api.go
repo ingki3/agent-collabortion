@@ -208,12 +208,16 @@ func nullableTime(t *time.Time) nullable.Nullable[time.Time] {
 // server has no evidence either way, and the other two columns still speak.
 //
 // production caller: sessions.Service.Delete.
+// unmergedWorktree is the blocking predicate — ONE definition for both
+// refusals' lists (deleteSession's Workdir rows, deleteRoom's projection).
+const unmergedWorktree = `w.kind = 'worktree' AND w.status <> 'deleted'
+		  AND (w.merged = false OR COALESCE(w.tree_dirty, w.dirty, false) OR w.commits_ahead > 0)`
+
 func UnmergedWorktrees(ctx context.Context, q db.DBTX, sessionID uuid.UUID) ([]gen.Workdir, error) {
 	rows, err := q.Query(ctx, `
 		SELECT `+workdirCols+`
 		`+workdirFrom+`
-		WHERE w.session_id = $1 AND w.kind = 'worktree' AND w.status <> 'deleted'
-		  AND (w.merged = false OR COALESCE(w.tree_dirty, w.dirty, false) OR w.commits_ahead > 0)
+		WHERE w.session_id = $1 AND `+unmergedWorktree+`
 		ORDER BY w.created_at`, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("workdirs: unmerged worktrees: %w", err)
@@ -226,6 +230,45 @@ func UnmergedWorktrees(ctx context.Context, q db.DBTX, sessionID uuid.UUID) ([]g
 			return nil, fmt.Errorf("workdirs: unmerged worktrees: %w", err)
 		}
 		out = append(out, wd)
+	}
+	return out, rows.Err()
+}
+
+// RoomBlockingWorkdir is one row of deleteRoom's `409 workdir_unmerged`
+// (openapi 0.2.6 Problem.workdirs): what S5's refusal lists next to the S13
+// link — where the folder is and on which computer, and what holds it.
+type RoomBlockingWorkdir struct {
+	ID           uuid.UUID  `json:"id"`
+	Path         string     `json:"path"`
+	RuntimeID    *uuid.UUID `json:"runtime_id"`
+	RuntimeName  *string    `json:"runtime_name"`
+	CommitsAhead *int       `json:"commits_ahead"`
+	Dirty        bool       `json:"dirty"`
+}
+
+// UnmergedRoomWorktrees is UnmergedWorktrees in deleteRoom's shape — the
+// same set (unmergedWorktree), projected. A workdir has no computer of its
+// own: it lives on the room's. `dirty` is the uncommitted-changes fact
+// (tree_dirty, or the older OR where the split column was never written).
+//
+// production caller: sessions.Service.DeleteRoom.
+func UnmergedRoomWorktrees(ctx context.Context, q db.DBTX, roomID uuid.UUID) ([]RoomBlockingWorkdir, error) {
+	rows, err := q.Query(ctx, `
+		SELECT w.id, w.path_or_ref, s.runtime_id, r.name, w.commits_ahead, COALESCE(w.tree_dirty, w.dirty, false)
+		  FROM workdir w JOIN room s ON s.id = w.session_id LEFT JOIN runtime r ON r.id = s.runtime_id
+		 WHERE w.session_id = $1 AND `+unmergedWorktree+`
+		 ORDER BY w.created_at`, roomID)
+	if err != nil {
+		return nil, fmt.Errorf("workdirs: room unmerged worktrees: %w", err)
+	}
+	defer rows.Close()
+	out := []RoomBlockingWorkdir{}
+	for rows.Next() {
+		var b RoomBlockingWorkdir
+		if err := rows.Scan(&b.ID, &b.Path, &b.RuntimeID, &b.RuntimeName, &b.CommitsAhead, &b.Dirty); err != nil {
+			return nil, fmt.Errorf("workdirs: room unmerged worktrees: %w", err)
+		}
+		out = append(out, b)
 	}
 	return out, rows.Err()
 }

@@ -74,6 +74,13 @@ func (p *Postgres) Claim(ctx context.Context, runtimeID string, capacity int, no
 	if err := p.askIsolation(ctx, tx, rt, now); err != nil {
 		return nil, err
 	}
+	// T-S-wt: a worktree room with no computer yet (createRoom inherits the
+	// kind alone) is settled on its first claim — filled from this computer's
+	// one repository and pinned, or asked about, or passed by with a reason.
+	// Before the SELECT, so a room filled here is claimed in this same poll.
+	if err := p.settleWorktree(ctx, tx, rt, now); err != nil {
+		return nil, err
+	}
 
 	// FR-6.3's four concurrency layers plus the DAG gate.
 	//
@@ -398,6 +405,102 @@ func (p *Postgres) askIsolation(ctx context.Context, tx pgx.Tx, runtimeID uuid.U
 	for _, a := range asks {
 		if err := roomgate.AskIsolation(ctx, tx, p.hub(), a.room, runtimeID, a.repo, now); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// settleWorktree is the first claim of every worktree room of this workspace
+// that has no computer yet (roomgate.PlanWorktree). The rooms are locked SKIP
+// LOCKED like askIsolation's: two computers polling at once, one settles the
+// room and the other no longer sees it unpinned.
+func (p *Postgres) settleWorktree(ctx context.Context, tx pgx.Tx, runtimeID uuid.UUID, now time.Time) error {
+	rows, err := tx.Query(ctx, `
+		SELECT s.id, COALESCE(s.isolation->>'repo_path', ''),
+		       COALESCE((SELECT array_agg(e->>'path' ORDER BY n)
+		                   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(r.repos) = 'array' THEN r.repos ELSE '[]'::jsonb END)
+		                        WITH ORDINALITY AS x(e, n)
+		                  WHERE COALESCE(e->>'path', '') <> ''), '{}')
+		  FROM room s
+		  JOIN runtime r ON r.id = $1
+		 WHERE s.workspace_id = r.workspace_id
+		   AND s.runtime_id IS NULL AND s.isolation->>'kind' = 'worktree'
+		   AND s.isolation_pending IS NULL AND s.blocked_reason IS NULL AND s.status = 'active'
+		   AND EXISTS (SELECT 1 FROM task t LEFT JOIN work wk ON wk.id = t.work_id
+		                WHERE t.session_id = s.id AND t.status = 'queued'
+		                  AND (t.work_id IS NULL OR wk.status = 'active')
+		                  AND (t.not_before IS NULL OR t.not_before <= $2))
+		 FOR UPDATE OF s SKIP LOCKED`, runtimeID, now)
+	if err != nil {
+		return fmt.Errorf("queue: worktree premise: %w", err)
+	}
+	type room struct {
+		id    uuid.UUID
+		repo  string
+		repos []string
+	}
+	var list []room
+	for rows.Next() {
+		var r room
+		if err := rows.Scan(&r.id, &r.repo, &r.repos); err != nil {
+			rows.Close()
+			return err
+		}
+		list = append(list, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, r := range list {
+		switch settle, repo := roomgate.PlanWorktree(r.repo, r.repos); settle {
+		case roomgate.SettleFill:
+			if _, err := roomgate.FillWorktree(ctx, tx, p.hub(), r.id, runtimeID, repo, now); err != nil {
+				return err
+			}
+		case roomgate.SettleAsk:
+			if err := roomgate.AskRepo(ctx, tx, p.hub(), r.id, runtimeID, r.repos, now); err != nil {
+				return err
+			}
+		default:
+			if err := p.noteWaitingForComputer(ctx, tx, r.id); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// noteWaitingForComputer marks a worktree room's queued tasks `queued_reason:
+// runtime` when the claiming computer cannot take the room — without it the
+// room sits at `queued` with no reason and the screen has nothing to say. The
+// room is worktree with no computer, so the screen reads the pair as 「저장소가
+// 있는 컴퓨터를 기다립니다」. Only a change is written, as noteQueuedReasons.
+func (p *Postgres) noteWaitingForComputer(ctx context.Context, tx pgx.Tx, roomID uuid.UUID) error {
+	rows, err := tx.Query(ctx, `
+		UPDATE task SET queued_reason = 'runtime'
+		 WHERE id IN (SELECT id FROM task WHERE session_id = $1 AND status = 'queued'
+		                 AND queued_reason IS DISTINCT FROM 'runtime' FOR UPDATE SKIP LOCKED)
+		RETURNING lane_id`, roomID)
+	if err != nil {
+		return fmt.Errorf("queue: waiting for a computer: %w", err)
+	}
+	lanes := map[uuid.UUID]bool{}
+	for rows.Next() {
+		var l uuid.UUID
+		if err := rows.Scan(&l); err != nil {
+			rows.Close()
+			return err
+		}
+		lanes[l] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if p.Tasks != nil && p.Tasks.LanePublish != nil {
+		for l := range lanes {
+			p.Tasks.LanePublish(ctx, tx, l)
 		}
 	}
 	return nil

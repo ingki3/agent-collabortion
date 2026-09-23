@@ -426,8 +426,7 @@ func (s *Server) UpdateRoom(w http.ResponseWriter, r *http.Request, roomId gen.R
 		var runtimeID *uuid.UUID
 		var pinned bool
 		if err := tx.QueryRow(r.Context(), `
-			SELECT visibility::text, runtime_id,
-			       EXISTS (SELECT 1 FROM task_attempt ta JOIN task t ON t.id = ta.task_id WHERE t.session_id = r.id)
+			SELECT visibility::text, runtime_id, `+rooms.RuntimePinnedSQL("r.id")+`
 			FROM room r WHERE id = $1 FOR UPDATE`, roomId).Scan(&visibility, &runtimeID, &pinned); err != nil {
 			return err
 		}

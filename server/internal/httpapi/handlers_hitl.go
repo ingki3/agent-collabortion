@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -196,6 +197,13 @@ func validateHitlResponse(row *hitlRow, in gen.HitlResponse) *Problem {
 		if strings.TrimSpace(derefString(in.Answer)) == "" {
 			return apperr.Validation(apperr.Field("answer", "required",
 				"답을 입력해 주세요"))
+		}
+		if row.isRepoChoice() && !slices.Contains(row.Options, strings.TrimSpace(derefString(in.Answer))) {
+			// T-S-wt: the pick becomes the room's repository for good — a path
+			// the computer did not report would pin the room to a checkout that
+			// is not there.
+			return apperr.Validation(apperr.Field("answer", "not_an_option",
+				"보기 중 하나의 저장소를 골라 주세요"))
 		}
 	}
 	return nil
@@ -438,6 +446,21 @@ func (s *Server) answerAgentHitl(ctx context.Context, row *hitlRow, sess *hitlSe
 		s.Queue.Notifier.Notify()
 		s.publishSession(ctx, sess.WorkspaceID, row.SessionID, &gen.User{Id: userID})
 	}
+	if row.isRepoChoice() {
+		// T-S-wt: a worktree room's first computer had several repositories;
+		// the pick is where its worktrees are cut, on the computer that asked.
+		if err := s.inSessionTx(ctx, func(tx pgx.Tx) error {
+			err := roomgate.AnswerRepo(ctx, tx, s.Hub, row.SessionID, row.ID, answer, now)
+			if errors.Is(err, roomgate.ErrNoPending) {
+				return nil
+			}
+			return err
+		}); err != nil {
+			return 0, nil, apperr.As(err)
+		}
+		s.Queue.Notifier.Notify()
+		s.publishSession(ctx, sess.WorkspaceID, row.SessionID, &gen.User{Id: userID})
+	}
 	if row.Purpose != nil && *row.Purpose == roomgate.PurposeIsolation && in.Approved != nil {
 		// FR-2.1.1: approve = worktree, reject = none — either way the room's
 		// first run may now go, on the computer that asked.
@@ -603,6 +626,12 @@ func (s *Server) answerCompletionApproval(ctx context.Context, hitlID, userID uu
 }
 
 // hitlRow is the stored request, before it becomes a contract object.
+// isRepoChoice is T-S-wt's question: which repository a worktree room splits
+// from (roomgate.AskRepo) — the isolation purpose asked as a choice.
+func (row *hitlRow) isRepoChoice() bool {
+	return row.Purpose != nil && *row.Purpose == roomgate.PurposeIsolation && row.Type == hitl.KindChoice
+}
+
 type hitlRow struct {
 	ID, SessionID   uuid.UUID
 	TaskID, LaneID  *uuid.UUID

@@ -165,6 +165,31 @@ func (s *Server) ListMessages(w http.ResponseWriter, r *http.Request, sessionId 
 		}
 		o.After = &id
 	}
+	// openapi v0.2.0: the mission chip and the unread anchor (T-R2-W2 found
+	// them parsed and dropped).
+	noWork := params.NoWork != nil && *params.NoWork
+	if params.WorkId != nil && noWork {
+		writeProblem(w, apperr.Validation(apperr.Field("no_work", "conflict", "미션 하나와 미션 없음은 함께 고를 수 없습니다")))
+		return
+	}
+	o.WorkID, o.NoWork = params.WorkId, noWork
+	if params.AroundMessageId != nil {
+		if o.Before != nil || o.After != nil {
+			writeProblem(w, apperr.Validation(apperr.Field("around_message_id", "conflict", "가운데 메시지와 before·after 는 함께 쓸 수 없습니다")))
+			return
+		}
+		var in bool
+		if err := s.DB.QueryRow(r.Context(), `SELECT EXISTS (SELECT 1 FROM message WHERE id = $1 AND session_id = $2)`,
+			*params.AroundMessageId, sessionId).Scan(&in); err != nil {
+			writeErr(w, err)
+			return
+		}
+		if !in {
+			writeProblem(w, apperr.Validation(apperr.Field("around_message_id", "invalid_cursor", "가운데 둘 메시지가 이 방에 없습니다")))
+			return
+		}
+		o.Around = params.AroundMessageId
+	}
 	if p := validateLimit(params.Limit); p != nil {
 		writeProblem(w, p)
 		return
