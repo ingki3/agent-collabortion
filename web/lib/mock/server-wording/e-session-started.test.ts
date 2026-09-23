@@ -10,8 +10,9 @@ describe("(e) 세션 시작 메시지 — 목·u1.sh·서버가 같은 머리말
   it("목은 머리말 뒤에 goal 만 붙인다(둘째 줄 없음)", () => {
     expect(HANDLERS).toContain("content: `${W.session_started}${sess.goal}`");
   });
-  it("e2e/u1.sh 의 단언이 그 머리말을 찾는다(옛말 둘 다 아님)", () => {
-    expect(U1).toContain(W.session_started.trimEnd());
+  // v0.19(T-R2-W4b): u1.sh 는 마법사 대신 S18 → 빈 방 → S19 초대 → 첫 멘션으로 간다 — 미션을 열지 않으므로
+  // 이 머리말을 기다리지 않는다. 자물쇠는 「u1 이 옛말로 되돌아가지 않는다」만 남긴다.
+  it("e2e/u1.sh 는 옛 세션 시작 문장을 단언하지 않는다(마법사 흐름 은퇴 뒤)", () => {
     expect(U1).not.toContain("세션 시작 — goal");
     expect(U1).not.toContain("Session started. Goal:");
   });

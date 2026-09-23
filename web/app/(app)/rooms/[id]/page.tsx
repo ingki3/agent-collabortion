@@ -25,12 +25,14 @@ import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { RoomParticipantsDialog } from "@/components/RoomParticipantsDialog";
 import { RoomQueryDialogs, useRoomDialogQuery } from "@/components/RoomQueryDialogs";
 import { ArchiveRoomDialog, DeleteRoomDialog } from "@/components/RoomDialogs";
-import { RoomHead } from "@/components/RoomHead";
+import { RoomHead, type PickedRange } from "@/components/RoomHead";
 import { RoomBlockedBanner } from "@/components/RoomBlockedBanner";
 import { RoomParticipants } from "@/components/RoomParticipants";
 import { WorkChipRow, WorkLabel } from "@/components/WorkChipRow";
 import { WorkPanel } from "@/components/WorkPanel";
 import { RoomPanel } from "@/components/RoomPanel";
+import { CreateWorkDialog } from "@/components/CreateWorkDialog";
+import { ChangeDirectorDialog, FixWorkConditionDialog } from "@/components/WorkEditDialogs";
 import { DisabledHint } from "@/components/PageHead";
 import { Slot, slotText } from "@/components/Slot";
 import { api, errorMessage, isApiError, newIdempotencyKey } from "@/lib/api/client";
@@ -43,7 +45,7 @@ import {
   type ChipSel,
 } from "@/lib/room-view";
 import {
-  ROOM_CENTER, ROOM_HEAD, ROOM_LEFT, ROOM_NOTICES, ROOM_TABS, WORK_CHIPS, WORK_SELECTOR, roomDefaultsLine,
+  ROOM_CENTER, ROOM_HEAD, ROOM_LEFT, ROOM_NOTICES, ROOM_TABS, SUMMARY_PICK, WORK_CHIPS, WORK_SELECTOR, roomDefaultsLine,
 } from "@/lib/wording";
 import type {
   Agent, Artifact, Decision, HitlRequest, HitlResponse, Lane, LaneStatus, Member, Message, Room, RoomParticipant, Runtime,
@@ -52,6 +54,7 @@ import type {
 
 type Events = { events: TaskEvent[]; structured: boolean; loading: boolean };
 type Col = "timeline" | "board" | "work" | "room";
+const COLS: Col[] = ["timeline", "board", "work", "room"];
 
 function TaskActivity({ taskId, cache, load }: { taskId: string; cache: Record<string, Events>; load: (id: string) => void }) {
   useEffect(() => {
@@ -85,7 +88,7 @@ export default function RoomPage() {
   const { id: roomId } = useParams<{ id: string }>();
   const search = useSearchParams();
   const router = useRouter();
-  const { workspace, me } = useAuth();
+  const { workspace, me, canManage } = useAuth();
   const meId = me?.user.id ?? null;
 
   const sel = useMemo(() => parseSel(search.get("work")), [search]);
@@ -126,8 +129,14 @@ export default function RoomPage() {
   const [busy, setBusy] = useState(false);
   const [dialog, setDialog] = useState<"archive" | "delete" | null>(null);
   const [showParticipants, setShowParticipants] = useState(false);
+  /** 미션 칸의 편집 다이얼로그(T-R2-W4b) — 설정 편집(S21 편집 모드) · Director 교체 · 조건 고치기. 우열에 실린 미션에 대해서만 뜬다. */
+  const [workDialog, setWorkDialog] = useState<"edit" | "director" | "condition" | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [boardOpen, setBoardOpen] = useState<Set<LaneStatus>>(new Set());
+  /** 「여기까지 정리」 직접 고르기(T-R2-W4b) — 집는 중이면 시작 메시지(아직 없으면 null), 다 집으면 범위 + 다이얼로그를 다시 여는 신호. */
+  const [pick, setPick] = useState<{ from: Message | null } | null>(null);
+  const [picked, setPicked] = useState<PickedRange | null>(null);
+  const [pickNonce, setPickNonce] = useState(0);
   const [now, setNow] = useState(Date.now());
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLElement>(null);
@@ -617,6 +626,13 @@ export default function RoomPage() {
   /** 인용·멘션 제시에 쓸 메시지 — 서버 getMessage 가 오기 전까지 이 화면이 가진 것에서 찾는다. */
   const findMessage = (mid: string) => messages.find((m) => m.id === mid) ?? Object.values(replies).flat().find((m) => m.id === mid) ?? null;
 
+  /** 편집 다이얼로그가 저장하면 — 응답 본문(Work)으로 우열을 바로 바꾸고 칩 줄(제목·Director)은 방을 다시 읽어 맞춘다. */
+  const onWorkSaved = (w: Work) => {
+    setWork(w);
+    setWorkDialog(null);
+    void loadRoom().catch(() => undefined);
+  };
+
   /** S19 참여자(T-R2-W3 `RoomParticipantsDialog`) — 초대·퇴장 · 부방장 · 본인 「이 방에서 나가기」가 한 다이얼로그. */
   const openParticipants = () => setShowParticipants(true);
 
@@ -662,6 +678,27 @@ export default function RoomPage() {
   const defaultDirector = room.default_director_user_id ? members.find((m) => m.user.id === room.default_director_user_id)?.user.display_name ?? null : null;
   const composerDisabledWhy = blockedBy === "archived" ? WORK_SELECTOR.archived : blockedBy === "audit" ? WORK_SELECTOR.audit : null;
 
+  /** 직접 고르기 — 메시지마다의 집기 단추. 두 번째를 집으면 시각 순서로 맞춰 범위를 다이얼로그에 돌려준다. */
+  const pickText = (m: Message) => `${authorName(m)} · ${m.content.replace(/\s+/g, " ").slice(0, 40)}`;
+  const pickMessage = (m: Message) => {
+    if (!pick) return;
+    if (!pick.from) {
+      setPick({ from: m });
+      return;
+    }
+    const [a, b] = byTime(pick.from, m) <= 0 ? [pick.from, m] : [m, pick.from];
+    // 수는 다 읽은 (전체) 타임라인에서만 센다 — 거른 보기·앞이 남은 목록에서는 모른다.
+    const count = sel.kind === "all" && !hasOlder ? messages.filter((x) => x.created_at >= a.created_at && x.created_at <= b.created_at).length : null;
+    setPicked({ from: { id: a.id, text: pickText(a) }, to: { id: b.id, text: pickText(b) }, count });
+    setPick(null);
+    setPickNonce((n) => n + 1);
+  };
+  const pickButton = (m: Message) => pick && (
+    <button type="button" className="btn btn--sm s7__pickbtn" onClick={() => pickMessage(m)} aria-pressed={pick.from?.id === m.id} data-testid="pick-message">
+      {pick.from ? SUMMARY_PICK.here_to : SUMMARY_PICK.here_from}
+    </button>
+  );
+
   const toggleBoard = (s: LaneStatus) => setBoardOpen((cur) => {
     const n = new Set(cur);
     if (n.has(s)) n.delete(s);
@@ -695,10 +732,16 @@ export default function RoomPage() {
             void loadSide();
           }}
           onUnblock={() => void act(async () => setRoom(await api.post("/rooms/{roomId}/unblock", { path: { roomId } })))}
-          onSummarize={async (days) => {
-            const since = new Date(Date.now() - days * 864e5).toISOString();
-            await api.post("/rooms/{roomId}/summaries", { path: { roomId }, idempotencyKey: newIdempotencyKey(), body: { since } });
+          onSummarize={async (range) => {
+            const body = "days" in range
+              ? { since: new Date(Date.now() - range.days * 864e5).toISOString() }
+              : { from_message_id: range.from, to_message_id: range.to };
+            await api.post("/rooms/{roomId}/summaries", { path: { roomId }, idempotencyKey: newIdempotencyKey(), body });
+            setPicked(null);
           }}
+          onStartPick={() => { setPick({ from: null }); setCol("timeline"); }}
+          picked={picked}
+          pickNonce={pickNonce}
           onArchive={() => setDialog("archive")}
           onUnarchive={() => void act(async () => setRoom(await api.post("/rooms/{roomId}/unarchive", { path: { roomId } })))}
           onDelete={() => setDialog("delete")}
@@ -711,13 +754,32 @@ export default function RoomPage() {
           }}
         />
         <WorkChipRow works={works} sel={sel} onSelect={select} onNewWork={openNewWork} newWorkDisabled={newWorkWhy} announce={announce} />
-        <nav className="s7__tabs" aria-label={ROOM_TABS.label}>
-          {(["timeline", "board", "work", "room"] as Col[]).map((c) => (
-            <button key={c} type="button" className={`s7__tab${col === c ? " s7__tab--on" : ""}`} aria-pressed={col === c} onClick={() => setCol(c)} data-testid={`tab-${c}`}>
+        {/* 탭 패턴(#305 NN3) — 스크린리더가 「N개 중 M번째 탭」을 읽는다. 선택된 탭 하나만 Tab 순서에 들고 ←→ 로 옮긴다. */}
+        <div className="s7__tabs" role="tablist" aria-label={ROOM_TABS.label}>
+          {COLS.map((c, i) => (
+            <button
+              key={c}
+              type="button"
+              role="tab"
+              id={`s7-tab-${c}`}
+              className={`s7__tab${col === c ? " s7__tab--on" : ""}`}
+              aria-selected={col === c}
+              tabIndex={col === c ? 0 : -1}
+              onClick={() => setCol(c)}
+              onKeyDown={(e) => {
+                const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+                const to = e.key === "Home" ? 0 : e.key === "End" ? COLS.length - 1 : step ? (i + step + COLS.length) % COLS.length : -1;
+                if (to < 0) return;
+                e.preventDefault();
+                setCol(COLS[to]);
+                document.getElementById(`s7-tab-${COLS[to]}`)?.focus();
+              }}
+              data-testid={`tab-${c}`}
+            >
               {ROOM_TABS[c]}
             </button>
           ))}
-        </nav>
+        </div>
       </header>
 
       {room.blocked_reason && (
@@ -826,6 +888,12 @@ export default function RoomPage() {
             {hasOlder && (
               <button type="button" className="msg__link s7__older" onClick={() => void loadOlder()} data-testid="load-older">{ROOM_CENTER.load_older}</button>
             )}
+            {pick && (
+              <div className="s7__pickbar" role="status" data-testid="pick-bar" data-step={pick.from ? "to" : "from"}>
+                <span>{pick.from ? SUMMARY_PICK.bar_to : SUMMARY_PICK.bar_from}</span>
+                <button type="button" className="msg__link" onClick={() => { setPick(null); setPickNonce((n) => n + 1); }} data-testid="pick-cancel">{SUMMARY_PICK.cancel}</button>
+              </div>
+            )}
             {freshRoom && (
               <div className="empty" data-testid="room-fresh">
                 <div className="empty__title">{ROOM_CENTER.empty_title}</div>
@@ -866,6 +934,7 @@ export default function RoomPage() {
               if (m.kind === "hitl" && hitl) {
                 return (
                   <div key={m.id} data-message-id={m.id}>
+                    {pickButton(m)}
                     <HitlCard
                       request={hitl}
                       onRespond={(body) => respondHitl(hitl.id, body)}
@@ -879,6 +948,7 @@ export default function RoomPage() {
               const toWorkWhy = hasWork ? ROOM_CENTER.has_work(workTitle(m.work_id)) : archived ? ROOM_HEAD.archived : null;
               return (
                 <div key={m.id}>
+                  {pickButton(m)}
                   <MessageCard
                     message={m}
                     replies={replies[m.id]}
@@ -963,6 +1033,10 @@ export default function RoomPage() {
               newWorkDisabled={newWorkWhy}
               onOpenSummary={jumpToMessage}
               onBackToRoom={() => select({ kind: "all" })}
+              onEdit={() => setWorkDialog("edit")}
+              onChangeDirector={() => setWorkDialog("director")}
+              onFixCondition={() => setWorkDialog("condition")}
+              canManage={canManage}
             />
           </div>
           <div className="s7__room" data-testid="s7-room">
@@ -1000,6 +1074,20 @@ export default function RoomPage() {
           }}
         />
       </Suspense>
+      {work && workDialog === "edit" && (
+        <CreateWorkDialog roomId={roomId} mode="edit" work={work} onOpened={onWorkSaved} onClose={() => setWorkDialog(null)} />
+      )}
+      {work && workDialog === "director" && (
+        <ChangeDirectorDialog work={work} members={members} onSaved={onWorkSaved} onClose={() => setWorkDialog(null)} />
+      )}
+      {work && workDialog === "condition" && (
+        <FixWorkConditionDialog
+          work={work}
+          agents={roomAgents.map((p) => ({ id: p.agent!.id, name: p.agent!.name }))}
+          onSaved={onWorkSaved}
+          onClose={() => setWorkDialog(null)}
+        />
+      )}
       {dialog === "archive" && (
         <ArchiveRoomDialog room={room} onArchived={(r) => { setRoom(r); setDialog(null); }} onClose={() => setDialog(null)} />
       )}
@@ -1026,6 +1114,8 @@ export default function RoomPage() {
         .s7__panel .s7-actions__dialog { position: static; width: 380px; margin-top: 8px; }
         .s7__confirm { border: 1px solid var(--s-fail); border-radius: 8px; padding: 8px 10px; background: color-mix(in srgb, var(--s-fail) var(--soft-alpha), transparent); }
         .s7__confirm p { margin: 0 0 6px; }
+        .s7__pickbar { position: sticky; top: 0; z-index: 2; display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 6px 10px; border: 2px solid var(--s-block); border-radius: 8px; background: var(--bg); }
+        .s7__pickbtn { align-self: flex-start; margin-bottom: 2px; }
         .msg--flash { outline: 2px solid var(--s-block); border-radius: 8px; }
         .skip-link { position: absolute; left: -9999px; top: 0; }
         .skip-link:focus { position: static; align-self: flex-start; margin-bottom: 6px; padding: 4px 10px; border: 2px solid var(--ink); border-radius: 6px; background: var(--bg); color: var(--ink); }

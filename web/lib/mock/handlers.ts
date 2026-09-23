@@ -10,11 +10,12 @@ import type {
 } from "@/lib/api/types";
 import type { components } from "@/lib/api/schema";
 import {
-  allowedCommands, defaultSettings, emit, makeAgent, makeRuntime, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges,
+  allowedCommands, defaultSettings, emit, makeAgent, makeRuntime, nextMsgAt, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges,
   sseFrame, store, stripUser, TEMPLATES, uuid, type MockInvite, type MockRoom, type MockTask, type MockWork, type Store, type Subscriber,
 } from "./store";
 import { registerRoomDialogs } from "./rooms-dialogs";
 import { registerR2W4a } from "./r2w4a";
+import { registerWorkEdit } from "./work-edit";
 import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
 /**
@@ -61,6 +62,8 @@ function on(method: string, pattern: string, h: Handler) {
 registerRoomDialogs({ on, routes, Problem, requireUser, syncRooms, standingOf, roomDecide, roomDeny, toRoom, emitRoom, validateCondition });
 // S8 v0.19 · S15 활동 로그 · 알림 구독 3층 · S9/S11 방 칸(T-R2-W4a) — 본문은 ./r2w4a.ts(다른 웹 워커와 이 파일을 나눠 쓰려고 등록 한 줄만 둔다).
 registerR2W4a({ on, routes, Problem, requireUser, syncRooms, standingOf, roomDecide, emitRoom, addInboxItem, emitInboxSummary, inboxSeverity, inboxActions, roomWorks, notFound: (w) => notFound(w as never), W, hitlDueMs: () => HITL_DUE_IN_MS });
+// 미션 설정 편집·조건 고치기·Director 교체(T-R2-W4b) — 본문은 ./work-edit.ts(병렬 워커와 이 파일을 나눠 쓰려고 등록 한 줄만).
+registerWorkEdit({ on, Problem, dispatch, workGate, workView, toWork, setWork, validateCondition });
 
 export async function dispatch(req: Req): Promise<Res> {
   for (const r of routes) {
@@ -533,12 +536,6 @@ function sessionFor(s: Store, sess: Session, userId: string): Session {
 }
 
 // ── messages ──
-/** 메시지 시각은 단조 증가 — 같은 ms 에 여러 건이 오면 시간순(앵커·이전 대화 더 보기)이 uuid 순으로 섞인다. 서버는 DB now() + id 커서. */
-let lastMsgAt = 0;
-function nextMsgAt(): string {
-  lastMsgAt = Math.max(Date.now(), lastMsgAt + 1);
-  return new Date(lastMsgAt).toISOString();
-}
 function addMessage(s: Store, sess: Session, m: Partial<Message> & Pick<Message, "author_type" | "author_id" | "kind" | "content" | "mentions">): Message {
   const msg: Message = {
     id: uuid(), session_id: sess.id, parent_id: null, source_task_id: null, lane_id: null, state: "posted", reply_count: 0, is_note: false,
@@ -3384,7 +3381,11 @@ on("POST", "/rooms/{id}/summaries", (req, p) => {
   const byIds = !!(b.from_message_id || b.to_message_id);
   if (b.since && byIds) throw validation([{ field: "since", code: "exclusive", message: W.summary_range_exclusive }]);
   if (!b.since && !byIds) throw validation([{ field: "since", code: "required", message: W.summary_range_required }]);
-  const inRange = roomMessages(s, room.id).filter((m) => m.kind !== "summary" && (!b.since || m.created_at >= b.since)).sort(byTime);
+  // 직접 고르기(from·to) — 두 메시지 사이(양 끝 포함, 시각 순). 방에 없는 id 면 범위가 비어 422 로 떨어진다.
+  const at = (id?: string) => (id ? roomMessages(s, room.id).find((m) => m.id === id)?.created_at ?? null : null);
+  const [lo, hi] = [at(b.from_message_id), at(b.to_message_id)].sort() as (string | null)[];
+  const inRange = roomMessages(s, room.id).filter((m) => m.kind !== "summary" && (!b.since || m.created_at >= b.since)
+    && (!byIds || (lo != null && hi != null && m.created_at >= lo && m.created_at <= hi))).sort(byTime);
   if (inRange.length === 0) throw validation([{ field: "since", code: "empty_range", message: W.summary_range_empty }]);
   const sess = s.sessions.get(room.id)!;
   const msg = addMessage(s, sess, {
@@ -3433,7 +3434,7 @@ on("POST", "/__mock/rooms/{id}/seed", (req, p) => {
   }
   if (b.drop_user_email) room.people = room.people.filter((x) => s.users.get(x.user_id)?.email !== b.drop_user_email);
   for (let i = 0; i < (b.unread ?? 0); i++) {
-    const at = new Date(Date.now() + i).toISOString();
+    const at = nextMsgAt();
     const m: Message = {
       id: uuid(), session_id: room.id, parent_id: null, source_task_id: null, lane_id: null, state: "posted", reply_count: 0, is_note: false,
       author_type: "system", author_id: null, kind: "system", content: `안 읽음 시드 ${i + 1}`, mentions: [], created_at: at, edited_at: null,

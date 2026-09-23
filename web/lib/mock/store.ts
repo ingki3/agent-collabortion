@@ -156,6 +156,16 @@ declare global {
 }
 
 export const now = () => new Date().toISOString();
+/**
+ * 메시지 시각은 단조 증가 — 같은 ms 에 여러 건이 오면 시간순(앵커·이전 대화 더 보기)이 uuid 순으로 섞인다. 서버는 DB now() + id 커서.
+ * **메시지를 만드는 곳은 전부 이 시계를 쓴다**(handlers.ts `addMessage` · rooms-dialogs.ts · work-edit.ts 의 시스템 메시지) — 한 곳이
+ * `now()` 를 쓰면 다른 곳의 메시지와 같은 ms 가 되어 순서가 uuid 에 맡겨진다(room-screen-mock.test.ts 깜빡임의 원인, T-R2-W4b).
+ */
+let lastMsgAt = 0;
+export function nextMsgAt(): string {
+  lastMsgAt = Math.max(Date.now(), lastMsgAt + 1);
+  return new Date(lastMsgAt).toISOString();
+}
 export const uuid = () => crypto.randomUUID();
 
 function seed(): Store {

@@ -1,6 +1,6 @@
 "use client";
 /**
- * Condition Row(COMPONENTS §2.5 `XMNop`) — 종료 조건 한 줄. S6 마법사(테두리 있음)와 S7 우열 진행률(테두리 없음)이 함께 쓴다.
+ * Condition Row(COMPONENTS §2.5 `XMNop`) — 종료 조건 한 줄. 조건 편집기(S21 미션 열기·편집 · 조건 고치기 — 테두리 있음, 옛 이름 `wizard` 변형)와 S7 우열 진행률(테두리 없음)이 함께 쓴다.
  *
  * 이름은 **사람 말**이다(T-W15, S-84 · SCREEN §4.4 6단계): 보고서 제출 · Lead 의 검토 승인 · Director 승인 · 수동 종료 — `conditionName`.
  * 진행률 행은 두 번째 줄이 답을 말한다 — 충족했으면 **누가·언제**(Writer, 9/13), 아니면 **다음 행동**(Lead 차례 · 받은 요청에서

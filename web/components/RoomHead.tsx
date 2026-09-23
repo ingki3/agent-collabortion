@@ -5,7 +5,7 @@
  * 미션 층 동작(일시정지·종료·Director 교체…)은 여기 없다 — 우열 미션 칸으로 내려갔다(§4.6 상단 액션 표).
  * 권한 없는 버튼은 숨기지 않고 비활성 + 버튼 아래 글자 사유(`DisabledHint`).
  */
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import Link from "next/link";
 import "./room-card.css";
 import "./session-card-menu.css";
@@ -27,7 +27,12 @@ export interface RoomHeadProps {
   busy?: boolean;
   onBlock: () => Promise<void>;
   onUnblock: () => void;
-  onSummarize: (sinceDays: number) => Promise<void>;
+  onSummarize: (range: SummaryRange) => Promise<void>;
+  /** 「직접 고르기」 → 「타임라인에서 고르기」 — 다이얼로그를 닫고 호출부(S7)가 타임라인 집기 모드로 들어간다. */
+  onStartPick?: () => void;
+  /** 타임라인에서 집은 범위 — `pickNonce` 가 바뀌면 다이얼로그가 「직접 고르기」로 다시 열린다. */
+  picked?: PickedRange | null;
+  pickNonce?: number;
   onArchive: () => void;
   onUnarchive: () => void;
   onDelete: () => void;
@@ -38,6 +43,15 @@ export interface RoomHeadProps {
   countSince?: (sinceDays: number) => number | null;
 }
 
+/** 「여기까지 정리」 범위 — 최근 N일(`since`) 또는 타임라인에서 집은 두 메시지(`from_message_id`·`to_message_id`, 계약 RoomSummarize). */
+export type SummaryRange = { days: number } | { from: string; to: string };
+export interface PickedRange {
+  from: { id: string; text: string };
+  to: { id: string; text: string };
+  /** 이 범위에 드는 메시지 수 — 다 읽은 경우만, 모르면 null. */
+  count: number | null;
+}
+
 export function RoomHead(props: RoomHeadProps) {
   const { room } = props;
   const caps = new Set(room.my_capabilities ?? []);
@@ -45,7 +59,7 @@ export function RoomHead(props: RoomHeadProps) {
   const c = layerCounts(room);
   const menu = useCardMenu();
   const [dialog, setDialog] = useState<"block" | "summarize" | null>(null);
-  const [days, setDays] = useState(7);
+  const [days, setDays] = useState<7 | 30 | "pick">(7);
   const [err, setErr] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const blockHint = useId();
@@ -68,7 +82,15 @@ export function RoomHead(props: RoomHeadProps) {
       setWorking(false);
     }
   };
-  const count = props.countSince?.(days) ?? null;
+  const count = days === "pick" ? props.picked?.count ?? null : props.countSince?.(days) ?? null;
+  // 타임라인에서 범위를 집고 돌아오면 다이얼로그가 「직접 고르기」로 다시 선다.
+  useEffect(() => {
+    if (!props.pickNonce) return;
+    setDays("pick");
+    setErr(null);
+    setDialog("summarize");
+  }, [props.pickNonce]);
+  const picked = days === "pick" ? props.picked ?? null : null;
 
   return (
     <div className="room-head" data-testid="room-head">
@@ -193,19 +215,41 @@ export function RoomHead(props: RoomHeadProps) {
           cancelLabel={SUMMARIZE_DIALOG.cancel}
           busy={working}
           error={err}
-          onConfirm={() => void run(() => props.onSummarize(days))}
+          onConfirm={() => void run(() => props.onSummarize(days === "pick" ? { from: picked!.from.id, to: picked!.to.id } : { days }))}
           onClose={() => setDialog(null)}
           testId="summarize-dialog"
+          confirmBlocked={days === "pick" && !picked ? SUMMARIZE_DIALOG.pick_need : null}
         >
           <fieldset className="room-head__range">
             <legend className="small muted">{SUMMARIZE_DIALOG.range}</legend>
-            {[7, 30].map((d) => (
+            {([7, 30] as const).map((d) => (
               <label key={d} className="row" style={{ gap: 6 }}>
                 <input type="radio" name="summarize-range" checked={days === d} onChange={() => setDays(d)} data-testid={`summarize-${d}`} />
                 {d === 7 ? SUMMARIZE_DIALOG.days7 : SUMMARIZE_DIALOG.days30}
               </label>
             ))}
+            {props.onStartPick && (
+              <label className="row" style={{ gap: 6 }}>
+                <input type="radio" name="summarize-range" checked={days === "pick"} onChange={() => setDays("pick")} data-testid="summarize-pick" />
+                {SUMMARIZE_DIALOG.pick}
+              </label>
+            )}
           </fieldset>
+          {days === "pick" && props.onStartPick && (
+            <div className="room-head__picked" data-testid="summarize-picked">
+              {picked && (
+                <dl className="room-head__picked-dl">
+                  <dt>{SUMMARIZE_DIALOG.pick_from}</dt>
+                  <dd data-testid="summarize-picked-from">{picked.from.text}</dd>
+                  <dt>{SUMMARIZE_DIALOG.pick_to}</dt>
+                  <dd data-testid="summarize-picked-to">{picked.to.text}</dd>
+                </dl>
+              )}
+              <button type="button" className="btn btn--sm" onClick={() => { setDialog(null); props.onStartPick!(); }} data-testid="summarize-pick-start">
+                {picked ? SUMMARIZE_DIALOG.pick_again : SUMMARIZE_DIALOG.pick_start}
+              </button>
+            </div>
+          )}
           {count != null && <p className="small" data-testid="summarize-preview" aria-label={slotText(SUMMARIZE_DIALOG.preview, count)}><Slot text={SUMMARIZE_DIALOG.preview} n={count} /></p>}
           <p className="muted small">{SUMMARIZE_DIALOG.result}</p>
         </ConfirmDialog>

@@ -14,6 +14,11 @@
  *   - 보관된 방 · 참여자 아님 · 멈춘 방은 전체 비활성 + 사유(층을 적는다).
  * 세 길(새 미션 · 메시지에서 · 에이전트 제안)이 같은 다이얼로그다 — 제안 길은 `resolveWorkProposal accept` 로 연다(연 사람이 Director).
  * 「열기」 → `onOpened(work)` — 호출부(S7)가 그 미션 칩을 고른 채 방 화면으로 돌아간다.
+ *
+ * **편집 모드**(`mode: "edit"`, T-R2-W4b — §4.6 미션 동작 「설정 편집」)도 이 폼이다: 지금 값으로 채워 열고, 바꾼 칸만 `updateWork` 로 보낸다.
+ * 종료 조건 기본값 규칙(담당이 바뀌면 조건이 따라 바뀜)은 새 미션에만 — 편집에서는 사람이 편집기를 연 경우에만 조건을 보낸다.
+ * Director 는 여기서 바꾸지 않는다(교체는 별도 op `changeWorkDirector` — 미션 칸의 「Director 교체」). 동시 상한·방 멈춤은 여는 일의 관문이라
+ * 편집에는 걸지 않고, 권한(그 미션의 director)·끝난 미션만 막는다(`workEditBlocked`).
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -23,15 +28,16 @@ import { RoomDialogShell, useRoomEvents } from "./RoomDialogShell";
 import { Slot } from "./Slot";
 import { api, errorMessage, isApiError, newIdempotencyKey } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { draftNames, toCompletionCondition, type ConditionDraft } from "@/lib/completion";
+import { draftNames, fromCompletionCondition, toCompletionCondition, type ConditionDraft } from "@/lib/completion";
 import { conditionSentence } from "@/lib/wording";
 import {
   AUTONOMY_TEXT, COMMON, CREATE_WORK, defaultConditionTypes, firstLine, maxConcurrentWorks, openWorkCount, openWorkGate, personName, RUNNING_WORK,
   suggestedAssignee, type RoomParticipant, type Work, type WorkCreate, type WorkProposal,
 } from "@/lib/room-dialogs";
 import { pageItems, type AutonomyLevel, type Member, type Message, type Room, type WorkListItem } from "@/lib/api/types";
+import { WORK_EDIT, workEditBlocked } from "@/lib/work-edit";
 
-export type CreateWorkMode = "new" | "from" | "proposal";
+export type CreateWorkMode = "new" | "from" | "proposal" | "edit";
 
 export interface CreateWorkDialogProps {
   roomId: string;
@@ -44,13 +50,16 @@ export interface CreateWorkDialogProps {
   proposal?: WorkProposal | null;
   /** 「이대로 열기」 — goal 을 고칠 수 없다(「고쳐서 열기」면 false). */
   goalLocked?: boolean;
+  /** 편집 모드(`mode: "edit"`)의 미션 — 지금 값으로 칸을 채운다. */
+  work?: Work | null;
   onOpened: (work: Work) => void;
   onClose: () => void;
 }
 
 const WORK_EVENTS = ["work.created", "work.updated", "work.closed", "work.deleted", "participant.joined", "participant.left", "room.updated"] as const;
 
-export function CreateWorkDialog({ roomId, mode, messageId, message: given, proposal, goalLocked = false, onOpened, onClose }: CreateWorkDialogProps) {
+export function CreateWorkDialog({ roomId, mode, messageId, message: given, proposal, goalLocked = false, work: editing = null, onOpened, onClose }: CreateWorkDialogProps) {
+  const edit = mode === "edit" && !!editing;
   const { me, workspace } = useAuth();
   const [room, setRoom] = useState<Room | null>(null);
   const [agents, setAgents] = useState<RoomParticipant[]>([]);
@@ -59,19 +68,20 @@ export function CreateWorkDialog({ roomId, mode, messageId, message: given, prop
   const [message, setMessage] = useState<Message | null>(given ?? null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [goal, setGoal] = useState(proposal?.goal ?? given?.content ?? "");
-  const [title, setTitle] = useState("");
-  const [criteria, setCriteria] = useState<string[]>([]);
-  const [assignee, setAssignee] = useState("");
+  const [goal, setGoal] = useState(editing?.goal ?? proposal?.goal ?? given?.content ?? "");
+  const [title, setTitle] = useState(editing?.title ?? "");
+  const [criteria, setCriteria] = useState<string[]>(editing?.acceptance_criteria ?? []);
+  const [assignee, setAssignee] = useState(editing?.assignee_agent_id ?? "");
   const [suggested, setSuggested] = useState<string | null>(null);
-  const [draft, setDraft] = useState<ConditionDraft>({ op: "and", conds: defaultConditionTypes(false), submitter: "", reviewer: "" });
+  const [draft, setDraft] = useState<ConditionDraft>(() =>
+    editing ? fromCompletionCondition(editing.completion_condition).draft : { op: "and", conds: defaultConditionTypes(false), submitter: "", reviewer: "" });
   const [condTouched, setCondTouched] = useState(false);
   const [editCond, setEditCond] = useState(false);
   const [director, setDirector] = useState("");
-  const [deputy, setDeputy] = useState("");
-  const [budget, setBudget] = useState("");
-  const [time, setTime] = useState("");
-  const [autonomy, setAutonomy] = useState<AutonomyLevel | "">("");
+  const [deputy, setDeputy] = useState(editing?.deputy_user_id ?? "");
+  const [budget, setBudget] = useState(editing?.limits?.budget_usd != null ? String(editing.limits.budget_usd) : "");
+  const [time, setTime] = useState(editing?.limits?.time_limit ?? "");
+  const [autonomy, setAutonomy] = useState<AutonomyLevel | "">(editing?.autonomy ?? "");
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -139,17 +149,18 @@ export function CreateWorkDialog({ roomId, mode, messageId, message: given, prop
 
   // 담당이 바뀌면 종료 조건 기본값이 바뀐다(FR-2A.1) — 사람이 조건을 직접 고친 뒤에는 건드리지 않는다.
   useEffect(() => {
-    if (!condTouched) setDraft((d) => ({ ...d, conds: defaultConditionTypes(!!assignee) }));
-  }, [assignee, condTouched]);
+    if (!condTouched && !edit) setDraft((d) => ({ ...d, conds: defaultConditionTypes(!!assignee) }));
+  }, [assignee, condTouched, edit]);
 
   const nameOf = useCallback((id: string) => agents.find((a) => a.agent!.id === id)?.agent?.name ?? id, [agents]);
   const condNames = useMemo(() => draftNames({ ...draft, submitter: draft.submitter || assignee }, (id) => `${nameOf(id)}`), [draft, assignee, nameOf]);
   const sentence = conditionSentence(condNames, draft.op);
 
-  const gate = room ? openWorkGate(room) : { ok: true as const };
+  const editWhy = edit ? workEditBlocked(editing!) : null;
+  const gate = edit ? (editWhy ? { ok: false as const, reason: editWhy } : { ok: true as const }) : room ? openWorkGate(room) : { ok: true as const };
   const open = openWorkCount(works);
   const cap = room ? maxConcurrentWorks(room) : 3;
-  const atCap = !!room && open >= cap;
+  const atCap = !edit && !!room && open >= cap;
   const openList = serverOpen ?? works.filter((w) => RUNNING_WORK.includes(w.status)).map((w) => ({ id: w.id, title: w.title }));
   const condReason = draft.conds.length === 0 ? CREATE_WORK.need_condition : draft.conds.includes("agent_approval") && !draft.reviewer ? CREATE_WORK.reviewer_required : null;
   const goalEmpty = !goal.trim();
@@ -160,11 +171,40 @@ export function CreateWorkDialog({ roomId, mode, messageId, message: given, prop
   const capId = `${base}-cap`;
   const defaultDirectorName = room?.default_director_user_id ? personName(members.find((m) => m.user.id === room.default_director_user_id)?.user) : null;
 
+  /** 편집 — 바꾼 칸만(서버는 보낸 칸만 고친다). 한도는 두 칸을 함께 보내고 비운 칸은 null(방 한도를 따른다). */
+  function editBody(w: Work) {
+    const b: Record<string, unknown> = {};
+    if (goal.trim() !== w.goal) b.goal = goal.trim();
+    if (title.trim() && title.trim() !== w.title) b.title = title.trim();
+    const crit = criteria.map((c) => c.trim()).filter(Boolean);
+    if (JSON.stringify(crit) !== JSON.stringify(w.acceptance_criteria)) b.acceptance_criteria = crit;
+    if ((assignee || null) !== (w.assignee_agent_id ?? null)) b.assignee_agent_id = assignee || null;
+    if (condTouched) b.completion_condition = toCompletionCondition(draft);
+    if ((deputy || null) !== (w.deputy_user_id ?? null)) b.deputy_user_id = deputy || null;
+    const budgetNow = budget.trim() ? Number(budget) : null;
+    const timeNow = time.trim() || null;
+    if (budgetNow !== (w.limits?.budget_usd ?? null) || timeNow !== (w.limits?.time_limit ?? null)) b.limits = { budget_usd: budgetNow, time_limit: timeNow };
+    if (autonomy && autonomy !== w.autonomy) b.autonomy = autonomy;
+    return b;
+  }
+
   async function submit() {
     if (!canOpen || busy) return;
     setBusy(true);
     setError(null);
     setFieldErrors({});
+    if (edit) {
+      try {
+        const b = editBody(editing!);
+        onOpened(Object.keys(b).length ? await api.patch("/works/{workId}", { path: { workId: editing!.id }, body: b }) : editing!);
+      } catch (e) {
+        if (isApiError(e) && e.problem.errors?.length) setFieldErrors(Object.fromEntries(e.problem.errors.map((x) => [x.field, x.message])));
+        setError(errorMessage(e));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     const body: WorkCreate = {
       goal: goal.trim(),
       ...(title.trim() ? { title: title.trim() } : {}),
@@ -197,12 +237,12 @@ export function CreateWorkDialog({ roomId, mode, messageId, message: given, prop
     }
   }
 
-  const titleText = mode === "from" ? CREATE_WORK.title_from : mode === "proposal" ? CREATE_WORK.title_proposal : CREATE_WORK.title_new;
+  const titleText = edit ? WORK_EDIT.title : mode === "from" ? CREATE_WORK.title_from : mode === "proposal" ? CREATE_WORK.title_proposal : CREATE_WORK.title_new;
   const fieldErr = (k: string) => fieldErrors[k];
   const condErr = Object.entries(fieldErrors).find(([k]) => k.startsWith("completion_condition"))?.[1];
 
   return (
-    <RoomDialogShell title={titleText} sub={CREATE_WORK.definition} testId="rd-create-work" onClose={onClose} busy={busy}>
+    <RoomDialogShell title={titleText} sub={edit ? WORK_EDIT.sub : CREATE_WORK.definition} testId={edit ? "rd-edit-work" : "rd-create-work"} onClose={onClose} busy={busy}>
       {loadError && <p className="problem" role="alert">{loadError}</p>}
       {!gate.ok && <DisabledHint id={gateHint}>{gate.reason}</DisabledHint>}
       <form
@@ -260,7 +300,7 @@ export function CreateWorkDialog({ roomId, mode, messageId, message: given, prop
           <div className="rd-section" data-testid="rd-create-work-condition">
             <span className="rd-field__label">{CREATE_WORK.condition}</span>
             <p className="rd-cond" data-testid="rd-create-work-condition-sentence">{sentence}</p>
-            {!assignee && !condTouched && <p className="rd-hint" data-testid="rd-create-work-condition-why">{CREATE_WORK.condition_default_hint}</p>}
+            {!assignee && !condTouched && !edit && <p className="rd-hint" data-testid="rd-create-work-condition-why">{CREATE_WORK.condition_default_hint}</p>}
             {editCond ? (
               <ConditionEditor
                 value={draft}
@@ -279,7 +319,7 @@ export function CreateWorkDialog({ roomId, mode, messageId, message: given, prop
             {condErr && <span className="rd-err">{condErr}</span>}
           </div>
 
-          <details className="rd-fold" data-testid="rd-create-work-more">
+          <details className="rd-fold" open={edit || undefined} data-testid="rd-create-work-more">
             <summary>{CREATE_WORK.defaults}</summary>
             <div className="rd-fold__body">
               <label className="rd-field">
@@ -300,6 +340,13 @@ export function CreateWorkDialog({ roomId, mode, messageId, message: given, prop
                 </div>
               </div>
               <div className="rd-fields">
+                {edit ? (
+                  <div className="rd-field" data-testid="rd-edit-work-director">
+                    <span className="rd-field__label">{CREATE_WORK.director}</span>
+                    <span>{personName(editing!.director)}</span>
+                    <span className="rd-hint">{WORK_EDIT.director_elsewhere}</span>
+                  </div>
+                ) : (
                 <label className="rd-field">
                   <span className="rd-field__label">{CREATE_WORK.director}</span>
                   <select className="select" value={director} onChange={(e) => setDirector(e.target.value)} data-testid="rd-create-work-director">
@@ -311,6 +358,7 @@ export function CreateWorkDialog({ roomId, mode, messageId, message: given, prop
                   <span className="rd-hint">{CREATE_WORK.director_note}</span>
                   {fieldErr("director_user_id") && <span className="rd-err">{fieldErr("director_user_id")}</span>}
                 </label>
+                )}
                 <label className="rd-field">
                   <span className="rd-field__label">{CREATE_WORK.deputy}</span>
                   <select className="select" value={deputy} onChange={(e) => setDeputy(e.target.value)} data-testid="rd-create-work-deputy">
@@ -394,7 +442,7 @@ export function CreateWorkDialog({ roomId, mode, messageId, message: given, prop
             disabled={busy}
             data-testid="rd-create-work-open"
           >
-            {busy ? CREATE_WORK.opening : CREATE_WORK.open}
+            {edit ? (busy ? WORK_EDIT.saving : WORK_EDIT.save) : busy ? CREATE_WORK.opening : CREATE_WORK.open}
           </button>
         </div>
         {blockedReason && gate.ok && <DisabledHint id={openHint}>{blockedReason}</DisabledHint>}
