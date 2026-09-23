@@ -162,3 +162,20 @@ CI(PR #249 run 34989845714 attempt 1)에서 `A2d 동시 3개 (위임 3이 병렬
   73_ 의 탭이 서버 포트와 겹친다 — `TAP_PORT_72/73/74/82/84` 를 export 한다(I-5, 다섯 스크립트 모두 같은 관례). CI(:8109)는 겹치지 않는다.
 - 대본이 **토큰을 남기고 턴을 붙드는** 레시피(Gate): 서버 층 (c) 는 finish 뒤 401 이라 살아 있는 토큰이 필요하다. `gate-<task>.token` →
   하네스가 curl → `gate-<task>.go` 로 놓아준다(상한 90s). 합류 통보로 깨어난 턴은 시도하지 않는다(위임↔합류 사이클, 77_ 보고).
+
+## T-R1b3 — 방 API (89_, PRD v0.19 FR-2 · FR-2.2 · FR-4.5 링크 · FR-5.3 · FR-8 · §12.1-4)
+
+| 스크립트 | 무엇을 재는가 | lib | 비용 한 줄(I-3) |
+|---|---|---|---|
+| `89_rooms.sh` | 방 만들기(컴퓨터 0대 201 · room_defaults 상속) → 초대(사람 · 에이전트는 부른 사람의 FR-1.9 로) → invited 방 404·목록 밖·감사 열람 기록 → 나가기 거부(is_owner · is_director — 미션 행은 psql 로 심는다, 미션 API 는 R1b2) · 허용 · 재초대는 같은 행 → 방장 넘기기·부방장 → 참고 방 링크 권한(없는 방도 같은 403) · 양쪽 시스템 메시지 → 보관/해제 · tasks_active → 삭제 거부(works_active · 부방장 403) · 204 · room.deleted 한 줄 → 안 읽음(목록=getRoom · 앞으로만) → SSE(room_id 거르기 · session_id 별칭 · invited 방 프레임이 초대 안 된 사람 스트림에 0 · room.unread 본인만) → 활동 로그 → 옛 getSession·listSessions. 74 판정 | `lib.sh` | 턴 0(curl) · $0 · ≈ 20s |
+
+```bash
+export SERVER_URL=http://localhost:8135 PG_PORT=5484 PG_CONTAINER=colab-pg-r1b3-e2e
+bash e2e/p5/up.sh && bash e2e/p5/89_rooms.sh ; bash e2e/p5/down.sh    # out/89-checks.tsv · 89-sse-*.log
+```
+
+- **SSE 프레임은 쓰는 트랜잭션이 커밋되기 전에 나간다.** 초대·퇴장·공개 범위를 바꾸는 그 프레임에서 권한을 다시 읽으면 옛 값이 보이고,
+  그걸 캐시하면 방금 나간 사람이 invited 방의 프레임을 계속 받는다. 그래서 그런 프레임 뒤 5초는 캐시하지 않는다(`stream_rooms.go`).
+  H.10 은 이 판정이 빠지면 1 이 된다(회귀 주입으로 확인).
+- 87_ 은 새 마이그레이션이 붙어도 돈다 — B.1 은 「0025 가 적용됐다」만 보고(max 가 아니라), 인박스 대조에서는 v0.2.0 이 더한 칸
+  (room_id · work_id · lane_id · recipient_basis)을 지운다.
