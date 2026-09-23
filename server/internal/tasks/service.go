@@ -89,6 +89,13 @@ type Row struct {
 	DispatchedAt        *time.Time
 	StartedAt           *time.Time
 	FinishedAt          *time.Time
+	// WorkID is the mission the task runs for (FR-3.1.1 · FR-2A.5), nil for a
+	// run outside any mission. The claim gates on it (queue.Claim) and the
+	// budget reads the mission's remainder from it (httpapi.loadBudgetState).
+	WorkID *uuid.UUID
+	// QueuedReason is why a queued task is still waiting (PRD §3.1,
+	// openapi QueuedReason). Written by the claim, cleared at dispatch.
+	QueuedReason *string
 }
 
 const selectTask = `
@@ -96,7 +103,8 @@ const selectTask = `
 	       t.trigger_message_id, t.delegated_from_task_id, t.restarted_from_task_id, t.originator_user_id,
 	       t.coalesced_message_ids, t.attempt, t.max_attempts, t.pending_hitl, t.budget_override,
 	       t.status, t.paused_reason, t.failure_kind, t.not_before, t.stop_reason, t.heartbeat_at,
-	       t.created_at, t.updated_at, t.dispatched_at, t.started_at, t.finished_at
+	       t.created_at, t.updated_at, t.dispatched_at, t.started_at, t.finished_at,
+	       t.work_id, t.queued_reason::text
 	FROM task t JOIN room s ON s.id = t.session_id`
 
 func scanTask(row pgx.Row) (*Row, error) {
@@ -106,7 +114,8 @@ func scanTask(row pgx.Row) (*Row, error) {
 		&t.TriggerMessageID, &t.DelegatedFromTaskID, &t.RestartedFromTaskID, &t.OriginatorUserID,
 		&t.CoalescedMessageIDs, &t.Attempt, &t.MaxAttempts, &t.PendingHitl, &t.BudgetOverride,
 		&status, &pausedReason, &failureKind, &t.NotBefore, &t.StopReason, &t.HeartbeatAt,
-		&t.CreatedAt, &t.UpdatedAt, &t.DispatchedAt, &t.StartedAt, &t.FinishedAt)
+		&t.CreatedAt, &t.UpdatedAt, &t.DispatchedAt, &t.StartedAt, &t.FinishedAt,
+		&t.WorkID, &t.QueuedReason)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -188,7 +197,7 @@ func (s *Service) MarkDispatched(ctx context.Context, tx pgx.Tx, t *Row, runtime
 		return "", err
 	}
 	if _, err := tx.Exec(ctx, `
-		UPDATE task SET status = 'dispatched', runtime_id = $2, dispatched_at = $3, heartbeat_at = NULL, updated_at = $3
+		UPDATE task SET status = 'dispatched', runtime_id = $2, dispatched_at = $3, heartbeat_at = NULL, queued_reason = NULL, updated_at = $3
 		WHERE id = $1`, t.ID, runtimeID, now); err != nil {
 		return "", fmt.Errorf("tasks: dispatch: %w", err)
 	}
@@ -1081,6 +1090,55 @@ func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*
 		return nil
 	})
 	return out, immediate, err
+}
+
+// CancelInFlightInRoom is blockRoom's FR-3.4 「중단」 for every turn a room
+// has in flight (PRD v0.19 FR-2.4 `manual`): each running attempt gets the
+// §8.2.2 `cancel` command — the server never signals a process — and ends
+// `cancelled` when its finish arrives, exactly as the lane button does.
+// Queued tasks are left alone: the room gate holds them, and unblocking lets
+// them go on (the stop is not a cancellation of the work).
+//
+// production caller: httpapi.BlockRoom.
+func (s *Service) CancelInFlightInRoom(ctx context.Context, tx pgx.Tx, roomID, byUserID uuid.UUID, now time.Time) error {
+	ids, err := collectIDs(tx.Query(ctx, `
+		SELECT id FROM task WHERE session_id = $1 AND status IN ('dispatched', 'preparing', 'running')
+		ORDER BY created_at`, roomID))
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		t, err := lockTask(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		switch t.Status {
+		case Dispatched, Preparing, Running:
+		default:
+			continue // ended between the select and the lock
+		}
+		if requested, err := cancelRequested(ctx, tx, t.ID, t.Attempt); err != nil {
+			return err
+		} else if requested {
+			continue
+		}
+		if err := InsertServerEvent(ctx, tx, t.ID, t.Attempt, "status", "cancel", "director", "ok",
+			map[string]any{"command": "room block", "args": map[string]any{
+				"note": "사람이 방을 멈춰 중단함", "requested_by": byUserID.String(), "reason": "director",
+			}}, now); err != nil {
+			return err
+		}
+		if t.RuntimeID == nil {
+			if err := s.cancelLocked(ctx, tx, t, "director", now); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := tokens.QueueCommand(ctx, tx, *t.RuntimeID, cancelCommandFor(t, "director")); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Cancellable is the set of task statuses cancelLane acts on (K-16): the task

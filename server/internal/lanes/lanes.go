@@ -84,6 +84,18 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, canControl bool) (*gen.L
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("lanes: current task: %w", err)
 	}
+	// PRD §3.1 (openapi 0.2.0 Lane.queued_reason): why the lane's first
+	// waiting task still waits. Left out when nothing holds it back, so a lane
+	// that never queued reads exactly as before 0.2.0.
+	var queued *string
+	if err := q.QueryRow(ctx, `
+		SELECT queued_reason::text FROM task WHERE lane_id = $1 AND status = 'queued'
+		ORDER BY created_at LIMIT 1`, id).Scan(&queued); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("lanes: queued reason: %w", err)
+	}
+	if queued != nil {
+		out.QueuedReason = nullable.NewNullableWithValue(gen.QueuedReason(*queued))
+	}
 	out.Actions = laneActions(out.Status, out.FailureKind, cancellable, canControl)
 	return &out, nil
 }
