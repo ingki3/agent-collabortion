@@ -83,7 +83,9 @@ const selectInbox = `
 	  WHERE w.id = i.work_id
 	     OR (i.work_id IS NULL AND w.room_id = s.id AND (SELECT count(*) FROM work o WHERE o.room_id = s.id) = 1)
 	  LIMIT 1) wk ON true
-	LEFT JOIN hitl_request h ON h.id = i.ref_id AND i.type = 'hitl_request'
+	-- room_paused · isolation_confirm (migration r1b1_room_gate) are room-owner approvals: their
+	-- ref is the request, and the card reads it exactly like hitl_request's.
+	LEFT JOIN hitl_request h ON h.id = i.ref_id AND i.type IN ('hitl_request', 'room_paused', 'isolation_confirm')
 	LEFT JOIN task t ON t.id = h.task_id
 	LEFT JOIN agent a ON a.id = t.agent_id`
 
@@ -160,7 +162,7 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params gen.Li
 	now := s.Clock.Now()
 	items := make([]gen.InboxItem, 0, len(list))
 	for i := range list {
-		items = append(items, s.inboxAPI(&list[i], u.Id, now))
+		items = append(items, s.inboxAPI(r.Context(), &list[i], u.Id, now))
 	}
 	// SCREEN §4.6's order: overdue → action_required → attention → info, and
 	// inside a group the soonest deadline first. Ordering in SQL would need the
@@ -190,7 +192,7 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params gen.Li
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "has_more": hasMore})
 }
 
-func (s *Server) inboxAPI(r *inboxRow, viewer uuid.UUID, now time.Time) gen.InboxItem {
+func (s *Server) inboxAPI(ctx context.Context, r *inboxRow, viewer uuid.UUID, now time.Time) gen.InboxItem {
 	out := gen.InboxItem{
 		Id: r.ID, WorkspaceId: r.WorkspaceID,
 		Type: gen.InboxItemType(r.Type), Severity: gen.InboxSeverity(r.Severity),
@@ -214,7 +216,7 @@ func (s *Server) inboxAPI(r *inboxRow, viewer uuid.UUID, now time.Time) gen.Inbo
 	body := ""
 	title := ""
 	switch r.Type {
-	case inbox.TypeHitlRequest:
+	case inbox.TypeHitlRequest, inbox.TypeIsolationConfirm, inbox.TypeRoomPaused:
 		if r.HitlType != nil {
 			hitlType = *r.HitlType
 		}
@@ -230,16 +232,35 @@ func (s *Server) inboxAPI(r *inboxRow, viewer uuid.UUID, now time.Time) gen.Inbo
 			out.Overdue = &od
 		}
 		if r.HitlStatus != nil && *r.HitlStatus == hitl.StatusOpen && r.HitlSpec != nil && r.HitlCreatedAt != nil {
-			az := hitl.Authorize(hitl.AuthzInput{
-				Spec: *r.HitlSpec, Director: derefUUID(r.SessionDirector), Deputy: derefUUID(r.SessionDeputy),
-				Responder: viewer, IsMember: true,
-				Elapsed: now.Sub(*r.HitlCreatedAt), DueIn: r.HitlDueAt.Sub(*r.HitlCreatedAt),
-			})
+			var az hitl.Authz
+			if *r.HitlSpec == hitl.SpecRoomOwner && r.SessionID != nil {
+				// FR-2A.3: the room owner's chain, the same judgement the
+				// handler makes (authorizeHitl).
+				if a, err := authorizeHitl(ctx, s.DB, *r.HitlSpec, *r.SessionID, derefUUID(r.SessionDirector), r.SessionDeputy,
+					viewer, *r.HitlCreatedAt, *r.HitlDueAt, now); err == nil {
+					az = a
+				}
+			} else {
+				az = hitl.Authorize(hitl.AuthzInput{
+					Spec: *r.HitlSpec, Director: derefUUID(r.SessionDirector), Deputy: derefUUID(r.SessionDeputy),
+					Responder: viewer, IsMember: true,
+					Elapsed: now.Sub(*r.HitlCreatedAt), DueIn: r.HitlDueAt.Sub(*r.HitlCreatedAt),
+				})
+			}
 			canRespond = az.Allowed
 			// O5: the deputy's copy is marked so the card can say
 			// "위임됨 · 지금부터 응답 가능" instead of looking like a duplicate.
 			delegated := r.SessionDeputy != nil && viewer == *r.SessionDeputy
 			out.Delegated = &delegated
+		}
+		if r.Type == inbox.TypeRoomPaused {
+			// The room gate (FR-2.4): the question says which limit, the
+			// title says what stopped — the whole room, not one mission.
+			title = "방이 멈췄습니다"
+			if r.HitlQuestion != nil {
+				body = *r.HitlQuestion
+			}
+			hitlType = ""
 		}
 	case inbox.TypeSessionPaused:
 		title = "세션이 멈췄습니다"
@@ -252,11 +273,6 @@ func (s *Server) inboxAPI(r *inboxRow, viewer uuid.UUID, now time.Time) gen.Inbo
 		canRespond = viewer == derefUUID(r.SessionDirector)
 	case inbox.TypeRoomInvited:
 		title = "방에 초대되었습니다"
-		if r.RoomName != nil {
-			body = *r.RoomName
-		}
-	case inbox.TypeRoomPaused:
-		title = "방이 멈췄습니다"
 		if r.RoomName != nil {
 			body = *r.RoomName
 		}
@@ -390,7 +406,7 @@ func (s *Server) MarkInboxRead(w http.ResponseWriter, r *http.Request, inboxItem
 		writeProblem(w, apperr.NotFound("inbox_item"))
 		return
 	}
-	writeJSON(w, http.StatusOK, s.inboxAPI(&list[0], u.Id, now))
+	writeJSON(w, http.StatusOK, s.inboxAPI(r.Context(), &list[0], u.Id, now))
 }
 
 func (s *Server) MarkAllInboxRead(w http.ResponseWriter, r *http.Request, params gen.MarkAllInboxReadParams) {

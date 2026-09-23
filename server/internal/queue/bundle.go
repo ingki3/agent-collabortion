@@ -39,7 +39,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		args                                           []string
 		title, goal, directorName                      string
 		criteria                                       []string
-		limitsJSON                                     []byte
+		limitsJSON, workLimitsJSON                     []byte
 		runtimeSessionRef                              []byte
 		reentry                                        int
 		budgetPerTask                                  *float64
@@ -48,21 +48,26 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	err := tx.QueryRow(ctx, `
 		SELECT a.name, a.role, a.role_description, a.instructions, a.tools, a.budget_per_task,
 		       p.runtime_kind, p.model, p.options, p.env, p.args,
-		       wk.title, wk.goal, wk.acceptance_criteria, s.isolation, s.limits, u.display_name,
-		       l.runtime_session_ref, l.reentry_count, w.path_or_ref
+		       COALESCE(wk.title, s.name), COALESCE(wk.goal, s.description), COALESCE(wk.acceptance_criteria, '{}'),
+		       s.isolation, s.limits, u.display_name,
+		       l.runtime_session_ref, l.reentry_count, w.path_or_ref, wk.limits
 		FROM task t
 		JOIN agent a ON a.id = t.agent_id
 		JOIN agent_profile p ON p.id = t.profile_id
 		JOIN room s ON s.id = t.session_id
-		JOIN work wk ON wk.room_id = s.id
-		JOIN app_user u ON u.id = wk.director_user_id
+		-- The task's OWN mission (V19_R1B_HANDOFF (c) queue/bundle.go:57); a run
+		-- outside any mission reads the room's name and description and its
+		-- owner stands where the Director would (FR-2A.1). The brief's room/
+		-- mission split itself is R3's (§8.4 [4]).
+		LEFT JOIN work wk ON wk.id = t.work_id
+		JOIN app_user u ON u.id = COALESCE(wk.director_user_id, s.owner_user_id)
 		JOIN lane l ON l.id = t.lane_id
 		LEFT JOIN workdir w ON w.id = l.workdir_id
 		WHERE t.id = $1`, t.ID).Scan(
 		&agentName, &agentRole, &roleDesc, &instructions, &toolsJSON, &budgetPerTask,
 		&runtimeKind, &model, &optionsJSON, &envJSON, &args,
 		&title, &goal, &criteria, &isolationJSON, &limitsJSON, &directorName,
-		&runtimeSessionRef, &reentry, &prevWorkdir)
+		&runtimeSessionRef, &reentry, &prevWorkdir, &workLimitsJSON)
 	if isNoRows(err) {
 		return nil, errNoBundle
 	}
@@ -322,7 +327,15 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	// The daemon's own half of D-16 is backlog D-16; the server's in-turn
 	// enforcement (httpapi.enforceBudgetFor, §4.2 usage) applies the same min
 	// on every heartbeat regardless.
-	budget := sessionRemainingBudget(ctx, tx, t.SessionID, limits.BudgetUSD)
+	var workLimits struct {
+		BudgetUSD *float64 `json:"budget_usd"`
+	}
+	_ = json.Unmarshal(workLimitsJSON, &workLimits)
+	// PRD v0.19 FR-2A.3 (daemon-protocol v0.9.0 §4.4): the remainder half of
+	// the effective ceiling is min(미션 잔여, 방 잔여).
+	budget := minRemaining(
+		remainingBudget(ctx, tx, `t.work_id = $1`, t.WorkID, workLimits.BudgetUSD),
+		remainingBudget(ctx, tx, `t.session_id = $1`, &t.SessionID, limits.BudgetUSD))
 	// S-44: an approved raise carries along the lane it was granted on, so the
 	// daemon enforces the same ceiling the server does. Without this the
 	// server would allow $3 (httpapi.loadBudgetState reads the same fallback)
@@ -860,12 +873,13 @@ func renderHitlAnswer(prompt *strings.Builder, a *hitlAnswer) {
 	prompt.WriteString("</hitl_answer>\n")
 }
 
-// sessionRemainingBudget is §4.4's "세션 잔여": the session's limit less what
-// its tasks have already spent, floored at zero. nil when the session carries
-// no budget — a session without a limit must not hand every task a limit of
-// zero.
-// sessionRemainingBudget returns nil — the field is OMITTED, not zeroed — when
-// the session has no budget.
+// remainingBudget is §4.4's "잔여" of one ceiling — the room's (the old
+// session budget) or the task's mission's (PRD v0.19 FR-2A.3): the limit less
+// what the tasks under it (`scope`) have already spent, floored at zero. nil
+// when that ceiling is absent — a room or mission without a limit must not
+// hand every task a limit of zero. The bundle carries minRemaining of the two.
+// remainingBudget returns nil — the field is OMITTED, not zeroed — when there
+// is no budget.
 //
 // D-18 (server half): the daemon's mid-turn usage stream costs 4× the messages
 // and 2× the bytes, and it exists only so the daemon can enforce a ceiling. A
@@ -875,19 +889,32 @@ func renderHitlAnswer(prompt *strings.Builder, a *hitlAnswer) {
 // 0 here instead of nil would read as "a budget of zero" — every turn instantly
 // over its limit — so the nil is load-bearing, not a shortcut.
 // bundle_budget_test.go pins it.
-func sessionRemainingBudget(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, limit *float64) *float64 {
-	if limit == nil || *limit <= 0 {
+func remainingBudget(ctx context.Context, tx pgx.Tx, scope string, id *uuid.UUID, limit *float64) *float64 {
+	if id == nil || limit == nil || *limit <= 0 {
 		return nil
 	}
 	var spent float64
 	_ = tx.QueryRow(ctx, `
 		SELECT COALESCE(sum(u.cost_usd), 0) FROM task_usage u
-		JOIN task t ON t.id = u.task_id WHERE t.session_id = $1`, sessionID).Scan(&spent)
+		JOIN task t ON t.id = u.task_id WHERE `+scope, *id).Scan(&spent)
 	rem := *limit - spent
 	if rem < 0 {
 		rem = 0
 	}
 	return &rem
+}
+
+// minRemaining is the tighter of two remainders; nil is "no ceiling".
+func minRemaining(a, b *float64) *float64 {
+	switch {
+	case a == nil:
+		return b
+	case b == nil:
+		return a
+	case *a <= *b:
+		return a
+	}
+	return b
 }
 
 // noteRelativeWorkdirRow is S-62's "무시했다는 사실을 진단 이벤트로".

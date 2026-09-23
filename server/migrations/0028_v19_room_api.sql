@@ -1,4 +1,4 @@
--- 0027_v19_room_api.sql — 방 API 가 쓰는 저장 자리 (PRD v0.19 FR-2 · FR-4.5 · FR-8 · T-R1b3)
+-- v19_room_api — 방 API 가 쓰는 저장 자리 (PRD v0.19 FR-2 · FR-4.5 · FR-8 · T-R1b3)
 --
 -- 번호는 PR 을 올리는 순간 origin/dev 의 마지막 + 1 로 이름만 바뀐다(Lead 규칙) —
 -- 이 파일 안이나 코드 어디에서도 번호를 부르지 않는다.
@@ -39,13 +39,11 @@ ALTER TABLE message ADD CONSTRAINT message_summary_range_kind CHECK (summary_ran
 -- ---------------------------------------------------------------------------
 -- 4. 받은 요청 — v0.2.0 새 타입 · 받는 근거 (계약 InboxItemType · InboxItem.recipient_basis)
 -- ---------------------------------------------------------------------------
--- 값만 더한다(쓰는 쪽은 코드). work_* · isolation_confirm 은 미션·첫 실행 스트림이
--- 발행하지만 enum 은 한 번에 계약과 맞춘다 — IF NOT EXISTS 라 다른 파일이 같은 값을
--- 더해도 충돌하지 않는다.
-ALTER TYPE inbox_item_type ADD VALUE IF NOT EXISTS 'isolation_confirm';
+-- 값만 더한다(쓰는 쪽은 코드). room_paused · isolation_confirm 은 r1b1_room_gate 가 이미
+-- 넣었다(나머지 v0.2.0 값은 "그 값을 쓰는 PR 이 넣는다" — 여기). work_* 는 미션 스트림이
+-- 발행하지만 enum 은 한 번에 계약과 맞춘다.
 ALTER TYPE inbox_item_type ADD VALUE IF NOT EXISTS 'work_proposed';
 ALTER TYPE inbox_item_type ADD VALUE IF NOT EXISTS 'work_paused';
-ALTER TYPE inbox_item_type ADD VALUE IF NOT EXISTS 'room_paused';
 ALTER TYPE inbox_item_type ADD VALUE IF NOT EXISTS 'work_completed';
 ALTER TYPE inbox_item_type ADD VALUE IF NOT EXISTS 'room_invited';
 ALTER TYPE inbox_item_type ADD VALUE IF NOT EXISTS 'workdir_quota';

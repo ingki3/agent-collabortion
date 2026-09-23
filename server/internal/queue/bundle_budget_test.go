@@ -1,6 +1,10 @@
 package queue
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/google/uuid"
+)
 
 // TestSessionRemainingBudgetOmitsWhenUnset is D-18's server half: a session
 // with no budget must produce an ABSENT `limits.budget_usd`, not a zero.
@@ -18,9 +22,21 @@ func TestSessionRemainingBudgetOmitsWhenUnset(t *testing.T) {
 		{"a zero budget is not a budget", f64(0)},
 		{"a negative budget is not a budget", f64(-1)},
 	} {
-		if got := sessionRemainingBudget(nil, nil, [16]byte{}, tc.limit); got != nil {
+		id := uuid.New()
+		if got := remainingBudget(nil, nil, `t.session_id = $1`, &id, tc.limit); got != nil {
 			t.Errorf("%s: remaining = %v, want nil (omitted from the bundle)", tc.name, *got)
 		}
+	}
+	// PRD v0.19 FR-2A.3: the bundle carries min(미션 잔여, 방 잔여), and two
+	// absent ceilings are still absent — never a zero.
+	if got := minRemaining(nil, nil); got != nil {
+		t.Errorf("min(no mission budget, no room budget) = %v, want nil", *got)
+	}
+	if got := minRemaining(f64(0.4), nil); got == nil || *got != 0.4 {
+		t.Errorf("min(0.4, none) = %v, want 0.4", got)
+	}
+	if got := minRemaining(f64(2), f64(0.4)); got == nil || *got != 0.4 {
+		t.Errorf("min(2, 0.4) = %v, want 0.4 — the room's remainder binds", got)
 	}
 }
 

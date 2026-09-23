@@ -16,6 +16,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
@@ -54,17 +55,19 @@ func (s *Server) RespondHitlRequest(w http.ResponseWriter, r *http.Request, hitl
 		writeProblem(w, apperr.Forbidden("task_token_scope", "확인 요청에는 사람만 답할 수 있습니다"))
 		return
 	}
-	sess, serr := loadHitlSession(r.Context(), s.DB, row.SessionID)
+	sess, serr := loadHitlSession(r.Context(), s.DB, row.SessionID, row.WorkID)
 	if serr != nil {
 		writeErr(w, serr)
 		return
 	}
 	now := s.Clock.Now()
-	az := hitl.Authorize(hitl.AuthzInput{
-		Spec: row.ApproverSpec, Director: sess.Director, Deputy: derefUUID(sess.Deputy),
-		Responder: u.Id, IsMember: true,
-		Elapsed: now.Sub(row.CreatedAt), DueIn: row.DueAt.Sub(row.CreatedAt),
-	})
+	// The request's own mission names the Director (loadHitlRow), not the
+	// room's first mission — V19_R1B_HANDOFF (c) handlers_hitl.go:130.
+	az, aerr := authorizeHitl(r.Context(), s.DB, row.ApproverSpec, row.SessionID, row.Director, row.Deputy, u.Id, row.CreatedAt, row.DueAt, now)
+	if aerr != nil {
+		writeErr(w, aerr)
+		return
+	}
 	body, p := readBody(w, r)
 	if p != nil {
 		writeProblem(w, p)
@@ -117,28 +120,22 @@ func (s *Server) RespondHitlRequest(w http.ResponseWriter, r *http.Request, hitl
 		// budget. The same request can be answered after someone has already
 		// resumed the session by hand, and asking for a raise then would
 		// refuse an answer that has nothing left to lift.
-		var status string
-		var reason *string
-		var spent float64
+		// PRD v0.19 FR-2A.3: what the request would lift — the room's gate
+		// (room scope) or one mission's own pause — and the spend the new
+		// ceiling has to clear.
+		//
 		// The spend compared against is the one ENFORCEMENT reads — the live
-		// sum over task_usage — and not only `session.cost_usd`, which is
-		// written by the finish roll-up. An estimated overrun is found on a
-		// HEARTBEAT (S-48), before any finish, so the stored column is still
-		// $0.00 there and a $0.01 raise would pass this guard and re-trip the
-		// pause on the very next heartbeat.
-		if err := s.DB.QueryRow(r.Context(), `
-			SELECT wk.status::text, wk.paused_reason::text FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1`, row.SessionID).
-			Scan(&status, &reason); err != nil {
-			writeErr(w, err)
-			return
-		}
-		// S-49: one definition of "이미 쓴 돈" for both budget-raise handlers.
-		spent, err := sessions.SpentUSD(r.Context(), s.DB, row.SessionID)
+		// sum over task_usage — and not only the stored roll-up, which is
+		// written by `finish`. An estimated overrun is found on a HEARTBEAT
+		// (S-48), before any finish, so the stored column is still $0.00 there
+		// and a $0.01 raise would pass this guard and re-trip the pause on the
+		// very next heartbeat.
+		stopped, spent, err := s.budgetStopOf(r.Context(), row)
 		if err != nil {
 			writeErr(w, err)
 			return
 		}
-		if status == "paused" && derefString(reason) == sessions.PauseBudget {
+		if stopped {
 			if in.BudgetOverrideUsd == nil {
 				writeProblem(w, apperr.Validation(apperr.Field("budget_override_usd", "required",
 					"세션이 예산 때문에 멈춰 있습니다 — 승인하려면 새 세션 예산 상한을 함께 정해 주세요 (승인하면 바로 재개됩니다)")))
@@ -203,10 +200,35 @@ func forbiddenRespond(row *hitlRow, plan hitl.RespondPlan, now time.Time) *Probl
 		return p
 	}
 	at := row.CreatedAt.Add(*plan.CanRespondFrom).UTC()
-	p := apperr.Forbidden("deputy_not_yet",
-		fmt.Sprintf("Director 응답 대기 중 · %s부터 승인 가능", at.Format("15:04")))
+	detail := fmt.Sprintf("Director 응답 대기 중 · %s부터 승인 가능", at.Format("15:04"))
+	if row.ApproverSpec == hitl.SpecRoomOwner {
+		// FR-2A.3: the one waited on is the room owner, not a Director.
+		detail = fmt.Sprintf("방장 응답 대기 중 · %s부터 승인 가능", at.Format("15:04"))
+	}
+	p := apperr.Forbidden("deputy_not_yet", detail)
 	p.Extra = map[string]any{"can_respond_from": at}
 	return p
+}
+
+// authorizeHitl is hitl.Authorize with the room's approver chain loaded when
+// the spec needs it (`room_owner`, FR-2A.3). It is the ONE judgement the
+// handler, the request's `can_respond` and the inbox card all make, so a
+// button never says "you can" to someone the handler refuses.
+func authorizeHitl(ctx context.Context, q db.DBTX, spec string, roomID, director uuid.UUID, deputy *uuid.UUID,
+	responder uuid.UUID, created, due, now time.Time) (hitl.Authz, error) {
+	in := hitl.AuthzInput{
+		Spec: spec, Director: director, Deputy: derefUUID(deputy),
+		Responder: responder, IsMember: true,
+		Elapsed: now.Sub(created), DueIn: due.Sub(created),
+	}
+	if spec == hitl.SpecRoomOwner {
+		a, err := roomgate.LoadApprovers(ctx, q, roomID)
+		if err != nil {
+			return hitl.Authz{}, err
+		}
+		in = a.AuthzInput(in)
+	}
+	return hitl.Authorize(in), nil
 }
 
 // agentDisabledFor is FR-1.9 M8's premise: the owner switched `respond_to` to
@@ -362,20 +384,51 @@ func (s *Server) answerAgentHitl(ctx context.Context, row *hitlRow, sess *hitlSe
 		s.Queue.Notifier.Notify()
 	}
 	if isSessionBudgetApproval(row, in) && in.BudgetOverrideUsd != nil {
-		// K-10: a SESSION-scoped budget request (task_id NULL) is answered by
-		// resuming the session. Before this the answer marked the request
-		// `answered` and stopped: the session stayed `paused(budget)`, its
-		// parked tasks stayed `paused`, and the Director had to go and call
-		// resumeSession as a second step — with the raise they had just
-		// approved not stored anywhere the resume would read, so that second
-		// step was refused as `limits.budget_usd too_low` unless they typed
-		// the number a second time.
-		if err := s.resumeSessionForBudget(ctx, row.SessionID, float64(*in.BudgetOverrideUsd), now); err != nil {
+		// K-10: a room- or mission-scoped budget request (task_id NULL) is
+		// answered by lifting what it stopped. Before K-10 the answer marked
+		// the request `answered` and stopped: the session stayed
+		// `paused(budget)`, its parked tasks stayed `paused`, and the Director
+		// had to go and call resumeSession as a second step — with the raise
+		// they had just approved not stored anywhere the resume would read, so
+		// that second step was refused as `limits.budget_usd too_low` unless
+		// they typed the number a second time.
+		raise := float64(*in.BudgetOverrideUsd)
+		var err error
+		if roomScoped(row) {
+			err = s.resumeRoomForBudget(ctx, row.SessionID, raise, now)
+		} else {
+			err = s.resumeWorkForBudget(ctx, row.SessionID, *row.WorkID, raise, now)
+		}
+		if err != nil {
 			return 0, nil, apperr.As(err)
 		}
 		s.Queue.Notifier.Notify()
 		// publishSession renders the session for a viewer; the responder is
 		// the one person we know is looking at it.
+		s.publishSession(ctx, sess.WorkspaceID, row.SessionID, &gen.User{Id: userID})
+	}
+	if row.Purpose != nil && *row.Purpose == hitl.PurposeLoop && row.TaskID == nil && in.Approved != nil && *in.Approved {
+		// PRD v0.19 FR-3.5 · §12.1-9: the loop gate is lifted by the room
+		// owner's approval — the answer IS the resume (no separate call).
+		if err := s.unblockRoomForLoop(ctx, row.SessionID, now); err != nil {
+			return 0, nil, apperr.As(err)
+		}
+		s.Queue.Notifier.Notify()
+		s.publishSession(ctx, sess.WorkspaceID, row.SessionID, &gen.User{Id: userID})
+	}
+	if row.Purpose != nil && *row.Purpose == roomgate.PurposeIsolation && in.Approved != nil {
+		// FR-2.1.1: approve = worktree, reject = none — either way the room's
+		// first run may now go, on the computer that asked.
+		if err := s.inSessionTx(ctx, func(tx pgx.Tx) error {
+			err := roomgate.AnswerIsolation(ctx, tx, s.Hub, row.SessionID, row.ID, *in.Approved, now)
+			if errors.Is(err, roomgate.ErrNoPending) {
+				return nil
+			}
+			return err
+		}); err != nil {
+			return 0, nil, apperr.As(err)
+		}
+		s.Queue.Notifier.Notify()
 		s.publishSession(ctx, sess.WorkspaceID, row.SessionID, &gen.User{Id: userID})
 	}
 	s.publishHitl(ctx, sess.WorkspaceID, row.SessionID, row.ID, "hitl.updated")
@@ -400,69 +453,6 @@ func (s *Server) answerAgentHitl(ctx context.Context, row *hitlRow, sess *hitlSe
 func isSessionBudgetApproval(row *hitlRow, in gen.HitlResponse) bool {
 	return row.Purpose != nil && *row.Purpose == hitl.PurposeBudget && row.TaskID == nil &&
 		in.Approved != nil && *in.Approved
-}
-
-// resumeSessionForBudget is the session half of the approval: the same four
-// steps ResumeSession runs for a `budget` pause, minus the ones that belong to
-// another pause reason (loop counters) and minus closing the system request —
-// answerAgentHitl has already answered it, which is the whole point of K-10.
-//
-// It is a separate transaction from the answer for the reason answerAgentHitl
-// gives about the re-queue: this one locks the session and then its tasks,
-// while the budget answer path locks task-then-hitl, and holding both orders
-// at once is how the two deadlock.
-func (s *Server) resumeSessionForBudget(ctx context.Context, sessionID uuid.UUID, raise float64, now time.Time) error {
-	return s.inSessionTx(ctx, func(tx pgx.Tx) error {
-		var status string
-		var reason *string
-		var limitsRaw []byte
-		if err := tx.QueryRow(ctx, `
-			SELECT wk.status::text, wk.paused_reason::text, s.limits FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionID).
-			Scan(&status, &reason, &limitsRaw); err != nil {
-			return err
-		}
-		if status != "paused" || derefString(reason) != sessions.PauseBudget {
-			// The pause was already lifted (a concurrent resumeSession), or
-			// the session stopped for another reason after the request was
-			// raised. Either way this answer is not the one that resumes it —
-			// and forcing `active` here would undo that other pause.
-			return nil
-		}
-		// The contract's "세션 잔여 상한 = 승인 금액": the raise IS the new
-		// session budget, not an addition to it, which is what makes
-		// `budget_override_usd` mean the same thing here as it does for a task
-		// (FR-7.3 C2′ — an override REPLACES the limit).
-		budget := float32(raise)
-		merged, err := mergeLimits(limitsRaw, &gen.SessionLimits{BudgetUsd: nullable.NewNullableWithValue(budget)})
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `
-			UPDATE room SET limits = $2, updated_at = $3 WHERE id = $1`, sessionID, merged, now); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `
-			UPDATE work SET status = 'active', paused_reason = NULL, paused_detail = NULL, updated_at = $2
-			WHERE room_id = $1`, sessionID, now); err != nil {
-			return err
-		}
-		// S-46's re-queue, reused: the pause PARKED the turns it cancelled, so
-		// a session that comes back `active` with its tasks still `paused` has
-		// resumed nothing.
-		if _, err := s.Tasks.ResumeSessionTasks(ctx, tx, sessionID, sessions.PauseBudget, tasks.CauseBudgetApproved, now); err != nil {
-			return err
-		}
-		// S-44's lane gate: the claim query refuses a paused lane, so a lane
-		// left `paused` never dispatches again. Only lanes that hold a queued
-		// task come back — one whose only task stayed parked has nothing to
-		// hand out.
-		_, err = tx.Exec(ctx, `
-			UPDATE lane l SET status = 'queued', finished_at = NULL, updated_at = $2
-			WHERE l.session_id = $1 AND l.status = 'paused'
-			  AND EXISTS (SELECT 1 FROM task t WHERE t.lane_id = l.id AND t.status = 'queued')`,
-			sessionID, now)
-		return err
-	})
 }
 
 // hitlDecisionSummary is the one line the decision log carries.
@@ -599,6 +589,10 @@ type hitlRow struct {
 	Director        uuid.UUID
 	Deputy          *uuid.UUID
 	TaskStatus      *string
+	// WorkID is the mission the request belongs to (0025); nil for a room's
+	// own request — its limits, its loop gate, the isolation check, or a run
+	// outside any mission (FR-2A.1: those go to the room owner).
+	WorkID *uuid.UUID
 }
 
 // isCompletionApproval is the P2 branch's gate: the platform's own approval for
@@ -618,10 +612,23 @@ func loadHitlRow(ctx context.Context, q db.DBTX, id uuid.UUID) (*hitlRow, error)
 		       h.approver_spec, h.purpose, h.artifact_id, h.budget_override_usd, h.message_id, h.requeue_held,
 		       h.due_at, h.overdue, h.status::text,
 		       h.approved, h.answer, h.answered_by, h.answered_at, h.created_at,
-		       wk.director_user_id, wk.deputy_user_id, t.status::text
+		       -- The request's OWN mission decides who "director" is (1:N safe —
+		       -- V19_R1B_HANDOFF (c) handlers_hitl.go:130). A request with no
+		       -- mission is the room's, and FR-2A.1 sends it to the room owner.
+		       COALESCE(wk.director_user_id, r.owner_user_id),
+		       CASE WHEN wk.id IS NULL THEN r.deputy_owner_user_id ELSE wk.deputy_user_id END,
+		       t.status::text, wk.id
 		FROM hitl_request h
-		JOIN work wk ON wk.room_id = h.session_id
+		JOIN room r ON r.id = h.session_id
 		LEFT JOIN task t ON t.id = h.task_id
+		-- The request's mission; for a platform request written without one
+		-- (completion approval) the room's only mission — the legacy
+		-- single-work room rule (router.legacySingleWorkRoom). A room_owner
+		-- request is the room's own and never borrows a mission's Director.
+		LEFT JOIN work wk ON wk.id = COALESCE(h.work_id, t.work_id,
+		      CASE WHEN h.approver_spec <> 'room_owner' THEN
+		        (SELECT w1.id FROM work w1 WHERE w1.room_id = h.session_id
+		            AND (SELECT count(*) FROM work w2 WHERE w2.room_id = h.session_id) = 1) END)
 		LEFT JOIN agent a ON a.id = t.agent_id
 		WHERE h.id = $1`, id).
 		Scan(&h.ID, &h.SessionID, &h.TaskID, &h.LaneID, &h.AgentID, &h.AgentName,
@@ -629,7 +636,7 @@ func loadHitlRow(ctx context.Context, q db.DBTX, id uuid.UUID) (*hitlRow, error)
 			&h.ApproverSpec, &h.Purpose, &h.ArtifactID, &h.BudgetOverride, &h.MessageID, &h.RequeueHeld,
 			&h.DueAt, &h.Overdue, &h.Status,
 			&h.Approved, &h.Answer, &h.AnsweredBy, &h.AnsweredAt, &h.CreatedAt,
-			&h.Director, &h.Deputy, &h.TaskStatus)
+			&h.Director, &h.Deputy, &h.TaskStatus, &h.WorkID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.NotFound("hitl_request")
 	}
@@ -691,11 +698,10 @@ func (s *Server) hitlAPI(ctx context.Context, q db.DBTX, id uuid.UUID, viewer *u
 	// deputy becomes eligible (E7-09, E7-11).
 	out.CanRespondFrom = nullable.NewNullNullable[time.Time]()
 	if h.Status == string(gen.HitlStatusOpen) && viewer != nil {
-		az := hitl.Authorize(hitl.AuthzInput{
-			Spec: h.ApproverSpec, Director: h.Director, Deputy: derefUUID(h.Deputy),
-			Responder: *viewer, IsMember: true,
-			Elapsed: now.Sub(h.CreatedAt), DueIn: h.DueAt.Sub(h.CreatedAt),
-		})
+		az, err := authorizeHitl(ctx, q, h.ApproverSpec, h.SessionID, h.Director, h.Deputy, *viewer, h.CreatedAt, h.DueAt, now)
+		if err != nil {
+			return nil, err
+		}
 		out.CanRespond = az.Allowed
 		if az.CanRespondFrom != nil {
 			out.CanRespondFrom = nullable.NewNullableWithValue(h.CreatedAt.Add(*az.CanRespondFrom).UTC())

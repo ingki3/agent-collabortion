@@ -94,16 +94,29 @@ func (s *Service) requeueParkedLocked(ctx context.Context, tx pgx.Tx, t *Row, ca
 // the session-scoped one carries a NULL task_id and is answered by this very
 // resume, so it gates nothing here.
 func (s *Service) ResumeSessionTasks(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, reason, cause string, now time.Time) ([]uuid.UUID, error) {
+	return s.resumeTasks(ctx, tx, "session_id", sessionID, reason, cause, now)
+}
+
+// ResumeWorkTasks is ResumeSessionTasks for ONE mission (FR-2A.3): the
+// approval that lifts a mission's own budget pause re-queues what that pause
+// parked, and nothing of the room's other missions.
+//
+// production caller: httpapi.resumeWorkForBudget.
+func (s *Service) ResumeWorkTasks(ctx context.Context, tx pgx.Tx, workID uuid.UUID, reason, cause string, now time.Time) ([]uuid.UUID, error) {
+	return s.resumeTasks(ctx, tx, "work_id", workID, reason, cause, now)
+}
+
+func (s *Service) resumeTasks(ctx context.Context, tx pgx.Tx, col string, id uuid.UUID, reason, cause string, now time.Time) ([]uuid.UUID, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT t.id FROM task t
-		WHERE t.session_id = $1 AND t.status = 'paused'
+		WHERE t.`+col+` = $1 AND t.status = 'paused'
 		  AND ($2 = '' OR t.paused_reason::text = $2)
 		  AND NOT EXISTS (
 		        SELECT 1 FROM hitl_request h
 		         WHERE h.task_id = t.id AND h.purpose = 'budget'
 		           AND (h.status = 'open' OR h.approved IS NOT TRUE))
 		ORDER BY t.created_at
-		FOR UPDATE`, sessionID, reason)
+		FOR UPDATE`, id, reason)
 	if err != nil {
 		return nil, fmt.Errorf("tasks: resume session tasks: %w", err)
 	}

@@ -55,7 +55,7 @@ var prdEnums = map[string][]string{
 	"hitl_source":     {"agent", "system"},
 	"respond_to":      {"owner", "allowlist", "workspace", "nobody"},
 	"isolation_kind":  {"worktree", "container", "none"},
-	"inbox_item_type": {"hitl_request", "lane_blocked", "session_completed", "session_paused", "run_failed", "runtime_offline", "mention", "workdir_gc_blocked", "isolation_confirm", "work_proposed", "work_paused", "room_paused", "work_completed", "room_invited", "workdir_quota"}, // + v0.2.0 (T-R1b3)
+	"inbox_item_type": {"hitl_request", "lane_blocked", "session_completed", "session_paused", "run_failed", "runtime_offline", "mention", "workdir_gc_blocked", "room_paused", "isolation_confirm", "work_proposed", "work_paused", "work_completed", "room_invited", "workdir_quota"}, // + v0.2.0 (T-R1b1 · T-R1b3)
 	"inbox_severity":  {"action_required", "attention", "info"},
 	"pause_reason":    {"budget", "time", "loop", "runtime_offline", "director"},
 	"agent_status":    {"idle", "working", "waiting_human", "error", "offline", "disabled"},

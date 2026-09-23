@@ -51,18 +51,22 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 	var sessionID, wsID, callerAgent uuid.UUID
 	var callerName string
 	var callerAttempt int
-	var director *uuid.UUID
+	// FR-3.1.1: a delegation belongs to the delegator's mission — the child
+	// lane, its task and the mention message all carry it.
+	var callerWork *uuid.UUID
 	err = tx.QueryRow(ctx, `
-		SELECT t.session_id, s.workspace_id, t.agent_id, a.name, t.attempt, wk.director_user_id
-		FROM task t JOIN room s ON s.id = t.session_id JOIN work wk ON wk.room_id = s.id JOIN agent a ON a.id = t.agent_id
-		WHERE t.id = $1`, callerTask).Scan(&sessionID, &wsID, &callerAgent, &callerName, &callerAttempt, &director)
+		SELECT t.session_id, s.workspace_id, t.agent_id, a.name, t.attempt, COALESCE(l.work_id, t.work_id)
+		FROM task t JOIN room s ON s.id = t.session_id JOIN lane l ON l.id = t.lane_id JOIN agent a ON a.id = t.agent_id
+		WHERE t.id = $1`, callerTask).Scan(&sessionID, &wsID, &callerAgent, &callerName, &callerAttempt, &callerWork)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, tasks.ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, `SELECT 1 FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionID); err != nil {
+	// The room row is the lock (V19_R1B_HANDOFF (b) router/delegate.go:65) —
+	// "the room's mission" would be every mission once there are several.
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM room WHERE id = $1 FOR UPDATE`, sessionID); err != nil {
 		return nil, err
 	}
 
@@ -110,9 +114,9 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 	dec := Decision{Mentions: ParseMentions(content)}
 	var msgID uuid.UUID
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO message (session_id, author_type, author_id, content, mentions, source_task_id, kind, created_at)
-		VALUES ($1, 'agent', $2, $3, $4, $5, 'text', $6) RETURNING id`,
-		sessionID, callerAgent, content, dec.Mentions, callerTask, now).Scan(&msgID); err != nil {
+		INSERT INTO message (session_id, author_type, author_id, content, mentions, source_task_id, kind, created_at, work_id)
+		VALUES ($1, 'agent', $2, $3, $4, $5, 'text', $6, $7) RETURNING id`,
+		sessionID, callerAgent, content, dec.Mentions, callerTask, now, callerWork).Scan(&msgID); err != nil {
 		return nil, fmt.Errorf("router: delegate message: %w", err)
 	}
 
@@ -133,7 +137,7 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 		return nil, err
 	}
 	if !v.Allowed {
-		if err := s.pauseForLoop(ctx, tx, sessionID, wsID, director, v, now); err != nil {
+		if err := s.pauseForLoop(ctx, tx, sessionID, wsID, v, now); err != nil {
 			return nil, err
 		}
 		// colab-cli.md §4: the refused call is on the feed too, with the reason
@@ -165,9 +169,9 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 	// lane for" (openapi Lane.brief). Reading it back out of the message body
 	// is not possible — the server prefixes the mention link.
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO lane (session_id, agent_id, profile_id, depends_on, delegated_from_task_id, brief, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7, $7) RETURNING id`,
-		sessionID, in.AgentID, profileID, in.DependsOn, d.DelegatedFromTaskID, in.Brief, now).Scan(&laneID); err != nil {
+		INSERT INTO lane (session_id, agent_id, profile_id, depends_on, delegated_from_task_id, brief, status, created_at, updated_at, work_id)
+		VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7, $7, $8) RETURNING id`,
+		sessionID, in.AgentID, profileID, in.DependsOn, d.DelegatedFromTaskID, in.Brief, now, callerWork).Scan(&laneID); err != nil {
 		return nil, fmt.Errorf("router: delegate lane: %w", err)
 	}
 
@@ -176,9 +180,9 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 	var taskID uuid.UUID
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, delegated_from_task_id,
-		                  originator_user_id, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $8) RETURNING id`,
-		laneID, sessionID, in.AgentID, profileID, msgID, callerTask, originator, now).Scan(&taskID); err != nil {
+		                  originator_user_id, status, created_at, updated_at, work_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $8, $9) RETURNING id`,
+		laneID, sessionID, in.AgentID, profileID, msgID, callerTask, originator, now, callerWork).Scan(&taskID); err != nil {
 		return nil, fmt.Errorf("router: delegate task: %w", err)
 	}
 	if err := s.recordStatusEvent(ctx, tx, callerTask, callerAttempt, "delegate", in.Brief, now); err != nil {

@@ -18,6 +18,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/auth"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
 	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
@@ -132,7 +133,7 @@ const (
 //
 // 1:N — every aggregate is keyed by the ROOM (session_id on the child rows),
 // never by joining work, so a room with three missions counts each lane once.
-func Load(ctx context.Context, q db.DBTX, a *Access) (*gen.Room, error) {
+func Load(ctx context.Context, q db.DBTX, a *Access, now time.Time) (*gen.Room, error) {
 	var out gen.Room
 	var (
 		deputy, runtimeID, defDirector    *uuid.UUID
@@ -181,6 +182,11 @@ func Load(ctx context.Context, q db.DBTX, a *Access) (*gen.Room, error) {
 	if len(blockedDetail) > 0 {
 		var d gen.BlockedDetail
 		if json.Unmarshal(blockedDetail, &d) == nil {
+			if blockedReason != nil {
+				if err := fillApprover(ctx, q, a.RoomID, &d, now); err != nil {
+					return nil, err
+				}
+			}
 			out.BlockedDetail = nullable.NewNullableWithValue(d)
 		}
 	}
@@ -215,6 +221,41 @@ func Load(ctx context.Context, q db.DBTX, a *Access) (*gen.Room, error) {
 	}
 	out.MyCapabilities = &caps
 	return &out, nil
+}
+
+// fillApprover is the banner's "지금 답할 수 있는 사람" for a stop an approval
+// lifts (T-R1b1): the owner, and from half the open request's deadline the
+// deputy or the oldest workspace owner (FR-2A.3). Computed from the open
+// request at read time, never stored. A manual stop has no request — the
+// people who may lift it are the stewards, and the banner names who stopped
+// it instead.
+func fillApprover(ctx context.Context, q db.DBTX, roomID uuid.UUID, d *gen.BlockedDetail, now time.Time) error {
+	var created, due time.Time
+	err := q.QueryRow(ctx, `
+		SELECT created_at, due_at FROM hitl_request
+		WHERE session_id = $1 AND status = 'open' AND source = 'system' AND task_id IS NULL
+		  AND approver_spec = 'room_owner' AND purpose IN ('budget', 'loop')
+		ORDER BY created_at DESC LIMIT 1`, roomID).Scan(&created, &due)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	ap, err := roomgate.LoadApprovers(ctx, q, roomID)
+	if err != nil {
+		return err
+	}
+	who, next := ap.Now(created, due, now)
+	if u, err := auth.LoadUser(ctx, q, who); err == nil {
+		d.Approver = nullable.NewNullableWithValue(*u)
+	}
+	if next != nil {
+		d.DelegateAt = nullable.NewNullableWithValue(next.UTC())
+	} else {
+		d.DelegateAt = nullable.NewNullNullable[time.Time]()
+	}
+	return nil
 }
 
 // unreadPredicate is "a message after my marker that I did not write" for the

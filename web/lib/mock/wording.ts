@@ -57,6 +57,7 @@ export const statusLabel = (status: string): string => STATUS_LABEL[status] ?? s
 /** 404 의 명사표 — `apperr.NotFoundNouns`. `notFound(key)` 가 을/를 을 붙여 문장을 만든다. */
 export const NOT_FOUND_NOUN: Record<string, string> = {
   session: "세션",
+  room: "방",
   user: "사용자",
   workspace: "워크스페이스",
   workspace_settings: "워크스페이스 설정",

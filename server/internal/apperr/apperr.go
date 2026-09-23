@@ -75,6 +75,7 @@ func Gone(code, detail string) *Problem         { return New(http.StatusGone, co
 // (internal/wording), not a silent English fallback.
 var NotFoundNouns = map[string]string{
 	"session":            "세션",
+	"room":               "방",
 	"user":               "사용자",
 	"workspace":          "워크스페이스",
 	"workspace_settings": "워크스페이스 설정",
@@ -91,7 +92,6 @@ var NotFoundNouns = map[string]string{
 	"task":               "할 일",
 	"inbox_item":         "받은 요청",
 	"hitl_request":       "확인 요청",
-	"room":               "방",
 	"room_link":          "참고 방 연결",
 }
 

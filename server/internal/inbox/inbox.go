@@ -20,18 +20,24 @@ const (
 	// (E13-12·13). Added in P4 by Lead decision (T-S9 ask 1); the contract's
 	// InboxItemType grows the same value.
 	TypeWorkdirGCBlocked = "workdir_gc_blocked"
-
-	// v0.2.0 (PRD v0.19, openapi InboxItemType). room_invited · workdir_quota
-	// are written by the room API (T-R1b3); the others are the mission and
-	// first-run streams' to write — their severity and actions are fixed here
-	// so every writer lands on the same badge.
-	TypeRoomInvited      = "room_invited"
-	TypeRoomPaused       = "room_paused"
-	TypeWorkdirQuota     = "workdir_quota"
-	TypeWorkProposed     = "work_proposed"
-	TypeWorkPaused       = "work_paused"
-	TypeWorkCompleted    = "work_completed"
+	// TypeRoomPaused is the room gate (PRD v0.19 FR-2.4 · FR-8): budget or
+	// loop stopped the WHOLE room and its owner is asked to let it go on.
+	// ref_id is that request.
+	TypeRoomPaused = "room_paused"
+	// TypeIsolationConfirm is FR-2.1.1: the room's first run would land on a
+	// computer with a repository while isolation is `none`. ref_id is the
+	// room-owner approval (approve = worktree, reject = none).
 	TypeIsolationConfirm = "isolation_confirm"
+
+	// The rest of v0.2.0 (PRD v0.19, openapi InboxItemType). room_invited ·
+	// workdir_quota are written by the room API (T-R1b3); work_* are the
+	// mission stream's to write — their severity and actions are fixed here
+	// so every writer lands on the same badge.
+	TypeRoomInvited   = "room_invited"
+	TypeWorkdirQuota  = "workdir_quota"
+	TypeWorkProposed  = "work_proposed"
+	TypeWorkPaused    = "work_paused"
+	TypeWorkCompleted = "work_completed"
 )
 
 // Recipient bases (InboxItem.recipient_basis) — the card's 「Director 로서」·
@@ -90,6 +96,18 @@ func Actions(itemType, hitlType string, canRespond bool) []string {
 		default:
 			return []string{"answer", "open_session"}
 		}
+	// Room-owner approvals (T-R1b1) on a room-level card (openapi 0.2.1): the
+	// room, not a mission, is what opens.
+	case TypeIsolationConfirm:
+		if canRespond {
+			return []string{"approve", "reject", "open_room"}
+		}
+		return []string{"open_room"}
+	case TypeRoomPaused:
+		if canRespond {
+			return []string{"approve_continue", "open_room"}
+		}
+		return []string{"open_room"}
 	case TypeLaneBlocked, TypeMention:
 		return []string{"reply", "open_session"}
 	case TypeSessionPaused:
@@ -113,10 +131,9 @@ func Actions(itemType, hitlType string, canRespond bool) []string {
 	case TypeWorkdirQuota:
 		// FR-6.4: the way out is clearing folders on S13.
 		return []string{"open_workdirs"}
-	case TypeRoomInvited, TypeRoomPaused, TypeWorkProposed, TypeIsolationConfirm:
+	case TypeRoomInvited, TypeWorkProposed:
 		// A room-level card (openapi 0.2.1): the room, not a mission, is what
-		// opens. A proposal is not a mission yet; the isolation question is
-		// the room's first run.
+		// opens. A proposal is not a mission yet.
 		return []string{"open_room"}
 	case TypeWorkPaused, TypeWorkCompleted:
 		return []string{"open_work"}

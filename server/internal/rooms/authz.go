@@ -179,6 +179,10 @@ func Deny(a Action, f Standing) *apperr.Problem {
 		return apperr.Forbidden("room_owner_required", "방장이나 소유자·관리자만 할 수 있습니다")
 	case ActLeave, ActMarkRead, ActSubscribe:
 		return apperr.Forbidden("not_participant", "이 방의 참여자가 아닙니다")
+	case ActBlock:
+		// T-R1b1's code for the manual switch (88_ · S7 read it).
+		return apperr.Forbidden("not_room_manager",
+			"방장·부방장이나 워크스페이스 소유자·관리자만 이 방을 멈추거나 풀 수 있습니다")
 	}
 	return apperr.Forbidden("room_steward_required", "방장·부방장이나 소유자·관리자만 할 수 있습니다")
 }

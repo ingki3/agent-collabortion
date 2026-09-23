@@ -95,8 +95,11 @@ func PostHitlCard(ctx context.Context, hub *realtime.Hub, q db.DBTX, wsID, sessi
 	}
 	var id uuid.UUID
 	if err := q.QueryRow(ctx, `
-		INSERT INTO message (session_id, author_type, author_id, content, kind, source_task_id, created_at)
-		VALUES ($1, $2::author_type, $3, $4, 'hitl', $5, $6) RETURNING id`,
+		INSERT INTO message (session_id, author_type, author_id, content, kind, source_task_id, created_at, work_id)
+		VALUES ($1, $2::author_type, $3, $4, 'hitl', $5, $6,
+		        -- FR-3.1.1: a card an agent's task raised follows that task's
+		        -- mission; the room's own cards (limits, loop, isolation) have none.
+		        (SELECT work_id FROM task WHERE id = $5)) RETURNING id`,
 		sessionID, authorType, authorID, c.CardBody(), c.SourceTaskID, now).Scan(&id); err != nil {
 		return uuid.Nil, fmt.Errorf("messages: hitl card: %w", err)
 	}

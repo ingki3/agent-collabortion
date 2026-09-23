@@ -68,7 +68,7 @@ func TestJudgeHopDoesNotPause(t *testing.T) {
 	}
 
 	// And the consequence, applied in the open: one pause per session.
-	if err := s.pauseForLoop(ctx, tx, seed.SessionID, seed.WorkspaceID, &seed.UserID, second, now.Add(time.Second)); err != nil {
+	if err := s.pauseForLoop(ctx, tx, seed.SessionID, seed.WorkspaceID, second, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.QueryRow(ctx, `SELECT status::text FROM work WHERE room_id = $1`, seed.SessionID).Scan(&status); err != nil {

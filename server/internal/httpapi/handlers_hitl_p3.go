@@ -18,6 +18,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
+	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -35,11 +36,22 @@ type hitlSession struct {
 	Status      string
 }
 
-func loadHitlSession(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (*hitlSession, error) {
+// loadHitlSession reads the room and the mission a request is judged in:
+// `workID` (the asking task's mission), else the room's only mission (the
+// legacy single-work room rule, router.legacySingleWorkRoom). With neither the
+// room answers for itself — its owner stands where the Director would
+// (FR-2A.1: a run outside any mission asks the room owner).
+// V19_R1B_HANDOFF (c) handlers_hitl_p3.go:42.
+func loadHitlSession(ctx context.Context, q db.DBTX, sessionID uuid.UUID, workID *uuid.UUID) (*hitlSession, error) {
 	var h hitlSession
 	err := q.QueryRow(ctx, `
-		SELECT s.workspace_id, wk.director_user_id, wk.deputy_user_id, s.autonomy::text, wk.status::text
-		FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1`, sessionID).
+		SELECT s.workspace_id, COALESCE(wk.director_user_id, s.owner_user_id),
+		       CASE WHEN wk.id IS NULL THEN s.deputy_owner_user_id ELSE wk.deputy_user_id END,
+		       COALESCE(wk.autonomy, s.autonomy)::text, COALESCE(wk.status::text, 'active')
+		FROM room s
+		LEFT JOIN work wk ON wk.id = COALESCE($2::uuid,
+		      (SELECT w1.id FROM work w1 WHERE w1.room_id = s.id AND (SELECT count(*) FROM work w2 WHERE w2.room_id = s.id) = 1))
+		WHERE s.id = $1`, sessionID, workID).
 		Scan(&h.WorkspaceID, &h.Director, &h.Deputy, &h.Autonomy, &h.Status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.NotFound("session")
@@ -153,10 +165,6 @@ func (s *Server) CreateHitlRequest(w http.ResponseWriter, r *http.Request, sessi
 
 func (s *Server) createHitl(ctx context.Context, taskID, sessionID uuid.UUID, f hitlCreateFields) (int, any, *Problem) {
 	now := s.Clock.Now()
-	sess, err := loadHitlSession(ctx, s.DB, sessionID)
-	if err != nil {
-		return 0, nil, apperr.As(err)
-	}
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return 0, nil, apperr.Internal(err)
@@ -164,6 +172,11 @@ func (s *Server) createHitl(ctx context.Context, taskID, sessionID uuid.UUID, f 
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
 	t, err := tasks.Get(ctx, tx, taskID)
+	if err != nil {
+		return 0, nil, apperr.As(err)
+	}
+	// The asking task's mission names the Director (not "the room's mission").
+	sess, err := loadHitlSession(ctx, tx, sessionID, t.WorkID)
 	if err != nil {
 		return 0, nil, apperr.As(err)
 	}
@@ -232,12 +245,17 @@ func (s *Server) createHitl(ctx context.Context, taskID, sessionID uuid.UUID, f 
 	if f.Context != "" {
 		cx = &f.Context
 	}
+	if plan.ApproverSpec == hitl.SpecDirector && t.WorkID == nil {
+		// FR-2A.1: a run outside any mission has no Director — its questions
+		// go to the room owner (with the absent-owner hand-over, FR-2A.3).
+		plan.ApproverSpec = hitl.SpecRoomOwner
+	}
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO hitl_request (session_id, task_id, source, type, question, context, options, proposed_default,
-		                          approver_spec, purpose, artifact_id, message_id, due_at, created_at)
-		VALUES ($1, $2, 'agent', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+		                          approver_spec, purpose, artifact_id, message_id, due_at, created_at, work_id)
+		VALUES ($1, $2, 'agent', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
 		sessionID, t.ID, f.Kind, f.Question, cx, options, def, plan.ApproverSpec, plan.Purpose,
-		f.ArtifactID, msgID, now.Add(f.DueIn), now).Scan(&id); err != nil {
+		f.ArtifactID, msgID, now.Add(f.DueIn), now, t.WorkID).Scan(&id); err != nil {
 		return 0, nil, apperr.Internal(err)
 	}
 	if err := s.Tasks.SetPendingHitl(ctx, tx, t.ID, now); err != nil {
@@ -303,6 +321,17 @@ func (s *Server) hitlInbox(ctx context.Context, tx pgx.Tx, sess *hitlSession, se
 		targets = append(targets, sess.Director)
 		if sess.Deputy != nil {
 			targets = append(targets, *sess.Deputy)
+		}
+	case hitl.SpecRoomOwner:
+		// The owner and whoever the absence hand-over reaches (FR-2A.3) —
+		// told now, answering from half the deadline (hitl.Authorize).
+		a, err := roomgate.LoadApprovers(ctx, tx, sessionID)
+		if err != nil {
+			return err
+		}
+		targets = append(targets, a.Owner)
+		if d := a.Delegate(); d != nil {
+			targets = append(targets, *d)
 		}
 	default:
 		if id, err := uuid.Parse(spec); err == nil {

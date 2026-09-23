@@ -57,7 +57,7 @@ func (s *Server) loadRoom(ctx context.Context, roomID, userID uuid.UUID) (*gen.R
 	if err != nil {
 		return nil, err
 	}
-	return rooms.Load(ctx, s.DB, a)
+	return rooms.Load(ctx, s.DB, a, s.Clock.Now())
 }
 
 // publishRoom emits `room.updated` — the partial the contract lists (blocked
@@ -295,7 +295,7 @@ func (s *Server) GetRoom(w http.ResponseWriter, r *http.Request, roomId gen.Room
 			writeProblem(w, apperr.NotFound("room"))
 			return
 		}
-		out, err := rooms.Load(r.Context(), s.DB, a)
+		out, err := rooms.Load(r.Context(), s.DB, a, s.Clock.Now())
 		if err != nil {
 			writeErr(w, err)
 			return
@@ -319,7 +319,7 @@ func (s *Server) GetRoom(w http.ResponseWriter, r *http.Request, roomId gen.Room
 			return
 		}
 	}
-	out, err := rooms.Load(r.Context(), s.DB, a)
+	out, err := rooms.Load(r.Context(), s.DB, a, s.Clock.Now())
 	if err != nil {
 		writeErr(w, err)
 		return

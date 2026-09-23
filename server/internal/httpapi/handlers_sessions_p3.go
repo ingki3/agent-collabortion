@@ -16,6 +16,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
+	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
 	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
@@ -153,9 +154,10 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 	now := s.Clock.Now()
 	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
 		var status string
-		var limitsRaw []byte
-		if err := tx.QueryRow(r.Context(), `SELECT wk.status::text, s.limits FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionId).
-			Scan(&status, &limitsRaw); err != nil {
+		var limitsRaw, pausedDetail []byte
+		var blocked *string
+		if err := tx.QueryRow(r.Context(), `SELECT wk.status::text, s.limits, wk.paused_detail, s.blocked_reason::text FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1 FOR UPDATE OF s, wk`, sessionId).
+			Scan(&status, &limitsRaw, &pausedDetail, &blocked); err != nil {
 			return err
 		}
 		// S-49: the same reading the K-10 approval uses. `cost_usd` alone lags
@@ -210,7 +212,15 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 				}
 			}
 		}
-		if _, err := tx.Exec(r.Context(), `
+		if roomgate.IsMirror(pausedDetail) && blocked != nil && *blocked == derefString(reason) {
+			// PRD v0.19: this `paused` is the ROOM's gate seen through the old
+			// session shape (roomgate mirror). Resuming the session lifts the
+			// gate, which brings the mission back with it.
+			if _, err := roomgate.Unblock(r.Context(), tx, sessionId, *blocked, now); err != nil {
+				return err
+			}
+			roomgate.PublishUpdated(r.Context(), s.Hub, tx, sessionId)
+		} else if _, err := tx.Exec(r.Context(), `
 			UPDATE work SET status = 'active', paused_reason = NULL, paused_detail = NULL, updated_at = $2
 			WHERE room_id = $1`, sessionId, now); err != nil {
 			return err
