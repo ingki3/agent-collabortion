@@ -40,6 +40,12 @@ type Service struct {
 	DB      *pgxpool.Pool
 	Clock   clock.Clock
 	BaseURL string // web origin for invite URLs (COLAB_WEB_URL, else the server URL)
+	// OnLeave runs inside removeMember's transaction, before the member row
+	// goes: the room layer closes the person's room rows and hands the rooms
+	// they owned to the oldest workspace owner (PRD §12.1-4). auth cannot
+	// import the room package (it imports auth), so the server wires it —
+	// the same closure trick as tasks.LanePublish. Nil in unit tests.
+	OnLeave func(ctx context.Context, tx pgx.Tx, wsID, userID uuid.UUID, now time.Time) error
 }
 
 func New(pool *pgxpool.Pool, c clock.Clock, baseURL string) *Service {

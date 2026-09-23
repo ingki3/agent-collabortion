@@ -200,6 +200,11 @@ func (s *Service) RemoveMember(ctx context.Context, wsID, memberID, callerUserID
 	if p := PlanRemoval(RemovalCase{CallerRole: callerRole, TargetRole: m.Role, OwnerCount: m.OwnerCount, DirectorSessions: directing}); p != nil {
 		return p
 	}
+	if s.OnLeave != nil {
+		if err := s.OnLeave(ctx, tx, wsID, m.UserID, s.Clock.Now()); err != nil {
+			return fmt.Errorf("auth: leave rooms: %w", err)
+		}
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM member WHERE workspace_id = $1 AND id = $2`, wsID, memberID); err != nil {
 		return fmt.Errorf("auth: remove member: %w", err)
 	}

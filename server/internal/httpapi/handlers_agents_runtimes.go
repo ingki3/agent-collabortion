@@ -9,6 +9,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/agents"
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/rooms"
 	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 )
 
@@ -91,7 +92,7 @@ func (s *Server) GetRuntime(w http.ResponseWriter, r *http.Request, runtimeId ge
 // ── agents ──
 
 func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.ListAgentsParams) {
-	u, _, p := s.member(r, workspaceId)
+	u, m, p := s.member(r, workspaceId)
 	if p != nil {
 		writeProblem(w, p)
 		return
@@ -125,6 +126,11 @@ func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request, workspaceId 
 	}
 	items, next, err := s.Agents.List(r.Context(), workspaceId, &u.Id, o)
 	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	// v0.2.0: how many rooms each agent is in, as far as this caller may know.
+	if err := rooms.FillAgentRoomCounts(r.Context(), s.DB, items, u.Id, m.Role); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -179,7 +185,17 @@ func (s *Server) GetAgent(w http.ResponseWriter, r *http.Request, agentId gen.Ag
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, a)
+	m, err := s.Auth.Member(r.Context(), a.WorkspaceId, u.Id)
+	if err != nil || m == nil {
+		writeErr(w, apperr.NotFound("agent"))
+		return
+	}
+	one := []gen.Agent{*a}
+	if err := rooms.FillAgentRoomCounts(r.Context(), s.DB, one, u.Id, m.Role); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, one[0])
 }
 
 func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, agentId gen.AgentId) {

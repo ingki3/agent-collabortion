@@ -33,15 +33,40 @@ type Event struct {
 	SessionID   *uuid.UUID      `json:"session_id"`
 	Ephemeral   bool            `json:"ephemeral,omitempty"`
 	Payload     json.RawMessage `json:"payload"`
+	// UserID is the one person a frame is for (`room.unread` — "내 다른 탭·
+	// 기기"), nil for a frame everyone in the workspace may receive. Not on
+	// the wire: the envelope is the contract's.
+	UserID *uuid.UUID `json:"-"`
 }
 
-// MarshalJSON adds the string cursor id the contract requires.
+// MarshalJSON adds the string cursor id the contract requires, and the two
+// v0.2.0 envelope keys (StreamEvent.room_id · work_id).
+//
+// room_id is the session id under its new name (R4 까지 같은 값). work_id is
+// lifted from the payload, not stored beside it: the payload is the entity
+// (Lane · Task · Message …) and carries its own mission, so a room with three
+// missions gets the right one per frame by construction — a lookup "the
+// room's mission" here is exactly the 1:1 assumption R1b removes.
 func (e Event) MarshalJSON() ([]byte, error) {
 	type alias Event
 	return json.Marshal(struct {
 		ID string `json:"id"`
 		alias
-	}{fmt.Sprint(e.ID), alias(e)})
+		RoomID *uuid.UUID `json:"room_id"`
+		WorkID *uuid.UUID `json:"work_id"`
+	}{fmt.Sprint(e.ID), alias(e), e.SessionID, workIDOf(e.Payload)})
+}
+
+// workIDOf reads a top-level `work_id` from a payload object, nil when the
+// payload has none (or it is null).
+func workIDOf(raw json.RawMessage) *uuid.UUID {
+	var p struct {
+		WorkID *uuid.UUID `json:"work_id"`
+	}
+	if len(raw) == 0 || raw[0] != '{' || json.Unmarshal(raw, &p) != nil {
+		return nil
+	}
+	return p.WorkID
 }
 
 // Hub persists and fans out events. Safe for concurrent use.
@@ -62,12 +87,21 @@ type Subscription struct {
 	hub      *Hub
 	ws       uuid.UUID
 	sessions map[uuid.UUID]bool
-	C        chan Event
-	once     sync.Once
+	// user receives the frames addressed to them (Event.UserID); uuid.Nil
+	// receives broadcast frames only.
+	user uuid.UUID
+	C    chan Event
+	once sync.Once
 }
 
 func (h *Hub) Subscribe(ws uuid.UUID, sessions []uuid.UUID) *Subscription {
-	s := &Subscription{hub: h, ws: ws, C: make(chan Event, 256)}
+	return h.SubscribeFor(ws, sessions, uuid.Nil)
+}
+
+// SubscribeFor is Subscribe for a known person: their own addressed frames
+// arrive too.
+func (h *Hub) SubscribeFor(ws uuid.UUID, sessions []uuid.UUID, user uuid.UUID) *Subscription {
+	s := &Subscription{hub: h, ws: ws, user: user, C: make(chan Event, 256)}
 	if len(sessions) > 0 {
 		s.sessions = map[uuid.UUID]bool{}
 		for _, id := range sessions {
@@ -92,6 +126,9 @@ func (s *Subscription) wants(e Event) bool {
 	if e.WorkspaceID != s.ws {
 		return false
 	}
+	if e.UserID != nil && *e.UserID != s.user {
+		return false
+	}
 	if s.sessions == nil || e.SessionID == nil {
 		return true
 	}
@@ -103,17 +140,24 @@ func (s *Subscription) wants(e Event) bool {
 // delivery happens immediately (a rolled-back tx can leave one stale push —
 // clients re-read via REST, which is the D1 contract anyway).
 func (h *Hub) Publish(ctx context.Context, q db.DBTX, ws uuid.UUID, session *uuid.UUID, typ string, payload any) error {
+	return h.PublishTo(ctx, q, ws, session, nil, typ, payload)
+}
+
+// PublishTo is Publish addressed to one person (nil user = everyone). The
+// recipient is persisted with the row so a reconnect backfills it to that
+// person only.
+func (h *Hub) PublishTo(ctx context.Context, q db.DBTX, ws uuid.UUID, session, user *uuid.UUID, typ string, payload any) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("realtime: marshal %s: %w", typ, err)
 	}
-	e := Event{Type: typ, At: h.Clock.Now(), WorkspaceID: ws, SessionID: session, Payload: raw}
+	e := Event{Type: typ, At: h.Clock.Now(), WorkspaceID: ws, SessionID: session, Payload: raw, UserID: user}
 	if q == nil {
 		q = h.DB
 	}
 	if err := q.QueryRow(ctx, `
-		INSERT INTO stream_event (workspace_id, session_id, type, payload, created_at)
-		VALUES ($1, $2, $3, $4, $5) RETURNING id`, ws, session, typ, raw, e.At).Scan(&e.ID); err != nil {
+		INSERT INTO stream_event (workspace_id, session_id, type, payload, created_at, user_id)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`, ws, session, typ, raw, e.At, user).Scan(&e.ID); err != nil {
 		return fmt.Errorf("realtime: persist %s: %w", typ, err)
 	}
 	h.deliver(e)
@@ -144,6 +188,12 @@ func (h *Hub) deliver(e Event) {
 // cursor is older than the retention window (or unknown), in which case the
 // client must re-read state via REST.
 func (h *Hub) Backfill(ctx context.Context, ws uuid.UUID, lastID int64, sessions []uuid.UUID) (events []Event, resync bool, err error) {
+	return h.BackfillFor(ctx, ws, lastID, sessions, uuid.Nil)
+}
+
+// BackfillFor is Backfill for one person: frames addressed to someone else
+// are not replayed.
+func (h *Hub) BackfillFor(ctx context.Context, ws uuid.UUID, lastID int64, sessions []uuid.UUID, user uuid.UUID) (events []Event, resync bool, err error) {
 	var createdAt time.Time
 	err = h.DB.QueryRow(ctx, `SELECT created_at FROM stream_event WHERE id = $1`, lastID).Scan(&createdAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -161,8 +211,8 @@ func (h *Hub) Backfill(ctx context.Context, ws uuid.UUID, lastID int64, sessions
 		return nil, true, nil
 	}
 	rows, err := h.DB.Query(ctx, `
-		SELECT id, type, created_at, workspace_id, session_id, payload
-		FROM stream_event WHERE workspace_id = $1 AND id > $2 ORDER BY id`, ws, lastID)
+		SELECT id, type, created_at, workspace_id, session_id, payload, user_id
+		FROM stream_event WHERE workspace_id = $1 AND id > $2 AND (user_id IS NULL OR user_id = $3) ORDER BY id`, ws, lastID, user)
 	if err != nil {
 		return nil, false, err
 	}
@@ -173,7 +223,7 @@ func (h *Hub) Backfill(ctx context.Context, ws uuid.UUID, lastID int64, sessions
 	}
 	for rows.Next() {
 		var e Event
-		if err := rows.Scan(&e.ID, &e.Type, &e.At, &e.WorkspaceID, &e.SessionID, &e.Payload); err != nil {
+		if err := rows.Scan(&e.ID, &e.Type, &e.At, &e.WorkspaceID, &e.SessionID, &e.Payload, &e.UserID); err != nil {
 			return nil, false, err
 		}
 		if len(filter) > 0 && e.SessionID != nil && !filter[*e.SessionID] {

@@ -36,6 +36,8 @@ func NewService(pool *pgxpool.Pool, c clock.Clock, h *realtime.Hub, log *slog.Lo
 type SweepResult struct {
 	Deleted int
 	Blocked int
+	// QuotaNotices is how many `workdir_quota` items this pass wrote.
+	QuotaNotices int
 }
 
 // liveLaneSQL is the GC gate: some lane using workdir `w` is still alive.
@@ -48,12 +50,17 @@ type SweepResult struct {
 // where they were (a never-claimed lane stays `queued`), and counting those
 // would keep every finished session's directory forever — the old gate read
 // the session status for exactly this reason. The lane's mission is its
-// work_id, or the room's one work for lanes written before R1b fills the
-// column (R1a: one work per room, work_room_single).
+// work_id, or — for a lane written before work_id was filled — the room's
+// mission ONLY when the room has exactly one (T-R1b3). With several missions
+// a lane without work_id is mission-less (FR-2A.1), and pinning it to "any
+// mission of the room" would call it dead as soon as ANOTHER mission ended:
+// the sweep would then delete a checkout an agent is editing (R1b 인계 NN2).
 const liveLaneSQL = `EXISTS (SELECT 1 FROM lane l WHERE l.workdir_id = w.id
 	AND l.status IN ('queued', 'running', 'waiting_human', 'blocked', 'paused')
 	AND NOT EXISTS (SELECT 1 FROM work lw
-	                WHERE (lw.id = l.work_id OR (l.work_id IS NULL AND lw.room_id = l.session_id))
+	                WHERE (lw.id = l.work_id
+	                       OR (l.work_id IS NULL AND lw.room_id = l.session_id
+	                           AND (SELECT count(*) FROM work o WHERE o.room_id = l.session_id) = 1))
 	                  AND lw.status IN ('completed', 'cancelled')))`
 
 type gcRow struct {
@@ -104,7 +111,7 @@ func (s *Service) SweepGC(ctx context.Context) (SweepResult, error) {
 	}
 	rows, err := s.DB.Query(ctx, `
 		SELECT w.id, w.path_or_ref, w.kind::text, w.session_id, s.workspace_id, s.runtime_id,
-		       wk.director_user_id, wk.title, 'completed', COALESCE(w.last_used_at, w.created_at),
+		       COALESCE(wk.director_user_id, s.owner_user_id), COALESCE(wk.title, s.name), 'completed', COALESCE(w.last_used_at, w.created_at),
 		       COALESCE(s.isolation->>'kind', ''),
 		       COALESCE(ws.workdir_retention_days, $1),
 		       COALESCE(w.merged, false), w.commits_ahead,
@@ -115,7 +122,15 @@ func (s *Service) SweepGC(ctx context.Context) (SweepResult, error) {
 		                  AND w.id::text = ANY(gc_command_workdir_ids(c.payload)))
 		FROM workdir w
 		JOIN room s ON s.id = w.session_id
-		JOIN work wk ON wk.room_id = s.id
+		-- Who hears about a blocked folder: the Director of the room's open
+		-- mission (newest first), else the room's owner. A plain JOIN on
+		-- room_id would list the folder once per mission and queue its gc
+		-- twice (T-R1b3, R1b 인계 우선 처리 sweep.go:118); a room with no
+		-- mission would drop out of GC entirely.
+		LEFT JOIN LATERAL (
+		  SELECT director_user_id, title FROM work
+		  WHERE room_id = s.id
+		  ORDER BY (status IN ('active', 'paused', 'completing')) DESC, created_at DESC LIMIT 1) wk ON true
 		LEFT JOIN workspace_settings ws ON ws.workspace_id = s.workspace_id
 		WHERE w.status = 'active' AND NOT `+liveLaneSQL, DefaultRetentionDays)
 	if err != nil {
@@ -230,7 +245,40 @@ func (s *Service) SweepGC(ctx context.Context) (SweepResult, error) {
 		// is still full.
 		out.Deleted += len(cmd.Workdirs)
 	}
+	if n, err := s.notifyQuota(ctx, now); err != nil {
+		s.warn("workdirs: quota notice", "err", err)
+	} else {
+		out.QuotaNotices = n
+	}
 	return out, nil
+}
+
+// notifyQuota is FR-6.4's disk quota as a `workdir_quota` item (openapi
+// InboxItemType v0.2.0): a workspace whose folders hold `workdir_disk_quota_gb`
+// or more tells its owners — the people who can raise the quota or clear S13.
+// One unread item per owner at a time: the sweep runs every minute, and the
+// rule E14-10 pins for the offline sweep holds here too. Returns how many
+// items this pass wrote.
+func (s *Service) notifyQuota(ctx context.Context, now time.Time) (int, error) {
+	tag, err := s.DB.Exec(ctx, `
+		WITH used AS (
+		  SELECT r.workspace_id, sum(w.disk_bytes) AS bytes
+		  FROM workdir w JOIN room r ON r.id = w.session_id
+		  WHERE w.status <> 'deleted' GROUP BY r.workspace_id)
+		INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, recipient_basis, created_at)
+		SELECT m.id, 'workdir_quota'::inbox_item_type, $1::inbox_severity, NULL, NULL, 'workspace_owner', $2
+		FROM workspace_settings ws
+		JOIN used u ON u.workspace_id = ws.workspace_id
+		JOIN member m ON m.workspace_id = ws.workspace_id AND m.role = 'owner'
+		WHERE ws.workdir_disk_quota_gb IS NOT NULL AND ws.workdir_disk_quota_gb > 0
+		  AND u.bytes >= ws.workdir_disk_quota_gb::bigint * $3
+		  AND NOT EXISTS (SELECT 1 FROM inbox_item i
+		                  WHERE i.member_id = m.id AND i.type = 'workdir_quota' AND i.read_at IS NULL)`,
+		inbox.Severity(inbox.TypeWorkdirQuota), now, gib)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 // recordBlocked writes FR-6.4's "삭제하지 않고 알린다" and returns whether this

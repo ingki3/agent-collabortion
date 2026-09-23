@@ -222,18 +222,29 @@ FROM task t JOIN lane l ON l.id = t.lane_id JOIN room s ON s.id = t.session_id
 WHERE s.workspace_id = $1 AND t.delegated_from_task_id IS NOT NULL
   AND t.status IN ('completed', 'failed', 'cancelled') AND COALESCE(t.finished_at, t.updated_at) >= $2`
 
-// 5. lane ≥ 2 인 완료 세션: 1 - wall(세션 시작→완료) / sum(task started_at→finished_at). 평균. n = 세션 수.
+// 5. lane ≥ 2 인 완료 **미션**(§11 분모 — §12.1-10): 1 - wall(미션 시작→완료) /
+// sum(그 미션 task 의 started_at→finished_at). 평균. n = 미션 수.
+//
+// 방에 미션이 여럿이면 lane·task 를 방(session_id)으로 모으는 순간 다른 미션의
+// 줄기와 시간이 섞인다(T-R1b3, 인계 목록 (a) metrics.go:229). 행의 미션은 work_id 이고,
+// work_id 가 비어 있는 행(R1b 가 새 행을 채우기 전)은 **방에 미션이 하나뿐일 때만**
+// 그 미션의 것으로 센다 — 미션이 여럿인 방의 빈 칸은 「미션 밖」 실행이다(FR-2A.1).
 const sqlParallelReduction = `
-WITH s AS (
-	SELECT s.id, extract(epoch FROM (wk.finished_at - COALESCE(wk.started_at, s.created_at))) AS wall
-	FROM room s JOIN work wk ON wk.room_id = s.id
-	WHERE s.workspace_id = $1 AND wk.status = 'completed' AND wk.finished_at >= $2
-	  AND (SELECT count(*) FROM lane l WHERE l.session_id = s.id) >= 2),
-t AS (
-	SELECT session_id, sum(extract(epoch FROM (finished_at - started_at))) AS total
-	FROM task WHERE started_at IS NOT NULL AND finished_at IS NOT NULL GROUP BY session_id)
-SELECT avg(1 - s.wall / t.total), count(*)
-FROM s JOIN t ON t.session_id = s.id WHERE t.total > 0 AND s.wall >= 0`
+WITH w AS (
+	SELECT wk.id, wk.room_id, extract(epoch FROM (wk.finished_at - COALESCE(wk.started_at, wk.created_at))) AS wall,
+	       (SELECT count(*) FROM work o WHERE o.room_id = wk.room_id) = 1 AS sole
+	FROM work wk JOIN room s ON s.id = wk.room_id
+	WHERE s.workspace_id = $1 AND wk.status = 'completed' AND wk.finished_at >= $2),
+x AS (
+	SELECT w.id, w.wall,
+	       (SELECT count(*) FROM lane l
+	         WHERE l.work_id = w.id OR (l.work_id IS NULL AND w.sole AND l.session_id = w.room_id)) AS lanes,
+	       (SELECT sum(extract(epoch FROM (t.finished_at - t.started_at))) FROM task t
+	         WHERE (t.work_id = w.id OR (t.work_id IS NULL AND w.sole AND t.session_id = w.room_id))
+	           AND t.started_at IS NOT NULL AND t.finished_at IS NOT NULL) AS total
+	FROM w)
+SELECT avg(1 - x.wall / x.total), count(*)
+FROM x WHERE x.lanes >= 2 AND x.total > 0 AND x.wall >= 0`
 
 // 7. attempt ≥ 2 인 task 중 같은 내용의 메시지가 둘 이상 게시된 것이 관측된 비율.
 //

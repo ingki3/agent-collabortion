@@ -794,7 +794,7 @@ func loadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID) ([]Pa
 	rows, err := q.Query(ctx, `
 		SELECT sp.agent_id, a.name, a.respond_to = 'nobody', sp.profile_id
 		FROM room_participant sp JOIN agent a ON a.id = sp.agent_id
-		WHERE sp.room_id = $1 ORDER BY sp.joined_at`, sessionID)
+		WHERE sp.room_id = $1 AND sp.left_at IS NULL ORDER BY sp.joined_at`, sessionID)
 	if err != nil {
 		return nil, nil, err
 	}

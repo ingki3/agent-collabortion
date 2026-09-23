@@ -169,7 +169,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 		// indistinguishable and the reader cannot tell which is current.
 		var alreadyPosted bool
 		if err := tx.QueryRow(ctx, `
-			SELECT EXISTS (SELECT 1 FROM message WHERE session_id = $1 AND kind = 'summary')`,
+			SELECT EXISTS (SELECT 1 FROM message WHERE session_id = $1 AND kind = 'summary' AND summary_range IS NULL)`,
 			sessionID).Scan(&alreadyPosted); err != nil {
 			return nil, fmt.Errorf("sessions: summary presence: %w", err)
 		}
@@ -200,7 +200,7 @@ func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID,
 			s.recordSummaryFailure(ctx, tx, sessionID, summary.ErrorCategory, now)
 		}
 		if err := tx.QueryRow(ctx, `
-			SELECT count(*) FROM message WHERE session_id = $1 AND kind = 'summary'`,
+			SELECT count(*) FROM message WHERE session_id = $1 AND kind = 'summary' AND summary_range IS NULL`,
 			sessionID).Scan(&out.SummaryMsgs); err != nil {
 			return nil, fmt.Errorf("sessions: summary count: %w", err)
 		}
@@ -433,7 +433,7 @@ func postSummaryOnce(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, body s
 	err := tx.QueryRow(ctx, `
 		INSERT INTO message (session_id, author_type, author_id, content, kind, created_at)
 		SELECT $1, 'system', NULL, $2, 'summary', $3
-		WHERE NOT EXISTS (SELECT 1 FROM message WHERE session_id = $1 AND kind = 'summary')
+		WHERE NOT EXISTS (SELECT 1 FROM message WHERE session_id = $1 AND kind = 'summary' AND summary_range IS NULL)
 		RETURNING id`, sessionID, body, now).Scan(&msgID)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):

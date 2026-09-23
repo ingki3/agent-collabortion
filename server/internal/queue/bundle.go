@@ -90,7 +90,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	rows, err := tx.Query(ctx, `
 		SELECT a.id, a.name, a.role, a.role_description,
 		       EXISTS (SELECT 1 FROM task x WHERE x.agent_id = a.id AND x.session_id = sp.room_id AND x.status IN ('dispatched','preparing','running'))
-		FROM room_participant sp JOIN agent a ON a.id = sp.agent_id WHERE sp.room_id = $1 ORDER BY sp.joined_at`, t.SessionID)
+		FROM room_participant sp JOIN agent a ON a.id = sp.agent_id WHERE sp.room_id = $1 AND sp.left_at IS NULL ORDER BY sp.joined_at`, t.SessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -643,7 +643,7 @@ func reusedSessionSummaries(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID)
 	rows, err := tx.Query(ctx, `
 		SELECT prevw.title,
 		       COALESCE((SELECT m.content FROM message m
-		                  WHERE m.session_id = prev.id AND m.kind = 'summary'
+		                  WHERE m.session_id = prev.id AND m.kind = 'summary' AND m.summary_range IS NULL
 		                  ORDER BY m.created_at DESC LIMIT 1), ''),
 		       (SELECT count(*) FROM artifact a WHERE a.session_id = prev.id)
 		FROM session_context sc

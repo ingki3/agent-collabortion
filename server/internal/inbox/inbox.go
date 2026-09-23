@@ -20,6 +20,28 @@ const (
 	// (E13-12·13). Added in P4 by Lead decision (T-S9 ask 1); the contract's
 	// InboxItemType grows the same value.
 	TypeWorkdirGCBlocked = "workdir_gc_blocked"
+
+	// v0.2.0 (PRD v0.19, openapi InboxItemType). room_invited · workdir_quota
+	// are written by the room API (T-R1b3); the others are the mission and
+	// first-run streams' to write — their severity and actions are fixed here
+	// so every writer lands on the same badge.
+	TypeRoomInvited      = "room_invited"
+	TypeRoomPaused       = "room_paused"
+	TypeWorkdirQuota     = "workdir_quota"
+	TypeWorkProposed     = "work_proposed"
+	TypeWorkPaused       = "work_paused"
+	TypeWorkCompleted    = "work_completed"
+	TypeIsolationConfirm = "isolation_confirm"
+)
+
+// Recipient bases (InboxItem.recipient_basis) — the card's 「Director 로서」·
+// 「방장으로서」: why this item is in THIS person's inbox.
+const (
+	BasisDirector       = "director"
+	BasisDeputy         = "deputy"
+	BasisRoomOwner      = "room_owner"
+	BasisRoomDeputy     = "room_deputy"
+	BasisWorkspaceOwner = "workspace_owner"
 )
 
 // The three severities (inbox_severity, SCREEN §4.6).
@@ -42,11 +64,12 @@ const (
 // badge a permanent number nobody reads.
 func Severity(itemType string) string {
 	switch itemType {
-	case TypeHitlRequest, TypeLaneBlocked, TypeSessionPaused:
+	case TypeHitlRequest, TypeLaneBlocked, TypeSessionPaused,
+		TypeRoomPaused, TypeWorkPaused, TypeIsolationConfirm:
 		return ActionRequired
-	case TypeRunFailed, TypeRuntimeOffline, TypeWorkdirGCBlocked:
+	case TypeRunFailed, TypeRuntimeOffline, TypeWorkdirGCBlocked, TypeWorkdirQuota, TypeWorkProposed:
 		return Attention
-	case TypeSessionCompleted, TypeMention:
+	case TypeSessionCompleted, TypeMention, TypeRoomInvited, TypeWorkCompleted:
 		return Info
 	}
 	return Info
@@ -87,6 +110,16 @@ func Actions(itemType, hitlType string, canRespond bool) []string {
 		return []string{"open_runtimes"}
 	case TypeSessionCompleted:
 		return []string{"open_session"}
+	case TypeWorkdirQuota:
+		// FR-6.4: the way out is clearing folders on S13.
+		return []string{"open_workdirs"}
+	case TypeRoomInvited, TypeRoomPaused, TypeWorkProposed, TypeIsolationConfirm:
+		// A room-level card (openapi 0.2.1): the room, not a mission, is what
+		// opens. A proposal is not a mission yet; the isolation question is
+		// the room's first run.
+		return []string{"open_room"}
+	case TypeWorkPaused, TypeWorkCompleted:
+		return []string{"open_work"}
 	}
 	return []string{"open_session"}
 }

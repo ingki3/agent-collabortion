@@ -134,7 +134,7 @@ func loadCompletionFacts(ctx context.Context, q db.DBTX, sessionID uuid.UUID, t 
 	}
 	rows, err := q.Query(ctx, `
 		SELECT a.id, a.name, a.archived_at IS NOT NULL,
-		       EXISTS (SELECT 1 FROM room_participant sp WHERE sp.room_id = $1 AND sp.agent_id = a.id)
+		       EXISTS (SELECT 1 FROM room_participant sp WHERE sp.room_id = $1 AND sp.agent_id = a.id AND sp.left_at IS NULL)
 		FROM agent a WHERE a.id = ANY($2)`, sessionID, ids)
 	if err != nil {
 		return f, fmt.Errorf("sessions: completion agents: %w", err)

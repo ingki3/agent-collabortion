@@ -436,18 +436,27 @@ func (s *Server) GetCliContext(w http.ResponseWriter, r *http.Request) {
 
 // StreamEvents is the one SSE stream (openapi.md D1).
 func (s *Server) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.StreamEventsParams) {
-	if _, _, p := s.member(r, workspaceId); p != nil {
+	viewer, m, p := s.member(r, workspaceId)
+	if p != nil {
 		writeProblem(w, p)
 		return
 	}
+	// FR-5.3: an invited room does not exist for the uninvited — its frames
+	// do not reach their workspace-wide stream either (T-R1b3).
+	see := newRoomSight(s.DB, viewer.Id, m.Role)
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeProblem(w, apperr.New(http.StatusInternalServerError, "no_flush", "이 연결에서는 실시간 전송을 할 수 없습니다"))
 		return
 	}
+	// v0.2.0: `room_id` narrows the stream; `session_id` is its alias until R4
+	// (the same ids). Both may be given — the union is the filter.
 	var sessionIDs []uuid.UUID
-	if params.SessionId != nil {
-		for _, id := range *params.SessionId {
+	for _, list := range []*[]openapi_types.UUID{params.RoomId, params.SessionId} {
+		if list == nil {
+			continue
+		}
+		for _, id := range *list {
 			sessionIDs = append(sessionIDs, id)
 		}
 	}
@@ -459,7 +468,7 @@ func (s *Server) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceI
 		lastID = q
 	}
 
-	sub := s.Hub.Subscribe(workspaceId, sessionIDs)
+	sub := s.Hub.SubscribeFor(workspaceId, sessionIDs, viewer.Id)
 	defer sub.Close()
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -490,7 +499,7 @@ func (s *Server) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceI
 	if lastID != "" {
 		var cursor int64
 		if _, err := fmt.Sscan(lastID, &cursor); err == nil {
-			backfill, resync, err := s.Hub.Backfill(r.Context(), workspaceId, cursor, sessionIDs)
+			backfill, resync, err := s.Hub.BackfillFor(r.Context(), workspaceId, cursor, sessionIDs, viewer.Id)
 			if err != nil {
 				s.Log.Warn("sse backfill", "err", err)
 			}
@@ -498,6 +507,9 @@ func (s *Server) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceI
 				write("", "resync", []byte(`{"id":"","type":"resync","at":"`+s.Clock.Now().UTC().Format(time.RFC3339)+`","payload":{"reason":"cursor_outside_retention"}}`))
 			}
 			for _, e := range backfill {
+				if !see.frame(r.Context(), e) {
+					continue
+				}
 				data, _ := e.MarshalJSON()
 				write(fmt.Sprint(e.ID), e.Type, data)
 			}
@@ -520,6 +532,9 @@ func (s *Server) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceI
 			// A test chat has no session, so its frames are workspace-wide and
 			// this is the only place they can be narrowed.
 			if params.TestChatId != nil && !testChatFrameFor(e, *params.TestChatId) {
+				continue
+			}
+			if !see.frame(r.Context(), e) {
 				continue
 			}
 			data, err := e.MarshalJSON()

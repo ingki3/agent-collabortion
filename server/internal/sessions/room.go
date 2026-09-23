@@ -59,7 +59,8 @@ func seedPeople(ctx context.Context, q db.DBTX, roomID, owner, director uuid.UUI
 func addMember(ctx context.Context, q db.DBTX, roomID, userID uuid.UUID, now time.Time) error {
 	if _, err := q.Exec(ctx, `
 		INSERT INTO room_participant (room_id, user_id, role, joined_at) VALUES ($1, $2, 'member', $3)
-		ON CONFLICT (room_id, user_id) WHERE user_id IS NOT NULL DO NOTHING`, roomID, userID, now); err != nil {
+		ON CONFLICT (room_id, user_id) WHERE user_id IS NOT NULL
+		DO UPDATE SET left_at = NULL, joined_at = EXCLUDED.joined_at WHERE room_participant.left_at IS NOT NULL`, roomID, userID, now); err != nil {
 		return fmt.Errorf("sessions: add room member: %w", err)
 	}
 	return nil

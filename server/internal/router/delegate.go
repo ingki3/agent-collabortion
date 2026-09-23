@@ -73,7 +73,7 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 	var targetName string
 	err = tx.QueryRow(ctx, `
 		SELECT sp.profile_id, a.name FROM room_participant sp JOIN agent a ON a.id = sp.agent_id
-		WHERE sp.room_id = $1 AND sp.agent_id = $2`, sessionID, in.AgentID).Scan(&profileID, &targetName)
+		WHERE sp.room_id = $1 AND sp.agent_id = $2 AND sp.left_at IS NULL`, sessionID, in.AgentID).Scan(&profileID, &targetName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.Validation(apperr.Field("agent_id", "not_participant",
 			"이 에이전트는 세션 참여자가 아닙니다 — `colab hitl ask`로 Director에게 참여자 추가를 요청하세요"))
