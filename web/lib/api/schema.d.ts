@@ -1416,7 +1416,7 @@ export interface paths {
         /**
          * HITL 요청 등록(`colab hitl ask` / `approve-request` / `request-info`) — 턴을 끝내라
          * @description 권한: `TaskToken`(에이전트, `source: agent`). 시스템 발행(`source: system`)은 서버 내부 — 이 API로는 만들 수 없다.
-         *     타입별 본문은 `HitlCreate`(oneOf). `question`·`choice`는 `proposed_default` **필수**(`422`, E7-05). **task당 열린 HITL은 하나** — 두 번째는 `409 hitl_already_open`(E7-04, 피드 기록). `approver_spec`은 `director`·`any_member`·사용자 uuid만, 그 밖은 `422`(fail closed, E7-16). `due_in` 기본 24h.
+         *     타입별 본문은 `HitlCreate`(oneOf). `question`·`choice`는 `proposed_default` **필수**(`422`, E7-05). **task당 열린 HITL은 하나** — 두 번째는 `409 hitl_already_open`(E7-04, 피드 기록). `approver_spec`은 `director`·`room_owner`(v0.2.0)·`any_member`·사용자 uuid만, 그 밖은 `422`(fail closed, E7-16). `due_in` 기본 24h.
          *     등록 즉시 task에 `pending_hitl`만 세우고(상태는 아직 `running`) **`turn_end` 도착 시 `waiting_human`**(FR-7.1 N4). 응답은 `turn_end_required: true` — 에이전트는 답을 기다리지 말고 턴을 끝내야 한다(FR-5.2). v1은 `question`·`approval`(`choice`·`info`는 v1.1이지만 스키마는 지금 둔다 — SCREEN §2.3 C4).
          */
         post: operations["createHitlRequest"];
@@ -1814,6 +1814,740 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workspaces/{workspaceId}/rooms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 방 목록(S5 · S25)
+         * @description 권한: 워크스페이스 멤버. `invited` 방은 초대되지 않은 사람에게 보이지 않는다(ws owner·admin 은 감사 열람).
+         *     정렬은 마지막 활동순 하나로 고정(§12.1-11) — `sort` 파라미터가 없다. 검색은 이름·설명 부분 일치만(본문 검색 없음). `unread_count` 는 이 응답에서 한 번에 센다.
+         */
+        get: operations["listRooms"];
+        put?: never;
+        /**
+         * 방 만들기(S18)
+         * @description 권한: 워크스페이스 멤버. 만든 사람이 방장.
+         *     이름 한 칸이면 만들어진다 — 나머지는 워크스페이스 `room_defaults` 를 상속한다(FR-2.1). **연결된 컴퓨터가 0개여도 201**(옛 `createSession` 의 `409 no_runtime` 없음). 같은 이름이 있어도 거부하지 않는다.
+         */
+        post: operations["createRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 방(S7 상단 · S20)
+         * @description 권한: 방을 볼 수 있는 사람(§2.4 `visibility`). TaskToken 이면 그 task 의 방만.
+         *     `my_capabilities` 가 버튼 활성을 정한다.
+         */
+        get: operations["getRoom"];
+        put?: never;
+        post?: never;
+        /**
+         * 방 삭제
+         * @description 권한: 방장 · ws owner·admin.
+         *     진행 중인 미션이 있으면 `409 works_active`, 미병합·미커밋 작업 폴더가 있으면 `409 workdir_unmerged`(폴더 목록을 `Problem` 확장에). 메시지·미션·lane·task·HITL·아티팩트·결정·비용이 사라지고 `activity_log` 에 `room.deleted` 한 줄만 남는다. `room.deleted` SSE.
+         */
+        delete: operations["deleteRoom"];
+        options?: never;
+        head?: never;
+        /**
+         * 방 설정 저장(S20)
+         * @description 권한: 방장·부방장·ws owner·admin.
+         *     `runtime_id`·`isolation` 은 첫 dispatch 전에만(`409 runtime_pinned`). `visibility` 변경·설정 변경은 타임라인 시스템 메시지와 `activity_log` 에 남는다.
+         */
+        patch: operations["updateRoom"];
+        trace?: never;
+    };
+    "/rooms/{roomId}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 방 보관
+         * @description 권한: 방장·부방장·ws owner·admin.
+         *     새 메시지·미션·트리거를 막고 과거는 남긴다(검색에 계속 걸린다). 진행 중 할 일이 있으면 `409 tasks_active`.
+         */
+        post: operations["archiveRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/unarchive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 방 보관 해제
+         * @description 권한: 보관과 같다(방장·부방장·ws owner·admin). 참여자까지 그대로 복원된다.
+         */
+        post: operations["unarchiveRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/block": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 이 방 멈춤(`manual`)
+         * @description 권한: 방장·부방장·ws owner·admin.
+         *     진행 중인 모든 턴을 FR-3.4 「중단」처럼 끝내고 새 트리거를 막는다(`blocked_reason: manual`). 이미 다른 사유로 멈춰 있으면 `409 already_blocked`. 시스템 메시지 + `activity_log`.
+         */
+        post: operations["blockRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/unblock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 멈춤 해제(`manual`)
+         * @description 권한: 방장·부방장·ws owner·admin — HITL 없이 직접 푼다.
+         *     `manual` 이 아닌 사유(`budget`·`loop`·`runtime_offline`)는 이 op 으로 풀 수 없다(`409 not_manual` — 승인 HITL 또는 재바인딩).
+         */
+        post: operations["unblockRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 안 읽음 지우기
+         * @description 권한: 방 참여자(사람 행만). `room_participant.last_read_message_id` 를 앞으로만 옮긴다. `room.unread` SSE 가 내 다른 탭·기기에도 간다.
+         */
+        post: operations["markRoomRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/summaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 여기까지 정리(범위 요약)
+         * @description 권한: 방 참여자 누구나.
+         *     범위(`since` 또는 `from_message_id`·`to_message_id`)를 요약 메시지(`kind: summary`)에 함께 기록한다. 결과는 방에 메시지로 남는다.
+         */
+        post: operations["summarizeRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 방장 넘기기
+         * @description 권한: 방장 · ws owner·admin. 새 방장은 방 참여자여야 한다(`422 not_participant`). 시스템 메시지 + `activity_log`.
+         */
+        put: operations["transferRoomOwner"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/deputy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 부방장 지정·해제
+         * @description 권한: 방장 · ws owner·admin. 한 명만. `user_id: null` 이면 해제.
+         */
+        put: operations["setRoomDeputy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/participants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 방 참여자(사람 + 에이전트)
+         * @description 권한: 방을 볼 수 있는 사람. 사람과 에이전트가 한 목록이다(`room_participant`).
+         */
+        get: operations["listRoomParticipants"];
+        put?: never;
+        /**
+         * 초대(사람 또는 에이전트)
+         * @description 권한: 방장·부방장·ws owner·admin. 에이전트는 호출자의 `respond_to` 초대 권한도 검사한다(FR-1.9).
+         *     사람은 워크스페이스 멤버만(`422 not_member`). 보관된 방이면 `409 room_archived`. 에이전트 프로파일의 `runtime_kind` 가 방 컴퓨터에 없으면 `warnings[]`(거부 아님). 초대된 에이전트는 방의 지난 대화 전부를 읽는다(FR-2.2).
+         */
+        post: operations["addRoomParticipant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/participants/{participantId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+                participantId: components["parameters"]["ParticipantId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * 내보내기 · 이 방에서 나가기
+         * @description 권한: 방장·부방장·ws owner·admin, 또는 **본인 행이면 참여자 누구나**(「이 방에서 나가기」).
+         *     거부: 열린 미션의 Director 인 사람(`409 is_director` — 먼저 Director 를 넘긴다) · 방장(`409 is_owner` — 먼저 방장을 넘긴다). 에이전트를 내보내도 서브 미션·할 일은 남고 새 트리거만 막힌다(취소가 아니다).
+         */
+        delete: operations["removeRoomParticipant"];
+        options?: never;
+        head?: never;
+        /**
+         * 참여자 프로파일 바꾸기
+         * @description 권한: 방장·부방장·ws owner·admin.
+         */
+        patch: operations["updateRoomParticipant"];
+        trace?: never;
+    };
+    "/rooms/{roomId}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 참고 방 링크
+         * @description 권한: 방 참여자 누구나 읽는다(맥락이 어디로 샐 수 있는지는 공개 정보).
+         */
+        get: operations["listRoomLinks"];
+        put?: never;
+        /**
+         * 참고 방 연결
+         * @description 권한: 방장·부방장·ws owner·admin. 대상은 거는 사람이 참여자인 방이어야 한다(`403 not_participant_of_target` — 모르는 방을 링크로 탐색하지 못하게). 양쪽 방에 시스템 메시지.
+         */
+        post: operations["createRoomLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/links/{roomLinkId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+                roomLinkId: components["parameters"]["RoomLinkId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * 참고 방 연결 풀기
+         * @description 권한: 방장·부방장·ws owner·admin(양쪽 방 어느 쪽의 권한자든). 양쪽 방에 시스템 메시지.
+         */
+        delete: operations["deleteRoomLink"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/reads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 맥락 읽기 기록(S23)
+         * @description 권한: 방 참여자 누구나.
+         *     `direction=denied` 행은 `other_room: null`(존재 숨김) — `denied_reason: originator_left` 만 예외.
+         */
+        get: operations["listRoomReads"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/works": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 미션 목록(칩 줄 · 지난 미션)
+         * @description 권한: 방을 볼 수 있는 사람.
+         */
+        get: operations["listWorks"];
+        put?: never;
+        /**
+         * 미션 열기(S21 · 이걸 미션으로 · 제안에서)
+         * @description 권한: 방 참여자(사람) 누구나. Director 기본값: `director_user_id` → 방 `default_director_user_id` → 연 사람(FR-2A.1).
+         *     검증(`422`): 종료 조건 규칙은 옛 `createSession` 과 같다(`agent_approval` 리뷰어 필수·참여자여야 함 — `reviewer_required`/`reviewer_not_participant`, `criteria_met` 단독 불가). `assignee_agent_id` 가 없으면 기본 종료 조건은 `user_approval` 단독.
+         *     `409 max_concurrent_works`(열린 미션 목록을 `Problem.open_works[]` 에) · `409 room_archived` · `409 room_blocked` · `from_message_id` 가 이미 다른 미션에 속하면 `409 message_has_work`.
+         */
+        post: operations["createWork"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/works/{workId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 미션(S22 · 우열 미션 칸)
+         * @description 권한: 방을 볼 수 있는 사람. 끝난 미션도 읽는다(읽기 전용).
+         */
+        get: operations["getWork"];
+        put?: never;
+        post?: never;
+        /**
+         * 미션 삭제
+         * @description 권한: 그 미션의 director · 방장 · ws owner·admin. 미션만 지우고 방과 메시지는 남긴다(메시지는 방의 것 — `work_id` 가 null 이 된다). 진행 중이면 `409 work_active`.
+         */
+        delete: operations["deleteWork"];
+        options?: never;
+        head?: never;
+        /**
+         * 미션 설정 편집 · 종료 조건 고치기
+         * @description 권한: 그 미션의 director.
+         *     `active`·`paused` 에서도 종료 조건을 고칠 수 있다(v0.1.5 S-84 규칙 그대로).
+         */
+        patch: operations["updateWork"];
+        trace?: never;
+    };
+    "/works/{workId}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 미션 일시정지
+         * @description 권한: 그 미션의 director.
+         */
+        post: operations["pauseWork"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/works/{workId}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 미션 재개 · 계속 진행 승인
+         * @description 권한: 그 미션의 director(예산·시간 사유면 기한 절반 후 deputy). 예산 상향은 본문 `limits`.
+         */
+        post: operations["resumeWork"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/works/{workId}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 미션 수동 종료(`manual`)
+         * @description 권한: 그 미션의 director. 요약을 만들어 방에 메시지로 남긴다(FR-2A.4).
+         */
+        post: operations["completeWork"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/works/{workId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 미션 취소
+         * @description 권한: 그 미션의 director. 진행 중 서브 미션을 멈추고 `cancelled`.
+         */
+        post: operations["cancelWork"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/works/{workId}/director": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 미션 Director 교체
+         * @description 권한: 그 미션의 director · ws owner·admin.
+         */
+        put: operations["changeWorkDirector"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/works/{workId}/subscription": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 미션 알림 구독
+         * @description 권한: 방 참여자(본인 것). 방 구독을 덮어쓴다(FR-8).
+         */
+        put: operations["setWorkSubscription"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/lanes/{laneId}/subscription": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                laneId: components["parameters"]["LaneId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 서브 미션 알림 켜기·끄기
+         * @description 권한: 방 참여자(본인 것). 스레드 단위(FR-8).
+         */
+        put: operations["setLaneSubscription"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/work-proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 미션 제안 목록(S26)
+         * @description 권한: 방 참여자(사람).
+         */
+        get: operations["listWorkProposals"];
+        put?: never;
+        /**
+         * 미션 제안(에이전트)
+         * @description 권한: TaskToken — 그 task 의 방에 참여한 에이전트. 에이전트는 미션을 열 수 없고 제안만 한다(FR-2A.1 — 무한 자기 위임 방지). 받은 요청 `work_proposed` 를 방 참여자에게.
+         */
+        post: operations["createWorkProposal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/work-proposals/{workProposalId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workProposalId: components["parameters"]["WorkProposalId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 미션 제안
+         * @description 권한: 방 참여자(사람).
+         */
+        get: operations["getWorkProposal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/work-proposals/{workProposalId}/resolution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workProposalId: components["parameters"]["WorkProposalId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 미션 제안 열기 · 거절
+         * @description 권한: 방 참여자(사람) 누구나. 열면 **연 사람이 Director**(제안한 에이전트가 아니다). 거절하면 타임라인 시스템 메시지로 제안한 에이전트에게 알린다. 이미 처리됐으면 `409 already_resolved`(누가 언제 처리했는지 `Problem` 확장에).
+         */
+        post: operations["resolveWorkProposal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspaces/{workspaceId}/activity-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 활동 로그(S15, 감사)
+         * @description 권한: ws owner·admin.
+         *     다른 방 읽기·거부, 참고 링크, 감사 열람, 방 멈춤, 방장 승계, 방 삭제가 남는다. 실시간 없음(감사 화면은 흐르면 읽을 수 없다).
+         */
+        get: operations["listActivityLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cli/rooms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * colab room list — 읽을 수 있는 방
+         * @description 권한: TaskToken. FR-4.5 두 조건(요청한 사람이 참여자 AND 에이전트가 참여자이거나 참고 링크)을 **호출 순간** 판정해 통과한 방만 준다 — 나머지는 목록에도 없다.
+         */
+        get: operations["listReadableRooms"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cli/rooms/{roomId}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * colab room read — 다른 방 읽기
+         * @description 권한: TaskToken + FR-4.5 두 조건을 읽는 순간 재검사. 실패하면 `403`(사유 `room_read_denied` + `denied_reason`) — 대상 방 존재는 숨긴다(`originator_left` 만 예외). originator 가 없는 턴은 자기를 깨운 task 의 originator 를 물려받고, 그래도 없으면 `no_originator`(방장으로 대체하지 않는다).
+         *     읽은 사실을 양쪽 방에 남긴다(`room_read_log` + 읽힌 방 시스템 메시지). 분량은 `room_read.max_tokens`·`max_rooms_per_turn` 상한 — 넘으면 `truncated: true`. 쓰기는 없다.
+         */
+        get: operations["readRoom"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/cli/context": {
         parameters: {
             query?: never;
@@ -2003,10 +2737,10 @@ export interface components {
          */
         DecisionSource: "hitl" | "agent";
         /**
-         * @description `inbox_item_type` (FR-8). `workdir_gc_blocked`(P4, FR-6.4 M4 · E13-12·13) — 보존 기한이 지난 worktree 를 미병합 커밋·미커밋 변경 때문에 지우지 못했다. 같은 workdir 에 미해결 항목이 있으면 다시 만들지 않는다(스윕 멱등). 카드: {workdir_id, session_id, repo_path, branch, reason, commits_ahead}
+         * @description `inbox_item_type` (FR-8). v0.2.0(PRD v0.19): `isolation_confirm`(FR-2.1.1 — 저장소 있는 컴퓨터로의 첫 실행 격리 확인, 답까지 첫 dispatch 보류) · `work_proposed`(FR-2A.1) · `work_paused`·`work_completed`(옛 `session_*` 의 미션판 — 옛 값은 R4 까지 함께 산다) · `room_paused`(방 전체, action_required) · `room_invited`(FR-2.2) · `workdir_quota`(FR-6.4 용량 상한). `workdir_gc_blocked`(P4, FR-6.4 M4 · E13-12·13) — 보존 기한이 지난 worktree 를 미병합 커밋·미커밋 변경 때문에 지우지 못했다. 같은 workdir 에 미해결 항목이 있으면 다시 만들지 않는다(스윕 멱등). 카드: {workdir_id, session_id, repo_path, branch, reason, commits_ahead}
          * @enum {string}
          */
-        InboxItemType: "hitl_request" | "lane_blocked" | "session_completed" | "session_paused" | "run_failed" | "runtime_offline" | "mention" | "workdir_gc_blocked";
+        InboxItemType: "hitl_request" | "isolation_confirm" | "lane_blocked" | "work_proposed" | "work_paused" | "room_paused" | "work_completed" | "room_invited" | "workdir_quota" | "session_completed" | "session_paused" | "run_failed" | "runtime_offline" | "mention" | "workdir_gc_blocked";
         /**
          * @description `inbox_severity` (SCREEN §4.6)
          * @enum {string}
@@ -2134,6 +2868,8 @@ export interface components {
             task_event_masking: boolean;
             /** Format: date-time */
             updated_at: string;
+            room_defaults?: components["schemas"]["RoomDefaults"];
+            room_read?: components["schemas"]["RoomReadPolicy"];
         };
         /** @description 부분 갱신. 모든 필드 선택. */
         WorkspaceSettingsUpdate: {
@@ -2146,6 +2882,8 @@ export interface components {
             workdir_disk_quota_gb?: number | null;
             runtime_offline_grace?: string;
             task_event_masking?: boolean;
+            room_defaults?: components["schemas"]["RoomDefaults"];
+            room_read?: components["schemas"]["RoomReadPolicy"];
         };
         /** @description FR-3.5. */
         LoopLimits: {
@@ -2482,6 +3220,10 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+            /** @description v0.2.0 — 참여 중인 방 수(호출자가 볼 수 있는 것만 센다). */
+            room_count?: number;
+            /** @description v0.2.0 — 호출자가 볼 수 없는 방 수(이름은 주지 않는다). */
+            hidden_room_count?: number;
         };
         AgentCreate: {
             /** @description 멘션 라벨. 워크스페이스 내 유일. */
@@ -3023,6 +3765,11 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             edited_at?: string | null;
+            /**
+             * Format: uuid
+             * @description v0.2.0 — 귀속된 미션(FR-3.1.1).
+             */
+            work_id?: string | null;
         };
         MessagePage: {
             items: components["schemas"]["Message"][];
@@ -3053,6 +3800,11 @@ export interface components {
              * @default []
              */
             suppress_agent_ids?: string[];
+            /**
+             * Format: uuid
+             * @description v0.2.0 — 작성창 미션 선택기(FR-3.1.1 규칙 1). 비우면 서버가 규칙 2~4 로 정한다.
+             */
+            work_id?: string | null;
         };
         /** @description 규칙 1~8 + lane 해소 결과(게시 전). */
         TriggerPreview: {
@@ -3068,6 +3820,13 @@ export interface components {
                 /** Format: uuid */
                 agent_id?: string | null;
             }[];
+            /** @description v0.2.0 — 이 메시지가 들어갈 미션. */
+            work?: {
+                /** Format: uuid */
+                id: string;
+                title: string;
+            } | null;
+            work_source?: components["schemas"]["WorkSource"];
         };
         TriggerTarget: {
             /** Format: uuid */
@@ -3189,6 +3948,14 @@ export interface components {
             updated_at: string;
             /** Format: date-time */
             finished_at: string | null;
+            /**
+             * Format: uuid
+             * @description v0.2.0 — 매인 미션. null 이면 「미션 없음」.
+             */
+            work_id?: string | null;
+            work_title?: string | null;
+            /** @description v0.2.0 — 대기 중인 첫 task 의 사유. */
+            queued_reason?: components["schemas"]["QueuedReason"] | null;
         };
         TaskUsage: {
             /** Format: int64 */
@@ -3274,6 +4041,13 @@ export interface components {
             started_at?: string | null;
             /** Format: date-time */
             finished_at?: string | null;
+            /**
+             * Format: uuid
+             * @description v0.2.0.
+             */
+            work_id?: string | null;
+            /** @description v0.2.0 PRD §3.1. */
+            queued_reason?: components["schemas"]["QueuedReason"] | null;
         };
         /** @description `task_event` 행. `class` 집합과 `object_ref` 형식은 `contracts/task_event.schema.json`이 정한다 — 여기서는 열어 둔다. */
         TaskEvent: {
@@ -3348,7 +4122,7 @@ export interface components {
              * @enum {string|null}
              */
             purpose?: "agent" | "user_approval" | "budget" | "time" | "loop" | null;
-            /** @description `director` · `any_member` · 사용자 uuid. */
+            /** @description `director` · `room_owner`(v0.2.0 — 미션 밖 task·방 상한·격리 확인, 부재 위임 FR-2A.3) · `any_member` · 사용자 uuid. */
             approver_spec: string;
             /** Format: date-time */
             due_at: string;
@@ -3382,7 +4156,7 @@ export interface components {
         HitlCreateBase: {
             type: components["schemas"]["HitlType"];
             /**
-             * @description `director` · `any_member` · 사용자 uuid. 그 밖은 422(fail closed).
+             * @description `director` · `room_owner`(v0.2.0) · `any_member` · 사용자 uuid. 그 밖은 422(fail closed).
              * @default director
              */
             approver_spec?: string;
@@ -3488,6 +4262,11 @@ export interface components {
             review?: components["schemas"]["ArtifactReview"];
             /** Format: date-time */
             created_at: string;
+            /**
+             * Format: uuid
+             * @description v0.2.0 — 이름·버전은 방 단위(미션이 달라도 같은 이름이면 다음 버전).
+             */
+            work_id?: string | null;
         };
         ArtifactReview: {
             /** Format: uuid */
@@ -3521,6 +4300,11 @@ export interface components {
             auto?: boolean;
             /** Format: date-time */
             created_at: string;
+            /**
+             * Format: uuid
+             * @description v0.2.0.
+             */
+            work_id?: string | null;
         };
         InboxItem: {
             /** Format: uuid */
@@ -3575,6 +4359,23 @@ export interface components {
             read_at: string | null;
             /** Format: date-time */
             created_at: string;
+            /**
+             * Format: uuid
+             * @description v0.2.0 — `session_id` 와 같은 값.
+             */
+            room_id?: string | null;
+            /**
+             * Format: uuid
+             * @description v0.2.0.
+             */
+            work_id?: string | null;
+            /**
+             * Format: uuid
+             * @description v0.2.0.
+             */
+            lane_id?: string | null;
+            /** @description v0.2.0 — 카드의 「Director 로서」·「방장으로서」. */
+            recipient_basis?: ("director" | "deputy" | "room_owner" | "room_deputy" | "workspace_owner") | null;
         };
         InboxSummary: {
             /** @description 내비 뱃지 값. */
@@ -3648,23 +4449,576 @@ export interface components {
          *     | `cost.updated` | `{session_id, cost_usd, estimated}` | S5 · S7 |
          *     | `test_chat.delta` | `{test_chat_id, text}` (ephemeral) | S10 |
          *     | `test_chat.turn` | `{test_chat_id, turn: TestChatTurn, transport, input_tokens, output_tokens}` | S10 |
+         *     | `room.updated` | `Room`(부분: blocked_reason · blocked_detail · status · name · description · last_activity_at) — v0.2.0 | S5 · S7 |
+         *     | `room.deleted` | `{room_id}` (`session.deleted` 와 같은 사건, R4 까지 둘 다 낸다) | S5 · S7 |
+         *     | `room.unread` | `{room_id, unread_count, last_read_message_id}` — 내 다른 탭·기기에도 | S5 · 내비 |
+         *     | `work.created` · `work.updated` | `WorkListItem`(부분) | S7 칩 줄 · 우열 |
+         *     | `work.closed` | `{work_id, room_id, status, summary_message_id?}` | S7 |
+         *     | `work.completion_progress` | `{work_id, completion_progress}` | S7 · S22 |
+         *     | `participant.joined` · `participant.left` | `{room_id, participant: RoomParticipant}` · `{room_id, participant_id, kind, left_at}` | S7 · S19 |
+         *     | `room_read.recorded` | `{room_id, direction, entry: RoomRead}` | S23 · S7 |
+         *     | `room_link.updated` | `{room_id, action: created\|deleted, link: RoomLink}` | S24 |
+         *     | `work_proposal.created` · `work_proposal.resolved` | `{room_id, proposal: WorkProposal}` · `{room_id, proposal_id, action, work_id?}` | S26 · S8 |
+         *
+         *     v0.2.0 에서 **확장**되는 것: `lane.updated`(`work_id`·`queued_reason`) · `cost.updated`(`{room_id, room_cost_usd, work_id?, work_cost_usd?, estimated}` — 방 누적과 미션 비용 두 수) · `inbox.item_created`(`work_id`·`lane_id`). 웹 `STREAM_EVENT_TYPES` 는 이 enum 과 **같은 PR 에서** 맞춘다(목록에 없는 타입은 조용히 버려진다).
          */
         StreamEvent: {
             /** @description 커서(= SSE id). */
             id: string;
             /** @enum {string} */
-            type: "resync" | "session.updated" | "session.deleted" | "session.completion_progress" | "participant.updated" | "lane.updated" | "task.updated" | "task_event.appended" | "task_event.superseded" | "message.created" | "message.updated" | "message.delta" | "agent.typing" | "hitl.created" | "hitl.updated" | "artifact.created" | "decision.created" | "inbox.item_created" | "inbox.item_updated" | "inbox.summary" | "runtime.updated" | "pairing.updated" | "workdir.updated" | "cost.updated" | "test_chat.delta" | "test_chat.turn";
+            type: "resync" | "session.updated" | "session.deleted" | "session.completion_progress" | "participant.updated" | "lane.updated" | "task.updated" | "task_event.appended" | "task_event.superseded" | "message.created" | "message.updated" | "message.delta" | "agent.typing" | "hitl.created" | "hitl.updated" | "artifact.created" | "decision.created" | "inbox.item_created" | "inbox.item_updated" | "inbox.summary" | "runtime.updated" | "pairing.updated" | "workdir.updated" | "cost.updated" | "test_chat.delta" | "test_chat.turn" | "room.updated" | "room.deleted" | "room.unread" | "work.created" | "work.updated" | "work.closed" | "work.completion_progress" | "participant.joined" | "participant.left" | "room_read.recorded" | "room_link.updated" | "work_proposal.created" | "work_proposal.resolved";
             /** Format: date-time */
             at: string;
             /** Format: uuid */
             workspace_id?: string;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description 방 id 와 같은 값(R4 까지).
+             */
             session_id?: string | null;
+            /**
+             * Format: uuid
+             * @description v0.2.0.
+             */
+            room_id?: string | null;
+            /**
+             * Format: uuid
+             * @description v0.2.0 — 미션 단위 거르기는 클라이언트가 이 값으로 한다.
+             */
+            work_id?: string | null;
             /** @default false */
             ephemeral?: boolean;
             payload: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * @description `room.status` (FR-2.4). 방은 완료되지 않는다 — 보관만 있고 되돌릴 수 있다.
+         * @enum {string}
+         */
+        RoomStatus: "active" | "archived";
+        /**
+         * @description `room.blocked_reason` (FR-2.4 · §12.1-9). null 이면 멈추지 않았다. `manual` 은 사람이 건 긴급 정지(권한자가 직접 푼다), 나머지는 승인 HITL(또는 재바인딩)로 풀린다. 큐는 값이 있는 방의 task 를 주지 않는다.
+         * @enum {string}
+         */
+        RoomBlockedReason: "budget" | "runtime_offline" | "loop" | "manual";
+        /**
+         * @description `room.visibility` (FR-5.3). `invited` 방은 초대되지 않은 사람에게 목록·검색에서도 숨는다(ws owner·admin 은 감사 열람).
+         * @enum {string}
+         */
+        RoomVisibility: "workspace" | "invited";
+        /**
+         * @description `room_participant.role` (FR-5.3). 사람 행에만 뜻이 있다 — 에이전트 행은 `member`.
+         * @enum {string}
+         */
+        RoomRole: "owner" | "deputy" | "member";
+        /** @enum {string} */
+        ParticipantKind: "user" | "agent";
+        /**
+         * @description `work.status` (FR-2A.4) — v0.18 `session_status` 의 상태 머신을 미션에 그대로 쓴다.
+         * @enum {string}
+         */
+        WorkStatus: "draft" | "active" | "paused" | "completing" | "completed" | "cancelled";
+        /**
+         * @description 미션 `paused_reason` (FR-2A.3). 루프 상한·컴퓨터 소실은 방 단위라 여기 오지 않는다 — `RoomBlockedReason`.
+         * @enum {string}
+         */
+        WorkPauseReason: "budget" | "time" | "director";
+        /**
+         * @description `work_proposal.status` (FR-2A.1). 기한이 없어 `expired` 는 없다.
+         * @enum {string}
+         */
+        WorkProposalStatus: "open" | "accepted" | "rejected";
+        /**
+         * @description `task.queued_reason` (PRD §3.1) — 큐에 걸린 이유. `agent_global` 은 에이전트 `max_concurrent_tasks` 가 방을 가로질러 찼다(§12.1-5).
+         * @enum {string}
+         */
+        QueuedReason: "room_lanes" | "agent_global" | "runtime" | "workspace";
+        /**
+         * @description 메시지가 미션에 귀속된 규칙(FR-3.1.1 순서 1~4). 판정은 서버가 한다.
+         * @enum {string}
+         */
+        WorkSource: "chosen" | "thread" | "running_lane" | "none";
+        /**
+         * @description `listRoomReads` 의 묶음 — 이 방이 읽은 것 · 이 방이 읽힌 것 · 이 방의 에이전트가 시도했다 막힌 것.
+         * @enum {string}
+         */
+        RoomReadDirection: "out" | "in" | "denied";
+        /**
+         * @description 다른 방 읽기 거부 사유(FR-4.5). `originator_left` 만 대상 방 이름을 드러낸다(존재 숨김의 예외 — 요청자가 한때 참여한 방).
+         * @enum {string}
+         */
+        RoomReadDeniedReason: "originator_not_participant" | "originator_left" | "agent_not_allowed" | "no_originator";
+        /** @description 방 한도(FR-2.3). 예산·시간은 미션에도 걸 수 있고 작은 쪽이 이긴다(FR-2A.3). 동시 서브 미션 상한은 방에만 있다. */
+        RoomLimits: {
+            budget_usd?: number | null;
+            /** @description ISO 8601 duration. */
+            time_limit?: string | null;
+            /** @default 3 */
+            max_concurrent_works?: number;
+            /** @default 5 */
+            max_parallel_lanes?: number;
+        };
+        /** @description 미션 한도(FR-2A.3). 비우면 방 한도를 따른다. */
+        WorkLimits: {
+            budget_usd?: number | null;
+            budget_tokens?: number | null;
+            time_limit?: string | null;
+            max_tasks?: number | null;
+        };
+        /** @description 방 멈춤 배너의 칸(SCREEN §4.6). 수는 문장에 보간하지 않고 칸으로 준다. */
+        BlockedDetail: {
+            reason?: components["schemas"]["RoomBlockedReason"];
+            works_stopped?: number;
+            /** @description `manual` 을 건 사람. */
+            blocked_by_user?: components["schemas"]["User"] | null;
+            /** Format: date-time */
+            blocked_at?: string;
+            /** @description 지금 답할 수 있는 사람(방장 → 기한 절반 후 부방장 → owner 최고참, FR-2A.3). */
+            approver?: components["schemas"]["User"] | null;
+            /**
+             * Format: date-time
+             * @description 다음 위임자가 답할 수 있게 되는 시각.
+             */
+            delegate_at?: string | null;
+            budget_usd?: number | null;
+            cost_usd?: number | null;
+            /** @description `loop` 일 때 왕복한 두 에이전트. */
+            loop_agents?: string[];
+            /** Format: uuid */
+            runtime_id?: string | null;
+        };
+        RoomParticipantRef: {
+            kind: components["schemas"]["ParticipantKind"];
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: uri */
+            avatar_url?: string | null;
+        };
+        /** @description S5 방 카드(SCREEN §4.3). 상태 배지·goal 은 없다 — 방에는 둘 다 없다. */
+        RoomListItem: {
+            /**
+             * Format: uuid
+             * @description 옛 `session.id` 와 같은 값(§7 이관 규칙).
+             */
+            id: string;
+            name: string;
+            description: string;
+            status: components["schemas"]["RoomStatus"];
+            blocked_reason: components["schemas"]["RoomBlockedReason"] | null;
+            /** @description `room_participant.last_read_message_id` 이후 메시지 수 — 목록에서 한 번에 센다. */
+            unread_count: number;
+            active_work_count: number;
+            /** @description 내가 답할 것만 센다. */
+            attention: {
+                hitl_open: number;
+                blocked: number;
+                failed: number;
+            };
+            participants: components["schemas"]["RoomParticipantRef"][];
+            /** @description 참여하지 않은(공개 방·감사 열람) 경우 null. */
+            my_room_role: components["schemas"]["RoomRole"] | null;
+            /** Format: date-time */
+            last_activity_at: string | null;
+        };
+        /** @description 방(PRD FR-2). 옛 `Session` 의 방 쪽 칸. */
+        Room: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            workspace_id: string;
+            name: string;
+            description: string;
+            status: components["schemas"]["RoomStatus"];
+            visibility: components["schemas"]["RoomVisibility"];
+            /** Format: uuid */
+            owner_user_id: string;
+            /** Format: uuid */
+            deputy_owner_user_id: string | null;
+            /**
+             * Format: uuid
+             * @description 첫 dispatch 때 고정(FR-2.1.1). 그 전에는 null.
+             */
+            runtime_id: string | null;
+            runtime?: components["schemas"]["Runtime"];
+            isolation: components["schemas"]["Isolation"];
+            limits: components["schemas"]["RoomLimits"];
+            autonomy: components["schemas"]["AutonomyLevel"];
+            /**
+             * Format: uuid
+             * @description 비어 있으면 미션을 연 사람이 Director(FR-2A.1).
+             */
+            default_director_user_id: string | null;
+            blocked_reason: components["schemas"]["RoomBlockedReason"] | null;
+            blocked_detail?: components["schemas"]["BlockedDetail"] | null;
+            counts?: {
+                works_active?: number;
+                lanes_active?: number;
+                tasks_active?: number;
+            };
+            /** @description 방 누적(미션 밖 대화 포함). */
+            cost_usd?: number;
+            cost_estimated?: boolean;
+            unread_count: number;
+            my_room_role: components["schemas"]["RoomRole"] | null;
+            /** @description 호출자가 이 방에서 할 수 있는 동작 — 버튼 활성·비활성 판정(SCREEN §2.3). */
+            my_capabilities?: ("post" | "invite" | "configure" | "link" | "block" | "archive" | "delete" | "transfer_owner" | "summarize")[];
+            /** Format: uuid */
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            last_activity_at?: string | null;
+        };
+        /** @description 방 만들기(S18) — 이름 한 칸. 나머지는 워크스페이스 기본값을 상속한다. 연결된 컴퓨터가 0개여도 만들어진다. */
+        RoomCreate: {
+            name: string;
+            /** @default  */
+            description?: string;
+        };
+        /** @description 방 설정(S20). `runtime_id`·`isolation` 은 첫 dispatch 전에만 바꿀 수 있다(`409 runtime_pinned`). */
+        RoomUpdate: {
+            name?: string;
+            description?: string;
+            visibility?: components["schemas"]["RoomVisibility"];
+            /** Format: uuid */
+            runtime_id?: string | null;
+            isolation?: components["schemas"]["Isolation"];
+            limits?: components["schemas"]["RoomLimits"];
+            autonomy?: components["schemas"]["AutonomyLevel"];
+            /** Format: uuid */
+            default_director_user_id?: string | null;
+        };
+        /** @description `room_participant` — 사람과 에이전트가 한 표(PRD §7). */
+        RoomParticipant: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            room_id: string;
+            kind: components["schemas"]["ParticipantKind"];
+            user?: components["schemas"]["User"];
+            agent?: components["schemas"]["Agent"];
+            profile?: components["schemas"]["AgentProfile"];
+            status?: components["schemas"]["AgentStatus"];
+            /** @description 「다른 방에서 작업 중」 등(SCREEN §4.6). */
+            status_note?: string | null;
+            room_role: components["schemas"]["RoomRole"];
+            /** Format: date-time */
+            joined_at: string;
+            /** Format: date-time */
+            left_at: string | null;
+        };
+        RoomParticipantAdd: {
+            /** Format: uuid */
+            user_id: string;
+        } | {
+            /** Format: uuid */
+            agent_id: string;
+            /** Format: uuid */
+            profile_id?: string;
+        };
+        RoomParticipantUpdate: {
+            /**
+             * Format: uuid
+             * @description 에이전트 행만.
+             */
+            profile_id?: string;
+        };
+        /** @description 참고 방 링크(FR-4.5). 걸고 푸는 것은 양쪽 방에 시스템 메시지로 남는다. */
+        RoomLink: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            room_id: string;
+            target_room: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                description?: string;
+                /** Format: date-time */
+                last_activity_at?: string | null;
+            };
+            created_by: components["schemas"]["User"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description `room_read_log` 한 행(S23). `denied` 에서는 `other_room` 이 null 이다 — `denied_reason: originator_left` 만 예외. */
+        RoomRead: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            at: string;
+            direction: components["schemas"]["RoomReadDirection"];
+            agent: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+            };
+            originator_user: components["schemas"]["User"] | null;
+            other_room: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+            } | null;
+            scope: {
+                summary?: boolean;
+                recent_n?: number;
+            };
+            /** @description 분량 상한(`room_read.max_tokens`·`max_rooms_per_turn`)으로 잘렸다. */
+            truncated: boolean;
+            /** Format: uuid */
+            task_id: string | null;
+            denied_reason: components["schemas"]["RoomReadDeniedReason"] | null;
+        };
+        /** @description `colab room read` 결과(FR-4.5) — 요약 + 최근 메시지 + 결정 기록 + 아티팩트 목록. 읽기 전용이며 그 턴의 프롬프트에만 쓰인다. */
+        RoomReadResult: {
+            room: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                description?: string;
+            };
+            /** @description 가장 최근 「여기까지 정리」 요약. */
+            summary: string | null;
+            messages: components["schemas"]["Message"][];
+            decisions: components["schemas"]["Decision"][];
+            artifacts: components["schemas"]["Artifact"][];
+            truncated: boolean;
+        };
+        /** @description `colab room list` 한 행 — 이 턴이 읽을 수 있는 방만(FR-4.5 두 조건). */
+        ReadableRoom: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            description: string;
+            /** Format: date-time */
+            last_activity_at: string | null;
+            agent_is_participant: boolean;
+            /** @description 참여가 아니라 참고 방 링크로 읽을 수 있다. */
+            via_link: boolean;
+        };
+        /** @description 「여기까지 정리」(FR-2.5) — 범위를 사람이 고르고 그 범위를 요약 메시지에 기록한다. */
+        RoomSummarize: {
+            /**
+             * Format: date-time
+             * @description 「최근 7일」 등. from/to 와 함께 쓰지 않는다.
+             */
+            since?: string;
+            /** Format: uuid */
+            from_message_id?: string;
+            /** Format: uuid */
+            to_message_id?: string;
+        };
+        /** @description 미션 칩 줄 · 미션 목록(S7). */
+        WorkListItem: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            room_id: string;
+            title: string;
+            goal: string;
+            status: components["schemas"]["WorkStatus"];
+            paused_reason: components["schemas"]["WorkPauseReason"] | null;
+            /** @description 열린 HITL 이 있다(칩의 ⏳ — 상태가 아니라 파생). */
+            waiting_human?: boolean;
+            director: components["schemas"]["User"];
+            /** Format: uuid */
+            assignee_agent_id: string | null;
+            completion_progress: {
+                met: number;
+                total: number;
+            };
+            cost_usd: number;
+            budget_usd: number | null;
+            /** Format: date-time */
+            last_activity_at: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+        };
+        /** @description 미션(PRD FR-2A, 화면 이름 「미션」). 옛 `Session` 의 goal 쪽 칸. */
+        Work: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            room_id: string;
+            title: string;
+            goal: string;
+            acceptance_criteria: string[];
+            /** Format: uuid */
+            director_user_id: string;
+            director?: components["schemas"]["User"];
+            /** Format: uuid */
+            deputy_user_id: string | null;
+            deputy?: components["schemas"]["User"];
+            /**
+             * Format: uuid
+             * @description 없으면 기본 종료 조건은 `user_approval` 단독(FR-2A.1).
+             */
+            assignee_agent_id: string | null;
+            completion_condition: components["schemas"]["CompletionCondition"];
+            completion_progress: components["schemas"]["CompletionProgress"];
+            limits: components["schemas"]["WorkLimits"];
+            autonomy: components["schemas"]["AutonomyLevel"];
+            status: components["schemas"]["WorkStatus"];
+            paused_reason: components["schemas"]["WorkPauseReason"] | null;
+            paused_detail?: components["schemas"]["PausedDetail"];
+            cost_usd: number;
+            cost_estimated?: boolean;
+            /**
+             * Format: uuid
+             * @description 끝날 때 방에 남긴 요약 메시지(FR-2A.4).
+             */
+            summary_message_id?: string | null;
+            /**
+             * Format: uuid
+             * @description 「이걸 미션으로」의 원 메시지.
+             */
+            opened_from_message_id?: string | null;
+            /** @enum {string} */
+            my_work_role: "director" | "deputy" | "member";
+            subscription?: components["schemas"]["SubscriptionLevel"];
+            /** Format: uuid */
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            /** Format: date-time */
+            last_activity_at?: string | null;
+        };
+        /** @description 미션 열기(S21). goal 만 필수 — 나머지는 방 설정을 상속한다(FR-2A.1). */
+        WorkCreate: {
+            goal: string;
+            /** @description 비우면 goal 첫 줄. */
+            title?: string;
+            /** @default [] */
+            acceptance_criteria?: string[];
+            /** Format: uuid */
+            assignee_agent_id?: string | null;
+            completion_condition?: components["schemas"]["CompletionCondition"];
+            /**
+             * Format: uuid
+             * @description 비우면 방 `default_director_user_id`, 그것도 없으면 연 사람.
+             */
+            director_user_id?: string;
+            /** Format: uuid */
+            deputy_user_id?: string | null;
+            limits?: components["schemas"]["WorkLimits"];
+            autonomy?: components["schemas"]["AutonomyLevel"];
+            /**
+             * Format: uuid
+             * @description 「이걸 미션으로」 — 원 메시지와 그 스레드의 `work_id = null` 인 것을 한 번 귀속하고 그 스레드의 lane 도 채운다(FR-3.1.1 사후 귀속).
+             */
+            from_message_id?: string;
+            /**
+             * Format: uuid
+             * @description 에이전트 제안에서 연다(S26).
+             */
+            from_proposal_id?: string;
+            /** @default false */
+            draft?: boolean;
+        };
+        WorkUpdate: {
+            title?: string;
+            goal?: string;
+            acceptance_criteria?: string[];
+            /** Format: uuid */
+            assignee_agent_id?: string | null;
+            completion_condition?: components["schemas"]["CompletionCondition"];
+            /** Format: uuid */
+            deputy_user_id?: string | null;
+            limits?: components["schemas"]["WorkLimits"];
+            autonomy?: components["schemas"]["AutonomyLevel"];
+        };
+        /** @description `work_proposal` (FR-2A.1). 에이전트는 제안만 하고 사람이 연다. */
+        WorkProposal: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            room_id: string;
+            agent: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+            };
+            /** Format: uuid */
+            proposed_by_task_id?: string;
+            goal: string;
+            rationale: string;
+            /** Format: uuid */
+            trigger_message_id: string | null;
+            status: components["schemas"]["WorkProposalStatus"];
+            decided_by: components["schemas"]["User"] | null;
+            /** Format: date-time */
+            decided_at: string | null;
+            reject_reason: string | null;
+            /** Format: uuid */
+            work_id: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        WorkProposalCreate: {
+            goal: string;
+            rationale: string;
+        };
+        WorkProposalResolution: {
+            /** @constant */
+            action: "accept";
+            work?: components["schemas"]["WorkCreate"];
+        } | {
+            /** @constant */
+            action: "reject";
+            reason?: string;
+        };
+        /** @description `activity_log` 한 행(S15, 감사). payload 는 워크스페이스 마스킹 설정을 따른다. */
+        ActivityLogEntry: {
+            id: string;
+            /** Format: date-time */
+            at: string;
+            actor: {
+                /** @enum {string} */
+                kind: "user" | "agent" | "system";
+                /** Format: uuid */
+                id: string | null;
+                name: string;
+                /**
+                 * Format: uuid
+                 * @description 에이전트 동작이면 요청한 사람.
+                 */
+                originator_user_id?: string | null;
+            };
+            /** @description 예: `room.read` · `room.read.denied` · `room.blocked` · `room_link.created` · `room.owner_succeeded` · `room.deleted` · `room.audit_viewed`. */
+            action: string;
+            object_ref: string;
+            room: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+            } | null;
+            payload: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description 새 방의 기본값(S14 「방 기본값」, PRD §6). */
+        RoomDefaults: {
+            visibility?: components["schemas"]["RoomVisibility"];
+            isolation_kind?: components["schemas"]["IsolationKind"];
+            autonomy?: components["schemas"]["AutonomyLevel"];
+            limits?: components["schemas"]["RoomLimits"];
+        };
+        /** @description 다른 방 읽기 분량 상한(FR-4.5). */
+        RoomReadPolicy: {
+            /** @default 3 */
+            max_rooms_per_turn?: number;
+            /** @default 4000 */
+            max_tokens?: number;
         };
         /** @description `TaskToken`이 가리키는 범위. CLI는 이 값으로 경로 파라미터를 채운다. */
         CliContext: {
@@ -3791,6 +5145,12 @@ export interface components {
         ProfileId: string;
         TestChatId: string;
         SessionId: string;
+        /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+        RoomId: string;
+        WorkId: string;
+        WorkProposalId: string;
+        RoomLinkId: string;
+        ParticipantId: string;
         MessageId: string;
         LaneId: string;
         TaskId: string;
@@ -5658,6 +7018,12 @@ export interface operations {
     listMessages: {
         parameters: {
             query?: {
+                /** @description v0.2.0 — 그 미션의 메시지만. `none` 이 아니라 빈 값 + `no_work=true` 로 미션 밖만. */
+                work_id?: string;
+                /** @description v0.2.0 — `work_id = null` 메시지만(미션 칩 「미션 없음」). */
+                no_work?: boolean;
+                /** @description v0.2.0 — 그 메시지를 가운데 두고 위아래 25건(안 읽음 앵커·인용). */
+                around_message_id?: string;
                 /** @description 스레드 루트 메시지 id. */
                 thread?: string;
                 include_replies?: boolean;
@@ -6690,7 +8056,9 @@ export interface operations {
     streamEvents: {
         parameters: {
             query?: {
-                /** @description 세션 범위 이벤트만(여러 개 가능). 비우면 워크스페이스 전체(S5·S8·S11 수준). */
+                /** @description v0.2.0 — 방 범위 이벤트만(여러 개 가능). `session_id` 와 같은 값이다. `work_id` 로는 좁히지 않는다(방 배너·참여자·안 읽음이 빠진다). */
+                room_id?: string[];
+                /** @description 세션 범위 이벤트만(여러 개 가능). 비우면 워크스페이스 전체(S5·S8·S11 수준). R4 까지 `room_id` 의 별칭. */
                 session_id?: string[];
                 test_chat_id?: string;
             };
@@ -6715,6 +8083,1225 @@ export interface operations {
                 };
             };
             403: components["responses"]["Forbidden"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    listRooms: {
+        parameters: {
+            query?: {
+                /** @description 방 이름·설명 부분 일치. */
+                q?: string;
+                unread_only?: boolean;
+                /** @description 내가 참여한 방만(기본 켜짐). */
+                participating?: boolean;
+                include_archived?: boolean;
+                /** @description 이전 응답의 `next_cursor`. 불투명 문자열. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"] & {
+                        items?: components["schemas"]["RoomListItem"][];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    createRoom: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKeyOptional"];
+            };
+            path: {
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomCreate"];
+            };
+        };
+        responses: {
+            /** @description 성공. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Room"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    getRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Room"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 완료. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomUpdate"];
+            };
+        };
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Room"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    archiveRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Room"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    unarchiveRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Room"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    blockRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Room"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    unblockRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Room"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    markRoomRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    last_read_message_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        room_id: string;
+                        unread_count: number;
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    summarizeRoom: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKeyOptional"];
+            };
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomSummarize"];
+            };
+        };
+        responses: {
+            /** @description 성공. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Message"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    transferRoomOwner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    user_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Room"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    setRoomDeputy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    user_id: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Room"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    listRoomParticipants: {
+        parameters: {
+            query?: {
+                include_left?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["RoomParticipant"][];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    addRoomParticipant: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKeyOptional"];
+            };
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomParticipantAdd"];
+            };
+        };
+        responses: {
+            /** @description 성공. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomParticipant"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    removeRoomParticipant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+                participantId: components["parameters"]["ParticipantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 완료. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateRoomParticipant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+                participantId: components["parameters"]["ParticipantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomParticipantUpdate"];
+            };
+        };
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomParticipant"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    listRoomLinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["RoomLink"][];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    createRoomLink: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKeyOptional"];
+            };
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    target_room_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description 성공. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomLink"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteRoomLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+                roomLinkId: components["parameters"]["RoomLinkId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 완료. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    listRoomReads: {
+        parameters: {
+            query?: {
+                direction?: components["schemas"]["RoomReadDirection"];
+                agent_id?: string;
+                since?: string;
+                /** @description 이전 응답의 `next_cursor`. 불투명 문자열. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"] & {
+                        items?: components["schemas"]["RoomRead"][];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    listWorks: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["WorkStatus"][];
+                /** @description 이전 응답의 `next_cursor`. 불투명 문자열. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"] & {
+                        items?: components["schemas"]["WorkListItem"][];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    createWork: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKeyOptional"];
+            };
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkCreate"];
+            };
+        };
+        responses: {
+            /** @description 성공. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Work"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    getWork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Work"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteWork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 완료. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateWork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkUpdate"];
+            };
+        };
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Work"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    pauseWork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Work"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    resumeWork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    limits?: components["schemas"]["WorkLimits"];
+                };
+            };
+        };
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Work"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    completeWork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Work"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    cancelWork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Work"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    changeWorkDirector: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    director_user_id: string;
+                    /** Format: uuid */
+                    deputy_user_id?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Work"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    setWorkSubscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workId: components["parameters"]["WorkId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description null 이면 방 설정을 따른다. */
+                    level: components["schemas"]["SubscriptionLevel"] | null;
+                };
+            };
+        };
+        responses: {
+            /** @description 완료. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    setLaneSubscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                laneId: components["parameters"]["LaneId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    enabled: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description 완료. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    listWorkProposals: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["WorkProposalStatus"];
+                /** @description 이전 응답의 `next_cursor`. 불투명 문자열. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"] & {
+                        items?: components["schemas"]["WorkProposal"][];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    createWorkProposal: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKeyOptional"];
+            };
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkProposalCreate"];
+            };
+        };
+        responses: {
+            /** @description 성공. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkProposal"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    getWorkProposal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workProposalId: components["parameters"]["WorkProposalId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkProposal"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    resolveWorkProposal: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKeyOptional"];
+            };
+            path: {
+                workProposalId: components["parameters"]["WorkProposalId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkProposalResolution"];
+            };
+        };
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        proposal: components["schemas"]["WorkProposal"];
+                        work?: components["schemas"]["Work"];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    listActivityLog: {
+        parameters: {
+            query?: {
+                room_id?: string;
+                action?: string;
+                actor_id?: string;
+                since?: string;
+                until?: string;
+                /** @description 이전 응답의 `next_cursor`. 불투명 문자열. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"] & {
+                        items?: components["schemas"]["ActivityLogEntry"][];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    listReadableRooms: {
+        parameters: {
+            query?: {
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["ReadableRoom"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    readRoom: {
+        parameters: {
+            query?: {
+                tail?: number;
+                query?: string;
+            };
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomReadResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             default: components["responses"]["Problem"];
         };
     };

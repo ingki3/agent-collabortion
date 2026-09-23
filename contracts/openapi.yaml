@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Colab Server API
-  version: 0.1.6-draft
+  version: 0.2.0-draft
   summary: Colab 서버 REST API — P1~P3(수직 슬라이스 · 협업 코어 · HITL/재개/예산)에서 웹(W)과 colab CLI(C)가 호출하는 전부.
   description: |
     # 읽는 법
@@ -57,6 +57,10 @@ tags:
     description: 비용 집계 — task · agent · 세션 · 런타임 4단위, 추정치 배지(FR-7.3).
   - name: realtime
     description: SSE 스트림 하나. 재연결 시 `Last-Event-ID`로 놓친 이벤트를 채운다(SCREEN §6).
+  - name: rooms
+    description: 'v0.2.0(PRD v0.19 R0) — S5 방 목록 · S18 방 만들기 · S7 방 화면 상단 · S19 참여자 · S20 방 설정 · S23 맥락 읽기 기록 · S24 참고 방 링크. 방 id 는 옛 session id 와 같은 값이고, `/sessions/*` op 은 R4 별칭 제거 때까지 그대로 산다.'
+  - name: works
+    description: '미션(work) — S21 미션 열기 · S22 미션 패널 · S26 미션 제안. 화면 이름은 「미션」(PRD §3.2).'
   - name: cli
     description: colab CLI 전용 보조 operation(`TaskToken` → 자기 task · lane · 세션 해석).
 
@@ -1802,6 +1806,18 @@ paths:
         - UserSession: []
         - TaskToken: []
       parameters:
+        - name: work_id
+          in: query
+          description: v0.2.0 — 그 미션의 메시지만. `none` 이 아니라 빈 값 + `no_work=true` 로 미션 밖만.
+          schema: { type: string, format: uuid }
+        - name: no_work
+          in: query
+          description: v0.2.0 — `work_id = null` 메시지만(미션 칩 「미션 없음」).
+          schema: { type: boolean, default: false }
+        - name: around_message_id
+          in: query
+          description: v0.2.0 — 그 메시지를 가운데 두고 위아래 25건(안 읽음 앵커·인용).
+          schema: { type: string, format: uuid }
         - name: thread
           in: query
           description: 스레드 루트 메시지 id.
@@ -2317,7 +2333,7 @@ paths:
       summary: HITL 요청 등록(`colab hitl ask` / `approve-request` / `request-info`) — 턴을 끝내라
       description: |
         권한: `TaskToken`(에이전트, `source: agent`). 시스템 발행(`source: system`)은 서버 내부 — 이 API로는 만들 수 없다.
-        타입별 본문은 `HitlCreate`(oneOf). `question`·`choice`는 `proposed_default` **필수**(`422`, E7-05). **task당 열린 HITL은 하나** — 두 번째는 `409 hitl_already_open`(E7-04, 피드 기록). `approver_spec`은 `director`·`any_member`·사용자 uuid만, 그 밖은 `422`(fail closed, E7-16). `due_in` 기본 24h.
+        타입별 본문은 `HitlCreate`(oneOf). `question`·`choice`는 `proposed_default` **필수**(`422`, E7-05). **task당 열린 HITL은 하나** — 두 번째는 `409 hitl_already_open`(E7-04, 피드 기록). `approver_spec`은 `director`·`room_owner`(v0.2.0)·`any_member`·사용자 uuid만, 그 밖은 `422`(fail closed, E7-16). `due_in` 기본 24h.
         등록 즉시 task에 `pending_hitl`만 세우고(상태는 아직 `running`) **`turn_end` 도착 시 `waiting_human`**(FR-7.1 N4). 응답은 `turn_end_required: true` — 에이전트는 답을 기다리지 말고 턴을 끝내야 한다(FR-5.2). v1은 `question`·`approval`(`choice`·`info`는 v1.1이지만 스키마는 지금 둔다 — SCREEN §2.3 C4).
       x-colab-cli: hitl ask | hitl approve-request | hitl request-info
       x-prd: [FR-5.1, FR-5.2, FR-5.4, FR-7.1]
@@ -2921,9 +2937,17 @@ paths:
       x-screen: [S5, S7, S8, S11, S12, S13, S10]
       x-phase: P1
       parameters:
+        - name: room_id
+          in: query
+          description: v0.2.0 — 방 범위 이벤트만(여러 개 가능). `session_id` 와 같은 값이다. `work_id` 로는 좁히지 않는다(방 배너·참여자·안 읽음이 빠진다).
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: { type: string, format: uuid }
         - name: session_id
           in: query
-          description: 세션 범위 이벤트만(여러 개 가능). 비우면 워크스페이스 전체(S5·S8·S11 수준).
+          description: 세션 범위 이벤트만(여러 개 가능). 비우면 워크스페이스 전체(S5·S8·S11 수준). R4 까지 `room_id` 의 별칭.
           style: form
           explode: false
           schema:
@@ -2946,6 +2970,1139 @@ paths:
         default: { $ref: '#/components/responses/Problem' }
 
   # ───────────────────────────── cli ─────────────────────────────
+  /workspaces/{workspaceId}/rooms:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [rooms]
+      operationId: listRooms
+      summary: 방 목록(S5 · S25)
+      description: |
+        권한: 워크스페이스 멤버. `invited` 방은 초대되지 않은 사람에게 보이지 않는다(ws owner·admin 은 감사 열람).
+        정렬은 마지막 활동순 하나로 고정(§12.1-11) — `sort` 파라미터가 없다. 검색은 이름·설명 부분 일치만(본문 검색 없음). `unread_count` 는 이 응답에서 한 번에 센다.
+      x-prd: [FR-2.1, FR-2.4, FR-5.3]
+      x-screen: [S5, S25]
+      x-phase: R0
+      parameters:
+        - name: q
+          in: query
+          description: 방 이름·설명 부분 일치.
+          schema: { type: string }
+        - name: unread_only
+          in: query
+          schema: { type: boolean, default: false }
+        - name: participating
+          in: query
+          description: 내가 참여한 방만(기본 켜짐).
+          schema: { type: boolean, default: true }
+        - name: include_archived
+          in: query
+          schema: { type: boolean, default: false }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: 
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/RoomListItem' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [rooms]
+      operationId: createRoom
+      summary: 방 만들기(S18)
+      description: |
+        권한: 워크스페이스 멤버. 만든 사람이 방장.
+        이름 한 칸이면 만들어진다 — 나머지는 워크스페이스 `room_defaults` 를 상속한다(FR-2.1). **연결된 컴퓨터가 0개여도 201**(옛 `createSession` 의 `409 no_runtime` 없음). 같은 이름이 있어도 거부하지 않는다.
+      x-prd: [FR-2.1, FR-2.1.1]
+      x-screen: [S18]
+      x-phase: R0
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoomCreate' }
+      responses:
+        '201':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Room' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /rooms/{roomId}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [rooms]
+      operationId: getRoom
+      summary: 방(S7 상단 · S20)
+      description: |
+        권한: 방을 볼 수 있는 사람(§2.4 `visibility`). TaskToken 이면 그 task 의 방만.
+        `my_capabilities` 가 버튼 활성을 정한다.
+      x-prd: [FR-2, FR-5.3]
+      x-screen: [S7, S20]
+      x-phase: R0
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Room' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [rooms]
+      operationId: updateRoom
+      summary: 방 설정 저장(S20)
+      description: |
+        권한: 방장·부방장·ws owner·admin.
+        `runtime_id`·`isolation` 은 첫 dispatch 전에만(`409 runtime_pinned`). `visibility` 변경·설정 변경은 타임라인 시스템 메시지와 `activity_log` 에 남는다.
+      x-prd: [FR-2.3, FR-5.3]
+      x-screen: [S20]
+      x-phase: R0
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoomUpdate' }
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Room' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [rooms]
+      operationId: deleteRoom
+      summary: 방 삭제
+      description: |
+        권한: 방장 · ws owner·admin.
+        진행 중인 미션이 있으면 `409 works_active`, 미병합·미커밋 작업 폴더가 있으면 `409 workdir_unmerged`(폴더 목록을 `Problem` 확장에). 메시지·미션·lane·task·HITL·아티팩트·결정·비용이 사라지고 `activity_log` 에 `room.deleted` 한 줄만 남는다. `room.deleted` SSE.
+      x-prd: [FR-2.6]
+      x-screen: [S5, S20]
+      x-phase: R0
+      responses:
+        '204': { description: 완료. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /rooms/{roomId}/archive:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [rooms]
+      operationId: archiveRoom
+      summary: 방 보관
+      description: |
+        권한: 방장·부방장·ws owner·admin.
+        새 메시지·미션·트리거를 막고 과거는 남긴다(검색에 계속 걸린다). 진행 중 할 일이 있으면 `409 tasks_active`.
+      x-prd: [FR-2.4]
+      x-screen: [S5, S20]
+      x-phase: R0
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Room' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /rooms/{roomId}/unarchive:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [rooms]
+      operationId: unarchiveRoom
+      summary: 방 보관 해제
+      description: |
+        권한: 보관과 같다(방장·부방장·ws owner·admin). 참여자까지 그대로 복원된다.
+      x-prd: [FR-2.4]
+      x-screen: [S5, S20]
+      x-phase: R0
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Room' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /rooms/{roomId}/block:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [rooms]
+      operationId: blockRoom
+      summary: 이 방 멈춤(`manual`)
+      description: |
+        권한: 방장·부방장·ws owner·admin.
+        진행 중인 모든 턴을 FR-3.4 「중단」처럼 끝내고 새 트리거를 막는다(`blocked_reason: manual`). 이미 다른 사유로 멈춰 있으면 `409 already_blocked`. 시스템 메시지 + `activity_log`.
+      x-prd: [FR-2.4]
+      x-screen: [S7]
+      x-phase: R0
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Room' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /rooms/{roomId}/unblock:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [rooms]
+      operationId: unblockRoom
+      summary: 멈춤 해제(`manual`)
+      description: |
+        권한: 방장·부방장·ws owner·admin — HITL 없이 직접 푼다.
+        `manual` 이 아닌 사유(`budget`·`loop`·`runtime_offline`)는 이 op 으로 풀 수 없다(`409 not_manual` — 승인 HITL 또는 재바인딩).
+      x-prd: [FR-2.4]
+      x-screen: [S7]
+      x-phase: R0
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Room' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /rooms/{roomId}/read:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [rooms]
+      operationId: markRoomRead
+      summary: 안 읽음 지우기
+      description: |
+        권한: 방 참여자(사람 행만). `room_participant.last_read_message_id` 를 앞으로만 옮긴다. `room.unread` SSE 가 내 다른 탭·기기에도 간다.
+      x-prd: [FR-8, §12.1-6]
+      x-screen: [S5, S7]
+      x-phase: R0
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: 
+              type: object
+              required: [last_read_message_id]
+              properties:
+                last_read_message_id: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: 
+                type: object
+                required: [room_id, unread_count]
+                properties:
+                  room_id: { type: string, format: uuid }
+                  unread_count: { type: integer }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /rooms/{roomId}/summaries:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [rooms]
+      operationId: summarizeRoom
+      summary: 여기까지 정리(범위 요약)
+      description: |
+        권한: 방 참여자 누구나.
+        범위(`since` 또는 `from_message_id`·`to_message_id`)를 요약 메시지(`kind: summary`)에 함께 기록한다. 결과는 방에 메시지로 남는다.
+      x-prd: [FR-2.5]
+      x-screen: [S7]
+      x-phase: R0
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoomSummarize' }
+      responses:
+        '202':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /rooms/{roomId}/owner:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    put:
+      tags: [rooms]
+      operationId: transferRoomOwner
+      summary: 방장 넘기기
+      description: |
+        권한: 방장 · ws owner·admin. 새 방장은 방 참여자여야 한다(`422 not_participant`). 시스템 메시지 + `activity_log`.
+      x-prd: [FR-2.2, §12.1-4]
+      x-screen: [S20]
+      x-phase: R0
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: 
+              type: object
+              required: [user_id]
+              properties:
+                user_id: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Room' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /rooms/{roomId}/deputy:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    put:
+      tags: [rooms]
+      operationId: setRoomDeputy
+      summary: 부방장 지정·해제
+      description: |
+        권한: 방장 · ws owner·admin. 한 명만. `user_id: null` 이면 해제.
+      x-prd: [FR-5.3, §12.1-4]
+      x-screen: [S19, S20]
+      x-phase: R0
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: 
+              type: object
+              required: [user_id]
+              properties:
+                user_id: { type: [string, 'null'], format: uuid }
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Room' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /rooms/{roomId}/participants:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [rooms]
+      operationId: listRoomParticipants
+      summary: 방 참여자(사람 + 에이전트)
+      description: |
+        권한: 방을 볼 수 있는 사람. 사람과 에이전트가 한 목록이다(`room_participant`).
+      x-prd: [FR-2.2]
+      x-screen: [S7, S19]
+      x-phase: R0
+      parameters:
+        - name: include_left
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: 
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/RoomParticipant' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [rooms]
+      operationId: addRoomParticipant
+      summary: 초대(사람 또는 에이전트)
+      description: |
+        권한: 방장·부방장·ws owner·admin. 에이전트는 호출자의 `respond_to` 초대 권한도 검사한다(FR-1.9).
+        사람은 워크스페이스 멤버만(`422 not_member`). 보관된 방이면 `409 room_archived`. 에이전트 프로파일의 `runtime_kind` 가 방 컴퓨터에 없으면 `warnings[]`(거부 아님). 초대된 에이전트는 방의 지난 대화 전부를 읽는다(FR-2.2).
+      x-prd: [FR-2.2, FR-1.9]
+      x-screen: [S19]
+      x-phase: R0
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoomParticipantAdd' }
+      responses:
+        '201':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoomParticipant' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /rooms/{roomId}/participants/{participantId}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/ParticipantId'
+    patch:
+      tags: [rooms]
+      operationId: updateRoomParticipant
+      summary: 참여자 프로파일 바꾸기
+      description: |
+        권한: 방장·부방장·ws owner·admin.
+      x-prd: [FR-2.2]
+      x-screen: [S19]
+      x-phase: R0
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoomParticipantUpdate' }
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoomParticipant' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [rooms]
+      operationId: removeRoomParticipant
+      summary: 내보내기 · 이 방에서 나가기
+      description: |
+        권한: 방장·부방장·ws owner·admin, 또는 **본인 행이면 참여자 누구나**(「이 방에서 나가기」).
+        거부: 열린 미션의 Director 인 사람(`409 is_director` — 먼저 Director 를 넘긴다) · 방장(`409 is_owner` — 먼저 방장을 넘긴다). 에이전트를 내보내도 서브 미션·할 일은 남고 새 트리거만 막힌다(취소가 아니다).
+      x-prd: [FR-2.2]
+      x-screen: [S19, S7]
+      x-phase: R0
+      responses:
+        '204': { description: 완료. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /rooms/{roomId}/links:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [rooms]
+      operationId: listRoomLinks
+      summary: 참고 방 링크
+      description: |
+        권한: 방 참여자 누구나 읽는다(맥락이 어디로 샐 수 있는지는 공개 정보).
+      x-prd: [FR-4.5]
+      x-screen: [S24, S20]
+      x-phase: R0
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: 
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/RoomLink' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [rooms]
+      operationId: createRoomLink
+      summary: 참고 방 연결
+      description: |
+        권한: 방장·부방장·ws owner·admin. 대상은 거는 사람이 참여자인 방이어야 한다(`403 not_participant_of_target` — 모르는 방을 링크로 탐색하지 못하게). 양쪽 방에 시스템 메시지.
+      x-prd: [FR-4.5]
+      x-screen: [S24]
+      x-phase: R0
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: 
+              type: object
+              required: [target_room_id]
+              properties:
+                target_room_id: { type: string, format: uuid }
+      responses:
+        '201':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoomLink' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /rooms/{roomId}/links/{roomLinkId}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/RoomLinkId'
+    delete:
+      tags: [rooms]
+      operationId: deleteRoomLink
+      summary: 참고 방 연결 풀기
+      description: |
+        권한: 방장·부방장·ws owner·admin(양쪽 방 어느 쪽의 권한자든). 양쪽 방에 시스템 메시지.
+      x-prd: [FR-4.5]
+      x-screen: [S24]
+      x-phase: R0
+      responses:
+        '204': { description: 완료. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /rooms/{roomId}/reads:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [rooms]
+      operationId: listRoomReads
+      summary: 맥락 읽기 기록(S23)
+      description: |
+        권한: 방 참여자 누구나.
+        `direction=denied` 행은 `other_room: null`(존재 숨김) — `denied_reason: originator_left` 만 예외.
+      x-prd: [FR-4.5]
+      x-screen: [S23]
+      x-phase: R0
+      parameters:
+        - name: direction
+          in: query
+          schema: { $ref: '#/components/schemas/RoomReadDirection' }
+        - name: agent_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: since
+          in: query
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: 
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/RoomRead' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /rooms/{roomId}/works:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [works]
+      operationId: listWorks
+      summary: 미션 목록(칩 줄 · 지난 미션)
+      description: |
+        권한: 방을 볼 수 있는 사람.
+      x-prd: [FR-2A.5]
+      x-screen: [S7]
+      x-phase: R0
+      parameters:
+        - name: status
+          in: query
+          schema: 
+            type: array
+            items: { $ref: '#/components/schemas/WorkStatus' }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: 
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/WorkListItem' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [works]
+      operationId: createWork
+      summary: 미션 열기(S21 · 이걸 미션으로 · 제안에서)
+      description: |
+        권한: 방 참여자(사람) 누구나. Director 기본값: `director_user_id` → 방 `default_director_user_id` → 연 사람(FR-2A.1).
+        검증(`422`): 종료 조건 규칙은 옛 `createSession` 과 같다(`agent_approval` 리뷰어 필수·참여자여야 함 — `reviewer_required`/`reviewer_not_participant`, `criteria_met` 단독 불가). `assignee_agent_id` 가 없으면 기본 종료 조건은 `user_approval` 단독.
+        `409 max_concurrent_works`(열린 미션 목록을 `Problem.open_works[]` 에) · `409 room_archived` · `409 room_blocked` · `from_message_id` 가 이미 다른 미션에 속하면 `409 message_has_work`.
+      x-prd: [FR-2A.1, FR-2A.2, FR-3.1.1]
+      x-screen: [S21, S26]
+      x-phase: R0
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkCreate' }
+      responses:
+        '201':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Work' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /works/{workId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkId'
+    get:
+      tags: [works]
+      operationId: getWork
+      summary: 미션(S22 · 우열 미션 칸)
+      description: |
+        권한: 방을 볼 수 있는 사람. 끝난 미션도 읽는다(읽기 전용).
+      x-prd: [FR-2A]
+      x-screen: [S7, S22]
+      x-phase: R0
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Work' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [works]
+      operationId: updateWork
+      summary: 미션 설정 편집 · 종료 조건 고치기
+      description: |
+        권한: 그 미션의 director.
+        `active`·`paused` 에서도 종료 조건을 고칠 수 있다(v0.1.5 S-84 규칙 그대로).
+      x-prd: [FR-2A.2]
+      x-screen: [S7, S22]
+      x-phase: R0
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkUpdate' }
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Work' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [works]
+      operationId: deleteWork
+      summary: 미션 삭제
+      description: |
+        권한: 그 미션의 director · 방장 · ws owner·admin. 미션만 지우고 방과 메시지는 남긴다(메시지는 방의 것 — `work_id` 가 null 이 된다). 진행 중이면 `409 work_active`.
+      x-prd: [FR-2A.6]
+      x-screen: [S22]
+      x-phase: R0
+      responses:
+        '204': { description: 완료. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /works/{workId}/pause:
+    parameters:
+      - $ref: '#/components/parameters/WorkId'
+    post:
+      tags: [works]
+      operationId: pauseWork
+      summary: 미션 일시정지
+      description: |
+        권한: 그 미션의 director.
+      x-prd: [FR-2A.4]
+      x-screen: [S7, S22]
+      x-phase: R0
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Work' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /works/{workId}/resume:
+    parameters:
+      - $ref: '#/components/parameters/WorkId'
+    post:
+      tags: [works]
+      operationId: resumeWork
+      summary: 미션 재개 · 계속 진행 승인
+      description: |
+        권한: 그 미션의 director(예산·시간 사유면 기한 절반 후 deputy). 예산 상향은 본문 `limits`.
+      x-prd: [FR-2A.3]
+      x-screen: [S7, S22]
+      x-phase: R0
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: 
+              type: object
+              properties:
+                limits: { $ref: '#/components/schemas/WorkLimits' }
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Work' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /works/{workId}/complete:
+    parameters:
+      - $ref: '#/components/parameters/WorkId'
+    post:
+      tags: [works]
+      operationId: completeWork
+      summary: 미션 수동 종료(`manual`)
+      description: |
+        권한: 그 미션의 director. 요약을 만들어 방에 메시지로 남긴다(FR-2A.4).
+      x-prd: [FR-2A.4]
+      x-screen: [S7, S22]
+      x-phase: R0
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Work' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /works/{workId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/WorkId'
+    post:
+      tags: [works]
+      operationId: cancelWork
+      summary: 미션 취소
+      description: |
+        권한: 그 미션의 director. 진행 중 서브 미션을 멈추고 `cancelled`.
+      x-prd: [FR-2A.6]
+      x-screen: [S7, S22]
+      x-phase: R0
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Work' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /works/{workId}/director:
+    parameters:
+      - $ref: '#/components/parameters/WorkId'
+    put:
+      tags: [works]
+      operationId: changeWorkDirector
+      summary: 미션 Director 교체
+      description: |
+        권한: 그 미션의 director · ws owner·admin.
+      x-prd: [FR-5.3]
+      x-screen: [S22]
+      x-phase: R0
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: 
+              type: object
+              required: [director_user_id]
+              properties:
+                director_user_id: { type: string, format: uuid }
+                deputy_user_id: { type: [string, 'null'], format: uuid }
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Work' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /works/{workId}/subscription:
+    parameters:
+      - $ref: '#/components/parameters/WorkId'
+    put:
+      tags: [works]
+      operationId: setWorkSubscription
+      summary: 미션 알림 구독
+      description: |
+        권한: 방 참여자(본인 것). 방 구독을 덮어쓴다(FR-8).
+      x-prd: [FR-8]
+      x-screen: [S14, S22]
+      x-phase: R0
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: 
+              type: object
+              required: [level]
+              properties:
+                level: { oneOf: [{ $ref: '#/components/schemas/SubscriptionLevel' }, { type: 'null' }], description: null 이면 방 설정을 따른다. }
+      responses:
+        '204': { description: 완료. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /lanes/{laneId}/subscription:
+    parameters:
+      - $ref: '#/components/parameters/LaneId'
+    put:
+      tags: [lanes]
+      operationId: setLaneSubscription
+      summary: 서브 미션 알림 켜기·끄기
+      description: |
+        권한: 방 참여자(본인 것). 스레드 단위(FR-8).
+      x-prd: [FR-8]
+      x-screen: [S14, S7]
+      x-phase: R0
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: 
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        '204': { description: 완료. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /rooms/{roomId}/work-proposals:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [works]
+      operationId: listWorkProposals
+      summary: 미션 제안 목록(S26)
+      description: |
+        권한: 방 참여자(사람).
+      x-prd: [FR-2A.1]
+      x-screen: [S26, S8]
+      x-phase: R0
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/WorkProposalStatus' }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: 
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/WorkProposal' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [works]
+      operationId: createWorkProposal
+      summary: 미션 제안(에이전트)
+      description: |
+        권한: TaskToken — 그 task 의 방에 참여한 에이전트. 에이전트는 미션을 열 수 없고 제안만 한다(FR-2A.1 — 무한 자기 위임 방지). 받은 요청 `work_proposed` 를 방 참여자에게.
+      x-prd: [FR-2A.1]
+      x-screen: [S26]
+      x-phase: R0
+      x-colab-cli: work propose
+      security:
+        - TaskToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkProposalCreate' }
+      responses:
+        '201':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkProposal' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /work-proposals/{workProposalId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkProposalId'
+    get:
+      tags: [works]
+      operationId: getWorkProposal
+      summary: 미션 제안
+      description: |
+        권한: 방 참여자(사람).
+      x-prd: [FR-2A.1]
+      x-screen: [S26]
+      x-phase: R0
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkProposal' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /work-proposals/{workProposalId}/resolution:
+    parameters:
+      - $ref: '#/components/parameters/WorkProposalId'
+    post:
+      tags: [works]
+      operationId: resolveWorkProposal
+      summary: 미션 제안 열기 · 거절
+      description: |
+        권한: 방 참여자(사람) 누구나. 열면 **연 사람이 Director**(제안한 에이전트가 아니다). 거절하면 타임라인 시스템 메시지로 제안한 에이전트에게 알린다. 이미 처리됐으면 `409 already_resolved`(누가 언제 처리했는지 `Problem` 확장에).
+      x-prd: [FR-2A.1]
+      x-screen: [S26, S8]
+      x-phase: R0
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkProposalResolution' }
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: 
+                type: object
+                required: [proposal]
+                properties:
+                  proposal: { $ref: '#/components/schemas/WorkProposal' }
+                  work: { $ref: '#/components/schemas/Work' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /workspaces/{workspaceId}/activity-log:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [settings]
+      operationId: listActivityLog
+      summary: 활동 로그(S15, 감사)
+      description: |
+        권한: ws owner·admin.
+        다른 방 읽기·거부, 참고 링크, 감사 열람, 방 멈춤, 방장 승계, 방 삭제가 남는다. 실시간 없음(감사 화면은 흐르면 읽을 수 없다).
+      x-prd: [FR-4.5, §9]
+      x-screen: [S15]
+      x-phase: R0
+      parameters:
+        - name: room_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: action
+          in: query
+          schema: { type: string }
+        - name: actor_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: since
+          in: query
+          schema: { type: string, format: date-time }
+        - name: until
+          in: query
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: 
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/ActivityLogEntry' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /cli/rooms:
+    get:
+      tags: [cli]
+      operationId: listReadableRooms
+      summary: colab room list — 읽을 수 있는 방
+      description: |
+        권한: TaskToken. FR-4.5 두 조건(요청한 사람이 참여자 AND 에이전트가 참여자이거나 참고 링크)을 **호출 순간** 판정해 통과한 방만 준다 — 나머지는 목록에도 없다.
+      x-prd: [FR-4.5]
+      x-screen: []
+      x-phase: R0
+      x-colab-cli: room list
+      security:
+        - TaskToken: []
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: 
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/ReadableRoom' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /cli/rooms/{roomId}/read:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [cli]
+      operationId: readRoom
+      summary: colab room read — 다른 방 읽기
+      description: |
+        권한: TaskToken + FR-4.5 두 조건을 읽는 순간 재검사. 실패하면 `403`(사유 `room_read_denied` + `denied_reason`) — 대상 방 존재는 숨긴다(`originator_left` 만 예외). originator 가 없는 턴은 자기를 깨운 task 의 originator 를 물려받고, 그래도 없으면 `no_originator`(방장으로 대체하지 않는다).
+        읽은 사실을 양쪽 방에 남긴다(`room_read_log` + 읽힌 방 시스템 메시지). 분량은 `room_read.max_tokens`·`max_rooms_per_turn` 상한 — 넘으면 `truncated: true`. 쓰기는 없다.
+      x-prd: [FR-4.5]
+      x-screen: []
+      x-phase: R0
+      x-colab-cli: room read
+      security:
+        - TaskToken: []
+      parameters:
+        - name: tail
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+        - name: query
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: 성공.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoomReadResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        default: { $ref: '#/components/responses/Problem' }
+
   /cli/context:
     get:
       tags: [cli]
@@ -3028,6 +4185,32 @@ components:
       schema: { type: string, format: uuid }
     SessionId:
       name: sessionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RoomId:
+      name: roomId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+      description: 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙).
+    WorkId:
+      name: workId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    WorkProposalId:
+      name: workProposalId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RoomLinkId:
+      name: roomLinkId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ParticipantId:
+      name: participantId
       in: path
       required: true
       schema: { type: string, format: uuid }
@@ -3298,8 +4481,8 @@ components:
       description: '`decision_source`'
     InboxItemType:
       type: string
-      enum: [hitl_request, lane_blocked, session_completed, session_paused, run_failed, runtime_offline, mention, workdir_gc_blocked]
-      description: '`inbox_item_type` (FR-8). `workdir_gc_blocked`(P4, FR-6.4 M4 · E13-12·13) — 보존 기한이 지난 worktree 를 미병합 커밋·미커밋 변경 때문에 지우지 못했다. 같은 workdir 에 미해결 항목이 있으면 다시 만들지 않는다(스윕 멱등). 카드: {workdir_id, session_id, repo_path, branch, reason, commits_ahead}'
+      enum: [hitl_request, isolation_confirm, lane_blocked, work_proposed, work_paused, room_paused, work_completed, room_invited, workdir_quota, session_completed, session_paused, run_failed, runtime_offline, mention, workdir_gc_blocked]
+      description: '`inbox_item_type` (FR-8). v0.2.0(PRD v0.19): `isolation_confirm`(FR-2.1.1 — 저장소 있는 컴퓨터로의 첫 실행 격리 확인, 답까지 첫 dispatch 보류) · `work_proposed`(FR-2A.1) · `work_paused`·`work_completed`(옛 `session_*` 의 미션판 — 옛 값은 R4 까지 함께 산다) · `room_paused`(방 전체, action_required) · `room_invited`(FR-2.2) · `workdir_quota`(FR-6.4 용량 상한). `workdir_gc_blocked`(P4, FR-6.4 M4 · E13-12·13) — 보존 기한이 지난 worktree 를 미병합 커밋·미커밋 변경 때문에 지우지 못했다. 같은 workdir 에 미해결 항목이 있으면 다시 만들지 않는다(스윕 멱등). 카드: {workdir_id, session_id, repo_path, branch, reason, commits_ahead}'
     InboxSeverity:
       type: string
       enum: [action_required, attention, info]
@@ -3430,6 +4613,8 @@ components:
           default: P7D
         task_event_masking: { type: boolean, default: false, description: 보안 탭 — diff·셸 출력을 요약만 저장(owner만 변경). }
         updated_at: { type: string, format: date-time }
+        room_defaults: { $ref: '#/components/schemas/RoomDefaults' }
+        room_read: { $ref: '#/components/schemas/RoomReadPolicy' }
 
     WorkspaceSettingsUpdate:
       type: object
@@ -3444,6 +4629,8 @@ components:
         workdir_disk_quota_gb: { type: [integer, 'null'], minimum: 1 }
         runtime_offline_grace: { type: string }
         task_event_masking: { type: boolean }
+        room_defaults: { $ref: '#/components/schemas/RoomDefaults' }
+        room_read: { $ref: '#/components/schemas/RoomReadPolicy' }
 
     LoopLimits:
       type: object
@@ -3778,6 +4965,8 @@ components:
         archived_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        room_count: { type: integer, description: v0.2.0 — 참여 중인 방 수(호출자가 볼 수 있는 것만 센다). }
+        hidden_room_count: { type: integer, description: v0.2.0 — 호출자가 볼 수 없는 방 수(이름은 주지 않는다). }
 
     AgentCreate:
       type: object
@@ -4314,6 +5503,7 @@ components:
         is_note: { type: boolean, description: '`/note` 접두(규칙 1 — 기록만).' }
         created_at: { type: string, format: date-time }
         edited_at: { type: [string, 'null'], format: date-time }
+        work_id: { type: [string, 'null'], format: uuid, description: v0.2.0 — 귀속된 미션(FR-3.1.1). }
 
     MessagePage:
       type: object
@@ -4343,6 +5533,7 @@ components:
           items: { type: string, format: uuid }
           default: []
           description: 이번 메시지에서만 트리거 억제(FR-3.6). 멘션은 본문에 남는다.
+        work_id: { type: [string, 'null'], format: uuid, description: v0.2.0 — 작성창 미션 선택기(FR-3.1.1 규칙 1). 비우면 서버가 규칙 2~4 로 정한다. }
 
     TriggerPreview:
       type: object
@@ -4363,6 +5554,8 @@ components:
               code: { type: string, description: '`not_participant` · `suppressed_delegator` · `loop_limit_near` · `agent_disabled`.' }
               message: { type: string }
               agent_id: { type: [string, 'null'], format: uuid }
+        work: { oneOf: [{ type: object, required: [id, title], properties: { id: { type: string, format: uuid }, title: { type: string } } }, { type: 'null' }], description: v0.2.0 — 이 메시지가 들어갈 미션. }
+        work_source: { $ref: '#/components/schemas/WorkSource' }
 
     TriggerTarget:
       type: object
@@ -4459,6 +5652,9 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         finished_at: { type: [string, 'null'], format: date-time }
+        work_id: { type: [string, 'null'], format: uuid, description: v0.2.0 — 매인 미션. null 이면 「미션 없음」. }
+        work_title: { type: [string, 'null'] }
+        queued_reason: { oneOf: [{ $ref: '#/components/schemas/QueuedReason' }, { type: 'null' }], description: v0.2.0 — 대기 중인 첫 task 의 사유. }
 
     TaskUsage:
       type: object
@@ -4518,6 +5714,8 @@ components:
         dispatched_at: { type: [string, 'null'], format: date-time }
         started_at: { type: [string, 'null'], format: date-time }
         finished_at: { type: [string, 'null'], format: date-time }
+        work_id: { type: [string, 'null'], format: uuid, description: v0.2.0. }
+        queued_reason: { oneOf: [{ $ref: '#/components/schemas/QueuedReason' }, { type: 'null' }], description: v0.2.0 PRD §3.1. }
 
     TaskEvent:
       type: object
@@ -4568,7 +5766,7 @@ components:
           type: [string, 'null']
           enum: [agent, user_approval, budget, time, loop, null]
           description: "HITL 의 용도. **플랫폼 발행이면 용도별 고정값** — 종료 조건 승인 `user_approval`(E6-01) · 예산 `budget`(E9-01·04) · 시간 `time` · 루프 `loop`(E4-03); 에이전트 발행(source=agent)은 `agent`. source=system + type=approval 만으로는 완료 승인과 예산·루프 정지를 구분할 수 없어 이 칸이 판정 기준이다(0012, PR #103·#108)."
-        approver_spec: { type: string, description: '`director` · `any_member` · 사용자 uuid.' }
+        approver_spec: { type: string, description: '`director` · `room_owner`(v0.2.0 — 미션 밖 task·방 상한·격리 확인, 부재 위임 FR-2A.3) · `any_member` · 사용자 uuid.' }
         due_at: { type: string, format: date-time }
         overdue: { type: boolean }
         status: { $ref: '#/components/schemas/HitlStatus' }
@@ -4605,7 +5803,7 @@ components:
         approver_spec:
           type: string
           default: director
-          description: '`director` · `any_member` · 사용자 uuid. 그 밖은 422(fail closed).'
+          description: '`director` · `room_owner`(v0.2.0) · `any_member` · 사용자 uuid. 그 밖은 422(fail closed).'
         due_in:
           type: string
           default: PT24H
@@ -4692,6 +5890,7 @@ components:
         latest: { type: boolean, description: 같은 이름 중 최신 버전. }
         review: { $ref: '#/components/schemas/ArtifactReview' }
         created_at: { type: string, format: date-time }
+        work_id: { type: [string, 'null'], format: uuid, description: v0.2.0 — 이름·버전은 방 단위(미션이 달라도 같은 이름이면 다음 버전). }
 
     ArtifactReview:
       type: object
@@ -4717,6 +5916,7 @@ components:
         ref_id: { type: [string, 'null'], format: uuid, description: hitl_request.id 또는 task.id. }
         auto: { type: boolean, description: '`auto_answered`(기한 만료로 proposed_default 진행)에서 나온 결정(E7-12 "자동" 표시).' }
         created_at: { type: string, format: date-time }
+        work_id: { type: [string, 'null'], format: uuid, description: v0.2.0. }
 
     # ── 인박스 ──
     InboxItem:
@@ -4756,6 +5956,10 @@ components:
           items: { type: string, enum: [answer, approve, reject, reply, approve_continue, restart, rebind, open_session, open_runtimes] }
         read_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
+        room_id: { type: [string, 'null'], format: uuid, description: v0.2.0 — `session_id` 와 같은 값. }
+        work_id: { type: [string, 'null'], format: uuid, description: v0.2.0. }
+        lane_id: { type: [string, 'null'], format: uuid, description: v0.2.0. }
+        recipient_basis: { oneOf: [{ type: string, enum: [director, deputy, room_owner, room_deputy, workspace_owner] }, { type: 'null' }], description: v0.2.0 — 카드의 「Director 로서」·「방장으로서」. }
 
     InboxSummary:
       type: object
@@ -4838,6 +6042,18 @@ components:
         | `cost.updated` | `{session_id, cost_usd, estimated}` | S5 · S7 |
         | `test_chat.delta` | `{test_chat_id, text}` (ephemeral) | S10 |
         | `test_chat.turn` | `{test_chat_id, turn: TestChatTurn, transport, input_tokens, output_tokens}` | S10 |
+        | `room.updated` | `Room`(부분: blocked_reason · blocked_detail · status · name · description · last_activity_at) — v0.2.0 | S5 · S7 |
+        | `room.deleted` | `{room_id}` (`session.deleted` 와 같은 사건, R4 까지 둘 다 낸다) | S5 · S7 |
+        | `room.unread` | `{room_id, unread_count, last_read_message_id}` — 내 다른 탭·기기에도 | S5 · 내비 |
+        | `work.created` · `work.updated` | `WorkListItem`(부분) | S7 칩 줄 · 우열 |
+        | `work.closed` | `{work_id, room_id, status, summary_message_id?}` | S7 |
+        | `work.completion_progress` | `{work_id, completion_progress}` | S7 · S22 |
+        | `participant.joined` · `participant.left` | `{room_id, participant: RoomParticipant}` · `{room_id, participant_id, kind, left_at}` | S7 · S19 |
+        | `room_read.recorded` | `{room_id, direction, entry: RoomRead}` | S23 · S7 |
+        | `room_link.updated` | `{room_id, action: created\|deleted, link: RoomLink}` | S24 |
+        | `work_proposal.created` · `work_proposal.resolved` | `{room_id, proposal: WorkProposal}` · `{room_id, proposal_id, action, work_id?}` | S26 · S8 |
+
+        v0.2.0 에서 **확장**되는 것: `lane.updated`(`work_id`·`queued_reason`) · `cost.updated`(`{room_id, room_cost_usd, work_id?, work_cost_usd?, estimated}` — 방 누적과 미션 비용 두 수) · `inbox.item_created`(`work_id`·`lane_id`). 웹 `STREAM_EVENT_TYPES` 는 이 enum 과 **같은 PR 에서** 맞춘다(목록에 없는 타입은 조용히 버려진다).
       required: [id, type, at, payload]
       properties:
         id: { type: string, description: 커서(= SSE id). }
@@ -4870,11 +6086,480 @@ components:
             - cost.updated
             - test_chat.delta
             - test_chat.turn
+            - room.updated
+            - room.deleted
+            - room.unread
+            - work.created
+            - work.updated
+            - work.closed
+            - work.completion_progress
+            - participant.joined
+            - participant.left
+            - room_read.recorded
+            - room_link.updated
+            - work_proposal.created
+            - work_proposal.resolved
         at: { type: string, format: date-time }
         workspace_id: { type: string, format: uuid }
-        session_id: { type: [string, 'null'], format: uuid }
+        session_id: { type: [string, 'null'], format: uuid, description: 방 id 와 같은 값(R4 까지). }
+        room_id: { type: [string, 'null'], format: uuid, description: v0.2.0. }
+        work_id: { type: [string, 'null'], format: uuid, description: v0.2.0 — 미션 단위 거르기는 클라이언트가 이 값으로 한다. }
         ephemeral: { type: boolean, default: false }
         payload: { type: object, additionalProperties: true }
+
+    # ── 방 · 미션 (v0.2.0, PRD v0.19 — R0) ──
+    RoomStatus:
+      type: string
+      enum: [active, archived]
+      description: '`room.status` (FR-2.4). 방은 완료되지 않는다 — 보관만 있고 되돌릴 수 있다.'
+    RoomBlockedReason:
+      type: string
+      enum: [budget, runtime_offline, loop, manual]
+      description: '`room.blocked_reason` (FR-2.4 · §12.1-9). null 이면 멈추지 않았다. `manual` 은 사람이 건 긴급 정지(권한자가 직접 푼다), 나머지는 승인 HITL(또는 재바인딩)로 풀린다. 큐는 값이 있는 방의 task 를 주지 않는다.'
+    RoomVisibility:
+      type: string
+      enum: [workspace, invited]
+      description: '`room.visibility` (FR-5.3). `invited` 방은 초대되지 않은 사람에게 목록·검색에서도 숨는다(ws owner·admin 은 감사 열람).'
+    RoomRole:
+      type: string
+      enum: [owner, deputy, member]
+      description: '`room_participant.role` (FR-5.3). 사람 행에만 뜻이 있다 — 에이전트 행은 `member`.'
+    ParticipantKind:
+      type: string
+      enum: [user, agent]
+    WorkStatus:
+      type: string
+      enum: [draft, active, paused, completing, completed, cancelled]
+      description: '`work.status` (FR-2A.4) — v0.18 `session_status` 의 상태 머신을 미션에 그대로 쓴다.'
+    WorkPauseReason:
+      type: string
+      enum: [budget, time, director]
+      description: '미션 `paused_reason` (FR-2A.3). 루프 상한·컴퓨터 소실은 방 단위라 여기 오지 않는다 — `RoomBlockedReason`.'
+    WorkProposalStatus:
+      type: string
+      enum: [open, accepted, rejected]
+      description: '`work_proposal.status` (FR-2A.1). 기한이 없어 `expired` 는 없다.'
+    QueuedReason:
+      type: string
+      enum: [room_lanes, agent_global, runtime, workspace]
+      description: '`task.queued_reason` (PRD §3.1) — 큐에 걸린 이유. `agent_global` 은 에이전트 `max_concurrent_tasks` 가 방을 가로질러 찼다(§12.1-5).'
+    WorkSource:
+      type: string
+      enum: [chosen, thread, running_lane, none]
+      description: '메시지가 미션에 귀속된 규칙(FR-3.1.1 순서 1~4). 판정은 서버가 한다.'
+    RoomReadDirection:
+      type: string
+      enum: [out, in, denied]
+      description: '`listRoomReads` 의 묶음 — 이 방이 읽은 것 · 이 방이 읽힌 것 · 이 방의 에이전트가 시도했다 막힌 것.'
+    RoomReadDeniedReason:
+      type: string
+      enum: [originator_not_participant, originator_left, agent_not_allowed, no_originator]
+      description: '다른 방 읽기 거부 사유(FR-4.5). `originator_left` 만 대상 방 이름을 드러낸다(존재 숨김의 예외 — 요청자가 한때 참여한 방).'
+
+    RoomLimits:
+      type: object
+      description: 방 한도(FR-2.3). 예산·시간은 미션에도 걸 수 있고 작은 쪽이 이긴다(FR-2A.3). 동시 서브 미션 상한은 방에만 있다.
+      properties:
+        budget_usd: { type: [number, 'null'], minimum: 0 }
+        time_limit: { type: [string, 'null'], description: ISO 8601 duration. }
+        max_concurrent_works: { type: integer, minimum: 1, default: 3 }
+        max_parallel_lanes: { type: integer, minimum: 1, default: 5 }
+    WorkLimits:
+      type: object
+      description: 미션 한도(FR-2A.3). 비우면 방 한도를 따른다.
+      properties:
+        budget_usd: { type: [number, 'null'], minimum: 0 }
+        budget_tokens: { type: [integer, 'null'], minimum: 0 }
+        time_limit: { type: [string, 'null'] }
+        max_tasks: { type: [integer, 'null'], minimum: 1 }
+    BlockedDetail:
+      type: object
+      description: 방 멈춤 배너의 칸(SCREEN §4.6). 수는 문장에 보간하지 않고 칸으로 준다.
+      properties:
+        reason: { $ref: '#/components/schemas/RoomBlockedReason' }
+        works_stopped: { type: integer }
+        blocked_by_user: { oneOf: [{ $ref: '#/components/schemas/User' }, { type: 'null' }], description: '`manual` 을 건 사람.' }
+        blocked_at: { type: string, format: date-time }
+        approver: { oneOf: [{ $ref: '#/components/schemas/User' }, { type: 'null' }], description: '지금 답할 수 있는 사람(방장 → 기한 절반 후 부방장 → owner 최고참, FR-2A.3).' }
+        delegate_at: { type: [string, 'null'], format: date-time, description: 다음 위임자가 답할 수 있게 되는 시각. }
+        budget_usd: { type: [number, 'null'] }
+        cost_usd: { type: [number, 'null'] }
+        loop_agents: { type: array, items: { type: string, format: uuid }, description: '`loop` 일 때 왕복한 두 에이전트.' }
+        runtime_id: { type: [string, 'null'], format: uuid }
+    RoomParticipantRef:
+      type: object
+      required: [kind, id, name]
+      properties:
+        kind: { $ref: '#/components/schemas/ParticipantKind' }
+        id: { type: string, format: uuid }
+        name: { type: string }
+        avatar_url: { type: [string, 'null'], format: uri }
+    RoomListItem:
+      type: object
+      description: S5 방 카드(SCREEN §4.3). 상태 배지·goal 은 없다 — 방에는 둘 다 없다.
+      required: [id, name, description, status, blocked_reason, unread_count, active_work_count, attention, participants, my_room_role, last_activity_at]
+      properties:
+        id: { type: string, format: uuid, description: '옛 `session.id` 와 같은 값(§7 이관 규칙).' }
+        name: { type: string }
+        description: { type: string }
+        status: { $ref: '#/components/schemas/RoomStatus' }
+        blocked_reason: { oneOf: [{ $ref: '#/components/schemas/RoomBlockedReason' }, { type: 'null' }] }
+        unread_count: { type: integer, description: '`room_participant.last_read_message_id` 이후 메시지 수 — 목록에서 한 번에 센다.' }
+        active_work_count: { type: integer }
+        attention:
+          type: object
+          description: 내가 답할 것만 센다.
+          required: [hitl_open, blocked, failed]
+          properties:
+            hitl_open: { type: integer }
+            blocked: { type: integer }
+            failed: { type: integer }
+        participants: { type: array, items: { $ref: '#/components/schemas/RoomParticipantRef' } }
+        my_room_role: { oneOf: [{ $ref: '#/components/schemas/RoomRole' }, { type: 'null' }], description: 참여하지 않은(공개 방·감사 열람) 경우 null. }
+        last_activity_at: { type: [string, 'null'], format: date-time }
+    Room:
+      type: object
+      description: 방(PRD FR-2). 옛 `Session` 의 방 쪽 칸.
+      required: [id, workspace_id, name, description, status, visibility, owner_user_id, deputy_owner_user_id, runtime_id, isolation, limits, autonomy, default_director_user_id, blocked_reason, unread_count, my_room_role, created_by, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        status: { $ref: '#/components/schemas/RoomStatus' }
+        visibility: { $ref: '#/components/schemas/RoomVisibility' }
+        owner_user_id: { type: string, format: uuid }
+        deputy_owner_user_id: { type: [string, 'null'], format: uuid }
+        runtime_id: { type: [string, 'null'], format: uuid, description: 첫 dispatch 때 고정(FR-2.1.1). 그 전에는 null. }
+        runtime: { $ref: '#/components/schemas/Runtime' }
+        isolation: { $ref: '#/components/schemas/Isolation' }
+        limits: { $ref: '#/components/schemas/RoomLimits' }
+        autonomy: { $ref: '#/components/schemas/AutonomyLevel' }
+        default_director_user_id: { type: [string, 'null'], format: uuid, description: 비어 있으면 미션을 연 사람이 Director(FR-2A.1). }
+        blocked_reason: { oneOf: [{ $ref: '#/components/schemas/RoomBlockedReason' }, { type: 'null' }] }
+        blocked_detail: { oneOf: [{ $ref: '#/components/schemas/BlockedDetail' }, { type: 'null' }] }
+        counts:
+          type: object
+          properties:
+            works_active: { type: integer }
+            lanes_active: { type: integer }
+            tasks_active: { type: integer }
+        cost_usd: { type: number, description: 방 누적(미션 밖 대화 포함). }
+        cost_estimated: { type: boolean }
+        unread_count: { type: integer }
+        my_room_role: { oneOf: [{ $ref: '#/components/schemas/RoomRole' }, { type: 'null' }] }
+        my_capabilities:
+          type: array
+          description: 호출자가 이 방에서 할 수 있는 동작 — 버튼 활성·비활성 판정(SCREEN §2.3).
+          items:
+            type: string
+            enum: [post, invite, configure, link, block, archive, delete, transfer_owner, summarize]
+        created_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        last_activity_at: { type: [string, 'null'], format: date-time }
+    RoomCreate:
+      type: object
+      description: 방 만들기(S18) — 이름 한 칸. 나머지는 워크스페이스 기본값을 상속한다. 연결된 컴퓨터가 0개여도 만들어진다.
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 500, default: '' }
+    RoomUpdate:
+      type: object
+      description: 방 설정(S20). `runtime_id`·`isolation` 은 첫 dispatch 전에만 바꿀 수 있다(`409 runtime_pinned`).
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 500 }
+        visibility: { $ref: '#/components/schemas/RoomVisibility' }
+        runtime_id: { type: [string, 'null'], format: uuid }
+        isolation: { $ref: '#/components/schemas/Isolation' }
+        limits: { $ref: '#/components/schemas/RoomLimits' }
+        autonomy: { $ref: '#/components/schemas/AutonomyLevel' }
+        default_director_user_id: { type: [string, 'null'], format: uuid }
+    RoomParticipant:
+      type: object
+      description: '`room_participant` — 사람과 에이전트가 한 표(PRD §7).'
+      required: [id, room_id, kind, room_role, joined_at, left_at]
+      properties:
+        id: { type: string, format: uuid }
+        room_id: { type: string, format: uuid }
+        kind: { $ref: '#/components/schemas/ParticipantKind' }
+        user: { $ref: '#/components/schemas/User' }
+        agent: { $ref: '#/components/schemas/Agent' }
+        profile: { $ref: '#/components/schemas/AgentProfile' }
+        status: { $ref: '#/components/schemas/AgentStatus' }
+        status_note: { type: [string, 'null'], description: '「다른 방에서 작업 중」 등(SCREEN §4.6).' }
+        room_role: { $ref: '#/components/schemas/RoomRole' }
+        joined_at: { type: string, format: date-time }
+        left_at: { type: [string, 'null'], format: date-time }
+    RoomParticipantAdd:
+      oneOf:
+        - type: object
+          required: [user_id]
+          properties:
+            user_id: { type: string, format: uuid }
+        - type: object
+          required: [agent_id]
+          properties:
+            agent_id: { type: string, format: uuid }
+            profile_id: { type: string, format: uuid }
+    RoomParticipantUpdate:
+      type: object
+      properties:
+        profile_id: { type: string, format: uuid, description: 에이전트 행만. }
+    RoomLink:
+      type: object
+      description: 참고 방 링크(FR-4.5). 걸고 푸는 것은 양쪽 방에 시스템 메시지로 남는다.
+      required: [id, room_id, target_room, created_by, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        room_id: { type: string, format: uuid }
+        target_room:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            description: { type: string }
+            last_activity_at: { type: [string, 'null'], format: date-time }
+        created_by: { $ref: '#/components/schemas/User' }
+        created_at: { type: string, format: date-time }
+    RoomRead:
+      type: object
+      description: '`room_read_log` 한 행(S23). `denied` 에서는 `other_room` 이 null 이다 — `denied_reason: originator_left` 만 예외.'
+      required: [id, at, direction, agent, originator_user, other_room, scope, truncated, task_id, denied_reason]
+      properties:
+        id: { type: string, format: uuid }
+        at: { type: string, format: date-time }
+        direction: { $ref: '#/components/schemas/RoomReadDirection' }
+        agent:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+        originator_user: { oneOf: [{ $ref: '#/components/schemas/User' }, { type: 'null' }] }
+        other_room:
+          oneOf:
+            - type: object
+              required: [id, name]
+              properties:
+                id: { type: string, format: uuid }
+                name: { type: string }
+            - type: 'null'
+        scope:
+          type: object
+          properties:
+            summary: { type: boolean }
+            recent_n: { type: integer }
+        truncated: { type: boolean, description: 분량 상한(`room_read.max_tokens`·`max_rooms_per_turn`)으로 잘렸다. }
+        task_id: { type: [string, 'null'], format: uuid }
+        denied_reason: { oneOf: [{ $ref: '#/components/schemas/RoomReadDeniedReason' }, { type: 'null' }] }
+    RoomReadResult:
+      type: object
+      description: '`colab room read` 결과(FR-4.5) — 요약 + 최근 메시지 + 결정 기록 + 아티팩트 목록. 읽기 전용이며 그 턴의 프롬프트에만 쓰인다.'
+      required: [room, summary, messages, decisions, artifacts, truncated]
+      properties:
+        room:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            description: { type: string }
+        summary: { type: [string, 'null'], description: 가장 최근 「여기까지 정리」 요약. }
+        messages: { type: array, items: { $ref: '#/components/schemas/Message' } }
+        decisions: { type: array, items: { $ref: '#/components/schemas/Decision' } }
+        artifacts: { type: array, items: { $ref: '#/components/schemas/Artifact' } }
+        truncated: { type: boolean }
+    ReadableRoom:
+      type: object
+      description: '`colab room list` 한 행 — 이 턴이 읽을 수 있는 방만(FR-4.5 두 조건).'
+      required: [id, name, description, last_activity_at, agent_is_participant, via_link]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        last_activity_at: { type: [string, 'null'], format: date-time }
+        agent_is_participant: { type: boolean }
+        via_link: { type: boolean, description: 참여가 아니라 참고 방 링크로 읽을 수 있다. }
+    RoomSummarize:
+      type: object
+      description: 「여기까지 정리」(FR-2.5) — 범위를 사람이 고르고 그 범위를 요약 메시지에 기록한다.
+      properties:
+        since: { type: string, format: date-time, description: 「최근 7일」 등. from/to 와 함께 쓰지 않는다. }
+        from_message_id: { type: string, format: uuid }
+        to_message_id: { type: string, format: uuid }
+    WorkListItem:
+      type: object
+      description: 미션 칩 줄 · 미션 목록(S7).
+      required: [id, room_id, title, goal, status, paused_reason, director, assignee_agent_id, completion_progress, cost_usd, budget_usd, last_activity_at]
+      properties:
+        id: { type: string, format: uuid }
+        room_id: { type: string, format: uuid }
+        title: { type: string }
+        goal: { type: string }
+        status: { $ref: '#/components/schemas/WorkStatus' }
+        paused_reason: { oneOf: [{ $ref: '#/components/schemas/WorkPauseReason' }, { type: 'null' }] }
+        waiting_human: { type: boolean, description: 열린 HITL 이 있다(칩의 ⏳ — 상태가 아니라 파생). }
+        director: { $ref: '#/components/schemas/User' }
+        assignee_agent_id: { type: [string, 'null'], format: uuid }
+        completion_progress:
+          type: object
+          required: [met, total]
+          properties:
+            met: { type: integer }
+            total: { type: integer }
+        cost_usd: { type: number }
+        budget_usd: { type: [number, 'null'] }
+        last_activity_at: { type: [string, 'null'], format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+    Work:
+      type: object
+      description: 미션(PRD FR-2A, 화면 이름 「미션」). 옛 `Session` 의 goal 쪽 칸.
+      required: [id, room_id, title, goal, acceptance_criteria, director_user_id, deputy_user_id, assignee_agent_id, completion_condition, completion_progress, limits, autonomy, status, paused_reason, cost_usd, created_by, created_at, updated_at, my_work_role]
+      properties:
+        id: { type: string, format: uuid }
+        room_id: { type: string, format: uuid }
+        title: { type: string }
+        goal: { type: string }
+        acceptance_criteria: { type: array, items: { type: string } }
+        director_user_id: { type: string, format: uuid }
+        director: { $ref: '#/components/schemas/User' }
+        deputy_user_id: { type: [string, 'null'], format: uuid }
+        deputy: { $ref: '#/components/schemas/User' }
+        assignee_agent_id: { type: [string, 'null'], format: uuid, description: 없으면 기본 종료 조건은 `user_approval` 단독(FR-2A.1). }
+        completion_condition: { $ref: '#/components/schemas/CompletionCondition' }
+        completion_progress: { $ref: '#/components/schemas/CompletionProgress' }
+        limits: { $ref: '#/components/schemas/WorkLimits' }
+        autonomy: { $ref: '#/components/schemas/AutonomyLevel' }
+        status: { $ref: '#/components/schemas/WorkStatus' }
+        paused_reason: { oneOf: [{ $ref: '#/components/schemas/WorkPauseReason' }, { type: 'null' }] }
+        paused_detail: { $ref: '#/components/schemas/PausedDetail' }
+        cost_usd: { type: number }
+        cost_estimated: { type: boolean }
+        summary_message_id: { type: [string, 'null'], format: uuid, description: 끝날 때 방에 남긴 요약 메시지(FR-2A.4). }
+        opened_from_message_id: { type: [string, 'null'], format: uuid, description: 「이걸 미션으로」의 원 메시지. }
+        my_work_role:
+          type: string
+          enum: [director, deputy, member]
+        subscription: { $ref: '#/components/schemas/SubscriptionLevel' }
+        created_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        started_at: { type: [string, 'null'], format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+        last_activity_at: { type: [string, 'null'], format: date-time }
+    WorkCreate:
+      type: object
+      description: 미션 열기(S21). goal 만 필수 — 나머지는 방 설정을 상속한다(FR-2A.1).
+      required: [goal]
+      properties:
+        goal: { type: string, minLength: 1 }
+        title: { type: string, maxLength: 200, description: 비우면 goal 첫 줄. }
+        acceptance_criteria: { type: array, items: { type: string }, default: [] }
+        assignee_agent_id: { type: [string, 'null'], format: uuid }
+        completion_condition: { $ref: '#/components/schemas/CompletionCondition' }
+        director_user_id: { type: string, format: uuid, description: '비우면 방 `default_director_user_id`, 그것도 없으면 연 사람.' }
+        deputy_user_id: { type: [string, 'null'], format: uuid }
+        limits: { $ref: '#/components/schemas/WorkLimits' }
+        autonomy: { $ref: '#/components/schemas/AutonomyLevel' }
+        from_message_id: { type: string, format: uuid, description: '「이걸 미션으로」 — 원 메시지와 그 스레드의 `work_id = null` 인 것을 한 번 귀속하고 그 스레드의 lane 도 채운다(FR-3.1.1 사후 귀속).' }
+        from_proposal_id: { type: string, format: uuid, description: 에이전트 제안에서 연다(S26). }
+        draft: { type: boolean, default: false }
+    WorkUpdate:
+      type: object
+      properties:
+        title: { type: string, maxLength: 200 }
+        goal: { type: string, minLength: 1 }
+        acceptance_criteria: { type: array, items: { type: string } }
+        assignee_agent_id: { type: [string, 'null'], format: uuid }
+        completion_condition: { $ref: '#/components/schemas/CompletionCondition' }
+        deputy_user_id: { type: [string, 'null'], format: uuid }
+        limits: { $ref: '#/components/schemas/WorkLimits' }
+        autonomy: { $ref: '#/components/schemas/AutonomyLevel' }
+    WorkProposal:
+      type: object
+      description: '`work_proposal` (FR-2A.1). 에이전트는 제안만 하고 사람이 연다.'
+      required: [id, room_id, agent, goal, rationale, trigger_message_id, status, decided_by, decided_at, reject_reason, work_id, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        room_id: { type: string, format: uuid }
+        agent:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+        proposed_by_task_id: { type: string, format: uuid }
+        goal: { type: string }
+        rationale: { type: string }
+        trigger_message_id: { type: [string, 'null'], format: uuid }
+        status: { $ref: '#/components/schemas/WorkProposalStatus' }
+        decided_by: { oneOf: [{ $ref: '#/components/schemas/User' }, { type: 'null' }] }
+        decided_at: { type: [string, 'null'], format: date-time }
+        reject_reason: { type: [string, 'null'] }
+        work_id: { type: [string, 'null'], format: uuid }
+        created_at: { type: string, format: date-time }
+    WorkProposalCreate:
+      type: object
+      required: [goal, rationale]
+      properties:
+        goal: { type: string, minLength: 1 }
+        rationale: { type: string, minLength: 1 }
+    WorkProposalResolution:
+      oneOf:
+        - type: object
+          required: [action]
+          properties:
+            action: { type: string, const: accept }
+            work: { $ref: '#/components/schemas/WorkCreate' }
+        - type: object
+          required: [action]
+          properties:
+            action: { type: string, const: reject }
+            reason: { type: string }
+    ActivityLogEntry:
+      type: object
+      description: '`activity_log` 한 행(S15, 감사). payload 는 워크스페이스 마스킹 설정을 따른다.'
+      required: [id, at, actor, action, object_ref, room, payload]
+      properties:
+        id: { type: string }
+        at: { type: string, format: date-time }
+        actor:
+          type: object
+          required: [kind, id, name]
+          properties:
+            kind: { type: string, enum: [user, agent, system] }
+            id: { type: [string, 'null'], format: uuid }
+            name: { type: string }
+            originator_user_id: { type: [string, 'null'], format: uuid, description: 에이전트 동작이면 요청한 사람. }
+        action: { type: string, description: '예: `room.read` · `room.read.denied` · `room.blocked` · `room_link.created` · `room.owner_succeeded` · `room.deleted` · `room.audit_viewed`.' }
+        object_ref: { type: string }
+        room:
+          oneOf:
+            - type: object
+              required: [id, name]
+              properties:
+                id: { type: string, format: uuid }
+                name: { type: string }
+            - type: 'null'
+        payload: { type: object, additionalProperties: true }
+    RoomDefaults:
+      type: object
+      description: 새 방의 기본값(S14 「방 기본값」, PRD §6).
+      properties:
+        visibility: { $ref: '#/components/schemas/RoomVisibility' }
+        isolation_kind: { $ref: '#/components/schemas/IsolationKind' }
+        autonomy: { $ref: '#/components/schemas/AutonomyLevel' }
+        limits: { $ref: '#/components/schemas/RoomLimits' }
+    RoomReadPolicy:
+      type: object
+      description: 다른 방 읽기 분량 상한(FR-4.5).
+      properties:
+        max_rooms_per_turn: { type: integer, minimum: 1, default: 3 }
+        max_tokens: { type: integer, minimum: 500, default: 4000 }
 
     # ── CLI ──
     CliContext:

@@ -177,8 +177,12 @@ type BundleTask struct {
 	// ID = test_chat.id, Attempt = 사용자 턴 번호, TaskToken 없음, Lane/Session/TriggerMessage 빈 값.
 	Kind       string `json:"kind,omitempty"`
 	TestChatID string `json:"test_chat_id,omitempty"`
-	LaneID              string   `json:"lane_id"`
-	SessionID           string   `json:"session_id"`
+	LaneID     string `json:"lane_id"`
+	SessionID  string `json:"session_id"`
+	// RoomID — 방 id(daemon-protocol v0.9.0, PRD v0.19). 옛 SessionID 와 같은 값이고 R4 까지 둘 다 싣는다.
+	RoomID string `json:"room_id,omitempty"`
+	// WorkID — 매인 미션(없으면 미션 밖 task).
+	WorkID              string   `json:"work_id,omitempty"`
 	AgentID             string   `json:"agent_id"`
 	AgentName           string   `json:"agent_name"`
 	TriggerMessageID    string   `json:"trigger_message_id"`
@@ -268,7 +272,7 @@ type Finish struct {
 	RuntimeSessionRef *RuntimeSessionRef `json:"runtime_session_ref,omitempty"`
 	ResumeOutcome     string             `json:"resume_outcome,omitempty"` // resumed | cold_start
 	LastSeq           int                `json:"last_seq"`
-	Workdir           *FinishWorkdir     `json:"workdir,omitempty"` // daemon-protocol v0.7.2 §4.4 — worktree 격리에서만 git 이 실린다
+	Workdir           *FinishWorkdir     `json:"workdir,omitempty"`   // daemon-protocol v0.7.2 §4.4 — worktree 격리에서만 git 이 실린다
 	Transport         Transport          `json:"transport,omitempty"` // daemon-protocol v0.8 §4.5 — 실제 경로(acp|cli); 서버는 test_chat.transport 에만 쓴다
 }
 

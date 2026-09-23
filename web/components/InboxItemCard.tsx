@@ -36,6 +36,14 @@ export const TYPE_LABEL: Record<ItemType, string> = {
   session_completed: "세션 완료",
   mention: "멘션",
   workdir_gc_blocked: "작업 폴더 정리 막힘",
+  // v0.2.0 계약(PRD v0.19) — 화면 반영은 R2. 이름은 SCREEN §4.14 초안 그대로.
+  isolation_confirm: "격리 확인",
+  work_proposed: "미션 제안",
+  work_paused: "미션 일시정지",
+  room_paused: "방 멈춤",
+  work_completed: "미션 완료",
+  room_invited: "방 초대",
+  workdir_quota: "작업 폴더 용량 초과",
 };
 
 /**
@@ -52,6 +60,13 @@ export const TONE_BY_TYPE: Record<ItemType, Tone> = {
   mention: "run",
   session_completed: "done",
   workdir_gc_blocked: "block",
+  isolation_confirm: "wait",
+  work_proposed: "run",
+  work_paused: "pause",
+  room_paused: "pause",
+  work_completed: "done",
+  room_invited: "run",
+  workdir_quota: "block",
 };
 
 /** 버튼 라벨(COMPONENTS §2.4 표 · SCREEN §4.6 인라인 동작). `restart` 는 "다시 지시"다 — 재시도가 아니다(리뷰 #01 C4). */

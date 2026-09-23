@@ -2,11 +2,11 @@
 
 | 항목 | 내용 |
 |---|---|
-| 대상 | `contracts/openapi.yaml` (OpenAPI 3.1, `info.version 0.1.0-draft`) |
+| 대상 | `contracts/openapi.yaml` (OpenAPI 3.1, `info.version 0.2.0-draft` — v0.2.0 은 PRD v0.19 방·미션 R0, 아래 §2 D17~D21) |
 | 단계 | PLAN.md §3 P0-b "OpenAPI 초안 — P1~P3에서 쓸 리소스 전부" (S+W) |
-| 근거 | `server/migrations/0001_init.sql`(리소스·필드·ENUM SSOT), `PRD.md` v0.12 FR-1~FR-9 · §7 · §8.1 · §9, `SCREEN.md` v0.3 §2 · §4 · §6, `EVAL.md` v0.1 |
+| 근거 | `server/migrations/0001_init.sql`(리소스·필드·ENUM SSOT), `PRD.md` v0.19 FR-1~FR-9 · §7 · §8.1 · §9, `SCREEN.md` v0.19.2 §2 · 부록 A · §4 · §6, `EVAL.md` v0.1 |
 | 검증 | `npx -y @redocly/cli lint contracts/openapi.yaml` → **오류 0 · 경고 0**(`recommended`). `--extends recommended-strict`도 0/0 |
-| 크기 | operation **94** (태그 15) · 스키마 106 · `x-colab-cli` 표시 operation 13 |
+| 크기 | operation **137** (태그 17) · 스키마 150 · `x-colab-cli` 표시 operation 16 (v0.2.0) |
 
 ---
 
@@ -24,6 +24,16 @@
 | 확장 | `x-prd`(구현하는 PRD 항목) · `x-screen`(부르는 화면) · `x-phase`(처음 필요한 단계) · `x-colab-cli`(CLI 명령) | Lead 지시 + 스트림 병렬 작업 시 우선순위 판단용 |
 
 ## 2. 설계 결정
+
+**D17. 방은 옛 세션과 같은 id 를 쓴다 (v0.2.0).** PRD §7 이관 규칙(세션 1 → 방 1 + 미션 1, `session` 을 `room` 으로 RENAME)대로 방 id = 옛 session id. 그래서 `/sessions/*` op 을 지우지 않고 R4(별칭 제거)까지 **같은 행을 두 이름으로** 읽는다 — 메시지·lane·task·아티팩트·결정·HITL 경로는 `/sessions/{id}/…` 그대로 쓰고, 새로 생긴 개념(방 설정·참여자(사람 포함)·링크·읽기 기록·미션·제안)만 `/rooms/*`·`/works/*` 로 새 경로를 둔다. 스키마는 별칭이 아니다 — `SessionListItem` 16칸 중 8칸이 미션 것이라 `RoomListItem`·`WorkListItem` 을 새로 만들었다(SCREEN 부록 A).
+
+**D18. 방 멈춤은 상태가 아니라 칸 (v0.2.0, §12.1-9).** `Room.status` 는 `active|archived` 둘뿐이고 멈춤은 `blocked_reason`(`budget`·`runtime_offline`·`loop`·`manual`). `manual` 만 `blockRoom`/`unblockRoom` 으로 권한자가 직접 걸고 풀며, 나머지는 기존 승인 HITL(방장, 부재 위임 FR-2A.3)·재바인딩으로 풀린다. 루프 상한은 방 단위라 `WorkPauseReason` 에 `loop` 가 없다.
+
+**D19. 다른 방 읽기는 `/cli/rooms/*` 에 따로 둔다 (v0.2.0, FR-4.5).** D2 는 "별도 `/cli/*` 표면은 계약이 두 벌"이라 했지만, 읽을 수 있는 방 목록은 **사람의 방 목록과 다른 판정**(요청한 사람 AND 에이전트 참여 또는 링크, 호출 순간 재검사, 거부 사유 분리, 양쪽 기록)이라 같은 경로에 얹으면 `listRooms` 가 호출 주체에 따라 뜻이 갈린다. 쓰기는 없다.
+
+**D20. `ColabCommand` enum 은 R0 에서 바꾸지 않는다.** 새 에이전트 명령 셋(`room list`·`room read`·`work propose`)은 `x-colab-cli` 와 `colab-cli.md` §2.6 으로 계약하고, enum 편입·역할 표는 R3 구현 PR 에서 한다. enum 값을 먼저 넣으면 서버 `roles` 폐쇄 집합 테스트·웹 명령 표·CLI MCP 가 동시에 빨개져 계약 PR 이 구현을 끌고 들어온다.
+
+**D21. 미션 귀속 판정은 서버 (v0.2.0, FR-3.1.1).** `TriggerPreview.work`·`work_source` 는 서버가 채운다 — 규칙 3(실행 중 lane 의 미션)은 서버 상태를 봐야 해서 화면이 계산할 수 없다. `listMessages` 는 `work_id`·`no_work`·`around_message_id` 를 받고, SSE 는 `room_id` 로만 좁힌다(미션 단위 구독은 방 배너·참여자·안 읽음을 놓친다 — 클라이언트가 `payload.work_id` 로 거른다).
 
 **D1. WS가 아니라 SSE.** 클라이언트→서버 동작이 전부 REST라 양방향 채널이 필요 없다. SSE는 `Last-Event-ID` 재연결·백필이 표준이고(SCREEN §6 "끊긴 채로 낡은 화면을 보여주지 않는다"), 프록시·인증(쿠키)이 HTTP 그대로다. 보존 창(10분)을 넘긴 커서면 첫 프레임 `resync`로 REST 재조회를 시킨다. 고빈도 이벤트(`message.delta` · `agent.typing` · `test_chat.delta`)는 `ephemeral`로 표시하고 백필하지 않는다(PRD §7 "고빈도 이벤트는 영속화하지 않는다").
 
