@@ -1864,7 +1864,7 @@ export interface paths {
         /**
          * 방 삭제
          * @description 권한: 방장 · ws owner·admin.
-         *     진행 중인 미션이 있으면 `409 works_active`, 미병합·미커밋 작업 폴더가 있으면 `409 workdir_unmerged`(폴더 목록을 `Problem` 확장에). 메시지·미션·lane·task·HITL·아티팩트·결정·비용이 사라지고 `activity_log` 에 `room.deleted` 한 줄만 남는다. `room.deleted` SSE.
+         *     진행 중인 미션이 있으면 `409 works_active`, 미병합·미커밋 작업 폴더가 있으면 `409 workdir_unmerged` — `Problem.workdirs: [{id, path, runtime_id, runtime_name, commits_ahead, dirty}]` 로 폴더를 나열한다(v0.2.6, 화면이 S13 링크와 함께 보인다). 메시지·미션·lane·task·HITL·아티팩트·결정·비용이 사라지고 `activity_log` 에 `room.deleted` 한 줄만 남는다. `room.deleted` SSE.
          */
         delete: operations["deleteRoom"];
         options?: never;
@@ -4614,6 +4614,8 @@ export interface components {
             unread_count: number;
             active_work_count: number;
             visibility?: components["schemas"]["RoomVisibility"];
+            /** @description v0.2.6 — 호출자가 참여하지 않은 invited 방을 ws owner·admin 감사 열람으로 보고 있다(SCREEN §4.4 「감사 열람」 칩). 서버 AuditViewed 판정과 같은 식. */
+            audit_view?: boolean;
             /** @description v0.2.5 — 진행 중 할 일 수. 0 이 아니면 보관이 409 tasks_active 라 카드 메뉴가 미리 비활성으로 그린다(SCREEN §4.3). */
             active_task_count?: number;
             /** @description 내가 답할 것만 센다. */
