@@ -33,7 +33,7 @@ export type StreamEvent = S["StreamEvent"];
 export type StreamEventType = StreamEvent["type"];
 export type Problem = S["Problem"];
 
-// ── P2 (T-W2) — S7 좌·우열 · S6 마법사 · S9·S10 · S11 ──
+// ── P2 (T-W2) — S7 좌·우열 · S6(지워짐, T-R2-W4b) · S9·S10 · S11 ──
 export type RespondTo = S["RespondTo"];
 export type Isolation = S["Isolation"];
 export type IsolationKind = S["IsolationKind"];

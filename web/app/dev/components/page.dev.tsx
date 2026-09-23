@@ -268,7 +268,7 @@ export default function ComponentsPage() {
             <ConditionRow type="user_approval" met={false} nextActor="director" />
           </div>
           <div className="story__cell">
-            <div className="story__label">S6 마법사</div>
+            <div className="story__label">조건 편집기(S21)</div>
             <ConditionRow type="artifact_submitted" met={null} variant="wizard" selected who="assignee" onToggle={() => {}} />
             <ConditionRow type="criteria_met" met={null} variant="wizard" disabled disabledNote="v1.1 — 성공 기준 자동 판정은 아직 없습니다" />
           </div>

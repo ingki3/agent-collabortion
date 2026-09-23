@@ -21,7 +21,7 @@ describe("PageHead", () => {
     const why = "먼저 컴퓨터를 연결하세요";
     render(
       <PageHead screen="sessions">
-        <a href="/sessions/new" className="btn" aria-disabled="true" aria-describedby="new-session-hint" title={why}>
+        <a href="/rooms/new" className="btn" aria-disabled="true" aria-describedby="new-session-hint" title={why}>
           새 세션
         </a>
         <DisabledHint id="new-session-hint">{why}</DisabledHint>
