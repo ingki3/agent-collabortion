@@ -38,12 +38,23 @@ type SweepResult struct {
 	Blocked int
 }
 
-// liveLaneSQL is the GC gate: some lane using workdir `w` is still alive
-// (not done/failed). Worktree directories are shared by an agent's lanes in a
-// room, container/none ones belong to one lane; either way the lanes pointing
-// at the row are the ones that could touch it next.
+// liveLaneSQL is the GC gate: some lane using workdir `w` is still alive.
+// Worktree directories are shared by an agent's lanes in a room, container/
+// none ones belong to one lane; either way the lanes pointing at the row are
+// the ones that could touch it next.
+//
+// A lane of a mission that has ended is not alive whatever its own status
+// says: completeSession/cancelSession cancel the tasks but leave the lanes
+// where they were (a never-claimed lane stays `queued`), and counting those
+// would keep every finished session's directory forever — the old gate read
+// the session status for exactly this reason. The lane's mission is its
+// work_id, or the room's one work for lanes written before R1b fills the
+// column (R1a: one work per room, work_room_single).
 const liveLaneSQL = `EXISTS (SELECT 1 FROM lane l WHERE l.workdir_id = w.id
-	AND l.status IN ('queued', 'running', 'waiting_human', 'blocked', 'paused'))`
+	AND l.status IN ('queued', 'running', 'waiting_human', 'blocked', 'paused')
+	AND NOT EXISTS (SELECT 1 FROM work lw
+	                WHERE (lw.id = l.work_id OR (l.work_id IS NULL AND lw.room_id = l.session_id))
+	                  AND lw.status IN ('completed', 'cancelled')))`
 
 type gcRow struct {
 	GCCase
