@@ -527,12 +527,18 @@ function sessionFor(s: Store, sess: Session, userId: string): Session {
 }
 
 // ── messages ──
+/** 메시지 시각은 단조 증가 — 같은 ms 에 여러 건이 오면 시간순(앵커·이전 대화 더 보기)이 uuid 순으로 섞인다. 서버는 DB now() + id 커서. */
+let lastMsgAt = 0;
+function nextMsgAt(): string {
+  lastMsgAt = Math.max(Date.now(), lastMsgAt + 1);
+  return new Date(lastMsgAt).toISOString();
+}
 function addMessage(s: Store, sess: Session, m: Partial<Message> & Pick<Message, "author_type" | "author_id" | "kind" | "content" | "mentions">): Message {
   const msg: Message = {
     id: uuid(), session_id: sess.id, parent_id: null, source_task_id: null, lane_id: null, state: "posted", reply_count: 0, is_note: false,
     // 귀속(FR-3.1.1) — 부른 쪽이 정하지 않으면 옛 세션의 방은 그 세션의 미션(서버 legacySessionWork), 새 방은 미션 없음.
     work_id: legacyWorkOf(s, sess.id),
-    created_at: now(), edited_at: null, ...m,
+    created_at: nextMsgAt(), edited_at: null, ...m,
   };
   s.messages.set(msg.id, msg);
   if (msg.parent_id) {
@@ -3366,7 +3372,11 @@ on("POST", "/rooms/{id}/block", (req, p) => {
   room.blocked_detail = { reason: "manual", works_stopped: stopped, blocked_by_user: stripUser(user), blocked_at: now(), approver: null, delegate_at: null };
   room.updated_at = now();
   if (sess) {
-    for (const l of [...s.lanes.values()].filter((x) => x.session_id === room.id && x.status === "running")) setLaneStatus(s, sess, l.id, { status: "failed", failure_kind: "cancelled", finished_at: now() });
+    // FR-3.4 「중단」 — 진행 중 턴을 끝낸다(할 일도 함께 — 에이전트 상태 파생이 할 일에서 온다).
+    for (const l of [...s.lanes.values()].filter((x) => x.session_id === room.id && x.status === "running")) {
+      for (const t of s.tasks.values()) if (t.lane_id === l.id && t.status === "running") { t.status = "failed"; t.failure_kind = "cancelled"; t.finished_at = now(); }
+      setLaneStatus(s, sess, l.id, { status: "failed", failure_kind: "cancelled", finished_at: now() });
+    }
     addMessage(s, sess, { author_type: "system", author_id: null, kind: "system", content: user.display_name + W.room_block_system, mentions: [], work_id: null });
   }
   emitRoom(s, room);
@@ -3476,7 +3486,7 @@ on("POST", "/__mock/rooms/{id}/seed", (req, p) => {
     workIds.push(w.id);
     if (spec.cost_usd && sess) {
       // 미션 비용 = 매인 할 일 비용 합 — 비용만 있는 끝난 할 일 하나를 둔다(카드는 done 묶음에 접힌다).
-      const lane = createLane(s, sess, sess.participants?.[0]?.agent_id ?? [...s.agents.values()][0].id, "비용 시드", w.id);
+      const lane = createLane(s, sess, sess.participants?.[0]?.agent_id ?? [...s.agents.values()][0].id, "자료 정리", w.id);
       const task = createTask(s, sess, lane.agent_id, null, { laneId: lane.id, workId: w.id });
       task.status = "completed"; task.cost_usd = spec.cost_usd;
       setLaneStatus(s, sess, lane.id, { status: "done", finished_at: t });
