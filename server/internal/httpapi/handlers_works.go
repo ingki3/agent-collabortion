@@ -207,7 +207,7 @@ func (s *Server) publishWorkDeleted(ctx context.Context, q db.DBTX, wsID, roomID
 		return
 	}
 	rid := roomID
-	_ = s.Hub.Publish(ctx, q, wsID, &rid, "work.deleted", map[string]any{"work_id": workID, "room_id": roomID})
+	_ = s.Hub.Publish(ctx, q, wsID, &rid, string(gen.StreamEventTypeWorkDeleted), map[string]any{"work_id": workID, "room_id": roomID})
 }
 
 // ---------------------------------------------------------------------------
@@ -1126,9 +1126,7 @@ func (s *Server) CompleteWork(w http.ResponseWriter, r *http.Request, workId gen
 		writeProblem(w, p)
 		return
 	}
-	var in struct {
-		Confirm *bool `json:"confirm"`
-	}
+	var in gen.CompleteWorkJSONBody // openapi 0.2.4: {confirm?}
 	if r.ContentLength > 0 {
 		if p := decodeJSON(w, r, &in); p != nil {
 			writeProblem(w, p)
