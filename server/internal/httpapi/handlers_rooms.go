@@ -113,6 +113,27 @@ func logActivity(ctx context.Context, q db.DBTX, wsID uuid.UUID, roomID *uuid.UU
 	return nil
 }
 
+// auditView is FR-5.3 P-Q: a workspace owner·admin reading an invited room
+// they are not in leaves a line — the room's people cannot see who looked
+// otherwise. One line per person, room and (UTC) day: getRoom, the old
+// /sessions/{id} reads and every page of messages all count as the same look,
+// and the unique index activity_log_audit_viewed_daily makes the "once" hold
+// under concurrent reads too. Any other read is not an audit and writes
+// nothing.
+func (s *Server) auditView(ctx context.Context, a *rooms.Access, userID uuid.UUID) error {
+	if !a.AuditViewed() {
+		return nil
+	}
+	_, err := s.DB.Exec(ctx, `
+		INSERT INTO activity_log (workspace_id, session_id, actor_type, actor_id, action, object_type, object_id, payload, created_at)
+		VALUES ($1, $2, 'user', $3, 'room.audit_viewed', 'room', $2, jsonb_build_object('name', $4::text), $5)
+		ON CONFLICT DO NOTHING`, a.WorkspaceID, a.RoomID, userID, a.Name, s.Clock.Now())
+	if err != nil {
+		return fmt.Errorf("activity_log room.audit_viewed: %w", err)
+	}
+	return nil
+}
+
 // displayName is how a person appears inside a system message.
 func displayName(ctx context.Context, q db.DBTX, userID uuid.UUID) string {
 	var name string
@@ -308,16 +329,9 @@ func (s *Server) GetRoom(w http.ResponseWriter, r *http.Request, roomId gen.Room
 		writeProblem(w, pr)
 		return
 	}
-	if a.AuditViewed() {
-		// FR-5.3: a workspace owner·admin reading an invited room they are
-		// not in leaves a line — the room's people cannot see who looked
-		// otherwise.
-		rid := roomId
-		if err := logActivity(r.Context(), s.DB, a.WorkspaceID, &rid, &u.Id, "room.audit_viewed", "room", &rid,
-			map[string]any{"name": a.Name}, s.Clock.Now()); err != nil {
-			writeErr(w, err)
-			return
-		}
+	if err := s.auditView(r.Context(), a, u.Id); err != nil {
+		writeErr(w, err)
+		return
 	}
 	out, err := rooms.Load(r.Context(), s.DB, a, s.Clock.Now())
 	if err != nil {

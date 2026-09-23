@@ -206,6 +206,13 @@ func (s *Server) sessionAccess(r *http.Request, sessionID uuid.UUID) (*gen.User,
 	if !rooms.Decide(rooms.ActView, a.Standing) {
 		return nil, apperr.NotFound("session")
 	}
+	if r.Method == http.MethodGet {
+		// Reading an invited room through the old aliases is the same audit
+		// look as getRoom (FR-5.3 P-Q).
+		if err := s.auditView(r.Context(), a, p.User.Id); err != nil {
+			return nil, apperr.Internal(err)
+		}
+	}
 	return p.User, nil
 }
 

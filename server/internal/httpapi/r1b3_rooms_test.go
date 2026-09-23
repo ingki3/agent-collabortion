@@ -679,3 +679,49 @@ func metricsCompute(t *testing.T, f *roomsFixture, now time.Time) (map[string]me
 	}
 	return out, nil
 }
+
+// FR-5.3 P-Q: an owner·admin looking into an invited room they are not in
+// leaves ONE activity_log line per person, room and day — getRoom, the old
+// /sessions/{id} reads and repeated reads are the same look. A participant's
+// read is not an audit.
+func TestR1b3AuditViewedOncePerDay(t *testing.T) {
+	f := newRoomsFixture(t)
+	// Made on the old path so /sessions/{id} has its mission to answer with.
+	agentID := str(f.member.must(201, "POST", f.p+"/workspaces/"+f.wsID+"/agents", map[string]any{
+		"name": "Auditee", "role": "lead", "role_description": "d", "instructions": "i",
+		"profiles": []map[string]any{{"name": "default", "runtime_kind": "claude_code", "model": "claude-sonnet-5"}},
+	}), "id")
+	sess := f.member.must(201, "POST", f.p+"/workspaces/"+f.wsID+"/sessions", map[string]any{
+		"title": "감사 열람 방", "goal": "g", "isolation": map[string]any{"kind": "none"},
+		"participants": []map[string]any{{"agent_id": agentID}},
+	})
+	roomID := str(sess, "id")
+	rp := f.roomPath(roomID)
+	f.member.must(200, "PATCH", rp, map[string]any{"visibility": "invited"})
+	audits := func() int {
+		return f.count(t, `SELECT count(*) FROM activity_log WHERE action = 'room.audit_viewed' AND session_id = $1`, roomID)
+	}
+
+	f.member.must(200, "GET", rp, nil) // the owner (a participant) reading is no audit
+	f.member.must(200, "GET", f.p+"/sessions/"+roomID+"/messages", nil)
+	if n := audits(); n != 0 {
+		t.Fatalf("participant reads wrote %d audit lines, want 0", n)
+	}
+	// ws owner, not a participant: getRoom twice, the old alias, its messages.
+	f.api.must(200, "GET", rp, nil)
+	f.api.must(200, "GET", rp, nil)
+	f.api.must(200, "GET", f.p+"/sessions/"+roomID, nil)
+	f.api.must(200, "GET", f.p+"/sessions/"+roomID+"/messages", nil)
+	if n := audits(); n != 1 {
+		t.Fatalf("same person·room·day = %d lines, want 1", n)
+	}
+	f.admin.must(200, "GET", f.p+"/sessions/"+roomID+"/messages", nil) // another auditor
+	if n := audits(); n != 2 {
+		t.Fatalf("second auditor = %d lines, want 2", n)
+	}
+	f.fake.Advance(24 * time.Hour)
+	f.api.must(200, "GET", rp, nil)
+	if n := audits(); n != 3 {
+		t.Fatalf("next day = %d lines, want 3", n)
+	}
+}

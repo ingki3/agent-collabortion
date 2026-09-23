@@ -63,3 +63,12 @@ CREATE INDEX room_participant_live ON room_participant (room_id) WHERE left_at I
 -- NULL 이면 워크스페이스의 볼 수 있는 사람 모두. 값이 있으면 그 사람의 스트림에만
 -- 흐르고 재연결 백필도 그 사람에게만 한다 — 남의 안 읽음 수가 옆 사람 배지에 뜨지 않게.
 ALTER TABLE stream_event ADD COLUMN user_id uuid;
+
+-- ---------------------------------------------------------------------------
+-- 7. 감사 열람 (FR-5.3 P-Q) — ws owner·admin 이 참여하지 않은 invited 방을 본 기록은
+--    같은 사람·같은 방·같은 날(UTC) 한 줄. 목록 스크롤·재조회마다 쌓이지 않게 하는
+--    판정을 DB 가 쥔다(동시 조회 두 개도 한 줄) — 쓰는 쪽은 ON CONFLICT DO NOTHING.
+-- ---------------------------------------------------------------------------
+CREATE UNIQUE INDEX activity_log_audit_viewed_daily
+    ON activity_log (actor_id, session_id, ((created_at AT TIME ZONE 'UTC')::date))
+    WHERE action = 'room.audit_viewed';
