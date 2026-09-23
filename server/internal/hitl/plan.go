@@ -48,6 +48,12 @@ const (
 const (
 	SpecDirector  = "director"
 	SpecAnyMember = "any_member"
+	// SpecRoomOwner (openapi 0.2.0) is the room's owner, and after half the
+	// deadline the room's deputy — or the workspace's oldest owner when the
+	// room has no deputy (PRD FR-2A.3 방장 부재 위임). The platform raises it
+	// for a run outside any mission, the room's own limits and the isolation
+	// check (FR-2.1.1).
+	SpecRoomOwner = "room_owner"
 )
 
 // Error codes the contract names (openapi Problem.code).
@@ -153,7 +159,7 @@ func PlanRegister(in RegisterInput) RegisterPlan {
 // SupportedApproverSpec is the v1 allow-list (FR-5.4).
 func SupportedApproverSpec(spec string) bool {
 	switch spec {
-	case SpecDirector, SpecAnyMember:
+	case SpecDirector, SpecAnyMember, SpecRoomOwner:
 		return true
 	}
 	_, err := uuid.Parse(spec)
@@ -228,6 +234,11 @@ type AuthzInput struct {
 	Deputy    uuid.UUID
 	Responder uuid.UUID
 	IsMember  bool
+	// RoomOwner and RoomDelegate are the `room_owner` chain
+	// (roomgate.Approvers): the delegate is the room's deputy, or the oldest
+	// workspace owner when there is none.
+	RoomOwner    uuid.UUID
+	RoomDelegate uuid.UUID
 	// Elapsed is time since the request was created; DueIn is its deadline.
 	Elapsed time.Duration
 	DueIn   time.Duration
@@ -254,6 +265,21 @@ func Authorize(in AuthzInput) Authz {
 			return Authz{Allowed: true}
 		}
 		if in.Deputy != uuid.Nil && in.Responder == in.Deputy {
+			half := dueIn / 2
+			if in.Elapsed >= half {
+				return Authz{Allowed: true}
+			}
+			return Authz{CanRespondFrom: &half}
+		}
+		return Authz{}
+	case SpecRoomOwner:
+		// FR-2A.3: the same half-deadline hand-over as the Director's deputy
+		// (M7), one chain further — a room whose owner is away must not stay
+		// stopped for good.
+		if in.RoomOwner != uuid.Nil && in.Responder == in.RoomOwner {
+			return Authz{Allowed: true}
+		}
+		if in.RoomDelegate != uuid.Nil && in.Responder == in.RoomDelegate {
 			half := dueIn / 2
 			if in.Elapsed >= half {
 				return Authz{Allowed: true}
