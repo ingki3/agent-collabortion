@@ -49,11 +49,11 @@ type Pending struct {
 //
 // production caller: queue.Postgres.Claim.
 func AskIsolation(ctx context.Context, tx pgx.Tx, hub *realtime.Hub, roomID, runtimeID uuid.UUID, repoPath string, now time.Time) error {
-	var wsID, owner uuid.UUID
+	var wsID uuid.UUID
 	var computer string
 	if err := tx.QueryRow(ctx, `
-		SELECT s.workspace_id, s.owner_user_id, r.name FROM room s JOIN runtime r ON r.id = $2 WHERE s.id = $1`,
-		roomID, runtimeID).Scan(&wsID, &owner, &computer); err != nil {
+		SELECT s.workspace_id, r.name FROM room s JOIN runtime r ON r.id = $2 WHERE s.id = $1`,
+		roomID, runtimeID).Scan(&wsID, &computer); err != nil {
 		return fmt.Errorf("roomgate: isolation premise: %w", err)
 	}
 	question := IsolationQuestion(computer, repoPath)
@@ -78,14 +78,21 @@ func AskIsolation(ctx context.Context, tx pgx.Tx, hub *realtime.Hub, roomID, run
 	if _, err := tx.Exec(ctx, `UPDATE hitl_request SET message_id = $2 WHERE id = $1`, hitlID, msgID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
-		SELECT m.id, $1::inbox_item_type, $2::inbox_severity, $3, $4, $5
-		FROM member m WHERE m.workspace_id = $6 AND m.user_id = $7`,
-		inbox.TypeIsolationConfirm, inbox.Severity(inbox.TypeIsolationConfirm), roomID, hitlID, now, wsID, owner); err != nil {
-		return fmt.Errorf("roomgate: isolation inbox: %w", err)
+	return fileIsolation(ctx, tx, wsID, roomID, hitlID, now)
+}
+
+// fileIsolation files the isolation_confirm card (both forms — approve/reject
+// and the repository choice): the owner's chain (FileInbox), quoting the
+// person and the message whose turn the question holds (openapi 0.2.10).
+func fileIsolation(ctx context.Context, tx pgx.Tx, wsID, roomID, hitlID uuid.UUID, now time.Time) error {
+	actor, msg, err := firstTurn(ctx, tx, roomID)
+	if err != nil {
+		return err
 	}
-	return nil
+	return FileInbox(ctx, tx, Item{
+		Type: inbox.TypeIsolationConfirm, WorkspaceID: wsID, RoomID: roomID, HitlID: hitlID,
+		Created: now, Due: now.Add(hitl.DefaultDueIn), Actor: actor, QuoteMessage: msg,
+	})
 }
 
 // IsolationQuestion is the request the room owner reads (FR-2.1.1). The
@@ -295,11 +302,11 @@ func WorktreeFixedText(computer, repoPath string) string {
 //
 // production caller: queue.Postgres.Claim.
 func AskRepo(ctx context.Context, tx pgx.Tx, hub *realtime.Hub, roomID, runtimeID uuid.UUID, repos []string, now time.Time) error {
-	var wsID, owner uuid.UUID
+	var wsID uuid.UUID
 	var computer string
 	if err := tx.QueryRow(ctx, `
-		SELECT s.workspace_id, s.owner_user_id, r.name FROM room s JOIN runtime r ON r.id = $2 WHERE s.id = $1`,
-		roomID, runtimeID).Scan(&wsID, &owner, &computer); err != nil {
+		SELECT s.workspace_id, r.name FROM room s JOIN runtime r ON r.id = $2 WHERE s.id = $1`,
+		roomID, runtimeID).Scan(&wsID, &computer); err != nil {
 		return fmt.Errorf("roomgate: repo premise: %w", err)
 	}
 	question := RepoQuestion(computer, len(repos))
@@ -324,14 +331,7 @@ func AskRepo(ctx context.Context, tx pgx.Tx, hub *realtime.Hub, roomID, runtimeI
 	if _, err := tx.Exec(ctx, `UPDATE hitl_request SET message_id = $2 WHERE id = $1`, hitlID, msgID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
-		SELECT m.id, $1::inbox_item_type, $2::inbox_severity, $3, $4, $5
-		FROM member m WHERE m.workspace_id = $6 AND m.user_id = $7`,
-		inbox.TypeIsolationConfirm, inbox.Severity(inbox.TypeIsolationConfirm), roomID, hitlID, now, wsID, owner); err != nil {
-		return fmt.Errorf("roomgate: repo inbox: %w", err)
-	}
-	return nil
+	return fileIsolation(ctx, tx, wsID, roomID, hitlID, now)
 }
 
 // RepoQuestion is the choice the room owner reads when the first computer has

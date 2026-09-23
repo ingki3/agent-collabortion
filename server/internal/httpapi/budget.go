@@ -435,6 +435,16 @@ func (s *Server) applyBudgetPause(ctx context.Context, tx pgx.Tx, b *budgetState
 	}, now); err != nil {
 		return err
 	}
+	if stopUnit == scopeRoom {
+		// FR-8 v0.19: the room gate went up — ONE `room_paused` card for the
+		// room owner's chain, the approval being that card's action (the same
+		// card a loop stop files, router.pauseForLoop). A `hitl_request` card
+		// here was a second kind of card for the same stop (#311 ①).
+		return roomgate.FileInbox(ctx, tx, roomgate.Item{
+			Type: inbox.TypeRoomPaused, WorkspaceID: b.WorkspaceID, RoomID: b.SessionID, HitlID: hitlID,
+			Created: now, Due: now.Add(hitl.DefaultDueIn),
+		})
+	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at, work_id)
 		SELECT m.id, $4::inbox_item_type, $5::inbox_severity, $1, $2, $3, $8

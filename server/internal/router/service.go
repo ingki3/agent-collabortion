@@ -736,12 +736,12 @@ func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID u
 		return err
 	}
 	question := v.QuestionText()
+	due := now.Add(24 * time.Hour)
 	var hitlID uuid.UUID
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO hitl_request (session_id, task_id, source, type, question, proposed_default, approver_spec, purpose, due_at, created_at)
 		VALUES ($1, NULL, 'system', 'approval', $2, NULL, 'room_owner', 'loop', $3, $4) RETURNING id`,
-		sessionID, question,
-		now.Add(24*time.Hour), now).Scan(&hitlID); err != nil {
+		sessionID, question, due, now).Scan(&hitlID); err != nil {
 		return fmt.Errorf("router: loop hitl: %w", err)
 	}
 	// S-45: the timeline card. A loop pause is the one a reader is most likely
@@ -757,12 +757,11 @@ func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID u
 		return fmt.Errorf("router: loop hitl card: %w", err)
 	}
 	// FR-8 v0.19: the whole room stopped — `room_paused` (action_required)
-	// for the room owner, whose answer lifts the gate.
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
-		SELECT m.id, $6::inbox_item_type, $7::inbox_severity, $1, $2, $3
-		FROM member m WHERE m.workspace_id = $4 AND m.user_id = $5`,
-		sessionID, hitlID, now, wsID, room.Owner, inbox.TypeRoomPaused, inbox.Severity(inbox.TypeRoomPaused)); err != nil {
+	// for the room owner's chain, whose answer lifts the gate.
+	if err := roomgate.FileInbox(ctx, tx, roomgate.Item{
+		Type: inbox.TypeRoomPaused, WorkspaceID: wsID, RoomID: sessionID, HitlID: hitlID,
+		Created: now, Due: due,
+	}); err != nil {
 		return err
 	}
 	// FR-2.3: what happens to a turn already running depends on WHY we paused.

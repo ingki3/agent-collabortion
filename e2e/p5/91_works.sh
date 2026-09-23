@@ -24,6 +24,8 @@
 #      pauseSession 은 그 미션만 · deleteSession 은 열린 미션이 있으면 409.
 #   K. 미션 시간 상한(FR-2A.3): time_limit 이 지나면 paused(time) + 확인 요청(purpose time) + work_paused ·
 #      time_extension 승인으로 재개.
+#   L. 방 예산 초과(FR-2.4 · FR-8, T-S-inbox): 방 게이트 budget · 방장 받은 요청 room_paused 한 줄(근거 room_owner ·
+#      approve_continue) · 같은 멈춤의 hitl_request 카드 0 · 승인하면 게이트가 풀린다.
 #
 # 스택(T-R1b2): server :8140 · pg :5491 · 컨테이너 colab-pg-r1b2-5491. 다른 워커 스택과 겹치지 않는다(§0-13).
 # 사용: SERVER_URL=http://localhost:8140 PG_PORT=5491 PG_CONTAINER=colab-pg-r1b2-5491 bash e2e/p5/up.sh
@@ -241,6 +243,28 @@ IFS=$'\t' read -r CODE BODY <<<"$(respond_hitl "$HK" '{"approved":true}')"
 chk K.3 422 "$CODE" "승인에는 time_extension 이 필요하다"
 IFS=$'\t' read -r CODE BODY <<<"$(respond_hitl "$HK" '{"approved":true,"time_extension":"PT2H"}')"
 chk K.4 "200/active/PT3H" "$CODE/$(wget_ "$W6" | jq -r '.status+"/"+.limits.time_limit')" "time_extension PT2H 승인 → 재개, 상한 PT3H"
+
+# ───────────────────────────── L ─────────────────────────────────────────────
+step "L. 방 예산 초과 → 받은 요청 room_paused 한 줄 (FR-2.4 · FR-8, T-S-inbox #311 ①②)"
+# 방 한도는 방 전체를 멈춘다 — 방장 받은 요청에는 room_paused(action_required) 하나, 승인은 그 항목의 동작이다.
+# 미션 한도(C)는 work_paused 그대로.
+ROOML="$(api_ok POST "/workspaces/$WS/rooms" "$(jq -nc --arg n "91 방 예산 $RUN" '{name:$n}')" | jq -r .id)"
+api_ok POST "/rooms/$ROOML/participants" "$(jq -nc --arg a "$R" '{agent_id:$a}')" >/dev/null
+psqlq "update room set limits = limits || '{\"budget_usd\": 0.02}'::jsonb where id='$ROOML'" >/dev/null
+post "$ROOML" "$(jq -nc --arg c "$(mention R "$R") 방 한도 시험" '{content:$c}')" >/dev/null
+CL="$(claim)"; BL="$(jq -c --arg r "$ROOML" '[.tasks[]|select(.task.session_id==$r)][0] // empty' <<<"$CL")"
+[ -n "$BL" ] || die "L: claim 에 방 예산 방 task 가 없다: $CL"
+TL="$(jq -r .task.id <<<"$BL")"; running "$TL"
+daemon_api "tasks/$TL/attempts/$(att "$TL")/heartbeat" '{"usage":{"input_tokens":1000,"output_tokens":1000,"cost_usd":0.05,"estimated":false,"model":"claude-sonnet-5"},"last_seq":0}' > "$OUT/91-L-hb.json"
+chk L.1 "budget" "$(psqlq "select coalesce(blocked_reason::text,'-') from room where id='$ROOML'")" "방 예산 초과 → 방 게이트 budget"
+HL="$(psqlq "select id from hitl_request where session_id='$ROOML' and purpose='budget' and status='open'")"
+INBL="$(api_ok GET "/inbox?workspace_id=$WS" | jq -c --arg r "$ROOML" '[.items[]|select(.room_id==$r)]')"
+chk L.2 "room_paused/1/$HL/room_owner/approve_continue,open_room" \
+  "$(jq -r '[.[]|select(.type=="room_paused")] as $p | ($p|length|tostring) as $n | ($p[0] // {}) | "room_paused/"+$n+"/"+(.ref_id//"-")+"/"+(.recipient_basis//"-")+"/"+((.actions//[])|join(","))' <<<"$INBL")" \
+  "방장 받은 요청: room_paused 한 줄 · ref = 예산 승인 · 근거 room_owner · 동작 approve_continue"
+chk L.3 0 "$(jq '[.[]|select(.type=="hitl_request")]|length' <<<"$INBL")" "같은 멈춤의 hitl_request 카드는 없다(두 번 말하지 않는다)"
+IFS=$'\t' read -r CODE BODY <<<"$(respond_hitl "$HL" '{"approved":true,"budget_override_usd":1}')"
+chk L.4 "200/-" "$CODE/$(psqlq "select coalesce(blocked_reason::text,'-') from room where id='$ROOML'")" "approve_continue(승인 + 상향) → 방 게이트가 풀린다"
 
 step "요약"
 PASS_N="$(awk -F'\t' '$2=="PASS"' "$CHECKS" | wc -l | tr -d ' ')"; FAIL_N="$(awk -F'\t' '$2=="FAIL"' "$CHECKS" | wc -l | tr -d ' ')"
