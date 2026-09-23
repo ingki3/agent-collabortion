@@ -66,3 +66,9 @@ router/preview.go:36 · router/delegate.go:57 · router/status.go:61
 - **아직 `work_id` 를 쓰지 않는 새 행**: `artifact`·`decision`·대부분의 `inbox_item`·종료 조건 승인 HITL(`sessions/complete.go` — `loadHitlRow` 가 호환 규칙으로 메운다). R1b1 마이그레이션(`*_r1b1_room_gate.sql`)이 R1b1 이전 행은 전부 메웠다.
 - **미션 시간 상한**: 기존 강제 경로가 없어(P3 이후 `time_extension` 501) R1b1 도 만들지 않았다 — 예산만 미션·방 두 층이다.
 - 위 42곳 중 R1b1 이 1:N 에서도 옳게 고친 줄은 PR 본문 체크리스트에 있다. 남은 줄은 그대로 R1b2·R1b3 몫이다.
+
+## R1 이후 남은 후속 (2026-09-24)
+
+- **#304 NN1** — `TestWorktreeFirstClaimRace` 가 이중 방어를 둘 다 떼어도 초록(패자의 UPDATE 가 READ COMMITTED 재평가로 0행이 되어 스스로 물러남). 구현은 #302 리뷰 프로브로 안전 확인됨 — 자물쇠만 #302 리뷰 프로브(p2Fixture + runtime 복제 + SettleFill 앞 지연)로 교체할 것.
+- **#304 범위 밖** — `decision.auto` 열이 있는데 `DecisionAPI` 가 싣지 않는다(보고만).
+- **#303 NN1** — 종료 조건 편집기 어휘 「보고서 제출」·「담당 에이전트」 vs SCREEN 「아티팩트 제출」·「제출자」 → R1.5 문구 라운드.
