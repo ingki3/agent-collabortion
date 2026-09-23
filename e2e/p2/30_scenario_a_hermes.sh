@@ -142,7 +142,7 @@ chk H7  "hermes lane 3개가 전부 done (턴 종료 판정이 실기에서 선�
 chk H8  "Writer 가 아티팩트를 제출했다"               yes "$( [ -n "$ART_ID" ] && echo yes || echo no )"
 CP="$(completion_progress "$SESSION")"; log "completion_progress: $CP"
 chk H8b "진행률 met=1 / total=2 (artifact_submitted 충족)" "1/2" "$(jq -r '"\(.met)/\(.total)"' <<<"$CP")"
-chk H8c "세션은 아직 active (E6-01 — 승인 전)"        active "$(psqlq "select status from session where id='$SESSION'")"
+chk H8c "세션은 아직 active (E6-01 — 승인 전)"        active "$(psqlq "select status from work where room_id='$SESSION'")"
 
 step "B3. hermes 하네스 규칙이 실기에서 어떻게 보이는가 (harness §1·§6·§8)"
 # §1 모델 접두어 — 데몬이 anthropic: 을 붙여 session/set_model 을 부른다
@@ -244,7 +244,7 @@ chk C5b "폴백 뒤 runtime_session_ref 는 새 런타임 것이다 (resume 비�
   "$(jq -r '.runtime_kind // "none"' <<<"$FB_REF")"
 chk C6  "폴백 뒤 task 가 완료됐다 (전환이 실제로 일을 끝낸다)" completed "$(task_status "$FB_TASK")"
 chk C6b "세션은 같은 머신에 남았다 (E8-09 — 다른 머신으로 넘기지 않는다)" "$RUNTIME" \
-  "$(psqlq "select runtime_id from session where id='$FB_SESSION'")"
+  "$(psqlq "select runtime_id from room where id='$FB_SESSION'")"
 
 step "D. E8-09 — 대체 프로파일이 없으면 queued 유지 + Director 알림"
 NFA="$(create_agent_kind "$WS" Lonely custom hermes "$BAD_MODEL" "$FB_INS" '대안 없는 프로파일')"

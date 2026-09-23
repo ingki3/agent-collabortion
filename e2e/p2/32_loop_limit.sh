@@ -72,7 +72,7 @@ step "3. 핑퐁이 상한에 걸릴 때까지 (상한 $LIMIT → $((2*LIMIT+1)) 
 IDLE=0
 DEADLINE=$(( $(date +%s) + ${LOOP_TIMEOUT_S:-900} ))
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
-  ST="$(psqlq "select status from session where id='$SESSION'")"
+  ST="$(psqlq "select status from work where room_id='$SESSION'")"
   [ "$ST" = paused ] && break
   # 핑퐁이 멈췄는데 상한도 안 걸렸으면(=지시문이 안 먹었으면) 더 기다릴 이유가 없다.
   # 30초 연속 유휴를 두 번 확인해야 포기한다 — 턴 사이 간격을 유휴로 오인하면 측정이 죽는다.

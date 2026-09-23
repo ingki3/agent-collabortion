@@ -90,7 +90,7 @@ chk C5  "폴백 뒤 runtime_session_ref 는 새 런타임 것이다 (resume 비�
   "$(jq -r '.runtime_kind // "none"' <<<"$FB_REF")"
 chk C6  "폴백 뒤 task 가 완료됐다 (전환이 실제로 일을 끝낸다)" completed "$(task_field "$FT" status)"
 chk C6b "세션은 같은 머신에 남았다 (다른 머신으로 넘기지 않는다)" "$RUNTIME" \
-  "$(psqlq "select runtime_id from session where id='$FS'")"
+  "$(psqlq "select runtime_id from room where id='$FS'")"
 
 step "3. C 추가 — **아티팩트가 유지된 workdir 에서 제출된다** (E16-D \"workdir·아티팩트 유지\")"
 ART="$(psqlq "select id from artifact where session_id='$FS' order by created_at desc limit 1")"
@@ -123,7 +123,7 @@ chk D2b "프로파일은 바뀌지 않았다 (전환할 대안이 없다)"      
 chk D3  "다른 머신으로 넘기지 않았다 (runtime 고정)"           1 \
   "$(psqlq "select count(distinct runtime_id) from task_attempt where task_id='$NT' and runtime_id is not null")"
 chk D4  "세션도 같은 머신에 남았다"                            "$RUNTIME" \
-  "$(psqlq "select runtime_id from session where id='$NS'")"
+  "$(psqlq "select runtime_id from room where id='$NS'")"
 
 step "결과"
 printf '판정: PASS %d · FAIL %d\n' "$pass" "$fail" >&2

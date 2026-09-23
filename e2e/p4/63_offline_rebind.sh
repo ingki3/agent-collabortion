@@ -38,7 +38,7 @@ cleanup() {
 trap cleanup EXIT
 
 wait_until() { local dl=$(( $(date +%s) + $1 )); shift; while [ "$(date +%s)" -lt "$dl" ]; do eval "$1" && return 0; sleep 3; done; return 1; }
-sess_status() { psqlq "select status::text from session where id='$1'"; }
+sess_status() { psqlq "select status::text from work where room_id='$1'"; }
 
 DEV_RULES="$P4_RULES"
 DEV1_INS="너는 dev1(engineer)이다. 한국어로 짧게 답한다. 작업 디렉토리는 작은 장난감 저장소의 git 워크트리다.
@@ -127,7 +127,7 @@ psqlq "update runtime set status='offline', offline_since = now() - interval '8 
        last_seen_at = now() - interval '8 days' where id='$RA'" >/dev/null
 sleep 65
 chk R3  "세션 = paused"                    paused          "$(sess_status "$S")"
-chk R3b "paused_reason = runtime_offline"  runtime_offline "$(psqlq "select coalesce(paused_reason::text,'-') from session where id='$S'")"
+chk R3b "paused_reason = runtime_offline"  runtime_offline "$(psqlq "select coalesce(paused_reason::text,'-') from work where room_id='$S'")"
 chk R3c "Director 인박스 runtime_offline 1건" 1 "$(inbox_count "$S" runtime_offline)"
 sleep 65
 chk R3d "두 번째 스윕 뒤에도 1건 — 멱등 (E14-10)" 1 "$(inbox_count "$S" runtime_offline)"
@@ -173,7 +173,7 @@ ok "재바인딩 뒤 새 machine 의 첫 attempt = $T_RESUME.$A_REBIND"
 wait_until 600 '[ -f "'"$REBIND_DIR"'/manifest.json" ]' || bad "rebind manifest 가 오지 않았다"
 cp "$REBIND_DIR/manifest.json" "$OUT/63-manifest.json" 2>/dev/null || true
 chk R5h "재바인딩이 세션의 저장소 경로를 **새 컴퓨터의 것**으로 옮긴다 (listRuntimeCandidates.matched_repo)" \
-  "$REPO_B" "$(psqlq "select coalesce(isolation->>'repo_path','-') from session where id='$S'")"
+  "$REPO_B" "$(psqlq "select coalesce(isolation->>'repo_path','-') from room where id='$S'")"
 chk R5d "다운로드 위치 = <workdir_root>/.colab/rebind/<S> (체크아웃 밖, §4.3)" yes \
   "$( [ -f "$REBIND_DIR/manifest.json" ] && echo yes || echo no )"
 chk R5e "manifest 에 아티팩트 2개가 제출 순서대로" "$A1 $A2" \

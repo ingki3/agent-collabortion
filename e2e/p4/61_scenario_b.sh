@@ -96,7 +96,7 @@ wait_until() { # wait_until TIMEOUT "shell test"
   while [ "$(date +%s)" -lt "$dl" ]; do eval "$1" && return 0; sleep 3; done
   return 1
 }
-sess_status() { psqlq "select status::text from session where id='$1'"; }
+sess_status() { psqlq "select status::text from work where room_id='$1'"; }
 # cnt FILE PATTERN... — 항상 숫자 한 개만 낸다(grep -c 는 무매치면 exit 1 이라 `|| echo 0` 이 줄을 두 개 만든다)
 cnt() { local f="$1"; shift; local a=(); local x n; for x in "$@"; do a+=(-e "$x"); done
         n="$({ grep -c "${a[@]}" "$f" 2>/dev/null || true; } | head -1 | tr -d ' \n')"; printf '%s' "${n:-0}"; }
@@ -153,8 +153,8 @@ S="$(create_session_p4 "$WS" "$TITLE" "$GOAL" "$PM" "$RUNTIME" "$REPO" "$(cond_a
 [ -n "$S" ] && [ "$S" != null ] || die "세션 생성 실패"
 T_PM="$(session_initial_task "$S")"
 chk B1  "worktree 격리 세션이 열린다 (repo_path 검증 통과)"      yes "$( [ -n "$S" ] && echo yes || echo no )"
-chk B1b "isolation.kind = worktree"                              worktree "$(psqlq "select isolation->>'kind' from session where id='$S'")"
-chk B1c "종료 조건 = agent_approval 단독"                        agent_approval "$(psqlq "select completion_condition->'conditions'->0->>'type' from session where id='$S'")"
+chk B1b "isolation.kind = worktree"                              worktree "$(psqlq "select isolation->>'kind' from room where id='$S'")"
+chk B1c "종료 조건 = agent_approval 단독"                        agent_approval "$(psqlq "select completion_condition->'conditions'->0->>'type' from work where room_id='$S'")"
 # 2판(T-I4b): workdir 행 선행 삽입 우회(U1)를 **지웠다**. 서버가 probe 의 `workdir_root` 를
 # 저장했다가 번들에 절대 경로를 싣고(S-55), 데몬이 그 아래에 워크트리를 만든다(D-21).
 ok "session $S · PM task $T_PM (우회 없음 — 경로는 서버가 만든다)"

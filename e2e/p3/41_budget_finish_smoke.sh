@@ -63,7 +63,7 @@ TS=$(Q "SELECT status FROM task WHERE id='$TASK'")
 [ "$TS" = completed ] && ok "task = completed (턴은 끝났고 completed→paused 전이는 없다)" || bad "task = $TS"
 LS=$(Q "SELECT l.status FROM lane l JOIN task t ON t.lane_id=l.id WHERE t.id='$TASK'")
 [ "$LS" = paused ] && ok "lane = paused — 다음 dispatch 차단" || bad "lane = $LS, want paused"
-COST=$(Q "SELECT cost_usd FROM session WHERE id='$SESS'")
+COST=$(Q "SELECT cost_usd FROM work WHERE room_id='$SESS'")
 ok "session.cost_usd = $COST"
 H=$(Q "SELECT source||'/'||type||'/'||purpose||'/'||COALESCE(task_id::text,'-') FROM hitl_request WHERE session_id='$SESS' AND purpose='budget'")
 [ "$H" = "system/approval/budget/$TASK" ] && ok "HITL = $H (task_id 채움, FR-7.3 s-13)" || bad "HITL = $H"

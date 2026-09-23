@@ -135,7 +135,7 @@ ST="$(WAIT_S=${HITL_WAIT_S:-420} wait_task "$T_A1" waiting_human failed cancelle
 chk A1 "E7-03 첫 턴이 task 를 waiting_human 으로 끝낸다" waiting_human "$ST"
 LANE_A1="$(task_field "$T_A1" lane_id)"
 chk A1b "그 lane 도 waiting_human 이다"                  waiting_human "$(lane_field "$LANE_A1" status)"
-chk A1c "세션은 active 유지 (E7-18)"                     active "$(psqlq "select status from session where id='$S1'")"
+chk A1c "세션은 active 유지 (E7-18)"                     active "$(psqlq "select status from work where room_id='$S1'")"
 chk A1d "attempt 1 의 프로세스가 남아 있지 않다"          0 "$(procs_of_attempt "$WORK" "$T_A1" 1)"
 chk A1e "workdir 디렉토리가 보존된다"                     yes \
   "$( [ -d "$WORK/sessions/$S1/$LANE_A1" ] && echo yes || echo no )"
@@ -185,7 +185,7 @@ chk A4b "**capacity=1 인데** Peer task 가 끝까지 돌았다 (슬롯 미점�
 chk A4c "Peer 가 메시지를 게시했다"                        1 \
   "$(psqlq "select count(*) from message where source_task_id='$T_PEER' and content like 'PEER-DONE%'")"
 chk A4d "그 사이 Asker 는 여전히 waiting_human"             waiting_human "$(task_field "$T_A1" status)"
-chk A4e "세션은 active 유지"                                active "$(psqlq "select status from session where id='$S1'")"
+chk A4e "세션은 active 유지"                                active "$(psqlq "select status from work where room_id='$S1'")"
 
 step "4. 웹 인박스(S8)에서 Director 가 답한다 — 화면 판정은 DOM"
 ANSWER="관리사무소 담당자"

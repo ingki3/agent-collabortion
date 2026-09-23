@@ -177,7 +177,7 @@ chk A7c "artifact_submitted 조건 met=true" true "$(jq -r '.conditions[]|select
 chk A7d "user_approval 조건 met=false" false "$(jq -r '.conditions[]|select(.type=="user_approval")|.met' <<<"$CP")"
 chk A7e "satisfied=false (사람 승인 전)" false "$(jq -r .satisfied <<<"$CP")"
 chk A7f "human_gate=true" true "$(jq -r .human_gate <<<"$CP")"
-SESS_STATUS="$(psqlq "select status from session where id='$SESSION'")"
+SESS_STATUS="$(psqlq "select status from work where room_id='$SESSION'")"
 chk A7g "세션은 아직 active (E6-01)" active "$SESS_STATUS"
 
 # 보너스: previewTriggers 가 서버 값인지 (웹 판정은 11 에서)

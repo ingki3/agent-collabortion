@@ -159,7 +159,7 @@ if [ -n "$H2" ]; then
 fi
 chk A11  "세션 completed (자동 완료, E6-03)" completed "$(sess_status "$SESSION")"
 chk A11b "완료 원자: artifact_submitted+user_approval, manual 아님" "true|true|false" \
-  "$(psqlq "select completion_met::text from session where id='$SESSION'" | jq -r '"\(.artifact_submitted // false)|\(.user_approval // false)|\(.manual // false)"')"
+  "$(psqlq "select completion_met::text from work where room_id='$SESSION'" | jq -r '"\(.artifact_submitted // false)|\(.user_approval // false)|\(.manual // false)"')"
 chk A12  "session_summary 메시지 정확히 1개 (FR-2.4)" 1 "$(summary_count "$SESSION")"
 summary_body "$SESSION" > "$OUT/72-summary.txt" 2>/dev/null || true
 chk A12b "요약에 FR-2.4 네 절" 4 "$(psqlq "select (content like '%결정 기록%')::int + (content like '%아티팩트%')::int + (content like '%비용%')::int + (content like '%타임라인%')::int from message where session_id='$SESSION' and kind='summary'")"

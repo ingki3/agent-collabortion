@@ -105,7 +105,7 @@ R_="$(mk_session "참여자 아님 $RUN" "$(tree "$(jq -nc --arg a "$W" '{type:"
 chk A.3 "422/reviewer_not_participant" "$(api_code <<<"$R_")/$(err_code "$(api_body <<<"$R_")" completion_condition/conditions/0/agent_id)" "W 는 참여자가 아니다 → 422 reviewer_not_participant"
 R_="$(mk_session "제출자 참여자 아님 $RUN" "$(tree "$(jq -nc --arg a "$W" '{type:"artifact_submitted",agent_id:$a}')" '{"type":"user_approval"}')" "$LEAD" "$R")"
 chk A.4 "422/reviewer_not_participant" "$(api_code <<<"$R_")/$(err_code "$(api_body <<<"$R_")" completion_condition/conditions/0/agent_id)" "artifact_submitted 의 agent_id 도 참여자 검사(같은 코드)"
-chk A.5 0 "$(psqlq "select count(*) from session where workspace_id='$WS'")" "422 셋 다 세션을 만들지 않았다"
+chk A.5 0 "$(psqlq "select count(*) from room where workspace_id='$WS'")" "422 셋 다 세션을 만들지 않았다"
 TREE_B="$(tree '{"type":"artifact_submitted","who":"assignee"}' "$(jq -nc --arg a "$R" '{type:"agent_approval",agent_id:$a}')")"
 R_="$(mk_session "리뷰어 R $RUN" "$TREE_B" "$LEAD" "$R")"
 chk A.6 201 "$(api_code <<<"$R_")" "리뷰어 R(참여자) 지정 → 201"
@@ -129,7 +129,7 @@ IFS=$'\t' read -r T_R TT_R <<<"$(run_turn "$S_B" "$R")"
 chk B.5 200 "$(review "$ART_B" "$TT_R" approve)" "R 승인 → 200"
 finish_turn "$T_R"
 chk B.6 "true/2/2" "$(jq -r '.completion_progress|(.satisfied|tostring)+"/"+(.met|tostring)+"/"+(.total|tostring)' "$OUT/80-review.json")" "reviewArtifact 응답의 진행률 satisfied 2/2"
-chk B.7 completed "$(psqlq "select status from session where id='$S_B'")" "세션 completed"
+chk B.7 completed "$(psqlq "select status from work where room_id='$S_B'")" "세션 completed"
 chk B.8 "1/0" "$(psqlq "select (select count(*) from message where session_id='$S_B' and kind='summary')||'/'||(select count(*) from hitl_request where session_id='$S_B' and purpose='user_approval')")" "요약 1 · 사람 승인 확인 요청 0(agent_approval 에 사람 관문 없음)"
 
 # ───────────────────────────── C ─────────────────────────────────────────────
@@ -138,7 +138,7 @@ TREE_OLD='{"op":"and","conditions":[{"type":"artifact_submitted","who":"assignee
 mk_old() { # TITLE AGENT... → 세션 id (user_approval 로 만들고 completion_condition 을 옛 모양으로 덮는다)
   local t="$1"; shift; local s
   s="$(mk_session "$t" "$(tree '{"type":"user_approval"}')" "$@" | api_body | jq -r .id)"
-  psqlq "update session set completion_condition='$TREE_OLD'::jsonb where id='$s'" >/dev/null
+  psqlq "update work set completion_condition='$TREE_OLD'::jsonb where room_id='$s'" >/dev/null
   printf '%s' "$s"
 }
 S_C="$(mk_old "옛 모양 $RUN" "$LEAD" "$R")"
@@ -149,7 +149,7 @@ chk C.3 "Lead/null" "$(cond "$S_C" artifact_submitted | jq -r '(.next_actor//"nu
 chk C.4 false "$(api_ok GET "/sessions/$S_C" | jq -r .completion_progress.satisfied)" "satisfied false"
 # 리뷰어가 세션을 떠난 경우 · archived 인 경우 — 각각 다른 세션으로
 S_C2="$(mk_session "리뷰어 떠남 $RUN" "$(tree "$(jq -nc --arg a "$R" '{type:"agent_approval",agent_id:$a}')")" "$LEAD" "$R" | api_body | jq -r .id)"
-psqlq "delete from session_participant where session_id='$S_C2' and agent_id='$R'" >/dev/null
+psqlq "delete from room_participant where room_id='$S_C2' and agent_id='$R'" >/dev/null
 chk C.5 "reviewer_not_participant/R" "$(cond "$S_C2" agent_approval | jq -r '(.blocked_reason//"null")+"/"+(.agent_name//"null")')" "리뷰어가 참여자에서 빠짐 → reviewer_not_participant (이름은 그대로)"
 S_C3="$(mk_session "리뷰어 archived $RUN" "$(tree "$(jq -nc --arg a "$W" '{type:"agent_approval",agent_id:$a}')")" "$LEAD" "$W" | api_body | jq -r .id)"
 psqlq "update agent set archived_at=now() where id='$W'" >/dev/null
@@ -183,7 +183,7 @@ wake "$S_C" "$R" R
 IFS=$'\t' read -r T_R2 TT_R2 <<<"$(run_turn "$S_C" "$R")"
 chk C.16 200 "$(review "$ART_C" "$TT_R2" approve)" "R 승인 → 200"
 finish_turn "$T_R2"
-chk C.17 completed "$(psqlq "select status from session where id='$S_C'")" "구한 세션 completed"
+chk C.17 completed "$(psqlq "select status from work where room_id='$S_C'")" "구한 세션 completed"
 
 # ───────────────────────────── D ─────────────────────────────────────────────
 step "D. 이미 충족된 원자 유지 — 제출 뒤 조건 변경: 단독이면 즉시 completed · user_approval 만 남으면 확인 요청 1건"
@@ -209,7 +209,7 @@ chk D.9 director "$(cond_field "$S_D2" user_approval next_actor)" "user_approval
 HITL="$(psqlq "select id from hitl_request where session_id='$S_D2' and purpose='user_approval' and status='open'")"
 IFS=$'\t' read -r HC HB <<<"$(respond_hitl "$HITL" '{"approved":true}')"
 chk D.10 200 "$HC" "Director 승인 응답 200"
-chk D.11 completed "$(psqlq "select status from session where id='$S_D2'")" "→ completed"
+chk D.11 completed "$(psqlq "select status from work where room_id='$S_D2'")" "→ completed"
 
 # ───────────────────────────── E ─────────────────────────────────────────────
 step "E. 권한·상태 — 멤버 403 · completed 422 immutable · paused 200(paused 유지)"

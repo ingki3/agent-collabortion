@@ -138,13 +138,13 @@ RTASK=$(Q "SELECT id FROM task WHERE session_id='$RSID' ORDER BY created_at LIMI
 # mac-a 가 8일째 사라졌다 → 스윕이 세션을 paused(runtime_offline) 로 옮긴다.
 Q "UPDATE runtime SET status='offline', offline_since = now() - interval '8 days', last_seen_at = now() - interval '8 days' WHERE id='$RID'" >/dev/null
 sleep 62
-RST=$(Q "SELECT status FROM session WHERE id='$RSID'")
+RST=$(Q "SELECT status FROM work WHERE room_id='$RSID'")
 [ "$RST" = paused ] && ok "세션 = paused(runtime_offline) — 재바인딩 조건 성립" || bad "세션 = $RST, want paused"
 RBC=$(code -X POST "$S/sessions/$RSID/rebind" -d "{\"runtime_id\":\"$RID2\",\"acknowledge_loss\":true}")
 [ "$RBC" = 200 ] && ok "같은 remote 런타임으로 rebind = 200 (E14-03)" || bad "rebind = $RBC"
 PREP=$(Q "SELECT count(*) FROM daemon_command WHERE type='rebind_prepare' AND session_id='$RSID'")
 [ "$PREP" -ge 1 ] && ok "rebind_prepare 명령 $PREP 건 큐잉 (§4.3)" || bad "rebind_prepare = $PREP, want ≥1"
-STORED=$(Q "SELECT length(coalesce(rebind_prompt,'')) FROM session WHERE id='$RSID'")
+STORED=$(Q "SELECT length(coalesce(rebind_prompt,'')) FROM room WHERE id='$RSID'")
 [ "${STORED:-0}" -gt 0 ] && ok "session.rebind_prompt 저장됨 ($STORED 자)" || bad "rebind_prompt 가 비어 있다 — 프롬프트가 갈 길이 없다 (S-53)"
 
 # 새 머신의 데몬이 claim 한다 — 번들의 프롬프트가 실측 대상이다.
@@ -179,7 +179,7 @@ curl -sS -X POST "$D/tasks/$RTASK/attempts/$ATT/phase" -H "Authorization: Bearer
   -d '{"phase":"running","pgid":4242,"workdir_path":"/w/rebind/r"}' >/dev/null
 FINC=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$D/tasks/$RTASK/attempts/$ATT/finish" -H "Authorization: Bearer $DTOK2" -H 'Content-Type: application/json' \
   -d '{"outcome":"completed","stop_reason":"end_turn"}')
-STORED2=$(Q "SELECT length(coalesce(rebind_prompt,'')) FROM session WHERE id='$RSID'")
+STORED2=$(Q "SELECT length(coalesce(rebind_prompt,'')) FROM room WHERE id='$RSID'")
 [ "$FINC" = 200 ] && ok "finish(completed) = 200" || bad "finish = $FINC"
 [ "${STORED2:-1}" = 0 ] && ok "completed 뒤 rebind_prompt 가 비었다 — 다음 턴은 diff 를 다시 적용하지 않는다" || bad "rebind_prompt 가 $STORED2 자로 남아 있다"
 
