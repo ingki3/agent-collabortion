@@ -133,7 +133,7 @@ bash e2e/p1/03_cancel.sh              # (c) 취소 → out/c-summary.json (데�
 bash e2e/p1/02_kill9.sh               # (b) kill -9, 약 9분 → out/b-summary.json
 bash e2e/p1/05_invite_api.sh          # DoD 4 (API)
 bash e2e/p1/06_s12_pairing_realtime.sh# S12: 서버 SSE vs 웹 패널 분리 재현 (에이전트 턴 없음)
-bash e2e/p1/04_u1_browser.sh          # (d) U1 1~13 + U13 브라우저 → web/__screenshots__/p1-u1-*.png, out/d-steps.tsv
+bash e2e/p1/04_u1_browser.sh          # (d) U1 1~13 + U13 브라우저 → web/__screenshots__/p1-u1-0*.png · v018/p1-u1-*.png(T-R2-M8 이동), out/d-steps.tsv
 bash e2e/p1/down.sh                   # 데몬·서버·웹 종료
 ```
 

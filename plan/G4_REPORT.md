@@ -200,7 +200,7 @@ bash e2e/p2/up.sh
 bash e2e/p2/10_scenario_a_api.sh          # out/a-checks.tsv · out/scenario-a.json · out/a-join-prompt.txt
 
 # 시나리오 A — 웹 경로 (agent-browser, U2·U4·U5)
-bash e2e/p2/11_scenario_a_web.sh          # out/w-steps.tsv · web/__screenshots__/p2-a-*.png
+bash e2e/p2/11_scenario_a_web.sh          # out/w-steps.tsv · web/__screenshots__/v018/p2-a-*.png
 
 # 목 API vs 실서버 (에이전트 턴 0~1)
 bash e2e/p2/12_mock_vs_real.sh            # out/mock-vs-real.tsv · out/mock-vs-real.json

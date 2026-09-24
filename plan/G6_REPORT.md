@@ -397,8 +397,8 @@ Director·deputy·일반 멤버 **세 사람**을 초대 링크로 만들고 세
 12h 뒤 같은 카드가 `allowed` + 버튼 **활성**이 되고, 그 버튼으로 실제 승인이 통과했다.
 일반 멤버에게는 `never` + "응답 권한이 없습니다"(카드는 보인다). lane 의 "중단" 버튼도
 멤버에게 **보이되 비활성**이다(SCREEN §7 — 숨기지 않는다).
-스크린샷 `p3-51-01-deputy-locked.png` · `p3-51-02-member-noright.png` · `p3-51-03-deputy-unlocked.png` ·
-`p3-51-04-member-cancel-disabled.png`.
+스크린샷 `v018/p3-51-01-deputy-locked.png` · `v018/p3-51-02-member-noright.png` · `v018/p3-51-03-deputy-unlocked.png` ·
+`v018/p3-51-04-member-cancel-disabled.png`.
 
 ### 6.2 (e) 시나리오 C — `52_scenario_c.sh` (PASS 40 · FAIL 0)
 
