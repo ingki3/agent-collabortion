@@ -16,12 +16,22 @@ import (
 // 워크트리로 돕니다」 notice, the isolation's repo_path is the winner's, and
 // only the winner is handed the task.
 //
-// Two guards keep it so: settleWorktree's `FOR UPDATE OF s SKIP LOCKED` (the
-// loser does not see the room) and FillWorktree's `runtime_id IS NULL` (the
-// loser's write re-reads the committed pin and touches nothing). Either alone
-// holds, so this test stays green with one removed — it is the lock on
-// removing BOTH, where the second claim overwrote the first's pin and the
-// timeline got two notices.
+// THREE defenses keep it so (#309 NN2 — the old comment said two):
+//
+//  1. settleWorktree's SKIP LOCKED — the loser does not see the locked room;
+//  2. the FOR UPDATE under it — without SKIP LOCKED the loser WAITS for the
+//     winner's commit, and READ COMMITTED re-checks the premise's
+//     `s.runtime_id IS NULL` on the new row version, so the room drops out;
+//  3. FillWorktree's `runtime_id IS NULL` — the loser's write re-reads the
+//     committed pin and touches nothing.
+//
+// Any one alone holds. Measured (T-S-inbox, -count=3 each): the test stays
+// green with 3 removed, with SKIP LOCKED removed, with the whole lock clause
+// removed, and with SKIP LOCKED + 3 removed (2 still holds — the correct
+// answer, not a blind spot); it goes RED only with the whole
+// `FOR UPDATE OF s SKIP LOCKED` clause AND 3 removed, where the second claim
+// overwrote the first's pin and the timeline got two notices. That is the
+// mutant it locks.
 //
 // The shape is the #302 review probe: a real server's fixture, the second
 // computer a column-for-column copy of the first (jsonb_populate_record, so

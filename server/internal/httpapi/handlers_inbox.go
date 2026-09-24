@@ -17,6 +17,8 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
+	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
+	"github.com/ingki3/agent-collabortion/server/internal/rooms"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -63,6 +65,18 @@ type inboxRow struct {
 	LaneID         *uuid.UUID
 	RecipientBasis *string
 	RoomName       *string
+
+	// openapi 0.2.10 card.actor_name · quote (isolation_confirm · room_invited).
+	ActorName *string
+	QuoteBody *string
+
+	// The viewer's standing in the item's room, read with the item (#309
+	// NN1): an item stays in the inbox of the person it came to, but what it
+	// says about the room is checked again at every read (rooms.Decide).
+	ViewerWsRole   *string
+	ViewerRoomRole *string
+	RoomVisibility *string
+	RoomStatus     *string
 }
 
 const selectInbox = `
@@ -70,10 +84,17 @@ const selectInbox = `
 	       i.ref_id, i.read_at, i.created_at,
 	       h.type::text, h.question, h.context, h.proposed_default, h.due_at, h.overdue, h.status::text,
 	       h.purpose::text, h.approver_spec, h.created_at, a.name, wk.director_user_id, wk.deputy_user_id, wk.paused_reason::text,
-	       i.work_id, i.lane_id, i.recipient_basis, s.name
+	       i.work_id, i.lane_id, i.recipient_basis, s.name,
+	       au.display_name, qm.content,
+	       m.role::text, rp.role::text, s.visibility::text, s.status::text
 	FROM inbox_item i
 	JOIN member m ON m.id = i.member_id
 	LEFT JOIN room s ON s.id = i.session_id
+	LEFT JOIN app_user au ON au.id = i.actor_user_id
+	LEFT JOIN message qm ON qm.id = i.quote_message_id
+	-- The item's person (m.user_id — every caller scopes by it) as a LIVE
+	-- participant of the room: left_at set is "no longer in the room".
+	LEFT JOIN room_participant rp ON rp.room_id = s.id AND rp.user_id = m.user_id AND rp.left_at IS NULL
 	-- room_paused · isolation_confirm (migration r1b1_room_gate) are room-owner approvals: their
 	-- ref is the request, and the card reads it exactly like hitl_request's.
 	LEFT JOIN hitl_request h ON h.id = i.ref_id AND i.type IN ('hitl_request', 'room_paused', 'isolation_confirm')
@@ -95,7 +116,9 @@ func scanInbox(rows pgx.Rows) ([]inboxRow, error) {
 			&r.RefID, &r.ReadAt, &r.CreatedAt,
 			&r.HitlType, &r.HitlQuestion, &r.HitlContext, &r.HitlDefault, &r.HitlDueAt, &r.HitlOverdue, &r.HitlStatus,
 			&r.HitlPurpose, &r.HitlSpec, &r.HitlCreatedAt, &r.HitlAgentName, &r.SessionDirector, &r.SessionDeputy, &r.SessionPaused,
-			&r.WorkID, &r.LaneID, &r.RecipientBasis, &r.RoomName); err != nil {
+			&r.WorkID, &r.LaneID, &r.RecipientBasis, &r.RoomName,
+			&r.ActorName, &r.QuoteBody,
+			&r.ViewerWsRole, &r.ViewerRoomRole, &r.RoomVisibility, &r.RoomStatus); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -204,6 +227,15 @@ func (s *Server) inboxAPI(ctx context.Context, r *inboxRow, viewer uuid.UUID, no
 	if r.RecipientBasis != nil {
 		out.RecipientBasis = nullable.NewNullableWithValue(gen.InboxItemRecipientBasis(*r.RecipientBasis))
 	}
+	// #309 NN1: the room is named only while the viewer may still see it.
+	// Someone put out of an invited room keeps the item — it came to them —
+	// but the room is gone for them (FR-4.5's "읽는 시점에 다시 검사",
+	// FR-5.3's "invited 방은 없는 것처럼"): no room, no mission, no quote,
+	// and no body that names it.
+	hidden := !roomVisible(r)
+	if hidden {
+		r.RoomName, r.SessionName, r.QuoteBody = nil, nil, nil
+	}
 	// openapi 0.2.9: the card's context line names the room in full (SCREEN
 	// §4.14). An item of no room (a workspace-level card) says null.
 	out.Room = nullable.NewNullNullable[struct {
@@ -257,10 +289,16 @@ func (s *Server) inboxAPI(ctx context.Context, r *inboxRow, viewer uuid.UUID, no
 					Elapsed: now.Sub(*r.HitlCreatedAt), DueIn: r.HitlDueAt.Sub(*r.HitlCreatedAt),
 				})
 			}
-			canRespond = az.Allowed
+			canRespond = az.Allowed && !hidden
 			// O5: the deputy's copy is marked so the card can say
 			// "위임됨 · 지금부터 응답 가능" instead of looking like a duplicate.
+			// A room-owner approval's copy says it by its basis — the room's
+			// hand-over, not the mission's deputy (roomgate.FileInbox).
 			delegated := r.SessionDeputy != nil && viewer == *r.SessionDeputy
+			if r.Type != inbox.TypeHitlRequest {
+				delegated = r.RecipientBasis != nil &&
+					(*r.RecipientBasis == inbox.BasisRoomDeputy || *r.RecipientBasis == inbox.BasisWorkspaceOwner)
+			}
 			out.Delegated = &delegated
 		}
 		if r.Type == inbox.TypeRoomPaused {
@@ -271,6 +309,10 @@ func (s *Server) inboxAPI(ctx context.Context, r *inboxRow, viewer uuid.UUID, no
 				body = *r.HitlQuestion
 			}
 			hitlType = ""
+		}
+		if hidden {
+			// The question and its context are the room's own words.
+			title, body = hiddenRoomTitle(r.Type), ""
 		}
 	case inbox.TypeSessionPaused:
 		title = "세션이 멈췄습니다"
@@ -285,6 +327,9 @@ func (s *Server) inboxAPI(ctx context.Context, r *inboxRow, viewer uuid.UUID, no
 		title = "방에 초대되었습니다"
 		if r.RoomName != nil {
 			body = *r.RoomName
+		}
+		if hidden {
+			title = hiddenRoomTitle(r.Type)
 		}
 	case inbox.TypeWorkdirQuota:
 		title = "작업 폴더가 용량 상한에 닿았습니다"
@@ -332,6 +377,13 @@ func fillInboxCard(out *gen.InboxItem, title, body string, r *inboxRow) {
 		out.Card.Body = &body
 	}
 	out.Card.AgentName = tasks.NullString(r.HitlAgentName)
+	out.Card.ActorName = tasks.NullString(r.ActorName)
+	out.Card.Quote = nullable.NewNullNullable[string]()
+	if r.QuoteBody != nil {
+		if q := roomgate.Quote(*r.QuoteBody); q != "" {
+			out.Card.Quote = nullable.NewNullableWithValue(q)
+		}
+	}
 	out.Card.ProposedDefault = tasks.NullString(r.HitlDefault)
 	if r.HitlType != nil {
 		k := gen.HitlType(*r.HitlType)
@@ -349,6 +401,32 @@ func fillInboxCard(out *gen.InboxItem, title, body string, r *inboxRow) {
 		pr := gen.PauseReason(*r.SessionPaused)
 		out.Card.PausedReason = &pr
 	}
+}
+
+// roomVisible is rooms.Decide(ActView) for the item's viewer, from the
+// standing selectInbox read with the item. An item of no room — or of a room
+// that is gone — has nothing to hide.
+func roomVisible(r *inboxRow) bool {
+	if r.SessionID == nil || r.RoomVisibility == nil {
+		return true
+	}
+	f := rooms.Standing{Visibility: *r.RoomVisibility, Archived: r.RoomStatus != nil && *r.RoomStatus == "archived"}
+	if r.ViewerWsRole != nil {
+		f.WorkspaceRole = *r.ViewerWsRole
+	}
+	if r.ViewerRoomRole != nil {
+		f.RoomRole = *r.ViewerRoomRole
+	}
+	return rooms.Decide(rooms.ActView, f)
+}
+
+// hiddenRoomTitle is the card title of an item whose room the viewer can no
+// longer see: what happened, without the room (#309 NN1).
+func hiddenRoomTitle(itemType string) string {
+	if itemType == inbox.TypeRoomInvited {
+		return "방에 초대되었습니다"
+	}
+	return "더 이상 볼 수 없는 방의 요청입니다"
 }
 
 func nullableTime(t *time.Time) nullable.Nullable[time.Time] {

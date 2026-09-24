@@ -123,13 +123,16 @@ func TestP3EstimatedUsageEnforcesInTurn(t *testing.T) {
 	if hitlTask != nil {
 		t.Fatalf("hitl task_id = %v, want empty — what paused is the SESSION (FR-7.3 s-13, K-10)", hitlTask)
 	}
-	var cards int
+	// #311 ①: a room stop is the owner's one room_paused card, not hitl_request.
+	var cards, hitlCards int
 	if err := f.pool.QueryRow(t.Context(), `
-		SELECT count(*) FROM inbox_item WHERE session_id = $1 AND type = 'hitl_request'`, f.sessionID).Scan(&cards); err != nil {
+		SELECT count(*) FILTER (WHERE type = 'room_paused' AND recipient_basis = 'room_owner'),
+		       count(*) FILTER (WHERE type = 'hitl_request')
+		FROM inbox_item WHERE session_id = $1`, f.sessionID).Scan(&cards, &hitlCards); err != nil {
 		t.Fatal(err)
 	}
-	if cards != 1 {
-		t.Fatalf("inbox items = %d, want 1", cards)
+	if cards != 1 || hitlCards != 0 {
+		t.Fatalf("room_paused (owner) = %d, hitl_request = %d, want 1 and 0", cards, hitlCards)
 	}
 	// The feed says the turn is being left alone, so the session view does not
 	// look like a silent stop.

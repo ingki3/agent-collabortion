@@ -150,8 +150,9 @@ func TestS76DelegateJoinCycleStopsAtPairRoundtrips(t *testing.T) {
 		t.Fatal(err)
 	}
 	// PRD v0.19 FR-3.5 · FR-8: the loop stops the ROOM, and its owner gets a
-	// `room_paused` card (T-R1b1) — the one `session_paused` used to be.
-	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM inbox_item WHERE session_id = $1 AND type = 'room_paused'`, f.sessionID).Scan(&inbox); err != nil {
+	// `room_paused` card (T-R1b1) — the one `session_paused` used to be —
+	// saying why it is theirs (recipient_basis, T-S-inbox).
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM inbox_item WHERE session_id = $1 AND type = 'room_paused' AND recipient_basis = 'room_owner'`, f.sessionID).Scan(&inbox); err != nil {
 		t.Fatal(err)
 	}
 	if hitl != 1 || cards != 1 || inbox != 1 {

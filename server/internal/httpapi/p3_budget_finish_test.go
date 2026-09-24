@@ -279,14 +279,18 @@ func TestP3BudgetAtFinishEstimatedNeverCuts(t *testing.T) {
 		t.Fatalf("hitl task_id = %v, want empty — what paused is the SESSION, so the request is "+
 			"answered by resuming the session (K-10)", hitlTask)
 	}
-	var cards, paused int
+	// #311 ①: the estimate stopped the ROOM (the gate), so the owner's card is
+	// the one `room_paused` — the approval is its action, not a second card.
+	var cards, hitlCards, paused int
 	if err := f.pool.QueryRow(t.Context(), `
-		SELECT count(*) FILTER (WHERE type = 'hitl_request'), count(*) FILTER (WHERE type = 'session_paused')
-		FROM inbox_item WHERE session_id = $1`, f.sessionID).Scan(&cards, &paused); err != nil {
+		SELECT count(*) FILTER (WHERE type = 'room_paused' AND recipient_basis = 'room_owner'),
+		       count(*) FILTER (WHERE type = 'hitl_request'), count(*) FILTER (WHERE type = 'session_paused')
+		FROM inbox_item WHERE session_id = $1`, f.sessionID).Scan(&cards, &hitlCards, &paused); err != nil {
 		t.Fatal(err)
 	}
-	if cards != 1 {
-		t.Fatalf("hitl_request inbox items = %d, want 1 — 'Dir 알림' is the other half of E9-05", cards)
+	if cards != 1 || hitlCards != 0 {
+		t.Fatalf("room_paused (owner) = %d, hitl_request = %d, want 1 and 0 — 'Dir 알림' is the other half of E9-05, "+
+			"and a room stop is one room_paused card", cards, hitlCards)
 	}
 	if paused != 0 {
 		t.Fatalf("session_paused inbox items = %d, want 0 — the HITL files its own card and two "+

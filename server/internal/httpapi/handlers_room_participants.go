@@ -179,12 +179,14 @@ func (s *Server) invitePerson(ctx context.Context, tx pgx.Tx, a *rooms.Access, i
 		return nil, err
 	}
 	// FR-8 room_invited: the invited person's inbox, as themselves (no
-	// recipient_basis — they are not answering for a role).
+	// recipient_basis — they are not answering for a role). The inviter is
+	// the card's actor_name (openapi 0.2.10) — kept here because it is
+	// written nowhere else.
 	if userID != inviter {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
-			VALUES ($1, 'room_invited', $2, $3, $4, $5)`,
-			memberID, inbox.Severity(inbox.TypeRoomInvited), a.RoomID, row.ID, now); err != nil {
+			INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at, actor_user_id)
+			VALUES ($1, 'room_invited', $2, $3, $4, $5, $6)`,
+			memberID, inbox.Severity(inbox.TypeRoomInvited), a.RoomID, row.ID, now, inviter); err != nil {
 			return nil, err
 		}
 	}
