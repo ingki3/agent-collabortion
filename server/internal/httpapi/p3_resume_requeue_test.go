@@ -39,7 +39,7 @@ func (f *p2Fixture) overrunSession(t *testing.T, agent uuid.UUID, name string, c
 	t.Helper()
 	_, taskID := f.agentToken(t, f.sessionID, agent, name)
 	f.runTask(t, taskID)
-	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, contracts.Usage{CostUSD: cost}, f.fake.Now()); err != nil {
+	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, attemptNow(t, f.srv.DB, taskID), contracts.Usage{CostUSD: cost}, f.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.srv.enforceBudgetFor(t.Context(), taskID); err != nil {

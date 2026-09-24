@@ -172,7 +172,9 @@ func ListAttempts(ctx context.Context, q db.DBTX, taskID uuid.UUID) ([]Attempt, 
 	return out, rows.Err()
 }
 
-// Usage is the task_usage row.
+// Usage is a task's usage: the sum over its attempts' task_usage rows
+// (task_usage_total). One attempt's row never stands for the task — a retry or
+// resume starts a new row, and the attempt before it still cost what it cost.
 type Usage struct {
 	InputTokens, OutputTokens, CacheRead int64
 	CostUSD                              float64
@@ -182,7 +184,7 @@ type Usage struct {
 
 func GetUsage(ctx context.Context, q db.DBTX, taskID uuid.UUID) (*Usage, error) {
 	var u Usage
-	err := q.QueryRow(ctx, `SELECT input_tokens, output_tokens, cache_read, cost_usd, estimated, updated_at FROM task_usage WHERE task_id = $1`, taskID).
+	err := q.QueryRow(ctx, `SELECT input_tokens, output_tokens, cache_read, cost_usd, estimated, updated_at FROM task_usage_total WHERE task_id = $1`, taskID).
 		Scan(&u.InputTokens, &u.OutputTokens, &u.CacheRead, &u.CostUSD, &u.Estimated, &u.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -544,12 +546,12 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			f.Usage.CacheReadTokens == 0 && f.Usage.CostUSD == 0
 		if !empty {
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO task_usage (task_id, input_tokens, output_tokens, cache_read, cost_usd, estimated, model, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-				ON CONFLICT (task_id) DO UPDATE SET input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
+				INSERT INTO task_usage (task_id, attempt, input_tokens, output_tokens, cache_read, cost_usd, estimated, model, updated_at)
+				VALUES ($1, $9, $2, $3, $4, $5, $6, $7, $8)
+				ON CONFLICT (task_id, attempt) DO UPDATE SET input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
 				  cache_read = EXCLUDED.cache_read, cost_usd = EXCLUDED.cost_usd, estimated = EXCLUDED.estimated,
 				  model = COALESCE(EXCLUDED.model, task_usage.model), updated_at = EXCLUDED.updated_at`,
-				t.ID, f.Usage.InputTokens, f.Usage.OutputTokens, f.Usage.CacheReadTokens, reported, f.Usage.Estimated, model, now); err != nil {
+				t.ID, f.Usage.InputTokens, f.Usage.OutputTokens, f.Usage.CacheReadTokens, reported, f.Usage.Estimated, model, now, attempt); err != nil {
 				return fmt.Errorf("tasks: usage: %w", err)
 			}
 		}
@@ -898,7 +900,7 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 	// arithmetic produces the same number, and a session with hundreds of
 	// attempts re-reads all of them on every finish.
 	rows, err := tx.Query(ctx, `
-		SELECT u.task_id, t.attempt, u.input_tokens, u.output_tokens, u.cache_read, u.cost_usd,
+		SELECT u.task_id, u.attempt, u.input_tokens, u.output_tokens, u.cache_read, u.cost_usd,
 		       COALESCE(NULLIF(u.model, ''), p.model, '')
 		FROM task_usage u
 		JOIN task t ON t.id = u.task_id
@@ -906,7 +908,7 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 		LEFT JOIN workspace_settings ws ON ws.workspace_id = $2
 		WHERE t.session_id = $1 AND u.estimated
 		  AND (u.cost_usd = 0 OR ws.updated_at IS NULL OR u.updated_at <= ws.updated_at)
-		ORDER BY u.task_id`, sessionID, wsID)
+		ORDER BY u.task_id, u.attempt`, sessionID, wsID)
 	if err != nil {
 		return fmt.Errorf("tasks: pricing rows: %w", err)
 	}
@@ -938,7 +940,7 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 		if usd == stored {
 			continue
 		}
-		todo = append(todo, row{taskID: id, usd: usd})
+		todo = append(todo, row{taskID: id, attempt: attempt, usd: usd})
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -965,7 +967,7 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 	}
 	b := &pgx.Batch{}
 	for _, r := range todo {
-		b.Queue(`UPDATE task_usage SET cost_usd = $2, updated_at = $3 WHERE task_id = $1 AND estimated`, r.taskID, r.usd, now)
+		b.Queue(`UPDATE task_usage SET cost_usd = $2, updated_at = $3 WHERE task_id = $1 AND attempt = $4 AND estimated`, r.taskID, r.usd, now, r.attempt)
 	}
 	br := tx.SendBatch(ctx, b)
 	for range todo {

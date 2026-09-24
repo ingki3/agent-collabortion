@@ -133,8 +133,8 @@ tap_brief() { python3 "$P3_DIR/fixtures/brief_of.py" "$1" "$2" ${3:+"$3"}; }
 # **경로가 없다**) DB 로 넣는다. 판정 대상이 아니라 **자극**이므로 우회로 세지 않는다.
 set_agent_budget() { psqlq "update agent set budget_per_task=$2 where id='$1'" >/dev/null; }
 agent_budget() { psqlq "select coalesce(budget_per_task::text,'-') from agent where id='$1'"; }
-# task_usage TASK → cost_usd  estimated
-task_usage() { psqlq "select coalesce(cost_usd::text,'0'), coalesce(estimated::text,'-') from task_usage where task_id='$1'"; }
+# task_usage TASK → cost_usd  estimated (every attempt's, summed — T-S-usage)
+task_usage() { psqlq "select coalesce(cost_usd::text,'0'), coalesce(estimated::text,'-') from task_usage_total where task_id='$1'"; }
 # session_limits SESSION → limits jsonb
 session_limits() { psqlq "select coalesce(limits::text,'{}') from room where id='$1'"; }
 

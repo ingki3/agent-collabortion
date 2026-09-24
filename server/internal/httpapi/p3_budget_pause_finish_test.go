@@ -51,7 +51,7 @@ func (g *g4Fixture) runningTask(t *testing.T, mention string, agentID uuid.UUID)
 // and runs the enforcement the heartbeat runs, in the same order.
 func (g *g4Fixture) overrunTaskBudget(t *testing.T, taskID uuid.UUID, cost float64) {
 	t.Helper()
-	if err := g.srv.Tasks.RecordTurnUsage(t.Context(), taskID, contracts.Usage{
+	if err := g.srv.Tasks.RecordTurnUsage(t.Context(), taskID, attemptNow(t, g.srv.DB, taskID), contracts.Usage{
 		InputTokens: 1000, OutputTokens: 1000, CostUSD: cost,
 	}, g.fake.Now()); err != nil {
 		t.Fatal(err)

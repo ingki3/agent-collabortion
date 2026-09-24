@@ -420,7 +420,7 @@ func TestR1b2OneToManyReads(t *testing.T) {
 	if err := f.pool.QueryRow(ctx, `SELECT id::text FROM task WHERE session_id = $1 ORDER BY created_at LIMIT 1`, f.sessionID).Scan(&task); err != nil {
 		t.Fatal(err)
 	}
-	f.exec(t, `INSERT INTO task_usage (task_id, cost_usd, input_tokens, output_tokens) VALUES ($1, 1.25, 10, 10)`, task)
+	f.exec(t, `INSERT INTO task_usage (task_id, attempt, cost_usd, input_tokens, output_tokens) VALUES ($1, 1, 1.25, 10, 10)`, task)
 	f.exec(t, `INSERT INTO workdir (session_id, lane_id, kind, path_or_ref, status) SELECT $1, id, 'dir', '/tmp/colab/one', 'active' FROM lane WHERE session_id = $1 ORDER BY created_at LIMIT 1`, f.sessionID)
 
 	if c := f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID+"/cost", nil); c["total_usd"].(float64) != 1.25 {

@@ -70,7 +70,7 @@ func (f *membersFixture) addUsage(t *testing.T, sessionID string, usd float64) u
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(ctx, `
-		INSERT INTO task_usage (task_id, input_tokens, output_tokens, cost_usd) VALUES ($1, 1000, 100, $2)`, taskID, usd); err != nil {
+		INSERT INTO task_usage (task_id, attempt, input_tokens, output_tokens, cost_usd) VALUES ($1, 1, 1000, 100, $2)`, taskID, usd); err != nil {
 		t.Fatal(err)
 	}
 	return taskID

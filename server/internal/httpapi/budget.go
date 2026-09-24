@@ -93,7 +93,9 @@ func (s *Server) loadBudgetState(ctx context.Context, q pgx.Tx, taskID uuid.UUID
 		-- room has several, and a doubled spend refuses turns silently.
 		LEFT JOIN work wk ON wk.id = t.work_id
 		JOIN agent a ON a.id = t.agent_id
-		LEFT JOIN task_usage u ON u.task_id = t.id
+		-- The task's spend is every attempt's (T-S-usage): a resumed or retried
+		-- task already spent what its earlier attempts did.
+		LEFT JOIN task_usage_total u ON u.task_id = t.id
 		WHERE t.id = $1`, taskID).
 		Scan(&b.TaskID, &b.SessionID, &b.WorkspaceID, &b.LaneID, &b.AgentID, &b.Attempt,
 			&b.AgentBudgetPerTask, &b.TaskOverride, &limits, &b.TaskStatus, &blocked, &b.RoomOwner, &b.AgentName,

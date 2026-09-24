@@ -144,7 +144,9 @@ const selectUsageRows = `
 	SELECT t.id, t.agent_id, COALESCE(t.runtime_id, '00000000-0000-0000-0000-000000000000'::uuid), t.session_id,
 	       COALESCE(a.name, ''), COALESCE(a.name, ''), COALESCE(rt.name, ''), COALESCE(lw.title, s.name, ''),
 	       u.cost_usd, u.estimated, u.input_tokens, u.output_tokens, u.cache_read
-	FROM task_usage u
+	-- One row per TASK, summed over its attempts (T-S-usage): by_task and
+	-- task_count count tasks, not attempts.
+	FROM task_usage_total u
 	JOIN task t ON t.id = u.task_id
 	JOIN room s ON s.id = t.session_id
 	-- One row per usage row (V19_R1B_HANDOFF (d)): joining the room's missions

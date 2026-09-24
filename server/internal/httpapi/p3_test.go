@@ -381,7 +381,7 @@ func TestP3BudgetEnforcement(t *testing.T) {
 
 	// The daemon's heartbeat carries the turn's running usage (§4.2). $1.01 of
 	// a $1 budget.
-	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, contracts.Usage{
+	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, attemptNow(t, f.srv.DB, taskID), contracts.Usage{
 		InputTokens: 1000, OutputTokens: 1000, CostUSD: 1.01,
 	}, f.fake.Now()); err != nil {
 		t.Fatal(err)
@@ -445,7 +445,7 @@ func TestP3BudgetEnforcement(t *testing.T) {
 	// E9-08: enforcement READS the override. $1.50 is inside $3, so nothing
 	// pauses — an implementation that only STORES the raise pauses again here.
 	f.runTask(t, taskID)
-	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, contracts.Usage{CostUSD: 1.50}, f.fake.Now()); err != nil {
+	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, attemptNow(t, f.srv.DB, taskID), contracts.Usage{CostUSD: 1.50}, f.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.srv.enforceBudgetFor(t.Context(), taskID); err != nil {
@@ -465,7 +465,7 @@ func TestP3BudgetRejectionParks(t *testing.T) {
 	}
 	_, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
 	f.runTask(t, taskID)
-	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, contracts.Usage{CostUSD: 2}, f.fake.Now()); err != nil {
+	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, attemptNow(t, f.srv.DB, taskID), contracts.Usage{CostUSD: 2}, f.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.srv.enforceBudgetFor(t.Context(), taskID); err != nil {
@@ -526,8 +526,8 @@ func TestP3SessionPauseResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(t.Context(), `
-		INSERT INTO task_usage (task_id, input_tokens, output_tokens, cost_usd)
-		SELECT id, 1, 1, 5 FROM task WHERE work_id = $1 LIMIT 1`, f.missionID); err != nil {
+		INSERT INTO task_usage (task_id, attempt, input_tokens, output_tokens, cost_usd)
+		SELECT id, attempt, 1, 1, 5 FROM task WHERE work_id = $1 LIMIT 1`, f.missionID); err != nil {
 		t.Fatal(err)
 	}
 	if st, body, _ := f.api.do("POST", f.p+"/works/"+f.missionID+"/resume", nil); st != 422 {
@@ -606,7 +606,7 @@ func TestP3CostRollup(t *testing.T) {
 		usd float64
 		est bool
 	}{{t1, 0.40, false}, {t2, 0.25, false}} {
-		if err := f.srv.Tasks.RecordTurnUsage(t.Context(), r.id, contracts.Usage{CostUSD: r.usd, Estimated: r.est}, f.fake.Now()); err != nil {
+		if err := f.srv.Tasks.RecordTurnUsage(t.Context(), r.id, attemptNow(t, f.srv.DB, r.id), contracts.Usage{CostUSD: r.usd, Estimated: r.est}, f.fake.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -626,7 +626,7 @@ func TestP3CostRollup(t *testing.T) {
 		t.Fatalf("by_task buckets = %d, want 2", n)
 	}
 	// One estimated row makes the whole report estimated (E9-07).
-	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), t2, contracts.Usage{CostUSD: 0, Estimated: true}, f.fake.Now()); err != nil {
+	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), t2, attemptNow(t, f.srv.DB, t2), contracts.Usage{CostUSD: 0, Estimated: true}, f.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
 	rep = f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID+"/cost", nil)
@@ -993,8 +993,9 @@ func TestP3EstimatedOverrunDrainsOverHTTP(t *testing.T) {
 	// RecordTurnUsage stores a reported cost and the roll-up prices the rest,
 	// so the row is written here directly — what is under test is enforcement.
 	if _, err := f.pool.Exec(ctx, `
-		INSERT INTO task_usage (task_id, cost_usd, estimated, updated_at) VALUES ($1, 1.5, true, $2)
-		ON CONFLICT (task_id) DO UPDATE SET cost_usd = 1.5, estimated = true`, taskID, f.fake.Now()); err != nil {
+		INSERT INTO task_usage (task_id, attempt, cost_usd, estimated, updated_at)
+		SELECT id, attempt, 1.5, true, $2 FROM task WHERE id = $1
+		ON CONFLICT (task_id, attempt) DO UPDATE SET cost_usd = 1.5, estimated = true`, taskID, f.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.srv.enforceBudgetFor(ctx, taskID); err != nil {
@@ -1034,7 +1035,7 @@ func TestP3SessionRemainderCapsTheTaskBudget(t *testing.T) {
 	}
 	// Another task in the same session already spent $1.60.
 	_, other := f.agentToken(t, f.sessionID, f.wUUID, "W")
-	if err := f.srv.Tasks.RecordTurnUsage(ctx, other, contracts.Usage{CostUSD: 1.6}, f.fake.Now()); err != nil {
+	if err := f.srv.Tasks.RecordTurnUsage(ctx, other, attemptNow(t, f.srv.DB, other), contracts.Usage{CostUSD: 1.6}, f.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
 	// The bundle the daemon is handed carries the session REMAINDER, not the
@@ -1052,7 +1053,7 @@ func TestP3SessionRemainderCapsTheTaskBudget(t *testing.T) {
 	f.runTask(t, taskID)
 	// $0.50 spent on THIS task, $2.10 on the session: the task ceiling ($5) is
 	// nowhere near, the session remainder is gone.
-	if err := f.srv.Tasks.RecordTurnUsage(ctx, taskID, contracts.Usage{CostUSD: 0.5}, f.fake.Now()); err != nil {
+	if err := f.srv.Tasks.RecordTurnUsage(ctx, taskID, attemptNow(t, f.srv.DB, taskID), contracts.Usage{CostUSD: 0.5}, f.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.srv.enforceBudgetFor(ctx, taskID); err != nil {
