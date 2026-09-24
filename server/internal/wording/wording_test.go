@@ -22,8 +22,11 @@ package wording
 //     BuildSummaryBody · decisionLine · CardBody · hitlTypeLabel · ValidateTree ·
 //     apperr.Title/StatusLabel/NotFound/Validation/Internal — 반환값·switch 가지·Fprintf 조각까지
 //   - 표로 둔 패키지 변수(sinkVars): apperr.titles · statusLabels · NotFoundNouns · sessions.ErrInvalidTree
+//   - 이름이 곧 sink 인 패키지 상수·변수(sinkConstName): `…Detail`·`…Message`·`…Hint`·`…Note`·`…Reason`·
+//     `…Question`·`…Sentence` — 예 sessions.DeleteActiveDetail(PR #317 리뷰 NN2). 쓰이는 자리와 무관하게 센다.
 //
-// 문자열 연결(+)·fmt.Sprintf·패키지 상수·nullable.NewNullableWithValue 는 안쪽까지 따라간다.
+// 문자열 연결(+)·fmt.Sprintf·패키지 상수·nullable.NewNullableWithValue 는 안쪽까지 따라간다. 상수는 **같은 패키지의
+// 다른 파일**과 **다른 패키지(`sessions.X`)** 까지 푼다 — 파일 하나만 보면 선언과 쓰임이 갈린 상수가 사각지대였다(NN2).
 
 import (
 	"go/ast"
@@ -108,6 +111,13 @@ var sinkVars = map[string]bool{"titles": true, "statusLabels": true, "NotFoundNo
 	"Defs":           true, // metrics: §11 지표의 label·note — S14 대시보드가 그대로 그린다 (T-S12); observations: §11 관찰 표 (T-S19)
 }
 
+// sinkConstName 은 이름만으로 사람 문장임을 알리는 패키지 상수·변수(NN2). 계약이 못박은 문장을 상수로 두고
+// 다른 파일·패키지(테스트 포함)가 가져다 쓰는 관례(`DeleteActiveDetail`)가 있다 — 쓰이는 자리를 못 따라가도 선언에서 센다.
+var sinkConstName = regexp.MustCompile(`(Detail|Message|Hint|Note|Reason|Question|Sentence)$`)
+
+// sqlConstName 은 이름이 sink 처럼 끝나도 SQL 인 상수(`selectMessage`) — 문장이 아니라 질의문이다.
+var sqlConstName = regexp.MustCompile(`^(select|insert|update|delete|upsert|sql)`)
+
 // decisionSQL 은 decision 행을 직접 쓰는 SQL — 그 Exec/QueryRow 의 값 인자는 사람이 읽는다.
 var decisionSQL = regexp.MustCompile(`INSERT\s+INTO\s+decision\b`)
 
@@ -160,9 +170,12 @@ func sourceFiles(t *testing.T, root string) []string {
 
 type collector struct {
 	fset   *token.FileSet
+	root   string
 	file   string
-	consts map[string]ast.Expr // 패키지 상수 · 변수 (같은 파일)
-	out    []sentence
+	consts map[string]ast.Expr // 패키지 상수 · 변수 (같은 패키지의 모든 파일)
+	// pkgConsts 는 다른 패키지의 상수 — `sessions.DeleteActiveDetail` 처럼 선택자로 쓰인 것(패키지 이름 → 이름 → 값).
+	pkgConsts map[string]map[string]ast.Expr
+	out       []sentence
 	// notFoundNouns 는 apperr.NotFound 에 건네진 키 — 한국어 명사표에 있어야 한다.
 	notFoundNouns []sentence
 	// apperrExcluded 면 apperr 생성자는 세지 않는다(데몬 API — daemonAPI).
@@ -178,7 +191,12 @@ func (c *collector) add(e ast.Expr) {
 		if err != nil {
 			continue
 		}
-		c.out = append(c.out, sentence{file: c.file, line: pos.Line, text: s})
+		// 리터럴이 사는 파일로 적는다 — 다른 파일의 상수를 풀었으면 그 상수의 선언 자리다.
+		file := c.file
+		if rel, err := filepath.Rel(c.root, pos.Filename); err == nil {
+			file = filepath.ToSlash(rel)
+		}
+		c.out = append(c.out, sentence{file: file, line: pos.Line, text: s})
 	}
 }
 
@@ -212,6 +230,12 @@ func (c *collector) literals(e ast.Expr, depth int) []*ast.BasicLit {
 	case *ast.Ident:
 		if decl, ok := c.consts[x.Name]; ok {
 			return c.literals(decl, depth+1)
+		}
+	case *ast.SelectorExpr:
+		if id, ok := x.X.(*ast.Ident); ok {
+			if decl, ok := c.pkgConsts[id.Name][x.Sel.Name]; ok {
+				return c.literals(decl, depth+1)
+			}
 		}
 	}
 	return nil
@@ -339,13 +363,24 @@ func collectSeen(t *testing.T) (pool []sentence, nouns []sentence, files []strin
 	files = sourceFiles(t, root)
 	fset := token.NewFileSet()
 	seen = map[string]bool{}
-	for _, f := range files {
+	// 1차 — 전부 파싱하고 패키지 상수·변수를 모은다. 같은 패키지(디렉터리)는 파일을 넘어, 다른 패키지는 이름으로.
+	parsed := make([]*ast.File, len(files))
+	byDir := map[string]map[string]ast.Expr{}
+	byPkg := map[string]map[string]ast.Expr{}
+	named := map[string][]ast.Expr{} // sinkConstName 에 걸린 선언 — 파일별
+	for i, f := range files {
 		af, err := parser.ParseFile(fset, filepath.Join(root, f), nil, 0)
 		if err != nil {
 			t.Fatalf("%s: %v", f, err)
 		}
-		c := &collector{fset: fset, file: f, consts: map[string]ast.Expr{},
-			apperrExcluded: daemonAPI[f], seen: seen}
+		parsed[i] = af
+		dir, pkg := filepath.Dir(f), af.Name.Name
+		if byDir[dir] == nil {
+			byDir[dir] = map[string]ast.Expr{}
+		}
+		if byPkg[pkg] == nil {
+			byPkg[pkg] = map[string]ast.Expr{}
+		}
 		for _, d := range af.Decls {
 			gd, ok := d.(*ast.GenDecl)
 			if !ok || (gd.Tok != token.CONST && gd.Tok != token.VAR) {
@@ -358,10 +393,23 @@ func collectSeen(t *testing.T) (pool []sentence, nouns []sentence, files []strin
 				}
 				for i, n := range vs.Names {
 					if i < len(vs.Values) {
-						c.consts[n.Name] = vs.Values[i]
+						byDir[dir][n.Name] = vs.Values[i]
+						byPkg[pkg][n.Name] = vs.Values[i]
+						if sinkConstName.MatchString(n.Name) && !sqlConstName.MatchString(n.Name) {
+							named[f] = append(named[f], vs.Values[i])
+						}
 					}
 				}
 			}
+		}
+	}
+	// 2차 — sink 를 훑는다.
+	for i, f := range files {
+		af := parsed[i]
+		c := &collector{fset: fset, root: root, file: f, consts: byDir[filepath.Dir(f)], pkgConsts: byPkg,
+			apperrExcluded: daemonAPI[f], seen: seen}
+		for _, v := range named[f] {
+			c.add(v)
 		}
 		ast.Inspect(af, c.visit)
 		pool = append(pool, c.out...)
@@ -499,6 +547,31 @@ func TestScope(t *testing.T) {
 		if !found {
 			t.Errorf("%s 에서 문장을 하나도 못 모았다", f)
 		}
+	}
+}
+
+// NN2(PR #317) — 선언과 쓰임이 갈린 패키지 상수. DeleteForbiddenDetail 은 httpapi 가 `sessions.DeleteForbiddenDetail` 로만
+// 쓴다 — 파일 하나만 보던 자물쇠는 이 문장을 못 봤다. 두 규칙(다른 패키지 선택자 · 이름 규칙)이 모두 빠지면 여기서 걸린다.
+func TestCrossFileConstantsAreSentences(t *testing.T) {
+	pool, _, _ := collect(t)
+	want := map[string]string{
+		"DeleteForbiddenDetail": "Director 나 소유자·관리자만 삭제할 수 있습니다",
+		"DeleteActiveDetail":    "진행 중인 미션은 먼저 종료하세요",
+	}
+	for name, text := range want {
+		found := false
+		for _, s := range pool {
+			if s.file == "internal/sessions/delete.go" && s.text == text {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("sessions.%s 가 풀에 없다 — 다른 파일·패키지에서 쓰는 상수가 사각지대로 돌아갔다", name)
+		}
+	}
+	if !sinkConstName.MatchString("DeleteForbiddenDetail") || sinkConstName.MatchString("selectMessages") || sqlConstName.FindString("selectMessage") == "" {
+		t.Error("sinkConstName·sqlConstName 규칙이 바뀌었다")
 	}
 }
 

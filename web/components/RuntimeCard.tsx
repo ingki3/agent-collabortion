@@ -100,7 +100,7 @@ export function RuntimeCard({ rt, children }: { rt: Runtime; children?: React.Re
 
       {cli && !cli.present && (
         <p className="rtcard__alarm" role="alert" data-testid="colab-cli-missing">
-          ⚠ colab 명령이 이 컴퓨터에 설치되어 있지 않습니다. 에이전트는 이 명령으로 서버에 말합니다 — 없으면 세션이 조용히 아무 말도 못 합니다.
+          ⚠ colab 명령이 이 컴퓨터에 설치되어 있지 않습니다. 에이전트는 이 명령으로 서버에 말합니다 — 없으면 에이전트가 방에서 조용히 아무 말도 못 합니다.
           이 컴퓨터에서 <code>colab</code> 을 설치한 뒤 데몬을 다시 시작하세요.
         </p>
       )}

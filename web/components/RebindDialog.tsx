@@ -10,7 +10,7 @@
  *   3) 유실 경고 — `worktree` 일 때만. diff 아티팩트를 **제출 순서 그대로** 미리 보여 준다(E14-06:
  *              순서가 뒤바뀐 diff 는 충돌한다). 확인 체크박스가 계약의 `acknowledge_loss` 다 —
  *              worktree 인데 false 면 서버가 422 로 막는다.
- *   4) 선택  — 재바인딩 / 세션 종료(`cancelled`, E14-07) / 취소.
+ *   4) 선택  — 재바인딩 / 열린 미션 모두 취소(`cancelled`, E14-07 — SCREEN §4.16 「세션 종료」의 새 이름) / 취소.
  *
  * 화면은 판정하지 않는다: 후보 여부도 `acknowledge_loss` 강제도 서버가 다시 검사한다(E14-05 "직접 호출도
  * 막는다"). 여기 있는 비활성은 편의지 방어가 아니다.
@@ -206,7 +206,7 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
             )}
             {diffs && diffs.length === 0 && (
               <p className="small muted-3" data-testid="rebind-no-artifact">
-                제출된 diff 아티팩트가 없습니다 — 새 workdir 은 비어 있는 채로 시작합니다.
+                제출된 diff 아티팩트가 없습니다 — 새 작업 폴더는 비어 있는 채로 시작합니다.
               </p>
             )}
             <label className="rebind__ack">
@@ -232,17 +232,17 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
           </button>
           {confirmEnd ? (
             <button type="button" className="btn btn--sm rebind__danger" disabled={busy} onClick={() => void endSession()} data-testid="rebind-end-confirm">
-              정말 종료합니다(되돌릴 수 없습니다)
+              정말 취소합니다(되돌릴 수 없습니다)
             </button>
           ) : (
             <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setConfirmEnd(true)} data-testid="rebind-end">
-              세션 종료
+              열린 미션 모두 취소
             </button>
           )}
           <button type="button" className="btn btn--sm btn--ghost" disabled={busy} onClick={onClose} data-testid="rebind-cancel">취소</button>
         </div>
         <p className="rebind__foot">
-          아티팩트·메시지·결정 기록은 서버에 있어 대화 맥락은 그대로입니다. 진행 중이던 lane 은 콜드 스타트합니다.
+          아티팩트·메시지·결정 기록은 서버에 있어 대화 맥락은 그대로입니다. 진행 중이던 서브 미션은 처음부터 다시 시작합니다.
         </p>
       </div>
     </div>

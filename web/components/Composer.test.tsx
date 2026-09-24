@@ -110,7 +110,7 @@ describe("Composer — new_lane 토글은 전송 후 자동 해제된다 (t-2 ·
 
     fireEvent.click(toggle);
     expect(toggle.checked).toBe(true);
-    expect(screen.getByTestId("new-lane-note").textContent).toContain("새 작업 줄기로 전송됨");
+    expect(screen.getByTestId("new-lane-note").textContent).toContain("새 서브 미션으로 전송됨");
 
     type("[@Lead](mention://agent/a-lead) 첫 번째");
     fireEvent.click(screen.getByTestId("composer-send"));

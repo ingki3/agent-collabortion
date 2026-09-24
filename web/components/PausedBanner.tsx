@@ -167,7 +167,7 @@ export function PausedBanner({ detail, agentName, onResume, onRebind, onCancel, 
         )}
         {actions.has("cancel") && (
           <button type="button" className="btn btn--sm" disabled={busy || !onCancel} onClick={onCancel} data-testid="paused-cancel">
-            세션 종료
+            미션 취소
           </button>
         )}
       </div>

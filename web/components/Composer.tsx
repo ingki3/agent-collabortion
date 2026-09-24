@@ -422,7 +422,7 @@ export function Composer(props: ComposerProps) {
         </label>
         {newLane && (
           <span className="composer__lane-note" data-testid="new-lane-note">
-            새 작업 줄기로 전송됨 — 전송하면 해제됩니다
+            새 서브 미션으로 전송됨 — 전송하면 해제됩니다
           </span>
         )}
         <span className="composer__hint">⌘/Ctrl+Enter 로 전송 · @ 로 멘션</span>

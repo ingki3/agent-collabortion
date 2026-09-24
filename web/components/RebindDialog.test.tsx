@@ -135,7 +135,7 @@ describe("후보 목록", () => {
     expect((screen.getByTestId("rebind-submit") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("세션 종료는 한 번 더 확인을 받는다(E14-07 — 되돌릴 수 없다)", async () => {
+  it("열린 미션 모두 취소는 한 번 더 확인을 받는다(E14-07 — 되돌릴 수 없다)", async () => {
     post.mockResolvedValue({});
     render(<RebindDialog session={session("none")} onClose={vi.fn()} />);
     await waitFor(() => expect(screen.getByTestId("rebind-end")).toBeTruthy());

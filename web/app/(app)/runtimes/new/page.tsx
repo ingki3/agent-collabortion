@@ -1,5 +1,5 @@
 "use client";
-/** S12 컴퓨터 연결 — 단독 화면. 준비 완료되면 Runtimes 로. */
+/** S12 컴퓨터 연결 — 단독 화면. 준비 완료되면 연결된 컴퓨터(/runtimes)로. */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PairingPanel } from "@/components/PairingPanel";
@@ -14,7 +14,7 @@ export default function AddComputerPage() {
       <div className="page-head">
         <h1>컴퓨터 연결</h1>
         <Link href="/runtimes" className="btn btn--ghost btn--sm">
-          Runtimes 로
+          연결된 컴퓨터로
         </Link>
       </div>
       <PairingPanel workspaceId={workspace.id} canManage={canManage} onReady={() => setTimeout(() => router.push("/runtimes"), 1500)} />

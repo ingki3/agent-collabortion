@@ -22,7 +22,7 @@ import { NAV_ITEMS } from "@/components/AppNav";
 import { BADGE_MAP } from "@/components/badge-map";
 import { ARCHIVE_DIALOG, CREATE_ROOM, DELETE_ROOM_DIALOG, ROOM_BLOCKED_LABEL, ROOM_DELETED_NOTICE, ROOM_LIST, ROOM_MENU, roomDefaultsLine } from "@/lib/wording";
 import { BLOCK_DIALOG, ROOM_BANNER, ROOM_CENTER, ROOM_HEAD, ROOM_LEFT, ROOM_NOTICES, ROOM_PANEL, ROOM_TABS, SUMMARIZE_DIALOG, WORK_CHIPS, WORK_PANEL, WORK_PAUSE_LABEL, WORK_SELECTOR } from "@/lib/wording";
-import { BLOCKED_REASON, COMMAND_LABEL, CONDITION_EDITOR, CONDITION_NAME, DELETE_DIALOG, EMPTY_TURN, FIX_CONDITION, OBSERVATIONS, PROGRESS, ROLE_COMMANDS, ROUTING_PLATFORM_LABEL, ROUTING_RULE_LABEL, SESSION_MENU, conditionName, routingKindLabel } from "@/lib/wording";
+import { BLOCKED_REASON, COMMAND_LABEL, CONDITION_EDITOR, CONDITION_NAME, EMPTY_TURN, FIX_CONDITION, OBSERVATIONS, PROGRESS, ROLE_COMMANDS, ROUTING_PLATFORM_LABEL, ROUTING_RULE_LABEL, conditionName, routingKindLabel } from "@/lib/wording";
 
 const ROOT = join(__dirname, "..");
 
@@ -96,6 +96,18 @@ function visibleStrings(file: string, src: string): Visible[] {
       out.push({ file, line: i + 1, text: t });
     }
   });
+  // 여러 줄에 걸친 JSX 텍스트 — `<p className="small">\n  이 세션을 종료합니다 …\n</p>` 는 어느 한 줄에도 `>…<` 가 없어 위 루프가
+  // 못 줍는다(PR #317 NN1 — 사람에게 보이는 「세션」 6곳이 여기 숨어 있었다). body 전체에서 줄을 넘는 `>…<` 만 골라 줄마다 센다.
+  // 줄을 넘는 구간은 `a > 0 && (\n <p` 같은 코드 조각일 수도 있어 **한글이 있는 줄만** 넣는다(영어 산문은 한 줄 규칙 몫).
+  for (const m of body.matchAll(/>([^<>{}]+)</g)) {
+    if (!m[1].includes("\n")) continue;
+    const start = body.slice(0, m.index! + 1).split("\n").length;
+    m[1].split("\n").forEach((piece, k) => {
+      const t = piece.split(/\s+/).filter(Boolean).join(" ");
+      if (!t || !/[가-힣]/.test(t) || /^(\/\/|\*|\/\*)/.test(t)) return;
+      out.push({ file, line: start + k, text: t });
+    });
+  }
   return out;
 }
 
@@ -136,15 +148,13 @@ describe("문구 자물쇠의 범위", () => {
       "components/TestChatPanel.tsx",
       "lib/settings.ts",
       "lib/test-chat.ts",
-      // T-W13 — S5 카드 옵션(…)·삭제 다이얼로그의 문구가 사는 곳
+      // T-W13 — 화면 문구 표(옛 S5 카드 옵션·삭제 다이얼로그는 R1.5b 에서 옛 세션 화면과 함께 지웠다)
       "lib/wording.ts",
-      "components/SessionCardMenu.tsx",
-      "components/DeleteSessionDialog.tsx",
       // T-W15 — 종료 조건(마법사 6단계 · S7 진행률 · 조건 고치기)의 문구가 사는 곳
       "lib/completion.ts",
       "components/ConditionRow.tsx",
       "components/ConditionEditor.tsx",
-      "components/FixConditionDialog.tsx",
+      "components/WorkEditDialogs.tsx", // 조건 고치기 — 옛 FixConditionDialog(옛 세션 화면 전용)는 R1.5b 에서 지웠다
       "components/SessionAside.tsx",
       // T-W16 — 관찰 표 · 역할의 허용 명령 · 빈 턴 카드의 문구가 사는 곳
       "components/ObservationsTable.tsx",
@@ -339,6 +349,14 @@ describe("보간식 안의 문구도 풀에 든다 (NN1)", () => {
     expect(v.some((x) => x.text.includes("이 컴퓨터를 쓰는 세션"))).toBe(true);
   });
 
+  it("여러 줄에 걸친 JSX 텍스트도 풀에 든다 (PR #317 NN1)", () => {
+    const v = visibleStrings("x.tsx", '<p className="small">\n  이 세션을 종료합니다 — 끝냅니다.\n</p>\n<b>\n  진행 중 <i>{n}</i> 개\n</b>');
+    expect(v).toContainEqual({ file: "x.tsx", line: 2, text: "이 세션을 종료합니다 — 끝냅니다." });
+    expect(v.some((x) => x.line === 5 && x.text.startsWith("진행 중"))).toBe(true);
+    // 줄을 넘는 코드 조각(`a > 0 && (\n <p`)은 한글이 없으면 들지 않는다.
+    expect(visibleStrings("x.tsx", "{a > 0 && (\n  <p>ok</p>)}").map((x) => x.text)).toEqual(["ok"]);
+  });
+
   it("실제 소스에서 보간식 안에 사는 문구가 풀에 있다", () => {
     // RebindDialog 의 확인 버튼 — `${chosen.runtime.name} 으로 옮기기` 는 식별자와 문구가 한 리터럴에 섞인 예다.
     expect(POOL.some((v) => v.file === "components/RebindDialog.tsx" && /으로 옮기기/.test(v.text))).toBe(true);
@@ -441,7 +459,8 @@ describe("새 문구의 존재 — 옛말 0건만으로는 안 잰다 (NN4)", ()
     expect(inPool("lib/session-label.ts", "연결 끊긴 컴퓨터")).toBe(true);
     const aside = readFileSync(join(ROOT, "components/SessionAside.tsx"), "utf8");
     expect(aside).not.toMatch(/runtime_id\.slice\(0, 8\)/);
-    expect(readFileSync(join(ROOT, "app/(app)/sessions/[id]/page.tsx"), "utf8")).toMatch(/runtimeName=\{runtimeNameOf\(/);
+    // 이름을 넘기는 호출부는 S7 방 화면이다(옛 세션 화면의 `runtimeNameOf` 호출은 R1.5b 에서 그 화면과 함께 지웠다).
+    expect(readFileSync(join(ROOT, "app/(app)/rooms/[id]/page.tsx"), "utf8")).toMatch(/runtimeName=\{runtimeName\}/);
   });
 
   it("W-8 — 컴퓨터 카드의 브리프 문구는 probe 값 그대로, 옛 설명(CLAUDE.md·AGENTS.md)은 없다", () => {
@@ -457,45 +476,12 @@ describe("새 문구의 존재 — 옛말 0건만으로는 안 잰다 (NN4)", ()
     expect(members).toMatch(/<DisabledHint id="members-manage-hint">/);
   });
 
-  // T-W13 — S5 카드 옵션(…) · 삭제 확인 다이얼로그(SCREEN §4.3 · §5). 표(lib/wording.ts)에만 있고 화면이 안 그리면 없는 것과 같다.
-  it("카드 옵션 — 메뉴 항목 둘 · 비활성 사유 둘(SCREEN §4.3 문장 그대로)이 표에 있고 메뉴가 그 표를 그린다", () => {
-    expect(SESSION_MENU).toMatchObject({ button: "방 옵션", open: "방 열기", delete: "삭제" });
-    expect(SESSION_MENU.blocked_active).toBe("진행 중인 미션은 먼저 종료하세요");
-    expect(SESSION_MENU.blocked_role).toBe("Director 나 소유자·관리자만 삭제할 수 있습니다");
-    for (const t of Object.values(SESSION_MENU)) expect(inPool("lib/wording.ts", t)).toBe(true);
-    const menu = readFileSync(join(ROOT, "components/SessionCardMenu.tsx"), "utf8");
-    expect(menu).toMatch(/aria-label=\{SESSION_MENU\.button\}/);
-    expect(menu).toMatch(/\{SESSION_MENU\.open\}/);
-    expect(menu).toMatch(/\{SESSION_MENU\.delete\}/);
-    // 비활성 사유는 항목 바로 아래 DisabledHint + aria-describedby (§8.5) — title 만이 아니다.
-    expect(menu).toMatch(/<DisabledHint id=\{hintId\}>\{gate\.reason\}<\/DisabledHint>/);
-    expect(menu).toMatch(/aria-describedby=\{!gate\.ok \? hintId : undefined\}/);
-    // 사유는 이 표에서만 — 메뉴 파일에 사유 문장 리터럴이 없다.
-    expect(menu).not.toContain("먼저 종료하세요");
-    expect(menu).not.toContain("소유자·관리자만");
-  });
-
-  it("삭제 다이얼로그 — §5 규칙(무엇이 사라지는지 · 되돌릴 수 없음 · 이 컴퓨터의 작업 폴더)과 409 머리말·S13 링크가 표에 있고 다이얼로그가 그 표를 그린다", () => {
-    expect(DELETE_DIALOG.title("X")).toContain("X");
-    expect(DELETE_DIALOG.loses).toMatch(/메시지/);
-    expect(DELETE_DIALOG.loses).toMatch(/서브 미션/);
-    expect(DELETE_DIALOG.loses).toMatch(/아티팩트/);
-    expect(DELETE_DIALOG.loses).toMatch(/비용 기록/);
-    expect(DELETE_DIALOG.irreversible).toMatch(/되돌릴 수 없습니다/);
-    expect(DELETE_DIALOG.irreversible).toMatch(/이 컴퓨터의 작업 폴더/);
-    expect(DELETE_DIALOG.confirm).toBe("삭제");
-    expect(DELETE_DIALOG.cancel).toBe("취소");
-    expect(DELETE_DIALOG.workdirs_link).toBe("작업 폴더 관리");
-    for (const t of [DELETE_DIALOG.loses, DELETE_DIALOG.irreversible, DELETE_DIALOG.workdirs_head, DELETE_DIALOG.workdirs_link, DELETE_DIALOG.busy]) expect(inPool("lib/wording.ts", t)).toBe(true);
-    const dlg = readFileSync(join(ROOT, "components/DeleteSessionDialog.tsx"), "utf8");
-    for (const k of ["title(session.title)", "loses", "irreversible", "workdirs_head", "workdirs_link", "confirm", "cancel", "busy"]) expect(dlg).toContain(`DELETE_DIALOG.${k}`);
-    expect(dlg).toMatch(/role="alertdialog"/);
-    expect(dlg).toContain('className="btn del-session__danger"'); // 「삭제」 는 위험 색
-    expect(dlg).toMatch(/Link href=\{workdirsHref\(session\.runtime_id\)\}/); // S13 링크
-  });
-
-  it("S7 이 지워진 세션을 알아챈다 — 옛 S5 안내 표(SESSION_DELETED_NOTICE)는 옛 화면과 함께 지웠다(R1.5, 방 목록은 ROOM_DELETED_NOTICE)", () => {
-    expect(readFileSync(join(ROOT, "app/(app)/sessions/[id]/page.tsx"), "utf8")).toMatch(/case "session\.deleted"/);
+  // T-W13 의 S5 카드 옵션(…)·삭제 다이얼로그(SessionCardMenu·DeleteSessionDialog)와 옛 S7(`sessions/[id]/page.tsx`)은 R1.5b 에서 지웠다 —
+  // `/sessions/:id` 가 `/rooms/:id` 로 307 이라 어디서도 렌더되지 않았다. 방 목록의 같은 자리는 아래 T-R2-W1 표(ROOM_MENU·DELETE_ROOM_DIALOG)가 잰다.
+  it("옛 세션 화면과 그 화면만 쓰던 컴포넌트가 다시 생기지 않았다 (R1.5b)", () => {
+    for (const f of ["app/(app)/sessions", "components/SessionActions.tsx", "components/ParticipantsDialog.tsx", "components/SessionCardMenu.tsx", "components/DeleteSessionDialog.tsx", "components/FixConditionDialog.tsx"]) {
+      expect(existsSync(join(ROOT, f)), f).toBe(false);
+    }
   });
 
   it("비활성 사유가 버튼 근처에 있다 — title 만으로는 안 된다 (§8.5)", () => {
@@ -521,7 +507,7 @@ describe("종료 조건 — 이름은 사람 말이고 한곳(lib/wording.ts)에
     // R1.5(#303 NN1 · SCREEN §4.5): artifact_submitted 의 이름은 「아티팩트 제출」이다(PRD §3.2 — 아티팩트가 정본). T-W15 의 「보고서 제출」이 옛말이 됐다.
     expect(hits(/보고서 제출|에이전트 승인(?!을)/, (v) => v.file === "lib/wording.ts" && /검토 승인/.test(v.text))).toEqual([]);
     // 조건 이름을 손으로 다시 적은 자리가 없다 — 이름은 conditionName 하나에서만.
-    for (const f of ["components/ConditionRow.tsx", "components/ConditionEditor.tsx", "components/SessionAside.tsx", "components/CreateWorkDialog.tsx", "components/WorkEditDialogs.tsx", "components/FixConditionDialog.tsx"]) {
+    for (const f of ["components/ConditionRow.tsx", "components/ConditionEditor.tsx", "components/SessionAside.tsx", "components/CreateWorkDialog.tsx", "components/WorkEditDialogs.tsx"]) {
       expect(src(f)).not.toMatch(/CONDITION_LABEL/);
       expect(src(f)).not.toContain('"아티팩트 제출"');
       expect(src(f)).not.toContain('"보고서 제출"');
@@ -564,7 +550,7 @@ describe("종료 조건 — 이름은 사람 말이고 한곳(lib/wording.ts)에
     // 미션 열기·편집(S21)과 조건 고치기가 **같은 편집기**를 그린다 — 두 자리가 다른 편집기를 가지면 한쪽에서만 리뷰어를 잊는다.
     // (S6 마법사는 T-R2-W4b 에서 지워졌다 — 그 6단계가 S21 로 왔다.)
     expect(existsSync(join(ROOT, "app/(app)/sessions/new"))).toBe(false);
-    for (const f of ["components/CreateWorkDialog.tsx", "components/WorkEditDialogs.tsx", "components/FixConditionDialog.tsx"]) {
+    for (const f of ["components/CreateWorkDialog.tsx", "components/WorkEditDialogs.tsx"]) {
       expect(src(f)).toMatch(/<ConditionEditor\b/);
       expect(src(f)).not.toMatch(/submitter-select|reviewer-select/); // 편집기 안에만 있다
     }
@@ -573,10 +559,10 @@ describe("종료 조건 — 이름은 사람 말이고 한곳(lib/wording.ts)에
   it("「조건 고치기」 — 제목·안내·버튼이 표에 있고 다이얼로그가 그 표를 쓴다 · S7 이 Director 에게만 넘긴다", () => {
     expect(FIX_CONDITION.button).toBe("조건 고치기");
     for (const t of Object.values(FIX_CONDITION)) expect(inPool("lib/wording.ts", t)).toBe(true);
-    const dlg = src("components/FixConditionDialog.tsx");
+    const dlg = src("components/WorkEditDialogs.tsx");
     for (const k of ["title", "note", "save", "cancel", "busy"]) expect(dlg).toContain(`FIX_CONDITION.${k}`);
     expect(dlg).toMatch(/aria-describedby=\{!gate\.ok \? hintId : undefined\}/); // 저장 비활성 사유는 근처에(§8.5)
-    expect(src("app/(app)/sessions/[id]/page.tsx")).toMatch(/onFixCondition=\{session\.my_role === "director" && !closed \? \(\) => setFixCondOpen\(true\) : undefined\}/);
+    expect(src("components/WorkPanel.tsx")).toMatch(/mayResolve && props\.onFixCondition && \(/); // Director(결정권자)에게만 버튼
   });
 
   it("내부 역할명 assignee 가 화면 문자열에 없다 — 담당 에이전트", () => {
@@ -664,7 +650,7 @@ describe("v1.1 — 관찰 표·허용 명령·빈 턴의 말은 한곳(lib/wordi
     expect(src("components/ActivityFeed.tsx")).toMatch(/title=\{EMPTY_TURN\.kind\}>\{emptyTurnNote\(e\)\}/);
     expect(src("components/LaneCard.tsx")).toMatch(/title=\{EMPTY_TURN\.kind\}/);
     // 문장을 손으로 다시 적은 자리가 없다.
-    for (const f of ["components/ActivityFeed.tsx", "components/LaneCard.tsx", "lib/feed.ts", "app/(app)/sessions/[id]/page.tsx"]) expect(code(f)).not.toContain("아무것도 하지 않고");
+    for (const f of ["components/ActivityFeed.tsx", "components/LaneCard.tsx", "lib/feed.ts", "app/(app)/rooms/[id]/page.tsx"]) expect(code(f)).not.toContain("아무것도 하지 않고");
     // 정보 카드 — 실패 색·error 클래스를 타지 않는다.
     expect(src("components/activity-feed.css")).toMatch(/\.feed__row\[data-info="true"\] \.feed__glyph \{ color: var\(--ink-2\); \}/);
     expect(src("components/lane-card.css")).toMatch(/\.lane__note--info \{ color: var\(--ink-2\); \}/);
