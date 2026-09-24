@@ -43,7 +43,7 @@ func TestRollUpCostIsPerMission(t *testing.T) {
 	}{{&w1, 1.0}, {&w2, 0.25}, {nil, 0.5}} {
 		task := testdb.AddTask(t, s.DB, seed, seed.SessionID, c.Now())
 		exec(`UPDATE task SET work_id = $2 WHERE id = $1`, task, x.work)
-		exec(`INSERT INTO task_usage (task_id, cost_usd) VALUES ($1, $2)`, task, x.cost)
+		exec(`INSERT INTO task_usage (task_id, attempt, cost_usd) VALUES ($1, 1, $2)`, task, x.cost)
 	}
 	if err := s.rollUpCost(ctx, seed.WorkspaceID, seed.SessionID, c.Now()); err != nil {
 		t.Fatal(err)

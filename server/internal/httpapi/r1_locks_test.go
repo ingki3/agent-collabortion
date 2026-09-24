@@ -47,7 +47,7 @@ func (f *roomsFixture) missionTask(t *testing.T, rid, wid string, agent uuid.UUI
 func (f *roomsFixture) overrun(t *testing.T, task uuid.UUID, cost float64) {
 	t.Helper()
 	f.runTask(t, task)
-	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), task, contracts.Usage{CostUSD: cost}, f.fake.Now()); err != nil {
+	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), task, attemptNow(t, f.srv.DB, task), contracts.Usage{CostUSD: cost}, f.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.srv.enforceBudgetFor(t.Context(), task); err != nil {

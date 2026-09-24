@@ -206,9 +206,13 @@ func (s *Service) PauseTaskForBudget(ctx context.Context, tx pgx.Tx, taskID uuid
 }
 
 // RecordTurnUsage stores the running usage the daemon reports on every
-// heartbeat (daemon-protocol §4.2). It is an upsert on the task, not an
+// heartbeat (daemon-protocol §4.2). It is an upsert on the ATTEMPT, not an
 // increment: the daemon sends the turn's TOTAL, so adding it would multiply
-// the bill by the number of heartbeats.
+// the bill by the number of heartbeats. It is keyed by attempt and not by task
+// because a retry · resume · cold start · profile fallback runs the same task
+// again from zero — keyed by task, attempt 2's running total overwrote what
+// attempt 1 had spent and the room's cost went DOWN (T-S-usage, measured
+// 11.477 → 10.062 on a budget-paused-then-approved Writer task).
 //
 // An `estimated: true` report carries a 0 the runtime did not measure
 // (harness v0.7.1), so the reported number is dropped — and the row is priced
@@ -222,7 +226,7 @@ func (s *Service) PauseTaskForBudget(ctx context.Context, tx pgx.Tx, taskID uuid
 // product actually runs. Fixing the daemon's own half (D-17) would only have
 // made it report a 0 more often. The pricing is the SAME function the roll-up
 // calls, so the heartbeat and the finish cannot drift onto two numbers.
-func (s *Service) RecordTurnUsage(ctx context.Context, taskID uuid.UUID, u contracts.Usage, now time.Time) error {
+func (s *Service) RecordTurnUsage(ctx context.Context, taskID uuid.UUID, attempt int, u contracts.Usage, now time.Time) error {
 	reported := u.CostUSD
 	if u.Estimated {
 		reported = 0
@@ -234,12 +238,12 @@ func (s *Service) RecordTurnUsage(ctx context.Context, taskID uuid.UUID, u contr
 	}
 	return s.inTx(ctx, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO task_usage (task_id, input_tokens, output_tokens, cache_read, cost_usd, estimated, model, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			ON CONFLICT (task_id) DO UPDATE SET input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
+			INSERT INTO task_usage (task_id, attempt, input_tokens, output_tokens, cache_read, cost_usd, estimated, model, updated_at)
+			VALUES ($1, $9, $2, $3, $4, $5, $6, $7, $8)
+			ON CONFLICT (task_id, attempt) DO UPDATE SET input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
 			  cache_read = EXCLUDED.cache_read, cost_usd = EXCLUDED.cost_usd, estimated = EXCLUDED.estimated,
 			  model = COALESCE(EXCLUDED.model, task_usage.model), updated_at = EXCLUDED.updated_at`,
-			taskID, u.InputTokens, u.OutputTokens, u.CacheReadTokens, reported, u.Estimated, model, now); err != nil {
+			taskID, u.InputTokens, u.OutputTokens, u.CacheReadTokens, reported, u.Estimated, model, now, attempt); err != nil {
 			return fmt.Errorf("tasks: turn usage: %w", err)
 		}
 		if !u.Estimated {

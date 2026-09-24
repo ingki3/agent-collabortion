@@ -749,7 +749,7 @@ func (s *Server) daemonHeartbeat(w http.ResponseWriter, r *http.Request, d daemo
 	// pricing only at `finish` can stop a task no earlier than after it has
 	// already spent past its budget.
 	if in.Usage.InputTokens > 0 || in.Usage.OutputTokens > 0 || in.Usage.CostUSD > 0 {
-		if err := s.Tasks.RecordTurnUsage(r.Context(), t.ID, in.Usage, s.Clock.Now()); err != nil {
+		if err := s.Tasks.RecordTurnUsage(r.Context(), t.ID, attempt, in.Usage, s.Clock.Now()); err != nil {
 			s.Log.Warn("record turn usage", "err", err, "task", t.ID)
 		} else if _, err := s.enforceBudgetFor(r.Context(), t.ID); err != nil {
 			s.Log.Warn("enforce budget", "err", err, "task", t.ID)

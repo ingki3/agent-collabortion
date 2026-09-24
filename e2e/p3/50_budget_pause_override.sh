@@ -108,8 +108,8 @@ wait_session_paused() {
   return 1
 }
 sess_field() { psqlq "select coalesce(($2)::text,'-') from work where room_id='$1'"; }
-usage_cost() { psqlq "select coalesce(round(cost_usd::numeric,6)::text,'-') from task_usage where task_id='$1'"; }
-usage_est()  { psqlq "select coalesce(estimated::text,'-') from task_usage where task_id='$1'"; }
+usage_cost() { psqlq "select coalesce(round(cost_usd::numeric,6)::text,'-') from task_usage_total where task_id='$1'"; }
+usage_est()  { psqlq "select coalesce(estimated::text,'-') from task_usage_total where task_id='$1'"; }
 gt() { python3 -c "import sys;print('yes' if float(sys.argv[1] or 0)>float(sys.argv[2]) else 'no')" "$1" "$2"; }
 # eqnum GOT WANT → 같으면 WANT, 다르면 GOT (표에 실제 값이 남는다). '0.3' 과 '0.30' 을 가르지 않는다.
 eqnum() { python3 -c "import sys
@@ -171,7 +171,7 @@ DEADLINE=$(( $(date +%s) + 90 ))
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
   R="$(psqlq "select coalesce(count(*)::text,'0'), coalesce(max(input_tokens+output_tokens)::text,'0'),
                      coalesce(max(round(cost_usd::numeric,6))::text,'0'), coalesce(bool_or(estimated)::text,'-')
-              from task_usage where task_id='$TA'")"
+              from task_usage_total where task_id='$TA'")"
   printf '%s\t%s\n' "$(date +%s)" "$R" >> "$OUT/50-midturn.tsv"
   read -r MID_ROWS MID_TOK MID_COST MID_EST <<<"$R"
   [ "${MID_ROWS:-0}" -ge 1 ] && [ "$(gt "${MID_TOK:-0}" 0)" = yes ] && break
@@ -503,8 +503,8 @@ chk K1b "세션 합계가 0 보다 크다"              yes \
 tot=d.get('total_usd') or d.get('cost_usd') or (d.get('session') or {}).get('cost_usd') or 0
 print('yes' if float(tot)>0 else 'no')" 2>/dev/null || echo no)"
 psqlq "select t.id, t.status::text, t.attempt, coalesce(u.cost_usd::text,'-'), coalesce(u.estimated::text,'-'),
-              coalesce(u.model,'-')
-       from task t left join task_usage u on u.task_id=t.id
+              coalesce((select uu.model from task_usage uu where uu.task_id=t.id order by uu.attempt desc limit 1),'-')
+       from task t left join task_usage_total u on u.task_id=t.id
        where t.session_id in ('$SA','$SB','$SC_','$SD','$SH') order by t.created_at" > "$OUT/50-usage.tsv"
 psqlq "select s.id, wk.status::text, coalesce(wk.paused_reason::text,'-'), coalesce(s.limits::text,'-'), round(wk.cost_usd::numeric,6)::text
        from room s join work wk on wk.room_id=s.id where s.id in ('$SA','$SB','$SC_','$SD','$SH')" > "$OUT/50-sessions.tsv"

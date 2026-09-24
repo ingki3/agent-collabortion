@@ -32,7 +32,7 @@ import (
 // and every digit of it is the server's own guess.
 func (f *p2Fixture) estimatedTurn(t *testing.T, taskID uuid.UUID, model string, in, out int64) {
 	t.Helper()
-	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, contracts.Usage{
+	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, attemptNow(t, f.srv.DB, taskID), contracts.Usage{
 		InputTokens: in, OutputTokens: out, CostUSD: 0, Estimated: true, Model: model,
 	}, f.fake.Now()); err != nil {
 		t.Fatal(err)
@@ -46,7 +46,7 @@ func (f *p2Fixture) storedUsage(t *testing.T, taskID uuid.UUID) (float64, bool) 
 	t.Helper()
 	var usd float64
 	var estimated bool
-	if err := f.pool.QueryRow(t.Context(), `SELECT cost_usd, estimated FROM task_usage WHERE task_id = $1`, taskID).
+	if err := f.pool.QueryRow(t.Context(), `SELECT cost_usd, estimated FROM task_usage_total WHERE task_id = $1`, taskID).
 		Scan(&usd, &estimated); err != nil {
 		t.Fatal(err)
 	}
