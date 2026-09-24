@@ -204,7 +204,8 @@ func triggerOf(t *testing.T, out map[string]any, agent uuid.UUID) map[string]any
 // the same mention at the top level would be (rule 3) — never to Lead's.
 //
 // 회귀 주입: router thread.laneFor 의 `&& th.RootLaneAgent == tr.AgentID` 를
-// 지우면 (a)(b) FAIL, laneFor 가 늘 (uuid.Nil, …) 을 내면 (c) FAIL.
+// 지우면 (a)(b) FAIL. (c) 는 Lead lane 이 하나라 규칙 1·3 이 같은 lane 을
+// 줘서 규칙 1 제거를 못 잡는다 — 경쟁 lane 이 있는 (c') 가 잡는다.
 func TestThreadMentionOfAnotherAgentKeepsItsOwnLane(t *testing.T) {
 	f := newP2Fixture(t)
 	// R already has a lane from a top-level mention.
@@ -275,5 +276,97 @@ func TestThreadMentionOfAnotherAgentKeepsItsOwnLane(t *testing.T) {
 	hum := triggerOf(t, f.post(t, map[string]any{"content": router.MentionLink("R", f.rUUID) + " 사람이 부탁", "parent_id": root}), f.rUUID)
 	if f.laneAgent(t, str(hum, "lane_id")) != f.rUUID {
 		t.Fatalf("Director's thread mention of R landed on another agent's lane")
+	}
+}
+
+// (c') Rule 1 against a competing lane (#331 리뷰 NN1). With one Lead lane,
+// rule 1 and rule 3 name the same lane and (c) above cannot tell them apart.
+// Here the root lane L is failed and a top-level mention gave Lead a second
+// lane L2 — the most recent one, which rule 3 would pick. A Director's @Lead
+// reply in the root's thread still goes to L: the thread's own lane.
+//
+// 회귀 주입: router thread.laneFor 의 `case th.RootLaneAgent == tr.AgentID`
+// 가 (uuid.Nil, …) 을 내면(규칙 1 제거) 규칙 3 이 L2 를 줘서 FAIL.
+func TestThreadReplyToRootLaneAgentBeatsNewerLane(t *testing.T) {
+	f := newP2Fixture(t)
+	tok, leadTask := f.agentToken(t, f.sessionID, f.leadUUID, "Lead")
+	lead := &client{t: t, srv: f.api.srv, bearer: tok}
+	f.fake.Advance(time.Minute)
+	root := msgID(lead.must(201, "POST", f.p+"/rooms/"+f.sessionID+"/messages",
+		map[string]any{"content": "미션 요약입니다"}, "Idempotency-Key", uuid.NewString()))
+	var rootLane string
+	if err := f.pool.QueryRow(t.Context(), `SELECT lane_id::text FROM task WHERE id = $1`, leadTask).Scan(&rootLane); err != nil {
+		t.Fatal(err)
+	}
+	f.endTurn(t, leadTask)
+	if _, err := f.pool.Exec(t.Context(), `UPDATE lane SET status = 'failed' WHERE id = $1`, rootLane); err != nil {
+		t.Fatal(err)
+	}
+
+	// A top-level mention: L is failed, so rule 4 opens L2.
+	f.fake.Advance(time.Minute)
+	top := triggerOf(t, f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 새 일"}), f.leadUUID)
+	newLane := str(top, "lane_id")
+	if newLane == rootLane || f.laneAgent(t, newLane) != f.leadUUID {
+		t.Fatalf("premise: the top-level mention should open a second Lead lane, got %s (root lane %s)", newLane, rootLane)
+	}
+
+	body := map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 요약 질문", "parent_id": root}
+	prev := f.preview(t, body)
+	for _, raw := range prev["triggers"].([]any) {
+		tr := raw.(map[string]any)
+		if str(tr, "agent_id") != f.lead {
+			continue
+		}
+		if lane := tr["lane"].(map[string]any); int(lane["resolution"].(float64)) != 1 || str(lane, "lane_id") != rootLane {
+			t.Fatalf("(c') preview of @Lead in the root thread = %v, want rule 1 on the root lane %s (not rule 3 → %s)", lane, rootLane, newLane)
+		}
+	}
+	f.fake.Advance(time.Minute)
+	tr := triggerOf(t, f.post(t, body), f.leadUUID)
+	if got := str(tr, "lane_id"); got != rootLane {
+		t.Fatalf("(c') @Lead in the root thread went to lane %s, want the root lane %s (rule 1; %s is rule 3's pick)", got, rootLane, newLane)
+	}
+}
+
+// A reply to a reply (depth 2) as the trigger (#331 리뷰 NN2): the thread is
+// the ROOT's, never the message replied to. Two layers hold that: the router
+// stores a reply-to-a-reply against the root, and the bundle walks
+// message.parent_id to the top — parent_id is a tree (#294 NN5), so a stored
+// depth-2 row must still name the root.
+//
+// 회귀 주입: router threadPremise 가 루트 대신 답한 메시지를 parent 로 저장하면
+// (1) FAIL, queue threadRootOf 가 올라가지 않고 parent_id 를 그대로 내면 (2) FAIL.
+func TestDepthTwoReplyTriggerNamesRoot(t *testing.T) {
+	f := newP2Fixture(t)
+	root := f.threadRoot(t, "미션 요약")
+	first := msgID(f.post(t, map[string]any{"content": "/note 첫 답글", "parent_id": root}))
+	out := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 답글의 답글", "parent_id": first})
+	mid := msgID(out)
+	taskID := f.triggerTask(t, out, f.leadUUID)
+
+	// (1) As posted: stored against the root.
+	var parent string
+	if err := f.pool.QueryRow(t.Context(), `SELECT parent_id::text FROM message WHERE id = $1`, mid).Scan(&parent); err != nil {
+		t.Fatal(err)
+	}
+	if parent != root {
+		t.Fatalf("(1) a reply to reply %s was stored with parent %s, want the root %s", first, parent, root)
+	}
+
+	// (2) A depth-2 row — the tree the schema allows — still names the root.
+	if _, err := f.pool.Exec(t.Context(), `UPDATE message SET parent_id = $2 WHERE id = $1`, mid, first); err != nil {
+		t.Fatal(err)
+	}
+	b := f.claimBundle(t, taskID)
+	if b.Task.ThreadRootID != root {
+		t.Fatalf("(2) depth-2 trigger: task.thread_root_id = %q, want the root %s (not the parent %s)", b.Task.ThreadRootID, root, first)
+	}
+	i := strings.Index(b.Prompt, `<message id="`+mid+`"`)
+	if i < 0 {
+		t.Fatalf("prompt has no trigger message %s:\n%s", mid, b.Prompt)
+	}
+	if line := b.Prompt[i : i+strings.Index(b.Prompt[i:], "\n")]; !strings.HasSuffix(line, ` thread="`+root+`">`) {
+		t.Fatalf("(2) depth-2 trigger <message> = %q, want thread=%q (not %q)", line, root, first)
 	}
 }
