@@ -37,8 +37,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		toolsJSON, optionsJSON, envJSON, isolationJSON []byte
 		runtimeKind, model                             string
 		args                                           []string
-		title, goal, directorName                      string
-		criteria                                       []string
+		title                                          string
 		limitsJSON, workLimitsJSON                     []byte
 		runtimeSessionRef                              []byte
 		reentry                                        int
@@ -48,25 +47,23 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	err := tx.QueryRow(ctx, `
 		SELECT a.name, a.role, a.role_description, a.instructions, a.tools, a.budget_per_task,
 		       p.runtime_kind, p.model, p.options, p.env, p.args,
-		       COALESCE(wk.title, s.name), COALESCE(wk.goal, s.description), COALESCE(wk.acceptance_criteria, '{}'),
-		       s.isolation, s.limits, u.display_name,
+		       COALESCE(wk.title, s.name),
+		       s.isolation, s.limits,
 		       l.runtime_session_ref, l.reentry_count, w.path_or_ref, wk.limits
 		FROM task t
 		JOIN agent a ON a.id = t.agent_id
 		JOIN agent_profile p ON p.id = t.profile_id
 		JOIN room s ON s.id = t.session_id
-		-- The task's OWN mission (V19_R1B_HANDOFF (c) queue/bundle.go:57); a run
-		-- outside any mission reads the room's name and description and its
-		-- owner stands where the Director would (FR-2A.1). The brief's room/
-		-- mission split itself is R3's (§8.4 [4]).
+		-- The task's OWN mission (V19_R1B_HANDOFF (c) queue/bundle.go:57). Only
+		-- its title is read here, for the worktree slug; brief [4] is
+		-- loadRoomBrief's (T-R3b).
 		LEFT JOIN work wk ON wk.id = t.work_id
-		JOIN app_user u ON u.id = COALESCE(wk.director_user_id, s.owner_user_id)
 		JOIN lane l ON l.id = t.lane_id
 		LEFT JOIN workdir w ON w.id = l.workdir_id
 		WHERE t.id = $1`, t.ID).Scan(
 		&agentName, &agentRole, &roleDesc, &instructions, &toolsJSON, &budgetPerTask,
 		&runtimeKind, &model, &optionsJSON, &envJSON, &args,
-		&title, &goal, &criteria, &isolationJSON, &limitsJSON, &directorName,
+		&title, &isolationJSON, &limitsJSON,
 		&runtimeSessionRef, &reentry, &prevWorkdir, &workLimitsJSON)
 	if isNoRows(err) {
 		return nil, errNoBundle
@@ -231,6 +228,21 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		}
 	}
 
+	// [4] and the turn prompt's ②·③ (PRD FR-4.1 v0.19). A mission deleted
+	// under a queued task leaves the turn outside any mission.
+	room, progress, err := loadRoomBrief(ctx, tx, t.SessionID, t.WorkID, isolation.Kind)
+	if err != nil {
+		return nil, err
+	}
+	missionID := t.WorkID
+	if room.Mission == nil {
+		missionID = nil
+	}
+	roomHist, err := loadRoomHistory(ctx, tx, t.SessionID, missionID, history)
+	if err != nil {
+		return nil, err
+	}
+
 	// Brief [1]~[8] (PRD §8.4).
 	var brief strings.Builder
 	fmt.Fprintf(&brief, "[1] Agent Identity\nYou are %s, %s in the Colab workspace. %s\n\nInstructions:\n%s\n\n", agentName, agentRole, roleDesc, instructions)
@@ -251,14 +263,10 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 			"- When a decision needs a person, ask with `colab hitl ask` rather than guessing; the answer comes back in the next turn's `<resumed>`.\n" +
 			"- Report to the Director yourself; the other agents report to you.\n\n")
 	}
-	fmt.Fprintf(&brief, "[4] Session\nTitle: %s\nGoal: %s\n", title, goal)
-	if len(criteria) > 0 {
-		brief.WriteString("Acceptance criteria:\n")
-		for _, c := range criteria {
-			fmt.Fprintf(&brief, "- %s\n", c)
-		}
-	}
-	fmt.Fprintf(&brief, "Director: %s\nIsolation: %s\n\n", directorName, isolation.Kind)
+	// [4] 방 맥락 (harness §10 v0.9.0, PRD FR-4.1): the room, and the mission
+	// this turn belongs to — only that one, so two turns of the same mission
+	// share [1]~[5] byte for byte and a turn of another mission does not.
+	brief.WriteString(renderRoom(room))
 	fmt.Fprintf(&brief, "[5] Roster\n%s\n", roster.String())
 	if sessionContext != "" {
 		fmt.Fprintf(&brief, "[6] Context\n%s\n", sessionContext)
@@ -298,8 +306,13 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		fmt.Fprintf(&prompt, "<rebind>\n%s</rebind>\n\n", ensureTrailingNewline(rebindPrompt))
 	}
 	renderResumedSection(&prompt, plan, t.Attempt, prevOutcome, postedLines, answered)
+	// ① — with FR-4.1's one line at its head when it dropped something (Lead
+	// T-R3b 판정 3) — then ② and ③, then the mission's progress (판정 1).
+	prompt.WriteString(truncationNote(plan.HistoryTotal-plan.HistoryIncluded, roomHist, missionID != nil))
 	fmt.Fprintf(&prompt, "<history included=%d total=%d truncated=%t>\n%s</history>\n\n",
 		plan.HistoryIncluded, plan.HistoryTotal, plan.HistoryTruncated, hist.String())
+	renderRoomHistoryTail(&prompt, missionID, roomHist)
+	prompt.WriteString(renderMissionProgress(room.Mission, progress.Met, progress.Total, progress.Satisfied))
 	// A re-instruction's trigger IS the new instruction, and `<resumed>` is
 	// absent above — so the same rendering serves both (§8.4, E8-06).
 	fmt.Fprintf(&prompt, "<trigger>\n%s</trigger>\n\n", trigger.String())
@@ -719,15 +732,7 @@ func briefDecisionLog(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (stri
 		if err := rows.Scan(&summary, &rationale, &source, &auto, &at); err != nil {
 			return "", err
 		}
-		line := fmt.Sprintf("- [%s] %s (%s", at.UTC().Format("2006-01-02 15:04"), summary, source)
-		if auto {
-			line += ", automatic: nobody answered in time"
-		}
-		line += ")"
-		if rationale != "" {
-			line += " — " + preview(rationale, 160)
-		}
-		lines = append(lines, line)
+		lines = append(lines, decisionLine(summary, rationale, source, auto, at))
 	}
 	if err := rows.Err(); err != nil {
 		return "", err
@@ -741,6 +746,20 @@ func briefDecisionLog(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (stri
 		lines[i], lines[j] = lines[j], lines[i]
 	}
 	return strings.Join(lines, "\n") + "\n", nil
+}
+
+// decisionLine is one decision as [7] and the turn prompt's <room_decisions>
+// both write it.
+func decisionLine(summary, rationale, source string, auto bool, at time.Time) string {
+	line := fmt.Sprintf("- [%s] %s (%s", at.UTC().Format("2006-01-02 15:04"), summary, source)
+	if auto {
+		line += ", automatic: nobody answered in time"
+	}
+	line += ")"
+	if rationale != "" {
+		line += " — " + preview(rationale, 160)
+	}
+	return line
 }
 
 // decisionLogLimit caps §8.4 [7]. The brief is the cacheable prefix (§8.4
