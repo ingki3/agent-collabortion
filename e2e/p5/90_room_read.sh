@@ -24,7 +24,7 @@
 #   E. originator 승계(NN7) — 위임 자식(W·R) · blocked 질문 기상 · 합류 기상 · 재시도(attempt 2) · 재지시(restartLane) ·
 #      HITL 재개 — 전부 task.originator_user_id = 서연, 그리고 **그 턴의 토큰으로 read 200**
 #   F. no_originator — 사람 없는 사슬(originator NULL): 403 no_originator · 목록 빈 배열 · **방장(서연)으로 대체하지 않는다**
-#   H. (T-R3a) 실제 colab 바이너리 — room list · room read(truncated 그대로 · 거부 exit 3 + denied_reason) · work propose · room get = session get
+#   H. (T-R3a) 실제 colab 바이너리 — room list · room read(truncated 그대로 · 거부 exit 3 + denied_reason) · work propose · room get({room, work, participants}) · session get 삭제(R4)
 #   G. 상한 잘림 — 설정 room_read {max_rooms_per_turn:1, max_tokens:500} → 긴 방 read truncated true · 로그 truncated ·
 #      같은 턴 두 번째 방은 truncated + 빈 내용 + 기록 0 · 같은 방 다시 읽기는 칸을 안 먹는다
 #
@@ -56,15 +56,15 @@ tok_api() { # TOKEN METHOD PATH [JSON] → 본문 + 마지막 줄 코드
 mk_agent() { api_ok POST "/workspaces/$WS/agents" "$(jq -nc --arg n "$1" --arg r "$2" '{name:$n,role:$r,role_description:"d",
   instructions:"짧게, 한국어로 답한다.",
   profiles:[{name:"default",runtime_kind:"claude_code",model:"claude-sonnet-5",is_default:true}]}')" | jq -r .id; }
-mk_room() { # TITLE AGENT_ID... → 방(세션) id. 첫 에이전트가 담당.
+mk_room() { # TITLE AGENT_ID... → 방 id(createRoom→참여자→createWork, lib create_room_work). 첫 에이전트가 담당.
   local title="$1"; shift
   local parts; parts="$(printf '%s\n' "$@" | jq -R '{agent_id:.}' | jq -sc .)"
-  api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg t "$title" --arg rt "$RID" --arg a "$1" --argjson p "$parts" \
+  create_room_work "$WS" "$(jq -nc --arg t "$title" --arg rt "$RID" --arg a "$1" --argjson p "$parts" \
     '{title:$t,goal:($t+" 방의 목표"),isolation:{kind:"none"},participants:$p,assignee_agent_id:$a,runtime_id:$rt,
-      completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | jq -r .id
+      completion_condition:{op:"and",conditions:[{type:"manual"}]}}')"
 }
 mention() { # SESSION AGENT_ID NAME TEXT → Director 가 @멘션
-  api_ok POST "/sessions/$1/messages" "$(jq -nc --arg a "$2" --arg n "$3" --arg t "$4" '{content:("[@"+$n+"](mention://agent/"+$a+") "+$t)}')" -H "Idempotency-Key: $(uuid)" >/dev/null
+  api_ok POST "/rooms/$1/messages" "$(with_work "$1" "$(jq -nc --arg a "$2" --arg n "$3" --arg t "$4" '{content:("[@"+$n+"](mention://agent/"+$a+") "+$t)}')")" -H "Idempotency-Key: $(uuid)" >/dev/null
 }
 # take TASK_ID → 그 task 의 번들을 받아 phase running. 표준출력: attempt<TAB>token
 # claim 은 줄 선 task 를 **전부** 내준다 — 찾는 것 말고 받은 번들은 버리지 않고 $BUNDLES 에 두었다가 쓴다
@@ -143,17 +143,19 @@ SE0="$(psqlq "select count(*) from stream_event where workspace_id='$WS' and typ
 readc "$TOK1" "$B" > "$OUT/90-read-infra.txt"
 chk A.3 200 "$(api_code < "$OUT/90-read-infra.txt")" "read 인프라 → 200"
 api_body < "$OUT/90-read-infra.txt" > "$OUT/90-read-infra.json"
-chk A.4 "인프라/false/1" "$(jq -r '"\(.room.name)/\(.truncated)/\(.messages|length)"' "$OUT/90-read-infra.json")" "요약 없음 · 잘리지 않음 · 최근 메시지 1건(방 시작)"
-chk A.5 "1" "$(psqlq "select count(*) from room_read_log where room_id='$A' and target_room_id='$B' and allowed and reader_task_id='$T1' and originator_user_id='$SEOYEON' and recent_n=1")" "room_read_log 1행(읽은 방 A → 읽힌 방 B, originator 서연)"
-chk A.6 "서연의 요청으로 @Lead이(가) 이 방을 읽었습니다(최근 1건)." "$(psqlq "select content from message where session_id='$B' and kind='system' order by created_at desc limit 1")" "읽힌 방 타임라인 시스템 메시지(SCREEN §8.1 문장 2)"
+# R4: 방을 createRoom→updateRoom→addRoomParticipant→createWork 로 만든다 — 방 타임라인에 시스템 메시지 3건
+# (「방 설정을 바꿨습니다」·「Lead이(가) 방에 참여했습니다」·「미션을 열었습니다」). 옛 createSession 은 1건(방 시작)이었다.
+chk A.4 "인프라/false/3" "$(jq -r '"\(.room.name)/\(.truncated)/\(.messages|length)"' "$OUT/90-read-infra.json")" "요약 없음 · 잘리지 않음 · 최근 메시지 3건(방 만들기 흐름의 시스템 메시지)"
+chk A.5 "1" "$(psqlq "select count(*) from room_read_log where room_id='$A' and target_room_id='$B' and allowed and reader_task_id='$T1' and originator_user_id='$SEOYEON' and recent_n=3")" "room_read_log 1행(읽은 방 A → 읽힌 방 B, originator 서연)"
+chk A.6 "서연의 요청으로 @Lead이(가) 이 방을 읽었습니다(최근 3건)." "$(psqlq "select content from message where session_id='$B' and kind='system' order by created_at desc limit 1")" "읽힌 방 타임라인 시스템 메시지(SCREEN §8.1 문장 2)"
 chk A.7 "0" "$(psqlq "select count(*) from message where session_id='$A' and content like '%이 방을 읽었습니다%'")" "읽은 방에는 그 문장이 없다"
 chk A.8 "out:$A/in:$B" "$(psqlq "select string_agg(payload->>'direction'||':'||session_id, '/' order by payload->>'direction' desc) from activity_log where action='room.read' and workspace_id='$WS'")" "activity_log room.read 양쪽"
-chk A.9 "1" "$(psqlq "select count(*) from task_event where task_id='$T1' and class='status' and verb='read' and outcome='ok' and payload->>'command'='room read' and payload->'args'->>'note'='「인프라」 방을 읽었습니다(최근 1건)'")" "읽은 task 의 피드(status/read, args.note)"
+chk A.9 "1" "$(psqlq "select count(*) from task_event where task_id='$T1' and class='status' and verb='read' and outcome='ok' and payload->>'command'='room read' and payload->'args'->>'note'='「인프라」 방을 읽었습니다(최근 3건)'")" "읽은 task 의 피드(status/read, args.note)"
 chk A.10 "$((SE0+2))" "$(psqlq "select count(*) from stream_event where workspace_id='$WS' and type='room_read.recorded'")" "SSE room_read.recorded 2건(양쪽 방)"
 chk A.11 "out:$A,in:$B" "$(psqlq "select string_agg((payload->>'direction')||':'||(payload->>'room_id'), ',' order by id) from stream_event where workspace_id='$WS' and type='room_read.recorded'")" "SSE 각 방에 제 방향으로"
 reads "$A" "?direction=out" > "$OUT/90-reads-A-out.json"
 reads "$B" "?direction=in" > "$OUT/90-reads-B-in.json"
-chk A.12 "1/인프라/서연/true" "$(jq -r '"\(.items|length)/\(.items[0].other_room.name)/\(.items[0].originator_user.display_name)/\(.items[0].scope.recent_n==1)"' "$OUT/90-reads-A-out.json")" "S23(A) 읽음: 인프라, 요청자 서연"
+chk A.12 "1/인프라/서연/true" "$(jq -r '"\(.items|length)/\(.items[0].other_room.name)/\(.items[0].originator_user.display_name)/\(.items[0].scope.recent_n==3)"' "$OUT/90-reads-A-out.json")" "S23(A) 읽음: 인프라, 요청자 서연"
 chk A.13 "1/작업/Lead" "$(jq -r '"\(.items|length)/\(.items[0].other_room.name)/\(.items[0].agent.name)"' "$OUT/90-reads-B-in.json")" "S23(B) 읽힘: 작업 방의 Lead"
 
 # ───────────────────────────── B ─────────────────────────────────────────────
@@ -191,8 +193,8 @@ chk D.6 200 "$(read_code "$TOK1" "$B")" "다시 참여하면 다음 read 는 200
 
 # ───────────────────────────── E ─────────────────────────────────────────────
 step "E. originator 승계(NN7) — 위임 자식 · blocked 기상 · 합류 기상 · 재시도 · 재지시 · HITL 재개"
-LR="$(tok_api "$TOK1" POST "/sessions/$A/lanes" "$(jq -nc --arg a "$R" '{agent_id:$a,brief:"조사해 주세요"}')")"
-LW="$(tok_api "$TOK1" POST "/sessions/$A/lanes" "$(jq -nc --arg a "$W" '{agent_id:$a,brief:"초안을 써 주세요"}')")"
+LR="$(tok_api "$TOK1" POST "/rooms/$A/lanes" "$(jq -nc --arg a "$R" '{agent_id:$a,brief:"조사해 주세요"}')")"
+LW="$(tok_api "$TOK1" POST "/rooms/$A/lanes" "$(jq -nc --arg a "$W" '{agent_id:$a,brief:"초안을 써 주세요"}')")"
 chk E.1 "201/201" "$(api_code <<<"$LR")/$(api_code <<<"$LW")" "Lead 가 R·W 에게 위임"
 TR="$(api_body <<<"$LR" | jq -r .task.id)"; TW="$(api_body <<<"$LW" | jq -r .task.id)"
 chk E.2 "$SEOYEON/$SEOYEON" "$(orig_of "$TR")/$(orig_of "$TW")" "위임 자식 task 가 서연을 물려받는다"
@@ -223,7 +225,7 @@ IFS=$'\t' read -r ATJ2 TOKJ2 <<<"$(take "$TJ")"
 chk E.11 "2/$SEOYEON/200" "$ATJ2/$(orig_of "$TJ")/$(read_code "$TOKJ2" "$D")" "재시도(attempt 2) 턴도 읽는다"
 
 # HITL 재개: 질문 → 턴 끝 → Director 답 → 재큐잉(새 attempt)
-HQ="$(tok_api "$TOKJ2" POST "/sessions/$A/hitl-requests" '{"type":"question","question":"어느 쪽으로 갈까요?","proposed_default":"A 안"}')"
+HQ="$(tok_api "$TOKJ2" POST "/rooms/$A/hitl-requests" '{"type":"question","question":"어느 쪽으로 갈까요?","proposed_default":"A 안"}')"
 chk E.12 201 "$(api_code <<<"$HQ")" "Lead: hitl ask"
 HID="$(api_body <<<"$HQ" | jq -r '.id // .hitl_request.id')"
 finish "$TJ" "$ATJ2"
@@ -253,7 +255,7 @@ chk F.1 "403/room_read_denied/no_originator" "$(readc "$TOKN" "$D" | code_reason
 chk F.2 "이 턴은 사람의 요청에서 시작하지 않아 다른 방을 읽을 수 없습니다" "$(read_body "$TOKN" "$D" | jq -r .detail)" "PRD FR-4.5 [V19-B] 문장"
 chk F.3 "" "$(readable "$TOKN")" "목록 빈 배열"
 # 사람 없는 사슬의 합류: W 에게 위임(자식도 NULL) → done → 기상 task 도 NULL
-LN="$(tok_api "$TOKN" POST "/sessions/$A/lanes" "$(jq -nc --arg a "$W" '{agent_id:$a,brief:"사람 없는 위임"}')")"
+LN="$(tok_api "$TOKN" POST "/rooms/$A/lanes" "$(jq -nc --arg a "$W" '{agent_id:$a,brief:"사람 없는 위임"}')")"
 TNW="$(api_body <<<"$LN" | jq -r .task.id)"
 chk F.4 "NULL" "$(orig_of "$TNW")" "위임 자식도 없다"
 finish "$TN" "$ATN"
@@ -271,7 +273,7 @@ chk G.1 200 "$(api PATCH "/workspaces/$WS/settings" '{"room_read":{"max_rooms_pe
 chk G.2 "1/500" "$(api_ok GET "/workspaces/$WS/settings" | jq -r '"\(.room_read.max_rooms_per_turn)/\(.room_read.max_tokens)"')" "설정이 읽힌다"
 chk G.3 422 "$(api PATCH "/workspaces/$WS/settings" '{"room_read":{"max_tokens":10}}' | api_code)" "max_tokens 10 → 422(최소 500)"
 LONG="$(python3 -c 'print("긴 문장입니다. " * 60)')"
-for i in 1 2 3 4; do api_ok POST "/sessions/$D/messages" "$(jq -nc --arg c "$LONG" '{content:$c}')" -H "Idempotency-Key: $(uuid)" >/dev/null; done
+for i in 1 2 3 4; do api_ok POST "/rooms/$D/messages" "$(jq -nc --arg c "$LONG" '{content:$c}')" -H "Idempotency-Key: $(uuid)" >/dev/null; done
 mention "$A" "$LEAD" Lead "참고 방을 읽어 주세요"
 TG="$(queued_task "$A" "$LEAD")"
 IFS=$'\t' read -r ATG TOKG <<<"$(take "$TG")"
@@ -310,7 +312,8 @@ chk H.4 "3/room_read_denied/originator_not_participant" "$(api_code <<<"$H3")/$(
 H4="$(colab_h work propose --goal "참고 방 결론을 미션으로" --why "두 방에서 같은 결정이 필요하다")"
 chk H.5 "0/open/1" "$(api_code <<<"$H4")/$(api_body <<<"$H4" | jq -r .proposal.status)/$(psqlq "select count(*) from work_proposal where proposed_by_task_id='$TH'")" "lead colab work propose → exit 0 · 제안 open · 행 1"
 H5="$(colab_h room get)"; H6="$(colab_h session get)"
-chk H.6 "0/same" "$(api_code <<<"$H5")/$( [ "$(api_body <<<"$H5" | jq -S 'del(.updated_at)')" = "$(api_body <<<"$H6" | jq -S 'del(.updated_at)')" ] && echo same || echo diff)" "room get = session get(별칭)"
+# R4(colab-cli v0.9): session get 별칭이 지워졌다 — room get 은 {room, work, participants}, session get 은 없는 명령(0 이 아닌 종료).
+chk H.6 "0/$A/removed" "$(api_code <<<"$H5")/$(api_body <<<"$H5" | jq -r '.room.id // "-"')/$( [ "$(api_code <<<"$H6")" != 0 ] && echo removed || echo still-there)" "room get → {room,…} · session get 은 R4 에서 삭제"
 finish "$TH" "$ATH"
 
 printf '\n판정: %s\n' "$(awk -F'\t' '{c[$2]++} END{printf "PASS %d · FAIL %d", c["PASS"], c["FAIL"]}' "$CHECKS")" >&2

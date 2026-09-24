@@ -162,7 +162,7 @@ ab click 'a[href^="/signup?invite="]' >/dev/null
 wait_sel '[data-testid="signup-form"]' || die "invite signup"
 ab fill 'input[name=display_name]' "$NAME2" >/dev/null; ab fill 'input[name=email]' "$EMAIL2" >/dev/null; ab fill 'input[name=password]' "$PASSWORD" >/dev/null
 ab click 'button[type=submit]' >/dev/null
-if try ab wait --url "**/sessions" --timeout 20000 && wait_sel '[data-testid="session-list"], [data-testid="session-row"]' 20; then shot p1-u13-02-s5-member; rec U13-2b S5 "가입 직후 S4 건너뛰고 S5(세션 목록)" PASS "url=$(ab get url)"; else shot p1-u13-02-s5-member; rec U13-2b S5 "S4 건너뛰고 S5" FAIL "url=$(ab get url)"; fi
+if try ab wait --url "**/rooms" --timeout 20000 && wait_sel '[data-testid="room-list"], [data-testid="room-row"], [data-testid="empty-no-room"]' 20; then shot p1-u13-02-s5-member; rec U13-2b S5 "가입 직후 S4 건너뛰고 S5(방 목록 /rooms)" PASS "url=$(ab get url)"; else shot p1-u13-02-s5-member; rec U13-2b S5 "S4 건너뛰고 S5" FAIL "url=$(ab get url)"; fi
 MEMBERS="$(api_ok GET "/workspaces/$WS/members" | jq -r '(.items // .)|length')"
 [ "$MEMBERS" = 2 ] && rec U13-3 API "워크스페이스 멤버 2명" PASS "members=$MEMBERS" || rec U13-3 API "멤버 2명" FAIL "members=$MEMBERS"
 NAV_SETTINGS="$(ab get count 'a[href="/settings"]' 2>/dev/null || echo ?)"; log "member 내비 Settings 링크 수=$NAV_SETTINGS (U13 변형: member 에겐 없어야 함)"

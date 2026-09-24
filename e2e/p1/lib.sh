@@ -101,15 +101,76 @@ mention() { printf '[@%s](mention://agent/%s)' "$1" "$2"; }
 create_agent() { # ws name model → agent id
   api_ok POST "/workspaces/$1/agents" "$(jq -nc --arg n "$2" --arg m "$3" '{name:$n,role:"lead",role_description:"팀을 이끌고 위임·종합한다",instructions:"You are the lead. Reply briefly in Korean. Always post replies with the colab_message_post MCP tool.",profiles:[{name:"default",runtime_kind:"claude_code",model:$m,is_default:true}]}')" | jq -r .id
 }
-create_session() { # ws agent title goal [runtime_id] → session id (초기 task 가 assignee 에게 생긴다)
+# ── 방·미션 (openapi v0.3.0 D22 — 옛 /sessions/* 삭제) ─────────────────────────
+# 옛 createSession 한 번 = createRoom → updateRoom(격리·컴퓨터·한도·autonomy) → addRoomParticipant… → createWork.
+# 옛 세션은 방에 legacy_work_id 가 있어 work_id 없는 사람 게시도 그 미션에 귀속됐다. createRoom 방은 "미션 없음"이라
+# 여기서 만든 방의 미션 id 를 $ROOM_WORK_DIR/<room> 에 적어 두고 post_message 가 work_id 를 붙인다(옛 동작 흉내).
+ROOM_WORK_DIR="$OUT/.room-work"
+# work_of ROOM → 그 방의 미션 id (이 스크립트가 만든 방이면 그 미션, 아니면 가장 최근 미션)
+work_of() {
+  if [ -f "$ROOM_WORK_DIR/$1" ]; then cat "$ROOM_WORK_DIR/$1"
+  else psqlq "select id from work where room_id='$1' order by created_at desc limit 1"; fi
+}
+# create_room_work_api WS OLD_SESSION_CREATE_JSON → api 모양(본문 + 마지막 줄 HTTP 코드).
+#   성공: 201 과 {id: 방 id, room_id, work_id, work: Work}. 실패: 처음 실패한 단계의 Problem 과 코드.
+#   옛 SessionCreate 칸 → 새 자리: title·goal·assignee_agent_id(비우면 첫 참여자 — createWork 는 기본값이 없다)·
+#   completion_condition·acceptance_criteria·draft·director_user_id·deputy_director_user_id→deputy_user_id 는 미션,
+#   isolation·runtime_id·autonomy·limits(budget_usd·time_limit·max_parallel_lanes·max_concurrent_works) 는 방,
+#   limits(budget_tokens·max_tasks) 는 미션 한도. participants[] 는 addRoomParticipant 하나씩.
+create_room_work_api() {
+  local ws="$1" in="$2" out code room patch p work wid
+  out="$(api POST "/workspaces/$ws/rooms" "$(jq -c '{name:(.title // (.goal|split("\n")[0]) // "room"), description:""}' <<<"$in")")"
+  code="$(api_code <<<"$out")"; case "$code" in 2*) ;; *) printf '%s\n' "$out"; return 0;; esac
+  room="$(api_body <<<"$out" | jq -r .id)"
+  patch="$(jq -c '(if .isolation then {isolation:.isolation} else {} end)
+     + (if (.runtime_id // "") != "" then {runtime_id:.runtime_id} else {} end)
+     + (if .autonomy then {autonomy:.autonomy} else {} end)
+     + (if .visibility then {visibility:.visibility} else {} end)
+     + (if .limits then ((.limits|with_entries(select(.key|IN("budget_usd","time_limit","max_parallel_lanes","max_concurrent_works"))))
+         | if length>0 then {limits:.} else {} end) else {} end)' <<<"$in")"
+  if [ "$patch" != "{}" ]; then
+    out="$(api PATCH "/rooms/$room" "$patch")"; code="$(api_code <<<"$out")"
+    case "$code" in 2*) ;; *) printf '%s\n' "$out"; return 0;; esac
+  fi
+  while read -r p; do
+    [ -n "$p" ] || continue
+    out="$(api POST "/rooms/$room/participants" "$p")"; code="$(api_code <<<"$out")"
+    case "$code" in 2*) ;; *) printf '%s\n' "$out"; return 0;; esac
+  done <<<"$(jq -c '.participants[]? | {agent_id} + (if (.profile_id // "") != "" then {profile_id} else {} end)' <<<"$in")"
+  work="$(jq -c '{goal, title, assignee_agent_id:(.assignee_agent_id // .participants[0].agent_id)}
+     + (if .completion_condition then {completion_condition} else {} end)
+     + (if .acceptance_criteria then {acceptance_criteria} else {} end)
+     + (if .draft then {draft} else {} end)
+     + (if .director_user_id then {director_user_id} else {} end)
+     + (if .deputy_director_user_id then {deputy_user_id:.deputy_director_user_id} else {} end)
+     + (if .limits then ((.limits|with_entries(select(.key|IN("budget_tokens","max_tasks"))))
+         | if length>0 then {limits:.} else {} end) else {} end)
+     | with_entries(select(.value != null))' <<<"$in")"
+  out="$(api POST "/rooms/$room/works" "$work")"; code="$(api_code <<<"$out")"
+  case "$code" in 2*) ;; *) printf '%s\n' "$out"; return 0;; esac
+  wid="$(api_body <<<"$out" | jq -r .id)"
+  mkdir -p "$ROOM_WORK_DIR"; printf '%s' "$wid" > "$ROOM_WORK_DIR/$room"
+  jq -c --arg r "$room" '{id:$r, room_id:$r, work_id:.id, work:.}' <<<"$(api_body <<<"$out")"
+  printf '%s\n' "$code"
+}
+# create_room_work WS OLD_SESSION_CREATE_JSON → 방 id (옛 createSession 의 세션 id 자리). 2xx 가 아니면 실패.
+create_room_work() {
+  local out code; out="$(create_room_work_api "$@")"; code="$(api_code <<<"$out")"
+  case "$code" in 2*) api_body <<<"$out" | jq -r .id;; *) bad "createRoom/createWork → HTTP $code: $(api_body <<<"$out")"; return 1;; esac
+}
+create_session() { # ws agent title goal [runtime_id] → 방 id (초기 task 가 assignee 에게 생긴다)
   # runtime_id 를 주면 그 런타임에 고정. 비우면 "자동 선택(첫 claim 런타임 고정)" — 서버 결함(claim 이 워크스페이스를 보지 않음)으로
   # 다른 워크스페이스의 데몬이 가져갈 수 있어(2026-09-06 실측) 시나리오 b·c 는 명시한다.
   local rt="${5:-}"
-  api_ok POST "/workspaces/$1/sessions" "$(jq -nc --arg a "$2" --arg t "$3" --arg g "$4" --arg rt "$rt" '{title:$t,goal:$g,isolation:{kind:"none"},participants:[{agent_id:$a}],assignee_agent_id:$a} + (if $rt=="" then {} else {runtime_id:$rt} end)')" | jq -r .id
+  create_room_work "$1" "$(jq -nc --arg a "$2" --arg t "$3" --arg g "$4" --arg rt "$rt" '{title:$t,goal:$g,isolation:{kind:"none"},participants:[{agent_id:$a}],assignee_agent_id:$a} + (if $rt=="" then {} else {runtime_id:$rt} end)')"
 }
-# post_message SESSION CONTENT → 응답 JSON (MessagePostResult)
+# with_work ROOM JSON → JSON 에 work_id 를 붙인다(이 스크립트가 옛 세션 자리로 만든 방일 때만 — legacy_work_id 흉내)
+with_work() {
+  if [ -f "$ROOM_WORK_DIR/$1" ] && ! jq -e 'has("work_id")' >/dev/null <<<"$2"; then jq -c --arg w "$(cat "$ROOM_WORK_DIR/$1")" '. + {work_id:$w}' <<<"$2"; else printf '%s' "$2"; fi
+}
+# post_message ROOM CONTENT → 응답 JSON (MessagePostResult)
 post_message() {
-  api_ok POST "/sessions/$1/messages" "$(jq -nc --arg c "$2" '{content:$c}')" -H "Idempotency-Key: $(uuid)"
+  api_ok POST "/rooms/$1/messages" "$(with_work "$1" "$(jq -nc --arg c "$2" '{content:$c}')")" -H "Idempotency-Key: $(uuid)"
 }
 task_status() { psqlq "select status from task where id='$1'"; }
 task_attempt() { psqlq "select attempt from task where id='$1'"; }

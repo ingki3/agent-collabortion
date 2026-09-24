@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # e2e/p5/87_migrate_0025.sh — T-R1a 이관 검증: 옛 서버(0024)로 데이터를 만들고 → 0025 를 걸고 → 행 수 대조
-# (server/migrations/verify/verify_0025*.sql) → 옛 `/sessions/*` 응답이 이관 전과 JSON 동일(키 순서 무시)인지 잰다.
+# (server/migrations/verify/verify_0025*.sql) → 옛 `/sessions/*` 응답이 이관 전과 JSON 동일(키 순서 무시)인지 잰다(R4 뒤로는 옮겨진 op 만 — 아래 R4 문단).
 #
 # 비용 한 줄(I-3): 에이전트 턴 0(데몬 없이 curl) · $0 · ≈ 60s(옛 서버 빌드 포함)
 #
@@ -12,6 +12,13 @@
 #   B. verify_0025_pre.sql → HEAD cmd/migrate(0025 한 개 적용) → verify_0025.sql 의 모든 검사 0.
 #   C. 새 서버의 같은 응답이 이관 전과 JSON 동일(jq -S).
 #   D. 이관 뒤 쓰기 경로: 새 서버로 세션 생성·메시지 게시가 되고, 새 세션도 방 1 + 미션 1 + 사람 참여자(방장)로 선다.
+#
+# R4(openapi v0.3.0 D22) — 새 서버에는 `/sessions/*` 가 없다. **옛 서버(BASE, 0024)에 던지는 호출은 그대로 `/sessions/*`**
+#   (그 바이너리의 표면이다: mk · 시드 메시지 · pause · cancel · snap pre). 새 서버 쪽만 옮겼다:
+#   · C: snap post 는 경로만 옮겨진 op(messages·lanes·hitl-requests·artifacts·decisions·cost — 같은 operationId)을
+#     `/rooms/{id}/…` 로 읽어 옛 `/sessions/{id}/…` 스냅숏과 대조한다. 삭제된 op(listSessions·getSession·
+#     listParticipants — 방·미션 모양으로 바뀜)는 대조에서 빠진다(44 → 33).
+#   · D: 새 세션 = createRoom → updateRoom → addRoomParticipant → createWork(create_room_work), 읽기는 getWork.
 #
 # 스택(T-R1a 배정): 옛 서버 :8125 · 새 서버 :8126 · pg :5474 · 컨테이너 colab-pg-r1a. DB 는 colab87 을 새로 만든다.
 # 사용: bash e2e/p5/87_migrate_0025.sh        (서버는 스크립트가 띄우고 끈다 — up.sh 불필요)
@@ -70,7 +77,7 @@ export DTOK RID
 # deputy 로 쓸 두 번째 멤버(초대 흐름은 이 스크립트의 대상이 아니다 — 옛 스키마에 직접)
 DEP="$(psqlq "insert into app_user (email, display_name) values ('dep-$RUN@example.com', 'Dep') returning id" | head -1)"
 psqlq "insert into member (workspace_id, user_id, role) values ('$WS', '$DEP', 'member')" >/dev/null
-mk() { api_ok POST "/workspaces/$WS/sessions" "$1" | jq -r .id; }
+mk() { api_ok POST "/workspaces/$WS/sessions" "$1" | jq -r .id; }   # 옛 서버(0024) 전용 — createSession 은 그 바이너리의 표면(R4 이관 대상 아님)
 S1="$(mk "$(jq -nc --arg a "$LEAD" --arg r "$REV" --arg rt "$RID" --arg d "$DEP" \
   '{title:"R1a 진행",goal:"첫 줄 목표\n둘째 줄",acceptance_criteria:["하나","둘"],isolation:{kind:"none"},participants:[{agent_id:$a},{agent_id:$r}],
     assignee_agent_id:$a,runtime_id:$rt,deputy_director_user_id:$d,limits:{budget_usd:5,max_parallel_lanes:3}}')")"
@@ -79,6 +86,7 @@ S3="$(mk "$(jq -nc --arg a "$LEAD" '{title:"R1a 멈춤",goal:"멈출 목표",iso
 S4="$(mk "$(jq -nc --arg a "$LEAD" '{title:"R1a 끝남",goal:"끝낼 목표",isolation:{kind:"none"},participants:[{agent_id:$a}]}')")"
 S5="$(mk "$(jq -nc --arg a "$LEAD" '{title:"R1a 취소",goal:"취소할 목표",isolation:{kind:"none"},participants:[{agent_id:$a}]}')")"
 for s in "$S1" "$S2" "$S3" "$S4" "$S5"; do [[ "$s" =~ ^[0-9a-f-]{36}$ ]] || die "세션 생성 실패: $s"; done
+# 옛 서버(0024) — /sessions 가 그 바이너리의 표면이다(R4 이관 대상 아님).
 api_ok POST "/sessions/$S1/messages" "$(jq -nc --arg m "$(mention Rev "$REV") 확인 부탁" '{content:$m}')" -H "Idempotency-Key: $(uuid)" >/dev/null
 CL="$(daemon_api "runtimes/$RID/claim" '{"capacity":5,"wait_ms":0}')"
 T1="$(jq -r --arg s "$S1" '[.tasks[]|select(.task.session_id==$s)][0].task.id // ""' <<<"$CL")"
@@ -95,17 +103,23 @@ chk A.1 5 "$(psqlq "select count(*) from session where workspace_id='$WS'")" "�
 chk A.2 "active cancelled completed draft paused" "$(psqlq "select string_agg(status::text, ' ' order by status::text) from session where workspace_id='$WS'")" "상태 다섯 가지"
 chk_ge A.3 1 "$(psqlq "select count(*) from task where session_id='$S1'")" "S1 에 task(메시지 트리거)"
 
-snap() { # DIR — 옛·새 서버에 같은 GET 을 던져 jq -S 로 저장
-  local d="$1" s p
-  api_ok GET "/workspaces/$WS/sessions" | jq -S . > "$d/list.json"
+snap() { # DIR [new] — 옛·새 서버에 같은 GET 을 던져 jq -S 로 저장. new 면 R4 새 서버: 옮겨진 op 만 /rooms/{id}/… 로
+  local d="$1" mode="${2:-old}" s p
+  [ "$mode" = new ] || api_ok GET "/workspaces/$WS/sessions" | jq -S . > "$d/list.json"   # 옛 서버만(listSessions 는 R4 에서 삭제)
   api_ok GET "/workspaces/$WS/cost" | jq -S . > "$d/ws-cost.json"
   # v0.2.0 이 InboxItem 에 더한 칸(room_id · work_id · lane_id · recipient_basis, T-R1b3)은 옛 서버에 없다 — 옛 칸만 대조.
   api_ok GET "/inbox?workspace_id=$WS" | jq -S 'del(.items[].room_id, .items[].work_id, .items[].lane_id, .items[].recipient_basis)' > "$d/inbox.json"
   [ -z "$T1" ] || api_ok GET "/tasks/$T1" | jq -S . > "$d/task-t1.json"   # listSessionTasks 는 501 이라 claim 한 task 하나
   for s in "$S1" "$S2" "$S3" "$S4" "$S5"; do
-    for p in "" /participants /messages /lanes /hitl-requests /artifacts /decisions /cost; do
-      api_ok GET "/sessions/$s$p" | jq -S . > "$d/${s:0:8}${p//\//_}.json"
-    done
+    if [ "$mode" = new ]; then
+      for p in /messages /lanes /hitl-requests /artifacts /decisions /cost; do
+        api_ok GET "/rooms/$s$p" | jq -S . > "$d/${s:0:8}${p//\//_}.json"
+      done
+    else
+      for p in "" /participants /messages /lanes /hitl-requests /artifacts /decisions /cost; do
+        api_ok GET "/sessions/$s$p" | jq -S . > "$d/${s:0:8}${p//\//_}.json"   # 옛 서버(0024)
+      done
+    fi
   done
 }
 snap "$SNAP/pre"
@@ -130,22 +144,23 @@ chk B.7 "$DEP" "$(psqlq "select user_id from room_participant where room_id='$S1
 step "C. 새 서버 — 같은 GET 이 JSON 동일"
 export SERVER_URL="http://localhost:$NEW_PORT"; API="$SERVER_URL/api/v1"
 start_server "$OUT/87-server-new" "$NEW_PORT" "$OUT/87-new.pid" "$OUT/87-server-new.log"
-snap "$SNAP/post"
+snap "$SNAP/post" new
 DIFFS=""
-for f in "$SNAP"/pre/*.json; do
+for f in "$SNAP"/post/*.json; do   # R4: 새 서버에 남은 op 만 — 그 파일들을 이관 전 스냅숏과 대조
   b="$(basename "$f")"
-  cmp -s "$f" "$SNAP/post/$b" || DIFFS="$DIFFS $b"
+  cmp -s "$SNAP/pre/$b" "$f" || DIFFS="$DIFFS $b"
 done
-chk C.1 "" "${DIFFS# }" "옛 /sessions/* 응답 44개가 이관 전과 JSON 동일(jq -S) — 다른 파일만 나열"
+chk C.1 "" "${DIFFS# }" "옮겨진 op 응답 33개(새 /rooms/{id}/… · 비용·인박스·task)가 이관 전 옛 /sessions/{id}/… 과 JSON 동일(jq -S) — 다른 파일만 나열"
 [ -z "$DIFFS" ] || for b in $DIFFS; do diff "$SNAP/pre/$b" "$SNAP/post/$b" | head -20 >&2; done
-chk C.2 44 "$(ls "$SNAP/post" | wc -l | tr -d ' ')" "이관 뒤 응답 44개"
+chk C.2 33 "$(ls "$SNAP/post" | wc -l | tr -d ' ')" "이관 뒤 응답 33개(워크스페이스 비용·인박스·task + 방 5 × 옮겨진 op 6)"
 
 # ───────────────────────────── D ─────────────────────────────────────────────
 step "D. 이관 뒤 쓰기 경로"
-chk D.1 201 "$(api POST "/sessions/$S1/messages" "$(jq -nc '{content:"이관 뒤 메시지"}')" -H "Idempotency-Key: $(uuid)" | api_code)" "옛 세션에 메시지 게시"
-S6="$(mk "$(jq -nc --arg a "$LEAD" '{title:"R1a 새 세션",goal:"새 목표\n둘째",isolation:{kind:"none"},participants:[{agent_id:$a}]}')")"
-chk D.2 "R1a 새 세션/새 목표/1/1/owner" "$(psqlq "select r.name||'/'||r.description||'/'||(select count(*) from work where room_id=r.id)||'/'||(select count(*) from room_participant where room_id=r.id and agent_id is not null)||'/'||(select string_agg(role::text, ',') from room_participant where room_id=r.id and user_id is not null) from room r where r.id='$S6'")" "새 세션 = 방(이름·설명) + 미션 1 + 에이전트 1 + 방장 1"
-chk D.3 "active" "$(api_ok GET "/sessions/$S6" | jq -r .status)" "새 세션을 옛 모양으로 읽는다"
+chk D.1 201 "$(api POST "/rooms/$S1/messages" "$(jq -nc '{content:"이관 뒤 메시지"}')" -H "Idempotency-Key: $(uuid)" | api_code)" "옛 세션에 메시지 게시"
+# R4: 새 서버에는 createSession 이 없다 — 방+미션(create_room_work). createRoom 의 설명은 helper 가 비워 둔다(옛 createSession 은 goal 첫 줄).
+S6="$(create_room_work "$WS" "$(jq -nc --arg a "$LEAD" '{title:"R1a 새 세션",goal:"새 목표\n둘째",isolation:{kind:"none"},participants:[{agent_id:$a}]}')")"
+chk D.2 "R1a 새 세션//1/1/owner" "$(psqlq "select r.name||'/'||r.description||'/'||(select count(*) from work where room_id=r.id)||'/'||(select count(*) from room_participant where room_id=r.id and agent_id is not null)||'/'||(select string_agg(role::text, ',') from room_participant where room_id=r.id and user_id is not null) from room r where r.id='$S6'")" "새 방+미션 = 방(이름·빈 설명) + 미션 1 + 에이전트 1 + 방장 1"
+chk D.3 "active" "$(api_ok GET "/works/$(work_of "$S6")" | jq -r .status)" "새 미션을 getWork 로 읽는다(R4: getSession 삭제)"
 chk D.4 "frozen" "$(psqlq "update session_participant set joined_at = now()" 2>&1 | grep -o frozen | head -1)" "옛 session_participant 는 쓰기 금지(정본은 room_participant)"
 
 stop_pid "$OUT/87-new.pid"

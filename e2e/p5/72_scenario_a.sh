@@ -144,7 +144,7 @@ chk A7 "진행률 met=1 (artifact_submitted 충족, user_approval 미충족)" 1 
 chk A7c "artifact_submitted met=true" true "$(jq -r '.conditions[]|select(.type=="artifact_submitted")|.met' <<<"$CP")"
 chk A7d "user_approval met=false" false "$(jq -r '.conditions[]|select(.type=="user_approval")|.met' <<<"$CP")"
 chk A7g "세션은 아직 active (E6-01)" active "$(sess_status "$SESSION")"
-PV="$(api_ok POST "/sessions/$SESSION/messages/preview" "$(jq -nc --arg c "$(mention Researcher "$RSCH") 보완해줘" '{content:$c}')")"
+PV="$(api_ok POST "/rooms/$SESSION/messages/preview" "$(jq -nc --arg c "$(mention Researcher "$RSCH") 보완해줘" '{content:$c}')")"
 chk A8 "previewTriggers 가 Researcher 를 지목" Researcher "$(jq -r '.triggers[0].agent_name // empty' <<<"$PV")"
 chk A9 "auth 실패 0" 0 "$(psqlq "select count(*) from task where session_id='$SESSION' and failure_kind='auth'")"
 chk A9c "probe 의 colab_cli.present 가 API 에 실린다" true "$(api_ok GET "/runtimes/$RUNTIME_ID" | jq -r '.colab_cli.present // "null"')"

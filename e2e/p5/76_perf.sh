@@ -7,7 +7,7 @@
 #       한 세션·한 lane 에 메시지를 **하나씩**(이전 task 가 끝난 뒤) 게시한다 — 겹치면 lane 병합으로 한 task 가 되어
 #       "게시→claim" 이 아니라 "게시→다음 턴" 을 재게 된다. 시각은 서버 DB 단일 클럭(p1 lib latency_row).
 #   (2) 부하 — 워크스페이스 1 · 데몬 5대 × capacity 10 · 세션 50개 동시 생성(각 첫 task) → 동시 running 최대,
-#       claim p50/p95 · API p50/p95(부하 중 GET /sessions/{id}) · DB 커넥션 최대 · 재큐잉 0 · 이중 게시 0.
+#       claim p50/p95 · API p50/p95(부하 중 GET /rooms/{id} — getRoom, 옛 getSession 자리) · DB 커넥션 최대 · 재큐잉 0 · 이중 게시 0.
 #
 # 수치는 out/76-latency.tsv · out/76-load.tsv · out/76.json 에 표로. 판정 상한은 §9 그대로.
 source "$(dirname "$0")/lib_i5.sh"
@@ -86,7 +86,7 @@ ok "세션 $N_LOAD 개 생성 ${CREATE_MS}ms"
 IDS="$(printf '%s\n' "${SESS[@]}")"
 for _ in $(seq 1 40); do
   sid="$(printf '%s\n' "$IDS" | awk -v n="$((RANDOM % N_LOAD + 1))" 'NR==n')"
-  curl -sS -o /dev/null -w '%{time_total}\n' -b "$COOKIE" "$API/sessions/$sid" >> "$OUT/76-api.txt"
+  curl -sS -o /dev/null -w '%{time_total}\n' -b "$COOKIE" "$API/rooms/$sid" >> "$OUT/76-api.txt"
   c="$(db_conns)"; [ "$c" -gt "$DBMAX" ] && DBMAX="$c"
   ACT="$(psqlq "select count(*) from task t join room s on s.id=t.session_id join work wk on wk.room_id=s.id where s.workspace_id='$WS' and wk.title like 'perf load%' and t.status in ('queued','dispatched','preparing','running')")"
   [ "$ACT" = 0 ] && break

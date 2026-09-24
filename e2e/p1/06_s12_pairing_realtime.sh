@@ -40,7 +40,7 @@ ab set viewport 1280 900 >/dev/null
 ab open "$WEB_URL/login" >/dev/null
 ab wait 'input[name=email]' >/dev/null
 ab fill 'input[name=email]' "$EMAIL" >/dev/null; ab fill 'input[name=password]' "$PASS" >/dev/null; ab click 'button[type=submit]' >/dev/null
-ab wait --url "**/sessions*" --timeout 15000 >/dev/null || log "로그인 후 url=$(ab get url)"
+ab wait --url "**/rooms*" --timeout 15000 >/dev/null || log "로그인 후 url=$(ab get url)"
 BEFORE="$(psqlq "select count(*) from runtime_pairing where workspace_id='$WS'")"
 ab open "$WEB_URL/runtimes/new" >/dev/null
 ab wait '[data-testid="install-cmd-2"]' --timeout 15000 >/dev/null

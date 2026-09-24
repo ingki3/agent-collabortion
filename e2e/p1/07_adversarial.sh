@@ -44,17 +44,17 @@ if [ -z "${TOK:-}" ]; then
   chk "폐기·위조 토큰의 /cli/context 는 401" 401 "$(tcode ctk_forged_0000000000000000000000 "$API/cli/context")"
 else
   MYSESS="$(psqlq "select k.session_id from task_token t join task k on k.id=t.task_id where t.token='$TOK'")"
-  chk "자기 세션 읽기 200"                200 "$(tcode "$TOK" "$API/sessions/$MYSESS")"
+  chk "자기 세션 읽기 200"                200 "$(tcode "$TOK" "$API/rooms/$MYSESS")"
   OTHER="$(psqlq "select id from room where id <> '$MYSESS' limit 1")"
-  [ -n "$OTHER" ] && chk_in "다른 세션 읽기 차단(403/404)" "403 404" "$(tcode "$TOK" "$API/sessions/$OTHER")"
+  [ -n "$OTHER" ] && chk_in "다른 세션 읽기 차단(403/404)" "403 404" "$(tcode "$TOK" "$API/rooms/$OTHER")"
   chk_in "워크스페이스 목록 차단"          "401 403" "$(tcode "$TOK" "$API/workspaces")"
   chk_in "에이전트 목록 차단"              "401 403 404" "$(tcode "$TOK" "$API/workspaces/$WS/agents")"
   chk_in "인박스 차단"                      "401 403 404" "$(tcode "$TOK" "$API/inbox")"
   chk_in "워크스페이스 설정 차단"          "401 403 404" "$(tcode "$TOK" "$API/workspaces/$WS/settings")"
   # T-S4: 새 op 도 같은 범위 안에 있다. lane 보드는 자기 세션이면 읽을 수 있고
   # (계약 listLanes 는 TaskToken 허용), 워크스페이스 스코프 op 는 못 읽는다.
-  chk "자기 세션 lane 보드 200"            200 "$(tcode "$TOK" "$API/sessions/$MYSESS/lanes")"
-  [ -n "$OTHER" ] && chk_in "다른 세션 lane 보드 차단" "403 404" "$(tcode "$TOK" "$API/sessions/$OTHER/lanes")"
+  chk "자기 세션 lane 보드 200"            200 "$(tcode "$TOK" "$API/rooms/$MYSESS/lanes")"
+  [ -n "$OTHER" ] && chk_in "다른 세션 lane 보드 차단" "403 404" "$(tcode "$TOK" "$API/rooms/$OTHER/lanes")"
   chk_in "런타임 후보 차단"                "401 403 404" "$(tcode "$TOK" "$API/workspaces/$WS/runtime-candidates?isolation=none")"
   chk_in "팀 템플릿 목록 차단"             "401 403 404" "$(tcode "$TOK" "$API/workspaces/$WS/agent-templates")"
   chk_in "팀 템플릿 적용 차단"             "401 403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOK" \
@@ -71,9 +71,9 @@ COOKIE="$CK_B" signup "$EMAIL_B" "pw-adv-12345" "침입자" >/dev/null
 WS_B="$(COOKIE="$CK_B" create_workspace "침입자팀")"
 chk "B 가 자기 워크스페이스 읽기 200"      200 "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/workspaces/$WS_B")"
 chk_in "B 가 A 의 워크스페이스 읽기 차단"  "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/workspaces/$WS")"
-chk_in "B 가 A 의 세션 읽기 차단"          "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION")"
-chk_in "B 가 A 의 세션 메시지 읽기 차단"   "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/messages")"
-chk_in "B 가 A 의 세션에 게시 차단"        "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -X POST "$API/sessions/$SESSION/messages" --data '{"content":"침입"}')"
+chk_in "B 가 A 의 세션 읽기 차단"          "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/rooms/$SESSION")"
+chk_in "B 가 A 의 세션 메시지 읽기 차단"   "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/rooms/$SESSION/messages")"
+chk_in "B 가 A 의 세션에 게시 차단"        "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -X POST "$API/rooms/$SESSION/messages" --data '{"content":"침입"}')"
 chk_in "B 가 A 의 런타임 읽기 차단"        "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/runtimes/$RUNTIME")"
 chk_in "B 가 A 의 에이전트 목록 차단"      "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/workspaces/$WS/agents")"
 # S-12 해소(T-S2): updateWorkspaceSettings·getWorkspaceSettings 가 구현됐으므로
@@ -81,7 +81,7 @@ chk_in "B 가 A 의 에이전트 목록 차단"      "403 404" "$(curl -sS -o /d
 chk_in "B 가 A 의 워크스페이스 설정 변경 차단"  "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -X PATCH "$API/workspaces/$WS/settings" --data '{}')"
 chk_in "B 가 A 의 워크스페이스 설정 조회 차단"  "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/workspaces/$WS/settings")"
 # T-S4 신규 op — 남의 워크스페이스에서는 목록도 적용도 안 된다.
-chk_in "B 가 A 의 lane 보드 차단"          "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/lanes")"
+chk_in "B 가 A 의 lane 보드 차단"          "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/rooms/$SESSION/lanes")"
 chk_in "B 가 A 의 런타임 후보 차단"        "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/workspaces/$WS/runtime-candidates?isolation=none")"
 chk_in "B 가 A 의 팀 템플릿 목록 차단"     "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/workspaces/$WS/agent-templates")"
 chk_in "B 가 A 의 워크스페이스에 팀 생성 차단" "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' \
@@ -96,14 +96,14 @@ chk "restartLane 은 더 이상 501 이 아니다"  404 "$(ucode -X POST "$API/l
 # previewTriggers 는 T-S2 에서 구현됐다(FR-3.6). 501 이 아니라 200 이고, 무엇보다
 # **아무것도 쓰지 않아야** 한다 — 미리보기가 task 를 만들면 미리보기가 아니다.
 N_BEFORE="$(psqlq "select count(*) from task where session_id='$SESSION'")"
-chk "previewTriggers 200"                  200 "$(ucode -X POST "$API/sessions/$SESSION/messages/preview" -H 'Content-Type: application/json' --data '{"content":"x"}')"
+chk "previewTriggers 200"                  200 "$(ucode -X POST "$API/rooms/$SESSION/messages/preview" -H 'Content-Type: application/json' --data '{"content":"x"}')"
 N_AFTER="$(psqlq "select count(*) from task where session_id='$SESSION'")"
 chk "previewTriggers 는 task 를 만들지 않는다" "$N_BEFORE" "$N_AFTER"
 chk "listInbox 는 더 이상 501 이 아니다"    200 "$(ucode "$API/inbox")"
-chk "listHitlRequests 는 더 이상 501 이 아니다" 200 "$(ucode "$API/sessions/$SESSION/hitl-requests")"
+chk "listHitlRequests 는 더 이상 501 이 아니다" 200 "$(ucode "$API/rooms/$SESSION/hitl-requests")"
 # T-S4(G4): 아래 넷은 어제까지 501 이었다. 501 이 아니라는 것 자체가 DoD 다 —
 # S7 좌열·S6 4단계·S9 팀 템플릿이 실서버에서 빈 화면이던 이유가 이 셋이다.
-chk "listLanes 는 더 이상 501 이 아니다"    200 "$(ucode "$API/sessions/$SESSION/lanes")"
+chk "listLanes 는 더 이상 501 이 아니다"    200 "$(ucode "$API/rooms/$SESSION/lanes")"
 chk "listRuntimeCandidates 200"            200 "$(ucode "$API/workspaces/$WS/runtime-candidates?isolation=none")"
 chk "listAgentTemplates 200"               200 "$(ucode "$API/workspaces/$WS/agent-templates")"
 chk "applyAgentTemplate 201"               201 "$(ucode -X POST "$API/workspaces/$WS/agent-templates/content_team/apply" -H 'Content-Type: application/json' --data '{}')"
@@ -113,22 +113,22 @@ echo "▶ D4. 멱등키 경계"
 K="$(uuidgen)"
 MARK="adv-idem-$K"   # 실행마다 고유 — 카운트가 이전 실행과 섞이지 않게
 B1="$(jq -nc --arg c "$MARK" '{content:$c}')"
-C1="$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_A" -H 'Content-Type: application/json' -H "Idempotency-Key: $K" -X POST "$API/sessions/$SESSION/messages" --data "$B1")"
+C1="$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_A" -H 'Content-Type: application/json' -H "Idempotency-Key: $K" -X POST "$API/rooms/$SESSION/messages" --data "$B1")"
 chk "첫 게시 201"                          201 "$C1"
-C2="$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_A" -H 'Content-Type: application/json' -H "Idempotency-Key: $K" -X POST "$API/sessions/$SESSION/messages" --data "$B1")"
+C2="$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_A" -H 'Content-Type: application/json' -H "Idempotency-Key: $K" -X POST "$API/rooms/$SESSION/messages" --data "$B1")"
 chk_in "같은 키+같은 본문 재생 200/201"    "200 201" "$C2"
-C3="$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_A" -H 'Content-Type: application/json' -H "Idempotency-Key: $K" -X POST "$API/sessions/$SESSION/messages" --data "$(jq -nc --arg c "$MARK-DIFFERENT" '{content:$c}')")"
+C3="$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_A" -H 'Content-Type: application/json' -H "Idempotency-Key: $K" -X POST "$API/rooms/$SESSION/messages" --data "$(jq -nc --arg c "$MARK-DIFFERENT" '{content:$c}')")"
 chk "같은 키+다른 본문 422"                422 "$C3"
-chk "멱등키 없음 → 4xx"                    "$( [ "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_A" -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/messages" --data '{"content":"no-key"}')" -ge 400 ] && echo yes || echo no)" yes
-chk "비UUID 멱등키 422"                    422 "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_A" -H 'Content-Type: application/json' -H 'Idempotency-Key: task:1:1' -X POST "$API/sessions/$SESSION/messages" --data '{"content":"bad-key"}')"
+chk "멱등키 없음 → 4xx"                    "$( [ "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_A" -H 'Content-Type: application/json' -X POST "$API/rooms/$SESSION/messages" --data '{"content":"no-key"}')" -ge 400 ] && echo yes || echo no)" yes
+chk "비UUID 멱등키 422"                    422 "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_A" -H 'Content-Type: application/json' -H 'Idempotency-Key: task:1:1' -X POST "$API/rooms/$SESSION/messages" --data '{"content":"bad-key"}')"
 N_ADV="$(psqlq "select count(*) from message where session_id='$SESSION' and content like '$MARK%'")"
 chk "이번 키로 5회 시도해도 저장은 1건"     1 "$N_ADV"
 
 echo
 echo "▶ D5. 미인증 접근"
-chk "쿠키 없이 세션 읽기 401"              401 "$(code "$API/sessions/$SESSION")"
+chk "쿠키 없이 세션 읽기 401"              401 "$(code "$API/rooms/$SESSION")"
 chk "쿠키 없이 워크스페이스 목록 401"      401 "$(code "$API/workspaces")"
-chk "쿠키 없이 게시 401"                   401 "$(code -X POST "$API/sessions/$SESSION/messages" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" --data '{"content":"anon"}')"
+chk "쿠키 없이 게시 401"                   401 "$(code -X POST "$API/rooms/$SESSION/messages" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" --data '{"content":"anon"}')"
 chk "getMe 401"                            401 "$(code "$API/me")"
 
 echo
@@ -145,20 +145,20 @@ chk "사람 쿠키로 데몬 claim 차단"          401 "$(ucode -X POST "${SERV
 
 echo
 echo "▶ D8. 잘못된 입력이 5xx 가 되지 않는가"
-chk_in "잘못된 uuid 경로"                  "400 404 422" "$(ucode "$API/sessions/not-a-uuid")"
-chk_in "없는 세션 uuid"                    "403 404" "$(ucode "$API/sessions/$(uuidgen)")"
-chk_in "깨진 JSON 본문"                    "400 422" "$(ucode -X POST "$API/sessions/$SESSION/messages" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" --data '{"content":')"
-chk_in "빈 본문 게시"                      "400 422" "$(ucode -X POST "$API/sessions/$SESSION/messages" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" --data '{"content":""}')"
+chk_in "잘못된 uuid 경로"                  "400 404 422" "$(ucode "$API/rooms/not-a-uuid")"
+chk_in "없는 세션 uuid"                    "403 404" "$(ucode "$API/rooms/$(uuidgen)")"
+chk_in "깨진 JSON 본문"                    "400 422" "$(ucode -X POST "$API/rooms/$SESSION/messages" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" --data '{"content":')"
+chk_in "빈 본문 게시"                      "400 422" "$(ucode -X POST "$API/rooms/$SESSION/messages" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" --data '{"content":""}')"
 BIG="$(python3 -c 'print("가"*200000)')"
-chk_in "200k 본문(상한 또는 수용)"          "201 400 413 422" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_A" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -X POST "$API/sessions/$SESSION/messages" --data "$(jq -n --arg c "$BIG" '{content:$c}')")"
+chk_in "200k 본문(상한 또는 수용)"          "201 400 413 422" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_A" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -X POST "$API/rooms/$SESSION/messages" --data "$(jq -n --arg c "$BIG" '{content:$c}')")"
 # S-11 해소(T-S2): 계약이 limit minimum:1 maximum:200 이라고 말하므로 범위 밖은
 # 422 다. 조용히 50 으로 깎으면 500 개를 요청한 클라이언트가 50 개를 받고도 모른다.
-chk "음수 limit 은 422"                    "422" "$(ucode "$API/sessions/$SESSION/messages?limit=-1")"
-chk "0 limit 은 422"                       "422" "$(ucode "$API/sessions/$SESSION/messages?limit=0")"
-chk "거대 limit 은 422"                    "422" "$(ucode "$API/sessions/$SESSION/messages?limit=100000")"
-chk "상한 바로 밖(201) 은 422"             "422" "$(ucode "$API/sessions/$SESSION/messages?limit=201")"
-chk "상한값(200) 은 통과"                  "200" "$(ucode "$API/sessions/$SESSION/messages?limit=200")"
-N_BIG="$(curl -sS -b "$CK_A" "$API/sessions/$SESSION/messages?limit=200" | jq '.items|length')"
+chk "음수 limit 은 422"                    "422" "$(ucode "$API/rooms/$SESSION/messages?limit=-1")"
+chk "0 limit 은 422"                       "422" "$(ucode "$API/rooms/$SESSION/messages?limit=0")"
+chk "거대 limit 은 422"                    "422" "$(ucode "$API/rooms/$SESSION/messages?limit=100000")"
+chk "상한 바로 밖(201) 은 422"             "422" "$(ucode "$API/rooms/$SESSION/messages?limit=201")"
+chk "상한값(200) 은 통과"                  "200" "$(ucode "$API/rooms/$SESSION/messages?limit=200")"
+N_BIG="$(curl -sS -b "$CK_A" "$API/rooms/$SESSION/messages?limit=200" | jq '.items|length')"
 [ "$N_BIG" -le 200 ] && chk "허용 최대 limit 결과가 상한 200 이하" yes yes || chk "허용 최대 limit 결과가 상한 200 이하" yes no
 
 echo
@@ -179,20 +179,20 @@ if [ -n "${A_TASK:-}" ]; then
 fi
 if [ -z "${A_TASK:-}" ]; then
   log "살아 있는 task 토큰이 없다 — D10 은 미인증·경계만 확인한다"
-  chk "쿠키·토큰 없이 아티팩트 제출 401"   401 "$(code -X POST "$API/sessions/$SESSION/artifacts" -F 'name=x' -F 'type=doc' -F 'file=@/dev/null')"
-  chk_in "B 가 A 의 아티팩트 목록 차단"    "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/artifacts")"
+  chk "쿠키·토큰 없이 아티팩트 제출 401"   401 "$(code -X POST "$API/rooms/$SESSION/artifacts" -F 'name=x' -F 'type=doc' -F 'file=@/dev/null')"
+  chk_in "B 가 A 의 아티팩트 목록 차단"    "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/rooms/$SESSION/artifacts")"
 else
   A_SESS="$SESSION"
   ART_F="$OUT/adv-artifact.txt"; printf 'T-S3 경계 검증 본문\n' > "$ART_F"
   # 이름은 실행마다 고유하다 — 07 을 두 번 돌리면 v1·v2 가 v3·v4 가 된다.
   ART_NAME="adversarial-$(date +%s).txt"
-  SUB="$(curl -sS -H "Authorization: Bearer $A_TOK" -X POST "$API/sessions/$A_SESS/artifacts" \
+  SUB="$(curl -sS -H "Authorization: Bearer $A_TOK" -X POST "$API/rooms/$A_SESS/artifacts" \
          -F "name=$ART_NAME" -F 'type=doc' -F "file=@$ART_F")"
   ART_ID="$(printf '%s' "$SUB" | jq -r '.artifact.id // empty')"
   chk "TaskToken 으로 자기 세션 제출 201"  yes "$( [ -n "$ART_ID" ] && echo yes || echo no )"
   chk "제출은 v1 부터"                      1 "$(printf '%s' "$SUB" | jq -r '.artifact.version // 0')"
   # 같은 이름 재제출은 덮어쓰기가 아니라 v2 (FR-4.3)
-  SUB2="$(curl -sS -H "Authorization: Bearer $A_TOK" -X POST "$API/sessions/$A_SESS/artifacts" \
+  SUB2="$(curl -sS -H "Authorization: Bearer $A_TOK" -X POST "$API/rooms/$A_SESS/artifacts" \
           -F "name=$ART_NAME" -F 'type=doc' -F "file=@$ART_F")"
   chk "같은 이름 재제출은 v2"               2 "$(printf '%s' "$SUB2" | jq -r '.artifact.version // 0')"
 
@@ -217,7 +217,7 @@ else
   dd if=/dev/zero of="$BIGF" bs=1048576 count=51 status=none
   N_ART_BEFORE="$(psqlq "select count(*) from artifact where session_id='$A_SESS'")"
   chk "50MB 초과 제출은 413"                413 "$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $A_TOK" \
-      -X POST "$API/sessions/$A_SESS/artifacts" -F 'name=huge.bin' -F 'type=file' -F "file=@$BIGF")"
+      -X POST "$API/rooms/$A_SESS/artifacts" -F 'name=huge.bin' -F 'type=file' -F "file=@$BIGF")"
   chk "413 은 아무것도 저장하지 않는다"     "$N_ART_BEFORE" "$(psqlq "select count(*) from artifact where session_id='$A_SESS'")"
   rm -f "$BIGF"
 
@@ -225,10 +225,10 @@ else
   OTHER_SESS="$(psqlq "select id from room where id <> '$A_SESS' limit 1")"
   if [ -n "${OTHER_SESS:-}" ]; then
     chk_in "다른 세션에 제출 차단"          "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $A_TOK" \
-        -X POST "$API/sessions/$OTHER_SESS/artifacts" -F 'name=x' -F 'type=doc' -F "file=@$ART_F")"
-    chk_in "다른 세션 아티팩트 목록 차단"   "403 404" "$(tcode "$A_TOK" "$API/sessions/$OTHER_SESS/artifacts")"
+        -X POST "$API/rooms/$OTHER_SESS/artifacts" -F 'name=x' -F 'type=doc' -F "file=@$ART_F")"
+    chk_in "다른 세션 아티팩트 목록 차단"   "403 404" "$(tcode "$A_TOK" "$API/rooms/$OTHER_SESS/artifacts")"
     # 반대 방향도 막혀야 한다: 남의 세션 토큰이 **아티팩트 id 를 알아도** 그 아티팩트
-    # 자체에 닿으면 안 된다. 위의 두 행은 세션 스코프 경로(/sessions/{S}/…)라
+    # 자체에 닿으면 안 된다. 위의 두 행은 방 스코프 경로(/rooms/{R}/…)라
     # 아티팩트 스코프 경로(/artifacts/{A}) 를 검사하지 않는다.
     O_TASK="$(psqlq "select id from task where session_id='$OTHER_SESS' order by created_at desc limit 1")"
     if [ -n "${O_TASK:-}" ]; then
@@ -254,9 +254,9 @@ else
   # 워크스페이스 경계: B 는 id 를 알아도 존재조차 알면 안 된다(404, 403 아님).
   chk "B 가 A 의 아티팩트 메타 조회 404"    404 "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/artifacts/$ART_ID")"
   chk "B 가 A 의 아티팩트 본문 조회 404"    404 "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/artifacts/$ART_ID/content")"
-  chk_in "B 가 A 의 아티팩트 목록 차단"     "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$A_SESS/artifacts")"
+  chk_in "B 가 A 의 아티팩트 목록 차단"     "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/rooms/$A_SESS/artifacts")"
   chk_in "B 가 A 의 세션에 제출 차단"       "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" \
-      -X POST "$API/sessions/$A_SESS/artifacts" -F 'name=x' -F 'type=doc' -F "file=@$ART_F")"
+      -X POST "$API/rooms/$A_SESS/artifacts" -F 'name=x' -F 'type=doc' -F "file=@$ART_F")"
 
   # 사람은 리뷰하지 않는다(openapi reviewArtifact 는 TaskToken 전용).
   chk_in "사람 세션의 리뷰 호출 차단"       "401 403" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_A" -H 'Content-Type: application/json' \
@@ -273,7 +273,7 @@ echo "▶ D11. P2 operation 경계 (T-S2: lane · previewTriggers · pause/resum
 # T-S5(P3)가 lane tasks·restart·pause·resume·cost 를 켰으므로 그 다섯 줄에서 501 을 뺐다.
 #   x-phase P3(아직): listLaneTasks · restartLane · pauseSession · resumeSession · getSessionCost
 #   x-phase P2 인데 501(= 결함, G4_REPORT S-6): listLanes
-B_LANE="$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/lanes")"
+B_LANE="$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/rooms/$SESSION/lanes")"
 # T-S4 로 listLanes 가 구현됐다(G4 S-6 해소). 501 은 더 이상 허용값이 아니다 —
 # 501 이 권한 검사였던 적은 없다.
 chk_in "B 가 A 의 lane 목록 차단"          "403 404" "$B_LANE"
@@ -284,27 +284,29 @@ if [ -n "${LANE_A:-}" ]; then
   chk_in "B 가 A 의 lane 재지시 차단 (P3)"     "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -X POST "$API/lanes/$LANE_A/restart" --data '{"content":"x"}')"
   chk_in "종료된 lane 중단은 409"              "409 404" "$(ucode -X POST "$API/lanes/$LANE_A/cancel")"
 fi
-chk_in "B 가 A 의 트리거 미리보기 차단"        "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/messages/preview" --data '{"content":"x"}')"
-chk "쿠키 없이 미리보기 401"                   401 "$(code -X POST "$API/sessions/$SESSION/messages/preview" -H 'Content-Type: application/json' --data '{"content":"x"}')"
-chk_in "B 가 A 의 세션 일시정지 차단 (P3)"     "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -X POST "$API/sessions/$SESSION/pause")"
-chk_in "B 가 A 의 세션 재개 차단 (P3)"         "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/resume" --data '{}')"
-chk_in "B 가 A 의 결정 기록 목록 차단"         "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/decisions")"
-chk_in "B 가 A 의 비용 조회 차단 (P3)"         "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/sessions/$SESSION/cost")"
+chk_in "B 가 A 의 트리거 미리보기 차단"        "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -X POST "$API/rooms/$SESSION/messages/preview" --data '{"content":"x"}')"
+chk "쿠키 없이 미리보기 401"                   401 "$(code -X POST "$API/rooms/$SESSION/messages/preview" -H 'Content-Type: application/json' --data '{"content":"x"}')"
+# v0.3.0(D22): 옛 /sessions/{S}/pause·resume 은 미션 op(/works/{W}/…) 로 옮겨졌다 — A 방의 미션으로 찌른다.
+A_WORK="$(work_of "$SESSION")"
+chk_in "B 가 A 의 미션 일시정지 차단 (P3)"     "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -X POST "$API/works/$A_WORK/pause")"
+chk_in "B 가 A 의 미션 재개 차단 (P3)"         "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" -H 'Content-Type: application/json' -X POST "$API/works/$A_WORK/resume" --data '{}')"
+chk_in "B 가 A 의 결정 기록 목록 차단"         "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/rooms/$SESSION/decisions")"
+chk_in "B 가 A 의 비용 조회 차단 (P3)"         "403 404" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$CK_B" "$API/rooms/$SESSION/cost")"
 # delegateLane · recordDecision 은 **TaskToken 전용**(openapi security). 사람 쿠키가 통과하면
 # 누구나 결정 기록을 위조할 수 있다 — 그것도 `source: hitl` 로(사람이 HITL 로 답한 것처럼).
-chk_in "사람 쿠키의 lane 위임 차단"            "401 403" "$(ucode -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/lanes" --data '{"agent":"X","brief":"b"}')"
-chk_in "사람 쿠키의 결정 기록 차단"            "401 403" "$(ucode -H 'Content-Type: application/json' -X POST "$API/sessions/$SESSION/decisions" --data '{"summary":"경계 검증"}')"
+chk_in "사람 쿠키의 lane 위임 차단"            "401 403" "$(ucode -H 'Content-Type: application/json' -X POST "$API/rooms/$SESSION/lanes" --data '{"agent":"X","brief":"b"}')"
+chk_in "사람 쿠키의 결정 기록 차단"            "401 403" "$(ucode -H 'Content-Type: application/json' -X POST "$API/rooms/$SESSION/decisions" --data '{"summary":"경계 검증"}')"
 # listParticipants(S-16) 도 세션 스코프 읽기다 — 남의 세션 에이전트 이름·상태·실패
 # 사유를 돌려주므로 TaskToken 은 자기 세션에서 멈춰야 한다. 501 이던 동안에는 이 행이
 # 존재할 수 없었고, 구현된 순간부터 경계다.
 if [ -n "${A_TOK:-}" ] && [ -n "${OTHER_SESS:-}" ]; then
-  chk "타 세션 토큰의 참가자 목록 차단 403"    403 "$(tcode "$A_TOK" "$API/sessions/$OTHER_SESS/participants")"
+  chk "타 세션 토큰의 참가자 목록 차단 403"    403 "$(tcode "$A_TOK" "$API/rooms/$OTHER_SESS/participants")"
 fi
 if [ -n "${A_TOK:-}" ] && [ -n "${A_TASK:-}" ]; then
   # E15-02: 세션 비참여 에이전트에게 위임하면 서버가 422 + not_participant 로 거절하고 CLI 가 대안을 안내한다.
   N_LANE_BEFORE="$(psqlq "select count(*) from lane where session_id='$SESSION'")"
   DEL="$(curl -sS -w '\n%{http_code}' -H "Authorization: Bearer $A_TOK" -H 'Content-Type: application/json' \
-        -X POST "$API/sessions/$SESSION/lanes" --data '{"agent":"세션에-없는-에이전트","brief":"b"}')"
+        -X POST "$API/rooms/$SESSION/lanes" --data '{"agent":"세션에-없는-에이전트","brief":"b"}')"
   chk "비참여 에이전트 위임은 422 (E15-02)" 422 "$(printf '%s' "$DEL" | tail -1)"
   # 계약은 "422 not_participant" 라고 적는다. 서버는 그것을 errors[] 의 필드 코드로 싣는다 — CLI 가 읽는 자리다.
   chk "거절 코드가 not_participant"        not_participant \
@@ -315,10 +317,10 @@ echo "▶ D12. G4 신규 op 의 모양·권한 (T-S4)"
 # 계약이 `type: array` 라고 말한 응답은 배열이다. listDecisions 가 {"items":[]} 를
 # 주는 바람에 S7 이 통째로 죽었다(props.decisions.map is not a function).
 arr() { curl -sS -b "$CK_A" "$1" | python3 -c 'import sys,json;print(type(json.load(sys.stdin)).__name__)' 2>/dev/null || echo err; }
-chk "listDecisions 는 배열"                list "$(arr "$API/sessions/$SESSION/decisions")"
-chk "listLanes 는 배열"                    list "$(arr "$API/sessions/$SESSION/lanes")"
+chk "listDecisions 는 배열"                list "$(arr "$API/rooms/$SESSION/decisions")"
+chk "listLanes 는 배열"                    list "$(arr "$API/rooms/$SESSION/lanes")"
 chk "listAgentTemplates 는 배열"           list "$(arr "$API/workspaces/$WS/agent-templates")"
-chk "listArtifacts 는 배열"                list "$(arr "$API/sessions/$SESSION/artifacts")"
+chk "listArtifacts 는 배열"                list "$(arr "$API/rooms/$SESSION/artifacts")"
 chk "listRuntimes 는 배열"                 list "$(arr "$API/workspaces/$WS/runtimes")"
 chk "팀 템플릿 3종"                        3 "$(curl -sS -b "$CK_A" "$API/workspaces/$WS/agent-templates" | jq 'length')"
 chk "runtime-candidates 는 객체 2키"       "auto_select_allowed candidates" \
@@ -327,7 +329,7 @@ chk "none 이면 자동 선택 허용"             true "$(curl -sS -b "$CK_A" "
 chk "worktree 면 자동 선택 불가"           false "$(curl -sS -b "$CK_A" "$API/workspaces/$WS/runtime-candidates?isolation=worktree&remote_url=git@github.com:acme/app.git" | jq -r '.auto_select_allowed')"
 chk "worktree 에 remote_url 없으면 422"    422 "$(ucode "$API/workspaces/$WS/runtime-candidates?isolation=worktree")"
 chk "모르는 격리 방식은 422"               422 "$(ucode "$API/workspaces/$WS/runtime-candidates?isolation=bogus")"
-chk "모르는 lane status 는 422"            422 "$(ucode "$API/sessions/$SESSION/lanes?status=bogus")"
+chk "모르는 lane status 는 422"            422 "$(ucode "$API/rooms/$SESSION/lanes?status=bogus")"
 chk "모르는 템플릿 키는 4xx"               yes "$( [ "$(ucode -X POST "$API/workspaces/$WS/agent-templates/no_such/apply" -H 'Content-Type: application/json' --data '{}')" -ge 400 ] && echo yes || echo no)"
 # probe 의 colab_cli 는 저장돼서 API 에 실린다(daemon-protocol §3 v0.5). 01 이
 # 띄운 데몬이 이미 probe 를 보냈으므로 값이 있어야 한다.
@@ -336,7 +338,7 @@ chk "colab_cli.present 가 boolean"         yes "$(curl -sS -b "$CK_A" "$API/run
 # recordDecision 은 계약상 TaskToken 전용이다. D11 이 사람 쿠키를 이미 보므로 여기서는
 # 익명 호출과 "거절이 아무것도 쓰지 않는가"를 본다.
 N_DEC_BEFORE="$(psqlq "select count(*) from decision where session_id='$SESSION'")"
-chk "쿠키 없이 결정 기록 401"              401 "$(code -X POST "$API/sessions/$SESSION/decisions" -H 'Content-Type: application/json' --data '{"summary":"anon"}')"
+chk "쿠키 없이 결정 기록 401"              401 "$(code -X POST "$API/rooms/$SESSION/decisions" -H 'Content-Type: application/json' --data '{"summary":"anon"}')"
 chk "차단된 결정은 저장되지 않는다"        "$N_DEC_BEFORE" "$(psqlq "select count(*) from decision where session_id='$SESSION'")"
 # 데몬이 보고한 workdir 이 행이 되고 lane 이 그 행을 가리킨다(§6, FR-6.1/6.4).
 # 01 이 실제 턴을 돌렸으므로 lane 마다 workdir 이 하나씩 있어야 한다.
@@ -348,7 +350,7 @@ chk "workdir 행이 생겼다"                  yes "$( [ "$(psqlq "select count
 chk "실행된 lane 은 workdir_id 가 있다"    0 \
     "$(psqlq "select count(*) from lane l where l.session_id='$SESSION' and l.workdir_id is null and exists (select 1 from task t where t.lane_id = l.id and t.status not in ('queued','deferred','dispatched'))")"
 chk "API 의 lane 카드도 workdir_id 를 준다" yes \
-    "$( [ "$(curl -sS -b "$CK_A" "$API/sessions/$SESSION/lanes" | jq '[.[]|select(.workdir_id!=null)]|length')" -gt 0 ] && echo yes || echo no)"
+    "$( [ "$(curl -sS -b "$CK_A" "$API/rooms/$SESSION/lanes" | jq '[.[]|select(.workdir_id!=null)]|length')" -gt 0 ] && echo yes || echo no)"
 
 echo
 echo "▶ D9. 서버 5xx 가 하나도 없었는가 (이 스크립트 구간)"

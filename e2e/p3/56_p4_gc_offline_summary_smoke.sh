@@ -31,6 +31,18 @@ ok(){ printf '  \033[32mok\033[0m   %s\n' "$*"; }
 bad(){ printf '  \033[31mFAIL\033[0m %s\n' "$*"; FAILED=$((FAILED+1)); }
 step(){ printf '\n\033[1m== %s\033[0m\n' "$*"; }
 api(){ curl -sS -b "$J" -c "$J" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" "$@"; }
+# ── 방·미션 (openapi v0.3.0 D22 — 옛 POST /workspaces/{ws}/sessions 삭제) — 이 스크립트 전용 헬퍼 ──
+# room_work OLD_SESSION_CREATE_JSON → "ROOM WORK". createRoom → updateRoom(격리·컴퓨터·방 한도) →
+# addRoomParticipant… → createWork(assignee 명시 — createWork 는 기본값이 없다). 옛 세션은 미션이 하나라
+# work_id 없는 사람 게시도 그 미션에 귀속됐다. 이제는 게시에 "work_id" 를 붙여야 초기 task 에 합쳐진다
+# (안 붙이면 "미션 없음" task 가 따로 생긴다 — 2026-09-24 :8319 실측).
+room_work(){
+  local in="$1" room p
+  room=$(api -X POST "$S/workspaces/$WS/rooms" -d "$(jq -c '{name:.title,description:""}' <<<"$in")" | jq -r .id)
+  api -X PATCH "$S/rooms/$room" -d "$(jq -c '{isolation,runtime_id} + (if .limits then {limits:(.limits|with_entries(select(.key|IN("budget_usd","time_limit","max_parallel_lanes","max_concurrent_works"))))} else {} end) | with_entries(select(.value!=null))' <<<"$in")" >/dev/null
+  for p in $(jq -c '.participants[]|{agent_id}' <<<"$in"); do api -X POST "$S/rooms/$room/participants" -d "$p" >/dev/null; done
+  printf '%s %s\n' "$room" "$(api -X POST "$S/rooms/$room/works" -d "$(jq -c '{goal,title,assignee_agent_id:(.assignee_agent_id // .participants[0].agent_id)} + (if .completion_condition then {completion_condition} else {} end)' <<<"$in")" | jq -r .id)"
+}
 code(){ curl -sS -o /dev/null -w '%{http_code}' -b "$J" -c "$J" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" "$@"; }
 Q(){ docker exec colab-pg-s9 psql -U colab -d colab -tAc "$1" | tr -d ' '; }
 
@@ -56,15 +68,15 @@ probe "$RID" "$DTOK" /Users/a/dev/app git@x:app.git
 probe "$RID2" "$DTOK2" /home/b/src/other git@y:other.git
 
 step "1. 세션 요약은 정확히 1개 (FR-2.4)"
-SESS=$(api -X POST "$S/workspaces/$WS/sessions" -d "{\"title\":\"요약\",\"goal\":\"끝내기\",\"runtime_id\":\"$RID\",\"isolation\":{\"kind\":\"none\"},\"participants\":[{\"agent_id\":\"$R\"}],\"completion_condition\":{\"op\":\"and\",\"conditions\":[{\"type\":\"manual\"}]},\"start\":true}")
-SID=$(echo "$SESS" | jq -r .id)
-[ "$SID" != null ] || { bad "createSession: $SESS"; exit 1; }
-C1=$(code -X POST "$S/sessions/$SID/complete" -d "{\"confirm\":true}")
+SESS=$(room_work "{\"title\":\"요약\",\"goal\":\"끝내기\",\"runtime_id\":\"$RID\",\"isolation\":{\"kind\":\"none\"},\"participants\":[{\"agent_id\":\"$R\"}],\"completion_condition\":{\"op\":\"and\",\"conditions\":[{\"type\":\"manual\"}]}}")
+read -r SID WID <<<"$SESS"
+[ "$SID" != null ] && [ "${WID:-null}" != null ] || { bad "createRoom/createWork: $SESS"; exit 1; }
+C1=$(code -X POST "$S/works/$WID/complete" -d "{\"confirm\":true}")
 N=$(Q "SELECT count(*) FROM message WHERE session_id='$SID' AND kind='summary'")
 ST=$(Q "SELECT status FROM work WHERE room_id='$SID'")
 [ "$C1" = 200 ] && [ "$N" = 1 ] && [ "$ST" = completed ] && ok "complete=200 · summary 메시지 $N · 세션 $ST" || bad "complete=$C1 summary=$N status=$ST (want 200/1/completed)"
 # 두 번째 패스: 이미 completed 라 409 이고, 요약이 늘지 않는다(FR-2.4 '요약 1개').
-C2=$(code -X POST "$S/sessions/$SID/complete" -d "{\"confirm\":true}")
+C2=$(code -X POST "$S/works/$WID/complete" -d "{\"confirm\":true}")
 N2=$(Q "SELECT count(*) FROM message WHERE session_id='$SID' AND kind='summary'")
 [ "$N2" = 1 ] && ok "두 번째 complete=$C2 · summary 여전히 $N2 개" || bad "두 번째 패스 뒤 summary=$N2, want 1"
 # 누가 썼는지가 피드에 남는가 (§8.5, Lead T-S9 ask 3(i)).
@@ -76,13 +88,13 @@ SEC=$(Q "SELECT (content LIKE '%결정 기록%')::int + (content LIKE '%아티�
 [ "$SEC" = 4 ] && ok "FR-2.4 네 절 모두 있음 ($SEC/4)" || bad "요약 절 $SEC/4"
 
 step "2. GC 차단 — 미커밋 변경은 보존 기한이 지나도 지우지 않고 알린다 (E13-13)"
-SESS2=$(api -X POST "$S/workspaces/$WS/sessions" -d "{\"title\":\"gc\",\"goal\":\"gc\",\"runtime_id\":\"$RID\",\"isolation\":{\"kind\":\"worktree\",\"repo_path\":\"/Users/a/dev/app\"},\"participants\":[{\"agent_id\":\"$R\"}],\"completion_condition\":{\"op\":\"and\",\"conditions\":[{\"type\":\"manual\"}]},\"start\":true}")
-GSID=$(echo "$SESS2" | jq -r .id)
-[ "$GSID" != null ] && ok "worktree 세션 생성 ($GSID) — P4 에서 열렸다" || { bad "worktree createSession: $SESS2"; }
+SESS2=$(room_work "{\"title\":\"gc\",\"goal\":\"gc\",\"runtime_id\":\"$RID\",\"isolation\":{\"kind\":\"worktree\",\"repo_path\":\"/Users/a/dev/app\"},\"participants\":[{\"agent_id\":\"$R\"}],\"completion_condition\":{\"op\":\"and\",\"conditions\":[{\"type\":\"manual\"}]}}")
+read -r GSID GWID <<<"$SESS2"
+[ "$GSID" != null ] && [ "${GWID:-null}" != null ] && ok "worktree 방·미션 생성 ($GSID) — P4 에서 열렸다" || { bad "worktree createRoom/createWork: $SESS2"; }
 # 데몬이 워크트리를 보고한다: 커밋 0 · 작업 트리 더티 (시나리오 B 의 정상 상태).
 curl -sS -X POST "$D/runtimes/$RID/workdirs" -H "Authorization: Bearer $DTOK" -H 'Content-Type: application/json' \
   -d "{\"workdirs\":[{\"kind\":\"worktree\",\"path\":\"/w/gc/r\",\"session_id\":\"$GSID\",\"agent_id\":\"$R\",\"bytes\":2048,\"git\":{\"branch\":\"colab/gc/r\",\"merged\":false,\"dirty\":true,\"commits_ahead\":0}}]}" >/dev/null
-code -X POST "$S/sessions/$GSID/complete" -d "{\"confirm\":true}" >/dev/null
+code -X POST "$S/works/$GWID/complete" -d "{\"confirm\":true}" >/dev/null
 # 보존 기한을 지나게 만든다(클럭 대신 작업 폴더의 마지막 사용을 30일 전으로 — T-R1a NN8: 기준점은
 # 세션 종료가 아니라 workdir.last_used_at 이다).
 Q "UPDATE workdir SET last_used_at = now() - interval '30 days' WHERE session_id='$GSID'" >/dev/null
@@ -101,21 +113,22 @@ INBOX2=$(Q "SELECT count(*) FROM inbox_item WHERE type='workdir_gc_blocked' AND 
 [ "$INBOX2" = 1 ] && ok "두 번째 스윕 뒤에도 인박스 $INBOX2 건 — 멱등" || bad "두 번째 스윕 뒤 인박스 $INBOX2 건, want 1"
 
 step "3. 오프라인 유예 7일 → paused(runtime_offline) (E14-02)"
-OSESS=$(api -X POST "$S/workspaces/$WS/sessions" -d "{\"title\":\"offline\",\"goal\":\"off\",\"runtime_id\":\"$RID\",\"isolation\":{\"kind\":\"worktree\",\"repo_path\":\"/Users/a/dev/app\"},\"participants\":[{\"agent_id\":\"$R\"}],\"completion_condition\":{\"op\":\"and\",\"conditions\":[{\"type\":\"manual\"}]},\"start\":true}")
-OSID=$(echo "$OSESS" | jq -r .id)
+OSESS=$(room_work "{\"title\":\"offline\",\"goal\":\"off\",\"runtime_id\":\"$RID\",\"isolation\":{\"kind\":\"worktree\",\"repo_path\":\"/Users/a/dev/app\"},\"participants\":[{\"agent_id\":\"$R\"}],\"completion_condition\":{\"op\":\"and\",\"conditions\":[{\"type\":\"manual\"}]}}")
+read -r OSID OWID <<<"$OSESS"
 # 클럭을 앞으로 돌릴 수 없으므로 런타임이 8일 전부터 오프라인이었던 것으로 만든다.
 Q "UPDATE runtime SET status='offline', offline_since = now() - interval '8 days', last_seen_at = now() - interval '8 days' WHERE id='$RID'" >/dev/null
 sleep 62
 OST=$(Q "SELECT status FROM work WHERE room_id='$OSID'")
 ORE=$(Q "SELECT COALESCE(paused_reason::text,'') FROM work WHERE room_id='$OSID'")
 # FR-9.2 v0.19 (T-S-offline): 멈춤은 방 단위 — 방 게이트 runtime_offline + 방장 room_paused 카드 한 장
-# (옛 runtime_offline 항목은 room_paused 로 대체). 옛 세션 화면은 여전히 paused(runtime_offline).
+# (옛 runtime_offline 항목은 room_paused 로 대체). 미션은 표식 달린 paused 미러(DB paused_reason=runtime_offline) —
+# v0.3.0(D22) 에서 옛 GET /sessions 는 없어졌으므로 API 로는 방(getRoom.blocked_reason)과 미션(getWork.status)을 본다.
 OIN=$(Q "SELECT count(*) FROM inbox_item WHERE type='room_paused' AND session_id='$OSID' AND ref_id='$RID'")
 OOLD=$(Q "SELECT count(*) FROM inbox_item WHERE type='runtime_offline' AND session_id='$OSID'")
 OGATE=$(Q "SELECT COALESCE(blocked_reason::text,'') FROM room WHERE id='$OSID'")
-OSST=$(api "$S/sessions/$OSID" | jq -r '.status + "(" + (.paused_reason // "") + ")"')
+OSST="$(api "$S/works/$OWID" | jq -r .status)/$(api "$S/rooms/$OSID" | jq -r '.blocked_reason // ""')"
 [ "$OST" = paused ] && [ "$ORE" = runtime_offline ] && ok "세션 = $OST($ORE) (E14-02)" || bad "세션 = $OST($ORE), want paused(runtime_offline)"
-[ "$OSST" = "paused(runtime_offline)" ] && ok "옛 세션 화면 = $OSST (미러)" || bad "GET /sessions = $OSST, want paused(runtime_offline)"
+[ "$OSST" = "paused/runtime_offline" ] && ok "API 미션/방 = $OSST (미러)" || bad "getWork.status/getRoom.blocked_reason = $OSST, want paused/runtime_offline"
 [ "$OGATE" = runtime_offline ] && ok "방 게이트 = runtime_offline" || bad "방 게이트 = '$OGATE', want runtime_offline"
 [ "$OIN" = 1 ] && [ "$OOLD" = 0 ] && ok "방장 인박스 room_paused 1건 (runtime_offline 0건)" || bad "room_paused $OIN 건 · runtime_offline $OOLD 건, want 1 · 0"
 sleep 62
@@ -129,11 +142,11 @@ DCODE=$(echo "$DEL" | jq -r .code)
 DSESS=$(echo "$DEL" | jq -r '.sessions | length')
 [ "$DELC" = 409 ] && [ "$DCODE" = runtime_has_active_sessions ] && ok "deleteRuntime = 409 $DCODE · 막은 세션 $DSESS 개" || bad "deleteRuntime = $DELC $DCODE"
 # mac-b 는 다른 remote 를 갖고 있다 — 같은 저장소가 아니므로 재바인딩 후보가 아니다.
-RB=$(api -X POST "$S/sessions/$OSID/rebind" -d "{\"runtime_id\":\"$RID2\",\"acknowledge_loss\":true}")
-RBC=$(code -X POST "$S/sessions/$OSID/rebind" -d "{\"runtime_id\":\"$RID2\",\"acknowledge_loss\":true}")
+RB=$(api -X POST "$S/rooms/$OSID/rebind" -d "{\"runtime_id\":\"$RID2\",\"acknowledge_loss\":true}")
+RBC=$(code -X POST "$S/rooms/$OSID/rebind" -d "{\"runtime_id\":\"$RID2\",\"acknowledge_loss\":true}")
 [ "$RBC" = 422 ] && ok "다른 remote 로의 rebind = 422 (E14-05 — 경로가 아니라 remote URL 로 판정)" || bad "rebind = $RBC: $RB"
 # acknowledge_loss 없이 = 422 (worktree 유실 경고)
-RBC2=$(code -X POST "$S/sessions/$OSID/rebind" -d "{\"runtime_id\":\"$RID2\"}")
+RBC2=$(code -X POST "$S/rooms/$OSID/rebind" -d "{\"runtime_id\":\"$RID2\"}")
 [ "$RBC2" = 422 ] && ok "acknowledge_loss 없는 worktree rebind = 422" || bad "rebind(no ack) = $RBC2"
 
 step "결과"
