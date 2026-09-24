@@ -130,9 +130,10 @@ func (s *Service) Preview(ctx context.Context, sessionID uuid.UUID, author Autho
 	newLane := in.NewLane != nil && *in.NewLane && author.Type == "user"
 	for _, tr := range dec.Triggers {
 		t := gen.TriggerTarget{AgentId: tr.AgentID, AgentName: names[tr.AgentID], Rule: tr.Rule}
+		rootLane, topLevel := th.laneFor(tr)
 		d, busy, err := s.previewLane(ctx, tx, sessionID, tr, laneOpts{
-			threadRootLane: th.RootLane,
-			topLevelMent:   tr.Rule == 2 && th.Parent == nil,
+			threadRootLane: rootLane,
+			topLevelMent:   topLevel,
 			forceNewLane:   newLane,
 		})
 		if err != nil {

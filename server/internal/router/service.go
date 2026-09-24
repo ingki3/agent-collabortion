@@ -275,9 +275,10 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 			continue
 		}
 
+		rootLane, topLevel := th.laneFor(tr)
 		opts := laneOpts{
-			threadRootLane: th.RootLane,
-			topLevelMent:   tr.Rule == 2 && parent == nil,
+			threadRootLane: rootLane,
+			topLevelMent:   topLevel,
 			forceNewLane:   newLane,
 			work:           attr.WorkID,
 		}
@@ -901,8 +902,41 @@ type thread struct {
 	// ReplyTo owns the message actually replied to; ThreadOwner owns the root.
 	ReplyTo     *uuid.UUID
 	ThreadOwner *uuid.UUID
-	// RootLane is the lane whose task produced the root (lane rule 1).
-	RootLane uuid.UUID
+	// RootLane is the lane whose task produced the root (lane rule 1), and
+	// RootLaneAgent the agent that lane belongs to.
+	RootLane      uuid.UUID
+	RootLaneAgent uuid.UUID
+}
+
+// laneFor is lane rule 1's premise for one trigger: the root's lane, and
+// whether the trigger resolves as a top-level mention (rule 3).
+//
+// Rule 1 is scenario B — QA, in a review thread, asks Frontend, and the fix
+// lands in the lane Frontend's root came out of. It holds only when the
+// trigger is FOR the root lane's own agent (PRD FR-3.3 v0.19.1, Lead 판정
+// T-THREAD). A trigger for any other agent used to land on that lane too: one
+// turn per lane made it wait on the other agent, and a queued task already on
+// the lane swallowed it whole (coalescing is per lane), so the mentioned
+// agent never woke. Agents answering in threads (harness v0.9.3) made that
+// the common path — Lead replying under its own summary and handing work on
+// by mention. Such a trigger skips rule 1 and resolves as the same mention at
+// the top level would (rule 3, then 4).
+//
+// A thread whose root came out of no lane is unchanged: no rule 1, and a
+// thread reply is not a top-level mention (rule 4).
+func (th thread) laneFor(tr Trigger) (rootLane uuid.UUID, topLevel bool) {
+	switch {
+	case th.Parent == nil:
+		return uuid.Nil, tr.Rule == 2
+	case th.RootLane == uuid.Nil:
+		return uuid.Nil, false
+	case th.RootLaneAgent == tr.AgentID:
+		return th.RootLane, false
+	}
+	// Rule 5 — a reply that wakes the author of the message replied to — is
+	// the thread's own form of a mention, and off the root's lane it goes
+	// where a mention of that agent would.
+	return uuid.Nil, tr.Rule == 2 || tr.Rule == 5
 }
 
 func threadPremise(ctx context.Context, q db.DBTX, sessionID uuid.UUID, parentID nullable.Nullable[openapi_types.UUID]) (thread, error) {
@@ -943,10 +977,10 @@ func threadPremise(ctx context.Context, q db.DBTX, sessionID uuid.UUID, parentID
 	// Lane rule 1: the thread root came out of a task, so the reply goes to
 	// that task's lane and keeps the same workdir (scenario B).
 	if rTask != nil {
-		var lid uuid.UUID
-		err := q.QueryRow(ctx, `SELECT lane_id FROM task WHERE id = $1`, *rTask).Scan(&lid)
+		var lid, aid uuid.UUID
+		err := q.QueryRow(ctx, `SELECT t.lane_id, l.agent_id FROM task t JOIN lane l ON l.id = t.lane_id WHERE t.id = $1`, *rTask).Scan(&lid, &aid)
 		if err == nil {
-			th.RootLane = lid
+			th.RootLane, th.RootLaneAgent = lid, aid
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return th, err
 		}
