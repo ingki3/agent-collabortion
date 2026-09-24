@@ -1081,7 +1081,8 @@ export interface paths {
         put?: never;
         /**
          * 런타임 재바인딩(S17)
-         * @description 권한: Director(세션 단위).
+         * @description 권한: 그 방(세션)의 Director · **방장** · 방장 부재 시 위임 시각(멈춘 시각 + 12h) 뒤 부방장 → ws owner 최고참(v0.2.11, PRD FR-9.2 v0.19 — 선택은 방장이 받는다).
+         *     v0.2.11: 오프라인 유예 만료는 **방**을 멈춘다(`Room.blocked_reason: runtime_offline`, 미션은 표식 달린 paused 미러) — 재바인딩이 끝나면 방 멈춤이 풀린다. 열린 미션을 전부 닫아도 풀린다.
          *     `paused(runtime_offline)` 세션의 `runtime_id`를 후보(`listRuntimeCandidates?session_id=`) 중 하나로 바꾸고 `active`로 되돌린다. `worktree`면 새 workdir을 만들고 첫 프롬프트에 "diff 아티팩트 N개를 제출 순서대로 적용한 뒤 이어가라"를 넣는다(E14-06); 진행 중이던 lane의 `runtime_session_ref`는 비워 콜드 스타트한다. 후보가 아닌 런타임이면 `422`, 세션이 `paused(runtime_offline)`가 아니면 `409`.
          */
         post: operations["rebindSession"];
@@ -2762,7 +2763,7 @@ export interface components {
          */
         DecisionSource: "hitl" | "agent";
         /**
-         * @description `inbox_item_type` (FR-8). v0.2.0(PRD v0.19): `isolation_confirm`(FR-2.1.1 — 저장소 있는 컴퓨터로의 첫 실행 격리 확인, 답까지 첫 dispatch 보류) · `work_proposed`(FR-2A.1) · `work_paused`·`work_completed`(옛 `session_*` 의 미션판 — 옛 값은 R4 까지 함께 산다) · `room_paused`(방 전체, action_required) · `room_invited`(FR-2.2) · `workdir_quota`(FR-6.4 용량 상한). `workdir_gc_blocked`(P4, FR-6.4 M4 · E13-12·13) — 보존 기한이 지난 worktree 를 미병합 커밋·미커밋 변경 때문에 지우지 못했다. 같은 workdir 에 미해결 항목이 있으면 다시 만들지 않는다(스윕 멱등). 카드: {workdir_id, session_id, repo_path, branch, reason, commits_ahead}
+         * @description `inbox_item_type` (FR-8). v0.2.0(PRD v0.19): `isolation_confirm`(FR-2.1.1 — 저장소 있는 컴퓨터로의 첫 실행 격리 확인, 답까지 첫 dispatch 보류) · `work_proposed`(FR-2A.1) · `work_paused`·`work_completed`(옛 `session_*` 의 미션판 — 옛 값은 R4 까지 함께 산다) · `room_paused`(방 전체, action_required — 사유 budget·loop·**runtime_offline**(v0.2.11: 옛 `runtime_offline` 항목을 대체, ref_id=runtime id, 동작 rebind·open_room)·manual 제외) · `room_invited`(FR-2.2) · `workdir_quota`(FR-6.4 용량 상한). `workdir_gc_blocked`(P4, FR-6.4 M4 · E13-12·13) — 보존 기한이 지난 worktree 를 미병합 커밋·미커밋 변경 때문에 지우지 못했다. 같은 workdir 에 미해결 항목이 있으면 다시 만들지 않는다(스윕 멱등). 카드: {workdir_id, session_id, repo_path, branch, reason, commits_ahead}
          * @enum {string}
          */
         InboxItemType: "hitl_request" | "isolation_confirm" | "lane_blocked" | "work_proposed" | "work_paused" | "room_paused" | "work_completed" | "room_invited" | "workdir_quota" | "session_completed" | "session_paused" | "run_failed" | "runtime_offline" | "mention" | "workdir_gc_blocked";

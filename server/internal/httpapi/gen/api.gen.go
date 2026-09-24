@@ -2874,7 +2874,7 @@ type InboxItem struct {
 	// Severity `inbox_severity` (SCREEN §4.6)
 	Severity InboxSeverity `json:"severity"`
 
-	// Type `inbox_item_type` (FR-8). v0.2.0(PRD v0.19): `isolation_confirm`(FR-2.1.1 — 저장소 있는 컴퓨터로의 첫 실행 격리 확인, 답까지 첫 dispatch 보류) · `work_proposed`(FR-2A.1) · `work_paused`·`work_completed`(옛 `session_*` 의 미션판 — 옛 값은 R4 까지 함께 산다) · `room_paused`(방 전체, action_required) · `room_invited`(FR-2.2) · `workdir_quota`(FR-6.4 용량 상한). `workdir_gc_blocked`(P4, FR-6.4 M4 · E13-12·13) — 보존 기한이 지난 worktree 를 미병합 커밋·미커밋 변경 때문에 지우지 못했다. 같은 workdir 에 미해결 항목이 있으면 다시 만들지 않는다(스윕 멱등). 카드: {workdir_id, session_id, repo_path, branch, reason, commits_ahead}
+	// Type `inbox_item_type` (FR-8). v0.2.0(PRD v0.19): `isolation_confirm`(FR-2.1.1 — 저장소 있는 컴퓨터로의 첫 실행 격리 확인, 답까지 첫 dispatch 보류) · `work_proposed`(FR-2A.1) · `work_paused`·`work_completed`(옛 `session_*` 의 미션판 — 옛 값은 R4 까지 함께 산다) · `room_paused`(방 전체, action_required — 사유 budget·loop·**runtime_offline**(v0.2.11: 옛 `runtime_offline` 항목을 대체, ref_id=runtime id, 동작 rebind·open_room)·manual 제외) · `room_invited`(FR-2.2) · `workdir_quota`(FR-6.4 용량 상한). `workdir_gc_blocked`(P4, FR-6.4 M4 · E13-12·13) — 보존 기한이 지난 worktree 를 미병합 커밋·미커밋 변경 때문에 지우지 못했다. 같은 workdir 에 미해결 항목이 있으면 다시 만들지 않는다(스윕 멱등). 카드: {workdir_id, session_id, repo_path, branch, reason, commits_ahead}
 	Type InboxItemType `json:"type"`
 
 	// WorkId v0.2.0.
@@ -2891,7 +2891,7 @@ type InboxItemCardPurpose string
 // InboxItemRecipientBasis defines model for InboxItem.RecipientBasis.
 type InboxItemRecipientBasis string
 
-// InboxItemType `inbox_item_type` (FR-8). v0.2.0(PRD v0.19): `isolation_confirm`(FR-2.1.1 — 저장소 있는 컴퓨터로의 첫 실행 격리 확인, 답까지 첫 dispatch 보류) · `work_proposed`(FR-2A.1) · `work_paused`·`work_completed`(옛 `session_*` 의 미션판 — 옛 값은 R4 까지 함께 산다) · `room_paused`(방 전체, action_required) · `room_invited`(FR-2.2) · `workdir_quota`(FR-6.4 용량 상한). `workdir_gc_blocked`(P4, FR-6.4 M4 · E13-12·13) — 보존 기한이 지난 worktree 를 미병합 커밋·미커밋 변경 때문에 지우지 못했다. 같은 workdir 에 미해결 항목이 있으면 다시 만들지 않는다(스윕 멱등). 카드: {workdir_id, session_id, repo_path, branch, reason, commits_ahead}
+// InboxItemType `inbox_item_type` (FR-8). v0.2.0(PRD v0.19): `isolation_confirm`(FR-2.1.1 — 저장소 있는 컴퓨터로의 첫 실행 격리 확인, 답까지 첫 dispatch 보류) · `work_proposed`(FR-2A.1) · `work_paused`·`work_completed`(옛 `session_*` 의 미션판 — 옛 값은 R4 까지 함께 산다) · `room_paused`(방 전체, action_required — 사유 budget·loop·**runtime_offline**(v0.2.11: 옛 `runtime_offline` 항목을 대체, ref_id=runtime id, 동작 rebind·open_room)·manual 제외) · `room_invited`(FR-2.2) · `workdir_quota`(FR-6.4 용량 상한). `workdir_gc_blocked`(P4, FR-6.4 M4 · E13-12·13) — 보존 기한이 지난 worktree 를 미병합 커밋·미커밋 변경 때문에 지우지 못했다. 같은 workdir 에 미해결 항목이 있으면 다시 만들지 않는다(스윕 멱등). 카드: {workdir_id, session_id, repo_path, branch, reason, commits_ahead}
 type InboxItemType string
 
 // InboxSeverity `inbox_severity` (SCREEN §4.6)
