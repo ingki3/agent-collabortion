@@ -7,7 +7,7 @@
 |---|---|---|
 | `up.sh` / `down.sh` | 전용 스택 기동/종료. **포트를 P1 과 분리한다**: Postgres `colab-pg-g4`(:5436) · server :8090 · web :3010 — 다른 워크스페이스의 P1 스택(:8080/:3000/:5435)과 같이 돌 수 있게. 매 실행 `make build` 하고 **빌드 시각을 찍는다** | `server.log` `web.log` `*.pid` |
 | `10_scenario_a_api.sh` | 시나리오 A **API/CLI 경로**: 위임 3 → lane 3 병렬 → 합류 1회 → 종합 → Writer 초안 → `artifact submit`. 판정 31항목(Lead 깨어난 횟수 3, 동시 실행, E1-15·E1-21, 201·Content-Length, 진행률) | `a-checks.tsv` `scenario-a.json` `a-join-prompt.txt` `claim-tap.jsonl` |
-| `11_scenario_a_web.sh` | 같은 시나리오를 **웹(agent-browser)** 으로 — EVAL_USER U2·U4·U5·U15 여정 | `w-steps.tsv` `w-summary.json`, `web/__screenshots__/p2-a-*.png` |
+| `11_scenario_a_web.sh` | 같은 시나리오를 **웹(agent-browser)** 으로 — EVAL_USER U2·U4·U5·U15 여정 | `w-steps.tsv` `w-summary.json`, `web/__screenshots__/v018/p2-a-*.png`(v0.18 세션 화면 — T-R2-M8 에서 이동) |
 | `12_mock_vs_real.sh` | `web/e2e/p2-mock.sh` 를 **BASE_URL 만 바꿔** 실서버에 돌리고 목과 행별로 대조. 갈리는 행이 결함 후보다 | `mock-run.txt` `real-run.txt` `mock-vs-real.tsv` |
 | `20_regression_p1.sh` | `e2e/p1/01~07` 을 이 스택에 그대로(README 순서: 01 → 03 → 02 → 05 → 06 → 04 → 07) | `p1/*.log` `regression.tsv` |
 | `lib.sh` | `e2e/p1/lib.sh` 재사용 + 포트 분리 + P2 헬퍼(에이전트·세션 생성, lane/합류/동시성 질의) |

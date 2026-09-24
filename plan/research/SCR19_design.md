@@ -15,7 +15,7 @@
 ## 0. 무엇을 어떻게 쟀나
 
 - SCREEN v0.19 전문 통독 후, 화면 문자열로 쓰일 문장만 뽑아 ① PRD §3.2 정본 ② `COMPONENTS.md` §8.2~§8.5 ③ 구현(`web/lib/wording.ts`·`badge-map.ts`·`tokens.css`) 셋과 대조했다.
-- 밀도는 **실측 스크린샷의 픽셀**로 쟀다 — `p5-w9-08-session-light.png`(1280×900, S7 3열), `p5-w9-1920-sessions.png`(1920, S5 4열), `p5-w9-02-inbox-light.png`(S8 한 열).
+- 밀도는 **실측 스크린샷의 픽셀**로 쟀다 — `v018/p5-w9-08-session-light.png`(1280×900, S7 3열), `v018/p5-w9-1920-sessions.png`(1920, S5 4열), `p5-w9-02-inbox-light.png`(S8 한 열).
 - 레이아웃 수치는 구현에서 읽었다: `.s7__cols { grid-template-columns: 268px minmax(0,1fr) 268px }` (`web/app/(app)/sessions/[id]/page.tsx:815`), `.shell { 220px 1fr }`·`.cards { repeat(auto-fill, minmax(var(--card-min),1fr)) }`(`web/app/app.css:55,81`), `--card-min: 320px`(`web/app/tokens.css`).
 - 접근성은 현행 규약을 먼저 확인하고(`Badge.tsx:35-48`·`Icon.tsx:86`·`PageHead.tsx:47`), SCREEN v0.19 가 그 규약을 유지하는지만 판정했다.
 
@@ -215,7 +215,7 @@ SCREEN §3.4 는 갱신되지 않았다. 지금 두 문서가 **정반대**를 �
 | 677·678 | S21 — 「「**산출물** 제출」이 종료 조건에 들어갑니다」·「@Writer 가 **산출물**을 제출하고」 |
 | 909 | S17 유실 경고 — 「이 방의 **산출물**(diff) N개」 |
 
-구현은 이미 「아티팩트」 쪽이다 — `p5-w9-08-session-light.png` 의 우열 제목이 「아티팩트」이고 종료 조건 행이 「아티팩트 제출」이며, `web/lib/wording.ts` 의 `DELETE_DIALOG.loses` 가 「메시지 · 작업 줄기 · **아티팩트** · 비용 기록」이다. **즉 SCREEN 만 혼자 다른 말을 한다.**
+구현은 이미 「아티팩트」 쪽이다 — `v018/p5-w9-08-session-light.png` 의 우열 제목이 「아티팩트」이고 종료 조건 행이 「아티팩트 제출」이며, `web/lib/wording.ts` 의 `DELETE_DIALOG.loses` 가 「메시지 · 작업 줄기 · **아티팩트** · 비용 기록」이다. **즉 SCREEN 만 혼자 다른 말을 한다.**
 
 > **R1.5 자물쇠가 §3.4 를 근거로 삼으면 「아티팩트」가 옛말로 잡혀 정본 용어가 화면에서 지워진다.** D-11 을 짚은 것 자체는 정확한 관찰이었고(SCREEN 이 실측 불일치를 먼저 발견했다), 판단이 반대로 났을 뿐이다.
 
@@ -225,7 +225,7 @@ SCREEN v0.19 에서 「멈춤」 13회 · 「일시정지」 9회 · 「멈췄�
 
 | 자리 | SCREEN v0.19 | 잠긴 말(근거) |
 |---|---|---|
-| S5 카드 배지 | 「**예산으로 멈춤**」·「**컴퓨터 연결 끊김**」·「**루프 상한**」 | 「**일시정지 · 예산**」·「**일시정지 · 컴퓨터 연결 끊김**」 — COMPONENTS §8.4 「`EVAL_USER.md` U12 가 못박은 말」, 실측 `p5-w9-1920-sessions.png` |
+| S5 카드 배지 | 「**예산으로 멈춤**」·「**컴퓨터 연결 끊김**」·「**루프 상한**」 | 「**일시정지 · 예산**」·「**일시정지 · 컴퓨터 연결 끊김**」 — COMPONENTS §8.4 「`EVAL_USER.md` U12 가 못박은 말」, 실측 `v018/p5-w9-1920-sessions.png` |
 | 배지 라벨 | 「⏸ **멈춤** · 방 예산」(§5) | `badge-map.ts` `paused: spec("⏸", "pause", "**일시정지**")` — lane·task·session 세 kind 모두 |
 | S7 배너 | 「MacBook이 7일간 **오프라인**입니다」(§4.6) | `PausedBanner.tsx:35` `runtime_offline: "**컴퓨터 연결 끊김**으로 일시정지"` |
 
@@ -296,7 +296,7 @@ SCREEN v0.19 는 비활성 사유를 전부 "왜 + 다음에 무엇을" 형태�
 
 ### 4.1 S5 방 목록 — 카드가 4칸에서 9칸으로
 
-| 세션 카드(실측 `p5-w9-1920-sessions.png`) | 방 카드(§4.3) |
+| 세션 카드(실측 `v018/p5-w9-1920-sessions.png`) | 방 카드(§4.3) |
 |---|---|
 | 상태 배지 · 상대 시각 | 안 읽음 배지 · **방 멈춤 배지** · 상대 시각 |
 | 제목 | 이름 |
@@ -352,7 +352,7 @@ PRD §12.1-11 은 SCREEN 이 열려 있다고 본 결정을 **닫았다**(PR #27
 
 ### 4.5 ★ 우열 268px — **6칸이 이미 꽉 찬 자리에 12칸**
 
-실측(`p5-w9-08-session-light.png`, 1280×900): 우열 268px 에 6칸(목표 · 종료 조건 진행률 · 아티팩트 · 결정 기록 · 비용 · 세션 설정)이 들어 **세로를 정확히 가득 채운다**(y=110 → y=790, 여백 없음).
+실측(`v018/p5-w9-08-session-light.png`, 1280×900): 우열 268px 에 6칸(목표 · 종료 조건 진행률 · 아티팩트 · 결정 기록 · 비용 · 세션 설정)이 들어 **세로를 정확히 가득 채운다**(y=110 → y=790, 여백 없음).
 
 v0.19 가 요구하는 칸:
 
@@ -618,8 +618,8 @@ v0.19 는 이것을 악화시킨다 — 좌열 카드마다 미션 라벨이 붙
 | S7 3열 | `268px minmax(0,1fr) 268px`, gap 16 | `sessions/[id]/page.tsx:815` |
 | S7 열 전환 | `@media (max-width: 1100px)` → 탭 3개 | `page.tsx:832-838` |
 | 카드 격자 | `repeat(auto-fill, minmax(320px,1fr))`, gap 12 | `app.css:81` · `tokens.css` |
-| 1280 S7 우열 실측 | 6칸이 y=110~790 을 가득 채움 | `p5-w9-08-session-light.png` |
-| 1920 S5 실측 | 4열, 카드 높이 ~100px, 4칸 | `p5-w9-1920-sessions.png` |
+| 1280 S7 우열 실측 | 6칸이 y=110~790 을 가득 채움 | `v018/p5-w9-08-session-light.png` |
+| 1920 S5 실측 | 4열, 카드 높이 ~100px, 4칸 | `v018/p5-w9-1920-sessions.png` |
 | S8 실측 | 한 열, 필터 칩 3 + 선택 상자 1 + 버튼 1 | `p5-w9-02-inbox-light.png` |
 | 글자 계단 | 24 / 17 / 14 / 13 / **12(하한)** | `tokens.css` |
 | 어두움 정정 | `--dk-ink-2` #a6a6ae, `--s-wait-text` #92400e, `--s-done-text` #166534 | `tokens.css` · COMPONENTS §8.3 |

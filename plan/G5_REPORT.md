@@ -282,7 +282,7 @@ probe·계약 대조 15건(도구 표면 2건 포함), 시나리오 12건, 하�
 ## 4. (c) blocked 왕복 — E3-05 · E3-06 · E3-07
 
 재현: `bash e2e/p2/31_blocked_roundtrip.sh` · 산출물 `out/blocked.json`·`out/b-checks.tsv` ·
-스크린샷 `web/__screenshots__/p2-b-01-question-card.png` · **PASS 26 / FAIL 2**, 58초 (세션 `077b9688`).
+스크린샷 `web/__screenshots__/v018/p2-b-01-question-card.png` · **PASS 26 / FAIL 2**, 58초 (세션 `077b9688`).
 
 시나리오: Lead 가 3항목을 위임하고 그중 하나의 브리프에 `AMBIGUOUS` 표식을 둔다. 그 lane 의
 Researcher 는 `colab status set blocked --note "경쟁 제품의 범위가 불명확합니다…"` 만 부르고 턴을 끝낸다.
@@ -444,7 +444,7 @@ jsonb 열에 **덮어쓴다**. 라우터는 `DefaultLimits()` 에서 시작해 �
 ## 6. (e) 템플릿에서 팀 생성 → 세션 시작
 
 재현: `bash e2e/p2/34_template_3min.sh` · 산출물 `out/template.json`·`out/t-checks.tsv` ·
-스크린샷 `web/__screenshots__/p2-t-01…06.png`.
+스크린샷 `web/__screenshots__/p2-t-01…02.png` · `web/__screenshots__/v018/p2-t-03…06.png`(v0.18 세션 화면, T-R2-M8 에서 이동).
 
 **판정 칸은 "Director 실측 대기" 다.** DoD 의 3분은 사람이 재는 수치이므로 이 스크립트는
 (1) 경로가 실제로 있는지 화면에서 확인하고 (2) 기계 소요를 재서 사람 실측의 **하한**을 준다.

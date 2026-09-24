@@ -1,6 +1,6 @@
 "use client";
 /**
- * 카드 「…」 메뉴의 열고 닫기·키보드 — S5 세션 카드(`SessionCardMenu`, T-W13)와 방 카드(`RoomCardMenu`, T-R2-W1)가 같은 동작을 쓴다.
+ * 카드 「…」 메뉴의 열고 닫기·키보드 — S5 방 카드(`RoomCardMenu`, T-R2-W1)와 S7 방 머리 메뉴(`RoomHead`)가 같은 동작을 쓴다(처음 쓴 곳은 R1.5b 에서 지운 세션 카드 메뉴, T-W13). 테스트는 `RoomCardMenu.test.tsx`.
  *
  * 키보드: 버튼에서 Enter·Space·↓ 로 열고 첫 항목에 초점, ↑↓ 로 항목 이동, Esc 로 닫고 버튼에 초점. 바깥 클릭(마우스·터치)·초점 이탈(focusin·focusout)로 닫는다.
  */
