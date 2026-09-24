@@ -828,7 +828,7 @@ func (d *Daemon) release(k string) {
 
 // taskEnv is the harness §2.1 COLAB_* set for one attempt.
 func (d *Daemon) taskEnv(b contracts.TaskBundle) acp.TaskEnv {
-	return acp.TaskEnv{TaskToken: b.TaskToken, ServerURL: d.Cfg.ServerURL, TaskID: b.Task.ID, Attempt: b.Task.Attempt, LaneID: b.Task.LaneID, SessionID: b.Task.SessionID, RoomID: b.Task.RoomID, WorkID: b.Task.WorkID, AgentName: b.Task.AgentName}
+	return acp.TaskEnv{TaskToken: b.TaskToken, ServerURL: d.Cfg.ServerURL, TaskID: b.Task.ID, Attempt: b.Task.Attempt, LaneID: b.Task.LaneID, SessionID: b.Task.SessionID, RoomID: b.Task.RoomID, WorkID: b.Task.WorkID, ThreadID: b.Task.ThreadRootID, AgentName: b.Task.AgentName}
 }
 
 // mcpServers is the session/new·load `mcpServers` list: the colab MCP server
