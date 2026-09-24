@@ -28,6 +28,13 @@ type TaskEnv struct {
 	Attempt   int
 	LaneID    string
 	SessionID string
+	// RoomID and WorkID are the bundle's `task.room_id`·`task.work_id`
+	// (daemon-protocol v0.9.0): the room is the old session id under a new
+	// name, the mission is empty outside any. Both go to the agent as
+	// COLAB_ROOM_ID·COLAB_WORK_ID — the CLI's default for `room get` (T-R3b;
+	// Lead adds the two names to colab-cli §1 and harness §10).
+	RoomID    string
+	WorkID    string
 	AgentName string
 }
 
@@ -59,6 +66,16 @@ func (t TaskEnv) colabVars() map[string]string {
 	}
 	if t.TaskToken != "" {
 		m["COLAB_TASK_TOKEN"] = t.TaskToken
+	}
+	// Only when the bundle names them: an empty COLAB_WORK_ID would read as
+	// "a mission whose id is empty" to a CLI that checks presence, and a turn
+	// outside any mission has none (§4.1 `work_id?`). COLAB_SESSION_ID stays
+	// alongside until R4.
+	if t.RoomID != "" {
+		m["COLAB_ROOM_ID"] = t.RoomID
+	}
+	if t.WorkID != "" {
+		m["COLAB_WORK_ID"] = t.WorkID
 	}
 	return m
 }

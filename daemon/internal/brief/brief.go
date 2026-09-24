@@ -55,12 +55,14 @@ const (
 var InstructionFileNames = []string{"AGENTS.md", "CLAUDE.md"}
 
 // Parts are the eight sections. [1]~[5] must be byte-identical between two
-// turns of the same session (cache friendliness, E12-11); [6]~[8] may vary.
+// turns of the same room and the same mission (cache friendliness, E12-11 ·
+// harness §10 v0.9.0 — another mission changes [4] on purpose); [6]~[8] may
+// vary.
 type Parts struct {
 	Identity     string // [1] agent identity + instructions
 	Rules        string // [2] workspace rules + mention syntax + colab CLI/MCP conventions
 	Coordination string // [3] lead only
-	Session      string // [4] goal / acceptance_criteria / exit condition / Director / isolation
+	Session      string // [4] 방 맥락: room + the turn's mission (harness §10 v0.9.0)
 	Roster       string // [5] participants
 	Context      string // [6] attachments / previous session summary
 	DecisionLog  string // [7]
@@ -74,7 +76,7 @@ var headers = [8]string{
 	"[1] Agent Identity",
 	"[2] Workspace Rules",
 	"[3] Coordination Protocol",
-	"[4] Session",
+	"[4] Room",
 	"[5] Roster",
 	"[6] Context",
 	"[7] Decision Log",

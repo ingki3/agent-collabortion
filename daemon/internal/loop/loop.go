@@ -270,9 +270,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 			// Everything here is what a reader needs to tie the line to the
 			// server's feed (task·attempt·lane) and to know what is about to
 			// be spawned.
-			d.Log("%s claim kind=%s lane=%s session=%s agent=%s runtime=%s model=%s isolation=%s",
+			//
+			// room/work (daemon-protocol v0.9.0, T-R3b) go after the fields
+			// the log already had, so a grep written for the old line still
+			// matches; `work=-` is a turn outside any mission.
+			d.Log("%s claim kind=%s lane=%s session=%s agent=%s runtime=%s model=%s isolation=%s room=%s work=%s",
 				key(b.Task.ID, b.Task.Attempt), bundleKind(b), b.Task.LaneID, b.Task.SessionID, b.Task.AgentName,
-				b.Profile.RuntimeKind, b.Profile.Model, b.Workdir.Kind)
+				b.Profile.RuntimeKind, b.Profile.Model, b.Workdir.Kind, orDash(b.Task.RoomID), orDash(b.Task.WorkID))
 			d.start(attemptCtx, b)
 		}
 	}
@@ -824,7 +828,7 @@ func (d *Daemon) release(k string) {
 
 // taskEnv is the harness §2.1 COLAB_* set for one attempt.
 func (d *Daemon) taskEnv(b contracts.TaskBundle) acp.TaskEnv {
-	return acp.TaskEnv{TaskToken: b.TaskToken, ServerURL: d.Cfg.ServerURL, TaskID: b.Task.ID, Attempt: b.Task.Attempt, LaneID: b.Task.LaneID, SessionID: b.Task.SessionID, AgentName: b.Task.AgentName}
+	return acp.TaskEnv{TaskToken: b.TaskToken, ServerURL: d.Cfg.ServerURL, TaskID: b.Task.ID, Attempt: b.Task.Attempt, LaneID: b.Task.LaneID, SessionID: b.Task.SessionID, RoomID: b.Task.RoomID, WorkID: b.Task.WorkID, AgentName: b.Task.AgentName}
 }
 
 // mcpServers is the session/new·load `mcpServers` list: the colab MCP server
@@ -1300,4 +1304,12 @@ func (d *Daemon) heartbeat(ctx context.Context, hb *heartbeater, stop <-chan str
 		}
 		hb.send(ctx)
 	}
+}
+
+// orDash keeps a log field present when its value is empty.
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }
