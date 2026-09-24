@@ -69,7 +69,7 @@ stdout plus one line on stderr.
 ```sh
 colab room get [--room R]
 colab room messages [--since <cursor|message_id>] [--limit N] [--thread <root_id>] [--work <mission_id>]
-colab message post --body <text> [--reply-to <msg_id>] [--mention @A,@B] [--idempotency-key K]
+colab message post --body <text> [--reply-to <msg_id> | --top-level] [--mention @A,@B] [--idempotency-key K]
 
 colab status set working|blocked|done [--note <text>]
 colab lane delegate --agent <name> --brief <text> [--depends-on <lane_id>] [--profile <name>]

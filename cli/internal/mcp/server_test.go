@@ -326,3 +326,30 @@ func mcpDiffRepo(t *testing.T) string {
 	}
 	return dir
 }
+
+// colab-cli v0.9.1: colab_message_post takes reply_to·top_level with the
+// command's rule — the turn's thread by default, top_level for the main
+// timeline, both together refused before anything is posted.
+func TestMessagePostToolThread(t *testing.T) {
+	const root = "55555555-5555-4555-8555-555555555555"
+	s := clienttest.New(t)
+	c := dial(t, newClient(t, s, func(env map[string]string) { env["COLAB_THREAD_ID"] = root }))
+	c.call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "test", "version": "0"}})
+	c.notify("notifications/initialized")
+
+	for i, args := range []map[string]any{{"body": "a"}, {"body": "b", "top_level": true}} {
+		if r := c.call("tools/call", map[string]any{"name": "colab_message_post", "arguments": args}); r.Error != nil || r.Result["isError"] == true {
+			t.Fatalf("post %d = %+v", i, r)
+		}
+	}
+	if s.Posted[0].Body["parent_id"] != root || s.Posted[1].Body["parent_id"] != nil {
+		t.Fatalf("parents = %v / %v, want %s / none", s.Posted[0].Body["parent_id"], s.Posted[1].Body["parent_id"], root)
+	}
+	r := c.call("tools/call", map[string]any{"name": "colab_message_post", "arguments": map[string]any{"body": "c", "reply_to": "root-2", "top_level": true}})
+	if r.Error == nil && r.Result["isError"] != true {
+		t.Fatalf("reply_to + top_level accepted: %+v", r)
+	}
+	if len(s.Posted) != 2 {
+		t.Fatalf("the contradictory call posted (%d posts)", len(s.Posted))
+	}
+}

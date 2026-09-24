@@ -44,6 +44,7 @@ const (
 	EnvRoomID    = "COLAB_ROOM_ID"    // the turn's room (v0.8.1)
 	EnvSessionID = "COLAB_SESSION_ID" // the same value under its old name — the fallback for EnvRoomID
 	EnvWorkID    = "COLAB_WORK_ID"    // the mission the turn belongs to; absent outside a mission
+	EnvThreadID  = "COLAB_THREAD_ID"  // the thread the turn was asked in; absent for a top-level trigger (v0.9.1)
 	EnvAgentName = "COLAB_AGENT_NAME"
 	// EnvAllowedCommands is the daemon wrapper's copy of the role's command
 	// subset (harness.md §10, K-19): a comma-separated list of ColabCommand
@@ -80,6 +81,7 @@ type Config struct {
 	LaneID    string
 	RoomID    string // COLAB_ROOM_ID, else COLAB_SESSION_ID (same value)
 	WorkID    string // COLAB_WORK_ID; "" outside a mission
+	ThreadID  string // COLAB_THREAD_ID; "" when the turn started at the top level
 	AgentName string
 	Attempt   int // 0 = unknown → resolved via /cli/context
 	// AllowedCommands is the command subset a wrapper handed over (env, or
@@ -109,6 +111,7 @@ func FromEnv(getenv Getenv) Config {
 		LaneID:    getenv(EnvLaneID),
 		RoomID:    strings.TrimSpace(getenv(EnvRoomID)),
 		WorkID:    strings.TrimSpace(getenv(EnvWorkID)),
+		ThreadID:  strings.TrimSpace(getenv(EnvThreadID)),
 		AgentName: getenv(EnvAgentName),
 		StateDir:  getenv(EnvStateDir),
 		Timeout:   DefaultTimeout,

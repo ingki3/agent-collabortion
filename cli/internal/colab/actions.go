@@ -11,12 +11,15 @@ import (
 	"github.com/ingki3/agent-collabortion/cli/internal/client"
 )
 
-// MessagePostArgs — `colab message post --body [--reply-to --mention]`.
+// MessagePostArgs — `colab message post --body [--reply-to | --top-level] [--mention]`.
 type MessagePostArgs struct {
-	Session string   `json:"session,omitempty"`
-	Body    string   `json:"body"`
-	ReplyTo string   `json:"reply_to,omitempty"`
-	Mention []string `json:"mention,omitempty"` // agent names, with or without '@'
+	Session string `json:"session,omitempty"`
+	Body    string `json:"body"`
+	ReplyTo string `json:"reply_to,omitempty"`
+	// TopLevel posts to the main timeline even when the turn was asked in a
+	// thread (colab-cli v0.9.1). With ReplyTo it is a usage error.
+	TopLevel bool     `json:"top_level,omitempty"`
+	Mention  []string `json:"mention,omitempty"` // agent names, with or without '@'
 	// IdempotencyKey overrides the derived key (UUIDv5 of task:<task_id>:<seq>,
 	// colab-cli.md §1). Use it to retry the *same* post after a network error.
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
@@ -43,6 +46,9 @@ func MessagePost(ctx context.Context, c *client.Client, a MessagePostArgs) (*Mes
 	if strings.TrimSpace(a.Body) == "" {
 		return nil, client.Usage("--body is required")
 	}
+	if a.TopLevel && a.ReplyTo != "" {
+		return nil, client.Usage("--reply-to and --top-level contradict each other: give one")
+	}
 	if err := c.Allow(ctx, client.CmdMessagePost); err != nil {
 		return nil, err
 	}
@@ -65,9 +71,16 @@ func MessagePost(ctx context.Context, c *client.Client, a MessagePostArgs) (*Mes
 		names = nameIndex(cc)
 	}
 	body := client.MessageCreate{Content: content}
-	if a.ReplyTo != "" {
-		r := a.ReplyTo
-		body.ParentID = &r
+	// Where the reply goes (colab-cli v0.9.1): the thread named, else the
+	// thread the turn was asked in (COLAB_THREAD_ID), else the main timeline.
+	// A question asked in a thread is answered there — an answer on the main
+	// timeline is one the asker does not see (STO 방, 2026-09-25).
+	parent := a.ReplyTo
+	if parent == "" && !a.TopLevel {
+		parent = c.ThreadID(sid)
+	}
+	if parent != "" {
+		body.ParentID = &parent
 	}
 	res, key, replayed, err := c.PostMessage(ctx, sid, body, a.IdempotencyKey)
 	if err != nil {

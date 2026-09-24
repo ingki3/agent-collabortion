@@ -56,7 +56,7 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
                              --since is sent as the after= query parameter (messages newer than it)
                              --limit is 1..200 (omit for the server default 50)
                              --work keeps one mission's messages
-  colab message post --body <text> [--reply-to <msg_id>] [--mention @A,@B] [--idempotency-key K] [--json]
+  colab message post --body <text> [--reply-to <msg_id> | --top-level] [--mention @A,@B] [--idempotency-key K] [--json]
                              Idempotency-Key = UUIDv5(task:<task_id>:<seq>), seq continues across attempts;
                              the same seq is sent as X-Colab-Client-Seq (omitted with --idempotency-key)
   colab status set working|blocked|done [--note <text>]
@@ -203,12 +203,13 @@ func newFlagSet(name string, stderr io.Writer) (*flag.FlagSet, *bool) {
 
 func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] != "post" {
-		return usage(stderr, "usage: colab message post --body <text> [--reply-to <id>] [--mention @A,@B]")
+		return usage(stderr, "usage: colab message post --body <text> [--reply-to <id> | --top-level] [--mention @A,@B]")
 	}
 	fs, _ := newFlagSet("message post", stderr)
 	session := fs.String("session", "", "room id override (default COLAB_ROOM_ID / token scope)")
 	body := fs.String("body", "", "message text (markdown)")
-	replyTo := fs.String("reply-to", "", "parent message id (thread)")
+	replyTo := fs.String("reply-to", "", "parent message id (thread; default: COLAB_THREAD_ID, the thread the turn was asked in)")
+	topLevel := fs.Bool("top-level", false, "post to the main timeline even when the turn was asked in a thread")
 	mention := fs.String("mention", "", "comma-separated agent names to mention, e.g. @Reviewer,@Writer")
 	key := fs.String("idempotency-key", "", "reuse a previous key to retry the same post (default: UUIDv5 of task:<task_id>:<seq>)")
 	if err := fs.Parse(args[1:]); err != nil {
@@ -226,7 +227,7 @@ func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) i
 	}
 	c := client.New(client.FromEnv(getenv))
 	v, err := colab.MessagePost(context.Background(), c, colab.MessagePostArgs{
-		Session: *session, Body: *body, ReplyTo: *replyTo, Mention: mentions, IdempotencyKey: *key})
+		Session: *session, Body: *body, ReplyTo: *replyTo, TopLevel: *topLevel, Mention: mentions, IdempotencyKey: *key})
 	return emit(stdout, stderr, v, err)
 }
 
