@@ -33,4 +33,8 @@ for f in files:
             rng=bool(re.search(r'\d(~|…)\d',rel))
             if (rng and not hits) or (not rng and len(hits)!=len(ex)):
                 bad+=1; print(f'{f}:{i}: {t} MISSING {[p for p in ex if not ok(p)]}')
-print(f"refs={n} missing={bad}"); sys.exit(1 if bad else 0)
+print(f"refs={n} missing={bad}")
+# refs=0 이면 저장소 루트가 아닌 곳에서 돌린 것이다 — 조용히 통과하지 않는다(#320 리뷰 NN1).
+if n == 0:
+    print("refs=0 — 저장소 루트에서 돌려라"); sys.exit(1)
+sys.exit(1 if bad else 0)
