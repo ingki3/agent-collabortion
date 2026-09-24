@@ -75,19 +75,27 @@ log "claim p50=$CLAIM_P50 p95=$CLAIM_P95 · 첫 출력 p50=$OUT_P50 p95=$OUT_P95
 step "3. 부하 — 세션 $N_LOAD 개 동시 (데몬 $N_DAEMONS × cap $CAP = $((N_DAEMONS*CAP)) 슬롯)"
 SESS=()
 LOAD_START="$(now_ms)"
-# v0.3.0(R4): 옛 createSession 한 번이 createRoom·updateRoom·addRoomParticipant·createWork 네 번이 됐다. 차례로 50 번이면
-# 생성에 ~7s 가 걸려 페이크 턴(~4s)이 먼저 끝나 동시 running 이 슬롯을 못 채운다(CI got=32) — 제품이 아니라 하네스의 순차 생성이
-# 재는 값을 바꾼 것. 옛 한 호출 생성과 같은 밀도가 되도록 병렬로 만든다.
-mkdir -p "$OUT/.load"; rm -f "$OUT/.load/"*
+# v0.3.0(R4): 옛 createSession 한 번이 createRoom·updateRoom·addRoomParticipant·createWork 네 번이 됐다. 50 번을 차례로
+# 한꺼번에 돌리면 생성에 ~7s 가 걸려 페이크 턴(~4s)이 먼저 끝나 동시 running 이 슬롯을 못 채운다(CI got=32) — 제품이 아니라
+# 하네스가 재는 값이 바뀐 것. 병렬 생성은 쓸 수 없다(api() 가 쿠키 통을 -c 로 다시 써 동시 호출이 로그인을 깨뜨린다).
+# 그래서 두 단계: 방·참여자를 먼저 다 만들고(task 없음), 미션을 한 호출씩 몰아 연다 — 옛 createSession 한 번 = 초기 task 한 개와 같은 밀도.
+LOAD_ROOMS=()
 for i in $(seq 1 "$N_LOAD"); do
   # runtime_id 를 비운다 → 온라인 런타임 아무거나(첫 claim 이 고정, E11-10) — 5대에 분산된다.
-  ( create_session_p3 "$WS" "perf load $i" "부하 $i" "$LOAD" "" '{}' "$LOAD" > "$OUT/.load/$i" ) &
+  r="$(api_ok POST "/workspaces/$WS/rooms" "$(jq -nc --arg n "perf load $i" '{name:$n,description:""}')" | jq -r .id)"
+  api_ok PATCH "/rooms/$r" '{"isolation":{"kind":"none"}}' >/dev/null
+  api_ok POST "/rooms/$r/participants" "$(jq -nc --arg a "$LOAD" '{agent_id:$a}')" >/dev/null
+  LOAD_ROOMS+=("$r")
 done
-wait
+mkdir -p "$ROOM_WORK_DIR"
+LOAD_START="$(now_ms)"
 for i in $(seq 1 "$N_LOAD"); do
-  sid="$(cat "$OUT/.load/$i" 2>/dev/null)"
-  [ -n "$sid" ] || bad "부하 방 $i 생성 실패"
-  SESS+=("$sid")
+  r="${LOAD_ROOMS[$((i-1))]}"
+  w="$(api_ok POST "/rooms/$r/works" "$(jq -nc --arg t "perf load $i" --arg g "부하 $i" --arg a "$LOAD" \
+        '{title:$t,goal:$g,assignee_agent_id:$a,completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | jq -r .id)"
+  [ -n "$w" ] && [ "$w" != null ] || bad "부하 미션 $i 생성 실패"
+  printf '%s' "$w" > "$ROOM_WORK_DIR/$r"
+  SESS+=("$r")
 done
 CREATE_MS=$(( $(now_ms)-LOAD_START ))
 ok "세션 $N_LOAD 개 생성 ${CREATE_MS}ms"
