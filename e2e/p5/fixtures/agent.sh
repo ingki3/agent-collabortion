@@ -133,8 +133,10 @@ PY
   post "FRONTEND-DIFF ${aid:-?}"
   done_ ;;
 QA)
-  fe="$(colab room messages --limit 50 2>/dev/null | jq -r '.items[]?.content // empty' | grep -o 'FRONTEND-DIFF [0-9a-f-]*' | tail -1 | awk '{print $2}')"
-  if [ -z "$fe" ]; then fe="$(printf '%s\n' "$P" | grep -o 'FRONTEND-DIFF [0-9a-f-]*' | tail -1 | awk '{print $2}')"; fi
+  # 프롬프트 히스토리 먼저 — 스레드 답글까지 담는다(harness v0.9.3 부터 Frontend 의 새 diff 는 리뷰 스레드에 달린다).
+  # `colab room messages` 는 메인 타임라인만이라 스레드 안의 v2 를 못 보고 v1 을 영영 반려했다(T-THREAD 73_ B5b 4회).
+  fe="$(printf '%s\n' "$P" | awk '/^<history /{f=1;next} /^<\/history>/{f=0} f' | grep -o 'FRONTEND-DIFF [0-9a-f-]*' | tail -1 | awk '{print $2}')"
+  if [ -z "$fe" ]; then fe="$(colab room messages --limit 50 2>/dev/null | jq -r '.items[]?.content // empty' | grep -o 'FRONTEND-DIFF [0-9a-f-]*' | tail -1 | awk '{print $2}')"; fi
   log "review target frontend=$fe"
   colab artifact get "$fe" --out ./fe.diff >/dev/null 2>&1
   if grep -q 'QA-FIX-9421' ./fe.diff 2>/dev/null; then
