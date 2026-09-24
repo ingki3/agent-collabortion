@@ -77,9 +77,11 @@ func RestrictCommands(text string, allowed []string) string {
 // namesDenied reports whether the line uses a denied command in command
 // position: "`colab <cli name>" or the MCP tool name.
 func namesDenied(line string, denied []string) bool {
-	for _, c := range denied {
-		if strings.Contains(line, "`colab "+commands.CLIName(c)) || strings.Contains(line, commands.ToolName(c)) {
-			return true
+	for _, d := range denied {
+		for _, c := range append([]string{d}, commands.Aliases(d)...) {
+			if strings.Contains(line, "`colab "+commands.CLIName(c)) || strings.Contains(line, commands.ToolName(c)) {
+				return true
+			}
 		}
 	}
 	return false

@@ -2,8 +2,8 @@ package commands
 
 // 데몬의 명령 표를 계약·웹과 대조한다 — 표를 베끼되 늙히지 못하게(T-S13b 방식).
 //
-//   - contracts/openapi.yaml `ColabCommand` enum 13개 = All()
-//   - contracts/colab-cli.md §3 의 툴 이름 목록 = ToolName(All())
+//   - contracts/openapi.yaml `ColabCommand` enum 16개 = All()
+//   - contracts/colab-cli.md §3 의 툴 이름 목록 = ToolNames() (명령 16 + v0.8 별칭 room_get·room_messages)
 //   - web/lib/wording.ts COMMAND_LABEL = labels (사람 말이 화면과 브리프에서 같아야 한다)
 
 import (
@@ -73,21 +73,23 @@ func TestToolNamesMatchContractSection3(t *testing.T) {
 	if j := strings.Index(sec, "\n## 4."); j > 0 {
 		sec = sec[:j]
 	}
+	// §3 은 별칭 괄호 안에서 원래 이름을 한 번 더 부른다 — 이름 집합으로 대조한다.
+	seen := map[string]bool{}
 	var want []string
 	for _, m := range regexp.MustCompile("`(colab_[a-z_]+)`").FindAllStringSubmatch(sec, -1) {
-		want = append(want, m[1])
+		if !seen[m[1]] {
+			seen[m[1]] = true
+			want = append(want, m[1])
+		}
 	}
-	var got []string
-	for _, c := range All() {
-		got = append(got, ToolName(c))
-	}
+	got := ToolNames()
 	if strings.Join(sortedCopy(got), ",") != strings.Join(sortedCopy(want), ",") {
 		t.Fatalf("§3 툴 이름 %v\n데몬 %v", want, got)
 	}
 }
 
 // 데몬 labels ↔ 웹 COMMAND_LABEL 자물쇠 (#250 리뷰 NN2 · V-1). 웹 파일을 읽어(서버 md 를
-// 파싱하듯) 키 집합과 글자를 대조한다 — 13/13. 파일이 없으면 Skip 이 아니라 실패다: 이 표는
+// 파싱하듯) 키 집합과 글자를 대조한다 — 16/16. 파일이 없으면 Skip 이 아니라 실패다: 이 표는
 // 화면(S10 역할 카드)과 브리프 [2] 가 같은 말을 쓴다는 약속이고, 웹 없는 체크아웃은 그 약속을
 // 잴 수 없다.
 func TestLabelsMatchWebWording(t *testing.T) {
@@ -181,7 +183,7 @@ func TestEmptyMeansEverything(t *testing.T) {
 		t.Fatalf("EnvEntry %q", e)
 	}
 	d := Denied(allowed)
-	if len(d) != len(all)-2 || d[0] != "session_messages" || d[len(d)-1] != "hitl_request_info" {
+	if len(d) != len(all)-2 || d[0] != "session_messages" || d[len(d)-1] != "work_propose" {
 		t.Fatalf("Denied %v", d)
 	}
 	if len(Denied(All())) != 0 {

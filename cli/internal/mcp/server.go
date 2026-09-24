@@ -5,7 +5,8 @@
 // colab_status_set · colab_lane_delegate · colab_decision_record ·
 // colab_artifact_submit · colab_artifact_get · colab_review_approve ·
 // colab_review_reject · colab_hitl_ask · colab_hitl_approve_request ·
-// colab_hitl_request_info.
+// colab_hitl_request_info · (v0.8 §2.4a) colab_room_list · colab_room_read ·
+// colab_work_propose · colab_room_get · colab_room_messages.
 //
 // Every tool calls the same internal/colab action the CLI subcommand calls,
 // so a tool and its command produce byte-identical JSON.
@@ -116,7 +117,49 @@ var Tools = []Tool{
 		Name:        "colab_hitl_request_info",
 		Description: "Ask a human for INFORMATION you cannot obtain yourself (a credential holder's answer, an offline document, a fact only they know) and STOP. No default, and it never auto-proceeds. The result is `turn_end_required: true` — END YOUR TURN. One open request per task; a second call fails with code `hitl_already_open`. Same as `colab hitl request-info --what [--why]`.",
 		InputSchema: json.RawMessage(`{"type":"object","required":["what"],"properties":{"what":{"type":"string","minLength":1,"description":"the information you need"},"why":{"type":"string","description":"why you need it"},"session":{"type":"string","description":"session id (default: this task's session)"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
+	}, {
+		Name:        "colab_room_list",
+		Description: "List the OTHER rooms this turn may read: only rooms that both the person who started this turn and you can access, judged by the server at the moment of the call — anything else is simply not in the list. Returns items[] with id, name, description, last_activity_at, agent_is_participant, via_link. Same as `colab room list [--query]`.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"only rooms matching this text"}},"additionalProperties":false}`),
 	},
+	{
+		Name:        "colab_room_read",
+		Description: "Read another room (an id from colab_room_list): its latest summary, recent messages, decisions and artifacts. READ-ONLY and for THIS turn only — to carry something over into this room, record it with colab_decision_record. `truncated: true` means the server cut it to the read limits. A refusal fails with code `room_read_denied` and `denied_reason` (originator_not_participant · originator_left · agent_not_allowed · no_originator) — tell the person why rather than retrying. The read is logged in both rooms. Same as `colab room read --room [--tail --query]`.",
+		InputSchema: json.RawMessage(`{"type":"object","required":["room"],"properties":{"room":{"type":"string","description":"the room id to read"},"tail":{"type":"integer","minimum":1,"maximum":100,"description":"recent messages, 1..100; omit for the server default (30)"},"query":{"type":"string","description":"only messages matching this text"}},"additionalProperties":false}`),
+	},
+	{
+		Name:        "colab_work_propose",
+		Description: "Propose a new MISSION for this room. You cannot open a mission yourself: the proposal goes to the room's people, and a person opens it (and becomes its Director) or declines it. Returns proposal_id. Same as `colab work propose --goal --why`.",
+		InputSchema: json.RawMessage(`{"type":"object","required":["goal","why"],"properties":{"goal":{"type":"string","minLength":1,"description":"the mission's goal"},"why":{"type":"string","minLength":1,"description":"why this should be a mission"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
+	},
+	{
+		Name:        "colab_room_get",
+		Description: "Read this room: name, description, the mission this turn belongs to, participants. The room name of colab_session_get (same call, same result). Same as `colab room get`.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"room":{"type":"string","description":"room id (default: this turn's room)"}},"additionalProperties":false}`),
+	},
+	{
+		Name:        "colab_room_messages",
+		Description: "Read this room's messages; `work` keeps one mission's messages. The room name of colab_session_messages (same call, same result). Same as `colab room messages [--since --limit --thread --work]`.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"room":{"type":"string"},"since":{"type":"string","description":"only messages newer than this cursor / message id (sent as the after= query parameter)"},"limit":{"type":"integer","minimum":1,"maximum":200,"description":"1..200; omit for the server default (50)"},"thread":{"type":"string","description":"thread root message id: returns root + replies"},"work":{"type":"string","description":"mission id: only that mission's messages"}},"additionalProperties":false}`),
+	},
+}
+
+// toolAliases are the tools that are another command under a second name:
+// `room get` · `room messages` are `session get` · `session messages`
+// (colab-cli.md v0.8 §2.4a — a room's id is its session id), so they are
+// registered and gated by that command's ColabCommand.
+var toolAliases = map[string]client.Command{
+	"colab_room_get":      client.CmdSessionGet,
+	"colab_room_messages": client.CmdSessionMessages,
+}
+
+// ToolCommand is the ColabCommand a tool runs — what --allow and the gate
+// decide it by.
+func ToolCommand(name string) client.Command {
+	if c, ok := toolAliases[name]; ok {
+		return c
+	}
+	return client.Command(strings.TrimPrefix(name, "colab_"))
 }
 
 type request struct {
@@ -168,19 +211,19 @@ type Options struct {
 }
 
 // FilterTools is the tools/list table for an --allow list: Tools in their
-// stable order, kept when the command (tool name minus `colab_`) is in
-// allow. An empty allow keeps everything (daemon-protocol §4.1 "비면 전부").
+// stable order, kept when the tool's command (ToolCommand: the tool name
+// minus `colab_`, or the aliased command) is in allow. An empty allow keeps everything (daemon-protocol §4.1 "비면 전부").
 func FilterTools(allow []string) []Tool {
 	if len(allow) == 0 {
 		return Tools
 	}
-	set := map[string]bool{}
+	set := map[client.Command]bool{}
 	for _, a := range allow {
-		set[client.Command(a).ToolName()] = true
+		set[client.Command(a)] = true
 	}
 	out := make([]Tool, 0, len(Tools))
 	for _, t := range Tools {
-		if set[t.Name] {
+		if set[ToolCommand(t.Name)] {
 			out = append(out, t)
 		}
 	}
@@ -292,7 +335,7 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 	if len(args) == 0 {
 		args = json.RawMessage("{}")
 	}
-	if cmd := client.Command(strings.TrimPrefix(name, "colab_")); !s.registered(name) && client.IsCommand(string(cmd)) {
+	if cmd := ToolCommand(name); !s.registered(name) && client.IsCommand(string(cmd)) {
 		// A real tool that --allow left out: the same refusal the CLI gives
 		// (client.NotAllowed), as a tool result the model can read — not a
 		// protocol error, which reads like a typo. The role is named only if
@@ -404,6 +447,36 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 			a.What = a.Question
 		}
 		v, err = colab.HitlRequestInfo(ctx, s.c, a.HitlRequestInfoArgs)
+	case "colab_room_list":
+		var a colab.RoomListArgs
+		if e := json.Unmarshal(args, &a); e != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
+		}
+		v, err = colab.RoomList(ctx, s.c, a)
+	case "colab_room_read":
+		var a colab.RoomReadArgs
+		if e := json.Unmarshal(args, &a); e != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
+		}
+		v, err = colab.RoomRead(ctx, s.c, a)
+	case "colab_work_propose":
+		var a colab.WorkProposeArgs
+		if e := json.Unmarshal(args, &a); e != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
+		}
+		v, err = colab.WorkPropose(ctx, s.c, a)
+	case "colab_room_get":
+		var a colab.RoomGetArgs
+		if e := json.Unmarshal(args, &a); e != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
+		}
+		v, err = colab.RoomGet(ctx, s.c, a)
+	case "colab_room_messages":
+		var a colab.RoomMessagesArgs
+		if e := json.Unmarshal(args, &a); e != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
+		}
+		v, err = colab.RoomMessages(ctx, s.c, a)
 	default:
 		return nil, &rpcError{Code: codeInvalidParams, Message: fmt.Sprintf("unknown tool %q", name)}
 	}

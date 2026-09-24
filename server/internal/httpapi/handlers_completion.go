@@ -79,7 +79,7 @@ func (s *Server) RecordDecision(w http.ResponseWriter, r *http.Request, sessionI
 		writeProblem(w, p)
 		return
 	}
-	if p := s.commandAllowed(r, gen.DecisionRecord); p != nil {
+	if p := s.commandAllowed(r, gen.ColabCommandDecisionRecord); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -142,7 +142,7 @@ func (s *Server) ListDecisions(w http.ResponseWriter, r *http.Request, sessionId
 		writeProblem(w, p)
 		return
 	}
-	if p := s.commandAllowed(r, gen.SessionGet); p != nil { // openapi: x-colab-cli `session get`
+	if p := s.commandAllowed(r, gen.ColabCommandSessionGet); p != nil { // openapi: x-colab-cli `session get`
 		writeProblem(w, p)
 		return
 	}

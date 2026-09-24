@@ -112,6 +112,7 @@ func TestCLIName(t *testing.T) {
 		CmdLaneDelegate: "lane delegate", CmdArtifactSubmit: "artifact submit",
 		CmdReviewApprove: "review approve", CmdReviewReject: "review reject",
 		CmdHitlAsk: "hitl ask", CmdHitlApproveRequest: "hitl approve-request", CmdHitlRequestInfo: "hitl request-info",
+		CmdRoomList: "room list", CmdRoomRead: "room read", CmdWorkPropose: "work propose",
 	}
 	for _, c := range AllCommands {
 		if c.CLIName() != want[c] {

@@ -20,6 +20,8 @@
 #      탭 0줄(컨텍스트조차 없음) · role "" 문장 괄호 생략 · 허용 명령(session get)은 탭 1줄(컨텍스트 없이 바로).
 #   C. MCP — `colab mcp serve --allow <reviewer 10>`: tools/list 10(delegate·submit·approve-request 없음) ·
 #      colab_lane_delegate 호출 → isError command_not_allowed · 탭 0줄 · colab_session_get → 결과 · --allow 없이 13.
+#   E. (T-R3a, colab-cli.md v0.8) 방 명령 셋 — lead `colab work propose` → 0 + work_proposal 1 · reviewer
+#      `colab work propose` → exit 3(선 1줄 = /cli/context) · reviewer `colab room list` → 0(모든 역할, 선에 GET /cli/rooms).
 #   D. 서버 우회 방어 한 줄 — 같은 토큰으로 curl 직접 POST /lanes → 403 command_not_allowed(81_ D.8 재확인, "세 층").
 #
 # 스택(T-C7 배정, V11_TASKS §0): server :8119 · pg :5463 · 컨테이너 colab-pg-c7. 탭은 `TAP_PORT_84`(기본 SERVER_URL 포트+10 = :8129) —
@@ -77,7 +79,7 @@ cli() {
     COLAB_LANE_ID="$lid" COLAB_SESSION_ID="$S" COLAB_AGENT_NAME="$name" COLAB_STATE_DIR="$OUT/84-state" "$COLAB" "$@" 2>>"$OUT/84-cli.err"
   printf '\n%s' "$?"
 }
-REVIEWER_ALL="session_get,session_messages,message_post,status_set,decision_record,artifact_get,review_approve,review_reject,hitl_ask,hitl_request_info"
+REVIEWER_ALL="session_get,session_messages,message_post,status_set,decision_record,artifact_get,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read"
 
 step "1. 계정 · 워크스페이스 · Lead(lead)·R(reviewer) · 페어링 · 세션"
 signup "c7-dir-$RUN@example.com" password123 "Dir" >/dev/null
@@ -101,11 +103,14 @@ OUT_L="$(cli "$TT_L" "$T_L" "$L_L" Lead lane delegate --agent R --brief "초안�
 chk 1.3 0 "$(api_code <<<"$OUT_L")" "lead 토큰 colab lane delegate → exit 0(표 안)"
 chk 1.4 1 "$(psqlq "select count(*) from lane where session_id='$S' and delegated_from_task_id='$T_L'")" "lane 1 생성"
 chk 1.5 2 "$(tap_count 'GET /api/v1/cli/context')" "선: CLI 프로세스 둘(제출·위임)이 게이트용 컨텍스트를 각 1회 = 2"
+OUT_L="$(cli "$TT_L" "$T_L" "$L_L" Lead work propose --goal "가격표를 따로 정리한다" --why "세 방에서 같은 질문이 나왔다")"
+chk E.1 "0/open" "$(api_code <<<"$OUT_L")/$(api_body <<<"$OUT_L" | jq -r '.proposal.status')" "lead 토큰 colab work propose → exit 0 · 제안 open(§2.4a, v0.8)"
+chk E.2 1 "$(psqlq "select count(*) from work_proposal where proposed_by_task_id='$T_L' and id='$(api_body <<<"$OUT_L" | jq -r '.proposal_id')'")" "work_proposal 행 1(proposal_id 로)"
 finish_turn "$T_L"
 
 step "A. 컨텍스트 모드 — reviewer 토큰(데몬 env 그대로, 목록은 getCliContext.allowed_commands)"
 IFS=$'\t' read -r T_R TT_R L_R AC_R <<<"$(run_turn "$S" "$R")"
-chk A.0 "$REVIEWER_ALL" "$AC_R" "번들 task.allowed_commands(reviewer 10) — 래퍼 모드(B)가 export 할 값"
+chk A.0 "$REVIEWER_ALL" "$AC_R" "번들 task.allowed_commands(reviewer 12 — v0.8 room_list·room_read 포함) — 래퍼 모드(B)가 export 할 값"
 tap_reset
 OUT_R="$(cli "$TT_R" "$T_R" "$L_R" R lane delegate --agent Lead --brief "다시 써 주세요")"
 chk A.1 3 "$(api_code <<<"$OUT_R")" "reviewer 토큰 colab lane delegate → exit 3"
@@ -128,6 +133,15 @@ tap_reset
 OUT_R="$(cli "$TT_R" "$T_R" "$L_R" R message post --body "검토 끝")"
 chk A.13 0 "$(api_code <<<"$OUT_R")" "reviewer colab message post → exit 0(표 안)"
 chk A.14 1 "$(tap_count 'POST /api/v1/sessions/'"$S"'/messages -> 201')" "선: POST /messages 201"
+
+tap_reset
+OUT_R="$(cli "$TT_R" "$T_R" "$L_R" R work propose --goal "리뷰 체크리스트" --why "매번 같은 지적")"
+chk E.3 "3/command_not_allowed/이 역할(reviewer)은 work propose 를 쓸 수 없습니다" "$(api_code <<<"$OUT_R")/$(api_body <<<"$OUT_R" | jq -r '.error.code+"/"+.error.detail')" "reviewer colab work propose → exit 3(§2.5 v0.8: lead·custom 만)"
+chk E.4 "1/0" "$(tap_lines)/$(tap_count 'work-proposals')" "선: GET /cli/context 1줄뿐 · POST work-proposals 0"
+chk E.5 0 "$(psqlq "select count(*) from work_proposal where proposed_by_task_id='$T_R'")" "work_proposal 행 0"
+tap_reset
+OUT_R="$(cli "$TT_R" "$T_R" "$L_R" R room list)"
+chk E.6 "0/1" "$(api_code <<<"$OUT_R")/$(tap_count 'GET /api/v1/cli/rooms')" "reviewer colab room list → exit 0 · 선에 GET /cli/rooms(모든 역할)"
 
 step "B. 래퍼 모드 — harness §10 래퍼(COLAB_ALLOWED_COMMANDS export) 를 env -i 로"
 WRAPDIR="$OUT/84-work/.colab/bin/$T_R.1"; mkdir -p "$WRAPDIR"
@@ -156,7 +170,7 @@ tap_reset
 OUT_W="$(env -i "$WRAPDIR/colab" session get 2>>"$OUT/84-wrap.err"; printf '\n%s' "$?")"
 chk B.6 "0/1/0" "$(api_code <<<"$OUT_W")/$(tap_count 'GET /api/v1/sessions/'"$S"' -> 200')/$(tap_count 'GET /api/v1/cli/context')" "허용 명령(session get)은 바로 서버로: GET /sessions/{S} 1 · /cli/context 0"
 
-step "C. MCP — colab mcp serve --allow <reviewer 10>"
+step "C. MCP — colab mcp serve --allow <reviewer 12>"
 mcp_in() { printf '%s\n' "$@"; }
 tap_reset
 mcp_in '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
@@ -165,14 +179,15 @@ mcp_in '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
   | env -i PATH="$PATH" HOME="$HOME" COLAB_TASK_TOKEN="$TT_R" COLAB_SERVER_URL="$TAP_URL" COLAB_TASK_ID="$T_R" COLAB_TASK_ATTEMPT=1 \
       COLAB_LANE_ID="$L_R" COLAB_SESSION_ID="$S" COLAB_AGENT_NAME=R COLAB_STATE_DIR="$OUT/84-state" \
       "$COLAB" mcp serve --allow "$AC_R" > "$OUT/84-mcp.out" 2>"$OUT/84-mcp.err"
-chk C.1 "10" "$(sed -n 1p "$OUT/84-mcp.out" | jq -r '.result.tools|length')" "tools/list 10(reviewer 표)"
-chk C.2 "0" "$(sed -n 1p "$OUT/84-mcp.out" | jq -r '[.result.tools[].name|select(.=="colab_lane_delegate" or .=="colab_artifact_submit" or .=="colab_hitl_approve_request")]|length')" "delegate·submit·approve-request 툴 없음"
+chk C.1 "14" "$(sed -n 1p "$OUT/84-mcp.out" | jq -r '.result.tools|length')" "tools/list 14(reviewer 표 12 + room get·room messages 별칭 2)"
+chk C.2 "0" "$(sed -n 1p "$OUT/84-mcp.out" | jq -r '[.result.tools[].name|select(.=="colab_lane_delegate" or .=="colab_artifact_submit" or .=="colab_hitl_approve_request" or .=="colab_work_propose")]|length')" "delegate·submit·approve-request·work_propose 툴 없음"
+chk C.2b "2" "$(sed -n 1p "$OUT/84-mcp.out" | jq -r '[.result.tools[].name|select(.=="colab_room_list" or .=="colab_room_read")]|length')" "room_list·room_read 툴 있음(모든 역할)"
 chk C.3 "true/command_not_allowed/lane_delegate" "$(sed -n 2p "$OUT/84-mcp.out" | jq -r '(.result.isError|tostring)+"/"+.result.structuredContent.error.code+"/"+.result.structuredContent.error.command')" "잘린 툴 호출 → isError command_not_allowed(프로토콜 오류 아님)"
 chk C.4 "명령 게이트" "$(sed -n 3p "$OUT/84-mcp.out" | jq -r '.result.structuredContent.title')" "허용 툴(colab_session_get) → 결과"
 chk C.5 "1/0" "$(tap_lines)/$(tap_count 'POST /api/v1/sessions/'"$S"'/lanes')" "선: GET /sessions/{S} 1줄뿐 · /lanes 0 (--allow 가 게이트 목록이라 /cli/context 도 0)"
 mcp_in '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
   | env -i PATH="$PATH" HOME="$HOME" COLAB_TASK_TOKEN="$TT_R" COLAB_SERVER_URL="$TAP_URL" COLAB_SESSION_ID="$S" "$COLAB" mcp serve > "$OUT/84-mcp-all.out" 2>/dev/null
-chk C.6 13 "$(sed -n 1p "$OUT/84-mcp-all.out" | jq -r '.result.tools|length')" "--allow 없으면 13 전부"
+chk C.6 18 "$(sed -n 1p "$OUT/84-mcp-all.out" | jq -r '.result.tools|length')" "--allow 없으면 18 전부(명령 16 + 방 별칭 2)"
 
 step "D. 서버 우회 방어(세 층) — 같은 reviewer 토큰으로 curl 직접"
 R_="$(curl -sS -w '\n%{http_code}' -H "Authorization: Bearer $TT_R" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuid)" -X POST "$API/sessions/$S/lanes" --data "$(jq -nc --arg a "$LEAD" '{agent_id:$a,brief:"우회"}')")"

@@ -194,7 +194,7 @@ func (s *Server) DelegateLane(w http.ResponseWriter, r *http.Request, sessionId 
 		writeProblem(w, apperr.Forbidden("outside_task_scope", "다른 방에는 위임할 수 없습니다"))
 		return
 	}
-	if p := s.commandAllowed(r, gen.LaneDelegate); p != nil {
+	if p := s.commandAllowed(r, gen.ColabCommandLaneDelegate); p != nil {
 		writeProblem(w, p)
 		return
 	}

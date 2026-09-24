@@ -53,7 +53,8 @@ type Posted struct {
 // Server is the fake. Mutate the exported fields before the request under test.
 type Server struct {
 	*httptest.Server
-	p2State  // P2 knobs and captures — see p2.go
+	p2State // P2 knobs and captures — see p2.go
+	roomState
 	mu       sync.Mutex
 	Revoked  bool // every authed call → 401 token_revoked
 	Fail     int  // if >0, every call returns this status with a Problem
@@ -148,6 +149,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	if s.handleP3(w, r, path) {
 		return
 	}
+	if s.handleRooms(w, r, path) {
+		return
+	}
 	switch {
 	case r.Method == "GET" && path == "/cli/context":
 		role := s.Role
@@ -188,6 +192,15 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		items := s.Messages
 		q := r.URL.Query()
+		if wk := q.Get("work_id"); wk != "" {
+			var f []map[string]any
+			for _, m := range items {
+				if m["work_id"] == wk {
+					f = append(f, m)
+				}
+			}
+			items = f
+		}
 		if th := q.Get("thread"); th != "" {
 			var f []map[string]any
 			for _, m := range items {

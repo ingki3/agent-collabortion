@@ -30,13 +30,18 @@ import (
 // nobody can see, and the day §2.5 restricts a read that is exactly what it
 // would become (PR #246 리뷰 NN2). `read` is the schema's own verb for a
 // read; the command name rides in object_ref and payload.command as for the
-// rest.
+// rest. `work propose` (v0.8) has no verb of its own either and the schema
+// is closed (a new verb would be a contract change): it rides on `hitl`,
+// because what it does is exactly that — put a question to the room's
+// people, who decide whether the mission opens (FR-2A.1).
 var commandVerbs = map[gen.ColabCommand]string{
-	gen.MessagePost: "post_message", gen.StatusSet: "set_status", gen.DecisionRecord: "record_decision",
-	gen.LaneDelegate: "delegate", gen.ArtifactSubmit: "submit_artifact",
-	gen.ReviewApprove: "review", gen.ReviewReject: "review",
-	gen.HitlAsk: "hitl", gen.HitlApproveRequest: "hitl", gen.HitlRequestInfo: "hitl",
-	gen.SessionGet: "read", gen.SessionMessages: "read", gen.ArtifactGet: "read",
+	gen.ColabCommandMessagePost: "post_message", gen.ColabCommandStatusSet: "set_status", gen.ColabCommandDecisionRecord: "record_decision",
+	gen.ColabCommandLaneDelegate: "delegate", gen.ColabCommandArtifactSubmit: "submit_artifact",
+	gen.ColabCommandReviewApprove: "review", gen.ColabCommandReviewReject: "review",
+	gen.ColabCommandHitlAsk: "hitl", gen.ColabCommandHitlApproveRequest: "hitl", gen.ColabCommandHitlRequestInfo: "hitl",
+	gen.ColabCommandSessionGet: "read", gen.ColabCommandSessionMessages: "read", gen.ColabCommandArtifactGet: "read",
+	gen.ColabCommandRoomList: "read", gen.ColabCommandRoomRead: "read",
+	gen.ColabCommandWorkPropose: "hitl",
 }
 
 // commandAllowed answers nil when the caller may run cmd. For a task token
@@ -101,9 +106,9 @@ func (s *Server) agentRole(r *http.Request) (string, error) {
 func hitlCommand(kind string) gen.ColabCommand {
 	switch kind {
 	case hitl.KindApproval:
-		return gen.HitlApproveRequest
+		return gen.ColabCommandHitlApproveRequest
 	case hitl.KindInfo:
-		return gen.HitlRequestInfo
+		return gen.ColabCommandHitlRequestInfo
 	}
-	return gen.HitlAsk
+	return gen.ColabCommandHitlAsk
 }

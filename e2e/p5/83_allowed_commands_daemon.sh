@@ -13,7 +13,7 @@
 #   D.4 그 목록에 `colab_lane_delegate` 가 **없다** — CLI 가 `--allow` 를 구현했을 때만(T-C7). 이 스크립트가
 #       빌드한 CLI 가 아직 플래그를 모르면(`colab mcp serve --allow x --list` 가 없다) 판정 대신 관측만 적는다:
 #       데몬 몫은 argv 까지(D.2)이고 툴 등록 필터는 CLI 몫이다.
-#   D.5 에이전트가 게시한 메시지에 브리프 [2] 의 "이 역할은 위임 · 아티팩트 제출 · 완료 승인 요청을 쓰지 않는다."
+#   D.5 에이전트가 게시한 메시지에 브리프 [2] 의 "이 역할은 위임 · 아티팩트 제출 · 완료 승인 요청 · 미션 제안을 쓰지 않는다."
 #       가 글자 그대로 있다 — 실기 런타임이 받은 _meta.systemPrompt 를 에이전트 입으로 확인(데몬은 브리프를
 #       로그에 남기지 않는다). 세션 goal 이 그 줄을 그대로 인용해 게시하라고 시킨다.
 #   D.6 task 가 completed.
@@ -88,9 +88,9 @@ step "A. reviewer 에이전트(claude_code $MODEL) · 세션(assignee=Rev) → �
 INS="You are a reviewer. When the session goal asks you to quote lines from your brief, copy them character for character. $P4_RULES"
 AG="$(api_ok POST "/workspaces/$WS/agents" "$(jq -nc --arg m "$MODEL" --arg i "$INS" '{name:"Rev",role:"reviewer",role_description:"산출물을 검토한다",
   instructions:$i,profiles:[{name:"default",runtime_kind:"claude_code",model:$m,is_default:true}]}')" | jq -r .id)"
-chk A.1 "lane_delegate,artifact_submit,hitl_approve_request" \
-  "$(api_ok GET "/agents/$AG" | jq -r '.allowed_commands as $a | ["session_get","session_messages","message_post","status_set","decision_record","lane_delegate","artifact_submit","artifact_get","review_approve","review_reject","hitl_ask","hitl_approve_request","hitl_request_info"] - $a | join(",")')" \
-  "서버 Agent.allowed_commands — reviewer 가 못 쓰는 3개(colab-cli §2.5)"
+chk A.1 "lane_delegate,artifact_submit,hitl_approve_request,work_propose" \
+  "$(api_ok GET "/agents/$AG" | jq -r '.allowed_commands as $a | ["session_get","session_messages","message_post","status_set","decision_record","lane_delegate","artifact_submit","artifact_get","review_approve","review_reject","hitl_ask","hitl_approve_request","hitl_request_info","room_list","room_read","work_propose"] - $a | join(",")')" \
+  "서버 Agent.allowed_commands — reviewer 가 못 쓰는 4개(colab-cli §2.5 v0.8)"
 GOAL="Your system prompt (the brief) has a section [2] Workspace rules and colab CLI. Post ONE message whose body is exactly the line of that section that starts with \"- 이 역할은\" — copy it character for character, nothing else. Then end your turn. $P4_RULES"
 SID="$(api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg g "$GOAL" --arg a "$AG" --arg rt "$RID" \
   '{title:"D13 allowed commands",goal:$g,isolation:{kind:"none"},participants:[{agent_id:$a}],assignee_agent_id:$a,runtime_id:$rt,
@@ -105,9 +105,9 @@ chk D.6 completed "$OUTCOME" "task attempt 1 outcome"
 
 # ───────────────────────────── D ─────────────────────────────────────────────
 step "D. 데몬 로그 · MCP argv · 툴 목록 · 에이전트가 인용한 브리프 줄"
-REVIEWER="session_get,session_messages,message_post,status_set,decision_record,artifact_get,review_approve,review_reject,hitl_ask,hitl_request_info"
-chk D.1 1 "$(grep -c "allowed commands: $REVIEWER (denied: lane_delegate,artifact_submit,hitl_approve_request)" "$DLOG" || true)" "데몬이 번들 allowed_commands 를 읽음(로그)"
-chk D.2 1 "$(grep -c "^[0-9]*	mcp serve --allow $REVIEWER\$" "$ARGV" || true)" "colab MCP 서버 argv = mcp serve --allow <reviewer 10개> (탭 기록)"
+REVIEWER="session_get,session_messages,message_post,status_set,decision_record,artifact_get,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read"
+chk D.1 1 "$(grep -c "allowed commands: $REVIEWER (denied: lane_delegate,artifact_submit,hitl_approve_request,work_propose)" "$DLOG" || true)" "데몬이 번들 allowed_commands 를 읽음(로그)"
+chk D.2 1 "$(grep -c "^[0-9]*	mcp serve --allow $REVIEWER\$" "$ARGV" || true)" "colab MCP 서버 argv = mcp serve --allow <reviewer 12개> (탭 기록)"
 TOOLS="$(grep -o "colab tools registered: .*" "$DLOG" | tail -1 | sed 's/colab tools registered: //')"
 chk D.3 yes "$([ -n "$TOOLS" ] && echo yes || echo no)" "raw system/init 의 콜랩 툴 목록을 로그에 남김: $TOOLS"
 HAS_DELEGATE="$(in_list colab_lane_delegate "$TOOLS")"
@@ -119,7 +119,7 @@ else
 fi
 MSG="$(psqlq "select content from message where session_id='$SID' and author_type='agent' order by created_at limit 1")"
 printf '%s\n' "$MSG" > "$OUT/83-agent-message.txt"
-chk D.5 yes "$(has_str "$MSG" "이 역할은 위임 · 아티팩트 제출 · 완료 승인 요청을 쓰지 않는다.")" "에이전트가 인용한 [2] 의 줄 = 데몬이 쓴 문장 (msg: $(printf '%s' "$MSG" | head -c 120))"
+chk D.5 yes "$(has_str "$MSG" "이 역할은 위임 · 아티팩트 제출 · 완료 승인 요청 · 미션 제안을 쓰지 않는다.")" "에이전트가 인용한 [2] 의 줄 = 데몬이 쓴 문장 (msg: $(printf '%s' "$MSG" | head -c 120))"
 
 cp "$DLOG" "$OUT/83-daemon.final.log" 2>/dev/null || true
 step "결과: $CHECKS"

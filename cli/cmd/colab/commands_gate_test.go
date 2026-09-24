@@ -14,7 +14,7 @@ import (
 )
 
 // K-19 (colab-cli.md v0.6 §2.5): the role's command subset is enforced
-// before any request. This file drives every one of the 13 commands through
+// before any request. This file drives every one of the 16 commands through
 // the CLI against the §2.5 table PARSED OUT OF THE CONTRACT FILE — a row
 // changed in the contract without a change here fails, and the other way
 // round — and checks, for each (role, command): allowed → the command's own
@@ -122,6 +122,9 @@ func invocations(t *testing.T) map[client.Command]invocation {
 		client.CmdHitlAsk:            {[]string{"hitl", "ask", "--question", "q", "--default", "d"}, "POST", sess + "/hitl-requests"},
 		client.CmdHitlApproveRequest: {[]string{"hitl", "approve-request", "--summary", "s"}, "POST", sess + "/hitl-requests"},
 		client.CmdHitlRequestInfo:    {[]string{"hitl", "request-info", "--what", "w"}, "POST", sess + "/hitl-requests"},
+		client.CmdRoomList:           {[]string{"room", "list"}, "GET", "/cli/rooms"},
+		client.CmdRoomRead:           {[]string{"room", "read", "--room", clienttest.OtherRoomID}, "GET", "/cli/rooms/" + clienttest.OtherRoomID + "/read"},
+		client.CmdWorkPropose:        {[]string{"work", "propose", "--goal", "g", "--why", "w"}, "POST", "/rooms/" + clienttest.SessionID + "/work-proposals"},
 	}
 }
 
@@ -214,7 +217,7 @@ func paths(s *clienttest.Server) []string {
 	return out
 }
 
-// The §2.5 table names exactly the 13 ColabCommand values — no more (a name
+// The §2.5 table names exactly the 16 ColabCommand values — no more (a name
 // the enum lacks) and no fewer (a command the table forgot).
 func TestSection25NamesEveryCommand(t *testing.T) {
 	table := section25(t)
@@ -372,7 +375,8 @@ func TestMCPServeAllowViaCLI(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[0]), &list); err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Result.Tools) != 2 || list.Result.Tools[0].Name != "colab_session_get" || list.Result.Tools[1].Name != "colab_review_approve" {
+	// session_get also registers its room alias, colab_room_get (§2.4a).
+	if len(list.Result.Tools) != 3 || list.Result.Tools[0].Name != "colab_session_get" || list.Result.Tools[1].Name != "colab_review_approve" || list.Result.Tools[2].Name != "colab_room_get" {
 		t.Fatalf("tools/list = %+v", list.Result.Tools)
 	}
 	if !strings.Contains(lines[1], `"code":"command_not_allowed"`) || !strings.Contains(lines[1], `"isError":true`) {

@@ -46,7 +46,7 @@ func (s *Server) SubmitArtifact(w http.ResponseWriter, r *http.Request, sessionI
 		writeProblem(w, p)
 		return
 	}
-	if p := s.commandAllowed(r, gen.ArtifactSubmit); p != nil {
+	if p := s.commandAllowed(r, gen.ColabCommandArtifactSubmit); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -332,7 +332,7 @@ func (s *Server) GetArtifact(w http.ResponseWriter, r *http.Request, artifactId 
 		writeProblem(w, p)
 		return
 	}
-	if p := s.commandAllowed(r, gen.ArtifactGet); p != nil {
+	if p := s.commandAllowed(r, gen.ColabCommandArtifactGet); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -357,7 +357,7 @@ func (s *Server) DownloadArtifact(w http.ResponseWriter, r *http.Request, artifa
 		writeProblem(w, p)
 		return
 	}
-	if p := s.commandAllowed(r, gen.ArtifactGet); p != nil {
+	if p := s.commandAllowed(r, gen.ColabCommandArtifactGet); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -434,9 +434,9 @@ func (s *Server) ReviewArtifact(w http.ResponseWriter, r *http.Request, artifact
 		writeProblem(w, apperr.Validation(apperr.Field("verdict", "enum", "판정은 approve 또는 reject 여야 합니다")))
 		return
 	}
-	cmd := gen.ReviewApprove
+	cmd := gen.ColabCommandReviewApprove
 	if kind == "review_reject" {
-		cmd = gen.ReviewReject
+		cmd = gen.ColabCommandReviewReject
 	}
 	if p := s.commandAllowed(r, cmd); p != nil {
 		writeProblem(w, p)
