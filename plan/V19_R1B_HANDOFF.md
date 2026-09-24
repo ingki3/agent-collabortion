@@ -88,3 +88,11 @@ router/preview.go:36 · router/delegate.go:57 · router/status.go:61
 - ~~#317 NN1·NN2 · CI 10분 시간 초과~~ **닫힘(#318)** — 웹 자물쇠 여러 줄 JSX, 서버 자물쇠 상수 추적, go test -timeout 20m.
 - **R4 로 미룸(Lead 판정 2026-09-24)**: 계약 description 속 「세션」 산문(openapi 약 86곳·daemon-protocol 23곳·colab-cli 6곳, #317 본문 목록). 대부분 R4 까지 별칭으로 사는 옛 `/sessions/*` op 의 설명이라 지금도 사실이고, 서버 테스트 일부가 계약 문장을 글자 단위로 읽는다 — 별칭을 지우는 R4 에서 op 과 함께 고친다.
 - **백로그**: e2e 82 W3·W3b(S7 빈 턴 행, agent-browser 로컬 전용) 가 dev 에서도 68/2 — 기존 결함(#317 보고).
+
+### R4 이후 (2026-09-24)
+- ~~R4 옛 `/sessions/*` 삭제~~ **닫힘(#327)** — openapi v0.3.0 D22. 옛 세션 데이터는 Director 결정으로 이관 없이 삭제(덤프 `~/.colab/backup/colab-g6-before-session-wipe-*.dump`). E13-16 게이트는 createWork 로. ~~#328 병합 task 미션 귀속~~ **닫힘**. ~~#329 attempt 별 비용~~ **닫힘**(이미 덮인 과거 비용은 복구 불가).
+- **#326 NN1** — `<roster_status>` 가 working/idle 2값이라 `waiting_human` 을 에이전트가 못 본다(계약 §10 값 추가 여부, Director 판단).
+- **#327 NN1** — `removeRoomParticipant` 계약에 "assignee 에이전트 제거 허용, 종료 조건은 blocked_reason 으로 안내" 문장. **NN2** — (PR 본문 몫, 닫힘 처리).
+- **#328 NN1** — wake 병합(`status.go wake`) 전용 회귀 테스트. **백로그** — `adoptThread` 가 lane 미션과 어긋나는 task 를 올려 한 lane 에 두 미션 task 공존(§3.1.1, 중-하).
+- **#329 NN1** — 늦은 이전 attempt heartbeat 409 가 usage 를 안 쓰는 단언.
+- **STO 실사용 테스트(2026-09-24) 관찰** — 28분·실제 ≈$21.6. 비용의 41%(≈$8.9)가 Lead 최종 검수 1턴(63KB 보고서 전체 재독·패치). 후보: 검수·종합 턴 모델/역할 분리, 아티팩트 diff 패치. 완료 알림마다 에이전트가 "이미 반영" 확인 메시지를 올리는 잡음(Lead 2회·Writer 1회). 예산 상한 15% 초과 뒤 pause(턴 경계 검사 — 설계대로, 사용자 안내 필요). 시스템 문구 「Writer이(가)」 라틴 이름 조사.
