@@ -34,7 +34,7 @@ cleanup() { [ -n "${TAP_PID:-}" ] && kill "$TAP_PID" 2>/dev/null || true; daemon
 trap cleanup EXIT
 LEAD_ALL="session_get,session_messages,message_post,status_set,decision_record,lane_delegate,artifact_submit,artifact_get,review_approve,review_reject,hitl_ask,hitl_approve_request,hitl_request_info"
 REVIEWER_ALL="session_get,session_messages,message_post,status_set,decision_record,artifact_get,review_approve,review_reject,hitl_ask,hitl_request_info"
-DENY_LINE="이 역할은 위임 · 산출물 제출 · 완료 승인 요청을 쓰지 않는다."
+DENY_LINE="이 역할은 위임 · 아티팩트 제출 · 완료 승인 요청을 쓰지 않는다."
 
 # tok_api TOKEN METHOD PATH [JSON] → 본문 + 마지막 줄 코드 (task 토큰으로, 서버에 직접 — 탭을 거치지 않는다)
 tok_api() {
@@ -256,7 +256,7 @@ step "6. (d) 사람(쿠키) 경로는 비게이트 — Director·멤버 (NN4): �
 # 메시지는 /note 로 — 규칙 1(저장만, 라우팅 없음). 보통 문장은 규칙 6 으로 assignee(Lead)를 깨워 Lead 대본이 또 위임한다(1차 실행 실측).
 chk D1 "Director POST /messages(/note) → 201" 201 "$(api POST "/sessions/$S/messages" '{"content":"/note 사람이 씁니다"}' -H "Idempotency-Key: $(uuid)" | api_code)"
 D_LANE="$(api POST "/sessions/$S/lanes" "$(jq -nc --arg a "$IDLE" '{agent_id:$a,brief:"사람이 만든 lane"}')")"
-chk D2 "Director POST /lanes → 403 agent_only (사람은 「새 작업 줄기로 보내기」) — command_not_allowed 가 아니다" "403/agent_only" "$(api_code <<<"$D_LANE")/$(api_body <<<"$D_LANE" | jq -r '.code // "-"')"
+chk D2 "Director POST /lanes → 403 agent_only (사람은 「새 서브 미션으로 보내기」) — command_not_allowed 가 아니다" "403/agent_only" "$(api_code <<<"$D_LANE")/$(api_body <<<"$D_LANE" | jq -r '.code // "-"')"
 D_DEC="$(api POST "/sessions/$S/decisions" '{"summary":"사람의 결정"}' -H "Idempotency-Key: $(uuid)")"
 chk D3 "Director POST /decisions → 403 agent_only — command_not_allowed 가 아니다" "403/agent_only" "$(api_code <<<"$D_DEC")/$(api_body <<<"$D_DEC" | jq -r '.code // "-"')"
 chk D3b "Director GET /sessions/{S} 200 · listLanes 200 · listMessages 200" "200/200/200" "$(api GET "/sessions/$S" | api_code)/$(api GET "/sessions/$S/lanes" | api_code)/$(api GET "/sessions/$S/messages" | api_code)"

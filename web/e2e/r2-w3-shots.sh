@@ -125,7 +125,7 @@ for theme in light dark; do
   ab select '[data-testid="rd-create-work-assignee"]' "$LEAD" >/dev/null
   ab click '[data-testid="rd-create-work-more"] summary' >/dev/null
   ab fill '[data-testid="rd-create-work-budget"]' '20' >/dev/null
-  assert_js 'document.querySelector("[data-testid=rd-create-work-condition-sentence]").textContent.includes("보고서 제출 (@Lead) 그리고 Director 승인")' "담당 → 종료 조건 문장"
+  assert_js 'document.querySelector("[data-testid=rd-create-work-condition-sentence]").textContent.includes("아티팩트 제출 (@Lead) 그리고 Director 승인")' "제출자 → 종료 조건 문장"
   assert_js 'document.querySelector("[data-testid=rd-create-work-budget-line]").textContent.includes("방 한도 $50 중 이 미션에 $20")' "예산 줄"
   shot_full "r2-w3-06-s21-new-$theme"
 

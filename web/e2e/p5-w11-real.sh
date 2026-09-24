@@ -135,7 +135,7 @@ ab wait '[data-testid="metric-row"]' --timeout 15000 >/dev/null
 chk "  행 수" "$(apic 'document.querySelectorAll("[data-testid=metric-row]").length')" "10"
 chk "  '아직 잴 수 없음' 값 칸 수" "$(apic '[...document.querySelectorAll("[data-testid=metric-value]")].filter(e=>e.textContent.includes("아직 잴 수 없음")).length')" "10"
 chk "  판정 unknown 수(10행 + breakdown 2행)" "$(apic '[...document.querySelectorAll("[data-testid=metric-verdict]")].filter(e=>e.dataset.verdict==="unknown").length')" "12"
-chk "  첫 행 라벨 = 서버 label" "$(apic 'document.querySelector("[data-testid=metric-row]").textContent.includes("컴퓨터 연결부터 첫 세션 완료까지 걸린 시간")')" "True"
+chk "  첫 행 라벨 = 서버 label" "$(apic 'document.querySelector("[data-testid=metric-row]").textContent.includes("컴퓨터 연결부터 첫 미션 완료까지 걸린 시간")')" "True"
 shot_both "p5-w11-02-dashboard-real"
 
 step "시험 대화 — 열기 → 턴 202(진행 중) → 재전송 409 → 닫기 → 410"

@@ -3,7 +3,7 @@
 # 개발 오버레이 배지가 없게). 테마는 설정 화면과 같은 경로(localStorage + <html data-theme>)로 고정한다(PR #188 NN3).
 #
 #   p5-w13-01-menu-{light,dark}.png            카드 「…」 메뉴 열림 — 끝난 세션(활성 「삭제」)
-#   p5-w13-02-menu-blocked-{light,dark}.png    진행 중 세션 — 「삭제」 비활성 + 사유 "진행 중인 세션은 먼저 종료하세요"
+#   p5-w13-02-menu-blocked-{light,dark}.png    진행 중 세션 — 「삭제」 비활성 + 사유 "진행 중인 미션은 먼저 종료하세요"
 #   p5-w13-03-dialog-{light,dark}.png          확인 다이얼로그 — 제목에 세션 이름 · 사라지는 것 · 되돌릴 수 없음 · 위험 색 「삭제」
 #   p5-w13-04-workdirs-{light,dark}.png        409 workdir_unmerged — 다이얼로그 안에 작업 폴더 목록(경로·브랜치·사유) + 「작업 폴더 관리」 링크
 #   p5-w13-05-deleted-{light,dark}.png         204 뒤 — 카드가 빠지고 안내 한 줄(W-14: 어두움도)

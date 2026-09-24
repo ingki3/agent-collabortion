@@ -13,7 +13,7 @@
 #   D.4 그 목록에 `colab_lane_delegate` 가 **없다** — CLI 가 `--allow` 를 구현했을 때만(T-C7). 이 스크립트가
 #       빌드한 CLI 가 아직 플래그를 모르면(`colab mcp serve --allow x --list` 가 없다) 판정 대신 관측만 적는다:
 #       데몬 몫은 argv 까지(D.2)이고 툴 등록 필터는 CLI 몫이다.
-#   D.5 에이전트가 게시한 메시지에 브리프 [2] 의 "이 역할은 위임 · 산출물 제출 · 완료 승인 요청을 쓰지 않는다."
+#   D.5 에이전트가 게시한 메시지에 브리프 [2] 의 "이 역할은 위임 · 아티팩트 제출 · 완료 승인 요청을 쓰지 않는다."
 #       가 글자 그대로 있다 — 실기 런타임이 받은 _meta.systemPrompt 를 에이전트 입으로 확인(데몬은 브리프를
 #       로그에 남기지 않는다). 세션 goal 이 그 줄을 그대로 인용해 게시하라고 시킨다.
 #   D.6 task 가 completed.
@@ -119,7 +119,7 @@ else
 fi
 MSG="$(psqlq "select content from message where session_id='$SID' and author_type='agent' order by created_at limit 1")"
 printf '%s\n' "$MSG" > "$OUT/83-agent-message.txt"
-chk D.5 yes "$(has_str "$MSG" "이 역할은 위임 · 산출물 제출 · 완료 승인 요청을 쓰지 않는다.")" "에이전트가 인용한 [2] 의 줄 = 데몬이 쓴 문장 (msg: $(printf '%s' "$MSG" | head -c 120))"
+chk D.5 yes "$(has_str "$MSG" "이 역할은 위임 · 아티팩트 제출 · 완료 승인 요청을 쓰지 않는다.")" "에이전트가 인용한 [2] 의 줄 = 데몬이 쓴 문장 (msg: $(printf '%s' "$MSG" | head -c 120))"
 
 cp "$DLOG" "$OUT/83-daemon.final.log" 2>/dev/null || true
 step "결과: $CHECKS"

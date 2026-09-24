@@ -100,7 +100,7 @@ AGS=$(curl -sS -b "$J" "$B/workspaces/$WS/agents")
 chk "listAgents — Lead 13개 · Researcher 9개(위임·검토 승인/반려·완료 승인 요청 없음)" "$(echo "$AGS" | py 'import sys,json;a={x["name"]:x["allowed_commands"] for x in json.load(sys.stdin)["items"]};print(len(a["Lead"]), len(a["Researcher"]), all(c not in a["Researcher"] for c in ("lane_delegate","review_approve","review_reject","hitl_approve_request")), "artifact_submit" in a["Researcher"])')" "13 9 True True"
 RV=$(curl -sS -b "$J" -X POST "$B/workspaces/$WS/agents" -H 'content-type: application/json' -d '{"name":"Reviewer-smoke","role":"reviewer","role_description":"검토","instructions":"검토한다","profiles":[{"runtime_kind":"claude_code","model":"claude-sonnet-5"}]}')
 RVID=$(echo "$RV" | py 'import sys,json;print(json.load(sys.stdin)["id"])')
-chk "createAgent(reviewer) → 10개 · 산출물 제출 없음 · 검토 승인/반려 있음 · enum 순서" "$(echo "$RV" | py 'import sys,json;c=json.load(sys.stdin)["allowed_commands"];print(len(c), "artifact_submit" in c, "review_approve" in c and "review_reject" in c, c==[x for x in ["session_get","session_messages","artifact_get","message_post","status_set","decision_record","lane_delegate","artifact_submit","review_approve","review_reject","hitl_ask","hitl_approve_request","hitl_request_info"] if x in c])')" "10 False True True"
+chk "createAgent(reviewer) → 10개 · 아티팩트 제출 없음 · 검토 승인/반려 있음 · enum 순서" "$(echo "$RV" | py 'import sys,json;c=json.load(sys.stdin)["allowed_commands"];print(len(c), "artifact_submit" in c, "review_approve" in c and "review_reject" in c, c==[x for x in ["session_get","session_messages","artifact_get","message_post","status_set","decision_record","lane_delegate","artifact_submit","review_approve","review_reject","hitl_ask","hitl_approve_request","hitl_request_info"] if x in c])')" "10 False True True"
 chk "  PATCH role custom + allowed_commands 보내도 → 13개(파생값, 보낸 값 무시)" "$(curl -sS -b "$J" -X PATCH "$B/agents/$RVID" -H 'content-type: application/json' -d '{"role":"custom","allowed_commands":["message_post"]}' | py 'import sys,json;print(len(json.load(sys.stdin)["allowed_commands"]))')" "13"
 curl -sS -b "$J" -X DELETE "$B/agents/$RVID" -o /dev/null   # 보관 — 뒤의 items[1] 셈이 흔들리지 않게
 
@@ -147,7 +147,7 @@ RT=$(curl -sS -b "$J" "$B/workspaces/$WS/runtimes" | py 'import sys,json;print(j
 DS=$(curl -sS -b "$J" -X POST "$B/workspaces/$WS/sessions" -H 'content-type: application/json' \
   -d "{\"title\":\"지울 세션\",\"goal\":\"삭제 왕복\",\"isolation\":{\"kind\":\"none\"},\"runtime_id\":\"$RT\",\"participants\":[{\"agent_id\":\"$AG\"}],\"assignee_agent_id\":\"$AG\"}" \
   | py 'import sys,json;print(json.load(sys.stdin)["id"])')
-chk "deleteSession 진행 중(active) → 409 session_active" "$(curl -sS -b "$J" -X DELETE "$B/sessions/$DS" | py 'import sys,json;d=json.load(sys.stdin);print(d["status"],d["code"],d["detail"])')" "409 session_active 진행 중인 세션은 먼저 종료하세요"
+chk "deleteSession 진행 중(active) → 409 session_active" "$(curl -sS -b "$J" -X DELETE "$B/sessions/$DS" | py 'import sys,json;d=json.load(sys.stdin);print(d["status"],d["code"],d["detail"])')" "409 session_active 진행 중인 미션은 먼저 종료하세요"
 curl -sS -b "$J" -X POST "$B/sessions/$DS/cancel" -H 'content-type: application/json' -d '{}' -o /dev/null
 chk "  cancelled 뒤 목록에 status=cancelled" "$(curl -sS -b "$J" "$B/workspaces/$WS/sessions" | py "import sys,json;print(next(s['status'] for s in json.load(sys.stdin)['items'] if s['id']=='$DS'))")" "cancelled"
 # 권한 — Director 도 owner·admin 도 아닌 member(서연) 는 403.
