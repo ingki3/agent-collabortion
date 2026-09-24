@@ -94,7 +94,7 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, sessionId ge
 		writeProblem(w, p)
 		return
 	}
-	if p := s.commandAllowed(r, gen.SessionGet); p != nil {
+	if p := s.commandAllowed(r, gen.ColabCommandSessionGet); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -132,7 +132,7 @@ func (s *Server) ListMessages(w http.ResponseWriter, r *http.Request, sessionId 
 		writeProblem(w, p)
 		return
 	}
-	if p := s.commandAllowed(r, gen.SessionMessages); p != nil {
+	if p := s.commandAllowed(r, gen.ColabCommandSessionMessages); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -231,7 +231,7 @@ func (s *Server) PostMessage(w http.ResponseWriter, r *http.Request, sessionId g
 		writeProblem(w, p)
 		return
 	}
-	if p := s.commandAllowed(r, gen.MessagePost); p != nil {
+	if p := s.commandAllowed(r, gen.ColabCommandMessagePost); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -637,7 +637,7 @@ func (s *Server) SetTaskStatus(w http.ResponseWriter, r *http.Request, taskId ge
 		writeProblem(w, apperr.Forbidden("outside_task_scope", "자기 할 일의 상태만 바꿀 수 있습니다"))
 		return
 	}
-	if p := s.commandAllowed(r, gen.StatusSet); p != nil {
+	if p := s.commandAllowed(r, gen.ColabCommandStatusSet); p != nil {
 		writeProblem(w, p)
 		return
 	}

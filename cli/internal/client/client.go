@@ -491,6 +491,11 @@ func problemError(status int, raw []byte) *Error {
 	if len(raw) > 0 && json.Unmarshal(raw, &p) == nil && (p.Title != "" || p.Code != "" || p.Status != 0) {
 		e.Problem = &p
 		e.Code, e.Title, e.Detail = p.Code, p.Title, p.Detail
+		if p.DeniedReason != "" {
+			// colab-cli.md §2.4a: a refused `room read` is exit 3 + the
+			// reason, top-level in the --json error like command_not_allowed's.
+			e.Extra = map[string]any{"denied_reason": p.DeniedReason}
+		}
 	}
 	if e.Title == "" {
 		e.Title = http.StatusText(status)

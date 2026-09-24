@@ -32,7 +32,7 @@ describe("RoleCommands", () => {
   it("실무자 — 위임·검토 승인은 못 한다, 아티팩트 제출은 한다", () => {
     render(<RoleCommands role="engineer" commands={commandsForRole("engineer")} />);
     expect(screen.getByTestId("role-commands-can").textContent).toContain("아티팩트 제출");
-    expect(screen.getByTestId("role-commands-cannot").textContent).toBe("위임 · 검토 승인 · 검토 반려 · 완료 승인 요청은 못 합니다 — 위임·검토 승인·완료 승인 요청은 Lead 의 일");
+    expect(screen.getByTestId("role-commands-cannot").textContent).toBe("위임 · 검토 승인 · 검토 반려 · 완료 승인 요청 · 미션 제안은 못 합니다 — 위임·검토 승인·완료 승인 요청·미션 제안은 Lead 의 일");
   });
 
   it("reviewer — 아티팩트 제출은 못 하고 검토 승인·반려는 한다", () => {
@@ -56,6 +56,6 @@ describe("RoleCommands", () => {
 
   it("서버 값이 없으면(새 에이전트·옛 서버) 표로 계산한다", () => {
     render(<RoleCommands role="writer" />);
-    expect(screen.getByTestId("role-commands").getAttribute("data-count")).toBe("9");
+    expect(screen.getByTestId("role-commands").getAttribute("data-count")).toBe("11");
   });
 });

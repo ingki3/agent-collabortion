@@ -579,11 +579,11 @@ describe("v1.1 — 관찰 표·허용 명령·빈 턴의 말은 한곳(lib/wordi
   /** 주석을 뺀 소스 — "손으로 다시 적지 않았다" 는 코드에 대한 말이다(주석이 사건을 설명하는 것은 막지 않는다). */
   const code = (f: string) => src(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-  it("ColabCommand 13개 전부에 사람 말이 있고, 명령 이름(밑줄 표기)은 화면 문자열에 없다", () => {
+  it("ColabCommand 16개 전부에 사람 말이 있고, 명령 이름(밑줄 표기)은 화면 문자열에 없다", () => {
     const openapi = readFileSync(join(ROOT, "..", "contracts", "openapi.yaml"), "utf8");
     const m = openapi.match(/ColabCommand:\n\s+type: string\n[^\n]*\n\s+enum: \[([^\]]+)\]/)!;
     const names = m[1].split(",").map((x) => x.trim());
-    expect(names).toHaveLength(13);
+    expect(names).toHaveLength(16);
     expect(Object.keys(COMMAND_LABEL).sort()).toEqual([...names].sort());
     for (const v of Object.values(COMMAND_LABEL)) expect(inPool("lib/wording.ts", v)).toBe(true);
     // `lane_delegate`·`hitl_ask` 같은 명령 이름은 코드다 — 화면 문자열 풀에 없다.

@@ -151,6 +151,9 @@ export const COMMAND_LABEL = {
   hitl_ask: "사람에게 질문",
   hitl_approve_request: "완료 승인 요청",
   hitl_request_info: "사람에게 정보 요청",
+  room_list: "다른 방 목록",
+  room_read: "다른 방 읽기",
+  work_propose: "미션 제안",
 } as const;
 
 /** S10 역할 구역 — 허용 명령 목록의 머리말·"전부"·못 하는 것 한 줄(FR-1.9.1 표의 "막는 것과 이유" 열을 사람 말로). */
@@ -162,8 +165,8 @@ export const ROLE_COMMANDS = {
   all_custom: "역할 대신 지시문이 정합니다",
   /** "<못 하는 것>은 못 합니다 — <이유>" 의 뒤 절. */
   cannot: (denied: string) => `${denied}은 못 합니다`,
-  reason_worker: "위임·검토 승인·완료 승인 요청은 Lead 의 일",
-  reason_reviewer: "위임·완료 승인 요청은 Lead 의 일, 아티팩트 대신 검토 반려 사유를 남깁니다",
+  reason_worker: "위임·검토 승인·완료 승인 요청·미션 제안은 Lead 의 일",
+  reason_reviewer: "위임·완료 승인 요청·미션 제안은 Lead 의 일, 아티팩트 대신 검토 반려 사유를 남깁니다",
   /** 저장 전 미리보기 — 고른 역할이 저장된 역할과 다를 때. */
   preview: "저장하면 이 목록으로 바뀝니다",
   readonly: "역할이 정합니다 — 여기서 고칠 수 없습니다",

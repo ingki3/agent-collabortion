@@ -36,6 +36,7 @@ type SessionMessagesArgs struct {
 	Since   string `json:"since,omitempty"`  // sent as after=<cursor|message id>
 	Limit   *int   `json:"limit,omitempty"`  // 1..200 (nil = server default 50; an explicit 0 is exit 2)
 	Thread  string `json:"thread,omitempty"` // thread root id
+	Work    string `json:"-"`                // mission id (work_id=); only `room messages --work` sets it
 }
 
 // SessionMessagesResult adds the E8-12 included/total/truncated view.
@@ -67,7 +68,7 @@ func SessionMessages(ctx context.Context, c *client.Client, a SessionMessagesArg
 	if err != nil {
 		return nil, err
 	}
-	page, err := c.ListMessages(ctx, sid, client.MessagesQuery{Since: a.Since, Limit: limit, Thread: a.Thread})
+	page, err := c.ListMessages(ctx, sid, client.MessagesQuery{Since: a.Since, Limit: limit, Thread: a.Thread, Work: a.Work})
 	if err != nil {
 		return nil, err
 	}

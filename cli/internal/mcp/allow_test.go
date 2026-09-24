@@ -52,12 +52,12 @@ func TestFilterTools(t *testing.T) {
 		t.Fatalf("empty allow → %d tools, want all %d", len(got), len(mcp.Tools))
 	}
 	got := mcp.FilterTools([]string{"review_reject", "session_get", "not_a_command", "review_approve"})
-	if len(got) != 3 || got[0].Name != "colab_session_get" || got[1].Name != "colab_review_approve" || got[2].Name != "colab_review_reject" {
+	if len(got) != 4 || got[0].Name != "colab_session_get" || got[1].Name != "colab_review_approve" || got[2].Name != "colab_review_reject" || got[3].Name != "colab_room_get" {
 		names := make([]string, 0, len(got))
 		for _, x := range got {
 			names = append(names, x.Name)
 		}
-		t.Fatalf("filtered = %v, want session_get · review_approve · review_reject in table order", names)
+		t.Fatalf("filtered = %v, want session_get · review_approve · review_reject · room_get (session_get's alias) in table order", names)
 	}
 	// Every command has a tool, so a full allow list is the full table.
 	all := make([]string, 0, len(client.AllCommands))
@@ -74,7 +74,7 @@ func TestFilterTools(t *testing.T) {
 // a tool result with the CLI's command_not_allowed error, sent nowhere.
 func TestServeAllowRegistersOnlyTheSubset(t *testing.T) {
 	reviewer := []string{"session_get", "session_messages", "message_post", "status_set", "decision_record",
-		"artifact_get", "review_approve", "review_reject", "hitl_ask", "hitl_request_info"}
+		"artifact_get", "review_approve", "review_reject", "hitl_ask", "hitl_request_info", "room_list", "room_read"}
 	s := clienttest.New(t)
 	s.Role = "reviewer"
 	var unknown []string
@@ -83,11 +83,13 @@ func TestServeAllowRegistersOnlyTheSubset(t *testing.T) {
 	c := dialWith(t, client.New(cfg), mcp.Options{Allow: append(reviewer, "bogus"), Unknown: func(n string) { unknown = append(unknown, n) }})
 
 	names := toolNames(c.call("tools/list", nil))
-	if len(names) != len(reviewer) {
-		t.Fatalf("tools/list = %v, want the %d reviewer tools", names, len(reviewer))
+	// The reviewer's 12 commands, plus room get · room messages — the room
+	// names of session get · messages, which the row allows.
+	if len(names) != len(reviewer)+2 {
+		t.Fatalf("tools/list = %v, want the %d reviewer tools + 2 room aliases", names, len(reviewer))
 	}
 	for _, n := range names {
-		if n == "colab_lane_delegate" || n == "colab_artifact_submit" || n == "colab_hitl_approve_request" {
+		if n == "colab_lane_delegate" || n == "colab_artifact_submit" || n == "colab_hitl_approve_request" || n == "colab_work_propose" {
 			t.Fatalf("tools/list registered %s, which the reviewer row denies", n)
 		}
 	}

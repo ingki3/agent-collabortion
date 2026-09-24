@@ -11,6 +11,8 @@
 // v1.1 (colab-cli.md v0.6 §2.5, K-19): a command outside the role's
 // allowed_commands is refused before any request with exit 3
 // command_not_allowed; `mcp serve --allow` registers only the allowed tools.
+// v0.19 R3 (colab-cli.md v0.8 §2.4a): room list · room read · work propose,
+// and room get · room messages as the room names of session get · messages.
 // Output is always JSON on stdout (agents parse it); --json is accepted for
 // clarity. Exit codes: 0 ok · 2 args · 3 refused · 4 no/revoked token ·
 // 5 server unreachable.
@@ -78,6 +80,21 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
                              asks a human for information (--question is an alias of --what)
                              All three return turn_end_required:true — register it and END YOUR TURN.
                              A task holds one open request at a time; a second is exit 3 hitl_already_open.
+  colab room get [--room R]            same as session get (a room's id is its session id)
+  colab room messages [--since] [--limit N] [--thread <root_id>] [--work <mission_id>]
+                             same as session messages; --work keeps one mission's messages
+  colab room list [--query <text>]
+                             only the rooms THIS turn may read (the requesting person and you
+                             must both have access — judged by the server at the call)
+  colab room read --room <id> [--tail N] [--query <text>]
+                             another room's summary + recent messages (--tail 1..100, default 30)
+                             + decisions + artifacts. READ-ONLY and for this turn only — to carry
+                             something over, colab decision record. "truncated": true means the
+                             server cut it to the read limits. Refused → exit 3 room_read_denied
+                             with denied_reason (originator_not_participant · originator_left ·
+                             agent_not_allowed · no_originator)
+  colab work propose --goal <text> --why <text>
+                             proposes a mission for this room; a person opens it (agents cannot)
   colab mcp serve [--allow <cmd,…>]
                              stdio MCP server exposing the same commands as tools. --allow registers
                              only the listed commands' tools (names as in COLAB_ALLOWED_COMMANDS)
@@ -127,6 +144,10 @@ func run(args []string, getenv client.Getenv, stdin io.Reader, stdout, stderr io
 		return runReview(args[1:], getenv, stdout, stderr)
 	case "hitl":
 		return runHitl(args[1:], getenv, stdout, stderr)
+	case "room":
+		return runRoom(args[1:], getenv, stdout, stderr)
+	case "work":
+		return runWork(args[1:], getenv, stdout, stderr)
 	case "mcp":
 		if len(args) < 2 || args[1] != "serve" {
 			return usage(stderr, "usage: colab mcp serve [--allow <cmd,…>]")
@@ -161,7 +182,7 @@ func run(args []string, getenv client.Getenv, stdin io.Reader, stdout, stderr io
 		return client.ExitOK
 	}
 	return usage(stderr, "colab: unknown command %q "+
-		"(session · message · status · lane · decision · artifact · review · hitl · mcp · version)", args[0])
+		"(session · room · message · status · lane · decision · artifact · review · hitl · work · mcp · version)", args[0])
 }
 
 func usage(stderr io.Writer, format string, a ...any) int {

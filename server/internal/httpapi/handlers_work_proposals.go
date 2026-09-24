@@ -144,6 +144,10 @@ func (s *Server) CreateWorkProposal(w http.ResponseWriter, r *http.Request, room
 		return
 	}
 	sc := pr.Task
+	if p := s.commandAllowed(r, gen.ColabCommandWorkPropose); p != nil {
+		writeProblem(w, p)
+		return
+	}
 	if sc.SessionID != roomId {
 		writeProblem(w, apperr.Forbidden("outside_task_scope", "다른 방에는 접근할 수 없습니다"))
 		return

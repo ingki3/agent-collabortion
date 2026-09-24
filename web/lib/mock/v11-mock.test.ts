@@ -16,7 +16,7 @@ import { W } from "./wording";
 import { resetStore, store, type Subscriber } from "./store";
 import type { Agent, ColabCommand, Lane, ObservationReport, Session, TaskEvent } from "@/lib/api/types";
 
-const ALL: ColabCommand[] = ["session_get", "session_messages", "artifact_get", "message_post", "status_set", "decision_record", "lane_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info"];
+const ALL: ColabCommand[] = ["session_get", "session_messages", "artifact_get", "message_post", "status_set", "decision_record", "lane_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info", "room_list", "room_read", "work_propose"];
 const ORDER = ["chain_scale", "chain_depth", "join_breadth", "routing_concentration", "empty_turn_rate"];
 
 let cookie = "";
@@ -112,10 +112,10 @@ describe("getWorkspaceObservations — PRD §11 관찰 표 5행, 목표치 없�
 describe("Agent.allowed_commands — role 로 계산한 읽기 전용 파생값(K-19)", () => {
   const byRole: Record<Agent["role"], ColabCommand[]> = {
     lead: ALL,
-    researcher: ALL.filter((c) => !["lane_delegate", "review_approve", "review_reject", "hitl_approve_request"].includes(c)),
-    writer: ALL.filter((c) => !["lane_delegate", "review_approve", "review_reject", "hitl_approve_request"].includes(c)),
-    engineer: ALL.filter((c) => !["lane_delegate", "review_approve", "review_reject", "hitl_approve_request"].includes(c)),
-    reviewer: ALL.filter((c) => !["lane_delegate", "artifact_submit", "hitl_approve_request"].includes(c)),
+    researcher: ALL.filter((c) => !["lane_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose"].includes(c)),
+    writer: ALL.filter((c) => !["lane_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose"].includes(c)),
+    engineer: ALL.filter((c) => !["lane_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose"].includes(c)),
+    reviewer: ALL.filter((c) => !["lane_delegate", "artifact_submit", "hitl_approve_request", "work_propose"].includes(c)),
     custom: ALL,
   };
 
@@ -124,7 +124,7 @@ describe("Agent.allowed_commands — role 로 계산한 읽기 전용 파생값(
     const lead = items.find((a) => a.name === "Lead")!, res = items.find((a) => a.name === "Researcher")!;
     expect(lead.allowed_commands).toEqual(byRole.lead);
     expect(res.allowed_commands).toEqual(byRole.researcher);
-    expect(res.allowed_commands).toHaveLength(9);
+    expect(res.allowed_commands).toHaveLength(11);
   });
 
   it.each(Object.keys(byRole) as Agent["role"][])("createAgent(%s) → 그 역할의 목록 · PATCH role 이 바뀌면 다시 계산 · 보내온 allowed_commands 는 무시", async (role) => {

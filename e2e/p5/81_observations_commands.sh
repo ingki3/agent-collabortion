@@ -69,9 +69,9 @@ finish_turn() { # TASK [STOP_REASON]
 empty_cards() { psqlq "select count(*) from task_event where task_id='$1' and attempt=1 and class='status' and verb='turn_end' and object_ref=to_jsonb('empty_turn'::text) and outcome='info' and payload->'args'->>'note'='아무것도 하지 않고 턴을 끝냈습니다'"; }
 refused_rows() { psqlq "select string_agg(verb||':'||(payload->>'command'), ',' order by seq) from task_event where task_id='$1' and class='status' and outcome='rejected' and payload->>'rejected_reason'='command_not_allowed'"; }
 allowed_of() { api_ok GET "/agents/$1" | jq -r '.allowed_commands|join(",")'; }
-LEAD_ALL="session_get,session_messages,message_post,status_set,decision_record,lane_delegate,artifact_submit,artifact_get,review_approve,review_reject,hitl_ask,hitl_approve_request,hitl_request_info"
-WRITER_ALL="session_get,session_messages,message_post,status_set,decision_record,artifact_submit,artifact_get,hitl_ask,hitl_request_info"
-REVIEWER_ALL="session_get,session_messages,message_post,status_set,decision_record,artifact_get,review_approve,review_reject,hitl_ask,hitl_request_info"
+LEAD_ALL="session_get,session_messages,message_post,status_set,decision_record,lane_delegate,artifact_submit,artifact_get,review_approve,review_reject,hitl_ask,hitl_approve_request,hitl_request_info,room_list,room_read,work_propose"
+WRITER_ALL="session_get,session_messages,message_post,status_set,decision_record,artifact_submit,artifact_get,hitl_ask,hitl_request_info,room_list,room_read"
+REVIEWER_ALL="session_get,session_messages,message_post,status_set,decision_record,artifact_get,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read"
 
 step "0. 계정(Director=owner) · 워크스페이스 · 에이전트 Lead·W(writer)·R(reviewer)·C(custom) · 페어링(curl) · probe"
 signup "s19-dir-$RUN@example.com" password123 "Dir" >/dev/null
@@ -141,9 +141,9 @@ chk C.7 "3/0.3333" "$(obs_row empty_turn_rate | jq -r '(.n|tostring)+"/"+((.valu
 
 # ───────────────────────────── D ─────────────────────────────────────────────
 step "D. 역할별 명령 — 세 표면 + 403 command_not_allowed"
-chk D.1 "$LEAD_ALL" "$(allowed_of "$LEAD")" "Agent.allowed_commands lead = 13 전부(§2.5)"
-chk D.2 "$WRITER_ALL" "$(allowed_of "$W")" "writer = delegate·review·approve-request 제외 9"
-chk D.3 "$REVIEWER_ALL" "$(allowed_of "$R")" "reviewer = delegate·submit·approve-request 제외 10"
+chk D.1 "$LEAD_ALL" "$(allowed_of "$LEAD")" "Agent.allowed_commands lead = 16 전부(§2.5 v0.8)"
+chk D.2 "$WRITER_ALL" "$(allowed_of "$W")" "writer = delegate·review·approve-request·work propose 제외 11"
+chk D.3 "$REVIEWER_ALL" "$(allowed_of "$R")" "reviewer = delegate·submit·approve-request·work propose 제외 12"
 chk D.4 "$LEAD_ALL" "$(allowed_of "$C")" "custom = 전부"
 chk D.5 "$LEAD_ALL/$WRITER_ALL" "$AC_LEAD/$AC_W" "번들 task.allowed_commands 가 같은 표(lead·writer)"
 # 한 번에 하나씩 멘션·claim — claim 은 queued 를 전부 넘기므로 둘을 같이 멘션하면 첫 claim 이 둘 다 가져간다

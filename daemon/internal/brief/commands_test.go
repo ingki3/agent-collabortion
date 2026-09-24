@@ -19,7 +19,7 @@ const serverBrief = "[1] Agent Identity\nYou are Rev, reviewer in the Colab work
 	"- Your COLAB_TASK_TOKEN is valid for this attempt only; if a call returns token_revoked, stop immediately.\n\n" +
 	"[4] Session\nTitle: t\nGoal: g\nDirector: D\nIsolation: none\n\n[5] Roster\n- Rev\n\n[8] Instruction precedence: user instruction > session goal > agent instructions > runtime defaults.\n"
 
-var reviewer = []string{"session_get", "session_messages", "message_post", "status_set", "decision_record", "artifact_get", "review_approve", "review_reject", "hitl_ask", "hitl_request_info"}
+var reviewer = []string{"session_get", "session_messages", "message_post", "status_set", "decision_record", "artifact_get", "review_approve", "review_reject", "hitl_ask", "hitl_request_info", "room_list", "room_read"}
 
 func section2(t *testing.T, text string) string {
 	t.Helper()
@@ -39,17 +39,17 @@ func TestRestrictCommandsReviewer(t *testing.T) {
 		t.Fatalf("server [2] text changed:\n%s", got)
 	}
 	// Allowed commands, in CLI spelling, in bundle order.
-	if !strings.Contains(s2, "`colab review approve`, `colab review reject`, `colab hitl ask`, `colab hitl request-info`") {
+	if !strings.Contains(s2, "`colab review approve`, `colab review reject`, `colab hitl ask`, `colab hitl request-info`, `colab room list`, `colab room read`") {
 		t.Fatalf("allowed list missing or misspelt:\n%s", s2)
 	}
 	// Denied ones are NOT there as commands — neither CLI nor tool spelling.
-	for _, bad := range []string{"lane delegate", "colab_lane_delegate", "artifact submit", "approve-request"} {
+	for _, bad := range []string{"lane delegate", "colab_lane_delegate", "artifact submit", "approve-request", "work propose", "colab_work_propose"} {
 		if strings.Contains(s2, bad) {
 			t.Fatalf("denied command %q named in [2]:\n%s", bad, s2)
 		}
 	}
 	// … but the role is told, in the person's words, in one line.
-	if !strings.Contains(s2, "- 이 역할은 위임 · 아티팩트 제출 · 완료 승인 요청을 쓰지 않는다.") {
+	if !strings.Contains(s2, "- 이 역할은 위임 · 아티팩트 제출 · 완료 승인 요청 · 미션 제안을 쓰지 않는다.") {
 		t.Fatalf("no 'does not use' line:\n%s", s2)
 	}
 	// Sections after [2] are untouched, and the separator before [4] survives.
@@ -77,7 +77,7 @@ func TestRestrictedLinesGetTheWrapperPath(t *testing.T) {
 
 // Everything allowed (lead · custom): the list line, no "does not use" line.
 func TestRestrictCommandsEverything(t *testing.T) {
-	all := []string{"session_get", "session_messages", "message_post", "status_set", "decision_record", "lane_delegate", "artifact_submit", "artifact_get", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info"}
+	all := []string{"session_get", "session_messages", "message_post", "status_set", "decision_record", "lane_delegate", "artifact_submit", "artifact_get", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info", "room_list", "room_read", "work_propose"}
 	s2 := section2(t, RestrictCommands(serverBrief, all))
 	if !strings.Contains(s2, "`colab lane delegate`") || strings.Contains(s2, "쓰지 않는다") {
 		t.Fatalf("everything-allowed shape wrong:\n%s", s2)
@@ -104,6 +104,19 @@ func TestRestrictCommandsDropsDeniedServerLines(t *testing.T) {
 		t.Fatalf("denied line kept:\n%s", got)
 	}
 	if !strings.Contains(got, "`colab message post`.") || !strings.Contains(got, "lane keyword in prose stays") {
+		t.Fatalf("allowed line dropped:\n%s", got)
+	}
+}
+
+// A denied command's alias (colab-cli.md v0.8 §3: `room get` is `session
+// get`) is dropped with it — in both spellings.
+func TestRestrictCommandsDropsDeniedAliasLines(t *testing.T) {
+	text := "[2] Workspace rules and colab CLI\n- Read the room with `colab room get`.\n- Or the colab_room_messages tool.\n- Post with `colab message post`.\n\n[4] Session\n"
+	got := RestrictCommands(text, []string{"message_post"})
+	if strings.Contains(got, "colab room get") || strings.Contains(got, "colab_room_messages") {
+		t.Fatalf("alias of a denied command kept:\n%s", got)
+	}
+	if !strings.Contains(got, "`colab message post`.") {
 		t.Fatalf("allowed line dropped:\n%s", got)
 	}
 }
