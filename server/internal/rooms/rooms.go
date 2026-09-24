@@ -212,7 +212,7 @@ func Load(ctx context.Context, q db.DBTX, a *Access, now time.Time) (*gen.Room, 
 		var d gen.BlockedDetail
 		if json.Unmarshal(blockedDetail, &d) == nil {
 			if blockedReason != nil {
-				if err := fillApprover(ctx, q, a.RoomID, &d, now); err != nil {
+				if err := fillApprover(ctx, q, a.RoomID, *blockedReason, &d, now); err != nil {
 					return nil, err
 				}
 				rem, err := roomgate.OpenWorksRemaining(ctx, q, a.RoomID, *blockedReason)
@@ -273,18 +273,30 @@ func Load(ctx context.Context, q db.DBTX, a *Access, now time.Time) (*gen.Room, 
 // people who may lift it are the stewards, and the banner names who stopped
 // it instead. next_approver(_role) (openapi 0.2.8) come out of the same
 // roomgate.Approvers.Now judgement as approver and delegate_at.
-func fillApprover(ctx context.Context, q db.DBTX, roomID uuid.UUID, d *gen.BlockedDetail, now time.Time) error {
+//
+// A lost computer (runtime_offline, T-S-offline) raises no request: its chain
+// runs from the stop's own blocked_at to runtimes.OfflineDue — the same
+// judgement rebindSession's permission and the inbox card's `rebind` make.
+func fillApprover(ctx context.Context, q db.DBTX, roomID uuid.UUID, reason string, d *gen.BlockedDetail, now time.Time) error {
 	var created, due time.Time
-	err := q.QueryRow(ctx, `
-		SELECT created_at, due_at FROM hitl_request
-		WHERE session_id = $1 AND status = 'open' AND source = 'system' AND task_id IS NULL
-		  AND approver_spec = 'room_owner' AND purpose IN ('budget', 'loop')
-		ORDER BY created_at DESC LIMIT 1`, roomID).Scan(&created, &due)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return err
+	if reason == roomgate.ReasonRuntimeOffline {
+		if d.BlockedAt == nil {
+			return nil
+		}
+		created = *d.BlockedAt
+		due = runtimes.OfflineDue(created)
+	} else {
+		err := q.QueryRow(ctx, `
+			SELECT created_at, due_at FROM hitl_request
+			WHERE session_id = $1 AND status = 'open' AND source = 'system' AND task_id IS NULL
+			  AND approver_spec = 'room_owner' AND purpose IN ('budget', 'loop')
+			ORDER BY created_at DESC LIMIT 1`, roomID).Scan(&created, &due)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
 	}
 	ap, err := roomgate.LoadApprovers(ctx, q, roomID)
 	if err != nil {

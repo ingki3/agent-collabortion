@@ -109,9 +109,11 @@ func Lock(ctx context.Context, tx pgx.Tx, roomID uuid.UUID) (*State, error) {
 // Mirrors reports whether a reason parks the room's missions too. `manual`
 // does not: it is new in v0.19 and has no old-shape reader to protect, and a
 // mission the room merely holds is not a mission anyone paused.
-// `runtime_offline` keeps its own FR-9.2 path (runtimes/offline.go) for now.
+// `runtime_offline` mirrors too (FR-9.2 v0.19, T-S-offline): the old session
+// screen has shown `paused(runtime_offline)` since P4, and rebindSession ·
+// cancelSession still read it off the mission.
 func Mirrors(reason string) bool {
-	return reason == ReasonBudget || reason == ReasonLoop
+	return reason == ReasonBudget || reason == ReasonLoop || reason == ReasonRuntimeOffline
 }
 
 // Block puts the gate up. `workDetail` is the PausedDetail the parked

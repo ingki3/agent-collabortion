@@ -4,15 +4,18 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/oapi-codegen/nullable"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
 	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
@@ -286,7 +289,7 @@ func (s *Server) DeleteRuntime(w http.ResponseWriter, r *http.Request, runtimeId
 // ---------------------------------------------------------------------------
 
 func (s *Server) RebindSession(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	_, wsID, p := s.sessionDirector(r, sessionId)
+	_, wsID, p := s.rebindActor(r, sessionId)
 	if p != nil {
 		writeProblem(w, p)
 		return
@@ -324,4 +327,39 @@ func nullStr(s string) nullable.Nullable[string] {
 		return nullable.NewNullNullable[string]()
 	}
 	return nullable.NewNullableWithValue(s)
+}
+
+// rebindActor is rebindSession's permission (FR-9.2 v0.19, T-S-offline): the
+// old session's Director, the room owner, or — from half of the stop's
+// deadline — the room's delegate (runtimes.MayRebind). A room made by
+// createRoom has no Director and is still rebindable by its owner.
+func (s *Server) rebindActor(r *http.Request, roomID uuid.UUID) (*gen.User, uuid.UUID, *Problem) {
+	u, p := s.user(r)
+	if p != nil {
+		return nil, uuid.Nil, p
+	}
+	var wsID uuid.UUID
+	err := s.DB.QueryRow(r.Context(), `SELECT workspace_id FROM room WHERE id = $1`, roomID).Scan(&wsID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, uuid.Nil, apperr.NotFound("session")
+	}
+	if err != nil {
+		return nil, uuid.Nil, apperr.Internal(err)
+	}
+	m, err := s.Auth.Member(r.Context(), wsID, u.Id)
+	if err != nil {
+		return nil, uuid.Nil, apperr.Internal(err)
+	}
+	if m == nil {
+		return nil, uuid.Nil, apperr.NotFound("session")
+	}
+	ok, err := runtimes.RebindAuthz(r.Context(), s.DB, roomID, u.Id, s.Clock.Now())
+	if err != nil {
+		return nil, uuid.Nil, apperr.Internal(err)
+	}
+	if !ok {
+		return nil, uuid.Nil, apperr.Forbidden("director_required",
+			"다른 컴퓨터로 옮기는 것은 방장이나 Director 가 합니다 — 부방장은 멈춘 지 12시간 뒤부터 할 수 있습니다")
+	}
+	return u, wsID, nil
 }

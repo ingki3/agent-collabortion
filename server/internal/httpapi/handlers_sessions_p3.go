@@ -417,8 +417,44 @@ func (s *Server) cancelWorkTx(ctx context.Context, tx pgx.Tx, roomID, workID uui
 		return err
 	}
 	if others == 0 {
-		return closeOrphanSystemHitl(ctx, tx, roomOnlyScope(roomID), now)
+		if err := closeOrphanSystemHitl(ctx, tx, roomOnlyScope(roomID), now); err != nil {
+			return err
+		}
+		return s.liftOfflineGate(ctx, tx, roomID, now)
 	}
+	return nil
+}
+
+// liftOfflineGate is FR-9.2 v0.19's second way out of a lost computer: the
+// last open mission was cancelled, so the room has nothing left waiting for
+// that machine. The work outside a mission goes with the missions (「열린
+// 미션 전부 취소」 — the room stops spending on the lost computer), the gate
+// comes down and the room_paused card is resolved. The room itself stays,
+// still pinned to the machine: a new mission waits for it or for a rebind.
+func (s *Server) liftOfflineGate(ctx context.Context, tx pgx.Tx, roomID uuid.UUID, now time.Time) error {
+	room, err := roomgate.Lock(ctx, tx, roomID)
+	if err != nil {
+		return err
+	}
+	if room.BlockedReason == nil || *room.BlockedReason != roomgate.ReasonRuntimeOffline {
+		return nil
+	}
+	if err := s.cancelScopeTasks(ctx, tx, roomOnlyScope(roomID), now); err != nil {
+		return err
+	}
+	if _, err := roomgate.Unblock(ctx, tx, roomID, roomgate.ReasonRuntimeOffline, now); err != nil {
+		return err
+	}
+	var runtimeID *uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT runtime_id FROM room WHERE id = $1`, roomID).Scan(&runtimeID); err != nil {
+		return err
+	}
+	if runtimeID != nil {
+		if err := roomgate.ResolveCards(ctx, tx, inbox.TypeRoomPaused, roomID, *runtimeID, now); err != nil {
+			return err
+		}
+	}
+	roomgate.PublishUpdated(ctx, s.Hub, tx, roomID)
 	return nil
 }
 
@@ -427,7 +463,7 @@ func (s *Server) cancelWorkTx(ctx context.Context, tx pgx.Tx, roomID, workID uui
 // daemon carries out — never an immediate kill).
 func (s *Server) cancelScopeTasks(ctx context.Context, tx pgx.Tx, scope taskScopeSQL, now time.Time) error {
 	rows, err := tx.Query(ctx, `
-		SELECT id FROM task WHERE `+scope.col+` = $1
+		SELECT id FROM task WHERE `+scope.col+` = $1`+scope.extra+`
 		  AND status IN ('deferred', 'queued', 'dispatched', 'preparing', 'running', 'waiting_human', 'paused')
 		ORDER BY created_at`, scope.id)
 	if err != nil {

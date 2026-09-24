@@ -108,11 +108,18 @@ Q "UPDATE runtime SET status='offline', offline_since = now() - interval '8 days
 sleep 62
 OST=$(Q "SELECT status FROM work WHERE room_id='$OSID'")
 ORE=$(Q "SELECT COALESCE(paused_reason::text,'') FROM work WHERE room_id='$OSID'")
-OIN=$(Q "SELECT count(*) FROM inbox_item WHERE type='runtime_offline' AND session_id='$OSID'")
+# FR-9.2 v0.19 (T-S-offline): 멈춤은 방 단위 — 방 게이트 runtime_offline + 방장 room_paused 카드 한 장
+# (옛 runtime_offline 항목은 room_paused 로 대체). 옛 세션 화면은 여전히 paused(runtime_offline).
+OIN=$(Q "SELECT count(*) FROM inbox_item WHERE type='room_paused' AND session_id='$OSID' AND ref_id='$RID'")
+OOLD=$(Q "SELECT count(*) FROM inbox_item WHERE type='runtime_offline' AND session_id='$OSID'")
+OGATE=$(Q "SELECT COALESCE(blocked_reason::text,'') FROM room WHERE id='$OSID'")
+OSST=$(api "$S/sessions/$OSID" | jq -r '.status + "(" + (.paused_reason // "") + ")"')
 [ "$OST" = paused ] && [ "$ORE" = runtime_offline ] && ok "세션 = $OST($ORE) (E14-02)" || bad "세션 = $OST($ORE), want paused(runtime_offline)"
-[ "$OIN" = 1 ] && ok "Director 인박스 runtime_offline 1건" || bad "runtime_offline 인박스 $OIN 건, want 1"
+[ "$OSST" = "paused(runtime_offline)" ] && ok "옛 세션 화면 = $OSST (미러)" || bad "GET /sessions = $OSST, want paused(runtime_offline)"
+[ "$OGATE" = runtime_offline ] && ok "방 게이트 = runtime_offline" || bad "방 게이트 = '$OGATE', want runtime_offline"
+[ "$OIN" = 1 ] && [ "$OOLD" = 0 ] && ok "방장 인박스 room_paused 1건 (runtime_offline 0건)" || bad "room_paused $OIN 건 · runtime_offline $OOLD 건, want 1 · 0"
 sleep 62
-OIN2=$(Q "SELECT count(*) FROM inbox_item WHERE type='runtime_offline' AND session_id='$OSID'")
+OIN2=$(Q "SELECT count(*) FROM inbox_item WHERE type='room_paused' AND session_id='$OSID'")
 [ "$OIN2" = 1 ] && ok "두 번째 스윕 뒤에도 $OIN2 건 — 멱등 (E14-10)" || bad "두 번째 스윕 뒤 $OIN2 건, want 1"
 
 step "4. 런타임 삭제 409 · 후보 아닌 런타임으로의 재바인딩 422 (E14-08 · E14-05)"

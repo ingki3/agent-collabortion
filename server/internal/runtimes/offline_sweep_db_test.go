@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ingki3/agent-collabortion/contracts/clock"
+	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
 	"github.com/ingki3/agent-collabortion/server/internal/testdb"
 )
 
@@ -107,15 +108,27 @@ func assertOfflineState(ctx context.Context, t *testing.T, pool *pgxpool.Pool,
 	if status != "paused" || reason != "runtime_offline" {
 		t.Errorf("%s: session = %s(%s), want paused(runtime_offline)", when, status, reason)
 	}
-	var cards int
+	// FR-9.2 v0.19 (T-S-offline): the stop is the ROOM's — its gate names the
+	// computer, and the mission's pause carries the room's mark.
+	var blocked *string
+	var mirror bool
 	if err := pool.QueryRow(ctx, `
-		SELECT count(*) FROM inbox_item WHERE session_id = $1 AND ref_id = $2
-		   AND type = 'runtime_offline'`, sessionID, runtimeID).Scan(&cards); err != nil {
+		SELECT s.blocked_reason::text, COALESCE((wk.paused_detail->>'room_blocked')::boolean, false)
+		FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1`, sessionID).Scan(&blocked, &mirror); err != nil {
 		t.Fatal(err)
 	}
-	if cards != wantCards {
-		t.Errorf("%s: runtime_offline inbox cards = %d, want %d — FR-9.2's notification is what "+
-			"the Director acts on, and one per minute is one nobody reads", when, cards, wantCards)
+	if blocked == nil || *blocked != "runtime_offline" || !mirror {
+		t.Errorf("%s: room gate = %v mirror=%v, want runtime_offline with the mission marked as the room's", when, blocked, mirror)
+	}
+	var cards, old int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE type = 'room_paused'), count(*) FILTER (WHERE type = 'runtime_offline')
+		FROM inbox_item WHERE session_id = $1 AND ref_id = $2`, sessionID, runtimeID).Scan(&cards, &old); err != nil {
+		t.Fatal(err)
+	}
+	if cards != wantCards || old != 0 {
+		t.Errorf("%s: room_paused cards = %d (runtime_offline items %d), want %d (0) — FR-9.2's notification is what "+
+			"the room owner acts on, one card per stop, and one per minute is one nobody reads", when, cards, old, wantCards)
 	}
 }
 
@@ -156,4 +169,37 @@ func seedOfflineSession(ctx context.Context, t *testing.T, pool *pgxpool.Pool, n
 		t.Fatalf("session: %v", err)
 	}
 	return sessionID, runtimeID
+}
+
+// TestMayRebind is FR-9.2 v0.19's chooser: the old session's Director and the
+// room owner at once, the delegate (deputy, else the oldest other workspace
+// owner) from half the stop's deadline, nobody else.
+func TestMayRebind(t *testing.T) {
+	owner, dir, dep, other := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	at := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+	ap := roomgate.Approvers{Owner: owner, Deputy: &dep}
+	cases := []struct {
+		name     string
+		user     uuid.UUID
+		director *uuid.UUID
+		blocked  *time.Time
+		now      time.Time
+		want     bool
+	}{
+		{"owner", owner, nil, &at, at, true},
+		{"director", dir, &dir, &at, at, true},
+		{"deputy before half", dep, nil, &at, at.Add(11 * time.Hour), false},
+		{"deputy from half", dep, nil, &at, at.Add(12 * time.Hour), true},
+		{"deputy, no gate", dep, nil, nil, at.Add(48 * time.Hour), false},
+		{"stranger", other, &dir, &at, at.Add(48 * time.Hour), false},
+	}
+	for _, c := range cases {
+		if got := MayRebind(ap, c.director, c.user, c.blocked, c.now); got != c.want {
+			t.Errorf("%s: MayRebind = %v, want %v", c.name, got, c.want)
+		}
+	}
+	ws := other
+	if !MayRebind(roomgate.Approvers{Owner: owner, WsOwner: &ws}, nil, other, &at, at.Add(13*time.Hour)) {
+		t.Error("no deputy: the oldest workspace owner answers from half")
+	}
 }
