@@ -46,7 +46,7 @@ func newChainFixture(t *testing.T) *chainFixture {
 	})
 	f.qa = str(a, "id")
 	f.qaUUID = mustUUID(t, f.qa)
-	sess := f.api.must(201, "POST", f.p+"/workspaces/"+f.wsID+"/sessions", map[string]any{
+	sess := sessionRoom(t, f.api, f.pool, f.p, f.wsID, map[string]any{
 		"title": "F1", "goal": "g", "isolation": map[string]any{"kind": "none"},
 		"assignee_agent_id": f.lead,
 		"participants": []map[string]any{

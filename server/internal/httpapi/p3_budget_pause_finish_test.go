@@ -207,7 +207,7 @@ func TestP3PausedTaskCancelsWithoutTheCheck(t *testing.T) {
 	// 세션 취소 is the reachable route to a parked task: cancelLane refuses a
 	// paused lane (openapi cancelLane, 409), while cancelSessionWork walks
 	// `paused` rows straight into cancelLocked (§8.2.2).
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/cancel", map[string]any{"reason": "여기까지"})
+	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/cancel", map[string]any{"reason": "여기까지"})
 
 	var status, pausedReason, detail *string
 	var failureKind *string

@@ -20,7 +20,7 @@ import (
 func (f *roomsFixture) postIn(t *testing.T, rid string, body map[string]any) map[string]any {
 	t.Helper()
 	f.fake.Advance(time.Minute)
-	return f.api.must(201, "POST", f.p+"/sessions/"+rid+"/messages", body, "Idempotency-Key", uuid.NewString())
+	return f.api.must(201, "POST", f.p+"/rooms/"+rid+"/messages", body, "Idempotency-Key", uuid.NewString())
 }
 
 func msgID(out map[string]any) string { return str(out["message"].(map[string]any), "id") }
@@ -146,7 +146,7 @@ func TestR1LocksNewRoomHasNoLegacyMission(t *testing.T) {
 	rid := f.worksRoom(t)
 	f.openWork(t, f.api, rid, map[string]any{"goal": "하나뿐인 미션"})
 
-	pv := f.api.must(200, "POST", f.p+"/sessions/"+rid+"/messages/preview", map[string]any{"content": "안녕하세요"})
+	pv := f.api.must(200, "POST", f.p+"/rooms/"+rid+"/messages/preview", map[string]any{"content": "안녕하세요"})
 	if pv["work"] != nil || str(pv, "work_source") != "none" {
 		t.Fatalf("preview without work_id in a createRoom room = %v / %v, want none", pv["work"], pv["work_source"])
 	}

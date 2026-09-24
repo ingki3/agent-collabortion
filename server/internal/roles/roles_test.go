@@ -172,14 +172,14 @@ func TestAllCommandsIsTheClosedEnum(t *testing.T) {
 	if len(AllowedCommands(gen.Lead)) != len(want) || len(AllowedCommands(gen.Custom)) != len(want) {
 		t.Errorf("lead and custom get everything: lead %d custom %d of %d", len(AllowedCommands(gen.Lead)), len(AllowedCommands(gen.Custom)), len(want))
 	}
-	if s := AllowedCommandStrings(gen.Reviewer); len(s) != 12 || s[0] != "session_get" {
+	if s := AllowedCommandStrings(gen.Reviewer); len(s) != 12 || s[0] != "room_get" {
 		t.Errorf("AllowedCommandStrings(reviewer) = %v", s)
 	}
 }
 
 func TestCLIName(t *testing.T) {
 	for cmd, want := range map[gen.ColabCommand]string{
-		gen.ColabCommandLaneDelegate: "lane delegate", gen.ColabCommandRoomGet: "session get", gen.ColabCommandReviewApprove: "review approve",
+		gen.ColabCommandLaneDelegate: "lane delegate", gen.ColabCommandRoomGet: "room get", gen.ColabCommandReviewApprove: "review approve",
 		gen.ColabCommandHitlApproveRequest: "hitl approve-request", gen.ColabCommandHitlRequestInfo: "hitl request-info", gen.ColabCommandHitlAsk: "hitl ask",
 		gen.ColabCommandRoomList: "room list", gen.ColabCommandRoomRead: "room read", gen.ColabCommandWorkPropose: "work propose",
 	} {

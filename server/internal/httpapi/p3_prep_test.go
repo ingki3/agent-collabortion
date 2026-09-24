@@ -17,40 +17,42 @@ import (
 // S-16 — listParticipants
 // ---------------------------------------------------------------------------
 
-// The operation is x-phase P2 and was the last one T-S2 left at 501. The web
-// worked around it with the session detail's `participants`, which is exactly
-// why it could sit unnoticed — and exactly why the two must not be allowed to
-// drift: they are one derivation (FR-1.3 is computed, never stored).
+// The operation is x-phase P2 and was the last one T-S2 left at 501. v0.3.0
+// (R4, D22) removed listParticipants with the rest of /sessions/*; the roster
+// is listRoomParticipants, and its agent rows carry the same FR-1.3 derived
+// status the old list did (sessions.AgentStatuses — one derivation for the
+// list and the `participant.updated` frame).
 func TestListParticipants(t *testing.T) {
 	f := newP2Fixture(t)
 
-	items := f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/participants", nil)
-	if len(items) != 3 {
-		t.Fatalf("participants = %d, want the session's 3", len(items))
-	}
 	names := map[string]bool{}
-	for _, raw := range items {
-		p := raw.(map[string]any)
+	for _, p := range agentRows(t, f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID+"/participants", nil)) {
 		agent, _ := p["agent"].(map[string]any)
 		names[str(agent, "name")] = true
-		if str(p, "agent_id") == "" || str(p, "status") == "" || p["profile"] == nil {
+		if str(agent, "id") == "" || str(p, "status") == "" || p["profile"] == nil {
 			t.Fatalf("participant is missing the chip's fields: %v", p)
 		}
+	}
+	if len(names) != 3 {
+		t.Fatalf("agent participants = %v, want the room's 3", names)
 	}
 	for _, want := range []string{"Lead", "R", "W"} {
 		if !names[want] {
 			t.Fatalf("participants %v missing %s", names, want)
 		}
 	}
+}
 
-	// the list and the session detail are the same rows, in the same order
-	sess := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
-	detail, _ := sess["participants"].([]any)
-	a, _ := json.Marshal(items)
-	b, _ := json.Marshal(detail)
-	if string(a) != string(b) {
-		t.Fatalf("listParticipants and getSession.participants disagree:\n%s\n%s", a, b)
+// agentRows is listRoomParticipants' agent rows (people are in the same list).
+func agentRows(t *testing.T, out map[string]any) []map[string]any {
+	t.Helper()
+	var agents []map[string]any
+	for _, raw := range out["items"].([]any) {
+		if p := raw.(map[string]any); str(p, "kind") == "agent" {
+			agents = append(agents, p)
+		}
 	}
+	return agents
 }
 
 // Status is derived from this session's tasks, so a running task has to show
@@ -71,8 +73,7 @@ func TestListParticipantsDerivesStatus(t *testing.T) {
 	f.daemon.must(200, "POST", "/v1/daemon/runtimes/"+f.runtimeID+"/claim", map[string]any{"capacity": 5, "wait_ms": 0})
 	f.daemon.must(200, "POST", "/v1/daemon/tasks/"+taskID+"/attempts/1/phase", map[string]any{"phase": "running", "pgid": 100})
 
-	for _, raw := range f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/participants", nil) {
-		p := raw.(map[string]any)
+	for _, p := range agentRows(t, f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID+"/participants", nil)) {
 		agent, _ := p["agent"].(map[string]any)
 		if str(agent, "name") != "R" {
 			continue
@@ -110,7 +111,7 @@ func runTurn(t *testing.T, f *g4Fixture, mention string, agentID uuid.UUID, fin 
 	f.daemon.must(200, "POST", "/v1/daemon/runtimes/"+f.runtimeID+"/claim", map[string]any{"capacity": 1, "wait_ms": 0})
 	f.daemon.must(200, "POST", "/v1/daemon/tasks/"+taskID+"/attempts/1/phase", map[string]any{"phase": "running", "pgid": 100})
 	f.daemon.must(200, "POST", "/v1/daemon/tasks/"+taskID+"/attempts/1/finish", fin)
-	sess := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
+	sess := f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID, nil)
 	cost, _ := sess["cost_usd"].(float64)
 	est, _ := sess["cost_estimated"].(bool)
 	return cost, est
@@ -228,7 +229,7 @@ func TestCostUpdatedCarriesTheEstimate(t *testing.T) {
 	f.daemon.must(200, "POST", "/v1/daemon/runtimes/"+f.runtimeID+"/claim", map[string]any{"capacity": 1, "wait_ms": 0})
 	f.daemon.must(200, "POST", "/v1/daemon/tasks/"+taskID+"/attempts/1/phase", map[string]any{"phase": "running", "pgid": 100})
 
-	frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?session_id="+f.sessionID)
+	frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?room_id="+f.sessionID)
 	defer stop()
 
 	f.daemon.must(200, "POST", "/v1/daemon/tasks/"+taskID+"/attempts/1/finish", estimatedFinish(""))
@@ -263,7 +264,7 @@ func TestListParticipantsBoundary(t *testing.T) {
 	sessA, sessB := f.artifactSession(t, tree), f.artifactSession(t, tree)
 	tokA, _ := f.agentToken(t, sessA, f.leadUUID, "Lead")
 	tokB, _ := f.agentToken(t, sessB, f.leadUUID, "Lead")
-	path := f.p + "/sessions/" + sessA + "/participants"
+	path := f.p + "/rooms/" + sessA + "/participants"
 
 	// A member of another workspace: 404, and the roster does not leak with it.
 	t.Run("outsider is 404", func(t *testing.T) {
@@ -296,12 +297,12 @@ func TestListParticipantsBoundary(t *testing.T) {
 
 	// …and the session's own TaskToken reads it.
 	t.Run("own token is 200", func(t *testing.T) {
-		st, items := f.rawList(t, path, tokA)
+		st, out := f.rawGet(t, path, tokA)
 		if st != 200 {
-			t.Fatalf("in-session listParticipants = %d, want 200", st)
+			t.Fatalf("in-session listRoomParticipants = %d, want 200 (openapi v0.3.0: TaskToken, the task's room)", st)
 		}
-		if len(items) != 3 {
-			t.Fatalf("in-session participants = %d, want the session's 3", len(items))
+		if items := agentRows(t, out); len(items) != 3 {
+			t.Fatalf("in-session agent participants = %d, want the room's 3", len(items))
 		}
 	})
 }

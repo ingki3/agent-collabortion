@@ -64,7 +64,7 @@ func TestWorkIDOnMessages(t *testing.T) {
 	// listMessages — both a plain page and the chip's own filter.
 	for _, q := range []string{"", "?work_id=" + work} {
 		var found bool
-		for _, raw := range items(f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID+"/messages"+q, nil)) {
+		for _, raw := range items(f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID+"/messages"+q, nil)) {
 			m := raw.(map[string]any)
 			if str(m, "id") == id {
 				found = true
@@ -119,7 +119,7 @@ func TestWorkIDOnLanesTasksDecisions(t *testing.T) {
 
 	// listLanes — the lane's own mission, its title, and why it waits.
 	var lane map[string]any
-	for _, raw := range f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/lanes", nil) {
+	for _, raw := range f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/lanes", nil) {
 		l := raw.(map[string]any)
 		if cur, ok := l["current_task"].(map[string]any); ok && str(cur, "id") == taskID {
 			lane = l
@@ -151,7 +151,7 @@ func TestWorkIDOnLanesTasksDecisions(t *testing.T) {
 
 	// A lane of no mission: null, with no title.
 	f.exec(t, `UPDATE lane SET work_id = NULL WHERE id = $1`, laneID)
-	for _, raw := range f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/lanes", nil) {
+	for _, raw := range f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/lanes", nil) {
 		if l := raw.(map[string]any); str(l, "id") == laneID.String() && (!hasNull(l, "work_id") || !hasNull(l, "work_title")) {
 			t.Fatalf("lane of no mission work_id=%v work_title=%v, want null · null", l["work_id"], l["work_title"])
 		}
@@ -159,7 +159,7 @@ func TestWorkIDOnLanesTasksDecisions(t *testing.T) {
 
 	// listDecisions.
 	f.exec(t, `INSERT INTO decision (session_id, summary, source, created_at, work_id) VALUES ($1, '결정', 'agent', now(), $2)`, f.sessionID, work)
-	decs := f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/decisions", nil)
+	decs := f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/decisions", nil)
 	if len(decs) == 0 || str(decs[len(decs)-1].(map[string]any), "work_id") != work {
 		t.Fatalf("listDecisions = %v, want the decision with work_id %s", decs, work)
 	}
@@ -219,7 +219,7 @@ func TestGetMessageAccess(t *testing.T) {
 	if st, out := f.rawGet(t, f.p+"/messages/"+id, tok); st != 200 || str(out, "id") != id {
 		t.Fatalf("own room's task token: %d %v", st, out)
 	}
-	other := str(f.api.must(201, "POST", f.p+"/workspaces/"+f.wsID+"/sessions", map[string]any{
+	other := str(sessionRoom(t, f.api, f.pool, f.p, f.wsID, map[string]any{
 		"title": "T", "goal": "g", "isolation": map[string]any{"kind": "none"},
 		"assignee_agent_id": f.lead, "participants": []map[string]any{{"agent_id": f.lead}},
 	}), "id")

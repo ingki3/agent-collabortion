@@ -126,7 +126,7 @@ func TestP3BudgetEnforcedAtFinish(t *testing.T) {
 	// The gate is the lane: a new task for the same agent lands on it (rule 3)
 	// and must not be handed out.
 	f.fake.Advance(time.Minute)
-	out := f.api.must(201, "POST", f.p+"/sessions/"+f.sessionID+"/messages",
+	out := f.api.must(201, "POST", f.p+"/rooms/"+f.sessionID+"/messages",
 		map[string]any{"content": router.MentionLink("R", f.rUUID) + " 하나만 더"},
 		"Idempotency-Key", uuid.NewString())
 	next := uuid.Nil
@@ -347,7 +347,7 @@ func TestP3BudgetAtFinishRejectionKeepsTheGate(t *testing.T) {
 		t.Fatalf("lane = %s after a rejection, want paused still (E9-03, E9-10)", st)
 	}
 	f.fake.Advance(time.Minute)
-	out := f.api.must(201, "POST", f.p+"/sessions/"+f.sessionID+"/messages",
+	out := f.api.must(201, "POST", f.p+"/rooms/"+f.sessionID+"/messages",
 		map[string]any{"content": router.MentionLink("R", f.rUUID) + " 그래도 하나만"},
 		"Idempotency-Key", uuid.NewString())
 	next := uuid.Nil

@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/ingki3/agent-collabortion/server/internal/realtime"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -21,7 +22,15 @@ import (
 // writing thirteen of its own rows that broke the same rule.
 func TestMain(m *testing.M) {
 	tasks.ResetServerEventViolations()
+	realtime.ResetTypeViolations()
 	code := m.Run()
+	// R4 (openapi v0.3.0, D22): every frame the suite drove is a contract
+	// StreamEvent type — a re-added `session.updated` (or any name outside the
+	// enum) fails here, wherever in the package it was published.
+	if v := realtime.TypeViolations(); len(v) > 0 && code == 0 {
+		fmt.Fprintf(os.Stderr, "\n%d SSE frame(s) published with a type outside openapi StreamEvent.type: %v\n", len(v), v)
+		code = 1
+	}
 	if v := tasks.ServerEventViolations(); len(v) > 0 && code == 0 {
 		fmt.Fprintf(os.Stderr, "\n%d server-written task_event rows do not match "+
 			"contracts/task_event.schema.json (S-52):\n", len(v))

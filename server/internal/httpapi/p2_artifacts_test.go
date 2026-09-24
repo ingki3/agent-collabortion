@@ -31,7 +31,7 @@ import (
 func (f *p2Fixture) artifactSession(t *testing.T, tree map[string]any) string {
 	t.Helper()
 	f.fake.Advance(time.Minute)
-	sess := f.api.must(201, "POST", f.p+"/workspaces/"+f.wsID+"/sessions", map[string]any{
+	sess := sessionRoom(t, f.api, f.pool, f.p, f.wsID, map[string]any{
 		"title": "A", "goal": "g", "isolation": map[string]any{"kind": "none"},
 		"assignee_agent_id":    f.lead,
 		"completion_condition": tree,
@@ -47,7 +47,7 @@ func (f *p2Fixture) artifactSession(t *testing.T, tree map[string]any) string {
 func (f *p2Fixture) agentToken(t *testing.T, sessionID string, agent uuid.UUID, name string) (string, uuid.UUID) {
 	t.Helper()
 	f.fake.Advance(time.Minute)
-	out := f.api.must(201, "POST", f.p+"/sessions/"+sessionID+"/messages",
+	out := f.api.must(201, "POST", f.p+"/rooms/"+sessionID+"/messages",
 		map[string]any{"content": router.MentionLink(name, agent) + " 부탁합니다"},
 		"Idempotency-Key", uuid.NewString())
 	var taskID, laneID uuid.UUID
@@ -115,7 +115,7 @@ func (f *p2Fixture) submit(t *testing.T, sessionID, tok, name, typ string, data 
 	// clock two submits share a created_at and the order is arbitrary.
 	f.fake.Advance(time.Second)
 	ct, body := multipartBody(t, name, typ, "", data)
-	return f.raw(t, "POST", f.p+"/sessions/"+sessionID+"/artifacts", tok, ct, body)
+	return f.raw(t, "POST", f.p+"/rooms/"+sessionID+"/artifacts", tok, ct, body)
 }
 
 func (f *p2Fixture) raw(t *testing.T, method, path, tok, contentType string, body []byte) (int, map[string]any) {
@@ -185,7 +185,7 @@ func TestArtifactVersioningAndLimits(t *testing.T) {
 	}
 
 	// listArtifacts: three rows in submission order, two of them latest.
-	stl, list := f.rawList(t, f.p+"/sessions/"+sess+"/artifacts", tok)
+	stl, list := f.rawList(t, f.p+"/rooms/"+sess+"/artifacts", tok)
 	if stl != 200 {
 		t.Fatalf("list = %d", stl)
 	}
@@ -195,7 +195,7 @@ func TestArtifactVersioningAndLimits(t *testing.T) {
 	if list[0]["name"] != "report.md" || int(list[0]["version"].(float64)) != 1 {
 		t.Fatalf("list is submission order (E14-06 re-applies in it): %v", list[0])
 	}
-	stl, latestOnly := f.rawList(t, f.p+"/sessions/"+sess+"/artifacts?latest_only=true", tok)
+	stl, latestOnly := f.rawList(t, f.p+"/rooms/"+sess+"/artifacts?latest_only=true", tok)
 	if stl != 200 || len(latestOnly) != 2 {
 		t.Fatalf("latest_only = %d rows, want 2 (report v2 + notes v1)", len(latestOnly))
 	}
@@ -204,7 +204,7 @@ func TestArtifactVersioningAndLimits(t *testing.T) {
 			t.Fatalf("latest_only returned report.md v%v", a["version"])
 		}
 	}
-	stl, typed := f.rawList(t, f.p+"/sessions/"+sess+"/artifacts?type=diff", tok)
+	stl, typed := f.rawList(t, f.p+"/rooms/"+sess+"/artifacts?type=diff", tok)
 	if stl != 200 || len(typed) != 0 {
 		t.Fatalf("type filter = %d rows, want 0", len(typed))
 	}
@@ -219,7 +219,7 @@ func TestArtifactVersioningAndLimits(t *testing.T) {
 		t.Fatalf("413 code = %q, want payload_too_large", str(out, "code"))
 	}
 	// …and nothing was stored.
-	stl, list = f.rawList(t, f.p+"/sessions/"+sess+"/artifacts", tok)
+	stl, list = f.rawList(t, f.p+"/rooms/"+sess+"/artifacts", tok)
 	if stl != 200 || len(list) != 3 {
 		t.Fatalf("a rejected upload must store nothing: %d rows", len(list))
 	}
@@ -230,7 +230,7 @@ func TestArtifactVersioningAndLimits(t *testing.T) {
 	_ = mw.WriteField("name", "x")
 	_ = mw.WriteField("type", "doc")
 	_ = mw.Close()
-	st, _ = f.raw(t, "POST", f.p+"/sessions/"+sess+"/artifacts", tok, mw.FormDataContentType(), buf.Bytes())
+	st, _ = f.raw(t, "POST", f.p+"/rooms/"+sess+"/artifacts", tok, mw.FormDataContentType(), buf.Bytes())
 	if st != 422 {
 		t.Fatalf("missing file part = %d, want 422", st)
 	}
@@ -336,7 +336,7 @@ func TestArtifactBoundaries(t *testing.T) {
 	if st, _, _ := other.do("GET", f.p+"/artifacts/"+id, nil); st != 404 {
 		t.Fatalf("outsider getArtifact = %d, want 404", st)
 	}
-	if st, _, _ := other.do("GET", f.p+"/sessions/"+sessA+"/artifacts", nil); st != 404 {
+	if st, _, _ := other.do("GET", f.p+"/rooms/"+sessA+"/artifacts", nil); st != 404 {
 		t.Fatalf("outsider listArtifacts = %d, want 404", st)
 	}
 
@@ -564,8 +564,8 @@ func TestSubmitIdempotency(t *testing.T) {
 		t.Fatal("premise: two encodings of the same upload must differ (random boundary)")
 	}
 
-	st1, out1 := f.rawKeyed(t, f.p+"/sessions/"+sess+"/artifacts", tok, ct1, body1, key)
-	st2, out2 := f.rawKeyed(t, f.p+"/sessions/"+sess+"/artifacts", tok, ct2, body2, key)
+	st1, out1 := f.rawKeyed(t, f.p+"/rooms/"+sess+"/artifacts", tok, ct1, body1, key)
+	st2, out2 := f.rawKeyed(t, f.p+"/rooms/"+sess+"/artifacts", tok, ct2, body2, key)
 	if st1 != 201 || st2 != 201 {
 		t.Fatalf("submits = %d, %d", st1, st2)
 	}
@@ -584,7 +584,7 @@ func TestSubmitIdempotency(t *testing.T) {
 	// The same key with a DIFFERENT upload is still a 422: the guard survives
 	// hashing the parts instead of the bytes.
 	ct3, body3 := multipartBody(t, "once.md", "doc", "", []byte("다른 본문"))
-	if st, _ := f.rawKeyed(t, f.p+"/sessions/"+sess+"/artifacts", tok, ct3, body3, key); st != 422 {
+	if st, _ := f.rawKeyed(t, f.p+"/rooms/"+sess+"/artifacts", tok, ct3, body3, key); st != 422 {
 		t.Fatalf("same key, different upload = %d, want 422 idempotency_key_reused", st)
 	}
 }

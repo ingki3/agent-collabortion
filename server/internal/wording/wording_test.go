@@ -506,8 +506,8 @@ func TestScope(t *testing.T) {
 	}
 	// 리뷰가 짚은 자리들 — 여기가 풀에 없으면 자물쇠는 잠긴 척만 한다.
 	for _, f := range []string{
-		"internal/sessions/sessions.go", // "Session started. Goal:" 이 있던 자리
-		"internal/httpapi/handlers_participants.go",
+		// R4: sessions.go("Session started. Goal:" 이 있던 자리)·handlers_participants.go 는
+		// 세션 op 과 함께 문장이 없어졌다(파일 삭제·축소).
 		"internal/httpapi/handlers_completion.go",
 		"internal/httpapi/principal.go",
 		"internal/sessions/pause.go",   // Hint
@@ -550,24 +550,26 @@ func TestScope(t *testing.T) {
 	}
 }
 
-// NN2(PR #317) — 선언과 쓰임이 갈린 패키지 상수. DeleteForbiddenDetail 은 httpapi 가 `sessions.DeleteForbiddenDetail` 로만
+// NN2(PR #317) — 선언과 쓰임이 갈린 패키지 상수. RoomArchivedDetail 은 httpapi 가 `rooms.RoomArchivedDetail` 로만
 // 쓴다 — 파일 하나만 보던 자물쇠는 이 문장을 못 봤다. 두 규칙(다른 패키지 선택자 · 이름 규칙)이 모두 빠지면 여기서 걸린다.
+// (R4: 원래 짚었던 sessions.DeleteForbiddenDetail·DeleteActiveDetail 은 deleteSession 과 함께 지워졌다 —
+// 같은 모양의 다른 파일 상수 둘로 옮긴다. DeleteUnmergedDetail 은 room_ops.go 가 쓴다.)
 func TestCrossFileConstantsAreSentences(t *testing.T) {
 	pool, _, _ := collect(t)
-	want := map[string]string{
-		"DeleteForbiddenDetail": "Director 나 소유자·관리자만 삭제할 수 있습니다",
-		"DeleteActiveDetail":    "진행 중인 미션은 먼저 종료하세요",
+	want := map[string][2]string{
+		"RoomArchivedDetail":   {"internal/rooms/authz.go", "보관된 방입니다 — 먼저 보관을 해제해 주세요"},
+		"DeleteUnmergedDetail": {"internal/sessions/delete.go", "미병합 커밋이나 미커밋 변경이 남은 작업 폴더가 있어 삭제할 수 없습니다 — 먼저 병합하거나 정리해 주세요"},
 	}
-	for name, text := range want {
+	for name, fw := range want {
 		found := false
 		for _, s := range pool {
-			if s.file == "internal/sessions/delete.go" && s.text == text {
+			if s.file == fw[0] && s.text == fw[1] {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("sessions.%s 가 풀에 없다 — 다른 파일·패키지에서 쓰는 상수가 사각지대로 돌아갔다", name)
+			t.Errorf("%s 가 풀에 없다 — 다른 파일·패키지에서 쓰는 상수가 사각지대로 돌아갔다", name)
 		}
 	}
 	if !sinkConstName.MatchString("DeleteForbiddenDetail") || sinkConstName.MatchString("selectMessages") || sqlConstName.FindString("selectMessage") == "" {

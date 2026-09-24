@@ -243,12 +243,16 @@ func Load(ctx context.Context, q db.DBTX, a *Access, now time.Time) (*gen.Room, 
 			out.Runtime = &rt.Runtime
 		}
 	}
-	// openapi 0.2.9 — the caller's own level (never another person's).
-	sub, err := MySubscription(ctx, q, a.RoomID, a.UserID)
-	if err != nil {
-		return nil, err
+	// openapi 0.2.9 — the caller's own level (never another person's). An
+	// agent's read (TaskToken — `colab room get`, openapi v0.3.0) has no
+	// person to have a level: the field stays out.
+	if a.UserID != uuid.Nil {
+		sub, err := MySubscription(ctx, q, a.RoomID, a.UserID)
+		if err != nil {
+			return nil, err
+		}
+		out.MySubscription = &sub
 	}
-	out.MySubscription = &sub
 	out.MyRoomRole = nullable.NewNullNullable[gen.RoomRole]()
 	if a.RoomRole != "" {
 		out.MyRoomRole = nullable.NewNullableWithValue(gen.RoomRole(a.RoomRole))

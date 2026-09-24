@@ -154,6 +154,7 @@ func (h *Hub) PublishTo(ctx context.Context, q db.DBTX, ws uuid.UUID, session, u
 	if err != nil {
 		return fmt.Errorf("realtime: marshal %s: %w", typ, err)
 	}
+	checkType(typ)
 	e := Event{Type: typ, At: h.Clock.Now(), WorkspaceID: ws, SessionID: session, Payload: raw, UserID: user}
 	if q == nil {
 		q = h.DB
@@ -169,6 +170,7 @@ func (h *Hub) PublishTo(ctx context.Context, q db.DBTX, ws uuid.UUID, session, u
 
 // PublishEphemeral delivers without persisting (message.delta, agent.typing).
 func (h *Hub) PublishEphemeral(ws uuid.UUID, session *uuid.UUID, typ string, payload any) {
+	checkType(typ)
 	raw, _ := json.Marshal(payload)
 	h.deliver(Event{Type: typ, At: h.Clock.Now(), WorkspaceID: ws, SessionID: session, Ephemeral: true, Payload: raw})
 }

@@ -79,10 +79,10 @@ func TestP3ResumeSessionRequeuesParkedTasks(t *testing.T) {
 		t.Fatalf("premise: task = %s(%s), want paused(budget) — the pause cancels the turn (§8.2.2)", st, reason)
 	}
 
-	// The Director raises the limit and presses 재개. That IS the answer to the
-	// session-scoped budget request (openapi resumeSession).
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/resume",
-		map[string]any{"limits": map[string]any{"budget_usd": 10}})
+	// The owner raises the limit on the room's budget request (K-10). That IS
+	// the lift — the old resumeSession(limits) did the same, and went with
+	// openapi v0.3.0.
+	f.liftRoomBudget(t, 10)
 
 	if st := f.taskStatus(t, parked); st != "queued" {
 		t.Fatalf("parked task = %q after 재개, want queued — resuming a session that dispatches nothing is not a resume (FR-2.3)", st)
@@ -147,8 +147,7 @@ func TestP3ResumeSessionKeepsRefusedBudgetTask(t *testing.T) {
 		t.Fatalf("premise: W task = %q, want paused — the session budget is gone (E9-04)", st)
 	}
 
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/resume",
-		map[string]any{"limits": map[string]any{"budget_usd": 20}})
+	f.liftRoomBudget(t, 20)
 
 	if st := f.taskStatus(t, parked); st != "queued" {
 		t.Fatalf("the task the session pause parked = %q, want queued", st)
@@ -159,4 +158,19 @@ func TestP3ResumeSessionKeepsRefusedBudgetTask(t *testing.T) {
 	if got := f.claimed(t); has(got, refused) {
 		t.Fatalf("the queue handed out a task whose budget raise was refused: %v", got)
 	}
+}
+
+// liftRoomBudget answers the room's open budget request (task_id NULL — the
+// room gate) with a raise: resumeRoomForBudget re-queues what the pause parked
+// and lifts the parked lanes (S-46 · S-44).
+func (f *p2Fixture) liftRoomBudget(t *testing.T, usd float64) {
+	t.Helper()
+	var id string
+	if err := f.pool.QueryRow(t.Context(), `
+		SELECT id::text FROM hitl_request WHERE session_id = $1 AND purpose = 'budget' AND task_id IS NULL AND status = 'open'`,
+		f.sessionID).Scan(&id); err != nil {
+		t.Fatalf("no open room budget request: %v", err)
+	}
+	f.api.must(200, "POST", f.p+"/hitl-requests/"+id+"/response",
+		map[string]any{"approved": true, "budget_override_usd": usd}, "Idempotency-Key", uuid.NewString())
 }

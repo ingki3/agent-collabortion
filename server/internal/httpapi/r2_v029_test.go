@@ -75,7 +75,7 @@ func TestR2LaneMySubscription(t *testing.T) {
 	lanes := func(c *client) map[string]any {
 		t.Helper()
 		out := map[string]any{}
-		for _, raw := range c.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/lanes", nil) {
+		for _, raw := range c.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/lanes", nil) {
 			l := raw.(map[string]any)
 			v, ok := l["my_subscription"]
 			if !ok {

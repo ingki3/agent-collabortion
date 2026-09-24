@@ -122,9 +122,9 @@ func TestR1b3RoomLifecycle(t *testing.T) {
 		if st, _, _ := f.other.do("GET", rp, nil); st != 404 {
 			t.Fatalf("uninvited member GET = %d, want 404", st)
 		}
-		// The old /sessions/* aliases read the same room (review #291 R1-1).
-		if st, _, _ := f.other.do("GET", f.p+"/sessions/"+roomID+"/messages", nil); st != 404 {
-			t.Fatalf("uninvited member GET /sessions/{id}/messages = %d, want 404", st)
+		// The room's other reads answer the same (review #291 R1-1).
+		if st, _, _ := f.other.do("GET", f.p+"/rooms/"+roomID+"/messages", nil); st != 404 {
+			t.Fatalf("uninvited member GET /rooms/{id}/messages = %d, want 404", st)
 		}
 		list := items(f.other.must(200, "GET", f.p+"/workspaces/"+f.wsID+"/rooms?participating=false", nil))
 		if hasRoom(list, roomID) {
@@ -352,7 +352,7 @@ func TestR1b3LinksArchiveDelete(t *testing.T) {
 		}
 	})
 
-	t.Run("삭제: 부방장 403 · 방장 204 → room.deleted 한 줄 + SSE 두 이름", func(t *testing.T) {
+	t.Run("삭제: 부방장 403 · 방장 204 → room.deleted 한 줄 + SSE room.deleted 만", func(t *testing.T) {
 		f.member.must(201, "POST", ap+"/participants", map[string]any{"user_id": f.otherUserID})
 		f.member.must(200, "PUT", ap+"/deputy", map[string]any{"user_id": f.otherUserID})
 		st, out, _ := f.other.do("DELETE", ap, nil)
@@ -369,8 +369,12 @@ func TestR1b3LinksArchiveDelete(t *testing.T) {
 		if n := f.count(t, `SELECT count(*) FROM activity_log WHERE session_id = $1`, str(a, "id")); n != 0 {
 			t.Fatalf("room activity left = %d", n)
 		}
-		if n := f.count(t, `SELECT count(*) FROM stream_event WHERE session_id = $1 AND type IN ('room.deleted', 'session.deleted')`, str(a, "id")); n != 2 {
-			t.Fatalf("delete frames = %d", n)
+		if n := f.count(t, `SELECT count(*) FROM stream_event WHERE session_id = $1 AND type = 'room.deleted'`, str(a, "id")); n != 1 {
+			t.Fatalf("room.deleted frames = %d", n)
+		}
+		// openapi v0.3.0 (D22): the old name is not sent alongside any more.
+		if n := f.count(t, `SELECT count(*) FROM stream_event WHERE session_id = $1 AND type = 'session.deleted'`, str(a, "id")); n != 0 {
+			t.Fatalf("session.deleted frames = %d, want 0", n)
 		}
 	})
 
@@ -432,14 +436,15 @@ func TestR1b3OwnerSuccession(t *testing.T) {
 	}
 }
 
-// TestR1b3InvitedSessionAliases (review #291 R1-1): an invited room does not
-// exist for an uninvited member on the old /sessions/* aliases either — every
-// read that goes through sessionAccess answers 404, the body never leaves.
-// Participants, the auditing ws owner and the room's agents (task token) read
-// as before, and a workspace-visible room stays open to every member.
-func TestR1b3InvitedSessionAliases(t *testing.T) {
+// TestR1b3InvitedRoomReads (review #291 R1-1): an invited room does not exist
+// for an uninvited member on any of its reads — the ones that moved from the
+// old /sessions/* aliases to /rooms/{id}/* (openapi v0.3.0) go through
+// sessionAccess and answer 404, the body never leaves. Participants, the
+// auditing ws owner and the room's agents (task token) read as before, and a
+// workspace-visible room stays open to every member.
+func TestR1b3InvitedRoomReads(t *testing.T) {
 	f := newRoomsFixture(t)
-	sp := f.p + "/sessions/" + f.sessionID
+	sp := f.p + "/rooms/" + f.sessionID
 	const secret = "SECRET-BODY-42"
 	f.post(t, map[string]any{"content": secret})
 	tok, _ := f.agentToken(t, f.sessionID, f.leadUUID, "Lead")
@@ -455,7 +460,7 @@ func TestR1b3InvitedSessionAliases(t *testing.T) {
 	})
 
 	f.api.must(200, "PATCH", f.roomPath(f.sessionID), map[string]any{"visibility": "invited"})
-	t.Run("invited 방: 초대 안 된 멤버에게 /sessions/* 전부 404", func(t *testing.T) {
+	t.Run("invited 방: 초대 안 된 멤버에게 /rooms/{id}/* 전부 404", func(t *testing.T) {
 		for _, suffix := range reads {
 			st, out, _ := f.other.do("GET", sp+suffix, nil)
 			if st != 404 || str(out, "code") != "not_found" {
@@ -492,32 +497,8 @@ func TestR1b3InvitedSessionAliases(t *testing.T) {
 func TestR1b3LanesOfMissionlessRoom(t *testing.T) {
 	f := newRoomsFixture(t)
 	rid := str(f.mkRoom(t, f.member, "빈 방"), "id")
-	if out := f.member.mustList(200, "GET", f.p+"/sessions/"+rid+"/lanes", nil); len(out) != 0 {
+	if out := f.member.mustList(200, "GET", f.p+"/rooms/"+rid+"/lanes", nil); len(out) != 0 {
 		t.Fatalf("lanes of a missionless room = %v", out)
-	}
-}
-
-// TestR1b3SessionRosterIsRoomRoster: the old session participant ops write
-// room_participant — removing is a left_at, the old list hides the row, and
-// the agent can be invited back through either surface.
-func TestR1b3SessionRosterIsRoomRoster(t *testing.T) {
-	f := newRoomsFixture(t)
-	sp := f.p + "/sessions/" + f.sessionID
-	f.api.must(204, "DELETE", sp+"/participants/"+f.w, nil)
-	if n := f.count(t, `SELECT count(*) FROM room_participant WHERE room_id = $1 AND agent_id = $2 AND left_at IS NOT NULL`, f.sessionID, f.w); n != 1 {
-		t.Fatal("old removeParticipant did not leave a left_at row")
-	}
-	for _, p := range f.api.mustList(200, "GET", sp+"/participants", nil) {
-		if str(p.(map[string]any), "agent_id") == f.w {
-			t.Fatal("left agent still in the old list")
-		}
-	}
-	if n := len(items(f.api.must(200, "GET", f.roomPath(f.sessionID)+"/participants", nil))); n != 3 { // Lead · R (W left) + Dir
-		t.Fatalf("room roster = %d", n)
-	}
-	f.api.must(201, "POST", sp+"/participants", map[string]any{"agent_id": f.w})
-	if n := f.count(t, `SELECT count(*) FROM room_participant WHERE room_id = $1 AND agent_id = $2 AND left_at IS NULL`, f.sessionID, f.w); n != 1 {
-		t.Fatal("re-invite did not reopen the row")
 	}
 }
 
@@ -681,16 +662,16 @@ func metricsCompute(t *testing.T, f *roomsFixture, now time.Time) (map[string]me
 
 // FR-5.3 P-Q: an owner·admin looking into an invited room they are not in
 // leaves ONE activity_log line per person, room and day — getRoom, the old
-// /sessions/{id} reads and repeated reads are the same look. A participant's
+// getRoom reads and repeated reads are the same look. A participant's
 // read is not an audit.
 func TestR1b3AuditViewedOncePerDay(t *testing.T) {
 	f := newRoomsFixture(t)
-	// Made on the old path so /sessions/{id} has its mission to answer with.
+	// Made as sessionRoom does (a room with one mission).
 	agentID := str(f.member.must(201, "POST", f.p+"/workspaces/"+f.wsID+"/agents", map[string]any{
 		"name": "Auditee", "role": "lead", "role_description": "d", "instructions": "i",
 		"profiles": []map[string]any{{"name": "default", "runtime_kind": "claude_code", "model": "claude-sonnet-5"}},
 	}), "id")
-	sess := f.member.must(201, "POST", f.p+"/workspaces/"+f.wsID+"/sessions", map[string]any{
+	sess := sessionRoom(t, f.member, f.pool, f.p, f.wsID, map[string]any{
 		"title": "감사 열람 방", "goal": "g", "isolation": map[string]any{"kind": "none"},
 		"participants": []map[string]any{{"agent_id": agentID}},
 	})
@@ -702,19 +683,19 @@ func TestR1b3AuditViewedOncePerDay(t *testing.T) {
 	}
 
 	f.member.must(200, "GET", rp, nil) // the owner (a participant) reading is no audit
-	f.member.must(200, "GET", f.p+"/sessions/"+roomID+"/messages", nil)
+	f.member.must(200, "GET", f.p+"/rooms/"+roomID+"/messages", nil)
 	if n := audits(); n != 0 {
 		t.Fatalf("participant reads wrote %d audit lines, want 0", n)
 	}
-	// ws owner, not a participant: getRoom twice, the old alias, its messages.
+	// ws owner, not a participant: getRoom three times, its messages.
 	f.api.must(200, "GET", rp, nil)
 	f.api.must(200, "GET", rp, nil)
-	f.api.must(200, "GET", f.p+"/sessions/"+roomID, nil)
-	f.api.must(200, "GET", f.p+"/sessions/"+roomID+"/messages", nil)
+	f.api.must(200, "GET", f.p+"/rooms/"+roomID, nil)
+	f.api.must(200, "GET", f.p+"/rooms/"+roomID+"/messages", nil)
 	if n := audits(); n != 1 {
 		t.Fatalf("same person·room·day = %d lines, want 1", n)
 	}
-	f.admin.must(200, "GET", f.p+"/sessions/"+roomID+"/messages", nil) // another auditor
+	f.admin.must(200, "GET", f.p+"/rooms/"+roomID+"/messages", nil) // another auditor
 	if n := audits(); n != 2 {
 		t.Fatalf("second auditor = %d lines, want 2", n)
 	}

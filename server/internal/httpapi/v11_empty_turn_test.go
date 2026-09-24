@@ -51,7 +51,7 @@ func TestV11EmptyTurnCard(t *testing.T) {
 	tok, msgOnly := f.agentToken(t, f.sessionID, f.rUUID, "R")
 	f.runTask(t, msgOnly)
 	agent := &client{t: t, srv: f.api.srv, bearer: tok}
-	if st, out, _ := agent.do("POST", f.p+"/sessions/"+f.sessionID+"/messages", map[string]any{"content": "한 마디"}, "Idempotency-Key", uuid.NewString()); st != 201 {
+	if st, out, _ := agent.do("POST", f.p+"/rooms/"+f.sessionID+"/messages", map[string]any{"content": "한 마디"}, "Idempotency-Key", uuid.NewString()); st != 201 {
 		t.Fatalf("post = %d %v", st, out)
 	}
 	f.finishTurn(t, msgOnly, endTurn)

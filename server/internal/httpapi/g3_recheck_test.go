@@ -126,12 +126,12 @@ func TestG3RecheckHeartbeatPreview(t *testing.T) {
 		"name": "Lead", "role": "lead", "role_description": "coordinates", "instructions": "be helpful",
 		"profiles": []map[string]any{{"name": "default", "runtime_kind": "claude_code", "model": "claude-sonnet-5"}},
 	}), "id")
-	sess := api.must(201, "POST", p+"/workspaces/"+wsID+"/sessions", map[string]any{
+	sess := sessionRoom(t, api, pool, p, wsID, map[string]any{
 		"title": "Preview", "goal": "stream", "isolation": map[string]any{"kind": "none"}, "runtime_id": runtimeID,
 		"participants": []map[string]any{{"agent_id": agentID}},
 	})
 	sessionID := str(sess, "id")
-	post := api.must(201, "POST", p+"/sessions/"+sessionID+"/messages",
+	post := api.must(201, "POST", p+"/rooms/"+sessionID+"/messages",
 		map[string]any{"content": router.MentionLink("Lead", mustUUID(t, agentID)) + " hello"},
 		"Idempotency-Key", "44444444-4444-4444-8444-444444444444")
 	taskID := str(post["triggers"].([]any)[0].(map[string]any), "task_id")

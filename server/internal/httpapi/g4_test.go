@@ -34,7 +34,7 @@ func foreignSession(t *testing.T, f *p2Fixture) string {
 		"name": "O", "role": "lead", "role_description": "d", "instructions": "i",
 		"profiles": []map[string]any{{"name": "default", "runtime_kind": "claude_code", "model": "claude-sonnet-5"}},
 	}), "id")
-	return str(other.must(201, "POST", f.p+"/workspaces/"+ws+"/sessions", map[string]any{
+	return str(sessionRoom(t, other, f.pool, f.p, ws, map[string]any{
 		"title": "S", "goal": "g", "isolation": map[string]any{"kind": "none"},
 		"assignee_agent_id": a, "participants": []map[string]any{{"agent_id": a}},
 	}), "id")
@@ -91,7 +91,7 @@ func TestG4ListShapes(t *testing.T) {
 	// recordDecision is TaskToken-only, so the row that makes listDecisions
 	// non-empty is written by an agent.
 	tok, _ := f.agentToken(t, f.sessionID, f.rUUID, "R")
-	if st, out := f.rawPost(t, f.p+"/sessions/"+f.sessionID+"/decisions", tok, map[string]any{"summary": "결정"}); st != 201 {
+	if st, out := f.rawPost(t, f.p+"/rooms/"+f.sessionID+"/decisions", tok, map[string]any{"summary": "결정"}); st != 201 {
 		t.Fatalf("agent decision = %d %v", st, out)
 	}
 
@@ -100,9 +100,9 @@ func TestG4ListShapes(t *testing.T) {
 		"/workspaces/" + f.wsID + "/invites",
 		"/workspaces/" + f.wsID + "/runtimes",
 		"/workspaces/" + f.wsID + "/agent-templates",
-		"/sessions/" + f.sessionID + "/artifacts",
-		"/sessions/" + f.sessionID + "/decisions",
-		"/sessions/" + f.sessionID + "/lanes",
+		"/rooms/" + f.sessionID + "/artifacts",
+		"/rooms/" + f.sessionID + "/decisions",
+		"/rooms/" + f.sessionID + "/lanes",
 	} {
 		if got := f.api.mustList(200, "GET", f.p+path, nil); got == nil {
 			t.Fatalf("GET %s: array op answered null, not []", path)
@@ -112,7 +112,7 @@ func TestG4ListShapes(t *testing.T) {
 	for _, path := range []string{
 		"/workspaces/" + f.wsID + "/agents",
 		"/workspaces/" + f.wsID + "/members",
-		"/sessions/" + f.sessionID + "/messages",
+		"/rooms/" + f.sessionID + "/messages",
 	} {
 		if _, ok := f.api.must(200, "GET", f.p+path, nil)["items"]; !ok {
 			t.Fatalf("GET %s: paged op must keep {items, next_cursor}", path)
@@ -128,11 +128,11 @@ func TestG4ListLanes(t *testing.T) {
 	f := newG4Fixture(t)
 	ctx := t.Context()
 
-	base := len(f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/lanes", nil))
+	base := len(f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/lanes", nil))
 	f.post(t, map[string]any{"content": router.MentionLink("R", f.rUUID) + " 조사"})
 	f.post(t, map[string]any{"content": router.MentionLink("W", f.wUUID) + " 초안", "new_lane": true})
 
-	lanes := f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/lanes", nil)
+	lanes := f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/lanes", nil)
 	if len(lanes) != base+2 {
 		t.Fatalf("lanes = %d, want %d", len(lanes), base+2)
 	}
@@ -153,13 +153,13 @@ func TestG4ListLanes(t *testing.T) {
 	}
 
 	// status filter (form/explode=false → comma separated)
-	if n := len(f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/lanes?status=done", nil)); n != 0 {
+	if n := len(f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/lanes?status=done", nil)); n != 0 {
 		t.Fatalf("status=done = %d, want 0", n)
 	}
-	if n := len(f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/lanes?status=queued,running", nil)); n != base+2 {
+	if n := len(f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/lanes?status=queued,running", nil)); n != base+2 {
 		t.Fatalf("status=queued,running = %d, want %d", n, base+2)
 	}
-	if st, out, _ := f.api.do("GET", f.p+"/sessions/"+f.sessionID+"/lanes?status=bogus", nil); st != 422 {
+	if st, out, _ := f.api.do("GET", f.p+"/rooms/"+f.sessionID+"/lanes?status=bogus", nil); st != 422 {
 		t.Fatalf("unknown status = %d %v, want 422", st, out)
 	}
 
@@ -175,7 +175,7 @@ func TestG4ListLanes(t *testing.T) {
 	if _, err := f.pool.Exec(ctx, `UPDATE lane SET status = 'blocked', blocked_note = '국내만인가요?', blocked_message_id = $2, reentry_count = 2 WHERE id = $1`, laneID, msgID); err != nil {
 		t.Fatal(err)
 	}
-	blocked := f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/lanes?status=blocked", nil)
+	blocked := f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/lanes?status=blocked", nil)
 	if len(blocked) != 1 {
 		t.Fatalf("blocked lanes = %d, want 1", len(blocked))
 	}
@@ -191,7 +191,7 @@ func TestG4ListLanes(t *testing.T) {
 	other := &client{t: t, srv: f.api.srv}
 	_, _, hdr := other.do("POST", f.p+"/auth/signup", map[string]any{"display_name": "B", "email": "b@example.com", "password": "password123"})
 	other.cookie = hdr.Get("Set-Cookie")
-	if st, _, _ := other.do("GET", f.p+"/sessions/"+f.sessionID+"/lanes", nil); st != 404 {
+	if st, _, _ := other.do("GET", f.p+"/rooms/"+f.sessionID+"/lanes", nil); st != 404 {
 		t.Fatalf("outsider's lane board = %d, want 404", st)
 	}
 }
@@ -410,7 +410,7 @@ func TestG4WorkdirRows(t *testing.T) {
 		t.Fatalf("lane.workdir_id = %v, want %v — S7 cannot show a lane's workdir otherwise", bound, wdID)
 	}
 	// And the API says so, which is where the defect was visible.
-	board := f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/lanes", nil)
+	board := f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/lanes", nil)
 	if got := str(board[0].(map[string]any), "workdir_id"); got != wdID.String() {
 		t.Fatalf("lane.workdir_id over the API = %q, want %s", got, wdID)
 	}

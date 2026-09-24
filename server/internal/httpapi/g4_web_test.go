@@ -42,7 +42,7 @@ func TestLaneBriefSurvivesDelegate(t *testing.T) {
 
 	// The read model S7 actually renders is listLanes.
 	byID := map[string]map[string]any{}
-	for _, raw := range f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/lanes", nil) {
+	for _, raw := range f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/lanes", nil) {
 		l := raw.(map[string]any)
 		byID[str(l, "id")] = l
 	}
@@ -87,7 +87,7 @@ func TestClaimPublishesLaneRunning(t *testing.T) {
 	post := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
 	laneID := str(post["triggers"].([]any)[0].(map[string]any), "lane_id")
 
-	frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?session_id="+f.sessionID)
+	frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?room_id="+f.sessionID)
 	defer stop()
 
 	f.daemon.must(200, "POST", "/v1/daemon/runtimes/"+f.runtimeID+"/claim", map[string]any{"capacity": 1, "wait_ms": 0})

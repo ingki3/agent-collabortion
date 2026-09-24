@@ -205,7 +205,7 @@ func TestP5RemoveMemberAuthz(t *testing.T) {
 		// The P2 fixture's session is directed by "Dir" (the room's owner). Hand
 		// it to the plain member; removing them used to be 409
 		// member_is_director — since 0.2.3 the seat passes to the room's owner.
-		f.api.must(200, "PUT", f.p+"/sessions/"+f.sessionID+"/director", map[string]any{"director_user_id": f.memberUserID})
+		f.api.must(200, "PUT", f.p+"/works/"+f.missionID+"/director", map[string]any{"director_user_id": f.memberUserID})
 		st, out, _ := f.admin.do("DELETE", f.memberPath(f.memberID), nil)
 		if st != 204 || exists(f.memberID) {
 			t.Fatalf("= %d %v exists=%v", st, out, exists(f.memberID))

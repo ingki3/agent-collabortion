@@ -217,7 +217,7 @@ func TestP2CompletionManual(t *testing.T) {
 	ctx := t.Context()
 	f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
 
-	st, out, _ := f.api.do("POST", f.p+"/sessions/"+f.sessionID+"/complete", map[string]any{})
+	st, out, _ := f.api.do("POST", f.p+"/works/"+f.missionID+"/complete", map[string]any{})
 	if st != 409 || str(out, "code") != "running_lanes" {
 		t.Fatalf("complete with a queued lane = %d %v, want 409 running_lanes", st, out)
 	}
@@ -225,7 +225,7 @@ func TestP2CompletionManual(t *testing.T) {
 		t.Fatalf("409 must say how much work is at stake, got %v", out["running_lane_count"])
 	}
 
-	done := f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/complete", map[string]any{"confirm": true})
+	done := f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/complete", map[string]any{"confirm": true})
 	if str(done, "status") != "completed" {
 		t.Fatalf("session = %v, want completed", str(done, "status"))
 	}
@@ -244,7 +244,7 @@ func TestP2CompletionManual(t *testing.T) {
 		t.Fatalf("queued tasks after completion = %d, want 0 — a resumed daemon must not pick them up", live)
 	}
 	// A closed session stays closed.
-	if st, _, _ := f.api.do("POST", f.p+"/sessions/"+f.sessionID+"/complete", map[string]any{"confirm": true}); st != 409 {
+	if st, _, _ := f.api.do("POST", f.p+"/works/"+f.missionID+"/complete", map[string]any{"confirm": true}); st != 409 {
 		t.Fatalf("completing twice = %d, want 409", st)
 	}
 }
@@ -253,14 +253,9 @@ func TestP2CompletionManual(t *testing.T) {
 // the judge of its own work, agent_approval may.
 func TestP2CompletionTreeValidation(t *testing.T) {
 	f := newP2Fixture(t)
+	// createSession's rule, on createWork (openapi v0.3.0 removed the former).
 	create := func(cond map[string]any) (int, map[string]any) {
-		body := map[string]any{
-			"title": "S", "goal": "g", "isolation": map[string]any{"kind": "none"},
-			"participants":         []map[string]any{{"agent_id": f.lead}},
-			"completion_condition": cond,
-		}
-		st, out, _ := f.api.do("POST", f.p+"/workspaces/"+f.wsID+"/sessions", body)
-		return st, out
+		return tryWork(t, f.api, f.p, f.wsID, []string{f.lead}, map[string]any{"completion_condition": cond})
 	}
 	if st, out := create(map[string]any{"op": "and", "conditions": []map[string]any{{"type": "criteria_met"}}}); st != 422 {
 		t.Fatalf("criteria_met alone = %d %v, want 422", st, out)
@@ -283,9 +278,7 @@ func TestP2CompletionTreeValidation(t *testing.T) {
 		{"type": "agent_approval", "agent_id": f.r}}}); st != 422 || fieldCode(out, "completion_condition/conditions/0/agent_id") != "reviewer_not_participant" {
 		t.Fatalf("agent_approval(R, not a participant) = %d %v, want 422 reviewer_not_participant", st, out)
 	}
-	st, out, _ := f.api.do("POST", f.p+"/workspaces/"+f.wsID+"/sessions", map[string]any{
-		"title": "S", "goal": "g", "isolation": map[string]any{"kind": "none"},
-		"participants": []map[string]any{{"agent_id": f.lead}, {"agent_id": f.r}},
+	st, out := tryWork(t, f.api, f.p, f.wsID, []string{f.lead, f.r}, map[string]any{
 		"completion_condition": map[string]any{"op": "and", "conditions": []map[string]any{
 			{"type": "agent_approval", "agent_id": f.r}}},
 	})
@@ -311,13 +304,13 @@ func fieldCode(out map[string]any, field string) string {
 func TestP2DecisionLog(t *testing.T) {
 	f := newP2Fixture(t)
 	tok, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
-	if st, out := f.rawPost(t, f.p+"/sessions/"+f.sessionID+"/decisions", tok, map[string]any{
+	if st, out := f.rawPost(t, f.p+"/rooms/"+f.sessionID+"/decisions", tok, map[string]any{
 		"summary": "API 응답은 JSON", "rationale": "클라이언트가 셋 다 JSON을 쓴다",
 	}); st != 201 {
 		t.Fatalf("agent decision = %d %v, want 201", st, out)
 	}
 	// 계약 listDecisions 는 `type: array` 다 — {"items": …} 가 아니다(G4 결함 1).
-	items := f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/decisions", nil)
+	items := f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/decisions", nil)
 	if len(items) != 1 {
 		t.Fatalf("decisions = %d, want 1", len(items))
 	}
@@ -328,7 +321,7 @@ func TestP2DecisionLog(t *testing.T) {
 	if str(d, "ref_id") != taskID.String() {
 		t.Fatalf("ref_id = %q, want the recording task %s", str(d, "ref_id"), taskID)
 	}
-	if st, _ := f.rawPost(t, f.p+"/sessions/"+f.sessionID+"/decisions", tok, map[string]any{"summary": "  "}); st != 422 {
+	if st, _ := f.rawPost(t, f.p+"/rooms/"+f.sessionID+"/decisions", tok, map[string]any{"summary": "  "}); st != 422 {
 		t.Fatalf("blank summary = %d, want 422", st)
 	}
 }
@@ -339,11 +332,11 @@ func TestG4RecordDecisionIsAgentOnly(t *testing.T) {
 	f := newP2Fixture(t)
 	body := map[string]any{"summary": "사람이 쓴 결정"}
 
-	if st, out, _ := f.api.do("POST", f.p+"/sessions/"+f.sessionID+"/decisions", body); st != 403 {
+	if st, out, _ := f.api.do("POST", f.p+"/rooms/"+f.sessionID+"/decisions", body); st != 403 {
 		t.Fatalf("director's cookie = %d %v, want 403 (openapi recordDecision is TaskToken-only)", st, out)
 	}
 	anon := &client{t: t, srv: f.api.srv}
-	if st, _, _ := anon.do("POST", f.p+"/sessions/"+f.sessionID+"/decisions", body); st != 401 && st != 403 {
+	if st, _, _ := anon.do("POST", f.p+"/rooms/"+f.sessionID+"/decisions", body); st != 401 && st != 403 {
 		t.Fatalf("anonymous = %d, want 401/403", st)
 	}
 	var n int
@@ -357,7 +350,7 @@ func TestG4RecordDecisionIsAgentOnly(t *testing.T) {
 	// A token for another session cannot write here either.
 	other := f.artifactSession(t, map[string]any{"type": "manual"})
 	tok, _ := f.agentToken(t, other, f.rUUID, "R")
-	if st, out := f.rawPost(t, f.p+"/sessions/"+f.sessionID+"/decisions", tok, body); st != 403 {
+	if st, out := f.rawPost(t, f.p+"/rooms/"+f.sessionID+"/decisions", tok, body); st != 403 {
 		t.Fatalf("another session's token = %d %v, want 403", st, out)
 	}
 }

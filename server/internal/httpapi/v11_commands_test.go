@@ -24,7 +24,7 @@ import (
 func (f *p2Fixture) cmdOp(t *testing.T, tok string, taskID uuid.UUID, cmd gen.ColabCommand, artifact string) (int, map[string]any) {
 	t.Helper()
 	c := &client{t: t, srv: f.api.srv, bearer: tok}
-	sess := f.p + "/sessions/" + f.sessionID
+	sess := f.p + "/rooms/" + f.sessionID
 	key := func() []string { return []string{"Idempotency-Key", uuid.NewString()} }
 	switch cmd {
 	case gen.ColabCommandRoomGet:
@@ -112,14 +112,14 @@ func TestV11CommandNotAllowed(t *testing.T) {
 		"profiles": []map[string]any{{"name": "default", "runtime_kind": "claude_code", "model": "claude-sonnet-5"}},
 	}), "id")
 	customUUID := mustUUID(t, custom)
-	f.api.must(201, "POST", f.p+"/sessions/"+f.sessionID+"/participants", map[string]any{"agent_id": custom})
+	f.api.must(201, "POST", f.p+"/rooms/"+f.sessionID+"/participants", map[string]any{"agent_id": custom})
 	// A reviewer-role agent as well (the fixture has lead · researcher · writer).
 	reviewer := str(f.api.must(201, "POST", f.p+"/workspaces/"+f.wsID+"/agents", map[string]any{
 		"name": "Rev", "role": "reviewer", "role_description": "d", "instructions": "i",
 		"profiles": []map[string]any{{"name": "default", "runtime_kind": "claude_code", "model": "claude-sonnet-5"}},
 	}), "id")
 	reviewerUUID := mustUUID(t, reviewer)
-	f.api.must(201, "POST", f.p+"/sessions/"+f.sessionID+"/participants", map[string]any{"agent_id": reviewer})
+	f.api.must(201, "POST", f.p+"/rooms/"+f.sessionID+"/participants", map[string]any{"agent_id": reviewer})
 
 	// Surface 1 — Agent.allowed_commands is the §2.5 row, read-only.
 	for _, tc := range []struct {
@@ -287,6 +287,6 @@ func TestV11CommandNotAllowed(t *testing.T) {
 	}
 
 	// A person is not gated: the Director reads the session and posts.
-	f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
-	f.api.must(201, "POST", f.p+"/sessions/"+f.sessionID+"/messages", map[string]any{"content": "사람"}, "Idempotency-Key", uuid.NewString())
+	f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID, nil)
+	f.api.must(201, "POST", f.p+"/rooms/"+f.sessionID+"/messages", map[string]any{"content": "사람"}, "Idempotency-Key", uuid.NewString())
 }
