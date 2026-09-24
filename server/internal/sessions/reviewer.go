@@ -85,14 +85,14 @@ func ValidateReviewers(t Tree, participant func(uuid.UUID) bool) []apperr.FieldE
 		if c.Agent == nil {
 			if c.Type == CondAgentApproval {
 				errs = append(errs, apperr.Field(field, "reviewer_required",
-					"「검토 승인」에는 리뷰어를 참여자 중에서 골라 주세요 — 리뷰어가 없으면 아무도 승인할 수 없어 세션이 끝나지 않습니다"))
+					"「검토 승인」에는 리뷰어를 참여자 중에서 골라 주세요 — 리뷰어가 없으면 아무도 승인할 수 없어 미션이 끝나지 않습니다"))
 			}
 			continue
 		}
 		if !participant(*c.Agent) {
-			msg := "리뷰어는 이 세션의 참여자 중에서 골라 주세요"
+			msg := "리뷰어는 이 방의 참여자 중에서 골라 주세요"
 			if c.Type == CondArtifactSubmitted {
-				msg = "제출자는 이 세션의 참여자 중에서 골라 주세요"
+				msg = "제출자는 이 방의 참여자 중에서 골라 주세요"
 			}
 			errs = append(errs, apperr.Field(field, "reviewer_not_participant", msg))
 		}

@@ -98,7 +98,7 @@ func ValidateTree(t Tree) error {
 	}
 	if hasCriteria && (!hasApproval || op != "AND") {
 		return &TreeError{TreeCodeCriteriaMetAlone, "「기준 충족」은 승인 조건과 AND 로 묶어야 합니다 — 플랫폼이 " +
-			"자기 채점만으로 세션을 끝낼 수 없습니다"}
+			"자기 채점만으로 미션을 끝낼 수 없습니다"}
 	}
 	return nil
 }
@@ -161,7 +161,7 @@ func ApplyEvent(t Tree, st State, ev Event) Outcome {
 		if namesActor(t, CondAgentApproval, ev.Actor) {
 			met[CondAgentApproval] = true
 		} else {
-			o.CLIError = "이 세션의 리뷰어가 아닙니다 — 지정된 리뷰어만 승인할 수 있습니다"
+			o.CLIError = "이 미션의 리뷰어가 아닙니다 — 지정된 리뷰어만 승인할 수 있습니다"
 			o.MetAtoms = atoms(met)
 			return o
 		}
@@ -171,7 +171,7 @@ func ApplyEvent(t Tree, st State, ev Event) Outcome {
 		// nothing is stored) — a verdict nobody asked for must not reach the
 		// submitting lane's thread either.
 		if !namesActor(t, CondAgentApproval, ev.Actor) {
-			o.CLIError = "이 세션의 리뷰어가 아닙니다 — 지정된 리뷰어만 반려할 수 있습니다"
+			o.CLIError = "이 미션의 리뷰어가 아닙니다 — 지정된 리뷰어만 반려할 수 있습니다"
 			o.MetAtoms = atoms(met)
 			return o
 		}

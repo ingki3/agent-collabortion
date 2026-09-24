@@ -54,7 +54,7 @@ func LegacyWork(ctx context.Context, q db.DBTX, roomID uuid.UUID) (uuid.UUID, er
 // works API speaks of a mission.
 func closedConflict(legacy bool) error {
 	if legacy {
-		return apperr.Conflict("session_closed", "이미 끝난 세션입니다")
+		return apperr.Conflict("session_closed", "이미 끝난 미션입니다")
 	}
 	return apperr.Conflict("work_closed", "이미 끝난 미션입니다")
 }
@@ -62,15 +62,6 @@ func closedConflict(legacy bool) error {
 // ClosedConflict is closedConflict for callers outside the package (the
 // artifact store gates a submission on the mission it belongs to).
 func ClosedConflict(legacy bool) error { return closedConflict(legacy) }
-
-// Noun is how a sentence names the unit a person acts on: the old session
-// surface says 세션, the works API says 미션 (PRD v0.19 §3.2).
-func Noun(legacy bool) string {
-	if legacy {
-		return "세션"
-	}
-	return "미션"
-}
 
 // ---------------------------------------------------------------------------
 // The Work read model (openapi Work · WorkListItem)

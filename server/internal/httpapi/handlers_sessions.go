@@ -270,7 +270,7 @@ func (s *Server) PostMessage(w http.ResponseWriter, r *http.Request, sessionId g
 		res, err := s.Router.Post(r.Context(), sessionId, author, in)
 		switch {
 		case err == router.ErrParentNotFound:
-			return 0, nil, apperr.Validation(apperr.Field("parent_id", "not_found", "답글 대상 메시지가 이 세션에 없습니다"))
+			return 0, nil, apperr.Validation(apperr.Field("parent_id", "not_found", "답글 대상 메시지가 이 방에 없습니다"))
 		case err != nil:
 			return 0, nil, apperr.As(err)
 		}
@@ -336,7 +336,7 @@ func (s *Server) taskAccess(r *http.Request, taskId uuid.UUID) (*tasks.Row, *Pro
 	pr := principalOf(r)
 	if pr.Task != nil {
 		if pr.Task.SessionID != t.SessionID {
-			return nil, apperr.Forbidden("outside_task_scope", "다른 세션에는 접근할 수 없습니다")
+			return nil, apperr.Forbidden("outside_task_scope", "다른 방에는 접근할 수 없습니다")
 		}
 		return t, nil
 	}
@@ -615,7 +615,7 @@ func (s *Server) PreviewTriggers(w http.ResponseWriter, r *http.Request, session
 	out, err := s.Router.Preview(r.Context(), sessionId, author, in)
 	switch {
 	case err == router.ErrParentNotFound:
-		writeProblem(w, apperr.Validation(apperr.Field("parent_id", "not_found", "답글 대상 메시지가 이 세션에 없습니다")))
+		writeProblem(w, apperr.Validation(apperr.Field("parent_id", "not_found", "답글 대상 메시지가 이 방에 없습니다")))
 		return
 	case err != nil:
 		writeProblem(w, apperr.As(err))

@@ -245,13 +245,13 @@ func (v LoopVerdict) LimitText() string {
 // lock (internal/wording, sinkFuncs) sees every piece of it in one place
 // (S-79, PR #213 리뷰 NN3).
 func (v LoopVerdict) PausedText() string {
-	return "루프 상한에 걸려 세션이 일시정지되었습니다 — " + v.LimitText()
+	return "루프 상한에 걸려 미션이 일시정지되었습니다 — " + v.LimitText()
 }
 
 // QuestionText is the system HITL's question (pauseForLoop): the same limit
 // named, then the ask.
 func (v LoopVerdict) QuestionText() string {
-	return "루프 상한에 도달해 세션을 일시정지했습니다 — " + v.LimitText() + ". 계속할까요?"
+	return "루프 상한에 도달해 미션을 일시정지했습니다 — " + v.LimitText() + ". 계속할까요?"
 }
 
 // LimitCount is the number that tripped, whichever limit it was — PausedDetail

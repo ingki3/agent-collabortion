@@ -80,7 +80,7 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 		WHERE sp.room_id = $1 AND sp.agent_id = $2 AND sp.left_at IS NULL`, sessionID, in.AgentID).Scan(&profileID, &targetName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.Validation(apperr.Field("agent_id", "not_participant",
-			"이 에이전트는 세션 참여자가 아닙니다 — `colab hitl ask`로 Director에게 참여자 추가를 요청하세요"))
+			"이 에이전트는 방 참여자가 아닙니다 — `colab hitl ask`로 Director에게 참여자 추가를 요청하세요"))
 	}
 	if err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 			return nil, err
 		}
 		if n == 0 {
-			return nil, apperr.Validation(apperr.Field("depends_on", "not_found", "이 세션의 작업 줄기만 선행 작업으로 지정할 수 있습니다"))
+			return nil, apperr.Validation(apperr.Field("depends_on", "not_found", "이 방의 서브 미션만 선행 작업으로 지정할 수 있습니다"))
 		}
 	}
 

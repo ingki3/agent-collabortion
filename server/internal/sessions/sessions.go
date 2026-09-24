@@ -242,7 +242,7 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 	if in.AssigneeAgentId != nil {
 		assignee = uuid.UUID(*in.AssigneeAgentId)
 		if !seen[assignee] {
-			return nil, apperr.Validation(apperr.Field("assignee_agent_id", "not_participant", "담당 에이전트는 참여자 중에서 골라야 합니다"))
+			return nil, apperr.Validation(apperr.Field("assignee_agent_id", "not_participant", "제출자는 참여자 중에서 골라야 합니다"))
 		}
 	}
 	if in.CompletionCondition != nil {
@@ -343,7 +343,7 @@ func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.Ses
 		// E16-A step 1: the assignee's initial task, triggered by a system message.
 		// FR-3.1.1: everything the session start makes belongs to its one
 		// mission — the start notice, the assignee's lane and its first task.
-		msgID, err := s.Router.SystemPostWork(ctx, tx, sessionID, &workID, "세션을 시작했습니다. 목표: "+in.Goal)
+		msgID, err := s.Router.SystemPostWork(ctx, tx, sessionID, &workID, "미션을 시작했습니다. 목표: "+in.Goal)
 		if err != nil {
 			return nil, err
 		}

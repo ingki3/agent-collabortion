@@ -213,7 +213,7 @@ func (s *Server) DeleteWorkdir(w http.ResponseWriter, r *http.Request, workdirId
 	// owner·admin, or this session's Director (openapi deleteWorkdir 권한).
 	if _, adminProblem := s.admin(r, wsID); adminProblem != nil && u.Id != openapi_types.UUID(director) {
 		writeProblem(w, apperr.Forbidden("forbidden",
-			"이 작업 폴더는 워크스페이스 관리자나 그 세션의 Director 만 삭제할 수 있습니다"))
+			"이 작업 폴더는 워크스페이스 관리자나 그 미션의 Director 만 삭제할 수 있습니다"))
 		return
 	}
 
@@ -240,7 +240,7 @@ func (s *Server) DeleteWorkdir(w http.ResponseWriter, r *http.Request, workdirId
 	}
 	if runtimeID == nil {
 		writeProblem(w, apperr.Conflict("no_runtime",
-			"이 세션에 연결된 컴퓨터가 없어 삭제를 맡길 곳이 없습니다"))
+			"이 방에 연결된 컴퓨터가 없어 삭제를 맡길 곳이 없습니다"))
 		return
 	}
 	cmd, skipped := workdirs.BuildGCCommand(sessionID, []uuid.UUID{id}, []string{path})

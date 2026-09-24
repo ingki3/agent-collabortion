@@ -322,7 +322,7 @@ func JudgeCandidate(c CandidateCase) CandidateVerdict {
 	}
 	want := NormalizeRemote(c.SessionRemote)
 	if want == "" {
-		return CandidateVerdict{Reason: "이 세션의 저장소 remote URL 을 알 수 없어 같은 저장소인지 판정할 수 없습니다"}
+		return CandidateVerdict{Reason: "이 방의 저장소 remote URL 을 알 수 없어 같은 저장소인지 판정할 수 없습니다"}
 	}
 	for _, repo := range c.Repos {
 		if NormalizeRemote(repo.RemoteURL) == want {
@@ -397,7 +397,7 @@ func PlanRebind(in RebindInput) RebindPlan {
 		// still running it.
 		p.HTTPStatus = 409
 		p.Problem = apperr.Conflict("session_not_paused_offline",
-			"컴퓨터 연결이 끊겨 일시정지된 세션만 다른 컴퓨터로 옮길 수 있습니다")
+			"컴퓨터 연결이 끊겨 멈춘 방만 다른 컴퓨터로 옮길 수 있습니다")
 		return p
 	}
 	if in.Isolation == "worktree" && !in.AcknowledgeLoss {
@@ -602,7 +602,7 @@ func (s *Service) Rebind(ctx context.Context, wsID, sessionID, targetRuntime uui
 	}
 	if !moved {
 		return plan, apperr.Conflict("session_not_paused_offline",
-			"컴퓨터 연결이 끊겨 일시정지된 세션만 다른 컴퓨터로 옮길 수 있습니다")
+			"컴퓨터 연결이 끊겨 멈춘 방만 다른 컴퓨터로 옮길 수 있습니다")
 	}
 	// The lane's `runtime_session_ref` points at a session id that lives on the
 	// machine that is gone. Clearing it is what makes the next attempt a cold
@@ -902,7 +902,7 @@ func PlanRuntimeDelete(c DeleteCase) DeleteResult {
 	}
 	return DeleteResult{
 		HTTPStatus: 409, Code: DeleteCode, BlockingSessions: blocking, AsksRebindOrEnd: true,
-		Detail: fmt.Sprintf("이 컴퓨터를 쓰는 중인 세션이 %d개 있습니다 — 먼저 다른 컴퓨터로 옮기거나 세션을 종료해 주세요", blocking),
+		Detail: fmt.Sprintf("이 컴퓨터를 쓰는 중인 방이 %d개 있습니다 — 먼저 다른 컴퓨터로 옮기거나 미션을 종료해 주세요", blocking),
 	}
 }
 

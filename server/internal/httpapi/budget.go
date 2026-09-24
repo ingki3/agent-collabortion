@@ -314,7 +314,7 @@ func (s *Server) applyBudgetPause(ctx context.Context, tx pgx.Tx, b *budgetState
 		// pause the Director cannot see the arithmetic of is not actionable.
 		if err := tasks.InsertServerEvent(ctx, tx, b.TaskID, b.Attempt, "runtime", "report", "budget", "info",
 			map[string]any{
-				"detail": fmt.Sprintf("추정 비용이 한도를 넘어 세션을 일시정지했습니다 — 진행 중인 턴은 끝까지 둡니다 "+
+				"detail": fmt.Sprintf("추정 비용이 한도를 넘어 새 할 일을 멈췄습니다 — 진행 중인 턴은 끝까지 둡니다 "+
 					"(추정 사용 $%.4f / 한도 $%.4f)", spent, limit),
 			}, now); err != nil {
 			return err
@@ -368,7 +368,7 @@ func (s *Server) applyBudgetPause(ctx context.Context, tx pgx.Tx, b *budgetState
 	question := fmt.Sprintf("%s의 작업이 예산 $%.2f를 넘었습니다 (현재 $%.2f). 계속할까요?", b.AgentName, limit, spent)
 	switch scope {
 	case scopeRoom:
-		question = fmt.Sprintf("세션이 예산 $%.2f를 넘었습니다 (현재 $%.2f). 계속할까요?", limit, spent)
+		question = fmt.Sprintf("방이 예산 $%.2f를 넘었습니다 (현재 $%.2f). 계속할까요?", limit, spent)
 	case scopeWork:
 		question = fmt.Sprintf("미션이 예산 $%.2f를 넘었습니다 (현재 $%.2f). 계속할까요?", limit, spent)
 	}

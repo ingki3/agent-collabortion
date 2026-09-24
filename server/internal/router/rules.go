@@ -137,7 +137,7 @@ func Decide(in Input) Decision {
 				name = *m.DisplayName
 			}
 			aid := id
-			d.Warnings = append(d.Warnings, Warning{Code: "not_participant", Message: name + "은(는) 이 세션 참여자가 아닙니다", AgentID: &aid})
+			d.Warnings = append(d.Warnings, Warning{Code: "not_participant", Message: name + "은(는) 이 방 참여자가 아닙니다", AgentID: &aid})
 			continue
 		}
 		if p := participants[id]; p.Disabled {

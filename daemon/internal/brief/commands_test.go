@@ -49,7 +49,7 @@ func TestRestrictCommandsReviewer(t *testing.T) {
 		}
 	}
 	// … but the role is told, in the person's words, in one line.
-	if !strings.Contains(s2, "- 이 역할은 위임 · 산출물 제출 · 완료 승인 요청을 쓰지 않는다.") {
+	if !strings.Contains(s2, "- 이 역할은 위임 · 아티팩트 제출 · 완료 승인 요청을 쓰지 않는다.") {
 		t.Fatalf("no 'does not use' line:\n%s", s2)
 	}
 	// Sections after [2] are untouched, and the separator before [4] survives.

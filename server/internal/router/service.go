@@ -29,7 +29,7 @@ import (
 
 var (
 	// ErrSessionNotFound wraps the 404 Problem so every handler that answers
-	// with apperr.As says "세션을 찾을 수 없습니다" rather than 500. The row is
+	// with apperr.As says "방을 찾을 수 없습니다" rather than 500. The row is
 	// read under FOR UPDATE, so this is also what a message queued behind a
 	// deleteSession gets once the delete commits (S-82 — the reverse race,
 	// TestS82DeleteRacesPostMessage): before, it surfaced as `internal` with

@@ -1,7 +1,7 @@
 package auth
 
 // 알림 설정(개인) — openapi getNotificationSettings · updateNotificationSettings
-// (S14 알림 탭, FR-8 세션 구독 기본값). 저장 자리는 app_user.notification_settings
+// (S14 알림 탭, FR-8 미션 구독 기본값). 저장 자리는 app_user.notification_settings
 // (0021 — 왜 member 열이 아닌지는 그 파일 머리).
 
 import (

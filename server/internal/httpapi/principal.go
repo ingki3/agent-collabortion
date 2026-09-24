@@ -178,7 +178,7 @@ func (s *Server) sessionAccess(r *http.Request, sessionID uuid.UUID) (*gen.User,
 	}
 	if p.Task != nil {
 		if p.Task.SessionID != sessionID {
-			return nil, apperr.Forbidden("outside_task_scope", "다른 세션에는 접근할 수 없습니다")
+			return nil, apperr.Forbidden("outside_task_scope", "다른 방에는 접근할 수 없습니다")
 		}
 		return nil, nil
 	}
@@ -243,7 +243,7 @@ func (s *Server) sessionDirector(r *http.Request, sessionID uuid.UUID) (*gen.Use
 		return nil, uuid.Nil, apperr.NotFound("session")
 	}
 	if u.Id != director {
-		return nil, uuid.Nil, apperr.Forbidden("director_required", "세션은 그 세션의 Director 만 끝낼 수 있습니다")
+		return nil, uuid.Nil, apperr.Forbidden("director_required", "미션은 그 미션의 Director 만 끝낼 수 있습니다")
 	}
 	return u, wsID, nil
 }
