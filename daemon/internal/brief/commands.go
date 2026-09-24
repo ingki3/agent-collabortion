@@ -20,7 +20,7 @@ var sectionRe = regexp.MustCompile(`^(## )?\[(\d)\] `)
 //
 // Defensively, a [2] line that names a denied command in command position
 // (`colab lane delegate`, or the tool name colab_lane_delegate) is dropped:
-// today's server [2] only names message_post/session_messages/session_get,
+// today's server [2] only names message_post/room_messages/room_get,
 // which every role has, so nothing is dropped in practice — the rule is
 // there for the day a server line says otherwise.
 //
@@ -78,10 +78,8 @@ func RestrictCommands(text string, allowed []string) string {
 // position: "`colab <cli name>" or the MCP tool name.
 func namesDenied(line string, denied []string) bool {
 	for _, d := range denied {
-		for _, c := range append([]string{d}, commands.Aliases(d)...) {
-			if strings.Contains(line, "`colab "+commands.CLIName(c)) || strings.Contains(line, commands.ToolName(c)) {
-				return true
-			}
+		if strings.Contains(line, "`colab "+commands.CLIName(d)) || strings.Contains(line, commands.ToolName(d)) {
+			return true
 		}
 	}
 	return false

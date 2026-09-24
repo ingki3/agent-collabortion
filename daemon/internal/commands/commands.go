@@ -43,7 +43,7 @@ const AllowFlag = "--allow"
 // daemon cannot import the server's gen package; TestSetMatchesOpenAPIEnum reads
 // the enum line from the contract and fails when this drifts.
 var all = []string{
-	"session_get", "session_messages", "artifact_get", "message_post", "status_set",
+	"room_get", "room_messages", "artifact_get", "message_post", "status_set",
 	"decision_record", "lane_delegate", "artifact_submit", "review_approve", "review_reject",
 	"hitl_ask", "hitl_approve_request", "hitl_request_info",
 	"room_list", "room_read", "work_propose",
@@ -62,8 +62,8 @@ var cliNames = map[string]string{
 // tool is gone from the surface, so the agent needs the idea, not a spelling
 // it would then try.
 var labels = map[string]string{
-	"session_get":          "방 읽기",
-	"session_messages":     "메시지 읽기",
+	"room_get":             "방 읽기",
+	"room_messages":        "메시지 읽기",
 	"artifact_get":         "아티팩트 읽기",
 	"message_post":         "메시지 게시",
 	"status_set":           "상태 알리기",
@@ -133,28 +133,13 @@ func CLIName(cmd string) string {
 // ToolName is the §3 MCP tool name: `colab_` + enum.
 func ToolName(cmd string) string { return "colab_" + cmd }
 
-// aliases are the second names a command answers to (colab-cli.md v0.8 §2.4a
-// · §3): `room get` · `room messages` are `session get` · `session messages`
-// until R4 — same request, same gate (the enum is the session one), so an
-// allowed list never names them and --allow registers them with their
-// command.
-var aliases = map[string][]string{
-	"session_get":      {"room_get"},
-	"session_messages": {"room_messages"},
-}
-
-// Aliases is cmd's second names in enum spelling (`room_get`), nil if none.
-func Aliases(cmd string) []string { return append([]string(nil), aliases[cmd]...) }
-
-// ToolNames is every §3 tool name: ToolName of each command in All order, each
-// followed by its aliases' tool names.
+// ToolNames is every §3 tool name: ToolName of each command in All order.
+// (colab-cli.md v0.9: the v0.8 aliases `room_get`·`room_messages` became the
+// commands themselves when `session get`·`session messages` were removed.)
 func ToolNames() []string {
-	var out []string
+	out := make([]string, 0, len(all))
 	for _, c := range all {
 		out = append(out, ToolName(c))
-		for _, a := range aliases[c] {
-			out = append(out, ToolName(a))
-		}
 	}
 	return out
 }
