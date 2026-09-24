@@ -79,7 +79,7 @@ cli() {
     COLAB_LANE_ID="$lid" COLAB_SESSION_ID="$S" COLAB_AGENT_NAME="$name" COLAB_STATE_DIR="$OUT/84-state" "$COLAB" "$@" 2>>"$OUT/84-cli.err"
   printf '\n%s' "$?"
 }
-REVIEWER_ALL="session_get,session_messages,message_post,status_set,decision_record,artifact_get,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read"
+REVIEWER_ALL="session_get,session_messages,artifact_get,message_post,status_set,decision_record,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read"
 
 step "1. 계정 · 워크스페이스 · Lead(lead)·R(reviewer) · 페어링 · 세션"
 signup "c7-dir-$RUN@example.com" password123 "Dir" >/dev/null
