@@ -37,7 +37,7 @@ async function newRoom(name = "결제팀") {
 const parts = async (roomId: string) => (await must<{ items: S["RoomParticipant"][] }>("GET", `/rooms/${roomId}/participants`)).items;
 function tap() {
   const frames: { type: string; payload: Record<string, unknown> }[] = [];
-  const sub: Subscriber = { workspace_id: wsId, session_ids: null, write: (f) => { const m = /data: (.*)\n\n$/s.exec(f); if (m) frames.push(JSON.parse(m[1])); } };
+  const sub: Subscriber = { workspace_id: wsId, room_ids: null, write: (f) => { const m = /data: (.*)\n\n$/s.exec(f); if (m) frames.push(JSON.parse(m[1])); } };
   store().subs.add(sub);
   return frames;
 }

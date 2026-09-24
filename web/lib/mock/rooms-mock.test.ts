@@ -13,7 +13,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { dispatch, type Req } from "./handlers";
 import { W } from "./wording";
 import { resetStore, store, type Subscriber } from "./store";
-import type { Room, RoomListItem, Runtime, Session, WorkListItem } from "@/lib/api/types";
+import type { Room, RoomListItem, Runtime, WorkListItem } from "@/lib/api/types";
+import type { Session } from "@/lib/legacy-session";
 
 let cookie = "";
 async function call(method: string, path: string, opts: { body?: unknown; headers?: Record<string, string> } = {}) {
@@ -35,12 +36,12 @@ const ws = async () => (await must<{ workspaces: { id: string }[] }>("GET", "/me
 async function makeSession(id: string, title = "결제 시장 조사"): Promise<Session> {
   const rt = (await must<Runtime[]>("GET", `/workspaces/${id}/runtimes`))[0];
   const ags = (await must<{ items: { id: string }[] }>("GET", `/workspaces/${id}/agents`)).items;
-  return must<Session>("POST", `/workspaces/${id}/sessions`, { body: { title, goal: "보고서 10페이지", isolation: { kind: "none" }, runtime_id: rt.id, participants: ags.map((a) => ({ agent_id: a.id })), assignee_agent_id: ags[0].id } });
+  return must<Session>("POST", `/__mock/workspaces/${id}/seed-room`, { body: { title, goal: "보고서 10페이지", isolation: { kind: "none" }, runtime_id: rt.id, participants: ags.map((a) => ({ agent_id: a.id })), assignee_agent_id: ags[0].id } });
 }
 const list = async (id: string, qs = "") => (await must<{ items: RoomListItem[] }>("GET", `/workspaces/${id}/rooms${qs ? `?${qs}` : ""}`)).items;
 function tap(workspaceId: string, userId?: string) {
   const frames: { type: string; session_id: string | null; payload: Record<string, unknown> }[] = [];
-  const sub: Subscriber = { workspace_id: workspaceId, session_ids: null, user_id: userId, write: (f) => { const m = /data: (.*)\n\n$/s.exec(f); if (m) frames.push(JSON.parse(m[1])); } };
+  const sub: Subscriber = { workspace_id: workspaceId, room_ids: null, user_id: userId, write: (f) => { const m = /data: (.*)\n\n$/s.exec(f); if (m) frames.push(JSON.parse(m[1])); } };
   store().subs.add(sub);
   return frames;
 }
@@ -61,7 +62,7 @@ describe("옛 세션에서 방을 파생한다(§7 이관 규칙)", () => {
     expect(r.participants.map((p) => `${p.kind}:${p.name}`)).toEqual(["user:데모", "agent:Lead", "agent:Researcher"]);
     // 계약 RoomListItem 의 required 칸이 전부 있다.
     for (const k of ["id", "name", "description", "status", "blocked_reason", "unread_count", "active_work_count", "attention", "participants", "my_room_role", "last_activity_at"]) expect(r).toHaveProperty(k);
-    await must("POST", `/sessions/${sess.id}/cancel`, { body: {} });
+    await must("POST", `/works/${sess.id}/cancel`, { body: {} });
     expect((await list(id))[0].active_work_count).toBe(0);
   });
 
@@ -97,7 +98,7 @@ describe("createRoom — 이름 한 칸(FR-2.1)", () => {
     expect(room).toMatchObject({ name: "결제팀", description: "결제 관련 논의와 작업", my_room_role: "owner", status: "active", visibility: "workspace", isolation: { kind: "none" }, runtime_id: null });
     expect(frames.filter((f) => f.type === "room.updated").map((f) => f.payload.id)).toEqual([room.id]);
     expect((await list(id)).map((r) => r.id)).toEqual([room.id]);
-    expect((await call("GET", `/sessions/${room.id}`)).status).toBe(404);
+    expect((await call("GET", `/__mock/rooms/${room.id}/legacy`)).status).toBe(404);
   });
 
   it("이름이 비거나 200자를 넘으면 422 — 서버 문장 그대로, 설명 500자 초과도", async () => {
@@ -206,30 +207,29 @@ describe("보관·삭제", () => {
     expect(r.body).toMatchObject({ status: 409, code: "tasks_active", detail: W.room_tasks_active });
   });
 
-  it("진행 중인 미션이 있으면 삭제 409 works_active(수 칸 포함) · 끝나면 204 + room.deleted + session.deleted · 목록에서 빠짐", async () => {
+  it("진행 중인 미션이 있으면 삭제 409 works_active(수 칸 포함) · 끝나면 204 + room.deleted(옛 session.deleted 는 R4 에서 지워졌다) · 목록에서 빠짐", async () => {
     const id = await ws();
     const sess = await makeSession(id);
     const r = await call("DELETE", `/rooms/${sess.id}`);
     expect(r.body).toMatchObject({ status: 409, code: "works_active", detail: W.room_works_active, works_active: 1 });
-    await must("POST", `/sessions/${sess.id}/cancel`, { body: {} });
+    await must("POST", `/works/${sess.id}/cancel`, { body: {} });
     const frames = tap(id);
     expect((await call("DELETE", `/rooms/${sess.id}`)).status).toBe(204);
     expect(frames.filter((f) => f.type === "room.deleted" || f.type === "session.deleted").map((f) => [f.type, f.payload.room_id ?? f.payload.session_id])).toEqual([
       ["room.deleted", sess.id],
-      ["session.deleted", sess.id],
     ]);
     expect(await list(id, "include_archived=true")).toEqual([]);
-    expect((await call("GET", `/sessions/${sess.id}`)).status).toBe(404);
+    expect((await call("GET", `/__mock/rooms/${sess.id}/legacy`)).status).toBe(404);
     expect((await call("DELETE", `/rooms/${sess.id}`)).status).toBe(404);
   });
 
-  it("옛 deleteSession 으로 지워도 방이 함께 사라진다(방 id = 세션 id)", async () => {
+  it("옛 세션 op 은 목에도 없다(v0.3.0 R4, D22) — 옛 주소는 404", async () => {
     const id = await ws();
     const sess = await makeSession(id);
-    await list(id);
-    await must("POST", `/sessions/${sess.id}/cancel`, { body: {} });
-    await call("DELETE", `/sessions/${sess.id}`);
-    expect(await list(id)).toEqual([]);
+    for (const [m, path] of [["DELETE", `/sessions/${sess.id}`], ["GET", `/sessions/${sess.id}`], ["GET", `/workspaces/${id}/sessions`], ["GET", `/sessions/${sess.id}/messages`], ["POST", `/sessions/${sess.id}/cancel`]] as const) {
+      expect((await call(m, path)).status, `${m} ${path}`).toBe(404);
+    }
+    expect((await list(id)).map((r) => r.id)).toEqual([sess.id]);
   });
 });
 

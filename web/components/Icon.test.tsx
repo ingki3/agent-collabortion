@@ -29,7 +29,7 @@ describe("Icon", () => {
 
 describe("AppNav 의 아이콘", () => {
   it("항목마다 아이콘이 있고 이모지가 없다", () => {
-    render(<AppNav workspaceName="ws" current="/sessions" inboxCount={2} showSettings userName="u" />);
+    render(<AppNav workspaceName="ws" current="/rooms" inboxCount={2} showSettings userName="u" />);
     for (const item of NAV_ITEMS) {
       const link = screen.getByTestId(`nav-${item.key}`);
       expect(link.querySelector(`svg[data-icon="${item.icon}"]`)).not.toBeNull();

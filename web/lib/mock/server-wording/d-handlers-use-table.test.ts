@@ -1,11 +1,16 @@
 /** 목 문장 ↔ 서버 문장 대조 (d) handlers.ts 는 표를 전부 쓰고 옛 문장을 남기지 않았다 — 전체 설명은 `_shared.ts` 머리 주석. */
 import { describe, expect, it } from "vitest";
-import { HANDLERS } from "./_shared";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { HANDLERS, MOCK_DIR } from "./_shared";
 import { MOCK_ONLY, SERVER, W } from "../wording";
 
 describe("(d) handlers.ts 는 표를 전부 쓰고 옛 문장을 남기지 않았다", () => {
+  // handlers.ts 가 등록 한 줄만 두고 본문을 넘긴 모듈(rooms-dialogs·r2w4a·work-edit)도 목이다 — 방 참여자 문장(participant_joined)은
+  // v0.3.0(R4)에서 옛 세션 참여자 op 이 지워진 뒤 그 모듈에서만 쓰인다.
+  const MOCK_SRC = [HANDLERS, ...["rooms-dialogs.ts", "r2w4a.ts", "work-edit.ts"].map((f) => readFileSync(join(MOCK_DIR, f), "utf8"))].join("\n");
   it.each(Object.keys(SERVER))("W.%s 가 쓰인다", (key) => {
-    expect(HANDLERS).toMatch(new RegExp(`\\bW\\.${key}\\b`));
+    expect(MOCK_SRC).toMatch(new RegExp(`\\bW\\.${key}\\b`));
   });
   it("PR #192 가 지목한 옛 서버 문장 흉내가 없다", () => {
     for (const old of [

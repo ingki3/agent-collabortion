@@ -8,15 +8,16 @@
 #   S14  listMembers · updateMemberRole 200 · 마지막 owner 409 · createInvite 201 · owner 역할 422 · revokeInvite 204
 #   S14  get/updateNotificationSettings(개인)
 #   S14  getWorkspaceMetrics — 10개 · §11 열 순서 · unit/target_op enum · value null ⇒ n 0
-#   S10  createTestChat 201(세션 0개) · postTestChatTurn 202 · 진행 중 409 · SSE test_chat.delta/turn · closeTestChat 200 · 닫힌 뒤 410
-#   S5   deleteSession(T-W13, 계약 #218 · 서버 T-S17 대조) — active 409 session_active · member 403 · cancelled 204 · 두 번째 404 · SSE session.deleted
+#   S10  createTestChat 201(방 0개) · postTestChatTurn 202 · 진행 중 409 · SSE test_chat.delta/turn · closeTestChat 200 · 닫힌 뒤 410
+#   S5   deleteRoom(옛 deleteSession 은 v0.3.0 R4 에서 지워졌다) — 진행 중 미션 409 works_active · 방장 아닌 member 403 · 204 · 두 번째 404 · SSE room.deleted
 #        · (MOCK=1) 미병합 worktree 409 workdir_unmerged + Problem.workdirs[]
 #   S14  getWorkspaceObservations(T-W16, 계약 #244 0.1.5 · 서버 T-S19 대조) — 5행 enum 순서 · required 7칸 · 분포형/비율형 칸 · breakdown · 422 · 403
-#   S10  Agent.allowed_commands(T-W16 · T-S19 대조) — role 파생 · lead 13 · researcher 9 · reviewer 10 · PATCH 재계산 · 보낸 값 무시
+#   S10  Agent.allowed_commands(T-W16 · T-S19 대조) — role 파생 · lead 16 · researcher 11 · reviewer 12(R3 뒤) · PATCH 재계산 · 보낸 값 무시
 #   S7   (MOCK=1) 빈 턴 시드 — status/turn_end/empty_turn/info 행 · payload.args.note · 줄기 done · current_task
-#   S6·S7 종료 조건(T-W15, 계약 #232 0.1.4 · 서버 T-S18 대조) — createSession 422 reviewer_required/reviewer_not_participant · 진행률 conditions[] 키
-#        · updateSession completion_condition 은 active 에서도(Director) + SSE session.completion_progress · 403 · 끝난 세션 422 immutable · isolation 422 immutable
-#        · (MOCK=1) 리뷰어 없는 옛 세션 시드 → blocked_reason reviewer_missing → 조건 고치기로 해소(met 유지)
+#   S21·S7 종료 조건(T-W15, 계약 #232 0.1.4) — createWork 422 reviewer_required/reviewer_not_participant
+#        · (MOCK=1) 시드한 방의 미션: 진행률 conditions[] 키 · updateWork completion_condition 은 active 에서도(Director) + SSE work.completion_progress · 403
+#          · 끝난 미션 409 work_closed · 리뷰어 없는 옛 조건 시드 → blocked_reason reviewer_missing → 조건 고치기로 해소(met 유지)
+#        (옛 createSession·updateSession·session.completion_progress 는 v0.3.0 R4 에서 지워졌다 — 시드 `/__mock/workspaces/{id}/seed-room` 는 목에만 있다)
 #
 # 사용:
 #   COLAB_MOCK_API=1 npx next dev -p 3117 &
@@ -94,23 +95,23 @@ chk "  breakdown 은 routing_concentration 에만 · kind 규칙 번호|platform
 chk "  window 쿼리 그대로 · 기간 표기 아니면 422" "$(curl -sS -b "$J" "$B/workspaces/$WS/observations?window=P7D" | py 'import sys,json;print(json.load(sys.stdin)["window"])') $(code "$B/workspaces/$WS/observations?window=30d")" "P7D 422"
 
 # ── S10 역할의 허용 명령 (T-W16 · 계약 #244 Agent.allowed_commands · 서버 T-S19 대조용) ─────────
-# 목이 흉내 낸 서버 응답: 모든 Agent 응답에 allowed_commands(role 로 계산, 계약 enum 순서) · lead/custom 13 · researcher 9 · reviewer 10 ·
+# 목이 흉내 낸 서버 응답: 모든 Agent 응답에 allowed_commands(role 로 계산, 계약 enum 순서) · lead/custom 16 · researcher 11 · reviewer 12 ·
 # PATCH role 이 바뀌면 다시 계산 · 보내온 allowed_commands 는 무시(읽기 전용 파생값).
 AGS=$(curl -sS -b "$J" "$B/workspaces/$WS/agents")
-chk "listAgents — Lead 13개 · Researcher 9개(위임·검토 승인/반려·완료 승인 요청 없음)" "$(echo "$AGS" | py 'import sys,json;a={x["name"]:x["allowed_commands"] for x in json.load(sys.stdin)["items"]};print(len(a["Lead"]), len(a["Researcher"]), all(c not in a["Researcher"] for c in ("lane_delegate","review_approve","review_reject","hitl_approve_request")), "artifact_submit" in a["Researcher"])')" "13 9 True True"
+chk "listAgents — Lead 16개 · Researcher 11개(위임·검토 승인/반려·완료 승인 요청 없음 — v0.8 방 읽기 둘·미션 제안 포함)" "$(echo "$AGS" | py 'import sys,json;a={x["name"]:x["allowed_commands"] for x in json.load(sys.stdin)["items"]};print(len(a["Lead"]), len(a["Researcher"]), all(c not in a["Researcher"] for c in ("lane_delegate","review_approve","review_reject","hitl_approve_request")), "artifact_submit" in a["Researcher"])')" "16 11 True True"
 RV=$(curl -sS -b "$J" -X POST "$B/workspaces/$WS/agents" -H 'content-type: application/json' -d '{"name":"Reviewer-smoke","role":"reviewer","role_description":"검토","instructions":"검토한다","profiles":[{"runtime_kind":"claude_code","model":"claude-sonnet-5"}]}')
 RVID=$(echo "$RV" | py 'import sys,json;print(json.load(sys.stdin)["id"])')
-chk "createAgent(reviewer) → 10개 · 아티팩트 제출 없음 · 검토 승인/반려 있음 · enum 순서" "$(echo "$RV" | py 'import sys,json;c=json.load(sys.stdin)["allowed_commands"];print(len(c), "artifact_submit" in c, "review_approve" in c and "review_reject" in c, c==[x for x in ["session_get","session_messages","artifact_get","message_post","status_set","decision_record","lane_delegate","artifact_submit","review_approve","review_reject","hitl_ask","hitl_approve_request","hitl_request_info"] if x in c])')" "10 False True True"
-chk "  PATCH role custom + allowed_commands 보내도 → 13개(파생값, 보낸 값 무시)" "$(curl -sS -b "$J" -X PATCH "$B/agents/$RVID" -H 'content-type: application/json' -d '{"role":"custom","allowed_commands":["message_post"]}' | py 'import sys,json;print(len(json.load(sys.stdin)["allowed_commands"]))')" "13"
+chk "createAgent(reviewer) → 12개 · 아티팩트 제출 없음 · 검토 승인/반려 있음 · enum 순서" "$(echo "$RV" | py 'import sys,json;c=json.load(sys.stdin)["allowed_commands"];print(len(c), "artifact_submit" in c, "review_approve" in c and "review_reject" in c, c==[x for x in ["room_get","room_messages","artifact_get","message_post","status_set","decision_record","lane_delegate","artifact_submit","review_approve","review_reject","hitl_ask","hitl_approve_request","hitl_request_info","room_list","room_read","work_propose"] if x in c])')" "12 False True True"
+chk "  PATCH role custom + allowed_commands 보내도 → 16개(파생값, 보낸 값 무시)" "$(curl -sS -b "$J" -X PATCH "$B/agents/$RVID" -H 'content-type: application/json' -d '{"role":"custom","allowed_commands":["message_post"]}' | py 'import sys,json;print(len(json.load(sys.stdin)["allowed_commands"]))')" "16"
 curl -sS -b "$J" -X DELETE "$B/agents/$RVID" -o /dev/null   # 보관 — 뒤의 items[1] 셈이 흔들리지 않게
 
 # ── S10 시험 대화 ─────────────────────────────────────────────────────────
 AG=$(curl -sS -b "$J" "$B/workspaces/$WS/agents" | py 'import sys,json;print(json.load(sys.stdin)["items"][0]["id"])')
-BEFORE=$(curl -sS -b "$J" "$B/workspaces/$WS/sessions" | py 'import sys,json;print(len(json.load(sys.stdin)["items"]))')
+BEFORE=$(curl -sS -b "$J" "$B/workspaces/$WS/rooms" | py 'import sys,json;print(len(json.load(sys.stdin)["items"]))')
 TC=$(curl -sS -b "$J" -X POST "$B/agents/$AG/test-chats" -H 'content-type: application/json' -d '{"profile_id":null,"runtime_id":null}')
 TCID=$(echo "$TC" | py 'import sys,json;print(json.load(sys.stdin)["id"])')
 chk "createTestChat 201 → open · 턴 0 · transport null" "$(echo "$TC" | py 'import sys,json;d=json.load(sys.stdin);print(d["status"],len(d["turns"]),d.get("transport"))')" "open 0 None"
-chk "  세션이 아니다 — 세션 수 그대로" "$(curl -sS -b "$J" "$B/workspaces/$WS/sessions" | py 'import sys,json;print(len(json.load(sys.stdin)["items"]))')" "$BEFORE"
+chk "  방이 아니다 — 방 수 그대로" "$(curl -sS -b "$J" "$B/workspaces/$WS/rooms" | py 'import sys,json;print(len(json.load(sys.stdin)["items"]))')" "$BEFORE"
 # SSE 를 먼저 열어 두고 턴을 보낸다 — delta(ephemeral)는 백필되지 않는다.
 SSE="$(mktemp -t colab-p5-sse)"
 curl -sS -N -b "$J" --max-time 8 "$B/workspaces/$WS/stream" > "$SSE" 2>/dev/null &
@@ -140,86 +141,89 @@ chk "closeTestChat 200 → closed" "$(curl -sS -b "$J" -X POST "$B/test-chats/$T
 chk "  닫힌 뒤 턴은 410" "$(code -X POST "$B/test-chats/$TCID/turns" -H 'content-type: application/json' -d '{"content":"x"}')" "410"
 chk "  닫기는 멱등 200" "$(code -X POST "$B/test-chats/$TCID/close")" "200"
 
-# ── S5 세션 삭제 (T-W13 · 계약 #218 deleteSession · 서버 T-S17 대조용) ─────────
-# 목이 흉내 낸 서버 응답: 진행 중 409 session_active · 권한 없는 member 403 · cancelled 204 · 두 번째 404 · SSE session.deleted {session_id}.
-# 미병합 worktree 409 workdir_unmerged + Problem.workdirs[] 는 시드(`/__mock/sessions/{id}/seed-workdirs`)가 목에만 있어 MOCK=1 일 때만.
+# ── S5 방 삭제(deleteRoom — 옛 deleteSession(T-W13·#218)은 v0.3.0 R4 에서 지워졌다) ─────────
+# 방을 만들고(createRoom) 미션을 연 채로(createWork) 지우면 409 works_active · 미션 취소 뒤 방장 아닌 member 403 · 방장 204 · 두 번째 404 · SSE room.deleted {room_id}.
+# 미병합 worktree 409 workdir_unmerged + Problem.workdirs[] 는 시드(`/__mock/rooms/{id}/seed-workdirs`)가 목에만 있어 MOCK=1 일 때만.
 RT=$(curl -sS -b "$J" "$B/workspaces/$WS/runtimes" | py 'import sys,json;print(json.load(sys.stdin)[0]["id"])')
-DS=$(curl -sS -b "$J" -X POST "$B/workspaces/$WS/sessions" -H 'content-type: application/json' \
-  -d "{\"title\":\"지울 세션\",\"goal\":\"삭제 왕복\",\"isolation\":{\"kind\":\"none\"},\"runtime_id\":\"$RT\",\"participants\":[{\"agent_id\":\"$AG\"}],\"assignee_agent_id\":\"$AG\"}" \
-  | py 'import sys,json;print(json.load(sys.stdin)["id"])')
-chk "deleteSession 진행 중(active) → 409 session_active" "$(curl -sS -b "$J" -X DELETE "$B/sessions/$DS" | py 'import sys,json;d=json.load(sys.stdin);print(d["status"],d["code"],d["detail"])')" "409 session_active 진행 중인 미션은 먼저 종료하세요"
-curl -sS -b "$J" -X POST "$B/sessions/$DS/cancel" -H 'content-type: application/json' -d '{}' -o /dev/null
-chk "  cancelled 뒤 목록에 status=cancelled" "$(curl -sS -b "$J" "$B/workspaces/$WS/sessions" | py "import sys,json;print(next(s['status'] for s in json.load(sys.stdin)['items'] if s['id']=='$DS'))")" "cancelled"
-# 권한 — Director 도 owner·admin 도 아닌 member(서연) 는 403.
+DS=$(curl -sS -b "$J" -X POST "$B/workspaces/$WS/rooms" -H 'content-type: application/json' -d '{"name":"지울 방"}' | py 'import sys,json;print(json.load(sys.stdin)["id"])')
+DW=$(curl -sS -b "$J" -X POST "$B/rooms/$DS/works" -H 'content-type: application/json' -d '{"goal":"삭제 왕복"}' | py 'import sys,json;print(json.load(sys.stdin)["id"])')
+chk "deleteRoom 진행 중 미션 → 409 works_active" "$(curl -sS -b "$J" -X DELETE "$B/rooms/$DS" | py 'import sys,json;d=json.load(sys.stdin);print(d["status"],d["code"],d["detail"])')" "409 works_active 진행 중인 미션이 있어 방을 삭제할 수 없습니다 — 먼저 끝내거나 취소해 주세요"
+curl -sS -b "$J" -X POST "$B/works/$DW/cancel" -H 'content-type: application/json' -d '{}' -o /dev/null
+chk "  취소 뒤 미션 status=cancelled" "$(curl -sS -b "$J" "$B/works/$DW" | py 'import sys,json;print(json.load(sys.stdin)["status"])')" "cancelled"
+# 권한 — 방장도 owner·admin 도 아닌 member(서연) 는 403.
 J2="$(mktemp -t colab-p5-cookies2)"
 curl -sS -c "$J2" -o /dev/null -X POST "$B/auth/login" -H 'content-type: application/json' -d '{"email":"seoyeon@colab.dev","password":"password123"}'
-chk "  Director 아닌 member → 403" "$(curl -sS -b "$J2" -o /dev/null -w '%{http_code}' -X DELETE "$B/sessions/$DS")" "403"
+chk "  방장 아닌 member → 403" "$(curl -sS -b "$J2" -o /dev/null -w '%{http_code}' -X DELETE "$B/rooms/$DS")" "403"
 rm -f "$J2"
 SSE="$(mktemp -t colab-p5-sse2)"
 curl -sS -N -b "$J" --max-time 4 "$B/workspaces/$WS/stream" > "$SSE" 2>/dev/null &
 SSEPID=$!
 sleep 1
-chk "  owner(Director) → 204" "$(code -X DELETE "$B/sessions/$DS")" "204"
-chk "  두 번째 DELETE 는 404(멱등 아님)" "$(code -X DELETE "$B/sessions/$DS")" "404"
-chk "  GET 도 404 · 목록에서 빠짐" "$(code "$B/sessions/$DS") $(curl -sS -b "$J" "$B/workspaces/$WS/sessions" | py "import sys,json;print(any(s['id']=='$DS' for s in json.load(sys.stdin)['items']))")" "404 False"
+chk "  방장(owner) → 204" "$(code -X DELETE "$B/rooms/$DS")" "204"
+chk "  두 번째 DELETE 는 404(멱등 아님)" "$(code -X DELETE "$B/rooms/$DS")" "404"
+chk "  GET 도 404 · 목록에서 빠짐" "$(code "$B/rooms/$DS") $(curl -sS -b "$J" "$B/workspaces/$WS/rooms" | py "import sys,json;print(any(s['id']=='$DS' for s in json.load(sys.stdin)['items']))")" "404 False"
 wait $SSEPID 2>/dev/null || true
-chk "  SSE session.deleted {session_id}" "$(python3 - "$SSE" "$DS" <<'PY'
+chk "  SSE room.deleted {room_id} · 옛 session.* 없음" "$(python3 - "$SSE" "$DS" <<'PY'
 import sys, json
 raw = open(sys.argv[1]).read()
-hits = 0
+hits = old = 0
 for frame in raw.split("\n\n"):
     for line in frame.splitlines():
         if line.startswith("data: "):
             ev = json.loads(line[6:])
-            if ev["type"] == "session.deleted" and ev.get("payload") == {"session_id": sys.argv[2]}: hits += 1
-print(hits)
+            if ev["type"] == "room.deleted" and ev.get("payload") == {"room_id": sys.argv[2]}: hits += 1
+            if ev["type"].startswith("session."): old += 1
+print(hits, old)
 PY
-)" "1"
+)" "1 0"
 rm -f "$SSE"
 if [ "$MOCK" = "1" ]; then
-  DS2=$(curl -sS -b "$J" -X POST "$B/workspaces/$WS/sessions" -H 'content-type: application/json' \
-    -d "{\"title\":\"작업 폴더 남은 세션\",\"goal\":\"409 workdir_unmerged\",\"isolation\":{\"kind\":\"worktree\",\"repo_path\":\"/work/colab\"},\"runtime_id\":\"$RT\",\"participants\":[{\"agent_id\":\"$AG\"}],\"assignee_agent_id\":\"$AG\"}" \
+  DS2=$(curl -sS -b "$J" -X POST "$B/__mock/workspaces/$WS/seed-room" -H 'content-type: application/json' \
+    -d "{\"title\":\"작업 폴더 남은 방\",\"goal\":\"409 workdir_unmerged\",\"isolation\":{\"kind\":\"worktree\",\"repo_path\":\"/work/colab\"},\"runtime_id\":\"$RT\",\"participants\":[{\"agent_id\":\"$AG\"}],\"assignee_agent_id\":\"$AG\"}" \
     | py 'import sys,json;print(json.load(sys.stdin)["id"])')
-  curl -sS -b "$J" -X POST "$B/sessions/$DS2/cancel" -H 'content-type: application/json' -d '{}' -o /dev/null
-  curl -sS -b "$J" -X POST "$B/__mock/sessions/$DS2/seed-workdirs" -H 'content-type: application/json' -d '{}' -o /dev/null
-  R=$(curl -sS -b "$J" -X DELETE "$B/sessions/$DS2")
+  curl -sS -b "$J" -X POST "$B/works/$DS2/cancel" -H 'content-type: application/json' -d '{}' -o /dev/null
+  curl -sS -b "$J" -X POST "$B/__mock/rooms/$DS2/seed-workdirs" -H 'content-type: application/json' -d '{}' -o /dev/null
+  R=$(curl -sS -b "$J" -X DELETE "$B/rooms/$DS2")
   chk "  미병합·미커밋 worktree → 409 workdir_unmerged + workdirs[2] (경로·브랜치·사유)" "$(echo "$R" | py 'import sys,json;d=json.load(sys.stdin);w=d.get("workdirs",[]);print(d["status"],d["code"],len(w),sorted(x["gc_blocked_reason"] for x in w),all("path_or_ref" in x and "branch" in x for x in w))')" "409 workdir_unmerged 2 ['uncommitted_changes', 'unmerged_commits'] True"
   for WID in $(echo "$R" | py 'import sys,json;print(" ".join(x["id"] for x in json.load(sys.stdin)["workdirs"]))'); do curl -sS -b "$J" -X DELETE "$B/workdirs/$WID?force=true" -o /dev/null; done
-  chk "  작업 폴더 정리 뒤 → 204" "$(code -X DELETE "$B/sessions/$DS2")" "204"
+  chk "  작업 폴더 정리 뒤 → 204" "$(code -X DELETE "$B/rooms/$DS2")" "204"
 fi
 
-# ── S6·S7 종료 조건 (T-W15 · 계약 #232 openapi 0.1.4 · 서버 T-S18 대조용) ─────────────────────
-# 목이 흉내 낸 서버 응답: createSession/updateSession 의 리뷰어 검사(422 errors[].code reviewer_required · reviewer_not_participant,
-# field completion_condition/conditions/<i>/agent_id) · 진행률 conditions[] 의 agent_id·agent_name·blocked_reason·hitl_request_id ·
-# updateSession completion_condition 은 active 에서도(Director) + SSE session.completion_progress · 끝난 세션 422 immutable · 시작 뒤 isolation 422 immutable.
+# ── S21·S7 종료 조건 (T-W15 · 계약 #232 openapi 0.1.4) ─────────────────────
+# createWork 의 리뷰어 검사(422 errors[].code reviewer_required · reviewer_not_participant, field completion_condition/conditions/<i>/agent_id).
+# (MOCK=1) 시드한 방의 미션으로: 진행률 conditions[] 키 · updateWork completion_condition 은 active 에서도(Director) + SSE work.completion_progress
+# · 방장이지만 Director 아닌 member 403 · 끝난 미션 409 work_closed. 옛 createSession·updateSession 은 v0.3.0 R4 에서 지워졌다.
 AG2=$(curl -sS -b "$J" "$B/workspaces/$WS/agents" | py 'import sys,json;print(json.load(sys.stdin)["items"][1]["id"])')
-BODY() { echo "{\"title\":\"$1\",\"goal\":\"종료 조건\",\"isolation\":{\"kind\":\"none\"},\"runtime_id\":\"$RT\",\"participants\":[{\"agent_id\":\"$AG\"},{\"agent_id\":\"$AG2\"}],\"assignee_agent_id\":\"$AG2\",\"completion_condition\":$2}"; }
-V=$(curl -sS -b "$J" -X POST "$B/workspaces/$WS/sessions" -H 'content-type: application/json' -d "$(BODY 'x' '{"op":"and","conditions":[{"type":"artifact_submitted","who":"assignee"},{"type":"agent_approval"}]}')")
-chk "createSession agent_approval 에 agent_id 없음 → 422 reviewer_required · field 경로" "$(echo "$V" | py 'import sys,json;d=json.load(sys.stdin);e=d["errors"][0];print(d["status"],d["code"],e["code"],e["field"])')" "422 validation_failed reviewer_required completion_condition/conditions/1/agent_id"
-V=$(curl -sS -b "$J" -X POST "$B/workspaces/$WS/sessions" -H 'content-type: application/json' -d "$(BODY 'x' '{"op":"and","conditions":[{"type":"agent_approval","agent_id":"00000000-0000-0000-0000-000000000000"}]}')")
+CR=$(curl -sS -b "$J" -X POST "$B/workspaces/$WS/rooms" -H 'content-type: application/json' -d '{"name":"종료 조건 방"}' | py 'import sys,json;print(json.load(sys.stdin)["id"])')
+for A in "$AG" "$AG2"; do curl -sS -b "$J" -X POST "$B/rooms/$CR/participants" -H 'content-type: application/json' -d "{\"agent_id\":\"$A\"}" -o /dev/null; done
+WBODY() { echo "{\"goal\":\"종료 조건\",\"assignee_agent_id\":\"$AG2\",\"completion_condition\":$1}"; }
+V=$(curl -sS -b "$J" -X POST "$B/rooms/$CR/works" -H 'content-type: application/json' -d "$(WBODY '{"op":"and","conditions":[{"type":"artifact_submitted","who":"assignee"},{"type":"agent_approval"}]}')")
+chk "createWork agent_approval 에 agent_id 없음 → 422 reviewer_required · field 경로" "$(echo "$V" | py 'import sys,json;d=json.load(sys.stdin);e=d["errors"][0];print(d["status"],d["code"],e["code"],e["field"])')" "422 validation_failed reviewer_required completion_condition/conditions/1/agent_id"
+V=$(curl -sS -b "$J" -X POST "$B/rooms/$CR/works" -H 'content-type: application/json' -d "$(WBODY '{"op":"and","conditions":[{"type":"agent_approval","agent_id":"00000000-0000-0000-0000-000000000000"}]}')")
 chk "  참여자 아닌 리뷰어 → 422 reviewer_not_participant" "$(echo "$V" | py 'import sys,json;print(json.load(sys.stdin)["errors"][0]["code"])')" "reviewer_not_participant"
-# bash 3.2 — 겹친 따옴표를 $( ) 안에 넣지 않는다(PR #212 함정): 조건 JSON 을 먼저 변수로.
-CC="{\"op\":\"and\",\"conditions\":[{\"type\":\"artifact_submitted\",\"who\":\"assignee\"},{\"type\":\"agent_approval\",\"agent_id\":\"$AG\"},{\"type\":\"user_approval\"}]}"
-CSBODY=$(BODY '종료 조건 세션' "$CC")
-CS=$(curl -sS -b "$J" -X POST "$B/workspaces/$WS/sessions" -H 'content-type: application/json' -d "$CSBODY")
-CSID=$(echo "$CS" | py 'import sys,json;print(json.load(sys.stdin)["id"])')
-chk "  리뷰어가 참여자 → 201 · 진행률 3행 · 키 집합(계약 CompletionProgress.conditions[])" "$(echo "$CS" | py 'import sys,json;p=json.load(sys.stdin)["completion_progress"];print(p["total"],p["human_gate"],all(sorted(c)==["agent_id","agent_name","blocked_reason","hitl_request_id","met","met_at","met_by","next_actor","path","type"] for c in p["conditions"]))')" "3 True True"
-chk "  agent_approval 행 — agent_id·agent_name(Lead)·blocked_reason null" "$(echo "$CS" | py "import sys,json;c=json.load(sys.stdin)['completion_progress']['conditions'][1];print(c['type'],c['agent_id']=='$AG',c['agent_name'],c['blocked_reason'])")" "agent_approval True Lead None"
-chk "  artifact_submitted(who assignee) 행 — 담당 에이전트가 agent_id·next_actor" "$(echo "$CS" | py "import sys,json;c=json.load(sys.stdin)['completion_progress']['conditions'][0];print(c['agent_id']=='$AG2',c['next_actor']==c['agent_name'])")" "True True"
-chk "updateSession 시작 뒤 isolation → 422 immutable(서버 문장)" "$(curl -sS -b "$J" -X PATCH "$B/sessions/$CSID" -H 'content-type: application/json' -d '{"isolation":{"kind":"none"}}' | py 'import sys,json;d=json.load(sys.stdin);print(d["status"],d["errors"][0]["field"],d["errors"][0]["code"])')" "422 isolation immutable"
-chk "  completion_condition 리뷰어 없음 → 422 reviewer_required" "$(curl -sS -b "$J" -X PATCH "$B/sessions/$CSID" -H 'content-type: application/json' -d '{"completion_condition":{"op":"and","conditions":[{"type":"agent_approval"}]}}' | py 'import sys,json;print(json.load(sys.stdin)["errors"][0]["code"])')" "reviewer_required"
-J3="$(mktemp -t colab-p5-cookies3)"
-curl -sS -c "$J3" -o /dev/null -X POST "$B/auth/login" -H 'content-type: application/json' -d '{"email":"seoyeon@colab.dev","password":"password123"}'
-chk "  Director 아닌 member → 403 director_required" "$(curl -sS -b "$J3" -X PATCH "$B/sessions/$CSID" -H 'content-type: application/json' -d '{"completion_condition":{"op":"and","conditions":[{"type":"manual"}]}}' | py 'import sys,json;d=json.load(sys.stdin);print(d["status"],d["code"])')" "403 director_required"
-rm -f "$J3"
-SSE="$(mktemp -t colab-p5-sse3)"
-curl -sS -N -b "$J" --max-time 4 "$B/workspaces/$WS/stream" > "$SSE" 2>/dev/null &
-SSEPID=$!
-sleep 1
-U=$(curl -sS -b "$J" -X PATCH "$B/sessions/$CSID" -H 'content-type: application/json' -d "{\"completion_condition\":{\"op\":\"and\",\"conditions\":[{\"type\":\"artifact_submitted\",\"who\":\"assignee\"},{\"type\":\"agent_approval\",\"agent_id\":\"$AG2\"}]}}")
-chk "  active 에서 Director 가 리뷰어 교체 → 200 · 진행률 재계산(2행 · 리뷰어 이름 바뀜)" "$(echo "$U" | py 'import sys,json;d=json.load(sys.stdin);p=d["completion_progress"];print(d["status"],p["total"],p["conditions"][1]["agent_name"],p["human_gate"])')" "active 2 Researcher False"
-wait $SSEPID 2>/dev/null || true
-chk "  SSE session.completion_progress {session_id, completion_progress} 1건" "$(python3 - "$SSE" "$CSID" <<'PY'
+if [ "$MOCK" = "1" ]; then
+  BODY() { echo "{\"title\":\"$1\",\"goal\":\"종료 조건\",\"isolation\":{\"kind\":\"none\"},\"runtime_id\":\"$RT\",\"participants\":[{\"agent_id\":\"$AG\"},{\"agent_id\":\"$AG2\"}],\"assignee_agent_id\":\"$AG2\",\"completion_condition\":$2}"; }
+  # bash 3.2 — 겹친 따옴표를 $( ) 안에 넣지 않는다(PR #212 함정): 조건 JSON 을 먼저 변수로.
+  CC="{\"op\":\"and\",\"conditions\":[{\"type\":\"artifact_submitted\",\"who\":\"assignee\"},{\"type\":\"agent_approval\",\"agent_id\":\"$AG\"},{\"type\":\"user_approval\"}]}"
+  CSBODY=$(BODY '종료 조건 미션' "$CC")
+  CS=$(curl -sS -b "$J" -X POST "$B/__mock/workspaces/$WS/seed-room" -H 'content-type: application/json' -d "$CSBODY")
+  CSID=$(echo "$CS" | py 'import sys,json;print(json.load(sys.stdin)["id"])')
+  chk "  (MOCK) 리뷰어가 참여자 → 201 · 진행률 3행 · 키 집합(계약 CompletionProgress.conditions[])" "$(echo "$CS" | py 'import sys,json;p=json.load(sys.stdin)["completion_progress"];print(p["total"],p["human_gate"],all(sorted(c)==["agent_id","agent_name","blocked_reason","hitl_request_id","met","met_at","met_by","next_actor","path","type"] for c in p["conditions"]))')" "3 True True"
+  chk "  (MOCK) agent_approval 행 — agent_id·agent_name(Lead)·blocked_reason null" "$(echo "$CS" | py "import sys,json;c=json.load(sys.stdin)['completion_progress']['conditions'][1];print(c['type'],c['agent_id']=='$AG',c['agent_name'],c['blocked_reason'])")" "agent_approval True Lead None"
+  chk "  (MOCK) artifact_submitted(who assignee) 행 — 담당 에이전트가 agent_id·next_actor" "$(echo "$CS" | py "import sys,json;c=json.load(sys.stdin)['completion_progress']['conditions'][0];print(c['agent_id']=='$AG2',c['next_actor']==c['agent_name'])")" "True True"
+  chk "  updateWork completion_condition 리뷰어 없음 → 422 reviewer_required" "$(curl -sS -b "$J" -X PATCH "$B/works/$CSID" -H 'content-type: application/json' -d '{"completion_condition":{"op":"and","conditions":[{"type":"agent_approval"}]}}' | py 'import sys,json;print(json.load(sys.stdin)["errors"][0]["code"])')" "reviewer_required"
+  J3="$(mktemp -t colab-p5-cookies3)"
+  curl -sS -c "$J3" -o /dev/null -X POST "$B/auth/login" -H 'content-type: application/json' -d '{"email":"seoyeon@colab.dev","password":"password123"}'
+  chk "  Director 아닌 member → 403 director_required" "$(curl -sS -b "$J3" -X PATCH "$B/works/$CSID" -H 'content-type: application/json' -d '{"completion_condition":{"op":"and","conditions":[{"type":"manual"}]}}' | py 'import sys,json;d=json.load(sys.stdin);print(d["status"],d["code"])')" "403 director_required"
+  rm -f "$J3"
+  SSE="$(mktemp -t colab-p5-sse3)"
+  curl -sS -N -b "$J" --max-time 4 "$B/workspaces/$WS/stream" > "$SSE" 2>/dev/null &
+  SSEPID=$!
+  sleep 1
+  U=$(curl -sS -b "$J" -X PATCH "$B/works/$CSID" -H 'content-type: application/json' -d "{\"completion_condition\":{\"op\":\"and\",\"conditions\":[{\"type\":\"artifact_submitted\",\"who\":\"assignee\"},{\"type\":\"agent_approval\",\"agent_id\":\"$AG2\"}]}}")
+  chk "  active 에서 Director 가 리뷰어 교체 → 200 · 진행률 재계산(2행 · 리뷰어 이름 바뀜)" "$(echo "$U" | py 'import sys,json;d=json.load(sys.stdin);p=d["completion_progress"];print(d["status"],p["total"],p["conditions"][1]["agent_name"],p["human_gate"])')" "active 2 Researcher False"
+  wait $SSEPID 2>/dev/null || true
+  chk "  SSE work.completion_progress {work_id, room_id, completion_progress} 1건" "$(python3 - "$SSE" "$CSID" <<'PY'
 import sys, json
 raw = open(sys.argv[1]).read()
 hits = 0
@@ -227,31 +231,30 @@ for frame in raw.split("\n\n"):
     for line in frame.splitlines():
         if line.startswith("data: "):
             ev = json.loads(line[6:])
-            if ev["type"] == "session.completion_progress" and sorted(ev.get("payload", {})) == ["completion_progress", "session_id"] and ev["payload"]["session_id"] == sys.argv[2]: hits += 1
+            if ev["type"] == "work.completion_progress" and sorted(ev.get("payload", {})) == ["completion_progress", "room_id", "work_id"] and ev["payload"]["work_id"] == sys.argv[2]: hits += 1
 print(hits)
 PY
 )" "1"
-rm -f "$SSE"
-if [ "$MOCK" = "1" ]; then
-  L=$(curl -sS -b "$J" -X POST "$B/__mock/sessions/$CSID/seed-legacy-condition" -H 'content-type: application/json' -d '{"met_artifact":true}')
-  chk "  (MOCK) 리뷰어 없는 옛 세션 시드 → blocked_reason reviewer_missing · 보고서 제출은 met" "$(echo "$L" | py 'import sys,json;c=json.load(sys.stdin)["completion_progress"]["conditions"];print(c[0]["met"],c[1]["blocked_reason"],c[1]["next_actor"])')" "True reviewer_missing None"
-  F=$(curl -sS -b "$J" -X PATCH "$B/sessions/$CSID" -H 'content-type: application/json' -d "{\"completion_condition\":{\"op\":\"and\",\"conditions\":[{\"type\":\"artifact_submitted\",\"who\":\"assignee\"},{\"type\":\"agent_approval\",\"agent_id\":\"$AG\"}]}}")
+  rm -f "$SSE"
+  L=$(curl -sS -b "$J" -X POST "$B/__mock/rooms/$CSID/seed-legacy-condition" -H 'content-type: application/json' -d '{"met_artifact":true}')
+  chk "  (MOCK) 리뷰어 없는 옛 조건 시드 → blocked_reason reviewer_missing · 아티팩트 제출은 met" "$(echo "$L" | py 'import sys,json;c=json.load(sys.stdin)["completion_progress"]["conditions"];print(c[0]["met"],c[1]["blocked_reason"],c[1]["next_actor"])')" "True reviewer_missing None"
+  F=$(curl -sS -b "$J" -X PATCH "$B/works/$CSID" -H 'content-type: application/json' -d "{\"completion_condition\":{\"op\":\"and\",\"conditions\":[{\"type\":\"artifact_submitted\",\"who\":\"assignee\"},{\"type\":\"agent_approval\",\"agent_id\":\"$AG\"}]}}")
   chk "  조건 고치기 → 막힘 해소 · 이미 충족된 원자(met) 유지" "$(echo "$F" | py 'import sys,json;p=json.load(sys.stdin)["completion_progress"];print(p["met"],p["conditions"][0]["met"],p["conditions"][1]["blocked_reason"],p["conditions"][1]["agent_name"])')" "1 True None Lead"
+  curl -sS -b "$J" -X POST "$B/works/$CSID/cancel" -H 'content-type: application/json' -d '{}' -o /dev/null
+  chk "  끝난 미션의 completion_condition → 409 work_closed" "$(curl -sS -b "$J" -X PATCH "$B/works/$CSID" -H 'content-type: application/json' -d '{"completion_condition":{"op":"and","conditions":[{"type":"manual"}]}}' | py 'import sys,json;d=json.load(sys.stdin);print(d["status"],d["code"])')" "409 work_closed"
 fi
-curl -sS -b "$J" -X POST "$B/sessions/$CSID/cancel" -H 'content-type: application/json' -d '{}' -o /dev/null
-chk "  끝난 세션의 completion_condition → 422 immutable" "$(curl -sS -b "$J" -X PATCH "$B/sessions/$CSID" -H 'content-type: application/json' -d '{"completion_condition":{"op":"and","conditions":[{"type":"manual"}]}}' | py 'import sys,json;d=json.load(sys.stdin);print(d["status"],d["errors"][0]["field"],d["errors"][0]["code"])')" "422 completion_condition immutable"
 
 # ── 빈 턴 카드 (T-W16 · PRD FR-7.2 v0.18 「판정과 기록」 · 서버 T-S19 대조용) ─────────
 # 서버가 finish 에서 남기는 한 행: {class: status, verb: turn_end, object_ref: empty_turn, outcome: info, payload: {command: turn_end, args: {note}}} —
 # 새 키 없음. 목은 (MOCK=1) 시드로 같은 행을 만든다. 실서버 대조는 T-I6 e2e 81_ 이 에이전트 없는 빈 턴으로 잰다.
 if [ "$MOCK" = "1" ]; then
   ETBODY=$(BODY '빈 턴 세션' '{"op":"and","conditions":[{"type":"manual"}]}')
-  ETS=$(curl -sS -b "$J" -X POST "$B/workspaces/$WS/sessions" -H 'content-type: application/json' -d "$ETBODY" | py 'import sys,json;print(json.load(sys.stdin)["id"])')
-  ET=$(curl -sS -b "$J" -X POST "$B/__mock/sessions/$ETS/seed-empty-turn" -H 'content-type: application/json' -d "{\"agent_id\":\"$AG2\"}")
+  ETS=$(curl -sS -b "$J" -X POST "$B/__mock/workspaces/$WS/seed-room" -H 'content-type: application/json' -d "$ETBODY" | py 'import sys,json;print(json.load(sys.stdin)["id"])')
+  ET=$(curl -sS -b "$J" -X POST "$B/__mock/rooms/$ETS/seed-empty-turn" -H 'content-type: application/json' -d "{\"agent_id\":\"$AG2\"}")
   ETT=$(echo "$ET" | py 'import sys,json;print(json.load(sys.stdin)["task_id"])')
   ETL=$(echo "$ET" | py 'import sys,json;print(json.load(sys.stdin)["lane_id"])')
   chk "  (MOCK) 빈 턴 행 — status/turn_end/empty_turn/info · payload {command, args.note} 그대로 · 문장" "$(curl -sS -b "$J" "$B/tasks/$ETT/events" | py 'import sys,json;e=[x for x in json.load(sys.stdin)["items"] if x["class"]=="status"];x=e[0];print(len(e), x["verb"], x["object_ref"], x["outcome"], sorted(x["payload"])==["args","command"], x["payload"]["args"]["note"])')" "1 turn_end empty_turn info True 아무것도 하지 않고 턴을 끝냈습니다"
-  chk "  (MOCK) 줄기는 done · brief 없음 · current_task.id 가 그 할 일" "$(curl -sS -b "$J" "$B/sessions/$ETS/lanes" | py "import sys,json;l=[x for x in json.load(sys.stdin) if x['id']=='$ETL'][0];print(l['status'], l['brief'], l['current_task']['id']=='$ETT')")" "done None True"
+  chk "  (MOCK) 줄기는 done · brief 없음 · current_task.id 가 그 할 일" "$(curl -sS -b "$J" "$B/rooms/$ETS/lanes" | py "import sys,json;l=[x for x in json.load(sys.stdin) if x['id']=='$ETL'][0];print(l['status'], l['brief'], l['current_task']['id']=='$ETT')")" "done None True"
 fi
 
 echo

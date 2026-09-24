@@ -76,45 +76,25 @@ describe("next.config.mjs", () => {
   });
 });
 
-// ── v0.19 T-R2-W1 — `/sessions…` → `/rooms…` 307 · T-R2-W4b — 마법사(`/sessions/new`) 삭제 → `/rooms/new` ─────────────────────────────
-describe("세션 → 방 주소 (T-R2-W1)", () => {
-  // Next 가 redirects 의 source 를 해석하는 것과 같은 path-to-regexp(next 에 묶인 사본)로 잰다.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { match, compile } = require("next/dist/compiled/path-to-regexp") as {
-    match: (src: string, o?: { decode?: (s: string) => string }) => (p: string) => false | { params: Record<string, unknown> };
-    compile: (dst: string) => (params: Record<string, string | string[]>) => string;
-  };
-  async function redirectOf(pathname: string): Promise<{ to: string; status: number } | null> {
-    const cfg = (await configUnder("production")) as unknown as { redirects: () => Promise<{ source: string; destination: string; statusCode: number }[]> };
-    for (const r of await cfg.redirects()) {
-      const m = match(r.source, { decode: decodeURIComponent })(pathname);
-      if (m) return { to: compile(r.destination)(m.params as Record<string, string | string[]>), status: r.statusCode };
-    }
-    return null;
-  }
-
-  it("목록·상세·그 아래 경로는 같은 조각으로 /rooms 로 307", async () => {
-    expect(await redirectOf("/sessions")).toEqual({ to: "/rooms", status: 307 });
-    expect(await redirectOf("/sessions/0b9e6a4e-1c2d-4e5f-8a9b-0c1d2e3f4a5b")).toEqual({ to: "/rooms/0b9e6a4e-1c2d-4e5f-8a9b-0c1d2e3f4a5b", status: 307 });
-    expect(await redirectOf("/sessions/abc/settings")).toEqual({ to: "/rooms/abc/settings", status: 307 });
-  });
-
-  it("마법사 /sessions/new 는 지워졌다(T-R2-W4b) — 방 만들기 /rooms/new 로 307", async () => {
-    expect(await redirectOf("/sessions/new")).toEqual({ to: "/rooms/new", status: 307 });
-    // 이름이 new 로 시작할 뿐인 id 는 예외가 아니다.
-    expect(await redirectOf("/sessions/newer")).toEqual({ to: "/rooms/newer", status: 307 });
-  });
-
-  it("영구(308)가 아니다 — 되돌릴 수 있는 이관이라 브라우저가 캐시하지 않게", () => {
+// ── v0.19 T-R2-W1 → v0.3.0 R4 — 옛 세션 주소의 넘김(307)은 지웠다(Director: 옛 주소 전부 삭제) ─────────────────────────────
+describe("옛 세션 주소 (R4 — 넘김 없음)", () => {
+  it("next.config 에 redirects 가 없다 — 옛 주소는 넘기지 않고 404 로 둔다", async () => {
+    const cfg = (await configUnder("production")) as unknown as { redirects?: unknown };
+    expect(cfg.redirects).toBeUndefined();
     const src = readFileSync(path.join(ROOT, "next.config.mjs"), "utf8");
-    expect(src).not.toMatch(/permanent:\s*true/);
-    expect(src.match(/statusCode: 307/g)).toHaveLength(4);
+    expect(src).not.toMatch(/statusCode:\s*30[78]/);
+    expect(src).not.toMatch(/source:\s*["'`]\/sessions/);
   });
 
-  it("앱 안의 기본 착지점은 /rooms 다 — 옛 /sessions 로 보내 한 번 더 튕기지 않는다", () => {
+  it("옛 세션 라우트 파일이 없다(app/**/sessions)", () => {
+    const files = walk(path.join(ROOT, "app")).map((f) => path.relative(ROOT, f));
+    expect(files.filter((f) => f.split(path.sep).includes("sessions"))).toEqual([]);
+  });
+
+  it("앱 안의 기본 착지점은 /rooms 다 — 없는 옛 주소로 보내지 않는다", () => {
     for (const f of ["app/page.tsx", "app/login/page.tsx", "app/signup/page.tsx", "app/invite/[token]/page.tsx", "app/onboarding/page.tsx"]) {
       const src = readFileSync(path.join(ROOT, f), "utf8");
-      expect(src, f).not.toMatch(/["'`]\/sessions["'`?]/);
+      expect(src, f).not.toMatch(/["'`]\/sessions["'`?/]/);
     }
   });
 });

@@ -5,6 +5,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { dispatch, type Req } from "./handlers";
 import { W } from "./wording";
+import { RW } from "./rooms-dialogs-wording";
 import { WE_SERVER } from "./work-edit";
 import { resetStore, store } from "./store";
 import type { components } from "@/lib/api/schema";
@@ -66,7 +67,7 @@ describe("changeWorkDirector", () => {
     // demo 는 이제 Director 가 아니지만 ws owner 다 — 권한은 통과하고 멤버 검사(422)에서 걸린다.
     const res = await call("PUT", `/works/${w.id}/director`, { director_user_id: "00000000-0000-0000-0000-000000000000" });
     expect(res.status).toBe(422);
-    expect(prob(res).errors?.[0]).toMatchObject({ field: "user_id", message: W.new_director_not_member });
+    expect(prob(res).errors?.[0]).toMatchObject({ field: "user_id", message: RW.default_director_not_member }); // 옛 W.new_director_not_member(changeDirector, R4 삭제)와 같은 문장
     // Director 도 owner·admin 도 아니면 403(방장이어도 — 서버 판정에 방 역할이 없다).
     await login("junho@colab.dev");
     const no = await call("PUT", `/works/${w.id}/director`, { director_user_id: to.id });

@@ -52,15 +52,15 @@ chk "checkRepo 가 remote URL 을 준다(FR-9)" "$(echo "$OKCHK" | py 'import sy
 BAD=$(curl -sS -b "$J" -o /dev/null -w '%{http_code}' -X POST "$B/runtimes/$RT/repo-checks" -H 'content-type: application/json' -d '{"repo_path":"/nope/dirty"}')
 chk "ok:false 여도 200 이다 — 오류가 아니라 답 (E13-01)" "$BAD" "200"
 
-# ── worktree 세션 하나 ────────────────────────────────────────────────────
-S=$(curl -sS -b "$J" -X POST "$B/workspaces/$WS/sessions" -H 'content-type: application/json' \
+# ── worktree 방 + 미션 하나(목 시드 — 옛 createSession 모양, R4 에서 op 은 지워졌다. 방 id = 미션 id) ─────────
+S=$(curl -sS -b "$J" -X POST "$B/__mock/workspaces/$WS/seed-room" -H 'content-type: application/json' \
   -d "{\"title\":\"P4 스모크\",\"goal\":\"worktree 격리와 재바인딩\",\"isolation\":{\"kind\":\"worktree\",\"repo_path\":\"$REPO\",\"remote_url\":\"$REMOTE\"},\"runtime_id\":\"$RT\",\"participants\":[{\"agent_id\":\"$A1\"},{\"agent_id\":\"$A2\"}],\"assignee_agent_id\":\"$A1\"}")
 SID=$(echo "$S" | py 'import sys,json;print(json.load(sys.stdin)["id"])')
-say "session" "$SID"
+say "room" "$SID"
 chk "세션이 remote_url 을 보존한다 — 재바인딩 판정 키다" "$(echo "$S" | py 'import sys,json;print(bool(json.load(sys.stdin)["isolation"].get("remote_url")))')" "True"
 
 # ── S13 workdir(E13-09~13) ────────────────────────────────────────────────
-[ "$MOCK" = "1" ] && curl -sS -b "$J" -X POST "$B/__mock/sessions/$SID/seed-workdirs" -H 'content-type: application/json' -d '{}' -o /dev/null
+[ "$MOCK" = "1" ] && curl -sS -b "$J" -X POST "$B/__mock/rooms/$SID/seed-workdirs" -H 'content-type: application/json' -d '{}' -o /dev/null
 WD=$(curl -sS -b "$J" "$B/runtimes/$RT/workdirs")
 chk "workdir 목록은 Page 봉투 + 용량 합계" "$(echo "$WD" | py 'import sys,json;d=json.load(sys.stdin);print("items" in d and "disk_bytes_total" in d)')" "True"
 chk "차단 사유 둘이 구별된다 (E13-12·13)" "$(echo "$WD" | py 'import sys,json;d=json.load(sys.stdin)["items"];print(sorted({w["gc_blocked_reason"] for w in d if w["gc_blocked_reason"]}))')" "['uncommitted_changes', 'unmerged_commits']"
@@ -76,23 +76,24 @@ chk "상태가 deleted 로 바뀐다" "$(echo "$WD2" | py "import sys,json;print
 chk "**브랜치는 남는다** (FR-6.4 M4)" "$(echo "$WD2" | py "import sys,json;print([w['branch'] for w in json.load(sys.stdin)['items'] if w['id']=='$WID'][0])")" "$WBR"
 
 # ── S17 재바인딩(E14) ─────────────────────────────────────────────────────
-[ "$MOCK" = "1" ] && curl -sS -b "$J" -X POST "$B/__mock/sessions/$SID/seed-artifacts" -H 'content-type: application/json' -d '{"count":3,"type":"diff"}' -o /dev/null
-ART=$(curl -sS -b "$J" "$B/sessions/$SID/artifacts?type=diff")
+[ "$MOCK" = "1" ] && curl -sS -b "$J" -X POST "$B/__mock/rooms/$SID/seed-artifacts" -H 'content-type: application/json' -d '{"count":3,"type":"diff"}' -o /dev/null
+ART=$(curl -sS -b "$J" "$B/rooms/$SID/artifacts?type=diff")
 chk "diff 아티팩트 목록은 제출 순서다 (E14-06)" "$(echo "$ART" | py 'import sys,json;d=json.load(sys.stdin);print([a["name"] for a in d]==sorted([a["name"] for a in d]) and [a["created_at"] for a in d]==sorted([a["created_at"] for a in d]))')" "True"
 
 # 유예 직전 — 세션은 그대로 active, 알림 0 (E14-01)
 if [ "$MOCK" = "1" ]; then
   IN_BEFORE=$(curl -sS -b "$J" "$B/inbox?workspace_id=$WS" | py 'import sys,json;print(len([x for x in json.load(sys.stdin)["items"] if x["type"]=="runtime_offline"]))')
   curl -sS -b "$J" -X POST "$B/__mock/runtimes/$RT/offline" -H 'content-type: application/json' -d '{"days":6.958333}' -o /dev/null
-  chk "E14-01 유예 직전은 active" "$(curl -sS -b "$J" "$B/sessions/$SID" | py 'import sys,json;print(json.load(sys.stdin)["status"])')" "active"
+  chk "E14-01 유예 직전은 active" "$(curl -sS -b "$J" "$B/works/$SID" | py 'import sys,json;print(json.load(sys.stdin)["status"])')" "active"
   chk "E14-01 알림 0" "$(curl -sS -b "$J" "$B/inbox?workspace_id=$WS" | py 'import sys,json;print(len([x for x in json.load(sys.stdin)["items"] if x["type"]=="runtime_offline"]))')" "$IN_BEFORE"
   # 유예 도달 (E14-02)
   curl -sS -b "$J" -X POST "$B/__mock/runtimes/$RT/offline" -H 'content-type: application/json' -d '{"days":8}' -o /dev/null
 fi
-PS=$(curl -sS -b "$J" "$B/sessions/$SID")
-chk "E14-02 세션이 paused(runtime_offline)" "$(echo "$PS" | py 'import sys,json;d=json.load(sys.stdin);print(d["status"]+"/"+str(d["paused_reason"]))')" "paused/runtime_offline"
-chk "E14-02 선택지는 정확히 둘(재바인딩·종료)" "$(echo "$PS" | py 'import sys,json;print(json.load(sys.stdin)["paused_detail"]["resolve_actions"])')" "['rebind', 'cancel']"
-chk "E14-10 스윕은 멱등 — 알림 1건" "$(curl -sS -b "$J" "$B/inbox?workspace_id=$WS" | py 'import sys,json;print(len([x for x in json.load(sys.stdin)["items"] if x["type"]=="runtime_offline"]))')" "1"
+# 옛 세션 상세(getSession)는 R4 에서 지워졌다 — 방 멈춤(#314: 유예 만료는 방을 멈춘다)과 미션 상태로 잰다.
+chk "E14-02 방이 runtime_offline 으로 멈춘다" "$(curl -sS -b "$J" "$B/rooms/$SID" | py 'import sys,json;print(json.load(sys.stdin)["blocked_reason"])')" "runtime_offline"
+chk "E14-02 미션은 paused" "$(curl -sS -b "$J" "$B/works/$SID" | py 'import sys,json;print(json.load(sys.stdin)["status"])')" "paused"
+# #314 뒤로 유예 만료 알림은 방 층의 room_paused(ref = 잃은 컴퓨터) 한 장이다 — 옛 runtime_offline 항목을 세던 줄은 그 전부터 0 이었다.
+chk "E14-10 스윕은 멱등 — 알림 1건(room_paused)" "$(curl -sS -b "$J" "$B/inbox?workspace_id=$WS" | py 'import sys,json;print(len([x for x in json.load(sys.stdin)["items"] if x["type"]=="room_paused"]))')" "1"
 
 # 삭제 차단 (E14-08)
 DEL=$(curl -sS -b "$J" -X DELETE "$B/runtimes/$RT")
@@ -105,11 +106,11 @@ chk "worktree 는 자동 선택 불가 (E13-17)" "$(echo "$CAND" | py 'import sy
 chk "오프라인 런타임은 후보가 아니고 사유가 붙는다" "$(echo "$CAND" | py "import sys,json;c=[x for x in json.load(sys.stdin)['candidates'] if x['runtime']['id']=='$RT'][0];print(c['eligible']==False and bool(c['reason']))")" "True"
 
 # 재바인딩 거절 경로 — 후보가 아니면 422 (E14-05)
-RB422=$(curl -sS -b "$J" -o /dev/null -w '%{http_code}' -X POST "$B/sessions/$SID/rebind" -H 'content-type: application/json' -d "{\"runtime_id\":\"$RT\",\"acknowledge_loss\":true}")
+RB422=$(curl -sS -b "$J" -o /dev/null -w '%{http_code}' -X POST "$B/rooms/$SID/rebind" -H 'content-type: application/json' -d "{\"runtime_id\":\"$RT\",\"acknowledge_loss\":true}")
 chk "E14-05 후보가 아닌 런타임은 422" "$RB422" "422"
 
 # ── S8 인박스 카드 purpose (K-9) ──────────────────────────────────────────
-HB=$(curl -sS -b "$J" -X POST "$B/__mock/sessions/$SID/seed-hitl" -H 'content-type: application/json' \
+HB=$(curl -sS -b "$J" -X POST "$B/__mock/rooms/$SID/seed-hitl" -H 'content-type: application/json' \
   -d "{\"source\":\"system\",\"purpose\":\"budget\",\"type\":\"approval\",\"proposed_default\":null,\"agent_id\":\"$A1\",\"question\":\"예산을 초과했습니다\"}")
 HBID=$(echo "$HB" | py 'import sys,json;print(json.load(sys.stdin)["id"])')
 chk "K-9 인박스 카드가 purpose 를 싣는다(상세 왕복 없음)" \

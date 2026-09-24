@@ -1,5 +1,5 @@
 /** S5 세션 상태 배지 라벨 — paused 는 사유를 함께, active 는 실행 중인 작업 줄기 수(SCREEN §4.3). */
-import type { Runtime, Session, SessionListItem } from "@/lib/api/types";
+import type { Runtime } from "@/lib/api/types";
 
 /** 배지 안에 들어가는 짧은 사유(자리가 좁다). */
 const PAUSE_LABEL: Record<string, string> = {
@@ -15,7 +15,7 @@ export const PAUSE_REASON_LABEL: Record<string, string> = {
   director: "Director 가 멈췄습니다",
 };
 
-export function sessionBadgeLabel(s: Pick<SessionListItem, "status" | "paused_reason" | "running_lane_count">): string | undefined {
+export function sessionBadgeLabel(s: { status: string; paused_reason: string | null; running_lane_count: number }): string | undefined {
   if (s.status === "paused") return `일시정지 · ${PAUSE_LABEL[s.paused_reason ?? ""] ?? s.paused_reason ?? ""}`;
   if (s.status === "active" && s.running_lane_count > 0) return `진행 중 · ${s.running_lane_count}개 실행 중`;
   return undefined;
@@ -33,7 +33,7 @@ export const RUNTIME_AUTO = "자동 선택 — 첫 실행 시 고정";
  * 없으면 null 을 돌려 화면이 자리 표시로 두게 한다 — id 앞 8자는 어느 경우에도 보이지 않는다.
  */
 export function runtimeNameOf(
-  session: Pick<Session, "runtime_id" | "runtime">,
+  session: { runtime_id: string | null; runtime?: Pick<Runtime, "name"> | null },
   runtimes: Pick<Runtime, "id" | "name">[] | null | undefined,
 ): string | null {
   if (!session.runtime_id) return RUNTIME_AUTO;

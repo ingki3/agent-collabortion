@@ -2,7 +2,7 @@
  * 방 화면 목(T-R2-W2, openapi 0.2.6) — **계약 모양 · 서버 규칙 대조**. PR 본문의 "목이 흉내 낸 서버 응답 목록" 2부.
  *
  * 재는 것:
- *   · 새 방(`createRoom`)의 메시지·서브 미션이 `/sessions/{방 id}/…` 로 돈다(서버: 방 id = 세션 id) — 그래도 옛 세션은 아니다(getSession 404)
+ *   · 새 방(`createRoom`)의 메시지·서브 미션이 `/rooms/{방 id}/…` 로 돈다 — 시드한 방(옛 세션 모양)은 아니다(목 관찰 길 404)
  *   · 미션 op — listWorks(옛 세션의 미션 + 연 미션) · getWork · createWork · pause/resume/complete/cancel(Director 만, 전이 409 문장)
  *   · 귀속(FR-3.1.1, 서버 router.attribute 순서) — chosen · thread · running_lane · 옛 세션 규칙(키가 없을 때만) · none, 끝난 미션 422
  *   · listMessages — work_id · no_work · around_message_id(위아래 25)
@@ -14,7 +14,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dispatch, type Req } from "./handlers";
 import { W } from "./wording";
 import { resetStore, store, type Subscriber } from "./store";
-import type { Message, MessagePage, Room, Runtime, Session, TriggerPreview, Work, WorkListItem } from "@/lib/api/types";
+import type { Message, MessagePage, Room, Runtime, TriggerPreview, Work, WorkListItem } from "@/lib/api/types";
+import type { Session } from "@/lib/legacy-session";
 import type { components } from "@/lib/api/schema";
 
 let cookie = "";
@@ -34,10 +35,10 @@ async function login(email = "demo@colab.dev") {
 }
 const ws = async () => (await must<{ workspaces: { id: string }[] }>("GET", "/me")).workspaces[0].id;
 const post = (roomId: string, content: string, extra: Record<string, unknown> = {}) =>
-  must<{ message: Message }>("POST", `/sessions/${roomId}/messages`, { body: { content, ...extra }, headers: { "Idempotency-Key": crypto.randomUUID() } });
+  must<{ message: Message }>("POST", `/rooms/${roomId}/messages`, { body: { content, ...extra }, headers: { "Idempotency-Key": crypto.randomUUID() } });
 function tap(workspaceId: string) {
   const frames: { type: string; payload: Record<string, unknown> }[] = [];
-  const sub: Subscriber = { workspace_id: workspaceId, session_ids: null, write: (f) => { const m = /data: (.*)\n\n$/s.exec(f); if (m) frames.push(JSON.parse(m[1])); } };
+  const sub: Subscriber = { workspace_id: workspaceId, room_ids: null, write: (f) => { const m = /data: (.*)\n\n$/s.exec(f); if (m) frames.push(JSON.parse(m[1])); } };
   store().subs.add(sub);
   return frames;
 }
@@ -56,17 +57,15 @@ beforeEach(async () => {
   await login();
 });
 
-describe("새 방 — 메시지·서브 미션은 /sessions/{방 id}/… 로 돈다(옛 세션은 아니다)", () => {
-  it("게시·읽기가 되고, getSession·listSessions 에는 없다", async () => {
+describe("새 방 — 메시지·서브 미션은 /rooms/{방 id}/… 로 돈다(옛 세션 모양의 시드가 아니다)", () => {
+  it("게시·읽기가 되고, 목의 옛 세션 관찰 길에는 없다", async () => {
     const id = await ws();
     const r = await newRoom(id);
     const { message } = await post(r.id, "안녕");
     expect(message.work_id).toBeNull(); // 새 방의 말은 미션 없음(서버: legacy_work_id 없음)
-    const page = await must<MessagePage>("GET", `/sessions/${r.id}/messages`);
+    const page = await must<MessagePage>("GET", `/rooms/${r.id}/messages`);
     expect(page.items.map((m) => m.content)).toEqual(["안녕"]);
-    expect((await call("GET", `/sessions/${r.id}`)).status).toBe(404);
-    const ses = await must<{ items: { id: string }[] }>("GET", `/workspaces/${id}/sessions`);
-    expect(ses.items.some((s) => s.id === r.id)).toBe(false);
+    expect((await call("GET", `/__mock/rooms/${r.id}/legacy`)).status).toBe(404);
     expect((await must<{ items: WorkListItem[] }>("GET", `/rooms/${r.id}/works`)).items).toEqual([]);
   });
 });
@@ -109,7 +108,7 @@ describe("미션 op", () => {
   it("옛 세션의 방 — 그 세션이 미션 하나(미션 id = 세션 id)", async () => {
     const id = await ws();
     const rt = (await must<Runtime[]>("GET", `/workspaces/${id}/runtimes`))[0];
-    const sess = await must<Session>("POST", `/workspaces/${id}/sessions`, { body: { title: "시장 조사", goal: "g", isolation: { kind: "none" }, runtime_id: rt.id, participants: [{ agent_id: agentId("Lead") }] } });
+    const sess = await must<Session>("POST", `/__mock/workspaces/${id}/seed-room`, { body: { title: "시장 조사", goal: "g", isolation: { kind: "none" }, runtime_id: rt.id, participants: [{ agent_id: agentId("Lead") }] } });
     const items = (await must<{ items: WorkListItem[] }>("GET", `/rooms/${sess.id}/works`)).items;
     expect(items.map((x) => [x.id, x.title])).toEqual([[sess.id, "시장 조사"]]);
     expect((await must<Work>("GET", `/works/${sess.id}`)).my_work_role).toBe("director");
@@ -122,17 +121,17 @@ describe("귀속(FR-3.1.1) — 서버 router.attribute 순서", () => {
     const r = await newRoom(id);
     await seedAgents(r.id);
     const w = await must<Work>("POST", `/rooms/${r.id}/works`, { body: { goal: "보고서" } });
-    const pv = (body: Record<string, unknown>) => must<TriggerPreview>("POST", `/sessions/${r.id}/messages/preview`, { body: { content: "안녕", ...body } });
+    const pv = (body: Record<string, unknown>) => must<TriggerPreview>("POST", `/rooms/${r.id}/messages/preview`, { body: { content: "안녕", ...body } });
     expect(await pv({ work_id: w.id })).toMatchObject({ work: { id: w.id, title: "보고서" }, work_source: "chosen" });
     expect(await pv({ work_id: null })).toMatchObject({ work: null, work_source: "none" });
     expect((await post(r.id, "이건 미션에", { work_id: w.id })).message.work_id).toBe(w.id);
     await must("POST", `/works/${w.id}/complete`, { body: { confirm: true } });
-    const closed = await call("POST", `/sessions/${r.id}/messages/preview`, { body: { content: "x", work_id: w.id } });
+    const closed = await call("POST", `/rooms/${r.id}/messages/preview`, { body: { content: "x", work_id: w.id } });
     expect(closed.status).toBe(422);
     expect(JSON.stringify(closed.body)).toContain(W.work_closed_post);
     const other = await newRoom(id, "다른 방");
     const w2 = await must<Work>("POST", `/rooms/${other.id}/works`, { body: { goal: "남의 미션" } });
-    expect(JSON.stringify((await call("POST", `/sessions/${r.id}/messages/preview`, { body: { content: "x", work_id: w2.id } })).body)).toContain(W.work_not_in_room);
+    expect(JSON.stringify((await call("POST", `/rooms/${r.id}/messages/preview`, { body: { content: "x", work_id: w2.id } })).body)).toContain(W.work_not_in_room);
   });
 
   it("thread — 스레드의 (열린) 미션 · running_lane — 멘션 대상의 실행 중 서브 미션의 미션(자동 귀속)", async () => {
@@ -141,21 +140,21 @@ describe("귀속(FR-3.1.1) — 서버 router.attribute 순서", () => {
     await seedAgents(r.id);
     const w = await must<Work>("POST", `/rooms/${r.id}/works`, { body: { goal: "보고서" } });
     const root = (await post(r.id, "루트", { work_id: w.id })).message;
-    expect(await must<TriggerPreview>("POST", `/sessions/${r.id}/messages/preview`, { body: { content: "답", parent_id: root.id, work_id: null } }))
+    expect(await must<TriggerPreview>("POST", `/rooms/${r.id}/messages/preview`, { body: { content: "답", parent_id: root.id, work_id: null } }))
       .toMatchObject({ work: { id: w.id }, work_source: "thread" });
     // Researcher 의 서브 미션을 그 미션에 매어 실행 중으로 둔다(시드)
     await must("POST", `/__mock/rooms/${r.id}/seed`, { body: { lanes: [{ agent: "Researcher", status: "running", work: null }] } });
     const lane = [...store().lanes.values()].find((l) => l.session_id === r.id && l.status === "running")!;
     lane.work_id = w.id;
-    const auto = await must<TriggerPreview>("POST", `/sessions/${r.id}/messages/preview`, { body: { content: `${mention("Researcher")} 이어서`, work_id: null } });
+    const auto = await must<TriggerPreview>("POST", `/rooms/${r.id}/messages/preview`, { body: { content: `${mention("Researcher")} 이어서`, work_id: null } });
     expect(auto).toMatchObject({ work: { id: w.id, title: "보고서" }, work_source: "running_lane" });
   });
 
   it("옛 세션 규칙 — 키가 **없을** 때만 옛 세션의 미션(chosen). null 을 보내면 규칙 2~4", async () => {
     const id = await ws();
     const rt = (await must<Runtime[]>("GET", `/workspaces/${id}/runtimes`))[0];
-    const sess = await must<Session>("POST", `/workspaces/${id}/sessions`, { body: { title: "시장 조사", goal: "g", isolation: { kind: "none" }, runtime_id: rt.id, participants: [{ agent_id: agentId("Lead") }] } });
-    const pv = (body: Record<string, unknown>) => must<TriggerPreview>("POST", `/sessions/${sess.id}/messages/preview`, { body: { content: "/note 기록", ...body } });
+    const sess = await must<Session>("POST", `/__mock/workspaces/${id}/seed-room`, { body: { title: "시장 조사", goal: "g", isolation: { kind: "none" }, runtime_id: rt.id, participants: [{ agent_id: agentId("Lead") }] } });
+    const pv = (body: Record<string, unknown>) => must<TriggerPreview>("POST", `/rooms/${sess.id}/messages/preview`, { body: { content: "/note 기록", ...body } });
     expect(await pv({})).toMatchObject({ work: { id: sess.id }, work_source: "chosen" });
     expect(await pv({ work_id: null })).toMatchObject({ work: null, work_source: "none" });
   });
@@ -168,21 +167,21 @@ describe("listMessages — work_id · no_work · around_message_id", () => {
     const w = await must<Work>("POST", `/rooms/${r.id}/works`, { body: { goal: "보고서" } });
     await post(r.id, "미션 것", { work_id: w.id });
     await post(r.id, "미션 밖", { work_id: null });
-    const q = async (qs: string) => (await must<MessagePage>("GET", `/sessions/${r.id}/messages?${qs}`)).items.map((m) => m.content);
+    const q = async (qs: string) => (await must<MessagePage>("GET", `/rooms/${r.id}/messages?${qs}`)).items.map((m) => m.content);
     // 미션을 연 시스템 메시지도 그 미션의 것이다(서버 SystemPost 가 work_id 를 싣는다).
     expect(await q(`work_id=${w.id}`)).toEqual([expect.stringContaining("미션을 열었습니다"), "미션 것"]);
     expect(await q("no_work=true")).toEqual(["미션 밖"]);
     const ids: string[] = [];
     for (let i = 0; i < 60; i++) ids.push((await post(r.id, `m${i}`, { work_id: null })).message.id);
-    const around = await must<MessagePage>("GET", `/sessions/${r.id}/messages?around_message_id=${ids[30]}`);
+    const around = await must<MessagePage>("GET", `/rooms/${r.id}/messages?around_message_id=${ids[30]}`);
     expect(around.items).toHaveLength(51);
     expect(around.items[25].id).toBe(ids[30]);
     expect(around.has_more_before).toBe(true);
     expect(around.has_more_after).toBe(true);
-    const latest = await must<MessagePage>("GET", `/sessions/${r.id}/messages?limit=50`);
+    const latest = await must<MessagePage>("GET", `/rooms/${r.id}/messages?limit=50`);
     expect(latest.items).toHaveLength(50);
     expect(latest.has_more_before).toBe(true);
-    const older = await must<MessagePage>("GET", `/sessions/${r.id}/messages?limit=50&before=${latest.items[0].id}`);
+    const older = await must<MessagePage>("GET", `/rooms/${r.id}/messages?limit=50&before=${latest.items[0].id}`);
     expect(older.items.at(-1)!.created_at <= latest.items[0].created_at).toBe(true);
   });
 });
@@ -200,7 +199,7 @@ describe("메시지 시각 — 만드는 곳이 달라도 한 시계(깜빡임 �
     const w = await must<Work>("POST", `/rooms/${r.id}/works`, { body: { goal: "보고서" } });
     await post(r.id, "미션 것", { work_id: w.id });
     await must<Room>("POST", `/rooms/${r.id}/block`);
-    const items = (await must<MessagePage>("GET", `/sessions/${r.id}/messages`)).items;
+    const items = (await must<MessagePage>("GET", `/rooms/${r.id}/messages`)).items;
     expect(items.map((m) => m.content)).toEqual([expect.stringContaining("미션을 열었습니다"), "미션 것", "데모" + W.room_block_system]);
     const at = items.map((m) => m.created_at);
     expect(new Set(at).size).toBe(at.length);
@@ -219,7 +218,7 @@ describe("blockRoom · unblockRoom · summarizeRoom · listRoomParticipants", ()
     expect(b.blocked_reason).toBe("manual");
     expect(b.blocked_detail).toMatchObject({ reason: "manual", works_stopped: 2, blocked_by_user: { display_name: "데모" } });
     expect(frames.some((f) => f.type === "room.updated" && f.payload.blocked_reason === "manual")).toBe(true);
-    const sys = (await must<MessagePage>("GET", `/sessions/${r.id}/messages`)).items.at(-1)!;
+    const sys = (await must<MessagePage>("GET", `/rooms/${r.id}/messages`)).items.at(-1)!;
     expect(sys.content).toBe("데모" + W.room_block_system);
     const again = await call("POST", `/rooms/${r.id}/block`);
     expect(again.status).toBe(409);

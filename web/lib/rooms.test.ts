@@ -41,11 +41,11 @@ describe("roomEventEffect", () => {
     const eff = roomEventEffect([room("a", { unread_count: 5 })], ev("room.unread", { room_id: "a", unread_count: 0, last_read_message_id: "m" }));
     expect(eff).toEqual({ kind: "set", items: [room("a", { unread_count: 0 })] });
   });
-  it("room.deleted · session.deleted — 같은 사건, 두 번 와도 같다", () => {
+  it("room.deleted — 그 방을 뺀다, 두 번 와도 같다(옛 session.deleted 는 v0.3.0 R4 에서 지워졌다)", () => {
     const e1 = roomEventEffect(items, ev("room.deleted", { room_id: "a" }));
     expect(e1.kind === "set" && e1.items.map((r) => r.id)).toEqual(["b"]);
-    expect(roomEventEffect([room("b")], ev("session.deleted", { session_id: "a" }))).toEqual({ kind: "none" });
-    const e2 = roomEventEffect(items, ev("session.deleted", {}, { session_id: "b" }));
+    expect(roomEventEffect([room("b")], ev("room.deleted", { room_id: "a" }))).toEqual({ kind: "none" });
+    const e2 = roomEventEffect(items, ev("room.deleted", {}, { room_id: "b" }));
     expect(e2.kind === "set" && e2.items.map((r) => r.id)).toEqual(["a"]);
   });
   it("수가 바뀌는 사건(미션·확인 요청·서브 미션·새 메시지)은 다시 부르고, 모르는 사건은 무시", () => {

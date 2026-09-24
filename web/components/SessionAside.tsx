@@ -10,7 +10,8 @@ import { PausedBanner, type PausedBannerProps } from "./PausedBanner";
 import { progressSummary, topOp } from "@/lib/completion";
 import { humanDuration, relativeTime } from "@/lib/time";
 import { FIX_CONDITION, PROGRESS } from "@/lib/wording";
-import type { Artifact, Decision, Session } from "@/lib/api/types";
+import type { Artifact, Decision } from "@/lib/api/types";
+import type { Session } from "@/lib/legacy-session";
 
 const ISOLATION_LABEL = { none: "격리 없음", worktree: "워크트리", container: "컨테이너" } as const;
 const AUTONOMY_LABEL = { guided: "기다림 — 기한이 지나도 계속 답을 기다립니다", autonomous: "알아서 진행 — 기한이 지나면 제안값으로 진행(승인은 예외)", supervised: "매번 확인 (다음 버전)" } as const;

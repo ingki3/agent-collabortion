@@ -70,7 +70,7 @@ SEED=$(apic '
   const ws = me.workspaces[0].id;
   const rt = (await fetch(`/api/v1/workspaces/${ws}/runtimes`).then(j))[0];
   const a = (await fetch(`/api/v1/workspaces/${ws}/agents`).then(j)).items;
-  const mk = (title) => post(`/workspaces/${ws}/sessions`, { title, goal: "보고서 10페이지", isolation: { kind: "none" }, runtime_id: rt.id, participants: a.map((x) => ({ agent_id: x.id })), assignee_agent_id: a[0].id });
+  const mk = (title) => post(`/__mock/workspaces/${ws}/seed-room`, { title, goal: "보고서 10페이지", isolation: { kind: "none" }, runtime_id: rt.id, participants: a.map((x) => ({ agent_id: x.id })), assignee_agent_id: a[0].id });
   const room = (name, description) => post(`/workspaces/${ws}/rooms`, { name, description });
   const onb = await room("온보딩 문서", "v1 온보딩 가이드");
   const sto = await room("STO 시장 조사", "");
@@ -84,8 +84,8 @@ SEED=$(apic '
   await seed(sto.id, { blocked_reason: "manual" });
   await post(`/rooms/${onb.id}/archive`);
   // 결제팀 — 실패한 서브 미션 1(내가 Director) · 확인 요청 1
-  await post(`/__mock/sessions/${pay.id}/seed-lanes`, {});
-  await post(`/__mock/sessions/${pay.id}/seed-hitl`, {});
+  await post(`/__mock/rooms/${pay.id}/seed-lanes`, {});
+  await post(`/__mock/rooms/${pay.id}/seed-hitl`, {});
   return [ws, pay.id, infra.id, mkt.id, sto.id, onb.id].join(",");
 })()')
 IFS=, read -r WS PAY INFRA MKT STO ONB <<<"$SEED"
@@ -147,7 +147,5 @@ ab wait '[data-testid="room-detail"]' --timeout 20000 >/dev/null # T-R2-W2 뒤�
 assert_js 'location.pathname.startsWith("/rooms/") && location.pathname !== "/rooms/new"' "방 화면으로 이동"
 shot r2-w1-07-created-light
 
-step "/sessions → /rooms 307(브라우저)"
-open_wait /sessions '[data-testid="room-list"]'
-assert_js 'location.pathname === "/rooms"' "옛 주소가 방 목록으로"
+# 옛 세션 주소의 307 넘김은 v0.3.0(R4, Director 승인)에서 지웠다 — 그 단계도 여기서 뺐다(next.config.test.ts 가 넘김 부재를 잰다).
 echo; echo "끝."

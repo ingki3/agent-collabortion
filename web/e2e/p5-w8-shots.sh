@@ -63,12 +63,12 @@ apic '
   const me = await fetch("/api/v1/me").then(j);
   const ws = me.workspaces[0].id;
   const ags = (await fetch(`/api/v1/workspaces/${ws}/agents`).then(j)).items;
-  const sess = await post(`/workspaces/${ws}/sessions`, {
+  const sess = await post(`/__mock/workspaces/${ws}/seed-room`, {
     title: "결제 시장 조사", goal: "국내 B2B SaaS 결제 시장 조사 보고서 10페이지",
     isolation: { kind: "none" }, participants: ags.slice(0, 2).map((a) => ({ agent_id: a.id })),
     assignee_agent_id: ags[0].id,
   });
-  await post(`/__mock/sessions/${sess.id}/seed-lanes`);
+  await post(`/__mock/rooms/${sess.id}/seed-lanes`);
   await post(`/__mock/inbox/seed`);
   return "ok";
 })()' >/dev/null
@@ -79,7 +79,7 @@ ab wait '[data-testid="runtime-card"]' --timeout 20000 >/dev/null
 shot_full "p5-w8-01-runtimes"
 
 step "2/3 S5 세션 목록"
-ab open "$BASE_URL/sessions" >/dev/null
+ab open "$BASE_URL/rooms" >/dev/null
 ab wait '[data-testid="session-list"]' --timeout 20000 >/dev/null
 shot_full "p5-w8-02-sessions"
 

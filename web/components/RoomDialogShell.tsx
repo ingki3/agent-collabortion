@@ -52,7 +52,7 @@ export function useRoomEvents(workspaceId: string | null | undefined, roomId: st
   useWorkspaceStream(workspaceId, (ev) => {
     if (!key.split(",").includes(ev.type)) return;
     const p = (ev.payload ?? {}) as { room_id?: string; id?: string };
-    const rid = ev.room_id ?? p.room_id ?? p.id ?? ev.session_id;
+    const rid = ev.room_id ?? p.room_id ?? p.id;
     if (rid && rid !== roomId) return;
     reload(ev);
   });

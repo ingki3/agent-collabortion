@@ -33,8 +33,8 @@ class FakeEventSource {
   }
 }
 
-function frame(type: StreamEvent["type"], session_id: string | null, payload: Record<string, unknown> = {}): StreamEvent {
-  return { id: "1", type, workspace_id: "w1", session_id, at: "2026-09-06T00:00:00Z", payload, ephemeral: false } as StreamEvent;
+function frame(type: StreamEvent["type"], room_id: string | null, payload: Record<string, unknown> = {}): StreamEvent {
+  return { id: "1", type, workspace_id: "w1", room_id, at: "2026-09-06T00:00:00Z", payload, ephemeral: false } as StreamEvent;
 }
 
 function Consumer({ ws, onEvent }: { ws: string; onEvent: (ev: StreamEvent) => void }) {
@@ -63,12 +63,12 @@ describe("StreamProvider / useWorkspaceStream — 한 화면 SSE 연결 1개 (R4
     );
     expect(FakeEventSource.instances).toHaveLength(1);
     expect(FakeEventSource.instances[0].url).toContain("/workspaces/w1/stream");
-    expect(FakeEventSource.instances[0].url).not.toContain("session_id=");
+    expect(FakeEventSource.instances[0].url).not.toContain("room_id=");
 
-    act(() => FakeEventSource.instances[0].push(frame("session.updated", "s1", { id: "s1" })));
+    act(() => FakeEventSource.instances[0].push(frame("room.updated", "s1", { id: "s1" })));
     expect(shell).toHaveBeenCalledTimes(1);
     expect(page).toHaveBeenCalledTimes(1);
-    expect(page.mock.calls[0][0].session_id).toBe("s1");
+    expect(page.mock.calls[0][0].room_id).toBe("s1");
   });
 
   it("Provider 밖(온보딩 S12)에서는 자기 연결을 연다", () => {

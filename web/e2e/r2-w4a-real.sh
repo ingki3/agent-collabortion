@@ -28,10 +28,16 @@ CAPS='[{"kind":"claude_code","version":"1.0.0","logged_in":true,"models":["claud
 claim() { daemon_api "runtimes/$RID/claim" '{"capacity":5,"wait_ms":0}'; }
 mk_agent() { api_ok POST "/workspaces/$WS/agents" "$(jq -nc --arg n "$1" '{name:$n,role:"lead",role_description:"d",instructions:"짧게",
   profiles:[{name:"default",runtime_kind:"claude_code",model:"claude-sonnet-5",is_default:true}]}')" | jq -r .id; }
-mk_session() {
-  api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg t "$1" --arg l "$LEAD" --arg r "$R" --arg rt "$RID" --arg pin "$2" --argjson x "${3:-null}" \
-    '{title:$t,goal:"짧은 인사말 한 줄",isolation:{kind:"none"},participants:[{agent_id:$l},{agent_id:$r}],assignee_agent_id:$l}
-     + (if $pin=="yes" then {runtime_id:$rt} else {} end) + ($x // {})')" | jq -r .id
+# 방 + 에이전트 둘 + 담당 Lead 의 미션 하나 — v0.3.0(R4, D22)에서 createSession 이 지워져 방·미션 op 셋으로 만든다.
+# 첫 턴은 Director 가 Lead 를 멘션해 연다(옛 createSession 의 「담당 첫 할 일」 자리). PIN=yes 면 방 컴퓨터를 미리 고정한다.
+mk_session() { # TITLE PIN(yes|no) → 방 id
+  local room
+  room="$(api_ok POST "/workspaces/$WS/rooms" "$(jq -nc --arg t "$1" '{name:$t}')" | jq -r .id)"
+  [ "$2" = "yes" ] && api_ok PATCH "/rooms/$room" "$(jq -nc --arg rt "$RID" '{runtime_id:$rt,isolation:{kind:"none"}}')" >/dev/null
+  for a in "$LEAD" "$R"; do api_ok POST "/rooms/$room/participants" "$(jq -nc --arg a "$a" '{agent_id:$a}')" >/dev/null; done
+  local work; work="$(api_ok POST "/rooms/$room/works" "$(jq -nc --arg l "$LEAD" '{goal:"짧은 인사말 한 줄",assignee_agent_id:$l}')" | jq -r .id)"
+  api_ok POST "/rooms/$room/messages" "$(jq -nc --arg c "$(mention Lead "$LEAD") 짧은 인사말 한 줄" --arg w "$work" '{content:$c,work_id:$w}')" -H "Idempotency-Key: $(uuid)" >/dev/null
+  echo "$room"
 }
 ab() { agent-browser "$@"; }
 apic() { ab eval "$1" --json | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["result"])'; }
@@ -53,7 +59,7 @@ B="$(claim | jq -c --arg s "$SA" --arg a "$LEAD" '[.tasks[]|select(.task.session
 TA="$(jq -r .task.id <<<"$B")"; TOKA="$(jq -r .task_token <<<"$B")"
 daemon_api "tasks/$TA/attempts/1/phase" '{"phase":"running","pgid":4242}' >/dev/null
 for n in 하나 둘; do
-  curl -sS -X POST "$API/sessions/$SA/messages" -H "Authorization: Bearer $TOKA" -H "Idempotency-Key: $(uuid)" -H 'Content-Type: application/json' \
+  curl -sS -X POST "$API/rooms/$SA/messages" -H "Authorization: Bearer $TOKA" -H "Idempotency-Key: $(uuid)" -H 'Content-Type: application/json' \
     -d "$(jq -nc --arg c "$(mention R "$R") $n" '{content:$c}')" >/dev/null
 done
 chk P.1 loop "$(psqlq "select coalesce(blocked_reason::text,'-') from room where id='$SA'")" "방 루프 멈춤"

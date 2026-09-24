@@ -214,7 +214,7 @@ describe("R1.5 화면 용어 — 방 · 미션 · 서브 미션 · 할 일 (PRD 
     expect(inPool("components/LaneBoard.tsx", "서브 미션이 하나 생깁니다")).toBe(true);
     expect(inPool("components/Composer.tsx", "새 서브 미션으로 보내기")).toBe(true);
     expect(CONDITION_NAME.artifact_submitted).toBe("아티팩트 제출");
-    expect(COMMAND_LABEL).toMatchObject({ session_get: "방 읽기", artifact_get: "아티팩트 읽기", artifact_submit: "아티팩트 제출" });
+    expect(COMMAND_LABEL).toMatchObject({ room_get: "방 읽기", artifact_get: "아티팩트 읽기", artifact_submit: "아티팩트 제출" });
   });
 
   it("(3) 「일」 단독을 층 이름으로 쓰지 않는다 — 「일 밖」·「일 하나당」·「동시에 맡는 일」은 할 일/미션 중 무엇인지 말하지 않는다", () => {

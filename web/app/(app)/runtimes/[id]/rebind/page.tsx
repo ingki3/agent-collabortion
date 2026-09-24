@@ -5,16 +5,15 @@
  *   · `?room=` 가 있으면 그 방의 결정 다이얼로그를 바로 연다(방 화면 멈춤 배너·받은 요청에서 들어온다).
  *   · 없으면 **이 컴퓨터에 묶인 방 목록이 먼저** 뜬다 — 여러 방이 한 컴퓨터에 걸렸으면 방마다 따로 결정한다.
  *
- * 재바인딩 op 은 아직 옛 이름(`rebindSession`, 방 id = 세션 id — §7 이관 규칙)이다. 별칭 제거는 R4 조건에서만.
+ * 재바인딩 op 은 `rebindRoom`(`POST /rooms/{roomId}/rebind`, v0.3.0 R4 — 옛 `rebindSession` 은 지워졌다).
  */
 import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { PageHead } from "@/components/PageHead";
-import { RebindDialog } from "@/components/RebindDialog";
+import { RebindDialog, rebindTargetOfRoom } from "@/components/RebindDialog";
 import { api, errorMessage } from "@/lib/api/client";
 import { COMPUTER_ROOMS } from "@/lib/screens-v19";
-import type { Session } from "@/lib/api/types";
 
 type Target = React.ComponentProps<typeof RebindDialog>["session"];
 
@@ -37,8 +36,8 @@ function RebindInner() {
 
   const open = useCallback(async (id: string) => {
     try {
-      const s: Session = await api.get("/sessions/{sessionId}", { path: { sessionId: id } });
-      setTarget({ id: s.id, title: s.title, isolation: s.isolation, status: s.status, workspace_id: s.workspace_id, paused_detail: s.paused_detail, runtime: s.runtime ?? null });
+      const r = await api.get("/rooms/{roomId}", { path: { roomId: id } });
+      setTarget(rebindTargetOfRoom(r));
     } catch (e) {
       setError(errorMessage(e));
     }

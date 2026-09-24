@@ -53,16 +53,16 @@ apic '
   const rt = (await fetch(`/api/v1/workspaces/${ws}/runtimes`).then(j))[0];
   const ags = await fetch(`/api/v1/workspaces/${ws}/agents`).then(j);
   const post = (p, b) => fetch(`/api/v1${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b ?? {}) }).then(j);
-  const s = await post(`/workspaces/${ws}/sessions`, {
+  const s = await post(`/__mock/workspaces/${ws}/seed-room`, {
     title: "결제 모듈 구현", goal: "Backend·Frontend 가 각자 구현하고 QA 가 리뷰한다",
     isolation: { kind: "none" }, runtime_id: rt.id,
     participants: [{ agent_id: ags.items[0].id }, { agent_id: ags.items[1].id }],
     assignee_agent_id: ags.items[0].id,
   });
   // 인박스 항목은 HITL 로 만든다 — 목에 seed-inbox 는 없다(seed-hitl / seed-lanes 뿐).
-  await post(`/__mock/sessions/${s.id}/seed-lanes`, { statuses: ["running", "blocked", "done"] });
-  await post(`/__mock/sessions/${s.id}/seed-hitl`, {});
-  await post(`/__mock/sessions/${s.id}/seed-hitl`, { age_ms: 30 * 3600000 });
+  await post(`/__mock/rooms/${s.id}/seed-lanes`, { statuses: ["running", "blocked", "done"] });
+  await post(`/__mock/rooms/${s.id}/seed-hitl`, {});
+  await post(`/__mock/rooms/${s.id}/seed-hitl`, { age_ms: 30 * 3600000 });
   return s.id;
 })()' >/dev/null || echo "  (시드 일부 생략 — 목이 해당 씨앗을 모른다)"
 
@@ -70,7 +70,7 @@ for THEME in light dark; do
   step "테마 $THEME"
   set_theme "$THEME"
 
-  ab open "$BASE_URL/sessions" >/dev/null
+  ab open "$BASE_URL/rooms" >/dev/null
   ab wait '[data-testid="app-nav"]' --timeout 20000 >/dev/null
   shot_full "p5-w7-01-sessions-$THEME"
 

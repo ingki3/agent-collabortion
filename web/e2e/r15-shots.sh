@@ -39,9 +39,9 @@ TPL=$(api GET "/workspaces/$WS/agent-templates" | jget '[0]["key"]')
 api POST "/workspaces/$WS/agent-templates/$TPL/apply" '{}' >/dev/null
 A1=$(api GET "/workspaces/$WS/agents" | jget '["items"][0]["id"]')
 A2=$(api GET "/workspaces/$WS/agents" | jget '["items"][1]["id"]')
-S=$(api POST "/workspaces/$WS/sessions" "{\"title\":\"결제 모듈 구현\",\"goal\":\"Backend·Frontend 가 각자 구현하고 QA 가 리뷰한다\",\"isolation\":{\"kind\":\"none\"},\"runtime_id\":\"$RT\",\"participants\":[{\"agent_id\":\"$A1\"},{\"agent_id\":\"$A2\"}],\"assignee_agent_id\":\"$A1\"}" | jget '["id"]')
-api POST "/__mock/sessions/$S/seed-lanes" '{"statuses":["running","blocked","done"]}' >/dev/null
-api POST "/__mock/sessions/$S/seed-hitl" '{}' >/dev/null
+S=$(api POST "/__mock/workspaces/$WS/seed-room" "{\"title\":\"결제 모듈 구현\",\"goal\":\"Backend·Frontend 가 각자 구현하고 QA 가 리뷰한다\",\"isolation\":{\"kind\":\"none\"},\"runtime_id\":\"$RT\",\"participants\":[{\"agent_id\":\"$A1\"},{\"agent_id\":\"$A2\"}],\"assignee_agent_id\":\"$A1\"}" | jget '["id"]')
+api POST "/__mock/rooms/$S/seed-lanes" '{"statuses":["running","blocked","done"]}' >/dev/null
+api POST "/__mock/rooms/$S/seed-hitl" '{}' >/dev/null
 api POST /__mock/inbox/seed '{}' >/dev/null
 echo "  ws=$WS session/room=$S runtime=$RT"
 
