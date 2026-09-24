@@ -78,3 +78,8 @@ router/preview.go:36 · router/delegate.go:57 · router/status.go:61
 - **#311 서버 발견 4건**(T-R2-W4a): ① 방 예산 멈춤이 `room_paused` 가 아니라 `hitl_request` 로 들어간다(budget.go:442 — 루프만 room_paused) ② room_paused·isolation_confirm 항목 `recipient_basis` 가 비어 있다 ③ inbox.Actions 가 open_workdirs·delete_workdir 를 낸다(계약 0.2.10 에서 enum 에 편입) ④ isolation_confirm 카드에 트리거한 사람·인용 칸이 없다(0.2.10 card.actor_name·quote). + #311 NN3 room_invited 초대한 사람(card.actor_name).
 - **#311 NN1** — 새 메시지 직후 내비 안 읽음 합계(디바운스 reload)와 목록 카드(즉시 +1)가 잠깐 갈린다. **NN2** — SCREEN 필터 칩 「액션 필요」→「조치 필요」로 맞출 것(R1.5).
 - **#310 NN1** — 「여기까지 정리」 직접 고르기가 타임라인에서 집는 방식이 아니라 다이얼로그 입력 두 칸.
+- ~~#309 NN1·NN2, #311 ①~④·NN3, 계약 문장(방 구독)~~ **닫힘(#312·#313)**. ~~runtime_offline 방 게이트~~ **닫힘(#314·#315)**.
+- **#314 NN1** — `TestMayRebind` 에 `blockedAt == nil` 방장 케이스 한 줄. **NN2** — e2e 63_ 실데몬 회차 1회(단언만 바꿨고 안 돌렸다).
+- ~~#317 NN1·NN2 · CI 10분 시간 초과~~ **닫힘(#318)** — 웹 자물쇠 여러 줄 JSX, 서버 자물쇠 상수 추적, go test -timeout 20m.
+- **R4 로 미룸(Lead 판정 2026-09-24)**: 계약 description 속 「세션」 산문(openapi 약 86곳·daemon-protocol 23곳·colab-cli 6곳, #317 본문 목록). 대부분 R4 까지 별칭으로 사는 옛 `/sessions/*` op 의 설명이라 지금도 사실이고, 서버 테스트 일부가 계약 문장을 글자 단위로 읽는다 — 별칭을 지우는 R4 에서 op 과 함께 고친다.
+- **백로그**: e2e 82 W3·W3b(S7 빈 턴 행, agent-browser 로컬 전용) 가 dev 에서도 68/2 — 기존 결함(#317 보고).
