@@ -287,7 +287,7 @@ func loadRoomHistory(ctx context.Context, tx pgx.Tx, roomID uuid.UUID, workID *u
 			rows.Close()
 			return h, err
 		}
-		h.Decisions = append(h.Decisions, decisionLine(summary, rationale, source, auto, at))
+		h.Decisions = append(h.Decisions, briefDecisionLine(summary, rationale, source, auto, at))
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {

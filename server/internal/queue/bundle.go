@@ -732,7 +732,7 @@ func briefDecisionLog(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (stri
 		if err := rows.Scan(&summary, &rationale, &source, &auto, &at); err != nil {
 			return "", err
 		}
-		lines = append(lines, decisionLine(summary, rationale, source, auto, at))
+		lines = append(lines, briefDecisionLine(summary, rationale, source, auto, at))
 	}
 	if err := rows.Err(); err != nil {
 		return "", err
@@ -748,9 +748,9 @@ func briefDecisionLog(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (stri
 	return strings.Join(lines, "\n") + "\n", nil
 }
 
-// decisionLine is one decision as [7] and the turn prompt's <room_decisions>
+// briefDecisionLine is one decision as [7] and the turn prompt's <room_decisions>
 // both write it.
-func decisionLine(summary, rationale, source string, auto bool, at time.Time) string {
+func briefDecisionLine(summary, rationale, source string, auto bool, at time.Time) string {
 	line := fmt.Sprintf("- [%s] %s (%s", at.UTC().Format("2006-01-02 15:04"), summary, source)
 	if auto {
 		line += ", automatic: nobody answered in time"
