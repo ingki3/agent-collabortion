@@ -4,8 +4,9 @@
 # Valid() but no list, and walks the values as a map (alphabetical) — the
 # contract's own order is lost. Callers that need the closed set in contract
 # order (roles.all = colab-cli.md §2 order) read it from here instead of
-# retyping it. Run after `go generate ./internal/httpapi/gen` when the
-# contract changes; roles_test.go fails when this file is stale.
+# retyping it. `go generate ./internal/httpapi/gen` runs it after
+# oapi-codegen (gen.go's second directive), so the CI regenerate-and-diff
+# catches a stale file; roles_test.go fails too.
 set -e
 cd "$(dirname "$0")/.."
 SPEC=../contracts/openapi.yaml
