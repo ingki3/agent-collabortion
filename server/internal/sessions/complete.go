@@ -65,16 +65,6 @@ func ParseTree(raw []byte) Tree {
 	return t
 }
 
-// ApplyCompletionEvent is ApplyWorkEvent for the old `/sessions/*` surface:
-// the session's mission is its room's legacy work.
-func (s *Service) ApplyCompletionEvent(ctx context.Context, sessionID uuid.UUID, ev Event) (*Outcome, error) {
-	workID, err := LegacyWork(ctx, s.DB, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	return s.ApplyWorkEvent(ctx, workID, ev)
-}
-
 // ApplyWorkEvent folds one event into a mission's completion state and
 // carries out the consequence: issuing the platform's user_approval request,
 // pausing on a budget limit, or running the completing → completed step.
@@ -261,13 +251,6 @@ func (s *Service) ApplyWorkEvent(ctx context.Context, workID uuid.UUID, ev Event
 			return nil, err
 		}
 		if director != nil {
-			if legacy {
-				// The old item beside the new one until R4 (§10): an old client
-				// reads session_completed, a v0.19 one work_completed.
-				if err := s.inbox(ctx, tx, wsID, *director, inbox.TypeSessionCompleted, inbox.Severity(inbox.TypeSessionCompleted), sessionID, sessionID, &workID, now); err != nil {
-					return nil, err
-				}
-			}
 			if err := s.WorkInbox(ctx, tx, wsID, *director, TypeWorkCompleted, sessionID, workID, now); err != nil {
 				return nil, err
 			}
@@ -332,7 +315,7 @@ func (s *Service) ApplyWorkEvent(ctx context.Context, workID uuid.UUID, ev Event
 
 	// FR-2.2's progress bar is the point of this call: every event that folds
 	// into completion_met changes what S7 shows, and the contract declares
-	// `session.completion_progress` for exactly that. It published nowhere
+	// `work.completion_progress` for exactly that. It published nowhere
 	// before, so an artifact submission moved the bar only on reload (W13).
 	if s.Hub != nil {
 		metRaw, _ := json.Marshal(met)
@@ -341,13 +324,6 @@ func (s *Service) ApplyWorkEvent(ctx context.Context, workID uuid.UUID, ev Event
 			return nil, err
 		}
 		sid := sessionID
-		if legacy {
-			// The old frame for the old surface, until R4 (§10).
-			_ = s.Hub.Publish(ctx, tx, wsID, &sid, "session.completion_progress", map[string]any{
-				"session_id":          sessionID,
-				"completion_progress": prog,
-			})
-		}
 		_ = s.Hub.Publish(ctx, tx, wsID, &sid, "work.completion_progress", map[string]any{
 			"work_id":             workID,
 			"completion_progress": prog,
@@ -500,7 +476,7 @@ func (s *Service) publishDecision(ctx context.Context, q db.DBTX, wsID, sessionI
 // statement production calls, twice, and watch it insert once (#162 review NN1:
 // removing the NOT EXISTS was the injection nothing caught).
 //
-// production caller: sessions.Service.ApplyCompletionEvent (complete.go).
+// production caller: sessions.Service.ApplyWorkEvent (complete.go).
 //
 // "Exactly one" is per MISSION (FR-2A.4): a room whose first mission already
 // left its summary still gets one for the second.

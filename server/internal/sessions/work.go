@@ -22,8 +22,8 @@ import (
 
 // PRD v0.19 FR-2A.5 — a room holds several missions (T-R1b2). Everything in
 // this package that used to be keyed by the session id is keyed by the
-// mission (work) id; the old `/sessions/*` surface reaches the same code
-// through LegacyWork.
+// mission (work) id; a room made by the 0025 migration reaches its one
+// mission through LegacyWork.
 
 // LegacyJoin is the old session row: a room made by the old path (createSession
 // or the 0025 migration) and ITS mission, `room.legacy_work_id`. It replaces
@@ -35,8 +35,9 @@ import (
 // endpoints answer 404, as they did before.
 const LegacyJoin = `JOIN work wk ON wk.id = s.legacy_work_id`
 
-// LegacyWork is the mission the old `/sessions/{id}` surface stands for. A
-// room that is not an old-path session (or does not exist) is 404 session.
+// LegacyWork is the room's legacy mission (room.legacy_work_id — the one
+// mission of a v0.18 session, openapi D17). A room without one (or that does
+// not exist) is 404 session.
 func LegacyWork(ctx context.Context, q db.DBTX, roomID uuid.UUID) (uuid.UUID, error) {
 	var w *uuid.UUID
 	err := q.QueryRow(ctx, `SELECT legacy_work_id FROM room WHERE id = $1`, roomID).Scan(&w)

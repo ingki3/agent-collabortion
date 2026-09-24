@@ -34,8 +34,8 @@ import (
 // PRD v0.19 FR-2A.3: three ceilings apply to one task — its own (the agent's
 // budget_per_task or an approved raise), its MISSION's remainder and its
 // ROOM's remainder — and the tightest wins. The old `session` budget is the
-// room's: `/sessions/*` has always stored `limits` on the room row (0025), so
-// a session budget crossing is a room budget crossing. A mission's own
+// room's: `limits` has always been stored on the room row (0025), so a
+// session budget crossing is a room budget crossing. A mission's own
 // budget (work.limits.budget_usd) is new in v0.19.
 type budgetState struct {
 	TaskID, SessionID, WorkspaceID, LaneID, AgentID uuid.UUID

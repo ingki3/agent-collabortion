@@ -26,13 +26,16 @@ const Retention = 10 * time.Minute
 
 // Event is one SSE frame (StreamEvent in openapi.yaml).
 type Event struct {
-	ID          int64           `json:"-"`
-	Type        string          `json:"type"`
-	At          time.Time       `json:"at"`
-	WorkspaceID uuid.UUID       `json:"workspace_id"`
-	SessionID   *uuid.UUID      `json:"session_id"`
-	Ephemeral   bool            `json:"ephemeral,omitempty"`
-	Payload     json.RawMessage `json:"payload"`
+	ID          int64     `json:"-"`
+	Type        string    `json:"type"`
+	At          time.Time `json:"at"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	// SessionID is the room (the stored column keeps its old name, PRD §12.1
+	// 3번). On the wire it is `room_id` only — v0.3.0 (D22) dropped the
+	// envelope's `session_id` alias.
+	SessionID *uuid.UUID      `json:"-"`
+	Ephemeral bool            `json:"ephemeral,omitempty"`
+	Payload   json.RawMessage `json:"payload"`
 	// UserID is the one person a frame is for (`room.unread` — "내 다른 탭·
 	// 기기"), nil for a frame everyone in the workspace may receive. Not on
 	// the wire: the envelope is the contract's.
@@ -42,7 +45,7 @@ type Event struct {
 // MarshalJSON adds the string cursor id the contract requires, and the two
 // v0.2.0 envelope keys (StreamEvent.room_id · work_id).
 //
-// room_id is the session id under its new name (R4 까지 같은 값). work_id is
+// room_id is the stored session_id column under its contract name. work_id is
 // lifted from the payload, not stored beside it: the payload is the entity
 // (Lane · Task · Message …) and carries its own mission, so a room with three
 // missions gets the right one per frame by construction — a lookup "the

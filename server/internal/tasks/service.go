@@ -765,7 +765,7 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 	})
 	if err == nil && costed {
 		// Deliberately its own transaction, AFTER the attempt is committed.
-		// Finish holds task row locks; sessions.ApplyCompletionEvent locks the
+		// Finish holds task row locks; sessions.ApplyWorkEvent locks the
 		// SESSION first and then its tasks (the completed branch cancels the
 		// queued ones), so writing session.cost_usd inside the finish tx makes
 		// the two orders opposite and a concurrent pair deadlocks. The rollup

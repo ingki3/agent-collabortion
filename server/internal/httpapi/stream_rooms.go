@@ -56,7 +56,7 @@ func (v *roomSight) frame(ctx context.Context, e realtime.Event) bool {
 	case "participant.joined", "participant.left", "room.updated":
 		delete(v.seen, room)
 		v.noCache[room] = v.now().Add(sightFreshWindow)
-	case "room.deleted", "session.deleted":
+	case "room.deleted":
 		// The room is gone; a card for it may be on anyone's screen who could
 		// see it a moment ago, and the frame reveals nothing but the id.
 		return true

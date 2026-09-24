@@ -138,7 +138,7 @@ func PlanOffline(c OfflineCase) OfflineOutcome {
 // lost computer stops is the room — its gate goes up with `blocked_reason:
 // runtime_offline` (roomgate.Block), which holds every task of the room, in or
 // out of a mission, and parks each active mission with the room's mark so the
-// old `/sessions/*` shape still reads `paused(runtime_offline)`. The choice —
+// mission reads `paused(runtime_offline)`. The choice —
 // rebind, or cancel every open mission — is the room owner's (absent owner:
 // the FR-2A.3 hand-over), filed as ONE `room_paused` card.
 //
@@ -251,15 +251,6 @@ func (s *Service) pauseForOffline(ctx context.Context, roomID, wsID, runtimeID u
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return false, err
-	}
-	if s.Hub != nil {
-		sid := roomID
-		_ = s.Hub.Publish(ctx, nil, wsID, &sid, "session.updated", map[string]any{
-			"session_id":    roomID,
-			"status":        "paused",
-			"paused_reason": PauseReasonOffline,
-			"choices":       o.Choices,
-		})
 	}
 	roomgate.PublishUpdated(ctx, s.Hub, s.DB, roomID)
 	return true, nil
@@ -389,7 +380,7 @@ type RebindInput struct {
 // gone; carrying `runtime_session_ref` over would make the new daemon resume a
 // session id it never issued, and `session/load` fails.
 //
-// production caller: runtimes.Service.Rebind (POST /sessions/{id}/rebind).
+// production caller: runtimes.Service.Rebind (POST /rooms/{id}/rebind).
 func PlanRebind(in RebindInput) RebindPlan {
 	p := RebindPlan{HTTPStatus: 200, ColdStart: true}
 	if in.SessionState != "paused" || in.PauseReason != PauseReasonOffline {

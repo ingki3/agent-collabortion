@@ -22,19 +22,29 @@ import (
 // updateRoomParticipant · removeRoomParticipant — FR-2.2) and the reference
 // links (listRoomLinks · createRoomLink · deleteRoomLink — FR-4.5).
 //
-// room_participant is the one roster (0025): people and agents, and the old
-// `/sessions/{id}/participants` ops write the same rows. Leaving is a
+// room_participant is the one roster (0025): people and agents. Leaving is a
 // `left_at`, not a DELETE — the lanes and tasks an agent leaves behind still
 // point at it, and a person who comes back is the same row re-opened.
 
 func (s *Server) ListRoomParticipants(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListRoomParticipantsParams) {
-	u, _, p := s.roomGate(r, roomId, rooms.ActView)
-	if p != nil {
-		writeProblem(w, p)
-		return
+	viewer := uuid.Nil
+	if principalOf(r).Task != nil {
+		// openapi v0.3.0: `TaskToken`(그 task 의 방만) — `colab room get`'s
+		// roster, derived status included.
+		if p := s.taskRoom(r, roomId); p != nil {
+			writeProblem(w, p)
+			return
+		}
+	} else {
+		u, _, p := s.roomGate(r, roomId, rooms.ActView)
+		if p != nil {
+			writeProblem(w, p)
+			return
+		}
+		viewer = u.Id
 	}
 	includeLeft := params.IncludeLeft != nil && *params.IncludeLeft
-	items, err := rooms.ListParticipants(r.Context(), s.DB, roomId, u.Id, includeLeft)
+	items, err := rooms.ListParticipants(r.Context(), s.DB, roomId, viewer, includeLeft)
 	if err != nil {
 		writeErr(w, err)
 		return

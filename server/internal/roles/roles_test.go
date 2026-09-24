@@ -179,7 +179,7 @@ func TestAllCommandsIsTheClosedEnum(t *testing.T) {
 
 func TestCLIName(t *testing.T) {
 	for cmd, want := range map[gen.ColabCommand]string{
-		gen.ColabCommandLaneDelegate: "lane delegate", gen.ColabCommandSessionGet: "session get", gen.ColabCommandReviewApprove: "review approve",
+		gen.ColabCommandLaneDelegate: "lane delegate", gen.ColabCommandRoomGet: "session get", gen.ColabCommandReviewApprove: "review approve",
 		gen.ColabCommandHitlApproveRequest: "hitl approve-request", gen.ColabCommandHitlRequestInfo: "hitl request-info", gen.ColabCommandHitlAsk: "hitl ask",
 		gen.ColabCommandRoomList: "room list", gen.ColabCommandRoomRead: "room read", gen.ColabCommandWorkPropose: "work propose",
 	} {

@@ -227,10 +227,10 @@ const (
 	ColabCommandMessagePost        ColabCommand = "message_post"
 	ColabCommandReviewApprove      ColabCommand = "review_approve"
 	ColabCommandReviewReject       ColabCommand = "review_reject"
+	ColabCommandRoomGet            ColabCommand = "room_get"
 	ColabCommandRoomList           ColabCommand = "room_list"
+	ColabCommandRoomMessages       ColabCommand = "room_messages"
 	ColabCommandRoomRead           ColabCommand = "room_read"
-	ColabCommandSessionGet         ColabCommand = "session_get"
-	ColabCommandSessionMessages    ColabCommand = "session_messages"
 	ColabCommandStatusSet          ColabCommand = "status_set"
 	ColabCommandWorkPropose        ColabCommand = "work_propose"
 )
@@ -258,13 +258,13 @@ func (e ColabCommand) Valid() bool {
 		return true
 	case ColabCommandReviewReject:
 		return true
+	case ColabCommandRoomGet:
+		return true
 	case ColabCommandRoomList:
 		return true
+	case ColabCommandRoomMessages:
+		return true
 	case ColabCommandRoomRead:
-		return true
-	case ColabCommandSessionGet:
-		return true
-	case ColabCommandSessionMessages:
 		return true
 	case ColabCommandStatusSet:
 		return true
@@ -359,30 +359,6 @@ func (e ContextReusePolicyIncludeArtifacts) Valid() bool {
 	case ContextReusePolicyIncludeArtifactsLinks:
 		return true
 	case ContextReusePolicyIncludeArtifactsNone:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for ContextType.
-const (
-	ContextTypeDoc     ContextType = "doc"
-	ContextTypeFile    ContextType = "file"
-	ContextTypeSession ContextType = "session"
-	ContextTypeUrl     ContextType = "url"
-)
-
-// Valid indicates whether the value is a known member of the ContextType enum.
-func (e ContextType) Valid() bool {
-	switch e {
-	case ContextTypeDoc:
-		return true
-	case ContextTypeFile:
-		return true
-	case ContextTypeSession:
-		return true
-	case ContextTypeUrl:
 		return true
 	default:
 		return false
@@ -666,8 +642,6 @@ const (
 	InboxItemTypeRoomPaused       InboxItemType = "room_paused"
 	InboxItemTypeRunFailed        InboxItemType = "run_failed"
 	InboxItemTypeRuntimeOffline   InboxItemType = "runtime_offline"
-	InboxItemTypeSessionCompleted InboxItemType = "session_completed"
-	InboxItemTypeSessionPaused    InboxItemType = "session_paused"
 	InboxItemTypeWorkCompleted    InboxItemType = "work_completed"
 	InboxItemTypeWorkPaused       InboxItemType = "work_paused"
 	InboxItemTypeWorkProposed     InboxItemType = "work_proposed"
@@ -693,10 +667,6 @@ func (e InboxItemType) Valid() bool {
 	case InboxItemTypeRunFailed:
 		return true
 	case InboxItemTypeRuntimeOffline:
-		return true
-	case InboxItemTypeSessionCompleted:
-		return true
-	case InboxItemTypeSessionPaused:
 		return true
 	case InboxItemTypeWorkCompleted:
 		return true
@@ -1490,27 +1460,6 @@ func (e RuntimeStatus) Valid() bool {
 	}
 }
 
-// Defines values for SessionMyRole.
-const (
-	SessionMyRoleDeputy   SessionMyRole = "deputy"
-	SessionMyRoleDirector SessionMyRole = "director"
-	SessionMyRoleMember   SessionMyRole = "member"
-)
-
-// Valid indicates whether the value is a known member of the SessionMyRole enum.
-func (e SessionMyRole) Valid() bool {
-	switch e {
-	case SessionMyRoleDeputy:
-		return true
-	case SessionMyRoleDirector:
-		return true
-	case SessionMyRoleMember:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for SessionStatus.
 const (
 	SessionStatusActive     SessionStatus = "active"
@@ -1543,46 +1492,43 @@ func (e SessionStatus) Valid() bool {
 
 // Defines values for StreamEventType.
 const (
-	StreamEventTypeAgentTyping               StreamEventType = "agent.typing"
-	StreamEventTypeArtifactCreated           StreamEventType = "artifact.created"
-	StreamEventTypeCostUpdated               StreamEventType = "cost.updated"
-	StreamEventTypeDecisionCreated           StreamEventType = "decision.created"
-	StreamEventTypeHitlCreated               StreamEventType = "hitl.created"
-	StreamEventTypeHitlUpdated               StreamEventType = "hitl.updated"
-	StreamEventTypeInboxItemCreated          StreamEventType = "inbox.item_created"
-	StreamEventTypeInboxItemUpdated          StreamEventType = "inbox.item_updated"
-	StreamEventTypeInboxSummary              StreamEventType = "inbox.summary"
-	StreamEventTypeLaneUpdated               StreamEventType = "lane.updated"
-	StreamEventTypeMessageCreated            StreamEventType = "message.created"
-	StreamEventTypeMessageDelta              StreamEventType = "message.delta"
-	StreamEventTypeMessageUpdated            StreamEventType = "message.updated"
-	StreamEventTypePairingUpdated            StreamEventType = "pairing.updated"
-	StreamEventTypeParticipantJoined         StreamEventType = "participant.joined"
-	StreamEventTypeParticipantLeft           StreamEventType = "participant.left"
-	StreamEventTypeParticipantUpdated        StreamEventType = "participant.updated"
-	StreamEventTypeResync                    StreamEventType = "resync"
-	StreamEventTypeRoomDeleted               StreamEventType = "room.deleted"
-	StreamEventTypeRoomLinkUpdated           StreamEventType = "room_link.updated"
-	StreamEventTypeRoomReadRecorded          StreamEventType = "room_read.recorded"
-	StreamEventTypeRoomUnread                StreamEventType = "room.unread"
-	StreamEventTypeRoomUpdated               StreamEventType = "room.updated"
-	StreamEventTypeRuntimeUpdated            StreamEventType = "runtime.updated"
-	StreamEventTypeSessionCompletionProgress StreamEventType = "session.completion_progress"
-	StreamEventTypeSessionDeleted            StreamEventType = "session.deleted"
-	StreamEventTypeSessionUpdated            StreamEventType = "session.updated"
-	StreamEventTypeTaskEventAppended         StreamEventType = "task_event.appended"
-	StreamEventTypeTaskEventSuperseded       StreamEventType = "task_event.superseded"
-	StreamEventTypeTaskUpdated               StreamEventType = "task.updated"
-	StreamEventTypeTestChatDelta             StreamEventType = "test_chat.delta"
-	StreamEventTypeTestChatTurn              StreamEventType = "test_chat.turn"
-	StreamEventTypeWorkClosed                StreamEventType = "work.closed"
-	StreamEventTypeWorkCompletionProgress    StreamEventType = "work.completion_progress"
-	StreamEventTypeWorkCreated               StreamEventType = "work.created"
-	StreamEventTypeWorkDeleted               StreamEventType = "work.deleted"
-	StreamEventTypeWorkProposalCreated       StreamEventType = "work_proposal.created"
-	StreamEventTypeWorkProposalResolved      StreamEventType = "work_proposal.resolved"
-	StreamEventTypeWorkUpdated               StreamEventType = "work.updated"
-	StreamEventTypeWorkdirUpdated            StreamEventType = "workdir.updated"
+	StreamEventTypeAgentTyping            StreamEventType = "agent.typing"
+	StreamEventTypeArtifactCreated        StreamEventType = "artifact.created"
+	StreamEventTypeCostUpdated            StreamEventType = "cost.updated"
+	StreamEventTypeDecisionCreated        StreamEventType = "decision.created"
+	StreamEventTypeHitlCreated            StreamEventType = "hitl.created"
+	StreamEventTypeHitlUpdated            StreamEventType = "hitl.updated"
+	StreamEventTypeInboxItemCreated       StreamEventType = "inbox.item_created"
+	StreamEventTypeInboxItemUpdated       StreamEventType = "inbox.item_updated"
+	StreamEventTypeInboxSummary           StreamEventType = "inbox.summary"
+	StreamEventTypeLaneUpdated            StreamEventType = "lane.updated"
+	StreamEventTypeMessageCreated         StreamEventType = "message.created"
+	StreamEventTypeMessageDelta           StreamEventType = "message.delta"
+	StreamEventTypeMessageUpdated         StreamEventType = "message.updated"
+	StreamEventTypePairingUpdated         StreamEventType = "pairing.updated"
+	StreamEventTypeParticipantJoined      StreamEventType = "participant.joined"
+	StreamEventTypeParticipantLeft        StreamEventType = "participant.left"
+	StreamEventTypeParticipantUpdated     StreamEventType = "participant.updated"
+	StreamEventTypeResync                 StreamEventType = "resync"
+	StreamEventTypeRoomDeleted            StreamEventType = "room.deleted"
+	StreamEventTypeRoomLinkUpdated        StreamEventType = "room_link.updated"
+	StreamEventTypeRoomReadRecorded       StreamEventType = "room_read.recorded"
+	StreamEventTypeRoomUnread             StreamEventType = "room.unread"
+	StreamEventTypeRoomUpdated            StreamEventType = "room.updated"
+	StreamEventTypeRuntimeUpdated         StreamEventType = "runtime.updated"
+	StreamEventTypeTaskEventAppended      StreamEventType = "task_event.appended"
+	StreamEventTypeTaskEventSuperseded    StreamEventType = "task_event.superseded"
+	StreamEventTypeTaskUpdated            StreamEventType = "task.updated"
+	StreamEventTypeTestChatDelta          StreamEventType = "test_chat.delta"
+	StreamEventTypeTestChatTurn           StreamEventType = "test_chat.turn"
+	StreamEventTypeWorkClosed             StreamEventType = "work.closed"
+	StreamEventTypeWorkCompletionProgress StreamEventType = "work.completion_progress"
+	StreamEventTypeWorkCreated            StreamEventType = "work.created"
+	StreamEventTypeWorkDeleted            StreamEventType = "work.deleted"
+	StreamEventTypeWorkProposalCreated    StreamEventType = "work_proposal.created"
+	StreamEventTypeWorkProposalResolved   StreamEventType = "work_proposal.resolved"
+	StreamEventTypeWorkUpdated            StreamEventType = "work.updated"
+	StreamEventTypeWorkdirUpdated         StreamEventType = "workdir.updated"
 )
 
 // Valid indicates whether the value is a known member of the StreamEventType enum.
@@ -1635,12 +1581,6 @@ func (e StreamEventType) Valid() bool {
 	case StreamEventTypeRoomUpdated:
 		return true
 	case StreamEventTypeRuntimeUpdated:
-		return true
-	case StreamEventTypeSessionCompletionProgress:
-		return true
-	case StreamEventTypeSessionDeleted:
-		return true
-	case StreamEventTypeSessionUpdated:
 		return true
 	case StreamEventTypeTaskEventAppended:
 		return true
@@ -2099,27 +2039,6 @@ func (e SetTaskStatusJSONBodyStatus) Valid() bool {
 	}
 }
 
-// Defines values for ListSessionsParamsSort.
-const (
-	Cost         ListSessionsParamsSort = "cost"
-	CreatedAt    ListSessionsParamsSort = "created_at"
-	LastActivity ListSessionsParamsSort = "last_activity"
-)
-
-// Valid indicates whether the value is a known member of the ListSessionsParamsSort enum.
-func (e ListSessionsParamsSort) Valid() bool {
-	switch e {
-	case Cost:
-		return true
-	case CreatedAt:
-		return true
-	case LastActivity:
-		return true
-	default:
-		return false
-	}
-}
-
 // ActivityLogEntry `activity_log` 한 행(S15, 감사). payload 는 워크스페이스 마스킹 설정을 따른다.
 type ActivityLogEntry struct {
 	// Action 예: `room.read` · `room.read.denied` · `room.blocked` · `room_link.created` · `room.owner_succeeded` · `room.deleted` · `room.audit_viewed`.
@@ -2166,7 +2085,7 @@ type Agent struct {
 	Id              openapi_types.UUID `json:"id"`
 	Instructions    string             `json:"instructions"`
 
-	// Invitable 호출자가 이 에이전트를 세션에 초대할 수 있는가(FR-1.9).
+	// Invitable 호출자가 이 에이전트를 방에 초대할 수 있는가(FR-1.9).
 	Invitable struct {
 		Allowed bool                      `json:"allowed"`
 		Reason  nullable.Nullable[string] `json:"reason,omitempty"`
@@ -2233,7 +2152,7 @@ type AgentCreate struct {
 	Tools           *[]string `json:"tools,omitempty"`
 }
 
-// AgentProfile FR-1.6. 프로파일은 머신을 고르지 않는다 — 실행 머신은 세션 `runtime_id`.
+// AgentProfile FR-1.6. 프로파일은 머신을 고르지 않는다 — 실행 머신은 방 `runtime_id`.
 type AgentProfile struct {
 	AgentId           openapi_types.UUID                    `json:"agent_id"`
 	Args              []string                              `json:"args"`
@@ -2467,7 +2386,7 @@ type CliContext struct {
 	// OpenHitlRequestId 이미 열린 HITL이 있으면 두 번째 `hitl ask`는 409.
 	OpenHitlRequestId nullable.Nullable[openapi_types.UUID] `json:"open_hitl_request_id,omitempty"`
 
-	// Participants 위임 가능한 대상(세션 참여자)과 멘션 링크.
+	// Participants 위임 가능한 대상(방 참여자)과 멘션 링크.
 	Participants *[]struct {
 		AgentId     openapi_types.UUID `json:"agent_id"`
 		MentionLink string             `json:"mention_link"`
@@ -2484,7 +2403,7 @@ type CliContext struct {
 	WorkspaceId                openapi_types.UUID                    `json:"workspace_id"`
 }
 
-// ColabCLI 머신에 설치된 colab CLI. **런타임 속성이 아니라 머신 속성**이라 `capabilities[]`가 아니라 probe 최상위에 한 번 실린다(daemon-protocol.md §3, v0.5) — 런타임이 둘이어도 바이너리는 하나고, 런타임이 0개인 머신에서도 보고돼야 한다. 에이전트는 colab CLI로 서버에 말하므로 `present: false`면 세션이 조용히 아무 말도 못 한다: S11·S12 카드는 이걸 경고로 드러낸다.
+// ColabCLI 머신에 설치된 colab CLI. **런타임 속성이 아니라 머신 속성**이라 `capabilities[]`가 아니라 probe 최상위에 한 번 실린다(daemon-protocol.md §3, v0.5) — 런타임이 둘이어도 바이너리는 하나고, 런타임이 0개인 머신에서도 보고돼야 한다. 에이전트는 colab CLI로 서버에 말하므로 `present: false`면 방이 조용히 아무 말도 못 한다: S11·S12 카드는 이걸 경고로 드러낸다.
 type ColabCLI struct {
 	Present bool `json:"present"`
 
@@ -2492,7 +2411,7 @@ type ColabCLI struct {
 	Version string `json:"version"`
 }
 
-// ColabCommand colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19. v0.2.13(R3): room_list · room_read · work_propose.
+// ColabCommand colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19. v0.2.13(R3): room_list · room_read · work_propose. v0.3.0(R4): session_get·session_messages → room_get·room_messages.
 type ColabCommand string
 
 // CompletionAtom defines model for CompletionAtom.
@@ -2531,7 +2450,7 @@ type CompletionProgress struct {
 		// AgentName 그 에이전트의 이름 — 화면은 "Lead 의 검토 승인" 처럼 사람 말로 그린다(§8.4).
 		AgentName nullable.Nullable[string] `json:"agent_name,omitempty"`
 
-		// BlockedReason 이 조건이 **지금 구조상 충족될 수 없는** 이유(v0.1.4, S-84). 옛 세션(리뷰어 없는 `agent_approval`)이나 리뷰어가 세션을 떠난 경우. 화면은 ✗ 대신 이유를 그대로 보이고 Director 에게 조건 수정을 안내한다. 새 세션은 createSession 검증이 막는다.
+		// BlockedReason 이 조건이 **지금 구조상 충족될 수 없는** 이유(v0.1.4, S-84). 옛 미션(리뷰어 없는 `agent_approval`)이나 리뷰어가 방을 떠난 경우. 화면은 ✗ 대신 이유를 그대로 보이고 Director 에게 조건 수정을 안내한다. 새 미션은 createWork 검증이 막는다.
 		BlockedReason nullable.Nullable[CompletionProgressConditionsBlockedReason] `json:"blocked_reason,omitempty"`
 
 		// HitlRequestId `user_approval` 대기 중이면 그 HITL.
@@ -2559,7 +2478,7 @@ type CompletionProgress struct {
 	Total     int  `json:"total"`
 }
 
-// CompletionProgressConditionsBlockedReason 이 조건이 **지금 구조상 충족될 수 없는** 이유(v0.1.4, S-84). 옛 세션(리뷰어 없는 `agent_approval`)이나 리뷰어가 세션을 떠난 경우. 화면은 ✗ 대신 이유를 그대로 보이고 Director 에게 조건 수정을 안내한다. 새 세션은 createSession 검증이 막는다.
+// CompletionProgressConditionsBlockedReason 이 조건이 **지금 구조상 충족될 수 없는** 이유(v0.1.4, S-84). 옛 미션(리뷰어 없는 `agent_approval`)이나 리뷰어가 방을 떠난 경우. 화면은 ✗ 대신 이유를 그대로 보이고 Director 에게 조건 수정을 안내한다. 새 미션은 createWork 검증이 막는다.
 type CompletionProgressConditionsBlockedReason string
 
 // ContextReusePolicy FR-4.4.
@@ -2570,9 +2489,6 @@ type ContextReusePolicy struct {
 
 // ContextReusePolicyIncludeArtifacts defines model for ContextReusePolicy.IncludeArtifacts.
 type ContextReusePolicyIncludeArtifacts string
-
-// ContextType `context_type`
-type ContextType string
 
 // CostBucket defines model for CostBucket.
 type CostBucket struct {
@@ -2602,7 +2518,7 @@ type CostReport struct {
 	InputTokens  int64                        `json:"input_tokens"`
 	OutputTokens int64                        `json:"output_tokens"`
 
-	// TestChatUsd 워크스페이스 집계에서 테스트 채팅 비용(세션 아님).
+	// TestChatUsd 워크스페이스 집계에서 테스트 채팅 비용(방 아님).
 	TestChatUsd *float32                     `json:"test_chat_usd,omitempty"`
 	To          nullable.Nullable[time.Time] `json:"to,omitempty"`
 	TotalUsd    float32                      `json:"total_usd"`
@@ -2770,7 +2686,7 @@ type HitlRequest struct {
 	// Source `hitl_source`
 	Source HitlSource `json:"source"`
 
-	// Status `hitl_status` (FR-5.4). expired는 없다 — open + overdue. `cancelled`(K-4, P3)는 **플랫폼 발행 HITL 이 발행 조건을 잃었을 때** 서버가 닫는 상태 — `user_approval` 은 종료 조건이 다시 미충족(아티팩트 철회 등), `budget`·`loop`·`time` 은 세션 재개·취소로 무의미해진 경우. 사람이 답하지 않았으므로 결정 기록 없음, 인박스 항목 제거, 카드는 취소됨 표시. 에이전트 발행(`agent`) HITL 은 task 취소·킬 스위치 때만.
+	// Status `hitl_status` (FR-5.4). expired는 없다 — open + overdue. `cancelled`(K-4, P3)는 **플랫폼 발행 HITL 이 발행 조건을 잃었을 때** 서버가 닫는 상태 — `user_approval` 은 종료 조건이 다시 미충족(아티팩트 철회 등), `budget`·`loop`·`time` 은 방 재개·취소로 무의미해진 경우. 사람이 답하지 않았으므로 결정 기록 없음, 인박스 항목 제거, 카드는 취소됨 표시. 에이전트 발행(`agent`) HITL 은 task 취소·킬 스위치 때만.
 	Status HitlStatus `json:"status"`
 
 	// TaskId system 발행이면 null — 단 예산 초과 HITL은 채운다(s-13).
@@ -2807,7 +2723,7 @@ type HitlResponse struct {
 // HitlSource `hitl_source`
 type HitlSource string
 
-// HitlStatus `hitl_status` (FR-5.4). expired는 없다 — open + overdue. `cancelled`(K-4, P3)는 **플랫폼 발행 HITL 이 발행 조건을 잃었을 때** 서버가 닫는 상태 — `user_approval` 은 종료 조건이 다시 미충족(아티팩트 철회 등), `budget`·`loop`·`time` 은 세션 재개·취소로 무의미해진 경우. 사람이 답하지 않았으므로 결정 기록 없음, 인박스 항목 제거, 카드는 취소됨 표시. 에이전트 발행(`agent`) HITL 은 task 취소·킬 스위치 때만.
+// HitlStatus `hitl_status` (FR-5.4). expired는 없다 — open + overdue. `cancelled`(K-4, P3)는 **플랫폼 발행 HITL 이 발행 조건을 잃었을 때** 서버가 닫는 상태 — `user_approval` 은 종료 조건이 다시 미충족(아티팩트 철회 등), `budget`·`loop`·`time` 은 방 재개·취소로 무의미해진 경우. 사람이 답하지 않았으므로 결정 기록 없음, 인박스 항목 제거, 카드는 취소됨 표시. 에이전트 발행(`agent`) HITL 은 task 취소·킬 스위치 때만.
 type HitlStatus string
 
 // HitlType `hitl_type` (FR-5.1). v1은 question · approval.
@@ -2818,7 +2734,7 @@ type InboxItem struct {
 	// Actions 인라인 동작(타입·권한별).
 	Actions []InboxItemActions `json:"actions"`
 
-	// Card 타입별 카드 내용(SCREEN §4.6 표). 세션을 열지 않고 처리할 수 있게 충분히 담는다.
+	// Card 타입별 카드 내용(SCREEN §4.6 표). 방을 열지 않고 처리할 수 있게 충분히 담는다.
 	Card *struct {
 		// ActorName v0.2.10 — isolation_confirm 은 첫 턴을 일으킨 사람, room_invited 는 초대한 사람(SCREEN §4.14).
 		ActorName nullable.Nullable[string] `json:"actor_name,omitempty"`
@@ -2838,14 +2754,14 @@ type InboxItem struct {
 		PausedReason    *PauseReason              `json:"paused_reason,omitempty"`
 		ProposedDefault nullable.Nullable[string] `json:"proposed_default,omitempty"`
 
-		// Purpose HITL 항목이면 `HitlRequest.purpose` 를 그대로 싣는다(K-9) — 웹이 task 범위 예산 HITL(세션은 active)에 상향 입력을 붙이려면 카드에서 바로 읽어야 한다. 비-HITL 항목은 null.
+		// Purpose HITL 항목이면 `HitlRequest.purpose` 를 그대로 싣는다(K-9) — 웹이 task 범위 예산 HITL(방은 active)에 상향 입력을 붙이려면 카드에서 바로 읽어야 한다. 비-HITL 항목은 null.
 		Purpose nullable.Nullable[InboxItemCardPurpose] `json:"purpose,omitempty"`
 
 		// Quote v0.2.10 — isolation_confirm 의 트리거 메시지 인용(한 줄로 자른 본문).
 		Quote       nullable.Nullable[string] `json:"quote,omitempty"`
 		RuntimeName nullable.Nullable[string] `json:"runtime_name,omitempty"`
 
-		// Summary session_completed 결과 요약.
+		// Summary work_completed 결과 요약.
 		Summary nullable.Nullable[string] `json:"summary,omitempty"`
 		Title   *string                   `json:"title,omitempty"`
 	} `json:"card,omitempty"`
@@ -2883,7 +2799,7 @@ type InboxItem struct {
 	// Severity `inbox_severity` (SCREEN §4.6)
 	Severity InboxSeverity `json:"severity"`
 
-	// Type `inbox_item_type` (FR-8). v0.2.0(PRD v0.19): `isolation_confirm`(FR-2.1.1 — 저장소 있는 컴퓨터로의 첫 실행 격리 확인, 답까지 첫 dispatch 보류) · `work_proposed`(FR-2A.1) · `work_paused`·`work_completed`(옛 `session_*` 의 미션판 — 옛 값은 R4 까지 함께 산다) · `room_paused`(방 전체, action_required — 사유 budget·loop·**runtime_offline**(v0.2.11: 옛 `runtime_offline` 항목을 대체, ref_id=runtime id, 동작 rebind·open_room)·manual 제외) · `room_invited`(FR-2.2) · `workdir_quota`(FR-6.4 용량 상한). `workdir_gc_blocked`(P4, FR-6.4 M4 · E13-12·13) — 보존 기한이 지난 worktree 를 미병합 커밋·미커밋 변경 때문에 지우지 못했다. 같은 workdir 에 미해결 항목이 있으면 다시 만들지 않는다(스윕 멱등). 카드: {workdir_id, session_id, repo_path, branch, reason, commits_ahead}
+	// Type `inbox_item_type` (FR-8). v0.2.0(PRD v0.19): `isolation_confirm`(FR-2.1.1 — 저장소 있는 컴퓨터로의 첫 실행 격리 확인, 답까지 첫 dispatch 보류) · `work_proposed`(FR-2A.1) · `work_paused`·`work_completed`(옛 `session_completed`·`session_paused` 를 대체, v0.3.0 에서 옛 값 삭제) · `room_paused`(방 전체, action_required — 사유 budget·loop·**runtime_offline**(v0.2.11: 옛 `runtime_offline` 항목을 대체, ref_id=runtime id, 동작 rebind·open_room)·manual 제외) · `room_invited`(FR-2.2) · `workdir_quota`(FR-6.4 용량 상한). `workdir_gc_blocked`(P4, FR-6.4 M4 · E13-12·13) — 보존 기한이 지난 worktree 를 미병합 커밋·미커밋 변경 때문에 지우지 못했다. 같은 workdir 에 미해결 항목이 있으면 다시 만들지 않는다(스윕 멱등). 카드: {workdir_id, session_id, repo_path, branch, reason, commits_ahead}
 	Type InboxItemType `json:"type"`
 
 	// WorkId v0.2.0.
@@ -2894,13 +2810,13 @@ type InboxItem struct {
 // InboxItemActions defines model for InboxItem.Actions.
 type InboxItemActions string
 
-// InboxItemCardPurpose HITL 항목이면 `HitlRequest.purpose` 를 그대로 싣는다(K-9) — 웹이 task 범위 예산 HITL(세션은 active)에 상향 입력을 붙이려면 카드에서 바로 읽어야 한다. 비-HITL 항목은 null.
+// InboxItemCardPurpose HITL 항목이면 `HitlRequest.purpose` 를 그대로 싣는다(K-9) — 웹이 task 범위 예산 HITL(방은 active)에 상향 입력을 붙이려면 카드에서 바로 읽어야 한다. 비-HITL 항목은 null.
 type InboxItemCardPurpose string
 
 // InboxItemRecipientBasis defines model for InboxItem.RecipientBasis.
 type InboxItemRecipientBasis string
 
-// InboxItemType `inbox_item_type` (FR-8). v0.2.0(PRD v0.19): `isolation_confirm`(FR-2.1.1 — 저장소 있는 컴퓨터로의 첫 실행 격리 확인, 답까지 첫 dispatch 보류) · `work_proposed`(FR-2A.1) · `work_paused`·`work_completed`(옛 `session_*` 의 미션판 — 옛 값은 R4 까지 함께 산다) · `room_paused`(방 전체, action_required — 사유 budget·loop·**runtime_offline**(v0.2.11: 옛 `runtime_offline` 항목을 대체, ref_id=runtime id, 동작 rebind·open_room)·manual 제외) · `room_invited`(FR-2.2) · `workdir_quota`(FR-6.4 용량 상한). `workdir_gc_blocked`(P4, FR-6.4 M4 · E13-12·13) — 보존 기한이 지난 worktree 를 미병합 커밋·미커밋 변경 때문에 지우지 못했다. 같은 workdir 에 미해결 항목이 있으면 다시 만들지 않는다(스윕 멱등). 카드: {workdir_id, session_id, repo_path, branch, reason, commits_ahead}
+// InboxItemType `inbox_item_type` (FR-8). v0.2.0(PRD v0.19): `isolation_confirm`(FR-2.1.1 — 저장소 있는 컴퓨터로의 첫 실행 격리 확인, 답까지 첫 dispatch 보류) · `work_proposed`(FR-2A.1) · `work_paused`·`work_completed`(옛 `session_completed`·`session_paused` 를 대체, v0.3.0 에서 옛 값 삭제) · `room_paused`(방 전체, action_required — 사유 budget·loop·**runtime_offline**(v0.2.11: 옛 `runtime_offline` 항목을 대체, ref_id=runtime id, 동작 rebind·open_room)·manual 제외) · `room_invited`(FR-2.2) · `workdir_quota`(FR-6.4 용량 상한). `workdir_gc_blocked`(P4, FR-6.4 M4 · E13-12·13) — 보존 기한이 지난 worktree 를 미병합 커밋·미커밋 변경 때문에 지우지 못했다. 같은 workdir 에 미해결 항목이 있으면 다시 만들지 않는다(스윕 멱등). 카드: {workdir_id, session_id, repo_path, branch, reason, commits_ahead}
 type InboxItemType string
 
 // InboxSeverity `inbox_severity` (SCREEN §4.6)
@@ -3176,7 +3092,7 @@ type MessagePage struct {
 type MessagePostResult struct {
 	Message Message `json:"message"`
 
-	// SessionPaused 이 게시가 세션을 `paused`로 만들었다면 사유(루프 상한).
+	// SessionPaused 이 게시가 방을 `paused`로 만들었다면 사유(루프 상한).
 	SessionPaused nullable.Nullable[MessagePostResultSessionPaused] `json:"session_paused,omitempty"`
 
 	// Triggers 실제로 생성·병합된 task.
@@ -3196,7 +3112,7 @@ type MessagePostResult struct {
 	} `json:"warnings"`
 }
 
-// MessagePostResultSessionPaused 이 게시가 세션을 `paused`로 만들었다면 사유(루프 상한).
+// MessagePostResultSessionPaused 이 게시가 방을 `paused`로 만들었다면 사유(루프 상한).
 type MessagePostResultSessionPaused string
 
 // MessageState `message_state` — pending_approval은 v1.1 supervised.
@@ -3255,7 +3171,7 @@ type MetricsReport struct {
 
 // NotificationSettings defines model for NotificationSettings.
 type NotificationSettings struct {
-	// DefaultSubscription 세션 구독(FR-8 전부 / HITL만 / 종료만). 스키마 v0에 컬럼이 없다 — 미결(openapi.md).
+	// DefaultSubscription 방 구독(FR-8 전부 / HITL만 / 종료만). 스키마 v0에 컬럼이 없다 — 미결(openapi.md).
 	DefaultSubscription SubscriptionLevel `json:"default_subscription"`
 	Email               bool              `json:"email"`
 	Push                bool              `json:"push"`
@@ -3325,7 +3241,7 @@ type Pairing struct {
 	// **그 스크립트는 이 서버가 서비스한다**(P5 정정, S-63): 안내만 하고 경로가 없으면 처음 쓰는
 	// 사람이 첫 단계에서 404 를 만난다(실사용 2026-09-08). `/install.sh` 는 인증 없이 200 이어야
 	// 하고, **데몬과 `colab` CLI 둘 다** 설치해 PATH 에 놓는다(P5 정정, S-63): 데몬만 놓으면
-	// 에이전트가 플랫폼에 말할 수단이 없어(`colab-cli.md` §1) 세션이 조용히 아무 일도 못 하는
+	// 에이전트가 플랫폼에 말할 수단이 없어(`colab-cli.md` §1) 방이 조용히 아무 일도 못 하는
 	// 상태가 된다 — 설치 성공의 판정은 페어링 뒤 첫 probe 의 `colab_cli.present == true` 다. 둘째 줄은 페어링 코드가
 	// 채워진 `colab-daemon pair <code> --server <서버 오리진>`.
 	InstallCommands []string `json:"install_commands"`
@@ -3340,41 +3256,6 @@ type Pairing struct {
 
 // PairingStatus S12 4단계 + 만료.
 type PairingStatus string
-
-// Participant `session_participant` + 파생 상태(FR-1.3).
-type Participant struct {
-	Agent struct {
-		AvatarUrl nullable.Nullable[string] `json:"avatar_url,omitempty"`
-		Id        openapi_types.UUID        `json:"id"`
-		Name      string                    `json:"name"`
-
-		// RespondTo `respond_to` (FR-1.9). `nobody`는 킬 스위치.
-		RespondTo *RespondTo `json:"respond_to,omitempty"`
-
-		// Role `agent_role` (FR-1.1)
-		Role            AgentRole `json:"role"`
-		RoleDescription string    `json:"role_description"`
-	} `json:"agent"`
-	AgentId    openapi_types.UUID `json:"agent_id"`
-	IsAssignee bool               `json:"is_assignee"`
-	JoinedAt   time.Time          `json:"joined_at"`
-
-	// MentionLink `[@이름](mention://agent/<id>)` — 로스터 붙여넣기용(FR-3.2).
-	MentionLink *string `json:"mention_link,omitempty"`
-
-	// Profile FR-1.6. 프로파일은 머신을 고르지 않는다 — 실행 머신은 세션 `runtime_id`.
-	Profile   AgentProfile       `json:"profile"`
-	SessionId openapi_types.UUID `json:"session_id"`
-
-	// Status `agent_status` — 저장하지 않고 FR-1.3 순서로 파생한다.
-	Status AgentStatus `json:"status"`
-
-	// StatusNote 칩 둘째 줄(예 "lane #2 질문 대기"). 상태 값이 아니다(N2).
-	StatusNote nullable.Nullable[string] `json:"status_note,omitempty"`
-
-	// Warnings 예 "프로파일의 runtime_kind가 세션 런타임에 없음".
-	Warnings *[]string `json:"warnings,omitempty"`
-}
 
 // ParticipantKind defines model for ParticipantKind.
 type ParticipantKind string
@@ -3442,7 +3323,7 @@ type Problem struct {
 	} `json:"errors,omitempty"`
 	Instance *string `json:"instance,omitempty"`
 
-	// Sessions 차단 사유가 된 세션(런타임 삭제 409 등).
+	// Sessions 차단 사유가 된 방(런타임 삭제 409 등).
 	Sessions *[]struct {
 		Id    *openapi_types.UUID `json:"id,omitempty"`
 		Title *string             `json:"title,omitempty"`
@@ -3645,7 +3526,7 @@ type RoomParticipant struct {
 	Kind     ParticipantKind              `json:"kind"`
 	LeftAt   nullable.Nullable[time.Time] `json:"left_at"`
 
-	// Profile FR-1.6. 프로파일은 머신을 고르지 않는다 — 실행 머신은 세션 `runtime_id`.
+	// Profile FR-1.6. 프로파일은 머신을 고르지 않는다 — 실행 머신은 방 `runtime_id`.
 	Profile *AgentProfile      `json:"profile,omitempty"`
 	RoomId  openapi_types.UUID `json:"room_id"`
 
@@ -3789,7 +3670,7 @@ type RoomVisibility string
 type Runtime struct {
 	Capabilities []RuntimeCapability `json:"capabilities"`
 
-	// ColabCli 머신에 설치된 colab CLI. **런타임 속성이 아니라 머신 속성**이라 `capabilities[]`가 아니라 probe 최상위에 한 번 실린다(daemon-protocol.md §3, v0.5) — 런타임이 둘이어도 바이너리는 하나고, 런타임이 0개인 머신에서도 보고돼야 한다. 에이전트는 colab CLI로 서버에 말하므로 `present: false`면 세션이 조용히 아무 말도 못 한다: S11·S12 카드는 이걸 경고로 드러낸다.
+	// ColabCli 머신에 설치된 colab CLI. **런타임 속성이 아니라 머신 속성**이라 `capabilities[]`가 아니라 probe 최상위에 한 번 실린다(daemon-protocol.md §3, v0.5) — 런타임이 둘이어도 바이너리는 하나고, 런타임이 0개인 머신에서도 보고돼야 한다. 에이전트는 colab CLI로 서버에 말하므로 `present: false`면 방이 조용히 아무 말도 못 한다: S11·S12 카드는 이걸 경고로 드러낸다.
 	ColabCli      *ColabCLI                 `json:"colab_cli,omitempty"`
 	CreatedAt     time.Time                 `json:"created_at"`
 	DaemonVersion nullable.Nullable[string] `json:"daemon_version,omitempty"`
@@ -3805,7 +3686,7 @@ type Runtime struct {
 	Name               string                       `json:"name"`
 	OfflineSince       nullable.Nullable[time.Time] `json:"offline_since,omitempty"`
 
-	// PausedSessionCount 유예를 넘겨 `paused(runtime_offline)`된 세션 수.
+	// PausedSessionCount 유예를 넘겨 `paused(runtime_offline)`된 방 수.
 	PausedSessionCount *int          `json:"paused_session_count,omitempty"`
 	Repos              []RuntimeRepo `json:"repos"`
 
@@ -3886,7 +3767,7 @@ type RuntimeDetail struct {
 	ActiveSessions []SessionRef        `json:"active_sessions"`
 	Capabilities   []RuntimeCapability `json:"capabilities"`
 
-	// ColabCli 머신에 설치된 colab CLI. **런타임 속성이 아니라 머신 속성**이라 `capabilities[]`가 아니라 probe 최상위에 한 번 실린다(daemon-protocol.md §3, v0.5) — 런타임이 둘이어도 바이너리는 하나고, 런타임이 0개인 머신에서도 보고돼야 한다. 에이전트는 colab CLI로 서버에 말하므로 `present: false`면 세션이 조용히 아무 말도 못 한다: S11·S12 카드는 이걸 경고로 드러낸다.
+	// ColabCli 머신에 설치된 colab CLI. **런타임 속성이 아니라 머신 속성**이라 `capabilities[]`가 아니라 probe 최상위에 한 번 실린다(daemon-protocol.md §3, v0.5) — 런타임이 둘이어도 바이너리는 하나고, 런타임이 0개인 머신에서도 보고돼야 한다. 에이전트는 colab CLI로 서버에 말하므로 `present: false`면 방이 조용히 아무 말도 못 한다: S11·S12 카드는 이걸 경고로 드러낸다.
 	ColabCli      *ColabCLI                 `json:"colab_cli,omitempty"`
 	CreatedAt     time.Time                 `json:"created_at"`
 	DaemonVersion nullable.Nullable[string] `json:"daemon_version,omitempty"`
@@ -3902,7 +3783,7 @@ type RuntimeDetail struct {
 	Name               string                       `json:"name"`
 	OfflineSince       nullable.Nullable[time.Time] `json:"offline_since,omitempty"`
 
-	// PausedSessionCount 유예를 넘겨 `paused(runtime_offline)`된 세션 수.
+	// PausedSessionCount 유예를 넘겨 `paused(runtime_offline)`된 방 수.
 	PausedSessionCount *int          `json:"paused_session_count,omitempty"`
 	Repos              []RuntimeRepo `json:"repos"`
 
@@ -3941,176 +3822,6 @@ type RuntimeRepo struct {
 // RuntimeStatus `runtime_status`
 type RuntimeStatus string
 
-// Session defines model for Session.
-type Session struct {
-	AcceptanceCriteria []string                              `json:"acceptance_criteria"`
-	AssigneeAgentId    nullable.Nullable[openapi_types.UUID] `json:"assignee_agent_id"`
-
-	// Autonomy `autonomy_level` (FR-2.1). supervised는 v1.1.
-	Autonomy AutonomyLevel `json:"autonomy"`
-
-	// CompletionCondition FR-2.2 AND/OR 트리. 그룹 `{op, conditions[]}` 또는 원자 `{type, …}`. 스키마 v0 기본값 `{"op":"and","conditions":[{"type":"artifact_submitted","who":"assignee"},{"type":"user_approval"}]}`.
-	CompletionCondition CompletionCondition `json:"completion_condition"`
-
-	// CompletionProgress S7 우열 "종료 조건 진행률" — 조건별 충족 여부와 누구 차례인지.
-	CompletionProgress CompletionProgress `json:"completion_progress"`
-	Context            *[]SessionContext  `json:"context,omitempty"`
-
-	// ContextReuseOverride FR-4.4.
-	ContextReuseOverride *ContextReusePolicy `json:"context_reuse_override,omitempty"`
-
-	// CostEstimated 추정치 포함(FR-7.3 배지).
-	CostEstimated        *bool                                 `json:"cost_estimated,omitempty"`
-	CostUsd              float32                               `json:"cost_usd"`
-	CreatedAt            time.Time                             `json:"created_at"`
-	CreatedBy            openapi_types.UUID                    `json:"created_by"`
-	DeputyDirector       *User                                 `json:"deputy_director,omitempty"`
-	DeputyDirectorUserId nullable.Nullable[openapi_types.UUID] `json:"deputy_director_user_id"`
-	Director             *User                                 `json:"director,omitempty"`
-	DirectorUserId       openapi_types.UUID                    `json:"director_user_id"`
-	FinishedAt           nullable.Nullable[time.Time]          `json:"finished_at,omitempty"`
-	Goal                 string                                `json:"goal"`
-	Id                   openapi_types.UUID                    `json:"id"`
-
-	// Isolation `session.isolation` jsonb. kind별로 `repo_path`(worktree) · `image`(container).
-	Isolation      Isolation                    `json:"isolation"`
-	LastActivityAt nullable.Nullable[time.Time] `json:"last_activity_at,omitempty"`
-
-	// Limits FR-2.1 `limits`. 초과는 종료가 아니라 `paused`.
-	Limits SessionLimits `json:"limits"`
-
-	// MyRole 호출자의 세션 역할(FR-5.3). TaskToken이면 `member`.
-	MyRole       SessionMyRole  `json:"my_role"`
-	Participants *[]Participant `json:"participants,omitempty"`
-
-	// PausedDetail 사유 5종별 배너·해결 동작 데이터(SCREEN §4.5 O6).
-	PausedDetail *PausedDetail                  `json:"paused_detail,omitempty"`
-	PausedReason nullable.Nullable[PauseReason] `json:"paused_reason"`
-	Runtime      *Runtime                       `json:"runtime,omitempty"`
-
-	// RuntimeId none 격리에서 자동 선택이면 첫 dispatch까지 null(M10).
-	RuntimeId nullable.Nullable[openapi_types.UUID] `json:"runtime_id"`
-	StartedAt nullable.Nullable[time.Time]          `json:"started_at,omitempty"`
-
-	// Status `session_status` (FR-2.3)
-	Status SessionStatus `json:"status"`
-
-	// Subscription 세션 구독(FR-8 전부 / HITL만 / 종료만). 스키마 v0에 컬럼이 없다 — 미결(openapi.md).
-	Subscription *SubscriptionLevel `json:"subscription,omitempty"`
-	Title        string             `json:"title"`
-	UpdatedAt    time.Time          `json:"updated_at"`
-	WorkspaceId  openapi_types.UUID `json:"workspace_id"`
-}
-
-// SessionMyRole 호출자의 세션 역할(FR-5.3). TaskToken이면 `member`.
-type SessionMyRole string
-
-// SessionContext defines model for SessionContext.
-type SessionContext struct {
-	CreatedAt *time.Time         `json:"created_at,omitempty"`
-	Id        openapi_types.UUID `json:"id"`
-
-	// Ref url · storage ref · session id.
-	Ref     string                    `json:"ref"`
-	Summary nullable.Nullable[string] `json:"summary,omitempty"`
-
-	// Type `context_type`
-	Type ContextType `json:"type"`
-}
-
-// SessionContextCreate defines model for SessionContextCreate.
-type SessionContextCreate struct {
-	Ref string `json:"ref"`
-
-	// Type `context_type`
-	Type ContextType `json:"type"`
-}
-
-// SessionCreate defines model for SessionCreate.
-type SessionCreate struct {
-	AcceptanceCriteria *[]string `json:"acceptance_criteria,omitempty"`
-
-	// AssigneeAgentId 기본 담당(보통 lead). 생략하면 첫 참여자.
-	AssigneeAgentId *openapi_types.UUID `json:"assignee_agent_id,omitempty"`
-	Autonomy        *AutonomyLevel      `json:"autonomy,omitempty"`
-
-	// CompletionCondition FR-2.2 AND/OR 트리. 그룹 `{op, conditions[]}` 또는 원자 `{type, …}`. 스키마 v0 기본값 `{"op":"and","conditions":[{"type":"artifact_submitted","who":"assignee"},{"type":"user_approval"}]}`.
-	CompletionCondition *CompletionCondition    `json:"completion_condition,omitempty"`
-	Context             *[]SessionContextCreate `json:"context,omitempty"`
-
-	// ContextReuseOverride FR-4.4.
-	ContextReuseOverride *ContextReusePolicy                   `json:"context_reuse_override,omitempty"`
-	DeputyDirectorUserId nullable.Nullable[openapi_types.UUID] `json:"deputy_director_user_id,omitempty"`
-
-	// DirectorUserId 기본 생성자.
-	DirectorUserId *openapi_types.UUID `json:"director_user_id,omitempty"`
-
-	// Draft true면 `draft`로 저장만(초기 task 없음).
-	Draft *bool  `json:"draft,omitempty"`
-	Goal  string `json:"goal"`
-
-	// Isolation `session.isolation` jsonb. kind별로 `repo_path`(worktree) · `image`(container).
-	Isolation Isolation `json:"isolation"`
-
-	// Limits FR-2.1 `limits`. 초과는 종료가 아니라 `paused`.
-	Limits       *SessionLimits `json:"limits,omitempty"`
-	Participants []struct {
-		AgentId openapi_types.UUID `json:"agent_id"`
-
-		// ProfileId 비우면 기본 프로파일.
-		ProfileId nullable.Nullable[openapi_types.UUID] `json:"profile_id,omitempty"`
-	} `json:"participants"`
-
-	// RuntimeId worktree · container면 필수. none이면 null = "자동 선택(첫 실행 시 고정)".
-	RuntimeId nullable.Nullable[openapi_types.UUID] `json:"runtime_id,omitempty"`
-	Title     string                                `json:"title"`
-}
-
-// SessionLimits FR-2.1 `limits`. 초과는 종료가 아니라 `paused`.
-type SessionLimits struct {
-	BudgetTokens     nullable.Nullable[int]     `json:"budget_tokens,omitempty"`
-	BudgetUsd        nullable.Nullable[float32] `json:"budget_usd,omitempty"`
-	MaxParallelLanes *int                       `json:"max_parallel_lanes,omitempty"`
-	MaxTasks         nullable.Nullable[int]     `json:"max_tasks,omitempty"`
-
-	// TimeLimit ISO 8601 duration(예 `PT4H`).
-	TimeLimit nullable.Nullable[string] `json:"time_limit,omitempty"`
-}
-
-// SessionListItem S5 행.
-type SessionListItem struct {
-	// Attention 주의 배지 — HITL 대기 N · blocked N · 실패 N.
-	Attention struct {
-		Blocked  int `json:"blocked"`
-		Failed   int `json:"failed"`
-		HitlOpen int `json:"hitl_open"`
-	} `json:"attention"`
-	BudgetUsd          nullable.Nullable[float32] `json:"budget_usd,omitempty"`
-	CompletionProgress struct {
-		Met   int `json:"met"`
-		Total int `json:"total"`
-	} `json:"completion_progress"`
-	CostEstimated  *bool                        `json:"cost_estimated,omitempty"`
-	CostUsd        float32                      `json:"cost_usd"`
-	CreatedAt      time.Time                    `json:"created_at"`
-	Director       User                         `json:"director"`
-	Goal           string                       `json:"goal"`
-	Id             openapi_types.UUID           `json:"id"`
-	LastActivityAt nullable.Nullable[time.Time] `json:"last_activity_at"`
-	Participants   []struct {
-		AgentId   openapi_types.UUID        `json:"agent_id"`
-		AvatarUrl nullable.Nullable[string] `json:"avatar_url,omitempty"`
-		Name      string                    `json:"name"`
-	} `json:"participants"`
-	PausedReason     nullable.Nullable[PauseReason]        `json:"paused_reason"`
-	RunningLaneCount int                                   `json:"running_lane_count"`
-	RuntimeId        nullable.Nullable[openapi_types.UUID] `json:"runtime_id,omitempty"`
-
-	// Status `session_status` (FR-2.3)
-	Status SessionStatus `json:"status"`
-	Title  string        `json:"title"`
-}
-
 // SessionRef defines model for SessionRef.
 type SessionRef struct {
 	Id openapi_types.UUID `json:"id"`
@@ -4123,41 +3834,12 @@ type SessionRef struct {
 // SessionStatus `session_status` (FR-2.3)
 type SessionStatus string
 
-// SessionUpdate defines model for SessionUpdate.
-type SessionUpdate struct {
-	AcceptanceCriteria *[]string `json:"acceptance_criteria,omitempty"`
-
-	// Autonomy `autonomy_level` (FR-2.1). supervised는 v1.1.
-	Autonomy *AutonomyLevel `json:"autonomy,omitempty"`
-
-	// CompletionCondition draft에서만.
-	CompletionCondition *CompletionCondition `json:"completion_condition,omitempty"`
-
-	// ContextReuseOverride FR-4.4.
-	ContextReuseOverride *ContextReusePolicy                   `json:"context_reuse_override,omitempty"`
-	DeputyDirectorUserId nullable.Nullable[openapi_types.UUID] `json:"deputy_director_user_id,omitempty"`
-	Goal                 *string                               `json:"goal,omitempty"`
-
-	// Isolation draft에서만.
-	Isolation *Isolation `json:"isolation,omitempty"`
-
-	// Limits FR-2.1 `limits`. 초과는 종료가 아니라 `paused`.
-	Limits *SessionLimits `json:"limits,omitempty"`
-
-	// RuntimeId draft에서만.
-	RuntimeId nullable.Nullable[openapi_types.UUID] `json:"runtime_id,omitempty"`
-	Title     *string                               `json:"title,omitempty"`
-}
-
 // StreamEvent SSE `data` 프레임. `id`는 프레임 헤더와 같은 단조 증가 커서. `ephemeral: true`인 종류(`message.delta` · `agent.typing` · `test_chat.delta`)는 영속·백필되지 않는다(PRD §7 고빈도 이벤트).
 //
 // | type | payload | 화면 |
 // |---|---|---|
 // | `resync` | `{reason}` — 보존 창 밖의 `Last-Event-ID`. REST로 다시 읽어라 | 전역 |
-// | `session.updated` | `Session`(부분: status · paused_reason · paused_detail · cost_usd · runtime_id · last_activity_at) | S5 · S7 |
-// | `session.deleted` | `{session_id}` — 물리 삭제(deleteSession). S5 는 카드를 빼고, 그 세션을 보고 있던 S7 은 목록으로 돌아간다 | S5 · S7 |
-// | `session.completion_progress` | `{session_id, completion_progress}` | S7 |
-// | `participant.updated` | `Participant`(status · status_note · profile) | S7 |
+// | `participant.updated` | `RoomParticipant`(status · status_note · profile) | S7 |
 // | `lane.updated` | `Lane` | S7 |
 // | `task.updated` | `Task`(status · attempt · failure_kind · usage) | S7 |
 // | `task_event.appended` | `TaskEvent` | S7 활동 피드 |
@@ -4178,7 +3860,7 @@ type SessionUpdate struct {
 // | `test_chat.delta` | `{test_chat_id, text}` (ephemeral) | S10 |
 // | `test_chat.turn` | `{test_chat_id, turn: TestChatTurn, transport, input_tokens, output_tokens}` | S10 |
 // | `room.updated` | `Room`(부분: blocked_reason · blocked_detail · status · name · description · last_activity_at) — v0.2.0 | S5 · S7 |
-// | `room.deleted` | `{room_id}` (`session.deleted` 와 같은 사건, R4 까지 둘 다 낸다) | S5 · S7 |
+// | `room.deleted` | `{room_id}` — 방 삭제 | S5 · S7 |
 // | `room.unread` | `{room_id, unread_count, last_read_message_id}` — 내 다른 탭·기기에도 | S5 · 내비 |
 // | `work.created` · `work.updated` | `WorkListItem`(부분) | S7 칩 줄 · 우열 |
 // | `work.closed` | `{work_id, room_id, status, summary_message_id?}` | S7 |
@@ -4200,10 +3882,7 @@ type StreamEvent struct {
 
 	// RoomId v0.2.0.
 	RoomId nullable.Nullable[openapi_types.UUID] `json:"room_id,omitempty"`
-
-	// SessionId 방 id 와 같은 값(R4 까지).
-	SessionId nullable.Nullable[openapi_types.UUID] `json:"session_id,omitempty"`
-	Type      StreamEventType                       `json:"type"`
+	Type   StreamEventType                       `json:"type"`
 
 	// WorkId v0.2.0 — 미션 단위 거르기는 클라이언트가 이 값으로 한다.
 	WorkId      nullable.Nullable[openapi_types.UUID] `json:"work_id,omitempty"`
@@ -4213,7 +3892,7 @@ type StreamEvent struct {
 // StreamEventType defines model for StreamEvent.Type.
 type StreamEventType string
 
-// SubscriptionLevel 세션 구독(FR-8 전부 / HITL만 / 종료만). 스키마 v0에 컬럼이 없다 — 미결(openapi.md).
+// SubscriptionLevel 방 구독(FR-8 전부 / HITL만 / 종료만). 스키마 v0에 컬럼이 없다 — 미결(openapi.md).
 type SubscriptionLevel string
 
 // Task defines model for Task.
@@ -4486,7 +4165,7 @@ type Work struct {
 	// Status `work.status` (FR-2A.4) — v0.18 `session_status` 의 상태 머신을 미션에 그대로 쓴다.
 	Status WorkStatus `json:"status"`
 
-	// Subscription 세션 구독(FR-8 전부 / HITL만 / 종료만). 스키마 v0에 컬럼이 없다 — 미결(openapi.md).
+	// Subscription 방 구독(FR-8 전부 / HITL만 / 종료만). 스키마 v0에 컬럼이 없다 — 미결(openapi.md).
 	Subscription *SubscriptionLevel `json:"subscription,omitempty"`
 
 	// SummaryMessageId 끝날 때 방에 남긴 요약 메시지(FR-2A.4).
@@ -4812,9 +4491,6 @@ type RoomLinkId = openapi_types.UUID
 // RuntimeId defines model for RuntimeId.
 type RuntimeId = openapi_types.UUID
 
-// SessionId defines model for SessionId.
-type SessionId = openapi_types.UUID
-
 // TaskId defines model for TaskId.
 type TaskId = openapi_types.UUID
 
@@ -4961,9 +4637,85 @@ type SetLaneSubscriptionJSONBody struct {
 	Enabled bool `json:"enabled"`
 }
 
+// ListArtifactsParams defines parameters for ListArtifacts.
+type ListArtifactsParams struct {
+	// LatestOnly 이름별 최신 버전만.
+	LatestOnly *bool   `form:"latest_only,omitempty" json:"latest_only,omitempty"`
+	Type       *string `form:"type,omitempty" json:"type,omitempty"`
+}
+
+// SubmitArtifactMultipartBody defines parameters for SubmitArtifact.
+type SubmitArtifactMultipartBody struct {
+	Description *string `json:"description,omitempty"`
+	File        string  `json:"file"`
+	Name        string  `json:"name"`
+
+	// Type Examples: file, diff, branch, doc
+	Type string `json:"type"`
+}
+
+// SubmitArtifactParams defines parameters for SubmitArtifact.
+type SubmitArtifactParams struct {
+	// IdempotencyKey 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
+	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
+}
+
+// RecordDecisionJSONBody defines parameters for RecordDecision.
+type RecordDecisionJSONBody struct {
+	Rationale *string `json:"rationale,omitempty"`
+	Summary   string  `json:"summary"`
+}
+
+// RecordDecisionParams defines parameters for RecordDecision.
+type RecordDecisionParams struct {
+	// IdempotencyKey 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
+	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
+}
+
 // SetRoomDeputyJSONBody defines parameters for SetRoomDeputy.
 type SetRoomDeputyJSONBody struct {
 	UserId nullable.Nullable[openapi_types.UUID] `json:"user_id"`
+}
+
+// ListHitlRequestsParams defines parameters for ListHitlRequests.
+type ListHitlRequestsParams struct {
+	Status *HitlStatus `form:"status,omitempty" json:"status,omitempty"`
+
+	// Cursor 이전 응답의 `next_cursor`. 불투명 문자열.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// CreateHitlRequestParams defines parameters for CreateHitlRequest.
+type CreateHitlRequestParams struct {
+	// IdempotencyKey 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
+	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
+}
+
+// CreateHitlRequest201JSONResponseBodyTurnEndRequired defines parameters for CreateHitlRequest.
+type CreateHitlRequest201JSONResponseBodyTurnEndRequired bool
+
+// ListLanesParams defines parameters for ListLanes.
+type ListLanesParams struct {
+	Status *[]LaneStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// DelegateLaneJSONBody defines parameters for DelegateLane.
+type DelegateLaneJSONBody struct {
+	AgentId openapi_types.UUID `json:"agent_id"`
+
+	// Brief 위임 브리프. 턴 프롬프트에 그대로 들어간다.
+	Brief     string                `json:"brief"`
+	DependsOn *[]openapi_types.UUID `json:"depends_on,omitempty"`
+
+	// Profile 프로파일 **이름**(`--profile`). 비우면 참여자 등록 시 프로파일.
+	Profile nullable.Nullable[string] `json:"profile,omitempty"`
+}
+
+// DelegateLaneParams defines parameters for DelegateLane.
+type DelegateLaneParams struct {
+	// IdempotencyKey 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
+	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
 }
 
 // CreateRoomLinkJSONBody defines parameters for CreateRoomLink.
@@ -4975,6 +4727,39 @@ type CreateRoomLinkJSONBody struct {
 type CreateRoomLinkParams struct {
 	// IdempotencyKey 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
 	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
+}
+
+// ListMessagesParams defines parameters for ListMessages.
+type ListMessagesParams struct {
+	// WorkId v0.2.0 — 그 미션의 메시지만. `none` 이 아니라 빈 값 + `no_work=true` 로 미션 밖만.
+	WorkId *openapi_types.UUID `form:"work_id,omitempty" json:"work_id,omitempty"`
+
+	// NoWork v0.2.0 — `work_id = null` 메시지만(미션 칩 「미션 없음」).
+	NoWork *bool `form:"no_work,omitempty" json:"no_work,omitempty"`
+
+	// AroundMessageId v0.2.0 — 그 메시지를 가운데 두고 위아래 25건(안 읽음 앵커·인용).
+	AroundMessageId *openapi_types.UUID `form:"around_message_id,omitempty" json:"around_message_id,omitempty"`
+
+	// Thread 스레드 루트 메시지 id.
+	Thread         *openapi_types.UUID `form:"thread,omitempty" json:"thread,omitempty"`
+	IncludeReplies *bool               `form:"include_replies,omitempty" json:"include_replies,omitempty"`
+	Kind           *[]MessageKind      `form:"kind,omitempty" json:"kind,omitempty"`
+
+	// Before 이 커서보다 오래된 것(뒤로 스크롤).
+	Before *string `form:"before,omitempty" json:"before,omitempty"`
+
+	// After 이 커서보다 새로운 것(백필).
+	After *string `form:"after,omitempty" json:"after,omitempty"`
+	Limit *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// PostMessageParams defines parameters for PostMessage.
+type PostMessageParams struct {
+	// IdempotencyKey 클라이언트가 만든 UUID. 같은 키의 재요청은 첫 응답을 그대로 돌려준다(`Idempotent-Replayed: true`). 키는 24시간 보존. 같은 키에 다른 본문이면 `422 idempotency_key_reused`.
+	IdempotencyKey IdempotencyKeyRequired `json:"Idempotency-Key"`
+
+	// XColabClientSeq colab CLI가 보내는 이 task의 client seq(attempt 무관, 1부터 단조 증가). 서버는 idempotency_key.client_seq에 저장하고 CliContext.last_seq = max(client_seq)로 답한다(v0.4, PR #22 리뷰 R1). 헤더가 없으면(웹·구버전 CLI) 서버가 UUIDv5(task:<task_id>:<n>)를 n=1부터 순서대로 대조해 마지막 존재 seq를 찾는다.
+	XColabClientSeq *ClientSeq `json:"X-Colab-Client-Seq,omitempty"`
 }
 
 // TransferRoomOwnerJSONBody defines parameters for TransferRoomOwner.
@@ -5009,6 +4794,13 @@ type ListRoomReadsParams struct {
 	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// RebindRoomJSONBody defines parameters for RebindRoom.
+type RebindRoomJSONBody struct {
+	// AcknowledgeLoss worktree 격리에서 유실 경고를 확인했음. worktree인데 false면 `422`.
+	AcknowledgeLoss *bool              `json:"acknowledge_loss,omitempty"`
+	RuntimeId       openapi_types.UUID `json:"runtime_id"`
+}
+
 // SetRoomSubscriptionJSONBody defines parameters for SetRoomSubscription.
 type SetRoomSubscriptionJSONBody struct {
 	// Level v0.2.9 — 방 알림 구독(FR-8, SCREEN §4.17): 전부 · 내가 참여한 미션만 · HITL만 · 끄기. 미션 구독(SubscriptionLevel)이 있으면 그 미션은 미션 구독을 따른다.
@@ -5019,6 +4811,16 @@ type SetRoomSubscriptionJSONBody struct {
 type SummarizeRoomParams struct {
 	// IdempotencyKey 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
 	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
+}
+
+// ListRoomTasksParams defines parameters for ListRoomTasks.
+type ListRoomTasksParams struct {
+	Status  *[]TaskStatus       `form:"status,omitempty" json:"status,omitempty"`
+	AgentId *openapi_types.UUID `form:"agent_id,omitempty" json:"agent_id,omitempty"`
+
+	// Cursor 이전 응답의 `next_cursor`. 불투명 문자열.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListWorkProposalsParams defines parameters for ListWorkProposals.
@@ -5068,175 +4870,6 @@ type CheckRepoJSONBody struct {
 type ListRuntimeWorkdirsParams struct {
 	Status    *WorkdirStatus      `form:"status,omitempty" json:"status,omitempty"`
 	SessionId *openapi_types.UUID `form:"session_id,omitempty" json:"session_id,omitempty"`
-
-	// Cursor 이전 응답의 `next_cursor`. 불투명 문자열.
-	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// ListArtifactsParams defines parameters for ListArtifacts.
-type ListArtifactsParams struct {
-	// LatestOnly 이름별 최신 버전만.
-	LatestOnly *bool   `form:"latest_only,omitempty" json:"latest_only,omitempty"`
-	Type       *string `form:"type,omitempty" json:"type,omitempty"`
-}
-
-// SubmitArtifactMultipartBody defines parameters for SubmitArtifact.
-type SubmitArtifactMultipartBody struct {
-	Description *string `json:"description,omitempty"`
-	File        string  `json:"file"`
-	Name        string  `json:"name"`
-
-	// Type Examples: file, diff, branch, doc
-	Type string `json:"type"`
-}
-
-// SubmitArtifactParams defines parameters for SubmitArtifact.
-type SubmitArtifactParams struct {
-	// IdempotencyKey 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
-	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
-}
-
-// CancelSessionJSONBody defines parameters for CancelSession.
-type CancelSessionJSONBody struct {
-	Reason *string `json:"reason,omitempty"`
-}
-
-// CompleteSessionJSONBody defines parameters for CompleteSession.
-type CompleteSessionJSONBody struct {
-	// Confirm 진행 중 lane이 있어도 취소하고 종료.
-	Confirm *bool `json:"confirm,omitempty"`
-}
-
-// RecordDecisionJSONBody defines parameters for RecordDecision.
-type RecordDecisionJSONBody struct {
-	Rationale *string `json:"rationale,omitempty"`
-	Summary   string  `json:"summary"`
-}
-
-// RecordDecisionParams defines parameters for RecordDecision.
-type RecordDecisionParams struct {
-	// IdempotencyKey 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
-	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
-}
-
-// ChangeDirectorJSONBody defines parameters for ChangeDirector.
-type ChangeDirectorJSONBody struct {
-	DirectorUserId openapi_types.UUID `json:"director_user_id"`
-}
-
-// ListHitlRequestsParams defines parameters for ListHitlRequests.
-type ListHitlRequestsParams struct {
-	Status *HitlStatus `form:"status,omitempty" json:"status,omitempty"`
-
-	// Cursor 이전 응답의 `next_cursor`. 불투명 문자열.
-	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// CreateHitlRequestParams defines parameters for CreateHitlRequest.
-type CreateHitlRequestParams struct {
-	// IdempotencyKey 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
-	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
-}
-
-// CreateHitlRequest201JSONResponseBodyTurnEndRequired defines parameters for CreateHitlRequest.
-type CreateHitlRequest201JSONResponseBodyTurnEndRequired bool
-
-// ListLanesParams defines parameters for ListLanes.
-type ListLanesParams struct {
-	Status *[]LaneStatus `form:"status,omitempty" json:"status,omitempty"`
-}
-
-// DelegateLaneJSONBody defines parameters for DelegateLane.
-type DelegateLaneJSONBody struct {
-	AgentId openapi_types.UUID `json:"agent_id"`
-
-	// Brief 위임 브리프. 턴 프롬프트에 그대로 들어간다.
-	Brief     string                `json:"brief"`
-	DependsOn *[]openapi_types.UUID `json:"depends_on,omitempty"`
-
-	// Profile 프로파일 **이름**(`--profile`). 비우면 참여자 등록 시 프로파일.
-	Profile nullable.Nullable[string] `json:"profile,omitempty"`
-}
-
-// DelegateLaneParams defines parameters for DelegateLane.
-type DelegateLaneParams struct {
-	// IdempotencyKey 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
-	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
-}
-
-// ListMessagesParams defines parameters for ListMessages.
-type ListMessagesParams struct {
-	// WorkId v0.2.0 — 그 미션의 메시지만. `none` 이 아니라 빈 값 + `no_work=true` 로 미션 밖만.
-	WorkId *openapi_types.UUID `form:"work_id,omitempty" json:"work_id,omitempty"`
-
-	// NoWork v0.2.0 — `work_id = null` 메시지만(미션 칩 「미션 없음」).
-	NoWork *bool `form:"no_work,omitempty" json:"no_work,omitempty"`
-
-	// AroundMessageId v0.2.0 — 그 메시지를 가운데 두고 위아래 25건(안 읽음 앵커·인용).
-	AroundMessageId *openapi_types.UUID `form:"around_message_id,omitempty" json:"around_message_id,omitempty"`
-
-	// Thread 스레드 루트 메시지 id.
-	Thread         *openapi_types.UUID `form:"thread,omitempty" json:"thread,omitempty"`
-	IncludeReplies *bool               `form:"include_replies,omitempty" json:"include_replies,omitempty"`
-	Kind           *[]MessageKind      `form:"kind,omitempty" json:"kind,omitempty"`
-
-	// Before 이 커서보다 오래된 것(뒤로 스크롤).
-	Before *string `form:"before,omitempty" json:"before,omitempty"`
-
-	// After 이 커서보다 새로운 것(백필).
-	After *string `form:"after,omitempty" json:"after,omitempty"`
-	Limit *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// PostMessageParams defines parameters for PostMessage.
-type PostMessageParams struct {
-	// IdempotencyKey 클라이언트가 만든 UUID. 같은 키의 재요청은 첫 응답을 그대로 돌려준다(`Idempotent-Replayed: true`). 키는 24시간 보존. 같은 키에 다른 본문이면 `422 idempotency_key_reused`.
-	IdempotencyKey IdempotencyKeyRequired `json:"Idempotency-Key"`
-
-	// XColabClientSeq colab CLI가 보내는 이 task의 client seq(attempt 무관, 1부터 단조 증가). 서버는 idempotency_key.client_seq에 저장하고 CliContext.last_seq = max(client_seq)로 답한다(v0.4, PR #22 리뷰 R1). 헤더가 없으면(웹·구버전 CLI) 서버가 UUIDv5(task:<task_id>:<n>)를 n=1부터 순서대로 대조해 마지막 존재 seq를 찾는다.
-	XColabClientSeq *ClientSeq `json:"X-Colab-Client-Seq,omitempty"`
-}
-
-// AddParticipantJSONBody defines parameters for AddParticipant.
-type AddParticipantJSONBody struct {
-	AgentId openapi_types.UUID `json:"agent_id"`
-
-	// ProfileId 비우면 기본 프로파일.
-	ProfileId nullable.Nullable[openapi_types.UUID] `json:"profile_id,omitempty"`
-}
-
-// UpdateParticipantJSONBody defines parameters for UpdateParticipant.
-type UpdateParticipantJSONBody struct {
-	Assignee  *bool               `json:"assignee,omitempty"`
-	ProfileId *openapi_types.UUID `json:"profile_id,omitempty"`
-}
-
-// RebindSessionJSONBody defines parameters for RebindSession.
-type RebindSessionJSONBody struct {
-	// AcknowledgeLoss worktree 격리에서 유실 경고를 확인했음. worktree인데 false면 `422`.
-	AcknowledgeLoss *bool              `json:"acknowledge_loss,omitempty"`
-	RuntimeId       openapi_types.UUID `json:"runtime_id"`
-}
-
-// ResumeSessionJSONBody defines parameters for ResumeSession.
-type ResumeSessionJSONBody struct {
-	// Limits FR-2.1 `limits`. 초과는 종료가 아니라 `paused`.
-	Limits            *SessionLimits `json:"limits,omitempty"`
-	ResetLoopCounters *bool          `json:"reset_loop_counters,omitempty"`
-}
-
-// SetSessionSubscriptionJSONBody defines parameters for SetSessionSubscription.
-type SetSessionSubscriptionJSONBody struct {
-	// Level 세션 구독(FR-8 전부 / HITL만 / 종료만). 스키마 v0에 컬럼이 없다 — 미결(openapi.md).
-	Level SubscriptionLevel `json:"level"`
-}
-
-// ListSessionTasksParams defines parameters for ListSessionTasks.
-type ListSessionTasksParams struct {
-	Status  *[]TaskStatus       `form:"status,omitempty" json:"status,omitempty"`
-	AgentId *openapi_types.UUID `form:"agent_id,omitempty" json:"agent_id,omitempty"`
 
 	// Cursor 이전 응답의 `next_cursor`. 불투명 문자열.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
@@ -5445,10 +5078,10 @@ type CreateRoomParams struct {
 type ListRuntimeCandidatesParams struct {
 	Isolation IsolationKind `form:"isolation" json:"isolation"`
 
-	// RemoteUrl worktree일 때 기준 저장소 remote URL. 세션 재바인딩이면 세션의 저장소.
+	// RemoteUrl worktree일 때 기준 저장소 remote URL. 방 재바인딩이면 방의 저장소.
 	RemoteUrl *string `form:"remote_url,omitempty" json:"remote_url,omitempty"`
 
-	// SessionId 재바인딩 후보 조회 시 세션 id(격리·저장소를 세션에서 읽는다).
+	// SessionId 재바인딩 후보 조회 시 방 id(격리·저장소를 방에서 읽는다).
 	SessionId *openapi_types.UUID `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
 
@@ -5469,42 +5102,10 @@ type CreatePairingParams struct {
 	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
 }
 
-// ListSessionsParams defines parameters for ListSessions.
-type ListSessionsParams struct {
-	Status         *[]SessionStatus    `form:"status,omitempty" json:"status,omitempty"`
-	DirectorUserId *openapi_types.UUID `form:"director_user_id,omitempty" json:"director_user_id,omitempty"`
-
-	// AgentId 참여 에이전트.
-	AgentId       *openapi_types.UUID `form:"agent_id,omitempty" json:"agent_id,omitempty"`
-	RuntimeId     *openapi_types.UUID `form:"runtime_id,omitempty" json:"runtime_id,omitempty"`
-	CreatedAfter  *time.Time          `form:"created_after,omitempty" json:"created_after,omitempty"`
-	CreatedBefore *time.Time          `form:"created_before,omitempty" json:"created_before,omitempty"`
-
-	// Q 제목 · goal 검색.
-	Q    *string                 `form:"q,omitempty" json:"q,omitempty"`
-	Sort *ListSessionsParamsSort `form:"sort,omitempty" json:"sort,omitempty"`
-
-	// Cursor 이전 응답의 `next_cursor`. 불투명 문자열.
-	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// ListSessionsParamsSort defines parameters for ListSessions.
-type ListSessionsParamsSort string
-
-// CreateSessionParams defines parameters for CreateSession.
-type CreateSessionParams struct {
-	// IdempotencyKey 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙.
-	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
-}
-
 // StreamEventsParams defines parameters for StreamEvents.
 type StreamEventsParams struct {
-	// RoomId v0.2.0 — 방 범위 이벤트만(여러 개 가능). `session_id` 와 같은 값이다. `work_id` 로는 좁히지 않는다(방 배너·참여자·안 읽음이 빠진다).
-	RoomId *[]openapi_types.UUID `form:"room_id,omitempty" json:"room_id,omitempty"`
-
-	// SessionId 세션 범위 이벤트만(여러 개 가능). 비우면 워크스페이스 전체(S5·S8·S11 수준). R4 까지 `room_id` 의 별칭.
-	SessionId  *[]openapi_types.UUID `form:"session_id,omitempty" json:"session_id,omitempty"`
+	// RoomId v0.2.0 — 방 범위 이벤트만(여러 개 가능). 비우면 워크스페이스 전체(S5·S8·S11 수준). `work_id` 로는 좁히지 않는다(방 배너·참여자·안 읽음이 빠진다).
+	RoomId     *[]openapi_types.UUID `form:"room_id,omitempty" json:"room_id,omitempty"`
 	TestChatId *openapi_types.UUID   `form:"test_chat_id,omitempty" json:"test_chat_id,omitempty"`
 
 	// LastEventID 재연결 백필 커서.
@@ -5547,11 +5148,29 @@ type UpdateNotificationSettingsJSONRequestBody = NotificationSettings
 // UpdateRoomJSONRequestBody defines body for UpdateRoom for application/json ContentType.
 type UpdateRoomJSONRequestBody = RoomUpdate
 
+// SubmitArtifactMultipartRequestBody defines body for SubmitArtifact for multipart/form-data ContentType.
+type SubmitArtifactMultipartRequestBody SubmitArtifactMultipartBody
+
+// RecordDecisionJSONRequestBody defines body for RecordDecision for application/json ContentType.
+type RecordDecisionJSONRequestBody RecordDecisionJSONBody
+
 // SetRoomDeputyJSONRequestBody defines body for SetRoomDeputy for application/json ContentType.
 type SetRoomDeputyJSONRequestBody SetRoomDeputyJSONBody
 
+// CreateHitlRequestJSONRequestBody defines body for CreateHitlRequest for application/json ContentType.
+type CreateHitlRequestJSONRequestBody = HitlCreate
+
+// DelegateLaneJSONRequestBody defines body for DelegateLane for application/json ContentType.
+type DelegateLaneJSONRequestBody DelegateLaneJSONBody
+
 // CreateRoomLinkJSONRequestBody defines body for CreateRoomLink for application/json ContentType.
 type CreateRoomLinkJSONRequestBody CreateRoomLinkJSONBody
+
+// PostMessageJSONRequestBody defines body for PostMessage for application/json ContentType.
+type PostMessageJSONRequestBody = MessageCreate
+
+// PreviewTriggersJSONRequestBody defines body for PreviewTriggers for application/json ContentType.
+type PreviewTriggersJSONRequestBody = MessageCreate
 
 // TransferRoomOwnerJSONRequestBody defines body for TransferRoomOwner for application/json ContentType.
 type TransferRoomOwnerJSONRequestBody TransferRoomOwnerJSONBody
@@ -5564,6 +5183,9 @@ type UpdateRoomParticipantJSONRequestBody = RoomParticipantUpdate
 
 // MarkRoomReadJSONRequestBody defines body for MarkRoomRead for application/json ContentType.
 type MarkRoomReadJSONRequestBody MarkRoomReadJSONBody
+
+// RebindRoomJSONRequestBody defines body for RebindRoom for application/json ContentType.
+type RebindRoomJSONRequestBody RebindRoomJSONBody
 
 // SetRoomSubscriptionJSONRequestBody defines body for SetRoomSubscription for application/json ContentType.
 type SetRoomSubscriptionJSONRequestBody SetRoomSubscriptionJSONBody
@@ -5582,51 +5204,6 @@ type UpdateRuntimeJSONRequestBody UpdateRuntimeJSONBody
 
 // CheckRepoJSONRequestBody defines body for CheckRepo for application/json ContentType.
 type CheckRepoJSONRequestBody CheckRepoJSONBody
-
-// UpdateSessionJSONRequestBody defines body for UpdateSession for application/json ContentType.
-type UpdateSessionJSONRequestBody = SessionUpdate
-
-// SubmitArtifactMultipartRequestBody defines body for SubmitArtifact for multipart/form-data ContentType.
-type SubmitArtifactMultipartRequestBody SubmitArtifactMultipartBody
-
-// CancelSessionJSONRequestBody defines body for CancelSession for application/json ContentType.
-type CancelSessionJSONRequestBody CancelSessionJSONBody
-
-// CompleteSessionJSONRequestBody defines body for CompleteSession for application/json ContentType.
-type CompleteSessionJSONRequestBody CompleteSessionJSONBody
-
-// RecordDecisionJSONRequestBody defines body for RecordDecision for application/json ContentType.
-type RecordDecisionJSONRequestBody RecordDecisionJSONBody
-
-// ChangeDirectorJSONRequestBody defines body for ChangeDirector for application/json ContentType.
-type ChangeDirectorJSONRequestBody ChangeDirectorJSONBody
-
-// CreateHitlRequestJSONRequestBody defines body for CreateHitlRequest for application/json ContentType.
-type CreateHitlRequestJSONRequestBody = HitlCreate
-
-// DelegateLaneJSONRequestBody defines body for DelegateLane for application/json ContentType.
-type DelegateLaneJSONRequestBody DelegateLaneJSONBody
-
-// PostMessageJSONRequestBody defines body for PostMessage for application/json ContentType.
-type PostMessageJSONRequestBody = MessageCreate
-
-// PreviewTriggersJSONRequestBody defines body for PreviewTriggers for application/json ContentType.
-type PreviewTriggersJSONRequestBody = MessageCreate
-
-// AddParticipantJSONRequestBody defines body for AddParticipant for application/json ContentType.
-type AddParticipantJSONRequestBody AddParticipantJSONBody
-
-// UpdateParticipantJSONRequestBody defines body for UpdateParticipant for application/json ContentType.
-type UpdateParticipantJSONRequestBody UpdateParticipantJSONBody
-
-// RebindSessionJSONRequestBody defines body for RebindSession for application/json ContentType.
-type RebindSessionJSONRequestBody RebindSessionJSONBody
-
-// ResumeSessionJSONRequestBody defines body for ResumeSession for application/json ContentType.
-type ResumeSessionJSONRequestBody ResumeSessionJSONBody
-
-// SetSessionSubscriptionJSONRequestBody defines body for SetSessionSubscription for application/json ContentType.
-type SetSessionSubscriptionJSONRequestBody SetSessionSubscriptionJSONBody
 
 // SetTaskStatusJSONRequestBody defines body for SetTaskStatus for application/json ContentType.
 type SetTaskStatusJSONRequestBody SetTaskStatusJSONBody
@@ -5675,9 +5252,6 @@ type CreateRoomJSONRequestBody = RoomCreate
 
 // CreatePairingJSONRequestBody defines body for CreatePairing for application/json ContentType.
 type CreatePairingJSONRequestBody CreatePairingJSONBody
-
-// CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
-type CreateSessionJSONRequestBody = SessionCreate
 
 // UpdateWorkspaceSettingsJSONRequestBody defines body for UpdateWorkspaceSettings for application/json ContentType.
 type UpdateWorkspaceSettingsJSONRequestBody = WorkspaceSettingsUpdate
@@ -6281,7 +5855,7 @@ type ServerInterface interface {
 	// Signup 회원가입(S2)
 	// (POST /auth/signup)
 	Signup(w http.ResponseWriter, r *http.Request)
-	// GetCliContext 토큰이 가리키는 task · lane · 세션 · 에이전트
+	// GetCliContext 토큰이 가리키는 task · lane · 방 · 에이전트
 	// (GET /cli/context)
 	GetCliContext(w http.ResponseWriter, r *http.Request)
 	// ListReadableRooms colab room list — 읽을 수 있는 방
@@ -6353,12 +5927,39 @@ type ServerInterface interface {
 	// ArchiveRoom 방 보관
 	// (POST /rooms/{roomId}/archive)
 	ArchiveRoom(w http.ResponseWriter, r *http.Request, roomId RoomId)
+	// ListArtifacts 아티팩트 목록(버전 포함, 제출 순)
+	// (GET /rooms/{roomId}/artifacts)
+	ListArtifacts(w http.ResponseWriter, r *http.Request, roomId RoomId, params ListArtifactsParams)
+	// SubmitArtifact 아티팩트 제출(`colab artifact submit --name --type --file`)
+	// (POST /rooms/{roomId}/artifacts)
+	SubmitArtifact(w http.ResponseWriter, r *http.Request, roomId RoomId, params SubmitArtifactParams)
 	// BlockRoom 이 방 멈춤(`manual`)
 	// (POST /rooms/{roomId}/block)
 	BlockRoom(w http.ResponseWriter, r *http.Request, roomId RoomId)
+	// GetRoomCost 방 비용(agent · task · 런타임별, 추정 배지)
+	// (GET /rooms/{roomId}/cost)
+	GetRoomCost(w http.ResponseWriter, r *http.Request, roomId RoomId)
+	// ListDecisions 결정 기록(FR-4.2)
+	// (GET /rooms/{roomId}/decisions)
+	ListDecisions(w http.ResponseWriter, r *http.Request, roomId RoomId)
+	// RecordDecision 결정 기록(`colab decision record --summary --rationale`)
+	// (POST /rooms/{roomId}/decisions)
+	RecordDecision(w http.ResponseWriter, r *http.Request, roomId RoomId, params RecordDecisionParams)
 	// SetRoomDeputy 부방장 지정·해제
 	// (PUT /rooms/{roomId}/deputy)
 	SetRoomDeputy(w http.ResponseWriter, r *http.Request, roomId RoomId)
+	// ListHitlRequests 방의 HITL 요청
+	// (GET /rooms/{roomId}/hitl-requests)
+	ListHitlRequests(w http.ResponseWriter, r *http.Request, roomId RoomId, params ListHitlRequestsParams)
+	// CreateHitlRequest HITL 요청 등록(`colab hitl ask` / `approve-request` / `request-info`) — 턴을 끝내라
+	// (POST /rooms/{roomId}/hitl-requests)
+	CreateHitlRequest(w http.ResponseWriter, r *http.Request, roomId RoomId, params CreateHitlRequestParams)
+	// ListLanes lane 보드(S7 좌열)
+	// (GET /rooms/{roomId}/lanes)
+	ListLanes(w http.ResponseWriter, r *http.Request, roomId RoomId, params ListLanesParams)
+	// DelegateLane 위임 — 새 lane + 멘션 메시지 자동 작성(`colab lane delegate`)
+	// (POST /rooms/{roomId}/lanes)
+	DelegateLane(w http.ResponseWriter, r *http.Request, roomId RoomId, params DelegateLaneParams)
 	// ListRoomLinks 참고 방 링크
 	// (GET /rooms/{roomId}/links)
 	ListRoomLinks(w http.ResponseWriter, r *http.Request, roomId RoomId)
@@ -6368,6 +5969,15 @@ type ServerInterface interface {
 	// DeleteRoomLink 참고 방 연결 풀기
 	// (DELETE /rooms/{roomId}/links/{roomLinkId})
 	DeleteRoomLink(w http.ResponseWriter, r *http.Request, roomId RoomId, roomLinkId RoomLinkId)
+	// ListMessages 타임라인 · 스레드 조회
+	// (GET /rooms/{roomId}/messages)
+	ListMessages(w http.ResponseWriter, r *http.Request, roomId RoomId, params ListMessagesParams)
+	// PostMessage 메시지 게시(멱등) — 라우팅 규칙 1~8 적용
+	// (POST /rooms/{roomId}/messages)
+	PostMessage(w http.ResponseWriter, r *http.Request, roomId RoomId, params PostMessageParams)
+	// PreviewTriggers 트리거 미리보기(FR-3.6)
+	// (POST /rooms/{roomId}/messages/preview)
+	PreviewTriggers(w http.ResponseWriter, r *http.Request, roomId RoomId)
 	// TransferRoomOwner 방장 넘기기
 	// (PUT /rooms/{roomId}/owner)
 	TransferRoomOwner(w http.ResponseWriter, r *http.Request, roomId RoomId)
@@ -6389,12 +5999,18 @@ type ServerInterface interface {
 	// ListRoomReads 맥락 읽기 기록(S23)
 	// (GET /rooms/{roomId}/reads)
 	ListRoomReads(w http.ResponseWriter, r *http.Request, roomId RoomId, params ListRoomReadsParams)
+	// RebindRoom 런타임 재바인딩(S17)
+	// (POST /rooms/{roomId}/rebind)
+	RebindRoom(w http.ResponseWriter, r *http.Request, roomId RoomId)
 	// SetRoomSubscription 방 알림 구독
 	// (PUT /rooms/{roomId}/subscription)
 	SetRoomSubscription(w http.ResponseWriter, r *http.Request, roomId RoomId)
 	// SummarizeRoom 여기까지 정리(범위 요약)
 	// (POST /rooms/{roomId}/summaries)
 	SummarizeRoom(w http.ResponseWriter, r *http.Request, roomId RoomId, params SummarizeRoomParams)
+	// ListRoomTasks 방의 task 목록
+	// (GET /rooms/{roomId}/tasks)
+	ListRoomTasks(w http.ResponseWriter, r *http.Request, roomId RoomId, params ListRoomTasksParams)
 	// UnarchiveRoom 방 보관 해제
 	// (POST /rooms/{roomId}/unarchive)
 	UnarchiveRoom(w http.ResponseWriter, r *http.Request, roomId RoomId)
@@ -6428,90 +6044,6 @@ type ServerInterface interface {
 	// ListRuntimeWorkdirs workdir 목록(S13)
 	// (GET /runtimes/{runtimeId}/workdirs)
 	ListRuntimeWorkdirs(w http.ResponseWriter, r *http.Request, runtimeId RuntimeId, params ListRuntimeWorkdirsParams)
-	// DeleteSession 세션 삭제(물리 삭제 — 되돌릴 수 없다)
-	// (DELETE /sessions/{sessionId})
-	DeleteSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
-	// GetSession 세션 상세(S7 우열 · 상단)
-	// (GET /sessions/{sessionId})
-	GetSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
-	// UpdateSession 세션 설정 편집(goal · 성공 기준 · 한도 · autonomy · deputy)
-	// (PATCH /sessions/{sessionId})
-	UpdateSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
-	// ListArtifacts 아티팩트 목록(버전 포함, 제출 순)
-	// (GET /sessions/{sessionId}/artifacts)
-	ListArtifacts(w http.ResponseWriter, r *http.Request, sessionId SessionId, params ListArtifactsParams)
-	// SubmitArtifact 아티팩트 제출(`colab artifact submit --name --type --file`)
-	// (POST /sessions/{sessionId}/artifacts)
-	SubmitArtifact(w http.ResponseWriter, r *http.Request, sessionId SessionId, params SubmitArtifactParams)
-	// CancelSession 세션 취소(cancelled)
-	// (POST /sessions/{sessionId}/cancel)
-	CancelSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
-	// CompleteSession 종료(`manual`) — active → completing
-	// (POST /sessions/{sessionId}/complete)
-	CompleteSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
-	// GetSessionCost 세션 비용(agent · task · 런타임별, 추정 배지)
-	// (GET /sessions/{sessionId}/cost)
-	GetSessionCost(w http.ResponseWriter, r *http.Request, sessionId SessionId)
-	// ListDecisions 결정 기록(FR-4.2)
-	// (GET /sessions/{sessionId}/decisions)
-	ListDecisions(w http.ResponseWriter, r *http.Request, sessionId SessionId)
-	// RecordDecision 결정 기록(`colab decision record --summary --rationale`)
-	// (POST /sessions/{sessionId}/decisions)
-	RecordDecision(w http.ResponseWriter, r *http.Request, sessionId SessionId, params RecordDecisionParams)
-	// ChangeDirector Director 교체
-	// (PUT /sessions/{sessionId}/director)
-	ChangeDirector(w http.ResponseWriter, r *http.Request, sessionId SessionId)
-	// ListHitlRequests 세션의 HITL 요청
-	// (GET /sessions/{sessionId}/hitl-requests)
-	ListHitlRequests(w http.ResponseWriter, r *http.Request, sessionId SessionId, params ListHitlRequestsParams)
-	// CreateHitlRequest HITL 요청 등록(`colab hitl ask` / `approve-request` / `request-info`) — 턴을 끝내라
-	// (POST /sessions/{sessionId}/hitl-requests)
-	CreateHitlRequest(w http.ResponseWriter, r *http.Request, sessionId SessionId, params CreateHitlRequestParams)
-	// ListLanes lane 보드(S7 좌열)
-	// (GET /sessions/{sessionId}/lanes)
-	ListLanes(w http.ResponseWriter, r *http.Request, sessionId SessionId, params ListLanesParams)
-	// DelegateLane 위임 — 새 lane + 멘션 메시지 자동 작성(`colab lane delegate`)
-	// (POST /sessions/{sessionId}/lanes)
-	DelegateLane(w http.ResponseWriter, r *http.Request, sessionId SessionId, params DelegateLaneParams)
-	// ListMessages 타임라인 · 스레드 조회
-	// (GET /sessions/{sessionId}/messages)
-	ListMessages(w http.ResponseWriter, r *http.Request, sessionId SessionId, params ListMessagesParams)
-	// PostMessage 메시지 게시(멱등) — 라우팅 규칙 1~8 적용
-	// (POST /sessions/{sessionId}/messages)
-	PostMessage(w http.ResponseWriter, r *http.Request, sessionId SessionId, params PostMessageParams)
-	// PreviewTriggers 트리거 미리보기(FR-3.6)
-	// (POST /sessions/{sessionId}/messages/preview)
-	PreviewTriggers(w http.ResponseWriter, r *http.Request, sessionId SessionId)
-	// ListParticipants 참여 에이전트(S7 좌열 참여자 칩)
-	// (GET /sessions/{sessionId}/participants)
-	ListParticipants(w http.ResponseWriter, r *http.Request, sessionId SessionId)
-	// AddParticipant 참여 에이전트 추가(O2)
-	// (POST /sessions/{sessionId}/participants)
-	AddParticipant(w http.ResponseWriter, r *http.Request, sessionId SessionId)
-	// RemoveParticipant 참여 에이전트 제거
-	// (DELETE /sessions/{sessionId}/participants/{agentId})
-	RemoveParticipant(w http.ResponseWriter, r *http.Request, sessionId SessionId, agentId AgentId)
-	// UpdateParticipant 참여자 프로파일 변경 · assignee 지정
-	// (PATCH /sessions/{sessionId}/participants/{agentId})
-	UpdateParticipant(w http.ResponseWriter, r *http.Request, sessionId SessionId, agentId AgentId)
-	// PauseSession 일시정지(Director · 드레인)
-	// (POST /sessions/{sessionId}/pause)
-	PauseSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
-	// RebindSession 런타임 재바인딩(S17)
-	// (POST /sessions/{sessionId}/rebind)
-	RebindSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
-	// ResumeSession 재개 / "계속 진행 승인"(paused 사유별)
-	// (POST /sessions/{sessionId}/resume)
-	ResumeSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
-	// StartSession draft → active
-	// (POST /sessions/{sessionId}/start)
-	StartSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
-	// SetSessionSubscription 세션 알림 구독(전부 / HITL만 / 종료만)
-	// (PUT /sessions/{sessionId}/subscription)
-	SetSessionSubscription(w http.ResponseWriter, r *http.Request, sessionId SessionId)
-	// ListSessionTasks 세션의 task 목록
-	// (GET /sessions/{sessionId}/tasks)
-	ListSessionTasks(w http.ResponseWriter, r *http.Request, sessionId SessionId, params ListSessionTasksParams)
 	// GetTask task 상세(사용량 · 시도 · resume 여부)
 	// (GET /tasks/{taskId})
 	GetTask(w http.ResponseWriter, r *http.Request, taskId TaskId)
@@ -6593,7 +6125,7 @@ type ServerInterface interface {
 	// CreateAgent 에이전트 생성(S10 · FR-1.1)
 	// (POST /workspaces/{workspaceId}/agents)
 	CreateAgent(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId, params CreateAgentParams)
-	// GetWorkspaceCost 워크스페이스 비용(세션 · agent · 런타임 · 테스트 채팅)
+	// GetWorkspaceCost 워크스페이스 비용(방 · agent · 런타임 · 테스트 채팅)
 	// (GET /workspaces/{workspaceId}/cost)
 	GetWorkspaceCost(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId, params GetWorkspaceCostParams)
 	// ListInvites 초대 목록(대기 · 만료)
@@ -6641,12 +6173,6 @@ type ServerInterface interface {
 	// GetPairing 페어링 진행 단계(S12 연결 대기)
 	// (GET /workspaces/{workspaceId}/runtimes/pairings/{pairingId})
 	GetPairing(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId, pairingId openapi_types.UUID)
-	// ListSessions 세션 목록(S5)
-	// (GET /workspaces/{workspaceId}/sessions)
-	ListSessions(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId, params ListSessionsParams)
-	// CreateSession 세션 생성(S6 마법사 제출)
-	// (POST /workspaces/{workspaceId}/sessions)
-	CreateSession(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId, params CreateSessionParams)
 	// GetWorkspaceSettings 워크스페이스 설정(S14 런타임 정책 · 예산 · 루프 상한 · 컨텍스트 · Workdir · 보안)
 	// (GET /workspaces/{workspaceId}/settings)
 	GetWorkspaceSettings(w http.ResponseWriter, r *http.Request, workspaceId WorkspaceId)
@@ -7789,6 +7315,111 @@ func (siw *ServerInterfaceWrapper) ArchiveRoom(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// ListArtifacts operation middleware
+func (siw *ServerInterfaceWrapper) ListArtifacts(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", r.PathValue("roomId"), &roomId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roomId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListArtifactsParams
+
+	// ------------- Optional query parameter "latest_only" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "latest_only", r.URL.Query(), &params.LatestOnly, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "latest_only"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "latest_only", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "type" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "type", r.URL.Query(), &params.Type, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "type"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "type", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListArtifacts(w, r, roomId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SubmitArtifact operation middleware
+func (siw *ServerInterfaceWrapper) SubmitArtifact(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", r.PathValue("roomId"), &roomId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roomId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SubmitArtifactParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKeyOptional
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SubmitArtifact(w, r, roomId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // BlockRoom operation middleware
 func (siw *ServerInterfaceWrapper) BlockRoom(w http.ResponseWriter, r *http.Request) {
 
@@ -7815,6 +7446,108 @@ func (siw *ServerInterfaceWrapper) BlockRoom(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// GetRoomCost operation middleware
+func (siw *ServerInterfaceWrapper) GetRoomCost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", r.PathValue("roomId"), &roomId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roomId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRoomCost(w, r, roomId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDecisions operation middleware
+func (siw *ServerInterfaceWrapper) ListDecisions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", r.PathValue("roomId"), &roomId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roomId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDecisions(w, r, roomId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RecordDecision operation middleware
+func (siw *ServerInterfaceWrapper) RecordDecision(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", r.PathValue("roomId"), &roomId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roomId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RecordDecisionParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKeyOptional
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RecordDecision(w, r, roomId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // SetRoomDeputy operation middleware
 func (siw *ServerInterfaceWrapper) SetRoomDeputy(w http.ResponseWriter, r *http.Request) {
 
@@ -7832,6 +7565,216 @@ func (siw *ServerInterfaceWrapper) SetRoomDeputy(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetRoomDeputy(w, r, roomId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListHitlRequests operation middleware
+func (siw *ServerInterfaceWrapper) ListHitlRequests(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", r.PathValue("roomId"), &roomId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roomId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListHitlRequestsParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListHitlRequests(w, r, roomId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateHitlRequest operation middleware
+func (siw *ServerInterfaceWrapper) CreateHitlRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", r.PathValue("roomId"), &roomId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roomId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateHitlRequestParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKeyOptional
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateHitlRequest(w, r, roomId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListLanes operation middleware
+func (siw *ServerInterfaceWrapper) ListLanes(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", r.PathValue("roomId"), &roomId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roomId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListLanesParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", false, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListLanes(w, r, roomId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DelegateLane operation middleware
+func (siw *ServerInterfaceWrapper) DelegateLane(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", r.PathValue("roomId"), &roomId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roomId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DelegateLaneParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKeyOptional
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DelegateLane(w, r, roomId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7943,6 +7886,251 @@ func (siw *ServerInterfaceWrapper) DeleteRoomLink(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteRoomLink(w, r, roomId, roomLinkId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMessages operation middleware
+func (siw *ServerInterfaceWrapper) ListMessages(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", r.PathValue("roomId"), &roomId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roomId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMessagesParams
+
+	// ------------- Optional query parameter "work_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "work_id", r.URL.Query(), &params.WorkId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "work_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "work_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "no_work" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "no_work", r.URL.Query(), &params.NoWork, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "no_work"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "no_work", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "around_message_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "around_message_id", r.URL.Query(), &params.AroundMessageId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "around_message_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "around_message_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "thread" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "thread", r.URL.Query(), &params.Thread, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "thread"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "thread", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_replies" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_replies", r.URL.Query(), &params.IncludeReplies, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_replies"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_replies", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", false, false, "kind", r.URL.Query(), &params.Kind, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMessages(w, r, roomId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PostMessage operation middleware
+func (siw *ServerInterfaceWrapper) PostMessage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", r.PathValue("roomId"), &roomId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roomId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PostMessageParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKeyRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	// ------------- Optional header parameter "X-Colab-Client-Seq" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Colab-Client-Seq")]; found {
+		var XColabClientSeq ClientSeq
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Colab-Client-Seq", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Colab-Client-Seq", valueList[0], &XColabClientSeq, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Colab-Client-Seq", Err: err})
+			return
+		}
+
+		params.XColabClientSeq = &XColabClientSeq
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostMessage(w, r, roomId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PreviewTriggers operation middleware
+func (siw *ServerInterfaceWrapper) PreviewTriggers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", r.PathValue("roomId"), &roomId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roomId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewTriggers(w, r, roomId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8260,6 +8448,32 @@ func (siw *ServerInterfaceWrapper) ListRoomReads(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// RebindRoom operation middleware
+func (siw *ServerInterfaceWrapper) RebindRoom(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", r.PathValue("roomId"), &roomId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roomId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RebindRoom(w, r, roomId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // SetRoomSubscription operation middleware
 func (siw *ServerInterfaceWrapper) SetRoomSubscription(w http.ResponseWriter, r *http.Request) {
 
@@ -8327,6 +8541,87 @@ func (siw *ServerInterfaceWrapper) SummarizeRoom(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SummarizeRoom(w, r, roomId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListRoomTasks operation middleware
+func (siw *ServerInterfaceWrapper) ListRoomTasks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", r.PathValue("roomId"), &roomId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roomId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListRoomTasksParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", false, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "agent_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent_id", r.URL.Query(), &params.AgentId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "agent_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agent_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRoomTasks(w, r, roomId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8800,1157 +9095,6 @@ func (siw *ServerInterfaceWrapper) ListRuntimeWorkdirs(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListRuntimeWorkdirs(w, r, runtimeId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteSession operation middleware
-func (siw *ServerInterfaceWrapper) DeleteSession(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteSession(w, r, sessionId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetSession operation middleware
-func (siw *ServerInterfaceWrapper) GetSession(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetSession(w, r, sessionId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UpdateSession operation middleware
-func (siw *ServerInterfaceWrapper) UpdateSession(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateSession(w, r, sessionId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListArtifacts operation middleware
-func (siw *ServerInterfaceWrapper) ListArtifacts(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListArtifactsParams
-
-	// ------------- Optional query parameter "latest_only" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "latest_only", r.URL.Query(), &params.LatestOnly, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "latest_only"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "latest_only", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "type" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "type", r.URL.Query(), &params.Type, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "type"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "type", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListArtifacts(w, r, sessionId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// SubmitArtifact operation middleware
-func (siw *ServerInterfaceWrapper) SubmitArtifact(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params SubmitArtifactParams
-
-	headers := r.Header
-
-	// ------------- Optional header parameter "Idempotency-Key" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
-		var IdempotencyKey IdempotencyKeyOptional
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
-			return
-		}
-
-		params.IdempotencyKey = &IdempotencyKey
-
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SubmitArtifact(w, r, sessionId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CancelSession operation middleware
-func (siw *ServerInterfaceWrapper) CancelSession(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CancelSession(w, r, sessionId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CompleteSession operation middleware
-func (siw *ServerInterfaceWrapper) CompleteSession(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CompleteSession(w, r, sessionId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetSessionCost operation middleware
-func (siw *ServerInterfaceWrapper) GetSessionCost(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetSessionCost(w, r, sessionId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListDecisions operation middleware
-func (siw *ServerInterfaceWrapper) ListDecisions(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListDecisions(w, r, sessionId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// RecordDecision operation middleware
-func (siw *ServerInterfaceWrapper) RecordDecision(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params RecordDecisionParams
-
-	headers := r.Header
-
-	// ------------- Optional header parameter "Idempotency-Key" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
-		var IdempotencyKey IdempotencyKeyOptional
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
-			return
-		}
-
-		params.IdempotencyKey = &IdempotencyKey
-
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RecordDecision(w, r, sessionId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ChangeDirector operation middleware
-func (siw *ServerInterfaceWrapper) ChangeDirector(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ChangeDirector(w, r, sessionId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListHitlRequests operation middleware
-func (siw *ServerInterfaceWrapper) ListHitlRequests(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListHitlRequestsParams
-
-	// ------------- Optional query parameter "status" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "cursor" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "limit" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListHitlRequests(w, r, sessionId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateHitlRequest operation middleware
-func (siw *ServerInterfaceWrapper) CreateHitlRequest(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params CreateHitlRequestParams
-
-	headers := r.Header
-
-	// ------------- Optional header parameter "Idempotency-Key" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
-		var IdempotencyKey IdempotencyKeyOptional
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
-			return
-		}
-
-		params.IdempotencyKey = &IdempotencyKey
-
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateHitlRequest(w, r, sessionId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListLanes operation middleware
-func (siw *ServerInterfaceWrapper) ListLanes(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListLanesParams
-
-	// ------------- Optional query parameter "status" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", false, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListLanes(w, r, sessionId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DelegateLane operation middleware
-func (siw *ServerInterfaceWrapper) DelegateLane(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params DelegateLaneParams
-
-	headers := r.Header
-
-	// ------------- Optional header parameter "Idempotency-Key" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
-		var IdempotencyKey IdempotencyKeyOptional
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
-			return
-		}
-
-		params.IdempotencyKey = &IdempotencyKey
-
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DelegateLane(w, r, sessionId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListMessages operation middleware
-func (siw *ServerInterfaceWrapper) ListMessages(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListMessagesParams
-
-	// ------------- Optional query parameter "work_id" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "work_id", r.URL.Query(), &params.WorkId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "work_id"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "work_id", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "no_work" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "no_work", r.URL.Query(), &params.NoWork, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "no_work"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "no_work", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "around_message_id" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "around_message_id", r.URL.Query(), &params.AroundMessageId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "around_message_id"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "around_message_id", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "thread" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "thread", r.URL.Query(), &params.Thread, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "thread"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "thread", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "include_replies" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_replies", r.URL.Query(), &params.IncludeReplies, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_replies"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_replies", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "kind" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", false, false, "kind", r.URL.Query(), &params.Kind, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "before" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "after" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "limit" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListMessages(w, r, sessionId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// PostMessage operation middleware
-func (siw *ServerInterfaceWrapper) PostMessage(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params PostMessageParams
-
-	headers := r.Header
-
-	// ------------- Required header parameter "Idempotency-Key" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
-		var IdempotencyKey IdempotencyKeyRequired
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
-			return
-		}
-
-		params.IdempotencyKey = IdempotencyKey
-
-	} else {
-		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
-		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
-		return
-	}
-
-	// ------------- Optional header parameter "X-Colab-Client-Seq" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("X-Colab-Client-Seq")]; found {
-		var XColabClientSeq ClientSeq
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Colab-Client-Seq", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Colab-Client-Seq", valueList[0], &XColabClientSeq, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Colab-Client-Seq", Err: err})
-			return
-		}
-
-		params.XColabClientSeq = &XColabClientSeq
-
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PostMessage(w, r, sessionId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// PreviewTriggers operation middleware
-func (siw *ServerInterfaceWrapper) PreviewTriggers(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PreviewTriggers(w, r, sessionId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListParticipants operation middleware
-func (siw *ServerInterfaceWrapper) ListParticipants(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListParticipants(w, r, sessionId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// AddParticipant operation middleware
-func (siw *ServerInterfaceWrapper) AddParticipant(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AddParticipant(w, r, sessionId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// RemoveParticipant operation middleware
-func (siw *ServerInterfaceWrapper) RemoveParticipant(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "agentId" -------------
-	var agentId AgentId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RemoveParticipant(w, r, sessionId, agentId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UpdateParticipant operation middleware
-func (siw *ServerInterfaceWrapper) UpdateParticipant(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "agentId" -------------
-	var agentId AgentId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "agentId", r.PathValue("agentId"), &agentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateParticipant(w, r, sessionId, agentId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// PauseSession operation middleware
-func (siw *ServerInterfaceWrapper) PauseSession(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PauseSession(w, r, sessionId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// RebindSession operation middleware
-func (siw *ServerInterfaceWrapper) RebindSession(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RebindSession(w, r, sessionId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ResumeSession operation middleware
-func (siw *ServerInterfaceWrapper) ResumeSession(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ResumeSession(w, r, sessionId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// StartSession operation middleware
-func (siw *ServerInterfaceWrapper) StartSession(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.StartSession(w, r, sessionId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// SetSessionSubscription operation middleware
-func (siw *ServerInterfaceWrapper) SetSessionSubscription(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SetSessionSubscription(w, r, sessionId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListSessionTasks operation middleware
-func (siw *ServerInterfaceWrapper) ListSessionTasks(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
-		return
-	}
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListSessionTasksParams
-
-	// ------------- Optional query parameter "status" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", false, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "agent_id" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent_id", r.URL.Query(), &params.AgentId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "agent_id"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agent_id", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "cursor" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "limit" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListSessionTasks(w, r, sessionId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11795,215 +10939,6 @@ func (siw *ServerInterfaceWrapper) GetPairing(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
-// ListSessions operation middleware
-func (siw *ServerInterfaceWrapper) ListSessions(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "workspaceId" -------------
-	var workspaceId WorkspaceId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "workspaceId", r.PathValue("workspaceId"), &workspaceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceId", Err: err})
-		return
-	}
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListSessionsParams
-
-	// ------------- Optional query parameter "status" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", false, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "director_user_id" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "director_user_id", r.URL.Query(), &params.DirectorUserId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "director_user_id"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "director_user_id", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "agent_id" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent_id", r.URL.Query(), &params.AgentId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "agent_id"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agent_id", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "runtime_id" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "runtime_id", r.URL.Query(), &params.RuntimeId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "runtime_id"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "runtime_id", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "created_after" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "created_after", r.URL.Query(), &params.CreatedAfter, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "created_after"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "created_after", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "created_before" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "created_before", r.URL.Query(), &params.CreatedBefore, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "created_before"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "created_before", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "q" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "sort" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort", r.URL.Query(), &params.Sort, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sort"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sort", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "cursor" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "limit" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListSessions(w, r, workspaceId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateSession operation middleware
-func (siw *ServerInterfaceWrapper) CreateSession(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "workspaceId" -------------
-	var workspaceId WorkspaceId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "workspaceId", r.PathValue("workspaceId"), &workspaceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceId", Err: err})
-		return
-	}
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params CreateSessionParams
-
-	headers := r.Header
-
-	// ------------- Optional header parameter "Idempotency-Key" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
-		var IdempotencyKey IdempotencyKeyOptional
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
-			return
-		}
-
-		params.IdempotencyKey = &IdempotencyKey
-
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateSession(w, r, workspaceId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // GetWorkspaceSettings operation middleware
 func (siw *ServerInterfaceWrapper) GetWorkspaceSettings(w http.ResponseWriter, r *http.Request) {
 
@@ -12083,19 +11018,6 @@ func (siw *ServerInterfaceWrapper) StreamEvents(w http.ResponseWriter, r *http.R
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "room_id"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "room_id", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "session_id" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", false, false, "session_id", r.URL.Query(), &params.SessionId, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "session_id"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "session_id", Err: err})
 		}
 		return
 	}
@@ -12309,54 +11231,38 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/test-chats/{testChatId}", wrapper.GetTestChat)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/test-chats/{testChatId}/turns", wrapper.PostTestChatTurn)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/test-chats/{testChatId}/close", wrapper.CloseTestChat)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/workspaces/{workspaceId}/sessions", wrapper.ListSessions)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/workspaces/{workspaceId}/sessions", wrapper.CreateSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/workspaces/{workspaceId}/runtime-candidates", wrapper.ListRuntimeCandidates)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/sessions/{sessionId}", wrapper.DeleteSession)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sessions/{sessionId}", wrapper.GetSession)
-	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/sessions/{sessionId}", wrapper.UpdateSession)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/{sessionId}/start", wrapper.StartSession)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/{sessionId}/pause", wrapper.PauseSession)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/{sessionId}/resume", wrapper.ResumeSession)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/{sessionId}/complete", wrapper.CompleteSession)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/{sessionId}/cancel", wrapper.CancelSession)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/sessions/{sessionId}/director", wrapper.ChangeDirector)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sessions/{sessionId}/participants", wrapper.ListParticipants)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/{sessionId}/participants", wrapper.AddParticipant)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/sessions/{sessionId}/participants/{agentId}", wrapper.RemoveParticipant)
-	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/sessions/{sessionId}/participants/{agentId}", wrapper.UpdateParticipant)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/{sessionId}/rebind", wrapper.RebindSession)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/sessions/{sessionId}/subscription", wrapper.SetSessionSubscription)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sessions/{sessionId}/messages", wrapper.ListMessages)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/{sessionId}/messages", wrapper.PostMessage)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/{sessionId}/messages/preview", wrapper.PreviewTriggers)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/rooms/{roomId}/rebind", wrapper.RebindRoom)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/rooms/{roomId}/messages", wrapper.ListMessages)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/rooms/{roomId}/messages", wrapper.PostMessage)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/rooms/{roomId}/messages/preview", wrapper.PreviewTriggers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/messages/{messageId}", wrapper.GetMessage)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sessions/{sessionId}/lanes", wrapper.ListLanes)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/{sessionId}/lanes", wrapper.DelegateLane)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/rooms/{roomId}/lanes", wrapper.ListLanes)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/rooms/{roomId}/lanes", wrapper.DelegateLane)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/lanes/{laneId}", wrapper.GetLane)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/lanes/{laneId}/tasks", wrapper.ListLaneTasks)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/lanes/{laneId}/restart", wrapper.RestartLane)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/lanes/{laneId}/cancel", wrapper.CancelLane)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sessions/{sessionId}/tasks", wrapper.ListSessionTasks)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/rooms/{roomId}/tasks", wrapper.ListRoomTasks)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tasks/{taskId}", wrapper.GetTask)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tasks/{taskId}/events", wrapper.ListTaskEvents)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tasks/{taskId}/status", wrapper.SetTaskStatus)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sessions/{sessionId}/hitl-requests", wrapper.ListHitlRequests)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/{sessionId}/hitl-requests", wrapper.CreateHitlRequest)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/rooms/{roomId}/hitl-requests", wrapper.ListHitlRequests)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/rooms/{roomId}/hitl-requests", wrapper.CreateHitlRequest)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/hitl-requests/{hitlRequestId}", wrapper.GetHitlRequest)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/hitl-requests/{hitlRequestId}/response", wrapper.RespondHitlRequest)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox", wrapper.ListInbox)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox/summary", wrapper.GetInboxSummary)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/{inboxItemId}/read", wrapper.MarkInboxRead)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/read-all", wrapper.MarkAllInboxRead)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sessions/{sessionId}/artifacts", wrapper.ListArtifacts)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/{sessionId}/artifacts", wrapper.SubmitArtifact)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/rooms/{roomId}/artifacts", wrapper.ListArtifacts)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/rooms/{roomId}/artifacts", wrapper.SubmitArtifact)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/artifacts/{artifactId}", wrapper.GetArtifact)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/artifacts/{artifactId}/content", wrapper.DownloadArtifact)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/artifacts/{artifactId}/review", wrapper.ReviewArtifact)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sessions/{sessionId}/decisions", wrapper.ListDecisions)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/{sessionId}/decisions", wrapper.RecordDecision)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sessions/{sessionId}/cost", wrapper.GetSessionCost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/rooms/{roomId}/decisions", wrapper.ListDecisions)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/rooms/{roomId}/decisions", wrapper.RecordDecision)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/rooms/{roomId}/cost", wrapper.GetRoomCost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/workspaces/{workspaceId}/cost", wrapper.GetWorkspaceCost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/workspaces/{workspaceId}/metrics", wrapper.GetWorkspaceMetrics)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/workspaces/{workspaceId}/observations", wrapper.GetWorkspaceObservations)

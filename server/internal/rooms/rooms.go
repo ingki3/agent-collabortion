@@ -20,8 +20,10 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/realtime"
 	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
 	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
+	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -647,15 +649,76 @@ func ListParticipants(ctx context.Context, q db.DBTX, roomID, viewer uuid.UUID, 
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	statuses, err := sessions.AgentStatuses(ctx, q, roomID, nil)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]gen.RoomParticipant, 0, len(list))
 	for _, p := range list {
 		api, err := ParticipantAPI(ctx, q, p, viewer)
 		if err != nil {
 			return nil, err
 		}
+		roomScoped(&api, p, statuses)
 		out = append(out, api)
 	}
 	return out, nil
+}
+
+// roomScoped replaces an agent participant's workspace-wide status with the
+// one derived in THIS room (FR-1.3, sessions.AgentStatuses): the chip beside
+// the room's roster, and `colab room get`'s roster, answer "is it working
+// here", which the agent's own status cannot. A participant who has left has
+// no room status and keeps the agent's.
+func roomScoped(api *gen.RoomParticipant, p *ParticipantRow, statuses map[uuid.UUID]gen.AgentStatus) {
+	if p.AgentID == nil {
+		return
+	}
+	if st, ok := statuses[*p.AgentID]; ok {
+		api.Status = &st
+	}
+}
+
+// PublishParticipant re-derives ONE agent's room participant row and sends
+// `participant.updated` (openapi StreamEvent: RoomParticipant).
+//
+// FR-1.3's status is not stored — it is computed from the agent's tasks every
+// time it is read — so the only moment it can be known to have changed is the
+// moment a task of that agent moved. Nothing published it at all before: three
+// Researchers ran in parallel and S7's chips stayed `idle` until the page was
+// reloaded (G4 2판 W7).
+//
+// q is the caller's transaction, so the derivation sees the task row the
+// caller has just written.
+func PublishParticipant(ctx context.Context, hub *realtime.Hub, q db.DBTX, roomID, agentID uuid.UUID) error {
+	if hub == nil {
+		return nil
+	}
+	var wsID uuid.UUID
+	if err := q.QueryRow(ctx, `SELECT workspace_id FROM room WHERE id = $1`, roomID).Scan(&wsID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil // the room is gone
+		}
+		return err
+	}
+	p, err := scanParticipant(q.QueryRow(ctx, `SELECT `+participantCols+` FROM room_participant WHERE room_id = $1 AND agent_id = $2 AND left_at IS NULL`, roomID, agentID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // the agent left the room; nothing to update
+	}
+	if err != nil {
+		return err
+	}
+	statuses, err := sessions.AgentStatuses(ctx, q, roomID, &agentID)
+	if err != nil {
+		return err
+	}
+	api, err := ParticipantAPI(ctx, q, p, uuid.Nil)
+	if err != nil {
+		return err
+	}
+	roomScoped(&api, p, statuses)
+	rid := roomID
+	return hub.Publish(ctx, q, wsID, &rid, "participant.updated", api)
 }
 
 // LeftPayload is the `participant.left` frame (StreamEvent table).

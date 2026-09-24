@@ -331,7 +331,7 @@ func truncationNote(omitted int, h roomHistory, inMission bool) string {
 	if inMission {
 		s += fmt.Sprintf(" This mission's %d among them are in <mission_messages>.", len(h.MissionOlder))
 	}
-	s += " Every decision is in [7] or <room_decisions>. Read the rest with `colab session messages` if you need it.\n"
+	s += " Every decision is in [7] or <room_decisions>. Read the rest with `colab room messages` if you need it.\n"
 	return s
 }
 

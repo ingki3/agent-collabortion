@@ -126,8 +126,8 @@ func attribute(ctx context.Context, q db.DBTX, roomID uuid.UUID, in gen.MessageC
 // (T-R1b1 Q1, Lead-approved; narrowed by T-R1b2 as plan/V19_R1B_HANDOFF.md
 // asked).
 //
-// The old `/sessions/*` clients post without `work_id` — for them the session
-// IS its one mission. Rule 4 would file almost every such message under "no
+// A post without `work_id` into a v0.18 room (legacy_work_id) is filed under
+// that room's one mission. Rule 4 would file almost every such message under "no
 // mission", and a task outside any mission answers only to the room gate: a
 // session the Director paused, or one that completed, would start dispatching
 // again on the next message, and the mission's brief and cost would lose the

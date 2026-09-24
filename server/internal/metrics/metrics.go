@@ -188,7 +188,7 @@ func valueN(ctx context.Context, q db.DBTX, sql string, wsID uuid.UUID, since ti
 }
 
 // 1. 사용자별 첫 컴퓨터 연결(runtime_pairing.ready_at = probe 도착) → 그 사용자가
-// Director 인 첫 completed 세션의 finished_at. 중앙값(분). n = 사용자 수.
+// Director 인 첫 completed 미션(work)의 finished_at. 중앙값(분). n = 사용자 수.
 const sqlF1 = `
 WITH first_rt AS (
 	SELECT created_by AS user_id, min(ready_at) AS online_at
@@ -201,7 +201,7 @@ SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (d.done_at
 FROM first_rt r JOIN first_done d USING (user_id)
 WHERE d.done_at >= r.online_at AND d.done_at >= $2`
 
-// 2. completed 세션 중 completion_met.manual(= completeSession, director_end)이 아닌 비율.
+// 2. completed 미션 중 completion_met.manual(= completeWork, director_end)이 아닌 비율.
 //
 // 1·2 는 행 하나가 미션 하나다(§11 분모 = 미션, §12.1-10) — 미션에서 제 방으로
 // 가는 조인은 한 줄이라 방에 미션이 여럿이어도 불지 않는다(T-R1b2, 인계 (a)).
@@ -322,8 +322,8 @@ func successByRuntime(ctx context.Context, q db.DBTX, wsID uuid.UUID, since time
 	return nil
 }
 
-// 10. 최근 7일 안에 task 가 하나라도 돈(started_at) 세션 수 — 창과 무관. n 은 이
-// 워크스페이스에서 task 를 돌린 적 있는 세션 수: 아무것도 돌린 적 없는 워크스페이스는
+// 10. 최근 7일 안에 task 가 하나라도 돈(started_at) 방 수 — 창과 무관. n 은 이
+// 워크스페이스에서 task 를 돌린 적 있는 방 수: 아무것도 돌린 적 없는 워크스페이스는
 // null 이고, 한때 돌았다가 조용한 워크스페이스는 실측 0 이다.
 func weeklyActive(ctx context.Context, q db.DBTX, wsID uuid.UUID, now time.Time, m *Metric) error {
 	var active, ever int

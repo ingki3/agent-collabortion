@@ -172,7 +172,7 @@ func (s *Server) admin(r *http.Request, wsID uuid.UUID) (*gen.User, *Problem) {
 // scoped to exactly this session. Returns the viewer user (nil for tokens).
 func (s *Server) sessionAccess(r *http.Request, sessionID uuid.UUID) (*gen.User, *Problem) {
 	p := principalOf(r)
-	wsID, err := s.Sessions.WorkspaceOf(r.Context(), sessionID)
+	wsID, err := s.roomWorkspace(r.Context(), sessionID)
 	if err != nil {
 		return nil, apperr.As(err)
 	}
@@ -193,8 +193,8 @@ func (s *Server) sessionAccess(r *http.Request, sessionID uuid.UUID) (*gen.User,
 		return nil, apperr.NotFound("session") // do not reveal other workspaces' sessions
 	}
 	// The session is a room (v0.19): an invited room does not exist for a
-	// member who was not invited (FR-5.3), on the old /sessions/* aliases as
-	// on /rooms/* — rooms.Decide is the one table (review #291 R1-1). A task
+	// member who was not invited (FR-5.3) on every /rooms/{roomId}/* read —
+	// rooms.Decide is the one table (review #291 R1-1). A task
 	// token never reaches here: it is scoped to its own session above.
 	a, err := rooms.LoadAccess(r.Context(), s.DB, sessionID, p.User.Id)
 	if err != nil {
@@ -246,4 +246,14 @@ func (s *Server) sessionDirector(r *http.Request, sessionID uuid.UUID) (*gen.Use
 		return nil, uuid.Nil, apperr.Forbidden("director_required", "미션은 그 미션의 Director 만 끝낼 수 있습니다")
 	}
 	return u, wsID, nil
+}
+
+// roomWorkspace is the room's workspace (authorization); a missing room is 404.
+func (s *Server) roomWorkspace(ctx context.Context, roomID uuid.UUID) (uuid.UUID, error) {
+	var ws uuid.UUID
+	err := s.DB.QueryRow(ctx, `SELECT workspace_id FROM room WHERE id = $1`, roomID).Scan(&ws)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, apperr.NotFound("room")
+	}
+	return ws, err
 }

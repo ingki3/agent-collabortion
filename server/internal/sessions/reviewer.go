@@ -30,7 +30,7 @@ import (
 //     left) shows the structural reason instead of a bare ✗;
 //   - updateSession may change completion_condition while the session is
 //     active or paused (handlers_sessions_p3.go), which is how such a session
-//     is rescued — the re-evaluation rides on ApplyCompletionEvent with the
+//     is rescued — the re-evaluation rides on ApplyWorkEvent with the
 //     EventConditionChanged kind.
 
 // EventConditionChanged is the ApplyEvent kind updateSession uses after the
@@ -50,7 +50,7 @@ const (
 
 // designated reports which agent the atom names: `agent_id` when given,
 // otherwise `who: assignee` resolved against the session's assignee. A
-// `who` that is a role name is not resolved here — ApplyCompletionEvent does
+// `who` that is a role name is not resolved here — ApplyWorkEvent does
 // not resolve it either, so reporting it as unresolved is the honest reading
 // of what the evaluator will do with it.
 func designated(c Condition, assignee *uuid.UUID) *uuid.UUID {

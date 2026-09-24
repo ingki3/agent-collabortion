@@ -27,10 +27,10 @@ func (f *p2Fixture) cmdOp(t *testing.T, tok string, taskID uuid.UUID, cmd gen.Co
 	sess := f.p + "/sessions/" + f.sessionID
 	key := func() []string { return []string{"Idempotency-Key", uuid.NewString()} }
 	switch cmd {
-	case gen.ColabCommandSessionGet:
+	case gen.ColabCommandRoomGet:
 		st, out, _ := c.do("GET", sess, nil)
 		return st, out
-	case gen.ColabCommandSessionMessages:
+	case gen.ColabCommandRoomMessages:
 		st, out, _ := c.do("GET", sess+"/messages", nil)
 		return st, out
 	case gen.ColabCommandMessagePost:

@@ -16,7 +16,6 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
-	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
 	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
 )
@@ -285,36 +284,26 @@ func (s *Server) DeleteRuntime(w http.ResponseWriter, r *http.Request, runtimeId
 }
 
 // ---------------------------------------------------------------------------
-// rebindSession — FR-9.2, E14-03·06
+// rebindRoom — FR-9.2, E14-03·06
 // ---------------------------------------------------------------------------
 
-func (s *Server) RebindSession(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	_, wsID, p := s.rebindActor(r, sessionId)
+func (s *Server) RebindRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	u, wsID, p := s.rebindActor(r, roomId)
 	if p != nil {
 		writeProblem(w, p)
 		return
 	}
-	var in gen.RebindSessionJSONBody
+	var in gen.RebindRoomJSONBody
 	if p := decodeJSON(w, r, &in); p != nil {
 		writeProblem(w, p)
 		return
 	}
 	ack := in.AcknowledgeLoss != nil && *in.AcknowledgeLoss
-	if _, err := s.Runtimes.Rebind(r.Context(), wsID, sessionId, uuid.UUID(in.RuntimeId), ack); err != nil {
+	if _, err := s.Runtimes.Rebind(r.Context(), wsID, roomId, uuid.UUID(in.RuntimeId), ack); err != nil {
 		writeErr(w, err)
 		return
 	}
-	u, _, p2 := s.member(r, wsID)
-	if p2 != nil {
-		writeProblem(w, p2)
-		return
-	}
-	sess, err := s.Sessions.Get(r.Context(), sessionId, sessions.Viewer{UserID: &u.Id})
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, sess)
+	s.roomOut(r.Context(), w, http.StatusOK, roomId, u.Id)
 }
 
 func p4ptr[T any](v T) *T { return &v }
@@ -329,7 +318,7 @@ func nullStr(s string) nullable.Nullable[string] {
 	return nullable.NewNullableWithValue(s)
 }
 
-// rebindActor is rebindSession's permission (FR-9.2 v0.19, T-S-offline): the
+// rebindActor is rebindRoom's permission (FR-9.2 v0.19, T-S-offline): the
 // old session's Director, the room owner, or — from half of the stop's
 // deadline — the room's delegate (runtimes.MayRebind). A room made by
 // createRoom has no Director and is still rebindable by its owner.

@@ -249,7 +249,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	brief.WriteString("[2] Workspace rules and colab CLI\n" +
 		"- Mention syntax: [@Name](mention://agent/<id>). Only mention session participants listed in [5].\n" +
 		"- Post every reply to the session with `colab message post --body \"<text>\"` (or the colab_message_post MCP tool). Text you print to stdout is NOT delivered.\n" +
-		"- Read more history with `colab session messages`, session details with `colab session get`.\n" +
+		"- Read more history with `colab room messages`, room details with `colab room get`.\n" +
 		"- Mentioning an agent creates work for it; do not mention agents just to acknowledge.\n" +
 		"- Your COLAB_TASK_TOKEN is valid for this attempt only; if a call returns token_revoked, stop immediately.\n\n")
 	if agentRole == "lead" {

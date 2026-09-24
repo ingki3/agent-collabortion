@@ -26,9 +26,7 @@ import (
 //
 // `blockRoom`/`unblockRoom` are the person's switch (`manual`); the other
 // reasons are lifted by the approval their HITL asks for — the budget raise
-// (K-10, resumeRoomForBudget), the loop continue (unblockRoomForLoop) — or
-// by the old `/sessions/*` resume, which lifts the room block its mirror
-// stands for (ResumeSession).
+// (K-10, resumeRoomForBudget), the loop continue (unblockRoomForLoop).
 
 // ---------------------------------------------------------------------------
 // blockRoom · unblockRoom — 「이 방 멈춤」(manual)
@@ -215,7 +213,7 @@ func (s *Server) resumeRoomForBudget(ctx context.Context, roomID uuid.UUID, rais
 			return err
 		}
 		budget := float32(raise)
-		merged, err := mergeLimits(limitsRaw, &gen.SessionLimits{BudgetUsd: nullable.NewNullableWithValue(budget)})
+		merged, err := mergeLimits(limitsRaw, map[string]any{"budget_usd": budget})
 		if err != nil {
 			return err
 		}

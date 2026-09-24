@@ -109,8 +109,8 @@ func (s *Service) Submit(ctx context.Context, sessionID uuid.UUID, in SubmitInpu
 
 	// The room is the lock (versions are per room × name, FR-2A.5 [V19-B]);
 	// the mission is the submitting task's (FR-3.1.1: a task runs for its
-	// lane's mission), else — a person submitting through the old
-	// /sessions/{id}/artifacts — the session's own. A closed mission takes no
+	// lane's mission), else — a person submitting with no task — the room's
+	// legacy mission. A closed mission takes no
 	// more artifacts.
 	var legacy *uuid.UUID
 	err = tx.QueryRow(ctx, `SELECT legacy_work_id FROM room WHERE id = $1 FOR UPDATE`, sessionID).Scan(&legacy)

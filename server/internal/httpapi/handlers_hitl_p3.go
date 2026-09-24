@@ -126,7 +126,7 @@ func readHitlCreate(raw []byte) (hitlCreateFields, *Problem) {
 	return f, nil
 }
 
-func (s *Server) CreateHitlRequest(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.CreateHitlRequestParams) {
+func (s *Server) CreateHitlRequest(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.CreateHitlRequestParams) {
 	// `source: agent` only. A system-issued request is server-internal (the
 	// contract says so) and letting a token mint one would let an agent forge
 	// the platform's own budget approval.
@@ -136,7 +136,7 @@ func (s *Server) CreateHitlRequest(w http.ResponseWriter, r *http.Request, sessi
 			"확인 요청은 에이전트만 만들 수 있습니다"))
 		return
 	}
-	if scope.SessionID != sessionId {
+	if scope.SessionID != roomId {
 		writeProblem(w, apperr.Forbidden("outside_task_scope", "다른 방에는 접근할 수 없습니다"))
 		return
 	}
@@ -159,7 +159,7 @@ func (s *Server) CreateHitlRequest(w http.ResponseWriter, r *http.Request, sessi
 		key = params.IdempotencyKey.String()
 	}
 	s.idempotent(r.Context(), w, "task:"+scope.TaskID.String(), key, requestHash(r, body),
-		func() (int, any, *Problem) { return s.createHitl(r.Context(), scope.TaskID, sessionId, f) })
+		func() (int, any, *Problem) { return s.createHitl(r.Context(), scope.TaskID, roomId, f) })
 }
 
 func (s *Server) createHitl(ctx context.Context, taskID, sessionID uuid.UUID, f hitlCreateFields) (int, any, *Problem) {
@@ -385,8 +385,8 @@ func (s *Server) GetHitlRequest(w http.ResponseWriter, r *http.Request, hitlRequ
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) ListHitlRequests(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.ListHitlRequestsParams) {
-	u, p := s.sessionAccess(r, sessionId)
+func (s *Server) ListHitlRequests(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListHitlRequestsParams) {
+	u, p := s.sessionAccess(r, roomId)
 	if p != nil {
 		writeProblem(w, p)
 		return
@@ -399,7 +399,7 @@ func (s *Server) ListHitlRequests(w http.ResponseWriter, r *http.Request, sessio
 	if params.Limit != nil {
 		limit = *params.Limit
 	}
-	args := []any{sessionId}
+	args := []any{roomId}
 	where := "h.session_id = $1"
 	if params.Status != nil {
 		args = append(args, string(*params.Status))

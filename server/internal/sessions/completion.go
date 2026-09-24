@@ -131,7 +131,7 @@ type Outcome struct {
 
 	DecisionRecorded bool
 	RejectReason     string
-	// DecisionID is filled by ApplyCompletionEvent once the row exists, so the
+	// DecisionID is filled by ApplyWorkEvent once the row exists, so the
 	// caller can point artifact_review.decision_id at it.
 	DecisionID uuid.UUID
 

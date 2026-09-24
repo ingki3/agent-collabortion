@@ -188,7 +188,7 @@ func PlanAttempt(in AttemptInput) AttemptPlan {
 	}
 
 	// History header (§8.4, E8-12). The flag is what tells the agent to read
-	// more with `colab session messages`; a flag that is always true says
+	// more with `colab room messages`; a flag that is always true says
 	// nothing.
 	limit := in.HistoryLimit
 	if limit <= 0 {

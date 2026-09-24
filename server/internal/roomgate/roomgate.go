@@ -13,7 +13,7 @@
 //
 // # The mirror (T-R1b1 Q2, Lead)
 //
-// The old `/sessions/*` read a room and its one mission as ONE session whose
+// The old `/sessions/*` API (removed in openapi v0.3.0) read a room and its one mission as ONE session whose
 // `status` said `paused(budget|loop)`. A budget or loop block that only set the
 // room column would read `active` there and resumeSession would answer 409, so
 // every client of the old shape would lose the pause. Block therefore also
