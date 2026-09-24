@@ -17,7 +17,10 @@ RESUMED=0; printf '%s\n' "$P" | grep -q '^<resumed' && RESUMED=1
 TRACE="${FAKE_OUT:-.}/agent-trace.tsv"
 log()  { printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%H:%M:%S)" "$ROLE" "${COLAB_TASK_ID:-}" "${COLAB_TASK_ATTEMPT:-}" "$*" >> "$TRACE"; }
 has()  { printf '%s' "$TRIG" | grep -qF -- "$1"; }
-phas() { printf '%s' "$P" | grep -qF -- "$1"; }
+# phas 는 <mission_progress>(T-R3b: 미션 종료 조건 진행 — "the Director's approval" 같은 줄) 를 뺀 프롬프트를 본다.
+# Writer 의 `phas "Director"` 는 "HITL 답이 왔다" 는 뜻인데, 진행 줄의 Director 가 그걸 참으로 만들었다(e2e 72 A_H1).
+P_NOPROG="$(printf '%s\n' "$P" | awk '/^<mission_progress/{f=1;next} /^<\/mission_progress>/{f=0;next} !f')"
+phas() { printf '%s' "$P_NOPROG" | grep -qF -- "$1"; }
 # 미션 시작 트리거(첫 턴). 서버 문장은 §8.4 로 바뀌었다(S-67, R1.5 「세션」→「미션」) — 옛 문장들도 받아 둔다.
 is_start() { has "미션을 시작했습니다" || has "세션을 시작했습니다" || has "Session started"; }
 post() { # post BODY [MENTION]
