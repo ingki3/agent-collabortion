@@ -99,9 +99,9 @@ function routes(path: string, opts?: { path?: Record<string, string>; query?: Re
     return Promise.resolve(work(id));
   }
   // 서버는 아직 work_id 를 안 읽는다(Lead 판정 A) — 목도 여기서 전부 돌려주고, 화면이 한 번 더 거르는지 본다.
-  if (path === "/sessions/{sessionId}/messages") return Promise.resolve({ items: MSGS, has_more_before: false, has_more_after: false });
-  if (path === "/sessions/{sessionId}/lanes") return Promise.resolve([lane("l1", "w1", "running"), lane("l2", "w2", "queued"), lane("l3", null, "done")]);
-  if (path === "/sessions/{sessionId}/hitl-requests") return Promise.resolve({ items: hitls });
+  if (path === "/rooms/{roomId}/messages") return Promise.resolve({ items: MSGS, has_more_before: false, has_more_after: false });
+  if (path === "/rooms/{roomId}/lanes") return Promise.resolve([lane("l1", "w1", "running"), lane("l2", "w2", "queued"), lane("l3", null, "done")]);
+  if (path === "/rooms/{roomId}/hitl-requests") return Promise.resolve({ items: hitls });
   if (path.endsWith("/artifacts") || path.endsWith("/decisions")) return Promise.resolve([]);
   if (path.endsWith("/runtimes")) return Promise.resolve([{ id: "rt1", status: "online", name: "MacBook" }]);
   return Promise.resolve({ items: [] });
@@ -159,7 +159,7 @@ describe("S7 — 미션 칩은 거르개이자 선택자(타임라인·보드·�
     expect(screen.queryByTestId("lane-work-label")).toBeNull();
     expect(screen.getAllByTestId("lane-card").map((c) => c.getAttribute("data-lane-id"))).toEqual(["l1"]);
     // 계약 파라미터는 보낸다(서버가 읽기 시작하면 이중 거르기는 무해)
-    expect(get).toHaveBeenCalledWith("/sessions/{sessionId}/messages", { path: { sessionId: "r1" }, query: expect.objectContaining({ work_id: "w1", limit: 50 }) });
+    expect(get).toHaveBeenCalledWith("/rooms/{roomId}/messages", { path: { roomId: "r1" }, query: expect.objectContaining({ work_id: "w1", limit: 50 }) });
     const panel = screen.getByTestId("work-panel");
     await waitFor(() => expect(panel.getAttribute("data-work-id")).toBe("w1"));
     expect(panel.getAttribute("data-mode")).toBe("picked");
@@ -180,7 +180,7 @@ describe("S7 — 미션 칩은 거르개이자 선택자(타임라인·보드·�
     search = new URLSearchParams("work=none");
     await ready();
     expect(screen.getAllByTestId("message-card").map((c) => c.textContent)).toEqual([expect.stringContaining("점심 뭐 먹지")]);
-    expect(get).toHaveBeenCalledWith("/sessions/{sessionId}/messages", { path: { sessionId: "r1" }, query: expect.objectContaining({ no_work: true }) });
+    expect(get).toHaveBeenCalledWith("/rooms/{roomId}/messages", { path: { roomId: "r1" }, query: expect.objectContaining({ no_work: true }) });
     expect(screen.getByTestId("work-panel").getAttribute("data-mode")).toBe("none_view");
     expect(screen.getByTestId("work-panel-none").textContent).toBe("이 방에서 미션 없이 오간 대화입니다");
     expect(screen.getByTestId("work-panel-na").textContent).toBe("미션이 없어 해당 없음");
@@ -259,7 +259,7 @@ describe("S7 — 상단 · 배너 · 좁은 화면", () => {
 
   it("대기 사유 runtime — 워크트리 방에 컴퓨터가 아직 없으면 「저장소가 있는 컴퓨터를 기다립니다」", async () => {
     roomNow = { ...room, isolation: { kind: "worktree", remote_url: null }, runtime_id: null };
-    get.mockImplementation((path: string, o?: never) => (path === "/sessions/{sessionId}/lanes" ? Promise.resolve([{ ...lane("q1", null, "queued"), queued_reason: "runtime" }]) : routes(path, o)));
+    get.mockImplementation((path: string, o?: never) => (path === "/rooms/{roomId}/lanes" ? Promise.resolve([{ ...lane("q1", null, "queued"), queued_reason: "runtime" }]) : routes(path, o)));
     await ready();
     expect(screen.getByTestId("lane-queued-reason").textContent).toBe("저장소가 있는 컴퓨터를 기다립니다");
   });
@@ -272,7 +272,7 @@ describe("S7 — 상단 · 배너 · 좁은 화면", () => {
   });
 
   it("「다른 방에서 작업 중」 — 이 방에 실행 중인 서브 미션이 없는데 working 이면 프로파일 자리를 바꿔 넣는다", async () => {
-    get.mockImplementation((path: string, o?: never) => (path === "/sessions/{sessionId}/lanes" ? Promise.resolve([lane("l3", null, "done")]) : routes(path, o)));
+    get.mockImplementation((path: string, o?: never) => (path === "/rooms/{roomId}/lanes" ? Promise.resolve([lane("l3", null, "done")]) : routes(path, o)));
     await ready();
     const chip = screen.getAllByTestId("agent-chip").find((c) => c.getAttribute("data-agent-id") === "a1")!;
     expect(within(chip).getByTestId("agent-chip-line2").textContent).toBe("writer · 다른 방에서 작업 중");

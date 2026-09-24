@@ -60,10 +60,10 @@ Every time you are triggered: call colab_message_post exactly once with a one-li
 Never call colab_status_set. Never call colab_lane_delegate. Never run shell commands, never read or write files, never search the web.'
 LEAD="$(create_agent_p2 "$WS" Lead       lead       "$MODEL" "$PING_LEAD" '팀을 이끈다')"
 RSCH="$(create_agent_p2 "$WS" Researcher researcher "$MODEL" "$PING_RES"  '조사한다')"
-SESSION="$(api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg t "핑퐁 (E4-03)" --arg g "$SCENARIO_GOAL" \
+SESSION="$(create_room_work "$WS" "$(jq -nc --arg t "핑퐁 (E4-03)" --arg g "$SCENARIO_GOAL" \
   --arg a "$LEAD" --arg rt "$RUNTIME" --arg r "$RSCH" \
   '{title:$t,goal:$g,isolation:{kind:"none"},participants:[{agent_id:$a},{agent_id:$r}],assignee_agent_id:$a,runtime_id:$rt,
-    completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | jq -r .id)"
+    completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" )"
 echo "$WS $SESSION $LEAD $RSCH $RUNTIME" > "$OUT/l-ids.txt"
 ok "session $SESSION"
 T_START="$(now_ms)"

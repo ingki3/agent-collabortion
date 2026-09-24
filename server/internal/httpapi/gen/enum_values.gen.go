@@ -4,8 +4,8 @@ package gen
 
 // ColabCommandValues is every ColabCommand in contracts/openapi.yaml order.
 var ColabCommandValues = []ColabCommand{
-	ColabCommandSessionGet,
-	ColabCommandSessionMessages,
+	ColabCommandRoomGet,
+	ColabCommandRoomMessages,
 	ColabCommandArtifactGet,
 	ColabCommandMessagePost,
 	ColabCommandStatusSet,

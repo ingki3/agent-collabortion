@@ -162,8 +162,8 @@ chk P8b "요약이 system 이 쓴 것이다"                   system \
 chk_ge P8c "요약 본문이 비어 있지 않다 (본문 품질은 P4)" 20 "$(wc -c < "$OUT/a3-summary.txt" | tr -d ' ')"
 chk P9  "남아 있던 queued/deferred task 가 취소됐다"    0 \
   "$(psqlq "select count(*) from task where session_id='$SESSION' and status in ('queued','deferred')")"
-chk P9b "Director 인박스에 session_completed 알림"      1 \
-  "$(psqlq "select count(*) from inbox_item where session_id='$SESSION' and type='session_completed'")"
+chk P9b "Director 인박스에 work_completed 알림"         1 \
+  "$(psqlq "select count(*) from inbox_item where session_id='$SESSION' and type='work_completed'")"
 
 step "5. S-29 — 완료 시 workdir GC (서버가 명령을 내는가 · 행이 정리되는가)"
 GC_N="$(psqlq "select count(*) from daemon_command where session_id='$SESSION' and type='gc'")"

@@ -17,11 +17,9 @@ export type PairingStatus = Pairing["status"];
 export type Agent = S["Agent"];
 export type AgentStatus = S["AgentStatus"];
 export type AgentRole = S["AgentRole"];
-export type Session = S["Session"];
-export type SessionListItem = S["SessionListItem"];
-export type SessionCreate = S["SessionCreate"];
+// 옛 `Session`·`SessionListItem`·`SessionCreate`·`SessionUpdate`·`SessionLimits`·`Participant` 는 v0.3.0(R4, D22)에서 계약이 지웠다 —
+// 목 내부 모델만 `lib/legacy-session.ts` 에 남는다. 화면은 `Room`·`Work` 를 쓴다.
 export type SessionStatus = S["SessionStatus"];
-export type Participant = S["Participant"];
 export type Message = S["Message"];
 export type MessageKind = S["MessageKind"];
 export type MessagePage = S["MessagePage"];
@@ -38,8 +36,6 @@ export type RespondTo = S["RespondTo"];
 export type Isolation = S["Isolation"];
 export type IsolationKind = S["IsolationKind"];
 export type AutonomyLevel = S["AutonomyLevel"];
-export type SessionLimits = S["SessionLimits"];
-export type SessionUpdate = S["SessionUpdate"];
 export type CompletionCondition = S["CompletionCondition"];
 export type CompletionProgress = S["CompletionProgress"];
 export type CompletionAtom = S["CompletionAtom"];

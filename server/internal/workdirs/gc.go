@@ -393,7 +393,8 @@ const gib = int64(1) << 30
 // is `[integer, 'null']` and a null must not mean zero, which would block every
 // session in a workspace that never configured one [EVAL 제안 행 E13-19].
 //
-// production caller: httpapi.Server.CreateSession, before the row is written.
+// production caller: httpapi.Server.openWork (createWork · a proposal accepted),
+// before the row is written.
 func CheckDiskQuota(usedBytes int64, quotaGB int) QuotaVerdict {
 	if quotaGB <= 0 {
 		return QuotaVerdict{}

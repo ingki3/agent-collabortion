@@ -10,13 +10,13 @@ import { COMMAND_LABEL, ROLE_COMMANDS } from "@/lib/wording";
 
 /** 계약 enum 순서 그대로(openapi `ColabCommand`). */
 export const ALL_COMMANDS: readonly ColabCommand[] = [
-  "session_get", "session_messages", "artifact_get", "message_post", "status_set", "decision_record",
+  "room_get", "room_messages", "artifact_get", "message_post", "status_set", "decision_record",
   "lane_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info",
   "room_list", "room_read", "work_propose",
 ];
 
 /** §2.5 첫 행 — 모든 역할이 쓰는 여덟 + v0.8 방 읽기 둘(`room_list`·`room_read`, 모든 역할). */
-const COMMON: readonly ColabCommand[] = ["session_get", "session_messages", "artifact_get", "message_post", "status_set", "decision_record", "hitl_ask", "hitl_request_info", "room_list", "room_read"];
+const COMMON: readonly ColabCommand[] = ["room_get", "room_messages", "artifact_get", "message_post", "status_set", "decision_record", "hitl_ask", "hitl_request_info", "room_list", "room_read"];
 
 /** §2.5 표 — 열 순서대로. `lead`·`custom` 은 전부. */
 export const ROLE_COMMAND_TABLE: Record<AgentRole, readonly ColabCommand[]> = {

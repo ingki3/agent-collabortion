@@ -161,9 +161,9 @@ const INBOX: InboxItem[] = [
   inbox({ type: "lane_blocked", severity: "action_required",
     card: { title: "Researcher: '국내만인가요, 글로벌 포함인가요?'", body: "위임한 사람이 없는 서브 미션입니다 — 답글이 곧 지시가 됩니다.", agent_name: "Researcher" },
     actions: ["reply", "open_session"] }),
-  inbox({ type: "session_paused", severity: "attention",
+  inbox({ type: "work_paused", severity: "action_required",
     card: { title: "미션이 일시정지되었습니다", body: "예산 초과 — $21.40 / $20", paused_reason: "budget" },
-    actions: ["approve_continue", "open_session"] }),
+    actions: ["open_work"] }),
   inbox({ type: "run_failed", severity: "attention",
     card: { title: "작업이 실패했습니다", body: "자동 재시도가 소진되었습니다", failure_kind: "timeout" },
     actions: ["restart", "open_session"] }),
@@ -171,7 +171,7 @@ const INBOX: InboxItem[] = [
     card: { title: "MacBook 이 오프라인입니다", body: "7일 유예 중 5일 남음", runtime_name: "MacBook", grace_ends_at: "2026-09-11T00:00:00Z" },
     actions: ["open_runtimes"] }),
   inbox({ type: "mention", card: { title: "민지님을 멘션했습니다", body: "@민지 이 부분 확인 부탁드립니다", agent_name: "Lead" }, actions: ["reply", "open_session"] }),
-  inbox({ type: "session_completed", read_at: T, card: { title: "미션이 완료되었습니다", summary: "결정 3건 · 아티팩트 1건 · $1.20" } }),
+  inbox({ type: "work_completed", read_at: T, actions: ["open_work"], card: { title: "미션이 완료되었습니다", summary: "결정 3건 · 아티팩트 1건 · $1.20" } }),
 ];
 
 export default function ComponentsPage() {

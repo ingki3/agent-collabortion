@@ -1,15 +1,16 @@
 package httpapi
 
-// T-S17 — deleteSession (openapi 0.1.3, FR-2.7, Director request 2026-09-14).
-// Each contract line is its own subtest so one failing boundary does not hide
-// the others (P3 §0-7). The fixture is the members one: it already has the
-// Director/owner ("Dir"), an admin, a plain member and a fourth account, and a
-// runtime the workdir rows can hang on.
+// T-S17 → R4 — deleteRoom's cascade (FR-2.7). These were deleteSession's
+// tests (openapi 0.1.3, Director request 2026-09-14); v0.3.0 (D22) removed
+// that op and deleteRoom is the one delete. What they held about the cascade —
+// every child row gone, cost and metrics recount, the gc receipt consumed
+// silently, the unmerged-worktree 409 — is deleteRoom's now, and is ported
+// here as it was. The authorisation rows moved with the op's semantics: the
+// room owner deletes (r1b3_rooms_test 「삭제: 부방장 403 · 방장 204」), and the
+// status rule is `409 works_active` over the room's missions.
 
 import (
 	"encoding/json"
-	"os"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -21,12 +22,12 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
 )
 
-// newSessionWithStatus creates a second session in the fixture's workspace and
-// forces it into `status` — the transitions themselves are other operations'
-// tests; deleteSession only reads the column.
+// newSessionWithStatus creates a room with one mission (sessionRoom) in the
+// fixture's workspace and forces the mission into `status` — the transitions
+// themselves are other operations' tests; deleteRoom only reads the column.
 func (f *membersFixture) newSessionWithStatus(t *testing.T, status string) string {
 	t.Helper()
-	sess := f.api.must(201, "POST", f.p+"/workspaces/"+f.wsID+"/sessions", map[string]any{
+	sess := sessionRoom(t, f.api, f.pool, f.p, f.wsID, map[string]any{
 		"title": "삭제 대상 " + status, "goal": "g", "isolation": map[string]any{"kind": "none"},
 		"assignee_agent_id": f.lead, "participants": []map[string]any{{"agent_id": f.lead}},
 	})
@@ -85,86 +86,27 @@ func (f *membersFixture) count(t *testing.T, sql string, args ...any) int {
 }
 
 func (f *membersFixture) del(c *client, sessionID string) (int, map[string]any) {
-	st, out, _ := c.do("DELETE", f.p+"/sessions/"+sessionID, nil)
+	st, out, _ := c.do("DELETE", f.p+"/rooms/"+sessionID, nil)
 	return st, out
 }
 
-// TestP5DeleteSessionAuthz — "권한: Director 또는 owner·admin". The fixture's
-// Director is also the owner, so the Director case is exercised by a member
-// who is made Director of their own session.
-func TestP5DeleteSessionAuthz(t *testing.T) {
-	f := newMembersFixture(t)
-
-	t.Run("member (not Director) → 403 director_or_admin_required", func(t *testing.T) {
-		id := f.newSessionWithStatus(t, "completed")
-		st, out := f.del(f.member, id)
-		if st != 403 || str(out, "code") != "director_or_admin_required" || str(out, "detail") != sessions.DeleteForbiddenDetail {
-			t.Fatalf("= %d %v", st, out)
-		}
-		if f.count(t, `SELECT count(*) FROM room WHERE id = $1`, id) != 1 {
-			t.Fatal("a member deleted a session")
-		}
-	})
-	t.Run("Director (plain member role) → 204", func(t *testing.T) {
-		id := f.newSessionWithStatus(t, "completed")
-		if _, err := f.pool.Exec(t.Context(), `UPDATE work SET director_user_id = $2 WHERE room_id = $1`, id, f.memberUserID); err != nil {
-			t.Fatal(err)
-		}
-		if st, out := f.del(f.member, id); st != 204 {
-			t.Fatalf("Director delete = %d %v", st, out)
-		}
-	})
-	t.Run("admin (not Director) → 204", func(t *testing.T) {
-		id := f.newSessionWithStatus(t, "completed")
-		if st, out := f.del(f.admin, id); st != 204 {
-			t.Fatalf("admin delete = %d %v", st, out)
-		}
-	})
-	t.Run("owner (Director here) → 204, second call 404", func(t *testing.T) {
-		id := f.newSessionWithStatus(t, "completed")
-		if st, out := f.del(f.api, id); st != 204 {
-			t.Fatalf("owner delete = %d %v", st, out)
-		}
-		if st, out := f.del(f.api, id); st != 404 || str(out, "code") != "not_found" {
-			t.Fatalf("second delete = %d %v, want 404 (멱등이 아니다)", st, out)
-		}
-	})
-	t.Run("user of another workspace → 404, not 403", func(t *testing.T) {
-		id := f.newSessionWithStatus(t, "completed")
-		outsider := &client{t: t, srv: f.api.srv}
-		_, _, hdr := outsider.do("POST", f.p+"/auth/signup", map[string]any{"display_name": "X", "email": "x-del@example.com", "password": "password123"})
-		outsider.cookie = hdr.Get("Set-Cookie")
-		outsider.must(201, "POST", f.p+"/workspaces", map[string]any{"name": "Elsewhere"})
-		st, out := f.del(outsider, id)
-		if st != 404 {
-			t.Fatalf("outsider delete = %d %v, want 404 (never reveal another workspace's session)", st, out)
-		}
-	})
-	t.Run("task token → 403 (사람만)", func(t *testing.T) {
-		id := f.newSessionWithStatus(t, "completed")
-		tok := f.taskTokenFor(t, mustUUID(t, id), f.leadUUID)
-		if st, _ := f.del(tok, id); st != 403 {
-			t.Fatalf("task token delete = %d, want 403", st)
-		}
-	})
-}
-
-// TestP5DeleteSessionStatus — "끝난 세션만 — draft·completed·cancelled.
-// active·paused·completing 이면 409 session_active" with the contract's sentence.
-func TestP5DeleteSessionStatus(t *testing.T) {
+// TestR4DeleteRoomStatus — deleteRoom refuses while any mission is in
+// progress (`409 works_active`); a room whose missions are draft · completed ·
+// cancelled goes. (deleteSession's `session_active` rule, re-read on the room.)
+func TestR4DeleteRoomStatus(t *testing.T) {
 	f := newMembersFixture(t)
 	for _, status := range []string{"active", "paused", "completing"} {
-		t.Run(status+" → 409 session_active", func(t *testing.T) {
+		t.Run(status+" → 409 works_active", func(t *testing.T) {
 			id := f.newSessionWithStatus(t, status)
 			st, out := f.del(f.api, id)
-			if st != 409 || str(out, "code") != "session_active" {
+			if st != 409 || str(out, "code") != "works_active" {
 				t.Fatalf("= %d %v", st, out)
 			}
-			if str(out, "detail") != sessions.DeleteActiveDetail {
-				t.Fatalf("detail = %q, want the contract's %q", str(out, "detail"), sessions.DeleteActiveDetail)
+			if str(out, "detail") != sessions.RoomWorksActiveDetail {
+				t.Fatalf("detail = %q, want %q", str(out, "detail"), sessions.RoomWorksActiveDetail)
 			}
 			if f.count(t, `SELECT count(*) FROM room WHERE id = $1`, id) != 1 {
-				t.Fatalf("%s session was deleted", status)
+				t.Fatalf("%s room was deleted", status)
 			}
 		})
 	}
@@ -175,23 +117,15 @@ func TestP5DeleteSessionStatus(t *testing.T) {
 				t.Fatalf("= %d %v", st, out)
 			}
 			if f.count(t, `SELECT count(*) FROM room WHERE id = $1`, id) != 0 {
-				t.Fatalf("%s session still exists", status)
+				t.Fatalf("%s room still exists", status)
 			}
 		})
 	}
-	// The table is the rule; a status the enum grows later must be added here
-	// on purpose, not deleted by default.
-	for status, want := range map[string]bool{"draft": true, "completed": true, "cancelled": true,
-		"active": false, "paused": false, "completing": false, "": false, "archived": false} {
-		if got := sessions.CanDelete(status); got != want {
-			t.Errorf("CanDelete(%q) = %v, want %v", status, got, want)
-		}
-	}
 }
 
-// TestP5DeleteSessionUnmergedWorktree — "deleted 가 아닌 worktree 가 미병합 커밋
+// TestR4DeleteRoomUnmergedWorktree — "deleted 가 아닌 worktree 가 미병합 커밋
 // 또는 미커밋 변경을 갖고 있으면 409 workdir_unmerged, Problem.workdirs[] 에 대상".
-func TestP5DeleteSessionUnmergedWorktree(t *testing.T) {
+func TestR4DeleteRoomUnmergedWorktree(t *testing.T) {
 	f := newMembersFixture(t)
 	ctx := t.Context()
 	id := f.newSessionWithStatus(t, "cancelled")
@@ -237,14 +171,12 @@ func TestP5DeleteSessionUnmergedWorktree(t *testing.T) {
 		if !ok {
 			t.Fatalf("workdirs[] lacks %s: %v", want, got)
 		}
-		// The rows are the contract's Workdir: the fields S13 draws are there.
-		for _, k := range []string{"kind", "path_or_ref", "status", "merged", "commits_ahead", "session"} {
+		// deleteRoom's 409 rows (openapi 0.2.6): the folder, the computer and
+		// what holds it — what the dialog lists with the S13 link.
+		for _, k := range []string{"path", "commits_ahead", "dirty", "runtime_id", "runtime_name"} {
 			if _, ok := wd[k]; !ok {
 				t.Errorf("workdirs[%s] lacks %q: %v", want, k, wd)
 			}
-		}
-		if str(wd, "kind") != "worktree" || str(wd, "session_id") != id {
-			t.Errorf("workdirs[%s] = %v", want, wd)
 		}
 	}
 	if f.count(t, `SELECT count(*) FROM room WHERE id = $1`, id) != 1 {
@@ -277,10 +209,10 @@ func TestP5DeleteSessionUnmergedWorktree(t *testing.T) {
 	}
 }
 
-// TestP5DeleteSessionCascade — "물리 삭제: 메시지·작업 줄기·할 일·활동 기록·확인
+// TestR4DeleteRoomCascade — "물리 삭제: 메시지·작업 줄기·할 일·활동 기록·확인
 // 요청·아티팩트(파일 포함)·결정·받은 요청 항목·비용 기록이 함께 사라지고
-// 워크스페이스 비용·지표 집계에서도 빠진다. activity_log 에 session.deleted 한 줄".
-func TestP5DeleteSessionCascade(t *testing.T) {
+// 워크스페이스 비용·지표 집계에서도 빠진다. activity_log 에 room.deleted 한 줄".
+func TestR4DeleteRoomCascade(t *testing.T) {
 	f := newMembersFixture(t)
 	ctx := t.Context()
 	id := f.newSessionWithStatus(t, "active") // rows are written while it runs; it ends below
@@ -291,7 +223,7 @@ func TestP5DeleteSessionCascade(t *testing.T) {
 	// Rows in every table that hangs off the session.
 	taskID := f.addUsage(t, id, 1.5)
 	f.fake.Advance(1)
-	f.api.must(201, "POST", f.p+"/sessions/"+id+"/messages", map[string]any{"content": "/note 남길 말"}, "Idempotency-Key", uuid.NewString())
+	f.api.must(201, "POST", f.p+"/rooms/"+id+"/messages", map[string]any{"content": "/note 남길 말"}, "Idempotency-Key", uuid.NewString())
 	tok := f.taskTokenFor(t, sid, f.leadUUID)
 	artID := f.submitArtifactBody(t, sid, tok.bearer, "report", "diff --git a/x b/x\n+hello\n")
 	f.setStatus(t, id, "completed")
@@ -321,13 +253,14 @@ func TestP5DeleteSessionCascade(t *testing.T) {
 			t.Fatalf("fixture left %s empty — the cascade test would prove nothing", tb)
 		}
 	}
-	if f.count(t, `SELECT count(*) FROM activity_log WHERE session_id = $1`, id) != 1 {
+	roomLines := f.count(t, `SELECT count(*) FROM activity_log WHERE session_id = $1`, id)
+	if roomLines < 1 {
 		t.Fatal("activity_log fixture")
 	}
 	// ON DELETE SET NULL would keep the session's lines with session_id NULL:
 	// count the orphans before so the check after can tell them from the one
 	// line the delete is allowed to add.
-	orphansBefore := f.count(t, `SELECT count(*) FROM activity_log WHERE workspace_id = $1 AND session_id IS NULL AND action <> 'session.deleted'`, f.wsID)
+	orphansBefore := f.count(t, `SELECT count(*) FROM activity_log WHERE workspace_id = $1 AND session_id IS NULL AND action <> 'room.deleted'`, f.wsID)
 	wsActBefore := f.count(t, `SELECT count(*) FROM activity_log WHERE workspace_id = $1`, f.wsID)
 
 	// Cost and metrics before: the session is counted.
@@ -353,43 +286,43 @@ func TestP5DeleteSessionCascade(t *testing.T) {
 	if f.count(t, `SELECT count(*) FROM pg_largeobject_metadata WHERE oid = $1`, oid) != 0 {
 		t.Error("artifact large object orphaned — 0008's trigger did not fire on the cascade")
 	}
-	// activity_log: the session's own lines are gone; exactly one
-	// session.deleted line remains, with session_id NULL (its FK target is
-	// gone) and the id in object_id + payload.
-	if n := f.count(t, `SELECT count(*) FROM activity_log WHERE session_id = $1 OR (object_id = $1 AND action <> 'session.deleted')`, id); n != 0 {
+	// activity_log: the room's own lines are gone; exactly one room.deleted
+	// line remains, with session_id NULL (its FK target is gone) and the id
+	// in object_id + payload.
+	if n := f.count(t, `SELECT count(*) FROM activity_log WHERE session_id = $1 OR (object_id = $1 AND action <> 'room.deleted')`, id); n != 0 {
 		t.Errorf("activity_log keeps %d line(s) of the deleted session", n)
 	}
-	if n := f.count(t, `SELECT count(*) FROM activity_log WHERE workspace_id = $1 AND session_id IS NULL AND action <> 'session.deleted'`, f.wsID); n != orphansBefore {
+	if n := f.count(t, `SELECT count(*) FROM activity_log WHERE workspace_id = $1 AND session_id IS NULL AND action <> 'room.deleted'`, f.wsID); n != orphansBefore {
 		t.Errorf("activity_log has %d orphaned line(s) with session_id NULL (was %d) — the FK is SET NULL; the rows must be deleted by hand", n, orphansBefore)
 	}
-	if n := f.count(t, `SELECT count(*) FROM activity_log WHERE workspace_id = $1`, f.wsID); n != wsActBefore-1+1 {
-		t.Errorf("workspace activity_log = %d, want %d (the session's 1 line gone, 1 session.deleted added)", n, wsActBefore)
+	if n := f.count(t, `SELECT count(*) FROM activity_log WHERE workspace_id = $1`, f.wsID); n != wsActBefore-roomLines+1 {
+		t.Errorf("workspace activity_log = %d, want %d (the room's %d lines gone, 1 room.deleted added)", n, wsActBefore-roomLines+1, roomLines)
 	}
 	var payload []byte
 	var actorType string
 	var actorID uuid.UUID
 	if err := f.pool.QueryRow(ctx, `
 		SELECT actor_type::text, actor_id, payload FROM activity_log
-		WHERE workspace_id = $1 AND action = 'session.deleted' AND object_type = 'session' AND object_id = $2`, f.wsID, id).
+		WHERE workspace_id = $1 AND action = 'room.deleted' AND object_type = 'room' AND object_id = $2`, f.wsID, id).
 		Scan(&actorType, &actorID, &payload); err != nil {
-		t.Fatalf("session.deleted activity line: %v", err)
+		t.Fatalf("room.deleted activity line: %v", err)
 	}
 	var pl map[string]any
 	_ = json.Unmarshal(payload, &pl)
-	if actorType != "user" || str(pl, "title") != "삭제 대상 active" || str(pl, "session_id") != id || str(pl, "actor") != actorID.String() {
-		t.Errorf("session.deleted line = %s %s %s", actorType, actorID, payload)
+	if actorType != "user" || str(pl, "name") != "삭제 대상 active" || str(pl, "room_id") != id || str(pl, "actor") != actorID.String() {
+		t.Errorf("room.deleted line = %s %s %s", actorType, actorID, payload)
 	}
-	if f.count(t, `SELECT count(*) FROM activity_log WHERE action = 'session.deleted'`) != 1 {
-		t.Error("more than one session.deleted line")
+	if f.count(t, `SELECT count(*) FROM activity_log WHERE action = 'room.deleted'`) != 1 {
+		t.Error("more than one room.deleted line")
 	}
 
 	// REST after: 404 · gone from the list · gone from cost · gone from metrics.
-	if st, out, _ := f.api.do("GET", f.p+"/sessions/"+id, nil); st != 404 {
-		t.Errorf("getSession after delete = %d %v", st, out)
+	if st, out, _ := f.api.do("GET", f.p+"/rooms/"+id, nil); st != 404 {
+		t.Errorf("getRoom after delete = %d %v", st, out)
 	}
-	for _, item := range f.api.must(200, "GET", f.p+"/workspaces/"+f.wsID+"/sessions", nil)["items"].([]any) {
+	for _, item := range f.api.must(200, "GET", f.p+"/workspaces/"+f.wsID+"/rooms?include_archived=true", nil)["items"].([]any) {
 		if str(item.(map[string]any), "id") == id {
-			t.Error("listSessions still lists the deleted session")
+			t.Error("listRooms still lists the deleted room")
 		}
 	}
 	costAfter := f.api.must(200, "GET", f.p+"/workspaces/"+f.wsID+"/cost", nil)
@@ -403,22 +336,26 @@ func TestP5DeleteSessionCascade(t *testing.T) {
 		t.Errorf("auto_complete_rate n after = %d, want 1", n)
 	}
 	// The neighbour is untouched.
-	if st, _, _ := f.api.do("GET", f.p+"/sessions/"+keep, nil); st != 200 {
-		t.Errorf("neighbour session = %d", st)
+	if st, _, _ := f.api.do("GET", f.p+"/rooms/"+keep, nil); st != 200 {
+		t.Errorf("neighbour room = %d", st)
 	}
 
-	// SSE `session.deleted {session_id}` — persisted, so it is in stream_event
-	// for backfill, and delivered to the workspace stream.
-	fr := waitFrame(t, frames, "session.deleted", func(p json.RawMessage) bool {
+	// SSE `room.deleted {room_id}` — persisted, so it is in stream_event for
+	// backfill, and delivered to the workspace stream. The old
+	// `session.deleted` is not sent any more (openapi v0.3.0, D22).
+	fr := waitFrame(t, frames, "room.deleted", func(p json.RawMessage) bool {
 		var m map[string]any
 		_ = json.Unmarshal(p, &m)
-		return str(m, "session_id") == id
+		return str(m, "room_id") == id
 	})
 	if fr == nil {
-		t.Fatal("no session.deleted frame")
+		t.Fatal("no room.deleted frame")
 	}
-	if f.count(t, `SELECT count(*) FROM stream_event WHERE type = 'session.deleted' AND session_id = $1`, id) != 1 {
-		t.Error("session.deleted not persisted for backfill")
+	if f.count(t, `SELECT count(*) FROM stream_event WHERE type = 'room.deleted' AND session_id = $1`, id) != 1 {
+		t.Error("room.deleted not persisted for backfill")
+	}
+	if f.count(t, `SELECT count(*) FROM stream_event WHERE type LIKE 'session.%'`) != 0 {
+		t.Error("a session.* frame was sent (removed in openapi v0.3.0)")
 	}
 }
 
@@ -456,11 +393,11 @@ func metricN(t *testing.T, out map[string]any, key string) int {
 	return 0
 }
 
-// TestP5DeleteSessionGC — "그 외 workdir 은 서버가 데몬에 gc 명령을 싣고 행을
+// TestR4DeleteRoomGC — "그 외 workdir 은 서버가 데몬에 gc 명령을 싣고 행을
 // 지운다 — 데몬의 §6 보고 행이 이미 없는 workdir 을 가리키면 서버는 조용히
 // 소비한다(v0.8.1)". The claim response carries the command; the receipt for
 // a row that no longer exists is 200, consumes it, and leaves no feed line.
-func TestP5DeleteSessionGC(t *testing.T) {
+func TestR4DeleteRoomGC(t *testing.T) {
 	f := newMembersFixture(t)
 	ctx := t.Context()
 	id := f.newSessionWithStatus(t, "completed")
@@ -594,21 +531,9 @@ func TestP5DeleteSessionGC(t *testing.T) {
 	}
 }
 
-// TestP5DeleteSentencesMatchContract — the 409 `session_active` detail is the
-// contract's own sentence (openapi deleteSession description), not a paraphrase.
-func TestP5DeleteSentencesMatchContract(t *testing.T) {
-	raw, err := os.ReadFile("../../../contracts/openapi.yaml")
-	if err != nil {
-		t.Skipf("contract not reachable from this checkout: %v", err)
-	}
-	re := regexp.MustCompile(`operationId: deleteSession[\s\S]*?code: session_active` + "`" + `, "([^"]+)"`)
-	m := re.FindStringSubmatch(string(raw))
-	if m == nil {
-		t.Fatal("openapi deleteSession no longer carries the session_active sentence in the expected shape")
-	}
-	if sessions.DeleteActiveDetail != m[1] {
-		t.Fatalf("DeleteActiveDetail = %q, contract says %q", sessions.DeleteActiveDetail, m[1])
-	}
+// TestR4DeleteUnmergedSentence — deleteRoom's 409 workdir_unmerged names the
+// 작업 폴더 and the merge (the next action, not the rule).
+func TestR4DeleteUnmergedSentence(t *testing.T) {
 	if !strings.Contains(sessions.DeleteUnmergedDetail, "작업 폴더") || !strings.Contains(sessions.DeleteUnmergedDetail, "병합") {
 		t.Fatalf("DeleteUnmergedDetail = %q — must name the 작업 폴더 and the merge", sessions.DeleteUnmergedDetail)
 	}

@@ -130,10 +130,10 @@ func NewServer(d Deps) *Server {
 			d.Log.Warn("publish lane.updated", "err", err, "lane", laneID)
 		}
 	}
-	// Same closure trick for the agent chip: FR-1.3's derivation lives in
-	// internal/sessions, which imports tasks (G4 2판 W7).
+	// Same closure trick for the agent chip: FR-1.3's derivation (sessions.AgentStatuses)
+	// and the room roster (rooms.PublishParticipant) import tasks (G4 2판 W7).
 	tsk.ParticipantPublish = func(ctx context.Context, q db.DBTX, sessionID, agentID uuid.UUID) {
-		if err := sessions.PublishParticipant(ctx, hub, q, sessionID, agentID); err != nil {
+		if err := rooms.PublishParticipant(ctx, hub, q, sessionID, agentID); err != nil {
 			d.Log.Warn("publish participant.updated", "err", err, "session", sessionID, "agent", agentID)
 		}
 	}

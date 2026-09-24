@@ -135,11 +135,6 @@ func TestVerticalSlice(t *testing.T) {
 	}
 	api.must(200, "GET", p+"/invites/"+str(inv, "token"), nil)
 
-	// no runtime yet → createSession 409 no_runtime
-	if st, out, _ := api.do("POST", p+"/workspaces/"+wsID+"/sessions", map[string]any{"title": "S", "goal": "g", "isolation": map[string]any{"kind": "none"}, "participants": []any{}}); st != 422 {
-		t.Fatalf("empty participants = %d %v", st, out)
-	}
-
 	// --- pairing + daemon ---
 	pairing := api.must(201, "POST", p+"/workspaces/"+wsID+"/runtimes/pairings", map[string]any{"name": "laptop"})
 	code := str(pairing, "pairing_token")
@@ -185,27 +180,27 @@ func TestVerticalSlice(t *testing.T) {
 	})
 
 	// --- session ---
-	sess := api.must(201, "POST", p+"/workspaces/"+wsID+"/sessions", map[string]any{
+	sess := sessionRoom(t, api, pool, p, wsID, map[string]any{
 		"title": "Hello", "goal": "say hi", "isolation": map[string]any{"kind": "none"},
 		"participants": []map[string]any{{"agent_id": agentID}},
 	})
 	sessionID := str(sess, "id")
-	if str(sess, "status") != "active" || str(sess, "my_role") != "director" || sess["runtime_id"] != nil {
-		t.Fatalf("session = %v", sess)
+	if str(sess, "status") != "active" || str(sess, "my_room_role") != "owner" || sess["runtime_id"] != nil {
+		t.Fatalf("room = %v", sess)
 	}
-	// A runtime paired to another workspace cannot be this session's runtime (FR-2.1 M10).
+	if w := sess["work"].(map[string]any); str(w, "status") != "active" || str(w, "my_work_role") != "director" {
+		t.Fatalf("mission = %v", w)
+	}
+	// A runtime paired to another workspace cannot be this room's runtime (FR-2.1 M10).
 	foreignRuntime := testdb.AddRuntime(t, pool, testdb.AddWorkspace(t, pool, "other-ws", t0), "mac-b", t0)
-	if st, out, _ := api.do("POST", p+"/workspaces/"+wsID+"/sessions", map[string]any{
-		"title": "Leak", "goal": "g", "isolation": map[string]any{"kind": "none"}, "runtime_id": foreignRuntime.String(),
-		"participants": []map[string]any{{"agent_id": agentID}},
-	}); st != 422 || str(out, "code") != "validation_failed" || !hasFieldError(out, "runtime_id", "runtime_not_in_workspace") {
-		t.Fatalf("foreign runtime_id = %d %v, want 422 runtime_not_in_workspace", st, out)
+	if st, out, _ := api.do("PATCH", p+"/rooms/"+sessionID, map[string]any{"runtime_id": foreignRuntime.String()}); st != 422 || str(out, "code") != "validation_failed" {
+		t.Fatalf("foreign runtime_id = %d %v, want 422", st, out)
 	}
 
 	// --- post message: rule 2, idempotent replay, non-participant warning ---
 	mention := router.MentionLink("Lead", mustUUID(t, agentID))
 	key := "11111111-1111-4111-8111-111111111111"
-	post := api.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": mention + " 인사해줘"}, "Idempotency-Key", key)
+	post := api.must(201, "POST", p+"/rooms/"+sessionID+"/messages", map[string]any{"content": mention + " 인사해줘"}, "Idempotency-Key", key)
 	trig := post["triggers"].([]any)
 	if len(trig) != 1 {
 		t.Fatalf("triggers = %v", trig)
@@ -216,23 +211,34 @@ func TestVerticalSlice(t *testing.T) {
 		t.Fatalf("expected coalesce into the initial task, got %v", tr)
 	}
 	taskID := str(tr, "task_id")
-	st, replay, rh := api.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": mention + " 인사해줘"}, "Idempotency-Key", key)
+	st, replay, rh := api.do("POST", p+"/rooms/"+sessionID+"/messages", map[string]any{"content": mention + " 인사해줘"}, "Idempotency-Key", key)
 	if st != 201 || rh.Get("Idempotent-Replayed") != "true" || str(replay["message"].(map[string]any), "id") != str(post["message"].(map[string]any), "id") {
 		t.Fatalf("replay = %d %s %v", st, rh.Get("Idempotent-Replayed"), replay)
 	}
-	if st, out, _ := api.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "different"}, "Idempotency-Key", key); st != 422 || str(out, "code") != "idempotency_key_reused" {
+	if st, out, _ := api.do("POST", p+"/rooms/"+sessionID+"/messages", map[string]any{"content": "different"}, "Idempotency-Key", key); st != 422 || str(out, "code") != "idempotency_key_reused" {
 		t.Fatalf("reused key = %d %v", st, out)
 	}
-	if st, out, _ := api.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "x"}); st != 422 {
+	if st, out, _ := api.do("POST", p+"/rooms/"+sessionID+"/messages", map[string]any{"content": "x"}); st != 422 {
 		t.Fatalf("missing key = %d %v", st, out)
 	}
-	warn := api.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": router.MentionLink("X", mustUUID(t, str(other, "id"))) + " 도와줘"}, "Idempotency-Key", "22222222-2222-4222-8222-222222222222")
+	warn := api.must(201, "POST", p+"/rooms/"+sessionID+"/messages", map[string]any{"content": router.MentionLink("X", mustUUID(t, str(other, "id"))) + " 도와줘"}, "Idempotency-Key", "22222222-2222-4222-8222-222222222222")
 	if len(warn["triggers"].([]any)) != 0 || len(warn["warnings"].([]any)) != 1 {
 		t.Fatalf("E1-04: %v", warn)
 	}
-	msgs := api.must(200, "GET", p+"/sessions/"+sessionID+"/messages", nil)
-	if n := len(msgs["items"].([]any)); n != 3 { // system start + 2 user posts
-		t.Fatalf("messages = %d, want 3", n)
+	msgs := api.must(200, "GET", p+"/rooms/"+sessionID+"/messages", nil)
+	// 2 user posts beside the room's own system lines (the agent joining, the
+	// mission's start — sessionRoom builds the room as createRoom does).
+	users, systems := 0, 0
+	for _, raw := range msgs["items"].([]any) {
+		switch str(raw.(map[string]any), "author_type") {
+		case "user":
+			users++
+		case "system":
+			systems++
+		}
+	}
+	if users != 2 || systems < 1 {
+		t.Fatalf("messages = %d user · %d system, want 2 user posts and the start line: %v", users, systems, msgs["items"])
 	}
 
 	// --- claim ---
@@ -250,7 +256,7 @@ func TestVerticalSlice(t *testing.T) {
 	if str(bundle, "prompt") == "" || str(bundle["brief"].(map[string]any), "text") == "" {
 		t.Fatal("bundle must carry prompt and brief")
 	}
-	sess = api.must(200, "GET", p+"/sessions/"+sessionID, nil)
+	sess = api.must(200, "GET", p+"/rooms/"+sessionID, nil)
 	if str(sess, "runtime_id") != runtimeID {
 		t.Fatalf("session runtime not fixed on first claim (E11-10): %v", sess["runtime_id"])
 	}
@@ -334,8 +340,8 @@ func TestVerticalSlice(t *testing.T) {
 	if str(cctx, "task_id") != taskID || str(cctx, "session_id") != sessionID || str(cctx, "agent_name") != "Lead" {
 		t.Fatalf("cli context = %v", cctx)
 	}
-	cli.must(200, "GET", p+"/sessions/"+sessionID, nil)
-	cli.must(200, "GET", p+"/sessions/"+sessionID+"/messages", nil)
+	cli.must(200, "GET", p+"/rooms/"+sessionID, nil)
+	cli.must(200, "GET", p+"/rooms/"+sessionID+"/messages", nil)
 	if st, out, _ := cli.do("GET", p+"/workspaces/"+wsID+"/agents", nil); st != 403 {
 		t.Fatalf("task token outside scope = %d %v (Q8)", st, out)
 	}
@@ -345,19 +351,19 @@ func TestVerticalSlice(t *testing.T) {
 	if cctx["last_seq"].(float64) != 0 {
 		t.Fatalf("fresh task last_seq = %v, want 0", cctx["last_seq"])
 	}
-	if st, out, _ := cli.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "old key"}, "Idempotency-Key", taskID+":1:1"); st != 422 {
+	if st, out, _ := cli.do("POST", p+"/rooms/"+sessionID+"/messages", map[string]any{"content": "old key"}, "Idempotency-Key", taskID+":1:1"); st != 422 {
 		t.Fatalf("non-uuid Idempotency-Key = %d %v, want 422", st, out)
 	}
-	reply := cli.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "안녕하세요!"}, "Idempotency-Key", cliKey(taskID, 1))
+	reply := cli.must(201, "POST", p+"/rooms/"+sessionID+"/messages", map[string]any{"content": "안녕하세요!"}, "Idempotency-Key", cliKey(taskID, 1))
 	rm := reply["message"].(map[string]any)
 	if str(rm, "author_type") != "agent" || str(rm, "source_task_id") != taskID || len(reply["triggers"].([]any)) != 0 {
 		t.Fatalf("agent reply = %v", reply)
 	}
-	st, again, rh := cli.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "안녕하세요!"}, "Idempotency-Key", cliKey(taskID, 1))
+	st, again, rh := cli.do("POST", p+"/rooms/"+sessionID+"/messages", map[string]any{"content": "안녕하세요!"}, "Idempotency-Key", cliKey(taskID, 1))
 	if st != 201 || rh.Get("Idempotent-Replayed") != "true" || str(again["message"].(map[string]any), "id") != str(rm, "id") {
 		t.Fatalf("CLI replay = %d %v", st, again)
 	}
-	cli.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "두 번째"}, "Idempotency-Key", cliKey(taskID, 2))
+	cli.must(201, "POST", p+"/rooms/"+sessionID+"/messages", map[string]any{"content": "두 번째"}, "Idempotency-Key", cliKey(taskID, 2))
 	var agentMsgs int
 	_ = pool.QueryRow(t.Context(), `SELECT count(*) FROM message WHERE source_task_id = $1`, taskID).Scan(&agentMsgs)
 	if agentMsgs != 2 {
@@ -374,7 +380,7 @@ func TestVerticalSlice(t *testing.T) {
 	if n, err := s.Queue.ExpireStale(t.Context(), fake.Now()); err != nil || n != 1 {
 		t.Fatalf("ExpireStale = %d %v", n, err)
 	}
-	if st, out, _ := cli.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "orphan"}, "Idempotency-Key", cliKey(taskID, 3)); st != 401 || str(out, "code") != "token_revoked" {
+	if st, out, _ := cli.do("POST", p+"/rooms/"+sessionID+"/messages", map[string]any{"content": "orphan"}, "Idempotency-Key", cliKey(taskID, 3)); st != 401 || str(out, "code") != "token_revoked" {
 		t.Fatalf("orphan post = %d %v, want 401 token_revoked (E11-04)", st, out)
 	}
 	if st, _, _ := cli.do("GET", p+"/cli/context", nil); st != 401 {
@@ -413,7 +419,7 @@ func TestVerticalSlice(t *testing.T) {
 	if cctx["attempt"].(float64) != 2 || cctx["last_seq"].(float64) != 2 {
 		t.Fatalf("attempt 2 cli context = attempt %v last_seq %v, want 2 / 2", cctx["attempt"], cctx["last_seq"])
 	}
-	cli.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "attempt 2"}, "Idempotency-Key", cliKey(taskID, 3), "X-Colab-Client-Seq", "3")
+	cli.must(201, "POST", p+"/rooms/"+sessionID+"/messages", map[string]any{"content": "attempt 2"}, "Idempotency-Key", cliKey(taskID, 3), "X-Colab-Client-Seq", "3")
 	if got := cli.must(200, "GET", p+"/cli/context", nil)["last_seq"].(float64); got != 3 {
 		t.Fatalf("last_seq after attempt 2 post = %v, want 3", got)
 	}
@@ -421,12 +427,12 @@ func TestVerticalSlice(t *testing.T) {
 	// fails on the network (never reaches the server), and it continues at 5.
 	// last_seq must be the max actually used (5), not the count (4) — otherwise
 	// the next post would reuse key 5 and be rejected 422 / silently replayed.
-	cli.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "after a hole"}, "Idempotency-Key", cliKey(taskID, 5), "X-Colab-Client-Seq", "5")
+	cli.must(201, "POST", p+"/rooms/"+sessionID+"/messages", map[string]any{"content": "after a hole"}, "Idempotency-Key", cliKey(taskID, 5), "X-Colab-Client-Seq", "5")
 	if got := cli.must(200, "GET", p+"/cli/context", nil)["last_seq"].(float64); got != 5 {
 		t.Fatalf("last_seq with a hole at 4 = %v, want 5 (max, not count) — the CLI would reuse a key", got)
 	}
 	nextKey := cliKey(taskID, 6) // = last_seq + 1 as the CLI computes it
-	st, fresh, fh := cli.do("POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": "new content after the hole"}, "Idempotency-Key", nextKey, "X-Colab-Client-Seq", "6")
+	st, fresh, fh := cli.do("POST", p+"/rooms/"+sessionID+"/messages", map[string]any{"content": "new content after the hole"}, "Idempotency-Key", nextKey, "X-Colab-Client-Seq", "6")
 	if st != 201 || fh.Get("Idempotent-Replayed") != "" {
 		t.Fatalf("post at last_seq+1 = %d %v (replayed=%q), want 201 new message", st, fresh, fh.Get("Idempotent-Replayed"))
 	}
@@ -524,13 +530,17 @@ func TestVerticalSlice(t *testing.T) {
 	}
 	var streamed int
 	_ = pool.QueryRow(t.Context(), `SELECT count(*) FROM stream_event WHERE workspace_id = $1 AND type = 'message.created'`, wsID).Scan(&streamed)
-	// 2 user posts + 5 agent replies + the session-start system message + the
-	// "이 방은 〈컴퓨터〉에서 돕니다" notice the first claim posts when it pins
-	// the room (PRD v0.19 FR-2.1.1, T-R1b1). Neither system message is ROUTED,
-	// but each is still a message on the timeline, so it gets a frame like
-	// every other one (G4 2판 W10).
-	if streamed != 9 {
-		t.Fatalf("stream message.created rows = %d, want 9", streamed)
+	// Every message on the timeline gets exactly one frame — the 2 user posts,
+	// the 5 agent replies and the room's own system lines (the agent joining,
+	// the mission's start, the "이 방은 〈컴퓨터〉에서 돕니다" notice the first
+	// claim posts, PRD v0.19 FR-2.1.1). None of the system lines is ROUTED,
+	// but each is still a message, so it gets a frame like every other one
+	// (G4 2판 W10). Counted against the rows rather than a literal since R4
+	// builds the room through createRoom · addRoomParticipant · createWork.
+	var rows int
+	_ = pool.QueryRow(t.Context(), `SELECT count(*) FROM message WHERE session_id = $1`, sessionID).Scan(&rows)
+	if streamed != rows || rows < 9 {
+		t.Fatalf("stream message.created rows = %d, messages = %d — want one frame per message (≥ 9)", streamed, rows)
 	}
 	fmt.Fprintln(io.Discard, agent, other)
 }

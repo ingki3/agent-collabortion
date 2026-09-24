@@ -59,7 +59,7 @@ export interface ComposerProps {
   members?: ComposerMember[];
   replyTo?: { id: string; authorName: string } | null;
   onCancelReply?: () => void;
-  /** 서버 트리거 미리보기(`POST /sessions/{id}/messages/preview`). 없으면 칩을 그리지 않는다. */
+  /** 서버 트리거 미리보기(`POST /rooms/{roomId}/messages/preview`). 없으면 칩을 그리지 않는다. */
   onPreview?: (input: ComposerInput) => Promise<TriggerPreview>;
   onSubmit: (input: ComposerInput) => Promise<ComposerWarning[] | void>;
   disabled?: boolean;

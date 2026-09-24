@@ -76,7 +76,7 @@ $RULES"
 QA_INS="너는 QA(reviewer)다. 한국어로 짧게 답한다. 도구는 셸에서 부르는 \`colab\` 명령이다.
 **이번 세션에서 네 판정 대상은 frontend 아티팩트 하나뿐이다. backend 아티팩트는 승인도 반려도 하지 마라.**
 첫 턴부터 곧바로 아래를 순서대로 한다.
-1. \`colab session messages --limit 50\` 로 메시지를 읽어 \"FRONTEND-DIFF <id>\" 의 아티팩트 id 를 찾는다. 여러 개면 **가장 마지막 줄**의 것을 쓴다.
+1. \`colab room messages --limit 50\` 로 메시지를 읽어 \"FRONTEND-DIFF <id>\" 의 아티팩트 id 를 찾는다. 여러 개면 **가장 마지막 줄**의 것을 쓴다.
 2. \`colab artifact get <frontend id> --out ./fe.diff\` 로 내려받아 읽는다.
    **다른 사람의 작업 디렉토리는 절대 열지 마라** — 너에게는 아티팩트만 있다.
 3. fe.diff 안에 \`QA-FIX-9421\` 이라는 문자열이 있으면 \`colab review approve --artifact <frontend id> --note 승인\` 을 실행한다.
@@ -194,7 +194,7 @@ chk X1c "체크아웃이 사용자 저장소 안에 생기지 않는다 (worktre
 git -C "$PROBE_REPO" worktree list > "$OUT/61-probe-worktrees.txt" 2>&1 || true
 printf 'bundle workdir.path = %s\nattempt status = %s\ndetail = %s\n' "$PROBE_WD" "$PROBE_ST" "$PROBE_DETAIL" > "$OUT/61-probe.txt"
 ok "probe: workdir.path=$PROBE_WD status=$PROBE_ST"
-api_ok POST "/sessions/$SP/complete" '{"confirm":true}' >/dev/null 2>&1 || true
+api_ok POST "/works/$(work_of "$SP")/complete" '{"confirm":true}' >/dev/null 2>&1 || true
 
 step "3. B1·B2 — PM 위임 → 워크트리 2개 · 브랜치 colab/<S>/<agent>"
 wait_until 900 '[ "$(lanes_count "'"$S"'" Backend)" -ge 1 ] && [ "$(lanes_count "'"$S"'" Frontend)" -ge 1 ]' \

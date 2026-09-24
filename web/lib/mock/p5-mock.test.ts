@@ -18,7 +18,8 @@ import { dispatch, METRIC_DEFS, type Req } from "./handlers";
 import { W } from "./wording";
 import { defaultSettings, resetStore, store, type Subscriber } from "./store";
 import { SETTINGS_DEFAULTS } from "@/lib/settings";
-import type { Invite, Member, MetricsReport, NotificationSettings, Runtime, Session, TestChat, TestChatTurn, WorkspaceSettings } from "@/lib/api/types";
+import type { Invite, Member, MetricsReport, NotificationSettings, Runtime, TestChat, TestChatTurn, WorkspaceSettings } from "@/lib/api/types";
+import type { Session } from "@/lib/legacy-session";
 
 let cookie = "";
 async function call(method: string, path: string, opts: { body?: unknown; headers?: Record<string, string> } = {}) {
@@ -237,11 +238,11 @@ describe("members · invites", () => {
     const seo = await seoyeon(id);
     const rt = (await must<Runtime[]>("GET", `/workspaces/${id}/runtimes`))[0];
     const ags = (await must<{ items: { id: string }[] }>("GET", `/workspaces/${id}/agents`)).items;
-    const sess = await must<Session>("POST", `/workspaces/${id}/sessions`, { body: { title: "제거 차단", goal: "g", isolation: { kind: "none" }, runtime_id: rt.id, participants: [{ agent_id: ags[0].id }], assignee_agent_id: ags[0].id } });
-    await must("PUT", `/sessions/${sess.id}/director`, { body: { director_user_id: seo.user.id } });
+    const sess = await must<Session>("POST", `/__mock/workspaces/${id}/seed-room`, { body: { title: "제거 차단", goal: "g", isolation: { kind: "none" }, runtime_id: rt.id, participants: [{ agent_id: ags[0].id }], assignee_agent_id: ags[0].id } });
+    await must("PUT", `/works/${sess.id}/director`, { body: { director_user_id: seo.user.id } });
     expect((await call("DELETE", `/workspaces/${id}/members/${seo.id}`)).status).toBe(204);
     // 세션을 만든 사람(= 방장)이 Director 를 이어받는다.
-    const after = await must<Session>("GET", `/sessions/${sess.id}`);
+    const after = await must<Session>("GET", `/__mock/rooms/${sess.id}/legacy`);
     expect(after.director_user_id).toBe(sess.created_by);
     expect(after.director_user_id).not.toBe(seo.user.id);
   });
@@ -295,20 +296,20 @@ describe("test chat — FR-1.8.1 · daemon-protocol §4.5", () => {
   /** 워크스페이스 스트림 구독자를 흉내 내 프레임을 모은다. */
   function tap(workspaceId: string): { frames: { type: string; payload: Record<string, unknown>; ephemeral: boolean }[] } {
     const frames: { type: string; payload: Record<string, unknown>; ephemeral: boolean }[] = [];
-    const sub: Subscriber = { workspace_id: workspaceId, session_ids: null, write: (f) => { const m = /data: (.*)\n\n$/s.exec(f); if (m) frames.push(JSON.parse(m[1])); } };
+    const sub: Subscriber = { workspace_id: workspaceId, room_ids: null, write: (f) => { const m = /data: (.*)\n\n$/s.exec(f); if (m) frames.push(JSON.parse(m[1])); } };
     store().subs.add(sub);
     return { frames };
   }
 
-  it("201 TestChat(required 전부) — 세션 0개, 열림, 토큰 0", async () => {
+  it("201 TestChat(required 전부) — 방 0개, 열림, 토큰 0", async () => {
     const id = await ws();
-    const before = (await must<{ items: unknown[] }>("GET", `/workspaces/${id}/sessions`)).items.length;
+    const before = (await must<{ items: unknown[] }>("GET", `/workspaces/${id}/rooms`)).items.length;
     const chat = await must<TestChat>("POST", `/agents/${await agentId()}/test-chats`, { body: { profile_id: null, runtime_id: null } });
     for (const k of ["id", "workspace_id", "agent_id", "profile_id", "user_id", "status", "turns", "input_tokens", "output_tokens", "cost_usd", "created_at", "updated_at"]) expect(chat).toHaveProperty(k);
     expect(chat.status).toBe("open");
     expect(chat.turns).toEqual([]);
     expect(chat.transport).toBeNull();
-    expect((await must<{ items: unknown[] }>("GET", `/workspaces/${id}/sessions`)).items.length).toBe(before);
+    expect((await must<{ items: unknown[] }>("GET", `/workspaces/${id}/rooms`)).items.length).toBe(before);
   });
 
   it("턴 202 → SSE delta(ephemeral) … → turn(계약 페이로드) · 진행 중 409 · 그 뒤 다시 보낼 수 있다", async () => {

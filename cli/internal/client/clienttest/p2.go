@@ -98,9 +98,9 @@ type p2State struct {
 // them, so the P1 switch can carry on. The caller holds s.mu.
 func (s *Server) handleP2(w http.ResponseWriter, r *http.Request, path string) bool {
 	switch {
-	case r.Method == "POST" && strings.HasSuffix(path, "/lanes") && strings.HasPrefix(path, "/sessions/"):
-		if path != "/sessions/"+SessionID+"/lanes" {
-			s.problem(w, 403, "forbidden", "Forbidden", "token scope is another session")
+	case r.Method == "POST" && strings.HasSuffix(path, "/lanes") && strings.HasPrefix(path, "/rooms/"):
+		if path != "/rooms/"+SessionID+"/lanes" {
+			s.problem(w, 403, "forbidden", "Forbidden", "token scope is another room")
 			return true
 		}
 		body, ok := decodeBody(s, w, r)
@@ -115,7 +115,7 @@ func (s *Server) handleP2(w http.ResponseWriter, r *http.Request, path string) b
 		if !isParticipant(agentID) {
 			// The server's own guard; the CLI normally refuses first (E15-02).
 			s.problem(w, 422, "not_participant", "Not a participant",
-				"target agent is not a session participant — ask the Director to add them (hitl ask)")
+				"target agent is not a room participant — ask the Director to add them (hitl ask)")
 			return true
 		}
 		s.Delegations = append(s.Delegations, Delegation{Key: r.Header.Get("Idempotency-Key"), Body: body})
@@ -186,9 +186,9 @@ func (s *Server) handleP2(w http.ResponseWriter, r *http.Request, path string) b
 		writeJSON(w, 200, out)
 		return true
 
-	case r.Method == "POST" && strings.HasSuffix(path, "/decisions") && strings.HasPrefix(path, "/sessions/"):
-		if path != "/sessions/"+SessionID+"/decisions" {
-			s.problem(w, 403, "forbidden", "Forbidden", "token scope is another session")
+	case r.Method == "POST" && strings.HasSuffix(path, "/decisions") && strings.HasPrefix(path, "/rooms/"):
+		if path != "/rooms/"+SessionID+"/decisions" {
+			s.problem(w, 403, "forbidden", "Forbidden", "token scope is another room")
 			return true
 		}
 		body, ok := decodeBody(s, w, r)
@@ -212,9 +212,9 @@ func (s *Server) handleP2(w http.ResponseWriter, r *http.Request, path string) b
 		})
 		return true
 
-	case r.Method == "POST" && strings.HasSuffix(path, "/artifacts") && strings.HasPrefix(path, "/sessions/"):
-		if path != "/sessions/"+SessionID+"/artifacts" {
-			s.problem(w, 403, "forbidden", "Forbidden", "token scope is another session")
+	case r.Method == "POST" && strings.HasSuffix(path, "/artifacts") && strings.HasPrefix(path, "/rooms/"):
+		if path != "/rooms/"+SessionID+"/artifacts" {
+			s.problem(w, 403, "forbidden", "Forbidden", "token scope is another room")
 			return true
 		}
 		sub, err := readMultipart(r)

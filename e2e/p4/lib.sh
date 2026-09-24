@@ -155,10 +155,10 @@ P4_RULES="Work only inside your own working directory. Do not look at any other 
 create_session_p4() {
   local ws="$1" title="$2" goal="$3" assignee="$4" rt="$5" repo="$6" cond="$7" extra="${8:-{\}}"; shift 8
   local parts; parts="$(printf '%s\n' "$@" | jq -R . | jq -sc 'map({agent_id:.})')"
-  api_ok POST "/workspaces/$ws/sessions" "$(jq -nc --arg t "$title" --arg g "$goal" --arg a "$assignee" --arg rt "$rt" \
+  create_room_work "$ws" "$(jq -nc --arg t "$title" --arg g "$goal" --arg a "$assignee" --arg rt "$rt" \
       --arg repo "$repo" --argjson p "$parts" --argjson c "$cond" --argjson x "$extra" \
     '{title:$t,goal:$g,isolation:{kind:"worktree",repo_path:$repo},participants:$p,assignee_agent_id:$a,
-      completion_condition:$c, runtime_id:$rt} + $x')" | jq -r .id
+      completion_condition:$c, runtime_id:$rt} + $x')"
 }
 # cond_agent_approval AGENT → 종료 조건 JSON (E16-B 1단계: QA 승인 단독)
 cond_agent_approval() { jq -nc --arg a "$1" '{op:"and",conditions:[{type:"agent_approval",agent_id:$a}]}'; }

@@ -16,12 +16,12 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { PageHead, DisabledHint } from "@/components/PageHead";
-import { RebindDialog } from "@/components/RebindDialog";
+import { RebindDialog, rebindTargetOfRoom } from "@/components/RebindDialog";
 import { RuntimeCard, graceView } from "@/components/RuntimeCard";
 import { api, errorMessage, isApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
-import type { Problem, Runtime, RuntimeDetail, Session, StreamEvent } from "@/lib/api/types";
+import type { Problem, Runtime, RuntimeDetail, StreamEvent } from "@/lib/api/types";
 
 /** `Problem.sessions[]` 항목 — 계약은 `{id, title}` 이고 상태는 싣지 않는다(SessionRef 가 아니다). */
 type BlockingSession = NonNullable<Problem["sessions"]>[number];
@@ -82,19 +82,11 @@ export default function RuntimesPage() {
     }
   }, [openId, detail]);
 
-  /** 재바인딩은 세션 단위다 — 세션 상세를 읽어야 격리·정지 사유를 다이얼로그가 그린다. */
-  async function openRebind(sessionId: string) {
+  /** 재바인딩은 방 단위다 — 방 상세(`getRoom`)를 읽어야 격리·멈춘 시각을 다이얼로그가 그린다(`active_sessions[].id` = 방 id). */
+  async function openRebind(roomId: string) {
     try {
-      const s: Session = await api.get("/sessions/{sessionId}", { path: { sessionId } });
-      setRebind({
-        id: s.id,
-        title: s.title,
-        isolation: s.isolation,
-        status: s.status,
-        workspace_id: s.workspace_id,
-        paused_detail: s.paused_detail,
-        runtime: s.runtime ?? null,
-      });
+      const r = await api.get("/rooms/{roomId}", { path: { roomId } });
+      setRebind(rebindTargetOfRoom(r));
     } catch (e) {
       setError(errorMessage(e));
     }

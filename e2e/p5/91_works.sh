@@ -20,8 +20,8 @@
 #   H. 동시 미션 상한(FR-2A.5): 방 max_concurrent_works 를 넘으면 409 max_concurrent_works + open_works[].
 #   I. Director 승계(openapi 0.2.3 · §12.1-4): 미션 Director 인 멤버를 내보내면 204 · 그 방의 방장이 잇는다 ·
 #      미션 타임라인 한 줄 · activity_log work.director_succeeded.
-#   J. 옛 경로 방(createSession)에 둘째 미션: getSession 은 그 세션의 미션에 고정 · work_id 없는 옛 게시는 그 미션 ·
-#      pauseSession 은 그 미션만 · deleteSession 은 열린 미션이 있으면 409.
+#   J. 방(createRoom→createWork)에 둘째 미션(R4 — 옛 /sessions 삭제): legacy_work_id 없음 · work_id 없는 게시는 미션 없음 ·
+#      pauseWork 는 그 미션만 · deleteRoom 은 열린 미션이 있으면 409 works_active.
 #   K. 미션 시간 상한(FR-2A.3): time_limit 이 지나면 paused(time) + 확인 요청(purpose time) + work_paused ·
 #      time_extension 승인으로 재개.
 #   L. 방 예산 초과(FR-2.4 · FR-8, T-S-inbox): 방 게이트 budget · 방장 받은 요청 room_paused 한 줄(근거 room_owner ·
@@ -56,8 +56,8 @@ att() { psqlq "select attempt from task where id='$1'"; }
 running() { daemon_api "tasks/$1/attempts/$(att "$1")/phase" '{"phase":"running","pgid":4242}' >/dev/null; }
 finish() { daemon_api "tasks/$1/attempts/$(att "$1")/finish" '{"outcome":"completed","stop_reason":"end_turn","transport":"acp","last_seq":0,"usage":{"input_tokens":10,"output_tokens":5,"cost_usd":0.001,"estimated":false,"model":"claude-sonnet-5"}}' >/dev/null; }
 # post ROOM JSON → MessagePostResult (사람)
-post() { api_ok POST "/sessions/$1/messages" "$2" -H "Idempotency-Key: $(uuid)"; }
-preview() { api_ok POST "/sessions/$1/messages/preview" "$2"; }
+post() { api_ok POST "/rooms/$1/messages" "$2" -H "Idempotency-Key: $(uuid)"; }
+preview() { api_ok POST "/rooms/$1/messages/preview" "$2"; }
 msg_work() { psqlq "select coalesce(work_id::text,'-') from message where id='$1'"; }
 mk_agent() { api_ok POST "/workspaces/$WS/agents" "$(jq -nc --arg n "$1" '{name:$n,role:"lead",role_description:"d",instructions:"짧게",
   profiles:[{name:"default",runtime_kind:"claude_code",model:"claude-sonnet-5",is_default:true}]}')" | jq -r .id; }
@@ -109,7 +109,7 @@ chk B.5 "-/none" "$(jq -r '(.work.id//"-")+"/"+.work_source' <<<"$PV")" "규칙 
 M4="$(post "$ROOM" '{"content":"잡담"}' | jq -r .message.id)"
 chk B.6 "-" "$(msg_work "$M4")" "  … 게시된 잡담 work_id 없음"
 # T-S-toapi: 미션 칩 거르기는 서버 응답 칸(Message.work_id)으로 동작한다 — 거르지 않은 목록을 클라이언트가 work_id 로 거른 것 = 서버 ?work_id= 목록, 미션 없음은 null.
-chk B.7 "$(api_ok GET "/sessions/$ROOM/messages?work_id=$W2" | jq -r '[.items[].id]|sort|join(",")')/-" "$(api_ok GET "/sessions/$ROOM/messages" | jq -r --arg w "$W2" '[.items[]|select(.work_id==$w)|.id]|sort|join(",")')/$(api_ok GET "/messages/$M4" | jq -r 'if has("work_id") then (.work_id // "-") else "키 없음" end')" "미션 칩 = 응답의 work_id 로 거른 것(getMessage 의 미션 없음 = null)"
+chk B.7 "$(api_ok GET "/rooms/$ROOM/messages?work_id=$W2" | jq -r '[.items[].id]|sort|join(",")')/-" "$(api_ok GET "/rooms/$ROOM/messages" | jq -r --arg w "$W2" '[.items[]|select(.work_id==$w)|.id]|sort|join(",")')/$(api_ok GET "/messages/$M4" | jq -r 'if has("work_id") then (.work_id // "-") else "키 없음" end')" "미션 칩 = 응답의 work_id 로 거른 것(getMessage 의 미션 없음 = null)"
 
 # ───────────────────────────── C ─────────────────────────────────────────────
 step "C. 미션별 예산·일시정지 독립 (FR-2A.3)"
@@ -214,20 +214,22 @@ chk I.3 1 "$(psqlq "select count(*) from message where session_id='$ROOM' and wo
 chk I.4 1 "$(psqlq "select count(*) from activity_log where session_id='$ROOM' and action='work.director_succeeded'")" "activity_log work.director_succeeded"
 
 # ───────────────────────────── J ─────────────────────────────────────────────
-step "J. 옛 경로 방(createSession)에 둘째 미션 — 옛 /sessions 는 그 세션의 미션에 고정"
-SID="$(api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg l "$LEAD" --arg rt "$RID" '{title:"옛 세션",goal:"옛 목표",isolation:{kind:"none"},participants:[{agent_id:$l}],assignee_agent_id:$l,runtime_id:$rt}')" | jq -r .id)"
-LW="$(psqlq "select legacy_work_id from room where id='$SID'")"
+step "J. 방(createRoom→createWork)에 둘째 미션 — R4: 옛 /sessions 와 그 호환 규칙이 없다"
+# R4(openapi v0.3.0 D22): createSession·getSession·pauseSession·deleteSession 삭제. 옛 J 는 「옛 경로 방(legacy_work_id)의
+# 호환 규칙」을 쟀다 — 이제 그런 방은 0025 이관 방뿐이고 API 로 만들 수 없다. 같은 자리를 새 경로로 잰다.
+SID="$(create_room_work "$WS" "$(jq -nc --arg l "$LEAD" --arg rt "$RID" '{title:"옛 세션",goal:"옛 목표",isolation:{kind:"none"},participants:[{agent_id:$l}],assignee_agent_id:$l,runtime_id:$rt}')")"
+LW="$(work_of "$SID")"
 W5="$(open_work "$SID" '{"goal":"옛 방의 새 미션"}')"
-chk J.1 "옛 세션/옛 세션/옛 세션" "$(for i in 1 2 3; do api_ok GET "/sessions/$SID" | jq -r .title; done | paste -sd/ -)" "getSession 은 세 번 모두 그 세션의 미션(임의의 한 미션이 아니다)"
+chk J.1 "2/-" "$(api_ok GET "/rooms/$SID/works" | jq -r '.items|length')/$(psqlq "select coalesce(legacy_work_id::text,'-') from room where id='$SID'")" "listRoomWorks 두 미션 · createRoom 방은 legacy_work_id 없음(옛 getSession 고정 판정 자리)"
 M5="$(post "$SID" '{"content":"옛 화면에서 한 줄"}' | jq -r .message.id)"
-chk J.2 "$LW" "$(msg_work "$M5")" "work_id 키 없는 옛 게시 → 그 세션의 미션(옛 경로 방만의 호환 규칙)"
+chk J.2 "-" "$(msg_work "$M5")" "work_id 키 없는 게시 → 미션 없음(R4: 옛 세션 호환 규칙은 legacy 방만 — 옛 판정은 그 세션의 미션)"
 M6="$(post "$SID" '{"content":"미션 없음","work_id":null}' | jq -r .message.id)"
 chk J.3 "-" "$(msg_work "$M6")" "work_id:null(칩의 「미션 없음」) → 규칙 4"
-api_ok POST "/sessions/$SID/pause" >/dev/null
-chk J.4 "paused/active" "$(wget_ "$LW" | jq -r .status)/$(wget_ "$W5" | jq -r .status)" "pauseSession 은 그 세션의 미션만"
-api_ok POST "/sessions/$SID/cancel" >/dev/null
-call DELETE "/sessions/$SID"
-chk J.5 "409/session_active" "$CODE/$(jq -r .code <<<"$BODY")" "deleteSession 은 방을 지운다 — 다른 미션이 열려 있으면 409"
+api_ok POST "/works/$LW/pause" >/dev/null
+chk J.4 "paused/active" "$(wget_ "$LW" | jq -r .status)/$(wget_ "$W5" | jq -r .status)" "pauseWork 는 그 미션만(옛 pauseSession 자리)"
+api_ok POST "/works/$LW/cancel" >/dev/null
+call DELETE "/rooms/$SID"
+chk J.5 "409/works_active" "$CODE/$(jq -r .code <<<"$BODY")" "deleteRoom — 다른 미션이 열려 있으면 409 works_active(옛 deleteSession 409 session_active)"
 
 # ───────────────────────────── K ─────────────────────────────────────────────
 step "K. 미션 시간 상한 (FR-2A.3 — 새 경로)"

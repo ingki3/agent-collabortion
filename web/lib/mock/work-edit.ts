@@ -7,7 +7,7 @@
  *
  * **handlers.ts 에는 등록 한 줄만 둔다**(`registerWorkEdit(…)`) — 다른 웹 워커가 같은 시기에 handlers.ts 를 고친다.
  * 참여 에이전트 목록은 방 다이얼로그 목(`./rooms-dialogs.ts`)만 안다 — 그 op(`GET /rooms/{id}/participants`)를 `dispatch` 로 불러 쓴다.
- * 옛 세션의 미션(미션 id = 세션 id)은 옛 op(`PATCH /sessions/{id}`)로 넘겨 진행률 계산을 그쪽에 맡긴다.
+ * 옛 세션의 미션(미션 id = 세션 id)은 목 내부 길(`PATCH /__mock/rooms/{id}/legacy` — 옛 updateSession 은 R4 에서 계약이 지웠다)로 넘겨 진행률 계산을 그쪽에 맡긴다.
  */
 import type { CompletionCondition, CompletionProgress, RoomParticipant, User } from "@/lib/api/types";
 import type { components } from "@/lib/api/schema";
@@ -115,9 +115,9 @@ export function registerWorkEdit(ctx: WorkEditCtx): void {
     }
 
     if (w.legacy) {
-      // 옛 세션의 미션 — 세션 op 가 진행률·`session.*` 알림까지 한다. 담당은 옛 세션 칸이 아니라 여기서 옮긴다.
+      // 옛 세션의 미션 — 목 내부 길이 진행률·`work.*` 알림까지 한다. 담당은 옛 세션 칸이 아니라 여기서 옮긴다.
       const r = await ctx.dispatch({
-        ...req, method: "PATCH", path: `/sessions/${w.id}`,
+        ...req, method: "PATCH", path: `/__mock/rooms/${w.id}/legacy`,
         body: {
           ...(title !== undefined ? { title } : {}), ...(goal !== undefined ? { goal } : {}),
           ...(b.acceptance_criteria !== undefined ? { acceptance_criteria: b.acceptance_criteria } : {}),

@@ -61,10 +61,10 @@ start_server() { # KEY BASEURL — 없으면 키 없이(폴백)
 # run_arm NAME MODE → session id (한 세션을 만들고 complete 한다)
 run_arm() {
   local name="$1" s
-  s="$(api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg t "$name" --arg a "$AG" --arg rt "$RUNTIME" \
+  s="$(create_room_work "$WS" "$(jq -nc --arg t "$name" --arg a "$AG" --arg rt "$RUNTIME" \
       '{title:$t,goal:"요약 실패 경로",isolation:{kind:"none"},participants:[{agent_id:$a}],
-        assignee_agent_id:$a,runtime_id:$rt,completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | jq -r .id)"
-  api POST "/sessions/$s/complete" '{"confirm":true}' -H "Idempotency-Key: $(uuid)" >/dev/null
+        assignee_agent_id:$a,runtime_id:$rt,completion_condition:{op:"and",conditions:[{type:"manual"}]}}')")"
+  api POST "/works/$(work_of "$s")/complete" '{"confirm":true}' -H "Idempotency-Key: $(uuid)" >/dev/null
   printf '%s' "$s"
 }
 sum_feed() { psqlq "select coalesce(e.object_ref::text,'-')||' '||coalesce(e.payload->>'detail','-')

@@ -211,9 +211,9 @@ link_fallback "$FBA" primary spare      # ← 우회(S-24): 생성 API 가 fallb
 P_PRIMARY="$(profile_of "$FBA" primary)"; P_SPARE="$(profile_of "$FBA" spare)"
 chk C0 "폴백 연결이 DB 에 섰다 (정식 경로 부재 — S-24)" "$P_SPARE" \
   "$(psqlq "select coalesce(fallback_profile_id::text,'-') from agent_profile where id='$P_PRIMARY'")"
-FB_SESSION="$(api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg t "폴백 전환" --arg g "폴백 확인용 세션" --arg a "$FBA" --arg rt "$RUNTIME" \
+FB_SESSION="$(create_room_work "$WS" "$(jq -nc --arg t "폴백 전환" --arg g "폴백 확인용 세션" --arg a "$FBA" --arg rt "$RUNTIME" \
   '{title:$t,goal:$g,isolation:{kind:"none"},participants:[{agent_id:$a}],assignee_agent_id:$a,runtime_id:$rt,
-    completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | jq -r .id)"
+    completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" )"
 FB_TASK="$(session_initial_task "$FB_SESSION")"
 ok "fallback session $FB_SESSION task $FB_TASK"
 FB_WD_BEFORE=""; FB_DEADLINE=$(( $(date +%s) + 420 ))
@@ -248,9 +248,9 @@ chk C6b "세션은 같은 머신에 남았다 (E8-09 — 다른 머신으로 넘
 
 step "D. E8-09 — 대체 프로파일이 없으면 queued 유지 + Director 알림"
 NFA="$(create_agent_kind "$WS" Lonely custom hermes "$BAD_MODEL" "$FB_INS" '대안 없는 프로파일')"
-NF_SESSION="$(api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg t "대안 없음" --arg g "E8-09 확인용 세션" --arg a "$NFA" --arg rt "$RUNTIME" \
+NF_SESSION="$(create_room_work "$WS" "$(jq -nc --arg t "대안 없음" --arg g "E8-09 확인용 세션" --arg a "$NFA" --arg rt "$RUNTIME" \
   '{title:$t,goal:$g,isolation:{kind:"none"},participants:[{agent_id:$a}],assignee_agent_id:$a,runtime_id:$rt,
-    completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | jq -r .id)"
+    completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" )"
 NF_TASK="$(session_initial_task "$NF_SESSION")"
 NF_DEADLINE=$(( $(date +%s) + 300 ))
 while [ "$(date +%s)" -lt "$NF_DEADLINE" ]; do

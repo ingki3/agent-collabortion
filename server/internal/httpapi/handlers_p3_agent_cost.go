@@ -176,19 +176,19 @@ func (s *Server) usageRows(ctx context.Context, where string, args ...any) ([]co
 	return out, rows.Err()
 }
 
-func (s *Server) GetSessionCost(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	if _, p := s.sessionAccess(r, sessionId); p != nil {
+func (s *Server) GetRoomCost(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	if _, p := s.sessionAccess(r, roomId); p != nil {
 		writeProblem(w, p)
 		return
 	}
-	rows, err := s.usageRows(r.Context(), "t.session_id = $1", sessionId)
+	rows, err := s.usageRows(r.Context(), "t.session_id = $1", roomId)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
 	rep := cost.Rollup(rows)
 	var limits []byte
-	_ = s.DB.QueryRow(r.Context(), `SELECT limits FROM room WHERE id = $1`, sessionId).Scan(&limits)
+	_ = s.DB.QueryRow(r.Context(), `SELECT limits FROM room WHERE id = $1`, roomId).Scan(&limits)
 	writeJSON(w, http.StatusOK, costReportAPI(rep, budgetOf(limits)))
 }
 

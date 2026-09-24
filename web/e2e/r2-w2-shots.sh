@@ -79,7 +79,7 @@ SEED=$(apic '
       { agent: "Lead", status: "failed", work: null, brief: "회의록 정리", failure_kind: "timeout" },
     ],
   });
-  await post(`/__mock/sessions/${room.id}/seed-hitl`, { question: "보고서 독자가 투자자인가요, 내부 경영진인가요?" });
+  await post(`/__mock/rooms/${room.id}/seed-hitl`, { question: "보고서 독자가 투자자인가요, 내부 경영진인가요?" });
   return [ws, room.id, s.works[0], s.works[1], s.works[2]].join(",");
 })()')
 IFS=, read -r WS ROOM W1 W2 W3 <<<"$SEED"

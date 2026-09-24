@@ -266,7 +266,7 @@ func TestG5CompletedSessionCollectsWorkdirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/complete", map[string]any{"confirm": true})
+	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/complete", map[string]any{"confirm": true})
 
 	var gcs int
 	var ids, targets string
@@ -347,7 +347,7 @@ func TestG5WorktreeSessionIsNotCollectedOnCompletion(t *testing.T) {
 		VALUES ($1, $2, 'worktree', '/repo/.wt/r', 'active', now(), now())`, f.sessionID, f.r); err != nil {
 		t.Fatal(err)
 	}
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/complete", map[string]any{"confirm": true})
+	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/complete", map[string]any{"confirm": true})
 	var gcs int
 	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM daemon_command WHERE session_id = $1 AND type = 'gc'`, f.sessionID).Scan(&gcs); err != nil {
 		t.Fatal(err)
@@ -366,7 +366,7 @@ func TestG5WorktreeSessionIsNotCollectedOnCompletion(t *testing.T) {
 // issued the approval request. It returns that request's id.
 func (f *p2Fixture) issueCompletionApproval(t *testing.T) string {
 	t.Helper()
-	if _, err := f.srv.Sessions.ApplyCompletionEvent(t.Context(), mustUUID(t, f.sessionID),
+	if _, err := f.srv.Sessions.ApplyWorkEvent(t.Context(), mustUUID(t, f.missionID),
 		sessions.Event{Kind: "artifact_submit", Actor: f.leadUUID}); err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +396,7 @@ func TestG5ApprovalCompletesSession(t *testing.T) {
 		t.Fatalf("hitl_request = %v, want answered + approved", req)
 	}
 
-	sess := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
+	sess := f.api.must(200, "GET", f.p+"/works/"+f.missionID, nil)
 	if str(sess, "status") != "completed" {
 		t.Fatalf("session status = %q, want completed (E6-03)", str(sess, "status"))
 	}
@@ -424,14 +424,17 @@ func TestG5ApprovalCompletesSession(t *testing.T) {
 	for _, it := range list {
 		row, _ := it.(map[string]any)
 		if str(row, "type") == "session_completed" {
+			t.Fatalf("a session_completed item — removed in openapi v0.3.0 (work_completed replaces it): %v", row)
+		}
+		if str(row, "type") == "work_completed" {
 			completed++
 			if str(row, "severity") != "info" {
-				t.Fatalf("session_completed severity = %q, want info — the nav badge counts action_required only (SCREEN §4.6)", str(row, "severity"))
+				t.Fatalf("work_completed severity = %q, want info — the nav badge counts action_required only (SCREEN §4.6)", str(row, "severity"))
 			}
 		}
 	}
 	if completed != 1 {
-		t.Fatalf("session_completed inbox items = %d, want exactly 1 for the Director (FR-8, S-33)", completed)
+		t.Fatalf("work_completed inbox items = %d, want exactly 1 for the Director (FR-8, S-33; session_completed is gone with openapi v0.3.0)", completed)
 	}
 	// The approval's own action_required item is resolved by the response, not
 	// by reading it (openapi markInboxRead).
@@ -458,14 +461,14 @@ func TestG5ApprovalRejectionKeepsSessionActive(t *testing.T) {
 	if out["decision_id"] == nil {
 		t.Fatal("a rejection records one decision (E6-04)")
 	}
-	sess := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
+	sess := f.api.must(200, "GET", f.p+"/works/"+f.missionID, nil)
 	if str(sess, "status") != "active" {
 		t.Fatalf("session status = %q, want active — a rejection ends nothing", str(sess, "status"))
 	}
 	if met := f.completionMet(t); !met["artifact_submitted"] || met["user_approval"] {
 		t.Fatalf("completion_met = %v, want artifact_submitted preserved and user_approval unmet (E6-04)", met)
 	}
-	decisions := f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/decisions", nil)
+	decisions := f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/decisions", nil)
 	found := false
 	for _, raw := range decisions {
 		d := raw.(map[string]any)
@@ -501,7 +504,7 @@ func TestG5ApprovalSecondResponseIsIgnored(t *testing.T) {
 		t.Fatal("the answer that stands is the first one")
 	}
 	// …and the session did not un-complete.
-	sess := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
+	sess := f.api.must(200, "GET", f.p+"/works/"+f.missionID, nil)
 	if str(sess, "status") != "completed" {
 		t.Fatalf("session status = %q after an ignored rejection, want completed", str(sess, "status"))
 	}

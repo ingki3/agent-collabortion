@@ -5,15 +5,16 @@
  */
 import type {
   Agent, AgentTemplate, Artifact, ColabCommand, Decision, HitlRequest, InboxItem, Lane, Member, Message, NotificationSettings, Pairing,
-  Participant, Runtime, Session, StreamEventType, TaskEvent, TestChat, User, Workdir, Workspace, WorkspaceSettings,
+  Runtime, StreamEventType, TaskEvent, TestChat, User, Workdir, Workspace, WorkspaceSettings,
 } from "@/lib/api/types";
+import type { Participant, Session } from "@/lib/legacy-session";
 import type { components } from "@/lib/api/schema";
 
 type RoomSchema = components["schemas"]["Room"];
 
 /**
  * 방(v0.19, T-R2-W1) — 계약 `Room` 의 저장 칸. **옛 세션에서 파생한 방은 id 가 세션 id 와 같다**(§7 이관 규칙 — 서버 0025 도 같다).
- * `createRoom` 으로 만든 방은 세션이 없다(서버처럼 — 새 방에는 옛 `/sessions/{id}` 가 없다). 사람 참여자만 여기 든다 —
+ * `createRoom` 으로 만든 방은 옛 세션 모양 행이 없다(서버처럼 — 새 방에는 legacy_work_id 가 없다). 사람 참여자만 여기 든다 —
  * 에이전트 참여자는 옛 세션의 `participants` 에서 읽는다(목이 두 벌을 들지 않게).
  */
 export interface MockRoom {
@@ -87,7 +88,8 @@ export interface StoredEvent {
   id: number;
   type: StreamEventType;
   workspace_id: string;
-  session_id: string | null;
+  /** 봉투의 방 id(v0.3.0 R4 — 옛 `session_id` 봉투 칸은 지워졌다). */
+  room_id: string | null;
   at: string;
   payload: unknown;
   ephemeral: boolean;
@@ -96,7 +98,7 @@ export interface StoredEvent {
 }
 export interface Subscriber {
   workspace_id: string;
-  session_ids: string[] | null;
+  room_ids: string[] | null;
   /** 구독한 사람 — `room.unread` 처럼 한 사람에게만 가는 프레임을 거른다(서버 `Hub.PublishTo`). */
   user_id?: string;
   write: (frame: string) => void;
@@ -137,9 +139,9 @@ export interface Store {
   /** 안 읽음 표식 — `${roomId}:${userId}` → 마지막으로 읽은 메시지 id(§12.1-6, 방 단위 · 사람 행만). */
   roomReads: Map<string, string>;
   /**
-   * v0.19 (T-R2-W2) — `createRoom` 으로 만든 방의 **뒷받침 세션** id. 서버에서 방의 메시지·서브 미션·할 일·확인 요청은 `/sessions/{방 id}/…`
+   * v0.19 (T-R2-W2) — `createRoom` 으로 만든 방의 **뒷받침 세션** id. 서버에서 방의 메시지·서브 미션·할 일·확인 요청은 `/rooms/{방 id}/…`
    * 로 읽히고(방 id = 세션 id), 목의 그 핸들러들은 `s.sessions` 를 본다. 그래서 새 방에도 같은 id 의 세션 행을 두되 **옛 세션이 아니다** —
-   * `getSession`·`listSessions`·`listWorks` 는 이 집합의 세션을 없는 것으로 다룬다(서버: 새 방은 `legacy_work_id` 가 없다).
+   * 목 관찰 길(`/__mock/rooms/{id}/legacy`)·`listWorks` 는 이 집합의 세션을 없는 것으로 다룬다(서버: 새 방은 `legacy_work_id` 가 없다).
    */
   roomOnly: Set<string>;
   /** v0.19 (T-R2-W2) — `createWork` 로 연 미션. 옛 세션의 미션(미션 id = 세션 id)은 여기 없고 세션에서 읽는다. */
@@ -262,7 +264,7 @@ export function makeRuntime(workspaceId: string, name: string): Runtime {
  * 순서는 계약 enum 순서. `custom`·`lead` 는 전부.
  */
 const COLAB_COMMANDS: readonly ColabCommand[] = [
-  "session_get", "session_messages", "artifact_get", "message_post", "status_set", "decision_record",
+  "room_get", "room_messages", "artifact_get", "message_post", "status_set", "decision_record",
   "lane_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info",
   "room_list", "room_read", "work_propose",
 ];
@@ -313,8 +315,8 @@ export function participantStatus(s: Store, sessionId: string, agentId: string):
 }
 
 /** SSE 발행 — 링 버퍼(백필) + 구독자에게 프레임. */
-export function emit(s: Store, workspaceId: string, type: StreamEventType, payload: unknown, sessionId: string | null = null, ephemeral = false, toUser?: string): void {
-  const ev: StoredEvent = { id: ++s.eventSeq, type, workspace_id: workspaceId, session_id: sessionId, at: now(), payload, ephemeral, to_user: toUser };
+export function emit(s: Store, workspaceId: string, type: StreamEventType, payload: unknown, roomId: string | null = null, ephemeral = false, toUser?: string): void {
+  const ev: StoredEvent = { id: ++s.eventSeq, type, workspace_id: workspaceId, room_id: roomId, at: now(), payload, ephemeral, to_user: toUser };
   if (!ephemeral) {
     s.events.push(ev);
     if (s.events.length > 2000) s.events.splice(0, s.events.length - 2000);
@@ -322,7 +324,7 @@ export function emit(s: Store, workspaceId: string, type: StreamEventType, paylo
   const frame = sseFrame(ev);
   for (const sub of s.subs) {
     if (sub.workspace_id !== workspaceId) continue;
-    if (sub.session_ids && sessionId && !sub.session_ids.includes(sessionId)) continue;
+    if (sub.room_ids && roomId && !sub.room_ids.includes(roomId)) continue;
     if (toUser && sub.user_id !== toUser) continue;
     try {
       sub.write(frame);
@@ -333,7 +335,7 @@ export function emit(s: Store, workspaceId: string, type: StreamEventType, paylo
 }
 
 export function sseFrame(ev: StoredEvent): string {
-  const data = JSON.stringify({ id: String(ev.id), type: ev.type, at: ev.at, workspace_id: ev.workspace_id, session_id: ev.session_id, ephemeral: ev.ephemeral, payload: ev.payload });
+  const data = JSON.stringify({ id: String(ev.id), type: ev.type, at: ev.at, workspace_id: ev.workspace_id, room_id: ev.room_id, ephemeral: ev.ephemeral, payload: ev.payload });
   return `event: ${ev.type}\nid: ${ev.id}\ndata: ${data}\n\n`;
 }
 

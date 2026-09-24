@@ -11,79 +11,6 @@ import (
 	"github.com/ingki3/agent-collabortion/cli/internal/client"
 )
 
-// SessionGetArgs — `colab session get [--session S]` / colab_session_get.
-type SessionGetArgs struct {
-	Session string `json:"session,omitempty"`
-}
-
-// SessionGet — GET /sessions/{S}. The result is the Session object as the
-// server sent it (goal · acceptance_criteria · completion_progress ·
-// participants with derived status · isolation · director).
-func SessionGet(ctx context.Context, c *client.Client, a SessionGetArgs) (map[string]any, error) {
-	if err := c.Allow(ctx, client.CmdSessionGet); err != nil {
-		return nil, err
-	}
-	sid, err := c.SessionID(ctx, a.Session)
-	if err != nil {
-		return nil, err
-	}
-	return c.GetSession(ctx, sid)
-}
-
-// SessionMessagesArgs — `colab session messages [--since --limit --thread]`.
-type SessionMessagesArgs struct {
-	Session string `json:"session,omitempty"`
-	Since   string `json:"since,omitempty"`  // sent as after=<cursor|message id>
-	Limit   *int   `json:"limit,omitempty"`  // 1..200 (nil = server default 50; an explicit 0 is exit 2)
-	Thread  string `json:"thread,omitempty"` // thread root id
-	Work    string `json:"-"`                // mission id (work_id=); only `room messages --work` sets it
-}
-
-// SessionMessagesResult adds the E8-12 included/total/truncated view.
-type SessionMessagesResult struct {
-	SessionID     string           `json:"session_id"`
-	Items         []client.Message `json:"items"`
-	Included      int              `json:"included"`
-	Total         *int             `json:"total"`
-	Truncated     bool             `json:"truncated"`
-	BeforeCursor  *string          `json:"before_cursor"`
-	AfterCursor   *string          `json:"after_cursor"`
-	HasMoreBefore bool             `json:"has_more_before"`
-	HasMoreAfter  bool             `json:"has_more_after"`
-}
-
-// SessionMessages — GET /sessions/{S}/messages.
-func SessionMessages(ctx context.Context, c *client.Client, a SessionMessagesArgs) (*SessionMessagesResult, error) {
-	limit := 0
-	if a.Limit != nil {
-		if *a.Limit < 1 || *a.Limit > 200 {
-			return nil, client.Usage("--limit must be 1..200 (got %d)", *a.Limit)
-		}
-		limit = *a.Limit
-	}
-	if err := c.Allow(ctx, client.CmdSessionMessages); err != nil {
-		return nil, err
-	}
-	sid, err := c.SessionID(ctx, a.Session)
-	if err != nil {
-		return nil, err
-	}
-	page, err := c.ListMessages(ctx, sid, client.MessagesQuery{Since: a.Since, Limit: limit, Thread: a.Thread, Work: a.Work})
-	if err != nil {
-		return nil, err
-	}
-	items := page.Items
-	if items == nil {
-		items = []client.Message{}
-	}
-	return &SessionMessagesResult{
-		SessionID: sid, Items: items, Included: len(items), Total: page.Total,
-		Truncated:    page.HasMoreBefore || page.HasMoreAfter || (page.Total != nil && *page.Total > len(items)),
-		BeforeCursor: page.BeforeCursor, AfterCursor: page.AfterCursor,
-		HasMoreBefore: page.HasMoreBefore, HasMoreAfter: page.HasMoreAfter,
-	}, nil
-}
-
 // MessagePostArgs — `colab message post --body [--reply-to --mention]`.
 type MessagePostArgs struct {
 	Session string   `json:"session,omitempty"`
@@ -109,7 +36,7 @@ type MessagePostResult struct {
 	Replayed       bool             `json:"replayed"`
 }
 
-// MessagePost — POST /sessions/{S}/messages. Mentions are resolved to the
+// MessagePost — POST /rooms/{R}/messages. Mentions are resolved to the
 // participant's mention_link from /cli/context and prepended to the body;
 // routing (rules 4 · 8) is the server's.
 func MessagePost(ctx context.Context, c *client.Client, a MessagePostArgs) (*MessagePostResult, error) {
@@ -119,7 +46,7 @@ func MessagePost(ctx context.Context, c *client.Client, a MessagePostArgs) (*Mes
 	if err := c.Allow(ctx, client.CmdMessagePost); err != nil {
 		return nil, err
 	}
-	sid, err := c.SessionID(ctx, a.Session)
+	sid, err := c.RoomID(ctx, a.Session)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +116,7 @@ func resolveMentions(cc *client.CliContext, mention []string) ([]string, error) 
 					known = append(known, p.Name)
 				}
 				return nil, &client.Error{Exit: client.ExitUsage, Code: "unknown_mention", Title: "unknown mention @" + name,
-					Detail: "not a session participant (FR-1.5). participants: " + strings.Join(known, ", ") +
+					Detail: "not a room participant (FR-1.5). participants: " + strings.Join(known, ", ") +
 						". Ask the Director to add them via `colab hitl ask`."}
 			}
 			links = append(links, link)

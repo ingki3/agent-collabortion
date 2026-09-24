@@ -39,7 +39,7 @@ var commandVerbs = map[gen.ColabCommand]string{
 	gen.ColabCommandLaneDelegate: "delegate", gen.ColabCommandArtifactSubmit: "submit_artifact",
 	gen.ColabCommandReviewApprove: "review", gen.ColabCommandReviewReject: "review",
 	gen.ColabCommandHitlAsk: "hitl", gen.ColabCommandHitlApproveRequest: "hitl", gen.ColabCommandHitlRequestInfo: "hitl",
-	gen.ColabCommandSessionGet: "read", gen.ColabCommandSessionMessages: "read", gen.ColabCommandArtifactGet: "read",
+	gen.ColabCommandRoomGet: "read", gen.ColabCommandRoomMessages: "read", gen.ColabCommandArtifactGet: "read",
 	gen.ColabCommandRoomList: "read", gen.ColabCommandRoomRead: "read",
 	gen.ColabCommandWorkPropose: "hitl",
 }

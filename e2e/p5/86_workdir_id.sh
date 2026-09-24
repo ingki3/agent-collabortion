@@ -44,8 +44,8 @@ chk 0.1 online "$(psqlq "select status from runtime where id='$RID'")" "probe �
 
 # ───────────────────────────── A ─────────────────────────────────────────────
 step "A. worktree 세션 → claim: 번들 workdir.id 와 그 행"
-S="$(api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg t "S21 워크트리 $RUN" --arg a "$AG" --arg rt "$RID" --arg r "$ROOT/repo" \
-  '{title:$t,goal:"저장소 밖에서 짧은 인사말 한 줄을 쓴다",isolation:{kind:"worktree",repo_path:$r},participants:[{agent_id:$a}],assignee_agent_id:$a,runtime_id:$rt}')" | jq -r .id)"
+S="$(create_room_work "$WS" "$(jq -nc --arg t "S21 워크트리 $RUN" --arg a "$AG" --arg rt "$RID" --arg r "$ROOT/repo" \
+  '{title:$t,goal:"저장소 밖에서 짧은 인사말 한 줄을 쓴다",isolation:{kind:"worktree",repo_path:$r},participants:[{agent_id:$a}],assignee_agent_id:$a,runtime_id:$rt}')")"
 [ -n "$S" ] && [ "$S" != null ] || die "세션 생성 실패"
 CL="$(claim)"; echo "$CL" | jq . > "$OUT/86-claim-1.json"
 B="$(jq -c --arg s "$S" '.tasks[]|select(.task.session_id==$s)' <<<"$CL")"

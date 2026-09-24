@@ -39,7 +39,7 @@ step "2. 웹 — 그 승인이 **정식 HITL 카드**로 도는가 (S7 타임라
 export AGENT_BROWSER_SESSION="colab-g6-4g-$STAMP"
 ab set viewport 1440 1000 >/dev/null 2>&1 || true
 web_login "$EMAIL" password123 >/dev/null 2>&1 || bad "웹 로그인 실패"
-ab open "$WEB_URL/sessions/$SESSION" >/dev/null 2>&1 || true
+ab open "$WEB_URL/rooms/$SESSION" >/dev/null 2>&1 || true
 abwait '[data-testid="timeline"]' 40 || true
 sleep 3
 shot "p3-4g-01-session-timeline"

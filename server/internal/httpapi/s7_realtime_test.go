@@ -98,7 +98,7 @@ func TestSystemMessagesPublish(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?session_id="+f.sessionID)
+	frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?room_id="+f.sessionID)
 	defer stop()
 
 	if _, err := f.srv.Router.SetAgentStatus(ctx, blocked.Task.Id, 1, "blocked", "예산은 얼마입니까?"); err != nil {
@@ -161,21 +161,22 @@ func TestClaimPublishesParticipantWorking(t *testing.T) {
 	f := newG4Fixture(t)
 	f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
 
-	frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?session_id="+f.sessionID)
+	frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?room_id="+f.sessionID)
 	defer stop()
 
 	f.daemon.must(200, "POST", "/v1/daemon/runtimes/"+f.runtimeID+"/claim", map[string]any{"capacity": 1, "wait_ms": 0})
 
 	var p struct {
-		AgentID string `json:"agent_id"`
-		Status  string `json:"status"`
-		Agent   struct {
+		Kind   string `json:"kind"`
+		Status string `json:"status"`
+		Agent  struct {
+			ID   string `json:"id"`
 			Name string `json:"name"`
 		} `json:"agent"`
 	}
 	raw := waitFrame(t, frames, "participant.updated", func(raw json.RawMessage) bool {
 		_ = json.Unmarshal(raw, &p)
-		return p.AgentID == f.lead
+		return p.Agent.ID == f.lead
 	})
 	if err := json.Unmarshal(raw, &p); err != nil {
 		t.Fatal(err)
@@ -183,7 +184,7 @@ func TestClaimPublishesParticipantWorking(t *testing.T) {
 	if p.Status != "working" {
 		t.Fatalf("participant.updated after claim = %q, want working", p.Status)
 	}
-	// The payload is a whole Participant (openapi StreamEvent), not a patch:
+	// The payload is a whole RoomParticipant (openapi v0.3.0 StreamEvent), not a patch:
 	// the web merges it into the row it already holds and renders the chip
 	// from it, so a frame missing the agent block renders a nameless chip.
 	if p.Agent.Name != "Lead" {
@@ -192,7 +193,7 @@ func TestClaimPublishesParticipantWorking(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// artifact.created · session.completion_progress (W13)
+// artifact.created · work.completion_progress (W13)
 // ---------------------------------------------------------------------------
 
 // TestSubmitPublishesArtifactAndProgress — submitArtifact both stores a row
@@ -205,7 +206,7 @@ func TestSubmitPublishesArtifactAndProgress(t *testing.T) {
 	}})
 	tok, _ := f.agentToken(t, sess, f.leadUUID, "Lead")
 
-	frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?session_id="+sess)
+	frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?room_id="+sess)
 	defer stop()
 
 	if st, out := f.submit(t, sess, tok, "report.md", "document", []byte("# 결과\n")); st != 201 {
@@ -213,7 +214,7 @@ func TestSubmitPublishesArtifactAndProgress(t *testing.T) {
 	}
 
 	// Both frames come out of the one request, so they are collected together.
-	out := waitTypes(t, frames, "artifact.created", "session.completion_progress")
+	out := waitTypes(t, frames, "artifact.created", "work.completion_progress")
 
 	var a struct {
 		Name      string `json:"name"`
@@ -231,17 +232,17 @@ func TestSubmitPublishesArtifactAndProgress(t *testing.T) {
 	}
 
 	var prog struct {
-		SessionID string `json:"session_id"`
-		Progress  struct {
+		WorkID   string `json:"work_id"`
+		Progress struct {
 			Met   int `json:"met"`
 			Total int `json:"total"`
 		} `json:"completion_progress"`
 	}
-	if err := json.Unmarshal(out["session.completion_progress"], &prog); err != nil {
+	if err := json.Unmarshal(out["work.completion_progress"], &prog); err != nil {
 		t.Fatal(err)
 	}
-	if prog.SessionID != sess {
-		t.Fatalf("completion_progress session_id = %s, want %s", prog.SessionID, sess)
+	if want := f.missionOf(t, sess); prog.WorkID != want {
+		t.Fatalf("completion_progress work_id = %s, want %s", prog.WorkID, want)
 	}
 	if prog.Progress.Met != 1 || prog.Progress.Total != 2 {
 		t.Fatalf("completion_progress = %d/%d, want 1/2 after the submit", prog.Progress.Met, prog.Progress.Total)
@@ -259,10 +260,10 @@ func TestRecordDecisionPublishes(t *testing.T) {
 	f := newP2Fixture(t)
 	tok, _ := f.agentToken(t, f.sessionID, f.rUUID, "R")
 
-	frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?session_id="+f.sessionID)
+	frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?room_id="+f.sessionID)
 	defer stop()
 
-	if st, out := f.rawPost(t, f.p+"/sessions/"+f.sessionID+"/decisions", tok,
+	if st, out := f.rawPost(t, f.p+"/rooms/"+f.sessionID+"/decisions", tok,
 		map[string]any{"summary": "B 안으로 간다", "rationale": "비용이 낮다"}); st != 201 {
 		t.Fatalf("recordDecision = %d %v", st, out)
 	}
@@ -308,7 +309,7 @@ func TestFinishPublishesCost(t *testing.T) {
 	f.daemon.must(200, "POST", "/v1/daemon/runtimes/"+f.runtimeID+"/claim", map[string]any{"capacity": 1, "wait_ms": 0})
 	f.daemon.must(200, "POST", "/v1/daemon/tasks/"+taskID+"/attempts/1/phase", map[string]any{"phase": "running", "pgid": 100})
 
-	frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?session_id="+f.sessionID)
+	frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?room_id="+f.sessionID)
 	defer stop()
 
 	f.daemon.must(200, "POST", "/v1/daemon/tasks/"+taskID+"/attempts/1/finish", contracts.Finish{
@@ -329,7 +330,7 @@ func TestFinishPublishesCost(t *testing.T) {
 	}
 	// The frame and the reload have to agree — that disagreement is the whole
 	// class of bug this file is about.
-	sess := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
+	sess := f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID, nil)
 	if got, _ := sess["cost_usd"].(float64); got != 0.25 {
 		t.Fatalf("getSession cost_usd = %v after cost.updated 0.25", sess["cost_usd"])
 	}

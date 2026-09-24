@@ -32,8 +32,8 @@ REC="$E2E_OUT/fake-records"
 g5_chk_init "$OUT/82-checks.tsv"
 cleanup() { [ -n "${TAP_PID:-}" ] && kill "$TAP_PID" 2>/dev/null || true; daemon_stop "$OUT/daemon-82.pid"; return 0; }
 trap cleanup EXIT
-LEAD_ALL="session_get,session_messages,artifact_get,message_post,status_set,decision_record,lane_delegate,artifact_submit,review_approve,review_reject,hitl_ask,hitl_approve_request,hitl_request_info,room_list,room_read,work_propose"
-REVIEWER_ALL="session_get,session_messages,artifact_get,message_post,status_set,decision_record,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read"
+LEAD_ALL="room_get,room_messages,artifact_get,message_post,status_set,decision_record,lane_delegate,artifact_submit,review_approve,review_reject,hitl_ask,hitl_approve_request,hitl_request_info,room_list,room_read,work_propose"
+REVIEWER_ALL="room_get,room_messages,artifact_get,message_post,status_set,decision_record,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read"
 DENY_LINE="이 역할은 위임 · 아티팩트 제출 · 완료 승인 요청 · 미션 제안을 쓰지 않는다."
 
 # tok_api TOKEN METHOD PATH [JSON] → 본문 + 마지막 줄 코드 (task 토큰으로, 서버에 직접 — 탭을 거치지 않는다)
@@ -57,7 +57,7 @@ gate_go() { : > "$REC/gate-$1.go"; }
 # wait_gate ID 설명 TASK — 대본이 delegate 를 시도하고 토큰을 남길 때까지(단계 timeout, I-1)
 wait_gate() { wait_step "$1" "$2" "$T_TURN" '[ -s "'"$REC/gate-$3.token"'" ] && [ -s "'"$REC/gate-$3.json"'" ]' 0.3; }
 # lanes → out/82-lanes-<tag>.json (Director 또는 멤버 쿠키로 listLanes)
-lanes_dump() { api_ok GET "/sessions/$S/lanes" > "$OUT/82-lanes-$1.json"; }
+lanes_dump() { api_ok GET "/rooms/$S/lanes" > "$OUT/82-lanes-$1.json"; }
 # lane_actions FILE AGENT_NAME [STATUS] → "status:actions(csv)" (그 에이전트의 lane, 여러 개면 마지막 생성)
 lane_actions() { jq -r --arg a "$2" --arg st "${3:-}" '[.[]|select(.agent_name==$a and ($st=="" or .status==$st))]|last|.status+":"+(.actions|join(","))' "$OUT/82-lanes-$1.json"; }
 # access_api_lines → 탭 접근 로그의 /api/v1 줄 수(데몬의 /v1/daemon 은 뺀다) · access_count PATTERN
@@ -94,9 +94,9 @@ if [ "$RUNTIME" = real ]; then
   LEAD="$(create_agent_kind "$WS" Lead lead claude_code "$MODEL" "You are the lead. $P4_RULES" '팀을 이끈다')"
   R="$(create_agent_kind "$WS" R reviewer claude_code "$MODEL" "$INS" '산출물을 검토한다')"
   GOAL="Do these three things, then end your turn. (1) Post ONE message whose body is exactly the line of section [2] of your system prompt (the brief) that starts with \"- 이 역할은\" — character for character. (2) Try to delegate the drafting to the agent named Lead using whatever colab tool or command you have for delegation; if no such tool exists or it is refused, post ONE message saying exactly what happened (tool missing, or the exact error). (3) Post ONE message with the single word DONE. $P4_RULES"
-  S="$(api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg g "$GOAL" --arg a "$R" --arg l "$LEAD" --arg rt "$RUNTIME_ID" \
+  S="$(create_room_work "$WS" "$(jq -nc --arg g "$GOAL" --arg a "$R" --arg l "$LEAD" --arg rt "$RUNTIME_ID" \
     '{title:"실기 역할 게이트",goal:$g,isolation:{kind:"none"},participants:[{agent_id:$a},{agent_id:$l}],assignee_agent_id:$a,runtime_id:$rt,
-      completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | jq -r .id)"
+      completion_condition:{op:"and",conditions:[{type:"manual"}]}}')")"
   T_R="$(session_initial_task "$S")"
   wait_step R1 "reviewer 턴이 끝났다" "$T_TURN" '[ -n "$(psqlq "select outcome from task_attempt where task_id='"'"'$T_R'"'"' and attempt=1 and outcome is not null")" ]' 2 || true
   chk R2 "attempt 1 completed" completed "$(psqlq "select coalesce(outcome,'-') from task_attempt where task_id='$T_R' and attempt=1")"
@@ -148,11 +148,11 @@ IDLE="$(create_agent_fake "$WS" Idle researcher claude_code "$MODEL" "$INS" '아
 chk G1 "Agent.allowed_commands — lead·custom 16 · reviewer 12 (§2.5 v0.8)" "16/16/12/12" \
   "$(for a in "$LEAD" "$C" "$R" "$RH"; do api_ok GET "/agents/$a" | jq -r '.allowed_commands|length'; done | paste -sd/ -)"
 # 상태별 lane.actions 를 위해 R 이 위임할 상대는 Lead 가 아니라 실제로는 거부되니 상관없다. C 는 Idle 로.
-S="$(api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg rt "$RUNTIME_ID" --arg l "$LEAD" --arg r "$R" --arg rh "$RH" --arg c "$C" --arg w "$W" --arg i "$IDLE" \
+S="$(create_room_work "$WS" "$(jq -nc --arg rt "$RUNTIME_ID" --arg l "$LEAD" --arg r "$R" --arg rh "$RH" --arg c "$C" --arg w "$W" --arg i "$IDLE" \
   '{title:"역할 게이트",goal:"저장소 밖에서 짧은 인사말 한 줄을 쓴다",isolation:{kind:"none"},
     participants:[{agent_id:$l},{agent_id:$r},{agent_id:$rh},{agent_id:$c},{agent_id:$w},{agent_id:$i}],assignee_agent_id:$l,runtime_id:$rt,
     limits:{max_parallel_lanes:3},
-    completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | jq -r .id)"
+    completion_condition:{op:"and",conditions:[{type:"manual"}]}}')")"
 # limits.max_parallel_lanes=3: (f) 의 queued 는 **서버의 lane 상한**으로 만든다(claim SQL 의 lane_cap). 데몬 capacity 로는 못 만든다 —
 # 데몬은 claim 응답의 task 를 `running` 에 등록하기 전에 다음 claim 의 free 를 다시 세서 capacity 를 넘긴다(1차 실행 실측: capacity 3 에
 # R·RH·C 가 도는 채로 Idle 이 claim 됐다 — 결함 보고, plan/V11_REPORT.md).
@@ -169,9 +169,9 @@ chk L3 "번들 task.allowed_commands(lead) = 16 전부 (claim 탭)" "$LEAD_ALL" 
 MCP_ARGS="$(record_field Lead session/new '.params.mcpServers[]|select(.name=="colab")|.args')"; MCP_ENV="$(record_field Lead session/new '.params.mcpServers[]|select(.name=="colab")|.env')"
 chk L4 "(a) session/new 의 colab MCP argv = mcp serve --allow <16> (acpfake record)" "mcp serve --allow $LEAD_ALL" "$(jq -r 'join(" ")' <<<"$MCP_ARGS")"
 TOOLS="$(mcp_tools "$MCP_ARGS" "$MCP_ENV")"; printf '%s\n' "$TOOLS" > "$OUT/82-mcp-lead.out"
-chk L5 "(a) 그 argv 로 띄운 진짜 colab MCP: tools/list 18(16 + room 별칭 2) · colab_lane_delegate 있음" "18/yes" "$(csv_len "$TOOLS")/$(in_csv colab_lane_delegate "$TOOLS")"
+chk L5 "(a) 그 argv 로 띄운 진짜 colab MCP: tools/list 16(R4: session 별칭 삭제 — room_get·room_messages 가 16 안에 있다) · colab_lane_delegate 있음" "16/yes" "$(csv_len "$TOOLS")/$(in_csv colab_lane_delegate "$TOOLS")"
 TT_LEAD="$(cat "$REC/gate-$T_LEAD.token")"
-R_="$(tok_api "$TT_LEAD" POST "/sessions/$S/lanes" "$(jq -nc --arg a "$IDLE" '{agent_id:$a,brief:"아무것도 하지 마세요"}')")"
+R_="$(tok_api "$TT_LEAD" POST "/rooms/$S/lanes" "$(jq -nc --arg a "$IDLE" '{agent_id:$a,brief:"아무것도 하지 마세요"}')")"
 chk L6 "(c) lead 토큰 curl POST /lanes(Idle) → 201" 201 "$(api_code <<<"$R_")"
 chk L7 "lead 의 rejected 행 0" 0 "$(rejected_rows "$T_LEAD")"
 # W(Asker) 가 hitl ask → waiting_human 이 될 때까지 (I-2)
@@ -188,7 +188,7 @@ chk L13 "(f) Lead done → []" "done:" "$(lane_actions done-lead Lead)"
 chk L14 "(e) Idle 의 빈 턴 카드 1행(status/turn_end/empty_turn/info)" 1 "$(empty_cards "$S")"
 
 step "3. R(reviewer, claude_code — MCP 표면) — (a) argv --allow 12 · tools/list 에 delegate 없음 · (b) 대본 delegate exit 3, 선에 POST /lanes 0 · (c) 토큰 curl 403 + rejected 행"
-A0="$(access_api_lines)"; X0="$(access_count $'GET\t/api/v1/cli/context')"; N0="$(access_count $'POST\t/api/v1/sessions/'"$S"$'/lanes')"
+A0="$(access_api_lines)"; X0="$(access_count $'GET\t/api/v1/cli/context')"; N0="$(access_count $'POST\t/api/v1/rooms/'"$S"$'/lanes')"
 post_message "$S" "$(mention R "$R") 검토해 주세요" >/dev/null
 T_R="$(task_of "$S" R)"; [ -n "$T_R" ] || { sleep 2; T_R="$(task_of "$S" R)"; }
 wait_gate R0 "R 대본이 delegate 를 시도하고 토큰을 남겼다" "$T_R" || true
@@ -197,19 +197,19 @@ chk R1 "(b) 런타임 안의 colab lane delegate → exit 3" 3 "$(jq -r .exit "$
 chk R2 "(b) error.code/role/command" "command_not_allowed/reviewer/lane_delegate" "$(jq -r '.out.error|.code+"/"+.role+"/"+.command' "$OUT/82-gate-r.json")"
 chk R3 "(b) 문장 = 서버 §2.5 문장" "이 역할(reviewer)은 lane delegate 를 쓸 수 없습니다" "$(jq -r '.out.error.detail' "$OUT/82-gate-r.json")"
 chk R4 "(b) 선: R 턴 동안 /api/v1 요청 = GET /cli/context 1 · POST /lanes 0 (컨텍스트 모드)" "1/1/0" \
-  "$(( $(access_api_lines) - A0 ))/$(( $(access_count $'GET\t/api/v1/cli/context') - X0 ))/$(( $(access_count $'POST\t/api/v1/sessions/'"$S"$'/lanes') - N0 ))"
+  "$(( $(access_api_lines) - A0 ))/$(( $(access_count $'GET\t/api/v1/cli/context') - X0 ))/$(( $(access_count $'POST\t/api/v1/rooms/'"$S"$'/lanes') - N0 ))"
 chk R5 "lane 행 0 (delegated_from=R task)" 0 "$(psqlq "select count(*) from lane where session_id='$S' and delegated_from_task_id='$T_R'")"
 chk R6 "(b) 서버 rejected 행 0 — CLI 가 먼저 막았다" 0 "$(rejected_rows "$T_R")"
 chk R7 "번들 task.allowed_commands(reviewer) = 12 (claim 탭)" "$REVIEWER_ALL" "$(jq -r --arg t "$T_R" 'select(.path|endswith("/claim"))|.body.tasks[]|select(.task.id==$t)|.task.allowed_commands|join(",")' "$TAP" | head -1)"
 MCP_ARGS="$(record_field R session/new '.params.mcpServers[]|select(.name=="colab")|.args')"; MCP_ENV="$(record_field R session/new '.params.mcpServers[]|select(.name=="colab")|.env')"
 chk R8 "(a) session/new 의 colab MCP argv = mcp serve --allow <reviewer 12>" "mcp serve --allow $REVIEWER_ALL" "$(jq -r 'join(" ")' <<<"$MCP_ARGS")"
 TOOLS="$(mcp_tools "$MCP_ARGS" "$MCP_ENV")"; printf '%s\n' "$TOOLS" > "$OUT/82-mcp-r.out"
-chk R9 "(a) 그 argv 로 띄운 진짜 colab MCP: tools/list 14(12 + room 별칭 2) · delegate·submit·approve-request·work_propose 없음" "14/0" \
+chk R9 "(a) 그 argv 로 띄운 진짜 colab MCP: tools/list 12(R4: 별칭 없음) · delegate·submit·approve-request·work_propose 없음" "12/0" \
   "$(csv_len "$TOOLS")/$(tr ',' '\n' <<<"$TOOLS" | grep -c -e '^colab_lane_delegate$' -e '^colab_artifact_submit$' -e '^colab_hitl_approve_request$' -e '^colab_work_propose$' || true)"
 BRIEF="$(record_field R session/new '.params._meta.systemPrompt.append // ""' | jq -r .)"; printf '%s\n' "$BRIEF" > "$OUT/82-brief-r.txt"
 chk R10 "브리프 [2] 에 거부 줄이 있고 colab lane delegate 를 이름하지 않는다" "yes/0" "$(grep -qF "$DENY_LINE" "$OUT/82-brief-r.txt" && echo yes || echo no)/$(grep -c 'colab lane delegate' "$OUT/82-brief-r.txt" || true)"
 TT_R="$(cat "$REC/gate-$T_R.token")"
-R_="$(tok_api "$TT_R" POST "/sessions/$S/lanes" "$(jq -nc --arg a "$LEAD" '{agent_id:$a,brief:"우회"}')")"
+R_="$(tok_api "$TT_R" POST "/rooms/$S/lanes" "$(jq -nc --arg a "$LEAD" '{agent_id:$a,brief:"우회"}')")"
 api_body <<<"$R_" | jq . > "$OUT/82-403-r.json"
 chk R11 "(c) reviewer 토큰 curl 직접 POST /lanes → 403 command_not_allowed" "403/command_not_allowed" "$(api_code <<<"$R_")/$(api_body <<<"$R_" | jq -r .code)"
 chk R12 "(c) 서버 403 문장 == CLI exit 3 문장 (글자 단위)" "$(api_body <<<"$R_" | jq -r .detail)" "$(jq -r '.out.error.detail' "$OUT/82-gate-r.json")"
@@ -234,7 +234,7 @@ BRIEF_FILE="$(grep -o '/[^ ]*/COLAB_BRIEF\.md' "$OUT/82-prompt-rh.txt" | head -1
 chk H7 "hermes 브리프 파일(COLAB_BRIEF.md)에 거부 줄 · 래퍼 절대 경로 · colab lane delegate 없음" "yes/yes/0" \
   "$(grep -qF "$DENY_LINE" "$OUT/82-brief-rh.txt" && echo yes || echo no)/$(grep -q '/\.colab/bin/' "$OUT/82-brief-rh.txt" && echo yes || echo no)/$(grep -c 'colab lane delegate' "$OUT/82-brief-rh.txt" || true)"
 TT_RH="$(cat "$REC/gate-$T_RH.token")"
-R_="$(tok_api "$TT_RH" POST "/sessions/$S/lanes" "$(jq -nc --arg a "$LEAD" '{agent_id:$a,brief:"우회"}')")"
+R_="$(tok_api "$TT_RH" POST "/rooms/$S/lanes" "$(jq -nc --arg a "$LEAD" '{agent_id:$a,brief:"우회"}')")"
 chk H8 "(c) RH 토큰 curl 직접 POST /lanes → 403 command_not_allowed · rejected 행 1" "403/command_not_allowed/1" "$(api_code <<<"$R_")/$(api_body <<<"$R_" | jq -r .code)/$(rejected_rows "$T_RH")"
 
 step "5. C(custom) — 셋 다 통과 · capacity 3 이 찼으니 위임된 Idle 은 queued → (f) queued → cancel"
@@ -244,9 +244,9 @@ wait_gate C0 "C 대본이 delegate(Idle) 를 시도하고 토큰을 남겼다" "
 gate_json "$T_C" > "$OUT/82-gate-c.json"
 chk C1 "(b) custom colab lane delegate → exit 0" 0 "$(jq -r .exit "$OUT/82-gate-c.json")"
 MCP_ARGS="$(record_field C session/new '.params.mcpServers[]|select(.name=="colab")|.args')"; MCP_ENV="$(record_field C session/new '.params.mcpServers[]|select(.name=="colab")|.env')"
-chk C2 "(a) custom MCP argv --allow 16 · tools/list 18(16 + room 별칭 2)" "mcp serve --allow $LEAD_ALL/18" "$(jq -r 'join(" ")' <<<"$MCP_ARGS")/$(csv_len "$(mcp_tools "$MCP_ARGS" "$MCP_ENV")")"
+chk C2 "(a) custom MCP argv --allow 16 · tools/list 16(R4: 별칭 없음)" "mcp serve --allow $LEAD_ALL/16" "$(jq -r 'join(" ")' <<<"$MCP_ARGS")/$(csv_len "$(mcp_tools "$MCP_ARGS" "$MCP_ENV")")"
 TT_C="$(cat "$REC/gate-$T_C.token")"
-chk C3 "(c) custom 토큰 curl POST /lanes(Idle) → 201 · rejected 행 0" "201/0" "$(tok_api "$TT_C" POST "/sessions/$S/lanes" "$(jq -nc --arg a "$IDLE" '{agent_id:$a,brief:"또"}')" | api_code)/$(rejected_rows "$T_C")"
+chk C3 "(c) custom 토큰 curl POST /lanes(Idle) → 201 · rejected 행 0" "201/0" "$(tok_api "$TT_C" POST "/rooms/$S/lanes" "$(jq -nc --arg a "$IDLE" '{agent_id:$a,brief:"또"}')" | api_code)/$(rejected_rows "$T_C")"
 chk C4 "(f) 세션 lane 상한 3 이 R·RH·C 로 찼다 — Idle 의 새 task 2(대본 위임·토큰 위임) 는 queued" 2 "$(psqlq "select count(*) from task t join agent a on a.id=t.agent_id where t.session_id='$S' and a.name='Idle' and t.status='queued'")"
 lanes_dump queued
 chk C5 "(f) Director 가 보는 Idle queued → cancel" "queued:cancel" "$(lane_actions queued Idle queued)"
@@ -254,15 +254,15 @@ chk C6 "(f) R running → restart,cancel (reviewer 도 lane 규칙은 같다)" "
 
 step "6. (d) 사람(쿠키) 경로는 비게이트 — Director·멤버 (NN4): 명령 표(command_not_allowed)에 걸리지 않는다. 사람의 권한 규칙(agent_only 등)은 다른 층이다"
 # 메시지는 /note 로 — 규칙 1(저장만, 라우팅 없음). 보통 문장은 규칙 6 으로 assignee(Lead)를 깨워 Lead 대본이 또 위임한다(1차 실행 실측).
-chk D1 "Director POST /messages(/note) → 201" 201 "$(api POST "/sessions/$S/messages" '{"content":"/note 사람이 씁니다"}' -H "Idempotency-Key: $(uuid)" | api_code)"
-D_LANE="$(api POST "/sessions/$S/lanes" "$(jq -nc --arg a "$IDLE" '{agent_id:$a,brief:"사람이 만든 lane"}')")"
+chk D1 "Director POST /messages(/note) → 201" 201 "$(api POST "/rooms/$S/messages" '{"content":"/note 사람이 씁니다"}' -H "Idempotency-Key: $(uuid)" | api_code)"
+D_LANE="$(api POST "/rooms/$S/lanes" "$(jq -nc --arg a "$IDLE" '{agent_id:$a,brief:"사람이 만든 lane"}')")"
 chk D2 "Director POST /lanes → 403 agent_only (사람은 「새 서브 미션으로 보내기」) — command_not_allowed 가 아니다" "403/agent_only" "$(api_code <<<"$D_LANE")/$(api_body <<<"$D_LANE" | jq -r '.code // "-"')"
-D_DEC="$(api POST "/sessions/$S/decisions" '{"summary":"사람의 결정"}' -H "Idempotency-Key: $(uuid)")"
+D_DEC="$(api POST "/rooms/$S/decisions" '{"summary":"사람의 결정"}' -H "Idempotency-Key: $(uuid)")"
 chk D3 "Director POST /decisions → 403 agent_only — command_not_allowed 가 아니다" "403/agent_only" "$(api_code <<<"$D_DEC")/$(api_body <<<"$D_DEC" | jq -r '.code // "-"')"
-chk D3b "Director GET /sessions/{S} 200 · listLanes 200 · listMessages 200" "200/200/200" "$(api GET "/sessions/$S" | api_code)/$(api GET "/sessions/$S/lanes" | api_code)/$(api GET "/sessions/$S/messages" | api_code)"
+chk D3b "Director GET /rooms/{S} 200 · listLanes 200 · listMessages 200" "200/200/200" "$(api GET "/rooms/$S" | api_code)/$(api GET "/rooms/$S/lanes" | api_code)/$(api GET "/rooms/$S/messages" | api_code)"
 COOKIE="$MEM_COOKIE"
-chk D4 "멤버 POST /messages(/note) → 201 · GET /sessions/{S} 200" "201/200" "$(api POST "/sessions/$S/messages" '{"content":"/note 멤버가 씁니다"}' -H "Idempotency-Key: $(uuid)" | api_code)/$(api GET "/sessions/$S" | api_code)"
-M_LANE="$(api POST "/sessions/$S/lanes" "$(jq -nc --arg a "$IDLE" '{agent_id:$a,brief:"멤버의 lane"}')")"
+chk D4 "멤버 POST /messages(/note) → 201 · GET /rooms/{S} 200" "201/200" "$(api POST "/rooms/$S/messages" '{"content":"/note 멤버가 씁니다"}' -H "Idempotency-Key: $(uuid)" | api_code)/$(api GET "/rooms/$S" | api_code)"
+M_LANE="$(api POST "/rooms/$S/lanes" "$(jq -nc --arg a "$IDLE" '{agent_id:$a,brief:"멤버의 lane"}')")"
 chk D5 "멤버 POST /lanes 의 코드가 command_not_allowed 가 아니다 (HTTP $(api_code <<<"$M_LANE") $(api_body <<<"$M_LANE" | jq -r '.code // "-"'))" no "$(api_body <<<"$M_LANE" | jq -r '.code // "-"' | grep -q command_not_allowed && echo yes || echo no)"
 COOKIE="$DIR_COOKIE"
 chk D6 "세션 전체 rejected 행 = 2 (R·RH 의 curl 우회분뿐, 사람 경로 0)" 2 "$(psqlq "select count(*) from task_event e join task t on t.id=e.task_id where t.session_id='$S' and e.class='status' and e.outcome='rejected' and e.payload->>'rejected_reason'='command_not_allowed'")"
@@ -301,8 +301,11 @@ if command -v agent-browser >/dev/null 2>&1 && [ "${WITH_BROWSER:-1}" = 1 ]; the
   ab screenshot "$E2E_ROOT/web/__screenshots__/p5-82-s14-observations.png" >/dev/null 2>&1 && ok "📸 web/__screenshots__/p5-82-s14-observations.png" || true
   # S7: 빈 턴 문장은 이력 「활동」 토글로만 닿는다(T-W16 Lead A) — Idle lane 의 이력 → 활동을 열면 피드 행과 카드 한 줄이 나온다.
   IDLE_LANE="$(psqlq "select l.id from lane l join agent a on a.id=l.agent_id where l.session_id='$S' and a.name='Idle' order by l.created_at limit 1")"
-  ab open "$WEB_URL/sessions/$S" >/dev/null
+  ab open "$WEB_URL/rooms/$S" >/dev/null
   abwait '[data-testid="lane-board"]' 30 || true; sleep 1
+  # v0.19 R2-W2 부터 done 묶음은 기본으로 접혀 있다(LaneBoard, SCREEN §4.6 SCR-C I) — Idle lane 은 done 이라 먼저 편다.
+  ab click '[data-testid="lane-group-toggle-done"]' >/dev/null 2>&1 || true
+  abwait "[data-lane-id=\"$IDLE_LANE\"]" 10 || true
   ab click "[data-lane-id=\"$IDLE_LANE\"] [data-testid=\"lane-tasks-toggle\"]" >/dev/null 2>&1 || true
   abwait "[data-lane-id=\"$IDLE_LANE\"] [data-testid=\"task-activity-toggle\"]" 10 || true
   ab click "[data-lane-id=\"$IDLE_LANE\"] [data-testid=\"task-activity-toggle\"]" >/dev/null 2>&1 || true

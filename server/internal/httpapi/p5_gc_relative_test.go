@@ -41,7 +41,7 @@ func TestS65GCNeverCarriesARelativePath(t *testing.T) {
 		t.Fatalf("DELETE relative workdir = %d %v, want 409 workdir_relative_path", st, out)
 	}
 	// Completion issues one gc for the session: the absolute row only.
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/complete", map[string]any{"confirm": true})
+	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/complete", map[string]any{"confirm": true})
 	var gcs int
 	var ids, targets string
 	if err := f.pool.QueryRow(ctx, `

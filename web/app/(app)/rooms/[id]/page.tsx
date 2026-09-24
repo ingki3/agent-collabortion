@@ -9,9 +9,9 @@
  * 그 미션으로 바뀐다. 두 곳의 값은 `lib/room-view.ts` 가 같은 선택에서 낸다 — 연동이 코드 한 곳에서 정해진다.
  *
  * 데이터: `getRoom` · `listWorks` · `listRoomParticipants` · `getWork`(우열) · 메시지·서브 미션·아티팩트·결정·확인 요청은 방 id 로
- * `/sessions/{id}/…`(방 id = 세션 id, R4 까지의 별칭). 메시지는 계약대로 `work_id`·`no_work`·`around_message_id` 를 보내고 **받은 것을
+ * `/rooms/{roomId}/…`(v0.3.0 R4 — 옛 세션 경로는 지워졌다). 메시지는 계약대로 `work_id`·`no_work`·`around_message_id` 를 보내고 **받은 것을
  * `work_id` 로 한 번 더 거른다** — 서버가 세 파라미터를 아직 안 읽는다(Lead 판정 A, 서버 후속 T-S-wt).
- * 실시간: 셸의 워크스페이스 SSE 하나를 구독하고 `room_id`(없으면 `session_id`)로 거른다 — 미션 단위 거르기는 `payload.work_id` 로 클라이언트가(§6).
+ * 실시간: 셸의 워크스페이스 SSE 하나를 구독하고 봉투의 `room_id` 로 거른다 — 미션 단위 거르기는 `payload.work_id` 로 클라이언트가(§6).
  */
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -203,7 +203,7 @@ export default function RoomPage() {
     if (sel.kind === "none") query.no_work = true;
     if (around) query.around_message_id = around;
     try {
-      const page = await api.get("/sessions/{sessionId}/messages", { path: { sessionId: roomId }, query });
+      const page = await api.get("/rooms/{roomId}/messages", { path: { roomId }, query });
       setMessages(page.items.filter((m) => !m.parent_id && matchesSel(m.work_id, sel)).sort(byTime));
       setHasOlder(!!page.has_more_before);
       setMsgLoaded(true);
@@ -218,7 +218,7 @@ export default function RoomPage() {
     if (sel.kind === "work") query.work_id = sel.id;
     if (sel.kind === "none") query.no_work = true;
     try {
-      const page = await api.get("/sessions/{sessionId}/messages", { path: { sessionId: roomId }, query });
+      const page = await api.get("/rooms/{roomId}/messages", { path: { roomId }, query });
       const older = page.items.filter((m) => !m.parent_id && matchesSel(m.work_id, sel));
       setMessages((cur) => [...older.filter((m) => !cur.some((c) => c.id === m.id)), ...cur].sort(byTime));
       setHasOlder(!!page.has_more_before);
@@ -230,10 +230,10 @@ export default function RoomPage() {
   /** 좌·우열 데이터. 서버가 아직 안 켠 operation 은 조용히 비운다 — 화면은 빈 상태로 말한다(§7). */
   const loadSide = useCallback(async () => {
     const [l, a, d, h] = await Promise.allSettled([
-      api.get("/sessions/{sessionId}/lanes", { path: { sessionId: roomId } }),
-      api.get("/sessions/{sessionId}/artifacts", { path: { sessionId: roomId } }),
-      api.get("/sessions/{sessionId}/decisions", { path: { sessionId: roomId } }),
-      api.get("/sessions/{sessionId}/hitl-requests", { path: { sessionId: roomId }, query: { limit: 100 } }),
+      api.get("/rooms/{roomId}/lanes", { path: { roomId } }),
+      api.get("/rooms/{roomId}/artifacts", { path: { roomId } }),
+      api.get("/rooms/{roomId}/decisions", { path: { roomId } }),
+      api.get("/rooms/{roomId}/hitl-requests", { path: { roomId }, query: { limit: 100 } }),
     ]);
     setLanes(l.status === "fulfilled" ? l.value : []);
     setArtifacts(a.status === "fulfilled" ? a.value : []);
@@ -280,7 +280,7 @@ export default function RoomPage() {
   }, [loadWork, panelWorkId]);
 
   const loadReplies = useCallback(async (rootId: string) => {
-    const page = await api.get("/sessions/{sessionId}/messages", { path: { sessionId: roomId }, query: { thread: rootId, limit: 200 } });
+    const page = await api.get("/rooms/{roomId}/messages", { path: { roomId }, query: { thread: rootId, limit: 200 } });
     setReplies((r) => ({ ...r, [rootId]: page.items.filter((m) => m.id !== rootId).sort(byTime) }));
   }, [roomId]);
   const loadEvents = useCallback(async (taskId: string) => {
@@ -315,7 +315,7 @@ export default function RoomPage() {
   panelRef.current = panelWorkId;
   const onEvent = useCallback((ev: StreamEvent) => {
     // 워크스페이스 전체 스트림 — 다른 방의 프레임은 버린다(§6: 구독 범위는 방, 미션은 클라이언트가 거른다).
-    const rid = ev.room_id ?? ev.session_id;
+    const rid = ev.room_id;
     if (rid && rid !== roomId) return;
     switch (ev.type) {
       case "message.created": {
@@ -421,8 +421,7 @@ export default function RoomPage() {
         refreshRoom();
         break;
       }
-      case "room.deleted":
-      case "session.deleted": {
+      case "room.deleted": {
         const p = ev.payload as { room_id?: string; session_id?: string };
         if ((p.room_id ?? p.session_id ?? rid) !== roomId) return;
         router.replace(`/rooms?deleted=${encodeURIComponent(nameRef.current)}`);
@@ -524,8 +523,8 @@ export default function RoomPage() {
 
   const preview = useCallback(
     (input: ComposerInput): Promise<TriggerPreview> =>
-      api.post("/sessions/{sessionId}/messages/preview", {
-        path: { sessionId: roomId },
+      api.post("/rooms/{roomId}/messages/preview", {
+        path: { roomId },
         body: { content: input.content, parent_id: input.parentId, new_lane: input.newLane, suppress_agent_ids: input.suppressAgentIds, ...(input.workId !== undefined ? { work_id: input.workId } : {}) },
       }),
     [roomId],
@@ -539,8 +538,8 @@ export default function RoomPage() {
       onEvent({ id: "", type: "message.created", at: r.message.created_at, payload: r.message as unknown as Record<string, unknown> });
       return [];
     }
-    const r = await api.post("/sessions/{sessionId}/messages", {
-      path: { sessionId: roomId },
+    const r = await api.post("/rooms/{roomId}/messages", {
+      path: { roomId },
       idempotencyKey: newIdempotencyKey(),
       body: { content: input.content, parent_id: input.parentId, new_lane: input.newLane, suppress_agent_ids: input.suppressAgentIds, ...(input.workId !== undefined ? { work_id: input.workId } : {}) },
     });

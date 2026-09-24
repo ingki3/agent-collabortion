@@ -11,7 +11,7 @@ import (
 // T-S-offline (PRD FR-9.2 v0.19 · #313 리뷰 §4): a computer that stays gone
 // past the grace stops the ROOM it is pinned to — room.blocked_reason
 // runtime_offline, every active mission parked with the room's mark (the old
-// /sessions/* still reads paused(runtime_offline)) — and the choice goes to
+// mission reads paused(runtime_offline)) — and the choice goes to
 // the room owner's chain as ONE room_paused card. Rebinding, or cancelling
 // every open mission, lifts the stop.
 
@@ -55,10 +55,12 @@ func TestR2RuntimeOfflineStopsTheRoom(t *testing.T) {
 	if st, why, mirror := f.missionState(t); st != "paused" || why != "runtime_offline" || !mirror {
 		t.Fatalf("mission = %s(%s) mirror=%v, want paused(runtime_offline) marked as the room's", st, why, mirror)
 	}
-	// … so the old session shape reads exactly as it did before v0.19.
-	sess := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
-	if str(sess, "status") != "paused" || str(sess, "paused_reason") != "runtime_offline" {
-		t.Fatalf("old session = %s(%s), want paused(runtime_offline)", str(sess, "status"), str(sess, "paused_reason"))
+	// … and getWork projects it as the room's pause: paused, with no reason
+	// of its own (the reason is the room's blocked_reason — the old
+	// session shape that read paused(runtime_offline) went with v0.3.0).
+	sess := f.api.must(200, "GET", f.p+"/works/"+f.missionID, nil)
+	if str(sess, "status") != "paused" || sess["paused_reason"] != nil {
+		t.Fatalf("the room's mission = %s(%v), want paused with paused_reason null", str(sess, "status"), sess["paused_reason"])
 	}
 	// The banner names who answers now (the owner) and who from half the
 	// deadline (the deputy) — the chain the card and the 403 use.
@@ -102,13 +104,13 @@ func TestR2RuntimeOfflineStopsTheRoom(t *testing.T) {
 
 	// Before half the deadline the deputy may not rebind (the card said so).
 	target := f.onlineTarget(t)
-	deputy.client.must(403, "POST", f.p+"/sessions/"+f.sessionID+"/rebind", map[string]any{"runtime_id": target})
+	deputy.client.must(403, "POST", f.p+"/rooms/"+f.sessionID+"/rebind", map[string]any{"runtime_id": target})
 	// From half, the deputy answers — and rebinding lifts the room's stop.
 	f.fake.Advance(13 * time.Hour)
 	if a := actionsOf(inboxOf(t, deputy.client, f.wsID, "room_paused")[0]); !slices.Equal(a, []string{"rebind", "open_room"}) {
 		t.Fatalf("deputy's actions after half = %v, want [rebind open_room]", a)
 	}
-	deputy.client.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/rebind", map[string]any{"runtime_id": target})
+	deputy.client.must(200, "POST", f.p+"/rooms/"+f.sessionID+"/rebind", map[string]any{"runtime_id": target})
 	if reason, _ := f.roomGate(t); reason != "" {
 		t.Fatalf("room gate = %q after rebind, want lifted", reason)
 	}
@@ -150,7 +152,31 @@ func TestR2RuntimeOfflineRoomCardsPerRoom(t *testing.T) {
 func TestR2RuntimeOfflineCancelLiftsTheStop(t *testing.T) {
 	f := newP2Fixture(t)
 	f.offlineSweep(t)
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/cancel", map[string]any{})
+	var wd uuid.UUID
+	if err := f.pool.QueryRow(t.Context(), `
+		INSERT INTO workdir (session_id, agent_id, kind, path_or_ref, status, created_at, updated_at)
+		VALUES ($1, $2, 'dir', '/w/sessions/x/lead', 'active', now(), now()) RETURNING id`, f.sessionID, f.leadUUID).Scan(&wd); err != nil {
+		t.Fatal(err)
+	}
+	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/cancel", map[string]any{})
+	// E14-07 (cancelSession's 「종료」 until v0.3.0): the lost machine's folders
+	// are stamped runtime_gone, and the room's decisions say why.
+	var status, why string
+	if err := f.pool.QueryRow(t.Context(), `SELECT status::text, COALESCE(gc_blocked_reason::text, '') FROM workdir WHERE id = $1`, wd).Scan(&status, &why); err != nil {
+		t.Fatal(err)
+	}
+	if status != "retained" || why != "runtime_gone" {
+		t.Fatalf("workdir = %s(%s), want retained(runtime_gone) (E14-07)", status, why)
+	}
+	found := false
+	for _, raw := range f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/decisions", nil) {
+		if str(raw.(map[string]any), "summary") == "컴퓨터가 돌아오지 않아 미션을 종료했습니다" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no E14-07 decision after cancelling every open mission of an offline room")
+	}
 	if reason, _ := f.roomGate(t); reason != "" {
 		t.Fatalf("room gate = %q after cancelling every open mission, want lifted", reason)
 	}
@@ -212,7 +238,7 @@ func TestR2InboxHiddenItemOffersNoApprove(t *testing.T) {
 // mkSession is a second old-path session in the fixture's workspace.
 func (f *p2Fixture) mkSession(t *testing.T) string {
 	t.Helper()
-	return str(f.api.must(201, "POST", f.p+"/workspaces/"+f.wsID+"/sessions", map[string]any{
+	return str(sessionRoom(t, f.api, f.pool, f.p, f.wsID, map[string]any{
 		"title": "S2", "goal": "g", "isolation": map[string]any{"kind": "none"},
 		"assignee_agent_id": f.lead,
 		"participants":      []map[string]any{{"agent_id": f.lead}},

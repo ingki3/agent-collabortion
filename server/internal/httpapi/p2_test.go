@@ -18,12 +18,14 @@ import (
 // R and W. The P2 routing rules need at least three so rule 8's "suppress the
 // delegator, not the third party" is observable.
 type p2Fixture struct {
-	pool                   *pgxpool.Pool
-	srv                    *Server
-	fake                   *clock.Fake
-	api                    *client
-	p                      string
-	wsID, sessionID        string
+	pool            *pgxpool.Pool
+	srv             *Server
+	fake            *clock.Fake
+	api             *client
+	p               string
+	wsID, sessionID string
+	// missionID is the session's mission (sessionRoom — the room's legacy work).
+	missionID              string
 	lead, r, w             string
 	leadUUID, rUUID, wUUID uuid.UUID
 }
@@ -54,7 +56,7 @@ func newP2Fixture(t *testing.T) *p2Fixture {
 	f.lead, f.r, f.w = mk("Lead", "lead"), mk("R", "researcher"), mk("W", "writer")
 	f.leadUUID, f.rUUID, f.wUUID = mustUUID(t, f.lead), mustUUID(t, f.r), mustUUID(t, f.w)
 
-	sess := f.api.must(201, "POST", f.p+"/workspaces/"+f.wsID+"/sessions", map[string]any{
+	sess := sessionRoom(t, f.api, pool, f.p, f.wsID, map[string]any{
 		"title": "S", "goal": "g", "isolation": map[string]any{"kind": "none"},
 		"assignee_agent_id": f.lead,
 		"participants": []map[string]any{
@@ -62,6 +64,7 @@ func newP2Fixture(t *testing.T) *p2Fixture {
 		},
 	})
 	f.sessionID = str(sess, "id")
+	f.missionID = str(sess, "work_id")
 	return f
 }
 
@@ -70,7 +73,7 @@ func (f *p2Fixture) post(t *testing.T, body map[string]any) map[string]any {
 	// Lane rule 3 reuses the MOST RECENT lane, so two posts must not share a
 	// clock reading — with a frozen fake every lane looks equally recent.
 	f.fake.Advance(time.Minute)
-	return f.api.must(201, "POST", f.p+"/sessions/"+f.sessionID+"/messages", body, "Idempotency-Key", uuid.NewString())
+	return f.api.must(201, "POST", f.p+"/rooms/"+f.sessionID+"/messages", body, "Idempotency-Key", uuid.NewString())
 }
 
 // postedAgents lists who a POST actually triggered. MessagePostResult carries
@@ -85,7 +88,7 @@ func postedAgents(out map[string]any) map[string]bool {
 
 func (f *p2Fixture) preview(t *testing.T, body map[string]any) map[string]any {
 	t.Helper()
-	return f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/messages/preview", body)
+	return f.api.must(200, "POST", f.p+"/rooms/"+f.sessionID+"/messages/preview", body)
 }
 
 func triggerAgents(out map[string]any) map[string]int {
@@ -261,7 +264,7 @@ func TestP2LoopLimitPauses(t *testing.T) {
 
 	// And the session read model exposes it under the contract's key, so the
 	// web can render the banner from getSession as well as from the stream.
-	sess := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
+	sess := f.api.must(200, "GET", f.p+"/works/"+f.missionID, nil)
 	pd, ok := sess["paused_detail"].(map[string]any)
 	if !ok {
 		t.Fatalf("getSession paused_detail = %v, want an object under that exact key", sess["paused_detail"])
@@ -334,18 +337,18 @@ func TestP2PreviewMatchesPost(t *testing.T) {
 func TestP2LimitRangeIsEnforced(t *testing.T) {
 	f := newP2Fixture(t)
 	for _, bad := range []string{"0", "-1", "201", "999999"} {
-		st, out, _ := f.api.do("GET", f.p+"/sessions/"+f.sessionID+"/messages?limit="+bad, nil)
+		st, out, _ := f.api.do("GET", f.p+"/rooms/"+f.sessionID+"/messages?limit="+bad, nil)
 		if st != 422 || !hasFieldError(out, "limit", "out_of_range") {
 			t.Fatalf("limit=%s → %d %v, want 422 out_of_range", bad, st, out)
 		}
 	}
 	for _, ok := range []string{"1", "50", "200"} {
-		if st, out, _ := f.api.do("GET", f.p+"/sessions/"+f.sessionID+"/messages?limit="+ok, nil); st != 200 {
+		if st, out, _ := f.api.do("GET", f.p+"/rooms/"+f.sessionID+"/messages?limit="+ok, nil); st != 200 {
 			t.Fatalf("limit=%s → %d %v, want 200", ok, st, out)
 		}
 	}
 	// A missing limit still gets the server default rather than a 422.
-	f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID+"/messages", nil)
+	f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID+"/messages", nil)
 	f.api.must(200, "GET", f.p+"/workspaces/"+f.wsID+"/agents?limit=200", nil)
 	if st, _, _ := f.api.do("GET", f.p+"/workspaces/"+f.wsID+"/agents?limit=201", nil); st != 422 {
 		t.Fatalf("agents limit=201 → %d, want 422", st)

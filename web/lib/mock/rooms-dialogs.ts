@@ -13,8 +13,9 @@
  * `resetStore()` 가 새 Store 를 만들면 같이 비워진다(store.ts 를 고치지 않는다).
  */
 import type {
-  AgentProfile, CompletionCondition, Member, Message, Room, RoomRole, RoomUpdate, Session, User, WorkListItem,
+  AgentProfile, CompletionCondition, Member, Message, Room, RoomRole, RoomUpdate, User, WorkListItem,
 } from "@/lib/api/types";
+import type { Session } from "@/lib/legacy-session";
 import type { components } from "@/lib/api/schema";
 import { emit, nextMsgAt, now, participantStatus, store, stripUser, uuid, type MockRoom, type MockWork, type Store } from "./store";
 import { josa, notFound, VALIDATION_DETAIL, W } from "./wording";

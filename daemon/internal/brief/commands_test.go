@@ -14,12 +14,12 @@ const serverBrief = "[1] Agent Identity\nYou are Rev, reviewer in the Colab work
 	"[2] Workspace rules and colab CLI\n" +
 	"- Mention syntax: [@Name](mention://agent/<id>). Only mention session participants listed in [5].\n" +
 	"- Post every reply to the session with `colab message post --body \"<text>\"` (or the colab_message_post MCP tool). Text you print to stdout is NOT delivered.\n" +
-	"- Read more history with `colab session messages`, session details with `colab session get`.\n" +
+	"- Read more history with `colab room messages`, room details with `colab room get`.\n" +
 	"- Mentioning an agent creates work for it; do not mention agents just to acknowledge.\n" +
 	"- Your COLAB_TASK_TOKEN is valid for this attempt only; if a call returns token_revoked, stop immediately.\n\n" +
 	"[4] Session\nTitle: t\nGoal: g\nDirector: D\nIsolation: none\n\n[5] Roster\n- Rev\n\n[8] Instruction precedence: user instruction > session goal > agent instructions > runtime defaults.\n"
 
-var reviewer = []string{"session_get", "session_messages", "message_post", "status_set", "decision_record", "artifact_get", "review_approve", "review_reject", "hitl_ask", "hitl_request_info", "room_list", "room_read"}
+var reviewer = []string{"room_get", "room_messages", "message_post", "status_set", "decision_record", "artifact_get", "review_approve", "review_reject", "hitl_ask", "hitl_request_info", "room_list", "room_read"}
 
 func section2(t *testing.T, text string) string {
 	t.Helper()
@@ -78,7 +78,7 @@ func TestRestrictedLinesGetTheWrapperPath(t *testing.T) {
 // Everything allowed (lead · custom): the list line, no "does not use" line.
 func TestRestrictCommandsEverything(t *testing.T) {
 	// The server's allowed_commands order (openapi enum = gen.ColabCommandValues, #324 NN1).
-	all := []string{"session_get", "session_messages", "artifact_get", "message_post", "status_set", "decision_record", "lane_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info", "room_list", "room_read", "work_propose"}
+	all := []string{"room_get", "room_messages", "artifact_get", "message_post", "status_set", "decision_record", "lane_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info", "room_list", "room_read", "work_propose"}
 	s2 := section2(t, RestrictCommands(serverBrief, all))
 	if !strings.Contains(s2, "`colab lane delegate`") || strings.Contains(s2, "쓰지 않는다") {
 		t.Fatalf("everything-allowed shape wrong:\n%s", s2)

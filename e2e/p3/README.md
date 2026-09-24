@@ -22,7 +22,7 @@ KEEP_STACK=1 bash e2e/p3/41_cli_hitl_real.sh   # 스택을 남긴다
 ```
 
 `mock_hitl_server.py` 는 `contracts/openapi.yaml` `createHitlRequest` 하나만 구현한다 —
-경로(`POST /api/v1/sessions/{S}/hitl-requests`), 201 형태, 두 번째 요청의 `409 hitl_already_open`,
+경로(`POST /api/v1/rooms/{S}/hitl-requests`), 201 형태, 두 번째 요청의 `409 hitl_already_open`,
 `proposed_default` 없는 422. **목은 openapi 에서 베끼고 CLI 에서 베끼지 않는다.**
 T-C4 때는 목도 CLI 도 같은 잘못된 표(`/tasks/{T}/hitl`)에서 나와 스모크가 전부 초록이었는데
 실서버에서는 404 였다(C-4, T-I3 발견). 목을 고칠 일이 있으면 **`41_cli_hitl_real.sh` 도 같이 돌려라** —

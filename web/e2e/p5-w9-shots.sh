@@ -75,7 +75,7 @@ SEED=$(apic '
   const rt = (await fetch(`/api/v1/workspaces/${ws}/runtimes`).then(j))[0];
   const ags = await fetch(`/api/v1/workspaces/${ws}/agents`).then(j);
   const a = ags.items;
-  const mk = (title, goal, participants) => post(`/workspaces/${ws}/sessions`, {
+  const mk = (title, goal, participants) => post(`/__mock/workspaces/${ws}/seed-room`, {
     title, goal, isolation: { kind: "none" }, runtime_id: rt.id,
     participants: participants.map((x) => ({ agent_id: x.id })), assignee_agent_id: participants[0].id,
   });
@@ -83,10 +83,10 @@ SEED=$(apic '
   const s2 = await mk("국내 B2B SaaS 결제 시장 조사", "보고서 10페이지 — 상위 5개 사업자 비교", [a[1]]);
   const s3 = await mk("온보딩 문서 정리", "설치 안내를 한 페이지로 줄인다", [a[0]]);
   const s4 = await mk("주간 리뷰 요약", "지난주 PR 리뷰 코멘트를 항목별로 모은다", [a[0], a[1]]);
-  await post(`/__mock/sessions/${s1.id}/seed-lanes`, { statuses: ["running", "blocked", "done"] });
-  await post(`/__mock/sessions/${s1.id}/seed-hitl`, {});
-  await post(`/__mock/sessions/${s2.id}/seed-lanes`, { statuses: ["running", "running"] });
-  await post(`/__mock/sessions/${s3.id}/pause`, { reason: "budget" }).catch(() => null);
+  await post(`/__mock/rooms/${s1.id}/seed-lanes`, { statuses: ["running", "blocked", "done"] });
+  await post(`/__mock/rooms/${s1.id}/seed-hitl`, {});
+  await post(`/__mock/rooms/${s2.id}/seed-lanes`, { statuses: ["running", "running"] });
+  await post(`/__mock/rooms/${s3.id}/pause`, { reason: "budget" }).catch(() => null);
   await post("/__mock/inbox/seed", {});
   return [rts.length, a.length, s1.id, s3.id].join(",");
 })()')
@@ -94,7 +94,7 @@ echo "  seed: $SEED"
 S1=$(echo "$SEED" | cut -d, -f3)
 S3=$(echo "$SEED" | cut -d, -f4)
 
-SCREENS=("01-sessions:/sessions:[data-testid=\"session-row\"]"
+SCREENS=("01-sessions:/rooms:[data-testid=\"session-row\"]"
          "02-inbox:/inbox:[data-testid=\"inbox-list\"]"
          "03-agents:/agents:[data-testid=\"agent-card\"]"
          "04-computers:/runtimes:[data-testid=\"runtime-card\"]"
@@ -109,7 +109,7 @@ for THEME in light dark; do
     shot "p5-w9-$name-$THEME"
   done
   # S7 — 3열(작업 줄기 보드 · 타임라인 · 정보). 상단 바를 없앤 뒤 가장 복잡한 화면이라 증거에 넣는다(PR #191 NN3).
-  open_wait "/sessions/$S1" '[data-testid="session-detail"]'
+  open_wait "/rooms/$S1" '[data-testid="session-detail"]'
   ab wait '[data-testid="lane-card"]' --timeout 20000 >/dev/null || true
   shot "p5-w9-08-session-$THEME"
 done
@@ -132,7 +132,7 @@ open_wait /runtimes '[data-testid="add-computer-hint"]'
 shot "p5-w9-06-computers-member"
 
 step "멤버 계정 · 예산 일시정지 — 「계속 진행 승인」 비활성 사유가 화면 텍스트로(PR #191 NN1)"
-open_wait "/sessions/$S3" '[data-testid="paused-why"]'
+open_wait "/rooms/$S3" '[data-testid="paused-why"]'
 shot "p5-w9-09-session-paused-member"
 
 step "온라인 컴퓨터 0 — 「새 세션」 비활성 사유"
@@ -147,7 +147,7 @@ apic '
   for (const r of rts) if (r.status === "online") await fetch(`/api/v1/__mock/runtimes/${r.id}/offline`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   return rts.length;
 })()' >/dev/null
-open_wait /sessions '[data-testid="new-session-hint"]'
+open_wait /rooms '[data-testid="new-session-hint"]'
 shot "p5-w9-07-sessions-no-runtime"
 
 step "테마를 시스템 따름으로 되돌린다"

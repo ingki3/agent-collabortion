@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -108,34 +107,39 @@ func TestWorkPropose(t *testing.T) {
 	}
 }
 
-// room get · room messages are session get · session messages under the
-// room name: the same request and the same JSON (§2.4a — "둘 다 동작").
-func TestRoomAliasesAreTheSessionCommands(t *testing.T) {
+// colab-cli.md v0.9 (R4): room get · room messages are the commands (the
+// session group is gone). room get is getRoom + getWork + listRoomParticipants
+// under one JSON; room messages reads /rooms/{R}/messages with --work.
+func TestRoomGetAndMessages(t *testing.T) {
 	s := clienttest.New(t)
 	env := s.Env(t.TempDir())
-	_, a, _ := exec(t, env, "session", "get")
-	_, b, _ := exec(t, env, "room", "get")
-	if !reflect.DeepEqual(a, b) || a["goal"] != "Find 3 competitors" {
-		t.Fatalf("room get %v ≠ session get %v", b, a)
+	code, v, _ := exec(t, env, "room", "get")
+	if code != 0 || v["work"].(map[string]any)["goal"] != "Find 3 competitors" ||
+		v["room"].(map[string]any)["isolation"].(map[string]any)["kind"] != "worktree" || len(v["participants"].([]any)) != 3 {
+		t.Fatalf("room get: exit %d %v", code, v)
+	}
+	for _, p := range []string{"/rooms/" + clienttest.RoomID, "/works/" + clienttest.WorkID, "/rooms/" + clienttest.RoomID + "/participants"} {
+		if !reached(s, "GET", p) {
+			t.Fatalf("room get did not read %s: %v", p, paths(s))
+		}
 	}
 	s.Messages = []map[string]any{{"id": "m1", "work_id": "w1"}, {"id": "m2", "work_id": "w2"}, {"id": "m3"}}
-	_, a, _ = exec(t, env, "session", "messages")
-	_, b, _ = exec(t, env, "room", "messages")
-	if !reflect.DeepEqual(a, b) || b["included"] != float64(3) {
-		t.Fatalf("room messages %v ≠ session messages %v", b, a)
+	code, v, _ = exec(t, env, "room", "messages")
+	if code != 0 || v["included"] != float64(3) || v["room_id"] != clienttest.RoomID {
+		t.Fatalf("room messages: exit %d %v", code, v)
 	}
-	code, v, _ := exec(t, env, "room", "messages", "--work", "w2", "--limit", "10")
+	code, v, _ = exec(t, env, "room", "messages", "--work", "w2", "--limit", "10")
 	if code != 0 || v["included"] != float64(1) || v["items"].([]any)[0].(map[string]any)["id"] != "m2" {
 		t.Fatalf("--work: exit %d %v", code, v)
 	}
 	if q := s.Requests[len(s.Requests)-1].URL.Query(); q.Get("work_id") != "w2" || q.Get("limit") != "10" {
 		t.Fatalf("query = %v", q)
 	}
-	// The alias is gated as the command it is: a list without session_get
-	// refuses room get with session get's sentence.
+	// Gated as room_get: a list without it refuses before any request.
 	env[client.EnvAllowedCommands] = "room_list"
+	n := len(s.Requests)
 	code, v, _ = exec(t, env, "room", "get")
-	if code != client.ExitRefused || v["error"].(map[string]any)["command"] != "session_get" {
+	if code != client.ExitRefused || v["error"].(map[string]any)["command"] != "room_get" || len(s.Requests) != n {
 		t.Fatalf("room get outside the list: exit %d %v", code, v)
 	}
 }
@@ -179,7 +183,7 @@ func TestMCPRoomTools(t *testing.T) {
 	if r[2].Result.IsError || r[2].Result.StructuredContent["proposal_id"] != clienttest.ProposalID {
 		t.Fatalf("work_propose: %s", lines[2])
 	}
-	if r[3].Result.IsError || !reached(s, "GET", "/sessions/"+clienttest.SessionID+"/messages") {
+	if r[3].Result.IsError || !reached(s, "GET", "/rooms/"+clienttest.SessionID+"/messages") {
 		t.Fatalf("room_messages: %s", lines[3])
 	}
 	for _, q := range s.Requests {

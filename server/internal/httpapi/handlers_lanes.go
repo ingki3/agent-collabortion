@@ -55,15 +55,15 @@ func (s *Server) laneControl(r *http.Request, laneID uuid.UUID) (*gen.User, uuid
 	return u, wsID, sessionID, nil
 }
 
-// ListLanes is GET /sessions/{sessionId}/lanes — the S7 left-column board
-// (FR-6.2). Workspace member or a TaskToken scoped to this session; the
+// ListLanes is GET /rooms/{roomId}/lanes — the S7 left-column board
+// (FR-6.2). Workspace member or a TaskToken scoped to this room; the
 // response is a bare array (openapi listLanes `type: array`).
 //
 // `actions` is per-caller: only the Director and the deputy may cancel
 // (t-3), and a TaskToken never can, so the board an agent reads shows no
 // control buttons.
-func (s *Server) ListLanes(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.ListLanesParams) {
-	u, p := s.sessionAccess(r, sessionId)
+func (s *Server) ListLanes(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListLanesParams) {
+	u, p := s.sessionAccess(r, roomId)
 	if p != nil {
 		writeProblem(w, p)
 		return
@@ -90,7 +90,7 @@ func (s *Server) ListLanes(w http.ResponseWriter, r *http.Request, sessionId gen
 			deputy   *uuid.UUID
 		}
 		seats := map[uuid.UUID]seat{}
-		rows, err := s.DB.Query(r.Context(), `SELECT id, director_user_id, deputy_user_id FROM work WHERE room_id = $1`, sessionId)
+		rows, err := s.DB.Query(r.Context(), `SELECT id, director_user_id, deputy_user_id FROM work WHERE room_id = $1`, roomId)
 		if err != nil {
 			writeErr(w, err)
 			return
@@ -107,7 +107,7 @@ func (s *Server) ListLanes(w http.ResponseWriter, r *http.Request, sessionId gen
 		}
 		rows.Close()
 		var room seat
-		if err := s.DB.QueryRow(r.Context(), `SELECT owner_user_id, deputy_owner_user_id FROM room WHERE id = $1`, sessionId).
+		if err := s.DB.QueryRow(r.Context(), `SELECT owner_user_id, deputy_owner_user_id FROM room WHERE id = $1`, roomId).
 			Scan(&room.director, &room.deputy); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			writeErr(w, err)
 			return
@@ -120,7 +120,7 @@ func (s *Server) ListLanes(w http.ResponseWriter, r *http.Request, sessionId gen
 			return tasks.MayCancel(u.Id, st.director, st.deputy).ButtonEnabled
 		}
 	}
-	out, err := lanes.List(r.Context(), s.DB, sessionId, statuses, canControl)
+	out, err := lanes.List(r.Context(), s.DB, roomId, statuses, canControl)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -184,13 +184,13 @@ func (s *Server) publishLane(r *http.Request, wsID, sessionID uuid.UUID, lane *g
 
 // DelegateLane is `colab lane delegate` (FR-6.2, FR-6.5). Agents only: a human
 // parallelises with postMessage's new_lane toggle instead.
-func (s *Server) DelegateLane(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.DelegateLaneParams) {
+func (s *Server) DelegateLane(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.DelegateLaneParams) {
 	pr := principalOf(r)
 	if pr.Task == nil {
 		writeProblem(w, apperr.Forbidden("agent_only", "위임은 에이전트만 할 수 있습니다 — 사람은 글쓰기 칸의 「새 서브 미션으로 보내기」를 쓰세요"))
 		return
 	}
-	if pr.Task.SessionID != sessionId {
+	if pr.Task.SessionID != roomId {
 		writeProblem(w, apperr.Forbidden("outside_task_scope", "다른 방에는 위임할 수 없습니다"))
 		return
 	}

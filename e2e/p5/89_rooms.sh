@@ -7,7 +7,7 @@
 # 재는 것 (판정 표 out/89-checks.tsv):
 #   A. 방 만들기 — 컴퓨터 0대에서도 201 · 이름 한 칸 · 만든 사람이 방장 · my_capabilities · 빈 이름 422 · room_defaults 상속 ·
 #      격리 기본값 상속(room_defaults.isolation_kind · default_isolation → kind 만, 경로 없음 — openapi 0.2.5)
-#   B. 초대 — invited 방은 초대 안 된 멤버에게 404·목록 밖·옛 /sessions/{id}/messages·lanes 도 404 · 사람 초대 201 · room_invited(open_room) · 에이전트 초대는
+#   B. 초대 — invited 방은 초대 안 된 멤버에게 404·목록 밖·/rooms/{id}/messages·lanes 도 404 · 사람 초대 201 · room_invited(open_room) · 에이전트 초대는
 #      부른 사람의 FR-1.9 로(403 not_invitable → owner 가 201 + warnings) · 이미 있음 409 · 워크스페이스 밖 422
 #   C. 나가기 — 방장 409 is_owner · 열린 미션 Director 409 is_director · 본인 204 → 404 · 다시 초대하면 같은 행 ·
 #      참여자가 남을 초대 403 · 방장 넘기기 · 부방장
@@ -18,9 +18,9 @@
 #   F. 삭제 — 진행 중 미션 409 works_active · 부방장 403 · 방장 204 → 404 · activity_log room.deleted 한 줄
 #   G. 안 읽음 — 남의 메시지만 · 목록과 getRoom 같은 수 · markRoomRead → 0 · 뒤로 안 간다
 #   H. SSE — room_id 거르기(다른 방 프레임 0) · invited 방 프레임이 초대 안 된 사람 스트림에 0 · room.unread 는 본인만 ·
-#      participant.joined/left · room_link.updated · room.updated · room.deleted + session.deleted · envelope room_id
+#      participant.joined/left · room_link.updated · room.updated · room.deleted(R4: session.deleted 없음) · envelope room_id
 #   I. 활동 로그 — owner·admin 만 · room 거르기 · 감사 열람 기록
-#   J. 옛 표면 — getSession·listSessions 200 그대로
+#   J. 옛 세션 자리(방+미션) — R4 에서 옛 세션 표면이 삭제돼 getRoom·getWork·listRooms·listRoomWorks 로 잰다
 #
 # 스택(T-R1b3 배정): server :8135 · pg :5484 · 컨테이너 colab-pg-r1b3-e2e.
 # 사용: export SERVER_URL=http://localhost:8135 PG_PORT=5484 PG_CONTAINER=colab-pg-r1b3-e2e
@@ -101,10 +101,10 @@ psqlq "update workspace_settings set default_isolation = 'none' where workspace_
 as mem; call POST "/workspaces/$WS/rooms" '{"name":"89 격리 없음"}'
 chk A.9 none "$(jq -r .isolation.kind <<<"$BODY")" "기본 none 은 none"
 
-# SSE 를 연다: oth 는 워크스페이스 전체, mem 은 RB 만(room_id), dir 는 session_id 별칭으로 RA 만.
+# SSE 를 연다: oth 는 워크스페이스 전체, mem 은 RB 만(room_id), dir 는 RA 만(room_id — R4 에서 session_id 별칭 삭제).
 sse oth "$OUT/89-sse-oth.log"
 sse mem "$OUT/89-sse-mem-rb.log" "?room_id=$RB"
-sse dir "$OUT/89-sse-dir-ra.log" "?session_id=$RA"
+sse dir "$OUT/89-sse-dir-ra.log" "?room_id=$RA"
 sleep 1
 
 # ───────────────────────────── B ─────────────────────────────────────────────
@@ -115,10 +115,10 @@ chk B.0 "summary/1" "$(psqlq "select kind||'/'||(summary_range ? 'message_ids'):
 as oth; call GET "/rooms/$RA"
 chk B.1 404 "$CODE" "invited 방 — 초대 안 된 멤버에게 404(존재 숨김)"
 chk B.2 0 "$(api_ok GET "/workspaces/$WS/rooms?participating=false" | jq -r --arg r "$RA" '[.items[]|select(.id==$r)]|length')" "목록(참여 안 한 방 포함)에도 없다"
-# 옛 /sessions/* 별칭도 같은 방이다(리뷰 #291 R1-1 — 방 카드만 숨고 대화가 열려 있던 역전).
-call GET "/sessions/$RA/messages"
-chk B.2a "404/0" "$CODE/$(grep -c "$SUMM" <<<"$BODY")" "옛 /sessions/{id}/messages 도 404 — 본문이 안 나간다"
-chk B.2b 404 "$(api GET "/sessions/$RA/lanes" | api_code)" "옛 /sessions/{id}/lanes 도 404(500 아님 — NN4)"
+# 대화·lane 표면도 같은 방 판정이다(리뷰 #291 R1-1 — 방 카드만 숨고 대화가 열려 있던 역전; 그때는 옛 세션 별칭 경로였다).
+call GET "/rooms/$RA/messages"
+chk B.2a "404/0" "$CODE/$(grep -c "$SUMM" <<<"$BODY")" "/rooms/{id}/messages 도 404 — 본문이 안 나간다"
+chk B.2b 404 "$(api GET "/rooms/$RA/lanes" | api_code)" "/rooms/{id}/lanes 도 404(500 아님 — NN4)"
 as dir; call GET "/rooms/$RA"
 chk B.3 "200/null/false" "$CODE/$(jq -r '(.my_room_role|tostring)+"/"+((.my_capabilities|index("post"))!=null|tostring)' <<<"$BODY")" "ws owner 는 감사 열람(게시 버튼 없음)"
 chk B.4 1 "$(psqlq "select count(*) from activity_log where session_id='$RA' and action='room.audit_viewed'")" "감사 열람이 activity_log 에"
@@ -151,7 +151,7 @@ psqlq "update work set director_user_id='$MEM_UID' where id='$W1'" >/dev/null
 call DELETE "/rooms/$RA/participants/$OTH_P"
 chk C.3 204 "$CODE" "본인 나가기 → 204"
 chk C.4 404 "$(api GET "/rooms/$RA" | api_code)" "나간 뒤 invited 방은 다시 404"
-chk C.4a 404 "$(api GET "/sessions/$RA/messages" | api_code)" "나간 뒤 옛 /sessions/{id}/messages 도 404"
+chk C.4a 404 "$(api GET "/rooms/$RA/messages" | api_code)" "나간 뒤 /rooms/{id}/messages 도 404"
 as mem; api_ok POST "/rooms/$RA/participants" "$(jq -nc --arg u "$OTH_UID" '{user_id:$u}')" >/dev/null
 chk C.5 "$OTH_P" "$(pid_of mem "$RA" "$OTH_UID")" "다시 초대 → 같은 행(left_at 해제)"
 as oth; call POST "/rooms/$RA/participants" "$(jq -nc --arg u "$ADM_UID" '{user_id:$u}')"
@@ -238,11 +238,11 @@ step "H. SSE — room_id 거르기 · invited 숨김 · 본인 프레임 · 타�
 F_OTH="$OUT/89-sse-oth.log"; F_MEM="$OUT/89-sse-mem-rb.log"; F_DIR="$OUT/89-sse-dir-ra.log"
 chk H.1 0 "$(grep '^data: ' "$F_MEM" | sed 's/^data: //' | jq -r --arg r "$RB" 'select(.room_id!=null and .room_id!=$r)|.id' | wc -l | tr -d ' ')" "room_id=RB 스트림에 다른 방 프레임 0"
 chk_ge H.2 1 "$(frames_room "$F_MEM" "$RB")" "  … RB 프레임은 온다"
-chk H.3 0 "$(grep '^data: ' "$F_DIR" | sed 's/^data: //' | jq -r --arg r "$RA" 'select(.room_id!=null and .room_id!=$r)|.id' | wc -l | tr -d ' ')" "session_id(별칭)=RA 스트림에 다른 방 프레임 0"
+chk H.3 0 "$(grep '^data: ' "$F_DIR" | sed 's/^data: //' | jq -r --arg r "$RA" 'select(.room_id!=null and .room_id!=$r)|.id' | wc -l | tr -d ' ')" "room_id=RA 스트림에 다른 방 프레임 0"
 chk_ge H.4 1 "$(frames "$F_DIR" participant.joined "$RA")" "participant.joined"
 chk_ge H.5 1 "$(frames "$F_DIR" participant.left "$RA")" "participant.left"
 chk_ge H.6 1 "$(frames "$F_DIR" room.updated "$RA")" "room.updated"
-chk H.7 "1/1" "$(frames "$F_DIR" room.deleted "$RA")/$(frames "$F_DIR" session.deleted "$RA")" "room.deleted + session.deleted(R4 까지 둘 다)"
+chk H.7 "1/0" "$(frames "$F_DIR" room.deleted "$RA")/$(frames "$F_DIR" session.deleted "$RA")" "room.deleted 1 · session.deleted 0(R4 — 옛 타입 삭제)"
 chk H.8 "2/2" "$(frames "$F_DIR" room_link.updated "$RA")/$(frames "$F_MEM" room_link.updated "$RB")" "room_link.updated 가 양쪽 방에(걸기·풀기)"
 # invited 가 된 뒤(커밋 뒤) RA 에서 난 프레임 — 「여기까지 정리」 요약 메시지 — 는 oth 의 워크스페이스 스트림에 없다.
 # (visibility 를 바꾸는 그 트랜잭션 안의 프레임은 커밋 전에 나가 옛 공개 범위로 판정된다 — 방금까지 볼 수 있던 사람에게.)
@@ -259,10 +259,10 @@ chk I.2 "room.deleted" "$(jq -r '[.items[].action]|join(",")' <<<"$AL")" "삭제
 chk I.3 "user/$MEM_UID" "$(api_ok GET "/workspaces/$WS/activity-log?action=room.deleted" | jq -r '.items[0].actor.kind+"/"+.items[0].actor.id')" "actor"
 
 # ───────────────────────────── J ─────────────────────────────────────────────
-step "J. 옛 표면"
-as dir; chk J.1 200 "$(api GET "/sessions/$S" | api_code)" "getSession 200"
-chk J.2 1 "$(api_ok GET "/workspaces/$WS/sessions" | jq -r --arg s "$S" '[.items[]|select(.id==$s)]|length')" "listSessions 에 그 세션"
-chk J.3 0 "$(api_ok GET "/workspaces/$WS/sessions" | jq -r --arg r "$RB" '[.items[]|select(.id==$r)]|length')" "미션 없는 방은 세션 목록에 없다"
+step "J. 옛 세션 자리 — 방+미션(R4: getSession·listSessions 삭제)"
+as dir; chk J.1 "200/200" "$(api GET "/rooms/$S" | api_code)/$(api GET "/works/$(work_of "$S")" | api_code)" "getRoom 200 · getWork 200"
+chk J.2 1 "$(api_ok GET "/workspaces/$WS/rooms?participating=false" | jq -r --arg s "$S" '[.items[]|select(.id==$s)]|length')" "listRooms 에 그 방"
+chk J.3 0 "$(api_ok GET "/rooms/$RB/works" | jq -r '.items|length')" "미션 없는 방은 listRoomWorks 가 비어 있다"
 
 cleanup
 PASS="$(awk -F'\t' '$2=="PASS"' "$CHECKS" | wc -l | tr -d ' ')"; FAIL="$(awk -F'\t' '$2=="FAIL"' "$CHECKS" | wc -l | tr -d ' ')"

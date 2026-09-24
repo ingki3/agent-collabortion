@@ -41,7 +41,7 @@ ASK_INS='너는 가상의 실내 화분 자동 급수기 제품 Y 의 설명 초
 
 첫 턴에 할 일은 아래 두 가지뿐이다. 각각 한 번씩만 하고, 실패해도 재시도하거나 다른 방법을 찾지 마라.
   a. 셸에서 아래 명령을 그대로 한 번 실행한다.
-     curl -sS -X POST "$COLAB_SERVER_URL/api/v1/sessions/$COLAB_SESSION_ID/hitl-requests" -H "Authorization: Bearer $COLAB_TASK_TOKEN" -H "Content-Type: application/json" -d '"'"'{"type":"approval","summary":"이 설명 초안을 이대로 확정해도 될까요?"}'"'"'
+     curl -sS -X POST "$COLAB_SERVER_URL/api/v1/rooms/$COLAB_SESSION_ID/hitl-requests" -H "Authorization: Bearer $COLAB_TASK_TOKEN" -H "Content-Type: application/json" -d '"'"'{"type":"approval","summary":"이 설명 초안을 이대로 확정해도 될까요?"}'"'"'
   b. 메시지를 하나도 게시하지 말고 즉시 턴을 끝낸다.
 
 웹 검색을 하지 마라. 저장소나 다른 디렉토리를 뒤지지 마라.'
@@ -113,7 +113,7 @@ chk X1b "그래서 lane 은 계속 돈다"  yes \
 export AGENT_BROWSER_SESSION="colab-g6-51-mem-$STAMP"
 ab set viewport 1440 1000 >/dev/null 2>&1 || true
 web_login "$MEM_EMAIL" "$PASSWORD" >/dev/null 2>&1 || bad "멤버 웹 로그인 실패"
-ab open "$WEB_URL/sessions/$SC_" >/dev/null 2>&1 || true
+ab open "$WEB_URL/rooms/$SC_" >/dev/null 2>&1 || true
 abwait '[data-testid="lane-card"]' 40 || true
 shot "p3-51-04-member-cancel-disabled"
 chk W4  "멤버 화면에 \"중단\" 버튼이 **보인다**(숨기지 않는다, SCREEN §7)" yes \
@@ -186,7 +186,7 @@ step "8. 화면 — deputy 에게는 버튼 비활성 + \"HH:MM 부터\", 멤버
 export AGENT_BROWSER_SESSION="colab-g6-51-dep-$STAMP"
 ab set viewport 1440 1000 >/dev/null 2>&1 || true
 web_login "$DEP_EMAIL" "$PASSWORD" >/dev/null 2>&1
-ab open "$WEB_URL/sessions/$SH" >/dev/null 2>&1 || true
+ab open "$WEB_URL/rooms/$SH" >/dev/null 2>&1 || true
 abwait '[data-testid="hitl-card"]' 40 || true
 shot "p3-51-01-deputy-locked"
 PERM="$(abget get attr '[data-testid="hitl-body"]' data-permission)"
@@ -200,7 +200,7 @@ chk W1c "승인 버튼이 **비활성**"                        yes \
   "$( [ "$(abcount '[data-testid="hitl-approve"]:disabled')" -ge 1 ] && echo yes || echo no )"
 log "deputy gate 문구: $GATE"
 export AGENT_BROWSER_SESSION="colab-g6-51-mem-$STAMP"   # 위 4단계에서 이미 로그인돼 있다
-ab open "$WEB_URL/sessions/$SH" >/dev/null 2>&1 || true
+ab open "$WEB_URL/rooms/$SH" >/dev/null 2>&1 || true
 abwait '[data-testid="hitl-card"]' 40 || true
 shot "p3-51-02-member-noright"
 MPERM="$(abget get attr '[data-testid="hitl-body"]' data-permission)"
@@ -211,7 +211,7 @@ chk W2b "\"응답 권한이 없습니다\" 안내가 있다 (카드는 보인다
 step "9. E7-10 — 12h 1분 뒤 deputy 응답은 수락된다 (웹에서)"
 backdate_hitl "$H" $((3600+120))     # 누적 12h 2분
 export AGENT_BROWSER_SESSION="colab-g6-51-dep-$STAMP"
-ab open "$WEB_URL/sessions/$SH" >/dev/null 2>&1 || true
+ab open "$WEB_URL/rooms/$SH" >/dev/null 2>&1 || true
 abwait '[data-testid="hitl-card"]' 40 || true
 sleep 2
 PERM2="$(abget get attr '[data-testid="hitl-body"]' data-permission)"

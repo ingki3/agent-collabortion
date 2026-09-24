@@ -284,7 +284,7 @@ func TestP2BudgetPauseCancelsTheTurn(t *testing.T) {
 		taskID, f.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.srv.Sessions.ApplyCompletionEvent(ctx, mustUUID(t, f.sessionID), sessions.Event{Kind: "budget_exhausted"}); err != nil {
+	if _, err := f.srv.Sessions.ApplyWorkEvent(ctx, mustUUID(t, f.missionID), sessions.Event{Kind: "budget_exhausted"}); err != nil {
 		t.Fatal(err)
 	}
 	var status, reason string
@@ -339,10 +339,10 @@ func TestP2DerivedStatusInTheDatabase(t *testing.T) {
 	ctx := t.Context()
 
 	statusOf := func(agentID string) string {
-		sess := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
-		for _, raw := range sess["participants"].([]any) {
+		sess := f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID+"/participants", nil)
+		for _, raw := range sess["items"].([]any) {
 			p := raw.(map[string]any)
-			if str(p, "agent_id") == agentID {
+			if a, _ := p["agent"].(map[string]any); a != nil && str(a, "id") == agentID {
 				return str(p, "status")
 			}
 		}
@@ -459,9 +459,10 @@ func TestP2ErrorStatusIsNotSticky(t *testing.T) {
 	ctx := t.Context()
 
 	statusOf := func(agentID string) string {
-		sess := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
-		for _, raw := range sess["participants"].([]any) {
-			if p := raw.(map[string]any); str(p, "agent_id") == agentID {
+		sess := f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID+"/participants", nil)
+		for _, raw := range sess["items"].([]any) {
+			p := raw.(map[string]any)
+			if a, _ := p["agent"].(map[string]any); a != nil && str(a, "id") == agentID {
 				return str(p, "status")
 			}
 		}

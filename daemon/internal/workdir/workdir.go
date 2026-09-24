@@ -27,7 +27,9 @@ import (
 var ErrUnsupported = errors.New("workdir: isolation kind not supported")
 
 // Path returns the lane folder for `none` isolation:
-// <root>/sessions/<session_id>/<lane_id>.
+// <root>/sessions/<room_id>/<lane_id>. A local disk path, not an API address
+// — openapi v0.3.0 (R4) removed the `/sessions/*` API but the folders
+// already on disk (and the workdir rows that point at them) keep this layout.
 func Path(root, sessionID, laneID string) string {
 	return filepath.Join(root, "sessions", safe(sessionID), safe(laneID))
 }

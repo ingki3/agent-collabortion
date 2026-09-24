@@ -37,7 +37,7 @@ func newRoomReadFixture(t *testing.T) *roomReadFixture {
 			parts = append(parts, map[string]any{"agent_id": a})
 		}
 		f.fake.Advance(time.Second)
-		out := f.api.must(201, "POST", f.p+"/workspaces/"+f.wsID+"/sessions", map[string]any{
+		out := sessionRoom(t, f.api, f.pool, f.p, f.wsID, map[string]any{
 			"title": title, "goal": title + " 목표", "isolation": map[string]any{"kind": "none"},
 			"assignee_agent_id": agents[0], "participants": parts,
 		})
@@ -276,7 +276,7 @@ func TestRoomReadCaps(t *testing.T) {
 	// B gets more text than 500 tokens.
 	for i := 0; i < 4; i++ {
 		f.fake.Advance(time.Second)
-		f.api.must(201, "POST", f.p+"/sessions/"+f.b.String()+"/messages",
+		f.api.must(201, "POST", f.p+"/rooms/"+f.b.String()+"/messages",
 			map[string]any{"content": strings.Repeat("긴 문장입니다. ", 60)}, "Idempotency-Key", uuid.NewString())
 	}
 	tok, leadTask := f.agentToken(t, f.sessionID, f.leadUUID, "Lead")

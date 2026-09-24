@@ -75,12 +75,12 @@ burst() {
   wait_pairing "$WS" "$PID_" 300 || die "pairing not ready (see $dlog)"
   # 두 세션을 연달아 — 두 task 가 같은 claim 창에 queued 로 있게 한다.
   local s1 s2
-  s1="$(api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg g "$GOAL" --arg a "$AG" --arg rt "$rid" \
+  s1="$(create_room_work "$WS" "$(jq -nc --arg g "$GOAL" --arg a "$AG" --arg rt "$rid" \
     '{title:"D14 burst 1",goal:$g,isolation:{kind:"none"},participants:[{agent_id:$a}],assignee_agent_id:$a,runtime_id:$rt,
-      completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | jq -r .id)"
-  s2="$(api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg g "$GOAL" --arg a "$AG" --arg rt "$rid" \
+      completion_condition:{op:"and",conditions:[{type:"manual"}]}}')")"
+  s2="$(create_room_work "$WS" "$(jq -nc --arg g "$GOAL" --arg a "$AG" --arg rt "$rid" \
     '{title:"D14 burst 2",goal:$g,isolation:{kind:"none"},participants:[{agent_id:$a}],assignee_agent_id:$a,runtime_id:$rt,
-      completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | jq -r .id)"
+      completion_condition:{op:"and",conditions:[{type:"manual"}]}}')")"
   ok "$label: sessions $s1 $s2 (runtime $rid)"
   wait_for "${T_TURN:-600}" '[ "$(psqlq "select count(*) from task_attempt a join task t on t.id=a.task_id where t.session_id in ('"'"'$s1'"'"','"'"'$s2'"'"') and a.outcome is not null")" = 2 ]' \
     || bad "$label: two turns did not finish in time (see $dlog)"

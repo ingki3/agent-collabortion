@@ -19,7 +19,7 @@ import (
 // S-45: the agent path (httpapi.createHitl) posted this card and stored its id
 // in hitl_request.message_id, and the three SYSTEM-issued paths — the budget
 // pause (httpapi.applyBudgetPause, in-turn and the post-turn one S-44 added),
-// the completion/budget approval (sessions.ApplyCompletionEvent) and the loop
+// the completion/budget approval (sessions.ApplyWorkEvent) and the loop
 // pause (router.pauseForLoop) — inserted the request and nothing else. The
 // request existed, the inbox card existed, and the session timeline showed
 // zero HITL cards (T-I3 measured 43_ with 0). One helper now, so a fourth
@@ -89,7 +89,7 @@ func hitlTypeLabel(t string) string {
 // declares that field, and a null there is what S7 reads as "no card".
 //
 // production callers: httpapi.createHitl (source=agent),
-// httpapi.applyBudgetPause, sessions.ApplyCompletionEvent, router.pauseForLoop
+// httpapi.applyBudgetPause, sessions.ApplyWorkEvent, router.pauseForLoop
 // (source=system).
 func PostHitlCard(ctx context.Context, hub *realtime.Hub, q db.DBTX, wsID, sessionID uuid.UUID, c HitlCard, now time.Time) (uuid.UUID, error) {
 	authorType := "system"

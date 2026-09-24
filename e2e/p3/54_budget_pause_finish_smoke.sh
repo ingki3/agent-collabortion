@@ -33,6 +33,18 @@ ok(){ printf '  \033[32mok\033[0m   %s\n' "$*"; }
 bad(){ printf '  \033[31mFAIL\033[0m %s\n' "$*"; FAILED=$((FAILED+1)); }
 step(){ printf '\n\033[1m== %s\033[0m\n' "$*"; }
 api(){ curl -sS -b "$J" -c "$J" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" "$@"; }
+# ── 방·미션 (openapi v0.3.0 D22 — 옛 POST /workspaces/{ws}/sessions 삭제) — 이 스크립트 전용 헬퍼 ──
+# room_work OLD_SESSION_CREATE_JSON → "ROOM WORK". createRoom → updateRoom(격리·컴퓨터·방 한도) →
+# addRoomParticipant… → createWork(assignee 명시 — createWork 는 기본값이 없다). 옛 세션은 미션이 하나라
+# work_id 없는 사람 게시도 그 미션에 귀속됐다. 이제는 게시에 "work_id" 를 붙여야 초기 task 에 합쳐진다
+# (안 붙이면 "미션 없음" task 가 따로 생긴다 — 2026-09-24 :8319 실측).
+room_work(){
+  local in="$1" room p
+  room=$(api -X POST "$S/workspaces/$WS/rooms" -d "$(jq -c '{name:.title,description:""}' <<<"$in")" | jq -r .id)
+  api -X PATCH "$S/rooms/$room" -d "$(jq -c '{isolation,runtime_id} + (if .limits then {limits:(.limits|with_entries(select(.key|IN("budget_usd","time_limit","max_parallel_lanes","max_concurrent_works"))))} else {} end) | with_entries(select(.value!=null))' <<<"$in")" >/dev/null
+  for p in $(jq -c '.participants[]|{agent_id}' <<<"$in"); do api -X POST "$S/rooms/$room/participants" -d "$p" >/dev/null; done
+  printf '%s %s\n' "$room" "$(api -X POST "$S/rooms/$room/works" -d "$(jq -c '{goal,title,assignee_agent_id:(.assignee_agent_id // .participants[0].agent_id)} + (if .completion_condition then {completion_condition} else {} end)' <<<"$in")" | jq -r .id)"
+}
 Q(){ docker exec $PG psql -U colab -d colab -tAc "$1" | tr -d ' '; }
 
 step "0. 계정·워크스페이스·데몬 페어링"
@@ -48,14 +60,14 @@ curl -sS -X POST "$H/v1/daemon/runtimes/$RID/probe" -H "Authorization: Bearer $D
   -H 'Content-Type: application/json' -d '{"runtimes":[{"kind":"claude_code","available":true,"version":"1.0.0","capabilities":{"usage":true,"resume":true}}]}' >/dev/null
 
 D(){ curl -sS -X POST "$H/v1/daemon/$1" -H "Authorization: Bearer $DTOK" -H 'Content-Type: application/json' -d "$2"; }
-# newSession <name> → SESS
+# newSession <name> → "ROOM WORK" (옛 세션 = 방 + 그 미션)
 newSession(){
-  api -X POST "$S/workspaces/$WS/sessions" -d "{\"title\":\"$1\",\"goal\":\"g\",\"isolation\":{\"kind\":\"none\"},\"assignee_agent_id\":\"$AG\",\"participants\":[{\"agent_id\":\"$AG\"}],\"runtime_id\":\"$RID\"}" | jq -r .id
+  room_work "{\"title\":\"$1\",\"goal\":\"g\",\"isolation\":{\"kind\":\"none\"},\"assignee_agent_id\":\"$AG\",\"participants\":[{\"agent_id\":\"$AG\"}],\"runtime_id\":\"$RID\"}"
 }
-# runOne <sess> → "<task> <attempt>"  (멘션 → claim → preparing → running)
+# runOne <room> <work> → "<task> <attempt>"  (멘션 → claim → preparing → running)
 runOne(){
-  local sess=$1 task att
-  task=$(api -X POST "$S/sessions/$sess/messages" -d "{\"content\":\"[@R](mention://agent/$AG) 부탁합니다\"}" | jq -r '.triggers[0].task_id')
+  local sess=$1 work=$2 task att
+  task=$(api -X POST "$S/rooms/$sess/messages" -d "{\"work_id\":\"$work\",\"content\":\"[@R](mention://agent/$AG) 부탁합니다\"}" | jq -r '.triggers[0].task_id')
   att=$(D "runtimes/$RID/claim" '{"capacity":5}' | jq -r --arg t "$task" '.tasks[]|select(.task.id==$t)|.task.attempt')
   D "tasks/$task/attempts/$att/phase" '{"phase":"preparing","workdir_path":"/tmp/s50"}' >/dev/null
   D "tasks/$task/attempts/$att/phase" '{"phase":"running","workdir_path":"/tmp/s50"}' >/dev/null
@@ -64,7 +76,7 @@ runOne(){
 
 # ───────────────────────────── arm A — S-50 (a) ─────────────────────────────
 step "A1. 예산 초과를 턴 중 하트비트로 (실측 \$0.05 > budget_per_task \$0.002)"
-SA=$(newSession "A"); read -r TA AA <<<"$(runOne "$SA")"
+read -r SA WA <<<"$(newSession "A")"; read -r TA AA <<<"$(runOne "$SA" "$WA")"
 D "tasks/$TA/attempts/$AA/heartbeat" '{"usage":{"input_tokens":12000,"output_tokens":3000,"cost_usd":0.05,"estimated":false,"model":"claude-sonnet-5"}}' >/dev/null
 TS=$(Q "SELECT status||'('||COALESCE(paused_reason::text,'')||')' FROM task WHERE id='$TA'")
 [ "$TS" = "paused(budget)" ] && ok "task = $TS — 전제(E9-01)" || bad "task = $TS, want paused(budget)"
@@ -101,18 +113,19 @@ RSM=$(Q "SELECT resumed FROM task_attempt WHERE task_id='$TA' AND attempt=$AT2")
 
 # ───────────────────────────── arm B — S-50 (b) ─────────────────────────────
 step "B. paused(budget) 인 task 를 세션 취소로 끝낸다 — paused_detail 도 함께 지워야 200"
-SB=$(newSession "B"); read -r TB AB <<<"$(runOne "$SB")"
+read -r SB WB <<<"$(newSession "B")"; read -r TB AB <<<"$(runOne "$SB" "$WB")"
 D "tasks/$TB/attempts/$AB/heartbeat" '{"usage":{"input_tokens":12000,"output_tokens":3000,"cost_usd":0.05,"estimated":false,"model":"claude-sonnet-5"}}' >/dev/null
 TS=$(Q "SELECT status||'('||COALESCE(paused_reason::text,'')||')' FROM task WHERE id='$TB'")
 [ "$TS" = "paused(budget)" ] && ok "전제: task = $TS" || bad "task = $TS"
-CODE_B=$(api -o /dev/null -w '%{http_code}' -X POST "$S/sessions/$SB/cancel" -d '{"reason":"여기까지"}')
-[ "$CODE_B" = 200 ] && ok "세션 취소 = 200 (고치기 전에는 23514 로 500)" || bad "세션 취소 = $CODE_B"
+# v0.3.0(D22): 옛 cancelSession → cancelWork(본문 없음 — 옛 reason 칸은 계약에 없다)
+CODE_B=$(api -o /dev/null -w '%{http_code}' -X POST "$S/works/$WB/cancel")
+[ "$CODE_B" = 200 ] && ok "미션 취소(옛 세션 취소) = 200 (고치기 전에는 23514 로 500)" || bad "미션 취소 = $CODE_B"
 TB2=$(Q "SELECT status||'/'||COALESCE(failure_kind::text,'-')||'/'||COALESCE(paused_reason::text,'NULL')||'/'||COALESCE(paused_detail::text,'NULL') FROM task WHERE id='$TB'")
 [ "$TB2" = "cancelled/cancelled/NULL/NULL" ] && ok "task = $TB2 — paused_reason·paused_detail 둘 다 NULL (0006)" || bad "task = $TB2"
 
 # ───────────────────────────── arm C — S-51 ─────────────────────────────────
 step "C. 취소가 턴 종료와 경합한다 — 완료는 완료로 두되 피드가 그렇게 말한다"
-SC=$(newSession "C"); read -r TC AC <<<"$(runOne "$SC")"
+read -r SC WC <<<"$(newSession "C")"; read -r TC AC <<<"$(runOne "$SC" "$WC")"
 LID=$(Q "SELECT lane_id FROM task WHERE id='$TC'")
 CODE_C=$(api -o /dev/null -w '%{http_code}' -X POST "$S/lanes/$LID/cancel" -d '{}')
 [ "$CODE_C" = 202 ] && ok "lane 중단 = 202 (명령이 걸렸다)" || bad "lane 중단 = $CODE_C"

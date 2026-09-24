@@ -1,6 +1,6 @@
 /**
  * 화면 문구 한곳 — T-W13 의 S5 세션 카드 옵션(「…」)·삭제 다이얼로그 표에서 시작했다(그 표와 옛 세션 화면은 R1.5b 에서 지웠다 —
- * `/sessions/:id` 는 `/rooms/:id` 로 307 이라 닿는 자리가 없었다. 방 목록의 같은 자리는 ROOM_MENU·DELETE_ROOM_DIALOG).
+ * 옛 세션 상세 주소는 방으로 넘어가 닿는 자리가 없었다 — v0.3.0(R4)에서 그 넘김도 지웠다. 방 목록의 같은 자리는 ROOM_MENU·DELETE_ROOM_DIALOG).
  *
  * 왜 여기인가: 문구는 §8.4 의 말로 쓰고 `lib/wording.test.ts` 자물쇠가 잰다. 같은 사건을 두 자리(메뉴·다이얼로그·안내 줄)가
  * 다른 말로 부르지 않게 문장은 이 표에서만 나온다 — 컴포넌트는 이 표를 그린다.
@@ -121,7 +121,7 @@ export function blockedReasonText(reason: string): string {
   return BLOCKED_REASON[reason] ?? "지금 구조상 충족될 수 없는 조건입니다";
 }
 
-/** 「조건 고치기」 다이얼로그(updateSession completion_condition — active·paused 에서도, Director). */
+/** 「조건 고치기」 다이얼로그(updateWork completion_condition — active·paused 에서도, Director). */
 export const FIX_CONDITION = {
   button: "조건 고치기",
   title: "종료 조건 고치기",
@@ -138,8 +138,8 @@ export const FIX_CONDITION = {
  * 명령 이름은 내부어라 화면에 나오지 않는다 — 이 표만 나온다. 13개 전부를 `lib/wording.test.ts` 가 계약 enum 과 대조한다.
  */
 export const COMMAND_LABEL = {
-  session_get: "방 읽기",
-  session_messages: "메시지 읽기",
+  room_get: "방 읽기",
+  room_messages: "메시지 읽기",
   artifact_get: "아티팩트 읽기",
   message_post: "메시지 게시",
   status_set: "상태 알리기",

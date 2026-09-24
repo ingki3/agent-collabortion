@@ -33,10 +33,10 @@ create_agent_p2() {
 create_session_p2() {
   local ws="$1" title="$2" goal="$3" assignee="$4" rt="$5" writer="$6"; shift 6
   local parts; parts="$(printf '%s\n' "$@" | jq -R . | jq -sc 'map({agent_id:.})')"
-  api_ok POST "/workspaces/$ws/sessions" "$(jq -nc --arg t "$title" --arg g "$goal" --arg a "$assignee" --arg rt "$rt" --arg w "$writer" --argjson p "$parts" \
+  create_room_work "$ws" "$(jq -nc --arg t "$title" --arg g "$goal" --arg a "$assignee" --arg rt "$rt" --arg w "$writer" --argjson p "$parts" \
     '{title:$t,goal:$g,isolation:{kind:"none"},participants:$p,assignee_agent_id:$a,
       completion_condition:{op:"and",conditions:[{type:"artifact_submitted",agent_id:$w},{type:"user_approval"}]}}
-     + (if $rt=="" then {} else {runtime_id:$rt} end)')" | jq -r .id
+     + (if $rt=="" then {} else {runtime_id:$rt} end)')"
 }
 
 # ── 관측 질의 (전부 서버 DB 단일 클럭) ──
@@ -67,7 +67,7 @@ join_fired() {
 # system_messages SESSION → author=system 메시지 (합류·통보 확인용)
 system_messages() { psqlq "select id, left(replace(content,E'\n','⏎'),200) from message where session_id='$1' and author_type='system' order by created_at"; }
 # completion_progress SESSION → 서버가 계산한 진행률 JSON
-completion_progress() { api_ok GET "/sessions/$1" | jq -c '.completion_progress'; }
+completion_progress() { api_ok GET "/works/$(work_of "$1")" | jq -c '.completion_progress'; }
 
 # daemon_start_p2 CONFIG LOGFILE → pid. p1 의 daemon_start 와 달리 **PONG 턴을 돈다**
 # (`--no-turn` 이면 재시작 때 runtime.capabilities.models 가 빈 배열로 덮여 S9·S11 표시가 비어 보인다 — G3_REPORT §2).

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Mock of the one server operation the P3 CLI HITL commands call.
 
-`POST /api/v1/sessions/{S}/hitl-requests` — openapi.yaml `createHitlRequest`.
-The path is session-scoped and the task comes from the TaskToken; the mock
+`POST /api/v1/rooms/{S}/hitl-requests` — openapi.yaml `createHitlRequest`.
+The path is room-scoped and the task comes from the TaskToken; the mock
 routes exactly that and 404s everything else, so the shape of C-4 (the CLI
 posting `/api/v1/tasks/{T}/hitl`, a path openapi never had) cannot pass here
 again. The route below is transcribed from openapi.yaml, not from the CLI —
@@ -77,7 +77,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.headers.get("Authorization") != "Bearer " + TOKEN:
             return self._problem(401, "unauthorized", "Unauthorized", "missing or invalid task token")
-        if self.path != "/api/v1/sessions/%s/hitl-requests" % SESSION_ID:
+        if self.path != "/api/v1/rooms/%s/hitl-requests" % SESSION_ID:
             # Exactly what the real server did to the old `/tasks/{T}/hitl`
             # (C-4). Do not widen this to accept both.
             return self._problem(404, "not_found", "Not found", "no such route: " + self.path)

@@ -4,13 +4,14 @@
  *
  * 데이터 유실을 다루는 다이얼로그라 명세가 있다. 네 구역을 그대로 그린다:
  *   1) 상황  — "노트북이 N일간 오프라인입니다. 이 세션은 M월 D일부터 일시정지 상태입니다"
- *   2) 대상  — 후보는 **서버가 정한다**(`listRuntimeCandidates?session_id=`). 격리가 후보를 제한하고,
+ *   2) 대상  — 후보는 **서버가 정한다**(`listRuntimeCandidates?session_id=<방 id>` — 쿼리 이름만 옛말, 값은 방 id). 격리가 후보를 제한하고,
  *              `worktree` 는 **경로가 아니라 remote URL** 로 같은 저장소를 판정한다(E14-04·05).
  *              후보가 아닌 런타임도 비활성 + 사유로 그린다 — 사라진 선택지는 이유를 말하지 못한다.
  *   3) 유실 경고 — `worktree` 일 때만. diff 아티팩트를 **제출 순서 그대로** 미리 보여 준다(E14-06:
  *              순서가 뒤바뀐 diff 는 충돌한다). 확인 체크박스가 계약의 `acknowledge_loss` 다 —
  *              worktree 인데 false 면 서버가 422 로 막는다.
- *   4) 선택  — 재바인딩 / 열린 미션 모두 취소(`cancelled`, E14-07 — SCREEN §4.16 「세션 종료」의 새 이름) / 취소.
+ *   4) 선택  — 재바인딩 / 열린 미션 모두 취소(각 미션 `cancelWork` → `cancelled`, E14-07 — SCREEN §4.16 「세션 종료」의 새 이름.
+ *              옛 `cancelSession` 은 v0.3.0(R4, D22)에서 지워졌다 — 계약 rebindRoom: 「열린 미션을 전부 닫아도 풀린다」) / 취소.
  *
  * 화면은 판정하지 않는다: 후보 여부도 `acknowledge_loss` 강제도 서버가 다시 검사한다(E14-05 "직접 호출도
  * 막는다"). 여기 있는 비활성은 편의지 방어가 아니다.
@@ -19,15 +20,36 @@ import { useCallback, useEffect, useState } from "react";
 import "./rebind-dialog.css";
 import { api, errorMessage } from "@/lib/api/client";
 import { relativeTime } from "@/lib/time";
-import type { Artifact, IsolationKind, RuntimeCandidate, Session } from "@/lib/api/types";
+import { pageItems, type Artifact, type Isolation, type IsolationKind, type Room, type RuntimeCandidate, type WorkListItem } from "@/lib/api/types";
+
+/** 재바인딩 대상 방 — 다이얼로그가 그리는 칸만. `rebindTargetOfRoom` 이 `getRoom` 응답에서 만든다. */
+export interface RebindTarget {
+  id: string;
+  title: string;
+  isolation: Isolation;
+  workspace_id: string;
+  paused_detail?: { paused_at?: string | null; runtime?: { offline_since?: string | null } | null } | null;
+  runtime?: { name?: string | null } | null;
+}
+
+/** `getRoom` → 다이얼로그 대상. 멈춘 시각은 방 멈춤(`blocked_detail.blocked_at`), 끊긴 시각은 방 컴퓨터의 `offline_since`. */
+export function rebindTargetOfRoom(r: Room): RebindTarget {
+  return {
+    id: r.id,
+    title: r.name,
+    isolation: r.isolation,
+    workspace_id: r.workspace_id,
+    paused_detail: { paused_at: r.blocked_detail?.blocked_at ?? null, runtime: { offline_since: r.runtime?.offline_since ?? null } },
+    runtime: r.runtime ?? null,
+  };
+}
+
+/** 열린 미션 = 끝나지 않은 미션(취소 대상). */
+const OPEN_WORK: WorkListItem["status"][] = ["draft", "active", "paused", "completing"];
 
 export interface RebindDialogProps {
-  /** 재바인딩 대상 세션. `paused(runtime_offline)` 가 아니면 서버가 409 로 막는다. */
-  session: Pick<Session, "id" | "title" | "isolation" | "status"> & {
-    workspace_id: string;
-    paused_detail?: Session["paused_detail"];
-    runtime?: { name?: string | null } | null;
-  };
+  /** 재바인딩 대상 방. 방이 `runtime_offline` 으로 멈춘 게 아니면 서버가 409 로 막는다. */
+  session: RebindTarget;
   /** 실행 후 호출부가 목록·배너를 다시 읽는다. */
   onDone?: (result: "rebound" | "cancelled") => void;
   onClose: () => void;
@@ -89,7 +111,7 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
     // 제출 순서 = 재적용 순서(계약 listArtifacts "제출 순"). 화면이 다시 정렬하면 순서를 잃는다.
     api
       // 계약 listArtifacts 는 **배열**이다(Page 봉투가 아니다) — 그리고 그 순서가 제출 순서다.
-      .get("/sessions/{sessionId}/artifacts", { path: { sessionId: session.id }, query: { type: "diff" } })
+      .get("/rooms/{roomId}/artifacts", { path: { roomId: session.id }, query: { type: "diff" } })
       .then((arr) => setDiffs(arr ?? []), () => setDiffs([]));
   }, [worktree, session.id]);
 
@@ -101,8 +123,8 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
     setBusy(true);
     setError(null);
     try {
-      await api.post("/sessions/{sessionId}/rebind", {
-        path: { sessionId: session.id },
+      await api.post("/rooms/{roomId}/rebind", {
+        path: { roomId: session.id },
         // worktree 면 계약이 `acknowledge_loss` 를 요구한다(false 면 422). none 은 보내지 않아도 된다.
         body: { runtime_id: target, ...(worktree ? { acknowledge_loss: ack } : {}) },
       });
@@ -119,8 +141,11 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
     setBusy(true);
     setError(null);
     try {
-      // 종료는 `cancelled` 다(E14-07) — 아티팩트는 서버에 남아 회수된다.
-      await api.post("/sessions/{sessionId}/cancel", { path: { sessionId: session.id }, body: { reason: "컴퓨터 연결 끊김 — 옮기지 않고 종료" } });
+      // 종료는 열린 미션 각각의 `cancelled` 다(E14-07) — 아티팩트는 서버에 남아 회수된다. 열린 미션이 전부 닫히면 방 멈춤이 풀린다(rebindRoom).
+      const page = await api.get("/rooms/{roomId}/works", { path: { roomId: session.id }, query: { status: OPEN_WORK } });
+      for (const w of pageItems<WorkListItem>(page)) {
+        await api.post("/works/{workId}/cancel", { path: { workId: w.id } });
+      }
       onDone?.("cancelled");
       onClose();
     } catch (e) {

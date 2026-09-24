@@ -25,7 +25,7 @@ func TestR2DecisionAuto(t *testing.T) {
 	f.exec(t, `INSERT INTO decision (session_id, summary, source, auto, created_at) VALUES ($1, '사람이 고름', 'hitl', false, now())`, f.sessionID)
 	want := map[string]any{"기한 만료 기본값": true, "사람이 고름": false}
 	seen := 0
-	for _, raw := range f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/decisions", nil) {
+	for _, raw := range f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/decisions", nil) {
 		d := raw.(map[string]any)
 		if w, ok := want[str(d, "summary")]; ok {
 			seen++
@@ -60,7 +60,7 @@ func TestR2DecisionAuto(t *testing.T) {
 	}
 
 	// decision.created: an agent's recordDecision is never auto, and says so.
-	st, rec := f.rawPost(t, f.p+"/sessions/"+f.sessionID+"/decisions", tok, map[string]any{"summary": "에이전트 결정"})
+	st, rec := f.rawPost(t, f.p+"/rooms/"+f.sessionID+"/decisions", tok, map[string]any{"summary": "에이전트 결정"})
 	if st != 201 {
 		t.Fatalf("recordDecision = %d %v", st, rec)
 	}

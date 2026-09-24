@@ -92,9 +92,9 @@ ASK="$(jq -c 'select(.id==3)|.result.structuredContent' "$OUT/mcp.jsonl")"
   || bad "요청 $(capture_n)건: $(cat "$CAPTURE")"
 # C-4: 요청 **줄** 자체를 본다. 본문만 검사하면 경로가 틀려도 목이 받아 주는 한 초록이 된다 —
 # 그것이 T-C4 에서 실제로 일어난 일이다. 기대값은 openapi createHitlRequest 그대로.
-WANT_PATH="/api/v1/sessions/$SESSION_ID/hitl-requests"
+WANT_PATH="/api/v1/rooms/$SESSION_ID/hitl-requests"
 [ "$(capture_at 1 '.path')" = "$WANT_PATH" ] \
-  && ok "요청 경로 = $WANT_PATH (openapi createHitlRequest, 세션 스코프)" \
+  && ok "요청 경로 = $WANT_PATH (openapi createHitlRequest, 방 스코프)" \
   || bad "요청 경로 = $(capture_at 1 '.path') (기대 $WANT_PATH — C-4)"
 
 step "3. 경로 1 계속 — 같은 task 두 번째 요청은 409 → 3 (E7-04)"

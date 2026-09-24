@@ -19,10 +19,12 @@ log()  { printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%H:%M:%S)" "$ROLE" "${COLAB_TASK
 has()  { printf '%s' "$TRIG" | grep -qF -- "$1"; }
 # phas 는 <mission_progress>(T-R3b: 미션 종료 조건 진행 — "the Director's approval" 같은 줄) 를 뺀 프롬프트를 본다.
 # Writer 의 `phas "Director"` 는 "HITL 답이 왔다" 는 뜻인데, 진행 줄의 Director 가 그걸 참으로 만들었다(e2e 72 A_H1).
-P_NOPROG="$(printf '%s\n' "$P" | awk '/^<mission_progress/{f=1;next} /^<\/mission_progress>/{f=0;next} !f')"
+# R4: createRoom→updateRoom→createWork 가 이력에 「Director 님이 방 설정을 바꿨습니다」·「Director 님이 미션을 열었습니다」 시스템 줄을
+# 남긴다(사람 이름이 Director) — 이것도 HITL 답이 아니므로 뺀다(e2e 72 Writer 가 질문 없이 바로 제출했다).
+P_NOPROG="$(printf '%s\n' "$P" | awk '/^<mission_progress/{f=1;next} /^<\/mission_progress>/{f=0;next} !f' | grep -v ' system: Director 님이 ')"
 phas() { printf '%s' "$P_NOPROG" | grep -qF -- "$1"; }
-# 미션 시작 트리거(첫 턴). 서버 문장은 §8.4 로 바뀌었다(S-67, R1.5 「세션」→「미션」) — 옛 문장들도 받아 둔다.
-is_start() { has "미션을 시작했습니다" || has "세션을 시작했습니다" || has "Session started"; }
+# 미션 시작 트리거(첫 턴). 서버 문장은 §8.4 로 바뀌었다(S-67, R1.5 「세션」→「미션」, R4 createWork 「… 님이 미션을 열었습니다. 목표: …」) — 옛 문장들도 받아 둔다.
+is_start() { has "미션을 열었습니다" || has "미션을 시작했습니다" || has "세션을 시작했습니다" || has "Session started"; }
 post() { # post BODY [MENTION]
   local out; out="$(colab message post --body "$1" ${2:+--mention "$2"} 2>&1)"; log "post → $(printf '%s' "$out" | tr -d '\n' | cut -c1-160)"; }
 done_() { colab status set done >/dev/null 2>&1; log "status done"; }
@@ -92,7 +94,7 @@ PY
 # ── 시나리오 B (worktree) ────────────────────────────────────────────────────
 PM)
   if has "위임한 작업이 모두 끝났습니다"; then
-    fe="$(colab session messages --limit 50 2>/dev/null | jq -r '.items[]?.content // empty' | grep -o 'FRONTEND-DIFF [0-9a-f-]*' | tail -1 | awk '{print $2}')"
+    fe="$(colab room messages --limit 50 2>/dev/null | jq -r '.items[]?.content // empty' | grep -o 'FRONTEND-DIFF [0-9a-f-]*' | tail -1 | awk '{print $2}')"
     post "리뷰 부탁합니다. FRONTEND-DIFF ${fe:-?}" QA
   elif is_start; then
     printf '# SPEC\n급수 시간 계산과 패널 표시를 각각 구현한다.\n' > SPEC.md
@@ -131,7 +133,7 @@ PY
   post "FRONTEND-DIFF ${aid:-?}"
   done_ ;;
 QA)
-  fe="$(colab session messages --limit 50 2>/dev/null | jq -r '.items[]?.content // empty' | grep -o 'FRONTEND-DIFF [0-9a-f-]*' | tail -1 | awk '{print $2}')"
+  fe="$(colab room messages --limit 50 2>/dev/null | jq -r '.items[]?.content // empty' | grep -o 'FRONTEND-DIFF [0-9a-f-]*' | tail -1 | awk '{print $2}')"
   if [ -z "$fe" ]; then fe="$(printf '%s\n' "$P" | grep -o 'FRONTEND-DIFF [0-9a-f-]*' | tail -1 | awk '{print $2}')"; fi
   log "review target frontend=$fe"
   colab artifact get "$fe" --out ./fe.diff >/dev/null 2>&1

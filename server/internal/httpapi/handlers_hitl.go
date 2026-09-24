@@ -27,7 +27,7 @@ import (
 // issues for a `user_approval` completion condition — E6-03 (승인 → completing
 // → completed + 요약) and E6-04 (거절 → active 유지 + 사유 결정 기록).
 //
-// That branch had to exist. `sessions.ApplyCompletionEvent` already implements
+// That branch had to exist. `sessions.ApplyWorkEvent` already implements
 // `director_approve`, but nothing called it, so there was no HTTP entrance in
 // P2 that could satisfy the `user_approval` atom at all — G5 had to measure
 // E6-03 through `completeSession`, which satisfies `manual` instead and so
@@ -423,9 +423,13 @@ func (s *Server) answerAgentHitl(ctx context.Context, row *hitlRow, sess *hitlSe
 			return 0, nil, apperr.As(err)
 		}
 		s.Queue.Notifier.Notify()
-		// publishSession renders the session for a viewer; the responder is
-		// the one person we know is looking at it.
-		s.publishSession(ctx, sess.WorkspaceID, row.SessionID, &gen.User{Id: userID})
+		// The room gate's lift sent `room.updated` from its own transaction;
+		// a mission's own budget pause is lifted on the mission.
+		if !roomScoped(row) {
+			if wk, err := sessions.LoadWorkRow(ctx, s.DB, *row.WorkID); err == nil {
+				s.afterWorkChange(ctx, sess.WorkspaceID, wk)
+			}
+		}
 	}
 	if isWorkTimeApproval(row, in) && in.TimeExtension != nil {
 		ext, _ := parseISODuration(*in.TimeExtension)
@@ -444,7 +448,6 @@ func (s *Server) answerAgentHitl(ctx context.Context, row *hitlRow, sess *hitlSe
 			return 0, nil, apperr.As(err)
 		}
 		s.Queue.Notifier.Notify()
-		s.publishSession(ctx, sess.WorkspaceID, row.SessionID, &gen.User{Id: userID})
 	}
 	if row.isRepoChoice() {
 		// T-S-wt: a worktree room's first computer had several repositories;
@@ -459,7 +462,7 @@ func (s *Server) answerAgentHitl(ctx context.Context, row *hitlRow, sess *hitlSe
 			return 0, nil, apperr.As(err)
 		}
 		s.Queue.Notifier.Notify()
-		s.publishSession(ctx, sess.WorkspaceID, row.SessionID, &gen.User{Id: userID})
+		roomgate.PublishUpdated(ctx, s.Hub, s.DB, row.SessionID)
 	}
 	if row.Purpose != nil && *row.Purpose == roomgate.PurposeIsolation && in.Approved != nil {
 		// FR-2.1.1: approve = worktree, reject = none — either way the room's
@@ -474,7 +477,7 @@ func (s *Server) answerAgentHitl(ctx context.Context, row *hitlRow, sess *hitlSe
 			return 0, nil, apperr.As(err)
 		}
 		s.Queue.Notifier.Notify()
-		s.publishSession(ctx, sess.WorkspaceID, row.SessionID, &gen.User{Id: userID})
+		roomgate.PublishUpdated(ctx, s.Hub, s.DB, row.SessionID)
 	}
 	s.publishHitl(ctx, sess.WorkspaceID, row.SessionID, row.ID, "hitl.updated")
 	out, err := s.hitlAPI(ctx, s.DB, row.ID, &userID)

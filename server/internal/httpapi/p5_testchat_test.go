@@ -327,7 +327,7 @@ func TestP5TestChatLifecycle(t *testing.T) {
 	if bs, _ := costOut["by_session"].([]any); len(bs) != 0 {
 		t.Errorf("by_session = %v — a test chat is not a session", bs)
 	}
-	sessCost := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID+"/cost", nil)
+	sessCost := f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID+"/cost", nil)
 	if sessCost["total_usd"].(float64) != 0 {
 		t.Errorf("session cost = %v, want 0 (test chat cost never lands on a session)", sessCost["total_usd"])
 	}

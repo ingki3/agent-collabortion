@@ -251,7 +251,7 @@ step "6. E9-02 — **웹에서** 상향 승인 (S-45 카드 · W-6 입력칸)"
 ab set viewport 1440 1000 >/dev/null 2>&1 || true
 WEB_OK=no; web_login "$EMAIL" "$PASSWORD" && WEB_OK=yes
 chk W0 "웹 로그인" yes "$WEB_OK"
-ab open "$WEB_URL/sessions/$SA" >/dev/null 2>&1 || true
+ab open "$WEB_URL/rooms/$SA" >/dev/null 2>&1 || true
 abwait '[data-testid="timeline"]' 40 || true
 sleep 3
 shot "p3-50-01-session-budget-card"
@@ -495,7 +495,7 @@ chk_na H6 "E9-10 실측·사후(lane paused · HITL task_id 채움) 분기" "uni
   "실기 도달 불가 — 실측을 주는 런타임이 그 값을 finish 이전 heartbeat 으로 보낸다(#145 OnUsage). 서버 유닛 TestP3BudgetAtFinish* 가 지킨다"
 
 step "13. 4단위 비용 집계 (E9-07 · E9-09 — getSessionCost)"
-COST="$(api_ok GET "/sessions/$SA/cost" || echo '{}')"
+COST="$(api_ok GET "/rooms/$SA/cost" || echo '{}')"
 printf '%s\n' "$COST" > "$OUT/50-cost.json"
 chk K1  "getSessionCost 가 응답한다"           yes "$( [ -n "$COST" ] && echo yes || echo no )"
 chk K1b "세션 합계가 0 보다 크다"              yes \

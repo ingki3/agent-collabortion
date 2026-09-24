@@ -15,17 +15,75 @@ func newClient(t *testing.T, s *clienttest.Server) *client.Client {
 	return client.New(client.FromEnv(clienttest.Getenv(s.Env(t.TempDir()))))
 }
 
-func TestSessionGet(t *testing.T) {
+// colab-cli.md v0.9: room get is getRoom + getWork + listRoomParticipants,
+// and nothing the old getSession answer carried is lost — goal · criteria ·
+// progress · director (work), isolation (room), roster with status.
+func TestRoomGet(t *testing.T) {
 	s := clienttest.New(t)
-	v, err := colab.SessionGet(context.Background(), newClient(t, s), colab.SessionGetArgs{})
+	v, err := colab.RoomGet(context.Background(), newClient(t, s), colab.RoomGetArgs{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v["goal"] != "Find 3 competitors" || v["my_role"] != "member" {
-		t.Fatalf("session = %v", v)
+	if v.Room["name"] != "Market research" || v.Room["isolation"].(map[string]any)["kind"] != "worktree" {
+		t.Fatalf("room = %v", v.Room)
 	}
-	if parts, _ := v["participants"].([]any); len(parts) != 2 {
-		t.Fatalf("participants = %v", v["participants"])
+	if v.Work == nil || v.Work["goal"] != "Find 3 competitors" || v.Work["completion_progress"] == nil ||
+		v.Work["director"].(map[string]any)["display_name"] != "Dana" || len(v.Work["acceptance_criteria"].([]any)) != 2 {
+		t.Fatalf("work = %v", v.Work)
+	}
+	if len(v.Participants) != 3 || v.Participants[1]["status"] != "working" ||
+		v.Participants[1]["agent"].(map[string]any)["role_description"] != "digs" {
+		t.Fatalf("participants = %v", v.Participants)
+	}
+	var paths []string
+	for _, r := range s.Requests {
+		if r.URL.Path != "/api/v1/cli/context" { // the K-19 gate's one cached read
+			paths = append(paths, r.URL.Path)
+		}
+	}
+	want := []string{"/api/v1/rooms/" + clienttest.RoomID, "/api/v1/works/" + clienttest.WorkID, "/api/v1/rooms/" + clienttest.RoomID + "/participants"}
+	if strings.Join(paths, " ") != strings.Join(want, " ") {
+		t.Fatalf("requests = %v, want %v", paths, want)
+	}
+}
+
+// Outside a mission (no COLAB_WORK_ID) work is null and getWork is not
+// called; COLAB_SESSION_ID alone still names the room.
+func TestRoomGetOutsideMission(t *testing.T) {
+	s := clienttest.New(t)
+	env := s.Env(t.TempDir())
+	delete(env, "COLAB_WORK_ID")
+	delete(env, "COLAB_ROOM_ID")
+	c := client.New(client.FromEnv(clienttest.Getenv(env)))
+	v, err := colab.RoomGet(context.Background(), c, colab.RoomGetArgs{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Work != nil || v.Room["id"] != clienttest.RoomID || len(v.Participants) != 3 {
+		t.Fatalf("v = %+v", v)
+	}
+	for _, r := range s.Requests {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/works/") {
+			t.Fatalf("getWork called outside a mission: %s", r.URL.Path)
+		}
+	}
+	b := string(colab.MarshalIndent(v))
+	if !strings.Contains(b, `"work": null`) {
+		t.Fatalf("json = %s", b)
+	}
+}
+
+// --room naming another room does not attach this turn's mission to it.
+func TestRoomGetOtherRoomNoWork(t *testing.T) {
+	s := clienttest.New(t)
+	_, err := colab.RoomGet(context.Background(), newClient(t, s), colab.RoomGetArgs{Room: clienttest.OtherRoomID})
+	if client.ExitCode(err) != client.ExitRefused {
+		t.Fatalf("err = %v", err)
+	}
+	for _, r := range s.Requests {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/works/") {
+			t.Fatalf("getWork called for another room: %s", r.URL.Path)
+		}
 	}
 }
 
@@ -127,7 +185,7 @@ func TestMessagePostEmptyBody(t *testing.T) {
 	}
 }
 
-func TestSessionMessagesTruncated(t *testing.T) {
+func TestRoomMessagesTruncated(t *testing.T) {
 	s := clienttest.New(t)
 	c := newClient(t, s)
 	ctx := context.Background()
@@ -137,21 +195,21 @@ func TestSessionMessagesTruncated(t *testing.T) {
 		}
 	}
 	two := 2
-	res, err := colab.SessionMessages(ctx, c, colab.SessionMessagesArgs{Limit: &two})
+	res, err := colab.RoomMessages(ctx, c, colab.RoomMessagesArgs{Limit: &two})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.Included != 2 || res.Total == nil || *res.Total != 3 || !res.Truncated {
 		t.Fatalf("res = %+v", res)
 	}
-	res, err = colab.SessionMessages(ctx, c, colab.SessionMessagesArgs{})
+	res, err = colab.RoomMessages(ctx, c, colab.RoomMessagesArgs{})
 	if err != nil || res.Included != 3 || res.Truncated {
 		t.Fatalf("res = %+v err=%v", res, err)
 	}
 	// N4: an explicit limit outside 1..200 (including 0) is exit 2, not "unset".
 	for _, bad := range []int{0, -1, 201} {
 		n := len(s.Requests)
-		_, err := colab.SessionMessages(ctx, c, colab.SessionMessagesArgs{Limit: &bad})
+		_, err := colab.RoomMessages(ctx, c, colab.RoomMessagesArgs{Limit: &bad})
 		if client.ExitCode(err) != client.ExitUsage || len(s.Requests) != n {
 			t.Fatalf("limit %d: err=%v requests=%d", bad, err, len(s.Requests)-n)
 		}

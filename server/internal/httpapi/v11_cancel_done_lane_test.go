@@ -85,7 +85,7 @@ func TestV11DoneLaneWithFinishedTurnIsNotCancellable(t *testing.T) {
 // not served).
 func (f *p2Fixture) laneCard(t *testing.T, laneID uuid.UUID) map[string]any {
 	t.Helper()
-	for _, raw := range f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/lanes", nil) {
+	for _, raw := range f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/lanes", nil) {
 		if l, _ := raw.(map[string]any); str(l, "id") == laneID.String() {
 			return l
 		}

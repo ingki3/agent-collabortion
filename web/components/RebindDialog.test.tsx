@@ -92,7 +92,8 @@ describe("worktree — 유실 경고와 확인 게이트", () => {
     fireEvent.click(screen.getByTestId("rebind-ack"));
     fireEvent.click(screen.getByTestId("rebind-submit"));
     await waitFor(() => expect(post).toHaveBeenCalled());
-    expect(post.mock.calls[0][0]).toBe("/sessions/{sessionId}/rebind");
+    expect(post.mock.calls[0][0]).toBe("/rooms/{roomId}/rebind");
+    expect((post.mock.calls[0][1] as { path: unknown }).path).toEqual({ roomId: "s1" });
     expect((post.mock.calls[0][1] as { body: unknown }).body).toEqual({ runtime_id: "r2", acknowledge_loss: true });
   });
 });
@@ -135,14 +136,27 @@ describe("후보 목록", () => {
     expect((screen.getByTestId("rebind-submit") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("열린 미션 모두 취소는 한 번 더 확인을 받는다(E14-07 — 되돌릴 수 없다)", async () => {
+  it("열린 미션 모두 취소는 한 번 더 확인을 받는다(E14-07 — 되돌릴 수 없다) · 열린 미션마다 cancelWork(R4 — cancelSession 삭제)", async () => {
     post.mockResolvedValue({});
+    get.mockImplementation((path: string) =>
+      path.includes("runtime-candidates")
+        ? Promise.resolve({ auto_select_allowed: false, candidates })
+        : path === "/rooms/{roomId}/works"
+          ? Promise.resolve({ items: [{ id: "w1" }, { id: "w2" }], next_cursor: null })
+          : Promise.resolve(diffs),
+    );
     render(<RebindDialog session={session("none")} onClose={vi.fn()} />);
     await waitFor(() => expect(screen.getByTestId("rebind-end")).toBeTruthy());
     fireEvent.click(screen.getByTestId("rebind-end"));
     expect(post).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("rebind-end-confirm"));
     await waitFor(() => expect(post).toHaveBeenCalled());
-    expect(post.mock.calls[0][0]).toBe("/sessions/{sessionId}/cancel");
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    const works = get.mock.calls.find((c) => c[0] === "/rooms/{roomId}/works")!;
+    expect(works[1]).toEqual({ path: { roomId: "s1" }, query: { status: ["draft", "active", "paused", "completing"] } });
+    expect(post.mock.calls.map((c) => [c[0], (c[1] as { path: unknown }).path])).toEqual([
+      ["/works/{workId}/cancel", { workId: "w1" }],
+      ["/works/{workId}/cancel", { workId: "w2" }],
+    ]);
   });
 });

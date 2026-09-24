@@ -50,7 +50,7 @@ type LaneDelegateResult struct {
 const NotParticipantHint = "ask the Director to add them as a participant with `colab hitl ask` " +
 	"(agents cannot add participants — FR-1.5); then retry `colab lane delegate`"
 
-// LaneDelegate — POST /sessions/{S}/lanes. Always a new lane (resolution
+// LaneDelegate — POST /rooms/{R}/lanes. Always a new lane (resolution
 // rule 2); `delegated_from_task_id` = the calling task, which is the rejoin
 // group key (FR-6.5). The target must already be a session participant —
 // otherwise exit 3 `not_participant` with NotParticipantHint (E15-02).
@@ -64,7 +64,7 @@ func LaneDelegate(ctx context.Context, c *client.Client, a LaneDelegateArgs) (*L
 	if err := c.Allow(ctx, client.CmdLaneDelegate); err != nil {
 		return nil, err
 	}
-	sid, err := c.SessionID(ctx, a.Session)
+	sid, err := c.RoomID(ctx, a.Session)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func LaneDelegate(ctx context.Context, c *client.Client, a LaneDelegateArgs) (*L
 	if !ok {
 		return nil, &client.Error{
 			Exit: client.ExitRefused, Code: "not_participant",
-			Title: "@" + strings.TrimPrefix(a.Agent, "@") + " is not a session participant",
+			Title: "@" + strings.TrimPrefix(a.Agent, "@") + " is not a room participant",
 			Detail: "cannot delegate to a non-participant. participants: " +
 				strings.Join(cc.ParticipantNames(), ", ") + ". " + NotParticipantHint,
 		}
@@ -183,7 +183,7 @@ type DecisionRecordResult struct {
 	Decision   json.RawMessage `json:"decision"`
 }
 
-// DecisionRecord — POST /sessions/{S}/decisions, source=agent, ref_id=task.
+// DecisionRecord — POST /rooms/{R}/decisions, source=agent, ref_id=task.
 // The record lands in brief [7] (FR-1.9, FR-4.2).
 //
 // The Decision schema is summary + rationale and nothing else. colab-cli.md
@@ -197,7 +197,7 @@ func DecisionRecord(ctx context.Context, c *client.Client, a DecisionRecordArgs)
 	if err := c.Allow(ctx, client.CmdDecisionRecord); err != nil {
 		return nil, err
 	}
-	sid, err := c.SessionID(ctx, a.Session)
+	sid, err := c.RoomID(ctx, a.Session)
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +272,7 @@ type DiffSummary struct {
 	UntrackedNotIncluded []string `json:"untracked_not_included,omitempty"`
 }
 
-// ArtifactSubmit — POST /sessions/{S}/artifacts (multipart: name · type ·
+// ArtifactSubmit — POST /rooms/{R}/artifacts (multipart: name · type ·
 // file · description — the whole body openapi defines, nothing else).
 // Re-submitting the same name is version+1 (FR-4.3); the response's
 // completion_progress says whether the `artifact_submitted` completion
@@ -353,7 +353,7 @@ func ArtifactSubmit(ctx context.Context, c *client.Client, a ArtifactSubmitArgs)
 		return nil, client.Usage("--file is required (only `--type diff` can build its own body)")
 	}
 
-	sid, err := c.SessionID(ctx, a.Session)
+	sid, err := c.RoomID(ctx, a.Session)
 	if err != nil {
 		return nil, err
 	}

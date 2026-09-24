@@ -13,7 +13,7 @@ import (
 )
 
 // T-R1b1 — the room gate (PRD v0.19 FR-2.4 · FR-2A.3 · FR-2.1.1 · FR-3.1.1 ·
-// FR-3.5 · §3.1). The rows here are the room's; the old `/sessions/*` shape of
+// FR-3.5 · §3.1). The rows here are the room's; the mission-shaped view of
 // the same events is held by the P2~P5 rows, unchanged.
 
 func (f *p2Fixture) exec(t *testing.T, q string, args ...any) {
@@ -331,7 +331,7 @@ func TestR1b1QueuedReasonAgentGlobal(t *testing.T) {
 	f := newP2Fixture(t)
 	f.exec(t, `UPDATE agent SET max_concurrent_tasks = 1 WHERE id = $1`, f.rUUID)
 	// A second room whose assignee is R — its start task is R's too.
-	other := f.api.must(201, "POST", f.p+"/workspaces/"+f.wsID+"/sessions", map[string]any{
+	other := sessionRoom(t, f.api, f.pool, f.p, f.wsID, map[string]any{
 		"title": "S2", "goal": "g2", "isolation": map[string]any{"kind": "none"},
 		"assignee_agent_id": f.r, "participants": []map[string]any{{"agent_id": f.r}},
 	})
@@ -360,7 +360,7 @@ func TestR1b1QueuedReasonAgentGlobal(t *testing.T) {
 	var laneID string
 	_ = f.pool.QueryRow(t.Context(), `SELECT lane_id::text FROM task WHERE id = $1`, here).Scan(&laneID)
 	found := false
-	for _, raw := range f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/lanes", nil) {
+	for _, raw := range f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/lanes", nil) {
 		l := raw.(map[string]any)
 		if str(l, "id") == laneID {
 			found = true
@@ -518,11 +518,11 @@ func TestR1b1MessageAttribution(t *testing.T) {
 	}
 	// A closed mission cannot be chosen; a foreign one is not this room's.
 	f.exec(t, `UPDATE work SET status = 'completed' WHERE id = $1`, w1)
-	if st, body, _ := f.api.do("POST", f.p+"/sessions/"+f.sessionID+"/messages", map[string]any{"content": "x", "work_id": w1.String()},
+	if st, body, _ := f.api.do("POST", f.p+"/rooms/"+f.sessionID+"/messages", map[string]any{"content": "x", "work_id": w1.String()},
 		"Idempotency-Key", uuid.NewString()); st != 422 || !hasFieldError(body, "work_id", "closed") {
 		t.Fatalf("closed mission = %d %v, want 422 work_id closed", st, body)
 	}
-	if st, body, _ := f.api.do("POST", f.p+"/sessions/"+f.sessionID+"/messages", map[string]any{"content": "x", "work_id": uuid.NewString()},
+	if st, body, _ := f.api.do("POST", f.p+"/rooms/"+f.sessionID+"/messages", map[string]any{"content": "x", "work_id": uuid.NewString()},
 		"Idempotency-Key", uuid.NewString()); st != 422 || !hasFieldError(body, "work_id", "not_in_room") {
 		t.Fatalf("foreign mission = %d %v, want 422 work_id not_in_room", st, body)
 	}

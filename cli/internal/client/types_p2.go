@@ -10,7 +10,7 @@ import "encoding/json"
 // field the contract adds later; the typed fields are only the ones the CLI
 // itself has to read.
 
-// LaneDelegateCreate — POST /sessions/{S}/lanes body (delegateLane).
+// LaneDelegateCreate — POST /rooms/{R}/lanes body (delegateLane).
 // `agent_id` is a uuid: the CLI resolves `--agent <name>` against the
 // /cli/context participant roster (FR-1.5, E15-02).
 type LaneDelegateCreate struct {
@@ -56,7 +56,7 @@ type TaskStatusResult struct {
 	Raw               json.RawMessage `json:"-"`
 }
 
-// DecisionCreate — POST /sessions/{S}/decisions body (recordDecision).
+// DecisionCreate — POST /rooms/{R}/decisions body (recordDecision).
 type DecisionCreate struct {
 	Summary   string `json:"summary"`
 	Rationale string `json:"rationale,omitempty"`

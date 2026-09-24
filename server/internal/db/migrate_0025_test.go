@@ -55,7 +55,9 @@ func TestMigrate0025Verify(t *testing.T) {
 	if _, err := pool.Exec(ctx, string(pre)); err != nil {
 		t.Fatalf("verify_0025_pre: %v", err)
 	}
-	if n, err := MigratePool(ctx, pool); err != nil || n < 1 {
+	// Only 0025: a later migration may legitimately change row counts the
+	// verify compares (0032 — R4 — drops the old session_* inbox items).
+	if n, err := migrateTo(ctx, pool, 25); err != nil || n != 1 {
 		t.Fatalf("apply 0025: applied %d, err %v", n, err)
 	}
 	verify, err := os.ReadFile("../../migrations/verify/verify_0025.sql")

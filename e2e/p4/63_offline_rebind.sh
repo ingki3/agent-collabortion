@@ -110,7 +110,7 @@ A2="$(psqlq "select id from artifact where session_id='$S' and name='step-2' lim
 chk R0  "diff 아티팩트 2개 (step-1 → step-2)" 2 "$(psqlq "select count(*) from artifact where session_id='$S' and type='diff'")"
 
 step "4. R9 — 실서버 listArtifacts 가 **제출순(오름차순)** 인가"
-api_ok GET "/sessions/$S/artifacts" > "$OUT/63-list-artifacts.json"
+api_ok GET "/rooms/$S/artifacts" > "$OUT/63-list-artifacts.json"
 FIRST="$(jq -r 'if type=="array" then .[0].name else .items[0].name end' "$OUT/63-list-artifacts.json" 2>/dev/null || echo '-')"
 ORDER_LIST="$(jq -r 'if type=="array" then . else .items end | map(.name) | join(",")' "$OUT/63-list-artifacts.json" 2>/dev/null || echo '-')"
 ok "listArtifacts 순서 = $ORDER_LIST"
@@ -145,7 +145,7 @@ chk R4b "C(다른 remote) = 후보 아님 (E14-05)" false "$CC"
 step "7. R5·R6 — 재바인딩 → rebind_prepare 와 첫 claim 의 순서"
 # 2판(T-I4b): 우회 U2(`retire_workdirs`)·U1 없음. 재바인딩이 옛 머신의 행을 `runtime_gone` 으로
 # 찍고 번들 후보에서 빼며(S-55/U2 흡수), `isolation.repo_path` 도 새 머신 것으로 옮긴다(S-58).
-RB_CODE="$(api POST "/sessions/$S/rebind" "$(jq -nc --arg r "$RB" '{runtime_id:$r,acknowledge_loss:true}')" | api_code)"
+RB_CODE="$(api POST "/rooms/$S/rebind" "$(jq -nc --arg r "$RB" '{runtime_id:$r,acknowledge_loss:true}')" | api_code)"
 chk R5  "rebind = 200 (E14-03)" 200 "$RB_CODE"
 chk R5b "rebind_prepare 명령 1건 큐잉 (§4.3)" yes \
   "$( [ "$(psqlq "select count(*) from daemon_command where type='rebind_prepare' and session_id='$S'")" -ge 1 ] && echo yes || echo no )"

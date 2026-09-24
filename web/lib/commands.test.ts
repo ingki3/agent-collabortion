@@ -96,7 +96,7 @@ describe("ColabCommand ↔ 사람 말 — 16개 전부", () => {
 
   it("표 그대로 — 위임 · 아티팩트 제출 · 검토 승인/반려 · 완료 승인 요청 · 사람에게 질문/정보 요청", () => {
     expect(COMMAND_LABEL).toEqual({
-      session_get: "방 읽기", session_messages: "메시지 읽기", artifact_get: "아티팩트 읽기", message_post: "메시지 게시", status_set: "상태 알리기",
+      room_get: "방 읽기", room_messages: "메시지 읽기", artifact_get: "아티팩트 읽기", message_post: "메시지 게시", status_set: "상태 알리기",
       decision_record: "결정 기록", lane_delegate: "위임", artifact_submit: "아티팩트 제출", review_approve: "검토 승인", review_reject: "검토 반려",
       hitl_ask: "사람에게 질문", hitl_approve_request: "완료 승인 요청", hitl_request_info: "사람에게 정보 요청",
       room_list: "다른 방 목록", room_read: "다른 방 읽기", work_propose: "미션 제안",

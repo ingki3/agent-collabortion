@@ -469,7 +469,7 @@ export function registerR2W4a(ctx: R2W4aCtx): void {
     const sub = ex(s).workSub.get(`${p.id}:${user.id}`);
     return sub ? { ...res, body: { ...(res.body as object), subscription: sub } } : res;
   });
-  prepend("GET", "/sessions/{id}/lanes", async (req) => {
+  prepend("GET", "/rooms/{id}/lanes", async (req) => {
     const res = await next(req);
     if (!isOk(res)) return res;
     const s = store();

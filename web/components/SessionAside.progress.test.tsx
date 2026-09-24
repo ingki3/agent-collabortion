@@ -5,7 +5,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SessionAside, metByName } from "./SessionAside";
-import type { CompletionProgress, Session } from "@/lib/api/types";
+import type { CompletionProgress } from "@/lib/api/types";
+import type { Session } from "@/lib/legacy-session";
 
 afterEach(cleanup);
 

@@ -1,9 +1,9 @@
 package clienttest
 
 // P3 half of the fake server — createHitlRequest
-// (POST /sessions/{S}/hitl-requests), the one operation behind `hitl ask` ·
+// (POST /rooms/{R}/hitl-requests), the one operation behind `hitl ask` ·
 // `approve-request` · `request-info`. Shapes and the ROUTE follow
-// contracts/openapi.yaml: the operation is session-scoped and the task comes
+// contracts/openapi.yaml: the operation is room-scoped and the task comes
 // from the TaskToken. Nothing here answers `/tasks/{T}/hitl`, so a CLI that
 // goes back to that path fails the way the real server failed it (404, C-4).
 
@@ -46,10 +46,10 @@ type p3State struct {
 const HitlID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 
 func (s *Server) handleP3(w http.ResponseWriter, r *http.Request, path string) bool {
-	if r.Method != "POST" || !strings.HasPrefix(path, "/sessions/") || !strings.HasSuffix(path, "/hitl-requests") {
+	if r.Method != "POST" || !strings.HasPrefix(path, "/rooms/") || !strings.HasSuffix(path, "/hitl-requests") {
 		return false
 	}
-	sessionID := strings.TrimSuffix(strings.TrimPrefix(path, "/sessions/"), "/hitl-requests")
+	sessionID := strings.TrimSuffix(strings.TrimPrefix(path, "/rooms/"), "/hitl-requests")
 	body, ok := decodeBody(s, w, r)
 	if !ok {
 		return true
@@ -62,7 +62,7 @@ func (s *Server) handleP3(w http.ResponseWriter, r *http.Request, path string) b
 		Key: r.Header.Get("Idempotency-Key"), Body: body,
 	})
 	if sessionID != SessionID {
-		s.problem(w, 403, "forbidden", "Forbidden", "token scope is another session")
+		s.problem(w, 403, "forbidden", "Forbidden", "token scope is another room")
 		return true
 	}
 	// One open request per task (E7-04). Checked before validation: the

@@ -60,7 +60,9 @@ func TestVersionFlag(t *testing.T) {
 
 func TestUsageExit2(t *testing.T) {
 	env := clienttest.New(t).Env(t.TempDir())
-	for _, args := range [][]string{{}, {"bogus"}, {"session"}, {"session", "nope"}, {"message"}, {"message", "post"}, {"message", "post", "--body", ""}, {"session", "get", "extra"}, {"lane", "delegate"}, {"mcp"}, {"session", "messages", "--limit", "0"}, {"session", "messages", "--limit", "201"}} {
+	for _, args := range [][]string{{}, {"bogus"}, {"room"}, {"room", "nope"}, {"message"}, {"message", "post"}, {"message", "post", "--body", ""}, {"room", "get", "extra"}, {"lane", "delegate"}, {"mcp"}, {"room", "messages", "--limit", "0"}, {"room", "messages", "--limit", "201"},
+		// v0.9 (R4): the session group is gone — an unknown command, not an alias.
+		{"session", "get"}, {"session", "messages"}} {
 		code, _, _ := exec(t, env, args...)
 		if code != 2 {
 			t.Errorf("%v: exit %d, want 2", args, code)
@@ -91,9 +93,9 @@ func TestRevokedExit4(t *testing.T) {
 	if code != 4 || errCode(v) != "token_revoked" {
 		t.Fatalf("code=%d v=%v", code, v)
 	}
-	code, v, _ = exec(t, env, "session", "get")
+	code, v, _ = exec(t, env, "room", "get")
 	if code != 4 || errCode(v) != "token_revoked" {
-		t.Fatalf("session get: code=%d v=%v", code, v)
+		t.Fatalf("room get: code=%d v=%v", code, v)
 	}
 }
 
@@ -101,15 +103,15 @@ func TestRefusedExit3AndUnreachable5(t *testing.T) {
 	s := clienttest.New(t)
 	s.Fail, s.FailCode = 403, "not_participant"
 	env := s.Env(t.TempDir())
-	if code, v, _ := exec(t, env, "session", "messages"); code != 3 || errCode(v) != "not_participant" {
+	if code, v, _ := exec(t, env, "room", "messages"); code != 3 || errCode(v) != "not_participant" {
 		t.Fatalf("403: code=%d v=%v", code, v)
 	}
 	s.Fail = 503
-	if code, _, _ := exec(t, env, "session", "get"); code != 5 {
+	if code, _, _ := exec(t, env, "room", "get"); code != 5 {
 		t.Fatalf("503: code=%d", code)
 	}
 	env["COLAB_SERVER_URL"] = "http://127.0.0.1:1"
-	if code, v, _ := exec(t, env, "session", "get"); code != 5 || errCode(v) != "unreachable" {
+	if code, v, _ := exec(t, env, "room", "get"); code != 5 || errCode(v) != "unreachable" {
 		t.Fatalf("dead: code=%d v=%v", code, v)
 	}
 }
@@ -177,26 +179,27 @@ func TestPostIdempotentAcrossAttempts(t *testing.T) {
 	}
 }
 
-func TestSessionGetAndMessagesJSON(t *testing.T) {
+func TestRoomGetAndMessagesJSON(t *testing.T) {
 	s := clienttest.New(t)
 	env := s.Env(t.TempDir())
-	code, v, _ := exec(t, env, "session", "get", "--json")
-	if code != 0 || v["goal"] != "Find 3 competitors" {
+	code, v, _ := exec(t, env, "room", "get", "--json")
+	if code != 0 || v["work"].(map[string]any)["goal"] != "Find 3 competitors" || v["room"].(map[string]any)["name"] != "Market research" ||
+		len(v["participants"].([]any)) != 3 {
 		t.Fatalf("get: %d %v", code, v)
 	}
 	exec(t, env, "message", "post", "--body", "root")
-	code, v, _ = exec(t, env, "session", "messages", "--limit", "10")
-	if code != 0 || v["included"] != float64(1) || v["truncated"] != false {
+	code, v, _ = exec(t, env, "room", "messages", "--limit", "10")
+	if code != 0 || v["included"] != float64(1) || v["truncated"] != false || v["room_id"] != clienttest.RoomID {
 		t.Fatalf("messages: %d %v", code, v)
 	}
 	items := v["items"].([]any)
 	root := items[0].(map[string]any)["id"].(string)
 	exec(t, env, "message", "post", "--body", "reply", "--reply-to", root)
-	code, v, _ = exec(t, env, "session", "messages", "--thread", root)
+	code, v, _ = exec(t, env, "room", "messages", "--thread", root)
 	if code != 0 || v["included"] != float64(2) {
 		t.Fatalf("thread: %d %v", code, v)
 	}
-	code, v, _ = exec(t, env, "session", "messages", "--since", root)
+	code, v, _ = exec(t, env, "room", "messages", "--since", root)
 	if code != 0 || v["included"] != float64(1) {
 		t.Fatalf("since: %d %v", code, v)
 	}
@@ -207,7 +210,7 @@ func TestMCPServeViaCLI(t *testing.T) {
 	env := s.Env(t.TempDir())
 	in := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized"}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"colab_session_get","arguments":{}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"colab_room_get","arguments":{}}}
 `
 	var out, errb bytes.Buffer
 	if code := run([]string{"mcp", "serve"}, clienttest.Getenv(env), strings.NewReader(in), &out, &errb); code != 0 {

@@ -9,8 +9,8 @@ import (
 	"github.com/ingki3/agent-collabortion/cli/internal/colab"
 )
 
-// colab-cli.md v0.8 §2.4a — room get · room messages (the session commands
-// under the room name) · room list · room read · work propose.
+// colab-cli.md v0.9 §2.4a — room get · room messages · room list ·
+// room read · work propose.
 
 func runRoom(args []string, getenv client.Getenv, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -21,7 +21,7 @@ func runRoom(args []string, getenv client.Getenv, stdout, stderr io.Writer) int 
 	switch args[0] {
 	case "get":
 		fs, _ := newFlagSet("room get", stderr)
-		room := fs.String("room", "", "room id (default COLAB_SESSION_ID / token scope)")
+		room := fs.String("room", "", "room id (default COLAB_ROOM_ID / token scope)")
 		if err := fs.Parse(args[1:]); err != nil {
 			return client.ExitUsage
 		}
@@ -32,7 +32,7 @@ func runRoom(args []string, getenv client.Getenv, stdout, stderr io.Writer) int 
 		return emit(stdout, stderr, v, err)
 	case "messages":
 		fs, _ := newFlagSet("room messages", stderr)
-		room := fs.String("room", "", "room id (default COLAB_SESSION_ID / token scope)")
+		room := fs.String("room", "", "room id (default COLAB_ROOM_ID / token scope)")
 		since := fs.String("since", "", "only messages newer than this cursor / message id (sent as after=)")
 		limit := fs.Int("limit", 0, "max messages, 1..200 (omit for the server default 50)")
 		thread := fs.String("thread", "", "thread root message id (root + replies)")

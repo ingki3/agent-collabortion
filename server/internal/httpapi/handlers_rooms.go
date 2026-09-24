@@ -131,8 +131,8 @@ func logActivity(ctx context.Context, q db.DBTX, wsID uuid.UUID, roomID *uuid.UU
 
 // auditView is FR-5.3 P-Q: a workspace owner·admin reading an invited room
 // they are not in leaves a line — the room's people cannot see who looked
-// otherwise. One line per person, room and (UTC) day: getRoom, the old
-// /sessions/{id} reads and every page of messages all count as the same look,
+// otherwise. One line per person, room and (UTC) day: getRoom, its roster
+// and every page of messages all count as the same look,
 // and the unique index activity_log_audit_viewed_daily makes the "once" hold
 // under concurrent reads too. Any other read is not an audit and writes
 // nothing.
@@ -333,9 +333,9 @@ func loadRoomDefaults(ctx context.Context, q db.DBTX, wsID uuid.UUID) (*roomDefa
 func (s *Server) GetRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
 	p := principalOf(r)
 	if p.Task != nil {
-		// openapi getRoom: "TaskToken 이면 그 task 의 방만".
-		if p.Task.SessionID != roomId {
-			writeProblem(w, apperr.Forbidden("outside_task_scope", "다른 방에는 접근할 수 없습니다"))
+		// openapi getRoom: "TaskToken 이면 그 task 의 방만" — `colab room get`.
+		if pr := s.taskRoom(r, roomId); pr != nil {
+			writeProblem(w, pr)
 			return
 		}
 		a := &rooms.Access{RoomID: roomId}
@@ -972,4 +972,19 @@ func (s *Server) SetRoomSubscription(w http.ResponseWriter, r *http.Request, roo
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// taskRoom is a TaskToken's reach into the room ops `colab room get` reads
+// (openapi v0.3.0: getRoom · getWork · listRoomParticipants — D22 ④): the
+// task's own room only, as the old sessionAccess held it. A room that does
+// not exist is 404; another room is 403 outside_task_scope. The role gate
+// (room_get, colab-cli.md §2.5) is the same call's.
+func (s *Server) taskRoom(r *http.Request, roomID uuid.UUID) *Problem {
+	if _, err := s.roomWorkspace(r.Context(), roomID); err != nil {
+		return apperr.As(err)
+	}
+	if principalOf(r).Task.SessionID != roomID {
+		return apperr.Forbidden("outside_task_scope", "다른 방에는 접근할 수 없습니다")
+	}
+	return s.commandAllowed(r, gen.ColabCommandRoomGet)
 }

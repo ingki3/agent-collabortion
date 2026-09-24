@@ -41,8 +41,8 @@ const fieldMax = 64 << 10
 // whoever submitted them; whether that satisfies the `artifact_submitted`
 // completion condition is a separate question the tree answers (E6-02), and
 // the answer rides back in completion_progress.
-func (s *Server) SubmitArtifact(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.SubmitArtifactParams) {
-	if _, p := s.sessionAccess(r, sessionId); p != nil {
+func (s *Server) SubmitArtifact(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.SubmitArtifactParams) {
+	if _, p := s.sessionAccess(r, roomId); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -78,7 +78,7 @@ func (s *Server) SubmitArtifact(w http.ResponseWriter, r *http.Request, sessionI
 	}
 
 	call := func() (int, any, *Problem) {
-		row, err := s.Artifacts.Submit(r.Context(), sessionId, *in)
+		row, err := s.Artifacts.Submit(r.Context(), roomId, *in)
 		if err != nil {
 			return 0, nil, apperr.As(err)
 		}
@@ -126,8 +126,8 @@ func (s *Server) SubmitArtifact(w http.ResponseWriter, r *http.Request, sessionI
 		// object — and because the idempotent replay path never reaches this
 		// closure, so a retried submit cannot emit a second frame.
 		if s.Hub != nil {
-			if wsID, err := s.Sessions.WorkspaceOf(r.Context(), sessionId); err == nil {
-				sid := uuid.UUID(sessionId)
+			if wsID, err := s.roomWorkspace(r.Context(), roomId); err == nil {
+				sid := uuid.UUID(roomId)
 				_ = s.Hub.Publish(r.Context(), nil, wsID, &sid, "artifact.created", api)
 			}
 		}
@@ -252,8 +252,8 @@ func parseArtifactUpload(r *http.Request, body []byte) (*artifacts.SubmitInput, 
 }
 
 // ListArtifacts is the S7 sidebar and the daemon brief's artifact list.
-func (s *Server) ListArtifacts(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.ListArtifactsParams) {
-	if _, p := s.sessionAccess(r, sessionId); p != nil {
+func (s *Server) ListArtifacts(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListArtifactsParams) {
+	if _, p := s.sessionAccess(r, roomId); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -264,7 +264,7 @@ func (s *Server) ListArtifacts(w http.ResponseWriter, r *http.Request, sessionId
 	if params.Type != nil {
 		o.Type = *params.Type
 	}
-	rows, err := s.Artifacts.List(r.Context(), sessionId, o)
+	rows, err := s.Artifacts.List(r.Context(), roomId, o)
 	if err != nil {
 		writeErr(w, err)
 		return

@@ -29,10 +29,10 @@ import (
 // RoomWorksActiveDetail is the 409 works_active: a mission is still going.
 const RoomWorksActiveDetail = "진행 중인 미션이 있어 방을 삭제할 수 없습니다 — 먼저 끝내거나 취소해 주세요"
 
-// DeleteRoom is deleteSession's cascade for a whole room: every mission, lane,
+// DeleteRoom is deleteRoom's cascade for a whole room: every mission, lane,
 // task, message, HITL, artifact, decision and cost row goes; one activity_log
-// line (`room.deleted`) stays, and SSE `room.deleted` plus `session.deleted`
-// (the same event under both names until R4) tell S5 to drop the card.
+// line (`room.deleted`) stays, and SSE `room.deleted` tells S5 to drop the
+// card.
 //
 // Refused while any mission is in progress (409 works_active — `draft`,
 // `completed` and `cancelled` are not) and while a worktree holds unmerged or
@@ -94,9 +94,6 @@ func (s *Service) DeleteRoom(ctx context.Context, roomID, actor uuid.UUID) error
 	if s.Hub != nil {
 		rid := roomID
 		if err := s.Hub.Publish(ctx, tx, wsID, &rid, "room.deleted", map[string]any{"room_id": roomID}); err != nil {
-			return apperr.Internal(err)
-		}
-		if err := s.Hub.Publish(ctx, tx, wsID, &rid, "session.deleted", map[string]any{"session_id": roomID}); err != nil {
 			return apperr.Internal(err)
 		}
 	}

@@ -148,7 +148,7 @@ func TestWorktreeFirstClaimNoRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	var reason any = "(lane missing)"
-	for _, it := range f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/lanes", nil) {
+	for _, it := range f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/lanes", nil) {
 		if l := it.(map[string]any); str(l, "id") == lane {
 			reason = l["queued_reason"]
 		}
@@ -220,7 +220,7 @@ func TestListMessagesWorkFilterAndAround(t *testing.T) {
 		ids = append(ids, id)
 	}
 	list := func(q string) map[string]any {
-		return f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID+"/messages?"+q, nil)
+		return f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID+"/messages?"+q, nil)
 	}
 	page := list("work_id=" + work.String())
 	if got := len(items(page)); got != 50 {
@@ -240,7 +240,7 @@ func TestListMessagesWorkFilterAndAround(t *testing.T) {
 	if got := len(items(none)); got != 10 {
 		t.Fatalf("no_work page = %d, want the 10 messages of no mission", got)
 	}
-	f.api.must(422, "GET", f.p+"/sessions/"+f.sessionID+"/messages?no_work=true&work_id="+work.String(), nil)
+	f.api.must(422, "GET", f.p+"/rooms/"+f.sessionID+"/messages?no_work=true&work_id="+work.String(), nil)
 
 	anchor := ids[90]
 	around := items(list("around_message_id=" + anchor.String()))
@@ -254,7 +254,7 @@ func TestListMessagesWorkFilterAndAround(t *testing.T) {
 	if len(edge) != 29 {
 		t.Fatalf("around the 4th message = %d, want 3 + anchor + 25", len(edge))
 	}
-	f.api.must(422, "GET", f.p+"/sessions/"+f.sessionID+"/messages?around_message_id="+uuid.NewString(), nil)
+	f.api.must(422, "GET", f.p+"/rooms/"+f.sessionID+"/messages?around_message_id="+uuid.NewString(), nil)
 }
 
 // TestRoomAuditViewAndDeleteWorkdirs is openapi 0.2.6: the S5 card's

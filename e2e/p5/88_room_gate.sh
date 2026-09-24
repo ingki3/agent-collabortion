@@ -7,11 +7,11 @@
 #
 # 재는 것 (판정 표 out/88-checks.tsv). 절마다 워크스페이스·컴퓨터를 새로 짝지어 claim 이 서로의 task 를 집지 않게 한다.
 #   A. 방 예산 멈춤 → 방장 승인: 번들 limits.budget_usd = 방 잔여 · heartbeat usage 가 방 예산을 넘으면
-#      room.blocked_reason=budget(blocked_detail 수·works_stopped) · 옛 getSession 은 paused(budget) 그대로 ·
+#      room.blocked_reason=budget(blocked_detail 수·works_stopped) · getWork(옛 getSession 자리)는 paused(budget) 그대로 ·
 #      확인 요청 approver_spec=room_owner · 방의 새 task 는 나가지 않는다 · unblockRoom 409 not_manual ·
 #      승인(budget_override_usd) 한 번에 방이 풀리고 기다리던 task 가 나간다.
 #   B·E. 루프 방 멈춤 + 부방장 위임 시각: 시간당 상한 1 로 에이전트 멘션 2번 → room.blocked_reason=loop ·
-#      옛 getSession paused(loop) · 받은 요청 room_paused(방장) · 경고 loop_limit. 부방장 없으면 워크스페이스
+#      getWork paused(loop) · 받은 요청 room_paused(방장) · 경고 loop_limit. 부방장 없으면 워크스페이스
 #      owner 최고참이, 부방장을 두면 부방장이 기한 절반부터 답한다(그 전엔 403 deputy_not_yet + can_respond_from,
 #      일반 멤버는 403 + null). 승인 → 방이 풀리고 세션 active.
 #   H. 경계(Lead Q2): Director 가 멈춘 미션(표식 없는 paused)은 방 멈춤·해제에 끌려가지 않는다.
@@ -53,7 +53,7 @@ n_of() { jq --arg s "$2" '[.tasks[]|select(.task.session_id==$s)]|length' <<<"$1
 running() { daemon_api "tasks/$1/attempts/1/phase" '{"phase":"running","pgid":4242}' >/dev/null; }
 finish() { daemon_api "tasks/$1/attempts/1/finish" '{"outcome":"completed","stop_reason":"end_turn","transport":"acp","last_seq":0,"usage":{"input_tokens":10,"output_tokens":5,"cost_usd":0.001,"estimated":false,"model":"claude-sonnet-5"}}' >/dev/null; }
 agent_post() { # SESSION TOKEN CONTENT → 응답 본문
-  curl -sS -X POST "$API/sessions/$1/messages" -H "Authorization: Bearer $2" -H "Idempotency-Key: $(uuid)" -H 'Content-Type: application/json' \
+  curl -sS -X POST "$API/rooms/$1/messages" -H "Authorization: Bearer $2" -H "Idempotency-Key: $(uuid)" -H 'Content-Type: application/json' \
     -d "$(jq -nc --arg c "$3" '{content:$c}')"
 }
 room_col() { psqlq "select coalesce(($2)::text,'-') from room where id='$1'"; }
@@ -66,12 +66,12 @@ fresh() {
   export DTOK RID
   LEAD="$(mk_agent Lead)"; R="$(mk_agent R)"
 }
-# mk_session TITLE ASSIGNEE [PINNED:yes|no] [EXTRA_JSON] → 세션(=방) id. 참여자 Lead·R.
+# mk_session TITLE ASSIGNEE [PINNED:yes|no] [EXTRA_JSON] → 방 id (createRoom→updateRoom→참여자 Lead·R→createWork, lib create_room_work).
 mk_session() {
   local extra="${4:-}"; [ -n "$extra" ] || extra='{}'
-  api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg t "$1" --arg a "$2" --arg l "$LEAD" --arg r "$R" --arg rt "$RID" --arg pin "${3:-yes}" --argjson x "$extra" \
+  create_room_work "$WS" "$(jq -nc --arg t "$1" --arg a "$2" --arg l "$LEAD" --arg r "$R" --arg rt "$RID" --arg pin "${3:-yes}" --argjson x "$extra" \
     '{title:$t,goal:"짧은 인사말 한 줄",isolation:{kind:"none"},participants:[{agent_id:$l},{agent_id:$r}],assignee_agent_id:$a}
-     + (if $pin=="yes" then {runtime_id:$rt} else {} end) + $x')" | jq -r .id
+     + (if $pin=="yes" then {runtime_id:$rt} else {} end) + $x')"
 }
 join_ws() { # COOKIEFILE EMAIL NAME ROLE → user id (가입 + 이 워크스페이스 멤버로)
   local uid; uid="$(COOKIE="$1" signup "$2" password123 "$3")"
@@ -93,7 +93,9 @@ running "$TA"
 daemon_api "tasks/$TA/attempts/1/heartbeat" '{"usage":{"input_tokens":1000,"output_tokens":1000,"cost_usd":0.05,"estimated":false,"model":"claude-sonnet-5"},"last_seq":0}' > "$OUT/88-A-hb.json"
 chk A.2 budget "$(room_col "$SA" blocked_reason)" "heartbeat usage \$0.05 > 방 예산 \$0.01 → room.blocked_reason=budget"
 chk A.3 "0.01/0.05/1" "$(psqlq "select (blocked_detail->>'budget_usd')||'/'||(blocked_detail->>'cost_usd')||'/'||(blocked_detail->>'works_stopped') from room where id='$SA'")" "blocked_detail — 한도·쓴 돈·멈춘 미션 수(수는 칸으로)"
-chk A.4 "paused/budget" "$(api_ok GET "/sessions/$SA" | jq -r '.status+"/"+(.paused_reason//"-")')" "옛 getSession 은 paused(budget) 그대로(미러, Lead Q2)"
+# R4: 옛 getSession 은 미러를 paused(budget) 로 읽었다. getWork 는 방이 세운 미션을 paused + paused_reason null 로 읽는다
+# (WorkPauseReason 은 미션 자신의 사유만 — 이유는 Room.blocked_reason, A.2). 저장 행은 그대로 미러(paused/budget).
+chk A.4 "paused/-/paused/budget" "$(api_ok GET "/works/$(work_of "$SA")" | jq -r '.status+"/"+(.paused_reason//"-")')/$(psqlq "select status::text||'/'||coalesce(paused_reason::text,'-') from work where room_id='$SA'")" "getWork paused·사유 null(방의 사유) · 저장 행은 미러 paused(budget)"
 HA="$(psqlq "select id from hitl_request where session_id='$SA' and purpose='budget' and status='open'")"
 chk A.5 "room_owner/t/t" "$(psqlq "select approver_spec||'/'||(task_id is null)::text::char||'/'||(work_id is null)::text::char from hitl_request where id='$HA'")" "확인 요청은 방의 것 — approver_spec room_owner · task 없음 · 미션 없음"
 chk A.6 1 "$(psqlq "select count(*) from inbox_item i join member m on m.id=i.member_id where i.ref_id='$HA' and m.user_id='$DIR_ID'")" "방장 받은 요청 1"
@@ -102,7 +104,7 @@ chk A.7 0 "$(n_of "$(claim)" "$SA")" "멈춘 방의 새 task 는 나가지 않�
 chk A.8 "409/not_manual" "$(R_="$(api POST "/rooms/$SA/unblock")"; echo "$(api_code <<<"$R_")/$(api_body <<<"$R_" | jq -r .code)")" "unblockRoom 은 manual 만 — 예산 멈춤은 409 not_manual"
 IFS=$'\t' read -r CODE BODY <<<"$(respond_hitl "$HA" '{"approved":true,"budget_override_usd":1}')"
 chk A.9 200 "$CODE" "방장 승인(budget_override_usd 1) → 200"
-chk A.10 "-/active" "$(room_col "$SA" blocked_reason)/$(api_ok GET "/sessions/$SA" | jq -r .status)" "승인 한 번에 방이 풀리고 세션 active"
+chk A.10 "-/active" "$(room_col "$SA" blocked_reason)/$(api_ok GET "/works/$(work_of "$SA")" | jq -r .status)" "승인 한 번에 방이 풀리고 미션 active"
 chk A.11 1 "$(claim | jq --arg s "$SA" --arg a "$R" '[.tasks[]|select(.task.session_id==$s and .task.agent_id==$a)]|length')" "기다리던 R task 가 나간다"
 
 # ───────────────────────────── E + B ────────────────────────────────────────
@@ -116,7 +118,7 @@ agent_post "$SE" "$TOKE" "$(mention R "$R") 하나" > "$OUT/88-E-1.json"
 agent_post "$SE" "$TOKE" "$(mention R "$R") 둘" > "$OUT/88-E-2.json"
 chk E.1 loop_limit "$(jq -r '[.warnings[]|select(.code=="loop_limit")][0].code // "-"' "$OUT/88-E-2.json")" "두 번째 에이전트 멘션 → 경고 loop_limit"
 chk E.2 loop "$(room_col "$SE" blocked_reason)" "room.blocked_reason=loop(방이 멈춘다)"
-chk E.3 "paused/loop" "$(api_ok GET "/sessions/$SE" | jq -r '.status+"/"+(.paused_reason//"-")')" "옛 getSession 은 paused(loop) 그대로"
+chk E.3 "paused/-/paused/loop" "$(api_ok GET "/works/$(work_of "$SE")" | jq -r '.status+"/"+(.paused_reason//"-")')/$(psqlq "select status::text||'/'||coalesce(paused_reason::text,'-') from work where room_id='$SE'")" "getWork paused·사유 null(loop 는 WorkPauseReason 밖 — R4: 옛 getSession 은 paused(loop)) · 저장 행은 미러 paused(loop)"
 HE="$(psqlq "select id from hitl_request where session_id='$SE' and purpose='loop' and status='open'")"
 chk E.4 room_owner "$(psqlq "select approver_spec from hitl_request where id='$HE'")" "루프 확인 요청 approver_spec room_owner"
 chk E.5 1 "$(psqlq "select count(*) from inbox_item i join member m on m.id=i.member_id where i.ref_id='$HE' and i.type='room_paused' and m.user_id='$DIR_ID'")" "방장 받은 요청 room_paused"
@@ -139,20 +141,20 @@ R_="$(as "$C_O2" POST "/hitl-requests/$HE/response" '{"approved":true}' -H "Idem
 chk B.5 403 "$(api_code <<<"$R_")" "부방장이 있으면 O2 는 절반이 지나도 403"
 R_="$(as "$C_DEP" POST "/hitl-requests/$HE/response" '{"approved":true}' -H "Idempotency-Key: $(uuid)")"
 chk B.6 200 "$(api_code <<<"$R_")" "절반 경과 뒤 부방장 승인 200"
-chk E.6 "-/active" "$(room_col "$SE" blocked_reason)/$(api_ok GET "/sessions/$SE" | jq -r .status)" "승인이 방을 푼다(루프 해제는 승인 HITL 의 결과)"
+chk E.6 "-/active" "$(room_col "$SE" blocked_reason)/$(api_ok GET "/works/$(work_of "$SE")" | jq -r .status)" "승인이 방을 푼다(루프 해제는 승인 HITL 의 결과)"
 chk E.7 2 "$(psqlq "select count(*) from session_hop where session_id='$SE' and from_agent_id is null")" "사람 hop = 시작 1 + 승인 1 (깊이·짝 카운터를 사람 아래에서 다시, 시간당은 그대로)"
 
 step "H. 경계 — 표식 없는 paused(Director 멈춤)는 방 멈춤·해제에 끌려가지 않는다 (Lead Q2)"
 SH="$(mk_session "H 경계 $RUN" "$LEAD")"
 CL="$(claim)"; B="$(bundle_of "$CL" "$SH" "$LEAD")"; [ -n "$B" ] || die "H: claim 에 Lead task 가 없다: $CL"
 TH="$(jq -r .task.id <<<"$B")"; TOKH="$(jq -r .task_token <<<"$B")"; running "$TH"
-api_ok POST "/sessions/$SH/pause" '{}' >/dev/null
+api_ok POST "/works/$(work_of "$SH")/pause" '{}' >/dev/null
 agent_post "$SH" "$TOKH" "$(mention R "$R") 하나" >/dev/null
 agent_post "$SH" "$TOKH" "$(mention R "$R") 둘" >/dev/null
 chk H.1 "loop/director/f" "$(room_col "$SH" blocked_reason)/$(psqlq "select paused_reason::text||'/'||coalesce((paused_detail->>'room_blocked'),'f')::char from work where room_id='$SH'")" "방은 loop 로 멈추고 Director 가 멈춘 미션은 표식 없이 paused(director) 그대로"
 HH="$(psqlq "select id from hitl_request where session_id='$SH' and purpose='loop' and status='open'")"
 IFS=$'\t' read -r CODE BODY <<<"$(respond_hitl "$HH" '{"approved":true}')"
-chk H.2 "200/-/paused/director" "$CODE/$(room_col "$SH" blocked_reason)/$(api_ok GET "/sessions/$SH" | jq -r '.status+"/"+(.paused_reason//"-")')" "방이 풀려도 미션은 paused(director) — 방이 멈춘 것만 방 해제로 돌아온다"
+chk H.2 "200/-/paused/director" "$CODE/$(room_col "$SH" blocked_reason)/$(api_ok GET "/works/$(work_of "$SH")" | jq -r '.status+"/"+(.paused_reason//"-")')" "방이 풀려도 미션은 paused(director) — 방이 멈춘 것만 방 해제로 돌아온다"
 
 # ───────────────────────────── C ─────────────────────────────────────────────
 step "C. manual 멈춤·해제 (FR-2.4 · blockRoom · unblockRoom)"
@@ -192,7 +194,7 @@ TD2="$(psqlq "select id from task where session_id='$SD2' order by created_at li
 chk D.1 0 "$(n_of "$(claim)" "$SD2")" "R 이 방1에서 일하는 동안 방2의 R task 는 나가지 않는다(상한 1, 전역)"
 chk D.2 agent_global "$(psqlq "select coalesce(queued_reason::text,'-') from task where id='$TD2'")" "task.queued_reason = agent_global(다른 방에서 작업 중)"
 chk D.3 agent_global "$(api_ok GET "/tasks/$TD2" | jq -r '.queued_reason // "-"')" "getTask 응답에도 queued_reason"
-chk D.4 agent_global "$(api_ok GET "/sessions/$SD2/lanes" | jq -r '.[0].queued_reason // "-"')" "listLanes 의 lane 에도 queued_reason(첫 대기 task 의 것)"
+chk D.4 agent_global "$(api_ok GET "/rooms/$SD2/lanes" | jq -r '.[0].queued_reason // "-"')" "listLanes 의 lane 에도 queued_reason(첫 대기 task 의 것)"
 finish "$TD1"
 chk D.5 1 "$(n_of "$(claim)" "$SD2")" "방1 턴이 끝나면 방2의 R task 가 나간다"
 chk D.6 "dispatched/-" "$(psqlq "select status::text||'/'||coalesce(queued_reason::text,'-') from task where id='$TD2'")" "나가면 queued_reason 이 지워진다"
@@ -235,7 +237,7 @@ SW="$(mk_room "W 워크트리 $RUN")"
 chk W.1 "worktree/-/-" "$(psqlq "select (isolation->>'kind')||'/'||coalesce(isolation->>'repo_path','-')||'/'||coalesce(runtime_id::text,'-') from room where id='$SW'")" "전제: 격리 kind 만 상속 · 경로·컴퓨터 없음"
 chk W.2 0 "$(n_of "$(claim)" "$SW")" "저장소 없는 컴퓨터는 집지 않는다"
 LW="$(psqlq "select lane_id from task where session_id='$SW' and status='queued' limit 1")"
-chk W.3 "runtime/-" "$(api_ok GET "/sessions/$SW/lanes" | jq -r --arg l "$LW" '[.[]|select(.id==$l)][0].queued_reason // "-"')/$(room_col "$SW" runtime_id)" "기다리는 이유 queued_reason runtime(「저장소가 있는 컴퓨터를 기다립니다」) · 고정 안 됨"
+chk W.3 "runtime/-" "$(api_ok GET "/rooms/$SW/lanes" | jq -r --arg l "$LW" '[.[]|select(.id==$l)][0].queued_reason // "-"')/$(room_col "$SW" runtime_id)" "기다리는 이유 queued_reason runtime(「저장소가 있는 컴퓨터를 기다립니다」) · 고정 안 됨"
 RA="/tmp/colab-r1b1-$RUN/repo-a"; RB="/tmp/colab-r1b1-$RUN/repo-b"
 probe_repos "$(jq -nc --arg a "$RA" --arg b "$RB" '[$a,$b]')"
 chk W.4 0 "$(n_of "$(claim)" "$SW")" "저장소 둘 → 방장이 고를 때까지 보류"
@@ -260,14 +262,17 @@ WG="$(psqlq "select id from work where room_id='$SG'")"
 CL="$(claim)"; B="$(bundle_of "$CL" "$SG" "$LEAD")"; [ -n "$B" ] || die "G: claim 에 Lead task 가 없다: $CL"
 TG="$(jq -r .task.id <<<"$B")"; running "$TG"
 chk G.0 running "$(psqlq "select status from lane where id=(select lane_id from task where id='$TG')")" "전제: Lead 의 lane 이 실행 중"
-PV="$(api_ok POST "/sessions/$SG/messages/preview" "$(jq -nc --arg c "$(mention Lead "$LEAD") 진행 상황?" '{content:$c}')")"; echo "$PV" | jq . > "$OUT/88-G-preview-3.json"
+PV="$(api_ok POST "/rooms/$SG/messages/preview" "$(jq -nc --arg c "$(mention Lead "$LEAD") 진행 상황?" '{content:$c}')")"; echo "$PV" | jq . > "$OUT/88-G-preview-3.json"
 chk G.1 "running_lane/$WG/G 귀속 $RUN" "$(jq -r '.work_source+"/"+(.work.id // "-")+"/"+(.work.title // "-")' <<<"$PV")" "규칙 3 — 실행 중 lane 의 에이전트 멘션 → running_lane, 칩에 미션 이름"
 M1="$(post_message "$SG" "$(mention Lead "$LEAD") 진행 상황?" | jq -r .message.id)"
 chk G.2 "$WG/$WG" "$(psqlq "select m.work_id||'/'||coalesce((select t.work_id::text from task t where t.trigger_message_id=m.id or m.id = any(t.coalesced_message_ids) limit 1),'-') from message m where m.id='$M1'")" "게시된 메시지와 그 task 의 work_id = 그 미션"
-PV="$(api_ok POST "/sessions/$SG/messages/preview" "$(jq -nc --arg p "$M1" '{content:"덧붙여",parent_id:$p}')")"
+PV="$(api_ok POST "/rooms/$SG/messages/preview" "$(jq -nc --arg p "$M1" '{content:"덧붙여",parent_id:$p}')")"
 chk G.3 "thread/$WG" "$(jq -r '.work_source+"/"+(.work.id // "-")' <<<"$PV")" "규칙 2 — 스레드 답글 → thread"
-PV="$(api_ok POST "/sessions/$SG/messages/preview" '{"content":"/note 기록만"}')"
-chk G.4 "chosen/$WG" "$(jq -r '.work_source+"/"+(.work.id // "-")' <<<"$PV")" "그 밖 — 방당 미션 1(R1b1 호환 규칙, 계약 enum 이 닫혀 chosen 으로 싣는다)"
+PV="$(api_ok POST "/rooms/$SG/messages/preview" '{"content":"/note 기록만"}')"
+# R4: createRoom 으로 만든 방은 legacy_work_id 가 없다 — 옛 세션의 「방당 미션 1 → chosen」 호환 규칙은 0025 이관 방에만 남는다.
+chk G.4 "none/-" "$(jq -r '.work_source+"/"+(.work.id // "-")' <<<"$PV")" "그 밖(work_id 없음) — createRoom 방은 미션 없음(R4, 옛 세션의 chosen 호환 규칙은 legacy 방만)"
+PV="$(api_ok POST "/rooms/$SG/messages/preview" "$(jq -nc --arg w "$WG" '{content:"/note 기록만",work_id:$w}')")"
+chk G.4b "chosen/$WG" "$(jq -r '.work_source+"/"+(.work.id // "-")' <<<"$PV")" "work_id 를 고르면 chosen — 그 미션"
 
 step "결과: $CHECKS"
 cat "$CHECKS" >&2

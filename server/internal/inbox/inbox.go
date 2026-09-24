@@ -9,13 +9,11 @@ package inbox
 
 // The seven item types (inbox_item_type, FR-8).
 const (
-	TypeHitlRequest      = "hitl_request"
-	TypeLaneBlocked      = "lane_blocked"
-	TypeSessionCompleted = "session_completed"
-	TypeSessionPaused    = "session_paused"
-	TypeRunFailed        = "run_failed"
-	TypeRuntimeOffline   = "runtime_offline"
-	TypeMention          = "mention"
+	TypeHitlRequest    = "hitl_request"
+	TypeLaneBlocked    = "lane_blocked"
+	TypeRunFailed      = "run_failed"
+	TypeRuntimeOffline = "runtime_offline"
+	TypeMention        = "mention"
 	// TypeWorkdirGCBlocked is FR-6.4's "삭제하지 않고 Director 에게 알린다"
 	// (E13-12·13). Added in P4 by Lead decision (T-S9 ask 1); the contract's
 	// InboxItemType grows the same value.
@@ -60,8 +58,8 @@ const (
 // Severity is SCREEN §4.6's table. The split is "does this WAIT for me?":
 //
 //	action_required  nothing moves until a person acts — an open HITL request,
-//	                 a lane blocked on a question, a session paused for budget
-//	                 or a loop.
+//	                 a lane blocked on a question, a room or mission paused for
+//	                 budget or a loop.
 //	attention        something went wrong and a person should look, but the
 //	                 platform is not holding a turn for them.
 //	info             it happened; read it when you read the inbox.
@@ -70,12 +68,12 @@ const (
 // badge a permanent number nobody reads.
 func Severity(itemType string) string {
 	switch itemType {
-	case TypeHitlRequest, TypeLaneBlocked, TypeSessionPaused,
+	case TypeHitlRequest, TypeLaneBlocked,
 		TypeRoomPaused, TypeWorkPaused, TypeIsolationConfirm:
 		return ActionRequired
 	case TypeRunFailed, TypeRuntimeOffline, TypeWorkdirGCBlocked, TypeWorkdirQuota, TypeWorkProposed:
 		return Attention
-	case TypeSessionCompleted, TypeMention, TypeRoomInvited, TypeWorkCompleted:
+	case TypeMention, TypeRoomInvited, TypeWorkCompleted:
 		return Info
 	}
 	return Info
@@ -120,11 +118,6 @@ func Actions(itemType, hitlType string, canRespond bool) []string {
 		return []string{"open_room"}
 	case TypeLaneBlocked, TypeMention:
 		return []string{"reply", "open_session"}
-	case TypeSessionPaused:
-		if canRespond {
-			return []string{"approve_continue", "open_session"}
-		}
-		return []string{"open_session"}
 	case TypeRunFailed:
 		if canRespond {
 			return []string{"restart", "open_session"}
@@ -136,8 +129,6 @@ func Actions(itemType, hitlType string, canRespond bool) []string {
 		return []string{"open_workdirs", "delete_workdir"}
 	case TypeRuntimeOffline:
 		return []string{"open_runtimes"}
-	case TypeSessionCompleted:
-		return []string{"open_session"}
 	case TypeWorkdirQuota:
 		// FR-6.4: the way out is clearing folders on S13.
 		return []string{"open_workdirs"}

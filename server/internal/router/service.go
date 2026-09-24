@@ -717,8 +717,8 @@ func (s *Service) recordHop(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID,
 // `blocked_reason: loop`, the reason detail NAMES the limit, and the room
 // owner gets a system-issued HITL (approver_spec room_owner — absent owner
 // delegation, FR-2A.3). The room's active missions are parked with the same
-// reason and marked as the room's (roomgate package comment), which is what
-// the old `/sessions/*` shape shows as `paused(loop)`.
+// reason and marked as the room's (roomgate package comment), so each reads
+// `paused(loop)`.
 func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, v LoopVerdict, now time.Time) error {
 	room, err := roomgate.Lock(ctx, tx, sessionID)
 	if err != nil {
@@ -771,13 +771,6 @@ func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID u
 		if err := s.Tasks.PauseSessionTasks(ctx, tx, sessionID, "loop", loopPausedDetail(v, now), now); err != nil {
 			return err
 		}
-	}
-	if s.Hub != nil {
-		sid := sessionID
-		_ = s.Hub.Publish(ctx, tx, wsID, &sid, "session.updated", map[string]any{
-			"id": sessionID, "status": "paused", "paused_reason": "loop",
-			"paused_detail": detail,
-		})
 	}
 	roomgate.PublishUpdated(ctx, s.Hub, tx, sessionID)
 	return nil

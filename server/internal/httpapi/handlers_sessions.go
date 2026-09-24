@@ -25,114 +25,12 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
-func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.ListSessionsParams) {
-	if _, _, p := s.member(r, workspaceId); p != nil {
+func (s *Server) ListMessages(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListMessagesParams) {
+	if _, p := s.sessionAccess(r, roomId); p != nil {
 		writeProblem(w, p)
 		return
 	}
-	o := sessions.ListOptions{Cursor: params.Cursor, Query: params.Q}
-	if params.Status != nil {
-		for _, st := range *params.Status {
-			o.Status = append(o.Status, string(st))
-		}
-	}
-	if params.DirectorUserId != nil {
-		v := *params.DirectorUserId
-		o.DirectorUserID = &v
-	}
-	if params.AgentId != nil {
-		v := *params.AgentId
-		o.AgentID = &v
-	}
-	if params.RuntimeId != nil {
-		v := *params.RuntimeId
-		o.RuntimeID = &v
-	}
-	if p := validateLimit(params.Limit); p != nil {
-		writeProblem(w, p)
-		return
-	}
-	if params.Limit != nil {
-		o.Limit = *params.Limit
-	}
-	items, next, err := s.Sessions.List(r.Context(), workspaceId, o)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "next_cursor": next})
-}
-
-func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.CreateSessionParams) {
-	u, _, p := s.member(r, workspaceId)
-	if p != nil {
-		writeProblem(w, p)
-		return
-	}
-	body, p := readBody(w, r)
-	if p != nil {
-		writeProblem(w, p)
-		return
-	}
-	var in gen.SessionCreate
-	if p := decodeJSON(w, r, &in); p != nil {
-		writeProblem(w, p)
-		return
-	}
-	s.idempotent(r.Context(), w, "user:"+u.Id.String(), optKey(params.IdempotencyKey), requestHash(r, body), func() (int, any, *Problem) {
-		sess, err := s.Sessions.Create(r.Context(), workspaceId, u.Id, in)
-		if err != nil {
-			return 0, nil, apperr.As(err)
-		}
-		return http.StatusCreated, sess, nil
-	})
-}
-
-func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	u, p := s.sessionAccess(r, sessionId)
-	if p != nil {
-		writeProblem(w, p)
-		return
-	}
-	if p := s.commandAllowed(r, gen.ColabCommandSessionGet); p != nil {
-		writeProblem(w, p)
-		return
-	}
-	v := sessions.Viewer{}
-	if u != nil {
-		v.UserID = &u.Id
-	}
-	sess, err := s.Sessions.Get(r.Context(), sessionId, v)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, sess)
-}
-
-// ListParticipants is listParticipants (S7 좌열). The last P2 operation left at
-// 501 by T-S2 (backlog S-16): the web fell back to the session detail's
-// `participants`, so the board worked and the endpoint the contract advertises
-// did not.
-func (s *Server) ListParticipants(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	if _, p := s.sessionAccess(r, sessionId); p != nil {
-		writeProblem(w, p)
-		return
-	}
-	parts, err := sessions.ListParticipants(r.Context(), s.DB, sessionId)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, parts)
-}
-
-func (s *Server) ListMessages(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.ListMessagesParams) {
-	if _, p := s.sessionAccess(r, sessionId); p != nil {
-		writeProblem(w, p)
-		return
-	}
-	if p := s.commandAllowed(r, gen.ColabCommandSessionMessages); p != nil {
+	if p := s.commandAllowed(r, gen.ColabCommandRoomMessages); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -180,7 +78,7 @@ func (s *Server) ListMessages(w http.ResponseWriter, r *http.Request, sessionId 
 		}
 		var in bool
 		if err := s.DB.QueryRow(r.Context(), `SELECT EXISTS (SELECT 1 FROM message WHERE id = $1 AND session_id = $2)`,
-			*params.AroundMessageId, sessionId).Scan(&in); err != nil {
+			*params.AroundMessageId, roomId).Scan(&in); err != nil {
 			writeErr(w, err)
 			return
 		}
@@ -197,7 +95,7 @@ func (s *Server) ListMessages(w http.ResponseWriter, r *http.Request, sessionId 
 	if params.Limit != nil {
 		o.Limit = *params.Limit
 	}
-	items, hasBefore, hasAfter, total, err := messages.List(r.Context(), s.DB, sessionId, o)
+	items, hasBefore, hasAfter, total, err := messages.List(r.Context(), s.DB, roomId, o)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -224,9 +122,9 @@ func (s *Server) ListMessages(w http.ResponseWriter, r *http.Request, sessionId 
 // random UUID, the CLI derives UUIDv5(task:<task_id>:<seq>) with seq
 // continuing across attempts from CliContext.last_seq (colab-cli.md §1 v0.2).
 // Keys are scoped per principal (user or task) so they never collide.
-func (s *Server) PostMessage(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.PostMessageParams) {
+func (s *Server) PostMessage(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.PostMessageParams) {
 	key := params.IdempotencyKey.String()
-	u, p := s.sessionAccess(r, sessionId)
+	u, p := s.sessionAccess(r, roomId)
 	if p != nil {
 		writeProblem(w, p)
 		return
@@ -267,7 +165,7 @@ func (s *Server) PostMessage(w http.ResponseWriter, r *http.Request, sessionId g
 		clientSeq = &v
 	}
 	s.idempotentSeq(r.Context(), w, scope, key, requestHash(r, body), clientSeq, func() (int, any, *Problem) {
-		res, err := s.Router.Post(r.Context(), sessionId, author, in)
+		res, err := s.Router.Post(r.Context(), roomId, author, in)
 		switch {
 		case err == router.ErrParentNotFound:
 			return 0, nil, apperr.Validation(apperr.Field("parent_id", "not_found", "답글 대상 메시지가 이 방에 없습니다"))
@@ -418,7 +316,7 @@ func (s *Server) GetCliContext(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	roster, err := sessions.ListParticipants(r.Context(), s.DB, sc.SessionID)
+	roster, err := sessions.Roster(r.Context(), s.DB, sc.SessionID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -450,23 +348,18 @@ func (s *Server) GetCliContext(w http.ResponseWriter, r *http.Request) {
 		Name        string             `json:"name"`
 		Role        *gen.AgentRole     `json:"role,omitempty"`
 	}, 0)
-	{
-		for _, p := range roster {
-			role := p.Agent.Role
-			link := ""
-			if p.MentionLink != nil {
-				link = *p.MentionLink
-			}
-			if p.AgentId == sc.AgentID {
-				out.AgentName = &p.Agent.Name
-			}
-			parts = append(parts, struct {
-				AgentId     openapi_types.UUID `json:"agent_id"`
-				MentionLink string             `json:"mention_link"`
-				Name        string             `json:"name"`
-				Role        *gen.AgentRole     `json:"role,omitempty"`
-			}{AgentId: p.AgentId, MentionLink: link, Name: p.Agent.Name, Role: &role})
+	for _, p := range roster {
+		role := gen.AgentRole(p.Role)
+		if p.AgentID == sc.AgentID {
+			name := p.Name
+			out.AgentName = &name
 		}
+		parts = append(parts, struct {
+			AgentId     openapi_types.UUID `json:"agent_id"`
+			MentionLink string             `json:"mention_link"`
+			Name        string             `json:"name"`
+			Role        *gen.AgentRole     `json:"role,omitempty"`
+		}{AgentId: p.AgentID, MentionLink: router.MentionLink(p.Name, p.AgentID), Name: p.Name, Role: &role})
 	}
 	out.Participants = &parts
 	writeJSON(w, http.StatusOK, out)
@@ -487,16 +380,11 @@ func (s *Server) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceI
 		writeProblem(w, apperr.New(http.StatusInternalServerError, "no_flush", "이 연결에서는 실시간 전송을 할 수 없습니다"))
 		return
 	}
-	// v0.2.0: `room_id` narrows the stream; `session_id` is its alias until R4
-	// (the same ids). Both may be given — the union is the filter.
+	// v0.2.0: `room_id` narrows the stream (v0.3.0 dropped its old
+	// `session_id` alias).
 	var sessionIDs []uuid.UUID
-	for _, list := range []*[]openapi_types.UUID{params.RoomId, params.SessionId} {
-		if list == nil {
-			continue
-		}
-		for _, id := range *list {
-			sessionIDs = append(sessionIDs, id)
-		}
+	if params.RoomId != nil {
+		sessionIDs = append(sessionIDs, *params.RoomId...)
 	}
 	lastID := r.Header.Get("Last-Event-ID")
 	if lastID == "" && params.LastEventID != nil {
@@ -592,8 +480,8 @@ func (s *Server) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceI
 // composer's promise and the post's behaviour cannot drift — the web had to
 // reimplement FR-3.3 locally in P1, and two copies of an eight-rule table do
 // not stay equal.
-func (s *Server) PreviewTriggers(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	u, p := s.sessionAccess(r, sessionId)
+func (s *Server) PreviewTriggers(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	u, p := s.sessionAccess(r, roomId)
 	if p != nil {
 		writeProblem(w, p)
 		return
@@ -612,7 +500,7 @@ func (s *Server) PreviewTriggers(w http.ResponseWriter, r *http.Request, session
 	} else {
 		author = router.Author{Type: "user", UserID: &u.Id}
 	}
-	out, err := s.Router.Preview(r.Context(), sessionId, author, in)
+	out, err := s.Router.Preview(r.Context(), roomId, author, in)
 	switch {
 	case err == router.ErrParentNotFound:
 		writeProblem(w, apperr.Validation(apperr.Field("parent_id", "not_found", "답글 대상 메시지가 이 방에 없습니다")))

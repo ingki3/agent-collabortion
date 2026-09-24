@@ -52,12 +52,12 @@ SID=$(apic '
   const ws = me.workspaces[0].id;
   const rt = (await fetch(`/api/v1/workspaces/${ws}/runtimes`).then(j))[0];
   const a = (await fetch(`/api/v1/workspaces/${ws}/agents`).then(j)).items;
-  const s = await post(`/workspaces/${ws}/sessions`, {
+  const s = await post(`/__mock/workspaces/${ws}/seed-room`, {
     title: "국내 B2B SaaS 결제 시장 조사", goal: "보고서 10페이지 — 상위 5개 사업자 비교", isolation: { kind: "none" }, runtime_id: rt.id,
     participants: a.slice(0, 2).map((x) => ({ agent_id: x.id })), assignee_agent_id: a[0].id,
   });
   await new Promise((r) => setTimeout(r, 3500)); // 첫 답변(목의 simulateRun)이 게시될 때까지
-  await post(`/__mock/sessions/${s.id}/seed-markdown`, {});
+  await post(`/__mock/rooms/${s.id}/seed-markdown`, {});
   return s.id;
 })()')
 echo "  session=$SID"
@@ -66,7 +66,7 @@ for THEME in light dark; do
   step "테마 $THEME — S7 마크다운 메시지(세로로 긴 뷰포트 — 타임라인은 안쪽 스크롤이라 --full 로는 다 안 잡힌다)"
   set_theme "$THEME"
   ab set viewport 1280 1750 >/dev/null
-  open_wait "/sessions/$SID" '[data-testid="message-card"][data-kind="summary"]'
+  open_wait "/rooms/$SID" '[data-testid="message-card"][data-kind="summary"]'
   ab wait '.msg__body .md-table' --timeout 10000 >/dev/null
   shot "p5-w14-01-s7-markdown-$THEME"
 done
@@ -75,9 +75,9 @@ step "「작성 중…」 델타 — 열린 코드 펜스(밝음·어두움)"
 ab set viewport 1280 900 >/dev/null
 for THEME in light dark; do
   set_theme "$THEME"
-  open_wait "/sessions/$SID" '[data-testid="message-card"][data-kind="summary"]'
+  open_wait "/rooms/$SID" '[data-testid="message-card"][data-kind="summary"]'
   # 목이 델타 스냅숏 하나를 SSE 로 흘린다(게시 없음) — 열린 펜스가 코드 상자로, 끝에 커서.
-  apic "fetch('/api/v1/__mock/sessions/$SID/seed-delta', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).then(r => r.status)" >/dev/null
+  apic "fetch('/api/v1/__mock/rooms/$SID/seed-delta', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).then(r => r.status)" >/dev/null
   ab wait '[data-testid="message-delta"] pre[data-open="true"]' --timeout 10000 >/dev/null
   # W-18: 화면의 자동 스크롤이 작성창 높이만큼 scroll-margin 을 두고 내리므로 델타 카드가 작성창 뒤에 숨지 않는다 — 우회(window.scrollTo) 없이
   # 그대로 찍고, 델타 카드의 아래변이 작성창의 윗변보다 위에 있는지 **잰다**(단언). 렌더 뒤 한 프레임 기다린다.

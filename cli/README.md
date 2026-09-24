@@ -4,7 +4,9 @@
 It works for any runtime with a shell; `colab mcp serve` exposes the same
 commands as MCP tools with the same JSON arguments and results.
 
-P1 surface: `session get` · `session messages` · `message post` · `mcp serve` · `version`.
+P1 surface: `room get` · `room messages` · `message post` · `mcp serve` · `version`
+(v0.9 / R4: the old `session get` · `session messages` are gone, and every path is
+`/v1/rooms/{R}/…`).
 P2 surface (`contracts/colab-cli.md` v0.4 §2.2·2.3): `status set` · `lane delegate` ·
 `decision record` · `artifact submit` · `artifact get` · `review approve|reject`.
 
@@ -28,7 +30,8 @@ This table is the contract set, nothing more. The daemon sets exactly these.
 | `COLAB_SERVER_URL` | server **origin** (e.g. `https://colab.example`); the CLI appends `/api/v1` (openapi `servers[0].url`). |
 | `COLAB_TASK_ID` | this task (Idempotency-Key input, default for path parameters). |
 | `COLAB_TASK_ATTEMPT` | this attempt. Marks the attempt boundary for the seq state (below); not part of the key. |
-| `COLAB_LANE_ID` `COLAB_SESSION_ID` `COLAB_AGENT_NAME` | defaults when a command omits the argument. |
+| `COLAB_LANE_ID` `COLAB_ROOM_ID` `COLAB_AGENT_NAME` | defaults when a command omits the argument. `COLAB_SESSION_ID` is read as the room id when `COLAB_ROOM_ID` is absent (same value, old name). |
+| `COLAB_WORK_ID` | the mission this turn belongs to (absent outside a mission) — `room get` reads it with `getWork`. |
 | `COLAB_API_PREFIX` | optional override of the `/api/v1` prefix (contract §1). |
 
 Anything missing from the environment is resolved via `GET /cli/context`, which is
@@ -64,8 +67,8 @@ stdout plus one line on stderr.
 ## Commands
 
 ```sh
-colab session get [--session S]
-colab session messages [--since <cursor|message_id>] [--limit N] [--thread <root_id>]
+colab room get [--room R]
+colab room messages [--since <cursor|message_id>] [--limit N] [--thread <root_id>] [--work <mission_id>]
 colab message post --body <text> [--reply-to <msg_id>] [--mention @A,@B] [--idempotency-key K]
 
 colab status set working|blocked|done [--note <text>]
@@ -80,7 +83,7 @@ colab mcp serve
 colab version
 ```
 
-`session messages --since <x>` is sent to the server as the `after=<x>` query
+`room messages --since <x>` is sent to the server as the `after=<x>` query
 parameter (messages newer than that cursor / message id). `--limit` must be
 1..200 when given; an explicit `--limit 0` is exit 2, omit it for the server
 default (50).
@@ -105,7 +108,7 @@ nothing (E8-04). Re-posting the same *content* under a new seq is a new message 
 skipping already-posted messages is the resume prompt's `posted_message_ids` job.
 `--mention` resolves each name to the participant's
 `mention_link` from `/cli/context` and prepends it to the body; a name that is not a
-session participant is exit 2 `unknown_mention` with the roster in `detail` (FR-1.5).
+room participant is exit 2 `unknown_mention` with the roster in `detail` (FR-1.5).
 
 `message post` result:
 
@@ -126,8 +129,25 @@ session participant is exit 2 `unknown_mention` with the roster in `detail` (FR-
 codes (`not_participant`, `loop_limit_near`, `agent_disabled`) stay in `warnings[]`
 only.
 
-`session messages` result adds `included` / `total` / `truncated` (E8-12) around the
-server's `items[]` and cursors.
+`room messages` result adds `room_id` · `included` / `total` / `truncated` (E8-12)
+around the server's `items[]` and cursors.
+
+`room get` is three reads — `GET /rooms/{R}` (getRoom) · `GET /works/{W}` (getWork,
+only with `COLAB_WORK_ID`, and only for this turn's own room) ·
+`GET /rooms/{R}/participants` (listRoomParticipants) — printed as one object, each
+part as the server sent it:
+
+```json
+{
+  "room": {"id": "…", "name": "Market research", "description": "…", "isolation": {"kind": "worktree", "repo_path": "/repo"}, …},
+  "work": {"id": "…", "title": "…", "goal": "Find 3 competitors", "acceptance_criteria": ["…"],
+           "completion_progress": {"met": 1, "total": 2, "satisfied": false, …},
+           "director_user_id": "…", "director": {"display_name": "Dana", …}, …},
+  "participants": [{"kind": "agent", "agent": {"name": "Researcher", "role_description": "digs", …}, "status": "working", …}, …]
+}
+```
+
+`work` is `null` outside a mission.
 
 ## P2 commands
 
@@ -154,7 +174,7 @@ ended, this field instructs one to end, and one name for both is how P1's
 Always a new lane (resolution rule 2); `delegated_from_task_id` is the calling task,
 which is the rejoin group key (FR-6.5). `--agent` is a participant *name*; the CLI
 resolves it against the `/cli/context` roster and sends `agent_id`. A target that is
-not a session participant is refused **by the CLI**, before any request, with exit 3:
+not a room participant is refused **by the CLI**, before any request, with exit 3:
 
 ```json
 {"error": {"exit": 3, "code": "not_participant",
@@ -228,7 +248,7 @@ one only when `--idempotency-key` is given. They deliberately do not consume the
 
 `colab mcp serve` speaks MCP over stdio (protocol `2025-06-18`): `initialize`,
 `ping`, `tools/list`, `tools/call`. One tool per command, named for the command path
-with underscores (contract §3): `colab_session_get`, `colab_session_messages`,
+with underscores (contract §3): `colab_room_get`, `colab_room_messages`,
 `colab_message_post`, `colab_status_set`, `colab_lane_delegate`,
 `colab_decision_record`, `colab_artifact_submit`, `colab_artifact_get`,
 `colab_review_approve`, `colab_review_reject`. Arguments are the command's flags as
@@ -251,13 +271,14 @@ The daemon registers it as the only MCP server (`harness.md` §3):
 > You talk to the platform only through the `colab` CLI (or the `colab_*` MCP tools —
 > same arguments, same results). Everything prints JSON.
 >
-> - `colab session get` — the goal, acceptance criteria, completion progress and the
->   participant roster (name · role · status). Read it before you start.
-> - `colab session messages [--since <id>] [--limit N] [--thread <root_id>]` — read more
+> - `colab room get` — the room, this turn's mission (goal, acceptance criteria,
+>   completion progress, Director) and the participant roster (name · role · status).
+>   Read it before you start.
+> - `colab room messages [--since <id>] [--limit N] [--thread <root_id>]` — read more
 >   of the thread when the history in this prompt says `truncated: true`
 >   (`--since` = messages newer than that id).
 > - `colab message post --body "<markdown>" [--reply-to <msg_id>] [--mention @Name,@Name]` —
->   post to the session. **Your message triggers another agent only if you `--mention`
+>   post to the room. **Your message triggers another agent only if you `--mention`
 >   them.** Mentioning your delegator is suppressed until you rejoin — use
 >   `colab status set blocked` for questions to them. The result tells you who was
 >   `triggered` and who was `suppressed`.
@@ -271,7 +292,7 @@ The daemon registers it as the only MCP server (`harness.md` §3):
 > - `colab decision record --summary "<what>" --rationale "<why>"` — record a decision so
 >   later turns and the Director can see it.
 > - `colab artifact submit --type <t> --file <path>` — hand over a result. This is what
->   the session's completion conditions read. `colab artifact get <id> [--out <path>]` is
+>   the mission's completion conditions read. `colab artifact get <id> [--out <path>]` is
 >   the only way to read another lane's work.
 > - `colab review approve|reject --artifact <id>` — `reject` needs `--reason`, which is
 >   posted back on the artifact's thread.

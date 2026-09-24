@@ -112,11 +112,11 @@ func TestRoundTrip(t *testing.T) {
 	}
 	// contracts/colab-cli.md §3: one tool per command, named for the command
 	// path with underscores. Order is stable so tools/list is diffable.
-	want := "colab_session_get,colab_session_messages,colab_message_post," +
+	want := "colab_room_get,colab_room_messages,colab_message_post," +
 		"colab_status_set,colab_lane_delegate,colab_decision_record," +
 		"colab_artifact_submit,colab_artifact_get,colab_review_approve,colab_review_reject," +
 		"colab_hitl_ask,colab_hitl_approve_request,colab_hitl_request_info," +
-		"colab_room_list,colab_room_read,colab_work_propose,colab_room_get,colab_room_messages"
+		"colab_room_list,colab_room_read,colab_work_propose"
 	if strings.Join(names, ",") != want {
 		t.Fatalf("tools = %v\nwant  %s", names, want)
 	}
@@ -139,17 +139,17 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("content text = %s", text)
 	}
 
-	get := c.call("tools/call", map[string]any{"name": "colab_session_get", "arguments": map[string]any{}})
-	if get.Error != nil || get.Result["structuredContent"].(map[string]any)["goal"] != "Find 3 competitors" {
+	get := c.call("tools/call", map[string]any{"name": "colab_room_get", "arguments": map[string]any{}})
+	if get.Error != nil || get.Result["structuredContent"].(map[string]any)["work"].(map[string]any)["goal"] != "Find 3 competitors" {
 		t.Fatalf("get = %+v", get)
 	}
 
-	msgs := c.call("tools/call", map[string]any{"name": "colab_session_messages", "arguments": map[string]any{"limit": 10}})
+	msgs := c.call("tools/call", map[string]any{"name": "colab_room_messages", "arguments": map[string]any{"limit": 10}})
 	if msgs.Error != nil || msgs.Result["structuredContent"].(map[string]any)["included"] != float64(1) {
 		t.Fatalf("messages = %+v", msgs)
 	}
 	// N4: explicit limit 0 is a usage error (exit 2 in the error object), not "default".
-	bad := c.call("tools/call", map[string]any{"name": "colab_session_messages", "arguments": map[string]any{"limit": 0}})
+	bad := c.call("tools/call", map[string]any{"name": "colab_room_messages", "arguments": map[string]any{"limit": 0}})
 	if bad.Error != nil || bad.Result["isError"] != true {
 		t.Fatalf("limit 0 = %+v", bad)
 	}
@@ -174,7 +174,7 @@ func TestRoundTrip(t *testing.T) {
 	}
 	// colab_hitl_ask used to stand in here as "a tool that does not exist
 	// yet"; it exists as of P3 (§2.4), so the probe is a name that never will.
-	if r := c.call("tools/call", map[string]any{"name": "colab_session_delete", "arguments": map[string]any{}}); r.Error == nil || r.Error.Code != -32602 {
+	if r := c.call("tools/call", map[string]any{"name": "colab_room_delete", "arguments": map[string]any{}}); r.Error == nil || r.Error.Code != -32602 {
 		t.Fatalf("unknown tool = %+v", r)
 	}
 	if r := c.call("resources/list", nil); r.Error == nil || r.Error.Code != -32601 {
@@ -201,7 +201,7 @@ func TestToolErrors(t *testing.T) {
 	}
 
 	c2 := dial(t, newClient(t, s, func(e map[string]string) { delete(e, "COLAB_TASK_TOKEN") }))
-	r = c2.call("tools/call", map[string]any{"name": "colab_session_get"})
+	r = c2.call("tools/call", map[string]any{"name": "colab_room_get"})
 	e = r.Result["structuredContent"].(map[string]any)["error"].(map[string]any)
 	if r.Result["isError"] != true || e["code"] != "no_token" {
 		t.Fatalf("no token = %v", r.Result)

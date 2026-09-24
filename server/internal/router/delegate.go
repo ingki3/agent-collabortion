@@ -147,7 +147,7 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 			return nil, err
 		}
 		// The mention message is a timeline message; the pause's own frames
-		// (session.updated, the HITL card) are published by pauseForLoop.
+		// (room.updated, the HITL card) are published by pauseForLoop.
 		if s.Hub != nil {
 			_ = messages.Publish(ctx, s.Hub, tx, wsID, sessionID, msgID)
 		}

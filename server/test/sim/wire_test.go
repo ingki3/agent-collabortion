@@ -11,7 +11,7 @@
 // PRODUCTION CALL SITES (nothing below decides anything — every verdict comes
 // from the server):
 //
-//	postMessage      → POST /api/v1/sessions/{id}/messages with the CLI's
+//	postMessage      → POST /api/v1/rooms/{id}/messages with the CLI's
 //	                   Idempotency-Key UUIDv5(task:<id>:<seq>) and
 //	                   X-Colab-Client-Seq (colab-cli.md §1)
 //	requeueAfterKill → queue.ExpireStale (the heartbeat sweep, §7) then
@@ -220,7 +220,7 @@ func adaptPost(p postAttempt) postResult {
 	}
 	current = p.TaskID
 	body, _ := json.Marshal(map[string]any{"content": p.Content})
-	req, _ := http.NewRequest("POST", ts.URL+"/api/v1/sessions/"+seedIDs.session.String()+"/messages", strings.NewReader(string(body)))
+	req, _ := http.NewRequest("POST", ts.URL+"/api/v1/rooms/"+seedIDs.session.String()+"/messages", strings.NewReader(string(body)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+taskTok[p.TaskID])
 	req.Header.Set("Idempotency-Key", idempotencyKey(p.TaskID, p.Seq))

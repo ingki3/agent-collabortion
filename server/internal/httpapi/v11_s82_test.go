@@ -85,13 +85,13 @@ func TestS82DeleteRacesPostMessage(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		delStatus, _, _ = f.api.do("DELETE", f.p+"/sessions/"+f.sessionID, nil)
+		delStatus, _, _ = f.api.do("DELETE", f.p+"/rooms/"+f.sessionID, nil)
 	}()
 	time.Sleep(150 * time.Millisecond) // the delete is waiting on the row now
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		postStatus, postOut, _ = f.api.do("POST", f.p+"/sessions/"+f.sessionID+"/messages",
+		postStatus, postOut, _ = f.api.do("POST", f.p+"/rooms/"+f.sessionID+"/messages",
 			map[string]any{"content": "늦게 온 말"}, "Idempotency-Key", uuid.NewString())
 	}()
 	time.Sleep(150 * time.Millisecond) // and so is the post, behind it

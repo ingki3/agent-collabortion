@@ -81,12 +81,12 @@ func TestG3ServerFixes(t *testing.T) {
 		"profiles": []map[string]any{{"name": "default", "runtime_kind": "claude_code", "model": "claude-sonnet-5"}},
 	})
 	agentID := str(agent, "id")
-	sess := api.must(201, "POST", p+"/workspaces/"+wsID+"/sessions", map[string]any{
+	sess := sessionRoom(t, api, pool, p, wsID, map[string]any{
 		"title": "Cancel", "goal": "sleep", "isolation": map[string]any{"kind": "none"}, "runtime_id": runtimeID,
 		"participants": []map[string]any{{"agent_id": agentID}},
 	})
 	sessionID := str(sess, "id")
-	post := api.must(201, "POST", p+"/sessions/"+sessionID+"/messages", map[string]any{"content": router.MentionLink("Lead", mustUUID(t, agentID)) + " sleep 120"}, "Idempotency-Key", "33333333-3333-4333-8333-333333333333")
+	post := api.must(201, "POST", p+"/rooms/"+sessionID+"/messages", map[string]any{"content": router.MentionLink("Lead", mustUUID(t, agentID)) + " sleep 120"}, "Idempotency-Key", "33333333-3333-4333-8333-333333333333")
 	tr := post["triggers"].([]any)[0].(map[string]any)
 	taskID, laneID := str(tr, "task_id"), str(tr, "lane_id")
 

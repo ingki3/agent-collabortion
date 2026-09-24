@@ -118,7 +118,7 @@ export function SubscriptionsSection({ workspaceId }: { workspaceId: string }) {
       const [room, list, lanePage] = await Promise.all([
         api.get("/rooms/{roomId}", { path: { roomId: id } }),
         api.get("/rooms/{roomId}/works", { path: { roomId: id }, query: { limit: 200 } }),
-        api.get("/sessions/{sessionId}/lanes", { path: { sessionId: id } }).catch(() => null),
+        api.get("/rooms/{roomId}/lanes", { path: { roomId: id } }).catch(() => null),
       ]);
       setRoomLevel(room.my_subscription ?? "all");
       const open = ((list.items ?? []) as WorkListItem[]).filter((w) => w.status === "active" || w.status === "paused" || w.status === "draft");

@@ -55,17 +55,17 @@ RC2=$(curl -sS -b "$J" "$B/workspaces/$WS/runtime-candidates?isolation=worktree&
 chk "worktree 는 자동 선택 불가" "$(echo "$RC2" | python3 -c 'import sys,json;print(json.load(sys.stdin)["auto_select_allowed"])')" "False"
 chk "remote URL 일치 런타임 후보" "$(echo "$RC2" | python3 -c 'import sys,json;print(json.load(sys.stdin)["candidates"][0]["eligible"])')" "True"
 
-# 세션
+# 방 + 미션 하나 — 목 시드(옛 createSession 모양, v0.3.0 R4 에서 op 은 지워졌다). 방 id = 미션 id. 실서버에는 이 시드가 없다.
 AGS=$(curl -sS -b "$J" "$B/workspaces/$WS/agents" | python3 -c 'import sys,json;d=json.load(sys.stdin)["items"];print(",".join(a["id"] for a in d[:2]))')
 A1=${AGS%%,*}; A2=${AGS##*,}
-S=$(curl -sS -b "$J" -X POST "$B/workspaces/$WS/sessions" -H 'content-type: application/json' \
+S=$(curl -sS -b "$J" -X POST "$B/__mock/workspaces/$WS/seed-room" -H 'content-type: application/json' \
   -d "{\"title\":\"스모크\",\"goal\":\"목 P2 확인\",\"isolation\":{\"kind\":\"none\"},\"participants\":[{\"agent_id\":\"$A1\"},{\"agent_id\":\"$A2\"}],\"assignee_agent_id\":\"$A1\"}")
 SID=$(echo "$S" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
-say "session" "$SID"
+say "room" "$SID"
 sleep 3
 
 # lane 보드
-L=$(curl -sS -b "$J" "$B/sessions/$SID/lanes")
+L=$(curl -sS -b "$J" "$B/rooms/$SID/lanes")
 chk "lane 생성됨" "$(echo "$L" | python3 -c 'import sys,json;print(len(json.load(sys.stdin))>0)')" "True"
 LID=$(echo "$L" | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["id"])')
 chk "lane 상태 done" "$(echo "$L" | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["status"])')" "done"
@@ -73,58 +73,58 @@ chk "lane tasks 정보 5종" "$(curl -sS -b "$J" "$B/lanes/$LID/tasks" | python3
 
 # 트리거 미리보기
 MENT="[@x](mention://agent/$A2)"
-PV=$(curl -sS -b "$J" -X POST "$B/sessions/$SID/messages/preview" -H 'content-type: application/json' -d "{\"content\":\"$MENT 도와줘\"}")
+PV=$(curl -sS -b "$J" -X POST "$B/rooms/$SID/messages/preview" -H 'content-type: application/json' -d "{\"content\":\"$MENT 도와줘\"}")
 chk "preview 규칙 2" "$(echo "$PV" | python3 -c 'import sys,json;print(json.load(sys.stdin)["triggers"][0]["rule"])')" "2"
-PV2=$(curl -sS -b "$J" -X POST "$B/sessions/$SID/messages/preview" -H 'content-type: application/json' -d '{"content":"/note 참고만"}')
+PV2=$(curl -sS -b "$J" -X POST "$B/rooms/$SID/messages/preview" -H 'content-type: application/json' -d '{"content":"/note 참고만"}')
 chk "preview note_only" "$(echo "$PV2" | python3 -c 'import sys,json;print(json.load(sys.stdin)["note_only"])')" "True"
-PV3=$(curl -sS -b "$J" -X POST "$B/sessions/$SID/messages/preview" -H 'content-type: application/json' -d '{"content":"[@all](mention://all/all) 공지"}')
+PV3=$(curl -sS -b "$J" -X POST "$B/rooms/$SID/messages/preview" -H 'content-type: application/json' -d '{"content":"[@all](mention://all/all) 공지"}')
 chk "preview 규칙 3" "$(echo "$PV3" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["implicit_routing_suppressed"] and not d["triggers"])')" "True"
-PV4=$(curl -sS -b "$J" -X POST "$B/sessions/$SID/messages/preview" -H 'content-type: application/json' -d "{\"content\":\"$MENT 별도로\",\"new_lane\":true}")
+PV4=$(curl -sS -b "$J" -X POST "$B/rooms/$SID/messages/preview" -H 'content-type: application/json' -d "{\"content\":\"$MENT 별도로\",\"new_lane\":true}")
 # EVAL E2-07: "새 lane 으로 보내기" 는 **규칙 3 을 건너뛰어 규칙 4** 로 간다 —
 # 새 lane 이므로 lane_id 는 아직 없다. 1 을 기대하던 것은 이 스크립트의 오류였다(서버가 맞다).
 chk "new_lane 은 항상 새 lane(규칙 4)" "$(echo "$PV4" | python3 -c 'import sys,json;t=json.load(sys.stdin)["triggers"][0];print(t["lane"]["lane_id"] is None and t["lane"]["resolution"]==4)')" "True"
-PV5=$(curl -sS -b "$J" -X POST "$B/sessions/$SID/messages/preview" -H 'content-type: application/json' -d "{\"content\":\"$MENT 억제\",\"suppress_agent_ids\":[\"$A2\"]}")
+PV5=$(curl -sS -b "$J" -X POST "$B/rooms/$SID/messages/preview" -H 'content-type: application/json' -d "{\"content\":\"$MENT 억제\",\"suppress_agent_ids\":[\"$A2\"]}")
 chk "억제하면 트리거 0" "$(echo "$PV5" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["triggers"]))')" "0"
 
 # EVAL E2-04·05: `done`·`blocked` lane 을 가진 에이전트를 최상위 멘션하면 **규칙 3** 이다 —
 # 가장 최근 lane 을 재사용하고 재진입시킨다(`reentry_count`+1). 4 는 "그 외 → 새 lane" 이므로
 # 재진입을 4 로 주면 새 lane 과 구분이 사라진다.
 MENT1="[@a1](mention://agent/$A1)"
-PV6=$(curl -sS -b "$J" -X POST "$B/sessions/$SID/messages/preview" -H 'content-type: application/json' -d "{\"content\":\"$MENT1 보완해줘\"}")
+PV6=$(curl -sS -b "$J" -X POST "$B/rooms/$SID/messages/preview" -H 'content-type: application/json' -d "{\"content\":\"$MENT1 보완해줘\"}")
 chk "재진입은 규칙 3 + 최근 lane 재사용(E2-04)" "$(echo "$PV6" | python3 -c 'import sys,json;t=json.load(sys.stdin)["triggers"][0];print(t["lane"]["resolution"]==3 and t["lane"]["reentry"] is True and t["lane"]["lane_id"] is not None)')" "True"
 
 # 재지시 · 중단
-curl -sS -b "$J" -X POST "$B/sessions/$SID/messages" -H 'content-type: application/json' -H "idempotency-key: $(uuidgen)" -d "{\"content\":\"$MENT 시작\"}" -o /dev/null
+curl -sS -b "$J" -X POST "$B/rooms/$SID/messages" -H 'content-type: application/json' -H "idempotency-key: $(uuidgen)" -d "{\"content\":\"$MENT 시작\"}" -o /dev/null
 sleep 1
-RL=$(curl -sS -b "$J" "$B/sessions/$SID/lanes" | python3 -c 'import sys,json;d=[l for l in json.load(sys.stdin) if l["status"] in ("running","queued")];print(d[0]["id"] if d else "")')
+RL=$(curl -sS -b "$J" "$B/rooms/$SID/lanes" | python3 -c 'import sys,json;d=[l for l in json.load(sys.stdin) if l["status"] in ("running","queued")];print(d[0]["id"] if d else "")')
 if [ -n "$RL" ]; then
   R=$(curl -sS -b "$J" -o /dev/null -w '%{http_code}' -X POST "$B/lanes/$RL/restart" -H 'content-type: application/json' -H "idempotency-key: $(uuidgen)" -d '{"content":"한국 시장으로 좁혀줘"}')
   chk "lane restart 202" "$R" "202"
 fi
 sleep 3
-CL=$(curl -sS -b "$J" "$B/sessions/$SID/lanes" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d[0]["id"])')
+CL=$(curl -sS -b "$J" "$B/rooms/$SID/lanes" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d[0]["id"])')
 chk "lane cancel(종료된 lane) 409" "$(curl -sS -b "$J" -o /dev/null -w '%{http_code}' -X POST "$B/lanes/$CL/cancel")" "409"
 
-# 일시정지 · 재개
-chk "pause 200" "$(curl -sS -b "$J" -o /dev/null -w '%{http_code}' -X POST "$B/sessions/$SID/pause")" "200"
-PD=$(curl -sS -b "$J" "$B/sessions/$SID" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["paused_detail"]["reason"])')
-chk "paused_detail 객체" "$PD" "director"
-chk "resume 200" "$(curl -sS -b "$J" -o /dev/null -w '%{http_code}' -X POST "$B/sessions/$SID/resume" -H 'content-type: application/json' -d '{}')" "200"
+# 일시정지 · 재개 — 미션 op(옛 pauseSession·resumeSession 은 R4 에서 지워졌다)
+chk "pause 200" "$(curl -sS -b "$J" -o /dev/null -w '%{http_code}' -X POST "$B/works/$SID/pause")" "200"
+PD=$(curl -sS -b "$J" "$B/works/$SID" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["paused_reason"])')
+chk "paused_reason" "$PD" "director"
+chk "resume 200" "$(curl -sS -b "$J" -o /dev/null -w '%{http_code}' -X POST "$B/works/$SID/resume" -H 'content-type: application/json' -d '{}')" "200"
 
 # lane 7상태 시드 — 목에만 있는 경로다(화면의 7상태를 눈으로 볼 때 쓴다)
 if [ "$MOCK" = "1" ]; then
-  chk "seed-lanes 7개" "$(curl -sS -b "$J" -X POST "$B/__mock/sessions/$SID/seed-lanes" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)))')" "7"
+  chk "seed-lanes 7개" "$(curl -sS -b "$J" -X POST "$B/__mock/rooms/$SID/seed-lanes" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)))')" "7"
 fi
 
 # 아티팩트·결정·비용
-chk "artifacts 200" "$(curl -sS -b "$J" -o /dev/null -w '%{http_code}' "$B/sessions/$SID/artifacts")" "200"
-chk "decisions 200" "$(curl -sS -b "$J" -o /dev/null -w '%{http_code}' "$B/sessions/$SID/decisions")" "200"
-chk "cost 200" "$(curl -sS -b "$J" -o /dev/null -w '%{http_code}' "$B/sessions/$SID/cost")" "200"
+chk "artifacts 200" "$(curl -sS -b "$J" -o /dev/null -w '%{http_code}' "$B/rooms/$SID/artifacts")" "200"
+chk "decisions 200" "$(curl -sS -b "$J" -o /dev/null -w '%{http_code}' "$B/rooms/$SID/decisions")" "200"
+chk "cost 200" "$(curl -sS -b "$J" -o /dev/null -w '%{http_code}' "$B/rooms/$SID/cost")" "200"
 
 # 킬 스위치 — 실행 중 턴 취소, 참여자 disabled
 curl -sS -b "$J" -X PATCH "$B/agents/$A2" -H 'content-type: application/json' -d '{"respond_to":"nobody"}' -o /dev/null
-chk "킬 스위치 후 참여자 disabled" "$(curl -sS -b "$J" "$B/sessions/$SID" | python3 -c "import sys,json;d=json.load(sys.stdin);print([p['status'] for p in d['participants'] if p['agent_id']=='$A2'][0])")" "disabled"
-PVK=$(curl -sS -b "$J" -X POST "$B/sessions/$SID/messages/preview" -H 'content-type: application/json' -d "{\"content\":\"$MENT 다시\"}")
+chk "킬 스위치 후 참여자 disabled" "$(curl -sS -b "$J" "$B/rooms/$SID/participants" | python3 -c "import sys,json;d=json.load(sys.stdin);print([p['status'] for p in d['items'] if p['kind']=='agent' and p['agent']['id']=='$A2'][0])")" "disabled"
+PVK=$(curl -sS -b "$J" -X POST "$B/rooms/$SID/messages/preview" -H 'content-type: application/json' -d "{\"content\":\"$MENT 다시\"}")
 chk "정지된 에이전트는 경고" "$(echo "$PVK" | python3 -c 'import sys,json;print(json.load(sys.stdin)["warnings"][0]["code"])')" "agent_disabled"
 
 # 저장소 검증(E13-01)

@@ -35,10 +35,10 @@ export function unreadEffect(counts: ReadonlyMap<string, number>, ev: StreamEven
       next.set(p.room_id, p.unread_count);
       return { kind: "set", counts: next };
     }
-    case "room.deleted":
-    case "session.deleted": {
+    case "room.deleted": {
+      // 옛 이름 session.deleted 는 v0.3.0(R4, D22)에서 지워졌다.
       const p = ev.payload as { room_id?: string; session_id?: string };
-      const id = p.room_id ?? p.session_id ?? ev.room_id ?? ev.session_id;
+      const id = p.room_id ?? p.session_id ?? ev.room_id;
       if (!id || !counts.has(id)) return { kind: "none" };
       const next = new Map(counts);
       next.delete(id);

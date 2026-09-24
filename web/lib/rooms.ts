@@ -34,7 +34,7 @@ const RELOAD_ON = new Set<string>([
 ]);
 
 export function roomEventEffect(items: RoomListItem[], ev: StreamEvent): RoomEventEffect {
-  const roomId = (p: { room_id?: string | null; id?: string | null; session_id?: string | null }) => p.room_id ?? p.id ?? p.session_id ?? ev.room_id ?? ev.session_id ?? null;
+  const roomId = (p: { room_id?: string | null; id?: string | null; session_id?: string | null }) => p.room_id ?? p.id ?? p.session_id ?? ev.room_id ?? null;
   switch (ev.type) {
     case "room.updated": {
       const p = ev.payload as Partial<RoomListItem> & { id?: string };
@@ -49,11 +49,10 @@ export function roomEventEffect(items: RoomListItem[], ev: StreamEvent): RoomEve
       if (!p.room_id || typeof p.unread_count !== "number" || !items.some((r) => r.id === p.room_id)) return { kind: "none" };
       return { kind: "set", items: items.map((r) => (r.id === p.room_id ? { ...r, unread_count: p.unread_count! } : r)) };
     }
-    case "room.deleted":
-    case "session.deleted": {
-      // 같은 사건의 두 이름(R4 까지 서버가 둘 다 낸다) — "그 id 를 뺀다" 라 두 번 와도 같다.
+    case "room.deleted": {
+      // 옛 이름 session.deleted 는 v0.3.0(R4, D22)에서 지워졌다. payload 키 `session_id`(값 = 방 id)는 계약이 남긴다.
       const p = ev.payload as { room_id?: string; session_id?: string };
-      const id = p.room_id ?? p.session_id ?? ev.room_id ?? ev.session_id;
+      const id = p.room_id ?? p.session_id ?? ev.room_id;
       if (!id || !items.some((r) => r.id === id)) return { kind: "none" };
       return { kind: "set", items: items.filter((r) => r.id !== id) };
     }

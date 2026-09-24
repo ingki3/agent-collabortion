@@ -52,15 +52,15 @@ SID=$(apic '
   const ws = me.workspaces[0].id;
   const ags = await fetch(`/api/v1/workspaces/${ws}/agents`).then(j);
   const post = (p, b) => fetch(`/api/v1${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b ?? {}) }).then(j);
-  const s = await post(`/workspaces/${ws}/sessions`, {
+  const s = await post(`/__mock/workspaces/${ws}/seed-room`, {
     title: "국내 B2B SaaS 결제 시장 조사", goal: "결제 시장 보고서 10페이지", isolation: { kind: "none" },
     participants: [{ agent_id: ags.items[0].id }, { agent_id: ags.items[1].id }], assignee_agent_id: ags.items[0].id,
   });
-  await post(`/__mock/sessions/${s.id}/seed-lanes`);
+  await post(`/__mock/rooms/${s.id}/seed-lanes`);
   await post(`/__mock/inbox/seed`);
   // 기한이 지난 질문 하나(인박스 최상단) + 아직 남은 승인 하나
-  await post(`/__mock/sessions/${s.id}/seed-hitl`, { age_ms: 30 * 3600000 });
-  await post(`/__mock/sessions/${s.id}/seed-hitl`, {
+  await post(`/__mock/rooms/${s.id}/seed-hitl`, { age_ms: 30 * 3600000 });
+  await post(`/__mock/rooms/${s.id}/seed-hitl`, {
     type: "approval", proposed_default: null, agent_id: ags.items[1].id,
     question: "보고서 초안을 승인해 주세요", context: "승인 대상: 보고서.pdf",
   });
@@ -82,14 +82,14 @@ ab screenshot '[data-testid="story-hitl-both"]' "$SHOT_DIR/p3-w3-02-hitl-card.pn
 echo "  📸 $SHOT_DIR/p3-w3-02-hitl-card.png"
 
 step "3/4 paused 배너 ($PAUSE_REASON) — S7 우열"
-apic "fetch('/api/v1/__mock/sessions/$SID/pause', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reason: '$PAUSE_REASON' }) }).then(r => r.status)"
-ab open "$BASE_URL/sessions/$SID" >/dev/null
+apic "fetch('/api/v1/__mock/rooms/$SID/pause', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reason: '$PAUSE_REASON' }) }).then(r => r.status)"
+ab open "$BASE_URL/rooms/$SID" >/dev/null
 ab wait '[data-testid="paused-banner"]' --timeout 20000 >/dev/null
 shot "p3-w3-03-paused-banner"
 
 step "4/4 S7-D — deputy 변형(상단 액션 비활성 · HITL 🔒)"
-apic "fetch('/api/v1/__mock/sessions/$SID/role', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role: 'deputy' }) }).then(r => r.status)"
-ab open "$BASE_URL/sessions/$SID" >/dev/null
+apic "fetch('/api/v1/__mock/rooms/$SID/role', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role: 'deputy' }) }).then(r => r.status)"
+ab open "$BASE_URL/rooms/$SID" >/dev/null
 ab wait '[data-testid="session-actions"][data-role="deputy"]' --timeout 20000 >/dev/null
 shot "p3-w3-04-s7-deputy"
 

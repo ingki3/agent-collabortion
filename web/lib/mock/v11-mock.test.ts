@@ -7,16 +7,17 @@
  *     (kind 는 "1"~"8" 또는 platform, share 합 1) · window 422 · 멤버 아님 403
  *   · Agent.allowed_commands — 모든 Agent 응답(목록·단건·생성·수정)에 있고 role 로 계산한 읽기 전용 파생값(보내온 값은 무시) · `custom`·`lead` 는 13개 전부
  *     · 계약 enum 순서
- *   · 빈 턴 시드(`__mock/sessions/{id}/seed-empty-turn`) — PRD FR-7.2 "판정과 기록" 모양 그대로 한 행(status/turn_end/empty_turn/info, payload.args.note),
+ *   · 빈 턴 시드(`__mock/rooms/{id}/seed-empty-turn`) — PRD FR-7.2 "판정과 기록" 모양 그대로 한 행(status/turn_end/empty_turn/info, payload.args.note),
  *     새 키 없음(closed schema, S-52) · 줄기는 done · `current_task.id` 가 그 할 일 · SSE task_event.appended 로도 흐른다
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import { dispatch, OBSERVATION_DEFS, type Req } from "./handlers";
 import { W } from "./wording";
 import { resetStore, store, type Subscriber } from "./store";
-import type { Agent, ColabCommand, Lane, ObservationReport, Session, TaskEvent } from "@/lib/api/types";
+import type { Agent, ColabCommand, Lane, ObservationReport, TaskEvent } from "@/lib/api/types";
+import type { Session } from "@/lib/legacy-session";
 
-const ALL: ColabCommand[] = ["session_get", "session_messages", "artifact_get", "message_post", "status_set", "decision_record", "lane_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info", "room_list", "room_read", "work_propose"];
+const ALL: ColabCommand[] = ["room_get", "room_messages", "artifact_get", "message_post", "status_set", "decision_record", "lane_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info", "room_list", "room_read", "work_propose"];
 const ORDER = ["chain_scale", "chain_depth", "join_breadth", "routing_concentration", "empty_turn_rate"];
 
 let cookie = "";
@@ -146,7 +147,7 @@ describe("빈 턴 시드 — PRD FR-7.2 「판정과 기록」 모양 그대로"
     const items = (await must<{ items: Agent[] }>("GET", `/workspaces/${id}/agents`)).items;
     const researcher = items.find((a) => a.name === "Researcher")!;
     const rt = (await must<{ id: string }[]>("GET", `/workspaces/${id}/runtimes`))[0];
-    const sess = await must<Session>("POST", `/workspaces/${id}/sessions`, {
+    const sess = await must<Session>("POST", `/__mock/workspaces/${id}/seed-room`, {
       body: { title: "t", goal: "g", isolation: { kind: "none" }, runtime_id: rt.id, participants: [{ agent_id: researcher.id }], assignee_agent_id: researcher.id },
     });
     return { sess, researcher };
@@ -154,7 +155,7 @@ describe("빈 턴 시드 — PRD FR-7.2 「판정과 기록」 모양 그대로"
 
   it("한 행 — status/turn_end/empty_turn/info · payload {command, args.note} · 새 키 없음 · sentence 없음(note 가 문장)", async () => {
     const { sess } = await session();
-    const seeded = await must<{ lane_id: string; task_id: string; event_id: string }>("POST", `/__mock/sessions/${sess.id}/seed-empty-turn`);
+    const seeded = await must<{ lane_id: string; task_id: string; event_id: string }>("POST", `/__mock/rooms/${sess.id}/seed-empty-turn`);
     const evs = (await must<{ items: TaskEvent[] }>("GET", `/tasks/${seeded.task_id}/events`)).items;
     const row = evs.find((e) => e.id === seeded.event_id)!;
     expect(row).toMatchObject({ class: "status", verb: "turn_end", object_ref: "empty_turn", outcome: "info", sentence: null });
@@ -168,8 +169,8 @@ describe("빈 턴 시드 — PRD FR-7.2 「판정과 기록」 모양 그대로"
 
   it("줄기는 done · brief 없음(사람이 만든 줄기) · current_task.id 가 그 할 일 — 카드가 이벤트와 줄기를 잇는 열쇠", async () => {
     const { sess } = await session();
-    const seeded = await must<{ lane_id: string; task_id: string }>("POST", `/__mock/sessions/${sess.id}/seed-empty-turn`);
-    const lanes = await must<Lane[]>("GET", `/sessions/${sess.id}/lanes`);
+    const seeded = await must<{ lane_id: string; task_id: string }>("POST", `/__mock/rooms/${sess.id}/seed-empty-turn`);
+    const lanes = await must<Lane[]>("GET", `/rooms/${sess.id}/lanes`);
     const lane = lanes.find((l) => l.id === seeded.lane_id)!;
     expect(lane.status).toBe("done");
     expect(lane.brief).toBeNull();
@@ -180,9 +181,9 @@ describe("빈 턴 시드 — PRD FR-7.2 「판정과 기록」 모양 그대로"
   it("SSE — task_event.appended 로 그 행이 흐른다(활동 보기를 열지 않은 화면도 받는다)", async () => {
     const { sess } = await session();
     const got: { type: string; payload: unknown }[] = [];
-    const sub: Subscriber = { workspace_id: sess.workspace_id, session_ids: null, write: (f) => { const m = /data: (.*)\n\n$/s.exec(f); if (m) got.push(JSON.parse(m[1])); } };
+    const sub: Subscriber = { workspace_id: sess.workspace_id, room_ids: null, write: (f) => { const m = /data: (.*)\n\n$/s.exec(f); if (m) got.push(JSON.parse(m[1])); } };
     store().subs.add(sub);
-    await must("POST", `/__mock/sessions/${sess.id}/seed-empty-turn`);
+    await must("POST", `/__mock/rooms/${sess.id}/seed-empty-turn`);
     store().subs.delete(sub);
     const appended = got.filter((g) => g.type === "task_event.appended").map((g) => g.payload as TaskEvent);
     expect(appended.some((e) => e.class === "status" && e.verb === "turn_end" && e.object_ref === "empty_turn")).toBe(true);
@@ -201,14 +202,14 @@ describe("K-16 — done 인데 실행이 아직 도는 줄기의 취소(계약 v
     await login();
     const w = await ws();
     const agents = await must<{ items: Agent[] }>("GET", `/workspaces/${w}/agents`);
-    const sess = await must<Session>("POST", `/workspaces/${w}/sessions`, { body: { title: "K-16", goal: "done 뒤 취소", isolation: { kind: "none" }, participants: [{ agent_id: agents.items[0].id }], assignee_agent_id: agents.items[0].id } });
-    const seed = await must<{ lane_id: string; task_id: string; lane: Lane }>("POST", `/__mock/sessions/${sess.id}/seed-done-running`, {});
+    const sess = await must<Session>("POST", `/__mock/workspaces/${w}/seed-room`, { body: { title: "K-16", goal: "done 뒤 취소", isolation: { kind: "none" }, participants: [{ agent_id: agents.items[0].id }], assignee_agent_id: agents.items[0].id } });
+    const seed = await must<{ lane_id: string; task_id: string; lane: Lane }>("POST", `/__mock/rooms/${sess.id}/seed-done-running`, {});
     return { sess, seed };
   }
 
   it("시드: lane done · current_task running · actions 에 cancel(restart 는 없다)", async () => {
     const { sess, seed } = await seeded();
-    const lanes = await must<Lane[]>("GET", `/sessions/${sess.id}/lanes`);
+    const lanes = await must<Lane[]>("GET", `/rooms/${sess.id}/lanes`);
     const lane = lanes.find((l) => l.id === seed.lane_id)!;
     expect(lane.status).toBe("done");
     expect(lane.current_task?.id).toBe(seed.task_id);
@@ -240,8 +241,8 @@ describe("K-16 — done 인데 실행이 아직 도는 줄기의 취소(계약 v
     await login();
     const w = await ws();
     const agents = await must<{ items: Agent[] }>("GET", `/workspaces/${w}/agents`);
-    const sess = await must<Session>("POST", `/workspaces/${w}/sessions`, { body: { title: "K-16b", goal: "보통 done", isolation: { kind: "none" }, participants: [{ agent_id: agents.items[0].id }], assignee_agent_id: agents.items[0].id } });
-    const [done] = await must<Lane[]>("POST", `/__mock/sessions/${sess.id}/seed-lanes`, { body: { statuses: ["done"] } });
+    const sess = await must<Session>("POST", `/__mock/workspaces/${w}/seed-room`, { body: { title: "K-16b", goal: "보통 done", isolation: { kind: "none" }, participants: [{ agent_id: agents.items[0].id }], assignee_agent_id: agents.items[0].id } });
+    const [done] = await must<Lane[]>("POST", `/__mock/rooms/${sess.id}/seed-lanes`, { body: { statuses: ["done"] } });
     expect(done.actions).toEqual([]);
     const res = await call("POST", `/lanes/${done.id}/cancel`, {});
     expect(res.status).toBe(409);
@@ -249,8 +250,8 @@ describe("K-16 — done 인데 실행이 아직 도는 줄기의 취소(계약 v
 
   it("일반 멤버 시점 — done+running 이어도 목록에서 빠지고 403(E10-05 와 같다)", async () => {
     const { sess, seed } = await seeded();
-    await must("POST", `/__mock/sessions/${sess.id}/role`, { body: { role: "member" } });
-    const lanes = await must<Lane[]>("GET", `/sessions/${sess.id}/lanes`);
+    await must("POST", `/__mock/rooms/${sess.id}/role`, { body: { role: "member" } });
+    const lanes = await must<Lane[]>("GET", `/rooms/${sess.id}/lanes`);
     expect(lanes.find((l) => l.id === seed.lane_id)!.actions).toEqual([]);
     expect((await call("POST", `/lanes/${seed.lane_id}/cancel`, {})).status).toBe(403);
   });

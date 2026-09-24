@@ -80,7 +80,7 @@ func PlanDispatch(sessionState, pauseReason string, queued []uuid.UUID, running 
 // `s.status = 'active'` guard (queue/postgres.go), not here.
 //
 // Production call sites for PlanDispatch: this function, called from
-// router.pauseForLoop (FR-3.5) and sessions.ApplyCompletionEvent
+// router.pauseForLoop (FR-3.5) and sessions.ApplyWorkEvent
 // (budget_exhausted, E6-10).
 // `detail` is the marshalled contract PausedDetail (openapi PausedDetail,
 // migration 0006) or nil. It is bytes rather than a string because the column

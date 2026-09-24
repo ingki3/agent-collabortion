@@ -188,7 +188,7 @@ func TestR1b2FromMessage(t *testing.T) {
 	rid := f.worksRoom(t)
 	post := func(body map[string]any) map[string]any {
 		f.fake.Advance(time.Minute)
-		return f.api.must(201, "POST", f.p+"/sessions/"+rid+"/messages", body, "Idempotency-Key", uuid.NewString())
+		return f.api.must(201, "POST", f.p+"/rooms/"+rid+"/messages", body, "Idempotency-Key", uuid.NewString())
 	}
 	// A room made by createRoom has no old-session mission: an old-style
 	// post (no work_id key) is honestly "no mission" (T-R1b2 narrowed the
@@ -278,13 +278,13 @@ func TestR1b2Proposals(t *testing.T) {
 	f.other.must(404, "GET", f.p+"/work-proposals/"+str(p2, "id"), nil)
 }
 
-// TestR1b2LegacySessionInAManyMissionRoom: an old-path room (createSession)
-// that opens a second mission through the works API keeps its old
-// `/sessions/{id}` shape pinned to ITS mission (room.legacy_work_id), and
-// the old paths act on that mission alone.
+// TestR1b2LegacySessionInAManyMissionRoom: an old-path room (0025's
+// legacy_work_id — sessionRoom leaves the same mark) that opens a second
+// mission through the works API keeps filing a plain post under ITS mission,
+// and the mission ops act on that mission alone. (The old `/sessions/{id}`
+// shape these rows also pinned is gone with openapi v0.3.0.)
 func TestR1b2LegacySessionInAManyMissionRoom(t *testing.T) {
 	f := newRoomsFixture(t)
-	legacy := str(f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil), "title")
 	var legacyWork string
 	if err := f.pool.QueryRow(t.Context(), `SELECT legacy_work_id::text FROM room WHERE id = $1`, f.sessionID).Scan(&legacyWork); err != nil {
 		t.Fatal(err)
@@ -295,24 +295,24 @@ func TestR1b2LegacySessionInAManyMissionRoom(t *testing.T) {
 	// created_at) index — so a fan-out cannot pass by luck (T-R1b1 lesson).
 	f.exec(t, `UPDATE work SET created_at = now() + interval '1 hour' WHERE id = $1`, legacyWork)
 	for i := 0; i < 3; i++ {
-		s := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
-		if str(s, "title") != legacy {
-			t.Fatalf("GET /sessions/{id} title = %q, want the session's own %q (never the other mission)", str(s, "title"), legacy)
+		out := f.post(t, map[string]any{"content": "/note 메모"})
+		if w := str(out["message"].(map[string]any), "work_id"); w != legacyWork {
+			t.Fatalf("plain post filed under %q, want the legacy mission %q (never the other mission)", w, legacyWork)
 		}
 	}
 	// Pausing the session pauses its mission, not the new one.
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/pause", nil)
+	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/pause", nil)
 	if g := f.api.must(200, "GET", workPath(f, str(w2, "id")), nil); str(g, "status") != "active" {
 		t.Fatalf("new mission after pauseSession = %s, want active", str(g, "status"))
 	}
 	if g := f.api.must(200, "GET", workPath(f, legacyWork), nil); str(g, "status") != "paused" {
 		t.Fatalf("session mission after pauseSession = %s", str(g, "status"))
 	}
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/resume", nil)
-	// deleteSession deletes the room — refused while the other mission runs.
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/cancel", nil)
-	if st, out, _ := f.api.do("DELETE", f.p+"/sessions/"+f.sessionID, nil); st != 409 || str(out, "code") != "session_active" {
-		t.Fatalf("deleteSession with an open mission = %d %v, want 409 session_active", st, out)
+	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/resume", nil)
+	// deleteRoom — refused while the other mission runs.
+	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/cancel", nil)
+	if st, out, _ := f.api.do("DELETE", f.roomPath(f.sessionID), nil); st != 409 || str(out, "code") != "works_active" {
+		t.Fatalf("deleteRoom with an open mission = %d %v, want 409 works_active", st, out)
 	}
 	// Room-gate mirror (T-R1b1 Q2): the Work response projects the room's
 	// reason — paused, paused_reason null — and resumeWork is not the lift.
@@ -423,7 +423,7 @@ func TestR1b2OneToManyReads(t *testing.T) {
 	f.exec(t, `INSERT INTO task_usage (task_id, cost_usd, input_tokens, output_tokens) VALUES ($1, 1.25, 10, 10)`, task)
 	f.exec(t, `INSERT INTO workdir (session_id, lane_id, kind, path_or_ref, status) SELECT $1, id, 'dir', '/tmp/colab/one', 'active' FROM lane WHERE session_id = $1 ORDER BY created_at LIMIT 1`, f.sessionID)
 
-	if c := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID+"/cost", nil); c["total_usd"].(float64) != 1.25 {
+	if c := f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID+"/cost", nil); c["total_usd"].(float64) != 1.25 {
 		t.Fatalf("session cost = %v, want 1.25 once (not once per mission)", c["total_usd"])
 	}
 	if c := f.api.must(200, "GET", f.p+"/workspaces/"+f.wsID+"/cost", nil); c["total_usd"].(float64) != 1.25 {
@@ -448,7 +448,7 @@ func TestR1b2ClosedMissionTakesNoNewTasks(t *testing.T) {
 	rid := f.worksRoom(t)
 	post := func(body map[string]any) map[string]any {
 		f.fake.Advance(time.Minute)
-		return f.api.must(201, "POST", f.p+"/sessions/"+rid+"/messages", body, "Idempotency-Key", uuid.NewString())
+		return f.api.must(201, "POST", f.p+"/rooms/"+rid+"/messages", body, "Idempotency-Key", uuid.NewString())
 	}
 	w := f.openWork(t, f.api, rid, map[string]any{"goal": "짧게 끝낼 미션", "assignee_agent_id": f.r})
 	wid := str(w, "id")
@@ -472,7 +472,7 @@ func TestR1b2ClosedMissionTakesNoNewTasks(t *testing.T) {
 		return *w
 	}
 	// Rule 2: a reply in the closed mission's thread.
-	if pv := f.api.must(200, "POST", f.p+"/sessions/"+rid+"/messages/preview", map[string]any{"content": "추가 질문", "parent_id": rootID}); str(pv, "work_source") != "none" {
+	if pv := f.api.must(200, "POST", f.p+"/rooms/"+rid+"/messages/preview", map[string]any{"content": "추가 질문", "parent_id": rootID}); str(pv, "work_source") != "none" {
 		t.Fatalf("reply in a closed mission's thread → %v / %v, want none", pv["work"], pv["work_source"])
 	}
 	// Rule 3: mentioning the agent whose lane of the closed mission still runs.
@@ -560,7 +560,7 @@ func TestR1b2CompletionCollectsOnlyItsDirectories(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/complete", map[string]any{"confirm": true})
+	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/complete", map[string]any{"confirm": true})
 	var targets string
 	if err := f.pool.QueryRow(ctx, `SELECT coalesce(string_agg(payload::text, ' '), '') FROM daemon_command WHERE session_id = $1 AND type = 'gc'`, f.sessionID).Scan(&targets); err != nil {
 		t.Fatal(err)

@@ -181,7 +181,7 @@ SESS_STATUS="$(psqlq "select status from work where room_id='$SESSION'")"
 chk A7g "세션은 아직 active (E6-01)" active "$SESS_STATUS"
 
 # 보너스: previewTriggers 가 서버 값인지 (웹 판정은 11 에서)
-PV="$(api_ok POST "/sessions/$SESSION/messages/preview" "$(jq -nc --arg c "$(mention Researcher "$RSCH") 보완해줘" '{content:$c}')")"
+PV="$(api_ok POST "/rooms/$SESSION/messages/preview" "$(jq -nc --arg c "$(mention Researcher "$RSCH") 보완해줘" '{content:$c}')")"
 chk A8 "previewTriggers 가 Researcher 를 지목" Researcher "$(jq -r '.triggers[0].agent_name // empty' <<<"$PV")"
 chk A8b "미리보기가 lane 해소 결과를 준다(로컬 계산 불가)" true "$(jq -r '(.triggers[0].lane.resolution|type=="number")' <<<"$PV")"
 

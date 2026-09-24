@@ -24,13 +24,13 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/rooms"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
+	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
 )
 
 // Missions (openapi 0.2.x `works` tag — PRD v0.19 FR-2A · FR-3.1.1 · FR-5.3 ·
 // FR-8, T-R1b2): a room holds several missions, each with its own goal,
-// Director, completion condition, limits and lifecycle. The old `/sessions/*`
-// surface is one of them — the room's legacy work — and reaches the same
-// work-keyed helpers below (handlers_sessions_p3.go).
+// Director, completion condition, limits and lifecycle. The work-keyed
+// helpers they share with the room gate are in handlers_sessions_p3.go.
 
 // ---------------------------------------------------------------------------
 // Scopes — which rows a pause, a resume or a cancel reaches
@@ -50,17 +50,6 @@ func roomScope(id uuid.UUID) taskScopeSQL { return taskScopeSQL{col: "session_id
 // roomOnlyScope is the room's own rows — those of no mission.
 func roomOnlyScope(id uuid.UUID) taskScopeSQL {
 	return taskScopeSQL{col: "session_id", id: id, extra: " AND work_id IS NULL"}
-}
-
-// lockLegacyWork locks the old session's room and its mission (room first —
-// the one order every writer of both keeps) and returns the mission.
-func lockLegacyWork(ctx context.Context, tx pgx.Tx, roomID uuid.UUID) (uuid.UUID, error) {
-	var id uuid.UUID
-	err := tx.QueryRow(ctx, `SELECT wk.id FROM room s `+sessions.LegacyJoin+` WHERE s.id = $1 FOR UPDATE OF s, wk`, roomID).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, apperr.NotFound("session")
-	}
-	return id, err
 }
 
 // lockWork locks a mission's room and then the mission.
@@ -298,6 +287,21 @@ func (s *Server) ListWorks(w http.ResponseWriter, r *http.Request, roomId gen.Ro
 }
 
 func (s *Server) GetWork(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
+	if principalOf(r).Task != nil {
+		// openapi getWork: "TaskToken(그 task 의 방의 미션만)" — the turn's
+		// mission for `colab room get`.
+		wk, err := sessions.LoadWorkRow(r.Context(), s.DB, workId)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		if p := s.taskRoom(r, wk.RoomId); p != nil {
+			writeProblem(w, p)
+			return
+		}
+		s.workOut(r.Context(), w, http.StatusOK, workId, uuid.Nil)
+		return
+	}
 	u, _, _, p := s.workGate(r, workId, rooms.ActView)
 	if p != nil {
 		writeProblem(w, p)
@@ -465,6 +469,15 @@ func (s *Server) openWork(ctx context.Context, tx pgx.Tx, a *rooms.Access, u *ge
 	}
 	if blocked != nil {
 		return uuid.Nil, apperr.Conflict("room_blocked", "이 방은 멈춰 있습니다 — 방을 다시 움직인 뒤 미션을 열어 주세요")
+	}
+	// FR-6.4 last bullet / E13-16: the disk quota gates MISSION CREATION, not
+	// the workdir's creation (openapi createWork, v0.3.0 — moved here with
+	// createSession's removal). Blocking later would mean the agents are
+	// already at work; here "정리해 주세요" is still an answer.
+	if v, err := s.workdirQuota(ctx, tx, a.WorkspaceID); err != nil {
+		return uuid.Nil, err
+	} else if v.Blocked {
+		return uuid.Nil, apperr.Conflict(v.Code, v.Detail)
 	}
 	draft := in.Draft != nil && *in.Draft
 	if !draft {
@@ -995,13 +1008,9 @@ func (s *Server) PauseWork(w http.ResponseWriter, r *http.Request, workId gen.Wo
 	s.workOut(r.Context(), w, http.StatusOK, workId, u.Id)
 }
 
-// afterWorkChange publishes a mission change on both surfaces: `work.updated`
-// and, for the old session's mission, `session.updated`.
+// afterWorkChange publishes a mission change (`work.updated`).
 func (s *Server) afterWorkChange(ctx context.Context, wsID uuid.UUID, wk *sessions.WorkRow) {
 	s.publishWork(ctx, s.DB, wsID, wk.Id, "work.updated")
-	if wk.Legacy {
-		s.publishSession(ctx, wsID, wk.RoomId, &gen.User{Id: wk.DirectorUserId})
-	}
 }
 
 // ResumeWork is FR-2A.3's 계속 진행 on one mission. A mission paused BY THE
@@ -1251,9 +1260,7 @@ func (s *Server) ChangeWorkDirector(w http.ResponseWriter, r *http.Request, work
 		writeErr(w, err)
 		return
 	}
-	if wk.Legacy {
-		s.publishSession(r.Context(), a.WorkspaceID, wk.RoomId, u)
-	}
+	s.publishWork(r.Context(), s.DB, a.WorkspaceID, workId, "work.updated")
 	s.workOut(r.Context(), w, http.StatusOK, workId, u.Id)
 }
 
@@ -1501,4 +1508,26 @@ func workDuration(d time.Duration) string {
 		}
 	}
 	return out
+}
+
+// workdirQuota is E13-16's gate: the workspace's machines already hold
+// `workdir_disk_quota_gb`, so a new mission would grow a disk nobody can clear
+// without a person acting first.
+func (s *Server) workdirQuota(ctx context.Context, q db.DBTX, wsID uuid.UUID) (workdirs.QuotaVerdict, error) {
+	var quotaGB int
+	if err := q.QueryRow(ctx,
+		`SELECT COALESCE((SELECT workdir_disk_quota_gb FROM workspace_settings WHERE workspace_id = $1), 0)`,
+		wsID).Scan(&quotaGB); err != nil {
+		return workdirs.QuotaVerdict{}, fmt.Errorf("works: workdir quota setting: %w", err)
+	}
+	if quotaGB <= 0 {
+		// The column is `[integer, "null"]` and a null must not mean zero —
+		// that would block every mission in a workspace that never set one.
+		return workdirs.QuotaVerdict{}, nil
+	}
+	used, err := workdirs.RuntimeDiskUsed(ctx, q, wsID)
+	if err != nil {
+		return workdirs.QuotaVerdict{}, err
+	}
+	return workdirs.CheckDiskQuota(used, quotaGB), nil
 }

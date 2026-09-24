@@ -62,7 +62,7 @@ const (
 // called twice; two summaries in a timeline are indistinguishable and the
 // reader cannot tell which is current.
 //
-// production caller: sessions.Service.summarise, from ApplyCompletionEvent's
+// production caller: sessions.Service.summarise, from ApplyWorkEvent's
 // `completed` branch.
 func PlanSummary(res *llm.Response, callErr error, alreadyPosted bool) SummaryPlan {
 	p := SummaryPlan{SessionState: "completed"}
@@ -328,7 +328,7 @@ func ReuseSection(title, summary string, plan ContextReusePlan) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "이전 세션 요약 — %s", title)
 	if cut || plan.TruncationDisclosed {
-		fmt.Fprintf(&b, " (상한 %d 토큰으로 잘림 — 전문은 `colab session messages` 로 읽어라)",
+		fmt.Fprintf(&b, " (상한 %d 토큰으로 잘림 — 전문은 `colab room messages` 로 읽어라)",
 			plan.InjectedTokens)
 	}
 	b.WriteString("\n")

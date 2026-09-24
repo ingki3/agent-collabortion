@@ -4,11 +4,13 @@
  */
 import type {
   Agent, AgentProfile, AgentTemplate, Artifact, CompletionCondition, CompletionProgress, Decision, HitlRequest, InboxItem, Invite, Lane, LoopLimits, Member,
-  MemberRole, Message, Metric, MetricsReport, NotificationSettings, ObservationReport, ObservationRow, Pairing, Participant, Runtime, Session,
-  SessionListItem, Task, TaskEvent, TestChat, TestChatTurn, TriggerPreview, TriggerTarget, User, Workdir,
+  MemberRole, Message, Metric, MetricsReport, NotificationSettings, ObservationReport, ObservationRow, Pairing, Runtime,
+  Task, TaskEvent, TestChat, TestChatTurn, TriggerPreview, TriggerTarget, User, Workdir,
   WorkspaceSettings, WorkspaceSettingsUpdate, Room, RoomListItem, RoomParticipantRef, RoomRole, RoomUpdate, WorkListItem,
 } from "@/lib/api/types";
 import type { components } from "@/lib/api/schema";
+// 옛 세션 모양 — 목이 방의 뒷받침 상태를 이 모양으로 든다(API 가 아니다, v0.3.0 R4 에서 계약이 지웠다).
+import type { Participant, Session } from "@/lib/legacy-session";
 import {
   allowedCommands, defaultSettings, emit, makeAgent, makeRuntime, nextMsgAt, now, participantStatus, resetStore, runtimeModels, runtimeOptionRanges,
   sseFrame, store, stripUser, TEMPLATES, uuid, type MockInvite, type MockRoom, type MockTask, type MockWork, type Store, type Subscriber,
@@ -16,7 +18,7 @@ import {
 import { registerRoomDialogs } from "./rooms-dialogs";
 import { registerR2W4a } from "./r2w4a";
 import { registerWorkEdit } from "./work-edit";
-import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
+import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, SEED, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
 /**
  * RFC 9457 Problem — `title` 은 서버(`apperr.Title`)처럼 **상태 코드에서** 정한다. 문장(`detail`·`errors[].message`)은
@@ -369,38 +371,25 @@ function computeProgress(s: Store, sess: Session, prev?: CompletionProgress | nu
 function participantsOf(s: Store, sess: Session): Participant[] {
   return (sess.participants ?? []).map((p) => ({ ...p, status: participantStatus(s, sess.id, p.agent_id) }));
 }
-function toListItem(s: Store, sess: Session): SessionListItem {
-  const tasks = [...s.tasks.values()].filter((t) => t.session_id === sess.id);
-  return {
-    id: sess.id, title: sess.title, goal: sess.goal, status: sess.status, paused_reason: sess.paused_reason, director: sess.director!,
-    participants: (sess.participants ?? []).map((p) => ({ agent_id: p.agent_id, name: p.agent.name, avatar_url: null })),
-    completion_progress: { met: sess.completion_progress.met, total: sess.completion_progress.total },
-    cost_usd: sess.cost_usd, budget_usd: sess.limits.budget_usd ?? null, cost_estimated: sess.cost_estimated ?? false,
-    attention: { hitl_open: 0, blocked: 0, failed: tasks.filter((t) => t.status === "failed").length },
-    running_lane_count: tasks.filter((t) => t.status === "running").length, runtime_id: sess.runtime_id,
-    last_activity_at: sess.last_activity_at ?? null, created_at: sess.created_at,
-  };
-}
-on("GET", "/workspaces/{id}/sessions", (req, p) => {
-  const s = store();
-  requireMember(s, req, p.id);
-  const items = [...s.sessions.values()].filter((x) => x.workspace_id === p.id && !s.roomOnly.has(x.id)).sort((a, b) => (b.last_activity_at ?? b.created_at).localeCompare(a.last_activity_at ?? a.created_at)).map((x) => toListItem(s, x));
-  return ok({ items, next_cursor: null });
-});
-on("POST", "/workspaces/{id}/sessions", (req, p) => {
+/**
+ * 목 전용 시드(계약 밖, `__mock` 접두) — 옛 `createSession` 본문으로 **방 + 그 방의 미션 하나**(id 셋이 같다, §7 이관 규칙)를 만든다.
+ * v0.3.0(R4, D22)에서 옛 `createSession` 은 계약에서 지워졌다 — 에이전트 참여자·격리·조건이 한 번에 든 방이 필요한
+ * 목 테스트·스크린샷 스크립트만 이 길을 쓴다. 화면은 `createRoom` → `createWork` 를 쓴다.
+ */
+on("POST", "/__mock/workspaces/{id}/seed-room", (req, p) => {
   const s = store();
   const { user } = requireMember(s, req, p.id);
   const b = body<{ title?: string; goal?: string; participants?: { agent_id: string; profile_id?: string | null }[]; assignee_agent_id?: string; isolation?: { kind: string; repo_path?: string; remote_url?: string | null }; runtime_id?: string | null; director_user_id?: string; autonomy?: Session["autonomy"]; draft?: boolean; completion_condition?: CompletionCondition; limits?: Partial<Session["limits"]>; acceptance_criteria?: string[] }>(req);
   const errors: { field: string; code?: string; message: string }[] = [];
   if (!b.title?.trim()) errors.push({ field: "title", message: W.title_1_200 });
   if (!b.goal?.trim()) errors.push({ field: "goal", message: W.goal_required });
-  if (!b.participants?.length) errors.push({ field: "participants", message: W.participants_required });
+  if (!b.participants?.length) errors.push({ field: "participants", message: SEED.participants_required });
   if (b.isolation?.kind === "container") errors.push({ field: "isolation.kind", message: W.container_unsupported });
   // v0.1.4 — `agent_approval` 은 리뷰어 필수 + 참여자(S-84). 다른 422 와 한 응답에 모은다(errors[]).
   if (b.completion_condition) errors.push(...validateCondition(b.completion_condition, (b.participants ?? []).map((x) => x.agent_id)));
   if (errors.length) throw validation(errors);
   const online = [...s.runtimes.values()].filter((r) => r.workspace_id === p.id && r.status === "online");
-  if (online.length === 0) throw new Problem(409, "no_runtime", W.no_runtime);
+  if (online.length === 0) throw new Problem(409, "no_runtime", SEED.no_runtime);
   const t = now();
   const id = uuid();
   const parts: Participant[] = [];
@@ -432,7 +421,7 @@ on("POST", "/workspaces/{id}/sessions", (req, p) => {
   sess.completion_progress = computeProgress(s, sess);
   s.sessions.set(id, sess);
   // goal 시스템 메시지(U1 13단계) + assignee 초기 task(E16-A 1단계)
-  const sys = addMessage(s, sess, { author_type: "system", author_id: null, author: undefined, kind: "system", content: `${W.session_started}${sess.goal}`, mentions: [] });
+  const sys = addMessage(s, sess, { author_type: "system", author_id: null, author: undefined, kind: "system", content: `${SEED.session_started}${sess.goal}`, mentions: [] });
   if (!b.draft) {
     const task = createTask(s, sess, assignee.agent_id, sys.id);
     // 첫 답변은 **마크다운**이다(PRD FR-3.1, W-12) — 실제 에이전트가 그렇게 답하고, 화면이 원문(`**`·`-`)을 그대로 보이면 안 된다.
@@ -440,10 +429,11 @@ on("POST", "/workspaces/{id}/sessions", (req, p) => {
   }
   return ok({ ...sess, participants: participantsOf(s, sess) }, 201);
 });
-on("GET", "/sessions/{id}", (req, p) => {
+/** 목 전용 — 시드한 방의 옛 세션 모양 상태를 본다(테스트 관찰용, 계약 밖). 옛 `getSession` 은 v0.3.0(R4)에서 지워졌다. */
+on("GET", "/__mock/rooms/{id}/legacy", (req, p) => {
   const s = store();
   const sess = s.sessions.get(p.id);
-  // 새 방의 뒷받침 세션은 옛 세션이 아니다 — 서버처럼 404(새 방에는 legacy_work_id 가 없다).
+  // 새 방의 뒷받침 세션은 시드한 방이 아니다 — 404(새 방에는 legacy_work_id 가 없다).
   if (!sess || s.roomOnly.has(sess.id)) throw notFoundP("session");
   const { user } = requireMember(s, req, sess.workspace_id);
   return ok(sessionFor(s, sess, user.id));
@@ -451,27 +441,21 @@ on("GET", "/sessions/{id}", (req, p) => {
 
 
 /**
- * updateSession(계약 PATCH /sessions/{sessionId}) — 권한 Director. 시작 뒤에는 `isolation`·`runtime_id` 를 못 바꾸고(422 immutable, 서버 문장),
+ * 옛 updateSession 의 목 — **계약 밖**(v0.3.0 R4 에서 op 이 지워졌다). 시드한 방의 미션(미션 id = 방 id)을 `updateWork` 가 이 길로 넘긴다
+ * (work-edit.ts). 권한 Director. 시작 뒤에는 `isolation`·`runtime_id` 를 못 바꾸고(422 immutable, 서버 문장),
  * **`completion_condition` 은 `active`·`paused` 에서도**(v0.1.4, S-84 — 리뷰어 없는 조건에 걸린 세션을 구하는 길). 검증은 createSession 과
- * 같고, 바꾸면 진행률을 다시 계산해 `session.completion_progress` 를 보낸다(이미 충족된 원자는 유지). 끝난 세션은 422 immutable(서버 T-S18 과 같은 코드).
+ * 같고, 바꾸면 진행률을 다시 계산해 `work.completion_progress` 를 보낸다(이미 충족된 원자는 유지). 끝난 세션은 422 immutable(서버 T-S18 과 같은 코드).
  */
 const CONDITION_EDITABLE = new Set<Session["status"]>(["draft", "active", "paused"]);
-on("PATCH", "/sessions/{id}", (req, p) => {
+on("PATCH", "/__mock/rooms/{id}/legacy", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   const { user } = requireMember(s, req, sess.workspace_id);
-  requireDirector(sess, user.id);
-  const b = body<{ title?: string; goal?: string; acceptance_criteria?: string[]; deputy_director_user_id?: string | null; limits?: Partial<Session["limits"]>; autonomy?: Session["autonomy"]; completion_condition?: CompletionCondition; isolation?: unknown; runtime_id?: string | null }>(req);
+  requireDirector(sess, user.id, W.work_director_required);
+  const b = body<{ title?: string; goal?: string; acceptance_criteria?: string[]; deputy_director_user_id?: string | null; limits?: Partial<Session["limits"]>; autonomy?: Session["autonomy"]; completion_condition?: CompletionCondition }>(req);
   const errors: { field: string; code?: string; message: string }[] = [];
-  if (sess.status !== "draft") {
-    if (b.isolation !== undefined) errors.push({ field: "isolation", code: "immutable", message: W.isolation_immutable });
-    if (b.runtime_id !== undefined) errors.push({ field: "runtime_id", code: "immutable", message: W.runtime_immutable });
-  }
-  if (b.completion_condition) {
-    // 서버(T-S18)는 끝난 세션의 조건 수정도 422 immutable 로 답한다 — 409 가 아니다.
-    if (!CONDITION_EDITABLE.has(sess.status)) errors.push({ field: "completion_condition", code: "immutable", message: W.condition_immutable });
-    else errors.push(...validateCondition(b.completion_condition, (sess.participants ?? []).map((x) => x.agent_id)));
-  }
+  // 옛 immutable 422(isolation·runtime_id·끝난 세션의 조건)는 op 과 함께 지워졌다 — updateWork 는 끝난 미션을 409 work_closed 로 먼저 막는다(work-edit.ts).
+  if (b.completion_condition && CONDITION_EDITABLE.has(sess.status)) errors.push(...validateCondition(b.completion_condition, (sess.participants ?? []).map((x) => x.agent_id)));
   if (b.title !== undefined && !b.title.trim()) errors.push({ field: "title", message: W.title_1_200 });
   if (b.goal !== undefined && !b.goal.trim()) errors.push({ field: "goal", message: W.goal_required });
   if (errors.length) throw validation(errors);
@@ -489,9 +473,11 @@ on("PATCH", "/sessions/{id}", (req, p) => {
   if (b.completion_condition) {
     sess.completion_condition = b.completion_condition;
     sess.completion_progress = computeProgress(s, sess, sess.completion_progress);
-    emit(s, sess.workspace_id, "session.completion_progress", { session_id: sess.id, completion_progress: sess.completion_progress }, sess.id);
+    emit(s, sess.workspace_id, "work.completion_progress", { work_id: sess.id, room_id: sess.id, completion_progress: sess.completion_progress }, sess.id);
   }
-  emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status, title: sess.title, updated_at: sess.updated_at }, sess.id);
+  // 옛 session.updated 는 v0.3.0(R4)에서 지워졌다 — 같은 사건을 work.updated 가 낸다.
+  const wv = workView(s, sess.id);
+  if (wv) emitWork(s, wv, "work.updated");
   return ok(sessionFor(s, sess, user.id));
 });
 /**
@@ -499,7 +485,7 @@ on("PATCH", "/sessions/{id}", (req, p) => {
  * 세션을 흉내 낸다(Director 실사용 2026-09-15 의 그 세션). 진행률은 `blocked_reason: reviewer_missing` 이 되고 S7 이 이유와
  * 「조건 고치기」 를 보인다. 본문 `met_artifact: true` 면 보고서 제출을 충족된 것으로 놓는다("보고서 제출 ✓ · 검토 승인 막힘").
  */
-on("POST", "/__mock/sessions/{id}/seed-legacy-condition", (req, p) => {
+on("POST", "/__mock/rooms/{id}/seed-legacy-condition", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   const b = body<{ met_artifact?: boolean; with_user_approval?: boolean }>(req);
@@ -512,7 +498,7 @@ on("POST", "/__mock/sessions/{id}/seed-legacy-condition", (req, p) => {
     : null;
   sess.completion_progress = computeProgress(s, sess, prev);
   sess.updated_at = now();
-  emit(s, sess.workspace_id, "session.completion_progress", { session_id: sess.id, completion_progress: sess.completion_progress }, sess.id);
+  emit(s, sess.workspace_id, "work.completion_progress", { work_id: sess.id, room_id: sess.id, completion_progress: sess.completion_progress }, sess.id);
   return ok(sessionFor(s, sess, sess.director_user_id));
 });
 
@@ -553,7 +539,6 @@ function addMessage(s: Store, sess: Session, m: Partial<Message> & Pick<Message,
   }
   sess.last_activity_at = msg.created_at;
   emit(s, sess.workspace_id, "message.created", msg, sess.id);
-  emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status, last_activity_at: sess.last_activity_at }, sess.id);
   return msg;
 }
 /** lane 하나. `brief` 는 첫 트리거 메시지 발췌다(카드의 위임 요약). */
@@ -690,7 +675,7 @@ function simulateRun(s: Store, sess: Session, task: MockTask, reply: string) {
   const rt = [...s.runtimes.values()].find((r) => r.workspace_id === sess.workspace_id && r.status === "online");
   if (rt && !sess.runtime_id) {
     sess.runtime_id = rt.id; // none 격리 자동 선택 — 첫 dispatch 시 고정(M10)
-    emit(s, sess.workspace_id, "session.updated", { id: sess.id, runtime_id: rt.id }, sess.id);
+    emit(s, sess.workspace_id, "room.updated", { id: sess.id, runtime_id: rt.id }, sess.id);
   }
   const at = (ms: number, f: () => void) => setTimeout(f, ms);
   at(300, () => {
@@ -749,7 +734,7 @@ function simulateRun(s: Store, sess: Session, task: MockTask, reply: string) {
 // FR-3.2: `mention://<kind>/<id>` — @all 은 `mention://all/all` 이다(서버 정규식과 같은 모양).
 const MENTION_RE = /\[@([^\]]+)\]\(mention:\/\/(agent|user|all)\/([0-9a-zA-Z-]+)\)/g;
 
-on("GET", "/sessions/{id}/messages", (req, p) => {
+on("GET", "/rooms/{id}/messages", (req, p) => {
   const s = store();
   const sess = s.sessions.get(p.id);
   if (!sess) throw notFoundP("session");
@@ -856,7 +841,7 @@ function parseMentions(content: string): Message["mentions"] {
 }
 
 /** 트리거 미리보기(FR-3.6) — 게시하지 않는다. */
-on("POST", "/sessions/{id}/messages/preview", (req, p) => {
+on("POST", "/rooms/{id}/messages/preview", (req, p) => {
   const s = store();
   const sess = s.sessions.get(p.id);
   if (!sess) throw notFoundP("session");
@@ -875,7 +860,7 @@ on("POST", "/sessions/{id}/messages/preview", (req, p) => {
   return ok({ ...out, work: a.workId ? { id: a.workId, title: workTitleOf(s, a.workId) ?? "" } : null, work_source: a.source });
 });
 
-on("POST", "/sessions/{id}/messages", (req, p) => {
+on("POST", "/rooms/{id}/messages", (req, p) => {
   const s = store();
   const sess = s.sessions.get(p.id);
   if (!sess) throw notFoundP("session");
@@ -947,7 +932,8 @@ on("GET", "/tasks/{id}/events", (req, p) => {
 on("GET", "/workspaces/{id}/stream", (req, p) => {
   const s = store();
   const { user: streamUser } = requireMember(s, req, p.id);
-  const sessionIds = req.query.get("session_id")?.split(",").filter(Boolean) ?? null;
+  // v0.3.0(R4): 옛 `session_id=` 거르개는 지워졌다 — `room_id=` 만.
+  const roomIds = req.query.get("room_id")?.split(",").filter(Boolean) ?? null;
   const lastId = Number(req.headers.get("last-event-id") ?? req.query.get("last_event_id") ?? 0);
   const enc = new TextEncoder();
   let sub: Subscriber | null = null;
@@ -958,10 +944,10 @@ on("GET", "/workspaces/{id}/stream", (req, p) => {
       write(`: connected\n\n`);
       if (lastId > 0) {
         const oldest = s.events[0]?.id ?? 0;
-        if (lastId < oldest - 1) write(sseFrame({ id: s.eventSeq, type: "resync", workspace_id: p.id, session_id: null, at: now(), payload: { reason: "out_of_window" }, ephemeral: false }));
-        else for (const ev of s.events) if (ev.id > lastId && ev.workspace_id === p.id && (!sessionIds || !ev.session_id || sessionIds.includes(ev.session_id)) && (!ev.to_user || ev.to_user === streamUser.id)) write(sseFrame(ev));
+        if (lastId < oldest - 1) write(sseFrame({ id: s.eventSeq, type: "resync", workspace_id: p.id, room_id: null, at: now(), payload: { reason: "out_of_window" }, ephemeral: false }));
+        else for (const ev of s.events) if (ev.id > lastId && ev.workspace_id === p.id && (!roomIds || !ev.room_id || roomIds.includes(ev.room_id)) && (!ev.to_user || ev.to_user === streamUser.id)) write(sseFrame(ev));
       }
-      sub = { workspace_id: p.id, session_ids: sessionIds, user_id: streamUser.id, write };
+      sub = { workspace_id: p.id, room_ids: roomIds, user_id: streamUser.id, write };
       s.subs.add(sub);
       ping = setInterval(() => { try { write(`: ping\n\n`); } catch { /* closed */ } }, 15000);
     },
@@ -980,7 +966,7 @@ function sessionOf(s: Store, req: Req, sessionId: string): Session {
   requireMember(s, req, sess.workspace_id);
   return sess;
 }
-on("GET", "/sessions/{id}/lanes", (req, p) => {
+on("GET", "/rooms/{id}/lanes", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   const { user } = requireMember(s, req, sess.workspace_id);
@@ -1073,7 +1059,7 @@ on("POST", "/lanes/{id}/restart", (req, p) => {
 });
 
 // ── 아티팩트 · 결정 기록 · 비용 (S7 우열) ──
-on("GET", "/sessions/{id}/artifacts", (req, p) => {
+on("GET", "/rooms/{id}/artifacts", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   const latestOnly = req.query.get("latest_only") === "true";
@@ -1085,12 +1071,12 @@ on("GET", "/sessions/{id}/artifacts", (req, p) => {
   // 순서가 뒤집힌 diff 는 충돌한다 — 최신순으로 주면 화면이 그 사실을 알 방법이 없다.
   return ok(items.sort((a, b) => a.created_at.localeCompare(b.created_at)));
 });
-on("GET", "/sessions/{id}/decisions", (req, p) => {
+on("GET", "/rooms/{id}/decisions", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   return ok([...s.decisions.values()].filter((d) => d.session_id === sess.id).sort((a, b) => b.created_at.localeCompare(a.created_at)));
 });
-on("GET", "/sessions/{id}/cost", (req, p) => {
+on("GET", "/rooms/{id}/cost", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   return ok({
@@ -1099,7 +1085,7 @@ on("GET", "/sessions/{id}/cost", (req, p) => {
   });
 });
 
-// ── 세션 일시정지 · 재개(FR-2.3 · O6) ──
+// ── 방 재개 권한(옛 세션 일시정지 표 — pauseSession·resumeSession 은 v0.3.0 R4 에서 지워졌고, 시드한 방의 배너 권한 칸만 이 표를 쓴다) ──
 /**
  * "계속 진행 승인" 권한(SCREEN §4.5 paused 해소 표) — Director, **그리고 예산·시간·루프면 기한 절반 후 deputy**.
  * `director`(수동 일시정지)와 `runtime_offline` 은 Director 전용이다. deputy 의 시점은 HITL 과 같은 12h 다.
@@ -1117,45 +1103,9 @@ function resumeGate(sess: Session, userId: string): { allowed: boolean; from: st
       ? { allowed: true, from: null, reason: "" }
       : { allowed: false, from, reason: fmt(W.deputy_not_yet, hhmm(from)) };
   }
-  return { allowed: false, from: null, reason: W.director_required };
+  return { allowed: false, from: null, reason: W.work_director_required };
 }
-on("POST", "/sessions/{id}/pause", (req, p) => {
-  const s = store();
-  const sess = sessionOf(s, req, p.id);
-  const { user } = requireMember(s, req, sess.workspace_id);
-  requireDirector(sess, user.id);
-  if (sess.status !== "active") throw new Problem(409, "invalid_transition", withStatus(W.pause_only_active, sess.status));
-  sess.status = "paused";
-  sess.paused_reason = "director";
-  sess.paused_detail = { reason: "director", paused_at: now(), resolve_actions: ["resume", "cancel"], can_resolve_from: null };
-  emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status, paused_reason: sess.paused_reason, paused_detail: sess.paused_detail }, sess.id);
-  return ok(sessionFor(s, sess, requireMember(s, req, sess.workspace_id).user.id));
-});
-on("POST", "/sessions/{id}/resume", (req, p) => {
-  const s = store();
-  const sess = sessionOf(s, req, p.id);
-  const { user: actor } = requireMember(s, req, sess.workspace_id);
-  const gate = resumeGate(sess, actor.id);
-  if (!gate.allowed) throw new Problem(403, gate.from ? "deputy_not_yet" : "director_required", gate.reason, { can_respond_from: gate.from });
-  if (sess.status !== "paused") throw new Problem(409, "invalid_transition", withStatus(W.resume_only_paused, sess.status));
-  if (sess.paused_reason === "runtime_offline") throw new Problem(409, "runtime_offline", W.resume_offline_hint);
-  const b = body<{ limits?: { budget_usd?: number; time_limit?: string }; reset_loop_counters?: boolean }>(req);
-  if (sess.paused_reason === "budget" && b.limits?.budget_usd != null) {
-    if (b.limits.budget_usd < sess.cost_usd) throw validation([{ field: "limits.budget_usd", message: fmt(W.budget_too_low, sess.cost_usd) }]);
-    sess.limits = { ...sess.limits, budget_usd: b.limits.budget_usd };
-  }
-  if (sess.paused_reason === "time" && b.limits?.time_limit) sess.limits = { ...sess.limits, time_limit: b.limits.time_limit };
-  sess.status = "active";
-  sess.paused_reason = null;
-  sess.paused_detail = undefined;
-  emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status, paused_reason: null, limits: sess.limits }, sess.id);
-  // queued lane 을 큐 순서대로 dispatch(E5-05)
-  for (const t of [...s.tasks.values()].filter((x) => x.session_id === sess.id && x.status === "queued")) {
-    const agent = s.agents.get(t.agent_id);
-    if (agent) simulateRun(s, sess, t, `재개했습니다. ${agent.name}가 이어서 진행합니다.`);
-  }
-  return ok(sessionFor(s, sess, requireMember(s, req, sess.workspace_id).user.id));
-});
+
 
 // ── 런타임 후보(S6 4단계 · S17) · 저장소 검증(S6 3단계) ──
 on("GET", "/workspaces/{id}/runtime-candidates", (req, p) => {
@@ -1395,7 +1345,7 @@ on("POST", "/workspaces/{id}/agent-templates/{key}/apply", (req, p) => {
  * `statuses`·`agent_id` 로 **한 에이전트에 한 상태만** 만들 수도 있다 — lane 해소 규칙(W-5)처럼
  * "이 에이전트에게 done lane 하나뿐" 이라는 전제가 필요한 검증이 있기 때문이다.
  */
-on("POST", "/__mock/sessions/{id}/seed-lanes", (req, p) => {
+on("POST", "/__mock/rooms/{id}/seed-lanes", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   const b = body<{ statuses?: Lane["status"][]; agent_id?: string }>(req);
@@ -1426,7 +1376,7 @@ on("POST", "/__mock/sessions/{id}/seed-lanes", (req, p) => {
  * 빈 턴 행은 PRD FR-7.2 "판정과 기록" 그대로 `{class: status, verb: turn_end, object_ref: "empty_turn", outcome: info, payload: {command: "turn_end",
  * args: {note}}}` — 닫힌 스키마 안, 새 키 없음. 서버(T-S19)가 finish 에서 같은 행을 남긴다.
  */
-on("POST", "/__mock/sessions/{id}/seed-empty-turn", (req, p) => {
+on("POST", "/__mock/rooms/{id}/seed-empty-turn", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   const b = body<{ agent_id?: string }>(req);
@@ -1452,7 +1402,7 @@ on("POST", "/__mock/sessions/{id}/seed-empty-turn", (req, p) => {
  * 에이전트가 `colab status set done` 으로 산출물을 제출하고 lane 을 done 으로 만든 뒤에도 그 턴의 프로세스가 돌고 있는 모양:
  * lane `done`(brief 있음) + 현재 할 일 `running` → `actions: ["cancel"]`. 카드가 「중단」을 내고, 취소하면 lane 은 done 그대로·할 일만 cancelled.
  */
-on("POST", "/__mock/sessions/{id}/seed-done-running", (req, p) => {
+on("POST", "/__mock/rooms/{id}/seed-done-running", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   const b = body<{ agent_id?: string }>(req);
@@ -1559,7 +1509,6 @@ export function inboxSeverity(type: InboxItem["type"]): InboxItem["severity"] {
   switch (type) {
     case "hitl_request":
     case "lane_blocked":
-    case "session_paused":
     case "room_paused":
     case "work_paused":
     case "isolation_confirm":
@@ -1593,16 +1542,12 @@ export function inboxActions(type: InboxItem["type"], hitlType: string | undefin
     case "lane_blocked":
     case "mention":
       return ["reply", "open_session"];
-    case "session_paused":
-      return canRespond ? ["approve_continue", "open_session"] : ["open_session"];
     case "run_failed":
       return canRespond ? ["restart", "open_session"] : ["open_session"];
     case "workdir_gc_blocked":
       return ["open_workdirs", "delete_workdir"] as unknown as A;
     case "runtime_offline":
       return ["open_runtimes"];
-    case "session_completed":
-      return ["open_session"];
     case "workdir_quota":
       return ["open_workdirs"] as unknown as A;
     case "room_invited":
@@ -1660,7 +1605,7 @@ function emitInboxSummary(s: Store, userId: string, workspaceId: string) {
 }
 
 // ── HITL 요청 ──
-on("GET", "/sessions/{id}/hitl-requests", (req, p) => {
+on("GET", "/rooms/{id}/hitl-requests", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   const { user } = requireMember(s, req, sess.workspace_id);
@@ -1806,52 +1751,13 @@ on("POST", "/inbox/read-all", (req) => {
   return ok({ updated });
 });
 
-// ── 세션 종료 · 취소 · Director 교체 · 참여자(S7 상단 액션) ──
-function requireDirector(sess: Session, userId: string): void {
+// ── 옛 세션 op(complete·cancel·delete·director·participants)은 v0.3.0(R4, D22)에서 지워졌다 — /works/* · /rooms/* 가 받는다 ──
+function requireDirector(sess: Session, userId: string, detail: string): void {
   if (roleOf(sess, userId) !== "director") {
-    throw new Problem(403, "director_required", W.director_required);
+    throw new Problem(403, "director_required", detail);
   }
 }
-on("POST", "/sessions/{id}/complete", (req, p) => {
-  const s = store();
-  const sess = sessionOf(s, req, p.id);
-  const { user } = requireMember(s, req, sess.workspace_id);
-  requireDirector(sess, user.id);
-  const b = body<{ confirm?: boolean }>(req);
-  const running = [...s.lanes.values()].filter((l) => l.session_id === sess.id && ["queued", "running", "waiting_human", "paused"].includes(l.status));
-  if (running.length > 0 && !b.confirm) {
-    throw new Problem(409, "running_lanes", W.running_lanes_confirm, { running_lane_count: running.length });
-  }
-  for (const l of running) setLaneStatus(s, sess, l.id, { status: "failed", failure_kind: "cancelled", finished_at: now() });
-  sess.status = "completing";
-  sess.updated_at = now();
-  emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status }, sess.id);
-  return ok(sessionFor(s, sess, user.id));
-});
-on("POST", "/sessions/{id}/cancel", (req, p) => {
-  const s = store();
-  const sess = sessionOf(s, req, p.id);
-  const { user } = requireMember(s, req, sess.workspace_id);
-  requireDirector(sess, user.id);
-  if (sess.status !== "active" && sess.status !== "paused") throw new Problem(409, "invalid_transition", withStatus(W.cancel_only_live, sess.status));
-  for (const l of [...s.lanes.values()].filter((l) => l.session_id === sess.id && l.status !== "done" && l.status !== "failed")) {
-    setLaneStatus(s, sess, l.id, { status: "failed", failure_kind: "cancelled", finished_at: now() });
-  }
-  sess.status = "cancelled";
-  sess.paused_reason = null;
-  sess.finished_at = now();
-  emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status }, sess.id);
-  return ok(sessionFor(s, sess, user.id));
-});
-/**
- * deleteSession(계약 PR #218, FR-2.7) — **물리 삭제**. 서버(T-S17)는 동시에 만들어지므로 순서·code 는 계약 description 그대로:
- *   1) 404(없음) → 2) 권한: Director 또는 owner·admin (403) → 3) 끝난 세션만 draft·completed·cancelled (409 session_active)
- *   → 4) `deleted` 아닌 `worktree` 중 미병합/미커밋이 있으면 409 workdir_unmerged + `Problem.workdirs[]`
- *   → 5) 세션의 전부(메시지·작업 줄기·할 일·활동·확인 요청·아티팩트·결정·받은 요청·workdir)를 지우고 204 + SSE session.deleted {session_id}.
- * 멱등이 아니다 — 두 번째 호출은 1) 에서 404. 서버 문장은 `SERVER`(T-S17 #220 과 글자 단위 동일).
- */
-const DELETABLE_SESSION = new Set<Session["status"]>(["draft", "completed", "cancelled"]);
-/** 세션(= 방) id 에 딸린 행을 전부 지운다 — deleteSession · deleteRoom 이 같은 목록을 쓴다(방 id = 세션 id). */
+/** 방 id 에 딸린 행을 전부 지운다 — deleteRoom(옛 세션 행까지, 방 id = 세션 id). */
 function purgeRoomRows(s: Store, id: string) {
   for (const [k, w] of s.workdirs) if (w.session_id === id) s.workdirs.delete(k);
   for (const [k, m] of s.messages) if (m.session_id === id) s.messages.delete(k);
@@ -1867,109 +1773,6 @@ function purgeRoomRows(s: Store, id: string) {
   s.sessions.delete(id);
   s.rooms.delete(id);
 }
-on("DELETE", "/sessions/{id}", (req, p) => {
-  const s = store();
-  const sess = s.sessions.get(p.id);
-  if (!sess) throw notFoundP("session");
-  const { user, member } = requireMember(s, req, sess.workspace_id);
-  const canDelete = sess.director_user_id === user.id || member.role === "owner" || member.role === "admin";
-  // 403 code 는 계약이 정하지 않았다 — 기존 director_required(Director 만)·admin_required(owner·admin) 와 다른 조건이라 새 이름. T-S17 과 대조할 자리.
-  if (!canDelete) throw new Problem(403, "director_or_admin_required", W.delete_forbidden);
-  if (!DELETABLE_SESSION.has(sess.status)) throw new Problem(409, "session_active", W.session_active);
-  const mine = [...s.workdirs.values()].filter((w) => w.session_id === sess.id && w.status !== "deleted");
-  // FR-6.4 M4 와 같은 보호 — `worktree` 만 본다(container·dir 은 병합할 브랜치가 없다). 응답에는 계약 `Workdir` 모양(runtime_id 없이).
-  const blocking = mine.filter((w) => w.kind === "worktree" && (w.dirty === true || w.gc_blocked_reason != null)).map(({ runtime_id: _r, ...wire }) => wire);
-  if (blocking.length) throw new Problem(409, "workdir_unmerged", W.workdir_unmerged, { workdirs: blocking });
-  // 남은 workdir 은 gc 명령을 싣고 행을 지운다(daemon-protocol v0.8.1) — 목에는 데몬이 없으므로 행만 지운다. 이미 `deleted` 인 행도
-  // 세션 소유라 함께 사라진다(물리 삭제).
-  purgeRoomRows(s, sess.id);
-  emit(s, sess.workspace_id, "session.deleted", { session_id: sess.id }, sess.id);
-  return { status: 204 };
-});
-on("PUT", "/sessions/{id}/director", (req, p) => {
-  const s = store();
-  const sess = sessionOf(s, req, p.id);
-  const { user } = requireMember(s, req, sess.workspace_id);
-  requireDirector(sess, user.id);
-  const b = body<{ director_user_id?: string }>(req);
-  const next = b.director_user_id ? s.users.get(b.director_user_id) : undefined;
-  if (!next || !s.members.some((m) => m.workspace_id === sess.workspace_id && m.user.id === next.id)) {
-    throw validation([{ field: "director_user_id", message: W.new_director_not_member }]);
-  }
-  sess.director_user_id = next.id;
-  sess.director = stripUser(next);
-  // 열린 HITL 의 `director` 승인자가 새 Director 로 따라간다(계약 changeDirector) — approver_spec 은 그대로다.
-  addMessage(s, sess, { author_type: "system", author_id: null, author: undefined, kind: "system", content: W.director_changed, mentions: [] });
-  emit(s, sess.workspace_id, "session.updated", { id: sess.id, director_user_id: sess.director_user_id }, sess.id);
-  return ok(sessionFor(s, sess, user.id));
-});
-on("GET", "/sessions/{id}/participants", (req, p) => {
-  const s = store();
-  const sess = sessionOf(s, req, p.id);
-  return ok(participantsOf(s, sess));
-});
-on("POST", "/sessions/{id}/participants", (req, p) => {
-  const s = store();
-  const sess = sessionOf(s, req, p.id);
-  const { user } = requireMember(s, req, sess.workspace_id);
-  requireDirector(sess, user.id);
-  const b = body<{ agent_id?: string; profile_id?: string | null }>(req);
-  const a = b.agent_id ? s.agents.get(b.agent_id) : undefined;
-  if (!a || a.workspace_id !== sess.workspace_id) throw validation([{ field: "agent_id", message: W.participant_agent_missing }]);
-  if ((sess.participants ?? []).some((x) => x.agent_id === a.id)) throw new Problem(409, "already_participant", W.already_participant);
-  // 초대 권한은 `respond_to` 가 정한다(FR-1.9). `nobody` 면 403 — 킬 스위치가 초대까지 막는다(E10-09).
-  if (a.respond_to === "nobody") throw new Problem(403, "not_invitable", W.not_invitable_nobody);
-  const prof = a.profiles.find((x) => x.id === b.profile_id) ?? a.profiles.find((x) => x.is_default) ?? a.profiles[0];
-  const rtKinds = new Set([...s.runtimes.values()].filter((r) => r.workspace_id === sess.workspace_id).flatMap((r) => r.capabilities.map((c) => c.kind)));
-  const warnings = rtKinds.has(prof.runtime_kind) ? [] : [`프로파일의 도구(${prof.runtime_kind})가 이 방의 컴퓨터에 없습니다`];
-  const part: Participant = {
-    session_id: sess.id, agent_id: a.id,
-    agent: { id: a.id, name: a.name, role: a.role, role_description: a.role_description, avatar_url: null, respond_to: a.respond_to },
-    profile: prof, status: "idle", status_note: null, is_assignee: false,
-    mention_link: `[@${a.name}](mention://agent/${a.id})`, warnings, joined_at: now(),
-  };
-  sess.participants = [...(sess.participants ?? []), part];
-  addMessage(s, sess, { author_type: "system", author_id: null, author: undefined, kind: "system", content: josa(a.name, "이", "가") + W.participant_joined, mentions: [] });
-  emit(s, sess.workspace_id, "participant.updated", part, sess.id);
-  return ok(part, 201);
-});
-on("PATCH", "/sessions/{id}/participants/{agentId}", (req, p) => {
-  const s = store();
-  const sess = sessionOf(s, req, p.id);
-  const { user } = requireMember(s, req, sess.workspace_id);
-  requireDirector(sess, user.id);
-  const part = (sess.participants ?? []).find((x) => x.agent_id === p.agentId);
-  if (!part) throw notFoundP("participant");
-  const b = body<{ profile_id?: string; assignee?: boolean }>(req);
-  if (b.profile_id) {
-    const a = s.agents.get(part.agent_id);
-    const prof = a?.profiles.find((x) => x.id === b.profile_id);
-    if (!prof) throw validation([{ field: "profile_id", message: W.profile_not_of_agent }]);
-    part.profile = prof;
-  }
-  if (b.assignee) {
-    for (const x of sess.participants ?? []) x.is_assignee = x.agent_id === part.agent_id;
-    sess.assignee_agent_id = part.agent_id;
-  }
-  emit(s, sess.workspace_id, "participant.updated", part, sess.id);
-  return ok(part);
-});
-on("DELETE", "/sessions/{id}/participants/{agentId}", (req, p) => {
-  const s = store();
-  const sess = sessionOf(s, req, p.id);
-  const { user } = requireMember(s, req, sess.workspace_id);
-  requireDirector(sess, user.id);
-  const part = (sess.participants ?? []).find((x) => x.agent_id === p.agentId);
-  if (!part) throw notFoundP("participant");
-  if (part.is_assignee) throw new Problem(409, "assignee_participant", W.assignee_participant);
-  // 진행 중 lane 4상태가 있으면 409 (계약 removeParticipant).
-  const busy = [...s.lanes.values()].filter((l) => l.session_id === sess.id && l.agent_id === part.agent_id && ["queued", "running", "waiting_human", "paused"].includes(l.status));
-  if (busy.length > 0) throw new Problem(409, "running_lanes", W.running_lanes_participant);
-  sess.participants = (sess.participants ?? []).filter((x) => x.agent_id !== part.agent_id);
-  addMessage(s, sess, { author_type: "system", author_id: null, author: undefined, kind: "system", content: josa(part.agent.name, "이", "가") + W.participant_removed, mentions: [] });
-  return { status: 204 };
-});
-
 // ── dev·테스트용 시드(계약 밖 경로, `__mock` 접두) ──
 
 /**
@@ -1977,7 +1780,7 @@ on("DELETE", "/sessions/{id}/participants/{agentId}", (req, p) => {
  * `age_ms` 로 발행 시각을 뒤로 밀 수 있다 — deputy 시점 제한(E7-09 11h vs E7-10 12h 1분)을 클럭 없이 재현한다.
  * 에이전트 발행(`source: agent`)은 `pending_hitl` → `turn_end` 에 `waiting_human` 이므로 lane 도 그렇게 둔다(E7-03).
  */
-on("POST", "/__mock/sessions/{id}/seed-hitl", (req, p) => {
+on("POST", "/__mock/rooms/{id}/seed-hitl", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   const b = body<{
@@ -2042,7 +1845,7 @@ on("POST", "/__mock/sessions/{id}/seed-hitl", (req, p) => {
 });
 
 /** 세션을 사유별로 `paused` 로 만든다 — 배너 5종(SCREEN §4.5 O6)을 한 번에 볼 수 있게. */
-on("POST", "/__mock/sessions/{id}/pause", (req, p) => {
+on("POST", "/__mock/rooms/{id}/pause", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   const b = body<{ reason?: Session["paused_reason"] }>(req);
@@ -2060,14 +1863,16 @@ on("POST", "/__mock/sessions/{id}/pause", (req, p) => {
     resolve_actions: reason === "runtime_offline" ? ["rebind", "cancel"] : ["resume", "cancel"],
     can_resolve_from: null,
   };
-  emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status, paused_reason: reason, paused_detail: sess.paused_detail }, sess.id);
+  // 옛 session.updated·session_paused 는 v0.3.0(R4, D22)에서 지워졌다 — 미션의 work.updated 와 인박스 work_paused 가 잇는다.
+  const wv = workView(s, sess.id);
+  if (wv) emitWork(s, wv, "work.updated");
   const { user } = requireMember(s, req, sess.workspace_id);
   addInboxItem(s, user.id, {
-    workspace_id: sess.workspace_id, type: "session_paused", severity: inboxSeverity("session_paused"),
-    session_id: sess.id, session: { id: sess.id, title: sess.title, status: sess.status },
+    workspace_id: sess.workspace_id, type: "work_paused", severity: inboxSeverity("work_paused"),
+    session_id: sess.id, session: { id: sess.id, title: sess.title, status: sess.status }, room_id: sess.id, work_id: sess.id,
     ref_id: sess.id, due_at: null, overdue: false, delegated: false,
     card: { title: "미션이 일시정지되었습니다", body: pausedCardBody(sess), paused_reason: reason },
-    actions: inboxActions("session_paused", undefined, roleOf(sess, user.id) === "director"),
+    actions: inboxActions("work_paused", undefined, roleOf(sess, user.id) === "director"),
   });
   return ok(sessionFor(s, sess, requireMember(s, req, sess.workspace_id).user.id));
 });
@@ -2092,7 +1897,7 @@ function pausedCardBody(sess: Session): string {
  * 호출자의 **세션 역할**을 바꾼다(S7-P·S7-D 변형 확인용). Director·deputy 자리를 다른 멤버에게 넘겨
  * 지금 사용자가 deputy 또는 일반 멤버가 되게 한다.
  */
-on("POST", "/__mock/sessions/{id}/role", (req, p) => {
+on("POST", "/__mock/rooms/{id}/role", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   const { user } = requireMember(s, req, sess.workspace_id);
@@ -2118,7 +1923,8 @@ on("POST", "/__mock/sessions/{id}/role", (req, p) => {
       sess.deputy_director_user_id = null;
       sess.deputy_director = undefined;
   }
-  emit(s, sess.workspace_id, "session.updated", { id: sess.id, director_user_id: sess.director_user_id }, sess.id);
+  const wv = workView(s, sess.id);
+  if (wv) emitWork(s, wv, "work.updated");
   return ok(sessionFor(s, sess, user.id));
 });
 
@@ -2138,13 +1944,13 @@ on("POST", "/__mock/inbox/seed", (req) => {
       actions: inboxActions(type, undefined, true), ...extra,
     }));
   add("lane_blocked", { title: "Researcher: '국내만인가요, 글로벌 포함인가요?'", body: "위임한 사람이 없는 서브 미션입니다 — 답글이 곧 지시가 됩니다.", agent_name: "Researcher", lane_id: lane?.id ?? null });
-  add("session_paused", { title: "미션이 일시정지되었습니다", body: "예산 초과 — $21.40 / $20", paused_reason: "budget" });
+  add("work_paused", { title: "미션이 일시정지되었습니다", body: "예산 초과 — $21.40 / $20", paused_reason: "budget" }, { room_id: sess.id, work_id: sess.id, actions: inboxActions("work_paused", undefined, true) });
   add("run_failed", { title: "작업이 실패했습니다", body: "자동 재시도가 소진되었습니다", failure_kind: "timeout", lane_id: lane?.id ?? null });
   // 컴퓨터 유예 만료는 방 멈춤이다(#314) — 옛 runtime_offline 항목이 아니라 방 층의 room_paused(ref = 컴퓨터).
   add("room_paused", { title: W.room_paused_title, body: W.room_paused_offline_body, paused_reason: "runtime_offline", runtime_name: "demo-macbook" },
     { session: undefined, room_id: sess.id, ref_id: sess.runtime_id ?? uuid(), actions: offlineRoomActions(true) });
   add("mention", { title: "민지님을 멘션했습니다", body: "@민지 이 부분 확인 부탁드립니다", agent_name: "Lead" });
-  add("session_completed", { title: "미션이 완료되었습니다", body: "아티팩트 1건 제출, 승인됨", summary: "결정 3건 · 아티팩트 1건 · $1.20" }, { read_at: now() });
+  add("work_completed", { title: "미션이 완료되었습니다", body: "아티팩트 1건 제출, 승인됨", summary: "결정 3건 · 아티팩트 1건 · $1.20" }, { read_at: now(), room_id: sess.id, work_id: sess.id });
   return ok(made, 201);
 });
 
@@ -2248,11 +2054,12 @@ on("DELETE", "/workdirs/{id}", (req, p) => {
 });
 
 // ── S17 재바인딩 ──────────────────────────────────────────────────────────
-on("POST", "/sessions/{id}/rebind", (req, p) => {
+// 계약 rebindRoom(v0.3.0 R4 — 옛 rebindSession). 응답은 `Room`.
+on("POST", "/rooms/{id}/rebind", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   const { user } = requireMember(s, req, sess.workspace_id);
-  requireDirector(sess, user.id);
+  requireDirector(sess, user.id, W.rebind_forbidden);
   const b = body<{ runtime_id?: string; acknowledge_loss?: boolean }>(req);
   // 살아 있는 세션을 옮기면 아직 돌고 있는 머신에서 일을 빼앗는다(E14-03).
   if (!(sess.status === "paused" && sess.paused_reason === "runtime_offline")) {
@@ -2284,8 +2091,12 @@ on("POST", "/sessions/{id}/rebind", (req, p) => {
   sess.updated_at = now();
   // 진행 중이던 lane 은 콜드 스타트한다 — 죽은 머신의 runtime_session_ref 로는 session/load 가 실패한다.
   for (const t of s.tasks.values()) if (t.session_id === sess.id && (t.status === "running" || t.status === "queued")) t.resumed = false;
-  emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status, runtime_id: sess.runtime_id }, sess.id);
-  return ok(sessionFor(s, sess, user.id));
+  syncRooms(s);
+  const after = s.rooms.get(sess.id)!;
+  emitRoom(s, after);
+  const wv = workView(s, sess.id);
+  if (wv) emitWork(s, wv, "work.updated");
+  return ok(toRoom(s, after, user.id));
 });
 
 // ── 목 전용 시드 ──────────────────────────────────────────────────────────
@@ -2317,7 +2128,7 @@ on("POST", "/__mock/runtimes/{id}/offline", (req, p) => {
       } as Session["paused_detail"];
       sess.updated_at = now();
       paused++;
-      // #314: 유예 만료는 **방**을 멈춘다(blocked_reason runtime_offline) — 옛 /sessions 모양은 paused(runtime_offline) 그대로.
+      // #314: 유예 만료는 **방**을 멈춘다(blocked_reason runtime_offline) — 시드한 방의 미션(옛 세션 모양)은 paused(runtime_offline) 그대로.
       // 알림은 방 층의 room_paused 한 장(ref = 잃은 컴퓨터, 동작 rebind·open_room). 옛 runtime_offline 항목은 없다.
       syncRooms(s);
       const room = s.rooms.get(sess.id);
@@ -2337,7 +2148,8 @@ on("POST", "/__mock/runtimes/{id}/offline", (req, p) => {
         card: { title: W.room_paused_title, body: W.room_paused_offline_body, paused_reason: "runtime_offline", runtime_name: rt.name },
         actions: offlineRoomActions(true),
       });
-      emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status }, sess.id);
+      const wv = workView(s, sess.id);
+      if (wv) emitWork(s, wv, "work.updated");
     }
   }
   rt.paused_session_count = paused;
@@ -2350,7 +2162,7 @@ on("POST", "/__mock/runtimes/{id}/offline", (req, p) => {
  * 마크다운이 든 에이전트 메시지 둘(text + summary)을 타임라인에 붙인다(PRD FR-3.1 · W-12, T-W14 스크린샷용).
  * 제목·굵게·기울임·인라인 코드·목록(중첩)·인용·표·코드 블록·링크·멘션 칩·HTML 원문 — 렌더러가 지원하는 문법 전부.
  */
-on("POST", "/__mock/sessions/{id}/seed-markdown", (req, p) => {
+on("POST", "/__mock/rooms/{id}/seed-markdown", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   requireMember(s, req, sess.workspace_id);
@@ -2408,7 +2220,7 @@ on("POST", "/__mock/sessions/{id}/seed-markdown", (req, p) => {
  * 「작성 중…」 델타 하나를 흘린다(SSE `message.delta`, 게시 없음) — 열린 코드 펜스 같은 **미완성 마크다운**이 깨지지 않는지 보는 자리
  * (T-W14 스크린샷). `text` 는 지금까지의 부분 출력 전체다(daemon-protocol §4.2 스냅숏).
  */
-on("POST", "/__mock/sessions/{id}/seed-delta", (req, p) => {
+on("POST", "/__mock/rooms/{id}/seed-delta", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   requireMember(s, req, sess.workspace_id);
@@ -2420,7 +2232,7 @@ on("POST", "/__mock/sessions/{id}/seed-delta", (req, p) => {
   return ok({ agent_id: agentId, text }, 201);
 });
 
-on("POST", "/__mock/sessions/{id}/seed-workdirs", (req, p) => {
+on("POST", "/__mock/rooms/{id}/seed-workdirs", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   requireMember(s, req, sess.workspace_id);
@@ -2450,7 +2262,7 @@ on("POST", "/__mock/sessions/{id}/seed-workdirs", (req, p) => {
 });
 
 /** diff 아티팩트 N개를 **제출 순서대로** 만든다 — S17 의 재적용 순서 미리보기가 이 순서를 그린다(E14-06). */
-on("POST", "/__mock/sessions/{id}/seed-artifacts", (req, p) => {
+on("POST", "/__mock/rooms/{id}/seed-artifacts", (req, p) => {
   const s = store();
   const sess = sessionOf(s, req, p.id);
   requireMember(s, req, sess.workspace_id);
@@ -2903,7 +2715,7 @@ on("POST", "/test-chats/{id}/close", (req, p) => {
 //
 // 서버(T-R1b3 #291)를 흉내 낸다: 권한은 `rooms.Decide`·`Deny` 표(404 → 409 room_archived → 403) 그대로, 문장은 `SERVER` 표.
 // **옛 세션에서 방을 파생한다** — 방 id = 세션 id(§7 이관 규칙), 이름 = 세션 제목, 설명은 비운다(SCREEN §4.3 "goal 로 채우지 않는다"),
-// 방장 = 세션 Director. `createRoom` 으로 만든 방에는 세션이 없다(서버와 같다 — 새 방의 옛 `/sessions/{id}` 는 404).
+// 방장 = 세션 Director. `createRoom` 으로 만든 방에는 옛 세션이 없다(서버와 같다 — 새 방에는 legacy_work_id 가 없다).
 // 미션은 옛 세션 하나(legacy work, 미션 id = 세션 id)뿐이다 — 칩 줄 대비의 최소(listWorks).
 
 type RoomAct = "view" | "post" | "configure" | "archive" | "delete" | "mark_read" | "invite" | "link" | "block" | "transfer_owner" | "summarize";
@@ -3013,7 +2825,10 @@ function toRoom(s: Store, r: MockRoom, userId: string): Room {
   const tasks = [...s.tasks.values()].filter((t) => t.session_id === r.id);
   return {
     id: r.id, workspace_id: r.workspace_id, name: r.name, description: r.description, status: r.status, visibility: r.visibility,
-    owner_user_id: r.owner_user_id, deputy_owner_user_id: r.deputy_owner_user_id, runtime_id: sess?.runtime_id ?? null, isolation: r.isolation, limits: r.limits,
+    owner_user_id: r.owner_user_id, deputy_owner_user_id: r.deputy_owner_user_id, runtime_id: sess?.runtime_id ?? null,
+    // 재바인딩 다이얼로그(S17)가 컴퓨터 이름·끊긴 시각을 여기서 읽는다(계약 Room.runtime).
+    ...(sess?.runtime_id && s.runtimes.get(sess.runtime_id) ? { runtime: s.runtimes.get(sess.runtime_id)! } : {}),
+    isolation: r.isolation, limits: r.limits,
     autonomy: r.autonomy, default_director_user_id: null, blocked_reason: r.blocked_reason, blocked_detail: r.blocked_detail ?? null,
     counts: { works_active: roomActiveWorks(s, r), lanes_active: [...s.lanes.values()].filter((l) => l.session_id === r.id && ["queued", "running", "waiting_human", "paused"].includes(l.status)).length, tasks_active: tasks.filter((t) => ACTIVE_TASK.has(t.status)).length },
     cost_usd: sess?.cost_usd ?? 0, cost_estimated: sess?.cost_estimated ?? false, unread_count: roomUnread(s, r, userId), my_room_role: f.roomRole,
@@ -3123,7 +2938,7 @@ for (const [path, archive] of [["/rooms/{id}/archive", true], ["/rooms/{id}/unar
     return ok(toRoom(s, room, user.id));
   });
 }
-/** deleteRoom(FR-2.6) — 방장·ws owner·admin. 진행 중 미션 → 409 works_active, 미병합 worktree → 409 workdir_unmerged. SSE room.deleted + session.deleted(R4 까지 둘 다). */
+/** deleteRoom(FR-2.6) — 방장·ws owner·admin. 진행 중 미션 → 409 works_active, 미병합 worktree → 409 workdir_unmerged. SSE room.deleted(옛 session.deleted 는 R4 에서 지워졌다). */
 on("DELETE", "/rooms/{id}", (req, p) => {
   const s = store();
   const { room } = roomGate(s, req, p.id, "delete");
@@ -3133,7 +2948,6 @@ on("DELETE", "/rooms/{id}", (req, p) => {
   if (blocking.length) throw new Problem(409, "workdir_unmerged", W.workdir_unmerged, { workdirs: blocking });
   purgeRoomRows(s, room.id);
   emit(s, room.workspace_id, "room.deleted", { room_id: room.id }, room.id);
-  emit(s, room.workspace_id, "session.deleted", { session_id: room.id }, room.id);
   return { status: 204 };
 });
 /** markRoomRead — 표식을 **앞으로만** 옮긴다. `room.unread` 는 부른 사람에게만(다른 탭·기기). */
@@ -3153,7 +2967,7 @@ on("POST", "/rooms/{id}/read", (req, p) => {
 // ── 미션(v0.19, T-R2-W2) — listWorks · getWork · createWork · pause/resume/complete/cancel · 귀속(FR-3.1.1) ──
 //
 // 미션은 두 곳에 산다: **옛 세션의 미션**(미션 id = 세션 id, 세션 칸에서 읽는다 — 서버 0025 의 legacy_work_id)과 `createWork` 로 연 미션(`s.works`).
-// 새 방(`createRoom`)은 같은 id 의 **뒷받침 세션**(`s.roomOnly`)을 두어 `/sessions/{방 id}/…` 핸들러가 그대로 돈다 — 그 세션은 미션이 아니다.
+// 새 방(`createRoom`)은 같은 id 의 **뒷받침 세션**(`s.roomOnly`)을 두어 `/rooms/{방 id}/…` 핸들러(메시지·서브 미션·HITL…)가 그대로 돈다 — 그 세션은 미션이 아니다.
 
 type WorkOut = components["schemas"]["Work"];
 const CLOSED_WORK = new Set(["completed", "cancelled"]);
@@ -3252,6 +3066,7 @@ function workGate(s: Store, req: Req, workId: string) {
   return { w, ...g };
 }
 function emitWork(s: Store, w: MockWork & { legacy: boolean }, type: "work.created" | "work.updated") {
+  syncRooms(s); // 시드한 방(옛 세션 모양)은 읽을 때 파생된다 — 아직 안 읽힌 방의 미션도 알린다
   const r = s.rooms.get(w.room_id);
   if (r) emit(s, r.workspace_id, type, toWorkListItem(s, w), w.room_id);
 }
@@ -3267,7 +3082,6 @@ function setWork(s: Store, id: string, patch: Partial<MockWork>) {
     if (patch.paused_reason !== undefined) sess.paused_reason = patch.paused_reason;
     if (patch.finished_at !== undefined) sess.finished_at = patch.finished_at;
     sess.updated_at = t;
-    emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status, paused_reason: sess.paused_reason }, sess.id);
   }
   const v = workView(s, id)!;
   if (patch.status && CLOSED_WORK.has(patch.status)) {
@@ -3347,11 +3161,25 @@ on("POST", "/works/{id}/resume", (req, p) => {
   setWork(s, w.id, { status: "active", paused_reason: null });
   return ok(toWork(s, workView(s, w.id)!, user.id));
 });
+/** 그 미션에 매인 서브 미션 중 아직 끝나지 않은 것(옛 completeSession·cancelSession 이 보던 집합을 미션 단위로). */
+function workLanes(s: Store, workId: string, live: readonly string[]): Lane[] {
+  return [...s.lanes.values()].filter((l) => laneWork(s, l) === workId && live.includes(l.status));
+}
+function stopWorkLanes(s: Store, lanes: Lane[]) {
+  for (const l of lanes) {
+    const sess = s.sessions.get(l.session_id);
+    if (sess) setLaneStatus(s, sess, l.id, { status: "failed", failure_kind: "cancelled", finished_at: now() });
+  }
+}
 on("POST", "/works/{id}/complete", (req, p) => {
   const s = store();
   const { w, user } = workGate(s, req, p.id);
   requireWorkDirector(w, user.id);
   if (CLOSED_WORK.has(w.status)) throw new Problem(409, "invalid_transition", withStatus(W.work_cancel_transition, w.status));
+  // 계약 completeWork(v0.2.4): 실행 중인 서브 미션이 있으면 409 running_lanes(수는 확장 칸) — confirm: true 면 그 서브 미션들을 중단하고 끝낸다.
+  const running = workLanes(s, w.id, ["queued", "running", "waiting_human", "paused"]);
+  if (running.length > 0 && !body<{ confirm?: boolean }>(req).confirm) throw new Problem(409, "running_lanes", W.running_lanes_confirm, { running_lane_count: running.length });
+  stopWorkLanes(s, running);
   setWork(s, w.id, { status: "completed", finished_at: now() });
   return ok(toWork(s, workView(s, w.id)!, user.id));
 });
@@ -3360,6 +3188,8 @@ on("POST", "/works/{id}/cancel", (req, p) => {
   const { w, user } = workGate(s, req, p.id);
   requireWorkDirector(w, user.id);
   if (w.status !== "active" && w.status !== "paused") throw new Problem(409, "invalid_transition", withStatus(W.work_cancel_transition, w.status));
+  // 진행 중 서브 미션을 멈춘다(계약 cancelWork) — 옛 cancelSession 이 하던 일을 미션 단위로.
+  stopWorkLanes(s, workLanes(s, w.id, ["queued", "running", "waiting_human", "paused", "blocked"]));
   setWork(s, w.id, { status: "cancelled", finished_at: now() });
   return ok(toWork(s, workView(s, w.id)!, user.id));
 });
