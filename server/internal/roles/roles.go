@@ -17,14 +17,13 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 )
 
-// all is every ColabCommand in colab-cli.md §2 order — what `lead` and
-// `custom` get, and the order every role's list is emitted in.
-var all = []gen.ColabCommand{
-	gen.ColabCommandSessionGet, gen.ColabCommandSessionMessages, gen.ColabCommandMessagePost, gen.ColabCommandStatusSet, gen.ColabCommandDecisionRecord,
-	gen.ColabCommandLaneDelegate, gen.ColabCommandArtifactSubmit, gen.ColabCommandArtifactGet, gen.ColabCommandReviewApprove, gen.ColabCommandReviewReject,
-	gen.ColabCommandHitlAsk, gen.ColabCommandHitlApproveRequest, gen.ColabCommandHitlRequestInfo,
-	gen.ColabCommandRoomList, gen.ColabCommandRoomRead, gen.ColabCommandWorkPropose,
-}
+// all is every ColabCommand in contract order — what `lead` and `custom`
+// get, and the order every role's list is emitted in. It is the generated
+// list (scripts/gen_enum_values.sh), not a copy: a command the contract adds
+// reaches every role here without an edit, and §2.5's table test says which
+// roles must be denied it. openapi's enum is written in colab-cli.md §2's
+// order (§2.1 → §2.4a), so the two orders are one.
+var all = gen.ColabCommandValues
 
 // denied is colab-cli.md §2.5 by exception: the commands each role does NOT
 // have. Roles absent here (lead · custom) have everything.

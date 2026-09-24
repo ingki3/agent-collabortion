@@ -32,8 +32,8 @@ REC="$E2E_OUT/fake-records"
 g5_chk_init "$OUT/82-checks.tsv"
 cleanup() { [ -n "${TAP_PID:-}" ] && kill "$TAP_PID" 2>/dev/null || true; daemon_stop "$OUT/daemon-82.pid"; return 0; }
 trap cleanup EXIT
-LEAD_ALL="session_get,session_messages,message_post,status_set,decision_record,lane_delegate,artifact_submit,artifact_get,review_approve,review_reject,hitl_ask,hitl_approve_request,hitl_request_info,room_list,room_read,work_propose"
-REVIEWER_ALL="session_get,session_messages,message_post,status_set,decision_record,artifact_get,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read"
+LEAD_ALL="session_get,session_messages,artifact_get,message_post,status_set,decision_record,lane_delegate,artifact_submit,review_approve,review_reject,hitl_ask,hitl_approve_request,hitl_request_info,room_list,room_read,work_propose"
+REVIEWER_ALL="session_get,session_messages,artifact_get,message_post,status_set,decision_record,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read"
 DENY_LINE="이 역할은 위임 · 아티팩트 제출 · 완료 승인 요청 · 미션 제안을 쓰지 않는다."
 
 # tok_api TOKEN METHOD PATH [JSON] → 본문 + 마지막 줄 코드 (task 토큰으로, 서버에 직접 — 탭을 거치지 않는다)

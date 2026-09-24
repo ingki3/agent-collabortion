@@ -719,7 +719,7 @@ func reusedSessionSummaries(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID)
 func briefDecisionLog(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT summary, COALESCE(rationale, ''), source::text, auto, created_at
-		FROM decision WHERE session_id = $1 ORDER BY created_at DESC LIMIT $2`, sessionID, decisionLogLimit)
+		FROM decision WHERE session_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`, sessionID, decisionLogLimit)
 	if err != nil {
 		return "", err
 	}

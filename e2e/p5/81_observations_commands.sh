@@ -69,9 +69,9 @@ finish_turn() { # TASK [STOP_REASON]
 empty_cards() { psqlq "select count(*) from task_event where task_id='$1' and attempt=1 and class='status' and verb='turn_end' and object_ref=to_jsonb('empty_turn'::text) and outcome='info' and payload->'args'->>'note'='아무것도 하지 않고 턴을 끝냈습니다'"; }
 refused_rows() { psqlq "select string_agg(verb||':'||(payload->>'command'), ',' order by seq) from task_event where task_id='$1' and class='status' and outcome='rejected' and payload->>'rejected_reason'='command_not_allowed'"; }
 allowed_of() { api_ok GET "/agents/$1" | jq -r '.allowed_commands|join(",")'; }
-LEAD_ALL="session_get,session_messages,message_post,status_set,decision_record,lane_delegate,artifact_submit,artifact_get,review_approve,review_reject,hitl_ask,hitl_approve_request,hitl_request_info,room_list,room_read,work_propose"
-WRITER_ALL="session_get,session_messages,message_post,status_set,decision_record,artifact_submit,artifact_get,hitl_ask,hitl_request_info,room_list,room_read"
-REVIEWER_ALL="session_get,session_messages,message_post,status_set,decision_record,artifact_get,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read"
+LEAD_ALL="session_get,session_messages,artifact_get,message_post,status_set,decision_record,lane_delegate,artifact_submit,review_approve,review_reject,hitl_ask,hitl_approve_request,hitl_request_info,room_list,room_read,work_propose"
+WRITER_ALL="session_get,session_messages,artifact_get,message_post,status_set,decision_record,artifact_submit,hitl_ask,hitl_request_info,room_list,room_read"
+REVIEWER_ALL="session_get,session_messages,artifact_get,message_post,status_set,decision_record,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read"
 
 step "0. 계정(Director=owner) · 워크스페이스 · 에이전트 Lead·W(writer)·R(reviewer)·C(custom) · 페어링(curl) · probe"
 signup "s19-dir-$RUN@example.com" password123 "Dir" >/dev/null

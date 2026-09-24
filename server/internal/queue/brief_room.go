@@ -173,11 +173,13 @@ func loadRoomBrief(ctx context.Context, tx pgx.Tx, roomID uuid.UUID, workID *uui
 		SELECT wk.title, wk.goal, COALESCE(wk.acceptance_criteria, '{}'), wk.completion_condition, u.display_name
 		FROM work wk JOIN room s ON s.id = wk.room_id
 		JOIN app_user u ON u.id = COALESCE(wk.director_user_id, s.owner_user_id)
-		WHERE wk.id = $1`, *workID).Scan(&m.Title, &m.Goal, &m.Criteria, &tree, &m.Director); err != nil {
+		WHERE wk.id = $1 AND wk.room_id = $2`, *workID, roomID).Scan(&m.Title, &m.Goal, &m.Criteria, &tree, &m.Director); err != nil {
 		if isNoRows(err) {
 			// The mission was deleted under a queued task (work.deleted,
 			// ON DELETE SET NULL has not reached this row yet): the turn is
-			// outside any mission now.
+			// outside any mission now. The room_id guard: a work_id that
+			// points at another room's mission (never written by the server,
+			// only by a hand-edited row) must not leak that mission here.
 			return r, gen.CompletionProgress{}, nil
 		}
 		return r, gen.CompletionProgress{}, fmt.Errorf("queue: brief mission: %w", err)
@@ -275,7 +277,7 @@ func loadRoomHistory(ctx context.Context, tx pgx.Tx, roomID uuid.UUID, workID *u
 	}
 	rows, err := tx.Query(ctx, `
 		SELECT summary, COALESCE(rationale, ''), source::text, auto, created_at
-		FROM decision WHERE session_id = $1 ORDER BY created_at DESC OFFSET $2`, roomID, decisionLogLimit)
+		FROM decision WHERE session_id = $1 ORDER BY created_at DESC, id DESC OFFSET $2`, roomID, decisionLogLimit)
 	if err != nil {
 		return h, err
 	}

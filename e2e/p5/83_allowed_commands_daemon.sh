@@ -105,7 +105,7 @@ chk D.6 completed "$OUTCOME" "task attempt 1 outcome"
 
 # ───────────────────────────── D ─────────────────────────────────────────────
 step "D. 데몬 로그 · MCP argv · 툴 목록 · 에이전트가 인용한 브리프 줄"
-REVIEWER="session_get,session_messages,message_post,status_set,decision_record,artifact_get,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read"
+REVIEWER="session_get,session_messages,artifact_get,message_post,status_set,decision_record,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read"
 chk D.1 1 "$(grep -c "allowed commands: $REVIEWER (denied: lane_delegate,artifact_submit,hitl_approve_request,work_propose)" "$DLOG" || true)" "데몬이 번들 allowed_commands 를 읽음(로그)"
 chk D.2 1 "$(grep -c "^[0-9]*	mcp serve --allow $REVIEWER\$" "$ARGV" || true)" "colab MCP 서버 argv = mcp serve --allow <reviewer 12개> (탭 기록)"
 TOOLS="$(grep -o "colab tools registered: .*" "$DLOG" | tail -1 | sed 's/colab tools registered: //')"
