@@ -217,49 +217,58 @@ func (e BlockedDetailNextApproverRole) Valid() bool {
 
 // Defines values for ColabCommand.
 const (
-	ArtifactGet        ColabCommand = "artifact_get"
-	ArtifactSubmit     ColabCommand = "artifact_submit"
-	DecisionRecord     ColabCommand = "decision_record"
-	HitlApproveRequest ColabCommand = "hitl_approve_request"
-	HitlAsk            ColabCommand = "hitl_ask"
-	HitlRequestInfo    ColabCommand = "hitl_request_info"
-	LaneDelegate       ColabCommand = "lane_delegate"
-	MessagePost        ColabCommand = "message_post"
-	ReviewApprove      ColabCommand = "review_approve"
-	ReviewReject       ColabCommand = "review_reject"
-	SessionGet         ColabCommand = "session_get"
-	SessionMessages    ColabCommand = "session_messages"
-	StatusSet          ColabCommand = "status_set"
+	ColabCommandArtifactGet        ColabCommand = "artifact_get"
+	ColabCommandArtifactSubmit     ColabCommand = "artifact_submit"
+	ColabCommandDecisionRecord     ColabCommand = "decision_record"
+	ColabCommandHitlApproveRequest ColabCommand = "hitl_approve_request"
+	ColabCommandHitlAsk            ColabCommand = "hitl_ask"
+	ColabCommandHitlRequestInfo    ColabCommand = "hitl_request_info"
+	ColabCommandLaneDelegate       ColabCommand = "lane_delegate"
+	ColabCommandMessagePost        ColabCommand = "message_post"
+	ColabCommandReviewApprove      ColabCommand = "review_approve"
+	ColabCommandReviewReject       ColabCommand = "review_reject"
+	ColabCommandRoomList           ColabCommand = "room_list"
+	ColabCommandRoomRead           ColabCommand = "room_read"
+	ColabCommandSessionGet         ColabCommand = "session_get"
+	ColabCommandSessionMessages    ColabCommand = "session_messages"
+	ColabCommandStatusSet          ColabCommand = "status_set"
+	ColabCommandWorkPropose        ColabCommand = "work_propose"
 )
 
 // Valid indicates whether the value is a known member of the ColabCommand enum.
 func (e ColabCommand) Valid() bool {
 	switch e {
-	case ArtifactGet:
+	case ColabCommandArtifactGet:
 		return true
-	case ArtifactSubmit:
+	case ColabCommandArtifactSubmit:
 		return true
-	case DecisionRecord:
+	case ColabCommandDecisionRecord:
 		return true
-	case HitlApproveRequest:
+	case ColabCommandHitlApproveRequest:
 		return true
-	case HitlAsk:
+	case ColabCommandHitlAsk:
 		return true
-	case HitlRequestInfo:
+	case ColabCommandHitlRequestInfo:
 		return true
-	case LaneDelegate:
+	case ColabCommandLaneDelegate:
 		return true
-	case MessagePost:
+	case ColabCommandMessagePost:
 		return true
-	case ReviewApprove:
+	case ColabCommandReviewApprove:
 		return true
-	case ReviewReject:
+	case ColabCommandReviewReject:
 		return true
-	case SessionGet:
+	case ColabCommandRoomList:
 		return true
-	case SessionMessages:
+	case ColabCommandRoomRead:
 		return true
-	case StatusSet:
+	case ColabCommandSessionGet:
+		return true
+	case ColabCommandSessionMessages:
+		return true
+	case ColabCommandStatusSet:
+		return true
+	case ColabCommandWorkPropose:
 		return true
 	default:
 		return false
@@ -2483,7 +2492,7 @@ type ColabCLI struct {
 	Version string `json:"version"`
 }
 
-// ColabCommand colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19.
+// ColabCommand colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19. v0.2.13(R3): room_list · room_read · work_propose.
 type ColabCommand string
 
 // CompletionAtom defines model for CompletionAtom.
