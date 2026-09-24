@@ -60,8 +60,8 @@ var Tools = []Tool{
 	},
 	{
 		Name:        "colab_room_messages",
-		Description: "Read this room's messages (author, body, thread, time). Use when the history in your prompt is truncated; `work` keeps one mission's messages. Same as `colab room messages [--since --limit --thread --work]`.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"room":{"type":"string","description":"room id (default: this turn's room)"},"since":{"type":"string","description":"only messages newer than this cursor / message id (sent as the after= query parameter)"},"limit":{"type":"integer","minimum":1,"maximum":200,"description":"1..200; omit for the server default (50)"},"thread":{"type":"string","description":"thread root message id: returns root + replies"},"work":{"type":"string","description":"mission id: only that mission's messages"}},"additionalProperties":false}`),
+		Description: "Read this room's messages (author, body, parent_id, time). Thread replies are included (parent_id = the thread root); set `top_only` for the main timeline alone. Use when the history in your prompt is truncated; `work` keeps one mission's messages. Same as `colab room messages [--since --limit --thread --work --top-only]`.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"room":{"type":"string","description":"room id (default: this turn's room)"},"since":{"type":"string","description":"only messages newer than this cursor / message id (sent as the after= query parameter)"},"limit":{"type":"integer","minimum":1,"maximum":200,"description":"1..200; omit for the server default (50)"},"thread":{"type":"string","description":"thread root message id: returns root + replies"},"work":{"type":"string","description":"mission id: only that mission's messages"},"top_only":{"type":"boolean","description":"main timeline only; thread replies are included by default"}},"additionalProperties":false}`),
 	},
 	{
 		Name:        "colab_message_post",

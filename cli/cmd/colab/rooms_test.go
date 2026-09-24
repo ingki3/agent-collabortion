@@ -135,6 +135,23 @@ func TestRoomGetAndMessages(t *testing.T) {
 	if q := s.Requests[len(s.Requests)-1].URL.Query(); q.Get("work_id") != "w2" || q.Get("limit") != "10" {
 		t.Fatalf("query = %v", q)
 	}
+	// v0.9.1: thread replies come by default (parent_id shown); --top-only
+	// is the main timeline alone.
+	s.Messages = []map[string]any{{"id": "m1", "parent_id": nil}, {"id": "r1", "parent_id": "m1"}}
+	code, v, _ = exec(t, env, "room", "messages")
+	if code != 0 || v["included"] != float64(2) || v["items"].([]any)[1].(map[string]any)["parent_id"] != "m1" {
+		t.Fatalf("default must include replies: exit %d %v", code, v)
+	}
+	if q := s.Requests[len(s.Requests)-1].URL.Query(); q.Get("include_replies") != "true" {
+		t.Fatalf("default query = %v", q)
+	}
+	code, v, _ = exec(t, env, "room", "messages", "--top-only")
+	if code != 0 || v["included"] != float64(1) || v["items"].([]any)[0].(map[string]any)["id"] != "m1" {
+		t.Fatalf("--top-only: exit %d %v", code, v)
+	}
+	if q := s.Requests[len(s.Requests)-1].URL.Query(); q.Get("include_replies") != "false" {
+		t.Fatalf("--top-only query = %v", q)
+	}
 	// Gated as room_get: a list without it refuses before any request.
 	env[client.EnvAllowedCommands] = "room_list"
 	n := len(s.Requests)

@@ -200,6 +200,16 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			items = f
+		} else if q.Get("include_replies") == "false" {
+			// openapi listMessages: without include_replies only top-level
+			// messages (the server's default; the CLI sends it explicitly).
+			var f []map[string]any
+			for _, m := range items {
+				if m["parent_id"] == nil {
+					f = append(f, m)
+				}
+			}
+			items = f
 		}
 		if after := q.Get("after"); after != "" {
 			var f []map[string]any

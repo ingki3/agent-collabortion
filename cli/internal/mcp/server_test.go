@@ -148,6 +148,16 @@ func TestRoundTrip(t *testing.T) {
 	if msgs.Error != nil || msgs.Result["structuredContent"].(map[string]any)["included"] != float64(1) {
 		t.Fatalf("messages = %+v", msgs)
 	}
+	if q := s.Requests[len(s.Requests)-1].URL.Query(); q.Get("include_replies") != "true" {
+		t.Fatalf("colab_room_messages default must include replies (v0.9.1): %v", q)
+	}
+	top := c.call("tools/call", map[string]any{"name": "colab_room_messages", "arguments": map[string]any{"top_only": true}})
+	if top.Error != nil || top.Result["isError"] == true {
+		t.Fatalf("top_only = %+v", top)
+	}
+	if q := s.Requests[len(s.Requests)-1].URL.Query(); q.Get("include_replies") != "false" {
+		t.Fatalf("top_only query = %v", q)
+	}
 	// N4: explicit limit 0 is a usage error (exit 2 in the error object), not "default".
 	bad := c.call("tools/call", map[string]any{"name": "colab_room_messages", "arguments": map[string]any{"limit": 0}})
 	if bad.Error != nil || bad.Result["isError"] != true {
