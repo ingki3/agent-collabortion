@@ -76,7 +76,7 @@ var sinkFields = map[string]bool{
 
 var sinkMapKeys = map[string]bool{"detail": true, "note": true}
 
-var sinkLocalVars = map[string]bool{"question": true, "detail": true, "note": true, "reason": true, "hint": true, "header": true, "body": true, "summary": true, "title": true}
+var sinkLocalVars = map[string]bool{"msg": true, "question": true, "detail": true, "note": true, "reason": true, "hint": true, "header": true, "body": true, "summary": true, "title": true}
 
 // sinkHelpers 는 사람 문장을 인자로 받는 지역 함수 — 이름 → 문장 인자의 위치들.
 // 패키지 한정자 없이 불리는 것만(pkg == "") 본다.
@@ -553,9 +553,13 @@ func TestNoInternalTerms(t *testing.T) {
 		{"런타임 → 컴퓨터 (산문까지 전부)", regexp.MustCompile(`런타임`)},
 		{"머신 → 컴퓨터", regexp.MustCompile(`머신`)},
 		{"Inbox → 받은 요청", regexp.MustCompile(`\bInbox\b`)},
+		// v0.19 R1.5 (PRD §3.2 · SCREEN §3.4) — 「세션」은 방 또는 미션, 「작업 줄기」는 서브 미션
+		{"세션 → 방 · 미션 (PRD §3.2)", regexp.MustCompile(`세션`)},
+		{"작업 줄기 → 서브 미션 (PRD §3.2)", regexp.MustCompile(`작업\s*줄기`)},
+		{"산출물 → 아티팩트 (PRD §3.2 — 바꾸지 않는다)", regexp.MustCompile(`산출물`)},
 		{"owner·admin → 소유자·관리자", regexp.MustCompile(`\b(owner|admin)\b`)},
 		// 내부 용어 (web/lib/wording.test.ts 의 INTERNAL 과 같은 목록 + 데몬 프로토콜 동사)
-		{"lane → 작업 줄기", regexp.MustCompile(`(?i)\blanes?\b`)},
+		{"lane → 서브 미션", regexp.MustCompile(`(?i)\blanes?\b`)},
 		{"task → 할 일", regexp.MustCompile(`(?i)\btasks?\b`)},
 		{"attempt → 실행", regexp.MustCompile(`(?i)\battempts?\b`)},
 		{"HITL → 확인 요청", regexp.MustCompile(`\bHITL\b`)},
@@ -609,8 +613,8 @@ func TestLoopLimitSentencesAreLocked(t *testing.T) {
 		"주고받기 연쇄가 상한까지 깊어졌습니다",       // LimitText — chain_depth
 		"한 시간에 오간 횟수가 상한에 닿았습니다",     // LimitText — hops_per_hour
 		"두 에이전트가 상한까지 주고받았습니다",       // LimitText — pair_roundtrips
-		"루프 상한에 걸려 세션이 일시정지되었습니다 — ", // PausedText — ErrLoopLimit · Post warning
-		"루프 상한에 도달해 세션을 일시정지했습니다 — ", // QuestionText — the system HITL
+		"루프 상한에 걸려 미션이 일시정지되었습니다 — ", // PausedText — ErrLoopLimit · Post warning
+		"루프 상한에 도달해 미션을 일시정지했습니다 — ", // QuestionText — the system HITL
 		". 계속할까요?",
 	}
 	for _, w := range want {

@@ -19,9 +19,10 @@ import { VERDICT_LABEL, NOT_MEASURABLE } from "@/lib/settings";
 import { transportLabel } from "@/lib/test-chat";
 import { PAGE_COPY, type Screen } from "@/components/PageHead";
 import { NAV_ITEMS } from "@/components/AppNav";
+import { BADGE_MAP } from "@/components/badge-map";
 import { ARCHIVE_DIALOG, CREATE_ROOM, DELETE_ROOM_DIALOG, ROOM_BLOCKED_LABEL, ROOM_DELETED_NOTICE, ROOM_LIST, ROOM_MENU, roomDefaultsLine } from "@/lib/wording";
 import { BLOCK_DIALOG, ROOM_BANNER, ROOM_CENTER, ROOM_HEAD, ROOM_LEFT, ROOM_NOTICES, ROOM_PANEL, ROOM_TABS, SUMMARIZE_DIALOG, WORK_CHIPS, WORK_PANEL, WORK_PAUSE_LABEL, WORK_SELECTOR } from "@/lib/wording";
-import { BLOCKED_REASON, COMMAND_LABEL, CONDITION_EDITOR, CONDITION_NAME, DELETE_DIALOG, EMPTY_TURN, FIX_CONDITION, OBSERVATIONS, PROGRESS, ROLE_COMMANDS, ROUTING_PLATFORM_LABEL, ROUTING_RULE_LABEL, SESSION_DELETED_NOTICE, SESSION_MENU, conditionName, routingKindLabel } from "@/lib/wording";
+import { BLOCKED_REASON, COMMAND_LABEL, CONDITION_EDITOR, CONDITION_NAME, DELETE_DIALOG, EMPTY_TURN, FIX_CONDITION, OBSERVATIONS, PROGRESS, ROLE_COMMANDS, ROUTING_PLATFORM_LABEL, ROUTING_RULE_LABEL, SESSION_MENU, conditionName, routingKindLabel } from "@/lib/wording";
 
 const ROOT = join(__dirname, "..");
 
@@ -58,7 +59,9 @@ export interface Visible {
 
 /** `${cond ? "a" : "b"}` → ` "a" "b" ` — 보간 안의 문자열 리터럴만 남긴다. 리터럴이 없으면 `…`. */
 function keepQuoted(expr: string): string {
-  const quoted = [...expr.matchAll(/"[^"\n]*"|'[^'\n]*'/g)].map((m) => m[0]);
+  // 백틱도 — `${n ? ` · 쓰는 방 ${n}개` : ""}` 처럼 보간 안에 템플릿 리터럴이 겹치면 그 문구가 사각지대였다(R1.5 에서 RuntimeCard 의 「세션」 하나가 여기 숨어 있었다).
+  // 안쪽 백틱은 큰따옴표로 바꿔 남긴다 — 그대로 두면 바깥 템플릿의 백틱과 짝이 어긋나 가운데 문구가 두 리터럴 사이로 빠진다.
+  const quoted = [...expr.matchAll(/"[^"\n]*"|'[^'\n]*'|`[^`\n]*`/g)].map((m) => (m[0].startsWith("`") ? `"${m[0].slice(1, -1)}"` : m[0]));
   return quoted.length ? ` ${quoted.join(" ")} ` : "…";
 }
 
@@ -166,9 +169,13 @@ describe("§8.4 용어표 — 옛말이 화면 문자열에 0건", () => {
   const ROWS: [string, RegExp][] = [
     ["Workdir 관리 → 작업 폴더", /Workdir|workdir/],
     ["실행 중 task 0 → 지금 하는 일 없음", /실행 중 task/],
-    ["걸린 세션 → 쓰는 중인 세션", /걸린 세션/],
+    ["걸린 세션 → 쓰는 중인 방", /걸린 세션/],
     ["Runtimes → 연결된 컴퓨터", /\bRuntimes\b/],
-    ["Sessions → 세션", /\bSessions\b/],
+    ["Sessions → 방", /\bSessions\b/],
+    // v0.19 R1.5 (PRD §3.2 · SCREEN §3.4) — 「세션」은 문맥에 따라 방 또는 미션, 「작업 줄기」는 서브 미션
+    ["세션 → 방 · 미션", /세션/],
+    ["작업 줄기 → 서브 미션", /작업\s*줄기/],
+    ["산출물 → 아티팩트 (바꾸지 않는다 — PRD §3.2)", /산출물/],
     ["Inbox → 받은 요청", /\bInbox\b/],
     ["Agents → 에이전트", /\bAgents\b/],
     ["Settings → 설정", /\bSettings\b/],
@@ -182,10 +189,52 @@ describe("§8.4 용어표 — 옛말이 화면 문자열에 0건", () => {
   }
 });
 
+// ── R1.5 — PRD §3.2 화면 용어(Director 확정 2026-09-23) · SCREEN §3.4(d) 다섯 가지 ─────────────────
+// 1 은 위 §8.4 표의 행(세션 · 작업 줄기 · 산출물 · 걸린 세션)이 잰다. 여기는 2~5 — 「옛말 0건」만 재면 문구가 통째로 사라져도 초록이다.
+describe("R1.5 화면 용어 — 방 · 미션 · 서브 미션 · 할 일 (PRD §3.2 · SCREEN §3.4(d))", () => {
+  const inPool = (file: string, text: string) => POOL.some((v) => v.file === file && v.text.includes(text));
+
+  it("(2) 새말이 실제로 쓰인다 — 방 · 미션 · 서브 미션 · 아티팩트 · 할 일 · 작업 폴더 · 결정 기록", () => {
+    for (const w of ["방", "미션", "서브 미션", "아티팩트", "할 일", "작업 폴더", "결정 기록"]) {
+      expect(POOL.filter((v) => v.text.includes(w)).length, w).toBeGreaterThan(0);
+    }
+    // 제자리: 내비의 「방」 · 방 머리의 세 층 요약(§3.2 「미션 3개 · 서브 미션 5개 · 할 일 12개」) · 서브 미션 보드 · S21 의 제출자.
+    expect(NAV_ITEMS.map((i) => i.label)).toContain("방");
+    expect([ROOM_HEAD.layer_works[0], ROOM_HEAD.layer_lanes[0], ROOM_HEAD.layer_tasks[0]]).toEqual(["미션 ", "서브 미션 ", "할 일 "]);
+    expect(inPool("components/LaneBoard.tsx", "서브 미션이 하나 생깁니다")).toBe(true);
+    expect(inPool("components/Composer.tsx", "새 서브 미션으로 보내기")).toBe(true);
+    expect(CONDITION_NAME.artifact_submitted).toBe("아티팩트 제출");
+    expect(COMMAND_LABEL).toMatchObject({ session_get: "방 읽기", artifact_get: "아티팩트 읽기", artifact_submit: "아티팩트 제출" });
+  });
+
+  it("(3) 「일」 단독을 층 이름으로 쓰지 않는다 — 「일 밖」·「일 하나당」·「동시에 맡는 일」은 할 일/미션 중 무엇인지 말하지 않는다", () => {
+    expect(hits(/(?<!할 )(?<![가-힣])일 (밖|하나당|하나의)|동시에 맡(을 수 있|)는 일(?![가-힣])|(?<![가-힣])새 일(?![가-힣])|그 이상의 일(?![가-힣])/)).toEqual([]);
+  });
+
+  it("(5) 「멈춤」은 방, 「일시정지」는 미션·서브 미션·할 일 — 층이 섞이지 않는다", () => {
+    for (const t of Object.values(ROOM_BLOCKED_LABEL)) {
+      expect(t).toMatch(/멈춤/);
+      expect(t).not.toMatch(/일시정지/);
+    }
+    for (const t of Object.values(ROOM_BANNER).flat()) expect(t).not.toMatch(/일시정지/);
+    for (const kind of ["lane", "task", "session", "work"] as const) {
+      expect((BADGE_MAP[kind] as Record<string, { label: string }>).paused?.label, kind).toBe("일시정지");
+    }
+    for (const t of Object.values(WORK_PAUSE_LABEL)) expect(t).not.toMatch(/멈춤/);
+    // U12 가 못박은 배지 둘은 그대로다(§3.4(b) 「그대로 둔다」).
+    expect(sessionBadgeLabel({ status: "paused", paused_reason: "runtime_offline", running_lane_count: 0 })).toBe("일시정지 · 컴퓨터 연결 끊김");
+  });
+
+  it("같은 사유는 같은 말 — 방 배너·S17 상황 문장이 「오프라인」 대신 「연결이 끊겼습니다」(SCREEN §3.4(b) 마지막 행)", () => {
+    expect([ROOM_BANNER.runtime_offline.join(""), ROOM_BANNER.runtime_offline_plain].every((t) => t.includes("연결이 끊겼습니다"))).toBe(true);
+    expect(hits(/오프라인입니다|일간 오프라인/)).toEqual([]);
+  });
+});
+
 // ── 내부 용어가 화면에 새지 않는다 ────────────────────────────────────────
 describe("내부 용어는 각 화면의 말로", () => {
   const INTERNAL: [string, RegExp][] = [
-    ["lane → 작업 줄기", /\blane\b/i],
+    ["lane → 서브 미션", /\blane\b/i],
     ["task → 할 일", /\btask\b/i],
     ["attempt → 실행", /\battempt\b/i],
     ["HITL → 사람 확인", /\bHITL\b/],
@@ -285,6 +334,11 @@ describe("보간식 안의 문구도 풀에 든다 (NN1)", () => {
     expect(v.some((x) => /\bpaused\b/.test(x.text))).toBe(false);
   });
 
+  it("보간 안에 겹친 템플릿 리터럴의 문구도 풀에 든다 (R1.5 — RuntimeCard 의 「세션」이 여기 숨어 있었다)", () => {
+    const v = visibleStrings("x.tsx", "const t = `${a} · 만료${n ? ` · 이 컴퓨터를 쓰는 세션 ${n}개` : \"\"}`;");
+    expect(v.some((x) => x.text.includes("이 컴퓨터를 쓰는 세션"))).toBe(true);
+  });
+
   it("실제 소스에서 보간식 안에 사는 문구가 풀에 있다", () => {
     // RebindDialog 의 확인 버튼 — `${chosen.runtime.name} 으로 옮기기` 는 식별자와 문구가 한 리터럴에 섞인 예다.
     expect(POOL.some((v) => v.file === "components/RebindDialog.tsx" && /으로 옮기기/.test(v.text))).toBe(true);
@@ -303,7 +357,7 @@ describe("새 문구의 존재 — 옛말 0건만으로는 안 잰다 (NN4)", ()
     expect(inPool("components/AppNav.tsx", "연결된 컴퓨터")).toBe(true);
     expect(inPool("components/AppNav.tsx", "받은 요청")).toBe(true);
     expect(inPool("app/(app)/runtimes/page.tsx", "작업 폴더")).toBe(true);
-    expect(inPool("app/(app)/runtimes/page.tsx", "쓰는 중인 세션")).toBe(true);
+    expect(inPool("app/(app)/runtimes/page.tsx", "쓰는 중인 방")).toBe(true);
     expect(inPool("app/(app)/runtimes/page.tsx", "컴퓨터 연결")).toBe(true);
     expect(inPool("components/RuntimeCard.tsx", "도구 제한을 걸 수 없는 컴퓨터입니다")).toBe(true);
   });
@@ -311,7 +365,6 @@ describe("새 문구의 존재 — 옛말 0건만으로는 안 잰다 (NN4)", ()
   // §8.5 — 화면 제목 아래 한 줄 설명. 표(PAGE_COPY)에만 있고 화면이 안 쓰면 없는 것과 같다.
   const PAGE_FILES: Record<Screen, string> = {
     rooms: "app/(app)/rooms/RoomsView.tsx",
-    sessions: "app/(app)/sessions/page.tsx",
     inbox: "app/(app)/inbox/page.tsx",
     agents: "app/(app)/agents/page.tsx",
     computers: "app/(app)/runtimes/page.tsx",
@@ -320,17 +373,16 @@ describe("새 문구의 존재 — 옛말 0건만으로는 안 잰다 (NN4)", ()
   const SCREENS = Object.keys(PAGE_COPY) as Screen[];
 
   it("화면 설명이 §8.4 의 말이고 한 줄이다", () => {
-    // v0.19 (T-R2-W1): 「방」(rooms)이 S5 다. 옛 「세션」(sessions)은 `/sessions` → `/rooms` 307 이라 내비에 없고, 문구 전환(R1.5)이 행째 지운다.
-    expect(SCREENS.sort()).toEqual(["agents", "computers", "inbox", "rooms", "sessions", "settings"]);
+    // v0.19 (T-R2-W1): 「방」(rooms)이 S5 다. 옛 「세션」(sessions) 행은 `/sessions` → `/rooms` 307 뒤 문구 전환(R1.5)이 옛 화면과 함께 지웠다.
+    expect(SCREENS.sort()).toEqual(["agents", "computers", "inbox", "rooms", "settings"]);
     for (const k of SCREENS) {
       const { title, desc } = PAGE_COPY[k];
       expect(desc.length).toBeGreaterThanOrEqual(15);
       expect(desc.length).toBeLessThanOrEqual(60);
       expect(desc).not.toMatch(/\n/);
       expect(desc).toMatch(/[가-힣]/);
-      // 제목은 내비 라벨과 같은 말 — 메뉴에서 누른 것과 화면에 적힌 것이 다르면 안 된다. 내비에서 빠진 옛 S5 만 예외다.
-      if (k === "sessions") expect(NAV_ITEMS.map((i) => i.label)).not.toContain(title);
-      else expect(NAV_ITEMS.map((i) => i.label)).toContain(title);
+      // 제목은 내비 라벨과 같은 말 — 메뉴에서 누른 것과 화면에 적힌 것이 다르면 안 된다.
+      expect(NAV_ITEMS.map((i) => i.label)).toContain(title);
       // 설명은 문구 풀에 들어 있어야 자물쇠(옛말 0건)가 본다.
       expect(inPool("components/PageHead.tsx", desc)).toBe(true);
     }
@@ -372,7 +424,7 @@ describe("새 문구의 존재 — 옛말 0건만으로는 안 잰다 (NN4)", ()
   });
 
   it("시험 대화 — '세션이 아니다' 안내 한 줄과 잠금 사유가 화면에 있다", () => {
-    expect(inPool("components/TestChatPanel.tsx", "세션이 아닙니다")).toBe(true);
+    expect(inPool("components/TestChatPanel.tsx", "방이 아닙니다")).toBe(true);
     expect(inPool("lib/test-chat.ts", "답을 기다리는 중입니다")).toBe(true);
     expect(inPool("lib/test-chat.ts", "닫힌 시험 대화입니다")).toBe(true);
   });
@@ -407,8 +459,8 @@ describe("새 문구의 존재 — 옛말 0건만으로는 안 잰다 (NN4)", ()
 
   // T-W13 — S5 카드 옵션(…) · 삭제 확인 다이얼로그(SCREEN §4.3 · §5). 표(lib/wording.ts)에만 있고 화면이 안 그리면 없는 것과 같다.
   it("카드 옵션 — 메뉴 항목 둘 · 비활성 사유 둘(SCREEN §4.3 문장 그대로)이 표에 있고 메뉴가 그 표를 그린다", () => {
-    expect(SESSION_MENU).toMatchObject({ button: "세션 옵션", open: "세션 열기", delete: "삭제" });
-    expect(SESSION_MENU.blocked_active).toBe("진행 중인 세션은 먼저 종료하세요");
+    expect(SESSION_MENU).toMatchObject({ button: "방 옵션", open: "방 열기", delete: "삭제" });
+    expect(SESSION_MENU.blocked_active).toBe("진행 중인 미션은 먼저 종료하세요");
     expect(SESSION_MENU.blocked_role).toBe("Director 나 소유자·관리자만 삭제할 수 있습니다");
     for (const t of Object.values(SESSION_MENU)) expect(inPool("lib/wording.ts", t)).toBe(true);
     const menu = readFileSync(join(ROOT, "components/SessionCardMenu.tsx"), "utf8");
@@ -426,7 +478,7 @@ describe("새 문구의 존재 — 옛말 0건만으로는 안 잰다 (NN4)", ()
   it("삭제 다이얼로그 — §5 규칙(무엇이 사라지는지 · 되돌릴 수 없음 · 이 컴퓨터의 작업 폴더)과 409 머리말·S13 링크가 표에 있고 다이얼로그가 그 표를 그린다", () => {
     expect(DELETE_DIALOG.title("X")).toContain("X");
     expect(DELETE_DIALOG.loses).toMatch(/메시지/);
-    expect(DELETE_DIALOG.loses).toMatch(/작업 줄기/);
+    expect(DELETE_DIALOG.loses).toMatch(/서브 미션/);
     expect(DELETE_DIALOG.loses).toMatch(/아티팩트/);
     expect(DELETE_DIALOG.loses).toMatch(/비용 기록/);
     expect(DELETE_DIALOG.irreversible).toMatch(/되돌릴 수 없습니다/);
@@ -442,20 +494,12 @@ describe("새 문구의 존재 — 옛말 0건만으로는 안 잰다 (NN4)", ()
     expect(dlg).toMatch(/Link href=\{workdirsHref\(session\.runtime_id\)\}/); // S13 링크
   });
 
-  it("S7 → S5 안내 한 줄이 표에 있고 두 화면이 그 표를 쓴다", () => {
-    expect(SESSION_DELETED_NOTICE.elsewhere("X")).toContain("X");
-    expect(SESSION_DELETED_NOTICE.mine("X")).toContain("X");
-    const s5 = readFileSync(join(ROOT, PAGE_FILES.sessions), "utf8");
-    expect(s5).toContain("SESSION_DELETED_NOTICE.elsewhere(");
-    expect(s5).toContain("SESSION_DELETED_NOTICE.mine(");
+  it("S7 이 지워진 세션을 알아챈다 — 옛 S5 안내 표(SESSION_DELETED_NOTICE)는 옛 화면과 함께 지웠다(R1.5, 방 목록은 ROOM_DELETED_NOTICE)", () => {
     expect(readFileSync(join(ROOT, "app/(app)/sessions/[id]/page.tsx"), "utf8")).toMatch(/case "session\.deleted"/);
   });
 
   it("비활성 사유가 버튼 근처에 있다 — title 만으로는 안 된다 (§8.5)", () => {
-    const sessions = readFileSync(join(ROOT, PAGE_FILES.sessions), "utf8");
     const runtimes = readFileSync(join(ROOT, PAGE_FILES.computers), "utf8");
-    expect(sessions).toMatch(/<DisabledHint id="new-session-hint">/);
-    expect(sessions).toMatch(/aria-describedby=\{noRuntime \? "new-session-hint"/);
     expect(runtimes).toMatch(/<DisabledHint id="add-computer-hint">/);
     expect(runtimes).toMatch(/aria-describedby=\{!canManage \? "add-computer-hint"/);
   });
@@ -467,17 +511,19 @@ describe("종료 조건 — 이름은 사람 말이고 한곳(lib/wording.ts)에
   const src = (f: string) => readFileSync(join(ROOT, f), "utf8");
 
   it("계약 enum 넷 + v1.1 하나의 이름이 SCREEN §4.4 의 말이다 — 보고서 제출 · Director 승인 · <에이전트> 의 검토 승인 · 수동 종료", () => {
-    expect(CONDITION_NAME).toEqual({ artifact_submitted: "보고서 제출", agent_approval: "에이전트 검토 승인", user_approval: "Director 승인", manual: "수동 종료", criteria_met: "성공 기준 충족" });
+    expect(CONDITION_NAME).toEqual({ artifact_submitted: "아티팩트 제출", agent_approval: "에이전트 검토 승인", user_approval: "Director 승인", manual: "수동 종료", criteria_met: "성공 기준 충족" });
     expect(conditionName("agent_approval", "Lead")).toBe("Lead 의 검토 승인");
     expect(conditionName("agent_approval", null)).toBe("에이전트 검토 승인");
     for (const t of Object.values(CONDITION_NAME)) expect(inPool("lib/wording.ts", t)).toBe(true);
   });
 
-  it("옛 이름(아티팩트 제출 · 에이전트 승인)과 계약 enum 이 화면 문자열에 없다 — CONDITION_LABEL 표는 사라졌다", () => {
-    expect(hits(/아티팩트 제출|에이전트 승인(?!을)/, (v) => v.file === "lib/wording.ts" && /검토 승인/.test(v.text))).toEqual([]);
+  it("옛 이름(보고서 제출 · 에이전트 승인)과 계약 enum 이 화면 문자열에 없다 — CONDITION_LABEL 표는 사라졌다", () => {
+    // R1.5(#303 NN1 · SCREEN §4.5): artifact_submitted 의 이름은 「아티팩트 제출」이다(PRD §3.2 — 아티팩트가 정본). T-W15 의 「보고서 제출」이 옛말이 됐다.
+    expect(hits(/보고서 제출|에이전트 승인(?!을)/, (v) => v.file === "lib/wording.ts" && /검토 승인/.test(v.text))).toEqual([]);
     // 조건 이름을 손으로 다시 적은 자리가 없다 — 이름은 conditionName 하나에서만.
     for (const f of ["components/ConditionRow.tsx", "components/ConditionEditor.tsx", "components/SessionAside.tsx", "components/CreateWorkDialog.tsx", "components/WorkEditDialogs.tsx", "components/FixConditionDialog.tsx"]) {
       expect(src(f)).not.toMatch(/CONDITION_LABEL/);
+      expect(src(f)).not.toContain('"아티팩트 제출"');
       expect(src(f)).not.toContain('"보고서 제출"');
       expect(src(f)).not.toContain('"Director 승인"');
     }
@@ -496,8 +542,8 @@ describe("종료 조건 — 이름은 사람 말이고 한곳(lib/wording.ts)에
     expect(PROGRESS.user_approval_next).toBe("받은 요청에서 승인하세요");
     expect(PROGRESS.turn("Lead")).toBe("Lead 차례");
     expect(PROGRESS.summary(["Director 승인"], 1, "and")).toBe("남은 것: Director 승인 1개 · 막힘 1개");
-    expect(PROGRESS.summary(["보고서 제출", "Director 승인"], 0, "and")).toBe("남은 것: 보고서 제출 1개 · Director 승인 1개"); // 2개 이상도 같은 어순(W-20)
-    expect(PROGRESS.summary(["보고서 제출", "Director 승인"], 0, "or")).toBe("남은 것: 보고서 제출 1개 · Director 승인 1개 — 하나만 충족하면 끝");
+    expect(PROGRESS.summary(["아티팩트 제출", "Director 승인"], 0, "and")).toBe("남은 것: 아티팩트 제출 1개 · Director 승인 1개"); // 2개 이상도 같은 어순(W-20)
+    expect(PROGRESS.summary(["아티팩트 제출", "Director 승인"], 0, "or")).toBe("남은 것: 아티팩트 제출 1개 · Director 승인 1개 — 하나만 충족하면 끝");
     expect(PROGRESS.summary(["Director 승인"], 0, "single")).toBe("남은 것: Director 승인 1개");
     expect(PROGRESS.met_by("Writer", "9/13")).toBe("Writer, 9/13");
     for (const t of [PROGRESS.user_approval_next, PROGRESS.manual_next, PROGRESS.summary_satisfied, PROGRESS.summary_completed, PROGRESS.blocked_director, PROGRESS.blocked_member]) expect(inPool("lib/wording.ts", t)).toBe(true);
@@ -558,7 +604,8 @@ describe("v1.1 — 관찰 표·허용 명령·빈 턴의 말은 한곳(lib/wordi
     expect(hits(new RegExp(`\\b(${names.join("|")})\\b`))).toEqual([]);
     // 화면은 이 표만 그린다 — 컴포넌트에 명령의 사람 말 리터럴이 없다.
     for (const f of ["components/RoleCommands.tsx", "lib/commands.ts", "app/(app)/agents/[id]/page.tsx", "app/(app)/agents/new/page.tsx"]) {
-      expect(src(f)).not.toContain('"산출물 제출"');
+      expect(src(f)).not.toContain('"아티팩트 제출"');
+      expect(src(f)).not.toContain('"보고서 제출"');
       expect(src(f)).not.toContain('"위임"');
     }
   });
