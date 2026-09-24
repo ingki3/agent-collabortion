@@ -160,7 +160,7 @@ func TestKnownIsAllNotLabels(t *testing.T) {
 func TestCLINamesAndParticles(t *testing.T) {
 	for cmd, want := range map[string]string{
 		"lane_delegate": "lane delegate", "hitl_approve_request": "hitl approve-request",
-		"hitl_request_info": "hitl request-info", "room_get": "session get", "brand_new": "brand new",
+		"hitl_request_info": "hitl request-info", "room_get": "room get", "brand_new": "brand new",
 	} {
 		if got := CLIName(cmd); got != want {
 			t.Errorf("CLIName(%s)=%q want %q", cmd, got, want)

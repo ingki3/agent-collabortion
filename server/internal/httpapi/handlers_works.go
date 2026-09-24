@@ -24,6 +24,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/rooms"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
+	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
 )
 
 // Missions (openapi 0.2.x `works` tag — PRD v0.19 FR-2A · FR-3.1.1 · FR-5.3 ·
@@ -468,6 +469,15 @@ func (s *Server) openWork(ctx context.Context, tx pgx.Tx, a *rooms.Access, u *ge
 	}
 	if blocked != nil {
 		return uuid.Nil, apperr.Conflict("room_blocked", "이 방은 멈춰 있습니다 — 방을 다시 움직인 뒤 미션을 열어 주세요")
+	}
+	// FR-6.4 last bullet / E13-16: the disk quota gates MISSION CREATION, not
+	// the workdir's creation (openapi createWork, v0.3.0 — moved here with
+	// createSession's removal). Blocking later would mean the agents are
+	// already at work; here "정리해 주세요" is still an answer.
+	if v, err := s.workdirQuota(ctx, tx, a.WorkspaceID); err != nil {
+		return uuid.Nil, err
+	} else if v.Blocked {
+		return uuid.Nil, apperr.Conflict(v.Code, v.Detail)
 	}
 	draft := in.Draft != nil && *in.Draft
 	if !draft {
@@ -1498,4 +1508,26 @@ func workDuration(d time.Duration) string {
 		}
 	}
 	return out
+}
+
+// workdirQuota is E13-16's gate: the workspace's machines already hold
+// `workdir_disk_quota_gb`, so a new mission would grow a disk nobody can clear
+// without a person acting first.
+func (s *Server) workdirQuota(ctx context.Context, q db.DBTX, wsID uuid.UUID) (workdirs.QuotaVerdict, error) {
+	var quotaGB int
+	if err := q.QueryRow(ctx,
+		`SELECT COALESCE((SELECT workdir_disk_quota_gb FROM workspace_settings WHERE workspace_id = $1), 0)`,
+		wsID).Scan(&quotaGB); err != nil {
+		return workdirs.QuotaVerdict{}, fmt.Errorf("works: workdir quota setting: %w", err)
+	}
+	if quotaGB <= 0 {
+		// The column is `[integer, "null"]` and a null must not mean zero —
+		// that would block every mission in a workspace that never set one.
+		return workdirs.QuotaVerdict{}, nil
+	}
+	used, err := workdirs.RuntimeDiskUsed(ctx, q, wsID)
+	if err != nil {
+		return workdirs.QuotaVerdict{}, err
+	}
+	return workdirs.CheckDiskQuota(used, quotaGB), nil
 }

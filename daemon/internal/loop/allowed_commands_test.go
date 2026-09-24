@@ -89,7 +89,7 @@ func assertRestricted(t *testing.T, s2 string) {
 	if strings.Contains(s2, "lane delegate") || strings.Contains(s2, "colab_lane_delegate") {
 		t.Fatalf("[2] names a denied command:\n%s", s2)
 	}
-	if !strings.Contains(s2, "session get`, `") || !strings.Contains(s2, "message post` (MCP") {
+	if !strings.Contains(s2, "room get`, `") || !strings.Contains(s2, "message post` (MCP") {
 		t.Fatalf("[2] does not list the allowed commands:\n%s", s2)
 	}
 	if !strings.Contains(s2, "- 이 역할은 메시지 읽기 · 아티팩트 읽기 · 상태 알리기 · 결정 기록 · 위임 · 아티팩트 제출 · 검토 승인 · 검토 반려 · 사람에게 질문 · 완료 승인 요청 · 사람에게 정보 요청 · 다른 방 목록 · 다른 방 읽기 · 미션 제안을 쓰지 않는다.") {
