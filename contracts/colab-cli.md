@@ -96,7 +96,7 @@
 
 ## 3. MCP 서버
 
-`colab mcp serve`(stdio). 툴 이름은 명령 경로를 밑줄로: `colab_session_get`, `colab_session_messages`, `colab_message_post`, `colab_status_set`, `colab_decision_record`, `colab_lane_delegate`, `colab_artifact_submit`, `colab_artifact_get`, `colab_review_approve`, `colab_review_reject`, `colab_hitl_ask`, `colab_hitl_approve_request`, `colab_hitl_request_info`(v0.5). 인자·반환은 CLI와 동일한 JSON. 데몬이 `session/new.mcpServers`에 이 서버 하나만 넣는다(`harness.md` §3, `strictMcpConfig`).
+`colab mcp serve`(stdio). 툴 이름은 명령 경로를 밑줄로: `colab_session_get`, `colab_session_messages`, `colab_message_post`, `colab_status_set`, `colab_decision_record`, `colab_lane_delegate`, `colab_artifact_submit`, `colab_artifact_get`, `colab_review_approve`, `colab_review_reject`, `colab_hitl_ask`, `colab_hitl_approve_request`, `colab_hitl_request_info`, `colab_room_get`·`colab_room_messages`(v0.8 — `colab_session_get`·`colab_session_messages` 의 별칭, R4 까지 둘 다), `colab_room_list`, `colab_room_read`, `colab_work_propose`(v0.8)(v0.5). 인자·반환은 CLI와 동일한 JSON. 데몬이 `session/new.mcpServers`에 이 서버 하나만 넣는다(`harness.md` §3, `strictMcpConfig`).
 
 ## 4. 서버 기록
 
