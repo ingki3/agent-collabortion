@@ -2,7 +2,7 @@ package commands
 
 // 데몬의 명령 표를 계약·웹과 대조한다 — 표를 베끼되 늙히지 못하게(T-S13b 방식).
 //
-//   - contracts/openapi.yaml `ColabCommand` enum 16개 = All()
+//   - contracts/openapi.yaml `ColabCommand` enum 16개 = All() (순서까지)
 //   - contracts/colab-cli.md §3 의 툴 이름 목록 = ToolNames() (명령 16 + v0.8 별칭 room_get·room_messages)
 //   - web/lib/wording.ts COMMAND_LABEL = labels (사람 말이 화면과 브리프에서 같아야 한다)
 
@@ -53,8 +53,10 @@ func TestSetMatchesOpenAPIEnum(t *testing.T) {
 	for _, s := range strings.Split(m[1], ",") {
 		want = append(want, strings.TrimSpace(s))
 	}
-	if got := sortedCopy(All()); strings.Join(got, ",") != strings.Join(sortedCopy(want), ",") {
-		t.Fatalf("계약 enum %v\n데몬 표 %v", want, All())
+	// 집합이 아니라 순서까지 — 서버 roles.all(gen.ColabCommandValues) 과 번들 allowed_commands
+	// 가 이 순서라 Denied·브리프 [2] 가 서버와 같은 순서로 나온다(#324 NN1).
+	if got := All(); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("계약 enum 순서 %v\n데몬 표 %v", want, got)
 	}
 	for _, c := range want {
 		if !Known(c) || labels[c] == "" {

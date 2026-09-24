@@ -77,7 +77,8 @@ func TestRestrictedLinesGetTheWrapperPath(t *testing.T) {
 
 // Everything allowed (lead · custom): the list line, no "does not use" line.
 func TestRestrictCommandsEverything(t *testing.T) {
-	all := []string{"session_get", "session_messages", "message_post", "status_set", "decision_record", "lane_delegate", "artifact_submit", "artifact_get", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info", "room_list", "room_read", "work_propose"}
+	// The server's allowed_commands order (openapi enum = gen.ColabCommandValues, #324 NN1).
+	all := []string{"session_get", "session_messages", "artifact_get", "message_post", "status_set", "decision_record", "lane_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info", "room_list", "room_read", "work_propose"}
 	s2 := section2(t, RestrictCommands(serverBrief, all))
 	if !strings.Contains(s2, "`colab lane delegate`") || strings.Contains(s2, "쓰지 않는다") {
 		t.Fatalf("everything-allowed shape wrong:\n%s", s2)

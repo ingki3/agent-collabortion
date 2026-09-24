@@ -37,11 +37,14 @@ const EnvVar = "COLAB_ALLOWED_COMMANDS"
 // argv today (`colab mcp serve` checks only args[1]).
 const AllowFlag = "--allow"
 
-// all is every ColabCommand in colab-cli.md §2 order — the order the brief
-// lists them in, and the order Denied is emitted in.
+// all is every ColabCommand in contracts/openapi.yaml enum order — the order
+// the server's roles table (gen.ColabCommandValues) and so the bundle's
+// allowed_commands use, and the order Denied is emitted in (#324 NN1). The
+// daemon cannot import the server's gen package; TestSetMatchesOpenAPIEnum reads
+// the enum line from the contract and fails when this drifts.
 var all = []string{
-	"session_get", "session_messages", "message_post", "status_set", "decision_record",
-	"lane_delegate", "artifact_submit", "artifact_get", "review_approve", "review_reject",
+	"session_get", "session_messages", "artifact_get", "message_post", "status_set",
+	"decision_record", "lane_delegate", "artifact_submit", "review_approve", "review_reject",
 	"hitl_ask", "hitl_approve_request", "hitl_request_info",
 	"room_list", "room_read", "work_propose",
 }
@@ -89,7 +92,7 @@ var known = func() map[string]bool {
 	return m
 }()
 
-// All is the closed set in §2 order.
+// All is the closed set in openapi enum order.
 func All() []string { return append([]string(nil), all...) }
 
 // Known reports whether cmd is in All().
@@ -143,7 +146,7 @@ var aliases = map[string][]string{
 // Aliases is cmd's second names in enum spelling (`room_get`), nil if none.
 func Aliases(cmd string) []string { return append([]string(nil), aliases[cmd]...) }
 
-// ToolNames is every §3 tool name: ToolName of each command in §2 order, each
+// ToolNames is every §3 tool name: ToolName of each command in All order, each
 // followed by its aliases' tool names.
 func ToolNames() []string {
 	var out []string
@@ -165,7 +168,7 @@ func Label(cmd string) string {
 	return CLIName(cmd)
 }
 
-// Denied is All minus allowed, in §2 order. nil when allowed is empty: an
+// Denied is All minus allowed, in openapi enum order. nil when allowed is empty: an
 // empty list means everything, not nothing (daemon-protocol §4.1 v0.8.2).
 func Denied(allowed []string) []string {
 	if len(allowed) == 0 {

@@ -96,7 +96,10 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	if err != nil {
 		return nil, err
 	}
-	var roster strings.Builder
+	// [5] carries who is in the room; whether each one is working right now
+	// changes turn to turn, so it goes to the turn prompt's <roster_status>
+	// instead — [1]~[5] stay byte-identical (harness v0.9.2, E12-11).
+	var roster, rosterStatus strings.Builder
 	for rows.Next() {
 		var id uuid.UUID
 		var name, role, desc string
@@ -113,7 +116,8 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		if id == t.AgentID {
 			self = " (you)"
 		}
-		fmt.Fprintf(&roster, "- %s%s — %s: %s — mention: %s — status: %s\n", name, self, role, desc, router.MentionLink(name, id), status)
+		fmt.Fprintf(&roster, "- %s%s — %s: %s — mention: %s\n", name, self, role, desc, router.MentionLink(name, id))
+		fmt.Fprintf(&rosterStatus, "- %s: %s\n", name, status)
 	}
 	rows.Close()
 
@@ -313,6 +317,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		plan.HistoryIncluded, plan.HistoryTotal, plan.HistoryTruncated, hist.String())
 	renderRoomHistoryTail(&prompt, missionID, roomHist)
 	prompt.WriteString(renderMissionProgress(room.Mission, progress.Met, progress.Total, progress.Satisfied))
+	fmt.Fprintf(&prompt, "<roster_status>\n%s</roster_status>\n\n", rosterStatus.String())
 	// A re-instruction's trigger IS the new instruction, and `<resumed>` is
 	// absent above — so the same rendering serves both (§8.4, E8-06).
 	fmt.Fprintf(&prompt, "<trigger>\n%s</trigger>\n\n", trigger.String())
