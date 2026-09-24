@@ -79,7 +79,10 @@ router/preview.go:36 · router/delegate.go:57 · router/status.go:61
 - **#311 NN1** — 새 메시지 직후 내비 안 읽음 합계(디바운스 reload)와 목록 카드(즉시 +1)가 잠깐 갈린다. **NN2** — SCREEN 필터 칩 「액션 필요」→「조치 필요」로 맞출 것(R1.5).
 - **#310 NN1** — 「여기까지 정리」 직접 고르기가 타임라인에서 집는 방식이 아니라 다이얼로그 입력 두 칸.
 - ~~#309 NN1·NN2, #311 ①~④·NN3, 계약 문장(방 구독)~~ **닫힘(#312·#313)**. ~~runtime_offline 방 게이트~~ **닫힘(#314·#315)**.
-- **#314 NN1** — `TestMayRebind` 에 `blockedAt == nil` 방장 케이스 한 줄. **NN2** — e2e 63_ 실데몬 회차 1회(단언만 바꿨고 안 돌렸다).
+- ~~**#314 NN1** — `TestMayRebind` 에 `blockedAt == nil` 방장 케이스 한 줄. **NN2** — e2e 63_ 실데몬 회차 1회(단언만 바꿨고 안 돌렸다).~~ **닫힘(#PRNO)** — 63_ 실기 결과는 #PRNO 본문.
+- ~~**#323 NN1** — `loadRoomBrief` 미션 SELECT 가 `wk.room_id` 를 안 본다(task.work_id 가 남의 방 미션이면 [4] 에 그려짐). **NN2** — [7] LIMIT 20 과 ③ OFFSET 20 에 보조 정렬이 없어 같은 created_at 결정이 경계에서 중복·누락.~~ **닫힘(#PRNO)** — `AND wk.room_id = $2`, 두 쿼리 `created_at DESC, id DESC`.
+- ~~**#322 NN1** — `roles.all` 을 따로 적은 슬라이스 대신 생성된 enum 에서.~~ **닫힘(#PRNO)** — `scripts/gen_enum_values.sh` → `gen.ColabCommandValues`(openapi 순서 = colab-cli §2 문서 순서 = 웹 `lib/commands.ts` 순서). 서버가 내보내는 `allowed_commands` 순서가 바뀌었다: `artifact_get` 이 8번째 → 3번째(e2e 81~84 기대값 갱신). ~~83_ 실데몬~~ 결과는 #PRNO 본문.
+- **#PRNO 발견** — ① 데몬 `daemon/internal/commands/commands.go` 의 `all` 이 아직 옛 순서(`artifact_get` 8번째)를 따로 적고 있다 — 서버와 같은 순서로(또는 번들 값을 그대로) 맞출 것. ② `task.work_id` 가 남의 방 미션이면 [4]·②는 이제 막히지만 번들 `task.work_id`·`COLAB_WORK_ID`·예산(`remainingBudget … t.work_id`)은 그 값을 그대로 쓴다(DB 변조 전제라 보고만).
 - ~~#317 NN1·NN2 · CI 10분 시간 초과~~ **닫힘(#318)** — 웹 자물쇠 여러 줄 JSX, 서버 자물쇠 상수 추적, go test -timeout 20m.
 - **R4 로 미룸(Lead 판정 2026-09-24)**: 계약 description 속 「세션」 산문(openapi 약 86곳·daemon-protocol 23곳·colab-cli 6곳, #317 본문 목록). 대부분 R4 까지 별칭으로 사는 옛 `/sessions/*` op 의 설명이라 지금도 사실이고, 서버 테스트 일부가 계약 문장을 글자 단위로 읽는다 — 별칭을 지우는 R4 에서 op 과 함께 고친다.
 - **백로그**: e2e 82 W3·W3b(S7 빈 턴 행, agent-browser 로컬 전용) 가 dev 에서도 68/2 — 기존 결함(#317 보고).
