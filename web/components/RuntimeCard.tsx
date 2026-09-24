@@ -56,7 +56,7 @@ export function capabilityDetails(c: RuntimeCapability): string[] {
  * 오프라인 유예 한 줄(SCREEN §4.8 · U12 1·2 · E14-01·02).
  *
  * "오프라인"만 쓰면 사람은 **언제까지 기다리면 되는지**를 모른다. U12 1단계가 요구하는 문장은
- * `오프라인 · 1일 경과 · 유예 6일 남음` 이고, 유예를 넘기면(E14-02) 남은 시간 대신 **묶인 세션 수와
+ * `오프라인 · 1일 경과 · 유예 6일 남음` 이고, 유예를 넘기면(E14-02) 남은 시간 대신 **묶인 방 수와
  * 재바인딩** 을 말해야 한다 — 그때부터는 기다림이 아니라 선택이 할 일이기 때문이다.
  *
  * `grace_ends_at` 은 서버가 준다(계약 `Runtime.grace_ends_at`). 화면이 7일을 더하지 않는다 —
@@ -76,7 +76,7 @@ export function graceView(
   }
   const paused = rt.paused_session_count ?? 0;
   return {
-    text: `${since} · 유예 만료(${new Date(end).toLocaleDateString("ko-KR")})${paused ? ` · 이 컴퓨터를 쓰는 세션 ${paused}개가 일시정지됨` : ""}`,
+    text: `${since} · 유예 만료(${new Date(end).toLocaleDateString("ko-KR")})${paused ? ` · 이 컴퓨터에 묶인 방 ${paused}개가 멈췄습니다` : ""}`,
     expired: true,
     daysLeft: 0,
   };
@@ -110,7 +110,7 @@ export function RuntimeCard({ rt, children }: { rt: Runtime; children?: React.Re
       {!cli && <div className="small muted-3" data-testid="colab-cli-unknown">colab 명령이 설치돼 있는지 보고받지 못했습니다</div>}
 
       <ul className="rtcard__caps" data-testid="runtime-capabilities">
-        {rt.capabilities.length === 0 && <li data-testid="runtime-no-cli">실행할 수 있는 에이전트 도구가 없습니다 — 이 컴퓨터에서는 세션을 실행할 수 없습니다</li>}
+        {rt.capabilities.length === 0 && <li data-testid="runtime-no-cli">실행할 수 있는 에이전트 도구가 없습니다 — 이 컴퓨터에서는 할 일을 실행할 수 없습니다</li>}
         {rt.capabilities.map((c) => (
           <li key={c.kind} data-testid="runtime-capability" data-kind={c.kind} data-logged-in={String(c.logged_in)}>
             <b>{KIND[c.kind]}</b> {c.version ?? "버전 미상"}

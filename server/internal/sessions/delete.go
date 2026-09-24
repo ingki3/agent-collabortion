@@ -22,10 +22,10 @@ import (
 // (`session.deleted`) and the SSE frame that tells S5 to drop the card.
 
 // DeleteActiveDetail is the contract's own sentence for the 409
-// `session_active` (openapi deleteSession: "진행 중인 세션은 먼저 종료하세요") —
+// `session_active` (openapi deleteSession: "진행 중인 미션은 먼저 종료하세요") —
 // S5 shows it as the reason the option is disabled. TestDeleteSentencesMatchContract
 // reads it back out of openapi.yaml.
-const DeleteActiveDetail = "진행 중인 세션은 먼저 종료하세요"
+const DeleteActiveDetail = "진행 중인 미션은 먼저 종료하세요"
 
 // DeleteUnmergedDetail is the 409 `workdir_unmerged`. It names the next action
 // (merge, or clean up), not the rule — the blocking rows ride along in

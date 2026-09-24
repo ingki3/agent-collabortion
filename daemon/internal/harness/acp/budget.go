@@ -37,13 +37,13 @@ import (
 // $2 has to say WHICH $2 it was, or the Director cannot tell "raise this
 // task's cap" from "the session is out of money".
 //
-// The three read as one family — "할 일 상한 · 세션 예산" — not as a noun and
+// The three read as one family — "할 일 상한 · 미션·방 예산" — not as a noun and
 // a clause (D-27, PR #204 리뷰 NN3: "세션 잔여 예산" was the only one that
 // explained itself). The number next to it is the remaining amount anyway.
 const (
 	sideTask     = "할 일 상한"
 	sideOverride = "할 일 상한(승인된 상향)"
-	sideSession  = "세션 예산"
+	sideSession  = "미션·방 예산" // PRD v0.19 §3.2 · R1.5: `limits.budget_usd` is min(미션 잔여, 방 잔여) (daemon-protocol v0.9.0 §4.4)
 )
 
 // effectiveBudget is daemon-protocol §4.4 v0.7.1 (D-16): the cap this attempt

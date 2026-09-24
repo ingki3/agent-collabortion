@@ -333,7 +333,7 @@ func (s *Server) inboxAPI(ctx context.Context, r *inboxRow, viewer uuid.UUID, no
 			title, body = hiddenRoomTitle(r.Type), ""
 		}
 	case inbox.TypeSessionPaused:
-		title = "세션이 멈췄습니다"
+		title = "미션이 일시정지되었습니다"
 		if r.SessionPaused != nil {
 			body = *r.SessionPaused
 		}

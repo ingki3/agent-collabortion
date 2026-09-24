@@ -36,13 +36,13 @@ func (s *Server) CompleteSession(w http.ResponseWriter, r *http.Request, session
 	// Ending a session with work in flight throws that work away, so it takes a
 	// second, explicit act — and the count says how much is at stake.
 	if running > 0 && (in.Confirm == nil || !*in.Confirm) {
-		p := apperr.Conflict("running_lanes", "진행 중인 작업 줄기가 있습니다 — 그래도 끝내려면 확인 후 다시 요청해 주세요")
+		p := apperr.Conflict("running_lanes", "진행 중인 서브 미션이 있습니다 — 그래도 끝내려면 확인 후 다시 요청해 주세요")
 		p.Extra = map[string]any{"running_lane_count": running}
 		writeProblem(w, p)
 		return
 	}
 	if _, err := s.Sessions.ApplyCompletionEvent(r.Context(), sessionId, sessions.Event{
-		Kind: "director_end", Note: "Director 가 세션을 끝냈습니다",
+		Kind: "director_end", Note: "Director 가 미션을 끝냈습니다",
 	}); err != nil {
 		writeErr(w, err)
 		return

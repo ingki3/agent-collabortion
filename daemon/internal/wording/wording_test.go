@@ -340,8 +340,12 @@ var rows = []struct {
 	{"런타임 → 컴퓨터 (산문까지 전부)", regexp.MustCompile(`런타임`)},
 	{"머신 → 컴퓨터", regexp.MustCompile(`머신`)},
 	{"Inbox → 받은 요청", regexp.MustCompile(`\bInbox\b`)},
+	// v0.19 R1.5 (PRD §3.2 · SCREEN §3.4) — 「세션」은 방 또는 미션, 「작업 줄기」는 서브 미션
+	{"세션 → 방 · 미션 (PRD §3.2)", regexp.MustCompile(`세션`)},
+	{"작업 줄기 → 서브 미션 (PRD §3.2)", regexp.MustCompile(`작업\s*줄기`)},
+	{"산출물 → 아티팩트 (PRD §3.2 — 바꾸지 않는다)", regexp.MustCompile(`산출물`)},
 	{"owner·admin → 소유자·관리자", regexp.MustCompile(`\b(owner|admin)\b`)},
-	{"lane → 작업 줄기", regexp.MustCompile(`(?i)\blanes?\b`)},
+	{"lane → 서브 미션", regexp.MustCompile(`(?i)\blanes?\b`)},
 	{"task → 할 일", regexp.MustCompile(`(?i)\btasks?\b`)},
 	{"attempt → 실행", regexp.MustCompile(`(?i)\battempts?\b`)},
 	{"HITL → 확인 요청", regexp.MustCompile(`\bHITL\b`)},

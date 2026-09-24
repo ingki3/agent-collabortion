@@ -39,8 +39,8 @@ describe("문장 (SCREEN §5 — 무엇이 사라지는지, 되돌릴 수 없으
     mount();
     const dlg = screen.getByRole("alertdialog");
     expect(dlg.getAttribute("aria-modal")).toBe("true");
-    expect(screen.getByTestId("delete-session-title").textContent).toBe("「결제 시장 조사」 세션을 삭제할까요?");
-    expect(dlg.textContent).toContain("메시지 · 작업 줄기 · 아티팩트 · 비용 기록");
+    expect(screen.getByTestId("delete-session-title").textContent).toBe("「결제 시장 조사」 방을 삭제할까요?");
+    expect(dlg.textContent).toContain("메시지 · 서브 미션 · 아티팩트 · 비용 기록");
     expect(dlg.textContent).toContain("되돌릴 수 없습니다");
     expect(dlg.textContent).toContain("이 컴퓨터의 작업 폴더도 정리됩니다");
     expect(screen.getByTestId("delete-session-confirm").textContent).toBe("삭제");
@@ -74,17 +74,17 @@ describe("서버 응답 경로", () => {
   });
 
   it("404(이미 없음 — 계약: 두 번째 호출) — 카드는 빠져야 하므로 onDeleted", async () => {
-    del.mockRejectedValueOnce(problem(404, "not_found", "세션을 찾을 수 없습니다"));
+    del.mockRejectedValueOnce(problem(404, "not_found", "방을 찾을 수 없습니다"));
     const { onDeleted } = mount();
     fireEvent.click(screen.getByTestId("delete-session-confirm"));
     await waitFor(() => expect(onDeleted).toHaveBeenCalledWith("s1"));
   });
 
   it("409 session_active — 서버 문장 그대로 다이얼로그 안에, 다이얼로그는 남는다", async () => {
-    del.mockRejectedValueOnce(problem(409, "session_active", "진행 중인 세션은 먼저 종료하세요"));
+    del.mockRejectedValueOnce(problem(409, "session_active", "진행 중인 미션은 먼저 종료하세요"));
     const { onDeleted, onClose } = mount();
     fireEvent.click(screen.getByTestId("delete-session-confirm"));
-    await waitFor(() => expect(screen.getByTestId("delete-session-error").textContent).toBe("진행 중인 세션은 먼저 종료하세요"));
+    await waitFor(() => expect(screen.getByTestId("delete-session-error").textContent).toBe("진행 중인 미션은 먼저 종료하세요"));
     expect(screen.queryByTestId("delete-session-workdirs")).toBeNull();
     expect(onDeleted).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();

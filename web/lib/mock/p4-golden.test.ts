@@ -124,8 +124,13 @@ describe("오프라인 유예 — golden E14 의 수치", () => {
     // FR-9.2 는 선택지를 정확히 둘로 못 박는다 — 셋이 되면 화면이 없는 길을 제안한다.
     expect(after.paused_detail?.resolve_actions).toEqual(["rebind", "cancel"]);
 
+    // openapi 0.2.11(#314): 알림은 방 층의 room_paused 한 장 — ref 는 잃은 컴퓨터, 동작은 옮기기·방 열기. 옛 runtime_offline 항목은 없다.
     const items = (await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`)).items;
-    expect(items.filter((x) => x.type === "runtime_offline").length).toBe(1);
+    expect(items.filter((x) => x.type === "runtime_offline")).toEqual([]);
+    const card = items.filter((x) => x.type === "room_paused");
+    expect(card.length).toBe(1);
+    expect(card[0].ref_id).toBe(rt.id);
+    expect(card[0].actions).toEqual(["rebind", "open_room"]);
 
     // `grace_ends_at` 이 있어야 S11 이 "언제까지"를 말한다(openapi Runtime.grace_ends_at).
     const rts = await must<Runtime[]>("GET", `/workspaces/${ws}/runtimes`);
@@ -138,14 +143,14 @@ describe("오프라인 유예 — golden E14 의 수치", () => {
     const { ws, rt, agents } = await base();
     await newSession({ ws, agents, runtimeId: rt.id });
     await must<Runtime>("POST", `/__mock/runtimes/${rt.id}/offline`, { body: { days: 7 } });
-    const once = (await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`)).items.filter((x) => x.type === "runtime_offline").length;
+    const once = (await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`)).items.filter((x) => x.type === "room_paused").length;
     await must<Runtime>("POST", `/__mock/runtimes/${rt.id}/offline`, { body: { days: 9 } });
-    const twice = (await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`)).items.filter((x) => x.type === "runtime_offline").length;
+    const twice = (await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`)).items.filter((x) => x.type === "room_paused").length;
     expect(twice).toBe(once); // 스윕은 주기적이다 — tick 마다 쌓으면 답해야 할 한 건이 묻힌다
     expect(once).toBe(1);
   });
 
-  it("화면 문장 — 유예 안에서는 '남음', 넘기면 '만료 + 묶인 세션 수'(U12 1·2)", () => {
+  it("화면 문장 — 유예 안에서는 '남음', 넘기면 '만료 + 묶인 방 수'(U12 1·2)", () => {
     const now = Date.parse("2026-09-08T00:00:00Z");
     const left = graceView(
       { offline_since: "2026-09-07T00:00:00Z", grace_ends_at: "2026-09-14T00:00:00Z", paused_session_count: 0 },
@@ -160,7 +165,7 @@ describe("오프라인 유예 — golden E14 의 수치", () => {
       now,
     );
     expect(over.expired).toBe(true);
-    expect(over.text).toContain("세션 2개");
+    expect(over.text).toContain("방 2개"); // SCREEN §4.11 「이 컴퓨터에 묶인 방 N개가 멈췄습니다」 — FR-9.2 v0.19 의 단위는 방(R1.5)
   });
 });
 
@@ -404,7 +409,7 @@ describe("인박스 card.purpose — K-9(#147) 의 N+1 제거", () => {
     const sess = await newSession({ ws, agents, runtimeId: rt.id });
     await must<Runtime>("POST", `/__mock/runtimes/${rt.id}/offline`, { body: { days: 8 } });
     const items = (await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`)).items;
-    const off = items.find((x) => x.type === "runtime_offline")!;
+    const off = items.find((x) => x.type === "room_paused" && x.ref_id === rt.id)!; // #314 — 오프라인 카드는 room_paused(요청 없는 방 멈춤)
     expect(off.card?.purpose ?? null).toBeNull();
     expect(off.session_id).toBe(sess.id);
   });

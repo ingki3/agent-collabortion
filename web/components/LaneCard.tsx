@@ -182,7 +182,7 @@ export function LaneCard(props: LaneCardProps) {
       <div className="lane__meta">
         <span data-testid="lane-elapsed">{durationSince(lane.created_at, lane.finished_at, props.now)}</span>
         {lane.reentry_count > 0 && (
-          <span className="lane__reentry" data-testid="lane-reentry" title="이 작업 줄기가 끝났다가 다시 열린 횟수">
+          <span className="lane__reentry" data-testid="lane-reentry" title="이 서브 미션이 끝났다가 다시 열린 횟수">
             재진입 {lane.reentry_count}회
           </span>
         )}

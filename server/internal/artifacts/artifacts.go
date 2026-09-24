@@ -135,7 +135,7 @@ func (s *Service) Submit(ctx context.Context, sessionID uuid.UUID, in SubmitInpu
 		}
 		if status == "completed" || status == "cancelled" {
 			if legacy != nil && *legacy == *work {
-				return nil, apperr.Conflict("session_closed", "이미 끝난 세션입니다")
+				return nil, apperr.Conflict("session_closed", "이미 끝난 미션입니다")
 			}
 			return nil, apperr.Conflict("work_closed", "이미 끝난 미션입니다")
 		}

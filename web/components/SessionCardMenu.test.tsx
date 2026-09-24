@@ -115,7 +115,7 @@ describe("삭제 — 상태 × 권한 4조합 (SCREEN §4.3 · 계약 deleteSess
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
-  it("진행 중 + 권한 있음 → 비활성 + 「진행 중인 세션은 먼저 종료하세요」, 눌러도 onDelete 없음", () => {
+  it("진행 중 + 권한 있음 → 비활성 + 「진행 중인 미션은 먼저 종료하세요」, 눌러도 onDelete 없음", () => {
     const { button, onDelete } = mount(gateOf("active", true));
     fireEvent.click(button);
     const del = screen.getByTestId("session-menu-delete");

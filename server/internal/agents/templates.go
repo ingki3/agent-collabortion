@@ -69,7 +69,7 @@ var templates = []templateDef{
 	},
 	{
 		Key: "content_team", Name: "콘텐츠 팀", Version: "1",
-		Description: "기획 → 초안 → 교정. 문서·마케팅 산출물에 맞춘 구성입니다.",
+		Description: "기획 → 초안 → 교정. 문서·마케팅 작업에 맞춘 구성입니다.",
 		Agents: []templateAgent{
 			{Key: "lead", Name: "Lead", Role: "lead", RoleDescription: "주제를 쪼개 위임하고 톤을 맞춘다",
 				Instructions: "너는 콘텐츠 팀의 Lead 다. 주제를 쪼개 위임하고 전체 톤을 맞춘다.", Prefer: "claude_code"},

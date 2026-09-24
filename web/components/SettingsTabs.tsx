@@ -129,8 +129,8 @@ export function WorkspaceSettingsTab({ tab, settings, role, onSave, fieldErrors 
 
       {tab === "runtime" && (
         <>
-          <SettingRow label="컴퓨터 한 대가 동시에 맡는 일" defaultValue={SETTINGS_DEFAULTS.runtime_policy.max_concurrent_tasks} impact={IMPACT.max_concurrent_tasks} error={err("runtime_policy.max_concurrent_tasks")} testid="row-max-concurrent">
-            <input className="input input--num" type="number" min={1} disabled={lock} value={str(draft.runtime_policy.max_concurrent_tasks)} aria-label="컴퓨터 한 대가 동시에 맡는 일" onChange={(e) => set((d) => ({ ...d, runtime_policy: { ...d.runtime_policy, max_concurrent_tasks: num(e.target.value) } }))} />
+          <SettingRow label="컴퓨터 한 대가 동시에 맡는 할 일" defaultValue={SETTINGS_DEFAULTS.runtime_policy.max_concurrent_tasks} impact={IMPACT.max_concurrent_tasks} error={err("runtime_policy.max_concurrent_tasks")} testid="row-max-concurrent">
+            <input className="input input--num" type="number" min={1} disabled={lock} value={str(draft.runtime_policy.max_concurrent_tasks)} aria-label="컴퓨터 한 대가 동시에 맡는 할 일" onChange={(e) => set((d) => ({ ...d, runtime_policy: { ...d.runtime_policy, max_concurrent_tasks: num(e.target.value) } }))} />
           </SettingRow>
           <SettingRow label="종류별 상한" impact={IMPACT.per_kind} testid="row-per-kind">
             {RUNTIME_KINDS.map((k) => (
@@ -150,8 +150,8 @@ export function WorkspaceSettingsTab({ tab, settings, role, onSave, fieldErrors 
 
       {tab === "budget" && (
         <>
-          <SettingRow label="세션 기본 상한 (USD)" defaultValue="없음" impact={IMPACT.default_session_budget_usd} error={err("budget_policy.default_session_budget_usd")} testid="row-session-budget">
-            <input className="input input--num" type="number" min={0} step="0.5" disabled={lock} value={str(draft.budget_policy.default_session_budget_usd)} aria-label="세션 기본 상한" placeholder="없음" onChange={(e) => set((d) => ({ ...d, budget_policy: { ...d.budget_policy, default_session_budget_usd: numOrNull(e.target.value) } }))} />
+          <SettingRow label="미션 기본 상한 (USD)" defaultValue="없음" impact={IMPACT.default_session_budget_usd} error={err("budget_policy.default_session_budget_usd")} testid="row-session-budget">
+            <input className="input input--num" type="number" min={0} step="0.5" disabled={lock} value={str(draft.budget_policy.default_session_budget_usd)} aria-label="미션 기본 상한" placeholder="없음" onChange={(e) => set((d) => ({ ...d, budget_policy: { ...d.budget_policy, default_session_budget_usd: numOrNull(e.target.value) } }))} />
           </SettingRow>
           <SettingRow label="할 일 하나의 기본 상한 (USD)" defaultValue="없음" impact={IMPACT.default_task_budget_usd} error={err("budget_policy.default_task_budget_usd")} testid="row-task-budget">
             <input className="input input--num" type="number" min={0} step="0.5" disabled={lock} value={str(draft.budget_policy.default_task_budget_usd)} aria-label="할 일 하나의 기본 상한" placeholder="없음" onChange={(e) => set((d) => ({ ...d, budget_policy: { ...d.budget_policy, default_task_budget_usd: numOrNull(e.target.value) } }))} />
@@ -278,8 +278,8 @@ export function NotificationsTab({ settings, onSave, error, workspaceId }: {
               브라우저 푸시 알림
             </label>
           </SettingRow>
-          <SettingRow label="세션 구독 기본값" defaultValue={SUBSCRIPTION_LABEL.all} impact={IMPACT.default_subscription} testid="row-subscription">
-            <select className="select" value={draft.default_subscription} disabled={busy} aria-label="세션 구독 기본값" onChange={(e) => setDraft({ ...draft, default_subscription: e.target.value as NotificationSettings["default_subscription"] })} data-testid="notif-subscription">
+          <SettingRow label="미션 구독 기본값" defaultValue={SUBSCRIPTION_LABEL.all} impact={IMPACT.default_subscription} testid="row-subscription">
+            <select className="select" value={draft.default_subscription} disabled={busy} aria-label="미션 구독 기본값" onChange={(e) => setDraft({ ...draft, default_subscription: e.target.value as NotificationSettings["default_subscription"] })} data-testid="notif-subscription">
               {(Object.keys(SUBSCRIPTION_LABEL) as (keyof typeof SUBSCRIPTION_LABEL)[]).map((k) => <option key={k} value={k}>{SUBSCRIPTION_LABEL[k]}</option>)}
             </select>
           </SettingRow>

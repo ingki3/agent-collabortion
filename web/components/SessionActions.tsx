@@ -42,21 +42,21 @@ export interface SessionActionsProps {
 export function actionGate(s: Session, key: SessionActionKey): { allowed: boolean; reason?: string } {
   const isDirector = s.my_role === "director";
   const closed = s.status === "completed" || s.status === "cancelled";
-  if (closed) return { allowed: false, reason: "종료된 세션입니다" };
+  if (closed) return { allowed: false, reason: "종료된 미션입니다" };
   if (!isDirector) {
     return {
       allowed: false,
-      reason: s.my_role === "deputy" ? "Director 만 할 수 있습니다 (deputy 는 작업 줄기 중단만 즉시 가능)" : "Director 만 할 수 있습니다",
+      reason: s.my_role === "deputy" ? "Director 만 할 수 있습니다 (deputy 는 서브 미션 중단만 즉시 가능)" : "Director 만 할 수 있습니다",
     };
   }
   switch (key) {
     case "pause":
-      return s.status === "active" ? { allowed: true } : { allowed: false, reason: "진행 중인 세션만 일시정지할 수 있습니다" };
+      return s.status === "active" ? { allowed: true } : { allowed: false, reason: "진행 중인 미션만 일시정지할 수 있습니다" };
     case "resume":
-      if (s.status !== "paused") return { allowed: false, reason: "일시정지된 세션만 재개할 수 있습니다" };
+      if (s.status !== "paused") return { allowed: false, reason: "일시정지된 미션만 재개할 수 있습니다" };
       // 런타임 오프라인은 재개가 아니라 재바인딩·종료다(계약 resumeSession 409, FR-9.2).
       return s.paused_reason === "runtime_offline"
-        ? { allowed: false, reason: "컴퓨터가 연결되지 않았습니다 — 다른 컴퓨터로 옮기거나 세션을 종료해야 합니다" }
+        ? { allowed: false, reason: "컴퓨터가 연결되지 않았습니다 — 다른 컴퓨터로 옮기거나 미션을 종료해야 합니다" }
         : { allowed: true };
     default:
       return { allowed: true };
@@ -109,7 +109,7 @@ export function SessionActions(props: SessionActionsProps) {
     btn("complete", "종료", () => setDialog("complete")),
     btn("participants", "참여자", props.onOpenParticipants),
     btn("director", "Director 교체", () => setDialog("director")),
-    btn("cancel", "세션 취소", () => setDialog("cancel")),
+    btn("cancel", "미션 취소", () => setDialog("cancel")),
   ];
 
   return (
@@ -126,7 +126,7 @@ export function SessionActions(props: SessionActionsProps) {
       )}
 
       {dialog === "complete" && (
-        <div className="s7-actions__dialog" role="dialog" aria-label="세션 종료 확인" data-testid="complete-confirm">
+        <div className="s7-actions__dialog" role="dialog" aria-label="미션 종료 확인" data-testid="complete-confirm">
           <p className="small">
             이 세션을 종료합니다 — 종료 조건과 무관하게 Director 가 직접 끝냅니다.
           </p>
@@ -154,11 +154,11 @@ export function SessionActions(props: SessionActionsProps) {
       )}
 
       {dialog === "cancel" && (
-        <div className="s7-actions__dialog" role="dialog" aria-label="세션 취소 확인" data-testid="cancel-session-confirm">
+        <div className="s7-actions__dialog" role="dialog" aria-label="미션 취소 확인" data-testid="cancel-session-confirm">
           <p className="small">
             세션을 <b>취소</b>합니다. 진행 중인 턴은 편집이 끝나기를 최대 30초 기다린 뒤 취소되고, 대기 중인 일은 바로 취소됩니다.
           </p>
-          <p className="small muted-3">삭제는 없습니다 — 취소된 세션은 그대로 보관됩니다.</p>
+          <p className="small muted-3">삭제는 없습니다 — 취소된 미션은 그대로 보관됩니다.</p>
           <label className="s7-actions__field">
             <span className="small">사유(선택)</span>
             <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} data-testid="cancel-session-reason" />

@@ -60,7 +60,7 @@ describe("§2.5 표 — 웹 표와 목 표가 각각 계약 원문과 같다", (
     expect([...ROLE_COMMAND_TABLE[role]].sort()).toEqual([...want].sort());
   });
 
-  it("lead·custom 은 전부, 실무자 셋은 9개(위임·검토 승인/반려·완료 승인 요청 없음), reviewer 는 10개(위임·산출물 제출·완료 승인 요청 없음)", () => {
+  it("lead·custom 은 전부, 실무자 셋은 9개(위임·검토 승인/반려·완료 승인 요청 없음), reviewer 는 10개(위임·아티팩트 제출·완료 승인 요청 없음)", () => {
     expect(commandsForRole("lead")).toHaveLength(13);
     expect(commandsForRole("custom")).toHaveLength(13);
     for (const r of ["researcher", "writer", "engineer"] as const) {
@@ -89,10 +89,10 @@ describe("ColabCommand ↔ 사람 말 — 13개 전부", () => {
     expect(new Set(Object.values(COMMAND_LABEL)).size).toBe(13);
   });
 
-  it("표 그대로 — 위임 · 산출물 제출 · 검토 승인/반려 · 완료 승인 요청 · 사람에게 질문/정보 요청", () => {
+  it("표 그대로 — 위임 · 아티팩트 제출 · 검토 승인/반려 · 완료 승인 요청 · 사람에게 질문/정보 요청", () => {
     expect(COMMAND_LABEL).toEqual({
-      session_get: "세션 읽기", session_messages: "메시지 읽기", artifact_get: "산출물 읽기", message_post: "메시지 게시", status_set: "상태 알리기",
-      decision_record: "결정 기록", lane_delegate: "위임", artifact_submit: "산출물 제출", review_approve: "검토 승인", review_reject: "검토 반려",
+      session_get: "방 읽기", session_messages: "메시지 읽기", artifact_get: "아티팩트 읽기", message_post: "메시지 게시", status_set: "상태 알리기",
+      decision_record: "결정 기록", lane_delegate: "위임", artifact_submit: "아티팩트 제출", review_approve: "검토 승인", review_reject: "검토 반려",
       hitl_ask: "사람에게 질문", hitl_approve_request: "완료 승인 요청", hitl_request_info: "사람에게 정보 요청",
     });
   });
@@ -113,17 +113,17 @@ describe("summarizeCommands — 역할 6종의 요약 문장", () => {
 
   it.each(["researcher", "writer", "engineer"] as const)("%s — 할 수 있는 일 9개를 ' · ' 로, 못 하는 것 한 줄은 Lead 의 일", (role) => {
     const s = summarizeCommands(role, commandsForRole(role));
-    expect(s.can).toBe("세션 읽기 · 메시지 읽기 · 산출물 읽기 · 메시지 게시 · 상태 알리기 · 결정 기록 · 산출물 제출 · 사람에게 질문 · 사람에게 정보 요청");
+    expect(s.can).toBe("방 읽기 · 메시지 읽기 · 아티팩트 읽기 · 메시지 게시 · 상태 알리기 · 결정 기록 · 아티팩트 제출 · 사람에게 질문 · 사람에게 정보 요청");
     expect(s.cannot).toBe("위임 · 검토 승인 · 검토 반려 · 완료 승인 요청은 못 합니다 — 위임·검토 승인·완료 승인 요청은 Lead 의 일");
     expect(s.allNote).toBeNull();
     expect(s.denied).toEqual(["lane_delegate", "review_approve", "review_reject", "hitl_approve_request"]);
   });
 
-  it("reviewer — 산출물 제출이 빠지고 검토 승인/반려가 들어간다, 이유는 반려 사유", () => {
+  it("reviewer — 아티팩트 제출이 빠지고 검토 승인/반려가 들어간다, 이유는 반려 사유", () => {
     const s = summarizeCommands("reviewer", commandsForRole("reviewer"));
     expect(s.can).toContain("검토 승인 · 검토 반려");
-    expect(s.can).not.toContain("산출물 제출");
-    expect(s.cannot).toBe("위임 · 산출물 제출 · 완료 승인 요청은 못 합니다 — 위임·완료 승인 요청은 Lead 의 일, 산출물 대신 검토 반려 사유를 남깁니다");
+    expect(s.can).not.toContain("아티팩트 제출");
+    expect(s.cannot).toBe("위임 · 아티팩트 제출 · 완료 승인 요청은 못 합니다 — 위임·완료 승인 요청은 Lead 의 일, 아티팩트 대신 검토 반려 사유를 남깁니다");
   });
 
   it("목록이 비면(옛 서버·daemon-protocol '비면 전부') 전부로 본다 · 서버 값이 표와 달라도 서버 값을 그린다", () => {

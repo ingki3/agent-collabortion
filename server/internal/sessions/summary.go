@@ -170,7 +170,7 @@ func BuildSummaryBody(f SummaryFacts) SummaryContent {
 	if strings.TrimSpace(title) == "" {
 		title = "(제목 없음)"
 	}
-	fmt.Fprintf(&b, "## 세션 요약 — %s\n\n", title)
+	fmt.Fprintf(&b, "## 미션 요약 — %s\n\n", title)
 	if strings.TrimSpace(f.Goal) != "" {
 		fmt.Fprintf(&b, "목표: %s\n\n", f.Goal)
 	}
@@ -200,7 +200,7 @@ func BuildSummaryBody(f SummaryFacts) SummaryContent {
 		// will put in a budget report.
 		cost += " (추정)"
 	}
-	fmt.Fprintf(&b, "%s · 작업 줄기 %d개 · 할 일 %d개\n\n", cost, f.Lanes, f.Tasks)
+	fmt.Fprintf(&b, "%s · 서브 미션 %d개 · 할 일 %d개\n\n", cost, f.Lanes, f.Tasks)
 
 	b.WriteString("### 타임라인\n")
 	if f.StartedAt != nil {

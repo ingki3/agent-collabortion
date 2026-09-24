@@ -62,12 +62,12 @@ describe("S21 미션 열기", () => {
     expect(none.querySelector("a")).toHaveAttribute("href", `/rooms/${roomId}/participants`);
   });
 
-  it("담당을 고르면 종료 조건 문장이 바뀐다 — 보고서 제출(@담당) 그리고 Director 승인 · 서버도 그 기본값", async () => {
+  it("제출자를 고르면 종료 조건 문장이 바뀐다 — 아티팩트 제출(@제출자) 그리고 Director 승인 · 서버도 그 기본값", async () => {
     await invite();
     const onOpened = vi.fn();
     render(<CreateWorkDialog roomId={roomId} mode="new" onOpened={onOpened} onClose={() => {}} />);
     fireEvent.change(await screen.findByTestId("rd-create-work-assignee"), { target: { value: agent().id } });
-    expect(screen.getByTestId("rd-create-work-condition-sentence")).toHaveTextContent(`보고서 제출 (@${agent().name}) 그리고 Director 승인`);
+    expect(screen.getByTestId("rd-create-work-condition-sentence")).toHaveTextContent(`아티팩트 제출 (@${agent().name}) 그리고 Director 승인`);
     expect(screen.queryByTestId("rd-create-work-condition-why")).toBeNull();
     fireEvent.change(screen.getByTestId("rd-create-work-goal"), { target: { value: "번역" } });
     fireEvent.click(screen.getByTestId("rd-create-work-open"));

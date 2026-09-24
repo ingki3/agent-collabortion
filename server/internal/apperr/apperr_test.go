@@ -30,7 +30,7 @@ func TestNotFoundSpeaksTheScreensLanguage(t *testing.T) {
 	if p.Status != http.StatusNotFound || p.Code != "not_found" {
 		t.Fatalf("status/code = %d/%s", p.Status, p.Code)
 	}
-	if p.Detail != "세션을 찾을 수 없습니다" {
+	if p.Detail != "방을 찾을 수 없습니다" {
 		t.Errorf("detail = %q", p.Detail)
 	}
 	if p.Title != "찾을 수 없음" {

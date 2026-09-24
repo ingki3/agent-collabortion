@@ -243,7 +243,7 @@ export default function InboxPage() {
       });
       setItems((cur) => (cur ? cur.filter((x) => x.id !== item.id) : cur));
       setSummary((cur) => (cur ? { ...cur, action_required: Math.max(0, cur.action_required - 1) } : cur));
-      setToast("세션을 재개했습니다");
+      setToast("미션을 재개했습니다");
     } catch (e) {
       setError(errorMessage(e));
     } finally {

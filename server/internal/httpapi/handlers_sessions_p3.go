@@ -101,7 +101,7 @@ func (s *Server) PauseSession(w http.ResponseWriter, r *http.Request, sessionId 
 			return err
 		}
 		return s.pauseWorkTx(r.Context(), tx, workID, func(status string) error {
-			return apperr.Conflict("invalid_transition", "진행 중인 세션만 일시정지할 수 있습니다 (현재 상태: "+apperr.StatusLabel(status)+")")
+			return apperr.Conflict("invalid_transition", "진행 중인 미션만 일시정지할 수 있습니다 (현재 상태: "+apperr.StatusLabel(status)+")")
 		}, now)
 	})
 	if err != nil {
@@ -157,7 +157,7 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 			return err
 		}
 		if status != "paused" {
-			return apperr.Conflict("invalid_transition", "일시정지된 세션만 재개할 수 있습니다 (현재 상태: "+apperr.StatusLabel(status)+")")
+			return apperr.Conflict("invalid_transition", "일시정지된 미션만 재개할 수 있습니다 (현재 상태: "+apperr.StatusLabel(status)+")")
 		}
 		if in.Limits != nil {
 			merged, err := mergeLimits(limitsRaw, in.Limits)
@@ -256,7 +256,7 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 			// openapi resumeSession: resuming IS the answer to the system HITL
 			// the pause issued. Closing it with `answered(approved)` keeps the
 			// Director's inbox honest — the request really was decided.
-			if err := s.closeSessionBudgetHitl(r.Context(), tx, scope, u.Id, derefString(reason), sessions.Noun(true), now); err != nil {
+			if err := s.closeSessionBudgetHitl(r.Context(), tx, scope, u.Id, derefString(reason), now); err != nil {
 				return err
 			}
 		}
@@ -278,7 +278,7 @@ func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId
 // scope is the unit the pause stopped: a mission's own requests (work_id), or
 // — a room's gate seen through the old session shape — every request of the
 // room.
-func (s *Server) closeSessionBudgetHitl(ctx context.Context, tx pgx.Tx, scope taskScopeSQL, userID uuid.UUID, purpose, noun string, now time.Time) error {
+func (s *Server) closeSessionBudgetHitl(ctx context.Context, tx pgx.Tx, scope taskScopeSQL, userID uuid.UUID, purpose string, now time.Time) error {
 	rows, err := tx.Query(ctx, `
 		SELECT id, question, session_id, work_id FROM hitl_request
 		WHERE `+scope.col+` = $1 AND status = 'open' AND source = 'system' AND task_id IS NULL AND purpose = $2`,
@@ -310,7 +310,7 @@ func (s *Server) closeSessionBudgetHitl(ctx context.Context, tx pgx.Tx, scope ta
 			WHERE id = $1`, o.id, userID, now); err != nil {
 			return err
 		}
-		if _, err := insertDecision(ctx, tx, o.room, noun+" 재개 승인: "+o.q, "", "hitl", &o.id, false, now, o.work); err != nil {
+		if _, err := insertDecision(ctx, tx, o.room, "미션 재개 승인: "+o.q, "", "hitl", &o.id, false, now, o.work); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE inbox_item SET read_at = COALESCE(read_at, $2) WHERE ref_id = $1`, o.id, now); err != nil {
@@ -345,7 +345,7 @@ func (s *Server) CancelSession(w http.ResponseWriter, r *http.Request, sessionId
 			return err
 		}
 		if status != "active" && status != "paused" {
-			return apperr.Conflict("invalid_transition", "진행 중이거나 일시정지된 세션만 종료할 수 있습니다 (현재 상태: "+apperr.StatusLabel(status)+")")
+			return apperr.Conflict("invalid_transition", "진행 중이거나 일시정지된 미션만 종료할 수 있습니다 (현재 상태: "+apperr.StatusLabel(status)+")")
 		}
 		offline := status == "paused" && derefString(pauseReason) == runtimes.PauseReasonOffline
 		if offline {
@@ -376,7 +376,7 @@ func (s *Server) CancelSession(w http.ResponseWriter, r *http.Request, sessionId
 				VALUES ($1, $2, $3, 'hitl', $4, $5)`,
 				// FR-9.2, E14-07 — decision.summary/rationale are public (openapi
 				// Decision) and S7 draws them, so they speak the screens' language.
-				sessionId, "컴퓨터가 돌아오지 않아 세션을 종료했습니다",
+				sessionId, "컴퓨터가 돌아오지 않아 미션을 종료했습니다",
 				fmt.Sprintf("다른 컴퓨터로 옮기는 대신 종료를 선택했습니다 — 아티팩트 %d개는 서버에 남아 있습니다", end.ArtifactsRecovered),
 				now, workID); err != nil {
 				return err
@@ -575,7 +575,7 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId
 				errs = append(errs, apperr.Field("runtime_id", "immutable", "컴퓨터는 시작 전에만 바꿀 수 있습니다"))
 			}
 			if in.CompletionCondition != nil && status != "active" && status != "paused" {
-				errs = append(errs, apperr.Field("completion_condition", "immutable", "끝났거나 끝나는 중인 세션의 종료 조건은 바꿀 수 없습니다"))
+				errs = append(errs, apperr.Field("completion_condition", "immutable", "끝났거나 끝나는 중인 미션의 종료 조건은 바꿀 수 없습니다"))
 			}
 			if len(errs) > 0 {
 				return apperr.Validation(errs...)

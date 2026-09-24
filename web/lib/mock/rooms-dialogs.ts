@@ -295,7 +295,7 @@ export function registerRoomDialogs(ctx: RoomDialogsCtx): void {
       } else {
         rd(s).agents.set(room.id, [...(rd(s).agents.get(room.id) ?? []), { agent_id: a.id, profile_id: prof!.id, joined_at: joined }]);
       }
-      systemPost(s, room, josa(a.name, "이", "가") + RW.sys_agent_joined);
+      systemPost(s, room, josa(a.name, "이", "가") + W.participant_joined);
       // 방 컴퓨터에 그 종류가 없으면 경고(거부 아님) — 컴퓨터가 아직 없으면 경고도 없다.
       const rid = runtimeIdOf(s, room);
       const rt = rid ? s.runtimes.get(rid) : undefined;

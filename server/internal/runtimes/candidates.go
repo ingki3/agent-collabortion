@@ -49,7 +49,7 @@ func (s *Service) Candidates(ctx context.Context, wsID uuid.UUID, q CandidateQue
 	}
 	if isolation == "worktree" && remote == "" {
 		return false, nil, apperr.Validation(apperr.Field("remote_url", "required",
-			"워크트리 격리에는 저장소의 remote URL 이 필요합니다 (또는 그것을 읽어 올 세션)"))
+			"워크트리 격리에는 저장소의 remote URL 이 필요합니다 (또는 그것을 읽어 올 방)"))
 	}
 
 	rows, err := s.DB.Query(ctx, `SELECT id FROM runtime WHERE workspace_id = $1 ORDER BY created_at`, wsID)

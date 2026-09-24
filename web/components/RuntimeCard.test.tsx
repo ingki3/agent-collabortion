@@ -100,9 +100,9 @@ describe("RuntimeCard — colab_cli 는 probe 최상위(머신 속성)", () => {
     expect(screen.getByTestId("runtime-no-cli").textContent).toContain("실행할 수 없습니다");
   });
 
-  it("오프라인이면 유예 만료와 묶인 세션 수를 보여준다(FR-9.2)", () => {
+  it("오프라인이면 유예 만료와 묶인 방 수를 보여준다(FR-9.2)", () => {
     render(<RuntimeCard rt={rt({ status: "offline", offline_since: "2026-08-30T00:00:00Z", grace_ends_at: "2026-09-06T00:00:00Z", paused_session_count: 2 })} />);
-    expect(screen.getByTestId("runtime-grace").textContent).toContain("세션 2개가 일시정지됨");
+    expect(screen.getByTestId("runtime-grace").textContent).toContain("이 컴퓨터에 묶인 방 2개가 멈췄습니다");
   });
 });
 
@@ -129,13 +129,13 @@ describe("오프라인 유예 · 저장소 remote(P4)", () => {
     vi.useRealTimers();
   });
 
-  it("유예를 넘기면 만료와 묶인 세션 수를 말한다(U12 2)", () => {
+  it("유예를 넘기면 만료와 묶인 방 수를 말한다(U12 2)", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-09T00:00:00Z"));
     render(<RuntimeCard rt={offline({ paused_session_count: 2 })} />);
     const el = screen.getByTestId("runtime-grace");
     expect(el.getAttribute("data-grace-expired")).toBe("true");
-    expect(el.textContent).toContain("세션 2개");
+    expect(el.textContent).toContain("방 2개"); // SCREEN §4.11 — FR-9.2 v0.19 의 단위는 방(R1.5)
     vi.useRealTimers();
   });
 

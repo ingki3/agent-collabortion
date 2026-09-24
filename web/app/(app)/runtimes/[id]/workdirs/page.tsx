@@ -145,7 +145,7 @@ export default function WorkdirsPage() {
       ) : items.length === 0 ? (
         <div className="empty" data-testid="workdirs-empty">
           <div className="empty__title">이 컴퓨터에 남은 작업 공간이 없습니다</div>
-          <div className="empty__body">워크트리는 세션이 끝난 뒤 보존 기한(기본 14일)까지 남고, 컨테이너와 격리 없는 세션의 폴더는 즉시 정리됩니다.</div>
+          <div className="empty__body">워크트리는 미션이 끝난 뒤 보존 기한(기본 14일)까지 남고, 컨테이너와 격리 없는 방의 폴더는 즉시 정리됩니다.</div>
         </div>
       ) : (
         <ul className="wd__list" data-testid="workdir-list">
@@ -154,7 +154,7 @@ export default function WorkdirsPage() {
             const blocked = deleteBlocked(w);
             const asked = refused[w.id];
             // 소유가 작업 줄기면 **id 를 보여 주지 않는다**(§8.4) — 사람은 그 문자열로 아무 결정도 하지 못한다.
-            const owner = w.agent_id ? `@${agentName(w.agent_id)}` : w.lane_id ? "작업 줄기" : "—";
+            const owner = w.agent_id ? `@${agentName(w.agent_id)}` : w.lane_id ? "서브 미션" : "—";
             return (
               <li
                 key={w.id}

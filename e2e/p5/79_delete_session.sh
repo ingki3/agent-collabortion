@@ -110,7 +110,7 @@ R="$(as "$COOKIE_MEM" DELETE "/sessions/$S_DONE")"
 chk B.1 "403/director_or_admin_required" "$(api_code <<<"$R")/$(api_body <<<"$R" | jq -r .code)" "멤버(Director 아님) → 403"
 R="$(api DELETE "/sessions/$S_ACT")"
 chk B.2 "409/session_active" "$(api_code <<<"$R")/$(api_body <<<"$R" | jq -r .code)" "active 세션 → 409 session_active"
-chk B.3 "진행 중인 세션은 먼저 종료하세요" "$(api_body <<<"$R" | jq -r .detail)" "409 detail = 계약 문장"
+chk B.3 "진행 중인 미션은 먼저 종료하세요" "$(api_body <<<"$R" | jq -r .detail)" "409 detail = 계약 문장"
 SSE="$OUT/79-sse.log"; : > "$SSE"
 curl -sN -b "$COOKIE" "$API/workspaces/$WS/stream" > "$SSE" 2>/dev/null &
 SSE_PID=$!; echo "$SSE_PID" > "$OUT/79-sse.pid"; sleep 1

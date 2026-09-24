@@ -127,7 +127,7 @@ export function SessionAside(props: SessionAsideProps) {
         {props.artifacts === null ? (
           <p className="aside__quiet">불러오는 중…</p>
         ) : props.artifacts.length === 0 ? (
-          <p className="aside__quiet" data-testid="artifacts-empty">아직 제출된 산출물이 없습니다.</p>
+          <p className="aside__quiet" data-testid="artifacts-empty">아직 제출된 아티팩트가 없습니다.</p>
         ) : (
           <ul className="aside__list">
             {props.artifacts.map((a) => (
@@ -184,7 +184,7 @@ export function SessionAside(props: SessionAsideProps) {
       </section>
 
       <section className="aside__sec" data-testid="aside-settings">
-        <h2 className="aside__h">세션 설정</h2>
+        <h2 className="aside__h">방 설정</h2>
         <dl className="aside__dl">
           <dt>컴퓨터</dt>
           {/* W-10: id 앞 8자를 보이지 않는다 — 이름은 호출부가 `runtimeNameOf` 로 넘기고, 못 받았으면 자리 표시. */}

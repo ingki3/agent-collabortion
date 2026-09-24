@@ -853,7 +853,7 @@ export interface paths {
         /**
          * 세션 삭제(물리 삭제 — 되돌릴 수 없다)
          * @description 권한: Director 또는 owner·admin — 아니면 `403`(`code: director_or_admin_required`; 서버 관례 `director_required`·`admin_required` 와 나란한 이름, v0.1.3.1).
-         *     **끝난 세션만** — `draft`·`completed`·`cancelled`. `active`·`paused`·`completing` 이면 `409`(`code: session_active`, "진행 중인 세션은 먼저 종료하세요" — S5 카드 옵션은 그 상태에서 삭제를 비활성 + 사유로 보인다). 물리 삭제다: 메시지·작업 줄기·할 일·활동 기록·확인 요청·아티팩트(파일 포함)·결정·받은 요청 항목·비용 기록이 **함께 사라지고 워크스페이스 비용·지표 집계에서도 빠진다** — 확인 다이얼로그가 이를 명시한다(SCREEN §5). `activity_log` 에 `session.deleted`(제목·id·누가) 한 줄만 남긴다.
+         *     **끝난 세션만** — `draft`·`completed`·`cancelled`. `active`·`paused`·`completing` 이면 `409`(`code: session_active`, "진행 중인 미션은 먼저 종료하세요" — S5 카드 옵션은 그 상태에서 삭제를 비활성 + 사유로 보인다). 물리 삭제다: 메시지·작업 줄기·할 일·활동 기록·확인 요청·아티팩트(파일 포함)·결정·받은 요청 항목·비용 기록이 **함께 사라지고 워크스페이스 비용·지표 집계에서도 빠진다** — 확인 다이얼로그가 이를 명시한다(SCREEN §5). `activity_log` 에 `session.deleted`(제목·id·누가) 한 줄만 남긴다.
          *     **작업 폴더**: 이 세션의 `workdir` 행 중 `deleted` 가 아닌 `worktree` 가 **미병합 커밋 또는 미커밋 변경**을 갖고 있으면 `409`(`code: workdir_unmerged`, `Problem.workdirs[]` 에 대상) — FR-6.4 M4 와 같은 보호. 먼저 「작업 폴더 관리」(S13)에서 정리하거나 병합한다. 그 외 workdir 은 서버가 데몬에 `gc` 명령(daemon-protocol §4.3)을 싣고 행을 지운다 — 데몬의 §6 보고 행이 이미 없는 workdir 을 가리키면 서버는 조용히 소비한다(v0.8.1).
          *     멱등이 아니다 — 두 번째 호출은 `404`. SSE `session.deleted {session_id}` 로 S5 목록이 카드를 뺀다.
          */

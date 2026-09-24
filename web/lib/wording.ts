@@ -45,11 +45,11 @@ export function canDeleteSession(session: { director: { id: string } }, me: Dele
 /** 카드 「…」 메뉴 — 항목 둘(세션 열기·삭제)과 비활성 사유 둘(SCREEN §4.3). */
 export const SESSION_MENU = {
   /** 「…」 버튼의 aria-label. */
-  button: "세션 옵션",
-  open: "세션 열기",
+  button: "방 옵션",
+  open: "방 열기",
   delete: "삭제",
   /** 진행 중(`active`·`paused`·`completing`) — 계약·SCREEN 이 못박은 문장. */
-  blocked_active: "진행 중인 세션은 먼저 종료하세요",
+  blocked_active: "진행 중인 미션은 먼저 종료하세요",
   /** Director 도 소유자·관리자도 아님. */
   blocked_role: "Director 나 소유자·관리자만 삭제할 수 있습니다",
 } as const;
@@ -57,9 +57,9 @@ export const SESSION_MENU = {
 /** 확인 다이얼로그(§5 "무엇이 사라지는지 명시, 되돌릴 수 없으면 그렇다고"). */
 export const DELETE_DIALOG = {
   /** 제목 — 세션 이름이 들어간다. */
-  title: (sessionTitle: string) => `「${sessionTitle}」 세션을 삭제할까요?`,
+  title: (sessionTitle: string) => `「${sessionTitle}」 방을 삭제할까요?`,
   /** 본문 1 — 사라지는 것(계약 description 의 목록을 사용자의 말로). */
-  loses: "메시지 · 작업 줄기 · 아티팩트 · 비용 기록이 함께 사라지고 워크스페이스 집계에서도 빠집니다.",
+  loses: "메시지 · 서브 미션 · 아티팩트 · 비용 기록이 함께 사라지고 워크스페이스 집계에서도 빠집니다.",
   /** 본문 2 — 되돌릴 수 없음 + 이 컴퓨터의 작업 폴더. */
   irreversible: "되돌릴 수 없습니다. 이 컴퓨터의 작업 폴더도 정리됩니다.",
   confirm: "삭제",
@@ -78,14 +78,6 @@ export function workdirBlockLabel(w: Pick<Workdir, "gc_blocked_reason" | "dirty"
   return "정리 필요";
 }
 
-/** S7 을 보고 있다가 `session.deleted` 를 받은 사람에게 — 목록으로 돌아온 뒤 한 줄(SCREEN §4.3 · 계약 SSE 표). */
-export const SESSION_DELETED_NOTICE = {
-  /** 내가 지운 것이 아니라 다른 곳에서 지워진 경우. */
-  elsewhere: (sessionTitle: string) => `「${sessionTitle}」 세션이 삭제되어 목록으로 돌아왔습니다.`,
-  /** 다이얼로그에서 내가 지운 경우 — 카드가 빠진 자리를 설명한다. */
-  mine: (sessionTitle: string) => `「${sessionTitle}」 세션을 삭제했습니다.`,
-} as const;
-
 // ── 종료 조건 — S6 6단계 · S7 진행률 · 조건 고치기(T-W15, S-84 · W-19, SCREEN §4.4 6단계 · §4.5 "종료 조건 진행률") ──
 //
 // Director 지적(2026-09-15): "복잡하고 종료 조건의 파악이 어렵다". 조건 종류는 계약 enum 그대로 넷이고 화면은 **사람 말**로 부른다.
@@ -93,7 +85,7 @@ export const SESSION_DELETED_NOTICE = {
 
 /** 계약 CompletionAtom.type → 화면의 말. `agent_approval` 은 리뷰어 이름이 있으면 "Lead 의 검토 승인", 없으면(아직 안 골랐거나 옛 세션) 일반형. */
 export const CONDITION_NAME = {
-  artifact_submitted: "보고서 제출",
+  artifact_submitted: "아티팩트 제출",
   agent_approval: "에이전트 검토 승인",
   user_approval: "Director 승인",
   manual: "수동 종료",
@@ -107,7 +99,7 @@ export function conditionName(type: string, agentName?: string | null): string {
 
 /** 마법사 행의 설명 한 줄 — 무엇을 하면 충족되는지. */
 export const CONDITION_DESC: Record<keyof typeof CONDITION_NAME, string> = {
-  artifact_submitted: "제출자로 지정한 에이전트가 산출물을 제출하면 충족됩니다",
+  artifact_submitted: "제출자로 지정한 에이전트가 아티팩트를 제출하면 충족됩니다",
   agent_approval: "리뷰어로 고른 에이전트가 검토를 승인하면 충족됩니다",
   user_approval: "Director 가 받은 요청에서 승인하면 충족됩니다 — 사람이 거는 마지막 관문",
   manual: "Director 가 「종료」 버튼으로 직접 끝냅니다",
@@ -124,15 +116,15 @@ export const CONDITION_EDITOR = {
   join_or: " 또는 ",
   submitter: "제출자",
   /** 제출자 미지정 — 담당 에이전트를 따라간다(계약 `who: assignee`). */
-  submitter_default: "담당 에이전트 (기본) — 담당이 바뀌면 따라갑니다",
-  submitter_default_short: "담당 에이전트",
+  submitter_default: "미션의 제출자 (기본) — 제출자가 바뀌면 따라갑니다",
+  submitter_default_short: "미션의 제출자",
   reviewer: "리뷰어",
   reviewer_placeholder: "리뷰어를 고르세요",
   /** 안내만 — 막지 않는다(자기 것을 자기가 검토하지 않게). */
-  reviewer_is_assignee: "담당 에이전트가 자기 결과를 검토하게 됩니다 — 다른 에이전트를 권합니다",
+  reviewer_is_assignee: "제출자가 자기 결과를 검토하게 됩니다 — 다른 에이전트를 권합니다",
   /** 다음 단계·저장을 막는 사유(§8.5 — 근처에서 말한다). */
   need_one: "종료 조건을 하나 이상 고르세요",
-  reviewer_required: "리뷰어를 고르세요 — 리뷰어가 없으면 아무도 승인할 수 없어 세션이 끝나지 않습니다",
+  reviewer_required: "리뷰어를 고르세요 — 리뷰어가 없으면 아무도 승인할 수 없어 미션이 끝나지 않습니다",
   reviewer_not_participant: "리뷰어는 참여자 중에서 골라야 합니다",
   no_human_gate: "사람 승인 없이 완료됩니다 — 종료 조건에 Director 승인이나 수동 종료가 없습니다.",
   /** v1.1 행의 비활성 사유. */
@@ -168,16 +160,16 @@ export const PROGRESS = {
     return `남은 것: ${parts.join(" · ")}${op === "or" && remaining.length + blocked > 1 ? " — 하나만 충족하면 끝" : ""}`;
   },
   summary_satisfied: "조건을 모두 충족했습니다 — 곧 완료됩니다",
-  summary_completed: "세션이 끝났습니다",
+  summary_completed: "미션이 끝났습니다",
   /** 막힌 조건이 있을 때 — 누가 고칠 수 있는지. */
-  blocked_director: "조건을 고쳐야 세션이 끝날 수 있습니다",
-  blocked_member: "Director 가 조건을 고쳐야 세션이 끝날 수 있습니다",
+  blocked_director: "조건을 고쳐야 미션이 끝날 수 있습니다",
+  blocked_member: "Director 가 조건을 고쳐야 미션이 끝날 수 있습니다",
 } as const;
 
 /** `CompletionProgress.conditions[].blocked_reason` — ✗ 대신 이 문장을 보인다(계약 v0.1.4). */
 export const BLOCKED_REASON: Record<string, string> = {
   reviewer_missing: "리뷰어가 지정되지 않아 아무도 승인할 수 없습니다",
-  reviewer_not_participant: "리뷰어가 이 세션의 참여자가 아니어서 승인할 수 없습니다",
+  reviewer_not_participant: "리뷰어가 이 방의 참여자가 아니어서 승인할 수 없습니다",
   agent_archived: "리뷰어 에이전트가 보관되어 승인할 수 없습니다",
 };
 export function blockedReasonText(reason: string): string {
@@ -201,14 +193,14 @@ export const FIX_CONDITION = {
  * 명령 이름은 내부어라 화면에 나오지 않는다 — 이 표만 나온다. 13개 전부를 `lib/wording.test.ts` 가 계약 enum 과 대조한다.
  */
 export const COMMAND_LABEL = {
-  session_get: "세션 읽기",
+  session_get: "방 읽기",
   session_messages: "메시지 읽기",
-  artifact_get: "산출물 읽기",
+  artifact_get: "아티팩트 읽기",
   message_post: "메시지 게시",
   status_set: "상태 알리기",
   decision_record: "결정 기록",
   lane_delegate: "위임",
-  artifact_submit: "산출물 제출",
+  artifact_submit: "아티팩트 제출",
   review_approve: "검토 승인",
   review_reject: "검토 반려",
   hitl_ask: "사람에게 질문",
@@ -226,7 +218,7 @@ export const ROLE_COMMANDS = {
   /** "<못 하는 것>은 못 합니다 — <이유>" 의 뒤 절. */
   cannot: (denied: string) => `${denied}은 못 합니다`,
   reason_worker: "위임·검토 승인·완료 승인 요청은 Lead 의 일",
-  reason_reviewer: "위임·완료 승인 요청은 Lead 의 일, 산출물 대신 검토 반려 사유를 남깁니다",
+  reason_reviewer: "위임·완료 승인 요청은 Lead 의 일, 아티팩트 대신 검토 반려 사유를 남깁니다",
   /** 저장 전 미리보기 — 고른 역할이 저장된 역할과 다를 때. */
   preview: "저장하면 이 목록으로 바뀝니다",
   readonly: "역할이 정합니다 — 여기서 고칠 수 없습니다",

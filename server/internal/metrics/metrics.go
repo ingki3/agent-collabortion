@@ -58,11 +58,11 @@ type Def struct {
 // (wording lock sinkVars: no internal nouns, Korean, §8.4 table).
 var Defs = []Def{
 	{Key: "f1_minutes", Unit: "minutes", Target: 15, TargetOp: "lt",
-		Label: "컴퓨터 연결부터 첫 세션 완료까지 걸린 시간",
-		Note:  "사용자별로 첫 컴퓨터가 연결된 시각부터 그 사용자가 Director 인 첫 완료 세션이 끝난 시각까지, 그 중앙값(분). 표본 수는 그런 사용자 수."},
+		Label: "컴퓨터 연결부터 첫 미션 완료까지 걸린 시간",
+		Note:  "사용자별로 첫 컴퓨터가 연결된 시각부터 그 사용자가 Director 인 첫 완료 미션이 끝난 시각까지, 그 중앙값(분). 표본 수는 그런 사용자 수."},
 	{Key: "auto_complete_rate", Unit: "ratio", Target: 0.6, TargetOp: "gt",
-		Label: "세션이 저절로 끝난 비율",
-		Note:  "완료된 세션 중 Director 가 직접 끝내지 않고 종료 조건으로 끝난 비율."},
+		Label: "미션이 저절로 끝난 비율",
+		Note:  "완료된 미션 중 Director 가 직접 끝내지 않고 종료 조건으로 끝난 비율."},
 	{Key: "hitl_response_minutes", Unit: "minutes", Target: 30, TargetOp: "lt",
 		Label: "확인 요청에 사람이 답하기까지 걸린 시간",
 		Note:  "확인 요청이 만들어진 때부터 사람이 답한 때까지, 그 중앙값(분). 기한이 지나 자동으로 진행된 요청은 빼고 센다."},
@@ -70,8 +70,8 @@ var Defs = []Def{
 		Label: "에이전트 사이의 위임이 사람 개입 없이 처리된 비율",
 		Note:  "다른 에이전트가 넘긴 할 일 중 확인 요청도 막힘도 없이 완료된 비율."},
 	{Key: "parallel_wallclock_reduction", Unit: "ratio", Target: 0.4, TargetOp: "gt",
-		Label: "여러 작업 줄기를 함께 돌려 줄어든 시간의 비율",
-		Note:  "작업 줄기가 둘 이상인 완료 세션에서, 세션 시작부터 완료까지 걸린 시간이 각 할 일에 걸린 시간의 합보다 얼마나 짧았는지(1 - 전체 시간 ÷ 합)의 평균. 전체 시간에는 사람을 기다린 시간(확인 요청)도 들어간다. 표본 수는 세션 수."},
+		Label: "여러 서브 미션을 함께 돌려 줄어든 시간의 비율",
+		Note:  "서브 미션이 둘 이상인 완료 미션에서, 미션 시작부터 완료까지 걸린 시간이 각 할 일에 걸린 시간의 합보다 얼마나 짧았는지(1 - 전체 시간 ÷ 합)의 평균. 전체 시간에는 사람을 기다린 시간(확인 요청)도 들어간다. 표본 수는 미션 수."},
 	{Key: "task_success_rate_by_runtime", Unit: "ratio", Target: 0.85, TargetOp: "gt",
 		Label: "컴퓨터 종류별 할 일 성공률",
 		Note:  "컴퓨터 종류별로 완료된 할 일 ÷ (완료 + 실패). 종류별 값과 목표는 따로 나눠 준다."},
@@ -83,10 +83,10 @@ var Defs = []Def{
 		Note:  "이전 대화를 이어받으려 한 실행 중 실제로 이어받은(처음부터 다시 시작하지 않은) 비율."},
 	{Key: "blocked_response_minutes", Unit: "minutes", Target: 5, TargetOp: "lt",
 		Label: "막힌 질문에 답이 닿기까지 걸린 시간",
-		Note:  "작업 줄기가 막혀 질문을 올린 때부터 그 질문에 첫 답글이 달린 때까지, 그 중앙값(분)."},
+		Note:  "서브 미션이 막혀 질문을 올린 때부터 그 질문에 첫 답글이 달린 때까지, 그 중앙값(분)."},
 	{Key: "weekly_active_sessions", Unit: "count", Target: 5, TargetOp: "gt",
-		Label: "이번 주에 움직인 세션 수",
-		Note:  "최근 7일 안에 할 일이 하나라도 돌아간 세션 수. 표본 수는 이 워크스페이스에서 할 일을 돌린 적 있는 세션 수."},
+		Label: "이번 주에 움직인 방 수",
+		Note:  "최근 7일 안에 할 일이 하나라도 돌아간 방 수. 표본 수는 이 워크스페이스에서 할 일을 돌린 적 있는 방 수."},
 }
 
 // runtimeTargets is §11 row 6: "Claude Code > 95%, 기타 > 85%".

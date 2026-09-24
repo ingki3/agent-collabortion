@@ -75,6 +75,20 @@ describe("버튼은 서버가 준 actions 로만 나온다", () => {
     expect(screen.getByTestId("inbox-open-room").getAttribute("href")).toBe("/rooms/s1");
   });
 
+  it("컴퓨터 유예 만료 room_paused(#314) — 승인 칸 없이 「다른 컴퓨터로 옮기기」만. 「계속 승인」은 이 멈춤을 풀지 못한다", () => {
+    const onAction = vi.fn();
+    render(<InboxItemCard item={item({
+      type: "room_paused", severity: "action_required", session: undefined, room_id: "s1", ref_id: "rt-1",
+      card: { title: "방이 멈췄습니다", body: "이 방의 컴퓨터 연결이 끊겨 멈췄습니다 — 다른 컴퓨터로 옮기거나 열린 미션을 모두 취소해 주세요", paused_reason: "runtime_offline" },
+      actions: ["rebind", "open_room"], due_at: null,
+    })} onAction={onAction} />);
+    expect(screen.getByTestId("inbox-room-paused-question").textContent).toContain("연결이 끊겨 멈췄습니다");
+    expect(screen.queryByTestId("inbox-room-approve")).toBeNull();
+    expect(screen.queryByTestId("inbox-room-paused-resume")).toBeNull();
+    fireEvent.click(screen.getByTestId("inbox-action-rebind"));
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: "room_paused" }), "rebind");
+  });
+
   it("run_failed 의 인라인 동작은 '재시도' 가 아니라 '다시 지시' 다(리뷰 #01 C4)", () => {
     render(<InboxItemCard item={item({ type: "run_failed", severity: "attention", card: { title: "작업이 실패했습니다", failure_kind: "timeout" }, actions: ["restart", "open_session"], due_at: null })} onAction={vi.fn()} />);
     expect(screen.getByTestId("inbox-action-restart").textContent).toBe("다시 지시");
@@ -226,7 +240,7 @@ describe("session_paused — 카드 안에서 금액까지 정한다(U7-1)", () 
   const paused = (reason: "budget" | "loop") =>
     item({
       type: "session_paused", severity: "attention", due_at: null,
-      card: { title: "세션이 멈췄습니다", body: "예산 초과 — $21.40 / $20", paused_reason: reason },
+      card: { title: "미션이 일시정지되었습니다", body: "예산 초과 — $21.40 / $20", paused_reason: reason },
       actions: ["approve_continue", "open_session"],
     });
 

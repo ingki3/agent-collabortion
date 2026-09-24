@@ -74,7 +74,7 @@ func Gone(code, detail string) *Problem         { return New(http.StatusGone, co
 // word the screens use for it. A key missing here is a test failure
 // (internal/wording), not a silent English fallback.
 var NotFoundNouns = map[string]string{
-	"session":            "세션",
+	"session":            "방",
 	"room":               "방",
 	"user":               "사용자",
 	"workspace":          "워크스페이스",
@@ -88,7 +88,7 @@ var NotFoundNouns = map[string]string{
 	"workdir":            "작업 폴더",
 	"runtime":            "컴퓨터",
 	"pairing":            "연결 코드",
-	"lane":               "작업 줄기",
+	"lane":               "서브 미션",
 	"task":               "할 일",
 	"inbox_item":         "받은 요청",
 	"hitl_request":       "확인 요청",

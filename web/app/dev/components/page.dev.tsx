@@ -56,7 +56,7 @@ const MESSAGES: { label: string; m: Message; replies?: Message[]; askee?: string
     replies: [msg({ id: "ans", parent_id: "q", author_type: "agent", author: { name: "Lead" }, content: "네, 마이그레이션을 추가하세요." })],
     askee: "Lead",
   },
-  { label: "summary", m: msg({ author_type: "system", author_id: null, author: undefined, kind: "summary", content: "세션 완료 — 보고서 1건 제출, 승인됨." }) },
+  { label: "summary", m: msg({ author_type: "system", author_id: null, author: undefined, kind: "summary", content: "미션 완료 — 아티팩트 1건 제출, 승인됨." }) },
 ];
 
 const EVENTS: TaskEvent[] = [
@@ -138,7 +138,7 @@ const HITLS: { label: string; r: HitlRequest; budget?: { current: number | null 
   { label: "question · deputy — 비활성 + 🔒 HH:MM부터 (E7-09)", r: hitl({ can_respond: false, can_respond_from: DUE }) },
   { label: "question · 일반 멤버 — 응답 컨트롤 없음 (E7-11)", r: hitl({ can_respond: false, can_respond_from: null }) },
   { label: "approval · 시스템 발행(예산) — purpose 문구 (E9-01)", r: hitl({ source: "system", purpose: "budget", type: "approval", proposed_default: null, question: "예산 $1 을 초과했습니다 — 계속 진행할까요?" }), budget: { current: 1 } },
-  { label: "approval · 시스템 발행(종료 조건) (E6-01)", r: hitl({ source: "system", purpose: "user_approval", type: "approval", proposed_default: null, question: "Writer 가 보고서를 제출했습니다 — 승인하면 세션이 완료됩니다" }) },
+  { label: "approval · 시스템 발행(종료 조건) (E6-01)", r: hitl({ source: "system", purpose: "user_approval", type: "approval", proposed_default: null, question: "Writer 가 보고서를 제출했습니다 — 승인하면 미션이 완료됩니다" }) },
   { label: "answered", r: hitl({ status: "answered", answer: "경영진" }) },
   { label: "auto_answered (E7-12)", r: hitl({ status: "auto_answered", answer: "투자자" }) },
   { label: "cancelled '취소됨' (K-4)", r: hitl({ status: "cancelled" }) },
@@ -159,10 +159,10 @@ const INBOX: InboxItem[] = [
     card: { title: "보고서를 승인해 주세요", body: "승인 대상: 보고서.pdf", agent_name: "Writer", hitl_type: "approval" },
     actions: ["approve", "reject", "open_session"] }),
   inbox({ type: "lane_blocked", severity: "action_required",
-    card: { title: "Researcher: '국내만인가요, 글로벌 포함인가요?'", body: "위임한 사람이 없는 작업 줄기입니다 — 답글이 곧 지시가 됩니다.", agent_name: "Researcher" },
+    card: { title: "Researcher: '국내만인가요, 글로벌 포함인가요?'", body: "위임한 사람이 없는 서브 미션입니다 — 답글이 곧 지시가 됩니다.", agent_name: "Researcher" },
     actions: ["reply", "open_session"] }),
   inbox({ type: "session_paused", severity: "attention",
-    card: { title: "세션이 멈췄습니다", body: "예산 초과 — $21.40 / $20", paused_reason: "budget" },
+    card: { title: "미션이 일시정지되었습니다", body: "예산 초과 — $21.40 / $20", paused_reason: "budget" },
     actions: ["approve_continue", "open_session"] }),
   inbox({ type: "run_failed", severity: "attention",
     card: { title: "작업이 실패했습니다", body: "자동 재시도가 소진되었습니다", failure_kind: "timeout" },
@@ -171,7 +171,7 @@ const INBOX: InboxItem[] = [
     card: { title: "MacBook 이 오프라인입니다", body: "7일 유예 중 5일 남음", runtime_name: "MacBook", grace_ends_at: "2026-09-11T00:00:00Z" },
     actions: ["open_runtimes"] }),
   inbox({ type: "mention", card: { title: "민지님을 멘션했습니다", body: "@민지 이 부분 확인 부탁드립니다", agent_name: "Lead" }, actions: ["reply", "open_session"] }),
-  inbox({ type: "session_completed", read_at: T, card: { title: "세션이 완료되었습니다", summary: "결정 3건 · 아티팩트 1건 · $1.20" } }),
+  inbox({ type: "session_completed", read_at: T, card: { title: "미션이 완료되었습니다", summary: "결정 3건 · 아티팩트 1건 · $1.20" } }),
 ];
 
 export default function ComponentsPage() {
@@ -186,7 +186,7 @@ export default function ComponentsPage() {
           {STATUSES.map((s) => (
             <div className="story__cell" key={s}>
               <div className="story__label">status={s}</div>
-              <AgentChip name="Backend" role="engineer" status={s} profile="Hermes · gpt" statusNote={s === "idle" ? "작업 줄기 #3 예산 대기 — 둘째 줄로 줄바꿈된다(N2)" : undefined} isAssignee={s === "working"} />
+              <AgentChip name="Backend" role="engineer" status={s} profile="Hermes · gpt" statusNote={s === "idle" ? "서브 미션 #3 예산 대기 — 둘째 줄로 줄바꿈된다(N2)" : undefined} isAssignee={s === "working"} />
             </div>
           ))}
           <div className="story__cell">
@@ -310,7 +310,7 @@ export default function ComponentsPage() {
               triggers: i.content.includes(LEAD)
                 ? [{ agent_id: LEAD, agent_name: "Lead", rule: 2, profile: { id: "p1", name: "default", runtime_kind: "claude_code", model: "claude-sonnet-5" }, lane: { resolution: i.newLane ? 4 : 3, lane_id: i.newLane ? null : "lane-1", reentry: false }, will_queue: !i.newLane, deferred_until: null }]
                 : [],
-              warnings: i.content.includes("a-x") ? [{ code: "not_participant", message: "X는 이 세션 참여자가 아닙니다 — 트리거되지 않습니다", agent_id: "a-x" }] : [],
+              warnings: i.content.includes("a-x") ? [{ code: "not_participant", message: "X는 이 방 참여자가 아닙니다 — 트리거되지 않습니다", agent_id: "a-x" }] : [],
             })}
             onSubmit={async () => []}
           />

@@ -534,7 +534,7 @@ export default function SessionPage() {
   function openLaneHitl(lane: Lane) {
     const h = hitls.find((x) => x.id === lane.hitl_request_id) ?? hitls.find((x) => x.lane_id === lane.id && x.status === "open");
     if (h?.message_id) jumpToMessage(h.message_id);
-    else setError("이 작업 줄기의 확인 카드를 찾지 못했습니다 — 받은 요청에서 응답하세요.");
+    else setError("이 서브 미션의 확인 카드를 찾지 못했습니다 — 받은 요청에서 응답하세요.");
   }
 
   /** 진행률 행 「받은 요청에서 승인하세요」 — `hitl_request_id` 로 타임라인의 확인 카드를 찾는다(카드가 없으면 받은 요청으로 안내). */
@@ -557,7 +557,7 @@ export default function SessionPage() {
     return (
       <div>
         <p className="problem">{error}</p>
-        <Link href="/rooms" className="btn">세션 목록으로</Link>
+        <Link href="/rooms" className="btn">방 목록으로</Link>
       </div>
     );
   }
@@ -576,7 +576,7 @@ export default function SessionPage() {
       <ConnectionBanner state={conn} />
       <header className="s7__head">
         <div className="row" style={{ gap: 10 }}>
-          <Link href="/rooms" className="small muted-3">← 세션</Link>
+          <Link href="/rooms" className="small muted-3">← 방</Link>
           <h1 style={{ margin: 0, fontSize: "var(--fs-title)" }} data-testid="session-title">{session.title}</h1>
           <Badge kind="session" value={session.status} data-testid="session-status" />
           {session.status === "paused" && session.paused_reason && (
@@ -619,7 +619,7 @@ export default function SessionPage() {
         <nav className="s7__tabs" aria-label="열 전환">
           {(["board", "timeline", "aside"] as Col[]).map((c) => (
             <button key={c} type="button" className={`s7__tab${col === c ? " s7__tab--on" : ""}`} onClick={() => setCol(c)} data-testid={`tab-${c}`}>
-              {c === "board" ? `작업 줄기 ${lanes.length}` : c === "timeline" ? "타임라인" : "진행"}
+              {c === "board" ? `서브 미션 ${lanes.length}` : c === "timeline" ? "타임라인" : "진행"}
             </button>
           ))}
         </nav>
@@ -645,7 +645,7 @@ export default function SessionPage() {
             ))}
             {participants.length === 0 && <span className="small muted-3">참여 에이전트 없음</span>}
           </div>
-          <h2 className="s7__h">작업 줄기</h2>
+          <h2 className="s7__h">서브 미션</h2>
           <LaneBoard
             lanes={lanes}
             emptyTurns={laneEmptyTurns}
@@ -662,8 +662,8 @@ export default function SessionPage() {
             onSelect={(l) => setSelectedLane((cur) => (cur === l.id ? null : l.id))}
           />
           {confirmCancel && (
-            <div className="s7__confirm" role="dialog" aria-label="작업 줄기 중단 확인" data-testid="cancel-confirm">
-              <p className="small">{confirmCancel.status === "done" ? "제출은 끝났습니다 — 아직 도는 실행만 멈춥니다(작업 줄기는 끝난 채로 남습니다)." : "이 작업 줄기를 중단합니다. 새 지시 없이 종료됩니다."}</p>
+            <div className="s7__confirm" role="dialog" aria-label="서브 미션 중단 확인" data-testid="cancel-confirm">
+              <p className="small">{confirmCancel.status === "done" ? "제출은 끝났습니다 — 아직 도는 실행만 멈춥니다(서브 미션은 끝난 채로 남습니다)." : "이 서브 미션을 중단합니다. 새 지시 없이 종료됩니다."}</p>
               <p className="small muted-3">되돌리기 어려운 작업 중이면 최대 30초 보류 후 종료됩니다.</p>
               <div className="row">
                 <button type="button" className="btn btn--sm btn--primary" disabled={busy} onClick={() => void doCancel(confirmCancel)} data-testid="cancel-confirm-yes">중단</button>
@@ -755,7 +755,7 @@ export default function SessionPage() {
               onSubmit={submit}
               draft={draft}
               disabled={closed}
-              disabledReason={closed ? "종료된 세션에는 게시할 수 없습니다" : undefined}
+              disabledReason={closed ? "종료된 미션에는 게시할 수 없습니다" : undefined}
               notice={
                 restart
                   ? `전송하면 @${restart.agentName} 의 진행 중인 턴을 취소하고 이 메시지만으로 다시 시작합니다`

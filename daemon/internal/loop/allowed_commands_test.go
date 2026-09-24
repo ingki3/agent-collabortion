@@ -92,7 +92,7 @@ func assertRestricted(t *testing.T, s2 string) {
 	if !strings.Contains(s2, "session get`, `") || !strings.Contains(s2, "message post` (MCP") {
 		t.Fatalf("[2] does not list the allowed commands:\n%s", s2)
 	}
-	if !strings.Contains(s2, "- 이 역할은 메시지 읽기 · 상태 알리기 · 결정 기록 · 위임 · 산출물 제출 · 산출물 읽기 · 검토 승인 · 검토 반려 · 사람에게 질문 · 완료 승인 요청 · 사람에게 정보 요청을 쓰지 않는다.") {
+	if !strings.Contains(s2, "- 이 역할은 메시지 읽기 · 상태 알리기 · 결정 기록 · 위임 · 아티팩트 제출 · 아티팩트 읽기 · 검토 승인 · 검토 반려 · 사람에게 질문 · 완료 승인 요청 · 사람에게 정보 요청을 쓰지 않는다.") {
 		t.Fatalf("[2] has no 'does not use' line:\n%s", s2)
 	}
 }

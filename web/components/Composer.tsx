@@ -380,7 +380,7 @@ export function Composer(props: ComposerProps) {
               {t.profile?.model ? ` · ${t.profile.model}` : ""}
               {t.will_queue ? " · 실행 중 → 현재 턴 종료 후 처리됩니다" : ""}
               {t.lane.reentry ? " · 재진입" : ""}
-              {t.lane.lane_id === null ? " · 새 작업 줄기" : ""}
+              {t.lane.lane_id === null ? " · 새 서브 미션" : ""}
               {t.deferred_until ? " · 5분 뒤 폴백" : ""}
             </span>
             <button
@@ -416,9 +416,9 @@ export function Composer(props: ComposerProps) {
             disabled={props.disabled}
             onChange={(e) => setNewLane(e.target.checked)}
             data-testid="new-lane-toggle"
-            aria-label="새 작업 줄기로 보내기"
+            aria-label="새 서브 미션으로 보내기"
           />
-          <span>새 작업 줄기로 보내기</span>
+          <span>새 서브 미션으로 보내기</span>
         </label>
         {newLane && (
           <span className="composer__lane-note" data-testid="new-lane-note">

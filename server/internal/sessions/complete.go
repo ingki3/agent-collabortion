@@ -542,7 +542,7 @@ func (s *Service) recordSummaryFailure(ctx context.Context, tx pgx.Tx, workID uu
 	if err := tasks.InsertServerEventOnce(ctx, tx, taskID, attempt, "runtime", "error",
 		"summary.failed", "failed",
 		map[string]any{
-			"detail":      "세션 요약을 만들지 못했습니다 — " + category,
+			"detail":      "미션 요약을 만들지 못했습니다 — " + category,
 			"stop_reason": category,
 		}, now); err != nil {
 		s.logWarn("sessions: record summary failure", "work", workID, "err", err)
@@ -556,7 +556,7 @@ func (s *Service) recordSummaryFailure(ctx context.Context, tx pgx.Tx, workID uu
 // what stops a reader from judging the platform's summarising by an assembly
 // it did without a model.
 func (s *Service) recordSummaryOrigin(ctx context.Context, tx pgx.Tx, workID uuid.UUID, by string, now time.Time) {
-	detail := "세션 요약을 플랫폼 모델이 작성했습니다"
+	detail := "미션 요약을 플랫폼 모델이 작성했습니다"
 	if by == GeneratedByFallback {
 		detail = "플랫폼 모델 키가 없어 기록을 이어 붙인 요약입니다"
 	}

@@ -58,14 +58,14 @@ var cliNames = map[string]string{
 // tool is gone from the surface, so the agent needs the idea, not a spelling
 // it would then try.
 var labels = map[string]string{
-	"session_get":          "세션 읽기",
+	"session_get":          "방 읽기",
 	"session_messages":     "메시지 읽기",
-	"artifact_get":         "산출물 읽기",
+	"artifact_get":         "아티팩트 읽기",
 	"message_post":         "메시지 게시",
 	"status_set":           "상태 알리기",
 	"decision_record":      "결정 기록",
 	"lane_delegate":        "위임",
-	"artifact_submit":      "산출물 제출",
+	"artifact_submit":      "아티팩트 제출",
 	"review_approve":       "검토 승인",
 	"review_reject":        "검토 반려",
 	"hitl_ask":             "사람에게 질문",

@@ -26,9 +26,9 @@ describe("(b) 세 표는 apperr.go 와 항목 단위로 같다", () => {
   });
   it("NotFound 문장 모양 — `<명사>을/를 찾을 수 없습니다`", () => {
     expect(apperr).toContain('Josa(noun, "을", "를")+" 찾을 수 없습니다"');
-    expect(notFound("session")).toBe("세션을 찾을 수 없습니다");
+    expect(notFound("session")).toBe("방을 찾을 수 없습니다");
     expect(notFound("invite")).toBe("초대를 찾을 수 없습니다");
-    expect(notFound("lane")).toBe("작업 줄기를 찾을 수 없습니다");
+    expect(notFound("lane")).toBe("서브 미션을 찾을 수 없습니다");
     expect(notFound("task")).toBe("할 일을 찾을 수 없습니다");
   });
 });

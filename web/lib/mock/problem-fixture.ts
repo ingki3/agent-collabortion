@@ -21,7 +21,7 @@ export interface ProblemFixtureOptions {
   extra?: Record<string, unknown>;
 }
 
-/** `problemFixture("session_active", 409, { detail: "진행 중인 세션은 먼저 종료하세요" })`. */
+/** `problemFixture("session_active", 409, { detail: "진행 중인 미션은 먼저 종료하세요" })`. */
 export function problemFixture(code: string, status: number, opts: ProblemFixtureOptions = {}): ApiError {
   return new ApiError({
     type: `https://colab.dev/problems/${code}`,

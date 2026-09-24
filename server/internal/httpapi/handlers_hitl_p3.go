@@ -137,7 +137,7 @@ func (s *Server) CreateHitlRequest(w http.ResponseWriter, r *http.Request, sessi
 		return
 	}
 	if scope.SessionID != sessionId {
-		writeProblem(w, apperr.Forbidden("outside_task_scope", "다른 세션에는 접근할 수 없습니다"))
+		writeProblem(w, apperr.Forbidden("outside_task_scope", "다른 방에는 접근할 수 없습니다"))
 		return
 	}
 	body, p := readBody(w, r)

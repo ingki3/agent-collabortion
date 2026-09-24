@@ -28,7 +28,8 @@
 //   - wake-up prompts posted as system messages for a delegator
 //     (router/status.go wake · wakeOnBlocked) and the rebind cold-start prompt
 //     (runtimes/offline.go), which quote card ids, reply_to and FR numbers
-//     because the agent needs them,
+//     because the agent needs them — that prompt still says 「세션」 and
+//     「런타임 세션」 (the runtime's own conversation), which is the agent's word,
 //   - the previous-session summary handed to the next turn (sessions/summary.go
 //     ReuseSection, brief section [6]: "…읽어라").
 //
@@ -42,7 +43,8 @@
 //
 // Rules of thumb for a new sentence (the §8.4 table wins over this list):
 //
-//	runtime      → 컴퓨터          lane        → 작업 줄기
+//	runtime      → 컴퓨터          lane        → 서브 미션
+//	session      → 방 · 미션        room · work → 방 · 미션   (PRD §3.2 — 「세션」「작업 줄기」「산출물」은 옛말)
 //	GC           → 작업 폴더 정리   (daemon-protocol §6 v0.7.4 fixes the gc refusal sentence)
 //	task         → 할 일           attempt     → 실행
 //	workdir      → 작업 폴더        HITL        → 확인 요청 / 사람 확인

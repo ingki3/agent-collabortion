@@ -39,7 +39,7 @@ export function LaneBoard({ lanes, emptyHint, emptyTurns, decorate, fold, ...car
     return (
       <div className="board" data-testid="lane-board">
         <p className="small muted-3" data-testid="lane-board-empty">
-          {emptyHint ?? "아직 시작한 일이 없습니다 — @로 에이전트를 부르면 작업 줄기가 하나 생깁니다."}
+          {emptyHint ?? "아직 시작한 일이 없습니다 — @로 에이전트를 부르면 서브 미션이 하나 생깁니다."}
         </p>
       </div>
     );

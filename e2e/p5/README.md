@@ -152,7 +152,7 @@ CI(PR #249 run 34989845714 attempt 1)에서 `A2d 동시 3개 (위임 3이 병렬
   **서버 쪽 lane 상한**을 쓰면 결정적이다(claim SQL 의 `lane_cap`).
 - **사람의 보통 메시지는 규칙 6 으로 assignee 를 깨운다.** NN4 의 "사람 경로" 메시지를 보통 문장으로 올렸더니 Lead 대본이 또 위임했다.
   라우팅을 원치 않는 사람 메시지는 `/note`(규칙 1).
-- **Director 의 POST /lanes·/decisions 는 403 `agent_only`** — 명령 표가 아니라 사람 권한 규칙(사람은 「새 작업 줄기로 보내기」·HITL 카드).
+- **Director 의 POST /lanes·/decisions 는 403 `agent_only`** — 명령 표가 아니라 사람 권한 규칙(사람은 「새 서브 미션으로 보내기」·HITL 카드).
   NN4 는 "`command_not_allowed` 가 아니다" 로 잰다.
 - **hermes 의 브리프는 파일이다**(brief_transport=file): 프롬프트 첫 줄이 workdir 의 `COLAB_BRIEF.md` 를 가리킨다. 래퍼 경로·거부 줄은
   거기서 읽는다(턴이 살아 있는 동안).

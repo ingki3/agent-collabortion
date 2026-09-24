@@ -506,7 +506,7 @@ func (s *Server) openWork(ctx context.Context, tx pgx.Tx, a *rooms.Access, u *ge
 			return uuid.Nil, err
 		}
 		if !live {
-			return uuid.Nil, apperr.Validation(apperr.Field("assignee_agent_id", "not_participant", "담당 에이전트는 이 방의 참여자 중에서 골라야 합니다"))
+			return uuid.Nil, apperr.Validation(apperr.Field("assignee_agent_id", "not_participant", "제출자는 이 방의 참여자 중에서 골라야 합니다"))
 		}
 		assignee = &id
 	}
@@ -851,7 +851,7 @@ func (s *Server) UpdateWork(w http.ResponseWriter, r *http.Request, workId gen.W
 					return err
 				}
 				if !live {
-					return apperr.Validation(apperr.Field("assignee_agent_id", "not_participant", "담당 에이전트는 이 방의 참여자 중에서 골라야 합니다"))
+					return apperr.Validation(apperr.Field("assignee_agent_id", "not_participant", "제출자는 이 방의 참여자 중에서 골라야 합니다"))
 				}
 				add("assignee_agent_id", id)
 				assignee = &id
@@ -1100,7 +1100,7 @@ func (s *Server) ResumeWork(w http.ResponseWriter, r *http.Request, workId gen.W
 			return err
 		}
 		if rule.ClosesSystemHitl {
-			return s.closeSessionBudgetHitl(r.Context(), tx, scope, u.Id, derefString(reason), sessions.Noun(false), now)
+			return s.closeSessionBudgetHitl(r.Context(), tx, scope, u.Id, derefString(reason), now)
 		}
 		return nil
 	})
@@ -1140,7 +1140,7 @@ func (s *Server) CompleteWork(w http.ResponseWriter, r *http.Request, workId gen
 		return
 	}
 	if running > 0 && (in.Confirm == nil || !*in.Confirm) {
-		p := apperr.Conflict("running_lanes", "진행 중인 작업 줄기가 있습니다 — 그래도 끝내려면 확인 후 다시 요청해 주세요")
+		p := apperr.Conflict("running_lanes", "진행 중인 서브 미션이 있습니다 — 그래도 끝내려면 확인 후 다시 요청해 주세요")
 		p.Extra = map[string]any{"running_lane_count": running}
 		writeProblem(w, p)
 		return
