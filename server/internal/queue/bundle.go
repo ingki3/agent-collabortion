@@ -153,13 +153,37 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		seen[id] = true
 		triggerIDs = append(triggerIDs, id)
 	}
+	// T-THREAD (harness v0.9.3, daemon-protocol v0.9.2): a message posted in a
+	// thread carries `thread="<root>"`, and the task's thread is the one the
+	// LATEST trigger message sits in — that is the question the turn answers,
+	// and the daemon hands it to `colab message post` as COLAB_THREAD_ID. A
+	// reply that ran to the main timeline is how a Director's thread question
+	// got answered where nobody was looking (STO 방 실측, 2026-09-25).
 	var trigger strings.Builder
+	var threadRootID string
+	var latest time.Time
 	for _, id := range triggerIDs {
 		m, err := messages.Get(ctx, tx, id)
 		if err != nil {
 			continue
 		}
-		fmt.Fprintf(&trigger, "<message id=%q author=%q at=%q>\n%s\n</message>\n", m.ID, authorLabel(m), m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"), m.Content)
+		root, err := threadRootOf(ctx, tx, m)
+		if err != nil {
+			return nil, err
+		}
+		thread := ""
+		if root != uuid.Nil {
+			thread = fmt.Sprintf(" thread=%q", root)
+		}
+		fmt.Fprintf(&trigger, "<message id=%q author=%q at=%q%s>\n%s\n</message>\n", m.ID, authorLabel(m), m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"), thread, m.Content)
+		// Arrival order breaks a tie: the list is already in it.
+		if !m.CreatedAt.Before(latest) {
+			latest = m.CreatedAt
+			threadRootID = ""
+			if root != uuid.Nil {
+				threadRootID = root.String()
+			}
+		}
 	}
 	history, _, _, _, err := messages.List(ctx, tx, t.SessionID, messages.ListOptions{IncludeReplies: true, Limit: historyLimit})
 	if err != nil {
@@ -322,6 +346,9 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	// absent above — so the same rendering serves both (§8.4, E8-06).
 	fmt.Fprintf(&prompt, "<trigger>\n%s</trigger>\n\n", trigger.String())
 	prompt.WriteString("Respond to the trigger. Post your reply with `colab message post`; mention the person or agent you are answering when a reply is expected.\n")
+	if threadRootID != "" {
+		prompt.WriteString(ThreadReplyInstruction + "\n")
+	}
 
 	transport := contracts.BriefACPMetaSystemPrompt
 	adapterPin := contracts.ClaudeAgentACPPin
@@ -488,6 +515,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	if t.TriggerMessageID != nil {
 		b.Task.TriggerMessageID = t.TriggerMessageID.String()
 	}
+	b.Task.ThreadRootID = threadRootID
 	if t.DelegatedFromTaskID != nil {
 		b.Task.DelegatedFromTaskID = t.DelegatedFromTaskID.String()
 	}
@@ -498,6 +526,40 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		b.PostedMessageIDs = posted
 	}
 	return b, nil
+}
+
+// ThreadReplyInstruction is harness §10 v0.9.3's closing line for a turn that
+// started in a thread: 「스레드로 들어온 메시지에는 그 스레드에 답한다 —
+// `colab message post` 는 기본으로 그 스레드에 답글을 단다. 메인 타임라인에
+// 올려야 할 때만 `--top-level`」. Only a threaded turn gets it — a top-level
+// turn has no COLAB_THREAD_ID and nothing to choose between.
+const ThreadReplyInstruction = "A trigger message with a `thread` attribute was posted in that thread: answer in the thread. `colab message post` replies to that thread by default; add `--top-level` only when the reply belongs on the main timeline."
+
+// threadRootOf is the root of the thread m sits in, uuid.Nil for a top-level
+// message. The router already stores a reply to a reply against the root, but
+// message.parent_id is a tree (#294 NN5), so the walk goes to the top rather
+// than trusting one hop.
+func threadRootOf(ctx context.Context, tx pgx.Tx, m *messages.Row) (uuid.UUID, error) {
+	if m.ParentID == nil {
+		return uuid.Nil, nil
+	}
+	var root uuid.UUID
+	err := tx.QueryRow(ctx, `
+		WITH RECURSIVE up AS (
+			SELECT id, parent_id, 0 AS depth FROM message WHERE id = $1
+			UNION ALL
+			SELECT p.id, p.parent_id, up.depth + 1 FROM message p JOIN up ON p.id = up.parent_id WHERE up.depth < 64
+		)
+		SELECT id FROM up WHERE parent_id IS NULL`, *m.ParentID).Scan(&root)
+	if isNoRows(err) {
+		// A dangling chain (the root was deleted) still names a thread: the
+		// nearest ancestor is the best the reply can do.
+		return *m.ParentID, nil
+	}
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("queue: thread root: %w", err)
+	}
+	return root, nil
 }
 
 func authorLabel(m *messages.Row) string {

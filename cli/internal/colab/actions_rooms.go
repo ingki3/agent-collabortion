@@ -59,13 +59,15 @@ func RoomGet(ctx context.Context, c *client.Client, a RoomGetArgs) (*RoomGetResu
 	return out, nil
 }
 
-// RoomMessagesArgs — `colab room messages [--since --limit --thread --work]`.
+// RoomMessagesArgs — `colab room messages [--since --limit --thread --work --top-only]`.
 type RoomMessagesArgs struct {
 	Room   string `json:"room,omitempty"`
 	Since  string `json:"since,omitempty"`  // sent as after=<cursor|message id>
 	Limit  *int   `json:"limit,omitempty"`  // 1..200 (nil = server default 50; an explicit 0 is exit 2)
 	Thread string `json:"thread,omitempty"` // thread root id
 	Work   string `json:"work,omitempty"`   // only this mission's messages (listMessages work_id)
+	// TopOnly drops thread replies (v0.9.1: replies are included by default).
+	TopOnly bool `json:"top_only,omitempty"`
 }
 
 // RoomMessagesResult adds the E8-12 included/total/truncated view.
@@ -97,7 +99,7 @@ func RoomMessages(ctx context.Context, c *client.Client, a RoomMessagesArgs) (*R
 	if err != nil {
 		return nil, err
 	}
-	page, err := c.ListMessages(ctx, rid, client.MessagesQuery{Since: a.Since, Limit: limit, Thread: a.Thread, Work: a.Work})
+	page, err := c.ListMessages(ctx, rid, client.MessagesQuery{Since: a.Since, Limit: limit, Thread: a.Thread, Work: a.Work, TopOnly: a.TopOnly})
 	if err != nil {
 		return nil, err
 	}

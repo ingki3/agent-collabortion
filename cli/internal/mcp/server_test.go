@@ -148,6 +148,16 @@ func TestRoundTrip(t *testing.T) {
 	if msgs.Error != nil || msgs.Result["structuredContent"].(map[string]any)["included"] != float64(1) {
 		t.Fatalf("messages = %+v", msgs)
 	}
+	if q := s.Requests[len(s.Requests)-1].URL.Query(); q.Get("include_replies") != "true" {
+		t.Fatalf("colab_room_messages default must include replies (v0.9.1): %v", q)
+	}
+	top := c.call("tools/call", map[string]any{"name": "colab_room_messages", "arguments": map[string]any{"top_only": true}})
+	if top.Error != nil || top.Result["isError"] == true {
+		t.Fatalf("top_only = %+v", top)
+	}
+	if q := s.Requests[len(s.Requests)-1].URL.Query(); q.Get("include_replies") != "false" {
+		t.Fatalf("top_only query = %v", q)
+	}
 	// N4: explicit limit 0 is a usage error (exit 2 in the error object), not "default".
 	bad := c.call("tools/call", map[string]any{"name": "colab_room_messages", "arguments": map[string]any{"limit": 0}})
 	if bad.Error != nil || bad.Result["isError"] != true {
@@ -325,4 +335,31 @@ func mcpDiffRepo(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+// colab-cli v0.9.1: colab_message_post takes reply_to·top_level with the
+// command's rule — the turn's thread by default, top_level for the main
+// timeline, both together refused before anything is posted.
+func TestMessagePostToolThread(t *testing.T) {
+	const root = "55555555-5555-4555-8555-555555555555"
+	s := clienttest.New(t)
+	c := dial(t, newClient(t, s, func(env map[string]string) { env["COLAB_THREAD_ID"] = root }))
+	c.call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "test", "version": "0"}})
+	c.notify("notifications/initialized")
+
+	for i, args := range []map[string]any{{"body": "a"}, {"body": "b", "top_level": true}} {
+		if r := c.call("tools/call", map[string]any{"name": "colab_message_post", "arguments": args}); r.Error != nil || r.Result["isError"] == true {
+			t.Fatalf("post %d = %+v", i, r)
+		}
+	}
+	if s.Posted[0].Body["parent_id"] != root || s.Posted[1].Body["parent_id"] != nil {
+		t.Fatalf("parents = %v / %v, want %s / none", s.Posted[0].Body["parent_id"], s.Posted[1].Body["parent_id"], root)
+	}
+	r := c.call("tools/call", map[string]any{"name": "colab_message_post", "arguments": map[string]any{"body": "c", "reply_to": "root-2", "top_level": true}})
+	if r.Error == nil && r.Result["isError"] != true {
+		t.Fatalf("reply_to + top_level accepted: %+v", r)
+	}
+	if len(s.Posted) != 2 {
+		t.Fatalf("the contradictory call posted (%d posts)", len(s.Posted))
+	}
 }

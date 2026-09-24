@@ -68,8 +68,8 @@ stdout plus one line on stderr.
 
 ```sh
 colab room get [--room R]
-colab room messages [--since <cursor|message_id>] [--limit N] [--thread <root_id>] [--work <mission_id>]
-colab message post --body <text> [--reply-to <msg_id>] [--mention @A,@B] [--idempotency-key K]
+colab room messages [--since <cursor|message_id>] [--limit N] [--thread <root_id>] [--work <mission_id>] [--top-only]
+colab message post --body <text> [--reply-to <msg_id> | --top-level] [--mention @A,@B] [--idempotency-key K]
 
 colab status set working|blocked|done [--note <text>]
 colab lane delegate --agent <name> --brief <text> [--depends-on <lane_id>] [--profile <name>]
@@ -86,7 +86,10 @@ colab version
 `room messages --since <x>` is sent to the server as the `after=<x>` query
 parameter (messages newer than that cursor / message id). `--limit` must be
 1..200 when given; an explicit `--limit 0` is exit 2, omit it for the server
-default (50).
+default (50). Thread replies are included by default (`include_replies=true`,
+each item's `parent_id` is its thread root; v0.9.1) — agents answer in threads,
+so the main timeline alone misses most of what they said. `--top-only` (MCP
+`top_only`) asks for the main timeline alone; `--thread` is that one thread.
 
 `message post` sends `Idempotency-Key: UUIDv5(namespace, "task:<task_id>:<seq>")`
 automatically (`contracts/colab-cli.md` §1 v0.2), together with

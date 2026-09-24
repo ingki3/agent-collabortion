@@ -182,10 +182,13 @@ type BundleTask struct {
 	// RoomID — 방 id(daemon-protocol v0.9.0, PRD v0.19). 옛 SessionID 와 같은 값이고 R4 까지 둘 다 싣는다.
 	RoomID string `json:"room_id,omitempty"`
 	// WorkID — 매인 미션(없으면 미션 밖 task).
-	WorkID              string   `json:"work_id,omitempty"`
-	AgentID             string   `json:"agent_id"`
-	AgentName           string   `json:"agent_name"`
-	TriggerMessageID    string   `json:"trigger_message_id"`
+	WorkID           string `json:"work_id,omitempty"`
+	AgentID          string `json:"agent_id"`
+	AgentName        string `json:"agent_name"`
+	TriggerMessageID string `json:"trigger_message_id"`
+	// ThreadRootID — 트리거 메시지가 스레드 답글이면 그 스레드 루트(daemon-protocol v0.9.2). 최상위면 빈 값.
+	// 데몬이 COLAB_THREAD_ID 로 넘기고 colab message post 의 기본 답글 위치가 된다.
+	ThreadRootID        string   `json:"thread_root_id,omitempty"`
 	RestartedFromTaskID string   `json:"restarted_from_task_id,omitempty"`
 	DelegatedFromTaskID string   `json:"delegated_from_task_id,omitempty"`
 	BudgetUSD           *float64 `json:"budget_usd,omitempty"`

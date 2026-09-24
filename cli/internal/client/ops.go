@@ -54,6 +54,16 @@ func (c *Client) RoomID(ctx context.Context, explicit string) (string, error) {
 // mission. /cli/context has no work id, so the env is the only source.
 func (c *Client) WorkID() string { return c.cfg.WorkID }
 
+// ThreadID is the thread this turn was asked in (COLAB_THREAD_ID), "" for a
+// turn that started at the top level. It is a thread of the turn's OWN room,
+// so it is returned only for that room.
+func (c *Client) ThreadID(roomID string) string {
+	if c.cfg.RoomID != "" && roomID != c.cfg.RoomID {
+		return ""
+	}
+	return c.cfg.ThreadID
+}
+
 // TaskScope resolves (task_id, attempt): env first, else /cli/context. The
 // attempt is not part of the key; NextSeq uses it to detect attempt
 // boundaries in the persisted seq state.
@@ -121,6 +131,10 @@ type MessagesQuery struct {
 	Limit  int    // → limit (1..200)
 	Thread string // → thread=<root id>
 	Work   string // → work_id=<mission id> (colab room messages --work, v0.8)
+	// TopOnly → include_replies=false (colab room messages --top-only,
+	// v0.9.1). Replies are the default: agents answer in threads, so a
+	// top-level-only read misses most of what they said to each other.
+	TopOnly bool
 }
 
 // ListMessages — GET /rooms/{R}/messages (listMessages).
@@ -142,8 +156,10 @@ func (c *Client) ListMessages(ctx context.Context, roomID string, q MessagesQuer
 	}
 	if q.Thread != "" {
 		v.Set("thread", q.Thread)
-		v.Set("include_replies", "true")
 	}
+	// --thread already means root + replies; otherwise v0.9.1 defaults to
+	// replies included and --top-only asks for the main timeline alone.
+	v.Set("include_replies", strconv.FormatBool(q.Thread != "" || !q.TopOnly))
 	var page MessagePage
 	if _, err := c.GetJSON(ctx, "/rooms/"+url.PathEscape(roomID)+"/messages", v, &page); err != nil {
 		return nil, err

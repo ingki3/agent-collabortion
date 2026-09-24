@@ -133,6 +133,7 @@ PY
   post "FRONTEND-DIFF ${aid:-?}"
   done_ ;;
 QA)
+  # `colab room messages` 는 스레드 답글을 기본으로 싣는다(colab-cli v0.9.1) — Frontend 의 새 diff 는 리뷰 스레드에 달린다.
   fe="$(colab room messages --limit 50 2>/dev/null | jq -r '.items[]?.content // empty' | grep -o 'FRONTEND-DIFF [0-9a-f-]*' | tail -1 | awk '{print $2}')"
   if [ -z "$fe" ]; then fe="$(printf '%s\n' "$P" | grep -o 'FRONTEND-DIFF [0-9a-f-]*' | tail -1 | awk '{print $2}')"; fi
   log "review target frontend=$fe"
