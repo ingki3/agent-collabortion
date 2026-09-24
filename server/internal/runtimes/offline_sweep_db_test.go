@@ -191,6 +191,7 @@ func TestMayRebind(t *testing.T) {
 		{"deputy before half", dep, nil, &at, at.Add(11 * time.Hour), false},
 		{"deputy from half", dep, nil, &at, at.Add(12 * time.Hour), true},
 		{"deputy, no gate", dep, nil, nil, at.Add(48 * time.Hour), false},
+		{"owner, no gate", owner, nil, nil, at.Add(48 * time.Hour), true},
 		{"stranger", other, &dir, &at, at.Add(48 * time.Hour), false},
 	}
 	for _, c := range cases {
