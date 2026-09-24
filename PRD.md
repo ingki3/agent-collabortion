@@ -1352,7 +1352,7 @@ Lead 역할의 브리프 파일에는 다음 섹션이 추가된다 (multica Squ
 [2] Workspace 규칙 + 멘션 문법 + colab CLI/MCP 사용 규약
 [3] (lead만) Coordination Protocol
 [4] Session: goal / acceptance_criteria / 종료 조건 / Director 이름 / 격리 방식
-[5] Roster: 참여자별 이름·역할 설명·멘션 링크·현재 상태
+[5] Roster: 참여자별 이름·역할 설명·멘션 링크 (현재 상태 working/idle 는 턴마다 바뀌므로 턴 프롬프트 `<roster_status>` 로 — [1]~[5] 바이트 동일, harness v0.9.2)
 [6] Context: 첨부 자료 요약, 이전 세션 요약 (설정 상한 내)
 [7] Decision Log
 [8] Instruction Precedence: 사용자 지시 > 세션 goal > 에이전트 instruction > 런타임 기본
