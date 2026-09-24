@@ -107,7 +107,7 @@ func TestNotAllowedSentenceIsTheServers(t *testing.T) {
 // roles.CLIName rule.
 func TestCLIName(t *testing.T) {
 	want := map[Command]string{
-		CmdSessionGet: "session get", CmdSessionMessages: "session messages", CmdArtifactGet: "artifact get",
+		CmdRoomGet: "room get", CmdRoomMessages: "room messages", CmdArtifactGet: "artifact get",
 		CmdMessagePost: "message post", CmdStatusSet: "status set", CmdDecisionRecord: "decision record",
 		CmdLaneDelegate: "lane delegate", CmdArtifactSubmit: "artifact submit",
 		CmdReviewApprove: "review approve", CmdReviewReject: "review reject",
@@ -125,7 +125,7 @@ func TestCLIName(t *testing.T) {
 }
 
 func TestSplitCommands(t *testing.T) {
-	if got := SplitCommands(" session_get, ,message_post ,"); len(got) != 2 || got[0] != "session_get" || got[1] != "message_post" {
+	if got := SplitCommands(" room_get, ,message_post ,"); len(got) != 2 || got[0] != "room_get" || got[1] != "message_post" {
 		t.Fatalf("got %v", got)
 	}
 	if got := SplitCommands(" , "); got == nil || len(got) != 0 {
@@ -137,11 +137,11 @@ func TestSplitCommands(t *testing.T) {
 	}
 	c := FromEnv(func(k string) string {
 		if k == EnvAllowedCommands {
-			return "session_get"
+			return "room_get"
 		}
 		return ""
 	})
-	if len(c.AllowedCommands) != 1 || c.AllowedCommands[0] != "session_get" {
+	if len(c.AllowedCommands) != 1 || c.AllowedCommands[0] != "room_get" {
 		t.Fatalf("env list = %v", c.AllowedCommands)
 	}
 }

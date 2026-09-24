@@ -13,7 +13,7 @@ import (
 // (0 · 2 · 3 · 4 · 5); the second open request on a task is the server's
 // 409 → 3 (E7-04).
 //
-// The operation is session-scoped (POST /sessions/{S}/hitl-requests) and the
+// The operation is room-scoped (POST /rooms/{R}/hitl-requests) and the
 // task comes from the TaskToken, so the override flag is --session, not
 // --task: there is nowhere to put a task id, and a flag the server cannot
 // honour would be worse than none (v0.5.1, C-4).
@@ -31,7 +31,7 @@ func runHitl(args []string, getenv client.Getenv, stdout, stderr io.Writer) int 
 	switch args[0] {
 	case "ask":
 		fs, _ := newFlagSet("hitl ask", stderr)
-		session := fs.String("session", "", "session id (default COLAB_SESSION_ID / /cli/context)")
+		session := fs.String("session", "", "room id override (default COLAB_ROOM_ID / /cli/context)")
 		question := fs.String("question", "", "the question for the Director (required)")
 		def := fs.String("default", "", "the answer you propose — REQUIRED (FR-5.1: question and choice both need one)")
 		ctxt := fs.String("context", "", "background the human needs to answer")
@@ -50,7 +50,7 @@ func runHitl(args []string, getenv client.Getenv, stdout, stderr io.Writer) int 
 		return emit(stdout, stderr, v, err)
 	case "approve-request":
 		fs, _ := newFlagSet("hitl approve-request", stderr)
-		session := fs.String("session", "", "session id (default COLAB_SESSION_ID / /cli/context)")
+		session := fs.String("session", "", "room id override (default COLAB_ROOM_ID / /cli/context)")
 		summary := fs.String("summary", "", "what you are asking approval for (required)")
 		artifact := fs.String("artifact", "", "artifact id this approval is about")
 		key := fs.String("idempotency-key", "", "optional Idempotency-Key (uuid) to make a retry replay")
@@ -65,7 +65,7 @@ func runHitl(args []string, getenv client.Getenv, stdout, stderr io.Writer) int 
 		return emit(stdout, stderr, v, err)
 	case "request-info":
 		fs, _ := newFlagSet("hitl request-info", stderr)
-		session := fs.String("session", "", "session id (default COLAB_SESSION_ID / /cli/context)")
+		session := fs.String("session", "", "room id override (default COLAB_ROOM_ID / /cli/context)")
 		what := fs.String("what", "", "the information you need (required)")
 		why := fs.String("why", "", "why you need it")
 		question := fs.String("question", "", "alias of --what")

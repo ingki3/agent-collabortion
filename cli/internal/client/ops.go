@@ -14,7 +14,7 @@ import (
 // command's request count for nothing: a revoked token surfaces as 401 on
 // each command's own request anyway (FR-9.1, E11-04).
 //
-// A command that needs a context value — the session or task id when the env
+// A command that needs a context value — the room or task id when the env
 // does not carry one, the participant roster (`lane delegate`), last_seq at
 // an attempt boundary, or open_hitl_request_id /
 // suppressed_delegator_agent_id — calls this and gets the cached answer.
@@ -30,23 +30,29 @@ func (c *Client) Context(ctx context.Context) (*CliContext, error) {
 	return c.ctx, nil
 }
 
-// SessionID resolves the session: explicit arg → COLAB_SESSION_ID → /cli/context.
-func (c *Client) SessionID(ctx context.Context, explicit string) (string, error) {
+// RoomID resolves the turn's room: explicit arg → COLAB_ROOM_ID (else its
+// old name COLAB_SESSION_ID, same value) → /cli/context session_id (the
+// context still names the room's id by its old column name).
+func (c *Client) RoomID(ctx context.Context, explicit string) (string, error) {
 	if explicit != "" {
 		return explicit, nil
 	}
-	if c.cfg.SessionID != "" {
-		return c.cfg.SessionID, nil
+	if c.cfg.RoomID != "" {
+		return c.cfg.RoomID, nil
 	}
 	cc, err := c.Context(ctx)
 	if err != nil {
 		return "", err
 	}
 	if cc.SessionID == "" {
-		return "", &Error{Exit: ExitUnreachable, Code: "bad_response", Title: "cli context has no session_id"}
+		return "", &Error{Exit: ExitUnreachable, Code: "bad_response", Title: "cli context has no session_id (room id)"}
 	}
 	return cc.SessionID, nil
 }
+
+// WorkID is the mission this turn belongs to (COLAB_WORK_ID), "" outside a
+// mission. /cli/context has no work id, so the env is the only source.
+func (c *Client) WorkID() string { return c.cfg.WorkID }
 
 // TaskScope resolves (task_id, attempt): env first, else /cli/context. The
 // attempt is not part of the key; NextSeq uses it to detect attempt
@@ -73,17 +79,43 @@ func (c *Client) TaskScope(ctx context.Context) (string, int, error) {
 	return task, attempt, nil
 }
 
-// GetSession — GET /sessions/{S}. Returned as a generic map so every field
-// the server sends reaches --json output unchanged.
-func (c *Client) GetSession(ctx context.Context, sessionID string) (map[string]any, error) {
+// GetRoom — GET /rooms/{R} (getRoom). Returned as a generic map so every
+// field the server sends reaches --json output unchanged.
+func (c *Client) GetRoom(ctx context.Context, roomID string) (map[string]any, error) {
 	var out map[string]any
-	if _, err := c.GetJSON(ctx, "/sessions/"+url.PathEscape(sessionID), nil, &out); err != nil {
+	if _, err := c.GetJSON(ctx, "/rooms/"+url.PathEscape(roomID), nil, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// MessagesQuery — colab session messages flags.
+// GetWork — GET /works/{W} (getWork): goal · acceptance_criteria ·
+// completion_progress · director, as sent.
+func (c *Client) GetWork(ctx context.Context, workID string) (map[string]any, error) {
+	var out map[string]any
+	if _, err := c.GetJSON(ctx, "/works/"+url.PathEscape(workID), nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListRoomParticipants — GET /rooms/{R}/participants (listRoomParticipants):
+// people and agents in one list, each agent row with its room-scoped
+// derived status. Returns items[] as sent (never nil).
+func (c *Client) ListRoomParticipants(ctx context.Context, roomID string) ([]map[string]any, error) {
+	var out struct {
+		Items []map[string]any `json:"items"`
+	}
+	if _, err := c.GetJSON(ctx, "/rooms/"+url.PathEscape(roomID)+"/participants", nil, &out); err != nil {
+		return nil, err
+	}
+	if out.Items == nil {
+		out.Items = []map[string]any{}
+	}
+	return out.Items, nil
+}
+
+// MessagesQuery — colab room messages flags.
 type MessagesQuery struct {
 	Since  string // → after=<cursor|id>
 	Limit  int    // → limit (1..200)
@@ -91,10 +123,10 @@ type MessagesQuery struct {
 	Work   string // → work_id=<mission id> (colab room messages --work, v0.8)
 }
 
-// ListMessages — GET /sessions/{S}/messages.
-func (c *Client) ListMessages(ctx context.Context, sessionID string, q MessagesQuery) (*MessagePage, error) {
+// ListMessages — GET /rooms/{R}/messages (listMessages).
+func (c *Client) ListMessages(ctx context.Context, roomID string, q MessagesQuery) (*MessagePage, error) {
 	// 0 means "not given" here; an explicit --limit 0 is rejected one layer
-	// up (colab.SessionMessages) where "given" is known.
+	// up (colab.RoomMessages) where "given" is known.
 	if q.Limit < 0 || q.Limit > 200 {
 		return nil, Usage("--limit must be 1..200 (got %d)", q.Limit)
 	}
@@ -113,7 +145,7 @@ func (c *Client) ListMessages(ctx context.Context, sessionID string, q MessagesQ
 		v.Set("include_replies", "true")
 	}
 	var page MessagePage
-	if _, err := c.GetJSON(ctx, "/sessions/"+url.PathEscape(sessionID)+"/messages", v, &page); err != nil {
+	if _, err := c.GetJSON(ctx, "/rooms/"+url.PathEscape(roomID)+"/messages", v, &page); err != nil {
 		return nil, err
 	}
 	return &page, nil
@@ -137,13 +169,13 @@ func IdempotencyKey(taskID string, seq int) string {
 // so a hole in the seq (failed post, then retry) never causes a key reuse.
 const HeaderClientSeq = "X-Colab-Client-Seq"
 
-// PostMessage — POST /sessions/{S}/messages with the Idempotency-Key. If key
+// PostMessage — POST /rooms/{R}/messages with the Idempotency-Key. If key
 // is empty one is derived from (task, next seq) — see NextSeq — and that seq
 // is sent alongside as X-Colab-Client-Seq (v0.3). An explicit key has no
 // known seq, so the header is omitted and the server falls back to its
 // UUIDv5 probe. Returns the key actually used so a caller can retry with the
 // same one.
-func (c *Client) PostMessage(ctx context.Context, sessionID string, body MessageCreate, key string) (*MessagePostResult, string, bool, error) {
+func (c *Client) PostMessage(ctx context.Context, roomID string, body MessageCreate, key string) (*MessagePostResult, string, bool, error) {
 	if body.Content == "" {
 		return nil, "", false, Usage("--body is required")
 	}
@@ -161,7 +193,7 @@ func (c *Client) PostMessage(ctx context.Context, sessionID string, body Message
 		h.Set(HeaderClientSeq, strconv.Itoa(seq))
 	}
 	h.Set("Idempotency-Key", key)
-	res, err := c.Do(ctx, http.MethodPost, "/sessions/"+url.PathEscape(sessionID)+"/messages", nil, body, h)
+	res, err := c.Do(ctx, http.MethodPost, "/rooms/"+url.PathEscape(roomID)+"/messages", nil, body, h)
 	if err != nil {
 		return nil, key, false, err
 	}

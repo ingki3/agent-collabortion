@@ -290,7 +290,7 @@ func TestHitlIsOneRequest(t *testing.T) {
 		colab.HitlAskArgs{Question: "독자?", Default: "투자자"}); err != nil {
 		t.Fatal(err)
 	}
-	want := "/sessions/" + clienttest.SessionID + "/hitl-requests"
+	want := "/rooms/" + clienttest.SessionID + "/hitl-requests"
 	if len(s.Requests) != 1 || !strings.HasSuffix(s.Requests[0].URL.Path, want) {
 		paths := make([]string, 0, len(s.Requests))
 		for _, r := range s.Requests {
@@ -332,7 +332,7 @@ func TestHitlPathIsSessionScoped(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := s.Requests[len(s.Requests)-1]
-			want := "/api/v1/sessions/" + clienttest.SessionID + "/hitl-requests"
+			want := "/api/v1/rooms/" + clienttest.SessionID + "/hitl-requests"
 			if got.Method != "POST" || got.URL.Path != want {
 				t.Fatalf("%s %s, want POST %s (openapi createHitlRequest)", got.Method, got.URL.Path, want)
 			}

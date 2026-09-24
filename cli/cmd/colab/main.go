@@ -2,7 +2,8 @@
 // (PRD FR-7.4, contracts/colab-cli.md). Authenticated with COLAB_TASK_TOKEN.
 // The same commands are exposed as MCP tools via `colab mcp serve`.
 //
-// P1: session get · session messages · message post · version · mcp serve.
+// P1: message post · version · mcp serve (and the reads now named room get ·
+// room messages).
 // P2 (colab-cli.md v0.4 §2.2·2.3): lane delegate · status set ·
 // decision record · artifact submit/get · review approve/reject.
 // P3 (colab-cli.md v0.5 §2.4): hitl ask · hitl approve-request ·
@@ -11,8 +12,9 @@
 // v1.1 (colab-cli.md v0.6 §2.5, K-19): a command outside the role's
 // allowed_commands is refused before any request with exit 3
 // command_not_allowed; `mcp serve --allow` registers only the allowed tools.
-// v0.19 R3 (colab-cli.md v0.8 §2.4a): room list · room read · work propose,
-// and room get · room messages as the room names of session get · messages.
+// v0.19 R3 (colab-cli.md v0.8 §2.4a): room list · room read · work propose.
+// v0.19 R4 (colab-cli.md v0.9): `colab session get|messages` are gone —
+// room get · room messages are the commands, and every path is /rooms/{R}/….
 // Output is always JSON on stdout (agents parse it); --json is accepted for
 // clarity. Exit codes: 0 ok · 2 args · 3 refused · 4 no/revoked token ·
 // 5 server unreachable.
@@ -45,17 +47,22 @@ var version = "0.3.0-dev"
 
 const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
 
-  colab session get [--session S] [--json]
-  colab session messages [--since <cursor|id>] [--limit N] [--thread <root_id>] [--json]
+  colab room get [--room R] [--json]
+                             {"room", "work", "participants"}: the room (name, description, isolation),
+                             this turn's mission (goal, acceptance_criteria, completion_progress,
+                             director — null outside a mission, i.e. without COLAB_WORK_ID) and
+                             the roster (name, role description, derived status)
+  colab room messages [--since <cursor|id>] [--limit N] [--thread <root_id>] [--work <mission_id>] [--json]
                              --since is sent as the after= query parameter (messages newer than it)
                              --limit is 1..200 (omit for the server default 50)
+                             --work keeps one mission's messages
   colab message post --body <text> [--reply-to <msg_id>] [--mention @A,@B] [--idempotency-key K] [--json]
                              Idempotency-Key = UUIDv5(task:<task_id>:<seq>), seq continues across attempts;
                              the same seq is sent as X-Colab-Client-Seq (omitted with --idempotency-key)
   colab status set working|blocked|done [--note <text>]
                              blocked needs --note (the question); the reply carries turn_end_required
   colab lane delegate --agent <name> --brief <text> [--depends-on <lane_id>] [--profile <name>]
-                             always a new lane; the target must already be a session participant
+                             always a new lane; the target must already be a room participant
   colab decision record --summary <s> [--rationale <r>]
   colab artifact submit --type <t> --file <p> [--name <n>] [--description <d>]
   colab artifact submit --type diff [--base <rev>] [--name <n>] [--description <d>]
@@ -80,9 +87,6 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
                              asks a human for information (--question is an alias of --what)
                              All three return turn_end_required:true — register it and END YOUR TURN.
                              A task holds one open request at a time; a second is exit 3 hitl_already_open.
-  colab room get [--room R]            same as session get (a room's id is its session id)
-  colab room messages [--since] [--limit N] [--thread <root_id>] [--work <mission_id>]
-                             same as session messages; --work keeps one mission's messages
   colab room list [--query <text>]
                              only the rooms THIS turn may read (the requesting person and you
                              must both have access — judged by the server at the call)
@@ -104,8 +108,9 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
   sent only when given (openapi IdempotencyKeyOptional).
 
 env (daemon, contracts/colab-cli.md §1): COLAB_TASK_TOKEN COLAB_SERVER_URL(origin) COLAB_TASK_ID
-     COLAB_TASK_ATTEMPT COLAB_LANE_ID COLAB_SESSION_ID COLAB_AGENT_NAME [COLAB_API_PREFIX]
-     [COLAB_ALLOWED_COMMANDS=session_get,message_post,…]  the role's command subset (harness §10);
+     COLAB_TASK_ATTEMPT COLAB_LANE_ID COLAB_ROOM_ID (old name COLAB_SESSION_ID, same value)
+     [COLAB_WORK_ID] COLAB_AGENT_NAME [COLAB_API_PREFIX]
+     [COLAB_ALLOWED_COMMANDS=room_get,message_post,…]  the role's command subset (harness §10);
      without it the CLI reads getCliContext.allowed_commands once. A command outside the subset
      is refused BEFORE any request: exit 3 command_not_allowed (colab-cli.md §2.5)
 exit: 0 ok · 2 args · 3 refused · 4 no/revoked token · 5 server unreachable
@@ -128,8 +133,6 @@ func run(args []string, getenv client.Getenv, stdin io.Reader, stdout, stderr io
 	case "version", "--version", "-v":
 		fmt.Fprintf(stdout, "colab %s (contracts %s)\n", version, contracts.Version)
 		return client.ExitOK
-	case "session":
-		return runSession(args[1:], getenv, stdout, stderr)
 	case "message":
 		return runMessage(args[1:], getenv, stdout, stderr)
 	case "lane":
@@ -153,7 +156,7 @@ func run(args []string, getenv client.Getenv, stdin io.Reader, stdout, stderr io
 			return usage(stderr, "usage: colab mcp serve [--allow <cmd,…>]")
 		}
 		fs, _ := newFlagSet("mcp serve", stderr)
-		allow := fs.String("allow", "", "register only these commands' tools (comma-separated ColabCommand names, e.g. session_get,message_post); default: all")
+		allow := fs.String("allow", "", "register only these commands' tools (comma-separated ColabCommand names, e.g. room_get,message_post); default: all")
 		if err := fs.Parse(args[2:]); err != nil {
 			return client.ExitUsage
 		}
@@ -182,7 +185,7 @@ func run(args []string, getenv client.Getenv, stdin io.Reader, stdout, stderr io
 		return client.ExitOK
 	}
 	return usage(stderr, "colab: unknown command %q "+
-		"(session · room · message · status · lane · decision · artifact · review · hitl · work · mcp · version)", args[0])
+		"(room · message · status · lane · decision · artifact · review · hitl · work · mcp · version)", args[0])
 }
 
 func usage(stderr io.Writer, format string, a ...any) int {
@@ -198,54 +201,12 @@ func newFlagSet(name string, stderr io.Writer) (*flag.FlagSet, *bool) {
 	return fs, jsonOut
 }
 
-func runSession(args []string, getenv client.Getenv, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
-		return usage(stderr, "usage: colab session get | colab session messages")
-	}
-	c := client.New(client.FromEnv(getenv))
-	ctx := context.Background()
-	switch args[0] {
-	case "get":
-		fs, _ := newFlagSet("session get", stderr)
-		session := fs.String("session", "", "session id (default COLAB_SESSION_ID / token scope)")
-		if err := fs.Parse(args[1:]); err != nil {
-			return client.ExitUsage
-		}
-		if fs.NArg() > 0 {
-			return usage(stderr, "session get: unexpected argument %q", fs.Arg(0))
-		}
-		v, err := colab.SessionGet(ctx, c, colab.SessionGetArgs{Session: *session})
-		return emit(stdout, stderr, v, err)
-	case "messages":
-		fs, _ := newFlagSet("session messages", stderr)
-		session := fs.String("session", "", "session id (default COLAB_SESSION_ID / token scope)")
-		since := fs.String("since", "", "only messages newer than this cursor / message id (sent as after=)")
-		limit := fs.Int("limit", 0, "max messages, 1..200 (omit for the server default 50)")
-		thread := fs.String("thread", "", "thread root message id (root + replies)")
-		if err := fs.Parse(args[1:]); err != nil {
-			return client.ExitUsage
-		}
-		if fs.NArg() > 0 {
-			return usage(stderr, "session messages: unexpected argument %q", fs.Arg(0))
-		}
-		a := colab.SessionMessagesArgs{Session: *session, Since: *since, Thread: *thread}
-		fs.Visit(func(f *flag.Flag) {
-			if f.Name == "limit" { // explicit --limit (even 0) is validated, not ignored
-				a.Limit = limit
-			}
-		})
-		v, err := colab.SessionMessages(ctx, c, a)
-		return emit(stdout, stderr, v, err)
-	}
-	return usage(stderr, "colab session: unknown subcommand %q", args[0])
-}
-
 func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] != "post" {
 		return usage(stderr, "usage: colab message post --body <text> [--reply-to <id>] [--mention @A,@B]")
 	}
 	fs, _ := newFlagSet("message post", stderr)
-	session := fs.String("session", "", "session id (default COLAB_SESSION_ID / token scope)")
+	session := fs.String("session", "", "room id override (default COLAB_ROOM_ID / token scope)")
 	body := fs.String("body", "", "message text (markdown)")
 	replyTo := fs.String("reply-to", "", "parent message id (thread)")
 	mention := fs.String("mention", "", "comma-separated agent names to mention, e.g. @Reviewer,@Writer")

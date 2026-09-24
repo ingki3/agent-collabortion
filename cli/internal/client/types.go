@@ -50,7 +50,7 @@ type Participant struct {
 	MentionLink string `json:"mention_link"`
 }
 
-// MessageCreate — POST /sessions/{S}/messages body.
+// MessageCreate — POST /rooms/{R}/messages body.
 type MessageCreate struct {
 	Content  string  `json:"content"`
 	ParentID *string `json:"parent_id,omitempty"`
@@ -83,7 +83,7 @@ type MessageAuthor struct {
 	Role      string  `json:"role,omitempty"`
 }
 
-// MessagePage — GET /sessions/{S}/messages.
+// MessagePage — GET /rooms/{R}/messages.
 type MessagePage struct {
 	Items         []Message `json:"items"`
 	BeforeCursor  *string   `json:"before_cursor"`
@@ -119,7 +119,7 @@ type Warning struct {
 	AgentID *string `json:"agent_id,omitempty"`
 }
 
-// MessagePostResult — POST /sessions/{S}/messages 201 body (openapi.yaml).
+// MessagePostResult — POST /rooms/{R}/messages 201 body (openapi.yaml).
 // `Triggered`/`Suppressed` are the colab-cli.md §2.2 convenience names; a
 // server that emits them directly is accepted, otherwise they are derived
 // from triggers[]/warnings[] (see colab.summarize).

@@ -1,12 +1,12 @@
 // Package mcp is a minimal stdio MCP server (JSON-RPC 2.0, newline-delimited)
 // exposing the colab commands as tools with the same names as the command
 // paths joined by underscores (contracts/colab-cli.md §3):
-// colab_session_get · colab_session_messages · colab_message_post ·
+// colab_room_get · colab_room_messages · colab_message_post ·
 // colab_status_set · colab_lane_delegate · colab_decision_record ·
 // colab_artifact_submit · colab_artifact_get · colab_review_approve ·
 // colab_review_reject · colab_hitl_ask · colab_hitl_approve_request ·
 // colab_hitl_request_info · (v0.8 §2.4a) colab_room_list · colab_room_read ·
-// colab_work_propose · colab_room_get · colab_room_messages.
+// colab_work_propose. (v0.9 R4 removed the old session-named read tools.)
 //
 // Every tool calls the same internal/colab action the CLI subcommand calls,
 // so a tool and its command produce byte-identical JSON.
@@ -49,23 +49,23 @@ type Tool struct {
 	InputSchema json.RawMessage `json:"inputSchema"`
 }
 
-// Tools is the tool table (order is stable for tools/list): P1 reads and
-// message post, then the P2 write commands of colab-cli.md v0.4 §2.2·2.3,
+// Tools is the tool table (order is stable for tools/list): the room reads
+// and message post, then the P2 write commands of colab-cli.md v0.4 §2.2·2.3,
 // then the P3 HITL commands of v0.5 §2.4.
 var Tools = []Tool{
 	{
-		Name:        "colab_session_get",
-		Description: "Read this session: goal, acceptance_criteria, completion_progress, participants (roster with derived status), isolation, director. Same as `colab session get`.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"session":{"type":"string","description":"session id (default: the task's session)"}},"additionalProperties":false}`),
+		Name:        "colab_room_get",
+		Description: "Read this room: {room, work, participants}. `room` is the room itself (name, description, isolation); `work` is the mission this turn belongs to — goal, acceptance_criteria, completion_progress (which conditions are met and whose turn it is), director — or null outside a mission; `participants` is the roster (people and agents: name, role description, derived status). Same as `colab room get [--room]`.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"room":{"type":"string","description":"room id (default: this turn's room)"}},"additionalProperties":false}`),
 	},
 	{
-		Name:        "colab_session_messages",
-		Description: "Read session messages (author, body, thread, time). Use when the history in your prompt is truncated. Same as `colab session messages [--since --limit --thread]`.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"session":{"type":"string"},"since":{"type":"string","description":"only messages newer than this cursor / message id (sent as the after= query parameter)"},"limit":{"type":"integer","minimum":1,"maximum":200,"description":"1..200; omit for the server default (50)"},"thread":{"type":"string","description":"thread root message id: returns root + replies"}},"additionalProperties":false}`),
+		Name:        "colab_room_messages",
+		Description: "Read this room's messages (author, body, thread, time). Use when the history in your prompt is truncated; `work` keeps one mission's messages. Same as `colab room messages [--since --limit --thread --work]`.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"room":{"type":"string","description":"room id (default: this turn's room)"},"since":{"type":"string","description":"only messages newer than this cursor / message id (sent as the after= query parameter)"},"limit":{"type":"integer","minimum":1,"maximum":200,"description":"1..200; omit for the server default (50)"},"thread":{"type":"string","description":"thread root message id: returns root + replies"},"work":{"type":"string","description":"mission id: only that mission's messages"}},"additionalProperties":false}`),
 	},
 	{
 		Name:        "colab_message_post",
-		Description: "Post a message to the session. Routing is server-side: an agent message triggers other agents ONLY when it mentions them (`mention`); the delegator's mention is suppressed until rejoin. Returns message_id, triggered[], suppressed[]. Same as `colab message post --body [--reply-to --mention]`.",
+		Description: "Post a message to the room. Routing is server-side: an agent message triggers other agents ONLY when it mentions them (`mention`); the delegator's mention is suppressed until rejoin. Returns message_id, triggered[], suppressed[]. Same as `colab message post --body [--reply-to --mention]`.",
 		InputSchema: json.RawMessage(`{"type":"object","required":["body"],"properties":{"body":{"type":"string","minLength":1,"description":"markdown text"},"reply_to":{"type":"string","description":"parent message id (thread)"},"mention":{"type":"array","items":{"type":"string"},"description":"agent names to mention, e.g. [\"@Reviewer\"]"},"session":{"type":"string"},"idempotency_key":{"type":"string","description":"reuse a previous result's idempotency_key to retry the same post after a network error (default: UUIDv5 of task:<task_id>:<seq>)"}},"additionalProperties":false}`),
 	},
 	{
@@ -75,17 +75,17 @@ var Tools = []Tool{
 	},
 	{
 		Name:        "colab_lane_delegate",
-		Description: "Delegate work to another agent: always creates a NEW lane whose delegated_from_task_id is this task (the rejoin group). The target must ALREADY be a session participant — you cannot create one. A non-participant fails with code `not_participant`; ask the Director to add them with colab_hitl_ask. Same as `colab lane delegate --agent --brief`.",
+		Description: "Delegate work to another agent: always creates a NEW lane whose delegated_from_task_id is this task (the rejoin group). The target must ALREADY be a room participant — you cannot create one. A non-participant fails with code `not_participant`; ask the Director to add them with colab_hitl_ask. Same as `colab lane delegate --agent --brief`.",
 		InputSchema: json.RawMessage(`{"type":"object","required":["agent","brief"],"properties":{"agent":{"type":"string","description":"target participant name, e.g. \"Reviewer\" or \"@Reviewer\""},"brief":{"type":"string","minLength":1,"description":"the delegation brief; goes into the delegate's turn prompt verbatim"},"depends_on":{"type":"array","items":{"type":"string"},"description":"lane ids this lane waits for (v1 stores them; DAG execution is v1.1)"},"profile":{"type":"string","description":"profile name (default: the participant's registered profile)"},"session":{"type":"string"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
 	},
 	{
 		Name:        "colab_decision_record",
-		Description: "Record a decision (source=agent) so it appears in the session's decision log and in later turn briefs. The record is exactly two fields: summary (what was decided) and rationale (why). Same as `colab decision record --summary --rationale`.",
+		Description: "Record a decision (source=agent) so it appears in the room's decision log and in later turn briefs. The record is exactly two fields: summary (what was decided) and rationale (why). Same as `colab decision record --summary --rationale`.",
 		InputSchema: json.RawMessage(`{"type":"object","required":["summary"],"properties":{"summary":{"type":"string","minLength":1,"description":"what was decided"},"rationale":{"type":"string","description":"why"},"session":{"type":"string"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
 	},
 	{
 		Name:        "colab_artifact_submit",
-		Description: "Submit a file as a session artifact. Re-submitting the same NAME creates version+1. This is the input to the `artifact_submitted` completion condition — the result's completion_progress says whether it is now met. Max 50 MB. With `type: \"diff\"` you may omit `file`: the CLI then builds one unified diff of YOUR OWN workdir (commits since `base`, staged and unstaged changes) — that diff is how another lane reads your work, since worktree paths are never shared. Untracked files are NOT in a diff; `git add` them first. Same as `colab artifact submit --type --file` / `--type diff [--base]`.",
+		Description: "Submit a file as a room artifact. Re-submitting the same NAME creates version+1. This is the input to the `artifact_submitted` completion condition — the result's completion_progress says whether it is now met. Max 50 MB. With `type: \"diff\"` you may omit `file`: the CLI then builds one unified diff of YOUR OWN workdir (commits since `base`, staged and unstaged changes) — that diff is how another lane reads your work, since worktree paths are never shared. Untracked files are NOT in a diff; `git add` them first. Same as `colab artifact submit --type --file` / `--type diff [--base]`.",
 		InputSchema: json.RawMessage(`{"type":"object","required":["type"],"properties":{"type":{"type":"string","minLength":1,"description":"open set: file · diff · branch · doc · report …"},"file":{"type":"string","description":"path to the file to upload (max 50 MB). REQUIRED except for type=diff, where omitting it makes the CLI build the diff of this workdir"},"base":{"type":"string","description":"type=diff only: the branch or commit to diff against (default: the repository default branch). Cannot point at another repository — the diff is always of this workdir"},"name":{"type":"string","description":"artifact name; defaults to the file's base name, or to <branch>.diff for a generated diff — keep it the same to submit a new version"},"description":{"type":"string","description":"for a diff the CLI puts \"diff <branch>@<commit> vs <base>\" on the first line and this underneath"},"session":{"type":"string"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
 	},
 	{
@@ -106,17 +106,17 @@ var Tools = []Tool{
 	{
 		Name:        "colab_hitl_ask",
 		Description: "Ask the DIRECTOR (a human) a question and STOP. Use this when you cannot proceed without a human decision — not for questions your delegator can answer (that is colab_status_set with status=blocked). `default` is REQUIRED: it is the answer you propose so the human can just accept it. Pass `choices` (2+) to make it a multiple-choice question, and then `default` must be one of them. The result is `turn_end_required: true` — register the request and END YOUR TURN immediately; the answer arrives as a new turn. A task can have only ONE open request: a second call fails with code `hitl_already_open`. Same as `colab hitl ask --question --default [--choices --context]`.",
-		InputSchema: json.RawMessage(`{"type":"object","required":["question","default"],"properties":{"question":{"type":"string","minLength":1,"description":"the question for the Director"},"default":{"type":"string","minLength":1,"description":"REQUIRED — the answer you propose (FR-5.1); with choices it must be one of them"},"choices":{"type":"array","minItems":2,"items":{"type":"string"},"description":"2+ options; makes this a choice-type request"},"context":{"type":"string","description":"background the human needs to answer"},"session":{"type":"string","description":"session id (default: this task's session)"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
+		InputSchema: json.RawMessage(`{"type":"object","required":["question","default"],"properties":{"question":{"type":"string","minLength":1,"description":"the question for the Director"},"default":{"type":"string","minLength":1,"description":"REQUIRED — the answer you propose (FR-5.1); with choices it must be one of them"},"choices":{"type":"array","minItems":2,"items":{"type":"string"},"description":"2+ options; makes this a choice-type request"},"context":{"type":"string","description":"background the human needs to answer"},"session":{"type":"string","description":"room id (default: this task's room)"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
 	},
 	{
 		Name:        "colab_hitl_approve_request",
 		Description: "Ask a human to APPROVE something and STOP — for an irreversible or out-of-scope step you must not take on your own. There is no default and it NEVER auto-proceeds, even after the due date passes (FR-5.4): without an answer the work stays stopped. The result is `turn_end_required: true` — END YOUR TURN. A rejection is a normal outcome and comes back with its reason in your next turn. One open request per task; a second call fails with code `hitl_already_open`. Same as `colab hitl approve-request --summary [--artifact]`.",
-		InputSchema: json.RawMessage(`{"type":"object","required":["summary"],"properties":{"summary":{"type":"string","minLength":1,"description":"what you are asking approval for"},"artifact":{"type":"string","description":"artifact id this approval is about"},"session":{"type":"string","description":"session id (default: this task's session)"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
+		InputSchema: json.RawMessage(`{"type":"object","required":["summary"],"properties":{"summary":{"type":"string","minLength":1,"description":"what you are asking approval for"},"artifact":{"type":"string","description":"artifact id this approval is about"},"session":{"type":"string","description":"room id (default: this task's room)"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
 	},
 	{
 		Name:        "colab_hitl_request_info",
 		Description: "Ask a human for INFORMATION you cannot obtain yourself (a credential holder's answer, an offline document, a fact only they know) and STOP. No default, and it never auto-proceeds. The result is `turn_end_required: true` — END YOUR TURN. One open request per task; a second call fails with code `hitl_already_open`. Same as `colab hitl request-info --what [--why]`.",
-		InputSchema: json.RawMessage(`{"type":"object","required":["what"],"properties":{"what":{"type":"string","minLength":1,"description":"the information you need"},"why":{"type":"string","description":"why you need it"},"session":{"type":"string","description":"session id (default: this task's session)"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
+		InputSchema: json.RawMessage(`{"type":"object","required":["what"],"properties":{"what":{"type":"string","minLength":1,"description":"the information you need"},"why":{"type":"string","description":"why you need it"},"session":{"type":"string","description":"room id (default: this task's room)"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
 	}, {
 		Name:        "colab_room_list",
 		Description: "List the OTHER rooms this turn may read: only rooms that both the person who started this turn and you can access, judged by the server at the moment of the call — anything else is simply not in the list. Returns items[] with id, name, description, last_activity_at, agent_is_participant, via_link. Same as `colab room list [--query]`.",
@@ -132,33 +132,11 @@ var Tools = []Tool{
 		Description: "Propose a new MISSION for this room. You cannot open a mission yourself: the proposal goes to the room's people, and a person opens it (and becomes its Director) or declines it. Returns proposal_id. Same as `colab work propose --goal --why`.",
 		InputSchema: json.RawMessage(`{"type":"object","required":["goal","why"],"properties":{"goal":{"type":"string","minLength":1,"description":"the mission's goal"},"why":{"type":"string","minLength":1,"description":"why this should be a mission"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
 	},
-	{
-		Name:        "colab_room_get",
-		Description: "Read this room: name, description, the mission this turn belongs to, participants. The room name of colab_session_get (same call, same result). Same as `colab room get`.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"room":{"type":"string","description":"room id (default: this turn's room)"}},"additionalProperties":false}`),
-	},
-	{
-		Name:        "colab_room_messages",
-		Description: "Read this room's messages; `work` keeps one mission's messages. The room name of colab_session_messages (same call, same result). Same as `colab room messages [--since --limit --thread --work]`.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"room":{"type":"string"},"since":{"type":"string","description":"only messages newer than this cursor / message id (sent as the after= query parameter)"},"limit":{"type":"integer","minimum":1,"maximum":200,"description":"1..200; omit for the server default (50)"},"thread":{"type":"string","description":"thread root message id: returns root + replies"},"work":{"type":"string","description":"mission id: only that mission's messages"}},"additionalProperties":false}`),
-	},
-}
-
-// toolAliases are the tools that are another command under a second name:
-// `room get` · `room messages` are `session get` · `session messages`
-// (colab-cli.md v0.8 §2.4a — a room's id is its session id), so they are
-// registered and gated by that command's ColabCommand.
-var toolAliases = map[string]client.Command{
-	"colab_room_get":      client.CmdSessionGet,
-	"colab_room_messages": client.CmdSessionMessages,
 }
 
 // ToolCommand is the ColabCommand a tool runs — what --allow and the gate
-// decide it by.
+// decide it by: the tool name without its colab_ prefix (colab-cli.md §3).
 func ToolCommand(name string) client.Command {
-	if c, ok := toolAliases[name]; ok {
-		return c
-	}
 	return client.Command(strings.TrimPrefix(name, "colab_"))
 }
 
@@ -351,18 +329,6 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 		err error
 	)
 	switch name {
-	case "colab_session_get":
-		var a colab.SessionGetArgs
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		v, err = colab.SessionGet(ctx, s.c, a)
-	case "colab_session_messages":
-		var a colab.SessionMessagesArgs
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		v, err = colab.SessionMessages(ctx, s.c, a)
 	case "colab_message_post":
 		var a struct {
 			colab.MessagePostArgs

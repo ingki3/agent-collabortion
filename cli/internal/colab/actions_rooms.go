@@ -7,35 +7,110 @@ import (
 	"github.com/ingki3/agent-collabortion/cli/internal/client"
 )
 
-// The room commands of colab-cli.md v0.8 §2.4a (PRD v0.19 FR-4.5 · FR-2A.1).
-// `room get` · `room messages` are the old `session get` · `session messages`
-// under the room name (a room's id IS the session id) — same request, same
-// JSON, same gate (session_get · session_messages), until R4 retires the old
-// names. `room list` · `room read` · `work propose` are new commands with
-// their own ColabCommand.
+// The room commands of colab-cli.md §2.4a (PRD v0.19 FR-4.5 · FR-2A.1).
+// v0.9 (R4): `room get` · `room messages` are the only names — the old
+// `session get` · `session messages` and every old session-scoped path are gone
+// (openapi v0.3.0). `room get` is three reads: getRoom + getWork (the turn's
+// mission, COLAB_WORK_ID) + listRoomParticipants, so nothing the old
+// getSession answer carried is lost: goal · acceptance_criteria ·
+// completion_progress · director come from the Work, isolation from the
+// Room, the roster with its derived status from the participants.
 
 // RoomGetArgs — `colab room get [--room R]` / colab_room_get.
 type RoomGetArgs struct {
 	Room string `json:"room,omitempty"`
 }
 
-// RoomGet is SessionGet (GET /sessions/{S}).
-func RoomGet(ctx context.Context, c *client.Client, a RoomGetArgs) (map[string]any, error) {
-	return SessionGet(ctx, c, SessionGetArgs{Session: a.Room})
+// RoomGetResult — the three answers as the server sent them. Work is null
+// outside a mission (no COLAB_WORK_ID) and when --room names a room other
+// than this turn's (the turn's mission is not that room's).
+type RoomGetResult struct {
+	Room         map[string]any   `json:"room"`
+	Work         map[string]any   `json:"work"`
+	Participants []map[string]any `json:"participants"`
+}
+
+// RoomGet — GET /rooms/{R} + GET /works/{W} + GET /rooms/{R}/participants.
+func RoomGet(ctx context.Context, c *client.Client, a RoomGetArgs) (*RoomGetResult, error) {
+	if err := c.Allow(ctx, client.CmdRoomGet); err != nil {
+		return nil, err
+	}
+	own, err := c.RoomID(ctx, "")
+	if err != nil && a.Room == "" {
+		return nil, err
+	}
+	rid := own
+	if a.Room != "" {
+		rid = a.Room
+	}
+	room, err := c.GetRoom(ctx, rid)
+	if err != nil {
+		return nil, err
+	}
+	out := &RoomGetResult{Room: room}
+	if w := c.WorkID(); w != "" && rid == own {
+		if out.Work, err = c.GetWork(ctx, w); err != nil {
+			return nil, err
+		}
+	}
+	if out.Participants, err = c.ListRoomParticipants(ctx, rid); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // RoomMessagesArgs — `colab room messages [--since --limit --thread --work]`.
 type RoomMessagesArgs struct {
 	Room   string `json:"room,omitempty"`
-	Since  string `json:"since,omitempty"`
-	Limit  *int   `json:"limit,omitempty"`
-	Thread string `json:"thread,omitempty"`
-	Work   string `json:"work,omitempty"` // only this mission's messages (listMessages work_id)
+	Since  string `json:"since,omitempty"`  // sent as after=<cursor|message id>
+	Limit  *int   `json:"limit,omitempty"`  // 1..200 (nil = server default 50; an explicit 0 is exit 2)
+	Thread string `json:"thread,omitempty"` // thread root id
+	Work   string `json:"work,omitempty"`   // only this mission's messages (listMessages work_id)
 }
 
-// RoomMessages is SessionMessages (GET /sessions/{S}/messages) plus --work.
-func RoomMessages(ctx context.Context, c *client.Client, a RoomMessagesArgs) (*SessionMessagesResult, error) {
-	return SessionMessages(ctx, c, SessionMessagesArgs{Session: a.Room, Since: a.Since, Limit: a.Limit, Thread: a.Thread, Work: a.Work})
+// RoomMessagesResult adds the E8-12 included/total/truncated view.
+type RoomMessagesResult struct {
+	RoomID        string           `json:"room_id"`
+	Items         []client.Message `json:"items"`
+	Included      int              `json:"included"`
+	Total         *int             `json:"total"`
+	Truncated     bool             `json:"truncated"`
+	BeforeCursor  *string          `json:"before_cursor"`
+	AfterCursor   *string          `json:"after_cursor"`
+	HasMoreBefore bool             `json:"has_more_before"`
+	HasMoreAfter  bool             `json:"has_more_after"`
+}
+
+// RoomMessages — GET /rooms/{R}/messages.
+func RoomMessages(ctx context.Context, c *client.Client, a RoomMessagesArgs) (*RoomMessagesResult, error) {
+	limit := 0
+	if a.Limit != nil {
+		if *a.Limit < 1 || *a.Limit > 200 {
+			return nil, client.Usage("--limit must be 1..200 (got %d)", *a.Limit)
+		}
+		limit = *a.Limit
+	}
+	if err := c.Allow(ctx, client.CmdRoomMessages); err != nil {
+		return nil, err
+	}
+	rid, err := c.RoomID(ctx, a.Room)
+	if err != nil {
+		return nil, err
+	}
+	page, err := c.ListMessages(ctx, rid, client.MessagesQuery{Since: a.Since, Limit: limit, Thread: a.Thread, Work: a.Work})
+	if err != nil {
+		return nil, err
+	}
+	items := page.Items
+	if items == nil {
+		items = []client.Message{}
+	}
+	return &RoomMessagesResult{
+		RoomID: rid, Items: items, Included: len(items), Total: page.Total,
+		Truncated:    page.HasMoreBefore || page.HasMoreAfter || (page.Total != nil && *page.Total > len(items)),
+		BeforeCursor: page.BeforeCursor, AfterCursor: page.AfterCursor,
+		HasMoreBefore: page.HasMoreBefore, HasMoreAfter: page.HasMoreAfter,
+	}, nil
 }
 
 // RoomListArgs — `colab room list [--query <말>]` / colab_room_list.
@@ -96,7 +171,7 @@ type WorkProposeResult struct {
 	Replayed   bool           `json:"replayed"`
 }
 
-// WorkPropose — POST /rooms/{S}/work-proposals. An agent cannot open a
+// WorkPropose — POST /rooms/{R}/work-proposals. An agent cannot open a
 // mission; a person confirms the proposal (FR-2A.1).
 func WorkPropose(ctx context.Context, c *client.Client, a WorkProposeArgs) (*WorkProposeResult, error) {
 	goal, why := strings.TrimSpace(a.Goal), strings.TrimSpace(a.Why)
@@ -109,7 +184,7 @@ func WorkPropose(ctx context.Context, c *client.Client, a WorkProposeArgs) (*Wor
 	if err := c.Allow(ctx, client.CmdWorkPropose); err != nil {
 		return nil, err
 	}
-	rid, err := c.SessionID(ctx, "") // always this turn's room: the server refuses any other
+	rid, err := c.RoomID(ctx, "") // always this turn's room: the server refuses any other
 	if err != nil {
 		return nil, err
 	}

@@ -107,10 +107,10 @@ func invocations(t *testing.T) map[client.Command]invocation {
 	if err := os.WriteFile(doc, []byte("# notes\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	sess := "/sessions/" + clienttest.SessionID
+	sess := "/rooms/" + clienttest.RoomID
 	return map[client.Command]invocation{
-		client.CmdSessionGet:         {[]string{"session", "get"}, "GET", sess},
-		client.CmdSessionMessages:    {[]string{"session", "messages"}, "GET", sess + "/messages"},
+		client.CmdRoomGet:            {[]string{"room", "get"}, "GET", sess},
+		client.CmdRoomMessages:       {[]string{"room", "messages"}, "GET", sess + "/messages"},
 		client.CmdArtifactGet:        {[]string{"artifact", "get", clienttest.ArtifactID}, "GET", "/artifacts/" + clienttest.ArtifactID},
 		client.CmdMessagePost:        {[]string{"message", "post", "--body", "hi"}, "POST", sess + "/messages"},
 		client.CmdStatusSet:          {[]string{"status", "set", "working"}, "POST", "/tasks/" + clienttest.TaskID + "/status"},
@@ -253,7 +253,7 @@ func TestGateEnvWinsOverContext(t *testing.T) {
 	s := clienttest.New(t)
 	s.AllowedCommands = []string{"lane_delegate"}
 	env := s.Env(t.TempDir())
-	env[client.EnvAllowedCommands] = "session_get, message_post"
+	env[client.EnvAllowedCommands] = "room_get, message_post"
 	code, v, _ := exec(t, env, inv[client.CmdLaneDelegate].args...)
 	if code != client.ExitRefused || errCode(v) != client.ErrCodeCommandNotAllowed {
 		t.Fatalf("exit %d code %q, want 3 command_not_allowed", code, errCode(v))
@@ -265,14 +265,14 @@ func TestGateEnvWinsOverContext(t *testing.T) {
 	if e["role"] != "" || e["detail"] != "이 역할은 lane delegate 를 쓸 수 없습니다" {
 		t.Fatalf("without a context the role is unknown and the sentence drops it; got %v", e)
 	}
-	if got, _ := e["allowed"].([]any); len(got) != 2 || got[0] != "session_get" || got[1] != "message_post" {
+	if got, _ := e["allowed"].([]any); len(got) != 2 || got[0] != "room_get" || got[1] != "message_post" {
 		t.Fatalf("allowed = %v, want the env list, trimmed", got)
 	}
 	// env allows what the server would deny → the request goes out.
 	s2 := clienttest.New(t)
-	s2.AllowedCommands = []string{"session_get"}
+	s2.AllowedCommands = []string{"room_get"}
 	env2 := s2.Env(t.TempDir())
-	env2[client.EnvAllowedCommands] = "lane_delegate,session_get"
+	env2[client.EnvAllowedCommands] = "lane_delegate,room_get"
 	code, v, stderr := exec(t, env2, inv[client.CmdLaneDelegate].args...)
 	if code != 0 {
 		t.Fatalf("exit %d: %v %s", code, v, stderr)
@@ -291,7 +291,7 @@ func TestGateOldServerAndEmptyListAllowEverything(t *testing.T) {
 		"field absent": func(*clienttest.Server, map[string]string) {},
 		"empty list":   func(s *clienttest.Server, _ map[string]string) { s.AllowedCommands = []string{} },
 		"empty env": func(s *clienttest.Server, env map[string]string) {
-			s.AllowedCommands = []string{"session_get"}
+			s.AllowedCommands = []string{"room_get"}
 			env[client.EnvAllowedCommands] = " , "
 		},
 	} {
@@ -314,7 +314,7 @@ func TestGateOldServerAndEmptyListAllowEverything(t *testing.T) {
 func TestGateReusesTheOneContextRead(t *testing.T) {
 	inv := invocations(t)
 	s := clienttest.New(t)
-	s.AllowedCommands = []string{"lane_delegate", "session_get"}
+	s.AllowedCommands = []string{"lane_delegate", "room_get"}
 	if code, v, stderr := exec(t, s.Env(t.TempDir()), inv[client.CmdLaneDelegate].args...); code != 0 {
 		t.Fatalf("exit %d: %v %s", code, v, stderr)
 	}
@@ -356,10 +356,10 @@ func TestMCPServeAllowViaCLI(t *testing.T) {
 	env := s.Env(t.TempDir())
 	in := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"colab_lane_delegate","arguments":{"agent":"Lead","brief":"b"}}}
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"colab_session_get","arguments":{}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"colab_room_get","arguments":{}}}
 `
 	var out, errb bytes.Buffer
-	if code := run([]string{"mcp", "serve", "--allow", "session_get, review_approve,bogus"}, clienttest.Getenv(env), strings.NewReader(in), &out, &errb); code != 0 {
+	if code := run([]string{"mcp", "serve", "--allow", "room_get, review_approve,bogus"}, clienttest.Getenv(env), strings.NewReader(in), &out, &errb); code != 0 {
 		t.Fatalf("code=%d stderr=%s", code, errb.String())
 	}
 	if !strings.Contains(errb.String(), `"bogus" is not a colab command; ignored`) {
@@ -375,8 +375,7 @@ func TestMCPServeAllowViaCLI(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[0]), &list); err != nil {
 		t.Fatal(err)
 	}
-	// session_get also registers its room alias, colab_room_get (§2.4a).
-	if len(list.Result.Tools) != 3 || list.Result.Tools[0].Name != "colab_session_get" || list.Result.Tools[1].Name != "colab_review_approve" || list.Result.Tools[2].Name != "colab_room_get" {
+	if len(list.Result.Tools) != 2 || list.Result.Tools[0].Name != "colab_room_get" || list.Result.Tools[1].Name != "colab_review_approve" {
 		t.Fatalf("tools/list = %+v", list.Result.Tools)
 	}
 	if !strings.Contains(lines[1], `"code":"command_not_allowed"`) || !strings.Contains(lines[1], `"isError":true`) {

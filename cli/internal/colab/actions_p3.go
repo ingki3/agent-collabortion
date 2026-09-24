@@ -5,7 +5,7 @@
 // functions, so a tool and its command send the same body and print the same
 // JSON.
 //
-// The operation is session-scoped — POST /sessions/{S}/hitl-requests — and
+// The operation is room-scoped — POST /rooms/{R}/hitl-requests — and
 // the task comes from the TaskToken, not from the path (v0.5.1, C-4: the
 // v0.5 table named `/tasks/{T}/hitl`, which openapi never had, so every one
 // of these commands 404'd against the real server).
@@ -59,7 +59,7 @@ type HitlAskArgs struct {
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
-// HitlAsk — POST /sessions/{S}/hitl-requests with `question`, or `choice`
+// HitlAsk — POST /rooms/{R}/hitl-requests with `question`, or `choice`
 // when --choices is given.
 //
 // `--default` is required for BOTH types and colab-cli.md v0.5 §2.4 puts the
@@ -107,7 +107,7 @@ type HitlApproveRequestArgs struct {
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
-// HitlApproveRequest — POST /sessions/{S}/hitl-requests `{type: approval}`.
+// HitlApproveRequest — POST /rooms/{R}/hitl-requests `{type: approval}`.
 //
 // There is deliberately no default here (E7-06): an `approval` never
 // auto-proceeds, not even after the 24h due date passes (FR-5.4). Asking for
@@ -131,7 +131,7 @@ type HitlRequestInfoArgs struct {
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
-// HitlRequestInfo — POST /sessions/{S}/hitl-requests `{type: info}`.
+// HitlRequestInfo — POST /rooms/{R}/hitl-requests `{type: info}`.
 //
 // Like `approval` it has no default and never auto-proceeds — FR-5.4 puts
 // `approval` and `info` on one row, and E7-21 is the regression: `info` that
@@ -151,10 +151,10 @@ func HitlRequestInfo(ctx context.Context, c *client.Client, a HitlRequestInfoArg
 }
 
 // createHitl is the one server call the three commands share: resolve the
-// session, POST, and shape the result. A second open request on the same task
+// room, POST, and shape the result. A second open request on the same task
 // is the server's 409 hitl_already_open → exit 3, forwarded verbatim (E7-04).
 //
-// The session is COLAB_SESSION_ID when the daemon set it — which it always
+// The room is COLAB_ROOM_ID (or COLAB_SESSION_ID) when the daemon set it — which it always
 // does (harness.md §2.1) — and /cli/context otherwise, so the one-request
 // property of C-1 holds on the normal path. The task is not resolved at all
 // here: it rides in the TaskToken.
@@ -162,7 +162,7 @@ func createHitl(ctx context.Context, c *client.Client, cmd client.Command, sessi
 	if err := c.Allow(ctx, cmd); err != nil {
 		return nil, err
 	}
-	sid, err := c.SessionID(ctx, session)
+	sid, err := c.RoomID(ctx, session)
 	if err != nil {
 		return nil, err
 	}
