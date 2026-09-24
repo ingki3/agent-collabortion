@@ -75,9 +75,19 @@ log "claim p50=$CLAIM_P50 p95=$CLAIM_P95 · 첫 출력 p50=$OUT_P50 p95=$OUT_P95
 step "3. 부하 — 세션 $N_LOAD 개 동시 (데몬 $N_DAEMONS × cap $CAP = $((N_DAEMONS*CAP)) 슬롯)"
 SESS=()
 LOAD_START="$(now_ms)"
+# v0.3.0(R4): 옛 createSession 한 번이 createRoom·updateRoom·addRoomParticipant·createWork 네 번이 됐다. 차례로 50 번이면
+# 생성에 ~7s 가 걸려 페이크 턴(~4s)이 먼저 끝나 동시 running 이 슬롯을 못 채운다(CI got=32) — 제품이 아니라 하네스의 순차 생성이
+# 재는 값을 바꾼 것. 옛 한 호출 생성과 같은 밀도가 되도록 병렬로 만든다.
+mkdir -p "$OUT/.load"; rm -f "$OUT/.load/"*
 for i in $(seq 1 "$N_LOAD"); do
   # runtime_id 를 비운다 → 온라인 런타임 아무거나(첫 claim 이 고정, E11-10) — 5대에 분산된다.
-  SESS+=("$(create_session_p3 "$WS" "perf load $i" "부하 $i" "$LOAD" "" '{}' "$LOAD")")
+  ( create_session_p3 "$WS" "perf load $i" "부하 $i" "$LOAD" "" '{}' "$LOAD" > "$OUT/.load/$i" ) &
+done
+wait
+for i in $(seq 1 "$N_LOAD"); do
+  sid="$(cat "$OUT/.load/$i" 2>/dev/null)"
+  [ -n "$sid" ] || bad "부하 방 $i 생성 실패"
+  SESS+=("$sid")
 done
 CREATE_MS=$(( $(now_ms)-LOAD_START ))
 ok "세션 $N_LOAD 개 생성 ${CREATE_MS}ms"
