@@ -83,11 +83,11 @@ describe("목록과 상단 사용률", () => {
     expect(row.querySelector('[data-testid="workdir-branch-note"]')!.textContent).toContain("브랜치는 남습니다");
   });
 
-  it("용량 상한에 도달하면(≥) 새 세션이 막힌다고 미리 말한다(E13-16)", async () => {
+  it("용량 상한에 도달하면(≥) 새 방이 막힌다고 미리 말한다(E13-16)", async () => {
     mockList(50, 50 * GB);
     render(<WorkdirsPage />);
     await waitFor(() => expect(screen.getByTestId("workdir-quota").getAttribute("data-at-limit")).toBe("true"));
-    expect(screen.getByTestId("workdir-quota-full").textContent).toContain("새 세션");
+    expect(screen.getByTestId("workdir-quota-full").textContent).toContain("새 방");
   });
 
   it("상한이 없으면 무제한이라고 말하고 막대를 그리지 않는다(E13-19)", async () => {

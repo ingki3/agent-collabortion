@@ -127,7 +127,7 @@ export default function WorkdirsPage() {
         )}
         {quota.atLimit && (
           <div className="wd__quota-note" role="alert" data-testid="workdir-quota-full">
-            용량 상한에 도달했습니다 — 정리하기 전까지 새 세션을 만들 수 없습니다.
+            용량 상한에 도달했습니다 — 정리하기 전까지 새 방을 만들 수 없습니다.
           </div>
         )}
       </div>

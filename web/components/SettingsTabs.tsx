@@ -269,7 +269,7 @@ export function NotificationsTab({ settings, onSave, error, workspaceId }: {
           <SettingRow label="이메일" defaultValue="켬" impact={IMPACT.email} testid="row-email">
             <label className="srow__check">
               <input type="checkbox" checked={draft.email} disabled={busy} onChange={(e) => setDraft({ ...draft, email: e.target.checked })} data-testid="notif-email" />
-              받은 요청과 세션 소식을 이메일로
+              받은 요청과 방 소식을 이메일로
             </label>
           </SettingRow>
           <SettingRow label="푸시" defaultValue="끔" impact={IMPACT.push} testid="row-push">
