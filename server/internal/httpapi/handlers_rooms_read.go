@@ -20,9 +20,10 @@ import (
 // the reading and the record live in internal/rooms; these handlers turn a
 // task token into a rooms.Reader and the answer into the contract.
 //
-// The role gate (colab-cli.md §2.5) is not consulted: `room_list` and
-// `room_read` are not in ColabCommand yet (R3 adds them, for every role —
-// §2.4a). The person-originator rule is the gate here.
+// The role gate (colab-cli.md §2.5 v0.8) allows `room_list` and `room_read`
+// to every role today, but it is consulted like on every other x-colab-cli
+// operation so a later restriction needs no handler change. The
+// person-originator rule is the real gate here.
 
 func (s *Server) roomReader(r *http.Request) (rooms.Reader, *Problem) {
 	sc := principalOf(r).Task
@@ -36,6 +37,10 @@ func (s *Server) roomReader(r *http.Request) (rooms.Reader, *Problem) {
 func (s *Server) ListReadableRooms(w http.ResponseWriter, r *http.Request, params gen.ListReadableRoomsParams) {
 	rd, p := s.roomReader(r)
 	if p != nil {
+		writeProblem(w, p)
+		return
+	}
+	if p := s.commandAllowed(r, gen.ColabCommandRoomList); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -63,6 +68,10 @@ func (s *Server) ListReadableRooms(w http.ResponseWriter, r *http.Request, param
 func (s *Server) ReadRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ReadRoomParams) {
 	rd, p := s.roomReader(r)
 	if p != nil {
+		writeProblem(w, p)
+		return
+	}
+	if p := s.commandAllowed(r, gen.ColabCommandRoomRead); p != nil {
 		writeProblem(w, p)
 		return
 	}

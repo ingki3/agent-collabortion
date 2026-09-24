@@ -24,6 +24,7 @@
 #   E. originator 승계(NN7) — 위임 자식(W·R) · blocked 질문 기상 · 합류 기상 · 재시도(attempt 2) · 재지시(restartLane) ·
 #      HITL 재개 — 전부 task.originator_user_id = 서연, 그리고 **그 턴의 토큰으로 read 200**
 #   F. no_originator — 사람 없는 사슬(originator NULL): 403 no_originator · 목록 빈 배열 · **방장(서연)으로 대체하지 않는다**
+#   H. (T-R3a) 실제 colab 바이너리 — room list · room read(truncated 그대로 · 거부 exit 3 + denied_reason) · work propose · room get = session get
 #   G. 상한 잘림 — 설정 room_read {max_rooms_per_turn:1, max_tokens:500} → 긴 방 read truncated true · 로그 truncated ·
 #      같은 턴 두 번째 방은 truncated + 빈 내용 + 기록 0 · 같은 방 다시 읽기는 칸을 안 먹는다
 #
@@ -285,6 +286,32 @@ chk G.8 "0" "$(psqlq "select count(*) from room_read_log where reader_task_id='$
 chk G.9 "1" "$(psqlq "select count(*) from task_event where task_id='$TG' and verb='read' and payload->'args'->>'note' like '이번 턴에 읽을 수 있는 방 1개를 이미 읽어%'")" "피드가 이유를 말한다"
 chk G.10 "200/false" "$(readc "$TOKG" "$D" "?tail=1" | { b="$(cat)"; printf '%s/%s' "$(api_code <<<"$b")" "$(api_body <<<"$b" | jq -r .truncated)"; })" "같은 방 다시(tail 1) — 칸을 안 먹는다"
 finish "$TG" "$ATG"
+
+# ───────────────────────────── H ─────────────────────────────────────────────
+step "H. 실제 colab 바이너리로(T-R3a, colab-cli.md v0.8 §2.4a) — room list · room read · work propose"
+COLAB="${COLAB_BIN:-$BIN/colab-r3a}"
+[ -n "${COLAB_BIN:-}" ] || (cd cli && go build -o "$COLAB" ./cmd/colab) || die "colab build"
+api_ok PATCH "/workspaces/$WS/settings" '{"room_read":{"max_rooms_per_turn":3,"max_tokens":4000}}' >/dev/null
+mention "$A" "$LEAD" Lead "CLI 로 참고 방을 읽어 주세요"
+TH="$(queued_task "$A" "$LEAD")"
+IFS=$'\t' read -r ATH TOKH <<<"$(take "$TH")"
+colab_h() { # ARGS… → stdout JSON, 마지막 줄 exit 코드. 데몬이 주는 env 그대로.
+  env -i PATH="$PATH" HOME="$HOME" COLAB_TASK_TOKEN="$TOKH" COLAB_SERVER_URL="$SERVER_URL" COLAB_TASK_ID="$TH" COLAB_TASK_ATTEMPT="$ATH" \
+    COLAB_SESSION_ID="$A" COLAB_AGENT_NAME=Lead COLAB_STATE_DIR="$OUT/90-state" "$COLAB" "$@" 2>>"$OUT/90-cli.err"
+  printf '\n%s' "$?"
+}
+H1="$(colab_h room list --json)"
+chk H.1 "0/인프라,참고" "$(api_code <<<"$H1")/$(api_body <<<"$H1" | jq -r '[.items[].name]|sort|join(",")')" "colab room list → exit 0 · 목록 = listReadableRooms"
+H2="$(colab_h room read --room "$D" --tail 2)"
+chk H.2 "0/참고/boolean" "$(api_code <<<"$H2")/$(api_body <<<"$H2" | jq -r '.room.name+"/"+(.truncated|type)')" "colab room read --room 참고 → exit 0 · truncated 칸을 그대로 싣는다"
+chk H.3 1 "$(psqlq "select count(*) from room_read_log where reader_task_id='$TH' and target_room_id='$D' and allowed")" "서버가 기록(room_read_log) — CLI 는 따로 적지 않는다"
+H3="$(colab_h room read --room "$C")"
+chk H.4 "3/room_read_denied/originator_not_participant" "$(api_code <<<"$H3")/$(api_body <<<"$H3" | jq -r '.error.code+"/"+.error.denied_reason')" "거부 → exit 3 + denied_reason"
+H4="$(colab_h work propose --goal "참고 방 결론을 미션으로" --why "두 방에서 같은 결정이 필요하다")"
+chk H.5 "0/open/1" "$(api_code <<<"$H4")/$(api_body <<<"$H4" | jq -r .proposal.status)/$(psqlq "select count(*) from work_proposal where proposed_by_task_id='$TH'")" "lead colab work propose → exit 0 · 제안 open · 행 1"
+H5="$(colab_h room get)"; H6="$(colab_h session get)"
+chk H.6 "0/same" "$(api_code <<<"$H5")/$( [ "$(api_body <<<"$H5" | jq -S 'del(.updated_at)')" = "$(api_body <<<"$H6" | jq -S 'del(.updated_at)')" ] && echo same || echo diff)" "room get = session get(별칭)"
+finish "$TH" "$ATH"
 
 printf '\n판정: %s\n' "$(awk -F'\t' '{c[$2]++} END{printf "PASS %d · FAIL %d", c["PASS"], c["FAIL"]}' "$CHECKS")" >&2
 [ "$FAILS" = 0 ]

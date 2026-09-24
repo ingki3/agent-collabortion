@@ -9,7 +9,12 @@ type Problem struct {
 	Status int    `json:"status"`
 	Detail string `json:"detail,omitempty"`
 	Code   string `json:"code,omitempty"`
-	Errors []struct {
+	// DeniedReason · RoomName are readRoom's 403 room_read_denied extension
+	// members (openapi readRoom, colab-cli.md §2.4a): why the other room
+	// could not be read, and — for originator_left only — which room.
+	DeniedReason string `json:"denied_reason,omitempty"`
+	RoomName     string `json:"room_name,omitempty"`
+	Errors       []struct {
 		Field   string `json:"field"`
 		Code    string `json:"code,omitempty"`
 		Message string `json:"message"`

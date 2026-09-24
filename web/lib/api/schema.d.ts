@@ -2663,10 +2663,10 @@ export interface components {
          */
         AgentRole: "lead" | "researcher" | "writer" | "engineer" | "reviewer" | "custom";
         /**
-         * @description colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19.
+         * @description colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19. v0.2.13(R3): room_list · room_read · work_propose.
          * @enum {string}
          */
-        ColabCommand: "session_get" | "session_messages" | "artifact_get" | "message_post" | "status_set" | "decision_record" | "lane_delegate" | "artifact_submit" | "review_approve" | "review_reject" | "hitl_ask" | "hitl_approve_request" | "hitl_request_info";
+        ColabCommand: "session_get" | "session_messages" | "artifact_get" | "message_post" | "status_set" | "decision_record" | "lane_delegate" | "artifact_submit" | "review_approve" | "review_reject" | "hitl_ask" | "hitl_approve_request" | "hitl_request_info" | "room_list" | "room_read" | "work_propose";
         /**
          * @description `agent_status` — 저장하지 않고 FR-1.3 순서로 파생한다.
          * @enum {string}

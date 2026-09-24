@@ -88,6 +88,7 @@ type MessagesQuery struct {
 	Since  string // → after=<cursor|id>
 	Limit  int    // → limit (1..200)
 	Thread string // → thread=<root id>
+	Work   string // → work_id=<mission id> (colab room messages --work, v0.8)
 }
 
 // ListMessages — GET /sessions/{S}/messages.
@@ -103,6 +104,9 @@ func (c *Client) ListMessages(ctx context.Context, sessionID string, q MessagesQ
 	}
 	if q.Limit > 0 {
 		v.Set("limit", strconv.Itoa(q.Limit))
+	}
+	if q.Work != "" {
+		v.Set("work_id", q.Work)
 	}
 	if q.Thread != "" {
 		v.Set("thread", q.Thread)

@@ -264,13 +264,14 @@ export function makeRuntime(workspaceId: string, name: string): Runtime {
 const COLAB_COMMANDS: readonly ColabCommand[] = [
   "session_get", "session_messages", "artifact_get", "message_post", "status_set", "decision_record",
   "lane_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info",
+  "room_list", "room_read", "work_propose",
 ];
 const ROLE_DENIED: Record<Agent["role"], readonly ColabCommand[]> = {
   lead: [],
-  researcher: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request"],
-  writer: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request"],
-  engineer: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request"],
-  reviewer: ["lane_delegate", "artifact_submit", "hitl_approve_request"],
+  researcher: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose"],
+  writer: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose"],
+  engineer: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose"],
+  reviewer: ["lane_delegate", "artifact_submit", "hitl_approve_request", "work_propose"],
   custom: [],
 };
 export function allowedCommands(role: Agent["role"]): ColabCommand[] {

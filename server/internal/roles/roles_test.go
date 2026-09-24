@@ -141,29 +141,30 @@ func TestAllCommandsIsTheClosedEnum(t *testing.T) {
 	// command added to openapi without a row here shows up.
 	got := All()
 	sort.Slice(got, func(i, j int) bool { return got[i] < got[j] })
-	want := []gen.ColabCommand{gen.ArtifactGet, gen.ArtifactSubmit, gen.DecisionRecord, gen.HitlApproveRequest, gen.HitlAsk,
-		gen.HitlRequestInfo, gen.LaneDelegate, gen.MessagePost, gen.ReviewApprove, gen.ReviewReject, gen.SessionGet,
-		gen.SessionMessages, gen.StatusSet}
+	want := []gen.ColabCommand{gen.ColabCommandArtifactGet, gen.ColabCommandArtifactSubmit, gen.ColabCommandDecisionRecord, gen.ColabCommandHitlApproveRequest, gen.ColabCommandHitlAsk,
+		gen.ColabCommandHitlRequestInfo, gen.ColabCommandLaneDelegate, gen.ColabCommandMessagePost, gen.ColabCommandReviewApprove, gen.ColabCommandReviewReject,
+		gen.ColabCommandRoomList, gen.ColabCommandRoomRead, gen.ColabCommandSessionGet, gen.ColabCommandSessionMessages, gen.ColabCommandStatusSet, gen.ColabCommandWorkPropose}
 	if !slices.Equal(got, want) {
-		t.Errorf("All() = %v, want the 13 ColabCommand values", got)
+		t.Errorf("All() = %v, want the 16 ColabCommand values", got)
 	}
 	for _, c := range got {
 		if !c.Valid() {
 			t.Errorf("%s is not a valid ColabCommand", c)
 		}
 	}
-	if len(AllowedCommands(gen.Lead)) != 13 || len(AllowedCommands(gen.Custom)) != 13 {
+	if len(AllowedCommands(gen.Lead)) != 16 || len(AllowedCommands(gen.Custom)) != 16 {
 		t.Errorf("lead and custom get everything: lead %d custom %d", len(AllowedCommands(gen.Lead)), len(AllowedCommands(gen.Custom)))
 	}
-	if s := AllowedCommandStrings(gen.Reviewer); len(s) != 10 || s[0] != "session_get" {
+	if s := AllowedCommandStrings(gen.Reviewer); len(s) != 12 || s[0] != "session_get" {
 		t.Errorf("AllowedCommandStrings(reviewer) = %v", s)
 	}
 }
 
 func TestCLIName(t *testing.T) {
 	for cmd, want := range map[gen.ColabCommand]string{
-		gen.LaneDelegate: "lane delegate", gen.SessionGet: "session get", gen.ReviewApprove: "review approve",
-		gen.HitlApproveRequest: "hitl approve-request", gen.HitlRequestInfo: "hitl request-info", gen.HitlAsk: "hitl ask",
+		gen.ColabCommandLaneDelegate: "lane delegate", gen.ColabCommandSessionGet: "session get", gen.ColabCommandReviewApprove: "review approve",
+		gen.ColabCommandHitlApproveRequest: "hitl approve-request", gen.ColabCommandHitlRequestInfo: "hitl request-info", gen.ColabCommandHitlAsk: "hitl ask",
+		gen.ColabCommandRoomList: "room list", gen.ColabCommandRoomRead: "room read", gen.ColabCommandWorkPropose: "work propose",
 	} {
 		if got := CLIName(cmd); got != want {
 			t.Errorf("CLIName(%s) = %q, want %q", cmd, got, want)
