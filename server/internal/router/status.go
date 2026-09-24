@@ -396,10 +396,12 @@ func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID
 	if err == nil {
 		// A queued task that absorbs the notice keeps its own originator; one
 		// that had none takes the waker's (the turn it will run is this one).
+		// Its mission likewise: kept, else the lane's (T-R4b).
 		_, err = tx.Exec(ctx, `
 			UPDATE task SET coalesced_message_ids = array_append(coalesced_message_ids, $2),
-			                originator_user_id = COALESCE(originator_user_id, $4), updated_at = $3
-			WHERE id = $1`, existing, msg, now, originator)
+			                originator_user_id = COALESCE(originator_user_id, $4),
+			                work_id = COALESCE(work_id, $5), updated_at = $3
+			WHERE id = $1`, existing, msg, now, originator, laneWork)
 		return err
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
