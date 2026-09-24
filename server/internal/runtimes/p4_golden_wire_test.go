@@ -13,9 +13,10 @@
 //	                                                (listRuntimeCandidates) and
 //	                                                runtimes.Service.Rebind
 //	rebindSession     → runtimes.PlanRebind         runtimes.Service.Rebind
-//	                                                (POST /sessions/{id}/rebind)
-//	endOfflineSession → runtimes.PlanOfflineEnd     httpapi.Server.CancelSession, for a
-//	                                                session paused runtime_offline
+//	                                                (POST /rooms/{id}/rebind — rebindRoom)
+//	endOfflineSession → runtimes.PlanOfflineEnd     httpapi.Server.liftOfflineGate, when
+//	                                                cancelWork closes an offline room's
+//	                                                last open mission
 //	deleteRuntime     → runtimes.PlanRuntimeDelete  runtimes.Service.DeleteRuntime
 //	                                                (httpapi.Server.DeleteRuntime)
 package runtimes
@@ -79,7 +80,7 @@ func adaptJudgeCandidate(c candidateCase) candidateVerdict {
 // decisions live on the SERVER and a rebind that cleared them would be
 // destroying data it never had to touch (FR-9.2).
 // production caller: internal/runtimes/offline.go:480 (Service.Rebind), reached
-// from internal/httpapi/handlers_p4.go:286 (POST /sessions/{id}/rebind).
+// from internal/httpapi/handlers_p4.go (RebindRoom — POST /rooms/{id}/rebind).
 func adaptRebind(c rebindCase) rebindResult {
 	in := RebindInput{
 		Isolation: c.Isolation, TargetEligible: c.TargetEligible,

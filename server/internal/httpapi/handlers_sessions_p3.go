@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +14,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
 	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
+	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 )
 
 // Mission and room control helpers (FR-2.1·2.3) shared by the work and room
@@ -109,6 +111,33 @@ func (s *Server) liftOfflineGate(ctx context.Context, tx pgx.Tx, roomID uuid.UUI
 		return nil
 	}
 	if err := s.cancelScopeTasks(ctx, tx, roomOnlyScope(roomID), now); err != nil {
+		return err
+	}
+	// E14-07: giving up on the lost computer is `cancelled`, never
+	// `completed` — the artifacts are recovered by having been on the server
+	// all along (FR-9.2 「아티팩트만 회수한다」). The dead machine's folders are
+	// unreachable: left `active`, the GC sweep would ask a runtime that never
+	// answers, forever (a live report from it lifts the stamp again —
+	// workdirs.Upsert). This was cancelSession's 「종료」 before openapi v0.3.0;
+	// cancelling the room's last open mission is that choice now.
+	var artifacts int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM artifact WHERE session_id = $1`, roomID).Scan(&artifacts); err != nil {
+		return err
+	}
+	end := runtimes.PlanOfflineEnd(artifacts)
+	if end.SessionState != "cancelled" || end.CompletionConditionsMet {
+		return apperr.Internal(fmt.Errorf("runtimes: offline end plan = %+v", end))
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE workdir SET status = 'retained', gc_blocked_reason = 'runtime_gone', updated_at = $2
+		WHERE session_id = $1 AND status = 'active'`, roomID, now); err != nil {
+		return err
+	}
+	// FR-9.2, E14-07 — decision.summary/rationale are public (openapi
+	// Decision) and S7 draws them, so they speak the screens' language.
+	if _, err := insertDecision(ctx, tx, roomID, "컴퓨터가 돌아오지 않아 미션을 종료했습니다",
+		fmt.Sprintf("다른 컴퓨터로 옮기는 대신 종료를 선택했습니다 — 아티팩트 %d개는 서버에 남아 있습니다", end.ArtifactsRecovered),
+		"hitl", nil, false, now, nil); err != nil {
 		return err
 	}
 	if _, err := roomgate.Unblock(ctx, tx, roomID, roomgate.ReasonRuntimeOffline, now); err != nil {

@@ -113,8 +113,8 @@ func adaptJudgeGC(c gcCase) gcVerdict {
 	}
 }
 
-// production caller: internal/sessions/sessions.go:86 (quota check on
-// createSession).
+// production caller: internal/httpapi/handlers_works.go (Server.workdirQuota —
+// the quota check on createWork, moved from createSession in openapi v0.3.0).
 func adaptCheckDiskQuota(usedBytes int64, quotaGB int) quotaVerdict {
 	v := CheckDiskQuota(usedBytes, quotaGB)
 	return quotaVerdict{

@@ -152,7 +152,31 @@ func TestR2RuntimeOfflineRoomCardsPerRoom(t *testing.T) {
 func TestR2RuntimeOfflineCancelLiftsTheStop(t *testing.T) {
 	f := newP2Fixture(t)
 	f.offlineSweep(t)
+	var wd uuid.UUID
+	if err := f.pool.QueryRow(t.Context(), `
+		INSERT INTO workdir (session_id, agent_id, kind, path_or_ref, status, created_at, updated_at)
+		VALUES ($1, $2, 'dir', '/w/sessions/x/lead', 'active', now(), now()) RETURNING id`, f.sessionID, f.leadUUID).Scan(&wd); err != nil {
+		t.Fatal(err)
+	}
 	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/cancel", map[string]any{})
+	// E14-07 (cancelSession's 「종료」 until v0.3.0): the lost machine's folders
+	// are stamped runtime_gone, and the room's decisions say why.
+	var status, why string
+	if err := f.pool.QueryRow(t.Context(), `SELECT status::text, COALESCE(gc_blocked_reason::text, '') FROM workdir WHERE id = $1`, wd).Scan(&status, &why); err != nil {
+		t.Fatal(err)
+	}
+	if status != "retained" || why != "runtime_gone" {
+		t.Fatalf("workdir = %s(%s), want retained(runtime_gone) (E14-07)", status, why)
+	}
+	found := false
+	for _, raw := range f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/decisions", nil) {
+		if str(raw.(map[string]any), "summary") == "컴퓨터가 돌아오지 않아 미션을 종료했습니다" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no E14-07 decision after cancelling every open mission of an offline room")
+	}
 	if reason, _ := f.roomGate(t); reason != "" {
 		t.Fatalf("room gate = %q after cancelling every open mission, want lifted", reason)
 	}

@@ -840,8 +840,9 @@ type EndResult struct {
 // machine outage in the success column makes every completion metric a lie —
 // and it would trigger FR-2.4's summary of a job that was never finished.
 //
-// production caller: httpapi.Server.CancelSession, for a session paused with
-// `runtime_offline`.
+// production caller: httpapi.Server.liftOfflineGate — cancelWork on the last
+// open mission of a room stopped `runtime_offline` (cancelSession's 「종료」
+// until openapi v0.3.0).
 func PlanOfflineEnd(artifacts int) EndResult {
 	return EndResult{SessionState: "cancelled", ArtifactsRecovered: artifacts}
 }
