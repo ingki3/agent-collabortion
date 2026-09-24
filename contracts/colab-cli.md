@@ -13,7 +13,7 @@
 |---|---|---|
 | `COLAB_TASK_TOKEN` | 데몬(`daemon-protocol.md` §4.1 TaskBundle) | `ctk_` + base64url(32B). **attempt 전용.** 서버는 해시만 저장. 범위: `{task_id, attempt, lane_id, session_id, agent_id}` |
 | `COLAB_SERVER_URL` | 데몬 | 서버 |
-| `COLAB_TASK_ID` `COLAB_TASK_ATTEMPT` `COLAB_LANE_ID` `COLAB_SESSION_ID` `COLAB_AGENT_NAME` | 데몬 | 명령이 인자를 생략할 때의 기본값. `COLAB_TASK_ATTEMPT`가 있으면 `/cli/context` 왕복 없이 멱등키를 만든다 (v0.2, PR #18) |
+| `COLAB_TASK_ID` `COLAB_TASK_ATTEMPT` `COLAB_LANE_ID` `COLAB_SESSION_ID` `COLAB_ROOM_ID` `COLAB_WORK_ID` `COLAB_AGENT_NAME` | 데몬 | 명령이 인자를 생략할 때의 기본값. `COLAB_TASK_ATTEMPT`가 있으면 `/cli/context` 왕복 없이 멱등키를 만든다 (v0.2, PR #18) | `COLAB_ROOM_ID` 는 `COLAB_SESSION_ID` 와 같은 값(R4 까지 둘 다), `COLAB_WORK_ID` 는 그 턴이 매인 미션 — 미션 밖 턴이면 없다(v0.8.1, R3b). `room get`·`room messages`·`work propose` 의 기본값.
 | `COLAB_SERVER_URL` | 데몬 | **오리진**(예: `https://colab.example`). CLI가 `openapi.yaml` `servers[0].url`(`/api/v1`)을 뒤에 붙인다. `COLAB_API_PREFIX`로 덮어쓸 수 있다 |
 
 **멱등키 (v0.2)**: `Idempotency-Key`는 openapi대로 **UUID** — CLI가 `UUIDv5(namespace=colab, name="task:<task_id>:<seq>")`로 파생한다. **`seq`는 attempt를 포함하지 않고 task 안에서 이어진다**(`/cli/context`가 `last_seq`를 돌려주고, attempt 2는 그 다음부터). **CLI는 `message post`마다 `X-Colab-Client-Seq: <seq>` 헤더를 함께 보낸다**(v0.3) — 서버가 `idempotency_key.client_seq`에 저장해 `last_seq = max(client_seq)`로 답한다. seq에 구멍이 생겨도(게시 실패 후 재시도) 개수가 아니라 최댓값이므로 키 재사용이 없다. 재시도가 같은 내용을 다시 게시해도 다른 seq면 새 메시지다 — 중복 방지는 재개 프롬프트의 `posted_message_ids`(FR-7.1, E8-04)가 1차이고 멱등키는 **네트워크 재전송**만 막는다.
