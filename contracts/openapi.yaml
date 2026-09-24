@@ -3147,7 +3147,7 @@ paths:
       description: |
         권한: 방 참여자(사람) 누구나. Director 기본값: `director_user_id` → 방 `default_director_user_id` → 연 사람(FR-2A.1).
         검증(`422`): 종료 조건 규칙은 옛 `createSession` 과 같다(`agent_approval` 리뷰어 필수·참여자여야 함 — `reviewer_required`/`reviewer_not_participant`, `criteria_met` 단독 불가). `assignee_agent_id` 가 없으면 기본 종료 조건은 `user_approval` 단독.
-        `409 max_concurrent_works`(열린 미션 목록을 `Problem.open_works[]` 에) · `409 room_archived` · `409 room_blocked` · `from_message_id` 가 이미 다른 미션에 속하면 `409 message_has_work`.
+        `409 max_concurrent_works`(열린 미션 목록을 `Problem.open_works[]` 에) · `409 room_archived` · `409 room_blocked` · `from_message_id` 가 이미 다른 미션에 속하면 `409 message_has_work`. · 워크스페이스 컴퓨터들의 workdir 이 `workdir_disk_quota_gb` 에 이미 닿았으면 `409 workdir_quota_exceeded`(E13-16 — v0.3.0: 옛 `createSession` 의 게이트를 옮겼다. 설정이 null 이면 게이트 없음).
       x-prd: [FR-2A.1, FR-2A.2, FR-3.1.1]
       x-screen: [S21, S26]
       x-phase: R0
