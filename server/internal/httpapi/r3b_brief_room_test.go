@@ -81,8 +81,6 @@ func section(brief string, n int) string {
 	return brief[i : i+4+j]
 }
 
-var rosterStatus = regexp.MustCompile(` — status: [a-z_]+`)
-
 // stablePrefix is [1]~[5] (E12-11): everything before [6]/[7]/[8].
 func stablePrefix(brief string) string {
 	j := len(brief)
@@ -146,10 +144,7 @@ func TestR3bBriefRoomContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	b2 := f.claimBundle(t, f.mentionTask(t, f.rUUID, "R", wA))
-	// [5]'s `status: working|idle` is live and moves between any two turns —
-	// a pre-existing E12-11 gap outside T-R3b (reported in the PR) — so the
-	// roster is compared without it.
-	if p1, p2 := stablePrefix(b1.Brief.Text), stablePrefix(b2.Brief.Text); rosterStatus.ReplaceAllString(p1, "") != rosterStatus.ReplaceAllString(p2, "") {
+	if p1, p2 := stablePrefix(b1.Brief.Text), stablePrefix(b2.Brief.Text); p1 != p2 {
 		t.Errorf("[1]~[5] changed between two turns of one mission (E12-11 v0.9.0):\n--- 1\n%s\n--- 2\n%s", p1, p2)
 	}
 	if !strings.Contains(b2.Prompt, "met=1 total=2") || !strings.Contains(b2.Prompt, "- [x] an artifact submitted") {
@@ -166,7 +161,7 @@ func TestR3bBriefRoomContext(t *testing.T) {
 		t.Errorf("[4] of mission B names the wrong mission:\n%s", s)
 	}
 	for _, n := range []int{1, 2, 5} {
-		if rosterStatus.ReplaceAllString(section(b3.Brief.Text, n), "") != rosterStatus.ReplaceAllString(section(b2.Brief.Text, n), "") {
+		if section(b3.Brief.Text, n) != section(b2.Brief.Text, n) {
 			t.Errorf("[%d] differs between missions of one room — only [4] should", n)
 		}
 	}
@@ -358,5 +353,67 @@ func TestR3cDecisionBoundaryTies(t *testing.T) {
 	}
 	if both != 0 || missing != 0 {
 		t.Errorf("tied decisions across the [7]/③ boundary: %d in both, %d in neither (want 0/0)\n[7]:\n%s\n③:\n%s", both, missing, seven, rd)
+	}
+}
+
+// rosterStatusBlock pulls the turn prompt's <roster_status> block, tags included.
+func rosterStatusBlock(prompt string) string {
+	i := strings.Index(prompt, "<roster_status>\n")
+	j := strings.Index(prompt, "</roster_status>\n")
+	if i < 0 || j < i {
+		return ""
+	}
+	return prompt[i : j+len("</roster_status>\n")]
+}
+
+// TestRosterStatusInTurnPrompt is harness v0.9.2 (E12-11 복구): who is
+// working moves between two turns of one mission, so it lives in the turn
+// prompt's <roster_status> — [5] and the whole [1]~[5] stay byte-identical,
+// with nothing masked out of the comparison.
+func TestRosterStatusInTurnPrompt(t *testing.T) {
+	f := newP2Fixture(t)
+	ctx := t.Context()
+	wA := legacyWork(t, f)
+
+	b1 := f.claimBundle(t, f.mentionTask(t, f.rUUID, "R", wA))
+
+	// Between the two turns another agent (W) starts working.
+	wTask := f.mentionTask(t, f.wUUID, "W", wA)
+	var runtimeID uuid.UUID
+	if err := f.pool.QueryRow(ctx, `SELECT id FROM runtime WHERE workspace_id = $1 LIMIT 1`, f.wsID).Scan(&runtimeID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE task SET status = 'running', runtime_id = $2 WHERE id = $1`, wTask, runtimeID); err != nil {
+		t.Fatal(err)
+	}
+	b2 := f.claimBundle(t, f.mentionTask(t, f.rUUID, "R", wA))
+
+	if p1, p2 := stablePrefix(b1.Brief.Text), stablePrefix(b2.Brief.Text); p1 != p2 {
+		t.Errorf("[1]~[5] changed when W started working (E12-11, v0.9.2):\n--- 1\n%s\n--- 2\n%s", p1, p2)
+	}
+	five := section(b2.Brief.Text, 5)
+	if strings.Contains(five, "status") || strings.Contains(five, "working") || strings.Contains(five, "idle") {
+		t.Errorf("[5] still carries the live status (v0.9.2 moves it to <roster_status>):\n%s", five)
+	}
+	for _, want := range []string{"- Lead — lead: d — mention: ", "- R (you) — researcher: d — mention: ", "- W — writer: d — mention: "} {
+		if !strings.Contains(five, want) {
+			t.Errorf("[5] lacks %q:\n%s", want, five)
+		}
+	}
+
+	s1, s2 := rosterStatusBlock(b1.Prompt), rosterStatusBlock(b2.Prompt)
+	if !strings.Contains(s1, "\n- W: idle\n") || !strings.Contains(s2, "\n- W: working\n") {
+		t.Errorf("<roster_status> did not follow W idle → working:\n--- 1\n%s--- 2\n%s", s1, s2)
+	}
+	// One line per participant, in [5]'s order, the turn's own agent included.
+	re := "<roster_status>\n- Lead: (working|idle)\n- R: working\n- W: (working|idle)\n</roster_status>\n"
+	for i, s := range []string{s1, s2} {
+		if !regexp.MustCompile("^" + re + "$").MatchString(s) {
+			t.Errorf("turn %d <roster_status> = %q, want %s", i+1, s, re)
+		}
+	}
+	// It sits after the mission's progress and before the trigger.
+	if mp, rs, tr := strings.Index(b2.Prompt, "<mission_progress"), strings.Index(b2.Prompt, "<roster_status>"), strings.Index(b2.Prompt, "<trigger>"); !(mp >= 0 && mp < rs && rs < tr) {
+		t.Errorf("<roster_status> out of place (mission_progress=%d roster_status=%d trigger=%d)", mp, rs, tr)
 	}
 }
