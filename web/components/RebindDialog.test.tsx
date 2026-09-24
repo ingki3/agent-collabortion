@@ -59,8 +59,8 @@ describe("상황 문장 · 유실 경고 문구", () => {
   it("오프라인 일수와 정지 시각을 한 문장으로 말한다(SCREEN §4.9 상황 칸)", () => {
     const s = offlineSentence("MacBook", "2026-08-30T00:00:00Z", "2026-09-06T00:00:00Z");
     expect(s).toContain("MacBook");
-    expect(s).toContain("일간 오프라인");
-    expect(s).toContain("일시정지");
+    expect(s).toContain("일간 연결이 끊겼습니다");
+    expect(s).toContain("멈춰 있습니다"); // 방 층 — 「멈춤」(SCREEN §3.4(b) 분담)
   });
 
   it("유실 경고는 아티팩트 수와 '커밋 이력은 복원되지 않습니다' 를 담는다(U12 5 성공 기준)", () => {

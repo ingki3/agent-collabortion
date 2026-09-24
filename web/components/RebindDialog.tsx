@@ -33,14 +33,14 @@ export interface RebindDialogProps {
   onClose: () => void;
 }
 
-/** "N일간 오프라인입니다" — 상황 문장의 첫 줄(SCREEN §4.9 상황 칸). */
+/** "N일간 연결이 끊겼습니다" — 상황 문장의 첫 줄(SCREEN §4.9 상황 칸 · §3.4(b) — 「오프라인」 대신 S5 배지와 같은 말). */
 export function offlineSentence(runtimeName: string | null | undefined, offlineSince: string | null | undefined, pausedAt: string | null | undefined): string {
-  const who = runtimeName ?? "이 세션의 컴퓨터";
+  const who = runtimeName ?? "이 방의 컴퓨터";
   const days = offlineSince ? Math.max(0, Math.floor((Date.now() - Date.parse(offlineSince)) / 86_400_000)) : null;
-  const head = days == null ? `${who}이 오프라인입니다` : `${who}이 ${days}일간 오프라인입니다`;
+  const head = days == null ? `${who}이 연결이 끊겼습니다` : `${who}이 ${days}일간 연결이 끊겼습니다`;
   if (!pausedAt) return `${head}.`;
   const d = new Date(pausedAt);
-  return `${head}. 이 세션은 ${d.getMonth() + 1}월 ${d.getDate()}일부터 일시정지 상태입니다.`;
+  return `${head}. 이 방은 ${d.getMonth() + 1}월 ${d.getDate()}일부터 멈춰 있습니다.`;
 }
 
 /**
@@ -49,7 +49,7 @@ export function offlineSentence(runtimeName: string | null | undefined, offlineS
  */
 export function lossWarning(diffCount: number): string {
   return (
-    `완료된 작업 줄기의 코드도 원래 컴퓨터의 브랜치에만 있습니다. 새 컴퓨터에서는 이 세션의 diff 아티팩트 ` +
+    `완료된 서브 미션의 코드도 원래 컴퓨터의 브랜치에만 있습니다. 새 컴퓨터에서는 이 방의 아티팩트(diff) ` +
     `${diffCount}개를 순서대로 적용해 복구합니다. 커밋 이력은 복원되지 않습니다.`
   );
 }
@@ -143,7 +143,7 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
         <p className="rebind__situation" data-testid="rebind-situation">
           {offlineSentence(session.runtime?.name, session.paused_detail?.runtime?.offline_since, session.paused_detail?.paused_at)}
         </p>
-        <p className="rebind__sub">세션 <b>{session.title}</b></p>
+        <p className="rebind__sub">방 <b>{session.title}</b></p>
 
         {/* 2 대상 선택 */}
         <div className="rebind__section">
@@ -159,8 +159,8 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
             <p className="muted small">후보를 확인하는 중…</p>
           ) : eligible.length === 0 ? (
             <p className="problem" data-testid="rebind-no-candidate">
-              후보가 없습니다 — {worktree ? "이 세션의 저장소와 같은 remote URL 을 가진 온라인 컴퓨터가 없습니다." : "온라인인 컴퓨터가 없습니다."}{" "}
-              컴퓨터를 연결하거나 세션을 종료하세요.
+              후보가 없습니다 — {worktree ? "이 방의 저장소와 같은 remote URL 을 가진 온라인 컴퓨터가 없습니다." : "온라인인 컴퓨터가 없습니다."}{" "}
+              컴퓨터를 연결하거나 미션을 종료하세요.
             </p>
           ) : (
             <ul className="rebind__cands" data-testid="rebind-candidates">

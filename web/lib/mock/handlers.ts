@@ -702,9 +702,9 @@ function simulateRun(s: Store, sess: Session, task: MockTask, reply: string) {
       ...(task.attempts ?? []),
       { attempt: task.attempt, started_at: task.started_at, finished_at: null, resumed: task.resumed, outcome: null, cost_usd: 0 },
     ];
-    setLaneStatus(s, sess, task.lane_id, { status: "running", current_activity: "세션을 시작했다 → cold_start", has_runtime_session: true, queue_position: null });
+    setLaneStatus(s, sess, task.lane_id, { status: "running", current_activity: "새 대화로 시작했습니다", has_runtime_session: true, queue_position: null });
     emitParticipant(s, sess, agent.id, "lane 실행 중");
-    pushEvent(s, sess, task, { class: "runtime", verb: "start", object_ref: null, outcome: "cold_start", payload: { runtime_kind: "claude_code", session_id: `acp-${task.id.slice(0, 8)}` }, sentence: `${agent.name}가 세션을 시작했다 → cold_start` });
+    pushEvent(s, sess, task, { class: "runtime", verb: "start", object_ref: null, outcome: "cold_start", payload: { runtime_kind: "claude_code", session_id: `acp-${task.id.slice(0, 8)}` }, sentence: `${agent.name}가 새 대화로 시작했다 → cold_start` });
     emit(s, sess.workspace_id, "agent.typing", { session_id: sess.id, agent_id: agent.id, typing: true }, sess.id, true);
   });
   let thinking: TaskEvent | undefined;
@@ -886,7 +886,7 @@ on("POST", "/sessions/{id}/messages", (req, p) => {
   const b = body<{ content?: string; parent_id?: string | null; new_lane?: boolean; suppress_agent_ids?: string[]; work_id?: string | null }>(req);
   if (!b.content?.trim()) throw validation([{ field: "content", message: W.content_required }]);
   if (s.roomOnly.has(sess.id)) roomGate(s, req, sess.id, "post");
-  else if (sess.status === "completed" || sess.status === "cancelled") throw new Problem(409, "invalid_transition", "종료된 세션에는 게시할 수 없습니다");
+  else if (sess.status === "completed" || sess.status === "cancelled") throw new Problem(409, "invalid_transition", "종료된 미션에는 게시할 수 없습니다");
   let parentId = b.parent_id ?? null;
   if (parentId) {
     const parent = s.messages.get(parentId);
@@ -922,7 +922,7 @@ on("POST", "/sessions/{id}/messages", (req, p) => {
     triggers.push({ agent_id: t.agent_id, task_id: task.id, lane_id: task.lane_id, coalesced: false, deferred_until: null });
     const agent = s.agents.get(t.agent_id)!;
     if (dispatchable) simulateRun(s, sess, task, `안녕하세요, ${agent.name}입니다. "${brief}" 잘 받았습니다. 바로 진행하겠습니다.`);
-    else setLaneStatus(s, sess, task.lane_id, { status: "queued", queue_position: 1, current_activity: "세션 재개 후 처리됩니다" });
+    else setLaneStatus(s, sess, task.lane_id, { status: "queued", queue_position: 1, current_activity: "미션 재개 후 처리됩니다" });
   }
   const result = { message: msg, triggers, warnings, session_paused: null };
   s.idem.set(key, result);
@@ -1437,7 +1437,7 @@ on("POST", "/__mock/sessions/{id}/seed-empty-turn", (req, p) => {
   task.status = "running";
   task.started_at = now();
   setLaneStatus(s, sess, task.lane_id, { status: "running", has_runtime_session: true });
-  pushEvent(s, sess, task, { class: "runtime", verb: "start", object_ref: null, outcome: "resumed", payload: { runtime_kind: "claude_code", session_id: `acp-${task.id.slice(0, 8)}` }, sentence: `${agent.name}가 세션을 이어받았다 → resumed` });
+  pushEvent(s, sess, task, { class: "runtime", verb: "start", object_ref: null, outcome: "resumed", payload: { runtime_kind: "claude_code", session_id: `acp-${task.id.slice(0, 8)}` }, sentence: `${agent.name}가 이전 대화를 이어받았다 → resumed` });
   pushEvent(s, sess, task, { class: "message", verb: "think", object_ref: null, outcome: "ok", payload: { kind: "thought", chars: 96 }, sentence: `${agent.name}가 생각했다 → ok` });
   const empty = pushEvent(s, sess, task, { class: "status", verb: "turn_end", object_ref: "empty_turn", outcome: "info", payload: { command: "turn_end", args: { note: W.empty_turn_note } }, sentence: null });
   pushEvent(s, sess, task, { class: "runtime", verb: "turn_end", object_ref: null, outcome: "ok", sentence: "턴 종료 → ok" });
@@ -1462,7 +1462,7 @@ on("POST", "/__mock/sessions/{id}/seed-done-running", (req, p) => {
   const task = createTask(s, sess, agent.id, null, { brief: "경쟁사 5곳 정리" });
   task.status = "running";
   task.started_at = now();
-  pushEvent(s, sess, task, { class: "runtime", verb: "start", object_ref: null, outcome: "ok", payload: { runtime_kind: "claude_code", session_id: `acp-${task.id.slice(0, 8)}` }, sentence: `${agent.name}가 세션을 시작했다 → ok` });
+  pushEvent(s, sess, task, { class: "runtime", verb: "start", object_ref: null, outcome: "ok", payload: { runtime_kind: "claude_code", session_id: `acp-${task.id.slice(0, 8)}` }, sentence: `${agent.name}가 새 대화로 시작했다 → ok` });
   pushEvent(s, sess, task, { class: "status", verb: "set_status", object_ref: "done", outcome: "ok", sentence: `${agent.name}가 상태를 done 으로 바꿨다 → ok` });
   setLaneStatus(s, sess, task.lane_id, { status: "done", has_runtime_session: true, current_activity: "정리 뒤 파일을 닫는 중…", finished_at: now(), brief: "경쟁사 5곳 정리 완료" });
   return ok({ lane_id: task.lane_id, task_id: task.id, lane: s.lanes.get(task.lane_id) }, 201);
@@ -1614,6 +1614,11 @@ export function inboxActions(type: InboxItem["type"], hitlType: string | undefin
     default:
       return ["open_session"];
   }
+}
+
+/** 컴퓨터 유예 만료로 멈춘 방의 카드 동작 — 서버 `inbox.OfflineRoomActions` 와 같다(#314). 옮길 수 없는 사람에게는 방 열기만. */
+export function offlineRoomActions(canRespond: boolean): NonNullable<InboxItem["actions"]> {
+  return canRespond ? ["rebind", "open_room"] : ["open_room"];
 }
 
 /** 호출자 시점의 인박스 항목 — overdue·actions 를 볼 때마다 다시 계산한다. */
@@ -1916,7 +1921,7 @@ on("POST", "/sessions/{id}/participants", (req, p) => {
   if (a.respond_to === "nobody") throw new Problem(403, "not_invitable", W.not_invitable_nobody);
   const prof = a.profiles.find((x) => x.id === b.profile_id) ?? a.profiles.find((x) => x.is_default) ?? a.profiles[0];
   const rtKinds = new Set([...s.runtimes.values()].filter((r) => r.workspace_id === sess.workspace_id).flatMap((r) => r.capabilities.map((c) => c.kind)));
-  const warnings = rtKinds.has(prof.runtime_kind) ? [] : [`프로파일의 runtime_kind(${prof.runtime_kind}) 가 세션 런타임에 없습니다`];
+  const warnings = rtKinds.has(prof.runtime_kind) ? [] : [`프로파일의 도구(${prof.runtime_kind})가 이 방의 컴퓨터에 없습니다`];
   const part: Participant = {
     session_id: sess.id, agent_id: a.id,
     agent: { id: a.id, name: a.name, role: a.role, role_description: a.role_description, avatar_url: null, respond_to: a.respond_to },
@@ -2061,7 +2066,7 @@ on("POST", "/__mock/sessions/{id}/pause", (req, p) => {
     workspace_id: sess.workspace_id, type: "session_paused", severity: inboxSeverity("session_paused"),
     session_id: sess.id, session: { id: sess.id, title: sess.title, status: sess.status },
     ref_id: sess.id, due_at: null, overdue: false, delegated: false,
-    card: { title: "세션이 멈췄습니다", body: pausedCardBody(sess), paused_reason: reason },
+    card: { title: "미션이 일시정지되었습니다", body: pausedCardBody(sess), paused_reason: reason },
     actions: inboxActions("session_paused", undefined, roleOf(sess, user.id) === "director"),
   });
   return ok(sessionFor(s, sess, requireMember(s, req, sess.workspace_id).user.id));
@@ -2077,7 +2082,7 @@ function pausedCardBody(sess: Session): string {
     case "loop":
       return `에이전트 간 왕복이 상한(${d.loop?.limit})에 ${d.loop?.count ?? 0}회 도달`;
     case "runtime_offline":
-      return "세션 런타임이 오프라인입니다";
+      return "이 방의 컴퓨터 연결이 끊겼습니다";
     default:
       return "Director 가 일시정지했습니다";
   }
@@ -2122,7 +2127,7 @@ on("POST", "/__mock/inbox/seed", (req) => {
   const s = store();
   const user = requireUser(s, req);
   const sess = [...s.sessions.values()].find((x) => s.members.some((m) => m.workspace_id === x.workspace_id && m.user.id === user.id));
-  if (!sess) throw new Problem(409, "no_session", "세션이 없습니다");
+  if (!sess) throw new Problem(409, "no_session", "방이 없습니다");
   const ref = { id: sess.id, title: sess.title, status: sess.status };
   const lane = [...s.lanes.values()].find((l) => l.session_id === sess.id);
   const made: InboxItem[] = [];
@@ -2132,12 +2137,14 @@ on("POST", "/__mock/inbox/seed", (req) => {
       ref_id: lane?.id ?? sess.id, due_at: null, overdue: false, delegated: false, card,
       actions: inboxActions(type, undefined, true), ...extra,
     }));
-  add("lane_blocked", { title: "Researcher: '국내만인가요, 글로벌 포함인가요?'", body: "위임한 사람이 없는 작업 줄기입니다 — 답글이 곧 지시가 됩니다.", agent_name: "Researcher", lane_id: lane?.id ?? null });
-  add("session_paused", { title: "세션이 멈췄습니다", body: "예산 초과 — $21.40 / $20", paused_reason: "budget" });
+  add("lane_blocked", { title: "Researcher: '국내만인가요, 글로벌 포함인가요?'", body: "위임한 사람이 없는 서브 미션입니다 — 답글이 곧 지시가 됩니다.", agent_name: "Researcher", lane_id: lane?.id ?? null });
+  add("session_paused", { title: "미션이 일시정지되었습니다", body: "예산 초과 — $21.40 / $20", paused_reason: "budget" });
   add("run_failed", { title: "작업이 실패했습니다", body: "자동 재시도가 소진되었습니다", failure_kind: "timeout", lane_id: lane?.id ?? null });
-  add("runtime_offline", { title: "MacBook 이 오프라인입니다", body: "7일 유예 중 5일 남음", runtime_name: "demo-macbook", grace_ends_at: new Date(Date.now() + 5 * 864e5).toISOString() });
+  // 컴퓨터 유예 만료는 방 멈춤이다(#314) — 옛 runtime_offline 항목이 아니라 방 층의 room_paused(ref = 컴퓨터).
+  add("room_paused", { title: W.room_paused_title, body: W.room_paused_offline_body, paused_reason: "runtime_offline", runtime_name: "demo-macbook" },
+    { session: undefined, room_id: sess.id, ref_id: sess.runtime_id ?? uuid(), actions: offlineRoomActions(true) });
   add("mention", { title: "민지님을 멘션했습니다", body: "@민지 이 부분 확인 부탁드립니다", agent_name: "Lead" });
-  add("session_completed", { title: "세션이 완료되었습니다", body: "보고서 1건 제출, 승인됨", summary: "결정 3건 · 아티팩트 1건 · $1.20" }, { read_at: now() });
+  add("session_completed", { title: "미션이 완료되었습니다", body: "아티팩트 1건 제출, 승인됨", summary: "결정 3건 · 아티팩트 1건 · $1.20" }, { read_at: now() });
   return ok(made, 201);
 });
 
@@ -2260,6 +2267,15 @@ on("POST", "/sessions/{id}/rebind", (req, p) => {
   if (isolation === "worktree" && b.acknowledge_loss !== true) {
     throw validation([{ field: "acknowledge_loss", message: W.acknowledge_loss_required }]);
   }
+  // #314: 재바인딩이 방 멈춤을 풀고 그 컴퓨터의 room_paused 카드를 해소한다.
+  const lost = sess.runtime_id;
+  const room = s.rooms.get(sess.id);
+  if (room?.blocked_reason === "runtime_offline") {
+    room.blocked_reason = null;
+    room.blocked_detail = null;
+    emitRoom(s, room);
+  }
+  for (const [k, it] of s.inbox) if (it.type === "room_paused" && it.session_id === sess.id && it.ref_id === lost) s.inbox.delete(k);
   sess.runtime_id = target!.id;
   sess.runtime = target!;
   sess.status = "active";
@@ -2301,11 +2317,25 @@ on("POST", "/__mock/runtimes/{id}/offline", (req, p) => {
       } as Session["paused_detail"];
       sess.updated_at = now();
       paused++;
+      // #314: 유예 만료는 **방**을 멈춘다(blocked_reason runtime_offline) — 옛 /sessions 모양은 paused(runtime_offline) 그대로.
+      // 알림은 방 층의 room_paused 한 장(ref = 잃은 컴퓨터, 동작 rebind·open_room). 옛 runtime_offline 항목은 없다.
+      syncRooms(s);
+      const room = s.rooms.get(sess.id);
+      if (room && !room.blocked_reason) {
+        const owner = s.users.get(room.owner_user_id);
+        room.blocked_reason = "runtime_offline";
+        room.blocked_detail = {
+          reason: "runtime_offline", works_stopped: 1, blocked_at: rt.grace_ends_at!, blocked_by_user: null,
+          approver: owner ? stripUser(owner) : null, delegate_at: new Date(Date.parse(rt.grace_ends_at!) + 24 * 3600_000).toISOString(),
+          next_approver: null, next_approver_role: null, runtime_id: rt.id,
+        };
+        emitRoom(s, room);
+      }
       addInboxItem(s, user.id, {
-        workspace_id: sess.workspace_id, type: "runtime_offline", severity: inboxSeverity("runtime_offline"),
-        session_id: sess.id, session: sessionRefOf(sess), ref_id: rt.id, due_at: null, overdue: false, delegated: false,
-        card: { title: `${rt.name} 이 오프라인입니다`, body: `유예를 넘겨 이 세션이 일시정지되었습니다`, runtime_name: rt.name, grace_ends_at: rt.grace_ends_at },
-        actions: inboxActions("runtime_offline", undefined, true),
+        workspace_id: sess.workspace_id, type: "room_paused", severity: inboxSeverity("room_paused"),
+        session_id: sess.id, room_id: sess.id, ref_id: rt.id, due_at: null, overdue: false, delegated: false,
+        card: { title: W.room_paused_title, body: W.room_paused_offline_body, paused_reason: "runtime_offline", runtime_name: rt.name },
+        actions: offlineRoomActions(true),
       });
       emit(s, sess.workspace_id, "session.updated", { id: sess.id, status: sess.status }, sess.id);
     }

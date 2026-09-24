@@ -45,7 +45,7 @@ describe("진행률 — 정상", () => {
     const open = vi.fn();
     mount(normal, {}, { onOpenHitl: open, onFixCondition: vi.fn() });
     const rows = screen.getAllByTestId("condition-row");
-    expect(rows.map((r) => r.querySelector('[data-testid="condition-name"]')!.textContent)).toEqual(["보고서 제출", "Lead 의 검토 승인", "Director 승인"]);
+    expect(rows.map((r) => r.querySelector('[data-testid="condition-name"]')!.textContent)).toEqual(["아티팩트 제출", "Lead 의 검토 승인", "Director 승인"]);
     expect(rows[0].textContent).toContain("Writer, 9/13");
     expect(rows[1].textContent).toContain("Lead 차례");
     fireEvent.click(screen.getByTestId("condition-hitl-link"));
@@ -66,12 +66,12 @@ describe("진행률 — 정상", () => {
     expect(fix).toHaveBeenCalled();
   });
 
-  it("전부 충족이면 '곧 완료' · 끝난 세션이면 '세션이 끝났습니다' 이고 버튼이 없다", () => {
+  it("전부 충족이면 '곧 완료' · 끝난 세션이면 '미션이 끝났습니다' 이고 버튼이 없다", () => {
     mount({ ...normal, met: 3, satisfied: true, conditions: normal.conditions.map((c) => ({ ...c, met: true })) }, {}, { onFixCondition: vi.fn() });
     expect(screen.getByTestId("progress-summary").textContent).toBe("조건을 모두 충족했습니다 — 곧 완료됩니다");
     cleanup();
     mount(blocked, { status: "completed" }, { onFixCondition: vi.fn() });
-    expect(screen.getByTestId("progress-summary").textContent).toBe("세션이 끝났습니다");
+    expect(screen.getByTestId("progress-summary").textContent).toBe("미션이 끝났습니다");
     expect(screen.queryByTestId("fix-condition-open")).toBeNull();
   });
 });
@@ -90,14 +90,14 @@ describe("진행률 — 막힘(리뷰어 없는 옛 세션)", () => {
     expect(row.textContent).toContain("리뷰어가 지정되지 않아 아무도 승인할 수 없습니다");
     expect(row.textContent).not.toContain("✗");
     const box = screen.getByTestId("progress-blocked");
-    expect(box.textContent).toContain("조건을 고쳐야 세션이 끝날 수 있습니다");
+    expect(box.textContent).toContain("조건을 고쳐야 미션이 끝날 수 있습니다");
     fireEvent.click(screen.getByTestId("fix-condition-open"));
     expect(fix).toHaveBeenCalled();
   });
 
   it("Director 가 아니면 버튼 대신 'Director 가 조건을 고쳐야' 한 줄", () => {
     mount(blocked, { my_role: "member" });
-    expect(screen.getByTestId("progress-blocked").textContent).toContain("Director 가 조건을 고쳐야 세션이 끝날 수 있습니다");
+    expect(screen.getByTestId("progress-blocked").textContent).toContain("Director 가 조건을 고쳐야 미션이 끝날 수 있습니다");
     expect(screen.queryByTestId("fix-condition-open")).toBeNull();
   });
 

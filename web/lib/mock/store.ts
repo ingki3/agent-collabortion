@@ -384,7 +384,7 @@ export const TEMPLATES: readonly TemplateSeed[] = [
   {
     key: "content_team",
     name: "콘텐츠 팀",
-    description: "기획 → 초안 → 교정. 문서·마케팅 산출물에 맞춘 구성입니다.",
+    description: "기획 → 초안 → 교정. 문서·마케팅 작업에 맞춘 구성입니다.",
     version: "1",
     agents: [
       { key: "lead", name: "Lead", role: "lead", role_description: "주제를 쪼개 위임하고 톤을 맞춘다", instructions: "너는 콘텐츠 팀의 Lead 다. 주제를 쪼개 위임하고 전체 톤을 맞춘다.", prefer: "claude_code" },

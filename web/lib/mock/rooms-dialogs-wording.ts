@@ -29,7 +29,7 @@ export const RD_SERVER = {
   // 시스템 메시지 조각 — 이름을 앞뒤에 이어 붙인다(서버와 같은 이음).
   sys_invited_mid: { text: " 님이 ", at: "internal/httpapi/handlers_room_participants.go" },
   sys_invited_tail: { text: " 님을 방에 초대했습니다.", at: "internal/httpapi/handlers_room_participants.go" },
-  sys_agent_joined: { text: " 방에 참여했습니다.", at: "internal/httpapi/handlers_room_participants.go" },
+  // 「… 방에 참여했습니다.」 는 옛 참여자 추가와 글자까지 같아졌다(R1.5) — 한 벌만 둔다: W.participant_joined.
   sys_left: { text: " 방에서 나갔습니다.", at: "internal/httpapi/handlers_room_participants.go" },
   sys_removed: { text: " 방에서 내보냈습니다.", at: "internal/httpapi/handlers_room_participants.go" },
   sys_link_src: { text: " 방을 참고 방으로 연결했습니다 — 이 방의 에이전트가 그 방을 읽을 수 있습니다.", at: "internal/httpapi/handlers_room_participants.go" },
@@ -68,7 +68,7 @@ export const RD_SERVER = {
   work_time_invalid: { text: "시간 상한은 PT4H 처럼 적어 주세요", at: "internal/httpapi/handlers_works.go" },
   room_blocked_open: { text: "이 방은 멈춰 있습니다 — 방을 다시 움직인 뒤 미션을 열어 주세요", at: "internal/httpapi/handlers_works.go" },
   director_not_member: { text: "Director 와 deputy 는 워크스페이스 멤버여야 합니다", at: "internal/httpapi/handlers_works.go" },
-  assignee_not_participant: { text: "담당 에이전트는 이 방의 참여자 중에서 골라야 합니다", at: "internal/httpapi/handlers_works.go" },
+  assignee_not_participant: { text: "제출자는 이 방의 참여자 중에서 골라야 합니다", at: "internal/httpapi/handlers_works.go" },
   max_concurrent: { text: "이 방에서 동시에 열 수 있는 미션은 ", at: "internal/httpapi/handlers_works.go" },
   max_concurrent_tail: { text: "개입니다 — 진행 중인 미션을 끝내거나 취소한 뒤 열어 주세요", at: "internal/httpapi/handlers_works.go" },
   message_has_work: { text: "이미 다른 미션에 속한 메시지입니다 — 그 미션에서 이어 가세요", at: "internal/httpapi/handlers_works.go" },

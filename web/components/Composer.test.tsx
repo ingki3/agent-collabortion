@@ -136,7 +136,7 @@ describe("Composer — new_lane 토글은 전송 후 자동 해제된다 (t-2 ·
     type("[@Lead](mention://agent/a-lead) 별도로");
     await screen.findByTestId("chip-trigger");
     fireEvent.click(screen.getByTestId("new-lane-toggle"));
-    await waitFor(() => expect(screen.getByTestId("chip-trigger").textContent).toContain("새 작업 줄기"));
+    await waitFor(() => expect(screen.getByTestId("chip-trigger").textContent).toContain("새 서브 미션"));
     expect(onPreview.mock.calls.at(-1)![0].newLane).toBe(true);
   });
 });

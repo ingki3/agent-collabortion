@@ -88,12 +88,17 @@ export interface RoomPausedBodyProps {
   detail?: BlockedDetail | null;
   /** 요청 목적 — `budget` 이면 새 상한을 받는다(방 예산 승인은 새 상한이 곧 답이다, 서버 resumeRoomForBudget). */
   purpose?: string | null;
+  /**
+   * 컴퓨터 유예 만료로 멈춘 방(#314 · openapi 0.2.11) — 뒤에 요청이 없다. 「계속 승인」으로 풀 수 없고(컴퓨터가 없다)
+   * 동작은 카드의 `rebind`·`open_room` 이 전부라, 승인 칸과 「승인하면 … 다시 돕니다」 줄을 그리지 않는다.
+   */
+  offline?: boolean;
   canRespond: boolean;
   busy?: boolean;
   onRespond?: (body: HitlResponse) => Promise<void> | void;
 }
 
-export function RoomPausedBody({ question, detail, purpose, canRespond, busy, onRespond }: RoomPausedBodyProps) {
+export function RoomPausedBody({ question, detail, purpose, offline, canRespond, busy, onRespond }: RoomPausedBodyProps) {
   const lines = roomPausedLines(detail);
   const budget = purpose === "budget";
   const spent = detail?.cost_usd ?? null;
@@ -114,19 +119,21 @@ export function RoomPausedBody({ question, detail, purpose, canRespond, busy, on
     <div className="inbox-room" data-testid="inbox-room-paused" data-purpose={purpose ?? ""}>
       {question && <p className="inbox-room__question" data-testid="inbox-room-paused-question">{question}</p>}
       <p className="inbox-room__lead" data-testid="inbox-room-paused-stopped" data-count={detail?.works_stopped ?? 0}>{lines.stopped}</p>
-      <p className="inbox-room__held" data-testid="inbox-room-paused-resume">{lines.resume}</p>
-      {budget && (
+      {offline ? null : <p className="inbox-room__held" data-testid="inbox-room-paused-resume">{lines.resume}</p>}
+      {!offline && budget && (
         <label className="hitl__field">
           <span>{ROOM_PAUSED_CARD.budget_field}</span>
           <input className="input" type="number" min={spent ?? 0} step="1" value={raise} onChange={(e) => setRaise(e.target.value)} disabled={disabled} data-testid="inbox-room-budget" />
           {spent != null && <span className="hitl__hint">{ROOM_PAUSED_CARD.budget_hint(usd(spent))}</span>}
         </label>
       )}
-      <div className="inbox-room__actions">
-        <button type="button" className="btn btn--sm btn--primary" disabled={disabled || tooLow} onClick={() => void approve()} data-testid="inbox-room-approve">
-          {ROOM_PAUSED_CARD.approve}
-        </button>
-      </div>
+      {!offline && (
+        <div className="inbox-room__actions">
+          <button type="button" className="btn btn--sm btn--primary" disabled={disabled || tooLow} onClick={() => void approve()} data-testid="inbox-room-approve">
+            {ROOM_PAUSED_CARD.approve}
+          </button>
+        </div>
+      )}
       {error && <p className="hitl__err" role="alert" data-testid="inbox-room-error">{error}</p>}
     </div>
   );

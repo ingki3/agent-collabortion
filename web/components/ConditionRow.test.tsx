@@ -1,7 +1,7 @@
 /**
  * Condition Row — S7 진행률 한 줄이 **사람 말**로 답한다(T-W15, S-84 · SCREEN §4.5 "종료 조건 진행률").
  *
- * 세 이름: "보고서 제출" · "Lead 의 검토 승인" · "Director 승인"(+ "수동 종료"). 충족이면 누가·언제("Writer, 9/13"), 아니면 다음 행동
+ * 세 이름: "아티팩트 제출" · "Lead 의 검토 승인" · "Director 승인"(+ "수동 종료"). 충족이면 누가·언제("Writer, 9/13"), 아니면 다음 행동
  * ("Lead 차례" · "받은 요청에서 승인하세요" — 확인 요청이 있으면 그 카드로 가는 링크). `blocked_reason` 이면 ✗ 대신 **이유 문장**.
  * Director 가 이 칸만 보고 "왜 안 닫히는지" 알아야 한다 — 실사용에서 ✗ 만 보여 원인을 못 찾았다.
  */
@@ -18,7 +18,7 @@ const line = () => screen.getByTestId("condition-line").textContent;
 describe("ConditionRow — 사람 말 3종", () => {
   it("artifact_submitted → 보고서 제출 · 미충족이면 지정 에이전트 차례", () => {
     render(<ConditionRow type="artifact_submitted" met={false} agentName="Writer" nextActor="Writer" />);
-    expect(name()).toBe("보고서 제출");
+    expect(name()).toBe("아티팩트 제출");
     expect(line()).toBe("Writer 차례");
   });
 

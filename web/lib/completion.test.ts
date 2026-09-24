@@ -53,9 +53,9 @@ describe("conditionGate — 리뷰어 필수(계약 v0.1.4)", () => {
 });
 
 describe("요약 문장 — 사람 말", () => {
-  it("보고서 제출 (담당 에이전트) 그리고 Lead 의 검토 승인 그리고 Director 승인", () => {
+  it("아티팩트 제출 (미션의 제출자) 그리고 Lead 의 검토 승인 그리고 Director 승인", () => {
     const d = { op: "and" as const, conds: ["user_approval", "agent_approval", "artifact_submitted"] as const, submitter: "", reviewer: "a-lead" };
-    expect(conditionSentence(draftNames({ ...d, conds: [...d.conds] }, nameOf), d.op)).toBe("보고서 제출 (담당 에이전트) 그리고 Lead 의 검토 승인 그리고 Director 승인");
+    expect(conditionSentence(draftNames({ ...d, conds: [...d.conds] }, nameOf), d.op)).toBe("아티팩트 제출 (미션의 제출자) 그리고 Lead 의 검토 승인 그리고 Director 승인");
   });
   it("리뷰어를 아직 안 골랐으면 일반형 · OR 은 또는", () => {
     expect(conditionSentence(draftNames({ op: "or", conds: ["agent_approval", "manual"], submitter: "", reviewer: "" }, nameOf), "or")).toBe("에이전트 검토 승인 또는 수동 종료");
@@ -74,7 +74,7 @@ describe("progressSummary — 남은 것 · 막힘", () => {
     // 같은 이름이 둘이면 묶는다.
     expect(progressSummary({ met: 0, total: 2, satisfied: false, conditions: [cond("agent_approval", false, { agent_name: "Lead" }), cond("agent_approval", false, { agent_name: "Lead" })] }, "and", false)).toBe("남은 것: Lead 의 검토 승인 2개");
     expect(progressSummary({ met: 2, total: 2, satisfied: true, conditions: [] }, "and", false)).toBe("조건을 모두 충족했습니다 — 곧 완료됩니다");
-    expect(progressSummary({ met: 0, total: 2, satisfied: false, conditions: [] }, "and", true)).toBe("세션이 끝났습니다");
+    expect(progressSummary({ met: 0, total: 2, satisfied: false, conditions: [] }, "and", true)).toBe("미션이 끝났습니다");
   });
   it("topOp — 원자 하나면 single(결합이 없다), 트리면 그 op, 없으면 single (W-20)", () => {
     expect(topOp({ type: "manual" })).toBe("single");

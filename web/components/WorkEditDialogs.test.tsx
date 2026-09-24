@@ -64,7 +64,7 @@ describe("설정 편집 — S21 폼의 편집 모드", () => {
     expect(screen.queryByTestId("rd-create-work-director")).toBeNull();
     expect(screen.getByTestId("rd-edit-work-director")).toHaveTextContent(WORK_EDIT.director_elsewhere);
     // 담당이 있는 미션의 조건 문장은 지금 조건 그대로(새 미션의 기본값 규칙이 끼어들지 않는다), 기본값 이유 줄도 없다.
-    await waitFor(() => expect(screen.getByTestId("rd-create-work-condition-sentence")).toHaveTextContent("보고서 제출"));
+    await waitFor(() => expect(screen.getByTestId("rd-create-work-condition-sentence")).toHaveTextContent("아티팩트 제출"));
     expect(screen.queryByTestId("rd-create-work-condition-why")).toBeNull();
     fireEvent.change(screen.getByTestId("rd-create-work-goal"), { target: { value: "결제 실패율 보고서 — 표 3개" } });
     const save = screen.getByTestId("rd-create-work-open");

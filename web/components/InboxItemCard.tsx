@@ -36,10 +36,10 @@ type ItemType = InboxItem["type"];
 export const TYPE_LABEL: Record<ItemType, string> = {
   hitl_request: "응답 요청",
   lane_blocked: "에이전트 질문",
-  session_paused: "세션 일시정지",
+  session_paused: "미션 일시정지",
   run_failed: "작업 실패",
   runtime_offline: "컴퓨터 연결 끊김",
-  session_completed: "세션 완료",
+  session_completed: "미션 완료",
   mention: "멘션",
   workdir_gc_blocked: "작업 폴더 정리 막힘",
   // v0.2.0 계약(PRD v0.19) — 화면 반영은 R2. 이름은 SCREEN §4.14 초안 그대로.
@@ -84,7 +84,7 @@ export const ACTION_LABEL: Record<InboxAction, string> = {
   approve_continue: "계속 진행 승인",
   restart: "다시 지시",
   rebind: "다른 컴퓨터로 옮기기",
-  open_session: "세션 열기",
+  open_session: "미션 열기",
   // v0.2.1 계약 — 방·미션 바로가기(SCREEN §4.14). 화면 반영은 R2.
   open_room: "방 열기",
   open_work: "미션 열기",
@@ -288,6 +288,7 @@ export function InboxItemCard({ item, hitl: detail, onRespond, onApproveContinue
           question={item.card?.body}
           detail={blocked}
           purpose={item.card?.purpose ?? null}
+          offline={item.card?.paused_reason === "runtime_offline" || blocked?.reason === "runtime_offline"}
           canRespond={canRespondRoom && !delegation?.locked}
           busy={busy}
           onRespond={onRespond && ((body) => onRespond(item, body))}

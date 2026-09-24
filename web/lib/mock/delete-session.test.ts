@@ -68,7 +68,7 @@ describe("204 — 물리 삭제 · SSE · 멱등 아님", () => {
     expect((await call("GET", `/sessions/${sess.id}/lanes`)).status).toBe(404);
     const again = await call("DELETE", `/sessions/${sess.id}`);
     expect(again.status).toBe(404);
-    expect(again.body).toMatchObject({ code: "not_found", detail: "세션을 찾을 수 없습니다" });
+    expect(again.body).toMatchObject({ code: "not_found", detail: "방을 찾을 수 없습니다" });
     const del = frames.filter((f) => f.type === "session.deleted");
     expect(del).toHaveLength(1);
     expect(del[0].payload).toEqual({ session_id: sess.id });
@@ -105,7 +105,7 @@ describe("409 session_active — 끝나지 않은 세션", () => {
     const r = await call("DELETE", `/sessions/${sess.id}`);
     expect(r.status).toBe(409);
     expect(r.body).toEqual({ type: "https://colab.dev/problems/session_active", status: 409, title: "지금은 할 수 없음", code: "session_active", detail: W.session_active });
-    expect(W.session_active).toBe("진행 중인 세션은 먼저 종료하세요");
+    expect(W.session_active).toBe("진행 중인 미션은 먼저 종료하세요");
     expect(await ids(id)).toContain(sess.id);
   });
 

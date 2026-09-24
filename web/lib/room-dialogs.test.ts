@@ -98,8 +98,8 @@ describe("SCREEN v0.19.2 가 문장째 정한 것 — 글자 그대로", () => {
   it("S21 §4.7 — 정의 한 줄 · 담당 안내 · 기본값 이유 · 상한 문장 · 보관 · 에이전트 없음 · deputy", () => {
     expect(CREATE_WORK.definition).toBe("미션은 끝이 있는 일입니다. 목표·마칠 조건·예산·Director 가 붙고, 끝나면 요약이 방에 남습니다.");
     // SCREEN 은 「아티팩트 제출」이라 적었지만 §8.4 가 조건 이름을 「보고서 제출」로 바꿨다(T-W15 자물쇠) — 이름은 그 표를 따른다.
-    expect(CREATE_WORK.assignee_hint).toBe("담당 에이전트를 고르면 「보고서 제출」이 종료 조건에 들어갑니다");
-    expect(CREATE_WORK.condition_default_hint).toBe("담당 에이전트를 고르지 않아 「Director 승인」만 걸었습니다 — 대상 없는 제출 조건은 아무도 채울 수 없습니다");
+    expect(CREATE_WORK.assignee_hint).toBe("제출자를 고르면 「아티팩트 제출」이 종료 조건에 들어갑니다");
+    expect(CREATE_WORK.condition_default_hint).toBe("제출자를 고르지 않아 「Director 승인」만 걸었습니다 — 대상 없는 제출 조건은 아무도 채울 수 없습니다");
     expect(CREATE_WORK.limit_reached.join("3") + CREATE_WORK.limit_cap.join("3")).toBe("이 방에 열린 미션이 3개입니다(상한 3) — 열린 미션을 닫거나 상한을 올리세요");
     expect(CREATE_WORK.archived).toBe("보관된 방에서는 새 미션을 열 수 없습니다");
     expect(CREATE_WORK.no_agents).toBe("이 방에 에이전트가 없습니다 — 먼저 초대하세요");

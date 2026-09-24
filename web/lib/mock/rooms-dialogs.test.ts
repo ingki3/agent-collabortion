@@ -60,7 +60,7 @@ describe("S19 참여자 — listRoomParticipants · addRoomParticipant · remove
     expect(frames.filter((f) => f.type === "participant.joined")).toHaveLength(2);
     const msgs = [...store().messages.values()].filter((m) => m.session_id === r.id).map((m) => m.content);
     expect(msgs).toContain("데모" + RW.sys_invited_mid + "서연" + RW.sys_invited_tail);
-    expect(msgs).toContain(josa("Lead", "이", "가") + RW.sys_agent_joined); // 비한글 이름은 「Lead이(가)」 — apperr.Josa 와 같다
+    expect(msgs).toContain(josa("Lead", "이", "가") + W.participant_joined); // 비한글 이름은 「Lead이(가)」 — apperr.Josa 와 같다
   });
 
   it("사람·에이전트 중 하나만 · 멤버 아님 422 · 이미 있음 409 (서버 문장)", async () => {

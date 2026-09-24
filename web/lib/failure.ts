@@ -12,7 +12,7 @@ export const FAILURE_LABEL: Record<FailureKind, string> = {
   quota: "사용량 한도에 걸렸습니다",
   config: "설정이 잘못됐습니다",
   network: "네트워크가 끊겼습니다",
-  runtime_offline: "컴퓨터가 오프라인입니다",
+  runtime_offline: "컴퓨터 연결이 끊겼습니다",
   stall: "응답이 멈췄습니다",
   timeout: "시간이 초과됐습니다",
   cancelled: "사람이 중단했습니다",
