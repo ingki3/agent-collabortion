@@ -327,8 +327,13 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 		var taskID uuid.UUID
 		if coalesced {
 			taskID = existing
-			if _, err := tx.Exec(ctx, `UPDATE task SET coalesced_message_ids = $2, updated_at = $3 WHERE id = $1`,
-				taskID, arrival.CoalescedMessageIDs, now); err != nil {
+			// The absorbing task takes the lane's mission when it had none
+			// (T-R4b): a queued task born mission-less on a lane this post just
+			// bound would otherwise run the mission's turn as "미션 없음" —
+			// brief [4], budget, COLAB_WORK_ID and the reply all read task.work_id.
+			// A task that already has a mission keeps it.
+			if _, err := tx.Exec(ctx, `UPDATE task SET coalesced_message_ids = $2, work_id = COALESCE(work_id, $4), updated_at = $3 WHERE id = $1`,
+				taskID, arrival.CoalescedMessageIDs, now, laneWork); err != nil {
 				return nil, err
 			}
 		} else {
