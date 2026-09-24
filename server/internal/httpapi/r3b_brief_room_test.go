@@ -276,3 +276,87 @@ func between(s, open, close string) string {
 	}
 	return s[i+len(open) : i+j]
 }
+
+// TestR3cBriefMissionOfAnotherRoom is #323 NN1: task.work_id is the server's
+// own write and always names a mission of the task's room, but a row edited by
+// hand (or a future bug) that points it at another room's mission must not
+// put that mission's title or goal in this room's [4] — the room part only,
+// like a turn outside any mission.
+func TestR3cBriefMissionOfAnotherRoom(t *testing.T) {
+	f := newP2Fixture(t)
+	ctx := t.Context()
+	other := str(f.api.must(201, "POST", f.p+"/workspaces/"+f.wsID+"/rooms", map[string]any{"name": "남의 방"}), "id")
+	foreign := str(f.api.must(201, "POST", f.p+"/rooms/"+other+"/works", map[string]any{"title": "남의미션제목", "goal": "남의미션목표"}), "id")
+
+	task := f.mentionTask(t, f.rUUID, "R", legacyWork(t, f))
+	if _, err := f.pool.Exec(ctx, `UPDATE task SET work_id = $2 WHERE id = $1`, task, foreign); err != nil {
+		t.Fatal(err)
+	}
+	b := f.claimBundle(t, task)
+	four := section(b.Brief.Text, 4)
+	if !strings.HasPrefix(four, "[4] Room\nRoom: ") {
+		t.Fatalf("[4] lost its room part:\n%s", four)
+	}
+	for _, leak := range []string{"남의미션제목", "남의미션목표", "Mission this turn belongs to"} {
+		if strings.Contains(b.Brief.Text, leak) || strings.Contains(b.Prompt, leak) {
+			t.Errorf("another room's mission leaked into the turn (%q):\n%s\n---\n%s", leak, four, b.Prompt)
+		}
+	}
+	if strings.Contains(b.Prompt, "<mission_") {
+		t.Errorf("turn prompt carries mission sections for a mission of another room:\n%s", b.Prompt)
+	}
+}
+
+// TestR3cDecisionBoundaryTies is #323 NN2: [7] (newest 20) and ③
+// <room_decisions> (the rest) split one ordering. Decisions sharing a
+// created_at across the 20 boundary must land in exactly one of the two, and
+// which one is fixed by id DESC — without a named tie-break both queries
+// happen to agree on heap order, which is luck, not a rule.
+func TestR3cDecisionBoundaryTies(t *testing.T) {
+	f := newP2Fixture(t)
+	ctx := t.Context()
+	wA := legacyWork(t, f)
+	at := t0.Add(-time.Hour)
+	const n = 25
+	for i := 0; i < n; i++ {
+		if _, err := f.pool.Exec(ctx, `INSERT INTO decision (session_id, summary, source, created_at, work_id) VALUES ($1, $2, 'agent', $3, $4)`,
+			f.sessionID, fmt.Sprintf("TIE-%02d", i), at, wA); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := f.claimBundle(t, f.mentionTask(t, f.rUUID, "R", wA))
+	seven := section(b.Brief.Text, 7)
+	rd := between(b.Prompt, "<room_decisions ", "</room_decisions>")
+	both, missing := 0, 0
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("TIE-%02d", i)
+		in7, in3 := strings.Contains(seven, name), strings.Contains(rd, name)
+		switch {
+		case in7 && in3:
+			both++
+		case !in7 && !in3:
+			missing++
+		}
+	}
+	var newest []string
+	rows, err := f.pool.Query(ctx, `SELECT summary FROM decision WHERE session_id = $1 ORDER BY id DESC LIMIT 20`, f.sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		newest = append(newest, s)
+	}
+	rows.Close()
+	for _, s := range newest {
+		if !strings.Contains(seven, s) {
+			t.Errorf("[7] lacks %s — the tie at the boundary is not broken by id DESC", s)
+		}
+	}
+	if both != 0 || missing != 0 {
+		t.Errorf("tied decisions across the [7]/③ boundary: %d in both, %d in neither (want 0/0)\n[7]:\n%s\n③:\n%s", both, missing, seven, rd)
+	}
+}
