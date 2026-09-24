@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | **v0.9.0 — 방·미션(PRD v0.19 R0)**: §4.1 `task.room_id`(= 옛 `session_id`, 같은 값 — R4 까지 둘 다 싣는다) · `task.work_id?`(매인 미션, 없으면 미션 밖) · `task.queued_reason` 은 데몬에 오지 않는다(서버 큐 내부). workdir 경로 규칙은 `<room>/<agent>`(브랜치 `colab/<room slug>/<agent slug>`)로 읽는다 — 같은 uuid 라 기존 폴더는 그대로 산다. 유효 예산(§4.4) = min(task 상한, **미션 잔여, 방 잔여**). §4.3 `gc`·`rebind_prepare` 의 `session_id` 는 방 id. v0.8.3 — §4.1 `workdir.id`·§6 id 회신(K-14: 데몬 index 폐기, workdir 안 표식 파일). v0.8.2 — §4.1 `task.allowed_commands`(K-19 역할별 명령 부분집합; 데몬이 MCP 툴 목록을 자른다). v0.8.1 — §6: 세션 삭제(openapi deleteSession)로 이미 지워진 workdir 을 가리키는 §6 보고 행은 서버가 조용히 소비한다(gc 명령은 세션 삭제 전에 실린다). v0.8 — **§4.5 테스트 채팅**(FR-1.8.1, P5a): 세션 없는 1:1 대화를 **같은 claim·phase·events·heartbeat·finish 로** 돌린다 — `task.kind: "test_chat"`, `task.id` = test_chat id, `attempt` = 사용자 턴 번호, `task_token` 없음(= colab 표면 전부 끔). 종료는 `gc` 로 임시 디렉터리 삭제. `finish.transport` 추가. v0.7.4 — §6 gc 거부 피드 문장을 사용자의 말로(S-67, T-S13). v0.7.3 — T-I4(G7 1판) 차단 결함 반영: §4.1 `workdir.path` 는 **절대 경로**(서버가 probe `workdir_root` 로 조립)이고 데몬 방어 규칙 명시(①), §6 workdir 보고의 `session_id`·`agent_id` 필수 규칙과 서버의 §4.4 `Finish.Workdir` 소비 의무 명시(②). v0.7.2 — §4.4 finish `workdir.git` 이름을 §6 과 통일(`commits_ahead`·`merged`)하고 `protocol.go` `Finish.Workdir` 추가; §4.3 `rebind_prepare` 다운로드 위치 + 프롬프트 자리표시자 `{{COLAB_REBIND_DIR}}`(T-D9 PR #156 계약 결함 1·2). v0.7.1 — §4.4 유효 예산 = min(task 상한(override 우선), 세션 잔여)(PR #121 리뷰 NN3, D-16). v0.7 — §4.3 `gc` 페이로드에 서버가 경로를 싣고(`workdirs:[{id,path}]`), §6 보고 행 `gc: {status: deleted|refused, reason}` 로 결과·거부를 알린다(T-D5 계약 질문, G5 S-29·D-4). v0.6 — `dispatched` 5분 타임아웃은 재큐잉이 아니라 종료다(§4.1). v0.5는 probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
+| 버전 | **v0.9.1 — R4(openapi v0.3.0)**: `allowed_commands` 의 `session_get`·`session_messages` → `room_get`·`room_messages`. 번들 `task.session_id` 는 `room_id` 와 같은 값으로 계속 싣는다(키 이름 바꾸기는 `session_id` 열과 함께 별도 라운드). 본문의 「세션」 → 「방」. **v0.9.0 — 방·미션(PRD v0.19 R0)**: §4.1 `task.room_id`(= 옛 `session_id`, 같은 값 — R4 까지 둘 다 싣는다) · `task.work_id?`(매인 미션, 없으면 미션 밖) · `task.queued_reason` 은 데몬에 오지 않는다(서버 큐 내부). workdir 경로 규칙은 `<room>/<agent>`(브랜치 `colab/<room slug>/<agent slug>`)로 읽는다 — 같은 uuid 라 기존 폴더는 그대로 산다. 유효 예산(§4.4) = min(task 상한, **미션 잔여, 방 잔여**). §4.3 `gc`·`rebind_prepare` 의 `session_id` 는 방 id. v0.8.3 — §4.1 `workdir.id`·§6 id 회신(K-14: 데몬 index 폐기, workdir 안 표식 파일). v0.8.2 — §4.1 `task.allowed_commands`(K-19 역할별 명령 부분집합; 데몬이 MCP 툴 목록을 자른다). v0.8.1 — §6: 세션 삭제(openapi deleteSession)로 이미 지워진 workdir 을 가리키는 §6 보고 행은 서버가 조용히 소비한다(gc 명령은 세션 삭제 전에 실린다). v0.8 — **§4.5 테스트 채팅**(FR-1.8.1, P5a): 세션 없는 1:1 대화를 **같은 claim·phase·events·heartbeat·finish 로** 돌린다 — `task.kind: "test_chat"`, `task.id` = test_chat id, `attempt` = 사용자 턴 번호, `task_token` 없음(= colab 표면 전부 끔). 종료는 `gc` 로 임시 디렉터리 삭제. `finish.transport` 추가. v0.7.4 — §6 gc 거부 피드 문장을 사용자의 말로(S-67, T-S13). v0.7.3 — T-I4(G7 1판) 차단 결함 반영: §4.1 `workdir.path` 는 **절대 경로**(서버가 probe `workdir_root` 로 조립)이고 데몬 방어 규칙 명시(①), §6 workdir 보고의 `session_id`·`agent_id` 필수 규칙과 서버의 §4.4 `Finish.Workdir` 소비 의무 명시(②). v0.7.2 — §4.4 finish `workdir.git` 이름을 §6 과 통일(`commits_ahead`·`merged`)하고 `protocol.go` `Finish.Workdir` 추가; §4.3 `rebind_prepare` 다운로드 위치 + 프롬프트 자리표시자 `{{COLAB_REBIND_DIR}}`(T-D9 PR #156 계약 결함 1·2). v0.7.1 — §4.4 유효 예산 = min(task 상한(override 우선), 세션 잔여)(PR #121 리뷰 NN3, D-16). v0.7 — §4.3 `gc` 페이로드에 서버가 경로를 싣고(`workdirs:[{id,path}]`), §6 보고 행 `gc: {status: deleted|refused, reason}` 로 결과·거부를 알린다(T-D5 계약 질문, G5 S-29·D-4). v0.6 — `dispatched` 5분 타임아웃은 재큐잉이 아니라 종료다(§4.1). v0.5는 probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
 | 소유 | S + D. 변경은 Director 승인 PR로만 |
 | 근거 | PRD §8.1(큐), FR-7.1(상태 머신·heartbeat), FR-9.1(고아·토큰 폐기), FR-9.2(오프라인 유예), FR-6.4(workdir·GC), `harness.md`(오류 분류·재개) |
 | 원칙 | **데몬은 stateless, 상태는 서버.** 데몬은 서버가 준 것만 실행하고 결과를 보고한다. 모든 시각 판정(만료·유예·`not_before`)은 서버 클럭(`contracts/clock`) |
@@ -43,7 +43,7 @@ POST /v1/daemon/runtimes/{runtime_id}/probe
 
 시점: 페어링 직후, 데몬 시작 시, 하루 1회, 서버가 `probe` 명령(§4.3)을 내릴 때. `repos[].remote_url`이 재바인딩 후보 판정의 기준(FR-9.2, E14-04·05).
 
-**`colab_cli` 는 최상위다 (v0.5).** 에이전트는 colab CLI 로 서버에 말하므로(colab-cli.md §1) CLI 가 없으면 세션은 조용히 아무 말도 못 하는 상태가 된다 — 데몬 로그에만 남기면 사람이 원인을 못 찾는다. 이 값은 **머신 속성**이라 런타임별 `capabilities[]` 가 아니라 probe 최상위에 한 번 싣는다: 런타임이 둘이어도 바이너리는 하나이고, 런타임이 0개인 머신에서도 보고돼야 한다. 데몬은 probe 마다 `colab --version` 을 실행해 채우고, 실행 실패·미설치는 `{present: false, version: ""}` 로 통일한다(원인은 데몬 로그에 남긴다). 서버는 `present == false` 인 머신을 S12/S11 카드에 경고로 드러낸다.
+**`colab_cli` 는 최상위다 (v0.5).** 에이전트는 colab CLI 로 서버에 말하므로(colab-cli.md §1) CLI 가 없으면 방은 조용히 아무 말도 못 하는 상태가 된다 — 데몬 로그에만 남기면 사람이 원인을 못 찾는다. 이 값은 **머신 속성**이라 런타임별 `capabilities[]` 가 아니라 probe 최상위에 한 번 싣는다: 런타임이 둘이어도 바이너리는 하나이고, 런타임이 0개인 머신에서도 보고돼야 한다. 데몬은 probe 마다 `colab --version` 을 실행해 채우고, 실행 실패·미설치는 `{present: false, version: ""}` 로 통일한다(원인은 데몬 로그에 남긴다). 서버는 `present == false` 인 머신을 S12/S11 카드에 경고로 드러낸다.
 
 ## 4. task 수명
 
@@ -62,15 +62,15 @@ POST /v1/daemon/runtimes/{runtime_id}/claim
 ```
 
 서버 규칙:
-- 이 런타임에 **고정된 세션**(`session.runtime_id`)의 `queued` task만 준다(E11-09). `none` 격리에 `runtime_id`가 비었으면 첫 claim한 런타임으로 고정한다(E11-10).
-- 세션이 `paused`면 주지 않는다(E5-04). `task.not_before`가 미래면 주지 않는다(`rate_limited`).
+- 이 런타임에 **고정된 방**(`session.runtime_id`)의 `queued` task만 준다(E11-09). `none` 격리에 `runtime_id`가 비었으면 첫 claim한 런타임으로 고정한다(E11-10).
+- 방이 `paused`면 주지 않는다(E5-04). `task.not_before`가 미래면 주지 않는다(`rate_limited`).
 - 동시성 상한 4층(FR-6.3)을 서버가 계산한다. `worktree` 격리에서 같은 에이전트의 다른 lane이 `running`이면 주지 않는다(E2-12).
 - 큐는 `Queue` 인터페이스(§7) 뒤에 있다. v1 구현은 Postgres `SELECT … FOR UPDATE SKIP LOCKED`.
 - claim 즉시 `queued → dispatched`, `dispatched_at` 기록. 5분 안에 `preparing` 보고가 없으면 **`failed(timeout)`으로 끝난다 — 재큐잉하지 않는다**(E5-02, PRD FR-7.1). 서버는 그 attempt의 task token을 폐기하고(좀비 데몬이 나중에 보고하지 못하게) Director가 보도록 드러낸다.
 
   **v0.6 정정.** 이 줄은 v0.5까지 "→ 재큐잉(E5-02)"이라고 적혀 있었다. 그런데 인용한 EVAL E5-02는 `failed(timeout)`만 말하고 재큐잉을 말하지 않으며, PRD FR-7.1도 "`dispatched` 5분 초과 → `failed(timeout)`"이고 **재시도 대상 목록(`runtime_offline`·네트워크·프로세스 stall)에 `timeout`이 없다.** 근거를 인용하면서 반대로 옮긴 것이라 계약을 고친다.
 
-  **왜 `running`(E5-03, 3분)은 재큐잉인데 이쪽은 아닌가.** `dispatched`는 데몬이 **이미 claim해서 소유권과 토큰을 가진** 상태다. 그 데몬이 모델 작업 이전 단계인 `preparing`조차 보고하지 못했다면 고장은 반복된다 — 세션은 런타임에 고정돼 있으므로(§4.1) 재큐잉은 같은 고장난 런타임에게 되돌려 주는 것이고, claim ↔ timeout 을 오가며 attempt만 태운다. 반대로 `running` 침묵은 프로세스가 실제로 시작된 뒤의 일이라 재시도에 승산이 있고, 그 경로는 런타임을 `offline`으로 표시해 즉시 재배정 루프를 막는다.
+  **왜 `running`(E5-03, 3분)은 재큐잉인데 이쪽은 아닌가.** `dispatched`는 데몬이 **이미 claim해서 소유권과 토큰을 가진** 상태다. 그 데몬이 모델 작업 이전 단계인 `preparing`조차 보고하지 못했다면 고장은 반복된다 — 방은 런타임에 고정돼 있으므로(§4.1) 재큐잉은 같은 고장난 런타임에게 되돌려 주는 것이고, claim ↔ timeout 을 오가며 attempt만 태운다. 반대로 `running` 침묵은 프로세스가 실제로 시작된 뒤의 일이라 재시도에 승산이 있고, 그 경로는 런타임을 `offline`으로 표시해 즉시 재배정 루프를 막는다.
 
 **TaskBundle**
 
@@ -78,18 +78,18 @@ POST /v1/daemon/runtimes/{runtime_id}/claim
 {
   "task": { "id", "attempt", "lane_id", "session_id", "room_id", "work_id?", "agent_id", "trigger_message_id",   // v0.9.0: room_id == session_id(R4 까지 둘 다), work_id 는 매인 미션(없으면 생략)
             "restarted_from_task_id?", "delegated_from_task_id?", "budget_usd?", "budget_override_usd?",
-            "allowed_commands?": ["session_get", …] },   // v0.8.2 K-19 — 역할별 colab 명령(colab-cli §2.5). 데몬은 MCP 툴 목록·래퍼를 이 목록으로 자른다. 비면 전부
+            "allowed_commands?": ["room_get", …] },   // v0.8.2 K-19 — 역할별 colab 명령(colab-cli §2.5). 데몬은 MCP 툴 목록·래퍼를 이 목록으로 자른다. 비면 전부
   "task_token": "ctk_…",
   "profile": { "runtime_kind", "model", "options", "env", "args", "tools", "adapter_pin" },
   "workdir": { "id?", "kind": "worktree|dir", "path?", "repo_path?", "branch?", "reuse": true|false },
   //  id (v0.8.3, K-14): 서버 `workdir` 행의 uuid. 서버는 번들을 조립할 때 행을 먼저 만들어(없으면) id 를 싣고,
   //  데몬은 §6 보고 행에 **그 id 를 그대로 회신**한다 — 데몬의 `<root>/.colab/workdirs/` index 파일은 이제 필요 없다
-  //  (경로 슬러그에서 세션·에이전트 uuid 를 복원할 필요가 없다). id 가 없는 옛 서버 번들에서는 예전처럼 index 로.
+  //  (경로 슬러그에서 방·에이전트 uuid 를 복원할 필요가 없다). id 가 없는 옛 서버 번들에서는 예전처럼 index 로.
   //  path 는 **절대 경로**다 (v0.7.3, T-I4 차단 ①). 서버가 그 런타임의 probe `workdir_root`(§3)와
-  //  세션·에이전트로 조립해 싣는다 — 데몬이 정하면 서버가 E13-08(남의 워크트리 경로를 번들에 싣지
+  //  방·에이전트로 조립해 싣는다 — 데몬이 정하면 서버가 E13-08(남의 워크트리 경로를 번들에 싣지
   //  않는다)을 판정할 수 없고, GC 명령(§4.3)·workdir 행도 서버가 경로를 소유한다. 상대 경로를 실으면
   //  데몬이 자기 CWD 로 절대화해 없는 디렉터리를 런타임 cwd 로 넘기고, worktree 격리에서는 사용자
-  //  저장소 **안**에 체크아웃이 생긴다(실측: 세션이 첫 턴부터 전부 failed(config)).
+  //  저장소 **안**에 체크아웃이 생긴다(실측: 방이 첫 턴부터 전부 failed(config)).
   //  데몬 방어: path 가 상대면 `<workdir_root>` 기준으로 해석하고, 런타임 spawn 전에 디렉터리 존재를
   //  확인해 없으면 `failure_kind=config` 로 그 경로를 문구에 넣어 finish 한다(원인을 가리지 않는다).
   "brief": { "transport": "acp_meta_system_prompt|instruction_file", "text": "<[1]~[8]>" },
@@ -100,7 +100,7 @@ POST /v1/daemon/runtimes/{runtime_id}/claim
 }
 ```
 
-데몬은 번들 밖의 것을 알 필요가 없다 — 세션 히스토리도 프롬프트 안에 들어 있다.
+데몬은 번들 밖의 것을 알 필요가 없다 — 방 히스토리도 프롬프트 안에 들어 있다.
 
 ### 4.2 진행 보고
 
@@ -169,16 +169,16 @@ POST /v1/daemon/tasks/{task_id}/attempts/{attempt}/finish
 
 - `waiting_human`·`blocked`는 데몬이 정하지 않는다. `turn_end`가 왔을 때 서버가 `pending_hitl`(FR-7.1 HITL 전이) 또는 `status set blocked` 호출 여부로 정하므로, 데몬은 `outcome: "completed"` + `stop_reason`을 보내고 **서버가 최종 상태를 정한다**. 위 열거는 서버 응답의 최종 상태이지 데몬 판단이 아니다.
 - `finish`는 attempt 단위로 멱등. 두 번 와도 첫 결과가 남는다.
-- **프로파일 폴백은 서버가 결정한다 (v0.4).** 데몬은 실패를 `failure_kind`로 정확히 보고할 뿐, 대체 프로파일로 스스로 갈아타지 않는다. 이유: (a) 세션이 `runtime_id`에 고정되므로(FR-2.1 M10) 서버의 재큐잉은 **같은 머신을 구조적으로 보장**한다 — FR-7.1의 "같은 머신 안에 대체 프로파일이 있으면 전환"이 저절로 성립한다. (b) 재시도 회계(`attempt`·상한 2~3회)·토큰 발급·비용 집계가 전부 서버 소유라, 데몬이 in-process로 갈아타면 그 셋이 흐려진다. (c) 서버는 `agent_profile.fallback_profile_id`를 이미 갖고 있고 데몬은 알 필요가 없다.
+- **프로파일 폴백은 서버가 결정한다 (v0.4).** 데몬은 실패를 `failure_kind`로 정확히 보고할 뿐, 대체 프로파일로 스스로 갈아타지 않는다. 이유: (a) 방이 `runtime_id`에 고정되므로(FR-2.1 M10) 서버의 재큐잉은 **같은 머신을 구조적으로 보장**한다 — FR-7.1의 "같은 머신 안에 대체 프로파일이 있으면 전환"이 저절로 성립한다. (b) 재시도 회계(`attempt`·상한 2~3회)·토큰 발급·비용 집계가 전부 서버 소유라, 데몬이 in-process로 갈아타면 그 셋이 흐려진다. (c) 서버는 `agent_profile.fallback_profile_id`를 이미 갖고 있고 데몬은 알 필요가 없다.
 
   서버가 폴백할 때: 같은 workdir(`workdir.reuse: true`), `attempt` 증가, **`runtime_kind`가 바뀌면 `resume`을 비운다**(런타임 세션은 이어받을 수 없다 — E8-08). 같은 머신에 쓸 수 있는 대체 프로파일이 없으면 `queued`로 두고 Director에게 알린다. **다른 머신으로 넘기지 않는다**(E8-09).
 
   따라서 `TaskBundle`에 대체 프로파일 목록은 두지 않는다.
-- `paused_budget`: 데몬이 `usage_update` 누적으로 **유효 예산**을 넘겨 취소 절차를 밟은 경우(FR-7.3). `failure_kind` 없음. **유효 예산(v0.7.1, D-16)** = `min(task 상한, 세션 잔여)` — task 상한은 `budget_override_usd` 가 있으면 그것(승인된 상향), 없으면 `budget_usd`(에이전트 `budget_per_task`); 세션 잔여는 `limits.budget_usd`(서버가 번들에 실은 세션 잔여 예산). 어느 쪽이 먼저 닿든 `paused_budget` 이고, 넘긴 쪽을 `detail` 에 적는다. 우선순위(override > limits > task) 방식은 세션 잔여를 넘길 수 있어 쓰지 않는다.
+- `paused_budget`: 데몬이 `usage_update` 누적으로 **유효 예산**을 넘겨 취소 절차를 밟은 경우(FR-7.3). `failure_kind` 없음. **유효 예산(v0.7.1, D-16)** = `min(task 상한, 방 잔여)` — task 상한은 `budget_override_usd` 가 있으면 그것(승인된 상향), 없으면 `budget_usd`(에이전트 `budget_per_task`); 방 잔여는 `limits.budget_usd`(서버가 번들에 실은 방 잔여 예산). 어느 쪽이 먼저 닿든 `paused_budget` 이고, 넘긴 쪽을 `detail` 에 적는다. 우선순위(override > limits > task) 방식은 방 잔여를 넘길 수 있어 쓰지 않는다.
 
 ### 4.5 테스트 채팅 (FR-1.8.1, v0.8)
 
-에이전트 편집 화면(S10)의 **세션 없는 1:1 시험 대화**다. 새 엔드포인트를 만들지 않고 §4.1~§4.4 를 그대로 탄다 — 데몬에게 테스트 채팅의 한 사용자 턴은 "토큰 없는 attempt" 하나다.
+에이전트 편집 화면(S10)의 **방 없는 1:1 시험 대화**다. 새 엔드포인트를 만들지 않고 §4.1~§4.4 를 그대로 탄다 — 데몬에게 테스트 채팅의 한 사용자 턴은 "토큰 없는 attempt" 하나다.
 
 **번들 차이** (그 외는 §4.1 TaskBundle 과 같다):
 
@@ -189,16 +189,16 @@ POST /v1/daemon/tasks/{task_id}/attempts/{attempt}/finish
 | `task.lane_id` · `session_id` · `trigger_message_id` | 빈 문자열. `task.test_chat_id` 에 같은 id 를 한 번 더 싣는다(로그·래퍼 경로용) |
 | `task_token` | **빈 문자열.** 데몬은 토큰이 없으면 `COLAB_*` 환경 변수를 넣지 않고, `mcpServers` 를 싣지 않고, hermes 래퍼 실행 파일(harness §10)도 만들지 않는다 — 에이전트는 메시지 게시·위임·HITL 을 **할 수 없고 순수 응답만** 한다(FR-1.8.1, E15-03). 브리프도 서버가 `[2]`(colab 명령) 없이 만든다 |
 | `workdir` | `{kind: "dir", path: "<workdir_root>/.colab/testchat/<test_chat_id>", reuse: true}` — 데몬이 첫 턴에 `mkdir -p`. 저장소 체크아웃·worktree·container 를 쓰지 않는다 |
-| `prompt` | 사용자 턴 본문 그대로(첫 턴은 서버가 "이것은 시험 대화다 — 플랫폼 명령은 쓸 수 없다" 한 줄을 앞에 붙인다). 세션 히스토리는 없다 — 이전 턴은 `resume` 으로 이어진다 |
+| `prompt` | 사용자 턴 본문 그대로(첫 턴은 서버가 "이것은 시험 대화다 — 플랫폼 명령은 쓸 수 없다" 한 줄을 앞에 붙인다). 방 히스토리는 없다 — 이전 턴은 `resume` 으로 이어진다 |
 | `limits` | `{budget_usd: <agent.budget_per_task>, stall_seconds: 180}` |
 
-**보고**: 데몬은 §4.2 그대로 보낸다. 서버는 테스트 채팅에 활동 피드가 없으므로 `task_event` 를 **저장하지 않고** 다음만 소비한다 — `message.say`(턴 단위로 합친 것) → 그 턴의 `agent` 응답 본문(openapi `TestChatTurn`), `usage.report`·`finish.usage` → `test_chat.input_tokens/output_tokens/cost_usd`(추정 규칙은 세션과 같다; 워크스페이스 집계 `test_chat_usd`), heartbeat `preview.text` → SSE `test_chat.delta`. `finish` 가 오면 SSE `test_chat.turn`. `failed` 면 그 턴의 `error` 에 `failure_kind` 를 §8.4 문장으로 적는다(턴은 남고 채팅은 열려 있다).
+**보고**: 데몬은 §4.2 그대로 보낸다. 서버는 테스트 채팅에 활동 피드가 없으므로 `task_event` 를 **저장하지 않고** 다음만 소비한다 — `message.say`(턴 단위로 합친 것) → 그 턴의 `agent` 응답 본문(openapi `TestChatTurn`), `usage.report`·`finish.usage` → `test_chat.input_tokens/output_tokens/cost_usd`(추정 규칙은 방과 같다; 워크스페이스 집계 `test_chat_usd`), heartbeat `preview.text` → SSE `test_chat.delta`. `finish` 가 오면 SSE `test_chat.turn`. `failed` 면 그 턴의 `error` 에 `failure_kind` 를 §8.4 문장으로 적는다(턴은 남고 채팅은 열려 있다).
 
 **`finish.transport` (v0.8)**: 실제로 쓴 경로 `"acp"|"cli"` — `Finish.Transport`. 모든 attempt 에 실어도 되지만 서버가 쓰는 곳은 테스트 채팅(`test_chat.transport`, 화면에 "실행 경로")뿐이다.
 
-**동시성·claim**: `test_chat.runtime_id` 는 생성 시 고정된다(비우면 그 `runtime_kind` 가 온라인인 런타임 중 하나를 서버가 고른다 — openapi createTestChat). 턴은 그 런타임의 `capacity` 한 슬롯을 세션 task 와 똑같이 쓴다(FR-6.3 데몬 상한). 같은 채팅의 이전 턴이 끝나기 전에는 다음 턴을 만들지 않는다(openapi `409`). `preparing` 5분·`running` 3분 규칙(§4.1·§4.2)도 같되, **재큐잉하지 않는다** — 그 턴을 `error` 로 닫는다(시험 대화에 재시도는 잡음이다).
+**동시성·claim**: `test_chat.runtime_id` 는 생성 시 고정된다(비우면 그 `runtime_kind` 가 온라인인 런타임 중 하나를 서버가 고른다 — openapi createTestChat). 턴은 그 런타임의 `capacity` 한 슬롯을 방 task 와 똑같이 쓴다(FR-6.3 데몬 상한). 같은 채팅의 이전 턴이 끝나기 전에는 다음 턴을 만들지 않는다(openapi `409`). `preparing` 5분·`running` 3분 규칙(§4.1·§4.2)도 같되, **재큐잉하지 않는다** — 그 턴을 `error` 로 닫는다(시험 대화에 재시도는 잡음이다).
 
-**닫기·취소**: `closeTestChat` 은 진행 중 턴이 있으면 `cancel {task_id: <test_chat_id>, attempt, reason: "director"}` 를 싣고, 언제나 `gc {test_chat_id, workdirs: [{id: <test_chat_id>, path}]}` 를 싣는다(`session_id` 없음). 데몬은 그 경로가 `<workdir_root>/.colab/testchat/` 아래일 때만 `rm -rf` 하고 §6 보고 행 `{id: <test_chat_id>, kind: "dir", path, test_chat_id, bytes: 0, gc: {status: "deleted"}}` 로 알린다 — `session_id` 는 비운다(§6 의 필수 규칙은 세션 workdir 행에만 해당). 서버는 `test_chat_id` 가 있는 행을 `workdir` 테이블에 넣지 않고 명령 소비에만 쓴다. 방어: 데몬은 시작 시 `.colab/testchat/` 아래 **24h 넘은** 디렉터리를 지운다(서버가 죽어 gc 가 못 온 경우).
+**닫기·취소**: `closeTestChat` 은 진행 중 턴이 있으면 `cancel {task_id: <test_chat_id>, attempt, reason: "director"}` 를 싣고, 언제나 `gc {test_chat_id, workdirs: [{id: <test_chat_id>, path}]}` 를 싣는다(`session_id` 없음). 데몬은 그 경로가 `<workdir_root>/.colab/testchat/` 아래일 때만 `rm -rf` 하고 §6 보고 행 `{id: <test_chat_id>, kind: "dir", path, test_chat_id, bytes: 0, gc: {status: "deleted"}}` 로 알린다 — `session_id` 는 비운다(§6 의 필수 규칙은 방 workdir 행에만 해당). 서버는 `test_chat_id` 가 있는 행을 `workdir` 테이블에 넣지 않고 명령 소비에만 쓴다. 방어: 데몬은 시작 시 `.colab/testchat/` 아래 **24h 넘은** 디렉터리를 지운다(서버가 죽어 gc 가 못 온 경우).
 
 ## 5. 토큰 폐기와 고아 (FR-9.1)
 
@@ -218,13 +218,13 @@ POST /v1/daemon/runtimes/{runtime_id}/workdirs   {workdirs: [{id?, kind, path, s
 
 - 데몬은 workdir 목록을 probe와 함께, 그리고 lane 종료 시 보고한다. S13이 이 데이터를 보여준다.
 - **`id` 는 번들이 준 값을 그대로(v0.8.3, K-14).** 번들 `workdir.id` 가 있으면 보고 행 `id` 에 그것을 싣고 서버는 id 로 행을 찾는다(session_id·agent_id 짝 맞추기는 id 가 없을 때의 폴백). probe 시 전체 보고도 데몬이 기억하는 id 로 — 재시작 뒤에는 `<path>/.colab-workdir.json` 한 줄(id 만)을 읽는다(index 디렉터리 대신 workdir 안에 표식).
-- **행을 서버가 저장할 수 있게 채운다 (v0.7.3, T-I4 차단 ②).** `session_id` 는 그 workdir 을 만든 **세션의 uuid** 이고(슬러그·디렉터리 이름이 아니다), `worktree` 격리에서는 `agent_id` 가 **필수**다(그 격리의 workdir 은 에이전트당 1개라 agent 없이는 어느 행인지 정해지지 않는다 — 서버는 짝을 못 맞추면 조용히 건너뛴다). `git` 블록과 `bytes` 도 매 보고에 싣는다: **GC 판정의 유일한 입력**이라 비면 서버는 "커밋 0 · 클린"으로 읽어 미병합 커밋·미커밋 변경을 지운다(FR-6.4 M4 무력화).
+- **행을 서버가 저장할 수 있게 채운다 (v0.7.3, T-I4 차단 ②).** `session_id` 는 그 workdir 을 만든 **방의 uuid** 이고(슬러그·디렉터리 이름이 아니다), `worktree` 격리에서는 `agent_id` 가 **필수**다(그 격리의 workdir 은 에이전트당 1개라 agent 없이는 어느 행인지 정해지지 않는다 — 서버는 짝을 못 맞추면 조용히 건너뛴다). `git` 블록과 `bytes` 도 매 보고에 싣는다: **GC 판정의 유일한 입력**이라 비면 서버는 "커밋 0 · 클린"으로 읽어 미병합 커밋·미커밋 변경을 지운다(FR-6.4 M4 무력화).
 - **서버는 §4.4 `finish` 의 `Finish.Workdir.Git` 도 같은 행에 반영한다 (v0.7.3).** attempt 가 만든 사실이 다음 probe 를 기다리지 않고 도착해야 그 사이에 도는 GC 스윕이 옳게 판정한다.
 - GC 판정은 **서버**가 한다(보존 기한·용량 상한·미병합/미커밋 차단 — E13-09~13). 서버가 `gc {session_id, workdirs:[{id, path}]}` 명령을 내리면 데몬이 삭제하고 결과를 보고한다. 데몬은 스스로 지우지 않는다.
 - **gc 결과 보고(v0.7)**: 데몬은 다음 workdir 보고에서 그 행에 `gc: {status, reason?}` 를 싣는다 — `deleted`(행은 마지막으로 한 번 더 실린다; 서버가 `deleted` 로 닫고 명령을 소비) 또는 `refused`(예: `isolation_worktree_p4` — P4 전 `worktree` 삭제는 데몬이 거부한다; 서버는 피드에 **"작업 폴더 정리를 컴퓨터가 거부했습니다: <reason>"** 을 남기고(v0.7.4 — 피드 문장은 사용자 대면이라 COMPONENTS §8.4 를 따른다, S-67) 명령을 소비한다). **조용히 무시하는 경로는 없다** — 로그만 남기고 보고하지 않으면 명령이 24h 미소비 만료로 피드에 남는다(§4.3).
 - `worktree` 삭제는 `git worktree remove`만, 브랜치는 남긴다(E13-10).
-- **세션 삭제(v0.8.1, openapi `deleteSession`)**: 서버는 그 세션의 남은 workdir 에 `gc` 를 싣고 **행을 먼저 지운다**. 이후 도착하는 §6 보고 행(`gc: deleted|refused`)이 없는 workdir 을 가리키면 서버는 명령 소비로만 처리하고 피드에는 남기지 않는다(세션이 없다). 미병합·미커밋 `worktree` 는 삭제 자체가 `409` 라 이 경로에 오지 않는다.
-- 디스크 상한 도달은 probe의 `disk`로 서버가 판정해 새 세션 생성을 막는다(E13-16).
+- **방 삭제(v0.8.1 — v0.9.1 부터 openapi `deleteRoom`)**: 서버는 그 방의 남은 workdir 에 `gc` 를 싣고 **행을 먼저 지운다**. 이후 도착하는 §6 보고 행(`gc: deleted|refused`)이 없는 workdir 을 가리키면 서버는 명령 소비로만 처리하고 피드에는 남기지 않는다(방이 없다). 미병합·미커밋 `worktree` 는 삭제 자체가 `409` 라 이 경로에 오지 않는다.
+- 디스크 상한 도달은 probe의 `disk`로 서버가 판정해 새 방 생성을 막는다(E13-16).
 
 ## 7. 큐 인터페이스 (서버 내부)
 
@@ -232,7 +232,7 @@ Postgres SKIP LOCKED를 Redis로 바꿔도 이 프로토콜은 안 바뀐다(PLA
 
 ```go
 type Queue interface {
-    Claim(ctx, runtimeID string, capacity int, now time.Time) ([]TaskBundle, error) // not_before ≤ now, 세션 active, 동시성 상한 적용
+    Claim(ctx, runtimeID string, capacity int, now time.Time) ([]TaskBundle, error) // not_before ≤ now, 방 active, 동시성 상한 적용
     Heartbeat(ctx, taskID string, attempt int, now time.Time) error
     Requeue(ctx, taskID string, reason FailureKind, notBefore *time.Time, now time.Time) error // 토큰 폐기 포함
     ExpireStale(ctx, now time.Time) (requeued int, err error)   // dispatched 5분, heartbeat 3분 — 스케줄러가 호출
@@ -249,7 +249,7 @@ type Queue interface {
 
 | 테스트 | EVAL |
 |---|---|
-| claim이 `paused` 세션·미래 `not_before`·다른 런타임 고정 세션을 주지 않음 | E5-04, E11-09 |
+| claim이 `paused` 방·미래 `not_before`·다른 런타임 고정 방을 주지 않음 | E5-04, E11-09 |
 | `none` 첫 claim이 `runtime_id` 고정 | E11-10 |
 | `dispatched` 5분 → `failed(timeout)`, **재큐잉 없음** + 토큰 폐기 (클럭 주입) | E5-02 |
 | heartbeat 3분 무응답 → 재큐잉 + 토큰 폐기 → 그 토큰의 `colab message post` 401 | E5-03, E11-03·04 |
