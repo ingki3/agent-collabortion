@@ -19,6 +19,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
 	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
 	"github.com/ingki3/agent-collabortion/server/internal/rooms"
+	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -254,6 +255,7 @@ func (s *Server) inboxAPI(ctx context.Context, r *inboxRow, viewer uuid.UUID, no
 		out.Session = &gen.SessionRef{Id: *r.SessionID, Title: *r.SessionName, Status: gen.SessionStatus(*r.SessionStatus)}
 	}
 	canRespond := false
+	offlineCard := false
 	hitlType := ""
 	body := ""
 	title := ""
@@ -309,6 +311,22 @@ func (s *Server) inboxAPI(ctx context.Context, r *inboxRow, viewer uuid.UUID, no
 				body = *r.HitlQuestion
 			}
 			hitlType = ""
+			if r.HitlSpec == nil && r.SessionID != nil && r.RefID != nil {
+				// A lost computer (FR-9.2 v0.19, T-S-offline): no request
+				// behind the card — its ref is the runtime — and the choice
+				// is rebinding, offered to whoever rebindSession lets do it,
+				// while the room still waits for that computer.
+				body = "이 방의 컴퓨터 연결이 끊겨 멈췄습니다 — 다른 컴퓨터로 옮기거나 열린 미션을 모두 취소해 주세요"
+				offlineCard = true
+				delegated := r.RecipientBasis != nil &&
+					(*r.RecipientBasis == inbox.BasisRoomDeputy || *r.RecipientBasis == inbox.BasisWorkspaceOwner)
+				out.Delegated = &delegated
+				if ok, err := s.offlineCardOpen(ctx, *r.SessionID, *r.RefID); err == nil && ok {
+					if may, err := runtimes.RebindAuthz(ctx, s.DB, *r.SessionID, viewer, now); err == nil {
+						canRespond = may && !hidden
+					}
+				}
+			}
 		}
 		if hidden {
 			// The question and its context are the room's own words.
@@ -336,6 +354,9 @@ func (s *Server) inboxAPI(ctx context.Context, r *inboxRow, viewer uuid.UUID, no
 		body = "정리하기 전까지 새 작업 폴더를 만들 수 없습니다 — 끝난 방의 작업 폴더를 정리해 주세요"
 	}
 	acts := inbox.Actions(r.Type, hitlType, canRespond)
+	if offlineCard {
+		acts = inbox.OfflineRoomActions(canRespond)
+	}
 	out.Actions = make([]gen.InboxItemActions, 0, len(acts))
 	for _, a := range acts {
 		out.Actions = append(out.Actions, gen.InboxItemActions(a))
@@ -534,3 +555,14 @@ func dueOf(i gen.InboxItem) (time.Time, bool) {
 
 var _ = errors.Is
 var _ = context.Background
+
+// offlineCardOpen: the room is still stopped for the computer the card names
+// (room.blocked_reason = runtime_offline on that runtime). Once it is rebound
+// or its missions are cancelled the card has nothing left to offer.
+func (s *Server) offlineCardOpen(ctx context.Context, roomID, runtimeID uuid.UUID) (bool, error) {
+	var open bool
+	err := s.DB.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM room WHERE id = $1 AND blocked_reason = 'runtime_offline' AND runtime_id = $2)`,
+		roomID, runtimeID).Scan(&open)
+	return open, err
+}

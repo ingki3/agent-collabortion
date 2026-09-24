@@ -19,6 +19,10 @@ import (
 // isolation_confirm). Actor and QuoteMessage are what the card quotes
 // (openapi 0.2.10 card.actor_name · quote) — nil when there is nobody or
 // nothing to quote.
+//
+// HitlID is the card's ref_id: the approval request, or — a runtime_offline
+// stop, which raises no request (T-S-offline) — the lost runtime's id
+// (openapi InboxItem.ref_id "타입별 — … runtime id").
 type Item struct {
 	Type         string
 	WorkspaceID  uuid.UUID
@@ -37,9 +41,14 @@ type Item struct {
 // delegate (httpapi hitlInbox), so the card is already there when their turn
 // comes.
 //
-// Every room-level stop (budget · loop — and runtime_offline when the room
-// gate takes it) comes through here, so the room owner sees ONE room_paused
-// card per stop, never a room_paused and a hitl_request for the same request.
+// Every room-level stop (budget · loop · runtime_offline) comes through here,
+// so the room owner sees ONE room_paused card per stop, never a room_paused
+// and a hitl_request (or a runtime_offline item) for the same stop.
+//
+// The duplicate guard is per room and per unresolved card: a runtime id is a
+// ref two rooms on the same computer share, and the same room can lose the
+// same computer twice (rebound away and back) — the first outage's card is
+// read by then (ResolveCards), so the second one is filed.
 func FileInbox(ctx context.Context, tx pgx.Tx, it Item) error {
 	ap, err := LoadApprovers(ctx, tx, it.RoomID)
 	if err != nil {
@@ -59,11 +68,26 @@ func FileInbox(ctx context.Context, tx pgx.Tx, it Item) error {
 			INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at, recipient_basis, actor_user_id, quote_message_id)
 			SELECT m.id, $1::inbox_item_type, $2::inbox_severity, $3, $4, $5, $8, $9, $10
 			FROM member m WHERE m.workspace_id = $6 AND m.user_id = $7
-			  AND NOT EXISTS (SELECT 1 FROM inbox_item i WHERE i.member_id = m.id AND i.ref_id = $4)`,
+			  AND NOT EXISTS (SELECT 1 FROM inbox_item i WHERE i.member_id = m.id AND i.ref_id = $4
+			                  AND i.session_id = $3 AND i.type = $1::inbox_item_type AND i.read_at IS NULL)`,
 			it.Type, inbox.Severity(it.Type), it.RoomID, it.HitlID, it.Created, it.WorkspaceID, t.user, t.basis,
 			it.Actor, it.QuoteMessage); err != nil {
 			return fmt.Errorf("roomgate: %s inbox: %w", it.Type, err)
 		}
+	}
+	return nil
+}
+
+// ResolveCards takes a lifted stop's cards out of the inbox (marks them read,
+// as closeSessionBudgetHitl does for an answered request): the room is moving
+// again, and a card still asking for a choice is one nobody can act on.
+func ResolveCards(ctx context.Context, tx pgx.Tx, itemType string, roomID, ref uuid.UUID, now time.Time) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE inbox_item SET read_at = $4
+		WHERE session_id = $1 AND ref_id = $2 AND type = $3::inbox_item_type AND read_at IS NULL`,
+		roomID, ref, itemType, now)
+	if err != nil {
+		return fmt.Errorf("roomgate: resolve %s cards: %w", itemType, err)
 	}
 	return nil
 }

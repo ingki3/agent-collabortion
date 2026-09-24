@@ -81,6 +81,16 @@ func Severity(itemType string) string {
 	return Info
 }
 
+// OfflineRoomActions is a room_paused card for a lost computer (FR-9.2 v0.19):
+// there is no request to approve — the way out is rebinding (the other one,
+// cancelling every open mission, is on the room screen).
+func OfflineRoomActions(canRespond bool) []string {
+	if canRespond {
+		return []string{"rebind", "open_room"}
+	}
+	return []string{"open_room"}
+}
+
 // Actions is the inline action list (openapi InboxItem.actions). It is
 // permission-aware: an action the caller cannot take is not offered, because a
 // button that 403s is worse than no button (FR-5.3 last bullet).

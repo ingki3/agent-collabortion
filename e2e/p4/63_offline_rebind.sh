@@ -128,9 +128,9 @@ psqlq "update runtime set status='offline', offline_since = now() - interval '8 
 sleep 65
 chk R3  "세션 = paused"                    paused          "$(sess_status "$S")"
 chk R3b "paused_reason = runtime_offline"  runtime_offline "$(psqlq "select coalesce(paused_reason::text,'-') from work where room_id='$S'")"
-chk R3c "Director 인박스 runtime_offline 1건" 1 "$(inbox_count "$S" runtime_offline)"
+chk R3c "방장 인박스 room_paused 1건 (FR-9.2 v0.19 방 단위)" 1 "$(inbox_count "$S" room_paused)"
 sleep 65
-chk R3d "두 번째 스윕 뒤에도 1건 — 멱등 (E14-10)" 1 "$(inbox_count "$S" runtime_offline)"
+chk R3d "두 번째 스윕 뒤에도 1건 — 멱등 (E14-10)" 1 "$(inbox_count "$S" room_paused)"
 
 step "6. R4 — 후보 조회: B 는 후보, C 는 제외 (E14-05)"
 api_ok GET "/workspaces/$WS/runtime-candidates?isolation=worktree&session_id=$S" > "$OUT/63-candidates.json" || true
