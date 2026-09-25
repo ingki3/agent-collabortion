@@ -11,7 +11,7 @@ import { CONVERSATION as L } from "@/lib/wording";
 
 type Tone = "run" | "done" | "block" | "neutral";
 const KIND_STYLE: Partial<Record<SpeechKind, { glyph: string; tone: Tone }>> = {
-  order: { glyph: "▶", tone: "run" },
+  instruct: { glyph: "▶", tone: "run" },
   delegate: { glyph: "↪", tone: "run" },
   request: { glyph: "→", tone: "run" },
   report: { glyph: "✓", tone: "done" },
@@ -23,9 +23,8 @@ const KIND_STYLE: Partial<Record<SpeechKind, { glyph: string; tone: Tone }>> = {
 
 const MAX_TO = 3;
 
-/** 종류 라벨 — 대화(talk)·시스템·HITL·판정 중이면 없다. */
+/** 종류 라벨 — 대화(chat)·시스템·HITL 은 라벨이 없다(표에 없는 종류도 마찬가지). */
 export function speechLabel(s: Speech): string | null {
-  if (s.pending) return null;
   return (L.kind as Record<string, string>)[s.kind] ?? null;
 }
 

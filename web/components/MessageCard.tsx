@@ -231,7 +231,7 @@ export function MessageCard(props: MessageCardProps) {
       data-kind={m.kind}
       data-side={side}
       data-grouped={conv.grouped ? "true" : undefined}
-      data-speech={conv.speech.pending ? "pending" : conv.speech.kind}
+      data-speech={conv.speech.kind}
       data-message-id={m.id}
       data-testid="message-card"
       aria-label={aria}

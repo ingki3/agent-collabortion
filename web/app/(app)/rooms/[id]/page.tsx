@@ -42,7 +42,7 @@ import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
 import { emptyTurnNote, isEmptyTurn } from "@/lib/feed";
 import { useMarkRoomRead } from "@/lib/unread";
 import { isLayered, messageLayers, summarizeProcess, timelineViewKey } from "@/lib/message-layers";
-import { classify, groupsWith, type ConversationCtx, type Speech } from "@/lib/conversation";
+import { groupsWith, speechOf, type ConversationCtx, type Speech } from "@/lib/conversation";
 import {
   BOARD_FOLDED, filterLanes, isAuditView, isOpenWork, matchesSel, needsMe, panelMode, parseSel, pausedLayer, postBlockedBy, sameSel, selParam,
   type ChipSel,
@@ -342,45 +342,24 @@ export default function RoomPage() {
   }, [messages, replies, loadEvents]);
   const loadLaneTasks = useCallback(async (laneId: string): Promise<Task[]> => api.get("/lanes/{laneId}/tasks", { path: { laneId } }), []);
   /**
-   * 대화 배치(FR-3.1.3) 「보고」 판정의 재료 — 에이전트 메시지를 쓴 턴의 `trigger_message_id` 와 그 트리거 메시지.
-   * 먼저 `Lane.current_task`(목록에 이미 있다), 없으면 그 lane 의 `listLaneTasks` 를 lane 당 한 번. 트리거 메시지가 타임라인에 없으면 `getMessage` 한 번.
+   * 대화 배치(FR-3.1.3)의 「↩ … 에 대한 보고」 — 판정은 서버가 내려주고(openapi v0.3.2 `responds_to_message_id`),
+   * 화면은 그 메시지의 인용문 한 줄이 필요할 뿐이다. 타임라인·스레드에 없으면 `getMessage` 를 그 id 당 한 번.
    */
-  const [laneTaskTriggers, setLaneTaskTriggers] = useState<Record<string, string | null>>({});
   const [farMessages, setFarMessages] = useState<Record<string, Message | null>>({});
-  const requestedLaneTasks = useRef(new Set<string>());
   const requestedMessages = useRef(new Set<string>());
-  const triggerOfTask = useCallback((taskId: string): string | null | undefined => {
-    if (taskId in laneTaskTriggers) return laneTaskTriggers[taskId];
-    for (const l of lanes) if (l.current_task?.id === taskId) return l.current_task.trigger_message_id ?? null;
-    return undefined;
-  }, [lanes, laneTaskTriggers]);
   const lookupMessage = useCallback((id: string): Message | null | undefined => {
     return messages.find((x) => x.id === id) ?? Object.values(replies).flat().find((x) => x.id === id) ?? (id in farMessages ? farMessages[id] : undefined);
   }, [messages, replies, farMessages]);
   useEffect(() => {
     for (const m of [...messages, ...Object.values(replies).flat()]) {
-      const tid = m.source_task_id;
-      if (m.author_type !== "agent" || !tid || m.kind !== "text") continue;
-      const trig = triggerOfTask(tid);
-      if (trig === undefined) {
-        const laneId = m.lane_id;
-        if (!laneId) {
-          setLaneTaskTriggers((cur) => (tid in cur ? cur : { ...cur, [tid]: null }));
-          continue;
-        }
-        if (requestedLaneTasks.current.has(laneId)) continue;
-        requestedLaneTasks.current.add(laneId);
-        void loadLaneTasks(laneId)
-          .then((ts) => setLaneTaskTriggers((cur) => ({ ...cur, ...Object.fromEntries(ts.map((t) => [t.id, t.trigger_message_id ?? null])), ...(ts.some((t) => t.id === tid) ? {} : { [tid]: null }) })))
-          .catch(() => setLaneTaskTriggers((cur) => ({ ...cur, [tid]: null })));
-      } else if (trig && lookupMessage(trig) === undefined && !requestedMessages.current.has(trig)) {
-        requestedMessages.current.add(trig);
-        void api.get("/messages/{messageId}", { path: { messageId: trig } })
-          .then((x) => setFarMessages((cur) => ({ ...cur, [trig]: x })))
-          .catch(() => setFarMessages((cur) => ({ ...cur, [trig]: null })));
-      }
+      const trig = m.responds_to_message_id;
+      if (!trig || requestedMessages.current.has(trig) || lookupMessage(trig) !== undefined) continue;
+      requestedMessages.current.add(trig);
+      void api.get("/messages/{messageId}", { path: { messageId: trig } })
+        .then((x) => setFarMessages((cur) => ({ ...cur, [trig]: x })))
+        .catch(() => setFarMessages((cur) => ({ ...cur, [trig]: null })));
     }
-  }, [messages, replies, triggerOfTask, lookupMessage, loadLaneTasks]);
+  }, [messages, replies, lookupMessage]);
   const renderTaskActivity = useCallback((taskId: string) => <TaskActivity taskId={taskId} cache={events} load={loadEvents} />, [events, loadEvents]);
 
   // 서브 미션·미션 수(세 층 요약)는 room 행의 `counts` — 서브 미션·미션이 움직이면 방을 다시 읽는다(한 번에 몰아서).
@@ -820,13 +799,8 @@ export default function RoomPage() {
     };
   };
 
-  /** 대화 배치(FR-3.1.3) — 판정은 lib/conversation.ts(서버 칸만). 트리거·트리거 메시지를 아직 모르면 pending 으로 라벨 없이. */
-  const convCtx: ConversationCtx = {
-    lanes,
-    triggerOf: (taskId) => triggerOfTask(taskId),
-    messageById: (id) => lookupMessage(id),
-    authorName,
-  };
+  /** 대화 배치(FR-3.1.3) — 말의 종류·받는 쪽은 서버가 판정해 내려준 칸 그대로(openapi v0.3.2 D24). */
+  const convCtx: ConversationCtx = { lanes, messageById: (id) => lookupMessage(id), authorName };
   const jumpOrAnchor = (id: string) => {
     if (document.querySelector(`[data-message-id="${id}"]`)) return jumpToMessage(id);
     router.replace(`/rooms/${roomId}?around_message_id=${encodeURIComponent(id)}`, { scroll: false });
@@ -836,7 +810,7 @@ export default function RoomPage() {
   {
     let prev: { m: Message; s: Speech } | undefined;
     for (const m of messages) {
-      const s = classify(m, convCtx);
+      const s = speechOf(m, convCtx);
       speeches.set(m.id, s);
       const cur = { m, s };
       if (m.kind !== "hitl" && groupsWith(prev, cur)) groupedIds.add(m.id);
@@ -844,7 +818,7 @@ export default function RoomPage() {
     }
   }
   const conversationFor = (m: Message, o: { parent?: Message }): ConversationSlot => ({
-    speech: o.parent ? classify(m, convCtx, o.parent) : (speeches.get(m.id) ?? classify(m, convCtx)),
+    speech: speeches.get(m.id) ?? speechOf(m, convCtx),
     grouped: !o.parent && groupedIds.has(m.id),
     onJump: jumpOrAnchor,
   });

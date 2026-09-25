@@ -20,6 +20,7 @@ import { registerR2W4a } from "./r2w4a";
 import { registerWorkEdit } from "./work-edit";
 import { registerMessageLayers } from "./message-layers";
 import { registerConversationSeed } from "./conversation-seed";
+import { applySpeech, type SpeechPremises } from "./speech";
 import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, SEED, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
 /**
@@ -528,7 +529,12 @@ function sessionFor(s: Store, sess: Session, userId: string): Session {
 }
 
 // ── messages ──
-function addMessage(s: Store, sess: Session, m: Partial<Message> & Pick<Message, "author_type" | "author_id" | "kind" | "content" | "mentions">): Message {
+function addMessage(
+  s: Store,
+  sess: Session,
+  m: Partial<Message> & Pick<Message, "author_type" | "author_id" | "kind" | "content" | "mentions">,
+  speech: SpeechPremises = {},
+): Message {
   const msg: Message = {
     id: uuid(), session_id: sess.id, parent_id: null, source_task_id: null, lane_id: null, state: "posted", reply_count: 0, is_note: false,
     // 귀속(FR-3.1.1) — 부른 쪽이 정하지 않으면 옛 세션의 방은 그 세션의 미션(서버 legacySessionWork), 새 방은 미션 없음.
@@ -536,6 +542,8 @@ function addMessage(s: Store, sess: Session, m: Partial<Message> & Pick<Message,
     created_at: nextMsgAt(), edited_at: null, ...m,
   };
   s.messages.set(msg.id, msg);
+  // 말의 종류·받는 쪽은 서버가 쓰는 순간 판정한다(openapi v0.3.2 D24) — 목도 같은 자리에서.
+  applySpeech(s, msg, speech);
   if (msg.parent_id) {
     const root = s.messages.get(msg.parent_id);
     if (root) {
@@ -3303,7 +3311,7 @@ on("POST", "/__mock/rooms/{id}/seed", (req, p) => {
     const at = nextMsgAt();
     const m: Message = {
       id: uuid(), session_id: room.id, parent_id: null, source_task_id: null, lane_id: null, state: "posted", reply_count: 0, is_note: false,
-      author_type: "system", author_id: null, kind: "system", content: `안 읽음 시드 ${i + 1}`, mentions: [], created_at: at, edited_at: null,
+      author_type: "system", author_id: null, kind: "system", content: `안 읽음 시드 ${i + 1}`, mentions: [], speech: "system", addressees: [], created_at: at, edited_at: null,
     };
     s.messages.set(m.id, m);
   }

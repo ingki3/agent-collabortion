@@ -15,6 +15,7 @@ import type { Lane, Message } from "@/lib/api/types";
 import type { Session } from "@/lib/legacy-session";
 import { makeAgent, store, type MockTask, type Store } from "./store";
 import type { Req, Res } from "./handlers";
+import type { SpeechPremises } from "./speech";
 
 type Handler = (req: Req, params: Record<string, string>) => Res | Promise<Res>;
 type ProblemCtor = new (status: number, code?: string, detail?: string, extra?: Record<string, unknown>) => Error;
@@ -23,7 +24,12 @@ export interface ConversationSeedCtx {
   on: (method: string, pattern: string, h: Handler) => void;
   Problem: ProblemCtor;
   sessionOf: (s: Store, req: Req, id: string) => Session;
-  addMessage: (s: Store, sess: Session, m: Partial<Message> & Pick<Message, "author_type" | "author_id" | "kind" | "content" | "mentions">) => Message;
+  addMessage: (
+    s: Store,
+    sess: Session,
+    m: Partial<Message> & Pick<Message, "author_type" | "author_id" | "kind" | "content" | "mentions">,
+    speech?: SpeechPremises,
+  ) => Message;
   createTask: (s: Store, sess: Session, agentId: string, triggerId: string | null, opts?: { brief?: string | null }) => MockTask;
   setLaneStatus: (s: Store, sess: Session, laneId: string, patch: Partial<Lane>) => void;
   parseMentions: (content: string) => Message["mentions"];
@@ -59,11 +65,11 @@ export function registerConversationSeed(ctx: ConversationSeedCtx): void {
     const owner = s.users.get(s.rooms.get(sess.id)?.owner_user_id ?? "") ?? [...s.users.values()][0];
     const link = (a: { name: string; id: string }) => `[@${a.name}](mention://agent/${a.id})`;
     const who = (a: typeof lead) => ({ name: a.name, avatar_url: null, role: a.role });
-    const agentMsg = (a: typeof lead, task: MockTask | null, content: string, extra: Partial<Message> = {}) =>
+    const agentMsg = (a: typeof lead, task: MockTask | null, content: string, extra: Partial<Message> = {}, speech: SpeechPremises = {}) =>
       addMessage(s, sess, {
         author_type: "agent", author_id: a.id, author: who(a), kind: "text", content, mentions: parseMentions(content),
         source_task_id: task?.id ?? null, lane_id: task?.lane_id ?? null, ...extra,
-      });
+      }, speech);
     const finish = (t: MockTask, status: Lane["status"] = "done") => {
       t.status = status === "done" ? "completed" : status;
       setLaneStatus(s, sess, t.lane_id, { status, finished_at: status === "done" ? new Date().toISOString() : null, current_activity: null });
@@ -80,9 +86,13 @@ export function registerConversationSeed(ctx: ConversationSeedCtx): void {
 
     // 2·3. 위임 둘 — router.Delegate 모양(내용 = 멘션 링크 + " " + brief).
     const delegate = (to: typeof lead, brief: string) => {
-      const m = agentMsg(lead, tLead, `${link(to)} ${brief}`);
-      const t = createTask(s, sess, to.id, m.id, { brief });
+      // 서버 `router.Delegate` 와 같은 차례: lane 을 만들고, 그 lane 을 premise 로 넘겨 메시지를 위임으로 판정한다
+      // (본문이 brief 로 끝나는지 따위를 되짚지 않는다 — openapi v0.3.2 D24).
+      const t = createTask(s, sess, to.id, null, { brief });
       setLaneStatus(s, sess, t.lane_id, { delegated_from_task_id: tLead.id, brief });
+      const m = agentMsg(lead, tLead, `${link(to)} ${brief}`, {}, { delegatedLaneId: t.lane_id, delegateTargetId: to.id, delegateTargetName: to.name });
+      const task = s.tasks.get(t.id);
+      if (task) task.trigger_message_id = m.id;
       return { m, t };
     };
     const dR = delegate(researcher, "법 통과 여부 · 시장 규모 전망 · 해외 사례를 조사해 주세요. 출처는 꼭 남겨 주세요.");

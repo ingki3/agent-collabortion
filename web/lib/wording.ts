@@ -700,7 +700,7 @@ export const MESSAGE_LAYERS = {
  */
 export const CONVERSATION = {
   kind: {
-    order: "지시",
+    instruct: "지시",
     delegate: "위임",
     request: "요청",
     report: "보고",
