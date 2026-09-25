@@ -1,23 +1,30 @@
 -- message_speech_rechain — 보고에 대한 보고는 없다 (T-AGENTFIX B6, PRD FR-3.1.3 표 8행 보완)
 --
--- 번호는 PR 을 올리는 순간 origin/dev 의 마지막 + 1 로 이름만 바뀐다(Lead 규칙) —
--- 이 파일 안이나 코드 어디에서도 번호를 부르지 않는다.
---
 -- 실측(게임 제작 방 14:05·14:30): Lead 의 턴은 Writer 의 보고로 깨어났고, 그 턴에서
 -- Lead 가 Writer 에게 한 새 지시가 표 8행(요청자에게 → 보고)에 걸려 「보고(→ Writer)」로
--- 저장됐다. 규칙 보완: 턴을 깨운 메시지가 이미 **보고**였다면 그 턴의 말은 보고가 아니라
--- **요청**이다(받는 쪽은 그대로 보고한 쪽 한 명, responds_to 는 비운다).
+-- 저장됐다. 규칙 보완: 턴을 깨운 메시지가 **보고**이고 지금 작성자가 **그 보고의 받는 쪽**
+-- (= 그 보고의 요청자)이면, 그 턴의 말은 보고가 아니라 **요청**이다(받는 쪽은 그대로 보고한
+-- 쪽 한 명, responds_to 는 비운다). 보고 안에서 본문 멘션 칩으로만 불린 에이전트(받는 쪽이
+-- 아니다)가 부탁받은 결과를 돌려주는 말은 **원래 보고**로 남는다(review #343 블로커 1).
 --
--- 새 행은 messages.Classify 가 쓰는 순간 트리거의 저장된 speech 를 보고 판정한다. 이미
--- 쓰인 행(실사용 DB 포함)은 아래에서 **전부 다시 계산**한다 — 앞 마이그레이션의 채우기와
--- 같은 표에 이 한 줄만 더한 것이다. 몇 번을 돌려도 같은 답이 나오게(멱등) 입력은 저장된
--- speech 가 아니라 판정 전제뿐이다: 보고 전제를 갖춘 메시지의 사슬(보고 → 그 보고로 깨운
--- 턴의 말 → …)에서 홀수 번째 고리가 요청이 된다. 트리거는 늘 먼저 쓰였으므로 사슬에
--- 순환이 없다.
+-- 새 행은 messages.Classify 가 쓰는 순간 트리거의 저장된 speech·addressees 를 보고 판정한다.
+-- 이미 쓰인 행(실사용 DB 포함)은 아래에서 **전부 다시 계산**한다 — 0035 의 채우기와 같은 표에
+-- 이 한 줄만 더한 것이다. 몇 번을 돌려도 같은 답이 나오게(멱등) 입력은 저장된 speech 가 아니라
+-- 판정 전제뿐이다: 보고 전제를 갖춘 메시지 X 의 트리거 T 도 보고 전제를 갖추고 X 의 작성자가
+-- T 의 요청자이면 X 는 T 에 매달린 고리다. 그런 사슬(보고 → 받은 쪽의 다음 말 → …)에서 홀수
+-- 번째 고리가 요청이 된다. 트리거는 늘 먼저 쓰였으므로 사슬에 순환이 없다.
+--
+-- 규모(review #343 블로커 2): 한 문장짜리 재귀 CTE 는 행 추정이 폭주해(1e24) 20만 행에서
+-- Hash Anti Join 이 백만 배치를 잡고 백엔드가 OOM 킬됐다. 그래서 판정 전제를 임시 테이블로
+-- 물리화하고 인덱스·ANALYZE 뒤 사슬을 계산한다 — 플래너가 실제 행 수를 본다. 임시 테이블은
+-- ON COMMIT DROP 이라 한 트랜잭션 안에서 돌아야 한다(db.applyOne 이 그렇게 돌린다).
 --
 -- 규칙의 정본은 Go(messages.Classify)다. convo_speech_test 의 파리티 테스트가 이 파일의
--- 채우기를 그대로 돌려 Store 와 한 글자도 다르지 않은지 본다.
-WITH RECURSIVE mention_to AS (
+-- 채우기(`-- backfill:` 아래 전부)를 그대로 돌려 Store 와 한 글자도 다르지 않은지 본다.
+
+-- backfill:
+CREATE TEMP TABLE speech_decided ON COMMIT DROP AS
+WITH mention_to AS (
     SELECT m.id AS message_id,
            COALESCE(jsonb_agg(jsonb_build_object(
                'kind', x.kind,
@@ -124,25 +131,49 @@ WITH RECURSIVE mention_to AS (
                ELSE 'chat'
            END AS speech
     FROM premise pr JOIN parent_to pt ON pt.id = pr.id JOIN based b ON b.id = pr.id
-), chain AS (
-    -- 'report?' = 표 8행의 전제를 갖춘 메시지. 그 트리거도 'report?' 이면 사슬이 된다.
-    -- 사슬의 첫 고리(트리거가 보고 전제를 못 갖춘 것)는 보고, 그 답은 요청, 그 답은
-    -- 다시 보고 … — 트리거는 늘 먼저 쓰였으므로 순환이 없다.
-    SELECT d.id, 0 AS depth
-    FROM decided d
-    LEFT JOIN decided td ON td.id = d.trigger_id AND td.speech = 'report?'
-    WHERE d.speech = 'report?' AND td.id IS NULL
+)
+SELECT * FROM decided;
+
+CREATE UNIQUE INDEX ON speech_decided (id);
+CREATE INDEX ON speech_decided (trigger_id);
+ANALYZE speech_decided;
+
+-- 'report?' = 표 8행의 전제를 갖춘 메시지. 고리: 자식의 트리거가 'report?' 이고 자식의
+-- 작성자가 그 트리거의 요청자(= 보고였다면 그 보고의 받는 쪽 한 명)일 때. 사슬의 첫 고리는
+-- 보고, 그 답은 요청, 그 답은 다시 보고 … (깊이의 홀짝).
+CREATE TEMP TABLE speech_report_link ON COMMIT DROP AS
+SELECT d.id, d.trigger_id, d.trigger_author_id,
+       (td.id IS NOT NULL) AS linked
+FROM speech_decided d
+LEFT JOIN speech_decided td
+       ON td.id = d.trigger_id AND td.speech = 'report?'
+      AND td.trigger_author_type = 'agent' AND td.trigger_author_id = d.author_id
+WHERE d.speech = 'report?';
+
+CREATE UNIQUE INDEX ON speech_report_link (id);
+CREATE INDEX ON speech_report_link (trigger_id) WHERE linked;
+ANALYZE speech_report_link;
+
+CREATE TEMP TABLE speech_chain ON COMMIT DROP AS
+WITH RECURSIVE chain AS (
+    SELECT l.id, 0 AS depth FROM speech_report_link l WHERE NOT l.linked
     UNION ALL
-    SELECT d.id, c.depth + 1
-    FROM decided d JOIN chain c ON d.trigger_id = c.id
-    WHERE d.speech = 'report?' AND c.depth < 100000
-), final AS (
+    SELECT l.id, c.depth + 1
+    FROM chain c JOIN speech_report_link l ON l.trigger_id = c.id AND l.linked
+    WHERE c.depth < 100000
+)
+SELECT id, depth FROM chain;
+
+CREATE UNIQUE INDEX ON speech_chain (id);
+ANALYZE speech_chain;
+
+WITH final AS (
     SELECT d.*,
            CASE WHEN d.speech <> 'report?' THEN d.speech
                 WHEN c.depth % 2 = 0 THEN 'report'
                 ELSE 'request'
            END AS final_speech
-    FROM decided d LEFT JOIN chain c ON c.id = d.id
+    FROM speech_decided d LEFT JOIN speech_chain c ON c.id = d.id
 )
 UPDATE message m SET
     speech = d.final_speech,
@@ -176,3 +207,5 @@ UPDATE message m SET
     delegated_lane_id = CASE WHEN d.final_speech = 'delegate' THEN d.lane_id END
 FROM final d
 WHERE m.id = d.id;
+
+ANALYZE message;
