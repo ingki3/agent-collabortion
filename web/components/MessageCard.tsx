@@ -67,6 +67,17 @@ export interface MessageCardProps {
   menu?: React.ReactNode;
   /** v0.19 — 본문 아래 한 줄(미션 열림·닫힘 시스템 카드의 「이 미션으로 거르기」 링크 등). */
   footer?: React.ReactNode;
+  /**
+   * v0.19.3 세 층(PRD FR-3.1.2 · SCREEN §4.6) — 메시지(스레드 답글 포함)마다 불러 대화 층의 글(`body`)과 그 아래 줄들(`below` — 아티팩트 참조 ·
+   * 작업 내용 · 작업 과정)을 받는다. undefined 면 예전처럼 본문 전부. 펼침 상태는 부른 쪽이 메시지 id 로 들고 있다(카드 로컬 state 아님).
+   */
+  layers?: (m: Message, opts: { asAnswer: boolean }) => MessageLayerSlots | undefined;
+}
+
+export interface MessageLayerSlots {
+  /** 대화 층 — 빈 문자열이면 본문 블록을 그리지 않는다(폴백이 첫 블록부터 표·코드인 경우). */
+  body: string;
+  below: React.ReactNode;
 }
 
 export function MessageCard(props: MessageCardProps) {
@@ -76,6 +87,7 @@ export function MessageCard(props: MessageCardProps) {
   const [activityOpen, setActivityOpen] = useState(false);
   const replyCount = props.replies?.length ?? m.reply_count ?? 0;
   const badge = kindBadgeFor(m, { answer: props.asAnswer, askee: props.askee });
+  const layered = props.layers?.(m, { asAnswer: !!props.asAnswer });
 
   async function toggleThread() {
     if (!open && !props.replies && props.onLoadReplies) {
@@ -106,7 +118,14 @@ export function MessageCard(props: MessageCardProps) {
         {props.workLabel}
         {props.menu && <span className="msg__menu">{props.menu}</span>}
       </div>
-      <MessageBody content={m.content} />
+      {layered ? (
+        <>
+          {layered.body && <MessageBody content={layered.body} />}
+          {layered.below}
+        </>
+      ) : (
+        <MessageBody content={m.content} />
+      )}
       {props.footer}
       <div className="msg__actions">
         {replyCount > 0 && (
@@ -135,7 +154,7 @@ export function MessageCard(props: MessageCardProps) {
       {open && props.replies && (
         <div className="msg__thread" data-testid="thread">
           {props.replies.map((r) => (
-            <MessageCard key={r.id} message={r} asAnswer={m.kind === "blocked_q"} onReply={props.onReply} now={props.now} />
+            <MessageCard key={r.id} message={r} asAnswer={m.kind === "blocked_q"} onReply={props.onReply} now={props.now} layers={props.layers} />
           ))}
         </div>
       )}

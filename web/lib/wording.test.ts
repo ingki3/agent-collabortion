@@ -22,6 +22,7 @@ import { NAV_ITEMS } from "@/components/AppNav";
 import { BADGE_MAP } from "@/components/badge-map";
 import { ARCHIVE_DIALOG, CREATE_ROOM, DELETE_ROOM_DIALOG, ROOM_BLOCKED_LABEL, ROOM_DELETED_NOTICE, ROOM_LIST, ROOM_MENU, roomDefaultsLine } from "@/lib/wording";
 import { BLOCK_DIALOG, ROOM_BANNER, ROOM_CENTER, ROOM_HEAD, ROOM_LEFT, ROOM_NOTICES, ROOM_PANEL, ROOM_TABS, SUMMARIZE_DIALOG, WORK_CHIPS, WORK_PANEL, WORK_PAUSE_LABEL, WORK_SELECTOR } from "@/lib/wording";
+import { MESSAGE_LAYERS, PROCESS_ACTION } from "@/lib/wording";
 import { BLOCKED_REASON, COMMAND_LABEL, CONDITION_EDITOR, CONDITION_NAME, EMPTY_TURN, FIX_CONDITION, OBSERVATIONS, PROGRESS, ROLE_COMMANDS, ROUTING_PLATFORM_LABEL, ROUTING_RULE_LABEL, conditionName, routingKindLabel } from "@/lib/wording";
 
 const ROOT = join(__dirname, "..");
@@ -835,3 +836,64 @@ describe("v0.19 방 화면 — 새 문구는 표에서만, 층 분담 · 수는 
   });
 });
 
+
+// ── v0.19.3 에이전트 메시지 세 층 — 대화 · 작업 내용 · 작업 과정(PRD FR-3.1.2 · SCREEN §4.6 · COMPONENTS §9.6·§9.7) ─────────
+describe("v0.19.3 메시지 세 층 — 접힌 줄·보기 전환의 말은 표(MESSAGE_LAYERS)에서만 나온다", () => {
+  const src = (f: string) => readFileSync(join(ROOT, f), "utf8");
+  const code = (f: string) => src(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "").replace(/\s\/\/.*$/gm, "");
+  const inPool = (file: string, text: string) => POOL.some((v) => v.file === file && v.text.includes(text));
+  const FILES_L = ["components/MessageLayers.tsx", "lib/message-layers.ts", "components/MessageCard.tsx", "app/(app)/rooms/[id]/page.tsx"];
+
+  it("문구가 사는 파일이 풀 범위 안이다", () => {
+    for (const f of FILES_L) expect(FILES).toContain(f);
+  });
+
+  it("SCREEN §4.6 · COMPONENTS §9.6·9.7 의 말 그대로 — 작업 내용 · 작업 과정 · 자동으로 접음 · 대화만 · 작업 내용 펼침 · 새 창으로 보기 · 보기", () => {
+    expect(MESSAGE_LAYERS).toMatchObject({
+      detail: "작업 내용", process: "작업 과정", auto_folded: "자동으로 접음", view_label: "보기",
+      view_conversation: "대화만", view_detail: "작업 내용 펼침", open_window: "새 창으로 보기", artifact: "아티팩트", artifact_open: "열기",
+    });
+    // 수가 드는 말은 두 토막 — 「실패 1」 · 「표 3개」 · 「850자」 · 「1.5만 자」.
+    expect(MESSAGE_LAYERS.failures.join("1")).toBe("실패 1");
+    expect(MESSAGE_LAYERS.tables.join("3")).toBe("표 3개");
+    expect(MESSAGE_LAYERS.chars.join("850")).toBe("850자");
+    expect(MESSAGE_LAYERS.chars_man.join("1.5")).toBe("1.5만 자");
+    // 「활동 피드 없음」(SCREEN §7) 규약 — 대기 중 / 구조화 미지원.
+    expect(MESSAGE_LAYERS.process_waiting).toBe("대기 중…");
+    // 풀에 든다(2글자 이상 문장만 — 1글자 토막 「자」「분」은 스캐너가 줍지 않으므로 join 으로 잰다).
+    for (const t of [MESSAGE_LAYERS.detail, MESSAGE_LAYERS.process, MESSAGE_LAYERS.auto_folded, MESSAGE_LAYERS.view_label, MESSAGE_LAYERS.view_conversation, MESSAGE_LAYERS.view_detail, MESSAGE_LAYERS.open_window]) {
+      expect(inPool("lib/wording.ts", t), t).toBe(true);
+    }
+  });
+
+  it("작업 과정 동작 이름은 사람 말이고 두 토막 — 명령·verb 이름(밑줄)은 화면에 없다", () => {
+    for (const [k, v] of Object.entries(PROCESS_ACTION)) {
+      expect(k).toMatch(/^(tool|plan|status)\/[a-z_]+$/);
+      expect(v).toHaveLength(2);
+      expect(v.join("2"), k).toMatch(/[가-힣]/);
+      expect(v.join("2"), k).not.toMatch(/_|세션|작업 줄기|산출물/);
+    }
+    expect(PROCESS_ACTION["tool/edit_file"].join("2")).toBe("파일 2개 편집");
+    expect(PROCESS_ACTION["status/submit_artifact"].join("1")).toBe("아티팩트 제출 1건");
+  });
+
+  it("화면은 표를 그린다 — 컴포넌트·방 화면 코드에 문장을 직접 쓰지 않는다(주석 밖)", () => {
+    const comp = src("components/MessageLayers.tsx");
+    for (const k of ["detail", "process", "auto_folded", "view_label", "view_group", "view_conversation", "view_detail", "open_window", "failures", "tables", "process_loading", "process_waiting", "process_unstructured", "process_no_actions", "artifact", "artifact_version", "artifact_open"]) {
+      expect(comp, k).toContain(`L.${k}`);
+    }
+    for (const f of FILES_L) expect(code(f), f).not.toMatch(/작업 내용|작업 과정|자동으로 접음|대화만|새 창으로 보기|대기 중…|도구 단위 기록 없음/);
+    // 수를 넣은 한국어 템플릿 리터럴이 없다(§8.5 v0.19 — 수는 <Slot>).
+    // MessageCard 의 「답글 N개 보기」는 이 작업 전부터 있던 문장이라 새 두 파일만 잰다.
+    for (const f of ["components/MessageLayers.tsx", "lib/message-layers.ts"]) expect(code(f), f).not.toMatch(/`[^`]*[가-힣][^`]*\$\{[^`]*`|`[^`]*\$\{[^`]*\}[^`]*[가-힣][^`]*`/);
+    expect(comp).toMatch(/<Slot text=\{L\.failures\} n=\{fails\} \/>/);
+  });
+
+  it("접힌 줄은 button + aria-expanded + aria-controls, 전환은 두 칸 aria-pressed(§4.6 키보드·접근성)", () => {
+    const comp = src("components/MessageLayers.tsx");
+    expect(comp).toMatch(/<button type="button" className="fold" aria-expanded=\{open\} aria-controls=\{regionId\}/);
+    expect(comp).toMatch(/id=\{regionId\}/);
+    expect(comp).toMatch(/role="group" aria-label=\{L\.view_group\}/);
+    expect(comp).toMatch(/aria-pressed=\{value === v\}/);
+  });
+});

@@ -663,6 +663,58 @@ export const ROOM_PANEL = {
   autonomy: { guided: "질문 기한이 지나면 계속 기다립니다", autonomous: "질문 기한이 지나면 제안한 기본값으로 진행합니다", supervised: "모든 위임을 Director가 먼저 승인합니다" },
 } as const;
 
+/**
+ * 에이전트 메시지 세 층(PRD FR-3.1.2 · SCREEN §4.6 「에이전트 메시지 카드」 · COMPONENTS §9.6 Fold Row · §9.7 View Toggle, v0.19.3).
+ * 대화(content)는 늘 보이고, 작업 내용(detail)·작업 과정(활동 피드)은 접힌 줄 하나로 시작한다. 수가 드는 말은 두 토막(Slotted)이다.
+ */
+export const MESSAGE_LAYERS = {
+  detail: "작업 내용",
+  process: "작업 과정",
+  /** 화면이 나눈 경우(폴백)만 — 흐린 기울임. 에이전트가 나눈 것과 구분돼야 사람이 브리프를 의심할 수 있다. */
+  auto_folded: "자동으로 접음",
+  view_label: "보기",
+  view_group: "타임라인 보기",
+  view_conversation: "대화만",
+  view_detail: "작업 내용 펼침",
+  open_window: "새 창으로 보기",
+  chars: ["", "자"] as Slotted,
+  chars_man: ["", "만 자"] as Slotted,
+  tables: ["표 ", "개"] as Slotted,
+  failures: ["실패 ", ""] as Slotted,
+  /** 작업 과정 요약 — 「활동 피드 없음」(SCREEN §7)과 같은 규약: 구조화 이벤트 미지원이면 그 사실을, 아니면 「대기 중」. */
+  process_loading: "불러오는 중…",
+  process_waiting: "대기 중…",
+  process_unstructured: "도구 단위 기록 없음",
+  process_no_actions: "도구·파일·플랫폼 조작 없음",
+  duration_sec: ["", "초"] as Slotted,
+  duration_min: ["", "분"] as Slotted,
+  duration_hour: ["", "시간"] as Slotted,
+  artifact: "아티팩트",
+  artifact_version: ["v", ""] as Slotted,
+  artifact_open: "열기",
+} as const;
+
+/**
+ * 작업 과정 요약의 동작 이름 — task_event `class/verb`(contracts/task_event.schema.json) → 사람 말 + 수. 편집은 **파일 수**(같은 파일을
+ * 여러 번 고쳐도 하나), 나머지는 횟수다. 여기 없는 동작(발화·사고·사용량·턴 생명주기)은 요약에서 세지 않는다 — 펼친 피드에는 그대로 있다.
+ */
+export const PROCESS_ACTION: Record<string, Slotted> = {
+  "tool/edit_file": ["파일 ", "개 편집"],
+  "tool/run_shell": ["셸 명령 ", "회"],
+  "tool/read": ["파일 읽기 ", "회"],
+  "tool/search": ["검색 ", "회"],
+  "tool/use_tool": ["도구 ", "회"],
+  "tool/permission": ["권한 요청 ", "회"],
+  "plan/update": ["계획 갱신 ", "회"],
+  "status/post_message": ["메시지 게시 ", "회"],
+  "status/delegate": ["위임 ", "회"],
+  "status/set_status": ["상태 보고 ", "회"],
+  "status/submit_artifact": ["아티팩트 제출 ", "건"],
+  "status/record_decision": ["결정 기록 ", "건"],
+  "status/hitl": ["사람 확인 요청 ", "건"],
+  "status/review": ["검토 ", "건"],
+};
+
 /** 좁은 화면(≤1100px) 열 탭 넷(§4.8). */
 export const ROOM_TABS = {
   label: "열 전환",

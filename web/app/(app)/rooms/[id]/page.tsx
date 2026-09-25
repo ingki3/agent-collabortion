@@ -16,7 +16,8 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { MessageBody, MessageCard, authorName } from "@/components/MessageCard";
+import { MessageBody, MessageCard, authorName, type MessageLayerSlots } from "@/components/MessageCard";
+import { ArtifactRef, DetailFold, ProcessFold, TimelineViewToggle, type TimelineView } from "@/components/MessageLayers";
 import { Composer, type ComposerAgent, type ComposerInput, type ComposerWarning } from "@/components/Composer";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { LaneBoard } from "@/components/LaneBoard";
@@ -40,6 +41,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
 import { emptyTurnNote, isEmptyTurn } from "@/lib/feed";
 import { useMarkRoomRead } from "@/lib/unread";
+import { isLayered, messageLayers, summarizeProcess, timelineViewKey } from "@/lib/message-layers";
 import {
   BOARD_FOLDED, filterLanes, isAuditView, isOpenWork, matchesSel, needsMe, panelMode, parseSel, pausedLayer, postBlockedBy, sameSel, selParam,
   type ChipSel,
@@ -80,6 +82,32 @@ function writeLocal(key: string, v: unknown) {
   } catch {
     /* 저장 못 해도 화면은 그대로 돈다 */
   }
+}
+/** 메시지 id → 카드에서 따로 펼치거나 접은 층. 없으면 보기 전환을 따른다(작업 내용) · 접힘(작업 과정). */
+type Folds = Record<string, { detail?: boolean; process?: boolean }>;
+/**
+ * 아티팩트 ↔ 메시지 — 계약에 메시지가 가리키는 아티팩트 칸은 없다. 잇는 수단은 `Artifact.submitted_by_task_id` = `Message.source_task_id`
+ * (같은 턴이 제출하고 말했다) 하나뿐이다. 한 턴이 메시지를 여럿 남기면 **제출 시각 이후의 첫 메시지**(없으면 그 턴의 마지막 메시지)에 붙인다
+ * — 「초안을 올렸습니다」는 제출 뒤에 온다.
+ */
+function artifactsByMessage(msgs: Message[], artifacts: Artifact[] | null): Map<string, Artifact[]> {
+  const out = new Map<string, Artifact[]>();
+  if (!artifacts?.length) return out;
+  const byTask = new Map<string, Message[]>();
+  for (const m of msgs) {
+    if (!m.source_task_id || m.author_type !== "agent") continue;
+    const l = byTask.get(m.source_task_id) ?? [];
+    l.push(m);
+    byTask.set(m.source_task_id, l);
+  }
+  for (const a of artifacts) {
+    const l = a.submitted_by_task_id ? byTask.get(a.submitted_by_task_id) : undefined;
+    if (!l?.length) continue;
+    const sorted = [...l].sort(byTime);
+    const at = sorted.find((m) => m.created_at >= a.created_at) ?? sorted[sorted.length - 1];
+    out.set(at.id, [...(out.get(at.id) ?? []), a]);
+  }
+  return out;
 }
 /** `room.updated` 가 싣는 칸(계약 SSE 표 — Room 부분). 보는 사람 모양 칸(my_capabilities 등)은 없다. */
 const ROOM_UPDATED_KEYS = ["name", "description", "status", "visibility", "blocked_reason", "blocked_detail", "last_activity_at"] as const;
@@ -138,6 +166,10 @@ export default function RoomPage() {
   const [picked, setPicked] = useState<PickedRange | null>(null);
   const [pickNonce, setPickNonce] = useState(0);
   const [now, setNow] = useState(Date.now());
+  /** 세 층(FR-3.1.2) — 보기 전환과 카드마다의 펼침. 펼침은 메시지 id 로 여기(방 화면)에 둔다 — 카드가 다시 그려져도 남는다. */
+  const [view, setView] = useState<TimelineView>("conversation");
+  const [folds, setFolds] = useState<Folds>({});
+  const requestedEvents = useRef(new Set<string>());
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -153,6 +185,10 @@ export default function RoomPage() {
   useEffect(() => {
     setPanelOpen(readLocal(`colab.room.${roomId}.panel`, false));
     setBoardOpen(new Set(readLocal<LaneStatus[]>(`colab.room.${roomId}.board`, [])));
+  }, [roomId]);
+  useEffect(() => {
+    setView(readLocal<string>(timelineViewKey(roomId), "conversation") === "detail" ? "detail" : "conversation");
+    setFolds({});
   }, [roomId]);
   // 칩을 바꾸면 작성창 선택기는 다시 칩을 따른다.
   useEffect(() => setComposerPick(null), [sel]);
@@ -294,6 +330,15 @@ export default function RoomPage() {
       setEvents((c) => ({ ...c, [taskId]: { events: [], structured: true, loading: false } }));
     }
   }, []);
+  // 「작업 과정」 접힌 줄의 요약은 펼치기 전부터 보여야 한다(실패 꼬리 포함) — 세 층 메시지의 턴 기록을 한 번씩 읽어 둔다.
+  useEffect(() => {
+    for (const m of [...messages, ...Object.values(replies).flat()]) {
+      const tid = m.source_task_id;
+      if (!tid || !isLayered(m) || requestedEvents.current.has(tid)) continue;
+      requestedEvents.current.add(tid);
+      void loadEvents(tid);
+    }
+  }, [messages, replies, loadEvents]);
   const loadLaneTasks = useCallback(async (laneId: string): Promise<Task[]> => api.get("/lanes/{laneId}/tasks", { path: { laneId } }), []);
   const renderTaskActivity = useCallback((taskId: string) => <TaskActivity taskId={taskId} cache={events} load={loadEvents} />, [events, loadEvents]);
 
@@ -698,6 +743,42 @@ export default function RoomPage() {
     </button>
   );
 
+  /** 보기 전환 — 모든 카드의 「작업 내용」 기본을 바꾸고, 카드마다 따로 펼치거나 접은 작업 내용은 비운다(전환이 「전부」를 뜻하게). 작업 과정은 건드리지 않는다. */
+  const changeView = (v: TimelineView) => {
+    setView(v);
+    setFolds((cur) => {
+      const n: Folds = {};
+      for (const [id, f] of Object.entries(cur)) if (f.process !== undefined) n[id] = { process: f.process };
+      return n;
+    });
+    writeLocal(timelineViewKey(roomId), v);
+  };
+  const toggleFold = (id: string, layer: "detail" | "process", open: boolean) => setFolds((cur) => ({ ...cur, [id]: { ...cur[id], [layer]: !open } }));
+  const artsByMsg = artifactsByMessage([...messages, ...Object.values(replies).flat()], artifacts);
+  /** 메시지(스레드 답글 포함) → 대화 층의 글 + 그 아래 줄들. 세 층이 아닌 메시지는 undefined(본문 그대로). */
+  const layersFor = (m: Message, o: { asAnswer: boolean }): MessageLayerSlots | undefined => {
+    if (!isLayered(m, o)) return undefined;
+    const v = messageLayers(m);
+    const f = folds[m.id];
+    const detailOpen = f?.detail ?? view === "detail";
+    const processOpen = f?.process ?? false;
+    const tid = m.source_task_id;
+    return {
+      body: v.conversation,
+      below: (
+        <>
+          {(artsByMsg.get(m.id) ?? []).map((a) => <ArtifactRef key={a.id} artifact={a} />)}
+          {v.work && <DetailFold messageId={m.id} text={v.work.text} auto={v.work.auto} open={detailOpen} onToggle={() => toggleFold(m.id, "detail", detailOpen)} />}
+          {tid && (
+            <ProcessFold messageId={m.id} summary={summarizeProcess(events[tid])} open={processOpen} onToggle={() => toggleFold(m.id, "process", processOpen)}>
+              <TaskActivity taskId={tid} cache={events} load={loadEvents} />
+            </ProcessFold>
+          )}
+        </>
+      ),
+    };
+  };
+
   const toggleBoard = (s: LaneStatus) => setBoardOpen((cur) => {
     const n = new Set(cur);
     if (n.has(s)) n.delete(s);
@@ -879,6 +960,7 @@ export default function RoomPage() {
 
         <section className="s7__center" aria-label={ROOM_CENTER.timeline}>
           <div className="s7__timeline" data-testid="timeline">
+            <TimelineViewToggle value={view} onChange={changeView} />
             {around && (
               <button type="button" className="btn btn--sm s7__latest" onClick={() => router.replace(selParam(sel) ? `/rooms/${roomId}?work=${selParam(sel)}` : `/rooms/${roomId}`, { scroll: false })} data-testid="to-latest">
                 {ROOM_CENTER.to_latest}
@@ -953,7 +1035,8 @@ export default function RoomPage() {
                     replies={replies[m.id]}
                     onLoadReplies={loadReplies}
                     onReply={(root) => { setRestart(null); setReplyTo({ id: root.id, authorName: authorName(root) }); }}
-                    activity={agentMsg ? <TaskActivity taskId={m.source_task_id!} cache={events} load={loadEvents} /> : undefined}
+                    activity={agentMsg && !isLayered(m) ? <TaskActivity taskId={m.source_task_id!} cache={events} load={loadEvents} /> : undefined}
+                    layers={layersFor}
                     askee={askee}
                     now={now}
                     workLabel={workLabelOf(m.work_id, "message-work-label")}
