@@ -326,10 +326,14 @@ func TestP5UpdateCompletionConditionActive(t *testing.T) {
 	})
 	t.Run("only user_approval left → the platform's request, issued once", func(t *testing.T) {
 		sess := f.oldShapeSession(t, and(atom("artifact_submitted", "agent_id", f.w), atom("agent_approval")))
-		wTok, _ := f.agentToken(t, sess, f.wUUID, "W")
+		wTok, wTask := f.agentToken(t, sess, f.wUUID, "W")
 		if st, out := f.submit(t, sess, wTok, "a.md", "doc", []byte("a")); st != 201 {
 			t.Fatalf("submit = %d %v", st, out)
 		}
+		// T-APPROVAL: the mission's work is over before the change — a live
+		// or queued turn would hold the request (t_approval_test.go).
+		f.endTurn(t, wTask)
+		f.settleWork(t, f.missionOf(t, sess)) // the submission woke Lead (queued)
 		if n := f.openHitls(t, sess); n != 0 {
 			t.Fatalf("open user_approval before the change = %d", n)
 		}
