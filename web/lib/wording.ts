@@ -226,6 +226,15 @@ export const EMPTY_TURN = {
   kind: "정보",
 } as const;
 
+/**
+ * 활동 피드 줄의 꼬리(T-FEED 2026-09-25). started 줄은 **도는 턴**에서만 「진행 중…」이고, 턴·task 가 끝났는데 짝(ok/failed)이
+ * 끝내 안 온 줄은 「결과 없음」(중립 — 실패로 단정하지 않는다). 판정은 `lib/feed.ts` `pendingJudge`.
+ */
+export const FEED_ROW = {
+  pending: "진행 중…",
+  unresolved: "결과 없음",
+} as const;
+
 // ── 방(v0.19, T-R2-W1) — S5 방 목록 · S25 방 찾기 · S18 방 만들기(SCREEN §4.3·§4.4·§4.5) ──
 //
 // **수를 문장에 보간하지 않는다**(COMPONENTS §8.5 v0.19) — 「진행 중인 미션 **2**」·「미션 **2**개가 진행 중입니다」의 수는 슬롯이다.
@@ -692,6 +701,11 @@ export const MESSAGE_LAYERS = {
   artifact: "아티팩트",
   artifact_version: ["v", ""] as Slotted,
   artifact_open: "열기",
+  /**
+   * 「작업 중」 줄(T-FEED B, SCREEN §4.6 v0.19.6) — 턴이 도는 동안 마지막 메시지 뒤의 작업을 타임라인 맨 아래 한 줄로.
+   * 「@Lead 작업 중 · 셸 명령 12회 · 파일 3개 편집 · 17분 ▸」. 에이전트 이름은 화면이 끼운다. 턴이 끝나면 줄이 사라지고 그 조각은 마지막 메시지의 작업 과정으로 간다.
+   */
+  working: "작업 중",
 } as const;
 
 /**
