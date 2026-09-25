@@ -294,28 +294,39 @@ func (s *Service) ApplyWorkEvent(ctx context.Context, workID uuid.UUID, ev Event
 			held, out.HitlIssued, out.ApprovalHeld = true, false, true
 		}
 	}
-	// The mark is what tells a held request from one the Director turned
-	// down (E6-04: a rejection re-asks nothing) — only a mark set here is
-	// released later. Every event that re-read the whole tree rewrites it
-	// (held → set, anything else → cleared: the request opened, the tree no
-	// longer asks for one, or the mission completed). The events that return
-	// early — a rejection, a budget stop — never re-read it and leave the
-	// mark alone, so a hold survives a budget pause and is released when the
-	// resumed work ends.
-	switch ev.Kind {
-	case "review_reject", "director_reject", "budget_exhausted":
-	default:
+	// The mark is what tells a held request from one the Director turned down
+	// (E6-04: a rejection re-asks nothing) — only a mark set here is released
+	// later. It is rewritten ONLY by an event that actually re-read the
+	// approval (`approvalAsk`) or by the mission completing:
+	//
+	//   · held        → set (the request waits for the mission's work)
+	//   · asked, open → cleared (the Director has the card)
+	//   · completed   → cleared (there is nothing left to ask)
+	//
+	// Every other event leaves it alone. T-APPROVAL (E): a second submission
+	// while a hold stands asks nothing (`advanced` is false — the atom was
+	// already met), and if it rewrote the mark it would ERASE the hold; the
+	// mission would then wait forever for a request nobody would open.
+	if approvalAsk || out.SessionState == "completed" {
 		if _, err := tx.Exec(ctx, `
 			UPDATE work SET approval_held_at = CASE WHEN $2 THEN COALESCE(approval_held_at, $3) END WHERE id = $1`,
 			workID, held, now); err != nil {
 			return nil, fmt.Errorf("sessions: approval hold: %w", err)
 		}
 	}
+	var hitlID uuid.UUID
+	var question string
 	if out.HitlIssued {
 		// FR-2.2: user_approval and the budget question are issued BY THE
 		// PLATFORM, so task_id stays empty and source is `system` (§7).
-		var hitlID uuid.UUID
-		question := "종료 조건이 모두 충족되었습니다. 승인하시겠습니까?"
+		//
+		// T-APPROVAL (E): the INSERT is the last of three guards against a
+		// second open approval for one mission. The other two are the
+		// `advanced` test in ApplyEvent (nothing changed → nothing to ask) and
+		// the open-request read above; this one is the partial unique index
+		// `hitl_request_one_open_user_approval_per_work`, which is what holds
+		// when two submissions land at the same instant.
+		question = "종료 조건이 모두 충족되었습니다. 승인하시겠습니까?"
 		// 0012: `purpose` is what tells the three platform-issued approvals
 		// apart afterwards. They share source=system, type=approval and an
 		// empty task_id, so respondHitlRequest would otherwise have to read the
@@ -324,12 +335,24 @@ func (s *Service) ApplyWorkEvent(ctx context.Context, workID uuid.UUID, ev Event
 		if ev.Kind == "budget_exhausted" {
 			question, purpose = "예산 상한에 도달했습니다. 계속 진행할까요?", "budget"
 		}
-		if err := tx.QueryRow(ctx, `
+		// The INSERT is skipped when the index says one is already open
+		// (`ON CONFLICT DO NOTHING` + no row back): another writer got there
+		// between the read above and here, and the Director has the card they
+		// need. One question, answered once.
+		err := tx.QueryRow(ctx, `
 			INSERT INTO hitl_request (session_id, task_id, source, type, question, approver_spec, purpose, due_at, created_at, work_id)
-			VALUES ($1, NULL, 'system', 'approval', $2, 'director', $3, $4, $5, $6) RETURNING id`,
-			sessionID, question, purpose, now.Add(24*time.Hour), now, workID).Scan(&hitlID); err != nil {
+			VALUES ($1, NULL, 'system', 'approval', $2, 'director', $3, $4, $5, $6)
+			ON CONFLICT DO NOTHING
+			RETURNING id`,
+			sessionID, question, purpose, now.Add(24*time.Hour), now, workID).Scan(&hitlID)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			out.HitlIssued = false
+		case err != nil:
 			return nil, fmt.Errorf("sessions: approval hitl: %w", err)
 		}
+	}
+	if out.HitlIssued && hitlID != uuid.Nil {
 		// S-45: the timeline card. This request is what E6-01's "⬜ Director
 		// 승인" checkbox waits on, and until now it existed only as an inbox
 		// item — the session timeline the Director is already looking at showed

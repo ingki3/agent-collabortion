@@ -311,3 +311,125 @@ func TestTApprovalAnswerPublishesUpdated(t *testing.T) {
 		t.Fatalf("hitl.updated frames = %v, want the answered completion approval with answered_by", fr["hitl.updated"])
 	}
 }
+
+// ── T-APPROVAL E·F (Lead 추가 범위, 실사용 결함 2건) ─────────────────────────
+//
+// E: 아티팩트가 제출될 때마다 새 승인 요청이 열리고 옛 것은 닫히지 않았다 —
+//    13:41 · 13:45 · 14:04 · 14:08 · 14:21 · 14:30 여섯 건, 그중 다섯이 동시에 open.
+// F: 조건은 「아티팩트 제출(who=assignee → Lead)」인데 **Writer** 의 제출(13:45:38 ·
+//    14:08:59)에도 요청이 열렸다.
+//
+// 원인은 하나다: `ApplyEvent` 의 바닥이 「user_approval 만 남았는가」만 물었다. 그 답은
+// 한 번 참이 되면 사람이 답할 때까지 참이라, 그 뒤 도착하는 **모든** 이벤트가 — 조건을
+// 하나도 움직이지 않은 이벤트까지 — 요청을 다시 발행했다. 고친 뒤에는 트리를 실제로
+// 움직인 이벤트(또는 명시적 재판정)만 묻는다.
+
+// openApprovals is every OPEN platform approval of the mission.
+func (f *p2Fixture) openApprovals(t *testing.T, room string) int {
+	t.Helper()
+	var n int
+	if err := f.pool.QueryRow(t.Context(), `
+		SELECT count(*) FROM hitl_request
+		 WHERE session_id = $1 AND source = 'system' AND purpose = 'user_approval' AND status = 'open'`, room).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// allApprovals counts every approval ever opened for the mission — the measured
+// bug left five OPEN, but even one extra CLOSED row is a question nobody asked.
+func (f *p2Fixture) allApprovals(t *testing.T, room string) int {
+	t.Helper()
+	var n int
+	if err := f.pool.QueryRow(t.Context(), `
+		SELECT count(*) FROM hitl_request
+		 WHERE session_id = $1 AND source = 'system' AND purpose = 'user_approval'`, room).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// E: 제출 3회 → 열린 요청은 하나다(그리고 발행 자체가 한 번이다).
+func TestTApprovalOneOpenRequestPerMissionAcrossSubmissions(t *testing.T) {
+	f := newP2Fixture(t)
+	sess := f.artifactSession(t, and(atom("artifact_submitted", "who", "assignee"), atom("user_approval")))
+	// 토큰은 살아 있어야 제출할 수 있다 — 할 일만 끝난 것으로 둔다(보류 조건 해제).
+	leadTok, _ := f.agentToken(t, sess, f.leadUUID, "Lead")
+	f.settleWork(t, f.missionOf(t, sess))
+	sub := f.srv.Hub.Subscribe(mustUUID(t, f.wsID), nil)
+	defer sub.Close()
+
+	for i, body := range []string{"v1", "v2", "v3"} {
+		if st, out := f.submit(t, sess, leadTok, "game.html", "doc", []byte(body)); st != 201 {
+			t.Fatalf("submit %d = %d %v", i+1, st, out)
+		}
+		if n := f.openApprovals(t, sess); n != 1 {
+			t.Fatalf("제출 %d회 뒤 열린 승인 요청 = %d, want 1 — 실측은 여섯 번 열려 다섯이 동시에 open 이었다", i+1, n)
+		}
+	}
+	if n := f.allApprovals(t, sess); n != 1 {
+		t.Fatalf("발행된 승인 요청 = %d, want 1 — 같은 질문을 다시 묻지 않는다", n)
+	}
+	// 카드도 프레임도 한 번이다 — 타임라인에 같은 카드가 셋 쌓이지 않는다.
+	var cards int
+	if err := f.pool.QueryRow(t.Context(), `SELECT count(*) FROM message WHERE session_id = $1 AND kind = 'hitl'`, sess).Scan(&cards); err != nil {
+		t.Fatal(err)
+	}
+	if cards != 1 {
+		t.Fatalf("타임라인 hitl 카드 = %d, want 1", cards)
+	}
+	assertCreatedFrame(t, hitlFrames(sub), sessions.CondUserApproval)
+}
+
+// F: 지정되지 않은 에이전트(Writer)의 제출은 조건을 충족시키지도, 요청을 열지도 않는다.
+func TestTApprovalNonDesignatedSubmitDoesNotReopen(t *testing.T) {
+	f := newP2Fixture(t)
+	sess := f.artifactSession(t, and(atom("artifact_submitted", "who", "assignee"), atom("user_approval")))
+	// 아직 아무도 제출하지 않았다 — Writer 가 먼저 낸다(E6-02: 저장은 되고 충족은 안 된다).
+	wTok, _ := f.agentToken(t, sess, f.wUUID, "W")
+	leadTok, _ := f.agentToken(t, sess, f.leadUUID, "Lead")
+	f.settleWork(t, f.missionOf(t, sess))
+	if st, out := f.submit(t, sess, wTok, "play-guide.md", "doc", []byte("가이드")); st != 201 {
+		t.Fatalf("writer submit = %d %v", st, out)
+	}
+	if n := f.allApprovals(t, sess); n != 0 {
+		t.Fatalf("지정되지 않은 에이전트의 제출로 승인 요청 %d 건 — want 0 (E6-02)", n)
+	}
+
+	// 담당(Lead)이 내면 그때 하나 열린다.
+	if st, out := f.submit(t, sess, leadTok, "game.html", "doc", []byte("v1")); st != 201 {
+		t.Fatalf("lead submit = %d %v", st, out)
+	}
+	if n := f.openApprovals(t, sess); n != 1 {
+		t.Fatalf("담당 제출 뒤 열린 승인 요청 = %d, want 1", n)
+	}
+
+	// 그 뒤 Writer 가 또 내도 늘지 않는다 — 실측에서 14:08:59 Writer v2 가 또 열었다.
+	if st, out := f.submit(t, sess, wTok, "play-guide.md", "doc", []byte("가이드 v2")); st != 201 {
+		t.Fatalf("writer submit v2 = %d %v", st, out)
+	}
+	if n := f.allApprovals(t, sess); n != 1 {
+		t.Fatalf("Writer 재제출 뒤 승인 요청 = %d, want 1", n)
+	}
+}
+
+// 바닥 자물쇠 — 판정·조회를 지나쳐도 DB 가 두 번째 open 을 거부한다(경합).
+func TestTApprovalOneOpenPerWorkIsEnforcedByTheIndex(t *testing.T) {
+	f := newP2Fixture(t)
+	hitl := f.issueCompletionApproval(t)
+	_ = hitl
+	var workID uuid.UUID
+	if err := f.pool.QueryRow(t.Context(), `SELECT id FROM work WHERE room_id = $1`, mustUUID(t, f.sessionID)).Scan(&workID); err != nil {
+		t.Fatal(err)
+	}
+	_, err := f.pool.Exec(t.Context(), `
+		INSERT INTO hitl_request (session_id, task_id, source, type, question, approver_spec, purpose, due_at, created_at, work_id)
+		VALUES ($1, NULL, 'system', 'approval', '두 번째', 'director', 'user_approval', now() + interval '1 day', now(), $2)`,
+		f.sessionID, workID)
+	if err == nil {
+		t.Fatal("두 번째 open user_approval 이 들어갔다 — 부분 유니크 인덱스가 막아야 한다")
+	}
+	if !contains(err.Error(), "hitl_request_one_open_user_approval_per_work") {
+		t.Fatalf("거부 이유 = %v, want the partial unique index", err)
+	}
+}
