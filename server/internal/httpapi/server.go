@@ -176,8 +176,13 @@ func NewServer(d Deps) *Server {
 func (s *Server) Handler() http.Handler {
 	api := gen.HandlerWithOptions(s, gen.StdHTTPServerOptions{
 		BaseURL: BasePath,
-		ErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
-			writeProblem(w, validationFromBind(err))
+		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			p := validationFromBind(err)
+			if isTaskCaller(r.Context()) {
+				// T-AGENTFIX B5: an agent has no screen to refresh.
+				p = agentBindProblem(r, p, err)
+			}
+			writeProblem(w, p)
 		},
 	})
 	mux := http.NewServeMux()

@@ -65,8 +65,12 @@ func (s *Server) idempotentSeq(ctx context.Context, w http.ResponseWriter, scope
 		Scan(&storedHash, &storedStatus, &stored)
 	if err == nil {
 		if storedHash != reqHash {
+			detail := "같은 요청 키로 다른 내용을 보냈습니다 — 화면을 새로고침한 뒤 다시 시도해 주세요"
+			if isTaskCaller(ctx) {
+				detail = agentIdempotencyReused // T-AGENTFIX B5
+			}
 			writeProblem(w, &Problem{Status: http.StatusUnprocessableEntity, Code: "idempotency_key_reused", Title: apperr.Title(http.StatusUnprocessableEntity),
-				Detail: "같은 요청 키로 다른 내용을 보냈습니다 — 화면을 새로고침한 뒤 다시 시도해 주세요"})
+				Detail: detail})
 			return
 		}
 		w.Header().Set("Idempotent-Replayed", "true")
