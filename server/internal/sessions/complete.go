@@ -260,10 +260,14 @@ func (s *Service) ApplyWorkEvent(ctx context.Context, workID uuid.UUID, ev Event
 		}
 	}
 
-	if out.HitlIssued && ev.Kind == EventConditionChanged {
+	approvalAsk := out.HitlIssued && ev.Kind != "budget_exhausted"
+	if approvalAsk {
 		// S-84: a condition change re-reads the tree; if the platform's
 		// user_approval request is already open from before the change, the
-		// Director has one card to answer, not two.
+		// Director has one card to answer, not two. T-APPROVAL: the same for
+		// every other re-read — the release of a held request, and a second
+		// submission while the first request is still open (which is not a
+		// reason to hold either: the Director already has the card).
 		var open bool
 		if err := tx.QueryRow(ctx, `
 			SELECT EXISTS (SELECT 1 FROM hitl_request WHERE work_id = $1 AND source = 'system' AND purpose = $2 AND status = 'open')`,
@@ -271,6 +275,41 @@ func (s *Service) ApplyWorkEvent(ctx context.Context, workID uuid.UUID, ev Event
 			return nil, fmt.Errorf("sessions: open approval: %w", err)
 		}
 		out.HitlIssued = !open
+	}
+	held := false
+	if approvalAsk && out.HitlIssued {
+		// T-APPROVAL (Director 2026-09-25): every other atom is met, but the
+		// mission still has work running or waiting — the assignee submitted
+		// v1 and said it keeps integrating. Asking "종료 조건이 모두
+		// 충족되었습니다. 승인하시겠습니까?" now asks the Director to close
+		// work that is still moving. The request is HELD; the last task's end
+		// (ReleaseHeldApproval) re-reads the tree and opens it then.
+		// Other atoms (agent_approval, criteria_met) are untouched: only the
+		// platform's user_approval request waits.
+		busy, err := missionBusy(ctx, tx, workID)
+		if err != nil {
+			return nil, err
+		}
+		if busy {
+			held, out.HitlIssued, out.ApprovalHeld = true, false, true
+		}
+	}
+	// The mark is what tells a held request from one the Director turned
+	// down (E6-04: a rejection re-asks nothing) — only a mark set here is
+	// released later. Every event that re-read the whole tree rewrites it
+	// (held → set, anything else → cleared: the request opened, the tree no
+	// longer asks for one, or the mission completed). The events that return
+	// early — a rejection, a budget stop — never re-read it and leave the
+	// mark alone, so a hold survives a budget pause and is released when the
+	// resumed work ends.
+	switch ev.Kind {
+	case "review_reject", "director_reject", "budget_exhausted":
+	default:
+		if _, err := tx.Exec(ctx, `
+			UPDATE work SET approval_held_at = CASE WHEN $2 THEN COALESCE(approval_held_at, $3) END WHERE id = $1`,
+			workID, held, now); err != nil {
+			return nil, fmt.Errorf("sessions: approval hold: %w", err)
+		}
 	}
 	if out.HitlIssued {
 		// FR-2.2: user_approval and the budget question are issued BY THE
@@ -296,13 +335,13 @@ func (s *Service) ApplyWorkEvent(ctx context.Context, workID uuid.UUID, ev Event
 		// item — the session timeline the Director is already looking at showed
 		// nothing (SCREEN §4.5). `source_task_id` stays empty: the platform
 		// issued it, no task did.
-		msgID, err := messages.PostHitlCard(ctx, s.Hub, tx, wsID, sessionID, messages.HitlCard{
+		//
+		// T-APPROVAL: AttachHitlCard also publishes `hitl.created` — without it
+		// S7 had the card (message.created) and not the request, and drew a
+		// plain system line with no buttons.
+		if _, err := messages.AttachHitlCard(ctx, s.Hub, tx, wsID, sessionID, hitlID, messages.HitlCard{
 			Type: "approval", Question: question, WorkID: &workID,
-		}, now)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := tx.Exec(ctx, `UPDATE hitl_request SET message_id = $2 WHERE id = $1`, hitlID, msgID); err != nil {
+		}, now); err != nil {
 			return nil, fmt.Errorf("sessions: approval hitl card: %w", err)
 		}
 		out.HitlTaskID = uuid.Nil
@@ -319,7 +358,11 @@ func (s *Service) ApplyWorkEvent(ctx context.Context, workID uuid.UUID, ev Event
 	// before, so an artifact submission moved the bar only on reload (W13).
 	if s.Hub != nil {
 		metRaw, _ := json.Marshal(met)
-		prog, err := progressOf(ctx, tx, sessionID, raw, metRaw, assignee)
+		var heldNow bool
+		if err := tx.QueryRow(ctx, `SELECT approval_held_at IS NOT NULL FROM work WHERE id = $1`, workID).Scan(&heldNow); err != nil {
+			return nil, err
+		}
+		prog, err := progressOf(ctx, tx, sessionID, raw, metRaw, assignee, heldNow)
 		if err != nil {
 			return nil, err
 		}

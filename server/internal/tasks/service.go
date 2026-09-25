@@ -51,6 +51,21 @@ type Service struct {
 	// LanePublish: deriving FR-1.3's status lives in internal/sessions, which
 	// imports this package. nil in unit tests with no hub.
 	ParticipantPublish func(ctx context.Context, q db.DBTX, sessionID, agentID uuid.UUID)
+
+	// AfterSettle runs after a task of mission workID may have stopped
+	// running (finish · cancel · requeue · sweep), outside the task's
+	// transaction. T-APPROVAL: the mission's held user_approval request is
+	// re-read then (sessions.ReleaseHeldApproval). Same hook shape as the two
+	// above — internal/sessions imports this package. nil in unit tests.
+	AfterSettle func(ctx context.Context, workID uuid.UUID)
+}
+
+// settled calls AfterSettle for a task's mission, if it has one.
+func (s *Service) settled(ctx context.Context, workID *uuid.UUID) {
+	if s.AfterSettle == nil || workID == nil {
+		return
+	}
+	s.AfterSettle(ctx, *workID)
 }
 
 func New(pool *pgxpool.Pool, c clock.Clock, t *tokens.Service, h *realtime.Hub) *Service {
@@ -302,13 +317,19 @@ func (s *Service) NotePreviewDrift(ctx context.Context, taskID uuid.UUID, attemp
 // (retryable kinds with attempts left) or fails the task. The attempt's token
 // is revoked either way (daemon-protocol §5, §7).
 func (s *Service) Requeue(ctx context.Context, taskID uuid.UUID, reason contracts.FailureKind, notBefore *time.Time, now time.Time) error {
-	return s.inTx(ctx, func(tx pgx.Tx) error {
+	var workID *uuid.UUID
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
 		t, err := lockTask(ctx, tx, taskID)
 		if err != nil {
 			return err
 		}
+		workID = t.WorkID
 		return s.requeueLocked(ctx, tx, t, reason, notBefore, now)
 	})
+	if err == nil {
+		s.settled(ctx, workID) // a requeue that ran out of attempts failed the task
+	}
+	return err
 }
 
 func (s *Service) requeueLocked(ctx context.Context, tx pgx.Tx, t *Row, reason contracts.FailureKind, notBefore *time.Time, now time.Time) error {
@@ -396,6 +417,12 @@ func (s *Service) requeueLocked(ctx context.Context, tx pgx.Tx, t *Row, reason c
 //   - runtimes silent for 3 minutes → offline
 func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 	n := 0
+	var works []*uuid.UUID
+	defer func() {
+		for _, w := range works {
+			s.settled(ctx, w)
+		}
+	}()
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
 		// §4.1: dispatched and preparing are bounded by 5 minutes from dispatch;
 		// preparing is not a heartbeat subject (§4.2 v0.2, N5).
@@ -413,6 +440,7 @@ func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 			if err := s.applySweep(ctx, tx, t, idleSince(t, now), now); err != nil {
 				return err
 			}
+			works = append(works, t.WorkID)
 			n++
 		}
 		ids, err = collectIDs(tx.Query(ctx, `
@@ -431,6 +459,7 @@ func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 			if err := s.applySweep(ctx, tx, t, idleSince(t, now), now); err != nil {
 				return err
 			}
+			works = append(works, t.WorkID)
 			if rt != nil {
 				if _, err := tx.Exec(ctx, `
 					UPDATE runtime SET status = 'offline', offline_since = COALESCE(offline_since, $2), updated_at = $2
@@ -468,12 +497,13 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 	var final Status
 	var costed bool
 	var wsID, sessionID uuid.UUID
+	var workID *uuid.UUID
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
 		t, err := lockTask(ctx, tx, taskID)
 		if err != nil {
 			return err
 		}
-		wsID, sessionID = t.WorkspaceID, t.SessionID
+		wsID, sessionID, workID = t.WorkspaceID, t.SessionID, t.WorkID
 		if attempt != t.Attempt {
 			var outcome *string
 			if err := tx.QueryRow(ctx, `SELECT outcome FROM task_attempt WHERE task_id = $1 AND attempt = $2`, t.ID, attempt).Scan(&outcome); err == nil && outcome != nil {
@@ -777,6 +807,9 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 		if err := s.rollUpCost(ctx, wsID, sessionID, now); err != nil {
 			return final, err
 		}
+	}
+	if err == nil {
+		s.settled(ctx, workID)
 	}
 	return final, err
 }
@@ -1134,6 +1167,9 @@ func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*
 		out = t
 		return nil
 	})
+	if err == nil && immediate && out != nil {
+		s.settled(ctx, out.WorkID)
+	}
 	return out, immediate, err
 }
 

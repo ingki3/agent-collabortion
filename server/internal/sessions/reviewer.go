@@ -115,6 +115,9 @@ type agentFact struct {
 type completionFacts struct {
 	Assignee *uuid.UUID
 	Agents   map[uuid.UUID]agentFact
+	// ApprovalHeld is T-APPROVAL's hold: the platform's user_approval request
+	// waits for the mission's running work to end.
+	ApprovalHeld bool
 }
 
 // loadCompletionFacts reads the agents a tree names in one query. An id that
@@ -187,15 +190,16 @@ func blockedReason(c Condition, f completionFacts) *gen.CompletionProgressCondit
 func LoadProgress(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (gen.CompletionProgress, error) {
 	var tree, met []byte
 	var assignee *uuid.UUID
-	err := q.QueryRow(ctx, `SELECT wk.completion_condition, wk.completion_met, wk.assignee_agent_id FROM room s `+LegacyJoin+` WHERE s.id = $1`, sessionID).
-		Scan(&tree, &met, &assignee)
+	var held bool
+	err := q.QueryRow(ctx, `SELECT wk.completion_condition, wk.completion_met, wk.assignee_agent_id, wk.approval_held_at IS NOT NULL FROM room s `+LegacyJoin+` WHERE s.id = $1`, sessionID).
+		Scan(&tree, &met, &assignee, &held)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return gen.CompletionProgress{}, apperr.NotFound("session")
 	}
 	if err != nil {
 		return gen.CompletionProgress{}, err
 	}
-	return progressOf(ctx, q, sessionID, tree, met, assignee)
+	return progressOf(ctx, q, sessionID, tree, met, assignee, held)
 }
 
 // LoadWorkProgress is LoadProgress for one mission (Work.completion_progress).
@@ -204,24 +208,29 @@ func LoadWorkProgress(ctx context.Context, q db.DBTX, workID uuid.UUID) (gen.Com
 	var tree, met []byte
 	var assignee *uuid.UUID
 	var roomID uuid.UUID
-	err := q.QueryRow(ctx, `SELECT room_id, completion_condition, completion_met, assignee_agent_id FROM work WHERE id = $1`, workID).
-		Scan(&roomID, &tree, &met, &assignee)
+	var held bool
+	err := q.QueryRow(ctx, `SELECT room_id, completion_condition, completion_met, assignee_agent_id, approval_held_at IS NOT NULL FROM work WHERE id = $1`, workID).
+		Scan(&roomID, &tree, &met, &assignee, &held)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return gen.CompletionProgress{}, apperr.NotFound("work")
 	}
 	if err != nil {
 		return gen.CompletionProgress{}, err
 	}
-	return progressOf(ctx, q, roomID, tree, met, assignee)
+	return progressOf(ctx, q, roomID, tree, met, assignee, held)
 }
 
 // progressOf is LoadProgress for a caller that already holds the columns
 // (sessions.Load reads them in its one SELECT).
-func progressOf(ctx context.Context, q db.DBTX, sessionID uuid.UUID, tree, met []byte, assignee *uuid.UUID) (gen.CompletionProgress, error) {
+//
+// held is work.approval_held_at IS NOT NULL (T-APPROVAL): the user_approval
+// row then says why no request is open yet (held_reason).
+func progressOf(ctx context.Context, q db.DBTX, sessionID uuid.UUID, tree, met []byte, assignee *uuid.UUID, held bool) (gen.CompletionProgress, error) {
 	facts, err := loadCompletionFacts(ctx, q, sessionID, ParseTree(tree), assignee)
 	if err != nil {
 		return gen.CompletionProgress{}, err
 	}
+	facts.ApprovalHeld = held
 	return buildProgress(tree, met, facts), nil
 }
 
@@ -301,6 +310,7 @@ func describe(c Condition, path string, met bool, f completionFacts) progressCon
 		AgentId:       nullable.NewNullNullable[openapi_types.UUID](),
 		AgentName:     nullable.NewNullNullable[string](),
 		BlockedReason: nullable.NewNullNullable[gen.CompletionProgressConditionsBlockedReason](),
+		HeldReason:    nullable.NewNullNullable[gen.CompletionProgressConditionsHeldReason](),
 		NextActor:     nullable.NewNullNullable[string](),
 	}
 	var name string
@@ -327,6 +337,12 @@ func describe(c Condition, path string, met bool, f completionFacts) progressCon
 		}
 	case CondUserApproval, CondManual:
 		row.NextActor = nullable.NewNullableWithValue(NextActorDirector)
+		if c.Type == CondUserApproval && f.ApprovalHeld {
+			// T-APPROVAL: the other atoms are met, the request is held until
+			// the mission's work ends (openapi v0.3.3). next_actor stays the
+			// Director's — it is still theirs to answer, just not yet.
+			row.HeldReason = nullable.NewNullableWithValue(gen.CompletionProgressConditionsHeldReason(HeldRunningTasks))
+		}
 	case CondCriteriaMet:
 		row.NextActor = nullable.NewNullableWithValue(NextActorPlatform)
 	}

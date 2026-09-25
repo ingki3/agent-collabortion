@@ -124,10 +124,13 @@ type Outcome struct {
 	PauseReason  string
 	MetAtoms     []string
 
-	HitlIssued  bool
-	HitlSource  string // "system" for a platform-issued request
-	HitlTaskID  uuid.UUID
-	SummaryMsgs int
+	HitlIssued bool
+	HitlSource string // "system" for a platform-issued request
+	// ApprovalHeld is T-APPROVAL: the user_approval request was due but the
+	// mission still had work running, so it was held (ApplyWorkEvent).
+	ApprovalHeld bool
+	HitlTaskID   uuid.UUID
+	SummaryMsgs  int
 
 	DecisionRecorded bool
 	RejectReason     string
@@ -204,6 +207,9 @@ func ApplyEvent(t Tree, st State, ev Event) Outcome {
 		o.HitlIssued, o.HitlSource = true, "system"
 		o.MetAtoms = atoms(met)
 		return o
+	case EventTasksSettled:
+		// T-APPROVAL: the held mission's work ended. Like a condition
+		// change, nothing is satisfied — the tree is read again below.
 	case EventConditionChanged:
 		// S-84: the Director replaced the tree (updateSession, active·paused).
 		// No atom is satisfied by that; the atoms already met stay met (openapi

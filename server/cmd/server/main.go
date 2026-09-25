@@ -128,6 +128,13 @@ func scheduler(ctx context.Context, srv *httpapi.Server, log interface {
 			} else if n > 0 {
 				log.Info("hitl deadlines handled", "n", n)
 			}
+			// T-APPROVAL: a held completion approval whose mission's work
+			// ended inside another transaction (room block, kill switch).
+			if n, err := srv.Sessions.ReleaseHeldApprovals(ctx); err != nil {
+				log.Warn("held approval sweep", "err", err)
+			} else if n > 0 {
+				log.Info("held completion approvals opened", "n", n)
+			}
 			// FR-2A.3 (T-R1b2): a mission past its `limits.time_limit` is
 			// paused `time` and its Director asked whether to go on.
 			if n, err := srv.SweepWorkTimeLimits(ctx); err != nil {
