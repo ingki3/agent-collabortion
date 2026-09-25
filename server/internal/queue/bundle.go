@@ -89,6 +89,9 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		BudgetUSD *float64 `json:"budget_usd"`
 	}
 	_ = json.Unmarshal(limitsJSON, &limits)
+	// harness §10 v0.9.6: every sentence below that names a colab command is
+	// in the words of this runtime's tool surface.
+	surf := SurfaceFor(runtimeKind)
 
 	// Roster (brief [5])
 	rows, err := tx.Query(ctx, `
@@ -127,7 +130,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	// and the artifact table were both written from P2 on and nothing read
 	// them back into a prompt, so every turn re-derived what had already been
 	// decided from the raw history.
-	sessionContext, err := briefContext(ctx, tx, t.SessionID)
+	sessionContext, err := briefContext(ctx, tx, t.SessionID, surf)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +185,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		if root != uuid.Nil {
 			thread = fmt.Sprintf(" thread=%q", root)
 		}
-		fmt.Fprintf(&trigger, "<message id=%q author=%q at=%q%s>\n%s\n%s</message>\n", m.ID, authorLabel(m), m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"), thread, m.Content, triggerDetail(m, fullDetail[m.ID]))
+		fmt.Fprintf(&trigger, "<message id=%q author=%q at=%q%s>\n%s\n%s</message>\n", m.ID, authorLabel(m), m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"), thread, m.Content, triggerDetail(m, fullDetail[m.ID], surf))
 		// Arrival order breaks a tie: the list is already in it.
 		if !m.CreatedAt.Before(latest) {
 			latest = m.CreatedAt
@@ -204,7 +207,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		// line by line against what the session actually holds (S-36). Only a
 		// trigger whose 작업 내용 went in whole points down to <trigger>; one
 		// demoted by the turn budget reads like any other history line.
-		fmt.Fprintf(&hist, "[%s] %s %s: %s\n%s", m.CreatedAt.UTC().Format("15:04"), m.ID, authorLabel(m), m.Content, historyDetail(m, fullDetail[m.ID]))
+		fmt.Fprintf(&hist, "[%s] %s %s: %s\n%s", m.CreatedAt.UTC().Format("15:04"), m.ID, authorLabel(m), m.Content, historyDetail(m, fullDetail[m.ID], surf))
 	}
 
 	// posted is the bundle's `posted_message_ids` (bare ids, §4.1); postedLines
@@ -283,14 +286,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	// Brief [1]~[8] (PRD §8.4).
 	var brief strings.Builder
 	fmt.Fprintf(&brief, "[1] Agent Identity\nYou are %s, %s in the Colab workspace. %s\n\nInstructions:\n%s\n\n", agentName, agentRole, roleDesc, instructions)
-	brief.WriteString("[2] Workspace rules and colab CLI\n" +
-		"- Mention syntax: [@Name](mention://agent/<id>). Only mention session participants listed in [5].\n" +
-		"- Post every reply to the session with `colab message post --body \"<text>\"` (or the colab_message_post MCP tool). Text you print to stdout is NOT delivered.\n" +
-		"- Read more history with `colab room messages`, room details with `colab room get`.\n" +
-		"- " + DetailRule + "\n" +
-		"- " + DeliverableRule + "\n" +
-		"- Mentioning an agent creates work for it; do not mention agents just to acknowledge.\n" +
-		"- Your COLAB_TASK_TOKEN is valid for this attempt only; if a call returns token_revoked, stop immediately.\n\n")
+	brief.WriteString(surf.Section2())
 	if agentRole == "lead" {
 		// §8.4 marks [3] "(lead만)". A researcher handed the coordination
 		// protocol starts handing out work to the roster it can see, which is
@@ -299,7 +295,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 			"- You are the lead. Split the goal into pieces and hand each one to the agent in [5] whose role fits it, by mentioning that agent.\n" +
 			"- One mention is one unit of work: do not mention an agent to acknowledge, and do not mention two agents for the same piece.\n" +
 			"- Wait for a reply before handing out work that depends on it; independent pieces go out together.\n" +
-			"- When a decision needs a person, ask with `colab hitl ask` rather than guessing; the answer comes back in the next turn's `<resumed>`.\n" +
+			surf.HitlAskLine +
 			"- Report to the Director yourself; the other agents report to you.\n\n")
 	}
 	// [4] 방 맥락 (harness §10 v0.9.0, PRD FR-4.1): the room, and the mission
@@ -347,18 +343,18 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	renderResumedSection(&prompt, plan, t.Attempt, prevOutcome, postedLines, answered)
 	// ① — with FR-4.1's one line at its head when it dropped something (Lead
 	// T-R3b 판정 3) — then ② and ③, then the mission's progress (판정 1).
-	prompt.WriteString(truncationNote(plan.HistoryTotal-plan.HistoryIncluded, roomHist, missionID != nil))
+	prompt.WriteString(truncationNote(plan.HistoryTotal-plan.HistoryIncluded, roomHist, missionID != nil, surf))
 	fmt.Fprintf(&prompt, "<history included=%d total=%d truncated=%t>\n%s</history>\n\n",
 		plan.HistoryIncluded, plan.HistoryTotal, plan.HistoryTruncated, hist.String())
-	renderRoomHistoryTail(&prompt, missionID, roomHist)
+	renderRoomHistoryTail(&prompt, missionID, roomHist, surf)
 	prompt.WriteString(renderMissionProgress(room.Mission, progress.Met, progress.Total, progress.Satisfied))
 	fmt.Fprintf(&prompt, "<roster_status>\n%s</roster_status>\n\n", rosterStatus.String())
 	// A re-instruction's trigger IS the new instruction, and `<resumed>` is
 	// absent above — so the same rendering serves both (§8.4, E8-06).
 	fmt.Fprintf(&prompt, "<trigger>\n%s</trigger>\n\n", trigger.String())
-	prompt.WriteString("Respond to the trigger. Post your reply with `colab message post`; mention the person or agent you are answering when a reply is expected.\n")
+	prompt.WriteString(surf.Respond)
 	if threadRootID != "" {
-		prompt.WriteString(ThreadReplyInstruction + "\n")
+		prompt.WriteString(surf.ThreadReply + "\n")
 	}
 
 	transport := contracts.BriefACPMetaSystemPrompt
@@ -539,13 +535,6 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	return b, nil
 }
 
-// ThreadReplyInstruction is harness §10 v0.9.3's closing line for a turn that
-// started in a thread: 「스레드로 들어온 메시지에는 그 스레드에 답한다 —
-// `colab message post` 는 기본으로 그 스레드에 답글을 단다. 메인 타임라인에
-// 올려야 할 때만 `--top-level`」. Only a threaded turn gets it — a top-level
-// turn has no COLAB_THREAD_ID and nothing to choose between.
-const ThreadReplyInstruction = "A trigger message with a `thread` attribute was posted in that thread: answer in the thread. `colab message post` replies to that thread by default; add `--top-level` only when the reply belongs on the main timeline."
-
 // threadRootOf is the root of the thread m sits in, uuid.Nil for a top-level
 // message. The router already stores a reply to a reply against the root, but
 // message.parent_id is a tree (#294 NN5), so the walk goes to the top rather
@@ -644,16 +633,6 @@ func deref(p *string) string {
 	return *p
 }
 
-// DetailRule and DeliverableRule are brief [2]'s 「대화와 작업 내용」 lines
-// (harness §10 v0.9.4, PRD FR-3.1.2). They are constants — [2] must stay
-// byte-identical between two turns of the same room (E12-11). The deliverable
-// line stands alone so the daemon's role filter (harness v0.8.10) drops only
-// it for a role without `artifact submit`.
-const (
-	DetailRule      = "`--body` is the conversation: who it is for, what, the conclusion and the next step, about five lines. Research results, full drafts and tables go in `--detail` (or `--detail-file <path>`; the colab_message_post tool's `detail`) — the screen folds them under the conversation, and the agent you hand the work to reads them in full."
-	DeliverableRule = "A final deliverable is not a message: submit it with `colab artifact submit`, and say in `--body` that it is there instead of pasting it again."
-)
-
 // historyDetailPreview is how much of another message's 작업 내용 a
 // `<history>` line carries (harness §10 v0.9.4): enough to know what is in
 // it, with the command that reads the rest.
@@ -701,12 +680,12 @@ func triggerDetailBudget(ms []*messages.Row) map[uuid.UUID]bool {
 // triggerDetail is a trigger message's 작업 내용 (harness §10 v0.9.4): in
 // full, so the agent handed the work reads the whole result it was handed —
 // unless the turn budget (v0.9.5) demoted it to the `<history>` shape.
-func triggerDetail(m *messages.Row, full bool) string {
+func triggerDetail(m *messages.Row, full bool, surf Surface) string {
 	if m.Detail == nil {
 		return ""
 	}
 	if !full {
-		return historyDetail(m, false)
+		return historyDetail(m, false, surf)
 	}
 	return "<detail>\n" + strings.TrimRight(*m.Detail, "\n") + "\n</detail>\n"
 }
@@ -716,7 +695,7 @@ func triggerDetail(m *messages.Row, full bool) string {
 // and the command that reads it in full. A detail that fits is carried whole
 // and needs no pointer. A trigger message's detail is already in `<trigger>`
 // in full, so its history line only points there.
-func historyDetail(m *messages.Row, inTrigger bool) string {
+func historyDetail(m *messages.Row, inTrigger bool, surf Surface) string {
 	if m.Detail == nil {
 		return ""
 	}
@@ -727,8 +706,8 @@ func historyDetail(m *messages.Row, inTrigger bool) string {
 	if len(r) <= historyDetailPreview {
 		return fmt.Sprintf("<detail of=%q>\n%s\n</detail>\n", m.ID.String(), strings.TrimRight(string(r), "\n"))
 	}
-	return fmt.Sprintf("<detail of=%q>\n%s…\n</detail>\n  (작업 내용 %d자 — `colab room messages --thread %s` 로 전문)\n",
-		m.ID.String(), string(r[:historyDetailPreview]), len(r), m.ID)
+	return fmt.Sprintf("<detail of=%q>\n%s…\n</detail>\n  (작업 내용 %d자 — %s 로 전문)\n",
+		m.ID.String(), string(r[:historyDetailPreview]), len(r), surf.ThreadRead(m.ID.String()))
 }
 
 // preview is the first n characters of one line of text — enough for a person
@@ -749,7 +728,7 @@ func preview(content string, n int) string {
 // artifacts are named, not inlined — the agent fetches the one it needs with
 // `colab artifact get`, and a brief that carries file bodies stops being
 // cacheable.
-func briefContext(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, error) {
+func briefContext(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, surf Surface) (string, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT DISTINCT ON (name) name, type, version, COALESCE(description, '')
 		FROM artifact WHERE session_id = $1
@@ -778,7 +757,7 @@ func briefContext(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, 
 	// cap. This is what "이전 세션 요약 (설정 상한 내)" means, and it is why the
 	// wizard offers `type: session` context at all — without it, attaching a
 	// previous session did nothing to the brief.
-	reuse, err := reusedSessionSummaries(ctx, tx, sessionID)
+	reuse, err := reusedSessionSummaries(ctx, tx, sessionID, surf)
 	if err != nil {
 		return "", err
 	}
@@ -787,7 +766,7 @@ func briefContext(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, 
 	}
 	var out strings.Builder
 	if b.Len() > 0 {
-		out.WriteString("Artifacts submitted in this session (read one with `colab artifact get <name>`):\n")
+		out.WriteString(surf.ArtifactsHeader)
 		out.WriteString(b.String())
 	}
 	if reuse != "" {
@@ -809,7 +788,7 @@ func briefContext(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, 
 //
 // The policy is the session's own override when it has one, else the
 // workspace's (openapi Session.context_reuse_override · WorkspaceSettings).
-func reusedSessionSummaries(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, error) {
+func reusedSessionSummaries(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, surf Surface) (string, error) {
 	var raw []byte
 	if err := tx.QueryRow(ctx, `
 		SELECT COALESCE(s.context_reuse_override, ws.context_reuse, '{}'::jsonb)
@@ -869,9 +848,9 @@ func reusedSessionSummaries(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID)
 			IncludeArtifacts:    include,
 			ArtifactCount:       artifacts,
 		})
-		out.WriteString(sessions.ReuseSection(title, summary, plan))
+		out.WriteString(sessions.ReuseSection(title, summary, plan, surf.RoomMessages))
 		if plan.ArtifactLinks > 0 {
-			fmt.Fprintf(&out, "이전 세션의 아티팩트 %d개 — `colab artifact get <name>` 로 읽어라.\n", plan.ArtifactLinks)
+			fmt.Fprintf(&out, surf.ReuseArtifacts, plan.ArtifactLinks)
 		}
 		out.WriteString("\n")
 	}
