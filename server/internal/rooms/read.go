@@ -459,6 +459,11 @@ func (s *Service) fill(ctx context.Context, q db.DBTX, res *Result, tail int, qu
 			break
 		}
 		budget -= cost
+		// Another room's read is its summary and its conversation, never a
+		// message's 작업 내용 (colab-cli v0.9.2, T-DETAIL-2): the budget above
+		// counts content only, and up to 200,000 characters of detail would
+		// ride along outside it.
+		m.Detail = nil
 		res.Messages = append(res.Messages, m)
 	}
 	reverse(res.Messages)

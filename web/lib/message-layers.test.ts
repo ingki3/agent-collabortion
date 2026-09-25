@@ -128,11 +128,17 @@ describe("splitAuto — 첫 문단(최대 400자)을 대화로, 나머지를 작
   });
 
   it("멘션 링크 한가운데는 자르지 않는다 — 링크 앞으로 당긴다", () => {
-    const pad = "가".repeat(390);
-    const text = pad + " [@Researcher](mention://agent/6f1a) 이어서";
+    // 문장 끝(`. `)이 링크 **안쪽**(이름 「J. Kim」)에 오게 — 링크 앞 공백이 마지막 경계가 아니어서
+    // 「마지막 공백」 규칙과 우연히 같은 자리가 되지 않는다. 회피가 없으면 「[@J.」에서 잘린다.
+    const pad = "가".repeat(380);
+    const link = "[@J. Kim](mention://agent/6f1a)";
+    const text = pad + " " + link + " 이어서 " + "나".repeat(100);
+    expect(text.indexOf(". ")).toBeGreaterThan(pad.length); // 경계는 링크 안
+    expect(text.indexOf(". ")).toBeLessThan(AUTO_HEAD_CHARS);
     const c = cutHead(text);
     expect(c.head).toBe(pad);
-    expect(c.rest.startsWith("[@Researcher](mention://agent/6f1a)")).toBe(true);
+    expect(c.ellipsis).toBe(true);
+    expect(c.rest.startsWith(link)).toBe(true);
   });
 
   it("첫 문단은 5줄까지 — 25줄 넘는 목록은 줄 경계로 나눈다", () => {

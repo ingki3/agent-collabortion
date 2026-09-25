@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -162,11 +164,16 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	var trigger strings.Builder
 	var threadRootID string
 	var latest time.Time
+	var triggerMsgs []*messages.Row
 	for _, id := range triggerIDs {
 		m, err := messages.Get(ctx, tx, id)
 		if err != nil {
 			continue
 		}
+		triggerMsgs = append(triggerMsgs, m)
+	}
+	fullDetail := triggerDetailBudget(triggerMsgs)
+	for _, m := range triggerMsgs {
 		root, err := threadRootOf(ctx, tx, m)
 		if err != nil {
 			return nil, err
@@ -175,7 +182,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		if root != uuid.Nil {
 			thread = fmt.Sprintf(" thread=%q", root)
 		}
-		fmt.Fprintf(&trigger, "<message id=%q author=%q at=%q%s>\n%s\n%s</message>\n", m.ID, authorLabel(m), m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"), thread, m.Content, triggerDetail(m))
+		fmt.Fprintf(&trigger, "<message id=%q author=%q at=%q%s>\n%s\n%s</message>\n", m.ID, authorLabel(m), m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"), thread, m.Content, triggerDetail(m, fullDetail[m.ID]))
 		// Arrival order breaks a tie: the list is already in it.
 		if !m.CreatedAt.Before(latest) {
 			latest = m.CreatedAt
@@ -192,14 +199,12 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	var total int
 	_ = tx.QueryRow(ctx, `SELECT count(*) FROM message WHERE session_id = $1`, t.SessionID).Scan(&total)
 	var hist strings.Builder
-	inTrigger := make(map[uuid.UUID]bool, len(triggerIDs))
-	for _, id := range triggerIDs {
-		inTrigger[id] = true
-	}
 	for _, m := range history {
 		// The id is here so `Messages you already posted` above can be matched
-		// line by line against what the session actually holds (S-36).
-		fmt.Fprintf(&hist, "[%s] %s %s: %s\n%s", m.CreatedAt.UTC().Format("15:04"), m.ID, authorLabel(m), m.Content, historyDetail(m, inTrigger[m.ID]))
+		// line by line against what the session actually holds (S-36). Only a
+		// trigger whose 작업 내용 went in whole points down to <trigger>; one
+		// demoted by the turn budget reads like any other history line.
+		fmt.Fprintf(&hist, "[%s] %s %s: %s\n%s", m.CreatedAt.UTC().Format("15:04"), m.ID, authorLabel(m), m.Content, historyDetail(m, fullDetail[m.ID]))
 	}
 
 	// posted is the bundle's `posted_message_ids` (bare ids, §4.1); postedLines
@@ -654,11 +659,54 @@ const (
 // it, with the command that reads the rest.
 const historyDetailPreview = 400
 
-// triggerDetail is a trigger message's 작업 내용 in full (harness §10
-// v0.9.4): the agent handed the work reads the whole result it was handed.
-func triggerDetail(m *messages.Row) string {
+// triggerDetailTurnLimit is how many characters of 작업 내용 one turn's
+// `<trigger>` carries in full, summed over its coalesced messages (harness
+// §10 v0.9.5): 200,000 per message × N merged triggers must not fill a turn.
+const triggerDetailTurnLimit = 50000
+
+// triggerDetailBudget picks the trigger messages whose 작업 내용 goes in
+// whole (harness §10 v0.9.5): the latest posted first — that is what the turn
+// answers — while the running total stays within triggerDetailTurnLimit. The
+// rest are demoted to the `<history>` shape. Arrival order breaks a tie, the
+// later arrival counting as later.
+func triggerDetailBudget(ms []*messages.Row) map[uuid.UUID]bool {
+	order := make([]int, len(ms))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		ma, mb := ms[order[a]], ms[order[b]]
+		if !ma.CreatedAt.Equal(mb.CreatedAt) {
+			return ma.CreatedAt.After(mb.CreatedAt)
+		}
+		return order[a] > order[b]
+	})
+	full := make(map[uuid.UUID]bool, len(ms))
+	used := 0
+	for _, i := range order {
+		m := ms[i]
+		if m.Detail == nil {
+			continue
+		}
+		n := utf8.RuneCountInString(*m.Detail)
+		if used+n > triggerDetailTurnLimit {
+			continue
+		}
+		used += n
+		full[m.ID] = true
+	}
+	return full
+}
+
+// triggerDetail is a trigger message's 작업 내용 (harness §10 v0.9.4): in
+// full, so the agent handed the work reads the whole result it was handed —
+// unless the turn budget (v0.9.5) demoted it to the `<history>` shape.
+func triggerDetail(m *messages.Row, full bool) string {
 	if m.Detail == nil {
 		return ""
+	}
+	if !full {
+		return historyDetail(m, false)
 	}
 	return "<detail>\n" + strings.TrimRight(*m.Detail, "\n") + "\n</detail>\n"
 }

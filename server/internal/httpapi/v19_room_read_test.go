@@ -418,3 +418,43 @@ func TestWokenTurnInheritsOriginator(t *testing.T) {
 		t.Fatalf("read from an orphan turn = %d %v, want 403 no_originator", st, out)
 	}
 }
+
+// T-DETAIL-2 (#333 NN1, colab-cli v0.9.2): another room's read carries the
+// conversation, never a message's 작업 내용 — the read's token budget counts
+// content only. The same message read in its own room still has it.
+func TestRoomReadCarriesNoDetail(t *testing.T) {
+	f := newRoomReadFixture(t)
+	const secret = "SECRET-DETAIL-b41c"
+	btok, _ := f.agentToken(t, f.b.String(), f.leadUUID, "Lead")
+	f.fake.Advance(time.Second)
+	posted := (&client{t: t, srv: f.api.srv, bearer: btok}).must(201, "POST", f.p+"/rooms/"+f.b.String()+"/messages",
+		map[string]any{"content": "인프라 조사 끝났습니다.", "detail": "| 항목 | 값 |\n|---|---|\n| 비밀 | " + secret + " |"},
+		"Idempotency-Key", uuid.NewString())
+	id := msgID(posted)
+
+	tok, _ := f.agentToken(t, f.sessionID, f.leadUUID, "Lead")
+	f.fake.Advance(time.Second)
+	st, out := f.read(t, tok, f.b, "")
+	if st != 200 {
+		t.Fatalf("read 인프라 = %d %v", st, out)
+	}
+	var found map[string]any
+	for _, raw := range out["messages"].([]any) {
+		if m := raw.(map[string]any); str(m, "id") == id {
+			found = m
+		}
+	}
+	if found == nil || str(found, "content") != "인프라 조사 끝났습니다." {
+		t.Fatalf("the read lacks the message's conversation: %v", out["messages"])
+	}
+	if v, ok := found["detail"]; !ok || v != nil {
+		t.Errorf("read message detail = %v (present %t), want null", v, ok)
+	}
+	if s := asJSON(out); strings.Contains(s, secret) {
+		t.Fatalf("room read carries detail: %s", s)
+	}
+	// Control: the room's own reader still carries it.
+	if d, _ := f.api.must(200, "GET", f.p+"/messages/"+id, nil)["detail"].(string); !strings.Contains(d, secret) {
+		t.Fatalf("getMessage lost the detail: %q", d)
+	}
+}

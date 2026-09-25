@@ -8,6 +8,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -86,8 +87,8 @@ func TestMessageDetailMentionDoesNotRoute(t *testing.T) {
 }
 
 // The message's readers carry detail: postMessage's result, listMessages,
-// getMessage, room read and the `message.created` frame. A person's message
-// has detail null.
+// getMessage and the `message.created` frame. A person's message has detail
+// null. Another room's read does not (TestRoomReadCarriesNoDetail).
 func TestMessageDetailReaders(t *testing.T) {
 	f := newP2Fixture(t)
 	tok, _ := f.agentToken(t, f.sessionID, f.leadUUID, "Lead")
@@ -221,4 +222,91 @@ func TestMessageDetailInBundle(t *testing.T) {
 func asJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// harness §10 v0.9.5 (#333 NN2): one turn's <trigger> carries at most 50,000
+// characters of 작업 내용 in full. Three coalesced triggers of 30,000 each →
+// the latest in full, the two earlier demoted to the <history> shape (first
+// 400 characters + the pointer line), in arrival order, and their history
+// lines no longer point down to <trigger>.
+func TestMessageDetailTriggerTurnBudget(t *testing.T) {
+	f := newP2Fixture(t)
+	tok, first := f.agentToken(t, f.sessionID, f.leadUUID, "Lead")
+	var ids, details []string
+	var task uuid.UUID
+	for i, ch := range []string{"가", "나", "다"} {
+		d := strings.Repeat(ch, 30000)
+		out := f.agentPost(t, tok, map[string]any{"content": router.MentionLink("W", f.wUUID) + fmt.Sprintf(" 조각 %d 입니다.", i+1), "detail": d})
+		tt := f.triggerTask(t, out, f.wUUID)
+		if task != uuid.Nil && tt != task {
+			t.Fatalf("post %d made task %s, want coalesced onto %s", i+1, tt, task)
+		}
+		task = tt
+		ids, details = append(ids, msgID(out)), append(details, d)
+	}
+	f.endTurn(t, first)
+	b := f.claimBundle(t, task)
+
+	i := strings.Index(b.Prompt, "<trigger>\n")
+	if i < 0 {
+		t.Fatalf("no <trigger>:\n%.2000s", b.Prompt)
+	}
+	trigger := b.Prompt[i:]
+	if n := strings.Count(trigger, "<message id="); n != 3 {
+		t.Fatalf("<trigger> carries %d messages, want the 3 coalesced", n)
+	}
+	// The latest in full; the earlier two as preview + pointer.
+	if !strings.Contains(trigger, "<detail>\n"+details[2]+"\n</detail>\n</message>") {
+		t.Fatalf("the latest trigger's detail is not carried in full")
+	}
+	var at []int
+	for k := 0; k < 2; k++ {
+		if strings.Contains(trigger, details[k]) {
+			t.Errorf("trigger %d's 30,000 characters went in whole past the 50,000 turn budget", k+1)
+		}
+		want := "<detail of=\"" + ids[k] + "\">\n" + details[k][:400*3] + "…\n</detail>\n  (작업 내용 30000자 — `colab room messages --thread " + ids[k] + "` 로 전문)\n</message>"
+		j := strings.Index(trigger, want)
+		if j < 0 {
+			t.Fatalf("trigger %d is not demoted to the <history> shape:\n%.3000s", k+1, trigger)
+		}
+		at = append(at, j)
+	}
+	if last := strings.Index(trigger, "<detail>\n"+details[2]); !(at[0] < at[1] && at[1] < last) {
+		t.Errorf("trigger order = %v then %d, want arrival order", at, last)
+	}
+	h := b.Prompt[strings.Index(b.Prompt, "<history"):i]
+	if !strings.Contains(h, "(작업 내용 30000자 — 전문은 아래 <trigger>)") || strings.Count(h, "전문은 아래 <trigger>") != 1 {
+		t.Errorf("history must point to <trigger> for the full one only:\n%.3000s", h)
+	}
+}
+
+// T-DETAIL-2 (#333 NN1): the mission's completion summary and the cards it
+// files (openapi Message.detail: 받은 요청·알림·미션 요약은 이 칸을 쓰지
+// 않는다) carry none of a message's 작업 내용, and neither does a range
+// summary taken afterwards.
+func TestMessageDetailNotInMissionSummary(t *testing.T) {
+	f := newP2Fixture(t)
+	const secret = "SECRET-DETAIL-9e2d"
+	tok, task := f.agentToken(t, f.sessionID, f.leadUUID, "Lead")
+	f.agentPost(t, tok, map[string]any{"content": "조사 끝났습니다. 결론만 적습니다.", "detail": "## 원문\n" + secret})
+	(&client{t: t, srv: f.api.srv, bearer: tok}).must(200, "POST", f.p+"/tasks/"+task.String()+"/status", map[string]any{"status": "done"})
+	f.endTurn(t, task)
+
+	work := f.workID(t)
+	f.fake.Advance(time.Minute)
+	f.api.must(200, "POST", f.p+"/works/"+work.String()+"/complete", map[string]any{"confirm": true})
+	var body string
+	if err := f.pool.QueryRow(t.Context(), `SELECT content FROM message WHERE work_id = $1 AND kind = 'summary' AND summary_range IS NULL`, work).Scan(&body); err != nil {
+		t.Fatalf("no mission summary: %v", err)
+	}
+	if strings.Contains(body, secret) {
+		t.Fatalf("mission summary carries detail:\n%s", body)
+	}
+	if inbox := asJSON(f.api.must(200, "GET", "/api/v1/inbox?workspace_id="+f.wsID, nil)); !strings.Contains(inbox, "work_completed") || strings.Contains(inbox, secret) {
+		t.Fatalf("inbox after completion = %s, want a work_completed card and no detail", inbox)
+	}
+	sum := f.api.must(202, "POST", f.p+"/rooms/"+f.sessionID+"/summaries", map[string]any{"since": t0.Add(-time.Hour).Format(time.RFC3339)})
+	if c := str(sum, "content"); c == "" || strings.Contains(c, secret) {
+		t.Fatalf("range summary = %q, want non-empty and no detail", c)
+	}
 }
