@@ -1376,7 +1376,6 @@ func (s *Server) SweepWorkTimeLimits(ctx context.Context) (int, error) {
 
 func (s *Server) pauseWorkForTime(ctx context.Context, workID uuid.UUID, limit, elapsed time.Duration, now time.Time) (bool, error) {
 	var wk *sessions.WorkRow
-	var hitlOut uuid.UUID
 	paused := false
 	err := s.inSessionTx(ctx, func(tx pgx.Tx) error {
 		status, _, _, err := lockWork(ctx, tx, workID)
@@ -1428,13 +1427,13 @@ func (s *Server) pauseWorkForTime(ctx context.Context, workID uuid.UUID, limit, 
 		if err := sessions.WorkInboxItem(ctx, tx, wk.WorkspaceID, wk.DirectorUserId, inbox.TypeWorkPaused, wk.RoomId, workID, now); err != nil {
 			return err
 		}
-		paused, hitlOut = true, hitlID
+		paused = true
 		return nil
 	})
 	if err != nil || !paused {
 		return false, err
 	}
-	s.publishHitl(ctx, wk.WorkspaceID, wk.RoomId, hitlOut, "hitl.created")
+	// `hitl.created` went out with the card (attachHitlCard, T-APPROVAL).
 	s.afterWorkChange(ctx, wk.WorkspaceID, wk)
 	return true, nil
 }

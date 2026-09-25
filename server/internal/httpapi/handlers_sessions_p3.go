@@ -65,6 +65,8 @@ func (s *Server) closeSessionBudgetHitl(ctx context.Context, tx pgx.Tx, scope ta
 		if _, err := tx.Exec(ctx, `UPDATE inbox_item SET read_at = COALESCE(read_at, $2) WHERE ref_id = $1`, o.id, now); err != nil {
 			return err
 		}
+		// T-APPROVAL: resuming from the mission panel answers the card too.
+		s.publishHitlVia(ctx, tx, uuid.Nil, o.room, o.id, "hitl.updated")
 	}
 	return nil
 }
@@ -84,11 +86,11 @@ func (s *Server) cancelWorkTx(ctx context.Context, tx pgx.Tx, roomID, workID uui
 		roomID, workID).Scan(&others); err != nil {
 		return err
 	}
-	if err := closeOrphanSystemHitl(ctx, tx, workScope(workID), now); err != nil {
+	if err := s.closeOrphanSystemHitl(ctx, tx, workScope(workID), now); err != nil {
 		return err
 	}
 	if others == 0 {
-		if err := closeOrphanSystemHitl(ctx, tx, roomOnlyScope(roomID), now); err != nil {
+		if err := s.closeOrphanSystemHitl(ctx, tx, roomOnlyScope(roomID), now); err != nil {
 			return err
 		}
 		return s.liftOfflineGate(ctx, tx, roomID, now)
@@ -195,7 +197,7 @@ func (s *Server) cancelScopeTasks(ctx context.Context, tx pgx.Tx, scope taskScop
 //
 // K-4: the platform's own open requests lose their premise when the mission
 // ends. They are closed `cancelled`, not answered — nobody decided them.
-func closeOrphanSystemHitl(ctx context.Context, q pgx.Tx, scope taskScopeSQL, now time.Time) error {
+func (s *Server) closeOrphanSystemHitl(ctx context.Context, q pgx.Tx, scope taskScopeSQL, now time.Time) error {
 	rows, err := q.Query(ctx, `
 		UPDATE hitl_request SET status = 'cancelled'
 		WHERE `+scope.col+` = $1 AND status = 'open' AND source = 'system'`+scope.extra+`
@@ -221,6 +223,8 @@ func closeOrphanSystemHitl(ctx context.Context, q pgx.Tx, scope taskScopeSQL, no
 			id, inbox.TypeHitlRequest); err != nil {
 			return err
 		}
+		// T-APPROVAL: the card turns into 「취소됨」 live, not on reload.
+		s.publishHitlVia(ctx, q, uuid.Nil, uuid.Nil, id, "hitl.updated")
 	}
 	return nil
 }

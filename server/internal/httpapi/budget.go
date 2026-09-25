@@ -469,10 +469,7 @@ var _ = contracts.Usage{}
 // the card findable from the request — S7's card and the inbox item lead to
 // the same row, and a NULL there reads as "this request has no card".
 func (s *Server) attachHitlCard(ctx context.Context, tx pgx.Tx, wsID, sessionID, hitlID uuid.UUID, card messages.HitlCard, now time.Time) error {
-	msgID, err := messages.PostHitlCard(ctx, s.Hub, tx, wsID, sessionID, card, now)
-	if err != nil {
-		return err
-	}
-	_, err = tx.Exec(ctx, `UPDATE hitl_request SET message_id = $2 WHERE id = $1`, hitlID, msgID)
+	// T-APPROVAL: messages.AttachHitlCard publishes `hitl.created` too.
+	_, err := messages.AttachHitlCard(ctx, s.Hub, tx, wsID, sessionID, hitlID, card, now)
 	return err
 }
