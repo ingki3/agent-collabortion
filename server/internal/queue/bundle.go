@@ -726,11 +726,13 @@ func preview(content string, n int) string {
 
 // briefContext is §8.4 [6]: what this session already has attached. The
 // artifacts are named, not inlined — the agent fetches the one it needs with
-// `colab artifact get`, and a brief that carries file bodies stops being
-// cacheable.
+// `colab artifact get <id>`, and a brief that carries file bodies stops being
+// cacheable. Each line carries the id (T-AGENTFIX B4): `artifact get` takes
+// an id (colab-cli §2.1), and a list of names only sent a Writer to call it
+// with the name — 422 on the path parameter.
 func briefContext(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, surf Surface) (string, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT DISTINCT ON (name) name, type, version, COALESCE(description, '')
+		SELECT DISTINCT ON (name) id::text, name, type, version, COALESCE(description, '')
 		FROM artifact WHERE session_id = $1
 		ORDER BY name, version DESC`, sessionID)
 	if err != nil {
@@ -739,12 +741,12 @@ func briefContext(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, surf Surf
 	defer rows.Close()
 	var b strings.Builder
 	for rows.Next() {
-		var name, typ, desc string
+		var id, name, typ, desc string
 		var version int
-		if err := rows.Scan(&name, &typ, &version, &desc); err != nil {
+		if err := rows.Scan(&id, &name, &typ, &version, &desc); err != nil {
 			return "", err
 		}
-		fmt.Fprintf(&b, "- %s (%s, v%d)", name, typ, version)
+		fmt.Fprintf(&b, "- %s (%s, v%d, id %s)", name, typ, version, id)
 		if desc != "" {
 			fmt.Fprintf(&b, " — %s", preview(desc, 120))
 		}

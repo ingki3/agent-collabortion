@@ -116,6 +116,11 @@ func HitlApproveRequest(ctx context.Context, c *client.Client, a HitlApproveRequ
 	if strings.TrimSpace(a.Summary) == "" {
 		return nil, client.Usage("hitl approve-request: --summary is required (what you are asking approval for)")
 	}
+	if a := strings.TrimSpace(a.Artifact); a != "" {
+		if err := requireArtifactID("hitl approve-request --artifact", a); err != nil {
+			return nil, err
+		}
+	}
 	return createHitl(ctx, c, client.CmdHitlApproveRequest, a.Session, a.IdempotencyKey, client.HitlCreate{
 		Type: client.HitlApproval, Summary: a.Summary, ArtifactID: strings.TrimSpace(a.Artifact),
 	})
