@@ -85,6 +85,8 @@ export function conditionSentence(names: string[], op: "and" | "or"): string {
 export const PROGRESS = {
   /** "받은 요청에서 승인하세요" — `hitl_request_id` 가 있으면 그 카드로 가는 링크. */
   user_approval_next: "받은 요청에서 승인하세요",
+  /** T-APPROVAL(openapi v0.3.3 `held_reason: running_tasks`) — 나머지 조건은 충족, 진행 중인 작업이 끝나면 서버가 승인을 요청한다. */
+  held_running_tasks: "조건 충족 — 진행 중인 작업이 끝나면 승인을 요청합니다",
   /** "Lead 차례" — `next_actor`(또는 지정 에이전트)가 할 일이 남았다. */
   turn: (actor: string) => `${actor} 차례`,
   manual_next: "Director 가 「종료」 로 끝냅니다",

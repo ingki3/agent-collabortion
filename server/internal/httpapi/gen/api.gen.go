@@ -344,6 +344,24 @@ func (e CompletionProgressConditionsBlockedReason) Valid() bool {
 	}
 }
 
+// Defines values for CompletionProgressConditionsHeldReason.
+const (
+	CompletionProgressConditionsHeldReasonLessThannil  CompletionProgressConditionsHeldReason = "<nil>"
+	CompletionProgressConditionsHeldReasonRunningTasks CompletionProgressConditionsHeldReason = "running_tasks"
+)
+
+// Valid indicates whether the value is a known member of the CompletionProgressConditionsHeldReason enum.
+func (e CompletionProgressConditionsHeldReason) Valid() bool {
+	switch e {
+	case CompletionProgressConditionsHeldReasonLessThannil:
+		return true
+	case CompletionProgressConditionsHeldReasonRunningTasks:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ContextReusePolicyIncludeArtifacts.
 const (
 	ContextReusePolicyIncludeArtifactsFull  ContextReusePolicyIncludeArtifacts = "full"
@@ -2519,6 +2537,9 @@ type CompletionProgress struct {
 		// BlockedReason 이 조건이 **지금 구조상 충족될 수 없는** 이유(v0.1.4, S-84). 옛 미션(리뷰어 없는 `agent_approval`)이나 리뷰어가 방을 떠난 경우. 화면은 ✗ 대신 이유를 그대로 보이고 Director 에게 조건 수정을 안내한다. 새 미션은 createWork 검증이 막는다.
 		BlockedReason nullable.Nullable[CompletionProgressConditionsBlockedReason] `json:"blocked_reason,omitempty"`
 
+		// HeldReason v0.3.3 — `user_approval` 조건이 **보류** 중인 이유. `running_tasks` = 나머지 조건은 충족됐지만 그 미션에 실행·대기 중인 할 일이 있어 승인 요청(HITL)을 아직 열지 않았다(PRD 완료 흐름, T-APPROVAL). 마지막 할 일이 끝나면 서버가 다시 판정해 연다. 화면: 「조건 충족 — 진행 중인 작업이 끝나면 승인을 요청합니다」. 보류가 아니면 null.
+		HeldReason nullable.Nullable[CompletionProgressConditionsHeldReason] `json:"held_reason,omitempty"`
+
 		// HitlRequestId `user_approval` 대기 중이면 그 HITL.
 		HitlRequestId nullable.Nullable[openapi_types.UUID] `json:"hitl_request_id,omitempty"`
 		Met           bool                                  `json:"met"`
@@ -2546,6 +2567,9 @@ type CompletionProgress struct {
 
 // CompletionProgressConditionsBlockedReason 이 조건이 **지금 구조상 충족될 수 없는** 이유(v0.1.4, S-84). 옛 미션(리뷰어 없는 `agent_approval`)이나 리뷰어가 방을 떠난 경우. 화면은 ✗ 대신 이유를 그대로 보이고 Director 에게 조건 수정을 안내한다. 새 미션은 createWork 검증이 막는다.
 type CompletionProgressConditionsBlockedReason string
+
+// CompletionProgressConditionsHeldReason v0.3.3 — `user_approval` 조건이 **보류** 중인 이유. `running_tasks` = 나머지 조건은 충족됐지만 그 미션에 실행·대기 중인 할 일이 있어 승인 요청(HITL)을 아직 열지 않았다(PRD 완료 흐름, T-APPROVAL). 마지막 할 일이 끝나면 서버가 다시 판정해 연다. 화면: 「조건 충족 — 진행 중인 작업이 끝나면 승인을 요청합니다」. 보류가 아니면 null.
+type CompletionProgressConditionsHeldReason string
 
 // ContextReusePolicy FR-4.4.
 type ContextReusePolicy struct {

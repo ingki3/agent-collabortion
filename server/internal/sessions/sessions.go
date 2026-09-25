@@ -72,6 +72,7 @@ type progressCond = struct {
 	AgentId       nullable.Nullable[openapi_types.UUID]                            `json:"agent_id,omitempty"`
 	AgentName     nullable.Nullable[string]                                        `json:"agent_name,omitempty"`
 	BlockedReason nullable.Nullable[gen.CompletionProgressConditionsBlockedReason] `json:"blocked_reason,omitempty"`
+	HeldReason    nullable.Nullable[gen.CompletionProgressConditionsHeldReason]    `json:"held_reason,omitempty"`
 	HitlRequestId nullable.Nullable[openapi_types.UUID]                            `json:"hitl_request_id,omitempty"`
 	Met           bool                                                             `json:"met"`
 	MetAt         nullable.Nullable[time.Time]                                     `json:"met_at,omitempty"`

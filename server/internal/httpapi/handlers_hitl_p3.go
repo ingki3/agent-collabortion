@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -351,15 +352,32 @@ func (s *Server) hitlInbox(ctx context.Context, tx pgx.Tx, sess *hitlSession, se
 }
 
 func (s *Server) publishHitl(ctx context.Context, wsID, sessionID, hitlID uuid.UUID, event string) {
+	s.publishHitlVia(ctx, s.DB, wsID, sessionID, hitlID, event)
+}
+
+// publishHitlVia is publishHitl reading through q — a transaction when the
+// row is not committed yet. It is also the builder messages.PublishHitl calls
+// for the packages that cannot import this one (T-APPROVAL, NewServer).
+func (s *Server) publishHitlVia(ctx context.Context, q db.DBTX, wsID, sessionID, hitlID uuid.UUID, event string) {
 	if s.Hub == nil {
 		return
 	}
-	out, err := s.hitlAPI(ctx, s.DB, hitlID, nil)
+	out, err := s.hitlAPI(ctx, q, hitlID, nil)
 	if err != nil {
+		slog.Warn("httpapi: hitl frame", "err", err, "hitl", hitlID, "event", event)
 		return
 	}
+	if wsID == uuid.Nil {
+		if err := q.QueryRow(ctx, `SELECT workspace_id FROM room WHERE id = $1`, out.SessionId).Scan(&wsID); err != nil {
+			slog.Warn("httpapi: hitl frame workspace", "err", err, "hitl", hitlID)
+			return
+		}
+	}
+	if sessionID == uuid.Nil {
+		sessionID = out.SessionId
+	}
 	sid := sessionID
-	_ = s.Hub.Publish(ctx, s.DB, wsID, &sid, event, out)
+	_ = s.Hub.Publish(ctx, q, wsID, &sid, event, out)
 }
 
 // ---------------------------------------------------------------------------

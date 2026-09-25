@@ -617,6 +617,9 @@ func (s *Server) answerCompletionApproval(ctx context.Context, hitlID, userID uu
 	if err != nil {
 		return 0, nil, apperr.As(err)
 	}
+	// T-APPROVAL: the answered card (누가·언제·무엇) reaches every open S7,
+	// not only the one that pressed the button.
+	s.publishHitl(ctx, uuid.Nil, sessionID, hitlID, "hitl.updated")
 	out, err := s.hitlAPI(ctx, s.DB, hitlID, &userID)
 	if err != nil {
 		return 0, nil, apperr.As(err)

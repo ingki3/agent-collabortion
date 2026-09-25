@@ -27,6 +27,8 @@ export interface ConditionRowProps {
   nextActor?: string | null;
   /** 계약 `blocked_reason` — 있으면 ✗ 대신 이유. */
   blockedReason?: string | null;
+  /** 계약 `held_reason`(v0.3.3) — `user_approval` 이 작업 중이라 보류됐다. 두 번째 줄이 그 말을 한다(T-APPROVAL). */
+  heldReason?: string | null;
   /** `user_approval` 대기 중인 확인 요청 — 있으면 두 번째 줄이 그 카드로 가는 링크가 된다. */
   hitlRequestId?: string | null;
   onOpenHitl?: (hitlRequestId: string) => void;
@@ -48,9 +50,10 @@ export function shortDate(iso: string | null | undefined): string | null {
 }
 
 /** 진행률 행의 두 번째 줄 — 순수 함수라 테스트가 바로 잰다. */
-export function progressLine(p: Pick<ConditionRowProps, "type" | "met" | "metBy" | "metAt" | "nextActor" | "agentName" | "blockedReason">): string {
+export function progressLine(p: Pick<ConditionRowProps, "type" | "met" | "metBy" | "metAt" | "nextActor" | "agentName" | "blockedReason" | "heldReason">): string {
   if (p.blockedReason) return blockedReasonText(p.blockedReason);
   if (p.met) return PROGRESS.met_by(p.metBy ?? null, shortDate(p.metAt));
+  if (p.heldReason === "running_tasks") return PROGRESS.held_running_tasks;
   if (p.type === "user_approval") return PROGRESS.user_approval_next;
   if (p.type === "manual") return PROGRESS.manual_next;
   const actor = p.nextActor ?? p.agentName;
@@ -73,6 +76,7 @@ export function ConditionRow(props: ConditionRowProps) {
       data-type={props.type}
       data-met={props.met === null ? "na" : String(props.met)}
       data-blocked={blocked ? props.blockedReason ?? undefined : undefined}
+      data-held={!props.met && props.heldReason ? props.heldReason : undefined}
       disabled={props.disabled}
       title={props.disabled ? props.disabledNote : undefined}
       onClick={props.onToggle ? () => props.onToggle!(!props.selected) : undefined}
