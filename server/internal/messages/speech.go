@@ -70,6 +70,14 @@ type SpeechInput struct {
 	TriggerAuthorType string
 	TriggerAuthorID   *uuid.UUID
 	TriggerAuthorName string
+	// TriggerSpeech · TriggerAddressees are the trigger message's own stored
+	// speech and addressees. A turn woken by a report **addressed to this
+	// author** answers it with a request, never a report — 보고에 대한 보고는
+	// 없다 (PRD FR-3.1.3 표 8행 보완, T-AGENTFIX B6). An agent woken only by a
+	// body mention chip inside someone's report is not its addressee; what it
+	// returns is still its own report (review #343 블로커 1).
+	TriggerSpeech     string
+	TriggerAddressees []Addressee
 }
 
 // SpeechOut is what gets stored (and returned by every read).
@@ -214,6 +222,15 @@ func Classify(in SpeechInput) SpeechOut {
 			// 같은 메시지가 다른 에이전트도 부르면 그쪽은 라우팅이 깨우고(FR-3.3)
 			// 화면에는 본문 멘션 칩으로 남는다 — 보고받은 쪽으로 보이지 않는다.
 			to := []Addressee{*requester}
+			if in.TriggerSpeech == string(gen.MessageSpeechReport) && in.AuthorID != nil &&
+				contains(in.TriggerAddressees, Addressee{Kind: "agent", ID: in.AuthorID}) {
+				// T-AGENTFIX B6: the turn was woken by a report made TO this
+				// author, so this is its NEXT instruction to the one who
+				// reported — a request to the same single addressee. 실측(게임
+				// 제작 방 14:05·14:30): Lead's new orders to Writer read 「보고」.
+				// Woken by a mention chip only (not an addressee) → still a report.
+				return SpeechOut{Speech: string(gen.MessageSpeechRequest), Addressees: to}
+			}
 			trig := *in.TriggerMessageID
 			return SpeechOut{Speech: string(gen.MessageSpeechReport), Addressees: to, RespondsTo: &trig}
 		}
@@ -304,15 +321,20 @@ func Store(ctx context.Context, q db.DBTX, msgID uuid.UUID, opts StoreOpts) erro
 		}
 	}
 	if sourceTask != nil && opts.DelegatedLaneID == nil {
+		var trigAddr []byte
 		if err := q.QueryRow(ctx, `
-			SELECT t.trigger_message_id, tm.author_type::text, tm.author_id, COALESCE(u.display_name, a.name, '')
+			SELECT t.trigger_message_id, tm.author_type::text, tm.author_id, COALESCE(u.display_name, a.name, ''),
+			       COALESCE(tm.speech, ''), tm.addressees
 			FROM task t
 			JOIN message tm ON tm.id = t.trigger_message_id
 			LEFT JOIN app_user u ON tm.author_type = 'user' AND u.id = tm.author_id
 			LEFT JOIN agent a ON tm.author_type = 'agent' AND a.id = tm.author_id
 			WHERE t.id = $1`, *sourceTask).
-			Scan(&in.TriggerMessageID, &in.TriggerAuthorType, &in.TriggerAuthorID, &in.TriggerAuthorName); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			Scan(&in.TriggerMessageID, &in.TriggerAuthorType, &in.TriggerAuthorID, &in.TriggerAuthorName, &in.TriggerSpeech, &trigAddr); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("messages: speech trigger: %w", err)
+		}
+		if len(trigAddr) > 0 {
+			_ = json.Unmarshal(trigAddr, &in.TriggerAddressees)
 		}
 	}
 	out := Classify(in)

@@ -68,12 +68,36 @@ func TestSurfaceBriefHermesNamesShellOnly(t *testing.T) {
 	}
 	for _, want := range []string{
 		"[2] Workspace rules and colab CLI\n", "`colab message post --body", queue.DetailRule,
-		"`colab hitl ask`", "`colab artifact get <name>`", "`colab room messages --thread ",
+		"`colab hitl ask`", "`colab artifact get <id>`", "`colab room messages --thread ",
 		queue.ThreadReplyInstruction, "Post your reply with `colab message post`",
 	} {
 		if !strings.Contains(all, want) {
 			t.Errorf("(hermes) bundle lacks %q", want)
 		}
+	}
+}
+
+// T-AGENTFIX B4: the [6] artifact line carries the artifact's id — the only
+// thing `artifact get` accepts (colab-cli §2.1). 실측(게임 제작 방): 목록이
+// 이름만 실어 Writer 가 colab_artifact_get 에 이름을 넣고 422 를 받았다.
+//
+// 회귀 주입: bundle.go briefContext 의 줄에서 `, id %s` 를 빼면 FAIL.
+func TestSurfaceBriefArtifactLineCarriesID(t *testing.T) {
+	for _, kind := range []string{"claude_code", "hermes"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newP2Fixture(t)
+			if _, err := f.pool.Exec(t.Context(), `UPDATE agent_profile SET runtime_kind = $2 WHERE agent_id = $1`, f.leadUUID, kind); err != nil {
+				t.Fatal(err)
+			}
+			brief, _ := surfaceBundleText(t, f)
+			var id string
+			if err := f.pool.QueryRow(t.Context(), `SELECT id::text FROM artifact WHERE session_id = $1 AND name = 'report.md'`, mustUUID(t, f.sessionID)).Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			if want := "- report.md (doc, v1, id " + id + ")"; !strings.Contains(brief, want) {
+				t.Fatalf("(%s) [6] lacks %q:\n%s", kind, want, brief)
+			}
+		})
 	}
 }
 

@@ -62,6 +62,16 @@ var daemonAPI = map[string]bool{
 	"internal/events/events.go":           true,
 }
 
+// agentFacing 은 **에이전트가 읽는** 문장만 두는 파일이다(T-AGENTFIX B5 — TaskToken 호출의
+// 오류 문장). 에이전트는 그 문장을 읽고 다음 호출을 고치므로 `artifactId`·`uuid`·`limit`·
+// `cursor` 같은 파라미터 이름을 그대로 말해야 한다 — daemonAPI 와 같은 취지의 기계의 글이다.
+// 이 파일에서 태어난 리터럴은 어느 sink 에 쓰이든 세지 않는다(review #343 NN1: 전에는 sink
+// 밖이라 **우연히** 빠졌다). 사람이 읽는 문장은 이 파일에 두지 않는다 — 사람 쪽 문장은
+// server.go·idempotency.go·problem.go 의 원래 자리에 그대로 있고 여기서 센다.
+var agentFacing = map[string]bool{
+	"internal/httpapi/agent_errors.go": true,
+}
+
 // ── sink 정의 ────────────────────────────────────────────────────────────
 
 // apperrArg 는 생성자별로 사람이 읽는 인자의 위치.
@@ -412,7 +422,12 @@ func collectSeen(t *testing.T) (pool []sentence, nouns []sentence, files []strin
 			c.add(v)
 		}
 		ast.Inspect(af, c.visit)
-		pool = append(pool, c.out...)
+		for _, s := range c.out {
+			// agentFacing — 리터럴이 사는 파일로 거른다(다른 파일이 그 상수를 sink 에 넣어도).
+			if !agentFacing[s.file] {
+				pool = append(pool, s)
+			}
+		}
 		nouns = append(nouns, c.notFoundNouns...)
 	}
 	return pool, nouns, files, seen
@@ -499,6 +514,22 @@ func TestScope(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("daemonAPI %q 가 소스에 없다 — 예외가 유령을 가리킨다", f)
+		}
+	}
+	// agentFacing 도 같은 자리에 못박는다 — 파일을 더하면 리뷰가 본다.
+	if len(agentFacing) != 1 || !agentFacing["internal/httpapi/agent_errors.go"] {
+		t.Errorf("agentFacing 예외 목록이 바뀌었다: %v", agentFacing)
+	}
+	for f := range agentFacing {
+		found := false
+		for _, g := range files {
+			if g == f {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("agentFacing %q 가 소스에 없다 — 예외가 유령을 가리킨다", f)
 		}
 	}
 	if len(nouns) < 40 {

@@ -380,11 +380,19 @@ func TestConvoSpeech_BackfillMatchesClassify(t *testing.T) {
 		t.Fatal(err)
 	}
 	// (R3) 보고 + 다른 에이전트 멘션.
-	if _, err := f.srv.Router.Post(ctx, sessionID, rAuthor, gen.MessageCreate{
+	r3, err := f.srv.Router.Post(ctx, sessionID, rAuthor, gen.MessageCreate{
 		Content: router.MentionLink("Lead", f.leadUUID) + " 끝 " + router.MentionLink("W", f.wUUID) + " 표 부탁",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
+	// (B6) 보고로 깨운 Lead 턴의 말은 요청 — 멘션이 있든 없든. 그 요청으로 깨운 R 턴의
+	//      답은 다시 보고(사슬: 보고 → 요청 → 보고).
+	reqByLead, againByR := reportChain(t, f, sessionID, r3)
+	// (B6 갈림길, review #343 블로커 1) 같은 보고의 본문 멘션 칩으로만 불린 W 는 그
+	//      보고의 받는 쪽이 아니다 — 라우팅이 깨운 W 의 턴에서 R 에게 돌려주는 결과는
+	//      원래 보고로 남는다(responds_to = 그 보고).
+	wReport := chipWokenReport(t, f, sessionID, r3)
 	if _, err := f.srv.Router.Post(ctx, sessionID, rAuthor, gen.MessageCreate{Content: "혼잣말 — 멘션 없음"}); err != nil {
 		t.Fatal(err)
 	}
@@ -429,6 +437,16 @@ func TestConvoSpeech_BackfillMatchesClassify(t *testing.T) {
 			t.Fatalf("fixture never produced %q — the parity test would not compare that row: %v", want, seen)
 		}
 	}
+	// B6: the chain rows exist and Store decided them as the rule says —
+	// otherwise the parity below would compare nothing new.
+	for id, want := range map[uuid.UUID]string{reqByLead[0]: "request", reqByLead[1]: "request", againByR: "report", wReport: "report"} {
+		if got := before[id.String()].speech; got != want {
+			t.Fatalf("chain message %s: Store = %q, want %q", id, got, want)
+		}
+	}
+	if got := before[wReport.String()].resp; got != r3.Message.Id.String() {
+		t.Fatalf("W's report responds_to = %q, want R's report %s", got, r3.Message.Id)
+	}
 
 	if _, err := f.pool.Exec(ctx, `UPDATE message SET speech = NULL, addressees = '[]', responds_to_message_id = NULL, delegated_lane_id = NULL WHERE session_id = $1`, sessionID); err != nil {
 		t.Fatal(err)
@@ -443,6 +461,128 @@ func TestConvoSpeech_BackfillMatchesClassify(t *testing.T) {
 			t.Errorf("message %s: backfill %+v, Store %+v", id, a, b)
 		}
 	}
+	// B6: the rechain runs on the live DB whose rows already hold speech
+	// (0035's answer, some of them the wrong 「보고」). Its input is the
+	// premises only, so a second run — over filled rows, not NULLs — lands on
+	// the same answer (멱등).
+	if _, err := f.pool.Exec(ctx, `UPDATE message SET speech = CASE WHEN id = $2 THEN 'request' ELSE 'report' END, addressees = '[]', responds_to_message_id = NULL WHERE id = ANY($1)`, []uuid.UUID{reqByLead[0], reqByLead[1], wReport}, wReport); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, backfillSQL(t)); err != nil {
+		t.Fatalf("backfill (second run): %v", err)
+	}
+	again := speechSnapshot(t, ctx, f, sessionID)
+	for id, b := range before {
+		a := again[id]
+		if a.speech != b.speech || a.resp != b.resp || a.lane != b.lane || !sameJSON(t, a.addr, b.addr) {
+			t.Errorf("message %s: second backfill %+v, Store %+v", id, a, b)
+		}
+	}
+}
+
+// reportChain is T-AGENTFIX B6's round (실측 게임 제작 방 14:05·14:30): Lead's
+// turn is woken by R's report; in it Lead gives R a new order — once with a
+// mention, once as a bare reply — and both are requests (보고에 대한 보고는
+// 없다), addressed to R alone. R's turn woken by that request answers with a
+// report again. Returns Lead's two message ids and R's second report id.
+func reportChain(t *testing.T, f *p2Fixture, sessionID uuid.UUID, fromReport *gen.MessagePostResult) ([2]uuid.UUID, uuid.UUID) {
+	t.Helper()
+	ctx := t.Context()
+	// The delegator is suppressed while its lane's join group is open (FR-3.6),
+	// so the report does not route to Lead here; in the room it woke Lead at
+	// the join. What Store reads is the task's trigger_message_id — set that.
+	leadTask := turnWokenBy(t, f, f.leadUUID, fromReport.Message.Id)
+	lead := router.Author{Type: "agent", AgentID: &f.leadUUID, TaskID: &leadTask, Attempt: 1}
+	withMention, err := f.srv.Router.Post(ctx, sessionID, lead, gen.MessageCreate{
+		Content: router.MentionLink("R", f.rUUID) + " 좋아요, 이제 2장도 써 주세요",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bare, err := f.srv.Router.Post(ctx, sessionID, lead, gen.MessageCreate{Content: "표는 두 줄로 줄여 주세요"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []gen.Message{withMention.Message, bare.Message} {
+		if *m.Speech != gen.MessageSpeechRequest {
+			t.Errorf("Lead's order in a turn woken by a report: speech = %s, want request (%q)", *m.Speech, m.Content)
+		}
+		if to := *m.Addressees; len(to) != 1 || to[0].Name != "R" {
+			t.Errorf("addressees = %+v, want [R]", to)
+		}
+		if v, err := m.RespondsToMessageId.Get(); err == nil {
+			t.Errorf("a request has no responds_to, got %v", v)
+		}
+	}
+	rTask := turnWokenBy(t, f, f.rUUID, withMention.Message.Id)
+	r := router.Author{Type: "agent", AgentID: &f.rUUID, TaskID: &rTask, Attempt: 1}
+	again, err := f.srv.Router.Post(ctx, sessionID, r, gen.MessageCreate{Content: router.MentionLink("Lead", f.leadUUID) + " 2장 끝"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *again.Message.Speech != gen.MessageSpeechReport {
+		t.Errorf("R's answer to a request = %s, want report", *again.Message.Speech)
+	}
+	return [2]uuid.UUID{withMention.Message.Id, bare.Message.Id}, again.Message.Id
+}
+
+// chipWokenReport is review #343 블로커 1's counter-example on the real
+// routing path: R's report (to Lead) also asks W for a table with a body
+// mention chip. Routing (FR-3.3) wakes W with that report as the trigger, but
+// W is not the report's addressee — W returning the table to R is W's own
+// report, not a request. Returns W's message id.
+func chipWokenReport(t *testing.T, f *p2Fixture, sessionID uuid.UUID, report *gen.MessagePostResult) uuid.UUID {
+	t.Helper()
+	ctx := t.Context()
+	if *report.Message.Speech != gen.MessageSpeechReport {
+		t.Fatalf("fixture: R's message speech = %s, want report", *report.Message.Speech)
+	}
+	var wTask uuid.UUID
+	for _, tr := range report.Triggers {
+		if tr.AgentId == f.wUUID {
+			wTask = tr.TaskId
+		}
+	}
+	if wTask == uuid.Nil {
+		t.Fatalf("routing did not wake W from R's report: %+v", report.Triggers)
+	}
+	var trig uuid.UUID
+	if err := f.pool.QueryRow(ctx, `SELECT trigger_message_id FROM task WHERE id = $1`, wTask).Scan(&trig); err != nil {
+		t.Fatal(err)
+	}
+	if trig != report.Message.Id {
+		t.Fatalf("W's task trigger = %s, want R's report %s", trig, report.Message.Id)
+	}
+	w := router.Author{Type: "agent", AgentID: &f.wUUID, TaskID: &wTask, Attempt: 1}
+	res, err := f.srv.Router.Post(ctx, sessionID, w, gen.MessageCreate{Content: router.MentionLink("R", f.rUUID) + " 표 여기 있습니다"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *res.Message.Speech != gen.MessageSpeechReport {
+		t.Errorf("W woken by a mention chip in R's report answers R: speech = %s, want report", *res.Message.Speech)
+	}
+	if to := *res.Message.Addressees; len(to) != 1 || to[0].Name != "R" {
+		t.Errorf("addressees = %+v, want [R]", to)
+	}
+	if v, err := res.Message.RespondsToMessageId.Get(); err != nil || v != report.Message.Id {
+		t.Errorf("responds_to = %v (%v), want R's report %s", v, err, report.Message.Id)
+	}
+	return res.Message.Id
+}
+
+// turnWokenBy is a new turn of agent's latest lane whose trigger is msg — the
+// task row messages.Store reads the requester from.
+func turnWokenBy(t *testing.T, f *p2Fixture, agent, msg uuid.UUID) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	if err := f.pool.QueryRow(t.Context(), `
+		INSERT INTO task (lane_id, session_id, agent_id, profile_id, status, trigger_message_id, originator_user_id, created_at, updated_at)
+		SELECT lane_id, session_id, agent_id, profile_id, 'completed', $2, originator_user_id, $3, $3
+		FROM task WHERE agent_id = $1 ORDER BY created_at DESC LIMIT 1
+		RETURNING id`, agent, msg, f.fake.Now()).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 type speechRow struct{ speech, addr, resp, lane string }
@@ -469,21 +609,22 @@ func speechSnapshot(t *testing.T, ctx context.Context, f *p2Fixture, sessionID u
 	return out
 }
 
-// backfillSQL is the migration's own backfill statement (from `WITH
-// mention_to` to the end), read from the embedded file so the test runs the
-// exact SQL that production ran. The file is found by name suffix: its number
-// is renamed at PR time.
+// backfillSQL is the backfill production last ran over existing rows (every
+// statement from the `-- backfill:` marker to the end), read from the embedded file so the test runs
+// the exact SQL that production ran. Since T-AGENTFIX B6 that is the rechain
+// migration — a full recomputation of the same table plus 「보고에 대한 보고는
+// 없다」. Files are found by name suffix: their numbers are renamed at PR time.
 func backfillSQL(t *testing.T) string {
 	t.Helper()
-	names, err := fs.Glob(migrations.FS, "*_message_speech.sql")
+	names, err := fs.Glob(migrations.FS, "*_message_speech_rechain.sql")
 	if err != nil || len(names) != 1 {
-		t.Fatalf("message_speech migration: %v %v", names, err)
+		t.Fatalf("message_speech_rechain migration: %v %v", names, err)
 	}
 	b, err := migrations.FS.ReadFile(names[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	i := strings.Index(string(b), "WITH mention_to AS")
+	i := strings.Index(string(b), "-- backfill:")
 	if i < 0 {
 		t.Fatal("backfill statement not found in the migration")
 	}
