@@ -28,9 +28,12 @@ import (
 )
 
 // Addressee is one entry of openapi Message.addressees.
+//
+// ID is rendered even when null so the Go and the SQL copies of the rule table
+// produce byte-identical jsonb (review #335 NN2) — `@all` has no id.
 type Addressee struct {
 	Kind string     `json:"kind"` // agent · user · all
-	ID   *uuid.UUID `json:"id,omitempty"`
+	ID   *uuid.UUID `json:"id"`
 	Name string     `json:"name"`
 }
 
@@ -48,6 +51,13 @@ type SpeechInput struct {
 	ParentAuthorType string
 	ParentAuthorID   *uuid.UUID
 	ParentAuthorName string
+
+	// WaitingFor is PRD FR-3.1.3 표 3행 후반, for a question card with no
+	// mention: who that lane waits on (`Lane.waiting_for`) — its delegator, or
+	// the human who started the chain when nobody delegated it.
+	WaitingForKind string // agent · user
+	WaitingForID   *uuid.UUID
+	WaitingForName string
 
 	// Delegation: set by router.Delegate, which knows it is writing one.
 	DelegatedLaneID    *uuid.UUID
@@ -153,6 +163,13 @@ func Classify(in SpeechInput) SpeechOut {
 	mentioned := mentionAddressees(in)
 	switch in.Kind {
 	case "blocked_q":
+		// PRD FR-3.1.3 표 3행: 멘션(위임자)이 먼저고, 없으면 그 lane 이 기다리는
+		// 상대(`Lane.waiting_for` — 위임자가 없는 lane 은 Director)다. 위임 없이
+		// 사람이 직접 불러 만든 lane 의 질문 카드에는 멘션이 없다(review #335 NN3).
+		if len(mentioned) == 0 && in.WaitingForName != "" {
+			return SpeechOut{Speech: string(gen.MessageSpeechQuestion),
+				Addressees: []Addressee{{Kind: in.WaitingForKind, ID: in.WaitingForID, Name: in.WaitingForName}}}
+		}
 		return SpeechOut{Speech: string(gen.MessageSpeechQuestion), Addressees: mentioned}
 	case "summary":
 		// A mission summary is for the room.
@@ -193,10 +210,10 @@ func Classify(in SpeechInput) SpeechOut {
 		if in.TriggerMessageID != nil && requester != nil &&
 			(in.AuthorID == nil || *requester.ID != *in.AuthorID) &&
 			(len(base) == 0 || contains(base, *requester)) {
-			to := base
-			if len(to) == 0 {
-				to = []Addressee{*requester}
-			}
+			// PRD FR-3.1.3 표 7행 받는 쪽 = **요청자** 한 명이다(review #335 R3).
+			// 같은 메시지가 다른 에이전트도 부르면 그쪽은 라우팅이 깨우고(FR-3.3)
+			// 화면에는 본문 멘션 칩으로 남는다 — 보고받은 쪽으로 보이지 않는다.
+			to := []Addressee{*requester}
 			trig := *in.TriggerMessageID
 			return SpeechOut{Speech: string(gen.MessageSpeechReport), Addressees: to, RespondsTo: &trig}
 		}
@@ -262,6 +279,30 @@ func Store(ctx context.Context, q db.DBTX, msgID uuid.UUID, opts StoreOpts) erro
 		}
 	}
 	in.DelegatedLaneID, in.DelegateTargetID, in.DelegateTargetName = opts.DelegatedLaneID, opts.DelegateTargetID, opts.DelegateTargetName
+	if in.Kind == "blocked_q" && len(in.Mentions) == 0 && sourceTask != nil {
+		// 표 3행 후반: 멘션이 없으면 그 lane 이 기다리는 상대. `Lane.waiting_for` 는
+		// 「blocked 면 위임자 이름 또는 Director」(openapi Lane) — 위임자가 있으면
+		// 그 에이전트, 없으면 이 사슬을 시작한 사람이다(review #335 NN3).
+		var agentID, userID *uuid.UUID
+		var agentName, userName string
+		if err := q.QueryRow(ctx, `
+			SELECT d.agent_id, COALESCE(da.name, ''), t.originator_user_id, COALESCE(ou.display_name, '')
+			FROM task t
+			JOIN lane l ON l.id = t.lane_id
+			LEFT JOIN task d ON d.id = l.delegated_from_task_id
+			LEFT JOIN agent da ON da.id = d.agent_id
+			LEFT JOIN app_user ou ON ou.id = t.originator_user_id
+			WHERE t.id = $1`, *sourceTask).
+			Scan(&agentID, &agentName, &userID, &userName); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("messages: speech waiting_for: %w", err)
+		}
+		switch {
+		case agentID != nil:
+			in.WaitingForKind, in.WaitingForID, in.WaitingForName = "agent", agentID, agentName
+		case userID != nil:
+			in.WaitingForKind, in.WaitingForID, in.WaitingForName = "user", userID, userName
+		}
+	}
 	if sourceTask != nil && opts.DelegatedLaneID == nil {
 		if err := q.QueryRow(ctx, `
 			SELECT t.trigger_message_id, tm.author_type::text, tm.author_id, COALESCE(u.display_name, a.name, '')

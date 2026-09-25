@@ -39,6 +39,12 @@ CREATE INDEX message_responds_to ON message (responds_to_message_id) WHERE respo
 --               (router.Delegate: lane.delegated_from_task_id = 호출 task, task.trigger_message_id = 위임 메시지).
 --   trig        보고 — 이 메시지를 쓴 턴을 깨운 메시지와 그 작성자(요청자).
 --   parent      답 — 스레드 루트가 질문 카드인가.
+--   waiting     질문 — 멘션이 없는 질문 카드가 기다리는 상대(표 3행 후반, Lane.waiting_for).
+--
+-- Go 와 한 글자도 다르면 안 되는 곳 셋(리뷰 #335 R1·R2·R3):
+--   base    멘션이 비면 **스레드 상대**로 대체한다(Classify 의 base) — 보고 판정의 전제도 이것이다.
+--   답      받는 쪽 = 질문자 ∪ 멘션(중복 제거, 질문자 먼저).
+--   보고    받는 쪽 = **요청자 한 명**(표 7행). 같이 부른 다른 에이전트는 라우팅만 깨운다.
 WITH mention_to AS (
     SELECT m.id AS message_id,
            COALESCE(jsonb_agg(jsonb_build_object(
@@ -75,6 +81,22 @@ WITH mention_to AS (
     LEFT JOIN app_user u ON tm.author_type = 'user' AND u.id = tm.author_id
     LEFT JOIN agent a ON tm.author_type = 'agent' AND a.id = tm.author_id
     WHERE m.author_type = 'agent'
+), waiting AS (
+    -- 표 3행 후반. 위임자가 있으면 그 에이전트, 없으면 사슬을 시작한 사람
+    -- (openapi Lane.waiting_for 「위임자 이름 또는 Director」).
+    SELECT m.id AS message_id,
+           CASE WHEN COALESCE(da.name, '') <> '' THEN jsonb_build_array(jsonb_build_object(
+                    'kind', 'agent', 'id', to_jsonb(d.agent_id), 'name', da.name))
+                WHEN COALESCE(ou.display_name, '') <> '' THEN jsonb_build_array(jsonb_build_object(
+                    'kind', 'user', 'id', to_jsonb(t.originator_user_id), 'name', ou.display_name))
+                ELSE '[]'::jsonb END AS waiting_to
+    FROM message m
+    JOIN task t ON t.id = m.source_task_id
+    JOIN lane l ON l.id = t.lane_id
+    LEFT JOIN task d ON d.id = l.delegated_from_task_id
+    LEFT JOIN agent da ON da.id = d.agent_id
+    LEFT JOIN app_user ou ON ou.id = t.originator_user_id
+    WHERE m.kind = 'blocked_q'
 ), premise AS (
     SELECT m.id,
            m.kind::text AS kind, m.author_type::text AS author_type, m.author_id, m.content,
@@ -82,7 +104,8 @@ WITH mention_to AS (
            p.kind::text AS parent_kind, p.author_type::text AS parent_author_type, p.author_id AS parent_author_id,
            COALESCE(pu.display_name, pa.name, '') AS parent_author_name,
            d.lane_id, d.agent_id AS delegate_agent_id, d.agent_name AS delegate_agent_name,
-           g.trigger_id, g.author_type AS trigger_author_type, g.author_id AS trigger_author_id, g.author_name AS trigger_author_name
+           g.trigger_id, g.author_type AS trigger_author_type, g.author_id AS trigger_author_id, g.author_name AS trigger_author_name,
+           COALESCE(w.waiting_to, '[]'::jsonb) AS waiting_to
     FROM message m
     JOIN mention_to mt ON mt.message_id = m.id
     LEFT JOIN message p ON p.id = m.parent_id
@@ -90,6 +113,7 @@ WITH mention_to AS (
     LEFT JOIN agent pa ON p.author_type = 'agent' AND pa.id = p.author_id
     LEFT JOIN delegation d ON d.message_id = m.id
     LEFT JOIN trig g ON g.message_id = m.id
+    LEFT JOIN waiting w ON w.message_id = m.id
 ), parent_to AS (
     SELECT id,
            CASE WHEN parent_author_id IS NOT NULL AND parent_author_type <> 'system'
@@ -105,8 +129,13 @@ WITH mention_to AS (
                     'id', to_jsonb(trigger_author_id), 'name', trigger_author_name))
                 ELSE '[]'::jsonb END AS requester
     FROM premise
+), based AS (
+    -- Classify 의 base: 멘션, 비면 스레드 상대. 보고 판정의 전제이자 대화의 받는 쪽이다.
+    SELECT pr.id,
+           CASE WHEN jsonb_array_length(pr.mention_to) > 0 THEN pr.mention_to ELSE pt.reply_to END AS base
+    FROM premise pr JOIN parent_to pt ON pt.id = pr.id
 ), decided AS (
-    SELECT pr.*, pt.reply_to, pt.requester,
+    SELECT pr.*, pt.reply_to, pt.requester, b.base,
            CASE
                WHEN pr.kind = 'system' THEN 'system'
                WHEN pr.kind = 'hitl' THEN 'hitl'
@@ -116,13 +145,13 @@ WITH mention_to AS (
                WHEN pr.content LIKE '/note%' THEN 'note'
                WHEN pr.author_type = 'agent' AND pr.lane_id IS NOT NULL THEN 'delegate'
                WHEN pr.author_type = 'agent' AND pt.requester <> '[]'::jsonb
-                    AND (jsonb_array_length(pr.mention_to) = 0 OR pr.mention_to @> pt.requester)
+                    AND (jsonb_array_length(b.base) = 0 OR b.base @> pt.requester)
                    THEN 'report'
                WHEN pr.agent_count > 0 AND pr.author_type = 'user' THEN 'instruct'
                WHEN pr.agent_count > 0 AND pr.author_type = 'agent' THEN 'request'
                ELSE 'chat'
            END AS speech
-    FROM premise pr JOIN parent_to pt ON pt.id = pr.id
+    FROM premise pr JOIN parent_to pt ON pt.id = pr.id JOIN based b ON b.id = pr.id
 )
 UPDATE message m SET
     speech = d.speech,
@@ -131,14 +160,25 @@ UPDATE message m SET
         WHEN 'hitl' THEN '[]'::jsonb
         WHEN 'summary' THEN '[]'::jsonb
         WHEN 'note' THEN '[]'::jsonb
-        WHEN 'question' THEN d.mention_to
-        WHEN 'answer' THEN CASE WHEN jsonb_array_length(d.mention_to) > 0 THEN d.mention_to ELSE d.reply_to END
+        WHEN 'question' THEN CASE WHEN jsonb_array_length(d.mention_to) > 0 THEN d.mention_to ELSE d.waiting_to END
+        -- 답 — 질문자 먼저, 그다음 멘션(같은 kind·id 는 한 번만).
+        WHEN 'answer' THEN (
+            SELECT COALESCE(jsonb_agg(z.e ORDER BY z.ord), '[]'::jsonb)
+            FROM (
+                SELECT DISTINCT ON (u.e->>'kind', u.e->>'id') u.e, u.ord
+                FROM (
+                    SELECT e, ord FROM jsonb_array_elements(d.reply_to) WITH ORDINALITY AS t(e, ord)
+                    UNION ALL
+                    SELECT e, ord + 1000000 FROM jsonb_array_elements(d.mention_to) WITH ORDINALITY AS t(e, ord)
+                ) u
+                ORDER BY u.e->>'kind', u.e->>'id', u.ord
+            ) z
+        )
         WHEN 'delegate' THEN jsonb_build_array(jsonb_build_object(
             'kind', 'agent', 'id', to_jsonb(d.delegate_agent_id), 'name', d.delegate_agent_name))
-        WHEN 'report' THEN CASE WHEN jsonb_array_length(d.mention_to) > 0 THEN d.mention_to
-                                WHEN jsonb_array_length(d.reply_to) > 0 THEN d.reply_to
-                                ELSE d.requester END
-        ELSE CASE WHEN jsonb_array_length(d.mention_to) > 0 THEN d.mention_to ELSE d.reply_to END
+        -- 보고 — 요청자 한 명(표 7행).
+        WHEN 'report' THEN d.requester
+        ELSE d.base
     END,
     responds_to_message_id = CASE WHEN d.speech = 'report' THEN d.trigger_id END,
     delegated_lane_id = CASE WHEN d.speech = 'delegate' THEN d.lane_id END

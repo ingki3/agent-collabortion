@@ -3,7 +3,7 @@
  * 화면은 목이든 실서버든 같은 칸을 읽는다(lib/conversation.ts). 목이 판정을 더 잘 해서도, 덜 해서도 안 된다 —
  * 표가 갈리면 목에서만 초록인 화면이 된다.
  *
- * 판정 순서: system → hitl → blocked_q(질문) → summary(요약) → 질문 카드 답글(답) → /note(메모) → 위임 → 보고 → 지시 → 요청 → 대화.
+ * 판정 순서: system → hitl → blocked_q(질문, 멘션 없으면 waiting_for) → summary(요약) → 질문 카드 답글(답) → /note(메모) → 위임 → 보고(요청자 한 명) → 지시 → 요청 → 대화.
  */
 import type { Message } from "@/lib/api/types";
 import type { MockTask, Store } from "./store";
@@ -15,6 +15,8 @@ export interface SpeechPremises {
   delegatedLaneId?: string;
   delegateTargetId?: string;
   delegateTargetName?: string;
+  /** 질문 — 멘션이 없는 질문 카드가 기다리는 상대(표 3행 후반, `Lane.waiting_for`). */
+  waitingFor?: Addressee;
 }
 
 const same = (a: Addressee, b: Addressee) => a.kind === b.kind && (a.id ?? a.name) === (b.id ?? b.name);
@@ -50,7 +52,12 @@ export function applySpeech(s: Store, m: Message, p: SpeechPremises = {}): Messa
   if (m.kind === "system") { m.speech = "system"; return m; }
   if (m.kind === "hitl") { m.speech = "hitl"; return m; }
   const mentioned = mentionTo(m);
-  if (m.kind === "blocked_q") { m.speech = "question"; m.addressees = mentioned; return m; }
+  if (m.kind === "blocked_q") {
+    m.speech = "question";
+    // 표 3행: 멘션(위임자)이 먼저, 없으면 그 lane 이 기다리는 상대.
+    m.addressees = mentioned.length ? mentioned : p.waitingFor ? [p.waitingFor] : [];
+    return m;
+  }
   if (m.kind === "summary") { m.speech = "summary"; return m; }
   const parent = m.parent_id ? s.messages.get(m.parent_id) : undefined;
   const parentAuthor = authorTo(s, parent);
@@ -72,7 +79,8 @@ export function applySpeech(s: Store, m: Message, p: SpeechPremises = {}): Messa
     const requester = authorTo(s, trig);
     if (trig && requester && requester.id !== m.author_id && (base.length === 0 || base.some((a) => same(a, requester)))) {
       m.speech = "report";
-      m.addressees = base.length ? base : [requester];
+      // 표 7행 받는 쪽 = 요청자 한 명. 같이 부른 다른 에이전트는 트리거만 된다.
+      m.addressees = [requester];
       m.responds_to_message_id = trig.id;
       return m;
     }

@@ -46,6 +46,17 @@ func TestClassify_FR313Table(t *testing.T) {
 			speech: gen.MessageSpeechQuestion, to: []Addressee{{Kind: "agent", ID: &lead, Name: "Lead"}},
 		},
 		{
+			name: "3' 질문 — 멘션이 없으면 그 lane 이 기다리는 상대(waiting_for, 표 3행 후반)",
+			in: SpeechInput{Kind: "blocked_q", AuthorType: "agent", AuthorID: &wri,
+				WaitingForKind: "user", WaitingForID: &user, WaitingForName: "Director"},
+			speech: gen.MessageSpeechQuestion, to: []Addressee{{Kind: "user", ID: &user, Name: "Director"}},
+		},
+		{
+			name:   "3'' 질문 — 멘션도 waiting_for 도 없으면 방 전체(짐작하지 않는다)",
+			in:     SpeechInput{Kind: "blocked_q", AuthorType: "agent", AuthorID: &wri},
+			speech: gen.MessageSpeechQuestion, to: []Addressee{},
+		},
+		{
 			name:   "4 요약 — 방 전체(받는 쪽 비움)",
 			in:     SpeechInput{Kind: "summary", AuthorType: "system"},
 			speech: gen.MessageSpeechSummary, to: []Addressee{},
@@ -95,6 +106,13 @@ func TestClassify_FR313Table(t *testing.T) {
 			in: SpeechInput{Kind: "text", AuthorType: "agent", AuthorID: &res,
 				TriggerMessageID: &trig, TriggerAuthorType: "system"},
 			speech: gen.MessageSpeechChat, to: []Addressee{},
+		},
+		{
+			name: "7'''' 보고 — 같이 부른 다른 에이전트는 받는 쪽이 아니다(표 7행: 요청자 한 명)",
+			in: SpeechInput{Kind: "text", AuthorType: "agent", AuthorID: &res,
+				Mentions:         []gen.Mention{agentMention(lead, "Lead"), agentMention(wri, "Writer")},
+				TriggerMessageID: &trig, TriggerAuthorType: "agent", TriggerAuthorID: &lead, TriggerAuthorName: "Lead"},
+			speech: gen.MessageSpeechReport, to: []Addressee{{Kind: "agent", ID: &lead, Name: "Lead"}}, reports: &trig,
 		},
 		{
 			name: "8 지시 — 사람이 에이전트를 멘션",

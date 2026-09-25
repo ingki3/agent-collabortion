@@ -17,8 +17,8 @@ import (
 
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/nullj"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
-	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
 var ErrNotFound = errors.New("messages: not found")
@@ -273,19 +273,19 @@ func ToAPI(m *Row) gen.Message {
 		Id:           m.ID,
 		SessionId:    m.SessionID,
 		AuthorType:   gen.AuthorType(m.AuthorType),
-		AuthorId:     tasks.NullUUID(m.AuthorID),
-		ParentId:     tasks.NullUUID(m.ParentID),
+		AuthorId:     nullj.NullUUID(m.AuthorID),
+		ParentId:     nullj.NullUUID(m.ParentID),
 		Content:      m.Content,
 		Mentions:     m.Mentions,
-		SourceTaskId: tasks.NullUUID(m.SourceTaskID),
-		LaneId:       tasks.NullUUID(m.LaneID),
+		SourceTaskId: nullj.NullUUID(m.SourceTaskID),
+		LaneId:       nullj.NullUUID(m.LaneID),
 		Kind:         gen.MessageKind(m.Kind),
 		State:        gen.MessageState(m.State),
 		ReplyCount:   &m.ReplyCount,
 		CreatedAt:    m.CreatedAt,
-		EditedAt:     tasks.NullTime(m.EditedAt),
-		WorkId:       tasks.NullUUID(m.WorkID),
-		Detail:       tasks.NullString(m.Detail),
+		EditedAt:     nullj.NullTime(m.EditedAt),
+		WorkId:       nullj.NullUUID(m.WorkID),
+		Detail:       nullj.NullString(m.Detail),
 	}
 	isNote := IsNote(m.Content)
 	out.IsNote = &isNote
@@ -306,17 +306,17 @@ func ToAPI(m *Row) gen.Message {
 			Id   nullable.Nullable[openapi_types.UUID] `json:"id,omitempty"`
 			Kind gen.MessageAddresseesKind             `json:"kind"`
 			Name string                                `json:"name"`
-		}{Id: tasks.NullUUID(a.ID), Kind: gen.MessageAddresseesKind(a.Kind), Name: a.Name})
+		}{Id: nullj.NullUUID(a.ID), Kind: gen.MessageAddresseesKind(a.Kind), Name: a.Name})
 	}
 	out.Addressees = &addr
-	out.RespondsToMessageId = tasks.NullUUID(m.RespondsTo)
-	out.DelegatedLaneId = tasks.NullUUID(m.DelegatedLane)
+	out.RespondsToMessageId = nullj.NullUUID(m.RespondsTo)
+	out.DelegatedLaneId = nullj.NullUUID(m.DelegatedLane)
 	if m.AuthorName != nil {
 		out.Author = &struct {
 			AvatarUrl nullable.Nullable[string] `json:"avatar_url,omitempty"`
 			Name      *string                   `json:"name,omitempty"`
 			Role      *gen.AgentRole            `json:"role,omitempty"`
-		}{AvatarUrl: tasks.NullString(m.AuthorAvatar), Name: m.AuthorName}
+		}{AvatarUrl: nullj.NullString(m.AuthorAvatar), Name: m.AuthorName}
 		if m.AuthorRole != nil {
 			r := gen.AgentRole(*m.AuthorRole)
 			out.Author.Role = &r
