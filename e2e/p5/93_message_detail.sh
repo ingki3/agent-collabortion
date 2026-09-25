@@ -78,13 +78,16 @@ for line in open(tap):
     for b in (body.get("tasks") or []):
         if b["task"]["id"] != tid: continue
         p = b["prompt"]; t = p[p.find("<trigger>\n"):]
+        # Writer is claude_code (tool_surface mcp, harness v0.9.6): [2] names the
+        # tool's detail argument and no shell command anywhere in the bundle.
+        text = b["brief"]["text"] + p
         print("yes" if ("<detail>\n" + detail + "\n</detail>") in t else "no",
-              "yes" if "--detail" in b["brief"]["text"] else "no", sep="\t")
+              "yes" if ("`detail_file`" in b["brief"]["text"] and "`colab " not in text) else "no", sep="\t")
         sys.exit(0)
 print("missing\tmissing")
 PY
   IFS=$'\t' read -r B_DET B_RULE <<<"$(cat "$OUT/93-bundle.txt")"
-  chk D3 "Writer 번들: <trigger> 에 <detail> 전문 · 브리프 [2] 규칙" "yes|yes" "$B_DET|$B_RULE"
+  chk D3 "Writer 번들: <trigger> 에 <detail> 전문 · 브리프 [2] 규칙(툴 말 · 셸 명령 0, harness v0.9.6)" "yes|yes" "$B_DET|$B_RULE"
 else
   chk_na D1 "페이크만(대본이 --detail-file 을 부른다)" "-" "RUNTIME=real"
   chk_na D2 "페이크만" "-" "RUNTIME=real"

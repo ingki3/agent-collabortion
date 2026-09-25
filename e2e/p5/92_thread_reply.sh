@@ -85,7 +85,9 @@ def row(tid):
     if not b: return "missing\tmissing\tmissing"
     return "%s\t%s\t%s" % (b["task"].get("thread_root_id", "absent"),
                            ("yes" if ('thread="%s"' % root) in b["prompt"] else "no"),
-                           ("yes" if "--top-level" in b["prompt"] else "no"))
+                           # Lead is claude_code (tool_surface mcp, harness v0.9.6): the
+                           # thread line names the tool's `top_level`, never the shell flag.
+                           ("yes" if ("`top_level`" in b["prompt"] and "--top-level" not in b["prompt"]) else "no"))
 print(row(top)); print(row(th))
 PY
 IFS=$'\t' read -r B_TOP_ID B_TOP_ATTR B_TOP_LINE <<<"$(sed -n 1p "$OUT/92-bundle.txt")"
