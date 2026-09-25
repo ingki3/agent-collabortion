@@ -53,9 +53,11 @@ export interface HitlCardProps {
    */
   budget?: { scope?: "task" | "session"; current?: number | null; spent?: number | null } | null;
   busy?: boolean;
+  /** `answered_by`(사용자 id) → 이름. 답한 뒤 카드가 「누가·언제·무엇」 을 말한다(T-APPROVAL). */
+  userName?: (userId: string) => string | null | undefined;
 }
 
-export function HitlCard({ request: r, actions, onRespond, budget, busy }: HitlCardProps) {
+export function HitlCard({ request: r, actions, onRespond, budget, busy, userName }: HitlCardProps) {
   const author = r.source === "system" ? "시스템" : (r.agent?.name ?? "에이전트");
   return (
     <article
@@ -91,6 +93,8 @@ export function HitlCard({ request: r, actions, onRespond, budget, busy }: HitlC
         actions={actions}
         answer={r.answer}
         approved={r.approved}
+        answeredBy={r.answered_by ? (userName?.(r.answered_by) ?? null) : null}
+        answeredAt={r.answered_at}
         // 조건은 `purpose` 하나다 — 세션이 멈췄는지는 보지 않는다(task 범위 초과는 세션을 멈추지 않는다, W-6).
         budgetOverride={
           r.purpose === "budget"

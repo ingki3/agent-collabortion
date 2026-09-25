@@ -22,6 +22,7 @@ import { Composer, type ComposerAgent, type ComposerInput, type ComposerWarning 
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { LaneBoard } from "@/components/LaneBoard";
 import { HitlCard } from "@/components/HitlCard";
+import { pairHitl, unpairedHitlCards, upsertHitl } from "@/lib/hitl-pairing";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { RoomParticipantsDialog } from "@/components/RoomParticipantsDialog";
 import { RoomQueryDialogs, useRoomDialogQuery } from "@/components/RoomQueryDialogs";
@@ -295,6 +296,21 @@ export default function RoomPage() {
     void loadMessages();
   }, [loadMessages]);
 
+  // T-APPROVAL: `kind: hitl` 메시지는 절대 평문으로 떨어지지 않는다. 목록·`hitl.created` 로 짝이 안 오면 요청을 직접 읽고
+  // (`getHitlRequest` — 메시지의 `hitl_request_id`), id 도 없으면 목록을 다시 읽는다. 한 카드에 한 번만(`hitlTried`).
+  const hitlTried = useRef(new Set<string>());
+  useEffect(() => {
+    const need = unpairedHitlCards(messages, hitls, hitlTried.current);
+    if (need.messageIds.length === 0) return;
+    for (const id of need.messageIds) hitlTried.current.add(id);
+    for (const id of need.ids) {
+      void api.get("/hitl-requests/{hitlRequestId}", { path: { hitlRequestId: id } })
+        .then((h) => { if (h.session_id === roomId) setHitls((cur) => upsertHitl(cur, h)); })
+        .catch(() => undefined);
+    }
+    if (need.refetch) void loadSide();
+  }, [messages, hitls, roomId, loadSide]);
+
   // 우열 미션 칸 — 선택(또는 (전체)의 최근 활동 미션)의 `Work` 를 읽는다.
   const mode = useMemo(() => panelMode(sel, works), [sel, works]);
   const panelWorkId = mode.kind === "picked" || mode.kind === "recent" ? mode.workId : null;
@@ -466,7 +482,7 @@ export default function RoomPage() {
       case "hitl.updated": {
         const h = ev.payload as unknown as HitlRequest;
         if (h.session_id !== roomId) return;
-        setHitls((cur) => (cur.some((x) => x.id === h.id) ? cur.map((x) => (x.id === h.id ? h : x)) : [...cur, h]));
+        setHitls((cur) => upsertHitl(cur, h));
         break;
       }
       case "artifact.created": {
@@ -752,7 +768,6 @@ export default function RoomPage() {
   const archived = room.status === "archived";
   const newWorkWhy = archived ? ROOM_HEAD.archived : null;
   const onlineComputers = runtimes?.filter((r) => r.status === "online").length ?? null;
-  const hitlByMessage = new Map(hitls.filter((h) => h.message_id).map((h) => [h.message_id!, h]));
   const typingAgents = Object.entries(typing).filter(([, v]) => v).map(([id]) => agentById.get(id)?.name ?? "agent");
   const showLabels = sel.kind === "all";
   // 칸이 없으면(undefined) 라벨을 그리지 않는다 — 「미션 없음」이라고 단정할 근거가 없다(matchesSel 과 같은 규칙).
@@ -1094,17 +1109,26 @@ export default function RoomPage() {
             {messages.map((m) => {
               const agentMsg = m.author_type === "agent" && m.source_task_id;
               const askee = m.kind === "blocked_q" ? m.mentions.find((x) => x.kind === "agent")?.display_name : undefined;
-              const hitl = hitlByMessage.get(m.id);
-              if (m.kind === "hitl" && hitl) {
+              // T-APPROVAL: 확인 요청은 대화 배치(T-CONVO)에서도 가운데 전폭 카드다 — 짝을 못 찾았으면 불러오는 중 자리.
+              if (m.kind === "hitl") {
+                const hitl = pairHitl(m, hitls);
                 return (
-                  <div key={m.id} data-message-id={m.id}>
+                  <div key={m.id} data-message-id={m.id} className="s7__hitl" data-testid="timeline-hitl">
                     {pickButton(m)}
-                    <HitlCard
-                      request={hitl}
-                      onRespond={(body) => respondHitl(hitl.id, body)}
-                      budget={hitl.task_id ? { scope: "task", current: hitl.budget_override_usd, spent: null } : { scope: "session", current: room.limits?.budget_usd ?? null, spent: room.cost_usd ?? 0 }}
-                      busy={busy}
-                    />
+                    {hitl ? (
+                      <HitlCard
+                        request={hitl}
+                        onRespond={(body) => respondHitl(hitl.id, body)}
+                        budget={hitl.task_id ? { scope: "task", current: hitl.budget_override_usd, spent: null } : { scope: "session", current: room.limits?.budget_usd ?? null, spent: room.cost_usd ?? 0 }}
+                        busy={busy}
+                        userName={(uid) => members.find((x) => x.user.id === uid)?.user.display_name}
+                      />
+                    ) : (
+                      <article className="hitl hitl--loading" data-testid="hitl-card-loading" aria-busy="true">
+                        <p className="hitl__q">{m.content}</p>
+                        <p className="hitl__gate">확인 요청을 불러오는 중…</p>
+                      </article>
+                    )}
                   </div>
                 );
               }
@@ -1288,6 +1312,7 @@ export default function RoomPage() {
         .s7__h { margin: 4px 0 2px; font-size: var(--fs-sub); font-weight: 600; color: var(--ink-2); }
         .s7__chips { display: flex; flex-direction: column; gap: 4px; }
         .s7__timeline { flex: 1; display: flex; flex-direction: column; gap: 6px; padding-bottom: 12px; }
+        .s7__hitl { align-self: stretch; margin: 8px 0; }
         .s7__older, .s7__latest { align-self: center; }
         .s7__composer { position: sticky; bottom: 0; background: var(--bg); padding: 8px 0 4px; }
         .s7__tabs { display: none; gap: 6px; }

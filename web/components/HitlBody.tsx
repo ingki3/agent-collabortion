@@ -55,7 +55,9 @@ export interface HitlBodyProps {
   /** 이미 답이 있으면 그 값을 보인다(E7-08 이후·auto_answered). */
   answer?: string | null;
   approved?: boolean | null;
+  /** 답한 사람의 **이름**(호출부가 푼다) · 답한 시각 — 답한 뒤 카드는 「누가·언제·무엇」 으로 바뀐다(T-APPROVAL). */
   answeredBy?: string | null;
+  answeredAt?: string | null;
   /**
    * 예산 초과 시스템 HITL(`purpose: budget`) — 승인에 **상향 금액 입력**을 붙인다(E9-02, U7-1).
    *
@@ -174,14 +176,21 @@ export function HitlBody(props: HitlBodyProps) {
           ) : (
             <>
               {HITL_STATUS_LABEL[status]}:{" "}
-              <b>
+              <b data-testid="hitl-answer-what">
                 {type === "approval"
                   ? props.approved === false
-                    ? "거절"
+                    ? (props.budgetOverride ? "거절" : "수정 요청")
                     : "승인"
                   : (props.answer ?? props.proposedDefault ?? "—")}
               </b>
-              {props.answeredBy ? ` — ${props.answeredBy}` : status === "auto_answered" ? " — 자동(제안 기본값)" : ""}
+              {/* 누가·언제(T-APPROVAL) — 이름을 모르면 「응답됨」 만, 자동이면 그렇게 말한다. */}
+              <span data-testid="hitl-answer-who">
+                {props.answeredBy ? ` — ${props.answeredBy}` : status === "auto_answered" ? " — 자동(제안 기본값)" : ""}
+                {props.answeredAt ? ` · ${clockTime(props.answeredAt)}` : ""}
+              </span>
+              {type === "approval" && props.approved === false && props.answer ? (
+                <span className="hitl__reason" data-testid="hitl-answer-reason"> — 사유: {props.answer}</span>
+              ) : null}
             </>
           )}
         </p>
@@ -245,7 +254,7 @@ export function HitlBody(props: HitlBodyProps) {
           )}
           {actions.includes("reject") && (
             <label className="hitl__field">
-              <span>거절 사유 {bo ? "" : "(거절 시 필수)"}</span>
+              <span>{bo ? "거절 사유" : "수정 요청 사유 (필수 — 결정 기록에 남습니다)"}</span>
               <input
                 className="input"
                 value={reason}
@@ -266,7 +275,7 @@ export function HitlBody(props: HitlBodyProps) {
                 onClick={() => void send({ answer: answer.trim() || (props.proposedDefault ?? "") })}
                 data-testid="hitl-answer"
               >
-                답변 보내기
+                보내기
               </button>
             )}
             {actions.includes("approve") && (
@@ -287,7 +296,7 @@ export function HitlBody(props: HitlBodyProps) {
                 }
                 data-testid="hitl-approve"
               >
-                {bo ? "계속 진행 승인" : "승인"}
+                {bo ? "계속" : "승인"}
               </button>
             )}
             {actions.includes("reject") && (
@@ -297,13 +306,13 @@ export function HitlBody(props: HitlBodyProps) {
                 disabled={disabled || (!bo && reason.trim() === "")}
                 title={
                   !bo && reason.trim() === "" && permission === "allowed"
-                    ? "거절에는 사유가 필요합니다(결정 기록에 남습니다)"
+                    ? "수정 요청에는 사유가 필요합니다(결정 기록에 남습니다)"
                     : disabledTitle
                 }
                 onClick={() => void send({ approved: false, reason: reason.trim() })}
                 data-testid="hitl-reject"
               >
-                거절
+                {bo ? "거절" : "수정 요청"}
               </button>
             )}
             {lock && permission === "later" && !props.hideGate && (

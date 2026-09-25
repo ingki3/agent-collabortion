@@ -3199,6 +3199,11 @@ export interface components {
                 /** @description 누가 충족시킬 차례인지(표시용). */
                 next_actor?: string | null;
                 /**
+                 * @description v0.3.3 — `user_approval` 조건이 **보류** 중인 이유. `running_tasks` = 나머지 조건은 충족됐지만 그 미션에 실행·대기 중인 할 일이 있어 승인 요청(HITL)을 아직 열지 않았다(PRD 완료 흐름, T-APPROVAL). 마지막 할 일이 끝나면 서버가 다시 판정해 연다. 화면: 「조건 충족 — 진행 중인 작업이 끝나면 승인을 요청합니다」. 보류가 아니면 null.
+                 * @enum {string|null}
+                 */
+                held_reason?: "running_tasks" | null;
+                /**
                  * Format: uuid
                  * @description `user_approval` 대기 중이면 그 HITL.
                  */

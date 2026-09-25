@@ -244,6 +244,7 @@ export function WorkPanel(props: WorkPanelProps) {
           metAt={c.met_at}
           nextActor={c.next_actor}
           blockedReason={c.blocked_reason ?? null}
+          heldReason={c.held_reason ?? null}
           hitlRequestId={c.hitl_request_id ?? null}
           onOpenHitl={props.onOpenHitl}
         />
