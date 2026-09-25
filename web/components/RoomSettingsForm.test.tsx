@@ -18,7 +18,8 @@ import { setup, uid } from "@/lib/mock/room-dialogs-testkit";
 import type { FetchBridge } from "@/lib/mock/fetch-bridge";
 import { store } from "@/lib/mock/store";
 import { AUTONOMY_TEXT, SETTINGS, TRANSFER_DIALOG } from "@/lib/room-dialogs";
-import { DELETE_ROOM_DIALOG } from "@/lib/wording";
+import { DELETE_ROOM_DIALOG, ROOM_RENAME } from "@/lib/wording";
+import { W } from "@/lib/mock/wording";
 import type { Room } from "@/lib/api/types";
 
 let bridge: FetchBridge;
@@ -148,5 +149,59 @@ describe("S20 방 설정", () => {
     expect(screen.getByTestId("rd-settings-works")).toBeDisabled();
     expect(screen.getByTestId("rd-settings-transfer")).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByTestId("rd-settings-archive")).toHaveAttribute("aria-disabled", "true");
+  });
+});
+
+// ── T-RENAME — 맨 위 「이름·설명」 묶음(SCREEN §4.11 v0.19.5 · PRD FR-2.1.2) ─────────────────────────
+describe("S20 이름·설명", () => {
+  it("맨 위 묶음 — 영향 한 줄 · 두 칸 · 바뀐 칸이 없으면 「저장」 비활성", async () => {
+    render(<RoomSettingsForm roomId={roomId} />);
+    const group = await screen.findByTestId("rd-settings-group-name");
+    expect(document.querySelector(".rd-group")).toBe(group); // 맨 위
+    expect(screen.getByTestId("rd-settings-group-name-impact")).toHaveTextContent(ROOM_RENAME.group_impact);
+    expect((screen.getByTestId("rd-settings-name") as HTMLInputElement).value).toBe("결제팀");
+    expect(screen.getByTestId("rd-settings-save-name")).toHaveAttribute("aria-disabled", "true");
+    fireEvent.change(screen.getByTestId("rd-settings-name"), { target: { value: " 결제팀 " } });
+    expect(screen.getByTestId("rd-settings-save-name")).toHaveAttribute("aria-disabled", "true"); // 공백만 다르면 바뀐 것이 아니다
+  });
+
+  it("이름이 비면 「방 이름을 적어 주세요」 + 저장 비활성", async () => {
+    render(<RoomSettingsForm roomId={roomId} />);
+    fireEvent.change(await screen.findByTestId("rd-settings-name"), { target: { value: "  " } });
+    expect(screen.getByTestId("rd-settings-name-help")).toHaveTextContent(ROOM_RENAME.required);
+    expect(screen.getByTestId("rd-settings-name")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByTestId("rd-settings-save-name")).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("저장하면 바뀐 칸만 보내고 서버에 반영 · 타임라인에 「… 방 이름을 결제팀에서 결제·정산팀으로 바꿨습니다.」 와 「… 방 설명을 바꿨습니다.」", async () => {
+    render(<RoomSettingsForm roomId={roomId} />);
+    fireEvent.change(await screen.findByTestId("rd-settings-name"), { target: { value: "결제·정산팀" } });
+    fireEvent.change(screen.getByTestId("rd-settings-description"), { target: { value: "결제 흐름 개편" } });
+    fireEvent.click(screen.getByTestId("rd-settings-save-name"));
+    await waitFor(async () => expect(await room()).toMatchObject({ name: "결제·정산팀", description: "결제 흐름 개편" }));
+    const lines = [...store().messages.values()].filter((m) => m.session_id === roomId && m.author_type === "system").map((m) => m.content);
+    expect(lines).toContain("데모 님이 방 이름을 결제팀에서 결제·정산팀으로 바꿨습니다.");
+    expect(lines).toContain("데모 님이 방 설명을 바꿨습니다.");
+  });
+
+  it("권한 밖(참여자) — 두 칸 읽기 전용, 저장은 읽기 전용 사유를 가리킨다", async () => {
+    await bridge.call("POST", `/rooms/${roomId}/participants`, { user_id: uid("seoyeon@colab.dev") });
+    await as("seoyeon@colab.dev");
+    render(<RoomSettingsForm roomId={roomId} />);
+    expect(await screen.findByTestId("rd-settings-name")).toBeDisabled();
+    expect(screen.getByTestId("rd-settings-description")).toBeDisabled();
+    const save = screen.getByTestId("rd-settings-save-name");
+    expect(save).toHaveAttribute("aria-disabled", "true");
+    expect(document.getElementById(save.getAttribute("aria-describedby")!)).toHaveTextContent(SETTINGS.read_only);
+  });
+
+  it("서버 422 는 이름 칸 아래에 서버 문장", async () => {
+    render(<RoomSettingsForm roomId={roomId} />);
+    fireEvent.change(await screen.findByTestId("rd-settings-name"), { target: { value: "가".repeat(199) + "나다" } });
+    // 화면 판정(201자)이 먼저 막는다 — 서버 문장은 우회 요청으로 확인.
+    expect(screen.getByTestId("rd-settings-save-name")).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByTestId("rd-settings-name-help")).toHaveTextContent(ROOM_RENAME.help);
+    const res = await bridge.call("PATCH", `/rooms/${roomId}`, { name: "가".repeat(201) });
+    expect((res.body as { errors: { message: string }[] }).errors[0].message).toBe(W.room_name_1_200);
   });
 });

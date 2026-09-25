@@ -736,3 +736,27 @@ func TestLoopLimitSentencesAreLocked(t *testing.T) {
 		}
 	}
 }
+
+// TestRoomRenameSentencesAreLocked is T-RENAME (PRD FR-2.1.2): 방 이름·설명을
+// 바꾼 시스템 메시지의 조각이 풀에 있어야 한다 — 지역 변수에 담아 SystemPost 로
+// 넘기면 자물쇠 밖으로 샌다(`line :=` 는 sink 가 아니다).
+func TestRoomRenameSentencesAreLocked(t *testing.T) {
+	pool, _, _ := collect(t)
+	for _, w := range []string{
+		" 님이 방 이름을 ",
+		"에서 ",
+		" 바꿨습니다.",
+		" 님이 방 설명을 바꿨습니다.",
+	} {
+		found := false
+		for _, s := range pool {
+			if s.file == "internal/httpapi/handlers_rooms.go" && s.text == w {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("handlers_rooms.go 의 조각 %q 가 풀에 없다 — SystemPost 인자에 바로 두어라", w)
+		}
+	}
+}

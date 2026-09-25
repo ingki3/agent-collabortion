@@ -380,11 +380,19 @@ func (s *Server) UpdateRoom(w http.ResponseWriter, r *http.Request, roomId gen.R
 		return
 	}
 	var errs []apperr.FieldError
-	if in.Name != nil && (strings.TrimSpace(*in.Name) == "" || len([]rune(*in.Name)) > 200) {
-		errs = append(errs, apperr.Field("name", "length", "방 이름은 1~200자로 입력해 주세요"))
+	// FR-2.1.2: 앞뒤 공백을 뗀 길이로 잰다 — 「  」 는 빈 이름이고, 공백으로 200자를 넘긴 이름은 뗀 뒤에 판정한다.
+	var newName, newDesc string
+	if in.Name != nil {
+		newName = strings.TrimSpace(*in.Name)
+		if newName == "" || len([]rune(newName)) > 200 {
+			errs = append(errs, apperr.Field("name", "length", "방 이름은 1~200자로 입력해 주세요"))
+		}
 	}
-	if in.Description != nil && len([]rune(*in.Description)) > 500 {
-		errs = append(errs, apperr.Field("description", "length", "설명은 500자까지 쓸 수 있습니다"))
+	if in.Description != nil {
+		newDesc = strings.TrimSpace(*in.Description)
+		if len([]rune(newDesc)) > 500 {
+			errs = append(errs, apperr.Field("description", "length", "설명은 500자까지 쓸 수 있습니다"))
+		}
 	}
 	if in.Visibility != nil && *in.Visibility != gen.RoomVisibilityWorkspace && *in.Visibility != gen.RoomVisibilityInvited {
 		errs = append(errs, apperr.Field("visibility", "enum", "알 수 없는 공개 범위입니다"))
@@ -422,12 +430,12 @@ func (s *Server) UpdateRoom(w http.ResponseWriter, r *http.Request, roomId gen.R
 	}
 	now := s.Clock.Now()
 	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
-		var visibility string
+		var visibility, oldName, oldDesc string
 		var runtimeID *uuid.UUID
 		var pinned bool
 		if err := tx.QueryRow(r.Context(), `
-			SELECT visibility::text, runtime_id, `+rooms.RuntimePinnedSQL("r.id")+`
-			FROM room r WHERE id = $1 FOR UPDATE`, roomId).Scan(&visibility, &runtimeID, &pinned); err != nil {
+			SELECT visibility::text, name, description, runtime_id, `+rooms.RuntimePinnedSQL("r.id")+`
+			FROM room r WHERE id = $1 FOR UPDATE`, roomId).Scan(&visibility, &oldName, &oldDesc, &runtimeID, &pinned); err != nil {
 			return err
 		}
 		sets, args := []string{}, []any{roomId}
@@ -465,13 +473,14 @@ func (s *Server) UpdateRoom(w http.ResponseWriter, r *http.Request, roomId gen.R
 			add("isolation = $%d", iso)
 			changed = append(changed, "isolation")
 		}
-		if in.Name != nil {
-			add("name = $%d", strings.TrimSpace(*in.Name))
-			changed = append(changed, "name")
+		// FR-2.1.2: 바뀌지 않았으면 저장하지 않는다(시스템 메시지도 없다). 이름·설명은 「방 설정」 한 줄이 아니라 자기 문장을 남긴다.
+		nameChanged := in.Name != nil && newName != oldName
+		descChanged := in.Description != nil && newDesc != oldDesc
+		if nameChanged {
+			add("name = $%d", newName)
 		}
-		if in.Description != nil {
-			add("description = $%d", strings.TrimSpace(*in.Description))
-			changed = append(changed, "description")
+		if descChanged {
+			add("description = $%d", newDesc)
 		}
 		if in.Autonomy != nil {
 			add("autonomy = $%d", string(*in.Autonomy))
@@ -533,6 +542,25 @@ func (s *Server) UpdateRoom(w http.ResponseWriter, r *http.Request, roomId gen.R
 		}
 		rid := roomId
 		who := displayName(r.Context(), tx, u.Id)
+		if nameChanged {
+			// 문장을 SystemPost 인자에 바로 둔다 — 지역 변수(line)는 문구 자물쇠(internal/wording)의 sink 가 아니다.
+			if _, err := s.Router.SystemPost(r.Context(), tx, roomId, who+" 님이 방 이름을 "+oldName+"에서 "+apperr.JosaRo(newName)+" 바꿨습니다."); err != nil {
+				return err
+			}
+			if err := logActivity(r.Context(), tx, a.WorkspaceID, &rid, &u.Id, "room.renamed", "room", &rid,
+				map[string]any{"name": newName, "from": oldName, "to": newName}, now); err != nil {
+				return err
+			}
+		}
+		if descChanged {
+			if _, err := s.Router.SystemPost(r.Context(), tx, roomId, who+" 님이 방 설명을 바꿨습니다."); err != nil {
+				return err
+			}
+			if err := logActivity(r.Context(), tx, a.WorkspaceID, &rid, &u.Id, "room.description_changed", "room", &rid,
+				map[string]any{"name": a.Name, "from": oldDesc, "to": newDesc}, now); err != nil {
+				return err
+			}
+		}
 		if visChanged {
 			line := who + " 님이 이 방을 초대된 사람만 볼 수 있게 바꿨습니다."
 			if *in.Visibility == gen.RoomVisibilityWorkspace {

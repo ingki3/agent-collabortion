@@ -88,6 +88,13 @@ export function josa(word: string, with_: string, without: string): string {
   if (!word.length || cp < 0xac00 || cp > 0xd7a3) return `${word}${with_}(${without})`;
   return (cp - 0xac00) % 28 === 0 ? word + without : word + with_;
 }
+/** `apperr.JosaRo` — 「로」(받침 없음·ㄹ 받침) / 「으로」, 한글이 아니면 「(으)로」(FR-2.1.2 방 이름 바꾸기). */
+export function josaRo(word: string): string {
+  const cp = word.length ? word.codePointAt(word.length - 1)! : 0;
+  if (!word.length || cp < 0xac00 || cp > 0xd7a3) return `${word}(으)로`;
+  const jong = (cp - 0xac00) % 28;
+  return jong === 0 || jong === 8 ? `${word}로` : `${word}으로`;
+}
 /** `apperr.NotFound(what)` 의 문장. */
 export const notFound = (what: keyof typeof NOT_FOUND_NOUN): string => josa(NOT_FOUND_NOUN[what], "을", "를") + " 찾을 수 없습니다";
 

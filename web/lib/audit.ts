@@ -63,6 +63,8 @@ export const ACTION_LABEL: Record<string, string> = {
   "room.archived": "방 보관",
   "room.unarchived": "방 보관 해제",
   "room.settings_changed": "방 설정 변경",
+  "room.renamed": "방 이름 변경",
+  "room.description_changed": "방 설명 변경",
   "member.role_changed": "멤버 역할 변경",
   "member.removed": "멤버 내보내기",
   "agent.respond_to_changed": "에이전트 응답 대상 변경",
