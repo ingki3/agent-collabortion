@@ -35,3 +35,9 @@
 .room-panel__head:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .room-panel__body { display: flex; flex-direction: column; gap: 8px; }
 .room-panel__group { margin: 6px 0 2px; }
+/* T-BUDGETCAP — 비용 줄의 「상한 없음 — [상한 걸기]」와 그 자리 입력. */
+.budget-cap__none { color: var(--ink-2); font-size: var(--fs-meta); }
+.budget-cap__set { margin-top: 0; }
+.budget-cap__form { display: flex; flex-direction: column; gap: 4px; }
+.budget-cap__row { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.budget-cap__row .input { width: 96px; }

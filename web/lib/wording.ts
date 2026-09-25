@@ -673,6 +673,23 @@ export const ROOM_PANEL = {
 } as const;
 
 /**
+ * 우열 비용 줄의 상한(T-BUDGETCAP, SCREEN §4.6 「비용 줄」) — 상한이 없으면 **없다고 말하고 그 자리에서 걸게** 한다.
+ * 기본값은 바꾸지 않는다(상한 없음). 미션은 자기 상한이 없으면 방 상한을 따른다(계약 WorkLimits).
+ */
+export const BUDGET_CAP = {
+  none: "상한 없음",
+  follows_room: ["방 상한 $", " 을 따릅니다"] as Slotted,
+  set: "상한 걸기",
+  input_label: "예산 상한 (USD)",
+  save: "걸기",
+  cancel: "취소",
+  invalid: "0보다 큰 금액을 적어 주세요",
+  too_low: "이미 쓴 돈보다 큰 금액이어야 합니다",
+  room_note: "넘으면 이 방 전체가 멈추고 방장에게 계속할지 묻습니다",
+  work_note: "넘으면 이 미션만 멈추고 Director 에게 계속할지 묻습니다",
+} as const;
+
+/**
  * 에이전트 메시지 세 층(PRD FR-3.1.2 · SCREEN §4.6 「에이전트 메시지 카드」 · COMPONENTS §9.6 Fold Row · §9.7 View Toggle, v0.19.3).
  * 대화(content)는 늘 보이고, 작업 내용(detail)·작업 과정(활동 피드)은 접힌 줄 하나로 시작한다. 수가 드는 말은 두 토막(Slotted)이다.
  */
