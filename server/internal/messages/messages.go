@@ -13,11 +13,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/oapi-codegen/nullable"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/nullj"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
-	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
 var ErrNotFound = errors.New("messages: not found")
@@ -50,6 +51,14 @@ type Row struct {
 	// Only the message's own readers carry it — routing, the inbox, alerts,
 	// search previews and the mission summary read Content alone.
 	Detail *string
+	// Speech · Addressees · RespondsTo · DelegatedLane are openapi v0.3.2
+	// (D24, PRD FR-3.1.3) — decided by the server when the message is written
+	// (speech.go) so every client reads the same answer. Speech is empty only
+	// for rows written before the migration that the backfill could not see.
+	Speech        string
+	Addressees    []Addressee
+	RespondsTo    *uuid.UUID
+	DelegatedLane *uuid.UUID
 }
 
 const selectMessage = `
@@ -57,7 +66,7 @@ const selectMessage = `
 	       COALESCE(u.display_name, a.name), COALESCE(u.avatar_url, a.avatar_url), a.role,
 	       m.parent_id, m.content, m.mentions, m.source_task_id, t.lane_id, m.kind, m.state,
 	       (SELECT count(*) FROM message r WHERE r.parent_id = m.id), m.created_at, m.edited_at,
-	       m.work_id, m.detail
+	       m.work_id, m.detail, m.speech, m.addressees, m.responds_to_message_id, m.delegated_lane_id
 	FROM message m
 	LEFT JOIN app_user u ON m.author_type = 'user' AND u.id = m.author_id
 	LEFT JOIN agent a ON m.author_type = 'agent' AND a.id = m.author_id
@@ -65,11 +74,11 @@ const selectMessage = `
 
 func scan(row pgx.Row) (*Row, error) {
 	var m Row
-	var mentions []byte
-	var role *string
+	var mentions, addressees []byte
+	var role, speech *string
 	err := row.Scan(&m.ID, &m.SessionID, &m.AuthorType, &m.AuthorID, &m.AuthorName, &m.AuthorAvatar, &role,
 		&m.ParentID, &m.Content, &mentions, &m.SourceTaskID, &m.LaneID, &m.Kind, &m.State, &m.ReplyCount, &m.CreatedAt, &m.EditedAt,
-		&m.WorkID, &m.Detail)
+		&m.WorkID, &m.Detail, &speech, &addressees, &m.RespondsTo, &m.DelegatedLane)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -82,6 +91,15 @@ func scan(row pgx.Row) (*Row, error) {
 	}
 	if m.Mentions == nil {
 		m.Mentions = []gen.Mention{}
+	}
+	if speech != nil {
+		m.Speech = *speech
+	}
+	if len(addressees) > 0 {
+		_ = json.Unmarshal(addressees, &m.Addressees)
+	}
+	if m.Addressees == nil {
+		m.Addressees = []Addressee{}
 	}
 	return &m, nil
 }
@@ -255,28 +273,50 @@ func ToAPI(m *Row) gen.Message {
 		Id:           m.ID,
 		SessionId:    m.SessionID,
 		AuthorType:   gen.AuthorType(m.AuthorType),
-		AuthorId:     tasks.NullUUID(m.AuthorID),
-		ParentId:     tasks.NullUUID(m.ParentID),
+		AuthorId:     nullj.NullUUID(m.AuthorID),
+		ParentId:     nullj.NullUUID(m.ParentID),
 		Content:      m.Content,
 		Mentions:     m.Mentions,
-		SourceTaskId: tasks.NullUUID(m.SourceTaskID),
-		LaneId:       tasks.NullUUID(m.LaneID),
+		SourceTaskId: nullj.NullUUID(m.SourceTaskID),
+		LaneId:       nullj.NullUUID(m.LaneID),
 		Kind:         gen.MessageKind(m.Kind),
 		State:        gen.MessageState(m.State),
 		ReplyCount:   &m.ReplyCount,
 		CreatedAt:    m.CreatedAt,
-		EditedAt:     tasks.NullTime(m.EditedAt),
-		WorkId:       tasks.NullUUID(m.WorkID),
-		Detail:       tasks.NullString(m.Detail),
+		EditedAt:     nullj.NullTime(m.EditedAt),
+		WorkId:       nullj.NullUUID(m.WorkID),
+		Detail:       nullj.NullString(m.Detail),
 	}
-	isNote := strings.HasPrefix(m.Content, "/note")
+	isNote := IsNote(m.Content)
 	out.IsNote = &isNote
+	// openapi v0.3.2 (D24). A row the backfill could not classify reads as
+	// `chat` with no addressees — the honest 「방 전체」, never a guessed label.
+	speech := gen.MessageSpeech(m.Speech)
+	if m.Speech == "" {
+		speech = gen.MessageSpeechChat
+	}
+	out.Speech = &speech
+	addr := make([]struct {
+		Id   nullable.Nullable[openapi_types.UUID] `json:"id,omitempty"`
+		Kind gen.MessageAddresseesKind             `json:"kind"`
+		Name string                                `json:"name"`
+	}, 0, len(m.Addressees))
+	for _, a := range m.Addressees {
+		addr = append(addr, struct {
+			Id   nullable.Nullable[openapi_types.UUID] `json:"id,omitempty"`
+			Kind gen.MessageAddresseesKind             `json:"kind"`
+			Name string                                `json:"name"`
+		}{Id: nullj.NullUUID(a.ID), Kind: gen.MessageAddresseesKind(a.Kind), Name: a.Name})
+	}
+	out.Addressees = &addr
+	out.RespondsToMessageId = nullj.NullUUID(m.RespondsTo)
+	out.DelegatedLaneId = nullj.NullUUID(m.DelegatedLane)
 	if m.AuthorName != nil {
 		out.Author = &struct {
 			AvatarUrl nullable.Nullable[string] `json:"avatar_url,omitempty"`
 			Name      *string                   `json:"name,omitempty"`
 			Role      *gen.AgentRole            `json:"role,omitempty"`
-		}{AvatarUrl: tasks.NullString(m.AuthorAvatar), Name: m.AuthorName}
+		}{AvatarUrl: nullj.NullString(m.AuthorAvatar), Name: m.AuthorName}
 		if m.AuthorRole != nil {
 			r := gen.AgentRole(*m.AuthorRole)
 			out.Author.Role = &r

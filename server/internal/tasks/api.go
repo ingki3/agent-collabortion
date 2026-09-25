@@ -8,6 +8,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/nullj"
 )
 
 // ToAPI maps a task row (+ optional attempts and usage) to the contract type.
@@ -89,28 +90,15 @@ func ToAPI(t *Row, attempts []Attempt, usage *Usage) gen.Task {
 // CoalescedMessageIds exists so ToAPI can be written without a nil check inline.
 func (t *Row) CoalescedMessageIds() []uuid.UUID { return t.CoalescedMessageIDs }
 
-// Nullable helpers shared by the API mappers of every package.
+// Nullable helpers shared by the API mappers of every package. The bodies live
+// in `internal/nullj` so a leaf mapper can use them without importing `tasks`;
+// these names stay because every caller already says `tasks.NullUUID`.
 
-func NullUUID(p *uuid.UUID) nullable.Nullable[openapi_types.UUID] {
-	if p == nil {
-		return nullable.NewNullNullable[openapi_types.UUID]()
-	}
-	return nullable.NewNullableWithValue(openapi_types.UUID(*p))
-}
+func NullUUID(p *uuid.UUID) nullable.Nullable[openapi_types.UUID] { return nullj.NullUUID(p) }
 
-func NullTime(p *time.Time) nullable.Nullable[time.Time] {
-	if p == nil {
-		return nullable.NewNullNullable[time.Time]()
-	}
-	return nullable.NewNullableWithValue(*p)
-}
+func NullTime(p *time.Time) nullable.Nullable[time.Time] { return nullj.NullTime(p) }
 
-func NullString(p *string) nullable.Nullable[string] {
-	if p == nil {
-		return nullable.NewNullNullable[string]()
-	}
-	return nullable.NewNullableWithValue(*p)
-}
+func NullString(p *string) nullable.Nullable[string] { return nullj.NullString(p) }
 
 func NullFloat(p *float64) nullable.Nullable[float32] {
 	if p == nil {

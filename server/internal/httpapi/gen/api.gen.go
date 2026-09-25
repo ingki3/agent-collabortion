@@ -851,6 +851,72 @@ func (e MentionKind) Valid() bool {
 	}
 }
 
+// Defines values for MessageAddresseesKind.
+const (
+	MessageAddresseesKindAgent MessageAddresseesKind = "agent"
+	MessageAddresseesKindAll   MessageAddresseesKind = "all"
+	MessageAddresseesKindUser  MessageAddresseesKind = "user"
+)
+
+// Valid indicates whether the value is a known member of the MessageAddresseesKind enum.
+func (e MessageAddresseesKind) Valid() bool {
+	switch e {
+	case MessageAddresseesKindAgent:
+		return true
+	case MessageAddresseesKindAll:
+		return true
+	case MessageAddresseesKindUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MessageSpeech.
+const (
+	MessageSpeechAnswer   MessageSpeech = "answer"
+	MessageSpeechChat     MessageSpeech = "chat"
+	MessageSpeechDelegate MessageSpeech = "delegate"
+	MessageSpeechHitl     MessageSpeech = "hitl"
+	MessageSpeechInstruct MessageSpeech = "instruct"
+	MessageSpeechNote     MessageSpeech = "note"
+	MessageSpeechQuestion MessageSpeech = "question"
+	MessageSpeechReport   MessageSpeech = "report"
+	MessageSpeechRequest  MessageSpeech = "request"
+	MessageSpeechSummary  MessageSpeech = "summary"
+	MessageSpeechSystem   MessageSpeech = "system"
+)
+
+// Valid indicates whether the value is a known member of the MessageSpeech enum.
+func (e MessageSpeech) Valid() bool {
+	switch e {
+	case MessageSpeechAnswer:
+		return true
+	case MessageSpeechChat:
+		return true
+	case MessageSpeechDelegate:
+		return true
+	case MessageSpeechHitl:
+		return true
+	case MessageSpeechInstruct:
+		return true
+	case MessageSpeechNote:
+		return true
+	case MessageSpeechQuestion:
+		return true
+	case MessageSpeechReport:
+		return true
+	case MessageSpeechRequest:
+		return true
+	case MessageSpeechSummary:
+		return true
+	case MessageSpeechSystem:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MessageKind.
 const (
 	MessageKindBlockedQ MessageKind = "blocked_q"
@@ -3005,6 +3071,13 @@ type MentionKind string
 
 // Message defines model for Message.
 type Message struct {
+	// Addressees v0.3.2 — **받는 쪽**(PRD FR-3.1.3). 작성자 자신 제외, 중복 제거, 서버 판정. 비면 방 전체. `detail` 속 멘션은 넣지 않는다.
+	Addressees *[]struct {
+		Id   nullable.Nullable[openapi_types.UUID] `json:"id,omitempty"`
+		Kind MessageAddresseesKind                 `json:"kind"`
+		Name string                                `json:"name"`
+	} `json:"addressees,omitempty"`
+
 	// Author 표시용 해소값(uuid 노출 금지 원칙, FR-7.2).
 	Author *struct {
 		AvatarUrl nullable.Nullable[string] `json:"avatar_url,omitempty"`
@@ -3023,6 +3096,9 @@ type Message struct {
 	// Content 마크다운. 에이전트 메시지면 **대화** 층(PRD FR-3.1.2).
 	Content   string    `json:"content"`
 	CreatedAt time.Time `json:"created_at"`
+
+	// DelegatedLaneId v0.3.2 — `speech = delegate` 이면 이 위임이 만든 서브 미션(lane). 화면이 그 상태 칩(`lane.updated`)을 단다. 그 밖 null.
+	DelegatedLaneId nullable.Nullable[openapi_types.UUID] `json:"delegated_lane_id,omitempty"`
 
 	// Detail v0.3.1 — 에이전트 메시지의 **작업 내용** 층(조사 결과·초안 전문·표, 마크다운). 화면은 기본 접힘(PRD FR-3.1.2 · SCREEN §4.6). 사람·시스템 메시지는 null. 받은 요청·알림·검색 미리보기·미션 요약은 이 칸을 쓰지 않는다.
 	Detail   nullable.Nullable[string]    `json:"detail,omitempty"`
@@ -3043,10 +3119,16 @@ type Message struct {
 	Mentions []Mention                             `json:"mentions"`
 
 	// ParentId 스레드 루트.
-	ParentId     nullable.Nullable[openapi_types.UUID] `json:"parent_id"`
-	ReplyCount   *int                                  `json:"reply_count,omitempty"`
-	SessionId    openapi_types.UUID                    `json:"session_id"`
-	SourceTaskId nullable.Nullable[openapi_types.UUID] `json:"source_task_id"`
+	ParentId   nullable.Nullable[openapi_types.UUID] `json:"parent_id"`
+	ReplyCount *int                                  `json:"reply_count,omitempty"`
+
+	// RespondsToMessageId v0.3.2 — `speech = report` 이면 그 턴을 깨운 메시지(원래 지시·위임). 화면의 「↩ … 에 대한 보고」 링크. 그 밖 null.
+	RespondsToMessageId nullable.Nullable[openapi_types.UUID] `json:"responds_to_message_id,omitempty"`
+	SessionId           openapi_types.UUID                    `json:"session_id"`
+	SourceTaskId        nullable.Nullable[openapi_types.UUID] `json:"source_task_id"`
+
+	// Speech v0.3.2 — **말의 종류**(PRD FR-3.1.3). **서버가 판정해 내려준다** — 화면·CLI 가 본문이나 lane 을 읽어 짐작하지 않는다. `delegate` 는 `colab lane delegate` 가 쓴 메시지(서버가 쓰는 순간 안다), `report` 는 에이전트 메시지이고 그 턴을 깨운 메시지의 작성자(요청자)가 받는 쪽에 있거나 받는 쪽이 빈 경우, `instruct` 는 사람이 에이전트를 멘션, `request` 는 에이전트가 다른 에이전트를 멘션(위임·보고 아님), `answer` 는 질문 카드(`blocked_q`) 스레드 답글, `note` 는 `/note`. 판정 순서는 PRD FR-3.1.3 표.
+	Speech *MessageSpeech `json:"speech,omitempty"`
 
 	// State `message_state` — pending_approval은 v1.1 supervised.
 	State MessageState `json:"state"`
@@ -3054,6 +3136,12 @@ type Message struct {
 	// WorkId v0.2.0 — 귀속된 미션(FR-3.1.1).
 	WorkId nullable.Nullable[openapi_types.UUID] `json:"work_id,omitempty"`
 }
+
+// MessageAddresseesKind defines model for Message.Addressees.Kind.
+type MessageAddresseesKind string
+
+// MessageSpeech v0.3.2 — **말의 종류**(PRD FR-3.1.3). **서버가 판정해 내려준다** — 화면·CLI 가 본문이나 lane 을 읽어 짐작하지 않는다. `delegate` 는 `colab lane delegate` 가 쓴 메시지(서버가 쓰는 순간 안다), `report` 는 에이전트 메시지이고 그 턴을 깨운 메시지의 작성자(요청자)가 받는 쪽에 있거나 받는 쪽이 빈 경우, `instruct` 는 사람이 에이전트를 멘션, `request` 는 에이전트가 다른 에이전트를 멘션(위임·보고 아님), `answer` 는 질문 카드(`blocked_q`) 스레드 답글, `note` 는 `/note`. 판정 순서는 PRD FR-3.1.3 표.
+type MessageSpeech string
 
 // MessageCreate defines model for MessageCreate.
 type MessageCreate struct {

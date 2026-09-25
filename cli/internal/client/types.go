@@ -74,16 +74,25 @@ type Message struct {
 	// carried whole: `colab room messages --thread <id>` is where an agent
 	// reads what its turn prompt showed only the first 400 characters of
 	// (harness v0.9.4). null for people's and system messages.
-	Detail       *string         `json:"detail,omitempty"`
-	Mentions     json.RawMessage `json:"mentions,omitempty"`
-	SourceTaskID *string         `json:"source_task_id"`
-	LaneID       *string         `json:"lane_id,omitempty"`
-	Kind         string          `json:"kind"`
-	State        string          `json:"state"`
-	ReplyCount   int             `json:"reply_count,omitempty"`
-	IsNote       bool            `json:"is_note,omitempty"`
-	CreatedAt    string          `json:"created_at"`
-	EditedAt     *string         `json:"edited_at,omitempty"`
+	Detail   *string         `json:"detail,omitempty"`
+	Mentions json.RawMessage `json:"mentions,omitempty"`
+	// Speech · Addressees · RespondsToMessageID · DelegatedLaneID are openapi
+	// v0.3.2 (D24, PRD FR-3.1.3): the server says WHO said WHAT to WHOM, so
+	// `room messages` shows the same answer the web timeline does instead of
+	// each client re-deriving it from the body. Carried through verbatim —
+	// the CLI does not interpret them.
+	Speech              string          `json:"speech,omitempty"`
+	Addressees          json.RawMessage `json:"addressees,omitempty"`
+	RespondsToMessageID *string         `json:"responds_to_message_id,omitempty"`
+	DelegatedLaneID     *string         `json:"delegated_lane_id,omitempty"`
+	SourceTaskID        *string         `json:"source_task_id"`
+	LaneID              *string         `json:"lane_id,omitempty"`
+	Kind                string          `json:"kind"`
+	State               string          `json:"state"`
+	ReplyCount          int             `json:"reply_count,omitempty"`
+	IsNote              bool            `json:"is_note,omitempty"`
+	CreatedAt           string          `json:"created_at"`
+	EditedAt            *string         `json:"edited_at,omitempty"`
 }
 
 type MessageAuthor struct {

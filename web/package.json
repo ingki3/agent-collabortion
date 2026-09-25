@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "NODE_OPTIONS=--max-old-space-size=2048 vitest run --maxWorkers=4",
     "test:watch": "vitest",
     "gen:api": "openapi-typescript ../contracts/openapi.yaml -o lib/api/schema.d.ts --default-non-nullable=false",
     "dev:mock": "COLAB_MOCK_API=1 next dev",

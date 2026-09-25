@@ -4,6 +4,8 @@ import "./message-card.css";
 import { Markdown } from "@/lib/markdown";
 import { clockTime, relativeTime } from "@/lib/time";
 import type { Message } from "@/lib/api/types";
+import { isBubble, type Speech } from "@/lib/conversation";
+import { AddresseeLine, ReportOfLink, speechAria } from "./AddresseeLine";
 
 /**
  * kind 별 배지(COMPONENTS §2.2 K3). `answer` 는 message_kind 가 아니라 질문 카드(blocked_q) 스레드의 답글이다.
@@ -72,6 +74,21 @@ export interface MessageCardProps {
    * 작업 내용 · 작업 과정)을 받는다. undefined 면 예전처럼 본문 전부. 펼침 상태는 부른 쪽이 메시지 id 로 들고 있다(카드 로컬 state 아님).
    */
   layers?: (m: Message, opts: { asAnswer: boolean }) => MessageLayerSlots | undefined;
+  /**
+   * v0.19.4 대화 배치(PRD FR-3.1.3 · SCREEN §4.6 「대화 배치」 · COMPONENTS §9.8) — 메시지(스레드 답글 포함)마다 불러 말의 종류·받는 쪽을
+   * 받는다. undefined 면 예전 머리(작성자 + kind 배지). `parent` 는 스레드 답글일 때 루트.
+   */
+  conversation?: (m: Message, opts: { parent?: Message }) => ConversationSlot | undefined;
+  /** 스레드 답글로 렌더 중일 때 그 루트(대화 배치의 「답」·스레드 대상 판정). */
+  parent?: Message;
+}
+
+export interface ConversationSlot {
+  speech: Speech;
+  /** 바로 앞 메시지와 묶임 — 아바타·작성자를 숨긴다(받는 쪽은 남긴다). */
+  grouped?: boolean;
+  /** 「↩ … 에 대한 보고」를 누르면. */
+  onJump?: (messageId: string) => void;
 }
 
 export interface MessageLayerSlots {
@@ -101,31 +118,45 @@ export function MessageCard(props: MessageCardProps) {
     setOpen((v) => !v);
   }
 
-  return (
-    <article className="msg" data-kind={m.kind} data-message-id={m.id} data-testid="message-card">
-      <div className="msg__head">
-        {badge && (
-          <span className="msg__kind" data-tone={badge.tone} data-testid="message-kind">
-            <span aria-hidden="true">{badge.glyph}</span>
-            {badge.label}
-          </span>
-        )}
-        <span className={`msg__author${m.author_type === "agent" ? " msg__author--agent" : ""}`}>{authorName(m)}</span>
-        <span className="msg__meta" title={m.created_at}>
-          {clockTime(m.created_at)} · {relativeTime(m.created_at, props.now)}
-          {m.is_note ? " · note" : ""}
+  const conv = props.conversation?.(m, { parent: props.parent });
+  const author = <span className={`msg__author${m.author_type === "agent" ? " msg__author--agent" : ""}`}>{authorName(m)}</span>;
+  const meta = (
+    <span className="msg__meta" title={m.created_at}>
+      {clockTime(m.created_at)} · {relativeTime(m.created_at, props.now)}
+      {m.is_note && !conv ? " · note" : ""}
+    </span>
+  );
+  const tail = (
+    <>
+      {props.workLabel}
+      {props.menu && <span className="msg__menu">{props.menu}</span>}
+    </>
+  );
+  const head = conv ? (
+    <AddresseeLine speech={conv.speech} author={author} grouped={conv.grouped} meta={meta} tail={tail} />
+  ) : (
+    <div className="msg__head">
+      {badge && (
+        <span className="msg__kind" data-tone={badge.tone} data-testid="message-kind">
+          <span aria-hidden="true">{badge.glyph}</span>
+          {badge.label}
         </span>
-        {props.workLabel}
-        {props.menu && <span className="msg__menu">{props.menu}</span>}
-      </div>
-      {layered ? (
-        <>
-          {layered.body && <MessageBody content={layered.body} />}
-          {layered.below}
-        </>
-      ) : (
-        <MessageBody content={m.content} />
       )}
+      {author}
+      {meta}
+      {tail}
+    </div>
+  );
+  const body = layered ? (
+    <>
+      {layered.body && <MessageBody content={layered.body} />}
+      {layered.below}
+    </>
+  ) : (
+    <MessageBody content={m.content} />
+  );
+  const actions = (
+    <>
       {props.footer}
       <div className="msg__actions">
         {replyCount > 0 && (
@@ -151,13 +182,74 @@ export function MessageCard(props: MessageCardProps) {
         )}
       </div>
       {props.activity && activityOpen && <div className="msg__slot">{props.activity}</div>}
-      {open && props.replies && (
-        <div className="msg__thread" data-testid="thread">
-          {props.replies.map((r) => (
-            <MessageCard key={r.id} message={r} asAnswer={m.kind === "blocked_q"} onReply={props.onReply} now={props.now} layers={props.layers} />
-          ))}
+    </>
+  );
+  const thread = open && props.replies && (
+    <div className="msg__thread" data-testid="thread">
+      {props.replies.map((r) => (
+        <MessageCard
+          key={r.id}
+          message={r}
+          asAnswer={m.kind === "blocked_q"}
+          onReply={props.onReply}
+          now={props.now}
+          layers={props.layers}
+          conversation={props.conversation}
+          parent={m}
+        />
+      ))}
+    </div>
+  );
+
+  if (!conv) {
+    return (
+      <article className="msg" data-kind={m.kind} data-message-id={m.id} data-testid="message-card">
+        {head}
+        {body}
+        {actions}
+        {thread}
+      </article>
+    );
+  }
+
+  // v0.19.4 대화 배치 — 시스템은 가운데 줄, 말풍선(text)은 사람 오른쪽 · 에이전트 왼쪽, 질문·요약은 전폭 카드. 스레드 안은 좌우를 나누지 않는다.
+  const aria = speechAria(authorName(m), conv.speech);
+  if (m.kind === "system") {
+    return (
+      <article className="msg convo convo--system" data-kind={m.kind} data-message-id={m.id} data-testid="message-card" aria-label={aria}>
+        <div className="convo__sysline">
+          <MessageBody content={m.content} />
         </div>
+        {props.footer && <div className="convo__sysfoot">{props.footer}</div>}
+      </article>
+    );
+  }
+  const side = props.parent ? "thread" : !isBubble(m) ? "wide" : m.author_type === "agent" ? "left" : "right";
+  return (
+    <article
+      className="msg convo"
+      data-kind={m.kind}
+      data-side={side}
+      data-grouped={conv.grouped ? "true" : undefined}
+      data-speech={conv.speech.kind}
+      data-message-id={m.id}
+      data-testid="message-card"
+      aria-label={aria}
+    >
+      {side === "left" && (
+        <span className="convo__avatar" aria-hidden="true" data-blank={conv.grouped ? "true" : undefined}>
+          {conv.grouped ? "" : authorName(m).slice(0, 1).toUpperCase()}
+        </span>
       )}
+      <div className="convo__col">
+        {head}
+        <ReportOfLink speech={conv.speech} onJump={conv.onJump} />
+        <div className={side === "left" || side === "right" ? "convo__bubble" : "convo__plain"}>
+          {body}
+          {actions}
+        </div>
+        {thread}
+      </div>
     </article>
   );
 }

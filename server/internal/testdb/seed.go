@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/ingki3/agent-collabortion/server/internal/messages"
 )
 
 // Seed is a minimal workspace: one user (owner), one runtime, one agent with a
@@ -109,6 +111,11 @@ func AddTask(t *testing.T, pool *pgxpool.Pool, s Seed, sessionID uuid.UUID, now 
 	// mission (room.legacy_work_id — the room may hold others since T-R1b2) —
 	// the claim gates a task on ITS mission (queue.Claim).
 	if err := pool.QueryRow(ctx, `INSERT INTO message (session_id, author_type, author_id, content, created_at, work_id) VALUES ($1, 'user', $2, 'hello', $3, (SELECT legacy_work_id FROM room WHERE id = $1)) RETURNING id`, sessionID, s.UserID, now).Scan(&msgID); err != nil {
+		t.Fatal(err)
+	}
+	// 「모든 INSERT 는 Store 를 탄다」(messages/speech.go) 는 이 헬퍼에도 해당한다 —
+	// 여기서 쓴 행만 speech 가 비면 테스트가 프로덕션과 다른 방을 보게 된다(리뷰 #335 NN5).
+	if err := messages.Store(ctx, pool, msgID, messages.StoreOpts{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, `INSERT INTO lane (session_id, agent_id, profile_id, created_at, updated_at, work_id) VALUES ($1, $2, $3, $4, $4, (SELECT legacy_work_id FROM room WHERE id = $1)) RETURNING id`, sessionID, s.AgentID, s.ProfileID, now).Scan(&laneID); err != nil {

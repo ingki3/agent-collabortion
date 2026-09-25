@@ -16,7 +16,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { MessageBody, MessageCard, authorName, type MessageLayerSlots } from "@/components/MessageCard";
+import { MessageBody, MessageCard, authorName, type ConversationSlot, type MessageLayerSlots } from "@/components/MessageCard";
 import { ArtifactRef, DetailFold, ProcessFold, TimelineViewToggle, type TimelineView } from "@/components/MessageLayers";
 import { Composer, type ComposerAgent, type ComposerInput, type ComposerWarning } from "@/components/Composer";
 import { ActivityFeed } from "@/components/ActivityFeed";
@@ -42,6 +42,7 @@ import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
 import { emptyTurnNote, isEmptyTurn } from "@/lib/feed";
 import { useMarkRoomRead } from "@/lib/unread";
 import { isLayered, messageLayers, summarizeProcess, timelineViewKey } from "@/lib/message-layers";
+import { groupsWith, speechOf, type ConversationCtx, type Speech } from "@/lib/conversation";
 import {
   BOARD_FOLDED, filterLanes, isAuditView, isOpenWork, matchesSel, needsMe, panelMode, parseSel, pausedLayer, postBlockedBy, sameSel, selParam,
   type ChipSel,
@@ -340,6 +341,25 @@ export default function RoomPage() {
     }
   }, [messages, replies, loadEvents]);
   const loadLaneTasks = useCallback(async (laneId: string): Promise<Task[]> => api.get("/lanes/{laneId}/tasks", { path: { laneId } }), []);
+  /**
+   * 대화 배치(FR-3.1.3)의 「↩ … 에 대한 보고」 — 판정은 서버가 내려주고(openapi v0.3.2 `responds_to_message_id`),
+   * 화면은 그 메시지의 인용문 한 줄이 필요할 뿐이다. 타임라인·스레드에 없으면 `getMessage` 를 그 id 당 한 번.
+   */
+  const [farMessages, setFarMessages] = useState<Record<string, Message | null>>({});
+  const requestedMessages = useRef(new Set<string>());
+  const lookupMessage = useCallback((id: string): Message | null | undefined => {
+    return messages.find((x) => x.id === id) ?? Object.values(replies).flat().find((x) => x.id === id) ?? (id in farMessages ? farMessages[id] : undefined);
+  }, [messages, replies, farMessages]);
+  useEffect(() => {
+    for (const m of [...messages, ...Object.values(replies).flat()]) {
+      const trig = m.responds_to_message_id;
+      if (!trig || requestedMessages.current.has(trig) || lookupMessage(trig) !== undefined) continue;
+      requestedMessages.current.add(trig);
+      void api.get("/messages/{messageId}", { path: { messageId: trig } })
+        .then((x) => setFarMessages((cur) => ({ ...cur, [trig]: x })))
+        .catch(() => setFarMessages((cur) => ({ ...cur, [trig]: null })));
+    }
+  }, [messages, replies, lookupMessage]);
   const renderTaskActivity = useCallback((taskId: string) => <TaskActivity taskId={taskId} cache={events} load={loadEvents} />, [events, loadEvents]);
 
   // 서브 미션·미션 수(세 층 요약)는 room 행의 `counts` — 서브 미션·미션이 움직이면 방을 다시 읽는다(한 번에 몰아서).
@@ -779,6 +799,30 @@ export default function RoomPage() {
     };
   };
 
+  /** 대화 배치(FR-3.1.3) — 말의 종류·받는 쪽은 서버가 판정해 내려준 칸 그대로(openapi v0.3.2 D24). */
+  const convCtx: ConversationCtx = { lanes, messageById: (id) => lookupMessage(id), authorName };
+  const jumpOrAnchor = (id: string) => {
+    if (document.querySelector(`[data-message-id="${id}"]`)) return jumpToMessage(id);
+    router.replace(`/rooms/${roomId}?around_message_id=${encodeURIComponent(id)}`, { scroll: false });
+  };
+  const speeches = new Map<string, Speech>();
+  const groupedIds = new Set<string>();
+  {
+    let prev: { m: Message; s: Speech } | undefined;
+    for (const m of messages) {
+      const s = speechOf(m, convCtx);
+      speeches.set(m.id, s);
+      const cur = { m, s };
+      if (m.kind !== "hitl" && groupsWith(prev, cur)) groupedIds.add(m.id);
+      prev = m.kind === "hitl" ? undefined : cur;
+    }
+  }
+  const conversationFor = (m: Message, o: { parent?: Message }): ConversationSlot => ({
+    speech: speeches.get(m.id) ?? speechOf(m, convCtx),
+    grouped: !o.parent && groupedIds.has(m.id),
+    onJump: jumpOrAnchor,
+  });
+
   const toggleBoard = (s: LaneStatus) => setBoardOpen((cur) => {
     const n = new Set(cur);
     if (n.has(s)) n.delete(s);
@@ -1037,6 +1081,7 @@ export default function RoomPage() {
                     onReply={(root) => { setRestart(null); setReplyTo({ id: root.id, authorName: authorName(root) }); }}
                     activity={agentMsg && !isLayered(m) ? <TaskActivity taskId={m.source_task_id!} cache={events} load={loadEvents} /> : undefined}
                     layers={layersFor}
+                    conversation={conversationFor}
                     askee={askee}
                     now={now}
                     workLabel={workLabelOf(m.work_id, "message-work-label")}

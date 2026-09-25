@@ -13,6 +13,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
 	"github.com/ingki3/agent-collabortion/server/internal/lanestate"
+	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -111,6 +112,9 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 			VALUES ($1, $2, 'agent', $3, $4, $5, $6, 'blocked_q', $7)`,
 			plan.QuestionCardID, sessionID, agentID, content, mentions, taskID, now); err != nil {
 			return nil, fmt.Errorf("router: blocked question card: %w", err)
+		}
+		if err := messages.Store(ctx, tx, plan.QuestionCardID, messages.StoreOpts{}); err != nil {
+			return nil, err
 		}
 		// The card is a message, so the timeline hears about it now rather than
 		// on the delegator's next reload (G4 2판 W10).
