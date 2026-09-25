@@ -14,7 +14,7 @@
 .room-card__top { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
 .room-card__rename { padding: 12px 48px 0 16px; }
 .room-card__rename + .room-card__link { padding-top: 4px; }
-.room-card__name-input { font-size: var(--fs-card); line-height: 1.3; }
+.room-card__name-input { font-size: var(--fs-card); font-weight: 600; line-height: 1.3; }
 .room-card__name { font-weight: 600; font-size: var(--fs-card); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .room-card__desc { font-size: var(--fs-sub); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .room-card__people { font-size: var(--fs-meta); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -69,7 +69,8 @@
 /* S7 방 머리(T-R2-W2) — 상단 액션 줄 · ⋯ 메뉴는 카드 모서리가 아니라 줄 안에 선다. */
 .room-head { display: flex; flex-direction: column; gap: 6px; }
 .room-head__title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.room-head__name { margin: 0; font-size: var(--fs-title); line-height: 1.3; }
+/* S7 머리 이름 — 보기(h1)와 편집 칸이 같은 크기·굵기여야 하므로 바깥 요소에 붙는다(InlineTitleEdit className). */
+.room-head__name { margin: 0; font-size: var(--fs-title); font-weight: 700; line-height: 1.3; }
 .room-head__layers { margin: 4px 0 0; font-size: var(--fs-sub); color: var(--ink-2); }
 .room-head__needs { border-color: var(--s-wait); }
 .room-head__actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; }

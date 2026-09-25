@@ -14,13 +14,15 @@
 
 .title-edit--editing { display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: 100%; }
 .title-edit__row { display: flex; align-items: center; gap: 6px; min-width: 0; }
-/* 입력 칸은 이름과 같은 글자 크기·굵기 — 편집 모드로 바뀌어도 줄 높이가 흔들리지 않게. 크기는 호출부 className 이 준다. */
+/* 입력 칸은 이름과 **같은 글자 크기·굵기**(SCREEN §4.6) — 바깥(.title-edit, 호출부 className)에서 물려받는다.
+   `font: inherit` 단축은 호출부 클래스의 font-size 를 되돌려 16px 로 만든다 — 칸마다 따로 물려받게 둔다. */
 .title-edit__input {
-  flex: 1; min-width: 0; font: inherit; font-weight: 600; color: var(--ink); background: var(--bg);
+  flex: 1; min-width: 0; font-family: inherit; font-size: inherit; font-weight: inherit; line-height: inherit;
+  color: var(--ink); background: var(--bg);
   border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; margin: 0;
 }
 .title-edit__input:focus { outline: none; border-color: var(--ink); }
 .title-edit--saving .title-edit__input { opacity: .6; }
 .title-edit--error .title-edit__input { border-color: var(--s-fail); }
-.title-edit__help { font-size: var(--fs-meta); color: var(--ink-2); font-weight: 400; }
+.title-edit__help { font-size: var(--fs-meta); line-height: 1.5; color: var(--ink-2); font-weight: 400; }
 .title-edit__help--error { color: var(--s-fail-text); }

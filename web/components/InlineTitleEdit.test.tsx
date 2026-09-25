@@ -5,6 +5,8 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { InlineTitleEdit, roomNameProblem } from "./InlineTitleEdit";
 import { RoomHead } from "./RoomHead";
 import { ROOM_RENAME } from "@/lib/wording";
@@ -132,6 +134,25 @@ describe("S7 방 머리 — 편집", () => {
     fireEvent.change(input(), { target: { value: "새 이름" } });
     fireEvent.submit(screen.getByTestId("room-title-form"));
     expect(await screen.findByText(W.room_name_1_200)).toBeInTheDocument();
+  });
+});
+
+// SCREEN §4.6 「입력 칸은 이름과 같은 글자 크기·굵기로 — 편집 모드로 바뀌어도 머리 줄 높이가 흔들리지 않는다」.
+// 실측(헤드리스)에서 입력 칸이 24px/700 이 아니라 16px/600 으로 서던 회귀를 여기서 막는다 — 크기를 정하는 클래스는
+// **바깥 요소**에 붙고 글자·입력 칸이 물려받아야 한다(jsdom 은 스타일시트를 계산하지 않으므로 그 연결을 잰다).
+describe("편집 칸은 이름과 같은 크기·굵기", () => {
+  it("호출부 클래스가 보기·편집 **바깥**에 붙고, 입력 칸은 자기 크기를 정하지 않는다 · css 는 inherit 으로 물려받는다", () => {
+    const onSave = vi.fn(async () => undefined);
+    const { rerender } = render(<InlineTitleEdit value="결제팀" canEdit className="room-head__name" onSave={onSave} />);
+    expect(screen.getByTestId("title-edit").className).toContain("room-head__name");
+    expect(screen.getByTestId("title-edit-text").className).not.toContain("room-head__name");
+    fireEvent.click(screen.getByTestId("title-edit-pencil"));
+    expect(screen.getByTestId("title-edit-form").className).toContain("room-head__name");
+    expect(screen.getByTestId("title-edit-input").className).toBe("title-edit__input");
+    rerender(<InlineTitleEdit value="결제팀" canEdit className="room-head__name" onSave={onSave} />);
+    const css = readFileSync(join(process.cwd(), "components/inline-title-edit.css"), "utf8");
+    expect(css).toMatch(/\.title-edit__input \{[^}]*font-size: inherit;[^}]*font-weight: inherit;/);
+    expect(css).not.toMatch(/\.title-edit__input \{[^}]*font: inherit/);
   });
 });
 

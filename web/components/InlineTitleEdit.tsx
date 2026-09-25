@@ -43,6 +43,7 @@ export interface InlineTitleEditProps {
   onSave: (name: string) => Promise<unknown>;
   /** 보기 상태의 글자 태그 — S7 머리는 h1. */
   as?: "h1" | "span";
+  /** 이름의 글자 크기·굵기를 정하는 호출부 클래스 — **바깥 요소**에 붙고 글자·입력 칸이 그것을 물려받는다(편집으로 바뀌어도 크기가 흔들리지 않게). */
   className?: string;
   /** 제어형 — S5 카드는 「…」 메뉴가 편집을 연다. 주지 않으면 스스로 연다(✎ · 글자). */
   editing?: boolean;
@@ -112,8 +113,8 @@ export function InlineTitleEdit({ value, canEdit, onSave, as: Tag = "span", clas
 
   if (!editing) {
     return (
-      <span className="title-edit" data-testid={testId}>
-        <Tag className={`title-edit__text${canEdit ? " title-edit__text--editable" : ""}${className ? ` ${className}` : ""}`} onClick={canEdit ? () => setEditing(true) : undefined} data-testid={`${testId}-text`}>
+      <span className={`title-edit${className ? ` ${className}` : ""}`} data-testid={testId}>
+        <Tag className={`title-edit__text${canEdit ? " title-edit__text--editable" : ""}`} onClick={canEdit ? () => setEditing(true) : undefined} data-testid={`${testId}-text`}>
           {value}
         </Tag>
         {canEdit && (
@@ -129,7 +130,7 @@ export function InlineTitleEdit({ value, canEdit, onSave, as: Tag = "span", clas
   return (
     <form
       ref={root}
-      className={`title-edit title-edit--editing${saving ? " title-edit--saving" : ""}${error ? " title-edit--error" : ""}`}
+      className={`title-edit title-edit--editing${saving ? " title-edit--saving" : ""}${error ? " title-edit--error" : ""}${className ? ` ${className}` : ""}`}
       onSubmit={(e) => {
         e.preventDefault();
         void save();
@@ -152,7 +153,7 @@ export function InlineTitleEdit({ value, canEdit, onSave, as: Tag = "span", clas
       <span className="title-edit__row">
         <input
           ref={input}
-          className={`title-edit__input${className ? ` ${className}` : ""}`}
+          className="title-edit__input"
           value={draft}
           onChange={(e) => {
             setDraft(e.target.value);
