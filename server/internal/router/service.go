@@ -758,13 +758,10 @@ func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID u
 	// S-45: the timeline card. A loop pause is the one a reader is most likely
 	// to meet in the timeline itself — the session stops mid-conversation — and
 	// it posted no card at all, so the feed simply went quiet (SCREEN §4.5).
-	msgID, err := messages.PostHitlCard(ctx, s.Hub, tx, wsID, sessionID, messages.HitlCard{
+	// T-APPROVAL: AttachHitlCard links the card and publishes `hitl.created`.
+	if _, err := messages.AttachHitlCard(ctx, s.Hub, tx, wsID, sessionID, hitlID, messages.HitlCard{
 		Type: "approval", Question: question,
-	}, now)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE hitl_request SET message_id = $2 WHERE id = $1`, hitlID, msgID); err != nil {
+	}, now); err != nil {
 		return fmt.Errorf("router: loop hitl card: %w", err)
 	}
 	// FR-8 v0.19: the whole room stopped — `room_paused` (action_required)

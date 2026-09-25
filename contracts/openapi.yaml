@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Colab Server API
-  version: 0.3.2-draft
+  version: 0.3.3-draft
   summary: Colab 서버 REST API — P1~P3(수직 슬라이스 · 협업 코어 · HITL/재개/예산)에서 웹(W)과 colab CLI(C)가 호출하는 전부.
   description: |
     # 읽는 법
@@ -4199,7 +4199,7 @@ components:
       type: object
       description: FR-7.3. 스키마 v0는 `jsonb '{}'` — 키는 이 문서가 정한다(미결 항목 참조).
       properties:
-        default_session_budget_usd: { type: [number, 'null'], minimum: 0 }
+        default_session_budget_usd: { type: [number, 'null'], minimum: 0, description: '**새 미션**의 기본 예산 상한(USD, 이름의 session 은 v0.19 이전 이름). `createWork` 가 `limits.budget_usd` 를 **빼고** 오면 이 값을 채운다 — 명시적 `null` 이면 채우지 않는다(상한 없음). 비어 있으면(기본) 상한 없음. 새 방의 기본 상한은 `room_defaults.limits.budget_usd`.' }
         default_task_budget_usd: { type: [number, 'null'], minimum: 0 }
         workspace_monthly_budget_usd: { type: [number, 'null'], minimum: 0 }
         pricing_overrides:
@@ -4777,6 +4777,7 @@ components:
               met_at: { type: [string, 'null'], format: date-time }
               met_by: { type: [string, 'null'], description: 충족시킨 주체(에이전트 id · 사용자 id · platform). }
               next_actor: { type: [string, 'null'], description: 누가 충족시킬 차례인지(표시용). }
+              held_reason: { type: [string, 'null'], enum: [running_tasks, null], description: 'v0.3.3 — `user_approval` 조건이 **보류** 중인 이유. `running_tasks` = 나머지 조건은 충족됐지만 그 미션에 실행·대기 중인 할 일이 있어 승인 요청(HITL)을 아직 열지 않았다(PRD 완료 흐름, T-APPROVAL). 마지막 할 일이 끝나면 서버가 다시 판정해 연다. 화면: 「조건 충족 — 진행 중인 작업이 끝나면 승인을 요청합니다」. 보류가 아니면 null.' }
               hitl_request_id: { type: [string, 'null'], format: uuid, description: '`user_approval` 대기 중이면 그 HITL.' }
               agent_id: { type: [string, 'null'], format: uuid, description: '`artifact_submitted`·`agent_approval` 의 지정 에이전트(v0.1.4).' }
               agent_name: { type: [string, 'null'], description: 그 에이전트의 이름 — 화면은 "Lead 의 검토 승인" 처럼 사람 말로 그린다(§8.4). }
@@ -5851,7 +5852,9 @@ components:
         completion_condition: { $ref: '#/components/schemas/CompletionCondition' }
         director_user_id: { type: string, format: uuid, description: '비우면 방 `default_director_user_id`, 그것도 없으면 연 사람.' }
         deputy_user_id: { type: [string, 'null'], format: uuid }
-        limits: { $ref: '#/components/schemas/WorkLimits' }
+        limits:
+          allOf: [{ $ref: '#/components/schemas/WorkLimits' }]
+          description: '`limits.budget_usd` 를 **빼면**(키 없음·`limits` 없음·`{}`·`null`) 워크스페이스 `budget_policy.default_session_budget_usd` 를 채운다(그 값도 없으면 상한 없음). **명시적 `budget_usd: null`** 은 「이 미션은 상한 없음」 — 기본값을 채우지 않는다. 어느 쪽이든 방 한도가 따로 걸린다(작은 쪽이 이긴다).'
         autonomy: { $ref: '#/components/schemas/AutonomyLevel' }
         from_message_id: { type: string, format: uuid, description: '「이걸 미션으로」 — 원 메시지와 그 스레드의 `work_id = null` 인 것을 한 번 귀속하고 그 스레드의 lane 도 채운다(FR-3.1.1 사후 귀속).' }
         from_proposal_id: { type: string, format: uuid, description: 에이전트 제안에서 연다(S26). }

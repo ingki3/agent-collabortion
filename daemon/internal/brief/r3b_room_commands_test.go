@@ -13,14 +13,14 @@ import (
 
 func TestRestrictCommandsNamesRoomCommands(t *testing.T) {
 	lead := []string{"room_get", "room_messages", "message_post", "room_list", "room_read", "work_propose"}
-	got := RestrictCommands(serverBrief, lead)
+	got := RestrictCommands(serverBrief, lead, shell)
 	for _, want := range []string{"`colab room list`", "`colab room read`", "`colab work propose`"} {
 		if !strings.Contains(section2(t, got), want) {
 			t.Errorf("[2] for a lead lacks %s:\n%s", want, got)
 		}
 	}
 	writer := []string{"room_get", "room_messages", "message_post", "room_list", "room_read"}
-	s2 := section2(t, RestrictCommands(serverBrief, writer))
+	s2 := section2(t, RestrictCommands(serverBrief, writer, shell))
 	if !strings.Contains(s2, "`colab room list`, `colab room read`") {
 		t.Errorf("[2] for a writer lacks the room read commands:\n%s", s2)
 	}

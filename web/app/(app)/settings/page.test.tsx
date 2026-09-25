@@ -199,6 +199,36 @@ describe("S14 — 워크스페이스 탭 · 권한 · 저장 payload", () => {
     expect(screen.getByTestId("settings-budget-hint").textContent).toContain("소유자·관리자만");
   });
 
+  it("T-BUDGETCAP — 예산 탭 「새 미션의 기본 예산 상한(선택)」: 기본 없음, 적으면 그 키만 보낸다 · 새 방 기본은 「방 기본값」 탭이라고 말한다", async () => {
+    tabParam = "budget";
+    render(<SettingsPage />);
+    const row = await screen.findByTestId("row-session-budget");
+    expect(row.textContent).toContain("새 미션의 기본 예산 상한 (USD, 선택)");
+    expect(row.textContent).toContain("새 미션을 열 때 예산 칸을 비우면 이 값이 걸립니다");
+    expect(screen.getByTestId("row-session-budget-room-link").textContent).toBe("새 방의 기본 상한은 「방 기본값」 탭에 있습니다");
+    const input = screen.getByLabelText("새 미션의 기본 예산 상한") as HTMLInputElement;
+    expect(input.value).toBe("");
+    expect(input.placeholder).toBe("없음");
+    patch.mockResolvedValue({ ...settings(), budget_policy: { ...settings().budget_policy, default_session_budget_usd: 20 } });
+    fireEvent.change(input, { target: { value: "20" } });
+    fireEvent.click(screen.getByTestId("settings-save"));
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    expect(patch.mock.calls[0][1].body).toEqual({ budget_policy: { default_session_budget_usd: 20 } });
+  });
+
+  it("T-BUDGETCAP — 「방 기본값」 탭 「새 방의 기본 예산 상한(선택)」: 비우면 없음, 이미 있는 방은 그대로라고 말한다", async () => {
+    tabParam = "rooms";
+    render(<SettingsPage />);
+    const row = await screen.findByTestId("row-room-budget");
+    expect(row.textContent).toContain("새 방의 기본 예산 상한 (USD, 선택)");
+    expect(row.textContent).toContain("새로 만드는 방에만 걸립니다(이미 있는 방은 그대로)");
+    patch.mockResolvedValue({ ...settings(), room_defaults: { limits: { budget_usd: 30 } } });
+    fireEvent.change(screen.getByTestId("room-default-budget"), { target: { value: "30" } });
+    fireEvent.click(screen.getByTestId("settings-save"));
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    expect(patch.mock.calls[0][1].body).toEqual({ room_defaults: { limits: { budget_usd: 30 } } });
+  });
+
   it("422 는 errors[] 를 그 칸 옆에 그린다(서버 문장 그대로)", async () => {
     tabParam = "loop";
     patch.mockImplementation(async () => {

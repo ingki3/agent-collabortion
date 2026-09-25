@@ -366,6 +366,11 @@ func TestG5WorktreeSessionIsNotCollectedOnCompletion(t *testing.T) {
 // issued the approval request. It returns that request's id.
 func (f *p2Fixture) issueCompletionApproval(t *testing.T) string {
 	t.Helper()
+	// T-APPROVAL: the request is held while the mission has work running or
+	// waiting (a test that posted to Lead earlier left its turn queued). The
+	// rows below are about answering the request, so the mission's work is
+	// over first — the hold itself is measured in t_approval_test.go.
+	f.settleWork(t, f.missionID)
 	if _, err := f.srv.Sessions.ApplyWorkEvent(t.Context(), mustUUID(t, f.missionID),
 		sessions.Event{Kind: "artifact_submit", Actor: f.leadUUID}); err != nil {
 		t.Fatal(err)

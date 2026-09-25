@@ -59,6 +59,9 @@ type Row struct {
 	Addressees    []Addressee
 	RespondsTo    *uuid.UUID
 	DelegatedLane *uuid.UUID
+	// HitlRequestID is the request a `hitl` card belongs to (openapi
+	// Message.hitl_request_id), nil for every other kind.
+	HitlRequestID *uuid.UUID
 }
 
 const selectMessage = `
@@ -66,7 +69,11 @@ const selectMessage = `
 	       COALESCE(u.display_name, a.name), COALESCE(u.avatar_url, a.avatar_url), a.role,
 	       m.parent_id, m.content, m.mentions, m.source_task_id, t.lane_id, m.kind, m.state,
 	       (SELECT count(*) FROM message r WHERE r.parent_id = m.id), m.created_at, m.edited_at,
-	       m.work_id, m.detail, m.speech, m.addressees, m.responds_to_message_id, m.delegated_lane_id
+	       m.work_id, m.detail, m.speech, m.addressees, m.responds_to_message_id, m.delegated_lane_id,
+	       -- openapi Message.hitl_request_id ("kind=hitl일 때") — T-APPROVAL: the
+	       -- web pairs a card with its request by it when the request is not in
+	       -- its list yet. Only hitl cards look (the rest read NULL).
+	       CASE WHEN m.kind = 'hitl' THEN (SELECT h.id FROM hitl_request h WHERE h.message_id = m.id ORDER BY h.created_at LIMIT 1) END
 	FROM message m
 	LEFT JOIN app_user u ON m.author_type = 'user' AND u.id = m.author_id
 	LEFT JOIN agent a ON m.author_type = 'agent' AND a.id = m.author_id
@@ -78,7 +85,7 @@ func scan(row pgx.Row) (*Row, error) {
 	var role, speech *string
 	err := row.Scan(&m.ID, &m.SessionID, &m.AuthorType, &m.AuthorID, &m.AuthorName, &m.AuthorAvatar, &role,
 		&m.ParentID, &m.Content, &mentions, &m.SourceTaskID, &m.LaneID, &m.Kind, &m.State, &m.ReplyCount, &m.CreatedAt, &m.EditedAt,
-		&m.WorkID, &m.Detail, &speech, &addressees, &m.RespondsTo, &m.DelegatedLane)
+		&m.WorkID, &m.Detail, &speech, &addressees, &m.RespondsTo, &m.DelegatedLane, &m.HitlRequestID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -286,6 +293,8 @@ func ToAPI(m *Row) gen.Message {
 		EditedAt:     nullj.NullTime(m.EditedAt),
 		WorkId:       nullj.NullUUID(m.WorkID),
 		Detail:       nullj.NullString(m.Detail),
+		// T-APPROVAL: declared by the contract, never filled until now.
+		HitlRequestId: nullj.NullUUID(m.HitlRequestID),
 	}
 	isNote := IsNote(m.Content)
 	out.IsNote = &isNote

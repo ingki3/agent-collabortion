@@ -71,11 +71,8 @@ func AskIsolation(ctx context.Context, tx pgx.Tx, hub *realtime.Hub, roomID, run
 	if _, err := tx.Exec(ctx, `UPDATE room SET isolation_pending = $2, updated_at = $3 WHERE id = $1`, roomID, pending, now); err != nil {
 		return fmt.Errorf("roomgate: isolation pending: %w", err)
 	}
-	msgID, err := messages.PostHitlCard(ctx, hub, tx, wsID, roomID, messages.HitlCard{Type: hitl.KindApproval, Question: question}, now)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE hitl_request SET message_id = $2 WHERE id = $1`, hitlID, msgID); err != nil {
+	// T-APPROVAL: AttachHitlCard links the card and publishes `hitl.created`.
+	if _, err := messages.AttachHitlCard(ctx, hub, tx, wsID, roomID, hitlID, messages.HitlCard{Type: hitl.KindApproval, Question: question}, now); err != nil {
 		return err
 	}
 	return fileIsolation(ctx, tx, wsID, roomID, hitlID, now)
@@ -330,11 +327,7 @@ func AskRepo(ctx context.Context, tx pgx.Tx, hub *realtime.Hub, roomID, runtimeI
 	if _, err := tx.Exec(ctx, `UPDATE room SET isolation_pending = $2, updated_at = $3 WHERE id = $1`, roomID, pending, now); err != nil {
 		return fmt.Errorf("roomgate: repo pending: %w", err)
 	}
-	msgID, err := messages.PostHitlCard(ctx, hub, tx, wsID, roomID, messages.HitlCard{Type: hitl.KindChoice, Question: question, Options: repos, ProposedDefault: repos[0]}, now)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE hitl_request SET message_id = $2 WHERE id = $1`, hitlID, msgID); err != nil {
+	if _, err := messages.AttachHitlCard(ctx, hub, tx, wsID, roomID, hitlID, messages.HitlCard{Type: hitl.KindChoice, Question: question, Options: repos, ProposedDefault: repos[0]}, now); err != nil {
 		return err
 	}
 	return fileIsolation(ctx, tx, wsID, roomID, hitlID, now)

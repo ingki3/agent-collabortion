@@ -337,6 +337,16 @@ function validateCondition(cc: CompletionCondition, participantIds: string[]): {
  * **이미 충족된 원자는 그대로 유지**(계약 updateSession: 같은 path·type·지정 에이전트면 `met`·`met_at`·`met_by` 를 잇는다).
  * `artifact_submitted` 는 아티팩트 목록으로 판정하고, 그 외는 이전 값(목에는 승인 흐름이 없다 — 시드가 met 를 놓는다).
  */
+/**
+ * T-APPROVAL — 그 방에 실행·대기 중인 할 일이 있는가. 서버(sessions.missionBusy)와 같은 네 상태만 본다:
+ * `paused`·`waiting_human` 은 잡지 않는다(사람을 기다리는 할 일이 사람의 승인을 막으면 서로 기다린다).
+ */
+function heldByRunningTasks(s: Store, sess: Session): boolean {
+  return [...s.tasks.values()].some((t) => {
+    const l = s.lanes.get(t.lane_id);
+    return !!l && l.session_id === sess.id && ["queued", "dispatched", "preparing", "running"].includes(t.status);
+  });
+}
 function computeProgress(s: Store, sess: Session, prev?: CompletionProgress | null): CompletionProgress {
   const cc = sess.completion_condition ?? DEFAULT_CONDITION;
   const op = "op" in cc ? cc.op : "and";
@@ -365,8 +375,10 @@ function computeProgress(s: Store, sess: Session, prev?: CompletionProgress | nu
     const hitl = a.type === "user_approval" && !met
       ? [...s.hitls.values()].find((h) => h.session_id === sess.id && h.status === "open" && h.purpose === "user_approval") ?? null
       : null;
+    // T-APPROVAL(openapi v0.3.3): 나머지 조건이 충족됐는데 실행·대기 중인 할 일이 있으면 서버는 승인 요청을 아직 열지 않는다 — 보류.
+    const held_reason = a.type === "user_approval" && !met && !hitl && heldByRunningTasks(s, sess) ? "running_tasks" : null;
     const next_actor = met || blocked_reason ? null : a.type === "user_approval" || a.type === "manual" ? "director" : agentName;
-    return { path, type: a.type, met, met_at, met_by, next_actor, hitl_request_id: hitl?.id ?? null, agent_id: agentId, agent_name: agentName, blocked_reason };
+    return { path, type: a.type, met, met_at, met_by, next_actor, held_reason, hitl_request_id: hitl?.id ?? null, agent_id: agentId, agent_name: agentName, blocked_reason };
   });
   const metCount = conditions.filter((c) => c.met).length;
   const satisfied = conditions.length > 0 && (op === "and" ? metCount === conditions.length : metCount > 0);
@@ -741,6 +753,8 @@ function simulateRun(s: Store, sess: Session, task: MockTask, reply: string) {
     // v0.2.0 — 방 누적과 미션 비용 두 수(계약 SSE 표). 옛 칸(session_id·cost_usd)도 R4 까지 함께.
     const wid = s.lanes.get(task.lane_id)?.work_id ?? null;
     emit(s, sess.workspace_id, "cost.updated", { session_id: sess.id, cost_usd: sess.cost_usd, estimated: false, room_id: sess.id, room_cost_usd: sess.cost_usd, ...(wid ? { work_id: wid, work_cost_usd: workCost(s, wid) } : {}) }, sess.id);
+    // 서버 tasks/service.go 처럼 상태 변화를 `task.updated` 로 — 활동 피드의 「진행 중…」 판정이 이것으로 끝난 task 를 안다(T-FEED).
+    emit(s, sess.workspace_id, "task.updated", toTask(s, task), sess.id);
     emitParticipant(s, sess, agent.id, null);
   });
 }
@@ -929,6 +943,15 @@ on("POST", "/rooms/{id}/messages", (req, p) => {
 });
 
 // ── tasks ──
+/** getTask — 활동 피드의 「진행 중…」 판정이 task 상태·attempt 를 읽는다(T-FEED). 서버 handlers_sessions.go GetTask. */
+on("GET", "/tasks/{id}", (req, p) => {
+  const s = store();
+  const task = s.tasks.get(p.id);
+  if (!task) throw notFoundP("task");
+  const sess = s.sessions.get(task.session_id)!;
+  requireMember(s, req, sess.workspace_id);
+  return ok(toTask(s, task));
+});
 on("GET", "/tasks/{id}/events", (req, p) => {
   const s = store();
   const task = s.tasks.get(p.id);
@@ -1801,6 +1824,12 @@ on("POST", "/__mock/rooms/{id}/seed-hitl", (req, p) => {
     type?: HitlRequest["type"]; source?: HitlRequest["source"]; purpose?: HitlRequest["purpose"];
     question?: string; context?: string; proposed_default?: string | null; approver_spec?: string;
     age_ms?: number; status?: HitlRequest["status"]; agent_id?: string; lane_id?: string;
+    /**
+     * T-APPROVAL 재현용 — `hitl.created` 를 **보내지 않는다**. 서버의 실제 상태였다(완료 승인·예산·루프·격리 경로가
+     * 카드만 남기고 요청을 알리지 않았다): 화면은 목록을 마운트 때 한 번 읽으므로, 그 뒤에 열린 요청은 짝이 없어
+     * **평문 한 줄**로 떨어졌다. 고친 뒤에는 화면이 요청을 직접 읽어 카드로 그린다.
+     */
+    no_emit?: boolean;
   }>(req);
   const created = new Date(Date.now() - (b.age_ms ?? 0)).toISOString();
   const agent = b.agent_id ? s.agents.get(b.agent_id) : s.agents.get((sess.participants ?? [])[0]?.agent_id ?? "");
@@ -1831,7 +1860,11 @@ on("POST", "/__mock/rooms/{id}/seed-hitl", (req, p) => {
     kind: "hitl", content: h.question, mentions: [], lane_id: lane?.id ?? null, source_task_id: task?.id ?? null,
   });
   h.message_id = card.id;
+  // T-APPROVAL: 카드도 자기 요청을 안다(계약 Message.hitl_request_id) — 화면이 짝을 못 찾으면 이 id 로 직접 읽는다.
+  card.hitl_request_id = h.id;
   s.hitls.set(h.id, h);
+  // 요청이 열렸으면 그 조건은 더 이상 보류가 아니다 — 진행률을 다시 판정한다(T-APPROVAL held_reason).
+  sess.completion_progress = computeProgress(s, sess, sess.completion_progress);
   if (lane && h.status === "open") {
     setLaneStatus(s, sess, lane.id, {
       status: b.purpose === "budget" ? "paused" : "waiting_human",
@@ -1841,7 +1874,7 @@ on("POST", "/__mock/rooms/{id}/seed-hitl", (req, p) => {
     });
   }
   if (task && h.status === "open") task.status = b.purpose === "budget" ? "paused" : "waiting_human";
-  emit(s, sess.workspace_id, "hitl.created", h, sess.id);
+  if (!b.no_emit) emit(s, sess.workspace_id, "hitl.created", h, sess.id);
   // 인박스는 **응답 권한이 있는 사람에게만** 만든다 — deputy 는 기한 절반 전이면 아예 보이지 않는다(O5, U9-1).
   for (const m of s.members.filter((m) => m.workspace_id === sess.workspace_id)) {
     const az = authorizeHitl(h, sess, m.user.id);
@@ -2299,6 +2332,9 @@ on("POST", "/__mock/rooms/{id}/seed-artifacts", (req, p) => {
     s.artifacts.set(a.id, a);
     made.push(a);
   }
+  // 아티팩트가 `artifact_submitted` 를 충족시킨다 — 시드도 진행률을 다시 판정한다(T-APPROVAL 스크린샷이
+  // 「제출은 됐는데 담당이 아직 돈다」 상태를 그리려면 이 갱신이 있어야 한다).
+  sess.completion_progress = computeProgress(s, sess, sess.completion_progress);
   return ok(made, 201);
 });
 

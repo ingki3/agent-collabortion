@@ -84,12 +84,19 @@ func section2Of(t *testing.T, text string) string {
 	return text[i:j]
 }
 
-func assertRestricted(t *testing.T, s2 string) {
+// assertRestricted checks the daemon's [2] lines. The allowed line speaks the
+// surface's words (harness §10 v0.9.6): tool names for claude_code (mcp),
+// the shell spelling for hermes (cli_wrapper, later rewritten to the wrapper).
+func assertRestricted(t *testing.T, s2 string, mcp bool) {
 	t.Helper()
 	if strings.Contains(s2, "lane delegate") || strings.Contains(s2, "colab_lane_delegate") {
 		t.Fatalf("[2] names a denied command:\n%s", s2)
 	}
-	if !strings.Contains(s2, "room get`, `") || !strings.Contains(s2, "message post` (MCP") {
+	if mcp {
+		if !strings.Contains(s2, "- 이 역할이 쓸 수 있는 colab 툴: `colab_room_get`, `colab_message_post`.") {
+			t.Fatalf("[2] does not list the allowed tools:\n%s", s2)
+		}
+	} else if !strings.Contains(s2, "room get`, `") || !strings.Contains(s2, "message post`.\n") {
 		t.Fatalf("[2] does not list the allowed commands:\n%s", s2)
 	}
 	if !strings.Contains(s2, "- 이 역할은 메시지 읽기 · 아티팩트 읽기 · 상태 알리기 · 결정 기록 · 위임 · 아티팩트 제출 · 검토 승인 · 검토 반려 · 사람에게 질문 · 완료 승인 요청 · 사람에게 정보 요청 · 다른 방 목록 · 다른 방 읽기 · 미션 제안을 쓰지 않는다.") {
@@ -113,7 +120,7 @@ func TestAllowedCommandsMCP(t *testing.T) {
 	if got := strings.Join(colab.Args, " "); got != "mcp serve --allow room_get,message_post" {
 		t.Fatalf("colab MCP args %q", got)
 	}
-	assertRestricted(t, section2Of(t, text))
+	assertRestricted(t, section2Of(t, text), true)
 	// §2.1 is a closed list: the variable is the wrapper's, not the process's.
 	if v := acp.EnvValue((*envs)[key("t-ac", 1)], "COLAB_ALLOWED_COMMANDS"); v != "" {
 		t.Fatalf("COLAB_ALLOWED_COMMANDS=%q in the runtime process env", v)
@@ -146,7 +153,7 @@ func TestAllowedCommandsWrapper(t *testing.T) {
 		t.Fatalf("wrapper does not export the list:\n%s", script)
 	}
 	s2 := section2Of(t, file)
-	assertRestricted(t, s2)
+	assertRestricted(t, s2, false)
 	if strings.Contains(s2, "`colab ") || !strings.Contains(s2, "`"+wrapper+" room get`") {
 		t.Fatalf("daemon-written command not rewritten to the wrapper path:\n%s", s2)
 	}

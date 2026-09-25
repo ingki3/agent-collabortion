@@ -611,10 +611,14 @@ export function registerRoomDialogs(ctx: RoomDialogsCtx): void {
     const t = now();
     const u = (id: string | null) => (id && s.users.get(id) ? stripUser(s.users.get(id)!) : undefined);
     const total = atoms(cond).length;
+    // T-BUDGETCAP — 서버 openWork 와 같다: 예산 키를 안 보냈으면 워크스페이스 기본 미션 상한(budget_policy.default_session_budget_usd)을 채운다.
+    // 명시적 null 은 「미션 상한 없음(방을 따름)」이라 그대로 둔다.
+    const wsDefault = s.settings.get(room.workspace_id)?.budget_policy?.default_session_budget_usd ?? null;
+    const limits = b.limits && "budget_usd" in b.limits ? b.limits : wsDefault != null ? { ...(b.limits ?? {}), budget_usd: wsDefault } : (b.limits ?? {});
     const w: Work = {
       id: uuid(), room_id: room.id, title, goal, acceptance_criteria: b.acceptance_criteria ?? [], director_user_id: director, director: u(director),
       deputy_user_id: deputy, ...(deputy ? { deputy: u(deputy) } : {}), assignee_agent_id: assignee, completion_condition: cond,
-      completion_progress: { met: 0, total, satisfied: false, conditions: [] } as Work["completion_progress"], limits: b.limits ?? {}, autonomy: b.autonomy ?? room.autonomy,
+      completion_progress: { met: 0, total, satisfied: false, conditions: [] } as Work["completion_progress"], limits, autonomy: b.autonomy ?? room.autonomy,
       status: b.draft ? "draft" : "active", paused_reason: null, cost_usd: 0, cost_estimated: false, summary_message_id: null,
       opened_from_message_id: b.from_message_id ?? null, my_work_role: director === user.id ? "director" : deputy === user.id ? "deputy" : "member",
       created_by: user.id, created_at: t, updated_at: t, started_at: b.draft ? null : t, finished_at: null, last_activity_at: t,

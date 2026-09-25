@@ -2640,6 +2640,7 @@ export interface components {
         };
         /** @description FR-7.3. 스키마 v0는 `jsonb '{}'` — 키는 이 문서가 정한다(미결 항목 참조). */
         BudgetPolicy: {
+            /** @description **새 미션**의 기본 예산 상한(USD, 이름의 session 은 v0.19 이전 이름). `createWork` 가 `limits.budget_usd` 를 **빼고** 오면 이 값을 채운다 — 명시적 `null` 이면 채우지 않는다(상한 없음). 비어 있으면(기본) 상한 없음. 새 방의 기본 상한은 `room_defaults.limits.budget_usd`. */
             default_session_budget_usd?: number | null;
             default_task_budget_usd?: number | null;
             workspace_monthly_budget_usd?: number | null;
@@ -3198,6 +3199,11 @@ export interface components {
                 met_by?: string | null;
                 /** @description 누가 충족시킬 차례인지(표시용). */
                 next_actor?: string | null;
+                /**
+                 * @description v0.3.3 — `user_approval` 조건이 **보류** 중인 이유. `running_tasks` = 나머지 조건은 충족됐지만 그 미션에 실행·대기 중인 할 일이 있어 승인 요청(HITL)을 아직 열지 않았다(PRD 완료 흐름, T-APPROVAL). 마지막 할 일이 끝나면 서버가 다시 판정해 연다. 화면: 「조건 충족 — 진행 중인 작업이 끝나면 승인을 요청합니다」. 보류가 아니면 null.
+                 * @enum {string|null}
+                 */
+                held_reason?: "running_tasks" | null;
                 /**
                  * Format: uuid
                  * @description `user_approval` 대기 중이면 그 HITL.
@@ -4507,6 +4513,7 @@ export interface components {
             director_user_id?: string;
             /** Format: uuid */
             deputy_user_id?: string | null;
+            /** @description `limits.budget_usd` 를 **빼면**(키 없음·`limits` 없음·`{}`·`null`) 워크스페이스 `budget_policy.default_session_budget_usd` 를 채운다(그 값도 없으면 상한 없음). **명시적 `budget_usd: null`** 은 「이 미션은 상한 없음」 — 기본값을 채우지 않는다. 어느 쪽이든 방 한도가 따로 걸린다(작은 쪽이 이긴다). */
             limits?: components["schemas"]["WorkLimits"];
             autonomy?: components["schemas"]["AutonomyLevel"];
             /**
