@@ -26,6 +26,26 @@ ALTER TABLE work ADD COLUMN approval_held_at timestamptz;
 --    조회로는 못 막고, 앞으로 생길 다른 발행 경로가 이 규칙을 모를 수 있다.
 --    `0001` 의 `hitl_request_one_open_per_task` 가 task 범위에 한 것과 같은 모양이고,
 --    범위만 미션이다. 방 층 요청(work_id NULL)은 대상이 아니다.
+--
+-- 2a) 인덱스 전에 이미 쌓인 중복을 닫는다 — 실사용 DB 에는 위 다섯 건이 그대로 open
+--     이라, 정리 없이 인덱스를 만들면 unique 위반으로 migrate 가 실패하고 서버가
+--     뜨지 않는다. 미션마다 가장 최근(created_at 최대, 같으면 id 큰 것) 하나만 남기고
+--     나머지는 `cancelled` — 같은 미션의 새 승인 요청으로 대체됨(중복 정리). 사람이
+--     답한 게 아니므로 answered_* · decision 은 만들지 않는다(K-4 closeOrphanSystemHitl
+--     과 같은 닫기). hitl_request 에 사유 칸은 없다. 닫힌 요청의 받은 요청 항목은
+--     같은 경로대로 지운다 — 열린 채 남으면 인박스에 답할 수 없는 줄이 남는다.
+WITH dup AS (
+    SELECT id FROM (
+        SELECT id, row_number() OVER (PARTITION BY work_id ORDER BY created_at DESC, id DESC) AS rn
+        FROM hitl_request
+        WHERE work_id IS NOT NULL AND source = 'system' AND purpose = 'user_approval' AND status = 'open'
+    ) d WHERE rn > 1
+), closed AS (
+    UPDATE hitl_request SET status = 'cancelled' WHERE id IN (SELECT id FROM dup) RETURNING id
+)
+DELETE FROM inbox_item
+ WHERE type = 'hitl_request' AND ref_id IN (SELECT id FROM closed);
+
 CREATE UNIQUE INDEX hitl_request_one_open_user_approval_per_work
     ON hitl_request (work_id)
     WHERE work_id IS NOT NULL AND source = 'system' AND purpose = 'user_approval' AND status = 'open';
