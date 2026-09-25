@@ -495,6 +495,9 @@ func postSummaryOnce(ctx context.Context, tx pgx.Tx, sessionID, workID uuid.UUID
 	case err != nil:
 		return uuid.Nil, false, fmt.Errorf("sessions: summary message: %w", err)
 	}
+	if err := messages.Store(ctx, tx, msgID, messages.StoreOpts{}); err != nil {
+		return uuid.Nil, false, err
+	}
 	return msgID, true, nil
 }
 

@@ -148,6 +148,11 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 		}
 		// The mention message is a timeline message; the pause's own frames
 		// (room.updated, the HITL card) are published by pauseForLoop.
+		// No lane is created, so this is an ordinary agent→agent mention and
+		// must not read as 「위임」 (openapi v0.3.2 D24).
+		if err := messages.Store(ctx, tx, msgID, messages.StoreOpts{}); err != nil {
+			return nil, err
+		}
 		if s.Hub != nil {
 			_ = messages.Publish(ctx, s.Hub, tx, wsID, sessionID, msgID)
 		}
@@ -173,6 +178,15 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 		VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7, $7, $8) RETURNING id`,
 		sessionID, in.AgentID, profileID, in.DependsOn, d.DelegatedFromTaskID, in.Brief, now, callerWork).Scan(&laneID); err != nil {
 		return nil, fmt.Errorf("router: delegate lane: %w", err)
+	}
+	// openapi v0.3.2 (D24): the speech is `delegate` because THIS code path is
+	// the delegation — not because the body happens to end with the lane's
+	// brief, which is what a screen reconstructing it afterwards had to guess.
+	// It runs after the lane INSERT so `delegated_lane_id` has its referent.
+	if err := messages.Store(ctx, tx, msgID, messages.StoreOpts{
+		DelegatedLaneID: &laneID, DelegateTargetID: &in.AgentID, DelegateTargetName: targetName,
+	}); err != nil {
+		return nil, err
 	}
 
 	var originator *uuid.UUID

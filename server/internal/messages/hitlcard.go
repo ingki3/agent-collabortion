@@ -108,6 +108,9 @@ func PostHitlCard(ctx context.Context, hub *realtime.Hub, q db.DBTX, wsID, sessi
 		sessionID, authorType, authorID, c.CardBody(), c.SourceTaskID, now, c.WorkID).Scan(&id); err != nil {
 		return uuid.Nil, fmt.Errorf("messages: hitl card: %w", err)
 	}
+	if err := Store(ctx, q, id, StoreOpts{}); err != nil {
+		return uuid.Nil, err
+	}
 	// A publish failure is not the caller's failure — the card is committed
 	// either way and the client re-reads via REST (realtime D1). It is still
 	// said out loud (#142 review NN3): a swallowed publish is exactly the

@@ -195,6 +195,9 @@ func (s *Service) SummarizeRange(ctx context.Context, tx pgx.Tx, wsID, roomID, r
 		VALUES ($1, 'system', NULL, $2, 'summary', $3, $4) RETURNING id`, roomID, body, record, now).Scan(&msgID); err != nil {
 		return nil, fmt.Errorf("sessions: summary range message: %w", err)
 	}
+	if err := messages.Store(ctx, tx, msgID, messages.StoreOpts{}); err != nil {
+		return nil, err
+	}
 	_ = messages.Publish(ctx, s.Hub, tx, wsID, roomID, msgID)
 	row, err := messages.Get(ctx, tx, msgID)
 	if err != nil {

@@ -177,6 +177,9 @@ func AnnounceComputer(ctx context.Context, q db.DBTX, hub *realtime.Hub, roomID,
 		VALUES ($1, 'system', NULL, $2, 'system', $3) RETURNING id`, roomID, body, now).Scan(&id); err != nil {
 		return fmt.Errorf("roomgate: announce computer: %w", err)
 	}
+	if err := messages.Store(ctx, q, id, messages.StoreOpts{}); err != nil {
+		return err
+	}
 	return messages.Publish(ctx, hub, q, wsID, roomID, id)
 }
 
@@ -277,6 +280,9 @@ func FillWorktree(ctx context.Context, tx pgx.Tx, hub *realtime.Hub, roomID, run
 		INSERT INTO message (session_id, author_type, author_id, content, kind, created_at)
 		VALUES ($1, 'system', NULL, $2, 'system', $3) RETURNING id`, roomID, WorktreeFixedText(computer, repoPath), now).Scan(&id); err != nil {
 		return false, fmt.Errorf("roomgate: worktree fill: %w", err)
+	}
+	if err := messages.Store(ctx, tx, id, messages.StoreOpts{}); err != nil {
+		return false, err
 	}
 	return true, messages.Publish(ctx, hub, tx, wsID, roomID, id)
 }

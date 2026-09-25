@@ -198,6 +198,11 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 		sessionID, author.Type, authorID, parent, in.Content, dec.Mentions, author.TaskID, now, attr.WorkID, in.Detail).Scan(&msgID); err != nil {
 		return nil, fmt.Errorf("router: insert message: %w", err)
 	}
+	// openapi v0.3.2 (D24, FR-3.1.3): the speech is decided here, in the same
+	// transaction as the insert, so no reader ever sees a message without one.
+	if err := messages.Store(ctx, tx, msgID, messages.StoreOpts{}); err != nil {
+		return nil, err
+	}
 
 	result := &gen.MessagePostResult{}
 	result.Triggers = make([]struct {
@@ -840,6 +845,9 @@ func (s *Service) SystemPostWork(ctx context.Context, tx pgx.Tx, sessionID uuid.
 	var id uuid.UUID
 	if err := tx.QueryRow(ctx, `INSERT INTO message (session_id, author_type, author_id, content, kind, created_at, work_id) VALUES ($1, 'system', NULL, $2, 'system', $3, $4) RETURNING id`,
 		sessionID, strings.TrimSpace(content), s.Clock.Now(), workID).Scan(&id); err != nil {
+		return uuid.Nil, err
+	}
+	if err := messages.Store(ctx, tx, id, messages.StoreOpts{}); err != nil {
 		return uuid.Nil, err
 	}
 	s.publishMessage(ctx, tx, sessionID, id)
