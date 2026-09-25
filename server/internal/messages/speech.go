@@ -70,6 +70,10 @@ type SpeechInput struct {
 	TriggerAuthorType string
 	TriggerAuthorID   *uuid.UUID
 	TriggerAuthorName string
+	// TriggerSpeech is the trigger message's own stored speech. A turn woken
+	// by a report answers it with a request, never a report — 보고에 대한
+	// 보고는 없다 (PRD FR-3.1.3 표 8행 보완, T-AGENTFIX B6).
+	TriggerSpeech string
 }
 
 // SpeechOut is what gets stored (and returned by every read).
@@ -214,6 +218,13 @@ func Classify(in SpeechInput) SpeechOut {
 			// 같은 메시지가 다른 에이전트도 부르면 그쪽은 라우팅이 깨우고(FR-3.3)
 			// 화면에는 본문 멘션 칩으로 남는다 — 보고받은 쪽으로 보이지 않는다.
 			to := []Addressee{*requester}
+			if in.TriggerSpeech == string(gen.MessageSpeechReport) {
+				// T-AGENTFIX B6: the turn was woken by a report, so this is
+				// the requester's NEXT instruction to the one who reported —
+				// a request to the same single addressee. 실측(게임 제작 방
+				// 14:05·14:30): Lead's new orders to Writer read 「보고」.
+				return SpeechOut{Speech: string(gen.MessageSpeechRequest), Addressees: to}
+			}
 			trig := *in.TriggerMessageID
 			return SpeechOut{Speech: string(gen.MessageSpeechReport), Addressees: to, RespondsTo: &trig}
 		}
@@ -305,13 +316,14 @@ func Store(ctx context.Context, q db.DBTX, msgID uuid.UUID, opts StoreOpts) erro
 	}
 	if sourceTask != nil && opts.DelegatedLaneID == nil {
 		if err := q.QueryRow(ctx, `
-			SELECT t.trigger_message_id, tm.author_type::text, tm.author_id, COALESCE(u.display_name, a.name, '')
+			SELECT t.trigger_message_id, tm.author_type::text, tm.author_id, COALESCE(u.display_name, a.name, ''),
+			       COALESCE(tm.speech, '')
 			FROM task t
 			JOIN message tm ON tm.id = t.trigger_message_id
 			LEFT JOIN app_user u ON tm.author_type = 'user' AND u.id = tm.author_id
 			LEFT JOIN agent a ON tm.author_type = 'agent' AND a.id = tm.author_id
 			WHERE t.id = $1`, *sourceTask).
-			Scan(&in.TriggerMessageID, &in.TriggerAuthorType, &in.TriggerAuthorID, &in.TriggerAuthorName); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			Scan(&in.TriggerMessageID, &in.TriggerAuthorType, &in.TriggerAuthorID, &in.TriggerAuthorName, &in.TriggerSpeech); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("messages: speech trigger: %w", err)
 		}
 	}
