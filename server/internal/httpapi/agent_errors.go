@@ -29,6 +29,9 @@ import (
 // turn), not a person's session or a daemon.
 func isTaskCaller(ctx context.Context) bool {
 	p, _ := ctx.Value(ctxKey{}).(*Principal)
+	// `p.User == nil` is a deliberate redundant guard: principal.go resolves a
+	// Bearer with an exclusive switch, so Task and User never stand together
+	// today. If that ever changes, a person's session keeps the screen sentence.
 	return p != nil && p.Task != nil && p.User == nil
 }
 
