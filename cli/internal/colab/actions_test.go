@@ -215,3 +215,41 @@ func TestRoomMessagesTruncated(t *testing.T) {
 		}
 	}
 }
+
+// T-SURFACE 3 (실사용 message abe08c9c, 2026-09-25): an agent that wrote the
+// mention link into its body AND named the same agent in `mention` got the
+// link twice — 「[@Researcher](…) [@Researcher](…) 삼성전자…」. `mention` is
+// who to wake; a link already in the body is not prepended again, a repeat in
+// `mention` is prepended once, and a mention not in the body still is.
+//
+// 회귀 주입: MessagePost 의 `missingMentions(links, content)` 를 `links` 로
+// 되돌리면 (in body)·(repeat) FAIL.
+func TestMessagePostDoesNotRepeatAMentionInTheBody(t *testing.T) {
+	rev := "[@Reviewer](mention://agent/" + clienttest.ReviewerID + ")"
+	lead := "[@Lead](mention://agent/" + clienttest.DelegatorID + ")"
+	for _, tc := range []struct {
+		name, body string
+		mention    []string
+		want       string
+	}{
+		{"in body", rev + " 조사 맡아줘", []string{"@Reviewer"}, rev + " 조사 맡아줘"},
+		{"in body, other name spelling", "앞말 " + rev + " 조사", []string{"reviewer"}, "앞말 " + rev + " 조사"},
+		{"repeat", "조사 맡아줘", []string{"@Reviewer", "@Reviewer"}, rev + " 조사 맡아줘"},
+		{"one in body, one not", rev + " 둘 다", []string{"@Reviewer,@Lead"}, lead + " " + rev + " 둘 다"},
+		{"not in body", "조사 맡아줘", []string{"@Reviewer"}, rev + " 조사 맡아줘"},
+		// T-SURFACE 실기: a claude_code Lead passed the roster's link as the
+		// mention and got unknown_mention; the link names the agent by id.
+		{"link as mention", "조사 맡아줘", []string{rev}, rev + " 조사 맡아줘"},
+		{"link as mention, also in body", rev + " 조사", []string{rev}, rev + " 조사"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := clienttest.New(t)
+			if _, err := colab.MessagePost(context.Background(), newClient(t, s), colab.MessagePostArgs{Body: tc.body, Mention: tc.mention}); err != nil {
+				t.Fatal(err)
+			}
+			if got := s.Posted[0].Body["content"]; got != tc.want {
+				t.Fatalf("content = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

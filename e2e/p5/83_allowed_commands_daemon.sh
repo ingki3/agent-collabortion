@@ -91,7 +91,7 @@ AG="$(api_ok POST "/workspaces/$WS/agents" "$(jq -nc --arg m "$MODEL" --arg i "$
 chk A.1 "lane_delegate,artifact_submit,hitl_approve_request,work_propose" \
   "$(api_ok GET "/agents/$AG" | jq -r '.allowed_commands as $a | ["room_get","room_messages","message_post","status_set","decision_record","lane_delegate","artifact_submit","artifact_get","review_approve","review_reject","hitl_ask","hitl_approve_request","hitl_request_info","room_list","room_read","work_propose"] - $a | join(",")')" \
   "서버 Agent.allowed_commands — reviewer 가 못 쓰는 4개(colab-cli §2.5 v0.8 · R4 v0.9 room_get·room_messages)"
-GOAL="Your system prompt (the brief) has a section [2] Workspace rules and colab CLI. Post ONE message whose body is exactly the line of that section that starts with \"- 이 역할은\" — copy it character for character, nothing else. Then end your turn. $P4_RULES"
+GOAL="Your system prompt (the brief) has a section [2] Workspace rules and colab tools (claude_code reads the tool words, harness v0.9.6). Post ONE message whose body is exactly the line of that section that starts with \"- 이 역할은\" — copy it character for character, nothing else. Then end your turn. $P4_RULES"
 SID="$(create_room_work "$WS" "$(jq -nc --arg g "$GOAL" --arg a "$AG" --arg rt "$RID" \
   '{title:"D13 allowed commands",goal:$g,isolation:{kind:"none"},participants:[{agent_id:$a}],assignee_agent_id:$a,runtime_id:$rt,
     completion_condition:{op:"and",conditions:[{type:"manual"}]}}')")"

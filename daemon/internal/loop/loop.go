@@ -1038,15 +1038,15 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	// server argv (mcpServers), the wrapper's env (below) and brief [2]
 	// (here, before the wrapper rewrite so the names it writes get the
 	// wrapper path too). Empty → everything: no flag, no variable, no lines.
+	surface := d.toolSurface(b.Profile.RuntimeKind)
 	if d.taskEnv(b).ColabSurface() && len(b.Task.AllowedCommands) > 0 {
-		b.Brief.Text = brief.RestrictCommands(b.Brief.Text, b.Task.AllowedCommands)
+		b.Brief.Text = brief.RestrictCommands(b.Brief.Text, b.Task.AllowedCommands, surface)
 		d.Log("%s allowed commands: %s (denied: %s)", k, commands.List(b.Task.AllowedCommands), commands.List(commands.Denied(b.Task.AllowedCommands)))
 	}
 	// harness §10: a cli_wrapper runtime ignores mcpServers and sanitises the
 	// env of its shell tools, so the attempt's only channel to the platform is
 	// a wrapper FILE, and every text we hand the agent must name it by
 	// absolute path (v0.8.1 — the server cannot know a path we invent here).
-	surface := d.toolSurface(b.Profile.RuntimeKind)
 	if surface == acp.ToolSurfaceCLIWrapper && d.taskEnv(b).ColabSurface() {
 		wrapper, werr := toolwrap.Write(d.Cfg.WorkdirRoot, b.Task.ID, b.Task.Attempt, d.Cfg.ColabBin, d.wrapperEnv(b))
 		if werr != nil {
