@@ -393,6 +393,21 @@ func validateWorkLimits(l *gen.WorkLimits) []apperr.FieldError {
 	return errs
 }
 
+// defaultWorkBudget is workspace_settings.budget_policy.default_session_budget_usd
+// (openapi BudgetPolicy — S14 「새 미션의 기본 예산 상한」). nil when unset,
+// null, or the workspace has no settings row: a new mission then has no cap of
+// its own and follows the room (WorkLimits "비우면 방 한도를 따른다").
+func defaultWorkBudget(ctx context.Context, q db.DBTX, wsID uuid.UUID) (*float64, error) {
+	var v *float64
+	err := q.QueryRow(ctx, `
+		SELECT (budget_policy->>'default_session_budget_usd')::float8
+		FROM workspace_settings WHERE workspace_id = $1 AND jsonb_typeof(budget_policy->'default_session_budget_usd') = 'number'`, wsID).Scan(&v)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
+}
+
 // mergeWorkLimits folds a WorkLimits patch into the stored jsonb (a key the
 // caller omitted keeps its value; an explicit null clears it).
 func mergeWorkLimits(stored []byte, patch *gen.WorkLimits) ([]byte, error) {
@@ -553,6 +568,23 @@ func (s *Server) openWork(ctx context.Context, tx pgx.Tx, a *rooms.Access, u *ge
 			return uuid.Nil, err
 		}
 		limits = l
+	}
+	// T-BUDGETCAP: a mission opened without a budget takes the workspace's
+	// default mission cap (budget_policy.default_session_budget_usd, S14 「새
+	// 미션의 기본 예산 상한」). Only when the request left the key out — an
+	// explicit null is "no mission cap" and stays so. The default default is
+	// null: nothing changes for a workspace that never set it.
+	if in.Limits == nil || !in.Limits.BudgetUsd.IsSpecified() {
+		if def, err := defaultWorkBudget(ctx, tx, a.WorkspaceID); err != nil {
+			return uuid.Nil, err
+		} else if def != nil {
+			m := map[string]any{}
+			_ = json.Unmarshal(limits, &m)
+			m["budget_usd"] = *def
+			if limits, err = json.Marshal(m); err != nil {
+				return uuid.Nil, apperr.Internal(err)
+			}
+		}
 	}
 	var autonomy *string
 	if in.Autonomy != nil {

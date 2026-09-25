@@ -449,8 +449,13 @@ export const CREATE_WORK = {
   deputy: "deputy(선택)",
   deputy_none: "없음",
   deputy_note: "취소는 즉시, 승인은 기한 절반 후 가능합니다",
-  budget: "예산(USD, 선택)",
-  budget_placeholder: "비우면 방 한도",
+  budget: "예산 상한(USD, 선택)",
+  budget_placeholder: "비우면 방 상한을 따릅니다",
+  /** 새 미션 칸을 비웠는데 워크스페이스 기본 상한(S14)이 있으면 — 서버가 그 값을 채운다. */
+  budget_ws_default: [
+    "비우면 워크스페이스 기본 ",
+    " 이 걸립니다",
+  ] as Slotted,
   time: "시간 상한(선택)",
   /** 「방 한도 $50 중 이 미션에 $20」 — 수가 둘이라 두 토막 둘. */
   budget_room: [
@@ -462,6 +467,11 @@ export const CREATE_WORK = {
     "",
   ] as Slotted,
   budget_room_none: "방 예산 한도 없음",
+  /** 미션 칸이 비었을 때 — 「방 한도 $50 중」은 뒤에 미션 몫이 올 때만 말이 된다. */
+  budget_room_only: [
+    "방 한도 ",
+    "",
+  ] as Slotted,
   smaller_wins: "방 한도와 미션 한도 중 작은 쪽이 이깁니다.",
   autonomy: "자율성",
   /** 동시 미션 상한 — 열기 **전에** 알린다(§4.7). 수는 슬롯. */
