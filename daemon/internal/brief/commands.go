@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/ingki3/agent-collabortion/daemon/internal/commands"
+	"github.com/ingki3/agent-collabortion/daemon/internal/harness/acp"
 )
 
 // sectionRe matches a section header line of the server's brief ("[2]
@@ -31,7 +32,13 @@ var sectionRe = regexp.MustCompile(`^(## )?\[(\d)\] `)
 // It runs BEFORE the cli_wrapper rewrite (toolwrap.RewriteCLI): the command
 // names it writes are `colab …` in command position and must reach a hermes
 // agent as the wrapper's absolute path like every other one.
-func RestrictCommands(text string, allowed []string) string {
+//
+// surface is the attempt's harness §10 tool_surface (acp.ToolSurfaceMCP ·
+// acp.ToolSurfaceCLIWrapper). v0.9.6: the allowed line speaks the surface's
+// words — MCP tool names for `mcp` (that shell has no `colab`, and a line that
+// spells the shell command is what sent a claude_code Lead to run it and fail),
+// the shell command for `cli_wrapper`.
+func RestrictCommands(text string, allowed []string, surface string) string {
 	if len(allowed) == 0 || text == "" {
 		return text
 	}
@@ -67,7 +74,7 @@ func RestrictCommands(text string, allowed []string) string {
 	for tail < len(body) && strings.TrimSpace(body[len(body)-1-tail]) == "" {
 		tail++
 	}
-	body = append(body[:len(body)-tail], append(commandLines(allowed), body[len(body)-tail:]...)...)
+	body = append(body[:len(body)-tail], append(commandLines(allowed, surface), body[len(body)-tail:]...)...)
 	out := append([]string{}, lines[:start+1]...)
 	out = append(out, body...)
 	out = append(out, lines[end:]...)
@@ -85,20 +92,30 @@ func namesDenied(line string, denied []string) bool {
 	return false
 }
 
-// commandLines composes the two lines. The allowed commands are written in
-// their CLI spelling (that is what the agent runs, and what the wrapper
+// commandLines composes the two lines. The allowed commands are written as
+// the agent calls them — the MCP tool name on the `mcp` surface, the CLI
+// spelling on `cli_wrapper` (what the agent runs, and what the wrapper
 // rewrite recognises); the denied ones in the person's words (COMPONENTS
 // §8.4 — the daemon wording lock, internal/wording, reads this function), and
 // only when there are any: a role with everything gets no "does not use"
 // line. Denied commands are deliberately NOT named as commands — the tool is
 // gone from the surface, and a spelling the agent could type is exactly the
 // noise §10 removes.
-func commandLines(allowed []string) []string {
+func commandLines(allowed []string, surface string) []string {
 	names := make([]string, 0, len(allowed))
 	for _, c := range allowed {
-		names = append(names, "`colab "+commands.CLIName(c)+"`")
+		if surface == acp.ToolSurfaceMCP {
+			names = append(names, "`"+commands.ToolName(c)+"`")
+		} else {
+			names = append(names, "`colab "+commands.CLIName(c)+"`")
+		}
 	}
-	out := []string{"- 이 역할이 쓸 수 있는 colab 명령: " + strings.Join(names, ", ") + " (MCP 툴 이름은 `colab_` 뒤에 밑줄로 잇는다: `colab_message_post`)."}
+	var out []string
+	if surface == acp.ToolSurfaceMCP {
+		out = []string{"- 이 역할이 쓸 수 있는 colab 툴: " + strings.Join(names, ", ") + "."}
+	} else {
+		out = []string{"- 이 역할이 쓸 수 있는 colab 명령: " + strings.Join(names, ", ") + "."}
+	}
 	denied := commands.Denied(allowed)
 	if len(denied) == 0 {
 		return out

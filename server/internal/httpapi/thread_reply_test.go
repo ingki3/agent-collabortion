@@ -67,8 +67,9 @@ func TestThreadReplyBundleNamesThreadRoot(t *testing.T) {
 	if !strings.HasSuffix(line, ` thread="`+root+`">`) {
 		t.Fatalf("trigger <message> = %q, want thread=%q", line, root)
 	}
-	if !strings.Contains(b.Prompt, queue.ThreadReplyInstruction) {
-		t.Fatalf("threaded turn prompt lacks the thread-reply instruction:\n%s", b.Prompt)
+	// claude_code (tool_surface mcp): the line in tool words (harness v0.9.6).
+	if !strings.Contains(b.Prompt, queue.ThreadReplyInstructionMCP) || strings.Contains(b.Prompt, queue.ThreadReplyInstruction) {
+		t.Fatalf("threaded turn prompt lacks the mcp thread-reply instruction:\n%s", b.Prompt)
 	}
 }
 
@@ -84,7 +85,7 @@ func TestTopLevelTriggerHasNoThread(t *testing.T) {
 	if strings.Contains(b.Prompt, " thread=") {
 		t.Fatalf("top-level trigger rendered a thread attribute:\n%s", b.Prompt)
 	}
-	if strings.Contains(b.Prompt, queue.ThreadReplyInstruction) {
+	if strings.Contains(b.Prompt, queue.ThreadReplyInstruction) || strings.Contains(b.Prompt, queue.ThreadReplyInstructionMCP) {
 		t.Fatalf("top-level turn got the thread-reply instruction")
 	}
 }

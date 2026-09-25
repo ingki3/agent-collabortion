@@ -323,7 +323,7 @@ func loadRoomHistory(ctx context.Context, tx pgx.Tx, roomID uuid.UUID, workID *u
 // (Lead T-R3b 판정 3: at the head of the history, not in the brief — [1]~[5]
 // are the cached prefix). It says what the other bundles still carry, so the
 // agent knows the gap is chatter and not the mission or a decision.
-func truncationNote(omitted int, h roomHistory, inMission bool) string {
+func truncationNote(omitted int, h roomHistory, inMission bool, surf Surface) string {
 	if omitted <= 0 {
 		return ""
 	}
@@ -331,16 +331,16 @@ func truncationNote(omitted int, h roomHistory, inMission bool) string {
 	if inMission {
 		s += fmt.Sprintf(" This mission's %d among them are in <mission_messages>.", len(h.MissionOlder))
 	}
-	s += " Every decision is in [7] or <room_decisions>. Read the rest with `colab room messages` if you need it.\n"
+	s += " Every decision is in [7] or <room_decisions>. Read the rest with " + surf.RoomMessages + " if you need it.\n"
 	return s
 }
 
 // renderRoomHistoryTail writes ② and ③ (① is buildBundle's <history>).
-func renderRoomHistoryTail(b *strings.Builder, workID *uuid.UUID, h roomHistory) {
+func renderRoomHistoryTail(b *strings.Builder, workID *uuid.UUID, h roomHistory, surf Surface) {
 	if workID != nil && len(h.MissionOlder) > 0 {
 		fmt.Fprintf(b, "<mission_messages work=%q count=%d note=\"this mission's messages older than <history>\">\n", workID.String(), len(h.MissionOlder))
 		for _, m := range h.MissionOlder {
-			fmt.Fprintf(b, "[%s] %s %s: %s\n%s", m.CreatedAt.UTC().Format("01-02 15:04"), m.ID, authorLabel(m), m.Content, historyDetail(m, false))
+			fmt.Fprintf(b, "[%s] %s %s: %s\n%s", m.CreatedAt.UTC().Format("01-02 15:04"), m.ID, authorLabel(m), m.Content, historyDetail(m, false, surf))
 		}
 		b.WriteString("</mission_messages>\n\n")
 	}

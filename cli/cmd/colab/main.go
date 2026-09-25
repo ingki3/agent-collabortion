@@ -245,13 +245,10 @@ func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) i
 	if detailGiven {
 		detailArg = detail
 	}
-	if fileGiven {
-		b, err := os.ReadFile(*detailFile)
-		if err != nil {
-			return emit(stdout, stderr, nil, client.Usage("--detail-file: %v", err))
-		}
-		d := string(b) // as is: no trimming, the file is the work text
-		detailArg = &d
+	// --detail-file is read by colab.MessagePost (colab.ReadDetailFile), the
+	// same code the MCP tool's detail_file goes through (colab-cli v0.9.3).
+	if fileGiven && *detailFile == "" {
+		return emit(stdout, stderr, nil, client.Usage("--detail-file is empty: give a path"))
 	}
 	var mentions []string
 	if *mention != "" {
@@ -259,7 +256,7 @@ func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) i
 	}
 	c := client.New(client.FromEnv(getenv))
 	v, err := colab.MessagePost(context.Background(), c, colab.MessagePostArgs{
-		Session: *session, Body: *body, Detail: detailArg, ReplyTo: *replyTo, TopLevel: *topLevel, Mention: mentions, IdempotencyKey: *key})
+		Session: *session, Body: *body, Detail: detailArg, DetailFile: *detailFile, ReplyTo: *replyTo, TopLevel: *topLevel, Mention: mentions, IdempotencyKey: *key})
 	return emit(stdout, stderr, v, err)
 }
 

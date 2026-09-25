@@ -322,14 +322,15 @@ func PlanContextReuse(in ContextReuseInput) ContextReusePlan {
 }
 
 // ReuseSection renders §8.4 [6]'s "이전 세션 요약" for one previous session,
-// under the workspace's cap.
-func ReuseSection(title, summary string, plan ContextReusePlan) string {
+// under the workspace's cap. readRoom is how this agent's tool surface reads
+// the room's messages (harness §10 v0.9.6 — queue.Surface.RoomMessages).
+func ReuseSection(title, summary string, plan ContextReusePlan, readRoom string) string {
 	body, cut := llm.TrimToTokens(summary, plan.InjectedTokens)
 	var b strings.Builder
 	fmt.Fprintf(&b, "이전 세션 요약 — %s", title)
 	if cut || plan.TruncationDisclosed {
-		fmt.Fprintf(&b, " (상한 %d 토큰으로 잘림 — 전문은 `colab room messages` 로 읽어라)",
-			plan.InjectedTokens)
+		fmt.Fprintf(&b, " (상한 %d 토큰으로 잘림 — 전문은 %s 로 읽어라)",
+			plan.InjectedTokens, readRoom)
 	}
 	b.WriteString("\n")
 	b.WriteString(body)

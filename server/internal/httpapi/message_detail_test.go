@@ -189,7 +189,9 @@ func TestMessageDetailInBundle(t *testing.T) {
 		t.Fatalf("the trigger message's detail is not carried in full:\n%s", trigger)
 	}
 	h := b.Prompt[strings.Index(b.Prompt, "<history"):i]
-	wantPreview := "<detail of=\"" + other + "\">\n" + strings.Repeat("가", 400) + "…\n</detail>\n  (작업 내용 516자 — `colab room messages --thread " + other + "` 로 전문)\n"
+	// The fixture's agents are claude_code (tool_surface mcp): the pointer
+	// names the tool, not the shell command (harness §10 v0.9.6).
+	wantPreview := "<detail of=\"" + other + "\">\n" + strings.Repeat("가", 400) + "…\n</detail>\n  (작업 내용 516자 — `colab_room_messages` 툴의 `thread: \"" + other + "\"` 로 전문)\n"
 	if !strings.Contains(h, wantPreview) {
 		t.Fatalf("history line of %s lacks the 400-char preview + pointer:\n%s", other, h)
 	}
@@ -201,7 +203,7 @@ func TestMessageDetailInBundle(t *testing.T) {
 	}
 
 	s2 := section(b.Brief.Text, 2)
-	for _, want := range []string{queue.DetailRule, queue.DeliverableRule} {
+	for _, want := range []string{queue.DetailRuleMCP, queue.DeliverableRuleMCP} {
 		if !strings.Contains(s2, want) {
 			t.Errorf("brief [2] lacks %q:\n%s", want, s2)
 		}
@@ -264,7 +266,7 @@ func TestMessageDetailTriggerTurnBudget(t *testing.T) {
 		if strings.Contains(trigger, details[k]) {
 			t.Errorf("trigger %d's 30,000 characters went in whole past the 50,000 turn budget", k+1)
 		}
-		want := "<detail of=\"" + ids[k] + "\">\n" + details[k][:400*3] + "…\n</detail>\n  (작업 내용 30000자 — `colab room messages --thread " + ids[k] + "` 로 전문)\n</message>"
+		want := "<detail of=\"" + ids[k] + "\">\n" + details[k][:400*3] + "…\n</detail>\n  (작업 내용 30000자 — `colab_room_messages` 툴의 `thread: \"" + ids[k] + "\"` 로 전문)\n</message>"
 		j := strings.Index(trigger, want)
 		if j < 0 {
 			t.Fatalf("trigger %d is not demoted to the <history> shape:\n%.3000s", k+1, trigger)
