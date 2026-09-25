@@ -695,6 +695,35 @@ export const MESSAGE_LAYERS = {
 } as const;
 
 /**
+ * 타임라인 대화 배치(PRD FR-3.1.3 · SCREEN §4.6 「대화 배치」 · COMPONENTS §9.8) — 머리 한 줄 「작성자 ‹종류› → 받는 쪽」의 말.
+ * 종류 라벨은 서버 칸으로 판정한 것만 쓴다(lib/conversation.ts). 수가 드는 말은 두 토막.
+ */
+export const CONVERSATION = {
+  kind: {
+    order: "지시",
+    delegate: "위임",
+    request: "요청",
+    report: "보고",
+    question: "질문",
+    answer: "답",
+    note: "메모",
+    summary: "요약",
+  },
+  /** 받는 쪽이 없을 때 · @all · /note. */
+  to_room: "방 전체",
+  to_all: "모두",
+  to_record: "기록만",
+  more: ["외 ", "명"] as Slotted,
+  /** 「↩ 〈요청자〉의 「첫 줄」에 대한 보고」 — 요청자 · 인용은 화면이 끼운다. */
+  report_of_head: "↩ ",
+  report_of_mid: "의 「",
+  report_of_tail: "」에 대한 보고",
+  /** aria-label 「〈작성자〉: 〈받는 쪽〉에게 〈종류〉」 — 받는 쪽이 방 전체면 「방 전체에」. */
+  aria_to: "에게",
+  aria_room: "방 전체에",
+} as const;
+
+/**
  * 작업 과정 요약의 동작 이름 — task_event `class/verb`(contracts/task_event.schema.json) → 사람 말 + 수. 편집은 **파일 수**(같은 파일을
  * 여러 번 고쳐도 하나), 나머지는 횟수다. 여기 없는 동작(발화·사고·사용량·턴 생명주기)은 요약에서 세지 않는다 — 펼친 피드에는 그대로 있다.
  */

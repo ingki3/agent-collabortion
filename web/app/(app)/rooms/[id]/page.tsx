@@ -16,7 +16,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { MessageBody, MessageCard, authorName, type MessageLayerSlots } from "@/components/MessageCard";
+import { MessageBody, MessageCard, authorName, type ConversationSlot, type MessageLayerSlots } from "@/components/MessageCard";
 import { ArtifactRef, DetailFold, ProcessFold, TimelineViewToggle, type TimelineView } from "@/components/MessageLayers";
 import { Composer, type ComposerAgent, type ComposerInput, type ComposerWarning } from "@/components/Composer";
 import { ActivityFeed } from "@/components/ActivityFeed";
@@ -42,6 +42,7 @@ import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
 import { emptyTurnNote, isEmptyTurn } from "@/lib/feed";
 import { useMarkRoomRead } from "@/lib/unread";
 import { isLayered, messageLayers, summarizeProcess, timelineViewKey } from "@/lib/message-layers";
+import { classify, groupsWith, type ConversationCtx, type Speech } from "@/lib/conversation";
 import {
   BOARD_FOLDED, filterLanes, isAuditView, isOpenWork, matchesSel, needsMe, panelMode, parseSel, pausedLayer, postBlockedBy, sameSel, selParam,
   type ChipSel,
@@ -340,6 +341,46 @@ export default function RoomPage() {
     }
   }, [messages, replies, loadEvents]);
   const loadLaneTasks = useCallback(async (laneId: string): Promise<Task[]> => api.get("/lanes/{laneId}/tasks", { path: { laneId } }), []);
+  /**
+   * 대화 배치(FR-3.1.3) 「보고」 판정의 재료 — 에이전트 메시지를 쓴 턴의 `trigger_message_id` 와 그 트리거 메시지.
+   * 먼저 `Lane.current_task`(목록에 이미 있다), 없으면 그 lane 의 `listLaneTasks` 를 lane 당 한 번. 트리거 메시지가 타임라인에 없으면 `getMessage` 한 번.
+   */
+  const [laneTaskTriggers, setLaneTaskTriggers] = useState<Record<string, string | null>>({});
+  const [farMessages, setFarMessages] = useState<Record<string, Message | null>>({});
+  const requestedLaneTasks = useRef(new Set<string>());
+  const requestedMessages = useRef(new Set<string>());
+  const triggerOfTask = useCallback((taskId: string): string | null | undefined => {
+    if (taskId in laneTaskTriggers) return laneTaskTriggers[taskId];
+    for (const l of lanes) if (l.current_task?.id === taskId) return l.current_task.trigger_message_id ?? null;
+    return undefined;
+  }, [lanes, laneTaskTriggers]);
+  const lookupMessage = useCallback((id: string): Message | null | undefined => {
+    return messages.find((x) => x.id === id) ?? Object.values(replies).flat().find((x) => x.id === id) ?? (id in farMessages ? farMessages[id] : undefined);
+  }, [messages, replies, farMessages]);
+  useEffect(() => {
+    for (const m of [...messages, ...Object.values(replies).flat()]) {
+      const tid = m.source_task_id;
+      if (m.author_type !== "agent" || !tid || m.kind !== "text") continue;
+      const trig = triggerOfTask(tid);
+      if (trig === undefined) {
+        const laneId = m.lane_id;
+        if (!laneId) {
+          setLaneTaskTriggers((cur) => (tid in cur ? cur : { ...cur, [tid]: null }));
+          continue;
+        }
+        if (requestedLaneTasks.current.has(laneId)) continue;
+        requestedLaneTasks.current.add(laneId);
+        void loadLaneTasks(laneId)
+          .then((ts) => setLaneTaskTriggers((cur) => ({ ...cur, ...Object.fromEntries(ts.map((t) => [t.id, t.trigger_message_id ?? null])), ...(ts.some((t) => t.id === tid) ? {} : { [tid]: null }) })))
+          .catch(() => setLaneTaskTriggers((cur) => ({ ...cur, [tid]: null })));
+      } else if (trig && lookupMessage(trig) === undefined && !requestedMessages.current.has(trig)) {
+        requestedMessages.current.add(trig);
+        void api.get("/messages/{messageId}", { path: { messageId: trig } })
+          .then((x) => setFarMessages((cur) => ({ ...cur, [trig]: x })))
+          .catch(() => setFarMessages((cur) => ({ ...cur, [trig]: null })));
+      }
+    }
+  }, [messages, replies, triggerOfTask, lookupMessage, loadLaneTasks]);
   const renderTaskActivity = useCallback((taskId: string) => <TaskActivity taskId={taskId} cache={events} load={loadEvents} />, [events, loadEvents]);
 
   // 서브 미션·미션 수(세 층 요약)는 room 행의 `counts` — 서브 미션·미션이 움직이면 방을 다시 읽는다(한 번에 몰아서).
@@ -779,6 +820,35 @@ export default function RoomPage() {
     };
   };
 
+  /** 대화 배치(FR-3.1.3) — 판정은 lib/conversation.ts(서버 칸만). 트리거·트리거 메시지를 아직 모르면 pending 으로 라벨 없이. */
+  const convCtx: ConversationCtx = {
+    lanes,
+    triggerOf: (taskId) => triggerOfTask(taskId),
+    messageById: (id) => lookupMessage(id),
+    authorName,
+  };
+  const jumpOrAnchor = (id: string) => {
+    if (document.querySelector(`[data-message-id="${id}"]`)) return jumpToMessage(id);
+    router.replace(`/rooms/${roomId}?around_message_id=${encodeURIComponent(id)}`, { scroll: false });
+  };
+  const speeches = new Map<string, Speech>();
+  const groupedIds = new Set<string>();
+  {
+    let prev: { m: Message; s: Speech } | undefined;
+    for (const m of messages) {
+      const s = classify(m, convCtx);
+      speeches.set(m.id, s);
+      const cur = { m, s };
+      if (m.kind !== "hitl" && groupsWith(prev, cur)) groupedIds.add(m.id);
+      prev = m.kind === "hitl" ? undefined : cur;
+    }
+  }
+  const conversationFor = (m: Message, o: { parent?: Message }): ConversationSlot => ({
+    speech: o.parent ? classify(m, convCtx, o.parent) : (speeches.get(m.id) ?? classify(m, convCtx)),
+    grouped: !o.parent && groupedIds.has(m.id),
+    onJump: jumpOrAnchor,
+  });
+
   const toggleBoard = (s: LaneStatus) => setBoardOpen((cur) => {
     const n = new Set(cur);
     if (n.has(s)) n.delete(s);
@@ -1037,6 +1107,7 @@ export default function RoomPage() {
                     onReply={(root) => { setRestart(null); setReplyTo({ id: root.id, authorName: authorName(root) }); }}
                     activity={agentMsg && !isLayered(m) ? <TaskActivity taskId={m.source_task_id!} cache={events} load={loadEvents} /> : undefined}
                     layers={layersFor}
+                    conversation={conversationFor}
                     askee={askee}
                     now={now}
                     workLabel={workLabelOf(m.work_id, "message-work-label")}

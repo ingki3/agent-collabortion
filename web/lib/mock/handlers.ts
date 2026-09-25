@@ -19,6 +19,7 @@ import { registerRoomDialogs } from "./rooms-dialogs";
 import { registerR2W4a } from "./r2w4a";
 import { registerWorkEdit } from "./work-edit";
 import { registerMessageLayers } from "./message-layers";
+import { registerConversationSeed } from "./conversation-seed";
 import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, SEED, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
 /**
@@ -69,6 +70,8 @@ registerR2W4a({ on, routes, Problem, requireUser, syncRooms, standingOf, roomDec
 registerWorkEdit({ on, Problem, dispatch, workGate, workView, toWork, setWork, validateCondition });
 // 에이전트 메시지 세 층 시드(`seed-layers`) · 아티팩트 본문(PRD FR-3.1.2) — 본문은 ./message-layers.ts(등록 한 줄만).
 registerMessageLayers({ on, Problem, sessionOf, requireMember, addMessage, createTask, pushEvent, setLaneStatus, parseMentions, notFound: () => notFoundP("artifact") });
+// 타임라인 대화 배치 시드(`seed-conversation`, PRD FR-3.1.3) — 본문은 ./conversation-seed.ts(등록 한 줄만).
+registerConversationSeed({ on, Problem, sessionOf, addMessage, createTask, setLaneStatus, parseMentions });
 
 export async function dispatch(req: Req): Promise<Res> {
   for (const r of routes) {
