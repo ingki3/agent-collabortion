@@ -408,3 +408,80 @@ func TestMessagePostToolDetail(t *testing.T) {
 		t.Fatalf("blank detail posted (%d posts)", len(s.Posted))
 	}
 }
+
+// colab-cli v0.9.3: colab_message_post takes `detail_file` — a path relative
+// to the working folder (or absolute) whose UTF-8 text becomes detail, read by
+// the same colab.ReadDetailFile the CLI's --detail-file uses. With `detail` it
+// is an argument error and nothing is posted; so is a file over 200,000
+// characters or one that is not UTF-8.
+//
+// 회귀 주입: colab.MessagePost 의 `if a.Detail != nil {` (detail·detail_file 동시)
+// 거부를 지우면 (both) FAIL. 스키마에서 detail_file 을 빼면 (schema) FAIL.
+func TestMessagePostToolDetailFile(t *testing.T) {
+	s := clienttest.New(t)
+	c := dial(t, newClient(t, s, nil))
+	c.call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "test", "version": "0"}})
+	c.notify("notifications/initialized")
+
+	r := c.call("tools/list", map[string]any{})
+	for _, tl := range r.Result["tools"].([]any) {
+		m := tl.(map[string]any)
+		if m["name"] != "colab_message_post" {
+			continue
+		}
+		props := m["inputSchema"].(map[string]any)["properties"].(map[string]any)
+		if _, ok := props["detail_file"]; !ok {
+			t.Fatalf("(schema) colab_message_post has no detail_file: %v", props)
+		}
+	}
+
+	// Relative to the working folder — the process's, which is where the
+	// runtime starts the MCP server (the agent's workdir).
+	dir := t.TempDir()
+	t.Chdir(dir)
+	const d = "## 조사\n| a | 1 |\n\n"
+	if err := os.WriteFile(filepath.Join(dir, "brief.md"), []byte(d), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	call := func(args map[string]any) rpc {
+		return c.call("tools/call", map[string]any{"name": "colab_message_post", "arguments": args})
+	}
+	if r := call(map[string]any{"body": "요약", "detail_file": "brief.md"}); r.Error != nil || r.Result["isError"] == true {
+		t.Fatalf("(relative) post = %+v", r)
+	}
+	if got := s.Posted[0].Body["detail"]; got != d {
+		t.Fatalf("(relative) detail sent %q, want the file as is %q", got, d)
+	}
+	if r := call(map[string]any{"body": "요약", "detail_file": filepath.Join(dir, "brief.md")}); r.Error != nil || r.Result["isError"] == true || s.Posted[1].Body["detail"] != d {
+		t.Fatalf("(absolute) post = %+v", r)
+	}
+	n := len(s.Posted)
+	big := strings.Repeat("가", 200001)
+	_ = os.WriteFile(filepath.Join(dir, "big.md"), []byte(big), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "bin.md"), []byte{0xff, 0xfe, 0x00}, 0o644)
+	for name, args := range map[string]map[string]any{
+		"both":    {"body": "x", "detail": "a", "detail_file": "brief.md"},
+		"missing": {"body": "x", "detail_file": "none.md"},
+		"too big": {"body": "x", "detail_file": "big.md"},
+		"binary":  {"body": "x", "detail_file": "bin.md"},
+	} {
+		r := call(args)
+		if r.Error == nil && r.Result["isError"] != true {
+			t.Errorf("(%s) accepted: %+v", name, r)
+			continue
+		}
+		if sc, _ := r.Result["structuredContent"].(map[string]any); sc != nil {
+			if e, _ := sc["error"].(map[string]any); e == nil || e["exit"] != float64(2) {
+				t.Errorf("(%s) error = %v, want exit 2 (argument error)", name, sc)
+			}
+		}
+	}
+	if len(s.Posted) != n {
+		t.Fatalf("a refused detail_file still posted (%d posts)", len(s.Posted)-n)
+	}
+	// Exactly 200,000 characters is within the limit.
+	_ = os.WriteFile(filepath.Join(dir, "max.md"), []byte(big[:len(big)-len("가")]), 0o644)
+	if r := call(map[string]any{"body": "x", "detail_file": "max.md"}); r.Error != nil || r.Result["isError"] == true {
+		t.Fatalf("(200000) refused: %+v", r)
+	}
+}
