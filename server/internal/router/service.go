@@ -193,9 +193,9 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 	}
 	var msgID uuid.UUID
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO message (session_id, author_type, author_id, parent_id, content, mentions, source_task_id, kind, state, created_at, work_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'text', 'posted', $8, $9) RETURNING id`,
-		sessionID, author.Type, authorID, parent, in.Content, dec.Mentions, author.TaskID, now, attr.WorkID).Scan(&msgID); err != nil {
+		INSERT INTO message (session_id, author_type, author_id, parent_id, content, mentions, source_task_id, kind, state, created_at, work_id, detail)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'text', 'posted', $8, $9, $10) RETURNING id`,
+		sessionID, author.Type, authorID, parent, in.Content, dec.Mentions, author.TaskID, now, attr.WorkID, in.Detail).Scan(&msgID); err != nil {
 		return nil, fmt.Errorf("router: insert message: %w", err)
 	}
 
