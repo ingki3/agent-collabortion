@@ -869,6 +869,7 @@ export default function RoomPage() {
           onArchive={() => setDialog("archive")}
           onUnarchive={() => void act(async () => setRoom(await api.post("/rooms/{roomId}/unarchive", { path: { roomId } })))}
           onDelete={() => setDialog("delete")}
+          onRename={async (name) => setRoom(await api.patch("/rooms/{roomId}", { path: { roomId }, body: { name } }))}
           runningTurns={lanes.filter((l) => l.status === "running").length}
           openWorks={openWorks.filter((w) => w.status === "active").length}
           countSince={(days) => {

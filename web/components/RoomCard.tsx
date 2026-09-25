@@ -7,12 +7,14 @@
  * 숫자만 있는 요소에는 라벨을 단다(§7): 안 읽음 `aria-label="안 읽은 메시지 3개"` · 참여자 묶음 `aria-label="참여자 7명"` · 주의 배지 셋은 라벨 + 수.
  * 수는 문장에 보간하지 않고 슬롯에 둔다(COMPONENTS §8.5 v0.19, `<Slot>`).
  */
+import { useState } from "react";
 import Link from "next/link";
 import { Badge } from "./Badge";
+import { InlineTitleEdit } from "./InlineTitleEdit";
 import { RoomCardMenu } from "./RoomCardMenu";
 import { Slot, slotText } from "./Slot";
 import { relativeTime } from "@/lib/time";
-import { ROOM_LIST, archiveGate, deleteRoomGate } from "@/lib/wording";
+import { ROOM_LIST, archiveGate, deleteRoomGate, renameGate } from "@/lib/wording";
 import type { RoomListItem } from "@/lib/api/types";
 import "./room-card.css";
 
@@ -35,10 +37,14 @@ export interface RoomCardProps {
   onArchive: () => void;
   onUnarchive: () => void;
   onDelete: () => void;
+  /** 방 이름 바꾸기(FR-2.1.2) — 「…」 「이름 바꾸기」가 이름 줄을 편집 칸으로 바꾼다. 실패는 throw. */
+  onRename?: (name: string) => Promise<unknown>;
 }
 
-export function RoomCard({ room, canManage, onArchive, onUnarchive, onDelete }: RoomCardProps) {
+export function RoomCard({ room, canManage, onArchive, onUnarchive, onDelete, onRename }: RoomCardProps) {
   const archived = room.status === "archived";
+  const canRename = !!onRename && renameGate(room, { canManage }).ok;
+  const [renaming, setRenaming] = useState(false);
   const shown = room.participants.slice(0, PEOPLE_MAX);
   const more = room.participants.length - shown.length;
   const { hitl_open, blocked, failed } = room.attention;
@@ -50,10 +56,16 @@ export function RoomCard({ room, canManage, onArchive, onUnarchive, onDelete }: 
       data-status={room.status}
       data-blocked={room.blocked_reason ?? undefined}
     >
+      {/* 이름을 고치는 동안에는 이름 줄이 링크 밖의 편집 칸이 된다(a 안에 input·button 을 둘 수 없다). */}
+      {renaming && canRename && (
+        <div className="room-card__rename">
+          <InlineTitleEdit className="room-card__name-input" value={room.name} canEdit editing onEditingChange={setRenaming} onSave={(n) => onRename!(n)} testId="room-rename" />
+        </div>
+      )}
       <Link href={`/rooms/${room.id}`} className="room-card__link" data-testid="room-link">
         <span className="room-card__main">
           <span className="room-card__top">
-            <span className="room-card__name" title={room.name} data-testid="room-name">{room.name}</span>
+            {!renaming && <span className="room-card__name" title={room.name} data-testid="room-name">{room.name}</span>}
             <UnreadBadge n={room.unread_count} />
             {room.blocked_reason && <Badge kind="room" value={room.blocked_reason} size="sm" />}
             {archived && <span className="room-card__chip" data-testid="room-archived">{ROOM_LIST.archived}</span>}
@@ -97,6 +109,7 @@ export function RoomCard({ room, canManage, onArchive, onUnarchive, onDelete }: 
         onArchive={onArchive}
         onUnarchive={onUnarchive}
         onDelete={onDelete}
+        onRename={canRename ? () => setRenaming(true) : undefined}
         testId={room.id}
       />
     </article>

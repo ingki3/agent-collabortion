@@ -23,6 +23,7 @@ import { BADGE_MAP } from "@/components/badge-map";
 import { ARCHIVE_DIALOG, CREATE_ROOM, DELETE_ROOM_DIALOG, ROOM_BLOCKED_LABEL, ROOM_DELETED_NOTICE, ROOM_LIST, ROOM_MENU, roomDefaultsLine } from "@/lib/wording";
 import { BLOCK_DIALOG, ROOM_BANNER, ROOM_CENTER, ROOM_HEAD, ROOM_LEFT, ROOM_NOTICES, ROOM_PANEL, ROOM_TABS, SUMMARIZE_DIALOG, WORK_CHIPS, WORK_PANEL, WORK_PAUSE_LABEL, WORK_SELECTOR } from "@/lib/wording";
 import { MESSAGE_LAYERS, PROCESS_ACTION } from "@/lib/wording";
+import { ROOM_RENAME } from "@/lib/wording";
 import { BLOCKED_REASON, COMMAND_LABEL, CONDITION_EDITOR, CONDITION_NAME, EMPTY_TURN, FIX_CONDITION, OBSERVATIONS, PROGRESS, ROLE_COMMANDS, ROUTING_PLATFORM_LABEL, ROUTING_RULE_LABEL, conditionName, routingKindLabel } from "@/lib/wording";
 
 const ROOT = join(__dirname, "..");
@@ -895,5 +896,40 @@ describe("v0.19.3 메시지 세 층 — 접힌 줄·보기 전환의 말은 표(
     expect(comp).toMatch(/id=\{regionId\}/);
     expect(comp).toMatch(/role="group" aria-label=\{L\.view_group\}/);
     expect(comp).toMatch(/aria-pressed=\{value === v\}/);
+  });
+});
+
+// ── v0.19.5 방 이름·설명 바꾸기 — 세 자리(S7 머리 · S20 · S5 카드)가 같은 말(PRD FR-2.1.2 · SCREEN §4.3·§4.6·§4.11 · COMPONENTS §9.9) ─────────
+describe("v0.19.5 방 이름 바꾸기 — 말은 표(ROOM_RENAME)에서만, 세 자리가 한 컴포넌트", () => {
+  const src = (f: string) => readFileSync(join(ROOT, f), "utf8");
+  const code = (f: string) => src(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "").replace(/\s\/\/.*$/gm, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+  const inPool = (file: string, text: string) => POOL.some((v) => v.file === file && v.text.includes(text));
+  const FILES_R = ["components/InlineTitleEdit.tsx", "components/RoomHead.tsx", "components/RoomCard.tsx", "components/RoomCardMenu.tsx", "components/RoomSettingsForm.tsx"];
+
+  it("SCREEN §4.6·§4.11·§4.3 의 말 그대로", () => {
+    expect(ROOM_RENAME).toMatchObject({
+      edit: "방 이름 바꾸기", menu_item: "이름 바꾸기", input_label: "방 이름", save: "저장", saving: "저장 중…", cancel: "취소",
+      help: "방 이름은 1~200자입니다", required: "방 이름을 적어 주세요", forbidden: "방장·부방장·워크스페이스 관리자만 바꿀 수 있습니다",
+      group_title: "이름·설명", group_impact: "이름은 방 목록·받은 요청·참고 방 링크에 바로 반영됩니다. 이전 메시지에 적힌 옛 이름은 그대로 남습니다",
+    });
+    expect(ROOM_RENAME.changed_elsewhere.join("리서치")).toBe("다른 사람이 이름을 리서치(으)로 바꿨습니다");
+    for (const t of [ROOM_RENAME.edit, ROOM_RENAME.help, ROOM_RENAME.required, ROOM_RENAME.forbidden, ROOM_RENAME.group_impact]) expect(inPool("lib/wording.ts", t), t).toBe(true);
+    for (const f of FILES_R) expect(FILES).toContain(f);
+  });
+
+  it("화면은 표를 그린다 — 세 자리의 코드에 문장을 직접 쓰지 않는다 · 한 컴포넌트를 공유한다", () => {
+    for (const f of FILES_R) expect(code(f), f).not.toMatch(/방 이름을 적어|1~200자|다른 사람이 이름을|이름 바꾸기"|저장 중…"/);
+    expect(src("components/RoomHead.tsx")).toMatch(/<InlineTitleEdit as="h1"/);
+    expect(src("components/RoomCard.tsx")).toMatch(/<InlineTitleEdit /);
+    expect(src("components/RoomSettingsForm.tsx")).toMatch(/import \{ renameErrorText, roomNameProblem \} from "\.\/InlineTitleEdit"/);
+    const comp = src("components/InlineTitleEdit.tsx");
+    for (const k of ["edit", "input_label", "save", "saving", "cancel", "help", "required", "forbidden", "changed_elsewhere"]) expect(comp, k).toContain(`ROOM_RENAME.${k}`);
+  });
+
+  it("접근성 — ✎ 는 button aria-label 「방 이름 바꾸기」, 입력 칸 aria-label 「방 이름」 + aria-describedby", () => {
+    const comp = src("components/InlineTitleEdit.tsx");
+    expect(comp).toMatch(/<button ref=\{trigger\} type="button" className="title-edit__pencil" aria-label=\{ROOM_RENAME\.edit\}/);
+    expect(comp).toMatch(/aria-label=\{ROOM_RENAME\.input_label\}/);
+    expect(comp).toMatch(/aria-describedby=\{helpId\}/);
   });
 });

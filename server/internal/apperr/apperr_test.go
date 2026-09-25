@@ -25,6 +25,22 @@ func TestJosa(t *testing.T) {
 	}
 }
 
+// TestJosaRo is FR-2.1.2 「…(으)로 바꿨습니다」: ㄹ 받침은 「로」(v0.19.4).
+func TestJosaRo(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"결제팀", "결제팀으로"},     // 받침 ㅁ
+		{"결제·정산", "결제·정산으로"}, // 받침 ㄴ
+		{"리서치", "리서치로"},      // 받침 없음
+		{"서울", "서울로"},        // ㄹ 받침
+		{"STO", "STO(으)로"},   // 한글이 아니면 둘 다
+		{"", "(으)로"},
+	} {
+		if got := JosaRo(c.in); got != c.want {
+			t.Errorf("JosaRo(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestNotFoundSpeaksTheScreensLanguage(t *testing.T) {
 	p := NotFound("session")
 	if p.Status != http.StatusNotFound || p.Code != "not_found" {

@@ -1,6 +1,9 @@
 "use client";
 /**
- * S5 방 카드의 「…」 메뉴(SCREEN §4.3 「카드 「…」 메뉴」, T-R2-W1) — 「보관」(보관된 방은 「보관 해제」) · 「삭제」.
+ * S5 방 카드의 「…」 메뉴(SCREEN §4.3 「카드 「…」 메뉴」, T-R2-W1) — 「이름 바꾸기」(v0.19.5) · 「보관」(보관된 방은 「보관 해제」) · 「삭제」.
+ *
+ * 「이름 바꾸기」는 **권한자에게만 있다**(PRD FR-2.1.2 「그 밖에게는 … 편집 수단이 보이지 않는다」) — 보관·삭제처럼 비활성 + 사유로 두지 않는다.
+ * 누르면 카드의 이름 줄이 S7 머리와 같은 편집 칸(`InlineTitleEdit`)으로 바뀐다(호출부 RoomCard 가 한다).
  *
  * 옛 세션 카드 메뉴(T-W13, R1.5b 에서 삭제)와 같은 자리·같은 키보드(`useCardMenu`)다. 항목은 **숨기지 않고** 비활성 + 사유(`DisabledHint`,
  * §5 권한 비활성 버튼) — 사유는 `archiveGate`·`deleteRoomGate`(lib/wording.ts)가 고르고 서버가 409·403 으로 다시 검사한다.
@@ -11,7 +14,7 @@ import { Icon } from "./Icon";
 import { DisabledHint } from "./PageHead";
 import { Slot } from "./Slot";
 import { useCardMenu } from "./useCardMenu";
-import { ROOM_MENU, type RoomGate } from "@/lib/wording";
+import { ROOM_MENU, ROOM_RENAME, type RoomGate } from "@/lib/wording";
 import "./session-card-menu.css";
 
 export interface RoomCardMenuProps {
@@ -22,6 +25,8 @@ export interface RoomCardMenuProps {
   onArchive: () => void;
   onUnarchive: () => void;
   onDelete: () => void;
+  /** 「이름 바꾸기」 — 주지 않으면(권한 없음) 항목이 없다. */
+  onRename?: () => void;
   testId?: string;
 }
 
@@ -30,7 +35,7 @@ function GateHint({ id, gate }: { id: string; gate: RoomGate }) {
   return <DisabledHint id={id}>{gate.count !== undefined ? <Slot text={gate.reason} n={gate.count} /> : gate.reason}</DisabledHint>;
 }
 
-export function RoomCardMenu({ archived, archiveGate, deleteGate, onArchive, onUnarchive, onDelete, testId }: RoomCardMenuProps) {
+export function RoomCardMenu({ archived, archiveGate, deleteGate, onArchive, onUnarchive, onDelete, onRename, testId }: RoomCardMenuProps) {
   const { open, root, button, close, toggle, onRootBlur, onButtonKey, onMenuKey } = useCardMenu();
   const base = useId();
   const archiveHint = `${base}-archive-hint`;
@@ -58,6 +63,11 @@ export function RoomCardMenu({ archived, archiveGate, deleteGate, onArchive, onU
       </button>
       {open && (
         <div className="card-menu__list" role="menu" aria-label={ROOM_MENU.button} onKeyDown={onMenuKey} data-testid="room-menu-list">
+          {onRename && (
+            <button type="button" role="menuitem" className="card-menu__item" onClick={() => { close(); onRename(); }} data-testid="room-menu-rename">
+              {ROOM_RENAME.menu_item}
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"

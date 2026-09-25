@@ -264,6 +264,28 @@ as dir; chk J.1 "200/200" "$(api GET "/rooms/$S" | api_code)/$(api GET "/works/$
 chk J.2 1 "$(api_ok GET "/workspaces/$WS/rooms?participating=false" | jq -r --arg s "$S" '[.items[]|select(.id==$s)]|length')" "listRooms 에 그 방"
 chk J.3 0 "$(api_ok GET "/rooms/$RB/works" | jq -r '.items|length')" "미션 없는 방은 listRoomWorks 가 비어 있다"
 
+# ───────────────────────────── K ─────────────────────────────────────────────
+# T-RENAME (PRD v0.19.4 FR-2.1.2) — 방 이름·설명 바꾸기: 앞뒤 공백 떼기 · 바뀐 경우에만 시스템 메시지(speech=system)
+# + activity_log room.renamed · 같은 이름이면 아무것도 없다 · 공백만 422 · 참여자 403 · 같은 이름의 방 허용.
+step "K. 방 이름·설명 바꾸기"
+as mem; KR="$(api_ok POST "/workspaces/$WS/rooms" "{\"name\":\"89 이름 전 $RUN\"}" | jq -r .id)"
+call PATCH "/rooms/$KR" "{\"name\":\"  89 결제·정산팀 $RUN  \"}"
+chk K.1 "200/89 결제·정산팀 $RUN" "$CODE/$(jq -r .name <<<"$BODY")" "이름 저장 — 앞뒤 공백을 뗀다"
+chk K.2 "system|mem 님이 방 이름을 89 이름 전 ${RUN}에서 89 결제·정산팀 ${RUN}(으)로 바꿨습니다." \
+  "$(psqlq "select speech||'|'||content from message where session_id='$KR' and content like '%방 이름을%'")" "시스템 메시지(speech=system, 숫자로 끝나 「(으)로」)"
+chk K.3 1 "$(psqlq "select count(*) from activity_log where session_id='$KR' and action='room.renamed'")" "activity_log room.renamed"
+N0="$(psqlq "select count(*) from message where session_id='$KR' and author_type='system'")"
+api_ok PATCH "/rooms/$KR" "{\"name\":\"89 결제·정산팀 $RUN \"}" >/dev/null
+chk K.4 "$N0" "$(psqlq "select count(*) from message where session_id='$KR' and author_type='system'")" "바뀌지 않았으면 시스템 메시지 없음"
+call PATCH "/rooms/$KR" '{"name":"   "}'
+chk K.5 "422/name" "$CODE/$(jq -r '.errors[0].field' <<<"$BODY")" "공백만 → 422 errors[name]"
+api_ok PATCH "/rooms/$KR" '{"description":"결제 흐름 개편"}' >/dev/null
+chk K.6 1 "$(psqlq "select count(*) from message where session_id='$KR' and content='mem 님이 방 설명을 바꿨습니다.'")" "설명 → 「방 설명을 바꿨습니다」"
+as mem; api_ok POST "/rooms/$KR/participants" "{\"user_id\":\"$OTH_UID\"}" >/dev/null
+as oth; chk K.7 403 "$(api PATCH "/rooms/$KR" '{"name":"몰래"}' | api_code)" "일반 참여자 → 403"
+as mem; KR2="$(api_ok POST "/workspaces/$WS/rooms" "{\"name\":\"89 다른 방 $RUN\"}" | jq -r .id)"
+chk K.8 200 "$(api PATCH "/rooms/$KR2" "{\"name\":\"89 결제·정산팀 $RUN\"}" | api_code)" "같은 이름의 방 허용"
+
 cleanup
 PASS="$(awk -F'\t' '$2=="PASS"' "$CHECKS" | wc -l | tr -d ' ')"; FAIL="$(awk -F'\t' '$2=="FAIL"' "$CHECKS" | wc -l | tr -d ' ')"
 printf '\n== 89_rooms: PASS %s · FAIL %s (%s) ==\n' "$PASS" "$FAIL" "$CHECKS" >&2

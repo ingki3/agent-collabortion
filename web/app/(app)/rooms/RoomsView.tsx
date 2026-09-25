@@ -178,6 +178,7 @@ export function RoomsView({ creating = false }: { creating?: boolean }) {
               onArchive={() => setArchiving(r)}
               onUnarchive={() => void unarchive(r)}
               onDelete={() => setDeleting(r)}
+              onRename={async (name) => patchRoom(await api.patch("/rooms/{roomId}", { path: { roomId: r.id }, body: { name } }))}
             />
           ))}
         </div>
