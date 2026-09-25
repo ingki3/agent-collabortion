@@ -110,7 +110,8 @@ export function registerMessageLayers(ctx: MessageLayersCtx): void {
 
     // 1. 조사 결과 — detail 1.2만 자, 표 4개, 검색 14 · 파일 읽기 6 · 5분.
     const t1 = turn(researcher.id, 0, [
-      { class: "runtime", verb: "start", outcome: "resumed", created_at: at(0) },
+      // 실서버 모양(T-FEED 실측) — runtime/start 는 outcome=started 로 오고 짝 갱신 없이 turn_end 가 따로 온다. 끝난 턴이라 「진행 중…」이 붙으면 안 된다.
+      { class: "runtime", verb: "start", outcome: "started", created_at: at(0) },
       ...spread(14, 0, 4, { class: "tool", verb: "search", sentence: `${researcher.name}가 웹을 검색했다 → ok` }),
       ...spread(6, 1, 3, { class: "tool", verb: "read", sentence: `${researcher.name}가 원문을 확인했다 → ok` }),
       { class: "runtime", verb: "turn_end", created_at: at(5) },
@@ -138,6 +139,8 @@ export function registerMessageLayers(ctx: MessageLayersCtx): void {
       { class: "tool", verb: "edit_file", payload: { path: "report/draft.md" }, created_at: at(9) },
       { class: "tool", verb: "edit_file", payload: { path: "report/table3.md" }, created_at: at(10) },
       { class: "tool", verb: "run_shell", outcome: "failed", payload: { command: "pandoc report/draft.md -o draft.pdf", exit_code: 1 }, object_ref: "pandoc", created_at: at(10.5) },
+      // 짝(ok/failed)이 끝내 안 온 도구 호출 — 중단·유실. 끝난 턴에서는 「결과 없음」(T-FEED).
+      { class: "tool", verb: "read", outcome: "started", object_ref: "report/sources.md", payload: { tool_call_id: "seed-orphan-read", kind: "read" }, created_at: at(11) },
       { class: "status", verb: "submit_artifact", object_ref: "report-draft.md", created_at: at(11.5) },
       { class: "runtime", verb: "turn_end", created_at: at(12) },
     ]);
