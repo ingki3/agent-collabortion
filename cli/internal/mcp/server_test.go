@@ -363,3 +363,48 @@ func TestMessagePostToolThread(t *testing.T) {
 		t.Fatalf("the contradictory call posted (%d posts)", len(s.Posted))
 	}
 }
+
+// colab-cli v0.9.2: colab_message_post takes `detail` (listed in the tool's
+// schema, which is additionalProperties:false) and sends it as
+// MessageCreate.detail; a blank one is refused before anything is posted.
+func TestMessagePostToolDetail(t *testing.T) {
+	s := clienttest.New(t)
+	c := dial(t, newClient(t, s, nil))
+	c.call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "test", "version": "0"}})
+	c.notify("notifications/initialized")
+
+	r := c.call("tools/list", map[string]any{})
+	found := false
+	for _, tl := range r.Result["tools"].([]any) {
+		m := tl.(map[string]any)
+		if m["name"] != "colab_message_post" {
+			continue
+		}
+		props := m["inputSchema"].(map[string]any)["properties"].(map[string]any)
+		if _, ok := props["detail"]; !ok {
+			t.Fatalf("colab_message_post schema has no detail: %v", props)
+		}
+		if !strings.Contains(m["description"].(string), "detail") {
+			t.Fatalf("description does not say what detail is for")
+		}
+		found = true
+	}
+	if !found {
+		t.Fatal("colab_message_post not listed")
+	}
+
+	const d = "## 표\n| a | b |\n"
+	if r := c.call("tools/call", map[string]any{"name": "colab_message_post", "arguments": map[string]any{"body": "요약", "detail": d}}); r.Error != nil || r.Result["isError"] == true {
+		t.Fatalf("post = %+v", r)
+	}
+	if got := s.Posted[0].Body["detail"]; got != d {
+		t.Fatalf("detail sent %q, want %q", got, d)
+	}
+	r = c.call("tools/call", map[string]any{"name": "colab_message_post", "arguments": map[string]any{"body": "x", "detail": ""}})
+	if r.Error == nil && r.Result["isError"] != true {
+		t.Fatalf("blank detail accepted: %+v", r)
+	}
+	if len(s.Posted) != 1 {
+		t.Fatalf("blank detail posted (%d posts)", len(s.Posted))
+	}
+}

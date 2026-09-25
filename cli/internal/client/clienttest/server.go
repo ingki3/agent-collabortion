@@ -273,6 +273,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			"parent_id": body["parent_id"], "content": content, "mentions": []any{},
 			"source_task_id": TaskID, "lane_id": LaneID, "kind": "chat", "state": "posted",
 			"reply_count": 0, "created_at": time.Now().UTC().Format(time.RFC3339),
+			"detail": body["detail"], // openapi v0.3.1: null when not posted
 		}
 		s.Messages = append(s.Messages, msg)
 		triggers := []map[string]any{}

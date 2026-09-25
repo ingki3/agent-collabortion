@@ -56,7 +56,10 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
                              --since is sent as the after= query parameter (messages newer than it)
                              --limit is 1..200 (omit for the server default 50)
                              --work keeps one mission's messages
-  colab message post --body <text> [--reply-to <msg_id> | --top-level] [--mention @A,@B] [--idempotency-key K] [--json]
+  colab message post --body <text> [--detail <text> | --detail-file <path>] [--reply-to <msg_id> | --top-level] [--mention @A,@B] [--idempotency-key K] [--json]
+                             --body is the conversation (to whom · what · conclusion · next, ~5 lines);
+                             findings, full drafts and tables go in --detail (or --detail-file, sent
+                             byte for byte). Deliverables are artifact submit
                              Idempotency-Key = UUIDv5(task:<task_id>:<seq>), seq continues across attempts;
                              the same seq is sent as X-Colab-Client-Seq (omitted with --idempotency-key)
   colab status set working|blocked|done [--note <text>]
@@ -203,11 +206,13 @@ func newFlagSet(name string, stderr io.Writer) (*flag.FlagSet, *bool) {
 
 func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] != "post" {
-		return usage(stderr, "usage: colab message post --body <text> [--reply-to <id> | --top-level] [--mention @A,@B]")
+		return usage(stderr, "usage: colab message post --body <text> [--detail <text> | --detail-file <path>] [--reply-to <id> | --top-level] [--mention @A,@B]")
 	}
 	fs, _ := newFlagSet("message post", stderr)
 	session := fs.String("session", "", "room id override (default COLAB_ROOM_ID / token scope)")
-	body := fs.String("body", "", "message text (markdown)")
+	body := fs.String("body", "", "message text (markdown): the conversation — to whom, what, conclusion, next")
+	detail := fs.String("detail", "", "work text (markdown): findings, full drafts, tables — folded on screen")
+	detailFile := fs.String("detail-file", "", "read the work text from this file, as is (not with --detail)")
 	replyTo := fs.String("reply-to", "", "parent message id (thread; default: COLAB_THREAD_ID, the thread the turn was asked in)")
 	topLevel := fs.Bool("top-level", false, "post to the main timeline even when the turn was asked in a thread")
 	mention := fs.String("mention", "", "comma-separated agent names to mention, e.g. @Reviewer,@Writer")
@@ -221,13 +226,40 @@ func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) i
 	if strings.TrimSpace(*body) == "" {
 		return emit(stdout, stderr, nil, client.Usage("--body is required"))
 	}
+	// --detail / --detail-file: given (even empty) is told apart from absent,
+	// so an empty one is exit 2 in colab.MessagePost rather than silently
+	// dropped; both together is exit 2 like --reply-to with --top-level.
+	var detailArg *string
+	var detailGiven, fileGiven bool
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "detail":
+			detailGiven = true
+		case "detail-file":
+			fileGiven = true
+		}
+	})
+	if detailGiven && fileGiven {
+		return emit(stdout, stderr, nil, client.Usage("--detail and --detail-file contradict each other: give one"))
+	}
+	if detailGiven {
+		detailArg = detail
+	}
+	if fileGiven {
+		b, err := os.ReadFile(*detailFile)
+		if err != nil {
+			return emit(stdout, stderr, nil, client.Usage("--detail-file: %v", err))
+		}
+		d := string(b) // as is: no trimming, the file is the work text
+		detailArg = &d
+	}
 	var mentions []string
 	if *mention != "" {
 		mentions = strings.Split(*mention, ",")
 	}
 	c := client.New(client.FromEnv(getenv))
 	v, err := colab.MessagePost(context.Background(), c, colab.MessagePostArgs{
-		Session: *session, Body: *body, ReplyTo: *replyTo, TopLevel: *topLevel, Mention: mentions, IdempotencyKey: *key})
+		Session: *session, Body: *body, Detail: detailArg, ReplyTo: *replyTo, TopLevel: *topLevel, Mention: mentions, IdempotencyKey: *key})
 	return emit(stdout, stderr, v, err)
 }
 

@@ -11,11 +11,16 @@ import (
 	"github.com/ingki3/agent-collabortion/cli/internal/client"
 )
 
-// MessagePostArgs — `colab message post --body [--reply-to | --top-level] [--mention]`.
+// MessagePostArgs — `colab message post --body [--detail | --detail-file] [--reply-to | --top-level] [--mention]`.
 type MessagePostArgs struct {
 	Session string `json:"session,omitempty"`
 	Body    string `json:"body"`
-	ReplyTo string `json:"reply_to,omitempty"`
+	// Detail is the work layer (colab-cli v0.9.2): findings · full drafts ·
+	// tables, sent as is (never trimmed). nil = not given; given but blank is
+	// a usage error — the server's minLength is 1 and a blank fold is noise.
+	// `--detail-file` is read into this by the CLI.
+	Detail  *string `json:"detail,omitempty"`
+	ReplyTo string  `json:"reply_to,omitempty"`
 	// TopLevel posts to the main timeline even when the turn was asked in a
 	// thread (colab-cli v0.9.1). With ReplyTo it is a usage error.
 	TopLevel bool     `json:"top_level,omitempty"`
@@ -49,6 +54,9 @@ func MessagePost(ctx context.Context, c *client.Client, a MessagePostArgs) (*Mes
 	if a.TopLevel && a.ReplyTo != "" {
 		return nil, client.Usage("--reply-to and --top-level contradict each other: give one")
 	}
+	if a.Detail != nil && strings.TrimSpace(*a.Detail) == "" {
+		return nil, client.Usage("--detail is empty: omit it or give the work text")
+	}
 	if err := c.Allow(ctx, client.CmdMessagePost); err != nil {
 		return nil, err
 	}
@@ -70,7 +78,7 @@ func MessagePost(ctx context.Context, c *client.Client, a MessagePostArgs) (*Mes
 		content = strings.Join(links, " ") + " " + content
 		names = nameIndex(cc)
 	}
-	body := client.MessageCreate{Content: content}
+	body := client.MessageCreate{Content: content, Detail: a.Detail}
 	// Where the reply goes (colab-cli v0.9.1): the thread named, else the
 	// thread the turn was asked in (COLAB_THREAD_ID), else the main timeline.
 	// A question asked in a thread is answered there — an answer on the main

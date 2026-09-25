@@ -69,7 +69,7 @@ stdout plus one line on stderr.
 ```sh
 colab room get [--room R]
 colab room messages [--since <cursor|message_id>] [--limit N] [--thread <root_id>] [--work <mission_id>] [--top-only]
-colab message post --body <text> [--reply-to <msg_id> | --top-level] [--mention @A,@B] [--idempotency-key K]
+colab message post --body <text> [--detail <text> | --detail-file <path>] [--reply-to <msg_id> | --top-level] [--mention @A,@B] [--idempotency-key K]
 
 colab status set working|blocked|done [--note <text>]
 colab lane delegate --agent <name> --brief <text> [--depends-on <lane_id>] [--profile <name>]
@@ -280,8 +280,9 @@ The daemon registers it as the only MCP server (`harness.md` §3):
 > - `colab room messages [--since <id>] [--limit N] [--thread <root_id>]` — read more
 >   of the thread when the history in this prompt says `truncated: true`
 >   (`--since` = messages newer than that id).
-> - `colab message post --body "<markdown>" [--reply-to <msg_id>] [--mention @Name,@Name]` —
->   post to the room. **Your message triggers another agent only if you `--mention`
+> - `colab message post --body "<markdown>" [--detail "<markdown>" | --detail-file <path>] [--reply-to <msg_id>] [--mention @Name,@Name]` —
+>   post to the room. `--body` is the conversation (to whom, what, conclusion, next —
+>   about 5 lines); findings, full drafts and tables go in `--detail` (v0.9.2). **Your message triggers another agent only if you `--mention`
 >   them.** Mentioning your delegator is suppressed until you rejoin — use
 >   `colab status set blocked` for questions to them. The result tells you who was
 >   `triggered` and who was `suppressed`.
