@@ -85,6 +85,8 @@ export function conditionSentence(names: string[], op: "and" | "or"): string {
 export const PROGRESS = {
   /** "받은 요청에서 승인하세요" — `hitl_request_id` 가 있으면 그 카드로 가는 링크. */
   user_approval_next: "받은 요청에서 승인하세요",
+  /** T-APPROVAL(openapi v0.3.3 `held_reason: running_tasks`) — 나머지 조건은 충족, 진행 중인 작업이 끝나면 서버가 승인을 요청한다. */
+  held_running_tasks: "조건 충족 — 진행 중인 작업이 끝나면 승인을 요청합니다",
   /** "Lead 차례" — `next_actor`(또는 지정 에이전트)가 할 일이 남았다. */
   turn: (actor: string) => `${actor} 차례`,
   manual_next: "Director 가 「종료」 로 끝냅니다",
@@ -670,6 +672,23 @@ export const ROOM_PANEL = {
   director_opener: "미션을 연 사람",
   visibility: { workspace: "워크스페이스 전체", invited: "초대된 사람만" },
   autonomy: { guided: "질문 기한이 지나면 계속 기다립니다", autonomous: "질문 기한이 지나면 제안한 기본값으로 진행합니다", supervised: "모든 위임을 Director가 먼저 승인합니다" },
+} as const;
+
+/**
+ * 우열 비용 줄의 상한(T-BUDGETCAP, SCREEN §4.6 「비용 줄」) — 상한이 없으면 **없다고 말하고 그 자리에서 걸게** 한다.
+ * 기본값은 바꾸지 않는다(상한 없음). 미션은 자기 상한이 없으면 방 상한을 따른다(계약 WorkLimits).
+ */
+export const BUDGET_CAP = {
+  none: "상한 없음",
+  follows_room: ["방 상한 $", " 을 따릅니다"] as Slotted,
+  set: "상한 걸기",
+  input_label: "예산 상한 (USD)",
+  save: "걸기",
+  cancel: "취소",
+  invalid: "0보다 큰 금액을 적어 주세요",
+  too_low: "이미 쓴 돈보다 큰 금액이어야 합니다",
+  room_note: "넘으면 이 방 전체가 멈추고 방장에게 계속할지 묻습니다",
+  work_note: "넘으면 이 미션만 멈추고 Director 에게 계속할지 묻습니다",
 } as const;
 
 /**

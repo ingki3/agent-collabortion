@@ -103,6 +103,38 @@ describe("S21 미션 열기", () => {
     expect(screen.getByTestId("rd-create-work-budget-line")).toHaveTextContent(CREATE_WORK.smaller_wins);
   });
 
+  it("T-BUDGETCAP — 「예산 상한(선택)」은 접힌 묶음 밖에 보이고, 비우면 방 상한을 따른다 · 워크스페이스 기본이 있으면 그 값이 걸린다고 말하고 서버가 채운다", async () => {
+    const onOpened = vi.fn();
+    render(<CreateWorkDialog roomId={roomId} mode="new" onOpened={onOpened} onClose={() => {}} />);
+    const input = await screen.findByTestId("rd-create-work-budget");
+    // 「더 보기」(details) 안이 아니다 — 접힌 채로도 보인다.
+    expect(input.closest("details")).toBeNull();
+    expect(screen.getByText(CREATE_WORK.budget)).toBeInTheDocument();
+    expect(input).toHaveAttribute("placeholder", CREATE_WORK.budget_placeholder);
+    expect(screen.getByTestId("rd-create-work-budget-line")).toHaveTextContent(CREATE_WORK.budget_room_none);
+    cleanup();
+
+    // 방 상한만 있고 미션 칸이 비었으면 「방 한도 $40 — …」(뒤에 미션 몫이 없는데 「중」을 붙이지 않는다).
+    await bridge.call("PATCH", `/rooms/${roomId}`, { limits: { budget_usd: 40 } });
+    render(<CreateWorkDialog roomId={roomId} mode="new" onOpened={onOpened} onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId("rd-create-work-budget-line")).toHaveTextContent(`${CREATE_WORK.budget_room_only.join("$40")} — ${CREATE_WORK.smaller_wins}`));
+    cleanup();
+
+    // 워크스페이스 기본 미션 상한 $5(S14) — 칸을 비우면 그 값이 걸린다고 말하고, 서버가 채운다.
+    const ws = store().rooms.get(roomId)!.workspace_id;
+    store().settings.get(ws)!.budget_policy = { default_session_budget_usd: 5 };
+    render(<CreateWorkDialog roomId={roomId} mode="new" onOpened={onOpened} onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId("rd-create-work-budget-line")).toHaveTextContent(CREATE_WORK.budget_ws_default.join("$5")));
+    expect(screen.getByTestId("rd-create-work-budget")).toHaveAttribute("placeholder", "$5");
+    fireEvent.change(screen.getByTestId("rd-create-work-goal"), { target: { value: "기본 상한 미션" } });
+    fireEvent.click(screen.getByTestId("rd-create-work-open"));
+    await waitFor(() => expect(onOpened).toHaveBeenCalled());
+    expect((onOpened.mock.calls[0][0] as Work).limits).toMatchObject({ budget_usd: 5 });
+    // 자기 값을 적으면 기본 문장은 사라지고 그 값이 간다.
+    fireEvent.change(screen.getByTestId("rd-create-work-budget"), { target: { value: "12" } });
+    expect(screen.getByTestId("rd-create-work-budget-line")).not.toHaveTextContent(CREATE_WORK.budget_ws_default[0]);
+  });
+
   it("메시지에서 — 인용된 원 메시지 · goal 기본값 = 본문 · 멘션한 에이전트가 하나면 제시(확인 문장) · 원 메시지가 미션에 귀속", async () => {
     await invite();
     await bridge.call("POST", `/__mock/rooms/${roomId}/seed`, { unread: 1 });

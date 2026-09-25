@@ -4,7 +4,7 @@
  * 재는 것:
  *   · createSession — `agent_approval` 에 `agent_id` 없으면 422 `errors[].code: reviewer_required`(field `completion_condition/conditions/<i>/agent_id`),
  *     참여자 아니면 `reviewer_not_participant`, 둘 다 다른 422 와 한 응답에 모인다.
- *   · CompletionProgress.conditions[] — `agent_id`·`agent_name`·`next_actor`·`blocked_reason`·`hitl_request_id` 가 계약 키 그대로.
+ *   · CompletionProgress.conditions[] — `agent_id`·`agent_name`·`next_actor`·`blocked_reason`·`held_reason`(v0.3.3)·`hitl_request_id` 가 계약 키 그대로.
  *   · updateSession — Director 만(403 director_required) · `completion_condition` 은 active·paused 에서도 · 끝난 세션 409 · 검증은 createSession 과 같다
  *     · 바꾸면 진행률을 다시 계산해 SSE `work.completion_progress {work_id, room_id, completion_progress}`(R4 전 이름은 session.completion_progress) · **이미 충족된 원자는 유지**.
  *   · `/__mock/rooms/{id}/seed-legacy-condition` — 리뷰어 없는 옛 세션 → `blocked_reason: reviewer_missing`.
@@ -90,10 +90,10 @@ describe("createSession — 리뷰어 검사(422 두 코드)", () => {
     expect(s.completion_progress.human_gate).toBe(true);
     const [art, appr, user] = s.completion_progress.conditions;
     // 계약 키 집합 그대로(T-S18 대조) — path·type·met 필수 + 선택 7개.
-    for (const c of s.completion_progress.conditions) expect(Object.keys(c).sort()).toEqual(["agent_id", "agent_name", "blocked_reason", "hitl_request_id", "met", "met_at", "met_by", "next_actor", "path", "type"]);
+    for (const c of s.completion_progress.conditions) expect(Object.keys(c).sort()).toEqual(["agent_id", "agent_name", "blocked_reason", "held_reason", "hitl_request_id", "met", "met_at", "met_by", "next_actor", "path", "type"]);
     expect(art).toMatchObject({ path: "/conditions/0", type: "artifact_submitted", met: false, agent_id: researcher.id, agent_name: "Researcher", next_actor: "Researcher", blocked_reason: null });
     expect(appr).toMatchObject({ path: "/conditions/1", type: "agent_approval", met: false, agent_id: lead.id, agent_name: "Lead", next_actor: "Lead", blocked_reason: null });
-    expect(user).toMatchObject({ path: "/conditions/2", type: "user_approval", met: false, agent_id: null, agent_name: null, next_actor: "director", hitl_request_id: null });
+    expect(user).toMatchObject({ path: "/conditions/2", type: "user_approval", met: false, agent_id: null, agent_name: null, next_actor: "director", hitl_request_id: null, held_reason: null });
   });
 
   it("completion_condition 을 안 보내면 기본값(보고서 제출 AND Director 승인)", async () => {

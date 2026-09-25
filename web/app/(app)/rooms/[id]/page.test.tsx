@@ -19,11 +19,12 @@ vi.mock("next/navigation", () => ({
 
 const get = vi.fn();
 const post = vi.fn();
+const patch = vi.fn();
 vi.mock("@/lib/api/client", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api/client")>("@/lib/api/client");
   // markRoomRead(안 읽음, T-R2-W4a)는 화면이 메시지를 받을 때마다 저절로 부른다 — 테스트가 줄 세운 post 응답을 가로채지 않게 따로 답한다.
   const read = (...a: unknown[]) => (a[0] === "/rooms/{roomId}/read" ? Promise.resolve({ room_id: "r1", unread_count: 0 }) : post(...a));
-  return { ...actual, api: { ...actual.api, get: (...a: unknown[]) => get(...a), post: read } };
+  return { ...actual, api: { ...actual.api, get: (...a: unknown[]) => get(...a), post: read, patch: (...a: unknown[]) => patch(...a) } };
 });
 
 const me: Me = {
@@ -315,5 +316,86 @@ describe("S7 — 상단 · 배너 · 좁은 화면", () => {
     expect(leave.getAttribute("aria-disabled")).toBeNull();
     fireEvent.click(leave);
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+});
+
+describe("T-BUDGETCAP — 비용 줄의 상한(없으면 「상한 없음 — [상한 걸기]」, 있으면 「$x / $y (n%)」)", () => {
+  const noCapRoom: Room = { ...room, cost_usd: 92.77, limits: { ...room.limits, budget_usd: null } };
+  // 펼침은 방마다 기억한다(localStorage) — 앞 테스트가 연 채로 남을 수 있어 「펼치기」는 접혀 있을 때만 누른다.
+  const openRoomPanel = () => {
+    const t = screen.getByTestId("room-panel-toggle");
+    if (t.getAttribute("aria-expanded") === "false") fireEvent.click(t);
+  };
+
+  it("상한 있음 — 미션 「이 미션 $3.20 / $20 (16%)」 · 방 「$12.40 / $50 (25%)」, [상한 걸기] 없음", async () => {
+    search = new URLSearchParams("work=w1");
+    await ready();
+    await waitFor(() => expect(screen.getByTestId("work-panel").getAttribute("data-work-id")).toBe("w1"));
+    expect(screen.getByTestId("work-cost").textContent).toBe("이 미션 $3.20 / $20 (16%)");
+    expect(screen.queryByTestId("work-cost-set")).toBeNull();
+    openRoomPanel();
+    expect(screen.getByTestId("room-cost-line").textContent).toBe("$12.40 / $50 (25%)");
+    expect(screen.getByTestId("room-panel-toggle").textContent).toContain("누적 $12.40 / $50");
+    expect(screen.queryByTestId("room-cost-line-set")).toBeNull();
+  });
+
+  it("방 상한 없음 — 접힌 머리줄에도 「상한 없음」, 펼치면 「$92.77 · 상한 없음 — 상한 걸기」 → 그 자리 입력 → updateRoom", async () => {
+    roomNow = noCapRoom;
+    await ready();
+    expect(screen.getByTestId("room-panel-toggle").textContent).toContain("누적 $92.77 · 상한 없음");
+    openRoomPanel();
+    expect(screen.getByTestId("room-cost-line").textContent).toBe("$92.77 · 상한 없음 — 상한 걸기");
+    fireEvent.click(screen.getByTestId("room-cost-line-set"));
+    const input = screen.getByTestId("room-cost-line-input");
+    // 이미 쓴 돈 이하로는 걸 수 없다 — 걸자마자 멈추는 상한은 실수다(서버도 같은 판정: CheckBudgetRaise).
+    fireEvent.change(input, { target: { value: "50" } });
+    fireEvent.click(screen.getByTestId("room-cost-line-save"));
+    expect(screen.getByTestId("room-cost-line-err").textContent).toBe("이미 쓴 돈보다 큰 금액이어야 합니다");
+    expect(patch).not.toHaveBeenCalled();
+    patch.mockResolvedValueOnce({ ...noCapRoom, limits: { ...noCapRoom.limits, budget_usd: 150 } });
+    fireEvent.change(input, { target: { value: "150" } });
+    // 값을 고치면 앞의 거부 문장은 지우고 「넘으면 무엇이 멈추는지」로 돌아간다.
+    expect(screen.queryByTestId("room-cost-line-err")).toBeNull();
+    fireEvent.click(screen.getByTestId("room-cost-line-save"));
+    await waitFor(() => expect(patch).toHaveBeenCalledWith("/rooms/{roomId}", { path: { roomId: "r1" }, body: { limits: { budget_usd: 150 } } }));
+    await waitFor(() => expect(screen.getByTestId("room-cost-line").textContent).toBe("$92.77 / $150 (62%)"));
+    expect(screen.queryByTestId("room-cost-line-form")).toBeNull();
+  });
+
+  it("방 상한 걸기는 configure 능력자만 — 멤버에게는 「상한 없음」만(버튼 없음)", async () => {
+    roomNow = { ...noCapRoom, my_room_role: "member", my_capabilities: ["post", "summarize"] };
+    await ready();
+    openRoomPanel();
+    expect(screen.getByTestId("room-cost-line").textContent).toBe("$92.77 · 상한 없음");
+    expect(screen.queryByTestId("room-cost-line-set")).toBeNull();
+  });
+
+  it("미션 상한 없음 + 방 상한 없음 — Director 에게 [상한 걸기] → updateWork limits.budget_usd", async () => {
+    roomNow = noCapRoom;
+    search = new URLSearchParams("work=w1");
+    get.mockImplementation((path: string, o?: never) => (path === "/works/{workId}" ? Promise.resolve(work("w1", { limits: {} })) : routes(path, o)));
+    await ready();
+    await waitFor(() => expect(screen.getByTestId("work-cost").textContent).toBe("이 미션 $3.20 · 상한 없음 — 상한 걸기"));
+    fireEvent.click(screen.getByTestId("work-cost-set"));
+    patch.mockResolvedValueOnce(work("w1", { limits: { budget_usd: 10 } }));
+    fireEvent.change(screen.getByTestId("work-cost-input"), { target: { value: "10" } });
+    fireEvent.click(screen.getByTestId("work-cost-save"));
+    await waitFor(() => expect(patch).toHaveBeenCalledWith("/works/{workId}", { path: { workId: "w1" }, body: { limits: { budget_usd: 10 } } }));
+    await waitFor(() => expect(screen.getByTestId("work-cost").textContent).toBe("이 미션 $3.20 / $10 (32%)"));
+  });
+
+  it("미션 상한 없음 + 방 상한 있음 — 「방 상한 $50 을 따릅니다」(없다고 말하지 않는다)", async () => {
+    search = new URLSearchParams("work=w1");
+    get.mockImplementation((path: string, o?: never) => (path === "/works/{workId}" ? Promise.resolve(work("w1", { limits: {} })) : routes(path, o)));
+    await ready();
+    await waitFor(() => expect(screen.getByTestId("work-cost").textContent).toBe("이 미션 $3.20 · 방 상한 $50 을 따릅니다 — 상한 걸기"));
+  });
+
+  it("Director 가 아니면 미션 상한 걸기 버튼이 없다", async () => {
+    search = new URLSearchParams("work=w1");
+    get.mockImplementation((path: string, o?: never) => (path === "/works/{workId}" ? Promise.resolve(work("w1", { limits: {}, my_work_role: "member" })) : routes(path, o)));
+    await ready();
+    await waitFor(() => expect(screen.getByTestId("work-cost").textContent).toBe("이 미션 $3.20 · 방 상한 $50 을 따릅니다"));
+    expect(screen.queryByTestId("work-cost-set")).toBeNull();
   });
 });
