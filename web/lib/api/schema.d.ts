@@ -2640,6 +2640,7 @@ export interface components {
         };
         /** @description FR-7.3. 스키마 v0는 `jsonb '{}'` — 키는 이 문서가 정한다(미결 항목 참조). */
         BudgetPolicy: {
+            /** @description **새 미션**의 기본 예산 상한(USD, 이름의 session 은 v0.19 이전 이름). `createWork` 가 `limits.budget_usd` 를 **빼고** 오면 이 값을 채운다 — 명시적 `null` 이면 채우지 않는다(상한 없음). 비어 있으면(기본) 상한 없음. 새 방의 기본 상한은 `room_defaults.limits.budget_usd`. */
             default_session_budget_usd?: number | null;
             default_task_budget_usd?: number | null;
             workspace_monthly_budget_usd?: number | null;
@@ -4512,6 +4513,7 @@ export interface components {
             director_user_id?: string;
             /** Format: uuid */
             deputy_user_id?: string | null;
+            /** @description `limits.budget_usd` 를 **빼면**(키 없음·`limits` 없음·`{}`·`null`) 워크스페이스 `budget_policy.default_session_budget_usd` 를 채운다(그 값도 없으면 상한 없음). **명시적 `budget_usd: null`** 은 「이 미션은 상한 없음」 — 기본값을 채우지 않는다. 어느 쪽이든 방 한도가 따로 걸린다(작은 쪽이 이긴다). */
             limits?: components["schemas"]["WorkLimits"];
             autonomy?: components["schemas"]["AutonomyLevel"];
             /**
