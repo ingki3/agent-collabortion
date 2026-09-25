@@ -23392,643 +23392,6 @@
     },
     {
       "type": "frame",
-      "id": "xk1d7",
-      "x": 0,
-      "y": 9000,
-      "name": "S20 방 설정 (v0.19)",
-      "clip": true,
-      "width": 1440,
-      "height": 900,
-      "fill": "$bg",
-      "children": [
-        {
-          "id": "K9b0TU",
-          "type": "ref",
-          "ref": "D6yb65",
-          "name": "Nav",
-          "height": "fill_container"
-        },
-        {
-          "type": "frame",
-          "id": "uR0zl",
-          "name": "Main",
-          "width": "fill_container",
-          "height": "fill_container",
-          "layout": "vertical",
-          "gap": 14,
-          "padding": [
-            28,
-            32
-          ],
-          "children": [
-            {
-              "type": "text",
-              "id": "KX5JC",
-              "name": "Title",
-              "fill": "$ink",
-              "content": "결제팀 › 방 설정",
-              "fontFamily": "$font",
-              "fontSize": 20,
-              "fontWeight": "700"
-            },
-            {
-              "type": "text",
-              "id": "LR44t",
-              "name": "Desc",
-              "fill": "$ink-2",
-              "content": "여기가 방의 유일한 안전망입니다 — 비워 두면 워크스페이스 기본값으로 돕니다.",
-              "fontFamily": "$font",
-              "fontSize": 12,
-              "fontWeight": "normal"
-            },
-            {
-              "type": "frame",
-              "id": "qWz5h",
-              "name": "Group 공개 범위",
-              "width": "fill_container",
-              "cornerRadius": 8,
-              "stroke": "$line",
-              "strokeWidth": 1,
-              "layout": "vertical",
-              "gap": 4,
-              "padding": [
-                12,
-                14
-              ],
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "kIFL3",
-                  "name": "Row",
-                  "width": "fill_container",
-                  "gap": 8,
-                  "justifyContent": "space_between",
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "text",
-                      "id": "mXQ06",
-                      "name": "T",
-                      "fill": "$ink",
-                      "content": "공개 범위",
-                      "fontFamily": "$font",
-                      "fontSize": 13,
-                      "fontWeight": "700"
-                    },
-                    {
-                      "type": "frame",
-                      "id": "gIFnT",
-                      "name": "Btn 바꾸기",
-                      "fill": "$bg",
-                      "cornerRadius": 6,
-                      "stroke": "$line",
-                      "strokeWidth": 1,
-                      "padding": [
-                        6,
-                        10
-                      ],
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "K6Jz1S",
-                          "name": "L",
-                          "fill": "$ink",
-                          "content": "바꾸기",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "600"
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "text",
-                  "id": "O36M3",
-                  "name": "V",
-                  "fill": "$ink",
-                  "textGrowth": "fixed-width",
-                  "width": "fill_container",
-                  "content": "workspace — 워크스페이스 멤버 누구나 보고 쓸 수 있습니다",
-                  "fontFamily": "$font",
-                  "fontSize": 13,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "text",
-                  "id": "cK9Bm",
-                  "name": "Impact",
-                  "fill": "$ink-3",
-                  "textGrowth": "fixed-width",
-                  "width": "fill_container",
-                  "content": "invited 로 바꾸면 지금 보는 사람 중 초대되지 않은 4명이 더는 볼 수 없게 됩니다",
-                  "fontFamily": "$font",
-                  "fontSize": 11,
-                  "fontWeight": "normal"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "E1K98V",
-              "name": "Group 컴퓨터·격리",
-              "width": "fill_container",
-              "cornerRadius": 8,
-              "stroke": "$line",
-              "strokeWidth": 1,
-              "layout": "vertical",
-              "gap": 4,
-              "padding": [
-                12,
-                14
-              ],
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "JHijR",
-                  "name": "Row",
-                  "width": "fill_container",
-                  "gap": 8,
-                  "justifyContent": "space_between",
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "text",
-                      "id": "EC4vl",
-                      "name": "T",
-                      "fill": "$ink",
-                      "content": "컴퓨터·격리",
-                      "fontFamily": "$font",
-                      "fontSize": 13,
-                      "fontWeight": "700"
-                    },
-                    {
-                      "type": "frame",
-                      "id": "qzFu0",
-                      "name": "Btn 컴퓨터 바꾸기",
-                      "fill": "$bg",
-                      "cornerRadius": 6,
-                      "stroke": "$line",
-                      "strokeWidth": 1,
-                      "padding": [
-                        6,
-                        10
-                      ],
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "Dv5Ko",
-                          "name": "L",
-                          "fill": "$ink",
-                          "content": "컴퓨터 바꾸기",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "600"
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "text",
-                  "id": "NRvIW",
-                  "name": "V",
-                  "fill": "$ink",
-                  "textGrowth": "fixed-width",
-                  "width": "fill_container",
-                  "content": "〈MacBook Pro〉에 고정됨 · 워크트리로 나눔 (repo: ~/work/payments)",
-                  "fontFamily": "$font",
-                  "fontSize": 13,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "text",
-                  "id": "j87xcq",
-                  "name": "Impact",
-                  "fill": "$ink-3",
-                  "textGrowth": "fixed-width",
-                  "width": "fill_container",
-                  "content": "첫 실행 뒤에는 바꿀 수 없습니다 — 작업 폴더가 거기 묶여 있습니다",
-                  "fontFamily": "$font",
-                  "fontSize": 11,
-                  "fontWeight": "normal"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "nMuiD",
-              "name": "Group 한도",
-              "width": "fill_container",
-              "cornerRadius": 8,
-              "stroke": "$line",
-              "strokeWidth": 1,
-              "layout": "vertical",
-              "gap": 4,
-              "padding": [
-                12,
-                14
-              ],
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "CyhEx",
-                  "name": "Row",
-                  "width": "fill_container",
-                  "gap": 8,
-                  "justifyContent": "space_between",
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "text",
-                      "id": "qQQP0",
-                      "name": "T",
-                      "fill": "$ink",
-                      "content": "한도",
-                      "fontFamily": "$font",
-                      "fontSize": 13,
-                      "fontWeight": "700"
-                    },
-                    {
-                      "type": "frame",
-                      "id": "Bw20N",
-                      "name": "Btn 편집",
-                      "fill": "$bg",
-                      "cornerRadius": 6,
-                      "stroke": "$line",
-                      "strokeWidth": 1,
-                      "padding": [
-                        6,
-                        10
-                      ],
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "UvR9i",
-                          "name": "L",
-                          "fill": "$ink",
-                          "content": "편집",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "600"
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "text",
-                  "id": "Duhm7",
-                  "name": "V",
-                  "fill": "$ink",
-                  "textGrowth": "fixed-width",
-                  "width": "fill_container",
-                  "content": "예산 $50 · 시간 24시간 · 동시 진행 미션 3 · 동시 서브 미션 5",
-                  "fontFamily": "$font",
-                  "fontSize": 13,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "text",
-                  "id": "MdhMU",
-                  "name": "Impact",
-                  "fill": "$ink-3",
-                  "textGrowth": "fixed-width",
-                  "width": "fill_container",
-                  "content": "초과는 완료가 아니라 멈춤입니다. 방 상한을 넘기면 이 방의 모든 미션이 한꺼번에 멈춥니다. 미션에도 걸 수 있고 작은 쪽이 이깁니다",
-                  "fontFamily": "$font",
-                  "fontSize": 11,
-                  "fontWeight": "normal"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "pJxL2",
-              "name": "Group autonomy",
-              "width": "fill_container",
-              "cornerRadius": 8,
-              "stroke": "$line",
-              "strokeWidth": 1,
-              "layout": "vertical",
-              "gap": 4,
-              "padding": [
-                12,
-                14
-              ],
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "fLhlT",
-                  "name": "Row",
-                  "width": "fill_container",
-                  "gap": 8,
-                  "justifyContent": "space_between",
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "text",
-                      "id": "MIqvG",
-                      "name": "T",
-                      "fill": "$ink",
-                      "content": "autonomy",
-                      "fontFamily": "$font",
-                      "fontSize": 13,
-                      "fontWeight": "700"
-                    },
-                    {
-                      "type": "frame",
-                      "id": "v2Pnn",
-                      "name": "Btn 편집",
-                      "fill": "$bg",
-                      "cornerRadius": 6,
-                      "stroke": "$line",
-                      "strokeWidth": 1,
-                      "padding": [
-                        6,
-                        10
-                      ],
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "i86eD",
-                          "name": "L",
-                          "fill": "$ink",
-                          "content": "편집",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "600"
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "text",
-                  "id": "bf0Gb",
-                  "name": "V",
-                  "fill": "$ink",
-                  "textGrowth": "fixed-width",
-                  "width": "fill_container",
-                  "content": "guided — 질문 기한이 지나면 계속 기다립니다",
-                  "fontFamily": "$font",
-                  "fontSize": 13,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "text",
-                  "id": "NzysN",
-                  "name": "Impact",
-                  "fill": "$ink-3",
-                  "textGrowth": "fixed-width",
-                  "width": "fill_container",
-                  "content": "방 기본값이며 미션이 덮어쓸 수 있습니다",
-                  "fontFamily": "$font",
-                  "fontSize": 11,
-                  "fontWeight": "normal"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "Dr9FJ",
-              "name": "Group 기본 Director · 방장 · 부방장",
-              "width": "fill_container",
-              "cornerRadius": 8,
-              "stroke": "$line",
-              "strokeWidth": 1,
-              "layout": "vertical",
-              "gap": 4,
-              "padding": [
-                12,
-                14
-              ],
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "VeXQ2",
-                  "name": "Row",
-                  "width": "fill_container",
-                  "gap": 8,
-                  "justifyContent": "space_between",
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "text",
-                      "id": "g6btsu",
-                      "name": "T",
-                      "fill": "$ink",
-                      "content": "기본 Director · 방장 · 부방장",
-                      "fontFamily": "$font",
-                      "fontSize": 13,
-                      "fontWeight": "700"
-                    },
-                    {
-                      "type": "frame",
-                      "id": "W4Lwc",
-                      "name": "Btn 방장 넘기기",
-                      "fill": "$bg",
-                      "cornerRadius": 6,
-                      "stroke": "$line",
-                      "strokeWidth": 1,
-                      "padding": [
-                        6,
-                        10
-                      ],
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "eSUnH",
-                          "name": "L",
-                          "fill": "$ink",
-                          "content": "방장 넘기기",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "600"
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "text",
-                  "id": "g1xErS",
-                  "name": "V",
-                  "fill": "$ink",
-                  "textGrowth": "fixed-width",
-                  "width": "fill_container",
-                  "content": "기본 Director: 방장 · 방장 서연 · 부방장 민호",
-                  "fontFamily": "$font",
-                  "fontSize": 13,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "text",
-                  "id": "SigFp",
-                  "name": "Impact",
-                  "fill": "$ink-3",
-                  "textGrowth": "fixed-width",
-                  "width": "fill_container",
-                  "content": "방장이 답하지 않으면 기한 절반 뒤 부방장이, 부방장이 없으면 워크스페이스 owner 최고참이 답할 수 있습니다",
-                  "fontFamily": "$font",
-                  "fontSize": 11,
-                  "fontWeight": "normal"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "p81CY4",
-              "name": "Group 참고 방 링크",
-              "width": "fill_container",
-              "cornerRadius": 8,
-              "stroke": "$line",
-              "strokeWidth": 1,
-              "layout": "vertical",
-              "gap": 4,
-              "padding": [
-                12,
-                14
-              ],
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "O08c0",
-                  "name": "Row",
-                  "width": "fill_container",
-                  "gap": 8,
-                  "justifyContent": "space_between",
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "text",
-                      "id": "R47cX",
-                      "name": "T",
-                      "fill": "$ink",
-                      "content": "참고 방 링크",
-                      "fontFamily": "$font",
-                      "fontSize": 13,
-                      "fontWeight": "700"
-                    },
-                    {
-                      "type": "frame",
-                      "id": "n4R0jr",
-                      "name": "Btn 연결 관리",
-                      "fill": "$bg",
-                      "cornerRadius": 6,
-                      "stroke": "$line",
-                      "strokeWidth": 1,
-                      "padding": [
-                        6,
-                        10
-                      ],
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "yltG7",
-                          "name": "L",
-                          "fill": "$ink",
-                          "content": "연결 관리",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "600"
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "text",
-                  "id": "t37dH",
-                  "name": "V",
-                  "fill": "$ink",
-                  "textGrowth": "fixed-width",
-                  "width": "fill_container",
-                  "content": "인프라 · 마케팅",
-                  "fontFamily": "$font",
-                  "fontSize": 13,
-                  "fontWeight": "normal"
-                },
-                {
-                  "type": "text",
-                  "id": "Wq4r3",
-                  "name": "Impact",
-                  "fill": "$ink-3",
-                  "textGrowth": "fixed-width",
-                  "width": "fill_container",
-                  "content": "연결하면 이 방의 에이전트가 저 방을 읽을 수 있습니다(쓰기 없음)",
-                  "fontFamily": "$font",
-                  "fontSize": 11,
-                  "fontWeight": "normal"
-                }
-              ]
-            },
-            {
-              "type": "frame",
-              "id": "n2s4b",
-              "name": "Row",
-              "width": "fill_container",
-              "gap": 8,
-              "alignItems": "center",
-              "children": [
-                {
-                  "type": "frame",
-                  "id": "cLoxY",
-                  "name": "Btn 보관",
-                  "fill": "$bg",
-                  "cornerRadius": 6,
-                  "stroke": "$line",
-                  "strokeWidth": 1,
-                  "padding": [
-                    6,
-                    10
-                  ],
-                  "children": [
-                    {
-                      "type": "text",
-                      "id": "sEzKo",
-                      "name": "L",
-                      "fill": "$ink",
-                      "content": "보관",
-                      "fontFamily": "$font",
-                      "fontSize": 12,
-                      "fontWeight": "600"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "OEann",
-                  "name": "Btn 삭제 — 되돌릴 수 없음",
-                  "fill": "#FEF2F2",
-                  "cornerRadius": 6,
-                  "stroke": "#FCA5A5",
-                  "strokeWidth": 1,
-                  "padding": [
-                    6,
-                    10
-                  ],
-                  "children": [
-                    {
-                      "type": "text",
-                      "id": "FXdmJ",
-                      "name": "L",
-                      "fill": "$s-fail-text",
-                      "content": "삭제 — 되돌릴 수 없음",
-                      "fontFamily": "$font",
-                      "fontSize": 12,
-                      "fontWeight": "600"
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "type": "frame",
       "id": "r6u9f5",
       "x": 3200,
       "y": 9000,
@@ -27800,6 +27163,16 @@
                           "fontFamily": "$font",
                           "fontSize": 20,
                           "fontWeight": "700"
+                        },
+                        {
+                          "type": "text",
+                          "id": "KwKyw",
+                          "name": "Rename pencil (권한자 hover·focus)",
+                          "fill": "$ink-3",
+                          "content": "✎",
+                          "fontFamily": "$font",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -31838,6 +31211,16 @@
                           "fontWeight": "700"
                         },
                         {
+                          "type": "text",
+                          "id": "dFHFV",
+                          "name": "Rename pencil (권한자 hover·focus)",
+                          "fill": "$ink-3",
+                          "content": "✎",
+                          "fontFamily": "$font",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        },
+                        {
                           "type": "frame",
                           "id": "dKSAV",
                           "name": "Three layers",
@@ -35627,6 +35010,806 @@
                           "fontWeight": "600"
                         }
                       ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "shVmo",
+      "x": 0,
+      "y": 9000,
+      "name": "S20 방 설정 (v0.19)",
+      "clip": true,
+      "width": 1440,
+      "height": 1080,
+      "fill": "$bg",
+      "children": [
+        {
+          "id": "sYbcK",
+          "type": "ref",
+          "ref": "D6yb65",
+          "name": "Nav",
+          "height": "fill_container"
+        },
+        {
+          "type": "frame",
+          "id": "CuXJp",
+          "name": "Main",
+          "width": "fill_container",
+          "height": "fill_container",
+          "layout": "vertical",
+          "gap": 14,
+          "padding": [
+            28,
+            32
+          ],
+          "children": [
+            {
+              "type": "text",
+              "id": "dtNti",
+              "name": "Title",
+              "fill": "$ink",
+              "content": "결제팀 › 방 설정",
+              "fontFamily": "$font",
+              "fontSize": 20,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "t2341J",
+              "name": "Desc",
+              "fill": "$ink-2",
+              "content": "여기가 방의 유일한 안전망입니다 — 비워 두면 워크스페이스 기본값으로 돕니다.",
+              "fontFamily": "$font",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "OYGYf",
+              "name": "Group 이름·설명 (v0.19.5)",
+              "width": "fill_container",
+              "cornerRadius": 8,
+              "stroke": "$line",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 8,
+              "padding": [
+                12,
+                14
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "fATRR",
+                  "name": "Row",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "mVQvK",
+                      "name": "T",
+                      "fill": "$ink",
+                      "content": "이름·설명",
+                      "fontFamily": "$font",
+                      "fontSize": 13,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "gWIOJ",
+                      "name": "Btn 저장 (바뀐 칸이 없으면 비활성)",
+                      "opacity": 0.4,
+                      "fill": "$ink",
+                      "cornerRadius": 6,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "PLorO",
+                          "name": "L",
+                          "fill": "#FFFFFF",
+                          "content": "저장",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "ZJ0Ps",
+                  "name": "Field 이름",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "qEMcb",
+                      "name": "Lbl",
+                      "fill": "$ink-2",
+                      "content": "방 이름",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Zs9kH",
+                      "name": "Input",
+                      "width": 480,
+                      "cornerRadius": 6,
+                      "stroke": "$line",
+                      "strokeWidth": 1,
+                      "padding": [
+                        7,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "ZqeJk",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "결제팀",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "bgjnt",
+                  "name": "Field 설명",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "b5FUAt",
+                      "name": "Lbl",
+                      "fill": "$ink-2",
+                      "content": "한 줄 설명 (선택)",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "t5rnd5",
+                      "name": "Input",
+                      "width": 480,
+                      "cornerRadius": 6,
+                      "stroke": "$line",
+                      "strokeWidth": 1,
+                      "padding": [
+                        7,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "OgIGU",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "결제 관련 논의와 작업",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "cj8uy",
+                  "name": "Impact",
+                  "fill": "$ink-2",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "이름은 방 목록·받은 요청·참고 방 링크에 바로 반영됩니다. 이전 메시지에 적힌 옛 이름은 그대로 남습니다",
+                  "fontFamily": "$font",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "D7Bdh",
+              "name": "Group 공개 범위",
+              "width": "fill_container",
+              "cornerRadius": 8,
+              "stroke": "$line",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 4,
+              "padding": [
+                12,
+                14
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "jZFY8",
+                  "name": "Row",
+                  "width": "fill_container",
+                  "gap": 8,
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "eahkr",
+                      "name": "T",
+                      "fill": "$ink",
+                      "content": "공개 범위",
+                      "fontFamily": "$font",
+                      "fontSize": 13,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "kfRxc",
+                      "name": "Btn 바꾸기",
+                      "fill": "$bg",
+                      "cornerRadius": 6,
+                      "stroke": "$line",
+                      "strokeWidth": 1,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "jr8I2",
+                          "name": "L",
+                          "fill": "$ink",
+                          "content": "바꾸기",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "pyjt9",
+                  "name": "V",
+                  "fill": "$ink",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "workspace — 워크스페이스 멤버 누구나 보고 쓸 수 있습니다",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "Swq0K",
+                  "name": "Impact",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "invited 로 바꾸면 지금 보는 사람 중 초대되지 않은 4명이 더는 볼 수 없게 됩니다",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "fjOGo",
+              "name": "Group 컴퓨터·격리",
+              "width": "fill_container",
+              "cornerRadius": 8,
+              "stroke": "$line",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 4,
+              "padding": [
+                12,
+                14
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "S4qdO",
+                  "name": "Row",
+                  "width": "fill_container",
+                  "gap": 8,
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "fQQmh",
+                      "name": "T",
+                      "fill": "$ink",
+                      "content": "컴퓨터·격리",
+                      "fontFamily": "$font",
+                      "fontSize": 13,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "x91P5x",
+                      "name": "Btn 컴퓨터 바꾸기",
+                      "fill": "$bg",
+                      "cornerRadius": 6,
+                      "stroke": "$line",
+                      "strokeWidth": 1,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "tM25q",
+                          "name": "L",
+                          "fill": "$ink",
+                          "content": "컴퓨터 바꾸기",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "aV6bg",
+                  "name": "V",
+                  "fill": "$ink",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "〈MacBook Pro〉에 고정됨 · 워크트리로 나눔 (repo: ~/work/payments)",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "ahNhT",
+                  "name": "Impact",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "첫 실행 뒤에는 바꿀 수 없습니다 — 작업 폴더가 거기 묶여 있습니다",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "iKWSP",
+              "name": "Group 한도",
+              "width": "fill_container",
+              "cornerRadius": 8,
+              "stroke": "$line",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 4,
+              "padding": [
+                12,
+                14
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "cbbbF",
+                  "name": "Row",
+                  "width": "fill_container",
+                  "gap": 8,
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "YfUX6",
+                      "name": "T",
+                      "fill": "$ink",
+                      "content": "한도",
+                      "fontFamily": "$font",
+                      "fontSize": 13,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "cAYFS",
+                      "name": "Btn 편집",
+                      "fill": "$bg",
+                      "cornerRadius": 6,
+                      "stroke": "$line",
+                      "strokeWidth": 1,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "V8OVq9",
+                          "name": "L",
+                          "fill": "$ink",
+                          "content": "편집",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "N1vAL",
+                  "name": "V",
+                  "fill": "$ink",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "예산 $50 · 시간 24시간 · 동시 진행 미션 3 · 동시 서브 미션 5",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "xupeP",
+                  "name": "Impact",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "초과는 완료가 아니라 멈춤입니다. 방 상한을 넘기면 이 방의 모든 미션이 한꺼번에 멈춥니다. 미션에도 걸 수 있고 작은 쪽이 이깁니다",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "WHL3G",
+              "name": "Group autonomy",
+              "width": "fill_container",
+              "cornerRadius": 8,
+              "stroke": "$line",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 4,
+              "padding": [
+                12,
+                14
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "zbQ4d",
+                  "name": "Row",
+                  "width": "fill_container",
+                  "gap": 8,
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "xRdrB",
+                      "name": "T",
+                      "fill": "$ink",
+                      "content": "autonomy",
+                      "fontFamily": "$font",
+                      "fontSize": 13,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "m9LNe4",
+                      "name": "Btn 편집",
+                      "fill": "$bg",
+                      "cornerRadius": 6,
+                      "stroke": "$line",
+                      "strokeWidth": 1,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "p8Zx2V",
+                          "name": "L",
+                          "fill": "$ink",
+                          "content": "편집",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "Sm3Rz",
+                  "name": "V",
+                  "fill": "$ink",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "guided — 질문 기한이 지나면 계속 기다립니다",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "DMSa8",
+                  "name": "Impact",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "방 기본값이며 미션이 덮어쓸 수 있습니다",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "NYWya",
+              "name": "Group 기본 Director · 방장 · 부방장",
+              "width": "fill_container",
+              "cornerRadius": 8,
+              "stroke": "$line",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 4,
+              "padding": [
+                12,
+                14
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "UCzL9",
+                  "name": "Row",
+                  "width": "fill_container",
+                  "gap": 8,
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "n5ybG4",
+                      "name": "T",
+                      "fill": "$ink",
+                      "content": "기본 Director · 방장 · 부방장",
+                      "fontFamily": "$font",
+                      "fontSize": 13,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "medw0",
+                      "name": "Btn 방장 넘기기",
+                      "fill": "$bg",
+                      "cornerRadius": 6,
+                      "stroke": "$line",
+                      "strokeWidth": 1,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "bc6fq",
+                          "name": "L",
+                          "fill": "$ink",
+                          "content": "방장 넘기기",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "ERDeH",
+                  "name": "V",
+                  "fill": "$ink",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "기본 Director: 방장 · 방장 서연 · 부방장 민호",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "TqLlS",
+                  "name": "Impact",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "방장이 답하지 않으면 기한 절반 뒤 부방장이, 부방장이 없으면 워크스페이스 owner 최고참이 답할 수 있습니다",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "T8biY",
+              "name": "Group 참고 방 링크",
+              "width": "fill_container",
+              "cornerRadius": 8,
+              "stroke": "$line",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 4,
+              "padding": [
+                12,
+                14
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "Trcsx",
+                  "name": "Row",
+                  "width": "fill_container",
+                  "gap": 8,
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "ayeKy",
+                      "name": "T",
+                      "fill": "$ink",
+                      "content": "참고 방 링크",
+                      "fontFamily": "$font",
+                      "fontSize": 13,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "PgjC3",
+                      "name": "Btn 연결 관리",
+                      "fill": "$bg",
+                      "cornerRadius": 6,
+                      "stroke": "$line",
+                      "strokeWidth": 1,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "SKFqF",
+                          "name": "L",
+                          "fill": "$ink",
+                          "content": "연결 관리",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "c7sdy",
+                  "name": "V",
+                  "fill": "$ink",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "인프라 · 마케팅",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "u1RZtl",
+                  "name": "Impact",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "연결하면 이 방의 에이전트가 저 방을 읽을 수 있습니다(쓰기 없음)",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "ww2Os",
+              "name": "Row",
+              "width": "fill_container",
+              "gap": 8,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "D9wS5m",
+                  "name": "Btn 보관",
+                  "fill": "$bg",
+                  "cornerRadius": 6,
+                  "stroke": "$line",
+                  "strokeWidth": 1,
+                  "padding": [
+                    6,
+                    10
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "xlRNI",
+                      "name": "L",
+                      "fill": "$ink",
+                      "content": "보관",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "T2YNO",
+                  "name": "Btn 삭제 — 되돌릴 수 없음",
+                  "fill": "#FEF2F2",
+                  "cornerRadius": 6,
+                  "stroke": "#FCA5A5",
+                  "strokeWidth": 1,
+                  "padding": [
+                    6,
+                    10
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "BdgsQ",
+                      "name": "L",
+                      "fill": "$s-fail-text",
+                      "content": "삭제 — 되돌릴 수 없음",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "600"
                     }
                   ]
                 }
