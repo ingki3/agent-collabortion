@@ -74,6 +74,22 @@ func TestConvoSpeech_ServerDecidesAtWrite(t *testing.T) {
 	ans := f.post(t, map[string]any{"content": "국내만요", "parent_id": st.QuestionMessageID.String()})
 	ansID := str(ans["message"].(map[string]any), "id")
 
+	// detail 속 멘션은 받는 쪽이 아니다(D23 과 같은 이유) — 본문엔 멘션이 없으니 방 전체 대화.
+	withDetail, err := f.srv.Router.Post(ctx, sessionID, rAuthor, gen.MessageCreate{
+		Content: "표 정리했습니다", Detail: func() *string { s := "참고: " + router.MentionLink("W", f.wUUID) + " 의 초안 표"; return &s }(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *withDetail.Message.Speech == gen.MessageSpeechRequest {
+		t.Fatalf("a mention inside detail made this a request")
+	}
+	for _, a := range *withDetail.Message.Addressees {
+		if a.Name == "W" {
+			t.Fatalf("detail mention leaked into addressees: %+v", *withDetail.Message.Addressees)
+		}
+	}
+
 	// 메모
 	note := f.post(t, map[string]any{"content": "/note 기록만"})
 	noteID := str(note["message"].(map[string]any), "id")
