@@ -627,6 +627,7 @@ max_concurrent_tasks: 3
 - **일의 상한**을 넘기면 그 일이 `paused` 되고 Director 에게 계속 진행 승인 HITL 이 간다.
 - **방의 상한**을 넘기면 **그 방의 모든 일과 일 밖 task 가 멈춘다**. 방장에게 승인 HITL 이 간다. **방장이 답하지 않으면**(SCR-A G-10) 미션의 deputy 규칙과 같게 **기한 절반 경과 후 부방장**이, 부방장이 없으면 **워크스페이스 owner 중 가장 오래된 한 명**이 답할 수 있다 — 일 밖 task 의 HITL(FR-2A.1, `room_owner`)도 같은 경로를 탄다. 방장 한 사람의 부재로 방이 영구 정지하지 않게 한다.
 - 실행 시점 유효 상한은 `min(방 잔여, 일 잔여, task 상한)`. 데몬에 싣는 값도 이 최솟값이다(daemon-protocol §4.1 `limits`).
+- **기본은 상한 없음이고, 없다는 사실이 보여야 한다**(T-BUDGETCAP, Director 2026-09-25 — 상한 없는 방이 80분에 $92.77). 방·일 비용 줄은 상한이 없으면 「상한 없음」과 그 자리의 「상한 걸기」를 보인다(SCREEN §4.6). 워크스페이스 기본값 둘은 **새로 만드는 것에만** 걸린다 — 새 방 `room_defaults.limits.budget_usd`, 새 일 `budget_policy.default_session_budget_usd`(일을 열 때 예산을 비우면 이 값, 명시적 null 은 상한 없음).
 
 **FR-2A.2.1 승인 요청은 일이 멈춘 뒤에 뜬다 (v0.19.5, Director 요청 2026-09-25)** — 종료 조건에서 **Director 승인(`user_approval`)만 남고 나머지가 충족**됐더라도, 그 일에 **실행·대기 중인 task**(`queued` · `dispatched` · `preparing` · `running`)가 있으면 승인 요청 HITL 을 **열지 않고 보류한다**. 마지막 task 가 끝나는 순간(정상 종료 · 취소 · 실패 모두) 종료 조건을 다시 판정해 그때 연다.
 

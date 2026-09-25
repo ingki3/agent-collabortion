@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# T-APPROVAL 스크린샷 — 「완료 승인 요청」 카드의 **버튼**과, 작업 중 **보류 표시**(PRD v0.19.5 FR-2A.2.1 · SCREEN v0.19.7 §4.6).
+# T-APPROVAL 스크린샷 — 「완료 승인 요청」 카드의 **버튼**과, 작업 중 **보류 표시**(PRD v0.19.5 FR-2A.2.1 · SCREEN v0.19.8 §4.6).
 # `next build && next start` 로 찍는다(목 모드는 빌드 시점 플래그) — 다른 shots 스크립트와 같은 구조.
 #
 #   approval-<TAG>-s7-card.png    S7 타임라인의 완료 승인 카드 — 「승인」·「수정 요청」 버튼과 사유 칸.

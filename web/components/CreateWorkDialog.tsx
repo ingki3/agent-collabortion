@@ -81,6 +81,7 @@ export function CreateWorkDialog({ roomId, mode, messageId, message: given, prop
   const [deputy, setDeputy] = useState(editing?.deputy_user_id ?? "");
   const [budget, setBudget] = useState(editing?.limits?.budget_usd != null ? String(editing.limits.budget_usd) : "");
   const [time, setTime] = useState(editing?.limits?.time_limit ?? "");
+  const [wsDefault, setWsDefault] = useState<number | null>(null);
   const [autonomy, setAutonomy] = useState<AutonomyLevel | "">(editing?.autonomy ?? "");
 
   const [busy, setBusy] = useState(false);
@@ -112,6 +113,11 @@ export function CreateWorkDialog({ roomId, mode, messageId, message: given, prop
   useEffect(() => {
     if (!workspace) return;
     api.get("/workspaces/{workspaceId}/members", { path: { workspaceId: workspace.id }, query: { limit: 100 } }).then((p) => setMembers(p.items ?? []), () => setMembers([]));
+    // 새 미션의 기본 예산 상한(S14 budget_policy.default_session_budget_usd) — 칸을 비우면 서버가 이 값을 채운다(T-BUDGETCAP).
+    api.get("/workspaces/{workspaceId}/settings", { path: { workspaceId: workspace.id } }).then(
+      (s) => setWsDefault(s.budget_policy?.default_session_budget_usd ?? null),
+      () => setWsDefault(null),
+    );
   }, [workspace]);
   // 원 메시지 — goal 기본값과 인용. 호출부(S7)가 넘기는 것이 정본이다: 서버 `getMessage` 는 아직 501(unimplemented.go)이라
   // 주소로만 들어온 경우(`?work=from&message=`)에만 불러 보고, 못 받으면 인용 없이 연다(원 메시지 귀속은 서버가 `from_message_id` 로 한다).
@@ -319,6 +325,35 @@ export function CreateWorkDialog({ roomId, mode, messageId, message: given, prop
             {condErr && <span className="rd-err">{condErr}</span>}
           </div>
 
+          {/* T-BUDGETCAP — 예산 상한은 접힌 묶음 밖에 둔다(80분 $92.77 사고: 칸이 안 보이면 아무도 걸지 않는다). 기본값은 여전히 없음. */}
+          <div className="rd-section" data-testid="rd-create-work-budget-section">
+            <label className="rd-field">
+              <span className="rd-field__label">{CREATE_WORK.budget}</span>
+              <input
+                className="input"
+                inputMode="decimal"
+                value={budget}
+                placeholder={!edit && wsDefault != null ? `$${wsDefault}` : CREATE_WORK.budget_placeholder}
+                aria-invalid={!!fieldErr("limits/budget_usd") || undefined}
+                onChange={(e) => setBudget(e.target.value)}
+                data-testid="rd-create-work-budget"
+              />
+              {fieldErr("limits/budget_usd") && <span className="rd-err">{fieldErr("limits/budget_usd")}</span>}
+            </label>
+            <p className="rd-hint" data-testid="rd-create-work-budget-line">
+              {!edit && !budget.trim() && wsDefault != null && (
+                <>
+                  <Slot text={CREATE_WORK.budget_ws_default} n={`$${wsDefault}`} />
+                  {" · "}
+                </>
+              )}
+              {room?.limits?.budget_usd != null ? <Slot text={budget.trim() ? CREATE_WORK.budget_room : CREATE_WORK.budget_room_only} n={`$${room.limits.budget_usd}`} /> : CREATE_WORK.budget_room_none}
+              {budget.trim() && <Slot text={CREATE_WORK.budget_work} n={`$${budget.trim()}`} />}
+              {" — "}
+              {CREATE_WORK.smaller_wins}
+            </p>
+          </div>
+
           <details className="rd-fold" open={edit || undefined} data-testid="rd-create-work-more">
             <summary>{CREATE_WORK.defaults}</summary>
             <div className="rd-fold__body">
@@ -370,22 +405,11 @@ export function CreateWorkDialog({ roomId, mode, messageId, message: given, prop
                   <span className="rd-hint">{CREATE_WORK.deputy_note}</span>
                 </label>
                 <label className="rd-field">
-                  <span className="rd-field__label">{CREATE_WORK.budget}</span>
-                  <input className="input" inputMode="decimal" value={budget} placeholder={CREATE_WORK.budget_placeholder} onChange={(e) => setBudget(e.target.value)} data-testid="rd-create-work-budget" />
-                  {fieldErr("limits/budget_usd") && <span className="rd-err">{fieldErr("limits/budget_usd")}</span>}
-                </label>
-                <label className="rd-field">
                   <span className="rd-field__label">{CREATE_WORK.time}</span>
                   <input className="input" value={time} placeholder="PT4H" onChange={(e) => setTime(e.target.value)} data-testid="rd-create-work-time" />
                   {fieldErr("limits/time_limit") && <span className="rd-err">{fieldErr("limits/time_limit")}</span>}
                 </label>
               </div>
-              <p className="rd-hint" data-testid="rd-create-work-budget-line">
-                {room?.limits?.budget_usd != null ? <Slot text={CREATE_WORK.budget_room} n={`$${room.limits.budget_usd}`} /> : CREATE_WORK.budget_room_none}
-                {budget.trim() && <Slot text={CREATE_WORK.budget_work} n={`$${budget.trim()}`} />}
-                {" — "}
-                {CREATE_WORK.smaller_wins}
-              </p>
               <div className="rd-section">
                 <span className="rd-field__label">{CREATE_WORK.autonomy}</span>
                 {(["guided", "autonomous", "supervised"] as const).map((a) => {

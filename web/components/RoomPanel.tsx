@@ -10,9 +10,10 @@ import { useState } from "react";
 import Link from "next/link";
 import "./session-aside.css";
 import { Slot } from "./Slot";
+import { BudgetCapLine } from "./BudgetCapLine";
 import { groupByWork, type Group } from "@/lib/room-view";
 import { relativeTime, humanDuration } from "@/lib/time";
-import { CREATE_ROOM, ROOM_PANEL, WORK_PANEL } from "@/lib/wording";
+import { BUDGET_CAP, CREATE_ROOM, ROOM_PANEL, WORK_PANEL } from "@/lib/wording";
 import type { Artifact, Decision, Room, WorkListItem } from "@/lib/api/types";
 
 export interface RoomPanelProps {
@@ -28,6 +29,9 @@ export interface RoomPanelProps {
   defaultDirectorName?: string | null;
   /** 맥락 오간 기록의 수 — 이 화면이 본 `room_read.recorded` 만(목록 op 은 S23 몫). 모르면 null(링크만). */
   reads?: { out: number; in: number } | null;
+  /** 방 누적 비용 줄 [상한 걸기] — updateRoom limits.budget_usd. `configure` 능력자에게만(방장·부방장·ws owner·admin). */
+  onSetBudget?: (usd: number) => Promise<void>;
+  busy?: boolean;
 }
 
 function GroupHead<T>({ g }: { g: Group<T> }) {
@@ -73,7 +77,6 @@ export function RoomPanel(props: RoomPanelProps) {
   const decs = props.decisions ?? [];
   const limit = room.limits?.budget_usd ?? null;
   const cost = room.cost_usd ?? 0;
-  const pct = limit ? Math.round((cost / limit) * 100) : null;
   const iso = room.isolation?.kind ?? "none";
   return (
     <section className="room-panel" data-testid="room-panel" data-open={props.open ? "true" : "false"}>
@@ -85,6 +88,7 @@ export function RoomPanel(props: RoomPanelProps) {
         <Slot text={ROOM_PANEL.count_decisions} n={decs.length} />
         {" · "}
         <Slot text={ROOM_PANEL.count_cost} n={cost.toFixed(2)} />
+        <span data-testid="room-panel-cap">{limit != null ? ` / $${limit}` : ` · ${BUDGET_CAP.none}`}</span>
         <span aria-hidden="true">{props.open ? " ▴" : " ▾"}</span>
       </button>
       {props.open && (
@@ -130,11 +134,7 @@ export function RoomPanel(props: RoomPanelProps) {
           </section>
           <section className="aside__sec" data-testid="room-cost">
             <h3 className="aside__h">{ROOM_PANEL.room_cost}</h3>
-            <p className="aside__cost" data-testid="room-cost-line">
-              ${cost.toFixed(2)}
-              {limit != null ? ` / $${limit}` : ""}
-              {pct != null ? ` (${pct}%)` : ""}
-            </p>
+            <BudgetCapLine testId="room-cost-line" cost={cost} limit={limit} onSet={props.onSetBudget} busy={props.busy} note={BUDGET_CAP.room_note} />
             <p className="aside__quiet" data-testid="room-cost-not-sum">{ROOM_PANEL.not_sum}</p>
           </section>
           <section className="aside__sec" data-testid="room-reads">

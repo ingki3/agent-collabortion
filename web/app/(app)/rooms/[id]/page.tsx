@@ -1244,6 +1244,12 @@ export default function RoomPage() {
               onChangeDirector={() => setWorkDialog("director")}
               onFixCondition={() => setWorkDialog("condition")}
               canManage={canManage}
+              roomBudget={room.limits?.budget_usd ?? null}
+              onSetBudget={async (usd) => {
+                if (!work) return;
+                setWork(await api.patch("/works/{workId}", { path: { workId: work.id }, body: { limits: { budget_usd: usd } } }));
+                void loadRoom().catch(() => undefined);
+              }}
             />
           </div>
           <div className="s7__room" data-testid="s7-room">
@@ -1258,6 +1264,8 @@ export default function RoomPage() {
               runtimeName={runtimeName}
               defaultDirectorName={defaultDirector}
               reads={reads}
+              busy={busy}
+              onSetBudget={caps.has("configure") && !archived ? async (usd) => setRoom(await api.patch("/rooms/{roomId}", { path: { roomId }, body: { limits: { budget_usd: usd } } })) : undefined}
             />
           </div>
         </section>

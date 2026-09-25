@@ -16,12 +16,13 @@ import "./paused-banner.css";
 import { Badge } from "./Badge";
 import { ConditionRow } from "./ConditionRow";
 import { Slot } from "./Slot";
+import { BudgetCapLine } from "./BudgetCapLine";
 import { DisabledHint } from "./PageHead";
 import { metByName } from "./SessionAside";
 import { progressSummary, topOp } from "@/lib/completion";
 import { humanDuration } from "@/lib/time";
 import { panelActionsEnabled, type PanelMode } from "@/lib/room-view";
-import { ROOM_HEAD, WORK_CHIPS, WORK_PANEL } from "@/lib/wording";
+import { BUDGET_CAP, ROOM_HEAD, WORK_CHIPS, WORK_PANEL } from "@/lib/wording";
 import { WORK_EDIT, changeDirectorBlocked } from "@/lib/work-edit";
 import type { Work } from "@/lib/api/types";
 
@@ -51,6 +52,10 @@ export interface WorkPanelProps {
   onFixCondition?: () => void;
   /** 워크스페이스 owner·admin — Director 교체 권한(계약 changeWorkDirector). */
   canManage?: boolean;
+  /** 방 상한(미션에 자기 상한이 없으면 이것을 따른다 — 비용 줄이 그렇게 말한다). */
+  roomBudget?: number | null;
+  /** 비용 줄 [상한 걸기] — updateWork limits.budget_usd. Director 에게만 켜진다. */
+  onSetBudget?: (usd: number) => Promise<void>;
 }
 
 const CLOSED = new Set(["completed", "cancelled"]);
@@ -159,7 +164,6 @@ export function WorkPanel(props: WorkPanelProps) {
 
   const prog = work.completion_progress;
   const limit = work.limits?.budget_usd ?? null;
-  const pct = limit ? Math.round((work.cost_usd / limit) * 100) : null;
   const blockedCount = prog.conditions.filter((c) => !c.met && !!c.blocked_reason).length;
   const pausedReason = work.status === "paused" ? work.paused_reason : null;
   const pd = work.paused_detail;
@@ -260,12 +264,18 @@ export function WorkPanel(props: WorkPanelProps) {
         </div>
       )}
       <h3 className="aside__h">{WORK_PANEL.cost}</h3>
-      <p className="aside__cost" data-testid="work-cost">
-        {WORK_PANEL.cost_this}${work.cost_usd.toFixed(2)}
-        {limit != null ? ` / $${limit}` : ""}
-        {pct != null ? ` (${pct}%)` : ""}
-        {work.cost_estimated && <span className="aside__badge">{WORK_PANEL.estimated}</span>}
-      </p>
+      <BudgetCapLine
+        testId="work-cost"
+        prefix={WORK_PANEL.cost_this}
+        cost={work.cost_usd}
+        limit={limit}
+        roomLimit={props.roomBudget ?? null}
+        estimated={work.cost_estimated}
+        estimatedLabel={WORK_PANEL.estimated}
+        onSet={mayResolve && !closed && props.onSetBudget ? props.onSetBudget : undefined}
+        busy={props.busy}
+        note={BUDGET_CAP.work_note}
+      />
       <p className="aside__quiet" data-testid="work-assignee">
         {work.assignee_agent_id ? <>{WORK_PANEL.assignee}@{props.agentName?.(work.assignee_agent_id) ?? "agent"}</> : WORK_PANEL.no_assignee}
       </p>
