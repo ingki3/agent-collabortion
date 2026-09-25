@@ -52,20 +52,29 @@ type Participant struct {
 
 // MessageCreate — POST /rooms/{R}/messages body.
 type MessageCreate struct {
-	Content  string  `json:"content"`
+	Content string `json:"content"`
+	// Detail is the work layer (openapi v0.3.1 MessageCreate.detail, PRD
+	// FR-3.1.2): findings · full drafts · tables. Omitted when nil — the
+	// server's minLength is 1, so an empty detail is never sent.
+	Detail   *string `json:"detail,omitempty"`
 	ParentID *string `json:"parent_id,omitempty"`
 }
 
 // Message — openapi.yaml Message. Fields the CLI surfaces are typed; the
 // rest is kept in Raw so nothing the server sends is lost on --json output.
 type Message struct {
-	ID           string          `json:"id"`
-	SessionID    string          `json:"session_id"`
-	AuthorType   string          `json:"author_type"`
-	AuthorID     *string         `json:"author_id"`
-	Author       *MessageAuthor  `json:"author,omitempty"`
-	ParentID     *string         `json:"parent_id"`
-	Content      string          `json:"content"`
+	ID         string         `json:"id"`
+	SessionID  string         `json:"session_id"`
+	AuthorType string         `json:"author_type"`
+	AuthorID   *string        `json:"author_id"`
+	Author     *MessageAuthor `json:"author,omitempty"`
+	ParentID   *string        `json:"parent_id"`
+	Content    string         `json:"content"`
+	// Detail is an agent message's work layer (openapi v0.3.1 Message.detail),
+	// carried whole: `colab room messages --thread <id>` is where an agent
+	// reads what its turn prompt showed only the first 400 characters of
+	// (harness v0.9.4). null for people's and system messages.
+	Detail       *string         `json:"detail,omitempty"`
 	Mentions     json.RawMessage `json:"mentions,omitempty"`
 	SourceTaskID *string         `json:"source_task_id"`
 	LaneID       *string         `json:"lane_id,omitempty"`

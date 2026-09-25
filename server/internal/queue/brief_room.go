@@ -340,7 +340,7 @@ func renderRoomHistoryTail(b *strings.Builder, workID *uuid.UUID, h roomHistory)
 	if workID != nil && len(h.MissionOlder) > 0 {
 		fmt.Fprintf(b, "<mission_messages work=%q count=%d note=\"this mission's messages older than <history>\">\n", workID.String(), len(h.MissionOlder))
 		for _, m := range h.MissionOlder {
-			fmt.Fprintf(b, "[%s] %s %s: %s\n", m.CreatedAt.UTC().Format("01-02 15:04"), m.ID, authorLabel(m), m.Content)
+			fmt.Fprintf(b, "[%s] %s %s: %s\n%s", m.CreatedAt.UTC().Format("01-02 15:04"), m.ID, authorLabel(m), m.Content, historyDetail(m, false))
 		}
 		b.WriteString("</mission_messages>\n\n")
 	}

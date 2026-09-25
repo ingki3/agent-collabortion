@@ -15,6 +15,8 @@ const (
 	DirectorID  = "88888888-8888-4888-8888-888888888888"
 	OtherRoomID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 	ProposalID  = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+	// RoomReadDetail is the read room's message detail (openapi v0.3.1).
+	RoomReadDetail = "| 사 | 가격 |\n|---|---|\n| A | 10 |\n"
 )
 
 // roomState holds the room knobs and captures.
@@ -91,7 +93,7 @@ func (s *Server) handleRooms(w http.ResponseWriter, r *http.Request, path string
 		writeJSON(w, 200, map[string]any{
 			"room":     map[string]any{"id": OtherRoomID, "name": "경쟁사 조사", "description": "지난 분기 조사 방"},
 			"summary":  "세 곳을 비교했다",
-			"messages": []any{map[string]any{"id": "m1", "content": "A 사가 가장 싸다"}}, "decisions": []any{}, "artifacts": []any{},
+			"messages": []any{map[string]any{"id": "m1", "content": "A 사가 가장 싸다", "detail": RoomReadDetail}}, "decisions": []any{}, "artifacts": []any{},
 			"truncated": s.RoomReadTruncated,
 		})
 		return true

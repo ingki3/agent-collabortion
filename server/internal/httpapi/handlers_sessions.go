@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -148,6 +149,10 @@ func (s *Server) PostMessage(w http.ResponseWriter, r *http.Request, roomId gen.
 		return
 	}
 	pr := principalOf(r)
+	if p := validateDetail(in.Detail, pr.Task != nil); p != nil {
+		writeProblem(w, p)
+		return
+	}
 	var author router.Author
 	var scope string
 	if pr.Task != nil {
@@ -174,6 +179,27 @@ func (s *Server) PostMessage(w http.ResponseWriter, r *http.Request, roomId gen.
 		}
 		return http.StatusCreated, res, nil
 	})
+}
+
+// maxDetailRunes is MessageCreate.detail's maxLength (openapi v0.3.1 D23):
+// seven times the longest body the STO room produced (2.8만 자).
+const maxDetailRunes = 200000
+
+// validateDetail is MessageCreate.detail's rules (openapi v0.3.1 D23, PRD
+// FR-3.1.2): only an agent's post (TaskToken) carries a 작업 내용 layer — a
+// person's words are shown as written, never folded — and it is 1~200,000
+// characters. The column's CHECK is the floor under the same rule.
+func validateDetail(detail *string, agent bool) *Problem {
+	if detail == nil {
+		return nil
+	}
+	if !agent {
+		return apperr.Validation(apperr.Field("detail", "detail_agent_only", "작업 내용은 에이전트 메시지에만 붙일 수 있습니다"))
+	}
+	if n := utf8.RuneCountInString(*detail); n == 0 || n > maxDetailRunes {
+		return apperr.Validation(apperr.Field("detail", "length", "작업 내용은 1자 이상 20만 자 이하여야 합니다"))
+	}
+	return nil
 }
 
 // taskScope is the idempotency scope of a task token (any attempt).

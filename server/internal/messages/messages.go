@@ -45,6 +45,11 @@ type Row struct {
 	// Message.work_id, FR-3.1.1), nil for one outside any mission. The web's
 	// mission chip filters by it — a row without it reads as 「미션 없음」.
 	WorkID *uuid.UUID
+	// Detail is the agent message's 작업 내용 layer (openapi v0.3.1
+	// Message.detail, PRD FR-3.1.2), nil for a person's or the system's.
+	// Only the message's own readers carry it — routing, the inbox, alerts,
+	// search previews and the mission summary read Content alone.
+	Detail *string
 }
 
 const selectMessage = `
@@ -52,7 +57,7 @@ const selectMessage = `
 	       COALESCE(u.display_name, a.name), COALESCE(u.avatar_url, a.avatar_url), a.role,
 	       m.parent_id, m.content, m.mentions, m.source_task_id, t.lane_id, m.kind, m.state,
 	       (SELECT count(*) FROM message r WHERE r.parent_id = m.id), m.created_at, m.edited_at,
-	       m.work_id
+	       m.work_id, m.detail
 	FROM message m
 	LEFT JOIN app_user u ON m.author_type = 'user' AND u.id = m.author_id
 	LEFT JOIN agent a ON m.author_type = 'agent' AND a.id = m.author_id
@@ -64,7 +69,7 @@ func scan(row pgx.Row) (*Row, error) {
 	var role *string
 	err := row.Scan(&m.ID, &m.SessionID, &m.AuthorType, &m.AuthorID, &m.AuthorName, &m.AuthorAvatar, &role,
 		&m.ParentID, &m.Content, &mentions, &m.SourceTaskID, &m.LaneID, &m.Kind, &m.State, &m.ReplyCount, &m.CreatedAt, &m.EditedAt,
-		&m.WorkID)
+		&m.WorkID, &m.Detail)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -262,6 +267,7 @@ func ToAPI(m *Row) gen.Message {
 		CreatedAt:    m.CreatedAt,
 		EditedAt:     tasks.NullTime(m.EditedAt),
 		WorkId:       tasks.NullUUID(m.WorkID),
+		Detail:       tasks.NullString(m.Detail),
 	}
 	isNote := strings.HasPrefix(m.Content, "/note")
 	out.IsNote = &isNote

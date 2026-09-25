@@ -175,7 +175,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		if root != uuid.Nil {
 			thread = fmt.Sprintf(" thread=%q", root)
 		}
-		fmt.Fprintf(&trigger, "<message id=%q author=%q at=%q%s>\n%s\n</message>\n", m.ID, authorLabel(m), m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"), thread, m.Content)
+		fmt.Fprintf(&trigger, "<message id=%q author=%q at=%q%s>\n%s\n%s</message>\n", m.ID, authorLabel(m), m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"), thread, m.Content, triggerDetail(m))
 		// Arrival order breaks a tie: the list is already in it.
 		if !m.CreatedAt.Before(latest) {
 			latest = m.CreatedAt
@@ -192,10 +192,14 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	var total int
 	_ = tx.QueryRow(ctx, `SELECT count(*) FROM message WHERE session_id = $1`, t.SessionID).Scan(&total)
 	var hist strings.Builder
+	inTrigger := make(map[uuid.UUID]bool, len(triggerIDs))
+	for _, id := range triggerIDs {
+		inTrigger[id] = true
+	}
 	for _, m := range history {
 		// The id is here so `Messages you already posted` above can be matched
 		// line by line against what the session actually holds (S-36).
-		fmt.Fprintf(&hist, "[%s] %s %s: %s\n", m.CreatedAt.UTC().Format("15:04"), m.ID, authorLabel(m), m.Content)
+		fmt.Fprintf(&hist, "[%s] %s %s: %s\n%s", m.CreatedAt.UTC().Format("15:04"), m.ID, authorLabel(m), m.Content, historyDetail(m, inTrigger[m.ID]))
 	}
 
 	// posted is the bundle's `posted_message_ids` (bare ids, §4.1); postedLines
@@ -278,6 +282,8 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		"- Mention syntax: [@Name](mention://agent/<id>). Only mention session participants listed in [5].\n" +
 		"- Post every reply to the session with `colab message post --body \"<text>\"` (or the colab_message_post MCP tool). Text you print to stdout is NOT delivered.\n" +
 		"- Read more history with `colab room messages`, room details with `colab room get`.\n" +
+		"- " + DetailRule + "\n" +
+		"- " + DeliverableRule + "\n" +
 		"- Mentioning an agent creates work for it; do not mention agents just to acknowledge.\n" +
 		"- Your COLAB_TASK_TOKEN is valid for this attempt only; if a call returns token_revoked, stop immediately.\n\n")
 	if agentRole == "lead" {
@@ -631,6 +637,50 @@ func deref(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// DetailRule and DeliverableRule are brief [2]'s 「대화와 작업 내용」 lines
+// (harness §10 v0.9.4, PRD FR-3.1.2). They are constants — [2] must stay
+// byte-identical between two turns of the same room (E12-11). The deliverable
+// line stands alone so the daemon's role filter (harness v0.8.10) drops only
+// it for a role without `artifact submit`.
+const (
+	DetailRule      = "`--body` is the conversation: who it is for, what, the conclusion and the next step, about five lines. Research results, full drafts and tables go in `--detail` (or `--detail-file <path>`; the colab_message_post tool's `detail`) — the screen folds them under the conversation, and the agent you hand the work to reads them in full."
+	DeliverableRule = "A final deliverable is not a message: submit it with `colab artifact submit`, and say in `--body` that it is there instead of pasting it again."
+)
+
+// historyDetailPreview is how much of another message's 작업 내용 a
+// `<history>` line carries (harness §10 v0.9.4): enough to know what is in
+// it, with the command that reads the rest.
+const historyDetailPreview = 400
+
+// triggerDetail is a trigger message's 작업 내용 in full (harness §10
+// v0.9.4): the agent handed the work reads the whole result it was handed.
+func triggerDetail(m *messages.Row) string {
+	if m.Detail == nil {
+		return ""
+	}
+	return "<detail>\n" + strings.TrimRight(*m.Detail, "\n") + "\n</detail>\n"
+}
+
+// historyDetail is the `<history>` (and <mission_messages>) form of a
+// message's 작업 내용: the first 400 characters and one line naming its size
+// and the command that reads it in full. A detail that fits is carried whole
+// and needs no pointer. A trigger message's detail is already in `<trigger>`
+// in full, so its history line only points there.
+func historyDetail(m *messages.Row, inTrigger bool) string {
+	if m.Detail == nil {
+		return ""
+	}
+	r := []rune(*m.Detail)
+	if inTrigger {
+		return fmt.Sprintf("  (작업 내용 %d자 — 전문은 아래 <trigger>)\n", len(r))
+	}
+	if len(r) <= historyDetailPreview {
+		return fmt.Sprintf("<detail of=%q>\n%s\n</detail>\n", m.ID.String(), strings.TrimRight(string(r), "\n"))
+	}
+	return fmt.Sprintf("<detail of=%q>\n%s…\n</detail>\n  (작업 내용 %d자 — `colab room messages --thread %s` 로 전문)\n",
+		m.ID.String(), string(r[:historyDetailPreview]), len(r), m.ID)
 }
 
 // preview is the first n characters of one line of text — enough for a person

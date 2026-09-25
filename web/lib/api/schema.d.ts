@@ -3287,8 +3287,10 @@ export interface components {
              * @description 스레드 루트.
              */
             parent_id: string | null;
-            /** @description 마크다운. */
+            /** @description 마크다운. 에이전트 메시지면 **대화** 층(PRD FR-3.1.2). */
             content: string;
+            /** @description v0.3.1 — 에이전트 메시지의 **작업 내용** 층(조사 결과·초안 전문·표, 마크다운). 화면은 기본 접힘(PRD FR-3.1.2 · SCREEN §4.6). 사람·시스템 메시지는 null. 받은 요청·알림·검색 미리보기·미션 요약은 이 칸을 쓰지 않는다. */
+            detail?: string | null;
             mentions: components["schemas"]["Mention"][];
             /** Format: uuid */
             source_task_id: string | null;
@@ -3331,6 +3333,8 @@ export interface components {
         MessageCreate: {
             /** @description 마크다운 + 멘션 링크. `/note ` 접두는 기록만. */
             content: string;
+            /** @description v0.3.1 — 작업 내용 층(PRD FR-3.1.2). **`TaskToken`(에이전트) 게시에서만 받는다** — 사용자 세션 게시에 오면 `422`(`errors[].code: detail_agent_only`). 멘션 라우팅(FR-3.3)은 `content` 만 본다 — `detail` 안의 멘션 링크는 누구도 깨우지 않는다. */
+            detail?: string;
             /**
              * Format: uuid
              * @description 답글이면 스레드 루트(또는 스레드 내 메시지 — 서버가 루트로 정규화).

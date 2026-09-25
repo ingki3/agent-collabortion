@@ -18,6 +18,7 @@ import {
 import { registerRoomDialogs } from "./rooms-dialogs";
 import { registerR2W4a } from "./r2w4a";
 import { registerWorkEdit } from "./work-edit";
+import { registerMessageLayers } from "./message-layers";
 import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, SEED, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
 /**
@@ -66,6 +67,8 @@ registerRoomDialogs({ on, routes, Problem, requireUser, syncRooms, standingOf, r
 registerR2W4a({ on, routes, Problem, requireUser, syncRooms, standingOf, roomDecide, emitRoom, addInboxItem, emitInboxSummary, inboxSeverity, inboxActions, roomWorks, notFound: (w) => notFound(w as never), W, hitlDueMs: () => HITL_DUE_IN_MS });
 // 미션 설정 편집·조건 고치기·Director 교체(T-R2-W4b) — 본문은 ./work-edit.ts(병렬 워커와 이 파일을 나눠 쓰려고 등록 한 줄만).
 registerWorkEdit({ on, Problem, dispatch, workGate, workView, toWork, setWork, validateCondition });
+// 에이전트 메시지 세 층 시드(`seed-layers`) · 아티팩트 본문(PRD FR-3.1.2) — 본문은 ./message-layers.ts(등록 한 줄만).
+registerMessageLayers({ on, Problem, sessionOf, requireMember, addMessage, createTask, pushEvent, setLaneStatus, parseMentions, notFound: () => notFoundP("artifact") });
 
 export async function dispatch(req: Req): Promise<Res> {
   for (const r of routes) {

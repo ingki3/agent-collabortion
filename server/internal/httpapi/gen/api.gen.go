@@ -3020,10 +3020,13 @@ type Message struct {
 	// AuthorType `author_type` (FR-3.1)
 	AuthorType AuthorType `json:"author_type"`
 
-	// Content 마크다운.
-	Content   string                       `json:"content"`
-	CreatedAt time.Time                    `json:"created_at"`
-	EditedAt  nullable.Nullable[time.Time] `json:"edited_at,omitempty"`
+	// Content 마크다운. 에이전트 메시지면 **대화** 층(PRD FR-3.1.2).
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// Detail v0.3.1 — 에이전트 메시지의 **작업 내용** 층(조사 결과·초안 전문·표, 마크다운). 화면은 기본 접힘(PRD FR-3.1.2 · SCREEN §4.6). 사람·시스템 메시지는 null. 받은 요청·알림·검색 미리보기·미션 요약은 이 칸을 쓰지 않는다.
+	Detail   nullable.Nullable[string]    `json:"detail,omitempty"`
+	EditedAt nullable.Nullable[time.Time] `json:"edited_at,omitempty"`
 
 	// HitlRequestId kind=hitl일 때.
 	HitlRequestId nullable.Nullable[openapi_types.UUID] `json:"hitl_request_id,omitempty"`
@@ -3056,6 +3059,9 @@ type Message struct {
 type MessageCreate struct {
 	// Content 마크다운 + 멘션 링크. `/note ` 접두는 기록만.
 	Content string `json:"content"`
+
+	// Detail v0.3.1 — 작업 내용 층(PRD FR-3.1.2). **`TaskToken`(에이전트) 게시에서만 받는다** — 사용자 세션 게시에 오면 `422`(`errors[].code: detail_agent_only`). 멘션 라우팅(FR-3.3)은 `content` 만 본다 — `detail` 안의 멘션 링크는 누구도 깨우지 않는다.
+	Detail *string `json:"detail,omitempty"`
 
 	// NewLane "새 lane으로 보내기" 토글(t-2). 해소 규칙 3을 건너뛴다. TaskToken에서는 무시(에이전트는 `delegateLane`).
 	NewLane *bool `json:"new_lane,omitempty"`
