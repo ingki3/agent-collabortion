@@ -31769,6 +31769,3872 @@
           ]
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "g5x5qi",
+      "x": 1600,
+      "y": 10000,
+      "name": "S7-C 방 화면 · 대화 배치 (v0.19.4)",
+      "clip": true,
+      "width": 1440,
+      "height": 900,
+      "fill": "$bg",
+      "children": [
+        {
+          "id": "zjCEg",
+          "type": "ref",
+          "ref": "D6yb65",
+          "name": "Nav",
+          "height": "fill_container"
+        },
+        {
+          "type": "frame",
+          "id": "npY29",
+          "name": "Main",
+          "width": "fill_container",
+          "height": "fill_container",
+          "layout": "vertical",
+          "children": [
+            {
+              "type": "frame",
+              "id": "ppjF1",
+              "name": "Top",
+              "width": "fill_container",
+              "stroke": "$line",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "layout": "vertical",
+              "gap": 8,
+              "padding": [
+                16,
+                24
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "qWqbu",
+                  "name": "Row1",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "gWJTZ",
+                      "name": "Title",
+                      "gap": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "GjKJu",
+                          "name": "Room name",
+                          "fill": "$ink",
+                          "content": "결제팀",
+                          "fontFamily": "$font",
+                          "fontSize": 20,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "dKSAV",
+                          "name": "Three layers",
+                          "fill": "$surface",
+                          "cornerRadius": 6,
+                          "gap": 6,
+                          "padding": [
+                            4,
+                            8
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Z3xdP",
+                              "name": "미션 2개",
+                              "fill": "$ink-2",
+                              "content": "미션 2개",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "text",
+                              "id": "l9DWzz",
+                              "name": "서브 미션 5개",
+                              "fill": "$ink-2",
+                              "content": "서브 미션 5개",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "text",
+                              "id": "Ke94J",
+                              "name": "할 일 12개",
+                              "fill": "$ink-2",
+                              "content": "할 일 12개",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "mXt3k",
+                          "name": "Needs me",
+                          "fill": "#FFFBEB",
+                          "cornerRadius": 6,
+                          "stroke": "#FCD34D",
+                          "strokeWidth": 1,
+                          "padding": [
+                            4,
+                            8
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "wJNMm",
+                              "name": "L",
+                              "fill": "$s-wait-text",
+                              "content": "나에게 필요한 것 2",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "poSgL",
+                      "name": "Actions",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "CKE6r",
+                          "name": "Btn 참여자",
+                          "fill": "$bg",
+                          "cornerRadius": 6,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "padding": [
+                            6,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "ut4qp",
+                              "name": "L",
+                              "fill": "$ink",
+                              "content": "참여자",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "a6huhy",
+                          "name": "Btn 방 설정",
+                          "fill": "$bg",
+                          "cornerRadius": 6,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "padding": [
+                            6,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "vUbpI",
+                              "name": "L",
+                              "fill": "$ink",
+                              "content": "방 설정",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "CEUgH",
+                          "name": "Btn 이 방 멈춤",
+                          "fill": "#FEF2F2",
+                          "cornerRadius": 6,
+                          "stroke": "#FCA5A5",
+                          "strokeWidth": 1,
+                          "padding": [
+                            6,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "oLuBa",
+                              "name": "L",
+                              "fill": "$s-fail-text",
+                              "content": "이 방 멈춤",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "tntco",
+                          "name": "Btn ⋯",
+                          "fill": "$bg",
+                          "cornerRadius": 6,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "padding": [
+                            6,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "YGgkD",
+                              "name": "L",
+                              "fill": "$ink",
+                              "content": "⋯",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "z3946",
+                  "name": "Room desc",
+                  "fill": "$ink-2",
+                  "content": "결제 관련 논의와 작업",
+                  "fontFamily": "$font",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "frame",
+                  "id": "M3wCY",
+                  "name": "Mission chips",
+                  "width": "fill_container",
+                  "gap": 6,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "SOyAd",
+                      "name": "Lbl",
+                      "fill": "$ink-3",
+                      "content": "미션",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "zxATA",
+                      "name": "Chip (전체)",
+                      "fill": "$ink",
+                      "cornerRadius": 14,
+                      "stroke": "$ink",
+                      "strokeWidth": 1,
+                      "padding": [
+                        4,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "qo0FG",
+                          "name": "L",
+                          "fill": "#FFFFFF",
+                          "content": "(전체)",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "u1ifYO",
+                      "name": "Chip (미션 없음)",
+                      "fill": "$bg",
+                      "cornerRadius": 14,
+                      "stroke": "$line",
+                      "strokeWidth": 1,
+                      "padding": [
+                        4,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "zM8C7",
+                          "name": "L",
+                          "fill": "$ink",
+                          "content": "(미션 없음)",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "J7uCGx",
+                      "name": "Chip ● 보고서 초안",
+                      "fill": "$bg",
+                      "cornerRadius": 14,
+                      "stroke": "$line",
+                      "strokeWidth": 1,
+                      "padding": [
+                        4,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "gGDbj",
+                          "name": "L",
+                          "fill": "$ink",
+                          "content": "● 보고서 초안",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "O9mQs",
+                      "name": "Chip ⏸ 수수료 비교",
+                      "fill": "$bg",
+                      "cornerRadius": 14,
+                      "stroke": "$line",
+                      "strokeWidth": 1,
+                      "padding": [
+                        4,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "tDcst",
+                          "name": "L",
+                          "fill": "$ink",
+                          "content": "⏸ 수수료 비교",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "devix",
+                      "name": "Chip 지난 미션 3개 ▾",
+                      "fill": "$bg",
+                      "cornerRadius": 14,
+                      "stroke": "$line",
+                      "strokeWidth": 1,
+                      "padding": [
+                        4,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "DfQgb",
+                          "name": "L",
+                          "fill": "$ink",
+                          "content": "지난 미션 3개 ▾",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "gbOmp",
+                      "name": "Spacer",
+                      "width": "fill_container",
+                      "height": 1
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Iy4lj",
+                      "name": "Btn + 새 미션",
+                      "fill": "$ink",
+                      "cornerRadius": 6,
+                      "stroke": "$ink",
+                      "strokeWidth": 1,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "lG7gI",
+                          "name": "L",
+                          "fill": "#FFFFFF",
+                          "content": "+ 새 미션",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "yZwBK",
+              "name": "Body",
+              "width": "fill_container",
+              "height": "fill_container",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "K3AI4",
+                  "name": "Left (참여자 + 서브 미션 보드)",
+                  "width": 268,
+                  "height": "fill_container",
+                  "stroke": "$line",
+                  "strokeWidth": {
+                    "right": 1
+                  },
+                  "layout": "vertical",
+                  "gap": 10,
+                  "padding": 16,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "TM9DO",
+                      "name": "Participants head",
+                      "width": "fill_container",
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "I1Fpn",
+                          "name": "L",
+                          "fill": "$ink",
+                          "content": "참여자 5",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Z4lUk1",
+                          "name": "Btn 초대·퇴장",
+                          "fill": "$bg",
+                          "cornerRadius": 6,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "padding": [
+                            6,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Ofxbh",
+                              "name": "L",
+                              "fill": "$ink",
+                              "content": "초대·퇴장",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "b3DE3A",
+                      "name": "Person 서연",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "Q73Q7",
+                          "name": "Av",
+                          "width": 24,
+                          "height": 24,
+                          "fill": "$surface",
+                          "cornerRadius": 12,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "bV4cP",
+                              "name": "I",
+                              "fill": "$ink-2",
+                              "content": "서",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "jJl5B",
+                          "name": "N",
+                          "fill": "$ink",
+                          "content": "서연",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "C8BaP",
+                          "name": "R",
+                          "fill": "$ink-3",
+                          "content": "방장",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Hm2g6",
+                      "name": "Person 민호",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "D7FoSV",
+                          "name": "Av",
+                          "width": 24,
+                          "height": 24,
+                          "fill": "$surface",
+                          "cornerRadius": 12,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "dMjTS",
+                              "name": "I",
+                              "fill": "$ink-2",
+                              "content": "민",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "S3BHV",
+                          "name": "N",
+                          "fill": "$ink",
+                          "content": "민호",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "CKwbe",
+                          "name": "R",
+                          "fill": "$ink-3",
+                          "content": "부방장",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "D5OPk2",
+                      "type": "ref",
+                      "ref": "MmxsR",
+                      "name": "Agent @Lead",
+                      "width": "fill_container",
+                      "descendants": {
+                        "wpSCD": {
+                          "content": "L"
+                        },
+                        "H8n9nX": {
+                          "content": "@Lead"
+                        },
+                        "l02Kbz": {
+                          "content": "lead · Claude Code"
+                        }
+                      }
+                    },
+                    {
+                      "id": "ZqEW8",
+                      "type": "ref",
+                      "ref": "MmxsR",
+                      "name": "Agent @Writer",
+                      "width": "fill_container",
+                      "descendants": {
+                        "wpSCD": {
+                          "content": "W"
+                        },
+                        "H8n9nX": {
+                          "content": "@Writer"
+                        },
+                        "l02Kbz": {
+                          "content": "writer · 다른 방에서 작업 중"
+                        }
+                      }
+                    },
+                    {
+                      "id": "aASsU",
+                      "type": "ref",
+                      "ref": "MmxsR",
+                      "name": "Agent @Researcher",
+                      "width": "fill_container",
+                      "descendants": {
+                        "wpSCD": {
+                          "content": "R"
+                        },
+                        "H8n9nX": {
+                          "content": "@Researcher"
+                        },
+                        "l02Kbz": {
+                          "content": "researcher · Codex"
+                        }
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "id": "A1kZkZ",
+                      "name": "Board title",
+                      "fill": "$ink",
+                      "content": "서브 미션 보드",
+                      "fontFamily": "$font",
+                      "fontSize": 13,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "BMBpg",
+                      "name": "Group 질문 대기 1",
+                      "fill": "$ink-3",
+                      "content": "질문 대기 1",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "id": "HxTt6",
+                      "type": "ref",
+                      "ref": "x1YCq",
+                      "name": "Lane @Researcher",
+                      "width": "fill_container",
+                      "descendants": {
+                        "R3fKpX": {
+                          "content": "@Researcher"
+                        },
+                        "PDkU3": {
+                          "content": "수수료 비교 — 대상 PG 범위를 정해 주세요 · 미션 〈수수료 비교〉"
+                        }
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "id": "qHUu8",
+                      "name": "Group 사람 대기 1",
+                      "fill": "$ink-3",
+                      "content": "사람 대기 1",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "id": "CbSC6",
+                      "type": "ref",
+                      "ref": "x1YCq",
+                      "name": "Lane @Writer",
+                      "width": "fill_container",
+                      "descendants": {
+                        "R3fKpX": {
+                          "content": "@Writer"
+                        },
+                        "PDkU3": {
+                          "content": "초안 v2 검토 승인 대기 · 미션 〈보고서 초안〉"
+                        }
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "id": "n8qDCr",
+                      "name": "Group 실행 중 1",
+                      "fill": "$ink-3",
+                      "content": "실행 중 1",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "id": "HErl4",
+                      "type": "ref",
+                      "ref": "x1YCq",
+                      "name": "Lane @Lead",
+                      "width": "fill_container",
+                      "descendants": {
+                        "R3fKpX": {
+                          "content": "@Lead"
+                        },
+                        "PDkU3": {
+                          "content": "경쟁사 요율표 정리 중 · 12분 · 미션 없음"
+                        }
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "id": "OrKgQ",
+                      "name": "Group 완료 12 ▾ · 실패 1 ▾",
+                      "fill": "$ink-3",
+                      "content": "완료 12 ▾ · 실패 1 ▾",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "700"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "rGu9D",
+                  "name": "Center (타임라인)",
+                  "width": "fill_container",
+                  "height": "fill_container",
+                  "layout": "vertical",
+                  "gap": 12,
+                  "padding": 16,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "ODnJM",
+                      "name": "View toggle (대화만 / 작업 내용 펼침)",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "justifyContent": "end",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "G8XRVM",
+                          "name": "Lbl",
+                          "fill": "$ink-3",
+                          "content": "보기",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "m5x0O",
+                          "name": "Segment",
+                          "cornerRadius": 6,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "gap": 2,
+                          "padding": 2,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "EnqKs",
+                              "name": "Seg 대화만 (선택)",
+                              "fill": "$ink",
+                              "cornerRadius": 4,
+                              "padding": [
+                                4,
+                                10
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "yoPJH",
+                                  "name": "L",
+                                  "fill": "#FFFFFF",
+                                  "content": "대화만",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "uGT1j",
+                              "name": "Seg 작업 내용 펼침",
+                              "cornerRadius": 4,
+                              "padding": [
+                                4,
+                                10
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "ZR4Xe",
+                                  "name": "L",
+                                  "fill": "$ink-2",
+                                  "content": "작업 내용 펼침",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "X1dCNj",
+                      "name": "System line",
+                      "width": "fill_container",
+                      "gap": 10,
+                      "padding": [
+                        2,
+                        0
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "rectangle",
+                          "id": "Wq306",
+                          "name": "Rule",
+                          "fill": "$line",
+                          "width": "fill_container",
+                          "height": 1
+                        },
+                        {
+                          "type": "text",
+                          "id": "V5e4Jf",
+                          "name": "L",
+                          "fill": "$ink-2",
+                          "content": "〈서연〉이 @Lead · @Researcher · @Writer 를 초대했습니다",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "rectangle",
+                          "id": "v7xZbg",
+                          "name": "Rule",
+                          "fill": "$line",
+                          "width": "fill_container",
+                          "height": 1
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "LHJ5u",
+                      "name": "Human 서연",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 4,
+                      "alignItems": "end",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "MV8MN",
+                          "name": "Addressee line",
+                          "width": "fill_container",
+                          "gap": 6,
+                          "justifyContent": "end",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "KBmG8",
+                              "name": "Who",
+                              "fill": "$ink",
+                              "content": "서연",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "vuZHT",
+                              "name": "Kind 지시",
+                              "fill": "#EFF6FF",
+                              "cornerRadius": 999,
+                              "stroke": "#93C5FD",
+                              "strokeWidth": 1,
+                              "gap": 3,
+                              "padding": [
+                                2,
+                                7
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "H8Mwa5",
+                                  "name": "G",
+                                  "fill": "$s-run-text",
+                                  "content": "▶",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "D8X0U",
+                                  "name": "L",
+                                  "fill": "$s-run-text",
+                                  "content": "지시",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "M10hX",
+                              "name": "Arrow",
+                              "fill": "$ink-3",
+                              "content": "→",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "D5F3p",
+                              "name": "To @Lead",
+                              "fill": "#DBEAFE",
+                              "cornerRadius": 4,
+                              "padding": [
+                                1,
+                                5
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "ahZ0S",
+                                  "name": "T",
+                                  "fill": "$s-run-text",
+                                  "content": "@Lead",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "DegOz",
+                              "name": "Time",
+                              "fill": "$ink-3",
+                              "content": "21:40",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "k0uGJ",
+                          "name": "Bubble",
+                          "width": 470,
+                          "fill": "#EFF6FF",
+                          "cornerRadius": [
+                            12,
+                            4,
+                            12,
+                            12
+                          ],
+                          "padding": [
+                            8,
+                            12
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "RbBYa",
+                              "name": "Body",
+                              "fill": "$ink",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "@Lead STO 시장 레포트 10p 만들어 줘. 법 · 시장 규모 · 해외 사례는 꼭 넣어서.",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "UiGSZ",
+                      "name": "Agent @Lead 위임",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "U787FF",
+                          "name": "Avatar",
+                          "width": 28,
+                          "height": 28,
+                          "fill": "#DBEAFE",
+                          "cornerRadius": 14,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "YS6Zh",
+                              "name": "T",
+                              "fill": "$s-run-text",
+                              "content": "L",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "yGXt8",
+                          "name": "Col",
+                          "width": 560,
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "HhqTY",
+                              "name": "Addressee line",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "uiXXV",
+                                  "name": "Who",
+                                  "fill": "$ink",
+                                  "content": "@Lead",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "700"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "pqUVL",
+                                  "name": "Kind 위임",
+                                  "fill": "#EFF6FF",
+                                  "cornerRadius": 999,
+                                  "stroke": "#93C5FD",
+                                  "strokeWidth": 1,
+                                  "gap": 3,
+                                  "padding": [
+                                    2,
+                                    7
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "G9tMT",
+                                      "name": "G",
+                                      "fill": "$s-run-text",
+                                      "content": "↪",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "DTE4f",
+                                      "name": "L",
+                                      "fill": "$s-run-text",
+                                      "content": "위임",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "zm3cJ",
+                                  "name": "Arrow",
+                                  "fill": "$ink-3",
+                                  "content": "→",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "fR7S8",
+                                  "name": "To @Researcher",
+                                  "fill": "#DBEAFE",
+                                  "cornerRadius": 4,
+                                  "padding": [
+                                    1,
+                                    5
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "wRBVp",
+                                      "name": "T",
+                                      "fill": "$s-run-text",
+                                      "content": "@Researcher",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "ITnUW",
+                                  "name": "Lane state",
+                                  "fill": "#F0FDF4",
+                                  "cornerRadius": 999,
+                                  "stroke": "#86EFAC",
+                                  "strokeWidth": 1,
+                                  "padding": [
+                                    1,
+                                    6
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "a3upIs",
+                                      "name": "T",
+                                      "fill": "$s-done-text",
+                                      "content": "완료",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "lmvU5",
+                                  "name": "Time",
+                                  "fill": "$ink-3",
+                                  "content": "21:41",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "o5kHiL",
+                              "name": "Bubble",
+                              "width": "fill_container",
+                              "fill": "$surface",
+                              "cornerRadius": [
+                                4,
+                                12,
+                                12,
+                                12
+                              ],
+                              "layout": "vertical",
+                              "gap": 6,
+                              "padding": [
+                                8,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "z28EjS",
+                                  "name": "Body",
+                                  "fill": "$ink",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "@Researcher 법 통과 여부 · 시장 규모 전망 · 해외 사례를 조사해 주세요. 출처는 꼭 남겨 주세요.",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "aPSzR",
+                      "name": "Agent @Lead 위임",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "X9c0Om",
+                          "name": "Avatar (묶음 빈 자리)",
+                          "width": 28,
+                          "height": 28,
+                          "cornerRadius": 14,
+                          "justifyContent": "center",
+                          "alignItems": "center"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "MoCHA",
+                          "name": "Col",
+                          "width": 560,
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "nsc5k",
+                              "name": "Addressee line",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "GsJE0",
+                                  "name": "Kind 위임",
+                                  "fill": "#EFF6FF",
+                                  "cornerRadius": 999,
+                                  "stroke": "#93C5FD",
+                                  "strokeWidth": 1,
+                                  "gap": 3,
+                                  "padding": [
+                                    2,
+                                    7
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "B25GNl",
+                                      "name": "G",
+                                      "fill": "$s-run-text",
+                                      "content": "↪",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "jp4oq",
+                                      "name": "L",
+                                      "fill": "$s-run-text",
+                                      "content": "위임",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "wV1CI",
+                                  "name": "Arrow",
+                                  "fill": "$ink-3",
+                                  "content": "→",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "CJ5Z5",
+                                  "name": "To @Writer",
+                                  "fill": "#DBEAFE",
+                                  "cornerRadius": 4,
+                                  "padding": [
+                                    1,
+                                    5
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "rc3e7",
+                                      "name": "T",
+                                      "fill": "$s-run-text",
+                                      "content": "@Writer",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "oEFhX",
+                                  "name": "Lane state",
+                                  "fill": "#F5F3FF",
+                                  "cornerRadius": 999,
+                                  "stroke": "#C4B5FD",
+                                  "strokeWidth": 1,
+                                  "padding": [
+                                    1,
+                                    6
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "mjzHi",
+                                      "name": "T",
+                                      "fill": "$s-block-text",
+                                      "content": "질문 대기",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "PCrKv",
+                                  "name": "Time",
+                                  "fill": "$ink-3",
+                                  "content": "21:41",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "goU7N",
+                              "name": "Bubble",
+                              "width": "fill_container",
+                              "fill": "$surface",
+                              "cornerRadius": [
+                                4,
+                                12,
+                                12,
+                                12
+                              ],
+                              "layout": "vertical",
+                              "gap": 6,
+                              "padding": [
+                                8,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "x5h6iy",
+                                  "name": "Body",
+                                  "fill": "$ink",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "@Writer 조사가 끝나면 10p 초안을 써 주세요.",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "PPLJN",
+                      "name": "Agent @Researcher 보고",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "zZbHZ",
+                          "name": "Avatar",
+                          "width": 28,
+                          "height": 28,
+                          "fill": "#DBEAFE",
+                          "cornerRadius": 14,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "RcbfN",
+                              "name": "T",
+                              "fill": "$s-run-text",
+                              "content": "R",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "J0EEfg",
+                          "name": "Col",
+                          "width": 560,
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "ZG9RP",
+                              "name": "Addressee line",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "s37IJl",
+                                  "name": "Who",
+                                  "fill": "$ink",
+                                  "content": "@Researcher",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "700"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "C4v3FF",
+                                  "name": "Kind 보고",
+                                  "fill": "#F0FDF4",
+                                  "cornerRadius": 999,
+                                  "stroke": "#86EFAC",
+                                  "strokeWidth": 1,
+                                  "gap": 3,
+                                  "padding": [
+                                    2,
+                                    7
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "rUhgt",
+                                      "name": "G",
+                                      "fill": "$s-done-text",
+                                      "content": "✓",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "V7HMC",
+                                      "name": "L",
+                                      "fill": "$s-done-text",
+                                      "content": "보고",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "aMYb7",
+                                  "name": "Arrow",
+                                  "fill": "$ink-3",
+                                  "content": "→",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "ZByKZ",
+                                  "name": "To @Lead",
+                                  "fill": "#DBEAFE",
+                                  "cornerRadius": 4,
+                                  "padding": [
+                                    1,
+                                    5
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "U5VWsD",
+                                      "name": "T",
+                                      "fill": "$s-run-text",
+                                      "content": "@Lead",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "NqtOj",
+                                  "name": "Time",
+                                  "fill": "$ink-3",
+                                  "content": "21:53",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "frqCJ",
+                              "name": "↩ report link",
+                              "fill": "$ink-2",
+                              "content": "↩ @Lead 의 「법 통과 여부 · 시장 규모 전망 · 해외 사례를…」에 대한 보고",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "rcPLr",
+                              "name": "Bubble",
+                              "width": "fill_container",
+                              "fill": "$surface",
+                              "cornerRadius": [
+                                4,
+                                12,
+                                12,
+                                12
+                              ],
+                              "layout": "vertical",
+                              "gap": 6,
+                              "padding": [
+                                8,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "QLx7o",
+                                  "name": "Body",
+                                  "fill": "$ink",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "@Lead 조사 끝났습니다. 법은 이미 통과(2026-01-15)했고 시행은 2027-02-04 입니다. 전망 367조 vs 실측 48.7억의 낙차가 핵심이라 봅니다.",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "B8PGZ",
+                                  "name": "Fold 작업 내용",
+                                  "width": "fill_container",
+                                  "fill": "#FFFFFF",
+                                  "cornerRadius": 6,
+                                  "stroke": "$line",
+                                  "strokeWidth": 1,
+                                  "gap": 6,
+                                  "padding": [
+                                    5,
+                                    8
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "DDu1k",
+                                      "name": "T",
+                                      "fill": "$ink-3",
+                                      "content": "▸",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "e9W2pl",
+                                      "name": "T",
+                                      "fill": "$ink-2",
+                                      "content": "작업 내용",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "STIee",
+                                      "name": "T",
+                                      "fill": "$ink-2",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "1.5만 자 · 표 6개 · 「A. 시장 규모·성장 전망 — 3년 연속…」",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "UnrfP",
+                                  "name": "Fold 작업 과정",
+                                  "width": "fill_container",
+                                  "fill": "#FFFFFF",
+                                  "cornerRadius": 6,
+                                  "stroke": "$line",
+                                  "strokeWidth": 1,
+                                  "gap": 6,
+                                  "padding": [
+                                    5,
+                                    8
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "hEym0",
+                                      "name": "T",
+                                      "fill": "$ink-3",
+                                      "content": "▸",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "Fx27N",
+                                      "name": "T",
+                                      "fill": "$ink-2",
+                                      "content": "작업 과정",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "Lk2Si",
+                                      "name": "T",
+                                      "fill": "$ink-2",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "검색 23회 · 파일 읽기 11회 · 7분",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "v5gNj8",
+                      "name": "Question card (blocked_q, 전폭)",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 10,
+                      "stroke": "$s-block",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 6,
+                      "padding": 12,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "lVv9E",
+                          "name": "Addressee line",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "rJnOF",
+                              "name": "Avatar",
+                              "width": 22,
+                              "height": 22,
+                              "fill": "#DBEAFE",
+                              "cornerRadius": 11,
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "NSrlU",
+                                  "name": "T",
+                                  "fill": "$s-run-text",
+                                  "content": "W",
+                                  "fontFamily": "$font",
+                                  "fontSize": 10,
+                                  "fontWeight": "700"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "DIvDw",
+                              "name": "Who",
+                              "fill": "$ink",
+                              "content": "@Writer",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "DBwd8",
+                              "name": "Kind 질문",
+                              "fill": "#F5F3FF",
+                              "cornerRadius": 999,
+                              "stroke": "#C4B5FD",
+                              "strokeWidth": 1,
+                              "gap": 3,
+                              "padding": [
+                                2,
+                                7
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "oUQNp",
+                                  "name": "G",
+                                  "fill": "$s-block-text",
+                                  "content": "?",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "xNVWg",
+                                  "name": "L",
+                                  "fill": "$s-block-text",
+                                  "content": "질문",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "I1F2AV",
+                              "name": "Arrow",
+                              "fill": "$ink-3",
+                              "content": "→",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "Oj7q9",
+                              "name": "To @Lead",
+                              "fill": "#DBEAFE",
+                              "cornerRadius": 4,
+                              "padding": [
+                                1,
+                                5
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "MGkzT",
+                                  "name": "T",
+                                  "fill": "$s-run-text",
+                                  "content": "@Lead",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "IiGpU",
+                              "name": "Time",
+                              "fill": "$ink-3",
+                              "content": "22:02",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "CxPYX",
+                          "name": "Body",
+                          "fill": "$ink",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "표 3 을 결론 앞에 둘까요, 부록으로 뺄까요? 독자가 임원이면 앞이 낫습니다.",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "jXRt8",
+                          "name": "Thread",
+                          "width": "fill_container",
+                          "stroke": "$line",
+                          "strokeWidth": {
+                            "left": 2
+                          },
+                          "layout": "vertical",
+                          "gap": 4,
+                          "padding": [
+                            4,
+                            0,
+                            0,
+                            12
+                          ],
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "VGz9j",
+                              "name": "Answer",
+                              "width": "fill_container",
+                              "layout": "vertical",
+                              "gap": 3,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "q8wW5H",
+                                  "name": "Addressee line",
+                                  "gap": 6,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "keaBN",
+                                      "name": "Avatar",
+                                      "width": 20,
+                                      "height": 20,
+                                      "fill": "#DBEAFE",
+                                      "cornerRadius": 10,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "wDY6c",
+                                          "name": "T",
+                                          "fill": "$s-run-text",
+                                          "content": "L",
+                                          "fontFamily": "$font",
+                                          "fontSize": 10,
+                                          "fontWeight": "700"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "j5p6s",
+                                      "name": "Who",
+                                      "fill": "$ink",
+                                      "content": "@Lead",
+                                      "fontFamily": "$font",
+                                      "fontSize": 13,
+                                      "fontWeight": "700"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "FcAvo",
+                                      "name": "Kind 답",
+                                      "fill": "#F4F4F5",
+                                      "cornerRadius": 999,
+                                      "stroke": "#A1A1AA",
+                                      "strokeWidth": 1,
+                                      "gap": 3,
+                                      "padding": [
+                                        2,
+                                        7
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "gVFqk",
+                                          "name": "G",
+                                          "fill": "$ink-2",
+                                          "content": "↳",
+                                          "fontFamily": "$font",
+                                          "fontSize": 11,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "gfUC2",
+                                          "name": "L",
+                                          "fill": "$ink-2",
+                                          "content": "답",
+                                          "fontFamily": "$font",
+                                          "fontSize": 11,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "yH0IS",
+                                      "name": "Arrow",
+                                      "fill": "$ink-3",
+                                      "content": "→",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "LRLAa",
+                                      "name": "To @Writer",
+                                      "fill": "#DBEAFE",
+                                      "cornerRadius": 4,
+                                      "padding": [
+                                        1,
+                                        5
+                                      ],
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "n9cO1Z",
+                                          "name": "T",
+                                          "fill": "$s-run-text",
+                                          "content": "@Writer",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "DzUv8",
+                                      "name": "Time",
+                                      "fill": "$ink-3",
+                                      "content": "22:04",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "xID0B",
+                                  "name": "Body",
+                                  "fill": "$ink",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "@Writer 결론 앞으로. 임원 보고용입니다.",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "bleRP",
+                          "name": "Actions",
+                          "gap": 10,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "ZVLd5",
+                              "name": "T",
+                              "fill": "$ink-2",
+                              "content": "답글 1개 접기",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "c0azvK",
+                              "name": "T",
+                              "fill": "$ink-2",
+                              "content": "답글",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "s4vY9",
+                      "name": "Grow",
+                      "width": "fill_container",
+                      "height": "fill_container"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Di4Ck",
+                      "name": "Composer",
+                      "width": "fill_container",
+                      "cornerRadius": 8,
+                      "stroke": "$line",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 6,
+                      "padding": 10,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "q5Xj1",
+                          "name": "Preview chip",
+                          "fill": "$surface",
+                          "cornerRadius": 12,
+                          "gap": 6,
+                          "padding": [
+                            3,
+                            8
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "U7FRiY",
+                              "name": "L",
+                              "fill": "$ink-2",
+                              "content": "자동: @Writer 를 트리거합니다 · 미션 〈보고서 초안〉에 들어갑니다 — 바꾸려면 선택기를 누르세요",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "ehLNK",
+                              "name": "x",
+                              "fill": "$ink-3",
+                              "content": "×",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "d6fllo",
+                          "name": "Input",
+                          "fill": "$ink",
+                          "content": "@Writer 표 3을 결론 앞으로 옮겨 줘",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "O9o8G9",
+                          "name": "Row",
+                          "width": "fill_container",
+                          "gap": 8,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "ucBfr",
+                              "name": "Mission selector",
+                              "cornerRadius": 6,
+                              "stroke": "$line",
+                              "strokeWidth": 1,
+                              "padding": [
+                                4,
+                                8
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "k09ukA",
+                                  "name": "L",
+                                  "fill": "$ink",
+                                  "content": "미션: 보고서 초안 ▾",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "AnI5L",
+                              "name": "Toggle",
+                              "fill": "$ink-2",
+                              "content": "☐ 새 서브 미션으로 보내기",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "MIctj",
+                              "name": "sp",
+                              "width": "fill_container",
+                              "height": 1
+                            },
+                            {
+                              "type": "frame",
+                              "id": "ulXPw",
+                              "name": "Btn 보내기",
+                              "fill": "$ink",
+                              "cornerRadius": 6,
+                              "stroke": "$ink",
+                              "strokeWidth": 1,
+                              "padding": [
+                                6,
+                                10
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "eH6rz",
+                                  "name": "L",
+                                  "fill": "#FFFFFF",
+                                  "content": "보내기",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "zrr47",
+                  "name": "Right (미션 칸 / 방 전체 칸)",
+                  "width": 268,
+                  "height": "fill_container",
+                  "stroke": "$line",
+                  "strokeWidth": {
+                    "left": 1
+                  },
+                  "layout": "vertical",
+                  "gap": 8,
+                  "padding": 16,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "K2BM1",
+                      "name": "Section",
+                      "fill": "$ink-3",
+                      "content": "미션 칸",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "J8wNce",
+                      "name": "Recent note",
+                      "fill": "$ink-3",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "최근 활동: 〈보고서 초안〉 · 다른 미션을 보려면 위 칩을 누르세요",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "WnRf0",
+                      "name": "Mission name",
+                      "fill": "$ink",
+                      "content": "보고서 초안",
+                      "fontFamily": "$font",
+                      "fontSize": 15,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "qJJS5",
+                      "name": "Meta",
+                      "fill": "$ink-2",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "active · Director 서연 · 제출자 @Writer",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "J41XbU",
+                      "name": "Goal",
+                      "fill": "$ink",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "목표: 국내 B2B 결제 시장 보고서 10p",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "TMKyE",
+                      "name": "Cond",
+                      "fill": "$ink",
+                      "content": "종료 조건 1/2",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "B2mE9",
+                      "name": "C1",
+                      "fill": "$s-done-text",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "✓ 아티팩트 제출 — @Writer",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "VfW83",
+                      "name": "C2",
+                      "fill": "$ink-2",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "… Director 승인 — 받은 요청에서",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "o6AK6d",
+                      "name": "Cost",
+                      "fill": "$ink",
+                      "content": "이 미션 $3.20 / $20 (16%)",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "w7PG3",
+                      "name": "Mission actions (전체 보기 → 비활성)",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "I95jI4",
+                          "name": "Btn 일시정지",
+                          "opacity": 0.45,
+                          "fill": "$bg",
+                          "cornerRadius": 6,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "padding": [
+                            6,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "JQExW",
+                              "name": "L",
+                              "fill": "$ink",
+                              "content": "일시정지",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "G8UpV",
+                          "name": "Btn 종료",
+                          "opacity": 0.45,
+                          "fill": "$bg",
+                          "cornerRadius": 6,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "padding": [
+                            6,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "vmFsB",
+                              "name": "L",
+                              "fill": "$ink",
+                              "content": "수동 종료",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "lahDA",
+                          "name": "Btn ⋯",
+                          "opacity": 0.45,
+                          "fill": "$bg",
+                          "cornerRadius": 6,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "padding": [
+                            6,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "q4APZ",
+                              "name": "L",
+                              "fill": "$ink",
+                              "content": "⋯",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "TWoUA",
+                      "name": "DisabledHint",
+                      "fill": "$ink-3",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "어느 미션인지 먼저 고르세요 — 위 칩에서 미션을 누르면 이 버튼이 켜집니다",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "NeAQn",
+                      "name": "Divider",
+                      "width": "fill_container",
+                      "height": 2,
+                      "fill": "$ink"
+                    },
+                    {
+                      "type": "text",
+                      "id": "XDsbN",
+                      "name": "Room section (접힘)",
+                      "fill": "$ink",
+                      "content": "방 전체 ▸",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "meIgk",
+                      "name": "Room summary",
+                      "fill": "$ink-2",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "아티팩트 7 · 결정 기록 6 · 누적 $12.40 · 맥락 기록 2",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "HMtbh",
+      "x": 3200,
+      "y": 10000,
+      "name": "S7-CD 방 화면 · 대화 배치 · 다크 · 좁은 화면 (v0.19.4)",
+      "clip": true,
+      "width": 420,
+      "height": 1000,
+      "fill": "#0F0F11",
+      "layout": "vertical",
+      "children": [
+        {
+          "type": "frame",
+          "id": "p4OF5Z",
+          "name": "Center (타임라인)",
+          "width": "fill_container",
+          "height": "fill_container",
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 12,
+          "children": [
+            {
+              "type": "frame",
+              "id": "X2uTSJ",
+              "name": "View toggle (대화만 / 작업 내용 펼침)",
+              "width": "fill_container",
+              "gap": 8,
+              "justifyContent": "end",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "C9yBI",
+                  "name": "Lbl",
+                  "fill": "#71717A",
+                  "content": "보기",
+                  "fontFamily": "$font",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "frame",
+                  "id": "lZP3v",
+                  "name": "Segment",
+                  "cornerRadius": 6,
+                  "stroke": "#2E2E33",
+                  "strokeWidth": 1,
+                  "gap": 2,
+                  "padding": 2,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "IXdm0",
+                      "name": "Seg 대화만 (선택)",
+                      "fill": "#F4F4F5",
+                      "cornerRadius": 4,
+                      "padding": [
+                        4,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "HVW9W",
+                          "name": "L",
+                          "fill": "#0F0F11",
+                          "content": "대화만",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "ykE50",
+                      "name": "Seg 작업 내용 펼침",
+                      "cornerRadius": 4,
+                      "padding": [
+                        4,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "t68Gf",
+                          "name": "L",
+                          "fill": "#A6A6AE",
+                          "content": "작업 내용 펼침",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "WLW9X",
+              "name": "System line",
+              "width": "fill_container",
+              "gap": 10,
+              "padding": [
+                2,
+                0
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "rectangle",
+                  "id": "PDfDY",
+                  "name": "Rule",
+                  "fill": "#2E2E33",
+                  "width": "fill_container",
+                  "height": 1
+                },
+                {
+                  "type": "text",
+                  "id": "t9nXo",
+                  "name": "L",
+                  "fill": "#A6A6AE",
+                  "content": "〈서연〉이 @Lead · @Researcher · @Writer 를 초대했습니다",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "rectangle",
+                  "id": "rp2xV",
+                  "name": "Rule",
+                  "fill": "#2E2E33",
+                  "width": "fill_container",
+                  "height": 1
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "K5wN3V",
+              "name": "Human 서연",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 4,
+              "alignItems": "end",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "Ls6Fw",
+                  "name": "Addressee line",
+                  "width": "fill_container",
+                  "gap": 6,
+                  "justifyContent": "end",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "h6Ans",
+                      "name": "Who",
+                      "fill": "#F4F4F5",
+                      "content": "서연",
+                      "fontFamily": "$font",
+                      "fontSize": 13,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "LzTrv",
+                      "name": "Kind 지시",
+                      "fill": "#1E2A44",
+                      "cornerRadius": 999,
+                      "stroke": "#3B5E8C",
+                      "strokeWidth": 1,
+                      "gap": 3,
+                      "padding": [
+                        2,
+                        7
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "LbFkh",
+                          "name": "G",
+                          "fill": "#93C5FD",
+                          "content": "▶",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "kLzfQ",
+                          "name": "L",
+                          "fill": "#93C5FD",
+                          "content": "지시",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "QyBcS",
+                      "name": "Arrow",
+                      "fill": "#71717A",
+                      "content": "→",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "PbYAK",
+                      "name": "To @Lead",
+                      "fill": "#1E3A5F",
+                      "cornerRadius": 4,
+                      "padding": [
+                        1,
+                        5
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "SpIcO",
+                          "name": "T",
+                          "fill": "#93C5FD",
+                          "content": "@Lead",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "HoFxi",
+                      "name": "Time",
+                      "fill": "#71717A",
+                      "content": "21:40",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "tpZuQ",
+                  "name": "Bubble",
+                  "width": "fill_container",
+                  "fill": "#1E2A44",
+                  "cornerRadius": [
+                    12,
+                    4,
+                    12,
+                    12
+                  ],
+                  "padding": [
+                    8,
+                    12
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "G53288",
+                      "name": "Body",
+                      "fill": "#F4F4F5",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "@Lead STO 시장 레포트 10p 만들어 줘. 법 · 시장 규모 · 해외 사례는 꼭 넣어서.",
+                      "fontFamily": "$font",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "bZTMs",
+              "name": "Agent @Lead 위임",
+              "width": "fill_container",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "IVHAK",
+                  "name": "Avatar",
+                  "width": 28,
+                  "height": 28,
+                  "fill": "#1E3A5F",
+                  "cornerRadius": 14,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "WLgld",
+                      "name": "T",
+                      "fill": "#93C5FD",
+                      "content": "L",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "700"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "Y6nerV",
+                  "name": "Col",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "SzHN1",
+                      "name": "Addressee line",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "B1IZ4x",
+                          "name": "Who",
+                          "fill": "#F4F4F5",
+                          "content": "@Lead",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "bCaf0",
+                          "name": "Kind 위임",
+                          "fill": "#1E2A44",
+                          "cornerRadius": 999,
+                          "stroke": "#3B5E8C",
+                          "strokeWidth": 1,
+                          "gap": 3,
+                          "padding": [
+                            2,
+                            7
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "aA5lg",
+                              "name": "G",
+                              "fill": "#93C5FD",
+                              "content": "↪",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "N1VH8s",
+                              "name": "L",
+                              "fill": "#93C5FD",
+                              "content": "위임",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "z0pU2",
+                          "name": "Arrow",
+                          "fill": "#71717A",
+                          "content": "→",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "m3sxI",
+                          "name": "To @Researcher",
+                          "fill": "#1E3A5F",
+                          "cornerRadius": 4,
+                          "padding": [
+                            1,
+                            5
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "c6VTH",
+                              "name": "T",
+                              "fill": "#93C5FD",
+                              "content": "@Researcher",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Lm3CG",
+                          "name": "Lane state",
+                          "fill": "#132A1C",
+                          "cornerRadius": 999,
+                          "stroke": "#2F6B45",
+                          "strokeWidth": 1,
+                          "padding": [
+                            1,
+                            6
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "kTN3N",
+                              "name": "T",
+                              "fill": "#86EFAC",
+                              "content": "완료",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "GKm9U",
+                          "name": "Time",
+                          "fill": "#71717A",
+                          "content": "21:41",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "FXtyp",
+                      "name": "Bubble",
+                      "width": "fill_container",
+                      "fill": "#18181B",
+                      "cornerRadius": [
+                        4,
+                        12,
+                        12,
+                        12
+                      ],
+                      "layout": "vertical",
+                      "gap": 6,
+                      "padding": [
+                        8,
+                        12
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "mhM4k",
+                          "name": "Body",
+                          "fill": "#F4F4F5",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "@Researcher 법 통과 여부 · 시장 규모 전망 · 해외 사례를 조사해 주세요. 출처는 꼭 남겨 주세요.",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "NvsNh",
+              "name": "Agent @Lead 위임",
+              "width": "fill_container",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "OoIuK",
+                  "name": "Avatar (묶음 빈 자리)",
+                  "width": 28,
+                  "height": 28,
+                  "cornerRadius": 14,
+                  "justifyContent": "center",
+                  "alignItems": "center"
+                },
+                {
+                  "type": "frame",
+                  "id": "R1UO23",
+                  "name": "Col",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "qJg1v",
+                      "name": "Addressee line",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "BfSNF",
+                          "name": "Kind 위임",
+                          "fill": "#1E2A44",
+                          "cornerRadius": 999,
+                          "stroke": "#3B5E8C",
+                          "strokeWidth": 1,
+                          "gap": 3,
+                          "padding": [
+                            2,
+                            7
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "w2nScj",
+                              "name": "G",
+                              "fill": "#93C5FD",
+                              "content": "↪",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "uSvE2",
+                              "name": "L",
+                              "fill": "#93C5FD",
+                              "content": "위임",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "NQJjM",
+                          "name": "Arrow",
+                          "fill": "#71717A",
+                          "content": "→",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "rzuoI",
+                          "name": "To @Writer",
+                          "fill": "#1E3A5F",
+                          "cornerRadius": 4,
+                          "padding": [
+                            1,
+                            5
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Mqt8Y",
+                              "name": "T",
+                              "fill": "#93C5FD",
+                              "content": "@Writer",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "FehdN",
+                          "name": "Lane state",
+                          "fill": "#261F3D",
+                          "cornerRadius": 999,
+                          "stroke": "#6D5AA8",
+                          "strokeWidth": 1,
+                          "padding": [
+                            1,
+                            6
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Ytd1M",
+                              "name": "T",
+                              "fill": "#DDD6FE",
+                              "content": "질문 대기",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "duUj3",
+                          "name": "Time",
+                          "fill": "#71717A",
+                          "content": "21:41",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "DNSoG",
+                      "name": "Bubble",
+                      "width": "fill_container",
+                      "fill": "#18181B",
+                      "cornerRadius": [
+                        4,
+                        12,
+                        12,
+                        12
+                      ],
+                      "layout": "vertical",
+                      "gap": 6,
+                      "padding": [
+                        8,
+                        12
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "h7Lgkn",
+                          "name": "Body",
+                          "fill": "#F4F4F5",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "@Writer 조사가 끝나면 10p 초안을 써 주세요.",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "GW1Ff",
+              "name": "Agent @Researcher 보고",
+              "width": "fill_container",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "k3W9K",
+                  "name": "Avatar",
+                  "width": 28,
+                  "height": 28,
+                  "fill": "#1E3A5F",
+                  "cornerRadius": 14,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "tylaM",
+                      "name": "T",
+                      "fill": "#93C5FD",
+                      "content": "R",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "700"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "aPttg",
+                  "name": "Col",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "asuZk",
+                      "name": "Addressee line",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "gqVgY",
+                          "name": "Who",
+                          "fill": "#F4F4F5",
+                          "content": "@Researcher",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "oKr3n",
+                          "name": "Kind 보고",
+                          "fill": "#132A1C",
+                          "cornerRadius": 999,
+                          "stroke": "#2F6B45",
+                          "strokeWidth": 1,
+                          "gap": 3,
+                          "padding": [
+                            2,
+                            7
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "F1ziLp",
+                              "name": "G",
+                              "fill": "#86EFAC",
+                              "content": "✓",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "tIBK9",
+                              "name": "L",
+                              "fill": "#86EFAC",
+                              "content": "보고",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "x6qI1",
+                          "name": "Arrow",
+                          "fill": "#71717A",
+                          "content": "→",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "sSSkA",
+                          "name": "To @Lead",
+                          "fill": "#1E3A5F",
+                          "cornerRadius": 4,
+                          "padding": [
+                            1,
+                            5
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "a0sQf",
+                              "name": "T",
+                              "fill": "#93C5FD",
+                              "content": "@Lead",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "w2FKIv",
+                          "name": "Time",
+                          "fill": "#71717A",
+                          "content": "21:53",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "t1NIM",
+                      "name": "↩ report link",
+                      "fill": "#A6A6AE",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "↩ @Lead 의 「법 통과 여부 · 시장 규모 전망 · 해외 사례를…」에 대한 보고",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "k8kEBq",
+                      "name": "Bubble",
+                      "width": "fill_container",
+                      "fill": "#18181B",
+                      "cornerRadius": [
+                        4,
+                        12,
+                        12,
+                        12
+                      ],
+                      "layout": "vertical",
+                      "gap": 6,
+                      "padding": [
+                        8,
+                        12
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "FhCwn",
+                          "name": "Body",
+                          "fill": "#F4F4F5",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "@Lead 조사 끝났습니다. 법은 이미 통과(2026-01-15)했고 시행은 2027-02-04 입니다. 전망 367조 vs 실측 48.7억의 낙차가 핵심이라 봅니다.",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "uom9j",
+                          "name": "Fold 작업 내용",
+                          "width": "fill_container",
+                          "fill": "#0F0F11",
+                          "cornerRadius": 6,
+                          "stroke": "#2E2E33",
+                          "strokeWidth": 1,
+                          "gap": 6,
+                          "padding": [
+                            5,
+                            8
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "ukypQ",
+                              "name": "T",
+                              "fill": "#71717A",
+                              "content": "▸",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "sAYfO",
+                              "name": "T",
+                              "fill": "#A6A6AE",
+                              "content": "작업 내용",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "text",
+                              "id": "ejCW1",
+                              "name": "T",
+                              "fill": "#A6A6AE",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "1.5만 자 · 표 6개 · 「A. 시장 규모·성장 전망 — 3년 연속…」",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "fCTLK",
+                          "name": "Fold 작업 과정",
+                          "width": "fill_container",
+                          "fill": "#0F0F11",
+                          "cornerRadius": 6,
+                          "stroke": "#2E2E33",
+                          "strokeWidth": 1,
+                          "gap": 6,
+                          "padding": [
+                            5,
+                            8
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "fPwEP",
+                              "name": "T",
+                              "fill": "#71717A",
+                              "content": "▸",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "xaYMF",
+                              "name": "T",
+                              "fill": "#A6A6AE",
+                              "content": "작업 과정",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "text",
+                              "id": "NK7MQ",
+                              "name": "T",
+                              "fill": "#A6A6AE",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "검색 23회 · 파일 읽기 11회 · 7분",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "otZ0p",
+              "name": "Question card (blocked_q, 전폭)",
+              "width": "fill_container",
+              "fill": "#0F0F11",
+              "cornerRadius": 10,
+              "stroke": "#C4B5FD",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 6,
+              "padding": 12,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "tGZtd",
+                  "name": "Addressee line",
+                  "width": "fill_container",
+                  "gap": 6,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "aRI4q",
+                      "name": "Avatar",
+                      "width": 22,
+                      "height": 22,
+                      "fill": "#1E3A5F",
+                      "cornerRadius": 11,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "Qbirn",
+                          "name": "T",
+                          "fill": "#93C5FD",
+                          "content": "W",
+                          "fontFamily": "$font",
+                          "fontSize": 10,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "T5RDKt",
+                      "name": "Who",
+                      "fill": "#F4F4F5",
+                      "content": "@Writer",
+                      "fontFamily": "$font",
+                      "fontSize": 13,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "S681W",
+                      "name": "Kind 질문",
+                      "fill": "#261F3D",
+                      "cornerRadius": 999,
+                      "stroke": "#6D5AA8",
+                      "strokeWidth": 1,
+                      "gap": 3,
+                      "padding": [
+                        2,
+                        7
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "McXf3",
+                          "name": "G",
+                          "fill": "#DDD6FE",
+                          "content": "?",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "S9bZr",
+                          "name": "L",
+                          "fill": "#DDD6FE",
+                          "content": "질문",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "p91CW",
+                      "name": "Arrow",
+                      "fill": "#71717A",
+                      "content": "→",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "tNbEf",
+                      "name": "To @Lead",
+                      "fill": "#1E3A5F",
+                      "cornerRadius": 4,
+                      "padding": [
+                        1,
+                        5
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "mj67Y",
+                          "name": "T",
+                          "fill": "#93C5FD",
+                          "content": "@Lead",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "N4J8wD",
+                      "name": "Time",
+                      "fill": "#71717A",
+                      "content": "22:02",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "zi89f",
+                  "name": "Body",
+                  "fill": "#F4F4F5",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "표 3 을 결론 앞에 둘까요, 부록으로 뺄까요? 독자가 임원이면 앞이 낫습니다.",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "frame",
+                  "id": "yYJqf",
+                  "name": "Thread",
+                  "width": "fill_container",
+                  "stroke": "#2E2E33",
+                  "strokeWidth": {
+                    "left": 2
+                  },
+                  "layout": "vertical",
+                  "gap": 4,
+                  "padding": [
+                    4,
+                    0,
+                    0,
+                    12
+                  ],
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "g5ePl",
+                      "name": "Answer",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 3,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "rgaB3",
+                          "name": "Addressee line",
+                          "width": "fill_container",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "qemw2",
+                              "name": "Avatar",
+                              "width": 20,
+                              "height": 20,
+                              "fill": "#1E3A5F",
+                              "cornerRadius": 10,
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "jMrHE",
+                                  "name": "T",
+                                  "fill": "#93C5FD",
+                                  "content": "L",
+                                  "fontFamily": "$font",
+                                  "fontSize": 10,
+                                  "fontWeight": "700"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "UNNAx",
+                              "name": "Who",
+                              "fill": "#F4F4F5",
+                              "content": "@Lead",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "JbbaE",
+                              "name": "Kind 답",
+                              "fill": "#232327",
+                              "cornerRadius": 999,
+                              "stroke": "#52525B",
+                              "strokeWidth": 1,
+                              "gap": 3,
+                              "padding": [
+                                2,
+                                7
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "B5PKU",
+                                  "name": "G",
+                                  "fill": "#A6A6AE",
+                                  "content": "↳",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "nOW4h",
+                                  "name": "L",
+                                  "fill": "#A6A6AE",
+                                  "content": "답",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "b7Kcp",
+                              "name": "Arrow",
+                              "fill": "#71717A",
+                              "content": "→",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "nLVWX",
+                              "name": "To @Writer",
+                              "fill": "#1E3A5F",
+                              "cornerRadius": 4,
+                              "padding": [
+                                1,
+                                5
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "IEMeo",
+                                  "name": "T",
+                                  "fill": "#93C5FD",
+                                  "content": "@Writer",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "XDCSN",
+                              "name": "Time",
+                              "fill": "#71717A",
+                              "content": "22:04",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "CCiQw",
+                          "name": "Body",
+                          "fill": "#F4F4F5",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "@Writer 결론 앞으로. 임원 보고용입니다.",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "E2Nrx6",
+                  "name": "Actions",
+                  "gap": 10,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "xUvWC",
+                      "name": "T",
+                      "fill": "#A6A6AE",
+                      "content": "답글 1개 접기",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "tPncv",
+                      "name": "T",
+                      "fill": "#A6A6AE",
+                      "content": "답글",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "Z6p5S9",
+              "name": "Grow",
+              "width": "fill_container",
+              "height": "fill_container"
+            },
+            {
+              "type": "frame",
+              "id": "euzau",
+              "name": "Composer",
+              "width": "fill_container",
+              "cornerRadius": 8,
+              "stroke": "#2E2E33",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 6,
+              "padding": 10,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "lGSXM",
+                  "name": "Preview chip",
+                  "clip": true,
+                  "width": "fill_container",
+                  "fill": "#18181B",
+                  "cornerRadius": 12,
+                  "gap": 6,
+                  "padding": [
+                    3,
+                    8
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "B1WiXd",
+                      "name": "L",
+                      "fill": "#A6A6AE",
+                      "content": "자동: @Writer 를 트리거합니다 · 미션 〈보고서 초안〉에 들어갑니다 — 바꾸려면 선택기를 누르세요",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "gh6kh",
+                      "name": "x",
+                      "fill": "#71717A",
+                      "content": "×",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "700"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "U4pKNQ",
+                  "name": "Input",
+                  "fill": "#F4F4F5",
+                  "content": "@Writer 표 3을 결론 앞으로 옮겨 줘",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "frame",
+                  "id": "Oo5SG",
+                  "name": "Row",
+                  "width": "fill_container",
+                  "gap": 8,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "M6gORX",
+                      "name": "Mission selector",
+                      "cornerRadius": 6,
+                      "stroke": "#2E2E33",
+                      "strokeWidth": 1,
+                      "padding": [
+                        4,
+                        8
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "O90a1T",
+                          "name": "L",
+                          "fill": "#F4F4F5",
+                          "content": "미션: 보고서 초안 ▾",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "hY5gI",
+                      "name": "Toggle",
+                      "fill": "#A6A6AE",
+                      "content": "☐ 새 서브 미션으로 보내기",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "OpjBp",
+                      "name": "sp",
+                      "width": "fill_container",
+                      "height": 1
+                    },
+                    {
+                      "type": "frame",
+                      "id": "NR722",
+                      "name": "Btn 보내기",
+                      "fill": "#F4F4F5",
+                      "cornerRadius": 6,
+                      "stroke": "#F4F4F5",
+                      "strokeWidth": 1,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "l87YL3",
+                          "name": "L",
+                          "fill": "#0F0F11",
+                          "content": "보내기",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ],
   "variables": {
