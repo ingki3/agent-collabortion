@@ -17,7 +17,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { MessageBody, MessageCard, authorName, type ConversationSlot, type MessageLayerSlots } from "@/components/MessageCard";
-import { ArtifactRef, DetailFold, ProcessFold, TimelineViewToggle, type TimelineView } from "@/components/MessageLayers";
+import { ArtifactRef, DetailFold, ProcessFold, TimelineViewToggle, WorkingRow, type TimelineView } from "@/components/MessageLayers";
 import { Composer, type ComposerAgent, type ComposerInput, type ComposerWarning } from "@/components/Composer";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { LaneBoard } from "@/components/LaneBoard";
@@ -39,7 +39,8 @@ import { Slot, slotText } from "@/components/Slot";
 import { api, errorMessage, isApiError, newIdempotencyKey } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
-import { emptyTurnNote, isEmptyTurn } from "@/lib/feed";
+import { emptyTurnNote, isEmptyTurn, isTaskLive } from "@/lib/feed";
+import { roomProcessSlices, workingTasks, type ProcessSlices, type ProcessWindow } from "@/lib/process-slice";
 import { useMarkRoomRead } from "@/lib/unread";
 import { isLayered, messageLayers, summarizeProcess, timelineViewKey } from "@/lib/message-layers";
 import { groupsWith, speechOf, type ConversationCtx, type Speech } from "@/lib/conversation";
@@ -55,16 +56,23 @@ import type {
   StreamEvent, Task, TaskEvent, TriggerPreview, Work, WorkListItem,
 } from "@/lib/api/types";
 
-type Events = { events: TaskEvent[]; structured: boolean; loading: boolean };
+/** `task` — 「진행 중…」 판정(T-FEED)의 task 상태·attempt. getTask 가 실패하면 null(이벤트만으로 판정), `task.updated` 로 갱신. */
+type Events = { events: TaskEvent[]; structured: boolean; loading: boolean; task?: Pick<Task, "status" | "attempt"> | null };
 type Col = "timeline" | "board" | "work" | "room";
 const COLS: Col[] = ["timeline", "board", "work", "room"];
 
-function TaskActivity({ taskId, cache, load }: { taskId: string; cache: Record<string, Events>; load: (id: string) => void }) {
+/** `slice` — 메시지의 조각(T-FEED A). 없으면 task 전체(서브 미션 카드의 할 일 이력). */
+function TaskActivity({ taskId, cache, load, slice }: { taskId: string; cache: Record<string, Events>; load: (id: string) => void; slice?: ProcessWindow | null }) {
   useEffect(() => {
     if (!cache[taskId]) load(taskId);
   }, [taskId, cache, load]);
   const c = cache[taskId];
-  return <ActivityFeed events={c?.events ?? []} structured={c?.structured ?? true} loading={!c || c.loading} title="이 작업의 활동" />;
+  return (
+    <ActivityFeed
+      events={c?.events ?? []} structured={c?.structured ?? true} loading={!c || c.loading} title="이 작업의 활동"
+      taskStatus={c?.task?.status} attempt={c?.task?.attempt} slice={slice}
+    />
+  );
 }
 
 const byTime = (a: Message, b: Message) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0);
@@ -323,8 +331,15 @@ export default function RoomPage() {
   const loadEvents = useCallback(async (taskId: string) => {
     setEvents((c) => ({ ...c, [taskId]: { events: [], structured: true, loading: true } }));
     try {
-      const r = await api.get("/tasks/{taskId}/events", { path: { taskId }, query: { limit: 200 } });
-      setEvents((c) => ({ ...c, [taskId]: { events: r.items, structured: r.structured ?? true, loading: false } }));
+      // task 상태는 「진행 중…」 판정에만 쓴다 — 못 읽어도 피드는 그린다(이벤트만으로 판정).
+      const [r, t] = await Promise.all([
+        api.get("/tasks/{taskId}/events", { path: { taskId }, query: { limit: 200 } }),
+        api.get("/tasks/{taskId}", { path: { taskId } }).catch(() => null),
+      ]);
+      setEvents((c) => ({
+        ...c,
+        [taskId]: { events: r.items, structured: r.structured ?? true, loading: false, task: c[taskId]?.task ?? (t && typeof t.status === "string" ? { status: t.status, attempt: t.attempt } : null) },
+      }));
       const empty = r.items.find(isEmptyTurn);
       if (empty) setEmptyTurns((m) => (m[taskId] ? m : { ...m, [taskId]: emptyTurnNote(empty) }));
     } catch {
@@ -340,6 +355,15 @@ export default function RoomPage() {
       void loadEvents(tid);
     }
   }, [messages, replies, loadEvents]);
+  // 「작업 중」 줄(T-FEED B) — 도는 서브 미션의 현재 할 일 기록도 읽어 둔다(마지막 메시지 뒤의 작업이 여기 쌓인다).
+  useEffect(() => {
+    for (const l of lanes) {
+      const t = l.current_task;
+      if (l.status !== "running" || !t || requestedEvents.current.has(t.id)) continue;
+      requestedEvents.current.add(t.id);
+      void loadEvents(t.id);
+    }
+  }, [lanes, loadEvents]);
   const loadLaneTasks = useCallback(async (laneId: string): Promise<Task[]> => api.get("/lanes/{laneId}/tasks", { path: { laneId } }), []);
   /**
    * 대화 배치(FR-3.1.3)의 「↩ … 에 대한 보고」 — 판정은 서버가 내려주고(openapi v0.3.2 `responds_to_message_id`),
@@ -408,6 +432,16 @@ export default function RoomPage() {
           const cur = c[te.task_id];
           if (!cur || cur.events.some((e) => e.id === te.id)) return c;
           return { ...c, [te.task_id]: { ...cur, events: [...cur.events, te] } };
+        });
+        break;
+      }
+      case "task.updated": {
+        // 「진행 중…」 판정(T-FEED) — task 가 끝나면 그 피드의 짝 없는 started 줄이 「결과 없음」으로 바뀐다.
+        const t = ev.payload as unknown as Task;
+        setEvents((c) => {
+          const cur = c[t.id];
+          if (!cur) return c;
+          return { ...c, [t.id]: { ...cur, task: { status: t.status, attempt: t.attempt } } };
         });
         break;
       }
@@ -775,6 +809,11 @@ export default function RoomPage() {
   };
   const toggleFold = (id: string, layer: "detail" | "process", open: boolean) => setFolds((cur) => ({ ...cur, [id]: { ...cur[id], [layer]: !open } }));
   const artsByMsg = artifactsByMessage([...messages, ...Object.values(replies).flat()], artifacts);
+  // 메시지별 「작업 과정」 조각(T-FEED A) — 한 턴의 기록을 그 턴이 올린 메시지 경계로 자른다. 도는 턴의 꼬리는 「작업 중」 줄(B)로.
+  // 「작업 중」 줄 — 보이는 서브 미션(미션 칩 거름)의 도는 턴, 에이전트마다 하나. 메시지가 아직 없는 턴이면 턴 전체가 꼬리다.
+  const working = workingTasks(shownLanes, events);
+  const slices: Map<string, ProcessSlices> = roomProcessSlices(events, [...messages, ...Object.values(replies).flat()], new Set(working.map((w) => w.taskId)));
+  const sliceOf = (m: Message): ProcessWindow | undefined => (m.source_task_id ? slices.get(m.source_task_id)?.byMessage.get(m.id) : undefined);
   /** 메시지(스레드 답글 포함) → 대화 층의 글 + 그 아래 줄들. 세 층이 아닌 메시지는 undefined(본문 그대로). */
   const layersFor = (m: Message, o: { asAnswer: boolean }): MessageLayerSlots | undefined => {
     if (!isLayered(m, o)) return undefined;
@@ -790,8 +829,8 @@ export default function RoomPage() {
           {(artsByMsg.get(m.id) ?? []).map((a) => <ArtifactRef key={a.id} artifact={a} />)}
           {v.work && <DetailFold messageId={m.id} text={v.work.text} auto={v.work.auto} open={detailOpen} onToggle={() => toggleFold(m.id, "detail", detailOpen)} />}
           {tid && (
-            <ProcessFold messageId={m.id} summary={summarizeProcess(events[tid])} open={processOpen} onToggle={() => toggleFold(m.id, "process", processOpen)}>
-              <TaskActivity taskId={tid} cache={events} load={loadEvents} />
+            <ProcessFold messageId={m.id} summary={summarizeProcess(events[tid], sliceOf(m))} open={processOpen} onToggle={() => toggleFold(m.id, "process", processOpen)}>
+              <TaskActivity taskId={tid} cache={events} load={loadEvents} slice={sliceOf(m)} />
             </ProcessFold>
           )}
         </>
@@ -1079,7 +1118,7 @@ export default function RoomPage() {
                     replies={replies[m.id]}
                     onLoadReplies={loadReplies}
                     onReply={(root) => { setRestart(null); setReplyTo({ id: root.id, authorName: authorName(root) }); }}
-                    activity={agentMsg && !isLayered(m) ? <TaskActivity taskId={m.source_task_id!} cache={events} load={loadEvents} /> : undefined}
+                    activity={agentMsg && !isLayered(m) ? <TaskActivity taskId={m.source_task_id!} cache={events} load={loadEvents} slice={sliceOf(m)} /> : undefined}
                     layers={layersFor}
                     conversation={conversationFor}
                     askee={askee}
@@ -1106,6 +1145,23 @@ export default function RoomPage() {
                 <MessageBody content={text} typing />
               </article>
             ))}
+            {working.map(({ taskId, agentId }) => {
+              const tail = slices.get(taskId)?.tail ?? null;
+              const key = `working:${taskId}`;
+              const open = folds[key]?.process ?? false;
+              return (
+                <WorkingRow
+                  key={taskId}
+                  taskId={taskId}
+                  agentName={agentById.get(agentId)?.name ?? "agent"}
+                  summary={summarizeProcess(events[taskId], tail)}
+                  open={open}
+                  onToggle={() => toggleFold(key, "process", open)}
+                >
+                  <TaskActivity taskId={taskId} cache={events} load={loadEvents} slice={tail} />
+                </WorkingRow>
+              );
+            })}
             {typingAgents.length > 0 && (
               <p className="small muted-3" data-testid="typing">
                 {typingAgents.map((n) => `@${n}`).join(", ")} {ROOM_CENTER.typing}

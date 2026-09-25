@@ -122,6 +122,44 @@ export function ProcessFold({ messageId, summary, open, onToggle, children }: {
   );
 }
 
+/**
+ * 「작업 중」 줄(T-FEED B · SCREEN §4.6 v0.19.6) — 턴이 도는 동안 **마지막 메시지 뒤**의 작업을 타임라인 맨 아래 한 줄로.
+ * 「@Lead 작업 중 · 셸 명령 12회 · 파일 3개 편집 · 17분 ▸」, 펼치면 그 조각의 활동 피드. 에이전트마다 하나, 턴이 끝나면 부른 쪽이 그리지 않는다.
+ * 요약 규칙은 「작업 과정」 접힌 줄과 같다(`summarizeProcess` 에 꼬리 조각).
+ */
+export function WorkingRow({ taskId, agentName, summary, open, onToggle, children }: {
+  taskId: string; agentName: string; summary: ProcessSummary; open: boolean; onToggle: () => void; children?: ReactNode;
+}) {
+  const regionId = `working-${taskId}`;
+  const parts: ReactNode[] = [];
+  let fails = 0;
+  if (summary.state === "ready") {
+    fails = summary.failures;
+    summary.top.forEach((p, i) => parts.push(<Slot key={`a${i}`} text={p.text} n={p.n} />));
+    if (summary.duration.length) parts.push(<span key="d">{summary.duration.map((d, i) => <span key={i}>{i > 0 ? " " : null}<Slot text={d.text} n={d.n} /></span>)}</span>);
+  }
+  return (
+    <div className="fold-wrap working" data-testid="working-row" data-task-id={taskId} aria-live="polite">
+      <FoldRow
+        label={`@${agentName} ${L.working}`}
+        open={open}
+        onToggle={onToggle}
+        regionId={regionId}
+        testId="working-fold"
+        tail={fails > 0 ? (
+          <span className="fold__fail" data-testid="fold-fail">
+            <span aria-hidden="true">{"· "}</span>
+            <Slot text={L.failures} n={fails} />
+          </span>
+        ) : null}
+      >
+        {parts.length > 0 ? <Dots parts={parts} /> : summary.state === "loading" ? L.process_loading : null}
+      </FoldRow>
+      {open && <div className="fold__process" id={regionId} data-testid="working-body">{children}</div>}
+    </div>
+  );
+}
+
 /** 아티팩트 참조 줄 — 📄 이름 · 아티팩트 · vN · 열기(§4.6 우열 아티팩트와 같은 칸). */
 export function ArtifactRef({ artifact }: { artifact: Artifact }) {
   return (

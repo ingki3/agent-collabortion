@@ -17,7 +17,7 @@
  * | 5 | outcome=failed OR (class=runtime verb=error) OR (class=tool verb=permission outcome=rejected) | error |
  * | 6 | else | raw |
  */
-import type { TaskEvent } from "@/lib/api/types";
+import type { TaskEvent, TaskStatus } from "@/lib/api/types";
 import { EMPTY_TURN } from "@/lib/wording";
 
 export type RenderClass = "message" | "platform" | "file_edit" | "shell" | "error" | "raw";
@@ -118,9 +118,69 @@ export function feedSentence(e: TaskEvent): string {
   return e.outcome ? `${parts} → ${e.outcome}` : parts;
 }
 
-/** 진행 중(started)인가 — 제자리 갱신 대상. 상태 줄을 쌓지 않는다. */
-export function isPending(e: TaskEvent): boolean {
-  return e.outcome === "started";
+// ── 「진행 중」 판정(T-FEED, 2026-09-25) ──────────────────────────────────────
+/**
+ * 턴이 아직 돌 수 있는 task 상태 — 계약 `TaskStatus`(openapi) 중 런타임 턴이 살아 있는 것.
+ * `waiting_human` 은 권한 요청(permission)으로 턴이 멈춰 선 상태라 도구 호출이 그대로 열려 있다.
+ * 나머지(deferred·queued·paused·completed·failed·cancelled)는 **지금 도는 턴이 없다** — 그 task 의 어떤 줄에도 「진행 중」을 붙이지 않는다.
+ */
+export const LIVE_TASK_STATUSES: ReadonlySet<TaskStatus> = new Set<TaskStatus>(["dispatched", "preparing", "running", "waiting_human"]);
+
+/** 턴(attempt)을 끝내는 런타임 줄 — `runtime/turn_end` · `runtime/error` · `runtime/cancel`(contracts/task_event.schema.json verb). */
+export function isTurnClose(e: Pick<TaskEvent, "class" | "verb">): boolean {
+  return e.class === "runtime" && (e.verb === "turn_end" || e.verb === "error" || e.verb === "cancel");
+}
+
+/** 판정에 쓰는 task 쪽 사실 — 모르면 비워 둔다(이벤트만으로 판정). */
+export interface PendingCtx {
+  /** task 상태. 끝난 상태면 모든 줄이 「진행 중」이 아니다. */
+  taskStatus?: TaskStatus | null;
+  /** task 의 현재 attempt. 그보다 앞 attempt 의 줄은 끝난 턴이다. */
+  attempt?: number | null;
+}
+
+/** 이벤트의 attempt — 생성 타입에서 선택 칸이라 없으면 1(서버 CHECK attempt >= 1). */
+export function attemptOf(e: Pick<TaskEvent, "attempt">): number {
+  return e.attempt ?? 1;
+}
+
+/**
+ * task 의 턴이 지금 도는가 — 「작업 중」 줄(T-FEED B)과 꼬리 조각의 행방을 가른다. task 상태를 알면 그것이 도는 상태(`LIVE_TASK_STATUSES`)여야 하고,
+ * 이벤트로도: 기록이 있고 마지막 attempt 에 턴을 끝내는 런타임 줄이 없어야 한다(`task.updated` 보다 `runtime/turn_end` 가 먼저 올 수 있다).
+ */
+export function isTaskLive(events: readonly TaskEvent[], ctx: PendingCtx = {}): boolean {
+  if (ctx.taskStatus != null && !LIVE_TASK_STATUSES.has(ctx.taskStatus)) return false;
+  const cur = events.filter((e) => !e.superseded_by);
+  if (cur.length === 0) return ctx.taskStatus != null;
+  const last = Math.max(...cur.map(attemptOf), ctx.attempt ?? 0);
+  return !cur.some((e) => attemptOf(e) === last && isTurnClose(e));
+}
+
+/**
+ * 「진행 중…」을 붙일 줄인가 — `latest` 는 `foldEvents` 가 접은 행의 최신 판이다.
+ * started 줄은 원래 "나중에 제자리 갱신될 줄"이지만 짝이 끝내 안 올 수 있다(runtime/start 는 짝 대신 turn_end 가 따로 오고,
+ * 도구 호출은 실패·중단으로 ok 가 빠진다). 그래서:
+ *  (a) 같은 `tool_call_id` 의 뒤 줄이 있으면 `foldEvents` 가 이미 그 결과로 제자리 갱신했다 — `latest` 가 started 가 아니다.
+ *  (b) 같은 attempt 에 턴을 끝내는 런타임 줄(`isTurnClose`)이 있거나 더 뒤 attempt 의 줄이 있으면 그 attempt 는 끝났다.
+ *  (c) task 가 도는 상태(`LIVE_TASK_STATUSES`)가 아니거나 `ctx.attempt` 보다 앞 attempt 면 끝났다.
+ * 끝난 턴의 짝 없는 started 는 「진행 중」이 아니라 중립(`isUnresolved`)이다.
+ */
+export function pendingJudge(events: readonly TaskEvent[], ctx: PendingCtx = {}): (latest: TaskEvent) => boolean {
+  const live = ctx.taskStatus == null || LIVE_TASK_STATUSES.has(ctx.taskStatus);
+  const att = attemptOf;
+  const closed = new Set<number>();
+  let maxAttempt = ctx.attempt ?? -Infinity;
+  for (const e of events) {
+    if (e.superseded_by) continue;
+    if (isTurnClose(e)) closed.add(att(e));
+    if (att(e) > maxAttempt) maxAttempt = att(e);
+  }
+  return (latest) => live && latest.outcome === "started" && !closed.has(att(latest)) && att(latest) >= maxAttempt;
+}
+
+/** 끝난 턴에 짝 없이 남은 started 줄 — 「결과 없음」(중립). runtime/start 는 턴의 끝이 turn_end 줄로 따로 오므로 꼬리를 달지 않는다. */
+export function isUnresolved(latest: TaskEvent, pending: boolean): boolean {
+  return !pending && latest.outcome === "started" && !(latest.class === "runtime" && latest.verb === "start");
 }
 
 export function isFailure(e: TaskEvent): boolean {

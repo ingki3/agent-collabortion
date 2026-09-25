@@ -12,6 +12,7 @@
 import { FENCE_RE, HEADING_RE, isTableStart, parseBlocks, type Block } from "@/lib/markdown";
 import { foldEvents } from "@/components/ActivityRail";
 import { isFailure, payloadOf } from "@/lib/feed";
+import { eventsInWindow, type ProcessWindow } from "@/lib/process-slice";
 import { MESSAGE_LAYERS as L, PROCESS_ACTION, type Slotted } from "@/lib/wording";
 import type { Message, TaskEvent } from "@/lib/api/types";
 
@@ -241,9 +242,14 @@ export function formatDuration(ms: number): ProcessPart[] {
  * 작업 과정 한 줄 — 가장 많은 동작 2개와 수 · 걸린 시간 · 실패 수(SCREEN §4.6 표). 같은 툴 호출(started → ok/failed)은 한 번으로 센다
  * (`foldEvents` — 피드가 한 행으로 접는 것과 같다). 동률이면 먼저 나온 동작이 앞이다. 걸린 시간은 첫 이벤트 → 마지막 이벤트.
  */
-export function summarizeProcess(ev: { events: TaskEvent[]; structured: boolean; loading: boolean } | undefined): ProcessSummary {
-  if (!ev || (ev.loading && ev.events.length === 0)) return { state: "loading" };
-  if (!ev.structured) return { state: "unstructured" };
+export function summarizeProcess(
+  src: { events: TaskEvent[]; structured: boolean; loading: boolean } | undefined,
+  slice?: ProcessWindow | null,
+): ProcessSummary {
+  if (!src || (src.loading && src.events.length === 0)) return { state: "loading" };
+  if (!src.structured) return { state: "unstructured" };
+  // 메시지의 조각(T-FEED A) — 동작 수·시간·실패 꼬리도 그 메시지까지의 기록으로만 센다.
+  const ev = slice ? { ...src, events: eventsInWindow(src.events, slice) } : src;
   if (ev.events.length === 0) return { state: "waiting" };
   const rows = foldEvents(ev.events);
   const counts = new Map<string, { n: number; order: number; paths?: Set<string> }>();

@@ -741,6 +741,8 @@ function simulateRun(s: Store, sess: Session, task: MockTask, reply: string) {
     // v0.2.0 — 방 누적과 미션 비용 두 수(계약 SSE 표). 옛 칸(session_id·cost_usd)도 R4 까지 함께.
     const wid = s.lanes.get(task.lane_id)?.work_id ?? null;
     emit(s, sess.workspace_id, "cost.updated", { session_id: sess.id, cost_usd: sess.cost_usd, estimated: false, room_id: sess.id, room_cost_usd: sess.cost_usd, ...(wid ? { work_id: wid, work_cost_usd: workCost(s, wid) } : {}) }, sess.id);
+    // 서버 tasks/service.go 처럼 상태 변화를 `task.updated` 로 — 활동 피드의 「진행 중…」 판정이 이것으로 끝난 task 를 안다(T-FEED).
+    emit(s, sess.workspace_id, "task.updated", toTask(s, task), sess.id);
     emitParticipant(s, sess, agent.id, null);
   });
 }
@@ -929,6 +931,15 @@ on("POST", "/rooms/{id}/messages", (req, p) => {
 });
 
 // ── tasks ──
+/** getTask — 활동 피드의 「진행 중…」 판정이 task 상태·attempt 를 읽는다(T-FEED). 서버 handlers_sessions.go GetTask. */
+on("GET", "/tasks/{id}", (req, p) => {
+  const s = store();
+  const task = s.tasks.get(p.id);
+  if (!task) throw notFoundP("task");
+  const sess = s.sessions.get(task.session_id)!;
+  requireMember(s, req, sess.workspace_id);
+  return ok(toTask(s, task));
+});
 on("GET", "/tasks/{id}/events", (req, p) => {
   const s = store();
   const task = s.tasks.get(p.id);
