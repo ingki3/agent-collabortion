@@ -117,17 +117,49 @@ func NewTable(overrides map[string]Price) Table {
 // (`claude-opus-5`), Hermes' provider-prefixed one (`anthropic:claude-sonnet-5`
 // — PRD FR-1.6), and a dated snapshot (`claude-haiku-4-5-20251001`, or Vertex'
 // `@`-separated form). They are one price.
+//
+// T-COSTMODEL adds the spellings Claude Code itself reports (measured on a
+// real Lead/Researcher, 2026-09-26):
+//
+//   - a context-window tag, `claude-opus-5[1m]`. The 1M-context tier is
+//     billed at a higher long-context rate above 200k input tokens, but this
+//     table has no column for it and `task_usage` does not record how much of
+//     each request sat past 200k — so the tag is dropped and the row is priced
+//     at the base rate. It stays badged `estimated`, and an under-estimate of
+//     the long-context surcharge is still a number the budget can trip on,
+//     where the unpriced alternative is $0. A workspace that wants the long
+//     rate sets a `pricing_overrides` entry for the base key.
+//   - several models joined by commas, `claude-opus-5[1m],claude-haiku-4-5-…`
+//     (the finish's `_meta.quota.model_usage[]`, one per model used). The
+//     FIRST is the main model — the adapter lists the session's model first
+//     and subagents/background calls after it — and one attempt row has one
+//     price, so the first one prices it.
+//   - dated snapshots in the dashed form (`-2025-10-01`) and the `-latest`
+//     alias, next to the compact `-YYYYMMDD` one.
 func Normalize(model string) string {
-	m := strings.ToLower(strings.TrimSpace(model))
+	m := model
+	if i := strings.Index(m, ","); i >= 0 { // opus[1m],haiku → the main model
+		m = m[:i]
+	}
+	m = strings.ToLower(strings.TrimSpace(m))
 	if i := strings.LastIndex(m, ":"); i >= 0 { // anthropic:claude-sonnet-5
 		m = m[i+1:]
 	}
 	if i := strings.Index(m, "@"); i >= 0 { // claude-opus-4-5@20251101
 		m = m[:i]
 	}
+	if i := strings.Index(m, "["); i > 0 { // claude-opus-5[1m] → base rate (see above)
+		m = strings.TrimSpace(m[:i])
+	}
+	m = strings.TrimSuffix(m, "-latest")
 	// a trailing -YYYYMMDD snapshot is the same model at the same price
 	if i := strings.LastIndex(m, "-"); i > 0 && len(m)-i == 9 && isDigits(m[i+1:]) {
 		m = m[:i]
+	}
+	// … and so is -YYYY-MM-DD
+	if n := len(m); n > 11 && m[n-11] == '-' && m[n-6] == '-' && m[n-3] == '-' &&
+		isDigits(m[n-10:n-6]+m[n-5:n-3]+m[n-2:]) {
+		m = m[:n-11]
 	}
 	return m
 }

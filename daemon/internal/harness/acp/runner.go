@@ -286,6 +286,14 @@ func (r *Runner) totalLocked() contracts.Usage {
 	u.CacheReadTokens += r.turn.cacheRead
 	u.CacheWriteTokens += r.turn.cacheWrite
 	u.Estimated, u.CostUSD = true, 0
+	// T-COSTMODEL: the heartbeat says which model the running turn is on, so
+	// the server can price it from the table instead of from the profile's
+	// model (which may be an alias like "default" that no table knows). The
+	// finished turns' model string is replaced, not joined: the server keeps
+	// one model per attempt row and the turn in flight is what is spending.
+	if r.turn.model != "" {
+		u.Model = r.turn.model
+	}
 	return u
 }
 
@@ -1187,6 +1195,11 @@ func (r *Runner) onRawSDK(method string, params json.RawMessage) {
 		Event json.RawMessage `json:"event,omitempty"`
 		// result — one per turn, and the only MEASURED cost on the ACP path
 		TotalCostUSD *float64 `json:"total_cost_usd,omitempty"`
+		// parent_tool_use_id is null on the main agent's stream and the Task
+		// tool call's id on a subagent's (spike 1b: the subagent's assistant
+		// messages carry `toolu_…`). T-COSTMODEL reads the model off the main
+		// stream only.
+		ParentToolUseID *string `json:"parent_tool_use_id,omitempty"`
 	}
 	if json.Unmarshal(p.Message, &head) != nil {
 		return
@@ -1203,7 +1216,7 @@ func (r *Runner) onRawSDK(method string, params json.RawMessage) {
 	r.noteActivity("raw:" + head.Type)
 	switch head.Type {
 	case "stream_event":
-		r.foldTurnUsage(foldSDKStream(head.Event))
+		r.foldTurnUsage(foldSDKStream(head.Event), head.ParentToolUseID == nil || *head.ParentToolUseID == "")
 		return
 	case "result":
 		if head.TotalCostUSD != nil {
@@ -1238,7 +1251,26 @@ func (r *Runner) onRawSDK(method string, params json.RawMessage) {
 // the budget see the new total. Nothing is emitted here: the mid-turn number
 // rides the ordinary 15s heartbeat (§4.2), so a chatty turn does not turn into
 // a chatty attempt.
-func (r *Runner) foldTurnUsage(t turnTokens) {
+//
+// main says the event came from the main agent's stream (parent_tool_use_id
+// null). Every stream's TOKENS count — a subagent's requests are billed to
+// this attempt like any other — but only the main stream names the turn's
+// model (T-COSTMODEL):
+//
+//   - Not "the model that burned the most". A Lead turn that fans out to a
+//     haiku subagent would be priced at haiku rates for the whole turn the
+//     moment the subagent out-talked the Lead, and the number would flip back
+//     and forth between heartbeats. Under-pricing is the failure that matters
+//     here (the budget does not trip), and the main model is the expensive
+//     one in every profile this product ships.
+//   - "Most recent" rather than "first": the main model only changes
+//     mid-attempt when someone changed it (session/set_model on a resumed
+//     session), and then the newer one is the one spending now.
+//
+// The finish-time model (`_meta.quota.model_usage[].model`, possibly several)
+// and its model_drift judgement are untouched: at turn end recordUsage throws
+// this approximation — model included — away.
+func (r *Runner) foldTurnUsage(t turnTokens, main bool) {
 	if !t.any() {
 		return
 	}
@@ -1247,6 +1279,9 @@ func (r *Runner) foldTurnUsage(t turnTokens) {
 	r.turn.out += t.out
 	r.turn.cacheRead += t.cacheRead
 	r.turn.cacheWrite += t.cacheWrite
+	if main && t.model != "" {
+		r.turn.model = t.model
+	}
 	r.sawMidturn = true
 	r.noteBudget()
 	r.mu.Unlock()

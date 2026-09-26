@@ -932,13 +932,23 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 	// injected clock can stamp both in the same instant) — otherwise the same
 	// arithmetic produces the same number, and a session with hundreds of
 	// attempts re-reads all of them on every finish.
+	//
+	// T-COSTMODEL: the model is chosen in three steps, in Go (pricedModel),
+	// so each column is read separately — the row's own model, the profile's,
+	// and the most recent MEASURED model of the same agent in the same room.
+	// The last one is only a fallback: see pricedModel.
 	rows, err := tx.Query(ctx, `
 		SELECT u.task_id, u.attempt, u.input_tokens, u.output_tokens, u.cache_read, u.cost_usd,
-		       COALESCE(NULLIF(u.model, ''), p.model, '')
+		       COALESCE(u.model, ''), COALESCE(p.model, ''), COALESCE(last.model, '')
 		FROM task_usage u
 		JOIN task t ON t.id = u.task_id
 		LEFT JOIN agent_profile p ON p.id = t.profile_id
 		LEFT JOIN workspace_settings ws ON ws.workspace_id = $2
+		LEFT JOIN LATERAL (
+			SELECT u2.model FROM task_usage u2 JOIN task t2 ON t2.id = u2.task_id
+			WHERE t2.session_id = t.session_id AND t2.agent_id = t.agent_id
+			  AND NOT u2.estimated AND COALESCE(u2.model, '') <> ''
+			ORDER BY u2.updated_at DESC, u2.task_id DESC, u2.attempt DESC LIMIT 1) last ON true
 		WHERE t.session_id = $1 AND u.estimated
 		  AND (u.cost_usd = 0 OR ws.updated_at IS NULL OR u.updated_at <= ws.updated_at)
 		ORDER BY u.task_id, u.attempt`, sessionID, wsID)
@@ -952,11 +962,12 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 		var attempt int
 		var in, out, cacheRead int64
 		var stored float64
-		var model string
-		if err := rows.Scan(&id, &attempt, &in, &out, &cacheRead, &stored, &model); err != nil {
+		var own, profile, lastMeasured string
+		if err := rows.Scan(&id, &attempt, &in, &out, &cacheRead, &stored, &own, &profile, &lastMeasured); err != nil {
 			rows.Close()
 			return fmt.Errorf("tasks: pricing scan: %w", err)
 		}
+		model := pricedModel(table, own, profile, lastMeasured)
 		usd, ok := table.Estimate(model, in, out, cacheRead)
 		if !ok {
 			// S-48: an unpriced model is not $0, and since the budget is now
@@ -1013,6 +1024,43 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 		return fmt.Errorf("tasks: pricing update: %w", err)
 	}
 	return nil
+}
+
+// pricedModel picks the model an estimated usage row is priced as
+// (T-COSTMODEL, Director 2026-09-26):
+//
+//  1. the row's own model — what the daemon measured (finish:
+//     `_meta.quota.model_usage[].model`; mid-turn since T-COSTMODEL: the main
+//     stream's `message_start.model`). Always first, even when the table does
+//     not know it: a measured model is never swapped for a guessed one, and
+//     an unknown measured model keeps its honest "가격표에 없는 모델" note.
+//  2. the profile's model, when the table knows it (hermes profiles name a
+//     real model, so their mid-turn rows price from here as before).
+//  3. the most recent MEASURED model (task_usage.estimated = false) of the
+//     same agent in the same room — only when 1 is empty and 2 is not
+//     priced. This is the claude_code Lead whose profile model is the alias
+//     "default": its first turn's finish names `claude-opus-5[1m]`, and every
+//     later turn's heartbeats can be priced from that instead of reading $0
+//     until finish. Same agent AND same room, because a different agent's
+//     model says nothing about this one's, and another room may run another
+//     profile. It is still an estimate — the row keeps its badge and its own
+//     empty model; the fallback is never written back.
+//
+// When none of them prices, the profile's (or the row's) name is returned so
+// the unpriced note names what it could not price, as before.
+func pricedModel(table cost.Table, own, profile, lastMeasured string) string {
+	if own != "" {
+		return own
+	}
+	if _, ok := table.Price(profile); ok {
+		return profile
+	}
+	if lastMeasured != "" {
+		if _, ok := table.Price(lastMeasured); ok {
+			return lastMeasured
+		}
+	}
+	return profile
 }
 
 func (s *Service) inTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
