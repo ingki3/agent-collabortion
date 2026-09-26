@@ -18,7 +18,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { MessageCard, authorName, type ConversationSlot, type MessageLayerSlots } from "@/components/MessageCard";
 import { ArtifactRef, DetailFold, ProcessFold, TimelineViewToggle, WorkingBubble, type TimelineView } from "@/components/MessageLayers";
-import { applyDelta, dropMemo, lastSentence, memoSegments, noteToolEvent, notePosted, type ProgressMemos } from "@/lib/progress-memo";
+import { lastSentence, memoEffect, memoSegments, type ProgressMemos } from "@/lib/progress-memo";
 import { Composer, type ComposerAgent, type ComposerInput, type ComposerWarning } from "@/components/Composer";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { LaneBoard } from "@/components/LaneBoard";
@@ -42,7 +42,7 @@ import { Slot, slotText } from "@/components/Slot";
 import { api, errorMessage, isApiError, newIdempotencyKey } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
-import { LIVE_TASK_STATUSES, emptyTurnNote, isEmptyTurn, isTaskLive, isTurnClose } from "@/lib/feed";
+import { emptyTurnNote, isEmptyTurn, isTaskLive } from "@/lib/feed";
 import { roomProcessSlices, workingTasks, type ProcessSlices, type ProcessWindow } from "@/lib/process-slice";
 import { useMarkRoomRead } from "@/lib/unread";
 import { isLayered, messageLayers, summarizeProcess, timelineViewKey } from "@/lib/message-layers";
@@ -428,14 +428,15 @@ export default function RoomPage() {
     // 워크스페이스 전체 스트림 — 다른 방의 프레임은 버린다(§6: 구독 범위는 방, 미션은 클라이언트가 거른다).
     const rid = ev.room_id;
     if (rid && rid !== roomId) return;
+    // 진행 메모(SCREEN §4.6 v0.19.10) — 델타·조각 경계·게시·턴 끝을 한 규칙으로(lib/progress-memo `memoEffect`).
+    setMemos((d) => memoEffect(d, ev));
     switch (ev.type) {
       case "message.created": {
         const m = ev.payload as unknown as Message;
         if (m.session_id !== roomId) return;
-        // 게시됐다 — 그때까지의 진행 메모는 이 메시지 앞의 것(말풍선은 그 자리에서 메시지로 바뀌고, 턴이 이어지면 새 메모부터).
-        if (m.author_type === "agent" && m.author_id) {
-          setMemos((d) => notePosted(d, m.author_id!));
-          const h = m.parent_id ? undefined : bubbleHeights.current[m.author_id];
+        // 게시됐다 — 말풍선이 그 자리에서 메시지로 바뀌는 첫 프레임에 높이를 쥔다(진행 메모 기준점은 `memoEffect`).
+        if (m.author_type === "agent" && m.author_id && !m.parent_id) {
+          const h = bubbleHeights.current[m.author_id];
           if (h) setHeld((cur) => ({ ...cur, [m.id]: h }));
         }
         if (m.parent_id) {
@@ -455,8 +456,6 @@ export default function RoomPage() {
       case "task_event.appended": {
         const te = ev.payload as unknown as TaskEvent;
         if (isEmptyTurn(te)) setEmptyTurns((m) => (m[te.task_id] ? m : { ...m, [te.task_id]: emptyTurnNote(te) }));
-        // 진행 메모의 조각 경계 — 두 델타 사이에 같은 task 의 도구 이벤트가 오면 거기서 문단을 나눈다. 턴이 끝나면 메모는 사라진다.
-        setMemos((d) => (isTurnClose(te) && !te.superseded_by ? dropMemo(d, { taskId: te.task_id }) : noteToolEvent(d, te)));
         setEvents((c) => {
           const cur = c[te.task_id];
           if (!cur || cur.events.some((e) => e.id === te.id)) return c;
@@ -467,7 +466,6 @@ export default function RoomPage() {
       case "task.updated": {
         // 「진행 중…」 판정(T-FEED) — task 가 끝나면 그 피드의 짝 없는 started 줄이 「결과 없음」으로 바뀐다.
         const t = ev.payload as unknown as Task;
-        if (!LIVE_TASK_STATUSES.has(t.status)) setMemos((d) => dropMemo(d, { taskId: t.id }));
         setEvents((c) => {
           const cur = c[t.id];
           if (!cur) return c;
@@ -488,7 +486,6 @@ export default function RoomPage() {
         const l = ev.payload as unknown as Lane;
         if (l.session_id !== roomId) return;
         setLanes((cur) => (cur.some((x) => x.id === l.id) ? cur.map((x) => (x.id === l.id ? { ...x, ...l } : x)) : [...cur, l]));
-        if (l.status !== "running") setMemos((d) => dropMemo(d, { agentId: l.agent_id }));
         refreshRoom();
         break;
       }
@@ -582,11 +579,6 @@ export default function RoomPage() {
       case "agent.typing": {
         const p = ev.payload as { agent_id: string; typing: boolean };
         setTyping((t) => ({ ...t, [p.agent_id]: p.typing }));
-        break;
-      }
-      case "message.delta": {
-        const p = ev.payload as { agent_id: string; task_id?: string | null; text: string };
-        setMemos((d) => applyDelta(d, p));
         break;
       }
       default:

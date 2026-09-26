@@ -240,6 +240,20 @@ describe("끝날 때 — 게시 · 턴 끝", () => {
     expect(fold.textContent).toContain("셸 명령 36회");
     expect(document.body.textContent).not.toContain("밸런스를 맞췄습니다.");
   });
+
+  it("task.updated 단독 종료(turn-close 줄도 lane.updated 도 없이) — 말풍선도 진행 메모도 사라진다", async () => {
+    await ready();
+    delta("a1", "t1", "밸런스를 맞췄습니다.\n\n마무리하는 중입니다.");
+    fireEvent.click(within(bubbleOf("a1")).getByTestId("working-fold"));
+    expect(within(bubbleOf("a1")).getAllByTestId("working-memo-para")).toHaveLength(2);
+    // 끝났다는 신호가 task.updated 하나뿐인 종료(데몬이 죽어 turn_end 줄이 안 오고 lane.updated 도 늦는 경우).
+    send("task.updated", { ...TASKS.t1, status: "failed" });
+    await waitFor(() => expect(bubbleOf("a1")).toBeNull());
+    // 메모가 남아 있으면 같은 에이전트의 말풍선이 기록 없이 다시 선다 — 진행 메모는 영속되지 않는다(SCREEN §4.6).
+    expect(document.body.textContent).not.toContain("마무리하는 중입니다.");
+    expect(document.body.textContent).not.toContain("밸런스를 맞췄습니다.");
+    expect(bubbleOf("a2")).not.toBeNull();
+  });
 });
 
 describe("접근성 · 모션", () => {

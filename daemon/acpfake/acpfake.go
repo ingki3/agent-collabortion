@@ -133,7 +133,12 @@ type Turn struct {
 }
 
 type Step struct {
-	Chunk      string          `json:"chunk,omitempty"`
+	Chunk string `json:"chunk,omitempty"`
+	// EmptyChunk sends an agent_message_chunk whose text is "" — real
+	// adapters do emit them (a flush with nothing new), and the daemon's
+	// paragraph rule has to survive one landing on a pending tool boundary
+	// (T-BUBBLE NN2). `Chunk: ""` cannot express this: it is the zero value.
+	EmptyChunk bool            `json:"empty_chunk,omitempty"`
 	Thought    string          `json:"thought,omitempty"`
 	SleepMs    int             `json:"sleep_ms,omitempty"`
 	ToolCall   *ToolCallStep   `json:"tool_call,omitempty"`
@@ -703,6 +708,8 @@ func (sv *server) prompt(id *json.RawMessage, sid string) {
 			time.Sleep(time.Duration(st.SleepMs) * time.Millisecond)
 		case st.Chunk != "":
 			sv.chunk(sid, "agent_message_chunk", st.Chunk)
+		case st.EmptyChunk:
+			sv.chunk(sid, "agent_message_chunk", "")
 		case st.Thought != "":
 			sv.chunk(sid, "agent_thought_chunk", st.Thought)
 		case st.EchoBrief:

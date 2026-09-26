@@ -151,8 +151,8 @@ type Runner struct {
 	// exists so the moment the watch fires — or the moment someone reads
 	// the log after it did — says WHAT was being counted, not just that
 	// nothing was.
-	activity     activityLedger
-	say          strings.Builder
+	activity activityLedger
+	say      strings.Builder
 	// sayBreak is set when a tool_call arrives after some text: the next
 	// agent_message_chunk opens a new paragraph (see appendSay).
 	sayBreak     bool
@@ -699,6 +699,50 @@ func (r *Runner) appendSay(t string) {
 	r.say.WriteString(t)
 }
 
+// PreviewMaxChars caps how much of the turn text one heartbeat preview
+// carries (Lead 판정 2026-09-26, T-BUBBLE NN1; daemon-protocol v0.10.2).
+//
+// The preview is a SNAPSHOT of everything said so far and the daemon re-sends
+// it every 15 s, so a long chatty turn grows the frame without bound: a
+// measured 30-minute turn (4 rounds/min × 400 chars) ends at ~49,000 chars and
+// moves ~8.4 MB of SSE over the turn, all of it re-transmitted prefixes. The
+// screen only ever shows the LAST sentence plus the paragraphs of the current
+// turn tail (SCREEN §4.6 v0.19.10), so the head of a very long note is paid
+// for and never read.
+//
+// The cap is on the preview ONLY. `finish` and the persisted `message.say`
+// body still carry the whole turn text — truncating the message a person
+// reads later to save streaming bandwidth would be trading the wrong thing.
+const PreviewMaxChars = 16_000
+
+// PreviewElided is the one line that says the head was dropped. It is kept
+// out of the character budget on purpose: the marker is the daemon's, not the
+// agent's text.
+const PreviewElided = "…(앞부분 생략)\n\n"
+
+// ClipPreview returns the tail of `say` for a heartbeat preview: at most
+// PreviewMaxChars characters, cut at a PARAGRAPH boundary (the blank line
+// appendSay writes at each tool-call boundary) so the first thing the screen
+// shows is a whole progress note rather than half a sentence, prefixed with
+// PreviewElided. When the tail holds no paragraph boundary at all (one long
+// note), the cut falls on the character boundary — a half sentence is better
+// than dropping a note the person is watching. Counting is by character, not
+// byte, so a Korean turn is not cut mid-rune.
+func ClipPreview(say string) string {
+	r := []rune(say)
+	if len(r) <= PreviewMaxChars {
+		return say
+	}
+	tail := string(r[len(r)-PreviewMaxChars:])
+	// The earliest boundary inside the tail keeps the most text.
+	if i := strings.Index(tail, "\n\n"); i >= 0 {
+		if rest := strings.TrimLeft(tail[i+2:], "\n"); rest != "" {
+			tail = rest
+		}
+	}
+	return PreviewElided + tail
+}
+
 // resetTurn clears the accumulated turn state before the D-13 retry: the
 // refused turn contributed no text, no thought and no tools, and carrying its
 // (empty) builders forward would merge two turns into one message.
@@ -995,7 +1039,7 @@ func (r *Runner) onUpdate(p SessionUpdateParams) {
 		t := u.ChunkText()
 		r.mu.Lock()
 		r.appendSay(t)
-		preview := r.say.String()
+		preview := ClipPreview(r.say.String())
 		r.mu.Unlock()
 		if r.a.Sink != nil && t != "" {
 			r.a.Sink.Preview(preview)
@@ -1013,9 +1057,10 @@ func (r *Runner) onUpdate(p SessionUpdateParams) {
 		}
 		ts.absorb(&u)
 		r.lastTool = ts
-		if r.say.Len() > 0 {
-			r.sayBreak = true
-		}
+		// A paragraph boundary is PENDING from here; appendSay decides whether it
+		// becomes a blank line (never before the turn's first text — one guard,
+		// one place, T-BUBBLE NN2).
+		r.sayBreak = true
 		if r.toolDone == nil || isClosed(r.toolDone) {
 			r.toolDone = make(chan struct{})
 		}

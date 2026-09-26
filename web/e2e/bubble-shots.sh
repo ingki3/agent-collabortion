@@ -7,7 +7,10 @@
 #   bubble-02-expanded-light.png  Researcher 말풍선을 펼친 모습 — 진행 메모 조각마다 한 문단(옛 데몬 폴백: 델타 사이 도구 이벤트로 나뉨) → 활동 피드.
 #   bubble-03-two-dark.png        01 과 같은 상태, 다크.
 #   bubble-04-expanded-dark.png   Lead 말풍선 펼침(새 데몬: 빈 줄 문단), 다크.
-#   bubble-05-narrow-light.png    좁은 화면(420px) — 말풍선 전폭, 머리가 두 줄로 접힌다.
+#   bubble-05-narrow-700-dark.png 좁은 화면 700px — `message-layers.css` 의 `@media (max-width: 720px)` **아래**. Pencil `S7-CD`(다크·좁은, 타임라인 열 420)와
+#                                 같은 상태를 대조한다: 말풍선 전폭, 머리가 필요하면 두 줄로 접힘. 다크는 Pencil 과 같은 테마여서다.
+#   bubble-05b-narrow-1000-light.png 좁은 화면 1000px — 720 경계 **위**이자 형제 스크립트들(`r2-w2-shots.sh`·`r2-w4b-shots.sh`)이 쓰는 좁은 화면 폭.
+#                                 좁은 열 탭(≤1100px)이되 말풍선 분기는 안 타는 자리 — 두 폭 사이에서 말풍선이 같은 모양인지 본다.
 #   bubble-06-posted-light.png    Lead 가 게시 → 말풍선 자리에 게시된 메시지(채운 말풍선), Researcher 말풍선은 그대로.
 #
 # 사용:
@@ -99,13 +102,27 @@ apic '(function(){var b=document.querySelectorAll("[data-testid=working-bubble]"
 sleep 1
 shot bubble-04-expanded-dark
 
-step "05 — 좁은 화면(라이트)"
-set_theme light
-ab set viewport 420 900 >/dev/null
+step "05 — 좁은 화면 700px(다크 — Pencil S7-CD 와 같은 테마)"
+set_theme dark
+ab set viewport 700 1000 >/dev/null
 open_working
 to_bottom
-assert_js 'document.querySelectorAll("[data-testid=working-bubble]").length === 2' "좁은 화면에도 말풍선 둘"
-shot bubble-05-narrow-light
+assert_js 'document.querySelectorAll("[data-testid=working-bubble]").length === 2' "700px 에도 말풍선 둘"
+assert_js 'document.querySelector("[data-testid=working-memo-line]") !== null' "진행 메모 한 줄이 읽힌다"
+# 720px 분기가 실제로 걸렸는가 — 말풍선은 대화 열을 꽉 채운다(max-width 88% 가 100% 로).
+assert_js '(function(){var b=document.querySelector(".wbub__bubble");var col=b.closest(".convo__col");return b.getBoundingClientRect().width >= col.getBoundingClientRect().width - 1})()' "≤720px 분기 — 말풍선 전폭"
+assert_js '(function(){var f=document.querySelector("[data-testid=working-fold]");var l=f.querySelector(".fold__label");return l.getBoundingClientRect().right <= f.getBoundingClientRect().right + 1})()' "펼침 줄 라벨이 버튼 안"
+shot bubble-05-narrow-700-dark
+
+step "05b — 좁은 화면 1000px(라이트 — 형제 스크립트와 같은 폭)"
+set_theme light
+ab set viewport 1000 900 >/dev/null
+open_working
+to_bottom
+assert_js 'document.querySelectorAll("[data-testid=working-bubble]").length === 2' "1000px 에도 말풍선 둘"
+assert_js '(function(){var b=document.querySelector(".wbub__bubble");var col=b.closest(".convo__col");return b.getBoundingClientRect().width < col.getBoundingClientRect().width})()' "720px 위 — 말풍선은 88% 폭"
+assert_js 'getComputedStyle(document.querySelector(".wbub__bubble")).borderTopStyle === "dashed"' "점선 테두리"
+shot bubble-05b-narrow-1000-light
 
 step "06 — Lead 게시 → 그 자리에 메시지"
 ab set viewport 1280 900 >/dev/null
@@ -120,4 +137,4 @@ shot bubble-06-posted-light
 
 apic "(function(){try{localStorage.removeItem('colab.theme')}catch(e){};return 'ok'})()" >/dev/null
 echo
-echo "== bubble-shots: 6장 ($SHOT_DIR) =="
+echo "== bubble-shots: 7장 ($SHOT_DIR) =="
