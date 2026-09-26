@@ -215,6 +215,13 @@ type SDKRequestStep struct {
 	// OpeningOutput is the output_tokens the request STARTS with (real turns:
 	// 1~4). Zero → 4.
 	OpeningOutput int64 `json:"opening_output,omitempty"`
+	// Model is `message_start.message.model` (the real adapter always sends
+	// one; T-COSTMODEL). Empty → the field is left out, the pre-T-COSTMODEL
+	// shape of this fake.
+	Model string `json:"model,omitempty"`
+	// Parent is `parent_tool_use_id` — a subagent's request (the Task tool
+	// call's id). Empty → null, the main agent's stream.
+	Parent string `json:"parent,omitempty"`
 }
 
 // RawDeltasStep emits Count input_json_delta stream events, IntervalMs apart
@@ -535,13 +542,21 @@ func (sv *server) sdkRequest(sid string, r *SDKRequestStep) {
 	}
 	open := map[string]any{"input_tokens": r.Input, "output_tokens": opening,
 		"cache_read_input_tokens": r.CacheRead, "cache_creation_input_tokens": r.CacheWrite}
-	sv.sdkMessage(sid, map[string]any{"type": "stream_event", "parent_tool_use_id": nil,
-		"event": map[string]any{"type": "message_start", "message": map[string]any{"id": "msg_fake", "usage": open}}})
+	var parent any
+	if r.Parent != "" {
+		parent = r.Parent
+	}
+	startMsg := map[string]any{"id": "msg_fake", "usage": open}
+	if r.Model != "" {
+		startMsg["model"] = r.Model
+	}
+	sv.sdkMessage(sid, map[string]any{"type": "stream_event", "parent_tool_use_id": parent,
+		"event": map[string]any{"type": "message_start", "message": startMsg}})
 	for i := 0; i < 2; i++ {
-		sv.sdkMessage(sid, map[string]any{"type": "assistant",
+		sv.sdkMessage(sid, map[string]any{"type": "assistant", "parent_tool_use_id": parent,
 			"message": map[string]any{"id": "msg_fake", "usage": open}})
 	}
-	sv.sdkMessage(sid, map[string]any{"type": "stream_event", "parent_tool_use_id": nil,
+	sv.sdkMessage(sid, map[string]any{"type": "stream_event", "parent_tool_use_id": parent,
 		"event": map[string]any{"type": "message_delta", "usage": map[string]any{
 			"input_tokens": r.Input, "output_tokens": r.Output,
 			"cache_read_input_tokens": r.CacheRead, "cache_creation_input_tokens": r.CacheWrite}}})
