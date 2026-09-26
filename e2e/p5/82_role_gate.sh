@@ -228,10 +228,14 @@ chk H3 "(b) env 모드: role \"\" · 문장은 괄호 생략 (84_ B.3)" "/이 �
 chk H4 "(b) error.allowed = 래퍼가 export 한 COLAB_ALLOWED_COMMANDS(reviewer 12)" "$REVIEWER_ALL" "$(jq -r '.out.error.allowed|join(",")' "$OUT/82-gate-rh.json")"
 chk H5 "(b) 선: RH 턴 동안 /api/v1 요청 0 줄 — 컨텍스트조차 부르지 않았다" 0 "$(( $(access_api_lines) - A0 ))"
 chk H6 "서버 rejected 행 0 · lane 행 0" "0/0" "$(rejected_rows "$T_RH")/$(psqlq "select count(*) from lane where session_id='$S' and delegated_from_task_id='$T_RH'")"
-# hermes 의 브리프는 파일이다(brief_transport=file): 프롬프트 첫 줄이 workdir 의 COLAB_BRIEF.md 를 가리킨다. RH 가 붙들고 있는 동안 읽는다.
+# hermes 의 브리프는 파일이다(brief_transport=file): 프롬프트 첫 줄이 workdir 의 브리프 파일을 가리킨다. RH 가 붙들고 있는 동안 읽는다.
+# harness v0.9.7: `dir` 폴더는 같은 에이전트의 병렬 lane 이 함께 쓰므로 이름이 lane 별 `COLAB_BRIEF-<lane_id[:8]>.md` 다
+# (worktree 만 `COLAB_BRIEF.md`). 옛 grep(`/COLAB_BRIEF\.md`)은 0 매치 → pipefail 로 스크립트가 출력 없이 죽었다(PR #345 CI).
 PROMPT_RH="$(jq -c 'select(.method=="session/prompt")' "$REC/RH.jsonl" | head -1 | jq -r '[.params.prompt[]?|.text // empty]|join("\n")')"; printf '%s\n' "$PROMPT_RH" > "$OUT/82-prompt-rh.txt"
-BRIEF_FILE="$(grep -o '/[^ ]*/COLAB_BRIEF\.md' "$OUT/82-prompt-rh.txt" | head -1)"; cp "${BRIEF_FILE:-/dev/null}" "$OUT/82-brief-rh.txt" 2>/dev/null || : > "$OUT/82-brief-rh.txt"
-chk H7 "hermes 브리프 파일(COLAB_BRIEF.md)에 거부 줄 · 래퍼 절대 경로 · colab lane delegate 없음" "yes/yes/0" \
+BRIEF_FILE="$(grep -oE '/[^ ]*/COLAB_BRIEF(-[0-9a-f]{8})?\.md' "$OUT/82-prompt-rh.txt" | head -1 || true)"; cp "${BRIEF_FILE:-/dev/null}" "$OUT/82-brief-rh.txt" 2>/dev/null || : > "$OUT/82-brief-rh.txt"
+RH_LANE8="$(psqlq "select left(lane_id::text, 8) from task where id='$T_RH'")"
+chk H7a "hermes 브리프 파일 이름 = COLAB_BRIEF-<RH lane_id[:8]>.md (harness v0.9.7, dir 폴더)" "COLAB_BRIEF-$RH_LANE8.md" "$(basename "${BRIEF_FILE:-none}")"
+chk H7 "hermes 브리프 파일에 거부 줄 · 래퍼 절대 경로 · colab lane delegate 없음" "yes/yes/0" \
   "$(grep -qF "$DENY_LINE" "$OUT/82-brief-rh.txt" && echo yes || echo no)/$(grep -q '/\.colab/bin/' "$OUT/82-brief-rh.txt" && echo yes || echo no)/$(grep -c 'colab lane delegate' "$OUT/82-brief-rh.txt" || true)"
 TT_RH="$(cat "$REC/gate-$T_RH.token")"
 R_="$(tok_api "$TT_RH" POST "/rooms/$S/lanes" "$(jq -nc --arg a "$LEAD" '{agent_id:$a,brief:"우회"}')")"

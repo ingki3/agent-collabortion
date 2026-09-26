@@ -147,6 +147,10 @@ func (s *Server) ListRuntimeWorkdirs(w http.ResponseWriter, r *http.Request, run
 		sid := uuid.UUID(*params.SessionId)
 		q.SessionID = &sid
 	}
+	if params.WorkId != nil {
+		wid := uuid.UUID(*params.WorkId)
+		q.WorkID = &wid
+	}
 	if params.Limit != nil {
 		q.Limit = *params.Limit
 	}

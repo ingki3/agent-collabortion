@@ -157,3 +157,49 @@ describe("수동 삭제 — 기본 차단 → 사유 → 확인 → force", () =
     expect(del).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("[FOLDERS] 방 → 미션 → 에이전트 트리(SCREEN §4.16 · daemon-protocol v0.10.0 §6.1)", () => {
+  const R = "/Users/x/.colab/rooms/게임-제작-3f2a91c0";
+  const tree: Workdir[] = [
+    wd({ id: "m-shared", kind: "dir", agent_id: null, branch: null, role: "shared", work_id: "wk1", work: { id: "wk1", title: "스네이크 v2" },
+      path_or_ref: `${R}/스네이크-8b11de02/_shared`, last_used_at: "2026-09-26T00:00:00Z" }),
+    wd({ id: "m-dev", kind: "dir", agent_id: "ag1", branch: null, role: "agent", work_id: "wk1", work: { id: "wk1", title: "스네이크 v2" },
+      path_or_ref: `${R}/스네이크-8b11de02/developer-0c7e5d19` }),
+    wd({ id: "outside", kind: "dir", agent_id: "ag1", branch: null, role: "agent", work_id: null, work: null,
+      path_or_ref: `${R}/_room/backend-0c7e5d19` }),
+    // 저장소 체크아웃(worktree 방): `rooms/<방>/_worktrees/<에이전트>` — 「저장소 체크아웃」 묶음이 한 번은 렌더돼야 그 분류가 단정된다.
+    wd({ id: "checkout", kind: "worktree", agent_id: "ag1", branch: "colab/game-3f2a91c0/backend", role: "agent", work_id: null, work: null,
+      path_or_ref: `${R}/_worktrees/backend-0c7e5d19` }),
+    wd({ id: "legacy", kind: "dir", agent_id: null, lane_id: "l1", branch: null, work_id: null, work: null,
+      path_or_ref: "/Users/x/.colab/sessions/s1/l1" }),
+  ];
+
+  it("미션 묶음 · 「미션 밖」 · 「저장소 체크아웃」 · 「옛 배치(세션 폴더)」 로 묶고, 공용을 먼저 그린다", async () => {
+    mockList(50, GB, tree);
+    render(<WorkdirsPage />);
+    await waitFor(() => expect(screen.getAllByTestId("workdir-group").length).toBe(4));
+    const groups = screen.getAllByTestId("workdir-group");
+    expect(groups.map((g) => g.getAttribute("data-group"))).toEqual(["mission", "outside", "checkouts", "legacy"]);
+    // 굵게는 현재 이름(미션 제목) — 경로의 조각이 아니다.
+    expect(groups[0].querySelector('[data-testid="workdir-group-title"]')!.textContent).toBe("스네이크 v2");
+    expect(groups[1].querySelector('[data-testid="workdir-group-title"]')!.textContent).toBe("미션 밖");
+    expect(groups[2].querySelector('[data-testid="workdir-group-title"]')!.textContent).toBe("저장소 체크아웃");
+    const checkoutRows = groups[2].querySelectorAll('[data-testid="workdir-row"]');
+    expect([...checkoutRows].map((r) => r.getAttribute("data-workdir-id"))).toEqual(["checkout"]);
+    expect(groups[3].querySelector('[data-testid="workdir-group-title"]')!.textContent).toBe("옛 배치(세션 폴더)");
+    const missionRows = groups[0].querySelectorAll('[data-testid="workdir-row"]');
+    expect(missionRows[0].getAttribute("data-role")).toBe("shared");
+    expect(missionRows[0].querySelector('[data-testid="workdir-kind"]')!.textContent).toBe("공용");
+    expect(missionRows[1].querySelector('[data-testid="workdir-name"]')!.textContent).toBe("@Backend");
+  });
+
+  it("에이전트 이름을 바꾼 뒤에는 경로 옆에 「폴더 이름은 만들 때의 이름입니다」", async () => {
+    mockList(50, GB, tree);
+    render(<WorkdirsPage />);
+    await waitFor(() => expect(screen.getAllByTestId("workdir-row").length).toBe(5));
+    // 현재 이름 Backend ≠ 경로 조각 developer → 표시, 같은 이름(backend) 행은 표시 없음.
+    const byId = (id: string) => screen.getAllByTestId("workdir-row").find((r) => r.getAttribute("data-workdir-id") === id)!;
+    expect(byId("m-dev").querySelector('[data-testid="workdir-fixed-name"]')!.textContent).toContain("폴더 이름은 만들 때의 이름입니다");
+    expect(byId("outside").querySelector('[data-testid="workdir-fixed-name"]')).toBeNull();
+  });
+});

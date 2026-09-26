@@ -2068,10 +2068,12 @@ on("GET", "/runtimes/{id}/workdirs", (req, p) => {
   const rt = runtimeOf(s, req, p.id);
   const status = req.query.get("status");
   const sessionId = req.query.get("session_id");
-  const mine = [...s.workdirs.values()].filter((w) => w.runtime_id === rt.id);
+  // openapi v0.3.4 `?work_id=` — 그 미션의 행만(에이전트 행 + `_shared`), 합계도 그 미션 것만(미션 닫기 확인).
+  const workId = req.query.get("work_id");
+  const mine = [...s.workdirs.values()].filter((w) => w.runtime_id === rt.id && (!workId || w.work_id === workId));
   const items = mine
     .filter((w) => (!status || w.status === status) && (!sessionId || w.session_id === sessionId))
-    .map(({ runtime_id: _r, ...w }) => w)
+    .map(({ runtime_id: _r, ...w }) => ({ ...w, work: w.work_id ? { id: w.work_id, title: s.works.get(w.work_id)?.title ?? w.work?.title ?? "" } : null }))
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
   return ok({
     items, next_cursor: null,
@@ -2287,6 +2289,33 @@ on("POST", "/__mock/rooms/{id}/seed-workdirs", (req, p) => {
   if (!rtId) throw new Problem(409, "no_runtime", "런타임이 없습니다");
   const parts = (sess.participants ?? []).map((x) => x.agent_id);
   const retain = new Date(Date.now() + WORKDIR_RETENTION_DAYS * 864e5).toISOString();
+  if (body<{ layout?: string }>(req).layout === "folders") {
+    // [FOLDERS] daemon-protocol v0.10.0 §6.1 배치 — 미션 하나(공용 + 에이전트 둘) · 미션 밖 하나 · 옛 배치 하나.
+    const work = [...s.works.values()].find((w) => w.room_id === sess.id);
+    const root = `/Users/me/.colab/rooms/${sess.id.slice(0, 8)}`;
+    const agentName = (id: string | undefined) => s.agents.get(id ?? "")?.name?.toLowerCase() ?? "agent";
+    const rowsF: { agent: string | null; role: "agent" | "shared"; work: boolean; path: string; mb: number }[] = [
+      { agent: null, role: "shared", work: true, path: `${root}/${work ? work.id.slice(0, 8) : "mission"}/_shared`, mb: 3 },
+      { agent: parts[0] ?? null, role: "agent", work: true, path: `${root}/${work ? work.id.slice(0, 8) : "mission"}/${agentName(parts[0])}-${(parts[0] ?? "").slice(0, 8)}`, mb: 5 },
+      { agent: parts[1] ?? parts[0] ?? null, role: "agent", work: true, path: `${root}/${work ? work.id.slice(0, 8) : "mission"}/${agentName(parts[1] ?? parts[0])}-${(parts[1] ?? parts[0] ?? "").slice(0, 8)}`, mb: 4 },
+      { agent: parts[0] ?? null, role: "agent", work: false, path: `${root}/_room/${agentName(parts[0])}-${(parts[0] ?? "").slice(0, 8)}`, mb: 1 },
+      { agent: null, role: "agent", work: false, path: `/Users/me/.colab/sessions/${sess.id}/lane-old`, mb: 2 },
+    ];
+    const madeF: Workdir[] = [];
+    rowsF.forEach((r, i) => {
+      const w: Workdir & { runtime_id: string } = {
+        id: uuid(), runtime_id: rtId, session_id: sess.id, session: sessionRefOf(sess), agent_id: r.agent,
+        lane_id: r.role === "shared" || r.agent ? null : "lane-old", kind: "dir", path_or_ref: r.path, branch: null,
+        work_id: r.work && work ? work.id : null, work: r.work && work ? { id: work.id, title: work.title } : null, role: r.role,
+        status: "active", disk_bytes: r.mb * 1024 * 1024, last_used_at: new Date(Date.now() - (i + 1) * 36e5).toISOString(),
+        retain_until: retain, dirty: false, merged: null, commits_ahead: 0, gc_blocked_reason: null, created_at: now(), updated_at: now(),
+      };
+      s.workdirs.set(w.id, w);
+      const { runtime_id: _r, ...wire } = w;
+      madeF.push(wire);
+    });
+    return ok(madeF, 201);
+  }
   const rows: { agent: string | null; branch: string; dirty: boolean; ahead: number; reason: Workdir["gc_blocked_reason"] }[] = [
     { agent: parts[0] ?? null, branch: "colab/S/backend", dirty: false, ahead: 0, reason: null },
     { agent: parts[1] ?? null, branch: "colab/S/frontend", dirty: false, ahead: 3, reason: "unmerged_commits" },

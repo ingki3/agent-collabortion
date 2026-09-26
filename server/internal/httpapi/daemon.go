@@ -201,6 +201,12 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 			// TestChatID marks the §4.5 receipt for a test chat's temporary
 			// directory: not a workdir row, only a gc command's consumption.
 			TestChatID string `json:"test_chat_id"`
+			// daemon-protocol v0.10.0 §6: `work_id?`·`role?`. The server finds
+			// the row by id and its own row wins; `role: shared` is what lets a
+			// mission's `_shared` (no name tag — the daemon only mkdirs it) be
+			// found by its stored path.
+			WorkID string `json:"work_id"`
+			Role   string `json:"role"`
 		} `json:"workdirs"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(&in); err != nil {
@@ -226,6 +232,11 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 		// agent_id, path) is the fallback for an entry with no id, or with an
 		// id the server does not know.
 		rep, why := s.workdirReportByID(r, d, wd.ID, wd.Kind, wd.Path)
+		if rep.ID == nil && why == "" && wd.Role == workdirs.RoleShared {
+			if id := s.sharedRowByPath(r, d, wd.Path); id != uuid.Nil {
+				rep, why = s.workdirReportByID(r, d, id.String(), wd.Kind, wd.Path)
+			}
+		}
 		if rep.ID == nil && why == "" {
 			rep, why = s.workdirReport(r, d, wd.Kind, wd.Path, wd.SessionID, wd.AgentID, wd.LaneID)
 		}
@@ -521,6 +532,22 @@ func (s *Server) workdirReportByID(r *http.Request, d daemonCtx, id, kind, path 
 		rep.Kind = rowKind
 	}
 	return rep, ""
+}
+
+// sharedRowByPath is the row of a mission's `_shared` folder at path on the
+// calling runtime (daemon-protocol v0.10.0 §6.1). The daemon writes no name
+// tag there (it only mkdirs it, §4.1), so its report has no id; the path is
+// the server's own stored string, which is as good a key on one machine.
+func (s *Server) sharedRowByPath(r *http.Request, d daemonCtx, path string) uuid.UUID {
+	var id uuid.UUID
+	if err := s.DB.QueryRow(r.Context(), `
+		SELECT w.id FROM workdir w JOIN room s ON s.id = w.session_id
+		 WHERE w.path_or_ref = $1 AND w.role = 'shared' AND w.status <> 'deleted'
+		   AND s.workspace_id = $2 AND s.runtime_id = $3
+		 ORDER BY w.created_at LIMIT 1`, path, d.WorkspaceID, d.RuntimeID).Scan(&id); err != nil {
+		return uuid.Nil
+	}
+	return id
 }
 
 // trimForDetail keeps an echoed daemon value short enough for the event

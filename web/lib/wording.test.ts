@@ -24,6 +24,8 @@ import { ARCHIVE_DIALOG, CREATE_ROOM, DELETE_ROOM_DIALOG, ROOM_BLOCKED_LABEL, RO
 import { BLOCK_DIALOG, ROOM_BANNER, ROOM_CENTER, ROOM_HEAD, ROOM_LEFT, ROOM_NOTICES, ROOM_PANEL, ROOM_TABS, SUMMARIZE_DIALOG, WORK_CHIPS, WORK_PANEL, WORK_PAUSE_LABEL, WORK_SELECTOR } from "@/lib/wording";
 import { MESSAGE_LAYERS, PROCESS_ACTION } from "@/lib/wording";
 import { ROOM_RENAME } from "@/lib/wording";
+import { FOLDERS_WORDING } from "@/lib/workdir-tree";
+import { CLOSE_WORK_DIALOG } from "@/components/CloseWorkDialog";
 import { BLOCKED_REASON, COMMAND_LABEL, CONDITION_EDITOR, CONDITION_NAME, EMPTY_TURN, FIX_CONDITION, OBSERVATIONS, PROGRESS, ROLE_COMMANDS, ROUTING_PLATFORM_LABEL, ROUTING_RULE_LABEL, conditionName, routingKindLabel } from "@/lib/wording";
 
 const ROOT = join(__dirname, "..");
@@ -185,7 +187,9 @@ describe("§8.4 용어표 — 옛말이 화면 문자열에 0건", () => {
     ["Runtimes → 연결된 컴퓨터", /\bRuntimes\b/],
     ["Sessions → 방", /\bSessions\b/],
     // v0.19 R1.5 (PRD §3.2 · SCREEN §3.4) — 「세션」은 문맥에 따라 방 또는 미션, 「작업 줄기」는 서브 미션
-    ["세션 → 방 · 미션", /세션/],
+    // 예외 하나(v0.19.9 [FOLDERS], Lead 지시 문구): S13 「옛 배치(세션 폴더)」 — 화면 용어가 아니라 디스크의 옛 디렉터리
+    // 이름 `sessions/` 를 가리킨다(옮기지 않은 폴더라 경로에 그 말이 그대로 보인다). 그 한 구절만 빠진다.
+    ["세션 → 방 · 미션", /세션(?! 폴더\))/],
     ["작업 줄기 → 서브 미션", /작업\s*줄기/],
     ["산출물 → 아티팩트 (바꾸지 않는다 — PRD §3.2)", /산출물/],
     ["Inbox → 받은 요청", /\bInbox\b/],
@@ -931,5 +935,32 @@ describe("v0.19.5 방 이름 바꾸기 — 말은 표(ROOM_RENAME)에서만, 세
     expect(comp).toMatch(/<button ref=\{trigger\} type="button" className="title-edit__pencil" aria-label=\{ROOM_RENAME\.edit\}/);
     expect(comp).toMatch(/aria-label=\{ROOM_RENAME\.input_label\}/);
     expect(comp).toMatch(/aria-describedby=\{helpId\}/);
+  });
+});
+
+// ── v0.19.9 [FOLDERS] 작업 폴더 — 방 → 미션 → 에이전트(SCREEN §4.16 · Director 판정 2026-09-26 D8 B) ─────────
+describe("v0.19.9 [FOLDERS] — 폴더 트리·닫기 확인·S17 none 의 말은 표(FOLDERS_WORDING)에서만", () => {
+  const src = (f: string) => readFileSync(join(ROOT, f), "utf8");
+  const code = (f: string) => src(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "").replace(/\s\/\/.*$/gm, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+
+  it("SCREEN 의 말 그대로 — 닫기 확인은 「〈retention〉일 뒤 정리됩니다」(즉시가 아니다, D8 B)", () => {
+    expect(FOLDERS_WORDING).toMatchObject({
+      outside: "미션 밖", legacy: "옛 배치(세션 폴더)", shared: "공용", fixed_name: "폴더 이름은 만들 때의 이름입니다",
+      rebind_none_loss: "작업 폴더(미션 공용 포함)는 옮겨지지 않습니다. 아티팩트만 새 컴퓨터로 갑니다",
+      rebind_none_loss_title: "⚠ 작업 폴더는 새 컴퓨터로 옮겨지지 않습니다 (격리: none)",
+    });
+    expect(FOLDERS_WORDING.closeLine(3, 12 * 1024 * 1024, 14)).toBe("이 미션의 작업 폴더 3개(12MB)는 14일 뒤 정리됩니다 — 남길 것은 아티팩트로 제출하세요");
+    expect(FOLDERS_WORDING.closeLine(1, 0, 14)).not.toMatch(/즉시|바로/);
+    expect(CLOSE_WORK_DIALOG.confirm).toBe(WORK_PANEL.complete);
+  });
+
+  it("화면은 표를 그린다 — S13·닫기 확인·S17 코드에 문장을 직접 쓰지 않는다", () => {
+    for (const f of ["app/(app)/runtimes/[id]/workdirs/page.tsx", "components/CloseWorkDialog.tsx", "components/RebindDialog.tsx"]) {
+      expect(code(f), f).not.toMatch(/옮겨지지 않습니다|일 뒤 정리됩니다|만들 때의 이름입니다\"|옛 배치\(세션 폴더\)\"/);
+    }
+    expect(src("app/(app)/runtimes/[id]/workdirs/page.tsx")).toContain("FOLDERS_WORDING.fixed_name");
+    expect(src("components/CloseWorkDialog.tsx")).toContain("FOLDERS_WORDING.closeLine");
+    expect(src("components/RebindDialog.tsx")).toContain("FOLDERS_WORDING.rebind_none_loss");
+    expect(src("components/RebindDialog.tsx")).toContain("FOLDERS_WORDING.rebind_none_loss_title");
   });
 });

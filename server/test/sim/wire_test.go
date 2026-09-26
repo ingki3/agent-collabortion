@@ -119,9 +119,11 @@ func plant() error {
 	if err := q(`INSERT INTO member (workspace_id, user_id, role, created_at) VALUES ($1, $2, 'owner', $3)`, s.workspace, s.user, simEpoch); err != nil {
 		return err
 	}
+	// A `none` bundle needs `workdir_root` too since daemon-protocol v0.10.0
+	// §4.1 — the server names every path and refuses to guess one.
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO runtime (workspace_id, name, status, last_seen_at, created_at, updated_at)
-		VALUES ($1, 'mac-1', 'online', $2, $2, $2) RETURNING id`, s.workspace, simEpoch).Scan(&s.runtime); err != nil {
+		INSERT INTO runtime (workspace_id, name, status, workdir_root, last_seen_at, created_at, updated_at)
+		VALUES ($1, 'mac-1', 'online', '/tmp/colab-sim/work', $2, $2, $2) RETURNING id`, s.workspace, simEpoch).Scan(&s.runtime); err != nil {
 		return err
 	}
 	if err := pool.QueryRow(ctx, `

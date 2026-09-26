@@ -41,6 +41,10 @@ type Surface struct {
 	// threadRead names how to read one thread in full (the <history>
 	// demotion line, v0.9.4·v0.9.5), given the message id.
 	threadRead string // fmt: message id
+	// harness v0.9.7: brief [2]'s fixed folder line (always the same bytes,
+	// mission or not — E12-11) and the `<folders>` block's last sentence.
+	FoldersRule string
+	FoldersLast string
 }
 
 // Tool surface values (harness §9 runtime.capabilities[].tool_surface).
@@ -68,6 +72,17 @@ const (
 // 올려야 할 때만 `--top-level`」. Only a threaded turn gets it — a top-level
 // turn has no COLAB_THREAD_ID and nothing to choose between.
 // ThreadReplyInstructionMCP is the same line for the tool (v0.9.6).
+// FoldersRule / FoldersRuleMCP are harness v0.9.7's brief [2] line, and
+// FoldersLast / FoldersLastMCP the `<folders>` block's last sentence — word
+// for word the contract's, per tool surface (v0.9.6 rule: a `mcp` agent is
+// never told a shell `colab …`).
+const (
+	FoldersRule    = "- Your folders are listed in the turn prompt's `<folders>`: your working folder, this mission's shared folder and your mission peers' folders. Write only in your own folder and the shared folder; read your peers' folders but do not edit them. Anything from another mission or another room comes as an artifact or through `colab room read`."
+	FoldersRuleMCP = "- Your folders are listed in the turn prompt's `<folders>`: your working folder, this mission's shared folder and your mission peers' folders. Write only in your own folder and the shared folder; read your peers' folders but do not edit them. Anything from another mission or another room comes as an artifact or through the `colab_room_read` tool."
+	FoldersLast    = "Folders of other missions and other rooms are not listed here: ask for an artifact, or use `colab room read`."
+	FoldersLastMCP = "Folders of other missions and other rooms are not listed here: ask for an artifact, or use the `colab_room_read` tool."
+)
+
 const (
 	ThreadReplyInstruction    = "A trigger message with a `thread` attribute was posted in that thread: answer in the thread. `colab message post` replies to that thread by default; add `--top-level` only when the reply belongs on the main timeline."
 	ThreadReplyInstructionMCP = "A trigger message with a `thread` attribute was posted in that thread: answer in the thread. `colab_message_post` replies to that thread by default; set `top_level` only when the reply belongs on the main timeline (or `reply_to` to answer one message)."
@@ -87,6 +102,8 @@ var shellSurface = Surface{
 	Respond:         "Respond to the trigger. Post your reply with `colab message post`; mention the person or agent you are answering when a reply is expected.\n",
 	ThreadReply:     ThreadReplyInstruction,
 	threadRead:      "`colab room messages --thread %s`",
+	FoldersRule:     FoldersRule,
+	FoldersLast:     FoldersLast,
 }
 
 var mcpSurface = Surface{
@@ -103,6 +120,8 @@ var mcpSurface = Surface{
 	Respond:         "Respond to the trigger. Post your reply with the `colab_message_post` tool; mention the person or agent you are answering when a reply is expected.\n",
 	ThreadReply:     ThreadReplyInstructionMCP,
 	threadRead:      "`colab_room_messages` 툴의 `thread: \"%s\"`",
+	FoldersRule:     FoldersRuleMCP,
+	FoldersLast:     FoldersLastMCP,
 }
 
 // SurfaceFor is the text set for a profile's runtime_kind: hermes reads the
@@ -126,6 +145,7 @@ func (s Surface) Section2() string {
 		s.ReadLine +
 		"- " + s.DetailRule + "\n" +
 		"- " + s.Deliverable + "\n" +
+		s.FoldersRule + "\n" +
 		"- Mentioning an agent creates work for it; do not mention agents just to acknowledge.\n" +
 		"- Your COLAB_TASK_TOKEN is valid for this attempt only; if a call returns token_revoked, stop immediately.\n\n"
 }

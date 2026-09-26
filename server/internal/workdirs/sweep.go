@@ -62,7 +62,10 @@ const liveLaneSQL = `EXISTS (SELECT 1 FROM lane l WHERE l.workdir_id = w.id
 // disposableNow is FR-6.4 v0.19's clock for a `container`·`none` directory
 // (one lane each): it goes the moment the mission its lane is tied to CLOSES,
 // and a lane outside any mission keeps it for `workdir_retention_days` after
-// its last use. A lane that is done while its mission is still open keeps its
+// its last use. `outsideMission` is the ROW's own answer (RoomFolderSQL: a
+// `_room` folder is outside every mission whatever its lanes later hold —
+// Lead 판정, 리뷰 345a NN3), so binding a lane to a mission cannot turn its
+// `_room` folder into something the mission's close deletes. A lane that is done while its mission is still open keeps its
 // folder — the mission can send the agent back into it (lane rule 3 re-entry),
 // and deleting it under an open mission is what R1a's "no live lane" gate did.
 //
@@ -79,6 +82,26 @@ func disposableNow(openMission, outsideMission bool, sinceLastUse time.Duration,
 		return sinceLastUse >= time.Duration(days)*24*time.Hour
 	}
 	return true
+}
+
+// missionFolderDisposable is daemon-protocol v0.10.0 §6.1's GC clock for a
+// mission folder — an agent row or the `_shared` row, found by the row's own
+// `work_id` rather than through lanes (a `_shared` row has none). D8 B
+// (Director 2026-09-26): an open mission keeps its folders at any age, and a
+// closed one keeps them until `last_used_at + workdir_retention_days` — the
+// close itself deletes nothing (the close dialog tells the Director to submit
+// what must stay as an artifact).
+//
+// production caller: SweepGC.
+func missionFolderDisposable(missionOpen bool, sinceLastUse time.Duration, retentionDays int) bool {
+	if missionOpen {
+		return false
+	}
+	days := retentionDays
+	if days < 0 {
+		days = DefaultRetentionDays
+	}
+	return sinceLastUse >= time.Duration(days)*24*time.Hour
 }
 
 type gcRow struct {
@@ -148,6 +171,9 @@ func (s *Service) SweepGC(ctx context.Context) (SweepResult, error) {
 		       EXISTS (SELECT 1 FROM lane l JOIN work lw ON lw.id = l.work_id
 		                WHERE l.workdir_id = w.id AND lw.status NOT IN ('completed', 'cancelled')),
 		       EXISTS (SELECT 1 FROM lane l WHERE l.workdir_id = w.id AND l.work_id IS NULL)
+		         OR `+RoomFolderSQL+`,
+		       w.work_id IS NOT NULL,
+		       EXISTS (SELECT 1 FROM work mw WHERE mw.id = w.work_id AND mw.status NOT IN ('completed', 'cancelled'))
 		FROM workdir w
 		JOIN room s ON s.id = w.session_id
 		LEFT JOIN LATERAL (
@@ -163,11 +189,12 @@ func (s *Service) SweepGC(ctx context.Context) (SweepResult, error) {
 		var r gcRow
 		var finished *time.Time
 		var kind string
-		var openMission, outsideMission bool
+		var openMission, outsideMission, missionFolder, missionOpen bool
 		if err := rows.Scan(&r.WorkdirID, &r.Path, &kind, &r.SessionID, &r.WorkspaceID, &r.RuntimeID,
 			&r.Director, &r.SessionTitle, &r.SessionStatus, &finished, &r.GCCase.Isolation,
 			&r.RetentionDays, &r.Merged, &r.CommitsAhead, &r.TreeDirty,
-			&r.NotifiedAt, &r.KnownReason, &r.CommandOpen, &openMission, &outsideMission); err != nil {
+			&r.NotifiedAt, &r.KnownReason, &r.CommandOpen, &openMission, &outsideMission,
+			&missionFolder, &missionOpen); err != nil {
 			rows.Close()
 			return SweepResult{}, err
 		}
@@ -180,7 +207,16 @@ func (s *Service) SweepGC(ctx context.Context) (SweepResult, error) {
 			// the daemon's side and is a better guess than "worktree".
 			r.GCCase.Isolation = kind
 		}
-		if r.GCCase.Isolation != "worktree" && !disposableNow(openMission, outsideMission, r.SinceSessionEnd, r.RetentionDays) {
+		if missionFolder && kind != "worktree" {
+			// §6.1 GC table: a mission folder — under `none`, and the
+			// `_shared` of a `worktree` room, which is outside the repository
+			// and has no commits to protect — follows D8 B, whatever the
+			// room's isolation says.
+			r.GCCase.Isolation = "none"
+			if !missionFolderDisposable(missionOpen, r.SinceSessionEnd, r.RetentionDays) {
+				r.SessionStatus = "active"
+			}
+		} else if r.GCCase.Isolation != "worktree" && !disposableNow(openMission, outsideMission, r.SinceSessionEnd, r.RetentionDays) {
 			// JudgeGC deletes a `none`/`container` directory the moment it is
 			// fed "ended"; FR-6.4 v0.19 says WHEN that is (disposableNow).
 			r.SessionStatus = "active"

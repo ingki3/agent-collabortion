@@ -66,7 +66,9 @@ chk C3b "lane 프로파일도 같이 바뀌었다" "$P_SPARE" "$(psqlq "select p
 chk C3c "최종 런타임 종류가 claude_code 다" claude_code "$(psqlq "select runtime_kind from agent_profile where id='$CUR_PROF'")"
 WD_AFTER="$(psqlq "select coalesce(w.path_or_ref,'') from lane l left join workdir w on w.id=l.workdir_id where l.id=(select lane_id from task where id='$FT')")"
 chk C4  "**workdir 를 그대로 재사용한다** (§4.4 workdir.reuse)" "$WD_BEFORE" "$WD_AFTER"
-chk C4b "workdir 행이 하나뿐이다" 1 "$(psqlq "select count(*) from workdir where session_id='$FS'")"
+# T-FOLDERS(v0.10.0 §6.1, D4 A): 미션 턴은 미션 공용 `_shared` 행도 하나 갖는다 — 에이전트 폴더는 여전히 하나다.
+chk C4b "에이전트 workdir 행이 하나뿐이다" 1 "$(psqlq "select count(*) from workdir where session_id='$FS' and role='agent'")"
+chk C4c "미션 공용 _shared 행 1" 1 "$(psqlq "select count(*) from workdir where session_id='$FS' and role='shared'")"
 chk C5  "폴백 뒤 runtime_session_ref 는 새 런타임 것이다" claude_code "$(lane_ref "$FS" Faller | jq -r '.runtime_kind // "none"')"
 chk C6  "폴백 뒤 task 가 완료됐다 (전환이 실제로 일을 끝낸다)" completed "$(task_field "$FT" status)"
 chk C6b "세션은 같은 머신에 남았다" "$RUNTIME_ID" "$(psqlq "select runtime_id from room where id='$FS'")"
