@@ -98,7 +98,7 @@ func ValidateTree(t Tree) error {
 	}
 	if hasCriteria && (!hasApproval || op != "AND") {
 		return &TreeError{TreeCodeCriteriaMetAlone, "「기준 충족」은 승인 조건과 AND 로 묶어야 합니다 — 플랫폼이 " +
-			"자기 채점만으로 세션을 끝낼 수 없습니다"}
+			"자기 채점만으로 미션을 끝낼 수 없습니다"}
 	}
 	return nil
 }
@@ -124,14 +124,17 @@ type Outcome struct {
 	PauseReason  string
 	MetAtoms     []string
 
-	HitlIssued  bool
-	HitlSource  string // "system" for a platform-issued request
-	HitlTaskID  uuid.UUID
-	SummaryMsgs int
+	HitlIssued bool
+	HitlSource string // "system" for a platform-issued request
+	// ApprovalHeld is T-APPROVAL: the user_approval request was due but the
+	// mission still had work running, so it was held (ApplyWorkEvent).
+	ApprovalHeld bool
+	HitlTaskID   uuid.UUID
+	SummaryMsgs  int
 
 	DecisionRecorded bool
 	RejectReason     string
-	// DecisionID is filled by ApplyCompletionEvent once the row exists, so the
+	// DecisionID is filled by ApplyWorkEvent once the row exists, so the
 	// caller can point artifact_review.decision_id at it.
 	DecisionID uuid.UUID
 
@@ -150,18 +153,38 @@ func ApplyEvent(t Tree, st State, ev Event) Outcome {
 	}
 	o := Outcome{SessionState: "active"}
 
+	// advanced is "this event moved the tree". T-APPROVAL (E·F): the platform's
+	// user_approval request is offered only when something actually changed, or
+	// on an explicit re-read (condition_changed · tasks_settled). Without it
+	// EVERY later event re-offered it, because `needsUserApproval` only asks
+	// "is user_approval the last one missing?" — which stays true from the
+	// moment it becomes true until a human answers.
+	//
+	// Measured (실사용 「게임 제작 방」): six requests opened (13:41 · 13:45 ·
+	// 14:04 · 14:08 · 14:21 · 14:30), five of them open at once, and two of the
+	// six came from WRITER's submissions — an agent the tree does not name
+	// (`who: assignee` = Lead). Writer's submit satisfied nothing, but the
+	// evaluation underneath still read "only user_approval missing" and issued.
+	advanced := false
 	switch ev.Kind {
 	case "artifact_submit":
 		// E6-02: the atom names an agent. A submit by anyone else is stored as
 		// an artifact but does not satisfy the condition.
-		if namesActor(t, CondArtifactSubmitted, ev.Actor) {
+		//
+		// T-APPROVAL (F): and it does not re-open the approval either. The
+		// atom was already met by the designated agent, so nothing about this
+		// submit changed the tree — asking the Director again is the same
+		// question about the same state.
+		if namesActor(t, CondArtifactSubmitted, ev.Actor) && !met[CondArtifactSubmitted] {
 			met[CondArtifactSubmitted] = true
+			advanced = true
 		}
 	case "review_approve":
 		if namesActor(t, CondAgentApproval, ev.Actor) {
+			advanced = !met[CondAgentApproval]
 			met[CondAgentApproval] = true
 		} else {
-			o.CLIError = "이 세션의 리뷰어가 아닙니다 — 지정된 리뷰어만 승인할 수 있습니다"
+			o.CLIError = "이 미션의 리뷰어가 아닙니다 — 지정된 리뷰어만 승인할 수 있습니다"
 			o.MetAtoms = atoms(met)
 			return o
 		}
@@ -171,7 +194,7 @@ func ApplyEvent(t Tree, st State, ev Event) Outcome {
 		// nothing is stored) — a verdict nobody asked for must not reach the
 		// submitting lane's thread either.
 		if !namesActor(t, CondAgentApproval, ev.Actor) {
-			o.CLIError = "이 세션의 리뷰어가 아닙니다 — 지정된 리뷰어만 반려할 수 있습니다"
+			o.CLIError = "이 미션의 리뷰어가 아닙니다 — 지정된 리뷰어만 반려할 수 있습니다"
 			o.MetAtoms = atoms(met)
 			return o
 		}
@@ -181,6 +204,7 @@ func ApplyEvent(t Tree, st State, ev Event) Outcome {
 		o.MetAtoms = atoms(met)
 		return o
 	case "director_approve":
+		advanced = !met[CondUserApproval]
 		met[CondUserApproval] = true
 	case "director_reject":
 		// A rejection ends nothing and triggers nobody: the human gives the
@@ -204,7 +228,13 @@ func ApplyEvent(t Tree, st State, ev Event) Outcome {
 		o.HitlIssued, o.HitlSource = true, "system"
 		o.MetAtoms = atoms(met)
 		return o
+	case EventTasksSettled:
+		// T-APPROVAL: the held mission's work ended. Like a condition
+		// change, nothing is satisfied — the tree is read again below, and
+		// the re-read is the whole point of the event.
+		advanced = true
 	case EventConditionChanged:
+		advanced = true
 		// S-84: the Director replaced the tree (updateSession, active·paused).
 		// No atom is satisfied by that; the atoms already met stay met (openapi
 		// updateSession: "이미 충족된 원자는 그대로 유지") and the new tree is
@@ -222,7 +252,7 @@ func ApplyEvent(t Tree, st State, ev Event) Outcome {
 	// FR-2.2: user_approval is issued BY THE PLATFORM once every other atom is
 	// met — it is not an agent's turn, so task_id stays empty and the source is
 	// `system` (§7).
-	if needsUserApproval(t, met) {
+	if advanced && needsUserApproval(t, met) {
 		o.HitlIssued, o.HitlSource, o.HitlTaskID = true, "system", uuid.Nil
 	}
 	return o

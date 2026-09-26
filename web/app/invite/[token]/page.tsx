@@ -49,7 +49,7 @@ export default function InvitePage() {
     setError(null);
     try {
       await api.post("/invites/{inviteToken}/accept", { path: { inviteToken: token } });
-      router.replace("/sessions");
+      router.replace("/rooms");
     } catch (e) {
       if (isApiError(e) && e.status === 401) {
         setLoggedIn(false);

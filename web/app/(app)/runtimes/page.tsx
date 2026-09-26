@@ -16,12 +16,12 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { PageHead, DisabledHint } from "@/components/PageHead";
-import { RebindDialog } from "@/components/RebindDialog";
+import { RebindDialog, rebindTargetOfRoom } from "@/components/RebindDialog";
 import { RuntimeCard, graceView } from "@/components/RuntimeCard";
 import { api, errorMessage, isApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
-import type { Problem, Runtime, RuntimeDetail, Session, StreamEvent } from "@/lib/api/types";
+import type { Problem, Runtime, RuntimeDetail, StreamEvent } from "@/lib/api/types";
 
 /** `Problem.sessions[]` 항목 — 계약은 `{id, title}` 이고 상태는 싣지 않는다(SessionRef 가 아니다). */
 type BlockingSession = NonNullable<Problem["sessions"]>[number];
@@ -82,19 +82,11 @@ export default function RuntimesPage() {
     }
   }, [openId, detail]);
 
-  /** 재바인딩은 세션 단위다 — 세션 상세를 읽어야 격리·정지 사유를 다이얼로그가 그린다. */
-  async function openRebind(sessionId: string) {
+  /** 재바인딩은 방 단위다 — 방 상세(`getRoom`)를 읽어야 격리·멈춘 시각을 다이얼로그가 그린다(`active_sessions[].id` = 방 id). */
+  async function openRebind(roomId: string) {
     try {
-      const s: Session = await api.get("/sessions/{sessionId}", { path: { sessionId } });
-      setRebind({
-        id: s.id,
-        title: s.title,
-        isolation: s.isolation,
-        status: s.status,
-        workspace_id: s.workspace_id,
-        paused_detail: s.paused_detail,
-        runtime: s.runtime ?? null,
-      });
+      const r = await api.get("/rooms/{roomId}", { path: { roomId } });
+      setRebind(rebindTargetOfRoom(r));
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -116,7 +108,7 @@ export default function RuntimesPage() {
         setBlocked((cur) => ({
           ...cur,
           [rt.id]: {
-            detail: e.problem.detail ?? "이 컴퓨터를 쓰는 중인 세션이 있습니다",
+            detail: e.problem.detail ?? "이 컴퓨터를 쓰는 중인 방이 있습니다",
             sessions: e.problem.sessions ?? [],
           },
         }));
@@ -167,7 +159,7 @@ export default function RuntimesPage() {
                 <div className="rt__actions" data-testid="runtime-actions">
                   <Link href={`/runtimes/${rt.id}/workdirs`} className="btn btn--sm" data-testid="runtime-workdirs">작업 폴더</Link>
                   <button type="button" className="btn btn--sm" onClick={() => void openSessions(rt)} aria-expanded={openId === rt.id} data-testid="runtime-sessions-toggle">
-                    {grace.expired ? "세션 옮기기" : "쓰는 중인 세션"}
+                    {grace.expired ? "방 옮기기" : "쓰는 중인 방"}
                   </button>
                   {canManage && (
                     <button type="button" className="btn btn--sm rt__danger" disabled={busyId === rt.id} onClick={() => void removeRuntime(rt)} data-testid="runtime-delete">
@@ -179,11 +171,11 @@ export default function RuntimesPage() {
                 {block && (
                   <div className="rt__blocked" role="alert" data-testid="runtime-delete-blocked">
                     <b>삭제할 수 없습니다</b> — {block.detail}
-                    <div className="small">먼저 아래 세션을 다른 컴퓨터로 옮기거나 종료하세요.</div>
+                    <div className="small">먼저 아래 방을 다른 컴퓨터로 옮기거나 미션을 종료하세요.</div>
                     <ul className="rt__sessions">
                       {block.sessions.map((s, i) => (
                         <li key={s.id ?? i} data-testid="runtime-blocking-session">
-                          {s.id ? <Link href={`/sessions/${s.id}`}>{s.title ?? s.id}</Link> : <span>{s.title ?? "세션"}</span>}
+                          {s.id ? <Link href={`/rooms/${s.id}`}>{s.title ?? s.id}</Link> : <span>{s.title ?? "방"}</span>}
                           {s.id && (
                             <button type="button" className="rt__link" onClick={() => void openRebind(s.id!)} data-testid="runtime-blocking-rebind">옮기기</button>
                           )}
@@ -196,14 +188,14 @@ export default function RuntimesPage() {
                 {openId === rt.id && (
                   <div className="rt__sessions-panel" data-testid="runtime-sessions">
                     {!d ? (
-                      <p className="small muted">세션을 읽는 중…</p>
+                      <p className="small muted">방을 읽는 중…</p>
                     ) : d.active_sessions.length === 0 ? (
-                      <p className="small muted-3">이 컴퓨터를 쓰는 중인 세션이 없습니다.</p>
+                      <p className="small muted-3">이 컴퓨터를 쓰는 중인 방이 없습니다.</p>
                     ) : (
                       <ul className="rt__sessions">
                         {d.active_sessions.map((s) => (
                           <li key={s.id} data-testid="runtime-active-session" data-session-status={s.status}>
-                            <Link href={`/sessions/${s.id}`}>{s.title}</Link>
+                            <Link href={`/rooms/${s.id}`}>{s.title}</Link>
                             <span className="small muted-3"> · {s.status}</span>
                             {s.status === "paused" && (
                               <button type="button" className="rt__link" onClick={() => void openRebind(s.id)} data-testid="runtime-rebind">옮기기</button>

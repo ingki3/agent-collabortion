@@ -7,7 +7,7 @@
 #       한 세션·한 lane 에 메시지를 **하나씩**(이전 task 가 끝난 뒤) 게시한다 — 겹치면 lane 병합으로 한 task 가 되어
 #       "게시→claim" 이 아니라 "게시→다음 턴" 을 재게 된다. 시각은 서버 DB 단일 클럭(p1 lib latency_row).
 #   (2) 부하 — 워크스페이스 1 · 데몬 5대 × capacity 10 · 세션 50개 동시 생성(각 첫 task) → 동시 running 최대,
-#       claim p50/p95 · API p50/p95(부하 중 GET /sessions/{id}) · DB 커넥션 최대 · 재큐잉 0 · 이중 게시 0.
+#       claim p50/p95 · API p50/p95(부하 중 GET /rooms/{id} — getRoom, 옛 getSession 자리) · DB 커넥션 최대 · 재큐잉 0 · 이중 게시 0.
 #
 # 수치는 out/76-latency.tsv · out/76-load.tsv · out/76.json 에 표로. 판정 상한은 §9 그대로.
 source "$(dirname "$0")/lib_i5.sh"
@@ -75,9 +75,27 @@ log "claim p50=$CLAIM_P50 p95=$CLAIM_P95 · 첫 출력 p50=$OUT_P50 p95=$OUT_P95
 step "3. 부하 — 세션 $N_LOAD 개 동시 (데몬 $N_DAEMONS × cap $CAP = $((N_DAEMONS*CAP)) 슬롯)"
 SESS=()
 LOAD_START="$(now_ms)"
+# v0.3.0(R4): 옛 createSession 한 번이 createRoom·updateRoom·addRoomParticipant·createWork 네 번이 됐다. 50 번을 차례로
+# 한꺼번에 돌리면 생성에 ~7s 가 걸려 페이크 턴(~4s)이 먼저 끝나 동시 running 이 슬롯을 못 채운다(CI got=32) — 제품이 아니라
+# 하네스가 재는 값이 바뀐 것. 병렬 생성은 쓸 수 없다(api() 가 쿠키 통을 -c 로 다시 써 동시 호출이 로그인을 깨뜨린다).
+# 그래서 두 단계: 방·참여자를 먼저 다 만들고(task 없음), 미션을 한 호출씩 몰아 연다 — 옛 createSession 한 번 = 초기 task 한 개와 같은 밀도.
+LOAD_ROOMS=()
 for i in $(seq 1 "$N_LOAD"); do
   # runtime_id 를 비운다 → 온라인 런타임 아무거나(첫 claim 이 고정, E11-10) — 5대에 분산된다.
-  SESS+=("$(create_session_p3 "$WS" "perf load $i" "부하 $i" "$LOAD" "" '{}' "$LOAD")")
+  r="$(api_ok POST "/workspaces/$WS/rooms" "$(jq -nc --arg n "perf load $i" '{name:$n,description:""}')" | jq -r .id)"
+  api_ok PATCH "/rooms/$r" '{"isolation":{"kind":"none"}}' >/dev/null
+  api_ok POST "/rooms/$r/participants" "$(jq -nc --arg a "$LOAD" '{agent_id:$a}')" >/dev/null
+  LOAD_ROOMS+=("$r")
+done
+mkdir -p "$ROOM_WORK_DIR"
+LOAD_START="$(now_ms)"
+for i in $(seq 1 "$N_LOAD"); do
+  r="${LOAD_ROOMS[$((i-1))]}"
+  w="$(api_ok POST "/rooms/$r/works" "$(jq -nc --arg t "perf load $i" --arg g "부하 $i" --arg a "$LOAD" \
+        '{title:$t,goal:$g,assignee_agent_id:$a,completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | jq -r .id)"
+  [ -n "$w" ] && [ "$w" != null ] || bad "부하 미션 $i 생성 실패"
+  printf '%s' "$w" > "$ROOM_WORK_DIR/$r"
+  SESS+=("$r")
 done
 CREATE_MS=$(( $(now_ms)-LOAD_START ))
 ok "세션 $N_LOAD 개 생성 ${CREATE_MS}ms"
@@ -86,16 +104,16 @@ ok "세션 $N_LOAD 개 생성 ${CREATE_MS}ms"
 IDS="$(printf '%s\n' "${SESS[@]}")"
 for _ in $(seq 1 40); do
   sid="$(printf '%s\n' "$IDS" | awk -v n="$((RANDOM % N_LOAD + 1))" 'NR==n')"
-  curl -sS -o /dev/null -w '%{time_total}\n' -b "$COOKIE" "$API/sessions/$sid" >> "$OUT/76-api.txt"
+  curl -sS -o /dev/null -w '%{time_total}\n' -b "$COOKIE" "$API/rooms/$sid" >> "$OUT/76-api.txt"
   c="$(db_conns)"; [ "$c" -gt "$DBMAX" ] && DBMAX="$c"
-  ACT="$(psqlq "select count(*) from task t join session s on s.id=t.session_id where s.workspace_id='$WS' and s.title like 'perf load%' and t.status in ('queued','dispatched','preparing','running')")"
+  ACT="$(psqlq "select count(*) from task t join room s on s.id=t.session_id join work wk on wk.room_id=s.id where s.workspace_id='$WS' and wk.title like 'perf load%' and t.status in ('queued','dispatched','preparing','running')")"
   [ "$ACT" = 0 ] && break
   sleep 0.5
 done
-wait_until 300 '[ "$(psqlq "select count(*) from task t join session s on s.id=t.session_id where s.workspace_id='"'$WS'"' and s.title like '"'perf load%'"' and t.status in ('"'queued'"','"'dispatched'"','"'preparing'"','"'running'"')")" = 0 ]' || bad "부하 task 가 다 끝나지 않았다"
+wait_until 300 '[ "$(psqlq "select count(*) from task t join room s on s.id=t.session_id join work wk on wk.room_id=s.id where s.workspace_id='"'$WS'"' and wk.title like '"'perf load%'"' and t.status in ('"'queued'"','"'dispatched'"','"'preparing'"','"'running'"')")" = 0 ]' || bad "부하 task 가 다 끝나지 않았다"
 LOAD_ELAPSED=$(( ($(now_ms)-LOAD_START)/1000 ))
 psqlq "with t as (select t.id, t.attempt, t.status::text st, s.runtime_id, t.created_at, t.dispatched_at, t.started_at, t.finished_at
-                  from task t join session s on s.id=t.session_id where s.workspace_id='$WS' and s.title like 'perf load%')
+                  from task t join room s on s.id=t.session_id join work wk on wk.room_id=s.id where s.workspace_id='$WS' and wk.title like 'perf load%')
        select id, st, attempt, coalesce(runtime_id::text,'-'),
               round(extract(epoch from (dispatched_at - created_at))::numeric,3) claim_s,
               round(extract(epoch from (started_at - created_at))::numeric,3) start_s,
@@ -104,14 +122,14 @@ psqlq "with t as (select t.id, t.attempt, t.status::text st, s.runtime_id, t.cre
 LC_P50="$(cut -f5 "$OUT/76-load.tsv" | pct 50)"; LC_P95="$(cut -f5 "$OUT/76-load.tsv" | pct 95)"
 LF_P50="$(cut -f7 "$OUT/76-load.tsv" | pct 50)"; LF_P95="$(cut -f7 "$OUT/76-load.tsv" | pct 95)"
 API_P50="$(pct 50 < "$OUT/76-api.txt")"; API_P95="$(pct 95 < "$OUT/76-api.txt")"
-MAX_RUN="$(psqlq "with iv as (select t.started_at s, coalesce(t.finished_at, now()) e from task t join session s on s.id=t.session_id
-                   where s.workspace_id='$WS' and s.title like 'perf load%' and t.started_at is not null),
+MAX_RUN="$(psqlq "with iv as (select t.started_at s, coalesce(t.finished_at, now()) e from task t join room s on s.id=t.session_id join work wk on wk.room_id=s.id
+                   where s.workspace_id='$WS' and wk.title like 'perf load%' and t.started_at is not null),
                   pts as (select s ts, 1 d from iv union all select e, -1 from iv)
                   select coalesce(max(run),0) from (select sum(d) over (order by ts, d desc rows unbounded preceding) run from pts) x")"
-RT_USED="$(psqlq "select count(distinct runtime_id) from session where workspace_id='$WS' and title like 'perf load%' and runtime_id is not null")"
-REQUEUE="$(psqlq "select count(*) from task_attempt ta join task t on t.id=ta.task_id join session s on s.id=t.session_id where s.workspace_id='$WS' and s.title like 'perf load%' and ta.attempt > 1")"
-DUP_POST="$(psqlq "select count(*) from (select m.source_task_id, count(*) c from message m join session s on s.id=m.session_id where s.workspace_id='$WS' and s.title like 'perf load%' and m.author_type='agent' group by 1 having count(*) > 1) d")"
-COMPLETED="$(psqlq "select count(*) from task t join session s on s.id=t.session_id where s.workspace_id='$WS' and s.title like 'perf load%' and t.status='completed'")"
+RT_USED="$(psqlq "select count(distinct s.runtime_id) from room s join work wk on wk.room_id=s.id where s.workspace_id='$WS' and wk.title like 'perf load%' and s.runtime_id is not null")"
+REQUEUE="$(psqlq "select count(*) from task_attempt ta join task t on t.id=ta.task_id join room s on s.id=t.session_id join work wk on wk.room_id=s.id where s.workspace_id='$WS' and wk.title like 'perf load%' and ta.attempt > 1")"
+DUP_POST="$(psqlq "select count(*) from (select m.source_task_id, count(*) c from message m join room s on s.id=m.session_id join work wk on wk.room_id=s.id where s.workspace_id='$WS' and wk.title like 'perf load%' and m.author_type='agent' group by 1 having count(*) > 1) d")"
+COMPLETED="$(psqlq "select count(*) from task t join room s on s.id=t.session_id join work wk on wk.room_id=s.id where s.workspace_id='$WS' and wk.title like 'perf load%' and t.status='completed'")"
 chk P0 "부하 task $N_LOAD 건 전부 completed" "$N_LOAD" "$COMPLETED"
 chk_ge P1 "동시 running 최대 ≥ 슬롯의 80% (워크스페이스당 50, §9)" "$(( (N_LOAD < N_DAEMONS*CAP ? N_LOAD : N_DAEMONS*CAP) * 8 / 10 ))" "$MAX_RUN"
 chk_ge P1b "런타임 $N_DAEMONS 대에 분산됐다" "$(( N_DAEMONS > 1 ? 2 : 1 ))" "$RT_USED"

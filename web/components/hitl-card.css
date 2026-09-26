@@ -31,3 +31,7 @@
 .hitl__hint { color: var(--ink-2); font-size: var(--fs-meta); }
 .hitl__opts { display: flex; gap: 6px; flex-wrap: wrap; }
 .hitl__err { color: var(--s-fail-text); font-size: var(--fs-sub); margin: 0; }
+/* 답한 뒤 거절(수정 요청) 사유 — 결정 기록과 같은 문장(T-APPROVAL). */
+.hitl__reason { color: var(--ink-2); }
+/* 요청을 아직 못 읽은 hitl 카드 자리 — 평문 한 줄로 떨어지지 않는다(T-APPROVAL). */
+.hitl--loading { border-style: dashed; }

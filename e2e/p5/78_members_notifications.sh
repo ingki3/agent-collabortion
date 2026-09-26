@@ -9,9 +9,9 @@
 #   A. updateMemberRole — 멤버 403 · admin 이 멤버 승격 200 · admin 이 owner 강등 403(owner_only) ·
 #      admin 이 자기를 owner 로 403 · 마지막 owner 강등 409(last_owner) · owner 둘일 때 강등 200 ·
 #      역할 enum 422 · 다른 워크스페이스 id 404 · activity_log member.role_changed
-#   B. removeMember — 멤버 403 · admin 이 owner 제거 403 · 마지막 owner 409 · Director 인 진행 중 세션 409
-#      (member_is_director) → changeDirector 뒤 204 · 내보내진 사람은 403 not_member · 두 번째 404 ·
-#      activity_log member.removed · 그 멤버의 받은 요청·구독 행 0(CASCADE)
+#   B. removeMember — 멤버 403 · admin 이 owner 제거 403 · 마지막 owner 409 · Director 인 진행 중 세션이 있어도
+#      204 — openapi 0.2.3(T-R1b2): 그 방의 방장이 Director 를 잇고 미션 타임라인·activity_log 에 남는다 ·
+#      내보내진 사람은 403 not_member · 두 번째 404 · activity_log member.removed · 그 멤버의 받은 요청·구독 행 0(CASCADE)
 #   C. 알림 설정 — 기본값 email true · push false · all · 부분 갱신 · 본인 행만 · enum 422 · 익명 401
 #   D. 문장 — 이 스크립트가 받은 Problem.detail 전부 한글이고 §8.4 옛말(runtime·lane·owner·admin…)이 없다
 #
@@ -93,7 +93,7 @@ chk A.15 5 "$(activity member.role_changed)" "activity_log member.role_changed =
 as owner; api_ok GET "/workspaces/$WS/members" | jq . > "$OUT/78-members-after-A.json"
 
 # ───────────────────────────── B ─────────────────────────────────────────────
-step "B. removeMember — 마지막 owner 409 · Director 인 진행 중 세션 409 → changeDirector 뒤 204"
+step "B. removeMember — 마지막 owner 409 · Director 인 진행 중 세션은 방장이 승계(0.2.3) → 204"
 as member; call DELETE "/workspaces/$WS/members/$VICTIM_MID"
 chk B.1 "403/admin_required" "$CODE/$(code_of)" "멤버는 내보내지 못한다"
 as admin;  call DELETE "/workspaces/$WS/members/$OWNER_MID"
@@ -101,17 +101,16 @@ chk B.2 "403/owner_only" "$CODE/$(code_of)" "admin 이 owner 제거 → 403"
 as owner;  call DELETE "/workspaces/$WS/members/$OWNER_MID"
 chk B.3 "409/last_owner" "$CODE/$(code_of)" "마지막 owner 제거 → 409"
 SID="$(create_session "$WS" "$AG" "S14 $RUN" "멤버 제거 판정용" "$RID")"
-call PUT "/sessions/$SID/director" "$(jq -nc --arg u "$VICTIM_UID" '{director_user_id:$u}')"
-chk B.4 200 "$CODE" "changeDirector → victim (여기가 500 이던 결함 — activity_log 열 이름)"
-chk B.5 "$VICTIM_UID" "$(psqlq "select director_user_id from session where id='$SID'")" "  … DB 의 Director"
-chk B.6 1 "$(psqlq "select count(*) from activity_log where session_id='$SID' and action='session.director_changed'")" "  … activity_log session.director_changed"
+call PUT "/works/$(work_of "$SID")/director" "$(jq -nc --arg u "$VICTIM_UID" '{director_user_id:$u}')"
+chk B.4 200 "$CODE" "changeWorkDirector → victim (옛 changeDirector 가 500 이던 결함 — activity_log 열 이름)"
+chk B.5 "$VICTIM_UID" "$(psqlq "select director_user_id from work where room_id='$SID'")" "  … DB 의 Director"
+chk B.6 1 "$(psqlq "select count(*) from activity_log where session_id='$SID' and action='work.director_changed'")" "  … activity_log work.director_changed(R4: 옛 session.director_changed)"
 as admin;  call DELETE "/workspaces/$WS/members/$VICTIM_MID"
-chk B.7 "409/member_is_director" "$CODE/$(code_of)" "Director 인 진행 중 세션이 있으면 409"
-chk B.8 1 "$(psqlq "select count(*) from member where id='$VICTIM_MID'")" "  … 아직 멤버"
-as owner;  call PUT "/sessions/$SID/director" "$(jq -nc --arg u "$OWNER_UID" '{director_user_id:$u}')"
-chk B.9 200 "$CODE" "Director 를 owner 로 되돌림"
-as admin;  call DELETE "/workspaces/$WS/members/$VICTIM_MID"
-chk B.10 204 "$CODE" "이제 admin 이 내보낸다 → 204"
+chk B.7 204 "$CODE" "Director 인 진행 중 세션이 있어도 내보낸다 → 204 (openapi 0.2.3, 옛 409 없음)"
+# R4: createRoom 방에는 legacy_work_id 가 없다 — 이 방의 미션을 work_of 로 집는다.
+chk B.8 "$OWNER_UID" "$(psqlq "select director_user_id from work where id='$(work_of "$SID")'")" "  … 그 방의 방장(세션을 만든 owner)이 Director 를 이었다"
+chk B.9 1 "$(psqlq "select count(*) from activity_log where session_id='$SID' and action='work.director_succeeded'")" "  … activity_log work.director_succeeded"
+chk B.10 1 "$(psqlq "select count(*) from message where session_id='$SID' and kind='system' and work_id is not null and content like '%이 미션의 Director 를 이어받았습니다.'")" "  … 미션 타임라인 시스템 메시지"
 chk B.11 0 "$(psqlq "select count(*) from member where id='$VICTIM_MID'")" "  … member 행 0"
 chk B.12 "0/0" "$(psqlq "select count(*) from inbox_item where member_id='$VICTIM_MID'")/$(psqlq "select count(*) from session_subscription where user_id='$VICTIM_UID'")" "  … 받은 요청·구독 행 0"
 chk B.13 1 "$(activity member.removed)" "activity_log member.removed = 1"

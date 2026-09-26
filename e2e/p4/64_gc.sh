@@ -125,13 +125,15 @@ chk P1d "worktree workdir 의 disk_bytes 가 턴 직후 보고됐다 (S13 용량
 # 로 올린 값(위 P1·P1b·P1c 가 그것을 잰다) 위에서 돈다 — 입력도 규칙도 실기다.
 
 step "3. 세션 A·B·C 종료 → 보존 기한 30일 경과 (D 는 active 로 둔다)"
-for s in "$S_A" "$S_B" "$S_C"; do api_ok POST "/sessions/$s/complete" '{"confirm":true}' >/dev/null || true; done
-wait_until 300 '[ "$(psqlq "select count(*) from session where id in ('"'$S_A'"','"'$S_B'"','"'$S_C'"') and status='"'completed'"'")" = 3 ]' || bad "세션 3개가 completed 로 가지 않았다"
-# **클럭 우회(§0-13)**: 보존 기한(기본 14일)은 세션 종료 시각부터다. 서버 클럭을 못 돌리므로
-# `finished_at` 을 30일 전으로 민다. active 세션 D 는 `created_at`·`started_at` 만 민다 —
-# `finished_at` 이 없다는 것 자체가 E13-18 의 판정 근거다.
-psqlq "update session set finished_at = now() - interval '30 days' where id in ('$S_A','$S_B','$S_C')" >/dev/null
-psqlq "update session set created_at = now() - interval '30 days', started_at = now() - interval '30 days' where id='$S_D'" >/dev/null
+for s in "$S_A" "$S_B" "$S_C"; do api_ok POST "/works/$(work_of "$s")/complete" '{"confirm":true}' >/dev/null || true; done
+wait_until 300 '[ "$(psqlq "select count(*) from work where room_id in ('"'$S_A'"','"'$S_B'"','"'$S_C'"') and status='"'completed'"'")" = 3 ]' || bad "세션 3개가 completed 로 가지 않았다"
+# **클럭 우회(§0-13)**: 보존 기한(기본 14일)은 작업 폴더의 마지막 사용 시각부터다(T-R1a NN8 — 방은
+# 끝나지 않으므로 세션 종료가 기준점일 수 없다). 서버 클럭을 못 돌리므로 A·B·C 의 `workdir.last_used_at`
+# 을 30일 전으로 민다. active 세션 D 는 방·미션의 `created_at`·`started_at` 만 민다 — 오래된 세션이어도
+# 폴더를 최근에 썼으면 지우지 않는다(E13-18).
+psqlq "update workdir set last_used_at = now() - interval '30 days' where session_id in ('$S_A','$S_B','$S_C')" >/dev/null
+psqlq "update room set created_at = now() - interval '30 days' where id='$S_D'" >/dev/null
+psqlq "update work set created_at = now() - interval '30 days', started_at = now() - interval '30 days' where room_id='$S_D'" >/dev/null
 BR_B="colab/$T_B/gcclean"
 WT_A="$WT_A0"; WT_B="$WT_B0"; WT_D="$WT_D0"
 chk P1e "판정 전: B 워크트리가 디스크에 있다"    yes "$( [ -d "$WT_B" ] && echo yes || echo no )"
@@ -162,7 +164,7 @@ git -C "$REPO" branch --list 'colab/*' > "$OUT/64-branches.txt" 2>&1 || true
 git -C "$REPO" worktree list > "$OUT/64-worktrees.txt" 2>&1 || true
 
 step "7. G4 — active 세션은 14일이 지나도 보존 (E13-18)"
-chk G4  "D: 세션은 여전히 active"        active "$(psqlq "select status::text from session where id='$S_D'")"
+chk G4  "D: 세션은 여전히 active"        active "$(psqlq "select status::text from work where room_id='$S_D'")"
 chk G4b "D: gc 명령 0건"                 0 "$(gc_commands "$S_D")"
 chk G4c "D: 워크트리가 디스크에 있다"    yes "$( [ -d "$WT_D" ] && echo yes || echo no )"
 chk G4d "D: gc_blocked_reason 없음 — 알림도 없다(경고 피로 방지)" "-" \
@@ -180,11 +182,12 @@ chk Q1  "기본 workdir_disk_quota_gb = null (설정하지 않았다)" null "$QS
 SQ="$(create_session_p4 "$WS" "quota-null-$STAMP" '쿼터 미설정에서 세션이 열린다' "$AK" "$RUNTIME" "$REPO" "$MANUAL" '{}' "$AK")"
 chk Q1b "쿼터 null 이면 세션이 열린다 (null 을 0 으로 읽지 않는다, E13-19)" yes \
   "$( [ -n "$SQ" ] && [ "$SQ" != null ] && echo yes || echo no )"
-api_ok POST "/sessions/$SQ/complete" '{"confirm":true}' >/dev/null 2>&1 || true
+api_ok POST "/works/$(work_of "$SQ")/complete" '{"confirm":true}' >/dev/null 2>&1 || true
 api_ok PATCH "/workspaces/$WS/settings" '{"workdir_disk_quota_gb":1}' >/dev/null
 # 규칙의 **입력**(분자)만 만든다 — 1GB 넘게 실제로 쓰지 않고 보고 값을 적어 넣는다.
 psqlq "update workdir set disk_bytes = 2147483648 where session_id='$S_A'" >/dev/null
-QC="$(api POST "/workspaces/$WS/sessions" "$(jq -nc --arg a "$AK" --arg rt "$RUNTIME" --arg repo "$REPO" \
+# R4: 옛 createSession 의 쿼터 거부는 이제 createWork(openWork)가 낸다 — create_room_work_api 는 처음 실패한 단계의 코드를 준다.
+QC="$(create_room_work_api "$WS" "$(jq -nc --arg a "$AK" --arg rt "$RUNTIME" --arg repo "$REPO" \
    '{title:"quota-blocked",goal:"차단되어야 한다",isolation:{kind:"worktree",repo_path:$repo},
      participants:[{agent_id:$a}],assignee_agent_id:$a,runtime_id:$rt,
      completion_condition:{op:"and",conditions:[{type:"manual"}]}}')")"

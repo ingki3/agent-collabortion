@@ -25,7 +25,7 @@ import (
 // isolation produces.
 func workdirKindOf(r *http.Request, s *Server, sessionID uuid.UUID) string {
 	var raw []byte
-	if err := s.DB.QueryRow(r.Context(), `SELECT isolation FROM session WHERE id = $1`, sessionID).Scan(&raw); err != nil {
+	if err := s.DB.QueryRow(r.Context(), `SELECT isolation FROM room WHERE id = $1`, sessionID).Scan(&raw); err != nil {
 		return "dir"
 	}
 	var iso struct {
@@ -201,6 +201,12 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 			// TestChatID marks the §4.5 receipt for a test chat's temporary
 			// directory: not a workdir row, only a gc command's consumption.
 			TestChatID string `json:"test_chat_id"`
+			// daemon-protocol v0.10.0 §6: `work_id?`·`role?`. The server finds
+			// the row by id and its own row wins; `role: shared` is what lets a
+			// mission's `_shared` (no name tag — the daemon only mkdirs it) be
+			// found by its stored path.
+			WorkID string `json:"work_id"`
+			Role   string `json:"role"`
 		} `json:"workdirs"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(&in); err != nil {
@@ -226,6 +232,11 @@ func (s *Server) daemonWorkdirs(w http.ResponseWriter, r *http.Request, d daemon
 		// agent_id, path) is the fallback for an entry with no id, or with an
 		// id the server does not know.
 		rep, why := s.workdirReportByID(r, d, wd.ID, wd.Kind, wd.Path)
+		if rep.ID == nil && why == "" && wd.Role == workdirs.RoleShared {
+			if id := s.sharedRowByPath(r, d, wd.Path); id != uuid.Nil {
+				rep, why = s.workdirReportByID(r, d, id.String(), wd.Kind, wd.Path)
+			}
+		}
 		if rep.ID == nil && why == "" {
 			rep, why = s.workdirReport(r, d, wd.Kind, wd.Path, wd.SessionID, wd.AgentID, wd.LaneID)
 		}
@@ -354,7 +365,7 @@ func sessionGone(r *http.Request, s *Server, session string) bool {
 		return false
 	}
 	var exists bool
-	if err := s.DB.QueryRow(r.Context(), `SELECT EXISTS (SELECT 1 FROM session WHERE id = $1)`, sid).Scan(&exists); err != nil {
+	if err := s.DB.QueryRow(r.Context(), `SELECT EXISTS (SELECT 1 FROM room WHERE id = $1)`, sid).Scan(&exists); err != nil {
 		return false
 	}
 	return !exists
@@ -430,7 +441,7 @@ func (s *Server) workdirReport(r *http.Request, d daemonCtx, kind, path, session
 	}
 	var ws uuid.UUID
 	var runtimeID *uuid.UUID
-	if err := s.DB.QueryRow(r.Context(), `SELECT workspace_id, runtime_id FROM session WHERE id = $1`, sid).Scan(&ws, &runtimeID); err != nil {
+	if err := s.DB.QueryRow(r.Context(), `SELECT workspace_id, runtime_id FROM room WHERE id = $1`, sid).Scan(&ws, &runtimeID); err != nil {
 		return rep, "그런 세션이 없습니다(" + sid.String() + ")"
 	}
 	if ws != d.WorkspaceID {
@@ -461,7 +472,7 @@ func (s *Server) workdirReport(r *http.Request, d daemonCtx, kind, path, session
 		agentWhy = "agent_id 가 uuid 가 아닙니다(" + trimForDetail(agent) + ")"
 	} else {
 		var n int
-		switch err := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM session_participant WHERE session_id = $1 AND agent_id = $2`, sid, id).Scan(&n); {
+		switch err := s.DB.QueryRow(r.Context(), `SELECT count(*) FROM room_participant WHERE room_id = $1 AND agent_id = $2`, sid, id).Scan(&n); {
 		case err != nil:
 			agentWhy = "참가자 조회에 실패했습니다(" + trimForDetail(err.Error()) + ")"
 		case n == 0:
@@ -504,7 +515,7 @@ func (s *Server) workdirReportByID(r *http.Request, d daemonCtx, id, kind, path 
 	var runtimeID *uuid.UUID
 	if err := s.DB.QueryRow(r.Context(), `
 		SELECT w.session_id, w.agent_id, w.lane_id, w.kind::text, s.workspace_id, s.runtime_id
-		FROM workdir w JOIN session s ON s.id = w.session_id
+		FROM workdir w JOIN room s ON s.id = w.session_id
 		WHERE w.id = $1`, wid).Scan(&sid, &agentID, &laneID, &rowKind, &ws, &runtimeID); err != nil {
 		return rep, ""
 	}
@@ -521,6 +532,22 @@ func (s *Server) workdirReportByID(r *http.Request, d daemonCtx, id, kind, path 
 		rep.Kind = rowKind
 	}
 	return rep, ""
+}
+
+// sharedRowByPath is the row of a mission's `_shared` folder at path on the
+// calling runtime (daemon-protocol v0.10.0 §6.1). The daemon writes no name
+// tag there (it only mkdirs it, §4.1), so its report has no id; the path is
+// the server's own stored string, which is as good a key on one machine.
+func (s *Server) sharedRowByPath(r *http.Request, d daemonCtx, path string) uuid.UUID {
+	var id uuid.UUID
+	if err := s.DB.QueryRow(r.Context(), `
+		SELECT w.id FROM workdir w JOIN room s ON s.id = w.session_id
+		 WHERE w.path_or_ref = $1 AND w.role = 'shared' AND w.status <> 'deleted'
+		   AND s.workspace_id = $2 AND s.runtime_id = $3
+		 ORDER BY w.created_at LIMIT 1`, path, d.WorkspaceID, d.RuntimeID).Scan(&id); err != nil {
+		return uuid.Nil
+	}
+	return id
 }
 
 // trimForDetail keeps an echoed daemon value short enough for the event
@@ -749,7 +776,7 @@ func (s *Server) daemonHeartbeat(w http.ResponseWriter, r *http.Request, d daemo
 	// pricing only at `finish` can stop a task no earlier than after it has
 	// already spent past its budget.
 	if in.Usage.InputTokens > 0 || in.Usage.OutputTokens > 0 || in.Usage.CostUSD > 0 {
-		if err := s.Tasks.RecordTurnUsage(r.Context(), t.ID, in.Usage, s.Clock.Now()); err != nil {
+		if err := s.Tasks.RecordTurnUsage(r.Context(), t.ID, attempt, in.Usage, s.Clock.Now()); err != nil {
 			s.Log.Warn("record turn usage", "err", err, "task", t.ID)
 		} else if _, err := s.enforceBudgetFor(r.Context(), t.ID); err != nil {
 			s.Log.Warn("enforce budget", "err", err, "task", t.ID)

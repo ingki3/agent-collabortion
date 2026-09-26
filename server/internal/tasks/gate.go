@@ -80,7 +80,7 @@ func PlanDispatch(sessionState, pauseReason string, queued []uuid.UUID, running 
 // `s.status = 'active'` guard (queue/postgres.go), not here.
 //
 // Production call sites for PlanDispatch: this function, called from
-// router.pauseForLoop (FR-3.5) and sessions.ApplyCompletionEvent
+// router.pauseForLoop (FR-3.5) and sessions.ApplyWorkEvent
 // (budget_exhausted, E6-10).
 // `detail` is the marshalled contract PausedDetail (openapi PausedDetail,
 // migration 0006) or nil. It is bytes rather than a string because the column
@@ -88,14 +88,27 @@ func PlanDispatch(sessionState, pauseReason string, queued []uuid.UUID, running 
 // syntax for type json", which no caller had hit only because the two existing
 // ones passed an empty string or never reached the pause branch.
 func (s *Service) PauseSessionTasks(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, reason string, detail []byte, now time.Time) error {
+	return s.pauseTasks(ctx, tx, "session_id", sessionID, reason, detail, now)
+}
+
+// PauseWorkTasks is PauseSessionTasks for ONE mission (PRD v0.19 FR-2A.3 —
+// a mission's own budget stops that mission, not the room): the tasks that
+// run for `workID`.
+//
+// production caller: httpapi.applyBudgetPause (mission scope).
+func (s *Service) PauseWorkTasks(ctx context.Context, tx pgx.Tx, workID uuid.UUID, reason string, detail []byte, now time.Time) error {
+	return s.pauseTasks(ctx, tx, "work_id", workID, reason, detail, now)
+}
+
+func (s *Service) pauseTasks(ctx context.Context, tx pgx.Tx, col string, id uuid.UUID, reason string, detail []byte, now time.Time) error {
 	queued, err := collectIDs(tx.Query(ctx, `
-		SELECT id FROM task WHERE session_id = $1 AND status = 'queued' ORDER BY created_at`, sessionID))
+		SELECT id FROM task WHERE `+col+` = $1 AND status = 'queued' ORDER BY created_at`, id))
 	if err != nil {
 		return err
 	}
 	running, err := collectIDs(tx.Query(ctx, `
-		SELECT id FROM task WHERE session_id = $1 AND status IN ('dispatched', 'preparing', 'running')
-		ORDER BY created_at FOR UPDATE SKIP LOCKED`, sessionID))
+		SELECT id FROM task WHERE `+col+` = $1 AND status IN ('dispatched', 'preparing', 'running')
+		ORDER BY created_at FOR UPDATE SKIP LOCKED`, id))
 	if err != nil {
 		return err
 	}

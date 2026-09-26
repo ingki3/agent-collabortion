@@ -15,6 +15,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/rooms"
 )
 
 // Workspace settings (SCREEN §2.3). P2 turns these on because FR-3.5's loop
@@ -108,6 +109,14 @@ func (s *Server) UpdateWorkspaceSettings(w http.ResponseWriter, r *http.Request,
 	if in.RuntimePolicy != nil {
 		mergeInto("runtime_policy", in.RuntimePolicy)
 	}
+	// v0.2.0 (T-R1b3): a new room's defaults. Same key-by-key merge as the
+	// groups above.
+	if in.RoomDefaults != nil {
+		mergeInto("room_defaults", in.RoomDefaults)
+	}
+	if in.RoomRead != nil {
+		mergeInto("room_read", in.RoomRead)
+	}
 	if in.DefaultIsolation != nil {
 		add("default_isolation", string(*in.DefaultIsolation))
 	}
@@ -165,11 +174,40 @@ func validateSettings(in gen.WorkspaceSettingsUpdate) *Problem {
 		check("max_hops_per_hour", l.MaxHopsPerHour, 10000)
 		check("max_pair_roundtrips", l.MaxPairRoundtrips, 100)
 	}
+	// FR-4.5 분량 상한 — 계약 RoomReadPolicy 의 minimum(1 · 500) 그대로. 0 은 읽기를
+	// 조용히 끄는 값이라 상한이 아니다.
+	if l := in.RoomRead; l != nil {
+		if v := l.MaxRoomsPerTurn; v != nil && *v < 1 {
+			errs = append(errs, apperr.Field("room_read.max_rooms_per_turn", "out_of_range", "1 이상이어야 합니다"))
+		}
+		if v := l.MaxTokens; v != nil && *v < 500 {
+			errs = append(errs, apperr.Field("room_read.max_tokens", "out_of_range", "500 이상이어야 합니다"))
+		}
+	}
 	if v := in.WorkdirRetentionDays; v != nil && *v < 0 {
 		errs = append(errs, apperr.Field("workdir_retention_days", "out_of_range", "0 이상이어야 합니다"))
 	}
 	if in.WorkdirDiskQuotaGb.IsSpecified() && !in.WorkdirDiskQuotaGb.IsNull() && in.WorkdirDiskQuotaGb.MustGet() <= 0 {
 		errs = append(errs, apperr.Field("workdir_disk_quota_gb", "out_of_range", "0보다 커야 합니다"))
+	}
+	if d := in.RoomDefaults; d != nil {
+		if d.Visibility != nil && *d.Visibility != gen.RoomVisibilityWorkspace && *d.Visibility != gen.RoomVisibilityInvited {
+			errs = append(errs, apperr.Field("room_defaults.visibility", "invalid", "알 수 없는 공개 범위입니다"))
+		}
+		if d.IsolationKind != nil && *d.IsolationKind != gen.IsolationKindNone && *d.IsolationKind != gen.IsolationKindWorktree {
+			errs = append(errs, apperr.Field("room_defaults.isolation_kind", "unsupported", "새 방의 격리 기본값은 없음이나 워크트리만 고를 수 있습니다"))
+		}
+		if d.Autonomy != nil && *d.Autonomy == gen.Supervised {
+			errs = append(errs, apperr.Field("room_defaults.autonomy", "unsupported", "감독 모드는 아직 지원하지 않습니다"))
+		}
+		if l := d.Limits; l != nil {
+			if l.MaxConcurrentWorks != nil && *l.MaxConcurrentWorks < 1 {
+				errs = append(errs, apperr.Field("room_defaults.limits.max_concurrent_works", "out_of_range", "1 이상이어야 합니다"))
+			}
+			if l.MaxParallelLanes != nil && *l.MaxParallelLanes < 1 {
+				errs = append(errs, apperr.Field("room_defaults.limits.max_parallel_lanes", "out_of_range", "1 이상이어야 합니다"))
+			}
+		}
 	}
 	if v := in.DefaultIsolation; v != nil {
 		switch *v {
@@ -188,17 +226,19 @@ func loadSettings(ctx context.Context, q db.DBTX, wsID uuid.UUID) (*gen.Workspac
 	// Found while testing S-69: the required `workspace_id` was never set and
 	// every settings response carried the zero uuid.
 	out := gen.WorkspaceSettings{WorkspaceId: wsID}
-	var loop, budget, reuse, runtime []byte
+	var loop, budget, reuse, runtime, roomDefaults, roomRead []byte
 	var isolation string
 	var quota *int
 	var graceSeconds float64
 	err := q.QueryRow(ctx, `
 		SELECT loop_limits, budget_policy, context_reuse, runtime_policy, default_isolation::text,
 		       workdir_retention_days, workdir_disk_quota_gb,
-		       EXTRACT(epoch FROM runtime_offline_grace)::float8, task_event_masking, updated_at
+		       EXTRACT(epoch FROM runtime_offline_grace)::float8, task_event_masking, updated_at,
+		       room_defaults, room_read
 		FROM workspace_settings WHERE workspace_id = $1`, wsID).
 		Scan(&loop, &budget, &reuse, &runtime, &isolation,
-			&out.WorkdirRetentionDays, &quota, &graceSeconds, &out.TaskEventMasking, &out.UpdatedAt)
+			&out.WorkdirRetentionDays, &quota, &graceSeconds, &out.TaskEventMasking, &out.UpdatedAt,
+			&roomDefaults, &roomRead)
 	if err == pgx.ErrNoRows {
 		return nil, apperr.NotFound("workspace_settings")
 	}
@@ -216,6 +256,8 @@ func loadSettings(ctx context.Context, q db.DBTX, wsID uuid.UUID) (*gen.Workspac
 	_ = json.Unmarshal(budget, &out.BudgetPolicy)
 	_ = json.Unmarshal(reuse, &out.ContextReuse)
 	_ = json.Unmarshal(runtime, &out.RuntimePolicy)
+	out.RoomDefaults = effectiveRoomDefaults(roomDefaults, isolation)
+	_ = json.Unmarshal(roomRead, &out.RoomRead)
 	return &out, nil
 }
 
@@ -248,4 +290,35 @@ func marshalJSON(v any) []byte {
 		return []byte("{}")
 	}
 	return b
+}
+
+// effectiveRoomDefaults is what a new room inherits, keys filled — S14 shows
+// the value createRoom will use, not the sparse stored override.
+func effectiveRoomDefaults(raw []byte, defaultIsolation string) *gen.RoomDefaults {
+	var d gen.RoomDefaults
+	_ = json.Unmarshal(raw, &d)
+	if d.Visibility == nil {
+		v := gen.RoomVisibilityWorkspace
+		d.Visibility = &v
+	}
+	if d.IsolationKind == nil {
+		k := gen.IsolationKind(defaultIsolation)
+		d.IsolationKind = &k
+	}
+	if d.Autonomy == nil {
+		a := gen.Guided
+		d.Autonomy = &a
+	}
+	if d.Limits == nil {
+		d.Limits = &gen.RoomLimits{}
+	}
+	if d.Limits.MaxConcurrentWorks == nil {
+		v := rooms.DefaultMaxConcurrentWorks
+		d.Limits.MaxConcurrentWorks = &v
+	}
+	if d.Limits.MaxParallelLanes == nil {
+		v := rooms.DefaultMaxParallelLanes
+		d.Limits.MaxParallelLanes = &v
+	}
+	return &d
 }

@@ -75,3 +75,26 @@ describe("next.config.mjs", () => {
     });
   });
 });
+
+// ── v0.19 T-R2-W1 → v0.3.0 R4 — 옛 세션 주소의 넘김(307)은 지웠다(Director: 옛 주소 전부 삭제) ─────────────────────────────
+describe("옛 세션 주소 (R4 — 넘김 없음)", () => {
+  it("next.config 에 redirects 가 없다 — 옛 주소는 넘기지 않고 404 로 둔다", async () => {
+    const cfg = (await configUnder("production")) as unknown as { redirects?: unknown };
+    expect(cfg.redirects).toBeUndefined();
+    const src = readFileSync(path.join(ROOT, "next.config.mjs"), "utf8");
+    expect(src).not.toMatch(/statusCode:\s*30[78]/);
+    expect(src).not.toMatch(/source:\s*["'`]\/sessions/);
+  });
+
+  it("옛 세션 라우트 파일이 없다(app/**/sessions)", () => {
+    const files = walk(path.join(ROOT, "app")).map((f) => path.relative(ROOT, f));
+    expect(files.filter((f) => f.split(path.sep).includes("sessions"))).toEqual([]);
+  });
+
+  it("앱 안의 기본 착지점은 /rooms 다 — 없는 옛 주소로 보내지 않는다", () => {
+    for (const f of ["app/page.tsx", "app/login/page.tsx", "app/signup/page.tsx", "app/invite/[token]/page.tsx", "app/onboarding/page.tsx"]) {
+      const src = readFileSync(path.join(ROOT, f), "utf8");
+      expect(src, f).not.toMatch(/["'`]\/sessions["'`?/]/);
+    }
+  });
+});

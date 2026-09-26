@@ -59,8 +59,8 @@ export function pausedSummary(d: PausedDetail, agentName?: (id: string) => strin
     case "runtime_offline": {
       const r = d.runtime;
       return r?.offline_since
-        ? `이 세션의 컴퓨터가 ${relativeTime(r.offline_since)}부터 연결되지 않았습니다`
-        : "이 세션의 컴퓨터가 연결되지 않았습니다";
+        ? `이 방의 컴퓨터가 ${relativeTime(r.offline_since)}부터 연결되지 않았습니다`
+        : "이 방의 컴퓨터가 연결되지 않았습니다";
     }
     case "director":
       return "Director 가 일시정지했습니다 — 진행 중이던 턴은 마치고 대기 중입니다.";
@@ -91,7 +91,7 @@ export function PausedBanner({ detail, agentName, onResume, onRebind, onCancel, 
    */
   const cannot = !actions.has("resume")
     ? detail.reason === "runtime_offline"
-      ? "이 사유는 재개할 수 없습니다 — 다른 컴퓨터로 옮기거나 세션을 종료하세요"
+      ? "이 사유는 재개할 수 없습니다 — 다른 컴퓨터로 옮기거나 미션을 종료하세요"
       : "Director 만 할 수 있습니다"
     : gateNote;
   const whyId = cannot ? "paused-why" : undefined;
@@ -167,7 +167,7 @@ export function PausedBanner({ detail, agentName, onResume, onRebind, onCancel, 
         )}
         {actions.has("cancel") && (
           <button type="button" className="btn btn--sm" disabled={busy || !onCancel} onClick={onCancel} data-testid="paused-cancel">
-            세션 종료
+            미션 취소
           </button>
         )}
       </div>

@@ -9,6 +9,7 @@ package runtimes
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,11 +18,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/oapi-codegen/nullable"
 
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
+	"github.com/ingki3/agent-collabortion/server/internal/hitl"
+	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
+	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
 )
@@ -129,24 +134,40 @@ func PlanOffline(c OfflineCase) OfflineOutcome {
 
 // SweepOffline is FR-9.2's periodic pass.
 //
+// PRD v0.19 FR-9.2: the computer is the ROOM's (room.runtime_id), so what a
+// lost computer stops is the room — its gate goes up with `blocked_reason:
+// runtime_offline` (roomgate.Block), which holds every task of the room, in or
+// out of a mission, and parks each active mission with the room's mark so the
+// mission reads `paused(runtime_offline)`. The choice —
+// rebind, or cancel every open mission — is the room owner's (absent owner:
+// the FR-2A.3 hand-over), filed as ONE `room_paused` card.
+//
 // production caller: cmd/server.scheduler (the one-minute purge tick).
 func (s *Service) SweepOffline(ctx context.Context) (int, error) {
 	now := s.Clock.Now()
 	rows, err := s.DB.Query(ctx, `
-		SELECT sess.id, sess.workspace_id, sess.director_user_id, sess.status::text,
+		SELECT sess.id, sess.workspace_id, 'active',
 		       r.id, r.offline_since,
 		       COALESCE(ws.runtime_offline_grace, interval '7 days'),
 		       (SELECT count(*) FROM task t WHERE t.session_id = sess.id AND t.status IN ('queued', 'deferred'))
-		FROM session sess
+		FROM room sess
 		JOIN runtime r ON r.id = sess.runtime_id
 		LEFT JOIN workspace_settings ws ON ws.workspace_id = sess.workspace_id
-		WHERE sess.status = 'active' AND r.status = 'offline' AND r.offline_since IS NOT NULL`)
+		-- One candidate per ROOM (V19_R1B_HANDOFF (a)): a room whose gate is
+		-- down and that still has something to run — an active mission, or a
+		-- task waiting outside one. A room already stopped (for this or any
+		-- reason) is not a candidate: that is what keeps the sweep from filing
+		-- a second card every minute (E14-10), and one block at a time is the
+		-- gate's own rule (roomgate.ErrAlreadyBlocked).
+		WHERE sess.blocked_reason IS NULL AND sess.status = 'active'
+		  AND (EXISTS (SELECT 1 FROM work wk WHERE wk.room_id = sess.id AND wk.status = 'active')
+		       OR EXISTS (SELECT 1 FROM task t WHERE t.session_id = sess.id AND t.status IN ('queued', 'deferred')))
+		  AND r.status = 'offline' AND r.offline_since IS NOT NULL`)
 	if err != nil {
 		return 0, fmt.Errorf("runtimes: offline sweep: %w", err)
 	}
 	type row struct {
 		sessionID, wsID, runtimeID uuid.UUID
-		director                   uuid.UUID
 		c                          OfflineCase
 	}
 	var candidates []row
@@ -154,7 +175,7 @@ func (s *Service) SweepOffline(ctx context.Context) (int, error) {
 		var rr row
 		var offlineSince time.Time
 		var grace time.Duration
-		if err := rows.Scan(&rr.sessionID, &rr.wsID, &rr.director, &rr.c.SessionState,
+		if err := rows.Scan(&rr.sessionID, &rr.wsID, &rr.c.SessionState,
 			&rr.runtimeID, &offlineSince, &grace, &rr.c.QueuedTasks); err != nil {
 			rows.Close()
 			return 0, err
@@ -176,58 +197,72 @@ func (s *Service) SweepOffline(ctx context.Context) (int, error) {
 		if o.SessionState != "paused" {
 			continue
 		}
-		if err := s.pauseForOffline(ctx, rr.sessionID, rr.wsID, rr.director, rr.runtimeID, o, now); err != nil {
+		stopped, err := s.pauseForOffline(ctx, rr.sessionID, rr.wsID, rr.runtimeID, rr.c.OfflineSince, o, now)
+		if err != nil {
 			s.warn("runtimes: pause for offline runtime", "session", rr.sessionID, "err", err)
 			continue
 		}
-		n++
+		if stopped {
+			n++
+		}
 	}
 	return n, nil
 }
 
-func (s *Service) pauseForOffline(ctx context.Context, sessionID, wsID, director, runtimeID uuid.UUID, o OfflineOutcome, now time.Time) error {
+// pauseForOffline puts the room's gate up for the lost computer. It reports
+// whether THIS pass stopped the room — false when another pass (or another
+// reason) got there first.
+func (s *Service) pauseForOffline(ctx context.Context, roomID, wsID, runtimeID uuid.UUID, offlineSince time.Time, o OfflineOutcome, now time.Time) (bool, error) {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
-	detail := tasks.PausedDetail(PauseReasonOffline, now)
-	// The guarded UPDATE is what makes the sweep idempotent under concurrency:
-	// only a session still `active` moves, so two overlapping passes cannot
-	// both pause it and both notify.
-	tag, err := tx.Exec(ctx, `
-		UPDATE session SET status = 'paused', paused_reason = 'runtime_offline', paused_detail = $2,
-		       updated_at = $3
-		WHERE id = $1 AND status = 'active'`, sessionID, detail, now)
+	// The room lock is what makes the sweep idempotent under concurrency: two
+	// overlapping passes serialise here and the second finds the gate up.
+	room, err := roomgate.Lock(ctx, tx, roomID)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if tag.RowsAffected() == 0 {
-		return tx.Commit(ctx)
+	if room.BlockedReason != nil || room.Status != "active" {
+		return false, tx.Commit(ctx)
+	}
+	detail := tasks.PausedDetail(PauseReasonOffline, now)
+	rid := runtimeID
+	if _, err := roomgate.Block(ctx, tx, roomID, roomgate.ReasonRuntimeOffline,
+		gen.BlockedDetail{RuntimeId: nullable.NewNullableWithValue(rid)}, &detail, now); err != nil {
+		if errors.Is(err, roomgate.ErrAlreadyBlocked) {
+			return false, tx.Commit(ctx)
+		}
+		return false, err
 	}
 	if o.DirectorNotified {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
-			SELECT m.id, 'runtime_offline'::inbox_item_type, $1::inbox_severity, $2, $3, $4
-			FROM member m WHERE m.workspace_id = $5 AND m.user_id = $6`,
-			inbox.Severity(inbox.TypeRuntimeOffline), sessionID, runtimeID, now, wsID, director); err != nil {
-			return fmt.Errorf("runtimes: offline inbox: %w", err)
+		// FR-8 v0.19: the whole room stopped — ONE `room_paused` card for the
+		// room owner's chain (FileInbox), ref = the lost computer. There is no
+		// approval request behind it: the two ways out are rebindSession and
+		// cancelling the open missions, and the card offers `rebind`.
+		if err := roomgate.FileInbox(ctx, tx, roomgate.Item{
+			Type: inbox.TypeRoomPaused, WorkspaceID: wsID, RoomID: roomID, HitlID: runtimeID,
+			Created: now, Due: OfflineDue(now),
+		}); err != nil {
+			return false, err
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return err
+		return false, err
 	}
-	if s.Hub != nil {
-		sid := sessionID
-		_ = s.Hub.Publish(ctx, nil, wsID, &sid, "session.updated", map[string]any{
-			"session_id":    sessionID,
-			"status":        "paused",
-			"paused_reason": PauseReasonOffline,
-			"choices":       o.Choices,
-		})
-	}
-	return nil
+	roomgate.PublishUpdated(ctx, s.Hub, s.DB, roomID)
+	return true, nil
+}
+
+// OfflineDue is the deadline a runtime_offline stop's approver chain is read
+// against (roomgate.Approvers.Now): FR-5.4's 24 hours from the stop, like the
+// approval request a budget or loop stop raises — the owner answers first,
+// the deputy (or the oldest workspace owner) from half of it. A lost
+// computer raises no request, so the stop's own `blocked_at` is the start.
+func OfflineDue(blockedAt time.Time) time.Time {
+	return blockedAt.Add(hitl.DefaultDueIn)
 }
 
 // ---------------------------------------------------------------------------
@@ -278,7 +313,7 @@ func JudgeCandidate(c CandidateCase) CandidateVerdict {
 	}
 	want := NormalizeRemote(c.SessionRemote)
 	if want == "" {
-		return CandidateVerdict{Reason: "이 세션의 저장소 remote URL 을 알 수 없어 같은 저장소인지 판정할 수 없습니다"}
+		return CandidateVerdict{Reason: "이 방의 저장소 remote URL 을 알 수 없어 같은 저장소인지 판정할 수 없습니다"}
 	}
 	for _, repo := range c.Repos {
 		if NormalizeRemote(repo.RemoteURL) == want {
@@ -345,7 +380,7 @@ type RebindInput struct {
 // gone; carrying `runtime_session_ref` over would make the new daemon resume a
 // session id it never issued, and `session/load` fails.
 //
-// production caller: runtimes.Service.Rebind (POST /sessions/{id}/rebind).
+// production caller: runtimes.Service.Rebind (POST /rooms/{id}/rebind).
 func PlanRebind(in RebindInput) RebindPlan {
 	p := RebindPlan{HTTPStatus: 200, ColdStart: true}
 	if in.SessionState != "paused" || in.PauseReason != PauseReasonOffline {
@@ -353,7 +388,7 @@ func PlanRebind(in RebindInput) RebindPlan {
 		// still running it.
 		p.HTTPStatus = 409
 		p.Problem = apperr.Conflict("session_not_paused_offline",
-			"컴퓨터 연결이 끊겨 일시정지된 세션만 다른 컴퓨터로 옮길 수 있습니다")
+			"컴퓨터 연결이 끊겨 멈춘 방만 다른 컴퓨터로 옮길 수 있습니다")
 		return p
 	}
 	if in.Isolation == "worktree" && !in.AcknowledgeLoss {
@@ -443,17 +478,9 @@ func (s *Service) Rebind(ctx context.Context, wsID, sessionID, targetRuntime uui
 	if err != nil {
 		return RebindPlan{}, err
 	}
-	var state string
-	var pauseReason *string
-	if err := s.DB.QueryRow(ctx, `SELECT status::text, paused_reason::text FROM session WHERE id = $1`, sessionID).
-		Scan(&state, &pauseReason); errors.Is(err, pgx.ErrNoRows) {
-		return RebindPlan{}, apperr.NotFound("session")
-	} else if err != nil {
+	state, reason, err := s.offlineState(ctx, s.DB, sessionID)
+	if err != nil {
 		return RebindPlan{}, err
-	}
-	reason := ""
-	if pauseReason != nil {
-		reason = *pauseReason
 	}
 
 	target, err := s.Get(ctx, targetRuntime)
@@ -514,20 +541,59 @@ func (s *Service) Rebind(ctx context.Context, wsID, sessionID, targetRuntime uui
 	if verdict.MatchedRepoPath != "" && kind == "worktree" {
 		repoPath = verdict.MatchedRepoPath
 	}
+	// Room first, then work (lock order). The room is what the computer was
+	// lost from (FR-9.2 v0.19): the rebind lifts its runtime_offline gate,
+	// which brings back the missions the gate parked (roomgate.Unblock). A
+	// mission parked by the pre-v0.19 sweep carries no room mark and no gate —
+	// it still moves, by the old guard, so a room stopped before this change
+	// is not stranded by it.
+	room, err := roomgate.Lock(ctx, tx, sessionID)
+	if err != nil {
+		if errors.Is(err, roomgate.ErrNotFound) {
+			return plan, apperr.NotFound("session")
+		}
+		return plan, err
+	}
+	gated := room.BlockedReason != nil && *room.BlockedReason == roomgate.ReasonRuntimeOffline
+	var oldRuntime *uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT runtime_id FROM room WHERE id = $1`, sessionID).Scan(&oldRuntime); err != nil {
+		return plan, err
+	}
 	tag, err := tx.Exec(ctx, `
-		UPDATE session SET runtime_id = $2, status = 'active', paused_reason = NULL, paused_detail = NULL,
+		UPDATE room SET runtime_id = $2,
 		       rebind_prompt = $4,
 		       isolation = CASE WHEN $5::text IS NULL THEN isolation
 		                        ELSE jsonb_set(isolation, '{repo_path}', to_jsonb($5::text), true) END,
 		       updated_at = $3
-		WHERE id = $1 AND status = 'paused' AND paused_reason = 'runtime_offline'`,
-		sessionID, targetRuntime, now, rebindPrompt, repoPath)
+		WHERE id = $1 AND ($6 OR EXISTS (SELECT 1 FROM work wk WHERE wk.room_id = room.id
+		                                  AND wk.status = 'paused' AND wk.paused_reason = 'runtime_offline'))`,
+		sessionID, targetRuntime, now, rebindPrompt, repoPath, gated)
 	if err != nil {
 		return plan, err
 	}
-	if tag.RowsAffected() == 0 {
+	moved := tag.RowsAffected() > 0
+	if moved && gated {
+		if _, err := roomgate.Unblock(ctx, tx, sessionID, roomgate.ReasonRuntimeOffline, now); err != nil {
+			return plan, err
+		}
+	}
+	if moved {
+		// Unmarked leftovers (the pre-v0.19 sweep's per-mission pause).
+		if _, err = tx.Exec(ctx, `
+			UPDATE work SET status = 'active', paused_reason = NULL, paused_detail = NULL, updated_at = $2
+			WHERE room_id = $1 AND status = 'paused' AND paused_reason = 'runtime_offline'`,
+			sessionID, now); err != nil {
+			return plan, err
+		}
+		if oldRuntime != nil {
+			if err := roomgate.ResolveCards(ctx, tx, inbox.TypeRoomPaused, sessionID, *oldRuntime, now); err != nil {
+				return plan, err
+			}
+		}
+	}
+	if !moved {
 		return plan, apperr.Conflict("session_not_paused_offline",
-			"컴퓨터 연결이 끊겨 일시정지된 세션만 다른 컴퓨터로 옮길 수 있습니다")
+			"컴퓨터 연결이 끊겨 멈춘 방만 다른 컴퓨터로 옮길 수 있습니다")
 	}
 	// The lane's `runtime_session_ref` points at a session id that lives on the
 	// machine that is gone. Clearing it is what makes the next attempt a cold
@@ -602,7 +668,93 @@ func (s *Service) Rebind(ctx context.Context, wsID, sessionID, targetRuntime uui
 		}
 	}
 	s.publishRuntime(ctx, targetRuntime)
+	roomgate.PublishUpdated(ctx, s.Hub, s.DB, sessionID)
 	return plan, nil
+}
+
+// MayRebind is who chooses for a room its computer was lost from (FR-9.2
+// v0.19 — 「결정자는 방장, 부재 시 FR-2A.3 위임 경로」): the old session's
+// Director (the P4 permission, kept for the old screen), the room owner, and
+// — from half of the stop's deadline (OfflineDue) — the deputy, or the oldest
+// workspace owner when the room has none. `blockedAt` is the runtime_offline
+// stop's `blocked_at`; nil (no gate up — a pre-v0.19 pause) hands nothing to
+// the delegate. The inbox card's `rebind` action and rebindSession's 403 both
+// read this one judgement.
+func MayRebind(ap roomgate.Approvers, director *uuid.UUID, user uuid.UUID, blockedAt *time.Time, now time.Time) bool {
+	if director != nil && *director == user {
+		return true
+	}
+	if user == ap.Owner {
+		return true
+	}
+	if blockedAt == nil {
+		return false
+	}
+	turn := ap.Now(*blockedAt, OfflineDue(*blockedAt), now)
+	return turn.Approver == user
+}
+
+// RebindAuthz loads MayRebind's facts for a room and judges `user`.
+func RebindAuthz(ctx context.Context, q db.DBTX, roomID, user uuid.UUID, now time.Time) (bool, error) {
+	var director *uuid.UUID
+	var blocked *string
+	var detail []byte
+	err := q.QueryRow(ctx, `
+		SELECT lw.director_user_id, s.blocked_reason::text, s.blocked_detail
+		FROM room s LEFT JOIN work lw ON lw.id = s.legacy_work_id WHERE s.id = $1`, roomID).
+		Scan(&director, &blocked, &detail)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, apperr.NotFound("session")
+	}
+	if err != nil {
+		return false, err
+	}
+	ap, err := roomgate.LoadApprovers(ctx, q, roomID)
+	if err != nil {
+		return false, err
+	}
+	var blockedAt *time.Time
+	if blocked != nil && *blocked == roomgate.ReasonRuntimeOffline && len(detail) > 0 {
+		var d gen.BlockedDetail
+		if json.Unmarshal(detail, &d) == nil && d.BlockedAt != nil {
+			blockedAt = d.BlockedAt
+		}
+	}
+	return MayRebind(ap, director, user, blockedAt, now), nil
+}
+
+// offlineState is "is this room waiting for a new computer?" as PlanRebind
+// reads it. The room's runtime_offline gate says so (FR-9.2 v0.19); a room
+// without it falls back to its missions — any one paused for the lost
+// computer (the pre-v0.19 sweep parked them all at once), else the old
+// session's mission speaks for it (V19_R1B_HANDOFF (c)).
+func (s *Service) offlineState(ctx context.Context, q db.DBTX, roomID uuid.UUID) (state, reason string, err error) {
+	var blocked *string
+	var wkState, wkReason *string
+	err = q.QueryRow(ctx, `
+		SELECT s.blocked_reason::text, o.status, o.paused_reason
+		FROM room s
+		LEFT JOIN LATERAL (SELECT wk.status::text AS status, wk.paused_reason::text AS paused_reason FROM work wk
+		                    WHERE wk.room_id = s.id
+		                    ORDER BY (wk.paused_reason = 'runtime_offline') IS TRUE DESC, (wk.id = s.legacy_work_id) IS TRUE DESC, wk.created_at DESC
+		                    LIMIT 1) o ON true
+		WHERE s.id = $1`, roomID).Scan(&blocked, &wkState, &wkReason)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", apperr.NotFound("session")
+	}
+	if err != nil {
+		return "", "", err
+	}
+	if blocked != nil && *blocked == roomgate.ReasonRuntimeOffline {
+		return "paused", PauseReasonOffline, nil
+	}
+	if wkState == nil {
+		return "", "", apperr.NotFound("session")
+	}
+	if wkReason != nil {
+		reason = *wkReason
+	}
+	return *wkState, reason, nil
 }
 
 // strandedDispatched lists the session's tasks the dead machine had already
@@ -688,8 +840,9 @@ type EndResult struct {
 // machine outage in the success column makes every completion metric a lie —
 // and it would trigger FR-2.4's summary of a job that was never finished.
 //
-// production caller: httpapi.Server.CancelSession, for a session paused with
-// `runtime_offline`.
+// production caller: httpapi.Server.liftOfflineGate — cancelWork on the last
+// open mission of a room stopped `runtime_offline` (cancelSession's 「종료」
+// until openapi v0.3.0).
 func PlanOfflineEnd(artifacts int) EndResult {
 	return EndResult{SessionState: "cancelled", ArtifactsRecovered: artifacts}
 }
@@ -741,7 +894,7 @@ func PlanRuntimeDelete(c DeleteCase) DeleteResult {
 	}
 	return DeleteResult{
 		HTTPStatus: 409, Code: DeleteCode, BlockingSessions: blocking, AsksRebindOrEnd: true,
-		Detail: fmt.Sprintf("이 컴퓨터를 쓰는 중인 세션이 %d개 있습니다 — 먼저 다른 컴퓨터로 옮기거나 세션을 종료해 주세요", blocking),
+		Detail: fmt.Sprintf("이 컴퓨터를 쓰는 중인 방이 %d개 있습니다 — 먼저 다른 컴퓨터로 옮기거나 미션을 종료해 주세요", blocking),
 	}
 }
 
@@ -790,9 +943,18 @@ type blockingSession struct {
 
 func (s *Service) blockingSessions(ctx context.Context, runtimeID uuid.UUID) ([]blockingSession, error) {
 	rows, err := s.DB.Query(ctx, `
-		SELECT id, title, status::text, COALESCE(paused_reason::text, '')
-		FROM session WHERE runtime_id = $1 AND status IN ('draft', 'active', 'paused', 'completing')
-		ORDER BY created_at`, runtimeID)
+		SELECT s.id, COALESCE(lw.title, s.name), o.status::text, COALESCE(o.paused_reason::text, '')
+		FROM room s
+		LEFT JOIN work lw ON lw.id = s.legacy_work_id
+		-- One row per ROOM (V19_R1B_HANDOFF (d)): a room with two open missions
+		-- is one room on this computer. A mission still running decides over
+		-- one parked for the lost computer.
+		JOIN LATERAL (SELECT wk.status, wk.paused_reason FROM work wk
+		               WHERE wk.room_id = s.id AND wk.status IN ('draft', 'active', 'paused', 'completing')
+		               ORDER BY (wk.paused_reason = 'runtime_offline') IS TRUE, (wk.id = s.legacy_work_id) IS TRUE DESC, wk.created_at
+		               LIMIT 1) o ON true
+		WHERE s.runtime_id = $1
+		ORDER BY s.created_at`, runtimeID)
 	if err != nil {
 		return nil, fmt.Errorf("runtimes: blocking sessions: %w", err)
 	}

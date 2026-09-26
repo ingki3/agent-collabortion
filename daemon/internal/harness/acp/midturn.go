@@ -72,8 +72,11 @@ type sdkTokens struct {
 // Anthropic streaming event as the SDK saw it.
 type sdkStreamEvent struct {
 	Type string `json:"type"` // message_start | message_delta | content_block_* | …
-	// message_start carries the whole request's opening usage under `message`.
+	// message_start carries the whole request's opening usage under `message`,
+	// and the model that is answering the request (T-COSTMODEL; measured on
+	// the spike 1b wire: `"message":{"model":"claude-haiku-4-5-20251001",…}`).
 	Message *struct {
+		Model string     `json:"model"`
 		Usage *sdkTokens `json:"usage"`
 	} `json:"message,omitempty"`
 	// message_delta carries the request's final usage directly.
@@ -81,11 +84,22 @@ type sdkStreamEvent struct {
 }
 
 // turnTokens is the running mid-turn approximation for the CURRENT turn.
-// It is not a contracts.Usage because it deliberately has no cost and no
-// model: mid-turn the daemon knows how many tokens were burned and nothing
-// about what they cost (the price arrives with `result` at turn end).
+// It is not a contracts.Usage because it deliberately has no cost: mid-turn
+// the daemon knows how many tokens were burned and nothing about what they
+// cost (the price arrives with `result` at turn end).
+//
+// It does carry the MODEL (T-COSTMODEL). Without it the server priced every
+// mid-turn heartbeat from the profile's model, and a claude_code profile whose
+// model is "default" is in no price table — so a Lead turn that had burned
+// 22,629 output tokens read $0 until `finish`, and the in-turn half of
+// FR-7.3 (S-48) never tripped for it. The server owns the prices; the daemon
+// only says which model the tokens went to.
 type turnTokens struct {
 	in, out, cacheRead, cacheWrite int64
+	// model is the MAIN stream's most recent `message_start.message.model`
+	// (see Runner.foldTurnUsage for why "main" and why "most recent").
+	// Empty until one has been seen this turn.
+	model string
 }
 
 func (t turnTokens) any() bool {
@@ -108,7 +122,7 @@ func foldSDKStream(raw json.RawMessage) turnTokens {
 		// Output is NOT taken here: at message_start it is the handful of
 		// tokens produced so far, and message_delta reports the final count
 		// for the same request.
-		return turnTokens{in: u.InputTokens, cacheRead: u.CacheReadTokens, cacheWrite: u.CacheCreationTokens}
+		return turnTokens{in: u.InputTokens, cacheRead: u.CacheReadTokens, cacheWrite: u.CacheCreationTokens, model: ev.Message.Model}
 	case "message_delta":
 		if ev.Usage == nil {
 			return turnTokens{}

@@ -27,3 +27,25 @@
 .inbox-item__extra { margin: 0; font-size: var(--fs-sub); color: var(--ink-2); }
 .inbox-item__actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .inbox-item__field { display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-body); max-width: 260px; }
+
+/*
+ * v0.19 맥락 한 줄(SCREEN §4.14, T-R2-W4a) — `[심각도] [타입] · 방 이름 · 미션 제목`. **방 이름은 줄이지 않는다**:
+ * 말줄임은 미션 제목이 먼저(flex-shrink 큼), 그다음 타입. 방 이름은 flex: none 이라 좁아져도 끝까지 보인다 — 인용을 첫 줄에 넣지 않는 것과 같은 이유
+ * (어느 방 일인지 모르는 채 답하게 된다).
+ */
+.inbox-item__head--ctx { flex-wrap: nowrap; min-width: 0; }
+.inbox-item__head--ctx .inbox-item__due { flex: none; white-space: nowrap; }
+.inbox-item__head--ctx .inbox-item__type { flex: 0 0.01 auto; min-width: 3em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inbox-item__room { flex: none; font-weight: 600; white-space: nowrap; }
+.inbox-item__work { flex: 0 100 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+/* 둘째 줄 — 미션 밖 항목의 트리거 메시지 인용, 한 줄 말줄임. */
+.inbox-item__quote { margin: 0; font-size: var(--fs-sub); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inbox-item__basis { margin: 0; font-size: var(--fs-sub); color: var(--ink-2); }
+.inbox-item__basis[data-locked="true"] [data-testid="inbox-delegation"] { color: var(--ink); font-weight: 600; }
+.inbox-item__links { display: flex; gap: 12px; flex-wrap: wrap; font-size: var(--fs-sub); }
+.inbox-room { display: flex; flex-direction: column; gap: 4px; }
+.inbox-room__lead { margin: 0; font-size: var(--fs-body); font-weight: 600; }
+.inbox-room__question { margin: 0; font-size: var(--fs-body); color: var(--ink-2); white-space: pre-wrap; }
+.inbox-room__held { margin: 0; font-size: var(--fs-body); }
+.inbox-room__default { margin: 0; font-size: var(--fs-sub); color: var(--ink-2); }
+.inbox-room__actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }

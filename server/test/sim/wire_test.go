@@ -11,7 +11,7 @@
 // PRODUCTION CALL SITES (nothing below decides anything — every verdict comes
 // from the server):
 //
-//	postMessage      → POST /api/v1/sessions/{id}/messages with the CLI's
+//	postMessage      → POST /api/v1/rooms/{id}/messages with the CLI's
 //	                   Idempotency-Key UUIDv5(task:<id>:<seq>) and
 //	                   X-Colab-Client-Seq (colab-cli.md §1)
 //	requeueAfterKill → queue.ExpireStale (the heartbeat sweep, §7) then
@@ -119,9 +119,11 @@ func plant() error {
 	if err := q(`INSERT INTO member (workspace_id, user_id, role, created_at) VALUES ($1, $2, 'owner', $3)`, s.workspace, s.user, simEpoch); err != nil {
 		return err
 	}
+	// A `none` bundle needs `workdir_root` too since daemon-protocol v0.10.0
+	// §4.1 — the server names every path and refuses to guess one.
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO runtime (workspace_id, name, status, last_seen_at, created_at, updated_at)
-		VALUES ($1, 'mac-1', 'online', $2, $2, $2) RETURNING id`, s.workspace, simEpoch).Scan(&s.runtime); err != nil {
+		INSERT INTO runtime (workspace_id, name, status, workdir_root, last_seen_at, created_at, updated_at)
+		VALUES ($1, 'mac-1', 'online', '/tmp/colab-sim/work', $2, $2, $2) RETURNING id`, s.workspace, simEpoch).Scan(&s.runtime); err != nil {
 		return err
 	}
 	if err := pool.QueryRow(ctx, `
@@ -135,12 +137,22 @@ func plant() error {
 		return err
 	}
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO session (workspace_id, title, goal, director_user_id, runtime_id, isolation, status, created_by, created_at, updated_at, started_at)
-		VALUES ($1, 'sim', 'g', $2, $3, '{"kind": "none"}'::jsonb, 'active', $2, $4, $4, $4) RETURNING id`,
+		WITH r AS (
+			INSERT INTO room (workspace_id, name, owner_user_id, runtime_id, isolation, created_by, created_at, updated_at)
+			VALUES ($1, 'sim', $2, $3, '{"kind": "none"}'::jsonb, $2, $4, $4) RETURNING id),
+		wk AS (
+			INSERT INTO work (room_id, title, goal, director_user_id, status, created_by, created_at, updated_at, started_at)
+			SELECT id, 'sim', 'g', $2, 'active', $2, $4, $4, $4 FROM r)
+		SELECT id FROM r`,
 		s.workspace, s.user, s.runtime, simEpoch).Scan(&s.session); err != nil {
 		return err
 	}
-	return q(`INSERT INTO session_participant (session_id, agent_id, profile_id, joined_at) VALUES ($1, $2, $3, $4)`,
+	// An old-path session room carries its mission's mark (T-R1b2). Its own
+	// statement: a CTE's UPDATE does not see the room its sibling inserted.
+	if err := q(`UPDATE room SET legacy_work_id = (SELECT id FROM work WHERE room_id = $1) WHERE id = $1`, s.session); err != nil {
+		return err
+	}
+	return q(`INSERT INTO room_participant (room_id, agent_id, profile_id, joined_at) VALUES ($1, $2, $3, $4)`,
 		s.session, s.agent, s.profile, simEpoch)
 }
 
@@ -210,7 +222,7 @@ func adaptPost(p postAttempt) postResult {
 	}
 	current = p.TaskID
 	body, _ := json.Marshal(map[string]any{"content": p.Content})
-	req, _ := http.NewRequest("POST", ts.URL+"/api/v1/sessions/"+seedIDs.session.String()+"/messages", strings.NewReader(string(body)))
+	req, _ := http.NewRequest("POST", ts.URL+"/api/v1/rooms/"+seedIDs.session.String()+"/messages", strings.NewReader(string(body)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+taskTok[p.TaskID])
 	req.Header.Set("Idempotency-Key", idempotencyKey(p.TaskID, p.Seq))

@@ -30,14 +30,18 @@ func (s *Service) Preview(ctx context.Context, sessionID uuid.UUID, author Autho
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
+	// V19_R1B_HANDOFF (c) router/preview.go:36: the room, not "the room's
+	// mission" — the assignee comes from the mission the message would join.
 	var wsID uuid.UUID
-	var status string
-	var assignee *uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT workspace_id, status::text, assignee_agent_id FROM session WHERE id = $1`, sessionID).
-		Scan(&wsID, &status, &assignee)
+	var legacy *uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT workspace_id, legacy_work_id FROM room WHERE id = $1`, sessionID).Scan(&wsID, &legacy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrSessionNotFound
 	}
+	if err != nil {
+		return nil, err
+	}
+	assignee, err := routingAssignee(ctx, tx, sessionID, in, legacy)
 	if err != nil {
 		return nil, err
 	}
@@ -67,6 +71,27 @@ func (s *Service) Preview(ctx context.Context, sessionID uuid.UUID, author Autho
 	})
 
 	out := &gen.TriggerPreview{Triggers: []gen.TriggerTarget{}}
+	// FR-3.1.1: the chip says which mission the message will join, and by
+	// which rule — the same attribute() Post runs.
+	attr, err := attribute(ctx, tx, sessionID, in, author, th, dec, legacy)
+	if err != nil {
+		return nil, err
+	}
+	src := gen.WorkSource(attr.Source)
+	out.WorkSource = &src
+	if ref, err := workRef(ctx, tx, attr); err != nil {
+		return nil, err
+	} else if ref != nil {
+		out.Work = nullable.NewNullableWithValue(struct {
+			Id    openapi_types.UUID `json:"id"`
+			Title string             `json:"title"`
+		}{Id: ref.Id, Title: ref.Title})
+	} else {
+		out.Work = nullable.NewNullNullable[struct {
+			Id    openapi_types.UUID `json:"id"`
+			Title string             `json:"title"`
+		}]()
+	}
 	out.NoteOnly = isNote(in.Content)
 	names := map[uuid.UUID]string{}
 	for _, p := range participants {
@@ -105,9 +130,10 @@ func (s *Service) Preview(ctx context.Context, sessionID uuid.UUID, author Autho
 	newLane := in.NewLane != nil && *in.NewLane && author.Type == "user"
 	for _, tr := range dec.Triggers {
 		t := gen.TriggerTarget{AgentId: tr.AgentID, AgentName: names[tr.AgentID], Rule: tr.Rule}
+		rootLane, topLevel := th.laneFor(tr)
 		d, busy, err := s.previewLane(ctx, tx, sessionID, tr, laneOpts{
-			threadRootLane: th.RootLane,
-			topLevelMent:   tr.Rule == 2 && th.Parent == nil,
+			threadRootLane: rootLane,
+			topLevelMent:   topLevel,
 			forceNewLane:   newLane,
 		})
 		if err != nil {

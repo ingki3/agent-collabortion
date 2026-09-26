@@ -94,16 +94,29 @@ func (s *Service) requeueParkedLocked(ctx context.Context, tx pgx.Tx, t *Row, ca
 // the session-scoped one carries a NULL task_id and is answered by this very
 // resume, so it gates nothing here.
 func (s *Service) ResumeSessionTasks(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, reason, cause string, now time.Time) ([]uuid.UUID, error) {
+	return s.resumeTasks(ctx, tx, "session_id", sessionID, reason, cause, now)
+}
+
+// ResumeWorkTasks is ResumeSessionTasks for ONE mission (FR-2A.3): the
+// approval that lifts a mission's own budget pause re-queues what that pause
+// parked, and nothing of the room's other missions.
+//
+// production caller: httpapi.resumeWorkForBudget.
+func (s *Service) ResumeWorkTasks(ctx context.Context, tx pgx.Tx, workID uuid.UUID, reason, cause string, now time.Time) ([]uuid.UUID, error) {
+	return s.resumeTasks(ctx, tx, "work_id", workID, reason, cause, now)
+}
+
+func (s *Service) resumeTasks(ctx context.Context, tx pgx.Tx, col string, id uuid.UUID, reason, cause string, now time.Time) ([]uuid.UUID, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT t.id FROM task t
-		WHERE t.session_id = $1 AND t.status = 'paused'
+		WHERE t.`+col+` = $1 AND t.status = 'paused'
 		  AND ($2 = '' OR t.paused_reason::text = $2)
 		  AND NOT EXISTS (
 		        SELECT 1 FROM hitl_request h
 		         WHERE h.task_id = t.id AND h.purpose = 'budget'
 		           AND (h.status = 'open' OR h.approved IS NOT TRUE))
 		ORDER BY t.created_at
-		FOR UPDATE`, sessionID, reason)
+		FOR UPDATE`, id, reason)
 	if err != nil {
 		return nil, fmt.Errorf("tasks: resume session tasks: %w", err)
 	}
@@ -193,9 +206,13 @@ func (s *Service) PauseTaskForBudget(ctx context.Context, tx pgx.Tx, taskID uuid
 }
 
 // RecordTurnUsage stores the running usage the daemon reports on every
-// heartbeat (daemon-protocol §4.2). It is an upsert on the task, not an
+// heartbeat (daemon-protocol §4.2). It is an upsert on the ATTEMPT, not an
 // increment: the daemon sends the turn's TOTAL, so adding it would multiply
-// the bill by the number of heartbeats.
+// the bill by the number of heartbeats. It is keyed by attempt and not by task
+// because a retry · resume · cold start · profile fallback runs the same task
+// again from zero — keyed by task, attempt 2's running total overwrote what
+// attempt 1 had spent and the room's cost went DOWN (T-S-usage, measured
+// 11.477 → 10.062 on a budget-paused-then-approved Writer task).
 //
 // An `estimated: true` report carries a 0 the runtime did not measure
 // (harness v0.7.1), so the reported number is dropped — and the row is priced
@@ -209,7 +226,7 @@ func (s *Service) PauseTaskForBudget(ctx context.Context, tx pgx.Tx, taskID uuid
 // product actually runs. Fixing the daemon's own half (D-17) would only have
 // made it report a 0 more often. The pricing is the SAME function the roll-up
 // calls, so the heartbeat and the finish cannot drift onto two numbers.
-func (s *Service) RecordTurnUsage(ctx context.Context, taskID uuid.UUID, u contracts.Usage, now time.Time) error {
+func (s *Service) RecordTurnUsage(ctx context.Context, taskID uuid.UUID, attempt int, u contracts.Usage, now time.Time) error {
 	reported := u.CostUSD
 	if u.Estimated {
 		reported = 0
@@ -221,12 +238,12 @@ func (s *Service) RecordTurnUsage(ctx context.Context, taskID uuid.UUID, u contr
 	}
 	return s.inTx(ctx, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO task_usage (task_id, input_tokens, output_tokens, cache_read, cost_usd, estimated, model, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			ON CONFLICT (task_id) DO UPDATE SET input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
+			INSERT INTO task_usage (task_id, attempt, input_tokens, output_tokens, cache_read, cost_usd, estimated, model, updated_at)
+			VALUES ($1, $9, $2, $3, $4, $5, $6, $7, $8)
+			ON CONFLICT (task_id, attempt) DO UPDATE SET input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
 			  cache_read = EXCLUDED.cache_read, cost_usd = EXCLUDED.cost_usd, estimated = EXCLUDED.estimated,
 			  model = COALESCE(EXCLUDED.model, task_usage.model), updated_at = EXCLUDED.updated_at`,
-			taskID, u.InputTokens, u.OutputTokens, u.CacheReadTokens, reported, u.Estimated, model, now); err != nil {
+			taskID, u.InputTokens, u.OutputTokens, u.CacheReadTokens, reported, u.Estimated, model, now, attempt); err != nil {
 			return fmt.Errorf("tasks: turn usage: %w", err)
 		}
 		if !u.Estimated {
@@ -238,7 +255,7 @@ func (s *Service) RecordTurnUsage(ctx context.Context, taskID uuid.UUID, u contr
 		}
 		var wsID, sessionID uuid.UUID
 		if err := tx.QueryRow(ctx, `
-			SELECT s.workspace_id, t.session_id FROM task t JOIN session s ON s.id = t.session_id
+			SELECT s.workspace_id, t.session_id FROM task t JOIN room s ON s.id = t.session_id
 			WHERE t.id = $1`, taskID).Scan(&wsID, &sessionID); err != nil {
 			return fmt.Errorf("tasks: turn usage session: %w", err)
 		}

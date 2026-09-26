@@ -86,14 +86,14 @@ func TestS14DownloadOutlivesWriteTimeout(t *testing.T) {
 func TestS14StreamOutlivesWriteTimeout(t *testing.T) {
 	f := newP2Fixture(t)
 	c := f.boundedServer(t, 300*time.Millisecond)
-	frames, stop := openStream(t, c, f.p+"/workspaces/"+f.wsID+"/stream?session_id="+f.sessionID)
+	frames, stop := openStream(t, c, f.p+"/workspaces/"+f.wsID+"/stream?room_id="+f.sessionID)
 	defer stop()
 
 	// Longer than the bound, then an event: a stream still bound by the
 	// listener's WriteTimeout is closed by now and the frame never arrives.
 	time.Sleep(700 * time.Millisecond)
 	sid := mustUUID(t, f.sessionID)
-	if err := f.srv.Hub.Publish(t.Context(), f.pool, mustUUID(t, f.wsID), &sid, "session.updated", map[string]any{"id": sid, "status": "active"}); err != nil {
+	if err := f.srv.Hub.Publish(t.Context(), f.pool, mustUUID(t, f.wsID), &sid, "room.updated", map[string]any{"id": sid, "status": "active"}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -101,8 +101,8 @@ func TestS14StreamOutlivesWriteTimeout(t *testing.T) {
 		if !ok {
 			t.Fatalf("the stream was closed by the listener's WriteTimeout — StreamEvents must clear its connection's write deadline (S-14)")
 		}
-		if fr.Type != "session.updated" {
-			t.Fatalf("frame = %+v, want session.updated", fr)
+		if fr.Type != "room.updated" {
+			t.Fatalf("frame = %+v, want room.updated", fr)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatalf("no frame within 3s after the bound elapsed")

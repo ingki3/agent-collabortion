@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -40,12 +41,12 @@ const fieldMax = 64 << 10
 // whoever submitted them; whether that satisfies the `artifact_submitted`
 // completion condition is a separate question the tree answers (E6-02), and
 // the answer rides back in completion_progress.
-func (s *Server) SubmitArtifact(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.SubmitArtifactParams) {
-	if _, p := s.sessionAccess(r, sessionId); p != nil {
+func (s *Server) SubmitArtifact(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.SubmitArtifactParams) {
+	if _, p := s.sessionAccess(r, roomId); p != nil {
 		writeProblem(w, p)
 		return
 	}
-	if p := s.commandAllowed(r, gen.ArtifactSubmit); p != nil {
+	if p := s.commandAllowed(r, gen.ColabCommandArtifactSubmit); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -77,7 +78,7 @@ func (s *Server) SubmitArtifact(w http.ResponseWriter, r *http.Request, sessionI
 	}
 
 	call := func() (int, any, *Problem) {
-		row, err := s.Artifacts.Submit(r.Context(), sessionId, *in)
+		row, err := s.Artifacts.Submit(r.Context(), roomId, *in)
 		if err != nil {
 			return 0, nil, apperr.As(err)
 		}
@@ -87,11 +88,15 @@ func (s *Server) SubmitArtifact(w http.ResponseWriter, r *http.Request, sessionI
 		if in.AgentID != nil {
 			actor = *in.AgentID
 		}
-		if _, err := s.Sessions.ApplyCompletionEvent(r.Context(), sessionId,
-			sessions.Event{Kind: "artifact_submit", Actor: actor, Ref: &row.ID}); err != nil {
-			return 0, nil, apperr.As(err)
+		// PRD v0.19: the artifact counts toward ITS mission's condition — a
+		// submission outside any mission counts toward none.
+		if row.WorkID != nil {
+			if _, err := s.Sessions.ApplyWorkEvent(r.Context(), *row.WorkID,
+				sessions.Event{Kind: "artifact_submit", Actor: actor, Ref: &row.ID}); err != nil {
+				return 0, nil, apperr.As(err)
+			}
 		}
-		prog, err := s.Sessions.Progress(r.Context(), sessionId)
+		prog, err := s.artifactProgress(r.Context(), row.WorkID)
 		if err != nil {
 			return 0, nil, apperr.As(err)
 		}
@@ -121,8 +126,8 @@ func (s *Server) SubmitArtifact(w http.ResponseWriter, r *http.Request, sessionI
 		// object — and because the idempotent replay path never reaches this
 		// closure, so a retried submit cannot emit a second frame.
 		if s.Hub != nil {
-			if wsID, err := s.Sessions.WorkspaceOf(r.Context(), sessionId); err == nil {
-				sid := uuid.UUID(sessionId)
+			if wsID, err := s.roomWorkspace(r.Context(), roomId); err == nil {
+				sid := uuid.UUID(roomId)
 				_ = s.Hub.Publish(r.Context(), nil, wsID, &sid, "artifact.created", api)
 			}
 		}
@@ -247,8 +252,8 @@ func parseArtifactUpload(r *http.Request, body []byte) (*artifacts.SubmitInput, 
 }
 
 // ListArtifacts is the S7 sidebar and the daemon brief's artifact list.
-func (s *Server) ListArtifacts(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.ListArtifactsParams) {
-	if _, p := s.sessionAccess(r, sessionId); p != nil {
+func (s *Server) ListArtifacts(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListArtifactsParams) {
+	if _, p := s.sessionAccess(r, roomId); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -259,7 +264,7 @@ func (s *Server) ListArtifacts(w http.ResponseWriter, r *http.Request, sessionId
 	if params.Type != nil {
 		o.Type = *params.Type
 	}
-	rows, err := s.Artifacts.List(r.Context(), sessionId, o)
+	rows, err := s.Artifacts.List(r.Context(), roomId, o)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -311,7 +316,7 @@ func (s *Server) downloadAccess(r *http.Request, id uuid.UUID) (*artifacts.Row, 
 	}
 	var wsID uuid.UUID
 	var runtimeID *uuid.UUID
-	if err := s.DB.QueryRow(r.Context(), `SELECT workspace_id, runtime_id FROM session WHERE id = $1`, a.SessionID).
+	if err := s.DB.QueryRow(r.Context(), `SELECT workspace_id, runtime_id FROM room WHERE id = $1`, a.SessionID).
 		Scan(&wsID, &runtimeID); err != nil {
 		return nil, apperr.NotFound("artifact")
 	}
@@ -327,7 +332,7 @@ func (s *Server) GetArtifact(w http.ResponseWriter, r *http.Request, artifactId 
 		writeProblem(w, p)
 		return
 	}
-	if p := s.commandAllowed(r, gen.ArtifactGet); p != nil {
+	if p := s.commandAllowed(r, gen.ColabCommandArtifactGet); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -352,7 +357,7 @@ func (s *Server) DownloadArtifact(w http.ResponseWriter, r *http.Request, artifa
 		writeProblem(w, p)
 		return
 	}
-	if p := s.commandAllowed(r, gen.ArtifactGet); p != nil {
+	if p := s.commandAllowed(r, gen.ColabCommandArtifactGet); p != nil {
 		writeProblem(w, p)
 		return
 	}
@@ -429,9 +434,9 @@ func (s *Server) ReviewArtifact(w http.ResponseWriter, r *http.Request, artifact
 		writeProblem(w, apperr.Validation(apperr.Field("verdict", "enum", "판정은 approve 또는 reject 여야 합니다")))
 		return
 	}
-	cmd := gen.ReviewApprove
+	cmd := gen.ColabCommandReviewApprove
 	if kind == "review_reject" {
-		cmd = gen.ReviewReject
+		cmd = gen.ColabCommandReviewReject
 	}
 	if p := s.commandAllowed(r, cmd); p != nil {
 		writeProblem(w, p)
@@ -442,11 +447,18 @@ func (s *Server) ReviewArtifact(w http.ResponseWriter, r *http.Request, artifact
 		// The same real path the E6 golden table describes: the tree decides
 		// whether this agent may review at all, and approving is what closes
 		// the session when `agent_approval` stands alone (E6-05).
-		out, err := s.Sessions.ApplyCompletionEvent(r.Context(), a.SessionID, sessions.Event{
-			Kind: kind, Actor: pr.Task.AgentID, Note: comments, Ref: &a.ID,
-		})
-		if err != nil {
-			return 0, nil, apperr.As(err)
+		// The review is judged against the artifact's OWN mission's tree
+		// (T-R1b2). An artifact outside any mission has no designated
+		// reviewer to check and no condition to move; the review is recorded.
+		out := &sessions.Outcome{}
+		if a.WorkID != nil {
+			o, err := s.Sessions.ApplyWorkEvent(r.Context(), *a.WorkID, sessions.Event{
+				Kind: kind, Actor: pr.Task.AgentID, Note: comments, Ref: &a.ID,
+			})
+			if err != nil {
+				return 0, nil, apperr.As(err)
+			}
+			out = o
 		}
 		if out.CLIError != "" {
 			// The code string is a contract: colab-cli.md §2.3 maps exactly
@@ -475,7 +487,7 @@ func (s *Server) ReviewArtifact(w http.ResponseWriter, r *http.Request, artifact
 				"args": map[string]any{"comments": comments}}, s.Clock.Now()); err != nil {
 			s.Log.Warn("record review", "err", err, "task", taskID)
 		}
-		prog, err := s.Sessions.Progress(r.Context(), a.SessionID)
+		prog, err := s.artifactProgress(r.Context(), a.WorkID)
 		if err != nil {
 			return 0, nil, apperr.As(err)
 		}
@@ -552,10 +564,34 @@ func (s *Server) postRejectReason(r *http.Request, a *artifacts.Row, reviewer, r
 	return &out.Message, nil
 }
 
+// artifactProgress is the completion_progress submit/review answer with: the
+// artifact's mission's, or an empty one for an artifact outside any mission.
+func (s *Server) artifactProgress(ctx context.Context, workID *uuid.UUID) (gen.CompletionProgress, error) {
+	if workID == nil {
+		return gen.CompletionProgress{Conditions: []struct {
+			AgentId       nullable.Nullable[openapi_types.UUID]                            `json:"agent_id,omitempty"`
+			AgentName     nullable.Nullable[string]                                        `json:"agent_name,omitempty"`
+			BlockedReason nullable.Nullable[gen.CompletionProgressConditionsBlockedReason] `json:"blocked_reason,omitempty"`
+			HeldReason    nullable.Nullable[gen.CompletionProgressConditionsHeldReason]    `json:"held_reason,omitempty"`
+			HitlRequestId nullable.Nullable[openapi_types.UUID]                            `json:"hitl_request_id,omitempty"`
+			Met           bool                                                             `json:"met"`
+			MetAt         nullable.Nullable[time.Time]                                     `json:"met_at,omitempty"`
+			MetBy         nullable.Nullable[string]                                        `json:"met_by,omitempty"`
+			NextActor     nullable.Nullable[string]                                        `json:"next_actor,omitempty"`
+			Path          string                                                           `json:"path"`
+			Type          string                                                           `json:"type"`
+		}{}}, nil
+	}
+	return sessions.LoadWorkProgress(ctx, s.DB, *workID)
+}
+
 func artifactAPI(a *artifacts.Row) gen.Artifact {
 	out := gen.Artifact{
 		Id: a.ID, SessionId: a.SessionID, Name: a.Name, Version: a.Version, Type: a.Type,
 		StorageRef: a.StorageRef, CreatedAt: a.CreatedAt,
+	}
+	if a.WorkID != nil {
+		out.WorkId = nullable.NewNullableWithValue(openapi_types.UUID(*a.WorkID))
 	}
 	size := a.SizeBytes
 	out.SizeBytes = &size

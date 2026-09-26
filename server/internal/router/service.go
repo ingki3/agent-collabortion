@@ -18,16 +18,18 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/inbox"
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/lanestate"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
+	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
 var (
 	// ErrSessionNotFound wraps the 404 Problem so every handler that answers
-	// with apperr.As says "세션을 찾을 수 없습니다" rather than 500. The row is
+	// with apperr.As says "방을 찾을 수 없습니다" rather than 500. The row is
 	// read under FOR UPDATE, so this is also what a message queued behind a
 	// deleteSession gets once the delete commits (S-82 — the reverse race,
 	// TestS82DeleteRacesPostMessage): before, it surfaced as `internal` with
@@ -110,14 +112,21 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
+	// The ROOM row is the lock (V19_R1B_HANDOFF (b) router/service.go:116):
+	// every post to a room serialises here, and locking "the room's mission"
+	// alongside it would lock every mission of the room once there are several.
+	// The same read fetches the old-path mark the legacy attribution rule
+	// needs (#292 NN3: no extra query per message).
 	var wsID uuid.UUID
-	var status string
-	var assignee, director *uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT workspace_id, status, assignee_agent_id, director_user_id FROM session WHERE id = $1 FOR UPDATE`, sessionID).
-		Scan(&wsID, &status, &assignee, &director)
+	var legacy *uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT workspace_id, legacy_work_id FROM room WHERE id = $1 FOR UPDATE`, sessionID).Scan(&wsID, &legacy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrSessionNotFound
 	}
+	if err != nil {
+		return nil, err
+	}
+	assignee, err := routingAssignee(ctx, tx, sessionID, in, legacy)
 	if err != nil {
 		return nil, err
 	}
@@ -167,6 +176,14 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 		}
 	}
 
+	// FR-3.1.1: the mission this message (and the lanes/tasks it makes)
+	// belongs to — decided BEFORE the insert, from the same premises the
+	// preview reads.
+	attr, err := attribute(ctx, tx, sessionID, in, author, th, dec, legacy)
+	if err != nil {
+		return nil, err
+	}
+
 	var authorID *uuid.UUID
 	switch author.Type {
 	case "user":
@@ -176,10 +193,15 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 	}
 	var msgID uuid.UUID
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO message (session_id, author_type, author_id, parent_id, content, mentions, source_task_id, kind, state, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'text', 'posted', $8) RETURNING id`,
-		sessionID, author.Type, authorID, parent, in.Content, dec.Mentions, author.TaskID, now).Scan(&msgID); err != nil {
+		INSERT INTO message (session_id, author_type, author_id, parent_id, content, mentions, source_task_id, kind, state, created_at, work_id, detail)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'text', 'posted', $8, $9, $10) RETURNING id`,
+		sessionID, author.Type, authorID, parent, in.Content, dec.Mentions, author.TaskID, now, attr.WorkID, in.Detail).Scan(&msgID); err != nil {
 		return nil, fmt.Errorf("router: insert message: %w", err)
+	}
+	// openapi v0.3.2 (D24, FR-3.1.3): the speech is decided here, in the same
+	// transaction as the insert, so no reader ever sees a message without one.
+	if err := messages.Store(ctx, tx, msgID, messages.StoreOpts{}); err != nil {
+		return nil, err
 	}
 
 	result := &gen.MessagePostResult{}
@@ -246,7 +268,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 		}
 		history = append(history, next)
 		if !v.Allowed {
-			if err := s.pauseForLoop(ctx, tx, sessionID, wsID, director, v, now); err != nil {
+			if err := s.pauseForLoop(ctx, tx, sessionID, wsID, v, now); err != nil {
 				return nil, err
 			}
 			result.Warnings = append(result.Warnings, struct {
@@ -258,10 +280,12 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 			continue
 		}
 
+		rootLane, topLevel := th.laneFor(tr)
 		opts := laneOpts{
-			threadRootLane: th.RootLane,
-			topLevelMent:   tr.Rule == 2 && parent == nil,
+			threadRootLane: rootLane,
+			topLevelMent:   topLevel,
 			forceNewLane:   newLane,
+			work:           attr.WorkID,
 		}
 		if tr.Rule == RulePlatform && platform != nil && platform.LaneID != uuid.Nil {
 			// 해소 규칙 1 with the lane named outright: the caller knows which
@@ -270,8 +294,13 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 			// there. Same lane, `reentry_count`+1 — never a new lane.
 			opts.threadRootLane = platform.LaneID
 			opts.forceNewLane = false
+			opts.pinned = true
 		}
 		laneID, _, err := s.resolveLaneFor(ctx, tx, sessionID, tr, profiles[tr.AgentID], opts, now)
+		if err != nil {
+			return nil, err
+		}
+		laneWork, err := bindLaneWork(ctx, tx, laneID, attr.WorkID)
 		if err != nil {
 			return nil, err
 		}
@@ -304,17 +333,22 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 		var taskID uuid.UUID
 		if coalesced {
 			taskID = existing
-			if _, err := tx.Exec(ctx, `UPDATE task SET coalesced_message_ids = $2, updated_at = $3 WHERE id = $1`,
-				taskID, arrival.CoalescedMessageIDs, now); err != nil {
+			// The absorbing task takes the lane's mission when it had none
+			// (T-R4b): a queued task born mission-less on a lane this post just
+			// bound would otherwise run the mission's turn as "미션 없음" —
+			// brief [4], budget, COLAB_WORK_ID and the reply all read task.work_id.
+			// A task that already has a mission keeps it.
+			if _, err := tx.Exec(ctx, `UPDATE task SET coalesced_message_ids = $2, work_id = COALESCE(work_id, $4), updated_at = $3 WHERE id = $1`,
+				taskID, arrival.CoalescedMessageIDs, now, laneWork); err != nil {
 				return nil, err
 			}
 		} else {
 			if err := tx.QueryRow(ctx, `
 				INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, originator_user_id,
-				                  coalesced_message_ids, status, created_at, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $8) RETURNING id`,
+				                  coalesced_message_ids, status, created_at, updated_at, work_id)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $8, $9) RETURNING id`,
 				laneID, sessionID, tr.AgentID, profiles[tr.AgentID], msgID, originator,
-				arrival.CoalescedMessageIDs, now).Scan(&taskID); err != nil {
+				arrival.CoalescedMessageIDs, now, laneWork).Scan(&taskID); err != nil {
 				return nil, fmt.Errorf("router: insert task: %w", err)
 			}
 		}
@@ -342,7 +376,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 			}
 		}
 		if primary != uuid.Nil {
-			laneID, taskID, ok, err := s.scheduleFallback(ctx, tx, sessionID, *fb, primary, profiles[fb.AgentID], msgID, originator, now)
+			laneID, taskID, ok, err := s.scheduleFallback(ctx, tx, sessionID, *fb, primary, profiles[fb.AgentID], msgID, originator, attr.WorkID, now)
 			if err != nil {
 				return nil, err
 			}
@@ -384,7 +418,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 		}
 	}
 
-	if _, err := tx.Exec(ctx, `UPDATE session SET updated_at = $2 WHERE id = $1`, sessionID, now); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE room SET updated_at = $2 WHERE id = $1`, sessionID, now); err != nil {
 		return nil, err
 	}
 	msg, err := messages.Get(ctx, tx, msgID)
@@ -411,15 +445,32 @@ type laneOpts struct {
 	threadRootLane uuid.UUID
 	topLevelMent   bool
 	forceNewLane   bool
+	// work is the mission the trigger runs for (FR-3.1.1; nil = none). Only
+	// lanes of that mission — or bound to none yet — are candidates (T-R1b2).
+	work *uuid.UUID
+	// pinned: the caller named the lane outright (a platform trigger — the
+	// lane that submitted a rejected artifact). It is re-entered whatever
+	// mission the triggering message was filed under; the task then runs for
+	// the lane's own mission (bindLaneWork).
+	pinned bool
 }
 
 // resolveLaneFor applies PRD FR-3.3's lane resolution (rules 1–4) to one
 // trigger. The decision itself is lanestate.Resolve — this only loads the
 // candidates and writes the result.
 func (s *Service) resolveLaneFor(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, tr Trigger, profileID uuid.UUID, o laneOpts, now time.Time) (uuid.UUID, bool, error) {
+	// PRD v0.19: a lane belongs to at most one mission ("그 lane 이 매인 일"),
+	// so the lanes a trigger may land on are its own mission's and the unbound
+	// ones. With several missions per room (T-R1b2) the agent's newest lane is
+	// easily another mission's — a closed one, even — and reusing it ran the
+	// message for THAT mission (bindLaneWork keeps a bound lane's mission):
+	// a "미션 없음" chat line queued under a completed mission never ran. In a
+	// one-mission room every lane is that mission's and nothing changes.
 	rows, err := tx.Query(ctx, `
 		SELECT id, agent_id, status::text, reentry_count, GREATEST(created_at, updated_at)
-		FROM lane WHERE session_id = $1 AND agent_id = $2 ORDER BY created_at`, sessionID, tr.AgentID)
+		FROM lane WHERE session_id = $1 AND agent_id = $2
+		  AND (work_id IS NULL OR work_id IS NOT DISTINCT FROM $3::uuid OR ($4 AND id = $5))
+		ORDER BY created_at`, sessionID, tr.AgentID, o.work, o.pinned, o.threadRootLane)
 	if err != nil {
 		return uuid.Nil, false, err
 	}
@@ -508,16 +559,37 @@ func (s *Service) loopLimits(ctx context.Context, tx pgx.Tx, wsID uuid.UUID) (Li
 	return lim, nil
 }
 
-// loadHops reads the trigger history the limits reason over. The rolling hour
-// bounds hops_per_hour, but chain depth and pair roundtrips walk backwards to
-// the last human message, so the window alone is not enough — 200 rows covers
-// both without loading a long session.
+// loadHops reads the trigger history the limits reason over: every hop from
+// the room's LAST HUMAN hop on, plus the rolling hour.
+//
+// The rolling hour bounds hops_per_hour; chain depth and pair roundtrips walk
+// backwards to the last human hop. The window used to be "the last 200 rows",
+// which was safe for a session and is not for a room (NN3, V19_impl §4 위험
+// 3): a room lives for weeks, and 200 agent hops in a row put the last person
+// outside the window — chainDepth then saw an agent-only history, answered 0
+// (its E4-07 reading of "no person, no chain") and max_chain_depth switched
+// itself off exactly where a runaway chain is longest. Reading from the last
+// human hop keeps that person in view however long the run since; a room with
+// no human hop at all is read whole (it cannot be long without a person — a
+// loop there trips hops_per_hour first). session_hop_human (migration r1b1_room_gate) finds the
+// anchor.
+//
+// HopReadCap is the safety net under that window (#292 review NN2): the
+// newest HopReadCap rows at most. Every limit fires long before it in any
+// workspace a person configured (max_chain_depth 8, max_hops_per_hour 60 by
+// default) — it bounds memory for a workspace that raised the limits to
+// "effectively off", where the window would otherwise grow with the room.
 func (s *Service) loadHops(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, now time.Time) ([]Hop, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT id, from_agent_id, to_agent_id, created_at, COALESCE(cause_hop_id, 0) FROM (
-			SELECT id, from_agent_id, to_agent_id, created_at, cause_hop_id
-			FROM session_hop WHERE session_id = $1 ORDER BY id DESC LIMIT 200
-		) h ORDER BY h.id`, sessionID)
+		SELECT id, from_agent_id, to_agent_id, created_at, cause FROM (
+		  SELECT id, from_agent_id, to_agent_id, created_at, COALESCE(cause_hop_id, 0) AS cause
+		  FROM session_hop
+		  WHERE session_id = $1
+		    AND (id >= COALESCE((SELECT max(id) FROM session_hop
+		                          WHERE session_id = $1 AND from_agent_id IS NULL), 0)
+		         OR created_at > $2)
+		  ORDER BY id DESC LIMIT $3) w
+		ORDER BY id`, sessionID, now.Add(-HopWindow), HopReadCap)
 	if err != nil {
 		return nil, err
 	}
@@ -536,6 +608,9 @@ func (s *Service) loadHops(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, 
 	}
 	return out, rows.Err()
 }
+
+// HopReadCap bounds loadHops (see there). A variable so a test can shrink it.
+var HopReadCap = 5000
 
 // causeOfTask is the causal link chain depth follows (S-78, loop.go
 // chainDepth): the hop that created `task` — the row recorded for its trigger
@@ -648,51 +723,54 @@ func (s *Service) recordHop(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID,
 	return err
 }
 
-// pauseForLoop is FR-3.5's consequence: the session pauses with a reason that
-// NAMES the limit, and the Director gets a system-issued HITL.
-func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID, v LoopVerdict, now time.Time) error {
-	var status string
-	if err := tx.QueryRow(ctx, `SELECT status::text FROM session WHERE id = $1`, sessionID).Scan(&status); err != nil {
+// pauseForLoop is FR-3.5's consequence, at the ROOM (PRD v0.19 §3.1: routing
+// and the loop limits are the room's): the room's gate goes up with
+// `blocked_reason: loop`, the reason detail NAMES the limit, and the room
+// owner gets a system-issued HITL (approver_spec room_owner — absent owner
+// delegation, FR-2A.3). The room's active missions are parked with the same
+// reason and marked as the room's (roomgate package comment), so each reads
+// `paused(loop)`.
+func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, v LoopVerdict, now time.Time) error {
+	room, err := roomgate.Lock(ctx, tx, sessionID)
+	if err != nil {
 		return err
 	}
-	if status == "paused" {
-		return nil // already stopped; one pause per session, not one per trigger
+	if room.BlockedReason != nil {
+		return nil // already stopped; one block per room, not one per trigger
 	}
 	detail := tasks.WithLoop(tasks.PausedDetail("loop", now), v.Detail, v.LimitCount(), v.Agents)
-	if _, err := tx.Exec(ctx, `
-		UPDATE session SET status = 'paused', paused_reason = 'loop', paused_detail = $2, updated_at = $3
-		WHERE id = $1`, sessionID, detail, now); err != nil {
+	agents := make([]openapi_types.UUID, 0, len(v.Agents))
+	for _, a := range v.Agents {
+		agents = append(agents, openapi_types.UUID(a))
+	}
+	if _, err := roomgate.Block(ctx, tx, sessionID, roomgate.ReasonLoop, gen.BlockedDetail{LoopAgents: &agents}, &detail, now); err != nil {
 		return err
 	}
 	question := v.QuestionText()
+	due := now.Add(24 * time.Hour)
 	var hitlID uuid.UUID
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO hitl_request (session_id, task_id, source, type, question, proposed_default, approver_spec, purpose, due_at, created_at)
-		VALUES ($1, NULL, 'system', 'approval', $2, NULL, 'director', 'loop', $3, $4) RETURNING id`,
-		sessionID, question,
-		now.Add(24*time.Hour), now).Scan(&hitlID); err != nil {
+		VALUES ($1, NULL, 'system', 'approval', $2, NULL, 'room_owner', 'loop', $3, $4) RETURNING id`,
+		sessionID, question, due, now).Scan(&hitlID); err != nil {
 		return fmt.Errorf("router: loop hitl: %w", err)
 	}
 	// S-45: the timeline card. A loop pause is the one a reader is most likely
 	// to meet in the timeline itself — the session stops mid-conversation — and
 	// it posted no card at all, so the feed simply went quiet (SCREEN §4.5).
-	msgID, err := messages.PostHitlCard(ctx, s.Hub, tx, wsID, sessionID, messages.HitlCard{
+	// T-APPROVAL: AttachHitlCard links the card and publishes `hitl.created`.
+	if _, err := messages.AttachHitlCard(ctx, s.Hub, tx, wsID, sessionID, hitlID, messages.HitlCard{
 		Type: "approval", Question: question,
-	}, now)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE hitl_request SET message_id = $2 WHERE id = $1`, hitlID, msgID); err != nil {
+	}, now); err != nil {
 		return fmt.Errorf("router: loop hitl card: %w", err)
 	}
-	if director != nil {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
-			SELECT m.id, 'session_paused', 'action_required', $1, $2, $3
-			FROM member m WHERE m.workspace_id = $4 AND m.user_id = $5`,
-			sessionID, hitlID, now, wsID, *director); err != nil {
-			return err
-		}
+	// FR-8 v0.19: the whole room stopped — `room_paused` (action_required)
+	// for the room owner's chain, whose answer lifts the gate.
+	if err := roomgate.FileInbox(ctx, tx, roomgate.Item{
+		Type: inbox.TypeRoomPaused, WorkspaceID: wsID, RoomID: sessionID, HitlID: hitlID,
+		Created: now, Due: due,
+	}); err != nil {
+		return err
 	}
 	// FR-2.3: what happens to a turn already running depends on WHY we paused.
 	// A loop pause is not a budget breach — the work in flight is legitimate —
@@ -702,20 +780,14 @@ func (s *Service) pauseForLoop(ctx context.Context, tx pgx.Tx, sessionID, wsID u
 			return err
 		}
 	}
-	if s.Hub != nil {
-		sid := sessionID
-		_ = s.Hub.Publish(ctx, tx, wsID, &sid, "session.updated", map[string]any{
-			"id": sessionID, "status": "paused", "paused_reason": "loop",
-			"paused_detail": detail,
-		})
-	}
+	roomgate.PublishUpdated(ctx, s.Hub, tx, sessionID)
 	return nil
 }
 
 // scheduleFallback inserts rule 7's deferred assignee task. It is `deferred`
 // with not_before = +5m, so the queue cannot hand it out early and the sweep
 // promotes it when the window closes.
-func (s *Service) scheduleFallback(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, fb Fallback, primary, profileID, msgID uuid.UUID, originator *uuid.UUID, now time.Time) (uuid.UUID, uuid.UUID, bool, error) {
+func (s *Service) scheduleFallback(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, fb Fallback, primary, profileID, msgID uuid.UUID, originator, work *uuid.UUID, now time.Time) (uuid.UUID, uuid.UUID, bool, error) {
 	// One pending fallback per lane is enough; a second reply inside the same
 	// window must not stack two assignee wake-ups.
 	var dup int
@@ -726,16 +798,20 @@ func (s *Service) scheduleFallback(ctx context.Context, tx pgx.Tx, sessionID uui
 		return uuid.Nil, uuid.Nil, false, nil
 	}
 	laneID, _, err := s.resolveLaneFor(ctx, tx, sessionID, Trigger{AgentID: fb.AgentID, Rule: 7}, profileID,
-		laneOpts{topLevelMent: true}, now)
+		laneOpts{topLevelMent: true, work: work}, now)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, false, err
+	}
+	laneWork, err := bindLaneWork(ctx, tx, laneID, work)
 	if err != nil {
 		return uuid.Nil, uuid.Nil, false, err
 	}
 	var taskID uuid.UUID
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, originator_user_id,
-		                  status, not_before, fallback_for_task_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, 'deferred', $7, $8, $9, $9) RETURNING id`,
-		laneID, sessionID, fb.AgentID, profileID, msgID, originator, fb.DueAt, primary, now).Scan(&taskID); err != nil {
+		                  status, not_before, fallback_for_task_id, created_at, updated_at, work_id)
+		VALUES ($1, $2, $3, $4, $5, $6, 'deferred', $7, $8, $9, $9, $10) RETURNING id`,
+		laneID, sessionID, fb.AgentID, profileID, msgID, originator, fb.DueAt, primary, now, laneWork).Scan(&taskID); err != nil {
 		return uuid.Nil, uuid.Nil, false, fmt.Errorf("router: fallback task: %w", err)
 	}
 	return laneID, taskID, true, nil
@@ -756,9 +832,19 @@ func (s *Service) cancelFallbacksFor(ctx context.Context, tx pgx.Tx, primary uui
 // start notice, the join bundle and the re-entry notice all reached S7 only on
 // reload before (G4 2판 W10). Routing is what SystemPost skips — not the frame.
 func (s *Service) SystemPost(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, content string) (uuid.UUID, error) {
+	return s.SystemPostWork(ctx, tx, sessionID, nil, content)
+}
+
+// SystemPostWork is SystemPost for a line that speaks about one mission
+// (FR-3.1.1): the row carries its work_id from the insert on, so the
+// `message.created` frame already names the mission.
+func (s *Service) SystemPostWork(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, workID *uuid.UUID, content string) (uuid.UUID, error) {
 	var id uuid.UUID
-	if err := tx.QueryRow(ctx, `INSERT INTO message (session_id, author_type, author_id, content, kind, created_at) VALUES ($1, 'system', NULL, $2, 'system', $3) RETURNING id`,
-		sessionID, strings.TrimSpace(content), s.Clock.Now()).Scan(&id); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO message (session_id, author_type, author_id, content, kind, created_at, work_id) VALUES ($1, 'system', NULL, $2, 'system', $3, $4) RETURNING id`,
+		sessionID, strings.TrimSpace(content), s.Clock.Now(), workID).Scan(&id); err != nil {
+		return uuid.Nil, err
+	}
+	if err := messages.Store(ctx, tx, id, messages.StoreOpts{}); err != nil {
 		return uuid.Nil, err
 	}
 	s.publishMessage(ctx, tx, sessionID, id)
@@ -778,7 +864,7 @@ func (s *Service) publishMessage(ctx context.Context, tx pgx.Tx, sessionID, msgI
 		return
 	}
 	var wsID uuid.UUID
-	if err := tx.QueryRow(ctx, `SELECT workspace_id FROM session WHERE id = $1`, sessionID).Scan(&wsID); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT workspace_id FROM room WHERE id = $1`, sessionID).Scan(&wsID); err != nil {
 		return
 	}
 	_ = messages.Publish(ctx, s.Hub, tx, wsID, sessionID, msgID)
@@ -793,8 +879,8 @@ func (s *Service) publishMessage(ctx context.Context, tx pgx.Tx, sessionID, msgI
 func loadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID) ([]Participant, map[uuid.UUID]uuid.UUID, error) {
 	rows, err := q.Query(ctx, `
 		SELECT sp.agent_id, a.name, a.respond_to = 'nobody', sp.profile_id
-		FROM session_participant sp JOIN agent a ON a.id = sp.agent_id
-		WHERE sp.session_id = $1 ORDER BY sp.joined_at`, sessionID)
+		FROM room_participant sp JOIN agent a ON a.id = sp.agent_id
+		WHERE sp.room_id = $1 AND sp.left_at IS NULL ORDER BY sp.joined_at`, sessionID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -821,8 +907,41 @@ type thread struct {
 	// ReplyTo owns the message actually replied to; ThreadOwner owns the root.
 	ReplyTo     *uuid.UUID
 	ThreadOwner *uuid.UUID
-	// RootLane is the lane whose task produced the root (lane rule 1).
-	RootLane uuid.UUID
+	// RootLane is the lane whose task produced the root (lane rule 1), and
+	// RootLaneAgent the agent that lane belongs to.
+	RootLane      uuid.UUID
+	RootLaneAgent uuid.UUID
+}
+
+// laneFor is lane rule 1's premise for one trigger: the root's lane, and
+// whether the trigger resolves as a top-level mention (rule 3).
+//
+// Rule 1 is scenario B — QA, in a review thread, asks Frontend, and the fix
+// lands in the lane Frontend's root came out of. It holds only when the
+// trigger is FOR the root lane's own agent (PRD FR-3.3 v0.19.1, Lead 판정
+// T-THREAD). A trigger for any other agent used to land on that lane too: one
+// turn per lane made it wait on the other agent, and a queued task already on
+// the lane swallowed it whole (coalescing is per lane), so the mentioned
+// agent never woke. Agents answering in threads (harness v0.9.3) made that
+// the common path — Lead replying under its own summary and handing work on
+// by mention. Such a trigger skips rule 1 and resolves as the same mention at
+// the top level would (rule 3, then 4).
+//
+// A thread whose root came out of no lane is unchanged: no rule 1, and a
+// thread reply is not a top-level mention (rule 4).
+func (th thread) laneFor(tr Trigger) (rootLane uuid.UUID, topLevel bool) {
+	switch {
+	case th.Parent == nil:
+		return uuid.Nil, tr.Rule == 2
+	case th.RootLane == uuid.Nil:
+		return uuid.Nil, false
+	case th.RootLaneAgent == tr.AgentID:
+		return th.RootLane, false
+	}
+	// Rule 5 — a reply that wakes the author of the message replied to — is
+	// the thread's own form of a mention, and off the root's lane it goes
+	// where a mention of that agent would.
+	return uuid.Nil, tr.Rule == 2 || tr.Rule == 5
 }
 
 func threadPremise(ctx context.Context, q db.DBTX, sessionID uuid.UUID, parentID nullable.Nullable[openapi_types.UUID]) (thread, error) {
@@ -863,10 +982,10 @@ func threadPremise(ctx context.Context, q db.DBTX, sessionID uuid.UUID, parentID
 	// Lane rule 1: the thread root came out of a task, so the reply goes to
 	// that task's lane and keeps the same workdir (scenario B).
 	if rTask != nil {
-		var lid uuid.UUID
-		err := q.QueryRow(ctx, `SELECT lane_id FROM task WHERE id = $1`, *rTask).Scan(&lid)
+		var lid, aid uuid.UUID
+		err := q.QueryRow(ctx, `SELECT t.lane_id, l.agent_id FROM task t JOIN lane l ON l.id = t.lane_id WHERE t.id = $1`, *rTask).Scan(&lid, &aid)
 		if err == nil {
-			th.RootLane = lid
+			th.RootLane, th.RootLaneAgent = lid, aid
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return th, err
 		}

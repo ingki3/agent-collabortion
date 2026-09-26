@@ -1,0 +1,54 @@
+/* Fold Row(COMPONENTS §9.6) — 에이전트 메시지의 「작업 내용」·「작업 과정」 접힌 줄. 높이 28 · 좌우 8 · 모서리 6 · 배경 없음 · 1px $line.
+   요약 글자는 --ink-2 다(§9.6 표는 $ink-3 이지만 §8.5 — ink-3 은 텍스트 대비 4.5:1 을 못 넘어 글리프 전용). 「자동으로 접음」도 같은 이유로 ink-2 기울임. */
+.fold-wrap { display: flex; flex-direction: column; gap: 6px; }
+.fold { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.fold:hover { background: var(--surface); }
+.fold:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.fold__glyph { color: var(--ink-3); flex: none; line-height: 1; } /* 글리프 전용 — ink-3 은 비텍스트 신호(§8.5) */
+.fold__label { font-size: var(--fs-meta); font-weight: 700; color: var(--ink-2); flex: none; }
+.fold__sum { font-size: var(--fs-meta); color: var(--ink-2); flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fold__auto { font-style: italic; color: var(--ink-2); margin-right: 6px; }
+.fold__fail { flex: none; margin-left: auto; font-size: var(--fs-meta); font-weight: 600; color: var(--s-fail-text); }
+/* 펼친 작업 내용 — 좌측 2px $line 세로줄로 대화와 구분, 60vh 를 넘으면 카드 안 스크롤 */
+.fold__region { display: flex; flex-direction: column; gap: 6px; }
+.fold__detail { border-left: 2px solid var(--line); padding: 2px 0 2px 12px; max-height: 60vh; overflow: auto; }
+.fold__window { align-self: flex-start; margin-left: 14px; }
+.fold__process { padding-left: 2px; }
+/* 「작업 중」 말풍선(SCREEN §4.6 v0.19.10 · COMPONENTS §9.10) — Chat Bubble(§9.8) 에이전트 자리·폭·아바타 그대로, 점선 1px $line · 배경 없음.
+   게시된 말풍선(채움)과 한눈에 갈린다. 좌측선 3px 실행 색은 두지 않는다. */
+.wbub .convo__bubble.wbub__bubble { background: transparent; border: 1px dashed var(--line); border-radius: 4px 12px 12px 12px; max-width: 88%; align-self: stretch; width: 88%; box-sizing: border-box; }
+.wbub__head { gap: 6px; flex-wrap: nowrap; }
+.wbub__head .msg__author { flex: none; }
+.wbub__badge { flex: none; }
+.wbub__sum { font-size: var(--fs-meta); color: var(--ink-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wbub__fail { margin-left: 0; }
+.wbub__dots { margin-left: auto; flex: none; display: inline-flex; gap: 2px; color: var(--ink-2); font-weight: 700; line-height: 1; }
+.wbub__dots > span { animation: wbub-dot 1.2s ease-in-out infinite; }
+.wbub__dots > span:nth-child(2) { animation-delay: 0.2s; }
+.wbub__dots > span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes wbub-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .wbub__dots > span { animation: none; } }
+.wbub__line { display: flex; gap: 6px; margin: 0; min-width: 0; font-size: var(--fs-sub); color: var(--ink-2); }
+.wbub__rail { flex: none; color: var(--ink-3); } /* 글리프 전용 — ink-3 은 비텍스트 신호(§8.5) */
+.wbub__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wbub__region { display: flex; flex-direction: column; gap: 6px; border-left: 1px solid var(--line); padding: 2px 0 2px 10px; }
+.wbub__para { margin: 0; font-size: var(--fs-sub); color: var(--ink-2); line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+/* 펼침 줄 라벨은 좁은 말풍선에서 줄바꿈한다(버튼 밖으로 넘치지 않게). */
+.wbub .fold__label { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  .wbub .convo__bubble.wbub__bubble { max-width: 100%; width: 100%; }
+  .wbub__head { flex-wrap: wrap; }
+}
+/* 아티팩트 참조 줄 — 대화 아래(§4.6 「아티팩트를 가리키는 메시지」) */
+.artref { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; max-width: 100%; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: var(--fs-sub); }
+.artref__icon { flex: none; }
+.artref__name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.artref__meta { color: var(--ink-2); flex: none; }
+.artref__open { color: var(--s-run-text); font-weight: 600; flex: none; }
+/* 타임라인 머리 보기 전환(§9.7) — 두 칸 세그먼트, 오른쪽 정렬, 앞에 흐린 「보기」 */
+.tlview { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.tlview__label { font-size: var(--fs-sub); color: var(--ink-2); }
+.seg { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.seg__opt { border: 0; background: transparent; color: var(--ink); border-radius: 6px; padding: 3px 10px; font: inherit; font-size: var(--fs-sub); cursor: pointer; }
+.seg__opt--on { background: var(--ink); color: var(--bg); font-weight: 600; }
+.seg__opt:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }

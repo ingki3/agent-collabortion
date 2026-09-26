@@ -32,7 +32,7 @@ import (
 // and every digit of it is the server's own guess.
 func (f *p2Fixture) estimatedTurn(t *testing.T, taskID uuid.UUID, model string, in, out int64) {
 	t.Helper()
-	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, contracts.Usage{
+	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, attemptNow(t, f.srv.DB, taskID), contracts.Usage{
 		InputTokens: in, OutputTokens: out, CostUSD: 0, Estimated: true, Model: model,
 	}, f.fake.Now()); err != nil {
 		t.Fatal(err)
@@ -46,7 +46,7 @@ func (f *p2Fixture) storedUsage(t *testing.T, taskID uuid.UUID) (float64, bool) 
 	t.Helper()
 	var usd float64
 	var estimated bool
-	if err := f.pool.QueryRow(t.Context(), `SELECT cost_usd, estimated FROM task_usage WHERE task_id = $1`, taskID).
+	if err := f.pool.QueryRow(t.Context(), `SELECT cost_usd, estimated FROM task_usage_total WHERE task_id = $1`, taskID).
 		Scan(&usd, &estimated); err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func (f *p2Fixture) storedUsage(t *testing.T, taskID uuid.UUID) (float64, bool) 
 func TestP3EstimatedUsageEnforcesInTurn(t *testing.T) {
 	f := newP2Fixture(t)
 	if _, err := f.pool.Exec(t.Context(), `
-		UPDATE session SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+		UPDATE room SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	// No per-task budget: the session remainder is this task's only ceiling, so
@@ -85,7 +85,7 @@ func TestP3EstimatedUsageEnforcesInTurn(t *testing.T) {
 	// 2. E9-05's two halves: the session pauses, and nothing is cut.
 	var sessionStatus, reason string
 	if err := f.pool.QueryRow(t.Context(), `
-		SELECT status::text, COALESCE(paused_reason::text, '') FROM session WHERE id = $1`, f.sessionID).
+		SELECT status::text, COALESCE(paused_reason::text, '') FROM work WHERE room_id = $1`, f.sessionID).
 		Scan(&sessionStatus, &reason); err != nil {
 		t.Fatal(err)
 	}
@@ -123,13 +123,16 @@ func TestP3EstimatedUsageEnforcesInTurn(t *testing.T) {
 	if hitlTask != nil {
 		t.Fatalf("hitl task_id = %v, want empty — what paused is the SESSION (FR-7.3 s-13, K-10)", hitlTask)
 	}
-	var cards int
+	// #311 ①: a room stop is the owner's one room_paused card, not hitl_request.
+	var cards, hitlCards int
 	if err := f.pool.QueryRow(t.Context(), `
-		SELECT count(*) FROM inbox_item WHERE session_id = $1 AND type = 'hitl_request'`, f.sessionID).Scan(&cards); err != nil {
+		SELECT count(*) FILTER (WHERE type = 'room_paused' AND recipient_basis = 'room_owner'),
+		       count(*) FILTER (WHERE type = 'hitl_request')
+		FROM inbox_item WHERE session_id = $1`, f.sessionID).Scan(&cards, &hitlCards); err != nil {
 		t.Fatal(err)
 	}
-	if cards != 1 {
-		t.Fatalf("inbox items = %d, want 1", cards)
+	if cards != 1 || hitlCards != 0 {
+		t.Fatalf("room_paused (owner) = %d, hitl_request = %d, want 1 and 0", cards, hitlCards)
 	}
 	// The feed says the turn is being left alone, so the session view does not
 	// look like a silent stop.
@@ -176,7 +179,7 @@ func TestP3EstimatedTaskBudgetQuotesTheTaskNumbers(t *testing.T) {
 	var question string
 	var detail []byte
 	if err := f.pool.QueryRow(t.Context(), `
-		SELECT h.question, s.paused_detail FROM hitl_request h JOIN session s ON s.id = h.session_id
+		SELECT h.question, wk.paused_detail FROM hitl_request h JOIN work wk ON wk.room_id = h.session_id
 		WHERE h.session_id = $1 AND h.purpose = 'budget'`, f.sessionID).Scan(&question, &detail); err != nil {
 		t.Fatalf("no budget HITL for an estimated task overrun: %v", err)
 	}
@@ -196,7 +199,7 @@ func TestP3EstimatedTaskBudgetQuotesTheTaskNumbers(t *testing.T) {
 func TestP3UnpricedModelIsSaidOutLoud(t *testing.T) {
 	f := newP2Fixture(t)
 	if _, err := f.pool.Exec(t.Context(), `
-		UPDATE session SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+		UPDATE room SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	_, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
@@ -208,7 +211,7 @@ func TestP3UnpricedModelIsSaidOutLoud(t *testing.T) {
 			"told apart from a measured one", usd)
 	}
 	var sessionStatus string
-	if err := f.pool.QueryRow(t.Context(), `SELECT status::text FROM session WHERE id = $1`, f.sessionID).Scan(&sessionStatus); err != nil {
+	if err := f.pool.QueryRow(t.Context(), `SELECT status::text FROM work WHERE room_id = $1`, f.sessionID).Scan(&sessionStatus); err != nil {
 		t.Fatal(err)
 	}
 	if sessionStatus != "active" {

@@ -23,7 +23,7 @@ import (
 // hitlOn registers a HITL request as the agent would, with its TaskToken.
 func (f *p2Fixture) hitlOn(t *testing.T, tok string, body map[string]any, wantStatus int) map[string]any {
 	t.Helper()
-	st, out := f.rawPost(t, f.p+"/sessions/"+f.sessionID+"/hitl-requests", tok, body)
+	st, out := f.rawPost(t, f.p+"/rooms/"+f.sessionID+"/hitl-requests", tok, body)
 	if st != wantStatus {
 		t.Fatalf("createHitlRequest = %d %v, want %d", st, out, wantStatus)
 	}
@@ -75,7 +75,7 @@ func TestP3HitlRegistrationAndTurnEnd(t *testing.T) {
 	}
 
 	// E7-02: the agent keeps working. Its messages are kept.
-	if st, body := f.rawKeyed(t, f.p+"/sessions/"+f.sessionID+"/messages", tok, "application/json",
+	if st, body := f.rawKeyed(t, f.p+"/rooms/"+f.sessionID+"/messages", tok, "application/json",
 		mustJSON(t, map[string]any{"content": "그동안 초안을 정리했습니다"}), uuid.NewString()); st != 201 {
 		t.Fatalf("a post after the request = %d %v, want 201 — the message already happened (FR-7.1 step 2)", st, body)
 	}
@@ -245,7 +245,7 @@ func TestP3DeputyWindow(t *testing.T) {
 	f := newP2Fixture(t)
 	deputy := f.addMember(t, "deputy@example.com", "Deputy")
 	member := f.addMember(t, "m2@example.com", "M2")
-	f.api.must(200, "PATCH", f.p+"/sessions/"+f.sessionID, map[string]any{"deputy_director_user_id": deputy.userID})
+	f.api.must(200, "PATCH", f.p+"/works/"+f.missionID, map[string]any{"deputy_user_id": deputy.userID})
 
 	tok, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
 	out := f.hitlOn(t, tok, map[string]any{"type": "question", "question": "독자?", "proposed_default": "투자자"}, 201)
@@ -317,7 +317,7 @@ func TestP3HitlDeadlineSweep(t *testing.T) {
 
 	// autonomous: a question proceeds with the agent's proposal, and the
 	// decision is marked automatic (E7-12).
-	if _, err := f.pool.Exec(t.Context(), `UPDATE session SET autonomy = 'autonomous' WHERE id = $1`, f.sessionID); err != nil {
+	if _, err := f.pool.Exec(t.Context(), `UPDATE room SET autonomy = 'autonomous' WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	tok2, task2 := f.agentToken(t, f.sessionID, f.wUUID, "W")
@@ -381,7 +381,7 @@ func TestP3BudgetEnforcement(t *testing.T) {
 
 	// The daemon's heartbeat carries the turn's running usage (§4.2). $1.01 of
 	// a $1 budget.
-	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, contracts.Usage{
+	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, attemptNow(t, f.srv.DB, taskID), contracts.Usage{
 		InputTokens: 1000, OutputTokens: 1000, CostUSD: 1.01,
 	}, f.fake.Now()); err != nil {
 		t.Fatal(err)
@@ -445,7 +445,7 @@ func TestP3BudgetEnforcement(t *testing.T) {
 	// E9-08: enforcement READS the override. $1.50 is inside $3, so nothing
 	// pauses — an implementation that only STORES the raise pauses again here.
 	f.runTask(t, taskID)
-	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, contracts.Usage{CostUSD: 1.50}, f.fake.Now()); err != nil {
+	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, attemptNow(t, f.srv.DB, taskID), contracts.Usage{CostUSD: 1.50}, f.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.srv.enforceBudgetFor(t.Context(), taskID); err != nil {
@@ -465,7 +465,7 @@ func TestP3BudgetRejectionParks(t *testing.T) {
 	}
 	_, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
 	f.runTask(t, taskID)
-	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, contracts.Usage{CostUSD: 2}, f.fake.Now()); err != nil {
+	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, attemptNow(t, f.srv.DB, taskID), contracts.Usage{CostUSD: 2}, f.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.srv.enforceBudgetFor(t.Context(), taskID); err != nil {
@@ -491,42 +491,50 @@ func TestP3BudgetRejectionParks(t *testing.T) {
 // higher limit.
 func TestP3SessionPauseResume(t *testing.T) {
 	f := newP2Fixture(t)
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/pause", nil)
+	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/pause", nil)
 	var status, reason string
-	if err := f.pool.QueryRow(t.Context(), `SELECT status::text, COALESCE(paused_reason::text, '') FROM session WHERE id = $1`, f.sessionID).Scan(&status, &reason); err != nil {
+	if err := f.pool.QueryRow(t.Context(), `SELECT status::text, COALESCE(paused_reason::text, '') FROM work WHERE room_id = $1`, f.sessionID).Scan(&status, &reason); err != nil {
 		t.Fatal(err)
 	}
 	if status != "paused" || reason != "director" {
 		t.Fatalf("session = %s(%s), want paused(director)", status, reason)
 	}
 	// A second pause is a 409, not a silent no-op.
-	if st, _, _ := f.api.do("POST", f.p+"/sessions/"+f.sessionID+"/pause", nil); st != 409 {
+	if st, _, _ := f.api.do("POST", f.p+"/works/"+f.missionID+"/pause", nil); st != 409 {
 		t.Fatalf("pause on a paused session = %d, want 409", st)
 	}
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/resume", nil)
+	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/resume", nil)
 
 	// runtime_offline is the reason this endpoint cannot fix: nothing here
-	// makes the machine reachable (openapi resumeSession).
+	// makes the machine reachable. Since v0.19 that stop is the ROOM's
+	// (T-S-offline) — resumeWork answers room_blocked and the lift is
+	// rebindRoom (the old resumeSession's 409 runtime_offline went with it).
 	if _, err := f.pool.Exec(t.Context(), `
-		UPDATE session SET status = 'paused', paused_reason = 'runtime_offline' WHERE id = $1`, f.sessionID); err != nil {
+		UPDATE work SET status = 'paused', paused_reason = 'runtime_offline' WHERE room_id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
-	st, body, _ := f.api.do("POST", f.p+"/sessions/"+f.sessionID+"/resume", nil)
-	if st != 409 || str(body, "code") != "runtime_offline" {
-		t.Fatalf("resume of a runtime_offline pause = %d %v, want 409 runtime_offline", st, body)
+	st, body, _ := f.api.do("POST", f.p+"/works/"+f.missionID+"/resume", nil)
+	if st != 409 || str(body, "code") != "room_blocked" {
+		t.Fatalf("resume of a runtime_offline pause = %d %v, want 409 room_blocked", st, body)
 	}
 
 	// A budget pause resumed on the old limit re-trips immediately, so the
-	// server refuses it (FR-7.3).
+	// server refuses it (FR-7.3) — the mission's own ceiling against what
+	// the mission has spent (its tasks' usage).
 	if _, err := f.pool.Exec(t.Context(), `
-		UPDATE session SET paused_reason = 'budget', cost_usd = 5, limits = '{"budget_usd": 4}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+		UPDATE work SET limits = '{"budget_usd": 4}'::jsonb, paused_reason = 'budget' WHERE room_id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
-	if st, body, _ := f.api.do("POST", f.p+"/sessions/"+f.sessionID+"/resume", nil); st != 422 {
+	if _, err := f.pool.Exec(t.Context(), `
+		INSERT INTO task_usage (task_id, attempt, input_tokens, output_tokens, cost_usd)
+		SELECT id, attempt, 1, 1, 5 FROM task WHERE work_id = $1 LIMIT 1`, f.missionID); err != nil {
+		t.Fatal(err)
+	}
+	if st, body, _ := f.api.do("POST", f.p+"/works/"+f.missionID+"/resume", nil); st != 422 {
 		t.Fatalf("budget resume without a raise = %d %v, want 422", st, body)
 	}
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/resume", map[string]any{"limits": map[string]any{"budget_usd": 10}})
-	if err := f.pool.QueryRow(t.Context(), `SELECT status::text FROM session WHERE id = $1`, f.sessionID).Scan(&status); err != nil {
+	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/resume", map[string]any{"limits": map[string]any{"budget_usd": 10}})
+	if err := f.pool.QueryRow(t.Context(), `SELECT status::text FROM work WHERE room_id = $1`, f.sessionID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
 	if status != "active" {
@@ -598,11 +606,11 @@ func TestP3CostRollup(t *testing.T) {
 		usd float64
 		est bool
 	}{{t1, 0.40, false}, {t2, 0.25, false}} {
-		if err := f.srv.Tasks.RecordTurnUsage(t.Context(), r.id, contracts.Usage{CostUSD: r.usd, Estimated: r.est}, f.fake.Now()); err != nil {
+		if err := f.srv.Tasks.RecordTurnUsage(t.Context(), r.id, attemptNow(t, f.srv.DB, r.id), contracts.Usage{CostUSD: r.usd, Estimated: r.est}, f.fake.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}
-	rep := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID+"/cost", nil)
+	rep := f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID+"/cost", nil)
 	if rep["estimated"] != false {
 		t.Fatal("every row is measured, so the report is measured — an always-true badge tells the reader nothing (E9-09)")
 	}
@@ -618,10 +626,10 @@ func TestP3CostRollup(t *testing.T) {
 		t.Fatalf("by_task buckets = %d, want 2", n)
 	}
 	// One estimated row makes the whole report estimated (E9-07).
-	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), t2, contracts.Usage{CostUSD: 0, Estimated: true}, f.fake.Now()); err != nil {
+	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), t2, attemptNow(t, f.srv.DB, t2), contracts.Usage{CostUSD: 0, Estimated: true}, f.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
-	rep = f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID+"/cost", nil)
+	rep = f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID+"/cost", nil)
 	if rep["estimated"] != true {
 		t.Fatal("a mixed sum cannot be presented as measured (E9-07)")
 	}
@@ -790,7 +798,7 @@ func TestP3HitlAnswerReachesTheResumePrompt(t *testing.T) {
 	tok, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
 	// Something the previous attempt already posted, so `<resumed>` has a list
 	// to render (S-36).
-	if st, body := f.rawKeyed(t, f.p+"/sessions/"+f.sessionID+"/messages", tok, "application/json",
+	if st, body := f.rawKeyed(t, f.p+"/rooms/"+f.sessionID+"/messages", tok, "application/json",
 		mustJSON(t, map[string]any{"content": "초안 1차를 올렸습니다. 독자층만 정해 주세요."}), uuid.NewString()); st != 201 {
 		t.Fatalf("post = %d %v", st, body)
 	}
@@ -975,7 +983,7 @@ func TestP3EstimatedOverrunDrainsOverHTTP(t *testing.T) {
 	ctx := t.Context()
 	_, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
 	f.runTask(t, taskID)
-	if _, err := f.pool.Exec(ctx, `UPDATE session SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+	if _, err := f.pool.Exec(ctx, `UPDATE room SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(ctx, `UPDATE agent SET budget_per_task = NULL WHERE id = $1`, f.rUUID); err != nil {
@@ -985,8 +993,9 @@ func TestP3EstimatedOverrunDrainsOverHTTP(t *testing.T) {
 	// RecordTurnUsage stores a reported cost and the roll-up prices the rest,
 	// so the row is written here directly — what is under test is enforcement.
 	if _, err := f.pool.Exec(ctx, `
-		INSERT INTO task_usage (task_id, cost_usd, estimated, updated_at) VALUES ($1, 1.5, true, $2)
-		ON CONFLICT (task_id) DO UPDATE SET cost_usd = 1.5, estimated = true`, taskID, f.fake.Now()); err != nil {
+		INSERT INTO task_usage (task_id, attempt, cost_usd, estimated, updated_at)
+		SELECT id, attempt, 1.5, true, $2 FROM task WHERE id = $1
+		ON CONFLICT (task_id, attempt) DO UPDATE SET cost_usd = 1.5, estimated = true`, taskID, f.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.srv.enforceBudgetFor(ctx, taskID); err != nil {
@@ -1018,7 +1027,7 @@ func TestP3SessionRemainderCapsTheTaskBudget(t *testing.T) {
 	f := newP2Fixture(t)
 	ctx := t.Context()
 	_, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
-	if _, err := f.pool.Exec(ctx, `UPDATE session SET limits = '{"budget_usd": 2}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+	if _, err := f.pool.Exec(ctx, `UPDATE room SET limits = '{"budget_usd": 2}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(ctx, `UPDATE agent SET budget_per_task = 5 WHERE id = $1`, f.rUUID); err != nil {
@@ -1026,7 +1035,7 @@ func TestP3SessionRemainderCapsTheTaskBudget(t *testing.T) {
 	}
 	// Another task in the same session already spent $1.60.
 	_, other := f.agentToken(t, f.sessionID, f.wUUID, "W")
-	if err := f.srv.Tasks.RecordTurnUsage(ctx, other, contracts.Usage{CostUSD: 1.6}, f.fake.Now()); err != nil {
+	if err := f.srv.Tasks.RecordTurnUsage(ctx, other, attemptNow(t, f.srv.DB, other), contracts.Usage{CostUSD: 1.6}, f.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
 	// The bundle the daemon is handed carries the session REMAINDER, not the
@@ -1044,7 +1053,7 @@ func TestP3SessionRemainderCapsTheTaskBudget(t *testing.T) {
 	f.runTask(t, taskID)
 	// $0.50 spent on THIS task, $2.10 on the session: the task ceiling ($5) is
 	// nowhere near, the session remainder is gone.
-	if err := f.srv.Tasks.RecordTurnUsage(ctx, taskID, contracts.Usage{CostUSD: 0.5}, f.fake.Now()); err != nil {
+	if err := f.srv.Tasks.RecordTurnUsage(ctx, taskID, attemptNow(t, f.srv.DB, taskID), contracts.Usage{CostUSD: 0.5}, f.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.srv.enforceBudgetFor(ctx, taskID); err != nil {

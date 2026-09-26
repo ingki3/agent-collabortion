@@ -249,14 +249,14 @@ func TestG5CompletedSessionCollectsWorkdirs(t *testing.T) {
 	f := newG4Fixture(t)
 	ctx := t.Context()
 
-	if _, err := f.pool.Exec(ctx, `UPDATE session SET runtime_id = $2 WHERE id = $1`, f.sessionID, f.runtimeID); err != nil {
+	if _, err := f.pool.Exec(ctx, `UPDATE room SET runtime_id = $2 WHERE id = $1`, f.sessionID, f.runtimeID); err != nil {
 		t.Fatal(err)
 	}
 	var laneID uuid.UUID
 	if err := f.pool.QueryRow(ctx, `
-		INSERT INTO lane (session_id, agent_id, profile_id, status, created_at, updated_at)
-		SELECT $1, $2, p.profile_id, 'done', now(), now() FROM session_participant p
-		WHERE p.session_id = $1 AND p.agent_id = $2 RETURNING id`, f.sessionID, f.r).Scan(&laneID); err != nil {
+		INSERT INTO lane (session_id, agent_id, profile_id, status, created_at, updated_at, work_id)
+		SELECT $1, $2, p.profile_id, 'done', now(), now(), r.legacy_work_id FROM room_participant p JOIN room r ON r.id = p.room_id
+		WHERE p.room_id = $1 AND p.agent_id = $2 RETURNING id`, f.sessionID, f.r).Scan(&laneID); err != nil {
 		t.Fatal(err)
 	}
 	var workdirID uuid.UUID
@@ -266,7 +266,7 @@ func TestG5CompletedSessionCollectsWorkdirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/complete", map[string]any{"confirm": true})
+	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/complete", map[string]any{"confirm": true})
 
 	var gcs int
 	var ids, targets string
@@ -338,7 +338,7 @@ func TestG5WorktreeSessionIsNotCollectedOnCompletion(t *testing.T) {
 	f := newG4Fixture(t)
 	ctx := t.Context()
 	if _, err := f.pool.Exec(ctx, `
-		UPDATE session SET runtime_id = $2, isolation = '{"kind":"worktree","repo_path":"/repo"}' WHERE id = $1`,
+		UPDATE room SET runtime_id = $2, isolation = '{"kind":"worktree","repo_path":"/repo"}' WHERE id = $1`,
 		f.sessionID, f.runtimeID); err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +347,7 @@ func TestG5WorktreeSessionIsNotCollectedOnCompletion(t *testing.T) {
 		VALUES ($1, $2, 'worktree', '/repo/.wt/r', 'active', now(), now())`, f.sessionID, f.r); err != nil {
 		t.Fatal(err)
 	}
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/complete", map[string]any{"confirm": true})
+	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/complete", map[string]any{"confirm": true})
 	var gcs int
 	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM daemon_command WHERE session_id = $1 AND type = 'gc'`, f.sessionID).Scan(&gcs); err != nil {
 		t.Fatal(err)
@@ -366,7 +366,12 @@ func TestG5WorktreeSessionIsNotCollectedOnCompletion(t *testing.T) {
 // issued the approval request. It returns that request's id.
 func (f *p2Fixture) issueCompletionApproval(t *testing.T) string {
 	t.Helper()
-	if _, err := f.srv.Sessions.ApplyCompletionEvent(t.Context(), mustUUID(t, f.sessionID),
+	// T-APPROVAL: the request is held while the mission has work running or
+	// waiting (a test that posted to Lead earlier left its turn queued). The
+	// rows below are about answering the request, so the mission's work is
+	// over first — the hold itself is measured in t_approval_test.go.
+	f.settleWork(t, f.missionID)
+	if _, err := f.srv.Sessions.ApplyWorkEvent(t.Context(), mustUUID(t, f.missionID),
 		sessions.Event{Kind: "artifact_submit", Actor: f.leadUUID}); err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +401,7 @@ func TestG5ApprovalCompletesSession(t *testing.T) {
 		t.Fatalf("hitl_request = %v, want answered + approved", req)
 	}
 
-	sess := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
+	sess := f.api.must(200, "GET", f.p+"/works/"+f.missionID, nil)
 	if str(sess, "status") != "completed" {
 		t.Fatalf("session status = %q, want completed (E6-03)", str(sess, "status"))
 	}
@@ -424,14 +429,17 @@ func TestG5ApprovalCompletesSession(t *testing.T) {
 	for _, it := range list {
 		row, _ := it.(map[string]any)
 		if str(row, "type") == "session_completed" {
+			t.Fatalf("a session_completed item — removed in openapi v0.3.0 (work_completed replaces it): %v", row)
+		}
+		if str(row, "type") == "work_completed" {
 			completed++
 			if str(row, "severity") != "info" {
-				t.Fatalf("session_completed severity = %q, want info — the nav badge counts action_required only (SCREEN §4.6)", str(row, "severity"))
+				t.Fatalf("work_completed severity = %q, want info — the nav badge counts action_required only (SCREEN §4.6)", str(row, "severity"))
 			}
 		}
 	}
 	if completed != 1 {
-		t.Fatalf("session_completed inbox items = %d, want exactly 1 for the Director (FR-8, S-33)", completed)
+		t.Fatalf("work_completed inbox items = %d, want exactly 1 for the Director (FR-8, S-33; session_completed is gone with openapi v0.3.0)", completed)
 	}
 	// The approval's own action_required item is resolved by the response, not
 	// by reading it (openapi markInboxRead).
@@ -458,14 +466,14 @@ func TestG5ApprovalRejectionKeepsSessionActive(t *testing.T) {
 	if out["decision_id"] == nil {
 		t.Fatal("a rejection records one decision (E6-04)")
 	}
-	sess := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
+	sess := f.api.must(200, "GET", f.p+"/works/"+f.missionID, nil)
 	if str(sess, "status") != "active" {
 		t.Fatalf("session status = %q, want active — a rejection ends nothing", str(sess, "status"))
 	}
 	if met := f.completionMet(t); !met["artifact_submitted"] || met["user_approval"] {
 		t.Fatalf("completion_met = %v, want artifact_submitted preserved and user_approval unmet (E6-04)", met)
 	}
-	decisions := f.api.mustList(200, "GET", f.p+"/sessions/"+f.sessionID+"/decisions", nil)
+	decisions := f.api.mustList(200, "GET", f.p+"/rooms/"+f.sessionID+"/decisions", nil)
 	found := false
 	for _, raw := range decisions {
 		d := raw.(map[string]any)
@@ -501,7 +509,7 @@ func TestG5ApprovalSecondResponseIsIgnored(t *testing.T) {
 		t.Fatal("the answer that stands is the first one")
 	}
 	// …and the session did not un-complete.
-	sess := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
+	sess := f.api.must(200, "GET", f.p+"/works/"+f.missionID, nil)
 	if str(sess, "status") != "completed" {
 		t.Fatalf("session status = %q after an ignored rejection, want completed", str(sess, "status"))
 	}
@@ -546,8 +554,15 @@ func TestP3OtherHitlRequestsAreAnswered(t *testing.T) {
 	hitl := f.issueCompletionApproval(t)
 	f.api.must(422, "POST", f.p+"/hitl-requests/"+hitl+"/response",
 		map[string]any{"approved": true, "budget_override_usd": 10}, "Idempotency-Key", uuid.NewString())
-	// The session time limit is not in the P3 server slice, and says so.
-	f.api.must(501, "POST", f.p+"/hitl-requests/"+mk("time", "system", nil)+"/response",
+	// The mission time limit (T-R1b2, FR-2A.3 — it was 501 before there was
+	// one): approving the time request IS the resume, so it carries the
+	// extension, and the extension is refused on any other request.
+	timeReq := mk("time", "system", nil)
+	f.api.must(422, "POST", f.p+"/hitl-requests/"+timeReq+"/response",
+		map[string]any{"approved": true}, "Idempotency-Key", uuid.NewString())
+	f.api.must(200, "POST", f.p+"/hitl-requests/"+timeReq+"/response",
+		map[string]any{"approved": true, "time_extension": "PT1H"}, "Idempotency-Key", uuid.NewString())
+	f.api.must(422, "POST", f.p+"/hitl-requests/"+f.issueCompletionApproval(t)+"/response",
 		map[string]any{"approved": true, "time_extension": "PT1H"}, "Idempotency-Key", uuid.NewString())
 }
 
@@ -601,7 +616,7 @@ func (f *p2Fixture) completionMet(t *testing.T) map[string]bool {
 	t.Helper()
 	met := map[string]bool{}
 	var raw []byte
-	if err := f.pool.QueryRow(t.Context(), `SELECT completion_met FROM session WHERE id = $1`, f.sessionID).Scan(&raw); err != nil {
+	if err := f.pool.QueryRow(t.Context(), `SELECT completion_met FROM work WHERE room_id = $1`, f.sessionID).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	if err := json.Unmarshal(raw, &met); err != nil {

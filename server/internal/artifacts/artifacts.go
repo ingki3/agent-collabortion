@@ -57,6 +57,11 @@ type Row struct {
 	Latest    bool
 	CreatedAt time.Time
 
+	// WorkID is the mission the artifact belongs to (PRD v0.19 FR-2A.5 — the
+	// submitting task's; nil for a run outside any mission). Its completion
+	// condition is the one the submission counts toward.
+	WorkID *uuid.UUID
+
 	Review *ReviewRow
 }
 
@@ -102,16 +107,38 @@ func (s *Service) Submit(ctx context.Context, sessionID uuid.UUID, in SubmitInpu
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
-	var status string
-	err = tx.QueryRow(ctx, `SELECT status::text FROM session WHERE id = $1 FOR UPDATE`, sessionID).Scan(&status)
+	// The room is the lock (versions are per room × name, FR-2A.5 [V19-B]);
+	// the mission is the submitting task's (FR-3.1.1: a task runs for its
+	// lane's mission), else — a person submitting with no task — the room's
+	// legacy mission. A closed mission takes no
+	// more artifacts.
+	var legacy *uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT legacy_work_id FROM room WHERE id = $1 FOR UPDATE`, sessionID).Scan(&legacy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.NotFound("session")
 	}
 	if err != nil {
 		return nil, err
 	}
-	if status == "completed" || status == "cancelled" {
-		return nil, apperr.Conflict("session_closed", "이미 끝난 세션입니다")
+	work := legacy
+	if in.TaskID != nil {
+		work = nil
+		if err := tx.QueryRow(ctx, `
+			SELECT COALESCE(l.work_id, t.work_id) FROM task t JOIN lane l ON l.id = t.lane_id WHERE t.id = $1`, *in.TaskID).Scan(&work); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+	}
+	if work != nil {
+		var status string
+		if err := tx.QueryRow(ctx, `SELECT status::text FROM work WHERE id = $1 FOR UPDATE`, *work).Scan(&status); err != nil {
+			return nil, err
+		}
+		if status == "completed" || status == "cancelled" {
+			if legacy != nil && *legacy == *work {
+				return nil, apperr.Conflict("session_closed", "이미 끝난 미션입니다")
+			}
+			return nil, apperr.Conflict("work_closed", "이미 끝난 미션입니다")
+		}
 	}
 
 	// The large object is created inside this transaction, so a failed insert
@@ -142,12 +169,12 @@ func (s *Service) Submit(ctx context.Context, sessionID uuid.UUID, in SubmitInpu
 	var out Row
 	err = tx.QueryRow(ctx, `
 		INSERT INTO artifact (session_id, name, version, type, storage_ref, size_bytes, content_type,
-		                      description, submitted_by_task_id, submitted_by_agent_id, submitted_by_user_id, created_at)
+		                      description, submitted_by_task_id, submitted_by_agent_id, submitted_by_user_id, created_at, work_id)
 		VALUES ($1, $2, (SELECT coalesce(max(version), 0) + 1 FROM artifact WHERE session_id = $1 AND name = $2),
-		        $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		        $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, version, created_at`,
 		sessionID, in.Name, in.Type, storagePrefix+fmt.Sprint(oid), int64(len(in.Content)), ct, desc,
-		in.TaskID, in.AgentID, in.UserID, now).
+		in.TaskID, in.AgentID, in.UserID, now, work).
 		Scan(&out.ID, &out.Version, &out.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("artifacts: insert: %w", err)
@@ -159,6 +186,7 @@ func (s *Service) Submit(ctx context.Context, sessionID uuid.UUID, in SubmitInpu
 	out.StorageRef, out.SizeBytes, out.ContentType, out.Description = storagePrefix+fmt.Sprint(oid), int64(len(in.Content)), ct, desc
 	out.SubmittedByTaskID, out.SubmittedByAgentID, out.SubmittedByUserID = in.TaskID, in.AgentID, in.UserID
 	out.Latest = true
+	out.WorkID = work
 	return &out, nil
 }
 
@@ -170,7 +198,8 @@ const selectSQL = `
 	       a.description, a.submitted_by_task_id, a.submitted_by_agent_id, a.submitted_by_user_id,
 	       ag.name, a.created_at,
 	       a.version = (SELECT max(b.version) FROM artifact b WHERE b.session_id = a.session_id AND b.name = a.name),
-	       r.verdict::text, r.comments, r.reviewer_agent_id, r.reviewer_task_id, r.decision_id, r.reviewed_at
+	       r.verdict::text, r.comments, r.reviewer_agent_id, r.reviewer_task_id, r.decision_id, r.reviewed_at,
+	       a.work_id
 	FROM artifact a
 	LEFT JOIN agent ag ON ag.id = a.submitted_by_agent_id
 	LEFT JOIN artifact_review_latest r ON r.artifact_id = a.id`
@@ -184,7 +213,7 @@ func scan(row pgx.Row) (*Row, error) {
 	if err := row.Scan(&a.ID, &a.SessionID, &a.Name, &a.Version, &a.Type, &a.StorageRef, &a.SizeBytes, &a.ContentType,
 		&a.Description, &a.SubmittedByTaskID, &a.SubmittedByAgentID, &a.SubmittedByUserID,
 		&a.AgentName, &a.CreatedAt, &a.Latest,
-		&verdict, &rev.Comments, &reviewer, &rev.ReviewerTaskID, &rev.DecisionID, &reviewedAt); err != nil {
+		&verdict, &rev.Comments, &reviewer, &rev.ReviewerTaskID, &rev.DecisionID, &reviewedAt, &a.WorkID); err != nil {
 		return nil, err
 	}
 	if verdict != nil && reviewer != nil && reviewedAt != nil {

@@ -95,15 +95,17 @@ WAIT_S=120 wait_task "$T_CHILD" completed failed cancelled >/dev/null 2>&1 || tr
 wait_until 120 '[ "$(sess_status "$S")" = paused ]' || true
 wait_quiet "$S" 60 || true
 GUARD_N="$(psqlq "select count(*) from task t join agent a on a.id=t.agent_id where t.session_id='$S' and a.name='Guard'")"
-LOOP_LIMIT="$(psqlq "select coalesce(paused_detail->'loop'->>'limit','-') from session where id='$S'")"
+LOOP_LIMIT="$(psqlq "select coalesce(paused_detail->'loop'->>'limit','-') from work where room_id='$S'")"
 chk S1x "**위임↔합류 사이클이 루프 상한에 걸린다** (S-76: paused(loop), limit=$LOOP_LIMIT, guard_tasks=$GUARD_N)" \
-  "paused/loop" "$(sess_status "$S")/$(psqlq "select coalesce(paused_reason::text,'-') from session where id='$S'")"
+  "paused/loop" "$(sess_status "$S")/$(psqlq "select coalesce(paused_reason::text,'-') from work where room_id='$S'")"
 chk S1x1 "**걸린 상한은 pair_roundtrips 다** — 위임↔합류 왕복은 깊이가 아니라 왕복이다 (S-78)" pair_roundtrips "$LOOP_LIMIT"
 chk S1x2 "6번째 위임이 막혔다 (Guard task = max_pair_roundtrips 5, 대본 8회 전)" 5 "$GUARD_N"
 chk S1x3 "Director 에게 시스템 HITL(purpose=loop) 이 갔다" 1 \
   "$(psqlq "select count(*) from hitl_request where session_id='$S' and source='system' and purpose='loop'")"
-# 뒤 단계(토큰·취소·SSE)는 살아 있는 세션이 필요하다 — Director 가 재개한다(카운터 리셋, openapi resumeSession loop).
-chk S1x4 "Director 가 paused(loop) 세션을 재개한다 (200)" 200 "$(api POST "/sessions/$S/resume" '{"reset_loop_counters":true}' | api_code)"
+# 뒤 단계(토큰·취소·SSE)는 살아 있는 세션이 필요하다 — Director 가 루프 승인 HITL 에 답해 방을 푼다
+# (R4 D22: 루프 멈춤은 방 게이트 — resumeWork 가 아니라 방의 승인 HITL 응답이 푼다. 옛 resumeSession reset_loop_counters 자리).
+LOOP_HITL="$(psqlq "select id from hitl_request where session_id='$S' and source='system' and purpose='loop' and status='open' order by created_at desc limit 1")"
+chk S1x4 "Director 가 루프 승인 HITL 에 답해 방을 푼다 (200)" 200 "$(api POST "/hitl-requests/$LOOP_HITL/response" '{"approved":true}' -H "Idempotency-Key: $(uuid)" | api_code)"
 chk S1x5 "재개 뒤 세션 active" active "$(sess_status "$S")"
 # 살아 있는 task 토큰 확보: Slow 를 깨운다(턴 20s) → 대본이 토큰을 기록
 R="$(post_message "$S" "$(mention Slow "$SLOW") 천천히")"
@@ -111,32 +113,33 @@ T_SLOW="$(jq -r '.triggers[0].task_id // empty' <<<"$R")"
 wait_until 60 '[ -n "$(probe_token "'"$T_SLOW"'")" ]' || bad "Slow 토큰이 기록되지 않았다"
 TK="$(probe_token "$T_SLOW")"
 chk S1f "task 토큰이 기록됐다 (ctk_)" yes "$( [ "${TK:0:4}" = ctk_ ] && echo yes || echo no )"
-chk S1g "task 토큰으로 completeSession → 401/403"   yes "$(code_in "$(tok_call "$TK" POST "/sessions/$S/complete" '{"confirm":true}')" 401 403)"
-chk S1h "task 토큰으로 pauseSession → 401/403"      yes "$(code_in "$(tok_call "$TK" POST "/sessions/$S/pause" '{}')" 401 403)"
+chk S1g "task 토큰으로 completeWork → 401/403"   yes "$(code_in "$(tok_call "$TK" POST "/works/$(work_of "$S")/complete" '{"confirm":true}')" 401 403)"
+chk S1h "task 토큰으로 pauseWork → 401/403"         yes "$(code_in "$(tok_call "$TK" POST "/works/$(work_of "$S")/pause" '{}')" 401 403)"
 chk S1i "task 토큰으로 cancelLane → 401/403"        yes "$(code_in "$(tok_call "$TK" POST "/lanes/$(task_field "$T_SLOW" lane_id)/cancel")" 401 403)"
 chk S1j "task 토큰으로 updateWorkspaceSettings → 401/403" yes "$(code_in "$(tok_call "$TK" PATCH "/workspaces/$WS/settings" '{"task_event_masking":true}')" 401 403)"
-chk S1k "task 토큰으로 createSession → 401/403"     yes "$(code_in "$(tok_call "$TK" POST "/workspaces/$WS/sessions" '{"title":"x","goal":"y","participants":[]}')" 401 403)"
+chk S1k "task 토큰으로 createRoom → 401/403"        yes "$(code_in "$(tok_call "$TK" POST "/workspaces/$WS/rooms" '{"name":"x"}')" 401 403)"
+chk S1k2 "task 토큰으로 createWork → 401/403"       yes "$(code_in "$(tok_call "$TK" POST "/rooms/$S/works" '{"goal":"y"}')" 401 403)"
 COOKIE="$MEM_COOKIE"
 chk S1l "멤버 쿠키로 cancelLane → 403 (E10-05)"      403 "$(api POST "/lanes/$(task_field "$T_SLOW" lane_id)/cancel" '' | api_code)"
 chk S1m "멤버가 owner 전용 에이전트를 초대 → 403 (FR-1.9 originator)" 403 \
-  "$(api POST "/workspaces/$WS/sessions" "$(jq -nc --arg g "$GUARD" --arg rt "$RUNTIME_ID" '{title:"mem",goal:"초대 시도",isolation:{kind:"none"},participants:[{agent_id:$g}],assignee_agent_id:$g,runtime_id:$rt,completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | api_code)"
+  "$(create_room_work_api "$WS" "$(jq -nc --arg g "$GUARD" --arg rt "$RUNTIME_ID" '{title:"mem",goal:"초대 시도",isolation:{kind:"none"},participants:[{agent_id:$g}],assignee_agent_id:$g,runtime_id:$rt,completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | api_code)"
 COOKIE="$DIR_COOKIE"
-chk S1n "Director 는 같은 초대가 2xx" yes "$(code_in "$(api POST "/workspaces/$WS/sessions" "$(jq -nc --arg g "$GUARD" --arg rt "$RUNTIME_ID" '{title:"dir",goal:"초대",isolation:{kind:"none"},participants:[{agent_id:$g}],assignee_agent_id:$g,runtime_id:$rt,completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | api_code)" 200 201)"
+chk S1n "Director 는 같은 초대가 2xx" yes "$(code_in "$(create_room_work_api "$WS" "$(jq -nc --arg g "$GUARD" --arg rt "$RUNTIME_ID" '{title:"dir",goal:"초대",isolation:{kind:"none"},participants:[{agent_id:$g}],assignee_agent_id:$g,runtime_id:$rt,completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | api_code)" 200 201)"
 
 step "4. S2 — 토큰 범위"
 S2="$(create_session_p3 "$WS" "security other" "다른 세션" "$PROBE" "$RUNTIME_ID" '{}' "$PROBE")"
 chk S2a "살아 있는 토큰으로 자기 세션 getCliContext 200" 200 "$(tok_call "$TK" GET "/cli/context")"
-chk S2b "다른 세션에 postMessage → 403/404"        yes "$(code_in "$(tok_call "$TK" POST "/sessions/$S2/messages" '{"content":"x"}')" 403 404)"
-chk S2c "다른 세션 listMessages → 403/404"         yes "$(code_in "$(tok_call "$TK" GET "/sessions/$S2/messages")" 403 404)"
+chk S2b "다른 세션에 postMessage → 403/404"        yes "$(code_in "$(tok_call "$TK" POST "/rooms/$S2/messages" '{"content":"x"}')" 403 404)"
+chk S2c "다른 세션 listMessages → 403/404"         yes "$(code_in "$(tok_call "$TK" GET "/rooms/$S2/messages")" 403 404)"
 chk S2d "다른 task 의 setTaskStatus → 403"          yes "$(code_in "$(tok_call "$TK" POST "/tasks/$T_INIT/status" '{"status":"done"}')" 403 404)"
-chk S2e "다른 세션에 submitArtifact → 403/404"     yes "$(code_in "$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TK" -H "Idempotency-Key: $(uuid)" -F type=doc -F name=x.md -F 'file=@/dev/null;filename=x.md' "$API/sessions/$S2/artifacts")" 403 404 422)"
+chk S2e "다른 세션에 submitArtifact → 403/404"     yes "$(code_in "$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TK" -H "Idempotency-Key: $(uuid)" -F type=doc -F name=x.md -F 'file=@/dev/null;filename=x.md' "$API/rooms/$S2/artifacts")" 403 404 422)"
 # 취소 → revoke → 401 token_revoked (E11-04)
 CCR="$(api POST "/lanes/$(task_field "$T_SLOW" lane_id)/cancel" '')"; CC="$(api_code <<<"$CCR")"
 printf '%s\n' "$CCR" > "$OUT/77-cancel.json"
 chk S2f "Director 가 Slow lane 을 취소한다 (202) [task=$(task_field "$T_SLOW" status)]" 202 "$CC"
 wait_until 60 '[ "$(task_field "'"$T_SLOW"'" status)" = cancelled ]' || true
 chk S2g "**revoke 뒤 401** (E11-04)" 401 "$(tok_call "$TK" GET "/cli/context")"
-chk S2h "revoke 뒤 postMessage 도 401" 401 "$(tok_call "$TK" POST "/sessions/$S/messages" '{"content":"late"}')"
+chk S2h "revoke 뒤 postMessage 도 401" 401 "$(tok_call "$TK" POST "/rooms/$S/messages" '{"content":"late"}')"
 # finish 뒤 401: 정상 종료한 Probe task 의 토큰
 R="$(post_message "$S" "$(mention Probe "$PROBE") 한 번 더")"
 T_P2="$(jq -r '.triggers[0].task_id // empty' <<<"$R")"
@@ -175,9 +178,9 @@ psqlq "select coalesce(payload::text,'') from task_event where task_id='$TM2'" >
 chk S3i "마스킹 OFF: 셸 출력 본문이 저장된다 (대조군)" yes "$( [ "$(cnt "$OUT/77-events-plain.txt" 'SECRET-SHELL-OUTPUT-8842')" -ge 1 ] && echo yes || echo no )"
 
 step "6. S4 — 데몬 토큰으로 사람 op 불가"
-chk S4a "데몬 토큰 getSession → 401/403"     yes "$(code_in "$(tok_call "$DAEMON_TOKEN" GET "/sessions/$S")" 401 403)"
-chk S4b "데몬 토큰 completeSession → 401/403" yes "$(code_in "$(tok_call "$DAEMON_TOKEN" POST "/sessions/$S/complete" '{"confirm":true}')" 401 403)"
-chk S4c "데몬 토큰 postMessage → 401/403"    yes "$(code_in "$(tok_call "$DAEMON_TOKEN" POST "/sessions/$S/messages" '{"content":"x"}')" 401 403)"
+chk S4a "데몬 토큰 getRoom → 401/403"        yes "$(code_in "$(tok_call "$DAEMON_TOKEN" GET "/rooms/$S")" 401 403)"
+chk S4b "데몬 토큰 completeWork → 401/403"    yes "$(code_in "$(tok_call "$DAEMON_TOKEN" POST "/works/$(work_of "$S")/complete" '{"confirm":true}')" 401 403)"
+chk S4c "데몬 토큰 postMessage → 401/403"    yes "$(code_in "$(tok_call "$DAEMON_TOKEN" POST "/rooms/$S/messages" '{"content":"x"}')" 401 403)"
 chk S4d "데몬 토큰 listInbox → 401/403"      yes "$(code_in "$(tok_call "$DAEMON_TOKEN" GET "/inbox")" 401 403)"
 chk S4e "데몬 토큰 createAgent → 401/403"    yes "$(code_in "$(tok_call "$DAEMON_TOKEN" POST "/workspaces/$WS/agents" '{"name":"x","role":"lead","instructions":"y","profiles":[]}')" 401 403)"
 chk S4f "데몬 토큰으로 자기 런타임 §4.1 claim 은 된다 (대조군)" yes "$(code_in "$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $DAEMON_TOKEN" -H 'Content-Type: application/json' -X POST "$SERVER_URL/v1/daemon/runtimes/$RUNTIME_ID/claim" --data '{"capacity":0,"wait_ms":0}')" 200)"

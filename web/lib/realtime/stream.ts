@@ -11,24 +11,22 @@ import type { StreamEvent, StreamEventType } from "@/lib/api/types";
 export type ConnectionState = "connecting" | "open" | "reconnecting";
 
 export interface StreamOptions {
-  sessionIds?: string[];
+  roomIds?: string[];
   onEvent: (ev: StreamEvent) => void;
   onResync?: (reason: string) => void;
   onState?: (s: ConnectionState) => void;
 }
 
-export function streamUrl(workspaceId: string, sessionIds?: string[]): string {
+export function streamUrl(workspaceId: string, roomIds?: string[]): string {
   const q = new URLSearchParams();
-  if (sessionIds && sessionIds.length) q.set("session_id", sessionIds.join(","));
+  if (roomIds && roomIds.length) q.set("room_id", roomIds.join(",")); // v0.3.0(R4): 옛 `session_id=` 는 지워졌다
   const s = q.toString();
   return `${API_BASE}/workspaces/${encodeURIComponent(workspaceId)}/stream${s ? `?${s}` : ""}`;
 }
 
 export const STREAM_EVENT_TYPES: readonly StreamEventType[] = [
   "resync",
-  "session.updated",
-  "session.deleted",
-  "session.completion_progress",
+  // 옛 session.updated·session.deleted·session.completion_progress 는 v0.3.0(R4, D22)에서 지워졌다 — room.*·work.* 가 같은 사건을 낸다.
   "participant.updated",
   "lane.updated",
   "task.updated",
@@ -51,12 +49,27 @@ export const STREAM_EVENT_TYPES: readonly StreamEventType[] = [
   "cost.updated",
   "test_chat.delta",
   "test_chat.turn",
+  // v0.2.0 계약(PRD v0.19 R0) — 계약 enum 과 같은 PR 에서 맞춘다(목록에 없는 타입은 조용히 버려진다).
+  "room.updated",
+  "room.deleted",
+  "room.unread",
+  "work.created",
+  "work.updated",
+  "work.closed",
+  "work.deleted",
+  "work.completion_progress",
+  "participant.joined",
+  "participant.left",
+  "room_read.recorded",
+  "room_link.updated",
+  "work_proposal.created",
+  "work_proposal.resolved",
 ];
 
 /** EventSource 를 열고 닫는 함수를 돌려준다. React 밖에서도 쓸 수 있다. */
 export function openStream(workspaceId: string, opts: StreamOptions): () => void {
   if (typeof EventSource === "undefined") return () => {};
-  const es = new EventSource(streamUrl(workspaceId, opts.sessionIds), { withCredentials: true });
+  const es = new EventSource(streamUrl(workspaceId, opts.roomIds), { withCredentials: true });
   let everOpened = false;
   opts.onState?.("connecting");
   es.onopen = () => {
@@ -88,25 +101,25 @@ export function openStream(workspaceId: string, opts: StreamOptions): () => void
 
 /**
  * React 훅. handler 는 ref 로 잡아 두어 매 렌더마다 재구독하지 않는다.
- * sessionIds 가 바뀌면 재구독한다(문자열로 비교).
+ * roomIds 가 바뀌면 재구독한다(문자열로 비교).
  */
 export function useStream(
   workspaceId: string | null | undefined,
   handler: (ev: StreamEvent) => void,
-  options: { sessionIds?: string[]; onResync?: (reason: string) => void; enabled?: boolean } = {},
+  options: { roomIds?: string[]; onResync?: (reason: string) => void; enabled?: boolean } = {},
 ): ConnectionState {
   const [state, setState] = useState<ConnectionState>("connecting");
   const handlerRef = useRef(handler);
   const resyncRef = useRef(options.onResync);
   handlerRef.current = handler;
   resyncRef.current = options.onResync;
-  const key = (options.sessionIds ?? []).join(",");
+  const key = (options.roomIds ?? []).join(",");
   const enabled = options.enabled ?? true;
 
   useEffect(() => {
     if (!workspaceId || !enabled) return;
     const close = openStream(workspaceId, {
-      sessionIds: key ? key.split(",") : undefined,
+      roomIds: key ? key.split(",") : undefined,
       onEvent: (ev) => handlerRef.current(ev),
       onResync: (r) => resyncRef.current?.(r),
       onState: setState,

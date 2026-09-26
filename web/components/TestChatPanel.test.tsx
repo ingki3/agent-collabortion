@@ -43,7 +43,7 @@ const chat = (over: Partial<TestChat> = {}): TestChat => ({
   id: "tc1", workspace_id: "w1", agent_id: "a1", profile_id: "p1", user_id: "u1", runtime_id: "r1", status: "open", transport: null,
   turns: [], input_tokens: 0, output_tokens: 0, cost_usd: 0, estimated: false, created_at: "2026-09-13T00:00:00Z", updated_at: "2026-09-13T00:00:00Z", closed_at: null, ...over,
 });
-const ev = (type: StreamEvent["type"], payload: Record<string, unknown>): StreamEvent => ({ id: "1", type, at: "2026-09-13T00:00:02Z", workspace_id: "w1", session_id: null, ephemeral: type === "test_chat.delta", payload });
+const ev = (type: StreamEvent["type"], payload: Record<string, unknown>): StreamEvent => ({ id: "1", type, at: "2026-09-13T00:00:02Z", workspace_id: "w1", room_id: null, ephemeral: type === "test_chat.delta", payload });
 
 beforeEach(() => { get.mockReset(); post.mockReset(); streamHandler = null; });
 afterEach(cleanup);

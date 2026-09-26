@@ -24,6 +24,18 @@ ok(){ printf '  \033[32mok\033[0m   %s\n' "$*"; }
 bad(){ printf '  \033[31mFAIL\033[0m %s\n' "$*"; FAILED=$((FAILED+1)); }
 step(){ printf '\n\033[1m== %s\033[0m\n' "$*"; }
 api(){ curl -sS -b "$J" -c "$J" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" "$@"; }
+# ── 방·미션 (openapi v0.3.0 D22 — 옛 POST /workspaces/{ws}/sessions 삭제) — 이 스크립트 전용 헬퍼 ──
+# room_work OLD_SESSION_CREATE_JSON → "ROOM WORK". createRoom → updateRoom(격리·컴퓨터·방 한도) →
+# addRoomParticipant… → createWork(assignee 명시 — createWork 는 기본값이 없다). 옛 세션은 미션이 하나라
+# work_id 없는 사람 게시도 그 미션에 귀속됐다. 이제는 게시에 "work_id" 를 붙여야 초기 task 에 합쳐진다
+# (안 붙이면 "미션 없음" task 가 따로 생긴다 — 2026-09-24 :8319 실측).
+room_work(){
+  local in="$1" room p
+  room=$(api -X POST "$S/workspaces/$WS/rooms" -d "$(jq -c '{name:.title,description:""}' <<<"$in")" | jq -r .id)
+  api -X PATCH "$S/rooms/$room" -d "$(jq -c '{isolation,runtime_id} + (if .limits then {limits:(.limits|with_entries(select(.key|IN("budget_usd","time_limit","max_parallel_lanes","max_concurrent_works"))))} else {} end) | with_entries(select(.value!=null))' <<<"$in")" >/dev/null
+  for p in $(jq -c '.participants[]|{agent_id}' <<<"$in"); do api -X POST "$S/rooms/$room/participants" -d "$p" >/dev/null; done
+  printf '%s %s\n' "$room" "$(api -X POST "$S/rooms/$room/works" -d "$(jq -c '{goal,title,assignee_agent_id:(.assignee_agent_id // .participants[0].agent_id)} + (if .completion_condition then {completion_condition} else {} end)' <<<"$in")" | jq -r .id)"
+}
 Q(){ docker exec colab-pg-s7live psql -U colab -d colab -tAc "$1" | tr -d ' '; }
 
 step "1. 계정·워크스페이스·에이전트 2개·세션(예산 \$1)"
@@ -40,12 +52,12 @@ RID=$(echo "$RT" | jq -r .runtime_id); DTOK=$(echo "$RT" | jq -r .daemon_token)
 curl -sS -X POST "$D/runtimes/$RID/probe" -H "Authorization: Bearer $DTOK" -H 'Content-Type: application/json' \
   -d '{"runtimes":[{"kind":"claude_code","available":true,"version":"1.0.0","capabilities":{"usage":true,"resume":true}}]}' >/dev/null
 # 에이전트 단위 예산은 없다 — 세션 잔여가 유일한 상한이라 초과는 SESSION 범위다(D-16).
-SESS=$(api -X POST "$S/workspaces/$WS/sessions" -d "{\"title\":\"S\",\"goal\":\"g\",\"isolation\":{\"kind\":\"none\"},\"assignee_agent_id\":\"$R\",\"participants\":[{\"agent_id\":\"$R\"},{\"agent_id\":\"$W\"}],\"runtime_id\":\"$RID\",\"limits\":{\"budget_usd\":1}}" | jq -r .id)
-LIM=$(Q "SELECT limits->>'budget_usd' FROM session WHERE id='$SESS'")
+read -r SESS WID <<<"$(room_work "{\"title\":\"S\",\"goal\":\"g\",\"isolation\":{\"kind\":\"none\"},\"assignee_agent_id\":\"$R\",\"participants\":[{\"agent_id\":\"$R\"},{\"agent_id\":\"$W\"}],\"runtime_id\":\"$RID\",\"limits\":{\"budget_usd\":1}}")"
+LIM=$(Q "SELECT limits->>'budget_usd' FROM room WHERE id='$SESS'")
 [ "$LIM" = 1 ] && ok "session $SESS · limits.budget_usd = \$1" || bad "limits = $LIM"
 
 step "2. 두 task 를 claim — W 는 running 인 채로 둔다(정지가 취소할 턴)"
-mktask(){ api -X POST "$S/sessions/$SESS/messages" -d "{\"content\":\"[@$1](mention://agent/$2) 부탁합니다\"}" | jq -r '.triggers[0].task_id'; }
+mktask(){ api -X POST "$S/rooms/$SESS/messages" -d "{\"work_id\":\"$WID\",\"content\":\"[@$1](mention://agent/$2) 부탁합니다\"}" | jq -r '.triggers[0].task_id'; }
 TR=$(mktask R "$R"); TW=$(mktask W "$W")
 CLAIM=$(curl -sS -X POST "$D/runtimes/$RID/claim" -H "Authorization: Bearer $DTOK" -H 'Content-Type: application/json' -d '{"capacity":5}')
 att(){ echo "$CLAIM" | jq -r ".tasks[] | select(.task.id==\"$1\") | .task.attempt"; }
@@ -61,7 +73,7 @@ FIN=$(curl -sS -X POST "$D/tasks/$TR/attempts/$AR/finish" -H "Authorization: Bea
 echo "$FIN" | jq -r .status | grep -q completed && ok "R finish → completed" || bad "finish: $FIN"
 
 step "4. S-45 — 시스템 발행 HITL 의 타임라인 카드"
-SS=$(Q "SELECT status||'('||COALESCE(paused_reason::text,'-')||')' FROM session WHERE id='$SESS'")
+SS=$(Q "SELECT status||'('||COALESCE(paused_reason::text,'-')||')' FROM work WHERE room_id='$SESS'")
 [ "$SS" = "paused(budget)" ] && ok "session = $SS (E9-04)" || bad "session = $SS, want paused(budget)"
 HID=$(Q "SELECT id FROM hitl_request WHERE session_id='$SESS' AND purpose='budget'")
 HT=$(Q "SELECT COALESCE(task_id::text,'-') FROM hitl_request WHERE id='$HID'")
@@ -78,7 +90,7 @@ echo "$BODY" | grep -q '예산' && ok "카드 본문 = $BODY" || bad "카드 본
 EV=$(Q "SELECT count(*) FROM stream_event WHERE session_id='$SESS' AND type='message.created' AND payload->>'id'='$MID'")
 [ "$EV" = 1 ] && ok "message.created 프레임 1 — S7 이 새로고침 없이 본다" || bad "message.created = $EV"
 # 세션 메시지 API 에도 그대로 나온다.
-APICARD=$(api "$S/sessions/$SESS/messages?limit=50" | jq -r "[.items[] | select(.kind==\"hitl\")] | length")
+APICARD=$(api "$S/rooms/$SESS/messages?limit=50" | jq -r "[.items[] | select(.kind==\"hitl\")] | length")
 [ "$APICARD" = 1 ] && ok "listMessages 에 hitl 카드 1" || bad "listMessages hitl = $APICARD"
 
 step "5. S-46 — 정지가 park 한 W 의 task"
@@ -88,8 +100,12 @@ WL=$(Q "SELECT l.status FROM lane l JOIN task t ON t.lane_id=l.id WHERE t.id='$T
 [ "$WL" = paused ] && ok "W lane = paused" || bad "W lane = $WL"
 
 step "6. 재개 — 상한을 올리고 이어간다"
-RES=$(api -X POST "$S/sessions/$SESS/resume" -d '{"limits":{"budget_usd":10}}')
-echo "$RES" | jq -r .status | grep -q active && ok "session = active" || bad "resume: $RES"
+# v0.3.0(D22): 옛 resumeSession{limits} 은 없다. 예산 정지는 방의 게이트(room.blocked_reason=budget)라
+# resumeWork 는 409 room_blocked — 방이 띄운 예산 HITL 에 상향 승인으로 답해야 풀린다(미러로 park 된 미션도 같이).
+RES=$(api -X POST "$S/hitl-requests/$HID/response" -d '{"approved":true,"budget_override_usd":10}')
+RB=$(api "$S/rooms/$SESS" | jq -r '.blocked_reason // "null"')
+[ "$RB" = null ] && ok "room.blocked_reason = null — 상향 승인이 방 게이트를 풀었다" || bad "room.blocked_reason = $RB (응답: $RES)"
+api "$S/works/$WID" | jq -r .status | grep -q active && ok "mission = active" || bad "mission = $(api "$S/works/$WID" | jq -c '{status,paused_reason}')"
 WS2=$(Q "SELECT status FROM task WHERE id='$TW'")
 [ "$WS2" = queued ] && ok "W task = queued — 재개가 park 된 task 를 되돌린다 (S-46)" || bad "W task = $WS2, want queued"
 WA=$(Q "SELECT attempt FROM task WHERE id='$TW'")
@@ -97,7 +113,7 @@ WA=$(Q "SELECT attempt FROM task WHERE id='$TW'")
 WL2=$(Q "SELECT l.status FROM lane l JOIN task t ON t.lane_id=l.id WHERE t.id='$TW'")
 [ "$WL2" = queued ] && ok "W lane = queued" || bad "W lane = $WL2"
 HS=$(Q "SELECT status||'/'||COALESCE(approved::text,'-') FROM hitl_request WHERE id='$HID'")
-[ "$HS" = "answered/true" ] && ok "예산 HITL = $HS — 재개가 곧 응답(openapi resumeSession)" || bad "HITL = $HS"
+[ "$HS" = "answered/true" ] && ok "예산 HITL = $HS — 상향 승인 응답(openapi respondHitl)" || bad "HITL = $HS"
 C2=$(curl -sS -X POST "$D/runtimes/$RID/claim" -H "Authorization: Bearer $DTOK" -H 'Content-Type: application/json' -d '{"capacity":5}')
 echo "$C2" | jq -r '.tasks[]?.task.id' | grep -q "$TW" && ok "claim 이 W task 를 다시 내준다" || bad "claim = $(echo "$C2" | jq -c '[.tasks[]?.task.id]') — 재개했는데 dispatch 0"
 

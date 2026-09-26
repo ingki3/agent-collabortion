@@ -37,7 +37,8 @@ const Name = "colab"
 
 // envPrefix selects the variables the wrapper exports (harness §2.1 / §10:
 // COLAB_TASK_TOKEN, COLAB_SERVER_URL, COLAB_TASK_ID, COLAB_TASK_ATTEMPT,
-// COLAB_LANE_ID, COLAB_SESSION_ID, COLAB_AGENT_NAME).
+// COLAB_LANE_ID, COLAB_SESSION_ID, COLAB_AGENT_NAME, and — T-R3b —
+// COLAB_ROOM_ID · COLAB_WORK_ID · COLAB_THREAD_ID when the bundle names them).
 const envPrefix = "COLAB_"
 
 // Root is <workdir_root>/.colab/bin — every attempt's wrapper lives under it.

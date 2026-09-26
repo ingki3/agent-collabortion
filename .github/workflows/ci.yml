@@ -87,8 +87,13 @@ jobs:
           cache-dependency-path: '**/go.sum'
       - name: vet
         run: for m in contracts server daemon cli; do (cd $m && go vet ./...) || exit 1; done
+      # 골든 표 12파일은 빌드 태그 뒤에 있어 위의 vet·test 가 컴파일조차 하지 않는다
+      # (V19_impl §4 위험 4). 기대값은 태그로 돌리되 컴파일은 매 PR 에서 감시한다.
+      - name: vet (golden build tags)
+        run: for m in server daemon; do (cd $m && go vet -tags p3golden ./... && go vet -tags p4golden ./...) || exit 1; done
       - name: test
-        run: for m in contracts server daemon cli; do (cd $m && go test ./...) || exit 1; done
+        # -timeout 20m: #317 CI 1회차에서 server/internal/httpapi 가 패키지 전체로 10분 기본값에 걸렸다(한 테스트가 멈춘 게 아니다 — 로컬 ~90s).
+        run: for m in contracts server daemon cli; do (cd $m && go test -timeout 20m ./...) || exit 1; done
       - name: build
         run: make build
 

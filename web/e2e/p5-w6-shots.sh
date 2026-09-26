@@ -73,7 +73,7 @@ SEED=$(apic '
   await post(`/workspaces/${ws}/invites`, { email: "newbie@colab.dev", role: "member", expires_in_hours: 168 });
   const rt = (await fetch(`/api/v1/workspaces/${ws}/runtimes`).then(j))[0];
   const a = (await fetch(`/api/v1/workspaces/${ws}/agents`).then(j)).items;
-  const s = await post(`/workspaces/${ws}/sessions`, { title: "온보딩 문서 정리", goal: "설치 안내를 한 페이지로 줄인다", isolation: { kind: "none" }, runtime_id: rt.id, participants: [{ agent_id: a[0].id }], assignee_agent_id: a[0].id });
+  const s = await post(`/__mock/workspaces/${ws}/seed-room`, { title: "온보딩 문서 정리", goal: "설치 안내를 한 페이지로 줄인다", isolation: { kind: "none" }, runtime_id: rt.id, participants: [{ agent_id: a[0].id }], assignee_agent_id: a[0].id });
   return [a[0].id, s.id].join(",");
 })()')
 AG=$(echo "$SEED" | cut -d, -f1)
@@ -120,7 +120,7 @@ done
 
 step "W-10 — S7 세션 설정의 컴퓨터 이름(밝음)"
 set_theme light
-open_wait "/sessions/$S1" '[data-testid="aside-runtime"]'
+open_wait "/rooms/$S1" '[data-testid="aside-runtime"]'
 shot "p5-w6-10-session-runtime-name"
 echo "  aside-runtime: $(apic 'document.querySelector("[data-testid=aside-runtime]").textContent')"
 

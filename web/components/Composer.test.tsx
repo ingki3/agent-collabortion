@@ -110,7 +110,7 @@ describe("Composer — new_lane 토글은 전송 후 자동 해제된다 (t-2 ·
 
     fireEvent.click(toggle);
     expect(toggle.checked).toBe(true);
-    expect(screen.getByTestId("new-lane-note").textContent).toContain("새 작업 줄기로 전송됨");
+    expect(screen.getByTestId("new-lane-note").textContent).toContain("새 서브 미션으로 전송됨");
 
     type("[@Lead](mention://agent/a-lead) 첫 번째");
     fireEvent.click(screen.getByTestId("composer-send"));
@@ -136,7 +136,7 @@ describe("Composer — new_lane 토글은 전송 후 자동 해제된다 (t-2 ·
     type("[@Lead](mention://agent/a-lead) 별도로");
     await screen.findByTestId("chip-trigger");
     fireEvent.click(screen.getByTestId("new-lane-toggle"));
-    await waitFor(() => expect(screen.getByTestId("chip-trigger").textContent).toContain("새 작업 줄기"));
+    await waitFor(() => expect(screen.getByTestId("chip-trigger").textContent).toContain("새 서브 미션"));
     expect(onPreview.mock.calls.at(-1)![0].newLane).toBe(true);
   });
 });
@@ -186,5 +186,69 @@ describe("Composer — 멘션 자동완성 · paused 안내", () => {
   it("세션이 paused 면 작성창 위에 '재개 후 처리됩니다' 안내가 뜬다(U15-9)", () => {
     render(<Composer agents={AGENTS} onSubmit={async () => []} notice="일시정지 중 — 게시는 되지만 재개 후 처리됩니다" />);
     expect(screen.getByTestId("composer-notice").textContent).toContain("재개 후 처리됩니다");
+  });
+});
+
+// ── v0.19 방 화면(T-R2-W2) — 미션 선택기와 귀속 칩(COMPONENTS §9.2 · SCREEN §4.6 귀속 규칙 1~4) ──
+describe("Composer — 미션 선택기 · 귀속 칩은 서버 미리보기(work · work_source)를 그대로 말한다", () => {
+  const OPTS = [{ id: "w1", title: "보고서 초안" }, { id: "w2", title: "수수료 비교" }];
+  const sel = (value: string | null, onChange = vi.fn()) => ({ options: OPTS, value, onChange });
+
+  it("자동 귀속(규칙 3 running_lane) — 「자동: 」 접두로 사람이 고른 것과 갈리고, 선택기가 그 미션으로 바뀐다", async () => {
+    const onPreview = vi.fn<PreviewFn>(async () => ({ ...empty, triggers: [trigger()], work: { id: "w2", title: "수수료 비교" }, work_source: "running_lane" }));
+    render(<Composer agents={AGENTS} onPreview={onPreview} onSubmit={vi.fn<SubmitFn>(async () => [])} previewDelayMs={0} workSelector={sel(null)} />);
+    // 미리보기 전 — (전체) 보기의 기본값은 「미션 없음」
+    expect(screen.getByTestId("chip-work").textContent).toBe("미션 없음에 들어갑니다");
+    type("[@Lead](mention://agent/a-lead) 이어서");
+    await waitFor(() => expect(screen.getByTestId("work-selector").getAttribute("data-mode")).toBe("auto"));
+    const chip = screen.getByTestId("chip-work");
+    expect(chip.textContent).toBe("자동: 이 메시지는 미션 「수수료 비교」에 들어갑니다 — 바꾸려면 선택기를 누르세요");
+    expect(screen.getByTestId("chip-work-auto").textContent).toBe("자동: ");
+    expect((screen.getByTestId("work-selector-select") as HTMLSelectElement).value).toBe("w2");
+    // 선택기의 값(null)은 그대로 보낸다 — null 은 「규칙 2~4 로 정해 달라」(서버 router.attribute)
+    expect(onPreview.mock.calls.at(-1)![0].workId).toBeNull();
+  });
+
+  it("사람이 고른 미션(규칙 1 chosen) — 접두 없이 「이 메시지는 미션 〈…〉에 들어갑니다」, 미리보기·전송에 work_id 를 싣는다", async () => {
+    const onPreview = vi.fn<PreviewFn>(async () => ({ ...empty, work: { id: "w1", title: "보고서 초안" }, work_source: "chosen" }));
+    const onSubmit = vi.fn<SubmitFn>(async () => []);
+    render(<Composer agents={AGENTS} onPreview={onPreview} onSubmit={onSubmit} previewDelayMs={0} workSelector={sel("w1")} />);
+    type("초안 방향 잡자");
+    await waitFor(() => expect(screen.getByTestId("chip-work").getAttribute("data-source")).toBe("chosen"));
+    expect(screen.getByTestId("chip-work").textContent).toBe("이 메시지는 미션 「보고서 초안」에 들어갑니다");
+    expect(screen.queryByTestId("chip-work-auto")).toBeNull();
+    expect(onPreview.mock.calls.at(-1)![0].workId).toBe("w1");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0][0].workId).toBe("w1");
+  });
+
+  it("스레드 안(규칙 2 thread) — 선택기가 잠기고 사유는 글자로(「이 스레드는 미션 〈…〉의 것입니다」)", async () => {
+    const onPreview = vi.fn<PreviewFn>(async () => ({ ...empty, work: { id: "w1", title: "보고서 초안" }, work_source: "thread" }));
+    render(<Composer agents={AGENTS} onPreview={onPreview} onSubmit={vi.fn<SubmitFn>(async () => [])} previewDelayMs={0} replyTo={{ id: "m1", authorName: "서연" }} workSelector={sel(null)} />);
+    type("답글");
+    await waitFor(() => expect(screen.getByTestId("work-selector").getAttribute("data-mode")).toBe("locked"));
+    const select = screen.getByTestId("work-selector-select") as HTMLSelectElement;
+    expect(select.disabled).toBe(true);
+    expect(select.getAttribute("aria-describedby")).toBe("work-selector-locked");
+    expect(screen.getByTestId("chip-work").textContent).toBe("이 스레드는 미션 「보고서 초안」의 것입니다");
+  });
+
+  it("선택기를 바꾸면 onChange 로 올린다(칩 기본값을 사람이 덮는다)", () => {
+    const onChange = vi.fn();
+    render(<Composer agents={AGENTS} onSubmit={vi.fn<SubmitFn>(async () => [])} workSelector={sel(null, onChange)} />);
+    fireEvent.change(screen.getByTestId("work-selector-select"), { target: { value: "w2" } });
+    expect(onChange).toHaveBeenCalledWith("w2");
+    fireEvent.change(screen.getByTestId("work-selector-select"), { target: { value: "" } });
+    expect(onChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("선택기가 없으면(옛 S7) 그리지 않고 work_id 키도 보내지 않는다", async () => {
+    const onPreview = vi.fn<PreviewFn>(async () => empty);
+    render(<Composer agents={AGENTS} onPreview={onPreview} onSubmit={vi.fn<SubmitFn>(async () => [])} previewDelayMs={0} />);
+    type("hi");
+    await waitFor(() => expect(onPreview).toHaveBeenCalled());
+    expect(screen.queryByTestId("work-selector")).toBeNull();
+    expect(onPreview.mock.calls[0][0].workId).toBeUndefined();
   });
 });

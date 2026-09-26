@@ -66,10 +66,10 @@ var Defs = []Def{
 		Note:  "사람이 쓴 메시지 하나가 다음 사람 메시지 전까지 에이전트 사이에 일으킨 할 일 수, 그 중앙값과 상위 5% 값. 표본 수는 에이전트를 깨운 사람 메시지 수."},
 	{Key: "chain_depth",
 		Label: "트리거 사슬 깊이",
-		Note:  "세션 안에서 사람의 메시지에서 시작해 에이전트 사이의 멘션이 이어진 가장 깊은 단계, 그 중앙값과 상위 5% 값. 표본 수는 세션 수."},
+		Note:  "방 안에서 사람의 메시지에서 시작해 에이전트 사이의 멘션이 이어진 가장 깊은 단계, 그 중앙값과 상위 5% 값. 표본 수는 방 수."},
 	{Key: "join_breadth",
 		Label: "합류 폭",
-		Note:  "한 할 일이 위임으로 만든 작업 줄기의 수(합류 그룹의 크기), 그 중앙값과 상위 5% 값. 표본 수는 위임 그룹 수."},
+		Note:  "한 할 일이 위임으로 만든 서브 미션의 수(합류 그룹의 크기), 그 중앙값과 상위 5% 값. 표본 수는 위임 그룹 수."},
 	{Key: "routing_concentration",
 		Label: "라우팅 집중",
 		Note:  "할 일이 어느 라우팅 규칙으로 만들어졌는지의 비율. 값은 멘션 없이 담당 에이전트에게 간 비율(규칙 6·7). 표본 수는 할 일을 만든 트리거 수."},
@@ -155,7 +155,7 @@ func ratio(ctx context.Context, q db.DBTX, sql string, wsID uuid.UUID, since tim
 const sqlChainScale = `
 WITH hops AS (
 	SELECT h.id, h.session_id, h.from_agent_id, h.created_at
-	FROM session_hop h JOIN session s ON s.id = h.session_id
+	FROM session_hop h JOIN room s ON s.id = h.session_id
 	WHERE s.workspace_id = $1 AND h.allowed),
 human AS (
 	SELECT id, session_id, created_at, lead(id) OVER (PARTITION BY session_id ORDER BY id) AS next_id
@@ -175,7 +175,7 @@ const sqlJoinBreadth = `
 SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY g.n),
        percentile_cont(0.95) WITHIN GROUP (ORDER BY g.n), count(*)
 FROM (SELECT count(*) AS n
-      FROM lane l JOIN session s ON s.id = l.session_id
+      FROM lane l JOIN room s ON s.id = l.session_id
       WHERE s.workspace_id = $1 AND l.delegated_from_task_id IS NOT NULL AND l.created_at >= $2
       GROUP BY l.delegated_from_task_id) g`
 
@@ -187,7 +187,7 @@ SELECT avg(CASE WHEN EXISTS (
 	WHERE e.task_id = a.task_id AND e.attempt = a.attempt
 	  AND e.class = 'status' AND e.verb = 'turn_end' AND e.object_ref = to_jsonb('` + EmptyTurnObjectRef + `'::text))
 	THEN 1 ELSE 0 END), count(*)
-FROM task_attempt a JOIN task t ON t.id = a.task_id JOIN session s ON s.id = t.session_id
+FROM task_attempt a JOIN task t ON t.id = a.task_id JOIN room s ON s.id = t.session_id
 WHERE s.workspace_id = $1 AND a.outcome = 'completed' AND a.finished_at >= $2`
 
 // 2. 세션이 도달한 최대 chain_depth. 깊이의 규칙은 router.chainDepth 하나뿐이라
@@ -198,9 +198,9 @@ WHERE s.workspace_id = $1 AND a.outcome = 'completed' AND a.finished_at >= $2`
 func chainDepth(ctx context.Context, q db.DBTX, wsID uuid.UUID, since time.Time, r *Row) error {
 	rows, err := q.Query(ctx, `
 		SELECT h.session_id, h.id, h.from_agent_id, h.to_agent_id, h.created_at, COALESCE(h.cause_hop_id, 0)
-		FROM session_hop h JOIN session s ON s.id = h.session_id
+		FROM session_hop h JOIN room s ON s.id = h.session_id
 		WHERE s.workspace_id = $1
-		  AND h.session_id IN (SELECT h2.session_id FROM session_hop h2 JOIN session s2 ON s2.id = h2.session_id
+		  AND h.session_id IN (SELECT h2.session_id FROM session_hop h2 JOIN room s2 ON s2.id = h2.session_id
 		                       WHERE s2.workspace_id = $1 AND h2.created_at >= $2)
 		ORDER BY h.session_id, h.id`, wsID, since)
 	if err != nil {
@@ -262,7 +262,7 @@ func percentile(xs []float64, p float64) float64 {
 func routingConcentration(ctx context.Context, q db.DBTX, wsID uuid.UUID, since time.Time, r *Row) error {
 	rows, err := q.Query(ctx, `
 		SELECT h.rule, count(*)
-		FROM session_hop h JOIN session s ON s.id = h.session_id
+		FROM session_hop h JOIN room s ON s.id = h.session_id
 		WHERE s.workspace_id = $1 AND h.allowed AND h.created_at >= $2
 		GROUP BY h.rule`, wsID, since)
 	if err != nil {

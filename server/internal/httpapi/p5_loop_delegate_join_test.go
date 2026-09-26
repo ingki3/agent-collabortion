@@ -48,7 +48,7 @@ func (f *p2Fixture) sessionPause(t *testing.T) (status, reason string, detail *g
 	t.Helper()
 	var st string
 	var rs *string
-	if err := f.pool.QueryRow(t.Context(), `SELECT status::text, paused_reason::text, paused_detail FROM session WHERE id = $1`, f.sessionID).
+	if err := f.pool.QueryRow(t.Context(), `SELECT status::text, paused_reason::text, paused_detail FROM work WHERE room_id = $1`, f.sessionID).
 		Scan(&st, &rs, &detail); err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,10 @@ func TestS76DelegateJoinCycleStopsAtPairRoundtrips(t *testing.T) {
 	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM message WHERE session_id = $1 AND kind = 'hitl'`, f.sessionID).Scan(&cards); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM inbox_item WHERE session_id = $1 AND type = 'session_paused'`, f.sessionID).Scan(&inbox); err != nil {
+	// PRD v0.19 FR-3.5 · FR-8: the loop stops the ROOM, and its owner gets a
+	// `room_paused` card (T-R1b1) — the one `session_paused` used to be —
+	// saying why it is theirs (recipient_basis, T-S-inbox).
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM inbox_item WHERE session_id = $1 AND type = 'room_paused' AND recipient_basis = 'room_owner'`, f.sessionID).Scan(&inbox); err != nil {
 		t.Fatal(err)
 	}
 	if hitl != 1 || cards != 1 || inbox != 1 {

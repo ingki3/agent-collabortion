@@ -39,7 +39,7 @@ func (f *p2Fixture) overrunSession(t *testing.T, agent uuid.UUID, name string, c
 	t.Helper()
 	_, taskID := f.agentToken(t, f.sessionID, agent, name)
 	f.runTask(t, taskID)
-	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, contracts.Usage{CostUSD: cost}, f.fake.Now()); err != nil {
+	if err := f.srv.Tasks.RecordTurnUsage(t.Context(), taskID, attemptNow(t, f.srv.DB, taskID), contracts.Usage{CostUSD: cost}, f.fake.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.srv.enforceBudgetFor(t.Context(), taskID); err != nil {
@@ -53,7 +53,7 @@ func (f *p2Fixture) overrunSession(t *testing.T, agent uuid.UUID, name string, c
 func TestP3ResumeSessionRequeuesParkedTasks(t *testing.T) {
 	f := newP2Fixture(t)
 	if _, err := f.pool.Exec(t.Context(), `
-		UPDATE session SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+		UPDATE room SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	// No per-task budget: the session remainder is this task's only ceiling, so
@@ -68,7 +68,7 @@ func TestP3ResumeSessionRequeuesParkedTasks(t *testing.T) {
 
 	var sessionStatus, sessionReason string
 	if err := f.pool.QueryRow(t.Context(), `
-		SELECT status::text, COALESCE(paused_reason::text, '') FROM session WHERE id = $1`, f.sessionID).
+		SELECT status::text, COALESCE(paused_reason::text, '') FROM work WHERE room_id = $1`, f.sessionID).
 		Scan(&sessionStatus, &sessionReason); err != nil {
 		t.Fatal(err)
 	}
@@ -79,10 +79,10 @@ func TestP3ResumeSessionRequeuesParkedTasks(t *testing.T) {
 		t.Fatalf("premise: task = %s(%s), want paused(budget) — the pause cancels the turn (§8.2.2)", st, reason)
 	}
 
-	// The Director raises the limit and presses 재개. That IS the answer to the
-	// session-scoped budget request (openapi resumeSession).
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/resume",
-		map[string]any{"limits": map[string]any{"budget_usd": 10}})
+	// The owner raises the limit on the room's budget request (K-10). That IS
+	// the lift — the old resumeSession(limits) did the same, and went with
+	// openapi v0.3.0.
+	f.liftRoomBudget(t, 10)
 
 	if st := f.taskStatus(t, parked); st != "queued" {
 		t.Fatalf("parked task = %q after 재개, want queued — resuming a session that dispatches nothing is not a resume (FR-2.3)", st)
@@ -117,7 +117,7 @@ func TestP3ResumeSessionRequeuesParkedTasks(t *testing.T) {
 func TestP3ResumeSessionKeepsRefusedBudgetTask(t *testing.T) {
 	f := newP2Fixture(t)
 	if _, err := f.pool.Exec(t.Context(), `
-		UPDATE session SET limits = '{"budget_usd": 3}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+		UPDATE room SET limits = '{"budget_usd": 3}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(t.Context(), `UPDATE agent SET budget_per_task = 1 WHERE id = $1`, f.rUUID); err != nil {
@@ -147,8 +147,7 @@ func TestP3ResumeSessionKeepsRefusedBudgetTask(t *testing.T) {
 		t.Fatalf("premise: W task = %q, want paused — the session budget is gone (E9-04)", st)
 	}
 
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/resume",
-		map[string]any{"limits": map[string]any{"budget_usd": 20}})
+	f.liftRoomBudget(t, 20)
 
 	if st := f.taskStatus(t, parked); st != "queued" {
 		t.Fatalf("the task the session pause parked = %q, want queued", st)
@@ -159,4 +158,19 @@ func TestP3ResumeSessionKeepsRefusedBudgetTask(t *testing.T) {
 	if got := f.claimed(t); has(got, refused) {
 		t.Fatalf("the queue handed out a task whose budget raise was refused: %v", got)
 	}
+}
+
+// liftRoomBudget answers the room's open budget request (task_id NULL — the
+// room gate) with a raise: resumeRoomForBudget re-queues what the pause parked
+// and lifts the parked lanes (S-46 · S-44).
+func (f *p2Fixture) liftRoomBudget(t *testing.T, usd float64) {
+	t.Helper()
+	var id string
+	if err := f.pool.QueryRow(t.Context(), `
+		SELECT id::text FROM hitl_request WHERE session_id = $1 AND purpose = 'budget' AND task_id IS NULL AND status = 'open'`,
+		f.sessionID).Scan(&id); err != nil {
+		t.Fatalf("no open room budget request: %v", err)
+	}
+	f.api.must(200, "POST", f.p+"/hitl-requests/"+id+"/response",
+		map[string]any{"approved": true, "budget_override_usd": usd}, "Idempotency-Key", uuid.NewString())
 }

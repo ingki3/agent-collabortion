@@ -74,7 +74,8 @@ func Gone(code, detail string) *Problem         { return New(http.StatusGone, co
 // word the screens use for it. A key missing here is a test failure
 // (internal/wording), not a silent English fallback.
 var NotFoundNouns = map[string]string{
-	"session":            "세션",
+	"session":            "방",
+	"room":               "방",
 	"user":               "사용자",
 	"workspace":          "워크스페이스",
 	"workspace_settings": "워크스페이스 설정",
@@ -87,10 +88,13 @@ var NotFoundNouns = map[string]string{
 	"workdir":            "작업 폴더",
 	"runtime":            "컴퓨터",
 	"pairing":            "연결 코드",
-	"lane":               "작업 줄기",
+	"lane":               "서브 미션",
 	"task":               "할 일",
 	"inbox_item":         "받은 요청",
 	"hitl_request":       "확인 요청",
+	"room_link":          "참고 방 연결",
+	"work":               "미션",
+	"work_proposal":      "미션 제안",
 }
 
 // NotFound is the 404 for a resource the caller named. `what` is a key of
@@ -151,6 +155,24 @@ func Josa(word, with, without string) string {
 		return word + without
 	}
 	return word + with
+}
+
+// JosaRo appends 「으로」/「로」 to `word`: 「로」 after a vowel or a ㄹ 받침
+// (「서울로」), 「으로」 after any other 받침. A word that does not end in
+// Hangul gets 「(으)로」 — the form PRD FR-2.1.2 writes the sentence in.
+func JosaRo(word string) string {
+	r := []rune(word)
+	if len(r) == 0 {
+		return word + "(으)로"
+	}
+	last := r[len(r)-1]
+	if last < 0xAC00 || last > 0xD7A3 {
+		return word + "(으)로"
+	}
+	if jong := (last - 0xAC00) % 28; jong == 0 || jong == 8 {
+		return word + "로"
+	}
+	return word + "으로"
 }
 
 // StatusLabel is a session or lane status enum in the words of the badges the

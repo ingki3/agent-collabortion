@@ -142,11 +142,17 @@ func collectTaskIDs(ctx context.Context, q pgx.Tx, sql string, args ...any) ([]u
 
 const selectUsageRows = `
 	SELECT t.id, t.agent_id, COALESCE(t.runtime_id, '00000000-0000-0000-0000-000000000000'::uuid), t.session_id,
-	       COALESCE(a.name, ''), COALESCE(a.name, ''), COALESCE(rt.name, ''), COALESCE(s.title, ''),
+	       COALESCE(a.name, ''), COALESCE(a.name, ''), COALESCE(rt.name, ''), COALESCE(lw.title, s.name, ''),
 	       u.cost_usd, u.estimated, u.input_tokens, u.output_tokens, u.cache_read
-	FROM task_usage u
+	-- One row per TASK, summed over its attempts (T-S-usage): by_task and
+	-- task_count count tasks, not attempts.
+	FROM task_usage_total u
 	JOIN task t ON t.id = u.task_id
-	JOIN session s ON s.id = t.session_id
+	JOIN room s ON s.id = t.session_id
+	-- One row per usage row (V19_R1B_HANDOFF (d)): joining the room's missions
+	-- counted a task's cost once per mission. The group label is the old
+	-- session's title, else the room's name.
+	LEFT JOIN work lw ON lw.id = s.legacy_work_id
 	LEFT JOIN agent a ON a.id = t.agent_id
 	LEFT JOIN runtime rt ON rt.id = t.runtime_id`
 
@@ -172,19 +178,19 @@ func (s *Server) usageRows(ctx context.Context, where string, args ...any) ([]co
 	return out, rows.Err()
 }
 
-func (s *Server) GetSessionCost(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	if _, p := s.sessionAccess(r, sessionId); p != nil {
+func (s *Server) GetRoomCost(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	if _, p := s.sessionAccess(r, roomId); p != nil {
 		writeProblem(w, p)
 		return
 	}
-	rows, err := s.usageRows(r.Context(), "t.session_id = $1", sessionId)
+	rows, err := s.usageRows(r.Context(), "t.session_id = $1", roomId)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
 	rep := cost.Rollup(rows)
 	var limits []byte
-	_ = s.DB.QueryRow(r.Context(), `SELECT limits FROM session WHERE id = $1`, sessionId).Scan(&limits)
+	_ = s.DB.QueryRow(r.Context(), `SELECT limits FROM room WHERE id = $1`, roomId).Scan(&limits)
 	writeJSON(w, http.StatusOK, costReportAPI(rep, budgetOf(limits)))
 }
 

@@ -28,8 +28,8 @@ function LoginForm() {
     try {
       const r = await api.post("/auth/login", { body: { email, password, invite_token: inviteToken } });
       const me = await api.get("/me");
-      const dest = returnTo && returnTo.startsWith("/") ? returnTo : me.workspaces.length === 0 ? "/onboarding" : "/sessions";
-      router.replace(r.accepted_invite ? "/sessions" : dest);
+      const dest = returnTo && returnTo.startsWith("/") ? returnTo : me.workspaces.length === 0 ? "/onboarding" : "/rooms";
+      router.replace(r.accepted_invite ? "/rooms" : dest);
     } catch (err) {
       setError(isApiError(err) && err.code && REASON[err.code] ? REASON[err.code] : errorMessage(err));
     } finally {

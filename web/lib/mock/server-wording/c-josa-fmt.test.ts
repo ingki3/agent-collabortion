@@ -1,7 +1,7 @@
 /** 목 문장 ↔ 서버 문장 대조 (c) josa 는 apperr.Josa 와 같은 규칙이다 — 전체 설명은 `_shared.ts` 머리 주석. */
 import { describe, expect, it } from "vitest";
 import { goSource } from "./_shared";
-import { josa, fmt, W } from "../wording";
+import { josa, josaRo, fmt, W } from "../wording";
 
 describe("(c) josa 는 apperr.Josa 와 같은 규칙이다", () => {
   it("받침 있으면 with, 없으면 without, 한글이 아니면 with(without)", () => {
@@ -15,9 +15,19 @@ describe("(c) josa 는 apperr.Josa 와 같은 규칙이다", () => {
     expect(go).toContain("last < 0xAC00 || last > 0xD7A3");
     expect(go).toContain("(last-0xAC00)%28 == 0");
   });
+  it("josaRo 는 apperr.JosaRo 와 같은 규칙이다 — ㄹ 받침·받침 없음은 「로」, 한글이 아니면 「(으)로」 (FR-2.1.2)", () => {
+    expect(josaRo("결제팀")).toBe("결제팀으로");
+    expect(josaRo("리서치")).toBe("리서치로");
+    expect(josaRo("서울")).toBe("서울로");
+    expect(josaRo("STO")).toBe("STO(으)로");
+    expect(josaRo("")).toBe("(으)로");
+    const go = goSource("internal/apperr/apperr.go");
+    expect(go).toContain("jong == 0 || jong == 8");
+    expect(go).toContain(`return word + "(으)로"`);
+  });
   it("fmt 는 %d·%s·%.2f 를 Go 처럼 채운다", () => {
-    expect(fmt(W.runtime_has_active_sessions, 3)).toBe("이 컴퓨터를 쓰는 중인 세션이 3개 있습니다 — 먼저 다른 컴퓨터로 옮기거나 세션을 종료해 주세요");
-    expect(fmt(W.budget_too_low, 1.5)).toBe("이미 $1.50를 썼습니다 — 새 상한은 그보다 커야 합니다");
+    expect(fmt(W.runtime_has_active_sessions, 3)).toBe("이 컴퓨터를 쓰는 중인 방이 3개 있습니다 — 먼저 다른 컴퓨터로 옮기거나 미션을 종료해 주세요");
+    expect(fmt("이미 $%.2f를 썼습니다 — 새 상한은 그보다 커야 합니다", 1.5)).toBe("이미 $1.50를 썼습니다 — 새 상한은 그보다 커야 합니다"); // 옛 budget_too_low(resumeSession, R4 삭제) 모양
     expect(fmt(W.deputy_not_yet, "14:30")).toBe("Director 응답 대기 중 · 14:30부터 승인 가능");
   });
 });

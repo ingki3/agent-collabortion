@@ -61,10 +61,10 @@ start_server() { # KEY BASEURL — 없으면 키 없이(폴백)
 # run_arm NAME MODE → session id (한 세션을 만들고 complete 한다)
 run_arm() {
   local name="$1" s
-  s="$(api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg t "$name" --arg a "$AG" --arg rt "$RUNTIME" \
+  s="$(create_room_work "$WS" "$(jq -nc --arg t "$name" --arg a "$AG" --arg rt "$RUNTIME" \
       '{title:$t,goal:"요약 실패 경로",isolation:{kind:"none"},participants:[{agent_id:$a}],
-        assignee_agent_id:$a,runtime_id:$rt,completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | jq -r .id)"
-  api POST "/sessions/$s/complete" '{"confirm":true}' -H "Idempotency-Key: $(uuid)" >/dev/null
+        assignee_agent_id:$a,runtime_id:$rt,completion_condition:{op:"and",conditions:[{type:"manual"}]}}')")"
+  api POST "/works/$(work_of "$s")/complete" '{"confirm":true}' -H "Idempotency-Key: $(uuid)" >/dev/null
   printf '%s' "$s"
 }
 sum_feed() { psqlq "select coalesce(e.object_ref::text,'-')||' '||coalesce(e.payload->>'detail','-')
@@ -97,7 +97,7 @@ ok "ws=$WS agent=$AG runtime=$RUNTIME"
 step "2. S1 — refusal → 피드 오류 + completed + 요약 0 (E6-11)"
 S1="$(run_arm "refusal-$STAMP")"
 sum_feed "$S1" > "$OUT/65-feed-refusal.txt"
-chk S1  "세션은 completed (요약 실패가 세션을 붙잡지 않는다)" completed "$(psqlq "select status::text from session where id='$S1'")"
+chk S1  "세션은 completed (요약 실패가 세션을 붙잡지 않는다)" completed "$(psqlq "select status::text from work where room_id='$S1'")"
 chk S1b "요약 메시지 0개"                                     0 "$(summary_count "$S1")"
 chk S1c "피드에 summary.failed 가 있다"                       yes \
   "$( [ "$(feed_ref "$S1" failed)" != "-" ] && echo yes || echo no )"
@@ -120,7 +120,7 @@ stop_mock
 start_mock transport >/dev/null
 S2="$(run_arm "transport-$STAMP")"
 sum_feed "$S2" > "$OUT/65-feed-transport.txt"
-chk S2  "세션은 completed"                    completed "$(psqlq "select status::text from session where id='$S2'")"
+chk S2  "세션은 completed"                    completed "$(psqlq "select status::text from work where room_id='$S2'")"
 chk S2b "요약 메시지 0개"                     0 "$(summary_count "$S2")"
 chk S2c "피드 카테고리 = transport_error"     yes \
   "$( grep -q 'transport_error' "$OUT/65-feed-transport.txt" 2>/dev/null && echo yes || echo no )"
@@ -135,7 +135,7 @@ chk S3b "본문이 목이 준 것이다 (MOCK-SUMMARY-8421)" yes \
   "$( grep -q 'MOCK-SUMMARY-8421' "$OUT/65-summary-ok.txt" 2>/dev/null && echo yes || echo no )"
 chk S3c "generated_by = platform_llm"           yes \
   "$( [ "$(feed_ref "$S3" 'generated_by:platform_llm')" != "-" ] && echo yes || echo no )"
-chk S3d "세션 completed"                        completed "$(psqlq "select status::text from session where id='$S3'")"
+chk S3d "세션 completed"                        completed "$(psqlq "select status::text from work where room_id='$S3'")"
 
 step "5. S4 — 키 없음 → 폴백 요약 1개 + generated_by fallback"
 stop_mock

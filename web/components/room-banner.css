@@ -1,0 +1,19 @@
+/* 방 멈춤 배너(COMPONENTS §9.4) · 보관·감사 열람·컴퓨터 없음 배너 — 타임라인 위 전폭. 색은 tokens.css 변수만.
+   soft 배경이 --bg 위에 직접 놓이는 평면(§8.3 ⑤) — 글자는 --ink / --ink-2 만(대비 가드가 잰다). */
+.room-banner {
+  border: 1px solid var(--s-pause); border-radius: 10px; padding: 10px 12px; margin: 0 0 10px;
+  background: color-mix(in srgb, var(--s-pause) var(--soft-alpha), transparent);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.room-banner[data-reason="runtime_offline"] { border-color: var(--s-fail); background: color-mix(in srgb, var(--s-fail) var(--soft-alpha), transparent); }
+.room-banner__body { margin: 0; font-size: var(--fs-body); color: var(--ink); }
+.room-banner__at { color: var(--ink-2); }
+.room-banner__who { margin: 0; font-size: var(--fs-sub); color: var(--ink-2); }
+.room-banner__actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.room-banner__act { display: inline-flex; flex-direction: column; gap: 2px; }
+.room-banner__hint { font-size: var(--fs-sub); color: var(--ink-2); }
+.room-notice {
+  border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin: 0 0 10px; background: var(--surface);
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: var(--fs-body); color: var(--ink);
+}
+.room-notice__text { flex: 1; min-width: 12em; }

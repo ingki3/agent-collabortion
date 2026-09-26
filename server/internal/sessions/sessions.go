@@ -4,11 +4,8 @@ package sessions
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,18 +15,13 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/ingki3/agent-collabortion/contracts/clock"
-	"github.com/ingki3/agent-collabortion/server/internal/agents"
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
-	"github.com/ingki3/agent-collabortion/server/internal/auth"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
-	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/llm"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
-	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
-	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
 )
 
 type Service struct {
@@ -64,446 +56,10 @@ func (s *Service) WithLLM(c llm.Client, log *slog.Logger) *Service {
 	return s
 }
 
-// checkWorkdirQuota is E13-16's gate: the workspace's machines are already
-// holding `workdir_disk_quota_gb`, so a new session would grow a disk nobody
-// can clear without the Director acting first.
-func (s *Service) checkWorkdirQuota(ctx context.Context, wsID uuid.UUID) (workdirs.QuotaVerdict, error) {
-	var quotaGB int
-	if err := s.DB.QueryRow(ctx,
-		`SELECT COALESCE((SELECT workdir_disk_quota_gb FROM workspace_settings WHERE workspace_id = $1), 0)`,
-		wsID).Scan(&quotaGB); err != nil {
-		return workdirs.QuotaVerdict{}, fmt.Errorf("sessions: workdir quota setting: %w", err)
-	}
-	if quotaGB <= 0 {
-		// The column is `[integer, "null"]` and a null must not mean zero — that
-		// would block every session in a workspace that never set one.
-		return workdirs.QuotaVerdict{}, nil
-	}
-	used, err := workdirs.RuntimeDiskUsed(ctx, s.DB, wsID)
-	if err != nil {
-		return workdirs.QuotaVerdict{}, err
-	}
-	return workdirs.CheckDiskQuota(used, quotaGB), nil
-}
-
-// Viewer is who asks: a member (user) or a task token.
-type Viewer struct {
-	UserID *uuid.UUID
-}
-
-// Create validates the S6 submission and creates session, participants and
-// the assignee's initial task (E16-A step 1) unless draft.
-func (s *Service) Create(ctx context.Context, wsID, userID uuid.UUID, in gen.SessionCreate) (*gen.Session, error) {
-	var errs []apperr.FieldError
-	if strings.TrimSpace(in.Title) == "" || len(in.Title) > 200 {
-		errs = append(errs, apperr.Field("title", "length", "제목은 1~200자로 입력해 주세요"))
-	}
-	if strings.TrimSpace(in.Goal) == "" {
-		errs = append(errs, apperr.Field("goal", "required", "목표를 입력해 주세요"))
-	}
-	if len(in.Participants) == 0 {
-		errs = append(errs, apperr.Field("participants", "min_items", "에이전트를 한 명 이상 초대해 주세요"))
-	}
-	switch in.Isolation.Kind {
-	case gen.IsolationKindNone:
-	case gen.IsolationKindContainer:
-		errs = append(errs, apperr.Field("isolation/kind", "unsupported", "컨테이너 격리는 아직 지원하지 않습니다"))
-	case gen.IsolationKindWorktree:
-		// P4 opens this. The repository is checked before the session exists
-		// (E13-01): a session created on an unusable repository fails at the
-		// first `git worktree add`, after the person has filled in six steps.
-		if !in.RuntimeId.IsSpecified() || in.RuntimeId.IsNull() {
-			errs = append(errs, apperr.Field("runtime_id", "required_for_isolation", "워크트리 격리에는 컴퓨터를 골라야 합니다"))
-		}
-		if in.Isolation.RepoPath == nil || strings.TrimSpace(*in.Isolation.RepoPath) == "" {
-			errs = append(errs, apperr.Field("isolation/repo_path", "required", "워크트리 격리에는 그 컴퓨터의 저장소 경로가 필요합니다"))
-		}
-	default:
-		errs = append(errs, apperr.Field("isolation/kind", "enum", "알 수 없는 격리 방식입니다"))
-	}
-	if in.Autonomy != nil && *in.Autonomy == gen.Supervised {
-		errs = append(errs, apperr.Field("autonomy", "unsupported", "감독 모드는 아직 지원하지 않습니다"))
-	}
-	if in.CompletionCondition != nil {
-		// E6-07. The P1 check was a substring test on the marshalled tree,
-		// which passed `criteria_met OR user_approval` — a tree where
-		// criteria_met alone still completes the session, i.e. exactly the
-		// self-scoring FR-2.2 forbids. Evaluate the parsed tree instead.
-		if b, err := json.Marshal(in.CompletionCondition); err == nil {
-			if err := ValidateTree(ParseTree(b)); err != nil {
-				errs = append(errs, apperr.Field("completion_condition", TreeErrorCode(err), err.Error())) // ValidateTree speaks the screens' language; the code names the reason (S-85)
-			}
-		}
-	}
-	if len(errs) > 0 {
-		return nil, apperr.Validation(errs...)
-	}
-
-	var nRuntimes int
-	if err := s.DB.QueryRow(ctx, `SELECT count(*) FROM runtime WHERE workspace_id = $1`, wsID).Scan(&nRuntimes); err != nil {
-		return nil, err
-	}
-	if nRuntimes == 0 {
-		return nil, apperr.Conflict("no_runtime", "연결된 컴퓨터가 없습니다 — 먼저 컴퓨터를 연결해 주세요")
-	}
-	// FR-6.4 last bullet / E13-16: the disk quota gates SESSION CREATION, not
-	// the workdir's creation. Blocking later would mean the person has already
-	// filled in the wizard and the agents are already assigned; blocking here
-	// is the only point where "정리해 주세요" is still an answer.
-	if v, err := s.checkWorkdirQuota(ctx, wsID); err != nil {
-		return nil, err
-	} else if v.Blocked {
-		p := apperr.Conflict(v.Code, v.Detail)
-		return nil, p
-	}
-	// An explicit runtime must belong to this workspace (FR-2.1 M10; the claim
-	// path relies on it). Unknown and foreign runtimes get the same answer so
-	// the response does not reveal whether a runtime exists elsewhere.
-	var runtimeID *uuid.UUID
-	if in.RuntimeId.IsSpecified() && !in.RuntimeId.IsNull() {
-		id := uuid.UUID(in.RuntimeId.MustGet())
-		var rws uuid.UUID
-		if err := s.DB.QueryRow(ctx, `SELECT workspace_id FROM runtime WHERE id = $1`, id).Scan(&rws); err != nil || rws != wsID {
-			return nil, apperr.Validation(apperr.Field("runtime_id", "runtime_not_in_workspace", "이 워크스페이스에 연결된 컴퓨터가 아닙니다"))
-		}
-		runtimeID = &id
-	}
-
-	director := userID
-	if in.DirectorUserId != nil {
-		director = uuid.UUID(*in.DirectorUserId)
-	}
-	var deputy *uuid.UUID
-	if in.DeputyDirectorUserId.IsSpecified() && !in.DeputyDirectorUserId.IsNull() {
-		d := uuid.UUID(in.DeputyDirectorUserId.MustGet())
-		deputy = &d
-	}
-	for _, uid := range []*uuid.UUID{&director, deputy} {
-		if uid == nil {
-			continue
-		}
-		var n int
-		if err := s.DB.QueryRow(ctx, `SELECT count(*) FROM member WHERE workspace_id = $1 AND user_id = $2`, wsID, *uid).Scan(&n); err != nil || n == 0 {
-			return nil, apperr.Validation(apperr.Field("director_user_id", "not_member", "Director 와 deputy 는 워크스페이스 멤버여야 합니다"))
-		}
-	}
-
-	// Participants: agent in workspace, invitable by caller (FR-1.9), profile.
-	type part struct {
-		agentID, profileID uuid.UUID
-	}
-	var parts []part
-	seen := map[uuid.UUID]bool{}
-	for i, p := range in.Participants {
-		aid := uuid.UUID(p.AgentId)
-		if seen[aid] {
-			continue
-		}
-		seen[aid] = true
-		a, err := agents.Load(ctx, s.DB, aid, &userID)
-		if err != nil || a.WorkspaceId != wsID {
-			return nil, apperr.Validation(apperr.Field(fmt.Sprintf("participants/%d/agent_id", i), "not_found", "이 워크스페이스의 에이전트가 아닙니다"))
-		}
-		if !a.Invitable.Allowed {
-			reason := "초대할 수 없는 에이전트입니다"
-			if r, err := a.Invitable.Reason.Get(); err == nil {
-				reason = r
-			}
-			return nil, apperr.Forbidden("not_invitable", a.Name+": "+reason)
-		}
-		var profileID uuid.UUID
-		if p.ProfileId.IsSpecified() && !p.ProfileId.IsNull() {
-			profileID = uuid.UUID(p.ProfileId.MustGet())
-			found := false
-			for _, pr := range a.Profiles {
-				if pr.Id == profileID {
-					found = true
-				}
-			}
-			if !found {
-				return nil, apperr.Validation(apperr.Field(fmt.Sprintf("participants/%d/profile_id", i), "not_found", "이 에이전트의 프로파일이 아닙니다"))
-			}
-		} else {
-			for _, pr := range a.Profiles {
-				if pr.IsDefault {
-					profileID = pr.Id
-				}
-			}
-			if profileID == uuid.Nil && len(a.Profiles) > 0 {
-				profileID = a.Profiles[0].Id
-			}
-		}
-		if profileID == uuid.Nil {
-			return nil, apperr.Validation(apperr.Field(fmt.Sprintf("participants/%d", i), "no_profile", "이 에이전트에는 프로파일이 없습니다"))
-		}
-		parts = append(parts, part{aid, profileID})
-	}
-	assignee := parts[0].agentID
-	if in.AssigneeAgentId != nil {
-		assignee = uuid.UUID(*in.AssigneeAgentId)
-		if !seen[assignee] {
-			return nil, apperr.Validation(apperr.Field("assignee_agent_id", "not_participant", "담당 에이전트는 참여자 중에서 골라야 합니다"))
-		}
-	}
-	if in.CompletionCondition != nil {
-		// S-84 (openapi 0.1.4): the atoms an agent satisfies must name one of
-		// the session's agents. This runs after the participants are known
-		// because that is what it checks against; ValidateTree above is the
-		// tree-only half.
-		if b, err := json.Marshal(in.CompletionCondition); err == nil {
-			if errs := ValidateReviewers(ParseTree(b), func(id uuid.UUID) bool { return seen[id] }); len(errs) > 0 {
-				return nil, apperr.Validation(errs...)
-			}
-		}
-	}
-
-	isolation := map[string]any{"kind": string(in.Isolation.Kind)}
-	if in.Isolation.RepoPath != nil {
-		isolation["repo_path"] = *in.Isolation.RepoPath
-	}
-	if in.Isolation.RemoteUrl.IsSpecified() && !in.Isolation.RemoteUrl.IsNull() {
-		isolation["remote_url"] = in.Isolation.RemoteUrl.MustGet()
-	}
-	criteria := []string{}
-	if in.AcceptanceCriteria != nil {
-		criteria = *in.AcceptanceCriteria
-	}
-	autonomy := "guided"
-	if in.Autonomy != nil {
-		autonomy = string(*in.Autonomy)
-	}
-	status := "active"
-	draft := in.Draft != nil && *in.Draft
-	if draft {
-		status = "draft"
-	}
-	now := s.Clock.Now()
-	tx, err := s.DB.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-
-	cols := []string{"workspace_id", "title", "goal", "acceptance_criteria", "director_user_id", "deputy_director_user_id", "assignee_agent_id", "runtime_id", "isolation", "autonomy", "status", "created_by", "created_at", "updated_at", "started_at"}
-	var startedAt *time.Time
-	if !draft {
-		startedAt = &now
-	}
-	args := []any{wsID, strings.TrimSpace(in.Title), in.Goal, criteria, director, deputy, assignee, runtimeID, isolation, autonomy, status, userID, now, now, startedAt}
-	if in.CompletionCondition != nil {
-		cols = append(cols, "completion_condition")
-		args = append(args, in.CompletionCondition)
-	}
-	if in.Limits != nil {
-		cols = append(cols, "limits")
-		args = append(args, in.Limits)
-	}
-	if in.ContextReuseOverride != nil {
-		cols = append(cols, "context_reuse_override")
-		args = append(args, in.ContextReuseOverride)
-	}
-	ph := make([]string, len(args))
-	for i := range args {
-		ph[i] = fmt.Sprintf("$%d", i+1)
-	}
-	var sessionID uuid.UUID
-	if err := tx.QueryRow(ctx, `INSERT INTO session (`+strings.Join(cols, ", ")+`) VALUES (`+strings.Join(ph, ", ")+`) RETURNING id`, args...).Scan(&sessionID); err != nil {
-		return nil, fmt.Errorf("sessions: insert: %w", err)
-	}
-	for _, p := range parts {
-		if _, err := tx.Exec(ctx, `INSERT INTO session_participant (session_id, agent_id, profile_id, joined_at) VALUES ($1, $2, $3, $4)`, sessionID, p.agentID, p.profileID, now); err != nil {
-			return nil, err
-		}
-	}
-	if in.Context != nil {
-		for _, c := range *in.Context {
-			if _, err := tx.Exec(ctx, `INSERT INTO session_context (session_id, type, ref, created_at) VALUES ($1, $2, $3, $4)`, sessionID, string(c.Type), c.Ref, now); err != nil {
-				return nil, err
-			}
-		}
-	}
-	if !draft {
-		// E16-A step 1: the assignee's initial task, triggered by a system message.
-		msgID, err := s.Router.SystemPost(ctx, tx, sessionID, "세션을 시작했습니다. 목표: "+in.Goal)
-		if err != nil {
-			return nil, err
-		}
-		var profileID uuid.UUID
-		for _, p := range parts {
-			if p.agentID == assignee {
-				profileID = p.profileID
-			}
-		}
-		var laneID uuid.UUID
-		if err := tx.QueryRow(ctx, `INSERT INTO lane (session_id, agent_id, profile_id, status, created_at, updated_at) VALUES ($1, $2, $3, 'queued', $4, $4) RETURNING id`,
-			sessionID, assignee, profileID, now).Scan(&laneID); err != nil {
-			return nil, err
-		}
-		// The assignee's lane is born `queued`: that is a lane status being set,
-		// so the board hears about it like every other one (a workspace-wide SSE
-		// subscriber is already listening even though this session is new).
-		_ = lanes.Publish(ctx, s.Hub, tx, laneID)
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO task (lane_id, session_id, runtime_id, agent_id, profile_id, trigger_message_id, originator_user_id, status, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $8)`, laneID, sessionID, runtimeID, assignee, profileID, msgID, userID, now); err != nil {
-			return nil, err
-		}
-		// FR-3.5: the initial task is the Director's doing, so it is the human
-		// hop the session's chain depth starts from (S-78).
-		if err := s.Router.RecordHumanHop(ctx, tx, sessionID, assignee, msgID, now); err != nil {
-			return nil, err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	if !draft && s.Router != nil && s.Router.Notifier != nil {
-		s.Router.Notifier.Notify()
-	}
-	sess, err := s.Get(ctx, sessionID, Viewer{UserID: &userID})
-	if err != nil {
-		return nil, err
-	}
-	if s.Hub != nil {
-		_ = s.Hub.Publish(ctx, nil, wsID, &sessionID, "session.updated", sess)
-	}
-	return sess, nil
-}
-
-// WorkspaceOf returns the session's workspace (authorization).
-func (s *Service) WorkspaceOf(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
-	var ws uuid.UUID
-	err := s.DB.QueryRow(ctx, `SELECT workspace_id FROM session WHERE id = $1`, id).Scan(&ws)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, apperr.NotFound("session")
-	}
-	return ws, err
-}
-
-// Get is getSession.
-func (s *Service) Get(ctx context.Context, id uuid.UUID, v Viewer) (*gen.Session, error) {
-	return Load(ctx, s.DB, id, v)
-}
-
-func Load(ctx context.Context, q db.DBTX, id uuid.UUID, v Viewer) (*gen.Session, error) {
-	var out gen.Session
-	var (
-		deputy, assignee, runtimeID               *uuid.UUID
-		isolation, completion, met, limits, reuse []byte
-		autonomy, status                          string
-		pausedReason                              *string
-		cost                                      float64
-		startedAt, finishedAt, lastActivity       *time.Time
-		runtimeStatus                             *string
-		costEstimated                             bool
-	)
-	err := q.QueryRow(ctx, `
-		SELECT s.id, s.workspace_id, s.title, s.goal, s.acceptance_criteria, s.director_user_id, s.deputy_director_user_id, s.assignee_agent_id,
-		       s.runtime_id, s.isolation, s.completion_condition, s.completion_met, s.limits, s.autonomy, s.context_reuse_override, s.status, s.paused_reason, s.paused_detail,
-		       s.cost_usd, s.created_by, s.created_at, s.updated_at, s.started_at, s.finished_at,
-		       (SELECT max(created_at) FROM message m WHERE m.session_id = s.id), r.status,
-		       (SELECT COALESCE(bool_or(u.estimated), false) FROM task_usage u JOIN task t ON t.id = u.task_id WHERE t.session_id = s.id)
-		FROM session s LEFT JOIN runtime r ON r.id = s.runtime_id WHERE s.id = $1`, id).Scan(
-		&out.Id, &out.WorkspaceId, &out.Title, &out.Goal, &out.AcceptanceCriteria, &out.DirectorUserId, &deputy, &assignee,
-		&runtimeID, &isolation, &completion, &met, &limits, &autonomy, &reuse, &status, &pausedReason, &out.PausedDetail,
-		&cost, &out.CreatedBy, &out.CreatedAt, &out.UpdatedAt, &startedAt, &finishedAt, &lastActivity, &runtimeStatus, &costEstimated)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, apperr.NotFound("session")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("sessions: load: %w", err)
-	}
-	if out.AcceptanceCriteria == nil {
-		out.AcceptanceCriteria = []string{}
-	}
-	out.DeputyDirectorUserId = tasks.NullUUID(deputy)
-	out.AssigneeAgentId = tasks.NullUUID(assignee)
-	out.RuntimeId = tasks.NullUUID(runtimeID)
-	_ = json.Unmarshal(isolation, &out.Isolation)
-	_ = json.Unmarshal(completion, &out.CompletionCondition)
-	_ = json.Unmarshal(limits, &out.Limits)
-	if len(reuse) > 0 {
-		var cr gen.ContextReusePolicy
-		if json.Unmarshal(reuse, &cr) == nil {
-			out.ContextReuseOverride = &cr
-		}
-	}
-	out.Autonomy = gen.AutonomyLevel(autonomy)
-	out.Status = gen.SessionStatus(status)
-	out.PausedReason = nullable.NewNullNullable[gen.PauseReason]()
-	if pausedReason != nil {
-		out.PausedReason = nullable.NewNullableWithValue(gen.PauseReason(*pausedReason))
-		// P1 synthesised the whole detail here, which threw away everything the
-		// pause actually recorded. The stored column wins; this stays only as
-		// the fallback for rows paused before 0006 added it.
-		if out.PausedDetail == nil {
-			out.PausedDetail = &gen.PausedDetail{Reason: gen.PauseReason(*pausedReason), PausedAt: out.UpdatedAt}
-		}
-	}
-	out.CostUsd = float32(cost)
-	// The same predicate `cost.updated` publishes: a total is an estimate as
-	// soon as one attempt's cost was. Hard-coding false made the SSE frame and
-	// the REST body disagree the moment an estimated attempt finished.
-	out.CostEstimated = &costEstimated
-	out.StartedAt = tasks.NullTime(startedAt)
-	out.FinishedAt = tasks.NullTime(finishedAt)
-	out.LastActivityAt = tasks.NullTime(lastActivity)
-	if out.CompletionProgress, err = progressOf(ctx, q, id, completion, met, assignee); err != nil {
-		return nil, err
-	}
-	if d, err := auth.LoadUser(ctx, q, out.DirectorUserId); err == nil {
-		out.Director = d
-	}
-	if deputy != nil {
-		if d, err := auth.LoadUser(ctx, q, *deputy); err == nil {
-			out.DeputyDirector = d
-		}
-	}
-	if runtimeID != nil {
-		if rt, err := runtimes.Load(ctx, q, *runtimeID); err == nil {
-			out.Runtime = &rt.Runtime
-		}
-	}
-	out.MyRole = gen.SessionMyRoleMember
-	if v.UserID != nil {
-		switch {
-		case *v.UserID == out.DirectorUserId:
-			out.MyRole = gen.SessionMyRoleDirector
-		case deputy != nil && *v.UserID == *deputy:
-			out.MyRole = gen.SessionMyRoleDeputy
-		}
-	}
-	parts, err := LoadParticipants(ctx, q, id, assignee, runtimeStatus)
-	if err != nil {
-		return nil, err
-	}
-	out.Participants = &parts
-	ctxs := []gen.SessionContext{}
-	rows, err := q.Query(ctx, `SELECT id, type, ref, summary, created_at FROM session_context WHERE session_id = $1 ORDER BY created_at`, id)
-	if err != nil {
-		return nil, err
-	}
-	for rows.Next() {
-		var c gen.SessionContext
-		var typ string
-		var summary *string
-		if err := rows.Scan(&c.Id, &typ, &c.Ref, &summary, &c.CreatedAt); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		c.Type = gen.ContextType(typ)
-		c.Summary = tasks.NullString(summary)
-		ctxs = append(ctxs, c)
-	}
-	rows.Close()
-	out.Context = &ctxs
-	return &out, nil
-}
-
 // Progress is the completion read model on its own. submitArtifact and
 // reviewArtifact answer with it beside the thing that just happened (openapi),
-// so the caller learns whether its submission actually moved the session
-// without a second round trip to getSession.
+// so the caller learns whether its submission actually moved the mission
+// without a second round trip.
 func (s *Service) Progress(ctx context.Context, sessionID uuid.UUID) (gen.CompletionProgress, error) {
 	return LoadProgress(ctx, s.DB, sessionID)
 }
@@ -516,6 +72,7 @@ type progressCond = struct {
 	AgentId       nullable.Nullable[openapi_types.UUID]                            `json:"agent_id,omitempty"`
 	AgentName     nullable.Nullable[string]                                        `json:"agent_name,omitempty"`
 	BlockedReason nullable.Nullable[gen.CompletionProgressConditionsBlockedReason] `json:"blocked_reason,omitempty"`
+	HeldReason    nullable.Nullable[gen.CompletionProgressConditionsHeldReason]    `json:"held_reason,omitempty"`
 	HitlRequestId nullable.Nullable[openapi_types.UUID]                            `json:"hitl_request_id,omitempty"`
 	Met           bool                                                             `json:"met"`
 	MetAt         nullable.Nullable[time.Time]                                     `json:"met_at,omitempty"`
@@ -525,100 +82,63 @@ type progressCond = struct {
 	Type          string                                                           `json:"type"`
 }
 
-// LoadParticipants returns session_participant rows with FR-1.3 derived status
-// (session-scoped: offline when the session runtime is offline).
-func LoadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID, assignee *uuid.UUID, runtimeStatus *string) ([]gen.Participant, error) {
-	return loadParticipants(ctx, q, sessionID, nil, assignee, runtimeStatus)
-}
-
-// ListParticipants is listParticipants (S7 좌열 참여자 칩) — the same rows the
-// session detail carries in `participants` and the same rows
-// `participant.updated` re-derives, through the same function.
+// AgentStatuses derives FR-1.3's status for the room's current agent
+// participants (or just agentID when set), scoped to the room: offline when
+// the room's runtime is offline, working when a turn of that agent in THIS
+// room is running.
 //
-// Sharing the derivation is the point of implementing it this way rather than
-// writing a second query: FR-1.3's status is computed, not stored, so a second
-// implementation would be a second opinion, and the poll and the live frame
-// would disagree about whether an agent is working.
-func ListParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID) ([]gen.Participant, error) {
-	_, assignee, runtimeStatus, err := participantScope(ctx, q, sessionID)
+// It is the one derivation listRoomParticipants and `participant.updated`
+// both read (R4: the old session roster that carried it is gone). FR-1.3's
+// status is computed, not stored, so a second implementation would be a
+// second opinion, and the poll and the live frame would disagree about
+// whether an agent is working.
+func AgentStatuses(ctx context.Context, q db.DBTX, roomID uuid.UUID, agentID *uuid.UUID) (map[uuid.UUID]gen.AgentStatus, error) {
+	var runtimeStatus *string
+	err := q.QueryRow(ctx, `SELECT r.status::text FROM room s LEFT JOIN runtime r ON r.id = s.runtime_id WHERE s.id = $1`, roomID).Scan(&runtimeStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, apperr.NotFound("room")
+	}
 	if err != nil {
 		return nil, err
 	}
-	return loadParticipants(ctx, q, sessionID, nil, assignee, runtimeStatus)
-}
-
-// participantScope reads the two session-level facts the derived status needs:
-// who the session's assignee is (the `assignee` chip) and whether the session's
-// runtime is offline (FR-1.3 puts `offline` above `working`).
-func participantScope(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (uuid.UUID, *uuid.UUID, *string, error) {
-	var wsID uuid.UUID
-	var assignee *uuid.UUID
-	var runtimeStatus *string
-	err := q.QueryRow(ctx, `
-		SELECT s.workspace_id, s.assignee_agent_id, r.status::text
-		FROM session s LEFT JOIN runtime r ON r.id = s.runtime_id WHERE s.id = $1`, sessionID).
-		Scan(&wsID, &assignee, &runtimeStatus)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, nil, nil, apperr.NotFound("session")
-	}
-	return wsID, assignee, runtimeStatus, err
-}
-
-// loadParticipants is LoadParticipants with an optional single-agent filter.
-// `participant.updated` carries ONE row, and re-deriving it has to run the
-// same SQL as the list or the frame and the reload disagree — which is the
-// class of bug this whole change is about.
-func loadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID, agentID, assignee *uuid.UUID, runtimeStatus *string) ([]gen.Participant, error) {
 	only := ""
-	args := []any{sessionID}
+	args := []any{roomID}
 	if agentID != nil {
 		args = append(args, *agentID)
 		only = " AND sp.agent_id = $2"
 	}
 	rows, err := q.Query(ctx, `
-		SELECT sp.agent_id, sp.profile_id, sp.joined_at, a.name, a.role, a.role_description, a.avatar_url, a.respond_to, a.archived_at IS NOT NULL,
-		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status IN ('dispatched','preparing','running')),
-		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status = 'waiting_human'),
-		       `+tasks.LastFailureKindSQL("AND t.session_id = sp.session_id")+`,
-		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status IN ('queued','deferred') AND t.attempt > 1),
-		       EXISTS (SELECT 1 FROM lane l WHERE l.agent_id = a.id AND l.session_id = sp.session_id AND l.status = 'blocked'),
-		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.session_id AND t.status = 'paused' AND t.paused_reason = 'budget')
-		FROM session_participant sp JOIN agent a ON a.id = sp.agent_id WHERE sp.session_id = $1`+only+` ORDER BY sp.joined_at`, args...)
+		SELECT a.id, a.respond_to, a.archived_at IS NOT NULL,
+		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.room_id AND t.status IN ('dispatched','preparing','running')),
+		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.room_id AND t.status = 'waiting_human'),
+		       `+tasks.LastFailureKindSQL("AND t.session_id = sp.room_id")+`,
+		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.room_id AND t.status IN ('queued','deferred') AND t.attempt > 1),
+		       EXISTS (SELECT 1 FROM lane l WHERE l.agent_id = a.id AND l.session_id = sp.room_id AND l.status = 'blocked'),
+		       EXISTS (SELECT 1 FROM task t WHERE t.agent_id = a.id AND t.session_id = sp.room_id AND t.status = 'paused' AND t.paused_reason = 'budget')
+		FROM room_participant sp JOIN agent a ON a.id = sp.agent_id WHERE sp.room_id = $1 AND sp.left_at IS NULL`+only, args...)
 	if err != nil {
 		return nil, err
 	}
-	out := []gen.Participant{}
-	// The profile of each row is loaded AFTER this cursor is drained, not
-	// inside the loop: q may be the caller's transaction (PublishParticipant
-	// derives from the tx that just moved the task), and a second query on the
-	// same connection while rows are open is `conn busy`.
-	profileIDs := []uuid.UUID{}
+	defer rows.Close()
+	out := map[uuid.UUID]gen.AgentStatus{}
 	for rows.Next() {
-		var p gen.Participant
-		var profileID uuid.UUID
-		var role, respondTo string
-		var avatar, lastFailure *string
+		var id uuid.UUID
+		var respondTo string
+		var lastFailure *string
 		var archived, running, waiting, retrying, blocked, pausedBudget bool
-		if err := rows.Scan(&p.AgentId, &profileID, &p.JoinedAt, &p.Agent.Name, &role, &p.Agent.RoleDescription, &avatar, &respondTo, &archived, &running, &waiting, &lastFailure, &retrying, &blocked, &pausedBudget); err != nil {
-			rows.Close()
+		if err := rows.Scan(&id, &respondTo, &archived, &running, &waiting, &lastFailure, &retrying, &blocked, &pausedBudget); err != nil {
 			return nil, err
 		}
-		p.SessionId = sessionID
-		p.Agent.Id = p.AgentId
-		p.Agent.Role = gen.AgentRole(role)
-		p.Agent.AvatarUrl = tasks.NullString(avatar)
-		rt := gen.RespondTo(respondTo)
-		p.Agent.RespondTo = &rt
 		// One ladder, one implementation (FR-1.3). The offline step is
-		// session-scoped — it is the SESSION's runtime that decides whether a
-		// turn could run — so it is an input here rather than a second pass
-		// over the answer.
+		// room-scoped — it is the ROOM's runtime that decides whether a turn
+		// could run — so it is an input here rather than a second pass over
+		// the answer.
 		//
 		// blocked lanes and paused(budget) tasks are read but deliberately
 		// ignored by the ladder (E5-13, E5-14): both processes have already
 		// ended and the lane card says why. Selecting them keeps that decision
 		// visible instead of hiding it in a missing column.
-		p.Status = gen.AgentStatus(tasks.DeriveAgentStatus(tasks.Derived{
+		out[id] = gen.AgentStatus(tasks.DeriveAgentStatus(tasks.Derived{
 			RespondTo: respondTo, Archived: archived,
 			RuntimeOffline:  runtimeStatus != nil && *runtimeStatus == "offline",
 			Running:         boolCount(running),
@@ -628,144 +148,36 @@ func loadParticipants(ctx context.Context, q db.DBTX, sessionID uuid.UUID, agent
 			LastFailureKind: derefStr(lastFailure),
 			RetryInFlight:   retrying,
 		}))
-		p.IsAssignee = assignee != nil && *assignee == p.AgentId
-		link := router.MentionLink(p.Agent.Name, p.AgentId)
-		p.MentionLink = &link
-		p.StatusNote = nullable.NewNullNullable[string]()
-		p.Warnings = &[]string{}
-		profileIDs = append(profileIDs, profileID)
-		out = append(out, p)
 	}
-	err = rows.Err()
-	rows.Close()
+	return out, rows.Err()
+}
+
+// RosterEntry is one row of the CLI context's `participants` (openapi
+// CliContext): who a turn can mention or delegate to.
+type RosterEntry struct {
+	AgentID uuid.UUID
+	Name    string
+	Role    string
+}
+
+// Roster lists the room's current agent participants in join order.
+func Roster(ctx context.Context, q db.DBTX, roomID uuid.UUID) ([]RosterEntry, error) {
+	rows, err := q.Query(ctx, `
+		SELECT a.id, a.name, a.role::text FROM room_participant sp JOIN agent a ON a.id = sp.agent_id
+		WHERE sp.room_id = $1 AND sp.left_at IS NULL ORDER BY sp.joined_at, sp.id`, roomID)
 	if err != nil {
 		return nil, err
 	}
-	for i := range out {
-		prof, err := agents.LoadProfile(ctx, q, profileIDs[i])
-		if err != nil {
+	defer rows.Close()
+	out := []RosterEntry{}
+	for rows.Next() {
+		var e RosterEntry
+		if err := rows.Scan(&e.AgentID, &e.Name, &e.Role); err != nil {
 			return nil, err
 		}
-		out[i].Profile = *prof
+		out = append(out, e)
 	}
-	return out, nil
-}
-
-// ListOptions mirrors listSessions filters (P1: status, director, agent, runtime, q, cursor).
-type ListOptions struct {
-	Status         []string
-	DirectorUserID *uuid.UUID
-	AgentID        *uuid.UUID
-	RuntimeID      *uuid.UUID
-	Query          *string
-	Cursor         *string
-	Limit          int
-}
-
-// List is listSessions (S5), newest activity first.
-func (s *Service) List(ctx context.Context, wsID uuid.UUID, o ListOptions) ([]gen.SessionListItem, *string, error) {
-	if o.Limit <= 0 || o.Limit > 200 {
-		o.Limit = 50
-	}
-	where := []string{"s.workspace_id = $1"}
-	args := []any{wsID}
-	if len(o.Status) > 0 {
-		args = append(args, o.Status)
-		where = append(where, fmt.Sprintf("s.status::text = ANY($%d)", len(args)))
-	}
-	if o.DirectorUserID != nil {
-		args = append(args, *o.DirectorUserID)
-		where = append(where, fmt.Sprintf("s.director_user_id = $%d", len(args)))
-	}
-	if o.AgentID != nil {
-		args = append(args, *o.AgentID)
-		where = append(where, fmt.Sprintf("EXISTS (SELECT 1 FROM session_participant sp WHERE sp.session_id = s.id AND sp.agent_id = $%d)", len(args)))
-	}
-	if o.RuntimeID != nil {
-		args = append(args, *o.RuntimeID)
-		where = append(where, fmt.Sprintf("s.runtime_id = $%d", len(args)))
-	}
-	if o.Query != nil && *o.Query != "" {
-		args = append(args, "%"+*o.Query+"%")
-		where = append(where, fmt.Sprintf("(s.title ILIKE $%d OR s.goal ILIKE $%d)", len(args), len(args)))
-	}
-	if o.Cursor != nil {
-		if cid, err := uuid.Parse(*o.Cursor); err == nil {
-			args = append(args, cid)
-			where = append(where, fmt.Sprintf("(s.updated_at, s.id) < (SELECT updated_at, id FROM session WHERE id = $%d)", len(args)))
-		}
-	}
-	args = append(args, o.Limit+1)
-	rows, err := s.DB.Query(ctx, `SELECT s.id FROM session s WHERE `+strings.Join(where, " AND ")+fmt.Sprintf(` ORDER BY s.updated_at DESC, s.id DESC LIMIT $%d`, len(args)), args...)
-	if err != nil {
-		return nil, nil, err
-	}
-	var ids []uuid.UUID
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return nil, nil, err
-		}
-		ids = append(ids, id)
-	}
-	rows.Close()
-	var next *string
-	if len(ids) > o.Limit {
-		ids = ids[:o.Limit]
-		c := ids[len(ids)-1].String()
-		next = &c
-	}
-	out := []gen.SessionListItem{}
-	for _, id := range ids {
-		item, err := s.listItem(ctx, id)
-		if err != nil {
-			return nil, nil, err
-		}
-		out = append(out, *item)
-	}
-	return out, next, nil
-}
-
-func (s *Service) listItem(ctx context.Context, id uuid.UUID) (*gen.SessionListItem, error) {
-	sess, err := Load(ctx, s.DB, id, Viewer{})
-	if err != nil {
-		return nil, err
-	}
-	item := &gen.SessionListItem{
-		Id: sess.Id, Title: sess.Title, Goal: sess.Goal, Status: sess.Status, PausedReason: sess.PausedReason,
-		CostUsd: sess.CostUsd, CostEstimated: sess.CostEstimated, RuntimeId: sess.RuntimeId, LastActivityAt: sess.LastActivityAt, CreatedAt: sess.CreatedAt,
-	}
-	if sess.Director != nil {
-		item.Director = *sess.Director
-	}
-	item.CompletionProgress.Met = sess.CompletionProgress.Met
-	item.CompletionProgress.Total = sess.CompletionProgress.Total
-	item.BudgetUsd = nullable.NewNullNullable[float32]()
-	if sess.Limits.BudgetUsd.IsSpecified() && !sess.Limits.BudgetUsd.IsNull() {
-		item.BudgetUsd = sess.Limits.BudgetUsd
-	}
-	item.Participants = make([]struct {
-		AgentId   openapi_types.UUID        `json:"agent_id"`
-		AvatarUrl nullable.Nullable[string] `json:"avatar_url,omitempty"`
-		Name      string                    `json:"name"`
-	}, 0)
-	if sess.Participants != nil {
-		for _, p := range *sess.Participants {
-			item.Participants = append(item.Participants, struct {
-				AgentId   openapi_types.UUID        `json:"agent_id"`
-				AvatarUrl nullable.Nullable[string] `json:"avatar_url,omitempty"`
-				Name      string                    `json:"name"`
-			}{AgentId: p.AgentId, AvatarUrl: p.Agent.AvatarUrl, Name: p.Agent.Name})
-		}
-	}
-	err = s.DB.QueryRow(ctx, `
-		SELECT (SELECT count(*) FROM hitl_request h WHERE h.session_id = $1 AND h.status = 'open'),
-		       (SELECT count(*) FROM lane l WHERE l.session_id = $1 AND l.status = 'blocked'),
-		       (SELECT count(*) FROM lane l WHERE l.session_id = $1 AND l.status = 'failed'),
-		       (SELECT count(*) FROM lane l WHERE l.session_id = $1 AND l.status = 'running')`, id).
-		Scan(&item.Attention.HitlOpen, &item.Attention.Blocked, &item.Attention.Failed, &item.RunningLaneCount)
-	return item, err
+	return out, rows.Err()
 }
 
 func boolCount(b bool) int {
@@ -789,6 +201,7 @@ func DecisionAPI(sessionID uuid.UUID, d DecisionRow) gen.Decision {
 	out := gen.Decision{
 		Id: d.ID, SessionId: sessionID, Summary: d.Summary,
 		Source: gen.DecisionSource(d.Source), CreatedAt: d.CreatedAt,
+		Auto: &d.Auto,
 	}
 	if d.Rationale != nil {
 		out.Rationale = nullable.NewNullableWithValue(*d.Rationale)
@@ -800,35 +213,9 @@ func DecisionAPI(sessionID uuid.UUID, d DecisionRow) gen.Decision {
 	} else {
 		out.RefId = nullable.NewNullNullable[openapi_types.UUID]()
 	}
+	if d.WorkID != nil {
+		// v0.2.0: the decision's mission (none = the room's own).
+		out.WorkId = nullable.NewNullableWithValue(openapi_types.UUID(*d.WorkID))
+	}
 	return out
-}
-
-// PublishParticipant re-derives ONE agent's participant row and sends
-// `participant.updated`.
-//
-// FR-1.3's status is not stored — it is computed from the agent's tasks every
-// time it is read — so the only moment it can be known to have changed is the
-// moment a task of that agent moved. Nothing published it at all before: three
-// Researchers ran in parallel and S7's chips stayed `idle` until the page was
-// reloaded (G4 2판 W7).
-//
-// q is the caller's transaction, so the derivation sees the task row the
-// caller has just written.
-func PublishParticipant(ctx context.Context, hub *realtime.Hub, q db.DBTX, sessionID, agentID uuid.UUID) error {
-	if hub == nil {
-		return nil
-	}
-	wsID, assignee, runtimeStatus, err := participantScope(ctx, q, sessionID)
-	if err != nil {
-		return err
-	}
-	parts, err := loadParticipants(ctx, q, sessionID, &agentID, assignee, runtimeStatus)
-	if err != nil {
-		return err
-	}
-	if len(parts) == 0 {
-		return nil // the agent left the session; nothing to update
-	}
-	sid := sessionID
-	return hub.Publish(ctx, q, wsID, &sid, "participant.updated", parts[0])
 }

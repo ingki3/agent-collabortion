@@ -76,7 +76,7 @@ $RULES"
 QA_INS="너는 QA(reviewer)다. 한국어로 짧게 답한다. 도구는 셸에서 부르는 \`colab\` 명령이다.
 **이번 세션에서 네 판정 대상은 frontend 아티팩트 하나뿐이다. backend 아티팩트는 승인도 반려도 하지 마라.**
 첫 턴부터 곧바로 아래를 순서대로 한다.
-1. \`colab session messages --limit 50\` 로 메시지를 읽어 \"FRONTEND-DIFF <id>\" 의 아티팩트 id 를 찾는다. 여러 개면 **가장 마지막 줄**의 것을 쓴다.
+1. \`colab room messages --limit 50\` 로 메시지를 읽어 \"FRONTEND-DIFF <id>\" 의 아티팩트 id 를 찾는다. 여러 개면 **가장 마지막 줄**의 것을 쓴다.
 2. \`colab artifact get <frontend id> --out ./fe.diff\` 로 내려받아 읽는다.
    **다른 사람의 작업 디렉토리는 절대 열지 마라** — 너에게는 아티팩트만 있다.
 3. fe.diff 안에 \`QA-FIX-9421\` 이라는 문자열이 있으면 \`colab review approve --artifact <frontend id> --note 승인\` 을 실행한다.
@@ -96,7 +96,7 @@ wait_until() { # wait_until TIMEOUT "shell test"
   while [ "$(date +%s)" -lt "$dl" ]; do eval "$1" && return 0; sleep 3; done
   return 1
 }
-sess_status() { psqlq "select status::text from session where id='$1'"; }
+sess_status() { psqlq "select status::text from work where room_id='$1'"; }
 # cnt FILE PATTERN... — 항상 숫자 한 개만 낸다(grep -c 는 무매치면 exit 1 이라 `|| echo 0` 이 줄을 두 개 만든다)
 cnt() { local f="$1"; shift; local a=(); local x n; for x in "$@"; do a+=(-e "$x"); done
         n="$({ grep -c "${a[@]}" "$f" 2>/dev/null || true; } | head -1 | tr -d ' \n')"; printf '%s' "${n:-0}"; }
@@ -153,8 +153,8 @@ S="$(create_session_p4 "$WS" "$TITLE" "$GOAL" "$PM" "$RUNTIME" "$REPO" "$(cond_a
 [ -n "$S" ] && [ "$S" != null ] || die "세션 생성 실패"
 T_PM="$(session_initial_task "$S")"
 chk B1  "worktree 격리 세션이 열린다 (repo_path 검증 통과)"      yes "$( [ -n "$S" ] && echo yes || echo no )"
-chk B1b "isolation.kind = worktree"                              worktree "$(psqlq "select isolation->>'kind' from session where id='$S'")"
-chk B1c "종료 조건 = agent_approval 단독"                        agent_approval "$(psqlq "select completion_condition->'conditions'->0->>'type' from session where id='$S'")"
+chk B1b "isolation.kind = worktree"                              worktree "$(psqlq "select isolation->>'kind' from room where id='$S'")"
+chk B1c "종료 조건 = agent_approval 단독"                        agent_approval "$(psqlq "select completion_condition->'conditions'->0->>'type' from work where room_id='$S'")"
 # 2판(T-I4b): workdir 행 선행 삽입 우회(U1)를 **지웠다**. 서버가 probe 의 `workdir_root` 를
 # 저장했다가 번들에 절대 경로를 싣고(S-55), 데몬이 그 아래에 워크트리를 만든다(D-21).
 ok "session $S · PM task $T_PM (우회 없음 — 경로는 서버가 만든다)"
@@ -194,7 +194,7 @@ chk X1c "체크아웃이 사용자 저장소 안에 생기지 않는다 (worktre
 git -C "$PROBE_REPO" worktree list > "$OUT/61-probe-worktrees.txt" 2>&1 || true
 printf 'bundle workdir.path = %s\nattempt status = %s\ndetail = %s\n' "$PROBE_WD" "$PROBE_ST" "$PROBE_DETAIL" > "$OUT/61-probe.txt"
 ok "probe: workdir.path=$PROBE_WD status=$PROBE_ST"
-api_ok POST "/sessions/$SP/complete" '{"confirm":true}' >/dev/null 2>&1 || true
+api_ok POST "/works/$(work_of "$SP")/complete" '{"confirm":true}' >/dev/null 2>&1 || true
 
 step "3. B1·B2 — PM 위임 → 워크트리 2개 · 브랜치 colab/<S>/<agent>"
 wait_until 900 '[ "$(lanes_count "'"$S"'" Backend)" -ge 1 ] && [ "$(lanes_count "'"$S"'" Frontend)" -ge 1 ]' \

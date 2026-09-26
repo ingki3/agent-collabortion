@@ -36,13 +36,13 @@ export interface ListItem {
   children?: { ordered: boolean; items: ListItem[] };
 }
 
-const FENCE_RE = /^ {0,3}(`{3,}|~{3,})\s*([^`\s]*)\s*$/;
+export const FENCE_RE = /^ {0,3}(`{3,}|~{3,})\s*([^`\s]*)\s*$/;
 /**
  * 제목 — `#`~`######` 를 인식하되 **`####` 이상은 `###` 로 접는다**(W-17 · PR #229 NN3): 메시지 안 제목은 글자 계단 §8.2 의
  * `--fs-card` 이하여야 하고(`.md-h1`~`.md-h3`), 4단계 이상의 위계는 카드 안에서 구분이 안 된다. 접는 자리는 `parseBlocks()` 의
  * `Math.min(3, …)` 하나뿐이고 `Block.level` 타입이 1|2|3 이라 렌더러에 h4 가 생길 수 없다.
  */
-const HEADING_RE = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
+export const HEADING_RE = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
 const HR_RE = /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/;
 const QUOTE_RE = /^ {0,3}>\s?(.*)$/;
 const ITEM_RE = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/;
@@ -72,7 +72,7 @@ function splitRow(line: string): string[] {
 }
 
 /** 표의 시작인가 — 첫 줄에 `|` 가 있고 다음 줄이 구분줄이다. */
-function isTableStart(lines: string[], i: number): boolean {
+export function isTableStart(lines: string[], i: number): boolean {
   return lines[i].includes("|") && i + 1 < lines.length && TABLE_SEP_RE.test(lines[i + 1]) && lines[i + 1].includes("-");
 }
 

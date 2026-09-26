@@ -126,7 +126,7 @@ func TestP3BudgetEnforcedAtFinish(t *testing.T) {
 	// The gate is the lane: a new task for the same agent lands on it (rule 3)
 	// and must not be handed out.
 	f.fake.Advance(time.Minute)
-	out := f.api.must(201, "POST", f.p+"/sessions/"+f.sessionID+"/messages",
+	out := f.api.must(201, "POST", f.p+"/rooms/"+f.sessionID+"/messages",
 		map[string]any{"content": router.MentionLink("R", f.rUUID) + " 하나만 더"},
 		"Idempotency-Key", uuid.NewString())
 	next := uuid.Nil
@@ -181,7 +181,7 @@ func TestP3BudgetEnforcedAtFinish(t *testing.T) {
 func TestP3BudgetAtFinishSessionScope(t *testing.T) {
 	f := newP2Fixture(t)
 	if _, err := f.pool.Exec(t.Context(), `
-		UPDATE session SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+		UPDATE room SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	// No per-task budget — the column is nullable and most agents leave it, so
@@ -200,7 +200,7 @@ func TestP3BudgetAtFinishSessionScope(t *testing.T) {
 
 	var sessionStatus, reason string
 	if err := f.pool.QueryRow(t.Context(), `
-		SELECT status::text, COALESCE(paused_reason::text, '') FROM session WHERE id = $1`, f.sessionID).
+		SELECT status::text, COALESCE(paused_reason::text, '') FROM work WHERE room_id = $1`, f.sessionID).
 		Scan(&sessionStatus, &reason); err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestP3BudgetAtFinishSessionScope(t *testing.T) {
 func TestP3BudgetAtFinishEstimatedNeverCuts(t *testing.T) {
 	f := newP2Fixture(t)
 	if _, err := f.pool.Exec(t.Context(), `
-		UPDATE session SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+		UPDATE room SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	_, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
@@ -243,7 +243,7 @@ func TestP3BudgetAtFinishEstimatedNeverCuts(t *testing.T) {
 
 	var sessionStatus, reason string
 	if err := f.pool.QueryRow(t.Context(), `
-		SELECT status::text, COALESCE(paused_reason::text, '') FROM session WHERE id = $1`, f.sessionID).
+		SELECT status::text, COALESCE(paused_reason::text, '') FROM work WHERE room_id = $1`, f.sessionID).
 		Scan(&sessionStatus, &reason); err != nil {
 		t.Fatal(err)
 	}
@@ -279,14 +279,18 @@ func TestP3BudgetAtFinishEstimatedNeverCuts(t *testing.T) {
 		t.Fatalf("hitl task_id = %v, want empty — what paused is the SESSION, so the request is "+
 			"answered by resuming the session (K-10)", hitlTask)
 	}
-	var cards, paused int
+	// #311 ①: the estimate stopped the ROOM (the gate), so the owner's card is
+	// the one `room_paused` — the approval is its action, not a second card.
+	var cards, hitlCards, paused int
 	if err := f.pool.QueryRow(t.Context(), `
-		SELECT count(*) FILTER (WHERE type = 'hitl_request'), count(*) FILTER (WHERE type = 'session_paused')
-		FROM inbox_item WHERE session_id = $1`, f.sessionID).Scan(&cards, &paused); err != nil {
+		SELECT count(*) FILTER (WHERE type = 'room_paused' AND recipient_basis = 'room_owner'),
+		       count(*) FILTER (WHERE type = 'hitl_request'), count(*) FILTER (WHERE type = 'session_paused')
+		FROM inbox_item WHERE session_id = $1`, f.sessionID).Scan(&cards, &hitlCards, &paused); err != nil {
 		t.Fatal(err)
 	}
-	if cards != 1 {
-		t.Fatalf("hitl_request inbox items = %d, want 1 — 'Dir 알림' is the other half of E9-05", cards)
+	if cards != 1 || hitlCards != 0 {
+		t.Fatalf("room_paused (owner) = %d, hitl_request = %d, want 1 and 0 — 'Dir 알림' is the other half of E9-05, "+
+			"and a room stop is one room_paused card", cards, hitlCards)
 	}
 	if paused != 0 {
 		t.Fatalf("session_paused inbox items = %d, want 0 — the HITL files its own card and two "+
@@ -343,7 +347,7 @@ func TestP3BudgetAtFinishRejectionKeepsTheGate(t *testing.T) {
 		t.Fatalf("lane = %s after a rejection, want paused still (E9-03, E9-10)", st)
 	}
 	f.fake.Advance(time.Minute)
-	out := f.api.must(201, "POST", f.p+"/sessions/"+f.sessionID+"/messages",
+	out := f.api.must(201, "POST", f.p+"/rooms/"+f.sessionID+"/messages",
 		map[string]any{"content": router.MentionLink("R", f.rUUID) + " 그래도 하나만"},
 		"Idempotency-Key", uuid.NewString())
 	next := uuid.Nil

@@ -2,8 +2,8 @@ package commands
 
 // 데몬의 명령 표를 계약·웹과 대조한다 — 표를 베끼되 늙히지 못하게(T-S13b 방식).
 //
-//   - contracts/openapi.yaml `ColabCommand` enum 13개 = All()
-//   - contracts/colab-cli.md §3 의 툴 이름 목록 = ToolName(All())
+//   - contracts/openapi.yaml `ColabCommand` enum 16개 = All() (순서까지)
+//   - contracts/colab-cli.md §3 의 툴 이름 목록 = ToolNames() (명령 16 — v0.9 에서 별칭이 명령이 됐다)
 //   - web/lib/wording.ts COMMAND_LABEL = labels (사람 말이 화면과 브리프에서 같아야 한다)
 
 import (
@@ -53,8 +53,10 @@ func TestSetMatchesOpenAPIEnum(t *testing.T) {
 	for _, s := range strings.Split(m[1], ",") {
 		want = append(want, strings.TrimSpace(s))
 	}
-	if got := sortedCopy(All()); strings.Join(got, ",") != strings.Join(sortedCopy(want), ",") {
-		t.Fatalf("계약 enum %v\n데몬 표 %v", want, All())
+	// 집합이 아니라 순서까지 — 서버 roles.all(gen.ColabCommandValues) 과 번들 allowed_commands
+	// 가 이 순서라 Denied·브리프 [2] 가 서버와 같은 순서로 나온다(#324 NN1).
+	if got := All(); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("계약 enum 순서 %v\n데몬 표 %v", want, got)
 	}
 	for _, c := range want {
 		if !Known(c) || labels[c] == "" {
@@ -73,21 +75,23 @@ func TestToolNamesMatchContractSection3(t *testing.T) {
 	if j := strings.Index(sec, "\n## 4."); j > 0 {
 		sec = sec[:j]
 	}
+	// §3 은 별칭 괄호 안에서 원래 이름을 한 번 더 부른다 — 이름 집합으로 대조한다.
+	seen := map[string]bool{}
 	var want []string
 	for _, m := range regexp.MustCompile("`(colab_[a-z_]+)`").FindAllStringSubmatch(sec, -1) {
-		want = append(want, m[1])
+		if !seen[m[1]] {
+			seen[m[1]] = true
+			want = append(want, m[1])
+		}
 	}
-	var got []string
-	for _, c := range All() {
-		got = append(got, ToolName(c))
-	}
+	got := ToolNames()
 	if strings.Join(sortedCopy(got), ",") != strings.Join(sortedCopy(want), ",") {
 		t.Fatalf("§3 툴 이름 %v\n데몬 %v", want, got)
 	}
 }
 
 // 데몬 labels ↔ 웹 COMMAND_LABEL 자물쇠 (#250 리뷰 NN2 · V-1). 웹 파일을 읽어(서버 md 를
-// 파싱하듯) 키 집합과 글자를 대조한다 — 13/13. 파일이 없으면 Skip 이 아니라 실패다: 이 표는
+// 파싱하듯) 키 집합과 글자를 대조한다 — 16/16. 파일이 없으면 Skip 이 아니라 실패다: 이 표는
 // 화면(S10 역할 카드)과 브리프 [2] 가 같은 말을 쓴다는 약속이고, 웹 없는 체크아웃은 그 약속을
 // 잴 수 없다.
 func TestLabelsMatchWebWording(t *testing.T) {
@@ -156,7 +160,7 @@ func TestKnownIsAllNotLabels(t *testing.T) {
 func TestCLINamesAndParticles(t *testing.T) {
 	for cmd, want := range map[string]string{
 		"lane_delegate": "lane delegate", "hitl_approve_request": "hitl approve-request",
-		"hitl_request_info": "hitl request-info", "session_get": "session get", "brand_new": "brand new",
+		"hitl_request_info": "hitl request-info", "room_get": "room get", "brand_new": "brand new",
 	} {
 		if got := CLIName(cmd); got != want {
 			t.Errorf("CLIName(%s)=%q want %q", cmd, got, want)
@@ -173,15 +177,15 @@ func TestEmptyMeansEverything(t *testing.T) {
 	if Args(nil) != nil || EnvEntry(nil) != "" || Denied(nil) != nil {
 		t.Fatal("빈 목록은 전부다 — 플래그·변수·거부 목록이 없어야 한다")
 	}
-	allowed := []string{"session_get", "message_post"}
-	if a := Args(allowed); strings.Join(a, " ") != "--allow session_get,message_post" {
+	allowed := []string{"room_get", "message_post"}
+	if a := Args(allowed); strings.Join(a, " ") != "--allow room_get,message_post" {
 		t.Fatalf("Args %v", a)
 	}
-	if e := EnvEntry(allowed); e != "COLAB_ALLOWED_COMMANDS=session_get,message_post" {
+	if e := EnvEntry(allowed); e != "COLAB_ALLOWED_COMMANDS=room_get,message_post" {
 		t.Fatalf("EnvEntry %q", e)
 	}
 	d := Denied(allowed)
-	if len(d) != len(all)-2 || d[0] != "session_messages" || d[len(d)-1] != "hitl_request_info" {
+	if len(d) != len(all)-2 || d[0] != "room_messages" || d[len(d)-1] != "work_propose" {
 		t.Fatalf("Denied %v", d)
 	}
 	if len(Denied(All())) != 0 {

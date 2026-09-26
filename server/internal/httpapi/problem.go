@@ -90,6 +90,10 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) *Problem {
 		if errors.As(err, &tooBig) {
 			return unreadable("body", "too_large", "요청이 너무 큽니다 — 4 MB 까지 보낼 수 있습니다", err)
 		}
+		if isTaskCaller(r.Context()) {
+			// T-AGENTFIX B5: say what is wrong with the JSON, not 「새로고침」.
+			return unreadable("body", "malformed_json", "요청 본문이 올바른 JSON 이 아닙니다 — "+err.Error(), err)
+		}
 		return unreadable("body", "malformed_json", bodyUnreadable, err)
 	}
 	return nil

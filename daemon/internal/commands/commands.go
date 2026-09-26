@@ -18,9 +18,9 @@
 // the role (server/internal/roles) and the CLI enforces it. What lives here is
 // the NAME MAPPING (enum → CLI spelling → person's word), and commands_test.go
 // checks the set against the contract enum (openapi ColabCommand), the §3
-// tool-name list and the web's COMMAND_LABEL table (13/13, read from
-// web/lib/wording.ts at test time), so a 14th command cannot appear on one
-// side only.
+// tool-name list and the web's COMMAND_LABEL table (16/16 since colab-cli.md
+// v0.8's room commands, read from web/lib/wording.ts at test time), so a
+// 17th command cannot appear on one side only.
 package commands
 
 import (
@@ -37,12 +37,16 @@ const EnvVar = "COLAB_ALLOWED_COMMANDS"
 // argv today (`colab mcp serve` checks only args[1]).
 const AllowFlag = "--allow"
 
-// all is every ColabCommand in colab-cli.md §2 order — the order the brief
-// lists them in, and the order Denied is emitted in.
+// all is every ColabCommand in contracts/openapi.yaml enum order — the order
+// the server's roles table (gen.ColabCommandValues) and so the bundle's
+// allowed_commands use, and the order Denied is emitted in (#324 NN1). The
+// daemon cannot import the server's gen package; TestSetMatchesOpenAPIEnum reads
+// the enum line from the contract and fails when this drifts.
 var all = []string{
-	"session_get", "session_messages", "message_post", "status_set", "decision_record",
-	"lane_delegate", "artifact_submit", "artifact_get", "review_approve", "review_reject",
+	"room_get", "room_messages", "artifact_get", "message_post", "status_set",
+	"decision_record", "lane_delegate", "artifact_submit", "review_approve", "review_reject",
 	"hitl_ask", "hitl_approve_request", "hitl_request_info",
+	"room_list", "room_read", "work_propose",
 }
 
 // cliNames is the command as the agent types it (colab-cli.md §2): the two
@@ -58,19 +62,22 @@ var cliNames = map[string]string{
 // tool is gone from the surface, so the agent needs the idea, not a spelling
 // it would then try.
 var labels = map[string]string{
-	"session_get":          "세션 읽기",
-	"session_messages":     "메시지 읽기",
-	"artifact_get":         "산출물 읽기",
+	"room_get":             "방 읽기",
+	"room_messages":        "메시지 읽기",
+	"artifact_get":         "아티팩트 읽기",
 	"message_post":         "메시지 게시",
 	"status_set":           "상태 알리기",
 	"decision_record":      "결정 기록",
 	"lane_delegate":        "위임",
-	"artifact_submit":      "산출물 제출",
+	"artifact_submit":      "아티팩트 제출",
 	"review_approve":       "검토 승인",
 	"review_reject":        "검토 반려",
 	"hitl_ask":             "사람에게 질문",
 	"hitl_approve_request": "완료 승인 요청",
 	"hitl_request_info":    "사람에게 정보 요청",
+	"room_list":            "다른 방 목록",
+	"room_read":            "다른 방 읽기",
+	"work_propose":         "미션 제안",
 }
 
 // known is `all` as a set — the ONE definition of "a command this daemon
@@ -85,7 +92,7 @@ var known = func() map[string]bool {
 	return m
 }()
 
-// All is the closed set in §2 order.
+// All is the closed set in openapi enum order.
 func All() []string { return append([]string(nil), all...) }
 
 // Known reports whether cmd is in All().
@@ -126,6 +133,17 @@ func CLIName(cmd string) string {
 // ToolName is the §3 MCP tool name: `colab_` + enum.
 func ToolName(cmd string) string { return "colab_" + cmd }
 
+// ToolNames is every §3 tool name: ToolName of each command in All order.
+// (colab-cli.md v0.9: the v0.8 aliases `room_get`·`room_messages` became the
+// commands themselves when `session get`·`session messages` were removed.)
+func ToolNames() []string {
+	out := make([]string, 0, len(all))
+	for _, c := range all {
+		out = append(out, ToolName(c))
+	}
+	return out
+}
+
 // Label is the person's word; an unknown command falls back to its CLI
 // spelling so the line is never empty.
 func Label(cmd string) string {
@@ -135,7 +153,7 @@ func Label(cmd string) string {
 	return CLIName(cmd)
 }
 
-// Denied is All minus allowed, in §2 order. nil when allowed is empty: an
+// Denied is All minus allowed, in openapi enum order. nil when allowed is empty: an
 // empty list means everything, not nothing (daemon-protocol §4.1 v0.8.2).
 func Denied(allowed []string) []string {
 	if len(allowed) == 0 {

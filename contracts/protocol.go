@@ -177,11 +177,18 @@ type BundleTask struct {
 	// ID = test_chat.id, Attempt = 사용자 턴 번호, TaskToken 없음, Lane/Session/TriggerMessage 빈 값.
 	Kind       string `json:"kind,omitempty"`
 	TestChatID string `json:"test_chat_id,omitempty"`
-	LaneID              string   `json:"lane_id"`
-	SessionID           string   `json:"session_id"`
-	AgentID             string   `json:"agent_id"`
-	AgentName           string   `json:"agent_name"`
-	TriggerMessageID    string   `json:"trigger_message_id"`
+	LaneID     string `json:"lane_id"`
+	SessionID  string `json:"session_id"`
+	// RoomID — 방 id(daemon-protocol v0.9.0, PRD v0.19). 옛 SessionID 와 같은 값이고 R4 까지 둘 다 싣는다.
+	RoomID string `json:"room_id,omitempty"`
+	// WorkID — 매인 미션(없으면 미션 밖 task).
+	WorkID           string `json:"work_id,omitempty"`
+	AgentID          string `json:"agent_id"`
+	AgentName        string `json:"agent_name"`
+	TriggerMessageID string `json:"trigger_message_id"`
+	// ThreadRootID — 트리거 메시지가 스레드 답글이면 그 스레드 루트(daemon-protocol v0.9.2). 최상위면 빈 값.
+	// 데몬이 COLAB_THREAD_ID 로 넘기고 colab message post 의 기본 답글 위치가 된다.
+	ThreadRootID        string   `json:"thread_root_id,omitempty"`
 	RestartedFromTaskID string   `json:"restarted_from_task_id,omitempty"`
 	DelegatedFromTaskID string   `json:"delegated_from_task_id,omitempty"`
 	BudgetUSD           *float64 `json:"budget_usd,omitempty"`
@@ -204,12 +211,18 @@ type BundleProfile struct {
 
 type BundleWorkdir struct {
 	// ID — 서버 workdir 행의 uuid(daemon-protocol v0.8.3 §4.1, K-14). §6 보고 행이 그대로 회신한다. 옛 서버는 비운다.
-	ID       string `json:"id,omitempty"`
-	Kind     string `json:"kind"` // worktree | dir
-	Path     string `json:"path,omitempty"`
-	RepoPath string `json:"repo_path,omitempty"`
-	Branch   string `json:"branch,omitempty"`
-	Reuse    bool   `json:"reuse"`
+	// v0.10.0 부터 서버는 모든 kind 에서 ID 를 첫 attempt 부터 채운다(dir 포함); 빈 값은 옛 서버뿐이다.
+	ID   string `json:"id,omitempty"`
+	Kind string `json:"kind"` // worktree | dir
+	// Path — 서버가 짓는 절대 경로(daemon-protocol v0.10.0 §6.1, 모든 kind). 빈 값은 옛 서버 번들뿐이고
+	// 그때 dir 은 데몬의 옛 workdir.Path(<root>/sessions/<room>/<lane>)로 짓는다.
+	Path string `json:"path,omitempty"`
+	// SharedPath — 미션 공용 `_shared` 의 절대 경로(daemon-protocol v0.10.0 §4.1). 미션에 매인 턴에만;
+	// 데몬은 mkdir -p 만 하고 내용은 건드리지 않는다.
+	SharedPath string `json:"shared_path,omitempty"`
+	RepoPath   string `json:"repo_path,omitempty"`
+	Branch     string `json:"branch,omitempty"`
+	Reuse      bool   `json:"reuse"`
 }
 
 type BundleBrief struct {
@@ -268,7 +281,7 @@ type Finish struct {
 	RuntimeSessionRef *RuntimeSessionRef `json:"runtime_session_ref,omitempty"`
 	ResumeOutcome     string             `json:"resume_outcome,omitempty"` // resumed | cold_start
 	LastSeq           int                `json:"last_seq"`
-	Workdir           *FinishWorkdir     `json:"workdir,omitempty"` // daemon-protocol v0.7.2 §4.4 — worktree 격리에서만 git 이 실린다
+	Workdir           *FinishWorkdir     `json:"workdir,omitempty"`   // daemon-protocol v0.7.2 §4.4 — worktree 격리에서만 git 이 실린다
 	Transport         Transport          `json:"transport,omitempty"` // daemon-protocol v0.8 §4.5 — 실제 경로(acp|cli); 서버는 test_chat.transport 에만 쓴다
 }
 
@@ -296,7 +309,7 @@ type Usage struct {
 	CacheWriteTokens int64      `json:"cache_write_tokens,omitempty"`
 	CostUSD          float64    `json:"cost_usd"`
 	Estimated        bool       `json:"estimated"`
-	Model            string     `json:"model,omitempty"`      // _meta.quota.model_usage[].model (spike 1b E1)
+	Model            string     `json:"model,omitempty"`      // finish: _meta.quota.model_usage[].model (spike 1b E1); heartbeat: main-stream message_start.model (T-COSTMODEL)
 	RateLimit        *RateLimit `json:"rate_limit,omitempty"` // usage_update._meta["_claude/rateLimit"] (spike 1b E5)
 }
 

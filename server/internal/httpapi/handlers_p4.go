@@ -4,16 +4,18 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/oapi-codegen/nullable"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
-	"github.com/ingki3/agent-collabortion/server/internal/sessions"
+	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
 	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
 )
@@ -145,6 +147,10 @@ func (s *Server) ListRuntimeWorkdirs(w http.ResponseWriter, r *http.Request, run
 		sid := uuid.UUID(*params.SessionId)
 		q.SessionID = &sid
 	}
+	if params.WorkId != nil {
+		wid := uuid.UUID(*params.WorkId)
+		q.WorkID = &wid
+	}
 	if params.Limit != nil {
 		q.Limit = *params.Limit
 	}
@@ -186,8 +192,15 @@ func (s *Server) DeleteWorkdir(w http.ResponseWriter, r *http.Request, workdirId
 	var director uuid.UUID
 	var path, kind string
 	if err := s.DB.QueryRow(r.Context(), `
-		SELECT s.workspace_id, s.id, s.runtime_id, s.director_user_id, w.path_or_ref, w.kind::text
-		FROM workdir w JOIN session s ON s.id = w.session_id WHERE w.id = $1`, id).
+		SELECT s.workspace_id, s.id, s.runtime_id,
+		       -- The directory's Director is its latest lane's mission's, else
+		       -- the room owner's — the same person the GC sweep tells about it
+		       -- (V19_R1B_HANDOFF (c): the old room join picked any mission).
+		       COALESCE((SELECT lw.director_user_id FROM lane l JOIN work lw ON lw.id = l.work_id
+		                  WHERE l.workdir_id = w.id OR l.id = w.lane_id ORDER BY l.updated_at DESC, l.id LIMIT 1),
+		                s.owner_user_id),
+		       w.path_or_ref, w.kind::text
+		FROM workdir w JOIN room s ON s.id = w.session_id WHERE w.id = $1`, id).
 		Scan(&wsID, &sessionID, &runtimeID, &director, &path, &kind); err != nil {
 		writeProblem(w, apperr.NotFound("workdir"))
 		return
@@ -203,7 +216,7 @@ func (s *Server) DeleteWorkdir(w http.ResponseWriter, r *http.Request, workdirId
 	// owner·admin, or this session's Director (openapi deleteWorkdir 권한).
 	if _, adminProblem := s.admin(r, wsID); adminProblem != nil && u.Id != openapi_types.UUID(director) {
 		writeProblem(w, apperr.Forbidden("forbidden",
-			"이 작업 폴더는 워크스페이스 관리자나 그 세션의 Director 만 삭제할 수 있습니다"))
+			"이 작업 폴더는 워크스페이스 관리자나 그 미션의 Director 만 삭제할 수 있습니다"))
 		return
 	}
 
@@ -230,7 +243,7 @@ func (s *Server) DeleteWorkdir(w http.ResponseWriter, r *http.Request, workdirId
 	}
 	if runtimeID == nil {
 		writeProblem(w, apperr.Conflict("no_runtime",
-			"이 세션에 연결된 컴퓨터가 없어 삭제를 맡길 곳이 없습니다"))
+			"이 방에 연결된 컴퓨터가 없어 삭제를 맡길 곳이 없습니다"))
 		return
 	}
 	cmd, skipped := workdirs.BuildGCCommand(sessionID, []uuid.UUID{id}, []string{path})
@@ -275,36 +288,26 @@ func (s *Server) DeleteRuntime(w http.ResponseWriter, r *http.Request, runtimeId
 }
 
 // ---------------------------------------------------------------------------
-// rebindSession — FR-9.2, E14-03·06
+// rebindRoom — FR-9.2, E14-03·06
 // ---------------------------------------------------------------------------
 
-func (s *Server) RebindSession(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	_, wsID, p := s.sessionDirector(r, sessionId)
+func (s *Server) RebindRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	u, wsID, p := s.rebindActor(r, roomId)
 	if p != nil {
 		writeProblem(w, p)
 		return
 	}
-	var in gen.RebindSessionJSONBody
+	var in gen.RebindRoomJSONBody
 	if p := decodeJSON(w, r, &in); p != nil {
 		writeProblem(w, p)
 		return
 	}
 	ack := in.AcknowledgeLoss != nil && *in.AcknowledgeLoss
-	if _, err := s.Runtimes.Rebind(r.Context(), wsID, sessionId, uuid.UUID(in.RuntimeId), ack); err != nil {
+	if _, err := s.Runtimes.Rebind(r.Context(), wsID, roomId, uuid.UUID(in.RuntimeId), ack); err != nil {
 		writeErr(w, err)
 		return
 	}
-	u, _, p2 := s.member(r, wsID)
-	if p2 != nil {
-		writeProblem(w, p2)
-		return
-	}
-	sess, err := s.Sessions.Get(r.Context(), sessionId, sessions.Viewer{UserID: &u.Id})
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, sess)
+	s.roomOut(r.Context(), w, http.StatusOK, roomId, u.Id)
 }
 
 func p4ptr[T any](v T) *T { return &v }
@@ -317,4 +320,39 @@ func nullStr(s string) nullable.Nullable[string] {
 		return nullable.NewNullNullable[string]()
 	}
 	return nullable.NewNullableWithValue(s)
+}
+
+// rebindActor is rebindRoom's permission (FR-9.2 v0.19, T-S-offline): the
+// old session's Director, the room owner, or — from half of the stop's
+// deadline — the room's delegate (runtimes.MayRebind). A room made by
+// createRoom has no Director and is still rebindable by its owner.
+func (s *Server) rebindActor(r *http.Request, roomID uuid.UUID) (*gen.User, uuid.UUID, *Problem) {
+	u, p := s.user(r)
+	if p != nil {
+		return nil, uuid.Nil, p
+	}
+	var wsID uuid.UUID
+	err := s.DB.QueryRow(r.Context(), `SELECT workspace_id FROM room WHERE id = $1`, roomID).Scan(&wsID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, uuid.Nil, apperr.NotFound("session")
+	}
+	if err != nil {
+		return nil, uuid.Nil, apperr.Internal(err)
+	}
+	m, err := s.Auth.Member(r.Context(), wsID, u.Id)
+	if err != nil {
+		return nil, uuid.Nil, apperr.Internal(err)
+	}
+	if m == nil {
+		return nil, uuid.Nil, apperr.NotFound("session")
+	}
+	ok, err := runtimes.RebindAuthz(r.Context(), s.DB, roomID, u.Id, s.Clock.Now())
+	if err != nil {
+		return nil, uuid.Nil, apperr.Internal(err)
+	}
+	if !ok {
+		return nil, uuid.Nil, apperr.Forbidden("director_required",
+			"다른 컴퓨터로 옮기는 것은 방장이나 Director 가 합니다 — 부방장은 멈춘 지 12시간 뒤부터 할 수 있습니다")
+	}
+	return u, wsID, nil
 }

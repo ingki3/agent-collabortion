@@ -22,3 +22,5 @@
 .card-menu__item[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
 .card-menu__item[aria-disabled="true"]:hover { background: transparent; }
 .card-menu__list .disabled-hint { margin: 0 10px 4px; max-width: 220px; white-space: normal; text-align: left; }
+/* 방 카드 메뉴(T-R2-W1) — 삭제 항목의 「되돌릴 수 없음」 꼬리. 위험 색을 그대로 물려받되 한 단 작게. */
+.card-menu__tail { font-size: var(--fs-meta); }

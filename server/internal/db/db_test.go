@@ -30,7 +30,7 @@ func TestLoad(t *testing.T) {
 // agreed with Lead) plus the runner's own bookkeeping table.
 var prdTables = []string{
 	"workspace", "member", "app_user", "agent", "agent_profile", "runtime", "workdir",
-	"session", "session_participant", "session_context", "lane", "task", "task_event",
+	"session_participant", "session_context", "lane", "task", "task_event",
 	"task_usage", "message", "hitl_request", "inbox_item", "artifact", "decision",
 	"activity_log", "workspace_settings", "test_chat",
 	"schema_migrations",
@@ -39,6 +39,11 @@ var prdTables = []string{
 	"idempotency_key", "stream_event", "task_token", "daemon_command", "task_attempt",
 	// 0006_p2_routing.sql (FR-3.5 루프 상한이 읽는 트리거 이력)
 	"session_hop",
+	// 0025_v19_rooms.sql (PRD v0.19 §7 — session 을 room 으로 개명, goal 쪽 칸은 work 로)
+	"room", "work", "room_participant", "room_link", "work_proposal", "room_read_log",
+	// 방 API(T-R1b3) — 서브 미션 알림 구독(FR-8)
+	"lane_subscription",
+	"work_subscription", // r1b2_works — setWorkSubscription (FR-8)
 }
 
 // prdEnums pins every state set to the exact PRD labels (task item 2).
@@ -51,7 +56,7 @@ var prdEnums = map[string][]string{
 	"hitl_source":     {"agent", "system"},
 	"respond_to":      {"owner", "allowlist", "workspace", "nobody"},
 	"isolation_kind":  {"worktree", "container", "none"},
-	"inbox_item_type": {"hitl_request", "lane_blocked", "session_completed", "session_paused", "run_failed", "runtime_offline", "mention", "workdir_gc_blocked"},
+	"inbox_item_type": {"hitl_request", "lane_blocked", "session_completed", "session_paused", "run_failed", "runtime_offline", "mention", "workdir_gc_blocked", "room_paused", "isolation_confirm", "work_proposed", "work_paused", "work_completed", "room_invited", "workdir_quota"}, // + v0.2.0 (T-R1b1 · T-R1b3)
 	"inbox_severity":  {"action_required", "attention", "info"},
 	"pause_reason":    {"budget", "time", "loop", "runtime_offline", "director"},
 	"agent_status":    {"idle", "working", "waiting_human", "error", "offline", "disabled"},

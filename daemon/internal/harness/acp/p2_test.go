@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/daemon/acpfake"
@@ -225,4 +226,202 @@ func TestFailureKindRetryabilityIsReportedPrecisely(t *testing.T) {
 			}
 		})
 	}
+}
+
+// SCREEN §4.6 v0.19.10 「작업 중」 말풍선 — text the agent writes between tool
+// calls is a progress note; the turn text puts one blank line at each tool-call
+// boundary so the screen can split paragraphs ("a" · tool · "b" → "a\n\nb").
+// Chunks with no tool between them join as-is, nothing goes before the first
+// text, and a text already ending in a newline is not doubled.
+func TestSayOpensAParagraphAtEachToolBoundary(t *testing.T) {
+	tool := func(id string) acpfake.Step {
+		return acpfake.Step{ToolCall: &acpfake.ToolCallStep{ID: id, Title: "ls", Kind: "execute"}}
+	}
+	done := func(id string) acpfake.Step {
+		return acpfake.Step{ToolUpdate: &acpfake.ToolUpdateStep{ID: id, Status: "completed"}}
+	}
+	cases := []struct {
+		name  string
+		steps []acpfake.Step
+		want  string
+	}{
+		{"chunk tool chunk", []acpfake.Step{{Chunk: "a"}, tool("t1"), done("t1"), {Chunk: "b"}}, "a\n\nb"},
+		{"consecutive chunks join", []acpfake.Step{{Chunk: "a"}, {Chunk: "b"}, tool("t1"), done("t1"), {Chunk: "c"}, {Chunk: "d"}}, "ab\n\ncd"},
+		{"already ends in newline", []acpfake.Step{{Chunk: "a\n"}, tool("t1"), done("t1"), {Chunk: "b"}}, "a\n\nb"},
+		{"already ends in blank line", []acpfake.Step{{Chunk: "a\n\n"}, tool("t1"), done("t1"), {Chunk: "b"}}, "a\n\nb"},
+		{"tool before first text", []acpfake.Step{tool("t1"), done("t1"), {Chunk: "a"}}, "a"},
+		{"two tools one boundary", []acpfake.Step{{Chunk: "a"}, tool("t1"), done("t1"), tool("t2"), done("t2"), {Chunk: "b"}}, "a\n\nb"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			script := acpfake.Script{Turns: []acpfake.Turn{{Steps: tc.steps}}}
+			f := newFixture(t, script, bundle(contracts.RuntimeClaudeCode), nil)
+			res := f.run()
+			if res.Outcome != "completed" {
+				t.Fatalf("result %+v", res)
+			}
+			if res.Text != tc.want {
+				t.Fatalf("turn text %q want %q", res.Text, tc.want)
+			}
+			f.sink.mu.Lock()
+			defer f.sink.mu.Unlock()
+			if n := len(f.sink.previews); n == 0 || f.sink.previews[n-1] != tc.want {
+				t.Fatalf("previews %q want last %q", f.sink.previews, tc.want)
+			}
+		})
+	}
+}
+
+// T-BUBBLE NN2 (PR #356 리뷰) — the two orders the boundary rule has to get
+// right and that the first round only argued for in prose: a tool call that
+// arrives BEFORE any text must not open the turn with a blank line, and an
+// empty chunk must not swallow the boundary a tool call opened.
+func TestSayBoundaryHandlesToolFirstAndEmptyChunks(t *testing.T) {
+	tool := func(id string) acpfake.Step {
+		return acpfake.Step{ToolCall: &acpfake.ToolCallStep{ID: id, Title: "ls", Kind: "execute"}}
+	}
+	done := func(id string) acpfake.Step {
+		return acpfake.Step{ToolUpdate: &acpfake.ToolUpdateStep{ID: id, Status: "completed"}}
+	}
+	cases := []struct {
+		name  string
+		steps []acpfake.Step
+		want  string
+	}{
+		// A turn that starts by running something: the text that follows is the
+		// turn's FIRST paragraph, so nothing precedes it.
+		{"tool first, text after", []acpfake.Step{tool("t1"), done("t1"), {Chunk: "a"}, {Chunk: "b"}}, "ab"},
+		{"tool first, then tool and text", []acpfake.Step{tool("t1"), done("t1"), {Chunk: "a"}, tool("t2"), done("t2"), {Chunk: "b"}}, "a\n\nb"},
+		// An empty agent_message_chunk is a no-op, not a paragraph: the pending
+		// boundary has to survive it and land on the next real text. Real
+		// adapters do send these (a flush with nothing new).
+		{"empty chunk keeps the pending boundary", []acpfake.Step{{Chunk: "a"}, tool("t1"), done("t1"), {EmptyChunk: true}, {Chunk: "b"}}, "a\n\nb"},
+		{"empty chunk does not open the turn with a blank line", []acpfake.Step{{EmptyChunk: true}, tool("t1"), done("t1"), {Chunk: "a"}}, "a"},
+		{"empty chunk between two texts changes nothing", []acpfake.Step{{Chunk: "a"}, {EmptyChunk: true}, {Chunk: "b"}}, "ab"},
+		// The boundary is only SPENT by real text: an empty chunk arriving on a
+		// pending boundary must not leave the turn ending in a blank line — that
+		// trailing break would be stored in the message a person reads.
+		{"empty chunk last does not leave a trailing blank line", []acpfake.Step{{Chunk: "a"}, tool("t1"), done("t1"), {EmptyChunk: true}}, "a"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			script := acpfake.Script{Turns: []acpfake.Turn{{Steps: tc.steps}}}
+			f := newFixture(t, script, bundle(contracts.RuntimeClaudeCode), nil)
+			res := f.run()
+			if res.Outcome != "completed" {
+				t.Fatalf("result %+v", res)
+			}
+			if res.Text != tc.want {
+				t.Fatalf("turn text %q want %q", res.Text, tc.want)
+			}
+		})
+	}
+}
+
+// T-BUBBLE NN1 (Lead 판정 2026-09-26) — the heartbeat preview carries at most
+// the last acp.PreviewMaxChars characters, cut at a paragraph boundary with
+// the elision marker in front. The persisted turn text is NOT clipped.
+func TestClipPreviewKeepsTheTailAtAParagraphBoundary(t *testing.T) {
+	para := func(n int, r rune) string { return strings.Repeat(string(r), n) }
+	t.Run("under the cap is untouched", func(t *testing.T) {
+		s := para(acp.PreviewMaxChars, '가')
+		if got := acp.ClipPreview(s); got != s {
+			t.Fatalf("clipped at the cap: %d chars", len([]rune(got)))
+		}
+	})
+	t.Run("cuts at the paragraph boundary and marks the elision", func(t *testing.T) {
+		// 3 paragraphs of 9,000: the 16,000-char tail starts inside the second,
+		// so the cut moves forward to the second → third boundary.
+		s := strings.Join([]string{para(9000, '가'), para(9000, '나'), para(9000, '다')}, "\n\n")
+		got := acp.ClipPreview(s)
+		if !strings.HasPrefix(got, acp.PreviewElided) {
+			t.Fatalf("no elision marker: %.40q", got)
+		}
+		body := strings.TrimPrefix(got, acp.PreviewElided)
+		if !strings.HasPrefix(body, para(100, '다')) {
+			t.Fatalf("body does not start at a paragraph boundary: %.40q", body)
+		}
+		if strings.ContainsRune(body, '나') || strings.ContainsRune(body, '가') {
+			t.Fatalf("body carries an earlier paragraph")
+		}
+		if n := len([]rune(body)); n > acp.PreviewMaxChars {
+			t.Fatalf("body %d chars > cap %d", n, acp.PreviewMaxChars)
+		}
+	})
+	t.Run("no boundary in the tail — character cut, no mid-rune split", func(t *testing.T) {
+		s := para(acp.PreviewMaxChars*2, '나')
+		got := acp.ClipPreview(s)
+		body := strings.TrimPrefix(got, acp.PreviewElided)
+		if body == got {
+			t.Fatalf("no elision marker: %.40q", got)
+		}
+		if n := len([]rune(body)); n != acp.PreviewMaxChars {
+			t.Fatalf("body %d chars want %d", n, acp.PreviewMaxChars)
+		}
+		if !utf8.ValidString(got) {
+			t.Fatalf("cut split a rune")
+		}
+	})
+	t.Run("a boundary at the very end does not empty the body", func(t *testing.T) {
+		s := para(acp.PreviewMaxChars*2, '다') + "\n\n"
+		body := strings.TrimPrefix(acp.ClipPreview(s), acp.PreviewElided)
+		if strings.TrimSpace(body) == "" {
+			t.Fatalf("empty body")
+		}
+	})
+	t.Run("live turn — preview is clipped, the persisted turn text is not", func(t *testing.T) {
+		// 6 chunks of 4,000 with a tool call between each: 24,000 chars of text.
+		marks := []rune{'가', '나', '다', '라', '마', '바'}
+		steps := []acpfake.Step{}
+		for i, m := range marks {
+			steps = append(steps, acpfake.Step{Chunk: para(4000, m)})
+			if i < len(marks)-1 {
+				id := string(rune('a' + i))
+				steps = append(steps,
+					acpfake.Step{ToolCall: &acpfake.ToolCallStep{ID: id, Title: "ls", Kind: "execute"}},
+					acpfake.Step{ToolUpdate: &acpfake.ToolUpdateStep{ID: id, Status: "completed"}})
+			}
+		}
+		f := newFixture(t, acpfake.Script{Turns: []acpfake.Turn{{Steps: steps}}}, bundle(contracts.RuntimeClaudeCode), nil)
+		res := f.run()
+		if res.Outcome != "completed" {
+			t.Fatalf("result %+v", res)
+		}
+		full := len(marks)*4000 + (len(marks)-1)*2
+		if n := len([]rune(res.Text)); n != full {
+			t.Fatalf("persisted turn text %d chars want %d — the cap must not reach finish", n, full)
+		}
+		// The persisted `message.say` body is the other half of "preview only":
+		// it is what a person reads in the timeline after the turn.
+		says := f.sink.find("message", "say", "ok")
+		if len(says) != 1 {
+			t.Fatalf("message.say events: %d", len(says))
+		}
+		var said struct {
+			Text string `json:"text"`
+		}
+		b, _ := json.Marshal(says[0].Payload)
+		if json.Unmarshal(b, &said) != nil {
+			t.Fatalf("say payload %v", says[0].Payload)
+		}
+		if n := len([]rune(said.Text)); n != full {
+			t.Fatalf("persisted message.say %d chars want %d — the cap must not reach the stored body", n, full)
+		}
+		if strings.Contains(said.Text, acp.PreviewElided) {
+			t.Fatalf("elision marker leaked into the persisted body")
+		}
+		f.sink.mu.Lock()
+		defer f.sink.mu.Unlock()
+		last := f.sink.previews[len(f.sink.previews)-1]
+		if !strings.HasPrefix(last, acp.PreviewElided) {
+			t.Fatalf("last preview not clipped: %d chars", len([]rune(last)))
+		}
+		if n := len([]rune(strings.TrimPrefix(last, acp.PreviewElided))); n > acp.PreviewMaxChars {
+			t.Fatalf("preview body %d chars > cap %d", n, acp.PreviewMaxChars)
+		}
+		// 마지막 문단은 통째로 살아 있다 — 화면이 보여 주는 것이 그 문단이다.
+		if !strings.Contains(last, para(4000, '바')) {
+			t.Fatalf("last paragraph lost from the preview")
+		}
+	})
 }

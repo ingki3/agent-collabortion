@@ -14,6 +14,7 @@ import (
 	"mime"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/ingki3/agent-collabortion/cli/internal/client"
@@ -50,7 +51,7 @@ type LaneDelegateResult struct {
 const NotParticipantHint = "ask the Director to add them as a participant with `colab hitl ask` " +
 	"(agents cannot add participants — FR-1.5); then retry `colab lane delegate`"
 
-// LaneDelegate — POST /sessions/{S}/lanes. Always a new lane (resolution
+// LaneDelegate — POST /rooms/{R}/lanes. Always a new lane (resolution
 // rule 2); `delegated_from_task_id` = the calling task, which is the rejoin
 // group key (FR-6.5). The target must already be a session participant —
 // otherwise exit 3 `not_participant` with NotParticipantHint (E15-02).
@@ -64,7 +65,7 @@ func LaneDelegate(ctx context.Context, c *client.Client, a LaneDelegateArgs) (*L
 	if err := c.Allow(ctx, client.CmdLaneDelegate); err != nil {
 		return nil, err
 	}
-	sid, err := c.SessionID(ctx, a.Session)
+	sid, err := c.RoomID(ctx, a.Session)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +77,7 @@ func LaneDelegate(ctx context.Context, c *client.Client, a LaneDelegateArgs) (*L
 	if !ok {
 		return nil, &client.Error{
 			Exit: client.ExitRefused, Code: "not_participant",
-			Title: "@" + strings.TrimPrefix(a.Agent, "@") + " is not a session participant",
+			Title: "@" + strings.TrimPrefix(a.Agent, "@") + " is not a room participant",
 			Detail: "cannot delegate to a non-participant. participants: " +
 				strings.Join(cc.ParticipantNames(), ", ") + ". " + NotParticipantHint,
 		}
@@ -183,7 +184,7 @@ type DecisionRecordResult struct {
 	Decision   json.RawMessage `json:"decision"`
 }
 
-// DecisionRecord — POST /sessions/{S}/decisions, source=agent, ref_id=task.
+// DecisionRecord — POST /rooms/{R}/decisions, source=agent, ref_id=task.
 // The record lands in brief [7] (FR-1.9, FR-4.2).
 //
 // The Decision schema is summary + rationale and nothing else. colab-cli.md
@@ -197,7 +198,7 @@ func DecisionRecord(ctx context.Context, c *client.Client, a DecisionRecordArgs)
 	if err := c.Allow(ctx, client.CmdDecisionRecord); err != nil {
 		return nil, err
 	}
-	sid, err := c.SessionID(ctx, a.Session)
+	sid, err := c.RoomID(ctx, a.Session)
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +273,7 @@ type DiffSummary struct {
 	UntrackedNotIncluded []string `json:"untracked_not_included,omitempty"`
 }
 
-// ArtifactSubmit — POST /sessions/{S}/artifacts (multipart: name · type ·
+// ArtifactSubmit — POST /rooms/{R}/artifacts (multipart: name · type ·
 // file · description — the whole body openapi defines, nothing else).
 // Re-submitting the same name is version+1 (FR-4.3); the response's
 // completion_progress says whether the `artifact_submitted` completion
@@ -353,7 +354,7 @@ func ArtifactSubmit(ctx context.Context, c *client.Client, a ArtifactSubmitArgs)
 		return nil, client.Usage("--file is required (only `--type diff` can build its own body)")
 	}
 
-	sid, err := c.SessionID(ctx, a.Session)
+	sid, err := c.RoomID(ctx, a.Session)
 	if err != nil {
 		return nil, err
 	}
@@ -408,6 +409,22 @@ func partContentType(path string) string {
 
 // ───────────────────────────── artifact get ─────────────────────────────
 
+// uuidShape is openapi `format: uuid` — what every artifact id parameter is.
+var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// requireArtifactID refuses a non-uuid artifact argument before any request
+// (T-AGENTFIX B4, Lead 판정 2026-09-25: 이름 풀이는 하지 않는다 — colab-cli
+// §2.1 `artifact get <id>`). 실측: Writer 가 아티팩트 이름을 넣어 서버의 422
+// 「화면을 새로고침」 문장만 받았다. Exit 2 (argument error) with a sentence
+// that says what to put there and where to find it.
+func requireArtifactID(cmd, v string) error {
+	if uuidShape.MatchString(v) {
+		return nil
+	}
+	return client.Usage("%s: 아티팩트 id(uuid)가 필요합니다 — 받은 값: %q. 이름이 아니라 id 입니다. "+
+		"방의 아티팩트 목록은 브리프 [6] Context 의 Artifacts 줄에 id 와 함께 있다(각 줄 끝 `id …`)", cmd, v)
+}
+
 // ArtifactGetArgs — `colab artifact get <id> [--out <path>]`.
 type ArtifactGetArgs struct {
 	Artifact string `json:"artifact"`
@@ -431,6 +448,9 @@ func ArtifactGet(ctx context.Context, c *client.Client, a ArtifactGetArgs) (*Art
 	id := strings.TrimSpace(a.Artifact)
 	if id == "" {
 		return nil, client.Usage("artifact get: <id> is required")
+	}
+	if err := requireArtifactID("artifact get", id); err != nil {
+		return nil, err
 	}
 	if err := c.Allow(ctx, client.CmdArtifactGet); err != nil {
 		return nil, err
@@ -571,6 +591,9 @@ func review(ctx context.Context, c *client.Client, cmd client.Command, a ReviewA
 	id := strings.TrimSpace(a.Artifact)
 	if id == "" {
 		return nil, client.Usage("review %s: --artifact <id> is required (openapi reviewArtifact is POST /artifacts/{id}/review)", verdict)
+	}
+	if err := requireArtifactID("review "+verdict, id); err != nil {
+		return nil, err
 	}
 	if err := c.Allow(ctx, cmd); err != nil {
 		return nil, err

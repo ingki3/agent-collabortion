@@ -55,12 +55,14 @@ const (
 var InstructionFileNames = []string{"AGENTS.md", "CLAUDE.md"}
 
 // Parts are the eight sections. [1]~[5] must be byte-identical between two
-// turns of the same session (cache friendliness, E12-11); [6]~[8] may vary.
+// turns of the same room and the same mission (cache friendliness, E12-11 ·
+// harness §10 v0.9.0 — another mission changes [4] on purpose); [6]~[8] may
+// vary.
 type Parts struct {
 	Identity     string // [1] agent identity + instructions
 	Rules        string // [2] workspace rules + mention syntax + colab CLI/MCP conventions
 	Coordination string // [3] lead only
-	Session      string // [4] goal / acceptance_criteria / exit condition / Director / isolation
+	Session      string // [4] 방 맥락: room + the turn's mission (harness §10 v0.9.0)
 	Roster       string // [5] participants
 	Context      string // [6] attachments / previous session summary
 	DecisionLog  string // [7]
@@ -74,7 +76,7 @@ var headers = [8]string{
 	"[1] Agent Identity",
 	"[2] Workspace Rules",
 	"[3] Coordination Protocol",
-	"[4] Session",
+	"[4] Room",
 	"[5] Roster",
 	"[6] Context",
 	"[7] Decision Log",
@@ -136,24 +138,34 @@ const PromptPointerPrefix = "먼저 "
 // PromptPointerSuffix closes it.
 const PromptPointerSuffix = " 를 읽어라. 이 세션의 브리프 전문이 그 파일에 있다."
 
-// TurnPromptPointer is the line that goes at the very FRONT of a hermes turn
-// prompt. The path is absolute on purpose: spike 5 §6.3 saw the agent's first
-// tool call be that read 4/4, and a relative path breaks the moment the
-// runtime's cwd is not the workdir.
+// FileNameFor is harness v0.9.7's brief file name for a bundle's workdir
+// kind: a `dir` folder is shared by the parallel lanes of one agent in one
+// mission (daemon-protocol v0.10.0 §6.1, D3 A), so each lane writes
+// `COLAB_BRIEF-<lane_id[:8]>.md` — with one name, a lane would overwrite
+// another's brief and its lane-end delete would remove a live lane's file.
+// A `worktree` checkout runs its agent's lanes one at a time (E2-12) and
+// keeps `COLAB_BRIEF.md`.
+func FileNameFor(kind, laneID string) string {
+	if kind == "worktree" || laneID == "" {
+		return FileName
+	}
+	if len(laneID) > 8 {
+		laneID = laneID[:8]
+	}
+	return "COLAB_BRIEF-" + laneID + ".md"
+}
+
+// PointerTo is the line that goes at the very FRONT of a hermes turn prompt,
+// naming the brief file (Prepared.Path — its name is lane-scoped for `dir`
+// folders, FileNameFor). The path is absolute on purpose: spike 5 §6.3 saw
+// the agent's first tool call be that read 4/4, and a relative path breaks
+// the moment the runtime's cwd is not the workdir.
 //
 // The daemon builds this, not the server, for the same reason it rewrites the
 // CLI wrapper path (harness §10 v0.8.1): the server does not know where this
 // machine put the workdir.
-func TurnPromptPointer(workdirAbs string) string {
-	return PromptPointerPrefix + filepath.Join(workdirAbs, FileName) + PromptPointerSuffix
-}
-
-// PrependPointer puts the pointer line in front of the server's turn prompt,
-// separated by a blank line. An empty prompt still gets the pointer — a turn
-// with no instructions is a bug elsewhere, and dropping the brief on top of
-// it would hide which one.
-func PrependPointer(workdirAbs, prompt string) string {
-	return TurnPromptPointer(workdirAbs) + "\n\n" + prompt
+func PointerTo(briefPath string) string {
+	return PromptPointerPrefix + briefPath + PromptPointerSuffix
 }
 
 // gitOps is the small slice of gitrepo Prepare/Remove use, kept behind a
@@ -176,11 +188,20 @@ var (
 // Under 우회 B the original state of the repository is irrelevant, which is
 // the property E13-04 measures: one plan, every row.
 func Prepare(workdir string, transport contracts.BriefTransport, text string) (Prepared, error) {
+	return PrepareNamed(workdir, FileName, transport, text)
+}
+
+// PrepareNamed is Prepare with the brief file's name chosen by the caller
+// (FileNameFor, harness v0.9.7).
+func PrepareNamed(workdir, name string, transport contracts.BriefTransport, text string) (Prepared, error) {
+	if name == "" {
+		name = FileName
+	}
 	switch transport {
 	case contracts.BriefACPMetaSystemPrompt:
 		return Prepared{Transport: transport}, nil
 	case contracts.BriefInstructionFile:
-		path := filepath.Join(workdir, FileName)
+		path := filepath.Join(workdir, name)
 		_, statErr := os.Stat(path)
 		existed := statErr == nil
 		// Truncating write, never an append: a resumed lane replaces the
@@ -190,11 +211,11 @@ func Prepare(workdir string, transport contracts.BriefTransport, text string) (P
 		}
 		p := Prepared{Transport: transport, Path: path, Workdir: workdir, Overwrote: existed}
 		if isRepo(workdir) {
-			if err := excludeEnsure(workdir, FileName); err != nil {
+			if err := excludeEnsure(workdir, name); err != nil {
 				// The brief itself is delivered; failing the attempt over the
 				// hiding step would trade a dirty `git status` for no work at
 				// all. It is loud, not silent.
-				return p, fmt.Errorf("brief: register %s in .git/info/exclude: %w", FileName, err)
+				return p, fmt.Errorf("brief: register %s in .git/info/exclude: %w", name, err)
 			}
 			p.Excluded = true
 		}
@@ -230,7 +251,7 @@ func Remove(p Prepared) error {
 	if !p.Excluded {
 		return nil
 	}
-	return excludeRelease(p.Workdir, FileName, func() bool { return siblingBriefExists(p.Workdir) })
+	return excludeRelease(p.Workdir, filepath.Base(p.Path), func() bool { return siblingBriefExists(p.Workdir) })
 }
 
 // siblingBriefExists reports whether any OTHER working tree of the same

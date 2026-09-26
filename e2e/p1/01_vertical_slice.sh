@@ -44,10 +44,10 @@ echo -e "iter\ttask\tstatus\tclaim_s\tfirst_event_s\tfirst_runtime_out_s\tfirst_
 
 # C-1 회귀(2026-09-06, #42/#43 머지 후): 부분 출력이 있는 동안 heartbeat 가 통째로 422 라
 # (a) 살아 있는 attempt 가 3분 뒤 재큐잉되고 (b) SSE `message.delta` 가 한 번도 안 나갔다.
-# 세션 스코프 SSE 를 구독한 채 돌려 delta 수신을 세고, 서버 로그의 재큐잉은 이 지점 이후만 센다.
+# 방 스코프 SSE(?room_id=) 를 구독한 채 돌려 delta 수신을 세고, 서버 로그의 재큐잉은 이 지점 이후만 센다.
 SRV_LOG="$OUT/server.log"; SRV_LINE0="$(wc -l < "$SRV_LOG" 2>/dev/null | tr -d ' ' || echo 0)"
 SSE="$OUT/a-sse.txt"; : > "$SSE"
-curl -sN -b "$COOKIE" -H 'Accept: text/event-stream' "$API/workspaces/$WS/stream?session_id=$SESSION" > "$SSE" 2>&1 &
+curl -sN -b "$COOKIE" -H 'Accept: text/event-stream' "$API/workspaces/$WS/stream?room_id=$SESSION" > "$SSE" 2>&1 &
 # trap 안에서도 set -e 가 살아 있다 — 이미 죽은 curl 의 kill 실패로 스크립트가 1 을 내지 않도록 `|| true` 로 받는다.
 SSE_PID=$!; trap 'kill "$SSE_PID" 2>/dev/null || true' EXIT
 sleep 1

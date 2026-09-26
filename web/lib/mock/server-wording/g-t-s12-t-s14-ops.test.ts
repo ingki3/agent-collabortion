@@ -13,25 +13,18 @@ describe("(g) T-S12 #200 · T-S14 #209 가 만든 op 의 문장은 전부 SERVER
       "CreateTestChat", "PostTestChatTurn", "CloseTestChat", "GetTestChat", "GetWorkspaceMetrics"]) expect(serverImpl).toContain(`func (s *Server) ${op}(`);
     for (const k of Object.keys(MOCK_ONLY)) expect(k).not.toMatch(/member|notification|test_chat|metrics|masking|role_enum|last_owner/);
   });
-  it("deleteSession(T-S17 #220) 은 서버에 있고 그 세 문장은 SERVER 에서 온다 — MOCK_ONLY 에 삭제 문장은 없다", () => {
+  it("deleteSession(T-S17 #220)은 v0.3.0(R4, D22)에서 지워졌다 — 목에도 그 op 이 없고 삭제 문장은 deleteRoom 의 workdir_unmerged 하나만 남는다", () => {
     for (const k of Object.keys(MOCK_ONLY)) expect(k).not.toMatch(/delete|session_active|workdir_unmerged/);
-    expect(serverImpl).toContain("func (s *Server) DeleteSession(");
-    expect(goSource("internal/httpapi/unimplemented.go")).not.toContain("DeleteSession(");
-    for (const k of ["delete_forbidden", "session_active", "workdir_unmerged"]) expect(HANDLERS).toMatch(new RegExp(`\\bW\\.${k}\\b`));
-  });
-  it("deleteSession 목 — 계약 description 의 문장·code·순서(404 → 403 → 409 session_active → 409 workdir_unmerged + workdirs[] → 204)", () => {
-    // openapi.yaml 이 못박은 문장 하나 — description 에 따옴표로 있다. 서버(T-S17)도 이 문장을 써야 한다.
-    const openapi = readFileSync(join(CONTRACTS_ROOT, "openapi.yaml"), "utf8");
-    expect(openapi).toContain(`\`409\`(\`code: session_active\`, "${W.session_active}"`);
-    expect(openapi).toContain("`409`(`code: workdir_unmerged`, `Problem.workdirs[]` 에 대상)");
-    const fn = HANDLERS.match(/on\("DELETE", "\/sessions\/\{id\}"[\s\S]*?\n\}\);/)![0];
-    const order = ['notFoundP("session")', 'new Problem(403, "director_or_admin_required", W.delete_forbidden)', 'new Problem(409, "session_active", W.session_active)', 'new Problem(409, "workdir_unmerged", W.workdir_unmerged, { workdirs: blocking })', '"session.deleted", { session_id: sess.id }', "return { status: 204 }"];
-    const idx = order.map((x) => fn.indexOf(x));
-    expect(idx.every((i) => i >= 0)).toBe(true);
-    expect([...idx].sort((a, b) => a - b)).toEqual(idx);
-    // 끝난 세션 셋 · 권한은 Director 또는 owner·admin.
-    expect(HANDLERS).toContain('const DELETABLE_SESSION = new Set<Session["status"]>(["draft", "completed", "cancelled"]);');
-    expect(fn).toContain('sess.director_user_id === user.id || member.role === "owner" || member.role === "admin"');
+    expect(HANDLERS).not.toMatch(/on\("DELETE", "\/sessions/);
+    expect(HANDLERS).not.toContain("DELETABLE_SESSION");
+    // 서버가 deleteSession 과 함께 지운 두 문장(DeleteActiveDetail·DeleteForbiddenDetail)은 표에서도 빠졌다.
+    expect(Object.keys(SERVER)).not.toContain("session_active");
+    expect(Object.keys(SERVER)).not.toContain("delete_forbidden");
+    // deleteRoom 409 는 같은 서버 문장(internal/sessions/delete.go DeleteUnmergedDetail)을 쓴다.
+    const fn = HANDLERS.match(/on\("DELETE", "\/rooms\/\{id\}"[\s\S]*?\n\}\);/)![0];
+    expect(fn).toContain('new Problem(409, "workdir_unmerged", W.workdir_unmerged, { workdirs: blocking })');
+    expect(fn).toContain('"room.deleted", { room_id: room.id }');
+    expect(fn).not.toContain("session.deleted");
   });
   it("멤버 역할 변경 — 서버 순서(권한 → enum 422 → 404 → 판정)와 PlanRoleChange 의 두 조건·code 가 같다", () => {
     const fn = HANDLERS.match(/on\("PATCH", "\/workspaces\/\{id\}\/members\/\{mid\}"[\s\S]*?\n\}\);/)![0];
@@ -48,21 +41,21 @@ describe("(g) T-S12 #200 · T-S14 #209 가 만든 op 의 문장은 전부 SERVER
     expect(goSource("internal/httpapi/handlers_members.go")).toContain(`apperr.Field("role", "enum", "${W.role_enum}")`);
     expect(HANDLERS).not.toContain("owner_demote_owner_only");
   });
-  it("멤버 제거 — PlanRemoval 의 세 조건(403 소유자만 → 409 마지막 소유자 → 409 Director %d개)과 활성 세션 집합이 서버와 같다", () => {
+  it("멤버 제거 — PlanRemoval 의 두 조건(403 소유자만 → 409 마지막 소유자), Director 는 거부 대신 승계(0.2.3), 승계하는 미션 집합이 서버와 같다", () => {
     const fn = HANDLERS.match(/on\("DELETE", "\/workspaces\/\{id\}\/members\/\{mid\}"[\s\S]*?\n\}\);/)![0];
-    const order = ["requireAdmin(", "memberOf(", 'new Problem(403, "owner_only", W.owner_only_remove)', 'new Problem(409, "last_owner", W.last_owner_remove)', 'new Problem(409, "member_is_director", fmt(W.member_is_director, directing))'];
+    const order = ["requireAdmin(", "memberOf(", 'new Problem(403, "owner_only", W.owner_only_remove)', 'new Problem(409, "last_owner", W.last_owner_remove)'];
     const idx = order.map((x) => fn.indexOf(x));
     expect(idx.every((i) => i >= 0)).toBe(true);
     expect([...idx].sort((a, b) => a - b)).toEqual(idx);
-    // 서버는 `sessions[]` 확장 칸을 싣지 않는다 — 세션 수는 문장 안에만.
-    expect(fn).not.toContain("sessions:");
-    expect(fmt(W.member_is_director, 2)).toBe("이 멤버가 Director 인 진행 중 세션이 2개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요");
+    // openapi 0.2.3: 옛 409 member_is_director 는 목에도 서버에도 없다.
+    expect(fn).not.toContain("member_is_director");
     const members = goSource("internal/auth/members.go");
     expect(members).toContain(`apperr.Forbidden(CodeOwnerOnly, "${W.owner_only_remove}")`);
     expect(members).toContain(`apperr.Conflict(CodeLastOwner, "${W.last_owner_remove}")`);
-    expect(members).toContain(`fmt.Sprintf("${W.member_is_director}", c.DirectorSessions)`);
-    // 활성 세션 = 끝나지 않은 세션 전부(draft 포함) — 서버 상수와 목 집합이 같은 네 값.
-    const goSet = members.match(/const activeSessionStatuses = `\(([^)]*)\)`/)![1].split(",").map((x) => x.trim().replace(/'/g, "")).sort();
+    expect(members).not.toContain("member_is_director");
+    // 승계하는 미션 = 끝나지 않은 미션 전부(draft 포함) — 서버 rooms.LeaveWorkspace 의 집합과 목 집합이 같은 네 값.
+    const seats = goSource("internal/rooms/seats.go");
+    const goSet = seats.match(/w\.director_user_id = \$2 AND w\.status IN \(([^)]*)\)/)![1].split(",").map((x) => x.trim().replace(/'/g, "")).sort();
     const tsSet = HANDLERS.match(/const ACTIVE_SESSION = new Set<Session\["status"\]>\(\[([^\]]*)\]\)/)![1].split(",").map((x) => x.trim().replace(/"/g, "")).sort();
     expect(tsSet).toEqual(goSet);
     expect(goSet).toEqual(["active", "completing", "draft", "paused"]);

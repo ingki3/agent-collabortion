@@ -25,7 +25,7 @@ import type { Agent, AgentProfile, AgentRole, RespondTo, Runtime, RuntimeKind } 
 
 const ROLES: AgentRole[] = ["lead", "researcher", "writer", "engineer", "reviewer", "custom"];
 const RESPOND_TO: { value: RespondTo; label: string; note: string }[] = [
-  { value: "owner", label: "소유자만", note: "내가 만든 세션에서만 응답합니다" },
+  { value: "owner", label: "소유자만", note: "만든 사람이 부를 때만 응답합니다" },
   { value: "allowlist", label: "허용 목록", note: "지정한 멤버가 부를 때만 응답합니다" },
   { value: "workspace", label: "워크스페이스 전체", note: "워크스페이스의 누구든 부를 수 있습니다" },
   { value: "nobody", label: "정지(킬 스위치)", note: "아무에게도 응답하지 않습니다" },
@@ -214,11 +214,11 @@ export default function AgentEditPage() {
         </label>
         <div className="row">
           <label className="field" style={{ flex: 1 }}>
-            <span className="field__label">동시에 맡을 수 있는 일</span>
+            <span className="field__label">동시에 맡을 수 있는 할 일</span>
             <input className="input" type="number" min={1} value={maxConcurrent} disabled={!canEdit} onChange={(e) => setMaxConcurrent(e.target.value)} data-testid="agent-max-concurrent" />
           </label>
           <label className="field" style={{ flex: 1 }}>
-            <span className="field__label">일 하나당 예산 (USD · 비우면 없음)</span>
+            <span className="field__label">할 일 하나당 예산 (USD · 비우면 없음)</span>
             <input className="input" type="number" min={0} value={budgetPerTask} disabled={!canEdit} onChange={(e) => setBudgetPerTask(e.target.value)} data-testid="agent-budget" />
           </label>
         </div>
@@ -235,7 +235,7 @@ export default function AgentEditPage() {
 
       <section className="card" style={{ marginBottom: 14 }} data-testid="agent-test-chat">
         <h2 style={{ fontSize: "var(--fs-card)", margin: "0 0 4px" }}>시험 대화</h2>
-        <p className="small muted" style={{ marginTop: 0 }}>세션을 만들지 않고 이 에이전트와 1:1 로 대화해 봅니다.</p>
+        <p className="small muted" style={{ marginTop: 0 }}>방을 만들지 않고 이 에이전트와 1:1 로 대화해 봅니다.</p>
         {workspace && <TestChatPanel agent={agent} runtimes={runtimes} workspaceId={workspace.id} />}
       </section>
 

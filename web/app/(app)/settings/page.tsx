@@ -38,7 +38,8 @@ function SettingsInner() {
   const raw = search.get("tab");
   const tab: SettingsTab = isSettingsTab(raw) ? raw : DEFAULT_TAB;
   const role = workspace?.my_role ?? null;
-  const go = (t: SettingsTab) => router.push(`/settings?tab=${t}`);
+  // 활동 로그(S15)는 자기 주소가 있다(`/settings/audit`, SCREEN §4.18) — 탭을 누르면 그리로 간다.
+  const go = (t: SettingsTab) => router.push(t === "audit" ? "/settings/audit" : `/settings?tab=${t}`);
 
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -63,7 +64,7 @@ function SettingsInner() {
       setNotifError(errorMessage(e));
     }
   }, []);
-  const isWorkspaceTab = tab !== "members" && tab !== "notifications" && tab !== "dashboard";
+  const isWorkspaceTab = tab !== "members" && tab !== "notifications" && tab !== "dashboard" && tab !== "audit";
   useEffect(() => { if (isWorkspaceTab) void loadSettings(); }, [isWorkspaceTab, loadSettings]);
   useEffect(() => { if (tab === "notifications") void loadNotif(); }, [tab, loadNotif]);
 
@@ -125,7 +126,7 @@ function SettingsInner() {
 
       {tab === "members" && workspace && <MembersTab workspaceId={workspace.id} myRole={role} meUserId={me?.user.id ?? null} />}
       {tab === "dashboard" && workspace && <MetricsTab workspaceId={workspace.id} />}
-      {tab === "notifications" && <NotificationsTab settings={notif} onSave={saveNotif} error={notifError} />}
+      {tab === "notifications" && <NotificationsTab settings={notif} onSave={saveNotif} error={notifError} workspaceId={workspace?.id} />}
       {isWorkspaceTab && (
         <>
           {settingsError && <p className="problem" role="alert" data-testid="settings-error">{settingsError}</p>}

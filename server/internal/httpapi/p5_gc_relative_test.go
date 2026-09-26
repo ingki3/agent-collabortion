@@ -14,14 +14,14 @@ import (
 func TestS65GCNeverCarriesARelativePath(t *testing.T) {
 	f := newP2Fixture(t)
 	ctx := t.Context()
-	if _, err := f.pool.Exec(ctx, `UPDATE session SET runtime_id = (SELECT id FROM runtime LIMIT 1) WHERE id = $1`, f.sessionID); err != nil {
+	if _, err := f.pool.Exec(ctx, `UPDATE room SET runtime_id = (SELECT id FROM runtime LIMIT 1) WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	var laneID uuid.UUID
 	if err := f.pool.QueryRow(ctx, `
-		INSERT INTO lane (session_id, agent_id, profile_id, status, created_at, updated_at)
-		SELECT $1, $2, p.profile_id, 'done', now(), now() FROM session_participant p
-		WHERE p.session_id = $1 AND p.agent_id = $2 RETURNING id`, f.sessionID, f.r).Scan(&laneID); err != nil {
+		INSERT INTO lane (session_id, agent_id, profile_id, status, created_at, updated_at, work_id)
+		SELECT $1, $2, p.profile_id, 'done', now(), now(), r.legacy_work_id FROM room_participant p JOIN room r ON r.id = p.room_id
+		WHERE p.room_id = $1 AND p.agent_id = $2 RETURNING id`, f.sessionID, f.r).Scan(&laneID); err != nil {
 		t.Fatal(err)
 	}
 	var absID, relID uuid.UUID
@@ -41,7 +41,7 @@ func TestS65GCNeverCarriesARelativePath(t *testing.T) {
 		t.Fatalf("DELETE relative workdir = %d %v, want 409 workdir_relative_path", st, out)
 	}
 	// Completion issues one gc for the session: the absolute row only.
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/complete", map[string]any{"confirm": true})
+	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/complete", map[string]any{"confirm": true})
 	var gcs int
 	var ids, targets string
 	if err := f.pool.QueryRow(ctx, `
@@ -60,7 +60,7 @@ func TestS65GCNeverCarriesARelativePath(t *testing.T) {
 	}
 	// The sweep (retention window long past) builds the same command shape and
 	// leaves the relative row out too.
-	if _, err := f.pool.Exec(ctx, `UPDATE session SET finished_at = now() - interval '30 days' WHERE id = $1`, f.sessionID); err != nil {
+	if _, err := f.pool.Exec(ctx, `UPDATE work SET finished_at = now() - interval '30 days' WHERE room_id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.srv.Workdirs.SweepGC(ctx); err != nil {

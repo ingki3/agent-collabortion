@@ -34,14 +34,18 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, canControl bool) (*gen.L
 		status                                     string
 		hasRef                                     bool
 		finishedAt                                 *time.Time
+		work                                       *uuid.UUID
+		workTitle                                  *string
 	)
 	err := q.QueryRow(ctx, `
 		SELECT l.id, l.session_id, l.parent_lane_id, l.agent_id, l.profile_id, l.depends_on, l.workdir_id, l.delegated_from_task_id,
 		       l.runtime_session_ref IS NOT NULL, l.status::text, l.blocked_note, l.blocked_message_id, l.reentry_count,
-		       l.brief, l.created_at, l.updated_at, l.finished_at, a.name
-		FROM lane l JOIN agent a ON a.id = l.agent_id WHERE l.id = $1`, id).
+		       l.brief, l.created_at, l.updated_at, l.finished_at, a.name, l.work_id, wk.title
+		FROM lane l JOIN agent a ON a.id = l.agent_id
+		LEFT JOIN work wk ON wk.id = l.work_id
+		WHERE l.id = $1`, id).
 		Scan(&out.Id, &out.SessionId, &parent, &out.AgentId, &out.ProfileId, &out.DependsOn, &workdir, &delegatedFrom,
-			&hasRef, &status, &blockedNote, &blockedMsg, &out.ReentryCount, &brief, &out.CreatedAt, &out.UpdatedAt, &finishedAt, &agentName)
+			&hasRef, &status, &blockedNote, &blockedMsg, &out.ReentryCount, &brief, &out.CreatedAt, &out.UpdatedAt, &finishedAt, &agentName, &work, &workTitle)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -61,6 +65,9 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, canControl bool) (*gen.L
 	out.FinishedAt = tasks.NullTime(finishedAt)
 	out.HasRuntimeSession = &hasRef
 	out.AgentName = agentName
+	// openapi 0.2.0: the mission the lane is bound to, null = 「미션 없음」.
+	out.WorkId = tasks.NullUUID(work)
+	out.WorkTitle = tasks.NullString(workTitle)
 	if out.DependsOn == nil {
 		out.DependsOn = []openapi_types.UUID{}
 	}
@@ -83,6 +90,18 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, canControl bool) (*gen.L
 		}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("lanes: current task: %w", err)
+	}
+	// PRD §3.1 (openapi 0.2.0 Lane.queued_reason): why the lane's first
+	// waiting task still waits. Left out when nothing holds it back, so a lane
+	// that never queued reads exactly as before 0.2.0.
+	var queued *string
+	if err := q.QueryRow(ctx, `
+		SELECT queued_reason::text FROM task WHERE lane_id = $1 AND status = 'queued'
+		ORDER BY created_at LIMIT 1`, id).Scan(&queued); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("lanes: queued reason: %w", err)
+	}
+	if queued != nil {
+		out.QueuedReason = nullable.NewNullableWithValue(gen.QueuedReason(*queued))
 	}
 	out.Actions = laneActions(out.Status, out.FailureKind, cancellable, canControl)
 	return &out, nil
@@ -132,30 +151,38 @@ func laneActions(status gen.LaneStatus, failure nullable.Nullable[gen.FailureKin
 // List returns the session's lanes for the S7 board (openapi listLanes). The
 // response is a **bare array** — the contract says `type: array`, like
 // listArtifacts. statuses filters by lane_status; empty means all seven.
-func List(ctx context.Context, q db.DBTX, sessionID uuid.UUID, statuses []string, canControl bool) ([]gen.Lane, error) {
+//
+// canControl is asked per lane with the lane's mission (nil = outside any
+// mission): who may stop a lane is its OWN mission's Director and deputy
+// (PRD v0.19 — a room holds several missions, T-R1b2), so the buttons match
+// what cancelLane accepts.
+func List(ctx context.Context, q db.DBTX, sessionID uuid.UUID, statuses []string, canControl func(work *uuid.UUID) bool) ([]gen.Lane, error) {
 	rows, err := q.Query(ctx, `
-		SELECT id FROM lane
+		SELECT id, work_id FROM lane
 		WHERE session_id = $1 AND (cardinality($2::text[]) = 0 OR status::text = ANY($2))
 		ORDER BY created_at`, sessionID, statuses)
 	if err != nil {
 		return nil, fmt.Errorf("lanes: list: %w", err)
 	}
 	var ids []uuid.UUID
+	var works []*uuid.UUID
 	for rows.Next() {
 		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
+		var work *uuid.UUID
+		if err := rows.Scan(&id, &work); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		ids = append(ids, id)
+		works = append(works, work)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	out := make([]gen.Lane, 0, len(ids))
-	for _, id := range ids {
-		l, err := Load(ctx, q, id, canControl)
+	for i, id := range ids {
+		l, err := Load(ctx, q, id, canControl != nil && canControl(works[i]))
 		if err != nil {
 			return nil, err
 		}
@@ -188,9 +215,49 @@ func Publish(ctx context.Context, hub *realtime.Hub, q db.DBTX, laneID uuid.UUID
 		return err
 	}
 	var wsID uuid.UUID
-	if err := q.QueryRow(ctx, `SELECT workspace_id FROM session WHERE id = $1`, l.SessionId).Scan(&wsID); err != nil {
+	if err := q.QueryRow(ctx, `SELECT workspace_id FROM room WHERE id = $1`, l.SessionId).Scan(&wsID); err != nil {
 		return fmt.Errorf("lanes: publish: workspace of %s: %w", l.SessionId, err)
 	}
 	sid := uuid.UUID(l.SessionId)
 	return hub.Publish(ctx, q, wsID, &sid, "lane.updated", l)
+}
+
+// FillMySubscription is openapi 0.2.9 Lane.my_subscription for listLanes: the
+// caller's setLaneSubscription value, null when they never set one (the
+// mission's and the room's subscription decide). It is per-caller, so
+// Load/Publish leave it out — a broadcast `lane.updated` frame has no single
+// caller, like `actions`.
+func FillMySubscription(ctx context.Context, q db.DBTX, list []gen.Lane, viewer uuid.UUID) error {
+	if len(list) == 0 {
+		return nil
+	}
+	ids := make([]uuid.UUID, len(list))
+	for i, l := range list {
+		ids[i] = l.Id
+	}
+	rows, err := q.Query(ctx, `SELECT lane_id, enabled FROM lane_subscription WHERE lane_id = ANY($1) AND user_id = $2`, ids, viewer)
+	if err != nil {
+		return fmt.Errorf("lanes: subscriptions: %w", err)
+	}
+	defer rows.Close()
+	set := map[uuid.UUID]bool{}
+	for rows.Next() {
+		var id uuid.UUID
+		var on bool
+		if err := rows.Scan(&id, &on); err != nil {
+			return err
+		}
+		set[id] = on
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range list {
+		if on, ok := set[list[i].Id]; ok {
+			list[i].MySubscription = nullable.NewNullableWithValue(on)
+		} else {
+			list[i].MySubscription = nullable.NewNullNullable[bool]()
+		}
+	}
+	return nil
 }

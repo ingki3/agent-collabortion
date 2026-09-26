@@ -22,6 +22,62 @@ func TestNormalize(t *testing.T) {
 	}
 }
 
+// T-COSTMODEL: the three spellings Claude Code reports. Each is asserted on
+// the EXACT key, not through Price — Price's longest-prefix fallback happens
+// to rescue some of them today, and a test that passed through it would not
+// notice the rule going away.
+func TestNormalizeContextTag(t *testing.T) {
+	for in, want := range map[string]string{
+		"claude-opus-5[1m]":             "claude-opus-5",
+		"CLAUDE-OPUS-5[1M]":             "claude-opus-5",
+		"claude-sonnet-4-6 [1m]":        "claude-sonnet-4-6",
+		"claude-haiku-4-5-20251001[1m]": "claude-haiku-4-5",
+		"anthropic:claude-opus-5[1m]":   "claude-opus-5",
+	} {
+		if got := Normalize(in); got != want {
+			t.Errorf("Normalize(%q) = %q, want %q — a context-window tag is priced at the base rate", in, got, want)
+		}
+	}
+}
+
+func TestNormalizeCommaListTakesFirst(t *testing.T) {
+	for in, want := range map[string]string{
+		"claude-opus-5[1m],claude-haiku-4-5-20251001": "claude-opus-5",
+		"claude-haiku-4-5-20251001,claude-opus-5[1m]": "claude-haiku-4-5",
+		" claude-sonnet-5 , claude-opus-5":            "claude-sonnet-5",
+	} {
+		if got := Normalize(in); got != want {
+			t.Errorf("Normalize(%q) = %q, want %q — the first model is the main one", in, got, want)
+		}
+	}
+}
+
+func TestNormalizeDateVariants(t *testing.T) {
+	for in, want := range map[string]string{
+		"claude-haiku-4-5-2025-10-01": "claude-haiku-4-5",
+		"claude-opus-4-8-latest":      "claude-opus-4-8",
+		"claude-haiku-4-5-20251001":   "claude-haiku-4-5",
+	} {
+		if got := Normalize(in); got != want {
+			t.Errorf("Normalize(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// a 4-digit tail is still a model name, not a date
+	if got := Normalize("claude-opus-4-8-2026"); got != "claude-opus-4-8-2026" {
+		t.Errorf("Normalize stripped a non-date: %q", got)
+	}
+}
+
+// The comma rule changes a PRICE, not just a key: the override for the main
+// model is what must win for the joined string.
+func TestCommaListPricesTheMainModel(t *testing.T) {
+	tab := NewTable(map[string]Price{"claude-opus-5": {Input: 7, Output: 7}})
+	p, ok := tab.Price("claude-opus-5[1m],claude-haiku-4-5-20251001")
+	if !ok || p.Input != 7 {
+		t.Fatalf("price = %+v ok=%v, want the claude-opus-5 override", p, ok)
+	}
+}
+
 // A `-1234` suffix is a model name, not a date — only 8 digits are a snapshot.
 func TestNormalizeKeepsShortSuffixes(t *testing.T) {
 	if got := Normalize("claude-haiku-4-5"); got != "claude-haiku-4-5" {

@@ -30,7 +30,7 @@ import (
 //     left) shows the structural reason instead of a bare ✗;
 //   - updateSession may change completion_condition while the session is
 //     active or paused (handlers_sessions_p3.go), which is how such a session
-//     is rescued — the re-evaluation rides on ApplyCompletionEvent with the
+//     is rescued — the re-evaluation rides on ApplyWorkEvent with the
 //     EventConditionChanged kind.
 
 // EventConditionChanged is the ApplyEvent kind updateSession uses after the
@@ -50,7 +50,7 @@ const (
 
 // designated reports which agent the atom names: `agent_id` when given,
 // otherwise `who: assignee` resolved against the session's assignee. A
-// `who` that is a role name is not resolved here — ApplyCompletionEvent does
+// `who` that is a role name is not resolved here — ApplyWorkEvent does
 // not resolve it either, so reporting it as unresolved is the honest reading
 // of what the evaluator will do with it.
 func designated(c Condition, assignee *uuid.UUID) *uuid.UUID {
@@ -85,14 +85,14 @@ func ValidateReviewers(t Tree, participant func(uuid.UUID) bool) []apperr.FieldE
 		if c.Agent == nil {
 			if c.Type == CondAgentApproval {
 				errs = append(errs, apperr.Field(field, "reviewer_required",
-					"「검토 승인」에는 리뷰어를 참여자 중에서 골라 주세요 — 리뷰어가 없으면 아무도 승인할 수 없어 세션이 끝나지 않습니다"))
+					"「검토 승인」에는 리뷰어를 참여자 중에서 골라 주세요 — 리뷰어가 없으면 아무도 승인할 수 없어 미션이 끝나지 않습니다"))
 			}
 			continue
 		}
 		if !participant(*c.Agent) {
-			msg := "리뷰어는 이 세션의 참여자 중에서 골라 주세요"
+			msg := "리뷰어는 이 방의 참여자 중에서 골라 주세요"
 			if c.Type == CondArtifactSubmitted {
-				msg = "제출자는 이 세션의 참여자 중에서 골라 주세요"
+				msg = "제출자는 이 방의 참여자 중에서 골라 주세요"
 			}
 			errs = append(errs, apperr.Field(field, "reviewer_not_participant", msg))
 		}
@@ -115,6 +115,9 @@ type agentFact struct {
 type completionFacts struct {
 	Assignee *uuid.UUID
 	Agents   map[uuid.UUID]agentFact
+	// ApprovalHeld is T-APPROVAL's hold: the platform's user_approval request
+	// waits for the mission's running work to end.
+	ApprovalHeld bool
 }
 
 // loadCompletionFacts reads the agents a tree names in one query. An id that
@@ -134,7 +137,7 @@ func loadCompletionFacts(ctx context.Context, q db.DBTX, sessionID uuid.UUID, t 
 	}
 	rows, err := q.Query(ctx, `
 		SELECT a.id, a.name, a.archived_at IS NOT NULL,
-		       EXISTS (SELECT 1 FROM session_participant sp WHERE sp.session_id = $1 AND sp.agent_id = a.id)
+		       EXISTS (SELECT 1 FROM room_participant sp WHERE sp.room_id = $1 AND sp.agent_id = a.id AND sp.left_at IS NULL)
 		FROM agent a WHERE a.id = ANY($2)`, sessionID, ids)
 	if err != nil {
 		return f, fmt.Errorf("sessions: completion agents: %w", err)
@@ -187,24 +190,47 @@ func blockedReason(c Condition, f completionFacts) *gen.CompletionProgressCondit
 func LoadProgress(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (gen.CompletionProgress, error) {
 	var tree, met []byte
 	var assignee *uuid.UUID
-	err := q.QueryRow(ctx, `SELECT completion_condition, completion_met, assignee_agent_id FROM session WHERE id = $1`, sessionID).
-		Scan(&tree, &met, &assignee)
+	var held bool
+	err := q.QueryRow(ctx, `SELECT wk.completion_condition, wk.completion_met, wk.assignee_agent_id, wk.approval_held_at IS NOT NULL FROM room s `+LegacyJoin+` WHERE s.id = $1`, sessionID).
+		Scan(&tree, &met, &assignee, &held)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return gen.CompletionProgress{}, apperr.NotFound("session")
 	}
 	if err != nil {
 		return gen.CompletionProgress{}, err
 	}
-	return progressOf(ctx, q, sessionID, tree, met, assignee)
+	return progressOf(ctx, q, sessionID, tree, met, assignee, held)
+}
+
+// LoadWorkProgress is LoadProgress for one mission (Work.completion_progress).
+// The participants the S-84 columns check against are its room's.
+func LoadWorkProgress(ctx context.Context, q db.DBTX, workID uuid.UUID) (gen.CompletionProgress, error) {
+	var tree, met []byte
+	var assignee *uuid.UUID
+	var roomID uuid.UUID
+	var held bool
+	err := q.QueryRow(ctx, `SELECT room_id, completion_condition, completion_met, assignee_agent_id, approval_held_at IS NOT NULL FROM work WHERE id = $1`, workID).
+		Scan(&roomID, &tree, &met, &assignee, &held)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return gen.CompletionProgress{}, apperr.NotFound("work")
+	}
+	if err != nil {
+		return gen.CompletionProgress{}, err
+	}
+	return progressOf(ctx, q, roomID, tree, met, assignee, held)
 }
 
 // progressOf is LoadProgress for a caller that already holds the columns
 // (sessions.Load reads them in its one SELECT).
-func progressOf(ctx context.Context, q db.DBTX, sessionID uuid.UUID, tree, met []byte, assignee *uuid.UUID) (gen.CompletionProgress, error) {
+//
+// held is work.approval_held_at IS NOT NULL (T-APPROVAL): the user_approval
+// row then says why no request is open yet (held_reason).
+func progressOf(ctx context.Context, q db.DBTX, sessionID uuid.UUID, tree, met []byte, assignee *uuid.UUID, held bool) (gen.CompletionProgress, error) {
 	facts, err := loadCompletionFacts(ctx, q, sessionID, ParseTree(tree), assignee)
 	if err != nil {
 		return gen.CompletionProgress{}, err
 	}
+	facts.ApprovalHeld = held
 	return buildProgress(tree, met, facts), nil
 }
 
@@ -284,6 +310,7 @@ func describe(c Condition, path string, met bool, f completionFacts) progressCon
 		AgentId:       nullable.NewNullNullable[openapi_types.UUID](),
 		AgentName:     nullable.NewNullNullable[string](),
 		BlockedReason: nullable.NewNullNullable[gen.CompletionProgressConditionsBlockedReason](),
+		HeldReason:    nullable.NewNullNullable[gen.CompletionProgressConditionsHeldReason](),
 		NextActor:     nullable.NewNullNullable[string](),
 	}
 	var name string
@@ -310,6 +337,12 @@ func describe(c Condition, path string, met bool, f completionFacts) progressCon
 		}
 	case CondUserApproval, CondManual:
 		row.NextActor = nullable.NewNullableWithValue(NextActorDirector)
+		if c.Type == CondUserApproval && f.ApprovalHeld {
+			// T-APPROVAL: the other atoms are met, the request is held until
+			// the mission's work ends (openapi v0.3.3). next_actor stays the
+			// Director's — it is still theirs to answer, just not yet.
+			row.HeldReason = nullable.NewNullableWithValue(gen.CompletionProgressConditionsHeldReason(HeldRunningTasks))
+		}
 	case CondCriteriaMet:
 		row.NextActor = nullable.NewNullableWithValue(NextActorPlatform)
 	}

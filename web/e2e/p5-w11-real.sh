@@ -135,7 +135,7 @@ ab wait '[data-testid="metric-row"]' --timeout 15000 >/dev/null
 chk "  행 수" "$(apic 'document.querySelectorAll("[data-testid=metric-row]").length')" "10"
 chk "  '아직 잴 수 없음' 값 칸 수" "$(apic '[...document.querySelectorAll("[data-testid=metric-value]")].filter(e=>e.textContent.includes("아직 잴 수 없음")).length')" "10"
 chk "  판정 unknown 수(10행 + breakdown 2행)" "$(apic '[...document.querySelectorAll("[data-testid=metric-verdict]")].filter(e=>e.dataset.verdict==="unknown").length')" "12"
-chk "  첫 행 라벨 = 서버 label" "$(apic 'document.querySelector("[data-testid=metric-row]").textContent.includes("컴퓨터 연결부터 첫 세션 완료까지 걸린 시간")')" "True"
+chk "  첫 행 라벨 = 서버 label" "$(apic 'document.querySelector("[data-testid=metric-row]").textContent.includes("컴퓨터 연결부터 첫 미션 완료까지 걸린 시간")')" "True"
 shot_both "p5-w11-02-dashboard-real"
 
 step "시험 대화 — 열기 → 턴 202(진행 중) → 재전송 409 → 닫기 → 410"
@@ -197,9 +197,10 @@ chk "  되돌리기 → 서버 role" "$(mem_field "$MEMBER" role)" "member"
 
 step "멤버 탭(소유자) — 내보내기: Director 인 진행 중 세션이 있으면 409 member_is_director 의 서버 문장(세션 수) → Director 교체 뒤 204"
 VUID="$(mem_field "$VICTIM" uid)"; VMID="$(mem_field "$VICTIM" id)"; OUID="$(mem_field "$OWNER" uid)"; MYMID="$(mem_field "$OWNER" id)"
-JS="(async()=>{const r=await fetch('/api/v1/workspaces/$WS/sessions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title:'제거 판정용',goal:'멤버 제거 판정을 위한 세션',isolation:{kind:'none'},participants:[{agent_id:'$AG'}],assignee_agent_id:'$AG',runtime_id:'$RID'})});const b=await r.json();return r.status===201?b.id:('ERR'+r.status+JSON.stringify(b))})()"
+# v0.3.0(R4): createSession 은 지워졌다 — 방을 만들고 그 방에 미션을 연다(Director = 연 사람). SID 는 미션 id.
+JS="(async()=>{const j=(u,b)=>fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});const r=await j('/api/v1/workspaces/$WS/rooms',{name:'제거 판정용'});const room=await r.json();if(r.status!==201)return 'ERR'+r.status+JSON.stringify(room);await j('/api/v1/rooms/'+room.id+'/participants',{agent_id:'$AG'});const w=await j('/api/v1/rooms/'+room.id+'/works',{goal:'멤버 제거 판정을 위한 미션',assignee_agent_id:'$AG'});const b=await w.json();return w.status===201?b.id:('ERR'+w.status+JSON.stringify(b))})()"
 SID="$(apic "$JS")"
-JS="(async()=>{const r=await fetch('/api/v1/sessions/$SID/director',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({director_user_id:'$VUID'})});return String(r.status)})()"
+JS="(async()=>{const r=await fetch('/api/v1/works/$SID/director',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({director_user_id:'$VUID'})});return String(r.status)})()"
 chk "  changeDirector → 내보낼 멤버(#209 가 고친 500 자리)" "$(apic "$JS")" "200"
 [ "$(click_in_row "$VICTIM" member-remove)" = "ok" ] || { echo "  ✗ 내보내기 버튼"; fail=1; }
 sleep 0.5
@@ -208,7 +209,7 @@ sleep 2
 chk "  409 detail 그대로(세션 1개)" "$(apic 'document.querySelector("[data-testid=members-error]")?.textContent||""')" "이 멤버가 Director 인 진행 중 세션이 1개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요"
 chk "  아직 멤버(행 수)" "$(rows_n)" "4"
 shot_both "p5-w12-04-members-owner"
-JS="(async()=>{const r=await fetch('/api/v1/sessions/$SID/director',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({director_user_id:'$OUID'})});return String(r.status)})()"
+JS="(async()=>{const r=await fetch('/api/v1/works/$SID/director',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({director_user_id:'$OUID'})});return String(r.status)})()"
 chk "  Director 를 소유자로 되돌림(78_ B.9 와 같은 길)" "$(apic "$JS")" "200"
 # 409 뒤에도 확인 줄은 열린 채다(화면은 실패 뒤 확인을 닫지 않는다 — 사유를 읽고 다시 누를 수 있게) → 「내보내기」 확인만 다시 누른다.
 [ "$(click_in_row "$VICTIM" member-remove-yes)" = "ok" ] || { echo "  ✗ 내보내기 확인 버튼(2)"; fail=1; }

@@ -1,0 +1,83 @@
+/* S5 방 카드(T-R2-W1) — 색은 tokens.css 변수만. 목록은 한 열이다(COMPONENTS §8.5 v0.19 — 훑고 답하는 목록). */
+.room-list { display: flex; flex-direction: column; gap: 8px; }
+.room-card { position: relative; min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.room-card:hover { background: var(--surface); }
+/* 보관된 방은 낮은 대비 + 「보관됨」 칩(§4.3). 글자는 ink-2 까지만 내린다 — ink-3 은 텍스트 대비를 못 넘는다(§8.5). */
+.room-card--archived { background: var(--surface); }
+.room-card--archived .room-card__name, .room-card--archived .room-card__works { color: var(--ink-2); }
+.room-card__link {
+  display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; min-width: 0;
+  padding: 12px 48px 12px 16px; text-decoration: none; color: inherit; border-radius: 10px;
+}
+.room-card__link:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.room-card__main { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.room-card__top { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.room-card__rename { padding: 12px 48px 0 16px; }
+.room-card__rename + .room-card__link { padding-top: 4px; }
+.room-card__name-input { font-size: var(--fs-card); font-weight: 600; line-height: 1.3; }
+.room-card__name { font-weight: 600; font-size: var(--fs-card); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.room-card__desc { font-size: var(--fs-sub); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.room-card__people { font-size: var(--fs-meta); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.room-card__chip {
+  font-size: var(--fs-meta); color: var(--ink-2); border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; line-height: 1.6;
+}
+.room-card__side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; font-size: var(--fs-meta); color: var(--ink-2); text-align: right; }
+.room-card__works { color: var(--ink); }
+.room-card__attention { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.room-card__att--wait { color: var(--s-wait-text); }
+.room-card__att--block { color: var(--s-block-text); }
+.room-card__att--fail { color: var(--s-fail-text); }
+.room-card__time { white-space: nowrap; }
+/* 안 읽음 배지 — 숫자 채움(내비의 받은 요청 뱃지와 같은 모양). 글자는 --bg on --ink(primary 버튼과 같은 조합, 대비 가드가 잰다). */
+.unread-badge {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px;
+  border-radius: 999px; background: var(--ink); color: var(--bg); font-size: var(--fs-meta); font-weight: 600; line-height: 1;
+}
+/* 좁은 화면 — 오른쪽 칸을 아래로 내린다. */
+@media (max-width: 640px) {
+  .room-card__link { flex-direction: column; gap: 8px; }
+  .room-card__side { align-items: flex-start; text-align: left; }
+  .room-card__attention { justify-content: flex-start; }
+}
+
+/* S25 방 찾기 — S5 상단 제어. */
+.room-search { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.room-search__row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.room-search__input { width: min(320px, 100%); }
+.room-search__toggle { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sub); color: var(--ink); cursor: pointer; }
+.room-search__sort { margin-left: auto; font-size: var(--fs-meta); color: var(--ink-2); }
+.room-search__more { margin: 0; font-size: var(--fs-meta); color: var(--ink-2); }
+.linklike {
+  border: 0; background: none; padding: 0; font: inherit; color: var(--ink); text-decoration: underline; cursor: pointer;
+}
+.linklike:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.room-empty__examples { margin: 0 0 14px; padding: 0; list-style: none; font-size: var(--fs-sub); color: var(--ink-2); display: flex; flex-direction: column; gap: 2px; }
+.room-empty__aside { margin: 4px 0 0; font-size: var(--fs-sub); color: var(--ink-2); }
+
+/* S18 방 만들기 — 껍데기는 확인 다이얼로그(confirm-dialog.css). */
+.create-room__field { display: flex; flex-direction: column; gap: 4px; }
+.create-room__label { font-size: var(--fs-sub); color: var(--ink); font-weight: 500; }
+.create-room__err { font-size: var(--fs-meta); color: var(--s-fail-text); }
+.create-room__info {
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface);
+}
+.create-room__info .btn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
+.create-room__info .disabled-hint { margin: 0; }
+.create-room__warn { margin: 0; font-size: var(--fs-sub); color: var(--s-wait-text); }
+.create-room .disabled-hint { align-self: flex-end; margin: 0; }
+/* S7 방 머리(T-R2-W2) — 상단 액션 줄 · ⋯ 메뉴는 카드 모서리가 아니라 줄 안에 선다. */
+.room-head { display: flex; flex-direction: column; gap: 6px; }
+.room-head__title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* S7 머리 이름 — 보기(h1)와 편집 칸이 같은 크기·굵기여야 하므로 바깥 요소에 붙는다(InlineTitleEdit className). */
+.room-head__name { margin: 0; font-size: var(--fs-title); font-weight: 700; line-height: 1.3; }
+.room-head__layers { margin: 4px 0 0; font-size: var(--fs-sub); color: var(--ink-2); }
+.room-head__needs { border-color: var(--s-wait); }
+.room-head__actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; }
+.room-head__act { display: inline-flex; flex-direction: column; gap: 2px; max-width: 16em; }
+.room-head__menu.card-menu { position: relative; top: auto; right: auto; }
+.room-head__range { border: 0; padding: 0; margin: 0 0 8px; display: flex; flex-direction: column; gap: 4px; }
+.room-head__picked { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin: 0 0 8px; }
+.room-head__picked-dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; margin: 0; font-size: var(--fs-sub); }
+.room-head__picked-dl dt { color: var(--ink-2); }
+.room-head__picked-dl dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -26,8 +26,13 @@ func (s *Server) laneControl(r *http.Request, laneID uuid.UUID) (*gen.User, uuid
 	var sessionID, wsID, director uuid.UUID
 	var deputy *uuid.UUID
 	err := s.DB.QueryRow(r.Context(), `
-		SELECT l.session_id, s.workspace_id, s.director_user_id, s.deputy_director_user_id
-		FROM lane l JOIN session s ON s.id = l.session_id WHERE l.id = $1`, laneID).Scan(&sessionID, &wsID, &director, &deputy)
+		SELECT l.session_id, s.workspace_id,
+		       -- The lane's OWN mission decides (V19_R1B_HANDOFF (c)); a lane
+		       -- outside any mission answers to the room's owner and deputy
+		       -- (FR-2A.1), like router.status does.
+		       COALESCE(wk.director_user_id, s.owner_user_id),
+		       CASE WHEN wk.id IS NULL THEN s.deputy_owner_user_id ELSE wk.deputy_user_id END
+		FROM lane l JOIN room s ON s.id = l.session_id LEFT JOIN work wk ON wk.id = l.work_id WHERE l.id = $1`, laneID).Scan(&sessionID, &wsID, &director, &deputy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, uuid.Nil, uuid.Nil, apperr.NotFound("lane")
 	}
@@ -45,20 +50,20 @@ func (s *Server) laneControl(r *http.Request, laneID uuid.UUID) (*gen.User, uuid
 	// M7's half-deadline). Reusing the approval window here would make a
 	// runaway agent un-stoppable for twelve hours (E10-06).
 	if perm := tasks.MayCancel(u.Id, director, deputy); !perm.Allowed {
-		return nil, uuid.Nil, uuid.Nil, apperr.Forbidden("director_required", "작업 줄기는 이 세션의 Director 나 deputy 만 중단할 수 있습니다")
+		return nil, uuid.Nil, uuid.Nil, apperr.Forbidden("director_required", "서브 미션은 이 미션의 Director 나 deputy 만 중단할 수 있습니다")
 	}
 	return u, wsID, sessionID, nil
 }
 
-// ListLanes is GET /sessions/{sessionId}/lanes — the S7 left-column board
-// (FR-6.2). Workspace member or a TaskToken scoped to this session; the
+// ListLanes is GET /rooms/{roomId}/lanes — the S7 left-column board
+// (FR-6.2). Workspace member or a TaskToken scoped to this room; the
 // response is a bare array (openapi listLanes `type: array`).
 //
 // `actions` is per-caller: only the Director and the deputy may cancel
 // (t-3), and a TaskToken never can, so the board an agent reads shows no
 // control buttons.
-func (s *Server) ListLanes(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.ListLanesParams) {
-	u, p := s.sessionAccess(r, sessionId)
+func (s *Server) ListLanes(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListLanesParams) {
+	u, p := s.sessionAccess(r, roomId)
 	if p != nil {
 		writeProblem(w, p)
 		return
@@ -67,27 +72,60 @@ func (s *Server) ListLanes(w http.ResponseWriter, r *http.Request, sessionId gen
 	if params.Status != nil {
 		for _, st := range *params.Status {
 			if !st.Valid() {
-				writeProblem(w, apperr.Validation(apperr.Field("status", "enum", "알 수 없는 작업 줄기 상태입니다: "+string(st))))
+				writeProblem(w, apperr.Validation(apperr.Field("status", "enum", "알 수 없는 서브 미션 상태입니다: "+string(st))))
 				return
 			}
 			statuses = append(statuses, string(st))
 		}
 	}
-	canControl := false
+	// The same gate the cancel handler applies (laneControl), per lane, so the
+	// board never shows a button that 403s (FR-5.3 last bullet): the lane's
+	// mission's Director·deputy, or the room's owner·deputy for a lane
+	// outside any mission (review #291 NN4 — a room with no mission is not
+	// a server error).
+	var canControl func(work *uuid.UUID) bool
 	if u != nil {
-		var director uuid.UUID
-		var deputy *uuid.UUID
-		if err := s.DB.QueryRow(r.Context(), `SELECT director_user_id, deputy_director_user_id FROM session WHERE id = $1`, sessionId).
-			Scan(&director, &deputy); err != nil {
+		type seat struct {
+			director uuid.UUID
+			deputy   *uuid.UUID
+		}
+		seats := map[uuid.UUID]seat{}
+		rows, err := s.DB.Query(r.Context(), `SELECT id, director_user_id, deputy_user_id FROM work WHERE room_id = $1`, roomId)
+		if err != nil {
 			writeErr(w, err)
 			return
 		}
-		// The same gate the cancel handler applies, so the board never shows a
-		// button that 403s (FR-5.3 last bullet).
-		canControl = tasks.MayCancel(u.Id, director, deputy).ButtonEnabled
+		for rows.Next() {
+			var id uuid.UUID
+			var st seat
+			if err := rows.Scan(&id, &st.director, &st.deputy); err != nil {
+				rows.Close()
+				writeErr(w, err)
+				return
+			}
+			seats[id] = st
+		}
+		rows.Close()
+		var room seat
+		if err := s.DB.QueryRow(r.Context(), `SELECT owner_user_id, deputy_owner_user_id FROM room WHERE id = $1`, roomId).
+			Scan(&room.director, &room.deputy); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			writeErr(w, err)
+			return
+		}
+		canControl = func(work *uuid.UUID) bool {
+			st := room
+			if work != nil {
+				st = seats[*work]
+			}
+			return tasks.MayCancel(u.Id, st.director, st.deputy).ButtonEnabled
+		}
 	}
-	out, err := lanes.List(r.Context(), s.DB, sessionId, statuses, canControl)
+	out, err := lanes.List(r.Context(), s.DB, roomId, statuses, canControl)
 	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if err := lanes.FillMySubscription(r.Context(), s.DB, out, u.Id); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -146,17 +184,17 @@ func (s *Server) publishLane(r *http.Request, wsID, sessionID uuid.UUID, lane *g
 
 // DelegateLane is `colab lane delegate` (FR-6.2, FR-6.5). Agents only: a human
 // parallelises with postMessage's new_lane toggle instead.
-func (s *Server) DelegateLane(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.DelegateLaneParams) {
+func (s *Server) DelegateLane(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.DelegateLaneParams) {
 	pr := principalOf(r)
 	if pr.Task == nil {
-		writeProblem(w, apperr.Forbidden("agent_only", "위임은 에이전트만 할 수 있습니다 — 사람은 글쓰기 칸의 「새 작업 줄기로 보내기」를 쓰세요"))
+		writeProblem(w, apperr.Forbidden("agent_only", "위임은 에이전트만 할 수 있습니다 — 사람은 글쓰기 칸의 「새 서브 미션으로 보내기」를 쓰세요"))
 		return
 	}
-	if pr.Task.SessionID != sessionId {
-		writeProblem(w, apperr.Forbidden("outside_task_scope", "다른 세션에는 위임할 수 없습니다"))
+	if pr.Task.SessionID != roomId {
+		writeProblem(w, apperr.Forbidden("outside_task_scope", "다른 방에는 위임할 수 없습니다"))
 		return
 	}
-	if p := s.commandAllowed(r, gen.LaneDelegate); p != nil {
+	if p := s.commandAllowed(r, gen.ColabCommandLaneDelegate); p != nil {
 		writeProblem(w, p)
 		return
 	}

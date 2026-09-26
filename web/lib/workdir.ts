@@ -7,7 +7,7 @@
  * `unmerged_commits` 는 **병합해라**(E13-12), `uncommitted_changes` 는 **커밋하거나 버려라**(E13-13).
  * 한 문장으로 뭉치면 골든 표의 "the two blocked reasons are distinguishable" 행이 말하는 결함이 된다.
  *
- * 쿼터도 마찬가지로 서버 판정(`createSession` 이 `workdir_quota_exceeded` 로 막는다)이지만, S13 상단의
+ * 쿼터도 마찬가지로 서버 판정(`createWork` 가 `workdir_quota_exceeded` 로 막는다 — v0.3.0 R4 에서 옛 createSession 게이트를 옮겼다)이지만, S13 상단의
  * 사용률 막대가 **≥ 로 빨강**이 되어야 사람이 막히기 전에 안다(E13-16 은 > 가 아니라 ≥ 다).
  * 쿼터 미설정(null)은 0 이 아니라 무제한이다(E13-19).
  */

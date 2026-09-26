@@ -38,6 +38,8 @@ ROOT="/tmp/colab-s12-$RUN"
 IFS=$'\t' read -r RID DTOK <<<"$(pair_curl "$WS" "mac-s12" '[{"kind":"claude_code","version":"1.0.0","logged_in":true,"models":["claude-sonnet-5"],"protocol_version":1,"resume":true,"usage":true,"tool_disallow":true,"brief_transport":"acp_meta_system_prompt","allow_once_missing":false}]' "$ROOT")"
 export DTOK RID
 chk 0.1 online "$(psqlq "select status from runtime where id='$RID'")" "probe 뒤 컴퓨터 online"
+# 공유 스택(다른 스크립트가 먼저 돈 DB)에서도 재도록 전역 수는 이 스크립트 시작 시점과의 차이로 잰다(R4 e2e 이관).
+EV0="$(psqlq "select count(*) from task_event")"
 chk 0.2 "$ROOT" "$(psqlq "select workdir_root from runtime where id='$RID'")" "workdir_root 저장(§4.1 절대 경로 재료)"
 
 # ───────────────────────────── A ─────────────────────────────────────────────
@@ -45,7 +47,7 @@ step "A. createTestChat → 턴 게시 → claim 번들(§4.5)"
 CHAT_JSON="$(api_ok POST "/agents/$AG/test-chats" '{}')"
 CHAT="$(jq -r .id <<<"$CHAT_JSON")"
 chk A.1 "open/$RID" "$(jq -r '.status+"/"+.runtime_id' <<<"$CHAT_JSON")" "채팅 열림 · 그 runtime_kind 의 온라인 컴퓨터로 고정"
-chk A.2 0 "$(psqlq "select count(*) from session where workspace_id='$WS'")" "세션 0개 (FR-1.8.1 세션이 아니다)"
+chk A.2 0 "$(psqlq "select count(*) from room where workspace_id='$WS'")" "세션 0개 (FR-1.8.1 세션이 아니다)"
 T1="$(api POST "/test-chats/$CHAT/turns" '{"content":"안녕, 너는 누구니?"}' -H "Idempotency-Key: $(uuid)")"
 chk A.3 202 "$(api_code <<<"$T1")" "postTestChatTurn 202"
 chk A.4 user "$(api_body <<<"$T1" | jq -r .role)" "202 본문 = 사용자 턴"
@@ -85,7 +87,7 @@ EV="$(daemon_api "$ATT/events" "$(jq -nc --arg c "$CHAT" --arg ts "$NOW" '{event
   {task_id:$c,attempt:1,seq:3,ts:$ts,class:"message",verb:"say",outcome:"ok",payload:{kind:"thought",text:"(생각)"}},
   {task_id:$c,attempt:1,seq:4,ts:$ts,class:"message",verb:"say",outcome:"ok",payload:{kind:"text",text:"나는 Guide 에이전트입니다."}}]}')")"
 chk B.4 4 "$(jq -r .accepted_seq_max <<<"$EV")" "events accepted_seq_max=4"
-chk B.5 0 "$(psqlq "select count(*) from task_event")" "task_event 저장 0 (§4.5)"
+chk B.5 "$EV0" "$(psqlq "select count(*) from task_event")" "task_event 저장 0 (§4.5 — 시작 시점과 같은 수)"
 FIN="$(daemon_api "$ATT/finish" "$(jq -nc --arg cwd "$ROOT/.colab/testchat/$CHAT" --arg ts "$NOW" '{outcome:"completed",stop_reason:"end_turn",transport:"acp",last_seq:4,
   usage:{input_tokens:1200,output_tokens:300,estimated:true,model:"claude-sonnet-5"},
   runtime_session_ref:{runtime_kind:"claude_code",session_id:"acp-s12-1",cwd:$cwd,created_at:$ts}}')")"
@@ -137,7 +139,7 @@ daemon_api "runtimes/$RID/workdirs" '{"workdirs":[]}' >/dev/null
 chk E.6 1 "$(claim | jq -r --arg c "$CHAT" '[.commands[]|select(.type=="gc" and .test_chat_id==$c)]|length')" "영수증 없는 §6 보고는 gc 를 소비하지 않는다(§4.3)"
 daemon_api "runtimes/$RID/workdirs" "$(jq -nc --arg c "$CHAT" --arg p "$ROOT/.colab/testchat/$CHAT" '{workdirs:[{id:$c,kind:"dir",path:$p,test_chat_id:$c,bytes:0,gc:{status:"deleted"}}]}')" >/dev/null
 chk E.7 0 "$(claim | jq -r --arg c "$CHAT" '[.commands[]|select(.type=="gc" and .test_chat_id==$c)]|length')" "gc deleted 영수증 뒤 명령 소비"
-chk E.8 0 "$(psqlq "select count(*) from workdir")" "test_chat_id 행은 workdir 테이블에 안 들어간다"
+chk E.8 0 "$(psqlq "select count(*) from workdir where id='$CHAT' or path_or_ref like '$ROOT/%'")" "test_chat_id 행은 workdir 테이블에 안 들어간다(이 컴퓨터의 행 0)"
 
 # ───────────────────────────── F ─────────────────────────────────────────────
 step "F. 진행 중 턴이 있는 채팅을 close → cancel + gc"

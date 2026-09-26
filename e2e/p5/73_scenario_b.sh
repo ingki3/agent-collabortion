@@ -27,7 +27,7 @@ RULES="$P5_RULES"
 PM_INS="너는 PM(lead)이다. 한국어로 짧게 답한다. 첫 턴부터 곧바로: SPEC.md 를 세 줄로 쓰고, colab_lane_delegate 로 \"Backend\" 에 \"src/pump.py 의 water_seconds 를 구현하라\", \"Frontend\" 에 \"src/ui.py 의 render 를 고쳐라\" 를 위임한 뒤 status \"done\". 두 위임이 끝나 다시 깨어나면 세션 메시지의 마지막 \"FRONTEND-DIFF <id>\" 를 찾아 colab_message_post 로 \"[@QA](mention://agent/QA_ID) 리뷰 부탁합니다. FRONTEND-DIFF <id>\" 를 게시하고 status \"done\". QA 의 반려가 보이면 확인 한 줄만 게시하고 status \"done\". $RULES"
 BE_INS="너는 Backend(engineer)다. src/pump.py 의 water_seconds 를 moisture<30 이면 5, 아니면 0 으로 고치고 \`git diff --stat\` 한 번, colab_artifact_submit type \"diff\" name \"backend\"(file 없이), \"BACKEND-DIFF <id>\" 게시, status \"done\". 커밋·add 금지. $RULES"
 FE_INS="너는 Frontend(engineer)다. src/ui.py 의 render 가 \"planter: \" 를 앞에 붙이게 고치고 \`git diff --stat\` 한 번, colab_artifact_submit type \"diff\" name \"frontend\"(file 없이), \"FRONTEND-DIFF <id>\" 게시, status \"done\". 수정 요청을 받으면 src/ui.py 첫 줄에 \`# QA-FIX-9421\` 을 넣고 같은 절차(name 그대로). 커밋·add 금지. $RULES"
-QA_INS="너는 QA(reviewer)다. 도구는 셸의 \`colab\` 명령이다. frontend 아티팩트만 본다. \`colab session messages --limit 50\` 에서 마지막 \"FRONTEND-DIFF <id>\" 를 찾아 \`colab artifact get <id> --out ./fe.diff\` 로 받는다(남의 작업 디렉토리는 열지 않는다). \`QA-FIX-9421\` 이 있으면 \`colab review approve --artifact <id> --note 승인\`, 없으면 \`colab review reject --artifact <id> --reason \"src/ui.py 맨 첫 줄에 주석 # QA-FIX-9421 한 줄을 추가해 주세요\"\`. 정확히 한 번. 그리고 \`colab status set done\`. $RULES"
+QA_INS="너는 QA(reviewer)다. 도구는 셸의 \`colab\` 명령이다. frontend 아티팩트만 본다. \`colab room messages --limit 50\` 에서 마지막 \"FRONTEND-DIFF <id>\" 를 찾아 \`colab artifact get <id> --out ./fe.diff\` 로 받는다(남의 작업 디렉토리는 열지 않는다). \`QA-FIX-9421\` 이 있으면 \`colab review approve --artifact <id> --note 승인\`, 없으면 \`colab review reject --artifact <id> --reason \"src/ui.py 맨 첫 줄에 주석 # QA-FIX-9421 한 줄을 추가해 주세요\"\`. 정확히 한 번. 그리고 \`colab status set done\`. $RULES"
 GOAL='실내 화분 자동 급수기 패널의 급수 시간 계산과 상태 표시를 구현한다'
 TITLE="scenario-b-$STAMP"; SLUG="$TITLE"
 
@@ -67,8 +67,8 @@ S="$(create_session_p4 "$WS" "$TITLE" "$GOAL" "$PM" "$RUNTIME_ID" "$REPO" "$(con
 [ -n "$S" ] && [ "$S" != null ] || die "세션 생성 실패"
 T_PM="$(session_initial_task "$S")"
 chk B1  "worktree 격리 세션이 열린다 (repo_path 검증 통과)" yes "$( [ -n "$S" ] && echo yes || echo no )"
-chk B1b "isolation.kind = worktree" worktree "$(psqlq "select isolation->>'kind' from session where id='$S'")"
-chk B1c "종료 조건 = agent_approval 단독" agent_approval "$(psqlq "select completion_condition->'conditions'->0->>'type' from session where id='$S'")"
+chk B1b "isolation.kind = worktree" worktree "$(psqlq "select isolation->>'kind' from room where id='$S'")"
+chk B1c "종료 조건 = agent_approval 단독" agent_approval "$(psqlq "select completion_condition->'conditions'->0->>'type' from work where room_id='$S'")"
 T0="$(now_ms)"
 
 step "2b. 데몬 기동"
@@ -92,12 +92,18 @@ step "3. B1·B2 — PM 위임 → 워크트리 2개 · 브랜치 colab/<S>/<agen
 wait_until $T_TURN '[ "$(lanes_count "'"$S"'" Backend)" -ge 1 ] && [ "$(lanes_count "'"$S"'" Frontend)" -ge 1 ]' || bad "PM 위임이 두 lane 을 만들지 않았다"
 chk B2  "Backend lane 1개"  1 "$(lanes_count "$S" Backend)"
 chk B2b "Frontend lane 1개" 1 "$(lanes_count "$S" Frontend)"
-WT_BE="$WORK/worktrees/$SLUG/backend"; WT_FE="$WORK/worktrees/$SLUG/frontend"
+# T-FOLDERS(daemon-protocol v0.10.0 §6.1, D7 C): 체크아웃은 `rooms/<방>-<room_id8>/_worktrees/<에이전트>-<agent_id8>`
+# 이고 경로를 **서버가 짓는다** — 이 스크립트는 더 이상 경로를 손으로 조립하지 않고 행에서 읽는다.
+wt_of() { psqlq "select w.path_or_ref from workdir w join agent a on a.id=w.agent_id where w.session_id='$S' and a.name='$1' and w.kind='worktree' limit 1"; }
+wait_until $T_TURN '[ -n "$(wt_of Backend)" ] && [ -n "$(wt_of Frontend)" ]' || bad "워크트리 행 두 개가 만들어지지 않았다"
+WT_BE="$(wt_of Backend)"; WT_FE="$(wt_of Frontend)"
+ROOM_PIECE="$(basename "$(dirname "$(dirname "$WT_BE")")")"   # <방 slug>-<room_id8>
 wait_until $T_TURN '[ -d "'"$WT_BE"'" ] && [ -d "'"$WT_FE"'" ]' || bad "워크트리 두 개가 준비되지 않았다"
 chk B2c "Backend 워크트리 존재 ($WT_BE)"  yes "$( [ -d "$WT_BE" ] && echo yes || echo no )"
 chk B2d "Frontend 워크트리 존재"          yes "$( [ -d "$WT_FE" ] && echo yes || echo no )"
-chk B2e "Backend 브랜치 = colab/$SLUG/backend"   "colab/$SLUG/backend"  "$(git -C "$WT_BE" symbolic-ref --short HEAD 2>/dev/null || echo 없음)"
-chk B2f "Frontend 브랜치 = colab/$SLUG/frontend" "colab/$SLUG/frontend" "$(git -C "$WT_FE" symbolic-ref --short HEAD 2>/dev/null || echo 없음)"
+# 브랜치의 방 조각에 room_id 앞 8자리가 붙는다(Lead 판정 2026-09-26 — 한글 방 이름 겹침 방지).
+chk B2e "Backend 브랜치 = colab/$SLUG-<room_id8>/backend" "colab/$SLUG-$(printf '%.8s' "$S")/backend" "$(git -C "$WT_BE" symbolic-ref --short HEAD 2>/dev/null || echo 없음)"
+chk B2f "Frontend 브랜치 = colab/$SLUG-<room_id8>/frontend" "colab/$SLUG-$(printf '%.8s' "$S")/frontend" "$(git -C "$WT_FE" symbolic-ref --short HEAD 2>/dev/null || echo 없음)"
 wait "$BUNDLE_PID" 2>/dev/null || true
 PM_WD="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('workdir',{}).get('path',''))" "$OUT/73-pm-bundle.json" 2>/dev/null || echo '')"
 chk X1  "TaskBundle 의 workdir.path 가 절대 경로다 (§4.1)" yes "$( [ -n "$PM_WD" ] && [ "${PM_WD#/}" != "$PM_WD" ] && echo yes || echo no )"
@@ -130,9 +136,10 @@ for line in open(tap):
         if b.get("task", {}).get("id") == task:
             json.dump(b, sys.stdout, ensure_ascii=False, indent=1); sys.exit(0)
 PY
-chk B4  "QA 번들에 Backend·Frontend 워크트리 경로 0건 (E13-08)" 0 "$(cnt "$OUT/73-qa-bundle.json" "worktrees/$SLUG/backend" "worktrees/$SLUG/frontend")"
+chk B4  "QA 번들에 Backend·Frontend 워크트리 경로 0건 (E13-08)" 0 "$(cnt "$OUT/73-qa-bundle.json" "$(basename "$WT_BE")" "$(basename "$WT_FE")")"
 QA_WD="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('workdir',{}).get('path',''))" "$OUT/73-qa-bundle.json" 2>/dev/null || echo '')"
-chk B4b "QA 번들 workdir 은 QA 자기 것 (${QA_WD:-없음})" yes "$( [ "${QA_WD%/qa}" != "$QA_WD" ] && echo yes || echo no )"
+case "$(basename "${QA_WD:-none}")" in qa-*) QA_OWN=yes;; *) QA_OWN=no;; esac
+chk B4b "QA 번들 workdir 은 QA 자기 것 (${QA_WD:-없음})" yes "$QA_OWN"
 chk B4c "QA 브리프 전송 = instruction_file (hermes)" instruction_file "$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('brief',{}).get('transport',''))" "$OUT/73-qa-bundle.json" 2>/dev/null || echo '-')"
 
 step "6. B5 — QA 수정 요청 → Frontend 기존 lane 재진입 (규칙 1, 새 lane 0)"
@@ -171,8 +178,8 @@ for pair in "Backend:$WT_BE" "Frontend:$WT_FE"; do
   chk "B8d-$low" "$who: exclude 에 COLAB_BRIEF 0" 0 "$(cnt "$REPO/.git/info/exclude" 'COLAB_BRIEF')"
   chk "B8e-$low" "$who: status 에 COLAB_BRIEF·wrapper 잔여물 0" 0 "$(cnt "$OUT/73-status-$low.txt" 'COLAB_BRIEF' '\.colab')"
 done
-WT_QA="$WORK/worktrees/$SLUG/qa"
-if [ -d "$WT_QA" ]; then
+WT_QA="$(wt_of QA)"
+if [ -n "$WT_QA" ] && [ -d "$WT_QA" ]; then
   chk B8-qa  "QA(hermes): COLAB_BRIEF.md 없음 (§8.4)" 0 "$(ls "$WT_QA/COLAB_BRIEF.md" 2>/dev/null | wc -l | tr -d ' ')"
   chk B8b-qa "QA(hermes): AGENTS.md 무변경 (M3)" "$AGENTS_MD_BEFORE" "$(shasum "$WT_QA/AGENTS.md" 2>/dev/null | cut -d' ' -f1)"
 else chk_na B8-qa "QA 워크트리" 없음 "QA 턴이 워크트리를 만들지 않았다"; fi

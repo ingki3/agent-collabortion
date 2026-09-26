@@ -25,11 +25,11 @@ P3_GOAL="${P3_GOAL:-가상의 실내 화분 자동 급수기 제품 Y 의 사용
 create_session_p3() {
   local ws="$1" title="$2" goal="$3" assignee="$4" rt="$5" extra="${6:-{\}}"; shift 6
   local parts; parts="$(printf '%s\n' "$@" | jq -R . | jq -sc 'map({agent_id:.})')"
-  api_ok POST "/workspaces/$ws/sessions" "$(jq -nc --arg t "$title" --arg g "$goal" --arg a "$assignee" --arg rt "$rt" \
+  create_room_work "$ws" "$(jq -nc --arg t "$title" --arg g "$goal" --arg a "$assignee" --arg rt "$rt" \
       --argjson p "$parts" --argjson x "$extra" \
     '{title:$t,goal:$g,isolation:{kind:"none"},participants:$p,assignee_agent_id:$a,
       completion_condition:{op:"and",conditions:[{type:"manual"}]}}
-     + (if $rt=="" then {} else {runtime_id:$rt} end) + $x')" | jq -r .id
+     + (if $rt=="" then {} else {runtime_id:$rt} end) + $x')"
 }
 # daemon_pair_cap CODE CONFIG WORKROOT CAPACITY [--no-turn] — 페어링 뒤 capacity 를 박는다.
 # capacity 는 §0 의 "동시 실행 슬롯"이다. 41_ 은 **1** 로 두어 "waiting_human 이 슬롯을 잡지 않는다"를
@@ -133,10 +133,10 @@ tap_brief() { python3 "$P3_DIR/fixtures/brief_of.py" "$1" "$2" ${3:+"$3"}; }
 # **경로가 없다**) DB 로 넣는다. 판정 대상이 아니라 **자극**이므로 우회로 세지 않는다.
 set_agent_budget() { psqlq "update agent set budget_per_task=$2 where id='$1'" >/dev/null; }
 agent_budget() { psqlq "select coalesce(budget_per_task::text,'-') from agent where id='$1'"; }
-# task_usage TASK → cost_usd  estimated
-task_usage() { psqlq "select coalesce(cost_usd::text,'0'), coalesce(estimated::text,'-') from task_usage where task_id='$1'"; }
+# task_usage TASK → cost_usd  estimated (every attempt's, summed — T-S-usage)
+task_usage() { psqlq "select coalesce(cost_usd::text,'0'), coalesce(estimated::text,'-') from task_usage_total where task_id='$1'"; }
 # session_limits SESSION → limits jsonb
-session_limits() { psqlq "select coalesce(limits::text,'{}') from session where id='$1'"; }
+session_limits() { psqlq "select coalesce(limits::text,'{}') from room where id='$1'"; }
 
 # ── 인박스 ───────────────────────────────────────────────────────────────────
 inbox_rows() { psqlq "select type::text, severity::text, coalesce(ref_id::text,'-'), coalesce(read_at::text,'-')
@@ -151,13 +151,13 @@ ab()     { agent-browser "$@"; }
 abget()  { agent-browser "$@" 2>/dev/null || true; }
 abwait() { agent-browser wait "$1" --timeout "$(( ${2:-25} * 1000 ))" >/dev/null 2>&1; }
 abcount(){ local n; n="$(abget get count "$1")"; echo "${n:-0}"; }
-# web_login EMAIL PASSWORD — 로그인해서 /sessions 까지
+# web_login EMAIL PASSWORD — 로그인해서 /rooms 까지
 web_login() {
   ab open "$WEB_URL/login" >/dev/null
   abwait '[data-testid="login-form"]' || return 1
   ab fill 'input[name=email]' "$1" >/dev/null
   ab fill 'input[name=password]' "$2" >/dev/null
   ab click 'button[type=submit]' >/dev/null
-  agent-browser wait --url "**/sessions" --timeout 20000 >/dev/null 2>&1 || true
+  agent-browser wait --url "**/rooms" --timeout 20000 >/dev/null 2>&1 || true
 }
 shot() { ab screenshot "$E2E_ROOT/web/__screenshots__/$1.png" >/dev/null 2>&1; log "📸 $1.png"; }

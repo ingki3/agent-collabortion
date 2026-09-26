@@ -14,7 +14,7 @@
 # ── 차단 결함과 우회 (Lead 결정) ────────────────────────────────────────────
 # **K-7**(계약 충돌) · **C-4**(CLI): `contracts/colab-cli.md` v0.5 §2.4 는 `colab hitl *` 의 경로를
 # `POST /v1/tasks/{T}/hitl` 로 적고 CLI(PR #126)가 그대로 구현했는데, **openapi 에는 그 경로가 없다**
-# (`createHitlRequest` = `POST /sessions/{S}/hitl-requests`) — 서버(PR #124)는 openapi 만 구현한다.
+# (`createHitlRequest` = `POST /rooms/{S}/hitl-requests`) — 서버(PR #124)는 openapi 만 구현한다.
 # 실서버 1회차 실측: MCP 툴 `colab_hitl_ask` 도 cli_wrapper 래퍼도 **404 Not Found** 로 거부되고,
 # 에이전트는 30여 툴콜을 헤매다 저장소를 뒤졌다. Lead 판정: openapi 가 SSOT → 계약 PR + CLI 핫픽스.
 #
@@ -55,7 +55,7 @@ ASK_INS='너는 가상의 실내 화분 자동 급수기 제품 Y 의 사용 설
      default 는 "가정용 사용자", context 는 "브리프에 독자가 적혀 있지 않다".
      이 호출이 성공하면 **b 를 건너뛰고 곧장 c 로 간다.** 오류가 나면 아무것도 조사하지 말고 b 로 간다.
   b. (a 가 실패했을 때만) 셸에서 아래 명령을 그대로 한 번 실행한다.
-     curl -sS -X POST "$COLAB_SERVER_URL/api/v1/sessions/$COLAB_SESSION_ID/hitl-requests" -H "Authorization: Bearer $COLAB_TASK_TOKEN" -H "Content-Type: application/json" -d '"'"'{"type":"question","question":"설명 초안의 독자를 누구로 잡을까요?","context":"브리프에 독자가 적혀 있지 않다","proposed_default":"가정용 사용자"}'"'"'
+     curl -sS -X POST "$COLAB_SERVER_URL/api/v1/rooms/$COLAB_SESSION_ID/hitl-requests" -H "Authorization: Bearer $COLAB_TASK_TOKEN" -H "Content-Type: application/json" -d '"'"'{"type":"question","question":"설명 초안의 독자를 누구로 잡을까요?","context":"브리프에 독자가 적혀 있지 않다","proposed_default":"가정용 사용자"}'"'"'
      (그 명령의 응답에 "turn_end_required":true 가 들어 있으면 등록된 것이다.)
   c. 메시지를 하나도 게시하지 말고 즉시 턴을 끝낸다. 다른 도구를 부르지 마라.
 
@@ -82,7 +82,7 @@ REJ_INS='너는 가상의 실내 화분 자동 급수기 제품 Y 의 설명 초
   a. colab_hitl_approve_request 를 한 번 호출한다. summary 는 "초안을 이대로 확정해도 될까요?".
      이 호출이 성공하면 **b 를 건너뛰고 곧장 c 로 간다.** 오류가 나면 b 로 간다.
   b. (a 가 실패했을 때만) 셸에서 아래 명령을 그대로 한 번 실행한다.
-     curl -sS -X POST "$COLAB_SERVER_URL/api/v1/sessions/$COLAB_SESSION_ID/hitl-requests" -H "Authorization: Bearer $COLAB_TASK_TOKEN" -H "Content-Type: application/json" -d '"'"'{"type":"approval","summary":"초안을 이대로 확정해도 될까요?"}'"'"'
+     curl -sS -X POST "$COLAB_SERVER_URL/api/v1/rooms/$COLAB_SESSION_ID/hitl-requests" -H "Authorization: Bearer $COLAB_TASK_TOKEN" -H "Content-Type: application/json" -d '"'"'{"type":"approval","summary":"초안을 이대로 확정해도 될까요?"}'"'"'
      (그 명령의 응답에 "turn_end_required":true 가 들어 있으면 등록된 것이다.)
   c. 메시지를 하나도 게시하지 말고 즉시 턴을 끝낸다.
 
@@ -135,7 +135,7 @@ ST="$(WAIT_S=${HITL_WAIT_S:-420} wait_task "$T_A1" waiting_human failed cancelle
 chk A1 "E7-03 첫 턴이 task 를 waiting_human 으로 끝낸다" waiting_human "$ST"
 LANE_A1="$(task_field "$T_A1" lane_id)"
 chk A1b "그 lane 도 waiting_human 이다"                  waiting_human "$(lane_field "$LANE_A1" status)"
-chk A1c "세션은 active 유지 (E7-18)"                     active "$(psqlq "select status from session where id='$S1'")"
+chk A1c "세션은 active 유지 (E7-18)"                     active "$(psqlq "select status from work where room_id='$S1'")"
 chk A1d "attempt 1 의 프로세스가 남아 있지 않다"          0 "$(procs_of_attempt "$WORK" "$T_A1" 1)"
 chk A1e "workdir 디렉토리가 보존된다"                     yes \
   "$( [ -d "$WORK/sessions/$S1/$LANE_A1" ] && echo yes || echo no )"
@@ -185,7 +185,7 @@ chk A4b "**capacity=1 인데** Peer task 가 끝까지 돌았다 (슬롯 미점�
 chk A4c "Peer 가 메시지를 게시했다"                        1 \
   "$(psqlq "select count(*) from message where source_task_id='$T_PEER' and content like 'PEER-DONE%'")"
 chk A4d "그 사이 Asker 는 여전히 waiting_human"             waiting_human "$(task_field "$T_A1" status)"
-chk A4e "세션은 active 유지"                                active "$(psqlq "select status from session where id='$S1'")"
+chk A4e "세션은 active 유지"                                active "$(psqlq "select status from work where room_id='$S1'")"
 
 step "4. 웹 인박스(S8)에서 Director 가 답한다 — 화면 판정은 DOM"
 ANSWER="관리사무소 담당자"
@@ -329,7 +329,7 @@ chk R5 "에이전트가 거절 사유를 읽고 게시했다" 1 \
 chk R6 "거절도 결정 기록 1건" 1 "$(psqlq "select count(*) from decision where session_id='$S4'")"
 
 step "9. 타임라인의 HITL 카드가 웹 S7 에도 정식 카드로 보이는가 (§0-9 DOM)"
-ab open "$WEB_URL/sessions/$S1" >/dev/null 2>&1 || true
+ab open "$WEB_URL/rooms/$S1" >/dev/null 2>&1 || true
 abwait '[data-testid="hitl-card"]' 30 || true
 shot "p3-48-03-session-hitl-card"
 HC="$(abcount '[data-testid="hitl-card"]')"

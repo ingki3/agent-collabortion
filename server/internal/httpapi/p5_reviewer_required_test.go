@@ -13,6 +13,7 @@ package httpapi
 // answers 200.
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -20,19 +21,26 @@ import (
 	"github.com/google/uuid"
 )
 
-// createWith posts a session with `tree` and the given participants.
+// createWith opens a mission with `tree` in a room of the given agents (the
+// first is the assignee) — createSession's check, on createWork (v0.3.0).
 func (f *p2Fixture) createWith(tree map[string]any, participants ...string) (int, map[string]any) {
-	parts := make([]map[string]any, 0, len(participants))
-	for _, id := range participants {
-		parts = append(parts, map[string]any{"agent_id": id})
+	return tryWork(f.api.t, f.api, f.p, f.wsID, participants, map[string]any{
+		"title": "S-84", "assignee_agent_id": participants[0], "completion_condition": tree,
+	})
+}
+
+// missionOf is the room's one mission (sessionRoom marks it legacy_work_id;
+// a tryWork room has exactly one). A mission id is its own answer, so a
+// createWork response's id can be passed as it is.
+func (f *p2Fixture) missionOf(t *testing.T, room string) string {
+	t.Helper()
+	var id string
+	if err := f.pool.QueryRow(t.Context(), `
+		SELECT COALESCE((SELECT legacy_work_id FROM room WHERE id = $1),
+		                (SELECT id FROM work WHERE room_id = $1 ORDER BY created_at LIMIT 1), $1)::text`, room).Scan(&id); err != nil {
+		t.Fatal(err)
 	}
-	body := map[string]any{
-		"title": "S-84", "goal": "g", "isolation": map[string]any{"kind": "none"},
-		"participants": parts, "assignee_agent_id": participants[0],
-		"completion_condition": tree,
-	}
-	st, out, _ := f.api.do("POST", f.p+"/workspaces/"+f.wsID+"/sessions", body)
-	return st, out
+	return id
 }
 
 func and(conds ...map[string]any) map[string]any {
@@ -52,16 +60,16 @@ func (f *p2Fixture) oldShapeSession(t *testing.T, tree map[string]any) string {
 	t.Helper()
 	sess := f.artifactSession(t, and(atom("user_approval")))
 	raw, _ := json.Marshal(tree)
-	if _, err := f.pool.Exec(t.Context(), `UPDATE session SET completion_condition = $2 WHERE id = $1`, sess, raw); err != nil {
+	if _, err := f.pool.Exec(t.Context(), `UPDATE work SET completion_condition = $2 WHERE room_id = $1`, sess, raw); err != nil {
 		t.Fatal(err)
 	}
 	return sess
 }
 
-// conds indexes getSession's completion_progress.conditions[] by type.
+// conds indexes getWork's completion_progress.conditions[] by type.
 func (f *p2Fixture) conds(t *testing.T, sess string) (map[string]map[string]any, map[string]any) {
 	t.Helper()
-	out := f.api.must(200, "GET", f.p+"/sessions/"+sess, nil)
+	out := f.api.must(200, "GET", f.p+"/works/"+f.missionOf(t, sess), nil)
 	prog := out["completion_progress"].(map[string]any)
 	by := map[string]map[string]any{}
 	for _, raw := range prog["conditions"].([]any) {
@@ -73,7 +81,7 @@ func (f *p2Fixture) conds(t *testing.T, sess string) (map[string]map[string]any,
 
 func (f *p2Fixture) patchCond(t *testing.T, c *client, sess string, tree map[string]any) (int, map[string]any) {
 	t.Helper()
-	st, out, _ := c.do("PATCH", f.p+"/sessions/"+sess, map[string]any{"completion_condition": tree})
+	st, out, _ := c.do("PATCH", f.p+"/works/"+f.missionOf(t, sess), map[string]any{"completion_condition": tree})
 	return st, out
 }
 
@@ -163,7 +171,7 @@ func TestP5ProgressBlockedReason(t *testing.T) {
 	})
 	t.Run("reviewer_not_participant — the reviewer left the session", func(t *testing.T) {
 		sess := f.artifactSession(t, and(atom("agent_approval", "agent_id", f.r)))
-		if _, err := f.pool.Exec(t.Context(), `DELETE FROM session_participant WHERE session_id = $1 AND agent_id = $2`, sess, f.r); err != nil {
+		if _, err := f.pool.Exec(t.Context(), `DELETE FROM room_participant WHERE room_id = $1 AND agent_id = $2`, sess, f.r); err != nil {
 			t.Fatal(err)
 		}
 		by, _ := f.conds(t, sess)
@@ -177,7 +185,14 @@ func TestP5ProgressBlockedReason(t *testing.T) {
 		if _, err := f.pool.Exec(t.Context(), `UPDATE agent SET archived_at = now() WHERE id = $1`, f.r); err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { _, _ = f.pool.Exec(t.Context(), `UPDATE agent SET archived_at = NULL WHERE id = $1`, f.r) })
+		// context.Background: t.Context() is already cancelled when Cleanup
+		// runs, and the next subtest invites R again (addRoomParticipant
+		// refuses an archived agent — createSession did not look).
+		t.Cleanup(func() {
+			if _, err := f.pool.Exec(context.Background(), `UPDATE agent SET archived_at = NULL WHERE id = $1`, f.r); err != nil {
+				t.Error(err)
+			}
+		})
 		by, _ := f.conds(t, sess)
 		if got := by["agent_approval"]; str(got, "blocked_reason") != "agent_archived" || str(got, "agent_name") != "R" {
 			t.Fatalf("agent_approval row = %v, want agent_archived", got)
@@ -189,7 +204,7 @@ func TestP5ProgressBlockedReason(t *testing.T) {
 		if st, out := f.submit(t, sess, wTok, "draft.md", "doc", []byte("초안")); st != 201 {
 			t.Fatalf("submit = %d %v", st, out)
 		}
-		if _, err := f.pool.Exec(t.Context(), `DELETE FROM session_participant WHERE session_id = $1 AND agent_id = $2`, sess, f.w); err != nil {
+		if _, err := f.pool.Exec(t.Context(), `DELETE FROM room_participant WHERE room_id = $1 AND agent_id = $2`, sess, f.w); err != nil {
 			t.Fatal(err)
 		}
 		by, _ := f.conds(t, sess)
@@ -211,7 +226,7 @@ func TestP5ProgressBlockedReason(t *testing.T) {
 
 // TestP5UpdateCompletionConditionActive — updateSession: "`completion_condition`
 // 은 `active`·`paused` 에서도 Director 가 바꿀 수 있다 — 검증은 createSession 과
-// 같고, 바꾸면 진행률을 다시 계산해 `session.completion_progress` 를 보낸다. 이미
+// 같고, 바꾸면 진행률을 다시 계산해 `work.completion_progress` 를 보낸다. 이미
 // 충족된 원자는 그대로 유지".
 func TestP5UpdateCompletionConditionActive(t *testing.T) {
 	f := newP2Fixture(t)
@@ -223,22 +238,22 @@ func TestP5UpdateCompletionConditionActive(t *testing.T) {
 
 	t.Run("the old session is rescued: reviewer named → Lead approves → completed", func(t *testing.T) {
 		sess := f.oldShapeSession(t, and(atom("artifact_submitted", "who", "assignee"), atom("agent_approval")))
-		frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?session_id="+sess)
+		frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?room_id="+sess)
 		defer stop()
 
 		st, out := f.patchCond(t, f.api, sess, and(atom("artifact_submitted", "agent_id", f.w), atom("agent_approval", "agent_id", f.lead)))
 		if st != 200 {
 			t.Fatalf("PATCH = %d %v", st, out)
 		}
-		got := waitTypes(t, frames, "session.completion_progress", "session.updated")
+		got := waitTypes(t, frames, "work.completion_progress", "work.updated")
 		var frame struct {
-			SessionID string `json:"session_id"`
-			Progress  struct {
+			WorkID   string `json:"work_id"`
+			Progress struct {
 				Conditions []map[string]any `json:"conditions"`
 			} `json:"completion_progress"`
 		}
-		if err := json.Unmarshal(got["session.completion_progress"], &frame); err != nil || frame.SessionID != sess {
-			t.Fatalf("session.completion_progress frame = %s (%v)", got["session.completion_progress"], err)
+		if err := json.Unmarshal(got["work.completion_progress"], &frame); err != nil || frame.WorkID != f.missionOf(t, sess) {
+			t.Fatalf("work.completion_progress frame = %s (%v)", got["work.completion_progress"], err)
 		}
 		if len(frame.Progress.Conditions) != 2 || str(frame.Progress.Conditions[1], "agent_name") != "Lead" || frame.Progress.Conditions[1]["blocked_reason"] != nil {
 			t.Fatalf("frame conditions = %v, want the new tree with Lead named and nothing blocked", frame.Progress.Conditions)
@@ -248,8 +263,8 @@ func TestP5UpdateCompletionConditionActive(t *testing.T) {
 			t.Fatalf("after the fix agent_approval row = %v", c)
 		}
 		var n int
-		if err := f.pool.QueryRow(t.Context(), `SELECT count(*) FROM activity_log WHERE session_id = $1 AND action = 'session.completion_condition_changed'`, sess).Scan(&n); err != nil || n != 1 {
-			t.Fatalf("activity_log session.completion_condition_changed = %d (%v), want 1", n, err)
+		if err := f.pool.QueryRow(t.Context(), `SELECT count(*) FROM activity_log WHERE session_id = $1 AND action = 'work.completion_condition_changed'`, sess).Scan(&n); err != nil || n != 1 {
+			t.Fatalf("activity_log work.completion_condition_changed = %d (%v), want 1", n, err)
 		}
 
 		wTok, _ := f.agentToken(t, sess, f.wUUID, "W")
@@ -311,10 +326,14 @@ func TestP5UpdateCompletionConditionActive(t *testing.T) {
 	})
 	t.Run("only user_approval left → the platform's request, issued once", func(t *testing.T) {
 		sess := f.oldShapeSession(t, and(atom("artifact_submitted", "agent_id", f.w), atom("agent_approval")))
-		wTok, _ := f.agentToken(t, sess, f.wUUID, "W")
+		wTok, wTask := f.agentToken(t, sess, f.wUUID, "W")
 		if st, out := f.submit(t, sess, wTok, "a.md", "doc", []byte("a")); st != 201 {
 			t.Fatalf("submit = %d %v", st, out)
 		}
+		// T-APPROVAL: the mission's work is over before the change — a live
+		// or queued turn would hold the request (t_approval_test.go).
+		f.endTurn(t, wTask)
+		f.settleWork(t, f.missionOf(t, sess)) // the submission woke Lead (queued)
 		if n := f.openHitls(t, sess); n != 0 {
 			t.Fatalf("open user_approval before the change = %d", n)
 		}
@@ -342,7 +361,7 @@ func TestP5UpdateCompletionConditionActive(t *testing.T) {
 	})
 	t.Run("paused accepts the change and stays paused", func(t *testing.T) {
 		sess := f.oldShapeSession(t, and(atom("agent_approval")))
-		f.api.must(200, "POST", f.p+"/sessions/"+sess+"/pause", map[string]any{"mode": "drain"})
+		f.api.must(200, "POST", f.p+"/works/"+f.missionOf(t, sess)+"/pause", map[string]any{"mode": "drain"})
 		if st, out := f.patchCond(t, f.api, sess, and(atom("agent_approval", "agent_id", f.r))); st != 200 || str(out, "status") != "paused" {
 			t.Fatalf("PATCH on paused = %d status %v", st, out["status"])
 		}
@@ -351,30 +370,34 @@ func TestP5UpdateCompletionConditionActive(t *testing.T) {
 			t.Fatalf("agent_approval row = %v", c)
 		}
 	})
-	t.Run("completed · cancelled · completing → 422 immutable", func(t *testing.T) {
+	// updateWork's rule (openapi v0.3.0 — updateSession went): a closed
+	// mission is `409 work_closed`, a completing one still `422 immutable`.
+	t.Run("completed · cancelled → 409 work_closed · completing → 422 immutable", func(t *testing.T) {
 		for _, status := range []string{"completed", "cancelled", "completing"} {
 			sess := f.artifactSession(t, and(atom("user_approval")))
 			finished := "NULL"
 			if status != "completing" {
 				finished = "now()"
 			}
-			if _, err := f.pool.Exec(t.Context(), `UPDATE session SET status = $2::session_status, finished_at = `+finished+` WHERE id = $1`, sess, status); err != nil {
+			if _, err := f.pool.Exec(t.Context(), `UPDATE work SET status = $2::session_status, finished_at = `+finished+` WHERE room_id = $1`, sess, status); err != nil {
 				t.Fatal(err)
 			}
-			if st, out := f.patchCond(t, f.api, sess, and(atom("manual"))); st != 422 || fieldCode(out, "completion_condition") != "immutable" {
+			if status == "completing" {
+				if st, out := f.patchCond(t, f.api, sess, and(atom("manual"))); st != 422 || fieldCode(out, "completion_condition") != "immutable" {
+					t.Fatalf("%s: = %d %v", status, st, out)
+				}
+				continue
+			}
+			if st, out := f.patchCond(t, f.api, sess, and(atom("manual"))); st != 409 || str(out, "code") != "work_closed" {
 				t.Fatalf("%s: = %d %v", status, st, out)
 			}
 		}
 	})
 	t.Run("draft is validated the same way and re-evaluates nothing", func(t *testing.T) {
-		st, out, _ := f.api.do("POST", f.p+"/workspaces/"+f.wsID+"/sessions", map[string]any{
+		sess := str(sessionRoom(t, f.api, f.pool, f.p, f.wsID, map[string]any{
 			"title": "D", "goal": "g", "isolation": map[string]any{"kind": "none"}, "draft": true,
 			"participants": []map[string]any{{"agent_id": f.lead}},
-		})
-		if st != 201 {
-			t.Fatalf("draft = %d %v", st, out)
-		}
-		sess := str(out, "id")
+		}), "id")
 		if st, out := f.patchCond(t, f.api, sess, and(atom("agent_approval"))); st != 422 || fieldCode(out, "completion_condition/conditions/0/agent_id") != "reviewer_required" {
 			t.Fatalf("draft no reviewer = %d %v", st, out)
 		}
@@ -382,34 +405,34 @@ func TestP5UpdateCompletionConditionActive(t *testing.T) {
 			t.Fatalf("draft PATCH = %d %v", st, out)
 		}
 		var n int
-		if err := f.pool.QueryRow(t.Context(), `SELECT count(*) FROM activity_log WHERE session_id = $1 AND action = 'session.completion_condition_changed'`, sess).Scan(&n); err != nil || n != 0 {
+		if err := f.pool.QueryRow(t.Context(), `SELECT count(*) FROM activity_log WHERE session_id = $1 AND action = 'work.completion_condition_changed'`, sess).Scan(&n); err != nil || n != 0 {
 			t.Fatalf("draft wrote a condition_changed line: %d (%v)", n, err)
 		}
 	})
 }
 
 // TestP5ProgressFrameMatchesRead — submitArtifact's `completion_progress` and
-// the `session.completion_progress` frame carry the S-84 columns the same way
+// the `work.completion_progress` frame carry the S-84 columns the same way
 // getSession does: one function renders all three.
 func TestP5ProgressFrameMatchesRead(t *testing.T) {
 	f := newP2Fixture(t)
 	sess := f.oldShapeSession(t, and(atom("artifact_submitted", "agent_id", f.w), atom("agent_approval")))
 	wTok, _ := f.agentToken(t, sess, f.wUUID, "W")
-	frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?session_id="+sess)
+	frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?room_id="+sess)
 	defer stop()
 	st, out := f.submit(t, sess, wTok, "a.md", "doc", []byte("a"))
 	if st != 201 {
 		t.Fatalf("submit = %d %v", st, out)
 	}
 	fromSubmit := out["completion_progress"].(map[string]any)
-	raw := waitFrame(t, frames, "session.completion_progress", nil)
+	raw := waitFrame(t, frames, "work.completion_progress", nil)
 	var frame struct {
 		Progress map[string]any `json:"completion_progress"`
 	}
 	if err := json.Unmarshal(raw, &frame); err != nil {
 		t.Fatal(err)
 	}
-	read := f.api.must(200, "GET", f.p+"/sessions/"+sess, nil)["completion_progress"].(map[string]any)
+	read := f.api.must(200, "GET", f.p+"/works/"+f.missionOf(t, sess), nil)["completion_progress"].(map[string]any)
 	a, _ := json.Marshal(fromSubmit["conditions"])
 	b, _ := json.Marshal(frame.Progress["conditions"])
 	c, _ := json.Marshal(read["conditions"])

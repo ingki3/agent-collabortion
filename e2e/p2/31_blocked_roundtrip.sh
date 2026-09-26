@@ -54,10 +54,10 @@ LEAD_INS_USED="$B_LEAD_INS"
 log "지시문: $( [ "$S31_ORDER" = 1 ] && echo 'S-31 순서(즉시 답)' || echo 'EVAL 순서(합류에서 답)')"
 LEAD="$(create_agent_p2 "$WS" Lead       lead       "$MODEL" "$LEAD_INS_USED" '팀을 이끌고 위임·종합한다')"
 RSCH="$(create_agent_p2 "$WS" Researcher researcher "$MODEL" "$B_RES_INS"  '주어진 항목을 조사해 요약한다')"
-SESSION="$(api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg t "제품 X 시장 조사 (blocked)" --arg g "$SCENARIO_GOAL" \
+SESSION="$(create_room_work "$WS" "$(jq -nc --arg t "제품 X 시장 조사 (blocked)" --arg g "$SCENARIO_GOAL" \
   --arg a "$LEAD" --arg rt "$RUNTIME" --arg r "$RSCH" \
   '{title:$t,goal:$g,isolation:{kind:"none"},participants:[{agent_id:$a},{agent_id:$r}],assignee_agent_id:$a,runtime_id:$rt,
-    completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | jq -r .id)"
+    completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" )"
 echo "$WS $SESSION $LEAD $RSCH $RUNTIME" > "$OUT/b-ids$SUF.txt"
 ok "session $SESSION"
 T_START="$(now_ms)"
@@ -114,8 +114,8 @@ elif command -v agent-browser >/dev/null 2>&1; then
   agent-browser fill 'input[name=email]' "$EMAIL" >/dev/null 2>&1 || true
   agent-browser fill 'input[name=password]' "$PASSWORD" >/dev/null 2>&1 || true
   agent-browser click 'button[type=submit]' >/dev/null 2>&1 || true
-  agent-browser wait --url "**/sessions" --timeout 20000 >/dev/null 2>&1 || true
-  agent-browser open "$WEB_URL/sessions/$SESSION" >/dev/null 2>&1 || true
+  agent-browser wait --url "**/rooms" --timeout 20000 >/dev/null 2>&1 || true
+  agent-browser open "$WEB_URL/rooms/$SESSION" >/dev/null 2>&1 || true
   agent-browser wait '[data-testid="message-card"]' --timeout 30000 >/dev/null 2>&1 || true
   agent-browser wait --fn 'document.querySelectorAll("[data-testid=message-card][data-kind=blocked_q]").length>0' --timeout 30000 >/dev/null 2>&1 || true
   QCARDS="$(agent-browser get count '[data-testid="message-card"][data-kind="blocked_q"]' 2>/dev/null || echo 0)"
@@ -212,8 +212,8 @@ if [ "$(psqlq "select count(*) from message where parent_id='$CARD'")" = 0 ]; th
   # 해소 규칙 1 은 작성자가 사람이든 에이전트든 같다 — E3-07 의 **경로**를 재는 것이 목적이다.
   log "에이전트 답글 없음 → Director 답글로 우회 (보고서에 우회로 표시)"
   ANSWER_PATH="director"
-  api_ok POST "/sessions/$SESSION/messages" \
-    "$(jq -nc --arg c "경쟁 제품은 국내에서 판매 중인 3개로 한정한다." --arg p "$CARD" '{content:$c,parent_id:$p}')" \
+  api_ok POST "/rooms/$SESSION/messages" \
+    "$(with_work "$SESSION" "$(jq -nc --arg c "경쟁 제품은 국내에서 판매 중인 3개로 한정한다." --arg p "$CARD" '{content:$c,parent_id:$p}')")" \
     -H "Idempotency-Key: $(uuid)" >/dev/null
 fi
 # 관찰(2026-09-06 1차 실행): 위임자가 **멘션 없이** 스레드 답글만 달면 규칙 4로 아무도 트리거되지 않아

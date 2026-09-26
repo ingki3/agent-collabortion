@@ -17,6 +17,9 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
+	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
+	"github.com/ingki3/agent-collabortion/server/internal/rooms"
+	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -56,19 +59,55 @@ type inboxRow struct {
 	SessionDirector *uuid.UUID
 	SessionDeputy   *uuid.UUID
 	SessionPaused   *string
+
+	// v0.2.0 (T-R1b3): the room · mission · sub-mission the item is about, why
+	// it is in this person's inbox, and the room's name for room-level cards.
+	WorkID         *uuid.UUID
+	LaneID         *uuid.UUID
+	RecipientBasis *string
+	RoomName       *string
+
+	// openapi 0.2.10 card.actor_name · quote (isolation_confirm · room_invited).
+	ActorName *string
+	QuoteBody *string
+
+	// The viewer's standing in the item's room, read with the item (#309
+	// NN1): an item stays in the inbox of the person it came to, but what it
+	// says about the room is checked again at every read (rooms.Decide).
+	ViewerWsRole   *string
+	ViewerRoomRole *string
+	RoomVisibility *string
+	RoomStatus     *string
 }
 
 const selectInbox = `
-	SELECT i.id, i.member_id, m.workspace_id, i.type::text, i.severity::text, i.session_id, s.title, s.status::text,
+	SELECT i.id, i.member_id, m.workspace_id, i.type::text, i.severity::text, i.session_id, wk.title, wk.status::text,
 	       i.ref_id, i.read_at, i.created_at,
 	       h.type::text, h.question, h.context, h.proposed_default, h.due_at, h.overdue, h.status::text,
-	       h.purpose::text, h.approver_spec, h.created_at, a.name, s.director_user_id, s.deputy_director_user_id, s.paused_reason::text
+	       h.purpose::text, h.approver_spec, h.created_at, a.name, wk.director_user_id, wk.deputy_user_id, wk.paused_reason::text,
+	       i.work_id, i.lane_id, i.recipient_basis, s.name,
+	       au.display_name, qm.content,
+	       m.role::text, rp.role::text, s.visibility::text, s.status::text
 	FROM inbox_item i
 	JOIN member m ON m.id = i.member_id
-	LEFT JOIN session s ON s.id = i.session_id
-	LEFT JOIN hitl_request h ON h.id = i.ref_id AND i.type = 'hitl_request'
+	LEFT JOIN room s ON s.id = i.session_id
+	LEFT JOIN app_user au ON au.id = i.actor_user_id
+	LEFT JOIN message qm ON qm.id = i.quote_message_id
+	-- The item's person (m.user_id — every caller scopes by it) as a LIVE
+	-- participant of the room: left_at set is "no longer in the room".
+	LEFT JOIN room_participant rp ON rp.room_id = s.id AND rp.user_id = m.user_id AND rp.left_at IS NULL
+	-- room_paused · isolation_confirm (migration r1b1_room_gate) are room-owner approvals: their
+	-- ref is the request, and the card reads it exactly like hitl_request's.
+	LEFT JOIN hitl_request h ON h.id = i.ref_id AND i.type IN ('hitl_request', 'room_paused', 'isolation_confirm')
 	LEFT JOIN task t ON t.id = h.task_id
-	LEFT JOIN agent a ON a.id = t.agent_id`
+	LEFT JOIN agent a ON a.id = t.agent_id
+	-- The item's mission is its work_id, else its request's (a request carries
+	-- its mission from R1b1 on). An item with neither is the old session's —
+	-- the room's legacy work — unless it is a room-level card. Never a JOIN on
+	-- room_id: that repeats the item once per mission (T-R1b3 · T-R1b2,
+	-- V19_R1B_HANDOFF (d) handlers_inbox.go:69).
+	LEFT JOIN work wk ON wk.id = COALESCE(i.work_id, h.work_id,
+	      CASE WHEN i.type NOT IN ('room_paused', 'isolation_confirm') THEN s.legacy_work_id END)`
 
 func scanInbox(rows pgx.Rows) ([]inboxRow, error) {
 	var out []inboxRow
@@ -77,7 +116,10 @@ func scanInbox(rows pgx.Rows) ([]inboxRow, error) {
 		if err := rows.Scan(&r.ID, &r.MemberID, &r.WorkspaceID, &r.Type, &r.Severity, &r.SessionID, &r.SessionName, &r.SessionStatus,
 			&r.RefID, &r.ReadAt, &r.CreatedAt,
 			&r.HitlType, &r.HitlQuestion, &r.HitlContext, &r.HitlDefault, &r.HitlDueAt, &r.HitlOverdue, &r.HitlStatus,
-			&r.HitlPurpose, &r.HitlSpec, &r.HitlCreatedAt, &r.HitlAgentName, &r.SessionDirector, &r.SessionDeputy, &r.SessionPaused); err != nil {
+			&r.HitlPurpose, &r.HitlSpec, &r.HitlCreatedAt, &r.HitlAgentName, &r.SessionDirector, &r.SessionDeputy, &r.SessionPaused,
+			&r.WorkID, &r.LaneID, &r.RecipientBasis, &r.RoomName,
+			&r.ActorName, &r.QuoteBody,
+			&r.ViewerWsRole, &r.ViewerRoomRole, &r.RoomVisibility, &r.RoomStatus); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -142,7 +184,7 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params gen.Li
 	now := s.Clock.Now()
 	items := make([]gen.InboxItem, 0, len(list))
 	for i := range list {
-		items = append(items, s.inboxAPI(&list[i], u.Id, now))
+		items = append(items, s.inboxAPI(r.Context(), &list[i], u.Id, now))
 	}
 	// SCREEN §4.6's order: overdue → action_required → attention → info, and
 	// inside a group the soonest deadline first. Ordering in SQL would need the
@@ -172,13 +214,40 @@ func (s *Server) ListInbox(w http.ResponseWriter, r *http.Request, params gen.Li
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "has_more": hasMore})
 }
 
-func (s *Server) inboxAPI(r *inboxRow, viewer uuid.UUID, now time.Time) gen.InboxItem {
+func (s *Server) inboxAPI(ctx context.Context, r *inboxRow, viewer uuid.UUID, now time.Time) gen.InboxItem {
 	out := gen.InboxItem{
 		Id: r.ID, WorkspaceId: r.WorkspaceID,
 		Type: gen.InboxItemType(r.Type), Severity: gen.InboxSeverity(r.Severity),
 		SessionId: tasks.NullUUID(r.SessionID), RefId: tasks.NullUUID(r.RefID),
 		ReadAt: tasks.NullTime(r.ReadAt), CreatedAt: r.CreatedAt,
 		DueAt: nullableTime(nil),
+		// v0.2.0: room_id is session_id under its new name (R4 까지 같은 값).
+		RoomId: tasks.NullUUID(r.SessionID), WorkId: tasks.NullUUID(r.WorkID), LaneId: tasks.NullUUID(r.LaneID),
+	}
+	out.RecipientBasis = nullable.NewNullNullable[gen.InboxItemRecipientBasis]()
+	if r.RecipientBasis != nil {
+		out.RecipientBasis = nullable.NewNullableWithValue(gen.InboxItemRecipientBasis(*r.RecipientBasis))
+	}
+	// #309 NN1: the room is named only while the viewer may still see it.
+	// Someone put out of an invited room keeps the item — it came to them —
+	// but the room is gone for them (FR-4.5's "읽는 시점에 다시 검사",
+	// FR-5.3's "invited 방은 없는 것처럼"): no room, no mission, no quote,
+	// and no body that names it.
+	hidden := !roomVisible(r)
+	if hidden {
+		r.RoomName, r.SessionName, r.QuoteBody = nil, nil, nil
+	}
+	// openapi 0.2.9: the card's context line names the room in full (SCREEN
+	// §4.14). An item of no room (a workspace-level card) says null.
+	out.Room = nullable.NewNullNullable[struct {
+		Id   openapi_types.UUID `json:"id"`
+		Name string             `json:"name"`
+	}]()
+	if r.SessionID != nil && r.RoomName != nil {
+		out.Room = nullable.NewNullableWithValue(struct {
+			Id   openapi_types.UUID `json:"id"`
+			Name string             `json:"name"`
+		}{Id: *r.SessionID, Name: *r.RoomName})
 	}
 	if r.SessionID != nil && r.SessionName != nil && r.SessionStatus != nil {
 		// status is required on SessionRef (openapi) — a card without it is a
@@ -186,11 +255,12 @@ func (s *Server) inboxAPI(r *inboxRow, viewer uuid.UUID, now time.Time) gen.Inbo
 		out.Session = &gen.SessionRef{Id: *r.SessionID, Title: *r.SessionName, Status: gen.SessionStatus(*r.SessionStatus)}
 	}
 	canRespond := false
+	offlineCard := false
 	hitlType := ""
 	body := ""
 	title := ""
 	switch r.Type {
-	case inbox.TypeHitlRequest:
+	case inbox.TypeHitlRequest, inbox.TypeIsolationConfirm, inbox.TypeRoomPaused:
 		if r.HitlType != nil {
 			hitlType = *r.HitlType
 		}
@@ -206,28 +276,81 @@ func (s *Server) inboxAPI(r *inboxRow, viewer uuid.UUID, now time.Time) gen.Inbo
 			out.Overdue = &od
 		}
 		if r.HitlStatus != nil && *r.HitlStatus == hitl.StatusOpen && r.HitlSpec != nil && r.HitlCreatedAt != nil {
-			az := hitl.Authorize(hitl.AuthzInput{
-				Spec: *r.HitlSpec, Director: derefUUID(r.SessionDirector), Deputy: derefUUID(r.SessionDeputy),
-				Responder: viewer, IsMember: true,
-				Elapsed: now.Sub(*r.HitlCreatedAt), DueIn: r.HitlDueAt.Sub(*r.HitlCreatedAt),
-			})
-			canRespond = az.Allowed
+			var az hitl.Authz
+			if *r.HitlSpec == hitl.SpecRoomOwner && r.SessionID != nil {
+				// FR-2A.3: the room owner's chain, the same judgement the
+				// handler makes (authorizeHitl).
+				if a, err := authorizeHitl(ctx, s.DB, *r.HitlSpec, *r.SessionID, derefUUID(r.SessionDirector), r.SessionDeputy,
+					viewer, *r.HitlCreatedAt, *r.HitlDueAt, now); err == nil {
+					az = a
+				}
+			} else {
+				az = hitl.Authorize(hitl.AuthzInput{
+					Spec: *r.HitlSpec, Director: derefUUID(r.SessionDirector), Deputy: derefUUID(r.SessionDeputy),
+					Responder: viewer, IsMember: true,
+					Elapsed: now.Sub(*r.HitlCreatedAt), DueIn: r.HitlDueAt.Sub(*r.HitlCreatedAt),
+				})
+			}
+			canRespond = az.Allowed && !hidden
 			// O5: the deputy's copy is marked so the card can say
 			// "위임됨 · 지금부터 응답 가능" instead of looking like a duplicate.
+			// A room-owner approval's copy says it by its basis — the room's
+			// hand-over, not the mission's deputy (roomgate.FileInbox).
 			delegated := r.SessionDeputy != nil && viewer == *r.SessionDeputy
+			if r.Type != inbox.TypeHitlRequest {
+				delegated = r.RecipientBasis != nil &&
+					(*r.RecipientBasis == inbox.BasisRoomDeputy || *r.RecipientBasis == inbox.BasisWorkspaceOwner)
+			}
 			out.Delegated = &delegated
 		}
-	case inbox.TypeSessionPaused:
-		title = "세션이 멈췄습니다"
-		if r.SessionPaused != nil {
-			body = *r.SessionPaused
+		if r.Type == inbox.TypeRoomPaused {
+			// The room gate (FR-2.4): the question says which limit, the
+			// title says what stopped — the whole room, not one mission.
+			title = "방이 멈췄습니다"
+			if r.HitlQuestion != nil {
+				body = *r.HitlQuestion
+			}
+			hitlType = ""
+			if r.HitlSpec == nil && r.SessionID != nil && r.RefID != nil {
+				// A lost computer (FR-9.2 v0.19, T-S-offline): no request
+				// behind the card — its ref is the runtime — and the choice
+				// is rebinding, offered to whoever rebindSession lets do it,
+				// while the room still waits for that computer.
+				body = "이 방의 컴퓨터 연결이 끊겨 멈췄습니다 — 다른 컴퓨터로 옮기거나 열린 미션을 모두 취소해 주세요"
+				offlineCard = true
+				delegated := r.RecipientBasis != nil &&
+					(*r.RecipientBasis == inbox.BasisRoomDeputy || *r.RecipientBasis == inbox.BasisWorkspaceOwner)
+				out.Delegated = &delegated
+				if ok, err := s.offlineCardOpen(ctx, *r.SessionID, *r.RefID); err == nil && ok {
+					if may, err := runtimes.RebindAuthz(ctx, s.DB, *r.SessionID, viewer, now); err == nil {
+						canRespond = may && !hidden
+					}
+				}
+			}
 		}
-		canRespond = viewer == derefUUID(r.SessionDirector)
+		if hidden {
+			// The question and its context are the room's own words.
+			title, body = hiddenRoomTitle(r.Type), ""
+		}
 	case inbox.TypeRunFailed:
 		title = "작업이 실패했습니다"
 		canRespond = viewer == derefUUID(r.SessionDirector)
+	case inbox.TypeRoomInvited:
+		title = "방에 초대되었습니다"
+		if r.RoomName != nil {
+			body = *r.RoomName
+		}
+		if hidden {
+			title = hiddenRoomTitle(r.Type)
+		}
+	case inbox.TypeWorkdirQuota:
+		title = "작업 폴더가 용량 상한에 닿았습니다"
+		body = "정리하기 전까지 새 작업 폴더를 만들 수 없습니다 — 끝난 방의 작업 폴더를 정리해 주세요"
 	}
 	acts := inbox.Actions(r.Type, hitlType, canRespond)
+	if offlineCard {
+		acts = inbox.OfflineRoomActions(canRespond)
+	}
 	out.Actions = make([]gen.InboxItemActions, 0, len(acts))
 	for _, a := range acts {
 		out.Actions = append(out.Actions, gen.InboxItemActions(a))
@@ -241,6 +364,7 @@ func (s *Server) inboxAPI(r *inboxRow, viewer uuid.UUID, now time.Time) gen.Inbo
 // it at each branch above would bury the branch.
 func fillInboxCard(out *gen.InboxItem, title, body string, r *inboxRow) {
 	out.Card = &struct {
+		ActorName       nullable.Nullable[string]             `json:"actor_name,omitempty"`
 		AgentName       nullable.Nullable[string]             `json:"agent_name,omitempty"`
 		Body            *string                               `json:"body,omitempty"`
 		FailureKind     *gen.FailureKind                      `json:"failure_kind,omitempty"`
@@ -256,6 +380,7 @@ func fillInboxCard(out *gen.InboxItem, title, body string, r *inboxRow) {
 		// (`source: system`, `approval`) cannot tell a budget pause from a
 		// completion approval (#139 NN1, 0012).
 		Purpose     nullable.Nullable[gen.InboxItemCardPurpose] `json:"purpose,omitempty"`
+		Quote       nullable.Nullable[string]                   `json:"quote,omitempty"`
 		RuntimeName nullable.Nullable[string]                   `json:"runtime_name,omitempty"`
 		Summary     nullable.Nullable[string]                   `json:"summary,omitempty"`
 		Title       *string                                     `json:"title,omitempty"`
@@ -267,6 +392,13 @@ func fillInboxCard(out *gen.InboxItem, title, body string, r *inboxRow) {
 		out.Card.Body = &body
 	}
 	out.Card.AgentName = tasks.NullString(r.HitlAgentName)
+	out.Card.ActorName = tasks.NullString(r.ActorName)
+	out.Card.Quote = nullable.NewNullNullable[string]()
+	if r.QuoteBody != nil {
+		if q := roomgate.Quote(*r.QuoteBody); q != "" {
+			out.Card.Quote = nullable.NewNullableWithValue(q)
+		}
+	}
 	out.Card.ProposedDefault = tasks.NullString(r.HitlDefault)
 	if r.HitlType != nil {
 		k := gen.HitlType(*r.HitlType)
@@ -284,6 +416,32 @@ func fillInboxCard(out *gen.InboxItem, title, body string, r *inboxRow) {
 		pr := gen.PauseReason(*r.SessionPaused)
 		out.Card.PausedReason = &pr
 	}
+}
+
+// roomVisible is rooms.Decide(ActView) for the item's viewer, from the
+// standing selectInbox read with the item. An item of no room — or of a room
+// that is gone — has nothing to hide.
+func roomVisible(r *inboxRow) bool {
+	if r.SessionID == nil || r.RoomVisibility == nil {
+		return true
+	}
+	f := rooms.Standing{Visibility: *r.RoomVisibility, Archived: r.RoomStatus != nil && *r.RoomStatus == "archived"}
+	if r.ViewerWsRole != nil {
+		f.WorkspaceRole = *r.ViewerWsRole
+	}
+	if r.ViewerRoomRole != nil {
+		f.RoomRole = *r.ViewerRoomRole
+	}
+	return rooms.Decide(rooms.ActView, f)
+}
+
+// hiddenRoomTitle is the card title of an item whose room the viewer can no
+// longer see: what happened, without the room (#309 NN1).
+func hiddenRoomTitle(itemType string) string {
+	if itemType == inbox.TypeRoomInvited {
+		return "방에 초대되었습니다"
+	}
+	return "더 이상 볼 수 없는 방의 요청입니다"
 }
 
 func nullableTime(t *time.Time) nullable.Nullable[time.Time] {
@@ -353,7 +511,7 @@ func (s *Server) MarkInboxRead(w http.ResponseWriter, r *http.Request, inboxItem
 		writeProblem(w, apperr.NotFound("inbox_item"))
 		return
 	}
-	writeJSON(w, http.StatusOK, s.inboxAPI(&list[0], u.Id, now))
+	writeJSON(w, http.StatusOK, s.inboxAPI(r.Context(), &list[0], u.Id, now))
 }
 
 func (s *Server) MarkAllInboxRead(w http.ResponseWriter, r *http.Request, params gen.MarkAllInboxReadParams) {
@@ -391,3 +549,14 @@ func dueOf(i gen.InboxItem) (time.Time, bool) {
 
 var _ = errors.Is
 var _ = context.Background
+
+// offlineCardOpen: the room is still stopped for the computer the card names
+// (room.blocked_reason = runtime_offline on that runtime). Once it is rebound
+// or its missions are cancelled the card has nothing left to offer.
+func (s *Server) offlineCardOpen(ctx context.Context, roomID, runtimeID uuid.UUID) (bool, error) {
+	var open bool
+	err := s.DB.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM room WHERE id = $1 AND blocked_reason = 'runtime_offline' AND runtime_id = $2)`,
+		roomID, runtimeID).Scan(&open)
+	return open, err
+}

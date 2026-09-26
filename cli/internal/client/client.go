@@ -41,7 +41,10 @@ const (
 	EnvTaskID    = "COLAB_TASK_ID"
 	EnvAttempt   = "COLAB_TASK_ATTEMPT" // marks the attempt boundary for the seq state (v0.2)
 	EnvLaneID    = "COLAB_LANE_ID"
-	EnvSessionID = "COLAB_SESSION_ID"
+	EnvRoomID    = "COLAB_ROOM_ID"    // the turn's room (v0.8.1)
+	EnvSessionID = "COLAB_SESSION_ID" // the same value under its old name — the fallback for EnvRoomID
+	EnvWorkID    = "COLAB_WORK_ID"    // the mission the turn belongs to; absent outside a mission
+	EnvThreadID  = "COLAB_THREAD_ID"  // the thread the turn was asked in; absent for a top-level trigger (v0.9.1)
 	EnvAgentName = "COLAB_AGENT_NAME"
 	// EnvAllowedCommands is the daemon wrapper's copy of the role's command
 	// subset (harness.md §10, K-19): a comma-separated list of ColabCommand
@@ -76,7 +79,9 @@ type Config struct {
 	APIPrefix string // default /api/v1
 	TaskID    string
 	LaneID    string
-	SessionID string
+	RoomID    string // COLAB_ROOM_ID, else COLAB_SESSION_ID (same value)
+	WorkID    string // COLAB_WORK_ID; "" outside a mission
+	ThreadID  string // COLAB_THREAD_ID; "" when the turn started at the top level
 	AgentName string
 	Attempt   int // 0 = unknown → resolved via /cli/context
 	// AllowedCommands is the command subset a wrapper handed over (env, or
@@ -104,10 +109,15 @@ func FromEnv(getenv Getenv) Config {
 		APIPrefix: getenv(EnvAPIPrefix),
 		TaskID:    getenv(EnvTaskID),
 		LaneID:    getenv(EnvLaneID),
-		SessionID: getenv(EnvSessionID),
+		RoomID:    strings.TrimSpace(getenv(EnvRoomID)),
+		WorkID:    strings.TrimSpace(getenv(EnvWorkID)),
+		ThreadID:  strings.TrimSpace(getenv(EnvThreadID)),
 		AgentName: getenv(EnvAgentName),
 		StateDir:  getenv(EnvStateDir),
 		Timeout:   DefaultTimeout,
+	}
+	if c.RoomID == "" {
+		c.RoomID = strings.TrimSpace(getenv(EnvSessionID))
 	}
 	if v := getenv(EnvAttempt); v != "" {
 		fmt.Sscanf(v, "%d", &c.Attempt)
@@ -491,6 +501,11 @@ func problemError(status int, raw []byte) *Error {
 	if len(raw) > 0 && json.Unmarshal(raw, &p) == nil && (p.Title != "" || p.Code != "" || p.Status != 0) {
 		e.Problem = &p
 		e.Code, e.Title, e.Detail = p.Code, p.Title, p.Detail
+		if p.DeniedReason != "" {
+			// colab-cli.md §2.4a: a refused `room read` is exit 3 + the
+			// reason, top-level in the --json error like command_not_allowed's.
+			e.Extra = map[string]any{"denied_reason": p.DeniedReason}
+		}
 	}
 	if e.Title == "" {
 		e.Title = http.StatusText(status)

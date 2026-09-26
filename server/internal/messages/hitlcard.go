@@ -19,7 +19,7 @@ import (
 // S-45: the agent path (httpapi.createHitl) posted this card and stored its id
 // in hitl_request.message_id, and the three SYSTEM-issued paths — the budget
 // pause (httpapi.applyBudgetPause, in-turn and the post-turn one S-44 added),
-// the completion/budget approval (sessions.ApplyCompletionEvent) and the loop
+// the completion/budget approval (sessions.ApplyWorkEvent) and the loop
 // pause (router.pauseForLoop) — inserted the request and nothing else. The
 // request existed, the inbox card existed, and the session timeline showed
 // zero HITL cards (T-I3 measured 43_ with 0). One helper now, so a fourth
@@ -42,6 +42,10 @@ type HitlCard struct {
 	// SourceTaskID threads the card to the task that raised it, where there is
 	// one. A session-scoped budget or completion request has none.
 	SourceTaskID *uuid.UUID
+	// WorkID is the mission a platform request is about (its completion
+	// approval, its budget or time limit — T-R1b2). A card an agent raised
+	// follows the task's mission instead; a room's own card has none.
+	WorkID *uuid.UUID
 }
 
 // CardBody is the card's text (SCREEN §4.6: enough to answer without opening
@@ -85,7 +89,7 @@ func hitlTypeLabel(t string) string {
 // declares that field, and a null there is what S7 reads as "no card".
 //
 // production callers: httpapi.createHitl (source=agent),
-// httpapi.applyBudgetPause, sessions.ApplyCompletionEvent, router.pauseForLoop
+// httpapi.applyBudgetPause, sessions.ApplyWorkEvent, router.pauseForLoop
 // (source=system).
 func PostHitlCard(ctx context.Context, hub *realtime.Hub, q db.DBTX, wsID, sessionID uuid.UUID, c HitlCard, now time.Time) (uuid.UUID, error) {
 	authorType := "system"
@@ -95,10 +99,17 @@ func PostHitlCard(ctx context.Context, hub *realtime.Hub, q db.DBTX, wsID, sessi
 	}
 	var id uuid.UUID
 	if err := q.QueryRow(ctx, `
-		INSERT INTO message (session_id, author_type, author_id, content, kind, source_task_id, created_at)
-		VALUES ($1, $2::author_type, $3, $4, 'hitl', $5, $6) RETURNING id`,
-		sessionID, authorType, authorID, c.CardBody(), c.SourceTaskID, now).Scan(&id); err != nil {
+		INSERT INTO message (session_id, author_type, author_id, content, kind, source_task_id, created_at, work_id)
+		VALUES ($1, $2::author_type, $3, $4, 'hitl', $5, $6,
+		        -- FR-3.1.1: a card an agent's task raised follows that task's
+		        -- mission; a platform card names its mission; the room's own
+		        -- cards (limits, loop, isolation) have none.
+		        COALESCE($7::uuid, (SELECT work_id FROM task WHERE id = $5))) RETURNING id`,
+		sessionID, authorType, authorID, c.CardBody(), c.SourceTaskID, now, c.WorkID).Scan(&id); err != nil {
 		return uuid.Nil, fmt.Errorf("messages: hitl card: %w", err)
+	}
+	if err := Store(ctx, q, id, StoreOpts{}); err != nil {
+		return uuid.Nil, err
 	}
 	// A publish failure is not the caller's failure — the card is committed
 	// either way and the client re-reads via REST (realtime D1). It is still

@@ -51,6 +51,21 @@ type Service struct {
 	// LanePublish: deriving FR-1.3's status lives in internal/sessions, which
 	// imports this package. nil in unit tests with no hub.
 	ParticipantPublish func(ctx context.Context, q db.DBTX, sessionID, agentID uuid.UUID)
+
+	// AfterSettle runs after a task of mission workID may have stopped
+	// running (finish · cancel · requeue · sweep), outside the task's
+	// transaction. T-APPROVAL: the mission's held user_approval request is
+	// re-read then (sessions.ReleaseHeldApproval). Same hook shape as the two
+	// above — internal/sessions imports this package. nil in unit tests.
+	AfterSettle func(ctx context.Context, workID uuid.UUID)
+}
+
+// settled calls AfterSettle for a task's mission, if it has one.
+func (s *Service) settled(ctx context.Context, workID *uuid.UUID) {
+	if s.AfterSettle == nil || workID == nil {
+		return
+	}
+	s.AfterSettle(ctx, *workID)
 }
 
 func New(pool *pgxpool.Pool, c clock.Clock, t *tokens.Service, h *realtime.Hub) *Service {
@@ -89,6 +104,13 @@ type Row struct {
 	DispatchedAt        *time.Time
 	StartedAt           *time.Time
 	FinishedAt          *time.Time
+	// WorkID is the mission the task runs for (FR-3.1.1 · FR-2A.5), nil for a
+	// run outside any mission. The claim gates on it (queue.Claim) and the
+	// budget reads the mission's remainder from it (httpapi.loadBudgetState).
+	WorkID *uuid.UUID
+	// QueuedReason is why a queued task is still waiting (PRD §3.1,
+	// openapi QueuedReason). Written by the claim, cleared at dispatch.
+	QueuedReason *string
 }
 
 const selectTask = `
@@ -96,8 +118,9 @@ const selectTask = `
 	       t.trigger_message_id, t.delegated_from_task_id, t.restarted_from_task_id, t.originator_user_id,
 	       t.coalesced_message_ids, t.attempt, t.max_attempts, t.pending_hitl, t.budget_override,
 	       t.status, t.paused_reason, t.failure_kind, t.not_before, t.stop_reason, t.heartbeat_at,
-	       t.created_at, t.updated_at, t.dispatched_at, t.started_at, t.finished_at
-	FROM task t JOIN session s ON s.id = t.session_id`
+	       t.created_at, t.updated_at, t.dispatched_at, t.started_at, t.finished_at,
+	       t.work_id, t.queued_reason::text
+	FROM task t JOIN room s ON s.id = t.session_id`
 
 func scanTask(row pgx.Row) (*Row, error) {
 	var t Row
@@ -106,7 +129,8 @@ func scanTask(row pgx.Row) (*Row, error) {
 		&t.TriggerMessageID, &t.DelegatedFromTaskID, &t.RestartedFromTaskID, &t.OriginatorUserID,
 		&t.CoalescedMessageIDs, &t.Attempt, &t.MaxAttempts, &t.PendingHitl, &t.BudgetOverride,
 		&status, &pausedReason, &failureKind, &t.NotBefore, &t.StopReason, &t.HeartbeatAt,
-		&t.CreatedAt, &t.UpdatedAt, &t.DispatchedAt, &t.StartedAt, &t.FinishedAt)
+		&t.CreatedAt, &t.UpdatedAt, &t.DispatchedAt, &t.StartedAt, &t.FinishedAt,
+		&t.WorkID, &t.QueuedReason)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -163,7 +187,9 @@ func ListAttempts(ctx context.Context, q db.DBTX, taskID uuid.UUID) ([]Attempt, 
 	return out, rows.Err()
 }
 
-// Usage is the task_usage row.
+// Usage is a task's usage: the sum over its attempts' task_usage rows
+// (task_usage_total). One attempt's row never stands for the task — a retry or
+// resume starts a new row, and the attempt before it still cost what it cost.
 type Usage struct {
 	InputTokens, OutputTokens, CacheRead int64
 	CostUSD                              float64
@@ -173,7 +199,7 @@ type Usage struct {
 
 func GetUsage(ctx context.Context, q db.DBTX, taskID uuid.UUID) (*Usage, error) {
 	var u Usage
-	err := q.QueryRow(ctx, `SELECT input_tokens, output_tokens, cache_read, cost_usd, estimated, updated_at FROM task_usage WHERE task_id = $1`, taskID).
+	err := q.QueryRow(ctx, `SELECT input_tokens, output_tokens, cache_read, cost_usd, estimated, updated_at FROM task_usage_total WHERE task_id = $1`, taskID).
 		Scan(&u.InputTokens, &u.OutputTokens, &u.CacheRead, &u.CostUSD, &u.Estimated, &u.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -188,7 +214,7 @@ func (s *Service) MarkDispatched(ctx context.Context, tx pgx.Tx, t *Row, runtime
 		return "", err
 	}
 	if _, err := tx.Exec(ctx, `
-		UPDATE task SET status = 'dispatched', runtime_id = $2, dispatched_at = $3, heartbeat_at = NULL, updated_at = $3
+		UPDATE task SET status = 'dispatched', runtime_id = $2, dispatched_at = $3, heartbeat_at = NULL, queued_reason = NULL, updated_at = $3
 		WHERE id = $1`, t.ID, runtimeID, now); err != nil {
 		return "", fmt.Errorf("tasks: dispatch: %w", err)
 	}
@@ -291,13 +317,19 @@ func (s *Service) NotePreviewDrift(ctx context.Context, taskID uuid.UUID, attemp
 // (retryable kinds with attempts left) or fails the task. The attempt's token
 // is revoked either way (daemon-protocol §5, §7).
 func (s *Service) Requeue(ctx context.Context, taskID uuid.UUID, reason contracts.FailureKind, notBefore *time.Time, now time.Time) error {
-	return s.inTx(ctx, func(tx pgx.Tx) error {
+	var workID *uuid.UUID
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
 		t, err := lockTask(ctx, tx, taskID)
 		if err != nil {
 			return err
 		}
+		workID = t.WorkID
 		return s.requeueLocked(ctx, tx, t, reason, notBefore, now)
 	})
+	if err == nil {
+		s.settled(ctx, workID) // a requeue that ran out of attempts failed the task
+	}
+	return err
 }
 
 func (s *Service) requeueLocked(ctx context.Context, tx pgx.Tx, t *Row, reason contracts.FailureKind, notBefore *time.Time, now time.Time) error {
@@ -385,6 +417,12 @@ func (s *Service) requeueLocked(ctx context.Context, tx pgx.Tx, t *Row, reason c
 //   - runtimes silent for 3 minutes → offline
 func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 	n := 0
+	var works []*uuid.UUID
+	defer func() {
+		for _, w := range works {
+			s.settled(ctx, w)
+		}
+	}()
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
 		// §4.1: dispatched and preparing are bounded by 5 minutes from dispatch;
 		// preparing is not a heartbeat subject (§4.2 v0.2, N5).
@@ -402,6 +440,7 @@ func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 			if err := s.applySweep(ctx, tx, t, idleSince(t, now), now); err != nil {
 				return err
 			}
+			works = append(works, t.WorkID)
 			n++
 		}
 		ids, err = collectIDs(tx.Query(ctx, `
@@ -420,6 +459,7 @@ func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 			if err := s.applySweep(ctx, tx, t, idleSince(t, now), now); err != nil {
 				return err
 			}
+			works = append(works, t.WorkID)
 			if rt != nil {
 				if _, err := tx.Exec(ctx, `
 					UPDATE runtime SET status = 'offline', offline_since = COALESCE(offline_since, $2), updated_at = $2
@@ -457,12 +497,13 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 	var final Status
 	var costed bool
 	var wsID, sessionID uuid.UUID
+	var workID *uuid.UUID
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
 		t, err := lockTask(ctx, tx, taskID)
 		if err != nil {
 			return err
 		}
-		wsID, sessionID = t.WorkspaceID, t.SessionID
+		wsID, sessionID, workID = t.WorkspaceID, t.SessionID, t.WorkID
 		if attempt != t.Attempt {
 			var outcome *string
 			if err := tx.QueryRow(ctx, `SELECT outcome FROM task_attempt WHERE task_id = $1 AND attempt = $2`, t.ID, attempt).Scan(&outcome); err == nil && outcome != nil {
@@ -535,12 +576,12 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			f.Usage.CacheReadTokens == 0 && f.Usage.CostUSD == 0
 		if !empty {
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO task_usage (task_id, input_tokens, output_tokens, cache_read, cost_usd, estimated, model, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-				ON CONFLICT (task_id) DO UPDATE SET input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
+				INSERT INTO task_usage (task_id, attempt, input_tokens, output_tokens, cache_read, cost_usd, estimated, model, updated_at)
+				VALUES ($1, $9, $2, $3, $4, $5, $6, $7, $8)
+				ON CONFLICT (task_id, attempt) DO UPDATE SET input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens,
 				  cache_read = EXCLUDED.cache_read, cost_usd = EXCLUDED.cost_usd, estimated = EXCLUDED.estimated,
 				  model = COALESCE(EXCLUDED.model, task_usage.model), updated_at = EXCLUDED.updated_at`,
-				t.ID, f.Usage.InputTokens, f.Usage.OutputTokens, f.Usage.CacheReadTokens, reported, f.Usage.Estimated, model, now); err != nil {
+				t.ID, f.Usage.InputTokens, f.Usage.OutputTokens, f.Usage.CacheReadTokens, reported, f.Usage.Estimated, model, now, attempt); err != nil {
 				return fmt.Errorf("tasks: usage: %w", err)
 			}
 		}
@@ -702,7 +743,7 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			// a cold-start prompt and no word about the diffs to apply, and
 			// E14-06 would break silently.
 			if _, err := tx.Exec(ctx, `
-				UPDATE session SET rebind_prompt = NULL, updated_at = $2
+				UPDATE room SET rebind_prompt = NULL, updated_at = $2
 				WHERE id = $1 AND rebind_prompt IS NOT NULL`, t.SessionID, now); err != nil {
 				return err
 			}
@@ -756,7 +797,7 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 	})
 	if err == nil && costed {
 		// Deliberately its own transaction, AFTER the attempt is committed.
-		// Finish holds task row locks; sessions.ApplyCompletionEvent locks the
+		// Finish holds task row locks; sessions.ApplyWorkEvent locks the
 		// SESSION first and then its tasks (the completed branch cancels the
 		// queued ones), so writing session.cost_usd inside the finish tx makes
 		// the two orders opposite and a concurrent pair deadlocks. The rollup
@@ -766,6 +807,9 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 		if err := s.rollUpCost(ctx, wsID, sessionID, now); err != nil {
 			return final, err
 		}
+	}
+	if err == nil {
+		s.settled(ctx, workID)
 	}
 	return final, err
 }
@@ -794,14 +838,57 @@ func (s *Service) rollUpCost(ctx context.Context, wsID, sessionID uuid.UUID, now
 			Scan(&cost, &estimated); err != nil {
 			return fmt.Errorf("tasks: cost rollup: %w", err)
 		}
-		if _, err := tx.Exec(ctx, `UPDATE session SET cost_usd = $2, updated_at = $3 WHERE id = $1`, sessionID, cost, now); err != nil {
-			return fmt.Errorf("tasks: session cost: %w", err)
+		// PRD v0.19 FR-2A.3: each mission's cost is ITS tasks' (a room with
+		// several missions used to write the room total into every one of
+		// them — V19_R1B_HANDOFF (a)). Only the missions whose sum moved are
+		// written; the room total is the frame's `room_cost_usd`.
+		rows, err := tx.Query(ctx, `
+			UPDATE work wk SET cost_usd = c.cost, updated_at = $2
+			FROM (SELECT t.work_id, COALESCE(sum(u.cost_usd), 0) AS cost, COALESCE(bool_or(u.estimated), false) AS est
+			        FROM task t JOIN task_usage u ON u.task_id = t.id
+			       WHERE t.session_id = $1 AND t.work_id IS NOT NULL GROUP BY t.work_id) c
+			WHERE wk.id = c.work_id AND wk.cost_usd IS DISTINCT FROM c.cost::numeric(12, 4)
+			RETURNING wk.id, c.cost, c.est`, sessionID, now)
+		if err != nil {
+			return fmt.Errorf("tasks: mission cost: %w", err)
+		}
+		type workCost struct {
+			id   uuid.UUID
+			cost float64
+			est  bool
+		}
+		var moved []workCost
+		for rows.Next() {
+			var w workCost
+			if err := rows.Scan(&w.id, &w.cost, &w.est); err != nil {
+				rows.Close()
+				return err
+			}
+			moved = append(moved, w)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("tasks: mission cost: %w", err)
 		}
 		if s.Hub != nil {
 			sid := sessionID
-			_ = s.Hub.Publish(ctx, tx, wsID, &sid, "cost.updated", map[string]any{
+			// openapi 0.2.0 StreamEvent: the room total and — when a mission's
+			// sum moved — that mission's. `session_id`/`cost_usd` stay for the
+			// old surface until R4.
+			frame := map[string]any{
 				"session_id": sessionID, "cost_usd": cost, "estimated": estimated,
-			})
+				"room_id": sessionID, "room_cost_usd": cost,
+			}
+			if len(moved) == 0 {
+				_ = s.Hub.Publish(ctx, tx, wsID, &sid, "cost.updated", frame)
+			}
+			for _, w := range moved {
+				f := map[string]any{"work_id": w.id, "work_cost_usd": w.cost}
+				for k, v := range frame {
+					f[k] = v
+				}
+				_ = s.Hub.Publish(ctx, tx, wsID, &sid, "cost.updated", f)
+			}
 		}
 		return nil
 	})
@@ -845,16 +932,26 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 	// injected clock can stamp both in the same instant) — otherwise the same
 	// arithmetic produces the same number, and a session with hundreds of
 	// attempts re-reads all of them on every finish.
+	//
+	// T-COSTMODEL: the model is chosen in three steps, in Go (pricedModel),
+	// so each column is read separately — the row's own model, the profile's,
+	// and the most recent MEASURED model of the same agent in the same room.
+	// The last one is only a fallback: see pricedModel.
 	rows, err := tx.Query(ctx, `
-		SELECT u.task_id, t.attempt, u.input_tokens, u.output_tokens, u.cache_read, u.cost_usd,
-		       COALESCE(NULLIF(u.model, ''), p.model, '')
+		SELECT u.task_id, u.attempt, u.input_tokens, u.output_tokens, u.cache_read, u.cost_usd,
+		       COALESCE(u.model, ''), COALESCE(p.model, ''), COALESCE(last.model, '')
 		FROM task_usage u
 		JOIN task t ON t.id = u.task_id
 		LEFT JOIN agent_profile p ON p.id = t.profile_id
 		LEFT JOIN workspace_settings ws ON ws.workspace_id = $2
+		LEFT JOIN LATERAL (
+			SELECT u2.model FROM task_usage u2 JOIN task t2 ON t2.id = u2.task_id
+			WHERE t2.session_id = t.session_id AND t2.agent_id = t.agent_id
+			  AND NOT u2.estimated AND COALESCE(u2.model, '') <> ''
+			ORDER BY u2.updated_at DESC, u2.task_id DESC, u2.attempt DESC LIMIT 1) last ON true
 		WHERE t.session_id = $1 AND u.estimated
 		  AND (u.cost_usd = 0 OR ws.updated_at IS NULL OR u.updated_at <= ws.updated_at)
-		ORDER BY u.task_id`, sessionID, wsID)
+		ORDER BY u.task_id, u.attempt`, sessionID, wsID)
 	if err != nil {
 		return fmt.Errorf("tasks: pricing rows: %w", err)
 	}
@@ -865,11 +962,12 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 		var attempt int
 		var in, out, cacheRead int64
 		var stored float64
-		var model string
-		if err := rows.Scan(&id, &attempt, &in, &out, &cacheRead, &stored, &model); err != nil {
+		var own, profile, lastMeasured string
+		if err := rows.Scan(&id, &attempt, &in, &out, &cacheRead, &stored, &own, &profile, &lastMeasured); err != nil {
 			rows.Close()
 			return fmt.Errorf("tasks: pricing scan: %w", err)
 		}
+		model := pricedModel(table, own, profile, lastMeasured)
 		usd, ok := table.Estimate(model, in, out, cacheRead)
 		if !ok {
 			// S-48: an unpriced model is not $0, and since the budget is now
@@ -886,7 +984,7 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 		if usd == stored {
 			continue
 		}
-		todo = append(todo, row{taskID: id, usd: usd})
+		todo = append(todo, row{taskID: id, attempt: attempt, usd: usd})
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -913,7 +1011,7 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 	}
 	b := &pgx.Batch{}
 	for _, r := range todo {
-		b.Queue(`UPDATE task_usage SET cost_usd = $2, updated_at = $3 WHERE task_id = $1 AND estimated`, r.taskID, r.usd, now)
+		b.Queue(`UPDATE task_usage SET cost_usd = $2, updated_at = $3 WHERE task_id = $1 AND attempt = $4 AND estimated`, r.taskID, r.usd, now, r.attempt)
 	}
 	br := tx.SendBatch(ctx, b)
 	for range todo {
@@ -926,6 +1024,43 @@ func repriceEstimates(ctx context.Context, tx pgx.Tx, wsID, sessionID uuid.UUID,
 		return fmt.Errorf("tasks: pricing update: %w", err)
 	}
 	return nil
+}
+
+// pricedModel picks the model an estimated usage row is priced as
+// (T-COSTMODEL, Director 2026-09-26):
+//
+//  1. the row's own model — what the daemon measured (finish:
+//     `_meta.quota.model_usage[].model`; mid-turn since T-COSTMODEL: the main
+//     stream's `message_start.model`). Always first, even when the table does
+//     not know it: a measured model is never swapped for a guessed one, and
+//     an unknown measured model keeps its honest "가격표에 없는 모델" note.
+//  2. the profile's model, when the table knows it (hermes profiles name a
+//     real model, so their mid-turn rows price from here as before).
+//  3. the most recent MEASURED model (task_usage.estimated = false) of the
+//     same agent in the same room — only when 1 is empty and 2 is not
+//     priced. This is the claude_code Lead whose profile model is the alias
+//     "default": its first turn's finish names `claude-opus-5[1m]`, and every
+//     later turn's heartbeats can be priced from that instead of reading $0
+//     until finish. Same agent AND same room, because a different agent's
+//     model says nothing about this one's, and another room may run another
+//     profile. It is still an estimate — the row keeps its badge and its own
+//     empty model; the fallback is never written back.
+//
+// When none of them prices, the profile's (or the row's) name is returned so
+// the unpriced note names what it could not price, as before.
+func pricedModel(table cost.Table, own, profile, lastMeasured string) string {
+	if own != "" {
+		return own
+	}
+	if _, ok := table.Price(profile); ok {
+		return profile
+	}
+	if lastMeasured != "" {
+		if _, ok := table.Price(lastMeasured); ok {
+			return lastMeasured
+		}
+	}
+	return profile
 }
 
 func (s *Service) inTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
@@ -1080,7 +1215,59 @@ func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*
 		out = t
 		return nil
 	})
+	if err == nil && immediate && out != nil {
+		s.settled(ctx, out.WorkID)
+	}
 	return out, immediate, err
+}
+
+// CancelInFlightInRoom is blockRoom's FR-3.4 「중단」 for every turn a room
+// has in flight (PRD v0.19 FR-2.4 `manual`): each running attempt gets the
+// §8.2.2 `cancel` command — the server never signals a process — and ends
+// `cancelled` when its finish arrives, exactly as the lane button does.
+// Queued tasks are left alone: the room gate holds them, and unblocking lets
+// them go on (the stop is not a cancellation of the work).
+//
+// production caller: httpapi.BlockRoom.
+func (s *Service) CancelInFlightInRoom(ctx context.Context, tx pgx.Tx, roomID, byUserID uuid.UUID, now time.Time) error {
+	ids, err := collectIDs(tx.Query(ctx, `
+		SELECT id FROM task WHERE session_id = $1 AND status IN ('dispatched', 'preparing', 'running')
+		ORDER BY created_at`, roomID))
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		t, err := lockTask(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		switch t.Status {
+		case Dispatched, Preparing, Running:
+		default:
+			continue // ended between the select and the lock
+		}
+		if requested, err := cancelRequested(ctx, tx, t.ID, t.Attempt); err != nil {
+			return err
+		} else if requested {
+			continue
+		}
+		if err := InsertServerEvent(ctx, tx, t.ID, t.Attempt, "status", "cancel", "director", "ok",
+			map[string]any{"command": "room block", "args": map[string]any{
+				"note": "사람이 방을 멈춰 중단함", "requested_by": byUserID.String(), "reason": "director",
+			}}, now); err != nil {
+			return err
+		}
+		if t.RuntimeID == nil {
+			if err := s.cancelLocked(ctx, tx, t, "director", now); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := tokens.QueueCommand(ctx, tx, *t.RuntimeID, cancelCommandFor(t, "director")); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Cancellable is the set of task statuses cancelLane acts on (K-16): the task

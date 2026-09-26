@@ -14,10 +14,11 @@
 import { useState } from "react";
 import "./activity-feed.css";
 import { ActivityRail, foldEvents } from "./ActivityRail";
-import { emptyTurnNote, feedSentence, isEmptyTurn, isFailure, payloadOf, renderClassWithCut, type RenderClass } from "@/lib/feed";
+import { emptyTurnNote, feedSentence, isEmptyTurn, isFailure, isUnresolved, payloadOf, pendingJudge, renderClassWithCut, type RenderClass } from "@/lib/feed";
+import { eventsInWindow, type ProcessWindow } from "@/lib/process-slice";
 import { clockTime } from "@/lib/time";
-import { EMPTY_TURN } from "@/lib/wording";
-import type { TaskEvent } from "@/lib/api/types";
+import { EMPTY_TURN, FEED_ROW } from "@/lib/wording";
+import type { TaskEvent, TaskStatus } from "@/lib/api/types";
 
 /** 클래스별 글리프 — ● 동작(플랫폼 조작·편집·셸), ○ 턴 생명주기(COMPONENTS §2.8 K6). 아이콘은 결과로 바뀌지 않는다. */
 const GLYPH: Record<RenderClass, string> = {
@@ -39,6 +40,17 @@ export interface ActivityFeedProps {
   /** run 제목 줄(예 "run · Claude Code · resume"). */
   title?: string;
   limit?: number;
+  /**
+   * 이 피드의 task 상태·현재 attempt(T-FEED). 끝난 task 면 어떤 줄에도 「진행 중…」을 붙이지 않는다 — 짝 없는 started 는 「결과 없음」.
+   * 모르면 비워 둔다: 그때는 이벤트만으로(같은 attempt 의 turn_end·error·cancel) 판정한다.
+   */
+  taskStatus?: TaskStatus | null;
+  attempt?: number | null;
+  /**
+   * 메시지의 조각(T-FEED A · `lib/process-slice.ts`) — `events` 는 task 전체를 주고 여기서 자른다.
+   * 「진행 중」 판정은 전체로 한다(턴 끝 줄이 조각 밖에 있어도 턴은 끝났다).
+   */
+  slice?: ProcessWindow | null;
 }
 
 function Detail({ cls, e }: { cls: RenderClass; e: TaskEvent }) {
@@ -83,11 +95,13 @@ function Detail({ cls, e }: { cls: RenderClass; e: TaskEvent }) {
   }
 }
 
-export function ActivityFeed({ events, structured = true, loading, cut1 = false, title, limit = 200 }: ActivityFeedProps) {
+export function ActivityFeed({ events: all, structured = true, loading, cut1 = false, title, limit = 200, taskStatus, attempt, slice }: ActivityFeedProps) {
   const [raw, setRaw] = useState(false);
   /** 펼친 카드 하나(행 id). 여러 개를 동시에 펼치면 피드가 로그가 된다. */
   const [expanded, setExpanded] = useState<string | null>(null);
+  const events = slice ? eventsInWindow(all, slice) : all;
   const rows = foldEvents(events).slice(-limit);
+  const isPending = pendingJudge(all, { taskStatus, attempt });
 
   if (!structured) {
     return (
@@ -113,7 +127,8 @@ export function ActivityFeed({ events, structured = true, loading, cut1 = false,
       <ol className="feed__list">
         {rows.map(({ first, latest: e }) => {
           const cls = renderClassWithCut(e, cut1);
-          const pending = e.outcome === "started";
+          const pending = isPending(e);
+          const unresolved = isUnresolved(e, pending);
           const p = payloadOf(e);
           const empty = isEmptyTurn(e);
           // 카드 상세 — 편집·셸의 결과 요약(`summary`)은 접어 둔다. 피드는 훑는 자리이고,
@@ -128,6 +143,7 @@ export function ActivityFeed({ events, structured = true, loading, cut1 = false,
               data-render-class={cls}
               data-outcome={e.outcome ?? ""}
               data-pending={pending ? "true" : "false"}
+              data-unresolved={unresolved ? "true" : undefined}
               data-info={empty ? "true" : undefined}
               data-event-id={e.id}
             >
@@ -139,7 +155,8 @@ export function ActivityFeed({ events, structured = true, loading, cut1 = false,
                   <span className="feed__sentence">{feedSentence(e)}</span>
                 )}
                 {!empty && <Detail cls={cls} e={e} />}
-                {pending && <span className="feed__pending" data-testid="feed-pending"> · 진행 중…</span>}
+                {pending && <span className="feed__pending" data-testid="feed-pending"> · {FEED_ROW.pending}</span>}
+                {unresolved && <span className="feed__quiet" data-testid="feed-unresolved"> · {FEED_ROW.unresolved}</span>}
                 {e.masked && <span className="feed__quiet"> · 마스킹됨</span>}
                 {detailText && (
                   <button
@@ -162,7 +179,7 @@ export function ActivityFeed({ events, structured = true, loading, cut1 = false,
         })}
       </ol>
       {rows.some((r) => isFailure(r.latest)) && (
-        <div className="feed__failnote" data-testid="feed-has-failure">실패한 항목이 있습니다 — 자동 재시도 여부는 작업 줄기 카드가 말합니다.</div>
+        <div className="feed__failnote" data-testid="feed-has-failure">실패한 항목이 있습니다 — 자동 재시도 여부는 서브 미션 카드가 말합니다.</div>
       )}
       {raw && <div className="feed__raw"><ActivityRail events={events} structured /></div>}
     </div>

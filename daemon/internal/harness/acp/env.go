@@ -28,6 +28,18 @@ type TaskEnv struct {
 	Attempt   int
 	LaneID    string
 	SessionID string
+	// RoomID and WorkID are the bundle's `task.room_id`·`task.work_id`
+	// (daemon-protocol v0.9.0): the room is the old session id under a new
+	// name, the mission is empty outside any. Both go to the agent as
+	// COLAB_ROOM_ID·COLAB_WORK_ID — the CLI's default for `room get` (T-R3b;
+	// Lead adds the two names to colab-cli §1 and harness §10).
+	RoomID string
+	WorkID string
+	// ThreadID is the bundle's `task.thread_root_id` (daemon-protocol
+	// v0.9.2): the thread the turn was asked in, empty for a top-level
+	// trigger. It goes to the agent as COLAB_THREAD_ID — the default reply
+	// position of `colab message post` (colab-cli v0.9.1, harness v0.9.3).
+	ThreadID  string
 	AgentName string
 }
 
@@ -59,6 +71,22 @@ func (t TaskEnv) colabVars() map[string]string {
 	}
 	if t.TaskToken != "" {
 		m["COLAB_TASK_TOKEN"] = t.TaskToken
+	}
+	// Only when the bundle names them: an empty COLAB_WORK_ID would read as
+	// "a mission whose id is empty" to a CLI that checks presence, and a turn
+	// outside any mission has none (§4.1 `work_id?`). COLAB_SESSION_ID stays
+	// alongside until R4.
+	if t.RoomID != "" {
+		m["COLAB_ROOM_ID"] = t.RoomID
+	}
+	if t.WorkID != "" {
+		m["COLAB_WORK_ID"] = t.WorkID
+	}
+	// Same rule, and it matters more here: an empty COLAB_THREAD_ID present
+	// would be a reply to the message "" — the CLI treats an absent key as
+	// "main timeline" and nothing else.
+	if t.ThreadID != "" {
+		m["COLAB_THREAD_ID"] = t.ThreadID
 	}
 	return m
 }

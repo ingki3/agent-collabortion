@@ -168,8 +168,8 @@ func TestSessionRemainingCapsAnApprovedOverride(t *testing.T) {
 	if d == "" {
 		t.Fatalf("the feed never says why the attempt stopped: %+v", f.sink.find("runtime", "cancel", ""))
 	}
-	if !strings.Contains(d, "세션 예산") {
-		t.Errorf("detail = %q, want it to name 세션 예산 as the cap that bound — paused at $2 with a "+
+	if !strings.Contains(d, "미션·방 예산") {
+		t.Errorf("detail = %q, want it to name 미션·방 예산 as the cap that bound — paused at $2 with a "+
 			"$3 override approved, the Director cannot otherwise tell which cap to lift (D-16)", d)
 	}
 	if !strings.Contains(d, "$2.0000") {

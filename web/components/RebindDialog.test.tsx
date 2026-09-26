@@ -59,8 +59,8 @@ describe("상황 문장 · 유실 경고 문구", () => {
   it("오프라인 일수와 정지 시각을 한 문장으로 말한다(SCREEN §4.9 상황 칸)", () => {
     const s = offlineSentence("MacBook", "2026-08-30T00:00:00Z", "2026-09-06T00:00:00Z");
     expect(s).toContain("MacBook");
-    expect(s).toContain("일간 오프라인");
-    expect(s).toContain("일시정지");
+    expect(s).toContain("일간 연결이 끊겼습니다");
+    expect(s).toContain("멈춰 있습니다"); // 방 층 — 「멈춤」(SCREEN §3.4(b) 분담)
   });
 
   it("유실 경고는 아티팩트 수와 '커밋 이력은 복원되지 않습니다' 를 담는다(U12 5 성공 기준)", () => {
@@ -92,7 +92,8 @@ describe("worktree — 유실 경고와 확인 게이트", () => {
     fireEvent.click(screen.getByTestId("rebind-ack"));
     fireEvent.click(screen.getByTestId("rebind-submit"));
     await waitFor(() => expect(post).toHaveBeenCalled());
-    expect(post.mock.calls[0][0]).toBe("/sessions/{sessionId}/rebind");
+    expect(post.mock.calls[0][0]).toBe("/rooms/{roomId}/rebind");
+    expect((post.mock.calls[0][1] as { path: unknown }).path).toEqual({ roomId: "s1" });
     expect((post.mock.calls[0][1] as { body: unknown }).body).toEqual({ runtime_id: "r2", acknowledge_loss: true });
   });
 });
@@ -103,6 +104,19 @@ describe("none — 잃을 워크트리가 없다", () => {
     await waitFor(() => expect(screen.getByTestId("rebind-candidates")).toBeTruthy());
     expect(screen.queryByTestId("rebind-loss")).toBeNull();
     expect((screen.getByTestId("rebind-submit") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("[FOLDERS] 작업 폴더(미션 공용 포함)는 옮겨지지 않는다고 말한다 — worktree 와 같은 박스 + ⚠ 제목 줄(Pencil 「Loss Warning (none)」), 체크박스는 없다", async () => {
+    render(<RebindDialog session={session("none")} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByTestId("rebind-loss-none")).toBeTruthy());
+    const box = screen.getByTestId("rebind-loss-none-box");
+    expect(box.className).toBe("rebind__loss");
+    const title = screen.getByTestId("rebind-loss-none-title");
+    expect(box.contains(title) && box.contains(screen.getByTestId("rebind-loss-none"))).toBe(true);
+    expect(title.textContent).toBe("⚠ 작업 폴더는 새 컴퓨터로 옮겨지지 않습니다 (격리: none)");
+    expect(box.firstElementChild).toBe(title);
+    expect(screen.getByTestId("rebind-loss-none").textContent).toBe("작업 폴더(미션 공용 포함)는 옮겨지지 않습니다. 아티팩트만 새 컴퓨터로 갑니다");
+    expect(screen.queryByTestId("rebind-ack")).toBeNull();
   });
 
   it("acknowledge_loss 를 보내지 않는다 — worktree 가 아닌데 확인을 요구하면 없는 위험을 말하는 것이다", async () => {
@@ -135,14 +149,27 @@ describe("후보 목록", () => {
     expect((screen.getByTestId("rebind-submit") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("세션 종료는 한 번 더 확인을 받는다(E14-07 — 되돌릴 수 없다)", async () => {
+  it("열린 미션 모두 취소는 한 번 더 확인을 받는다(E14-07 — 되돌릴 수 없다) · 열린 미션마다 cancelWork(R4 — cancelSession 삭제)", async () => {
     post.mockResolvedValue({});
+    get.mockImplementation((path: string) =>
+      path.includes("runtime-candidates")
+        ? Promise.resolve({ auto_select_allowed: false, candidates })
+        : path === "/rooms/{roomId}/works"
+          ? Promise.resolve({ items: [{ id: "w1" }, { id: "w2" }], next_cursor: null })
+          : Promise.resolve(diffs),
+    );
     render(<RebindDialog session={session("none")} onClose={vi.fn()} />);
     await waitFor(() => expect(screen.getByTestId("rebind-end")).toBeTruthy());
     fireEvent.click(screen.getByTestId("rebind-end"));
     expect(post).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("rebind-end-confirm"));
     await waitFor(() => expect(post).toHaveBeenCalled());
-    expect(post.mock.calls[0][0]).toBe("/sessions/{sessionId}/cancel");
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    const works = get.mock.calls.find((c) => c[0] === "/rooms/{roomId}/works")!;
+    expect(works[1]).toEqual({ path: { roomId: "s1" }, query: { status: ["draft", "active", "paused", "completing"] } });
+    expect(post.mock.calls.map((c) => [c[0], (c[1] as { path: unknown }).path])).toEqual([
+      ["/works/{workId}/cancel", { workId: "w1" }],
+      ["/works/{workId}/cancel", { workId: "w2" }],
+    ]);
   });
 });

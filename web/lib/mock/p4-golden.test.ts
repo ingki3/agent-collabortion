@@ -23,7 +23,8 @@ import { resetStore, store } from "./store";
 import { budgetScopeOf } from "@/components/InboxItemCard";
 import { graceView } from "@/components/RuntimeCard";
 import { deleteBlocked, gcBlockText, quotaView, GB } from "@/lib/workdir";
-import type { Artifact, HitlRequest, InboxItem, Runtime, RuntimeCandidate, Session, Workdir } from "@/lib/api/types";
+import type { Artifact, HitlRequest, InboxItem, Runtime, RuntimeCandidate, Workdir } from "@/lib/api/types";
+import type { Session } from "@/lib/legacy-session";
 
 const DAY = 864e5;
 
@@ -73,7 +74,7 @@ function addRuntime(ws: string, name: string, repos: Runtime["repos"], status: R
 const REMOTE = "git@github.com:ingki3/agent-collabortion.git";
 
 async function newSession(opts: { isolation?: "none" | "worktree"; runtimeId?: string; ws: string; agents: string[] }): Promise<Session> {
-  return must<Session>("POST", `/workspaces/${opts.ws}/sessions`, {
+  return must<Session>("POST", `/__mock/workspaces/${opts.ws}/seed-room`, {
     body: {
       title: "P4 골든 대조", goal: "worktree 격리와 재바인딩",
       isolation: opts.isolation === "worktree" ? { kind: "worktree", repo_path: "~/dev/colab", remote_url: REMOTE } : { kind: "none" },
@@ -106,7 +107,7 @@ describe("오프라인 유예 — golden E14 의 수치", () => {
     const before = (await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`)).items.length;
     await must<Runtime>("POST", `/__mock/runtimes/${rt.id}/offline`, { body: { days: 6.958333 } }); // 6일 23시간
 
-    const after = await must<Session>("GET", `/sessions/${sess.id}`);
+    const after = await must<Session>("GET", `/__mock/rooms/${sess.id}/legacy`);
     expect(after.status).toBe("active"); // 주말 동안 닫아 둔 노트북은 정상이다 — 일찍 멈추면 알림이 의미를 잃는다
     const items = (await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`)).items;
     expect(items.filter((x) => x.type === "runtime_offline").length).toBe(0);
@@ -118,14 +119,19 @@ describe("오프라인 유예 — golden E14 의 수치", () => {
     const sess = await newSession({ ws, agents, runtimeId: rt.id });
     await must<Runtime>("POST", `/__mock/runtimes/${rt.id}/offline`, { body: { days: 7 } });
 
-    const after = await must<Session>("GET", `/sessions/${sess.id}`);
+    const after = await must<Session>("GET", `/__mock/rooms/${sess.id}/legacy`);
     expect(after.status).toBe("paused");
     expect(after.paused_reason).toBe("runtime_offline");
     // FR-9.2 는 선택지를 정확히 둘로 못 박는다 — 셋이 되면 화면이 없는 길을 제안한다.
     expect(after.paused_detail?.resolve_actions).toEqual(["rebind", "cancel"]);
 
+    // openapi 0.2.11(#314): 알림은 방 층의 room_paused 한 장 — ref 는 잃은 컴퓨터, 동작은 옮기기·방 열기. 옛 runtime_offline 항목은 없다.
     const items = (await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`)).items;
-    expect(items.filter((x) => x.type === "runtime_offline").length).toBe(1);
+    expect(items.filter((x) => x.type === "runtime_offline")).toEqual([]);
+    const card = items.filter((x) => x.type === "room_paused");
+    expect(card.length).toBe(1);
+    expect(card[0].ref_id).toBe(rt.id);
+    expect(card[0].actions).toEqual(["rebind", "open_room"]);
 
     // `grace_ends_at` 이 있어야 S11 이 "언제까지"를 말한다(openapi Runtime.grace_ends_at).
     const rts = await must<Runtime[]>("GET", `/workspaces/${ws}/runtimes`);
@@ -138,14 +144,14 @@ describe("오프라인 유예 — golden E14 의 수치", () => {
     const { ws, rt, agents } = await base();
     await newSession({ ws, agents, runtimeId: rt.id });
     await must<Runtime>("POST", `/__mock/runtimes/${rt.id}/offline`, { body: { days: 7 } });
-    const once = (await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`)).items.filter((x) => x.type === "runtime_offline").length;
+    const once = (await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`)).items.filter((x) => x.type === "room_paused").length;
     await must<Runtime>("POST", `/__mock/runtimes/${rt.id}/offline`, { body: { days: 9 } });
-    const twice = (await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`)).items.filter((x) => x.type === "runtime_offline").length;
+    const twice = (await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`)).items.filter((x) => x.type === "room_paused").length;
     expect(twice).toBe(once); // 스윕은 주기적이다 — tick 마다 쌓으면 답해야 할 한 건이 묻힌다
     expect(once).toBe(1);
   });
 
-  it("화면 문장 — 유예 안에서는 '남음', 넘기면 '만료 + 묶인 세션 수'(U12 1·2)", () => {
+  it("화면 문장 — 유예 안에서는 '남음', 넘기면 '만료 + 묶인 방 수'(U12 1·2)", () => {
     const now = Date.parse("2026-09-08T00:00:00Z");
     const left = graceView(
       { offline_since: "2026-09-07T00:00:00Z", grace_ends_at: "2026-09-14T00:00:00Z", paused_session_count: 0 },
@@ -160,7 +166,7 @@ describe("오프라인 유예 — golden E14 의 수치", () => {
       now,
     );
     expect(over.expired).toBe(true);
-    expect(over.text).toContain("세션 2개");
+    expect(over.text).toContain("방 2개"); // SCREEN §4.11 「이 컴퓨터에 묶인 방 N개가 멈췄습니다」 — FR-9.2 v0.19 의 단위는 방(R1.5)
   });
 });
 
@@ -213,21 +219,21 @@ describe("재바인딩 실행 — golden E14-03·05·06", () => {
     const { ws, rt, agents } = await base();
     const b = addRuntime(ws, "desktop", [{ path: "/srv/app", remote_url: REMOTE, branch: "main", clean: true }]);
     const sess = await newSession({ ws, agents, runtimeId: rt.id, isolation: "worktree" });
-    await must<Artifact[]>("POST", `/__mock/sessions/${sess.id}/seed-artifacts`, { body: { count: 3, type: "diff" } });
+    await must<Artifact[]>("POST", `/__mock/rooms/${sess.id}/seed-artifacts`, { body: { count: 3, type: "diff" } });
     await must<Runtime>("POST", `/__mock/runtimes/${rt.id}/offline`, { body: { days: 8 } });
     return { ws, rt, b, sess };
   }
 
   it("E14-06 — worktree 는 acknowledge_loss 없이 422 다", async () => {
     const { b, sess } = await pausedWorktreeSession();
-    const res = await call("POST", `/sessions/${sess.id}/rebind`, { body: { runtime_id: b.id } });
+    const res = await call("POST", `/rooms/${sess.id}/rebind`, { body: { runtime_id: b.id } });
     expect(res.status).toBe(422);
   });
 
   it("E14-05 — 후보가 아닌 런타임으로는 422 (화면을 거치지 않은 직접 호출도 막는다)", async () => {
     const { ws, sess } = await pausedWorktreeSession();
     const other = addRuntime(ws, "other", [{ path: "~/dev/colab", remote_url: "git@github.com:someone/else.git", branch: "main", clean: true }]);
-    const res = await call("POST", `/sessions/${sess.id}/rebind`, { body: { runtime_id: other.id, acknowledge_loss: true } });
+    const res = await call("POST", `/rooms/${sess.id}/rebind`, { body: { runtime_id: other.id, acknowledge_loss: true } });
     expect(res.status).toBe(422);
   });
 
@@ -235,29 +241,29 @@ describe("재바인딩 실행 — golden E14-03·05·06", () => {
     const { ws, rt, agents } = await base();
     const b = addRuntime(ws, "desktop", []);
     const sess = await newSession({ ws, agents, runtimeId: rt.id });
-    const res = await call("POST", `/sessions/${sess.id}/rebind`, { body: { runtime_id: b.id } });
+    const res = await call("POST", `/rooms/${sess.id}/rebind`, { body: { runtime_id: b.id } });
     expect(res.status).toBe(409); // 살아 있는 세션을 옮기면 아직 돌고 있는 머신에서 일을 빼앗는다
   });
 
   it("E14-03·06 — 재바인딩은 런타임을 바꾸고 active 로 되돌리며 대화·아티팩트를 그대로 둔다", async () => {
     const { b, sess } = await pausedWorktreeSession();
-    const before = await must<{ items: unknown[] }>("GET", `/sessions/${sess.id}/messages`);
-    const arts = await must<Artifact[]>("GET", `/sessions/${sess.id}/artifacts?type=diff`);
+    const before = await must<{ items: unknown[] }>("GET", `/rooms/${sess.id}/messages`);
+    const arts = await must<Artifact[]>("GET", `/rooms/${sess.id}/artifacts?type=diff`);
 
-    const after = await must<Session>("POST", `/sessions/${sess.id}/rebind`, { body: { runtime_id: b.id, acknowledge_loss: true } });
+    const after = await must<Session>("POST", `/rooms/${sess.id}/rebind`, { body: { runtime_id: b.id, acknowledge_loss: true } });
     expect(after.runtime_id).toBe(b.id);
     expect(after.status).toBe("active"); // 재바인딩이 곧 재개다(openapi rebindSession)
     expect(after.paused_reason ?? null).toBeNull();
 
     // 아티팩트·메시지·결정 기록은 서버에 있다 — 재바인딩이 지울 이유가 없다(FR-9.2).
-    const afterMsgs = await must<{ items: unknown[] }>("GET", `/sessions/${sess.id}/messages`);
+    const afterMsgs = await must<{ items: unknown[] }>("GET", `/rooms/${sess.id}/messages`);
     expect(afterMsgs.items.length).toBe(before.items.length);
-    expect((await must<Artifact[]>("GET", `/sessions/${sess.id}/artifacts?type=diff`)).length).toBe(arts.length);
+    expect((await must<Artifact[]>("GET", `/rooms/${sess.id}/artifacts?type=diff`)).length).toBe(arts.length);
   });
 
   it("E14-06 — diff 아티팩트 목록은 제출 순서다(재적용 순서 = 이 순서)", async () => {
     const { sess } = await pausedWorktreeSession();
-    const arts = await must<Artifact[]>("GET", `/sessions/${sess.id}/artifacts?type=diff`);
+    const arts = await must<Artifact[]>("GET", `/rooms/${sess.id}/artifacts?type=diff`);
     expect(arts.map((a) => a.name)).toEqual(["diff-1.patch", "diff-2.patch", "diff-3.patch"]);
     // 시각도 오름차순이어야 한다 — 이름만 맞고 순서가 뒤집히면 화면이 뒤집힌 순서를 그린다.
     expect([...arts].sort((a, x) => a.created_at.localeCompare(x.created_at)).map((a) => a.id)).toEqual(arts.map((a) => a.id));
@@ -290,7 +296,7 @@ describe("런타임 삭제 — golden E14-08", () => {
   it("끝난 세션만 있으면 204 로 삭제된다 — 영영 못 지우는 가드는 노트북을 버릴 수 없게 한다", async () => {
     const { ws, rt, agents } = await base();
     const sess = await newSession({ ws, agents, runtimeId: rt.id });
-    await must<Session>("POST", `/sessions/${sess.id}/cancel`, { body: { reason: "테스트" } });
+    await must<Session>("POST", `/works/${sess.id}/cancel`, { body: { reason: "테스트" } });
     expect((await call("DELETE", `/runtimes/${rt.id}`)).status).toBe(204);
   });
 
@@ -307,7 +313,7 @@ describe("workdir — golden E13 의 판정과 화면 번역", () => {
   async function seeded() {
     const { ws, rt, agents } = await base();
     const sess = await newSession({ ws, agents, runtimeId: rt.id, isolation: "worktree" });
-    await must<Workdir[]>("POST", `/__mock/sessions/${sess.id}/seed-workdirs`, { body: {} });
+    await must<Workdir[]>("POST", `/__mock/rooms/${sess.id}/seed-workdirs`, { body: {} });
     const page = await must<{ items: Workdir[]; disk_bytes_total: number; disk_quota_gb: number | null }>("GET", `/runtimes/${rt.id}/workdirs`);
     return { ws, rt, sess, page };
   }
@@ -387,7 +393,7 @@ describe("인박스 card.purpose — K-9(#147) 의 N+1 제거", () => {
   it("예산 HITL 항목의 카드가 purpose 를 싣고, 상세와 같은 값이다", async () => {
     const { ws, rt, agents } = await base();
     const sess = await newSession({ ws, agents, runtimeId: rt.id });
-    const h = await must<HitlRequest>("POST", `/__mock/sessions/${sess.id}/seed-hitl`, {
+    const h = await must<HitlRequest>("POST", `/__mock/rooms/${sess.id}/seed-hitl`, {
       body: { source: "system", purpose: "budget", type: "approval", proposed_default: null, agent_id: agents[0], question: "예산 $1 을 초과했습니다" },
     });
     const items = (await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`)).items;
@@ -404,7 +410,7 @@ describe("인박스 card.purpose — K-9(#147) 의 N+1 제거", () => {
     const sess = await newSession({ ws, agents, runtimeId: rt.id });
     await must<Runtime>("POST", `/__mock/runtimes/${rt.id}/offline`, { body: { days: 8 } });
     const items = (await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`)).items;
-    const off = items.find((x) => x.type === "runtime_offline")!;
+    const off = items.find((x) => x.type === "room_paused" && x.ref_id === rt.id)!; // #314 — 오프라인 카드는 room_paused(요청 없는 방 멈춤)
     expect(off.card?.purpose ?? null).toBeNull();
     expect(off.session_id).toBe(sess.id);
   });

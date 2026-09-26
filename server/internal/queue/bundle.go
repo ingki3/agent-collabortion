@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
+	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -20,7 +21,6 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/router"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
-	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
 )
 
 // historyLimit is §8.4's history cap. It is tasks.DefaultHistoryLimit and not
@@ -37,9 +37,9 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		toolsJSON, optionsJSON, envJSON, isolationJSON []byte
 		runtimeKind, model                             string
 		args                                           []string
-		title, goal, directorName                      string
-		criteria                                       []string
-		limitsJSON                                     []byte
+		roomName                                       string
+		workTitle                                      *string
+		limitsJSON, workLimitsJSON                     []byte
 		runtimeSessionRef                              []byte
 		reentry                                        int
 		budgetPerTask                                  *float64
@@ -48,20 +48,25 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	err := tx.QueryRow(ctx, `
 		SELECT a.name, a.role, a.role_description, a.instructions, a.tools, a.budget_per_task,
 		       p.runtime_kind, p.model, p.options, p.env, p.args,
-		       s.title, s.goal, s.acceptance_criteria, s.isolation, s.limits, u.display_name,
-		       l.runtime_session_ref, l.reentry_count, w.path_or_ref
+		       s.name, wk.title,
+		       s.isolation, s.limits,
+		       l.runtime_session_ref, l.reentry_count, w.path_or_ref, wk.limits
 		FROM task t
 		JOIN agent a ON a.id = t.agent_id
 		JOIN agent_profile p ON p.id = t.profile_id
-		JOIN session s ON s.id = t.session_id
-		JOIN app_user u ON u.id = s.director_user_id
+		JOIN room s ON s.id = t.session_id
+		-- The task's OWN mission (V19_R1B_HANDOFF (c) queue/bundle.go:57). Its
+		-- title is read here for a NEW mission folder's name piece
+		-- (daemon-protocol v0.10.0 §6.1); brief [4] is loadRoomBrief's (T-R3b).
+		-- The worktree branch reads the ROOM name (FINDING-1).
+		LEFT JOIN work wk ON wk.id = t.work_id
 		JOIN lane l ON l.id = t.lane_id
 		LEFT JOIN workdir w ON w.id = l.workdir_id
 		WHERE t.id = $1`, t.ID).Scan(
 		&agentName, &agentRole, &roleDesc, &instructions, &toolsJSON, &budgetPerTask,
 		&runtimeKind, &model, &optionsJSON, &envJSON, &args,
-		&title, &goal, &criteria, &isolationJSON, &limitsJSON, &directorName,
-		&runtimeSessionRef, &reentry, &prevWorkdir)
+		&roomName, &workTitle, &isolationJSON, &limitsJSON,
+		&runtimeSessionRef, &reentry, &prevWorkdir, &workLimitsJSON)
 	if isNoRows(err) {
 		return nil, errNoBundle
 	}
@@ -84,16 +89,22 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		BudgetUSD *float64 `json:"budget_usd"`
 	}
 	_ = json.Unmarshal(limitsJSON, &limits)
+	// harness §10 v0.9.6: every sentence below that names a colab command is
+	// in the words of this runtime's tool surface.
+	surf := SurfaceFor(runtimeKind)
 
 	// Roster (brief [5])
 	rows, err := tx.Query(ctx, `
 		SELECT a.id, a.name, a.role, a.role_description,
-		       EXISTS (SELECT 1 FROM task x WHERE x.agent_id = a.id AND x.session_id = sp.session_id AND x.status IN ('dispatched','preparing','running'))
-		FROM session_participant sp JOIN agent a ON a.id = sp.agent_id WHERE sp.session_id = $1 ORDER BY sp.joined_at`, t.SessionID)
+		       EXISTS (SELECT 1 FROM task x WHERE x.agent_id = a.id AND x.session_id = sp.room_id AND x.status IN ('dispatched','preparing','running'))
+		FROM room_participant sp JOIN agent a ON a.id = sp.agent_id WHERE sp.room_id = $1 AND sp.left_at IS NULL ORDER BY sp.joined_at`, t.SessionID)
 	if err != nil {
 		return nil, err
 	}
-	var roster strings.Builder
+	// [5] carries who is in the room; whether each one is working right now
+	// changes turn to turn, so it goes to the turn prompt's <roster_status>
+	// instead — [1]~[5] stay byte-identical (harness v0.9.2, E12-11).
+	var roster, rosterStatus strings.Builder
 	for rows.Next() {
 		var id uuid.UUID
 		var name, role, desc string
@@ -110,7 +121,8 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		if id == t.AgentID {
 			self = " (you)"
 		}
-		fmt.Fprintf(&roster, "- %s%s — %s: %s — mention: %s — status: %s\n", name, self, role, desc, router.MentionLink(name, id), status)
+		fmt.Fprintf(&roster, "- %s%s — %s: %s — mention: %s\n", name, self, role, desc, router.MentionLink(name, id))
+		fmt.Fprintf(&rosterStatus, "- %s: %s\n", name, status)
 	}
 	rows.Close()
 
@@ -118,7 +130,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	// and the artifact table were both written from P2 on and nothing read
 	// them back into a prompt, so every turn re-derived what had already been
 	// decided from the raw history.
-	sessionContext, err := briefContext(ctx, tx, t.SessionID)
+	sessionContext, err := briefContext(ctx, tx, t.SessionID, surf)
 	if err != nil {
 		return nil, err
 	}
@@ -146,13 +158,42 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		seen[id] = true
 		triggerIDs = append(triggerIDs, id)
 	}
+	// T-THREAD (harness v0.9.3, daemon-protocol v0.9.2): a message posted in a
+	// thread carries `thread="<root>"`, and the task's thread is the one the
+	// LATEST trigger message sits in — that is the question the turn answers,
+	// and the daemon hands it to `colab message post` as COLAB_THREAD_ID. A
+	// reply that ran to the main timeline is how a Director's thread question
+	// got answered where nobody was looking (STO 방 실측, 2026-09-25).
 	var trigger strings.Builder
+	var threadRootID string
+	var latest time.Time
+	var triggerMsgs []*messages.Row
 	for _, id := range triggerIDs {
 		m, err := messages.Get(ctx, tx, id)
 		if err != nil {
 			continue
 		}
-		fmt.Fprintf(&trigger, "<message id=%q author=%q at=%q>\n%s\n</message>\n", m.ID, authorLabel(m), m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"), m.Content)
+		triggerMsgs = append(triggerMsgs, m)
+	}
+	fullDetail := triggerDetailBudget(triggerMsgs)
+	for _, m := range triggerMsgs {
+		root, err := threadRootOf(ctx, tx, m)
+		if err != nil {
+			return nil, err
+		}
+		thread := ""
+		if root != uuid.Nil {
+			thread = fmt.Sprintf(" thread=%q", root)
+		}
+		fmt.Fprintf(&trigger, "<message id=%q author=%q at=%q%s>\n%s\n%s</message>\n", m.ID, authorLabel(m), m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"), thread, m.Content, triggerDetail(m, fullDetail[m.ID], surf))
+		// Arrival order breaks a tie: the list is already in it.
+		if !m.CreatedAt.Before(latest) {
+			latest = m.CreatedAt
+			threadRootID = ""
+			if root != uuid.Nil {
+				threadRootID = root.String()
+			}
+		}
 	}
 	history, _, _, _, err := messages.List(ctx, tx, t.SessionID, messages.ListOptions{IncludeReplies: true, Limit: historyLimit})
 	if err != nil {
@@ -163,8 +204,10 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	var hist strings.Builder
 	for _, m := range history {
 		// The id is here so `Messages you already posted` above can be matched
-		// line by line against what the session actually holds (S-36).
-		fmt.Fprintf(&hist, "[%s] %s %s: %s\n", m.CreatedAt.UTC().Format("15:04"), m.ID, authorLabel(m), m.Content)
+		// line by line against what the session actually holds (S-36). Only a
+		// trigger whose 작업 내용 went in whole points down to <trigger>; one
+		// demoted by the turn budget reads like any other history line.
+		fmt.Fprintf(&hist, "[%s] %s %s: %s\n%s", m.CreatedAt.UTC().Format("15:04"), m.ID, authorLabel(m), m.Content, historyDetail(m, fullDetail[m.ID], surf))
 	}
 
 	// posted is the bundle's `posted_message_ids` (bare ids, §4.1); postedLines
@@ -225,15 +268,25 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		}
 	}
 
+	// [4] and the turn prompt's ②·③ (PRD FR-4.1 v0.19). A mission deleted
+	// under a queued task leaves the turn outside any mission.
+	room, progress, err := loadRoomBrief(ctx, tx, t.SessionID, t.WorkID, isolation.Kind)
+	if err != nil {
+		return nil, err
+	}
+	missionID := t.WorkID
+	if room.Mission == nil {
+		missionID = nil
+	}
+	roomHist, err := loadRoomHistory(ctx, tx, t.SessionID, missionID, history)
+	if err != nil {
+		return nil, err
+	}
+
 	// Brief [1]~[8] (PRD §8.4).
 	var brief strings.Builder
 	fmt.Fprintf(&brief, "[1] Agent Identity\nYou are %s, %s in the Colab workspace. %s\n\nInstructions:\n%s\n\n", agentName, agentRole, roleDesc, instructions)
-	brief.WriteString("[2] Workspace rules and colab CLI\n" +
-		"- Mention syntax: [@Name](mention://agent/<id>). Only mention session participants listed in [5].\n" +
-		"- Post every reply to the session with `colab message post --body \"<text>\"` (or the colab_message_post MCP tool). Text you print to stdout is NOT delivered.\n" +
-		"- Read more history with `colab session messages`, session details with `colab session get`.\n" +
-		"- Mentioning an agent creates work for it; do not mention agents just to acknowledge.\n" +
-		"- Your COLAB_TASK_TOKEN is valid for this attempt only; if a call returns token_revoked, stop immediately.\n\n")
+	brief.WriteString(surf.Section2())
 	if agentRole == "lead" {
 		// §8.4 marks [3] "(lead만)". A researcher handed the coordination
 		// protocol starts handing out work to the roster it can see, which is
@@ -242,17 +295,13 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 			"- You are the lead. Split the goal into pieces and hand each one to the agent in [5] whose role fits it, by mentioning that agent.\n" +
 			"- One mention is one unit of work: do not mention an agent to acknowledge, and do not mention two agents for the same piece.\n" +
 			"- Wait for a reply before handing out work that depends on it; independent pieces go out together.\n" +
-			"- When a decision needs a person, ask with `colab hitl ask` rather than guessing; the answer comes back in the next turn's `<resumed>`.\n" +
+			surf.HitlAskLine +
 			"- Report to the Director yourself; the other agents report to you.\n\n")
 	}
-	fmt.Fprintf(&brief, "[4] Session\nTitle: %s\nGoal: %s\n", title, goal)
-	if len(criteria) > 0 {
-		brief.WriteString("Acceptance criteria:\n")
-		for _, c := range criteria {
-			fmt.Fprintf(&brief, "- %s\n", c)
-		}
-	}
-	fmt.Fprintf(&brief, "Director: %s\nIsolation: %s\n\n", directorName, isolation.Kind)
+	// [4] 방 맥락 (harness §10 v0.9.0, PRD FR-4.1): the room, and the mission
+	// this turn belongs to — only that one, so two turns of the same mission
+	// share [1]~[5] byte for byte and a turn of another mission does not.
+	brief.WriteString(renderRoom(room))
 	fmt.Fprintf(&brief, "[5] Roster\n%s\n", roster.String())
 	if sessionContext != "" {
 		fmt.Fprintf(&brief, "[6] Context\n%s\n", sessionContext)
@@ -284,7 +333,20 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	// `<resumed>`, before the history — because nothing else in the prompt is
 	// true until the workdir has the previous machine's work in it.
 	var rebindPrompt string
-	_ = tx.QueryRow(ctx, `SELECT COALESCE(rebind_prompt, '') FROM session WHERE id = $1`, t.SessionID).Scan(&rebindPrompt)
+	_ = tx.QueryRow(ctx, `SELECT COALESCE(rebind_prompt, '') FROM room WHERE id = $1`, t.SessionID).Scan(&rebindPrompt)
+
+	wd, err := planBundleWorkdir(ctx, tx, t, missionID, runtimeID, isolation.Kind, roomName, deref(workTitle), agentName, now)
+	if err != nil {
+		return nil, err
+	}
+	workdirKind := wd.Kind
+	// harness v0.9.7 <folders>: the server names every path, so the block is
+	// written here and not by the daemon. `<roster_status>` → `<folders>` →
+	// `<trigger>`; a test chat never gets here (it has no bundle of its own).
+	foldersBlock, err := renderFolders(ctx, tx, t, missionID, isolation.Kind == "worktree", wd, surf)
+	if err != nil {
+		return nil, err
+	}
 
 	// Turn prompt
 	var prompt strings.Builder
@@ -292,12 +354,22 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		fmt.Fprintf(&prompt, "<rebind>\n%s</rebind>\n\n", ensureTrailingNewline(rebindPrompt))
 	}
 	renderResumedSection(&prompt, plan, t.Attempt, prevOutcome, postedLines, answered)
+	// ① — with FR-4.1's one line at its head when it dropped something (Lead
+	// T-R3b 판정 3) — then ② and ③, then the mission's progress (판정 1).
+	prompt.WriteString(truncationNote(plan.HistoryTotal-plan.HistoryIncluded, roomHist, missionID != nil, surf))
 	fmt.Fprintf(&prompt, "<history included=%d total=%d truncated=%t>\n%s</history>\n\n",
 		plan.HistoryIncluded, plan.HistoryTotal, plan.HistoryTruncated, hist.String())
+	renderRoomHistoryTail(&prompt, missionID, roomHist, surf)
+	prompt.WriteString(renderMissionProgress(room.Mission, progress.Met, progress.Total, progress.Satisfied))
+	fmt.Fprintf(&prompt, "<roster_status>\n%s</roster_status>\n\n", rosterStatus.String())
+	prompt.WriteString(foldersBlock)
 	// A re-instruction's trigger IS the new instruction, and `<resumed>` is
 	// absent above — so the same rendering serves both (§8.4, E8-06).
 	fmt.Fprintf(&prompt, "<trigger>\n%s</trigger>\n\n", trigger.String())
-	prompt.WriteString("Respond to the trigger. Post your reply with `colab message post`; mention the person or agent you are answering when a reply is expected.\n")
+	prompt.WriteString(surf.Respond)
+	if threadRootID != "" {
+		prompt.WriteString(surf.ThreadReply + "\n")
+	}
 
 	transport := contracts.BriefACPMetaSystemPrompt
 	adapterPin := contracts.ClaudeAgentACPPin
@@ -321,7 +393,15 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	// The daemon's own half of D-16 is backlog D-16; the server's in-turn
 	// enforcement (httpapi.enforceBudgetFor, §4.2 usage) applies the same min
 	// on every heartbeat regardless.
-	budget := sessionRemainingBudget(ctx, tx, t.SessionID, limits.BudgetUSD)
+	var workLimits struct {
+		BudgetUSD *float64 `json:"budget_usd"`
+	}
+	_ = json.Unmarshal(workLimitsJSON, &workLimits)
+	// PRD v0.19 FR-2A.3 (daemon-protocol v0.9.0 §4.4): the remainder half of
+	// the effective ceiling is min(미션 잔여, 방 잔여).
+	budget := minRemaining(
+		remainingBudget(ctx, tx, `t.work_id = $1`, t.WorkID, workLimits.BudgetUSD),
+		remainingBudget(ctx, tx, `t.session_id = $1`, &t.SessionID, limits.BudgetUSD))
 	// S-44: an approved raise carries along the lane it was granted on, so the
 	// daemon enforces the same ceiling the server does. Without this the
 	// server would allow $3 (httpapi.loadBudgetState reads the same fallback)
@@ -333,99 +413,12 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 			override = v
 		}
 	}
-	workdirKind := "dir"
-	wdPlan := workdirs.WorktreePlan{}
-	if isolation.Kind == "worktree" {
-		workdirKind = "worktree"
-		// FR-6.4/C3: ONE worktree per agent, reused across that agent's lanes.
-		// The existing path is looked up by agent, not by lane, so a second
-		// lane of the same agent gets the same checkout back rather than a
-		// second worktree of the same branch (E13-02, E16-B's "워크트리 2개").
-		//
-		// E13-08 is the same query read the other way: the bundle names only
-		// what THIS agent owns. A reviewer handed the Frontend checkout can
-		// edit the code it is reviewing, and under `worktree` two agents in one
-		// tree is repository corruption, not a stale read.
-		existing := ""
-		if paths, err := workdirs.BundleWorkdirPaths(ctx, tx, t.SessionID, t.AgentID); err == nil {
-			for _, p := range paths {
-				// S-62 (PR #173 리뷰 NN1): a row written BEFORE migration 0019
-				// can hold a RELATIVE path. S-55 stopped the server from
-				// producing one, and 0019 stopped new ones from being stored,
-				// but neither looked at what was already in the table — and
-				// this branch hands the stored string straight to the daemon,
-				// which absolutises it against its own CWD and checks a
-				// worktree out inside the user's repository (T-I4 차단 ①,
-				// all over again on an upgraded deployment).
-				//
-				// So: only an absolute row is reusable. A relative one is
-				// ignored and the checkout is planned afresh from the probe's
-				// `workdir_root`, and the fact is put on the feed rather than
-				// swallowed — the old directory is still on disk and the
-				// Director is the one who decides what happens to it.
-				if filepath.IsAbs(p) {
-					if existing == "" {
-						existing = p
-					}
-					continue
-				}
-				// Every relative row is reported, not just the ones that leave
-				// the agent with no checkout at all: the directory it names is
-				// still on disk either way.
-				if err := noteRelativeWorkdirRow(ctx, tx, t, p, now); err != nil {
-					return nil, err
-				}
-			}
-		}
-		// S-55 / v0.7.3 §4.1: the bundle's `workdir.path` is ABSOLUTE, and the
-		// only material for it is the runtime's probe `workdir_root`. The path
-		// is the server's to own because the server is what judges E13-08 (a
-		// bundle names no other agent's checkout) and what puts paths in the
-		// `gc` command (§4.3) and the workdir rows.
-		var root *string
-		if err := tx.QueryRow(ctx, `SELECT workdir_root FROM runtime WHERE id = $1`, runtimeID).Scan(&root); err != nil && !isNoRows(err) {
-			return nil, fmt.Errorf("queue: bundle workdir_root: %w", err)
-		}
-		wdPlan = workdirs.PlanWorktree(workdirs.WorktreeRequest{
-			Root:             deref(root),
-			SessionSlug:      workdirs.Slug(title),
-			AgentSlug:        workdirs.Slug(agentName),
-			AgentID:          t.AgentID,
-			ExistingForAgent: existing,
-		})
-		if wdPlan.Path == "" {
-			// Not a fallback, a refusal: PlanWorktree only leaves the path
-			// empty when it has no root, and shipping a relative path is the
-			// failure mode that killed every `worktree` session in T-I4.
-			return nil, errNoWorkdirRoot
-		}
-	}
-	// K-14 (daemon-protocol v0.8.3 §4.1): the bundle carries the workdir row's
-	// id, so the daemon's §6 report can name the row instead of reconstructing
-	// (session, agent) from a slugged path. The row is made HERE, before the
-	// bundle leaves, for `worktree` — the server owns that path. For `dir` the
-	// daemon owns the path (Lead T-S21 결정 A): only a row an earlier attempt of
-	// this lane already bound is carried; the first attempt goes out without an
-	// id and its §6 report takes the pair fallback.
-	var wdBranch *string
-	if wdPlan.Created && wdPlan.Branch != "" {
-		br := wdPlan.Branch
-		wdBranch = &br
-	}
-	wdID, err := workdirs.EnsureBundleRow(ctx, tx, workdirs.BundleRow{
-		SessionID: t.SessionID, AgentID: t.AgentID, LaneID: t.LaneID,
-		Kind: workdirKind, Path: wdPlan.Path, Branch: wdBranch,
-	}, now)
-	if err != nil {
-		return nil, fmt.Errorf("queue: bundle workdir row: %w", err)
-	}
-	wdIDStr := ""
-	if wdID != uuid.Nil {
-		wdIDStr = wdID.String()
-	}
 	b := &contracts.TaskBundle{
 		Task: contracts.BundleTask{
 			ID: t.ID.String(), Attempt: t.Attempt, LaneID: t.LaneID.String(), SessionID: t.SessionID.String(),
+			// daemon-protocol v0.9.0: the room (= the old session id, both until
+			// R4) and the mission the task runs for, empty outside any mission.
+			RoomID: t.SessionID.String(), WorkID: uuidString(t.WorkID),
 			AgentID: t.AgentID.String(), AgentName: agentName,
 			BudgetUSD: budgetPerTask, BudgetOverrideUSD: override,
 			// K-19: the daemon trims the MCP tool list and the hermes wrapper
@@ -437,13 +430,14 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 			RuntimeKind: contracts.RuntimeKind(runtimeKind), Model: model, Options: options, Env: env, Args: args, Tools: tools, AdapterPin: adapterPin,
 		},
 		Workdir: contracts.BundleWorkdir{
-			ID:   wdIDStr,
+			ID:   wd.ID.String(),
 			Kind: workdirKind, RepoPath: isolation.RepoPath,
-			Path: wdPlan.Path, Branch: wdPlan.Branch,
-			// `reuse` is true for a retry, a lane re-entry, AND — under
-			// `worktree` — whenever this agent already has a checkout in this
-			// session, which is every lane after its first (C3).
-			Reuse: t.Attempt > 1 || reentry > 0 || (workdirKind == "worktree" && !wdPlan.Created),
+			Path: wd.Path, SharedPath: wd.SharedPath, Branch: wd.Branch,
+			// `reuse` is true for a retry, a lane re-entry, AND whenever the
+			// folder already existed before this bundle — a worktree checkout
+			// of this agent (C3), or a mission folder another lane of this
+			// agent made (D3 A).
+			Reuse: t.Attempt > 1 || reentry > 0 || !wd.Created,
 		},
 		Brief:  contracts.BundleBrief{Transport: transport, Text: brief.String()},
 		Prompt: prompt.String(),
@@ -453,6 +447,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	if t.TriggerMessageID != nil {
 		b.Task.TriggerMessageID = t.TriggerMessageID.String()
 	}
+	b.Task.ThreadRootID = threadRootID
 	if t.DelegatedFromTaskID != nil {
 		b.Task.DelegatedFromTaskID = t.DelegatedFromTaskID.String()
 	}
@@ -463,6 +458,33 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		b.PostedMessageIDs = posted
 	}
 	return b, nil
+}
+
+// threadRootOf is the root of the thread m sits in, uuid.Nil for a top-level
+// message. The router already stores a reply to a reply against the root, but
+// message.parent_id is a tree (#294 NN5), so the walk goes to the top rather
+// than trusting one hop.
+func threadRootOf(ctx context.Context, tx pgx.Tx, m *messages.Row) (uuid.UUID, error) {
+	if m.ParentID == nil {
+		return uuid.Nil, nil
+	}
+	var root uuid.UUID
+	err := tx.QueryRow(ctx, `
+		WITH RECURSIVE up AS (
+			SELECT id, parent_id, 0 AS depth FROM message WHERE id = $1
+			UNION ALL
+			SELECT p.id, p.parent_id, up.depth + 1 FROM message p JOIN up ON p.id = up.parent_id WHERE up.depth < 64
+		)
+		SELECT id FROM up WHERE parent_id IS NULL`, *m.ParentID).Scan(&root)
+	if isNoRows(err) {
+		// A dangling chain (the root was deleted) still names a thread: the
+		// nearest ancestor is the best the reply can do.
+		return *m.ParentID, nil
+	}
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("queue: thread root: %w", err)
+	}
+	return root, nil
 }
 
 func authorLabel(m *messages.Row) string {
@@ -536,6 +558,83 @@ func deref(p *string) string {
 	return *p
 }
 
+// historyDetailPreview is how much of another message's 작업 내용 a
+// `<history>` line carries (harness §10 v0.9.4): enough to know what is in
+// it, with the command that reads the rest.
+const historyDetailPreview = 400
+
+// triggerDetailTurnLimit is how many characters of 작업 내용 one turn's
+// `<trigger>` carries in full, summed over its coalesced messages (harness
+// §10 v0.9.5): 200,000 per message × N merged triggers must not fill a turn.
+const triggerDetailTurnLimit = 50000
+
+// triggerDetailBudget picks the trigger messages whose 작업 내용 goes in
+// whole (harness §10 v0.9.5): the latest posted first — that is what the turn
+// answers — while the running total stays within triggerDetailTurnLimit. The
+// rest are demoted to the `<history>` shape. Arrival order breaks a tie, the
+// later arrival counting as later.
+func triggerDetailBudget(ms []*messages.Row) map[uuid.UUID]bool {
+	order := make([]int, len(ms))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		ma, mb := ms[order[a]], ms[order[b]]
+		if !ma.CreatedAt.Equal(mb.CreatedAt) {
+			return ma.CreatedAt.After(mb.CreatedAt)
+		}
+		return order[a] > order[b]
+	})
+	full := make(map[uuid.UUID]bool, len(ms))
+	used := 0
+	for _, i := range order {
+		m := ms[i]
+		if m.Detail == nil {
+			continue
+		}
+		n := utf8.RuneCountInString(*m.Detail)
+		if used+n > triggerDetailTurnLimit {
+			continue
+		}
+		used += n
+		full[m.ID] = true
+	}
+	return full
+}
+
+// triggerDetail is a trigger message's 작업 내용 (harness §10 v0.9.4): in
+// full, so the agent handed the work reads the whole result it was handed —
+// unless the turn budget (v0.9.5) demoted it to the `<history>` shape.
+func triggerDetail(m *messages.Row, full bool, surf Surface) string {
+	if m.Detail == nil {
+		return ""
+	}
+	if !full {
+		return historyDetail(m, false, surf)
+	}
+	return "<detail>\n" + strings.TrimRight(*m.Detail, "\n") + "\n</detail>\n"
+}
+
+// historyDetail is the `<history>` (and <mission_messages>) form of a
+// message's 작업 내용: the first 400 characters and one line naming its size
+// and the command that reads it in full. A detail that fits is carried whole
+// and needs no pointer. A trigger message's detail is already in `<trigger>`
+// in full, so its history line only points there.
+func historyDetail(m *messages.Row, inTrigger bool, surf Surface) string {
+	if m.Detail == nil {
+		return ""
+	}
+	r := []rune(*m.Detail)
+	if inTrigger {
+		return fmt.Sprintf("  (작업 내용 %d자 — 전문은 아래 <trigger>)\n", len(r))
+	}
+	if len(r) <= historyDetailPreview {
+		return fmt.Sprintf("<detail of=%q>\n%s\n</detail>\n", m.ID.String(), strings.TrimRight(string(r), "\n"))
+	}
+	return fmt.Sprintf("<detail of=%q>\n%s…\n</detail>\n  (작업 내용 %d자 — %s 로 전문)\n",
+		m.ID.String(), string(r[:historyDetailPreview]), len(r), surf.ThreadRead(m.ID.String()))
+}
+
 // preview is the first n characters of one line of text — enough for a person
 // or an agent to recognise a message without carrying its whole body (S-36).
 func preview(content string, n int) string {
@@ -552,11 +651,13 @@ func preview(content string, n int) string {
 
 // briefContext is §8.4 [6]: what this session already has attached. The
 // artifacts are named, not inlined — the agent fetches the one it needs with
-// `colab artifact get`, and a brief that carries file bodies stops being
-// cacheable.
-func briefContext(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, error) {
+// `colab artifact get <id>`, and a brief that carries file bodies stops being
+// cacheable. Each line carries the id (T-AGENTFIX B4): `artifact get` takes
+// an id (colab-cli §2.1), and a list of names only sent a Writer to call it
+// with the name — 422 on the path parameter.
+func briefContext(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, surf Surface) (string, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT DISTINCT ON (name) name, type, version, COALESCE(description, '')
+		SELECT DISTINCT ON (name) id::text, name, type, version, COALESCE(description, '')
 		FROM artifact WHERE session_id = $1
 		ORDER BY name, version DESC`, sessionID)
 	if err != nil {
@@ -565,12 +666,12 @@ func briefContext(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, 
 	defer rows.Close()
 	var b strings.Builder
 	for rows.Next() {
-		var name, typ, desc string
+		var id, name, typ, desc string
 		var version int
-		if err := rows.Scan(&name, &typ, &version, &desc); err != nil {
+		if err := rows.Scan(&id, &name, &typ, &version, &desc); err != nil {
 			return "", err
 		}
-		fmt.Fprintf(&b, "- %s (%s, v%d)", name, typ, version)
+		fmt.Fprintf(&b, "- %s (%s, v%d, id %s)", name, typ, version, id)
 		if desc != "" {
 			fmt.Fprintf(&b, " — %s", preview(desc, 120))
 		}
@@ -583,7 +684,7 @@ func briefContext(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, 
 	// cap. This is what "이전 세션 요약 (설정 상한 내)" means, and it is why the
 	// wizard offers `type: session` context at all — without it, attaching a
 	// previous session did nothing to the brief.
-	reuse, err := reusedSessionSummaries(ctx, tx, sessionID)
+	reuse, err := reusedSessionSummaries(ctx, tx, sessionID, surf)
 	if err != nil {
 		return "", err
 	}
@@ -592,7 +693,7 @@ func briefContext(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, 
 	}
 	var out strings.Builder
 	if b.Len() > 0 {
-		out.WriteString("Artifacts submitted in this session (read one with `colab artifact get <name>`):\n")
+		out.WriteString(surf.ArtifactsHeader)
 		out.WriteString(b.String())
 	}
 	if reuse != "" {
@@ -614,11 +715,11 @@ func briefContext(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, 
 //
 // The policy is the session's own override when it has one, else the
 // workspace's (openapi Session.context_reuse_override · WorkspaceSettings).
-func reusedSessionSummaries(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, error) {
+func reusedSessionSummaries(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, surf Surface) (string, error) {
 	var raw []byte
 	if err := tx.QueryRow(ctx, `
 		SELECT COALESCE(s.context_reuse_override, ws.context_reuse, '{}'::jsonb)
-		FROM session s
+		FROM room s
 		LEFT JOIN workspace_settings ws ON ws.workspace_id = s.workspace_id
 		WHERE s.id = $1`, sessionID).Scan(&raw); err != nil {
 		return "", fmt.Errorf("queue: context reuse policy: %w", err)
@@ -640,13 +741,15 @@ func reusedSessionSummaries(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID)
 	// `session_context` rows of type `session` are the previous sessions the
 	// wizard attached (§7 session_context.type).
 	rows, err := tx.Query(ctx, `
-		SELECT prev.title,
+		SELECT COALESCE(prevw.title, prev.name),
 		       COALESCE((SELECT m.content FROM message m
-		                  WHERE m.session_id = prev.id AND m.kind = 'summary'
+		                  WHERE m.session_id = prev.id AND m.kind = 'summary' AND m.summary_range IS NULL
 		                  ORDER BY m.created_at DESC LIMIT 1), ''),
 		       (SELECT count(*) FROM artifact a WHERE a.session_id = prev.id)
 		FROM session_context sc
-		JOIN session prev ON prev.id::text = sc.ref
+		JOIN room prev ON prev.id::text = sc.ref
+		-- the previous session's own mission (V19_R1B_HANDOFF: one row per room)
+		LEFT JOIN work prevw ON prevw.id = prev.legacy_work_id
 		WHERE sc.session_id = $1 AND sc.type = 'session'
 		ORDER BY sc.created_at`, sessionID)
 	if err != nil {
@@ -672,9 +775,9 @@ func reusedSessionSummaries(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID)
 			IncludeArtifacts:    include,
 			ArtifactCount:       artifacts,
 		})
-		out.WriteString(sessions.ReuseSection(title, summary, plan))
+		out.WriteString(sessions.ReuseSection(title, summary, plan, surf.RoomMessages))
 		if plan.ArtifactLinks > 0 {
-			fmt.Fprintf(&out, "이전 세션의 아티팩트 %d개 — `colab artifact get <name>` 로 읽어라.\n", plan.ArtifactLinks)
+			fmt.Fprintf(&out, surf.ReuseArtifacts, plan.ArtifactLinks)
 		}
 		out.WriteString("\n")
 	}
@@ -687,7 +790,7 @@ func reusedSessionSummaries(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID)
 func briefDecisionLog(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT summary, COALESCE(rationale, ''), source::text, auto, created_at
-		FROM decision WHERE session_id = $1 ORDER BY created_at DESC LIMIT $2`, sessionID, decisionLogLimit)
+		FROM decision WHERE session_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`, sessionID, decisionLogLimit)
 	if err != nil {
 		return "", err
 	}
@@ -700,15 +803,7 @@ func briefDecisionLog(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (stri
 		if err := rows.Scan(&summary, &rationale, &source, &auto, &at); err != nil {
 			return "", err
 		}
-		line := fmt.Sprintf("- [%s] %s (%s", at.UTC().Format("2006-01-02 15:04"), summary, source)
-		if auto {
-			line += ", automatic: nobody answered in time"
-		}
-		line += ")"
-		if rationale != "" {
-			line += " — " + preview(rationale, 160)
-		}
-		lines = append(lines, line)
+		lines = append(lines, briefDecisionLine(summary, rationale, source, auto, at))
 	}
 	if err := rows.Err(); err != nil {
 		return "", err
@@ -722,6 +817,20 @@ func briefDecisionLog(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (stri
 		lines[i], lines[j] = lines[j], lines[i]
 	}
 	return strings.Join(lines, "\n") + "\n", nil
+}
+
+// briefDecisionLine is one decision as [7] and the turn prompt's <room_decisions>
+// both write it.
+func briefDecisionLine(summary, rationale, source string, auto bool, at time.Time) string {
+	line := fmt.Sprintf("- [%s] %s (%s", at.UTC().Format("2006-01-02 15:04"), summary, source)
+	if auto {
+		line += ", automatic: nobody answered in time"
+	}
+	line += ")"
+	if rationale != "" {
+		line += " — " + preview(rationale, 160)
+	}
+	return line
 }
 
 // decisionLogLimit caps §8.4 [7]. The brief is the cacheable prefix (§8.4
@@ -858,12 +967,13 @@ func renderHitlAnswer(prompt *strings.Builder, a *hitlAnswer) {
 	prompt.WriteString("</hitl_answer>\n")
 }
 
-// sessionRemainingBudget is §4.4's "세션 잔여": the session's limit less what
-// its tasks have already spent, floored at zero. nil when the session carries
-// no budget — a session without a limit must not hand every task a limit of
-// zero.
-// sessionRemainingBudget returns nil — the field is OMITTED, not zeroed — when
-// the session has no budget.
+// remainingBudget is §4.4's "잔여" of one ceiling — the room's (the old
+// session budget) or the task's mission's (PRD v0.19 FR-2A.3): the limit less
+// what the tasks under it (`scope`) have already spent, floored at zero. nil
+// when that ceiling is absent — a room or mission without a limit must not
+// hand every task a limit of zero. The bundle carries minRemaining of the two.
+// remainingBudget returns nil — the field is OMITTED, not zeroed — when there
+// is no budget.
 //
 // D-18 (server half): the daemon's mid-turn usage stream costs 4× the messages
 // and 2× the bytes, and it exists only so the daemon can enforce a ceiling. A
@@ -873,19 +983,32 @@ func renderHitlAnswer(prompt *strings.Builder, a *hitlAnswer) {
 // 0 here instead of nil would read as "a budget of zero" — every turn instantly
 // over its limit — so the nil is load-bearing, not a shortcut.
 // bundle_budget_test.go pins it.
-func sessionRemainingBudget(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, limit *float64) *float64 {
-	if limit == nil || *limit <= 0 {
+func remainingBudget(ctx context.Context, tx pgx.Tx, scope string, id *uuid.UUID, limit *float64) *float64 {
+	if id == nil || limit == nil || *limit <= 0 {
 		return nil
 	}
 	var spent float64
 	_ = tx.QueryRow(ctx, `
 		SELECT COALESCE(sum(u.cost_usd), 0) FROM task_usage u
-		JOIN task t ON t.id = u.task_id WHERE t.session_id = $1`, sessionID).Scan(&spent)
+		JOIN task t ON t.id = u.task_id WHERE `+scope, *id).Scan(&spent)
 	rem := *limit - spent
 	if rem < 0 {
 		rem = 0
 	}
 	return &rem
+}
+
+// minRemaining is the tighter of two remainders; nil is "no ceiling".
+func minRemaining(a, b *float64) *float64 {
+	switch {
+	case a == nil:
+		return b
+	case b == nil:
+		return a
+	case *a <= *b:
+		return a
+	}
+	return b
 }
 
 // noteRelativeWorkdirRow is S-62's "무시했다는 사실을 진단 이벤트로".
@@ -920,4 +1043,12 @@ func trimPathForDetail(v string) string {
 		return v[:120] + "…"
 	}
 	return v
+}
+
+// uuidString is an optional id as the protocol's omitempty string.
+func uuidString(id *uuid.UUID) string {
+	if id == nil {
+		return ""
+	}
+	return id.String()
 }

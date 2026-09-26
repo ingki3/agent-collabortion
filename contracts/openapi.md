@@ -2,11 +2,11 @@
 
 | 항목 | 내용 |
 |---|---|
-| 대상 | `contracts/openapi.yaml` (OpenAPI 3.1, `info.version 0.1.0-draft`) |
+| 대상 | `contracts/openapi.yaml` (OpenAPI 3.1, `info.version 0.3.4-draft` — v0.3.4 는 미션 폴더(D25, daemon-protocol v0.10.0 — Director 승인 2026-09-26 T-FOLDERS D1~D8): `Workdir.work_id`(uuid|null)·`Workdir.work`(`{id, title}`|null — 현재 미션 이름)·`Workdir.role`(`agent`|`shared`) 와 `listRuntimeWorkdirs?work_id=`, `Workdir.agent_id`·`lane_id` 설명(dir 은 미션×에이전트, lane 당이 아니다). v0.3.3 은 종료 조건 진행률 행의 `held_reason`(작업 중 승인 보류), v0.3.2 설명 보강(#342 후속, 동작 변경 없음): `BudgetPolicy.default_session_budget_usd` = 새 미션의 기본 상한, `WorkCreate.limits` 의 budget_usd 생략 vs 명시 null. v0.3.2 는 메시지 `speech`·`addressees`·`responds_to_message_id`·`delegated_lane_id`(D24), v0.3.1 은 메시지 작업 내용 칸 `detail`(D23), v0.3.0 은 옛 세션 주소 삭제(R4, D22), v0.2.13 은 ColabCommand 에 room_list·room_read·work_propose(R3, D20 실행), v0.2.12 는 deleteSession 409 문장 「진행 중인 미션은 먼저 종료하세요」(R1.5 문구 전환), v0.2.11 은 오프라인 유예 만료 = 방 멈춤·rebindSession 권한(방장 사슬)·room_paused 의 runtime_offline 변형(T-S-offline #314), v0.2.10 은 InboxItem card actor_name·quote · actions open_workdirs·delete_workdir · setRoomSubscription 권한 = 참여자(T-R2-W4a·#309), v0.2.9 는 방 구독(RoomSubscriptionLevel·setRoomSubscription·Room/Lane my_subscription)·Agent rooms[]·running_task_count·Runtime room_count·InboxItem room·BlockedDetail open_works_remaining_usd(T-R2-W4a), v0.2.8 은 BlockedDetail next_approver(#305 리뷰), v0.2.7 은 Room.runtime_pinned(T-R2-W3), v0.2.6 은 RoomListItem `audit_view` · deleteRoom 409 `workdirs[]`(#297 리뷰), v0.2.5 는 RoomListItem `visibility`·`active_task_count` 와 createRoom 의 격리 상속 명시(T-R2-W1), v0.2.4 는 SSE `work.deleted` · `completeWork` 확인 본문(#294 리뷰), v0.2.3 은 removeMember 가 Director·방장을 거부 대신 승계(§12.1-4, T-R1b2 발견), v0.2.2 는 `HitlRequest.purpose`·`InboxItem.card.purpose` 에 `isolation`(T-R1b1 발견), v0.2.1 은 `InboxItem.actions` 에 `open_room`·`open_work`(R1b3 가 찾은 R0 구멍), v0.2.0 은 PRD v0.19 방·미션 R0, 아래 §2 D17~D21) |
 | 단계 | PLAN.md §3 P0-b "OpenAPI 초안 — P1~P3에서 쓸 리소스 전부" (S+W) |
-| 근거 | `server/migrations/0001_init.sql`(리소스·필드·ENUM SSOT), `PRD.md` v0.12 FR-1~FR-9 · §7 · §8.1 · §9, `SCREEN.md` v0.3 §2 · §4 · §6, `EVAL.md` v0.1 |
+| 근거 | `server/migrations/0001_init.sql`(리소스·필드·ENUM SSOT), `PRD.md` v0.19 FR-1~FR-9 · §7 · §8.1 · §9, `SCREEN.md` v0.19.2 §2 · 부록 A · §4 · §6, `EVAL.md` v0.1 |
 | 검증 | `npx -y @redocly/cli lint contracts/openapi.yaml` → **오류 0 · 경고 0**(`recommended`). `--extends recommended-strict`도 0/0 |
-| 크기 | operation **94** (태그 15) · 스키마 106 · `x-colab-cli` 표시 operation 13 |
+| 크기 | operation **137** (태그 17) · 스키마 150 · `x-colab-cli` 표시 operation 16 (v0.2.0) |
 
 ---
 
@@ -24,6 +24,24 @@
 | 확장 | `x-prd`(구현하는 PRD 항목) · `x-screen`(부르는 화면) · `x-phase`(처음 필요한 단계) · `x-colab-cli`(CLI 명령) | Lead 지시 + 스트림 병렬 작업 시 우선순위 판단용 |
 
 ## 2. 설계 결정
+
+**D17. 방은 옛 세션과 같은 id 를 쓴다 (v0.2.0).** PRD §7 이관 규칙(세션 1 → 방 1 + 미션 1, `session` 을 `room` 으로 RENAME)대로 방 id = 옛 session id. 그래서 `/sessions/*` op 을 지우지 않고 R4(별칭 제거)까지 **같은 행을 두 이름으로** 읽는다 — 메시지·lane·task·아티팩트·결정·HITL 경로는 `/sessions/{id}/…` 그대로 쓰고, 새로 생긴 개념(방 설정·참여자(사람 포함)·링크·읽기 기록·미션·제안)만 `/rooms/*`·`/works/*` 로 새 경로를 둔다. 스키마는 별칭이 아니다 — `SessionListItem` 16칸 중 8칸이 미션 것이라 `RoomListItem`·`WorkListItem` 을 새로 만들었다(SCREEN 부록 A).
+
+**D18. 방 멈춤은 상태가 아니라 칸 (v0.2.0, §12.1-9).** `Room.status` 는 `active|archived` 둘뿐이고 멈춤은 `blocked_reason`(`budget`·`runtime_offline`·`loop`·`manual`). `manual` 만 `blockRoom`/`unblockRoom` 으로 권한자가 직접 걸고 풀며, 나머지는 기존 승인 HITL(방장, 부재 위임 FR-2A.3)·재바인딩으로 풀린다. 루프 상한은 방 단위라 `WorkPauseReason` 에 `loop` 가 없다.
+
+**D19. 다른 방 읽기는 `/cli/rooms/*` 에 따로 둔다 (v0.2.0, FR-4.5).** D2 는 "별도 `/cli/*` 표면은 계약이 두 벌"이라 했지만, 읽을 수 있는 방 목록은 **사람의 방 목록과 다른 판정**(요청한 사람 AND 에이전트 참여 또는 링크, 호출 순간 재검사, 거부 사유 분리, 양쪽 기록)이라 같은 경로에 얹으면 `listRooms` 가 호출 주체에 따라 뜻이 갈린다. 쓰기는 없다.
+
+**D20. `ColabCommand` enum 은 R0 에서 바꾸지 않는다(→ v0.2.13 R3 에서 구현과 같은 PR 로 편입).** 새 에이전트 명령 셋(`room list`·`room read`·`work propose`)은 `x-colab-cli` 와 `colab-cli.md` §2.6 으로 계약하고, enum 편입·역할 표는 R3 구현 PR 에서 한다. enum 값을 먼저 넣으면 서버 `roles` 폐쇄 집합 테스트·웹 명령 표·CLI MCP 가 동시에 빨개져 계약 PR 이 구현을 끌고 들어온다.
+
+**D21. 미션 귀속 판정은 서버 (v0.2.0, FR-3.1.1).** `TriggerPreview.work`·`work_source` 는 서버가 채운다 — 규칙 3(실행 중 lane 의 미션)은 서버 상태를 봐야 해서 화면이 계산할 수 없다. `listMessages` 는 `work_id`·`no_work`·`around_message_id` 를 받고, SSE 는 `room_id` 로만 좁힌다(미션 단위 구독은 방 배너·참여자·안 읽음을 놓친다 — 클라이언트가 `payload.work_id` 로 거른다).
+
+**D22. 옛 `/sessions/*` 주소를 지운다 (v0.3.0, R4 — Director 승인 2026-09-24).** D17 이 R4 까지 두 이름으로 살린 경로를 정리한다. 옛 세션 데이터는 이관하지 않고 지웠다(Director 결정 — PRD §10 R4 의 변환 SQL 대신). ① **방·미션에 대응 op 이 있는 것은 삭제**: `listSessions`·`createSession`·`getSession`·`updateSession`·`deleteSession`·`startSession`·`pauseSession`·`resumeSession`·`completeSession`·`cancelSession`·`changeDirector`·`listParticipants`·`addParticipant`·`updateParticipant`·`removeParticipant`·`setSessionSubscription` → `/rooms/*`·`/works/*`. ② **방에만 있는 자원은 경로만 옮긴다**(operationId 유지): 메시지·미리보기·lane·HITL·아티팩트·결정 → `/rooms/{roomId}/…`, 이름에 세션이 든 셋은 `rebindRoom`·`listRoomTasks`·`getRoomCost` 로. ③ SSE `session.updated`·`session.deleted`·`session.completion_progress` 삭제(`room.*`·`work.*` 가 같은 사건을 낸다), `streamEvents?session_id=`·`StreamEvent.session_id` 삭제(`room_id`), 인박스 `session_completed`·`session_paused` 삭제(`work_*`). ④ `ColabCommand` `session_get`·`session_messages` → `room_get`·`room_messages`; `getRoom`·`getWork`·`listRoomParticipants` 가 `TaskToken` 을 받는다(`colab room get`). ⑤ E13-16 디스크 상한 게이트(`409 workdir_quota_exceeded`)는 `createSession` 에서 `createWork` 로 옮긴다 — 새 일이 디스크를 키우는 시점이 미션 시작이다. **남기는 것**: 저장 열·payload 키·env 의 `session_id`·`COLAB_SESSION_ID`(값 = 방 id) — 이름 바꾸기는 별도 라운드(PRD §12.1 3번). 사용자 세션(쿠키)·런타임 세션(ACP)은 다른 개념이라 그대로.
+
+**D23. 메시지의 작업 내용은 같은 행의 두 번째 칸이다 (v0.3.1, PRD FR-3.1.2 — Director 승인 2026-09-25).** 대화(`content`)와 작업 내용(`detail`)을 별도 메시지 두 개로 나누지 않는다 — 둘은 한 턴이 한 번에 한 말이고, 둘로 나누면 스레드·답글 수·미션 귀속·트리거가 두 번 계산된다. 라우팅은 `content` 만 본다(작업 내용에 붙여 넣은 원문 속 멘션이 에이전트를 깨우면 안 된다). `detail` 은 에이전트(`TaskToken`)만 쓴다 — 사람이 쓴 글은 쓴 그대로 보여야 하므로(FR-3.1.2 「사람 메시지는 접지 않는다」). 상한 20만 자는 STO 실측 최대(2.8만 자)의 7배.
+
+**D24. 말의 종류와 받는 쪽은 서버가 판정한다 (v0.3.2, PRD FR-3.1.3 — Director 요청 2026-09-25 「누가 누구에게 명령했는지 구분이 안 된다」).** dev-agent 초안은 화면이 `Lane.delegated_from_task_id`·`brief` 접미·`Task.trigger_message_id` 를 따로 읽어 판정했다 — 위임 판정이 「본문이 lane brief 로 끝나는가」에 기대 깨지기 쉽고, 옛 턴마다 `listLaneTasks` 를 불러 방이 커질수록 요청이 는다. 서버는 **쓰는 순간** 안다: `router.Delegate` 가 위임 메시지를 쓰고(→ `delegate`·`delegated_lane_id`), 에이전트 게시는 자기 task 의 `trigger_message_id` 를 안다(→ `report`·`responds_to_message_id`). 그래서 메시지에 저장하고 목록·SSE 가 그대로 싣는다. CLI(`room messages`)와 받은 요청도 같은 판정을 쓴다 — 화면마다 규칙이 갈라지지 않는다.
+
+**D25. 작업 폴더 경로는 서버가 짓고 만들 때 고정한다 (v0.3.4, daemon-protocol v0.10.0 — Director 승인 2026-09-26, T-FOLDERS D1·D3·D6·D8).** `none` 격리의 lane 폴더를 데몬이 `sessions/<room>/<lane>` 으로 짓던 동안 서버는 첫 attempt 의 경로를 몰랐고(행도 id 도 없었다 — T-S21 결정 A), 그래서 같은 미션 동료에게 폴더를 알려 줄 수도, 미션 단위로 묶어 보여 줄 수도 없었다 — 게임 제작 방 실측에서 에이전트들이 동료 폴더를 절대 경로 grep 으로 찾아 헤맸다. 경로를 서버가 지으면 한 곳(행)이 번들·턴 프롬프트 `<folders>`·GC·S13 의 공통 입력이 된다. **만들 때 고정**하는 이유는 실행 중 lane 의 cwd 와 런타임 세션(`session/load {cwd}`)이다 — 방·미션·에이전트 이름을 바꿀 수 있으므로(FR-2.1.2) 이름에서 경로를 매번 다시 지으면 이름 바꾸기 한 번이 살아 있는 세션을 깬다. 그래서 경로 조각은 `<slug>-<id 앞 8자리>`(사람이 `ls` 로 알아보는 표지 + 판별자)로 한 번 짓고, 화면은 경로 대신 `Workdir.work`·`session` 의 **현재 이름**을 보여 준다. `role` 을 따로 두는 이유는 미션 공용 `_shared` 행이 에이전트도 lane 도 없는 행이라 `agent_id`·`lane_id` 로는 가려지지 않기 때문이다. `?work_id=` 는 S13 트리와 미션 닫기 확인의 「작업 폴더 N개(〈용량〉)는 〈retention〉일 뒤 정리됩니다」 문장(D8 B — 닫힘 즉시가 아니라 `last_used_at + workdir_retention_days`)이 같은 목록을 읽게 한다. 옛 `sessions/…`·`worktrees/…` 행은 옮기지 않고 `work_id` null 로 남는다(D6 A).
 
 **D1. WS가 아니라 SSE.** 클라이언트→서버 동작이 전부 REST라 양방향 채널이 필요 없다. SSE는 `Last-Event-ID` 재연결·백필이 표준이고(SCREEN §6 "끊긴 채로 낡은 화면을 보여주지 않는다"), 프록시·인증(쿠키)이 HTTP 그대로다. 보존 창(10분)을 넘긴 커서면 첫 프레임 `resync`로 REST 재조회를 시킨다. 고빈도 이벤트(`message.delta` · `agent.typing` · `test_chat.delta`)는 `ephemeral`로 표시하고 백필하지 않는다(PRD §7 "고빈도 이벤트는 영속화하지 않는다").
 
@@ -141,7 +159,7 @@
 |---|---|---|---|
 | Q1 | **스키마 v0에 없는 테이블** | 초안이 전제하는 저장소: 사용자 자격(비밀번호 해시)·사용자 세션, `workspace_invite`, `runtime_pairing`, 세션 구독·알림 설정, `artifact_review`, 멱등키 저장, SSE 백필용 이벤트 로그, 런타임별 상한(`runtime_policy.per_runtime`으로 대체 가능) | 마이그레이션 `0002`로 추가할지, 일부(구독·리뷰)를 jsonb/`decision`으로 흡수할지 |
 | Q2 | `session.isolation.remote_url` | `checkRepo` 결과를 jsonb에 키로 추가 보관 | PRD §7 `isolation(jsonb: {kind, repo_path?\|image?})`에 키 추가 승인 |
-| Q3 | `budget_policy` jsonb 키 | `default_session_budget_usd` · `default_task_budget_usd` · `workspace_monthly_budget_usd` · `pricing_overrides` | PRD가 키를 정하지 않음 — 확정 필요 |
+| Q3 | `budget_policy` jsonb 키 | `default_session_budget_usd` · `default_task_budget_usd` · `workspace_monthly_budget_usd` · `pricing_overrides` | 키 확정(#342 구현). `default_session_budget_usd` 는 v0.19 에서 새 미션의 기본 상한(생략 시 채움·명시 null 은 채우지 않음) |
 | Q4 | `SubscriptionLevel` 값 | `all` · `hitl_only` · `completion_only` | FR-8 문구를 ENUM으로 옮긴 것. 명칭 확정 |
 | Q5 | 실시간 = SSE | D1 | WS를 원하면 이벤트 종류는 그대로 두고 전송만 바꾼다 |
 | Q6 | SSO | `login`은 이메일/비밀번호만 | S1 "또는 SSO" — v1 범위 여부 |

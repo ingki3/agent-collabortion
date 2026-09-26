@@ -6,7 +6,7 @@
 // PRODUCTION CALL SITES:
 //
 //	runSummaryP4     → sessions.PlanSummary        sessions.Service.summarise, from
-//	                                               ApplyCompletionEvent's `completed`
+//	                                               ApplyWorkEvent's `completed`
 //	                                               branch (complete.go)
 //	buildLLMRequest  → llm.BuildRequest            llm.HTTPClient.Do, for every §8.5 job;
 //	                                               summarise builds JobSessionSummary
@@ -37,7 +37,7 @@ func init() {
 // the flag is set by `Response.Text()`, so it comes back true only if the
 // implementation actually parsed before deciding.
 // production caller: internal/sessions/summary.go:375 (Service.summarise), reached
-// from internal/sessions/complete.go:176 (ApplyCompletionEvent's `completed` arm).
+// from internal/sessions/complete.go:176 (ApplyWorkEvent's `completed` arm).
 func adaptRunSummaryP4(r summaryRun) summaryResult {
 	var res *llm.Response
 	var callErr error

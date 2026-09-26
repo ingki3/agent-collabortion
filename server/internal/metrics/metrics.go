@@ -58,11 +58,11 @@ type Def struct {
 // (wording lock sinkVars: no internal nouns, Korean, §8.4 table).
 var Defs = []Def{
 	{Key: "f1_minutes", Unit: "minutes", Target: 15, TargetOp: "lt",
-		Label: "컴퓨터 연결부터 첫 세션 완료까지 걸린 시간",
-		Note:  "사용자별로 첫 컴퓨터가 연결된 시각부터 그 사용자가 Director 인 첫 완료 세션이 끝난 시각까지, 그 중앙값(분). 표본 수는 그런 사용자 수."},
+		Label: "컴퓨터 연결부터 첫 미션 완료까지 걸린 시간",
+		Note:  "사용자별로 첫 컴퓨터가 연결된 시각부터 그 사용자가 Director 인 첫 완료 미션이 끝난 시각까지, 그 중앙값(분). 표본 수는 그런 사용자 수."},
 	{Key: "auto_complete_rate", Unit: "ratio", Target: 0.6, TargetOp: "gt",
-		Label: "세션이 저절로 끝난 비율",
-		Note:  "완료된 세션 중 Director 가 직접 끝내지 않고 종료 조건으로 끝난 비율."},
+		Label: "미션이 저절로 끝난 비율",
+		Note:  "완료된 미션 중 Director 가 직접 끝내지 않고 종료 조건으로 끝난 비율."},
 	{Key: "hitl_response_minutes", Unit: "minutes", Target: 30, TargetOp: "lt",
 		Label: "확인 요청에 사람이 답하기까지 걸린 시간",
 		Note:  "확인 요청이 만들어진 때부터 사람이 답한 때까지, 그 중앙값(분). 기한이 지나 자동으로 진행된 요청은 빼고 센다."},
@@ -70,8 +70,8 @@ var Defs = []Def{
 		Label: "에이전트 사이의 위임이 사람 개입 없이 처리된 비율",
 		Note:  "다른 에이전트가 넘긴 할 일 중 확인 요청도 막힘도 없이 완료된 비율."},
 	{Key: "parallel_wallclock_reduction", Unit: "ratio", Target: 0.4, TargetOp: "gt",
-		Label: "여러 작업 줄기를 함께 돌려 줄어든 시간의 비율",
-		Note:  "작업 줄기가 둘 이상인 완료 세션에서, 세션 시작부터 완료까지 걸린 시간이 각 할 일에 걸린 시간의 합보다 얼마나 짧았는지(1 - 전체 시간 ÷ 합)의 평균. 전체 시간에는 사람을 기다린 시간(확인 요청)도 들어간다. 표본 수는 세션 수."},
+		Label: "여러 서브 미션을 함께 돌려 줄어든 시간의 비율",
+		Note:  "서브 미션이 둘 이상인 완료 미션에서, 미션 시작부터 완료까지 걸린 시간이 각 할 일에 걸린 시간의 합보다 얼마나 짧았는지(1 - 전체 시간 ÷ 합)의 평균. 전체 시간에는 사람을 기다린 시간(확인 요청)도 들어간다. 표본 수는 미션 수."},
 	{Key: "task_success_rate_by_runtime", Unit: "ratio", Target: 0.85, TargetOp: "gt",
 		Label: "컴퓨터 종류별 할 일 성공률",
 		Note:  "컴퓨터 종류별로 완료된 할 일 ÷ (완료 + 실패). 종류별 값과 목표는 따로 나눠 준다."},
@@ -83,10 +83,10 @@ var Defs = []Def{
 		Note:  "이전 대화를 이어받으려 한 실행 중 실제로 이어받은(처음부터 다시 시작하지 않은) 비율."},
 	{Key: "blocked_response_minutes", Unit: "minutes", Target: 5, TargetOp: "lt",
 		Label: "막힌 질문에 답이 닿기까지 걸린 시간",
-		Note:  "작업 줄기가 막혀 질문을 올린 때부터 그 질문에 첫 답글이 달린 때까지, 그 중앙값(분)."},
+		Note:  "서브 미션이 막혀 질문을 올린 때부터 그 질문에 첫 답글이 달린 때까지, 그 중앙값(분)."},
 	{Key: "weekly_active_sessions", Unit: "count", Target: 5, TargetOp: "gt",
-		Label: "이번 주에 움직인 세션 수",
-		Note:  "최근 7일 안에 할 일이 하나라도 돌아간 세션 수. 표본 수는 이 워크스페이스에서 할 일을 돌린 적 있는 세션 수."},
+		Label: "이번 주에 움직인 방 수",
+		Note:  "최근 7일 안에 할 일이 하나라도 돌아간 방 수. 표본 수는 이 워크스페이스에서 할 일을 돌린 적 있는 방 수."},
 }
 
 // runtimeTargets is §11 row 6: "Claude Code > 95%, 기타 > 85%".
@@ -188,27 +188,32 @@ func valueN(ctx context.Context, q db.DBTX, sql string, wsID uuid.UUID, since ti
 }
 
 // 1. 사용자별 첫 컴퓨터 연결(runtime_pairing.ready_at = probe 도착) → 그 사용자가
-// Director 인 첫 completed 세션의 finished_at. 중앙값(분). n = 사용자 수.
+// Director 인 첫 completed 미션(work)의 finished_at. 중앙값(분). n = 사용자 수.
 const sqlF1 = `
 WITH first_rt AS (
 	SELECT created_by AS user_id, min(ready_at) AS online_at
 	FROM runtime_pairing WHERE workspace_id = $1 AND ready_at IS NOT NULL GROUP BY created_by),
 first_done AS (
-	SELECT director_user_id AS user_id, min(finished_at) AS done_at
-	FROM session WHERE workspace_id = $1 AND status = 'completed' AND finished_at IS NOT NULL GROUP BY director_user_id)
+	SELECT wk.director_user_id AS user_id, min(wk.finished_at) AS done_at
+	FROM work wk JOIN room s ON s.id = wk.room_id
+	WHERE s.workspace_id = $1 AND wk.status = 'completed' AND wk.finished_at IS NOT NULL GROUP BY wk.director_user_id)
 SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (d.done_at - r.online_at)) / 60), count(*)
 FROM first_rt r JOIN first_done d USING (user_id)
 WHERE d.done_at >= r.online_at AND d.done_at >= $2`
 
-// 2. completed 세션 중 completion_met.manual(= completeSession, director_end)이 아닌 비율.
+// 2. completed 미션 중 completion_met.manual(= completeWork, director_end)이 아닌 비율.
+//
+// 1·2 는 행 하나가 미션 하나다(§11 분모 = 미션, §12.1-10) — 미션에서 제 방으로
+// 가는 조인은 한 줄이라 방에 미션이 여럿이어도 불지 않는다(T-R1b2, 인계 (a)).
 const sqlAutoComplete = `
-SELECT avg(CASE WHEN COALESCE((completion_met->>'manual')::boolean, false) THEN 0 ELSE 1 END), count(*)
-FROM session WHERE workspace_id = $1 AND status = 'completed' AND finished_at >= $2`
+SELECT avg(CASE WHEN COALESCE((wk.completion_met->>'manual')::boolean, false) THEN 0 ELSE 1 END), count(*)
+FROM work wk JOIN room s ON s.id = wk.room_id
+WHERE s.workspace_id = $1 AND wk.status = 'completed' AND wk.finished_at >= $2`
 
 // 3. hitl_request answered_at - created_at 중앙값(분), auto_answered 제외.
 const sqlHitlResponse = `
 SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (h.answered_at - h.created_at)) / 60), count(*)
-FROM hitl_request h JOIN session s ON s.id = h.session_id
+FROM hitl_request h JOIN room s ON s.id = h.session_id
 WHERE s.workspace_id = $1 AND h.status = 'answered' AND h.answered_at IS NOT NULL AND h.answered_at >= $2`
 
 // 4. delegated_from_task_id 가 있는 끝난 task 중, HITL 도 lane blocked 도 없이 completed 된 비율.
@@ -216,22 +221,30 @@ const sqlDelegationAutonomous = `
 SELECT avg(CASE WHEN t.status = 'completed'
                  AND NOT EXISTS (SELECT 1 FROM hitl_request h WHERE h.task_id = t.id)
                  AND l.status <> 'blocked' AND l.blocked_message_id IS NULL THEN 1 ELSE 0 END), count(*)
-FROM task t JOIN lane l ON l.id = t.lane_id JOIN session s ON s.id = t.session_id
+FROM task t JOIN lane l ON l.id = t.lane_id JOIN room s ON s.id = t.session_id
 WHERE s.workspace_id = $1 AND t.delegated_from_task_id IS NOT NULL
   AND t.status IN ('completed', 'failed', 'cancelled') AND COALESCE(t.finished_at, t.updated_at) >= $2`
 
-// 5. lane ≥ 2 인 완료 세션: 1 - wall(세션 시작→완료) / sum(task started_at→finished_at). 평균. n = 세션 수.
+// 5. lane ≥ 2 인 완료 **미션**(§11 분모 — §12.1-10): 1 - wall(미션 시작→완료) /
+// sum(그 미션 task 의 started_at→finished_at). 평균. n = 미션 수.
+//
+// 방에 미션이 여럿이면 lane·task 를 방(session_id)으로 모으는 순간 다른 미션의
+// 줄기와 시간이 섞인다(T-R1b3, 인계 목록 (a) metrics.go:229). 행의 미션은 work_id
+// 이고, 비어 있으면 「미션 밖」 실행이다(FR-2A.1) — 0025·r1b1 이관이 옛 행을 전부
+// 채웠고 R1b 코드가 새 행을 채우므로 "방의 유일한 미션" 폴백은 없앴다(T-R1b2).
 const sqlParallelReduction = `
-WITH s AS (
-	SELECT s.id, extract(epoch FROM (s.finished_at - COALESCE(s.started_at, s.created_at))) AS wall
-	FROM session s
-	WHERE s.workspace_id = $1 AND s.status = 'completed' AND s.finished_at >= $2
-	  AND (SELECT count(*) FROM lane l WHERE l.session_id = s.id) >= 2),
-t AS (
-	SELECT session_id, sum(extract(epoch FROM (finished_at - started_at))) AS total
-	FROM task WHERE started_at IS NOT NULL AND finished_at IS NOT NULL GROUP BY session_id)
-SELECT avg(1 - s.wall / t.total), count(*)
-FROM s JOIN t ON t.session_id = s.id WHERE t.total > 0 AND s.wall >= 0`
+WITH w AS (
+	SELECT wk.id, extract(epoch FROM (wk.finished_at - COALESCE(wk.started_at, wk.created_at))) AS wall
+	FROM work wk JOIN room s ON s.id = wk.room_id
+	WHERE s.workspace_id = $1 AND wk.status = 'completed' AND wk.finished_at >= $2),
+x AS (
+	SELECT w.id, w.wall,
+	       (SELECT count(*) FROM lane l WHERE l.work_id = w.id) AS lanes,
+	       (SELECT sum(extract(epoch FROM (t.finished_at - t.started_at))) FROM task t
+	         WHERE t.work_id = w.id AND t.started_at IS NOT NULL AND t.finished_at IS NOT NULL) AS total
+	FROM w)
+SELECT avg(1 - x.wall / x.total), count(*)
+FROM x WHERE x.lanes >= 2 AND x.total > 0 AND x.wall >= 0`
 
 // 7. attempt ≥ 2 인 task 중 같은 내용의 메시지가 둘 이상 게시된 것이 관측된 비율.
 //
@@ -243,7 +256,7 @@ FROM s JOIN t ON t.session_id = s.id WHERE t.total > 0 AND s.wall >= 0`
 // seq 열이 필요하다(계약 변경 아님, 스키마 후속).
 const sqlDuplicateAfterResume = `
 WITH t AS (
-	SELECT t.id FROM task t JOIN session s ON s.id = t.session_id
+	SELECT t.id FROM task t JOIN room s ON s.id = t.session_id
 	WHERE s.workspace_id = $1 AND t.attempt >= 2 AND t.updated_at >= $2)
 SELECT avg(CASE WHEN EXISTS (
 	SELECT 1 FROM message m WHERE m.source_task_id = t.id GROUP BY m.content HAVING count(*) >= 2) THEN 1 ELSE 0 END), count(*)
@@ -252,13 +265,13 @@ FROM t`
 // 8. resume_outcome 이 있는 attempt(resumed IS NOT NULL) 중 resumed 비율.
 const sqlResumeSuccess = `
 SELECT avg(CASE WHEN a.resumed THEN 1 ELSE 0 END), count(*)
-FROM task_attempt a JOIN task t ON t.id = a.task_id JOIN session s ON s.id = t.session_id
+FROM task_attempt a JOIN task t ON t.id = a.task_id JOIN room s ON s.id = t.session_id
 WHERE s.workspace_id = $1 AND a.resumed IS NOT NULL AND COALESCE(a.finished_at, a.started_at, a.dispatched_at, t.updated_at) >= $2`
 
 // 9. lane blocked 진입(질문 카드 message.kind = blocked_q 의 created_at) → 그 카드의 첫 답글. 중앙값(분).
 const sqlBlockedResponse = `
 SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (r.first_reply - q.created_at)) / 60), count(*)
-FROM message q JOIN session s ON s.id = q.session_id
+FROM message q JOIN room s ON s.id = q.session_id
 JOIN LATERAL (SELECT min(created_at) AS first_reply FROM message r WHERE r.parent_id = q.id AND r.created_at > q.created_at) r
      ON r.first_reply IS NOT NULL
 WHERE s.workspace_id = $1 AND q.kind = 'blocked_q' AND q.created_at >= $2`
@@ -269,7 +282,7 @@ func successByRuntime(ctx context.Context, q db.DBTX, wsID uuid.UUID, since time
 	rows, err := q.Query(ctx, `
 		SELECT p.runtime_kind::text,
 		       count(*) FILTER (WHERE t.status = 'completed'), count(*) FILTER (WHERE t.status = 'failed')
-		FROM task t JOIN agent_profile p ON p.id = t.profile_id JOIN session s ON s.id = t.session_id
+		FROM task t JOIN agent_profile p ON p.id = t.profile_id JOIN room s ON s.id = t.session_id
 		WHERE s.workspace_id = $1 AND t.status IN ('completed', 'failed') AND COALESCE(t.finished_at, t.updated_at) >= $2
 		GROUP BY 1`, wsID, since)
 	if err != nil {
@@ -309,14 +322,14 @@ func successByRuntime(ctx context.Context, q db.DBTX, wsID uuid.UUID, since time
 	return nil
 }
 
-// 10. 최근 7일 안에 task 가 하나라도 돈(started_at) 세션 수 — 창과 무관. n 은 이
-// 워크스페이스에서 task 를 돌린 적 있는 세션 수: 아무것도 돌린 적 없는 워크스페이스는
+// 10. 최근 7일 안에 task 가 하나라도 돈(started_at) 방 수 — 창과 무관. n 은 이
+// 워크스페이스에서 task 를 돌린 적 있는 방 수: 아무것도 돌린 적 없는 워크스페이스는
 // null 이고, 한때 돌았다가 조용한 워크스페이스는 실측 0 이다.
 func weeklyActive(ctx context.Context, q db.DBTX, wsID uuid.UUID, now time.Time, m *Metric) error {
 	var active, ever int
 	if err := q.QueryRow(ctx, `
 		SELECT count(DISTINCT t.session_id) FILTER (WHERE t.started_at >= $2), count(DISTINCT t.session_id)
-		FROM task t JOIN session s ON s.id = t.session_id
+		FROM task t JOIN room s ON s.id = t.session_id
 		WHERE s.workspace_id = $1 AND t.started_at IS NOT NULL`, wsID, now.Add(-7*24*time.Hour)).Scan(&active, &ever); err != nil {
 		return err
 	}

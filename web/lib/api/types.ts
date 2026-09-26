@@ -17,11 +17,9 @@ export type PairingStatus = Pairing["status"];
 export type Agent = S["Agent"];
 export type AgentStatus = S["AgentStatus"];
 export type AgentRole = S["AgentRole"];
-export type Session = S["Session"];
-export type SessionListItem = S["SessionListItem"];
-export type SessionCreate = S["SessionCreate"];
+// 옛 `Session`·`SessionListItem`·`SessionCreate`·`SessionUpdate`·`SessionLimits`·`Participant` 는 v0.3.0(R4, D22)에서 계약이 지웠다 —
+// 목 내부 모델만 `lib/legacy-session.ts` 에 남는다. 화면은 `Room`·`Work` 를 쓴다.
 export type SessionStatus = S["SessionStatus"];
-export type Participant = S["Participant"];
 export type Message = S["Message"];
 export type MessageKind = S["MessageKind"];
 export type MessagePage = S["MessagePage"];
@@ -33,13 +31,11 @@ export type StreamEvent = S["StreamEvent"];
 export type StreamEventType = StreamEvent["type"];
 export type Problem = S["Problem"];
 
-// ── P2 (T-W2) — S7 좌·우열 · S6 마법사 · S9·S10 · S11 ──
+// ── P2 (T-W2) — S7 좌·우열 · S6(지워짐, T-R2-W4b) · S9·S10 · S11 ──
 export type RespondTo = S["RespondTo"];
 export type Isolation = S["Isolation"];
 export type IsolationKind = S["IsolationKind"];
 export type AutonomyLevel = S["AutonomyLevel"];
-export type SessionLimits = S["SessionLimits"];
-export type SessionUpdate = S["SessionUpdate"];
 export type CompletionCondition = S["CompletionCondition"];
 export type CompletionProgress = S["CompletionProgress"];
 export type CompletionAtom = S["CompletionAtom"];
@@ -111,3 +107,28 @@ export type ObservationReport = S["ObservationReport"];
 export type ObservationRow = S["ObservationRow"];
 export type ObservationKey = ObservationRow["key"];
 export type ColabCommand = S["ColabCommand"];
+
+// ── v0.19 (T-R2-W1) — 방 · 미션(S5 · S25 · S18) ──
+export type Room = S["Room"];
+export type RoomListItem = S["RoomListItem"];
+export type RoomCreate = S["RoomCreate"];
+export type RoomUpdate = S["RoomUpdate"];
+export type RoomStatus = S["RoomStatus"];
+export type RoomRole = S["RoomRole"];
+export type RoomBlockedReason = S["RoomBlockedReason"];
+export type RoomVisibility = S["RoomVisibility"];
+export type RoomDefaults = S["RoomDefaults"];
+export type RoomParticipantRef = S["RoomParticipantRef"];
+export type WorkListItem = S["WorkListItem"];
+export type WorkStatus = S["WorkStatus"];
+export type Work = S["Work"];
+export type WorkSource = S["WorkSource"];
+export type RoomParticipant = S["RoomParticipant"];
+export type BlockedDetail = S["BlockedDetail"];
+/**
+ * `listRooms`·`listWorks` 는 계약에서 `allOf: [Page, {items: X[]}]` 라 생성 타입의 `items` 가 `unknown[] & X[]` 로 접힌다(`Page.items` 가 `{}`).
+ * 봉투의 `items` 를 그 op 의 항목 타입으로 읽는다 — 모양은 계약이 정하고 이 함수는 타입만 좁힌다.
+ */
+export function pageItems<T>(page: { items: unknown[] }): T[] {
+  return page.items as T[];
+}

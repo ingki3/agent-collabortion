@@ -2,7 +2,8 @@
 // (PRD FR-7.4, contracts/colab-cli.md). Authenticated with COLAB_TASK_TOKEN.
 // The same commands are exposed as MCP tools via `colab mcp serve`.
 //
-// P1: session get · session messages · message post · version · mcp serve.
+// P1: message post · version · mcp serve (and the reads now named room get ·
+// room messages).
 // P2 (colab-cli.md v0.4 §2.2·2.3): lane delegate · status set ·
 // decision record · artifact submit/get · review approve/reject.
 // P3 (colab-cli.md v0.5 §2.4): hitl ask · hitl approve-request ·
@@ -11,6 +12,9 @@
 // v1.1 (colab-cli.md v0.6 §2.5, K-19): a command outside the role's
 // allowed_commands is refused before any request with exit 3
 // command_not_allowed; `mcp serve --allow` registers only the allowed tools.
+// v0.19 R3 (colab-cli.md v0.8 §2.4a): room list · room read · work propose.
+// v0.19 R4 (colab-cli.md v0.9): `colab session get|messages` are gone —
+// room get · room messages are the commands, and every path is /rooms/{R}/….
 // Output is always JSON on stdout (agents parse it); --json is accepted for
 // clarity. Exit codes: 0 ok · 2 args · 3 refused · 4 no/revoked token ·
 // 5 server unreachable.
@@ -43,17 +47,25 @@ var version = "0.3.0-dev"
 
 const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
 
-  colab session get [--session S] [--json]
-  colab session messages [--since <cursor|id>] [--limit N] [--thread <root_id>] [--json]
+  colab room get [--room R] [--json]
+                             {"room", "work", "participants"}: the room (name, description, isolation),
+                             this turn's mission (goal, acceptance_criteria, completion_progress,
+                             director — null outside a mission, i.e. without COLAB_WORK_ID) and
+                             the roster (name, role description, derived status)
+  colab room messages [--since <cursor|id>] [--limit N] [--thread <root_id>] [--work <mission_id>] [--json]
                              --since is sent as the after= query parameter (messages newer than it)
                              --limit is 1..200 (omit for the server default 50)
-  colab message post --body <text> [--reply-to <msg_id>] [--mention @A,@B] [--idempotency-key K] [--json]
+                             --work keeps one mission's messages
+  colab message post --body <text> [--detail <text> | --detail-file <path>] [--reply-to <msg_id> | --top-level] [--mention @A,@B] [--idempotency-key K] [--json]
+                             --body is the conversation (to whom · what · conclusion · next, ~5 lines);
+                             findings, full drafts and tables go in --detail (or --detail-file, sent
+                             byte for byte). Deliverables are artifact submit
                              Idempotency-Key = UUIDv5(task:<task_id>:<seq>), seq continues across attempts;
                              the same seq is sent as X-Colab-Client-Seq (omitted with --idempotency-key)
   colab status set working|blocked|done [--note <text>]
                              blocked needs --note (the question); the reply carries turn_end_required
   colab lane delegate --agent <name> --brief <text> [--depends-on <lane_id>] [--profile <name>]
-                             always a new lane; the target must already be a session participant
+                             always a new lane; the target must already be a room participant
   colab decision record --summary <s> [--rationale <r>]
   colab artifact submit --type <t> --file <p> [--name <n>] [--description <d>]
   colab artifact submit --type diff [--base <rev>] [--name <n>] [--description <d>]
@@ -78,6 +90,18 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
                              asks a human for information (--question is an alias of --what)
                              All three return turn_end_required:true — register it and END YOUR TURN.
                              A task holds one open request at a time; a second is exit 3 hitl_already_open.
+  colab room list [--query <text>]
+                             only the rooms THIS turn may read (the requesting person and you
+                             must both have access — judged by the server at the call)
+  colab room read --room <id> [--tail N] [--query <text>]
+                             another room's summary + recent messages (--tail 1..100, default 30)
+                             + decisions + artifacts. READ-ONLY and for this turn only — to carry
+                             something over, colab decision record. "truncated": true means the
+                             server cut it to the read limits. Refused → exit 3 room_read_denied
+                             with denied_reason (originator_not_participant · originator_left ·
+                             agent_not_allowed · no_originator)
+  colab work propose --goal <text> --why <text>
+                             proposes a mission for this room; a person opens it (agents cannot)
   colab mcp serve [--allow <cmd,…>]
                              stdio MCP server exposing the same commands as tools. --allow registers
                              only the listed commands' tools (names as in COLAB_ALLOWED_COMMANDS)
@@ -87,8 +111,9 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
   sent only when given (openapi IdempotencyKeyOptional).
 
 env (daemon, contracts/colab-cli.md §1): COLAB_TASK_TOKEN COLAB_SERVER_URL(origin) COLAB_TASK_ID
-     COLAB_TASK_ATTEMPT COLAB_LANE_ID COLAB_SESSION_ID COLAB_AGENT_NAME [COLAB_API_PREFIX]
-     [COLAB_ALLOWED_COMMANDS=session_get,message_post,…]  the role's command subset (harness §10);
+     COLAB_TASK_ATTEMPT COLAB_LANE_ID COLAB_ROOM_ID (old name COLAB_SESSION_ID, same value)
+     [COLAB_WORK_ID] COLAB_AGENT_NAME [COLAB_API_PREFIX]
+     [COLAB_ALLOWED_COMMANDS=room_get,message_post,…]  the role's command subset (harness §10);
      without it the CLI reads getCliContext.allowed_commands once. A command outside the subset
      is refused BEFORE any request: exit 3 command_not_allowed (colab-cli.md §2.5)
 exit: 0 ok · 2 args · 3 refused · 4 no/revoked token · 5 server unreachable
@@ -111,8 +136,6 @@ func run(args []string, getenv client.Getenv, stdin io.Reader, stdout, stderr io
 	case "version", "--version", "-v":
 		fmt.Fprintf(stdout, "colab %s (contracts %s)\n", version, contracts.Version)
 		return client.ExitOK
-	case "session":
-		return runSession(args[1:], getenv, stdout, stderr)
 	case "message":
 		return runMessage(args[1:], getenv, stdout, stderr)
 	case "lane":
@@ -127,12 +150,16 @@ func run(args []string, getenv client.Getenv, stdin io.Reader, stdout, stderr io
 		return runReview(args[1:], getenv, stdout, stderr)
 	case "hitl":
 		return runHitl(args[1:], getenv, stdout, stderr)
+	case "room":
+		return runRoom(args[1:], getenv, stdout, stderr)
+	case "work":
+		return runWork(args[1:], getenv, stdout, stderr)
 	case "mcp":
 		if len(args) < 2 || args[1] != "serve" {
 			return usage(stderr, "usage: colab mcp serve [--allow <cmd,…>]")
 		}
 		fs, _ := newFlagSet("mcp serve", stderr)
-		allow := fs.String("allow", "", "register only these commands' tools (comma-separated ColabCommand names, e.g. session_get,message_post); default: all")
+		allow := fs.String("allow", "", "register only these commands' tools (comma-separated ColabCommand names, e.g. room_get,message_post); default: all")
 		if err := fs.Parse(args[2:]); err != nil {
 			return client.ExitUsage
 		}
@@ -161,7 +188,7 @@ func run(args []string, getenv client.Getenv, stdin io.Reader, stdout, stderr io
 		return client.ExitOK
 	}
 	return usage(stderr, "colab: unknown command %q "+
-		"(session · message · status · lane · decision · artifact · review · hitl · mcp · version)", args[0])
+		"(room · message · status · lane · decision · artifact · review · hitl · work · mcp · version)", args[0])
 }
 
 func usage(stderr io.Writer, format string, a ...any) int {
@@ -177,56 +204,17 @@ func newFlagSet(name string, stderr io.Writer) (*flag.FlagSet, *bool) {
 	return fs, jsonOut
 }
 
-func runSession(args []string, getenv client.Getenv, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
-		return usage(stderr, "usage: colab session get | colab session messages")
-	}
-	c := client.New(client.FromEnv(getenv))
-	ctx := context.Background()
-	switch args[0] {
-	case "get":
-		fs, _ := newFlagSet("session get", stderr)
-		session := fs.String("session", "", "session id (default COLAB_SESSION_ID / token scope)")
-		if err := fs.Parse(args[1:]); err != nil {
-			return client.ExitUsage
-		}
-		if fs.NArg() > 0 {
-			return usage(stderr, "session get: unexpected argument %q", fs.Arg(0))
-		}
-		v, err := colab.SessionGet(ctx, c, colab.SessionGetArgs{Session: *session})
-		return emit(stdout, stderr, v, err)
-	case "messages":
-		fs, _ := newFlagSet("session messages", stderr)
-		session := fs.String("session", "", "session id (default COLAB_SESSION_ID / token scope)")
-		since := fs.String("since", "", "only messages newer than this cursor / message id (sent as after=)")
-		limit := fs.Int("limit", 0, "max messages, 1..200 (omit for the server default 50)")
-		thread := fs.String("thread", "", "thread root message id (root + replies)")
-		if err := fs.Parse(args[1:]); err != nil {
-			return client.ExitUsage
-		}
-		if fs.NArg() > 0 {
-			return usage(stderr, "session messages: unexpected argument %q", fs.Arg(0))
-		}
-		a := colab.SessionMessagesArgs{Session: *session, Since: *since, Thread: *thread}
-		fs.Visit(func(f *flag.Flag) {
-			if f.Name == "limit" { // explicit --limit (even 0) is validated, not ignored
-				a.Limit = limit
-			}
-		})
-		v, err := colab.SessionMessages(ctx, c, a)
-		return emit(stdout, stderr, v, err)
-	}
-	return usage(stderr, "colab session: unknown subcommand %q", args[0])
-}
-
 func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] != "post" {
-		return usage(stderr, "usage: colab message post --body <text> [--reply-to <id>] [--mention @A,@B]")
+		return usage(stderr, "usage: colab message post --body <text> [--detail <text> | --detail-file <path>] [--reply-to <id> | --top-level] [--mention @A,@B]")
 	}
 	fs, _ := newFlagSet("message post", stderr)
-	session := fs.String("session", "", "session id (default COLAB_SESSION_ID / token scope)")
-	body := fs.String("body", "", "message text (markdown)")
-	replyTo := fs.String("reply-to", "", "parent message id (thread)")
+	session := fs.String("session", "", "room id override (default COLAB_ROOM_ID / token scope)")
+	body := fs.String("body", "", "message text (markdown): the conversation — to whom, what, conclusion, next")
+	detail := fs.String("detail", "", "work text (markdown): findings, full drafts, tables — folded on screen")
+	detailFile := fs.String("detail-file", "", "read the work text from this file, as is (not with --detail)")
+	replyTo := fs.String("reply-to", "", "parent message id (thread; default: COLAB_THREAD_ID, the thread the turn was asked in)")
+	topLevel := fs.Bool("top-level", false, "post to the main timeline even when the turn was asked in a thread")
 	mention := fs.String("mention", "", "comma-separated agent names to mention, e.g. @Reviewer,@Writer")
 	key := fs.String("idempotency-key", "", "reuse a previous key to retry the same post (default: UUIDv5 of task:<task_id>:<seq>)")
 	if err := fs.Parse(args[1:]); err != nil {
@@ -238,13 +226,37 @@ func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) i
 	if strings.TrimSpace(*body) == "" {
 		return emit(stdout, stderr, nil, client.Usage("--body is required"))
 	}
+	// --detail / --detail-file: given (even empty) is told apart from absent,
+	// so an empty one is exit 2 in colab.MessagePost rather than silently
+	// dropped; both together is exit 2 like --reply-to with --top-level.
+	var detailArg *string
+	var detailGiven, fileGiven bool
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "detail":
+			detailGiven = true
+		case "detail-file":
+			fileGiven = true
+		}
+	})
+	if detailGiven && fileGiven {
+		return emit(stdout, stderr, nil, client.Usage("--detail and --detail-file contradict each other: give one"))
+	}
+	if detailGiven {
+		detailArg = detail
+	}
+	// --detail-file is read by colab.MessagePost (colab.ReadDetailFile), the
+	// same code the MCP tool's detail_file goes through (colab-cli v0.9.3).
+	if fileGiven && *detailFile == "" {
+		return emit(stdout, stderr, nil, client.Usage("--detail-file is empty: give a path"))
+	}
 	var mentions []string
 	if *mention != "" {
 		mentions = strings.Split(*mention, ",")
 	}
 	c := client.New(client.FromEnv(getenv))
 	v, err := colab.MessagePost(context.Background(), c, colab.MessagePostArgs{
-		Session: *session, Body: *body, ReplyTo: *replyTo, Mention: mentions, IdempotencyKey: *key})
+		Session: *session, Body: *body, Detail: detailArg, DetailFile: *detailFile, ReplyTo: *replyTo, TopLevel: *topLevel, Mention: mentions, IdempotencyKey: *key})
 	return emit(stdout, stderr, v, err)
 }
 

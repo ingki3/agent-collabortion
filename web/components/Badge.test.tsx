@@ -1,7 +1,7 @@
 import { describe, expect, it, afterEach } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { Badge } from "./Badge";
-import { BADGE_ENTRY_COUNT, BADGE_KINDS, badgeSpec, badgeValues, type BadgeKind } from "./badge-map";
+import { BADGE_ENTRY_COUNT, BADGE_KINDS, badgeSpec, badgeValues, type BadgeKind, type BadgeValue } from "./badge-map";
 
 afterEach(cleanup);
 
@@ -28,13 +28,24 @@ describe("Badge", () => {
     }
   });
 
-  it("badge-map 항목 수 = PRD 열거값 수 (lane 7 · task 10 · session 6 · agent 6 · inbox 3)", () => {
+  it("badge-map 항목 수 = PRD 열거값 수 (lane 7 · task 10 · session 6 · agent 6 · inbox 3 · room 4 · work 6)", () => {
     expect(badgeValues("lane")).toHaveLength(7);
     expect(badgeValues("task")).toHaveLength(10);
     expect(badgeValues("session")).toHaveLength(6);
     expect(badgeValues("agent")).toHaveLength(6);
     expect(badgeValues("inbox")).toHaveLength(3);
-    expect(BADGE_ENTRY_COUNT).toBe(32);
+    // v0.19 (T-R2-W1) — 방 멈춤 사유 4종(계약 RoomBlockedReason enum 그대로), 라벨은 「멈춤」 — 「일시정지」가 아니다(§8.4 층 분담).
+    expect([...badgeValues("room")].sort()).toEqual(["budget", "loop", "manual", "runtime_offline"]);
+    for (const v of badgeValues("room")) {
+      expect(badgeSpec("room", v).label).toMatch(/멈춤$/);
+      expect(badgeSpec("room", v).label).not.toContain("일시정지");
+    }
+    expect(badgeSpec("room", "manual").label).toBe("직접 멈춤");
+    expect(badgeSpec("room", "runtime_offline").label).toBe("컴퓨터 연결 끊김으로 멈춤");
+    // v0.19 (T-R2-W2) — 미션 상태 6종(계약 WorkStatus enum 그대로)은 `session` 과 같은 말·같은 글리프(COMPONENTS §9.5).
+    expect([...badgeValues("work")].sort()).toEqual([...badgeValues("session")].sort());
+    for (const v of badgeValues("work")) expect(badgeSpec("work", v)).toEqual(badgeSpec("session", v as BadgeValue<"session">));
+    expect(BADGE_ENTRY_COUNT).toBe(42);
   });
 
   it("failed / error / offline 기본 variant 는 solid, 나머지는 soft", () => {

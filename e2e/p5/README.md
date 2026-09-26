@@ -12,8 +12,8 @@
 
 | 스크립트 | 무엇을 재는가 | 스택 | 비용 한 줄(I-3: 턴 · 실기 $ · 소요) |
 |---|---|---|---|
-| `79_delete_session.sh` | **deleteSession**(openapi 0.1.3, FR-2.7, T-S17) 서버 쪽 전부 — 데몬 **없이** curl 로: 완료 세션(claim → phase → 아티팩트 lo → finish → complete) → 멤버 403 · active 409 `session_active`(계약 문장) · Director 204 → 404 · 목록·비용·지표 표본에서 빠짐 · 자식 행 0 · large object 0 · `activity_log` `session.deleted` 1행(고아 0) · SSE `session.deleted` · worktree §6 보고(미병합) → cancel → 409 `workdir_unmerged` + `Problem.workdirs[]` → 병합 보고 → 204 → claim 의 gc `{id,path}` → 없는 행 영수증 200·소비·피드 0 · admin 204. 43 판정 | Postgres `colab-pg-s17` :5459 + server :8115 (`SERVER_URL`·`PG_PORT`·`PG_CONTAINER` 를 up.sh 에 export) | 턴 0(curl) · $0 · ≈ 15s |
-| `80_reviewer.sh` | **S-84**(openapi 0.1.4, T-S18) 서버 쪽 전부 — 데몬 **없이** curl 로: createSession `agent_approval` 리뷰어 없음 422 `reviewer_required`(errors[].field 가 그 원자) · 참여자 아님 422 `reviewer_not_participant`(`artifact_submitted` 의 agent_id 도) · 리뷰어 지정 201 → 진행률 `agent_id`·`agent_name`·`next_actor`(에이전트 이름/`director`) → Lead 제출 → R 승인(task 토큰) → completed · 옛 모양 세션(DB 로 심음) getSession 200 + `blocked_reason` 3종(reviewer_missing · reviewer_not_participant · agent_archived) → updateSession(active) 422 두 코드 → 리뷰어 지정 200 → SSE `session.completion_progress`+`session.updated` · `activity_log` `session.completion_condition_changed` → R 승인 → completed · 이미 충족된 원자 유지(단독이면 즉시 completed · user_approval 만 남으면 확인 요청 1건, 두 번 바꿔도 1건 → Director 승인 → completed) · 멤버 403 · completed 422 immutable · paused 200(paused 유지). 50 판정 | Postgres `colab-pg-s18` :5460 + server :8116 | 턴 0(curl) · $0 · ≈ 15s |
+| `79_delete_session.sh` | **deleteSession**(openapi 0.1.3, FR-2.7, T-S17) → R4(openapi v0.3.0)부터 **deleteRoom**(`DELETE /rooms/{id}`, FR-2.6) 서버 쪽 전부 — 데몬 **없이** curl 로: 완료 방+미션(claim → phase → 아티팩트 lo → finish → completeWork) → 멤버 403 `room_owner_required` · 진행 중 미션 409 `works_active`(계약 문장) · 방장 204 → 404 · 목록·비용·지표 표본에서 빠짐 · 자식 행 0 · large object 0 · `activity_log` `room.deleted` 1행(고아 0) · SSE `room.deleted` · worktree §6 보고(미병합) → cancelWork → 409 `workdir_unmerged` + `Problem.workdirs[]` → 병합 보고 → 204 → claim 의 gc `{id,path}` → 없는 행 영수증 200·소비·피드 0 · admin 204. 43 판정 | Postgres `colab-pg-s17` :5459 + server :8115 (`SERVER_URL`·`PG_PORT`·`PG_CONTAINER` 를 up.sh 에 export) | 턴 0(curl) · $0 · ≈ 15s |
+| `80_reviewer.sh` | **S-84**(openapi 0.1.4, T-S18) 서버 쪽 전부 — 데몬 **없이** curl 로(R4: 세션 자리 = 방+미션, 진행률·조건은 getWork·updateWork): createWork `agent_approval` 리뷰어 없음 422 `reviewer_required`(errors[].field 가 그 원자) · 참여자 아님 422 `reviewer_not_participant`(`artifact_submitted` 의 agent_id 도) · 리뷰어 지정 201 → 진행률 `agent_id`·`agent_name`·`next_actor`(에이전트 이름/`director`) → Lead 제출 → R 승인(task 토큰) → completed · 옛 모양 미션(DB 로 심음) getWork 200 + `blocked_reason` 3종(reviewer_missing · reviewer_not_participant · agent_archived) → updateWork(active) 422 두 코드 → 리뷰어 지정 200 → SSE `work.completion_progress`+`work.updated` · `activity_log` `work.completion_condition_changed` → R 승인 → completed · 이미 충족된 원자 유지(단독이면 즉시 completed · user_approval 만 남으면 확인 요청 1건, 두 번 바꿔도 1건 → Director 승인 → completed) · 멤버 403 · completed 409 `work_closed`(R4 전: 422 immutable) · paused 200(paused 유지). 50 판정 | Postgres `colab-pg-s18` :5460 + server :8116 | 턴 0(curl) · $0 · ≈ 15s |
 | `70_testchat.sh` | **테스트 채팅**(FR-1.8.1, daemon-protocol v0.8 §4.5) 서버 쪽 전부 — 데몬 **없이** 데몬 역할을 curl 로 흉내: createTestChat → 턴 202/409 → claim 이 주는 §4.5 번들(kind·id·attempt·토큰 없음·[2] 없음·workdir·첫 턴 머리 한 줄) → phase → heartbeat(preview → SSE `test_chat.delta`) → events(message.say 합침, task_event 0) → finish(transport·usage 추정·ref) → SSE `test_chat.turn` → getTestChat(agent 턴·토큰·transport·비용) → 턴 2 의 `resume` → failed(auth) 의 §8.4 문장 → 워크스페이스 `test_chat_usd` → close 의 gc(test_chat_id, session_id 없음)·410·§6 영수증으로 소비 → 진행 중 턴 close 의 cancel+gc. 끝에 **getWorkspaceMetrics**(10개·순서·표본 0 = null·422). 57 판정 | Postgres `colab-pg-s12` :5451 + server :8107 (웹·데몬·모델 호출 0회) | 턴 0(curl) · $0 · ≈ 15s |
 
 ## 재현
@@ -41,7 +41,7 @@ SERVER_URL=http://localhost:8116 PG_PORT=5460 PG_CONTAINER=colab-pg-s18 bash e2e
   만들고 그 변수만 넘긴다(70_ 의 `PH1`·`PH2`).
 - 70_ 은 데몬을 띄우지 않으므로 **데몬 몫**(§4.5 토큰 없는 환경·`mcpServers` 미탑재·래퍼 미생성·`.colab/testchat/` 아래만 `rm -rf`·
   24h 지난 디렉터리 정리)은 여기서 재지 않는다 — T-D12 의 자리다.
-- `task_event 저장 0` 판정(B.5)은 DB 전역 count 다. 전용 스택이라 0 이지만, 다른 스크립트와 DB 를 공유하면 먼저 재라.
+- `task_event 저장 0` 판정(B.5)은 DB 전역 count 다 — R4 e2e 이관 때 공유 스택에서 돌리려고 시작 시점 수와의 차이로 바꿨다(E.8 workdir 도 그 컴퓨터의 행만 센다). 동시에 다른 스크립트가 돌면 여전히 흔들린다.
 
 ## T-I5 — 시나리오 A·B·C·D 를 **CI 에서** · 성능(§9) · 보안(§9) (72_~78_, G9 판정 자료)
 
@@ -152,7 +152,7 @@ CI(PR #249 run 34989845714 attempt 1)에서 `A2d 동시 3개 (위임 3이 병렬
   **서버 쪽 lane 상한**을 쓰면 결정적이다(claim SQL 의 `lane_cap`).
 - **사람의 보통 메시지는 규칙 6 으로 assignee 를 깨운다.** NN4 의 "사람 경로" 메시지를 보통 문장으로 올렸더니 Lead 대본이 또 위임했다.
   라우팅을 원치 않는 사람 메시지는 `/note`(규칙 1).
-- **Director 의 POST /lanes·/decisions 는 403 `agent_only`** — 명령 표가 아니라 사람 권한 규칙(사람은 「새 작업 줄기로 보내기」·HITL 카드).
+- **Director 의 POST /lanes·/decisions 는 403 `agent_only`** — 명령 표가 아니라 사람 권한 규칙(사람은 「새 서브 미션으로 보내기」·HITL 카드).
   NN4 는 "`command_not_allowed` 가 아니다" 로 잰다.
 - **hermes 의 브리프는 파일이다**(brief_transport=file): 프롬프트 첫 줄이 workdir 의 `COLAB_BRIEF.md` 를 가리킨다. 래퍼 경로·거부 줄은
   거기서 읽는다(턴이 살아 있는 동안).
@@ -162,3 +162,62 @@ CI(PR #249 run 34989845714 attempt 1)에서 `A2d 동시 3개 (위임 3이 병렬
   73_ 의 탭이 서버 포트와 겹친다 — `TAP_PORT_72/73/74/82/84` 를 export 한다(I-5, 다섯 스크립트 모두 같은 관례). CI(:8109)는 겹치지 않는다.
 - 대본이 **토큰을 남기고 턴을 붙드는** 레시피(Gate): 서버 층 (c) 는 finish 뒤 401 이라 살아 있는 토큰이 필요하다. `gate-<task>.token` →
   하네스가 curl → `gate-<task>.go` 로 놓아준다(상한 90s). 합류 통보로 깨어난 턴은 시도하지 않는다(위임↔합류 사이클, 77_ 보고).
+
+## T-R1b1 — 방 단위 게이트(PRD v0.19 FR-2.4 · FR-2A.3 · FR-2.1.1 · FR-3.1.1 · FR-3.5) — 88_
+
+| 스크립트 | 무엇을 재나 | lib | 비용 한 줄(I-3) |
+|---|---|---|---|
+| `88_room_gate.sh` | **방의 멈춤 칸 `room.blocked_reason` 과 그 둘레** — 데몬 없이 curl(claim·phase·heartbeat·finish 흉내), 절마다 워크스페이스·컴퓨터를 새로 짝짓는다. A 방 예산(heartbeat usage) → `blocked_reason budget` · getWork paused·사유 null(방의 사유, R4) · 저장 행은 미러 paused(budget) · 요청 `room_owner` · 새 task 안 나감 · `unblockRoom` 409 `not_manual` · 승인 한 번에 풀림 · E 루프(시간당 1) → `loop` · `room_paused` · B 방장 부재 위임(부방장 없으면 owner 최고참 · 부방장 우선 · 절반 전 403 `deputy_not_yet` + 시각 · 멤버 403 null) → 승인이 방을 푼다 · 사람 hop 1 · H **경계** — Director 가 멈춘 미션은 방 해제에 끌려오지 않는다 · C manual 멈춤·해제(권한 · cancel 명령 · 시스템 메시지·activity_log · 409 둘) · D 에이전트 동시 상한이 방을 가로지른다 → `queued_reason agent_global`(task·lane) · F 저장소 있는 컴퓨터로 첫 실행 → `isolation_confirm` 보류 → 승인 → worktree + 고정 + 「이 방은 …에서 돕니다」 · G 귀속 preview `running_lane`·`thread`·`chosen`(R1b1 호환 규칙). 57 판정 | `lib.sh` | 턴 0 · $0 · ≈ 5s |
+
+스택(T-R1b1): server **:8130** · pg **:5479**(`colab-pg-r1b1-5479`). CI 는 `ci.sh` 의 SCRIPTS 에 들어 있다(i5 스택 위에서 81_ 처럼).
+
+```bash
+SERVER_URL=http://localhost:8130 PG_PORT=5479 PG_CONTAINER=colab-pg-r1b1-5479 bash e2e/p5/up.sh
+bash e2e/p5/88_room_gate.sh            # out/88-checks.tsv · 88-A-hb.json · 88-C-block.json · 88-E-*.json · 88-G-preview-3.json
+SERVER_URL=http://localhost:8130 PG_PORT=5479 PG_CONTAINER=colab-pg-r1b1-5479 bash e2e/p5/down.sh
+```
+
+부방장 지정·방 나가기 API 는 R1b2·R1b3 몫이라 **room.deputy_owner_user_id·member 행·loop_limits 는 psql** 로 심는다. 서버 바이너리에 클럭 주입이 없어 기한 절반은 `backdate_hitl`(created_at·due_at 을 같이 민다, p3 lib) 로 잰다.
+
+## T-R1c — 다른 방 읽기(PRD v0.19 FR-4.5) — 90_
+
+| 스크립트 | 무엇을 재나 | lib | 비용 한 줄(I-3) |
+|---|---|---|---|
+| `90_room_read.sh` | **listReadableRooms · readRoom · listRoomReads(S23)** 서버 쪽 전부 — 데몬 없이 curl(claim·phase·finish 흉내). 방 다섯(참여 · 서연 비참여 · 링크 · 불허) 으로 FR-4.5 두 조건을 **읽는 순간** 판정: A 허용 + 기록 양쪽(room_read_log · 읽힌 방 시스템 메시지 · activity_log 양쪽 · 피드 status/read · SSE `room_read.recorded` 양쪽 · S23 out/in) · B 링크 경유(via_link) · C 요청자 비참여 403 — **없는 방 id 와 구별 불가** · 목록 숨김 · S23 denied other_room null · agent_not_allowed · D originator 떠남(left_at) → 다음 read 403 `originator_left` + 사람 쪽 문장(이 사유만 방 이름) → 돌아오면 200 · E **originator 승계(NN7)** — 위임 자식 · blocked 질문 기상 · 합류 기상 · 재시도(attempt 2) · HITL 재개(attempt 3) · 재지시(restartLane) 전부 서연 + 그 토큰으로 read 200 · F 사람 없는 사슬 → `no_originator`, 합류 기상 task 도 NULL(방장 대체 없음) · G 상한 — `room_read` 설정(1방·500토큰) → truncated · 같은 턴 두 번째 방은 빈 내용 + 기록 0 · 같은 방 다시는 칸을 안 먹는다. 65 판정 | `lib.sh` | 턴 0 · $0 · ≈ 30s |
+
+스택(T-R1c 배정): server **:8131** · pg **:5481**(`colab-pg-r1c-5481`). CI 는 `ci.sh` 의 SCRIPTS 에 들어 있다(i5 스택 위에서 81_ 처럼).
+
+```bash
+SERVER_URL=http://localhost:8131 PG_PORT=5481 PG_CONTAINER=colab-pg-r1c-5481 bash e2e/p5/up.sh
+bash e2e/p5/90_room_read.sh            # out/90-checks.tsv · 90-list.json · 90-read-*.json · 90-reads-*.json
+SERVER_URL=http://localhost:8131 PG_PORT=5481 PG_CONTAINER=colab-pg-r1c-5481 bash e2e/p5/down.sh
+```
+
+방 초대·나가기·참고 링크 API 는 R1b3 몫이라 **사람 행(left_at)·room_link 는 psql** 로 심는다 — API 가 들어오면 그 호출로 바꾼다.
+
+### 이 판(T-R1c)에서 밟은 함정
+
+- **claim 은 줄 선 task 를 전부 내준다.** 찾는 task 만 골라 쓰고 나머지 번들을 버리면 그 task 는 `dispatched` 로 남아 다시는
+  claim 에 안 나온다(합류가 영영 안 온다). `take` 가 받은 번들을 `out/90-bundles.jsonl` 에 두고 꺼내 쓴다.
+- **에이전트는 만든 사람만 방에 초대할 수 있다**(403 `not_invitable`). "민수의 방" 은 서연이 만들고 사람 행을 민수로 바꿨다.
+- **줄에 남은 기상 task 가 다음 멘션을 흡수한다**(FR-3.4). F 의 originator 없는 합류 task 를 닫지 않으면 G 의 멘션이 거기 합쳐져
+  "originator 없는 턴" 이 된다 — 합쳐질 때 `originator_user_id` 는 **비어 있을 때만** 채운다(`COALESCE`), 있던 것을 덮지 않는다.
+- 다른 방의 시작 task(방마다 담당 에이전트 1개)는 Lead 의 `max_concurrent_tasks`(3) 칸을 먹는다 — 판정과 무관하니 만들자마자 닫는다.
+- psql 의 `boolean||text` 는 `true`/`false` 다(`t` 가 아니다).
+
+## T-R1b3 — 방 API (89_, PRD v0.19 FR-2 · FR-2.2 · FR-4.5 링크 · FR-5.3 · FR-8 · §12.1-4)
+
+| 스크립트 | 무엇을 재는가 | lib | 비용 한 줄(I-3) |
+|---|---|---|---|
+| `89_rooms.sh` | 방 만들기(컴퓨터 0대 201 · room_defaults 상속) → 초대(사람 · 에이전트는 부른 사람의 FR-1.9 로) → invited 방 404·목록 밖·감사 열람 기록 → 나가기 거부(is_owner · is_director — 미션 행은 psql 로 심는다, 미션 API 는 R1b2) · 허용 · 재초대는 같은 행 → 방장 넘기기·부방장 → 참고 방 링크 권한(없는 방도 같은 403) · 양쪽 시스템 메시지 → 보관/해제 · tasks_active → 삭제 거부(works_active · 부방장 403) · 204 · room.deleted 한 줄 → 안 읽음(목록=getRoom · 앞으로만) → SSE(room_id 거르기 · invited 방 프레임이 초대 안 된 사람 스트림에 0 · room.unread 본인만) → 활동 로그 → 옛 세션 자리(R4: getRoom·getWork·listRooms·listRoomWorks — getSession·listSessions·session_id 별칭·session.deleted 삭제). 82 판정 | `lib.sh` | 턴 0(curl) · $0 · ≈ 20s |
+
+```bash
+export SERVER_URL=http://localhost:8135 PG_PORT=5484 PG_CONTAINER=colab-pg-r1b3-e2e
+bash e2e/p5/up.sh && bash e2e/p5/89_rooms.sh ; bash e2e/p5/down.sh    # out/89-checks.tsv · 89-sse-*.log
+```
+
+- **SSE 프레임은 쓰는 트랜잭션이 커밋되기 전에 나간다.** 초대·퇴장·공개 범위를 바꾸는 그 프레임에서 권한을 다시 읽으면 옛 값이 보이고,
+  그걸 캐시하면 방금 나간 사람이 invited 방의 프레임을 계속 받는다. 그래서 그런 프레임 뒤 5초는 캐시하지 않는다(`stream_rooms.go`).
+  H.10 은 이 판정이 빠지면 1 이 된다(회귀 주입으로 확인).
+- 87_ 은 새 마이그레이션이 붙어도 돈다 — B.1 은 「0025 가 적용됐다」만 보고(max 가 아니라), 인박스 대조에서는 v0.2.0 이 더한 칸
+  (room_id · work_id · lane_id · recipient_basis)을 지운다.

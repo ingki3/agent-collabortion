@@ -51,7 +51,7 @@ func (g *g4Fixture) runningTask(t *testing.T, mention string, agentID uuid.UUID)
 // and runs the enforcement the heartbeat runs, in the same order.
 func (g *g4Fixture) overrunTaskBudget(t *testing.T, taskID uuid.UUID, cost float64) {
 	t.Helper()
-	if err := g.srv.Tasks.RecordTurnUsage(t.Context(), taskID, contracts.Usage{
+	if err := g.srv.Tasks.RecordTurnUsage(t.Context(), taskID, attemptNow(t, g.srv.DB, taskID), contracts.Usage{
 		InputTokens: 1000, OutputTokens: 1000, CostUSD: cost,
 	}, g.fake.Now()); err != nil {
 		t.Fatal(err)
@@ -207,7 +207,7 @@ func TestP3PausedTaskCancelsWithoutTheCheck(t *testing.T) {
 	// 세션 취소 is the reachable route to a parked task: cancelLane refuses a
 	// paused lane (openapi cancelLane, 409), while cancelSessionWork walks
 	// `paused` rows straight into cancelLocked (§8.2.2).
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/cancel", map[string]any{"reason": "여기까지"})
+	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/cancel", map[string]any{"reason": "여기까지"})
 
 	var status, pausedReason, detail *string
 	var failureKind *string

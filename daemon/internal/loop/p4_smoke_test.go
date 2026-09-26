@@ -181,7 +181,7 @@ func TestSmokeP4WorktreeHermesBriefFile(t *testing.T) {
 		b, _ := os.ReadFile(filepath.Join(req.WorkdirPath, brief.FileName))
 		duringBrief = string(b)
 		duringStatus, _ = gitrepo.Run(req.WorkdirPath, "status", "--porcelain")
-		duringPrompt = brief.TurnPromptPointer(req.WorkdirPath)
+		duringPrompt = brief.PointerTo(filepath.Join(req.WorkdirPath, brief.FileName))
 	}
 
 	p4SmokeRun(t, d, srv, 2)

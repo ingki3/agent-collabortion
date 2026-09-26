@@ -53,7 +53,7 @@ func TestClaimFixesRuntimeAndRejectsOthers(t *testing.T) {
 		t.Fatalf("bundle = %+v", bundles)
 	}
 	var fixed *uuid.UUID
-	if err := q.DB.QueryRow(ctx, `SELECT runtime_id FROM session WHERE id = $1`, s.SessionID).Scan(&fixed); err != nil {
+	if err := q.DB.QueryRow(ctx, `SELECT runtime_id FROM room WHERE id = $1`, s.SessionID).Scan(&fixed); err != nil {
 		t.Fatal(err)
 	}
 	if fixed == nil || *fixed != s.RuntimeID {
@@ -101,7 +101,7 @@ func TestClaimScopedToSessionWorkspace(t *testing.T) {
 		t.Fatalf("workspace-B runtime claimed %d tasks from a workspace-A session", len(bundles))
 	}
 	var fixed *uuid.UUID
-	if err := q.DB.QueryRow(ctx, `SELECT runtime_id FROM session WHERE id = $1`, s.SessionID).Scan(&fixed); err != nil {
+	if err := q.DB.QueryRow(ctx, `SELECT runtime_id FROM room WHERE id = $1`, s.SessionID).Scan(&fixed); err != nil {
 		t.Fatal(err)
 	}
 	if fixed != nil {
@@ -124,7 +124,7 @@ func TestClaimScopedToSessionWorkspace(t *testing.T) {
 	if len(bundles) != 1 || bundles[0].Task.ID != task1.String() {
 		t.Fatalf("same-workspace runtime should claim task1, got %+v", bundles)
 	}
-	if err := q.DB.QueryRow(ctx, `SELECT runtime_id FROM session WHERE id = $1`, s.SessionID).Scan(&fixed); err != nil {
+	if err := q.DB.QueryRow(ctx, `SELECT runtime_id FROM room WHERE id = $1`, s.SessionID).Scan(&fixed); err != nil {
 		t.Fatal(err)
 	}
 	if fixed == nil || *fixed != s.RuntimeID {
@@ -138,7 +138,7 @@ func TestClaimExclusions(t *testing.T) {
 	ctx := context.Background()
 
 	paused := testdb.AddSession(t, q.DB, s, &s.RuntimeID, t0)
-	if _, err := q.DB.Exec(ctx, `UPDATE session SET status = 'paused', paused_reason = 'director' WHERE id = $1`, paused); err != nil {
+	if _, err := q.DB.Exec(ctx, `UPDATE work SET status = 'paused', paused_reason = 'director' WHERE room_id = $1`, paused); err != nil {
 		t.Fatal(err)
 	}
 	testdb.AddTask(t, q.DB, s, paused, t0)
@@ -277,7 +277,7 @@ func TestClaimRespectsConcurrencyLimits(t *testing.T) {
 	ctx := context.Background()
 
 	// max_parallel_lanes = 1: the session may only have one lane in flight.
-	if _, err := pool.Exec(ctx, `UPDATE session SET limits = '{"max_parallel_lanes": 1}' WHERE id = $1`, seed.SessionID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE room SET limits = '{"max_parallel_lanes": 1}' WHERE id = $1`, seed.SessionID); err != nil {
 		t.Fatal(err)
 	}
 	a := testdb.AddTask(t, pool, seed, seed.SessionID, t0)
@@ -304,7 +304,7 @@ func TestClaimRespectsConcurrencyLimits(t *testing.T) {
 	_ = a
 
 	// Raising the session limit is not enough while the agent's own cap binds.
-	if _, err := pool.Exec(ctx, `UPDATE session SET limits = '{"max_parallel_lanes": 5}' WHERE id = $1`, seed.SessionID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE room SET limits = '{"max_parallel_lanes": 5}' WHERE id = $1`, seed.SessionID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE agent SET max_concurrent_tasks = 1 WHERE id = $1`, seed.AgentID); err != nil {

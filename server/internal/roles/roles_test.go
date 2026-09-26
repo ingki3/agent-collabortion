@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 	"testing"
 
@@ -137,33 +136,52 @@ func TestAllowedCommandsMatchContractTable(t *testing.T) {
 }
 
 func TestAllCommandsIsTheClosedEnum(t *testing.T) {
-	// The enum is the contract's closed set; All() must be exactly it, so a
-	// command added to openapi without a row here shows up.
+	// All() is the generated list; the generated list must be the contract's
+	// enum, in the contract's order — a stale enum_values.gen.go (the script
+	// not rerun after a contract edit) shows up here.
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(wd, "..", "..", "..", "contracts", "openapi.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^    ColabCommand:\n(?:      [^\n]*\n)*?      enum: \[([^\]]*)\]`).FindStringSubmatch(string(raw))
+	if m == nil {
+		t.Fatal("openapi.yaml has no ColabCommand enum")
+	}
+	var want []gen.ColabCommand
+	for _, v := range strings.Split(m[1], ",") {
+		want = append(want, gen.ColabCommand(strings.TrimSpace(v)))
+	}
 	got := All()
-	sort.Slice(got, func(i, j int) bool { return got[i] < got[j] })
-	want := []gen.ColabCommand{gen.ArtifactGet, gen.ArtifactSubmit, gen.DecisionRecord, gen.HitlApproveRequest, gen.HitlAsk,
-		gen.HitlRequestInfo, gen.LaneDelegate, gen.MessagePost, gen.ReviewApprove, gen.ReviewReject, gen.SessionGet,
-		gen.SessionMessages, gen.StatusSet}
 	if !slices.Equal(got, want) {
-		t.Errorf("All() = %v, want the 13 ColabCommand values", got)
+		t.Errorf("All() = %v\n  openapi says %v — rerun scripts/gen_enum_values.sh", got, want)
 	}
 	for _, c := range got {
 		if !c.Valid() {
 			t.Errorf("%s is not a valid ColabCommand", c)
 		}
 	}
-	if len(AllowedCommands(gen.Lead)) != 13 || len(AllowedCommands(gen.Custom)) != 13 {
-		t.Errorf("lead and custom get everything: lead %d custom %d", len(AllowedCommands(gen.Lead)), len(AllowedCommands(gen.Custom)))
+	// All() hands out a copy: a caller cannot reorder the table.
+	got[0] = "x"
+	if All()[0] == "x" {
+		t.Error("All() aliases the package list")
 	}
-	if s := AllowedCommandStrings(gen.Reviewer); len(s) != 10 || s[0] != "session_get" {
+	if len(AllowedCommands(gen.Lead)) != len(want) || len(AllowedCommands(gen.Custom)) != len(want) {
+		t.Errorf("lead and custom get everything: lead %d custom %d of %d", len(AllowedCommands(gen.Lead)), len(AllowedCommands(gen.Custom)), len(want))
+	}
+	if s := AllowedCommandStrings(gen.Reviewer); len(s) != 12 || s[0] != "room_get" {
 		t.Errorf("AllowedCommandStrings(reviewer) = %v", s)
 	}
 }
 
 func TestCLIName(t *testing.T) {
 	for cmd, want := range map[gen.ColabCommand]string{
-		gen.LaneDelegate: "lane delegate", gen.SessionGet: "session get", gen.ReviewApprove: "review approve",
-		gen.HitlApproveRequest: "hitl approve-request", gen.HitlRequestInfo: "hitl request-info", gen.HitlAsk: "hitl ask",
+		gen.ColabCommandLaneDelegate: "lane delegate", gen.ColabCommandRoomGet: "room get", gen.ColabCommandReviewApprove: "review approve",
+		gen.ColabCommandHitlApproveRequest: "hitl approve-request", gen.ColabCommandHitlRequestInfo: "hitl request-info", gen.ColabCommandHitlAsk: "hitl ask",
+		gen.ColabCommandRoomList: "room list", gen.ColabCommandRoomRead: "room read", gen.ColabCommandWorkPropose: "work propose",
 	} {
 		if got := CLIName(cmd); got != want {
 			t.Errorf("CLIName(%s) = %q, want %q", cmd, got, want)

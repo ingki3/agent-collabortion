@@ -1,6 +1,6 @@
 "use client";
 /**
- * 종료 조건 편집기(T-W15, S-84 · SCREEN §4.4 6단계). S6 마법사 6단계와 S7 「조건 고치기」 다이얼로그가 **같은 것**을 그린다 —
+ * 종료 조건 편집기(T-W15, S-84 · SCREEN §4.4 6단계). S21 미션 열기·설정 편집과 「조건 고치기」 다이얼로그가 **같은 것**을 그린다(S6 마법사 6단계가 S21 로 왔다, T-R2-W4b) —
  * 두 자리가 다른 편집기를 가지면 한쪽에서만 리뷰어를 잊는다.
  *
  * 막는 것은 막고 근처에서 말한다(§8.5): 조건 0개 · `agent_approval` 인데 리뷰어 없음 → `conditionGate` 가 사유를 주고 호출부가
@@ -22,9 +22,11 @@ export interface ConditionEditorProps {
   participants: ConditionEditorParticipant[];
   /** 담당 에이전트 — 리뷰어로 고르면 안내 한 줄. */
   assigneeId?: string | null;
+  /** 리뷰어 필수 문장을 그 자리의 말로(S21 미션 열기는 「세션」이 아니라 방의 말을 쓴다). 비우면 표의 문장. */
+  reviewerRequiredText?: string;
 }
 
-export function ConditionEditor({ value, onChange, participants, assigneeId }: ConditionEditorProps) {
+export function ConditionEditor({ value, onChange, participants, assigneeId, reviewerRequiredText }: ConditionEditorProps) {
   const nameOf = (id: string) => participants.find((p) => p.id === id)?.name ?? id;
   const submitterLabel = value.submitter ? `@${nameOf(value.submitter)}` : CONDITION_EDITOR.submitter_default_short;
   const toggle = (t: CondType, next: boolean) =>
@@ -91,7 +93,7 @@ export function ConditionEditor({ value, onChange, participants, assigneeId }: C
                     ))}
                   </select>
                 </label>
-                {!value.reviewer && <span className="small" style={{ color: "var(--s-wait-text)" }} data-testid="reviewer-required">{CONDITION_EDITOR.reviewer_required}</span>}
+                {!value.reviewer && <span className="small" style={{ color: "var(--s-wait-text)" }} data-testid="reviewer-required">{reviewerRequiredText ?? CONDITION_EDITOR.reviewer_required}</span>}
                 {value.reviewer && value.reviewer === assigneeId && (
                   <span className="small muted" data-testid="reviewer-is-assignee">{CONDITION_EDITOR.reviewer_is_assignee}</span>
                 )}

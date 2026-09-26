@@ -18,8 +18,20 @@ import (
 
 const workdirCols = `w.id, w.session_id, w.agent_id, w.lane_id, w.kind::text, w.path_or_ref,
 	 w.branch, w.status::text, w.disk_bytes, w.last_used_at, w.retain_until, w.dirty,
-	 w.created_at, w.updated_at, s.title, s.status::text,
-	 w.merged, w.commits_ahead, w.gc_blocked_reason`
+	 w.created_at, w.updated_at, COALESCE(wk.title, s.name), COALESCE(wk.status::text, 'active'),
+	 w.merged, w.commits_ahead, w.gc_blocked_reason,
+	 w.work_id, cw.title, w.role`
+
+// workdirFrom is the room a directory lives in and the old session's mission
+// for its SessionRef (title · status). One row per directory: joining the
+// room's missions returned a directory once per mission (V19_R1B_HANDOFF (c)
+// workdirs/api.go:77 · (d) :108 · :207). A room made by createRoom shows its
+// own name.
+//
+// cw is the directory's OWN mission (openapi v0.3.4 `Workdir.work`): its
+// CURRENT title — the path keeps the name it was made with (§6.1 만들 때 고정).
+const workdirFrom = `FROM workdir w JOIN room s ON s.id = w.session_id LEFT JOIN work wk ON wk.id = s.legacy_work_id
+	LEFT JOIN work cw ON cw.id = w.work_id`
 
 func scanWorkdir(row pgx.Row) (gen.Workdir, uuid.UUID, error) {
 	var wd gen.Workdir
@@ -31,12 +43,31 @@ func scanWorkdir(row pgx.Row) (gen.Workdir, uuid.UUID, error) {
 	var commitsAhead int
 	var blockedReason *string
 	var sessionID uuid.UUID
+	var workID *uuid.UUID
+	var workTitle *string
+	var role string
 	if err := row.Scan(&wd.Id, &sessionID, &agentID, &laneID, &kind, &wd.PathOrRef,
 		&branch, &status, &wd.DiskBytes, &lastUsed, &retain, &dirty,
 		&wd.CreatedAt, &wd.UpdatedAt, &sessionTitle, &sessionStatus,
-		&merged, &commitsAhead, &blockedReason); err != nil {
+		&merged, &commitsAhead, &blockedReason,
+		&workID, &workTitle, &role); err != nil {
 		return wd, uuid.Nil, err
 	}
+	// openapi v0.3.4 (daemon-protocol v0.10.0 §6.1): the mission the folder
+	// belongs to, its current title, and whether it is an agent's folder or
+	// the mission's `_shared`.
+	wd.WorkId = nullableUUID(workID)
+	type workRef = struct {
+		Id    openapi_types.UUID `json:"id"`
+		Title string             `json:"title"`
+	}
+	if workID != nil && workTitle != nil {
+		wd.Work = nullable.NewNullableWithValue(workRef{Id: openapi_types.UUID(*workID), Title: *workTitle})
+	} else {
+		wd.Work = nullable.NewNullNullable[workRef]()
+	}
+	r := gen.WorkdirRole(role)
+	wd.Role = &r
 	wd.SessionId = openapi_types.UUID(sessionID)
 	wd.Kind = gen.WorkdirKind(kind)
 	wd.Status = gen.WorkdirStatus(status)
@@ -74,7 +105,7 @@ func scanWorkdir(row pgx.Row) (gen.Workdir, uuid.UUID, error) {
 // Load returns one workdir as the contract's Workdir (SSE `workdir.updated`).
 func Load(ctx context.Context, q db.DBTX, id uuid.UUID) (gen.Workdir, error) {
 	wd, _, err := scanWorkdir(q.QueryRow(ctx, `
-		SELECT `+workdirCols+` FROM workdir w JOIN session s ON s.id = w.session_id WHERE w.id = $1`, id))
+		SELECT `+workdirCols+` `+workdirFrom+` WHERE w.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return wd, apperr.NotFound("workdir")
 	}
@@ -89,7 +120,11 @@ type ListQuery struct {
 	RuntimeID uuid.UUID
 	Status    *string
 	SessionID *uuid.UUID
-	Limit     int
+	// WorkID is v0.3.4's `?work_id=`: the mission's rows (agent + `_shared`),
+	// and then the disk total is that mission's too — the mission-close
+	// dialog's 「작업 폴더 N개(〈용량〉)」.
+	WorkID *uuid.UUID
+	Limit  int
 }
 
 // ListForRuntime answers listRuntimeWorkdirs: every workdir of every session
@@ -105,13 +140,14 @@ func ListForRuntime(ctx context.Context, q db.DBTX, ql ListQuery) ([]gen.Workdir
 	}
 	rows, err := q.Query(ctx, `
 		SELECT `+workdirCols+`
-		FROM workdir w JOIN session s ON s.id = w.session_id
+		`+workdirFrom+`
 		WHERE s.runtime_id = $1
 		  AND ($2::text IS NULL OR w.status::text = $2)
 		  AND ($2::text IS NOT NULL OR w.status <> 'deleted')
 		  AND ($3::uuid IS NULL OR w.session_id = $3)
+		  AND ($5::uuid IS NULL OR w.work_id = $5)
 		ORDER BY w.last_used_at DESC NULLS LAST, w.created_at DESC
-		LIMIT $4`, ql.RuntimeID, ql.Status, ql.SessionID, limit)
+		LIMIT $4`, ql.RuntimeID, ql.Status, ql.SessionID, limit, ql.WorkID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("workdirs: list: %w", err)
 	}
@@ -129,8 +165,9 @@ func ListForRuntime(ctx context.Context, q db.DBTX, ql ListQuery) ([]gen.Workdir
 	}
 	var total int64
 	if err := q.QueryRow(ctx, `
-		SELECT COALESCE(sum(w.disk_bytes), 0) FROM workdir w JOIN session s ON s.id = w.session_id
-		WHERE s.runtime_id = $1 AND w.status <> 'deleted'`, ql.RuntimeID).Scan(&total); err != nil {
+		SELECT COALESCE(sum(w.disk_bytes), 0) FROM workdir w JOIN room s ON s.id = w.session_id
+		WHERE s.runtime_id = $1 AND w.status <> 'deleted'
+		  AND ($2::uuid IS NULL OR w.work_id = $2)`, ql.RuntimeID, ql.WorkID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	return out, total, nil
@@ -142,7 +179,7 @@ func RuntimeDiskUsed(ctx context.Context, q db.DBTX, wsID uuid.UUID) (int64, err
 	var used int64
 	err := q.QueryRow(ctx, `
 		SELECT COALESCE(sum(w.disk_bytes), 0)
-		FROM workdir w JOIN session s ON s.id = w.session_id
+		FROM workdir w JOIN room s ON s.id = w.session_id
 		WHERE s.workspace_id = $1 AND w.status <> 'deleted'`, wsID).Scan(&used)
 	return used, err
 }
@@ -201,12 +238,16 @@ func nullableTime(t *time.Time) nullable.Nullable[time.Time] {
 // server has no evidence either way, and the other two columns still speak.
 //
 // production caller: sessions.Service.Delete.
+// unmergedWorktree is the blocking predicate — ONE definition for both
+// refusals' lists (deleteSession's Workdir rows, deleteRoom's projection).
+const unmergedWorktree = `w.kind = 'worktree' AND w.status <> 'deleted'
+		  AND (w.merged = false OR COALESCE(w.tree_dirty, w.dirty, false) OR w.commits_ahead > 0)`
+
 func UnmergedWorktrees(ctx context.Context, q db.DBTX, sessionID uuid.UUID) ([]gen.Workdir, error) {
 	rows, err := q.Query(ctx, `
 		SELECT `+workdirCols+`
-		FROM workdir w JOIN session s ON s.id = w.session_id
-		WHERE w.session_id = $1 AND w.kind = 'worktree' AND w.status <> 'deleted'
-		  AND (w.merged = false OR COALESCE(w.tree_dirty, w.dirty, false) OR w.commits_ahead > 0)
+		`+workdirFrom+`
+		WHERE w.session_id = $1 AND `+unmergedWorktree+`
 		ORDER BY w.created_at`, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("workdirs: unmerged worktrees: %w", err)
@@ -219,6 +260,45 @@ func UnmergedWorktrees(ctx context.Context, q db.DBTX, sessionID uuid.UUID) ([]g
 			return nil, fmt.Errorf("workdirs: unmerged worktrees: %w", err)
 		}
 		out = append(out, wd)
+	}
+	return out, rows.Err()
+}
+
+// RoomBlockingWorkdir is one row of deleteRoom's `409 workdir_unmerged`
+// (openapi 0.2.6 Problem.workdirs): what S5's refusal lists next to the S13
+// link — where the folder is and on which computer, and what holds it.
+type RoomBlockingWorkdir struct {
+	ID           uuid.UUID  `json:"id"`
+	Path         string     `json:"path"`
+	RuntimeID    *uuid.UUID `json:"runtime_id"`
+	RuntimeName  *string    `json:"runtime_name"`
+	CommitsAhead *int       `json:"commits_ahead"`
+	Dirty        bool       `json:"dirty"`
+}
+
+// UnmergedRoomWorktrees is UnmergedWorktrees in deleteRoom's shape — the
+// same set (unmergedWorktree), projected. A workdir has no computer of its
+// own: it lives on the room's. `dirty` is the uncommitted-changes fact
+// (tree_dirty, or the older OR where the split column was never written).
+//
+// production caller: sessions.Service.DeleteRoom.
+func UnmergedRoomWorktrees(ctx context.Context, q db.DBTX, roomID uuid.UUID) ([]RoomBlockingWorkdir, error) {
+	rows, err := q.Query(ctx, `
+		SELECT w.id, w.path_or_ref, s.runtime_id, r.name, w.commits_ahead, COALESCE(w.tree_dirty, w.dirty, false)
+		  FROM workdir w JOIN room s ON s.id = w.session_id LEFT JOIN runtime r ON r.id = s.runtime_id
+		 WHERE w.session_id = $1 AND `+unmergedWorktree+`
+		 ORDER BY w.created_at`, roomID)
+	if err != nil {
+		return nil, fmt.Errorf("workdirs: room unmerged worktrees: %w", err)
+	}
+	defer rows.Close()
+	out := []RoomBlockingWorkdir{}
+	for rows.Next() {
+		var b RoomBlockingWorkdir
+		if err := rows.Scan(&b.ID, &b.Path, &b.RuntimeID, &b.RuntimeName, &b.CommitsAhead, &b.Dirty); err != nil {
+			return nil, fmt.Errorf("workdirs: room unmerged worktrees: %w", err)
+		}
+		out = append(out, b)
 	}
 	return out, rows.Err()
 }

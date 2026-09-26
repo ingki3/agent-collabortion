@@ -23,3 +23,5 @@
 .app-nav__spacer { flex: 1; }
 .app-nav__user { padding: 8px 10px; font-size: var(--fs-sub); color: var(--ink-2); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .app-nav__user b { color: var(--ink-2); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 안 읽음 합계(v0.19 M4) — 할 일(받은 요청)과 구분되게 채움이 아니라 테두리만. 0 이면 그리지 않는다. */
+.app-nav__badge--unread { background: transparent; color: var(--ink); border: 1px solid var(--ink-2); }

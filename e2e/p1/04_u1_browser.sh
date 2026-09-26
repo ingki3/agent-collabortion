@@ -3,9 +3,7 @@
 # web/e2e/u1.sh(W 스트림) 의 셀렉터를 따르되, 4단계에서 화면의 설치 명령 2행에서 페어링 코드를 읽어 실제 bin/daemon 을 붙인다.
 # 스크린샷: web/__screenshots__/p1-u1-*.png, p1-u13-*.png. 단계별 "보이는 것" 판정을 e2e/p1/out/d-steps.tsv 에 남긴다.
 # 사용: bash e2e/p1/up.sh && bash e2e/p1/04_u1_browser.sh
-# 2026-09-06 T-I2: P2(T-W2, PR #67)가 S6 를 **7단계 마법사**로 바꿨다. U1-7~12 를 단계별로 확인하도록 갱신했다.
-#   단계 전환은 클라이언트 렌더라 연달아 누르면 씹힌다 — 각 단계 사이에 sleep 1 이 있다. 그래도 마지막 '시작' 이
-#   눌리지 않는 실행이 있다(손으로 같은 화면을 몰면 세션이 만들어진다). U1-13 이 미도달이면 여기를 먼저 의심하라.
+# 2026-09-24 T-R2-W4b: v0.19 에서 S6 마법사가 지워졌다. U1-7~13 은 S18 방 만들기 → S7 빈 방 → S19 초대 → 첫 멘션으로 본다.
 #   U1_STOP_AFTER=4 로 두면 1~4단계(가입 → 온보딩 → 워크스페이스 → S12 준비 완료)까지만 돌고 요약을 남긴다.
 #   S-6 회귀 재확인처럼 앞부분만 짧게 볼 때 쓴다(에이전트 턴 0 — 비용 없음).
 source "$(dirname "$0")/lib.sh"
@@ -114,86 +112,40 @@ shot p1-u1-05-onboarding-agent
 TPL="$(ab get count '[data-testid^="template-"]' 2>/dev/null || echo 0)"
 rec 5 S4-3 "템플릿 카드 3장 + 직접 만들기" N/A "P2(applyAgentTemplate x-phase P2). 보이는 것: Lead 이름 폼 + 생성/건너뛰기 (템플릿 testid=$TPL)"
 ab click '[data-testid="agent-create"]' >/dev/null
-if try ab wait --url "**/sessions/new" --timeout 20000; then rec 6 "S4-3→S6" "'Lead 생성됨' 확인 후 첫 세션" PASS "P1: Lead(claude_code, probe models[0]) 생성 후 S6 로 이동"; else rec 6 "S4-3→S6" "Lead 생성 후 S6" FAIL "url=$(ab get url)"; fi
+if try ab wait --url "**/rooms/new" --timeout 20000; then rec 6 "S4-3→S18" "'Lead 생성됨' 확인 후 첫 방" PASS "v0.19: Lead 생성 후 S18(방 만들기)로 이동"; else rec 6 "S4-3→S18" "Lead 생성 후 S18" FAIL "url=$(ab get url)"; fi
 
-step "U1-7~12 S6 마법사 — P2(T-W2) 에서 **7단계 마법사**로 바뀌었다. 단계별로 U1 항목을 그대로 확인한다"
-# P1 때는 한 화면의 `session-defaults` 요약 한 줄이었다. T-W2(PR #67)가 SCREEN §4.4 대로 7단계로 나눴으므로
-# 같은 항목을 각 단계에서 본다 — 요약 문자열이 사라진 것은 결함이 아니라 P2 범위의 화면 변경이다.
-wait_sel '[data-testid="session-wizard"]' || die "S6 마법사"
-STEPS_N="$(ab get count '[data-testid="wizard-steps"] span' 2>/dev/null || echo 0)"
-PH="$(ab get attr '[data-testid="session-goal"]' placeholder 2>/dev/null || echo '')"
-if grep -q "국내 B2B SaaS" <<<"$PH" && [ "${STEPS_N:-0}" -ge 7 ]; then
-  rec 7 S6-1 "제목·goal 필드, 예시 placeholder (+7단계)" PASS "placeholder='$PH' steps=$STEPS_N"
-else rec 7 S6-1 "제목·goal 필드 + 예시 placeholder" FAIL "placeholder='$PH' steps=$STEPS_N"; fi
-ab fill '[data-testid="session-title"]' "결제 시장 조사" >/dev/null
-ab fill '[data-testid="session-goal"]' "국내 B2B SaaS 결제 시장 조사 보고서 10페이지" >/dev/null
-shot p1-u1-07-s6-goal
-sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 2 Director
-wait_sel '[data-testid="wizard-director"]' 10 || bad "마법사 'wizard-director' 단계로 넘어가지 못함"
-DIR="$(abget get text '[data-testid="wizard-director"]' | tr '\n' ' ')"
-grep -q "$NAME" <<<"$DIR" && rec 8 S6-2 "Director=본인, deputy 비움" PASS "$(head -c 80 <<<"$DIR")" || rec 8 S6-2 "Director=본인" FAIL "$(head -c 80 <<<"$DIR")"
-sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 3 격리
-wait_sel '[data-testid="wizard-isolation"]' 10 || bad "마법사 'wizard-isolation' 단계로 넘어가지 못함"
-ISO="$(abget get text '[data-testid="wizard-isolation"]' | tr '\n' ' ')"
-grep -q "none" <<<"$ISO" && grep -q "worktree" <<<"$ISO" && rec 9 S6-3 "격리 none 기본, worktree 는 저장소 필요 설명" PASS "$(head -c 80 <<<"$ISO")" || rec 9 S6-3 "격리 none 기본" FAIL "$(head -c 80 <<<"$ISO")"
-sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 4 런타임
-wait_sel '[data-testid="wizard-runtime"]' 10 || bad "마법사 'wizard-runtime' 단계로 넘어가지 못함"
-sleep 2
-RTAUTO="$(ab get count '[data-testid="runtime-auto"]' 2>/dev/null || echo 0)"
-RTCAND="$(ab get count '[data-testid="runtime-candidate"]' 2>/dev/null || echo 0)"
-RTERR="$(abget get text '[data-testid="new-session-error"]' | tr '\n' ' ' | head -c 90)"
-if [ "${RTAUTO:-0}" -ge 1 ] && [ "${RTCAND:-0}" -ge 1 ]; then
-  rec 10 S6-4 "런타임 자동 선택 기본 + 방금 연결한 노트북 1대" PASS "auto=$RTAUTO candidates=$RTCAND"
-else rec 10 S6-4 "런타임 자동 선택 + 1대" FAIL "auto=${RTAUTO:-0} candidates=${RTCAND:-0} error='$RTERR'"; fi
-sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 5 참여자
-wait_sel '[data-testid="wizard-participants"]' 10 || bad "마법사 'wizard-participants' 단계로 넘어가지 못함"
-PART="$(abget get text '[data-testid="wizard-participants"]' | tr '\n' ' ')"
-grep -q "assignee" <<<"$PART" && rec 11 S6-5 "참여자 체크됨, assignee=Lead" PASS "$(head -c 80 <<<"$PART")" || rec 11 S6-5 "참여자·assignee" FAIL "$(head -c 80 <<<"$PART")"
-# 참여자를 하나도 고르지 않으면 다음 버튼이 잠긴다(마법사가 그렇게 막는다) — Lead 를 고르고 assignee 로 둔다.
-ab click '[data-testid="participant-option"] input[type=checkbox]' >/dev/null 2>&1 || true
-ab click '[data-testid="participant-option"] [data-testid="assignee-radio"]' >/dev/null 2>&1 || true
-sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 6 종료 조건
-wait_sel '[data-testid="wizard-conditions"]' 10 || rec 12 S6-6 "6단계(종료 조건)로 이동" FAIL "blocked='$(abget get text '[data-testid="wizard-blocked"]' | head -c 60)'"
-COND="$(abget get text '[data-testid="wizard-conditions"]' | tr '\n' ' ')"
-grep -q "아티팩트 제출" <<<"$COND" && grep -q "승인" <<<"$COND" && rec 12 S6-6 "종료 조건 기본값: 아티팩트 제출 AND Director 승인" PASS "$(head -c 90 <<<"$COND")" || rec 12 S6-6 "종료 조건 기본값" FAIL "$(head -c 90 <<<"$COND")"
-sleep 1; ab click '[data-testid="wizard-next"]' >/dev/null      # 7 한도·요약
-wait_sel '[data-testid="wizard-summary"]' 10 || bad "7단계(한도·요약) 미도달"
-sleep 1
-TS="$(now_ms)"
-ab click '[data-testid="session-start"]' >/dev/null
+# v0.19(T-R2-W4b): S6 마법사는 지워졌다 — U1-7~12 는 S18(방 이름 한 칸) → S7 빈 방 → S19 Lead 초대로, U1-13 은 첫 멘션 · 답글로 본다
+# (web/e2e/u1.sh 와 같은 셀렉터). 옛 마법사 7단계 판정(rec 7~12 의 단계별 문구)은 G3~G5 판정 기록에 남아 있다.
+step "U1-7 S18 방 만들기 — 이름 한 칸"
+wait_sel '[data-testid="create-room-dialog"]' || die "S18 방 만들기"
+ab fill '[data-testid="create-room-name"]' "결제 시장 조사" >/dev/null
+DEF="$(abget get text '[data-testid="create-room-defaults"]' | tr '\n' ' ')"
+shot p1-u1-07-s18-room
+[ -n "$DEF" ] && rec 7 S18 "이름 한 칸 + 기본값 문장(격리·컴퓨터)" PASS "$(head -c 120 <<<"$DEF")" || rec 7 S18 "기본값 문장" FAIL
+ab click '[data-testid="create-room-submit"]' >/dev/null
+ab wait --fn "/^\\/rooms\\/[0-9a-f-]{36}$/.test(location.pathname)" --timeout 25000 >/dev/null 2>&1 || die "S7 로 이동하지 않음 (url=$(ab get url))"
+SESSION_ID="$(ab get attr '[data-testid="room-detail"]' data-room-id)"
+if wait_sel '[data-testid="room-fresh"]' 15; then shot p1-u1-08-s7-fresh; rec 8 S7 "빈 방 — 「이제 무엇을 하나요?」 세 갈래" PASS "room=$SESSION_ID"; else rec 8 S7 "빈 방 안내" FAIL; fi
 
-step "U1-13 S7 — goal 시스템 메시지 · 참여자 칩 · 에이전트 응답(실시간)"
-ab wait --fn "/^\\/sessions\\/[0-9a-f-]{36}$/.test(location.pathname)" --timeout 25000 >/dev/null 2>&1 || die "S7 로 이동하지 않음 (url=$(ab get url))"
-wait_sel '[data-testid="session-detail"]'
-SESSION_ID="$(ab get attr '[data-testid="session-detail"]' data-session-id)"
-wait_cards 1 20 && FIRST="$(abget get text '[data-testid="message-card"]' | tr '\n' ' ' | head -c 160)" || FIRST=""
-CHIP="$(abget get text '[data-testid="participants"] [data-testid="agent-chip"]' | tr '\n' ' ')"
-shot p1-u1-13-s7-started
-# (P1 때는 `session-defaults` 한 줄에서 autonomy 문구를 읽었다. P2 마법사에서는 7단계에 있고
-#  U1-13 의 판정 대상이 아니므로 여기서는 참조하지 않는다.)
-G13="PASS"; NOTE13=""
-grep -q "결제 시장 조사 보고서" <<<"$FIRST" || { G13=FAIL; NOTE13="첫 카드='$FIRST'"; }
-grep -q "Lead" <<<"$CHIP" || { G13=FAIL; NOTE13="$NOTE13 chip='$CHIP'"; }
-rec 13 S7 "goal 시스템 메시지 1개 + 참여자 칩 Lead (lane 보드는 P2)" "$G13" "system='$(head -c 80 <<<"$FIRST")' chip='$CHIP' $NOTE13"
-if wait_cards 2 240; then TR="$(now_ms)"; shot p1-u1-13b-s7-agent-reply; rec 13b S7 "에이전트(초기 task) 답글이 새로고침 없이 도착" PASS "$(( (TR-TS)/1000 ))s after start"; else shot p1-u1-13b-s7-agent-reply; rec 13b S7 "에이전트 답글 실시간 도착" FAIL; fi
+step "U1-9 참여자 초대(S19) — Lead"
+ab click '[data-testid="fresh-invite"]' >/dev/null
+wait_sel '[data-testid="rd-participants"]' || die "S19"
+ab click '[data-testid="rd-invite-tab-agents"]' >/dev/null
+wait_sel '[data-testid="rd-invite-agent-btn"]' 15 || die "초대할 에이전트 없음"
+ab click '[data-testid="rd-invite-agent-btn"]' >/dev/null
+if try ab wait --fn "[...document.querySelectorAll('[data-testid=\"rd-part-row\"]')].some(r => r.textContent.includes('Lead'))" --timeout 15000; then rec 9 S19 "Lead 초대 → 참여자 한 목록" PASS; else rec 9 S19 "Lead 초대" FAIL; fi
+ab click '[data-testid="rd-participants-close"]' >/dev/null
 
-step "U1-14/15 작성창 멘션 → 전송 → 답글 + 활동 피드 원본 레일"
+step "U1-13 S7 — 첫 멘션 → 에이전트 응답(실시간)"
 ab fill '[data-testid="composer-input"]' "@" >/dev/null
-wait_sel '[data-testid="mention-menu"]' 10 || bad "멘션 자동완성이 열리지 않음"
-ab press Enter >/dev/null; ab type '[data-testid="composer-input"]' "인사해줘" >/dev/null
-wait_sel '[data-testid="chip-trigger"]' 10 && CHIPTXT="$(ab get text '[data-testid="chip-trigger"]')" || CHIPTXT=""
-shot p1-u1-14-composer-mention
-[ -n "$CHIPTXT" ] && rec 14 S7 "@ 자동완성 → 트리거 미리보기 칩" PASS "chip='$CHIPTXT'" || rec 14 S7 "@ 자동완성 → 트리거 칩" FAIL
-TP="$(now_ms)"; ab click '[data-testid="composer-send"]' >/dev/null
-if wait_cards 4 240; then TR2="$(now_ms)"; rec 15 S7 "멘션 답글 실시간 도착" PASS "$(( (TR2-TP)/1000 ))s"; else rec 15 S7 "멘션 답글 도착" FAIL; fi
-# 원본 레일은 두 번 열어야 나온다: 메시지 카드의 `activity-toggle` 로 그 run 의 활동 피드를 펼치고,
-# 피드 머리의 `feed-raw-toggle`("원본 레일")을 눌러야 `activity-rail` 이 붙는다(ActivityFeed.tsx).
-ab find testid activity-toggle click >/dev/null 2>&1 || true
-wait_sel '[data-testid="activity-feed"]' 15 || true
-ab find testid feed-raw-toggle click >/dev/null 2>&1 || true
-wait_sel '[data-testid="activity-rail"]' 15 && RAIL="$(abget get text '[data-testid="activity-rail"]' | tr '\n' ' ' | head -c 200)" || RAIL=""
-shot_full p1-u1-15-s7-reply-and-rail
-[ -n "$RAIL" ] && rec 15b S7 "활동 피드 원본 레일(task_event 시간순)" PASS "$(head -c 120 <<<"$RAIL")" || rec 15b S7 "활동 피드 원본 레일" FAIL
+wait_sel '[data-testid="mention-menu"]' 10 || die "멘션 자동완성"
+ab press Enter >/dev/null
+ab type '[data-testid="composer-input"]' "국내 B2B SaaS 결제 시장 조사 보고서 10페이지 목차를 잡아 줘" >/dev/null
+wait_sel '[data-testid="chip-trigger"]' 15 || bad "트리거 미리보기 칩 없음"
+TS="$(now_ms)"
+ab click '[data-testid="composer-send"]' >/dev/null
+shot p1-u1-13-s7-first-mention
+if wait_cards 2 240; then TR="$(now_ms)"; shot p1-u1-13b-s7-agent-reply; rec 13b S7 "에이전트 답글이 새로고침 없이 도착" PASS "$(( (TR-TS)/1000 ))s after send"; else shot p1-u1-13b-s7-agent-reply; rec 13b S7 "에이전트 답글 실시간 도착" FAIL; fi
 
 step "U13 초대 링크로 두 번째 멤버 (P1 DoD 4)"
 COOKIE="$OUT/cookies-u1.txt"; rm -f "$COOKIE"; login "$EMAIL" "$PASSWORD"
@@ -210,7 +162,7 @@ ab click 'a[href^="/signup?invite="]' >/dev/null
 wait_sel '[data-testid="signup-form"]' || die "invite signup"
 ab fill 'input[name=display_name]' "$NAME2" >/dev/null; ab fill 'input[name=email]' "$EMAIL2" >/dev/null; ab fill 'input[name=password]' "$PASSWORD" >/dev/null
 ab click 'button[type=submit]' >/dev/null
-if try ab wait --url "**/sessions" --timeout 20000 && wait_sel '[data-testid="session-list"], [data-testid="session-row"]' 20; then shot p1-u13-02-s5-member; rec U13-2b S5 "가입 직후 S4 건너뛰고 S5(세션 목록)" PASS "url=$(ab get url)"; else shot p1-u13-02-s5-member; rec U13-2b S5 "S4 건너뛰고 S5" FAIL "url=$(ab get url)"; fi
+if try ab wait --url "**/rooms" --timeout 20000 && wait_sel '[data-testid="room-list"], [data-testid="room-row"], [data-testid="empty-no-room"]' 20; then shot p1-u13-02-s5-member; rec U13-2b S5 "가입 직후 S4 건너뛰고 S5(방 목록 /rooms)" PASS "url=$(ab get url)"; else shot p1-u13-02-s5-member; rec U13-2b S5 "S4 건너뛰고 S5" FAIL "url=$(ab get url)"; fi
 MEMBERS="$(api_ok GET "/workspaces/$WS/members" | jq -r '(.items // .)|length')"
 [ "$MEMBERS" = 2 ] && rec U13-3 API "워크스페이스 멤버 2명" PASS "members=$MEMBERS" || rec U13-3 API "멤버 2명" FAIL "members=$MEMBERS"
 NAV_SETTINGS="$(ab get count 'a[href="/settings"]' 2>/dev/null || echo ?)"; log "member 내비 Settings 링크 수=$NAV_SETTINGS (U13 변형: member 에겐 없어야 함)"

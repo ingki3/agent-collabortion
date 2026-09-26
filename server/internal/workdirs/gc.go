@@ -2,7 +2,6 @@ package workdirs
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -10,7 +9,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
@@ -393,7 +391,8 @@ const gib = int64(1) << 30
 // is `[integer, 'null']` and a null must not mean zero, which would block every
 // session in a workspace that never configured one [EVAL 제안 행 E13-19].
 //
-// production caller: httpapi.Server.CreateSession, before the row is written.
+// production caller: httpapi.Server.openWork (createWork · a proposal accepted),
+// before the row is written.
 func CheckDiskQuota(usedBytes int64, quotaGB int) QuotaVerdict {
 	if quotaGB <= 0 {
 		return QuotaVerdict{}
@@ -456,57 +455,39 @@ func BuildGCCommand(sessionID uuid.UUID, ids []uuid.UUID, paths []string) (contr
 	}, skipped
 }
 
-// BundleRow is what queue.buildBundle asks for the bundle's `workdir.id`
-// (daemon-protocol v0.8.3 §4.1, K-14): the row the daemon will echo back in
-// §6, made before the bundle goes out so the id exists to be carried.
+// BundleRow is what queue.buildBundle asks for the bundle's `workdir.id` of
+// a `worktree` checkout (daemon-protocol v0.8.3 §4.1, K-14): the row the
+// daemon will echo back in §6, made before the bundle goes out so the id
+// exists to be carried. `dir` rows are EnsureDirRow's (layout.go, v0.10.0).
 type BundleRow struct {
 	SessionID uuid.UUID
 	AgentID   uuid.UUID
 	LaneID    uuid.UUID
-	Kind      string // worktree | dir
-	// Path is the ABSOLUTE checkout the bundle names. Empty for `dir`: that
-	// path is the daemon's to choose (§4.1 `path?`), so the server has no key
-	// to make a row on.
+	Kind      string // worktree
+	// Path is the ABSOLUTE checkout the bundle names.
 	Path string
 	// Branch is set only when the checkout is planned afresh; a reused
 	// worktree keeps whatever the daemon last reported.
 	Branch *string
 }
 
-// EnsureBundleRow returns the id the bundle carries, creating the row when
-// the server owns the path and there is none yet.
+// EnsureBundleRow returns the id the bundle carries for a `worktree`
+// checkout, creating the row when there is none yet.
 //
-// `worktree`: the row is keyed on (session, path) — the same key the §6 pair
-// fallback and the §4.2 `phase` report use — so a second bundle of the same
-// agent in the same session (a retry, a re-entry, the agent's next lane) gets
-// the SAME id, and a daemon that reports the pair instead of the id lands on
-// the same row (Record).
+// The row is keyed on (session, path) — the same key the §6 pair fallback and
+// the §4.2 `phase` report use — so a second bundle of the same agent in the
+// same room (a retry, a re-entry, the agent's next lane) gets the SAME id,
+// and a daemon that reports the pair instead of the id lands on the same row
+// (Record).
 //
-// `dir` (Lead T-S21 결정 A): the daemon names the directory, so the server
-// invents nothing. The id is carried only when an earlier attempt of this
-// lane already reported its row (the §4.2 `phase` report binds it by lane);
-// the first attempt goes out without one and the daemon's §6 report falls
-// back to the pair.
+// Since daemon-protocol v0.10.0 a `dir` row is made by EnsureDirRow on the
+// first attempt (the server names that path too — T-S21 결정 A's premise is
+// gone); this function answers uuid.Nil for any other kind.
 //
-// uuid.Nil means "no id in this bundle", never an error: a bundle without an
-// id is what every server before v0.8.3 sent.
-//
-// production caller: queue.buildBundle.
+// production caller: queue.planWorktreeCheckout.
 func EnsureBundleRow(ctx context.Context, q db.DBTX, b BundleRow, now time.Time) (uuid.UUID, error) {
 	if b.Kind != "worktree" {
-		var id uuid.UUID
-		err := q.QueryRow(ctx, `
-			SELECT id FROM workdir
-			WHERE session_id = $1 AND lane_id = $2 AND status <> 'deleted'
-			  AND gc_blocked_reason IS DISTINCT FROM 'runtime_gone'
-			ORDER BY updated_at DESC LIMIT 1`, b.SessionID, b.LaneID).Scan(&id)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return uuid.Nil, nil
-		}
-		if err != nil {
-			return uuid.Nil, fmt.Errorf("workdirs: bundle row by lane: %w", err)
-		}
-		return id, nil
+		return uuid.Nil, nil
 	}
 	if b.Path == "" || !filepath.IsAbs(b.Path) {
 		// S-55: no absolute path, no row — a relative one must never be stored

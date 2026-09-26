@@ -270,9 +270,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 			// Everything here is what a reader needs to tie the line to the
 			// server's feed (task·attempt·lane) and to know what is about to
 			// be spawned.
-			d.Log("%s claim kind=%s lane=%s session=%s agent=%s runtime=%s model=%s isolation=%s",
+			//
+			// room/work (daemon-protocol v0.9.0, T-R3b) go after the fields
+			// the log already had, so a grep written for the old line still
+			// matches; `work=-` is a turn outside any mission.
+			d.Log("%s claim kind=%s lane=%s session=%s agent=%s runtime=%s model=%s isolation=%s room=%s work=%s",
 				key(b.Task.ID, b.Task.Attempt), bundleKind(b), b.Task.LaneID, b.Task.SessionID, b.Task.AgentName,
-				b.Profile.RuntimeKind, b.Profile.Model, b.Workdir.Kind)
+				b.Profile.RuntimeKind, b.Profile.Model, b.Workdir.Kind, orDash(b.Task.RoomID), orDash(b.Task.WorkID))
 			d.start(attemptCtx, b)
 		}
 	}
@@ -576,6 +580,9 @@ func (d *Daemon) gc(ctx context.Context, c contracts.Command) {
 				res.Status = workdir.GCDeleted
 				w.Bytes = 0
 				workdir.ForgetWorkdir(d.Cfg.WorkdirRoot, w.Path)
+				// §4.3 v0.10.0: `rooms/<room>/_worktrees/` and `rooms/<room>/`
+				// go when this checkout was the last thing in them.
+				workdir.PruneEmptyParents(d.Cfg.WorkdirRoot, w.Path)
 			}
 		default:
 			if err := workdir.Remove(d.Cfg.WorkdirRoot, w.Path); err != nil {
@@ -706,6 +713,11 @@ func (d *Daemon) reportLaneWorkdir(b contracts.TaskBundle, fw *contracts.FinishW
 	if fw.Git != nil {
 		row.Git = fw.Git
 	}
+	// daemon-protocol v0.10.0 §6 `work_id?`·`role?` — echoed as the bundle
+	// said them (the server's row wins where they differ).
+	if row.Kind != "worktree" && b.Workdir.ID != "" && b.Workdir.Path != "" {
+		row.WorkID, row.Role = b.Task.WorkID, "agent"
+	}
 	// Background, not the attempt's context: this runs after finish, and on
 	// SIGTERM the attempt's context is already being torn down. The report is
 	// the last thing the lane owes the server.
@@ -824,7 +836,7 @@ func (d *Daemon) release(k string) {
 
 // taskEnv is the harness §2.1 COLAB_* set for one attempt.
 func (d *Daemon) taskEnv(b contracts.TaskBundle) acp.TaskEnv {
-	return acp.TaskEnv{TaskToken: b.TaskToken, ServerURL: d.Cfg.ServerURL, TaskID: b.Task.ID, Attempt: b.Task.Attempt, LaneID: b.Task.LaneID, SessionID: b.Task.SessionID, AgentName: b.Task.AgentName}
+	return acp.TaskEnv{TaskToken: b.TaskToken, ServerURL: d.Cfg.ServerURL, TaskID: b.Task.ID, Attempt: b.Task.Attempt, LaneID: b.Task.LaneID, SessionID: b.Task.SessionID, RoomID: b.Task.RoomID, WorkID: b.Task.WorkID, ThreadID: b.Task.ThreadRootID, AgentName: b.Task.AgentName}
 }
 
 // mcpServers is the session/new·load `mcpServers` list: the colab MCP server
@@ -1034,15 +1046,15 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	// server argv (mcpServers), the wrapper's env (below) and brief [2]
 	// (here, before the wrapper rewrite so the names it writes get the
 	// wrapper path too). Empty → everything: no flag, no variable, no lines.
+	surface := d.toolSurface(b.Profile.RuntimeKind)
 	if d.taskEnv(b).ColabSurface() && len(b.Task.AllowedCommands) > 0 {
-		b.Brief.Text = brief.RestrictCommands(b.Brief.Text, b.Task.AllowedCommands)
+		b.Brief.Text = brief.RestrictCommands(b.Brief.Text, b.Task.AllowedCommands, surface)
 		d.Log("%s allowed commands: %s (denied: %s)", k, commands.List(b.Task.AllowedCommands), commands.List(commands.Denied(b.Task.AllowedCommands)))
 	}
 	// harness §10: a cli_wrapper runtime ignores mcpServers and sanitises the
 	// env of its shell tools, so the attempt's only channel to the platform is
 	// a wrapper FILE, and every text we hand the agent must name it by
 	// absolute path (v0.8.1 — the server cannot know a path we invent here).
-	surface := d.toolSurface(b.Profile.RuntimeKind)
 	if surface == acp.ToolSurfaceCLIWrapper && d.taskEnv(b).ColabSurface() {
 		wrapper, werr := toolwrap.Write(d.Cfg.WorkdirRoot, b.Task.ID, b.Task.Attempt, d.Cfg.ColabBin, d.wrapperEnv(b))
 		if werr != nil {
@@ -1083,7 +1095,16 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		return
 	}
 
-	prep, err := brief.Prepare(wd, b.Brief.Transport, b.Brief.Text)
+	// harness v0.9.7: a `dir` folder the server named (daemon-protocol
+	// v0.10.0 §6.1) is shared by this agent's parallel lanes in the mission,
+	// so the brief file is named per lane. An older server's bundle names no
+	// path: its folder is the lane's own (`sessions/<room>/<lane>`) and keeps
+	// `COLAB_BRIEF.md`.
+	briefName := brief.FileName
+	if b.Workdir.Path != "" {
+		briefName = brief.FileNameFor(b.Workdir.Kind, b.Task.LaneID)
+	}
+	prep, err := brief.PrepareNamed(wd, briefName, b.Brief.Transport, b.Brief.Text)
 	if err != nil {
 		finish(contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: err.Error(), Workdir: d.finishWorkdir(wd)})
 		return
@@ -1097,7 +1118,7 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		// workdir. It goes on AFTER the wrapper rewrite: the pointer contains
 		// no `colab ` command, and rewriting it would be a no-op that only
 		// risks mangling the path.
-		b.Prompt = brief.PrependPointer(wd, b.Prompt)
+		b.Prompt = brief.PointerTo(prep.Path) + "\n\n" + b.Prompt
 	}
 
 	if !d.taskEnv(b).ColabSurface() {
@@ -1300,4 +1321,12 @@ func (d *Daemon) heartbeat(ctx context.Context, hb *heartbeater, stop <-chan str
 		}
 		hb.send(ctx)
 	}
+}
+
+// orDash keeps a log field present when its value is empty.
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }

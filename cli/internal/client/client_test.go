@@ -26,7 +26,7 @@ func newClient(t *testing.T, s *clienttest.Server, mut func(map[string]string)) 
 func TestNoToken(t *testing.T) {
 	s := clienttest.New(t)
 	c := newClient(t, s, func(e map[string]string) { delete(e, "COLAB_TASK_TOKEN") })
-	_, err := c.GetSession(context.Background(), clienttest.SessionID)
+	_, err := c.GetRoom(context.Background(), clienttest.SessionID)
 	if got := client.ExitCode(err); got != client.ExitNoToken {
 		t.Fatalf("exit = %d, want 4 (%v)", got, err)
 	}
@@ -74,7 +74,7 @@ func TestExitCodeMapping(t *testing.T) {
 		s := clienttest.New(t)
 		s.Fail, s.FailCode = tc.status, tc.code
 		c := newClient(t, s, nil)
-		_, err := c.GetSession(context.Background(), clienttest.SessionID)
+		_, err := c.GetRoom(context.Background(), clienttest.SessionID)
 		e := client.AsError(err)
 		if e.Exit != tc.exit || e.Status != tc.status {
 			t.Errorf("%d: exit=%d status=%d want exit=%d", tc.status, e.Exit, e.Status, tc.exit)
@@ -89,13 +89,13 @@ func TestUnreachable(t *testing.T) {
 	dead := httptest.NewServer(http.NotFoundHandler())
 	dead.Close()
 	c := client.New(client.Config{Token: clienttest.Token, ServerURL: dead.URL, StateDir: t.TempDir()})
-	_, err := c.GetSession(context.Background(), clienttest.SessionID)
+	_, err := c.GetRoom(context.Background(), clienttest.SessionID)
 	if got := client.ExitCode(err); got != client.ExitUnreachable {
 		t.Fatalf("exit = %d, want 5 (%v)", got, err)
 	}
 	// Non-problem body (proxy HTML) still maps by status.
 	c2 := client.New(client.Config{Token: clienttest.Token, ServerURL: "", StateDir: t.TempDir()})
-	if _, err := c2.GetSession(context.Background(), "x"); client.ExitCode(err) != client.ExitUnreachable {
+	if _, err := c2.GetRoom(context.Background(), "x"); client.ExitCode(err) != client.ExitUnreachable {
 		t.Fatalf("empty server url should be exit 5, got %v", err)
 	}
 }
@@ -104,7 +104,7 @@ func TestBearerAndPrefix(t *testing.T) {
 	s := clienttest.New(t)
 	for _, url := range []string{s.URL, s.URL + "/", s.URL + "/api/v1"} {
 		c := newClient(t, s, func(e map[string]string) { e["COLAB_SERVER_URL"] = url })
-		if _, err := c.GetSession(context.Background(), clienttest.SessionID); err != nil {
+		if _, err := c.GetRoom(context.Background(), clienttest.SessionID); err != nil {
 			t.Fatalf("url %q: %v", url, err)
 		}
 	}
@@ -112,7 +112,7 @@ func TestBearerAndPrefix(t *testing.T) {
 	if last.Header.Get("Authorization") != "Bearer "+clienttest.Token {
 		t.Fatalf("auth header = %q", last.Header.Get("Authorization"))
 	}
-	if last.URL.Path != "/api/v1/sessions/"+clienttest.SessionID {
+	if last.URL.Path != "/api/v1/rooms/"+clienttest.SessionID {
 		t.Fatalf("path = %q", last.URL.Path)
 	}
 }
@@ -124,7 +124,7 @@ func TestContextResolvesSessionAndAttempt(t *testing.T) {
 		delete(e, "COLAB_TASK_ID")
 	})
 	ctx := context.Background()
-	sid, err := c.SessionID(ctx, "")
+	sid, err := c.RoomID(ctx, "")
 	if err != nil || sid != clienttest.SessionID {
 		t.Fatalf("session = %q, %v", sid, err)
 	}
@@ -145,7 +145,7 @@ func TestContextResolvesSessionAndAttempt(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("/cli/context called %d times, want 1", n)
 	}
-	if sid, _ := c.SessionID(ctx, "explicit-id"); sid != "explicit-id" {
+	if sid, _ := c.RoomID(ctx, "explicit-id"); sid != "explicit-id" {
 		t.Fatalf("explicit session not honoured")
 	}
 }

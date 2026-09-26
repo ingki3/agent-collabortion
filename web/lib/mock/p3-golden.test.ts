@@ -19,7 +19,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { dispatch, DEPUTY_HALF_MS, HITL_DUE_IN_MS, inboxActions, inboxSeverity, inboxSortRank, type Req } from "./handlers";
 import { resetStore, store } from "./store";
-import type { HitlRequest, InboxItem, Lane, Message, Session, TriggerPreview } from "@/lib/api/types";
+import type { HitlRequest, InboxItem, Lane, Message, TriggerPreview } from "@/lib/api/types";
+import type { Session } from "@/lib/legacy-session";
 
 // ── 목 API 를 HTTP 처럼 부르는 얇은 클라이언트 ──────────────────────────────
 let cookie = "";
@@ -55,7 +56,7 @@ async function newSession(): Promise<{ ws: string; session: Session }> {
   const me = await must<{ workspaces: { id: string }[] }>("GET", "/me");
   const ws = me.workspaces[0].id;
   const ags = await must<{ items: { id: string }[] }>("GET", `/workspaces/${ws}/agents`);
-  const session = await must<Session>("POST", `/workspaces/${ws}/sessions`, {
+  const session = await must<Session>("POST", `/__mock/workspaces/${ws}/seed-room`, {
     body: {
       title: "골든 대조", goal: "목이 통과시키는 값을 계약과 맞춘다", isolation: { kind: "none" },
       participants: [{ agent_id: ags.items[0].id }, { agent_id: ags.items[1].id }],
@@ -81,7 +82,7 @@ describe("HITL — golden E7 의 수치", () => {
 
   it("발행 시 due_at 이 created_at + 24h 다", async () => {
     const { session } = await newSession();
-    const h = await must<HitlRequest>("POST", `/__mock/sessions/${session.id}/seed-hitl`, { body: {} });
+    const h = await must<HitlRequest>("POST", `/__mock/rooms/${session.id}/seed-hitl`, { body: {} });
     expect(Date.parse(h.due_at) - Date.parse(h.created_at)).toBe(HITL_DUE_IN_MS);
     // question 은 제안 기본값이 필수다(FR-5.1, E7-05) — 목이 그것 없이 카드를 만들면 화면이 빈 제안을 그린다.
     expect(h.proposed_default).toBeTruthy();
@@ -90,10 +91,10 @@ describe("HITL — golden E7 의 수치", () => {
 
   it("E7-09 — deputy 는 11h 에 거부되고 Problem.can_respond_from 이 절반 시각이다", async () => {
     const { session } = await newSession();
-    await must("POST", `/__mock/sessions/${session.id}/role`, { body: { role: "deputy" } });
-    const h = await must<HitlRequest>("POST", `/__mock/sessions/${session.id}/seed-hitl`, { body: { age_ms: 11 * 3600_000 } });
+    await must("POST", `/__mock/rooms/${session.id}/role`, { body: { role: "deputy" } });
+    const h = await must<HitlRequest>("POST", `/__mock/rooms/${session.id}/seed-hitl`, { body: { age_ms: 11 * 3600_000 } });
 
-    const view = await must<{ items: HitlRequest[] }>("GET", `/sessions/${session.id}/hitl-requests`);
+    const view = await must<{ items: HitlRequest[] }>("GET", `/rooms/${session.id}/hitl-requests`);
     const card = view.items.find((x) => x.id === h.id)!;
     expect(card.can_respond).toBe(false);
     expect(Date.parse(card.can_respond_from!) - Date.parse(card.created_at)).toBe(DEPUTY_HALF_MS);
@@ -106,8 +107,8 @@ describe("HITL — golden E7 의 수치", () => {
 
   it("E7-10 — deputy 는 12h 1분에 수락되고 task 는 queued 로 재큐잉된다", async () => {
     const { session } = await newSession();
-    await must("POST", `/__mock/sessions/${session.id}/role`, { body: { role: "deputy" } });
-    const h = await must<HitlRequest>("POST", `/__mock/sessions/${session.id}/seed-hitl`, {
+    await must("POST", `/__mock/rooms/${session.id}/role`, { body: { role: "deputy" } });
+    const h = await must<HitlRequest>("POST", `/__mock/rooms/${session.id}/seed-hitl`, {
       body: { age_ms: 12 * 3600_000 + 60_000 },
     });
     const r = await must<{ hitl_request: HitlRequest; ignored: boolean; decision_id: string | null }>(
@@ -121,10 +122,10 @@ describe("HITL — golden E7 의 수치", () => {
 
   it("E7-11 — 일반 멤버는 거부되고 can_respond_from 은 null 이다(생기지 않을 권리에 시각을 약속하지 않는다)", async () => {
     const { session } = await newSession();
-    await must("POST", `/__mock/sessions/${session.id}/role`, { body: { role: "member" } });
-    const h = await must<HitlRequest>("POST", `/__mock/sessions/${session.id}/seed-hitl`, { body: { age_ms: 20 * 3600_000 } });
+    await must("POST", `/__mock/rooms/${session.id}/role`, { body: { role: "member" } });
+    const h = await must<HitlRequest>("POST", `/__mock/rooms/${session.id}/seed-hitl`, { body: { age_ms: 20 * 3600_000 } });
 
-    const view = await must<{ items: HitlRequest[] }>("GET", `/sessions/${session.id}/hitl-requests`);
+    const view = await must<{ items: HitlRequest[] }>("GET", `/rooms/${session.id}/hitl-requests`);
     const card = view.items.find((x) => x.id === h.id)!;
     // 카드는 보이되(목록에 있다) 응답 권한은 영영 없다.
     expect(card.can_respond).toBe(false);
@@ -137,7 +138,7 @@ describe("HITL — golden E7 의 수치", () => {
 
   it("E7-08 — 두 번째 응답은 오류가 아니라 ignored: true 이고 첫 답이 유지된다", async () => {
     const { session } = await newSession();
-    const h = await must<HitlRequest>("POST", `/__mock/sessions/${session.id}/seed-hitl`, { body: {} });
+    const h = await must<HitlRequest>("POST", `/__mock/rooms/${session.id}/seed-hitl`, { body: {} });
     await must("POST", `/hitl-requests/${h.id}/response`, { body: { answer: "경영진" }, headers: idem() });
     const second = await must<{ hitl_request: HitlRequest; ignored: boolean }>(
       "POST", `/hitl-requests/${h.id}/response`, { body: { answer: "실무자" }, headers: idem() },
@@ -148,10 +149,10 @@ describe("HITL — golden E7 의 수치", () => {
 
   it("E7-15 — overdue 여도 답할 수 있다(expired 는 상태가 아니다)", async () => {
     const { session } = await newSession();
-    const h = await must<HitlRequest>("POST", `/__mock/sessions/${session.id}/seed-hitl`, {
+    const h = await must<HitlRequest>("POST", `/__mock/rooms/${session.id}/seed-hitl`, {
       body: { type: "approval", proposed_default: null, age_ms: 30 * 3600_000 },
     });
-    const view = await must<{ items: HitlRequest[] }>("GET", `/sessions/${session.id}/hitl-requests`);
+    const view = await must<{ items: HitlRequest[] }>("GET", `/rooms/${session.id}/hitl-requests`);
     expect(view.items.find((x) => x.id === h.id)!.overdue).toBe(true);
     const r = await must<{ hitl_request: HitlRequest }>("POST", `/hitl-requests/${h.id}/response`, {
       body: { approved: true }, headers: idem(),
@@ -161,15 +162,15 @@ describe("HITL — golden E7 의 수치", () => {
 
   it("계약 필수 헤더 — Idempotency-Key 없이 응답하면 422 다", async () => {
     const { session } = await newSession();
-    const h = await must<HitlRequest>("POST", `/__mock/sessions/${session.id}/seed-hitl`, { body: {} });
+    const h = await must<HitlRequest>("POST", `/__mock/rooms/${session.id}/seed-hitl`, { body: {} });
     const res = await call("POST", `/hitl-requests/${h.id}/response`, { body: { answer: "x" } });
     expect(res.status).toBe(422);
   });
 
   it("O5 — deputy 의 인박스에는 절반 전 항목이 아예 오지 않는다(U9-1 '카드 없음')", async () => {
     const { ws, session } = await newSession();
-    await must("POST", `/__mock/sessions/${session.id}/role`, { body: { role: "deputy" } });
-    await must("POST", `/__mock/sessions/${session.id}/seed-hitl`, { body: { age_ms: 11 * 3600_000 } });
+    await must("POST", `/__mock/rooms/${session.id}/role`, { body: { role: "deputy" } });
+    await must("POST", `/__mock/rooms/${session.id}/seed-hitl`, { body: { age_ms: 11 * 3600_000 } });
     const page = await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`);
     expect(page.items.filter((x) => x.type === "hitl_request")).toHaveLength(0);
   });
@@ -184,7 +185,7 @@ describe("예산 — golden E9 의 수치", () => {
     const agentId = ags.items[0].id;
     store().agents.get(agentId)!.budget_per_task = 1;
 
-    const h = await must<HitlRequest>("POST", `/__mock/sessions/${session.id}/seed-hitl`, {
+    const h = await must<HitlRequest>("POST", `/__mock/rooms/${session.id}/seed-hitl`, {
       body: { source: "system", purpose: "budget", type: "approval", proposed_default: null, agent_id: agentId, question: "예산 $1 을 초과했습니다" },
     });
     // E9-01 — 예산 HITL 은 system 발행이어도 **task_id 를 채운다**(계약 s-13).
@@ -210,16 +211,16 @@ describe("예산 — golden E9 의 수치", () => {
   it("W-6 — task 범위 예산 HITL 은 세션을 멈추지 않고, 인박스 항목의 ref_id 로만 purpose 를 알 수 있다", async () => {
     const { ws, session } = await newSession();
     const ags = await must<{ items: { id: string }[] }>("GET", `/workspaces/${ws}/agents`);
-    const h = await must<HitlRequest>("POST", `/__mock/sessions/${session.id}/seed-hitl`, {
+    const h = await must<HitlRequest>("POST", `/__mock/rooms/${session.id}/seed-hitl`, {
       body: { source: "system", purpose: "budget", type: "approval", proposed_default: null, agent_id: ags.items[0].id },
     });
     expect(h.task_id).not.toBeNull(); // task 범위다(s-13)
 
     // 세션은 멈추지 않는다 — 멈추는 것은 lane 뿐이다.
-    const after = await must<Session>("GET", `/sessions/${session.id}`);
+    const after = await must<Session>("GET", `/__mock/rooms/${session.id}/legacy`);
     expect(after.status).toBe("active");
     expect(after.paused_reason ?? null).toBeNull();
-    const lanes = await must<Lane[]>("GET", `/sessions/${session.id}/lanes`);
+    const lanes = await must<Lane[]>("GET", `/rooms/${session.id}/lanes`);
     expect(lanes.find((l) => l.id === h.lane_id)!.status).toBe("paused");
 
     const inbox = await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`);
@@ -250,11 +251,11 @@ describe("예산 — golden E9 의 수치", () => {
   it("시스템 발행(purpose=budget) HITL 도 kind=hitl 타임라인 메시지를 만든다 (S-45 대비)", async () => {
     const { ws, session } = await newSession();
     const ags = await must<{ items: { id: string }[] }>("GET", `/workspaces/${ws}/agents`);
-    const h = await must<HitlRequest>("POST", `/__mock/sessions/${session.id}/seed-hitl`, {
+    const h = await must<HitlRequest>("POST", `/__mock/rooms/${session.id}/seed-hitl`, {
       body: { source: "system", purpose: "budget", type: "approval", proposed_default: null, agent_id: ags.items[0].id },
     });
     expect(h.message_id).toBeTruthy();
-    const msgs = await must<{ items: Message[] }>("GET", `/sessions/${session.id}/messages`);
+    const msgs = await must<{ items: Message[] }>("GET", `/rooms/${session.id}/messages`);
     const card = msgs.items.find((m) => m.id === h.message_id)!;
     expect(card.kind).toBe("hitl");
     expect(card.author_type).toBe("system");
@@ -263,11 +264,11 @@ describe("예산 — golden E9 의 수치", () => {
   it("E9-03 — 거절은 failed 도 cancelled 도 아니고 paused(budget) 로 남는다", async () => {
     const { ws, session } = await newSession();
     const ags = await must<{ items: { id: string }[] }>("GET", `/workspaces/${ws}/agents`);
-    const h = await must<HitlRequest>("POST", `/__mock/sessions/${session.id}/seed-hitl`, {
+    const h = await must<HitlRequest>("POST", `/__mock/rooms/${session.id}/seed-hitl`, {
       body: { source: "system", purpose: "budget", type: "approval", proposed_default: null, agent_id: ags.items[0].id },
     });
     await must("POST", `/hitl-requests/${h.id}/response`, { body: { approved: false, reason: "여기까지만" }, headers: idem() });
-    const lanes = await must<Lane[]>("GET", `/sessions/${session.id}/lanes`);
+    const lanes = await must<Lane[]>("GET", `/rooms/${session.id}/lanes`);
     const lane = lanes.find((l) => l.id === h.lane_id)!;
     expect(lane.status).toBe("paused");
     expect(lane.status).not.toBe("failed");
@@ -280,9 +281,9 @@ describe("예산 — golden E9 의 수치", () => {
 describe("취소 권한 — golden E10-05·E10-06", () => {
   it("E10-05 — 일반 멤버는 lane 중단이 403 이고 버튼 목록에서도 빠진다", async () => {
     const { session } = await newSession();
-    await must("POST", `/__mock/sessions/${session.id}/seed-lanes`, {});
-    await must("POST", `/__mock/sessions/${session.id}/role`, { body: { role: "member" } });
-    const lanes = await must<Lane[]>("GET", `/sessions/${session.id}/lanes`);
+    await must("POST", `/__mock/rooms/${session.id}/seed-lanes`, {});
+    await must("POST", `/__mock/rooms/${session.id}/role`, { body: { role: "member" } });
+    const lanes = await must<Lane[]>("GET", `/rooms/${session.id}/lanes`);
     const running = lanes.find((l) => l.status === "running")!;
     expect(running.actions).not.toContain("cancel");
     expect(running.actions).not.toContain("restart");
@@ -292,9 +293,9 @@ describe("취소 권한 — golden E10-05·E10-06", () => {
 
   it("E10-06 — deputy 는 시점 제한 없이 즉시 중단할 수 있다(승인과 다르다)", async () => {
     const { session } = await newSession();
-    await must("POST", `/__mock/sessions/${session.id}/seed-lanes`, {});
-    await must("POST", `/__mock/sessions/${session.id}/role`, { body: { role: "deputy" } });
-    const lanes = await must<Lane[]>("GET", `/sessions/${session.id}/lanes`);
+    await must("POST", `/__mock/rooms/${session.id}/seed-lanes`, {});
+    await must("POST", `/__mock/rooms/${session.id}/role`, { body: { role: "deputy" } });
+    const lanes = await must<Lane[]>("GET", `/rooms/${session.id}/lanes`);
     const running = lanes.find((l) => l.status === "running")!;
     expect(running.actions).toContain("cancel");
     const res = await call("POST", `/lanes/${running.id}/cancel`, {});
@@ -307,10 +308,10 @@ describe("인박스 — 서버 inbox.Severity · Actions · SortRank 와 같은 
   it("심각도 7종이 서버 분류와 같다", () => {
     expect(inboxSeverity("hitl_request")).toBe("action_required");
     expect(inboxSeverity("lane_blocked")).toBe("action_required");
-    expect(inboxSeverity("session_paused")).toBe("action_required");
+    expect(inboxSeverity("work_paused")).toBe("action_required"); // v0.3.0 R4: 옛 session_paused → work_paused
     expect(inboxSeverity("run_failed")).toBe("attention");
     expect(inboxSeverity("runtime_offline")).toBe("attention");
-    expect(inboxSeverity("session_completed")).toBe("info");
+    expect(inboxSeverity("work_completed")).toBe("info"); // v0.3.0 R4: 옛 session_completed → work_completed
     expect(inboxSeverity("mention")).toBe("info");
   });
 
@@ -325,7 +326,7 @@ describe("인박스 — 서버 inbox.Severity · Actions · SortRank 와 같은 
     expect(inboxActions("hitl_request", "approval", true)).toEqual(["approve", "reject", "open_session"]);
     expect(inboxActions("hitl_request", "question", true)).toEqual(["answer", "open_session"]);
     expect(inboxActions("hitl_request", "question", false)).toEqual(["open_session"]);
-    expect(inboxActions("session_paused", undefined, true)).toEqual(["approve_continue", "open_session"]);
+    expect(inboxActions("work_paused", undefined, true)).toEqual(["open_work"]); // v0.3.0 R4: 옛 session_paused(approve_continue·open_session) 삭제
     expect(inboxActions("run_failed", undefined, true)).toEqual(["restart", "open_session"]);
     expect(inboxActions("runtime_offline", undefined, true)).toEqual(["open_runtimes"]);
   });
@@ -333,7 +334,7 @@ describe("인박스 — 서버 inbox.Severity · Actions · SortRank 와 같은 
   it("overdue 항목이 목록 맨 위로 온다(E7-13 InboxTop)", async () => {
     const { ws, session } = await newSession();
     await must("POST", `/__mock/inbox/seed`, {});
-    await must("POST", `/__mock/sessions/${session.id}/seed-hitl`, { body: { age_ms: 30 * 3600_000 } });
+    await must("POST", `/__mock/rooms/${session.id}/seed-hitl`, { body: { age_ms: 30 * 3600_000 } });
     const page = await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`);
     expect(page.items[0].overdue).toBe(true);
     expect(page.items[0].type).toBe("hitl_request");
@@ -361,7 +362,7 @@ describe("인박스 — 서버 inbox.Severity · Actions · SortRank 와 같은 
 
   it("U3 — 인박스에서 답하면 그 항목이 목록에서 사라진다(처리됐다는 유일한 신호)", async () => {
     const { ws, session } = await newSession();
-    const h = await must<HitlRequest>("POST", `/__mock/sessions/${session.id}/seed-hitl`, { body: {} });
+    const h = await must<HitlRequest>("POST", `/__mock/rooms/${session.id}/seed-hitl`, { body: {} });
     const before = await must<{ items: InboxItem[] }>("GET", `/inbox?workspace_id=${ws}`);
     expect(before.items.some((x) => x.ref_id === h.id)).toBe(true);
     await must("POST", `/hitl-requests/${h.id}/response`, { body: { answer: "투자자" }, headers: idem() });
@@ -375,7 +376,7 @@ describe("인박스 — 서버 inbox.Severity · Actions · SortRank 와 같은 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("W-5 — 목의 lane 해소 규칙(PRD FR-3.3 lane 규칙 · EVAL E2)", () => {
   async function previewMention(sessionId: string, agentId: string, name: string, opts: { newLane?: boolean } = {}) {
-    return must<TriggerPreview>("POST", `/sessions/${sessionId}/messages/preview`, {
+    return must<TriggerPreview>("POST", `/rooms/${sessionId}/messages/preview`, {
       body: { content: `[@${name}](mention://agent/${agentId}) 이어서 해줘`, new_lane: opts.newLane ?? false },
     });
   }
@@ -384,8 +385,8 @@ describe("W-5 — 목의 lane 해소 규칙(PRD FR-3.3 lane 규칙 · EVAL E2)",
     const { session } = await newSession();
     // 이 에이전트에게 **done lane 하나뿐** 이어야 한다 — 진행 중 lane 이 있으면 그쪽 재사용이 먼저다.
     const target = (session.participants ?? [])[1].agent_id;
-    await must("POST", `/__mock/sessions/${session.id}/seed-lanes`, { body: { statuses: ["done"], agent_id: target } });
-    const lanes = await must<Lane[]>("GET", `/sessions/${session.id}/lanes`);
+    await must("POST", `/__mock/rooms/${session.id}/seed-lanes`, { body: { statuses: ["done"], agent_id: target } });
+    const lanes = await must<Lane[]>("GET", `/rooms/${session.id}/lanes`);
     const done = lanes.find((l) => l.status === "done" && l.agent_id === target)!;
     const agent = (session.participants ?? []).find((p) => p.agent_id === done.agent_id)!;
 
@@ -399,8 +400,8 @@ describe("W-5 — 목의 lane 해소 규칙(PRD FR-3.3 lane 규칙 · EVAL E2)",
   it("running lane 재사용도 규칙 3 이고 reentry 는 false, will_queue 는 true 다", async () => {
     const { session } = await newSession();
     const target = (session.participants ?? [])[1].agent_id;
-    await must("POST", `/__mock/sessions/${session.id}/seed-lanes`, { body: { statuses: ["running"], agent_id: target } });
-    const lanes = await must<Lane[]>("GET", `/sessions/${session.id}/lanes`);
+    await must("POST", `/__mock/rooms/${session.id}/seed-lanes`, { body: { statuses: ["running"], agent_id: target } });
+    const lanes = await must<Lane[]>("GET", `/rooms/${session.id}/lanes`);
     const running = lanes.find((l) => l.status === "running" && l.agent_id === target)!;
     const agent = (session.participants ?? []).find((p) => p.agent_id === running.agent_id)!;
 
@@ -414,8 +415,8 @@ describe("W-5 — 목의 lane 해소 규칙(PRD FR-3.3 lane 규칙 · EVAL E2)",
   it("'새 lane 으로 보내기' 는 해소를 건너뛰고 규칙 4(새 lane)로 간다(E2-07, t-2)", async () => {
     const { session } = await newSession();
     const target = (session.participants ?? [])[1].agent_id;
-    await must("POST", `/__mock/sessions/${session.id}/seed-lanes`, { body: { statuses: ["done"], agent_id: target } });
-    const lanes = await must<Lane[]>("GET", `/sessions/${session.id}/lanes`);
+    await must("POST", `/__mock/rooms/${session.id}/seed-lanes`, { body: { statuses: ["done"], agent_id: target } });
+    const lanes = await must<Lane[]>("GET", `/rooms/${session.id}/lanes`);
     const done = lanes.find((l) => l.status === "done" && l.agent_id === target)!;
     const agent = (session.participants ?? []).find((p) => p.agent_id === done.agent_id)!;
 
@@ -451,7 +452,7 @@ describe("W-4 — install_commands 는 API 오리진이다", () => {
 describe("task 이력 — 재개는 새 attempt, 재지시는 새 task", () => {
   it("HITL 응답 뒤 같은 task 의 attempt 가 2 가 되고 이력 행이 늘어난다(E7-07)", async () => {
     const { session } = await newSession();
-    const h = await must<HitlRequest>("POST", `/__mock/sessions/${session.id}/seed-hitl`, { body: {} });
+    const h = await must<HitlRequest>("POST", `/__mock/rooms/${session.id}/seed-hitl`, { body: {} });
     const r = await must<{ task?: { id: string; attempt: number } }>("POST", `/hitl-requests/${h.id}/response`, {
       body: { answer: "경영진" }, headers: idem(),
     });
@@ -471,8 +472,8 @@ describe("task 이력 — 재개는 새 attempt, 재지시는 새 task", () => {
   it("재지시는 새 task 이고 restarted_from_task_id 가 이전 task 를 가리킨다(E8-06)", async () => {
     const { session } = await newSession();
     const target = (session.participants ?? [])[1].agent_id;
-    await must("POST", `/__mock/sessions/${session.id}/seed-lanes`, { body: { statuses: ["running"], agent_id: target } });
-    const lanes = await must<Lane[]>("GET", `/sessions/${session.id}/lanes`);
+    await must("POST", `/__mock/rooms/${session.id}/seed-lanes`, { body: { statuses: ["running"], agent_id: target } });
+    const lanes = await must<Lane[]>("GET", `/rooms/${session.id}/lanes`);
     const lane = lanes.find((l) => l.status === "running" && l.agent_id === target)!;
     const r = await must<{ task: { id: string; attempt: number; restarted_from_task_id: string | null }; message: { content: string } }>(
       "POST", `/lanes/${lane.id}/restart`, { body: { content: "범위를 국내로 좁혀줘" }, headers: idem() },

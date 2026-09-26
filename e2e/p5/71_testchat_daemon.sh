@@ -182,8 +182,10 @@ wait_for 120 'grep -q "$TASK.1 finish outcome=" "$DLOG"' || bad "session task di
 chk D.1 1 "$(grep -c "$TASK.1 claim kind=task lane=" "$DLOG" || true)" "claim kind=task"
 chk D.2 1 "$(grep -c "$TASK.1 finish outcome=completed" "$DLOG" || true)" "finish completed"
 chk D.3 0 "$(grep -c "$TASK.1 colab surface off" "$DLOG" || true)" "세션 task 는 colab 표면 켜짐 (로그 없음)"
-chk D.4 1 "$(grep -c "$TASK.1 workdir report kind=dir" "$DLOG" || true)" "§6 lane 종료 보고 (D-23 그대로)"
-LANE_DIR="$(psqlq "select path_or_ref from workdir where session_id='$SID' limit 1")"
+# 로그 줄은 D-24 부터 `workdir report id=<id> kind=dir …` 이다(id 가 kind 앞).
+chk D.4 1 "$(grep -cE "$TASK.1 workdir report id=[^ ]+ kind=dir" "$DLOG" || true)" "§6 lane 종료 보고 (D-23 그대로)"
+# daemon-protocol v0.10.0 §6.1: 미션 턴은 에이전트 행 + 미션 `_shared` 행(role=shared) 두 줄 — CWD 는 에이전트 행이다.
+LANE_DIR="$(psqlq "select path_or_ref from workdir where session_id='$SID' and role='agent' order by created_at limit 1")"
 chk D.5 yes "$([ -n "$LANE_DIR" ] && echo yes || echo no)" "세션 workdir 행이 서버에 있다 (path=${LANE_DIR:-없음})"
 chk D.6 yes "$([ -s "$LANE_DIR/acpfake-record.jsonl" ] && echo yes || echo no)" "세션 런타임의 CWD = lane 폴더"
 chk D.7 1 "$(record_mcp "$LANE_DIR/acpfake-record.jsonl" | awk '{print NF}')" "세션 task 도 session/new 1회"

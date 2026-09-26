@@ -34,6 +34,18 @@ ok(){ printf '  \033[32mok\033[0m   %s\n' "$*"; }
 bad(){ printf '  \033[31mFAIL\033[0m %s\n' "$*"; FAILED=$((FAILED+1)); }
 step(){ printf '\n\033[1m== %s\033[0m\n' "$*"; }
 api(){ curl -sS -b "$J" -c "$J" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" "$@"; }
+# ── 방·미션 (openapi v0.3.0 D22 — 옛 POST /workspaces/{ws}/sessions 삭제) — 이 스크립트 전용 헬퍼 ──
+# room_work OLD_SESSION_CREATE_JSON → "ROOM WORK". createRoom → updateRoom(격리·컴퓨터·방 한도) →
+# addRoomParticipant… → createWork(assignee 명시 — createWork 는 기본값이 없다). 옛 세션은 미션이 하나라
+# work_id 없는 사람 게시도 그 미션에 귀속됐다. 이제는 게시에 "work_id" 를 붙여야 초기 task 에 합쳐진다
+# (안 붙이면 "미션 없음" task 가 따로 생긴다 — 2026-09-24 :8319 실측).
+room_work(){
+  local in="$1" room p
+  room=$(api -X POST "$S/workspaces/$WS/rooms" -d "$(jq -c '{name:.title,description:""}' <<<"$in")" | jq -r .id)
+  api -X PATCH "$S/rooms/$room" -d "$(jq -c '{isolation,runtime_id} + (if .limits then {limits:(.limits|with_entries(select(.key|IN("budget_usd","time_limit","max_parallel_lanes","max_concurrent_works"))))} else {} end) | with_entries(select(.value!=null))' <<<"$in")" >/dev/null
+  for p in $(jq -c '.participants[]|{agent_id}' <<<"$in"); do api -X POST "$S/rooms/$room/participants" -d "$p" >/dev/null; done
+  printf '%s %s\n' "$room" "$(api -X POST "$S/rooms/$room/works" -d "$(jq -c '{goal,title,assignee_agent_id:(.assignee_agent_id // .participants[0].agent_id)} + (if .completion_condition then {completion_condition} else {} end)' <<<"$in")" | jq -r .id)"
+}
 code(){ curl -sS -o /dev/null -w '%{http_code}' -b "$J" -c "$J" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" "$@"; }
 Q(){ docker exec colab-pg-s9 psql -U colab -d colab -tAc "$1" | tr -d ' '; }
 Qraw(){ docker exec colab-pg-s9 psql -U colab -d colab -tAc "$1"; }
@@ -59,18 +71,18 @@ probe "$RID2" "$DTOK2" /Users/c/work/app git@x:app-$RUNID.git
 [ "$RID" != null ] && [ "$RID2" != null ] && ok "runtime 2대 페어링 ($RID / $RID2)" || { bad "pair"; exit 1; }
 
 step "1. 서버가 쓰는 이벤트를 실제로 만들어 둔다 (취소·상태·HITL·GC 거부)"
-SESS=$(api -X POST "$S/workspaces/$WS/sessions" -d "{\"title\":\"ev\",\"goal\":\"g\",\"runtime_id\":\"$RID\",\"isolation\":{\"kind\":\"none\"},\"participants\":[{\"agent_id\":\"$R\"}],\"completion_condition\":{\"op\":\"and\",\"conditions\":[{\"type\":\"manual\"}]},\"start\":true}")
-ESID=$(echo "$SESS" | jq -r .id)
-api -X POST "$S/sessions/$ESID/messages" -d "{\"content\":\"[@R](mention://agent/$R) 시작해라\"}" >/dev/null
+SESS=$(room_work "{\"title\":\"ev\",\"goal\":\"g\",\"runtime_id\":\"$RID\",\"isolation\":{\"kind\":\"none\"},\"participants\":[{\"agent_id\":\"$R\"}],\"completion_condition\":{\"op\":\"and\",\"conditions\":[{\"type\":\"manual\"}]}}")
+read -r ESID EWID <<<"$SESS"
+api -X POST "$S/rooms/$ESID/messages" -d "{\"work_id\":\"$EWID\",\"content\":\"[@R](mention://agent/$R) 시작해라\"}" >/dev/null
 sleep 1
 ETASK=$(Q "SELECT id FROM task WHERE session_id='$ESID' ORDER BY created_at LIMIT 1")
 ELANE=$(Q "SELECT lane_id FROM task WHERE id='$ETASK'")
 # (a) 사람이 lane 을 중단한다 → status/cancel + args.note
 code -X POST "$S/lanes/$ELANE/cancel" -d '{}' >/dev/null
 # (b) 데몬이 gc 거부를 보고한다 → status/error gc.refused (command=gc + args.note)
-GSESS=$(api -X POST "$S/workspaces/$WS/sessions" -d "{\"title\":\"gc\",\"goal\":\"g\",\"runtime_id\":\"$RID\",\"isolation\":{\"kind\":\"worktree\",\"repo_path\":\"/Users/a/dev/app\"},\"participants\":[{\"agent_id\":\"$R\"}],\"completion_condition\":{\"op\":\"and\",\"conditions\":[{\"type\":\"manual\"}]},\"start\":true}")
-GSID=$(echo "$GSESS" | jq -r .id)
-api -X POST "$S/sessions/$GSID/messages" -d "{\"content\":\"[@R](mention://agent/$R) 해라\"}" >/dev/null
+GSESS=$(room_work "{\"title\":\"gc\",\"goal\":\"g\",\"runtime_id\":\"$RID\",\"isolation\":{\"kind\":\"worktree\",\"repo_path\":\"/Users/a/dev/app\"},\"participants\":[{\"agent_id\":\"$R\"}],\"completion_condition\":{\"op\":\"and\",\"conditions\":[{\"type\":\"manual\"}]}}")
+read -r GSID GWID <<<"$GSESS"
+api -X POST "$S/rooms/$GSID/messages" -d "{\"work_id\":\"$GWID\",\"content\":\"[@R](mention://agent/$R) 해라\"}" >/dev/null
 sleep 1
 # 먼저 깨끗한 workdir 을 보고하고(삭제 가능), Director 가 수동 GC 를 요청해
 # 서버가 `gc` 명령을 큐잉하게 만든다 — 거부 영수증은 명령이 있어야 유효하다
@@ -124,27 +136,27 @@ if [ "$VIOL" = 0 ]; then ok "스키마 위반 0 (S-52)"; else
 fi
 
 step "3. 재바인딩 — 프롬프트가 번들에 실린다 (S-53 · NN5 · E14-06)"
-RSESS=$(api -X POST "$S/workspaces/$WS/sessions" -d "{\"title\":\"rebind\",\"goal\":\"g\",\"runtime_id\":\"$RID\",\"isolation\":{\"kind\":\"worktree\",\"repo_path\":\"/Users/a/dev/app\"},\"participants\":[{\"agent_id\":\"$R\"}],\"completion_condition\":{\"op\":\"and\",\"conditions\":[{\"type\":\"manual\"}]},\"start\":true}")
-RSID=$(echo "$RSESS" | jq -r .id)
+RSESS=$(room_work "{\"title\":\"rebind\",\"goal\":\"g\",\"runtime_id\":\"$RID\",\"isolation\":{\"kind\":\"worktree\",\"repo_path\":\"/Users/a/dev/app\"},\"participants\":[{\"agent_id\":\"$R\"}],\"completion_condition\":{\"op\":\"and\",\"conditions\":[{\"type\":\"manual\"}]}}")
+read -r RSID RWID <<<"$RSESS"
 # 세션이 diff 아티팩트 두 개를 제출한 상태로 만든다(제출 순서 = created_at).
 Q "INSERT INTO artifact (session_id, name, type, version, storage_ref, created_at) VALUES
    ('$RSID','step-1','diff',1,'s1', now() - interval '2 minutes'),
    ('$RSID','step-2','diff',1,'s2', now() - interval '1 minutes')" >/dev/null
 A1=$(Q "SELECT id FROM artifact WHERE session_id='$RSID' AND name='step-1'")
 A2=$(Q "SELECT id FROM artifact WHERE session_id='$RSID' AND name='step-2'")
-api -X POST "$S/sessions/$RSID/messages" -d "{\"content\":\"[@R](mention://agent/$R) 이어서 해라\"}" >/dev/null
+api -X POST "$S/rooms/$RSID/messages" -d "{\"work_id\":\"$RWID\",\"content\":\"[@R](mention://agent/$R) 이어서 해라\"}" >/dev/null
 sleep 1
 RTASK=$(Q "SELECT id FROM task WHERE session_id='$RSID' ORDER BY created_at LIMIT 1")
 # mac-a 가 8일째 사라졌다 → 스윕이 세션을 paused(runtime_offline) 로 옮긴다.
 Q "UPDATE runtime SET status='offline', offline_since = now() - interval '8 days', last_seen_at = now() - interval '8 days' WHERE id='$RID'" >/dev/null
 sleep 62
-RST=$(Q "SELECT status FROM session WHERE id='$RSID'")
+RST=$(Q "SELECT status FROM work WHERE room_id='$RSID'")
 [ "$RST" = paused ] && ok "세션 = paused(runtime_offline) — 재바인딩 조건 성립" || bad "세션 = $RST, want paused"
-RBC=$(code -X POST "$S/sessions/$RSID/rebind" -d "{\"runtime_id\":\"$RID2\",\"acknowledge_loss\":true}")
+RBC=$(code -X POST "$S/rooms/$RSID/rebind" -d "{\"runtime_id\":\"$RID2\",\"acknowledge_loss\":true}")
 [ "$RBC" = 200 ] && ok "같은 remote 런타임으로 rebind = 200 (E14-03)" || bad "rebind = $RBC"
 PREP=$(Q "SELECT count(*) FROM daemon_command WHERE type='rebind_prepare' AND session_id='$RSID'")
 [ "$PREP" -ge 1 ] && ok "rebind_prepare 명령 $PREP 건 큐잉 (§4.3)" || bad "rebind_prepare = $PREP, want ≥1"
-STORED=$(Q "SELECT length(coalesce(rebind_prompt,'')) FROM session WHERE id='$RSID'")
+STORED=$(Q "SELECT length(coalesce(rebind_prompt,'')) FROM room WHERE id='$RSID'")
 [ "${STORED:-0}" -gt 0 ] && ok "session.rebind_prompt 저장됨 ($STORED 자)" || bad "rebind_prompt 가 비어 있다 — 프롬프트가 갈 길이 없다 (S-53)"
 
 # 새 머신의 데몬이 claim 한다 — 번들의 프롬프트가 실측 대상이다.
@@ -179,7 +191,7 @@ curl -sS -X POST "$D/tasks/$RTASK/attempts/$ATT/phase" -H "Authorization: Bearer
   -d '{"phase":"running","pgid":4242,"workdir_path":"/w/rebind/r"}' >/dev/null
 FINC=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$D/tasks/$RTASK/attempts/$ATT/finish" -H "Authorization: Bearer $DTOK2" -H 'Content-Type: application/json' \
   -d '{"outcome":"completed","stop_reason":"end_turn"}')
-STORED2=$(Q "SELECT length(coalesce(rebind_prompt,'')) FROM session WHERE id='$RSID'")
+STORED2=$(Q "SELECT length(coalesce(rebind_prompt,'')) FROM room WHERE id='$RSID'")
 [ "$FINC" = 200 ] && ok "finish(completed) = 200" || bad "finish = $FINC"
 [ "${STORED2:-1}" = 0 ] && ok "completed 뒤 rebind_prompt 가 비었다 — 다음 턴은 diff 를 다시 적용하지 않는다" || bad "rebind_prompt 가 $STORED2 자로 남아 있다"
 

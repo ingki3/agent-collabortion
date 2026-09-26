@@ -17,14 +17,18 @@ describe("(b) 세 표는 apperr.go 와 항목 단위로 같다", () => {
   it("StatusLabel — statusLabels", () => {
     expect(STATUS_LABEL).toEqual(goMap(apperr, "statusLabels"));
   });
-  it("NotFound 명사표 — NotFoundNouns", () => {
-    expect(NOT_FOUND_NOUN).toEqual(goMap(apperr, "NotFoundNouns"));
+  it("NotFound 명사표 — NotFoundNouns + messageNotFound 의 명사(T-R2-W4a)", () => {
+    // 서버 getMessage 는 NotFoundNouns 를 거치지 않고 같은 모양의 문장을 직접 짓는다(handlers_message_get.go messageNotFound).
+    const m = /func messageNotFound\(\)[\s\S]*?"(\S+)를 찾을 수 없습니다"/.exec(goSource("internal/httpapi/handlers_message_get.go"));
+    expect(m?.[1]).toBe("메시지");
+    expect(NOT_FOUND_NOUN).toEqual({ ...goMap(apperr, "NotFoundNouns"), message: m![1] });
+    expect(notFound("message")).toBe("메시지를 찾을 수 없습니다");
   });
   it("NotFound 문장 모양 — `<명사>을/를 찾을 수 없습니다`", () => {
     expect(apperr).toContain('Josa(noun, "을", "를")+" 찾을 수 없습니다"');
-    expect(notFound("session")).toBe("세션을 찾을 수 없습니다");
+    expect(notFound("session")).toBe("방을 찾을 수 없습니다");
     expect(notFound("invite")).toBe("초대를 찾을 수 없습니다");
-    expect(notFound("lane")).toBe("작업 줄기를 찾을 수 없습니다");
+    expect(notFound("lane")).toBe("서브 미션을 찾을 수 없습니다");
     expect(notFound("task")).toBe("할 일을 찾을 수 없습니다");
   });
 });

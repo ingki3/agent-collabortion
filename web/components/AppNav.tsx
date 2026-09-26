@@ -1,6 +1,8 @@
 "use client";
 import Link from "next/link";
 import { Icon, type IconName } from "./Icon";
+import { slotText } from "./Slot";
+import { ROOM_LIST } from "@/lib/wording";
 import "./app-nav.css";
 
 export interface AppNavProps {
@@ -9,6 +11,11 @@ export interface AppNavProps {
   current: string;
   /** 받은 요청 뱃지 — action_required 개수만(SCREEN §4.6). null 이면 자리만 둔다(P1). */
   inboxCount: number | null;
+  /**
+   * 「방」 옆 안 읽음 합계(v0.19 M4, SCREEN §4.3) — 내가 참여한 방의 `unread_count` 합. 0 이거나 모르면(null) 그리지 않는다 —
+   * 받은 요청 뱃지(할 일)와 달리 안 읽음은 할 일이 아니라 0 자리를 둘 이유가 없다.
+   */
+  roomsUnread?: number | null;
   /** owner·admin 만 설정을 본다(SCREEN §3.1). 숨기는 것이 명세다 — U13 변형. */
   showSettings: boolean;
   userName?: string;
@@ -28,7 +35,8 @@ export interface AppNavProps {
  * `data-testid` 가 따라 움직이지 않는다(예전에는 라벨을 소문자로 바꿔 testid 를 만들었다).
  */
 export const NAV_ITEMS: readonly { href: string; key: string; label: string; icon: IconName }[] = [
-  { href: "/sessions", key: "sessions", label: "세션", icon: "sessions" },
+  // v0.19 (T-R2-W1): 「방」이 S5 다. 옛 세션 주소는 v0.3.0(R4)에서 307 넘김까지 지웠다.
+  { href: "/rooms", key: "rooms", label: "방", icon: "sessions" },
   { href: "/inbox", key: "inbox", label: "받은 요청", icon: "inbox" },
   { href: "/agents", key: "agents", label: "에이전트", icon: "agents" },
   { href: "/runtimes", key: "runtimes", label: "연결된 컴퓨터", icon: "computers" },
@@ -39,6 +47,7 @@ export function AppNav({
   workspaceName,
   current,
   inboxCount,
+  roomsUnread,
   showSettings,
   userName,
   onLogout,
@@ -84,6 +93,11 @@ export function AppNav({
               <Icon name={item.icon} />
               <span>{item.label}</span>
             </span>
+            {item.href === "/rooms" && !!roomsUnread && roomsUnread > 0 && (
+              <span className="app-nav__badge app-nav__badge--unread" role="img" aria-label={slotText(ROOM_LIST.unread_label, roomsUnread)} data-testid="rooms-unread-badge">
+                {roomsUnread > 99 ? "99+" : roomsUnread}
+              </span>
+            )}
             {item.href === "/inbox" && (
               <span
                 className={`app-nav__badge${!inboxCount ? " app-nav__badge--zero" : ""}`}

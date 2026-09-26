@@ -51,7 +51,7 @@ mk_agent() { api_ok POST "/workspaces/$WS/agents" "$(jq -nc --arg n "$1" --arg r
   instructions:"짧게, 한국어로 답한다. 저장소나 다른 디렉토리를 뒤지지 마라.",
   profiles:[{name:"default",runtime_kind:"claude_code",model:"claude-sonnet-5",is_default:true}]}')" | jq -r .id; }
 mention() { # SESSION AGENT_ID NAME TEXT → Director 가 @멘션
-  api_ok POST "/sessions/$1/messages" "$(jq -nc --arg a "$2" --arg n "$3" --arg t "$4" '{content:("[@"+$n+"](mention://agent/"+$a+") "+$t)}')" -H "Idempotency-Key: $(uuid)" >/dev/null
+  api_ok POST "/rooms/$1/messages" "$(with_work "$1" "$(jq -nc --arg a "$2" --arg n "$3" --arg t "$4" '{content:("[@"+$n+"](mention://agent/"+$a+") "+$t)}')")" -H "Idempotency-Key: $(uuid)" >/dev/null
 }
 run_turn() { # SESSION AGENT → claim → phase running. 표준출력: task_id<TAB>task_token<TAB>allowed_commands(csv)
   local s="$1" a="$2" cl b tid tok ac
@@ -69,9 +69,9 @@ finish_turn() { # TASK [STOP_REASON]
 empty_cards() { psqlq "select count(*) from task_event where task_id='$1' and attempt=1 and class='status' and verb='turn_end' and object_ref=to_jsonb('empty_turn'::text) and outcome='info' and payload->'args'->>'note'='아무것도 하지 않고 턴을 끝냈습니다'"; }
 refused_rows() { psqlq "select string_agg(verb||':'||(payload->>'command'), ',' order by seq) from task_event where task_id='$1' and class='status' and outcome='rejected' and payload->>'rejected_reason'='command_not_allowed'"; }
 allowed_of() { api_ok GET "/agents/$1" | jq -r '.allowed_commands|join(",")'; }
-LEAD_ALL="session_get,session_messages,message_post,status_set,decision_record,lane_delegate,artifact_submit,artifact_get,review_approve,review_reject,hitl_ask,hitl_approve_request,hitl_request_info"
-WRITER_ALL="session_get,session_messages,message_post,status_set,decision_record,artifact_submit,artifact_get,hitl_ask,hitl_request_info"
-REVIEWER_ALL="session_get,session_messages,message_post,status_set,decision_record,artifact_get,review_approve,review_reject,hitl_ask,hitl_request_info"
+LEAD_ALL="room_get,room_messages,artifact_get,message_post,status_set,decision_record,lane_delegate,artifact_submit,review_approve,review_reject,hitl_ask,hitl_approve_request,hitl_request_info,room_list,room_read,work_propose"
+WRITER_ALL="room_get,room_messages,artifact_get,message_post,status_set,decision_record,artifact_submit,hitl_ask,hitl_request_info,room_list,room_read"
+REVIEWER_ALL="room_get,room_messages,artifact_get,message_post,status_set,decision_record,review_approve,review_reject,hitl_ask,hitl_request_info,room_list,room_read"
 
 step "0. 계정(Director=owner) · 워크스페이스 · 에이전트 Lead·W(writer)·R(reviewer)·C(custom) · 페어링(curl) · probe"
 signup "s19-dir-$RUN@example.com" password123 "Dir" >/dev/null
@@ -99,16 +99,16 @@ chk A.11 403 "$(as "$COOKIE_OUT" GET "/workspaces/$WS/observations" | api_code)"
 
 # ───────────────────────────── B ─────────────────────────────────────────────
 step "B. 세션 하나 — Lead 위임(task 토큰) → W 메시지 → 관찰 5행 실값"
-S="$(api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg rt "$RID" --arg l "$LEAD" --arg w "$W" --arg r "$R" --arg c "$C" \
+S="$(create_room_work "$WS" "$(jq -nc --arg rt "$RID" --arg l "$LEAD" --arg w "$W" --arg r "$R" --arg c "$C" \
   '{title:"관찰",goal:"저장소 밖에서 짧은 인사말 한 줄을 쓴다",isolation:{kind:"none"},participants:[{agent_id:$l},{agent_id:$w},{agent_id:$r},{agent_id:$c}],assignee_agent_id:$l,runtime_id:$rt,
-    completion_condition:{op:"and",conditions:[{type:"user_approval"}]}}')" | jq -r .id)"
+    completion_condition:{op:"and",conditions:[{type:"user_approval"}]}}')")"
 mention "$S" "$LEAD" Lead "시작해 주세요"
 IFS=$'\t' read -r T_LEAD TT_LEAD AC_LEAD <<<"$(run_turn "$S" "$LEAD")"
-R_="$(tok_api "$TT_LEAD" POST "/sessions/$S/lanes" "$(jq -nc --arg a "$W" '{agent_id:$a,brief:"인사말 초안을 써 주세요"}')")"
+R_="$(tok_api "$TT_LEAD" POST "/rooms/$S/lanes" "$(jq -nc --arg a "$W" '{agent_id:$a,brief:"인사말 초안을 써 주세요"}')")"
 chk B.1 201 "$(api_code <<<"$R_")" "Lead(lead) 의 lane delegate → 201"
 finish_turn "$T_LEAD"
 IFS=$'\t' read -r T_W TT_W AC_W <<<"$(run_turn "$S" "$W")"
-chk B.2 201 "$(tok_api "$TT_W" POST "/sessions/$S/messages" '{"content":"안녕하세요"}' | api_code)" "W(writer) 의 message post → 201"
+chk B.2 201 "$(tok_api "$TT_W" POST "/rooms/$S/messages" '{"content":"안녕하세요"}' | api_code)" "W(writer) 의 message post → 201"
 finish_turn "$T_W"
 obs | jq . > "$OUT/81-obs-session.json"
 chk B.3 "2/1/1/3/2" "$(obs | jq -r '[.rows[].n]|map(tostring)|join("/")')" "n: chain_scale 2(사람 hop: 세션 시작·멘션) · chain_depth 1(세션) · join_breadth 1(그룹) · routing 3(hop: 세션 시작·멘션·위임) · empty_turn 2(완료 attempt)"
@@ -141,9 +141,9 @@ chk C.7 "3/0.3333" "$(obs_row empty_turn_rate | jq -r '(.n|tostring)+"/"+((.valu
 
 # ───────────────────────────── D ─────────────────────────────────────────────
 step "D. 역할별 명령 — 세 표면 + 403 command_not_allowed"
-chk D.1 "$LEAD_ALL" "$(allowed_of "$LEAD")" "Agent.allowed_commands lead = 13 전부(§2.5)"
-chk D.2 "$WRITER_ALL" "$(allowed_of "$W")" "writer = delegate·review·approve-request 제외 9"
-chk D.3 "$REVIEWER_ALL" "$(allowed_of "$R")" "reviewer = delegate·submit·approve-request 제외 10"
+chk D.1 "$LEAD_ALL" "$(allowed_of "$LEAD")" "Agent.allowed_commands lead = 16 전부(§2.5 v0.8)"
+chk D.2 "$WRITER_ALL" "$(allowed_of "$W")" "writer = delegate·review·approve-request·work propose 제외 11"
+chk D.3 "$REVIEWER_ALL" "$(allowed_of "$R")" "reviewer = delegate·submit·approve-request·work propose 제외 12"
 chk D.4 "$LEAD_ALL" "$(allowed_of "$C")" "custom = 전부"
 chk D.5 "$LEAD_ALL/$WRITER_ALL" "$AC_LEAD/$AC_W" "번들 task.allowed_commands 가 같은 표(lead·writer)"
 # 한 번에 하나씩 멘션·claim — claim 은 queued 를 전부 넘기므로 둘을 같이 멘션하면 첫 claim 이 둘 다 가져간다
@@ -153,21 +153,21 @@ mention "$S" "$C" C "도와주세요"
 IFS=$'\t' read -r T_C TT_C AC_C <<<"$(run_turn "$S" "$C")"
 chk D.6 "$REVIEWER_ALL/$LEAD_ALL" "$AC_R/$AC_C" "번들 reviewer·custom"
 chk D.7 "$REVIEWER_ALL" "$(tok_api "$TT_R" GET /cli/context | api_body | jq -r '.allowed_commands|join(",")')" "getCliContext.allowed_commands(reviewer)"
-R_="$(tok_api "$TT_R" POST "/sessions/$S/lanes" "$(jq -nc --arg a "$W" '{agent_id:$a,brief:"대신 써 주세요"}')")"
+R_="$(tok_api "$TT_R" POST "/rooms/$S/lanes" "$(jq -nc --arg a "$W" '{agent_id:$a,brief:"대신 써 주세요"}')")"
 api_body <<<"$R_" | jq . > "$OUT/81-403-delegate.json"
 chk D.8 "403/command_not_allowed" "$(api_code <<<"$R_")/$(api_body <<<"$R_" | jq -r .code)" "reviewer 토큰 lane delegate → 403 command_not_allowed"
 chk D.9 "이 역할(reviewer)은 lane delegate 를 쓸 수 없습니다" "$(api_body <<<"$R_" | jq -r .detail)" "§2.5 문장(역할 enum · 명령은 CLI 표기)"
 chk D.10 "lane_delegate/reviewer" "$(api_body <<<"$R_" | jq -r '.command+"/"+.role')" "Problem 확장 칸 command(enum)·role"
 chk D.11 0 "$(psqlq "select count(*) from lane where session_id='$S' and delegated_from_task_id='$T_R'")" "거부된 위임은 lane 을 만들지 않았다"
 printf '# r\n리뷰\n' > "$OUT/81-r.md"
-chk D.12 403 "$(curl -sS -o "$OUT/81-403-submit.json" -w '%{http_code}' -X POST "$API/sessions/$S/artifacts" -H "Authorization: Bearer $TT_R" -H "Idempotency-Key: $(uuid)" -F name=r.md -F type=doc -F "file=@$OUT/81-r.md")" "reviewer artifact submit → 403"
+chk D.12 403 "$(curl -sS -o "$OUT/81-403-submit.json" -w '%{http_code}' -X POST "$API/rooms/$S/artifacts" -H "Authorization: Bearer $TT_R" -H "Idempotency-Key: $(uuid)" -F name=r.md -F type=doc -F "file=@$OUT/81-r.md")" "reviewer artifact submit → 403"
 chk D.13 "delegate:lane delegate,submit_artifact:artifact submit" "$(refused_rows "$T_R")" "task_event status rejected 행 2(rejected_reason=command_not_allowed, command 는 CLI 표기)"
-chk D.14 201 "$(tok_api "$TT_R" POST "/sessions/$S/messages" '{"content":"검토 의견입니다"}' | api_code)" "reviewer 의 message post 는 201(허용 명령은 그대로)"
+chk D.14 201 "$(tok_api "$TT_R" POST "/rooms/$S/messages" '{"content":"검토 의견입니다"}' | api_code)" "reviewer 의 message post 는 201(허용 명령은 그대로)"
 # writer 의 review approve → 403 (아티팩트는 Lead 가 낸 것)
 mention "$S" "$LEAD" Lead "초안 내 주세요"
 IFS=$'\t' read -r T_L2 TT_L2 _ <<<"$(run_turn "$S" "$LEAD")"
 printf '# d\n초안\n' > "$OUT/81-d.md"
-ART="$(curl -sS -X POST "$API/sessions/$S/artifacts" -H "Authorization: Bearer $TT_L2" -H "Idempotency-Key: $(uuid)" -F name=d.md -F type=doc -F "file=@$OUT/81-d.md" | jq -r '.artifact.id // empty')"
+ART="$(curl -sS -X POST "$API/rooms/$S/artifacts" -H "Authorization: Bearer $TT_L2" -H "Idempotency-Key: $(uuid)" -F name=d.md -F type=doc -F "file=@$OUT/81-d.md" | jq -r '.artifact.id // empty')"
 chk D.15 1 "$(psqlq "select count(*) from artifact where id='${ART:-00000000-0000-0000-0000-000000000000}'")" "Lead(lead) artifact submit → 저장"
 chk D.16 1 "$(psqlq "select count(*) from task_event where task_id='$T_L2' and class='status' and verb='submit_artifact' and outcome='ok'")" "§4: artifact submit 도 status 행(빈 턴 판정이 제출만 한 턴을 놓치지 않게)"
 finish_turn "$T_L2"
@@ -177,16 +177,16 @@ IFS=$'\t' read -r T_W2 TT_W2 _ <<<"$(run_turn "$S" "$W")"
 R_="$(tok_api "$TT_W2" POST "/artifacts/$ART/review" '{"verdict":"approve","comments":"확인"}')"
 chk D.18 "403/command_not_allowed/이 역할(writer)은 review approve 를 쓸 수 없습니다" "$(api_code <<<"$R_")/$(api_body <<<"$R_" | jq -r '.code+"/"+.detail')" "writer 토큰 review approve → 403"
 chk D.19 "review:review approve" "$(refused_rows "$T_W2")" "writer 의 거부 행"
-chk D.20 "403/command_not_allowed" "$(tok_api "$TT_W2" POST "/sessions/$S/hitl-requests" '{"type":"approval","summary":"끝"}' | { b="$(cat)"; printf '%s/%s' "$(api_code <<<"$b")" "$(api_body <<<"$b" | jq -r .code)"; })" "writer 토큰 hitl approve-request → 403"
-chk D.21 201 "$(tok_api "$TT_W2" POST "/sessions/$S/hitl-requests" '{"type":"info","what":"무엇","why":"이유"}' | api_code)" "writer 토큰 hitl request-info → 201(허용)"
+chk D.20 "403/command_not_allowed" "$(tok_api "$TT_W2" POST "/rooms/$S/hitl-requests" '{"type":"approval","summary":"끝"}' | { b="$(cat)"; printf '%s/%s' "$(api_code <<<"$b")" "$(api_body <<<"$b" | jq -r .code)"; })" "writer 토큰 hitl approve-request → 403"
+chk D.21 201 "$(tok_api "$TT_W2" POST "/rooms/$S/hitl-requests" '{"type":"info","what":"무엇","why":"이유"}' | api_code)" "writer 토큰 hitl request-info → 201(허용)"
 finish_turn "$T_W2"
 # custom · lead: delegate 201
-chk D.22 201 "$(tok_api "$TT_C" POST "/sessions/$S/lanes" "$(jq -nc --arg a "$W" '{agent_id:$a,brief:"custom 이 위임"}')" | api_code)" "custom 토큰 lane delegate → 201"
-chk D.23 201 "$(tok_api "$TT_C" POST "/sessions/$S/decisions" '{"summary":"custom 결정"}' | api_code)" "custom 토큰 decision record → 201"
+chk D.22 201 "$(tok_api "$TT_C" POST "/rooms/$S/lanes" "$(jq -nc --arg a "$W" '{agent_id:$a,brief:"custom 이 위임"}')" | api_code)" "custom 토큰 lane delegate → 201"
+chk D.23 201 "$(tok_api "$TT_C" POST "/rooms/$S/decisions" '{"summary":"custom 결정"}' | api_code)" "custom 토큰 decision record → 201"
 chk D.24 1 "$(psqlq "select count(*) from task_event where task_id='$T_C' and class='status' and verb='record_decision' and outcome='ok'")" "§4: decision record 도 status 행"
 chk D.25 "0/0" "$(refused_rows "$T_C" | sed 's/^$/0/')/$(refused_rows "$T_LEAD" | sed 's/^$/0/')" "custom·lead 는 거부 행 0"
-chk D.26 201 "$(api POST "/sessions/$S/messages" '{"content":"사람이 씁니다"}' -H "Idempotency-Key: $(uuid)" | api_code)" "사람(Director)은 표에 걸리지 않는다"
-chk D.27 200 "$(api GET "/sessions/$S" | api_code)" "사람의 getSession 200"
+chk D.26 201 "$(api POST "/rooms/$S/messages" '{"content":"사람이 씁니다"}' -H "Idempotency-Key: $(uuid)" | api_code)" "사람(Director)은 표에 걸리지 않는다"
+chk D.27 200 "$(api GET "/rooms/$S" | api_code)" "사람의 getRoom 200 (R4: 옛 getSession 자리)"
 
 step "결과: $CHECKS"
 printf '%s\n' "PASS $(grep -c $'\tPASS\t' "$CHECKS") · FAIL $FAILS" | tee "$OUT/81-summary.txt"

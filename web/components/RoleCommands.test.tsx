@@ -29,16 +29,16 @@ describe("RoleCommands", () => {
     expect(screen.getByTestId("role-commands-meta").textContent).toBe("역할이 정합니다 — 여기서 고칠 수 없습니다");
   });
 
-  it("실무자 — 위임·검토 승인은 못 한다, 산출물 제출은 한다", () => {
+  it("실무자 — 위임·검토 승인은 못 한다, 아티팩트 제출은 한다", () => {
     render(<RoleCommands role="engineer" commands={commandsForRole("engineer")} />);
-    expect(screen.getByTestId("role-commands-can").textContent).toContain("산출물 제출");
-    expect(screen.getByTestId("role-commands-cannot").textContent).toBe("위임 · 검토 승인 · 검토 반려 · 완료 승인 요청은 못 합니다 — 위임·검토 승인·완료 승인 요청은 Lead 의 일");
+    expect(screen.getByTestId("role-commands-can").textContent).toContain("아티팩트 제출");
+    expect(screen.getByTestId("role-commands-cannot").textContent).toBe("위임 · 검토 승인 · 검토 반려 · 완료 승인 요청 · 미션 제안은 못 합니다 — 위임·검토 승인·완료 승인 요청·미션 제안은 Lead 의 일");
   });
 
-  it("reviewer — 산출물 제출은 못 하고 검토 승인·반려는 한다", () => {
+  it("reviewer — 아티팩트 제출은 못 하고 검토 승인·반려는 한다", () => {
     render(<RoleCommands role="reviewer" commands={commandsForRole("reviewer")} />);
     expect(screen.getByTestId("role-commands-can").textContent).toContain("검토 승인 · 검토 반려");
-    expect(screen.getByTestId("role-commands-cannot").textContent).toContain("산출물 제출");
+    expect(screen.getByTestId("role-commands-cannot").textContent).toContain("아티팩트 제출");
   });
 
   it("서버 값(Agent.allowed_commands)이 정본 — 표와 달라도 서버 값을 그린다", () => {
@@ -50,12 +50,12 @@ describe("RoleCommands", () => {
     render(<RoleCommands role="reviewer" commands={commandsForRole("researcher")} preview />);
     expect(screen.getByTestId("role-commands").getAttribute("data-preview")).toBe("true");
     expect(screen.getByTestId("role-commands-can").textContent).toContain("검토 승인");
-    expect(screen.getByTestId("role-commands-can").textContent).not.toContain("산출물 제출");
+    expect(screen.getByTestId("role-commands-can").textContent).not.toContain("아티팩트 제출");
     expect(screen.getByTestId("role-commands-meta").textContent).toBe("저장하면 이 목록으로 바뀝니다");
   });
 
   it("서버 값이 없으면(새 에이전트·옛 서버) 표로 계산한다", () => {
     render(<RoleCommands role="writer" />);
-    expect(screen.getByTestId("role-commands").getAttribute("data-count")).toBe("9");
+    expect(screen.getByTestId("role-commands").getAttribute("data-count")).toBe("11");
   });
 });

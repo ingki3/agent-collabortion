@@ -24,6 +24,18 @@ ok(){ printf '  \033[32mok\033[0m   %s\n' "$*"; }
 bad(){ printf '  \033[31mFAIL\033[0m %s\n' "$*"; FAILED=$((FAILED+1)); }
 step(){ printf '\n\033[1m== %s\033[0m\n' "$*"; }
 api(){ curl -sS -b "$J" -c "$J" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" "$@"; }
+# ── 방·미션 (openapi v0.3.0 D22 — 옛 POST /workspaces/{ws}/sessions 삭제) — 이 스크립트 전용 헬퍼 ──
+# room_work OLD_SESSION_CREATE_JSON → "ROOM WORK". createRoom → updateRoom(격리·컴퓨터·방 한도) →
+# addRoomParticipant… → createWork(assignee 명시 — createWork 는 기본값이 없다). 옛 세션은 미션이 하나라
+# work_id 없는 사람 게시도 그 미션에 귀속됐다. 이제는 게시에 "work_id" 를 붙여야 초기 task 에 합쳐진다
+# (안 붙이면 "미션 없음" task 가 따로 생긴다 — 2026-09-24 :8319 실측).
+room_work(){
+  local in="$1" room p
+  room=$(api -X POST "$S/workspaces/$WS/rooms" -d "$(jq -c '{name:.title,description:""}' <<<"$in")" | jq -r .id)
+  api -X PATCH "$S/rooms/$room" -d "$(jq -c '{isolation,runtime_id} + (if .limits then {limits:(.limits|with_entries(select(.key|IN("budget_usd","time_limit","max_parallel_lanes","max_concurrent_works"))))} else {} end) | with_entries(select(.value!=null))' <<<"$in")" >/dev/null
+  for p in $(jq -c '.participants[]|{agent_id}' <<<"$in"); do api -X POST "$S/rooms/$room/participants" -d "$p" >/dev/null; done
+  printf '%s %s\n' "$room" "$(api -X POST "$S/rooms/$room/works" -d "$(jq -c '{goal,title,assignee_agent_id:(.assignee_agent_id // .participants[0].agent_id)} + (if .completion_condition then {completion_condition} else {} end)' <<<"$in")" | jq -r .id)"
+}
 
 step "1. 계정·워크스페이스·에이전트·세션"
 api -X POST "$S/auth/signup" -d '{"display_name":"Dir","email":"s44-'$RUNID'@example.com","password":"password123"}' >/dev/null
@@ -37,11 +49,11 @@ RID=$(echo "$RT" | jq -r .runtime_id); DTOK=$(echo "$RT" | jq -r .daemon_token)
 [ "$RID" != null ] && ok "runtime $RID paired" || { bad "pair: $RT $PAIR"; exit 1; }
 curl -sS -X POST "http://127.0.0.1:8098/v1/daemon/runtimes/$RID/probe" -H "Authorization: Bearer $DTOK" \
   -H 'Content-Type: application/json' -d '{"runtimes":[{"kind":"claude_code","available":true,"version":"1.0.0","capabilities":{"usage":true,"resume":true}}]}' >/dev/null
-SESS=$(api -X POST "$S/workspaces/$WS/sessions" -d "{\"title\":\"S\",\"goal\":\"g\",\"isolation\":{\"kind\":\"none\"},\"assignee_agent_id\":\"$AG\",\"participants\":[{\"agent_id\":\"$AG\"}],\"runtime_id\":\"$RID\"}" | jq -r .id)
+read -r SESS WID <<<"$(room_work "{\"title\":\"S\",\"goal\":\"g\",\"isolation\":{\"kind\":\"none\"},\"assignee_agent_id\":\"$AG\",\"participants\":[{\"agent_id\":\"$AG\"}],\"runtime_id\":\"$RID\"}")"
 ok "session $SESS · agent budget_per_task \$0.002"
 
 step "2. 멘션 → task, 데몬 claim"
-POST=$(api -X POST "$S/sessions/$SESS/messages" -d "{\"content\":\"[@R](mention://agent/$AG) 부탁합니다\"}")
+POST=$(api -X POST "$S/rooms/$SESS/messages" -d "{\"work_id\":\"$WID\",\"content\":\"[@R](mention://agent/$AG) 부탁합니다\"}")
 TASK=$(echo "$POST" | jq -r '.triggers[0].task_id')
 CLAIM=$(curl -sS -X POST "http://127.0.0.1:8098/v1/daemon/runtimes/$RID/claim" -H "Authorization: Bearer $DTOK" -H 'Content-Type: application/json' -d '{"capacity":5}')
 echo "$CLAIM" | jq -r '.tasks[0].task.id' | grep -q "$TASK" && ok "claim → task $TASK" || bad "claim: $CLAIM"
@@ -63,7 +75,7 @@ TS=$(Q "SELECT status FROM task WHERE id='$TASK'")
 [ "$TS" = completed ] && ok "task = completed (턴은 끝났고 completed→paused 전이는 없다)" || bad "task = $TS"
 LS=$(Q "SELECT l.status FROM lane l JOIN task t ON t.lane_id=l.id WHERE t.id='$TASK'")
 [ "$LS" = paused ] && ok "lane = paused — 다음 dispatch 차단" || bad "lane = $LS, want paused"
-COST=$(Q "SELECT cost_usd FROM session WHERE id='$SESS'")
+COST=$(Q "SELECT cost_usd FROM work WHERE room_id='$SESS'")
 ok "session.cost_usd = $COST"
 H=$(Q "SELECT source||'/'||type||'/'||purpose||'/'||COALESCE(task_id::text,'-') FROM hitl_request WHERE session_id='$SESS' AND purpose='budget'")
 [ "$H" = "system/approval/budget/$TASK" ] && ok "HITL = $H (task_id 채움, FR-7.3 s-13)" || bad "HITL = $H"
@@ -73,7 +85,7 @@ CC=$(Q "SELECT count(*) FROM daemon_command WHERE task_id='$TASK' AND type='canc
 [ "$CC" = 0 ] && ok "cancel 명령 0 — 끝난 턴을 취소하지 않는다" || bad "cancel = $CC"
 
 step "5. 같은 lane 의 다음 task 는 dispatch 되지 않는다"
-POST2=$(api -X POST "$S/sessions/$SESS/messages" -d "{\"content\":\"[@R](mention://agent/$AG) 하나만 더\"}")
+POST2=$(api -X POST "$S/rooms/$SESS/messages" -d "{\"work_id\":\"$WID\",\"content\":\"[@R](mention://agent/$AG) 하나만 더\"}")
 T2=$(echo "$POST2" | jq -r '.triggers[0].task_id')
 C2=$(curl -sS -X POST "http://127.0.0.1:8098/v1/daemon/runtimes/$RID/claim" -H "Authorization: Bearer $DTOK" -H 'Content-Type: application/json' -d '{"capacity":5}')
 echo "$C2" | jq -r '.tasks[]?.task.id' | grep -q "$T2" && bad "paused lane 의 task $T2 가 dispatch 됐다" || ok "claim = $(echo "$C2" | jq -c '[.tasks[]?.task.id]') — 새 task $T2 는 나오지 않는다"

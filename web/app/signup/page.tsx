@@ -23,7 +23,7 @@ function SignupForm() {
       const r = await api.post("/auth/signup", {
         body: { display_name: name, email, password, invite_token: inviteToken },
       });
-      router.replace(r.accepted_invite ? "/sessions" : "/onboarding");
+      router.replace(r.accepted_invite ? "/rooms" : "/onboarding");
     } catch (err) {
       if (isApiError(err) && err.status === 409) setError("이미 가입된 이메일입니다. 로그인하세요.");
       else if (isApiError(err) && err.problem.errors?.length) setError(err.problem.errors.map((x) => x.message).join(" "));

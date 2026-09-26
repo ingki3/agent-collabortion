@@ -22,3 +22,22 @@
 .aside__summary { margin: 0 0 4px; font-size: var(--fs-sub); color: var(--ink); }
 .aside__blocked { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin-top: 6px; padding: 8px 10px; border: 1px solid var(--s-wait); border-radius: 8px; background: color-mix(in srgb, var(--s-wait) var(--soft-alpha), transparent); }
 .aside__link { align-self: flex-start; margin-top: 4px; font-size: var(--fs-meta); color: var(--ink-2); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
+/* v0.19 우열 미션 칸(T-R2-W2) */
+.work-panel__title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.work-panel__actions { display: flex; flex-direction: column; gap: 4px; }
+.work-panel__act { display: inline-flex; flex-direction: column; gap: 2px; }
+/* v0.19 우열 (나) 방 전체 칸(T-R2-W2) — 굵은 구분선과 제목으로 미션 칸과 가른다(붙여 두면 아티팩트도 미션의 것으로 읽힌다). */
+.room-panel { border-top: 3px solid var(--ink-2); padding-top: 8px; margin-top: 4px; display: flex; flex-direction: column; gap: 6px; }
+.room-panel__head {
+  display: block; width: 100%; text-align: left; border: 0; background: transparent; color: var(--ink); padding: 2px 0;
+  font: inherit; font-size: var(--fs-sub); cursor: pointer;
+}
+.room-panel__head:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.room-panel__body { display: flex; flex-direction: column; gap: 8px; }
+.room-panel__group { margin: 6px 0 2px; }
+/* T-BUDGETCAP — 비용 줄의 「상한 없음 — [상한 걸기]」와 그 자리 입력. */
+.budget-cap__none { color: var(--ink-2); font-size: var(--fs-meta); }
+.budget-cap__set { margin-top: 0; }
+.budget-cap__form { display: flex; flex-direction: column; gap: 4px; }
+.budget-cap__row { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.budget-cap__row .input { width: 96px; }

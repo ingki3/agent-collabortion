@@ -4,13 +4,14 @@
  *
  * 데이터 유실을 다루는 다이얼로그라 명세가 있다. 네 구역을 그대로 그린다:
  *   1) 상황  — "노트북이 N일간 오프라인입니다. 이 세션은 M월 D일부터 일시정지 상태입니다"
- *   2) 대상  — 후보는 **서버가 정한다**(`listRuntimeCandidates?session_id=`). 격리가 후보를 제한하고,
+ *   2) 대상  — 후보는 **서버가 정한다**(`listRuntimeCandidates?session_id=<방 id>` — 쿼리 이름만 옛말, 값은 방 id). 격리가 후보를 제한하고,
  *              `worktree` 는 **경로가 아니라 remote URL** 로 같은 저장소를 판정한다(E14-04·05).
  *              후보가 아닌 런타임도 비활성 + 사유로 그린다 — 사라진 선택지는 이유를 말하지 못한다.
  *   3) 유실 경고 — `worktree` 일 때만. diff 아티팩트를 **제출 순서 그대로** 미리 보여 준다(E14-06:
  *              순서가 뒤바뀐 diff 는 충돌한다). 확인 체크박스가 계약의 `acknowledge_loss` 다 —
  *              worktree 인데 false 면 서버가 422 로 막는다.
- *   4) 선택  — 재바인딩 / 세션 종료(`cancelled`, E14-07) / 취소.
+ *   4) 선택  — 재바인딩 / 열린 미션 모두 취소(각 미션 `cancelWork` → `cancelled`, E14-07 — SCREEN §4.16 「세션 종료」의 새 이름.
+ *              옛 `cancelSession` 은 v0.3.0(R4, D22)에서 지워졌다 — 계약 rebindRoom: 「열린 미션을 전부 닫아도 풀린다」) / 취소.
  *
  * 화면은 판정하지 않는다: 후보 여부도 `acknowledge_loss` 강제도 서버가 다시 검사한다(E14-05 "직접 호출도
  * 막는다"). 여기 있는 비활성은 편의지 방어가 아니다.
@@ -19,28 +20,50 @@ import { useCallback, useEffect, useState } from "react";
 import "./rebind-dialog.css";
 import { api, errorMessage } from "@/lib/api/client";
 import { relativeTime } from "@/lib/time";
-import type { Artifact, IsolationKind, RuntimeCandidate, Session } from "@/lib/api/types";
+import { FOLDERS_WORDING } from "@/lib/workdir-tree";
+import { pageItems, type Artifact, type Isolation, type IsolationKind, type Room, type RuntimeCandidate, type WorkListItem } from "@/lib/api/types";
+
+/** 재바인딩 대상 방 — 다이얼로그가 그리는 칸만. `rebindTargetOfRoom` 이 `getRoom` 응답에서 만든다. */
+export interface RebindTarget {
+  id: string;
+  title: string;
+  isolation: Isolation;
+  workspace_id: string;
+  paused_detail?: { paused_at?: string | null; runtime?: { offline_since?: string | null } | null } | null;
+  runtime?: { name?: string | null } | null;
+}
+
+/** `getRoom` → 다이얼로그 대상. 멈춘 시각은 방 멈춤(`blocked_detail.blocked_at`), 끊긴 시각은 방 컴퓨터의 `offline_since`. */
+export function rebindTargetOfRoom(r: Room): RebindTarget {
+  return {
+    id: r.id,
+    title: r.name,
+    isolation: r.isolation,
+    workspace_id: r.workspace_id,
+    paused_detail: { paused_at: r.blocked_detail?.blocked_at ?? null, runtime: { offline_since: r.runtime?.offline_since ?? null } },
+    runtime: r.runtime ?? null,
+  };
+}
+
+/** 열린 미션 = 끝나지 않은 미션(취소 대상). */
+const OPEN_WORK: WorkListItem["status"][] = ["draft", "active", "paused", "completing"];
 
 export interface RebindDialogProps {
-  /** 재바인딩 대상 세션. `paused(runtime_offline)` 가 아니면 서버가 409 로 막는다. */
-  session: Pick<Session, "id" | "title" | "isolation" | "status"> & {
-    workspace_id: string;
-    paused_detail?: Session["paused_detail"];
-    runtime?: { name?: string | null } | null;
-  };
+  /** 재바인딩 대상 방. 방이 `runtime_offline` 으로 멈춘 게 아니면 서버가 409 로 막는다. */
+  session: RebindTarget;
   /** 실행 후 호출부가 목록·배너를 다시 읽는다. */
   onDone?: (result: "rebound" | "cancelled") => void;
   onClose: () => void;
 }
 
-/** "N일간 오프라인입니다" — 상황 문장의 첫 줄(SCREEN §4.9 상황 칸). */
+/** "N일간 연결이 끊겼습니다" — 상황 문장의 첫 줄(SCREEN §4.9 상황 칸 · §3.4(b) — 「오프라인」 대신 S5 배지와 같은 말). */
 export function offlineSentence(runtimeName: string | null | undefined, offlineSince: string | null | undefined, pausedAt: string | null | undefined): string {
-  const who = runtimeName ?? "이 세션의 컴퓨터";
+  const who = runtimeName ?? "이 방의 컴퓨터";
   const days = offlineSince ? Math.max(0, Math.floor((Date.now() - Date.parse(offlineSince)) / 86_400_000)) : null;
-  const head = days == null ? `${who}이 오프라인입니다` : `${who}이 ${days}일간 오프라인입니다`;
+  const head = days == null ? `${who}이 연결이 끊겼습니다` : `${who}이 ${days}일간 연결이 끊겼습니다`;
   if (!pausedAt) return `${head}.`;
   const d = new Date(pausedAt);
-  return `${head}. 이 세션은 ${d.getMonth() + 1}월 ${d.getDate()}일부터 일시정지 상태입니다.`;
+  return `${head}. 이 방은 ${d.getMonth() + 1}월 ${d.getDate()}일부터 멈춰 있습니다.`;
 }
 
 /**
@@ -49,7 +72,7 @@ export function offlineSentence(runtimeName: string | null | undefined, offlineS
  */
 export function lossWarning(diffCount: number): string {
   return (
-    `완료된 작업 줄기의 코드도 원래 컴퓨터의 브랜치에만 있습니다. 새 컴퓨터에서는 이 세션의 diff 아티팩트 ` +
+    `완료된 서브 미션의 코드도 원래 컴퓨터의 브랜치에만 있습니다. 새 컴퓨터에서는 이 방의 아티팩트(diff) ` +
     `${diffCount}개를 순서대로 적용해 복구합니다. 커밋 이력은 복원되지 않습니다.`
   );
 }
@@ -89,7 +112,7 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
     // 제출 순서 = 재적용 순서(계약 listArtifacts "제출 순"). 화면이 다시 정렬하면 순서를 잃는다.
     api
       // 계약 listArtifacts 는 **배열**이다(Page 봉투가 아니다) — 그리고 그 순서가 제출 순서다.
-      .get("/sessions/{sessionId}/artifacts", { path: { sessionId: session.id }, query: { type: "diff" } })
+      .get("/rooms/{roomId}/artifacts", { path: { roomId: session.id }, query: { type: "diff" } })
       .then((arr) => setDiffs(arr ?? []), () => setDiffs([]));
   }, [worktree, session.id]);
 
@@ -101,8 +124,8 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
     setBusy(true);
     setError(null);
     try {
-      await api.post("/sessions/{sessionId}/rebind", {
-        path: { sessionId: session.id },
+      await api.post("/rooms/{roomId}/rebind", {
+        path: { roomId: session.id },
         // worktree 면 계약이 `acknowledge_loss` 를 요구한다(false 면 422). none 은 보내지 않아도 된다.
         body: { runtime_id: target, ...(worktree ? { acknowledge_loss: ack } : {}) },
       });
@@ -119,8 +142,11 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
     setBusy(true);
     setError(null);
     try {
-      // 종료는 `cancelled` 다(E14-07) — 아티팩트는 서버에 남아 회수된다.
-      await api.post("/sessions/{sessionId}/cancel", { path: { sessionId: session.id }, body: { reason: "컴퓨터 연결 끊김 — 옮기지 않고 종료" } });
+      // 종료는 열린 미션 각각의 `cancelled` 다(E14-07) — 아티팩트는 서버에 남아 회수된다. 열린 미션이 전부 닫히면 방 멈춤이 풀린다(rebindRoom).
+      const page = await api.get("/rooms/{roomId}/works", { path: { roomId: session.id }, query: { status: OPEN_WORK } });
+      for (const w of pageItems<WorkListItem>(page)) {
+        await api.post("/works/{workId}/cancel", { path: { workId: w.id } });
+      }
       onDone?.("cancelled");
       onClose();
     } catch (e) {
@@ -143,7 +169,7 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
         <p className="rebind__situation" data-testid="rebind-situation">
           {offlineSentence(session.runtime?.name, session.paused_detail?.runtime?.offline_since, session.paused_detail?.paused_at)}
         </p>
-        <p className="rebind__sub">세션 <b>{session.title}</b></p>
+        <p className="rebind__sub">방 <b>{session.title}</b></p>
 
         {/* 2 대상 선택 */}
         <div className="rebind__section">
@@ -159,8 +185,8 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
             <p className="muted small">후보를 확인하는 중…</p>
           ) : eligible.length === 0 ? (
             <p className="problem" data-testid="rebind-no-candidate">
-              후보가 없습니다 — {worktree ? "이 세션의 저장소와 같은 remote URL 을 가진 온라인 컴퓨터가 없습니다." : "온라인인 컴퓨터가 없습니다."}{" "}
-              컴퓨터를 연결하거나 세션을 종료하세요.
+              후보가 없습니다 — {worktree ? "이 방의 저장소와 같은 remote URL 을 가진 온라인 컴퓨터가 없습니다." : "온라인인 컴퓨터가 없습니다."}{" "}
+              컴퓨터를 연결하거나 미션을 종료하세요.
             </p>
           ) : (
             <ul className="rebind__cands" data-testid="rebind-candidates">
@@ -190,6 +216,14 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
           )}
         </div>
 
+        {/* 3 유실 경고 — `none`(SCREEN §4.16 S17 `[FOLDERS]` · Pencil 「Loss Warning (none)」): worktree 와 같은 박스 + ⚠ 제목 줄.
+            폴더는 서버가 새 컴퓨터의 기준 위치로 새로 짓고 내용은 옮기지 않는다 — 같은 위험이니 같은 무게로 보인다 */}
+        {!worktree && (
+          <div className="rebind__loss" data-testid="rebind-loss-none-box">
+            <p className="rebind__loss-title" data-testid="rebind-loss-none-title">{FOLDERS_WORDING.rebind_none_loss_title}</p>
+            <p className="rebind__loss-text" data-testid="rebind-loss-none">{FOLDERS_WORDING.rebind_none_loss}</p>
+          </div>
+        )}
         {/* 3 유실 경고 — worktree 일 때만 */}
         {worktree && (
           <div className="rebind__loss" data-testid="rebind-loss">
@@ -206,7 +240,7 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
             )}
             {diffs && diffs.length === 0 && (
               <p className="small muted-3" data-testid="rebind-no-artifact">
-                제출된 diff 아티팩트가 없습니다 — 새 workdir 은 비어 있는 채로 시작합니다.
+                제출된 diff 아티팩트가 없습니다 — 새 작업 폴더는 비어 있는 채로 시작합니다.
               </p>
             )}
             <label className="rebind__ack">
@@ -232,17 +266,17 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
           </button>
           {confirmEnd ? (
             <button type="button" className="btn btn--sm rebind__danger" disabled={busy} onClick={() => void endSession()} data-testid="rebind-end-confirm">
-              정말 종료합니다(되돌릴 수 없습니다)
+              정말 취소합니다(되돌릴 수 없습니다)
             </button>
           ) : (
             <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setConfirmEnd(true)} data-testid="rebind-end">
-              세션 종료
+              열린 미션 모두 취소
             </button>
           )}
           <button type="button" className="btn btn--sm btn--ghost" disabled={busy} onClick={onClose} data-testid="rebind-cancel">취소</button>
         </div>
         <p className="rebind__foot">
-          아티팩트·메시지·결정 기록은 서버에 있어 대화 맥락은 그대로입니다. 진행 중이던 lane 은 콜드 스타트합니다.
+          아티팩트·메시지·결정 기록은 서버에 있어 대화 맥락은 그대로입니다. 진행 중이던 서브 미션은 처음부터 다시 시작합니다.
         </p>
       </div>
     </div>

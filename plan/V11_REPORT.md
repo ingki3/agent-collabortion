@@ -40,7 +40,7 @@
 | 번들 | `task.allowed_commands` 10 (claim 탭, R7) | 10 (래퍼 env) | 13 (L3) |
 
 - **(d) 사람(쿠키) 경로는 비게이트**(NN4): Director·멤버의 `/note` 메시지 201 · getSession/listLanes/listMessages 200 · Director 의 POST /lanes·/decisions 는 **403 `agent_only`**(사람 권한 규칙 — 「새 작업 줄기로 보내기」·HITL 카드), `command_not_allowed` 0 · 세션 전체 rejected 행 = 2(R·RH 의 curl 우회분뿐) (D1~D6).
-- **(e) 관찰 표**: 5행 §11 순서, 5행 모두 n ≥ 1(chain_scale 4 · chain_depth 1 · join_breadth 2 · routing 8 · empty_turn 8), routing breakdown 9종(규칙 2 = 7 · platform 1), **empty_turn_rate = 3/8 = 0.375** 가 DB 와 같은 수(Idle 의 빈 대본 턴 3 = `status/turn_end/empty_turn` 카드 3, 게이트 턴에는 0) (O1~O5·L14·Q2·Q3). 대시보드: `/settings?tab=dashboard` 200 · 프록시 5행 · agent-browser DOM `observation-row` 5 · `empty_turn_rate` 측정 가능 (W0~W2b, `web/__screenshots__/p5-82-s14-observations.png`). S7: Idle lane 이력 → 「활동」에 `feed-row-empty-turn` ≥ 1 · 카드 `lane-empty-turn` 1 (W3·W3b, `p5-82-s7-empty-turn.png`).
+- **(e) 관찰 표**: 5행 §11 순서, 5행 모두 n ≥ 1(chain_scale 4 · chain_depth 1 · join_breadth 2 · routing 8 · empty_turn 8), routing breakdown 9종(규칙 2 = 7 · platform 1), **empty_turn_rate = 3/8 = 0.375** 가 DB 와 같은 수(Idle 의 빈 대본 턴 3 = `status/turn_end/empty_turn` 카드 3, 게이트 턴에는 0) (O1~O5·L14·Q2·Q3). 대시보드: `/settings?tab=dashboard` 200 · 프록시 5행 · agent-browser DOM `observation-row` 5 · `empty_turn_rate` 측정 가능 (W0~W2b, `web/__screenshots__/p5-82-s14-observations.png`). S7: Idle lane 이력 → 「활동」에 `feed-row-empty-turn` ≥ 1 · 카드 `lane-empty-turn` 1 (W3·W3b, `web/__screenshots__/v018/p5-82-s7-empty-turn.png`).
 - **(f) I-2 lane.actions 실서버**: running → `restart,cancel` · queued → `cancel` · waiting_human → `respond_hitl` · done → `[]` · **멤버(비제어자)는 running 도 `[]`** (L9~L11·L13·C5·C6·Q1). 웹 목의 규칙(S-83 교훈)과 같다.
 
 ## 3. 72_ A2d 흔들림 — 원인 · 고침 · 연속 3회
@@ -75,4 +75,4 @@
 
 ## 7. 산출물
 
-`e2e/p5/82_role_gate.sh` · `84_cli_allowed_commands.sh`(이동) · `ci.sh`(SCRIPTS · 스위치 표 · 두 판정 표 모양) · `lib.sh`(PSQL_URL) · `lib_i5.sh`(`wait_step`) · `fixtures/agent.sh`(Researcher barrier · Gate · Asker) · `72_scenario_a.sh`(A2d0) · README(T-I6 절 · 비용 열) · 스크립트 머리 비용 한 줄 · `web/__screenshots__/p5-82-*.png` · 이 문서.
+`e2e/p5/82_role_gate.sh` · `84_cli_allowed_commands.sh`(이동) · `ci.sh`(SCRIPTS · 스위치 표 · 두 판정 표 모양) · `lib.sh`(PSQL_URL) · `lib_i5.sh`(`wait_step`) · `fixtures/agent.sh`(Researcher barrier · Gate · Asker) · `72_scenario_a.sh`(A2d0) · README(T-I6 절 · 비용 열) · 스크립트 머리 비용 한 줄 · `web/__screenshots__/p5-82-*.png`·`web/__screenshots__/v018/p5-82-*.png` · 이 문서.

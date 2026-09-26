@@ -2,7 +2,7 @@
 # U1 "민지의 첫 15분" E2E — agent-browser 스크립트 (EVAL_USER U1 1~13단계).
 #
 # 1부(서버만): 가입(S2) → 온보딩 1단계 워크스페이스 → 2단계 S12 인라인 **대기 중** 단계까지 검증 + 스크린샷.
-# 2부(데몬 페어링 후, Integrator 가 실행): 준비 완료 → 3단계 Lead 생성 → S6(제목·goal) → S7(goal 시스템 메시지 · 참여자 칩 · 에이전트 답글).
+# 2부(데몬 페어링 후, Integrator 가 실행): 준비 완료 → 3단계 Lead 생성 → S18 방 만들기 → S7 빈 방 → S19 Lead 초대 → 첫 멘션 · 에이전트 답글.
 #
 # 사용:
 #   BASE_URL=http://localhost:3000 bash e2e/u1.sh            # 1부만(S12 대기에서 종료, exit 0)
@@ -103,23 +103,38 @@ ab wait '[data-testid="agent-create"]' >/dev/null
 shot "u1-05-onboarding-agent"
 ab click '[data-testid="agent-create"]' >/dev/null
 
-# ── 7~13단계: S6 goal → 시작 → S7 ──
-step "U1-7~12 S6 새 세션 — 제목·goal 만 입력, 나머지 기본값"
-ab wait --url "**/sessions/new" >/dev/null || fail "S6 로 이동하지 않음"
-ab wait '[data-testid="session-defaults"]' >/dev/null
-ab fill '[data-testid="session-title"]' "결제 시장 조사" >/dev/null
-ab fill '[data-testid="session-goal"]' "국내 B2B SaaS 결제 시장 조사 보고서 10페이지" >/dev/null
-shot "u1-07-s6-goal"
-ab click '[data-testid="session-start"]' >/dev/null
+# ── 7~13단계: S18 방 만들기 → S7 빈 방 → 참여자 초대 → 첫 멘션 ──
+# v0.19(T-R2-W4b): S6 마법사는 지워졌다. 온보딩 마지막 CTA 「Lead 만들고 첫 방 만들기」가 S18(이름 한 칸)을 열고, 방이 만들어지면
+# S7 의 **빈 방 상태**로 들어간다(SCREEN §4.2). 목표는 방이 아니라 미션의 칸이라 첫 방에서는 묻지 않는다 — 말을 걸면 시작이다.
+step "U1-7 S18 방 만들기 — 이름 한 칸"
+ab wait --url "**/rooms/new" >/dev/null || fail "S18(/rooms/new) 로 이동하지 않음"
+ab wait '[data-testid="create-room-dialog"]' >/dev/null
+ab fill '[data-testid="create-room-name"]' "결제 시장 조사" >/dev/null
+shot "u1-07-s18-room"
+ab click '[data-testid="create-room-submit"]' >/dev/null
 
-step "U1-13 S7 — goal 시스템 메시지 · 참여자 칩 · 에이전트 응답(실시간)"
-ab wait --url "**/sessions/*" >/dev/null || fail "S7 로 이동하지 않음"
-ab wait '[data-testid="session-detail"]' >/dev/null
-# 첫 시스템 메시지: 실서버(S-67, sessions.go)와 목(lib/mock/wording.ts `session_started`)이 **같은 문장**을 낸다 —
-# `세션을 시작했습니다. 목표: …`. 한 문장만 허용한다(T-W10; 목·서버 대조는 lib/mock/server-wording/e-session-started.test.ts).
-ab wait --fn "document.body.innerText.includes('세션을 시작했습니다. 목표:')" --timeout 15000 >/dev/null || fail "goal 시스템 메시지가 보이지 않음('세션을 시작했습니다. 목표: …')"
-ab wait '[data-testid="participants"] [data-testid="agent-chip"]' >/dev/null || fail "참여자 칩 없음"
-shot "u1-13-s7-started"
+step "U1-8 S7 빈 방 — 「이제 무엇을 하나요?」 세 갈래"
+ab wait --fn "/^\\/rooms\\/[0-9a-f-]{36}$/.test(location.pathname)" --timeout 20000 >/dev/null || fail "S7(/rooms/<id>) 로 이동하지 않음"
+ab wait '[data-testid="room-fresh"]' >/dev/null || fail "빈 방 안내가 없음"
+shot "u1-08-s7-fresh"
+
+step "U1-9 참여자 초대(S19) — Lead"
+ab click '[data-testid="fresh-invite"]' >/dev/null
+ab wait '[data-testid="rd-participants"]' >/dev/null
+ab click '[data-testid="rd-invite-tab-agents"]' >/dev/null
+ab wait '[data-testid="rd-invite-agent-btn"]' >/dev/null || fail "초대할 에이전트가 없음"
+ab click '[data-testid="rd-invite-agent-btn"]' >/dev/null
+ab wait --fn "[...document.querySelectorAll('[data-testid=\"rd-part-row\"]')].some(r => r.textContent.includes('Lead'))" --timeout 15000 >/dev/null || fail "Lead 가 참여자 목록에 없음"
+ab click '[data-testid="rd-participants-close"]' >/dev/null
+
+step "U1-13 S7 — 첫 멘션 → 에이전트 응답(실시간)"
+ab fill '[data-testid="composer-input"]' "@" >/dev/null
+ab wait '[data-testid="mention-menu"]' >/dev/null || fail "멘션 자동완성이 열리지 않음"
+ab press Enter >/dev/null
+ab type '[data-testid="composer-input"]' "국내 B2B SaaS 결제 시장 조사 보고서 10페이지 목차를 잡아 줘" >/dev/null
+ab wait '[data-testid="chip-trigger"]' >/dev/null || fail "트리거 미리보기 칩 없음"
+shot "u1-13-s7-first-mention"
+ab click '[data-testid="composer-send"]' >/dev/null
 # 에이전트 답글이 새로고침 없이 도착하는지(실시간). 실서버는 데몬 실행 시간이 있으므로 넉넉히 기다린다.
 ab wait --fn "document.querySelectorAll('[data-testid=\"message-card\"]').length >= 2" --timeout "$((PAIR_TIMEOUT * 1000))" >/dev/null || fail "에이전트 답글이 타임라인에 오지 않음"
 shot "u1-13b-s7-agent-reply"

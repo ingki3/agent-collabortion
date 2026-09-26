@@ -38,7 +38,7 @@ func (f *p2Fixture) openSessionBudgetHitl(t *testing.T) string {
 func TestP3SessionBudgetApprovalResumesTheSession(t *testing.T) {
 	f := newP2Fixture(t)
 	if _, err := f.pool.Exec(t.Context(), `
-		UPDATE session SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+		UPDATE room SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(t.Context(), `UPDATE agent SET budget_per_task = NULL`); err != nil {
@@ -74,7 +74,7 @@ func TestP3SessionBudgetApprovalResumesTheSession(t *testing.T) {
 	var status, reason string
 	var limits []byte
 	if err := f.pool.QueryRow(t.Context(), `
-		SELECT status::text, COALESCE(paused_reason::text, ''), limits FROM session WHERE id = $1`, f.sessionID).
+		SELECT wk.status::text, COALESCE(wk.paused_reason::text, ''), s.limits FROM room s JOIN work wk ON wk.room_id = s.id WHERE s.id = $1`, f.sessionID).
 		Scan(&status, &reason, &limits); err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestP3SessionBudgetApprovalResumesTheSession(t *testing.T) {
 func TestP3SessionBudgetRejectionKeepsThePause(t *testing.T) {
 	f := newP2Fixture(t)
 	if _, err := f.pool.Exec(t.Context(), `
-		UPDATE session SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+		UPDATE room SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(t.Context(), `UPDATE agent SET budget_per_task = NULL`); err != nil {
@@ -112,7 +112,7 @@ func TestP3SessionBudgetRejectionKeepsThePause(t *testing.T) {
 
 	var status, reason string
 	if err := f.pool.QueryRow(t.Context(), `
-		SELECT status::text, COALESCE(paused_reason::text, '') FROM session WHERE id = $1`, f.sessionID).
+		SELECT status::text, COALESCE(paused_reason::text, '') FROM work WHERE room_id = $1`, f.sessionID).
 		Scan(&status, &reason); err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestP3SessionBudgetRejectionKeepsThePause(t *testing.T) {
 func TestP3InboxCardCarriesHitlPurpose(t *testing.T) {
 	f := newP2Fixture(t)
 	if _, err := f.pool.Exec(t.Context(), `
-		UPDATE session SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+		UPDATE room SET limits = '{"budget_usd": 1}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(t.Context(), `UPDATE agent SET budget_per_task = NULL`); err != nil {

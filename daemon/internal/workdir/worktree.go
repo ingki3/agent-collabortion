@@ -365,6 +365,21 @@ func ListWorktrees(root string) []Info {
 			add(filepath.Join(base, s.Name(), a.Name()), s.Name())
 		}
 	}
+	// daemon-protocol v0.10.0 §6.1: `rooms/<room>/_worktrees/<agent>`. The
+	// name tag gives the id; the room directory name is no session uuid, so
+	// the fallback identity is empty (the server skips a row it cannot match).
+	rooms, _ := os.ReadDir(filepath.Join(root, RoomsDir))
+	for _, r := range rooms {
+		if !r.IsDir() {
+			continue
+		}
+		agents, _ := os.ReadDir(filepath.Join(root, RoomsDir, r.Name(), WorktreesSub))
+		for _, a := range agents {
+			if a.IsDir() {
+				add(filepath.Join(root, RoomsDir, r.Name(), WorktreesSub, a.Name()), "")
+			}
+		}
+	}
 	// A checkout at the path the SERVER chose (§4.1 — anywhere under the
 	// root, not necessarily `worktrees/…`) is only findable through its
 	// record.

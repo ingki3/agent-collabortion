@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # e2e/p5/79_delete_session.sh — T-S17 실서버 스모크: deleteSession(openapi 0.1.3, FR-2.7)
+# R4(openapi v0.3.0 D22): /sessions/* 삭제 — 같은 흐름을 deleteRoom(DELETE /v1/rooms/{id}, FR-2.6)·completeWork·cancelWork 로 잰다.
 # — **데몬 없이**, 데몬 역할(claim·phase·finish·§6 보고)은 curl 로 흉내(70_ 의 레시피).
 #
 # 비용 한 줄(I-3): 에이전트 턴 0(데몬 없이 curl) · $0 · ≈ 15s
@@ -7,9 +8,9 @@
 # 재는 것 (판정 표 out/79-checks.tsv):
 #   A. 완료 세션 하나를 만든다: 세션 → claim → phase → 아티팩트(task 토큰, large object) → finish(usage)
 #      → completeSession → completed. 비용 by_session 에 있고, 지표 표본에 든다.
-#   B. 권한: 멤버 403 director_required · 진행 중 세션 409 session_active(계약 문장) · Director 204
-#      → 두 번째 404 · getSession 404 · listSessions 에 없음 · getWorkspaceCost 에서 빠짐 · 지표 표본에서 빠짐
-#      · activity_log session.deleted 1행(그 세션의 다른 활동 0) · SSE session.deleted {session_id}
+#   B. 권한: 멤버 403 room_owner_required · 진행 중 미션이 있는 방 409 works_active(계약 문장) · 방장 204
+#      → 두 번째 404 · getRoom 404 · listRooms 에 없음 · getWorkspaceCost 에서 빠짐 · 지표 표본에서 빠짐
+#      · activity_log room.deleted 1행(그 방의 다른 활동 0) · SSE room.deleted {room_id}
 #      · 아티팩트 large object 0(0008 트리거) · 자식 행 0
 #   C. worktree 세션: §6 보고(merged=false · commits_ahead=1) → cancel → 삭제 409 workdir_unmerged
 #      + Problem.workdirs[0].id = 그 행 → §6 보고(merged=true · clean) → 204 → claim 응답에 gc {workdirs:[{id,path}]}
@@ -35,7 +36,7 @@ claim() { daemon_api "runtimes/$RID/claim" '{"capacity":5,"wait_ms":0}'; }
 # as COOKIEFILE METHOD PATH [JSON] → 다른 계정으로 api
 as() { local c="$1"; shift; COOKIE="$c" api "$@"; }
 count_children() { # SESSION → 자식 행 합계(세션을 가리키는 표 전부)
-  psqlq "select (select count(*) from session_participant where session_id='$1')
+  psqlq "select (select count(*) from room_participant where room_id='$1' and agent_id is not null)
             + (select count(*) from lane where session_id='$1') + (select count(*) from task where session_id='$1')
             + (select count(*) from message where session_id='$1') + (select count(*) from artifact where session_id='$1')
             + (select count(*) from hitl_request where session_id='$1') + (select count(*) from decision where session_id='$1')
@@ -64,8 +65,8 @@ chk 0.2 "admin/member" "$(psqlq "select string_agg(role::text, '/' order by role
 # ───────────────────────────── A ─────────────────────────────────────────────
 step "A. 완료 세션 만들기 — claim → phase → 아티팩트 → finish → completeSession"
 mk_session() { # TITLE ISOLATION_JSON → session id
-  api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg t "$1" --arg a "$AG" --arg rt "$RID" --argjson iso "$2" \
-    '{title:$t,goal:"저장소 밖에서 짧은 인사말 한 줄을 쓴다",isolation:$iso,participants:[{agent_id:$a}],assignee_agent_id:$a,runtime_id:$rt}')" | jq -r .id
+  create_room_work "$WS" "$(jq -nc --arg t "$1" --arg a "$AG" --arg rt "$RID" --argjson iso "$2" \
+    '{title:$t,goal:"저장소 밖에서 짧은 인사말 한 줄을 쓴다",isolation:$iso,participants:[{agent_id:$a}],assignee_agent_id:$a,runtime_id:$rt}')"
 }
 run_turn() { # SESSION → 그 세션의 초기 task 를 claim → phase running → finish completed(usage). 표준출력: task_id<TAB>task_token
   local s="$1" cl b tid tok
@@ -84,15 +85,15 @@ S_DONE="$(mk_session "삭제 대상(완료) $RUN" '{"kind":"none"}')"
 IFS=$'\t' read -r T_DONE TT_DONE <<<"$(run_turn "$S_DONE")"
 [ -n "$T_DONE" ] || die "완료 세션의 턴을 claim 하지 못했다"
 printf 'diff --git a/hello.txt b/hello.txt\n+안녕\n' > "$OUT/79-artifact.diff"
-ART="$(curl -sS -X POST "$API/sessions/$S_DONE/artifacts" -H "Authorization: Bearer $TT_DONE" -H "Idempotency-Key: $(uuid)" \
+ART="$(curl -sS -X POST "$API/rooms/$S_DONE/artifacts" -H "Authorization: Bearer $TT_DONE" -H "Idempotency-Key: $(uuid)" \
         -F name=report -F type=diff -F "file=@$OUT/79-artifact.diff")"
 ART_ID="$(jq -r '.artifact.id // .id // empty' <<<"$ART")"
 chk A.1 1 "$(psqlq "select count(*) from artifact where id='$ART_ID' and session_id='$S_DONE'")" "아티팩트 저장(task 토큰)"
 LO="$(psqlq "select substr(storage_ref,6) from artifact where id='$ART_ID'")"
 chk A.2 1 "$(psqlq "select count(*) from pg_largeobject_metadata where oid=${LO:-0}")" "본문은 large object pglo:$LO"
 finish_turn "$T_DONE"
-api_ok POST "/sessions/$S_DONE/complete" '{"confirm":true}' >/dev/null
-chk A.3 completed "$(psqlq "select status from session where id='$S_DONE'")" "completeSession → completed"
+api_ok POST "/works/$(work_of "$S_DONE")/complete" '{"confirm":true}' >/dev/null
+chk A.3 completed "$(psqlq "select status from work where room_id='$S_DONE'")" "completeWork → completed"
 COST0="$(api_ok GET "/workspaces/$WS/cost")"; echo "$COST0" | jq . > "$OUT/79-cost-before.json"
 chk A.4 1 "$(jq -r --arg s "$S_DONE" '[.by_session[]|select(.id==$s)]|length' <<<"$COST0")" "getWorkspaceCost.by_session 에 세션이 있다"
 MET0="$(api_ok GET "/workspaces/$WS/metrics")"; echo "$MET0" | jq . > "$OUT/79-metrics-before.json"
@@ -101,23 +102,25 @@ chk_ge A.6 5 "$(count_children "$S_DONE")" "자식 행(참여자·줄기·할 �
 # 이 경로(curl 데몬)는 activity_log 를 남기지 않으므로 그 세션의 활동 한 줄을 심어 "함께 사라진다"를 잰다.
 psqlq "insert into activity_log (workspace_id, session_id, actor_type, action, object_type, object_id) values ('$WS','$S_DONE','system','session.started','session','$S_DONE')" >/dev/null
 ACT0="$(psqlq "select count(*) from activity_log where session_id='$S_DONE'")"
-chk A.7 1 "$ACT0" "그 세션의 활동 기록 1행(심음)"
+# R4: createRoom→updateRoom→addRoomParticipant→createWork 경로가 room.settings_changed·participant.invited·work.created 를
+# 스스로 남긴다(옛 createSession 은 0행) — 심은 행을 따로 센다. ACT0 은 그 방의 활동 전부.
+chk A.7 1 "$(psqlq "select count(*) from activity_log where session_id='$S_DONE' and action='session.started'")" "그 방의 활동 기록에 심은 행 1(전체 $ACT0)"
 
 # ───────────────────────────── B ─────────────────────────────────────────────
 step "B. 권한 · 상태 · 삭제 뒤 관측"
 S_ACT="$(mk_session "진행 중 $RUN" '{"kind":"none"}')"
-R="$(as "$COOKIE_MEM" DELETE "/sessions/$S_DONE")"
-chk B.1 "403/director_or_admin_required" "$(api_code <<<"$R")/$(api_body <<<"$R" | jq -r .code)" "멤버(Director 아님) → 403"
-R="$(api DELETE "/sessions/$S_ACT")"
-chk B.2 "409/session_active" "$(api_code <<<"$R")/$(api_body <<<"$R" | jq -r .code)" "active 세션 → 409 session_active"
-chk B.3 "진행 중인 세션은 먼저 종료하세요" "$(api_body <<<"$R" | jq -r .detail)" "409 detail = 계약 문장"
+R="$(as "$COOKIE_MEM" DELETE "/rooms/$S_DONE")"
+chk B.1 "403/room_owner_required" "$(api_code <<<"$R")/$(api_body <<<"$R" | jq -r .code)" "멤버(방장 아님) → 403"
+R="$(api DELETE "/rooms/$S_ACT")"
+chk B.2 "409/works_active/1" "$(api_code <<<"$R")/$(api_body <<<"$R" | jq -r .code)/$(api_body <<<"$R" | jq -r .works_active)" "active 미션이 있는 방 → 409 works_active(works_active: 1)"
+chk B.3 "진행 중인 미션이 있어 방을 삭제할 수 없습니다 — 먼저 끝내거나 취소해 주세요" "$(api_body <<<"$R" | jq -r .detail)" "409 detail = 계약 문장"
 SSE="$OUT/79-sse.log"; : > "$SSE"
 curl -sN -b "$COOKIE" "$API/workspaces/$WS/stream" > "$SSE" 2>/dev/null &
 SSE_PID=$!; echo "$SSE_PID" > "$OUT/79-sse.pid"; sleep 1
-chk B.4 204 "$(api DELETE "/sessions/$S_DONE" | api_code)" "Director → 204"
-chk B.5 404 "$(api DELETE "/sessions/$S_DONE" | api_code)" "두 번째 호출 → 404 (멱등 아님)"
-chk B.6 404 "$(api GET "/sessions/$S_DONE" | api_code)" "getSession → 404"
-chk B.7 0 "$(api_ok GET "/workspaces/$WS/sessions" | jq -r --arg s "$S_DONE" '[.items[]|select(.id==$s)]|length')" "listSessions 에 없다"
+chk B.4 204 "$(api DELETE "/rooms/$S_DONE" | api_code)" "방장(Director) → 204"
+chk B.5 404 "$(api DELETE "/rooms/$S_DONE" | api_code)" "두 번째 호출 → 404 (멱등 아님)"
+chk B.6 404 "$(api GET "/rooms/$S_DONE" | api_code)" "getRoom → 404"
+chk B.7 0 "$(api_ok GET "/workspaces/$WS/rooms" | jq -r --arg s "$S_DONE" '[.items[]|select(.id==$s)]|length')" "listRooms 에 없다"
 COST1="$(api_ok GET "/workspaces/$WS/cost")"; echo "$COST1" | jq . > "$OUT/79-cost-after.json"
 chk B.8 0 "$(jq -r --arg s "$S_DONE" '[.by_session[]|select(.id==$s)]|length' <<<"$COST1")" "getWorkspaceCost.by_session 에서 빠졌다"
 chk B.9 0 "$(jq -r '.total_usd' <<<"$COST1")" "total_usd 0 (그 세션이 유일한 비용이었다)"
@@ -126,12 +129,12 @@ chk B.10 0 "$(jq -r '.metrics[]|select(.key=="auto_complete_rate")|.n' <<<"$MET1
 chk B.11 0 "$(count_children "$S_DONE")" "자식 행 0 (CASCADE)"
 chk B.12 0 "$(psqlq "select count(*) from pg_largeobject_metadata where oid=${LO:-0}")" "아티팩트 large object 0 (0008 트리거)"
 # session_id 의 FK 는 SET NULL 이라 "그 세션의 행 0" 만으론 못 잡는다 — 워크스페이스의 session_id NULL 행(고아)도 센다.
-chk B.13 "1/0/0" "$(psqlq "select (select count(*) from activity_log where action='session.deleted' and object_id='$S_DONE')||'/'||(select count(*) from activity_log where session_id='$S_DONE')||'/'||(select count(*) from activity_log where workspace_id='$WS' and session_id is null and action<>'session.deleted')")" "activity_log: session.deleted 1행 · 그 세션의 행 0 · 고아(session_id NULL) 0 (있었던 행 $ACT0)"
-chk B.14 "삭제 대상(완료) $RUN/$S_DONE" "$(psqlq "select payload->>'title' ||'/'|| (payload->>'session_id') from activity_log where action='session.deleted' and object_id='$S_DONE'")" "session.deleted payload {title, session_id}"
+chk B.13 "1/0/0" "$(psqlq "select (select count(*) from activity_log where action='room.deleted' and object_id='$S_DONE')||'/'||(select count(*) from activity_log where session_id='$S_DONE')||'/'||(select count(*) from activity_log where workspace_id='$WS' and session_id is null and action<>'room.deleted')")" "activity_log: room.deleted 1행 · 그 방의 행 0 · 고아(session_id NULL) 0 (있었던 행 $ACT0)"
+chk B.14 "삭제 대상(완료) $RUN/$S_DONE" "$(psqlq "select payload->>'name' ||'/'|| (payload->>'room_id') from activity_log where action='room.deleted' and object_id='$S_DONE'")" "room.deleted payload {name, room_id}"
 sleep 1; kill "$SSE_PID" 2>/dev/null || true; rm -f "$OUT/79-sse.pid"
-chk B.15 1 "$(grep -c '^event: session.deleted' "$SSE" || true)" "SSE session.deleted 1 프레임"
-chk B.16 "$S_DONE" "$(grep -A1 '^event: session.deleted' "$SSE" | grep '^data:' | sed 's/^data: //' | jq -r .payload.session_id)" "프레임 payload.session_id"
-chk B.17 1 "$(psqlq "select count(*) from stream_event where type='session.deleted' and session_id='$S_DONE'")" "stream_event 에 남아 백필 가능"
+chk B.15 1 "$(grep -c '^event: room.deleted' "$SSE" || true)" "SSE room.deleted 1 프레임"
+chk B.16 "$S_DONE" "$(grep -A1 '^event: room.deleted' "$SSE" | grep '^data:' | sed 's/^data: //' | jq -r .payload.room_id)" "프레임 payload.room_id"
+chk B.17 1 "$(psqlq "select count(*) from stream_event where type='room.deleted' and session_id='$S_DONE'")" "stream_event 에 남아 백필 가능"
 
 # ───────────────────────────── C ─────────────────────────────────────────────
 step "C. worktree 세션 — 미병합 409 → 병합 뒤 204 → gc 명령 → 없는 행 영수증 조용히 소비"
@@ -147,14 +150,14 @@ report() { # SESSION MERGED DIRTY AHEAD [GC_JSON] → §6 보고 코드
 chk C.1 200 "$(report "$S_WT" false false 1)" "§6 보고: 미병합 커밋 1"
 WD="$(psqlq "select id from workdir where session_id='$S_WT'")"
 chk C.2 "worktree/f/1" "$(psqlq "select kind::text||'/'||case when merged then 't' else 'f' end||'/'||commits_ahead from workdir where id='${WD:-00000000-0000-0000-0000-000000000000}'")" "workdir 행(merged=false, ahead=1)"
-api_ok POST "/sessions/$S_WT/cancel" '{"reason":"여기까지"}' >/dev/null
-chk C.3 cancelled "$(psqlq "select status from session where id='$S_WT'")" "cancelSession → cancelled"
-R="$(api DELETE "/sessions/$S_WT")"; api_body <<<"$R" | jq . > "$OUT/79-409-unmerged.json"
+api_ok POST "/works/$(work_of "$S_WT")/cancel" '{"reason":"여기까지"}' >/dev/null
+chk C.3 cancelled "$(psqlq "select status from work where room_id='$S_WT'")" "cancelWork → cancelled"
+R="$(api DELETE "/rooms/$S_WT")"; api_body <<<"$R" | jq . > "$OUT/79-409-unmerged.json"
 chk C.4 "409/workdir_unmerged" "$(api_code <<<"$R")/$(api_body <<<"$R" | jq -r .code)" "미병합 worktree → 409 workdir_unmerged"
-chk C.5 "$WD/worktree/$WT_PATH" "$(api_body <<<"$R" | jq -r '.workdirs[0].id+"/"+.workdirs[0].kind+"/"+.workdirs[0].path_or_ref')" "Problem.workdirs[0] = 그 행"
-chk C.6 1 "$(psqlq "select count(*) from session where id='$S_WT'")" "세션은 남아 있다"
+chk C.5 "$WD/$WT_PATH/$RID/1" "$(api_body <<<"$R" | jq -r '.workdirs[0]|.id+"/"+.path+"/"+.runtime_id+"/"+(.commits_ahead|tostring)')" "Problem.workdirs[0] = 그 행 {id,path,runtime_id,commits_ahead}(v0.2.6 모양)"
+chk C.6 1 "$(psqlq "select count(*) from room where id='$S_WT'")" "세션은 남아 있다"
 chk C.7 200 "$(report "$S_WT" true false 0)" "§6 보고: 병합됨 · 클린"
-chk C.8 204 "$(api DELETE "/sessions/$S_WT" | api_code)" "삭제 → 204"
+chk C.8 204 "$(api DELETE "/rooms/$S_WT" | api_code)" "삭제 → 204"
 chk C.9 0 "$(psqlq "select count(*) from workdir where id='${WD:-00000000-0000-0000-0000-000000000000}'")" "workdir 행 0 (행을 먼저 지운다)"
 CL="$(claim)"; echo "$CL" | jq . > "$OUT/79-claim-gc.json"
 GC="$(jq -c --arg s "$S_WT" '[.commands[]|select(.type=="gc" and .session_id==$s)][0]' <<<"$CL")"
@@ -168,9 +171,9 @@ chk C.14 0 "$(psqlq "select count(*) from workdir where session_id='$S_WT'")" "�
 chk C.15 "[]" "$(claim | jq -c --arg s "$S_WT" '[.commands[]|select(.session_id==$s)]')" "다음 claim 에 그 세션의 명령 없음"
 S_ADM="$(mk_session "관리자가 지운다 $RUN" '{"kind":"none"}')"
 IFS=$'\t' read -r T_ADM _ <<<"$(run_turn "$S_ADM")"; [ -n "$T_ADM" ] && finish_turn "$T_ADM"
-api_ok POST "/sessions/$S_ADM/cancel" '{"reason":"끝"}' >/dev/null
-chk C.16 204 "$(as "$COOKIE_ADM" DELETE "/sessions/$S_ADM" | api_code)" "admin(Director 아님) → 204"
-chk C.17 1 "$(psqlq "select count(*) from session where id='$S_ACT'")" "진행 중 세션은 그대로"
+api_ok POST "/works/$(work_of "$S_ADM")/cancel" '{"reason":"끝"}' >/dev/null
+chk C.16 204 "$(as "$COOKIE_ADM" DELETE "/rooms/$S_ADM" | api_code)" "admin(방장 아님) → 204"
+chk C.17 1 "$(psqlq "select count(*) from room where id='$S_ACT'")" "진행 중 세션은 그대로"
 
 step "결과: $CHECKS"
 printf '%s\n' "PASS $(grep -c $'\tPASS\t' "$CHECKS") · FAIL $FAILS" | tee "$OUT/79-summary.txt"

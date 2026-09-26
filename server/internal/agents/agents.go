@@ -50,6 +50,7 @@ func (s *Service) Create(ctx context.Context, wsID, ownerID uuid.UUID, in gen.Ag
 	if strings.TrimSpace(in.Instructions) == "" {
 		errs = append(errs, apperr.Field("instructions", "required", "지시문을 입력해 주세요"))
 	}
+	errs = append(errs, enumErrs(&in.Role, in.RespondTo)...)
 	if len(in.Profiles) == 0 {
 		errs = append(errs, apperr.Field("profiles", "min_items", "프로파일을 하나 이상 추가해 주세요"))
 	}
@@ -434,6 +435,21 @@ func profileArgs(v *[]string) []string {
 	return *v
 }
 
+// enumErrs refuses an agent_role / respond_to outside the contract enum as a
+// field error. The generated types are plain strings, so without this the
+// value reached the INSERT/UPDATE and came back as Postgres 22P02 — a 500 for
+// what is the caller's typo (e.g. the workspace role "member" sent as role).
+func enumErrs(role *gen.AgentRole, respondTo *gen.RespondTo) []apperr.FieldError {
+	var errs []apperr.FieldError
+	if role != nil && !role.Valid() {
+		errs = append(errs, apperr.Field("role", "invalid", "역할은 목록에 있는 것 중에서 골라 주세요"))
+	}
+	if respondTo != nil && !respondTo.Valid() {
+		errs = append(errs, apperr.Field("respond_to", "invalid", "응답 대상은 목록에 있는 것 중에서 골라 주세요"))
+	}
+	return errs
+}
+
 // Update applies a partial AgentUpdate (P1: identity, instructions, respond_to).
 func (s *Service) Update(ctx context.Context, id uuid.UUID, caller uuid.UUID, in gen.AgentUpdate) (*gen.Agent, error) {
 	now := s.Clock.Now()
@@ -442,6 +458,9 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, caller uuid.UUID, in
 	add := func(col string, v any) {
 		args = append(args, v)
 		set = append(set, fmt.Sprintf("%s = $%d", col, len(args)))
+	}
+	if errs := enumErrs(in.Role, in.RespondTo); len(errs) > 0 {
+		return nil, apperr.Validation(errs...)
 	}
 	if in.Name != nil {
 		if strings.TrimSpace(*in.Name) == "" || len(*in.Name) > 40 || strings.ContainsAny(*in.Name, "[]()@") {

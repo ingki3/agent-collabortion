@@ -30,40 +30,61 @@ describe("심각도 배지 — 글리프는 심각도, 색은 원인 상태(리�
     expect(TONE_BY_TYPE).toEqual({
       hitl_request: "wait",
       lane_blocked: "block",
-      session_paused: "pause",
       runtime_offline: "fail",
       run_failed: "fail",
       mention: "run",
-      session_completed: "done",
       // P4(PR #155): GC 가 미병합·미커밋 때문에 지우지 못한 workdir — Director 의 손이 필요하니 `block`.
       workdir_gc_blocked: "block",
+      // v0.2.0 계약(PRD v0.19) — SCREEN §4.14. 격리 확인은 사람의 답을 기다리니 `wait`, 방 멈춤은 `pause`.
+      isolation_confirm: "wait",
+      work_proposed: "run",
+      work_paused: "pause",
+      room_paused: "pause",
+      work_completed: "done",
+      room_invited: "run",
+      workdir_quota: "block",
     });
     // 같은 `action_required` 인데 색이 다르다 — 그것이 규칙의 요점이다.
     expect(TONE_BY_TYPE.hitl_request).not.toBe(TONE_BY_TYPE.lane_blocked);
     // 같은 `attention` 인데 색이 다르다.
-    expect(TONE_BY_TYPE.session_paused).not.toBe(TONE_BY_TYPE.run_failed);
+    expect(TONE_BY_TYPE.work_paused).not.toBe(TONE_BY_TYPE.run_failed);
   });
 
   it("배지의 글리프는 심각도가 정하고(! ▲ i) tone 은 타입이 덮어쓴다", () => {
-    render(<InboxItemCard item={item({ type: "session_paused", severity: "attention", card: { title: "멈췄습니다" }, actions: ["approve_continue", "open_session"] })} />);
+    render(<InboxItemCard item={item({ type: "work_paused", severity: "attention", card: { title: "멈췄습니다" }, actions: ["open_work"] })} />);
     const badge = screen.getByRole("img", { name: "주의" });
     expect(badge.getAttribute("data-value")).toBe("attention");
     expect(badge.getAttribute("data-tone")).toBe("pause");
     expect(badge.textContent).toContain("▲");
   });
 
-  it("8종 이름표가 모두 있다(P4 workdir_gc_blocked 포함)", () => {
+  it("13종 이름표가 모두 있다(P4 workdir_gc_blocked · v0.2.0 방·미션 7종 포함 · v0.3.0 R4 에서 session_completed·session_paused 삭제)", () => {
     expect(Object.keys(TYPE_LABEL).sort()).toEqual(
-      ["hitl_request", "lane_blocked", "mention", "run_failed", "runtime_offline", "session_completed", "session_paused", "workdir_gc_blocked"],
+      ["hitl_request", "isolation_confirm", "lane_blocked", "mention", "room_invited", "room_paused", "run_failed", "runtime_offline", "work_completed", "work_paused", "work_proposed", "workdir_gc_blocked", "workdir_quota"],
     );
   });
 });
 
 describe("버튼은 서버가 준 actions 로만 나온다", () => {
-  it("응답 권한이 없으면 '세션 열기' 하나뿐이다(E7-11 · U10-1)", () => {
+  it("응답 권한이 없으면 '방 열기' 바로가기 하나뿐이다(E7-11 · U10-1 · v0.19 §4.14 — 이동은 버튼이 아니라 바로가기)", () => {
     render(<InboxItemCard item={item({ actions: ["open_session"] })} onAction={vi.fn()} />);
     expect(screen.queryByTestId("hitl-answer")).toBeNull();
-    expect(screen.getByTestId("inbox-action-open_session")).toBeTruthy();
+    expect(screen.queryByTestId("inbox-action-open_session")).toBeNull();
+    expect(screen.getByTestId("inbox-open-room").getAttribute("href")).toBe("/rooms/s1");
+  });
+
+  it("컴퓨터 유예 만료 room_paused(#314) — 승인 칸 없이 「다른 컴퓨터로 옮기기」만. 「계속 승인」은 이 멈춤을 풀지 못한다", () => {
+    const onAction = vi.fn();
+    render(<InboxItemCard item={item({
+      type: "room_paused", severity: "action_required", session: undefined, room_id: "s1", ref_id: "rt-1",
+      card: { title: "방이 멈췄습니다", body: "이 방의 컴퓨터 연결이 끊겨 멈췄습니다 — 다른 컴퓨터로 옮기거나 열린 미션을 모두 취소해 주세요", paused_reason: "runtime_offline" },
+      actions: ["rebind", "open_room"], due_at: null,
+    })} onAction={onAction} />);
+    expect(screen.getByTestId("inbox-room-paused-question").textContent).toContain("연결이 끊겨 멈췄습니다");
+    expect(screen.queryByTestId("inbox-room-approve")).toBeNull();
+    expect(screen.queryByTestId("inbox-room-paused-resume")).toBeNull();
+    fireEvent.click(screen.getByTestId("inbox-action-rebind"));
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: "room_paused" }), "rebind");
   });
 
   it("run_failed 의 인라인 동작은 '재시도' 가 아니라 '다시 지시' 다(리뷰 #01 C4)", () => {
@@ -102,7 +123,7 @@ describe("hitl_request — 인박스에서 맥락 없이 답한다(F2, U3)", () 
     render(<InboxItemCard item={item({ card: { title: "보고서를 승인해 주세요", hitl_type: "approval" }, actions: ["approve", "reject", "open_session"] })} onRespond={vi.fn()} />);
     expect(screen.getByTestId("hitl-approve")).toBeTruthy();
     expect(screen.getByTestId("hitl-reject")).toBeTruthy();
-    expect(screen.getByTestId("inbox-action-open_session")).toBeTruthy();
+    expect(screen.getByTestId("inbox-open-room")).toBeTruthy();
   });
 
   it("deputy 위임 항목은 '위임됨 · 지금부터 응답 가능' 이라고 밝힌다(O5, U9-4)", () => {
@@ -213,37 +234,6 @@ describe("예산 HITL — 항목 타입·세션 상태와 무관하게 상향 �
   });
 });
 
-describe("session_paused — 카드 안에서 금액까지 정한다(U7-1)", () => {
-  const paused = (reason: "budget" | "loop") =>
-    item({
-      type: "session_paused", severity: "attention", due_at: null,
-      card: { title: "세션이 멈췄습니다", body: "예산 초과 — $21.40 / $20", paused_reason: reason },
-      actions: ["approve_continue", "open_session"],
-    });
-
-  it("예산이면 새 상한 입력이 붙고 그 값이 resumeSession 본문으로 간다", () => {
-    const onApproveContinue = vi.fn();
-    render(<InboxItemCard item={paused("budget")} onApproveContinue={onApproveContinue} onAction={vi.fn()} />);
-    // U7 성공 기준: "1단계 카드만으로 얼마를 얼마로 올릴지 결정 가능" — 입력이 없으면 세션을 열게 된다.
-    fireEvent.change(screen.getByTestId("inbox-budget-input"), { target: { value: "30" } });
-    fireEvent.click(screen.getByTestId("inbox-action-approve_continue"));
-    expect(onApproveContinue.mock.calls[0][1]).toEqual({ budget_usd: 30 });
-  });
-
-  it("비워 두면 금액 없이 재개한다 — 계약이 '생략 시 현재 상한' 을 허용한다", () => {
-    const onApproveContinue = vi.fn();
-    render(<InboxItemCard item={paused("budget")} onApproveContinue={onApproveContinue} />);
-    fireEvent.click(screen.getByTestId("inbox-action-approve_continue"));
-    expect(onApproveContinue.mock.calls[0][1]).toEqual({});
-  });
-
-  it("예산이 아닌 사유에는 금액 입력을 만들지 않는다 — 루프·시간은 올릴 금액이 없다", () => {
-    render(<InboxItemCard item={paused("loop")} onApproveContinue={vi.fn()} />);
-    expect(screen.queryByTestId("inbox-budget-input")).toBeNull();
-    expect(screen.getByTestId("inbox-action-approve_continue")).toBeTruthy();
-  });
-});
-
 describe("부가 텍스트(COMPONENTS §2.4 `fDXjQ`, 기본 끔)", () => {
   it("타입마다 '더 알아야 할 한 줄' 이 다르고 없으면 자리를 만들지 않는다", () => {
     expect(extraLine(item({ type: "mention", card: { title: "멘션" } }))).toBeNull();
@@ -251,8 +241,8 @@ describe("부가 텍스트(COMPONENTS §2.4 `fDXjQ`, 기본 끔)", () => {
     expect(extraLine(item())).toBeNull();
     expect(screen.queryByTestId("inbox-extra")).toBeNull();
     // 사유·실패 분류는 **원문 enum 이 아니라 사람의 말**로 나온다(COMPONENTS §8.4).
-    expect(extraLine(item({ type: "session_paused", card: { paused_reason: "budget" } }))).toContain("예산 상한을 넘어");
+    expect(extraLine(item({ type: "work_paused", card: { paused_reason: "budget" } }))).toContain("예산 상한을 넘어");
     expect(extraLine(item({ type: "run_failed", card: { failure_kind: "timeout" } }))).toContain("시간이 초과됐습니다");
-    expect(extraLine(item({ type: "session_completed", card: { summary: "결정 3건" } }))).toBe("결정 3건");
+    expect(extraLine(item({ type: "work_completed", card: { summary: "결정 3건" } }))).toBe("결정 3건");
   });
 });

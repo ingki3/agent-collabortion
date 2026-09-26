@@ -52,14 +52,14 @@ func (cc *CliContext) ParticipantNames() []string {
 	return out
 }
 
-// DelegateLane — POST /sessions/{S}/lanes (delegateLane). Always a new lane
+// DelegateLane — POST /rooms/{R}/lanes (delegateLane). Always a new lane
 // (resolution rule 2); the server sets delegated_from_task_id to the calling
 // task and posts the mention message itself.
-func (c *Client) DelegateLane(ctx context.Context, sessionID string, body LaneDelegateCreate, key string) (*LaneDelegateResult, error) {
+func (c *Client) DelegateLane(ctx context.Context, roomID string, body LaneDelegateCreate, key string) (*LaneDelegateResult, error) {
 	if body.DependsOn == nil {
 		body.DependsOn = []string{}
 	}
-	res, err := c.Do(ctx, http.MethodPost, "/sessions/"+url.PathEscape(sessionID)+"/lanes", nil, body, idemHeader(key))
+	res, err := c.Do(ctx, http.MethodPost, "/rooms/"+url.PathEscape(roomID)+"/lanes", nil, body, idemHeader(key))
 	if err != nil {
 		return nil, err
 	}
@@ -85,11 +85,11 @@ func (c *Client) SetTaskStatus(ctx context.Context, taskID string, body TaskStat
 	return &out, nil
 }
 
-// RecordDecision — POST /sessions/{S}/decisions (recordDecision). The 201
+// RecordDecision — POST /rooms/{R}/decisions (recordDecision). The 201
 // body is the Decision itself; it is returned raw so every field reaches
 // --json.
-func (c *Client) RecordDecision(ctx context.Context, sessionID string, body DecisionCreate, key string) (json.RawMessage, error) {
-	res, err := c.Do(ctx, http.MethodPost, "/sessions/"+url.PathEscape(sessionID)+"/decisions", nil, body, idemHeader(key))
+func (c *Client) RecordDecision(ctx context.Context, roomID string, body DecisionCreate, key string) (json.RawMessage, error) {
+	res, err := c.Do(ctx, http.MethodPost, "/rooms/"+url.PathEscape(roomID)+"/decisions", nil, body, idemHeader(key))
 	if err != nil {
 		return nil, err
 	}
@@ -102,10 +102,10 @@ func (c *Client) RecordDecision(ctx context.Context, sessionID string, body Deci
 	return json.RawMessage(res.Body), nil
 }
 
-// SubmitArtifact — POST /sessions/{S}/artifacts (submitArtifact), encoded as
+// SubmitArtifact — POST /rooms/{R}/artifacts (submitArtifact), encoded as
 // multipart/form-data with the contract's parts: name · type · file ·
 // description.
-func (c *Client) SubmitArtifact(ctx context.Context, sessionID string, up ArtifactUpload, key string) (*ArtifactSubmitResult, error) {
+func (c *Client) SubmitArtifact(ctx context.Context, roomID string, up ArtifactUpload, key string) (*ArtifactSubmitResult, error) {
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	if err := mw.WriteField("name", up.Name); err != nil {
@@ -142,7 +142,7 @@ func (c *Client) SubmitArtifact(ctx context.Context, sessionID string, up Artifa
 		return nil, Usage("encode multipart: %v", err)
 	}
 	body := &RawBody{ContentType: mw.FormDataContentType(), Data: buf.Bytes()}
-	res, err := c.Do(ctx, http.MethodPost, "/sessions/"+url.PathEscape(sessionID)+"/artifacts", nil, body, idemHeader(key))
+	res, err := c.Do(ctx, http.MethodPost, "/rooms/"+url.PathEscape(roomID)+"/artifacts", nil, body, idemHeader(key))
 	if err != nil {
 		return nil, err
 	}

@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
 )
@@ -37,7 +39,7 @@ func TestS80ResumeKeepsHourlyHops(t *testing.T) {
 		t.Fatal(err)
 	}
 	var status string
-	if err := f.pool.QueryRow(ctx, `SELECT status::text FROM session WHERE id = $1`, f.sessionID).Scan(&status); err != nil {
+	if err := f.pool.QueryRow(ctx, `SELECT status::text FROM work WHERE room_id = $1`, f.sessionID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
 	if status != "paused" {
@@ -48,8 +50,16 @@ func TestS80ResumeKeepsHourlyHops(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Director resumes with the default reset.
-	f.api.must(200, "POST", f.p+"/sessions/"+f.sessionID+"/resume", map[string]any{})
+	// The room owner lets the room go on (the loop stop is the room's gate
+	// since v0.19; the old resumeSession with its default reset went with
+	// openapi v0.3.0 — unblockRoomForLoop records the same human hop).
+	var hitlID string
+	if err := f.pool.QueryRow(ctx, `
+		SELECT id::text FROM hitl_request WHERE session_id = $1 AND purpose = 'loop' AND task_id IS NULL AND status = 'open'`,
+		f.sessionID).Scan(&hitlID); err != nil {
+		t.Fatalf("no open loop request: %v", err)
+	}
+	f.api.must(200, "POST", f.p+"/hitl-requests/"+hitlID+"/response", map[string]any{"approved": true}, "Idempotency-Key", uuid.NewString())
 
 	var after, human int
 	if err := f.pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE from_agent_id IS NULL) FROM session_hop WHERE session_id = $1`, f.sessionID).

@@ -60,10 +60,10 @@ Every time you are triggered: call colab_message_post exactly once with a one-li
 Never call colab_status_set. Never call colab_lane_delegate. Never run shell commands, never read or write files, never search the web.'
 LEAD="$(create_agent_p2 "$WS" Lead       lead       "$MODEL" "$PING_LEAD" '팀을 이끈다')"
 RSCH="$(create_agent_p2 "$WS" Researcher researcher "$MODEL" "$PING_RES"  '조사한다')"
-SESSION="$(api_ok POST "/workspaces/$WS/sessions" "$(jq -nc --arg t "핑퐁 (E4-03)" --arg g "$SCENARIO_GOAL" \
+SESSION="$(create_room_work "$WS" "$(jq -nc --arg t "핑퐁 (E4-03)" --arg g "$SCENARIO_GOAL" \
   --arg a "$LEAD" --arg rt "$RUNTIME" --arg r "$RSCH" \
   '{title:$t,goal:$g,isolation:{kind:"none"},participants:[{agent_id:$a},{agent_id:$r}],assignee_agent_id:$a,runtime_id:$rt,
-    completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" | jq -r .id)"
+    completion_condition:{op:"and",conditions:[{type:"manual"}]}}')" )"
 echo "$WS $SESSION $LEAD $RSCH $RUNTIME" > "$OUT/l-ids.txt"
 ok "session $SESSION"
 T_START="$(now_ms)"
@@ -72,7 +72,7 @@ step "3. 핑퐁이 상한에 걸릴 때까지 (상한 $LIMIT → $((2*LIMIT+1)) 
 IDLE=0
 DEADLINE=$(( $(date +%s) + ${LOOP_TIMEOUT_S:-900} ))
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
-  ST="$(psqlq "select status from session where id='$SESSION'")"
+  ST="$(psqlq "select status from work where room_id='$SESSION'")"
   [ "$ST" = paused ] && break
   # 핑퐁이 멈췄는데 상한도 안 걸렸으면(=지시문이 안 먹었으면) 더 기다릴 이유가 없다.
   # 30초 연속 유휴를 두 번 확인해야 포기한다 — 턴 사이 간격을 유휴로 오인하면 측정이 죽는다.

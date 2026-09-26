@@ -40,3 +40,7 @@
 .lane__note--info { color: var(--ink-2); }
 /* 이력 행의 「활동」 펼침(T-W16) — 좌열 268px 안에 피드가 들어가므로 여백을 줄인다. */
 .lane-hist__activity { margin-top: 4px; padding-left: 4px; border-left: 2px solid var(--line); }
+/* v0.19 방 화면(T-R2-W2) — 미션 라벨 · 예산 층 · 접힘 단추 */
+.lane__work { min-width: 0; }
+.lane__layer { font-weight: 600; }
+.board__fold { margin-left: auto; font-weight: 400; }

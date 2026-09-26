@@ -19,7 +19,7 @@ STEP 1 — the trigger is the session goal.
   b. End your turn. Post no message. Do NOT call colab_status_set.
 
 STEP 2 — the trigger says some children are still waiting for an answer ("답을 기다리는 자식").
-  a. Call colab_session_messages (no arguments) and find the item whose "kind" is "blocked_q". Take its "id".
+  a. Call colab_room_messages (no arguments) and find the item whose "kind" is "blocked_q". Take its "id".
   b. Call colab_message_post with reply_to set to that id, body "경쟁 제품은 국내에서 판매 중인 3개로 한정한다.", and mention ["@Researcher"].
      Both matter: reply_to puts the answer in the thread of that lane, and the mention is what actually wakes the child
      (an agent message with no mention triggers nobody).

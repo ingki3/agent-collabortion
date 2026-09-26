@@ -101,8 +101,13 @@ func seedTwoAgentSession(ctx context.Context, t *testing.T, pool *pgxpool.Pool, 
 		}
 	}
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO session (workspace_id, title, goal, director_user_id, isolation, status, created_by, created_at, updated_at)
-		VALUES ($1, 's', 'g', $2, '{"kind":"worktree"}', 'active', $2, $3, $3) RETURNING id`,
+		WITH r AS (
+			INSERT INTO room (workspace_id, name, owner_user_id, isolation, created_by, created_at, updated_at)
+			VALUES ($1, 's', $2, '{"kind":"worktree"}', $2, $3, $3) RETURNING id),
+		wk AS (
+			INSERT INTO work (room_id, title, goal, director_user_id, status, created_by, created_at, updated_at)
+			SELECT id, 's', 'g', $2, 'active', $2, $3, $3 FROM r)
+		SELECT id FROM r`,
 		wsID, userID, now).Scan(&sessionID); err != nil {
 		t.Fatalf("session: %v", err)
 	}

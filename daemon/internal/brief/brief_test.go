@@ -141,13 +141,9 @@ func TestPrepareNeverCreatesTheRepositoryInstructionFile(t *testing.T) {
 
 // E13-06a: the pointer line names the ABSOLUTE path.
 func TestTurnPromptPointer(t *testing.T) {
-	line := TurnPromptPointer("/srv/wd/S1/R")
+	line := PointerTo(filepath.Join("/srv/wd/S1/R", FileName))
 	if !strings.Contains(line, "/srv/wd/S1/R/COLAB_BRIEF.md") {
 		t.Fatalf("pointer %q", line)
-	}
-	full := PrependPointer("/srv/wd/S1/R", "turn body")
-	if !strings.HasPrefix(full, line) || !strings.HasSuffix(full, "turn body") {
-		t.Fatalf("prepended prompt %q", full)
 	}
 }
 

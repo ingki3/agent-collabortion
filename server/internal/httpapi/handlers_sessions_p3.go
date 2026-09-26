@@ -3,9 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,280 +12,38 @@ import (
 	"github.com/ingki3/agent-collabortion/contracts"
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
-	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
+	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
 	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
-	"github.com/ingki3/agent-collabortion/server/internal/sessions"
-	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
-// Session-level control (openapi updateSession · pauseSession · resumeSession ·
-// cancelSession · changeDirector · add/update/removeParticipant), FR-2.1·2.3.
-
-// sessionControl is "the Director, and for the three policy pauses also the
-// deputy" (SCREEN §4.5). It is not sessionDirector: that one deliberately
-// excludes the deputy because ending a session is not undoable, and resuming a
-// budget pause is (FR-3.4 t-3's reasoning, applied to the pause table).
-func (s *Server) sessionControl(r *http.Request, sessionID uuid.UUID, allowDeputy bool) (*gen.User, uuid.UUID, *Problem) {
-	u, p := s.user(r)
-	if p != nil {
-		return nil, uuid.Nil, p
-	}
-	var wsID, director uuid.UUID
-	var deputy *uuid.UUID
-	err := s.DB.QueryRow(r.Context(), `
-		SELECT workspace_id, director_user_id, deputy_director_user_id FROM session WHERE id = $1`, sessionID).
-		Scan(&wsID, &director, &deputy)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, uuid.Nil, apperr.NotFound("session")
-	}
-	if err != nil {
-		return nil, uuid.Nil, apperr.Internal(err)
-	}
-	m, err := s.Auth.Member(r.Context(), wsID, u.Id)
-	if err != nil {
-		return nil, uuid.Nil, apperr.Internal(err)
-	}
-	if m == nil {
-		return nil, uuid.Nil, apperr.NotFound("session")
-	}
-	if u.Id == director {
-		return u, wsID, nil
-	}
-	if allowDeputy && deputy != nil && u.Id == *deputy {
-		return u, wsID, nil
-	}
-	return nil, uuid.Nil, apperr.Forbidden("director_required", "Director 권한이 필요합니다")
-}
-
-func (s *Server) sessionOut(ctx context.Context, w http.ResponseWriter, sessionID uuid.UUID, u *gen.User) {
-	out, err := s.Sessions.Get(ctx, sessionID, sessions.Viewer{UserID: &u.Id})
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-// publishSession emits `session.updated` (S5·S7's banner reads status,
-// paused_reason and paused_detail from it).
-func (s *Server) publishSession(ctx context.Context, wsID, sessionID uuid.UUID, u *gen.User) {
-	if s.Hub == nil {
-		return
-	}
-	out, err := s.Sessions.Get(ctx, sessionID, sessions.Viewer{UserID: &u.Id})
-	if err != nil {
-		return
-	}
-	sid := sessionID
-	_ = s.Hub.Publish(ctx, s.DB, wsID, &sid, "session.updated", out)
-}
-
-// ---------------------------------------------------------------------------
-// pause · resume · cancel
-// ---------------------------------------------------------------------------
-
-func (s *Server) PauseSession(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	u, wsID, p := s.sessionControl(r, sessionId, false)
-	if p != nil {
-		writeProblem(w, p)
-		return
-	}
-	now := s.Clock.Now()
-	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
-		var status string
-		if err := tx.QueryRow(r.Context(), `SELECT status::text FROM session WHERE id = $1 FOR UPDATE`, sessionId).Scan(&status); err != nil {
-			return err
-		}
-		if status != "active" {
-			return apperr.Conflict("invalid_transition", "진행 중인 세션만 일시정지할 수 있습니다 (현재 상태: "+apperr.StatusLabel(status)+")")
-		}
-		detail := tasks.PausedDetail(sessions.PauseDirector, now)
-		raw, _ := json.Marshal(detail)
-		if _, err := tx.Exec(r.Context(), `
-			UPDATE session SET status = 'paused', paused_reason = 'director', paused_detail = $2, updated_at = $3
-			WHERE id = $1`, sessionId, raw, now); err != nil {
-			return err
-		}
-		// FR-2.3: a Director pause DRAINS. PauseSessionTasks reads
-		// tasks.PlanDispatch, which is where "director → drain, budget → cancel"
-		// lives, so the running turn is left alone here (E5-06) and the claim
-		// query's `s.status = 'active'` guard stops anything new (C3′).
-		return s.Tasks.PauseSessionTasks(r.Context(), tx, sessionId, sessions.PauseDirector, raw, now)
-	})
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	s.publishSession(r.Context(), wsID, sessionId, u)
-	s.sessionOut(r.Context(), w, sessionId, u)
-}
-
-func (s *Server) ResumeSession(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	var in gen.ResumeSessionJSONBody
-	if r.ContentLength > 0 {
-		if p := decodeJSON(w, r, &in); p != nil {
-			writeProblem(w, p)
-			return
-		}
-	}
-	var reason *string
-	if err := s.DB.QueryRow(r.Context(), `SELECT paused_reason::text FROM session WHERE id = $1`, sessionId).Scan(&reason); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeProblem(w, apperr.NotFound("session"))
-		} else {
-			writeErr(w, err)
-		}
-		return
-	}
-	rule := sessions.PlanResume(derefString(reason))
-	u, wsID, p := s.sessionControl(r, sessionId, rule.DeputyMayResume)
-	if p != nil {
-		writeProblem(w, p)
-		return
-	}
-	if !rule.Resumable {
-		writeProblem(w, apperr.Conflict("runtime_offline", rule.Hint))
-		return
-	}
-	now := s.Clock.Now()
-	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
-		var status string
-		var limitsRaw []byte
-		if err := tx.QueryRow(r.Context(), `SELECT status::text, limits FROM session WHERE id = $1 FOR UPDATE`, sessionId).
-			Scan(&status, &limitsRaw); err != nil {
-			return err
-		}
-		// S-49: the same reading the K-10 approval uses. `cost_usd` alone lags
-		// the per-task rollup, so this path used to accept a "raise" the
-		// session had already spent past.
-		spent, err := sessions.SpentUSD(r.Context(), tx, sessionId)
-		if err != nil {
-			return err
-		}
-		if status != "paused" {
-			return apperr.Conflict("invalid_transition", "일시정지된 세션만 재개할 수 있습니다 (현재 상태: "+apperr.StatusLabel(status)+")")
-		}
-		if in.Limits != nil {
-			merged, err := mergeLimits(limitsRaw, in.Limits)
-			if err != nil {
-				return err
-			}
-			limitsRaw = merged
-			if _, err := tx.Exec(r.Context(), `UPDATE session SET limits = $2 WHERE id = $1`, sessionId, limitsRaw); err != nil {
-				return err
-			}
-		}
-		if rule.RequiresHigherLimit {
-			// Resuming a budget pause on the old limit re-trips it on the very
-			// next usage report, and the Director sees the banner again with
-			// nothing changed (FR-7.3).
-			if lim := budgetOf(limitsRaw); lim > 0 {
-				if err := sessions.CheckBudgetRaise("limits.budget_usd", lim, spent); err != nil {
-					return err
-				}
-			}
-		}
-		if rule.ResetLoopCounters {
-			reset := true
-			if in.ResetLoopCounters != nil {
-				reset = *in.ResetLoopCounters
-			}
-			if reset {
-				// FR-3.5: without the reset the next message re-trips the same
-				// counter and the session pauses again immediately. The reset is a
-				// HUMAN hop, not a wipe (S-80): chain_depth and pair_roundtrips
-				// restart below the person, while max_hops_per_hour keeps counting —
-				// "시간당 상한은 리셋되지 않는다" — so repeated resumes cannot empty
-				// all three layers at once. Deleting the rows (what this did before)
-				// also erased the audit trail the loop verdict was built from.
-				var assignee uuid.UUID
-				if err := tx.QueryRow(r.Context(), `SELECT assignee_agent_id FROM session WHERE id = $1`, sessionId).Scan(&assignee); err != nil {
-					return err
-				}
-				if err := s.Router.RecordHumanHop(r.Context(), tx, sessionId, assignee, uuid.Nil, now); err != nil {
-					return err
-				}
-			}
-		}
-		if _, err := tx.Exec(r.Context(), `
-			UPDATE session SET status = 'active', paused_reason = NULL, paused_detail = NULL, updated_at = $2
-			WHERE id = $1`, sessionId, now); err != nil {
-			return err
-		}
-		// S-46: the pause PARKED the turns it cancelled (§8.2.2 — a budget or
-		// time pause does not drain), so resuming the session has to put those
-		// tasks back in the queue. Without this the session returned to
-		// `active` with every task it had stopped still `paused`, and no
-		// endpoint anywhere moved them again: FR-2.3's 재개 lost the work
-		// instead of continuing it. The re-queue is a new attempt on the same
-		// lane and workdir, resume tried first (E9-02).
-		//
-		// It runs BEFORE the lane sweep below, so a lane whose only task was
-		// parked is caught by that sweep's `EXISTS ... status = 'queued'`.
-		resumeCause := tasks.CauseHitlAnswer
-		if derefString(reason) == sessions.PauseBudget {
-			// The budget HITL this resume answers is the session-scoped one
-			// (task_id NULL, openapi resumeSession), so the attempt starts for
-			// the same reason an approved per-task raise does.
-			resumeCause = tasks.CauseBudgetApproved
-		}
-		if _, err := s.Tasks.ResumeSessionTasks(r.Context(), tx, sessionId, derefString(reason), resumeCause, now); err != nil {
-			return err
-		}
-		// S-44: the pause parked the lanes it stopped (tasks.pauseLocked), and
-		// since the claim query refuses a paused lane the resume has to lift
-		// that too — C3′ is "재개 시 큐 순서대로 dispatch", and a lane left at
-		// paused never dispatches again. Only lanes that still hold a QUEUED
-		// task come back: a lane whose only task is `paused(budget)` and stayed
-		// parked above (its own budget request is open or was refused) has
-		// nothing to hand out, and saying `queued` there would be a card that
-		// claims work is waiting when the task is still parked.
-		if _, err := tx.Exec(r.Context(), `
-			UPDATE lane l SET status = 'queued', finished_at = NULL, updated_at = $2
-			WHERE l.session_id = $1 AND l.status = 'paused'
-			  AND EXISTS (SELECT 1 FROM task t WHERE t.lane_id = l.id AND t.status = 'queued')`,
-			sessionId, now); err != nil {
-			return err
-		}
-		if rule.ClosesSystemHitl {
-			// openapi resumeSession: resuming IS the answer to the system HITL
-			// the pause issued. Closing it with `answered(approved)` keeps the
-			// Director's inbox honest — the request really was decided.
-			if err := s.closeSessionBudgetHitl(r.Context(), tx, sessionId, u.Id, derefString(reason), now); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	s.Queue.Notifier.Notify()
-	s.publishSession(r.Context(), wsID, sessionId, u)
-	s.sessionOut(r.Context(), w, sessionId, u)
-}
+// Mission and room control helpers (FR-2.1·2.3) shared by the work and room
+// handlers. The old session-level operations that first used them are gone
+// (openapi v0.3.0, D22).
 
 // closeSessionBudgetHitl answers the platform's own pause request. It is
 // `answered` rather than `cancelled` (K-4's state) because a person did decide:
 // they pressed 재개.
-func (s *Server) closeSessionBudgetHitl(ctx context.Context, tx pgx.Tx, sessionID, userID uuid.UUID, purpose string, now time.Time) error {
+//
+// scope is the unit the pause stopped: a mission's own requests (work_id), or
+// every request of the room when the room's gate is lifted.
+func (s *Server) closeSessionBudgetHitl(ctx context.Context, tx pgx.Tx, scope taskScopeSQL, userID uuid.UUID, purpose string, now time.Time) error {
 	rows, err := tx.Query(ctx, `
-		SELECT id, question FROM hitl_request
-		WHERE session_id = $1 AND status = 'open' AND source = 'system' AND task_id IS NULL AND purpose = $2`,
-		sessionID, purpose)
+		SELECT id, question, session_id, work_id FROM hitl_request
+		WHERE `+scope.col+` = $1 AND status = 'open' AND source = 'system' AND task_id IS NULL AND purpose = $2`,
+		scope.id, purpose)
 	if err != nil {
 		return err
 	}
 	type row struct {
-		id uuid.UUID
-		q  string
+		id, room uuid.UUID
+		q        string
+		work     *uuid.UUID
 	}
 	var open []row
 	for rows.Next() {
 		var rr row
-		if err := rows.Scan(&rr.id, &rr.q); err != nil {
+		if err := rows.Scan(&rr.id, &rr.q, &rr.room, &rr.work); err != nil {
 			rows.Close()
 			return err
 		}
@@ -303,100 +59,113 @@ func (s *Server) closeSessionBudgetHitl(ctx context.Context, tx pgx.Tx, sessionI
 			WHERE id = $1`, o.id, userID, now); err != nil {
 			return err
 		}
-		if _, err := insertDecision(ctx, tx, sessionID, "세션 재개 승인: "+o.q, "", "hitl", &o.id, false, now); err != nil {
+		if _, err := insertDecision(ctx, tx, o.room, "미션 재개 승인: "+o.q, "", "hitl", &o.id, false, now, o.work); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE inbox_item SET read_at = COALESCE(read_at, $2) WHERE ref_id = $1`, o.id, now); err != nil {
 			return err
 		}
+		// T-APPROVAL: resuming from the mission panel answers the card too.
+		s.publishHitlVia(ctx, tx, uuid.Nil, o.room, o.id, "hitl.updated")
 	}
 	return nil
 }
 
-func (s *Server) CancelSession(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	u, wsID, p := s.sessionControl(r, sessionId, false)
-	if p != nil {
-		writeProblem(w, p)
-		return
+func (s *Server) cancelWorkTx(ctx context.Context, tx pgx.Tx, roomID, workID uuid.UUID, now time.Time) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE work SET status = 'cancelled', paused_reason = NULL, paused_detail = NULL,
+		       finished_at = $2, updated_at = $2 WHERE id = $1`, workID, now); err != nil {
+		return err
 	}
-	var in struct {
-		Reason string `json:"reason"`
+	if err := s.cancelScopeTasks(ctx, tx, workScope(workID), now); err != nil {
+		return err
 	}
-	if r.ContentLength > 0 {
-		if p := decodeJSON(w, r, &in); p != nil {
-			writeProblem(w, p)
-			return
-		}
+	var others int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM work WHERE room_id = $1 AND id <> $2 AND status IN ('draft', 'active', 'paused', 'completing')`,
+		roomID, workID).Scan(&others); err != nil {
+		return err
 	}
-	now := s.Clock.Now()
-	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
-		var status string
-		var pauseReason *string
-		if err := tx.QueryRow(r.Context(), `SELECT status::text, paused_reason::text FROM session WHERE id = $1 FOR UPDATE`, sessionId).
-			Scan(&status, &pauseReason); err != nil {
+	if err := s.closeOrphanSystemHitl(ctx, tx, workScope(workID), now); err != nil {
+		return err
+	}
+	if others == 0 {
+		if err := s.closeOrphanSystemHitl(ctx, tx, roomOnlyScope(roomID), now); err != nil {
 			return err
 		}
-		if status != "active" && status != "paused" {
-			return apperr.Conflict("invalid_transition", "진행 중이거나 일시정지된 세션만 종료할 수 있습니다 (현재 상태: "+apperr.StatusLabel(status)+")")
-		}
-		offline := status == "paused" && derefString(pauseReason) == runtimes.PauseReasonOffline
-		if offline {
-			// E14-07: the Director chose "종료" over rebinding. The state is
-			// `cancelled`, never `completed` — the goal was never met, and
-			// filing a machine outage in the success column would also trigger
-			// FR-2.4's summary of a job that was never finished. The artifacts
-			// are recovered by having been on the server all along (FR-9.2
-			// "아티팩트만 회수한다"), which is why nothing here fetches them.
-			var artifacts int
-			if err := tx.QueryRow(r.Context(), `SELECT count(*) FROM artifact WHERE session_id = $1`, sessionId).Scan(&artifacts); err != nil {
-				return err
-			}
-			end := runtimes.PlanOfflineEnd(artifacts)
-			if end.SessionState != "cancelled" || end.CompletionConditionsMet {
-				return apperr.Internal(fmt.Errorf("runtimes: offline end plan = %+v", end))
-			}
-			// The dead machine's directories are unreachable. Leaving them
-			// `active` makes the GC sweep ask a runtime that will never answer,
-			// forever.
-			if _, err := tx.Exec(r.Context(), `
-				UPDATE workdir SET status = 'retained', gc_blocked_reason = 'runtime_gone', updated_at = $2
-				WHERE session_id = $1 AND status = 'active'`, sessionId, now); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(r.Context(), `
-				INSERT INTO decision (session_id, summary, rationale, source, created_at)
-				VALUES ($1, $2, $3, 'hitl', $4)`,
-				// FR-9.2, E14-07 — decision.summary/rationale are public (openapi
-				// Decision) and S7 draws them, so they speak the screens' language.
-				sessionId, "컴퓨터가 돌아오지 않아 세션을 종료했습니다",
-				fmt.Sprintf("다른 컴퓨터로 옮기는 대신 종료를 선택했습니다 — 아티팩트 %d개는 서버에 남아 있습니다", end.ArtifactsRecovered),
-				now); err != nil {
-				return err
-			}
-		}
-		if _, err := tx.Exec(r.Context(), `
-			UPDATE session SET status = 'cancelled', paused_reason = NULL, paused_detail = NULL,
-			       finished_at = $2, updated_at = $2 WHERE id = $1`, sessionId, now); err != nil {
-			return err
-		}
-		return s.cancelSessionWork(r.Context(), tx, sessionId, now)
-	})
-	if err != nil {
-		writeErr(w, err)
-		return
+		return s.liftOfflineGate(ctx, tx, roomID, now)
 	}
-	s.publishSession(r.Context(), wsID, sessionId, u)
-	s.sessionOut(r.Context(), w, sessionId, u)
+	return nil
 }
 
-// cancelSessionWork ends every task the session still holds: queued ones at
+// liftOfflineGate is FR-9.2 v0.19's second way out of a lost computer: the
+// last open mission was cancelled, so the room has nothing left waiting for
+// that machine. The work outside a mission goes with the missions (「열린
+// 미션 전부 취소」 — the room stops spending on the lost computer), the gate
+// comes down and the room_paused card is resolved. The room itself stays,
+// still pinned to the machine: a new mission waits for it or for a rebind.
+func (s *Server) liftOfflineGate(ctx context.Context, tx pgx.Tx, roomID uuid.UUID, now time.Time) error {
+	room, err := roomgate.Lock(ctx, tx, roomID)
+	if err != nil {
+		return err
+	}
+	if room.BlockedReason == nil || *room.BlockedReason != roomgate.ReasonRuntimeOffline {
+		return nil
+	}
+	if err := s.cancelScopeTasks(ctx, tx, roomOnlyScope(roomID), now); err != nil {
+		return err
+	}
+	// E14-07: giving up on the lost computer is `cancelled`, never
+	// `completed` — the artifacts are recovered by having been on the server
+	// all along (FR-9.2 「아티팩트만 회수한다」). The dead machine's folders are
+	// unreachable: left `active`, the GC sweep would ask a runtime that never
+	// answers, forever (a live report from it lifts the stamp again —
+	// workdirs.Upsert). This was cancelSession's 「종료」 before openapi v0.3.0;
+	// cancelling the room's last open mission is that choice now.
+	var artifacts int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM artifact WHERE session_id = $1`, roomID).Scan(&artifacts); err != nil {
+		return err
+	}
+	end := runtimes.PlanOfflineEnd(artifacts)
+	if end.SessionState != "cancelled" || end.CompletionConditionsMet {
+		return apperr.Internal(fmt.Errorf("runtimes: offline end plan = %+v", end))
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE workdir SET status = 'retained', gc_blocked_reason = 'runtime_gone', updated_at = $2
+		WHERE session_id = $1 AND status = 'active'`, roomID, now); err != nil {
+		return err
+	}
+	// FR-9.2, E14-07 — decision.summary/rationale are public (openapi
+	// Decision) and S7 draws them, so they speak the screens' language.
+	if _, err := insertDecision(ctx, tx, roomID, "컴퓨터가 돌아오지 않아 미션을 종료했습니다",
+		fmt.Sprintf("다른 컴퓨터로 옮기는 대신 종료를 선택했습니다 — 아티팩트 %d개는 서버에 남아 있습니다", end.ArtifactsRecovered),
+		"hitl", nil, false, now, nil); err != nil {
+		return err
+	}
+	if _, err := roomgate.Unblock(ctx, tx, roomID, roomgate.ReasonRuntimeOffline, now); err != nil {
+		return err
+	}
+	var runtimeID *uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT runtime_id FROM room WHERE id = $1`, roomID).Scan(&runtimeID); err != nil {
+		return err
+	}
+	if runtimeID != nil {
+		if err := roomgate.ResolveCards(ctx, tx, inbox.TypeRoomPaused, roomID, *runtimeID, now); err != nil {
+			return err
+		}
+	}
+	roomgate.PublishUpdated(ctx, s.Hub, tx, roomID)
+	return nil
+}
+
+// cancelScopeTasks ends every task the scope still holds: queued ones at
 // once, in-flight ones through the §8.2.2 procedure (a `cancel` command the
 // daemon carries out — never an immediate kill).
-func (s *Server) cancelSessionWork(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, now time.Time) error {
+func (s *Server) cancelScopeTasks(ctx context.Context, tx pgx.Tx, scope taskScopeSQL, now time.Time) error {
 	rows, err := tx.Query(ctx, `
-		SELECT id FROM task WHERE session_id = $1
+		SELECT id FROM task WHERE `+scope.col+` = $1`+scope.extra+`
 		  AND status IN ('deferred', 'queued', 'dispatched', 'preparing', 'running', 'waiting_human', 'paused')
-		ORDER BY created_at`, sessionID)
+		ORDER BY created_at`, scope.id)
 	if err != nil {
 		return err
 	}
@@ -418,20 +187,21 @@ func (s *Server) cancelSessionWork(ctx context.Context, tx pgx.Tx, sessionID uui
 			return err
 		}
 	}
-	// K-4: the platform's own open requests lose their premise when the session
-	// ends. They are closed `cancelled`, not answered — nobody decided them.
-	return closeOrphanSystemHitl(ctx, tx, sessionID, now)
+	return nil
 }
 
 // closeOrphanSystemHitl is K-4 (Lead decision, 2026-09-06): a platform-issued
 // request whose condition is no longer true is closed `cancelled` and taken out
 // of the inbox. No decision is recorded — a decision that nobody made is the
 // worst thing to leave in the log — and the web renders the card as 취소됨.
-func closeOrphanSystemHitl(ctx context.Context, q pgx.Tx, sessionID uuid.UUID, now time.Time) error {
+//
+// K-4: the platform's own open requests lose their premise when the mission
+// ends. They are closed `cancelled`, not answered — nobody decided them.
+func (s *Server) closeOrphanSystemHitl(ctx context.Context, q pgx.Tx, scope taskScopeSQL, now time.Time) error {
 	rows, err := q.Query(ctx, `
 		UPDATE hitl_request SET status = 'cancelled'
-		WHERE session_id = $1 AND status = 'open' AND source = 'system'
-		RETURNING id`, sessionID)
+		WHERE `+scope.col+` = $1 AND status = 'open' AND source = 'system'`+scope.extra+`
+		RETURNING id`, scope.id)
 	if err != nil {
 		return err
 	}
@@ -453,294 +223,16 @@ func closeOrphanSystemHitl(ctx context.Context, q pgx.Tx, sessionID uuid.UUID, n
 			id, inbox.TypeHitlRequest); err != nil {
 			return err
 		}
+		// T-APPROVAL: the card turns into 「취소됨」 live, not on reload.
+		s.publishHitlVia(ctx, q, uuid.Nil, uuid.Nil, id, "hitl.updated")
 	}
 	return nil
-}
-
-// ---------------------------------------------------------------------------
-// updateSession · changeDirector · participants
-// ---------------------------------------------------------------------------
-
-func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	u, wsID, p := s.sessionControl(r, sessionId, false)
-	if p != nil {
-		writeProblem(w, p)
-		return
-	}
-	var in gen.SessionUpdate
-	if p := decodeJSON(w, r, &in); p != nil {
-		writeProblem(w, p)
-		return
-	}
-	now := s.Clock.Now()
-	// condChanged is set when a started session's completion tree was
-	// replaced (S-84): the tree is re-read over the atoms already met AFTER
-	// the row is committed, through the same path every other completion
-	// event takes.
-	condChanged := false
-	err := s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
-		var status string
-		var limitsRaw, condRaw []byte
-		var assignee *uuid.UUID
-		if err := tx.QueryRow(r.Context(), `SELECT status::text, limits, completion_condition, assignee_agent_id FROM session WHERE id = $1 FOR UPDATE`, sessionId).
-			Scan(&status, &limitsRaw, &condRaw, &assignee); err != nil {
-			return err
-		}
-		draft := status == "draft"
-		// The runtime and the isolation are fixed once work has started: the
-		// workdirs are bound to both, and changing either would orphan them
-		// (openapi updateSession, SCREEN §4.5). The completion condition is
-		// not (v0.1.4, S-84): a session stuck on a condition nobody can
-		// satisfy is rescued by changing it, so `active` and `paused` accept
-		// it — only a session that is over, or already summarising, does not.
-		if !draft {
-			var errs []apperr.FieldError
-			if in.Isolation != nil {
-				errs = append(errs, apperr.Field("isolation", "immutable", "격리 방식은 시작 전에만 바꿀 수 있습니다"))
-			}
-			if in.RuntimeId.IsSpecified() {
-				errs = append(errs, apperr.Field("runtime_id", "immutable", "컴퓨터는 시작 전에만 바꿀 수 있습니다"))
-			}
-			if in.CompletionCondition != nil && status != "active" && status != "paused" {
-				errs = append(errs, apperr.Field("completion_condition", "immutable", "끝났거나 끝나는 중인 세션의 종료 조건은 바꿀 수 없습니다"))
-			}
-			if len(errs) > 0 {
-				return apperr.Validation(errs...)
-			}
-		}
-		set := []string{"updated_at = $2"}
-		args := []any{sessionId, now}
-		add := func(col string, v any) {
-			args = append(args, v)
-			set = append(set, fmt.Sprintf("%s = $%d", col, len(args)))
-		}
-		if in.Title != nil {
-			add("title", *in.Title)
-		}
-		if in.Goal != nil {
-			add("goal", *in.Goal)
-		}
-		if in.AcceptanceCriteria != nil {
-			add("acceptance_criteria", *in.AcceptanceCriteria)
-		}
-		if in.Autonomy != nil {
-			add("autonomy", string(*in.Autonomy))
-		}
-		if in.Limits != nil {
-			merged, err := mergeLimits(limitsRaw, in.Limits)
-			if err != nil {
-				return err
-			}
-			add("limits", merged)
-		}
-		// S-32: an explicit null is an UNSET, and only a nullable type can tell
-		// it from an omitted key. `deputy_director_user_id: null` clears the
-		// deputy; leaving the key out keeps whoever is there.
-		if in.DeputyDirectorUserId.IsSpecified() {
-			if in.DeputyDirectorUserId.IsNull() {
-				add("deputy_director_user_id", nil)
-			} else {
-				v, err := in.DeputyDirectorUserId.Get()
-				if err != nil {
-					return unreadable("deputy_director_user_id", "invalid", "deputy 로 지정할 사람을 다시 골라 주세요", err)
-				}
-				if err := s.requireMember(r.Context(), tx, sessionId, v); err != nil {
-					return err
-				}
-				add("deputy_director_user_id", v)
-			}
-		}
-		if in.CompletionCondition != nil {
-			// "검증은 createSession 과 같고" (openapi updateSession): the
-			// tree-only guard (E6-07) and the S-84 reviewer guard, the latter
-			// against the session's CURRENT participants + assignee.
-			raw, err := json.Marshal(in.CompletionCondition)
-			if err != nil {
-				return unreadable("completion_condition", "invalid", "종료 조건을 다시 골라 주세요", err)
-			}
-			tree := sessions.ParseTree(raw)
-			if err := sessions.ValidateTree(tree); err != nil {
-				return apperr.Validation(apperr.Field("completion_condition", sessions.TreeErrorCode(err), err.Error())) // ValidateTree speaks the screens' language; the code names the reason (S-85)
-			}
-			participants, err := sessionAgents(r.Context(), tx, sessionId, assignee)
-			if err != nil {
-				return err
-			}
-			if errs := sessions.ValidateReviewers(tree, func(id uuid.UUID) bool { return participants[id] }); len(errs) > 0 {
-				return apperr.Validation(errs...)
-			}
-			add("completion_condition", raw)
-			if !draft {
-				condChanged = true
-				if _, err := tx.Exec(r.Context(), `
-					INSERT INTO activity_log (workspace_id, session_id, actor_type, actor_id, action, object_type, object_id, payload, created_at)
-					VALUES ($1, $2, 'user', $3, 'session.completion_condition_changed', 'session', $2,
-					        jsonb_build_object('from', $4::jsonb, 'to', $5::jsonb, 'status', $6::text), $7)`,
-					wsID, sessionId, u.Id, condRaw, raw, status, now); err != nil {
-					return fmt.Errorf("updateSession: activity line: %w", err)
-				}
-			}
-		}
-		if draft {
-			if in.Isolation != nil {
-				raw, _ := json.Marshal(in.Isolation)
-				add("isolation", raw)
-			}
-			if in.RuntimeId.IsSpecified() {
-				if in.RuntimeId.IsNull() {
-					add("runtime_id", nil)
-				} else if v, err := in.RuntimeId.Get(); err == nil {
-					add("runtime_id", v)
-				}
-			}
-		}
-		if len(set) == 1 {
-			return nil
-		}
-		_, err := tx.Exec(r.Context(), `UPDATE session SET `+joinComma(set)+` WHERE id = $1`, args...)
-		return err
-	})
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	if condChanged {
-		// The new tree over the old met flags: a tree that is satisfied as it
-		// stands goes active → completing → completed here, one whose only
-		// missing atom is user_approval gets the platform's request, and
-		// either way `session.completion_progress` is published (openapi
-		// updateSession v0.1.4).
-		if _, err := s.Sessions.ApplyCompletionEvent(r.Context(), sessionId, sessions.Event{
-			Kind: sessions.EventConditionChanged, Note: "Director 가 종료 조건을 바꿨습니다",
-		}); err != nil {
-			writeErr(w, err)
-			return
-		}
-	}
-	s.publishSession(r.Context(), wsID, sessionId, u)
-	s.sessionOut(r.Context(), w, sessionId, u)
-}
-
-// sessionAgents is "참여자 = participants[] + assignee" (openapi createSession,
-// S-84) for a session that already exists: the set the reviewer guard checks
-// against on updateSession.
-func sessionAgents(ctx context.Context, q pgx.Tx, sessionID uuid.UUID, assignee *uuid.UUID) (map[uuid.UUID]bool, error) {
-	rows, err := q.Query(ctx, `SELECT agent_id FROM session_participant WHERE session_id = $1`, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[uuid.UUID]bool{}
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out[id] = true
-	}
-	if assignee != nil {
-		out[*assignee] = true
-	}
-	return out, rows.Err()
-}
-
-func (s *Server) ChangeDirector(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId) {
-	u, p := s.user(r)
-	if p != nil {
-		writeProblem(w, p)
-		return
-	}
-	var wsID, director uuid.UUID
-	if err := s.DB.QueryRow(r.Context(), `SELECT workspace_id, director_user_id FROM session WHERE id = $1`, sessionId).
-		Scan(&wsID, &director); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeProblem(w, apperr.NotFound("session"))
-		} else {
-			writeErr(w, err)
-		}
-		return
-	}
-	m, err := s.Auth.Member(r.Context(), wsID, u.Id)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	// t-5: the current Director hands over, and an owner/admin can do it for
-	// them — a Director who leaves the company cannot hand over themselves.
-	if m == nil || (u.Id != director && m.Role != "owner" && m.Role != "admin") {
-		writeProblem(w, apperr.Forbidden("director_required", "현재 Director 나 소유자·관리자만 교체할 수 있습니다"))
-		return
-	}
-	var in struct {
-		DirectorUserID uuid.UUID `json:"director_user_id"`
-	}
-	if p := decodeJSON(w, r, &in); p != nil {
-		writeProblem(w, p)
-		return
-	}
-	now := s.Clock.Now()
-	err = s.inSessionTx(r.Context(), func(tx pgx.Tx) error {
-		if err := s.requireMember(r.Context(), tx, sessionId, in.DirectorUserID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(r.Context(), `UPDATE session SET director_user_id = $2, updated_at = $3 WHERE id = $1`,
-			sessionId, in.DirectorUserID, now); err != nil {
-			return err
-		}
-		// The open `director` requests follow the role, not the person: an
-		// approver_spec pointing at a Director who left is a request nobody can
-		// answer (openapi changeDirector).
-		rows, err := tx.Query(r.Context(), `
-			SELECT id FROM hitl_request WHERE session_id = $1 AND status = 'open' AND approver_spec = 'director'`, sessionId)
-		if err != nil {
-			return err
-		}
-		var ids []uuid.UUID
-		for rows.Next() {
-			var id uuid.UUID
-			if err := rows.Scan(&id); err != nil {
-				rows.Close()
-				return err
-			}
-			ids = append(ids, id)
-		}
-		rows.Close()
-		for _, id := range ids {
-			if _, err := tx.Exec(r.Context(), `
-				INSERT INTO inbox_item (member_id, type, severity, session_id, ref_id, created_at)
-				SELECT mm.id, $4::inbox_item_type, $5::inbox_severity, $1, $2, $3
-				FROM member mm WHERE mm.workspace_id = $6 AND mm.user_id = $7
-				  AND NOT EXISTS (SELECT 1 FROM inbox_item i WHERE i.member_id = mm.id AND i.ref_id = $2)`,
-				sessionId, id, now, inbox.TypeHitlRequest, inbox.Severity(inbox.TypeHitlRequest), wsID, in.DirectorUserID); err != nil {
-				return err
-			}
-		}
-		if _, err := s.Router.SystemPost(r.Context(), tx, sessionId, "Director가 교체되었습니다."); err != nil {
-			return err
-		}
-		// The column names are 0001's (actor_type · actor_id · object_type ·
-		// object_id) — this INSERT used to name columns that never existed
-		// and turned every Director change into a 500 after the system
-		// message had been composed (found by T-S14: removeMember's 409 asks
-		// the person to change the Director first, and that was impossible).
-		_, err = tx.Exec(r.Context(), `
-			INSERT INTO activity_log (workspace_id, session_id, actor_type, actor_id, action, object_type, object_id, payload, created_at)
-			VALUES ($1, $3, 'user', $2, 'session.director_changed', 'session', $3, jsonb_build_object('director_user_id', $5::uuid), $4)`,
-			wsID, u.Id, sessionId, now, in.DirectorUserID)
-		return err
-	})
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	s.publishSession(r.Context(), wsID, sessionId, u)
-	s.sessionOut(r.Context(), w, sessionId, u)
 }
 
 func (s *Server) requireMember(ctx context.Context, q pgx.Tx, sessionID, userID uuid.UUID) error {
 	var ok bool
 	if err := q.QueryRow(ctx, `
-		SELECT EXISTS (SELECT 1 FROM member m JOIN session s ON s.workspace_id = m.workspace_id
+		SELECT EXISTS (SELECT 1 FROM member m JOIN room s ON s.workspace_id = m.workspace_id
 		               WHERE s.id = $1 AND m.user_id = $2)`, sessionID, userID).Scan(&ok); err != nil {
 		return err
 	}
@@ -748,6 +240,17 @@ func (s *Server) requireMember(ctx context.Context, q pgx.Tx, sessionID, userID 
 		return apperr.Validation(apperr.Field("user_id", "not_member", "워크스페이스 멤버가 아닙니다"))
 	}
 	return nil
+}
+
+// addRoomMember keeps room_participant's human rows in step with the old
+// session's people (0025 seeds Director·deputy as `member`): a person who
+// becomes Director or deputy is a member of the room from then on.
+func addRoomMember(ctx context.Context, tx pgx.Tx, roomID, userID uuid.UUID, now time.Time) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO room_participant (room_id, user_id, role, joined_at) VALUES ($1, $2, 'member', $3)
+		ON CONFLICT (room_id, user_id) WHERE user_id IS NOT NULL
+		DO UPDATE SET left_at = NULL, joined_at = EXCLUDED.joined_at WHERE room_participant.left_at IS NOT NULL`, roomID, userID, now)
+	return err
 }
 
 func (s *Server) inSessionTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
@@ -773,9 +276,10 @@ func joinComma(parts []string) string {
 	return out
 }
 
-// mergeLimits folds a SessionLimits patch into the stored jsonb. A key the
-// caller omitted keeps its value; an explicit null clears it (S-32).
-func mergeLimits(stored []byte, patch *gen.SessionLimits) ([]byte, error) {
+// mergeLimits folds a limits patch (a struct or map that marshals to a JSON
+// object) into the stored jsonb. A key the caller omitted keeps its value; an
+// explicit null clears it (S-32).
+func mergeLimits(stored []byte, patch any) ([]byte, error) {
 	cur := map[string]any{}
 	if len(stored) > 0 {
 		_ = json.Unmarshal(stored, &cur)
@@ -814,3 +318,26 @@ func budgetOf(limits []byte) float64 {
 
 var _ = contracts.FailCancelled
 var _ = hitl.StatusCancelled
+
+// sessionAgents is "참여자 = the room's agents + assignee" (S-84) for a room that
+// already exists: the set the reviewer guard checks against when a
+// mission's completion condition changes.
+func sessionAgents(ctx context.Context, q pgx.Tx, sessionID uuid.UUID, assignee *uuid.UUID) (map[uuid.UUID]bool, error) {
+	rows, err := q.Query(ctx, `SELECT agent_id FROM room_participant WHERE room_id = $1 AND agent_id IS NOT NULL AND left_at IS NULL`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[uuid.UUID]bool{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	if assignee != nil {
+		out[*assignee] = true
+	}
+	return out, rows.Err()
+}

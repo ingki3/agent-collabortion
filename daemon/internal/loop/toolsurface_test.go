@@ -20,7 +20,7 @@ import (
 // The brief and prompt the server hands out, shortened to the CLI lines that
 // matter (server/internal/queue/bundle.go).
 const (
-	briefText  = "[2] Workspace rules and colab CLI\n- Post every reply with `colab message post --body \"<text>\"` (or the colab_message_post MCP tool).\n- Read more history with `colab session messages`.\n"
+	briefText  = "[2] Workspace rules and colab CLI\n- Post every reply with `colab message post --body \"<text>\"` (or the colab_message_post MCP tool).\n- Read more history with `colab room messages`.\n"
 	promptText = "Respond to the trigger. Post your reply with `colab message post`.\n"
 )
 
@@ -82,7 +82,7 @@ func TestCLIWrapperAttempt(t *testing.T) {
 	}
 	// [2] of the brief points at the wrapper, and no bare `colab ` command is
 	// left for the agent to run in a sanitised environment.
-	if !strings.Contains(agents, "`"+wrapper+" message post") || !strings.Contains(agents, "`"+wrapper+" session messages`") {
+	if !strings.Contains(agents, "`"+wrapper+" message post") || !strings.Contains(agents, "`"+wrapper+" room messages`") {
 		t.Fatalf("brief not rewritten:\n%s", agents)
 	}
 	if strings.Contains(agents, "`colab ") {

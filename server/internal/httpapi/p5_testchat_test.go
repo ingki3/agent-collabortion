@@ -121,7 +121,7 @@ func TestP5TestChatLifecycle(t *testing.T) {
 	}
 	// Not a session, not a lane, not a task (FR-1.8.1 "세션이 아니다").
 	var sessions, tokens int
-	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM session WHERE workspace_id = $1`, mustUUID(t, f.wsID)).Scan(&sessions)
+	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM room WHERE workspace_id = $1`, mustUUID(t, f.wsID)).Scan(&sessions)
 	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM task_token`).Scan(&tokens)
 	if sessions != 1 || tokens != 0 { // the fixture's own session only
 		t.Fatalf("sessions=%d task_tokens=%d after createTestChat — a chat must create neither", sessions, tokens)
@@ -327,7 +327,7 @@ func TestP5TestChatLifecycle(t *testing.T) {
 	if bs, _ := costOut["by_session"].([]any); len(bs) != 0 {
 		t.Errorf("by_session = %v — a test chat is not a session", bs)
 	}
-	sessCost := f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID+"/cost", nil)
+	sessCost := f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID+"/cost", nil)
 	if sessCost["total_usd"].(float64) != 0 {
 		t.Errorf("session cost = %v, want 0 (test chat cost never lands on a session)", sessCost["total_usd"])
 	}
@@ -373,7 +373,10 @@ func TestP5TestChatLifecycle(t *testing.T) {
 		t.Errorf("gc still pending after the deleted receipt: %+v", cmds)
 	}
 	var wd int
-	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM workdir`).Scan(&wd)
+	// Only the chat's directory is asked about: since daemon-protocol v0.10.0
+	// the fixture room's own claimed task makes its folder row (and its
+	// mission's `_shared`) at bundle time, which is not a test chat row.
+	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM workdir WHERE path_or_ref = $1`, b.Workdir.Path).Scan(&wd)
 	if wd != 0 {
 		t.Errorf("workdir rows = %d — a test_chat_id row is never stored (§4.5)", wd)
 	}
@@ -620,7 +623,7 @@ func TestP5TestChatCreateRules(t *testing.T) {
 func TestP5TestChatTakesLeftoverCapacityOnly(t *testing.T) {
 	f := newTestChatFixture(t)
 	// Pin the fixture's session to this runtime so the task is claimable here.
-	if _, err := f.pool.Exec(t.Context(), `UPDATE session SET runtime_id = $2 WHERE id = $1`, mustUUID(t, f.sessionID), f.rtID); err != nil {
+	if _, err := f.pool.Exec(t.Context(), `UPDATE room SET runtime_id = $2 WHERE id = $1`, mustUUID(t, f.sessionID), f.rtID); err != nil {
 		t.Fatal(err)
 	}
 	chat := f.create(t, map[string]any{})

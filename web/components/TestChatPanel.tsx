@@ -105,7 +105,7 @@ export function TestChatPanel({ agent, runtimes, workspaceId }: TestChatPanelPro
   return (
     <div className="tchat" data-testid="test-chat" data-phase={state.phase}>
       {/* 한 줄에 둔다 — 문구 자물쇠(lib/wording.test.ts)는 JSX 텍스트를 줄 단위로 읽는다. */}
-      <p className="tchat__note" data-testid="test-chat-not-session">세션이 아닙니다 — 메시지 게시·위임·승인 요청은 못 하고 답만 합니다. 실행 경로와 토큰을 보고 설정이 맞는지 확인하세요.</p>
+      <p className="tchat__note" data-testid="test-chat-not-session">방이 아닙니다 — 메시지 게시·위임·승인 요청은 못 하고 답만 합니다. 실행 경로와 토큰을 보고 설정이 맞는지 확인하세요.</p>
 
       {(state.phase === "idle" || state.phase === "opening" || state.phase === "closed") && (
         <div className="tchat__setup" data-testid="test-chat-setup">

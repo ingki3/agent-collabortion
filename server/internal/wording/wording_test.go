@@ -9,7 +9,7 @@ package wording
 // sink 는 일곱 종류다.
 //   - apperr 생성자: New(…, detail) · Unauthorized/Forbidden/Conflict/Gone(code, detail)
 //     · NotFound(noun) · Field(field, code, message)
-//   - 세션에 게시되는 시스템 메시지: *.SystemPost(ctx, tx, id, content)
+//   - 세션에 게시되는 시스템 메시지: *.SystemPost(ctx, tx, id, content) · *.SystemPostWork(ctx, tx, id, work, content)
 //   - 사람이 읽는 칸 이름: Detail · Title · Hint · Message · Note · FeedNote ·
 //     Question · Reason · CLIError · ErrorMessage · Problems · Content · Summary ·
 //     Rationale, 그리고 task_event payload 의 "detail"·"note" 키(S-52) 와
@@ -22,8 +22,11 @@ package wording
 //     BuildSummaryBody · decisionLine · CardBody · hitlTypeLabel · ValidateTree ·
 //     apperr.Title/StatusLabel/NotFound/Validation/Internal — 반환값·switch 가지·Fprintf 조각까지
 //   - 표로 둔 패키지 변수(sinkVars): apperr.titles · statusLabels · NotFoundNouns · sessions.ErrInvalidTree
+//   - 이름이 곧 sink 인 패키지 상수·변수(sinkConstName): `…Detail`·`…Message`·`…Hint`·`…Note`·`…Reason`·
+//     `…Question`·`…Sentence` — 예 sessions.DeleteActiveDetail(PR #317 리뷰 NN2). 쓰이는 자리와 무관하게 센다.
 //
-// 문자열 연결(+)·fmt.Sprintf·패키지 상수·nullable.NewNullableWithValue 는 안쪽까지 따라간다.
+// 문자열 연결(+)·fmt.Sprintf·패키지 상수·nullable.NewNullableWithValue 는 안쪽까지 따라간다. 상수는 **같은 패키지의
+// 다른 파일**과 **다른 패키지(`sessions.X`)** 까지 푼다 — 파일 하나만 보면 선언과 쓰임이 갈린 상수가 사각지대였다(NN2).
 
 import (
 	"go/ast"
@@ -59,6 +62,16 @@ var daemonAPI = map[string]bool{
 	"internal/events/events.go":           true,
 }
 
+// agentFacing 은 **에이전트가 읽는** 문장만 두는 파일이다(T-AGENTFIX B5 — TaskToken 호출의
+// 오류 문장). 에이전트는 그 문장을 읽고 다음 호출을 고치므로 `artifactId`·`uuid`·`limit`·
+// `cursor` 같은 파라미터 이름을 그대로 말해야 한다 — daemonAPI 와 같은 취지의 기계의 글이다.
+// 이 파일에서 태어난 리터럴은 어느 sink 에 쓰이든 세지 않는다(review #343 NN1: 전에는 sink
+// 밖이라 **우연히** 빠졌다). 사람이 읽는 문장은 이 파일에 두지 않는다 — 사람 쪽 문장은
+// server.go·idempotency.go·problem.go 의 원래 자리에 그대로 있고 여기서 센다.
+var agentFacing = map[string]bool{
+	"internal/httpapi/agent_errors.go": true,
+}
+
 // ── sink 정의 ────────────────────────────────────────────────────────────
 
 // apperrArg 는 생성자별로 사람이 읽는 인자의 위치.
@@ -76,16 +89,18 @@ var sinkFields = map[string]bool{
 
 var sinkMapKeys = map[string]bool{"detail": true, "note": true}
 
-var sinkLocalVars = map[string]bool{"question": true, "detail": true, "note": true, "reason": true, "hint": true, "header": true, "body": true, "summary": true, "title": true}
+var sinkLocalVars = map[string]bool{"msg": true, "question": true, "detail": true, "note": true, "reason": true, "hint": true, "header": true, "body": true, "summary": true, "title": true}
 
 // sinkHelpers 는 사람 문장을 인자로 받는 지역 함수 — 이름 → 문장 인자의 위치들.
 // 패키지 한정자 없이 불리는 것만(pkg == "") 본다.
 var sinkHelpers = map[string][]int{
-	"reject":         {2}, // hitl.Plan: reject(code, field, msg)
-	"unreadable":     {2}, // httpapi: unreadable(field, code, msg, err)
-	"field":          {2}, // agents: field(name, code, msg)
-	"insertDecision": {3, 4},
-	"errText":        {0}, // testchat: 턴의 error 문장 (Turn.Error = errText(…))
+	"reject":             {2}, // hitl.Plan: reject(code, field, msg)
+	"unreadable":         {2}, // httpapi: unreadable(field, code, msg, err)
+	"field":              {2}, // agents: field(name, code, msg)
+	"insertDecision":     {3, 4},
+	"systemPostWork":     {4}, // httpapi: 미션 타임라인 한 줄 (T-R1b2)
+	"directorHandedOver": {6},
+	"errText":            {0}, // testchat: 턴의 error 문장 (Turn.Error = errText(…))
 }
 
 // sinkFuncs 는 본문 전체가 사람 문장을 조립하는 함수 — 안의 문자열 리터럴을 전부 센다
@@ -105,6 +120,13 @@ var sinkVars = map[string]bool{"titles": true, "statusLabels": true, "NotFoundNo
 	"ErrInvalidTree": true, // sessions: %w 로 Field message 의 머리가 된다
 	"Defs":           true, // metrics: §11 지표의 label·note — S14 대시보드가 그대로 그린다 (T-S12); observations: §11 관찰 표 (T-S19)
 }
+
+// sinkConstName 은 이름만으로 사람 문장임을 알리는 패키지 상수·변수(NN2). 계약이 못박은 문장을 상수로 두고
+// 다른 파일·패키지(테스트 포함)가 가져다 쓰는 관례(`DeleteActiveDetail`)가 있다 — 쓰이는 자리를 못 따라가도 선언에서 센다.
+var sinkConstName = regexp.MustCompile(`(Detail|Message|Hint|Note|Reason|Question|Sentence)$`)
+
+// sqlConstName 은 이름이 sink 처럼 끝나도 SQL 인 상수(`selectMessage`) — 문장이 아니라 질의문이다.
+var sqlConstName = regexp.MustCompile(`^(select|insert|update|delete|upsert|sql)`)
 
 // decisionSQL 은 decision 행을 직접 쓰는 SQL — 그 Exec/QueryRow 의 값 인자는 사람이 읽는다.
 var decisionSQL = regexp.MustCompile(`INSERT\s+INTO\s+decision\b`)
@@ -158,9 +180,12 @@ func sourceFiles(t *testing.T, root string) []string {
 
 type collector struct {
 	fset   *token.FileSet
+	root   string
 	file   string
-	consts map[string]ast.Expr // 패키지 상수 · 변수 (같은 파일)
-	out    []sentence
+	consts map[string]ast.Expr // 패키지 상수 · 변수 (같은 패키지의 모든 파일)
+	// pkgConsts 는 다른 패키지의 상수 — `sessions.DeleteActiveDetail` 처럼 선택자로 쓰인 것(패키지 이름 → 이름 → 값).
+	pkgConsts map[string]map[string]ast.Expr
+	out       []sentence
 	// notFoundNouns 는 apperr.NotFound 에 건네진 키 — 한국어 명사표에 있어야 한다.
 	notFoundNouns []sentence
 	// apperrExcluded 면 apperr 생성자는 세지 않는다(데몬 API — daemonAPI).
@@ -176,7 +201,12 @@ func (c *collector) add(e ast.Expr) {
 		if err != nil {
 			continue
 		}
-		c.out = append(c.out, sentence{file: c.file, line: pos.Line, text: s})
+		// 리터럴이 사는 파일로 적는다 — 다른 파일의 상수를 풀었으면 그 상수의 선언 자리다.
+		file := c.file
+		if rel, err := filepath.Rel(c.root, pos.Filename); err == nil {
+			file = filepath.ToSlash(rel)
+		}
+		c.out = append(c.out, sentence{file: file, line: pos.Line, text: s})
 	}
 }
 
@@ -211,6 +241,12 @@ func (c *collector) literals(e ast.Expr, depth int) []*ast.BasicLit {
 		if decl, ok := c.consts[x.Name]; ok {
 			return c.literals(decl, depth+1)
 		}
+	case *ast.SelectorExpr:
+		if id, ok := x.X.(*ast.Ident); ok {
+			if decl, ok := c.pkgConsts[id.Name][x.Sel.Name]; ok {
+				return c.literals(decl, depth+1)
+			}
+		}
 	}
 	return nil
 }
@@ -244,6 +280,8 @@ func (c *collector) visit(n ast.Node) bool {
 			}
 		case name == "SystemPost" && len(x.Args) >= 4:
 			c.add(x.Args[3])
+		case name == "SystemPostWork" && len(x.Args) >= 5: // T-R1b2: 미션 타임라인의 시스템 메시지
+			c.add(x.Args[4])
 		case pkg == "" && sinkHelpers[name] != nil:
 			for _, i := range sinkHelpers[name] {
 				if i < len(x.Args) {
@@ -335,13 +373,24 @@ func collectSeen(t *testing.T) (pool []sentence, nouns []sentence, files []strin
 	files = sourceFiles(t, root)
 	fset := token.NewFileSet()
 	seen = map[string]bool{}
-	for _, f := range files {
+	// 1차 — 전부 파싱하고 패키지 상수·변수를 모은다. 같은 패키지(디렉터리)는 파일을 넘어, 다른 패키지는 이름으로.
+	parsed := make([]*ast.File, len(files))
+	byDir := map[string]map[string]ast.Expr{}
+	byPkg := map[string]map[string]ast.Expr{}
+	named := map[string][]ast.Expr{} // sinkConstName 에 걸린 선언 — 파일별
+	for i, f := range files {
 		af, err := parser.ParseFile(fset, filepath.Join(root, f), nil, 0)
 		if err != nil {
 			t.Fatalf("%s: %v", f, err)
 		}
-		c := &collector{fset: fset, file: f, consts: map[string]ast.Expr{},
-			apperrExcluded: daemonAPI[f], seen: seen}
+		parsed[i] = af
+		dir, pkg := filepath.Dir(f), af.Name.Name
+		if byDir[dir] == nil {
+			byDir[dir] = map[string]ast.Expr{}
+		}
+		if byPkg[pkg] == nil {
+			byPkg[pkg] = map[string]ast.Expr{}
+		}
 		for _, d := range af.Decls {
 			gd, ok := d.(*ast.GenDecl)
 			if !ok || (gd.Tok != token.CONST && gd.Tok != token.VAR) {
@@ -354,13 +403,31 @@ func collectSeen(t *testing.T) (pool []sentence, nouns []sentence, files []strin
 				}
 				for i, n := range vs.Names {
 					if i < len(vs.Values) {
-						c.consts[n.Name] = vs.Values[i]
+						byDir[dir][n.Name] = vs.Values[i]
+						byPkg[pkg][n.Name] = vs.Values[i]
+						if sinkConstName.MatchString(n.Name) && !sqlConstName.MatchString(n.Name) {
+							named[f] = append(named[f], vs.Values[i])
+						}
 					}
 				}
 			}
 		}
+	}
+	// 2차 — sink 를 훑는다.
+	for i, f := range files {
+		af := parsed[i]
+		c := &collector{fset: fset, root: root, file: f, consts: byDir[filepath.Dir(f)], pkgConsts: byPkg,
+			apperrExcluded: daemonAPI[f], seen: seen}
+		for _, v := range named[f] {
+			c.add(v)
+		}
 		ast.Inspect(af, c.visit)
-		pool = append(pool, c.out...)
+		for _, s := range c.out {
+			// agentFacing — 리터럴이 사는 파일로 거른다(다른 파일이 그 상수를 sink 에 넣어도).
+			if !agentFacing[s.file] {
+				pool = append(pool, s)
+			}
+		}
 		nouns = append(nouns, c.notFoundNouns...)
 	}
 	return pool, nouns, files, seen
@@ -449,13 +516,29 @@ func TestScope(t *testing.T) {
 			t.Errorf("daemonAPI %q 가 소스에 없다 — 예외가 유령을 가리킨다", f)
 		}
 	}
+	// agentFacing 도 같은 자리에 못박는다 — 파일을 더하면 리뷰가 본다.
+	if len(agentFacing) != 1 || !agentFacing["internal/httpapi/agent_errors.go"] {
+		t.Errorf("agentFacing 예외 목록이 바뀌었다: %v", agentFacing)
+	}
+	for f := range agentFacing {
+		found := false
+		for _, g := range files {
+			if g == f {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("agentFacing %q 가 소스에 없다 — 예외가 유령을 가리킨다", f)
+		}
+	}
 	if len(nouns) < 40 {
 		t.Errorf("apperr.NotFound 호출이 %d개뿐 — 수집이 새고 있다", len(nouns))
 	}
 	// 리뷰가 짚은 자리들 — 여기가 풀에 없으면 자물쇠는 잠긴 척만 한다.
 	for _, f := range []string{
-		"internal/sessions/sessions.go", // "Session started. Goal:" 이 있던 자리
-		"internal/httpapi/handlers_participants.go",
+		// R4: sessions.go("Session started. Goal:" 이 있던 자리)·handlers_participants.go 는
+		// 세션 op 과 함께 문장이 없어졌다(파일 삭제·축소).
 		"internal/httpapi/handlers_completion.go",
 		"internal/httpapi/principal.go",
 		"internal/sessions/pause.go",   // Hint
@@ -495,6 +578,33 @@ func TestScope(t *testing.T) {
 		if !found {
 			t.Errorf("%s 에서 문장을 하나도 못 모았다", f)
 		}
+	}
+}
+
+// NN2(PR #317) — 선언과 쓰임이 갈린 패키지 상수. RoomArchivedDetail 은 httpapi 가 `rooms.RoomArchivedDetail` 로만
+// 쓴다 — 파일 하나만 보던 자물쇠는 이 문장을 못 봤다. 두 규칙(다른 패키지 선택자 · 이름 규칙)이 모두 빠지면 여기서 걸린다.
+// (R4: 원래 짚었던 sessions.DeleteForbiddenDetail·DeleteActiveDetail 은 deleteSession 과 함께 지워졌다 —
+// 같은 모양의 다른 파일 상수 둘로 옮긴다. DeleteUnmergedDetail 은 room_ops.go 가 쓴다.)
+func TestCrossFileConstantsAreSentences(t *testing.T) {
+	pool, _, _ := collect(t)
+	want := map[string][2]string{
+		"RoomArchivedDetail":   {"internal/rooms/authz.go", "보관된 방입니다 — 먼저 보관을 해제해 주세요"},
+		"DeleteUnmergedDetail": {"internal/sessions/delete.go", "미병합 커밋이나 미커밋 변경이 남은 작업 폴더가 있어 삭제할 수 없습니다 — 먼저 병합하거나 정리해 주세요"},
+	}
+	for name, fw := range want {
+		found := false
+		for _, s := range pool {
+			if s.file == fw[0] && s.text == fw[1] {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("%s 가 풀에 없다 — 다른 파일·패키지에서 쓰는 상수가 사각지대로 돌아갔다", name)
+		}
+	}
+	if !sinkConstName.MatchString("DeleteForbiddenDetail") || sinkConstName.MatchString("selectMessages") || sqlConstName.FindString("selectMessage") == "" {
+		t.Error("sinkConstName·sqlConstName 규칙이 바뀌었다")
 	}
 }
 
@@ -549,9 +659,13 @@ func TestNoInternalTerms(t *testing.T) {
 		{"런타임 → 컴퓨터 (산문까지 전부)", regexp.MustCompile(`런타임`)},
 		{"머신 → 컴퓨터", regexp.MustCompile(`머신`)},
 		{"Inbox → 받은 요청", regexp.MustCompile(`\bInbox\b`)},
+		// v0.19 R1.5 (PRD §3.2 · SCREEN §3.4) — 「세션」은 방 또는 미션, 「작업 줄기」는 서브 미션
+		{"세션 → 방 · 미션 (PRD §3.2)", regexp.MustCompile(`세션`)},
+		{"작업 줄기 → 서브 미션 (PRD §3.2)", regexp.MustCompile(`작업\s*줄기`)},
+		{"산출물 → 아티팩트 (PRD §3.2 — 바꾸지 않는다)", regexp.MustCompile(`산출물`)},
 		{"owner·admin → 소유자·관리자", regexp.MustCompile(`\b(owner|admin)\b`)},
 		// 내부 용어 (web/lib/wording.test.ts 의 INTERNAL 과 같은 목록 + 데몬 프로토콜 동사)
-		{"lane → 작업 줄기", regexp.MustCompile(`(?i)\blanes?\b`)},
+		{"lane → 서브 미션", regexp.MustCompile(`(?i)\blanes?\b`)},
 		{"task → 할 일", regexp.MustCompile(`(?i)\btasks?\b`)},
 		{"attempt → 실행", regexp.MustCompile(`(?i)\battempts?\b`)},
 		{"HITL → 확인 요청", regexp.MustCompile(`\bHITL\b`)},
@@ -605,8 +719,8 @@ func TestLoopLimitSentencesAreLocked(t *testing.T) {
 		"주고받기 연쇄가 상한까지 깊어졌습니다",       // LimitText — chain_depth
 		"한 시간에 오간 횟수가 상한에 닿았습니다",     // LimitText — hops_per_hour
 		"두 에이전트가 상한까지 주고받았습니다",       // LimitText — pair_roundtrips
-		"루프 상한에 걸려 세션이 일시정지되었습니다 — ", // PausedText — ErrLoopLimit · Post warning
-		"루프 상한에 도달해 세션을 일시정지했습니다 — ", // QuestionText — the system HITL
+		"루프 상한에 걸려 미션이 일시정지되었습니다 — ", // PausedText — ErrLoopLimit · Post warning
+		"루프 상한에 도달해 미션을 일시정지했습니다 — ", // QuestionText — the system HITL
 		". 계속할까요?",
 	}
 	for _, w := range want {
@@ -619,6 +733,30 @@ func TestLoopLimitSentencesAreLocked(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("internal/router/loop.go 의 조각 %q 가 풀에 없다 — sinkFuncs 표를 확인하라", w)
+		}
+	}
+}
+
+// TestRoomRenameSentencesAreLocked is T-RENAME (PRD FR-2.1.2): 방 이름·설명을
+// 바꾼 시스템 메시지의 조각이 풀에 있어야 한다 — 지역 변수에 담아 SystemPost 로
+// 넘기면 자물쇠 밖으로 샌다(`line :=` 는 sink 가 아니다).
+func TestRoomRenameSentencesAreLocked(t *testing.T) {
+	pool, _, _ := collect(t)
+	for _, w := range []string{
+		" 님이 방 이름을 ",
+		"에서 ",
+		" 바꿨습니다.",
+		" 님이 방 설명을 바꿨습니다.",
+	} {
+		found := false
+		for _, s := range pool {
+			if s.file == "internal/httpapi/handlers_rooms.go" && s.text == w {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("handlers_rooms.go 의 조각 %q 가 풀에 없다 — SystemPost 인자에 바로 두어라", w)
 		}
 	}
 }

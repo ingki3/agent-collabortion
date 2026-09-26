@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
+	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -35,11 +37,21 @@ type hitlSession struct {
 	Status      string
 }
 
-func loadHitlSession(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (*hitlSession, error) {
+// loadHitlSession reads the room and the mission a request is judged in:
+// `workID` (the asking task's mission), else — a room made by the old path —
+// the old session's mission (room.legacy_work_id, T-R1b2's narrowing of the
+// legacy single-work room rule). With neither the room answers for itself —
+// its owner stands where the Director would (FR-2A.1: a run outside any
+// mission asks the room owner). V19_R1B_HANDOFF (c) handlers_hitl_p3.go:42.
+func loadHitlSession(ctx context.Context, q db.DBTX, sessionID uuid.UUID, workID *uuid.UUID) (*hitlSession, error) {
 	var h hitlSession
 	err := q.QueryRow(ctx, `
-		SELECT workspace_id, director_user_id, deputy_director_user_id, autonomy::text, status::text
-		FROM session WHERE id = $1`, sessionID).
+		SELECT s.workspace_id, COALESCE(wk.director_user_id, s.owner_user_id),
+		       CASE WHEN wk.id IS NULL THEN s.deputy_owner_user_id ELSE wk.deputy_user_id END,
+		       COALESCE(wk.autonomy, s.autonomy)::text, COALESCE(wk.status::text, 'active')
+		FROM room s
+		LEFT JOIN work wk ON wk.id = COALESCE($2::uuid, s.legacy_work_id)
+		WHERE s.id = $1`, sessionID, workID).
 		Scan(&h.WorkspaceID, &h.Director, &h.Deputy, &h.Autonomy, &h.Status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.NotFound("session")
@@ -115,7 +127,7 @@ func readHitlCreate(raw []byte) (hitlCreateFields, *Problem) {
 	return f, nil
 }
 
-func (s *Server) CreateHitlRequest(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.CreateHitlRequestParams) {
+func (s *Server) CreateHitlRequest(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.CreateHitlRequestParams) {
 	// `source: agent` only. A system-issued request is server-internal (the
 	// contract says so) and letting a token mint one would let an agent forge
 	// the platform's own budget approval.
@@ -125,8 +137,8 @@ func (s *Server) CreateHitlRequest(w http.ResponseWriter, r *http.Request, sessi
 			"확인 요청은 에이전트만 만들 수 있습니다"))
 		return
 	}
-	if scope.SessionID != sessionId {
-		writeProblem(w, apperr.Forbidden("outside_task_scope", "다른 세션에는 접근할 수 없습니다"))
+	if scope.SessionID != roomId {
+		writeProblem(w, apperr.Forbidden("outside_task_scope", "다른 방에는 접근할 수 없습니다"))
 		return
 	}
 	body, p := readBody(w, r)
@@ -148,15 +160,11 @@ func (s *Server) CreateHitlRequest(w http.ResponseWriter, r *http.Request, sessi
 		key = params.IdempotencyKey.String()
 	}
 	s.idempotent(r.Context(), w, "task:"+scope.TaskID.String(), key, requestHash(r, body),
-		func() (int, any, *Problem) { return s.createHitl(r.Context(), scope.TaskID, sessionId, f) })
+		func() (int, any, *Problem) { return s.createHitl(r.Context(), scope.TaskID, roomId, f) })
 }
 
 func (s *Server) createHitl(ctx context.Context, taskID, sessionID uuid.UUID, f hitlCreateFields) (int, any, *Problem) {
 	now := s.Clock.Now()
-	sess, err := loadHitlSession(ctx, s.DB, sessionID)
-	if err != nil {
-		return 0, nil, apperr.As(err)
-	}
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return 0, nil, apperr.Internal(err)
@@ -164,6 +172,11 @@ func (s *Server) createHitl(ctx context.Context, taskID, sessionID uuid.UUID, f 
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
 	t, err := tasks.Get(ctx, tx, taskID)
+	if err != nil {
+		return 0, nil, apperr.As(err)
+	}
+	// The asking task's mission names the Director (not "the room's mission").
+	sess, err := loadHitlSession(ctx, tx, sessionID, t.WorkID)
 	if err != nil {
 		return 0, nil, apperr.As(err)
 	}
@@ -232,12 +245,17 @@ func (s *Server) createHitl(ctx context.Context, taskID, sessionID uuid.UUID, f 
 	if f.Context != "" {
 		cx = &f.Context
 	}
+	if plan.ApproverSpec == hitl.SpecDirector && t.WorkID == nil {
+		// FR-2A.1: a run outside any mission has no Director — its questions
+		// go to the room owner (with the absent-owner hand-over, FR-2A.3).
+		plan.ApproverSpec = hitl.SpecRoomOwner
+	}
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO hitl_request (session_id, task_id, source, type, question, context, options, proposed_default,
-		                          approver_spec, purpose, artifact_id, message_id, due_at, created_at)
-		VALUES ($1, $2, 'agent', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+		                          approver_spec, purpose, artifact_id, message_id, due_at, created_at, work_id)
+		VALUES ($1, $2, 'agent', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
 		sessionID, t.ID, f.Kind, f.Question, cx, options, def, plan.ApproverSpec, plan.Purpose,
-		f.ArtifactID, msgID, now.Add(f.DueIn), now).Scan(&id); err != nil {
+		f.ArtifactID, msgID, now.Add(f.DueIn), now, t.WorkID).Scan(&id); err != nil {
 		return 0, nil, apperr.Internal(err)
 	}
 	if err := s.Tasks.SetPendingHitl(ctx, tx, t.ID, now); err != nil {
@@ -304,6 +322,17 @@ func (s *Server) hitlInbox(ctx context.Context, tx pgx.Tx, sess *hitlSession, se
 		if sess.Deputy != nil {
 			targets = append(targets, *sess.Deputy)
 		}
+	case hitl.SpecRoomOwner:
+		// The owner and whoever the absence hand-over reaches (FR-2A.3) —
+		// told now, answering from half the deadline (hitl.Authorize).
+		a, err := roomgate.LoadApprovers(ctx, tx, sessionID)
+		if err != nil {
+			return err
+		}
+		targets = append(targets, a.Owner)
+		if d := a.Delegate(); d != nil {
+			targets = append(targets, *d)
+		}
 	default:
 		if id, err := uuid.Parse(spec); err == nil {
 			targets = append(targets, id)
@@ -323,15 +352,32 @@ func (s *Server) hitlInbox(ctx context.Context, tx pgx.Tx, sess *hitlSession, se
 }
 
 func (s *Server) publishHitl(ctx context.Context, wsID, sessionID, hitlID uuid.UUID, event string) {
+	s.publishHitlVia(ctx, s.DB, wsID, sessionID, hitlID, event)
+}
+
+// publishHitlVia is publishHitl reading through q — a transaction when the
+// row is not committed yet. It is also the builder messages.PublishHitl calls
+// for the packages that cannot import this one (T-APPROVAL, NewServer).
+func (s *Server) publishHitlVia(ctx context.Context, q db.DBTX, wsID, sessionID, hitlID uuid.UUID, event string) {
 	if s.Hub == nil {
 		return
 	}
-	out, err := s.hitlAPI(ctx, s.DB, hitlID, nil)
+	out, err := s.hitlAPI(ctx, q, hitlID, nil)
 	if err != nil {
+		slog.Warn("httpapi: hitl frame", "err", err, "hitl", hitlID, "event", event)
 		return
 	}
+	if wsID == uuid.Nil {
+		if err := q.QueryRow(ctx, `SELECT workspace_id FROM room WHERE id = $1`, out.SessionId).Scan(&wsID); err != nil {
+			slog.Warn("httpapi: hitl frame workspace", "err", err, "hitl", hitlID)
+			return
+		}
+	}
+	if sessionID == uuid.Nil {
+		sessionID = out.SessionId
+	}
 	sid := sessionID
-	_ = s.Hub.Publish(ctx, s.DB, wsID, &sid, event, out)
+	_ = s.Hub.Publish(ctx, q, wsID, &sid, event, out)
 }
 
 // ---------------------------------------------------------------------------
@@ -357,8 +403,8 @@ func (s *Server) GetHitlRequest(w http.ResponseWriter, r *http.Request, hitlRequ
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) ListHitlRequests(w http.ResponseWriter, r *http.Request, sessionId gen.SessionId, params gen.ListHitlRequestsParams) {
-	u, p := s.sessionAccess(r, sessionId)
+func (s *Server) ListHitlRequests(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListHitlRequestsParams) {
+	u, p := s.sessionAccess(r, roomId)
 	if p != nil {
 		writeProblem(w, p)
 		return
@@ -371,7 +417,7 @@ func (s *Server) ListHitlRequests(w http.ResponseWriter, r *http.Request, sessio
 	if params.Limit != nil {
 		limit = *params.Limit
 	}
-	args := []any{sessionId}
+	args := []any{roomId}
 	where := "h.session_id = $1"
 	if params.Status != nil {
 		args = append(args, string(*params.Status))

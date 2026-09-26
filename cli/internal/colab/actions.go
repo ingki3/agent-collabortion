@@ -6,92 +6,68 @@ package colab
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/ingki3/agent-collabortion/cli/internal/client"
 )
 
-// SessionGetArgs — `colab session get [--session S]` / colab_session_get.
-type SessionGetArgs struct {
-	Session string `json:"session,omitempty"`
-}
-
-// SessionGet — GET /sessions/{S}. The result is the Session object as the
-// server sent it (goal · acceptance_criteria · completion_progress ·
-// participants with derived status · isolation · director).
-func SessionGet(ctx context.Context, c *client.Client, a SessionGetArgs) (map[string]any, error) {
-	if err := c.Allow(ctx, client.CmdSessionGet); err != nil {
-		return nil, err
-	}
-	sid, err := c.SessionID(ctx, a.Session)
-	if err != nil {
-		return nil, err
-	}
-	return c.GetSession(ctx, sid)
-}
-
-// SessionMessagesArgs — `colab session messages [--since --limit --thread]`.
-type SessionMessagesArgs struct {
-	Session string `json:"session,omitempty"`
-	Since   string `json:"since,omitempty"`  // sent as after=<cursor|message id>
-	Limit   *int   `json:"limit,omitempty"`  // 1..200 (nil = server default 50; an explicit 0 is exit 2)
-	Thread  string `json:"thread,omitempty"` // thread root id
-}
-
-// SessionMessagesResult adds the E8-12 included/total/truncated view.
-type SessionMessagesResult struct {
-	SessionID     string           `json:"session_id"`
-	Items         []client.Message `json:"items"`
-	Included      int              `json:"included"`
-	Total         *int             `json:"total"`
-	Truncated     bool             `json:"truncated"`
-	BeforeCursor  *string          `json:"before_cursor"`
-	AfterCursor   *string          `json:"after_cursor"`
-	HasMoreBefore bool             `json:"has_more_before"`
-	HasMoreAfter  bool             `json:"has_more_after"`
-}
-
-// SessionMessages — GET /sessions/{S}/messages.
-func SessionMessages(ctx context.Context, c *client.Client, a SessionMessagesArgs) (*SessionMessagesResult, error) {
-	limit := 0
-	if a.Limit != nil {
-		if *a.Limit < 1 || *a.Limit > 200 {
-			return nil, client.Usage("--limit must be 1..200 (got %d)", *a.Limit)
-		}
-		limit = *a.Limit
-	}
-	if err := c.Allow(ctx, client.CmdSessionMessages); err != nil {
-		return nil, err
-	}
-	sid, err := c.SessionID(ctx, a.Session)
-	if err != nil {
-		return nil, err
-	}
-	page, err := c.ListMessages(ctx, sid, client.MessagesQuery{Since: a.Since, Limit: limit, Thread: a.Thread})
-	if err != nil {
-		return nil, err
-	}
-	items := page.Items
-	if items == nil {
-		items = []client.Message{}
-	}
-	return &SessionMessagesResult{
-		SessionID: sid, Items: items, Included: len(items), Total: page.Total,
-		Truncated:    page.HasMoreBefore || page.HasMoreAfter || (page.Total != nil && *page.Total > len(items)),
-		BeforeCursor: page.BeforeCursor, AfterCursor: page.AfterCursor,
-		HasMoreBefore: page.HasMoreBefore, HasMoreAfter: page.HasMoreAfter,
-	}, nil
-}
-
-// MessagePostArgs — `colab message post --body [--reply-to --mention]`.
+// MessagePostArgs — `colab message post --body [--detail | --detail-file] [--reply-to | --top-level] [--mention]`.
 type MessagePostArgs struct {
-	Session string   `json:"session,omitempty"`
-	Body    string   `json:"body"`
-	ReplyTo string   `json:"reply_to,omitempty"`
-	Mention []string `json:"mention,omitempty"` // agent names, with or without '@'
+	Session string `json:"session,omitempty"`
+	Body    string `json:"body"`
+	// Detail is the work layer (colab-cli v0.9.2): findings · full drafts ·
+	// tables, sent as is (never trimmed). nil = not given; given but blank is
+	// a usage error — the server's minLength is 1 and a blank fold is noise.
+	Detail *string `json:"detail,omitempty"`
+	// DetailFile is `--detail-file` / MCP `detail_file` (colab-cli v0.9.3): a
+	// path — relative to the working folder, or absolute — whose UTF-8 text
+	// (at most MaxDetailChars characters) becomes Detail. With Detail it is a
+	// usage error. Both surfaces read it through ReadDetailFile.
+	DetailFile string `json:"detail_file,omitempty"`
+	ReplyTo    string `json:"reply_to,omitempty"`
+	// TopLevel posts to the main timeline even when the turn was asked in a
+	// thread (colab-cli v0.9.1). With ReplyTo it is a usage error.
+	TopLevel bool     `json:"top_level,omitempty"`
+	Mention  []string `json:"mention,omitempty"` // agent names, with or without '@'
 	// IdempotencyKey overrides the derived key (UUIDv5 of task:<task_id>:<seq>,
 	// colab-cli.md §1). Use it to retry the *same* post after a network error.
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
+}
+
+// MaxDetailChars is MessageCreate.detail's maxLength (openapi v0.3.1): the
+// work text is at most 200,000 characters.
+const MaxDetailChars = 200000
+
+// ReadDetailFile is the one reader of `--detail-file` (CLI) and `detail_file`
+// (MCP colab_message_post), colab-cli v0.9.3: a relative path is taken from
+// the working folder (the process's — the agent's workdir for both the CLI
+// and the MCP server the runtime starts there), the bytes must be UTF-8 text
+// and at most MaxDetailChars characters, and they are sent as is (no
+// trimming — the file is the work text). Every failure is a usage error (exit
+// 2) naming the path, so the agent can fix the argument.
+func ReadDetailFile(path string) (string, error) {
+	if !filepath.IsAbs(path) {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", client.Usage("--detail-file %s: working folder: %v", path, err)
+		}
+		path = filepath.Join(wd, path)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", client.Usage("--detail-file: %v", err)
+	}
+	if !utf8.Valid(b) {
+		return "", client.Usage("--detail-file %s: not UTF-8 text", path)
+	}
+	if n := utf8.RuneCount(b); n > MaxDetailChars {
+		return "", client.Usage("--detail-file %s: %d characters, the limit is %d — put the full text in an artifact (artifact submit) and summarise it here", path, n, MaxDetailChars)
+	}
+	return string(b), nil
 }
 
 // MessagePostResult — colab-cli.md §2.2: `triggered`/`suppressed` are agent
@@ -108,17 +84,33 @@ type MessagePostResult struct {
 	Replayed       bool             `json:"replayed"`
 }
 
-// MessagePost — POST /sessions/{S}/messages. Mentions are resolved to the
+// MessagePost — POST /rooms/{R}/messages. Mentions are resolved to the
 // participant's mention_link from /cli/context and prepended to the body;
 // routing (rules 4 · 8) is the server's.
 func MessagePost(ctx context.Context, c *client.Client, a MessagePostArgs) (*MessagePostResult, error) {
 	if strings.TrimSpace(a.Body) == "" {
 		return nil, client.Usage("--body is required")
 	}
+	if a.TopLevel && a.ReplyTo != "" {
+		return nil, client.Usage("--reply-to and --top-level contradict each other: give one")
+	}
+	if a.DetailFile != "" {
+		if a.Detail != nil {
+			return nil, client.Usage("--detail and --detail-file (MCP detail · detail_file) contradict each other: give one")
+		}
+		d, err := ReadDetailFile(a.DetailFile)
+		if err != nil {
+			return nil, err
+		}
+		a.Detail = &d
+	}
+	if a.Detail != nil && strings.TrimSpace(*a.Detail) == "" {
+		return nil, client.Usage("--detail is empty: omit it or give the work text")
+	}
 	if err := c.Allow(ctx, client.CmdMessagePost); err != nil {
 		return nil, err
 	}
-	sid, err := c.SessionID(ctx, a.Session)
+	sid, err := c.RoomID(ctx, a.Session)
 	if err != nil {
 		return nil, err
 	}
@@ -133,13 +125,22 @@ func MessagePost(ctx context.Context, c *client.Client, a MessagePostArgs) (*Mes
 		if err != nil {
 			return nil, err
 		}
-		content = strings.Join(links, " ") + " " + content
+		if links = missingMentions(links, content); len(links) > 0 {
+			content = strings.Join(links, " ") + " " + content
+		}
 		names = nameIndex(cc)
 	}
-	body := client.MessageCreate{Content: content}
-	if a.ReplyTo != "" {
-		r := a.ReplyTo
-		body.ParentID = &r
+	body := client.MessageCreate{Content: content, Detail: a.Detail}
+	// Where the reply goes (colab-cli v0.9.1): the thread named, else the
+	// thread the turn was asked in (COLAB_THREAD_ID), else the main timeline.
+	// A question asked in a thread is answered there — an answer on the main
+	// timeline is one the asker does not see (STO 방, 2026-09-25).
+	parent := a.ReplyTo
+	if parent == "" && !a.TopLevel {
+		parent = c.ThreadID(sid)
+	}
+	if parent != "" {
+		body.ParentID = &parent
 	}
 	res, key, replayed, err := c.PostMessage(ctx, sid, body, a.IdempotencyKey)
 	if err != nil {
@@ -154,6 +155,38 @@ func MessagePost(ctx context.Context, c *client.Client, a MessagePostArgs) (*Mes
 		}
 	}
 	return summarize(res, key, replayed, names), nil
+}
+
+// mentionTargetRe is the target of an FR-3.2 mention link,
+// `[@Name](mention://agent/<id>)` → `agent/<id>`.
+var mentionTargetRe = regexp.MustCompile(`\(mention://((?:agent|user|all)/[^)\s]+)\)`)
+
+// missingMentions is links minus the ones the body already carries and minus
+// repeats: `mention` names who to wake, and an agent that wrote the link into
+// its body AND named the same agent in `mention` must not get
+// 「[@Researcher](…) [@Researcher](…) 삼성전자…」 (실사용 message abe08c9c,
+// 2026-09-25 — the Lead's body opened with the link and `mention` said
+// @Researcher; the prepend doubled it). The same target is judged by its id,
+// not the display name, so a renamed agent still counts as present.
+func missingMentions(links []string, body string) []string {
+	have := map[string]bool{}
+	for _, m := range mentionTargetRe.FindAllStringSubmatch(body, -1) {
+		have[m[1]] = true
+	}
+	var out []string
+	for _, l := range links {
+		m := mentionTargetRe.FindStringSubmatch(l)
+		if m == nil {
+			out = append(out, l)
+			continue
+		}
+		if have[m[1]] {
+			continue
+		}
+		have[m[1]] = true
+		out = append(out, l)
+	}
+	return out
 }
 
 func nameIndex(cc *client.CliContext) map[string]string {
@@ -172,6 +205,13 @@ func resolveMentions(cc *client.CliContext, mention []string) ([]string, error) 
 			if name == "" {
 				continue
 			}
+			// A mention link given as the name (「[@Writer](mention://agent/<id>)」
+			// — the roster in the brief shows agents that way, and a real
+			// claude_code turn passed it verbatim, T-SURFACE 실기) names the
+			// agent by its id.
+			if l := mentionTargetRe.FindStringSubmatch(name); l != nil && strings.HasPrefix(l[1], "agent/") {
+				name = strings.TrimPrefix(l[1], "agent/")
+			}
 			var link string
 			for _, p := range cc.Participants {
 				if strings.EqualFold(p.Name, name) || p.AgentID == name {
@@ -188,7 +228,7 @@ func resolveMentions(cc *client.CliContext, mention []string) ([]string, error) 
 					known = append(known, p.Name)
 				}
 				return nil, &client.Error{Exit: client.ExitUsage, Code: "unknown_mention", Title: "unknown mention @" + name,
-					Detail: "not a session participant (FR-1.5). participants: " + strings.Join(known, ", ") +
+					Detail: "not a room participant (FR-1.5). participants: " + strings.Join(known, ", ") +
 						". Ask the Director to add them via `colab hitl ask`."}
 			}
 			links = append(links, link)

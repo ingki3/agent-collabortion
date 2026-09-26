@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/ingki3/agent-collabortion/server/internal/messages"
 )
 
 // Seed is a minimal workspace: one user (owner), one runtime, one agent with a
@@ -78,12 +80,24 @@ func AddSession(t *testing.T, pool *pgxpool.Pool, s Seed, runtimeID *uuid.UUID, 
 	t.Helper()
 	ctx := context.Background()
 	var id uuid.UUID
-	if err := pool.QueryRow(ctx, `INSERT INTO session (workspace_id, title, goal, director_user_id, assignee_agent_id, runtime_id, isolation, status, created_by, created_at, updated_at, started_at)
-		VALUES ($1, 'S', 'goal', $2, $3, $4, '{"kind":"none"}', 'active', $2, $5, $5, $5) RETURNING id`, s.WorkspaceID, s.UserID, s.AgentID, runtimeID, now).Scan(&id); err != nil {
+	// A session is a room plus its one work since 0025 (PRD v0.19 §7).
+	if err := pool.QueryRow(ctx, `INSERT INTO room (workspace_id, name, description, owner_user_id, default_director_user_id, runtime_id, isolation, created_by, created_at, updated_at)
+		VALUES ($1, 'S', 'goal', $2, $2, $3, '{"kind":"none"}', $2, $4, $4) RETURNING id`, s.WorkspaceID, s.UserID, runtimeID, now).Scan(&id); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO session_participant (session_id, agent_id, profile_id, joined_at) VALUES ($1, $2, $3, $4)`, id, s.AgentID, s.ProfileID, now); err != nil {
+	// … made by the old path, so the room carries its session's mark
+	// (room.legacy_work_id, T-R1b2) as createSession's rooms do.
+	if _, err := pool.Exec(ctx, `
+		WITH w AS (INSERT INTO work (room_id, title, goal, director_user_id, assignee_agent_id, status, created_by, created_at, updated_at, started_at)
+		           VALUES ($1, 'S', 'goal', $2, $3, 'active', $2, $4, $4, $4) RETURNING id)
+		UPDATE room SET legacy_work_id = (SELECT id FROM w) WHERE id = $1`, id, s.UserID, s.AgentID, now); err != nil {
+		t.Fatalf("seed work: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO room_participant (room_id, agent_id, profile_id, joined_at) VALUES ($1, $2, $3, $4)`, id, s.AgentID, s.ProfileID, now); err != nil {
 		t.Fatalf("seed participant: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO room_participant (room_id, user_id, role, joined_at) VALUES ($1, $2, 'owner', $3)`, id, s.UserID, now); err != nil {
+		t.Fatalf("seed owner: %v", err)
 	}
 	return id
 }
@@ -93,13 +107,21 @@ func AddTask(t *testing.T, pool *pgxpool.Pool, s Seed, sessionID uuid.UUID, now 
 	t.Helper()
 	ctx := context.Background()
 	var msgID, laneID, taskID uuid.UUID
-	if err := pool.QueryRow(ctx, `INSERT INTO message (session_id, author_type, author_id, content, created_at) VALUES ($1, 'user', $2, 'hello', $3) RETURNING id`, sessionID, s.UserID, now).Scan(&msgID); err != nil {
+	// FR-3.1.1 (T-R1b1): a session's message, lane and task belong to its
+	// mission (room.legacy_work_id — the room may hold others since T-R1b2) —
+	// the claim gates a task on ITS mission (queue.Claim).
+	if err := pool.QueryRow(ctx, `INSERT INTO message (session_id, author_type, author_id, content, created_at, work_id) VALUES ($1, 'user', $2, 'hello', $3, (SELECT legacy_work_id FROM room WHERE id = $1)) RETURNING id`, sessionID, s.UserID, now).Scan(&msgID); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO lane (session_id, agent_id, profile_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $4) RETURNING id`, sessionID, s.AgentID, s.ProfileID, now).Scan(&laneID); err != nil {
+	// 「모든 INSERT 는 Store 를 탄다」(messages/speech.go) 는 이 헬퍼에도 해당한다 —
+	// 여기서 쓴 행만 speech 가 비면 테스트가 프로덕션과 다른 방을 보게 된다(리뷰 #335 NN5).
+	if err := messages.Store(ctx, pool, msgID, messages.StoreOpts{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, originator_user_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $7) RETURNING id`,
+	if err := pool.QueryRow(ctx, `INSERT INTO lane (session_id, agent_id, profile_id, created_at, updated_at, work_id) VALUES ($1, $2, $3, $4, $4, (SELECT legacy_work_id FROM room WHERE id = $1)) RETURNING id`, sessionID, s.AgentID, s.ProfileID, now).Scan(&laneID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, originator_user_id, created_at, updated_at, work_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, (SELECT legacy_work_id FROM room WHERE id = $2)) RETURNING id`,
 		laneID, sessionID, s.AgentID, s.ProfileID, msgID, s.UserID, now).Scan(&taskID); err != nil {
 		t.Fatal(err)
 	}

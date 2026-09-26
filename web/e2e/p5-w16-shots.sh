@@ -84,12 +84,12 @@ SID=$(apic '
   const rt = (await fetch(`/api/v1/workspaces/${ws}/runtimes`).then(j))[0];
   const a = (await fetch(`/api/v1/workspaces/${ws}/agents`).then(j)).items;
   const res = a.find((x) => x.name === "Researcher");
-  const s = await post(`/workspaces/${ws}/sessions`, {
+  const s = await post(`/__mock/workspaces/${ws}/seed-room`, {
     title: "국내 B2B SaaS 결제 시장 조사", goal: "보고서 10페이지 — 상위 5개 사업자 비교", isolation: { kind: "none" }, runtime_id: rt.id,
     participants: [{ agent_id: res.id }], assignee_agent_id: res.id, completion_condition: { op: "and", conditions: [{ type: "manual" }] },
   });
   await new Promise((r) => setTimeout(r, 3500)); // 세션 시작 턴(목의 simulateRun)이 끝난 뒤에 빈 턴을 얹는다
-  const seeded = await post(`/__mock/sessions/${s.id}/seed-empty-turn`, { agent_id: res.id });
+  const seeded = await post(`/__mock/rooms/${s.id}/seed-empty-turn`, { agent_id: res.id });
   return `${s.id} ${seeded.lane_id}`;
 })()')
 LANE=${SID#* }; SID=${SID%% *}
@@ -99,7 +99,7 @@ for THEME in light dark; do
   step "테마 $THEME — S7 빈 턴: 이전 작업 → 활동 → 정보 카드 + 카드 ⓘ 한 줄"
   set_theme "$THEME"
   # 세션 시작 턴(담당 에이전트의 첫 답)의 줄기도 있다 — 빈 턴 줄기는 시드가 돌려준 lane id 로 고른다.
-  open_wait "/sessions/$SID" "[data-lane-id=\"$LANE\"]"
+  open_wait "/rooms/$SID" "[data-lane-id=\"$LANE\"]"
   sleep 2
   click_until "[data-lane-id=\"$LANE\"] [data-testid=\"lane-tasks-toggle\"]" "[data-lane-id=\"$LANE\"] [data-testid=\"task-activity-toggle\"]"
   click_until "[data-lane-id=\"$LANE\"] [data-testid=\"task-activity-toggle\"]" '[data-testid="feed-row-empty-turn"]'
@@ -111,14 +111,14 @@ done
 # K-16(T-W17) — `colab status set done` 뒤에도 그 턴의 프로세스가 도는 줄기: 서버가 현재 할 일(running)로 판정해 actions 에 cancel 을 싣고,
 # 카드는 그 목록 그대로 「중단」을 낸다(+ 왜 done 카드에 「중단」이 있는지 한 줄). 확인 다이얼로그 문장도 done 전용.
 step "시드 — done 인데 실행이 아직 도는 줄기(K-16)"
-DR=$(apic "(async () => { const r = await fetch('/api/v1/__mock/sessions/$SID/seed-done-running', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).then(x => x.json()); return r.lane_id + ' ' + (r.lane.actions || []).join(','); })()")
+DR=$(apic "(async () => { const r = await fetch('/api/v1/__mock/rooms/$SID/seed-done-running', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).then(x => x.json()); return r.lane_id + ' ' + (r.lane.actions || []).join(','); })()")
 DLANE=${DR%% *}; DACT=${DR#* }
 echo "  lane=$DLANE actions=$DACT"
 [ "$DACT" = "cancel" ] || { echo "❌ done+running 줄기의 actions 가 [cancel] 이 아니다: $DACT"; exit 1; }
 for THEME in light dark; do
   step "테마 $THEME — S7 done 줄기의 「중단」(K-16)"
   set_theme "$THEME"
-  open_wait "/sessions/$SID" "[data-lane-id=\"$DLANE\"] [data-testid=\"lane-action-cancel\"]"
+  open_wait "/rooms/$SID" "[data-lane-id=\"$DLANE\"] [data-testid=\"lane-action-cancel\"]"
   ab wait "[data-lane-id=\"$DLANE\"] [data-testid=\"lane-done-running\"]" --timeout 5000 >/dev/null
   ab click "[data-lane-id=\"$DLANE\"] [data-testid=\"lane-action-cancel\"]" >/dev/null
   ab wait '[data-testid="cancel-confirm"]' --timeout 5000 >/dev/null
@@ -144,7 +144,7 @@ echo "  중단 뒤: $AFTER"
 [ "$AFTER" = "done nobtn" ] || {
   echo "❌ 중단 뒤 상태가 'done nobtn' 이 아니다: $AFTER"
   apic "(function(){var y=document.querySelector('[data-testid=cancel-confirm-yes]');var r=y&&y.getBoundingClientRect();return JSON.stringify({confirm:!!document.querySelector('[data-testid=cancel-confirm]'),yes:r&&[r.top,r.bottom,r.left,r.right],vh:window.innerHeight,disabled:y&&y.disabled,err:(document.querySelector('.problem')||{}).textContent||null})})()"
-  apic "fetch('/api/v1/sessions/$SID/lanes').then(r=>r.json()).then(ls=>JSON.stringify(ls.map(l=>[l.id.slice(0,8),l.status,l.actions,l.current_task&&l.current_task.status])))"
+  apic "fetch('/api/v1/rooms/$SID/lanes').then(r=>r.json()).then(ls=>JSON.stringify(ls.map(l=>[l.id.slice(0,8),l.status,l.actions,l.current_task&&l.current_task.status])))"
   exit 1
 }
 

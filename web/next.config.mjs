@@ -17,6 +17,7 @@ const nextConfig = {
   // 스트림을 gzip 으로 감싸 **버퍼링**한다 → EventSource 는 열리지만(onopen) 프레임이 한 건도 안 온다(G3 W-2, S12 가 `대기 중` 에 머묾).
   // curl 은 Accept-Encoding 을 안 보내 재현되지 않았다. 압축은 배포의 리버스 프록시가 맡는다.
   compress: false,
+  // 옛 세션 주소의 방 넘김(307, T-R2-W1)은 v0.3.0(R4, Director 승인 2026-09-24)에서 지웠다 — 옛 주소는 404 다. redirects() 없음.
   // 실서버 모드: /api/v1/* 를 Go 서버(:8080)로 프록시한다(같은 오리진 → 쿠키 그대로, openapi `servers[0]`).
   // 목 모드(COLAB_MOCK_API=1): app/api/v1/[...path]/route.ts 가 받는다(프록시 없음).
   async rewrites() {

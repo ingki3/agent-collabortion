@@ -28,8 +28,10 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/install"
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/llm"
+	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/queue"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
+	"github.com/ingki3/agent-collabortion/server/internal/rooms"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
 	"github.com/ingki3/agent-collabortion/server/internal/runtimes"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
@@ -63,9 +65,11 @@ type Server struct {
 	// 1:1 chat whose turns ride the daemon protocol as token-less attempts.
 	TestChats *testchat.Service
 	Events    *events.Service
-	Queue     *queue.Postgres
-	Tokens    *tokens.Service
-	Hub       *realtime.Hub
+	// Rooms is FR-4.5 (v0.19): another room read on request, and the trail.
+	Rooms  *rooms.Service
+	Queue  *queue.Postgres
+	Tokens *tokens.Service
+	Hub    *realtime.Hub
 
 	// SecureCookies sets the Secure flag on the session cookie (HTTPS).
 	SecureCookies bool
@@ -127,10 +131,10 @@ func NewServer(d Deps) *Server {
 			d.Log.Warn("publish lane.updated", "err", err, "lane", laneID)
 		}
 	}
-	// Same closure trick for the agent chip: FR-1.3's derivation lives in
-	// internal/sessions, which imports tasks (G4 2판 W7).
+	// Same closure trick for the agent chip: FR-1.3's derivation (sessions.AgentStatuses)
+	// and the room roster (rooms.PublishParticipant) import tasks (G4 2판 W7).
 	tsk.ParticipantPublish = func(ctx context.Context, q db.DBTX, sessionID, agentID uuid.UUID) {
-		if err := sessions.PublishParticipant(ctx, hub, q, sessionID, agentID); err != nil {
+		if err := rooms.PublishParticipant(ctx, hub, q, sessionID, agentID); err != nil {
 			d.Log.Warn("publish participant.updated", "err", err, "session", sessionID, "agent", agentID)
 		}
 	}
@@ -142,12 +146,13 @@ func NewServer(d Deps) *Server {
 	// A queued test chat turn wakes the same long-poll a queued task does —
 	// the person is watching the screen for the answer.
 	tc.Notify = notifier.Notify
-	return &Server{
+	arts := artifacts.New(d.DB, d.Clock)
+	srv := &Server{
 		DB: d.DB, Clock: d.Clock, Log: d.Log, ServerURL: d.ServerURL,
 		InstallRef: d.InstallRef, InstallGoMin: d.InstallGoMin,
 		Auth:      auth.New(d.DB, d.Clock, d.WebURL),
 		Agents:    agents.New(d.DB, d.Clock),
-		Artifacts: artifacts.New(d.DB, d.Clock),
+		Artifacts: arts,
 		Runtimes:  runtimes.New(d.DB, d.Clock, hub, d.ServerURL).WithLog(d.Log).WithTasks(tsk),
 		// §8.5's platform client is optional on purpose: with no
 		// ANTHROPIC_API_KEY the summary is composed from rows, as it was in P2,
@@ -158,10 +163,28 @@ func NewServer(d Deps) *Server {
 		Tasks:     tsk,
 		TestChats: tc,
 		Events:    events.New(d.DB, d.Clock, hub),
+		Rooms:     &rooms.Service{DB: d.DB, Clock: d.Clock, Hub: hub, Router: rt, Artifacts: arts},
 		Queue:     q,
 		Tokens:    tok,
 		Hub:       hub,
 	}
+	srv.Auth.OnLeave = srv.onMemberLeft
+	// T-APPROVAL: every package that raises a system HITL publishes
+	// `hitl.created` through this builder (messages.AttachHitlCard) — the
+	// contract's HitlRequest is only built here.
+	messages.RegisterHitlPublisher(hub, func(ctx context.Context, q db.DBTX, hitlID uuid.UUID, event string) {
+		srv.publishHitlVia(ctx, q, uuid.Nil, uuid.Nil, hitlID, event)
+	})
+	// T-APPROVAL: a mission whose user_approval request was held while its
+	// work ran gets the request the moment its last task ends. A failure is
+	// logged, not raised — the task's own ending is already committed, and
+	// the scheduler's ReleaseHeldApprovals retries.
+	tsk.AfterSettle = func(ctx context.Context, workID uuid.UUID) {
+		if _, err := srv.Sessions.ReleaseHeldApproval(context.WithoutCancel(ctx), workID); err != nil {
+			d.Log.Warn("release held approval", "err", err, "work", workID)
+		}
+	}
+	return srv
 }
 
 // Handler returns the full HTTP handler: generated OpenAPI router under
@@ -169,8 +192,13 @@ func NewServer(d Deps) *Server {
 func (s *Server) Handler() http.Handler {
 	api := gen.HandlerWithOptions(s, gen.StdHTTPServerOptions{
 		BaseURL: BasePath,
-		ErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
-			writeProblem(w, validationFromBind(err))
+		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			p := validationFromBind(err)
+			if isTaskCaller(r.Context()) {
+				// T-AGENTFIX B5: an agent has no screen to refresh.
+				p = agentBindProblem(r, p, err)
+			}
+			writeProblem(w, p)
 		},
 	})
 	mux := http.NewServeMux()

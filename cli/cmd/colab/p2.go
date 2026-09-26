@@ -28,7 +28,7 @@ func runLane(args []string, getenv client.Getenv, stdout, stderr io.Writer) int 
 		return usage(stderr, "usage: colab lane delegate --agent <name> --brief <text> [--depends-on <lane_id>] [--profile <name>]")
 	}
 	fs, _ := newFlagSet("lane delegate", stderr)
-	session := fs.String("session", "", "session id (default COLAB_SESSION_ID / token scope)")
+	session := fs.String("session", "", "room id override (default COLAB_ROOM_ID / token scope)")
 	agent := fs.String("agent", "", "target agent name — must already be a session participant (FR-1.5)")
 	brief := fs.String("brief", "", "delegation brief; goes into the delegate's turn prompt verbatim")
 	profile := fs.String("profile", "", "profile name (default: the participant's registered profile)")
@@ -80,7 +80,7 @@ func runDecision(args []string, getenv client.Getenv, stdout, stderr io.Writer) 
 		return usage(stderr, "usage: colab decision record --summary <s> [--rationale <r>]")
 	}
 	fs, _ := newFlagSet("decision record", stderr)
-	session := fs.String("session", "", "session id (default COLAB_SESSION_ID / token scope)")
+	session := fs.String("session", "", "room id override (default COLAB_ROOM_ID / token scope)")
 	summary := fs.String("summary", "", "what was decided (openapi Decision.summary)")
 	rationale := fs.String("rationale", "", "why (openapi Decision.rationale)")
 	title := fs.String("title", "", "alias of --summary")
@@ -115,7 +115,7 @@ func runArtifact(args []string, getenv client.Getenv, stdout, stderr io.Writer) 
 	switch args[0] {
 	case "submit":
 		fs, _ := newFlagSet("artifact submit", stderr)
-		session := fs.String("session", "", "session id (default COLAB_SESSION_ID / token scope)")
+		session := fs.String("session", "", "room id override (default COLAB_ROOM_ID / token scope)")
 		name := fs.String("name", "", "artifact name; re-submitting the same name is version+1 "+
 			"(default: the file's base name; for a generated --type diff, the branch's last segment)")
 		typ := fs.String("type", "", "artifact type — open set: file · diff · branch · doc · report …; "+

@@ -107,10 +107,10 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("S14 — 탭과 상단", () => {
-  it("탭 9개(8 + 대시보드)가 순서대로 있고, 「화면」(테마)은 탭 밖 상단에 있다", async () => {
+  it("탭 11개(v0.19: + 방 기본값 · 활동 로그)가 순서대로 있고, 「화면」(테마)은 탭 밖 상단에 있다", async () => {
     render(<SettingsPage />);
     const tabs = within(screen.getByTestId("settings-tabs")).getAllByRole("tab");
-    expect(tabs.map((t) => t.textContent?.replace(/(소유자·관리자|소유자|개인|읽기)$/, ""))).toEqual(["멤버", "컴퓨터 정책", "예산", "루프 상한", "컨텍스트", "작업 폴더", "보안", "알림", "대시보드"]);
+    expect(tabs.map((t) => t.textContent?.replace(/(소유자·관리자|소유자|개인|읽기)$/, ""))).toEqual(["멤버", "컴퓨터 정책", "방 기본값", "예산", "루프 상한", "컨텍스트", "작업 폴더", "보안", "알림", "대시보드", "활동 로그"]);
     // 테마 섹션이 탭 목록보다 앞(DOM 순서)에 있다 — 탭 안으로 옮기지 않았다.
     const page = screen.getByTestId("settings-page");
     const order = [...page.querySelectorAll("[data-testid]")].map((e) => e.getAttribute("data-testid"));
@@ -199,6 +199,36 @@ describe("S14 — 워크스페이스 탭 · 권한 · 저장 payload", () => {
     expect(screen.getByTestId("settings-budget-hint").textContent).toContain("소유자·관리자만");
   });
 
+  it("T-BUDGETCAP — 예산 탭 「새 미션의 기본 예산 상한(선택)」: 기본 없음, 적으면 그 키만 보낸다 · 새 방 기본은 「방 기본값」 탭이라고 말한다", async () => {
+    tabParam = "budget";
+    render(<SettingsPage />);
+    const row = await screen.findByTestId("row-session-budget");
+    expect(row.textContent).toContain("새 미션의 기본 예산 상한 (USD, 선택)");
+    expect(row.textContent).toContain("새 미션을 열 때 예산 칸을 비우면 이 값이 걸립니다");
+    expect(screen.getByTestId("row-session-budget-room-link").textContent).toBe("새 방의 기본 상한은 「방 기본값」 탭에 있습니다");
+    const input = screen.getByLabelText("새 미션의 기본 예산 상한") as HTMLInputElement;
+    expect(input.value).toBe("");
+    expect(input.placeholder).toBe("없음");
+    patch.mockResolvedValue({ ...settings(), budget_policy: { ...settings().budget_policy, default_session_budget_usd: 20 } });
+    fireEvent.change(input, { target: { value: "20" } });
+    fireEvent.click(screen.getByTestId("settings-save"));
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    expect(patch.mock.calls[0][1].body).toEqual({ budget_policy: { default_session_budget_usd: 20 } });
+  });
+
+  it("T-BUDGETCAP — 「방 기본값」 탭 「새 방의 기본 예산 상한(선택)」: 비우면 없음, 이미 있는 방은 그대로라고 말한다", async () => {
+    tabParam = "rooms";
+    render(<SettingsPage />);
+    const row = await screen.findByTestId("row-room-budget");
+    expect(row.textContent).toContain("새 방의 기본 예산 상한 (USD, 선택)");
+    expect(row.textContent).toContain("새로 만드는 방에만 걸립니다(이미 있는 방은 그대로)");
+    patch.mockResolvedValue({ ...settings(), room_defaults: { limits: { budget_usd: 30 } } });
+    fireEvent.change(screen.getByTestId("room-default-budget"), { target: { value: "30" } });
+    fireEvent.click(screen.getByTestId("settings-save"));
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    expect(patch.mock.calls[0][1].body).toEqual({ room_defaults: { limits: { budget_usd: 30 } } });
+  });
+
   it("422 는 errors[] 를 그 칸 옆에 그린다(서버 문장 그대로)", async () => {
     tabParam = "loop";
     patch.mockImplementation(async () => {
@@ -219,12 +249,14 @@ describe("S14 — 워크스페이스 탭 · 권한 · 저장 payload", () => {
     fireEvent.change(screen.getByLabelText("위임 사슬 깊이"), { target: { value: "3" } });
     tabParam = "context";
     view.rerender(<SettingsPage />);
-    await screen.findByTestId("row-summary-tokens");
+    // v0.19: 컨텍스트 탭은 다른 방 읽기 상한만 남는다(「컨텍스트 재사용 상한」 FR-4.4 은 버렸다, SCREEN §4.17).
+    await screen.findByTestId("row-room-read-tokens");
+    expect(screen.queryByTestId("row-summary-tokens")).toBeNull();
     expect((screen.getByTestId("settings-save") as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("이전 세션 요약의 최대 토큰"), { target: { value: "1000" } });
+    fireEvent.change(screen.getByLabelText("읽어 오는 최대 토큰"), { target: { value: "6000" } });
     fireEvent.click(screen.getByTestId("settings-save"));
     await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
-    expect(patch.mock.calls[0][1].body).toEqual({ context_reuse: { max_summary_tokens: 1000 } });
+    expect(patch.mock.calls[0][1].body).toEqual({ room_read: { max_tokens: 6000 } });
   });
 
   it("서버가 설정 읽기를 거절하면(403 — P2 서버는 admin 을 요구한다) 문장을 그대로 보이고 폼을 그리지 않는다", async () => {
@@ -467,7 +499,7 @@ describe("S14 — 알림(개인) · 멤버", () => {
       throw new Error(`unexpected GET ${path}`);
     });
     patch.mockImplementation(async (_p: string, opts: { body: { role: string } }) => ({ ...members3[2], role: opts.body.role }));
-    del.mockRejectedValue(problemFixture("member_is_director", 409, { detail: "이 멤버가 Director 인 진행 중 세션이 1개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요" }));
+    del.mockRejectedValue(problemFixture("last_owner", 409, { detail: "마지막 소유자는 내보낼 수 없습니다 — 먼저 다른 멤버를 소유자로 지정해 주세요" }));
     render(<SettingsPage />);
     const rows = await screen.findAllByTestId("member-row");
     const admin = rows.find((r) => r.textContent?.includes("지훈"))!;
@@ -476,7 +508,7 @@ describe("S14 — 알림(개인) · 멤버", () => {
     expect(screen.queryByTestId("member-self-demote")).toBeNull();
     fireEvent.click(within(admin).getByTestId("member-remove"));
     fireEvent.click(within(admin).getByTestId("member-remove-yes"));
-    await waitFor(() => expect(screen.getByTestId("members-error").textContent).toBe("이 멤버가 Director 인 진행 중 세션이 1개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요"));
+    await waitFor(() => expect(screen.getByTestId("members-error").textContent).toBe("마지막 소유자는 내보낼 수 없습니다 — 먼저 다른 멤버를 소유자로 지정해 주세요"));
   });
 
   it("멤버 탭(member): 초대 구역이 없고 사유가 있다 · 역할 선택 잠김", async () => {

@@ -1,8 +1,9 @@
 // Package clienttest is an in-memory stand-in for the Colab server's
 // x-colab-cli operations, used by the CLI/MCP tests. It implements the
 // openapi.yaml shapes the P1 commands depend on: TaskToken auth (401
-// token_revoked · no bearer), GET /cli/context, GET /sessions/{S},
-// GET/POST /sessions/{S}/messages with Idempotency-Key replay. CliContext
+// token_revoked · no bearer), GET /cli/context, GET /rooms/{R} ·
+// GET /works/{W} · GET /rooms/{R}/participants (room get, v0.9),
+// GET/POST /rooms/{R}/messages with Idempotency-Key replay. CliContext
 // carries `attempt` and `last_seq` (v0.2) so tests can drive an attempt
 // boundary (E8-04).
 //
@@ -30,7 +31,9 @@ const (
 	Token     = "ctk_dGVzdHRlc3R0ZXN0dGVzdHRlc3R0ZXN0dGVzdHRlc3Q"
 	TaskID    = "11111111-1111-4111-8111-111111111111"
 	LaneID    = "22222222-2222-4222-8222-222222222222"
-	SessionID = "33333333-3333-4333-8333-333333333333"
+	SessionID = "33333333-3333-4333-8333-333333333333" // the room's id (CliContext still calls it session_id)
+	RoomID    = SessionID
+	WorkID    = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 	AgentID   = "44444444-4444-4444-8444-444444444444"
 	AgentName = "Researcher"
 	Attempt   = 2
@@ -53,7 +56,8 @@ type Posted struct {
 // Server is the fake. Mutate the exported fields before the request under test.
 type Server struct {
 	*httptest.Server
-	p2State  // P2 knobs and captures — see p2.go
+	p2State // P2 knobs and captures — see p2.go
+	roomState
 	mu       sync.Mutex
 	Revoked  bool // every authed call → 401 token_revoked
 	Fail     int  // if >0, every call returns this status with a Problem
@@ -148,6 +152,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	if s.handleP3(w, r, path) {
 		return
 	}
+	if s.handleRooms(w, r, path) {
+		return
+	}
 	switch {
 	case r.Method == "GET" && path == "/cli/context":
 		role := s.Role
@@ -169,29 +176,36 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			cc["allowed_commands"] = s.AllowedCommands
 		}
 		writeJSON(w, 200, cc)
-	case r.Method == "GET" && path == "/sessions/"+SessionID:
-		writeJSON(w, 200, map[string]any{
-			"id": SessionID, "title": "Market research", "goal": "Find 3 competitors",
-			"acceptance_criteria": []string{"table of 3", "sources cited"},
-			"completion_progress": map[string]any{"met": 1, "total": 2, "satisfied": false, "human_gate": true, "conditions": []any{}},
-			"isolation":           "worktree", "my_role": "member", "status": "active",
-			"director": map[string]any{"id": "88888888-8888-4888-8888-888888888888", "name": "Dana"},
-			"participants": []map[string]any{
-				{"agent_id": AgentID, "agent": map[string]any{"name": AgentName, "role_description": "digs"}, "status": "running"},
-				{"agent_id": ReviewerID, "agent": map[string]any{"name": ReviewerName, "role_description": "checks"}, "status": "idle"},
-			},
-		})
-	case r.Method == "GET" && strings.HasPrefix(path, "/sessions/") && strings.HasSuffix(path, "/messages"):
-		if path != "/sessions/"+SessionID+"/messages" {
-			s.problem(w, 403, "forbidden", "Forbidden", "token scope is another session")
+	case r.Method == "GET" && strings.HasPrefix(path, "/rooms/") && strings.HasSuffix(path, "/messages"):
+		if path != "/rooms/"+SessionID+"/messages" {
+			s.problem(w, 403, "forbidden", "Forbidden", "token scope is another room")
 			return
 		}
 		items := s.Messages
 		q := r.URL.Query()
+		if wk := q.Get("work_id"); wk != "" {
+			var f []map[string]any
+			for _, m := range items {
+				if m["work_id"] == wk {
+					f = append(f, m)
+				}
+			}
+			items = f
+		}
 		if th := q.Get("thread"); th != "" {
 			var f []map[string]any
 			for _, m := range items {
 				if m["id"] == th || m["parent_id"] == th {
+					f = append(f, m)
+				}
+			}
+			items = f
+		} else if q.Get("include_replies") == "false" {
+			// openapi listMessages: without include_replies only top-level
+			// messages (the server's default; the CLI sends it explicitly).
+			var f []map[string]any
+			for _, m := range items {
+				if m["parent_id"] == nil {
 					f = append(f, m)
 				}
 			}
@@ -223,7 +237,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 200, map[string]any{"items": items, "before_cursor": nil, "after_cursor": nil,
 			"has_more_before": false, "has_more_after": more, "total": total})
-	case r.Method == "POST" && path == "/sessions/"+SessionID+"/messages":
+	case r.Method == "POST" && path == "/rooms/"+SessionID+"/messages":
 		key := r.Header.Get("Idempotency-Key")
 		if key == "" {
 			s.problem(w, 422, "validation_failed", "Validation failed", "Idempotency-Key required")
@@ -259,6 +273,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			"parent_id": body["parent_id"], "content": content, "mentions": []any{},
 			"source_task_id": TaskID, "lane_id": LaneID, "kind": "chat", "state": "posted",
 			"reply_count": 0, "created_at": time.Now().UTC().Format(time.RFC3339),
+			"detail": body["detail"], // openapi v0.3.1: null when not posted
 		}
 		s.Messages = append(s.Messages, msg)
 		triggers := []map[string]any{}
@@ -271,7 +286,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		if strings.Contains(content, OutsiderID) {
 			// E1-04: a non-participant mention is posted but warned about — it is NOT "suppressed".
-			warnings = append(warnings, map[string]any{"code": client.WarningNotParticipant, "message": "mentioned agent is not a session participant", "agent_id": OutsiderID})
+			warnings = append(warnings, map[string]any{"code": client.WarningNotParticipant, "message": "mentioned agent is not a room participant", "agent_id": OutsiderID})
 		}
 		resp, _ := json.Marshal(map[string]any{"message": msg, "triggers": triggers, "warnings": warnings, "session_paused": nil})
 		p := Posted{Key: key, ClientSeq: clientSeq, Body: body, Response: resp}
@@ -316,7 +331,8 @@ func (s *Server) Env(stateDir string) map[string]string {
 	return map[string]string{
 		"COLAB_TASK_TOKEN": Token, "COLAB_SERVER_URL": s.URL,
 		"COLAB_TASK_ID": TaskID, "COLAB_TASK_ATTEMPT": strconv.Itoa(s.Attempt),
-		"COLAB_LANE_ID": LaneID, "COLAB_SESSION_ID": SessionID, "COLAB_AGENT_NAME": AgentName,
+		"COLAB_LANE_ID": LaneID, "COLAB_SESSION_ID": SessionID, "COLAB_ROOM_ID": RoomID,
+		"COLAB_WORK_ID": WorkID, "COLAB_AGENT_NAME": AgentName,
 		"COLAB_STATE_DIR": stateDir,
 	}
 }

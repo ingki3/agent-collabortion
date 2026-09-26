@@ -130,7 +130,7 @@ describe("타입별 입력부(FR-5.1 · SCREEN §2.3 C4)", () => {
     expect(screen.getByTestId("hitl-budget-field").textContent).toContain("이 작업의 새 상한");
   });
 
-  it("세션 범위(task_id 없음)는 '새 세션 상한' 이고 소진액이 최소값이다(E9-10)", () => {
+  it("세션 범위(task_id 없음)는 '새 미션 상한' 이고 소진액이 최소값이다(E9-10)", () => {
     render(
       <HitlCard
         request={req({ source: "system", purpose: "budget", type: "approval", task_id: null, proposed_default: null })}
@@ -140,7 +140,7 @@ describe("타입별 입력부(FR-5.1 · SCREEN §2.3 C4)", () => {
     );
     const field = screen.getByTestId("hitl-budget-field");
     expect(field.getAttribute("data-scope")).toBe("session");
-    expect(field.textContent).toContain("새 세션 상한");
+    expect(field.textContent).toContain("새 미션 상한");
     expect((screen.getByTestId("hitl-budget-input") as HTMLInputElement).min).toBe("21.4");
     expect(screen.getByTestId("hitl-budget-hint").textContent).toContain("$21.40 사용");
     // 기본값은 지금 상한($20)인데 이미 $21.40 을 썼다 — 그대로 승인하면 다음 턴에 또 멈춘다.

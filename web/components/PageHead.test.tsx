@@ -20,15 +20,15 @@ describe("PageHead", () => {
   it("비활성 사유가 버튼 아래에 서고 aria-describedby 로 이어진다", () => {
     const why = "먼저 컴퓨터를 연결하세요";
     render(
-      <PageHead screen="sessions">
-        <a href="/sessions/new" className="btn" aria-disabled="true" aria-describedby="new-session-hint" title={why}>
-          새 세션
+      <PageHead screen="rooms">
+        <a href="/rooms/new" className="btn" aria-disabled="true" aria-describedby="new-room-hint" title={why}>
+          새 방
         </a>
-        <DisabledHint id="new-session-hint">{why}</DisabledHint>
+        <DisabledHint id="new-room-hint">{why}</DisabledHint>
       </PageHead>,
     );
-    const btn = screen.getByText("새 세션");
-    const hint = screen.getByTestId("new-session-hint");
+    const btn = screen.getByText("새 방");
+    const hint = screen.getByTestId("new-room-hint");
     expect(hint.textContent).toBe(why);
     expect(document.getElementById(btn.getAttribute("aria-describedby")!)).toBe(hint);
     // 사유는 버튼 **다음**에 온다(아래에 선다).

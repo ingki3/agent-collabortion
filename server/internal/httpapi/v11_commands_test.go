@@ -24,47 +24,58 @@ import (
 func (f *p2Fixture) cmdOp(t *testing.T, tok string, taskID uuid.UUID, cmd gen.ColabCommand, artifact string) (int, map[string]any) {
 	t.Helper()
 	c := &client{t: t, srv: f.api.srv, bearer: tok}
-	sess := f.p + "/sessions/" + f.sessionID
+	sess := f.p + "/rooms/" + f.sessionID
 	key := func() []string { return []string{"Idempotency-Key", uuid.NewString()} }
 	switch cmd {
-	case gen.SessionGet:
+	case gen.ColabCommandRoomGet:
 		st, out, _ := c.do("GET", sess, nil)
 		return st, out
-	case gen.SessionMessages:
+	case gen.ColabCommandRoomMessages:
 		st, out, _ := c.do("GET", sess+"/messages", nil)
 		return st, out
-	case gen.MessagePost:
+	case gen.ColabCommandMessagePost:
 		st, out, _ := c.do("POST", sess+"/messages", map[string]any{"content": "한 마디"}, key()...)
 		return st, out
-	case gen.StatusSet:
+	case gen.ColabCommandStatusSet:
 		st, out, _ := c.do("POST", f.p+"/tasks/"+taskID.String()+"/status", map[string]any{"status": "working"})
 		return st, out
-	case gen.DecisionRecord:
+	case gen.ColabCommandDecisionRecord:
 		st, out, _ := c.do("POST", sess+"/decisions", map[string]any{"summary": "결정"}, key()...)
 		return st, out
-	case gen.LaneDelegate:
+	case gen.ColabCommandLaneDelegate:
 		st, out, _ := c.do("POST", sess+"/lanes", map[string]any{"agent_id": f.w, "brief": "초안을 써 주세요"}, key()...)
 		return st, out
-	case gen.ArtifactSubmit:
+	case gen.ColabCommandArtifactSubmit:
 		return f.submit(t, f.sessionID, tok, "doc-"+uuid.NewString()[:8]+".md", "doc", []byte("# x"))
-	case gen.ArtifactGet:
+	case gen.ColabCommandArtifactGet:
 		st, out, _ := c.do("GET", f.p+"/artifacts/"+artifact, nil)
 		return st, out
-	case gen.ReviewApprove, gen.ReviewReject:
+	case gen.ColabCommandReviewApprove, gen.ColabCommandReviewReject:
 		verdict := "approve"
-		if cmd == gen.ReviewReject {
+		if cmd == gen.ColabCommandReviewReject {
 			verdict = "reject"
 		}
 		st, out, _ := c.do("POST", f.p+"/artifacts/"+artifact+"/review", map[string]any{"verdict": verdict, "comments": "확인"}, key()...)
 		return st, out
-	case gen.HitlAsk:
+	case gen.ColabCommandHitlAsk:
 		st, out, _ := c.do("POST", sess+"/hitl-requests", map[string]any{"type": "question", "question": "q?", "proposed_default": "a"}, key()...)
 		return st, out
-	case gen.HitlApproveRequest:
+	case gen.ColabCommandHitlApproveRequest:
 		st, out, _ := c.do("POST", sess+"/hitl-requests", map[string]any{"type": "approval", "summary": "끝났습니다"}, key()...)
 		return st, out
-	case gen.HitlRequestInfo:
+	case gen.ColabCommandHitlRequestInfo:
 		st, out, _ := c.do("POST", sess+"/hitl-requests", map[string]any{"type": "info", "what": "w", "why": "y"}, key()...)
+		return st, out
+	case gen.ColabCommandRoomList:
+		st, out, _ := c.do("GET", f.p+"/cli/rooms", nil)
+		return st, out
+	case gen.ColabCommandRoomRead:
+		// The current room: past the gate it is readRoom's own 422
+		// current_room — the operation's business, not the table's.
+		st, out, _ := c.do("GET", f.p+"/cli/rooms/"+f.sessionID+"/read", nil)
+		return st, out
+	case gen.ColabCommandWorkPropose:
+		st, out, _ := c.do("POST", f.p+"/rooms/"+f.sessionID+"/work-proposals", map[string]any{"goal": "새 미션", "rationale": "근거"}, key()...)
 		return st, out
 	}
 	t.Fatalf("no driver for %s", cmd)
@@ -101,14 +112,14 @@ func TestV11CommandNotAllowed(t *testing.T) {
 		"profiles": []map[string]any{{"name": "default", "runtime_kind": "claude_code", "model": "claude-sonnet-5"}},
 	}), "id")
 	customUUID := mustUUID(t, custom)
-	f.api.must(201, "POST", f.p+"/sessions/"+f.sessionID+"/participants", map[string]any{"agent_id": custom})
+	f.api.must(201, "POST", f.p+"/rooms/"+f.sessionID+"/participants", map[string]any{"agent_id": custom})
 	// A reviewer-role agent as well (the fixture has lead · researcher · writer).
 	reviewer := str(f.api.must(201, "POST", f.p+"/workspaces/"+f.wsID+"/agents", map[string]any{
 		"name": "Rev", "role": "reviewer", "role_description": "d", "instructions": "i",
 		"profiles": []map[string]any{{"name": "default", "runtime_kind": "claude_code", "model": "claude-sonnet-5"}},
 	}), "id")
 	reviewerUUID := mustUUID(t, reviewer)
-	f.api.must(201, "POST", f.p+"/sessions/"+f.sessionID+"/participants", map[string]any{"agent_id": reviewer})
+	f.api.must(201, "POST", f.p+"/rooms/"+f.sessionID+"/participants", map[string]any{"agent_id": reviewer})
 
 	// Surface 1 — Agent.allowed_commands is the §2.5 row, read-only.
 	for _, tc := range []struct {
@@ -190,21 +201,33 @@ func TestV11CommandNotAllowed(t *testing.T) {
 
 	// Enforcement — reviewer: delegate 403 · submit 403 · approve-request 403,
 	// and the sentence is §2.5's, with the enum in the `command` slot.
-	st, out = f.cmdOp(t, tokRev, taskRev, gen.LaneDelegate, artifact)
+	st, out = f.cmdOp(t, tokRev, taskRev, gen.ColabCommandLaneDelegate, artifact)
 	if st != 403 || str(out, "code") != "command_not_allowed" {
 		t.Fatalf("reviewer delegate = %d %v, want 403 command_not_allowed", st, out)
 	}
 	if str(out, "detail") != "이 역할(reviewer)은 lane delegate 를 쓸 수 없습니다" || str(out, "command") != "lane_delegate" || str(out, "role") != "reviewer" {
 		t.Errorf("reviewer delegate problem = %v", out)
 	}
-	if st, out := f.cmdOp(t, tokRev, taskRev, gen.ArtifactSubmit, artifact); st != 403 || str(out, "code") != "command_not_allowed" {
+	if st, out := f.cmdOp(t, tokRev, taskRev, gen.ColabCommandArtifactSubmit, artifact); st != 403 || str(out, "code") != "command_not_allowed" {
 		t.Errorf("reviewer submit = %d %v, want 403", st, out)
 	}
-	if st, out := f.cmdOp(t, tokRev, taskRev, gen.HitlApproveRequest, artifact); st != 403 || str(out, "detail") != "이 역할(reviewer)은 hitl approve-request 를 쓸 수 없습니다" {
+	if st, out := f.cmdOp(t, tokRev, taskRev, gen.ColabCommandHitlApproveRequest, artifact); st != 403 || str(out, "detail") != "이 역할(reviewer)은 hitl approve-request 를 쓸 수 없습니다" {
 		t.Errorf("reviewer approve-request = %d %v, want 403", st, out)
 	}
+	// v0.8: work propose is not the reviewer's either — and no proposal row
+	// is written by the refusal.
+	if st, out := f.cmdOp(t, tokRev, taskRev, gen.ColabCommandWorkPropose, artifact); st != 403 || str(out, "detail") != "이 역할(reviewer)은 work propose 를 쓸 수 없습니다" || str(out, "command") != "work_propose" {
+		t.Errorf("reviewer work propose = %d %v, want 403", st, out)
+	}
+	var proposals int
+	if err := f.pool.QueryRow(t.Context(), `SELECT count(*) FROM work_proposal WHERE proposed_by_task_id = $1`, taskRev).Scan(&proposals); err != nil {
+		t.Fatal(err)
+	}
+	if proposals != 0 {
+		t.Errorf("refused work propose stored %d proposals", proposals)
+	}
 	// …and the feed carries each refusal (§4), command as typed.
-	if got := f.refusedRows(t, taskRev); fmt.Sprint(got) != "[delegate lane_delegate lane delegate submit_artifact artifact_submit artifact submit hitl hitl_approve_request hitl approve-request]" {
+	if got := f.refusedRows(t, taskRev); fmt.Sprint(got) != "[delegate lane_delegate lane delegate submit_artifact artifact_submit artifact submit hitl hitl_approve_request hitl approve-request hitl work_propose work propose]" {
 		t.Errorf("reviewer refused rows = %v", got)
 	}
 	// No lane was created by the refused delegation.
@@ -223,17 +246,18 @@ func TestV11CommandNotAllowed(t *testing.T) {
 		}
 	}
 
-	// writer: review approve 403 · reject 403 · delegate 403 · approve-request 403.
-	for _, cmd := range []gen.ColabCommand{gen.ReviewApprove, gen.ReviewReject, gen.LaneDelegate, gen.HitlApproveRequest} {
+	// writer: review approve 403 · reject 403 · delegate 403 · approve-request 403
+	// · work propose 403 (v0.8: a mission proposal is the Lead's).
+	for _, cmd := range []gen.ColabCommand{gen.ColabCommandReviewApprove, gen.ColabCommandReviewReject, gen.ColabCommandLaneDelegate, gen.ColabCommandHitlApproveRequest, gen.ColabCommandWorkPropose} {
 		st, out := f.cmdOp(t, tokW, taskW, cmd, artifact)
 		if st != 403 || str(out, "code") != "command_not_allowed" || str(out, "command") != string(cmd) {
 			t.Errorf("writer %s = %d %v, want 403 command_not_allowed", cmd, st, out)
 		}
 	}
-	if st, out := f.cmdOp(t, tokW, taskW, gen.ReviewApprove, artifact); str(out, "detail") != "이 역할(writer)은 review approve 를 쓸 수 없습니다" {
+	if st, out := f.cmdOp(t, tokW, taskW, gen.ColabCommandReviewApprove, artifact); str(out, "detail") != "이 역할(writer)은 review approve 를 쓸 수 없습니다" {
 		t.Errorf("writer approve = %d %v", st, out)
 	}
-	if got := f.refusedRows(t, taskW); len(got) != 5 || got[0] != "review review_approve review approve" {
+	if got := f.refusedRows(t, taskW); len(got) != 6 || got[0] != "review review_approve review approve" || got[4] != "hitl work_propose work propose" {
 		t.Errorf("writer refused rows = %v", got)
 	}
 	for _, cmd := range roles.AllowedCommands(gen.Writer) {
@@ -263,6 +287,6 @@ func TestV11CommandNotAllowed(t *testing.T) {
 	}
 
 	// A person is not gated: the Director reads the session and posts.
-	f.api.must(200, "GET", f.p+"/sessions/"+f.sessionID, nil)
-	f.api.must(201, "POST", f.p+"/sessions/"+f.sessionID+"/messages", map[string]any{"content": "사람"}, "Idempotency-Key", uuid.NewString())
+	f.api.must(200, "GET", f.p+"/rooms/"+f.sessionID, nil)
+	f.api.must(201, "POST", f.p+"/rooms/"+f.sessionID+"/messages", map[string]any{"content": "사람"}, "Idempotency-Key", uuid.NewString())
 }

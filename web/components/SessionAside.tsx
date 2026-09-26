@@ -10,7 +10,8 @@ import { PausedBanner, type PausedBannerProps } from "./PausedBanner";
 import { progressSummary, topOp } from "@/lib/completion";
 import { humanDuration, relativeTime } from "@/lib/time";
 import { FIX_CONDITION, PROGRESS } from "@/lib/wording";
-import type { Artifact, Decision, Session } from "@/lib/api/types";
+import type { Artifact, Decision } from "@/lib/api/types";
+import type { Session } from "@/lib/legacy-session";
 
 const ISOLATION_LABEL = { none: "격리 없음", worktree: "워크트리", container: "컨테이너" } as const;
 const AUTONOMY_LABEL = { guided: "기다림 — 기한이 지나도 계속 답을 기다립니다", autonomous: "알아서 진행 — 기한이 지나면 제안값으로 진행(승인은 예외)", supervised: "매번 확인 (다음 버전)" } as const;
@@ -98,6 +99,7 @@ export function SessionAside(props: SessionAsideProps) {
             metAt={c.met_at}
             nextActor={c.next_actor}
             blockedReason={c.blocked_reason ?? null}
+            heldReason={c.held_reason ?? null}
             hitlRequestId={c.hitl_request_id ?? null}
             onOpenHitl={props.onOpenHitl}
           />
@@ -127,7 +129,7 @@ export function SessionAside(props: SessionAsideProps) {
         {props.artifacts === null ? (
           <p className="aside__quiet">불러오는 중…</p>
         ) : props.artifacts.length === 0 ? (
-          <p className="aside__quiet" data-testid="artifacts-empty">아직 제출된 산출물이 없습니다.</p>
+          <p className="aside__quiet" data-testid="artifacts-empty">아직 제출된 아티팩트가 없습니다.</p>
         ) : (
           <ul className="aside__list">
             {props.artifacts.map((a) => (
@@ -184,7 +186,7 @@ export function SessionAside(props: SessionAsideProps) {
       </section>
 
       <section className="aside__sec" data-testid="aside-settings">
-        <h2 className="aside__h">세션 설정</h2>
+        <h2 className="aside__h">방 설정</h2>
         <dl className="aside__dl">
           <dt>컴퓨터</dt>
           {/* W-10: id 앞 8자를 보이지 않는다 — 이름은 호출부가 `runtimeNameOf` 로 넘기고, 못 받았으면 자리 표시. */}

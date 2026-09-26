@@ -17,13 +17,13 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 )
 
-// all is every ColabCommand in colab-cli.md §2 order — what `lead` and
-// `custom` get, and the order every role's list is emitted in.
-var all = []gen.ColabCommand{
-	gen.SessionGet, gen.SessionMessages, gen.MessagePost, gen.StatusSet, gen.DecisionRecord,
-	gen.LaneDelegate, gen.ArtifactSubmit, gen.ArtifactGet, gen.ReviewApprove, gen.ReviewReject,
-	gen.HitlAsk, gen.HitlApproveRequest, gen.HitlRequestInfo,
-}
+// all is every ColabCommand in contract order — what `lead` and `custom`
+// get, and the order every role's list is emitted in. It is the generated
+// list (scripts/gen_enum_values.sh), not a copy: a command the contract adds
+// reaches every role here without an edit, and §2.5's table test says which
+// roles must be denied it. openapi's enum is written in colab-cli.md §2's
+// order (§2.1 → §2.4a), so the two orders are one.
+var all = gen.ColabCommandValues
 
 // denied is colab-cli.md §2.5 by exception: the commands each role does NOT
 // have. Roles absent here (lead · custom) have everything.
@@ -34,12 +34,16 @@ var all = []gen.ColabCommand{
 //     `hitl approve-request` (asking for completion approval is the Lead's);
 //   - reviewer: the same, plus no `artifact submit` (a reviewer does not
 //     produce deliverables — the reason for a rejection goes in
-//     `review reject --reason`) but WITH `review approve/reject`.
+//     `review reject --reason`) but WITH `review approve/reject`;
+//   - every role but lead · custom: no `work propose` (v0.8, FR-2A.1 — a
+//     mission is the room's unit of work, and suggesting one is the Lead's
+//     call; `room list/read` are for everyone, since reading context is not
+//     a risky act and the person-originator rule already gates it).
 var denied = map[gen.AgentRole]map[gen.ColabCommand]bool{
-	gen.Researcher: {gen.LaneDelegate: true, gen.ReviewApprove: true, gen.ReviewReject: true, gen.HitlApproveRequest: true},
-	gen.Writer:     {gen.LaneDelegate: true, gen.ReviewApprove: true, gen.ReviewReject: true, gen.HitlApproveRequest: true},
-	gen.Engineer:   {gen.LaneDelegate: true, gen.ReviewApprove: true, gen.ReviewReject: true, gen.HitlApproveRequest: true},
-	gen.Reviewer:   {gen.LaneDelegate: true, gen.ArtifactSubmit: true, gen.HitlApproveRequest: true},
+	gen.Researcher: {gen.ColabCommandLaneDelegate: true, gen.ColabCommandReviewApprove: true, gen.ColabCommandReviewReject: true, gen.ColabCommandHitlApproveRequest: true, gen.ColabCommandWorkPropose: true},
+	gen.Writer:     {gen.ColabCommandLaneDelegate: true, gen.ColabCommandReviewApprove: true, gen.ColabCommandReviewReject: true, gen.ColabCommandHitlApproveRequest: true, gen.ColabCommandWorkPropose: true},
+	gen.Engineer:   {gen.ColabCommandLaneDelegate: true, gen.ColabCommandReviewApprove: true, gen.ColabCommandReviewReject: true, gen.ColabCommandHitlApproveRequest: true, gen.ColabCommandWorkPropose: true},
+	gen.Reviewer:   {gen.ColabCommandLaneDelegate: true, gen.ColabCommandArtifactSubmit: true, gen.ColabCommandHitlApproveRequest: true, gen.ColabCommandWorkPropose: true},
 }
 
 // AllowedCommands is the role's row of colab-cli.md §2.5, in §2 order. An
@@ -77,8 +81,8 @@ func Allows(role gen.AgentRole, cmd gen.ColabCommand) bool {
 // tool is the underscore form): the two HITL sub-commands are hyphenated,
 // every other name is the enum with its underscore as a space.
 var cliNames = map[gen.ColabCommand]string{
-	gen.HitlApproveRequest: "hitl approve-request",
-	gen.HitlRequestInfo:    "hitl request-info",
+	gen.ColabCommandHitlApproveRequest: "hitl approve-request",
+	gen.ColabCommandHitlRequestInfo:    "hitl request-info",
 }
 
 // CLIName is what the 403's sentence names, so the refusal reads like the

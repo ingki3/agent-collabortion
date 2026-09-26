@@ -56,7 +56,8 @@ export const statusLabel = (status: string): string => STATUS_LABEL[status] ?? s
 
 /** 404 의 명사표 — `apperr.NotFoundNouns`. `notFound(key)` 가 을/를 을 붙여 문장을 만든다. */
 export const NOT_FOUND_NOUN: Record<string, string> = {
-  session: "세션",
+  session: "방",
+  room: "방",
   user: "사용자",
   workspace: "워크스페이스",
   workspace_settings: "워크스페이스 설정",
@@ -69,10 +70,16 @@ export const NOT_FOUND_NOUN: Record<string, string> = {
   workdir: "작업 폴더",
   runtime: "컴퓨터",
   pairing: "연결 코드",
-  lane: "작업 줄기",
+  lane: "서브 미션",
   task: "할 일",
   inbox_item: "받은 요청",
   hitl_request: "확인 요청",
+  room_link: "참고 방 연결",
+  work: "미션",
+  work_proposal: "미션 제안",
+  // getMessage 의 404 — 서버는 apperr.NotFound 를 거치지 않고 messageNotFound()(handlers_message_get.go)가 같은 모양으로 짓는다.
+  // 그래서 NotFoundNouns 에는 없고, (b) 가 그 문장에서 명사를 읽어 대조한다.
+  message: "메시지",
 };
 
 /** `apperr.Josa` — 마지막 글자에 받침이 있으면 `with`, 없으면 `without`, 한글이 아니면 `with(without)`. */
@@ -80,6 +87,13 @@ export function josa(word: string, with_: string, without: string): string {
   const cp = word.length ? word.codePointAt(word.length - 1)! : 0;
   if (!word.length || cp < 0xac00 || cp > 0xd7a3) return `${word}${with_}(${without})`;
   return (cp - 0xac00) % 28 === 0 ? word + without : word + with_;
+}
+/** `apperr.JosaRo` — 「로」(받침 없음·ㄹ 받침) / 「으로」, 한글이 아니면 「(으)로」(FR-2.1.2 방 이름 바꾸기). */
+export function josaRo(word: string): string {
+  const cp = word.length ? word.codePointAt(word.length - 1)! : 0;
+  if (!word.length || cp < 0xac00 || cp > 0xd7a3) return `${word}(으)로`;
+  const jong = (cp - 0xac00) % 28;
+  return jong === 0 || jong === 8 ? `${word}로` : `${word}으로`;
 }
 /** `apperr.NotFound(what)` 의 문장. */
 export const notFound = (what: keyof typeof NOT_FOUND_NOUN): string => josa(NOT_FOUND_NOUN[what], "을", "를") + " 찾을 수 없습니다";
@@ -114,60 +128,47 @@ export const SERVER = {
   profile_name_taken: { text: "이 에이전트에 같은 이름의 프로파일이 있습니다", at: "internal/agents/agents.go" },
   fallback_other_profile: { text: "이 에이전트의 다른 프로파일만 대체 프로파일로 고를 수 있습니다", at: "internal/agents/agents.go" },
   last_default: { text: "기본 프로파일은 비울 수 없습니다 — 다른 프로파일을 먼저 기본으로 지정해 주세요", at: "internal/agents/agents.go" },
-  // ── 세션 만들기 (internal/sessions/sessions.go) ──
-  title_1_200: { text: "제목은 1~200자로 입력해 주세요", at: "internal/sessions/sessions.go" },
-  goal_required: { text: "목표를 입력해 주세요", at: "internal/sessions/sessions.go" },
-  participants_required: { text: "에이전트를 한 명 이상 초대해 주세요", at: "internal/sessions/sessions.go" },
-  container_unsupported: { text: "컨테이너 격리는 아직 지원하지 않습니다", at: "internal/sessions/sessions.go" },
-  no_runtime: { text: "연결된 컴퓨터가 없습니다 — 먼저 컴퓨터를 연결해 주세요", at: "internal/sessions/sessions.go" },
+  // ── 옛 세션 만들기의 문장 — createSession 은 v0.3.0(R4)에서 지워졌고 서버는 같은 문장을 미션·방 op 에서 쓴다 ──
+  title_1_200: { text: "제목은 1~200자로 입력해 주세요", at: "internal/httpapi/handlers_works.go" },
+  goal_required: { text: "목표를 입력해 주세요", at: "internal/httpapi/handlers_works.go" },
+  container_unsupported: { text: "컨테이너 격리는 아직 지원하지 않습니다", at: "internal/httpapi/handlers_rooms.go" },
   // 템플릿 매핑 사유(`AgentTemplate.mapping.reason`) — S-67 의 sink 밖이라 서버가 아직 옛말이다. 목은 서버를 따른다.
   template_unmapped: { text: "감지된 런타임이 없습니다 — 먼저 컴퓨터를 연결하세요", at: "internal/agents/templates.go" },
   template_fallback_mid: { text: " 가 없어 ", at: "internal/agents/templates.go" },
   template_fallback_tail: { text: " 로 매핑했습니다", at: "internal/agents/templates.go" },
-  agent_not_in_workspace: { text: "이 워크스페이스의 에이전트가 아닙니다", at: "internal/sessions/sessions.go" },
-  session_started: { text: "세션을 시작했습니다. 목표: ", at: "internal/sessions/sessions.go" },
+  agent_not_in_workspace: { text: "이 워크스페이스의 에이전트가 아닙니다", at: "internal/httpapi/handlers_room_participants.go" },
   // ── 메시지 (internal/httpapi/handlers_sessions.go · server.go) ──
   content_required: { text: "내용을 입력해 주세요", at: "internal/httpapi/handlers_sessions.go" },
-  reply_target_missing: { text: "답글 대상 메시지가 이 세션에 없습니다", at: "internal/httpapi/handlers_sessions.go" },
+  reply_target_missing: { text: "답글 대상 메시지가 이 방에 없습니다", at: "internal/httpapi/handlers_sessions.go" },
   idempotency_key_required: { text: "같은 요청을 구분할 키가 빠졌습니다 — 화면을 새로고침한 뒤 다시 시도해 주세요", at: "internal/httpapi/server.go" },
   // ── 작업 줄기 (internal/httpapi/handlers_lanes.go · handlers_lanes_p3.go) ──
-  lane_control: { text: "작업 줄기는 이 세션의 Director 나 deputy 만 중단할 수 있습니다", at: "internal/httpapi/handlers_lanes.go" },
+  lane_control: { text: "서브 미션은 이 미션의 Director 나 deputy 만 중단할 수 있습니다", at: "internal/httpapi/handlers_lanes.go" },
   lane_not_cancellable: { text: "중단할 수 있는 진행 중 턴이 없습니다", at: "internal/httpapi/handlers_lanes.go" },
   new_instruction_required: { text: "새 지시를 적어 주세요", at: "internal/httpapi/handlers_lanes_p3.go" },
-  lane_not_restartable: { text: "이 작업 줄기는 다시 지시할 수 없습니다 (현재 상태: ", at: "internal/httpapi/handlers_lanes_p3.go" },
-  // ── 세션 제어 (internal/httpapi/handlers_sessions_p3.go · sessions/pause.go · sessions/budget.go) ──
-  director_required: { text: "Director 권한이 필요합니다", at: "internal/httpapi/handlers_sessions_p3.go" },
-  pause_only_active: { text: "진행 중인 세션만 일시정지할 수 있습니다 (현재 상태: ", at: "internal/httpapi/handlers_sessions_p3.go" },
-  resume_only_paused: { text: "일시정지된 세션만 재개할 수 있습니다 (현재 상태: ", at: "internal/httpapi/handlers_sessions_p3.go" },
-  cancel_only_live: { text: "진행 중이거나 일시정지된 세션만 종료할 수 있습니다 (현재 상태: ", at: "internal/httpapi/handlers_sessions_p3.go" },
-  resume_offline_hint: { text: "컴퓨터 연결이 끊겼습니다 — 컴퓨터를 다시 연결하거나, 다른 컴퓨터로 옮기거나, 세션을 종료해 주세요", at: "internal/sessions/pause.go" },
-  budget_too_low: { text: "이미 $%.2f를 썼습니다 — 새 상한은 그보다 커야 합니다", at: "internal/sessions/budget.go" },
-  director_changed: { text: "Director가 교체되었습니다.", at: "internal/httpapi/handlers_sessions_p3.go" },
-  new_director_not_member: { text: "워크스페이스 멤버가 아닙니다", at: "internal/httpapi/handlers_sessions_p3.go" },
-  // ── 종료 (internal/httpapi/handlers_completion.go) ──
-  running_lanes_confirm: { text: "진행 중인 작업 줄기가 있습니다 — 그래도 끝내려면 확인 후 다시 요청해 주세요", at: "internal/httpapi/handlers_completion.go" },
+  lane_not_restartable: { text: "이 서브 미션은 다시 지시할 수 없습니다 (현재 상태: ", at: "internal/httpapi/handlers_lanes_p3.go" },
+  // ── 옛 세션 제어(pause·resume·cancel·changeDirector)는 v0.3.0(R4)에서 지워졌다 — 미션 op(/works/*) 문장은 아래 work_* 행. ──
+  // 재바인딩(rebindRoom) 권한 — 방장 사슬(v0.2.11). 옛 「Director 권한이 필요합니다」(handlers_sessions_p3.go)는 서버에서 지워졌다.
+  rebind_forbidden: { text: "다른 컴퓨터로 옮기는 것은 방장이나 Director 가 합니다 — 부방장은 멈춘 지 12시간 뒤부터 할 수 있습니다", at: "internal/httpapi/handlers_p4.go" },
+  // ── 종료(completeWork, v0.2.4 — 옛 completeSession 의 확인 문장이 미션으로 옮겨 왔다) ──
+  running_lanes_confirm: { text: "진행 중인 서브 미션이 있습니다 — 그래도 끝내려면 확인 후 다시 요청해 주세요", at: "internal/httpapi/handlers_works.go" },
   // ── HITL (internal/httpapi/handlers_hitl.go) ──
   not_approver: { text: "이 요청에 답할 권한이 없습니다", at: "internal/httpapi/handlers_hitl.go" },
   deputy_not_yet: { text: "Director 응답 대기 중 · %s부터 승인 가능", at: "internal/httpapi/handlers_hitl.go" },
-  // ── 참여자 (internal/httpapi/handlers_participants.go · tasks/cancel.go) ──
-  participant_agent_missing: { text: "그런 에이전트가 없습니다", at: "internal/httpapi/handlers_participants.go" },
-  already_participant: { text: "이미 참여 중인 에이전트입니다", at: "internal/httpapi/handlers_participants.go" },
-  profile_not_of_agent: { text: "이 에이전트의 프로파일이 아닙니다", at: "internal/httpapi/handlers_participants.go" },
-  assignee_participant: { text: "담당 에이전트는 뺄 수 없습니다 — 먼저 다른 에이전트를 담당으로 지정해 주세요", at: "internal/httpapi/handlers_participants.go" },
-  running_lanes_participant: { text: "진행 중인 작업 줄기가 있습니다 — 먼저 끝내거나 중단해 주세요", at: "internal/httpapi/handlers_participants.go" },
-  participant_joined: { text: " 세션에 참여했습니다.", at: "internal/httpapi/handlers_participants.go" },
-  participant_removed: { text: " 세션에서 제외되었습니다.", at: "internal/httpapi/handlers_participants.go" },
-  not_invitable_nobody: { text: "이 에이전트는 응답 대상이 「아무도 아님」이라 초대할 수 없습니다", at: "internal/tasks/cancel.go" },
+  // ── 옛 세션 참여자 op(handlers_participants.go)은 v0.3.0(R4)에서 지워졌다 — 방 참여자 문장은 RW(r2w4a-wording·rooms-dialogs-wording). ──
+  participant_joined: { text: " 방에 참여했습니다.", at: "internal/httpapi/handlers_room_participants.go" },
   // ── 라우터 미리보기 경고 (internal/router/rules.go) — `TriggerPreview.warnings[].message` ──
-  warn_not_participant: { text: "은(는) 이 세션 참여자가 아닙니다", at: "internal/router/rules.go" },
+  warn_not_participant: { text: "은(는) 이 방 참여자가 아닙니다", at: "internal/router/rules.go" },
   warn_agent_disabled: { text: " 응답 대상이 「아무도 아님」으로 꺼져 있어 깨우지 않습니다", at: "internal/router/rules.go" },
   // ── 컴퓨터·재바인딩 (internal/runtimes/candidates.go · offline.go) ──
   isolation_enum: { text: "격리 방식은 worktree · container · none 중 하나여야 합니다", at: "internal/runtimes/candidates.go" },
   runtime_offline_repo_check: { text: "이 컴퓨터의 데몬이 연결돼 있지 않습니다 — 저장소를 확인할 수 없습니다", at: "internal/httpapi/handlers_p4.go" },
-  session_not_paused_offline: { text: "컴퓨터 연결이 끊겨 일시정지된 세션만 다른 컴퓨터로 옮길 수 있습니다", at: "internal/runtimes/offline.go" },
+  // 컴퓨터 유예 만료 = 방 멈춤(#314 · openapi 0.2.11) — 옛 runtime_offline 항목을 대신하는 room_paused 카드의 제목·본문.
+  room_paused_title: { text: "방이 멈췄습니다", at: "internal/httpapi/handlers_inbox.go" },
+  room_paused_offline_body: { text: "이 방의 컴퓨터 연결이 끊겨 멈췄습니다 — 다른 컴퓨터로 옮기거나 열린 미션을 모두 취소해 주세요", at: "internal/httpapi/handlers_inbox.go" },
+  session_not_paused_offline: { text: "컴퓨터 연결이 끊겨 멈춘 방만 다른 컴퓨터로 옮길 수 있습니다", at: "internal/runtimes/offline.go" },
   acknowledge_loss_required: { text: "워크트리 격리에서는 끊긴 컴퓨터에 남은 커밋을 잃습니다 — 경고를 확인한 뒤 진행해 주세요", at: "internal/runtimes/offline.go" },
   not_a_candidate: { text: "이 컴퓨터로는 옮길 수 없습니다 — 같은 저장소가 없거나 연결이 끊겨 있습니다", at: "internal/runtimes/offline.go" },
-  runtime_has_active_sessions: { text: "이 컴퓨터를 쓰는 중인 세션이 %d개 있습니다 — 먼저 다른 컴퓨터로 옮기거나 세션을 종료해 주세요", at: "internal/runtimes/offline.go" },
+  runtime_has_active_sessions: { text: "이 컴퓨터를 쓰는 중인 방이 %d개 있습니다 — 먼저 다른 컴퓨터로 옮기거나 미션을 종료해 주세요", at: "internal/runtimes/offline.go" },
   // ── 워크스페이스 설정 (internal/httpapi/handlers_settings.go) — S14 (T-W6) ──
   loop_limit_range: { text: "1~%d 사이여야 합니다", at: "internal/httpapi/handlers_settings.go" },
   retention_min: { text: "0 이상이어야 합니다", at: "internal/httpapi/handlers_settings.go" },
@@ -199,23 +200,19 @@ export const SERVER = {
   test_chat_content_required: { text: "보낼 메시지를 적어 주세요", at: "internal/httpapi/handlers_testchat.go" },
   // ── 멤버 역할·제거 (internal/auth/members.go · httpapi/handlers_members.go) — T-S14 #209. 판정은 서버의 순수 함수
   //    PlanRoleChange · PlanRemoval 그대로: 소유자 층(대상이 소유자 **또는** 새 역할이 소유자)은 소유자만(403 owner_only),
-  //    마지막 소유자는 강등·제거 불가(409 last_owner), 그 멤버가 Director 인 끝나지 않은 세션(draft·active·paused·completing)이
-  //    있으면 제거 불가(409 member_is_director, %d 개). ──
+  //    마지막 소유자는 강등·제거 불가(409 last_owner). openapi 0.2.3(T-R1b2): Director 인 끝나지 않은 세션은 거부 대신 승계
+  //    — 옛 409 member_is_director 는 없어졌다. ──
   owner_only_role: { text: "소유자 역할을 주거나 거두는 것은 소유자만 할 수 있습니다", at: "internal/auth/members.go" },
   last_owner_demote: { text: "마지막 소유자는 강등할 수 없습니다 — 먼저 다른 멤버를 소유자로 지정해 주세요", at: "internal/auth/members.go" },
   owner_only_remove: { text: "소유자를 내보내는 것은 소유자만 할 수 있습니다", at: "internal/auth/members.go" },
   last_owner_remove: { text: "마지막 소유자는 내보낼 수 없습니다 — 먼저 다른 멤버를 소유자로 지정해 주세요", at: "internal/auth/members.go" },
-  member_is_director: { text: "이 멤버가 Director 인 진행 중 세션이 %d개 있습니다 — 먼저 그 세션의 Director 를 교체해 주세요", at: "internal/auth/members.go" },
   role_enum: { text: "역할은 소유자 · 관리자 · 멤버 중 하나여야 합니다", at: "internal/httpapi/handlers_members.go" },
-  // ── deleteSession (T-S17 #220 · internal/sessions/delete.go) — 순서 404 → 403 → 409 session_active → 409 workdir_unmerged
-  delete_forbidden: { text: "Director 나 소유자·관리자만 삭제할 수 있습니다", at: "internal/sessions/delete.go" },
-  session_active: { text: "진행 중인 세션은 먼저 종료하세요", at: "internal/sessions/delete.go" },
+  // ── 옛 deleteSession(T-S17 #220)은 v0.3.0(R4)에서 지워졌다 — 서버가 남긴 문장은 deleteRoom 409 의 workdir_unmerged 하나(internal/sessions/delete.go).
   workdir_unmerged: { text: "미병합 커밋이나 미커밋 변경이 남은 작업 폴더가 있어 삭제할 수 없습니다 — 먼저 병합하거나 정리해 주세요", at: "internal/sessions/delete.go" },
   // ── 리뷰어 검사 (T-S18 #233 · internal/sessions/reviewer.go · handlers_sessions_p3.go) — 계약 #232 v0.1.4
-  reviewer_required: { text: "「검토 승인」에는 리뷰어를 참여자 중에서 골라 주세요 — 리뷰어가 없으면 아무도 승인할 수 없어 세션이 끝나지 않습니다", at: "internal/sessions/reviewer.go" },
-  reviewer_not_participant: { text: "리뷰어는 이 세션의 참여자 중에서 골라 주세요", at: "internal/sessions/reviewer.go" },
-  submitter_not_participant: { text: "제출자는 이 세션의 참여자 중에서 골라 주세요", at: "internal/sessions/reviewer.go" },
-  condition_immutable: { text: "끝났거나 끝나는 중인 세션의 종료 조건은 바꿀 수 없습니다", at: "internal/httpapi/handlers_sessions_p3.go" },
+  reviewer_required: { text: "「검토 승인」에는 리뷰어를 참여자 중에서 골라 주세요 — 리뷰어가 없으면 아무도 승인할 수 없어 미션이 끝나지 않습니다", at: "internal/sessions/reviewer.go" },
+  reviewer_not_participant: { text: "리뷰어는 이 방의 참여자 중에서 골라 주세요", at: "internal/sessions/reviewer.go" },
+  submitter_not_participant: { text: "제출자는 이 방의 참여자 중에서 골라 주세요", at: "internal/sessions/reviewer.go" },
   // ── 빈 턴 카드 (T-S19 #246 · internal/tasks/emptyturn.go) — FR-7.2
   empty_turn_note: { text: "아무것도 하지 않고 턴을 끝냈습니다", at: "internal/tasks/emptyturn.go" },
   // 404 — 서버는 `NotFoundNouns` 밖에서 조립한다(handlers_members.go `memberNotFound`, 이유는 test_chat_not_found 와 같다).
@@ -223,9 +220,39 @@ export const SERVER = {
   member_not_found: { text: "멤버를 찾을 수 없습니다", at: "internal/httpapi/handlers_members.go" },
   // ── 알림 설정(개인) (internal/auth/notifications.go) — T-S14 #209. 부분 갱신(빠진 키는 저장값 유지), enum 밖 422. ──
   subscription_enum: { text: "구독 기본값은 전부 · 사람 확인만 · 종료만 중 하나여야 합니다", at: "internal/auth/notifications.go" },
-  // ── updateSession (internal/httpapi/handlers_sessions_p3.go) — T-W15 가 목에 PATCH /sessions/{id} 를 처음 만들었다. 시작 뒤 못 바꾸는 두 칸(422 immutable). ──
-  isolation_immutable: { text: "격리 방식은 시작 전에만 바꿀 수 있습니다", at: "internal/httpapi/handlers_sessions_p3.go" },
-  runtime_immutable: { text: "컴퓨터는 시작 전에만 바꿀 수 있습니다", at: "internal/httpapi/handlers_sessions_p3.go" },
+  // ── 옛 updateSession 의 immutable 두 칸(isolation·runtime_id)은 v0.3.0(R4)에서 op 과 함께 지워졌다 — 방 설정은 409 runtime_pinned. ──
+  // ── 방 (T-R1b3 #291 · internal/httpapi/handlers_rooms.go · rooms/authz.go · sessions/room_ops.go) — T-R2-W1 목(listRooms·createRoom·getRoom·
+  //    updateRoom·archive·deleteRoom·markRoomRead). 권한 판정은 서버 `rooms.Decide`·`Deny` 표 그대로(404 → 409 room_archived → 403). ──
+  room_name_1_200: { text: "방 이름은 1~200자로 입력해 주세요", at: "internal/httpapi/handlers_rooms.go" },
+  room_description_500: { text: "설명은 500자까지 쓸 수 있습니다", at: "internal/httpapi/handlers_rooms.go" },
+  room_visibility_enum: { text: "알 수 없는 공개 범위입니다", at: "internal/httpapi/handlers_rooms.go" },
+  room_tasks_active: { text: "진행 중인 할 일이 있어 보관할 수 없습니다 — 끝나거나 중단된 뒤 보관해 주세요", at: "internal/httpapi/handlers_rooms.go" },
+  room_not_in_room: { text: "이 방의 메시지가 아닙니다", at: "internal/httpapi/handlers_rooms.go" },
+  room_works_active: { text: "진행 중인 미션이 있어 방을 삭제할 수 없습니다 — 먼저 끝내거나 취소해 주세요", at: "internal/sessions/room_ops.go" },
+  room_archived: { text: "보관된 방입니다 — 먼저 보관을 해제해 주세요", at: "internal/rooms/authz.go" },
+  room_owner_required: { text: "방장이나 소유자·관리자만 할 수 있습니다", at: "internal/rooms/authz.go" },
+  room_steward_required: { text: "방장·부방장이나 소유자·관리자만 할 수 있습니다", at: "internal/rooms/authz.go" },
+  room_not_participant: { text: "이 방의 참여자가 아닙니다", at: "internal/rooms/authz.go" },
+  // ── 방 화면(T-R2-W2) — blockRoom·unblockRoom(internal/httpapi/handlers_rooms_r1b1.go) · 미션 op(handlers_works.go) · 귀속(router/work.go) ──
+  room_already_blocked: { text: "이미 멈춰 있는 방입니다 — ", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  room_not_blocked: { text: "멈춰 있지 않은 방입니다", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  room_not_manual_tail: { text: " — 이 멈춤은 확인 요청에 답하거나 컴퓨터를 다시 연결해야 풀립니다", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  room_blocked_budget: { text: "예산 상한에 걸려 멈춘 방입니다", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  room_blocked_loop: { text: "에이전트끼리 주고받기가 상한에 걸려 멈춘 방입니다", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  room_blocked_runtime_offline: { text: "컴퓨터 연결이 끊겨 멈춘 방입니다", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  room_blocked_manual: { text: "사람이 멈춘 방입니다", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  room_block_system: { text: "님이 이 방을 멈췄습니다 — 진행 중인 턴을 끝내고 새 실행을 막습니다. 멈춤을 풀면 기다리던 일이 이어집니다.", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  room_unblock_system: { text: "님이 방 멈춤을 풀었습니다.", at: "internal/httpapi/handlers_rooms_r1b1.go" },
+  summary_range_exclusive: { text: "기간과 메시지 범위는 함께 고를 수 없습니다 — 하나만 골라 주세요", at: "internal/httpapi/handlers_rooms.go" },
+  summary_range_required: { text: "정리할 범위를 골라 주세요", at: "internal/httpapi/handlers_rooms.go" },
+  summary_range_empty: { text: "이 범위에는 정리할 메시지가 없습니다", at: "internal/sessions/room_ops.go" },
+  work_director_required: { text: "이 미션의 Director 만 할 수 있습니다", at: "internal/httpapi/handlers_works.go" },
+  work_pause_transition: { text: "진행 중인 미션만 일시정지할 수 있습니다 (현재 상태: ", at: "internal/httpapi/handlers_works.go" },
+  work_resume_transition: { text: "일시정지된 미션만 재개할 수 있습니다 (현재 상태: ", at: "internal/httpapi/handlers_works.go" },
+  work_cancel_transition: { text: "진행 중이거나 일시정지된 미션만 취소할 수 있습니다 (현재 상태: ", at: "internal/httpapi/handlers_works.go" },
+  work_resume_room_blocked: { text: "방 전체가 멈춰 있어 이 미션도 멈췄습니다 — 방장이 방을 다시 움직여야 합니다", at: "internal/httpapi/handlers_works.go" },
+  work_not_in_room: { text: "이 방의 미션이 아닙니다", at: "internal/router/work.go" },
+  work_closed_post: { text: "끝난 미션에는 메시지를 넣을 수 없습니다 — 미션 없이 보내거나 열린 미션을 고르세요", at: "internal/router/work.go" },
 } as const satisfies Record<string, ServerSentence>;
 
 /**
@@ -246,6 +273,17 @@ export const SERVER = {
  * 못박았다("아무것도 하지 않고 턴을 끝냈습니다"). 서버가 머지되면 `SERVER` 로 옮기며 `at` 을 채운다 — `server-wording/*.test.ts` (i) 가 dev 에
  * 그 리터럴이 오르는 순간부터 글자 단위로 대조한다. 화면 쪽 같은 문장은 `lib/wording.ts` `EMPTY_TURN.note`(note 가 없을 때의 폴백).
  */
+/**
+ * 목 전용 시드 길(`/__mock/workspaces/{id}/seed-room` · `/__mock/rooms/{id}/legacy`)의 문장 — **계약 밖**이라 서버와 대조하지 않는다.
+ * 옛 createSession·updateSession(v0.3.0 R4 에서 op 이 지워졌다)의 문장을 시드가 그대로 쓴다. 서버 소스에는 더 없다 — 화면이 이 문장을
+ * 실서버에서 볼 일은 없다(시드는 목 테스트·스크린샷만 쓴다).
+ */
+export const SEED = {
+  participants_required: "에이전트를 한 명 이상 초대해 주세요",
+  no_runtime: "연결된 컴퓨터가 없습니다 — 먼저 컴퓨터를 연결해 주세요",
+  session_started: "미션을 시작했습니다. 목표: ",
+} as const;
+
 export const MOCK_ONLY = {} as const satisfies Record<string, string>; // 비어 있다 — T-S19 #246 이 빈 턴 문장을 만들어 SERVER 로 옮겼다
 
 /**
@@ -256,11 +294,11 @@ export const MOCK_ONLY = {} as const satisfies Record<string, string>; // 비어
 export type MetricDef = Pick<Metric, "key" | "unit" | "target" | "target_op" | "label" | "note">;
 export const METRIC_DEFS: readonly MetricDef[] = [
   { key: "f1_minutes", unit: "minutes", target: 15, target_op: "lt",
-    label: "컴퓨터 연결부터 첫 세션 완료까지 걸린 시간",
-    note: "사용자별로 첫 컴퓨터가 연결된 시각부터 그 사용자가 Director 인 첫 완료 세션이 끝난 시각까지, 그 중앙값(분). 표본 수는 그런 사용자 수." },
+    label: "컴퓨터 연결부터 첫 미션 완료까지 걸린 시간",
+    note: "사용자별로 첫 컴퓨터가 연결된 시각부터 그 사용자가 Director 인 첫 완료 미션이 끝난 시각까지, 그 중앙값(분). 표본 수는 그런 사용자 수." },
   { key: "auto_complete_rate", unit: "ratio", target: 0.6, target_op: "gt",
-    label: "세션이 저절로 끝난 비율",
-    note: "완료된 세션 중 Director 가 직접 끝내지 않고 종료 조건으로 끝난 비율." },
+    label: "미션이 저절로 끝난 비율",
+    note: "완료된 미션 중 Director 가 직접 끝내지 않고 종료 조건으로 끝난 비율." },
   { key: "hitl_response_minutes", unit: "minutes", target: 30, target_op: "lt",
     label: "확인 요청에 사람이 답하기까지 걸린 시간",
     note: "확인 요청이 만들어진 때부터 사람이 답한 때까지, 그 중앙값(분). 기한이 지나 자동으로 진행된 요청은 빼고 센다." },
@@ -268,8 +306,8 @@ export const METRIC_DEFS: readonly MetricDef[] = [
     label: "에이전트 사이의 위임이 사람 개입 없이 처리된 비율",
     note: "다른 에이전트가 넘긴 할 일 중 확인 요청도 막힘도 없이 완료된 비율." },
   { key: "parallel_wallclock_reduction", unit: "ratio", target: 0.4, target_op: "gt",
-    label: "여러 작업 줄기를 함께 돌려 줄어든 시간의 비율",
-    note: "작업 줄기가 둘 이상인 완료 세션에서, 세션 시작부터 완료까지 걸린 시간이 각 할 일에 걸린 시간의 합보다 얼마나 짧았는지(1 - 전체 시간 ÷ 합)의 평균. 전체 시간에는 사람을 기다린 시간(확인 요청)도 들어간다. 표본 수는 세션 수." },
+    label: "여러 서브 미션을 함께 돌려 줄어든 시간의 비율",
+    note: "서브 미션이 둘 이상인 완료 미션에서, 미션 시작부터 완료까지 걸린 시간이 각 할 일에 걸린 시간의 합보다 얼마나 짧았는지(1 - 전체 시간 ÷ 합)의 평균. 전체 시간에는 사람을 기다린 시간(확인 요청)도 들어간다. 표본 수는 미션 수." },
   { key: "task_success_rate_by_runtime", unit: "ratio", target: 0.85, target_op: "gt",
     label: "컴퓨터 종류별 할 일 성공률",
     note: "컴퓨터 종류별로 완료된 할 일 ÷ (완료 + 실패). 종류별 값과 목표는 따로 나눠 준다." },
@@ -281,10 +319,10 @@ export const METRIC_DEFS: readonly MetricDef[] = [
     note: "이전 대화를 이어받으려 한 실행 중 실제로 이어받은(처음부터 다시 시작하지 않은) 비율." },
   { key: "blocked_response_minutes", unit: "minutes", target: 5, target_op: "lt",
     label: "막힌 질문에 답이 닿기까지 걸린 시간",
-    note: "작업 줄기가 막혀 질문을 올린 때부터 그 질문에 첫 답글이 달린 때까지, 그 중앙값(분)." },
+    note: "서브 미션이 막혀 질문을 올린 때부터 그 질문에 첫 답글이 달린 때까지, 그 중앙값(분)." },
   { key: "weekly_active_sessions", unit: "count", target: 5, target_op: "gt",
-    label: "이번 주에 움직인 세션 수",
-    note: "최근 7일 안에 할 일이 하나라도 돌아간 세션 수. 표본 수는 이 워크스페이스에서 할 일을 돌린 적 있는 세션 수." },
+    label: "이번 주에 움직인 방 수",
+    note: "최근 7일 안에 할 일이 하나라도 돌아간 방 수. 표본 수는 이 워크스페이스에서 할 일을 돌린 적 있는 방 수." },
 ];
 
 /**
@@ -298,9 +336,9 @@ export const OBSERVATION_DEFS: readonly ObservationDef[] = [
   { key: "chain_scale", label: "트리거 사슬 규모",
     note: "사람이 쓴 메시지 하나가 다음 사람 메시지 전까지 에이전트 사이에 일으킨 할 일 수, 그 중앙값과 상위 5% 값. 표본 수는 에이전트를 깨운 사람 메시지 수." },
   { key: "chain_depth", label: "트리거 사슬 깊이",
-    note: "세션 안에서 사람의 메시지에서 시작해 에이전트 사이의 멘션이 이어진 가장 깊은 단계, 그 중앙값과 상위 5% 값. 표본 수는 세션 수." },
+    note: "방 안에서 사람의 메시지에서 시작해 에이전트 사이의 멘션이 이어진 가장 깊은 단계, 그 중앙값과 상위 5% 값. 표본 수는 방 수." },
   { key: "join_breadth", label: "합류 폭",
-    note: "한 할 일이 위임으로 만든 작업 줄기의 수(합류 그룹의 크기), 그 중앙값과 상위 5% 값. 표본 수는 위임 그룹 수." },
+    note: "한 할 일이 위임으로 만든 서브 미션의 수(합류 그룹의 크기), 그 중앙값과 상위 5% 값. 표본 수는 위임 그룹 수." },
   { key: "routing_concentration", label: "라우팅 집중",
     note: "할 일이 어느 라우팅 규칙으로 만들어졌는지의 비율. 값은 멘션 없이 담당 에이전트에게 간 비율(규칙 6·7). 표본 수는 할 일을 만든 트리거 수." },
   { key: "empty_turn_rate", label: "빈 턴 비율",

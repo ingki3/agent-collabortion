@@ -5,8 +5,44 @@
  */
 import type {
   Agent, AgentTemplate, Artifact, ColabCommand, Decision, HitlRequest, InboxItem, Lane, Member, Message, NotificationSettings, Pairing,
-  Participant, Runtime, Session, StreamEventType, TaskEvent, TestChat, User, Workdir, Workspace, WorkspaceSettings,
+  Runtime, StreamEventType, TaskEvent, TestChat, User, Workdir, Workspace, WorkspaceSettings,
 } from "@/lib/api/types";
+import type { Participant, Session } from "@/lib/legacy-session";
+import type { components } from "@/lib/api/schema";
+
+type RoomSchema = components["schemas"]["Room"];
+
+/**
+ * 방(v0.19, T-R2-W1) — 계약 `Room` 의 저장 칸. **옛 세션에서 파생한 방은 id 가 세션 id 와 같다**(§7 이관 규칙 — 서버 0025 도 같다).
+ * `createRoom` 으로 만든 방은 옛 세션 모양 행이 없다(서버처럼 — 새 방에는 legacy_work_id 가 없다). 사람 참여자만 여기 든다 —
+ * 에이전트 참여자는 옛 세션의 `participants` 에서 읽는다(목이 두 벌을 들지 않게).
+ */
+export interface MockRoom {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string;
+  status: RoomSchema["status"];
+  visibility: RoomSchema["visibility"];
+  owner_user_id: string;
+  deputy_owner_user_id: string | null;
+  isolation: RoomSchema["isolation"];
+  limits: RoomSchema["limits"];
+  autonomy: RoomSchema["autonomy"];
+  blocked_reason: RoomSchema["blocked_reason"];
+  blocked_detail?: RoomSchema["blocked_detail"];
+  /** 사람 참여자(방장·부방장·멤버). 나간 사람은 빠진다(목은 `left_at` 을 들지 않는다). */
+  people: { user_id: string; role: NonNullable<RoomSchema["my_room_role"]>; joined_at: string }[];
+  /** 옛 세션에서 파생한 방 — 세션이 지워지면 방도 없다. */
+  legacy: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+type WorkSchema = components["schemas"]["Work"];
+/** v0.19 (T-R2-W2) — `createWork` 로 연 미션의 저장 칸(계약 `Work` 에서 보는 사람 모양 칸 `my_work_role`·`subscription` 을 뺀 것). */
+export type MockWork = Omit<WorkSchema, "my_work_role" | "subscription" | "director" | "deputy">;
 
 export interface MockUser extends User {
   password: string;
@@ -52,14 +88,19 @@ export interface StoredEvent {
   id: number;
   type: StreamEventType;
   workspace_id: string;
-  session_id: string | null;
+  /** 봉투의 방 id(v0.3.0 R4 — 옛 `session_id` 봉투 칸은 지워졌다). */
+  room_id: string | null;
   at: string;
   payload: unknown;
   ephemeral: boolean;
+  /** 한 사람에게만 가는 프레임(`room.unread`). 백필도 그 사람에게만. */
+  to_user?: string;
 }
 export interface Subscriber {
   workspace_id: string;
-  session_ids: string[] | null;
+  room_ids: string[] | null;
+  /** 구독한 사람 — `room.unread` 처럼 한 사람에게만 가는 프레임을 거른다(서버 `Hub.PublishTo`). */
+  user_id?: string;
   write: (frame: string) => void;
 }
 
@@ -93,6 +134,18 @@ export interface Store {
   notifications: Map<string, NotificationSettings>;
   /** P5 (T-W6) — S10 시험 대화(FR-1.8.1). 세션이 아니다 — sessions 에 넣지 않는다. */
   testChats: Map<string, TestChat>;
+  /** v0.19 (T-R2-W1) — 방. 옛 세션의 방은 읽을 때 파생해 채운다(`handlers.ts` syncRooms). */
+  rooms: Map<string, MockRoom>;
+  /** 안 읽음 표식 — `${roomId}:${userId}` → 마지막으로 읽은 메시지 id(§12.1-6, 방 단위 · 사람 행만). */
+  roomReads: Map<string, string>;
+  /**
+   * v0.19 (T-R2-W2) — `createRoom` 으로 만든 방의 **뒷받침 세션** id. 서버에서 방의 메시지·서브 미션·할 일·확인 요청은 `/rooms/{방 id}/…`
+   * 로 읽히고(방 id = 세션 id), 목의 그 핸들러들은 `s.sessions` 를 본다. 그래서 새 방에도 같은 id 의 세션 행을 두되 **옛 세션이 아니다** —
+   * 목 관찰 길(`/__mock/rooms/{id}/legacy`)·`listWorks` 는 이 집합의 세션을 없는 것으로 다룬다(서버: 새 방은 `legacy_work_id` 가 없다).
+   */
+  roomOnly: Set<string>;
+  /** v0.19 (T-R2-W2) — `createWork` 로 연 미션. 옛 세션의 미션(미션 id = 세션 id)은 여기 없고 세션에서 읽는다. */
+  works: Map<string, MockWork>;
   idem: Map<string, unknown>;
   events: StoredEvent[];
   eventSeq: number;
@@ -105,6 +158,16 @@ declare global {
 }
 
 export const now = () => new Date().toISOString();
+/**
+ * 메시지 시각은 단조 증가 — 같은 ms 에 여러 건이 오면 시간순(앵커·이전 대화 더 보기)이 uuid 순으로 섞인다. 서버는 DB now() + id 커서.
+ * **메시지를 만드는 곳은 전부 이 시계를 쓴다**(handlers.ts `addMessage` · rooms-dialogs.ts · work-edit.ts 의 시스템 메시지) — 한 곳이
+ * `now()` 를 쓰면 다른 곳의 메시지와 같은 ms 가 되어 순서가 uuid 에 맡겨진다(room-screen-mock.test.ts 깜빡임의 원인, T-R2-W4b).
+ */
+let lastMsgAt = 0;
+export function nextMsgAt(): string {
+  lastMsgAt = Math.max(Date.now(), lastMsgAt + 1);
+  return new Date(lastMsgAt).toISOString();
+}
 export const uuid = () => crypto.randomUUID();
 
 function seed(): Store {
@@ -113,7 +176,8 @@ function seed(): Store {
     pairings: new Map(), agents: new Map(), sessions: new Map(), messages: new Map(), tasks: new Map(), taskEvents: new Map(),
     lanes: new Map(), artifacts: new Map(), decisions: new Map(), hitls: new Map(), inbox: new Map(),
     workdirs: new Map(), workdirQuotaGb: 50,
-    settings: new Map(), notifications: new Map(), testChats: new Map(),
+    settings: new Map(), notifications: new Map(), testChats: new Map(), rooms: new Map(), roomReads: new Map(),
+    roomOnly: new Set(), works: new Map(),
     idem: new Map(), events: [], eventSeq: 0, subs: new Set(),
   };
   // 데모 워크스페이스: 초대 링크(S3)·비참여 에이전트 경고(E1-04) 검증용
@@ -200,15 +264,16 @@ export function makeRuntime(workspaceId: string, name: string): Runtime {
  * 순서는 계약 enum 순서. `custom`·`lead` 는 전부.
  */
 const COLAB_COMMANDS: readonly ColabCommand[] = [
-  "session_get", "session_messages", "artifact_get", "message_post", "status_set", "decision_record",
+  "room_get", "room_messages", "artifact_get", "message_post", "status_set", "decision_record",
   "lane_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info",
+  "room_list", "room_read", "work_propose",
 ];
 const ROLE_DENIED: Record<Agent["role"], readonly ColabCommand[]> = {
   lead: [],
-  researcher: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request"],
-  writer: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request"],
-  engineer: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request"],
-  reviewer: ["lane_delegate", "artifact_submit", "hitl_approve_request"],
+  researcher: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose"],
+  writer: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose"],
+  engineer: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose"],
+  reviewer: ["lane_delegate", "artifact_submit", "hitl_approve_request", "work_propose"],
   custom: [],
 };
 export function allowedCommands(role: Agent["role"]): ColabCommand[] {
@@ -250,8 +315,8 @@ export function participantStatus(s: Store, sessionId: string, agentId: string):
 }
 
 /** SSE 발행 — 링 버퍼(백필) + 구독자에게 프레임. */
-export function emit(s: Store, workspaceId: string, type: StreamEventType, payload: unknown, sessionId: string | null = null, ephemeral = false): void {
-  const ev: StoredEvent = { id: ++s.eventSeq, type, workspace_id: workspaceId, session_id: sessionId, at: now(), payload, ephemeral };
+export function emit(s: Store, workspaceId: string, type: StreamEventType, payload: unknown, roomId: string | null = null, ephemeral = false, toUser?: string): void {
+  const ev: StoredEvent = { id: ++s.eventSeq, type, workspace_id: workspaceId, room_id: roomId, at: now(), payload, ephemeral, to_user: toUser };
   if (!ephemeral) {
     s.events.push(ev);
     if (s.events.length > 2000) s.events.splice(0, s.events.length - 2000);
@@ -259,7 +324,8 @@ export function emit(s: Store, workspaceId: string, type: StreamEventType, paylo
   const frame = sseFrame(ev);
   for (const sub of s.subs) {
     if (sub.workspace_id !== workspaceId) continue;
-    if (sub.session_ids && sessionId && !sub.session_ids.includes(sessionId)) continue;
+    if (sub.room_ids && roomId && !sub.room_ids.includes(roomId)) continue;
+    if (toUser && sub.user_id !== toUser) continue;
     try {
       sub.write(frame);
     } catch {
@@ -269,7 +335,7 @@ export function emit(s: Store, workspaceId: string, type: StreamEventType, paylo
 }
 
 export function sseFrame(ev: StoredEvent): string {
-  const data = JSON.stringify({ id: String(ev.id), type: ev.type, at: ev.at, workspace_id: ev.workspace_id, session_id: ev.session_id, ephemeral: ev.ephemeral, payload: ev.payload });
+  const data = JSON.stringify({ id: String(ev.id), type: ev.type, at: ev.at, workspace_id: ev.workspace_id, room_id: ev.room_id, ephemeral: ev.ephemeral, payload: ev.payload });
   return `event: ${ev.type}\nid: ${ev.id}\ndata: ${data}\n\n`;
 }
 
@@ -321,7 +387,7 @@ export const TEMPLATES: readonly TemplateSeed[] = [
   {
     key: "content_team",
     name: "콘텐츠 팀",
-    description: "기획 → 초안 → 교정. 문서·마케팅 산출물에 맞춘 구성입니다.",
+    description: "기획 → 초안 → 교정. 문서·마케팅 작업에 맞춘 구성입니다.",
     version: "1",
     agents: [
       { key: "lead", name: "Lead", role: "lead", role_description: "주제를 쪼개 위임하고 톤을 맞춘다", instructions: "너는 콘텐츠 팀의 Lead 다. 주제를 쪼개 위임하고 전체 톤을 맞춘다.", prefer: "claude_code" },

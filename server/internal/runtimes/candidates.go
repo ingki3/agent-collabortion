@@ -49,7 +49,7 @@ func (s *Service) Candidates(ctx context.Context, wsID uuid.UUID, q CandidateQue
 	}
 	if isolation == "worktree" && remote == "" {
 		return false, nil, apperr.Validation(apperr.Field("remote_url", "required",
-			"워크트리 격리에는 저장소의 remote URL 이 필요합니다 (또는 그것을 읽어 올 세션)"))
+			"워크트리 격리에는 저장소의 remote URL 이 필요합니다 (또는 그것을 읽어 올 방)"))
 	}
 
 	rows, err := s.DB.Query(ctx, `SELECT id FROM runtime WHERE workspace_id = $1 ORDER BY created_at`, wsID)
@@ -105,7 +105,7 @@ func (s *Service) sessionIsolation(ctx context.Context, wsID, sessionID uuid.UUI
 	var raw []byte
 	var ws uuid.UUID
 	var runtimeID *uuid.UUID
-	err := s.DB.QueryRow(ctx, `SELECT workspace_id, isolation, runtime_id FROM session WHERE id = $1`, sessionID).Scan(&ws, &raw, &runtimeID)
+	err := s.DB.QueryRow(ctx, `SELECT workspace_id, isolation, runtime_id FROM room WHERE id = $1`, sessionID).Scan(&ws, &raw, &runtimeID)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && ws != wsID) {
 		return "", "", apperr.NotFound("session")
 	}
