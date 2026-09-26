@@ -2006,6 +2006,24 @@ func (e WorkdirGcBlockedReason) Valid() bool {
 	}
 }
 
+// Defines values for WorkdirRole.
+const (
+	WorkdirRoleAgent  WorkdirRole = "agent"
+	WorkdirRoleShared WorkdirRole = "shared"
+)
+
+// Valid indicates whether the value is a known member of the WorkdirRole enum.
+func (e WorkdirRole) Valid() bool {
+	switch e {
+	case WorkdirRoleAgent:
+		return true
+	case WorkdirRoleShared:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WorkdirKind.
 const (
 	WorkdirKindContainer WorkdirKind = "container"
@@ -4444,7 +4462,7 @@ type WorkUpdate struct {
 
 // Workdir defines model for Workdir.
 type Workdir struct {
-	// AgentId worktree — 에이전트당 1개.
+	// AgentId worktree: 방×에이전트 1개 · dir: 미션×에이전트 1개(미션 밖이면 방×에이전트 `_room`) · `role=shared` 행이면 null. (v0.3.3 까지: worktree — 에이전트당 1개.)
 	AgentId nullable.Nullable[openapi_types.UUID] `json:"agent_id,omitempty"`
 	Branch  nullable.Nullable[string]             `json:"branch,omitempty"`
 
@@ -4463,7 +4481,7 @@ type Workdir struct {
 	// Kind `workdir_kind`
 	Kind WorkdirKind `json:"kind"`
 
-	// LaneId container · none — lane당 1개.
+	// LaneId 진단용 — 이 행을 처음 만든 lane. v0.3.4 부터 dir 은 더 이상 lane 당이 아니다(같은 미션·같은 에이전트의 lane 이 한 행을 함께 쓴다). 옛 배치 `sessions/<room>/<lane>` 행에서는 그 lane. `role=shared` 행이면 null.
 	LaneId     nullable.Nullable[openapi_types.UUID] `json:"lane_id,omitempty"`
 	LastUsedAt nullable.Nullable[time.Time]          `json:"last_used_at,omitempty"`
 
@@ -4471,16 +4489,31 @@ type Workdir struct {
 	Merged      nullable.Nullable[bool]      `json:"merged,omitempty"`
 	PathOrRef   string                       `json:"path_or_ref"`
 	RetainUntil nullable.Nullable[time.Time] `json:"retain_until,omitempty"`
-	Session     *SessionRef                  `json:"session,omitempty"`
-	SessionId   openapi_types.UUID           `json:"session_id"`
+
+	// Role v0.3.4 — `agent` = 에이전트의 작업 폴더(cwd) · `shared` = 미션 공용 `_shared`(그 미션 참여 에이전트 전부 읽기·쓰기; `agent_id`·`lane_id` 는 null). 옛 서버 응답에 없으면 `agent`.
+	Role      *WorkdirRole       `json:"role,omitempty"`
+	Session   *SessionRef        `json:"session,omitempty"`
+	SessionId openapi_types.UUID `json:"session_id"`
 
 	// Status `workdir_status`
 	Status    WorkdirStatus `json:"status"`
 	UpdatedAt time.Time     `json:"updated_at"`
+
+	// Work v0.3.4 — `work_id` 의 **현재** 제목. 경로는 만들 때의 이름으로 고정되므로(이름을 바꿔도 폴더는 옮기지 않는다) 화면은 경로 대신 이것을 굵게 보여 준다. `work_id` 가 null 이면 null.
+	Work nullable.Nullable[struct {
+		Id    openapi_types.UUID `json:"id"`
+		Title string             `json:"title"`
+	}] `json:"work,omitempty"`
+
+	// WorkId v0.3.4 — 이 폴더가 속한 미션(daemon-protocol v0.10.0 §6.1 `rooms/<room>/<mission>/`). null = 미션 밖 `_room` 폴더 · `worktree` 체크아웃(방×에이전트) · 옛 배치(`sessions/…`·`worktrees/…`) 행. 미션이 지워지면 null 로 남는다.
+	WorkId nullable.Nullable[openapi_types.UUID] `json:"work_id,omitempty"`
 }
 
 // WorkdirGcBlockedReason P4: 마지막 GC 판정이 삭제를 막은 사유. Director 의 다음 행동이 다르다 — `unmerged_commits` 는 병합해라(E13-12), `uncommitted_changes` 는 커밋하거나 버려라(E13-13). null = 차단 없음. deleteWorkdir 409 의 Problem.detail 에도 같은 값.
 type WorkdirGcBlockedReason string
+
+// WorkdirRole v0.3.4 — `agent` = 에이전트의 작업 폴더(cwd) · `shared` = 미션 공용 `_shared`(그 미션 참여 에이전트 전부 읽기·쓰기; `agent_id`·`lane_id` 는 null). 옛 서버 응답에 없으면 `agent`.
+type WorkdirRole string
 
 // WorkdirKind `workdir_kind`
 type WorkdirKind string
@@ -4989,6 +5022,9 @@ type CheckRepoJSONBody struct {
 type ListRuntimeWorkdirsParams struct {
 	Status    *WorkdirStatus      `form:"status,omitempty" json:"status,omitempty"`
 	SessionId *openapi_types.UUID `form:"session_id,omitempty" json:"session_id,omitempty"`
+
+	// WorkId v0.3.4 — 이 미션의 행만(에이전트 행과 `_shared` 행). 미션 밖 `_room` 행·`worktree` 체크아웃·옛 배치 행은 `work_id` 가 없어 걸리지 않는다.
+	WorkId *openapi_types.UUID `form:"work_id,omitempty" json:"work_id,omitempty"`
 
 	// Cursor 이전 응답의 `next_cursor`. 불투명 문자열.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
@@ -9182,6 +9218,19 @@ func (siw *ServerInterfaceWrapper) ListRuntimeWorkdirs(w http.ResponseWriter, r 
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "session_id"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "session_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "work_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "work_id", r.URL.Query(), &params.WorkId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "work_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "work_id", Err: err})
 		}
 		return
 	}
