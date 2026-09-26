@@ -57,7 +57,7 @@ func TestP5RelativeWorkdirRowIsNotReusedInTheBundle(t *testing.T) {
 	if !strings.HasPrefix(b.Workdir.Path, "/") {
 		t.Fatalf("workdir.path = %q, want an absolute path (daemon-protocol v0.7.3 §4.1)", b.Workdir.Path)
 	}
-	want := "/Users/x/.colab/worktrees/s/lead"
+	want := wantWorktreePath(t, f, sessionID, f.leadUUID)
 	if b.Workdir.Path != want {
 		t.Errorf("workdir.path = %q, want %q — the relative row is ignored and the checkout is "+
 			"planned afresh from the probe's `workdir_root`", b.Workdir.Path, want)

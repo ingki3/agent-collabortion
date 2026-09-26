@@ -44,7 +44,7 @@ func TestV11BundleCarriesWorkdirID(t *testing.T) {
 	if path != b.Workdir.Path || kind != "worktree" || agentID == nil || *agentID != f.leadUUID {
 		t.Errorf("row (%s, %s, agent %v) ≠ bundle (%s, worktree, agent %s)", path, kind, agentID, b.Workdir.Path, f.leadUUID)
 	}
-	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM workdir WHERE session_id = $1`, sessionID).Scan(&rows); err != nil {
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM workdir WHERE session_id = $1 AND role = 'agent'`, sessionID).Scan(&rows); err != nil {
 		t.Fatal(err)
 	}
 	if rows != 1 {
@@ -75,7 +75,7 @@ func TestV11BundleCarriesWorkdirID(t *testing.T) {
 	if b2.Workdir.Path != b.Workdir.Path || !b2.Workdir.Reuse {
 		t.Errorf("second bundle path=%q reuse=%v, want %q/true", b2.Workdir.Path, b2.Workdir.Reuse, b.Workdir.Path)
 	}
-	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM workdir WHERE session_id = $1`, sessionID).Scan(&rows); err != nil {
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM workdir WHERE session_id = $1 AND role = 'agent'`, sessionID).Scan(&rows); err != nil {
 		t.Fatal(err)
 	}
 	if rows != 1 {
@@ -112,7 +112,7 @@ func TestV11WorkdirReportByIDUpdatesTheRow(t *testing.T) {
 	})
 
 	var rows int
-	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM workdir WHERE session_id = $1`, sessionID).Scan(&rows); err != nil {
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM workdir WHERE session_id = $1 AND role = 'agent'`, sessionID).Scan(&rows); err != nil {
 		t.Fatal(err)
 	}
 	if rows != 1 {
@@ -184,7 +184,7 @@ func TestV11OldDaemonReportFallsBackToThePair(t *testing.T) {
 		}},
 	})
 	var rows int
-	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM workdir WHERE session_id = $1`, sessionID).Scan(&rows); err != nil {
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM workdir WHERE session_id = $1 AND role = 'agent'`, sessionID).Scan(&rows); err != nil {
 		t.Fatal(err)
 	}
 	if rows != 1 {

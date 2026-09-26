@@ -30,7 +30,9 @@ curl -fsS "$SERVER_URL/healthz" >/dev/null || die "server not up at $SERVER_URL 
 claim() { daemon_api "runtimes/$RID/claim" '{"capacity":5,"wait_ms":0}'; }
 # report JSON_ENTRY → §6 보고 코드
 report() { daemon_api_code "runtimes/$RID/workdirs" "$(jq -nc --argjson e "$1" '{workdirs:[$e]}')"; }
-rows() { psqlq "select count(*) from workdir where session_id='$S'"; }
+# 체크아웃 행만 센다 — v0.10.0(T-FOLDERS D7 C)부터 worktree 방의 미션 턴도 미션 공용 `_shared` 행을
+# 하나 갖는다(저장소 밖, role=shared). 이 스크립트가 재는 것은 K-14 의 체크아웃 한 행이다.
+rows() { psqlq "select count(*) from workdir where session_id='$S' and kind='worktree'"; }
 
 step "0. 계정 · 워크스페이스 · 에이전트 · 페어링(curl) · probe(workdir_root)"
 signup "s21-$RUN@example.com" password123 "Dir" >/dev/null
@@ -70,8 +72,9 @@ daemon_api "tasks/$T1/attempts/1/phase" '{"phase":"running","pgid":4242}' >/dev/
 # ───────────────────────────── C ─────────────────────────────────────────────
 step "C. S13 listRuntimeWorkdirs — 같은 행 1(중복 0)"
 L="$(api_ok GET "/runtimes/$RID/workdirs")"; echo "$L" | jq . > "$OUT/86-s13-1.json"
-chk C.1 1 "$(jq '.items|length' <<<"$L")" "S13 행 1"
-chk C.2 "$WD/4096" "$(jq -r '.items[0].id+"/"+(.items[0].disk_bytes|tostring)' <<<"$L")" "S13 행 = 번들 id · 보고한 bytes"
+# v0.10.0: 같은 방에 미션 공용 `_shared` 행도 있다(D7 C) — 체크아웃 행만 본다.
+chk C.1 1 "$(jq '[.items[]|select(.kind=="worktree")]|length' <<<"$L")" "S13 체크아웃 행 1"
+chk C.2 "$WD/4096" "$(jq -r '[.items[]|select(.kind=="worktree")][0]|.id+"/"+(.disk_bytes|tostring)' <<<"$L")" "S13 행 = 번들 id · 보고한 bytes"
 
 # ───────────────────────────── D ─────────────────────────────────────────────
 step "D. 옛 데몬 모양(id 없음) 보고 → 폴백으로 같은 행"
@@ -106,7 +109,7 @@ chk F.3 "$WD/$WT_PATH" "$(jq -r '(.workdirs[0].id // "-")+"/"+(.workdirs[0].path
 chk F.4 200 "$(report "$(jq -nc --arg id "$WD" --arg p "$WT_PATH" '{id:$id,kind:"worktree",path:$p,gc:{status:"deleted"}}')")" "§6 영수증: id 만 + gc.status=deleted → 200"
 chk F.5 deleted "$(psqlq "select status from workdir where id='$WD'")" "행 status=deleted"
 chk F.6 workdir_report "$(psqlq "select coalesce(consumed_by,'-') from daemon_command where type='gc' and session_id='$S'")" "gc 명령 소비(consumed_by=workdir_report)"
-chk F.7 0 "$(api_ok GET "/runtimes/$RID/workdirs" | jq '.items|length')" "S13 에서 사라졌다(deleted 는 기본 목록 밖)"
+chk F.7 0 "$(api_ok GET "/runtimes/$RID/workdirs" | jq '[.items[]|select(.kind=="worktree")]|length')" "S13 에서 사라졌다(deleted 는 기본 목록 밖)"
 chk F.8 1 "$(rows)" "행은 1(삭제 표식, 중복 없음)"
 
 step "결과: $CHECKS"

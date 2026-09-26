@@ -28,6 +28,7 @@ import {
   deleteBlocked, formatBytes, gcBlockText, quotaView, retentionLabel,
   WORKDIR_KIND_LABEL, WORKDIR_STATUS_LABEL,
 } from "@/lib/workdir";
+import { buildFolderTree, FOLDERS_WORDING, renamedSince } from "@/lib/workdir-tree";
 import type { Agent, Runtime, StreamEvent, Workdir } from "@/lib/api/types";
 
 export default function WorkdirsPage() {
@@ -145,16 +146,33 @@ export default function WorkdirsPage() {
       ) : items.length === 0 ? (
         <div className="empty" data-testid="workdirs-empty">
           <div className="empty__title">이 컴퓨터에 남은 작업 공간이 없습니다</div>
-          <div className="empty__body">워크트리는 미션이 끝난 뒤 보존 기한(기본 14일)까지 남고, 컨테이너와 격리 없는 방의 폴더는 즉시 정리됩니다.</div>
+          <div className="empty__body">작업 폴더는 마지막 사용 뒤 보존 기한(기본 14일)까지 남습니다 — 미션 폴더는 미션이 닫혀도 바로 지우지 않습니다.</div>
         </div>
       ) : (
+        <div className="wd__tree" data-testid="workdir-tree">
+          {buildFolderTree(items).map((room) => (
+            <section key={room.roomId} className="wd__room" data-testid="workdir-room-node" data-room-id={room.roomId}>
+              <div className="wd__room-head">
+                <b data-testid="workdir-room-title"><Link href={`/rooms/${room.roomId}`}>{room.title}</Link></b>
+                <span className="small muted-3"> · {formatBytes(room.bytes)} · 마지막 사용 {relativeTime(room.lastUsedAt)}</span>
+              </div>
+              {room.groups.map((g) => (
+                <div key={g.key} className="wd__group" data-testid="workdir-group" data-group={g.kind} data-work-id={g.workId ?? ""}>
+                  <div className="wd__group-head">
+                    <b data-testid="workdir-group-title">{g.title}</b>
+                    <span className="small muted-3"> · {formatBytes(g.bytes)}</span>
+                    {g.kind === "mission" && <span className="small muted-3" data-testid="workdir-group-note"> · {FOLDERS_WORDING.mission_open}</span>}
+                    {g.kind === "legacy" && <span className="small muted-3" data-testid="workdir-group-note"> · {FOLDERS_WORDING.legacy_note}</span>}
+                  </div>
         <ul className="wd__list" data-testid="workdir-list">
-          {items.map((w) => {
+          {g.rows.map((w) => {
             const gc = gcBlockText(w);
             const blocked = deleteBlocked(w);
             const asked = refused[w.id];
             // 소유가 작업 줄기면 **id 를 보여 주지 않는다**(§8.4) — 사람은 그 문자열로 아무 결정도 하지 못한다.
-            const owner = w.agent_id ? `@${agentName(w.agent_id)}` : w.lane_id ? "서브 미션" : "—";
+            const owner = w.role === "shared" ? FOLDERS_WORDING.shared_name : w.agent_id ? `@${agentName(w.agent_id)}` : w.lane_id ? "서브 미션" : "—";
+            // 굵게는 현재 이름, 경로는 만들 때의 이름(§6.1 만들 때 고정). 둘이 다르면 표시.
+            const renamed = w.role !== "shared" && renamedSince(w, w.agent_id ? agentName(w.agent_id) : null);
             return (
               <li
                 key={w.id}
@@ -165,10 +183,13 @@ export default function WorkdirsPage() {
                 data-status={w.status}
                 data-blocked={String(blocked)}
                 data-gc-reason={w.gc_blocked_reason ?? ""}
+                data-role={w.role ?? "agent"}
               >
                 <div className="wd__main">
-                  <span className="wd__kind" data-testid="workdir-kind">{WORKDIR_KIND_LABEL[w.kind]}</span>
-                  <code className="wd__path" data-testid="workdir-path">{w.path_or_ref}</code>
+                  <span className="wd__kind" data-testid="workdir-kind">{w.role === "shared" ? FOLDERS_WORDING.shared : WORKDIR_KIND_LABEL[w.kind]}</span>
+                  <b className="wd__name" data-testid="workdir-name">{owner}</b>
+                  <code className="wd__path" data-testid="workdir-path" title={renamed ? FOLDERS_WORDING.fixed_name_tip : undefined}>{w.path_or_ref}</code>
+                  {renamed && <span className="wd__fixed small muted-3" data-testid="workdir-fixed-name">ⓘ {FOLDERS_WORDING.fixed_name}</span>}
                   {w.branch && <span className="wd__branch" data-testid="workdir-branch">{w.branch}</span>}
                   <span className="wd__spacer" />
                   <span className="wd__status" data-testid="workdir-status">{WORKDIR_STATUS_LABEL[w.status]}</span>
@@ -237,10 +258,15 @@ export default function WorkdirsPage() {
             );
           })}
         </ul>
+                </div>
+              ))}
+            </section>
+          ))}
+        </div>
       )}
 
       <p className="small muted-3" style={{ marginTop: 12 }} data-testid="workdirs-foot">
-        보존 기한이 지나면 자동으로 정리됩니다. 지금 지우려면 행에서 삭제하세요.
+        보존 기한이 지나면 자동으로 정리됩니다. 지금 지우려면 행에서 삭제하세요. {FOLDERS_WORDING.fixed_name_tip}
       </p>
 
       <style>{`
@@ -250,6 +276,12 @@ export default function WorkdirsPage() {
         .wd__bar > span { display: block; height: 100%; background: var(--ink-3); }
         .wd__quota--full .wd__bar > span { background: var(--s-fail); }
         .wd__quota-note { margin-top: 4px; font-size: var(--fs-sub); color: var(--s-fail-text); }
+        .wd__tree { display: flex; flex-direction: column; gap: 14px; }
+        .wd__room-head { font-size: var(--fs-body); margin-bottom: 6px; }
+        .wd__group { margin-left: 12px; margin-bottom: 8px; }
+        .wd__group-head { font-size: var(--fs-sub); margin-bottom: 4px; }
+        .wd__name { font-size: var(--fs-body); }
+        .wd__path { color: var(--ink-3); }
         .wd__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
         .wd__row { border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 4px; }
         .wd__main { display: flex; align-items: center; gap: 8px; font-size: var(--fs-body); flex-wrap: wrap; }

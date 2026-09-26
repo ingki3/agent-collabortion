@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -22,7 +21,6 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/router"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
-	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
 )
 
 // historyLimit is §8.4's history cap. It is tasks.DefaultHistoryLimit and not
@@ -39,7 +37,8 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		toolsJSON, optionsJSON, envJSON, isolationJSON []byte
 		runtimeKind, model                             string
 		args                                           []string
-		title                                          string
+		roomName                                       string
+		workTitle                                      *string
 		limitsJSON, workLimitsJSON                     []byte
 		runtimeSessionRef                              []byte
 		reentry                                        int
@@ -49,23 +48,24 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	err := tx.QueryRow(ctx, `
 		SELECT a.name, a.role, a.role_description, a.instructions, a.tools, a.budget_per_task,
 		       p.runtime_kind, p.model, p.options, p.env, p.args,
-		       COALESCE(wk.title, s.name),
+		       s.name, wk.title,
 		       s.isolation, s.limits,
 		       l.runtime_session_ref, l.reentry_count, w.path_or_ref, wk.limits
 		FROM task t
 		JOIN agent a ON a.id = t.agent_id
 		JOIN agent_profile p ON p.id = t.profile_id
 		JOIN room s ON s.id = t.session_id
-		-- The task's OWN mission (V19_R1B_HANDOFF (c) queue/bundle.go:57). Only
-		-- its title is read here, for the worktree slug; brief [4] is
-		-- loadRoomBrief's (T-R3b).
+		-- The task's OWN mission (V19_R1B_HANDOFF (c) queue/bundle.go:57). Its
+		-- title is read here for a NEW mission folder's name piece
+		-- (daemon-protocol v0.10.0 §6.1); brief [4] is loadRoomBrief's (T-R3b).
+		-- The worktree branch reads the ROOM name (FINDING-1).
 		LEFT JOIN work wk ON wk.id = t.work_id
 		JOIN lane l ON l.id = t.lane_id
 		LEFT JOIN workdir w ON w.id = l.workdir_id
 		WHERE t.id = $1`, t.ID).Scan(
 		&agentName, &agentRole, &roleDesc, &instructions, &toolsJSON, &budgetPerTask,
 		&runtimeKind, &model, &optionsJSON, &envJSON, &args,
-		&title, &isolationJSON, &limitsJSON,
+		&roomName, &workTitle, &isolationJSON, &limitsJSON,
 		&runtimeSessionRef, &reentry, &prevWorkdir, &workLimitsJSON)
 	if isNoRows(err) {
 		return nil, errNoBundle
@@ -335,6 +335,19 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	var rebindPrompt string
 	_ = tx.QueryRow(ctx, `SELECT COALESCE(rebind_prompt, '') FROM room WHERE id = $1`, t.SessionID).Scan(&rebindPrompt)
 
+	wd, err := planBundleWorkdir(ctx, tx, t, missionID, runtimeID, isolation.Kind, roomName, deref(workTitle), agentName, now)
+	if err != nil {
+		return nil, err
+	}
+	workdirKind := wd.Kind
+	// harness v0.9.7 <folders>: the server names every path, so the block is
+	// written here and not by the daemon. `<roster_status>` → `<folders>` →
+	// `<trigger>`; a test chat never gets here (it has no bundle of its own).
+	foldersBlock, err := renderFolders(ctx, tx, t, missionID, isolation.Kind == "worktree", wd, surf)
+	if err != nil {
+		return nil, err
+	}
+
 	// Turn prompt
 	var prompt strings.Builder
 	if rebindPrompt != "" {
@@ -349,6 +362,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	renderRoomHistoryTail(&prompt, missionID, roomHist, surf)
 	prompt.WriteString(renderMissionProgress(room.Mission, progress.Met, progress.Total, progress.Satisfied))
 	fmt.Fprintf(&prompt, "<roster_status>\n%s</roster_status>\n\n", rosterStatus.String())
+	prompt.WriteString(foldersBlock)
 	// A re-instruction's trigger IS the new instruction, and `<resumed>` is
 	// absent above — so the same rendering serves both (§8.4, E8-06).
 	fmt.Fprintf(&prompt, "<trigger>\n%s</trigger>\n\n", trigger.String())
@@ -399,96 +413,6 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 			override = v
 		}
 	}
-	workdirKind := "dir"
-	wdPlan := workdirs.WorktreePlan{}
-	if isolation.Kind == "worktree" {
-		workdirKind = "worktree"
-		// FR-6.4/C3: ONE worktree per agent, reused across that agent's lanes.
-		// The existing path is looked up by agent, not by lane, so a second
-		// lane of the same agent gets the same checkout back rather than a
-		// second worktree of the same branch (E13-02, E16-B's "워크트리 2개").
-		//
-		// E13-08 is the same query read the other way: the bundle names only
-		// what THIS agent owns. A reviewer handed the Frontend checkout can
-		// edit the code it is reviewing, and under `worktree` two agents in one
-		// tree is repository corruption, not a stale read.
-		existing := ""
-		if paths, err := workdirs.BundleWorkdirPaths(ctx, tx, t.SessionID, t.AgentID); err == nil {
-			for _, p := range paths {
-				// S-62 (PR #173 리뷰 NN1): a row written BEFORE migration 0019
-				// can hold a RELATIVE path. S-55 stopped the server from
-				// producing one, and 0019 stopped new ones from being stored,
-				// but neither looked at what was already in the table — and
-				// this branch hands the stored string straight to the daemon,
-				// which absolutises it against its own CWD and checks a
-				// worktree out inside the user's repository (T-I4 차단 ①,
-				// all over again on an upgraded deployment).
-				//
-				// So: only an absolute row is reusable. A relative one is
-				// ignored and the checkout is planned afresh from the probe's
-				// `workdir_root`, and the fact is put on the feed rather than
-				// swallowed — the old directory is still on disk and the
-				// Director is the one who decides what happens to it.
-				if filepath.IsAbs(p) {
-					if existing == "" {
-						existing = p
-					}
-					continue
-				}
-				// Every relative row is reported, not just the ones that leave
-				// the agent with no checkout at all: the directory it names is
-				// still on disk either way.
-				if err := noteRelativeWorkdirRow(ctx, tx, t, p, now); err != nil {
-					return nil, err
-				}
-			}
-		}
-		// S-55 / v0.7.3 §4.1: the bundle's `workdir.path` is ABSOLUTE, and the
-		// only material for it is the runtime's probe `workdir_root`. The path
-		// is the server's to own because the server is what judges E13-08 (a
-		// bundle names no other agent's checkout) and what puts paths in the
-		// `gc` command (§4.3) and the workdir rows.
-		var root *string
-		if err := tx.QueryRow(ctx, `SELECT workdir_root FROM runtime WHERE id = $1`, runtimeID).Scan(&root); err != nil && !isNoRows(err) {
-			return nil, fmt.Errorf("queue: bundle workdir_root: %w", err)
-		}
-		wdPlan = workdirs.PlanWorktree(workdirs.WorktreeRequest{
-			Root:             deref(root),
-			SessionSlug:      workdirs.Slug(title),
-			AgentSlug:        workdirs.Slug(agentName),
-			AgentID:          t.AgentID,
-			ExistingForAgent: existing,
-		})
-		if wdPlan.Path == "" {
-			// Not a fallback, a refusal: PlanWorktree only leaves the path
-			// empty when it has no root, and shipping a relative path is the
-			// failure mode that killed every `worktree` session in T-I4.
-			return nil, errNoWorkdirRoot
-		}
-	}
-	// K-14 (daemon-protocol v0.8.3 §4.1): the bundle carries the workdir row's
-	// id, so the daemon's §6 report can name the row instead of reconstructing
-	// (session, agent) from a slugged path. The row is made HERE, before the
-	// bundle leaves, for `worktree` — the server owns that path. For `dir` the
-	// daemon owns the path (Lead T-S21 결정 A): only a row an earlier attempt of
-	// this lane already bound is carried; the first attempt goes out without an
-	// id and its §6 report takes the pair fallback.
-	var wdBranch *string
-	if wdPlan.Created && wdPlan.Branch != "" {
-		br := wdPlan.Branch
-		wdBranch = &br
-	}
-	wdID, err := workdirs.EnsureBundleRow(ctx, tx, workdirs.BundleRow{
-		SessionID: t.SessionID, AgentID: t.AgentID, LaneID: t.LaneID,
-		Kind: workdirKind, Path: wdPlan.Path, Branch: wdBranch,
-	}, now)
-	if err != nil {
-		return nil, fmt.Errorf("queue: bundle workdir row: %w", err)
-	}
-	wdIDStr := ""
-	if wdID != uuid.Nil {
-		wdIDStr = wdID.String()
-	}
 	b := &contracts.TaskBundle{
 		Task: contracts.BundleTask{
 			ID: t.ID.String(), Attempt: t.Attempt, LaneID: t.LaneID.String(), SessionID: t.SessionID.String(),
@@ -506,13 +430,14 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 			RuntimeKind: contracts.RuntimeKind(runtimeKind), Model: model, Options: options, Env: env, Args: args, Tools: tools, AdapterPin: adapterPin,
 		},
 		Workdir: contracts.BundleWorkdir{
-			ID:   wdIDStr,
+			ID:   wd.ID.String(),
 			Kind: workdirKind, RepoPath: isolation.RepoPath,
-			Path: wdPlan.Path, Branch: wdPlan.Branch,
-			// `reuse` is true for a retry, a lane re-entry, AND — under
-			// `worktree` — whenever this agent already has a checkout in this
-			// session, which is every lane after its first (C3).
-			Reuse: t.Attempt > 1 || reentry > 0 || (workdirKind == "worktree" && !wdPlan.Created),
+			Path: wd.Path, SharedPath: wd.SharedPath, Branch: wd.Branch,
+			// `reuse` is true for a retry, a lane re-entry, AND whenever the
+			// folder already existed before this bundle — a worktree checkout
+			// of this agent (C3), or a mission folder another lane of this
+			// agent made (D3 A).
+			Reuse: t.Attempt > 1 || reentry > 0 || !wd.Created,
 		},
 		Brief:  contracts.BundleBrief{Transport: transport, Text: brief.String()},
 		Prompt: prompt.String(),

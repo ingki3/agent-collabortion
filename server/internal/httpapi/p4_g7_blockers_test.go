@@ -44,10 +44,10 @@ func TestP4BundleWorkdirPathIsAbsolute(t *testing.T) {
 			"the user's repository and hands the runtime a directory that does not exist "+
 			"(T-I4 차단 ①)", b.Workdir.Path)
 	}
-	// The layout is the daemon's (`<root>/worktrees/<session>/<agent>`,
-	// daemon/internal/workdir/worktree.go WorktreePath). The server owns the
-	// string, so it must be the SAME string.
-	want := "/Users/x/.colab/" + workdirs.WorktreesDir + "/s/lead"
+	// daemon-protocol v0.10.0 §6.1: the server names the checkout
+	// `<root>/rooms/<room>/_worktrees/<agent>` (room × agent) and the daemon
+	// uses it as given.
+	want := wantWorktreePath(t, f, sessionID, f.leadUUID)
 	if b.Workdir.Path != want {
 		t.Errorf("workdir.path = %q, want %q — the server assembles the probe's `workdir_root` (§3) "+
 			"with the daemon's layout", b.Workdir.Path, want)
@@ -382,6 +382,19 @@ func TestP4RejectReEntersTheSubmittingLane(t *testing.T) {
 
 // worktreeSessionOn turns the fixture's session into a `worktree` session
 // pinned to a probed runtime, and returns that runtime.
+// wantWorktreePath is §6.1's checkout path for (room, agent), built from the
+// CURRENT room and agent names — the ones a new checkout is named with.
+func wantWorktreePath(t *testing.T, f *p2Fixture, roomID, agentID uuid.UUID) string {
+	t.Helper()
+	var roomName, agentName string
+	if err := f.pool.QueryRow(t.Context(), `SELECT r.name, a.name FROM room r, agent a WHERE r.id = $1 AND a.id = $2`,
+		roomID, agentID).Scan(&roomName, &agentName); err != nil {
+		t.Fatal(err)
+	}
+	return "/Users/x/.colab/" + workdirs.RoomsDir + "/" + workdirs.Piece(roomName, roomID, workdirs.IDLen) +
+		"/" + workdirs.WorktreesSub + "/" + workdirs.Piece(agentName, agentID, workdirs.IDLen)
+}
+
 func worktreeSessionOn(t *testing.T, f *p2Fixture, sessionID uuid.UUID) uuid.UUID {
 	t.Helper()
 	var rtID uuid.UUID

@@ -417,6 +417,12 @@ func (s *Service) ApplyWorkEvent(ctx context.Context, workID uuid.UUID, ev Event
 // collects only the directories of ITS lanes — a directory another open
 // mission's lane (or a lane outside any mission) still points at stays for
 // the sweep to judge on its own clock (workdirs.disposableNow).
+//
+// daemon-protocol v0.10.0 §6.1 (D8 B): a folder of the new layout — one with
+// a `work_id`, the agents' rows and `_shared` — is NOT collected by the close.
+// It stays for `last_used_at + workdir_retention_days` and the sweep collects
+// it (workdirs.missionFolderDisposable). Only old-layout lane folders
+// (`sessions/<room>/<lane>`, no `work_id`) keep the close-time rule.
 func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID, workID uuid.UUID, now time.Time) error {
 	var kind string
 	var runtimeID *uuid.UUID
@@ -497,7 +503,7 @@ func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID, workID u
 // that mission — in another mission still open, or outside any mission —
 // points at it. A directory no lane points at was the session's (1:1 rooms)
 // and goes with it as before.
-const missionDirSQL = `NOT EXISTS (
+const missionDirSQL = `w.work_id IS NULL AND NOT EXISTS (
 	SELECT 1 FROM lane l LEFT JOIN work lw ON lw.id = l.work_id
 	 WHERE (l.workdir_id = w.id OR l.id = w.lane_id)
 	   AND l.work_id IS DISTINCT FROM $2

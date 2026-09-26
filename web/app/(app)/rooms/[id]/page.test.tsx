@@ -177,6 +177,18 @@ describe("S7 — 미션 칩은 거르개이자 선택자(타임라인·보드·�
     await waitFor(() => expect(post).toHaveBeenCalledWith("/works/{workId}/pause", expect.objectContaining({ path: { workId: "w1" } })));
   });
 
+  it("[FOLDERS] 「종료」 는 바로 보내지 않고 닫기 확인을 연다 — 확인해야 complete(confirm)", async () => {
+    search = new URLSearchParams("work=w1");
+    await ready();
+    await waitFor(() => expect(screen.getByTestId("work-panel").getAttribute("data-work-id")).toBe("w1"));
+    fireEvent.click(screen.getByTestId("work-action-complete"));
+    expect(screen.getByTestId("close-work-dialog")).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalledWith("/works/{workId}/complete", expect.anything());
+    post.mockResolvedValueOnce(work("w1", { status: "completed" }));
+    fireEvent.click(screen.getByTestId("close-work-dialog-confirm"));
+    await waitFor(() => expect(post).toHaveBeenCalledWith("/works/{workId}/complete", expect.objectContaining({ path: { workId: "w1" }, body: { confirm: true } })));
+  });
+
   it("(미션 없음) — work_id = null 만 남고 우열은 칸을 남긴 채 비운다(동작 비활성, 사유 「미션 없이 오간 대화에는 끝이 없습니다」)", async () => {
     search = new URLSearchParams("work=none");
     await ready();

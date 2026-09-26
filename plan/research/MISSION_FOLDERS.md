@@ -2,10 +2,10 @@
 
 | 항목 | 내용 |
 |---|---|
-| 상태 | **설계 제안 — Lead 승인 전.** 구현(2단계)은 승인 뒤 같은 브랜치 `design/mission-folders` |
+| 상태 | **Director 승인 2026-09-26(D1~D8) — 구현 완료(2단계, 같은 브랜치 `design/mission-folders`).** 판정은 §8, 계약은 daemon-protocol v0.10.0 · harness v0.9.7 · openapi v0.3.4(PR #350, dev 머지) |
 | 근거 | Director 방향 2026-09-25 · 게임 제작 방 실측(아래 §0) · 현재 코드(dev `origin/dev`) |
 | 함께 바뀐 문서 | `PRD.md` FR-6.1·FR-6.4·§8.4 턴 프롬프트·용어표 · `SCREEN.md` §4.16 S13 — 전부 `[FOLDERS]` 표식, 「Lead 승인 전」 |
-| 계약 | **이 문서에 제안만 적는다** — `contracts/` 는 고치지 않았다(§6) |
+| 계약 | 제안은 §6, **확정 문장은 계약 파일이 정본**이다 — 이 문서와 다르면 계약을 따른다 |
 
 ---
 
@@ -191,3 +191,22 @@ Other missions and rooms are not in these folders: ask for an artifact, or use `
 | 한글 방 이름 슬러그가 `x` | D1 하위 결정(경로 한글 보존) |
 | 옛·새 배치 공존으로 데몬 `List` 가 세 트리 | 구조가 고정 깊이라 단순 — `.colab-workdir.json` 표식이 id 를 준다 |
 | `none` 경로를 서버가 지으면서 `workdir_root` 미보고 런타임이 dispatch 불가 | worktree 와 같은 거부(`errNoWorkdirRoot`)·피드 문장 — probe 는 v0.7.3 부터 root 를 보낸다 |
+
+---
+
+## 8. 판정 (Director 2026-09-26) — 구현이 따른 결론
+
+| # | 판정 | 이 문서의 권고와 다른 점 · 구현 |
+|---|---|---|
+| **D1** | **A** — 조각은 `<slug>-<id8>`, 만들 때 고정. **하위 결정: 경로 슬러그는 한글 보존(`PathSlug`), git 브랜치는 ASCII `Slug`** | §3 a 가 열어 둔 하위 결정이 닫혔다. `workdirs.PathSlug`(NFC → 소문자 → `\p{L}`·`\p{N}`·`_` 보존 → 나머지 `-` 하나 → 40룬) · 충돌 시 그 경로의 id 조각을 12자리로 |
+| **D2** | **A** — 같은 미션 형제 폴더는 읽기 허용, 쓰기는 자기 폴더 + `_shared` | 권고대로. 알림은 턴 프롬프트 `<folders>` |
+| **D3** | **A** — 같은 에이전트의 여러 lane 은 한 폴더를 공유하고 병렬을 유지 | 권고대로. 한 `workdir` 행을 여러 lane 이 가리키고, `<folders>` 가 lane 표지(`<lane_id[:8]>`)를 지시 |
+| **D4** | **A** — 미션 공용 `_shared` 를 둔다 | 권고대로. `role=shared` 행(에이전트·lane 없음), 데몬은 `mkdir -p` 만 |
+| **D5** | **A** — 쓰기 제한은 **규약만**(`permissions.deny` 강제 없음) | 권고대로. 브리프 [2] 고정 한 줄 + `<folders>` |
+| **D6** | **A** — 옛 `sessions/…`·`worktrees/…` 폴더는 옮기지 않는다 | 권고대로. `lane.workdir_id` 가 가리키는 행이 있으면 저장 경로를 그대로 싣는다 |
+| **D7** | **C** — 체크아웃은 방×에이전트 그대로 + 미션 `_shared` 만 추가 | 권고대로. 추가 판정: **새 체크아웃 브랜치의 방 조각에 `room_id` 앞 8자리**(`colab/<Slug(방)>-<room_id8>/<Slug(에이전트)>`) — 한글 방 이름이 `Slug` 에서 `x` 가 되어 같은 저장소의 두 방이 겹치던 성질을 막는다 |
+| **D8** | **B** — **이 문서의 권고(A 즉시 삭제)와 다르다.** `none` 미션 폴더(에이전트 행 · `_shared`)는 미션이 닫힌 뒤 `last_used_at + workdir_retention_days` 로 GC | §3 d 표와 §2 D8 행의 권고가 뒤집혔다. **미션 닫힘은 삭제 트리거가 아니다** — 닫기는 `gc` 를 싣지 않고(`sessions.gcWorkdirs` 는 `work_id IS NULL` 인 옛 배치 행만), 스윕이 행의 `work_id` 로 판정한다(`workdirs.missionFolderDisposable`). 닫기 확인 문장도 「N개(용량)가 정리됩니다」 → 「N개(〈용량〉)는 〈retention〉일 뒤 정리됩니다」 |
+
+**FINDING-1 은 이 라운드에서 고쳤다** — 새 체크아웃의 슬러그 재료가 `COALESCE(work.title, room.name)` 에서 **방 이름**으로 바뀌었다(이미 만들어진 체크아웃은 행의 저장 경로·브랜치를 그대로 쓴다).
+
+**구현 위치**(2단계): 마이그레이션 `server/migrations/0038_workdir_mission_folders.sql`(`workdir.work_id`·`role`·CHECK 완화·인덱스) · 경로 규칙 `server/internal/workdirs/layout.go` · 번들과 `<folders>` `server/internal/queue/folders.go` · GC `server/internal/workdirs/sweep.go`·`server/internal/sessions/complete.go` · 데몬 `daemon/internal/workdir/{workdir,worktree,marker}.go`·`daemon/internal/brief/brief.go` · 화면 `web/lib/workdir-tree.ts`·S13·`components/CloseWorkDialog.tsx`·`components/RebindDialog.tsx`.

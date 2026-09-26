@@ -112,7 +112,8 @@ tap_prompt "$TAP" "$T2B" 1 > "$OUT/74-prompt-c2-restart.txt"
 chk_has F5  "프롬프트에 새 지시가 있다" "$OUT/74-prompt-c2-restart.txt" "보증 정책"
 chk F5b "프롬프트에 **<resumed> 가 없다** (E8-06)" 0 "$(cnt "$OUT/74-prompt-c2-restart.txt" '<resumed')"
 chk F5c "프롬프트에 \"이미 게시한 메시지\" 목록도 없다" 0 "$(cnt "$OUT/74-prompt-c2-restart.txt" 'Messages you already posted')"
-chk F6  "새 지시대로 일했다 (note-99.md)" yes "$( [ -f "$WORK/sessions/$S2/$LANE2/note-99.md" ] && echo yes || echo no )"
+# T-FOLDERS(v0.10.0 §6.1): 경로는 서버가 짓는다 — 행에서 읽는다.
+chk F6  "새 지시대로 일했다 (note-99.md)" yes "$( [ -f "$(psqlq "select w.path_or_ref from workdir w join lane l on l.workdir_id=w.id where l.id='$LANE2' limit 1")/note-99.md" ] && echo yes || echo no )"
 fi
 
 step "5. C3 — \"중단\" (cancelLane): lane failed(cancelled) · 피드 \"사람이 중단함\""
@@ -166,7 +167,7 @@ if [ -n "$T1C" ]; then
   RES1="$(psqlq "select coalesce(resumed::text,'-') from task_attempt where task_id='$T1C' and attempt=1")"
   chk H5 "그 턴은 콜드 스타트다 (task_attempt.resumed ≠ true, 관측=$RES1)" no "$( [ "$RES1" = true ] && echo yes || echo no )"
   chk H6 "콜드 스타트인데도 턴이 일을 했다 (툴 이벤트 ≥ 1 · note-06.md)" yes \
-    "$( [ "$(psqlq "select count(*) from task_event where task_id='$T1C' and class='tool'")" -ge 1 ] && [ -f "$WORK/sessions/$S1/$LANE1/note-06.md" ] && echo yes || echo no )"
+    "$( [ "$(psqlq "select count(*) from task_event where task_id='$T1C' and class='tool'")" -ge 1 ] && [ -f "$(psqlq "select w.path_or_ref from workdir w join lane l on l.workdir_id=w.id where l.id='$LANE1' limit 1")/note-06.md" ] && echo yes || echo no )"
 fi
 
 step "결과"

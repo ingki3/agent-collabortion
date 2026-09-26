@@ -58,6 +58,14 @@ func newG4Fixture(t *testing.T) *g4Fixture {
 		"pairing_code": str(pairing, "pairing_token"), "hostname": "mac.local", "os": "darwin", "daemon_version": "0.9",
 	})
 	d.bearer = str(paired, "daemon_token")
+	// A daemon probes at start, before its first claim (daemon-protocol §3),
+	// and since v0.10.0 §4.1 the server names every workdir — `none` too —
+	// from the probe's `workdir_root`: a runtime without one is handed no
+	// room task at all. Seed what that first probe stores, the way
+	// testdb.AddRuntime does.
+	if _, err := f.pool.Exec(t.Context(), `UPDATE runtime SET workdir_root = '/Users/x/.colab' WHERE id = $1`, str(paired, "runtime_id")); err != nil {
+		t.Fatalf("seed workdir_root: %v", err)
+	}
 	return &g4Fixture{p2Fixture: f, daemon: d, runtimeID: str(paired, "runtime_id")}
 }
 

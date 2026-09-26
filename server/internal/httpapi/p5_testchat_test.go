@@ -373,7 +373,10 @@ func TestP5TestChatLifecycle(t *testing.T) {
 		t.Errorf("gc still pending after the deleted receipt: %+v", cmds)
 	}
 	var wd int
-	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM workdir`).Scan(&wd)
+	// Only the chat's directory is asked about: since daemon-protocol v0.10.0
+	// the fixture room's own claimed task makes its folder row (and its
+	// mission's `_shared`) at bundle time, which is not a test chat row.
+	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM workdir WHERE path_or_ref = $1`, b.Workdir.Path).Scan(&wd)
 	if wd != 0 {
 		t.Errorf("workdir rows = %d — a test_chat_id row is never stored (§4.5)", wd)
 	}

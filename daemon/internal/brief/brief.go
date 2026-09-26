@@ -150,6 +150,28 @@ func TurnPromptPointer(workdirAbs string) string {
 	return PromptPointerPrefix + filepath.Join(workdirAbs, FileName) + PromptPointerSuffix
 }
 
+// FileNameFor is harness v0.9.7's brief file name for a bundle's workdir
+// kind: a `dir` folder is shared by the parallel lanes of one agent in one
+// mission (daemon-protocol v0.10.0 §6.1, D3 A), so each lane writes
+// `COLAB_BRIEF-<lane_id[:8]>.md` — with one name, a lane would overwrite
+// another's brief and its lane-end delete would remove a live lane's file.
+// A `worktree` checkout runs its agent's lanes one at a time (E2-12) and
+// keeps `COLAB_BRIEF.md`.
+func FileNameFor(kind, laneID string) string {
+	if kind == "worktree" || laneID == "" {
+		return FileName
+	}
+	if len(laneID) > 8 {
+		laneID = laneID[:8]
+	}
+	return "COLAB_BRIEF-" + laneID + ".md"
+}
+
+// PointerTo is the pointer line for an explicit brief file path.
+func PointerTo(briefPath string) string {
+	return PromptPointerPrefix + briefPath + PromptPointerSuffix
+}
+
 // PrependPointer puts the pointer line in front of the server's turn prompt,
 // separated by a blank line. An empty prompt still gets the pointer — a turn
 // with no instructions is a bug elsewhere, and dropping the brief on top of
@@ -178,11 +200,20 @@ var (
 // Under 우회 B the original state of the repository is irrelevant, which is
 // the property E13-04 measures: one plan, every row.
 func Prepare(workdir string, transport contracts.BriefTransport, text string) (Prepared, error) {
+	return PrepareNamed(workdir, FileName, transport, text)
+}
+
+// PrepareNamed is Prepare with the brief file's name chosen by the caller
+// (FileNameFor, harness v0.9.7).
+func PrepareNamed(workdir, name string, transport contracts.BriefTransport, text string) (Prepared, error) {
+	if name == "" {
+		name = FileName
+	}
 	switch transport {
 	case contracts.BriefACPMetaSystemPrompt:
 		return Prepared{Transport: transport}, nil
 	case contracts.BriefInstructionFile:
-		path := filepath.Join(workdir, FileName)
+		path := filepath.Join(workdir, name)
 		_, statErr := os.Stat(path)
 		existed := statErr == nil
 		// Truncating write, never an append: a resumed lane replaces the
@@ -192,11 +223,11 @@ func Prepare(workdir string, transport contracts.BriefTransport, text string) (P
 		}
 		p := Prepared{Transport: transport, Path: path, Workdir: workdir, Overwrote: existed}
 		if isRepo(workdir) {
-			if err := excludeEnsure(workdir, FileName); err != nil {
+			if err := excludeEnsure(workdir, name); err != nil {
 				// The brief itself is delivered; failing the attempt over the
 				// hiding step would trade a dirty `git status` for no work at
 				// all. It is loud, not silent.
-				return p, fmt.Errorf("brief: register %s in .git/info/exclude: %w", FileName, err)
+				return p, fmt.Errorf("brief: register %s in .git/info/exclude: %w", name, err)
 			}
 			p.Excluded = true
 		}
@@ -232,7 +263,7 @@ func Remove(p Prepared) error {
 	if !p.Excluded {
 		return nil
 	}
-	return excludeRelease(p.Workdir, FileName, func() bool { return siblingBriefExists(p.Workdir) })
+	return excludeRelease(p.Workdir, filepath.Base(p.Path), func() bool { return siblingBriefExists(p.Workdir) })
 }
 
 // siblingBriefExists reports whether any OTHER working tree of the same
