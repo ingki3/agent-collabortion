@@ -1,7 +1,7 @@
 /**
  * T-FEED A·B(Director 요청 2026-09-25) — 방 화면에서: 한 턴이 메시지 둘을 올리고 뒤에도 일한다.
  *  - 메시지마다의 「작업 과정」은 그 메시지까지의 조각(겹치지 않음) — 요약 줄도.
- *  - 턴이 돌면 꼬리는 타임라인 맨 아래 「@Lead 작업 중」 줄, 끝나면(task.updated · turn_end) 줄이 사라지고 마지막 메시지로.
+ *  - 턴이 돌면 꼬리는 타임라인 맨 아래 「@Lead 작업 중」 말풍선(v0.19.10), 끝나면(task.updated · turn_end) 말풍선이 사라지고 마지막 메시지로.
  *  - 끝난 task 의 짝 없는 runtime/start 에 「진행 중…」이 없다(T-FEED 1).
  */
 import "@testing-library/jest-dom/vitest";
@@ -110,13 +110,13 @@ async function ready() {
 }
 
 describe("메시지의 「작업 과정」 = 그 메시지까지의 조각", () => {
-  it("도는 턴 — A 는 셸 2회, B 는 셸 3회(꼬리 4회는 「@Lead 작업 중」 줄), 펼친 피드도 조각만", async () => {
+  it("도는 턴 — A 는 셸 2회, B 는 셸 3회(꼬리 4회는 「@Lead 작업 중」 말풍선), 펼친 피드도 조각만", async () => {
     await ready();
     expect(processText("mA")).toContain("셸 명령 2회");
     expect(processText("mB")).toContain("셸 명령 3회");
-    const row = await screen.findByTestId("working-row");
-    expect(row.textContent).toContain("@Lead 작업 중");
-    expect(row.textContent).toContain("셸 명령 4회");
+    const row = await screen.findByTestId("working-bubble");
+    expect(within(row).getByTestId("working-head").textContent).toContain("Lead작업 중");
+    expect(within(row).getByTestId("working-summary").textContent).toContain("셸 명령 4회");
     // 타임라인 맨 아래 — 마지막 메시지 카드 뒤.
     expect(card("mB").compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(within(card("mA")).getByTestId("process-fold"));
@@ -128,25 +128,25 @@ describe("메시지의 「작업 과정」 = 그 메시지까지의 조각", () 
     expect(within(feedA).getAllByTestId("feed-pending")).toHaveLength(1);
   });
 
-  it("턴이 끝나면(turn_end + task.updated completed) 「작업 중」 줄이 사라지고 꼬리는 마지막 메시지로 · 「진행 중…」 없음", async () => {
+  it("턴이 끝나면(turn_end + task.updated completed) 「작업 중」 말풍선이 사라지고 꼬리는 마지막 메시지로 · 「진행 중…」 없음", async () => {
     await ready();
-    await screen.findByTestId("working-row");
+    await screen.findByTestId("working-bubble");
     const end = ev(12, { class: "runtime", verb: "turn_end", outcome: "ok", payload: null });
     act(() => stream!({ id: "1", type: "task_event.appended", at: "", room_id: "r1", payload: end as unknown as Record<string, unknown> } as StreamEvent));
     act(() => stream!({ id: "2", type: "task.updated", at: "", room_id: "r1", payload: { ...TASK, status: "completed" } as unknown as Record<string, unknown> } as StreamEvent));
-    await waitFor(() => expect(screen.queryByTestId("working-row")).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("working-bubble")).toBeNull());
     expect(processText("mA")).toContain("셸 명령 2회");
     expect(processText("mB")).toContain("셸 명령 7회");
     fireEvent.click(within(card("mA")).getByTestId("process-fold"));
     expect(within(card("mA")).queryAllByTestId("feed-pending")).toHaveLength(0);
   });
 
-  it("처음부터 끝난 task(getTask completed) — 줄 없음, B 가 꼬리까지, 어떤 줄에도 「진행 중…」 없음", async () => {
+  it("처음부터 끝난 task(getTask completed) — 말풍선 없음, B 가 꼬리까지, 어떤 줄에도 「진행 중…」 없음", async () => {
     EVENTS.push(ev(12, { class: "runtime", verb: "turn_end", outcome: "ok", payload: null }));
     TASK = { ...TASK, status: "completed" };
     LANE = { ...LANE, status: "done", current_task: TASK };
     await ready();
-    expect(screen.queryByTestId("working-row")).toBeNull();
+    expect(screen.queryByTestId("working-bubble")).toBeNull();
     expect(processText("mB")).toContain("셸 명령 7회");
     fireEvent.click(within(card("mA")).getByTestId("process-fold"));
     expect(screen.queryAllByTestId("feed-pending")).toHaveLength(0);

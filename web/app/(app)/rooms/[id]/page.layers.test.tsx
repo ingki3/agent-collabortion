@@ -285,12 +285,13 @@ describe("펼침 상태는 메시지 id 로 — 실시간 갱신·다시 그리�
     expect(within(again).getByTestId("detail-fold")).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("「작성 중…」 델타는 대화 층에만 — 길어도 접힌 줄이 없다", async () => {
+  it("진행 메모(델타)는 「작업 중」 말풍선에만 — 길어도 작업 내용·작업 과정 접힌 줄이 없다(v0.19.10)", async () => {
     await ready();
     act(() => stream!({ id: "3", type: "message.delta", at: "", room_id: "r1", payload: { agent_id: "a1", text: "긴 델타. ".repeat(400) } } as unknown as StreamEvent));
-    const delta = await screen.findByTestId("message-delta");
-    expect(within(delta).queryByTestId("detail-fold")).toBeNull();
-    expect(within(delta).queryByTestId("process-fold")).toBeNull();
+    const bubble = await screen.findByTestId("working-bubble");
+    expect(screen.queryByTestId("message-delta")).toBeNull();
+    expect(within(bubble).queryByTestId("detail-fold")).toBeNull();
+    expect(within(bubble).queryByTestId("process-fold")).toBeNull();
   });
 });
 

@@ -153,6 +153,9 @@ type Runner struct {
 	// nothing was.
 	activity     activityLedger
 	say          strings.Builder
+	// sayBreak is set when a tool_call arrives after some text: the next
+	// agent_message_chunk opens a new paragraph (see appendSay).
+	sayBreak     bool
 	think        strings.Builder
 	tools        map[string]*toolState
 	lastTool     *toolState
@@ -668,6 +671,34 @@ func (r *Runner) shouldRetryRefusal(resumeOutcome string, pr *PromptResult, perr
 		pr.StopReason == "refusal" && ntools == 0 && !cancelled && !stalled
 }
 
+// appendSay adds one agent_message_chunk to the turn text. Text the agent
+// writes between tool calls is a progress note, and the runtime streams those
+// notes back to back with nothing between them ("…통과합니다.BGM v2 가…"):
+// when a tool call came in since the last chunk, the next non-empty chunk is
+// preceded by exactly one blank line — "a" · tool · "b" → "a\n\nb". Chunks
+// with no tool call between them join as they arrived; nothing is inserted
+// before the turn's first text; a text already ending in "\n" gets one more
+// "\n", one ending in "\n\n" gets none. The rule is content only — preview
+// keeps its §4.2 shape and the screen splits paragraphs on the blank line
+// (SCREEN §4.6 v0.19.10 「작업 중」 말풍선). Caller holds r.mu.
+func (r *Runner) appendSay(t string) {
+	if t == "" {
+		return
+	}
+	if r.sayBreak && r.say.Len() > 0 {
+		cur := r.say.String()
+		switch {
+		case strings.HasSuffix(cur, "\n\n"):
+		case strings.HasSuffix(cur, "\n"):
+			r.say.WriteString("\n")
+		default:
+			r.say.WriteString("\n\n")
+		}
+	}
+	r.sayBreak = false
+	r.say.WriteString(t)
+}
+
 // resetTurn clears the accumulated turn state before the D-13 retry: the
 // refused turn contributed no text, no thought and no tools, and carrying its
 // (empty) builders forward would merge two turns into one message.
@@ -675,6 +706,7 @@ func (r *Runner) resetTurn() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.say.Reset()
+	r.sayBreak = false
 	r.think.Reset()
 	r.tools = map[string]*toolState{}
 	r.lastTool = nil
@@ -962,7 +994,7 @@ func (r *Runner) onUpdate(p SessionUpdateParams) {
 	case "agent_message_chunk":
 		t := u.ChunkText()
 		r.mu.Lock()
-		r.say.WriteString(t)
+		r.appendSay(t)
 		preview := r.say.String()
 		r.mu.Unlock()
 		if r.a.Sink != nil && t != "" {
@@ -981,6 +1013,9 @@ func (r *Runner) onUpdate(p SessionUpdateParams) {
 		}
 		ts.absorb(&u)
 		r.lastTool = ts
+		if r.say.Len() > 0 {
+			r.sayBreak = true
+		}
 		if r.toolDone == nil || isClosed(r.toolDone) {
 			r.toolDone = make(chan struct{})
 		}

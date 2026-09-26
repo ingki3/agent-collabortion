@@ -36,11 +36,11 @@ export function authorName(m: Message): string {
 
 /**
  * 본문 — 마크다운(PRD FR-3.1, `lib/markdown.tsx`). 멘션 링크는 렌더러 안에서 예전과 같은 칩(`.msg__mention`)이 된다.
- * 시스템 메시지·요약(W-12)·스레드 답글도 같은 경로다. 「작성 중…」 델타 블록은 `typing` 으로 커서를 붙인다.
+ * 시스템 메시지·요약(W-12)·스레드 답글도 같은 경로다. (진행 메모 `message.delta` 는 본문이 아니다 — 「작업 중」 말풍선, v0.19.10.)
  */
-export function MessageBody({ content, typing }: { content: string; typing?: boolean }) {
+export function MessageBody({ content }: { content: string }) {
   return (
-    <div className="msg__body" data-typing={typing ? "true" : undefined}>
+    <div className="msg__body">
       <Markdown content={content} />
     </div>
   );

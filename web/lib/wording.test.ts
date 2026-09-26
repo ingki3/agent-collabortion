@@ -933,3 +933,27 @@ describe("v0.19.5 방 이름 바꾸기 — 말은 표(ROOM_RENAME)에서만, 세
     expect(comp).toMatch(/aria-describedby=\{helpId\}/);
   });
 });
+
+// ── v0.19.10 「작업 중」 말풍선 — 옛 「작성 중…」 블록 · 옛 「작업 중」 줄을 하나로(SCREEN §4.6 · COMPONENTS §9.10, T-BUBBLE) ─────────
+describe("v0.19.10 「작업 중」 말풍선 — 말은 표(MESSAGE_LAYERS)에서만, 옛 「작성 중…」은 없다", () => {
+  const src = (f: string) => readFileSync(join(ROOT, f), "utf8");
+  const code = (f: string) => src(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "").replace(/\s\/\/.*$/gm, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+  const inPool = (file: string, text: string) => POOL.some((v) => v.file === file && v.text.includes(text));
+
+  it("SCREEN §4.6 의 말 그대로 — 작업 중 · 진행 메모 전체 보기", () => {
+    expect(MESSAGE_LAYERS.working).toBe("작업 중");
+    expect(MESSAGE_LAYERS.working_memo_all).toBe("진행 메모 전체 보기");
+    expect(inPool("lib/wording.ts", MESSAGE_LAYERS.working_memo_all)).toBe(true);
+  });
+
+  it("옛 말은 표에도 화면에도 없다 — ROOM_CENTER.writing · 「작성 중…」", () => {
+    expect("writing" in ROOM_CENTER).toBe(false);
+    expect(POOL.filter((v) => v.text.includes("작성 중…") && !v.file.includes("test")).map((v) => `${v.file}:${v.line}`)).toEqual([]);
+  });
+
+  it("말풍선은 표를 그린다 — 컴포넌트·방 화면 코드에 문장을 직접 쓰지 않는다", () => {
+    const comp = src("components/MessageLayers.tsx");
+    for (const k of ["working", "working_memo_all", "failures", "process_loading"]) expect(comp, k).toContain(`L.${k}`);
+    for (const f of ["components/MessageLayers.tsx", "app/(app)/rooms/[id]/page.tsx", "lib/progress-memo.ts"]) expect(code(f), f).not.toMatch(/진행 메모 전체 보기|"작업 중"|작성 중…/);
+  });
+});

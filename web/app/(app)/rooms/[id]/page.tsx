@@ -16,8 +16,9 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { MessageBody, MessageCard, authorName, type ConversationSlot, type MessageLayerSlots } from "@/components/MessageCard";
-import { ArtifactRef, DetailFold, ProcessFold, TimelineViewToggle, WorkingRow, type TimelineView } from "@/components/MessageLayers";
+import { MessageCard, authorName, type ConversationSlot, type MessageLayerSlots } from "@/components/MessageCard";
+import { ArtifactRef, DetailFold, ProcessFold, TimelineViewToggle, WorkingBubble, type TimelineView } from "@/components/MessageLayers";
+import { applyDelta, dropMemo, lastSentence, memoSegments, noteToolEvent, notePosted, type ProgressMemos } from "@/lib/progress-memo";
 import { Composer, type ComposerAgent, type ComposerInput, type ComposerWarning } from "@/components/Composer";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { LaneBoard } from "@/components/LaneBoard";
@@ -40,7 +41,7 @@ import { Slot, slotText } from "@/components/Slot";
 import { api, errorMessage, isApiError, newIdempotencyKey } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
-import { emptyTurnNote, isEmptyTurn, isTaskLive } from "@/lib/feed";
+import { LIVE_TASK_STATUSES, emptyTurnNote, isEmptyTurn, isTaskLive, isTurnClose } from "@/lib/feed";
 import { roomProcessSlices, workingTasks, type ProcessSlices, type ProcessWindow } from "@/lib/process-slice";
 import { useMarkRoomRead } from "@/lib/unread";
 import { isLayered, messageLayers, summarizeProcess, timelineViewKey } from "@/lib/message-layers";
@@ -154,7 +155,8 @@ export default function RoomPage() {
   const [workNotFound, setWorkNotFound] = useState(false);
   const [reads, setReads] = useState<{ out: number; in: number } | null>(null);
   const [typing, setTyping] = useState<Record<string, boolean>>({});
-  const [deltas, setDeltas] = useState<Record<string, string>>({});
+  /** 진행 메모(SCREEN §4.6 v0.19.10) — 에이전트 id → `message.delta` 누적 전문 + 조각 경계. 「작업 중」 말풍선에만 흐른다(영속되지 않는다). */
+  const [memos, setMemos] = useState<ProgressMemos>({});
   const [replyTo, setReplyTo] = useState<{ id: string; authorName: string } | null>(null);
   const [restart, setRestart] = useState<{ laneId: string; agentName: string } | null>(null);
   const [draft, setDraft] = useState<{ content: string; nonce: number } | null>(null);
@@ -181,6 +183,9 @@ export default function RoomPage() {
   const [folds, setFolds] = useState<Folds>({});
   const requestedEvents = useRef(new Set<string>());
   const bottomRef = useRef<HTMLDivElement>(null);
+  /** 「작업 중」 말풍선의 마지막 높이(에이전트 id → px) — 게시된 메시지가 그 자리에 서는 첫 프레임에 min-height 로 쓴다(튐 최소, COMPONENTS §9.10). */
+  const bubbleHeights = useRef<Record<string, number>>({});
+  const [held, setHeld] = useState<Record<string, number>>({});
   const composerRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const focusedOnce = useRef(false);
@@ -426,7 +431,12 @@ export default function RoomPage() {
       case "message.created": {
         const m = ev.payload as unknown as Message;
         if (m.session_id !== roomId) return;
-        if (m.author_id) setDeltas((d) => { const n = { ...d }; delete n[m.author_id!]; return n; });
+        // 게시됐다 — 그때까지의 진행 메모는 이 메시지 앞의 것(말풍선은 그 자리에서 메시지로 바뀌고, 턴이 이어지면 새 메모부터).
+        if (m.author_type === "agent" && m.author_id) {
+          setMemos((d) => notePosted(d, m.author_id!));
+          const h = m.parent_id ? undefined : bubbleHeights.current[m.author_id];
+          if (h) setHeld((cur) => ({ ...cur, [m.id]: h }));
+        }
         if (m.parent_id) {
           const root = m.parent_id;
           setReplies((r) => (r[root] ? { ...r, [root]: r[root].some((x) => x.id === m.id) ? r[root] : [...r[root], m].sort(byTime) } : r));
@@ -444,6 +454,8 @@ export default function RoomPage() {
       case "task_event.appended": {
         const te = ev.payload as unknown as TaskEvent;
         if (isEmptyTurn(te)) setEmptyTurns((m) => (m[te.task_id] ? m : { ...m, [te.task_id]: emptyTurnNote(te) }));
+        // 진행 메모의 조각 경계 — 두 델타 사이에 같은 task 의 도구 이벤트가 오면 거기서 문단을 나눈다. 턴이 끝나면 메모는 사라진다.
+        setMemos((d) => (isTurnClose(te) && !te.superseded_by ? dropMemo(d, { taskId: te.task_id }) : noteToolEvent(d, te)));
         setEvents((c) => {
           const cur = c[te.task_id];
           if (!cur || cur.events.some((e) => e.id === te.id)) return c;
@@ -454,6 +466,7 @@ export default function RoomPage() {
       case "task.updated": {
         // 「진행 중…」 판정(T-FEED) — task 가 끝나면 그 피드의 짝 없는 started 줄이 「결과 없음」으로 바뀐다.
         const t = ev.payload as unknown as Task;
+        if (!LIVE_TASK_STATUSES.has(t.status)) setMemos((d) => dropMemo(d, { taskId: t.id }));
         setEvents((c) => {
           const cur = c[t.id];
           if (!cur) return c;
@@ -474,7 +487,7 @@ export default function RoomPage() {
         const l = ev.payload as unknown as Lane;
         if (l.session_id !== roomId) return;
         setLanes((cur) => (cur.some((x) => x.id === l.id) ? cur.map((x) => (x.id === l.id ? { ...x, ...l } : x)) : [...cur, l]));
-        if (l.status !== "running") setDeltas((d) => { if (!(l.agent_id in d)) return d; const n = { ...d }; delete n[l.agent_id]; return n; });
+        if (l.status !== "running") setMemos((d) => dropMemo(d, { agentId: l.agent_id }));
         refreshRoom();
         break;
       }
@@ -571,8 +584,8 @@ export default function RoomPage() {
         break;
       }
       case "message.delta": {
-        const p = ev.payload as { agent_id: string; text: string };
-        setDeltas((d) => (d[p.agent_id] === p.text ? d : { ...d, [p.agent_id]: p.text }));
+        const p = ev.payload as { agent_id: string; task_id?: string | null; text: string };
+        setMemos((d) => applyDelta(d, p));
         break;
       }
       default:
@@ -588,7 +601,13 @@ export default function RoomPage() {
     if (!end) return;
     end.style.scrollMarginBottom = `${composerRef.current?.offsetHeight ?? 0}px`;
     end.scrollIntoView({ block: "end" });
-  }, [messages.length, deltas, around]);
+  }, [messages.length, memos, around]);
+  // 말풍선 → 메시지 교체의 높이 유지는 한 프레임만.
+  useEffect(() => {
+    if (Object.keys(held).length === 0) return;
+    const f = requestAnimationFrame(() => setHeld({}));
+    return () => cancelAnimationFrame(f);
+  }, [held]);
   // 앵커(`?around_message_id=`) — 그 메시지를 가운데에.
   useEffect(() => {
     if (!around || !msgLoaded) return;
@@ -768,7 +787,6 @@ export default function RoomPage() {
   const archived = room.status === "archived";
   const newWorkWhy = archived ? ROOM_HEAD.archived : null;
   const onlineComputers = runtimes?.filter((r) => r.status === "online").length ?? null;
-  const typingAgents = Object.entries(typing).filter(([, v]) => v).map(([id]) => agentById.get(id)?.name ?? "agent");
   const showLabels = sel.kind === "all";
   // 칸이 없으면(undefined) 라벨을 그리지 않는다 — 「미션 없음」이라고 단정할 근거가 없다(matchesSel 과 같은 규칙).
   const labelFor = (workId: string | null | undefined) => (workId ? ROOM_LEFT.work_label(workTitle(workId)) : ROOM_LEFT.no_work_label);
@@ -824,10 +842,41 @@ export default function RoomPage() {
   };
   const toggleFold = (id: string, layer: "detail" | "process", open: boolean) => setFolds((cur) => ({ ...cur, [id]: { ...cur[id], [layer]: !open } }));
   const artsByMsg = artifactsByMessage([...messages, ...Object.values(replies).flat()], artifacts);
-  // 메시지별 「작업 과정」 조각(T-FEED A) — 한 턴의 기록을 그 턴이 올린 메시지 경계로 자른다. 도는 턴의 꼬리는 「작업 중」 줄(B)로.
-  // 「작업 중」 줄 — 보이는 서브 미션(미션 칩 거름)의 도는 턴, 에이전트마다 하나. 메시지가 아직 없는 턴이면 턴 전체가 꼬리다.
+  // 메시지별 「작업 과정」 조각(T-FEED A) — 한 턴의 기록을 그 턴이 올린 메시지 경계로 자른다. 도는 턴의 꼬리는 「작업 중」 말풍선으로.
+  // 메시지가 아직 없는 턴이면 턴 전체가 꼬리다.
   const working = workingTasks(shownLanes, events);
   const slices: Map<string, ProcessSlices> = roomProcessSlices(events, [...messages, ...Object.values(replies).flat()], new Set(working.map((w) => w.taskId)));
+  // 「작업 중」 말풍선(SCREEN §4.6 v0.19.10) — 보이는 서브 미션(미션 칩 거름)의 도는 턴, 에이전트마다 하나. 턴 기록을 아직 못 읽었어도
+  // 진행 메모가 흐르고 있으면(같은 task 가 보이는 줄기의 현재 할 일) 말풍선을 먼저 세운다 — 요약은 「불러오는 중…」.
+  const bubbles: { agentId: string; taskId: string | null; at: string }[] = working.map((w) => ({
+    ...w,
+    at: shownLanes.find((l) => l.current_task?.id === w.taskId)?.current_task?.started_at ?? "",
+  }));
+  for (const [agentId, m] of Object.entries(memos)) {
+    if (bubbles.some((b) => b.agentId === agentId)) continue;
+    const lane = shownLanes.find((l) => l.agent_id === agentId && l.status === "running" && (m.taskId == null || l.current_task?.id === m.taskId));
+    if (!lane && !(m.taskId == null && sel.kind === "all")) continue;
+    const t = lane?.current_task;
+    if (t && events[t.id] && !isTaskLive(events[t.id]!.events, { taskStatus: (events[t.id]!.task ?? t).status, attempt: (events[t.id]!.task ?? t).attempt })) continue;
+    bubbles.push({ agentId, taskId: m.taskId ?? t?.id ?? null, at: t?.started_at ?? "" });
+  }
+  // 순서는 턴 시작 시각.
+  bubbles.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  // 게시되면 말풍선은 **그 자리에서** 메시지로 바뀐다 — 게시 뒤 새 작업(꼬리 기록)도 새 진행 메모도 아직 없으면 말풍선을 그리지 않는다.
+  // 턴이 이어져 무언가 하면 그 메시지 아래에 다시 선다.
+  const visibleBubbles = bubbles.filter(({ agentId, taskId }) => {
+    const sl = taskId ? slices.get(taskId) : undefined;
+    if (!sl?.tail || !taskId) return true;
+    const tailIdle = summarizeProcess(events[taskId], sl.tail).state === "waiting";
+    const m = memos[agentId];
+    return !(tailIdle && memoSegments(m && (m.taskId == null || m.taskId === taskId) ? m : undefined).length === 0);
+  });
+  const bubbleAgents = new Set(bubbles.map((b) => b.agentId));
+  const memoFor = (agentId: string, taskId: string | null) => {
+    const m = memos[agentId];
+    return m && (m.taskId == null || taskId == null || m.taskId === taskId) ? m : undefined;
+  };
+  const typingAgents = Object.entries(typing).filter(([id, v]) => v && !bubbleAgents.has(id)).map(([id]) => agentById.get(id)?.name ?? "agent");
   const sliceOf = (m: Message): ProcessWindow | undefined => (m.source_task_id ? slices.get(m.source_task_id)?.byMessage.get(m.id) : undefined);
   /** 메시지(스레드 답글 포함) → 대화 층의 글 + 그 아래 줄들. 세 층이 아닌 메시지는 undefined(본문 그대로). */
   const layersFor = (m: Message, o: { asAnswer: boolean }): MessageLayerSlots | undefined => {
@@ -1136,7 +1185,7 @@ export default function RoomPage() {
               const hasWork = !!m.work_id;
               const toWorkWhy = hasWork ? ROOM_CENTER.has_work(workTitle(m.work_id)) : archived ? ROOM_HEAD.archived : null;
               return (
-                <div key={m.id}>
+                <div key={m.id} style={held[m.id] ? { minHeight: held[m.id] } : undefined} data-held={held[m.id] ? "true" : undefined}>
                   {pickButton(m)}
                   <MessageCard
                     message={m}
@@ -1161,30 +1210,29 @@ export default function RoomPage() {
                 </div>
               );
             })}
-            {Object.entries(deltas).map(([agentId, text]) => (
-              <article key={agentId} className="msg" data-testid="message-delta">
-                <div className="msg__head">
-                  <span className="msg__author msg__author--agent">{agentById.get(agentId)?.name ?? "agent"}</span>
-                  <span className="msg__meta">{ROOM_CENTER.writing}</span>
-                </div>
-                <MessageBody content={text} typing />
-              </article>
-            ))}
-            {working.map(({ taskId, agentId }) => {
-              const tail = slices.get(taskId)?.tail ?? null;
-              const key = `working:${taskId}`;
+            {visibleBubbles.map(({ agentId, taskId }) => {
+              const tail = taskId ? slices.get(taskId)?.tail ?? null : null;
+              const key = `working:${agentId}`;
               const open = folds[key]?.process ?? false;
+              const memo = memoFor(agentId, taskId);
               return (
-                <WorkingRow
-                  key={taskId}
+                <WorkingBubble
+                  key={agentId}
+                  agentId={agentId}
                   taskId={taskId}
                   agentName={agentById.get(agentId)?.name ?? "agent"}
-                  summary={summarizeProcess(events[taskId], tail)}
+                  summary={taskId ? summarizeProcess(events[taskId], tail) : null}
+                  memoLine={lastSentence(memo)}
+                  memoParas={memoSegments(memo)}
                   open={open}
                   onToggle={() => toggleFold(key, "process", open)}
+                  holdRef={(el) => {
+                    if (el) bubbleHeights.current[agentId] = el.getBoundingClientRect().height;
+                    else delete bubbleHeights.current[agentId];
+                  }}
                 >
-                  <TaskActivity taskId={taskId} cache={events} load={loadEvents} slice={tail} />
-                </WorkingRow>
+                  {taskId ? <TaskActivity taskId={taskId} cache={events} load={loadEvents} slice={tail} /> : null}
+                </WorkingBubble>
               );
             })}
             {typingAgents.length > 0 && (

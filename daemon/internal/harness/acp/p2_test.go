@@ -226,3 +226,47 @@ func TestFailureKindRetryabilityIsReportedPrecisely(t *testing.T) {
 		})
 	}
 }
+
+// SCREEN §4.6 v0.19.10 「작업 중」 말풍선 — text the agent writes between tool
+// calls is a progress note; the turn text puts one blank line at each tool-call
+// boundary so the screen can split paragraphs ("a" · tool · "b" → "a\n\nb").
+// Chunks with no tool between them join as-is, nothing goes before the first
+// text, and a text already ending in a newline is not doubled.
+func TestSayOpensAParagraphAtEachToolBoundary(t *testing.T) {
+	tool := func(id string) acpfake.Step {
+		return acpfake.Step{ToolCall: &acpfake.ToolCallStep{ID: id, Title: "ls", Kind: "execute"}}
+	}
+	done := func(id string) acpfake.Step {
+		return acpfake.Step{ToolUpdate: &acpfake.ToolUpdateStep{ID: id, Status: "completed"}}
+	}
+	cases := []struct {
+		name  string
+		steps []acpfake.Step
+		want  string
+	}{
+		{"chunk tool chunk", []acpfake.Step{{Chunk: "a"}, tool("t1"), done("t1"), {Chunk: "b"}}, "a\n\nb"},
+		{"consecutive chunks join", []acpfake.Step{{Chunk: "a"}, {Chunk: "b"}, tool("t1"), done("t1"), {Chunk: "c"}, {Chunk: "d"}}, "ab\n\ncd"},
+		{"already ends in newline", []acpfake.Step{{Chunk: "a\n"}, tool("t1"), done("t1"), {Chunk: "b"}}, "a\n\nb"},
+		{"already ends in blank line", []acpfake.Step{{Chunk: "a\n\n"}, tool("t1"), done("t1"), {Chunk: "b"}}, "a\n\nb"},
+		{"tool before first text", []acpfake.Step{tool("t1"), done("t1"), {Chunk: "a"}}, "a"},
+		{"two tools one boundary", []acpfake.Step{{Chunk: "a"}, tool("t1"), done("t1"), tool("t2"), done("t2"), {Chunk: "b"}}, "a\n\nb"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			script := acpfake.Script{Turns: []acpfake.Turn{{Steps: tc.steps}}}
+			f := newFixture(t, script, bundle(contracts.RuntimeClaudeCode), nil)
+			res := f.run()
+			if res.Outcome != "completed" {
+				t.Fatalf("result %+v", res)
+			}
+			if res.Text != tc.want {
+				t.Fatalf("turn text %q want %q", res.Text, tc.want)
+			}
+			f.sink.mu.Lock()
+			defer f.sink.mu.Unlock()
+			if n := len(f.sink.previews); n == 0 || f.sink.previews[n-1] != tc.want {
+				t.Fatalf("previews %q want last %q", f.sink.previews, tc.want)
+			}
+		})
+	}
+}
