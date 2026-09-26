@@ -498,6 +498,7 @@ export interface paths {
          * workdir 목록(S13)
          * @description 권한: 워크스페이스 멤버.
          *     종류 · 소유(에이전트 또는 lane) · 경로·브랜치 · 용량 · 마지막 사용 · 보존 만료 · 상태. 상단 사용률은 `quota`로 계산한다(FR-6.4).
+         *     v0.3.4(미션 폴더, daemon-protocol v0.10.0 §6.1): 행마다 `work_id`·`work`(현재 미션 이름)·`role` 을 실어 S13 이 방 → 미션 → 에이전트 트리로 묶는다. `work_id` 로 좁히면 미션 닫기 확인의 「작업 폴더 N개(〈용량〉)」 를 센다 — 그때 `disk_bytes_total` 도 그 미션 행들의 합이다.
          */
         get: operations["listRuntimeWorkdirs"];
         put?: never;
@@ -2825,12 +2826,29 @@ export interface components {
             session?: components["schemas"]["SessionRef"];
             /**
              * Format: uuid
-             * @description worktree — 에이전트당 1개.
+             * @description v0.3.4 — 이 폴더가 속한 미션(daemon-protocol v0.10.0 §6.1 `rooms/<room>/<mission>/`). null = 미션 밖 `_room` 폴더 · `worktree` 체크아웃(방×에이전트) · 옛 배치(`sessions/…`·`worktrees/…`) 행. 미션이 지워지면 null 로 남는다.
+             */
+            work_id?: string | null;
+            /** @description v0.3.4 — `work_id` 의 **현재** 제목. 경로는 만들 때의 이름으로 고정되므로(이름을 바꿔도 폴더는 옮기지 않는다) 화면은 경로 대신 이것을 굵게 보여 준다. `work_id` 가 null 이면 null. */
+            work?: {
+                /** Format: uuid */
+                id: string;
+                title: string;
+            } | null;
+            /**
+             * @description v0.3.4 — `agent` = 에이전트의 작업 폴더(cwd) · `shared` = 미션 공용 `_shared`(그 미션 참여 에이전트 전부 읽기·쓰기; `agent_id`·`lane_id` 는 null). 옛 서버 응답에 없으면 `agent`.
+             * @default agent
+             * @enum {string}
+             */
+            role?: "agent" | "shared";
+            /**
+             * Format: uuid
+             * @description worktree: 방×에이전트 1개 · dir: 미션×에이전트 1개(미션 밖이면 방×에이전트 `_room`) · `role=shared` 행이면 null. (v0.3.3 까지: worktree — 에이전트당 1개.)
              */
             agent_id?: string | null;
             /**
              * Format: uuid
-             * @description container · none — lane당 1개.
+             * @description 진단용 — 이 행을 처음 만든 lane. v0.3.4 부터 dir 은 더 이상 lane 당이 아니다(같은 미션·같은 에이전트의 lane 이 한 행을 함께 쓴다). 옛 배치 `sessions/<room>/<lane>` 행에서는 그 lane. `role=shared` 행이면 null.
              */
             lane_id?: string | null;
             kind: components["schemas"]["WorkdirKind"];
@@ -5562,6 +5580,8 @@ export interface operations {
             query?: {
                 status?: components["schemas"]["WorkdirStatus"];
                 session_id?: string;
+                /** @description v0.3.4 — 이 미션의 행만(에이전트 행과 `_shared` 행). 미션 밖 `_room` 행·`worktree` 체크아웃·옛 배치 행은 `work_id` 가 없어 걸리지 않는다. */
+                work_id?: string;
                 /** @description 이전 응답의 `next_cursor`. 불투명 문자열. */
                 cursor?: components["parameters"]["Cursor"];
                 limit?: components["parameters"]["Limit"];

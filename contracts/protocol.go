@@ -211,12 +211,18 @@ type BundleProfile struct {
 
 type BundleWorkdir struct {
 	// ID — 서버 workdir 행의 uuid(daemon-protocol v0.8.3 §4.1, K-14). §6 보고 행이 그대로 회신한다. 옛 서버는 비운다.
-	ID       string `json:"id,omitempty"`
-	Kind     string `json:"kind"` // worktree | dir
-	Path     string `json:"path,omitempty"`
-	RepoPath string `json:"repo_path,omitempty"`
-	Branch   string `json:"branch,omitempty"`
-	Reuse    bool   `json:"reuse"`
+	// v0.10.0 부터 서버는 모든 kind 에서 ID 를 첫 attempt 부터 채운다(dir 포함); 빈 값은 옛 서버뿐이다.
+	ID   string `json:"id,omitempty"`
+	Kind string `json:"kind"` // worktree | dir
+	// Path — 서버가 짓는 절대 경로(daemon-protocol v0.10.0 §6.1, 모든 kind). 빈 값은 옛 서버 번들뿐이고
+	// 그때 dir 은 데몬의 옛 workdir.Path(<root>/sessions/<room>/<lane>)로 짓는다.
+	Path string `json:"path,omitempty"`
+	// SharedPath — 미션 공용 `_shared` 의 절대 경로(daemon-protocol v0.10.0 §4.1). 미션에 매인 턴에만;
+	// 데몬은 mkdir -p 만 하고 내용은 건드리지 않는다.
+	SharedPath string `json:"shared_path,omitempty"`
+	RepoPath   string `json:"repo_path,omitempty"`
+	Branch     string `json:"branch,omitempty"`
+	Reuse      bool   `json:"reuse"`
 }
 
 type BundleBrief struct {
