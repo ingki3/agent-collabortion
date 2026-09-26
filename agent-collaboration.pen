@@ -30453,7 +30453,7 @@
       "name": "S7-CD 방 화면 · 대화 배치 · 다크 · 좁은 화면 (v0.19.4)",
       "clip": true,
       "width": 420,
-      "height": 1000,
+      "height": 1200,
       "fill": "#0F0F11",
       "layout": "vertical",
       "children": [
@@ -31741,6 +31741,484 @@
               "name": "Grow",
               "width": "fill_container",
               "height": "fill_container"
+            },
+            {
+              "type": "text",
+              "id": "kB3Pf",
+              "name": "Annotation v0.19.10 작업 중 말풍선",
+              "fill": "#71717A",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "v0.19.10 — 작업 중 말풍선: 게시되면 이 자리에서 메시지로 바뀐다 · 받는 쪽(→) 없음",
+              "fontFamily": "$font",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "FAI7U",
+              "name": "Working bubble @Lead · 다크 (v0.19.10) — 접힘",
+              "width": "fill_container",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "JLbnV",
+                  "name": "Avatar",
+                  "width": 28,
+                  "height": 28,
+                  "fill": "#1E3A5F",
+                  "cornerRadius": 14,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "ZKlwu",
+                      "name": "T",
+                      "fill": "#93C5FD",
+                      "content": "L",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "700"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "ALtev",
+                  "name": "Col",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "b6x40u",
+                      "name": "Head (받는 쪽 → 없음)",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "W4sio9",
+                          "name": "Who",
+                          "fill": "#F4F4F5",
+                          "content": "@Lead",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "GLe9D",
+                          "name": "Badge 작업 중",
+                          "fill": "#1E2A44",
+                          "cornerRadius": 999,
+                          "stroke": "#3B5E8C",
+                          "strokeWidth": 1,
+                          "gap": 3,
+                          "padding": [
+                            2,
+                            7
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "qgwhl",
+                              "name": "L",
+                              "fill": "#93C5FD",
+                              "content": "작업 중",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "WPDIZ",
+                          "name": "Summary",
+                          "fill": "#A6A6AE",
+                          "content": "12분 · 셸 명령 36회 · 파일 읽기 5회",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "ZmnzK",
+                          "name": "Fail tail",
+                          "fill": "#FCA5A5",
+                          "content": "· 실패 2",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "ixcKy",
+                          "name": "Spacer",
+                          "width": "fill_container",
+                          "height": 1
+                        },
+                        {
+                          "type": "text",
+                          "id": "WHq96",
+                          "name": "Dots ··· (aria-hidden, 1.2s 흐려짐)",
+                          "fill": "#A6A6AE",
+                          "content": "···",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "BeGXO",
+                      "name": "Bubble (점선 — 배경 없음)",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF00",
+                      "cornerRadius": [
+                        4,
+                        12,
+                        12,
+                        12
+                      ],
+                      "stroke": "#2E2E33",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 6,
+                      "padding": [
+                        8,
+                        12
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "bBYCE",
+                          "name": "Memo line (마지막 문장 — 좁은 화면에선 말줄임)",
+                          "fill": "#A6A6AE",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "┆ 밸런스 하네스 자체가 편향돼 있었습니다 — 4명 승률 25% 씩으로 맞췄습니다.",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "yAkWN",
+                          "name": "Fold 진행 메모 (접힘)",
+                          "width": "fill_container",
+                          "fill": "#0F0F11",
+                          "cornerRadius": 6,
+                          "stroke": "#2E2E33",
+                          "strokeWidth": 1,
+                          "gap": 6,
+                          "padding": [
+                            5,
+                            8
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "FZA1Q",
+                              "name": "T",
+                              "fill": "#71717A",
+                              "content": "▸",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "R7msp",
+                              "name": "T",
+                              "fill": "#A6A6AE",
+                              "content": "진행 메모 전체 보기",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "ly7g9",
+              "name": "Working bubble @Developer · 다크 (v0.19.10) — 펼침",
+              "width": "fill_container",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "kF17Z",
+                  "name": "Avatar",
+                  "width": 28,
+                  "height": 28,
+                  "fill": "#1E3A5F",
+                  "cornerRadius": 14,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "LrqtB",
+                      "name": "T",
+                      "fill": "#93C5FD",
+                      "content": "D",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "700"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "tmhXV",
+                  "name": "Col",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "FHLfa",
+                      "name": "Head (받는 쪽 → 없음)",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "rxzwB",
+                          "name": "Who",
+                          "fill": "#F4F4F5",
+                          "content": "@Developer",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "x4Qnj",
+                          "name": "Badge 작업 중",
+                          "fill": "#1E2A44",
+                          "cornerRadius": 999,
+                          "stroke": "#3B5E8C",
+                          "strokeWidth": 1,
+                          "gap": 3,
+                          "padding": [
+                            2,
+                            7
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "dn7TM",
+                              "name": "L",
+                              "fill": "#93C5FD",
+                              "content": "작업 중",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "d4Zul",
+                          "name": "Summary",
+                          "fill": "#A6A6AE",
+                          "content": "4분 · 파일 편집 3회 · 셸 명령 6회",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "SIO3r",
+                          "name": "Spacer",
+                          "width": "fill_container",
+                          "height": 1
+                        },
+                        {
+                          "type": "text",
+                          "id": "XKtxJ",
+                          "name": "Dots ··· (aria-hidden, 1.2s 흐려짐)",
+                          "fill": "#A6A6AE",
+                          "content": "···",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "f4tdC",
+                      "name": "Bubble (점선 — 배경 없음)",
+                      "width": "fill_container",
+                      "fill": "#FFFFFF00",
+                      "cornerRadius": [
+                        4,
+                        12,
+                        12,
+                        12
+                      ],
+                      "stroke": "#2E2E33",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 6,
+                      "padding": [
+                        8,
+                        12
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "KAqyv",
+                          "name": "Fold 진행 메모 (펼침)",
+                          "width": "fill_container",
+                          "fill": "#0F0F11",
+                          "cornerRadius": 6,
+                          "stroke": "#2E2E33",
+                          "strokeWidth": 1,
+                          "gap": 6,
+                          "padding": [
+                            5,
+                            8
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "F8NUxn",
+                              "name": "T",
+                              "fill": "#71717A",
+                              "content": "▾",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "mL82d",
+                              "name": "T",
+                              "fill": "#A6A6AE",
+                              "content": "진행 메모 전체 보기",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "zjV38",
+                          "name": "Expanded 진행 메모 (조각마다 한 문단 → 활동 피드)",
+                          "width": "fill_container",
+                          "stroke": "#2E2E33",
+                          "strokeWidth": {
+                            "left": 1
+                          },
+                          "layout": "vertical",
+                          "gap": 6,
+                          "padding": [
+                            2,
+                            0,
+                            2,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "m0Xtp",
+                              "name": "Memo 조각 1",
+                              "fill": "#A6A6AE",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "BGM v2 를 16분음표 격자로 다시 짜고 있습니다.",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "RlZCC",
+                              "name": "Memo 조각 2",
+                              "fill": "#A6A6AE",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "테스트 28항목을 돌려 보겠습니다.",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "fcmlw",
+                              "name": "Activity feed (꼬리 조각)",
+                              "width": "fill_container",
+                              "fill": "#18181B",
+                              "cornerRadius": 4,
+                              "gap": 4,
+                              "padding": [
+                                4,
+                                8
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "WRFDQ",
+                                  "name": "Kind",
+                                  "fill": "#A6A6AE",
+                                  "content": "셸 명령",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "bnQ8j",
+                                  "name": "Cmd",
+                                  "fill": "#71717A",
+                                  "content": "· node test/headless.js ·",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "fSpG3",
+                                  "name": "Result",
+                                  "fill": "#86EFAC",
+                                  "content": "성공",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
             },
             {
               "type": "frame",
@@ -35053,7 +35531,7 @@
       "name": "S7-C 방 화면 · 대화 배치 (v0.19.4)",
       "clip": true,
       "width": 1440,
-      "height": 900,
+      "height": 1200,
       "fill": "$bg",
       "children": [
         {
@@ -37096,72 +37574,478 @@
                       "height": "fill_container"
                     },
                     {
-                      "type": "frame",
-                      "id": "Cajgg",
-                      "name": "Working row @Lead 작업 중 (v0.19.6) — 턴 진행 중에만, 끝나면 사라지고 마지막 메시지 작업 과정으로",
+                      "type": "text",
+                      "id": "g9obkD",
+                      "name": "Annotation v0.19.10 작업 중 말풍선",
+                      "fill": "$ink-3",
+                      "textGrowth": "fixed-width",
                       "width": "fill_container",
-                      "fill": "$surface",
-                      "cornerRadius": 8,
-                      "stroke": "$line",
-                      "strokeWidth": 1,
+                      "content": "v0.19.10 — 작업 중 말풍선: 게시되면 이 자리에서 메시지로 바뀐다 · 받는 쪽(→) 없음",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "OC4Aw",
+                      "name": "Working bubble @Lead (v0.19.10) — 접힘 · 점선 1px $line · 배경 없음",
+                      "width": "fill_container",
                       "gap": 8,
-                      "padding": [
-                        8,
-                        12
-                      ],
-                      "alignItems": "center",
                       "children": [
                         {
-                          "type": "text",
-                          "id": "cNdDE",
-                          "name": "Dot",
-                          "fill": "$s-run",
-                          "content": "●",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
+                          "type": "frame",
+                          "id": "xujdt",
+                          "name": "Avatar",
+                          "width": 28,
+                          "height": 28,
+                          "fill": "#DBEAFE",
+                          "cornerRadius": 14,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "dMXB4",
+                              "name": "T",
+                              "fill": "$s-run-text",
+                              "content": "L",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            }
+                          ]
                         },
                         {
-                          "type": "text",
-                          "id": "HSNgP",
-                          "name": "Glyph",
-                          "fill": "$ink-3",
-                          "content": "▸",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
+                          "type": "frame",
+                          "id": "TsnCt",
+                          "name": "Col",
+                          "width": 560,
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "YWwXU",
+                              "name": "Head (받는 쪽 → 없음)",
+                              "width": "fill_container",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "VTWar",
+                                  "name": "Who",
+                                  "fill": "$ink",
+                                  "content": "@Lead",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "700"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "G1uXT",
+                                  "name": "Badge 작업 중",
+                                  "fill": "#EFF6FF",
+                                  "cornerRadius": 999,
+                                  "stroke": "#93C5FD",
+                                  "strokeWidth": 1,
+                                  "gap": 3,
+                                  "padding": [
+                                    2,
+                                    7
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "XWZRo",
+                                      "name": "L",
+                                      "fill": "$s-run-text",
+                                      "content": "작업 중",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "Tl9pq",
+                                  "name": "Summary",
+                                  "fill": "$ink-2",
+                                  "content": "12분 · 셸 명령 36회 · 파일 읽기 5회",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "fRPDw",
+                                  "name": "Fail tail",
+                                  "fill": "$s-fail-text",
+                                  "content": "· 실패 2",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "dhqwc",
+                                  "name": "Spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "ZyfoP",
+                                  "name": "Dots ··· (aria-hidden, 1.2s 흐려짐)",
+                                  "fill": "$ink-2",
+                                  "content": "···",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "700"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "XKuGy",
+                              "name": "Bubble (점선 — 배경 없음)",
+                              "width": "fill_container",
+                              "fill": "#FFFFFF00",
+                              "cornerRadius": [
+                                4,
+                                12,
+                                12,
+                                12
+                              ],
+                              "stroke": "$line",
+                              "strokeWidth": 1,
+                              "layout": "vertical",
+                              "gap": 6,
+                              "padding": [
+                                8,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "CSIeA",
+                                  "name": "Memo line (마지막 문장, ink-2, 한 줄 말줄임)",
+                                  "fill": "$ink-2",
+                                  "content": "┆ 밸런스 하네스 자체가 편향돼 있었습니다 — 4명 승률 25% 씩으로 맞췄습니다.",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "B0dBrW",
+                                  "name": "Fold 진행 메모 (접힘)",
+                                  "width": "fill_container",
+                                  "fill": "#FFFFFF",
+                                  "cornerRadius": 6,
+                                  "stroke": "$line",
+                                  "strokeWidth": 1,
+                                  "gap": 6,
+                                  "padding": [
+                                    5,
+                                    8
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "t2qlUn",
+                                      "name": "T",
+                                      "fill": "$ink-3",
+                                      "content": "▸",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "YICvz",
+                                      "name": "T",
+                                      "fill": "$ink-2",
+                                      "content": "진행 메모 전체 보기",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "mZuNM",
+                      "name": "Working bubble @Developer (v0.19.10) — 펼침 · 동시에 작업 중인 두 번째 에이전트",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "bT4IH",
+                          "name": "Avatar",
+                          "width": 28,
+                          "height": 28,
+                          "fill": "#DBEAFE",
+                          "cornerRadius": 14,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "aWgVc",
+                              "name": "T",
+                              "fill": "$s-run-text",
+                              "content": "D",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            }
+                          ]
                         },
                         {
-                          "type": "text",
-                          "id": "eV324",
-                          "name": "Who",
-                          "fill": "$ink",
-                          "content": "@Lead",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "600"
-                        },
-                        {
-                          "type": "text",
-                          "id": "GCEg3",
-                          "name": "Label",
-                          "fill": "$s-run-text",
-                          "content": "작업 중",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "600"
-                        },
-                        {
-                          "type": "text",
-                          "id": "hyTH4",
-                          "name": "Summary",
-                          "fill": "$ink-2",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "셸 명령 12회 · 파일 3개 편집 · 17분",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
+                          "type": "frame",
+                          "id": "A8xfwH",
+                          "name": "Col",
+                          "width": 560,
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "rTRB0",
+                              "name": "Head (받는 쪽 → 없음)",
+                              "width": "fill_container",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "F4KICR",
+                                  "name": "Who",
+                                  "fill": "$ink",
+                                  "content": "@Developer",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "700"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "eSg49",
+                                  "name": "Badge 작업 중",
+                                  "fill": "#EFF6FF",
+                                  "cornerRadius": 999,
+                                  "stroke": "#93C5FD",
+                                  "strokeWidth": 1,
+                                  "gap": 3,
+                                  "padding": [
+                                    2,
+                                    7
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "JUSb0",
+                                      "name": "L",
+                                      "fill": "$s-run-text",
+                                      "content": "작업 중",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "A5ytva",
+                                  "name": "Summary",
+                                  "fill": "$ink-2",
+                                  "content": "4분 · 파일 편집 3회 · 셸 명령 6회",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "MU0kN",
+                                  "name": "Spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "h89a4",
+                                  "name": "Dots ··· (aria-hidden, 1.2s 흐려짐)",
+                                  "fill": "$ink-2",
+                                  "content": "···",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "700"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "H1s9kw",
+                              "name": "Bubble (점선 — 배경 없음)",
+                              "width": "fill_container",
+                              "fill": "#FFFFFF00",
+                              "cornerRadius": [
+                                4,
+                                12,
+                                12,
+                                12
+                              ],
+                              "stroke": "$line",
+                              "strokeWidth": 1,
+                              "layout": "vertical",
+                              "gap": 6,
+                              "padding": [
+                                8,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "w7dl3K",
+                                  "name": "Fold 진행 메모 (펼침)",
+                                  "width": "fill_container",
+                                  "fill": "#FFFFFF",
+                                  "cornerRadius": 6,
+                                  "stroke": "$line",
+                                  "strokeWidth": 1,
+                                  "gap": 6,
+                                  "padding": [
+                                    5,
+                                    8
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "d3TpPk",
+                                      "name": "T",
+                                      "fill": "$ink-3",
+                                      "content": "▾",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "s96YWj",
+                                      "name": "T",
+                                      "fill": "$ink-2",
+                                      "content": "진행 메모 전체 보기",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "b7QCH",
+                                  "name": "Expanded 진행 메모 (조각마다 한 문단 → 활동 피드)",
+                                  "width": "fill_container",
+                                  "stroke": "$line",
+                                  "strokeWidth": {
+                                    "left": 1
+                                  },
+                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "padding": [
+                                    2,
+                                    0,
+                                    2,
+                                    10
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "i2U1v",
+                                      "name": "Memo 조각 1",
+                                      "fill": "$ink-2",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "BGM v2 를 16분음표 격자로 다시 짜고 있습니다.",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "CQ0yK",
+                                      "name": "Memo 조각 2",
+                                      "fill": "$ink-2",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "테스트 28항목을 돌려 보겠습니다.",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "Xmdlr",
+                                      "name": "Activity feed (꼬리 조각)",
+                                      "width": "fill_container",
+                                      "fill": "$bg",
+                                      "cornerRadius": 4,
+                                      "gap": 4,
+                                      "padding": [
+                                        4,
+                                        8
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "xTc1x",
+                                          "name": "Kind",
+                                          "fill": "$ink-2",
+                                          "content": "셸 명령",
+                                          "fontFamily": "$font",
+                                          "fontSize": 11,
+                                          "fontWeight": "600"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "BhEy6",
+                                          "name": "Cmd",
+                                          "fill": "$ink-3",
+                                          "content": "· node test/headless.js ·",
+                                          "fontFamily": "$font",
+                                          "fontSize": 11,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "RH5DC",
+                                          "name": "Result",
+                                          "fill": "$s-done-text",
+                                          "content": "성공",
+                                          "fontFamily": "$font",
+                                          "fontSize": 11,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
                         }
                       ]
                     },
