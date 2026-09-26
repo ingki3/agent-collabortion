@@ -309,7 +309,7 @@ type Usage struct {
 	CacheWriteTokens int64      `json:"cache_write_tokens,omitempty"`
 	CostUSD          float64    `json:"cost_usd"`
 	Estimated        bool       `json:"estimated"`
-	Model            string     `json:"model,omitempty"`      // _meta.quota.model_usage[].model (spike 1b E1)
+	Model            string     `json:"model,omitempty"`      // finish: _meta.quota.model_usage[].model (spike 1b E1); heartbeat: main-stream message_start.model (T-COSTMODEL)
 	RateLimit        *RateLimit `json:"rate_limit,omitempty"` // usage_update._meta["_claude/rateLimit"] (spike 1b E5)
 }
 
