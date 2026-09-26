@@ -58,6 +58,23 @@ const (
 // pathSlugMax is §6.1's 40 runes.
 const pathSlugMax = 40
 
+// RoomFolderSQL is the SQL shape of a §6.1 `_room` folder —
+// `rooms/<room>/_room/<agent>`, the folder of an agent's turns OUTSIDE any
+// mission. `w` is the `workdir` row.
+//
+// Lead 판정 2026-09-26 (PR #345 리뷰 345a NN3): GC judges a folder by the
+// ROW's `work_id`, not by the mission its lanes happen to hold. A `_room` row
+// is made with `work_id` NULL and keeps it, so when its lane is later bound to
+// a mission (a mission message reaching a lane that started outside one, the
+// lane reuse of D6 — which is NOT restricted, so a running lane's cwd and its
+// runtime resume never move) the folder still follows the `_room` rule:
+// `last_used_at + workdir_retention_days`, never the mission's close.
+//
+// The shape is the discriminator because `work_id IS NULL` alone also covers
+// the OLD layout (`sessions/<room>/<lane>`), which keeps its close-time rule
+// (D6 A). `_` is a LIKE wildcard, so this is a regex match.
+const RoomFolderSQL = `(w.kind <> 'worktree' AND w.path_or_ref ~ '/` + RoomsDir + `/[^/]+/` + OutsideDir + `/[^/]+/?$')`
+
 // PathSlug is §6.1's path slug — Hangul (and every other letter) is kept, so
 // a person reading `ls` recognises the room. NFC → lower case → letters
 // (\p{L}), digits (\p{N}) and `_` stay, every other run becomes one `-` → trim

@@ -18,6 +18,7 @@ package httpapi
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -144,3 +145,95 @@ func TestFoldersE1308RenderLayerAfterIsolationSwitch(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// 리뷰 345a NN3 (Lead 판정 2026-09-26): GC judges a folder by the ROW's
+// `work_id`, not by the mission its lanes hold. The shape that used to break
+// it, through ordinary use:
+//
+//  1. a mission-less turn gives the agent `_room/<agent>` (row work_id NULL),
+//  2. a MISSION message reaches that same lane — resolveLaneFor reuses a lane
+//     with work_id NULL and bindLaneWork binds it, so task and lane now hold
+//     the mission while the row does not (LaneRow reuse is deliberately NOT
+//     restricted: a running lane's cwd and its runtime resume must not move,
+//     D6),
+//  3. the mission closes.
+//
+// The `_room` folder must survive the close and go on its own clock
+// (last_used_at + workdir_retention_days). The bundle keeps naming the `_room`
+// path as `you:` and the mission's `_shared` as `shared:`.
+func TestFoldersRoomFolderKeepsRetentionAfterLaneJoinsMission(t *testing.T) {
+	f := newP2Fixture(t)
+	ctx := t.Context()
+	// The fixture's room has a legacy mission that would absorb a
+	// mission-less post; drop it so step 1 really is outside every mission.
+	if _, err := f.pool.Exec(ctx, `UPDATE room SET legacy_work_id = NULL WHERE id = $1`, f.sessionID); err != nil {
+		t.Fatal(err)
+	}
+	outside := f.claimBundle(t, outsideMissionTask(t, f, f.rUUID, "R"))
+	if !strings.Contains(outside.Workdir.Path, "/_room/") || outside.Workdir.SharedPath != "" {
+		t.Fatalf("step 1 is not a `_room` folder: %+v", outside.Workdir)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE task SET status = 'completed' WHERE id = $1`, outside.Task.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Step 2 — a mission message on the same lane.
+	inMission := f.claimBundle(t, f.mentionTask(t, f.rUUID, "R", f.missionID))
+	if inMission.Task.LaneID != outside.Task.LaneID || inMission.Workdir.ID != outside.Workdir.ID {
+		t.Fatalf("step 2 did not reuse the lane's row: lane %s→%s row %s→%s",
+			outside.Task.LaneID, inMission.Task.LaneID, outside.Workdir.ID, inMission.Workdir.ID)
+	}
+	if inMission.Workdir.Path != outside.Workdir.Path || inMission.Workdir.SharedPath == "" {
+		t.Fatalf("the reused turn should keep the `_room` path and gain the mission's _shared: %+v", inMission.Workdir)
+	}
+	folders := between2(inMission.Prompt, "<folders>", "</folders>")
+	if !strings.Contains(folders, "you: "+outside.Workdir.Path+"  ") || !strings.Contains(folders, "shared: "+inMission.Workdir.SharedPath+"  ") {
+		t.Errorf("<folders> should say you: the `_room` path and shared: the mission's _shared:\n%s", folders)
+	}
+	// The row still has no mission; its lane now has one.
+	var rowWork, laneWork *uuid.UUID
+	if err := f.pool.QueryRow(ctx, `SELECT w.work_id, l.work_id FROM workdir w, lane l
+		WHERE w.id = $1 AND l.id = $2`, mustUUID(t, inMission.Workdir.ID), mustUUID(t, inMission.Task.LaneID)).Scan(&rowWork, &laneWork); err != nil {
+		t.Fatal(err)
+	}
+	if rowWork != nil || laneWork == nil {
+		t.Fatalf("setup: row work_id = %v (want none), lane work_id = %v (want the mission)", rowWork, laneWork)
+	}
+	// Step 3 — the mission closes. The `_room` folder is not collected.
+	if _, err := f.pool.Exec(ctx, `UPDATE task SET status = 'completed' WHERE id = $1`, inMission.Task.ID); err != nil {
+		t.Fatal(err)
+	}
+	gcFor := func(id string) (n int) {
+		_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM daemon_command WHERE type = 'gc' AND consumed_at IS NULL
+			AND payload::text LIKE '%' || $1 || '%'`, id).Scan(&n)
+		return
+	}
+	f.api.must(200, "POST", f.p+"/works/"+f.missionID+"/complete", map[string]any{"confirm": true})
+	if n := gcFor(outside.Workdir.ID); n != 0 {
+		t.Fatalf("closing the mission issued %d gc for the `_room` folder — its row has no mission (NN3)", n)
+	}
+	if _, err := f.srv.Workdirs.SweepGC(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := gcFor(outside.Workdir.ID); n != 0 {
+		t.Fatalf("the sweep collected the `_room` folder right after the close (%d) — it keeps last_used_at + retention", n)
+	}
+	// One day short of the retention: still kept.
+	f.fake.Advance(13 * 24 * time.Hour)
+	if _, err := f.pool.Exec(ctx, `UPDATE workdir SET last_used_at = $2 WHERE id = $1`, mustUUID(t, outside.Workdir.ID), t0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.srv.Workdirs.SweepGC(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := gcFor(outside.Workdir.ID); n != 0 {
+		t.Fatalf("collected at 13 days with a 14-day retention (%d)", n)
+	}
+	// Past it: collected once.
+	f.fake.Advance(2 * 24 * time.Hour)
+	if _, err := f.srv.Workdirs.SweepGC(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := gcFor(outside.Workdir.ID); n != 1 {
+		t.Fatalf("gc for the `_room` folder after retention = %d, want 1", n)
+	}
+}

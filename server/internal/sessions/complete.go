@@ -503,7 +503,15 @@ func (s *Service) gcWorkdirs(ctx context.Context, tx pgx.Tx, sessionID, workID u
 // that mission — in another mission still open, or outside any mission —
 // points at it. A directory no lane points at was the session's (1:1 rooms)
 // and goes with it as before.
-const missionDirSQL = `w.work_id IS NULL AND NOT EXISTS (
+//
+// A §6.1 `_room` folder is never one of them (Lead 판정 2026-09-26, 리뷰 345a
+// NN3): its row is made with `work_id` NULL and keeps it, and a lane that
+// started outside a mission and was later bound to one (D6 lane reuse, which
+// stays unrestricted so a running lane's cwd does not move) would otherwise
+// make its `_room` folder look like this mission's — the close would delete
+// the folder the agent's other mission-less turns use. The row's own
+// `work_id` decides, so `_room` keeps the retention rule (workdirs.SweepGC).
+var missionDirSQL = `w.work_id IS NULL AND NOT ` + workdirs.RoomFolderSQL + ` AND NOT EXISTS (
 	SELECT 1 FROM lane l LEFT JOIN work lw ON lw.id = l.work_id
 	 WHERE (l.workdir_id = w.id OR l.id = w.lane_id)
 	   AND l.work_id IS DISTINCT FROM $2

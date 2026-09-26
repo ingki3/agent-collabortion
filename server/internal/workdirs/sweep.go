@@ -62,7 +62,10 @@ const liveLaneSQL = `EXISTS (SELECT 1 FROM lane l WHERE l.workdir_id = w.id
 // disposableNow is FR-6.4 v0.19's clock for a `container`·`none` directory
 // (one lane each): it goes the moment the mission its lane is tied to CLOSES,
 // and a lane outside any mission keeps it for `workdir_retention_days` after
-// its last use. A lane that is done while its mission is still open keeps its
+// its last use. `outsideMission` is the ROW's own answer (RoomFolderSQL: a
+// `_room` folder is outside every mission whatever its lanes later hold —
+// Lead 판정, 리뷰 345a NN3), so binding a lane to a mission cannot turn its
+// `_room` folder into something the mission's close deletes. A lane that is done while its mission is still open keeps its
 // folder — the mission can send the agent back into it (lane rule 3 re-entry),
 // and deleting it under an open mission is what R1a's "no live lane" gate did.
 //
@@ -167,7 +170,8 @@ func (s *Service) SweepGC(ctx context.Context) (SweepResult, error) {
 		                  AND w.id::text = ANY(gc_command_workdir_ids(c.payload))),
 		       EXISTS (SELECT 1 FROM lane l JOIN work lw ON lw.id = l.work_id
 		                WHERE l.workdir_id = w.id AND lw.status NOT IN ('completed', 'cancelled')),
-		       EXISTS (SELECT 1 FROM lane l WHERE l.workdir_id = w.id AND l.work_id IS NULL),
+		       EXISTS (SELECT 1 FROM lane l WHERE l.workdir_id = w.id AND l.work_id IS NULL)
+		         OR `+RoomFolderSQL+`,
 		       w.work_id IS NOT NULL,
 		       EXISTS (SELECT 1 FROM work mw WHERE mw.id = w.work_id AND mw.status NOT IN ('completed', 'cancelled'))
 		FROM workdir w
