@@ -1,6 +1,7 @@
 "use client";
 /**
  * S7 상단 — 방 머리(SCREEN §4.6 상단). 방 이름·설명 · **세 층 요약**(수마다 라벨) · 「나에게 필요한 것 N」(중복 없이, 0 이면 없음) ·
+ * 방 이름은 권한자에게 그 자리 편집(`InlineTitleEdit`, §4.6 v0.19.5 — ✎ 는 권한자에게만 보인다).
  * 방 층 액션(참여자 · 방 설정 · **「이 방 멈춤」은 메뉴 밖 액션 줄에 직접** · `⋯` 안에 여기까지 정리·맥락 오간 기록·보관·삭제·나가기).
  * 미션 층 동작(일시정지·종료·Director 교체…)은 여기 없다 — 우열 미션 칸으로 내려갔다(§4.6 상단 액션 표).
  * 권한 없는 버튼은 숨기지 않고 비활성 + 버튼 아래 글자 사유(`DisabledHint`).
@@ -11,6 +12,7 @@ import "./room-card.css";
 import "./session-card-menu.css";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { DisabledHint } from "./PageHead";
+import { InlineTitleEdit } from "./InlineTitleEdit";
 import { Slot, slotText } from "./Slot";
 import { useCardMenu } from "./useCardMenu";
 import { layerCounts } from "@/lib/room-view";
@@ -36,6 +38,8 @@ export interface RoomHeadProps {
   onArchive: () => void;
   onUnarchive: () => void;
   onDelete: () => void;
+  /** 방 이름 바꾸기(FR-2.1.2) — `updateRoom {name}`. 없으면 이름은 읽기 전용이다. 실패는 throw. */
+  onRename?: (name: string) => Promise<unknown>;
   /** 멈추면 중단될 진행 중 턴 · 멈추는 열린 미션 수(확인 문장의 슬롯). */
   runningTurns: number;
   openWorks: number;
@@ -97,7 +101,8 @@ export function RoomHead(props: RoomHeadProps) {
       <div className="row" style={{ gap: 10, flexWrap: "wrap", alignItems: "flex-start" }}>
         <div className="room-head__title">
           <Link href="/rooms" className="small muted-3">← {ROOM_HEAD.back}</Link>
-          <h1 style={{ margin: 0, fontSize: "var(--fs-title)" }} data-testid="room-title">{room.name}</h1>
+          {/* 방 이름 그 자리 편집(§4.6 v0.19.5) — 권한자만 ✎, 아니면 그냥 글자. 판정은 서버의 my_capabilities(configure). */}
+          <InlineTitleEdit as="h1" className="room-head__name" value={room.name} canEdit={caps.has("configure") && !!props.onRename} onSave={(n) => props.onRename!(n)} testId="room-title" />
           {room.description && <p className="muted small" style={{ margin: 0 }} data-testid="room-description">{room.description}</p>}
         </div>
         {/* 세 층 요약 — 수마다 라벨(스크린리더가 한 덩어리로 읽지 않게). 0 인 층은 생략, 미션은 「미션 없음」. */}

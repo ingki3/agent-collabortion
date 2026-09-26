@@ -94,8 +94,12 @@ func (s *Server) SweepHitlDeadlines(ctx context.Context) (int, error) {
 				d.question+" → "+p.Answer, "기한 만료로 에이전트 제안대로 진행", "hitl", &d.id, true, now, d.work); err != nil {
 				return err
 			}
-			_, err := tx.Exec(ctx, `UPDATE inbox_item SET read_at = COALESCE(read_at, $2) WHERE ref_id = $1`, d.id, now)
-			return err
+			if _, err := tx.Exec(ctx, `UPDATE inbox_item SET read_at = COALESCE(read_at, $2) WHERE ref_id = $1`, d.id, now); err != nil {
+				return err
+			}
+			// T-APPROVAL: 「자동 응답됨」 reaches the open card live.
+			s.publishHitlVia(ctx, tx, uuid.Nil, d.session, d.id, "hitl.updated")
+			return nil
 		})
 		if err != nil {
 			return n, err

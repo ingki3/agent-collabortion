@@ -157,6 +157,24 @@ func Josa(word, with, without string) string {
 	return word + with
 }
 
+// JosaRo appends 「으로」/「로」 to `word`: 「로」 after a vowel or a ㄹ 받침
+// (「서울로」), 「으로」 after any other 받침. A word that does not end in
+// Hangul gets 「(으)로」 — the form PRD FR-2.1.2 writes the sentence in.
+func JosaRo(word string) string {
+	r := []rune(word)
+	if len(r) == 0 {
+		return word + "(으)로"
+	}
+	last := r[len(r)-1]
+	if last < 0xAC00 || last > 0xD7A3 {
+		return word + "(으)로"
+	}
+	if jong := (last - 0xAC00) % 28; jong == 0 || jong == 8 {
+		return word + "로"
+	}
+	return word + "으로"
+}
+
 // StatusLabel is a session or lane status enum in the words of the badges the
 // screens draw (web/lib/session-label.ts · components/LaneCard.tsx), for the
 // "(현재 상태: …)" tail of a 409. An enum value this table does not know is

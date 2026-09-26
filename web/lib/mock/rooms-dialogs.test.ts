@@ -141,6 +141,34 @@ describe("S20 방 설정 — updateRoom 전체 칸 · 방장 넘기기 · 부방
     expect([...store().messages.values()].some((m) => m.content === "데모" + RW.sys_settings)).toBe(true);
   });
 
+  it("방 이름·설명(FR-2.1.2) — 앞뒤 공백을 떼고 · 바뀐 경우에만 「… 방 이름을 〈옛〉에서 〈새〉(으)로 바꿨습니다.」·「… 방 설명을 바꿨습니다.」(speech=system) · 같으면 아무것도 없다", async () => {
+    const r = await newRoom();
+    const sys = () => [...store().messages.values()].filter((m) => m.session_id === r.id && m.author_type === "system").map((m) => `${m.speech}|${m.content}`);
+    const before = sys().length;
+    const out = await must<Room>("PATCH", `/rooms/${r.id}`, { name: "  결제·정산팀 " });
+    expect(out.name).toBe("결제·정산팀");
+    expect(sys().slice(before)).toEqual([`system|데모${RW.sys_renamed_mid}${r.name}${RW.sys_renamed_from}결제·정산팀으로${RW.sys_renamed_tail}`]);
+    expect(sys().at(-1)).toBe(`system|데모 님이 방 이름을 ${r.name}에서 결제·정산팀으로 바꿨습니다.`);
+    await must("PATCH", `/rooms/${r.id}`, { name: "결제·정산팀 ", description: r.description ?? "" });
+    expect(sys()).toHaveLength(before + 1); // 바뀌지 않았으면 남기지 않는다
+    await must("PATCH", `/rooms/${r.id}`, { name: "리서치" });
+    expect(sys().at(-1)).toBe("system|데모 님이 방 이름을 결제·정산팀에서 리서치로 바꿨습니다.");
+    await must("PATCH", `/rooms/${r.id}`, { description: "  결제 흐름 개편 " });
+    expect(sys().at(-1)).toBe("system|데모" + RW.sys_description);
+    expect((await must<Room>("GET", `/rooms/${r.id}`)).description).toBe("결제 흐름 개편");
+    expect(sys().some((m) => m.endsWith(RW.sys_settings))).toBe(false); // 이름·설명은 「방 설정」 한 줄이 아니다
+  });
+
+  it("방 이름 검증 — 공백만 422 · 뗀 뒤 200자 통과 · 201자 422 · 설명은 뗀 뒤 500자", async () => {
+    const r = await newRoom();
+    for (const bad of ["   ", "가".repeat(201)]) {
+      const res = await call("PATCH", `/rooms/${r.id}`, { name: bad });
+      expect([res.status, prob(res).errors]).toEqual([422, [{ field: "name", code: "length", message: W.room_name_1_200 }]]);
+    }
+    expect((await call("PATCH", `/rooms/${r.id}`, { name: ` ${"나".repeat(200)} ` })).status).toBe(200);
+    expect((await call("PATCH", `/rooms/${r.id}`, { description: ` ${"다".repeat(500)} ` })).status).toBe(200);
+  });
+
   it("검증 422 — 감독 모드 · 워크트리 저장소 없음 · 컨테이너 · 상한 1 미만(서버 필드 경로·문장)", async () => {
     const r = await newRoom();
     const res = await call("PATCH", `/rooms/${r.id}`, { autonomy: "supervised", isolation: { kind: "worktree" }, limits: { max_concurrent_works: 0 } });

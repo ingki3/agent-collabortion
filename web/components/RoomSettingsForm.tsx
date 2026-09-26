@@ -3,6 +3,8 @@
  * S20 방 설정(`/rooms/:id/settings`) — SCREEN v0.19.2 §4.11, T-R2-W3. **여기가 방의 유일한 안전망이다** — 기본값이 워크스페이스에서
  * 상속되므로 사람이 한 번도 안 보면 모든 방이 같은 값으로 돈다(FR-2.1).
  *
+ * 맨 위 「이름·설명」(v0.19.5, PRD FR-2.1.2) — 두 칸 + 「저장」(바뀐 칸이 없으면 비활성, 바뀐 칸만 보낸다). 판정·문장은 S7 머리·S5 카드와 같은
+ * `InlineTitleEdit` 의 것(`roomNameProblem` · `renameErrorText`)을 쓴다.
  * 묶음 여덟(공개 범위 · 컴퓨터·격리 · 한도 · 자율성 · 기본 Director · 방장·부방장 · 참고 방 링크 · 보관·삭제). **각 묶음에 바꿨을 때의 영향을
  * 한 줄로** 적는다. 값 저장은 묶음마다(즉시 반영, `updateRoom` 부분 PATCH).
  *   - 공개 범위를 `invited` 로 바꾸면 「지금 이 방을 보는 사람 중 초대되지 않은 N명이 더는 볼 수 없게 됩니다」(수는 슬롯).
@@ -19,6 +21,7 @@ import Link from "next/link";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { DisabledHint } from "./PageHead";
 import { ArchiveRoomDialog, DeleteRoomDialog } from "./RoomDialogs";
+import { renameErrorText, roomNameProblem } from "./InlineTitleEdit";
 import { Slot } from "./Slot";
 import { useRoomEvents } from "./RoomDialogShell";
 import { api, errorMessage, isApiError } from "@/lib/api/client";
@@ -27,7 +30,7 @@ import {
   AUTONOMY_TEXT, COMMON, losingViewers, personName, runtimePinned, SETTINGS, settingsGates, TRANSFER_DIALOG,
   type RoomLink, type RoomParticipant,
 } from "@/lib/room-dialogs";
-import { deleteRoomGate } from "@/lib/wording";
+import { deleteRoomGate, ROOM_RENAME } from "@/lib/wording";
 import type { AutonomyLevel, Member, Room, RoomUpdate, Runtime } from "@/lib/api/types";
 import "./room-dialogs.css";
 
@@ -37,7 +40,7 @@ export interface RoomSettingsFormProps {
   onDeleted?: (room: { id: string; name: string }) => void;
 }
 
-type GroupKey = "visibility" | "runtime" | "limits" | "autonomy" | "director" | "deputy";
+type GroupKey = "name" | "visibility" | "runtime" | "limits" | "autonomy" | "director" | "deputy";
 const SETTINGS_EVENTS = ["room.updated", "room_link.updated", "participant.joined", "participant.left"] as const;
 
 export function RoomSettingsForm({ roomId, onDeleted }: RoomSettingsFormProps) {
@@ -59,6 +62,8 @@ export function RoomSettingsForm({ roomId, onDeleted }: RoomSettingsFormProps) {
   const base = useId();
 
   // 편집 중인 값(묶음마다). 방을 다시 받으면 저장하지 않은 편집은 버린다 — 다른 사람이 바꾼 값 위에 옛 편집을 덮지 않게.
+  const [nameDraft, setNameDraft] = useState("");
+  const [descDraft, setDescDraft] = useState("");
   const [vis, setVis] = useState<Room["visibility"]>("workspace");
   const [runtimeId, setRuntimeId] = useState<string>("");
   const [isoKind, setIsoKind] = useState<"none" | "worktree">("none");
@@ -73,6 +78,8 @@ export function RoomSettingsForm({ roomId, onDeleted }: RoomSettingsFormProps) {
 
   const adopt = useCallback((r: Room) => {
     setRoom(r);
+    setNameDraft(r.name);
+    setDescDraft(r.description ?? "");
     setVis(r.visibility);
     setRuntimeId(r.runtime_id ?? "");
     setIsoKind(r.isolation?.kind === "worktree" ? "worktree" : "none");
@@ -170,6 +177,30 @@ export function RoomSettingsForm({ roomId, onDeleted }: RoomSettingsFormProps) {
     }
   }
 
+  // 이름·설명 — 바뀐 칸만 보낸다(서버도 바뀐 칸에만 시스템 메시지를 남긴다). 판정은 앞뒤 공백을 뗀 값.
+  const namePatch: RoomUpdate = {};
+  if (nameDraft.trim() !== room.name) namePatch.name = nameDraft.trim();
+  if (descDraft.trim() !== (room.description ?? "")) namePatch.description = descDraft.trim();
+  const nameProblem = roomNameProblem(nameDraft);
+  const descTooLong = [...descDraft.trim()].length > 500;
+  async function saveName() {
+    setSaving("name");
+    setSaved(null);
+    setGroupError(null);
+    try {
+      adopt(await api.patch("/rooms/{roomId}", { path: { roomId }, body: namePatch }));
+      setSaved("name");
+    } catch (e) {
+      const fields: Record<string, string> = {};
+      if (isApiError(e)) for (const x of e.problem.errors ?? []) fields[x.field] = x.message;
+      setGroupError({ group: "name", text: renameErrorText(e), fields });
+    } finally {
+      setSaving(null);
+    }
+  }
+  const nameHelp = `${base}-name-help`;
+  const descHelp = `${base}-desc-help`;
+
   const num = (s: string) => (s.trim() === "" ? null : Number(s));
   const fieldErr = (group: GroupKey, field: string) => (groupError?.group === group ? groupError.fields[field] : undefined);
   const saveProps = { canEdit, roHint, saving, saved, groupError };
@@ -183,6 +214,42 @@ export function RoomSettingsForm({ roomId, onDeleted }: RoomSettingsFormProps) {
         {!canEdit && <DisabledHint id={roHint}>{SETTINGS.read_only}</DisabledHint>}
         {room.status === "archived" && <p className="notice notice--info" data-testid="rd-settings-archived">{SETTINGS.lifecycle.archived_now}</p>}
       </div>
+
+      <Group base={base} id="name" title={ROOM_RENAME.group_title} impact={ROOM_RENAME.group_impact}>
+        <div className="rd-fields">
+          <label className="rd-field">
+            <span className="rd-field__label">{ROOM_RENAME.input_label}</span>
+            <input
+              className="input"
+              value={nameDraft}
+              disabled={!canEdit}
+              onChange={(e) => setNameDraft(e.target.value)}
+              aria-invalid={!!nameProblem || !!fieldErr("name", "name") || undefined}
+              aria-describedby={nameHelp}
+              data-testid="rd-settings-name"
+            />
+            <span id={nameHelp} className={nameProblem || fieldErr("name", "name") ? "rd-err" : "rd-hint"} data-testid="rd-settings-name-help">
+              {fieldErr("name", "name") ?? nameProblem ?? ROOM_RENAME.help}
+            </span>
+          </label>
+          <label className="rd-field">
+            <span className="rd-field__label">{ROOM_RENAME.description_label}</span>
+            <input
+              className="input"
+              value={descDraft}
+              disabled={!canEdit}
+              onChange={(e) => setDescDraft(e.target.value)}
+              aria-invalid={descTooLong || !!fieldErr("name", "description") || undefined}
+              aria-describedby={descHelp}
+              data-testid="rd-settings-description"
+            />
+            {(descTooLong || fieldErr("name", "description")) && (
+              <span id={descHelp} className="rd-err">{fieldErr("name", "description") ?? ROOM_RENAME.description_help}</span>
+            )}
+          </label>
+        </div>
+        <SaveRow {...saveProps} group="name" disabled={Object.keys(namePatch).length === 0 || !!nameProblem || descTooLong} onSave={() => void saveName()} />
+      </Group>
 
       <Group base={base} id="visibility" title={SETTINGS.visibility.title} impact={SETTINGS.visibility.impact}>
         {(["workspace", "invited"] as const).map((v) => (

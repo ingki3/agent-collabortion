@@ -19741,6 +19741,63 @@
             },
             {
               "type": "frame",
+              "id": "eIAIA",
+              "name": "Field 예산 상한 (v0.19.7, 접힌 묶음 밖)",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 4,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "Dwrp9",
+                  "name": "Lbl",
+                  "fill": "$ink-2",
+                  "content": "예산 상한(USD, 선택)",
+                  "fontFamily": "$font",
+                  "fontSize": 12,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "frame",
+                  "id": "D7IR9",
+                  "name": "Input",
+                  "width": "fill_container",
+                  "cornerRadius": 6,
+                  "stroke": "$line",
+                  "strokeWidth": 1,
+                  "padding": [
+                    8,
+                    10
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "z5hGAr",
+                      "name": "V",
+                      "fill": "$ink-3",
+                      "content": "$10",
+                      "fontFamily": "$font",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "n7TfZE",
+                  "name": "Hint",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "비우면 워크스페이스 기본 $10 이 걸립니다 · 방 한도 $50 — 방 한도와 미션 한도 중 작은 쪽이 이깁니다.",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
               "id": "JPVaW",
               "name": "Field Director · deputy",
               "width": "fill_container",
@@ -19799,7 +19856,7 @@
             {
               "type": "frame",
               "id": "FuRUj",
-              "name": "Field 예산·시간",
+              "name": "Field 시간",
               "width": "fill_container",
               "layout": "vertical",
               "gap": 4,
@@ -19809,7 +19866,7 @@
                   "id": "nbSXX",
                   "name": "Lbl",
                   "fill": "$ink-2",
-                  "content": "예산·시간",
+                  "content": "시간 상한",
                   "fontFamily": "$font",
                   "fontSize": 12,
                   "fontWeight": "600"
@@ -19832,7 +19889,7 @@
                       "id": "V1DN1B",
                       "name": "V",
                       "fill": "$ink",
-                      "content": "$20 · 4시간",
+                      "content": "4시간",
                       "fontFamily": "$font",
                       "fontSize": 13,
                       "fontWeight": "normal"
@@ -19846,7 +19903,7 @@
                   "fill": "$ink-3",
                   "textGrowth": "fixed-width",
                   "width": "fill_container",
-                  "content": "방 한도 $50 중 이 미션에 $20 — 작은 쪽이 이깁니다",
+                  "content": "방 한도와 미션 한도 중 작은 쪽이 이깁니다",
                   "fontFamily": "$font",
                   "fontSize": 11,
                   "fontWeight": "normal"
@@ -33849,22 +33906,24 @@
                       "id": "LRbNE",
                       "name": "Room section (접힘)",
                       "fill": "$ink",
-                      "content": "방 전체 ▸",
+                      "content": "방 전체 · 아티팩트 7 · 결정 6 · 누적 $12.40 / $50 ▸",
                       "fontFamily": "$font",
                       "fontSize": 12,
-                      "fontWeight": "700"
+                      "fontWeight": "700",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container"
                     },
                     {
                       "type": "text",
                       "id": "JwMr4",
-                      "name": "Room summary",
-                      "fill": "$ink-2",
+                      "name": "Room cost (방 누적 비용)",
+                      "fill": "$ink",
                       "textGrowth": "fixed-width",
                       "width": "fill_container",
-                      "content": "아티팩트 7 · 결정 기록 6 · 누적 $12.40 · 맥락 기록 2",
+                      "content": "방 누적 비용 $12.40 / $50 (25%)",
                       "fontFamily": "$font",
                       "fontSize": 12,
-                      "fontWeight": "normal"
+                      "fontWeight": "600"
                     }
                   ]
                 }
@@ -36375,6 +36434,1353 @@
                       "fontWeight": "normal"
                     }
                   ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "C7usf",
+      "x": 1600,
+      "y": 5700,
+      "name": "S7 비용 줄 · 상한 표시·그 자리 입력 (v0.19.7)",
+      "width": 1440,
+      "fill": "$bg",
+      "layout": "vertical",
+      "gap": 20,
+      "padding": 40,
+      "children": [
+        {
+          "type": "text",
+          "id": "kdwBp",
+          "name": "H",
+          "fill": "$ink",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "content": "S7 우열 비용 줄 — 상한이 없으면 없다고 말하고, 그 자리에서 건다 (v0.19.7 · T-BUDGETCAP · #342)",
+          "fontFamily": "$font",
+          "fontSize": 20,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "ApyjW",
+          "name": "Sub",
+          "fill": "$ink-2",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "content": "S7 방 화면 우열의 (가) 미션 칸 「미션 비용」 줄과 (나) 방 전체 칸 「방 누적 비용」 줄의 상태별 변형. 기본값은 그대로 상한 없음 — 대신 줄이 그 사실을 말하고 「상한 걸기」로 그 자리에서 건다. 바꾸기·없애기는 S20 「한도」·S21 편집.",
+          "fontFamily": "$font",
+          "fontSize": 13,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "frame",
+          "id": "Vk6bW",
+          "name": "Columns",
+          "width": "fill_container",
+          "gap": 24,
+          "children": [
+            {
+              "type": "frame",
+              "id": "b8hpp6",
+              "name": "(가) 미션 칸 · 미션 비용 세 상태",
+              "width": "fill_container",
+              "cornerRadius": 8,
+              "stroke": "$line",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 16,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "YBS5P",
+                  "name": "Section",
+                  "fill": "$ink-3",
+                  "content": "(가) 미션 칸 · 미션 비용",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "J1zRdS",
+                  "name": "Note",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "① 상한 있음",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "e6LWX6",
+                  "name": "Cost",
+                  "fill": "$ink",
+                  "content": "이 미션 $3.20 / $20 (16%)",
+                  "fontFamily": "$font",
+                  "fontSize": 12,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "Y7TM05",
+                  "name": "Note",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "② 상한 없음",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "frame",
+                  "id": "icqg1",
+                  "name": "Cost line",
+                  "width": "fill_container",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Ts0lX",
+                      "name": "Spent",
+                      "fill": "$ink",
+                      "content": "이 미션 $92.77",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "xpCJs",
+                      "name": "Sep",
+                      "fill": "$ink-2",
+                      "content": " · ",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "w3XgM",
+                      "name": "Meta",
+                      "fill": "$ink-2",
+                      "content": "상한 없음",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "KnWKT",
+                      "name": "Sep",
+                      "fill": "$ink-2",
+                      "content": " — ",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "o2aJZ",
+                      "name": "Link 상한 걸기 (밑줄)",
+                      "stroke": "$ink",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "HDXen",
+                          "name": "L",
+                          "fill": "$ink",
+                          "content": "상한 걸기",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "g180Bs",
+                  "name": "Note",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "③ 미션 상한 없음 + 방 상한 있음 (「없음」이라 하면 거짓 — 방 한도를 따른다)",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "frame",
+                  "id": "F20IN",
+                  "name": "Cost line",
+                  "width": "fill_container",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "E68cim",
+                      "name": "Spent",
+                      "fill": "$ink",
+                      "content": "이 미션 $3.20",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "rY4l2",
+                      "name": "Sep",
+                      "fill": "$ink-2",
+                      "content": " · ",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "Z65muu",
+                      "name": "Meta",
+                      "fill": "$ink-2",
+                      "content": "방 상한 $50 을 따릅니다",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "OaLM3",
+                      "name": "Sep",
+                      "fill": "$ink-2",
+                      "content": " — ",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "XMDrK",
+                      "name": "Link 상한 걸기 (밑줄)",
+                      "stroke": "$ink",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "S9Qmjo",
+                          "name": "L",
+                          "fill": "$ink",
+                          "content": "상한 걸기",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "MAOSr",
+                  "name": "Perm",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "「상한 걸기」는 그 미션의 Director 에게만 보입니다(끝난 미션 제외). 그 밖에게는 「상한 없음」 글자만.",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "DSkGc",
+              "name": "(나) 방 전체 칸 · 머리줄·방 누적 비용",
+              "width": "fill_container",
+              "cornerRadius": 8,
+              "stroke": "$line",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 16,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "rfPn2",
+                  "name": "Section",
+                  "fill": "$ink-3",
+                  "content": "(나) 방 전체 칸 · 방 누적 비용",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "yuSSe",
+                  "name": "Note",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "접힌 머리줄 — 상한 있음",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "DLAPG",
+                  "name": "Room head (cap)",
+                  "fill": "$ink",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "방 전체 · 아티팩트 7 · 결정 6 · 누적 $12.40 / $50 ▸",
+                  "fontFamily": "$font",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "XkKxe",
+                  "name": "Note",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "접힌 머리줄 — 상한 없음",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "yZY8v",
+                  "name": "Room head (no cap)",
+                  "fill": "$ink",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "방 전체 · 아티팩트 7 · 결정 6 · 누적 $92.77 · 상한 없음 ▸",
+                  "fontFamily": "$font",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "S7OEt",
+                  "name": "Note",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "방 누적 비용 — 상한 있음",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "KWsfK",
+                  "name": "Lbl",
+                  "fill": "$ink",
+                  "content": "방 누적 비용",
+                  "fontFamily": "$font",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "bwWXL",
+                  "name": "Room cost",
+                  "fill": "$ink",
+                  "content": "$12.40 / $50 (25%)",
+                  "fontFamily": "$font",
+                  "fontSize": 12,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "L5bUbD",
+                  "name": "Note",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "방 누적 비용 — 상한 없음",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "ZrQOD",
+                  "name": "Lbl",
+                  "fill": "$ink",
+                  "content": "방 누적 비용",
+                  "fontFamily": "$font",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "frame",
+                  "id": "JQJnA",
+                  "name": "Room cost line",
+                  "width": "fill_container",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "ek56Q",
+                      "name": "Spent",
+                      "fill": "$ink",
+                      "content": "$92.77",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "hyafP",
+                      "name": "Sep",
+                      "fill": "$ink-2",
+                      "content": " · ",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "msSca",
+                      "name": "Meta",
+                      "fill": "$ink-2",
+                      "content": "상한 없음",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "p9OQZ",
+                      "name": "Sep",
+                      "fill": "$ink-2",
+                      "content": " — ",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "bw7uF",
+                      "name": "Link 상한 걸기 (밑줄)",
+                      "stroke": "$ink",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "Z6Ls3",
+                          "name": "L",
+                          "fill": "$ink",
+                          "content": "상한 걸기",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "MwOGW",
+                  "name": "Not sum",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "미션 비용의 합이 아닙니다 — 미션 밖 대화 비용이 함께 듭니다",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "Ej58V",
+                  "name": "Perm",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "「상한 걸기」는 configure 능력(방장·부방장·ws owner·admin)에게만, 보관된 방 제외.",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "LDLuG",
+              "name": "비용 줄 그 자리 입력 (v0.19.7)",
+              "width": "fill_container",
+              "cornerRadius": 8,
+              "stroke": "$line",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 16,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "N5AB8g",
+                  "name": "Section",
+                  "fill": "$ink-3",
+                  "content": "비용 줄 그 자리 입력 (v0.19.7)",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "br3ql",
+                  "name": "Desc",
+                  "fill": "$ink-2",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "다이얼로그가 아니라 「상한 걸기」를 누른 그 줄 바로 아래에 열립니다. 없는 상한을 거는 입구 — 바꾸기·없애기는 여기서 하지 않습니다.",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "CbKuH",
+                  "name": "Note",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "방 칸 — updateRoom {limits:{budget_usd}}",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "frame",
+                  "id": "ZG47u",
+                  "name": "Room cost line",
+                  "width": "fill_container",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "dnPUP",
+                      "name": "Spent",
+                      "fill": "$ink",
+                      "content": "$92.77",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "CBFSr",
+                      "name": "Sep",
+                      "fill": "$ink-2",
+                      "content": " · ",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "o30EsE",
+                      "name": "Meta",
+                      "fill": "$ink-2",
+                      "content": "상한 없음",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "QyTvD",
+                      "name": "Sep",
+                      "fill": "$ink-2",
+                      "content": " — ",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "X1yKS",
+                      "name": "Link 상한 걸기 (밑줄)",
+                      "stroke": "$ink",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "a6PgK3",
+                          "name": "L",
+                          "fill": "$ink",
+                          "content": "상한 걸기",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "V5pV8",
+                  "name": "Inline cap input",
+                  "width": "fill_container",
+                  "fill": "$surface",
+                  "cornerRadius": 6,
+                  "stroke": "$line",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "gap": 8,
+                  "padding": 10,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "sFaHZ",
+                      "name": "Row",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "ogvrD",
+                          "name": "Lbl",
+                          "fill": "$ink-2",
+                          "content": "예산 상한 (USD)",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "T1I626",
+                          "name": "Input (number, 96px)",
+                          "width": 96,
+                          "fill": "$bg",
+                          "cornerRadius": 6,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "padding": [
+                            6,
+                            8
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "bBFOj",
+                              "name": "V",
+                              "fill": "$ink",
+                              "content": "150",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "wpr7A",
+                      "name": "Buttons",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "w6NbG",
+                          "name": "Btn 걸기 (primary sm)",
+                          "fill": "$ink",
+                          "cornerRadius": 6,
+                          "stroke": "$ink",
+                          "strokeWidth": 1,
+                          "padding": [
+                            6,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "gpakQ",
+                              "name": "L",
+                              "fill": "#FFFFFF",
+                              "content": "걸기",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "a8n1PC",
+                          "name": "Btn 취소 (ghost sm)",
+                          "cornerRadius": 6,
+                          "padding": [
+                            6,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "EJSsv",
+                              "name": "L",
+                              "fill": "$ink-2",
+                              "content": "취소",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "zbDUc",
+                      "name": "Consequence",
+                      "fill": "$ink-3",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "넘으면 이 방 전체가 멈추고 방장에게 계속할지 묻습니다",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "E0xONb",
+                  "name": "Note",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "미션 칸 — updateWork {limits:{budget_usd}}",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "frame",
+                  "id": "z7NoY",
+                  "name": "Cost line",
+                  "width": "fill_container",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "vdWJR",
+                      "name": "Spent",
+                      "fill": "$ink",
+                      "content": "이 미션 $3.20",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "x3gD2",
+                      "name": "Sep",
+                      "fill": "$ink-2",
+                      "content": " · ",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "DqjYJ",
+                      "name": "Meta",
+                      "fill": "$ink-2",
+                      "content": "방 상한 $50 을 따릅니다",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "O5Sk6",
+                      "name": "Sep",
+                      "fill": "$ink-2",
+                      "content": " — ",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "MEqQH",
+                      "name": "Link 상한 걸기 (밑줄)",
+                      "stroke": "$ink",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "hI5wQ",
+                          "name": "L",
+                          "fill": "$ink",
+                          "content": "상한 걸기",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "bhY2O",
+                  "name": "Inline cap input",
+                  "width": "fill_container",
+                  "fill": "$surface",
+                  "cornerRadius": 6,
+                  "stroke": "$line",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "gap": 8,
+                  "padding": 10,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "pa6cm",
+                      "name": "Row",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "oXJuH",
+                          "name": "Lbl",
+                          "fill": "$ink-2",
+                          "content": "예산 상한 (USD)",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Hk18F",
+                          "name": "Input (number, 96px)",
+                          "width": 96,
+                          "fill": "$bg",
+                          "cornerRadius": 6,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "padding": [
+                            6,
+                            8
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "owrp4",
+                              "name": "V",
+                              "fill": "$ink",
+                              "content": "20",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "WzX6T",
+                      "name": "Buttons",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "i0iuc",
+                          "name": "Btn 걸기 (primary sm)",
+                          "fill": "$ink",
+                          "cornerRadius": 6,
+                          "stroke": "$ink",
+                          "strokeWidth": 1,
+                          "padding": [
+                            6,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "QxO3l",
+                              "name": "L",
+                              "fill": "#FFFFFF",
+                              "content": "걸기",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "rvcbW",
+                          "name": "Btn 취소 (ghost sm)",
+                          "cornerRadius": 6,
+                          "padding": [
+                            6,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "CPCA4",
+                              "name": "L",
+                              "fill": "$ink-2",
+                              "content": "취소",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "eCued",
+                      "name": "Consequence",
+                      "fill": "$ink-3",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "넘으면 이 미션만 멈추고 Director 에게 계속할지 묻습니다",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "msttQ",
+                  "name": "Note",
+                  "fill": "$ink-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "오류 — 이미 쓴 돈($92.77) 이하는 거부 (서버 CheckBudgetRaise 와 같은 판정)",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "frame",
+                  "id": "kAEl8",
+                  "name": "Inline cap input",
+                  "width": "fill_container",
+                  "fill": "$surface",
+                  "cornerRadius": 6,
+                  "stroke": "$line",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "gap": 8,
+                  "padding": 10,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "m8D5jq",
+                      "name": "Row",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "z8hKCS",
+                          "name": "Lbl",
+                          "fill": "$ink-2",
+                          "content": "예산 상한 (USD)",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "rID5y",
+                          "name": "Input (number, 96px)",
+                          "width": 96,
+                          "fill": "$bg",
+                          "cornerRadius": 6,
+                          "stroke": "$s-fail-text",
+                          "strokeWidth": 1,
+                          "padding": [
+                            6,
+                            8
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "w4FVPn",
+                              "name": "V",
+                              "fill": "$ink",
+                              "content": "50",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "R6ciQ",
+                      "name": "Error",
+                      "fill": "$s-fail-text",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "이미 쓴 돈보다 큰 금액이어야 합니다",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "aCHpw",
+                      "name": "Buttons",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "am3k5",
+                          "name": "Btn 걸기 (primary sm)",
+                          "opacity": 0.4,
+                          "fill": "$ink",
+                          "cornerRadius": 6,
+                          "stroke": "$ink",
+                          "strokeWidth": 1,
+                          "padding": [
+                            6,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "cTrd5",
+                              "name": "L",
+                              "fill": "#FFFFFF",
+                              "content": "걸기",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "dOghO",
+                          "name": "Btn 취소 (ghost sm)",
+                          "cornerRadius": 6,
+                          "padding": [
+                            6,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "AEEDm",
+                              "name": "L",
+                              "fill": "$ink-2",
+                              "content": "취소",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "gLpxH",
+                      "name": "Consequence",
+                      "fill": "$ink-3",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "넘으면 이 방 전체가 멈추고 방장에게 계속할지 묻습니다",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "XVS6t",
+      "x": 3200,
+      "y": 5400,
+      "name": "S14 예산 탭 · 방 기본값 탭 — 예산 칸 이름 (v0.19.7)",
+      "width": 1020,
+      "fill": "$bg",
+      "layout": "vertical",
+      "gap": 12,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "gS97A",
+          "name": "H",
+          "fill": "$ink",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "content": "S14 설정 — 예산 칸 이름 정리 (v0.19.7 · T-BUDGETCAP · #342)",
+          "fontFamily": "$font",
+          "fontSize": 20,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "CI9XO",
+          "name": "Sub",
+          "fill": "$ink-2",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "content": "S14 프레임은 「루프 상한」 탭만 그려져 있어 두 탭의 예산 행만 여기 둡니다. 기본값은 둘 다 없음(상한 없음) 그대로 — 새로 만드는 것에만 걸립니다.",
+          "fontFamily": "$font",
+          "fontSize": 12,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "text",
+          "id": "Kxx0j",
+          "name": "Tab 예산",
+          "fill": "$ink",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "content": "예산 탭 · 첫 행",
+          "fontFamily": "$font",
+          "fontSize": 15,
+          "fontWeight": "700"
+        },
+        {
+          "type": "frame",
+          "id": "mhUlE",
+          "name": "S 새 미션의 기본 예산 상한",
+          "width": "fill_container",
+          "stroke": "$line",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "gap": 16,
+          "padding": [
+            12,
+            0
+          ],
+          "children": [
+            {
+              "type": "frame",
+              "id": "W256Kf",
+              "name": "L",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 3,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "EFC3r",
+                  "name": "K",
+                  "fill": "$ink",
+                  "content": "새 미션의 기본 예산 상한 (USD, 선택)",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "oNig4",
+                  "name": "Dd",
+                  "fill": "$ink-2",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "budget_policy.default_session_budget_usd — 서버 createWork 가 예산 없이 열린 미션에 채웁니다. 기본 없음.",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "n6N6ga",
+                  "name": "Imp",
+                  "fill": "$s-wait-text",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "영향: 새 미션을 열 때 예산 칸을 비우면 이 값이 걸립니다 — 넘으면 그 미션이 일시정지되고 Director 에게 계속할지 묻습니다. 비우면 상한 없음(방 상한만)",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "FCAqq",
+              "name": "In",
+              "width": 120,
+              "cornerRadius": 6,
+              "stroke": "$line",
+              "strokeWidth": 1,
+              "padding": [
+                7,
+                10
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "iknCf",
+                  "name": "V",
+                  "fill": "$ink",
+                  "content": "10",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "IuIn4",
+              "name": "Beside input",
+              "fill": "$ink-3",
+              "textGrowth": "fixed-width",
+              "width": 200,
+              "content": "새 방의 기본 상한은 「방 기본값」 탭에 있습니다",
+              "fontFamily": "$font",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "I9jUrz",
+          "name": "Tab 방 기본값",
+          "fill": "$ink",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "content": "방 기본값 탭 · 예산 행",
+          "fontFamily": "$font",
+          "fontSize": 15,
+          "fontWeight": "700"
+        },
+        {
+          "type": "frame",
+          "id": "mY4Fg",
+          "name": "S 새 방의 기본 예산 상한",
+          "width": "fill_container",
+          "stroke": "$line",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "gap": 16,
+          "padding": [
+            12,
+            0
+          ],
+          "children": [
+            {
+              "type": "frame",
+              "id": "eFJs7",
+              "name": "L",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 3,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "t10cB",
+                  "name": "K",
+                  "fill": "$ink",
+                  "content": "새 방의 기본 예산 상한 (USD, 선택)",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "nBnhm",
+                  "name": "Dd",
+                  "fill": "$ink-2",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "room_defaults.limits.budget_usd → createRoom 이 상속합니다. 머리: 이 값이 새로 만드는 모든 방의 기본값입니다.",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "XSKGB",
+                  "name": "Imp",
+                  "fill": "$s-wait-text",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "영향: 새로 만드는 방에만 걸립니다(이미 있는 방은 그대로) — 넘으면 그 방 전체가 멈추고 방장에게 계속할지 묻습니다. 비우면 상한 없음",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "jFI2F",
+              "name": "In",
+              "width": 120,
+              "cornerRadius": 6,
+              "stroke": "$line",
+              "strokeWidth": 1,
+              "padding": [
+                7,
+                10
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "fJyEU",
+                  "name": "V",
+                  "fill": "$ink-3",
+                  "content": "상한 없음",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
                 }
               ]
             }

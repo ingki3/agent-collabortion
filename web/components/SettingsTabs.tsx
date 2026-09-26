@@ -150,8 +150,9 @@ export function WorkspaceSettingsTab({ tab, settings, role, onSave, fieldErrors 
 
       {tab === "budget" && (
         <>
-          <SettingRow label="미션 기본 상한 (USD)" defaultValue="없음" impact={IMPACT.default_session_budget_usd} error={err("budget_policy.default_session_budget_usd")} testid="row-session-budget">
-            <input className="input input--num" type="number" min={0} step="0.5" disabled={lock} value={str(draft.budget_policy.default_session_budget_usd)} aria-label="미션 기본 상한" placeholder="없음" onChange={(e) => set((d) => ({ ...d, budget_policy: { ...d.budget_policy, default_session_budget_usd: numOrNull(e.target.value) } }))} />
+          <SettingRow label="새 미션의 기본 예산 상한 (USD, 선택)" defaultValue="없음" impact={IMPACT.default_session_budget_usd} error={err("budget_policy.default_session_budget_usd")} testid="row-session-budget">
+            <input className="input input--num" type="number" min={0} step="0.5" disabled={lock} value={str(draft.budget_policy.default_session_budget_usd)} aria-label="새 미션의 기본 예산 상한" placeholder="없음" onChange={(e) => set((d) => ({ ...d, budget_policy: { ...d.budget_policy, default_session_budget_usd: numOrNull(e.target.value) } }))} />
+            <span className="small muted-3" data-testid="row-session-budget-room-link">새 방의 기본 상한은 「방 기본값」 탭에 있습니다</span>
           </SettingRow>
           <SettingRow label="할 일 하나의 기본 상한 (USD)" defaultValue="없음" impact={IMPACT.default_task_budget_usd} error={err("budget_policy.default_task_budget_usd")} testid="row-task-budget">
             <input className="input input--num" type="number" min={0} step="0.5" disabled={lock} value={str(draft.budget_policy.default_task_budget_usd)} aria-label="할 일 하나의 기본 상한" placeholder="없음" onChange={(e) => set((d) => ({ ...d, budget_policy: { ...d.budget_policy, default_task_budget_usd: numOrNull(e.target.value) } }))} />

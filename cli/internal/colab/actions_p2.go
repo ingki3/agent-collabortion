@@ -14,6 +14,7 @@ import (
 	"mime"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/ingki3/agent-collabortion/cli/internal/client"
@@ -408,6 +409,22 @@ func partContentType(path string) string {
 
 // ───────────────────────────── artifact get ─────────────────────────────
 
+// uuidShape is openapi `format: uuid` — what every artifact id parameter is.
+var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// requireArtifactID refuses a non-uuid artifact argument before any request
+// (T-AGENTFIX B4, Lead 판정 2026-09-25: 이름 풀이는 하지 않는다 — colab-cli
+// §2.1 `artifact get <id>`). 실측: Writer 가 아티팩트 이름을 넣어 서버의 422
+// 「화면을 새로고침」 문장만 받았다. Exit 2 (argument error) with a sentence
+// that says what to put there and where to find it.
+func requireArtifactID(cmd, v string) error {
+	if uuidShape.MatchString(v) {
+		return nil
+	}
+	return client.Usage("%s: 아티팩트 id(uuid)가 필요합니다 — 받은 값: %q. 이름이 아니라 id 입니다. "+
+		"방의 아티팩트 목록은 브리프 [6] Context 의 Artifacts 줄에 id 와 함께 있다(각 줄 끝 `id …`)", cmd, v)
+}
+
 // ArtifactGetArgs — `colab artifact get <id> [--out <path>]`.
 type ArtifactGetArgs struct {
 	Artifact string `json:"artifact"`
@@ -431,6 +448,9 @@ func ArtifactGet(ctx context.Context, c *client.Client, a ArtifactGetArgs) (*Art
 	id := strings.TrimSpace(a.Artifact)
 	if id == "" {
 		return nil, client.Usage("artifact get: <id> is required")
+	}
+	if err := requireArtifactID("artifact get", id); err != nil {
+		return nil, err
 	}
 	if err := c.Allow(ctx, client.CmdArtifactGet); err != nil {
 		return nil, err
@@ -571,6 +591,9 @@ func review(ctx context.Context, c *client.Client, cmd client.Command, a ReviewA
 	id := strings.TrimSpace(a.Artifact)
 	if id == "" {
 		return nil, client.Usage("review %s: --artifact <id> is required (openapi reviewArtifact is POST /artifacts/{id}/review)", verdict)
+	}
+	if err := requireArtifactID("review "+verdict, id); err != nil {
+		return nil, err
 	}
 	if err := c.Allow(ctx, cmd); err != nil {
 		return nil, err

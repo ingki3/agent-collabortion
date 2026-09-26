@@ -85,6 +85,8 @@ export function conditionSentence(names: string[], op: "and" | "or"): string {
 export const PROGRESS = {
   /** "받은 요청에서 승인하세요" — `hitl_request_id` 가 있으면 그 카드로 가는 링크. */
   user_approval_next: "받은 요청에서 승인하세요",
+  /** T-APPROVAL(openapi v0.3.3 `held_reason: running_tasks`) — 나머지 조건은 충족, 진행 중인 작업이 끝나면 서버가 승인을 요청한다. */
+  held_running_tasks: "조건 충족 — 진행 중인 작업이 끝나면 승인을 요청합니다",
   /** "Lead 차례" — `next_actor`(또는 지정 에이전트)가 할 일이 남았다. */
   turn: (actor: string) => `${actor} 차례`,
   manual_next: "Director 가 「종료」 로 끝냅니다",
@@ -403,6 +405,33 @@ export const ROOM_HEAD = {
   skip_to_composer: "작성창으로 건너뛰기",
 } as const;
 
+/**
+ * 방 이름·설명 바꾸기(PRD FR-2.1.2 · SCREEN §4.6 「방 이름 그 자리 편집」 · §4.11 S20 「이름·설명」 · §4.3 S5 카드 「이름 바꾸기」 ·
+ * COMPONENTS §9.9 Inline Title Edit). 세 자리가 같은 말을 쓴다 — 여기 한 곳에서만.
+ */
+export const ROOM_RENAME = {
+  /** ✎ 버튼(`aria-label`) · S5 카드 「…」 항목. */
+  edit: "방 이름 바꾸기",
+  menu_item: "이름 바꾸기",
+  /** 입력 칸 `aria-label`. */
+  input_label: "방 이름",
+  save: "저장",
+  saving: "저장 중…",
+  cancel: "취소",
+  /** 도움말 한 줄 · 비었을 때(저장 비활성). */
+  help: "방 이름은 1~200자입니다",
+  required: "방 이름을 적어 주세요",
+  /** 403 — 서버 문장 대신 누구의 일인지 말한다(§4.6 「저장 중」). */
+  forbidden: "방장·부방장·워크스페이스 관리자만 바꿀 수 있습니다",
+  /** 편집 중에 `room.updated` 로 이름이 바뀌었을 때 — 가운데에 새 이름(슬롯), 조사는 「(으)로」 그대로. */
+  changed_elsewhere: ["다른 사람이 이름을 ", "(으)로 바꿨습니다"] as Slotted,
+  /** S20 맨 위 묶음. */
+  group_title: "이름·설명",
+  group_impact: "이름은 방 목록·받은 요청·참고 방 링크에 바로 반영됩니다. 이전 메시지에 적힌 옛 이름은 그대로 남습니다",
+  description_label: "한 줄 설명 (선택)",
+  description_help: "설명은 500자까지 쓸 수 있습니다",
+} as const;
+
 /** 「이 방 멈춤」 확인(§4.6) — 수는 슬롯. 중단된 서브 미션은 「실패 · 사람이 중단」으로 남는다(내부 키를 문장에 넣지 않는다). */
 export const BLOCK_DIALOG = {
   title: "이 방을 멈출까요?",
@@ -673,6 +702,23 @@ export const ROOM_PANEL = {
 } as const;
 
 /**
+ * 우열 비용 줄의 상한(T-BUDGETCAP, SCREEN §4.6 「비용 줄」) — 상한이 없으면 **없다고 말하고 그 자리에서 걸게** 한다.
+ * 기본값은 바꾸지 않는다(상한 없음). 미션은 자기 상한이 없으면 방 상한을 따른다(계약 WorkLimits).
+ */
+export const BUDGET_CAP = {
+  none: "상한 없음",
+  follows_room: ["방 상한 $", " 을 따릅니다"] as Slotted,
+  set: "상한 걸기",
+  input_label: "예산 상한 (USD)",
+  save: "걸기",
+  cancel: "취소",
+  invalid: "0보다 큰 금액을 적어 주세요",
+  too_low: "이미 쓴 돈보다 큰 금액이어야 합니다",
+  room_note: "넘으면 이 방 전체가 멈추고 방장에게 계속할지 묻습니다",
+  work_note: "넘으면 이 미션만 멈추고 Director 에게 계속할지 묻습니다",
+} as const;
+
+/**
  * 에이전트 메시지 세 층(PRD FR-3.1.2 · SCREEN §4.6 「에이전트 메시지 카드」 · COMPONENTS §9.6 Fold Row · §9.7 View Toggle, v0.19.3).
  * 대화(content)는 늘 보이고, 작업 내용(detail)·작업 과정(활동 피드)은 접힌 줄 하나로 시작한다. 수가 드는 말은 두 토막(Slotted)이다.
  */
@@ -776,6 +822,11 @@ export interface RoomGateMe {
 export function archiveGate(room: { my_room_role: string | null }, me: RoomGateMe): RoomGate {
   if (room.my_room_role === "owner" || room.my_room_role === "deputy" || me.canManage) return { ok: true };
   return { ok: false, reason: ROOM_MENU.archive_role };
+}
+/** 이름 바꾸기 가부 — 방 설정과 같은 사람(서버 `rooms.Decide` ActConfigure: 방장·부방장·ws owner·admin, 보관된 방도). 사유가 없다 — 권한 밖에는 항목이 없다(FR-2.1.2). */
+export function renameGate(room: { my_room_role: string | null }, me: RoomGateMe): RoomGate {
+  if (room.my_room_role === "owner" || room.my_room_role === "deputy" || me.canManage) return { ok: true };
+  return { ok: false, reason: ROOM_RENAME.forbidden };
 }
 /** 삭제 가부 — 진행 중인 미션이 먼저(권한이 있어도 다음 행동은 "먼저 끝내기"), 그다음 방장·ws owner·admin(ActDelete). */
 export function deleteRoomGate(room: { my_room_role: string | null; active_work_count: number }, me: RoomGateMe): RoomGate {

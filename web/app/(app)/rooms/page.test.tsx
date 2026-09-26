@@ -19,9 +19,10 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace }), useSea
 const get = vi.fn();
 const post = vi.fn();
 const del = vi.fn();
+const patch = vi.fn();
 vi.mock("@/lib/api/client", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api/client")>("@/lib/api/client");
-  return { ...actual, api: { ...actual.api, get: (...a: unknown[]) => get(...a), post: (...a: unknown[]) => post(...a), delete: (...a: unknown[]) => del(...a) } };
+  return { ...actual, api: { ...actual.api, get: (...a: unknown[]) => get(...a), post: (...a: unknown[]) => post(...a), delete: (...a: unknown[]) => del(...a), patch: (...a: unknown[]) => patch(...a) } };
 });
 
 const me: Me = {
@@ -59,7 +60,7 @@ let PUBLIC: RoomListItem[];
 let RUNTIMES: { id: string; status: string }[];
 
 beforeEach(() => {
-  [get, post, del, replace, push].forEach((f) => f.mockReset());
+  [get, post, del, patch, replace, push].forEach((f) => f.mockReset());
   canManage = false;
   searchParams = new URLSearchParams();
   streamHandler = null;
@@ -320,5 +321,59 @@ describe("실시간", () => {
     await mount();
     expect(screen.getByTestId("room-deleted-notice")).toHaveTextContent("「결제팀」 방이 삭제되어 목록으로 돌아왔습니다.");
     expect(replace).toHaveBeenCalledWith("/rooms");
+  });
+});
+
+// ── T-RENAME — 카드 「…」 「이름 바꾸기」(SCREEN §4.3 v0.19.5 · PRD FR-2.1.2) ─────────────────────────
+describe("「…」 「이름 바꾸기」 — 카드의 이름 줄이 S7 머리와 같은 편집 칸으로", () => {
+  const open = (id: string) => fireEvent.click(rowOf(id).querySelector('[data-testid="room-menu-button"]')!);
+
+  it("방장·부방장에게만 항목이 있다 — 멤버에게는 항목 자체가 없다(비활성 + 사유도 아니다) · owner·admin 이면 남의 방도", async () => {
+    await mount();
+    open("a");
+    expect(within(rowOf("a")).getByTestId("room-menu-rename")).toHaveTextContent("이름 바꾸기");
+    open("c");
+    expect(within(rowOf("c")).getByTestId("room-menu-rename")).toBeInTheDocument();
+    open("b");
+    expect(within(rowOf("b")).queryByTestId("room-menu-rename")).toBeNull();
+    expect(within(rowOf("b")).getByTestId("room-menu-archive")).toBeInTheDocument();
+    cleanup();
+    canManage = true;
+    await mount();
+    open("b");
+    expect(within(rowOf("b")).getByTestId("room-menu-rename")).toBeInTheDocument();
+  });
+
+  it("누르면 이름 줄이 편집 칸(InlineTitleEdit) — Enter 로 updateRoom {name} · 응답으로 카드 이름이 바뀐다 · 순서는 그대로", async () => {
+    await mount();
+    patch.mockResolvedValueOnce({ id: "a", name: "결제·정산팀", description: "결제 관련 논의와 작업", status: "active", blocked_reason: null });
+    open("a");
+    fireEvent.click(within(rowOf("a")).getByTestId("room-menu-rename"));
+    const input = within(rowOf("a")).getByTestId("room-rename-input") as HTMLInputElement;
+    expect(input).toHaveAttribute("aria-label", "방 이름");
+    expect(input.value).toBe("결제팀");
+    expect(within(rowOf("a")).queryByTestId("room-name")).toBeNull();
+    fireEvent.change(input, { target: { value: " 결제·정산팀 " } });
+    fireEvent.submit(within(rowOf("a")).getByTestId("room-rename-form"));
+    await waitFor(() => expect(within(rowOf("a")).getByTestId("room-name")).toHaveTextContent("결제·정산팀"));
+    expect(patch).toHaveBeenCalledWith("/rooms/{roomId}", { path: { roomId: "a" }, body: { name: "결제·정산팀" } });
+    expect(screen.getAllByTestId("room-row").map((r) => r.getAttribute("data-room-id"))).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("Esc 는 취소 — 요청이 없다 · 이름 줄이 돌아온다", async () => {
+    await mount();
+    open("c");
+    fireEvent.click(within(rowOf("c")).getByTestId("room-menu-rename"));
+    const input = within(rowOf("c")).getByTestId("room-rename-input");
+    fireEvent.change(input, { target: { value: "딴 이름" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(within(rowOf("c")).getByTestId("room-name")).toHaveTextContent("STO 시장 조사");
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("room.updated(name) 로 다른 사람이 바꾼 이름이 카드에 뜬다", async () => {
+    await mount();
+    act(() => streamHandler!({ id: "9", type: "room.updated", at: "", workspace_id: "w1", session_id: "b", ephemeral: false, payload: { id: "b", name: "인프라·배포" } } as StreamEvent));
+    expect(within(rowOf("b")).getByTestId("room-name")).toHaveTextContent("인프라·배포");
   });
 });

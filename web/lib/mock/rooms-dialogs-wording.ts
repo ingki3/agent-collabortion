@@ -54,6 +54,11 @@ export const RD_SERVER = {
   deputy_is_owner: { text: "방장은 부방장을 겸할 수 없습니다", at: "internal/httpapi/handlers_rooms.go" },
   seat_not_participant: { text: "이 방의 참여자에게만 맡길 수 있습니다 — 먼저 방에 초대해 주세요", at: "internal/httpapi/handlers_rooms.go" },
   sys_settings: { text: " 님이 방 설정을 바꿨습니다.", at: "internal/httpapi/handlers_rooms.go" },
+  // FR-2.1.2 — 「〈사람〉 님이 방 이름을 〈옛〉에서 〈새〉(으)로 바꿨습니다.」 조각(조사는 josaRo).
+  sys_renamed_mid: { text: " 님이 방 이름을 ", at: "internal/httpapi/handlers_rooms.go" },
+  sys_renamed_from: { text: "에서 ", at: "internal/httpapi/handlers_rooms.go" },
+  sys_renamed_tail: { text: " 바꿨습니다.", at: "internal/httpapi/handlers_rooms.go" },
+  sys_description: { text: " 님이 방 설명을 바꿨습니다.", at: "internal/httpapi/handlers_rooms.go" },
   sys_vis_invited: { text: " 님이 이 방을 초대된 사람만 볼 수 있게 바꿨습니다.", at: "internal/httpapi/handlers_rooms.go" },
   sys_vis_workspace: { text: " 님이 이 방을 워크스페이스 멤버 모두가 볼 수 있게 바꿨습니다.", at: "internal/httpapi/handlers_rooms.go" },
   sys_owner_mid: { text: " 님이 방장을 ", at: "internal/httpapi/handlers_rooms.go" },

@@ -73,7 +73,7 @@ export const IMPACT = {
   max_pair_roundtrips: "낮추면 정상적인 리뷰 왕복이 막힐 수 있습니다",
   max_concurrent_tasks: "낮추면 그 이상의 할 일은 컴퓨터마다 줄을 서고, 높이면 컴퓨터가 느려질 수 있습니다",
   per_kind: "종류별 상한은 전체 상한 안에서만 적용됩니다 — 비우면 전체 상한을 따릅니다",
-  default_session_budget_usd: "새 미션의 기본 상한입니다 — 넘으면 미션이 일시정지되고 Director 에게 계속할지 묻습니다",
+  default_session_budget_usd: "새 미션을 열 때 예산 칸을 비우면 이 값이 걸립니다 — 넘으면 그 미션이 일시정지되고 Director 에게 계속할지 묻습니다. 비우면 상한 없음(방 상한만)",
   default_task_budget_usd: "할 일 하나의 기본 상한입니다 — 넘으면 그 서브 미션만 멈추고 미션은 계속됩니다",
   // PRD §9 "세션·에이전트·워크스페이스 예산 상한. 초과 시 자동 paused" — 서버가 어느 세션을 멈추는지는 계약이 아직 못박지 않았다.
   workspace_monthly_budget_usd: "이 달 워크스페이스 누적이 넘으면 미션이 자동으로 일시정지됩니다 — Director 가 계속을 승인해야 이어집니다",

@@ -91,17 +91,17 @@ var Tools = []Tool{
 	{
 		Name:        "colab_artifact_get",
 		Description: "Read an artifact's metadata, and with `out` also download its body to that path. This is the ONLY way to read another lane's work — worktree paths are never exposed. Same as `colab artifact get <id> [--out]`.",
-		InputSchema: json.RawMessage(`{"type":"object","required":["artifact"],"properties":{"artifact":{"type":"string","description":"artifact id"},"out":{"type":"string","description":"write the body here (a file path, or an existing directory)"}},"additionalProperties":false}`),
+		InputSchema: json.RawMessage(`{"type":"object","required":["artifact"],"properties":{"artifact":{"type":"string","description":"artifact id (uuid), not its name — each Artifacts line of the brief ends with id <uuid>"},"out":{"type":"string","description":"write the body here (a file path, or an existing directory)"}},"additionalProperties":false}`),
 	},
 	{
 		Name:        "colab_review_approve",
 		Description: "Approve an artifact. This is the input to the `agent_approval` completion condition. If the condition designates a different reviewer the call fails with code `not_reviewer` and nothing is stored. Same as `colab review approve --artifact [--note]`.",
-		InputSchema: json.RawMessage(`{"type":"object","required":["artifact"],"properties":{"artifact":{"type":"string","description":"artifact id"},"note":{"type":"string","description":"comments recorded with the review"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
+		InputSchema: json.RawMessage(`{"type":"object","required":["artifact"],"properties":{"artifact":{"type":"string","description":"artifact id (uuid), not its name — each Artifacts line of the brief ends with id <uuid>"},"note":{"type":"string","description":"comments recorded with the review"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
 	},
 	{
 		Name:        "colab_review_reject",
 		Description: "Reject an artifact. `reason` is required and the server posts it as a reply on the artifact's lane thread, which re-enters the submitting lane, and records a decision. Same as `colab review reject --artifact --reason`.",
-		InputSchema: json.RawMessage(`{"type":"object","required":["artifact","reason"],"properties":{"artifact":{"type":"string","description":"artifact id"},"reason":{"type":"string","minLength":1,"description":"why it is rejected; posted on the artifact thread"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
+		InputSchema: json.RawMessage(`{"type":"object","required":["artifact","reason"],"properties":{"artifact":{"type":"string","description":"artifact id (uuid), not its name — each Artifacts line of the brief ends with id <uuid>"},"reason":{"type":"string","minLength":1,"description":"why it is rejected; posted on the artifact thread"},"idempotency_key":{"type":"string"}},"additionalProperties":false}`),
 	},
 	{
 		Name:        "colab_hitl_ask",

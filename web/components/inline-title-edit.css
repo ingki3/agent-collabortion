@@ -1,0 +1,28 @@
+/* Inline Title Edit (COMPONENTS §9.9) — S7 방 머리 · S5 방 카드가 같이 쓴다. */
+.title-edit { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.title-edit__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.title-edit__text--editable { cursor: text; }
+/* ✎ — hover·focus 때만 보인다(권한자만 그려진다). 키보드로는 Tab 으로 닿고 Enter 로 연다.
+   색은 COMPONENTS §9.9 의 ink-3 대신 ink-2 — §8.5 대비 규칙(fs-sub 이하에 ink-3 금지, app/typography.test.ts)이 이긴다. */
+.title-edit__pencil {
+  border: 0; background: none; padding: 2px 4px; border-radius: 4px; cursor: pointer;
+  color: var(--ink-2); font-size: var(--fs-sub); line-height: 1; opacity: 0;
+}
+.title-edit:hover .title-edit__pencil, .title-edit__pencil:focus-visible { opacity: 1; }
+.title-edit__pencil:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+@media (hover: none) { .title-edit__pencil { opacity: 1; } }
+
+.title-edit--editing { display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: 100%; }
+.title-edit__row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* 입력 칸은 이름과 **같은 글자 크기·굵기**(SCREEN §4.6) — 바깥(.title-edit, 호출부 className)에서 물려받는다.
+   `font: inherit` 단축은 호출부 클래스의 font-size 를 되돌려 16px 로 만든다 — 칸마다 따로 물려받게 둔다. */
+.title-edit__input {
+  flex: 1; min-width: 0; font-family: inherit; font-size: inherit; font-weight: inherit; line-height: inherit;
+  color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; margin: 0;
+}
+.title-edit__input:focus { outline: none; border-color: var(--ink); }
+.title-edit--saving .title-edit__input { opacity: .6; }
+.title-edit--error .title-edit__input { border-color: var(--s-fail); }
+.title-edit__help { font-size: var(--fs-meta); line-height: 1.5; color: var(--ink-2); font-weight: 400; }
+.title-edit__help--error { color: var(--s-fail-text); }

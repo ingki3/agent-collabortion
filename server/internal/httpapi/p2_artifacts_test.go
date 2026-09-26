@@ -527,7 +527,7 @@ func TestSubmitByNonDesignatedAgentStoresButDoesNotSatisfy(t *testing.T) {
 
 	// The designated one submits: now the atom is met, and because the only
 	// thing left is user_approval the platform issues that HITL (E6-01).
-	leadTok, _ := f.agentToken(t, sess, f.leadUUID, "Lead")
+	leadTok, leadTask := f.agentToken(t, sess, f.leadUUID, "Lead")
 	st, out = f.submit(t, sess, leadTok, "main.md", "doc", []byte("본편"))
 	if st != 201 {
 		t.Fatalf("submit = %d: %v", st, out)
@@ -536,6 +536,14 @@ func TestSubmitByNonDesignatedAgentStoresButDoesNotSatisfy(t *testing.T) {
 	if met := int(prog["met"].(float64)); met != 1 {
 		t.Fatalf("met = %d, want 1 (artifact_submitted)", met)
 	}
+	// T-APPROVAL: Lead's turn (and R's) are still live, so the request waits
+	// for them to end — then it is issued.
+	var rTask uuid.UUID
+	if err := f.pool.QueryRow(t.Context(), `SELECT id FROM task WHERE session_id = $1 AND agent_id = $2`, mustUUID(t, sess), f.rUUID).Scan(&rTask); err != nil {
+		t.Fatal(err)
+	}
+	f.endTurn(t, rTask)
+	f.endTurn(t, leadTask)
 	var hitls int
 	if err := f.pool.QueryRow(t.Context(),
 		`SELECT count(*) FROM hitl_request WHERE session_id = $1 AND source = 'system'`, mustUUID(t, sess)).Scan(&hitls); err != nil {

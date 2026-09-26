@@ -18,7 +18,7 @@ import type {
 import type { Session } from "@/lib/legacy-session";
 import type { components } from "@/lib/api/schema";
 import { emit, nextMsgAt, now, participantStatus, store, stripUser, uuid, type MockRoom, type MockWork, type Store } from "./store";
-import { josa, notFound, VALIDATION_DETAIL, W } from "./wording";
+import { josa, josaRo, notFound, VALIDATION_DETAIL, W } from "./wording";
 import { RW } from "./rooms-dialogs-wording";
 import type { Req, Res } from "./handlers";
 
@@ -412,8 +412,10 @@ export function registerRoomDialogs(ctx: RoomDialogsCtx): void {
     const { room, user } = gate(s, req, p.id, "configure");
     const b = body<RoomUpdate>(req);
     const errors: { field: string; code?: string; message: string }[] = [];
-    if (b.name !== undefined && (!b.name.trim() || [...b.name].length > 200)) errors.push({ field: "name", code: "length", message: W.room_name_1_200 });
-    if (b.description !== undefined && [...b.description].length > 500) errors.push({ field: "description", code: "length", message: W.room_description_500 });
+    // FR-2.1.2 — 앞뒤 공백을 뗀 길이로 잰다(서버 UpdateRoom 과 같은 순서).
+    const newName = b.name?.trim(), newDesc = b.description?.trim();
+    if (newName !== undefined && (!newName || [...newName].length > 200)) errors.push({ field: "name", code: "length", message: W.room_name_1_200 });
+    if (newDesc !== undefined && [...newDesc].length > 500) errors.push({ field: "description", code: "length", message: W.room_description_500 });
     if (b.visibility !== undefined && b.visibility !== "workspace" && b.visibility !== "invited") errors.push({ field: "visibility", code: "enum", message: W.room_visibility_enum });
     if (b.autonomy === "supervised") errors.push({ field: "autonomy", code: "unsupported", message: RW.supervised_unsupported });
     if (b.isolation) {
@@ -444,8 +446,12 @@ export function registerRoomDialogs(ctx: RoomDialogsCtx): void {
       room.isolation = { kind: b.isolation.kind, ...(b.isolation.repo_path ? { repo_path: b.isolation.repo_path } : {}) };
       changed.push("isolation");
     }
-    if (b.name !== undefined) (room.name = b.name.trim(), changed.push("name"));
-    if (b.description !== undefined) (room.description = b.description.trim(), changed.push("description"));
+    // 바뀌지 않았으면 저장하지 않는다 — 이름·설명은 「방 설정」 한 줄이 아니라 자기 문장을 남긴다.
+    const oldName = room.name;
+    const renamed = newName !== undefined && newName !== room.name;
+    const redescribed = newDesc !== undefined && newDesc !== room.description;
+    if (renamed) room.name = newName!;
+    if (redescribed) room.description = newDesc!;
     if (b.autonomy) (room.autonomy = b.autonomy, changed.push("autonomy"));
     if ("default_director_user_id" in b) (extraOf(s, room.id).default_director_user_id = b.default_director_user_id ?? null, changed.push("default_director_user_id"));
     if (l) {
@@ -460,9 +466,11 @@ export function registerRoomDialogs(ctx: RoomDialogsCtx): void {
     }
     const visChanged = b.visibility !== undefined && b.visibility !== room.visibility;
     if (visChanged) room.visibility = b.visibility!;
-    if (!changed.length && !visChanged) return ok(roomOut(s, room, user.id));
+    if (!changed.length && !visChanged && !renamed && !redescribed) return ok(roomOut(s, room, user.id));
     room.updated_at = now();
     const who = name(s, user.id);
+    if (renamed) systemPost(s, room, who + RW.sys_renamed_mid + oldName + RW.sys_renamed_from + josaRo(room.name) + RW.sys_renamed_tail);
+    if (redescribed) systemPost(s, room, who + RW.sys_description);
     if (visChanged) systemPost(s, room, who + (room.visibility === "invited" ? RW.sys_vis_invited : RW.sys_vis_workspace));
     if (changed.length) systemPost(s, room, who + RW.sys_settings);
     ctx.emitRoom(s, room);
@@ -603,10 +611,14 @@ export function registerRoomDialogs(ctx: RoomDialogsCtx): void {
     const t = now();
     const u = (id: string | null) => (id && s.users.get(id) ? stripUser(s.users.get(id)!) : undefined);
     const total = atoms(cond).length;
+    // T-BUDGETCAP — 서버 openWork 와 같다: 예산 키를 안 보냈으면 워크스페이스 기본 미션 상한(budget_policy.default_session_budget_usd)을 채운다.
+    // 명시적 null 은 「미션 상한 없음(방을 따름)」이라 그대로 둔다.
+    const wsDefault = s.settings.get(room.workspace_id)?.budget_policy?.default_session_budget_usd ?? null;
+    const limits = b.limits && "budget_usd" in b.limits ? b.limits : wsDefault != null ? { ...(b.limits ?? {}), budget_usd: wsDefault } : (b.limits ?? {});
     const w: Work = {
       id: uuid(), room_id: room.id, title, goal, acceptance_criteria: b.acceptance_criteria ?? [], director_user_id: director, director: u(director),
       deputy_user_id: deputy, ...(deputy ? { deputy: u(deputy) } : {}), assignee_agent_id: assignee, completion_condition: cond,
-      completion_progress: { met: 0, total, satisfied: false, conditions: [] } as Work["completion_progress"], limits: b.limits ?? {}, autonomy: b.autonomy ?? room.autonomy,
+      completion_progress: { met: 0, total, satisfied: false, conditions: [] } as Work["completion_progress"], limits, autonomy: b.autonomy ?? room.autonomy,
       status: b.draft ? "draft" : "active", paused_reason: null, cost_usd: 0, cost_estimated: false, summary_message_id: null,
       opened_from_message_id: b.from_message_id ?? null, my_work_role: director === user.id ? "director" : deputy === user.id ? "deputy" : "member",
       created_by: user.id, created_at: t, updated_at: t, started_at: b.draft ? null : t, finished_at: null, last_activity_at: t,

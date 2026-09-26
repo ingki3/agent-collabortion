@@ -134,7 +134,7 @@ describe("새 문구의 규칙", () => {
   });
 
   it("수는 문장에 보간하지 않는다 — 수가 드는 문장은 두 토막이고 화면은 <Slot> 으로 그린다(COMPONENTS §8.5)", () => {
-    for (const s of [SETTINGS.visibility.losing, READS.scope_recent, CREATE_WORK.limit_reached, CREATE_WORK.limit_cap, CREATE_WORK.budget_room, CREATE_WORK.budget_work]) {
+    for (const s of [SETTINGS.visibility.losing, READS.scope_recent, CREATE_WORK.limit_reached, CREATE_WORK.limit_cap, CREATE_WORK.budget_room, CREATE_WORK.budget_work, CREATE_WORK.budget_room_only, CREATE_WORK.budget_ws_default]) {
       expect(Array.isArray(s)).toBe(true);
       expect(s).toHaveLength(2);
     }

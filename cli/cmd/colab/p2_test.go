@@ -332,6 +332,7 @@ func TestCLIArtifactUsage(t *testing.T) {
 		{"artifact", "get"},
 		{"artifact", "submit", "--file", "/nope"},
 		{"artifact", "get", clienttest.ArtifactID, "extra"},
+		{"artifact", "get", "게임 기획서.md"}, // T-AGENTFIX B4: a name is not an id
 	} {
 		if code, _, _ := exec(t, env, args...); code != client.ExitUsage {
 			t.Fatalf("%v: code = %d, want 2", args, code)

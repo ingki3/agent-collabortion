@@ -28,6 +28,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/install"
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/llm"
+	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/queue"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
 	"github.com/ingki3/agent-collabortion/server/internal/rooms"
@@ -168,6 +169,21 @@ func NewServer(d Deps) *Server {
 		Hub:       hub,
 	}
 	srv.Auth.OnLeave = srv.onMemberLeft
+	// T-APPROVAL: every package that raises a system HITL publishes
+	// `hitl.created` through this builder (messages.AttachHitlCard) — the
+	// contract's HitlRequest is only built here.
+	messages.RegisterHitlPublisher(hub, func(ctx context.Context, q db.DBTX, hitlID uuid.UUID, event string) {
+		srv.publishHitlVia(ctx, q, uuid.Nil, uuid.Nil, hitlID, event)
+	})
+	// T-APPROVAL: a mission whose user_approval request was held while its
+	// work ran gets the request the moment its last task ends. A failure is
+	// logged, not raised — the task's own ending is already committed, and
+	// the scheduler's ReleaseHeldApprovals retries.
+	tsk.AfterSettle = func(ctx context.Context, workID uuid.UUID) {
+		if _, err := srv.Sessions.ReleaseHeldApproval(context.WithoutCancel(ctx), workID); err != nil {
+			d.Log.Warn("release held approval", "err", err, "work", workID)
+		}
+	}
 	return srv
 }
 
@@ -176,8 +192,13 @@ func NewServer(d Deps) *Server {
 func (s *Server) Handler() http.Handler {
 	api := gen.HandlerWithOptions(s, gen.StdHTTPServerOptions{
 		BaseURL: BasePath,
-		ErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
-			writeProblem(w, validationFromBind(err))
+		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			p := validationFromBind(err)
+			if isTaskCaller(r.Context()) {
+				// T-AGENTFIX B5: an agent has no screen to refresh.
+				p = agentBindProblem(r, p, err)
+			}
+			writeProblem(w, p)
 		},
 	})
 	mux := http.NewServeMux()
