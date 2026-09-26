@@ -6616,6 +6616,38 @@
             },
             {
               "type": "text",
+              "id": "AmSsO",
+              "name": "None Variant Label",
+              "fill": "$ink-3",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "격리가 none 인 방이면 위 경고 대신 아래 경고가 보입니다 (v0.19.9 · 미션 폴더)",
+              "fontFamily": "$font",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            },
+            {
+              "id": "JzFX0",
+              "type": "ref",
+              "ref": "zPJly",
+              "name": "Loss Warning (none)",
+              "width": "fill_container",
+              "fill": "#FEE2E2",
+              "stroke": "$s-fail",
+              "descendants": {
+                "v5FTca": {
+                  "content": "⚠ 작업 폴더는 새 컴퓨터로 옮겨지지 않습니다 (격리: none)",
+                  "fill": "$s-fail-text"
+                },
+                "KAlIg": {
+                  "content": "작업 폴더(미션 공용 포함)는 옮겨지지 않습니다. 아티팩트만 새 컴퓨터로 갑니다",
+                  "fontSize": 12,
+                  "fill": "$ink"
+                }
+              }
+            },
+            {
+              "type": "text",
               "id": "l91Ve",
               "name": "Keep",
               "fill": "$ink-3",
@@ -9650,7 +9682,7 @@
       "id": "Z9tFI",
       "x": 4800,
       "y": 4400,
-      "name": "S13 Workdir (v0.19 문구)",
+      "name": "S13 작업 폴더 관리 · 방→미션→에이전트 트리 (v0.19.9)",
       "clip": true,
       "width": 1440,
       "height": 900,
@@ -9678,7 +9710,7 @@
               "id": "h8a9V",
               "name": "Crumb",
               "fill": "$ink-3",
-              "content": "Runtimes / MacBook Pro / Workdir",
+              "content": "연결된 컴퓨터 / MacBook Pro / 작업 폴더",
               "fontFamily": "$font",
               "fontSize": 12,
               "fontWeight": "normal"
@@ -9696,7 +9728,7 @@
                   "id": "fwoeI",
                   "name": "Title",
                   "fill": "$ink",
-                  "content": "Workdir 관리 — MacBook Pro",
+                  "content": "작업 폴더 관리 — MacBook Pro",
                   "fontFamily": "$font",
                   "fontSize": 20,
                   "fontWeight": "700"
@@ -9745,8 +9777,8 @@
             },
             {
               "type": "frame",
-              "id": "uxJ6q",
-              "name": "Table",
+              "id": "bctcH",
+              "name": "Tree",
               "clip": true,
               "width": "fill_container",
               "cornerRadius": 8,
@@ -9756,7 +9788,7 @@
               "children": [
                 {
                   "type": "frame",
-                  "id": "p4zPot",
+                  "id": "YflJy",
                   "name": "Th",
                   "width": "fill_container",
                   "fill": "$surface",
@@ -9773,18 +9805,18 @@
                   "children": [
                     {
                       "type": "frame",
-                      "id": "WxkXr",
+                      "id": "chxFX",
                       "name": "Td",
-                      "width": 70,
+                      "width": "fill_container",
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "t8UIAV",
+                          "id": "ecbLo",
                           "name": "V",
                           "fill": "$ink-3",
-                          "content": "종류",
+                          "content": "이름 · 폴더 경로",
                           "fontFamily": "$font",
                           "fontSize": 11,
                           "fontWeight": "700"
@@ -9793,55 +9825,15 @@
                     },
                     {
                       "type": "frame",
-                      "id": "A5anL",
+                      "id": "VASdU",
                       "name": "Td",
-                      "width": 120,
+                      "width": 80,
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "UaLsp",
-                          "name": "V",
-                          "fill": "$ink-3",
-                          "content": "소유",
-                          "fontFamily": "$font",
-                          "fontSize": 11,
-                          "fontWeight": "700"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "tJ3CL",
-                      "name": "Td",
-                      "width": 320,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "I3rIgB",
-                          "name": "V",
-                          "fill": "$ink-3",
-                          "content": "경로 · 브랜치",
-                          "fontFamily": "$font",
-                          "fontSize": 11,
-                          "fontWeight": "700"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "qqKun",
-                      "name": "Td",
-                      "width": 70,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "vvlfd",
+                          "id": "p2oiS",
                           "name": "V",
                           "fill": "$ink-3",
                           "content": "용량",
@@ -9853,15 +9845,15 @@
                     },
                     {
                       "type": "frame",
-                      "id": "W0zZy",
+                      "id": "mLMXC",
                       "name": "Td",
-                      "width": 100,
+                      "width": 90,
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "C8nn49",
+                          "id": "tTIN2",
                           "name": "V",
                           "fill": "$ink-3",
                           "content": "마지막 사용",
@@ -9873,18 +9865,18 @@
                     },
                     {
                       "type": "frame",
-                      "id": "UwO98",
+                      "id": "hHuwq",
                       "name": "Td",
-                      "width": 100,
+                      "width": 300,
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "MNWTo",
+                          "id": "Skm3Y",
                           "name": "V",
                           "fill": "$ink-3",
-                          "content": "보존 만료",
+                          "content": "정리",
                           "fontFamily": "$font",
                           "fontSize": 11,
                           "fontWeight": "700"
@@ -9893,35 +9885,15 @@
                     },
                     {
                       "type": "frame",
-                      "id": "X6GKC",
+                      "id": "Jq6Vb",
                       "name": "Td",
-                      "width": "fill_container",
+                      "width": 60,
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "upflM",
-                          "name": "V",
-                          "fill": "$ink-3",
-                          "content": "상태",
-                          "fontFamily": "$font",
-                          "fontSize": 11,
-                          "fontWeight": "700"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "B0HnGK",
-                      "name": "Td",
-                      "width": 70,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "cf4xu",
+                          "id": "pvaB7",
                           "name": "V",
                           "fill": "$ink-3",
                           "content": "동작",
@@ -9935,112 +9907,119 @@
                 },
                 {
                   "type": "frame",
-                  "id": "SkZS4",
-                  "name": "Tr",
+                  "id": "izaKa",
+                  "name": "Tr 게임 제작 방",
                   "width": "fill_container",
-                  "fill": "$bg",
+                  "fill": "$surface",
                   "stroke": "$line",
                   "strokeWidth": {
                     "bottom": 1
                   },
                   "gap": 12,
                   "padding": [
-                    10,
+                    8,
                     14
                   ],
                   "alignItems": "center",
                   "children": [
                     {
                       "type": "frame",
-                      "id": "Jycse",
-                      "name": "Td",
-                      "width": 70,
+                      "id": "wVghJ",
+                      "name": "Td Name",
+                      "width": "fill_container",
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
-                          "type": "text",
-                          "id": "nx2np",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "worktree",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
+                          "type": "frame",
+                          "id": "lARgJ",
+                          "name": "Arrow",
+                          "width": 12,
+                          "justifyContent": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "REVXZ",
+                              "name": "Arrow",
+                              "fill": "$ink-2",
+                              "content": "▾",
+                              "fontFamily": "$font",
+                              "fontSize": 15,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "cRgi7",
+                          "name": "NameBlock",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "jzjkl",
+                              "name": "Name",
+                              "fill": "$ink",
+                              "content": "게임 제작 방",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "tBQ31",
+                              "name": "PathRow",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "U0Ymf",
+                                  "name": "Path",
+                                  "fill": "$ink-3",
+                                  "content": "rooms/게임-제작-방-3f2a91c0",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
                         }
                       ]
                     },
                     {
                       "type": "frame",
-                      "id": "KH8o0",
-                      "name": "Td",
-                      "width": 120,
+                      "id": "ZnPHD",
+                      "name": "Td Size",
+                      "width": 80,
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "YMiBl",
+                          "id": "LdL6o",
                           "name": "V",
                           "fill": "$ink",
-                          "content": "@Backend",
+                          "content": "13 MB",
                           "fontFamily": "$font",
                           "fontSize": 12,
-                          "fontWeight": "normal"
+                          "fontWeight": "700"
                         }
                       ]
                     },
                     {
                       "type": "frame",
-                      "id": "vcNia",
-                      "name": "Td",
-                      "width": 320,
+                      "id": "BPFAD",
+                      "name": "Td Last",
+                      "width": 90,
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "wsDRD",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "~/dev/app/.colab/s24/backend · colab/s24/backend",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "EkSl2",
-                      "name": "Td",
-                      "width": 70,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "O6A1X",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "1.2 GB",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "JtuQr",
-                      "name": "Td",
-                      "width": 100,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "DnWK8",
+                          "id": "i2cwj",
                           "name": "V",
                           "fill": "$ink",
                           "content": "방금",
@@ -10052,40 +10031,20 @@
                     },
                     {
                       "type": "frame",
-                      "id": "pt6NU",
-                      "name": "Td",
-                      "width": 100,
+                      "id": "N6cB9",
+                      "name": "Td Note",
+                      "width": 300,
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "c4HPfJ",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "—",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "VB0mw",
-                      "name": "Td",
-                      "width": "fill_container",
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "H3rzbc",
+                          "id": "yXqtK",
                           "name": "S",
-                          "fill": "$s-run-text",
+                          "fill": "$ink-3",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "활성 · 쓰는 중인 방: 결제팀",
+                          "content": "폴더 5개 · 방이 지워질 때 남은 폴더 정리",
                           "fontFamily": "$font",
                           "fontSize": 11,
                           "fontWeight": "600"
@@ -10094,45 +10053,19 @@
                     },
                     {
                       "type": "frame",
-                      "id": "Un8pP",
-                      "name": "Td",
-                      "width": 70,
+                      "id": "tJ71k",
+                      "name": "Td Act",
+                      "width": 60,
+                      "height": 1,
                       "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "frame",
-                          "id": "QuLdv",
-                          "name": "Del",
-                          "opacity": 0.7,
-                          "cornerRadius": 4,
-                          "stroke": "$s-fail",
-                          "strokeWidth": 1,
-                          "padding": [
-                            4,
-                            8
-                          ],
-                          "children": [
-                            {
-                              "type": "text",
-                              "id": "vKpxM",
-                              "name": "L",
-                              "fill": "$s-fail-text",
-                              "content": "차단",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "normal"
-                            }
-                          ]
-                        }
-                      ]
+                      "alignItems": "center"
                     }
                   ]
                 },
                 {
                   "type": "frame",
-                  "id": "S9ltc",
-                  "name": "Tr",
+                  "id": "idmjf",
+                  "name": "Tr 마리오 카트 같은 게임",
                   "width": "fill_container",
                   "fill": "$bg",
                   "stroke": "$line",
@@ -10141,25 +10074,144 @@
                   },
                   "gap": 12,
                   "padding": [
-                    10,
+                    8,
                     14
                   ],
                   "alignItems": "center",
                   "children": [
                     {
                       "type": "frame",
-                      "id": "K5Ldw",
-                      "name": "Td",
-                      "width": 70,
+                      "id": "d8NAx",
+                      "name": "Td Name",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "FklpE",
+                          "name": "Indent",
+                          "width": 20,
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Dvq4I",
+                          "name": "Arrow",
+                          "width": 12,
+                          "justifyContent": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "QMUbf",
+                              "name": "Arrow",
+                              "fill": "$ink-2",
+                              "content": "▾",
+                              "fontFamily": "$font",
+                              "fontSize": 15,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "NGJdF",
+                          "name": "NameBlock",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "tGLFI",
+                              "name": "Name",
+                              "fill": "$ink",
+                              "content": "마리오 카트 같은 게임",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "bwNYX",
+                              "name": "PathRow",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "bLUgF",
+                                  "name": "Path",
+                                  "fill": "$ink-3",
+                                  "content": "…/카트-레이싱-8b11de02",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "lvbQp",
+                                  "name": "Tooltip",
+                                  "fill": "$ink",
+                                  "cornerRadius": 4,
+                                  "gap": 4,
+                                  "padding": [
+                                    2,
+                                    6
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "XsK8P",
+                                      "name": "T",
+                                      "fill": "$bg",
+                                      "content": "ⓘ 폴더 이름은 만들 때의 이름입니다",
+                                      "fontFamily": "$font",
+                                      "fontSize": 10,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "yYxbK",
+                      "name": "Td Size",
+                      "width": 80,
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "V6ILqp",
+                          "id": "u9q49",
                           "name": "V",
                           "fill": "$ink",
-                          "content": "worktree",
+                          "content": "12 MB",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "C1hYY",
+                      "name": "Td Last",
+                      "width": 90,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "CVK3t",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "방금",
                           "fontFamily": "$font",
                           "fontSize": 12,
                           "fontWeight": "normal"
@@ -10168,18 +10220,156 @@
                     },
                     {
                       "type": "frame",
-                      "id": "HZBl4",
-                      "name": "Td",
-                      "width": 120,
+                      "id": "C0JAM",
+                      "name": "Td Note",
+                      "width": 300,
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "ulwGd",
+                          "id": "AaJ1D",
+                          "name": "S",
+                          "fill": "$ink-2",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "12 MB · 미션이 닫히고 14일 뒤 정리",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "WzXWa",
+                      "name": "Td Act",
+                      "width": 60,
+                      "height": 1,
+                      "gap": 6,
+                      "alignItems": "center"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "On2ON",
+                  "name": "Tr 미션 공용",
+                  "width": "fill_container",
+                  "fill": "$bg",
+                  "stroke": "$line",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "gap": 12,
+                  "padding": [
+                    8,
+                    14
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "OzB3S",
+                      "name": "Td Name",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "eqyqs",
+                          "name": "Indent",
+                          "width": 40,
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "vjAld",
+                          "name": "Arrow",
+                          "width": 12,
+                          "height": 1,
+                          "justifyContent": "center"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "ae2Ja",
+                          "name": "Badge 공용",
+                          "fill": "$surface",
+                          "cornerRadius": 4,
+                          "stroke": "$s-run",
+                          "strokeWidth": 1,
+                          "padding": [
+                            1,
+                            6
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "UmMDh",
+                              "name": "L",
+                              "fill": "$ink",
+                              "content": "공용",
+                              "fontFamily": "$font",
+                              "fontSize": 10,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Kc8d5",
+                          "name": "NameBlock",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "XU1xz",
+                              "name": "Name",
+                              "fill": "$ink",
+                              "content": "미션 공용",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "UzMX5",
+                              "name": "PathRow",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "K3Hah",
+                                  "name": "Path",
+                                  "fill": "$ink-3",
+                                  "content": "…/_shared",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "gMWb6",
+                      "name": "Td Size",
+                      "width": 80,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "PHRKk",
                           "name": "V",
                           "fill": "$ink",
-                          "content": "@Frontend",
+                          "content": "2.1 MB",
                           "fontFamily": "$font",
                           "fontSize": 12,
                           "fontWeight": "normal"
@@ -10188,55 +10378,15 @@
                     },
                     {
                       "type": "frame",
-                      "id": "sNt1p",
-                      "name": "Td",
-                      "width": 320,
+                      "id": "Y2VfG",
+                      "name": "Td Last",
+                      "width": 90,
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "ylhzD",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "~/dev/app/.colab/s24/frontend · colab/s24/frontend",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "QxCzN",
-                      "name": "Td",
-                      "width": 70,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "e8Bg9",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "1.1 GB",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "VIZvc",
-                      "name": "Td",
-                      "width": 100,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "kjAOn",
+                          "id": "qTxHl",
                           "name": "V",
                           "fill": "$ink",
                           "content": "10분 전",
@@ -10248,18 +10398,182 @@
                     },
                     {
                       "type": "frame",
-                      "id": "LThq0",
-                      "name": "Td",
-                      "width": 100,
+                      "id": "Nl4bu",
+                      "name": "Td Note",
+                      "width": 300,
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "mi2cC",
+                          "id": "NbDaY",
+                          "name": "S",
+                          "fill": "$ink-3",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "미션 참여 에이전트 모두 읽고 씁니다",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "jAK07",
+                      "name": "Td Act",
+                      "width": 60,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "bpsQW",
+                          "name": "Del",
+                          "opacity": 0.7,
+                          "cornerRadius": 4,
+                          "stroke": "$s-fail",
+                          "strokeWidth": 1,
+                          "padding": [
+                            4,
+                            8
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "PmgAu",
+                              "name": "L",
+                              "fill": "$s-fail-text",
+                              "content": "차단",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "eXc8V",
+                  "name": "Tr Lead",
+                  "width": "fill_container",
+                  "fill": "$bg",
+                  "stroke": "$line",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "gap": 12,
+                  "padding": [
+                    8,
+                    14
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "dwL79",
+                      "name": "Td Name",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "Shn7l",
+                          "name": "Indent",
+                          "width": 40,
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Xw6bY",
+                          "name": "Arrow",
+                          "width": 12,
+                          "height": 1,
+                          "justifyContent": "center"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "zEUgr",
+                          "name": "Badge dir",
+                          "fill": "$surface",
+                          "cornerRadius": 4,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "padding": [
+                            1,
+                            6
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "cMfF7",
+                              "name": "L",
+                              "fill": "$ink-2",
+                              "content": "dir",
+                              "fontFamily": "$font",
+                              "fontSize": 10,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "HHDD2",
+                          "name": "NameBlock",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "BWUg4",
+                              "name": "Name",
+                              "fill": "$ink",
+                              "content": "Lead",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "XNLLb",
+                              "name": "PathRow",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "je78G",
+                                  "name": "Path",
+                                  "fill": "$ink-3",
+                                  "content": "…/lead-51aa02e3",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "TaXlE",
+                      "name": "Td Size",
+                      "width": 80,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "zy6RR",
                           "name": "V",
                           "fill": "$ink",
-                          "content": "—",
+                          "content": "0.4 MB",
                           "fontFamily": "$font",
                           "fontSize": 12,
                           "fontWeight": "normal"
@@ -10268,17 +10582,1253 @@
                     },
                     {
                       "type": "frame",
-                      "id": "C8X6Tr",
-                      "name": "Td",
-                      "width": "fill_container",
+                      "id": "Jmf8T",
+                      "name": "Td Last",
+                      "width": 90,
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "lQceO",
+                          "id": "BtDv4",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "어제",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "q32n9",
+                      "name": "Td Note",
+                      "width": 300,
+                      "height": 1,
+                      "gap": 6,
+                      "alignItems": "center"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Yean2",
+                      "name": "Td Act",
+                      "width": 60,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "TsE3n",
+                          "name": "Del",
+                          "opacity": 0.7,
+                          "cornerRadius": 4,
+                          "stroke": "$s-fail",
+                          "strokeWidth": 1,
+                          "padding": [
+                            4,
+                            8
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "jX4Hq",
+                              "name": "L",
+                              "fill": "$s-fail-text",
+                              "content": "차단",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "k1UuL",
+                  "name": "Tr Developer",
+                  "width": "fill_container",
+                  "fill": "$bg",
+                  "stroke": "$line",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "gap": 12,
+                  "padding": [
+                    8,
+                    14
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "NgGZr",
+                      "name": "Td Name",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "ZDgoO",
+                          "name": "Indent",
+                          "width": 40,
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "mOtSd",
+                          "name": "Arrow",
+                          "width": 12,
+                          "height": 1,
+                          "justifyContent": "center"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "UF1KC",
+                          "name": "Badge dir",
+                          "fill": "$surface",
+                          "cornerRadius": 4,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "padding": [
+                            1,
+                            6
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "gUmcd",
+                              "name": "L",
+                              "fill": "$ink-2",
+                              "content": "dir",
+                              "fontFamily": "$font",
+                              "fontSize": 10,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "n2A8C",
+                          "name": "NameBlock",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "iKL8o",
+                              "name": "Name",
+                              "fill": "$ink",
+                              "content": "Developer",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "QR8hV",
+                              "name": "PathRow",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "TSomP",
+                                  "name": "Path",
+                                  "fill": "$ink-3",
+                                  "content": "…/developer-0c7e5d19",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "rh956",
+                      "name": "Td Size",
+                      "width": 80,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "KCKvn",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "8.6 MB",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "IDLNj",
+                      "name": "Td Last",
+                      "width": 90,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "VHM4U",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "방금",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "GytNY",
+                      "name": "Td Note",
+                      "width": 300,
+                      "height": 1,
+                      "gap": 6,
+                      "alignItems": "center"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "z7q9x",
+                      "name": "Td Act",
+                      "width": 60,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "YyvWO",
+                          "name": "Del",
+                          "opacity": 0.7,
+                          "cornerRadius": 4,
+                          "stroke": "$s-fail",
+                          "strokeWidth": 1,
+                          "padding": [
+                            4,
+                            8
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Ay85P",
+                              "name": "L",
+                              "fill": "$s-fail-text",
+                              "content": "차단",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "GAxAc",
+                  "name": "Tr Writer",
+                  "width": "fill_container",
+                  "fill": "$bg",
+                  "stroke": "$line",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "gap": 12,
+                  "padding": [
+                    8,
+                    14
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "hFytO",
+                      "name": "Td Name",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "r6SqS",
+                          "name": "Indent",
+                          "width": 40,
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "asjuG",
+                          "name": "Arrow",
+                          "width": 12,
+                          "height": 1,
+                          "justifyContent": "center"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Q3aVk",
+                          "name": "Badge dir",
+                          "fill": "$surface",
+                          "cornerRadius": 4,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "padding": [
+                            1,
+                            6
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "atWPC",
+                              "name": "L",
+                              "fill": "$ink-2",
+                              "content": "dir",
+                              "fontFamily": "$font",
+                              "fontSize": 10,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "MNUnp",
+                          "name": "NameBlock",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "JeRSf",
+                              "name": "Name",
+                              "fill": "$ink",
+                              "content": "Writer",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "dloRP",
+                              "name": "PathRow",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "XNhxf",
+                                  "name": "Path",
+                                  "fill": "$ink-3",
+                                  "content": "…/writer-77c0b3a4",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "a06QW",
+                      "name": "Td Size",
+                      "width": 80,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "kUziY",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "0.9 MB",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "gmx7q",
+                      "name": "Td Last",
+                      "width": 90,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "gjkvn",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "1시간 전",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "XPBzX",
+                      "name": "Td Note",
+                      "width": 300,
+                      "height": 1,
+                      "gap": 6,
+                      "alignItems": "center"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "f9HSM",
+                      "name": "Td Act",
+                      "width": 60,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "R9vgF",
+                          "name": "Del",
+                          "opacity": 0.7,
+                          "cornerRadius": 4,
+                          "stroke": "$s-fail",
+                          "strokeWidth": 1,
+                          "padding": [
+                            4,
+                            8
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Q12zH",
+                              "name": "L",
+                              "fill": "$s-fail-text",
+                              "content": "차단",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "TbSso",
+                  "name": "Tr 미션 밖",
+                  "width": "fill_container",
+                  "fill": "$bg",
+                  "stroke": "$line",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "gap": 12,
+                  "padding": [
+                    8,
+                    14
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "OIDC7",
+                      "name": "Td Name",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "Y8bOn",
+                          "name": "Indent",
+                          "width": 20,
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "EIFSx",
+                          "name": "Arrow",
+                          "width": 12,
+                          "justifyContent": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "snfHp",
+                              "name": "Arrow",
+                              "fill": "$ink-2",
+                              "content": "▾",
+                              "fontFamily": "$font",
+                              "fontSize": 15,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "OnXDW",
+                          "name": "NameBlock",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Flo3k",
+                              "name": "Name",
+                              "fill": "$ink",
+                              "content": "미션 밖",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "zMBTl",
+                      "name": "Td Size",
+                      "width": 80,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "So1IT",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "1.0 MB",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "j8Q97",
+                      "name": "Td Last",
+                      "width": 90,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "CR7ET",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "어제",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "bkUH0",
+                      "name": "Td Note",
+                      "width": 300,
+                      "height": 1,
+                      "gap": 6,
+                      "alignItems": "center"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "rZ0ZC",
+                      "name": "Td Act",
+                      "width": 60,
+                      "height": 1,
+                      "gap": 6,
+                      "alignItems": "center"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "Ue6g9",
+                  "name": "Tr Lead",
+                  "width": "fill_container",
+                  "fill": "$bg",
+                  "stroke": "$line",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "gap": 12,
+                  "padding": [
+                    8,
+                    14
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "PN9nQ",
+                      "name": "Td Name",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "bFfsN",
+                          "name": "Indent",
+                          "width": 40,
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "alf0k",
+                          "name": "Arrow",
+                          "width": 12,
+                          "height": 1,
+                          "justifyContent": "center"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "TKygd",
+                          "name": "Badge dir",
+                          "fill": "$surface",
+                          "cornerRadius": 4,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "padding": [
+                            1,
+                            6
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "fkp1n",
+                              "name": "L",
+                              "fill": "$ink-2",
+                              "content": "dir",
+                              "fontFamily": "$font",
+                              "fontSize": 10,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "tjglf",
+                          "name": "NameBlock",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "zwIul",
+                              "name": "Name",
+                              "fill": "$ink",
+                              "content": "Lead",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "CuaAN",
+                              "name": "PathRow",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "Zmhhg",
+                                  "name": "Path",
+                                  "fill": "$ink-3",
+                                  "content": "_room/lead-51aa02e3",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "dGwSv",
+                      "name": "Td Size",
+                      "width": 80,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "up4cN",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "1.0 MB",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "ilsZv",
+                      "name": "Td Last",
+                      "width": 90,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "rX3c9",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "어제",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "DthMD",
+                      "name": "Td Note",
+                      "width": 300,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "zZ4gw",
                           "name": "S",
-                          "fill": "$s-wait-text",
+                          "fill": "$ink-3",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "마지막 사용 뒤 14일이 지나면 정리",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "dpWWZ",
+                      "name": "Td Act",
+                      "width": 60,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "VDFX2",
+                          "name": "Del",
+                          "cornerRadius": 4,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "padding": [
+                            4,
+                            8
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Or4ks",
+                              "name": "L",
+                              "fill": "$ink",
+                              "content": "삭제",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "p78uE",
+                  "name": "Tr 결제팀",
+                  "width": "fill_container",
+                  "fill": "$surface",
+                  "stroke": "$line",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "gap": 12,
+                  "padding": [
+                    8,
+                    14
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "oIvn1",
+                      "name": "Td Name",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "DjW8n",
+                          "name": "Arrow",
+                          "width": 12,
+                          "justifyContent": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Sdvfm",
+                              "name": "Arrow",
+                              "fill": "$ink-2",
+                              "content": "▾",
+                              "fontFamily": "$font",
+                              "fontSize": 15,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "BcRtq",
+                          "name": "NameBlock",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "OPR5s",
+                              "name": "Name",
+                              "fill": "$ink",
+                              "content": "결제팀",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "SDTsk",
+                              "name": "PathRow",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "kOnKw",
+                                  "name": "Path",
+                                  "fill": "$ink-3",
+                                  "content": "rooms/결제팀-a41c07e2",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "yqlg6",
+                      "name": "Td Size",
+                      "width": 80,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "RF0gT",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "1.2 GB",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "vVwGr",
+                      "name": "Td Last",
+                      "width": 90,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "PG5bA",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "방금",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "yMI8j",
+                      "name": "Td Note",
+                      "width": 300,
+                      "height": 1,
+                      "gap": 6,
+                      "alignItems": "center"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "OAoSA",
+                      "name": "Td Act",
+                      "width": 60,
+                      "height": 1,
+                      "gap": 6,
+                      "alignItems": "center"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "UvgWa",
+                  "name": "Tr 결제 페이지 개편",
+                  "width": "fill_container",
+                  "fill": "$bg",
+                  "stroke": "$line",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "gap": 12,
+                  "padding": [
+                    8,
+                    14
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "hoI2E",
+                      "name": "Td Name",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "gN3IV",
+                          "name": "Indent",
+                          "width": 20,
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "XXhV5",
+                          "name": "Arrow",
+                          "width": 12,
+                          "justifyContent": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "avK46",
+                              "name": "Arrow",
+                              "fill": "$ink-2",
+                              "content": "▸",
+                              "fontFamily": "$font",
+                              "fontSize": 15,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "gVYX9",
+                          "name": "NameBlock",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "MSzrC",
+                              "name": "Name",
+                              "fill": "$ink",
+                              "content": "결제 페이지 개편",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "AZsDl",
+                              "name": "PathRow",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "spwKn",
+                                  "name": "Path",
+                                  "fill": "$ink-3",
+                                  "content": "…/결제-페이지-개편-5c90e1aa",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "IKTNp",
+                      "name": "Td Size",
+                      "width": 80,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "XGhRf",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "3 MB",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "hjrb1",
+                      "name": "Td Last",
+                      "width": 90,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "aoBia",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "2시간 전",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Ta8g1",
+                      "name": "Td Note",
+                      "width": 300,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "esTta",
+                          "name": "S",
+                          "fill": "$ink-2",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "진행 중 · 미션이 닫히고 14일 뒤 정리",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "UQ1QJ",
+                      "name": "Td Act",
+                      "width": 60,
+                      "height": 1,
+                      "gap": 6,
+                      "alignItems": "center"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "lQZzr",
+                  "name": "Tr Backend",
+                  "width": "fill_container",
+                  "fill": "$bg",
+                  "stroke": "$line",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "gap": 12,
+                  "padding": [
+                    8,
+                    14
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "E5ZyZ",
+                      "name": "Td Name",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "HL8Wp",
+                          "name": "Indent",
+                          "width": 20,
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "XHPEd",
+                          "name": "Arrow",
+                          "width": 12,
+                          "height": 1,
+                          "justifyContent": "center"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "sARyj",
+                          "name": "Badge worktree",
+                          "fill": "$surface",
+                          "cornerRadius": 4,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "padding": [
+                            1,
+                            6
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "SwTzh",
+                              "name": "L",
+                              "fill": "$ink-2",
+                              "content": "worktree",
+                              "fontFamily": "$font",
+                              "fontSize": 10,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "etSBp",
+                          "name": "NameBlock",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "BZjHU",
+                              "name": "Name",
+                              "fill": "$ink",
+                              "content": "Backend",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "H0LJ9",
+                              "name": "PathRow",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "kKotn",
+                                  "name": "Path",
+                                  "fill": "$ink-3",
+                                  "content": "…/_worktrees/backend-9d2e4b17 · colab/결제팀/backend",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "bEYVE",
+                      "name": "Td Size",
+                      "width": 80,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "fha0e",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "1.2 GB",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "PWfZY",
+                      "name": "Td Last",
+                      "width": 90,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "BIAe3",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "방금",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "VvDsC",
+                      "name": "Td Note",
+                      "width": 300,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "HO8qX",
+                          "name": "S",
+                          "fill": "$s-fail-text",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
                           "content": "활성 · 미커밋 변경 있음",
@@ -10290,15 +11840,15 @@
                     },
                     {
                       "type": "frame",
-                      "id": "NpcXC",
-                      "name": "Td",
-                      "width": 70,
+                      "id": "bIfLN",
+                      "name": "Td Act",
+                      "width": 60,
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "frame",
-                          "id": "QG3ic",
+                          "id": "l78x7",
                           "name": "Del",
                           "opacity": 0.7,
                           "cornerRadius": 4,
@@ -10311,7 +11861,7 @@
                           "children": [
                             {
                               "type": "text",
-                              "id": "tfWC3",
+                              "id": "cOMHP",
                               "name": "L",
                               "fill": "$s-fail-text",
                               "content": "차단",
@@ -10327,157 +11877,125 @@
                 },
                 {
                   "type": "frame",
-                  "id": "PQ7wq",
-                  "name": "Tr",
+                  "id": "tVmuw",
+                  "name": "Tr 옛 배치(세션 폴더)",
                   "width": "fill_container",
-                  "fill": "$bg",
+                  "fill": "$surface",
                   "stroke": "$line",
                   "strokeWidth": {
                     "bottom": 1
                   },
                   "gap": 12,
                   "padding": [
-                    10,
+                    8,
                     14
                   ],
                   "alignItems": "center",
                   "children": [
                     {
                       "type": "frame",
-                      "id": "gqG85",
-                      "name": "Td",
-                      "width": 70,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "kYp4M",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "worktree",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "GFgSV",
-                      "name": "Td",
-                      "width": 120,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "wm4Ah",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "@Backend",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "fhGSD",
-                      "name": "Td",
-                      "width": 320,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "V3Fkn4",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "~/dev/app/.colab/s19/backend · colab/s19/backend",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "gD6vX",
-                      "name": "Td",
-                      "width": 70,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "yr7Hj",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "0.9 GB",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "n2T1g",
-                      "name": "Td",
-                      "width": 100,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "Q6sSgo",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "3일 전",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "lcwvK",
-                      "name": "Td",
-                      "width": 100,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "R6t2L7",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "9월 14일",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "R9ej2",
-                      "name": "Td",
+                      "id": "FK3dz",
+                      "name": "Td Name",
                       "width": "fill_container",
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
+                          "type": "frame",
+                          "id": "e2fgf",
+                          "name": "Arrow",
+                          "width": 12,
+                          "justifyContent": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "tgp0B",
+                              "name": "Arrow",
+                              "fill": "$ink-2",
+                              "content": "▾",
+                              "fontFamily": "$font",
+                              "fontSize": 15,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Z01WF",
+                          "name": "NameBlock",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "f09Py",
+                              "name": "Name",
+                              "fill": "$ink",
+                              "content": "옛 배치(세션 폴더)",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "rPzeH",
+                      "name": "Td Size",
+                      "width": 80,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
                           "type": "text",
-                          "id": "oRMzL",
+                          "id": "jQIYg",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "12 MB",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "fwEkD",
+                      "name": "Td Last",
+                      "width": 90,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "xFeT6",
+                          "name": "V",
+                          "fill": "$ink",
+                          "content": "어제",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Y5ZPF",
+                      "name": "Td Note",
+                      "width": 300,
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "dtzDi",
                           "name": "S",
-                          "fill": "$s-fail-text",
+                          "fill": "$ink-3",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "보존 · 미병합 커밋 2 — 자동 삭제 안 함",
+                          "content": "옮기지 않습니다 — 기존 규칙으로 정리",
                           "fontFamily": "$font",
                           "fontSize": 11,
                           "fontWeight": "600"
@@ -10486,45 +12004,19 @@
                     },
                     {
                       "type": "frame",
-                      "id": "G5ePBx",
-                      "name": "Td",
-                      "width": 70,
+                      "id": "yHadg",
+                      "name": "Td Act",
+                      "width": 60,
+                      "height": 1,
                       "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "frame",
-                          "id": "i5hKDI",
-                          "name": "Del",
-                          "opacity": 0.7,
-                          "cornerRadius": 4,
-                          "stroke": "$s-fail",
-                          "strokeWidth": 1,
-                          "padding": [
-                            4,
-                            8
-                          ],
-                          "children": [
-                            {
-                              "type": "text",
-                              "id": "IoQYI",
-                              "name": "L",
-                              "fill": "$s-fail-text",
-                              "content": "차단",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "normal"
-                            }
-                          ]
-                        }
-                      ]
+                      "alignItems": "center"
                     }
                   ]
                 },
                 {
                   "type": "frame",
-                  "id": "DfWwg",
-                  "name": "Tr",
+                  "id": "lrVnh",
+                  "name": "Tr 서브 미션 #7 (@Researcher)",
                   "width": "fill_container",
                   "fill": "$bg",
                   "stroke": "$line",
@@ -10533,277 +12025,110 @@
                   },
                   "gap": 12,
                   "padding": [
-                    10,
+                    8,
                     14
                   ],
                   "alignItems": "center",
                   "children": [
                     {
                       "type": "frame",
-                      "id": "qcuw6",
-                      "name": "Td",
-                      "width": 70,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "l9wXmV",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "worktree",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "U41gpK",
-                      "name": "Td",
-                      "width": 120,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "RZ4Fi",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "@Backend",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "Z6Emvy",
-                      "name": "Td",
-                      "width": 320,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "p0opfP",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "~/dev/site/.colab/s21/backend · colab/s21/backend",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "d2Agu",
-                      "name": "Td",
-                      "width": 70,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "AFtso",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "0.4 GB",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "XXCRa",
-                      "name": "Td",
-                      "width": 100,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "R9fRAC",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "5일 전",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "I5tXx",
-                      "name": "Td",
-                      "width": 100,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "WDwB1",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "9월 12일",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "yYbRq",
-                      "name": "Td",
+                      "id": "Ax5EB",
+                      "name": "Td Name",
                       "width": "fill_container",
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
-                          "type": "text",
-                          "id": "WFnNd",
-                          "name": "S",
-                          "fill": "$s-done-text",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "보존 · 병합됨 · 클린 — 만료 시 자동 삭제",
-                          "fontFamily": "$font",
-                          "fontSize": 11,
-                          "fontWeight": "600"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "A4VnwL",
-                      "name": "Td",
-                      "width": 70,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
+                          "type": "frame",
+                          "id": "TMqsA",
+                          "name": "Indent",
+                          "width": 20,
+                          "height": 1
+                        },
                         {
                           "type": "frame",
-                          "id": "vcTRO",
-                          "name": "Del",
+                          "id": "D2gsi",
+                          "name": "Arrow",
+                          "width": 12,
+                          "height": 1,
+                          "justifyContent": "center"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "QXNTG",
+                          "name": "Badge dir",
+                          "fill": "$surface",
                           "cornerRadius": 4,
                           "stroke": "$line",
                           "strokeWidth": 1,
                           "padding": [
-                            4,
-                            8
+                            1,
+                            6
                           ],
                           "children": [
                             {
                               "type": "text",
-                              "id": "Z5PBI",
+                              "id": "zNxS0",
                               "name": "L",
-                              "fill": "$ink",
-                              "content": "삭제",
+                              "fill": "$ink-2",
+                              "content": "dir",
                               "fontFamily": "$font",
-                              "fontSize": 11,
+                              "fontSize": 10,
                               "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "qLMn2",
+                          "name": "NameBlock",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "lqSYo",
+                              "name": "Name",
+                              "fill": "$ink",
+                              "content": "서브 미션 #7 (@Researcher)",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "bLjDy",
+                              "name": "PathRow",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "QaeUs",
+                                  "name": "Path",
+                                  "fill": "$ink-3",
+                                  "content": "sessions/s22/researcher-3e1b",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
                             }
                           ]
                         }
                       ]
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "AopLP",
-                  "name": "Tr",
-                  "width": "fill_container",
-                  "fill": "$bg",
-                  "stroke": "$line",
-                  "strokeWidth": {
-                    "bottom": 1
-                  },
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    14
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "frame",
-                      "id": "KTM93",
-                      "name": "Td",
-                      "width": 70,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "ClwGe",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "dir",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
                     },
                     {
                       "type": "frame",
-                      "id": "w2ecf",
-                      "name": "Td",
-                      "width": 120,
+                      "id": "apQ5D",
+                      "name": "Td Size",
+                      "width": 80,
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "KWcfK",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "서브 미션 #7 (@Researcher)",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "n3Nro",
-                      "name": "Td",
-                      "width": 320,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "xw9Cr",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "~/.colab/<방>/<에이전트>",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "x8Lfs",
-                      "name": "Td",
-                      "width": 70,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "SFYtQ",
+                          "id": "LOhMz",
                           "name": "V",
                           "fill": "$ink",
                           "content": "12 MB",
@@ -10815,15 +12140,15 @@
                     },
                     {
                       "type": "frame",
-                      "id": "VSAld",
-                      "name": "Td",
-                      "width": 100,
+                      "id": "aSYF6",
+                      "name": "Td Last",
+                      "width": 90,
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "XUGgp",
+                          "id": "qTylz",
                           "name": "V",
                           "fill": "$ink",
                           "content": "어제",
@@ -10835,40 +12160,20 @@
                     },
                     {
                       "type": "frame",
-                      "id": "Nryhs",
-                      "name": "Td",
-                      "width": 100,
+                      "id": "IiMy4",
+                      "name": "Td Note",
+                      "width": 300,
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
-                          "id": "PVeMk",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "—",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "BxZrU",
-                      "name": "Td",
-                      "width": "fill_container",
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "cSO0h",
+                          "id": "tqT1n",
                           "name": "S",
                           "fill": "$ink-3",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "마지막 사용 + 보존 기한 경과 → 삭제 대상 (방은 완료되지 않으므로 기준은 마지막 사용)",
+                          "content": "마지막 사용 + 보존 기한 경과 → 삭제 대상",
                           "fontFamily": "$font",
                           "fontSize": 11,
                           "fontWeight": "600"
@@ -10877,15 +12182,15 @@
                     },
                     {
                       "type": "frame",
-                      "id": "sUMof",
-                      "name": "Td",
-                      "width": 70,
+                      "id": "UgGRA",
+                      "name": "Td Act",
+                      "width": 60,
                       "gap": 6,
                       "alignItems": "center",
                       "children": [
                         {
                           "type": "frame",
-                          "id": "plUAs",
+                          "id": "epJOe",
                           "name": "Del",
                           "cornerRadius": 4,
                           "stroke": "$line",
@@ -10897,202 +12202,7 @@
                           "children": [
                             {
                               "type": "text",
-                              "id": "jR7GJ",
-                              "name": "L",
-                              "fill": "$ink",
-                              "content": "삭제",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "normal"
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "NlIZw",
-                  "name": "Tr",
-                  "width": "fill_container",
-                  "fill": "$bg",
-                  "stroke": "$line",
-                  "strokeWidth": {
-                    "bottom": 1
-                  },
-                  "gap": 12,
-                  "padding": [
-                    10,
-                    14
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "type": "frame",
-                      "id": "ZEObI",
-                      "name": "Td",
-                      "width": 70,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "CZ3Y3",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "container",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "Pt2Ek",
-                      "name": "Td",
-                      "width": 120,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "GZEBI",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "서브 미션 #3 (@Writer)",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "xYmvd",
-                      "name": "Td",
-                      "width": 320,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "WbveY",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "colab-s22-l3 (image: colab/base:1.2)",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "k41Pz",
-                      "name": "Td",
-                      "width": 70,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "NDovv",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "2.4 GB",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "sIbKV",
-                      "name": "Td",
-                      "width": 100,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "UpVLL",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "어제",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "NeyMI",
-                      "name": "Td",
-                      "width": 100,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "sz7Jh",
-                          "name": "V",
-                          "fill": "$ink",
-                          "content": "—",
-                          "fontFamily": "$font",
-                          "fontSize": 12,
-                          "fontWeight": "normal"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "cgssT",
-                      "name": "Td",
-                      "width": "fill_container",
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "text",
-                          "id": "pdVZs",
-                          "name": "S",
-                          "fill": "$ink-3",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "v1.1",
-                          "fontFamily": "$font",
-                          "fontSize": 11,
-                          "fontWeight": "600"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "utmv9",
-                      "name": "Td",
-                      "width": 70,
-                      "gap": 6,
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "frame",
-                          "id": "M2M087",
-                          "name": "Del",
-                          "cornerRadius": 4,
-                          "stroke": "$line",
-                          "strokeWidth": 1,
-                          "padding": [
-                            4,
-                            8
-                          ],
-                          "children": [
-                            {
-                              "type": "text",
-                              "id": "D3XXa6",
+                              "id": "UY1Qf",
                               "name": "L",
                               "fill": "$ink",
                               "content": "삭제",
@@ -11113,7 +12223,9 @@
               "id": "kkuT5",
               "name": "Note",
               "fill": "$ink-3",
-              "content": "삭제 차단 조건: 진행 중 방 · 미병합 커밋 · 미커밋 변경 (FR-6.4 M4). 워크트리만 지우고 브랜치는 남긴다.",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "방 → 미션 → 에이전트 순으로 묶습니다. 굵은 글자는 지금 이름, 회색은 실제 폴더 경로(만들 때 고정). 미션 폴더는 미션이 닫혀도 바로 지우지 않습니다 — 마지막 사용 뒤 workdir_retention_days(기본 14일)가 지나면 정리 (D8 B). 삭제 차단: 열린 미션 · 미병합 커밋 · 미커밋 변경. worktree 는 트리만 지우고 브랜치는 남긴다.",
               "fontFamily": "$font",
               "fontSize": 11,
               "fontWeight": "normal"
@@ -37781,6 +38893,212 @@
                   "fontFamily": "$font",
                   "fontSize": 13,
                   "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "R2zDT",
+      "x": 6400,
+      "y": 7900,
+      "name": "미션 닫기 확인 · 작업 폴더 (v0.19.9)",
+      "clip": true,
+      "width": 1440,
+      "height": 900,
+      "fill": "#18181B99",
+      "layout": "vertical",
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "dHo5m",
+          "name": "Dialog",
+          "width": 620,
+          "fill": "$bg",
+          "cornerRadius": 10,
+          "stroke": "$line",
+          "strokeWidth": 1,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 24,
+          "children": [
+            {
+              "type": "text",
+              "id": "dzvfJ",
+              "name": "Title",
+              "fill": "$ink",
+              "content": "미션 〈보고서 초안〉을 닫을까요?",
+              "fontFamily": "$font",
+              "fontSize": 18,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "rshxM",
+              "name": "Rule",
+              "fill": "$ink-3",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "닫으면 이 미션으로는 더 트리거되지 않고, 요약이 방에 남습니다. 진행 중인 서브 미션은 멈춥니다(cancelled).",
+              "fontFamily": "$font",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "sS9MC",
+              "name": "Proposal",
+              "width": "fill_container",
+              "fill": "$surface",
+              "cornerRadius": 6,
+              "layout": "vertical",
+              "gap": 6,
+              "padding": 12,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "GYaiv",
+                  "name": "L1",
+                  "fill": "$ink-3",
+                  "content": "작업 폴더",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "o2o8T",
+                  "name": "Goal",
+                  "fill": "$ink",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "이 미션의 작업 폴더 3개(12 MB)는 14일 뒤 정리됩니다 — 남길 것은 아티팩트로 제출하세요",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "Qz4OF",
+                  "name": "Why",
+                  "fill": "$ink-2",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "미션 공용 · Writer · Researcher — 닫은 뒤에도 마지막 사용부터 14일(workdir_retention_days) 동안 남습니다",
+                  "fontFamily": "$font",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "nyTOI",
+                  "name": "Trigger",
+                  "fill": "$ink-2",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "미션 밖 폴더(_room)와 worktree 체크아웃은 이 미션과 함께 정리되지 않습니다",
+                  "fontFamily": "$font",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "oZW7i",
+              "name": "Row",
+              "width": "fill_container",
+              "gap": 8,
+              "justifyContent": "space_between",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "uBZQN",
+                  "name": "Btn 거절",
+                  "fill": "$bg",
+                  "cornerRadius": 6,
+                  "stroke": "$line",
+                  "strokeWidth": 1,
+                  "padding": [
+                    6,
+                    10
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "jNG5S",
+                      "name": "L",
+                      "fill": "$ink",
+                      "content": "취소",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "qIUyr",
+                  "name": "Right",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "gDN5M",
+                      "name": "Btn 고쳐서 열기",
+                      "fill": "$bg",
+                      "cornerRadius": 6,
+                      "stroke": "$line",
+                      "strokeWidth": 1,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "oxOnR",
+                          "name": "L",
+                          "fill": "$ink",
+                          "content": "아티팩트 제출하러 가기",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Nsotq",
+                      "name": "Btn 이대로 열기",
+                      "fill": "$ink",
+                      "cornerRadius": 6,
+                      "stroke": "$ink",
+                      "strokeWidth": 1,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "SEJoK",
+                          "name": "L",
+                          "fill": "#FFFFFF",
+                          "content": "미션 닫기",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
                 }
               ]
             }
