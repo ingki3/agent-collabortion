@@ -286,7 +286,7 @@
         },
         "model": {
           "type": "string",
-          "description": "실제 실행 모델(_meta.quota.model_usage[].model). 프로파일과 다르면 model_drift"
+          "description": "실제 실행 모델. 턴 끝(cumulative:true)은 _meta.quota.model_usage[].model(여럿이면 쉼표로 이음, 첫 번째가 메인) — 프로파일과 다르면 model_drift. 턴 중(heartbeat)은 claude_code 원시 스트림의 메인(parent_tool_use_id null) message_start.message.model 중 가장 최근 것(harness v0.9.9); 없으면 생략"
         },
         "model_drift": {
           "type": "boolean"
