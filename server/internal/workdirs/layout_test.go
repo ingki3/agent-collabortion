@@ -2,9 +2,13 @@ package workdirs
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -46,6 +50,35 @@ func TestPathSlugKeepsHangulAndFollowsTheContract(t *testing.T) {
 	}
 }
 
+// TestPathSlugParityTable reads the table the web's pathSlug test reads too
+// (web/lib/workdir-tree.test.ts): the rule is implemented twice (server paths,
+// S13's 「만들 때의 이름」 badge), and a Korean agent name must give the same
+// leaf on both sides — rune cut, not byte cut (PR #345 review).
+func TestPathSlugParityTable(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "path_slug_parity.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table struct {
+		Cases []struct{ In, Want string } `json:"cases"`
+	}
+	if err := json.Unmarshal(raw, &table); err != nil {
+		t.Fatal(err)
+	}
+	if len(table.Cases) < 3 {
+		t.Fatalf("parity table has %d cases — it would compare nothing", len(table.Cases))
+	}
+	for _, c := range table.Cases {
+		got := PathSlug(c.In)
+		if got != c.Want {
+			t.Errorf("PathSlug(%q) = %q, want %q", c.In, got, c.Want)
+		}
+		if !utf8.ValidString(got) {
+			t.Errorf("PathSlug(%q) = %q is not valid UTF-8", c.In, got)
+		}
+	}
+}
+
 func TestPathRuleTable(t *testing.T) {
 	const root = "/Users/x/.colab"
 	w := workID
@@ -79,6 +112,14 @@ func TestPathRuleTable(t *testing.T) {
 	}
 	if p := PlanDir("rel/root", o, IDLen); p != "" {
 		t.Errorf("relative root → %q", p)
+	}
+	// Same for a checkout — the worktree half's inner layer of the root guard
+	// (the outer one is queue.planBundleWorkdir, httpapi folders_layers_test).
+	if p := PlanWorktreePath("", o, IDLen); p != "" {
+		t.Errorf("worktree, no root → %q", p)
+	}
+	if p := PlanWorktreePath("rel/root", o, IDLen); p != "" {
+		t.Errorf("worktree, relative root → %q", p)
 	}
 	// Reserved pieces never equal a name piece (which always ends in -<id>).
 	for _, name := range []string{"_room", "_shared", "_worktrees"} {

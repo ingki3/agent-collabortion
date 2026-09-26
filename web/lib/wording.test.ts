@@ -947,6 +947,7 @@ describe("v0.19.9 [FOLDERS] — 폴더 트리·닫기 확인·S17 none 의 말�
     expect(FOLDERS_WORDING).toMatchObject({
       outside: "미션 밖", legacy: "옛 배치(세션 폴더)", shared: "공용", fixed_name: "폴더 이름은 만들 때의 이름입니다",
       rebind_none_loss: "작업 폴더(미션 공용 포함)는 옮겨지지 않습니다. 아티팩트만 새 컴퓨터로 갑니다",
+      rebind_none_loss_title: "⚠ 작업 폴더는 새 컴퓨터로 옮겨지지 않습니다 (격리: none)",
     });
     expect(FOLDERS_WORDING.closeLine(3, 12 * 1024 * 1024, 14)).toBe("이 미션의 작업 폴더 3개(12MB)는 14일 뒤 정리됩니다 — 남길 것은 아티팩트로 제출하세요");
     expect(FOLDERS_WORDING.closeLine(1, 0, 14)).not.toMatch(/즉시|바로/);
@@ -960,5 +961,6 @@ describe("v0.19.9 [FOLDERS] — 폴더 트리·닫기 확인·S17 none 의 말�
     expect(src("app/(app)/runtimes/[id]/workdirs/page.tsx")).toContain("FOLDERS_WORDING.fixed_name");
     expect(src("components/CloseWorkDialog.tsx")).toContain("FOLDERS_WORDING.closeLine");
     expect(src("components/RebindDialog.tsx")).toContain("FOLDERS_WORDING.rebind_none_loss");
+    expect(src("components/RebindDialog.tsx")).toContain("FOLDERS_WORDING.rebind_none_loss_title");
   });
 });

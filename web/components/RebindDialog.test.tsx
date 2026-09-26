@@ -106,9 +106,15 @@ describe("none — 잃을 워크트리가 없다", () => {
     expect((screen.getByTestId("rebind-submit") as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("[FOLDERS] 작업 폴더(미션 공용 포함)는 옮겨지지 않는다고 한 줄로 말한다 — 체크박스는 없다", async () => {
+  it("[FOLDERS] 작업 폴더(미션 공용 포함)는 옮겨지지 않는다고 말한다 — worktree 와 같은 박스 + ⚠ 제목 줄(Pencil 「Loss Warning (none)」), 체크박스는 없다", async () => {
     render(<RebindDialog session={session("none")} onClose={vi.fn()} />);
     await waitFor(() => expect(screen.getByTestId("rebind-loss-none")).toBeTruthy());
+    const box = screen.getByTestId("rebind-loss-none-box");
+    expect(box.className).toBe("rebind__loss");
+    const title = screen.getByTestId("rebind-loss-none-title");
+    expect(box.contains(title) && box.contains(screen.getByTestId("rebind-loss-none"))).toBe(true);
+    expect(title.textContent).toBe("⚠ 작업 폴더는 새 컴퓨터로 옮겨지지 않습니다 (격리: none)");
+    expect(box.firstElementChild).toBe(title);
     expect(screen.getByTestId("rebind-loss-none").textContent).toBe("작업 폴더(미션 공용 포함)는 옮겨지지 않습니다. 아티팩트만 새 컴퓨터로 갑니다");
     expect(screen.queryByTestId("rebind-ack")).toBeNull();
   });

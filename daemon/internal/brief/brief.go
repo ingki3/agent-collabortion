@@ -138,18 +138,6 @@ const PromptPointerPrefix = "먼저 "
 // PromptPointerSuffix closes it.
 const PromptPointerSuffix = " 를 읽어라. 이 세션의 브리프 전문이 그 파일에 있다."
 
-// TurnPromptPointer is the line that goes at the very FRONT of a hermes turn
-// prompt. The path is absolute on purpose: spike 5 §6.3 saw the agent's first
-// tool call be that read 4/4, and a relative path breaks the moment the
-// runtime's cwd is not the workdir.
-//
-// The daemon builds this, not the server, for the same reason it rewrites the
-// CLI wrapper path (harness §10 v0.8.1): the server does not know where this
-// machine put the workdir.
-func TurnPromptPointer(workdirAbs string) string {
-	return PromptPointerPrefix + filepath.Join(workdirAbs, FileName) + PromptPointerSuffix
-}
-
 // FileNameFor is harness v0.9.7's brief file name for a bundle's workdir
 // kind: a `dir` folder is shared by the parallel lanes of one agent in one
 // mission (daemon-protocol v0.10.0 §6.1, D3 A), so each lane writes
@@ -167,17 +155,17 @@ func FileNameFor(kind, laneID string) string {
 	return "COLAB_BRIEF-" + laneID + ".md"
 }
 
-// PointerTo is the pointer line for an explicit brief file path.
+// PointerTo is the line that goes at the very FRONT of a hermes turn prompt,
+// naming the brief file (Prepared.Path — its name is lane-scoped for `dir`
+// folders, FileNameFor). The path is absolute on purpose: spike 5 §6.3 saw
+// the agent's first tool call be that read 4/4, and a relative path breaks
+// the moment the runtime's cwd is not the workdir.
+//
+// The daemon builds this, not the server, for the same reason it rewrites the
+// CLI wrapper path (harness §10 v0.8.1): the server does not know where this
+// machine put the workdir.
 func PointerTo(briefPath string) string {
 	return PromptPointerPrefix + briefPath + PromptPointerSuffix
-}
-
-// PrependPointer puts the pointer line in front of the server's turn prompt,
-// separated by a blank line. An empty prompt still gets the pointer — a turn
-// with no instructions is a bug elsewhere, and dropping the brief on top of
-// it would hide which one.
-func PrependPointer(workdirAbs, prompt string) string {
-	return TurnPromptPointer(workdirAbs) + "\n\n" + prompt
 }
 
 // gitOps is the small slice of gitrepo Prepare/Remove use, kept behind a

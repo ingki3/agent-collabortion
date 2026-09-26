@@ -216,9 +216,13 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
           )}
         </div>
 
-        {/* 3 유실 경고 — `none` 은 한 줄(SCREEN §4.16 S17 `[FOLDERS]`): 폴더는 서버가 새 컴퓨터의 기준 위치로 새로 짓고 내용은 옮기지 않는다 */}
+        {/* 3 유실 경고 — `none`(SCREEN §4.16 S17 `[FOLDERS]` · Pencil 「Loss Warning (none)」): worktree 와 같은 박스 + ⚠ 제목 줄.
+            폴더는 서버가 새 컴퓨터의 기준 위치로 새로 짓고 내용은 옮기지 않는다 — 같은 위험이니 같은 무게로 보인다 */}
         {!worktree && (
-          <p className="rebind__loss-text" data-testid="rebind-loss-none">{FOLDERS_WORDING.rebind_none_loss}</p>
+          <div className="rebind__loss" data-testid="rebind-loss-none-box">
+            <p className="rebind__loss-title" data-testid="rebind-loss-none-title">{FOLDERS_WORDING.rebind_none_loss_title}</p>
+            <p className="rebind__loss-text" data-testid="rebind-loss-none">{FOLDERS_WORDING.rebind_none_loss}</p>
+          </div>
         )}
         {/* 3 유실 경고 — worktree 일 때만 */}
         {worktree && (

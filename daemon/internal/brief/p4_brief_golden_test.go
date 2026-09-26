@@ -184,7 +184,7 @@ func planBriefFile(t *testing.T, c briefFileCase) briefFilePlan {
 
 func planTurnPrompt(workdirAbs string) turnPromptPlan {
 	return turnPromptPlan{
-		FirstLine:    TurnPromptPointer(workdirAbs),
+		FirstLine:    PointerTo(filepath.Join(workdirAbs, FileName)),
 		BriefAbsPath: filepath.Join(workdirAbs, FileName),
 	}
 }

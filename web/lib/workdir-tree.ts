@@ -21,7 +21,9 @@ export const FOLDERS_WORDING = {
   fixed_name: "폴더 이름은 만들 때의 이름입니다",
   fixed_name_tip: "폴더 이름은 만들 때의 이름입니다 — 이름을 바꿔도 폴더는 옮기지 않습니다(실행 중인 작업이 이 경로에서 일합니다).",
   mission_open: "미션이 닫힌 뒤 보존 기한이 지나면 정리",
-  /** S17 `none` 유실 경고(SCREEN §4.16 S17 표 · Director 판정). */
+  /** S17 `none` 유실 경고의 제목 줄 — Pencil 「Loss Warning (none)」: worktree 경고와 같은 붉은 박스 + ⚠ 제목. */
+  rebind_none_loss_title: "⚠ 작업 폴더는 새 컴퓨터로 옮겨지지 않습니다 (격리: none)",
+  /** S17 `none` 유실 경고 본문(SCREEN §4.16 S17 표 · Director 판정). */
   rebind_none_loss: "작업 폴더(미션 공용 포함)는 옮겨지지 않습니다. 아티팩트만 새 컴퓨터로 갑니다",
   /** 미션 닫기 확인 한 줄(D8 B — 닫힘 즉시가 아니라 보존 기한 뒤). */
   closeLine: (count: number, bytes: number, retentionDays: number) =>
