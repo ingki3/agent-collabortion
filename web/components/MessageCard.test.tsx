@@ -120,16 +120,16 @@ describe("MessageCard — 본문 마크다운(FR-3.1)", () => {
     expect(body.textContent).toContain("[x](javascript:alert(1))");
   });
 
-  it("「작성 중…」 델타 — 닫히지 않은 펜스도 열린 채로 그려지고 커서 표시(data-typing)가 붙는다", () => {
-    render(<MessageBody content={"정리하면\n```\nconst a ="} typing />);
+  it("닫히지 않은 펜스도 열린 채로 그려진다 · 커서 표시(data-typing)는 없다(진행 메모는 본문이 아니다, v0.19.10)", () => {
+    render(<MessageBody content={"정리하면\n```\nconst a ="} />);
     const body = document.querySelector(".msg__body")!;
-    expect(body.getAttribute("data-typing")).toBe("true");
+    expect(body.hasAttribute("data-typing")).toBe(false);
     expect(body.querySelector("p")!.textContent).toBe("정리하면");
     expect(body.querySelector("pre[data-open=\"true\"] code")!.textContent).toBe("const a =");
   });
 
-  it("빈 델타도 깨지지 않는다", () => {
-    render(<MessageBody content="" typing />);
+  it("빈 본문도 깨지지 않는다", () => {
+    render(<MessageBody content="" />);
     expect(document.querySelector(".msg__body .md")).not.toBeNull();
   });
 });

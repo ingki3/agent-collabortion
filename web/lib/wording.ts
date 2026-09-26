@@ -605,7 +605,6 @@ export const ROOM_CENTER = {
   summary_of: (title: string) => `미션 「${title}」 요약`,
   summary_room: "여기까지 정리",
   typing: "입력 중…",
-  writing: "작성 중…",
 } as const;
 
 /** 작성창 미션 선택기(COMPONENTS §9.2) — 열림 / 잠김 / 자동. 자동은 「자동: 」 접두로 열림과 갈린다. */
@@ -748,10 +747,13 @@ export const MESSAGE_LAYERS = {
   artifact_version: ["v", ""] as Slotted,
   artifact_open: "열기",
   /**
-   * 「작업 중」 줄(T-FEED B, SCREEN §4.6 v0.19.6) — 턴이 도는 동안 마지막 메시지 뒤의 작업을 타임라인 맨 아래 한 줄로.
-   * 「@Lead 작업 중 · 셸 명령 12회 · 파일 3개 편집 · 17분 ▸」. 에이전트 이름은 화면이 끼운다. 턴이 끝나면 줄이 사라지고 그 조각은 마지막 메시지의 작업 과정으로 간다.
+   * 「작업 중」 말풍선(SCREEN §4.6 v0.19.10 · COMPONENTS §9.10) — 턴이 도는 동안 마지막 메시지 뒤의 작업을 에이전트 말풍선 자리에 하나로.
+   * 머리 「@Lead ‹작업 중› · 12분 · 셸 명령 36회 · 파일 읽기 5회 · 실패 2 ···」. 에이전트 이름은 화면이 끼운다. 턴이 끝나면 말풍선이 사라지고
+   * 그 조각은 마지막 메시지의 작업 과정으로 간다(v0.19.6).
    */
   working: "작업 중",
+  /** 말풍선 안 펼침 — 진행 메모(`message.delta`)를 조각마다 한 문단 + 꼬리 조각의 활동 피드. */
+  working_memo_all: "진행 메모 전체 보기",
 } as const;
 
 /**

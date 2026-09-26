@@ -20,6 +20,7 @@ import { registerR2W4a } from "./r2w4a";
 import { registerWorkEdit } from "./work-edit";
 import { registerMessageLayers } from "./message-layers";
 import { registerConversationSeed } from "./conversation-seed";
+import { registerWorkingSeed } from "./working-seed";
 import { applySpeech, type SpeechPremises } from "./speech";
 import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, SEED, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
 
@@ -73,6 +74,8 @@ registerWorkEdit({ on, Problem, dispatch, workGate, workView, toWork, setWork, v
 registerMessageLayers({ on, Problem, sessionOf, requireMember, addMessage, createTask, pushEvent, setLaneStatus, parseMentions, notFound: () => notFoundP("artifact") });
 // 타임라인 대화 배치 시드(`seed-conversation`, PRD FR-3.1.3) — 본문은 ./conversation-seed.ts(등록 한 줄만).
 registerConversationSeed({ on, Problem, sessionOf, addMessage, createTask, setLaneStatus, parseMentions });
+// 「작업 중」 말풍선 시드(`seed-working` · `working-step`, SCREEN §4.6 v0.19.10) — 두 에이전트 동시 작업 + 진행 메모 흐름. 본문은 ./working-seed.ts.
+registerWorkingSeed({ on, Problem, sessionOf, requireMember, addMessage, createTask, pushEvent, setLaneStatus, toTask });
 
 export async function dispatch(req: Req): Promise<Res> {
   for (const r of routes) {
@@ -2266,8 +2269,8 @@ on("POST", "/__mock/rooms/{id}/seed-markdown", (req, p) => {
 });
 
 /**
- * 「작성 중…」 델타 하나를 흘린다(SSE `message.delta`, 게시 없음) — 열린 코드 펜스 같은 **미완성 마크다운**이 깨지지 않는지 보는 자리
- * (T-W14 스크린샷). `text` 는 지금까지의 부분 출력 전체다(daemon-protocol §4.2 스냅숏).
+ * 진행 메모 델타 하나를 흘린다(SSE `message.delta`, 게시 없음) — 열린 코드 펜스 같은 **미완성 마크다운**이 「작업 중」 말풍선의 한 줄에서
+ * 기호 없이 읽히는지 보는 자리(T-W14 · v0.19.10). `text` 는 지금까지의 부분 출력 전체다(daemon-protocol §4.2 스냅숏).
  */
 on("POST", "/__mock/rooms/{id}/seed-delta", (req, p) => {
   const s = store();

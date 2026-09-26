@@ -4,7 +4,7 @@
 #
 #   p5-w14-01-s7-markdown-{light,dark}.png   S7 타임라인 — 첫 답변(목록·굵게·인라인 코드) + `seed-markdown` 의 text(제목·중첩 목록·표·인용·
 #                                            코드 블록·링크·멘션 칩·HTML 원문) + summary(W-12) 카드. 전체 페이지.
-#   p5-w14-02-s7-delta-{light,dark}.png      「작성 중…」 델타(`seed-delta` 스냅숏) — 닫히지 않은 코드 펜스가 열린 채로 그려지고 커서가 붙는다.
+#   p5-w14-02-s7-delta-{light,dark}.png      진행 메모 델타(`seed-delta` 스냅숏) — v0.19.10 부터 「작업 중」 말풍선의 한 줄(마크다운 기호 없이 마지막 문장).
 #
 # 사용:
 #   COLAB_MOCK_API=1 npx next build && COLAB_MOCK_API=1 npx next start -p 3117 &
@@ -71,18 +71,18 @@ for THEME in light dark; do
   shot "p5-w14-01-s7-markdown-$THEME"
 done
 
-step "「작성 중…」 델타 — 열린 코드 펜스(밝음·어두움)"
+step "진행 메모 델타 — 「작업 중」 말풍선(밝음·어두움)"
 ab set viewport 1280 900 >/dev/null
 for THEME in light dark; do
   set_theme "$THEME"
   open_wait "/rooms/$SID" '[data-testid="message-card"][data-kind="summary"]'
-  # 목이 델타 스냅숏 하나를 SSE 로 흘린다(게시 없음) — 열린 펜스가 코드 상자로, 끝에 커서.
+  # 목이 델타 스냅숏 하나를 SSE 로 흘린다(게시 없음) — 「작업 중」 말풍선의 진행 메모 한 줄(v0.19.10).
   apic "fetch('/api/v1/__mock/rooms/$SID/seed-delta', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).then(r => r.status)" >/dev/null
-  ab wait '[data-testid="message-delta"] pre[data-open="true"]' --timeout 10000 >/dev/null
+  ab wait '[data-testid="working-bubble"] [data-testid="working-memo-line"]' --timeout 10000 >/dev/null
   # W-18: 화면의 자동 스크롤이 작성창 높이만큼 scroll-margin 을 두고 내리므로 델타 카드가 작성창 뒤에 숨지 않는다 — 우회(window.scrollTo) 없이
   # 그대로 찍고, 델타 카드의 아래변이 작성창의 윗변보다 위에 있는지 **잰다**(단언). 렌더 뒤 한 프레임 기다린다.
   sleep 1
-  GAP=$(apic '(function(){var d=document.querySelector("[data-testid=message-delta]").getBoundingClientRect();var c=document.querySelector(".s7__composer").getBoundingClientRect();return Math.round(c.top-d.bottom)})()')
+  GAP=$(apic '(function(){var d=document.querySelector("[data-testid=working-bubble]").getBoundingClientRect();var c=document.querySelector(".s7__composer").getBoundingClientRect();return Math.round(c.top-d.bottom)})()')
   echo "  델타 카드 아래변 ↔ 작성창 윗변: ${GAP}px"
   [ "$GAP" -ge 0 ] || { echo "❌ 델타 카드가 작성창 뒤에 ${GAP}px 숨어 있다(W-18)"; exit 1; }
   shot "p5-w14-02-s7-delta-$THEME"

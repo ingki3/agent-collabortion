@@ -7,6 +7,7 @@
  */
 import type { ReactNode } from "react";
 import "./message-layers.css";
+import "./badge.css";
 import { Markdown } from "@/lib/markdown";
 import { Slot } from "@/components/Slot";
 import { DETAIL_WINDOW_CHARS, charCount, countTables, firstLinePreview, formatChars, type ProcessSummary } from "@/lib/message-layers";
@@ -123,40 +124,66 @@ export function ProcessFold({ messageId, summary, open, onToggle, children }: {
 }
 
 /**
- * 「작업 중」 줄(T-FEED B · SCREEN §4.6 v0.19.6) — 턴이 도는 동안 **마지막 메시지 뒤**의 작업을 타임라인 맨 아래 한 줄로.
- * 「@Lead 작업 중 · 셸 명령 12회 · 파일 3개 편집 · 17분 ▸」, 펼치면 그 조각의 활동 피드. 에이전트마다 하나, 턴이 끝나면 부른 쪽이 그리지 않는다.
- * 요약 규칙은 「작업 과정」 접힌 줄과 같다(`summarizeProcess` 에 꼬리 조각).
+ * 「작업 중」 말풍선(SCREEN §4.6 v0.19.10 · COMPONENTS §9.10) — 도는 턴의 「작업 중」 줄(v0.19.6)과 「작성 중…」 델타 블록을 합친 것.
+ * Chat Bubble(§9.8)의 에이전트 쪽 자리·폭·아바타를 그대로 쓰고, 테두리만 점선 1px `$line` · 배경 없음.
+ *
+ *  - 머리: `@이름` · 배지 「작업 중」 · 요약(걸린 시간 · 많은 동작 2개 — 「작업 과정」 접힌 줄과 같은 규칙) · 실패 꼬리 · 「···」.
+ *    받는 쪽(→)·말의 종류 배지는 없다 — 아직 누구에게 한 말이 아니다. `role="status"`·`aria-live` 는 **머리에만**.
+ *  - 진행 메모 한 줄: 마지막 문장 하나(`aria-live` 밖 — 토큰마다 읽히면 안 된다). 없으면 줄이 없다.
+ *  - 「진행 메모 전체 보기」: 조각마다 한 문단 → 그 아래 꼬리 조각의 활동 피드(`children`).
+ * 펼침 상태는 부른 쪽이 들고 있다(실시간 갱신에도 유지). 턴이 끝나면 부른 쪽이 그리지 않는다.
  */
-export function WorkingRow({ taskId, agentName, summary, open, onToggle, children }: {
-  taskId: string; agentName: string; summary: ProcessSummary; open: boolean; onToggle: () => void; children?: ReactNode;
+export function WorkingBubble({ agentId, taskId, agentName, summary, memoLine, memoParas, open, onToggle, children, holdRef }: {
+  agentId: string; taskId: string | null; agentName: string; summary: ProcessSummary | null; memoLine: string | null; memoParas: string[];
+  open: boolean; onToggle: () => void; children?: ReactNode; holdRef?: (el: HTMLElement | null) => void;
 }) {
-  const regionId = `working-${taskId}`;
+  const regionId = `working-${taskId ?? agentId}`;
   const parts: ReactNode[] = [];
   let fails = 0;
-  if (summary.state === "ready") {
+  if (summary?.state === "ready") {
     fails = summary.failures;
-    summary.top.forEach((p, i) => parts.push(<Slot key={`a${i}`} text={p.text} n={p.n} />));
     if (summary.duration.length) parts.push(<span key="d">{summary.duration.map((d, i) => <span key={i}>{i > 0 ? " " : null}<Slot text={d.text} n={d.n} /></span>)}</span>);
+    summary.top.forEach((p, i) => parts.push(<Slot key={`a${i}`} text={p.text} n={p.n} />));
   }
   return (
-    <div className="fold-wrap working" data-testid="working-row" data-task-id={taskId} aria-live="polite">
-      <FoldRow
-        label={`@${agentName} ${L.working}`}
-        open={open}
-        onToggle={onToggle}
-        regionId={regionId}
-        testId="working-fold"
-        tail={fails > 0 ? (
-          <span className="fold__fail" data-testid="fold-fail">
-            <span aria-hidden="true">{"· "}</span>
-            <Slot text={L.failures} n={fails} />
-          </span>
-        ) : null}
-      >
-        {parts.length > 0 ? <Dots parts={parts} /> : summary.state === "loading" ? L.process_loading : null}
-      </FoldRow>
-      {open && <div className="fold__process" id={regionId} data-testid="working-body">{children}</div>}
-    </div>
+    <article ref={holdRef} className="msg convo wbub" data-side="left" data-testid="working-bubble" data-agent-id={agentId} data-task-id={taskId ?? undefined}>
+      <span className="convo__avatar" aria-hidden="true">{agentName.slice(0, 1).toUpperCase()}</span>
+      <div className="convo__col">
+        <div className="msg__head convo__head wbub__head" role="status" aria-live="polite" data-testid="working-head">
+          <span className="msg__author msg__author--agent">{agentName}</span>
+          <span className="badge badge--soft badge--sm wbub__badge" data-tone="run" data-testid="working-badge">{L.working}</span>
+          {parts.length > 0 ? (
+            <span className="wbub__sum" data-testid="working-summary"><Dots parts={parts} /></span>
+          ) : summary?.state === "loading" ? (
+            <span className="wbub__sum" data-testid="working-summary">{L.process_loading}</span>
+          ) : null}
+          {fails > 0 && (
+            <span className="fold__fail wbub__fail" data-testid="fold-fail">
+              <span aria-hidden="true">{"· "}</span>
+              <Slot text={L.failures} n={fails} />
+            </span>
+          )}
+          <span className="wbub__dots" aria-hidden="true" data-testid="working-dots"><span>·</span><span>·</span><span>·</span></span>
+        </div>
+        <div className="convo__bubble wbub__bubble" data-testid="working-bubble-body">
+          {memoLine && (
+            <p className="wbub__line" data-testid="working-memo-line" title={memoLine}>
+              <span className="wbub__rail" aria-hidden="true">┆</span>
+              <span className="wbub__text">{memoLine}</span>
+            </p>
+          )}
+          <FoldRow label={L.working_memo_all} open={open} onToggle={onToggle} regionId={regionId} testId="working-fold" />
+          {open && (
+            <div className="wbub__region" id={regionId} data-testid="working-body">
+              {memoParas.map((p, i) => (
+                <p key={i} className="wbub__para" data-testid="working-memo-para">{p}</p>
+              ))}
+              {children && <div className="fold__process">{children}</div>}
+            </div>
+          )}
+        </div>
+      </div>
+    </article>
   );
 }
 
