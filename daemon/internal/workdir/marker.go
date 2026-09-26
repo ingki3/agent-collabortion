@@ -48,8 +48,14 @@ const MarkerName = ".colab-workdir.json"
 // nothing else is read back, and nothing else should be added — the file is
 // the daemon's, but it sits in the agent's directory, and every extra byte is
 // something an agent may read and reason about.
+//
+// daemon-protocol v0.10.0 §6 adds `work_id?`·`role?` ("데몬은 번들에서 받은 값을
+// `.colab-workdir.json` 표식에 함께 적어 두고 그대로 회신한다") — they are what S13
+// groups by and what the §6 report echoes after a restart.
 type marker struct {
-	ID string `json:"id"`
+	ID     string `json:"id"`
+	WorkID string `json:"work_id,omitempty"`
+	Role   string `json:"role,omitempty"`
 }
 
 // WriteMarker writes the tag. Written on every preparation, not only the
@@ -58,10 +64,19 @@ type marker struct {
 // follows the bundle. Write-then-rename: a probe listing the directory while
 // an attempt prepares must never read half a line.
 func WriteMarker(path, id string) error {
-	if path == "" || id == "" {
+	return writeMarker(path, marker{ID: id})
+}
+
+// WriteMarkerFor writes the tag with the v0.10.0 fields.
+func WriteMarkerFor(path, id, workID, role string) error {
+	return writeMarker(path, marker{ID: id, WorkID: workID, Role: role})
+}
+
+func writeMarker(path string, m marker) error {
+	if path == "" || m.ID == "" {
 		return errors.New("workdir: marker needs a path and an id")
 	}
-	blob, err := json.Marshal(marker{ID: id})
+	blob, err := json.Marshal(m)
 	if err != nil {
 		return err
 	}
@@ -74,19 +89,21 @@ func WriteMarker(path, id string) error {
 
 // ReadMarker returns the tag's id, or "" when the directory has none (an
 // older daemon prepared it, or the bundle had no id).
-func ReadMarker(path string) string {
+func ReadMarker(path string) string { return readMarker(path).ID }
+
+func readMarker(path string) marker {
 	if path == "" {
-		return ""
+		return marker{}
 	}
 	blob, err := os.ReadFile(filepath.Join(path, MarkerName))
 	if err != nil {
-		return ""
+		return marker{}
 	}
 	var m marker
 	if json.Unmarshal(blob, &m) != nil {
-		return ""
+		return marker{}
 	}
-	return m.ID
+	return m
 }
 
 // tag is what Prepare and PrepareWorktree do once the directory exists: the
@@ -96,6 +113,11 @@ func ReadMarker(path string) string {
 // index, and forgetting the record here is what empties the index directory
 // on a fleet that has moved to v0.8.3 bundles.
 func tag(root, abs, id string, rec Record) error {
+	return tagWith(root, abs, id, "", "", rec)
+}
+
+// tagWith is tag with the v0.10.0 marker fields (work_id, role).
+func tagWith(root, abs, id, workID, role string, rec Record) error {
 	if id == "" {
 		if root == "" {
 			return nil
@@ -105,7 +127,7 @@ func tag(root, abs, id string, rec Record) error {
 		}
 		return nil
 	}
-	if err := WriteMarker(abs, id); err != nil {
+	if err := WriteMarkerFor(abs, id, workID, role); err != nil {
 		return fmt.Errorf("workdir marker: %w", err)
 	}
 	if gitrepo.IsRepo(abs) {

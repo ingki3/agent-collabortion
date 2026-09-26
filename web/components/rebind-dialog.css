@@ -23,6 +23,7 @@
   background: color-mix(in srgb, var(--s-fail) var(--soft-alpha), transparent);
   display: flex; flex-direction: column; gap: 6px;
 }
+.rebind__loss-title { margin: 0; font-size: var(--fs-body); font-weight: 600; color: var(--s-fail-text); }
 .rebind__loss-text { margin: 0; font-size: var(--fs-sub); color: var(--s-fail-text); }
 .rebind__order { margin: 0; padding-left: 18px; font-size: var(--fs-sub); color: var(--ink-2); }
 .rebind__ack { font-size: var(--fs-body); }

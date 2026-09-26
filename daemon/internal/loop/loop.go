@@ -580,6 +580,9 @@ func (d *Daemon) gc(ctx context.Context, c contracts.Command) {
 				res.Status = workdir.GCDeleted
 				w.Bytes = 0
 				workdir.ForgetWorkdir(d.Cfg.WorkdirRoot, w.Path)
+				// §4.3 v0.10.0: `rooms/<room>/_worktrees/` and `rooms/<room>/`
+				// go when this checkout was the last thing in them.
+				workdir.PruneEmptyParents(d.Cfg.WorkdirRoot, w.Path)
 			}
 		default:
 			if err := workdir.Remove(d.Cfg.WorkdirRoot, w.Path); err != nil {
@@ -709,6 +712,11 @@ func (d *Daemon) reportLaneWorkdir(b contracts.TaskBundle, fw *contracts.FinishW
 	}
 	if fw.Git != nil {
 		row.Git = fw.Git
+	}
+	// daemon-protocol v0.10.0 §6 `work_id?`·`role?` — echoed as the bundle
+	// said them (the server's row wins where they differ).
+	if row.Kind != "worktree" && b.Workdir.ID != "" && b.Workdir.Path != "" {
+		row.WorkID, row.Role = b.Task.WorkID, "agent"
 	}
 	// Background, not the attempt's context: this runs after finish, and on
 	// SIGTERM the attempt's context is already being torn down. The report is
@@ -1087,7 +1095,16 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		return
 	}
 
-	prep, err := brief.Prepare(wd, b.Brief.Transport, b.Brief.Text)
+	// harness v0.9.7: a `dir` folder the server named (daemon-protocol
+	// v0.10.0 §6.1) is shared by this agent's parallel lanes in the mission,
+	// so the brief file is named per lane. An older server's bundle names no
+	// path: its folder is the lane's own (`sessions/<room>/<lane>`) and keeps
+	// `COLAB_BRIEF.md`.
+	briefName := brief.FileName
+	if b.Workdir.Path != "" {
+		briefName = brief.FileNameFor(b.Workdir.Kind, b.Task.LaneID)
+	}
+	prep, err := brief.PrepareNamed(wd, briefName, b.Brief.Transport, b.Brief.Text)
 	if err != nil {
 		finish(contracts.Finish{Outcome: "failed", FailureKind: contracts.FailConfig, StopReason: err.Error(), Workdir: d.finishWorkdir(wd)})
 		return
@@ -1101,7 +1118,7 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		// workdir. It goes on AFTER the wrapper rewrite: the pointer contains
 		// no `colab ` command, and rewriting it would be a no-op that only
 		// risks mangling the path.
-		b.Prompt = brief.PrependPointer(wd, b.Prompt)
+		b.Prompt = brief.PointerTo(prep.Path) + "\n\n" + b.Prompt
 	}
 
 	if !d.taskEnv(b).ColabSurface() {

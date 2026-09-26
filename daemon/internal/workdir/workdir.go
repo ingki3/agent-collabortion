@@ -209,13 +209,27 @@ func Verify(path string) error {
 }
 
 // Prepare resolves and creates the workdir for a bundle. An explicit
-// bundle.workdir.path wins; otherwise the lane folder under root. Existing
+// bundle.workdir.path wins — since daemon-protocol v0.10.0 the server names
+// it for every kind (§6.1); the lane folder under root
+// (`sessions/<room>/<lane>`) is only an older server's bundle. Existing
 // folders are reused as-is (reuse=false still never deletes — FR-9.1).
+//
+// v0.10.0 §4.1 `shared_path`: the mission's `_shared` folder is created
+// (`mkdir -p`, nothing else — its contents are never read or removed here),
+// and both paths must lie under the workdir root (`UnderRoot`, `..` and
+// symlink escapes included); anything else fails the preparation.
 func Prepare(root string, b contracts.TaskBundle) (string, error) {
 	switch b.Workdir.Kind {
 	case "", "dir", "none":
 	case "worktree":
-		return PrepareWorktree(root, b)
+		abs, err := PrepareWorktree(root, b)
+		if err != nil {
+			return "", err
+		}
+		if err := PrepareShared(root, b.Workdir.SharedPath); err != nil {
+			return "", err
+		}
+		return abs, nil
 	default:
 		return "", fmt.Errorf("%w: %s", ErrUnsupported, b.Workdir.Kind)
 	}
@@ -226,6 +240,12 @@ func Prepare(root string, b contracts.TaskBundle) (string, error) {
 		}
 		path = Path(root, b.Task.SessionID, b.Task.LaneID)
 	}
+	if root != "" && !UnderRoot(root, path) {
+		return "", &Error{
+			Detail: fmt.Sprintf("작업 폴더 %s 가 이 컴퓨터의 작업 폴더 기준 위치(%s) 밖이라 쓰지 않습니다", path, root),
+			Cause:  fmt.Sprintf("workdir: refusing %q: not inside the workdir root %q", path, root),
+		}
+	}
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return "", err
 	}
@@ -234,18 +254,41 @@ func Prepare(root string, b contracts.TaskBundle) (string, error) {
 		return "", err
 	}
 	// K-14 (v0.8.3): the bundle's `workdir.id` goes into the directory's name
-	// tag (marker.go) and the §6 report echoes it. A `dir` lane's FIRST
-	// attempt has no id (the server cannot make the row before the daemon
-	// names the path — Lead T-S21 decision A), and an older server sends
-	// none at all: those keep the v0.7.3 index record, which the report reads
-	// for the session uuid and the lane that the directory name cannot supply.
-	if err := tag(root, abs, b.Workdir.ID, Record{
+	// tag (marker.go) and the §6 report echoes it. v0.10.0 servers send it
+	// from the first attempt; an older server sends none: that keeps the
+	// v0.7.3 index record, which the report reads for the session uuid and
+	// the lane that the directory name cannot supply.
+	role := ""
+	if b.Workdir.ID != "" && b.Workdir.Path != "" {
+		role = "agent"
+	}
+	if err := tagWith(root, abs, b.Workdir.ID, b.Task.WorkID, role, Record{
 		Kind: "dir", Path: abs, SessionID: b.Task.SessionID,
 		AgentID: b.Task.AgentID, AgentName: b.Task.AgentName, LaneID: b.Task.LaneID,
 	}); err != nil {
 		return "", err
 	}
+	if err := PrepareShared(root, b.Workdir.SharedPath); err != nil {
+		return "", err
+	}
 	return abs, nil
+}
+
+// PrepareShared is daemon-protocol v0.10.0 §4.1's whole duty for
+// `shared_path`: `mkdir -p`, under the root. Empty is a turn outside any
+// mission (or an older server) — nothing to do.
+func PrepareShared(root, shared string) error {
+	if shared == "" {
+		return nil
+	}
+	p := ResolvePath(root, shared)
+	if p == "" || root == "" || !UnderRoot(root, p) {
+		return &Error{
+			Detail: fmt.Sprintf("미션 공용 폴더 %s 가 이 컴퓨터의 작업 폴더 기준 위치(%s) 밖이라 만들지 않습니다", shared, root),
+			Cause:  fmt.Sprintf("workdir: refusing shared %q: not inside the workdir root %q", shared, root),
+		}
+	}
+	return os.MkdirAll(p, 0o755)
 }
 
 // Info is one workdir as reported to the server (daemon-protocol §6).
@@ -265,7 +308,12 @@ type Info struct {
 	// TestChatID marks a daemon-protocol v0.8 §4.5 receipt: the row is for a
 	// test chat's temporary directory, is never stored as a workdir, and its
 	// `gc` consumes the chat's gc command. session_id stays empty on it.
-	TestChatID string    `json:"test_chat_id,omitempty"`
+	TestChatID string `json:"test_chat_id,omitempty"`
+	// WorkID · Role are daemon-protocol v0.10.0 §6's `work_id?`·`role?`:
+	// read back from the name tag (agent folders) or the layout (`_shared`,
+	// which has no tag). The server finds the row by id and its row wins.
+	WorkID     string    `json:"work_id,omitempty"`
+	Role       string    `json:"role,omitempty"`
 	LaneID     string    `json:"lane_id,omitempty"`
 	AgentID    string    `json:"agent_id,omitempty"`
 	Bytes      int64     `json:"bytes"`
@@ -326,7 +374,40 @@ func Remove(root, p string) error {
 	if !UnderRoot(root, abs) {
 		return fmt.Errorf("workdir: refusing to remove %q: not inside the workdir root %q", abs, rootAbs)
 	}
-	return os.RemoveAll(abs)
+	if err := os.RemoveAll(abs); err != nil {
+		return err
+	}
+	PruneEmptyParents(root, abs)
+	return nil
+}
+
+// PruneEmptyParents is daemon-protocol v0.10.0 §4.3: after a gc deletion,
+// the parents it left empty — `rooms/<room>/<mission>/`, `_room/`,
+// `_worktrees/`, `rooms/<room>/` — go too, innermost first, and ONLY when
+// empty (`rmdir` semantics: one file left anywhere stops the walk). The root
+// itself, `rooms/`, and the old `sessions/`·`worktrees/` trees are never
+// removed; a path outside `rooms/` prunes nothing.
+func PruneEmptyParents(root, p string) {
+	if root == "" {
+		return
+	}
+	rooms := filepath.Join(realPath(root), RoomsDir)
+	dir := filepath.Dir(realPath(p))
+	for {
+		rel, err := filepath.Rel(rooms, dir)
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return
+		}
+		if err := os.Remove(dir); err != nil {
+			// Not empty (or already gone and its parent is not ours to
+			// judge): stop — never walk past a directory that still holds
+			// something.
+			if !errors.Is(err, fs.ErrNotExist) {
+				return
+			}
+		}
+		dir = filepath.Dir(dir)
+	}
 }
 
 // SessionLanes lists the lane folders of one session — the fallback target of
@@ -346,7 +427,19 @@ func SessionLanes(root, sessionID string) []Info {
 	return out
 }
 
-// List enumerates lane folders under root with size and mtime.
+// RoomsDir is daemon-protocol v0.10.0 §6.1's tree: `<root>/rooms/<room>/…`.
+const RoomsDir = "rooms"
+
+// Reserved pieces of §6.1.
+const (
+	SharedDir    = "_shared"
+	WorktreesSub = "_worktrees"
+)
+
+// List enumerates workdirs under root with size and mtime — all three trees
+// (daemon-protocol v0.10.0 §6.1): the old `sessions/<room>/<lane>` folders,
+// the `rooms/<room>/<mission|_room>/<agent|_shared>` folders, and every
+// `worktree` checkout (old `worktrees/…` and `rooms/<room>/_worktrees/…`).
 func List(root string) ([]Info, error) {
 	base := filepath.Join(root, "sessions")
 	sessions, err := os.ReadDir(base)
@@ -373,11 +466,50 @@ func List(root string) ([]Info, error) {
 			out = append(out, Info{ID: ReadMarker(p), Kind: "dir", Path: p, SessionID: s.Name(), LaneID: l.Name(), Bytes: size, LastUsedAt: last})
 		}
 	}
+	out = append(out, listRooms(root)...)
 	// §6 "데몬은 workdir 목록을 probe와 함께 보고한다" — the list is the whole
 	// disk footprint, and a `worktree` checkout left out of it is a workdir
 	// S13 cannot show and GC can never reach.
 	out = append(out, ListWorktrees(root)...)
 	return out, nil
+}
+
+// listRooms is the §6.1 `rooms/` tree minus the checkouts (ListWorktrees).
+// The identity is the name tag (`id`, `work_id`, `role`); a `_shared` folder
+// has no tag — the daemon only mkdirs it — and is reported as role=shared by
+// its path, which the server stored.
+func listRooms(root string) []Info {
+	var out []Info
+	base := filepath.Join(root, RoomsDir)
+	rooms, _ := os.ReadDir(base)
+	for _, r := range rooms {
+		if !r.IsDir() {
+			continue
+		}
+		groups, _ := os.ReadDir(filepath.Join(base, r.Name()))
+		for _, g := range groups {
+			if !g.IsDir() || g.Name() == WorktreesSub {
+				continue
+			}
+			folders, _ := os.ReadDir(filepath.Join(base, r.Name(), g.Name()))
+			for _, f := range folders {
+				if !f.IsDir() {
+					continue
+				}
+				p := filepath.Join(base, r.Name(), g.Name(), f.Name())
+				size, last := DiskUsage(p)
+				info := Info{Kind: "dir", Path: p, Bytes: size, LastUsedAt: last}
+				if f.Name() == SharedDir {
+					info.Role = "shared"
+				} else {
+					m := readMarker(p)
+					info.ID, info.WorkID, info.Role = m.ID, m.WorkID, m.Role
+				}
+				out = append(out, info)
+			}
+		}
+	}
+	return out
 }
 
 // DiskUsage sums file sizes under p and returns the newest mtime.

@@ -102,12 +102,18 @@ chk A1 "Lead 가 깨어난 횟수 = 3 (위임1+합류1+통보1)" 3 "$LEAD_TASKS"
 chk A1b "Lead task 가 전부 completed" "$LEAD_TASKS" "$(psqlq "select count(*) from task t join agent a on a.id=t.agent_id where t.session_id='$SESSION' and a.name='Lead' and t.status='completed'")"
 R_LANES="$(lanes_count "$SESSION" Researcher)"
 chk A2 "Researcher lane 3개 (위임 3 = lane 3, FR-6.1)" 3 "$R_LANES"
-R_WD_DISK=0
-while read -r lid; do [ -n "$lid" ] && [ -d "$WORK/sessions/$SESSION/$lid" ] && R_WD_DISK=$((R_WD_DISK+1)); done \
-  <<<"$(psqlq "select l.id from lane l join agent a on a.id=l.agent_id where l.session_id='$SESSION' and a.name='Researcher'")"
-chk A2b "격리 none → Researcher workdir 디렉토리 3개 (FR-6.1)" 3 "$R_WD_DISK"
-chk A2e "Researcher lane 3개가 각각 workdir 행을 가리킨다" 3 "$(psqlq "select count(*) from workdir w join lane l on l.workdir_id=w.id join agent a on a.id=l.agent_id where l.session_id='$SESSION' and a.name='Researcher'")"
-chk A2f "격리 none → workdir 행 수 = lane 수" "$(psqlq "select count(*) from lane where session_id='$SESSION'")" "$(psqlq "select count(*) from workdir where session_id='$SESSION'")"
+# T-FOLDERS(daemon-protocol v0.10.0 §6.1, D3 A): 같은 미션의 같은 에이전트 lane 은 **한 폴더를 함께 쓴다**.
+# 옛 규칙(lane 당 폴더 3개 · 행 수 = lane 수)은 실측에서 동료가 서로의 결과를 못 찾게 만든 배치였다.
+R_WD_DIRS="$(psqlq "select count(distinct w.path_or_ref) from workdir w join lane l on l.workdir_id=w.id join agent a on a.id=l.agent_id where l.session_id='$SESSION' and a.name='Researcher'")"
+chk A2b "격리 none → Researcher lane 3개가 폴더 하나를 함께 쓴다 (FR-6.1, D3 A)" 1 "$R_WD_DIRS"
+R_WD_ON_DISK="$(psqlq "select path_or_ref from workdir w join lane l on l.workdir_id=w.id join agent a on a.id=l.agent_id where l.session_id='$SESSION' and a.name='Researcher' limit 1")"
+chk A2b2 "그 폴더가 디스크에 있다(rooms/<방>/<미션>/<에이전트>)" yes "$( [ -n "$R_WD_ON_DISK" ] && [ -d "$R_WD_ON_DISK" ] && echo yes || echo "no($R_WD_ON_DISK)" )"
+chk A2e "Researcher lane 3개가 전부 그 행을 가리킨다" 3 "$(psqlq "select count(*) from lane l join workdir w on w.id=l.workdir_id join agent a on a.id=l.agent_id where l.session_id='$SESSION' and a.name='Researcher'")"
+# 행 수 = 에이전트 수(미션×에이전트 하나) + 미션 공용 `_shared` 하나.
+chk A2f "격리 none → workdir 행 수 = 에이전트 폴더 + 미션 공용 1" \
+  "$(( $(psqlq "select count(distinct agent_id) from lane where session_id='$SESSION'") + 1 ))" \
+  "$(psqlq "select count(*) from workdir where session_id='$SESSION'")"
+chk A2g "미션 공용 _shared 행 1(role=shared)" 1 "$(psqlq "select count(*) from workdir where session_id='$SESSION' and role='shared'")"
 OVERLAP="$(running_overlap "$SESSION" Researcher)"
 chk_ge A2c "Researcher lane 동시 running 최대 겹침 (FR-6.3)" 2 "$OVERLAP"
 chk A2d "동시 3개 (위임 3이 병렬)" 3 "$OVERLAP"

@@ -20,6 +20,7 @@ import { useCallback, useEffect, useState } from "react";
 import "./rebind-dialog.css";
 import { api, errorMessage } from "@/lib/api/client";
 import { relativeTime } from "@/lib/time";
+import { FOLDERS_WORDING } from "@/lib/workdir-tree";
 import { pageItems, type Artifact, type Isolation, type IsolationKind, type Room, type RuntimeCandidate, type WorkListItem } from "@/lib/api/types";
 
 /** 재바인딩 대상 방 — 다이얼로그가 그리는 칸만. `rebindTargetOfRoom` 이 `getRoom` 응답에서 만든다. */
@@ -215,6 +216,14 @@ export function RebindDialog({ session, onDone, onClose }: RebindDialogProps) {
           )}
         </div>
 
+        {/* 3 유실 경고 — `none`(SCREEN §4.16 S17 `[FOLDERS]` · Pencil 「Loss Warning (none)」): worktree 와 같은 박스 + ⚠ 제목 줄.
+            폴더는 서버가 새 컴퓨터의 기준 위치로 새로 짓고 내용은 옮기지 않는다 — 같은 위험이니 같은 무게로 보인다 */}
+        {!worktree && (
+          <div className="rebind__loss" data-testid="rebind-loss-none-box">
+            <p className="rebind__loss-title" data-testid="rebind-loss-none-title">{FOLDERS_WORDING.rebind_none_loss_title}</p>
+            <p className="rebind__loss-text" data-testid="rebind-loss-none">{FOLDERS_WORDING.rebind_none_loss}</p>
+          </div>
+        )}
         {/* 3 유실 경고 — worktree 일 때만 */}
         {worktree && (
           <div className="rebind__loss" data-testid="rebind-loss">

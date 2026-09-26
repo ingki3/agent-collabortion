@@ -33,6 +33,7 @@ import { RoomBlockedBanner } from "@/components/RoomBlockedBanner";
 import { RoomParticipants } from "@/components/RoomParticipants";
 import { WorkChipRow, WorkLabel } from "@/components/WorkChipRow";
 import { WorkPanel } from "@/components/WorkPanel";
+import { CloseWorkDialog } from "@/components/CloseWorkDialog";
 import { RoomPanel } from "@/components/RoomPanel";
 import { CreateWorkDialog } from "@/components/CreateWorkDialog";
 import { ChangeDirectorDialog, FixWorkConditionDialog } from "@/components/WorkEditDialogs";
@@ -170,7 +171,7 @@ export default function RoomPage() {
   const [dialog, setDialog] = useState<"archive" | "delete" | null>(null);
   const [showParticipants, setShowParticipants] = useState(false);
   /** 미션 칸의 편집 다이얼로그(T-R2-W4b) — 설정 편집(S21 편집 모드) · Director 교체 · 조건 고치기. 우열에 실린 미션에 대해서만 뜬다. */
-  const [workDialog, setWorkDialog] = useState<"edit" | "director" | "condition" | null>(null);
+  const [workDialog, setWorkDialog] = useState<"edit" | "director" | "condition" | "close" | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [boardOpen, setBoardOpen] = useState<Set<LaneStatus>>(new Set());
   /** 「여기까지 정리」 직접 고르기(T-R2-W4b) — 집는 중이면 시작 메시지(아직 없으면 null), 다 집으면 범위 + 다이얼로그를 다시 여는 신호. */
@@ -1282,7 +1283,7 @@ export default function RoomPage() {
               agentName={agentName}
               onPause={() => void workAct("/works/{workId}/pause")}
               onResume={(body) => void workAct("/works/{workId}/resume", body)}
-              onComplete={() => void workAct("/works/{workId}/complete", { confirm: true })}
+              onComplete={() => setWorkDialog("close")}
               onCancel={() => void workAct("/works/{workId}/cancel", {})}
               onOpenHitl={(hid) => { const h = hitls.find((x) => x.id === hid); if (h?.message_id) jumpToMessage(h.message_id); }}
               onNewWork={openNewWork}
@@ -1338,6 +1339,17 @@ export default function RoomPage() {
           }}
         />
       </Suspense>
+      {work && workDialog === "close" && (
+        // [FOLDERS] D8 B — 닫아도 폴더는 보존 기한 뒤 정리된다는 한 줄을 여기서 말한다(SCREEN §4.16).
+        <CloseWorkDialog
+          workId={work.id}
+          runtimeId={room?.runtime_id ?? null}
+          workspaceId={workspace?.id ?? null}
+          busy={busy}
+          onConfirm={() => void workAct("/works/{workId}/complete", { confirm: true })?.then(() => setWorkDialog(null))}
+          onClose={() => setWorkDialog(null)}
+        />
+      )}
       {work && workDialog === "edit" && (
         <CreateWorkDialog roomId={roomId} mode="edit" work={work} onOpened={onWorkSaved} onClose={() => setWorkDialog(null)} />
       )}

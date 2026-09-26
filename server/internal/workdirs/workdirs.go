@@ -216,9 +216,15 @@ func bindLane(ctx context.Context, q db.DBTX, id uuid.UUID, rep Report, now time
 			return fmt.Errorf("workdirs: bind lane: %w", err)
 		}
 	case rep.AgentID != nil:
+		// Only a `worktree` checkout is shared by EVERY lane of the agent in
+		// the room (C3). A `dir` row belongs to one mission (daemon-protocol
+		// v0.10.0 §6.1, D3 A) — binding the agent's other lanes to it would
+		// put a lane of another mission in this mission's folder; those rows
+		// are bound when their bundle is built (queue.planBundleWorkdir).
 		if _, err := q.Exec(ctx, `
 			UPDATE lane SET workdir_id = $1, updated_at = $2
 			WHERE session_id = (SELECT session_id FROM workdir WHERE id = $1) AND agent_id = $3
+			  AND (SELECT kind FROM workdir WHERE id = $1) = 'worktree'
 			  AND workdir_id IS NULL`,
 			id, now, *rep.AgentID); err != nil {
 			return fmt.Errorf("workdirs: bind agent lanes: %w", err)
