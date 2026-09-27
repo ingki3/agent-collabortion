@@ -511,3 +511,50 @@ func TestMessagePostToolMentionsAPerson(t *testing.T) {
 		t.Fatalf("unknown mention result = %s", b)
 	}
 }
+
+// colab-cli v0.9.7: colab_status_set working + note is the lane's 「지금」 —
+// the note goes to the server as written (the server cuts at 120), and the
+// tool's description says what it is for.
+//
+// 회귀 주입: 설명에서 「지금」 문장을 지우면 (description) FAIL; note 를 떨구면
+// (note) FAIL.
+func TestStatusSetToolWorkingNote(t *testing.T) {
+	s := clienttest.New(t)
+	c := dial(t, newClient(t, s, nil))
+	c.call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "test", "version": "0"}})
+	c.notify("notifications/initialized")
+	long := strings.Repeat("원인을 찾고 있습니다 ", 20)
+	if r := c.call("tools/call", map[string]any{"name": "colab_status_set", "arguments": map[string]any{"status": "working", "note": long}}); r.Error != nil || r.Result["isError"] == true {
+		t.Fatalf("call = %+v", r)
+	}
+	if got := s.StatusCalls[0].Body["note"]; got != long {
+		t.Fatalf("(note) sent %q", got)
+	}
+	for _, tl := range mcp.Tools {
+		if tl.Name != "colab_status_set" {
+			continue
+		}
+		// Both places the model reads: the tool description and the note
+		// argument's own description.
+		var schema struct {
+			Properties struct {
+				Note struct {
+					Description string `json:"description"`
+				} `json:"note"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal(tl.InputSchema, &schema); err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range []string{"what you are doing now", "「지금 …」", "turn starts"} {
+			if !strings.Contains(tl.Description, w) {
+				t.Errorf("(description) colab_status_set description lacks %q", w)
+			}
+		}
+		for _, w := range []string{"what you are doing now", "「지금 …」", "120 chars", "not after every tool call"} {
+			if !strings.Contains(schema.Properties.Note.Description, w) {
+				t.Errorf("(description) note argument lacks %q", w)
+			}
+		}
+	}
+}

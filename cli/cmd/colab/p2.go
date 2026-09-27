@@ -59,7 +59,7 @@ func runStatus(args []string, getenv client.Getenv, stdout, stderr io.Writer) in
 	}
 	fs, _ := newFlagSet("status set", stderr)
 	task := fs.String("task", "", "task id (default COLAB_TASK_ID / token scope)")
-	note := fs.String("note", "", "feed note; required for blocked — it is the question the delegator answers")
+	note := fs.String("note", "", "working: what you are doing now, one sentence for the people (shown as 「지금 …」, 120 chars); blocked: REQUIRED — the question the delegator answers")
 	statusFlag := fs.String("status", "", "alternative to the positional word: working | blocked | done")
 	if err := fs.Parse(rest); err != nil {
 		return client.ExitUsage
