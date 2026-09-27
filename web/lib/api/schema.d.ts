@@ -4678,6 +4678,13 @@ export interface components {
                 role?: components["schemas"]["AgentRole"];
                 mention_link: string;
             }[];
+            /** @description v0.3.5 — 이 방의 **사람 참여자**(방장·부방장·멤버, 나간 사람 제외)와 멘션 링크 `[@표시명](mention://user/<id>)`(PRD FR-3.2). CLI `message post --mention` 은 `participants`(에이전트)에서 먼저 찾고 없으면 여기서 찾는다 — 에이전트가 Director·방장을 멘션하면 `unknown_mention` 으로 거절되던 결함(실사용 배포 확인 2026-09-27). 사람 멘션은 에이전트를 깨우지 않고(라우팅은 에이전트만) 알림·받는 쪽(`addressees` kind `user`)에만 쓰인다. 이름이 에이전트와 같으면 에이전트가 이긴다. */
+            humans?: {
+                /** Format: uuid */
+                user_id: string;
+                name: string;
+                mention_link: string;
+            }[];
             /** @description 이 task 의 에이전트가 쓸 수 있는 colab 명령(역할 부분집합, v1.1 K-19). CLI 는 이 밖의 명령을 서버에 보내기 전에 exit 3 `command_not_allowed` 로 거부한다. */
             allowed_commands?: components["schemas"]["ColabCommand"][];
             /** Format: date-time */

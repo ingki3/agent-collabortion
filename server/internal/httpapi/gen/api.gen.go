@@ -2481,7 +2481,14 @@ type CliContext struct {
 	Attempt             int                                   `json:"attempt"`
 	DelegatedFromTaskId nullable.Nullable[openapi_types.UUID] `json:"delegated_from_task_id,omitempty"`
 	ExpiresAt           time.Time                             `json:"expires_at"`
-	LaneId              openapi_types.UUID                    `json:"lane_id"`
+
+	// Humans v0.3.5 — 이 방의 **사람 참여자**(방장·부방장·멤버, 나간 사람 제외)와 멘션 링크 `[@표시명](mention://user/<id>)`(PRD FR-3.2). CLI `message post --mention` 은 `participants`(에이전트)에서 먼저 찾고 없으면 여기서 찾는다 — 에이전트가 Director·방장을 멘션하면 `unknown_mention` 으로 거절되던 결함(실사용 배포 확인 2026-09-27). 사람 멘션은 에이전트를 깨우지 않고(라우팅은 에이전트만) 알림·받는 쪽(`addressees` kind `user`)에만 쓰인다. 이름이 에이전트와 같으면 에이전트가 이긴다.
+	Humans *[]struct {
+		MentionLink string             `json:"mention_link"`
+		Name        string             `json:"name"`
+		UserId      openapi_types.UUID `json:"user_id"`
+	} `json:"humans,omitempty"`
+	LaneId openapi_types.UUID `json:"lane_id"`
 
 	// LastSeq 이 task가 지금까지 쓴 **마지막(최댓값)** client seq(attempt 무관) — 개수가 아니다(구멍이 있어도 max). 출처는 idempotency_key.client_seq, 없으면 UUIDv5 순차 대조(ClientSeq 헤더 설명). CLI는 last_seq+1부터 이어 쓴다 — 멱등키 UUIDv5(task:<task_id>:<seq>)가 attempt 경계를 넘어 유일하도록(colab-cli.md §1, E8-04).
 	LastSeq int `json:"last_seq"`
