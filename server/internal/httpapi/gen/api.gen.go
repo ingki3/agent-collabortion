@@ -794,6 +794,24 @@ func (e LaneActions) Valid() bool {
 	}
 }
 
+// Defines values for LaneFocusSource.
+const (
+	LaneFocusSourceAgent   LaneFocusSource = "agent"
+	LaneFocusSourceDerived LaneFocusSource = "derived"
+)
+
+// Valid indicates whether the value is a known member of the LaneFocusSource enum.
+func (e LaneFocusSource) Valid() bool {
+	switch e {
+	case LaneFocusSourceAgent:
+		return true
+	case LaneFocusSourceDerived:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for LaneStatus.
 const (
 	LaneStatusBlocked      LaneStatus = "blocked"
@@ -3030,6 +3048,9 @@ type Lane struct {
 	FailureKind         nullable.Nullable[FailureKind]        `json:"failure_kind,omitempty"`
 	FinishedAt          nullable.Nullable[time.Time]          `json:"finished_at"`
 
+	// Focus v0.3.8 — 지금 무엇을 풀고 있는지(PRD FR-3.1.5). 도는 턴이 없으면 null(턴이 끝나면 서버가 비운다).
+	Focus nullable.Nullable[LaneFocus] `json:"focus,omitempty"`
+
 	// HasRuntimeSession `runtime_session_ref` 보유 여부(resume 가능 신호). ref 자체는 노출하지 않는다.
 	HasRuntimeSession *bool `json:"has_runtime_session,omitempty"`
 
@@ -3078,6 +3099,21 @@ type Lane struct {
 
 // LaneActions defines model for Lane.Actions.
 type LaneActions string
+
+// LaneFocus defines model for LaneFocus.
+type LaneFocus struct {
+	// At 선언(또는 대신 문장을 만든) 시각.
+	At time.Time `json:"at"`
+
+	// Source `agent` = 에이전트가 `status set working --note` 로 선언. `derived` = 선언 전 서버가 트리거로 만든 대신 문장(「〈작성자〉의 「…」 요청을 처리하고 있습니다」) — 화면은 흐리게.
+	Source LaneFocusSource `json:"source"`
+
+	// Text 사람에게 하는 한 문장(방의 사람 말).
+	Text string `json:"text"`
+}
+
+// LaneFocusSource `agent` = 에이전트가 `status set working --note` 로 선언. `derived` = 선언 전 서버가 트리거로 만든 대신 문장(「〈작성자〉의 「…」 요청을 처리하고 있습니다」) — 화면은 흐리게.
+type LaneFocusSource string
 
 // LaneStatus `lane_status` (FR-6.2)
 type LaneStatus string
