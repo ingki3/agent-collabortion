@@ -250,26 +250,36 @@ func Classify(in SpeechInput) SpeechOut {
 			}
 			up := authorAsAddressee(in.UpstreamAuthorType, in.UpstreamAuthorID, in.UpstreamAuthorName)
 			if in.UpstreamMessageID == nil {
+				// 윗선 지시가 없으면 그 작성자도 없다 — 짝이 맞지 않는 입력은
+				// 「못 찾음」으로 본다(review #370 NN1).
 				up = nil
 			}
-			if len(mentioned) > 0 {
-				// 사람만 멘션 → 그 사람에게 보고. 윗선 지시가 그 사람의 것일 때만
-				// 그 지시에 대한 보고다.
+			people := []Addressee{}
+			for _, a := range mentioned {
+				if a.Kind != "all" {
+					// `@all` 은 사람이 아니라 방 전체다 — 보고의 받는 쪽에서 뺀다
+					// (PRD 표 2행, #370 리뷰 B1 Lead 판정 2026-09-27).
+					people = appendUniq(people, a)
+				}
+			}
+			if len(people) > 0 {
+				// 사람만 멘션(`@all` 이 같이 있어도) → 그 사람에게 보고. 윗선 지시가
+				// 그 사람의 것일 때만 그 지시에 대한 보고다.
 				var resp *uuid.UUID
-				if up != nil && contains(mentioned, *up) {
+				if up != nil && contains(people, *up) {
 					r := *in.UpstreamMessageID
 					resp = &r
 				}
-				return SpeechOut{Speech: string(gen.MessageSpeechReport), Addressees: mentioned, RespondsTo: resp}
+				return SpeechOut{Speech: string(gen.MessageSpeechReport), Addressees: people, RespondsTo: resp}
 			}
-			if up != nil {
+			if up != nil && len(mentioned) == 0 {
 				// 멘션 없음 → 윗선 요청자 한 명에게, 윗선 지시에 대한 보고.
 				// 실측: Lead 가 Developer 의 보고를 받고 「Simplist 님, v9
 				// 올렸습니다」— 요청(→ Developer)으로 보이던 말.
 				r := *in.UpstreamMessageID
 				return SpeechOut{Speech: string(gen.MessageSpeechReport), Addressees: []Addressee{*up}, RespondsTo: &r}
 			}
-			// 윗선을 못 찾음 → 대화(11번).
+			// `@all` 만(모두에게 한 말은 보고가 아니다) · 윗선을 못 찾음 → 대화(11번).
 			return SpeechOut{Speech: string(gen.MessageSpeechChat), Addressees: base}
 		}
 		requester := authorAsAddressee(in.TriggerAuthorType, in.TriggerAuthorID, in.TriggerAuthorName)

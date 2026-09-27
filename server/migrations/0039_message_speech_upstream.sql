@@ -7,6 +7,9 @@
 --
 --   에이전트를 멘션 → 요청(멘션된 에이전트)
 --   사람만 멘션     → 보고(멘션된 사람, 윗선 지시가 그 사람의 것이면 responds_to = 윗선 지시)
+--                     `@all` 이 같이 있어도 사람만 멘션이다 — `@all` 은 받는 쪽에서 뺀다
+--                     (#370 리뷰 B1, Lead 판정 2026-09-27)
+--   `@all` 만       → 대화(모두에게 한 말은 보고가 아니다)
 --   멘션 없음       → 보고(윗선 요청자 한 명, responds_to = 윗선 지시)
 --   윗선을 못 찾음  → 대화(11번, 받는 쪽은 base)
 --
@@ -255,7 +258,12 @@ BEGIN
     SELECT COALESCE(max(depth), 0) INTO top FROM speech_final WHERE cand;
     FOR d IN 1..top LOOP
         WITH woken AS (
-            SELECT x.id, x.author_id, x.trigger_id, x.agent_count, x.mention_to, x.base
+            SELECT x.id, x.author_id, x.trigger_id, x.agent_count, x.mention_to, x.base,
+                   -- `@all` 은 사람이 아니라 방 전체다 — 보고의 받는 쪽에서 뺀다
+                   -- (PRD 표 2행, #370 리뷰 B1 Lead 판정 2026-09-27).
+                   COALESCE((SELECT jsonb_agg(e ORDER BY ord)
+                             FROM jsonb_array_elements(x.mention_to) WITH ORDINALITY AS t(e, ord)
+                             WHERE e->>'kind' <> 'all'), '[]'::jsonb) AS people_to
             FROM speech_final x
             JOIN speech_final t ON t.id = x.trigger_id
             WHERE x.depth = d AND x.cand
@@ -265,7 +273,7 @@ BEGIN
             SELECT w.*, CASE WHEN w.agent_count = 0 THEN pg_temp.speech_upstream(w.trigger_id, w.author_id) END AS up_id
             FROM woken w
         ), decided AS (
-            SELECT up.id, up.up_id, up.mention_to, up.agent_count, up.base,
+            SELECT up.id, up.up_id, up.mention_to, up.people_to, up.agent_count, up.base,
                    CASE WHEN u.id IS NULL THEN NULL ELSE jsonb_build_object(
                        'kind', CASE WHEN u.author_type = 'agent' THEN 'agent' ELSE 'user' END,
                        'id', to_jsonb(u.author_id), 'name', u.author_name) END AS up_to
@@ -274,20 +282,22 @@ BEGIN
         UPDATE speech_final f SET
             speech = CASE
                 WHEN n.agent_count > 0 THEN 'request'
-                WHEN jsonb_array_length(n.mention_to) > 0 THEN 'report'
-                WHEN n.up_to IS NOT NULL THEN 'report'
+                WHEN jsonb_array_length(n.people_to) > 0 THEN 'report'
+                -- `@all` 만인 말은 보고가 아니다 → 대화(11번).
+                WHEN n.up_to IS NOT NULL AND jsonb_array_length(n.mention_to) = 0 THEN 'report'
                 ELSE 'chat' END,
             addressees = CASE
-                WHEN jsonb_array_length(n.mention_to) > 0 THEN n.mention_to
-                WHEN n.up_to IS NOT NULL THEN jsonb_build_array(n.up_to)
+                WHEN n.agent_count > 0 THEN n.mention_to
+                WHEN jsonb_array_length(n.people_to) > 0 THEN n.people_to
+                WHEN n.up_to IS NOT NULL AND jsonb_array_length(n.mention_to) = 0 THEN jsonb_build_array(n.up_to)
                 ELSE n.base END,
             resp = CASE
                 WHEN n.agent_count > 0 THEN NULL
-                WHEN jsonb_array_length(n.mention_to) > 0 THEN
-                    CASE WHEN n.up_to IS NOT NULL AND n.mention_to @> jsonb_build_array(
+                WHEN jsonb_array_length(n.people_to) > 0 THEN
+                    CASE WHEN n.up_to IS NOT NULL AND n.people_to @> jsonb_build_array(
                              jsonb_build_object('kind', n.up_to->'kind', 'id', n.up_to->'id'))
                          THEN n.up_id END
-                WHEN n.up_to IS NOT NULL THEN n.up_id
+                WHEN n.up_to IS NOT NULL AND jsonb_array_length(n.mention_to) = 0 THEN n.up_id
                 ELSE NULL END
         FROM decided n
         WHERE f.id = n.id;

@@ -683,7 +683,123 @@ func upstreamRound(t *testing.T, f *p2Fixture, sessionID uuid.UUID) map[uuid.UUI
 	humanOther := postAs(r2, router.UserMentionLink("Dir", dirID)+" 표 넣은 버전 공유드립니다")
 	check("사람만 멘션 · 윗선은 다른 쪽", humanOther, want{gen.MessageSpeechReport, dirID, nil})
 
-	return map[uuid.UUID]string{bare1.Id: "report", human.Id: "report", q1.Id: "request", bare2.Id: "report", bareR.Id: "report", humanOther.Id: "report"}
+	// (#370 리뷰 B1) `@all` — 보고 트리거로 깨어난 turn2 안에서 세 갈래를 다 지난다.
+	allOnly := postAs(lead2, "[@all](mention://all/all) v9 나왔습니다, 각자 확인해 주세요")
+	if *allOnly.Speech != gen.MessageSpeechChat {
+		t.Errorf("`@all` 만: speech = %s, want chat (모두에게 한 말은 보고가 아니다)", *allOnly.Speech)
+	}
+	if to := *allOnly.Addressees; len(to) != 1 || to[0].Kind != gen.MessageAddresseesKindAll {
+		t.Errorf("`@all` 만: addressees = %+v, want [all]", to)
+	}
+	if v, err := allOnly.RespondsToMessageId.Get(); err == nil {
+		t.Errorf("`@all` 만: responds_to = %v, want none", v)
+	}
+	allHuman := postAs(lead2, "[@all](mention://all/all) "+router.UserMentionLink("Dir", dirID)+" v9 올렸습니다")
+	check("`@all` + 사람 — `@all` 은 받는 쪽에서 뺀다", allHuman, want{gen.MessageSpeechReport, dirID, &h1ID})
+	allAgent := postAs(lead2, "[@all](mention://all/all) "+router.MentionLink("W", f.wUUID)+" 한 번 봐 주세요")
+	if *allAgent.Speech != gen.MessageSpeechRequest {
+		t.Errorf("`@all` + 에이전트: speech = %s, want request", *allAgent.Speech)
+	}
+	if to := *allAgent.Addressees; len(to) != 2 {
+		t.Errorf("`@all` + 에이전트: addressees = %+v, want [all W]", to)
+	}
+
+	// (#370 리뷰 NN2) 윗선이 **시스템 메시지**에서 멈추는 두 단 모양 — 실사용 사본의
+	// 70e7af27 이 이것이다(Lead 턴이 미션 시작 줄로 깨어났다). turn1 자리에 시스템 줄로
+	// 깨운 턴을 두고 같은 사슬을 한 번 더 만든다.
+	var sysMsg uuid.UUID
+	if err := f.pool.QueryRow(ctx, `SELECT id FROM message WHERE session_id = $1 AND kind = 'system' ORDER BY created_at LIMIT 1`, sessionID).Scan(&sysMsg); err != nil {
+		t.Fatal(err)
+	}
+	sysTurn := turnWokenBy(t, f, f.leadUUID, sysMsg)
+	dSys, err := f.srv.Router.Delegate(ctx, sysTurn, router.DelegateInput{AgentID: f.rUUID, Brief: "시스템이 깨운 턴의 위임"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rSysTask := mustUUID(t, dSys.Task.Id.String())
+	rSys := router.Author{Type: "agent", AgentID: &f.rUUID, TaskID: &rSysTask, Attempt: 1}
+	repSys := postAs(rSys, router.MentionLink("Lead", f.leadUUID)+" 그 건 끝냈습니다")
+	leadSys := router.Author{Type: "agent", AgentID: &f.leadUUID, TaskID: func() *uuid.UUID { id := turnWokenBy(t, f, f.leadUUID, repSys.Id); return &id }(), Attempt: 1}
+	// 한 단 위(dSys 를 쓴 턴)의 트리거가 시스템이라 윗선이 없다 → 대화.
+	sysStop := postAs(leadSys, "정리해서 올립니다")
+	if *sysStop.Speech != gen.MessageSpeechChat || len(*sysStop.Addressees) != 0 {
+		t.Errorf("윗선이 시스템에서 멈춤: speech = %s to %+v, want chat to the room", *sysStop.Speech, *sysStop.Addressees)
+	}
+
+	// (#370 리뷰 NN2) 윗선이 **자기 자신**이면 멈춘다 — 사슬이 자기가 쓴 말로 돌아오는
+	// 재위임 모양. q1(Lead 가 쓴 요청)으로 깨운 Lead 턴에서 위임한다.
+	selfTurn := turnWokenBy(t, f, f.leadUUID, q1.Id)
+	dSelf, err := f.srv.Router.Delegate(ctx, selfTurn, router.DelegateInput{AgentID: f.rUUID, Brief: "자기 말로 돌아오는 위임"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rSelfTask := mustUUID(t, dSelf.Task.Id.String())
+	repSelf := postAs(router.Author{Type: "agent", AgentID: &f.rUUID, TaskID: &rSelfTask, Attempt: 1},
+		router.MentionLink("Lead", f.leadUUID)+" 그것도 끝냈습니다")
+	leadSelf := router.Author{Type: "agent", AgentID: &f.leadUUID, TaskID: func() *uuid.UUID { id := turnWokenBy(t, f, f.leadUUID, repSelf.Id); return &id }(), Attempt: 1}
+	selfStop := postAs(leadSelf, "이쪽도 마무리했습니다")
+	if *selfStop.Speech != gen.MessageSpeechChat || len(*selfStop.Addressees) != 0 {
+		t.Errorf("윗선이 자기 자신이면 멈춘다: speech = %s to %+v, want chat to the room", *selfStop.Speech, *selfStop.Addressees)
+	}
+
+	return map[uuid.UUID]string{bare1.Id: "report", human.Id: "report", q1.Id: "request", bare2.Id: "report",
+		bareR.Id: "report", humanOther.Id: "report",
+		allOnly.Id: "chat", allHuman.Id: "report", allAgent.Id: "request",
+		sysStop.Id: "chat", selfStop.Id: "chat"}
+}
+
+// TestConvoSpeech_UpstreamStopsAtAHumanWrittenRespondsTo is review #370 NN3:
+// walkUpstream only follows a `responds_to` written by an AGENT — the 윗선
+// 지시 is 「그 보고가 답한 **위임·요청**을 쓴 task 의 트리거」, and a human
+// never posts from a task. Store's own writes cannot produce a report whose
+// responds_to is a human message (the addressee IS that message's author), so
+// the row is tampered here the way an older migration could have left it.
+func TestConvoSpeech_UpstreamStopsAtAHumanWrittenRespondsTo(t *testing.T) {
+	f := newP2Fixture(t)
+	ctx := t.Context()
+	sessionID := mustUUID(t, f.sessionID)
+
+	post := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
+	h1 := mustUUID(t, str(post["message"].(map[string]any), "id"))
+	turn1 := turnWokenBy(t, f, f.leadUUID, h1)
+	del, err := f.srv.Router.Delegate(ctx, turn1, router.DelegateInput{AgentID: f.rUUID, Brief: "A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rTask := mustUUID(t, del.Task.Id.String())
+	rep, err := f.srv.Router.Post(ctx, sessionID, router.Author{Type: "agent", AgentID: &f.rUUID, TaskID: &rTask, Attempt: 1},
+		gen.MessageCreate{Content: router.MentionLink("Lead", f.leadUUID) + " 끝"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 그 보고가 「사람이 쓴 메시지」에 답한 것으로 바꿔 둔다. 사람 메시지에 task 까지
+	// 달아 두는 것은 실제로는 없는 모양이지만(사람은 턴에서 쓰지 않는다), 그렇게 남은
+	// 행에서도 걸음이 사람 메시지를 타고 올라가면 안 된다 — 윗선 지시는 「그 보고가 답한
+	// **에이전트의** 위임·요청을 쓴 task 의 트리거」다. 이 방어선을 잠그는 행이다.
+	if _, err := f.pool.Exec(ctx, `UPDATE message SET responds_to_message_id = $2 WHERE id = $1`, rep.Message.Id, h1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE message SET source_task_id = $2 WHERE id = $1`, h1, turn1); err != nil {
+		t.Fatal(err)
+	}
+	leadTurn := turnWokenBy(t, f, f.leadUUID, rep.Message.Id)
+	bare, err := f.srv.Router.Post(ctx, sessionID, router.Author{Type: "agent", AgentID: &f.leadUUID, TaskID: &leadTurn, Attempt: 1},
+		gen.MessageCreate{Content: "정리해서 올립니다"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *bare.Message.Speech != gen.MessageSpeechChat || len(*bare.Message.Addressees) != 0 {
+		t.Fatalf("사람이 쓴 responds_to 는 따라가지 않는다: speech = %s to %+v, want chat to the room",
+			*bare.Message.Speech, *bare.Message.Addressees)
+	}
+	// 파리티는 여기서 비교하지 않는다. Go 는 트리거의 **저장된** `responds_to` 를 읽고,
+	// 0039 는 같은 자리를 자기가 다시 계산한 값으로 읽는다(마이그레이션의 일이 재계산이다).
+	// 손댄 행에서는 두 입력이 서로 다르므로 — 0039 는 진짜 윗선(Dir 의 지시)을 찾는다 —
+	// 같은 답을 요구하는 것이 규칙이 아니라 픽스처를 비교하는 꼴이 된다. SQL 쪽의 같은
+	// 조건은 S8 주입으로도 초록인데, 그 갈래가 재계산 입력에서는 닿을 수 없기 때문이다:
+	// 트리거 보고의 `resp` 는 늘 그 보고의 트리거이고, 그 트리거 작성자가 사람이면 그
+	// 보고의 받는 쪽도 그 사람이라 다음 턴이 이 분기(작성자 ∈ 받는 쪽, kind=agent)에
+	// 들어오지 않는다. 조건은 Go 와 같은 모양을 지키는 방어선으로 둔다.
 }
 
 // turnWokenBy is a new turn of agent's latest lane whose trigger is msg — the
