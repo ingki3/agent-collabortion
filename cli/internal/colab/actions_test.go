@@ -253,3 +253,62 @@ func TestMessagePostDoesNotRepeatAMentionInTheBody(t *testing.T) {
 		})
 	}
 }
+
+// T-HUMANMENTION (colab-cli v0.9.4, 실사용 2026-09-27): Writer mentioned the
+// Director (a person) and the CLI refused it — `unknown_mention
+// "participants: Writer"` — because it looked only at agents. `mention`
+// resolves agents first, then the room's people (`/cli/context` humans[]);
+// a name both use is the agent's; a link given as the name is resolved by
+// its kind and id.
+//
+// 회귀 주입: resolveMentions 의 humanLink 호출을 지우면 person·person link·
+// person, case FAIL; agentLink 를 humanLink 뒤로 돌리면 twin FAIL. 링크의
+// kind 는 id 가 겹치지 않는 한(uuid) 결과를 바꾸지 않는다 — kind 가 id 와
+// 어긋난 링크를 거절하는 것은 UnknownMentionListsPeople 의 agent 링크 행.
+func TestMessagePostMentionsAPerson(t *testing.T) {
+	rev := "[@Reviewer](mention://agent/" + clienttest.ReviewerID + ")"
+	human := "[@Simplist](mention://user/" + clienttest.HumanID + ")"
+	twin := "[@Reviewer](mention://user/" + clienttest.HumanTwinID + ")"
+	for _, tc := range []struct {
+		name    string
+		mention []string
+		want    string
+	}{
+		{"agent", []string{"@Reviewer"}, rev + " 확인 부탁"},
+		{"person", []string{"@Simplist"}, human + " 확인 부탁"},
+		{"person, case", []string{"simplist"}, human + " 확인 부탁"},
+		{"person link", []string{human}, human + " 확인 부탁"},
+		{"twin name: agent wins", []string{"@Reviewer"}, rev + " 확인 부탁"},
+		{"twin link: the person", []string{twin}, twin + " 확인 부탁"},
+		{"agent and person", []string{"@Reviewer,@Simplist"}, rev + " " + human + " 확인 부탁"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := clienttest.New(t)
+			if _, err := colab.MessagePost(context.Background(), newClient(t, s), colab.MessagePostArgs{Body: "확인 부탁", Mention: tc.mention}); err != nil {
+				t.Fatal(err)
+			}
+			if got := s.Posted[0].Body["content"]; got != tc.want {
+				t.Fatalf("content = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// A name that is neither an agent nor a person is still exit 2
+// unknown_mention, and the known names now list the people too. A person's
+// link naming an id that is not in the room is refused the same way.
+func TestMessagePostUnknownMentionListsPeople(t *testing.T) {
+	for _, m := range []string{"@Nobody", "[@Ghost](mention://user/" + clienttest.OutsiderID + ")",
+		// an agent link naming a person's id is not the person
+		"[@Simplist](mention://agent/" + clienttest.HumanID + ")"} {
+		s := clienttest.New(t)
+		_, err := colab.MessagePost(context.Background(), newClient(t, s), colab.MessagePostArgs{Body: "x", Mention: []string{m}})
+		e := client.AsError(err)
+		if e.Exit != client.ExitUsage || e.Code != "unknown_mention" || !strings.Contains(e.Detail, "Reviewer") || !strings.Contains(e.Detail, clienttest.HumanName) {
+			t.Fatalf("%s: err = %+v", m, e)
+		}
+		if len(s.Posted) != 0 {
+			t.Fatalf("%s: nothing should be posted", m)
+		}
+	}
+}

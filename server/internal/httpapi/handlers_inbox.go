@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"time"
 
@@ -84,7 +85,7 @@ const selectInbox = `
 	SELECT i.id, i.member_id, m.workspace_id, i.type::text, i.severity::text, i.session_id, wk.title, wk.status::text,
 	       i.ref_id, i.read_at, i.created_at,
 	       h.type::text, h.question, h.context, h.proposed_default, h.due_at, h.overdue, h.status::text,
-	       h.purpose::text, h.approver_spec, h.created_at, a.name, wk.director_user_id, wk.deputy_user_id, wk.paused_reason::text,
+	       h.purpose::text, h.approver_spec, h.created_at, COALESCE(a.name, qa.name), wk.director_user_id, wk.deputy_user_id, wk.paused_reason::text,
 	       i.work_id, i.lane_id, i.recipient_basis, s.name,
 	       au.display_name, qm.content,
 	       m.role::text, rp.role::text, s.visibility::text, s.status::text
@@ -93,6 +94,8 @@ const selectInbox = `
 	LEFT JOIN room s ON s.id = i.session_id
 	LEFT JOIN app_user au ON au.id = i.actor_user_id
 	LEFT JOIN message qm ON qm.id = i.quote_message_id
+	-- A mention card names the agent that wrote the message (T-HUMANMENTION).
+	LEFT JOIN agent qa ON i.type = 'mention' AND qm.author_type = 'agent' AND qa.id = qm.author_id
 	-- The item's person (m.user_id — every caller scopes by it) as a LIVE
 	-- participant of the room: left_at set is "no longer in the room".
 	LEFT JOIN room_participant rp ON rp.room_id = s.id AND rp.user_id = m.user_id AND rp.left_at IS NULL
@@ -346,6 +349,17 @@ func (s *Server) inboxAPI(ctx context.Context, r *inboxRow, viewer uuid.UUID, no
 	case inbox.TypeWorkdirQuota:
 		title = "작업 폴더가 용량 상한에 닿았습니다"
 		body = "정리하기 전까지 새 작업 폴더를 만들 수 없습니다 — 끝난 방의 작업 폴더를 정리해 주세요"
+	case inbox.TypeMention:
+		// SCREEN §4.14 「나를 멘션한 메시지」: a person's mention
+		// (router.notifyMentionedPeople) quotes the message. The link form
+		// reads as 「@이름」 on the card, the way the timeline chip does.
+		if r.QuoteBody != nil {
+			title = "나를 멘션한 메시지"
+			body = mentionLinkRe.ReplaceAllString(*r.QuoteBody, "@$1")
+		}
+		if hidden {
+			title, body = hiddenRoomTitle(r.Type), ""
+		}
 	}
 	acts := inbox.Actions(r.Type, hitlType, canRespond)
 	if offlineCard {
@@ -434,6 +448,9 @@ func roomVisible(r *inboxRow) bool {
 	}
 	return rooms.Decide(rooms.ActView, f)
 }
+
+// mentionLinkRe is an FR-3.2 mention link; a card shows it as 「@이름」.
+var mentionLinkRe = regexp.MustCompile(`\[@([^\]]*)\]\(mention://(?:agent|user|all)/[^)\s]+\)`)
 
 // hiddenRoomTitle is the card title of an item whose room the viewer can no
 // longer see: what happened, without the room (#309 NN1).

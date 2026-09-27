@@ -203,6 +203,15 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 	if err := messages.Store(ctx, tx, msgID, messages.StoreOpts{}); err != nil {
 		return nil, err
 	}
+	// FR-3.2 「사람 (Director가 아니어도 알림)」: a person the body mentions gets
+	// a `mention` inbox item (SCREEN §4.14 「나를 멘션한 메시지」). Routing
+	// never wakes anyone for it (rule 3) — this is the only thing a person's
+	// mention does besides addressing them (T-HUMANMENTION).
+	if !isNote(in.Content) {
+		if err := notifyMentionedPeople(ctx, tx, wsID, sessionID, msgID, attr.WorkID, author, dec.Mentions, now); err != nil {
+			return nil, err
+		}
+	}
 
 	result := &gen.MessagePostResult{}
 	result.Triggers = make([]struct {

@@ -35,6 +35,10 @@ type CliContext struct {
 	SuppressedDelegatorAgentID *string       `json:"suppressed_delegator_agent_id"`
 	OpenHitlRequestID          *string       `json:"open_hitl_request_id"`
 	Participants               []Participant `json:"participants"`
+	// Humans is the room's people (openapi v0.3.5): an agent may mention them
+	// (`mention://user/<id>`), looked up after Participants (colab-cli v0.9.4).
+	// A pre-v0.3.5 server omits it.
+	Humans []Human `json:"humans,omitempty"`
 	// AllowedCommands is the role's command subset (v1.1 K-19, colab-cli.md
 	// §2.5). A pre-v1.1 server omits it (nil) and an empty list means no
 	// restriction — both allow everything (AllowedCommandSet).
@@ -47,6 +51,13 @@ type Participant struct {
 	AgentID     string `json:"agent_id"`
 	Name        string `json:"name"`
 	Role        string `json:"role,omitempty"`
+	MentionLink string `json:"mention_link"`
+}
+
+// Human — CliContext.humans[] (openapi v0.3.5).
+type Human struct {
+	UserID      string `json:"user_id"`
+	Name        string `json:"name"`
 	MentionLink string `json:"mention_link"`
 }
 

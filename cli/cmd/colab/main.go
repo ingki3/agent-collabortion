@@ -215,7 +215,7 @@ func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) i
 	detailFile := fs.String("detail-file", "", "read the work text from this file, as is (not with --detail)")
 	replyTo := fs.String("reply-to", "", "parent message id (thread; default: COLAB_THREAD_ID, the thread the turn was asked in)")
 	topLevel := fs.Bool("top-level", false, "post to the main timeline even when the turn was asked in a thread")
-	mention := fs.String("mention", "", "comma-separated agent names to mention, e.g. @Reviewer,@Writer")
+	mention := fs.String("mention", "", "comma-separated participant names to mention, e.g. @Reviewer,@Writer — agents first, then the room's people")
 	key := fs.String("idempotency-key", "", "reuse a previous key to retry the same post (default: UUIDv5 of task:<task_id>:<seq>)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return client.ExitUsage

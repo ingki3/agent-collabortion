@@ -180,6 +180,34 @@ func Roster(ctx context.Context, q db.DBTX, roomID uuid.UUID) ([]RosterEntry, er
 	return out, rows.Err()
 }
 
+// HumanEntry is one row of the CLI context's `humans` (openapi v0.3.5): a
+// person in the room an agent may mention (PRD FR-3.2 `mention://user/<id>`).
+type HumanEntry struct {
+	UserID uuid.UUID
+	Name   string // display_name — the name the web composer puts in the link
+}
+
+// HumanRoster lists the room's current human participants in join order —
+// people who left are not in it (they are not in the room's roster either).
+func HumanRoster(ctx context.Context, q db.DBTX, roomID uuid.UUID) ([]HumanEntry, error) {
+	rows, err := q.Query(ctx, `
+		SELECT u.id, u.display_name FROM room_participant sp JOIN app_user u ON u.id = sp.user_id
+		WHERE sp.room_id = $1 AND sp.left_at IS NULL ORDER BY sp.joined_at, sp.id`, roomID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []HumanEntry{}
+	for rows.Next() {
+		var e HumanEntry
+		if err := rows.Scan(&e.UserID, &e.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 func boolCount(b bool) int {
 	if b {
 		return 1

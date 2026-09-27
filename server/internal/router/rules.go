@@ -36,6 +36,13 @@ func MentionLink(name string, id uuid.UUID) string {
 	return "[@" + name + "](mention://agent/" + id.String() + ")"
 }
 
+// UserMentionLink renders the link for a person (FR-3.2) — the same form the
+// web composer inserts (web/lib/mentions.ts mentionLink, kind "user", the
+// person's display name).
+func UserMentionLink(name string, id uuid.UUID) string {
+	return "[@" + name + "](mention://user/" + id.String() + ")"
+}
+
 // Participant is one session_participant the rules can trigger.
 type Participant struct {
 	AgentID uuid.UUID
