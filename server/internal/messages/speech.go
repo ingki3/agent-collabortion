@@ -78,6 +78,30 @@ type SpeechInput struct {
 	// returns is still its own report (review #343 블로커 1).
 	TriggerSpeech     string
 	TriggerAddressees []Addressee
+
+	// Upstream is PRD FR-3.1.3 「윗선 지시」 (v0.19.8): for a turn woken by a
+	// report addressed to this author, the instruction that report ultimately
+	// answers — the trigger of the task that wrote the trigger report's
+	// responds_to, walked up through further reports (최대 5단, 시스템·자기
+	// 자신에서 멈춘다). Store walks it with rows at write time; nil when not
+	// found. Its author is the 「윗선 요청자」.
+	UpstreamMessageID  *uuid.UUID
+	UpstreamAuthorType string
+	UpstreamAuthorID   *uuid.UUID
+	UpstreamAuthorName string
+}
+
+// UpstreamMaxSteps is PRD FR-3.1.3 「윗선 지시」's bound: at most this many
+// trigger messages are read on the way up.
+const UpstreamMaxSteps = 5
+
+// woke by a report addressed to this author — the premise of PRD FR-3.1.3
+// 「보고를 받은 뒤의 말」(v0.19.8). A body mention chip inside someone's
+// report does not make its reader an addressee (review #343 블로커 1).
+func wokenByReportTo(in SpeechInput) bool {
+	return in.TriggerMessageID != nil && in.AuthorID != nil &&
+		in.TriggerSpeech == string(gen.MessageSpeechReport) &&
+		contains(in.TriggerAddressees, Addressee{Kind: "agent", ID: in.AuthorID})
 }
 
 // SpeechOut is what gets stored (and returned by every read).
@@ -214,6 +238,50 @@ func Classify(in SpeechInput) SpeechOut {
 			lane := *in.DelegatedLaneID
 			return SpeechOut{Speech: string(gen.MessageSpeechDelegate), Addressees: []Addressee{to}, DelegatedLane: &lane}
 		}
+		if wokenByReportTo(in) {
+			// PRD FR-3.1.3 「보고를 받은 뒤의 말 — 누구에게 하는가」(v0.19.8,
+			// Director 지적 2026-09-27): the turn was woken by a report made TO
+			// this author. What it says next is split by its mentions.
+			for _, a := range mentioned {
+				if a.Kind == "agent" {
+					// 에이전트를 멘션 → 요청(10번), 멘션된 쪽에게 (T-AGENTFIX B6).
+					return SpeechOut{Speech: string(gen.MessageSpeechRequest), Addressees: mentioned}
+				}
+			}
+			up := authorAsAddressee(in.UpstreamAuthorType, in.UpstreamAuthorID, in.UpstreamAuthorName)
+			if in.UpstreamMessageID == nil {
+				// 윗선 지시가 없으면 그 작성자도 없다 — 짝이 맞지 않는 입력은
+				// 「못 찾음」으로 본다(review #370 NN1).
+				up = nil
+			}
+			people := []Addressee{}
+			for _, a := range mentioned {
+				if a.Kind != "all" {
+					// `@all` 은 사람이 아니라 방 전체다 — 보고의 받는 쪽에서 뺀다
+					// (PRD 표 2행, #370 리뷰 B1 Lead 판정 2026-09-27).
+					people = appendUniq(people, a)
+				}
+			}
+			if len(people) > 0 {
+				// 사람만 멘션(`@all` 이 같이 있어도) → 그 사람에게 보고. 윗선 지시가
+				// 그 사람의 것일 때만 그 지시에 대한 보고다.
+				var resp *uuid.UUID
+				if up != nil && contains(people, *up) {
+					r := *in.UpstreamMessageID
+					resp = &r
+				}
+				return SpeechOut{Speech: string(gen.MessageSpeechReport), Addressees: people, RespondsTo: resp}
+			}
+			if up != nil && len(mentioned) == 0 {
+				// 멘션 없음 → 윗선 요청자 한 명에게, 윗선 지시에 대한 보고.
+				// 실측: Lead 가 Developer 의 보고를 받고 「Simplist 님, v9
+				// 올렸습니다」— 요청(→ Developer)으로 보이던 말.
+				r := *in.UpstreamMessageID
+				return SpeechOut{Speech: string(gen.MessageSpeechReport), Addressees: []Addressee{*up}, RespondsTo: &r}
+			}
+			// `@all` 만(모두에게 한 말은 보고가 아니다) · 윗선을 못 찾음 → 대화(11번).
+			return SpeechOut{Speech: string(gen.MessageSpeechChat), Addressees: base}
+		}
 		requester := authorAsAddressee(in.TriggerAuthorType, in.TriggerAuthorID, in.TriggerAuthorName)
 		if in.TriggerMessageID != nil && requester != nil &&
 			(in.AuthorID == nil || *requester.ID != *in.AuthorID) &&
@@ -222,15 +290,6 @@ func Classify(in SpeechInput) SpeechOut {
 			// 같은 메시지가 다른 에이전트도 부르면 그쪽은 라우팅이 깨우고(FR-3.3)
 			// 화면에는 본문 멘션 칩으로 남는다 — 보고받은 쪽으로 보이지 않는다.
 			to := []Addressee{*requester}
-			if in.TriggerSpeech == string(gen.MessageSpeechReport) && in.AuthorID != nil &&
-				contains(in.TriggerAddressees, Addressee{Kind: "agent", ID: in.AuthorID}) {
-				// T-AGENTFIX B6: the turn was woken by a report made TO this
-				// author, so this is its NEXT instruction to the one who
-				// reported — a request to the same single addressee. 실측(게임
-				// 제작 방 14:05·14:30): Lead's new orders to Writer read 「보고」.
-				// Woken by a mention chip only (not an addressee) → still a report.
-				return SpeechOut{Speech: string(gen.MessageSpeechRequest), Addressees: to}
-			}
 			trig := *in.TriggerMessageID
 			return SpeechOut{Speech: string(gen.MessageSpeechReport), Addressees: to, RespondsTo: &trig}
 		}
@@ -248,6 +307,48 @@ func Classify(in SpeechInput) SpeechOut {
 		return SpeechOut{Speech: string(gen.MessageSpeechRequest), Addressees: mentioned}
 	}
 	return SpeechOut{Speech: string(gen.MessageSpeechChat), Addressees: base}
+}
+
+// walkUpstream finds PRD FR-3.1.3 「윗선 지시」 with rows, at write time: from
+// the trigger report, its responds_to (the message this author sent earlier —
+// a delegation or request), then the trigger of the task that wrote it. If
+// that is a report too, climb again — at most UpstreamMaxSteps triggers, and
+// a system message or this author's own message stops the climb (not found).
+//
+// The SQL copy in *_message_speech_upstream.sql walks the same steps over its
+// computed rows; the parity test holds them together.
+func walkUpstream(ctx context.Context, q db.DBTX, in *SpeechInput) error {
+	cur := *in.TriggerMessageID
+	for step := 0; step < UpstreamMaxSteps; step++ {
+		var up, upAuthor *uuid.UUID
+		var upType, upName, upSpeech string
+		err := q.QueryRow(ctx, `
+			SELECT u.id, u.author_type::text, u.author_id, COALESCE(uu.display_name, ua.name, ''), COALESCE(u.speech, '')
+			FROM message c
+			JOIN message r ON r.id = c.responds_to_message_id AND r.author_type = 'agent'
+			JOIN task t ON t.id = r.source_task_id
+			JOIN message u ON u.id = t.trigger_message_id
+			LEFT JOIN app_user uu ON u.author_type = 'user' AND uu.id = u.author_id
+			LEFT JOIN agent ua ON u.author_type = 'agent' AND ua.id = u.author_id
+			WHERE c.id = $1`, cur).
+			Scan(&up, &upType, &upAuthor, &upName, &upSpeech)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("messages: speech upstream: %w", err)
+		}
+		if upType == "system" || upAuthor == nil || *upAuthor == *in.AuthorID {
+			return nil
+		}
+		if upSpeech == string(gen.MessageSpeechReport) {
+			cur = *up
+			continue
+		}
+		in.UpstreamMessageID, in.UpstreamAuthorType, in.UpstreamAuthorID, in.UpstreamAuthorName = up, upType, upAuthor, upName
+		return nil
+	}
+	return nil
 }
 
 // StoreOpts carries what only the caller knows: that this insert IS a
@@ -335,6 +436,11 @@ func Store(ctx context.Context, q db.DBTX, msgID uuid.UUID, opts StoreOpts) erro
 		}
 		if len(trigAddr) > 0 {
 			_ = json.Unmarshal(trigAddr, &in.TriggerAddressees)
+		}
+		if wokenByReportTo(in) {
+			if err := walkUpstream(ctx, q, &in); err != nil {
+				return err
+			}
 		}
 	}
 	out := Classify(in)

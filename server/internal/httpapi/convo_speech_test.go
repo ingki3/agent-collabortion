@@ -393,6 +393,9 @@ func TestConvoSpeech_BackfillMatchesClassify(t *testing.T) {
 	//      보고의 받는 쪽이 아니다 — 라우팅이 깨운 W 의 턴에서 R 에게 돌려주는 결과는
 	//      원래 보고로 남는다(responds_to = 그 보고).
 	wReport := chipWokenReport(t, f, sessionID, r3)
+	// (v0.19.8) 보고를 받은 뒤의 말 — 멘션 없음(한 단·두 단 윗선) · 사람만 멘션 · 에이전트
+	//      멘션 · 윗선 요청자가 에이전트. 윗선 없음은 reportChain 의 멘션 없는 줄이 본다.
+	upstream := upstreamRound(t, f, sessionID)
 	if _, err := f.srv.Router.Post(ctx, sessionID, rAuthor, gen.MessageCreate{Content: "혼잣말 — 멘션 없음"}); err != nil {
 		t.Fatal(err)
 	}
@@ -439,9 +442,14 @@ func TestConvoSpeech_BackfillMatchesClassify(t *testing.T) {
 	}
 	// B6: the chain rows exist and Store decided them as the rule says —
 	// otherwise the parity below would compare nothing new.
-	for id, want := range map[uuid.UUID]string{reqByLead[0]: "request", reqByLead[1]: "request", againByR: "report", wReport: "report"} {
+	for id, want := range map[uuid.UUID]string{reqByLead[0]: "request", reqByLead[1]: "chat", againByR: "report", wReport: "report"} {
 		if got := before[id.String()].speech; got != want {
 			t.Fatalf("chain message %s: Store = %q, want %q", id, got, want)
+		}
+	}
+	for id, want := range upstream {
+		if got := before[id.String()].speech; got != want {
+			t.Fatalf("upstream message %s: Store = %q, want %q", id, got, want)
 		}
 	}
 	if got := before[wReport.String()].resp; got != r3.Message.Id.String() {
@@ -465,7 +473,13 @@ func TestConvoSpeech_BackfillMatchesClassify(t *testing.T) {
 	// (0035's answer, some of them the wrong 「보고」). Its input is the
 	// premises only, so a second run — over filled rows, not NULLs — lands on
 	// the same answer (멱등).
-	if _, err := f.pool.Exec(ctx, `UPDATE message SET speech = CASE WHEN id = $2 THEN 'request' ELSE 'report' END, addressees = '[]', responds_to_message_id = NULL WHERE id = ANY($1)`, []uuid.UUID{reqByLead[0], reqByLead[1], wReport}, wReport); err != nil {
+	// v0.19.8: the live rows 0037 left — the no-mention line to the upstream
+	// requester stored as 「요청 → 보고한 쪽」 — must be rewritten too.
+	wrongly := []uuid.UUID{reqByLead[0], reqByLead[1], wReport}
+	for id := range upstream {
+		wrongly = append(wrongly, id)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE message SET speech = CASE WHEN id = $2 THEN 'request' ELSE 'report' END, addressees = '[]', responds_to_message_id = NULL WHERE id = ANY($1)`, wrongly, wReport); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(ctx, backfillSQL(t)); err != nil {
@@ -481,9 +495,10 @@ func TestConvoSpeech_BackfillMatchesClassify(t *testing.T) {
 }
 
 // reportChain is T-AGENTFIX B6's round (실측 게임 제작 방 14:05·14:30): Lead's
-// turn is woken by R's report; in it Lead gives R a new order — once with a
-// mention, once as a bare reply — and both are requests (보고에 대한 보고는
-// 없다), addressed to R alone. R's turn woken by that request answers with a
+// turn is woken by R's report; in it Lead gives R a new order with a mention
+// (a request to R — B6 kept) and says one bare line (PRD v0.19.8: 윗선 요청자
+// 에게 보고 — here the upstream turn was woken by a system line, so it is not
+// found and the line is chat). R's turn woken by the request answers with a
 // report again. Returns Lead's two message ids and R's second report id.
 func reportChain(t *testing.T, f *p2Fixture, sessionID uuid.UUID, fromReport *gen.MessagePostResult) ([2]uuid.UUID, uuid.UUID) {
 	t.Helper()
@@ -503,16 +518,18 @@ func reportChain(t *testing.T, f *p2Fixture, sessionID uuid.UUID, fromReport *ge
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range []gen.Message{withMention.Message, bare.Message} {
-		if *m.Speech != gen.MessageSpeechRequest {
-			t.Errorf("Lead's order in a turn woken by a report: speech = %s, want request (%q)", *m.Speech, m.Content)
-		}
-		if to := *m.Addressees; len(to) != 1 || to[0].Name != "R" {
-			t.Errorf("addressees = %+v, want [R]", to)
-		}
-		if v, err := m.RespondsToMessageId.Get(); err == nil {
-			t.Errorf("a request has no responds_to, got %v", v)
-		}
+	// 에이전트를 멘션한 말은 요청(B6 유지) — 받는 쪽은 멘션된 R.
+	if m := withMention.Message; *m.Speech != gen.MessageSpeechRequest {
+		t.Errorf("Lead's order with an agent mention in a turn woken by a report: speech = %s, want request (%q)", *m.Speech, m.Content)
+	} else if to := *m.Addressees; len(to) != 1 || to[0].Name != "R" {
+		t.Errorf("addressees = %+v, want [R]", to)
+	} else if v, err := m.RespondsToMessageId.Get(); err == nil {
+		t.Errorf("a request has no responds_to, got %v", v)
+	}
+	// 멘션 없는 말은 윗선 요청자에게 보고(v0.19.8) — 여기서는 R 의 보고가 답한 위임을 쓴
+	// Lead 턴이 미션 시작 줄(시스템)로 깨어났으므로 윗선을 못 찾는다 → 대화, 방 전체.
+	if m := bare.Message; *m.Speech != gen.MessageSpeechChat || len(*m.Addressees) != 0 {
+		t.Errorf("bare line, no upstream (system): speech = %s to %+v, want chat to the room", *m.Speech, *m.Addressees)
 	}
 	rTask := turnWokenBy(t, f, f.rUUID, withMention.Message.Id)
 	r := router.Author{Type: "agent", AgentID: &f.rUUID, TaskID: &rTask, Attempt: 1}
@@ -570,6 +587,221 @@ func chipWokenReport(t *testing.T, f *p2Fixture, sessionID uuid.UUID, report *ge
 	return res.Message.Id
 }
 
+// upstreamRound is PRD v0.19.8 FR-3.1.3 「보고를 받은 뒤의 말 — 누구에게
+// 하는가」 on the real write paths (Director 지적 2026-09-27: Lead, woken by
+// Developer's report, told Simplist 「v9 올렸습니다」 with no mention and it
+// read 「요청 → @Developer」).
+//
+//	Dir ─지시 h1→ Lead(turn1) ─위임 d1→ R ─보고 rep1→ Lead(turn2)
+//	  turn2: 멘션 없음            → 보고 → Dir, responds_to h1   (한 단)
+//	  turn2: @Dir 만              → 보고 → Dir, responds_to h1   (사람만 멘션)
+//	  turn2: @W 검토 q1           → 요청 → W                      (B6 유지)
+//	W(turn, q1) ─보고 rep2→ Lead(turn3)
+//	  turn3: 멘션 없음            → 보고 → Dir, responds_to h1   (두 단: rep2→q1→turn2→rep1→d1→turn1→h1)
+//	R(turn, d1) @W 표 qW → W ─보고 repW→ R(turnR2)
+//	  turnR2: 멘션 없음           → 보고 → Lead, responds_to d1  (윗선 요청자가 에이전트)
+//	  turnR2: @Dir 만             → 보고 → Dir, responds_to 없음 (윗선 지시는 Lead 의 것)
+//
+// Returns the ids the parity test must see decided that way.
+func upstreamRound(t *testing.T, f *p2Fixture, sessionID uuid.UUID) map[uuid.UUID]string {
+	t.Helper()
+	ctx := t.Context()
+	var dirID uuid.UUID
+	if err := f.pool.QueryRow(ctx, `SELECT id FROM app_user WHERE display_name = 'Dir'`).Scan(&dirID); err != nil {
+		t.Fatal(err)
+	}
+	h1 := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " v9 만들어 주세요"})
+	h1ID := mustUUID(t, str(h1["message"].(map[string]any), "id"))
+	turn1 := turnWokenBy(t, f, f.leadUUID, h1ID)
+	d1, err := f.srv.Router.Delegate(ctx, turn1, router.DelegateInput{AgentID: f.rUUID, Brief: "v9 빌드"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rTask := mustUUID(t, d1.Task.Id.String())
+	rAuthor := router.Author{Type: "agent", AgentID: &f.rUUID, TaskID: &rTask, Attempt: 1}
+	rep1, err := f.srv.Router.Post(ctx, sessionID, rAuthor, gen.MessageCreate{Content: router.MentionLink("Lead", f.leadUUID) + " v9 빌드 끝"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn2 := turnWokenBy(t, f, f.leadUUID, rep1.Message.Id)
+	lead2 := router.Author{Type: "agent", AgentID: &f.leadUUID, TaskID: &turn2, Attempt: 1}
+	postAs := func(a router.Author, content string) gen.Message {
+		t.Helper()
+		res, err := f.srv.Router.Post(ctx, sessionID, a, gen.MessageCreate{Content: content})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Message
+	}
+	type want struct {
+		speech gen.MessageSpeech
+		to     uuid.UUID
+		resp   *uuid.UUID
+	}
+	check := func(label string, m gen.Message, w want) {
+		t.Helper()
+		if *m.Speech != w.speech {
+			t.Errorf("%s: speech = %s, want %s (%q)", label, *m.Speech, w.speech, m.Content)
+		}
+		if to := *m.Addressees; len(to) != 1 || func() bool { id, err := to[0].Id.Get(); return err != nil || id != w.to }() {
+			t.Errorf("%s: addressees = %+v, want [%s]", label, to, w.to)
+		}
+		got, err := m.RespondsToMessageId.Get()
+		switch {
+		case w.resp == nil && err == nil:
+			t.Errorf("%s: responds_to = %v, want none", label, got)
+		case w.resp != nil && (err != nil || got != *w.resp):
+			t.Errorf("%s: responds_to = %v, want %s", label, got, *w.resp)
+		}
+	}
+	bare1 := postAs(lead2, "Dir 님, v9 올렸습니다")
+	check("한 단 · 멘션 없음", bare1, want{gen.MessageSpeechReport, dirID, &h1ID})
+	human := postAs(lead2, router.UserMentionLink("Dir", dirID)+" v9 확인 부탁드립니다")
+	check("사람만 멘션", human, want{gen.MessageSpeechReport, dirID, &h1ID})
+	q1 := postAs(lead2, router.MentionLink("W", f.wUUID)+" v9 검토해 주세요")
+	check("에이전트 멘션(B6)", q1, want{gen.MessageSpeechRequest, f.wUUID, nil})
+
+	wTask := turnWokenBy(t, f, f.wUUID, q1.Id)
+	w := router.Author{Type: "agent", AgentID: &f.wUUID, TaskID: &wTask, Attempt: 1}
+	rep2 := postAs(w, router.MentionLink("Lead", f.leadUUID)+" 검토 끝, 문제 없음")
+	check("W 의 보고", rep2, want{gen.MessageSpeechReport, f.leadUUID, &q1.Id})
+	turn3 := turnWokenBy(t, f, f.leadUUID, rep2.Id)
+	lead3 := router.Author{Type: "agent", AgentID: &f.leadUUID, TaskID: &turn3, Attempt: 1}
+	bare2 := postAs(lead3, "검토까지 끝났습니다")
+	check("두 단 · 멘션 없음", bare2, want{gen.MessageSpeechReport, dirID, &h1ID})
+
+	qW := postAs(rAuthor, router.MentionLink("W", f.wUUID)+" 표 하나 부탁")
+	wTask2 := turnWokenBy(t, f, f.wUUID, qW.Id)
+	w2 := router.Author{Type: "agent", AgentID: &f.wUUID, TaskID: &wTask2, Attempt: 1}
+	repW := postAs(w2, router.MentionLink("R", f.rUUID)+" 표 여기")
+	turnR2 := turnWokenBy(t, f, f.rUUID, repW.Id)
+	r2 := router.Author{Type: "agent", AgentID: &f.rUUID, TaskID: &turnR2, Attempt: 1}
+	bareR := postAs(r2, "표까지 넣어 v9 마무리")
+	d1ID := d1.Message.Id
+	check("윗선 요청자가 에이전트", bareR, want{gen.MessageSpeechReport, f.leadUUID, &d1ID})
+	// 사람만 멘션했는데 윗선 지시(d1)는 Lead 의 것 → Dir 에게 보고, responds_to 없음.
+	humanOther := postAs(r2, router.UserMentionLink("Dir", dirID)+" 표 넣은 버전 공유드립니다")
+	check("사람만 멘션 · 윗선은 다른 쪽", humanOther, want{gen.MessageSpeechReport, dirID, nil})
+
+	// (#370 리뷰 B1) `@all` — 보고 트리거로 깨어난 turn2 안에서 세 갈래를 다 지난다.
+	allOnly := postAs(lead2, "[@all](mention://all/all) v9 나왔습니다, 각자 확인해 주세요")
+	if *allOnly.Speech != gen.MessageSpeechChat {
+		t.Errorf("`@all` 만: speech = %s, want chat (모두에게 한 말은 보고가 아니다)", *allOnly.Speech)
+	}
+	if to := *allOnly.Addressees; len(to) != 1 || to[0].Kind != gen.MessageAddresseesKindAll {
+		t.Errorf("`@all` 만: addressees = %+v, want [all]", to)
+	}
+	if v, err := allOnly.RespondsToMessageId.Get(); err == nil {
+		t.Errorf("`@all` 만: responds_to = %v, want none", v)
+	}
+	allHuman := postAs(lead2, "[@all](mention://all/all) "+router.UserMentionLink("Dir", dirID)+" v9 올렸습니다")
+	check("`@all` + 사람 — `@all` 은 받는 쪽에서 뺀다", allHuman, want{gen.MessageSpeechReport, dirID, &h1ID})
+	allAgent := postAs(lead2, "[@all](mention://all/all) "+router.MentionLink("W", f.wUUID)+" 한 번 봐 주세요")
+	if *allAgent.Speech != gen.MessageSpeechRequest {
+		t.Errorf("`@all` + 에이전트: speech = %s, want request", *allAgent.Speech)
+	}
+	if to := *allAgent.Addressees; len(to) != 2 {
+		t.Errorf("`@all` + 에이전트: addressees = %+v, want [all W]", to)
+	}
+
+	// (#370 리뷰 NN2) 윗선이 **시스템 메시지**에서 멈추는 두 단 모양 — 실사용 사본의
+	// 70e7af27 이 이것이다(Lead 턴이 미션 시작 줄로 깨어났다). turn1 자리에 시스템 줄로
+	// 깨운 턴을 두고 같은 사슬을 한 번 더 만든다.
+	var sysMsg uuid.UUID
+	if err := f.pool.QueryRow(ctx, `SELECT id FROM message WHERE session_id = $1 AND kind = 'system' ORDER BY created_at LIMIT 1`, sessionID).Scan(&sysMsg); err != nil {
+		t.Fatal(err)
+	}
+	sysTurn := turnWokenBy(t, f, f.leadUUID, sysMsg)
+	dSys, err := f.srv.Router.Delegate(ctx, sysTurn, router.DelegateInput{AgentID: f.rUUID, Brief: "시스템이 깨운 턴의 위임"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rSysTask := mustUUID(t, dSys.Task.Id.String())
+	rSys := router.Author{Type: "agent", AgentID: &f.rUUID, TaskID: &rSysTask, Attempt: 1}
+	repSys := postAs(rSys, router.MentionLink("Lead", f.leadUUID)+" 그 건 끝냈습니다")
+	leadSys := router.Author{Type: "agent", AgentID: &f.leadUUID, TaskID: func() *uuid.UUID { id := turnWokenBy(t, f, f.leadUUID, repSys.Id); return &id }(), Attempt: 1}
+	// 한 단 위(dSys 를 쓴 턴)의 트리거가 시스템이라 윗선이 없다 → 대화.
+	sysStop := postAs(leadSys, "정리해서 올립니다")
+	if *sysStop.Speech != gen.MessageSpeechChat || len(*sysStop.Addressees) != 0 {
+		t.Errorf("윗선이 시스템에서 멈춤: speech = %s to %+v, want chat to the room", *sysStop.Speech, *sysStop.Addressees)
+	}
+
+	// (#370 리뷰 NN2) 윗선이 **자기 자신**이면 멈춘다 — 사슬이 자기가 쓴 말로 돌아오는
+	// 재위임 모양. q1(Lead 가 쓴 요청)으로 깨운 Lead 턴에서 위임한다.
+	selfTurn := turnWokenBy(t, f, f.leadUUID, q1.Id)
+	dSelf, err := f.srv.Router.Delegate(ctx, selfTurn, router.DelegateInput{AgentID: f.rUUID, Brief: "자기 말로 돌아오는 위임"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rSelfTask := mustUUID(t, dSelf.Task.Id.String())
+	repSelf := postAs(router.Author{Type: "agent", AgentID: &f.rUUID, TaskID: &rSelfTask, Attempt: 1},
+		router.MentionLink("Lead", f.leadUUID)+" 그것도 끝냈습니다")
+	leadSelf := router.Author{Type: "agent", AgentID: &f.leadUUID, TaskID: func() *uuid.UUID { id := turnWokenBy(t, f, f.leadUUID, repSelf.Id); return &id }(), Attempt: 1}
+	selfStop := postAs(leadSelf, "이쪽도 마무리했습니다")
+	if *selfStop.Speech != gen.MessageSpeechChat || len(*selfStop.Addressees) != 0 {
+		t.Errorf("윗선이 자기 자신이면 멈춘다: speech = %s to %+v, want chat to the room", *selfStop.Speech, *selfStop.Addressees)
+	}
+
+	return map[uuid.UUID]string{bare1.Id: "report", human.Id: "report", q1.Id: "request", bare2.Id: "report",
+		bareR.Id: "report", humanOther.Id: "report",
+		allOnly.Id: "chat", allHuman.Id: "report", allAgent.Id: "request",
+		sysStop.Id: "chat", selfStop.Id: "chat"}
+}
+
+// TestConvoSpeech_UpstreamStopsAtAHumanWrittenRespondsTo is review #370 NN3:
+// walkUpstream only follows a `responds_to` written by an AGENT — the 윗선
+// 지시 is 「그 보고가 답한 **위임·요청**을 쓴 task 의 트리거」, and a human
+// never posts from a task. Store's own writes cannot produce a report whose
+// responds_to is a human message (the addressee IS that message's author), so
+// the row is tampered here the way an older migration could have left it.
+func TestConvoSpeech_UpstreamStopsAtAHumanWrittenRespondsTo(t *testing.T) {
+	f := newP2Fixture(t)
+	ctx := t.Context()
+	sessionID := mustUUID(t, f.sessionID)
+
+	post := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
+	h1 := mustUUID(t, str(post["message"].(map[string]any), "id"))
+	turn1 := turnWokenBy(t, f, f.leadUUID, h1)
+	del, err := f.srv.Router.Delegate(ctx, turn1, router.DelegateInput{AgentID: f.rUUID, Brief: "A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rTask := mustUUID(t, del.Task.Id.String())
+	rep, err := f.srv.Router.Post(ctx, sessionID, router.Author{Type: "agent", AgentID: &f.rUUID, TaskID: &rTask, Attempt: 1},
+		gen.MessageCreate{Content: router.MentionLink("Lead", f.leadUUID) + " 끝"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 그 보고가 「사람이 쓴 메시지」에 답한 것으로 바꿔 둔다. 사람 메시지에 task 까지
+	// 달아 두는 것은 실제로는 없는 모양이지만(사람은 턴에서 쓰지 않는다), 그렇게 남은
+	// 행에서도 걸음이 사람 메시지를 타고 올라가면 안 된다 — 윗선 지시는 「그 보고가 답한
+	// **에이전트의** 위임·요청을 쓴 task 의 트리거」다. 이 방어선을 잠그는 행이다.
+	if _, err := f.pool.Exec(ctx, `UPDATE message SET responds_to_message_id = $2 WHERE id = $1`, rep.Message.Id, h1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE message SET source_task_id = $2 WHERE id = $1`, h1, turn1); err != nil {
+		t.Fatal(err)
+	}
+	leadTurn := turnWokenBy(t, f, f.leadUUID, rep.Message.Id)
+	bare, err := f.srv.Router.Post(ctx, sessionID, router.Author{Type: "agent", AgentID: &f.leadUUID, TaskID: &leadTurn, Attempt: 1},
+		gen.MessageCreate{Content: "정리해서 올립니다"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *bare.Message.Speech != gen.MessageSpeechChat || len(*bare.Message.Addressees) != 0 {
+		t.Fatalf("사람이 쓴 responds_to 는 따라가지 않는다: speech = %s to %+v, want chat to the room",
+			*bare.Message.Speech, *bare.Message.Addressees)
+	}
+	// 파리티는 여기서 비교하지 않는다. Go 는 트리거의 **저장된** `responds_to` 를 읽고,
+	// 0039 는 같은 자리를 자기가 다시 계산한 값으로 읽는다(마이그레이션의 일이 재계산이다).
+	// 손댄 행에서는 두 입력이 서로 다르므로 — 0039 는 진짜 윗선(Dir 의 지시)을 찾는다 —
+	// 같은 답을 요구하는 것이 규칙이 아니라 픽스처를 비교하는 꼴이 된다. SQL 쪽의 같은
+	// 조건은 S8 주입으로도 초록인데, 그 갈래가 재계산 입력에서는 닿을 수 없기 때문이다:
+	// 트리거 보고의 `resp` 는 늘 그 보고의 트리거이고, 그 트리거 작성자가 사람이면 그
+	// 보고의 받는 쪽도 그 사람이라 다음 턴이 이 분기(작성자 ∈ 받는 쪽, kind=agent)에
+	// 들어오지 않는다. 조건은 Go 와 같은 모양을 지키는 방어선으로 둔다.
+}
+
 // turnWokenBy is a new turn of agent's latest lane whose trigger is msg — the
 // task row messages.Store reads the requester from.
 func turnWokenBy(t *testing.T, f *p2Fixture, agent, msg uuid.UUID) uuid.UUID {
@@ -611,14 +843,15 @@ func speechSnapshot(t *testing.T, ctx context.Context, f *p2Fixture, sessionID u
 
 // backfillSQL is the backfill production last ran over existing rows (every
 // statement from the `-- backfill:` marker to the end), read from the embedded file so the test runs
-// the exact SQL that production ran. Since T-AGENTFIX B6 that is the rechain
-// migration — a full recomputation of the same table plus 「보고에 대한 보고는
-// 없다」. Files are found by name suffix: their numbers are renamed at PR time.
+// the exact SQL that production ran. Since T-SPEECHFIX that is the upstream
+// migration — a full recomputation of the same table plus PRD v0.19.8 「보고를
+// 받은 뒤의 말」(멘션으로 가르고, 멘션이 없으면 윗선 요청자에게). Files are
+// found by name suffix: their numbers are renamed at PR time.
 func backfillSQL(t *testing.T) string {
 	t.Helper()
-	names, err := fs.Glob(migrations.FS, "*_message_speech_rechain.sql")
+	names, err := fs.Glob(migrations.FS, "*_message_speech_upstream.sql")
 	if err != nil || len(names) != 1 {
-		t.Fatalf("message_speech_rechain migration: %v %v", names, err)
+		t.Fatalf("message_speech_upstream migration: %v %v", names, err)
 	}
 	b, err := migrations.FS.ReadFile(names[0])
 	if err != nil {
