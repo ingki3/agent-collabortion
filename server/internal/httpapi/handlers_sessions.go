@@ -72,6 +72,8 @@ func (s *Server) ListMessages(w http.ResponseWriter, r *http.Request, roomId gen
 		return
 	}
 	o.WorkID, o.NoWork = params.WorkId, noWork
+	// openapi v0.3.6: one part message's rows (CLI `room messages --group`).
+	o.Group = params.Group
 	if params.AroundMessageId != nil {
 		if o.Before != nil || o.After != nil {
 			writeProblem(w, apperr.Validation(apperr.Field("around_message_id", "conflict", "가운데 메시지와 before·after 는 함께 쓸 수 없습니다")))
@@ -171,6 +173,61 @@ func (s *Server) PostMessage(w http.ResponseWriter, r *http.Request, roomId gen.
 	}
 	s.idempotentSeq(r.Context(), w, scope, key, requestHash(r, body), clientSeq, func() (int, any, *Problem) {
 		res, err := s.Router.Post(r.Context(), roomId, author, in)
+		switch {
+		case err == router.ErrParentNotFound:
+			return 0, nil, apperr.Validation(apperr.Field("parent_id", "not_found", "답글 대상 메시지가 이 방에 없습니다"))
+		case err != nil:
+			return 0, nil, apperr.As(err)
+		}
+		return http.StatusCreated, res, nil
+	})
+}
+
+// PostMessageGroup is postMessageGroup (openapi v0.3.6 D26, PRD FR-3.1.4):
+// an agent's one post in 2~6 parts, one message row per part, under one
+// Idempotency-Key and one transaction. TaskToken only — a person's session
+// gets 403 (the composer sends one message with several mentions).
+func (s *Server) PostMessageGroup(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.PostMessageGroupParams) {
+	key := params.IdempotencyKey.String()
+	if _, p := s.sessionAccess(r, roomId); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	pr := principalOf(r)
+	if pr.Task == nil {
+		writeProblem(w, apperr.Forbidden("agent_only", "부분 메시지는 에이전트만 보낼 수 있습니다"))
+		return
+	}
+	if p := s.commandAllowed(r, gen.ColabCommandMessagePost); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	body, p := readBody(w, r)
+	if p != nil {
+		writeProblem(w, p)
+		return
+	}
+	var in gen.MessageGroupCreate
+	if p := decodeJSON(w, r, &in); p != nil {
+		writeProblem(w, p)
+		return
+	}
+	for i := range in.Parts {
+		if p := validateDetail(in.Parts[i].Detail, true); p != nil {
+			p.Errors[0].Field = fmt.Sprintf("parts[%d].detail", i)
+			writeProblem(w, p)
+			return
+		}
+	}
+	tid, aid := pr.Task.TaskID, pr.Task.AgentID
+	author := router.Author{Type: "agent", AgentID: &aid, TaskID: &tid, Attempt: pr.Task.Attempt}
+	var clientSeq *int
+	if params.XColabClientSeq != nil {
+		v := int(*params.XColabClientSeq)
+		clientSeq = &v
+	}
+	s.idempotentSeq(r.Context(), w, taskScope(tid), key, requestHash(r, body), clientSeq, func() (int, any, *Problem) {
+		res, err := s.Router.PostGroup(r.Context(), roomId, author, in)
 		switch {
 		case err == router.ErrParentNotFound:
 			return 0, nil, apperr.Validation(apperr.Field("parent_id", "not_found", "답글 대상 메시지가 이 방에 없습니다"))

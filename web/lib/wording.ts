@@ -786,6 +786,20 @@ export const CONVERSATION = {
 } as const;
 
 /**
+ * 부분 메시지(PRD FR-3.1.4 · SCREEN §4.6 v0.19.11 · COMPONENTS §9.11) — 한 말풍선, 받는 쪽마다 한 부분.
+ * 말풍선 `aria-label` 「〈작성자〉 · 부분 N개 · 〈시각〉」, 부분 `section` 「〈받는 쪽〉에게 〈종류〉」. 답글 줄은 부분마다(부분이 곧 메시지 행).
+ */
+export const PARTS = {
+  count: ["부분 ", "개"] as Slotted,
+  aria_to: "에게",
+  aria_room: "방 전체에",
+  reply: "답글",
+  replies_show: ["답글 ", "개 보기"] as Slotted,
+  replies_hide: ["답글 ", "개 접기"] as Slotted,
+  replies_loading: "불러오는 중…",
+} as const;
+
+/**
  * 작업 과정 요약의 동작 이름 — task_event `class/verb`(contracts/task_event.schema.json) → 사람 말 + 수. 편집은 **파일 수**(같은 파일을
  * 여러 번 고쳐도 하나), 나머지는 횟수다. 여기 없는 동작(발화·사고·사용량·턴 생명주기)은 요약에서 세지 않는다 — 펼친 피드에는 그대로 있다.
  */

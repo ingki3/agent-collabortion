@@ -202,7 +202,15 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 			items = f
 		}
-		if th := q.Get("thread"); th != "" {
+		if g := q.Get("group"); g != "" {
+			var f []map[string]any
+			for _, m := range items {
+				if m["group_id"] == g {
+					f = append(f, m)
+				}
+			}
+			items = f
+		} else if th := q.Get("thread"); th != "" {
 			var f []map[string]any
 			for _, m := range items {
 				if m["id"] == th || m["parent_id"] == th {
@@ -247,6 +255,54 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 200, map[string]any{"items": items, "before_cursor": nil, "after_cursor": nil,
 			"has_more_before": false, "has_more_after": more, "total": total})
+	case r.Method == "POST" && path == "/rooms/"+SessionID+"/message-groups":
+		// openapi v0.3.6 postMessageGroup: one row per part, one key.
+		key := r.Header.Get("Idempotency-Key")
+		if p, ok := s.ByKey[key]; ok && key != "" {
+			w.Header().Set("Idempotent-Replayed", "true")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(201)
+			w.Write(p.Response)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			s.problem(w, 422, "validation_failed", "Validation failed", "body")
+			return
+		}
+		clientSeq, _ := strconv.Atoi(r.Header.Get(client.HeaderClientSeq))
+		parts, _ := body["parts"].([]any)
+		gid := fmt.Sprintf("bbbbbbbb-0000-4000-8000-%012d", s.Seq+1)
+		var results []map[string]any
+		for i, raw := range parts {
+			pt := raw.(map[string]any)
+			s.Seq++
+			id := fmt.Sprintf("aaaaaaaa-0000-4000-8000-%012d", s.Seq)
+			content, _ := pt["content"].(string)
+			msg := map[string]any{
+				"id": id, "session_id": SessionID, "author_type": "agent", "author_id": AgentID,
+				"parent_id": body["parent_id"], "content": content, "mentions": []any{},
+				"kind": "text", "state": "posted", "created_at": time.Now().UTC().Format(time.RFC3339),
+				"detail": pt["detail"], "group_id": gid, "group_index": i, "group_size": len(parts),
+			}
+			s.Messages = append(s.Messages, msg)
+			triggers := []map[string]any{}
+			to, _ := json.Marshal(pt["to"])
+			if strings.Contains(string(to), ReviewerID) {
+				triggers = append(triggers, map[string]any{"agent_id": ReviewerID, "task_id": "99999999-9999-4999-8999-99999999999" + strconv.Itoa(i), "lane_id": LaneID, "coalesced": false})
+			}
+			results = append(results, map[string]any{"message": msg, "triggers": triggers, "warnings": []any{}})
+		}
+		resp, _ := json.Marshal(map[string]any{"group_id": gid, "parts": results})
+		p := Posted{Key: key, ClientSeq: clientSeq, Body: body, Response: resp}
+		s.Posted = append(s.Posted, p)
+		s.ByKey[key] = p
+		if clientSeq > s.LastSeq {
+			s.LastSeq = clientSeq
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		w.Write(resp)
 	case r.Method == "POST" && path == "/rooms/"+SessionID+"/messages":
 		key := r.Header.Get("Idempotency-Key")
 		if key == "" {
