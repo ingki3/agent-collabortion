@@ -56,5 +56,6 @@
 .achip__x { position: absolute; top: 2px; right: 2px; width: 24px; height: 24px; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; border-radius: 12px; }
 .achip__x:focus-visible, .achip__retry:focus-visible { outline: 2px solid var(--s-run); }
 .achip__bar { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--s-run); }
-.achip[data-state="error"] { border-color: var(--s-fail); }
+/* 오류 칩은 서버 문장 + 「다시 시도」가 들어가 두세 줄이 된다 — 40px 고정에 overflow:hidden 이면 다시 시도가 잘린다(실측). */
+.achip[data-state="error"] { border-color: var(--s-fail); height: auto; min-height: 40px; padding-top: 6px; padding-bottom: 6px; overflow: visible; }
 .achip__retry { border: 0; background: transparent; padding: 0; color: var(--s-run-text); font: inherit; font-size: var(--fs-meta); font-weight: 600; cursor: pointer; text-align: left; }
