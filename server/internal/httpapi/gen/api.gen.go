@@ -3154,6 +3154,15 @@ type Message struct {
 	Detail   nullable.Nullable[string]    `json:"detail,omitempty"`
 	EditedAt nullable.Nullable[time.Time] `json:"edited_at,omitempty"`
 
+	// GroupId v0.3.6 — 부분 메시지(PRD FR-3.1.4)면 한 게시의 묶음 id, 아니면 null. 화면은 같은 `group_id` 행을 말풍선 하나로 그린다(SCREEN §4.6).
+	GroupId nullable.Nullable[openapi_types.UUID] `json:"group_id,omitempty"`
+
+	// GroupIndex v0.3.6 — 묶음 안 순서(0부터). `group_id` 가 null 이면 null.
+	GroupIndex nullable.Nullable[int] `json:"group_index,omitempty"`
+
+	// GroupSize v0.3.6 — 묶음의 부분 수(화면이 다 도착했는지 안다). `group_id` 가 null 이면 null.
+	GroupSize nullable.Nullable[int] `json:"group_size,omitempty"`
+
 	// HitlRequestId kind=hitl일 때.
 	HitlRequestId nullable.Nullable[openapi_types.UUID] `json:"hitl_request_id,omitempty"`
 	Id            openapi_types.UUID                    `json:"id"`
@@ -3214,6 +3223,24 @@ type MessageCreate struct {
 	WorkId nullable.Nullable[openapi_types.UUID] `json:"work_id,omitempty"`
 }
 
+// MessageGroupCreate v0.3.6 — 부분 메시지(PRD FR-3.1.4). `postMessageGroup` 본문.
+type MessageGroupCreate struct {
+	// ParentId 모든 부분이 같은 스레드 답글이 된다(생략하면 COLAB_THREAD_ID 기본 — colab-cli §2). 부분마다 다른 스레드는 없다.
+	ParentId nullable.Nullable[openapi_types.UUID] `json:"parent_id,omitempty"`
+	Parts    []MessagePartCreate                   `json:"parts"`
+
+	// WorkId 모든 부분이 같은 미션(FR-3.1.1). 비우면 서버 규칙.
+	WorkId nullable.Nullable[openapi_types.UUID] `json:"work_id,omitempty"`
+}
+
+// MessageGroupPostResult defines model for MessageGroupPostResult.
+type MessageGroupPostResult struct {
+	GroupId openapi_types.UUID `json:"group_id"`
+
+	// Parts `group_index` 순서. 각 원소는 `postMessage` 의 결과와 같은 모양(그 행의 트리거·경고).
+	Parts []MessagePostResult `json:"parts"`
+}
+
 // MessageKind `message_kind`
 type MessageKind string
 
@@ -3230,6 +3257,18 @@ type MessagePage struct {
 
 	// Total 스레드 조회일 때 전체 수(`included/total/truncated` 표기용, E8-12).
 	Total nullable.Nullable[int] `json:"total,omitempty"`
+}
+
+// MessagePartCreate defines model for MessagePartCreate.
+type MessagePartCreate struct {
+	// Content 그 받는 쪽에게 하는 말(대화 층, 마크다운). 서버는 앞에 `to` 의 멘션 링크를 붙이지 않는다 — 화면은 부분 머리(SCREEN §4.6)로 받는 쪽을 보인다.
+	Content string `json:"content"`
+
+	// Detail 그 부분의 작업 내용(FR-3.1.2) — 선택.
+	Detail *string `json:"detail,omitempty"`
+
+	// To 이 부분의 받는 쪽 — 방 참여자 에이전트·사람 또는 `@all`. 원소는 멘션 링크(`[@이름](mention://agent|user/<id>)`, `[@all](mention://all/all)`). 라우팅·`addressees` 는 이것만 본다.
+	To []string `json:"to"`
 }
 
 // MessagePostResult defines model for MessagePostResult.
@@ -4888,6 +4927,15 @@ type CreateRoomLinkParams struct {
 	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
 }
 
+// PostMessageGroupParams defines parameters for PostMessageGroup.
+type PostMessageGroupParams struct {
+	// IdempotencyKey 클라이언트가 만든 UUID. 같은 키의 재요청은 첫 응답을 그대로 돌려준다(`Idempotent-Replayed: true`). 키는 24시간 보존. 같은 키에 다른 본문이면 `422 idempotency_key_reused`.
+	IdempotencyKey IdempotencyKeyRequired `json:"Idempotency-Key"`
+
+	// XColabClientSeq colab CLI가 보내는 이 task의 client seq(attempt 무관, 1부터 단조 증가). 서버는 idempotency_key.client_seq에 저장하고 CliContext.last_seq = max(client_seq)로 답한다(v0.4, PR #22 리뷰 R1). 헤더가 없으면(웹·구버전 CLI) 서버가 UUIDv5(task:<task_id>:<n>)를 n=1부터 순서대로 대조해 마지막 존재 seq를 찾는다.
+	XColabClientSeq *ClientSeq `json:"X-Colab-Client-Seq,omitempty"`
+}
+
 // ListMessagesParams defines parameters for ListMessages.
 type ListMessagesParams struct {
 	// WorkId v0.2.0 — 그 미션의 메시지만. `none` 이 아니라 빈 값 + `no_work=true` 로 미션 밖만.
@@ -4900,7 +4948,10 @@ type ListMessagesParams struct {
 	AroundMessageId *openapi_types.UUID `form:"around_message_id,omitempty" json:"around_message_id,omitempty"`
 
 	// Thread 스레드 루트 메시지 id.
-	Thread         *openapi_types.UUID `form:"thread,omitempty" json:"thread,omitempty"`
+	Thread *openapi_types.UUID `form:"thread,omitempty" json:"thread,omitempty"`
+
+	// Group v0.3.6 — 한 부분 메시지 묶음(`group_id`)의 행만, `group_index` 순서(CLI `room messages --group <id>`, PRD FR-3.1.4 5번).
+	Group          *openapi_types.UUID `form:"group,omitempty" json:"group,omitempty"`
 	IncludeReplies *bool               `form:"include_replies,omitempty" json:"include_replies,omitempty"`
 	Kind           *[]MessageKind      `form:"kind,omitempty" json:"kind,omitempty"`
 
@@ -5327,6 +5378,9 @@ type DelegateLaneJSONRequestBody DelegateLaneJSONBody
 
 // CreateRoomLinkJSONRequestBody defines body for CreateRoomLink for application/json ContentType.
 type CreateRoomLinkJSONRequestBody CreateRoomLinkJSONBody
+
+// PostMessageGroupJSONRequestBody defines body for PostMessageGroup for application/json ContentType.
+type PostMessageGroupJSONRequestBody = MessageGroupCreate
 
 // PostMessageJSONRequestBody defines body for PostMessage for application/json ContentType.
 type PostMessageJSONRequestBody = MessageCreate
@@ -6131,6 +6185,9 @@ type ServerInterface interface {
 	// DeleteRoomLink 참고 방 연결 풀기
 	// (DELETE /rooms/{roomId}/links/{roomLinkId})
 	DeleteRoomLink(w http.ResponseWriter, r *http.Request, roomId RoomId, roomLinkId RoomLinkId)
+	// PostMessageGroup 부분 메시지 게시(멱등) — 받는 쪽마다 다른 말을 한 번에(PRD FR-3.1.4)
+	// (POST /rooms/{roomId}/message-groups)
+	PostMessageGroup(w http.ResponseWriter, r *http.Request, roomId RoomId, params PostMessageGroupParams)
 	// ListMessages 타임라인 · 스레드 조회
 	// (GET /rooms/{roomId}/messages)
 	ListMessages(w http.ResponseWriter, r *http.Request, roomId RoomId, params ListMessagesParams)
@@ -8057,6 +8114,79 @@ func (siw *ServerInterfaceWrapper) DeleteRoomLink(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// PostMessageGroup operation middleware
+func (siw *ServerInterfaceWrapper) PostMessageGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", r.PathValue("roomId"), &roomId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "roomId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PostMessageGroupParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKeyRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	// ------------- Optional header parameter "X-Colab-Client-Seq" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Colab-Client-Seq")]; found {
+		var XColabClientSeq ClientSeq
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Colab-Client-Seq", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Colab-Client-Seq", valueList[0], &XColabClientSeq, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Colab-Client-Seq", Err: err})
+			return
+		}
+
+		params.XColabClientSeq = &XColabClientSeq
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostMessageGroup(w, r, roomId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListMessages operation middleware
 func (siw *ServerInterfaceWrapper) ListMessages(w http.ResponseWriter, r *http.Request) {
 
@@ -8123,6 +8253,19 @@ func (siw *ServerInterfaceWrapper) ListMessages(w http.ResponseWriter, r *http.R
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "thread"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "thread", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "group" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "group", r.URL.Query(), &params.Group, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "group"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "group", Err: err})
 		}
 		return
 	}
@@ -11410,6 +11553,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/rooms/{roomId}/rebind", wrapper.RebindRoom)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/rooms/{roomId}/messages", wrapper.ListMessages)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/rooms/{roomId}/messages", wrapper.PostMessage)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/rooms/{roomId}/message-groups", wrapper.PostMessageGroup)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/rooms/{roomId}/messages/preview", wrapper.PreviewTriggers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/messages/{messageId}", wrapper.GetMessage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/rooms/{roomId}/lanes", wrapper.ListLanes)

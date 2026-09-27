@@ -860,6 +860,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/rooms/{roomId}/message-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 부분 메시지 게시(멱등) — 받는 쪽마다 다른 말을 한 번에(PRD FR-3.1.4)
+         * @description v0.3.6 — **`TaskToken`(에이전트) 전용** — 사용자 세션이면 `403`. 부분 2~6개를 **한 트랜잭션·한 멱등키**로 게시한다: 부분마다 메시지 행 하나(같은 `group_id`, `group_index` = 배열 순서)가 생기고 **라우팅(FR-3.3 규칙 1~8)·lane 해소·말의 종류 판정(FR-3.1.3, D24)·미션 귀속은 행마다 `postMessage` 와 같다.** 단 부분의 멘션은 **`to` 만** 본다 — 부분 `content` 속 멘션 링크는 칩으로 남되 트리거·`addressees` 에 들지 않는다(`detail` 속 멘션과 같은 취급). 검증(모두 `422`, 아무 행도 만들지 않는다): 부분 수 2~6 밖(`parts_count`), 같은 에이전트가 두 부분의 `to` 에(`parts_duplicate_agent`), `to` 가 비었거나 방 참여자가 아닌 대상(`unknown_mention`), `content` 가 `/note ` 로 시작(`parts_note` — 메모는 부분이 될 수 없다). 루프 상한 초과면 `postMessage` 와 같이 행은 게시되고 task 는 만들지 않는다. SSE 는 행마다 `message.created` 를 `group_index` 순서로 연달아 낸다.
+         */
+        post: operations["postMessageGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/rooms/{roomId}/messages/preview": {
         parameters: {
             query?: never;
@@ -3336,6 +3359,15 @@ export interface components {
              * @description v0.3.2 — `speech = delegate` 이면 이 위임이 만든 서브 미션(lane). 화면이 그 상태 칩(`lane.updated`)을 단다. 그 밖 null.
              */
             delegated_lane_id?: string | null;
+            /**
+             * Format: uuid
+             * @description v0.3.6 — 부분 메시지(PRD FR-3.1.4)면 한 게시의 묶음 id, 아니면 null. 화면은 같은 `group_id` 행을 말풍선 하나로 그린다(SCREEN §4.6).
+             */
+            group_id?: string | null;
+            /** @description v0.3.6 — 묶음 안 순서(0부터). `group_id` 가 null 이면 null. */
+            group_index?: number | null;
+            /** @description v0.3.6 — 묶음의 부분 수(화면이 다 도착했는지 안다). `group_id` 가 null 이면 null. */
+            group_size?: number | null;
             /** @description v0.3.1 — 에이전트 메시지의 **작업 내용** 층(조사 결과·초안 전문·표, 마크다운). 화면은 기본 접힘(PRD FR-3.1.2 · SCREEN §4.6). 사람·시스템 메시지는 null. 받은 요청·알림·검색 미리보기·미션 요약은 이 칸을 쓰지 않는다. */
             detail?: string | null;
             mentions: components["schemas"]["Mention"][];
@@ -3402,6 +3434,34 @@ export interface components {
              * @description v0.2.0 — 작성창 미션 선택기(FR-3.1.1 규칙 1). 비우면 서버가 규칙 2~4 로 정한다.
              */
             work_id?: string | null;
+        };
+        /** @description v0.3.6 — 부분 메시지(PRD FR-3.1.4). `postMessageGroup` 본문. */
+        MessageGroupCreate: {
+            parts: components["schemas"]["MessagePartCreate"][];
+            /**
+             * Format: uuid
+             * @description 모든 부분이 같은 스레드 답글이 된다(생략하면 COLAB_THREAD_ID 기본 — colab-cli §2). 부분마다 다른 스레드는 없다.
+             */
+            parent_id?: string | null;
+            /**
+             * Format: uuid
+             * @description 모든 부분이 같은 미션(FR-3.1.1). 비우면 서버 규칙.
+             */
+            work_id?: string | null;
+        };
+        MessagePartCreate: {
+            /** @description 이 부분의 받는 쪽 — 방 참여자 에이전트·사람 또는 `@all`. 원소는 멘션 링크(`[@이름](mention://agent|user/<id>)`, `[@all](mention://all/all)`). 라우팅·`addressees` 는 이것만 본다. */
+            to: string[];
+            /** @description 그 받는 쪽에게 하는 말(대화 층, 마크다운). 서버는 앞에 `to` 의 멘션 링크를 붙이지 않는다 — 화면은 부분 머리(SCREEN §4.6)로 받는 쪽을 보인다. */
+            content: string;
+            /** @description 그 부분의 작업 내용(FR-3.1.2) — 선택. */
+            detail?: string;
+        };
+        MessageGroupPostResult: {
+            /** Format: uuid */
+            group_id: string;
+            /** @description `group_index` 순서. 각 원소는 `postMessage` 의 결과와 같은 모양(그 행의 트리거·경고). */
+            parts: components["schemas"]["MessagePostResult"][];
         };
         /** @description 규칙 1~8 + lane 해소 결과(게시 전). */
         TriggerPreview: {
@@ -6166,6 +6226,8 @@ export interface operations {
                 around_message_id?: string;
                 /** @description 스레드 루트 메시지 id. */
                 thread?: string;
+                /** @description v0.3.6 — 한 부분 메시지 묶음(`group_id`)의 행만, `group_index` 순서(CLI `room messages --group <id>`, PRD FR-3.1.4 5번). */
+                group?: string;
                 include_replies?: boolean;
                 kind?: components["schemas"]["MessageKind"][];
                 /** @description 이 커서보다 오래된 것(뒤로 스크롤). */
@@ -6227,6 +6289,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MessagePostResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    postMessageGroup: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 클라이언트가 만든 UUID. 같은 키의 재요청은 첫 응답을 그대로 돌려준다(`Idempotent-Replayed: true`). 키는 24시간 보존. 같은 키에 다른 본문이면 `422 idempotency_key_reused`. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyRequired"];
+                /** @description colab CLI가 보내는 이 task의 client seq(attempt 무관, 1부터 단조 증가). 서버는 idempotency_key.client_seq에 저장하고 CliContext.last_seq = max(client_seq)로 답한다(v0.4, PR #22 리뷰 R1). 헤더가 없으면(웹·구버전 CLI) 서버가 UUIDv5(task:<task_id>:<n>)를 n=1부터 순서대로 대조해 마지막 존재 seq를 찾는다. */
+                "X-Colab-Client-Seq"?: components["parameters"]["ClientSeq"];
+            };
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageGroupCreate"];
+            };
+        };
+        responses: {
+            /** @description 게시됨(재요청이면 같은 본문 + `Idempotent-Replayed: true`). */
+            201: {
+                headers: {
+                    "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageGroupPostResult"];
                 };
             };
             401: components["responses"]["Unauthorized"];

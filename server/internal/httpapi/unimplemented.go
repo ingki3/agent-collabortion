@@ -399,3 +399,7 @@ func (unimplemented) ReadRoom(w http.ResponseWriter, r *http.Request, roomId gen
 func (unimplemented) SetRoomSubscription(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
 	notImplemented(w, r, "SetRoomSubscription")
 }
+
+func (unimplemented) PostMessageGroup(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.PostMessageGroupParams) {
+	notImplemented(w, r, "PostMessageGroup")
+}
