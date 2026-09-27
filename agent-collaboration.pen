@@ -41361,6 +41361,2142 @@
           ]
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "eSZM9",
+      "x": 5400,
+      "y": 10000,
+      "name": "S7-A 파일 붙이기·미디어 미리보기 (v0.19.12)",
+      "clip": true,
+      "width": 1680,
+      "fill": "$bg",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": 32,
+      "children": [
+        {
+          "type": "text",
+          "id": "gHJKL",
+          "name": "Title",
+          "fill": "$ink",
+          "content": "S7-A 파일 붙이기·미디어 미리보기 (v0.19.12)",
+          "fontFamily": "$font",
+          "fontSize": 20,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "KW7Hj",
+          "name": "Annotation v0.19.12",
+          "fill": "$ink-3",
+          "content": "v0.19.12 — 파일 붙이기(📎·끌어다 놓기·붙여넣기) · 이미지/영상/소리 미리보기 · 라이트박스",
+          "fontFamily": "$font",
+          "fontSize": 11,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "frame",
+          "id": "GdE2O",
+          "name": "Columns",
+          "width": "fill_container",
+          "gap": 40,
+          "children": [
+            {
+              "type": "frame",
+              "id": "uyz9F",
+              "name": "Left (타임라인)",
+              "width": 640,
+              "cornerRadius": 8,
+              "stroke": "$line",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 16,
+              "padding": 16,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "dQHNV",
+                  "name": "Human 서연 + 첨부 카드 2",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "alignItems": "end",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "DbzN6",
+                      "name": "Addressee line",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "justifyContent": "end",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "HcStD",
+                          "name": "Who",
+                          "fill": "$ink",
+                          "content": "서연",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "g6ud8",
+                          "name": "Kind 지시",
+                          "fill": "#EFF6FF",
+                          "cornerRadius": 999,
+                          "stroke": "#93C5FD",
+                          "strokeWidth": 1,
+                          "gap": 3,
+                          "padding": [
+                            2,
+                            7
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Se7Rx",
+                              "name": "G",
+                              "fill": "$s-run-text",
+                              "content": "▶",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "XTE1l",
+                              "name": "L",
+                              "fill": "$s-run-text",
+                              "content": "지시",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "Hg9lP",
+                          "name": "Arrow",
+                          "fill": "$ink-3",
+                          "content": "→",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "pWBdp",
+                          "name": "To @Designer",
+                          "fill": "#DBEAFE",
+                          "cornerRadius": 4,
+                          "padding": [
+                            1,
+                            5
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "otXEN",
+                              "name": "T",
+                              "fill": "$s-run-text",
+                              "content": "@Designer",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "y4yJoi",
+                          "name": "Time",
+                          "fill": "$ink-3",
+                          "content": "22:10",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "nhaky",
+                      "name": "Bubble",
+                      "width": 380,
+                      "fill": "#EFF6FF",
+                      "cornerRadius": [
+                        12,
+                        4,
+                        12,
+                        12
+                      ],
+                      "padding": [
+                        8,
+                        12
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "vXdkU",
+                          "name": "Body",
+                          "fill": "$ink",
+                          "content": "@Designer 이 사진처럼 뒷모습 헤드라이트를 바꿔 주세요",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "JmWiU",
+                      "name": "Attachment cards (보낸 뒤 — 미디어 미리보기 그대로)",
+                      "gap": 8,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "snNfI",
+                          "name": "Image card ae86-rear.jpg",
+                          "clip": true,
+                          "width": 160,
+                          "fill": "$bg",
+                          "cornerRadius": 6,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "layout": "vertical",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "qMkp1",
+                              "name": "Thumb 160×120 (체커 배경 · contain)",
+                              "width": 160,
+                              "height": 120,
+                              "fill": "$surface",
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "z209O",
+                                  "name": "Glyph",
+                                  "fill": "$ink-3",
+                                  "content": "🖼",
+                                  "fontFamily": "$font",
+                                  "fontSize": 22,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "KTapH",
+                              "name": "Foot",
+                              "width": "fill_container",
+                              "padding": [
+                                4,
+                                8
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "ZjSjZ",
+                                  "name": "Name",
+                                  "fill": "$ink-2",
+                                  "content": "ae86-rear.jpg",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Xuprc",
+                          "name": "Image card reference.png",
+                          "clip": true,
+                          "width": 160,
+                          "fill": "$bg",
+                          "cornerRadius": 6,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "layout": "vertical",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "BztNx",
+                              "name": "Thumb 160×120 (체커 배경 · contain)",
+                              "width": 160,
+                              "height": 120,
+                              "fill": "$surface",
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "TV8WI",
+                                  "name": "Glyph",
+                                  "fill": "$ink-3",
+                                  "content": "🖼",
+                                  "fontFamily": "$font",
+                                  "fontSize": 22,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "OFkNC",
+                              "name": "Foot",
+                              "width": "fill_container",
+                              "padding": [
+                                4,
+                                8
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "scYq1",
+                                  "name": "Name",
+                                  "fill": "$ink-2",
+                                  "content": "reference.png",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "NMdg5",
+                  "name": "Agent @Designer 보고 + 미디어",
+                  "width": "fill_container",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "DazMl",
+                      "name": "Avatar",
+                      "width": 28,
+                      "height": 28,
+                      "fill": "#FCE7F3",
+                      "cornerRadius": 14,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "tgRCt",
+                          "name": "T",
+                          "fill": "$s-pause-text",
+                          "content": "D",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "CBpth",
+                      "name": "Col",
+                      "width": 560,
+                      "layout": "vertical",
+                      "gap": 4,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "o9ySHX",
+                          "name": "Addressee line",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "BGfwV",
+                              "name": "Who",
+                              "fill": "$ink",
+                              "content": "@Designer",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "j053P",
+                              "name": "Kind 보고",
+                              "fill": "#F0FDF4",
+                              "cornerRadius": 999,
+                              "stroke": "#86EFAC",
+                              "strokeWidth": 1,
+                              "gap": 3,
+                              "padding": [
+                                2,
+                                7
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "W4obT",
+                                  "name": "G",
+                                  "fill": "$s-done-text",
+                                  "content": "✓",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "o5WK9",
+                                  "name": "L",
+                                  "fill": "$s-done-text",
+                                  "content": "보고",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "jDxJl",
+                              "name": "Arrow",
+                              "fill": "$ink-3",
+                              "content": "→",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "vTRvc",
+                              "name": "To @Lead",
+                              "fill": "#DBEAFE",
+                              "cornerRadius": 4,
+                              "padding": [
+                                1,
+                                5
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "BQtfD",
+                                  "name": "T",
+                                  "fill": "$s-run-text",
+                                  "content": "@Lead",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "B7NVaX",
+                              "name": "Time",
+                              "fill": "$ink-3",
+                              "content": "22:31",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "POTtK",
+                          "name": "Bubble",
+                          "width": "fill_container",
+                          "fill": "$surface",
+                          "cornerRadius": [
+                            4,
+                            12,
+                            12,
+                            12
+                          ],
+                          "layout": "vertical",
+                          "gap": 6,
+                          "padding": [
+                            8,
+                            12
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "v68Ubw",
+                              "name": "Body",
+                              "fill": "$ink",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "그림 스펙 v1 과 시안 이미지 올렸습니다.",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "N1hkDR",
+                              "name": "Artifact card — image",
+                              "layout": "vertical",
+                              "gap": 6,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "cotTC",
+                                  "name": "Artifact header touge_mock.png",
+                                  "fill": "#FFFFFF",
+                                  "cornerRadius": 6,
+                                  "stroke": "$line",
+                                  "strokeWidth": 1,
+                                  "gap": 8,
+                                  "padding": [
+                                    6,
+                                    10
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "W0u0j",
+                                      "name": "Icon",
+                                      "fill": "$ink-3",
+                                      "content": "🖼",
+                                      "fontFamily": "$font",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "p40CDt",
+                                      "name": "Name",
+                                      "fill": "$ink",
+                                      "content": "touge_mock.png",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "nNNIV",
+                                      "name": "Ver",
+                                      "fill": "$ink-3",
+                                      "content": "· v1 · 412KB ·",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "gLZuu",
+                                      "name": "Open",
+                                      "fill": "$s-run-text",
+                                      "content": "열기",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "fPzfn",
+                                  "name": "Image preview 320×240 (체커 배경 · contain · 누르면 라이트박스)",
+                                  "width": 320,
+                                  "height": 240,
+                                  "fill": "$surface",
+                                  "cornerRadius": 6,
+                                  "stroke": "$line",
+                                  "strokeWidth": 1,
+                                  "layout": "vertical",
+                                  "gap": 4,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "v17Cv",
+                                      "name": "Glyph",
+                                      "fill": "$ink-3",
+                                      "content": "🖼",
+                                      "fontFamily": "$font",
+                                      "fontSize": 32,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "TFhna",
+                                      "name": "Alt",
+                                      "fill": "$ink-3",
+                                      "content": "touge_mock.png",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "RbTkA",
+                  "name": "Agent @Developer 보고 + 미디어",
+                  "width": "fill_container",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "ajbCZ",
+                      "name": "Avatar",
+                      "width": 28,
+                      "height": 28,
+                      "fill": "#DBEAFE",
+                      "cornerRadius": 14,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "A8IPL",
+                          "name": "T",
+                          "fill": "$s-run-text",
+                          "content": "D",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "M6auu",
+                      "name": "Col",
+                      "width": 560,
+                      "layout": "vertical",
+                      "gap": 4,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "e8i2cO",
+                          "name": "Addressee line",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "l4jmnV",
+                              "name": "Who",
+                              "fill": "$ink",
+                              "content": "@Developer",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "J09pFU",
+                              "name": "Kind 보고",
+                              "fill": "#F0FDF4",
+                              "cornerRadius": 999,
+                              "stroke": "#86EFAC",
+                              "strokeWidth": 1,
+                              "gap": 3,
+                              "padding": [
+                                2,
+                                7
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "wkITB",
+                                  "name": "G",
+                                  "fill": "$s-done-text",
+                                  "content": "✓",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "ji8jG",
+                                  "name": "L",
+                                  "fill": "$s-done-text",
+                                  "content": "보고",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "rElJT",
+                              "name": "Arrow",
+                              "fill": "$ink-3",
+                              "content": "→",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "q4ffqX",
+                              "name": "To @Lead",
+                              "fill": "#DBEAFE",
+                              "cornerRadius": 4,
+                              "padding": [
+                                1,
+                                5
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "tRneR",
+                                  "name": "T",
+                                  "fill": "$s-run-text",
+                                  "content": "@Lead",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "w9PGb",
+                              "name": "Time",
+                              "fill": "$ink-3",
+                              "content": "22:31",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "i6mmQ",
+                          "name": "Bubble",
+                          "width": "fill_container",
+                          "fill": "$surface",
+                          "cornerRadius": [
+                            4,
+                            12,
+                            12,
+                            12
+                          ],
+                          "layout": "vertical",
+                          "gap": 6,
+                          "padding": [
+                            8,
+                            12
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "T1ein",
+                              "name": "Body",
+                              "fill": "$ink",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "BGM v3 와 플레이 영상입니다.",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "tczzY",
+                              "name": "Artifact card — audio",
+                              "layout": "vertical",
+                              "gap": 6,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "K1KO2",
+                                  "name": "Artifact header music3.mp3",
+                                  "fill": "#FFFFFF",
+                                  "cornerRadius": 6,
+                                  "stroke": "$line",
+                                  "strokeWidth": 1,
+                                  "gap": 8,
+                                  "padding": [
+                                    6,
+                                    10
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "K9gpH",
+                                      "name": "Icon",
+                                      "fill": "$ink-3",
+                                      "content": "🎵",
+                                      "fontFamily": "$font",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "v3t5K",
+                                      "name": "Name",
+                                      "fill": "$ink",
+                                      "content": "music3.mp3",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "aYD2G",
+                                      "name": "Ver",
+                                      "fill": "$ink-3",
+                                      "content": "· v3 · 3.1MB ·",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "XyJEm",
+                                      "name": "Open",
+                                      "fill": "$s-run-text",
+                                      "content": "내려받기",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "h5l7on",
+                                  "name": "Audio player (<audio controls>) 480",
+                                  "width": 480,
+                                  "height": 36,
+                                  "fill": "$surface",
+                                  "cornerRadius": 18,
+                                  "stroke": "$line",
+                                  "strokeWidth": 1,
+                                  "gap": 10,
+                                  "padding": [
+                                    0,
+                                    14
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "YDepZ",
+                                      "name": "Play",
+                                      "fill": "$ink",
+                                      "content": "▶",
+                                      "fontFamily": "$font",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "ztqGA",
+                                      "name": "Time",
+                                      "fill": "$ink-2",
+                                      "content": "0:00 / 1:52",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "i7m9u0",
+                                      "name": "Track",
+                                      "width": "fill_container",
+                                      "height": 4,
+                                      "fill": "$line",
+                                      "cornerRadius": 2,
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "pKS8n",
+                                          "name": "Progress",
+                                          "width": 0,
+                                          "height": 4,
+                                          "fill": "$ink-2",
+                                          "cornerRadius": 2
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "bG25u",
+                                      "name": "Vol",
+                                      "fill": "$ink-2",
+                                      "content": "🔊",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "LFTpG",
+                                  "name": "Name · length",
+                                  "fill": "$ink-2",
+                                  "content": "music3.mp3 · 1:52",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "W6456d",
+                              "name": "Artifact card — video",
+                              "layout": "vertical",
+                              "gap": 6,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "G7nr5",
+                                  "name": "Artifact header race-demo.mp4",
+                                  "fill": "#FFFFFF",
+                                  "cornerRadius": 6,
+                                  "stroke": "$line",
+                                  "strokeWidth": 1,
+                                  "gap": 8,
+                                  "padding": [
+                                    6,
+                                    10
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "HVQ7c",
+                                      "name": "Icon",
+                                      "fill": "$ink-3",
+                                      "content": "🎞",
+                                      "fontFamily": "$font",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "IFpTi",
+                                      "name": "Name",
+                                      "fill": "$ink",
+                                      "content": "race-demo.mp4",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "byfSG",
+                                      "name": "Ver",
+                                      "fill": "$ink-3",
+                                      "content": "· v1 · 18MB ·",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "O64lYd",
+                                      "name": "Open",
+                                      "fill": "$s-run-text",
+                                      "content": "내려받기",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "j7s1EW",
+                                  "name": "Video 480×270 (<video controls> · 첫 프레임 포스터 · 자동 재생 없음)",
+                                  "clip": true,
+                                  "width": 480,
+                                  "height": 270,
+                                  "fill": "#000000",
+                                  "cornerRadius": 6,
+                                  "layout": "vertical",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "UCAvI",
+                                      "name": "Center",
+                                      "width": "fill_container",
+                                      "height": "fill_container",
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "H81vv",
+                                          "name": "Play button",
+                                          "width": 56,
+                                          "height": 56,
+                                          "fill": "#FFFFFF33",
+                                          "cornerRadius": 28,
+                                          "justifyContent": "center",
+                                          "alignItems": "center",
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "zYdvM",
+                                              "name": "▶",
+                                              "fill": "#FFFFFF",
+                                              "content": "▶",
+                                              "fontFamily": "$font",
+                                              "fontSize": 22,
+                                              "fontWeight": "normal"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "iYpkp",
+                                      "name": "Control strip",
+                                      "width": "fill_container",
+                                      "height": 32,
+                                      "fill": "#18181BCC",
+                                      "gap": 10,
+                                      "padding": [
+                                        0,
+                                        12
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "gPr23",
+                                          "name": "Play",
+                                          "fill": "#FFFFFF",
+                                          "content": "▶",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "zBLyk",
+                                          "name": "Time",
+                                          "fill": "#D4D4D8",
+                                          "content": "0:00 / 0:48",
+                                          "fontFamily": "$font",
+                                          "fontSize": 11,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "frame",
+                                          "id": "CZN34",
+                                          "name": "Track",
+                                          "width": "fill_container",
+                                          "height": 3,
+                                          "fill": "#52525B",
+                                          "cornerRadius": 2
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "v8TcAn",
+                                          "name": "Vol",
+                                          "fill": "#D4D4D8",
+                                          "content": "🔊",
+                                          "fontFamily": "$font",
+                                          "fontSize": 11,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "DTFtN",
+                                          "name": "Full",
+                                          "fill": "#FFFFFF",
+                                          "content": "⛶",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "P94YK",
+                  "name": "Preview failure (권한·삭제·형식 불일치)",
+                  "width": 420,
+                  "fill": "$bg",
+                  "cornerRadius": 8,
+                  "stroke": "$line",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "gap": 6,
+                  "padding": 10,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "WS1fy",
+                      "name": "Note",
+                      "fill": "$ink-2",
+                      "content": "미리보기를 불러올 수 없습니다 — 내려받아 여세요",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "F59Mc",
+                      "name": "File card",
+                      "fill": "#FFFFFF",
+                      "cornerRadius": 6,
+                      "stroke": "$line",
+                      "strokeWidth": 1,
+                      "gap": 8,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "lhVNS",
+                          "name": "Icon",
+                          "fill": "$ink-3",
+                          "content": "🎞",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "V5lL4o",
+                          "name": "Name",
+                          "fill": "$ink",
+                          "content": "race-demo-old.webm",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "nFPxO",
+                          "name": "Ver",
+                          "fill": "$ink-3",
+                          "content": "· v1 · 9.4MB ·",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "Ex2Yq",
+                          "name": "Open",
+                          "fill": "$s-run-text",
+                          "content": "내려받기",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "ifJu2",
+              "name": "Right (작성창 · 라이트박스 · 다크)",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 20,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "dmTbf",
+                  "name": "Lbl 작성창",
+                  "fill": "$ink-3",
+                  "content": "작성창 — 첨부 칩 (이미지 · 소리 · 올리는 중 · 오류)",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "frame",
+                  "id": "ClB6a",
+                  "name": "Composer + 첨부 칩",
+                  "width": "fill_container",
+                  "cornerRadius": 8,
+                  "stroke": "$line",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "gap": 6,
+                  "padding": 10,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "Vw2sK",
+                      "name": "Preview chip",
+                      "fill": "$surface",
+                      "cornerRadius": 12,
+                      "gap": 6,
+                      "padding": [
+                        3,
+                        8
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "FiV4O",
+                          "name": "L",
+                          "fill": "$ink-2",
+                          "content": "자동: @Designer 를 트리거합니다 · 미션 〈시안 v2〉에 들어갑니다 · 파일 3개를 함께 받습니다",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "o0fPb",
+                          "name": "x",
+                          "fill": "$ink-3",
+                          "content": "×",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "BtH1l",
+                      "name": "Input",
+                      "fill": "$ink",
+                      "content": "@Designer 이 사진처럼 뒷모습 헤드라이트를 바꿔 주세요",
+                      "fontFamily": "$font",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "CenW8",
+                      "name": "Attachment chips",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "NcMHu",
+                          "name": "Chip image ae86-rear.jpg",
+                          "clip": true,
+                          "height": 64,
+                          "fill": "$surface",
+                          "cornerRadius": 8,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "gap": 8,
+                          "padding": [
+                            0,
+                            10,
+                            0,
+                            0
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "uXKbw",
+                              "name": "Thumb 64",
+                              "width": 64,
+                              "height": 64,
+                              "fill": "$line",
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "Na4lq",
+                                  "name": "G",
+                                  "fill": "$ink-3",
+                                  "content": "🖼",
+                                  "fontFamily": "$font",
+                                  "fontSize": 18,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "CI3HN",
+                              "name": "Name",
+                              "fill": "$ink",
+                              "content": "ae86-rear.jpg",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "qejib",
+                              "name": "x",
+                              "fill": "$ink-3",
+                              "content": "✕",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Nf8NR",
+                          "name": "Chip audio bgm-ref.mp3",
+                          "clip": true,
+                          "height": 40,
+                          "fill": "$surface",
+                          "cornerRadius": 8,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "gap": 6,
+                          "padding": [
+                            0,
+                            10
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "B0oSVI",
+                              "name": "G",
+                              "fill": "$ink",
+                              "content": "🎵",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "xmZ3w",
+                              "name": "Name",
+                              "fill": "$ink",
+                              "content": "bgm-ref.mp3",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "B1x2l",
+                              "name": "Size",
+                              "fill": "$ink-2",
+                              "content": "3.1MB",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "bljjk",
+                              "name": "x",
+                              "fill": "$ink-3",
+                              "content": "✕",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "husB4",
+                          "name": "Chip uploading race.mp4 (60%)",
+                          "clip": true,
+                          "width": 170,
+                          "height": 40,
+                          "fill": "$surface",
+                          "cornerRadius": 8,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "layout": "vertical",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "ahJtn",
+                              "name": "Row",
+                              "width": "fill_container",
+                              "height": "fill_container",
+                              "gap": 6,
+                              "padding": [
+                                0,
+                                10
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "wD1fz",
+                                  "name": "G",
+                                  "fill": "$ink",
+                                  "content": "🎞",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "kw7W5",
+                                  "name": "Name",
+                                  "fill": "$ink",
+                                  "content": "race.mp4",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "qlk9J",
+                                  "name": "Size",
+                                  "fill": "$ink-2",
+                                  "content": "18MB",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "AmBUq",
+                                  "name": "sp",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "QRbXq",
+                                  "name": "x",
+                                  "fill": "$ink-3",
+                                  "content": "✕",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "F7sCD",
+                              "name": "Progress 2px track",
+                              "width": "fill_container",
+                              "height": 2,
+                              "fill": "$line",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "Cpj1m",
+                                  "name": "Progress 60% $s-run",
+                                  "width": 102,
+                                  "height": 2,
+                                  "fill": "$s-run"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "YsUF7",
+                          "name": "Chip error huge.mov (50MB 초과)",
+                          "clip": true,
+                          "height": 40,
+                          "fill": "#FEF2F2",
+                          "cornerRadius": 8,
+                          "stroke": "$s-fail",
+                          "strokeWidth": 1,
+                          "gap": 6,
+                          "padding": [
+                            0,
+                            10
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "ySWsA",
+                              "name": "G",
+                              "fill": "$ink",
+                              "content": "🎞",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "av16n",
+                              "name": "Name",
+                              "fill": "$ink",
+                              "content": "huge.mov",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "ZXmQR",
+                              "name": "Err",
+                              "fill": "$s-fail-text",
+                              "content": "50MB 를 넘습니다",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "d1PdT",
+                              "name": "Retry",
+                              "fill": "$s-run-text",
+                              "content": "다시 시도",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "text",
+                              "id": "qFdTG",
+                              "name": "x",
+                              "fill": "$ink-3",
+                              "content": "✕",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "V1Qrh",
+                      "name": "Row",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "UrLe1",
+                          "name": "Btn 📎 파일 붙이기",
+                          "cornerRadius": 6,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "padding": [
+                            4,
+                            8
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "b3WUOX",
+                              "name": "L",
+                              "fill": "$ink",
+                              "content": "📎",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "FTQGu",
+                          "name": "Mission selector",
+                          "cornerRadius": 6,
+                          "stroke": "$line",
+                          "strokeWidth": 1,
+                          "padding": [
+                            4,
+                            8
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "LrMzU",
+                              "name": "L",
+                              "fill": "$ink",
+                              "content": "미션: 시안 v2 ▾",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "ikFEY",
+                          "name": "sp",
+                          "width": "fill_container",
+                          "height": 1
+                        },
+                        {
+                          "type": "text",
+                          "id": "CqQVM",
+                          "name": "Helper",
+                          "fill": "$ink-3",
+                          "content": "파일을 올리는 중입니다",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "ZzVTn",
+                          "name": "Btn 보내기 (비활성 — 올리는 중)",
+                          "opacity": 0.4,
+                          "fill": "$ink",
+                          "cornerRadius": 6,
+                          "stroke": "$ink",
+                          "strokeWidth": 1,
+                          "padding": [
+                            6,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "i1u4ap",
+                              "name": "L",
+                              "fill": "#FFFFFF",
+                              "content": "보내기",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "UWJo5",
+                  "name": "Lbl 라이트박스",
+                  "fill": "$ink-3",
+                  "content": "라이트박스 — 덮개 rgba(0,0,0,.8) · Esc·바깥 누르면 닫힘 · ← → 같은 메시지의 다른 이미지",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "frame",
+                  "id": "i8tNO",
+                  "name": "Lightbox 600×400 (축소 예시)",
+                  "width": 600,
+                  "height": 400,
+                  "fill": "#000000CC",
+                  "cornerRadius": 8,
+                  "layout": "vertical",
+                  "gap": 4,
+                  "padding": [
+                    8,
+                    8,
+                    12,
+                    8
+                  ],
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "EL7qT",
+                      "name": "Top",
+                      "width": "fill_container",
+                      "justifyContent": "end",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "W6sQS",
+                          "name": "Close ✕ (44px 터치)",
+                          "width": 44,
+                          "height": 44,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "S7bDl",
+                              "name": "✕",
+                              "fill": "#FFFFFF",
+                              "content": "✕",
+                              "fontFamily": "$font",
+                              "fontSize": 18,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "JKIMv",
+                      "name": "Middle",
+                      "width": "fill_container",
+                      "height": "fill_container",
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "CyPXQ",
+                          "name": "Prev ←",
+                          "width": 44,
+                          "height": 44,
+                          "fill": "#FFFFFF1F",
+                          "cornerRadius": 22,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "e4Uzp1",
+                              "name": "←",
+                              "fill": "#FFFFFF",
+                              "content": "←",
+                              "fontFamily": "$font",
+                              "fontSize": 18,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "bSv8g",
+                          "name": "Image (최대 90vw×90vh · contain)",
+                          "width": 400,
+                          "height": 260,
+                          "fill": "#3F3F46",
+                          "cornerRadius": 4,
+                          "layout": "vertical",
+                          "gap": 4,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "XZLgK",
+                              "name": "G",
+                              "fill": "#A1A1AA",
+                              "content": "🖼",
+                              "fontFamily": "$font",
+                              "fontSize": 36,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "d6MEQy",
+                          "name": "Next →",
+                          "width": 44,
+                          "height": 44,
+                          "fill": "#FFFFFF1F",
+                          "cornerRadius": 22,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "cJHx6",
+                              "name": "→",
+                              "fill": "#FFFFFF",
+                              "content": "→",
+                              "fontFamily": "$font",
+                              "fontSize": 18,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "NdEsl",
+                      "name": "Caption",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "justifyContent": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "J8PRiQ",
+                          "name": "Name",
+                          "fill": "#FFFFFF",
+                          "content": "touge_mock.png",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "Iz4gk",
+                          "name": "Ver",
+                          "fill": "#A1A1AA",
+                          "content": "· v1 ·",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "x3ERM",
+                          "name": "Dl",
+                          "fill": "#93C5FD",
+                          "content": "내려받기",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "woL2Q",
+                  "name": "Lbl 다크",
+                  "fill": "$ink-3",
+                  "content": "다크 — 에이전트 말풍선 + 이미지 미리보기 (S7-CD 토큰)",
+                  "fontFamily": "$font",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "frame",
+                  "id": "s5Mtn",
+                  "name": "Dark mini (S7-CD 토큰)",
+                  "width": 600,
+                  "fill": "#0F0F11",
+                  "cornerRadius": 8,
+                  "layout": "vertical",
+                  "padding": 12,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "wJGcy",
+                      "name": "Agent @Designer 보고 + 이미지 · 다크",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "G3RDg",
+                          "name": "Avatar",
+                          "width": 28,
+                          "height": 28,
+                          "fill": "#3B1530",
+                          "cornerRadius": 14,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "vFSY9",
+                              "name": "T",
+                              "fill": "#F9A8D4",
+                              "content": "D",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "inAEG",
+                          "name": "Col",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "w2ZgwP",
+                              "name": "Addressee line",
+                              "width": "fill_container",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "RUirR",
+                                  "name": "Who",
+                                  "fill": "#F4F4F5",
+                                  "content": "@Designer",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "700"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "BQner",
+                                  "name": "Kind 보고",
+                                  "fill": "#132A1C",
+                                  "cornerRadius": 999,
+                                  "stroke": "#2F6B45",
+                                  "strokeWidth": 1,
+                                  "gap": 3,
+                                  "padding": [
+                                    2,
+                                    7
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "p8xnr",
+                                      "name": "G",
+                                      "fill": "#86EFAC",
+                                      "content": "✓",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "h9l2M6",
+                                      "name": "L",
+                                      "fill": "#86EFAC",
+                                      "content": "보고",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "srdLc",
+                                  "name": "Arrow",
+                                  "fill": "#71717A",
+                                  "content": "→",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "AvwHa",
+                                  "name": "To @Lead",
+                                  "fill": "#1E3A5F",
+                                  "cornerRadius": 4,
+                                  "padding": [
+                                    1,
+                                    5
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "RMBDm",
+                                      "name": "T",
+                                      "fill": "#93C5FD",
+                                      "content": "@Lead",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "h0e1IL",
+                                  "name": "Time",
+                                  "fill": "#71717A",
+                                  "content": "22:31",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "uTMEW",
+                              "name": "Bubble",
+                              "width": "fill_container",
+                              "fill": "#18181B",
+                              "cornerRadius": [
+                                4,
+                                12,
+                                12,
+                                12
+                              ],
+                              "layout": "vertical",
+                              "gap": 6,
+                              "padding": [
+                                8,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "ibr11",
+                                  "name": "Body",
+                                  "fill": "#F4F4F5",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "그림 스펙 v1 과 시안 이미지 올렸습니다.",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "a6Skm",
+                                  "name": "Artifact card — image · 다크",
+                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "R5QgYU",
+                                      "name": "Artifact header touge_mock.png · 다크",
+                                      "fill": "#0F0F11",
+                                      "cornerRadius": 6,
+                                      "stroke": "#2E2E33",
+                                      "strokeWidth": 1,
+                                      "gap": 8,
+                                      "padding": [
+                                        6,
+                                        10
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "nsBUT",
+                                          "name": "Icon",
+                                          "fill": "#71717A",
+                                          "content": "🖼",
+                                          "fontFamily": "$font",
+                                          "fontSize": 13,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "aCpjW",
+                                          "name": "Name",
+                                          "fill": "#F4F4F5",
+                                          "content": "touge_mock.png",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "600"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "aejjj",
+                                          "name": "Ver",
+                                          "fill": "#A6A6AE",
+                                          "content": "· v1 · 412KB ·",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "tiRWz",
+                                          "name": "Open",
+                                          "fill": "#93C5FD",
+                                          "content": "열기",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "Nyrdd",
+                                      "name": "Image preview 320×240 · 다크",
+                                      "width": 320,
+                                      "height": 240,
+                                      "fill": "#18181B",
+                                      "cornerRadius": 6,
+                                      "stroke": "#2E2E33",
+                                      "strokeWidth": 1,
+                                      "layout": "vertical",
+                                      "gap": 4,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "teOJB",
+                                          "name": "Glyph",
+                                          "fill": "#71717A",
+                                          "content": "🖼",
+                                          "fontFamily": "$font",
+                                          "fontSize": 32,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "YNrhZ",
+                                          "name": "Alt",
+                                          "fill": "#71717A",
+                                          "content": "touge_mock.png",
+                                          "fontFamily": "$font",
+                                          "fontSize": 11,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ],
   "variables": {
