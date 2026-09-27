@@ -16,9 +16,13 @@ func TestClassify_FR313Table(t *testing.T) {
 	user := uuid.New()
 	lane := uuid.New()
 	trig := uuid.New()
+	upMsg, other := uuid.New(), uuid.New()
 	name := func(s string) *string { return &s }
 	agentMention := func(id uuid.UUID, n string) gen.Mention {
 		return gen.Mention{Kind: gen.MentionKindAgent, Id: id.String(), DisplayName: name(n)}
+	}
+	userMention := func(id uuid.UUID, n string) gen.Mention {
+		return gen.Mention{Kind: gen.MentionKindUser, Id: id.String(), DisplayName: name(n)}
 	}
 
 	cases := []struct {
@@ -123,11 +127,54 @@ func TestClassify_FR313Table(t *testing.T) {
 			speech: gen.MessageSpeechRequest, to: []Addressee{{Kind: "agent", ID: &wri, Name: "Writer"}},
 		},
 		{
-			name: "7v' 멘션 없이 답해도 요청 — 받는 쪽은 보고한 쪽 한 명",
+			name: "7v' 보고를 받고 멘션 없이 한 말 → 윗선 요청자(사람)에게 보고, responds_to = 윗선 지시(v0.19.8)",
+			in: SpeechInput{Kind: "text", AuthorType: "agent", AuthorID: &lead,
+				TriggerMessageID: &trig, TriggerAuthorType: "agent", TriggerAuthorID: &wri, TriggerAuthorName: "Writer",
+				TriggerSpeech: "report", TriggerAddressees: []Addressee{{Kind: "agent", ID: &lead, Name: "Lead"}},
+				UpstreamMessageID: &upMsg, UpstreamAuthorType: "user", UpstreamAuthorID: &user, UpstreamAuthorName: "Simplist"},
+			speech: gen.MessageSpeechReport, to: []Addressee{{Kind: "user", ID: &user, Name: "Simplist"}}, reports: &upMsg,
+		},
+		{
+			name: "7v'a 멘션 없음 · 윗선 요청자가 에이전트 → 그 에이전트에게 보고",
+			in: SpeechInput{Kind: "text", AuthorType: "agent", AuthorID: &wri,
+				TriggerMessageID: &trig, TriggerAuthorType: "agent", TriggerAuthorID: &res, TriggerAuthorName: "Researcher",
+				TriggerSpeech: "report", TriggerAddressees: []Addressee{{Kind: "agent", ID: &wri, Name: "Writer"}},
+				UpstreamMessageID: &upMsg, UpstreamAuthorType: "agent", UpstreamAuthorID: &lead, UpstreamAuthorName: "Lead"},
+			speech: gen.MessageSpeechReport, to: []Addressee{{Kind: "agent", ID: &lead, Name: "Lead"}}, reports: &upMsg,
+		},
+		{
+			name: "7v'b 멘션 없음 · 윗선을 못 찾음 → 대화(방 전체)",
 			in: SpeechInput{Kind: "text", AuthorType: "agent", AuthorID: &lead,
 				TriggerMessageID: &trig, TriggerAuthorType: "agent", TriggerAuthorID: &wri, TriggerAuthorName: "Writer",
 				TriggerSpeech: "report", TriggerAddressees: []Addressee{{Kind: "agent", ID: &lead, Name: "Lead"}}},
-			speech: gen.MessageSpeechRequest, to: []Addressee{{Kind: "agent", ID: &wri, Name: "Writer"}},
+			speech: gen.MessageSpeechChat, to: []Addressee{},
+		},
+		{
+			name: "7v'c 사람만 멘션, 윗선 지시가 그 사람의 것 → 그 사람에게 보고, responds_to = 윗선 지시",
+			in: SpeechInput{Kind: "text", AuthorType: "agent", AuthorID: &lead,
+				Mentions:         []gen.Mention{userMention(user, "Simplist")},
+				TriggerMessageID: &trig, TriggerAuthorType: "agent", TriggerAuthorID: &wri, TriggerAuthorName: "Writer",
+				TriggerSpeech: "report", TriggerAddressees: []Addressee{{Kind: "agent", ID: &lead, Name: "Lead"}},
+				UpstreamMessageID: &upMsg, UpstreamAuthorType: "user", UpstreamAuthorID: &user, UpstreamAuthorName: "Simplist"},
+			speech: gen.MessageSpeechReport, to: []Addressee{{Kind: "user", ID: &user, Name: "Simplist"}}, reports: &upMsg,
+		},
+		{
+			name: "7v'd 사람만 멘션, 윗선 지시가 다른 쪽의 것 → 그 사람에게 보고, responds_to 없음",
+			in: SpeechInput{Kind: "text", AuthorType: "agent", AuthorID: &lead,
+				Mentions:         []gen.Mention{userMention(other, "서연")},
+				TriggerMessageID: &trig, TriggerAuthorType: "agent", TriggerAuthorID: &wri, TriggerAuthorName: "Writer",
+				TriggerSpeech: "report", TriggerAddressees: []Addressee{{Kind: "agent", ID: &lead, Name: "Lead"}},
+				UpstreamMessageID: &upMsg, UpstreamAuthorType: "user", UpstreamAuthorID: &user, UpstreamAuthorName: "Simplist"},
+			speech: gen.MessageSpeechReport, to: []Addressee{{Kind: "user", ID: &other, Name: "서연"}},
+		},
+		{
+			name: "7v'e 사람과 에이전트를 같이 멘션 → 요청(에이전트 멘션이 먼저), 받는 쪽은 멘션 전부",
+			in: SpeechInput{Kind: "text", AuthorType: "agent", AuthorID: &lead,
+				Mentions:         []gen.Mention{userMention(user, "Simplist"), agentMention(wri, "Writer")},
+				TriggerMessageID: &trig, TriggerAuthorType: "agent", TriggerAuthorID: &wri, TriggerAuthorName: "Writer",
+				TriggerSpeech: "report", TriggerAddressees: []Addressee{{Kind: "agent", ID: &lead, Name: "Lead"}},
+				UpstreamMessageID: &upMsg, UpstreamAuthorType: "user", UpstreamAuthorID: &user, UpstreamAuthorName: "Simplist"},
+			speech: gen.MessageSpeechRequest, to: []Addressee{{Kind: "user", ID: &user, Name: "Simplist"}, {Kind: "agent", ID: &wri, Name: "Writer"}},
 		},
 		{
 			name: "7v''' 보고 안의 본문 멘션 칩으로만 깨어난 쪽(받는 쪽이 아니다)이 결과를 돌려주면 원래 보고(review #343 블로커 1)",
