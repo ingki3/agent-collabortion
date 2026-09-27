@@ -2367,6 +2367,7 @@ type AgentUpdate struct {
 
 // Artifact defines model for Artifact.
 type Artifact struct {
+	// ContentType v0.3.7 — **서버가 판정한** 종류(PRD FR-4.3.1): 올릴 때 첫 바이트(스니핑)와 확장자로 정한다 — 올리는 쪽이 보낸 파트 Content-Type 은 믿지 않는다. 화면의 미리보기(이미지·영상·소리)는 이 값만 본다.
 	ContentType nullable.Nullable[string] `json:"content_type,omitempty"`
 	CreatedAt   time.Time                 `json:"created_at"`
 	Description nullable.Nullable[string] `json:"description,omitempty"`
@@ -2405,6 +2406,18 @@ type ArtifactReview struct {
 
 // ArtifactReviewVerdict defines model for ArtifactReview.Verdict.
 type ArtifactReviewVerdict string
+
+// AttachmentRef defines model for AttachmentRef.
+type AttachmentRef struct {
+	ArtifactId openapi_types.UUID `json:"artifact_id"`
+
+	// ContentType 서버가 판정한 종류(Artifact.content_type).
+	ContentType nullable.Nullable[string] `json:"content_type"`
+	Name        string                    `json:"name"`
+	SizeBytes   int64                     `json:"size_bytes"`
+	Type        string                    `json:"type"`
+	Version     int                       `json:"version"`
+}
 
 // AuthResult defines model for AuthResult.
 type AuthResult struct {
@@ -3128,6 +3141,9 @@ type Message struct {
 		Name string                                `json:"name"`
 	} `json:"addressees,omitempty"`
 
+	// Attachments v0.3.7 — 붙인 파일(PRD FR-3.7) — 게시 때 가리킨 아티팩트 **버전 그대로**(나중에 같은 이름이 새 버전이 되어도 이 메시지의 첨부는 그 버전). 없으면 빈 배열.
+	Attachments *[]AttachmentRef `json:"attachments,omitempty"`
+
 	// Author 표시용 해소값(uuid 노출 금지 원칙, FR-7.2).
 	Author *struct {
 		AvatarUrl nullable.Nullable[string] `json:"avatar_url,omitempty"`
@@ -3204,6 +3220,9 @@ type MessageSpeech string
 
 // MessageCreate defines model for MessageCreate.
 type MessageCreate struct {
+	// AttachmentIds v0.3.7 — 붙인 파일(PRD FR-3.7). **같은 방의 아티팩트**만(아니면 `422 attachment_not_in_room`), 중복은 한 번. 사람은 작성창에서 먼저 `submitArtifact`(type `attachment`)로 올리고 그 id 를 싣는다. 에이전트도 쓸 수 있다(`message post --attach`). 첨부만 보낼 때 화면은 `content` 에 「(파일 N개)」 를 넣는다.
+	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
+
 	// Content 마크다운 + 멘션 링크. `/note ` 접두는 기록만.
 	Content string `json:"content"`
 
@@ -3261,6 +3280,9 @@ type MessagePage struct {
 
 // MessagePartCreate defines model for MessagePartCreate.
 type MessagePartCreate struct {
+	// AttachmentIds v0.3.7 — 그 부분에 붙인 파일(`MessageCreate.attachment_ids` 와 같은 규칙).
+	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
+
 	// Content 그 받는 쪽에게 하는 말(대화 층, 마크다운). 서버는 앞에 `to` 의 멘션 링크를 붙이지 않는다 — 화면은 부분 머리(SCREEN §4.6)로 받는 쪽을 보인다.
 	Content string `json:"content"`
 
@@ -4740,6 +4762,15 @@ type CreateTestChatParams struct {
 	IdempotencyKey *IdempotencyKeyOptional `json:"Idempotency-Key,omitempty"`
 }
 
+// DownloadArtifactParams defines parameters for DownloadArtifact.
+type DownloadArtifactParams struct {
+	// Inline v0.3.7 — 화면 미리보기(PRD FR-4.3.1). `true` 이고 **서버가 판정한** `content_type` 이 미리보기 목록(이미지 `image/png·jpeg·gif·webp·svg+xml`, 영상 `video/mp4·webm`, 소리 `audio/mpeg·wav·ogg·webm·mp4`)에 있으면 `Content-Disposition: inline` 으로 준다. 목록 밖이면 무시하고 `attachment`. 어느 쪽이든 `X-Content-Type-Options: nosniff` · `Content-Security-Policy: sandbox`. SVG 는 화면이 `<img>` 로만 쓴다.
+	Inline *bool `form:"inline,omitempty" json:"inline,omitempty"`
+
+	// Range v0.3.7 — 바이트 범위(RFC 9110, 단일 범위만). 영상·소리 탐색·이어 받기. 여러 범위·잘못된 범위는 `416`.
+	Range *string `json:"Range,omitempty"`
+}
+
 // ReviewArtifactJSONBody defines parameters for ReviewArtifact.
 type ReviewArtifactJSONBody struct {
 	// Comments reject면 필수.
@@ -6056,9 +6087,9 @@ type ServerInterface interface {
 	// GetArtifact 아티팩트 메타(`colab artifact get`)
 	// (GET /artifacts/{artifactId})
 	GetArtifact(w http.ResponseWriter, r *http.Request, artifactId ArtifactId)
-	// DownloadArtifact 아티팩트 본문 다운로드
+	// DownloadArtifact 아티팩트 본문 다운로드 · 미리보기(v0.3.7 `?inline=true`)
 	// (GET /artifacts/{artifactId}/content)
-	DownloadArtifact(w http.ResponseWriter, r *http.Request, artifactId ArtifactId)
+	DownloadArtifact(w http.ResponseWriter, r *http.Request, artifactId ArtifactId, params DownloadArtifactParams)
 	// ReviewArtifact 리뷰 승인/반려(`colab review approve|reject`)
 	// (POST /artifacts/{artifactId}/review)
 	ReviewArtifact(w http.ResponseWriter, r *http.Request, artifactId ArtifactId, params ReviewArtifactParams)
@@ -6677,8 +6708,45 @@ func (siw *ServerInterfaceWrapper) DownloadArtifact(w http.ResponseWriter, r *ht
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DownloadArtifactParams
+
+	// ------------- Optional query parameter "inline" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "inline", r.URL.Query(), &params.Inline, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "inline"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "inline", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Range" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Range")]; found {
+		var Range string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Range", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Range", valueList[0], &Range, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Range", Err: err})
+			return
+		}
+
+		params.Range = &Range
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DownloadArtifact(w, r, artifactId)
+		siw.Handler.DownloadArtifact(w, r, artifactId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
