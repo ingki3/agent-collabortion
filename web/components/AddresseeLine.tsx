@@ -63,13 +63,14 @@ export function KindChip({ speech }: { speech: Speech }) {
   );
 }
 
-export function AddresseeChips({ to }: { to: Addressee[] }) {
+/** `me` — 보는 사람의 user id. 그 사람 칩은 `data-me`(부분 메시지의 「나」 강조, COMPONENTS §9.11). */
+export function AddresseeChips({ to, me }: { to: Addressee[]; me?: string | null }) {
   const shown = to.slice(0, MAX_TO);
   const rest = to.length - shown.length;
   return (
     <span className="convo__to" data-testid="speech-to">
       {shown.map((a) => (
-        <span key={`${a.kind}:${a.id ?? a.name}`} className="convo__to-chip" data-to-kind={a.kind}>
+        <span key={`${a.kind}:${a.id ?? a.name}`} className="convo__to-chip" data-to-kind={a.kind} data-me={me && a.kind === "user" && a.id === me ? "true" : undefined}>
           {addresseeName(a)}
         </span>
       ))}

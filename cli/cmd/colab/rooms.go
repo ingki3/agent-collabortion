@@ -38,13 +38,14 @@ func runRoom(args []string, getenv client.Getenv, stdout, stderr io.Writer) int 
 		thread := fs.String("thread", "", "thread root message id (root + replies)")
 		work := fs.String("work", "", "only this mission's messages")
 		topOnly := fs.Bool("top-only", false, "main timeline only (thread replies are included by default)")
+		group := fs.String("group", "", "one part message (group_id): its parts in order")
 		if err := fs.Parse(args[1:]); err != nil {
 			return client.ExitUsage
 		}
 		if fs.NArg() > 0 {
 			return usage(stderr, "room messages: unexpected argument %q", fs.Arg(0))
 		}
-		a := colab.RoomMessagesArgs{Room: *room, Since: *since, Thread: *thread, Work: *work, TopOnly: *topOnly}
+		a := colab.RoomMessagesArgs{Room: *room, Since: *since, Thread: *thread, Work: *work, TopOnly: *topOnly, Group: *group}
 		fs.Visit(func(f *flag.Flag) {
 			if f.Name == "limit" {
 				a.Limit = limit

@@ -9,6 +9,7 @@
 #   | 82_      | 세 층 게이트·관찰 표·lane.actions 전부 | 절 R 만: claude_code reviewer 1턴(브리프 [2]·delegate 시도 여부) |
 #   | 92_      | acpfake exec(`colab message post`, --reply-to 없이) | Lead haiku 2턴(최상위·스레드 질문) |
 #   | 93_      | acpfake exec(`colab message post --detail-file`) | Lead haiku 조사 턴 — --detail 로 나누는지 관측(N/A) |
+#   | 96_      | acpfake exec(`colab message post --parts-file`) — 페이크 고정(RUNTIME=real 이면 건너뛴다) | — |
 #   | 83_      | (CI 에 없다 — 실기 고정) | T-D13 데몬 몫: 로그·MCP argv·툴 목록·[2] 인용 |
 #
 #   CI:    PG_EXTERNAL=1 PSQL_URL=postgres://… RUNTIME=fake bash e2e/p5/ci.sh     (.github/workflows/ci.yml e2e job)
@@ -19,7 +20,7 @@
 # 나머지를 다 돌리고 마지막에 표를 낸다 — 한 줄 실패로 뒤의 증거를 잃지 않게. 종료 코드는 실패 수.
 source "$(dirname "$0")/lib_i5.sh"
 cd "$E2E_ROOT"
-SCRIPTS="${SCRIPTS:-72_scenario_a 73_scenario_b 74_scenario_c 75_scenario_d 76_perf 77_security 78_web_s7 81_observations_commands 82_role_gate 84_cli_allowed_commands 88_room_gate 90_room_read 91_works 92_thread_reply 93_message_detail 94_budget_cap}"
+SCRIPTS="${SCRIPTS:-72_scenario_a 73_scenario_b 74_scenario_c 75_scenario_d 76_perf 77_security 78_web_s7 81_observations_commands 82_role_gate 84_cli_allowed_commands 88_room_gate 90_room_read 91_works 92_thread_reply 93_message_detail 94_budget_cap 96_message_parts}"
 T_ALL0="$(date +%s)"
 bash e2e/p5/up_i5.sh || { echo "::error::e2e/p5/up.sh failed"; exit 1; }
 trap 'bash e2e/p5/down_i5.sh >/dev/null 2>&1 || true' EXIT

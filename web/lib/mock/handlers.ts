@@ -19,8 +19,9 @@ import { registerRoomDialogs } from "./rooms-dialogs";
 import { registerR2W4a } from "./r2w4a";
 import { registerWorkEdit } from "./work-edit";
 import { registerMessageLayers } from "./message-layers";
-import { registerMedia, resolveAttachments } from "./media";
+import { registerMedia, resolveAttachments, seedArtifactFromB64 } from "./media";
 import { registerConversationSeed } from "./conversation-seed";
+import { registerPartsSeed } from "./parts-seed";
 import { registerWorkingSeed } from "./working-seed";
 import { applySpeech, type SpeechPremises } from "./speech";
 import { fmt, josa, METRIC_DEFS, NOT_FOUND_NOUN, notFound, OBSERVATION_DEFS, SEED, statusLabel, titleOf, VALIDATION_DETAIL, W } from "./wording";
@@ -77,6 +78,7 @@ registerMedia({ on, Problem, sessionOf, requireMember, addMessage, createTask, s
 registerMessageLayers({ on, Problem, sessionOf, requireMember, addMessage, createTask, pushEvent, setLaneStatus, parseMentions, notFound: () => notFoundP("artifact") });
 // 타임라인 대화 배치 시드(`seed-conversation`, PRD FR-3.1.3) — 본문은 ./conversation-seed.ts(등록 한 줄만).
 registerConversationSeed({ on, Problem, sessionOf, addMessage, createTask, setLaneStatus, parseMentions });
+registerPartsSeed({ on, Problem, sessionOf, addMessage, createTask, pushEvent, setLaneStatus, parseMentions, resolveAttachments, seedArtifact: seedArtifactFromB64 });
 // 「작업 중」 말풍선 시드(`seed-working` · `working-step`, SCREEN §4.6 v0.19.10) — 두 에이전트 동시 작업 + 진행 메모 흐름. 본문은 ./working-seed.ts.
 registerWorkingSeed({ on, Problem, sessionOf, requireMember, addMessage, createTask, pushEvent, setLaneStatus, toTask });
 
@@ -776,6 +778,12 @@ on("GET", "/rooms/{id}/messages", (req, p) => {
   const thread = req.query.get("thread");
   const includeReplies = req.query.get("include_replies") === "true";
   let items = [...s.messages.values()].filter((m) => m.session_id === sess.id).map((m) => ({ ...m, work_id: msgWork(s, m) }));
+  // v0.3.6 — `?group` 한 부분 메시지 묶음의 행만, group_index 순(서버 listGroup).
+  const group = req.query.get("group");
+  if (group) {
+    const rows = items.filter((m) => m.group_id === group).sort((a, b) => (a.group_index ?? 0) - (b.group_index ?? 0));
+    return ok({ items: rows, before_cursor: null, after_cursor: null, has_more_before: false, has_more_after: false, total: rows.length });
+  }
   if (thread) items = items.filter((m) => m.id === thread || m.parent_id === thread);
   else if (!includeReplies) items = items.filter((m) => !m.parent_id);
   // v0.2.0 — 미션 칩 거르기(`work_id` · `no_work`)와 앵커(`around_message_id`, 위아래 25건).

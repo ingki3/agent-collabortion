@@ -93,22 +93,35 @@ function b64(s: string): Uint8Array {
   return out;
 }
 
+/**
+ * storeArtifact — 목 저장소에 아티팩트 하나(같은 이름이면 다음 버전, FR-4.3). 종류는 **바이트로 판정**한다
+ * (judgeContentType) — 시드든 업로드든 같은 판정을 지나야 화면이 서버에서 안 되는 것을 그리지 않는다.
+ */
+export function storeArtifact(s: Store, sess: Session, name: string, type: string, bytes: Uint8Array, by: { agentId?: string; agentName?: string; taskId?: string | null }): Artifact {
+  const prev = [...s.artifacts.values()].filter((a) => a.session_id === sess.id && a.name === name);
+  prev.forEach((a) => (a.latest = false));
+  const a: Artifact = {
+    id: uuid(), session_id: sess.id, name, version: prev.length + 1, type, storage_ref: `mock://${type}/${name}`,
+    size_bytes: bytes.length, content_type: judgeContentType(name, bytes), submitted_by_task_id: by.taskId ?? null,
+    submitted_by: by.agentId ? { agent_id: by.agentId, agent_name: by.agentName ?? "agent" } : undefined,
+    description: null, latest: true, created_at: new Date().toISOString(), work_id: null,
+  };
+  s.artifacts.set(a.id, a);
+  bytesOf(s).set(a.id, bytes);
+  return a;
+}
+
+/** b64 본문으로 아티팩트 하나 — 시드 전용(parts-seed 등). */
+export function seedArtifactFromB64(s: Store, sess: Session, name: string, b64s: string): string {
+  return storeArtifact(s, sess, name, "file", b64(b64s), {}).id;
+}
+
 export function registerMedia(ctx: MediaCtx): void {
   const { on, Problem, sessionOf, requireMember, addMessage, createTask, setLaneStatus, emit } = ctx;
   const ok = (b: unknown, status = 200): Res => ({ status, body: b });
 
-  /** 한 아티팩트를 저장(같은 이름이면 다음 버전 — FR-4.3). */
   const store1 = (s: Store, sess: Session, name: string, type: string, bytes: Uint8Array, by: { agentId?: string; agentName?: string; taskId?: string | null }): Artifact => {
-    const prev = [...s.artifacts.values()].filter((a) => a.session_id === sess.id && a.name === name);
-    prev.forEach((a) => (a.latest = false));
-    const a: Artifact = {
-      id: uuid(), session_id: sess.id, name, version: prev.length + 1, type, storage_ref: `mock://${type}/${name}`,
-      size_bytes: bytes.length, content_type: judgeContentType(name, bytes), submitted_by_task_id: by.taskId ?? null,
-      submitted_by: by.agentId ? { agent_id: by.agentId, agent_name: by.agentName ?? "agent" } : undefined,
-      description: null, latest: true, created_at: new Date().toISOString(), work_id: null,
-    };
-    s.artifacts.set(a.id, a);
-    bytesOf(s).set(a.id, bytes);
+    const a = storeArtifact(s, sess, name, type, bytes, by);
     emit(s, sess.workspace_id, "artifact.created", a, sess.id);
     return a;
   };

@@ -126,26 +126,60 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 	if err != nil {
 		return nil, err
 	}
-	assignee, err := routingAssignee(ctx, tx, sessionID, in, legacy)
+	result, _, err := s.postRow(ctx, tx, sessionID, wsID, legacy, author, in, platform, nil, now)
 	if err != nil {
 		return nil, err
+	}
+	if s.Hub != nil {
+		sid := sessionID
+		_ = s.Hub.Publish(ctx, tx, wsID, &sid, "message.created", result.Message)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	if len(result.Triggers) > 0 && s.Notifier != nil {
+		s.Notifier.Notify()
+	}
+	return result, nil
+}
+
+// partRow is what makes a row one part of a group post (PRD FR-3.1.4,
+// openapi v0.3.6 D26): its place in the group and its `to` — the mentions
+// routing and speech read instead of the body's.
+type partRow struct {
+	GroupID uuid.UUID
+	Index   int
+	Size    int
+	To      []gen.Mention
+}
+
+// postRow is one message row and everything FR-3.3 does with it — routing,
+// lane resolution, task creation/coalescing, speech, mission, people's inbox
+// items — inside the caller's transaction, after the caller locked the room.
+// Post runs it once; PostGroup once per part, so a part gets exactly the
+// rules a message gets (D26: "지금 코드 그대로 행마다"). It does not publish
+// message.created: the caller does, in order, just before it commits.
+func (s *Service) postRow(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, legacy *uuid.UUID, author Author, in gen.MessageCreate, platform *PlatformTrigger, part *partRow, now time.Time) (*gen.MessagePostResult, uuid.UUID, error) {
+	assignee, err := routingAssignee(ctx, tx, sessionID, in, legacy)
+	if err != nil {
+		return nil, uuid.Nil, err
 	}
 
 	participants, profiles, err := loadParticipants(ctx, tx, sessionID)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 
 	th, err := threadPremise(ctx, tx, sessionID, in.ParentId)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 	parent := th.Parent
 
 	// Rule 8 premise: the author's own lane and the join group it belongs to.
 	authorDelegator, joinFired, err := delegatorPremise(ctx, tx, author.TaskID)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 
 	var suppress []uuid.UUID
@@ -159,6 +193,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 		AuthorAgentID: author.AgentID, AssigneeAgentID: assignee, Suppress: suppress,
 		ReplyToAgentID: th.ReplyTo, ThreadOwnerAgentID: th.ThreadOwner,
 		AuthorLaneDelegatorID: authorDelegator, JoinGroupFired: joinFired,
+		Mentions: partMentions(part),
 	})
 
 	if platform != nil && platform.AgentID != uuid.Nil {
@@ -181,14 +216,14 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 	// preview reads.
 	attr, err := attribute(ctx, tx, sessionID, in, author, th, dec, legacy)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 
 	// openapi v0.3.7 (FR-3.7): the ids are checked before anything is
 	// written — a bad list refuses the whole post.
 	attachIDs, err := NormalizeAttachments(in.AttachmentIds)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 
 	var authorID *uuid.UUID
@@ -198,20 +233,27 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 	case "agent":
 		authorID = author.AgentID
 	}
+	var groupID *uuid.UUID
+	var groupIndex, groupSize *int
+	if part != nil {
+		groupID, groupIndex, groupSize = &part.GroupID, &part.Index, &part.Size
+	}
 	var msgID uuid.UUID
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO message (session_id, author_type, author_id, parent_id, content, mentions, source_task_id, kind, state, created_at, work_id, detail)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'text', 'posted', $8, $9, $10) RETURNING id`,
-		sessionID, author.Type, authorID, parent, in.Content, dec.Mentions, author.TaskID, now, attr.WorkID, in.Detail).Scan(&msgID); err != nil {
-		return nil, fmt.Errorf("router: insert message: %w", err)
+		INSERT INTO message (session_id, author_type, author_id, parent_id, content, mentions, source_task_id, kind, state, created_at, work_id, detail,
+		                     group_id, group_index, group_size)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'text', 'posted', $8, $9, $10, $11, $12, $13) RETURNING id`,
+		sessionID, author.Type, authorID, parent, in.Content, dec.Mentions, author.TaskID, now, attr.WorkID, in.Detail,
+		groupID, groupIndex, groupSize).Scan(&msgID); err != nil {
+		return nil, uuid.Nil, fmt.Errorf("router: insert message: %w", err)
 	}
 	if err := attach(ctx, tx, sessionID, msgID, attachIDs); err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 	// openapi v0.3.2 (D24, FR-3.1.3): the speech is decided here, in the same
 	// transaction as the insert, so no reader ever sees a message without one.
 	if err := messages.Store(ctx, tx, msgID, messages.StoreOpts{}); err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 	// FR-3.2 「사람 (Director가 아니어도 알림)」: a person the body mentions gets
 	// a `mention` inbox item (SCREEN §4.14 「나를 멘션한 메시지」). Routing
@@ -219,7 +261,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 	// mention does besides addressing them (T-HUMANMENTION).
 	if !isNote(in.Content) {
 		if err := notifyMentionedPeople(ctx, tx, wsID, sessionID, msgID, attr.WorkID, author, dec.Mentions, now); err != nil {
-			return nil, err
+			return nil, uuid.Nil, err
 		}
 	}
 
@@ -260,11 +302,11 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 	// decision correct.
 	limits, err := s.loopLimits(ctx, tx, wsID)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 	history, err := s.loadHops(ctx, tx, sessionID, now)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 
 	// S-78: every trigger of this message shares one cause — the hop that
@@ -273,7 +315,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 	var cause int64
 	if author.Type == "agent" && author.TaskID != nil {
 		if cause, _, err = causeOfTask(ctx, tx, *author.TaskID); err != nil {
-			return nil, err
+			return nil, uuid.Nil, err
 		}
 	}
 	for _, tr := range dec.Triggers {
@@ -283,12 +325,12 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 		}
 		v := CheckLoopLimits(history, next, limits, now)
 		if err := s.recordHop(ctx, tx, sessionID, next, msgID, tr.Rule, v.Allowed); err != nil {
-			return nil, err
+			return nil, uuid.Nil, err
 		}
 		history = append(history, next)
 		if !v.Allowed {
 			if err := s.pauseForLoop(ctx, tx, sessionID, wsID, v, now); err != nil {
-				return nil, err
+				return nil, uuid.Nil, err
 			}
 			result.Warnings = append(result.Warnings, struct {
 				AgentId nullable.Nullable[openapi_types.UUID] `json:"agent_id,omitempty"`
@@ -317,11 +359,11 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 		}
 		laneID, _, err := s.resolveLaneFor(ctx, tx, sessionID, tr, profiles[tr.AgentID], opts, now)
 		if err != nil {
-			return nil, err
+			return nil, uuid.Nil, err
 		}
 		laneWork, err := bindLaneWork(ctx, tx, laneID, attr.WorkID)
 		if err != nil {
-			return nil, err
+			return nil, uuid.Nil, err
 		}
 		// FR-3.4: a queued task on the lane absorbs this message. PlanArrival
 		// owns the decision (never cancel a running turn, merge per LANE, keep
@@ -337,17 +379,17 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 		coalesced := err == nil
 		if errors.Is(err, pgx.ErrNoRows) {
 			if err := tx.QueryRow(ctx, `SELECT status::text FROM lane WHERE id = $1`, laneID).Scan(&laneStatus); err != nil {
-				return nil, err
+				return nil, uuid.Nil, err
 			}
 		} else if err != nil {
-			return nil, err
+			return nil, uuid.Nil, err
 		}
 		arrival := PlanArrival(laneID, laneStatus, queuedMsgs, []uuid.UUID{msgID})
 		if arrival.CancelledRunningTurn {
 			// Unreachable by construction — the invariant is that no message
 			// cancels a turn — but an explicit refusal beats a silent one if
 			// PlanArrival ever changes.
-			return nil, fmt.Errorf("router: FR-3.4 invariant: a message may not cancel a running turn")
+			return nil, uuid.Nil, fmt.Errorf("router: FR-3.4 invariant: a message may not cancel a running turn")
 		}
 		var taskID uuid.UUID
 		if coalesced {
@@ -359,7 +401,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 			// A task that already has a mission keeps it.
 			if _, err := tx.Exec(ctx, `UPDATE task SET coalesced_message_ids = $2, work_id = COALESCE(work_id, $4), updated_at = $3 WHERE id = $1`,
 				taskID, arrival.CoalescedMessageIDs, now, laneWork); err != nil {
-				return nil, err
+				return nil, uuid.Nil, err
 			}
 		} else {
 			if err := tx.QueryRow(ctx, `
@@ -368,7 +410,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 				VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $8, $9) RETURNING id`,
 				laneID, sessionID, tr.AgentID, profiles[tr.AgentID], msgID, originator,
 				arrival.CoalescedMessageIDs, now, laneWork).Scan(&taskID); err != nil {
-				return nil, fmt.Errorf("router: insert task: %w", err)
+				return nil, uuid.Nil, fmt.Errorf("router: insert task: %w", err)
 			}
 		}
 		result.Triggers = append(result.Triggers, struct {
@@ -397,7 +439,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 		if primary != uuid.Nil {
 			laneID, taskID, ok, err := s.scheduleFallback(ctx, tx, sessionID, *fb, primary, profiles[fb.AgentID], msgID, originator, attr.WorkID, now)
 			if err != nil {
-				return nil, err
+				return nil, uuid.Nil, err
 			}
 			if ok {
 				result.Triggers = append(result.Triggers, struct {
@@ -416,7 +458,7 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 	// assignee task must never run.
 	if author.Type == "agent" && author.TaskID != nil {
 		if err := s.cancelFallbacksFor(ctx, tx, *author.TaskID, now); err != nil {
-			return nil, err
+			return nil, uuid.Nil, err
 		}
 	}
 
@@ -433,29 +475,19 @@ func (s *Service) PostWithTrigger(ctx context.Context, sessionID uuid.UUID, auth
 		if err := tasks.InsertServerEvent(ctx, tx, *author.TaskID, author.Attempt, "status", "post_message",
 			msgID.String(), "ok",
 			map[string]any{"command": "message post", "result_ref": msgID.String()}, now); err != nil {
-			return nil, err
+			return nil, uuid.Nil, err
 		}
 	}
 
 	if _, err := tx.Exec(ctx, `UPDATE room SET updated_at = $2 WHERE id = $1`, sessionID, now); err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 	msg, err := messages.Get(ctx, tx, msgID)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 	result.Message = messages.ToAPI(msg)
-	if s.Hub != nil {
-		sid := sessionID
-		_ = s.Hub.Publish(ctx, tx, wsID, &sid, "message.created", result.Message)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	if len(result.Triggers) > 0 && s.Notifier != nil {
-		s.Notifier.Notify()
-	}
-	return result, nil
+	return result, msgID, nil
 }
 
 // laneOpts carries the premises the four lane rules read that the trigger

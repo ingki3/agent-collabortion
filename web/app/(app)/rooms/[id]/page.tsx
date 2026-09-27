@@ -18,6 +18,8 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { MessageCard, authorName, type ConversationSlot, type MessageLayerSlots } from "@/components/MessageCard";
 import { ArtifactRef, DetailFold, ProcessFold, TimelineViewToggle, WorkingBubble, type TimelineView } from "@/components/MessageLayers";
+import { PartBubble } from "@/components/PartBubble";
+import { boundaryOf, processBoundaries, timelineItems } from "@/lib/parts";
 import { lastSentence, memoEffect, memoSegments, type ProgressMemos } from "@/lib/progress-memo";
 import { Composer, type ComposerAgent, type ComposerInput, type ComposerWarning } from "@/components/Composer";
 import { MediaGroup } from "@/components/MediaPreview";
@@ -841,7 +843,8 @@ export default function RoomPage() {
   // 메시지별 「작업 과정」 조각(T-FEED A) — 한 턴의 기록을 그 턴이 올린 메시지 경계로 자른다. 도는 턴의 꼬리는 「작업 중」 말풍선으로.
   // 메시지가 아직 없는 턴이면 턴 전체가 꼬리다.
   const working = workingTasks(shownLanes, events);
-  const slices: Map<string, ProcessSlices> = roomProcessSlices(events, [...messages, ...Object.values(replies).flat()], new Set(working.map((w) => w.taskId)));
+  // 부분 메시지(v0.19.11)는 작업 과정 경계가 **하나**다 — 도착한 마지막 부분만 경계로 센다(나머지 부분은 조각을 나누지 않는다).
+  const slices: Map<string, ProcessSlices> = roomProcessSlices(events, processBoundaries([...messages, ...Object.values(replies).flat()]), new Set(working.map((w) => w.taskId)));
   // 「작업 중」 말풍선(SCREEN §4.6 v0.19.10) — 보이는 서브 미션(미션 칩 거름)의 도는 턴, 에이전트마다 하나. 턴 기록을 아직 못 읽었어도
   // 진행 메모가 흐르고 있으면(같은 task 가 보이는 줄기의 현재 할 일) 말풍선을 먼저 세운다 — 요약은 「불러오는 중…」.
   const bubbles: { agentId: string; taskId: string | null; at: string }[] = working.map((w) => ({
@@ -890,7 +893,7 @@ export default function RoomPage() {
     );
   };
   /** 메시지(스레드 답글 포함) → 대화 층의 글 + 그 아래 줄들. 세 층이 아닌 메시지는 undefined(본문 그대로). */
-  const layersFor = (m: Message, o: { asAnswer: boolean }): MessageLayerSlots | undefined => {
+  const layersFor = (m: Message, o: { asAnswer: boolean; noProcess?: boolean }): MessageLayerSlots | undefined => {
     if (!isLayered(m, o)) return undefined;
     const v = messageLayers(m);
     const f = folds[m.id];
@@ -903,15 +906,19 @@ export default function RoomPage() {
         <>
           {renderArtifacts(m)}
           {v.work && <DetailFold messageId={m.id} text={v.work.text} auto={v.work.auto} open={detailOpen} onToggle={() => toggleFold(m.id, "detail", detailOpen)} />}
-          {tid && (
-            <ProcessFold messageId={m.id} summary={summarizeProcess(events[tid], sliceOf(m))} open={processOpen} onToggle={() => toggleFold(m.id, "process", processOpen)}>
-              <TaskActivity taskId={tid} cache={events} load={loadEvents} slice={sliceOf(m)} />
-            </ProcessFold>
-          )}
+          {tid && !o.noProcess && processFoldOf(m, tid, processOpen)}
         </>
       ),
     };
   };
+  /** 작업 과정 줄 — 메시지 하나의 것, 또는 부분 메시지 말풍선 맨 아래 하나(경계 부분의 조각). */
+  function processFoldOf(m: Message, tid: string, open: boolean) {
+    return (
+      <ProcessFold messageId={m.id} summary={summarizeProcess(events[tid], sliceOf(m))} open={open} onToggle={() => toggleFold(m.id, "process", open)}>
+        <TaskActivity taskId={tid} cache={events} load={loadEvents} slice={sliceOf(m)} />
+      </ProcessFold>
+    );
+  }
 
   /** 대화 배치(FR-3.1.3) — 말의 종류·받는 쪽은 서버가 판정해 내려준 칸 그대로(openapi v0.3.2 D24). */
   const convCtx: ConversationCtx = { lanes, messageById: (id) => lookupMessage(id), authorName };
@@ -1167,7 +1174,36 @@ export default function RoomPage() {
                 )}
               </div>
             )}
-            {messages.map((m) => {
+            {timelineItems(messages).map((item) => {
+              // 부분 메시지(PRD FR-3.1.4 · SCREEN §4.6 v0.19.11) — 같은 group_id 행을 말풍선 하나로. 부분이 도착하는 대로 같은 말풍선에 채운다.
+              if (item.kind === "group") {
+                const first = item.parts[0];
+                const last = boundaryOf(item);
+                const tid = last.source_task_id;
+                const processOpen = folds[last.id]?.process ?? false;
+                const toWorkWhy = first.work_id ? ROOM_CENTER.has_work(workTitle(first.work_id)) : archived ? ROOM_HEAD.archived : null;
+                return (
+                  <div key={`group:${item.groupId}`} style={held[first.id] ? { minHeight: held[first.id] } : undefined} data-held={held[first.id] ? "true" : undefined}>
+                    {pickButton(first)}
+                    <PartBubble
+                      parts={item.parts}
+                      size={item.size}
+                      me={meId}
+                      conversation={conversationFor}
+                      partLayers={(m) => layersFor(m, { asAnswer: false, noProcess: true })}
+                      layers={layersFor}
+                      process={tid ? processFoldOf(last, tid, processOpen) : undefined}
+                      replies={replies}
+                      onLoadReplies={loadReplies}
+                      onReply={(root) => { setRestart(null); setReplyTo({ id: root.id, authorName: authorName(root) }); }}
+                      now={now}
+                      workLabel={workLabelOf(first.work_id, "message-work-label")}
+                      menu={<MessageMenu id={first.id} why={toWorkWhy} onToWork={() => openWorkFrom(first)} />}
+                    />
+                  </div>
+                );
+              }
+              const m = item.message;
               const agentMsg = m.author_type === "agent" && m.source_task_id;
               const askee = m.kind === "blocked_q" ? m.mentions.find((x) => x.kind === "agent")?.display_name : undefined;
               // T-APPROVAL: 확인 요청은 대화 배치(T-CONVO)에서도 가운데 전폭 카드다 — 짝을 못 찾았으면 불러오는 중 자리.

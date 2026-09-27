@@ -201,7 +201,23 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		if root != uuid.Nil {
 			thread = fmt.Sprintf(" thread=%q", root)
 		}
-		fmt.Fprintf(&trigger, "<message id=%q author=%q at=%q%s>\n%s\n%s%s</message>\n", m.ID, authorLabel(m), m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"), thread, m.Content, triggerAttachments(m, surf), triggerDetail(m, fullDetail[m.ID], surf))
+		// harness v0.9.11 (PRD FR-3.1.4 5번): a part message's trigger is this
+		// agent's part only — the task was made by that row alone — marked
+		// `group`, then one line naming the other parts' recipients and kinds.
+		group := ""
+		if m.GroupID != nil {
+			group = fmt.Sprintf(" group=%q", *m.GroupID)
+		}
+		// harness v0.9.12: the `Attachments:` list sits between the body and the
+		// detail, and a part carries its own — the group does not share one list.
+		fmt.Fprintf(&trigger, "<message id=%q author=%q at=%q%s%s>\n%s\n%s%s</message>\n", m.ID, authorLabel(m), m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"), thread, group, m.Content, triggerAttachments(m, surf), triggerDetail(m, fullDetail[m.ID], surf))
+		if m.GroupID != nil {
+			line, err := otherPartsLine(ctx, tx, m, surf)
+			if err != nil {
+				return nil, err
+			}
+			trigger.WriteString(line)
+		}
 		// Arrival order breaks a tie: the list is already in it.
 		if !m.CreatedAt.Before(latest) {
 			latest = m.CreatedAt
@@ -578,6 +594,56 @@ func deref(p *string) string {
 // `<history>` line carries (harness §10 v0.9.4): enough to know what is in
 // it, with the command that reads the rest.
 const historyDetailPreview = 400
+
+// otherPartsLine is harness v0.9.11's one line after a part's `<message>`:
+// the same group's OTHER parts, recipient and kind only — never their body
+// (the agent is not handed words meant for someone else) — and how to read
+// them whole, in this surface's words.
+func otherPartsLine(ctx context.Context, tx pgx.Tx, m *messages.Row, surf Surface) (string, error) {
+	rows, _, _, _, err := messages.List(ctx, tx, m.SessionID, messages.ListOptions{Group: m.GroupID})
+	if err != nil {
+		return "", err
+	}
+	var parts []string
+	for _, r := range rows {
+		if r.ID == m.ID {
+			continue
+		}
+		parts = append(parts, "→ "+addresseeLabel(r.Addressees)+" ("+speechLabel(r.Speech)+")")
+	}
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return "Other parts of the same message: " + strings.Join(parts, " · ") + ". " +
+		surf.GroupRead(m.GroupID.String()) + "\n", nil
+}
+
+// addresseeLabel names a part's recipients the way the line reads: an agent
+// as `@Name`, a person by name, `@all`.
+func addresseeLabel(as []messages.Addressee) string {
+	if len(as) == 0 {
+		return "the room"
+	}
+	names := make([]string, 0, len(as))
+	for _, a := range as {
+		switch a.Kind {
+		case "agent":
+			names = append(names, "@"+a.Name)
+		case "all":
+			names = append(names, "@all")
+		default:
+			names = append(names, a.Name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
+func speechLabel(s string) string {
+	if s == "" {
+		return "chat"
+	}
+	return s
+}
 
 // triggerDetailTurnLimit is how many characters of 작업 내용 one turn's
 // `<trigger>` carries in full, summed over its coalesced messages (harness

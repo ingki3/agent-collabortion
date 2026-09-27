@@ -81,10 +81,14 @@ function sameAddressee(a: Addressee, b: Addressee): boolean {
   return a.kind === b.kind && (a.id ?? a.name) === (b.id ?? b.name);
 }
 
-/** 바로 앞 메시지와 묶이는가 — 같은 작성자 · 같은 말의 종류 · 같은 받는 쪽 · 5분 안(SCREEN §4.6). 받는 쪽은 묶여도 숨기지 않는다. */
+/**
+ * 바로 앞 메시지와 묶이는가 — 같은 작성자 · 같은 말의 종류 · 같은 받는 쪽 · 5분 안(SCREEN §4.6). 받는 쪽은 묶여도 숨기지 않는다.
+ * 부분 메시지(`group_id`, v0.19.11)는 앞뒤 어느 쪽과도 묶지 않는다 — 한 말풍선이 이미 묶음이고 작성자 머리를 늘 그린다.
+ */
 export function groupsWith(prev: { m: Message; s: Speech } | undefined, cur: { m: Message; s: Speech }): boolean {
   if (!prev) return false;
   if (!isBubble(prev.m) || !isBubble(cur.m)) return false;
+  if (prev.m.group_id || cur.m.group_id) return false;
   if (prev.m.author_type !== cur.m.author_type || prev.m.author_id !== cur.m.author_id) return false;
   if (prev.s.kind !== cur.s.kind) return false;
   if (prev.s.to.length !== cur.s.to.length || !prev.s.to.every((a, i) => sameAddressee(a, cur.s.to[i]))) return false;

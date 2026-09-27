@@ -62,14 +62,21 @@ type Row struct {
 	// HitlRequestID is the request a `hitl` card belongs to (openapi
 	// Message.hitl_request_id), nil for every other kind.
 	HitlRequestID *uuid.UUID
+	// GroupID · GroupIndex · GroupSize are openapi v0.3.6 (D26, PRD
+	// FR-3.1.4): the part message this row is one part of, its place and the
+	// part count. All nil for an ordinary message.
+	GroupID    *uuid.UUID
+	GroupIndex *int
+	GroupSize  *int
 	// Attachments is openapi v0.3.7 Message.attachments (PRD FR-3.7): the
 	// artifact rows the post named, in the sender's order, each at the
-	// version it pointed to. Never nil.
+	// version it pointed to. A part carries its own — the parts of one group
+	// do not share a list. Never nil.
 	Attachments []Attachment
 }
 
 // Attachment is one AttachmentRef. ContentType is the server's judgment —
-// NULL for a row stored before migration 0040 and not yet re-judged, so no
+// NULL for a row stored before migration 0041 and not yet re-judged, so no
 // reader ever takes an uploader's claim for a preview type.
 type Attachment struct {
 	ArtifactID  uuid.UUID `json:"artifact_id"`
@@ -90,7 +97,8 @@ const selectMessage = `
 	       -- web pairs a card with its request by it when the request is not in
 	       -- its list yet. Only hitl cards look (the rest read NULL).
 	       CASE WHEN m.kind = 'hitl' THEN (SELECT h.id FROM hitl_request h WHERE h.message_id = m.id ORDER BY h.created_at LIMIT 1) END,
-	       -- openapi v0.3.7 Message.attachments (migration 0040).
+	       m.group_id, m.group_index, m.group_size,
+	       -- openapi v0.3.7 Message.attachments (migration 0041). 부분도 제 것만 가진다.
 	       (SELECT jsonb_agg(jsonb_build_object('artifact_id', ar.id, 'name', ar.name, 'version', ar.version,
 	                 'type', ar.type, 'size_bytes', ar.size_bytes,
 	                 'content_type', CASE WHEN ar.content_type_judged THEN ar.content_type END) ORDER BY ma.position)
@@ -106,7 +114,8 @@ func scan(row pgx.Row) (*Row, error) {
 	var role, speech *string
 	err := row.Scan(&m.ID, &m.SessionID, &m.AuthorType, &m.AuthorID, &m.AuthorName, &m.AuthorAvatar, &role,
 		&m.ParentID, &m.Content, &mentions, &m.SourceTaskID, &m.LaneID, &m.Kind, &m.State, &m.ReplyCount, &m.CreatedAt, &m.EditedAt,
-		&m.WorkID, &m.Detail, &speech, &addressees, &m.RespondsTo, &m.DelegatedLane, &m.HitlRequestID, &attachments)
+		&m.WorkID, &m.Detail, &speech, &addressees, &m.RespondsTo, &m.DelegatedLane, &m.HitlRequestID,
+		&m.GroupID, &m.GroupIndex, &m.GroupSize, &attachments)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -158,6 +167,10 @@ type ListOptions struct {
 	// page of 50 that the filter then empties.
 	WorkID *uuid.UUID
 	NoWork bool
+	// Group keeps one part message's rows (openapi v0.3.6 listMessages
+	// ?group, CLI `room messages --group`), in group_index order — every part,
+	// replies or not. It is its own page: the other filters do not apply.
+	Group *uuid.UUID
 	// Around centres the page on one message (the unread anchor, a quote):
 	// AroundHalf before it, the message itself, AroundHalf after — the same
 	// (created_at, id) order as the before/after cursors. Limit is ignored.
@@ -175,6 +188,9 @@ func List(ctx context.Context, q db.DBTX, sessionID uuid.UUID, o ListOptions) (i
 	}
 	where := []string{"m.session_id = $1"}
 	args := []any{sessionID}
+	if o.Group != nil {
+		return listGroup(ctx, q, sessionID, *o.Group)
+	}
 	if o.Thread != nil {
 		args = append(args, *o.Thread)
 		where = append(where, fmt.Sprintf("(m.id = $%d OR m.parent_id = $%d)", len(args), len(args)))
@@ -248,6 +264,28 @@ func List(ctx context.Context, q db.DBTX, sessionID uuid.UUID, o ListOptions) (i
 		items = []*Row{}
 	}
 	return items, hasBefore, hasAfter, total, nil
+}
+
+// listGroup is List's ?group page: the group's rows in group_index order.
+func listGroup(ctx context.Context, q db.DBTX, sessionID, group uuid.UUID) (items []*Row, hasBefore, hasAfter bool, total *int, err error) {
+	rows, err := q.Query(ctx, selectMessage+` WHERE m.session_id = $1 AND m.group_id = $2 ORDER BY m.group_index`, sessionID, group)
+	if err != nil {
+		return nil, false, false, nil, fmt.Errorf("messages: list group: %w", err)
+	}
+	defer rows.Close()
+	items = []*Row{}
+	for rows.Next() {
+		m, err := scan(rows)
+		if err != nil {
+			return nil, false, false, nil, err
+		}
+		items = append(items, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, false, nil, err
+	}
+	n := len(items)
+	return items, false, false, &n, nil
 }
 
 // listAround is List's around_message_id page: the filtered messages up to
@@ -355,6 +393,14 @@ func ToAPI(m *Row) gen.Message {
 	out.Attachments = &atts
 	out.RespondsToMessageId = nullj.NullUUID(m.RespondsTo)
 	out.DelegatedLaneId = nullj.NullUUID(m.DelegatedLane)
+	// openapi v0.3.6 (D26): always sent, null for an ordinary message.
+	out.GroupId = nullj.NullUUID(m.GroupID)
+	out.GroupIndex = nullable.NewNullNullable[int]()
+	out.GroupSize = nullable.NewNullNullable[int]()
+	if m.GroupID != nil && m.GroupIndex != nil && m.GroupSize != nil {
+		out.GroupIndex = nullable.NewNullableWithValue(*m.GroupIndex)
+		out.GroupSize = nullable.NewNullableWithValue(*m.GroupSize)
+	}
 	if m.AuthorName != nil {
 		out.Author = &struct {
 			AvatarUrl nullable.Nullable[string] `json:"avatar_url,omitempty"`
