@@ -1324,7 +1324,7 @@ export interface paths {
         /**
          * 아티팩트 제출(`colab artifact submit --name --type --file`)
          * @description 권한: `TaskToken`(에이전트) · 워크스페이스 멤버(사람이 자료를 올릴 때).
-         *     같은 이름 재제출은 `version`+1(FR-4.3). `type`은 열린 집합(`file` · `diff` · `branch` · `doc` …). 종료 조건 `artifact_submitted`가 충족되면 서버가 나머지 조건을 보고 `user_approval` 시스템 HITL을 발행한다(E6-01) — 응답 `completion_progress`로 알 수 있다. 지정 에이전트가 아니면 저장은 되지만 조건은 미충족(E6-02). 크기 상한 50 MB(`413`).
+         *     같은 이름 재제출은 `version`+1(FR-4.3). `type`은 열린 집합(`file` · `diff` · `branch` · `doc` · `attachment` …). **`attachment`(v0.3.7, PRD FR-3.7)** 는 작성창에서 사람이 붙인 파일이다 — 종료 조건 `artifact_submitted` 를 **채우지 않는다**(누가 올렸든). 종료 조건 `artifact_submitted`가 충족되면 서버가 나머지 조건을 보고 `user_approval` 시스템 HITL을 발행한다(E6-01) — 응답 `completion_progress`로 알 수 있다. 지정 에이전트가 아니면 저장은 되지만 조건은 미충족(E6-02). 크기 상한 50 MB(`413`).
          */
         post: operations["submitArtifact"];
         delete?: never;
@@ -1365,7 +1365,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * 아티팩트 본문 다운로드
+         * 아티팩트 본문 다운로드 · 미리보기(v0.3.7 `?inline=true`)
          * @description 권한: 워크스페이스 멤버 · `TaskToken`(같은 방) · **`DaemonToken`**(P4 — 그 런타임에 고정된 방의 아티팩트만).
          *     `DaemonToken` 은 `daemon-protocol.md` §4.3 `rebind_prepare` 가 데몬에게 **다운로드를 지시**하기 때문에 필요하다(T-I4 실측: 없으면 401 로 전부 실패하고 재바인딩 뒤 diff 가 디스크에 없어 E14-06 이 성립하지 않는다).
          */
@@ -3368,6 +3368,8 @@ export interface components {
             group_index?: number | null;
             /** @description v0.3.6 — 묶음의 부분 수(화면이 다 도착했는지 안다). `group_id` 가 null 이면 null. */
             group_size?: number | null;
+            /** @description v0.3.7 — 붙인 파일(PRD FR-3.7) — 게시 때 가리킨 아티팩트 **버전 그대로**(나중에 같은 이름이 새 버전이 되어도 이 메시지의 첨부는 그 버전). 없으면 빈 배열. */
+            attachments?: components["schemas"]["AttachmentRef"][];
             /** @description v0.3.1 — 에이전트 메시지의 **작업 내용** 층(조사 결과·초안 전문·표, 마크다운). 화면은 기본 접힘(PRD FR-3.1.2 · SCREEN §4.6). 사람·시스템 메시지는 null. 받은 요청·알림·검색 미리보기·미션 요약은 이 칸을 쓰지 않는다. */
             detail?: string | null;
             mentions: components["schemas"]["Mention"][];
@@ -3434,6 +3436,19 @@ export interface components {
              * @description v0.2.0 — 작성창 미션 선택기(FR-3.1.1 규칙 1). 비우면 서버가 규칙 2~4 로 정한다.
              */
             work_id?: string | null;
+            /** @description v0.3.7 — 붙인 파일(PRD FR-3.7). **같은 방의 아티팩트**만(아니면 `422 attachment_not_in_room`), 중복은 한 번. 사람은 작성창에서 먼저 `submitArtifact`(type `attachment`)로 올리고 그 id 를 싣는다. 에이전트도 쓸 수 있다(`message post --attach`). 첨부만 보낼 때 화면은 `content` 에 「(파일 N개)」 를 넣는다. */
+            attachment_ids?: string[];
+        };
+        AttachmentRef: {
+            /** Format: uuid */
+            artifact_id: string;
+            name: string;
+            version: number;
+            type: string;
+            /** @description 서버가 판정한 종류(Artifact.content_type). */
+            content_type: string | null;
+            /** Format: int64 */
+            size_bytes: number;
         };
         /** @description v0.3.6 — 부분 메시지(PRD FR-3.1.4). `postMessageGroup` 본문. */
         MessageGroupCreate: {
@@ -3456,6 +3471,8 @@ export interface components {
             content: string;
             /** @description 그 부분의 작업 내용(FR-3.1.2) — 선택. */
             detail?: string;
+            /** @description v0.3.7 — 그 부분에 붙인 파일(`MessageCreate.attachment_ids` 와 같은 규칙). */
+            attachment_ids?: string[];
         };
         MessageGroupPostResult: {
             /** Format: uuid */
@@ -3905,6 +3922,7 @@ export interface components {
             storage_ref: string;
             /** Format: int64 */
             size_bytes?: number;
+            /** @description v0.3.7 — **서버가 판정한** 종류(PRD FR-4.3.1): 올릴 때 첫 바이트(스니핑)와 확장자로 정한다 — 올리는 쪽이 보낸 파트 Content-Type 은 믿지 않는다. 화면의 미리보기(이미지·영상·소리)는 이 값만 본다. */
             content_type?: string | null;
             /** Format: uuid */
             submitted_by_task_id: string | null;
@@ -7071,8 +7089,14 @@ export interface operations {
     };
     downloadArtifact: {
         parameters: {
-            query?: never;
-            header?: never;
+            query?: {
+                /** @description v0.3.7 — 화면 미리보기(PRD FR-4.3.1). `true` 이고 **서버가 판정한** `content_type` 이 미리보기 목록(이미지 `image/png·jpeg·gif·webp·svg+xml`, 영상 `video/mp4·webm`, 소리 `audio/mpeg·wav·ogg·webm·mp4`)에 있으면 `Content-Disposition: inline` 으로 준다. 목록 밖이면 무시하고 `attachment`. 어느 쪽이든 `X-Content-Type-Options: nosniff` · `Content-Security-Policy: sandbox`. SVG 는 화면이 `<img>` 로만 쓴다. */
+                inline?: boolean;
+            };
+            header?: {
+                /** @description v0.3.7 — 바이트 범위(RFC 9110, 단일 범위만). 영상·소리 탐색·이어 받기. 여러 범위·잘못된 범위는 `416`. */
+                Range?: string;
+            };
             path: {
                 artifactId: components["parameters"]["ArtifactId"];
             };
@@ -7080,8 +7104,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description 본문. `Content-Disposition: attachment`. */
+            /** @description 본문. `Content-Disposition: attachment`(또는 `?inline=true` 이고 미리보기 대상이면 `inline`). `Accept-Ranges: bytes`. */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description v0.3.7 — `Range` 요청의 부분 본문(`Content-Range`). */
+            206: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7091,6 +7124,13 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            /** @description v0.3.7 — 만족할 수 없는 범위(여러 범위 포함). */
+            416: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             default: components["responses"]["Problem"];
         };
     };

@@ -351,7 +351,7 @@ func DownloadWriteBudget(size int64) time.Duration {
 // CLI compares it against the bytes it actually wrote (colab-cli README): with
 // a chunked response a truncated download and a complete one look the same,
 // and the agent that reads the half file never learns it was half.
-func (s *Server) DownloadArtifact(w http.ResponseWriter, r *http.Request, artifactId gen.ArtifactId) {
+func (s *Server) DownloadArtifact(w http.ResponseWriter, r *http.Request, artifactId gen.ArtifactId, _ gen.DownloadArtifactParams) {
 	a, p := s.downloadAccess(r, artifactId)
 	if p != nil {
 		writeProblem(w, p)
