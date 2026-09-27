@@ -78,3 +78,24 @@ describe("seed-working — 두 에이전트 동시 작업 + 진행 메모 흐름
     expect(evs.some((e) => e.type === "task.updated" && (e.payload as unknown as { status: string }).status === "completed")).toBe(true);
   });
 });
+
+describe("seed-working — 「지금」 줄(PRD FR-3.1.5 · SCREEN v0.19.13)", () => {
+  it("둘째는 대신 문장(derived), 첫째는 에이전트 선언(agent) · 턴 끝이면 null · focus:false 면 없음", async () => {
+    const ws = (await must<{ workspaces: { id: string }[] }>("GET", "/me")).workspaces[0].id;
+    const room = await must<Room>("POST", `/workspaces/${ws}/rooms`, { name: "마리오 카트" });
+    await must("POST", `/__mock/rooms/${room.id}/seed`, { agents: ["Lead", "Researcher"] });
+    const seeded = await must<{ tasks: { agent_id: string; task_id: string }[] }>("POST", `/__mock/rooms/${room.id}/seed-working`);
+    const lanes = await must<Lane[]>("GET", `/rooms/${room.id}/lanes`);
+    const [a, b] = seeded.tasks.map((t) => lanes.find((l) => l.current_task?.id === t.task_id)!);
+    expect(a.focus?.source).toBe("agent");
+    expect(a.focus?.text).toContain("코너에서 차가 미끄러지는 원인을 찾고 있습니다");
+    expect(b.focus?.source).toBe("derived");
+    expect(b.focus?.text).toBe("@Lead 의 「BGM v2 를 16분음표 격자로」 요청을 처리하고 있습니다");
+    await must("POST", `/__mock/rooms/${room.id}/working-step`, { agent_id: seeded.tasks[0].agent_id, action: "end" });
+    const after = await must<Lane[]>("GET", `/rooms/${room.id}/lanes`);
+    expect(after.find((l) => l.id === a.id)?.focus).toBeNull();
+    await must("POST", `/__mock/rooms/${room.id}/seed-working`, { focus: false });
+    const plain = await must<Lane[]>("GET", `/rooms/${room.id}/lanes`);
+    expect(plain.filter((l) => l.status === "running").every((l) => !l.focus)).toBe(true);
+  });
+});
