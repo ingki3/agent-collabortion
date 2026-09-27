@@ -511,3 +511,42 @@ func TestMessagePostToolMentionsAPerson(t *testing.T) {
 		t.Fatalf("unknown mention result = %s", b)
 	}
 }
+
+// colab-cli v0.9.6: colab_message_post takes `attach` — artifact ids sent as
+// attachment_ids through the same colab.MessagePost the CLI's --attach uses.
+//
+// 회귀 주입: 스키마에서 attach 를 빼면 (schema) FAIL; colab.MessagePost 가
+// AttachmentIDs 를 싣지 않으면 (sent) FAIL.
+func TestMessagePostToolAttach(t *testing.T) {
+	s := clienttest.New(t)
+	c := dial(t, newClient(t, s, nil))
+	c.call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "test", "version": "0"}})
+	c.notify("notifications/initialized")
+
+	r := c.call("tools/list", map[string]any{})
+	for _, tl := range r.Result["tools"].([]any) {
+		m := tl.(map[string]any)
+		if m["name"] != "colab_message_post" {
+			continue
+		}
+		props := m["inputSchema"].(map[string]any)["properties"].(map[string]any)
+		if _, ok := props["attach"]; !ok {
+			t.Fatalf("(schema) colab_message_post has no attach: %v", props)
+		}
+	}
+	const id = "11111111-1111-4111-8111-111111111111"
+	r = c.call("tools/call", map[string]any{"name": "colab_message_post", "arguments": map[string]any{"body": "시안", "attach": []any{id}}})
+	if r.Error != nil || r.Result["isError"] == true {
+		t.Fatalf("post = %+v", r)
+	}
+	if got, ok := s.Posted[0].Body["attachment_ids"].([]any); !ok || len(got) != 1 || got[0] != id {
+		t.Fatalf("(sent) attachment_ids = %v", s.Posted[0].Body["attachment_ids"])
+	}
+	r = c.call("tools/call", map[string]any{"name": "colab_message_post", "arguments": map[string]any{"body": "x", "attach": []any{"touge_mock.png"}}})
+	if r.Error == nil && r.Result["isError"] != true {
+		t.Fatalf("a name as attach was accepted: %+v", r)
+	}
+	if len(s.Posted) != 1 {
+		t.Fatalf("refused attach posted (%d posts)", len(s.Posted))
+	}
+}

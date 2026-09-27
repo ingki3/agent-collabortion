@@ -69,6 +69,10 @@ type MessageCreate struct {
 	// server's minLength is 1, so an empty detail is never sent.
 	Detail   *string `json:"detail,omitempty"`
 	ParentID *string `json:"parent_id,omitempty"`
+	// AttachmentIDs is openapi v0.3.7 MessageCreate.attachment_ids (PRD
+	// FR-3.7, colab-cli v0.9.6 `--attach`): artifacts of the same room shown
+	// under the message. Omitted when empty.
+	AttachmentIDs []string `json:"attachment_ids,omitempty"`
 }
 
 // Message — openapi.yaml Message. Fields the CLI surfaces are typed; the
@@ -87,6 +91,10 @@ type Message struct {
 	// (harness v0.9.4). null for people's and system messages.
 	Detail   *string         `json:"detail,omitempty"`
 	Mentions json.RawMessage `json:"mentions,omitempty"`
+	// Attachments is openapi v0.3.7 Message.attachments (colab-cli v0.9.6:
+	// `room messages` carries them) — each an AttachmentRef, verbatim; fetch
+	// one with `artifact get <artifact_id> --out <path>`.
+	Attachments json.RawMessage `json:"attachments,omitempty"`
 	// Speech · Addressees · RespondsToMessageID · DelegatedLaneID are openapi
 	// v0.3.2 (D24, PRD FR-3.1.3): the server says WHO said WHAT to WHOM, so
 	// `room messages` shows the same answer the web timeline does instead of

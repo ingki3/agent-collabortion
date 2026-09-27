@@ -15,7 +15,7 @@ import (
 	"github.com/ingki3/agent-collabortion/cli/internal/client"
 )
 
-// MessagePostArgs — `colab message post --body [--detail | --detail-file] [--reply-to | --top-level] [--mention]`.
+// MessagePostArgs — `colab message post --body [--detail | --detail-file] [--reply-to | --top-level] [--mention] [--attach <id>]…`.
 type MessagePostArgs struct {
 	Session string `json:"session,omitempty"`
 	Body    string `json:"body"`
@@ -33,9 +33,41 @@ type MessagePostArgs struct {
 	// thread (colab-cli v0.9.1). With ReplyTo it is a usage error.
 	TopLevel bool     `json:"top_level,omitempty"`
 	Mention  []string `json:"mention,omitempty"` // agent names, with or without '@'
+	// Attach is `--attach <artifact_id>` (repeatable) / MCP `attach`
+	// (colab-cli v0.9.6, openapi v0.3.7 attachment_ids): artifacts of this
+	// room — typically one just submitted — shown under the message. At most
+	// MaxAttach distinct ids; each must be a uuid.
+	Attach []string `json:"attach,omitempty"`
 	// IdempotencyKey overrides the derived key (UUIDv5 of task:<task_id>:<seq>,
 	// colab-cli.md §1). Use it to retry the *same* post after a network error.
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
+}
+
+// MaxAttach is MessageCreate.attachment_ids maxItems (openapi v0.3.7).
+const MaxAttach = 10
+
+// attachIDs checks `--attach` before any request: uuids only (an artifact
+// NAME is the mistake T-AGENTFIX B4 measured on `artifact get`), repeats
+// dropped (the server keeps one too), at most MaxAttach.
+func attachIDs(ids []string) ([]string, error) {
+	var out []string
+	seen := map[string]bool{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if err := requireArtifactID("--attach", id); err != nil {
+			return nil, err
+		}
+		k := strings.ToLower(id)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, id)
+	}
+	if len(out) > MaxAttach {
+		return nil, client.Usage("--attach: %d files; a message takes at most %d", len(out), MaxAttach)
+	}
+	return out, nil
 }
 
 // MaxDetailChars is MessageCreate.detail's maxLength (openapi v0.3.1): the
@@ -107,6 +139,10 @@ func MessagePost(ctx context.Context, c *client.Client, a MessagePostArgs) (*Mes
 	if a.Detail != nil && strings.TrimSpace(*a.Detail) == "" {
 		return nil, client.Usage("--detail is empty: omit it or give the work text")
 	}
+	attach, err := attachIDs(a.Attach)
+	if err != nil {
+		return nil, err
+	}
 	if err := c.Allow(ctx, client.CmdMessagePost); err != nil {
 		return nil, err
 	}
@@ -130,7 +166,7 @@ func MessagePost(ctx context.Context, c *client.Client, a MessagePostArgs) (*Mes
 		}
 		names = nameIndex(cc)
 	}
-	body := client.MessageCreate{Content: content, Detail: a.Detail}
+	body := client.MessageCreate{Content: content, Detail: a.Detail, AttachmentIDs: attach}
 	// Where the reply goes (colab-cli v0.9.1): the thread named, else the
 	// thread the turn was asked in (COLAB_THREAD_ID), else the main timeline.
 	// A question asked in a thread is answered there — an answer on the main

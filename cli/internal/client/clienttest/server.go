@@ -285,6 +285,15 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			"reply_count": 0, "created_at": time.Now().UTC().Format(time.RFC3339),
 			"detail": body["detail"], // openapi v0.3.1: null when not posted
 		}
+		// openapi v0.3.7: the posted ids come back as AttachmentRefs.
+		atts := []any{}
+		if ids, ok := body["attachment_ids"].([]any); ok {
+			for _, id := range ids {
+				atts = append(atts, map[string]any{"artifact_id": id, "name": "shot.png", "version": 1,
+					"type": "file", "content_type": "image/png", "size_bytes": 3})
+			}
+		}
+		msg["attachments"] = atts
 		s.Messages = append(s.Messages, msg)
 		triggers := []map[string]any{}
 		warnings := []map[string]any{}
