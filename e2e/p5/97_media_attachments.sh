@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# e2e/p5/96_media_attachments.sh — T-MEDIA: 미디어 미리보기 · 파일 붙이기(PRD v0.19.10 FR-4.3.1 · FR-3.7 ·
+# e2e/p5/97_media_attachments.sh — T-MEDIA: 미디어 미리보기 · 파일 붙이기(PRD v0.19.10 FR-4.3.1 · FR-3.7 ·
 # openapi v0.3.7 · colab-cli v0.9.6 · harness v0.9.12) — 실서버 + 실데몬 + 실 CLI, 모델만 페이크.
 #
 # 비용 한 줄(I-3): 페이크 턴 1 · $0 · ≈ 25s
@@ -22,11 +22,11 @@
 source "$(dirname "$0")/lib_i5.sh"
 STAMP="$(date +%s)"
 COOKIE="$OUT/cookies-96.txt"; rm -f "$COOKIE"
-CFG="$OUT/daemon-96.json"; WORK="$P5_TMP_ROOT/96/work"; DLOG="$OUT/daemon-96.log"
-TAP="$OUT/tap-96.jsonl"; TAP_PORT="${TAP_PORT_96:-8150}"
+CFG="$OUT/daemon-97.json"; WORK="$P5_TMP_ROOT/97/work"; DLOG="$OUT/daemon-97.log"
+TAP="$OUT/tap-97.jsonl"; TAP_PORT="${TAP_PORT_97:-8150}"
 MEDIA="$OUT/96-media"; mkdir -p "$MEDIA"
 g5_chk_init "$OUT/96-checks.tsv"
-cleanup() { [ -n "${TAP_PID:-}" ] && kill "$TAP_PID" 2>/dev/null || true; daemon_stop "$OUT/daemon-96.pid"; return 0; }
+cleanup() { [ -n "${TAP_PID:-}" ] && kill "$TAP_PID" 2>/dev/null || true; daemon_stop "$OUT/daemon-97.pid"; return 0; }
 trap cleanup EXIT
 
 step "0. 파일 넷 — png(사람 첨부) · mp3(에이전트 제출) · html(image/png 사칭) · svg"
@@ -54,7 +54,7 @@ WS="$(create_workspace "Media $STAMP")"
 read -r PID_ PTOK <<<"$(create_pairing "$WS" | tr '\t' ' ')"
 rm -rf "$WORK"
 PAIR_SERVER="http://localhost:$TAP_PORT" daemon_pair_p5 "$PTOK" "$CFG" "$WORK" 2
-daemon_run_p5 "$CFG" "$DLOG" > "$OUT/daemon-96.pid"
+daemon_run_p5 "$CFG" "$DLOG" > "$OUT/daemon-97.pid"
 wait_pairing "$WS" "$PID_" 300 || die "pairing not ready (see $DLOG)"
 RUNTIME_ID="$(runtime_of_config "$CFG")"
 
@@ -66,7 +66,7 @@ DESIGNER="$(create_agent_fake "$WS" Designer custom hermes "$LEAD_MODEL" \
   '시안을 만든다' "$(jq -nc --arg fix "$FIX" --arg m "$MEDIA" '{turns:[{steps:[{exec:("bash "+$fix+"/agent.sh Designer "+$m)}]}]}')")"
 SESSION="$(create_session_p2 "$WS" "게임 제작" "AE86 뒷모습 헤드라이트 시안을 만든다" "$DESIGNER" "$RUNTIME_ID" "$DESIGNER" "$DESIGNER")"
 OTHER="$(create_session_p2 "$WS" "다른 방" "다른 일" "$DESIGNER" "$RUNTIME_ID" "$DESIGNER" "$DESIGNER")"
-echo "$WS $SESSION $OTHER $DESIGNER $RUNTIME_ID" > "$OUT/96-ids.txt"
+echo "$WS $SESSION $OTHER $DESIGNER $RUNTIME_ID" > "$OUT/97-ids.txt"
 wait_quiet "$SESSION" "$T_TURN" || true
 
 step "3. M1 — 사람이 이미지를 올린다(작성창이 하는 일: submitArtifact type attachment)"
@@ -178,15 +178,15 @@ chk M7c "미리보기 목록 밖(HTML)은 inline 이 아니다" attachment \
 chk M9c "SVG 는 inline 이되 sandbox 로 — 문서로 열려도 스크립트가 돌지 않는다" "inline|sandbox" \
   "$(hval "$(hdr "$A_SVG" "?inline=true")" Content-Disposition Content-Security-Policy)"
 MP3_SIZE="$(psqlq "select size_bytes from artifact where id='$A_MP3'")"
-R206="$(curl -sS -D "$OUT/96-range.hdr" -o "$OUT/96-range.bin" -w '%{http_code}' -b "$COOKIE" -H 'Range: bytes=100-199' "$API/artifacts/$A_MP3/content?inline=true")"
+R206="$(curl -sS -D "$OUT/97-range.hdr" -o "$OUT/97-range.bin" -w '%{http_code}' -b "$COOKIE" -H 'Range: bytes=100-199' "$API/artifacts/$A_MP3/content?inline=true")"
 chk M8a "단일 Range → 206 · Content-Range · 정확히 100바이트" "206|bytes 100-199/$MP3_SIZE|100" \
-  "$R206|$(hval "$(cat "$OUT/96-range.hdr")" Content-Range)|$(wc -c < "$OUT/96-range.bin" | tr -d ' ')"
-python3 - "$MEDIA/bgm.mp3" "$OUT/96-range.bin" > "$OUT/96-range.txt" <<'PY'
+  "$R206|$(hval "$(cat "$OUT/97-range.hdr")" Content-Range)|$(wc -c < "$OUT/97-range.bin" | tr -d ' ')"
+python3 - "$MEDIA/bgm.mp3" "$OUT/97-range.bin" > "$OUT/97-range.txt" <<'PY'
 import sys
 whole = open(sys.argv[1], "rb").read()
 print("same" if open(sys.argv[2], "rb").read() == whole[100:200] else "different")
 PY
-chk M8b "206 의 바이트 = 원본 [100,200)" same "$(cat "$OUT/96-range.txt")"
+chk M8b "206 의 바이트 = 원본 [100,200)" same "$(cat "$OUT/97-range.txt")"
 chk M8c "여러 범위·잘못된 범위는 416" "416|416|416" \
   "$(for r in 'bytes=0-1,5-6' "bytes=$MP3_SIZE-" 'bytes=9-3'; do
        printf '%s|' "$(curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE" -H "Range: $r" "$API/artifacts/$A_MP3/content")"
@@ -206,5 +206,5 @@ chk M11b "종료 조건 met 은 에이전트의 제출(mp3, type file)만 센다
 chk M11c "met 에 든 것은 artifact_submitted 뿐(attachment 는 아무것도 채우지 않았다)" artifact_submitted \
   "$(psqlq "select string_agg(k, ',' order by k) from work w, jsonb_object_keys(w.completion_met) k where w.room_id='$SESSION' and w.completion_met->>k = 'true'")"
 
-printf '\n96_media_attachments: pass=%s fail=%s (RUNTIME=%s)\n' "$pass" "$fail" "$RUNTIME"
+printf '\n97_media_attachments: pass=%s fail=%s (RUNTIME=%s)\n' "$pass" "$fail" "$RUNTIME"
 [ "$fail" = 0 ]
