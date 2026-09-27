@@ -19,6 +19,7 @@ import { registerRoomDialogs } from "./rooms-dialogs";
 import { registerR2W4a } from "./r2w4a";
 import { registerWorkEdit } from "./work-edit";
 import { registerMessageLayers } from "./message-layers";
+import { registerMedia, resolveAttachments } from "./media";
 import { registerConversationSeed } from "./conversation-seed";
 import { registerWorkingSeed } from "./working-seed";
 import { applySpeech, type SpeechPremises } from "./speech";
@@ -70,6 +71,8 @@ registerRoomDialogs({ on, routes, Problem, requireUser, syncRooms, standingOf, r
 registerR2W4a({ on, routes, Problem, requireUser, syncRooms, standingOf, roomDecide, emitRoom, addInboxItem, emitInboxSummary, inboxSeverity, inboxActions, roomWorks, notFound: (w) => notFound(w as never), W, hitlDueMs: () => HITL_DUE_IN_MS });
 // 미션 설정 편집·조건 고치기·Director 교체(T-R2-W4b) — 본문은 ./work-edit.ts(병렬 워커와 이 파일을 나눠 쓰려고 등록 한 줄만).
 registerWorkEdit({ on, Problem, dispatch, workGate, workView, toWork, setWork, validateCondition });
+// 미디어 미리보기 · 파일 붙이기(PRD FR-4.3.1 · FR-3.7) — 업로드·inline·Range·seed-media. 아티팩트 본문 GET 이 message-layers 보다 먼저 잡힌다.
+registerMedia({ on, Problem, sessionOf, requireMember, addMessage, createTask, setLaneStatus, emit, notFound: () => notFoundP("artifact") });
 // 에이전트 메시지 세 층 시드(`seed-layers`) · 아티팩트 본문(PRD FR-3.1.2) — 본문은 ./message-layers.ts(등록 한 줄만).
 registerMessageLayers({ on, Problem, sessionOf, requireMember, addMessage, createTask, pushEvent, setLaneStatus, parseMentions, notFound: () => notFoundP("artifact") });
 // 타임라인 대화 배치 시드(`seed-conversation`, PRD FR-3.1.3) — 본문은 ./conversation-seed.ts(등록 한 줄만).
@@ -899,8 +902,9 @@ on("POST", "/rooms/{id}/messages", (req, p) => {
   const key = req.headers.get("idempotency-key");
   if (!key) throw new Problem(422, "idempotency_key_required", W.idempotency_key_required, { errors: [{ field: "Idempotency-Key", message: "required" }] });
   if (s.idem.has(key)) return ok(s.idem.get(key), 201, { "Idempotent-Replayed": "true" });
-  const b = body<{ content?: string; parent_id?: string | null; new_lane?: boolean; suppress_agent_ids?: string[]; work_id?: string | null }>(req);
+  const b = body<{ content?: string; parent_id?: string | null; new_lane?: boolean; suppress_agent_ids?: string[]; work_id?: string | null; attachment_ids?: string[] }>(req);
   if (!b.content?.trim()) throw validation([{ field: "content", message: W.content_required }]);
+  const attachments = resolveAttachments(s, sess.id, b.attachment_ids, Problem);
   if (s.roomOnly.has(sess.id)) roomGate(s, req, sess.id, "post");
   else if (sess.status === "completed" || sess.status === "cancelled") throw new Problem(409, "invalid_transition", "종료된 미션에는 게시할 수 없습니다");
   let parentId = b.parent_id ?? null;
@@ -914,7 +918,7 @@ on("POST", "/rooms/{id}/messages", (req, p) => {
   const suppress = new Set(b.suppress_agent_ids ?? []);
   const preview = routeMessage(s, sess, { content: b.content, mentions, parentId, newLane: b.new_lane ?? false, suppress });
   const attr = attribute(s, sess, { ...b, parent_id: parentId }, preview);
-  const msg = addMessage(s, sess, { author_type: "user", author_id: user.id, author: { name: user.display_name, avatar_url: null }, kind: "text", content: b.content, mentions, parent_id: parentId, is_note: isNote, work_id: attr.workId });
+  const msg = addMessage(s, sess, { author_type: "user", author_id: user.id, author: { name: user.display_name, avatar_url: null }, kind: "text", content: b.content, mentions, parent_id: parentId, is_note: isNote, work_id: attr.workId, attachments });
 
   const warnings = [...preview.warnings];
   for (const id of suppress) {

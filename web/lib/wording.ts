@@ -757,6 +757,32 @@ export const MESSAGE_LAYERS = {
 } as const;
 
 /**
+ * 미디어 미리보기 · 파일 붙이기(PRD v0.19.10 FR-4.3.1 · FR-3.7 · SCREEN v0.19.12 §4.6 · COMPONENTS §9.12) — 문구 자물쇠 대상.
+ * 수가 드는 말은 두 토막(Slot).
+ */
+export const MEDIA = {
+  preview_failed: "미리보기를 불러올 수 없습니다 — 내려받아 여세요",
+  download: "내려받기",
+  open: "열기",
+  play: (name: string) => `${name} 재생`,
+  enlarge: (name: string) => `${name} 크게 보기`,
+  lightbox: "크게 보기",
+  lightbox_close: "닫기",
+  lightbox_prev: "이전 이미지",
+  lightbox_next: "다음 이미지",
+  attach: "파일 붙이기",
+  drop_here: "여기에 놓으면 붙습니다",
+  remove: (name: string) => `${name} 빼기`,
+  uploading: "올리는 중",
+  uploading_block: "파일을 올리는 중입니다",
+  retry: "다시 시도",
+  too_big: "50MB 를 넘습니다",
+  too_many: ["한 메시지에 파일은 ", "개까지 붙일 수 있습니다"] as Slotted,
+  trigger_files: [" · 파일 ", "개를 함께 받습니다"] as Slotted,
+  attachments_label: "붙인 파일",
+} as const;
+
+/**
  * 타임라인 대화 배치(PRD FR-3.1.3 · SCREEN §4.6 「대화 배치」 · COMPONENTS §9.8) — 머리 한 줄 「작성자 ‹종류› → 받는 쪽」의 말.
  * 종류 라벨은 서버 칸으로 판정한 것만 쓴다(lib/conversation.ts). 수가 드는 말은 두 토막.
  */
