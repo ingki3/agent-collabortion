@@ -71,6 +71,24 @@ type MessageCreate struct {
 	ParentID *string `json:"parent_id,omitempty"`
 }
 
+// MessagePartCreate · MessageGroupCreate · MessageGroupPostResult — openapi
+// v0.3.6 postMessageGroup (colab-cli v0.9.5 --parts-file / MCP parts).
+type MessagePartCreate struct {
+	To      []string `json:"to"`
+	Content string   `json:"content"`
+	Detail  *string  `json:"detail,omitempty"`
+}
+
+type MessageGroupCreate struct {
+	Parts    []MessagePartCreate `json:"parts"`
+	ParentID *string             `json:"parent_id,omitempty"`
+}
+
+type MessageGroupPostResult struct {
+	GroupID string              `json:"group_id"`
+	Parts   []MessagePostResult `json:"parts"`
+}
+
 // Message — openapi.yaml Message. Fields the CLI surfaces are typed; the
 // rest is kept in Raw so nothing the server sends is lost on --json output.
 type Message struct {
@@ -104,6 +122,12 @@ type Message struct {
 	IsNote              bool            `json:"is_note,omitempty"`
 	CreatedAt           string          `json:"created_at"`
 	EditedAt            *string         `json:"edited_at,omitempty"`
+	// GroupID · GroupIndex · GroupSize are openapi v0.3.6 (D26, PRD
+	// FR-3.1.4): the part message this row is one part of. `room messages`
+	// shows them (colab-cli v0.9.5); null for an ordinary message.
+	GroupID    *string `json:"group_id"`
+	GroupIndex *int    `json:"group_index"`
+	GroupSize  *int    `json:"group_size,omitempty"`
 }
 
 type MessageAuthor struct {

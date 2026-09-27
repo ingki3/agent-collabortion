@@ -135,6 +135,9 @@ type MessagesQuery struct {
 	// v0.9.1). Replies are the default: agents answer in threads, so a
 	// top-level-only read misses most of what they said to each other.
 	TopOnly bool
+	// Group → group=<id> (colab room messages --group, v0.9.5): one part
+	// message's rows in part order.
+	Group string
 }
 
 // ListMessages — GET /rooms/{R}/messages (listMessages).
@@ -156,6 +159,9 @@ func (c *Client) ListMessages(ctx context.Context, roomID string, q MessagesQuer
 	}
 	if q.Thread != "" {
 		v.Set("thread", q.Thread)
+	}
+	if q.Group != "" {
+		v.Set("group", q.Group)
 	}
 	// --thread already means root + replies; otherwise v0.9.1 defaults to
 	// replies included and --top-only asks for the main timeline alone.
@@ -222,3 +228,33 @@ func (c *Client) PostMessage(ctx context.Context, roomID string, body MessageCre
 
 // CachedContext returns the /cli/context result if it was already fetched.
 func (c *Client) CachedContext() *CliContext { return c.ctx }
+
+// PostMessageGroup — POST /rooms/{R}/message-groups (openapi v0.3.6
+// postMessageGroup): one post in parts, under ONE Idempotency-Key derived the
+// same way as PostMessage's (colab-cli v0.9.5 §1 — a post is one seq however
+// many parts it has).
+func (c *Client) PostMessageGroup(ctx context.Context, roomID string, body MessageGroupCreate, key string) (*MessageGroupPostResult, string, bool, error) {
+	h := http.Header{}
+	if key == "" {
+		task, attempt, err := c.TaskScope(ctx)
+		if err != nil {
+			return nil, "", false, err
+		}
+		seq, err := c.NextSeq(ctx, task, attempt)
+		if err != nil {
+			return nil, "", false, err
+		}
+		key = IdempotencyKey(task, seq)
+		h.Set(HeaderClientSeq, strconv.Itoa(seq))
+	}
+	h.Set("Idempotency-Key", key)
+	res, err := c.Do(ctx, http.MethodPost, "/rooms/"+url.PathEscape(roomID)+"/message-groups", nil, body, h)
+	if err != nil {
+		return nil, key, false, err
+	}
+	var out MessageGroupPostResult
+	if err := decode(res, &out); err != nil {
+		return nil, key, res.Replayed, err
+	}
+	return &out, key, res.Replayed, nil
+}

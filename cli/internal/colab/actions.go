@@ -36,6 +36,11 @@ type MessagePostArgs struct {
 	// IdempotencyKey overrides the derived key (UUIDv5 of task:<task_id>:<seq>,
 	// colab-cli.md §1). Use it to retry the *same* post after a network error.
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	// Parts / PartsFile are colab-cli v0.9.5's part message: MCP `parts` or
+	// `--parts-file <json>`. With either, body · detail · detail_file ·
+	// mention are usage errors (Post).
+	Parts     []PartArg `json:"parts,omitempty"`
+	PartsFile string    `json:"parts_file,omitempty"`
 }
 
 // MaxDetailChars is MessageCreate.detail's maxLength (openapi v0.3.1): the

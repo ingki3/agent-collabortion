@@ -75,6 +75,12 @@ type Input struct {
 	// fired (PRD FR-3.3 rule 8, 3rd bullet).
 	AuthorLaneDelegatorID *uuid.UUID
 	JoinGroupFired        bool
+
+	// Mentions, when non-nil, are the message's mentions instead of the ones
+	// parsed from Content: a part of a group post (PRD FR-3.1.4 3번) is
+	// addressed by its `to` alone — a mention link inside the part's body is a
+	// chip, like one inside `detail`, and wakes nobody.
+	Mentions []gen.Mention
 }
 
 // Trigger is one agent to create/merge a task for, with the rule that fired.
@@ -99,7 +105,11 @@ type Decision struct {
 // Decide applies FR-3.3 rules 1–8 in order. It never touches the clock or the
 // database: rule 7's deferred task is planned separately by PlanFallback.
 func Decide(in Input) Decision {
-	d := Decision{Mentions: ParseMentions(in.Content), Triggers: []Trigger{}, Warnings: []Warning{}}
+	mentions := in.Mentions
+	if mentions == nil {
+		mentions = ParseMentions(in.Content)
+	}
+	d := Decision{Mentions: mentions, Triggers: []Trigger{}, Warnings: []Warning{}}
 
 	// Rule 1: a /note message is stored, never routed. Checked before mentions
 	// are honoured, so `/note @R …` triggers nothing (E1-01, E1-19).

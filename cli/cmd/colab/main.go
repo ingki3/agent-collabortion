@@ -52,16 +52,20 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
                              this turn's mission (goal, acceptance_criteria, completion_progress,
                              director — null outside a mission, i.e. without COLAB_WORK_ID) and
                              the roster (name, role description, derived status)
-  colab room messages [--since <cursor|id>] [--limit N] [--thread <root_id>] [--work <mission_id>] [--json]
+  colab room messages [--since <cursor|id>] [--limit N] [--thread <root_id>] [--work <mission_id>] [--group <group_id>] [--json]
                              --since is sent as the after= query parameter (messages newer than it)
                              --limit is 1..200 (omit for the server default 50)
-                             --work keeps one mission's messages
+                             --work keeps one mission's messages; --group one part message's parts
   colab message post --body <text> [--detail <text> | --detail-file <path>] [--reply-to <msg_id> | --top-level] [--mention @A,@B] [--idempotency-key K] [--json]
                              --body is the conversation (to whom · what · conclusion · next, ~5 lines);
                              findings, full drafts and tables go in --detail (or --detail-file, sent
                              byte for byte). Deliverables are artifact submit
                              Idempotency-Key = UUIDv5(task:<task_id>:<seq>), seq continues across attempts;
                              the same seq is sent as X-Colab-Client-Seq (omitted with --idempotency-key)
+  colab message post --parts-file <json> [--reply-to <msg_id> | --top-level] [--idempotency-key K] [--json]
+                             one post in parts, one part per recipient (2~6): the file is a JSON array
+                             [{"to":["@Simplist"],"body":"…","detail_file":"…"}, …] — each recipient gets
+                             only its own part. Not with --body · --detail · --detail-file · --mention
   colab status set working|blocked|done [--note <text>]
                              blocked needs --note (the question); the reply carries turn_end_required
   colab lane delegate --agent <name> --brief <text> [--depends-on <lane_id>] [--profile <name>]
@@ -206,7 +210,7 @@ func newFlagSet(name string, stderr io.Writer) (*flag.FlagSet, *bool) {
 
 func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] != "post" {
-		return usage(stderr, "usage: colab message post --body <text> [--detail <text> | --detail-file <path>] [--reply-to <id> | --top-level] [--mention @A,@B]")
+		return usage(stderr, "usage: colab message post --body <text> [--detail <text> | --detail-file <path>] [--reply-to <id> | --top-level] [--mention @A,@B]  |  colab message post --parts-file <json> [--reply-to <id> | --top-level]")
 	}
 	fs, _ := newFlagSet("message post", stderr)
 	session := fs.String("session", "", "room id override (default COLAB_ROOM_ID / token scope)")
@@ -217,11 +221,36 @@ func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) i
 	topLevel := fs.Bool("top-level", false, "post to the main timeline even when the turn was asked in a thread")
 	mention := fs.String("mention", "", "comma-separated participant names to mention, e.g. @Reviewer,@Writer — agents first, then the room's people")
 	key := fs.String("idempotency-key", "", "reuse a previous key to retry the same post (default: UUIDv5 of task:<task_id>:<seq>)")
+	partsFile := fs.String("parts-file", "", `one post in parts: a JSON array [{"to":["@Name"],"body":"…","detail_file":"…"}, …] (2~6)`)
 	if err := fs.Parse(args[1:]); err != nil {
 		return client.ExitUsage
 	}
 	if fs.NArg() > 0 {
 		return usage(stderr, "message post: unexpected argument %q", fs.Arg(0))
+	}
+	// colab-cli v0.9.5: --parts-file is its own shape — each part carries its
+	// own to · body · detail, so the single-body flags are exit 2 beside it.
+	partsGiven := false
+	var single []string
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "parts-file":
+			partsGiven = true
+		case "body", "detail", "detail-file", "mention":
+			single = append(single, "--"+f.Name)
+		}
+	})
+	if partsGiven {
+		if len(single) > 0 {
+			return emit(stdout, stderr, nil, client.Usage("--parts-file cannot be combined with %s: each part carries its own to, body and detail", strings.Join(single, ", ")))
+		}
+		if *partsFile == "" {
+			return emit(stdout, stderr, nil, client.Usage("--parts-file is empty: give a path"))
+		}
+		c := client.New(client.FromEnv(getenv))
+		v, err := colab.MessagePostParts(context.Background(), c, colab.MessagePostArgs{
+			Session: *session, PartsFile: *partsFile, ReplyTo: *replyTo, TopLevel: *topLevel, IdempotencyKey: *key})
+		return emit(stdout, stderr, v, err)
 	}
 	if strings.TrimSpace(*body) == "" {
 		return emit(stdout, stderr, nil, client.Usage("--body is required"))

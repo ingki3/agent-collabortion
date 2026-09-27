@@ -22,7 +22,7 @@ import { NAV_ITEMS } from "@/components/AppNav";
 import { BADGE_MAP } from "@/components/badge-map";
 import { ARCHIVE_DIALOG, CREATE_ROOM, DELETE_ROOM_DIALOG, ROOM_BLOCKED_LABEL, ROOM_DELETED_NOTICE, ROOM_LIST, ROOM_MENU, roomDefaultsLine } from "@/lib/wording";
 import { BLOCK_DIALOG, ROOM_BANNER, ROOM_CENTER, ROOM_HEAD, ROOM_LEFT, ROOM_NOTICES, ROOM_PANEL, ROOM_TABS, SUMMARIZE_DIALOG, WORK_CHIPS, WORK_PANEL, WORK_PAUSE_LABEL, WORK_SELECTOR } from "@/lib/wording";
-import { MESSAGE_LAYERS, PROCESS_ACTION } from "@/lib/wording";
+import { MESSAGE_LAYERS, PARTS, PROCESS_ACTION } from "@/lib/wording";
 import { ROOM_RENAME } from "@/lib/wording";
 import { FOLDERS_WORDING } from "@/lib/workdir-tree";
 import { CLOSE_WORK_DIALOG } from "@/components/CloseWorkDialog";
@@ -959,6 +959,23 @@ describe("v0.19.10 「작업 중」 말풍선 — 말은 표(MESSAGE_LAYERS)에�
     const comp = src("components/MessageLayers.tsx");
     for (const k of ["working", "working_memo_all", "failures", "process_loading"]) expect(comp, k).toContain(`L.${k}`);
     for (const f of ["components/MessageLayers.tsx", "app/(app)/rooms/[id]/page.tsx", "lib/progress-memo.ts"]) expect(code(f), f).not.toMatch(/진행 메모 전체 보기|"작업 중"|작성 중…/);
+  });
+});
+
+// ── v0.19.11 부분 메시지(SCREEN §4.6 · COMPONENTS §9.11) ─────────
+describe("v0.19.11 부분 메시지 — 말풍선·부분의 말은 표(PARTS)에서만", () => {
+  const src = (f: string) => readFileSync(join(ROOT, f), "utf8");
+  it("SCREEN 의 말 그대로 — 「부분 N개」 · 「〈받는 쪽〉에게」 · 답글 줄", () => {
+    expect(PARTS.count.join("3")).toBe("부분 3개");
+    expect(PARTS.aria_to).toBe("에게");
+    expect(PARTS.reply).toBe("답글");
+    expect(PARTS.replies_show.join("2")).toBe("답글 2개 보기");
+    expect(PARTS.replies_hide.join("2")).toBe("답글 2개 접기");
+  });
+  it("컴포넌트는 표를 그린다 — 문장을 직접 쓰지 않는다", () => {
+    const comp = src("components/PartBubble.tsx");
+    for (const k of ["count", "aria_to", "reply", "replies_show", "replies_hide", "replies_loading"]) expect(comp, k).toContain(`L.${k}`);
+    expect(comp.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "")).not.toMatch(/"답글|부분 \d|개 보기/);
   });
 });
 

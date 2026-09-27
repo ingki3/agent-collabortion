@@ -77,8 +77,21 @@
 .convo__sysline .msg__body { flex: 0 1 auto; max-width: 80%; font-size: var(--fs-meta); color: var(--ink-2); }
 .convo__sysfoot { font-size: var(--fs-meta); }
 .convo .msg__thread { margin-left: 0; }
+/* 부분 메시지(COMPONENTS §9.11 · SCREEN §4.6 v0.19.11) — 에이전트 말풍선을 부분(section) 여럿으로. 부분 사이 1px $line,
+   작업 과정은 말풍선 맨 아래 하나. 「나」 = 보는 사람이 받는 쪽인 부분 — 칩 굵게 + 부분 왼쪽 2px $s-run 선. */
+.part-bubble__bubble { gap: 8px; }
+.part { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.part + .part, .part-bubble__process { border-top: 1px solid var(--line); padding-top: 8px; }
+.part__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--fs-sub); font-weight: 600; }
+.part__kindrow { display: inline-flex; align-items: center; gap: 6px; }
+.part[data-me] { box-shadow: inset 2px 0 0 var(--s-run); padding-left: 8px; margin-left: -8px; }
+.convo__to-chip[data-me] { color: var(--s-run-text); font-weight: 700; }
+.part .msg__actions { margin-top: 0; }
+
 /* 좁은 가운데 열 — 말풍선 전폭, 아바타 20px, 받는 쪽은 둘째 줄로(flex-wrap). */
 @media (max-width: 720px) {
   .convo[data-side="left"] .convo__bubble, .convo[data-side="right"] .convo__bubble { max-width: 100%; }
   .convo__avatar { width: 20px; height: 20px; font-size: var(--fs-meta); }
+  /* 부분 머리 — 받는 쪽 칩은 둘째 줄(Pencil S7-CD). */
+  .part__head { flex-direction: column; align-items: flex-start; gap: 4px; }
 }

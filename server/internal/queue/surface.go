@@ -48,6 +48,10 @@ type Surface struct {
 	// harness v0.9.10: brief [2]'s fixed line on mentioning a person, right
 	// after the mention-syntax line.
 	HumanMention string
+	// harness v0.9.11: brief [2]'s fixed line on part messages (after the
+	// person-mention line) and how to read one group whole.
+	PartsRule string
+	groupRead string // fmt: group id
 }
 
 // Tool surface values (harness §9 runtime.capabilities[].tool_surface).
@@ -95,6 +99,17 @@ const (
 	HumanMentionRuleMCP = "- People are called with the same link form — the `mention://user/…` links in [5] (the `colab_message_post` tool's `mention`). A person's mention only notifies them; it wakes no agent.\n"
 )
 
+// PartsRule / PartsRuleMCP are harness v0.9.11's brief [2] line — the
+// contract's words, fixed bytes per surface (E12-11). The command is in
+// backticks as in every other [2] line: the daemon rewrites a shell `colab`
+// to the attempt's wrapper only in command position (toolwrap.cliRe — line
+// start, after a backtick or "$ "), and a bare "parts: colab message post"
+// would send a hermes agent to a `colab` its PATH does not have.
+const (
+	PartsRule    = "- To say different things to different people in one turn, send one message in parts: `colab message post --parts-file <json>` — one part per recipient.\n"
+	PartsRuleMCP = "- To say different things to different people in one turn, send one message in parts: the `parts` argument of `colab_message_post` — one part per recipient.\n"
+)
+
 const (
 	ThreadReplyInstruction    = "A trigger message with a `thread` attribute was posted in that thread: answer in the thread. `colab message post` replies to that thread by default; add `--top-level` only when the reply belongs on the main timeline."
 	ThreadReplyInstructionMCP = "A trigger message with a `thread` attribute was posted in that thread: answer in the thread. `colab_message_post` replies to that thread by default; set `top_level` only when the reply belongs on the main timeline (or `reply_to` to answer one message)."
@@ -117,6 +132,8 @@ var shellSurface = Surface{
 	FoldersRule:     FoldersRule,
 	FoldersLast:     FoldersLast,
 	HumanMention:    HumanMentionRule,
+	PartsRule:       PartsRule,
+	groupRead:       "Read them whole with `colab room messages --group %s`.",
 }
 
 var mcpSurface = Surface{
@@ -136,6 +153,8 @@ var mcpSurface = Surface{
 	FoldersRule:     FoldersRuleMCP,
 	FoldersLast:     FoldersLastMCP,
 	HumanMention:    HumanMentionRuleMCP,
+	PartsRule:       PartsRuleMCP,
+	groupRead:       "Read them whole with the `colab_room_messages` tool's `group: \"%s\"`.",
 }
 
 // SurfaceFor is the text set for a profile's runtime_kind: hermes reads the
@@ -151,11 +170,15 @@ func SurfaceFor(runtimeKind string) Surface {
 // ThreadRead is how to read the thread of message id in full.
 func (s Surface) ThreadRead(id string) string { return fmt.Sprintf(s.threadRead, id) }
 
+// GroupRead is how to read part message group id whole.
+func (s Surface) GroupRead(id string) string { return fmt.Sprintf(s.groupRead, id) }
+
 // Section2 is brief [2] in this surface's words.
 func (s Surface) Section2() string {
 	return s.Header +
 		"- Mention syntax: [@Name](mention://agent/<id>). Only mention session participants listed in [5].\n" +
 		s.HumanMention +
+		s.PartsRule +
 		s.PostLine +
 		s.ReadLine +
 		"- " + s.DetailRule + "\n" +
