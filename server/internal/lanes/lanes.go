@@ -36,16 +36,20 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, canControl bool) (*gen.L
 		finishedAt                                 *time.Time
 		work                                       *uuid.UUID
 		workTitle                                  *string
+		focusText, focusSource                     *string
+		focusAt                                    *time.Time
 	)
 	err := q.QueryRow(ctx, `
 		SELECT l.id, l.session_id, l.parent_lane_id, l.agent_id, l.profile_id, l.depends_on, l.workdir_id, l.delegated_from_task_id,
 		       l.runtime_session_ref IS NOT NULL, l.status::text, l.blocked_note, l.blocked_message_id, l.reentry_count,
-		       l.brief, l.created_at, l.updated_at, l.finished_at, a.name, l.work_id, wk.title
+		       l.brief, l.created_at, l.updated_at, l.finished_at, a.name, l.work_id, wk.title,
+		       l.focus_text, l.focus_at, l.focus_source
 		FROM lane l JOIN agent a ON a.id = l.agent_id
 		LEFT JOIN work wk ON wk.id = l.work_id
 		WHERE l.id = $1`, id).
 		Scan(&out.Id, &out.SessionId, &parent, &out.AgentId, &out.ProfileId, &out.DependsOn, &workdir, &delegatedFrom,
-			&hasRef, &status, &blockedNote, &blockedMsg, &out.ReentryCount, &brief, &out.CreatedAt, &out.UpdatedAt, &finishedAt, &agentName, &work, &workTitle)
+			&hasRef, &status, &blockedNote, &blockedMsg, &out.ReentryCount, &brief, &out.CreatedAt, &out.UpdatedAt, &finishedAt, &agentName, &work, &workTitle,
+			&focusText, &focusAt, &focusSource)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -68,6 +72,13 @@ func Load(ctx context.Context, q db.DBTX, id uuid.UUID, canControl bool) (*gen.L
 	// openapi 0.2.0: the mission the lane is bound to, null = 「미션 없음」.
 	out.WorkId = tasks.NullUUID(work)
 	out.WorkTitle = tasks.NullString(workTitle)
+	// openapi v0.3.8 (PRD FR-3.1.5): 「지금」 — always sent, null when no turn
+	// runs on the lane (internal/lanefocus writes and empties the columns).
+	if focusText != nil && focusAt != nil && focusSource != nil {
+		out.Focus = nullable.NewNullableWithValue(gen.LaneFocus{Text: *focusText, At: *focusAt, Source: gen.LaneFocusSource(*focusSource)})
+	} else {
+		out.Focus = nullable.NewNullNullable[gen.LaneFocus]()
+	}
 	if out.DependsOn == nil {
 		out.DependsOn = []openapi_types.UUID{}
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -61,6 +62,10 @@ type Service struct {
 	Notifier Notifier
 	// Tasks carries out the consequences of a pause (FR-2.3 drain vs cancel).
 	Tasks *tasks.Service
+
+	// focusFlush holds the lanes with a 「지금」 flush timer pending
+	// (scheduleFocusFlush) — lane id → true.
+	focusFlush sync.Map
 }
 
 func New(pool *pgxpool.Pool, c clock.Clock, h *realtime.Hub, n Notifier) *Service {
