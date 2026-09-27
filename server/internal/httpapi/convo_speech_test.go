@@ -600,6 +600,7 @@ func chipWokenReport(t *testing.T, f *p2Fixture, sessionID uuid.UUID, report *ge
 //	  turn3: 멘션 없음            → 보고 → Dir, responds_to h1   (두 단: rep2→q1→turn2→rep1→d1→turn1→h1)
 //	R(turn, d1) @W 표 qW → W ─보고 repW→ R(turnR2)
 //	  turnR2: 멘션 없음           → 보고 → Lead, responds_to d1  (윗선 요청자가 에이전트)
+//	  turnR2: @Dir 만             → 보고 → Dir, responds_to 없음 (윗선 지시는 Lead 의 것)
 //
 // Returns the ids the parity test must see decided that way.
 func upstreamRound(t *testing.T, f *p2Fixture, sessionID uuid.UUID) map[uuid.UUID]string {
@@ -678,8 +679,11 @@ func upstreamRound(t *testing.T, f *p2Fixture, sessionID uuid.UUID) map[uuid.UUI
 	bareR := postAs(r2, "표까지 넣어 v9 마무리")
 	d1ID := d1.Message.Id
 	check("윗선 요청자가 에이전트", bareR, want{gen.MessageSpeechReport, f.leadUUID, &d1ID})
+	// 사람만 멘션했는데 윗선 지시(d1)는 Lead 의 것 → Dir 에게 보고, responds_to 없음.
+	humanOther := postAs(r2, router.UserMentionLink("Dir", dirID)+" 표 넣은 버전 공유드립니다")
+	check("사람만 멘션 · 윗선은 다른 쪽", humanOther, want{gen.MessageSpeechReport, dirID, nil})
 
-	return map[uuid.UUID]string{bare1.Id: "report", human.Id: "report", q1.Id: "request", bare2.Id: "report", bareR.Id: "report"}
+	return map[uuid.UUID]string{bare1.Id: "report", human.Id: "report", q1.Id: "request", bare2.Id: "report", bareR.Id: "report", humanOther.Id: "report"}
 }
 
 // turnWokenBy is a new turn of agent's latest lane whose trigger is msg — the
