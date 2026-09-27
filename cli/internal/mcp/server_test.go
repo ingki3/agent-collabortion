@@ -485,3 +485,29 @@ func TestMessagePostToolDetailFile(t *testing.T) {
 		t.Fatalf("(200000) refused: %+v", r)
 	}
 }
+
+// colab-cli v0.9.4 (T-HUMANMENTION): colab_message_post's `mention` takes the
+// same path as the CLI flag — a person's name (and a person's link) resolves
+// to `mention://user/<id>`, both the array and the CSV shape.
+func TestMessagePostToolMentionsAPerson(t *testing.T) {
+	s := clienttest.New(t)
+	c := dial(t, newClient(t, s, nil))
+	c.call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "test", "version": "0"}})
+	c.notify("notifications/initialized")
+	human := "[@Simplist](mention://user/" + clienttest.HumanID + ")"
+	for i, m := range []any{[]string{"@Simplist"}, "@Simplist", []string{human}} {
+		if r := c.call("tools/call", map[string]any{"name": "colab_message_post", "arguments": map[string]any{"body": "검토 부탁", "mention": m}}); r.Error != nil || r.Result["isError"] == true {
+			t.Fatalf("post %d = %+v", i, r)
+		}
+		if got := s.Posted[i].Body["content"]; got != human+" 검토 부탁" {
+			t.Fatalf("post %d content = %q", i, got)
+		}
+	}
+	r := c.call("tools/call", map[string]any{"name": "colab_message_post", "arguments": map[string]any{"body": "x", "mention": []string{"@Nobody"}}})
+	if r.Error == nil && r.Result["isError"] != true {
+		t.Fatalf("unknown name accepted: %+v", r)
+	}
+	if b, _ := json.Marshal(r.Result); !strings.Contains(string(b), "unknown_mention") || !strings.Contains(string(b), "Simplist") {
+		t.Fatalf("unknown mention result = %s", b)
+	}
+}

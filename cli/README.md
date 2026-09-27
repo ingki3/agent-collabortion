@@ -110,8 +110,11 @@ attempt-1 key, and a network re-send of the same seq (`--idempotency-key`,
 nothing (E8-04). Re-posting the same *content* under a new seq is a new message —
 skipping already-posted messages is the resume prompt's `posted_message_ids` job.
 `--mention` resolves each name to the participant's
-`mention_link` from `/cli/context` and prepends it to the body; a name that is not a
-room participant is exit 2 `unknown_mention` with the roster in `detail` (FR-1.5).
+`mention_link` from `/cli/context` and prepends it to the body — the room's agents
+(`participants`) first, then its people (`humans`, v0.9.4; a name both use is the
+agent's). A person's mention wakes no agent; it addresses and notifies them. A name
+that is neither is exit 2 `unknown_mention` with the known names (agents and people)
+in `detail` (FR-1.5).
 
 `message post` result:
 

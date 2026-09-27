@@ -125,6 +125,22 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		fmt.Fprintf(&rosterStatus, "- %s: %s\n", name, status)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// The room's PEOPLE, after the agents (harness v0.9.10, T-HUMANMENTION):
+	// an agent could not learn from its brief how to call the Director. Owner
+	// → deputy → member, then by name; the mission's Director is NOT marked
+	// (that changes per mission and would break [1]~[5] byte-identity —
+	// [4] Room already names them). `<roster_status>` stays agents only: a
+	// person is not working or idle.
+	people, err := briefHumans(ctx, tx, t.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	for _, h := range people {
+		fmt.Fprintf(&roster, "- %s (person · %s) — mention: %s\n", h.Name, h.Role, router.UserMentionLink(h.Name, h.UserID))
+	}
 
 	// Brief [6] Context and [7] Decision Log (§8.4, S-37). The decision table
 	// and the artifact table were both written from P2 on and nothing read

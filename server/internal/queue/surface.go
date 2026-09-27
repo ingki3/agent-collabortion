@@ -45,6 +45,9 @@ type Surface struct {
 	// mission or not — E12-11) and the `<folders>` block's last sentence.
 	FoldersRule string
 	FoldersLast string
+	// harness v0.9.10: brief [2]'s fixed line on mentioning a person, right
+	// after the mention-syntax line.
+	HumanMention string
 }
 
 // Tool surface values (harness §9 runtime.capabilities[].tool_surface).
@@ -83,6 +86,15 @@ const (
 	FoldersLastMCP = "Folders of other missions and other rooms are not listed here: ask for an artifact, or use the `colab_room_read` tool."
 )
 
+// HumanMentionRule is harness v0.9.10's brief [2] line, right after the
+// mention-syntax line: calling a person uses the same link form, and a person's
+// mention only notifies — it wakes no agent (FR-3.3 rule 3). Fixed bytes per
+// surface, so [1]~[5] stay byte-identical between two turns (E12-11).
+const (
+	HumanMentionRule    = "- People are called with the same link form — the `mention://user/…` links in [5] (`colab message post --mention @Name`). A person's mention only notifies them; it wakes no agent.\n"
+	HumanMentionRuleMCP = "- People are called with the same link form — the `mention://user/…` links in [5] (the `colab_message_post` tool's `mention`). A person's mention only notifies them; it wakes no agent.\n"
+)
+
 const (
 	ThreadReplyInstruction    = "A trigger message with a `thread` attribute was posted in that thread: answer in the thread. `colab message post` replies to that thread by default; add `--top-level` only when the reply belongs on the main timeline."
 	ThreadReplyInstructionMCP = "A trigger message with a `thread` attribute was posted in that thread: answer in the thread. `colab_message_post` replies to that thread by default; set `top_level` only when the reply belongs on the main timeline (or `reply_to` to answer one message)."
@@ -104,6 +116,7 @@ var shellSurface = Surface{
 	threadRead:      "`colab room messages --thread %s`",
 	FoldersRule:     FoldersRule,
 	FoldersLast:     FoldersLast,
+	HumanMention:    HumanMentionRule,
 }
 
 var mcpSurface = Surface{
@@ -122,6 +135,7 @@ var mcpSurface = Surface{
 	threadRead:      "`colab_room_messages` 툴의 `thread: \"%s\"`",
 	FoldersRule:     FoldersRuleMCP,
 	FoldersLast:     FoldersLastMCP,
+	HumanMention:    HumanMentionRuleMCP,
 }
 
 // SurfaceFor is the text set for a profile's runtime_kind: hermes reads the
@@ -141,6 +155,7 @@ func (s Surface) ThreadRead(id string) string { return fmt.Sprintf(s.threadRead,
 func (s Surface) Section2() string {
 	return s.Header +
 		"- Mention syntax: [@Name](mention://agent/<id>). Only mention session participants listed in [5].\n" +
+		s.HumanMention +
 		s.PostLine +
 		s.ReadLine +
 		"- " + s.DetailRule + "\n" +

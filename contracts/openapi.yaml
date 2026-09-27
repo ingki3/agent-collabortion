@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Colab Server API
-  version: 0.3.4-draft
+  version: 0.3.5-draft
   summary: Colab 서버 REST API — P1~P3(수직 슬라이스 · 협업 코어 · HITL/재개/예산)에서 웹(W)과 colab CLI(C)가 호출하는 전부.
   description: |
     # 읽는 법
@@ -6002,6 +6002,16 @@ components:
               agent_id: { type: string, format: uuid }
               name: { type: string }
               role: { $ref: '#/components/schemas/AgentRole' }
+              mention_link: { type: string }
+        humans:
+          type: array
+          description: 'v0.3.5 — 이 방의 **사람 참여자**(방장·부방장·멤버, 나간 사람 제외)와 멘션 링크 `[@표시명](mention://user/<id>)`(PRD FR-3.2). CLI `message post --mention` 은 `participants`(에이전트)에서 먼저 찾고 없으면 여기서 찾는다 — 에이전트가 Director·방장을 멘션하면 `unknown_mention` 으로 거절되던 결함(실사용 배포 확인 2026-09-27). 사람 멘션은 에이전트를 깨우지 않고(라우팅은 에이전트만) 알림·받는 쪽(`addressees` kind `user`)에만 쓰인다. 이름이 에이전트와 같으면 에이전트가 이긴다.'
+          items:
+            type: object
+            required: [user_id, name, mention_link]
+            properties:
+              user_id: { type: string, format: uuid }
+              name: { type: string }
               mention_link: { type: string }
         allowed_commands:
           type: array

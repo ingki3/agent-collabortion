@@ -66,10 +66,19 @@ func (f *p2Fixture) mentionTask(t *testing.T, agent uuid.UUID, name, workID stri
 }
 
 // section returns one "[n] …" section of the server's brief, header included.
+// The header is matched at the START of a line only: brief [2] itself points
+// at 「[5]」 in prose (harness v0.9.10's human mention line), and a mid-line
+// mention is not a header — the daemon's own parser (brief.sectionRe) anchors
+// the same way.
 func section(brief string, n int) string {
-	i := strings.Index(brief, fmt.Sprintf("[%d] ", n))
-	if i < 0 {
-		return ""
+	head := fmt.Sprintf("[%d] ", n)
+	i := 0
+	if !strings.HasPrefix(brief, head) {
+		if x := strings.Index(brief, "\n"+head); x >= 0 {
+			i = x + 1
+		} else {
+			return ""
+		}
 	}
 	rest := brief[i+4:]
 	j := len(rest)
