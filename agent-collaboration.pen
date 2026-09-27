@@ -30453,7 +30453,7 @@
       "name": "S7-CD 방 화면 · 대화 배치 · 다크 · 좁은 화면 (v0.19.4)",
       "clip": true,
       "width": 420,
-      "height": 1200,
+      "height": 1739,
       "fill": "#0F0F11",
       "layout": "vertical",
       "children": [
@@ -31730,6 +31730,706 @@
                       "fontFamily": "$font",
                       "fontSize": 12,
                       "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "CmAXz",
+              "name": "Annotation v0.19.11 부분 메시지",
+              "fill": "#71717A",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "v0.19.11 — 부분 메시지: 부분마다 받는 쪽·종류·답글, 작업 과정은 하나",
+              "fontFamily": "$font",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "ifJUz",
+              "name": "Part bubble @Lead · 다크 · 좁은 화면 (v0.19.11) — 받는 쪽 칩은 둘째 줄",
+              "width": "fill_container",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "r9AZB",
+                  "name": "Avatar",
+                  "width": 28,
+                  "height": 28,
+                  "fill": "#1E3A5F",
+                  "cornerRadius": 14,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "IoDZE",
+                      "name": "T",
+                      "fill": "#93C5FD",
+                      "content": "L",
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "700"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "oRuXH",
+                  "name": "Col",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "I86urJ",
+                      "name": "Author head (종류·→·받는 쪽 없음)",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "QwQuA",
+                          "name": "Who",
+                          "fill": "#F4F4F5",
+                          "content": "@Lead",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "text",
+                          "id": "N7nWrg",
+                          "name": "Time",
+                          "fill": "#71717A",
+                          "content": "15:24",
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "iQSKz",
+                          "name": "Mission label",
+                          "cornerRadius": 999,
+                          "stroke": "#2E2E33",
+                          "strokeWidth": 1,
+                          "padding": [
+                            1,
+                            7
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "w775at",
+                              "name": "L",
+                              "fill": "#A6A6AE",
+                              "content": "미션 「마리오 카트…」",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "rectangle",
+                          "id": "ROOEb",
+                          "name": "Spacer",
+                          "fill": "#00000000",
+                          "width": "fill_container",
+                          "height": 1
+                        },
+                        {
+                          "type": "text",
+                          "id": "v4k5LI",
+                          "name": "More ⋯",
+                          "fill": "#A6A6AE",
+                          "content": "⋯",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "snZB7",
+                      "name": "Bubble (부분 3개)",
+                      "width": "fill_container",
+                      "fill": "#18181B",
+                      "cornerRadius": [
+                        4,
+                        12,
+                        12,
+                        12
+                      ],
+                      "layout": "vertical",
+                      "gap": 8,
+                      "padding": [
+                        8,
+                        12
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "y7wTHs",
+                          "name": "Part 1 보고 → Simplist",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "gXmEY",
+                              "name": "Part head (좁은 화면 — 받는 쪽 칩 둘째 줄)",
+                              "layout": "vertical",
+                              "gap": 4,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "PL1HI",
+                                  "name": "Kind row",
+                                  "gap": 6,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "YfwwS",
+                                      "name": "Kind 보고",
+                                      "fill": "#132A1C",
+                                      "cornerRadius": 999,
+                                      "stroke": "#2F6B45",
+                                      "strokeWidth": 1,
+                                      "gap": 3,
+                                      "padding": [
+                                        2,
+                                        7
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "pGT7C",
+                                          "name": "G",
+                                          "fill": "#86EFAC",
+                                          "content": "✓",
+                                          "fontFamily": "$font",
+                                          "fontSize": 11,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "laRW5",
+                                          "name": "L",
+                                          "fill": "#86EFAC",
+                                          "content": "보고",
+                                          "fontFamily": "$font",
+                                          "fontSize": 11,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "I2WZu",
+                                      "name": "Arrow",
+                                      "fill": "#71717A",
+                                      "content": "→",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "Riyp5",
+                                  "name": "To Simplist",
+                                  "fill": "#1E3A5F",
+                                  "cornerRadius": 4,
+                                  "padding": [
+                                    1,
+                                    5
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "XIfYH",
+                                      "name": "T",
+                                      "fill": "#93C5FD",
+                                      "content": "Simplist",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "P1BLsf",
+                              "name": "↩ report link",
+                              "fill": "#A6A6AE",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "↩ Simplist 의 「커브가 어색해」에 대한 보고",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "A5PnUX",
+                              "name": "Body",
+                              "fill": "#F4F4F5",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "v9 올렸습니다. 커브가 어색했던 진짜 원인은 횡가속도 상한이 없던 것이었습니다.",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "FFtvV",
+                              "name": "Artifact ref",
+                              "fill": "#0F0F11",
+                              "cornerRadius": 6,
+                              "stroke": "#2E2E33",
+                              "strokeWidth": 1,
+                              "gap": 8,
+                              "padding": [
+                                6,
+                                10
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "wmkQB",
+                                  "name": "Icon",
+                                  "fill": "#71717A",
+                                  "content": "📄",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "w4XMZF",
+                                  "name": "Name",
+                                  "fill": "#F4F4F5",
+                                  "content": "pixel-grand-prix.html",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "uA5LY",
+                                  "name": "Ver",
+                                  "fill": "#71717A",
+                                  "content": "· v9 ·",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "BbTGY",
+                                  "name": "Open",
+                                  "fill": "#93C5FD",
+                                  "content": "열기",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "DAjsP",
+                              "name": "Fold 작업 내용",
+                              "width": "fill_container",
+                              "fill": "#0F0F11",
+                              "cornerRadius": 6,
+                              "stroke": "#2E2E33",
+                              "strokeWidth": 1,
+                              "gap": 6,
+                              "padding": [
+                                5,
+                                8
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "YzsJr",
+                                  "name": "T",
+                                  "fill": "#71717A",
+                                  "content": "▸",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "CCp34",
+                                  "name": "T",
+                                  "fill": "#A6A6AE",
+                                  "content": "작업 내용",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "gESTI",
+                                  "name": "T",
+                                  "fill": "#A6A6AE",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "· 4,319자 · 표 5개",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "Cdno2",
+                              "name": "Reply 답글",
+                              "fill": "#A6A6AE",
+                              "content": "답글",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "rectangle",
+                          "id": "YAoI3",
+                          "name": "Part divider (1px line)",
+                          "fill": "#2E2E33",
+                          "width": "fill_container",
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "LnQ8c",
+                          "name": "Part 2 요청 → @Designer",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "ZzIIo",
+                              "name": "Part head (좁은 화면 — 받는 쪽 칩 둘째 줄)",
+                              "layout": "vertical",
+                              "gap": 4,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "dPWJk",
+                                  "name": "Kind row",
+                                  "gap": 6,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "NhrbK",
+                                      "name": "Kind 요청",
+                                      "fill": "#1E2A44",
+                                      "cornerRadius": 999,
+                                      "stroke": "#3B5E8C",
+                                      "strokeWidth": 1,
+                                      "gap": 3,
+                                      "padding": [
+                                        2,
+                                        7
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "ucYmy",
+                                          "name": "G",
+                                          "fill": "#93C5FD",
+                                          "content": "→",
+                                          "fontFamily": "$font",
+                                          "fontSize": 11,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "g80hF",
+                                          "name": "L",
+                                          "fill": "#93C5FD",
+                                          "content": "요청",
+                                          "fontFamily": "$font",
+                                          "fontSize": 11,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "tui7t",
+                                      "name": "Arrow",
+                                      "fill": "#71717A",
+                                      "content": "→",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "CkWPg",
+                                  "name": "To @Designer",
+                                  "fill": "#1E3A5F",
+                                  "cornerRadius": 4,
+                                  "padding": [
+                                    1,
+                                    5
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "x0KFA",
+                                      "name": "T",
+                                      "fill": "#93C5FD",
+                                      "content": "@Designer",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "q6bgg",
+                              "name": "Body",
+                              "fill": "#F4F4F5",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "자동차 디자인 v2 를 스프라이트 24방향으로 맞춰 주세요",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "rZmNx",
+                              "name": "Reply 답글",
+                              "fill": "#A6A6AE",
+                              "content": "답글",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "rectangle",
+                          "id": "qT9Ho",
+                          "name": "Part divider (1px line)",
+                          "fill": "#2E2E33",
+                          "width": "fill_container",
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "FezRd",
+                          "name": "Part 3 요청 → @Developer",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "GKvqH",
+                              "name": "Part head (좁은 화면 — 받는 쪽 칩 둘째 줄)",
+                              "layout": "vertical",
+                              "gap": 4,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "sMGUN",
+                                  "name": "Kind row",
+                                  "gap": 6,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "T65MGQ",
+                                      "name": "Kind 요청",
+                                      "fill": "#1E2A44",
+                                      "cornerRadius": 999,
+                                      "stroke": "#3B5E8C",
+                                      "strokeWidth": 1,
+                                      "gap": 3,
+                                      "padding": [
+                                        2,
+                                        7
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "eF9qX",
+                                          "name": "G",
+                                          "fill": "#93C5FD",
+                                          "content": "→",
+                                          "fontFamily": "$font",
+                                          "fontSize": 11,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "I5buZS",
+                                          "name": "L",
+                                          "fill": "#93C5FD",
+                                          "content": "요청",
+                                          "fontFamily": "$font",
+                                          "fontSize": 11,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "eiD2J",
+                                      "name": "Arrow",
+                                      "fill": "#71717A",
+                                      "content": "→",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "ACf9g",
+                                  "name": "To @Developer",
+                                  "fill": "#1E3A5F",
+                                  "cornerRadius": 4,
+                                  "padding": [
+                                    1,
+                                    5
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "N7QXZi",
+                                      "name": "T",
+                                      "fill": "#93C5FD",
+                                      "content": "@Developer",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "cAPzu",
+                              "name": "Body",
+                              "fill": "#F4F4F5",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "FX 코드 합쳤습니다 — 부스트 색수차만 절반으로",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "fmiLa",
+                              "name": "Reply 답글",
+                              "fill": "#A6A6AE",
+                              "content": "답글",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "rectangle",
+                          "id": "kMV7f",
+                          "name": "Part divider (1px line)",
+                          "fill": "#2E2E33",
+                          "width": "fill_container",
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "ocVKi",
+                          "name": "Fold 작업 과정",
+                          "width": "fill_container",
+                          "fill": "#0F0F11",
+                          "cornerRadius": 6,
+                          "stroke": "#2E2E33",
+                          "strokeWidth": 1,
+                          "gap": 6,
+                          "padding": [
+                            5,
+                            8
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "quJOP",
+                              "name": "T",
+                              "fill": "#71717A",
+                              "content": "▸",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "z8cXy",
+                              "name": "T",
+                              "fill": "#A6A6AE",
+                              "content": "작업 과정",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "text",
+                              "id": "mnU63",
+                              "name": "T",
+                              "fill": "#A6A6AE",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "· 셸 명령 35회 · 파일 읽기 2회 · 16분",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
                     }
                   ]
                 }
@@ -35531,7 +36231,7 @@
       "name": "S7-C 방 화면 · 대화 배치 (v0.19.4)",
       "clip": true,
       "width": 1440,
-      "height": 1200,
+      "height": 1657,
       "fill": "$bg",
       "children": [
         {
@@ -37561,6 +38261,678 @@
                               "fontFamily": "$font",
                               "fontSize": 12,
                               "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "PbHKV",
+                      "name": "Annotation v0.19.11 부분 메시지",
+                      "fill": "$ink-3",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "v0.19.11 — 부분 메시지: 부분마다 받는 쪽·종류·답글, 작업 과정은 하나",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "WfZAM",
+                      "name": "Part bubble @Lead (v0.19.11) — 부분 3개 · 작업 과정 하나",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "F3SnO",
+                          "name": "Avatar",
+                          "width": 28,
+                          "height": 28,
+                          "fill": "#DBEAFE",
+                          "cornerRadius": 14,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Ho79Y",
+                              "name": "T",
+                              "fill": "$s-run-text",
+                              "content": "L",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "V3JSu",
+                          "name": "Col",
+                          "width": 560,
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "nOhWa",
+                              "name": "Author head (종류·→·받는 쪽 없음)",
+                              "width": "fill_container",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "dTjT3",
+                                  "name": "Who",
+                                  "fill": "$ink",
+                                  "content": "@Lead",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "700"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "s8i7GV",
+                                  "name": "Time",
+                                  "fill": "$ink-3",
+                                  "content": "15:24",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "nmagx",
+                                  "name": "Mission label",
+                                  "fill": "$bg",
+                                  "cornerRadius": 999,
+                                  "stroke": "$line",
+                                  "strokeWidth": 1,
+                                  "padding": [
+                                    1,
+                                    7
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "lK11L",
+                                      "name": "L",
+                                      "fill": "$ink-2",
+                                      "content": "미션 「마리오 카트…」",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "QFpZr",
+                                  "name": "Spacer",
+                                  "fill": "#00000000",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "cogol",
+                                  "name": "More ⋯",
+                                  "fill": "$ink-2",
+                                  "content": "⋯",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "d70SY",
+                              "name": "Bubble (부분 3개)",
+                              "width": "fill_container",
+                              "fill": "$surface",
+                              "cornerRadius": [
+                                4,
+                                12,
+                                12,
+                                12
+                              ],
+                              "layout": "vertical",
+                              "gap": 8,
+                              "padding": [
+                                8,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "PlqTL",
+                                  "name": "Part 1 보고 → Simplist",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "jjHKq",
+                                      "name": "Part head",
+                                      "gap": 6,
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "iXDE7",
+                                          "name": "Kind 보고",
+                                          "fill": "#F0FDF4",
+                                          "cornerRadius": 999,
+                                          "stroke": "#86EFAC",
+                                          "strokeWidth": 1,
+                                          "gap": 3,
+                                          "padding": [
+                                            2,
+                                            7
+                                          ],
+                                          "alignItems": "center",
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "W7z1C",
+                                              "name": "G",
+                                              "fill": "$s-done-text",
+                                              "content": "✓",
+                                              "fontFamily": "$font",
+                                              "fontSize": 11,
+                                              "fontWeight": "normal"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "P4nU6",
+                                              "name": "L",
+                                              "fill": "$s-done-text",
+                                              "content": "보고",
+                                              "fontFamily": "$font",
+                                              "fontSize": 11,
+                                              "fontWeight": "600"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "M7t5nr",
+                                          "name": "Arrow",
+                                          "fill": "$ink-3",
+                                          "content": "→",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "frame",
+                                          "id": "jkWbU",
+                                          "name": "To Simplist",
+                                          "fill": "#DBEAFE",
+                                          "cornerRadius": 4,
+                                          "padding": [
+                                            1,
+                                            5
+                                          ],
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "U2Bam6",
+                                              "name": "T",
+                                              "fill": "$s-run-text",
+                                              "content": "Simplist",
+                                              "fontFamily": "$font",
+                                              "fontSize": 12,
+                                              "fontWeight": "600"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "V4bey",
+                                      "name": "↩ report link",
+                                      "fill": "$ink-2",
+                                      "content": "↩ Simplist 의 「커브가 어색해」에 대한 보고",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "IVEce",
+                                      "name": "Body",
+                                      "fill": "$ink",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "v9 올렸습니다. 커브가 어색했던 진짜 원인은 횡가속도 상한이 없던 것이었습니다.",
+                                      "fontFamily": "$font",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "gMd84",
+                                      "name": "Artifact ref",
+                                      "fill": "#FFFFFF",
+                                      "cornerRadius": 6,
+                                      "stroke": "$line",
+                                      "strokeWidth": 1,
+                                      "gap": 8,
+                                      "padding": [
+                                        6,
+                                        10
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "qbGXC",
+                                          "name": "Icon",
+                                          "fill": "$ink-3",
+                                          "content": "📄",
+                                          "fontFamily": "$font",
+                                          "fontSize": 13,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "i1IRgg",
+                                          "name": "Name",
+                                          "fill": "$ink",
+                                          "content": "pixel-grand-prix.html",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "600"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "gmGhV",
+                                          "name": "Ver",
+                                          "fill": "$ink-3",
+                                          "content": "· v9 ·",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "IzdYe",
+                                          "name": "Open",
+                                          "fill": "$s-run-text",
+                                          "content": "열기",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "mi2PG",
+                                      "name": "Fold 작업 내용",
+                                      "width": "fill_container",
+                                      "fill": "#FFFFFF",
+                                      "cornerRadius": 6,
+                                      "stroke": "$line",
+                                      "strokeWidth": 1,
+                                      "gap": 6,
+                                      "padding": [
+                                        5,
+                                        8
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "wibl7",
+                                          "name": "T",
+                                          "fill": "$ink-3",
+                                          "content": "▸",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "aCcvz",
+                                          "name": "T",
+                                          "fill": "$ink-2",
+                                          "content": "작업 내용",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "600"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "Q5fQb0",
+                                          "name": "T",
+                                          "fill": "$ink-2",
+                                          "textGrowth": "fixed-width",
+                                          "width": "fill_container",
+                                          "content": "· 4,319자 · 표 5개",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "lV9Jk",
+                                      "name": "Reply 답글",
+                                      "fill": "$ink-2",
+                                      "content": "답글",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "OQd4H",
+                                  "name": "Part divider (1px $line)",
+                                  "fill": "$line",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "YcWnX",
+                                  "name": "Part 2 요청 → @Designer",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "Iak8D",
+                                      "name": "Part head",
+                                      "gap": 6,
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "VSvAl",
+                                          "name": "Kind 요청",
+                                          "fill": "#EFF6FF",
+                                          "cornerRadius": 999,
+                                          "stroke": "#93C5FD",
+                                          "strokeWidth": 1,
+                                          "gap": 3,
+                                          "padding": [
+                                            2,
+                                            7
+                                          ],
+                                          "alignItems": "center",
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "X9rcg",
+                                              "name": "G",
+                                              "fill": "$s-run-text",
+                                              "content": "→",
+                                              "fontFamily": "$font",
+                                              "fontSize": 11,
+                                              "fontWeight": "normal"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "enF17",
+                                              "name": "L",
+                                              "fill": "$s-run-text",
+                                              "content": "요청",
+                                              "fontFamily": "$font",
+                                              "fontSize": 11,
+                                              "fontWeight": "600"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "H1jIu",
+                                          "name": "Arrow",
+                                          "fill": "$ink-3",
+                                          "content": "→",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "frame",
+                                          "id": "SVS0l",
+                                          "name": "To @Designer",
+                                          "fill": "#DBEAFE",
+                                          "cornerRadius": 4,
+                                          "padding": [
+                                            1,
+                                            5
+                                          ],
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "NEyCm",
+                                              "name": "T",
+                                              "fill": "$s-run-text",
+                                              "content": "@Designer",
+                                              "fontFamily": "$font",
+                                              "fontSize": 12,
+                                              "fontWeight": "600"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "xncwZ",
+                                      "name": "Body",
+                                      "fill": "$ink",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "자동차 디자인 v2 를 스프라이트 24방향으로 맞춰 주세요",
+                                      "fontFamily": "$font",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "klAlv",
+                                      "name": "Reply 답글",
+                                      "fill": "$ink-2",
+                                      "content": "답글",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "CHYVl",
+                                  "name": "Part divider (1px $line)",
+                                  "fill": "$line",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "qt5ny",
+                                  "name": "Part 3 요청 → @Developer",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "r609ru",
+                                      "name": "Part head",
+                                      "gap": 6,
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "dOCwG",
+                                          "name": "Kind 요청",
+                                          "fill": "#EFF6FF",
+                                          "cornerRadius": 999,
+                                          "stroke": "#93C5FD",
+                                          "strokeWidth": 1,
+                                          "gap": 3,
+                                          "padding": [
+                                            2,
+                                            7
+                                          ],
+                                          "alignItems": "center",
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "pt5tj",
+                                              "name": "G",
+                                              "fill": "$s-run-text",
+                                              "content": "→",
+                                              "fontFamily": "$font",
+                                              "fontSize": 11,
+                                              "fontWeight": "normal"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "fcKNh",
+                                              "name": "L",
+                                              "fill": "$s-run-text",
+                                              "content": "요청",
+                                              "fontFamily": "$font",
+                                              "fontSize": 11,
+                                              "fontWeight": "600"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "Q0yoZh",
+                                          "name": "Arrow",
+                                          "fill": "$ink-3",
+                                          "content": "→",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "normal"
+                                        },
+                                        {
+                                          "type": "frame",
+                                          "id": "r1pWIx",
+                                          "name": "To @Developer",
+                                          "fill": "#DBEAFE",
+                                          "cornerRadius": 4,
+                                          "padding": [
+                                            1,
+                                            5
+                                          ],
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "rMnIa",
+                                              "name": "T",
+                                              "fill": "$s-run-text",
+                                              "content": "@Developer",
+                                              "fontFamily": "$font",
+                                              "fontSize": 12,
+                                              "fontWeight": "600"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "SjCuD",
+                                      "name": "Body",
+                                      "fill": "$ink",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "FX 코드 합쳤습니다 — 부스트 색수차만 절반으로",
+                                      "fontFamily": "$font",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "t3GWF",
+                                      "name": "Reply 답글",
+                                      "fill": "$ink-2",
+                                      "content": "답글",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "UslPW",
+                                  "name": "Part divider (1px $line)",
+                                  "fill": "$line",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "OitPM",
+                                  "name": "Fold 작업 과정",
+                                  "width": "fill_container",
+                                  "fill": "#FFFFFF",
+                                  "cornerRadius": 6,
+                                  "stroke": "$line",
+                                  "strokeWidth": 1,
+                                  "gap": 6,
+                                  "padding": [
+                                    5,
+                                    8
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "NFSsV",
+                                      "name": "T",
+                                      "fill": "$ink-3",
+                                      "content": "▸",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "s9SX6",
+                                      "name": "T",
+                                      "fill": "$ink-2",
+                                      "content": "작업 과정",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "600"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "e2Pl7P",
+                                      "name": "T",
+                                      "fill": "$ink-2",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "· 셸 명령 35회 · 파일 읽기 2회 · 16분",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                }
+                              ]
                             }
                           ]
                         }
