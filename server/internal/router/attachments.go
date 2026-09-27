@@ -38,7 +38,7 @@ func NormalizeAttachments(ids *[]openapi_types.UUID) ([]uuid.UUID, error) {
 	return out, nil
 }
 
-// attach writes message_attachment rows (migration 0040) after checking that
+// attach writes message_attachment rows (migration 0042) after checking that
 // every id is an artifact of THIS room — 422 attachment_not_in_room names the
 // first one that is not, whether it lives in another room, another workspace
 // or nowhere (the answer is the same so a stranger learns nothing about an id

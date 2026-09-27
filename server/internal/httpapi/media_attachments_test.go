@@ -353,7 +353,7 @@ func TestTriggerCarriesAttachmentsAndBriefMediaLine(t *testing.T) {
 	}
 }
 
-// (legacy) a row stored before migration 0040 carries the uploader's claim;
+// (legacy) a row stored before migration 0042 carries the uploader's claim;
 // it is judged from its bytes the first time it is read, and until then it is
 // never a preview.
 func TestLegacyContentTypeIsJudgedOnRead(t *testing.T) {

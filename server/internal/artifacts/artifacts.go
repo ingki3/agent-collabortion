@@ -49,7 +49,7 @@ type Row struct {
 
 	ContentType *string
 	// ContentTypeJudged says ContentType is the server's own judgment
-	// (openapi v0.3.7, migration 0040). A row stored before that carries
+	// (openapi v0.3.7, migration 0042). A row stored before that carries
 	// what the uploader claimed until judgeLegacy reads its first bytes.
 	ContentTypeJudged bool
 	Description       *string
@@ -398,7 +398,7 @@ func (s *Service) ReviewHistory(ctx context.Context, artifactID uuid.UUID) ([]Re
 	return out, rows.Err()
 }
 
-// judgeLegacy is migration 0040's read-time judgment for a row stored before
+// judgeLegacy is migration 0042's read-time judgment for a row stored before
 // the server judged content types: read at most 512 bytes of the body, judge
 // them with the name (no filename was kept — the name is what there is),
 // store the answer and mark the row, once. The UPDATE is conditional on the

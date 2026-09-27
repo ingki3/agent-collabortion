@@ -76,7 +76,7 @@ type Row struct {
 }
 
 // Attachment is one AttachmentRef. ContentType is the server's judgment —
-// NULL for a row stored before migration 0041 and not yet re-judged, so no
+// NULL for a row stored before migration 0042 and not yet re-judged, so no
 // reader ever takes an uploader's claim for a preview type.
 type Attachment struct {
 	ArtifactID  uuid.UUID `json:"artifact_id"`
@@ -98,7 +98,7 @@ const selectMessage = `
 	       -- its list yet. Only hitl cards look (the rest read NULL).
 	       CASE WHEN m.kind = 'hitl' THEN (SELECT h.id FROM hitl_request h WHERE h.message_id = m.id ORDER BY h.created_at LIMIT 1) END,
 	       m.group_id, m.group_index, m.group_size,
-	       -- openapi v0.3.7 Message.attachments (migration 0041). 부분도 제 것만 가진다.
+	       -- openapi v0.3.7 Message.attachments (migration 0042). 부분도 제 것만 가진다.
 	       (SELECT jsonb_agg(jsonb_build_object('artifact_id', ar.id, 'name', ar.name, 'version', ar.version,
 	                 'type', ar.type, 'size_bytes', ar.size_bytes,
 	                 'content_type', CASE WHEN ar.content_type_judged THEN ar.content_type END) ORDER BY ma.position)

@@ -44,7 +44,7 @@ var prdTables = []string{
 	// 방 API(T-R1b3) — 서브 미션 알림 구독(FR-8)
 	"lane_subscription",
 	"work_subscription", // r1b2_works — setWorkSubscription (FR-8)
-	// 0041_media_attachments.sql (PRD v0.19.10 FR-3.7 — 메시지에 붙인 파일)
+	// 0042_media_attachments.sql (PRD v0.19.10 FR-3.7 — 메시지에 붙인 파일)
 	"message_attachment",
 }
 
