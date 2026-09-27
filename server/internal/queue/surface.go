@@ -48,6 +48,11 @@ type Surface struct {
 	// harness v0.9.10: brief [2]'s fixed line on mentioning a person, right
 	// after the mention-syntax line.
 	HumanMention string
+	// harness v0.9.12 (PRD FR-4.3.1 · FR-3.7): brief [2]'s fixed media line,
+	// and the one line under a trigger message's `Attachments:` list that
+	// says how to fetch them.
+	MediaRule   string
+	AttachFetch string
 }
 
 // Tool surface values (harness §9 runtime.capabilities[].tool_surface).
@@ -95,6 +100,16 @@ const (
 	HumanMentionRuleMCP = "- People are called with the same link form — the `mention://user/…` links in [5] (the `colab_message_post` tool's `mention`). A person's mention only notifies them; it wakes no agent.\n"
 )
 
+// MediaRule / MediaRuleMCP are harness v0.9.12's brief [2] line — word for
+// word the contract's, per surface. AttachFetch / AttachFetchMCP close a
+// trigger message's `Attachments:` list (how to get a file into the folder).
+const (
+	MediaRule      = "- Images, video and sound that people need to see: submit them with `colab artifact submit` — the room plays them inline. Files left only in your folder cannot be seen by people."
+	MediaRuleMCP   = "- Images, video and sound that people need to see: submit them with the `colab_artifact_submit` tool — the room plays them inline. Files left only in your folder cannot be seen by people."
+	AttachFetch    = "Download one into your folder with `colab artifact get <id> --out <path>`."
+	AttachFetchMCP = "Download one into your folder with the `colab_artifact_get` tool (`artifact`: the id, `out`: a path in your folder)."
+)
+
 const (
 	ThreadReplyInstruction    = "A trigger message with a `thread` attribute was posted in that thread: answer in the thread. `colab message post` replies to that thread by default; add `--top-level` only when the reply belongs on the main timeline."
 	ThreadReplyInstructionMCP = "A trigger message with a `thread` attribute was posted in that thread: answer in the thread. `colab_message_post` replies to that thread by default; set `top_level` only when the reply belongs on the main timeline (or `reply_to` to answer one message)."
@@ -117,6 +132,8 @@ var shellSurface = Surface{
 	FoldersRule:     FoldersRule,
 	FoldersLast:     FoldersLast,
 	HumanMention:    HumanMentionRule,
+	MediaRule:       MediaRule,
+	AttachFetch:     AttachFetch,
 }
 
 var mcpSurface = Surface{
@@ -136,6 +153,8 @@ var mcpSurface = Surface{
 	FoldersRule:     FoldersRuleMCP,
 	FoldersLast:     FoldersLastMCP,
 	HumanMention:    HumanMentionRuleMCP,
+	MediaRule:       MediaRuleMCP,
+	AttachFetch:     AttachFetchMCP,
 }
 
 // SurfaceFor is the text set for a profile's runtime_kind: hermes reads the
@@ -160,6 +179,7 @@ func (s Surface) Section2() string {
 		s.ReadLine +
 		"- " + s.DetailRule + "\n" +
 		"- " + s.Deliverable + "\n" +
+		s.MediaRule + "\n" +
 		s.FoldersRule + "\n" +
 		"- Mentioning an agent creates work for it; do not mention agents just to acknowledge.\n" +
 		"- Your COLAB_TASK_TOKEN is valid for this attempt only; if a call returns token_revoked, stop immediately.\n\n"

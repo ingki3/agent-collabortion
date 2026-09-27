@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -47,7 +48,11 @@ type Row struct {
 	SizeBytes  int64
 
 	ContentType *string
-	Description *string
+	// ContentTypeJudged says ContentType is the server's own judgment
+	// (openapi v0.3.7, migration 0040). A row stored before that carries
+	// what the uploader claimed until judgeLegacy reads its first bytes.
+	ContentTypeJudged bool
+	Description       *string
 
 	SubmittedByTaskID  *uuid.UUID
 	SubmittedByAgentID *uuid.UUID
@@ -83,8 +88,15 @@ type SubmitInput struct {
 	Name        string
 	Type        string
 	Description string
+	// ContentType is what the uploader's `file` part declared. It is kept
+	// only for the idempotency hash: the stored content_type is the
+	// server's judgment (DetectContentType), never this (FR-4.3.1 rule 1).
 	ContentType string
-	Content     []byte
+	// FileName is the `file` part's filename; its extension is what
+	// DetectContentType reads when the bytes have no signature. Empty falls
+	// back to Name.
+	FileName string
+	Content  []byte
 
 	TaskID  *uuid.UUID
 	AgentID *uuid.UUID
@@ -159,19 +171,19 @@ func (s *Service) Submit(ctx context.Context, sessionID uuid.UUID, in SubmitInpu
 		return nil, fmt.Errorf("artifacts: close blob: %w", err)
 	}
 
-	var ct, desc *string
-	if in.ContentType != "" {
-		ct = &in.ContentType
-	}
+	judged := DetectContentType(judgeName(in.FileName, in.Name), in.Content)
+	ct := &judged
+	var desc *string
 	if in.Description != "" {
 		desc = &in.Description
 	}
 	var out Row
 	err = tx.QueryRow(ctx, `
 		INSERT INTO artifact (session_id, name, version, type, storage_ref, size_bytes, content_type,
-		                      description, submitted_by_task_id, submitted_by_agent_id, submitted_by_user_id, created_at, work_id)
+		                      description, submitted_by_task_id, submitted_by_agent_id, submitted_by_user_id, created_at, work_id,
+		                      content_type_judged)
 		VALUES ($1, $2, (SELECT coalesce(max(version), 0) + 1 FROM artifact WHERE session_id = $1 AND name = $2),
-		        $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		        $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true)
 		RETURNING id, version, created_at`,
 		sessionID, in.Name, in.Type, storagePrefix+fmt.Sprint(oid), int64(len(in.Content)), ct, desc,
 		in.TaskID, in.AgentID, in.UserID, now, work).
@@ -187,7 +199,17 @@ func (s *Service) Submit(ctx context.Context, sessionID uuid.UUID, in SubmitInpu
 	out.SubmittedByTaskID, out.SubmittedByAgentID, out.SubmittedByUserID = in.TaskID, in.AgentID, in.UserID
 	out.Latest = true
 	out.WorkID = work
+	out.ContentTypeJudged = true
 	return &out, nil
+}
+
+// judgeName is the name whose extension DetectContentType reads: the
+// uploaded file's own name when it has an extension, else the artifact name.
+func judgeName(fileName, name string) string {
+	if filepath.Ext(fileName) != "" {
+		return fileName
+	}
+	return name
 }
 
 // selectSQL is the read model: the row, its agent's display name, whether it
@@ -199,7 +221,7 @@ const selectSQL = `
 	       ag.name, a.created_at,
 	       a.version = (SELECT max(b.version) FROM artifact b WHERE b.session_id = a.session_id AND b.name = a.name),
 	       r.verdict::text, r.comments, r.reviewer_agent_id, r.reviewer_task_id, r.decision_id, r.reviewed_at,
-	       a.work_id
+	       a.work_id, a.content_type_judged
 	FROM artifact a
 	LEFT JOIN agent ag ON ag.id = a.submitted_by_agent_id
 	LEFT JOIN artifact_review_latest r ON r.artifact_id = a.id`
@@ -213,7 +235,7 @@ func scan(row pgx.Row) (*Row, error) {
 	if err := row.Scan(&a.ID, &a.SessionID, &a.Name, &a.Version, &a.Type, &a.StorageRef, &a.SizeBytes, &a.ContentType,
 		&a.Description, &a.SubmittedByTaskID, &a.SubmittedByAgentID, &a.SubmittedByUserID,
 		&a.AgentName, &a.CreatedAt, &a.Latest,
-		&verdict, &rev.Comments, &reviewer, &rev.ReviewerTaskID, &rev.DecisionID, &reviewedAt, &a.WorkID); err != nil {
+		&verdict, &rev.Comments, &reviewer, &rev.ReviewerTaskID, &rev.DecisionID, &reviewedAt, &a.WorkID, &a.ContentTypeJudged); err != nil {
 		return nil, err
 	}
 	if verdict != nil && reviewer != nil && reviewedAt != nil {
@@ -231,6 +253,9 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*Row, error) {
 		return nil, apperr.NotFound("artifact")
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err := s.judgeLegacy(ctx, a); err != nil {
 		return nil, err
 	}
 	return a, nil
@@ -268,7 +293,16 @@ func (s *Service) List(ctx context.Context, sessionID uuid.UUID, o ListOptions) 
 		}
 		out = append(out, a)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	for _, a := range out {
+		if err := s.judgeLegacy(ctx, a); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // Content is an open read of the artifact body. The caller MUST Close it: a
@@ -279,11 +313,15 @@ type Content struct {
 	ContentType string
 	Name        string
 
-	r  io.Reader
+	r  io.ReadSeeker
 	tx pgx.Tx
 }
 
 func (c *Content) Read(p []byte) (int, error) { return c.r.Read(p) }
+
+// Seek moves inside the body — downloadArtifact's `Range` (openapi v0.3.7)
+// starts a partial response at an offset without reading what precedes it.
+func (c *Content) Seek(offset int64, whence int) (int64, error) { return c.r.Seek(offset, whence) }
 
 // Close ends the transaction the blob is read inside. It is always a
 // rollback: nothing was written.
@@ -358,4 +396,46 @@ func (s *Service) ReviewHistory(ctx context.Context, artifactID uuid.UUID) ([]Re
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// judgeLegacy is migration 0040's read-time judgment for a row stored before
+// the server judged content types: read at most 512 bytes of the body, judge
+// them with the name (no filename was kept — the name is what there is),
+// store the answer and mark the row, once. The UPDATE is conditional on the
+// mark, so two readers racing on one row write the same answer at most twice
+// and never undo each other.
+//
+// Why at read time rather than in the migration: the judgment is Go's table
+// (http.DetectContentType + the extension rules); rewriting it in SQL over
+// large objects would be a second copy of the rule that drifts.
+func (s *Service) judgeLegacy(ctx context.Context, a *Row) error {
+	if a.ContentTypeJudged {
+		return nil
+	}
+	head, err := s.readHead(ctx, a, 512)
+	if err != nil {
+		return err
+	}
+	judged := DetectContentType(a.Name, head)
+	if _, err := s.DB.Exec(ctx, `UPDATE artifact SET content_type = $2, content_type_judged = true
+		WHERE id = $1 AND NOT content_type_judged`, a.ID, judged); err != nil {
+		return fmt.Errorf("artifacts: judge legacy content type: %w", err)
+	}
+	a.ContentType, a.ContentTypeJudged = &judged, true
+	return nil
+}
+
+// readHead reads the first n bytes of the body (fewer when it is shorter).
+func (s *Service) readHead(ctx context.Context, a *Row, n int) ([]byte, error) {
+	c, err := s.Open(ctx, a)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = c.Close() }()
+	buf := make([]byte, n)
+	k, err := io.ReadFull(c, buf)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("artifacts: read head: %w", err)
+	}
+	return buf[:k], nil
 }

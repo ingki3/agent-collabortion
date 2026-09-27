@@ -37,6 +37,10 @@ const multipartSlack = 1 << 20
 // multipart part with no limit is a memory hole regardless of where it lands.
 const fieldMax = 64 << 10
 
+// ArtifactTypeAttachment is the type the composer uploads a person's file as
+// (openapi v0.3.7 submitArtifact, PRD FR-3.7).
+const ArtifactTypeAttachment = "attachment"
+
 // SubmitArtifact is FR-4.3 `colab artifact submit`. The bytes are stored
 // whoever submitted them; whether that satisfies the `artifact_submitted`
 // completion condition is a separate question the tree answers (E6-02), and
@@ -90,7 +94,13 @@ func (s *Server) SubmitArtifact(w http.ResponseWriter, r *http.Request, roomId g
 		}
 		// PRD v0.19: the artifact counts toward ITS mission's condition — a
 		// submission outside any mission counts toward none.
-		if row.WorkID != nil {
+		//
+		// openapi v0.3.7 (PRD FR-3.7 rule 4): a file attached in the composer
+		// (type `attachment`) is material a person handed over, not a
+		// deliverable — it satisfies `artifact_submitted` for nobody, whoever
+		// uploaded it. The event is not even offered to the tree, so neither
+		// the condition nor the completion approval (FR-2A.2.2) can move.
+		if row.WorkID != nil && row.Type != ArtifactTypeAttachment {
 			if _, err := s.Sessions.ApplyWorkEvent(r.Context(), *row.WorkID,
 				sessions.Event{Kind: "artifact_submit", Actor: actor, Ref: &row.ID}); err != nil {
 				return 0, nil, apperr.As(err)
@@ -215,7 +225,10 @@ func parseArtifactUpload(r *http.Request, body []byte) (*artifacts.SubmitInput, 
 				return nil, tooLarge(int64(len(data)))
 			}
 			in.Content, seenFile = data, true
+			// Kept for the idempotency hash only — the stored type is the
+			// server's judgment (artifacts.DetectContentType, FR-4.3.1).
 			in.ContentType = part.Header.Get("Content-Type")
+			in.FileName = part.FileName()
 		case "name", "type", "description":
 			v, err := io.ReadAll(io.LimitReader(part, fieldMax))
 			if err != nil {
@@ -351,7 +364,18 @@ func DownloadWriteBudget(size int64) time.Duration {
 // CLI compares it against the bytes it actually wrote (colab-cli README): with
 // a chunked response a truncated download and a complete one look the same,
 // and the agent that reads the half file never learns it was half.
-func (s *Server) DownloadArtifact(w http.ResponseWriter, r *http.Request, artifactId gen.ArtifactId, _ gen.DownloadArtifactParams) {
+//
+// openapi v0.3.7 (PRD FR-4.3.1): `?inline=true` serves a PREVIEW type
+// (artifacts.Previewable — images, video, sound; never HTML) as
+// `Content-Disposition: inline`; anything else stays `attachment` whatever
+// the query says. Every response carries `nosniff` and `CSP: sandbox`, so a
+// body opened as a document — an SVG with a script, an HTML page — runs in an
+// opaque origin with scripts off. `Range` takes ONE byte range (206; a
+// multi-range or unsatisfiable header is 416): http.ServeContent was not
+// used because it answers several ranges with multipart/byteranges and would
+// own the headers this handler has to set (Content-Length, the write
+// deadline sized by the bytes actually sent).
+func (s *Server) DownloadArtifact(w http.ResponseWriter, r *http.Request, artifactId gen.ArtifactId, params gen.DownloadArtifactParams) {
 	a, p := s.downloadAccess(r, artifactId)
 	if p != nil {
 		writeProblem(w, p)
@@ -367,27 +391,96 @@ func (s *Server) DownloadArtifact(w http.ResponseWriter, r *http.Request, artifa
 		return
 	}
 	defer func() { _ = c.Close() }()
-	w.Header().Set("Content-Type", c.ContentType)
-	w.Header().Set("Content-Length", strconv.FormatInt(c.Size, 10))
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": c.Name}))
+	disposition := "attachment"
+	if params.Inline != nil && *params.Inline && a.ContentTypeJudged && artifacts.Previewable(c.ContentType) {
+		disposition = "inline"
+	}
+	h := w.Header()
+	h.Set("Content-Type", c.ContentType)
+	h.Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": c.Name}))
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Security-Policy", "sandbox")
+	h.Set("Accept-Ranges", "bytes")
+
+	start, length, status := int64(0), c.Size, http.StatusOK
+	if rh := r.Header.Get("Range"); rh != "" {
+		st, n, ok := parseSingleRange(rh, c.Size)
+		if !ok {
+			h.Set("Content-Range", fmt.Sprintf("bytes */%d", c.Size))
+			writeProblem(w, apperr.New(http.StatusRequestedRangeNotSatisfiable, "range_not_satisfiable",
+				"요청한 범위를 줄 수 없습니다 — 범위 하나만, 파일 크기 안에서 요청해 주세요"))
+			return
+		}
+		start, length, status = st, n, http.StatusPartialContent
+		h.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, start+length-1, c.Size))
+	}
+	h.Set("Content-Length", strconv.FormatInt(length, 10))
 	// S-14: the listener's WriteTimeout (cmd/server, 60s) is for ordinary
 	// responses; a 50 MB body to a slow client is not one. The deadline is
 	// extended for THIS connection, sized by the body — a stalled client is
 	// still cut off, and with it the transaction holding the pool connection.
 	// The socket deadline is the OS clock's, not s.Clock (a test's fake clock
 	// would put it in the past and close the connection at once).
-	if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(DownloadWriteBudget(c.Size))); err != nil && !errors.Is(err, http.ErrNotSupported) {
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(DownloadWriteBudget(length))); err != nil && !errors.Is(err, http.ErrNotSupported) {
 		s.Log.Warn("artifact download write deadline", "artifact", a.ID, "err", err)
 	}
-	w.WriteHeader(http.StatusOK)
+	if start > 0 {
+		if _, err := c.Seek(start, io.SeekStart); err != nil {
+			writeErr(w, err)
+			return
+		}
+	}
+	w.WriteHeader(status)
 	if r.Method == http.MethodHead {
 		return
 	}
 	// 50 MB never enters the heap in one piece: io.Copy runs a 32 KB window
 	// from the large object straight to the socket.
-	if _, err := io.Copy(w, c); err != nil {
+	if _, err := io.Copy(w, io.LimitReader(c, length)); err != nil {
 		s.Log.Warn("artifact download interrupted", "artifact", a.ID, "err", err)
 	}
+}
+
+// parseSingleRange reads RFC 9110 `bytes=first-last` / `bytes=first-` /
+// `bytes=-suffix` for a body of size bytes and returns the offset and the
+// length to send. Anything else — another unit, several ranges, a range that
+// starts past the end, an empty body — is not satisfiable (openapi v0.3.7:
+// 여러 범위·잘못된 범위는 416).
+func parseSingleRange(h string, size int64) (start, length int64, ok bool) {
+	spec, found := strings.CutPrefix(strings.TrimSpace(h), "bytes=")
+	if !found || strings.Contains(spec, ",") || size <= 0 {
+		return 0, 0, false
+	}
+	first, last, found := strings.Cut(strings.TrimSpace(spec), "-")
+	if !found {
+		return 0, 0, false
+	}
+	first, last = strings.TrimSpace(first), strings.TrimSpace(last)
+	if first == "" {
+		n, err := strconv.ParseInt(last, 10, 64)
+		if err != nil || n <= 0 {
+			return 0, 0, false
+		}
+		if n > size {
+			n = size
+		}
+		return size - n, n, true
+	}
+	st, err := strconv.ParseInt(first, 10, 64)
+	if err != nil || st < 0 || st >= size {
+		return 0, 0, false
+	}
+	end := size - 1
+	if last != "" {
+		e, err := strconv.ParseInt(last, 10, 64)
+		if err != nil || e < st {
+			return 0, 0, false
+		}
+		if e < end {
+			end = e
+		}
+	}
+	return st, end - st + 1, true
 }
 
 // ReviewArtifact is `colab review approve|reject` (FR-2.2 agent_approval).

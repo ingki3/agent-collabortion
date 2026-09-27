@@ -62,6 +62,22 @@ type Row struct {
 	// HitlRequestID is the request a `hitl` card belongs to (openapi
 	// Message.hitl_request_id), nil for every other kind.
 	HitlRequestID *uuid.UUID
+	// Attachments is openapi v0.3.7 Message.attachments (PRD FR-3.7): the
+	// artifact rows the post named, in the sender's order, each at the
+	// version it pointed to. Never nil.
+	Attachments []Attachment
+}
+
+// Attachment is one AttachmentRef. ContentType is the server's judgment —
+// NULL for a row stored before migration 0040 and not yet re-judged, so no
+// reader ever takes an uploader's claim for a preview type.
+type Attachment struct {
+	ArtifactID  uuid.UUID `json:"artifact_id"`
+	Name        string    `json:"name"`
+	Version     int       `json:"version"`
+	Type        string    `json:"type"`
+	ContentType *string   `json:"content_type"`
+	SizeBytes   int64     `json:"size_bytes"`
 }
 
 const selectMessage = `
@@ -73,7 +89,12 @@ const selectMessage = `
 	       -- openapi Message.hitl_request_id ("kind=hitl일 때") — T-APPROVAL: the
 	       -- web pairs a card with its request by it when the request is not in
 	       -- its list yet. Only hitl cards look (the rest read NULL).
-	       CASE WHEN m.kind = 'hitl' THEN (SELECT h.id FROM hitl_request h WHERE h.message_id = m.id ORDER BY h.created_at LIMIT 1) END
+	       CASE WHEN m.kind = 'hitl' THEN (SELECT h.id FROM hitl_request h WHERE h.message_id = m.id ORDER BY h.created_at LIMIT 1) END,
+	       -- openapi v0.3.7 Message.attachments (migration 0040).
+	       (SELECT jsonb_agg(jsonb_build_object('artifact_id', ar.id, 'name', ar.name, 'version', ar.version,
+	                 'type', ar.type, 'size_bytes', ar.size_bytes,
+	                 'content_type', CASE WHEN ar.content_type_judged THEN ar.content_type END) ORDER BY ma.position)
+	          FROM message_attachment ma JOIN artifact ar ON ar.id = ma.artifact_id WHERE ma.message_id = m.id)
 	FROM message m
 	LEFT JOIN app_user u ON m.author_type = 'user' AND u.id = m.author_id
 	LEFT JOIN agent a ON m.author_type = 'agent' AND a.id = m.author_id
@@ -81,11 +102,11 @@ const selectMessage = `
 
 func scan(row pgx.Row) (*Row, error) {
 	var m Row
-	var mentions, addressees []byte
+	var mentions, addressees, attachments []byte
 	var role, speech *string
 	err := row.Scan(&m.ID, &m.SessionID, &m.AuthorType, &m.AuthorID, &m.AuthorName, &m.AuthorAvatar, &role,
 		&m.ParentID, &m.Content, &mentions, &m.SourceTaskID, &m.LaneID, &m.Kind, &m.State, &m.ReplyCount, &m.CreatedAt, &m.EditedAt,
-		&m.WorkID, &m.Detail, &speech, &addressees, &m.RespondsTo, &m.DelegatedLane, &m.HitlRequestID)
+		&m.WorkID, &m.Detail, &speech, &addressees, &m.RespondsTo, &m.DelegatedLane, &m.HitlRequestID, &attachments)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -107,6 +128,14 @@ func scan(row pgx.Row) (*Row, error) {
 	}
 	if m.Addressees == nil {
 		m.Addressees = []Addressee{}
+	}
+	if len(attachments) > 0 {
+		if err := json.Unmarshal(attachments, &m.Attachments); err != nil {
+			return nil, fmt.Errorf("messages: attachments: %w", err)
+		}
+	}
+	if m.Attachments == nil {
+		m.Attachments = []Attachment{}
 	}
 	return &m, nil
 }
@@ -318,6 +347,12 @@ func ToAPI(m *Row) gen.Message {
 		}{Id: nullj.NullUUID(a.ID), Kind: gen.MessageAddresseesKind(a.Kind), Name: a.Name})
 	}
 	out.Addressees = &addr
+	atts := make([]gen.AttachmentRef, 0, len(m.Attachments))
+	for _, a := range m.Attachments {
+		atts = append(atts, gen.AttachmentRef{ArtifactId: a.ArtifactID, Name: a.Name, Version: a.Version,
+			Type: a.Type, ContentType: nullj.NullString(a.ContentType), SizeBytes: a.SizeBytes})
+	}
+	out.Attachments = &atts
 	out.RespondsToMessageId = nullj.NullUUID(m.RespondsTo)
 	out.DelegatedLaneId = nullj.NullUUID(m.DelegatedLane)
 	if m.AuthorName != nil {
