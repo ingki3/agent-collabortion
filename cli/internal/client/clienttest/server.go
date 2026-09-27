@@ -43,6 +43,12 @@ const (
 	DelegatorID  = "66666666-6666-4666-8666-666666666666"
 	Delegator    = "Lead"
 	OutsiderID   = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" // not in participants[]
+
+	// The room's people (openapi v0.3.5 CliContext.humans[]). HumanTwinID is
+	// a person who shares the agent Reviewer's name — the agent wins.
+	HumanID     = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	HumanName   = "Simplist"
+	HumanTwinID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 )
 
 // Posted is one stored message plus the response that was returned for it.
@@ -169,6 +175,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				{"agent_id": AgentID, "name": AgentName, "role": role, "mention_link": mention(AgentName, AgentID)},
 				{"agent_id": ReviewerID, "name": ReviewerName, "role": "reviewer", "mention_link": mention(ReviewerName, ReviewerID)},
 				{"agent_id": DelegatorID, "name": Delegator, "role": "lead", "mention_link": mention(Delegator, DelegatorID)},
+			},
+			"humans": []map[string]any{
+				{"user_id": HumanID, "name": HumanName, "mention_link": "[@" + HumanName + "](mention://user/" + HumanID + ")"},
+				{"user_id": HumanTwinID, "name": ReviewerName, "mention_link": "[@" + ReviewerName + "](mention://user/" + HumanTwinID + ")"},
 			},
 			"expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
 		}

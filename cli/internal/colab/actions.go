@@ -197,6 +197,13 @@ func nameIndex(cc *client.CliContext) map[string]string {
 	return m
 }
 
+// resolveMentions turns `--mention` names into FR-3.2 links (colab-cli
+// v0.9.4): the room's agents first (`participants`), then its people
+// (`humans`) — a name both use is the agent's. A person's link wakes nobody
+// (FR-3.3 rule 3); it addresses them and notifies them. A mention link given
+// as the name (「[@Writer](mention://agent/<id>)」·「[@Simplist](mention://user/<id>)」
+// — the roster shows names that way, and a real claude_code turn passed one
+// verbatim, T-SURFACE 실기) names its target by id and kind.
 func resolveMentions(cc *client.CliContext, mention []string) ([]string, error) {
 	var links []string
 	for _, raw := range mention {
@@ -205,27 +212,26 @@ func resolveMentions(cc *client.CliContext, mention []string) ([]string, error) 
 			if name == "" {
 				continue
 			}
-			// A mention link given as the name (「[@Writer](mention://agent/<id>)」
-			// — the roster in the brief shows agents that way, and a real
-			// claude_code turn passed it verbatim, T-SURFACE 실기) names the
-			// agent by its id.
-			if l := mentionTargetRe.FindStringSubmatch(name); l != nil && strings.HasPrefix(l[1], "agent/") {
-				name = strings.TrimPrefix(l[1], "agent/")
-			}
-			var link string
-			for _, p := range cc.Participants {
-				if strings.EqualFold(p.Name, name) || p.AgentID == name {
-					link = p.MentionLink
-					if link == "" {
-						link = "[@" + p.Name + "](mention://agent/" + p.AgentID + ")"
-					}
-					break
+			kind := "" // "" = any: agent first, then person
+			if l := mentionTargetRe.FindStringSubmatch(name); l != nil {
+				switch {
+				case strings.HasPrefix(l[1], "agent/"):
+					kind, name = "agent", strings.TrimPrefix(l[1], "agent/")
+				case strings.HasPrefix(l[1], "user/"):
+					kind, name = "user", strings.TrimPrefix(l[1], "user/")
 				}
 			}
+			link := ""
+			if kind != "user" {
+				link = agentLink(cc, name)
+			}
+			if link == "" && kind != "agent" {
+				link = humanLink(cc, name)
+			}
 			if link == "" {
-				var known []string
-				for _, p := range cc.Participants {
-					known = append(known, p.Name)
+				known := cc.ParticipantNames()
+				for _, h := range cc.Humans {
+					known = append(known, h.Name)
 				}
 				return nil, &client.Error{Exit: client.ExitUsage, Code: "unknown_mention", Title: "unknown mention @" + name,
 					Detail: "not a room participant (FR-1.5). participants: " + strings.Join(known, ", ") +
@@ -235,6 +241,30 @@ func resolveMentions(cc *client.CliContext, mention []string) ([]string, error) 
 		}
 	}
 	return links, nil
+}
+
+func agentLink(cc *client.CliContext, name string) string {
+	for _, p := range cc.Participants {
+		if strings.EqualFold(p.Name, name) || p.AgentID == name {
+			if p.MentionLink != "" {
+				return p.MentionLink
+			}
+			return "[@" + p.Name + "](mention://agent/" + p.AgentID + ")"
+		}
+	}
+	return ""
+}
+
+func humanLink(cc *client.CliContext, name string) string {
+	for _, h := range cc.Humans {
+		if strings.EqualFold(h.Name, name) || h.UserID == name {
+			if h.MentionLink != "" {
+				return h.MentionLink
+			}
+			return "[@" + h.Name + "](mention://user/" + h.UserID + ")"
+		}
+	}
+	return ""
 }
 
 // summarize derives triggered/suppressed (colab-cli.md §2.2) from the openapi

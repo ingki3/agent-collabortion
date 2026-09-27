@@ -388,6 +388,27 @@ func (s *Server) GetCliContext(w http.ResponseWriter, r *http.Request) {
 		}{AgentId: p.AgentID, MentionLink: router.MentionLink(p.Name, p.AgentID), Name: p.Name, Role: &role})
 	}
 	out.Participants = &parts
+	// v0.3.5: the room's people, so an agent can mention the Director or the
+	// owner (FR-3.2) — the CLI looked only at agents and refused them
+	// (unknown_mention, 실사용 2026-09-27).
+	people, err := sessions.HumanRoster(r.Context(), s.DB, sc.SessionID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	humans := make([]struct {
+		MentionLink string             `json:"mention_link"`
+		Name        string             `json:"name"`
+		UserId      openapi_types.UUID `json:"user_id"`
+	}, 0, len(people))
+	for _, h := range people {
+		humans = append(humans, struct {
+			MentionLink string             `json:"mention_link"`
+			Name        string             `json:"name"`
+			UserId      openapi_types.UUID `json:"user_id"`
+		}{MentionLink: router.UserMentionLink(h.Name, h.UserID), Name: h.Name, UserId: h.UserID})
+	}
+	out.Humans = &humans
 	writeJSON(w, http.StatusOK, out)
 }
 
