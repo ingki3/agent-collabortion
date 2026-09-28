@@ -123,7 +123,11 @@ function Part({ message: m, speech, me, layers, replies, onLoadReplies, onReply,
 export interface PartBubbleProps {
   /** 도착한 부분, `group_index` 순(lib/parts `timelineItems`). */
   parts: Message[];
-  /** 묶음의 부분 수 — 아직 다 안 왔으면 `data-filling`(실시간 채우는 중). */
+  /**
+   * 묶음의 부분 수 — 아직 다 안 왔으면 `data-filling`(실시간 채우는 중).
+   * **테스트 훅일 뿐 시각 표시가 아니다**: 정본은 채우는 중을 따로 그리라고 하지 않는다(부분이 조용히 붙는다).
+   * 이름이 상태를 암시해 CSS 가 빠진 줄 오해하기 쉬워 적어 둔다(리뷰 #374b NN3).
+   */
   size: number;
   /** 보는 사람의 user id — 「나」 강조. */
   me?: string | null;

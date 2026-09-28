@@ -1,6 +1,7 @@
 /**
  * T-PARTS(Director 요청 2026-09-27 · PRD FR-3.1.4 · SCREEN §4.6 v0.19.11 「부분 메시지」 · COMPONENTS §9.11) — 방 화면.
- *  - 같은 group_id 행 셋 = 말풍선 하나(작성자 머리 한 번) · 부분마다 Part Head(‹종류› → 받는 쪽) · 보고면 ↩ · 부분 사이 선.
+ *  - 같은 group_id 행 셋 = 말풍선 하나(작성자 머리 한 번) · 부분마다 Part Head(‹종류› → 받는 쪽) · 보고면 ↩.
+ *    (부분 사이 1px 선은 CSS 라 jsdom 이 재지 못한다 — 스크린샷 `__screenshots__/parts/parts-01-light.png` 대조 몫이다. 리뷰 #374b NN1)
  *  - 답글은 부분마다(부분이 곧 행) · 작업 내용은 부분마다 · 작업 과정은 말풍선 맨 아래 하나(묶음 = 경계 하나).
  *  - 5분 묶음에서 빠진다 · 「나」 강조 · 접근성(article · section aria-label).
  *  - 실시간: message.created 가 부분마다 오면 같은 말풍선에 채운다 · 「작업 중」 말풍선은 첫 부분에서 바뀐다.

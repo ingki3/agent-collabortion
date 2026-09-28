@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버전 | **v0.10.2 — heartbeat `preview.text` 상한 16,000자**(뒤쪽을 남기고 문단 경계에서 자름, preview 만; Lead 판정 2026-09-27, #356 리뷰 NN1). **v0.10.1 — heartbeat `preview.text` 문단 규칙**(Lead 판정 2026-09-26, T-BUBBLE): 도구 호출을 사이에 둔 텍스트 조각은 빈 줄로 나눈다(§4.2 preview). 모양 변경 없음. **v0.10.0 — 미션 폴더(Director 승인 2026-09-26, T-FOLDERS D1~D8)**: 작업 폴더를 **방 → 미션 → 에이전트**로(§6.1 경로 규칙 표). §4.1 `workdir.path` 는 **모든 kind 에서 서버가 짓는 필수 절대 경로**다(`dir` 도 — v0.8.3 까지 `dir` 은 데몬 `Path()` 가 지었다) · `workdir.id` 는 **첫 attempt 부터 필수**(서버가 행을 먼저 만든다 — T-S21 결정 A 의 전제가 사라진다) · `workdir.shared_path?`(미션 공용 `_shared` 절대 경로, 데몬은 `mkdir -p` 만). 경로 조각은 `<slug>-<id 앞 8자리>` 를 **만들 때 한 번 정해 행에 저장**하고 이름이 바뀌어도 옮기지 않는다(D1 A; 경로 슬러그는 한글 보존, git 브랜치는 ASCII `Slug` 그대로). 같은 미션의 같은 에이전트 lane 은 한 폴더를 함께 쓴다(D3 A). `worktree` 체크아웃은 방×에이전트 `rooms/<room>/_worktrees/<agent>/`, 브랜치 `colab/<방 slug>-<room_id8>/<agent slug>` — 첫 미션 제목이 아니라 **방 이름 + 방 id 앞 8자리**(D7 C, FINDING-1 정정; 한글 방 이름 겹침 방지) + 미션 `_shared` 는 저장소 밖. §6 보고 행 `work_id?`·`role?`(`agent`|`shared`). §4.3 `gc` — 삭제 뒤 비게 된 상위 폴더 정리. GC: `none` 미션 폴더는 미션 닫힘 **즉시가 아니라** 닫힌 뒤 `last_used_at + workdir_retention_days`(D8 B). 옛 `sessions/…`·`worktrees/…` 폴더는 옮기지 않고 행의 저장 경로를 그대로 쓴다(D6 A). 옛 서버 번들(`path` 없음)이면 데몬은 예전 `Path()`(`sessions/<room>/<lane>`)로. 같은 미션 폴더 읽기·쓰기 규약은 harness v0.9.7 `<folders>`(D2 A·D4 A·D5 A — 강제 없음, 규약만). **v0.9.2 — 스레드 답글(Director 승인 2026-09-25)**: §4.1 `task.thread_root_id?` — 트리거 메시지가 스레드 답글이면 그 스레드 루트 id(병합된 트리거가 여럿이면 가장 늦게 게시된 것 기준, 최상위면 생략). 데몬은 이 값을 `COLAB_THREAD_ID`(harness §2.1)로 넘기고 CLI `message post` 가 기본 답글 위치로 쓴다 — 스레드로 물은 질문에 에이전트가 메인 타임라인에 답하던 결함(STO 방 실측). **v0.9.1 — R4(openapi v0.3.0)**: `allowed_commands` 의 `session_get`·`session_messages` → `room_get`·`room_messages`. 번들 `task.session_id` 는 `room_id` 와 같은 값으로 계속 싣는다(키 이름 바꾸기는 `session_id` 열과 함께 별도 라운드). 본문의 「세션」 → 「방」. **v0.9.0 — 방·미션(PRD v0.19 R0)**: §4.1 `task.room_id`(= 옛 `session_id`, 같은 값 — R4 까지 둘 다 싣는다) · `task.work_id?`(매인 미션, 없으면 미션 밖) · `task.queued_reason` 은 데몬에 오지 않는다(서버 큐 내부). workdir 경로 규칙은 `<room>/<agent>`(브랜치 `colab/<room slug>/<agent slug>`)로 읽는다 — 같은 uuid 라 기존 폴더는 그대로 산다. 유효 예산(§4.4) = min(task 상한, **미션 잔여, 방 잔여**). §4.3 `gc`·`rebind_prepare` 의 `session_id` 는 방 id. v0.8.3 — §4.1 `workdir.id`·§6 id 회신(K-14: 데몬 index 폐기, workdir 안 표식 파일). v0.8.2 — §4.1 `task.allowed_commands`(K-19 역할별 명령 부분집합; 데몬이 MCP 툴 목록을 자른다). v0.8.1 — §6: 세션 삭제(openapi deleteSession)로 이미 지워진 workdir 을 가리키는 §6 보고 행은 서버가 조용히 소비한다(gc 명령은 세션 삭제 전에 실린다). v0.8 — **§4.5 테스트 채팅**(FR-1.8.1, P5a): 세션 없는 1:1 대화를 **같은 claim·phase·events·heartbeat·finish 로** 돌린다 — `task.kind: "test_chat"`, `task.id` = test_chat id, `attempt` = 사용자 턴 번호, `task_token` 없음(= colab 표면 전부 끔). 종료는 `gc` 로 임시 디렉터리 삭제. `finish.transport` 추가. v0.7.4 — §6 gc 거부 피드 문장을 사용자의 말로(S-67, T-S13). v0.7.3 — T-I4(G7 1판) 차단 결함 반영: §4.1 `workdir.path` 는 **절대 경로**(서버가 probe `workdir_root` 로 조립)이고 데몬 방어 규칙 명시(①), §6 workdir 보고의 `session_id`·`agent_id` 필수 규칙과 서버의 §4.4 `Finish.Workdir` 소비 의무 명시(②). v0.7.2 — §4.4 finish `workdir.git` 이름을 §6 과 통일(`commits_ahead`·`merged`)하고 `protocol.go` `Finish.Workdir` 추가; §4.3 `rebind_prepare` 다운로드 위치 + 프롬프트 자리표시자 `{{COLAB_REBIND_DIR}}`(T-D9 PR #156 계약 결함 1·2). v0.7.1 — §4.4 유효 예산 = min(task 상한(override 우선), 세션 잔여)(PR #121 리뷰 NN3, D-16). v0.7 — §4.3 `gc` 페이로드에 서버가 경로를 싣고(`workdirs:[{id,path}]`), §6 보고 행 `gc: {status: deleted|refused, reason}` 로 결과·거부를 알린다(T-D5 계약 질문, G5 S-29·D-4). v0.6 — `dispatched` 5분 타임아웃은 재큐잉이 아니라 종료다(§4.1). v0.5는 probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
+| 버전 | **v0.10.3 — 맥락 1단계: 재개 결정·재개 델타·콜드 폴백 프롬프트(Director 승인 2026-09-28, `plan/research/CONTEXT_MEMORY.md` 1단계 · harness v0.9.14)**: §4.1 번들 `resume` 은 **서버의 결정**이다 — `null` 이면 데몬은 `session/load` 를 부르지 않는다. 서버는 이어받을 세션의 직전 턴 시작 크기가 30만 토큰(`contracts.ResumeSessionMaxTokens`)을 넘으면 `resume` 을 비운다(harness §6). `resume` 이 있는 번들의 `prompt` 는 **델타**(`<history>`·`<mission_messages>` 가 기준점 뒤 메시지만, harness §10)이고 새 칸 **`prompt_cold?`** 가 같은 순간의 **전체 턴 프롬프트**를 싣는다 — 데몬은 새 세션을 열 때(`resume_rejected`·D-13 콜드 재시도) 그것을 보낸다. 서버에 다시 묻지 않는 이유 한 줄: 재요청은 새 왕복·새 실패 모드(그 사이 토큰 폐기·서버 불통)와 「다른 순간의 방」 을 만들고, 함께 싣는 비용은 번들 한 번에 턴 프롬프트 한 벌(Lead 중앙 146 KB)뿐이다. §3 probe 최상위 **`daemon_features: ["prompt_cold"]`** — 광고하지 않은 데몬에게 서버는 델타를 보내지 않는다(옛 데몬이 재개 실패 뒤 델타를 새 세션에 보내는 것을 막는다). **v0.10.2 — heartbeat `preview.text` 상한 16,000자**(뒤쪽을 남기고 문단 경계에서 자름, preview 만; Lead 판정 2026-09-27, #356 리뷰 NN1). **v0.10.1 — heartbeat `preview.text` 문단 규칙**(Lead 판정 2026-09-26, T-BUBBLE): 도구 호출을 사이에 둔 텍스트 조각은 빈 줄로 나눈다(§4.2 preview). 모양 변경 없음. **v0.10.0 — 미션 폴더(Director 승인 2026-09-26, T-FOLDERS D1~D8)**: 작업 폴더를 **방 → 미션 → 에이전트**로(§6.1 경로 규칙 표). §4.1 `workdir.path` 는 **모든 kind 에서 서버가 짓는 필수 절대 경로**다(`dir` 도 — v0.8.3 까지 `dir` 은 데몬 `Path()` 가 지었다) · `workdir.id` 는 **첫 attempt 부터 필수**(서버가 행을 먼저 만든다 — T-S21 결정 A 의 전제가 사라진다) · `workdir.shared_path?`(미션 공용 `_shared` 절대 경로, 데몬은 `mkdir -p` 만). 경로 조각은 `<slug>-<id 앞 8자리>` 를 **만들 때 한 번 정해 행에 저장**하고 이름이 바뀌어도 옮기지 않는다(D1 A; 경로 슬러그는 한글 보존, git 브랜치는 ASCII `Slug` 그대로). 같은 미션의 같은 에이전트 lane 은 한 폴더를 함께 쓴다(D3 A). `worktree` 체크아웃은 방×에이전트 `rooms/<room>/_worktrees/<agent>/`, 브랜치 `colab/<방 slug>-<room_id8>/<agent slug>` — 첫 미션 제목이 아니라 **방 이름 + 방 id 앞 8자리**(D7 C, FINDING-1 정정; 한글 방 이름 겹침 방지) + 미션 `_shared` 는 저장소 밖. §6 보고 행 `work_id?`·`role?`(`agent`|`shared`). §4.3 `gc` — 삭제 뒤 비게 된 상위 폴더 정리. GC: `none` 미션 폴더는 미션 닫힘 **즉시가 아니라** 닫힌 뒤 `last_used_at + workdir_retention_days`(D8 B). 옛 `sessions/…`·`worktrees/…` 폴더는 옮기지 않고 행의 저장 경로를 그대로 쓴다(D6 A). 옛 서버 번들(`path` 없음)이면 데몬은 예전 `Path()`(`sessions/<room>/<lane>`)로. 같은 미션 폴더 읽기·쓰기 규약은 harness v0.9.7 `<folders>`(D2 A·D4 A·D5 A — 강제 없음, 규약만). **v0.9.2 — 스레드 답글(Director 승인 2026-09-25)**: §4.1 `task.thread_root_id?` — 트리거 메시지가 스레드 답글이면 그 스레드 루트 id(병합된 트리거가 여럿이면 가장 늦게 게시된 것 기준, 최상위면 생략). 데몬은 이 값을 `COLAB_THREAD_ID`(harness §2.1)로 넘기고 CLI `message post` 가 기본 답글 위치로 쓴다 — 스레드로 물은 질문에 에이전트가 메인 타임라인에 답하던 결함(STO 방 실측). **v0.9.1 — R4(openapi v0.3.0)**: `allowed_commands` 의 `session_get`·`session_messages` → `room_get`·`room_messages`. 번들 `task.session_id` 는 `room_id` 와 같은 값으로 계속 싣는다(키 이름 바꾸기는 `session_id` 열과 함께 별도 라운드). 본문의 「세션」 → 「방」. **v0.9.0 — 방·미션(PRD v0.19 R0)**: §4.1 `task.room_id`(= 옛 `session_id`, 같은 값 — R4 까지 둘 다 싣는다) · `task.work_id?`(매인 미션, 없으면 미션 밖) · `task.queued_reason` 은 데몬에 오지 않는다(서버 큐 내부). workdir 경로 규칙은 `<room>/<agent>`(브랜치 `colab/<room slug>/<agent slug>`)로 읽는다 — 같은 uuid 라 기존 폴더는 그대로 산다. 유효 예산(§4.4) = min(task 상한, **미션 잔여, 방 잔여**). §4.3 `gc`·`rebind_prepare` 의 `session_id` 는 방 id. v0.8.3 — §4.1 `workdir.id`·§6 id 회신(K-14: 데몬 index 폐기, workdir 안 표식 파일). v0.8.2 — §4.1 `task.allowed_commands`(K-19 역할별 명령 부분집합; 데몬이 MCP 툴 목록을 자른다). v0.8.1 — §6: 세션 삭제(openapi deleteSession)로 이미 지워진 workdir 을 가리키는 §6 보고 행은 서버가 조용히 소비한다(gc 명령은 세션 삭제 전에 실린다). v0.8 — **§4.5 테스트 채팅**(FR-1.8.1, P5a): 세션 없는 1:1 대화를 **같은 claim·phase·events·heartbeat·finish 로** 돌린다 — `task.kind: "test_chat"`, `task.id` = test_chat id, `attempt` = 사용자 턴 번호, `task_token` 없음(= colab 표면 전부 끔). 종료는 `gc` 로 임시 디렉터리 삭제. `finish.transport` 추가. v0.7.4 — §6 gc 거부 피드 문장을 사용자의 말로(S-67, T-S13). v0.7.3 — T-I4(G7 1판) 차단 결함 반영: §4.1 `workdir.path` 는 **절대 경로**(서버가 probe `workdir_root` 로 조립)이고 데몬 방어 규칙 명시(①), §6 workdir 보고의 `session_id`·`agent_id` 필수 규칙과 서버의 §4.4 `Finish.Workdir` 소비 의무 명시(②). v0.7.2 — §4.4 finish `workdir.git` 이름을 §6 과 통일(`commits_ahead`·`merged`)하고 `protocol.go` `Finish.Workdir` 추가; §4.3 `rebind_prepare` 다운로드 위치 + 프롬프트 자리표시자 `{{COLAB_REBIND_DIR}}`(T-D9 PR #156 계약 결함 1·2). v0.7.1 — §4.4 유효 예산 = min(task 상한(override 우선), 세션 잔여)(PR #121 리뷰 NN3, D-16). v0.7 — §4.3 `gc` 페이로드에 서버가 경로를 싣고(`workdirs:[{id,path}]`), §6 보고 행 `gc: {status: deleted|refused, reason}` 로 결과·거부를 알린다(T-D5 계약 질문, G5 S-29·D-4). v0.6 — `dispatched` 5분 타임아웃은 재큐잉이 아니라 종료다(§4.1). v0.5는 probe 최상위 `colab_cli`(§3), `preview.message_id` 의 주체를 서버로 명시(§4.2). v0.4 는 프로파일 폴백의 주체를 서버로 명시(§4.4). v0.3 은 G3 재확인 C-1: heartbeat `preview` **모양 확정**(객체)과 "부가 정보는 heartbeat를 실패시키지 않는다" 규칙. v0.2는 명령 소비 조건·heartbeat 만료 범위 |
 | 소유 | S + D. 변경은 Director 승인 PR로만 |
 | 근거 | PRD §8.1(큐), FR-7.1(상태 머신·heartbeat), FR-9.1(고아·토큰 폐기), FR-9.2(오프라인 유예), FR-6.4(workdir·GC), `harness.md`(오류 분류·재개) |
 | 원칙 | **데몬은 stateless, 상태는 서버.** 데몬은 서버가 준 것만 실행하고 결과를 보고한다. 모든 시각 판정(만료·유예·`not_before`)은 서버 클럭(`contracts/clock`) |
@@ -37,13 +37,20 @@ POST /v1/daemon/runtimes/{runtime_id}/probe
     capabilities: [ <harness.md §9> … ],
     repos: [ {path, remote_url, branch, clean} … ],
     workdir_root, disk: {used_bytes, quota_bytes?},
-    colab_cli: {present, version} }
+    colab_cli: {present, version},
+    daemon_features?: ["prompt_cold"] }        // v0.10.3
   → 200 {ok}
 ```
 
 시점: 페어링 직후, 데몬 시작 시, 하루 1회, 서버가 `probe` 명령(§4.3)을 내릴 때. `repos[].remote_url`이 재바인딩 후보 판정의 기준(FR-9.2, E14-04·05).
 
 **`colab_cli` 는 최상위다 (v0.5).** 에이전트는 colab CLI 로 서버에 말하므로(colab-cli.md §1) CLI 가 없으면 방은 조용히 아무 말도 못 하는 상태가 된다 — 데몬 로그에만 남기면 사람이 원인을 못 찾는다. 이 값은 **머신 속성**이라 런타임별 `capabilities[]` 가 아니라 probe 최상위에 한 번 싣는다: 런타임이 둘이어도 바이너리는 하나이고, 런타임이 0개인 머신에서도 보고돼야 한다. 데몬은 probe 마다 `colab --version` 을 실행해 채우고, 실행 실패·미설치는 `{present: false, version: ""}` 로 통일한다(원인은 데몬 로그에 남긴다). 서버는 `present == false` 인 머신을 S12/S11 카드에 경고로 드러낸다.
+
+**`daemon_features` 는 데몬이 아는 번들 칸의 목록이다 (v0.10.3).** 머신(데몬 바이너리)의 속성이라 `colab_cli` 처럼 최상위다. 서버는 **번들에 새 칸을 싣기만 해서는 안전하지 않은** 변경 — 옛 데몬이 그 칸을 무시하면 결과가 틀려지는 것 — 을 이 목록으로 가린다. 서버는 런타임별로 **마지막 probe** 의 목록을 저장하고 claim 때 읽는다. 없거나 비면 「아는 것 없음」.
+
+| 값 | 뜻 | 서버가 광고 없을 때 하는 것 |
+|---|---|---|
+| `prompt_cold` | §4.1 `prompt_cold` 를 읽고, 새 세션(콜드 스타트)에는 그것을 보낸다 | 재개 턴에도 `prompt` 를 **전체**로 짓고 `prompt_cold` 를 싣지 않는다(v0.10.2 까지와 같은 번들) |
 
 ## 4. task 수명
 
@@ -105,14 +112,24 @@ POST /v1/daemon/runtimes/{runtime_id}/claim
   //  읽지도 지우지도 않는다(삭제는 서버의 `gc`, §4.3). 런타임 cwd 는 여전히 `path` 다. 방어는 path 와 같다(`UnderRoot`).
   //  이 키를 모르는 옛 데몬은 무시한다 — 그때 `_shared` 는 에이전트가 첫 쓰기에서 만든다(같은 root 아래라 권한 차이 없음).
   "brief": { "transport": "acp_meta_system_prompt|instruction_file", "text": "<[1]~[8]>" },
-  "prompt": "<턴 프롬프트 — 서버가 만든다. 재개면 <resumed> 구간 포함>",
-  "resume": { "runtime_session_ref": <harness.md §6> } | null,
+  "prompt": "<턴 프롬프트 — 서버가 만든다. 재개면 <resumed> 구간 포함. v0.10.3: resume 이 있으면 델타(harness §10)>",
+  "prompt_cold?": "<v0.10.3 — 같은 순간의 전체 턴 프롬프트. resume 이 있고 델타를 지었을 때만>",
+  "resume": { "runtime_session_ref": <harness.md §6> } | null,   // v0.10.3: 서버의 재개 결정. null 이면 session/load 없이 새 세션
   "limits": { "budget_usd", "stall_seconds": 180 },
   "posted_message_ids": [ … ]      // attempt ≥ 2일 때, 이미 게시한 메시지(FR-7.1)
 }
 ```
 
 데몬은 번들 밖의 것을 알 필요가 없다 — 방 히스토리도 프롬프트 안에 들어 있다.
+
+**재개 결정과 두 턴 프롬프트 (v0.10.3, Director 승인 2026-09-28 — 맥락 1단계 ②③).**
+
+- **`resume` 은 서버의 결정이다.** 서버는 ref 없음·런타임 종류 변경(E8-08)·직전 `resume_rejected` 에 더해 **세션 크기 상한**(이어받을 세션의 직전 턴 시작 크기 > `contracts.ResumeSessionMaxTokens` = 300,000 토큰 — 정의·표본이 없을 때는 harness §6)이면 `resume: null` 로 싣는다. 크기는 서버만 안다(heartbeat `usage` 표본을 서버가 계측한다) — 그래서 결정도 서버가 한다. 데몬은 `resume: null` 이면 **`session/load` 를 부르지 않고** `session/new` 한다(지금과 같다; 스스로 재개를 시도하지 않는다).
+- **`resume` 이 있으면 `prompt` 는 델타**다 — `<history>`·`<mission_messages>` 가 그 세션에 마지막으로 보낸 턴 프롬프트의 기준점 뒤 메시지만(harness §10 「재개 턴 델타」). 이때 **`prompt_cold`** 에 같은 순간의 방에서 지은 **전체** 턴 프롬프트(v0.10.2 까지의 `prompt` 모양)를 함께 싣는다. ①·② 밖의 블록은 둘이 바이트 동일하다.
+- **데몬**: 재개가 이어지면(`resumed`) `prompt` 를 보낸다. 새 세션을 열게 되면 — `session/load` 가 `resume_rejected`(harness §6)이거나 D-13 콜드 재시도(harness §2.2) — **`prompt_cold` 를 보낸다**(없으면 `prompt`). 브리프는 어느 쪽이든 같다. cli_wrapper 치환·자리표시자 치환·hermes 포인터 줄은 두 프롬프트에 같은 순서로 적용한다(harness §10) — 남은 자리표시자 검사도 둘 다 본다.
+- **서버는 델타를 짓지 않는다**(=`prompt` 전체, `prompt_cold` 없음): `resume: null` · 기준점이 기록되지 않은 세션(롤아웃 전 attempt) · 그 런타임의 마지막 probe 에 `daemon_features` `prompt_cold` 가 없음(§3).
+- **왜 함께 싣나(데몬이 서버에 다시 묻지 않고)**: 재요청은 새 엔드포인트·새 왕복과 그 사이의 새 실패 모드(토큰 폐기·서버 불통 — 세션은 이미 열렸는데 보낼 프롬프트가 없다)를 만들고, 다시 지은 프롬프트는 **다른 순간의 방**이라 기준점이 어긋난다. 함께 싣는 비용은 재개 번들 한 번에 턴 프롬프트 한 벌(Lead 중앙 146 KB, 최대 397 KB — 04-baseline §4)뿐이다.
+- `finish.resume_outcome` 은 지금과 같다(`resumed`·`cold_start`, 재개를 시도하지 않았으면 `null`). 서버의 상한 결정으로 콜드가 된 턴은 `resume: null` 번들이라 `null` 이다 — 이 결정은 서버 계측(`task_context_metric`)에 남긴다.
 
 ### 4.2 진행 보고
 
@@ -328,3 +345,7 @@ type Queue interface {
 | (v0.10.0) 옛 `sessions/<room>/<lane>` 행을 가진 lane 의 재진입 번들이 그 옛 경로 | — |
 | (v0.10.0) 미션 닫힘 직후에는 `gc` 없음, `last_used_at + workdir_retention_days` 경과 뒤 에이전트 행·`_shared` 행에 `gc` (클럭 주입) | E13-09 |
 | (v0.10.0) `gc` 뒤 빈 상위 폴더만 삭제, 파일이 남은 상위는 그대로 | — |
+| (v0.10.3) `resume: null` 번들 → `session/load` 0회, 첫 `session/prompt` = `prompt` | — |
+| (v0.10.3) `resume` + `prompt_cold` 번들: `session/load` 성공 → `prompt`, `resume_rejected` → 새 세션에 `prompt_cold`, D-13 콜드 재시도 → `prompt_cold` · `prompt_cold` 없는 번들의 콜드 폴백은 `prompt` | E8-02 |
+| (v0.10.3) 이어받을 세션의 직전 턴 첫 표본 300,001 → `resume: null`, 300,000 → 재개, 표본 없음 → 재개 (서버) | — |
+| (v0.10.3) probe `daemon_features` 에 `prompt_cold` 없는 런타임의 재개 번들 → `prompt` 전체·`prompt_cold` 없음 (서버) | — |

@@ -7,6 +7,7 @@ package httpapi
 // by the existing rules, and a part is addressed by its `to` alone.
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -221,6 +222,9 @@ func TestPartsValidation(t *testing.T) {
 		{"note", "parts_note", []any{part([]string{rLink}, "/note 메모"), part([]string{wLink}, "b")}},
 		{"unknown", "unknown_mention", []any{part([]string{rLink}, "a"), part([]string{stranger}, "b")}},
 		{"not a link", "unknown_mention", []any{part([]string{rLink}, "a"), part([]string{"@W"}, "b")}},
+		// `to` is one mention link and nothing else — the link with a word
+		// after it is a body, not a recipient (review #374a NN1).
+		{"link plus words", "unknown_mention", []any{part([]string{rLink}, "a"), part([]string{wLink + " 에게"}, "b")}},
 		{"empty to", "unknown_mention", []any{part([]string{rLink}, "a"), part([]string{}, "b")}},
 	}
 	for _, c := range cases {
@@ -273,6 +277,22 @@ func TestPartsAtomicAndIdempotent(t *testing.T) {
 	}
 	if _, err := f.pool.Exec(t.Context(), `DROP TRIGGER t_parts_boom ON message; DROP FUNCTION t_parts_boom();`); err != nil {
 		t.Fatal(err)
+	}
+
+	// (commit) a commit that fails is the one way this path could answer 201
+	// with no row (review #374a NN2): the error must reach the caller as 5xx,
+	// and nothing may survive.
+	restore := router.SetCommitGroupFailForTest(func() error { return errors.New("commit boom") })
+	st, out, _ = f.groupPost(t, tok, map[string]any{"parts": []any{part([]string{rLink}, "c"), part([]string{wLink}, "d")}}, "")
+	restore()
+	if st < 500 {
+		t.Fatalf("a failing commit = %d %v, want 5xx", st, out)
+	}
+	if n := f.count(t, `SELECT count(*) FROM message WHERE session_id = $1`, f.sessionID); n != before {
+		t.Fatalf("(commit) %d rows survived a failed commit", n-before)
+	}
+	if n := f.count(t, `SELECT count(*) FROM task WHERE session_id = $1`, f.sessionID); n != tasksBefore {
+		t.Fatalf("(commit) %d tasks survived a failed commit", n-tasksBefore)
 	}
 
 	// (replay) the same key twice → one group, same body, Replayed header.
