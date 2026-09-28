@@ -308,13 +308,25 @@ func (s *Service) postRow(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.U
 	// woke the turn writing it — so a message that mentions three agents is
 	// three hops at the same depth, not a chain of three.
 	var cause int64
+	var ret reportReturn
 	if author.Type == "agent" && author.TaskID != nil {
 		if cause, _, err = causeOfTask(ctx, tx, *author.TaskID); err != nil {
 			return nil, uuid.Nil, err
 		}
+		if ret, err = returningReport(ctx, tx, msgID); err != nil {
+			return nil, uuid.Nil, err
+		}
 	}
 	for _, tr := range dec.Triggers {
-		next := Hop{ToAgent: tr.AgentID, At: now, CauseID: cause}
+		hopCause := cause
+		if ret.ok && tr.AgentID == ret.requester {
+			// PRD FR-3.5 v0.19.12: a report coming back to the agent that
+			// wrote the request closes that round — the hop takes the
+			// request-writing task's OWN cause, exactly as a join/re-entry
+			// wake does, so the requester wakes at the depth it asked from.
+			hopCause = ret.cause
+		}
+		next := Hop{ToAgent: tr.AgentID, At: now, CauseID: hopCause}
 		if author.Type == "agent" && author.AgentID != nil {
 			next.FromAgent = *author.AgentID
 		}
@@ -684,6 +696,46 @@ func causeOfTask(ctx context.Context, q pgx.Tx, taskID uuid.UUID) (id, cause int
 		return 0, 0, nil
 	}
 	return id, cause, err
+}
+
+// reportReturn is PRD FR-3.5 v0.19.12's premise for one agent message: it is
+// a report (speech = report, decided at write time by messages.Store) whose
+// responds_to — the original request — was written by the agent `requester`
+// from a task whose hop had cause `cause`. A trigger of this message toward
+// `requester` is the report coming home and takes `cause` as its own.
+type reportReturn struct {
+	ok        bool
+	requester uuid.UUID
+	cause     int64
+}
+
+// returningReport reads reportReturn for a stored message. Only the stored
+// speech and responds_to are consulted (#343/#370: the server decides them
+// the moment the row is written; a group part is one row, #374), so the rule
+// never second-guesses the body. A report whose responds_to is a person's,
+// a system message, or a request written outside a task is not a return.
+func returningReport(ctx context.Context, q pgx.Tx, msgID uuid.UUID) (reportReturn, error) {
+	var requester, reqTask *uuid.UUID
+	err := q.QueryRow(ctx, `
+		SELECT r.author_id, r.source_task_id
+		FROM message m JOIN message r ON r.id = m.responds_to_message_id
+		WHERE m.id = $1 AND m.speech = 'report' AND r.author_type = 'agent'`, msgID).Scan(&requester, &reqTask)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return reportReturn{}, nil
+	}
+	if err != nil {
+		return reportReturn{}, err
+	}
+	if requester == nil || reqTask == nil {
+		return reportReturn{}, nil
+	}
+	// The request-writing turn's depth is the depth of the hop that woke it,
+	// so the report hop takes THAT hop's cause (as wake does for a join).
+	_, cause, err := causeOfTask(ctx, q, *reqTask)
+	if err != nil {
+		return reportReturn{}, err
+	}
+	return reportReturn{ok: true, requester: *requester, cause: cause}, nil
 }
 
 // judgeHop is FR-3.5's VERDICT for one server-originated trigger: a
