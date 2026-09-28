@@ -4309,7 +4309,7 @@ type TriggerPreview struct {
 	Warnings []struct {
 		AgentId nullable.Nullable[openapi_types.UUID] `json:"agent_id,omitempty"`
 
-		// Code `not_participant` · `suppressed_delegator` · `loop_limit_near` · `agent_disabled`.
+		// Code `not_participant` · `suppressed_delegator` · `loop_limit_near` · `agent_disabled` · `approval_pending`(v0.3.9 — 승인 대기로 그 받는 쪽의 트리거를 보류, PRD FR-2A.2.3: `message` 는 harness v0.9.15 문장, `agent_id` 는 보류된 받는 쪽).
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"warnings"`

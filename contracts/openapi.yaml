@@ -5070,7 +5070,7 @@ components:
             type: object
             required: [code, message]
             properties:
-              code: { type: string, description: '`not_participant` · `suppressed_delegator` · `loop_limit_near` · `agent_disabled`.' }
+              code: { type: string, description: '`not_participant` · `suppressed_delegator` · `loop_limit_near` · `agent_disabled` · `approval_pending`(v0.3.9 — 승인 대기로 그 받는 쪽의 트리거를 보류, PRD FR-2A.2.3: `message` 는 harness v0.9.15 문장, `agent_id` 는 보류된 받는 쪽).' }
               message: { type: string }
               agent_id: { type: [string, 'null'], format: uuid }
         work: { oneOf: [{ type: object, required: [id, title], properties: { id: { type: string, format: uuid }, title: { type: string } } }, { type: 'null' }], description: v0.2.0 — 이 메시지가 들어갈 미션. }
