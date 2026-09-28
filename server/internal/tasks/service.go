@@ -586,6 +586,9 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			}
 		}
 		costed = true
+		// T-CTX0: the finish half of the attempt's context metric
+		// (measurement only; its own savepoint, never fails the finish).
+		recordMetricFinish(ctx, tx, t.ID, attempt, resumed, f, now)
 		// harness.md §6: the ref is stored verbatim (contracts.RuntimeSessionRef →
 		// jsonb with the contract keys) — it is the only basis for the next
 		// attempt's TaskBundle.resume. The lane CHECK (0004) requires

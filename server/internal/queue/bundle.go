@@ -31,7 +31,11 @@ const historyLimit = tasks.DefaultHistoryLimit
 // buildBundle assembles the TaskBundle (daemon-protocol §4.1): profile, brief
 // [1]~[8] (PRD §8.4), the turn prompt with history/trigger/<resumed>, limits
 // and posted_message_ids for attempt ≥ 2 (FR-7.1 M5).
-func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UUID, token string, now time.Time) (*contracts.TaskBundle, error) {
+//
+// The returned contextMetric is the size of every section it wrote (T-CTX0,
+// context_metric.go) — measurement only; the claim stores it and moves on.
+func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UUID, token string, now time.Time) (*contracts.TaskBundle, *contextMetric, error) {
+	metric := newContextMetric()
 	var (
 		agentName, agentRole, roleDesc, instructions   string
 		toolsJSON, optionsJSON, envJSON, isolationJSON []byte
@@ -68,10 +72,10 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		&roomName, &workTitle, &isolationJSON, &limitsJSON,
 		&runtimeSessionRef, &reentry, &prevWorkdir, &workLimitsJSON)
 	if isNoRows(err) {
-		return nil, errNoBundle
+		return nil, nil, errNoBundle
 	}
 	if err != nil {
-		return nil, fmt.Errorf("queue: bundle: %w", err)
+		return nil, nil, fmt.Errorf("queue: bundle: %w", err)
 	}
 
 	var tools []string
@@ -99,7 +103,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		       EXISTS (SELECT 1 FROM task x WHERE x.agent_id = a.id AND x.session_id = sp.room_id AND x.status IN ('dispatched','preparing','running'))
 		FROM room_participant sp JOIN agent a ON a.id = sp.agent_id WHERE sp.room_id = $1 AND sp.left_at IS NULL ORDER BY sp.joined_at`, t.SessionID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// [5] carries who is in the room; whether each one is working right now
 	// changes turn to turn, so it goes to the turn prompt's <roster_status>
@@ -111,7 +115,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		var working bool
 		if err := rows.Scan(&id, &name, &role, &desc, &working); err != nil {
 			rows.Close()
-			return nil, err
+			return nil, nil, err
 		}
 		status := "idle"
 		if working {
@@ -126,7 +130,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// The room's PEOPLE, after the agents (harness v0.9.10, T-HUMANMENTION):
 	// an agent could not learn from its brief how to call the Director. Owner
@@ -136,7 +140,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	// person is not working or idle.
 	people, err := briefHumans(ctx, tx, t.SessionID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, h := range people {
 		fmt.Fprintf(&roster, "- %s (person · %s) — mention: %s\n", h.Name, h.Role, router.UserMentionLink(h.Name, h.UserID))
@@ -148,11 +152,11 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	// decided from the raw history.
 	sessionContext, err := briefContext(ctx, tx, t.SessionID, surf)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	decisionLog, err := briefDecisionLog(ctx, tx, t.SessionID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Trigger messages, history, posted ids.
@@ -195,7 +199,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	for _, m := range triggerMsgs {
 		root, err := threadRootOf(ctx, tx, m)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		thread := ""
 		if root != uuid.Nil {
@@ -208,11 +212,13 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		if m.GroupID != nil {
 			group = fmt.Sprintf(" group=%q", *m.GroupID)
 		}
-		fmt.Fprintf(&trigger, "<message id=%q author=%q at=%q%s%s>\n%s\n%s</message>\n", m.ID, authorLabel(m), m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"), thread, group, m.Content, triggerDetail(m, fullDetail[m.ID], surf))
+		td := triggerDetail(m, fullDetail[m.ID], surf)
+		metric.add("prompt.trigger/detail", td)
+		fmt.Fprintf(&trigger, "<message id=%q author=%q at=%q%s%s>\n%s\n%s</message>\n", m.ID, authorLabel(m), m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"), thread, group, m.Content, td)
 		if m.GroupID != nil {
 			line, err := otherPartsLine(ctx, tx, m, surf)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			trigger.WriteString(line)
 		}
@@ -227,7 +233,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	}
 	history, _, _, _, err := messages.List(ctx, tx, t.SessionID, messages.ListOptions{IncludeReplies: true, Limit: historyLimit})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var total int
 	_ = tx.QueryRow(ctx, `SELECT count(*) FROM message WHERE session_id = $1`, t.SessionID).Scan(&total)
@@ -237,7 +243,9 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		// line by line against what the session actually holds (S-36). Only a
 		// trigger whose 작업 내용 went in whole points down to <trigger>; one
 		// demoted by the turn budget reads like any other history line.
-		fmt.Fprintf(&hist, "[%s] %s %s: %s\n%s", m.CreatedAt.UTC().Format("15:04"), m.ID, authorLabel(m), m.Content, historyDetail(m, fullDetail[m.ID], surf))
+		hd := historyDetail(m, fullDetail[m.ID], surf)
+		metric.add("prompt.history/detail", hd)
+		fmt.Fprintf(&hist, "[%s] %s %s: %s\n%s", m.CreatedAt.UTC().Format("15:04"), m.ID, authorLabel(m), m.Content, hd)
 	}
 
 	// posted is the bundle's `posted_message_ids` (bare ids, §4.1); postedLines
@@ -248,14 +256,14 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	var postedIDs []uuid.UUID
 	prow, err := tx.Query(ctx, `SELECT id, content FROM message WHERE source_task_id = $1 ORDER BY created_at`, t.ID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for prow.Next() {
 		var id uuid.UUID
 		var content string
 		if err := prow.Scan(&id, &content); err != nil {
 			prow.Close()
-			return nil, err
+			return nil, nil, err
 		}
 		posted = append(posted, id.String())
 		postedLines = append(postedLines, fmt.Sprintf("%s — %s", id, preview(content, 80)))
@@ -294,7 +302,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	if cause == tasks.CauseHitlAnswer || cause == tasks.CauseBudgetApproved {
 		answered, err = lastAnsweredHitl(ctx, tx, t.ID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -302,7 +310,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	// under a queued task leaves the turn outside any mission.
 	room, progress, err := loadRoomBrief(ctx, tx, t.SessionID, t.WorkID, isolation.Kind)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	missionID := t.WorkID
 	if room.Mission == nil {
@@ -310,13 +318,17 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	}
 	roomHist, err := loadRoomHistory(ctx, tx, t.SessionID, missionID, history)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Brief [1]~[8] (PRD §8.4).
 	var brief strings.Builder
 	fmt.Fprintf(&brief, "[1] Agent Identity\nYou are %s, %s in the Colab workspace. %s\n\nInstructions:\n%s\n\n", agentName, agentRole, roleDesc, instructions)
+	metric.wrote("brief.1", &brief, 0)
+	n := brief.Len()
 	brief.WriteString(surf.Section2())
+	metric.wrote("brief.2", &brief, n)
+	n = brief.Len()
 	if agentRole == "lead" {
 		// §8.4 marks [3] "(lead만)". A researcher handed the coordination
 		// protocol starts handing out work to the roster it can see, which is
@@ -328,18 +340,29 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 			surf.HitlAskLine +
 			"- Report to the Director yourself; the other agents report to you.\n\n")
 	}
+	metric.wrote("brief.3", &brief, n)
 	// [4] 방 맥락 (harness §10 v0.9.0, PRD FR-4.1): the room, and the mission
 	// this turn belongs to — only that one, so two turns of the same mission
 	// share [1]~[5] byte for byte and a turn of another mission does not.
+	n = brief.Len()
 	brief.WriteString(renderRoom(room))
+	metric.wrote("brief.4", &brief, n)
+	n = brief.Len()
 	fmt.Fprintf(&brief, "[5] Roster\n%s\n", roster.String())
+	metric.wrote("brief.5", &brief, n)
+	n = brief.Len()
 	if sessionContext != "" {
 		fmt.Fprintf(&brief, "[6] Context\n%s\n", sessionContext)
 	}
+	metric.wrote("brief.6", &brief, n)
+	n = brief.Len()
 	if decisionLog != "" {
 		fmt.Fprintf(&brief, "[7] Decision Log\n%s\n", decisionLog)
 	}
+	metric.wrote("brief.7", &brief, n)
+	n = brief.Len()
 	brief.WriteString("[8] Instruction precedence: user instruction > session goal > agent instructions > runtime defaults.\n")
+	metric.wrote("brief.8", &brief, n)
 
 	// The next attempt's shape — resume vs cold start, `<resumed>`, the history
 	// header, the workdir-check line — is PlanAttempt's decision (FR-5.4,
@@ -367,7 +390,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 
 	wd, err := planBundleWorkdir(ctx, tx, t, missionID, runtimeID, isolation.Kind, roomName, deref(workTitle), agentName, now)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	workdirKind := wd.Kind
 	// harness v0.9.7 <folders>: the server names every path, so the block is
@@ -375,7 +398,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	// `<trigger>`; a test chat never gets here (it has no bundle of its own).
 	foldersBlock, err := renderFolders(ctx, tx, t, missionID, isolation.Kind == "worktree", wd, surf)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Turn prompt
@@ -383,23 +406,46 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	if rebindPrompt != "" {
 		fmt.Fprintf(&prompt, "<rebind>\n%s</rebind>\n\n", ensureTrailingNewline(rebindPrompt))
 	}
+	metric.wrote("prompt.rebind", &prompt, 0)
+	n = prompt.Len()
 	renderResumedSection(&prompt, plan, t.Attempt, prevOutcome, postedLines, answered)
+	metric.wrote("prompt.resumed", &prompt, n)
 	// ① — with FR-4.1's one line at its head when it dropped something (Lead
 	// T-R3b 판정 3) — then ② and ③, then the mission's progress (판정 1).
+	n = prompt.Len()
 	prompt.WriteString(truncationNote(plan.HistoryTotal-plan.HistoryIncluded, roomHist, missionID != nil, surf))
+	metric.wrote("prompt.truncation_note", &prompt, n)
+	n = prompt.Len()
 	fmt.Fprintf(&prompt, "<history included=%d total=%d truncated=%t>\n%s</history>\n\n",
 		plan.HistoryIncluded, plan.HistoryTotal, plan.HistoryTruncated, hist.String())
-	renderRoomHistoryTail(&prompt, missionID, roomHist, surf)
+	metric.wrote("prompt.history", &prompt, n)
+	renderRoomHistoryTail(&prompt, missionID, roomHist, surf, metric)
+	n = prompt.Len()
 	prompt.WriteString(renderMissionProgress(room.Mission, progress.Met, progress.Total, progress.Satisfied))
+	metric.wrote("prompt.mission_progress", &prompt, n)
+	n = prompt.Len()
 	fmt.Fprintf(&prompt, "<roster_status>\n%s</roster_status>\n\n", rosterStatus.String())
+	metric.wrote("prompt.roster_status", &prompt, n)
+	n = prompt.Len()
 	prompt.WriteString(foldersBlock)
+	metric.wrote("prompt.folders", &prompt, n)
 	// A re-instruction's trigger IS the new instruction, and `<resumed>` is
 	// absent above — so the same rendering serves both (§8.4, E8-06).
+	n = prompt.Len()
 	fmt.Fprintf(&prompt, "<trigger>\n%s</trigger>\n\n", trigger.String())
+	metric.wrote("prompt.trigger", &prompt, n)
+	n = prompt.Len()
 	prompt.WriteString(surf.Respond)
 	if threadRootID != "" {
 		prompt.WriteString(surf.ThreadReply + "\n")
 	}
+	metric.wrote("prompt.respond", &prompt, n)
+	metric.Brief, metric.Prompt = sizeOf(brief.String()), sizeOf(prompt.String())
+	metric.Counts["history"] = plan.HistoryIncluded
+	metric.Counts["history_total"] = plan.HistoryTotal
+	metric.Counts["mission_messages"] = len(roomHist.MissionOlder)
+	metric.Counts["room_decisions"] = len(roomHist.Decisions)
+	metric.Counts["trigger_messages"] = len(triggerMsgs)
 
 	transport := contracts.BriefACPMetaSystemPrompt
 	adapterPin := contracts.ClaudeAgentACPPin
@@ -487,7 +533,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	if t.Attempt >= 2 {
 		b.PostedMessageIDs = posted
 	}
-	return b, nil
+	return b, metric, nil
 }
 
 // threadRootOf is the root of the thread m sits in, uuid.Nil for a top-level

@@ -336,17 +336,30 @@ func truncationNote(omitted int, h roomHistory, inMission bool, surf Surface) st
 }
 
 // renderRoomHistoryTail writes ② and ③ (① is buildBundle's <history>).
-func renderRoomHistoryTail(b *strings.Builder, workID *uuid.UUID, h roomHistory, surf Surface) {
+//
+// metric (T-CTX0) takes the size of each bundle; nil measures nothing.
+func renderRoomHistoryTail(b *strings.Builder, workID *uuid.UUID, h roomHistory, surf Surface, metric *contextMetric) {
+	if metric == nil {
+		metric = newContextMetric()
+	}
+	n := b.Len()
 	if workID != nil && len(h.MissionOlder) > 0 {
 		fmt.Fprintf(b, "<mission_messages work=%q count=%d note=\"this mission's messages older than <history>\">\n", workID.String(), len(h.MissionOlder))
 		for _, m := range h.MissionOlder {
-			fmt.Fprintf(b, "[%s] %s %s: %s\n%s", m.CreatedAt.UTC().Format("01-02 15:04"), m.ID, authorLabel(m), m.Content, historyDetail(m, false, surf))
+			hd := historyDetail(m, false, surf)
+			metric.add("prompt.mission_messages/detail", hd)
+			fmt.Fprintf(b, "[%s] %s %s: %s\n%s", m.CreatedAt.UTC().Format("01-02 15:04"), m.ID, authorLabel(m), m.Content, hd)
 		}
 		b.WriteString("</mission_messages>\n\n")
 	}
+	metric.wrote("prompt.mission_messages", b, n)
+	n = b.Len()
 	if len(h.Decisions) > 0 {
 		fmt.Fprintf(b, "<room_decisions count=%d note=\"older than the ones in [7]\">\n%s\n</room_decisions>\n\n", len(h.Decisions), strings.Join(h.Decisions, "\n"))
 	}
+	metric.wrote("prompt.room_decisions", b, n)
+	n = b.Len()
+	defer func() { metric.wrote("prompt.room_summary", b, n) }()
 	if s := h.Summary; s != nil {
 		if h.SummaryInHistory {
 			fmt.Fprintf(b, "<room_summary message=%q>the latest 「여기까지 정리」 is that message in <history> above</room_summary>\n\n", s.ID)

@@ -44,6 +44,8 @@ var prdTables = []string{
 	// 방 API(T-R1b3) — 서브 미션 알림 구독(FR-8)
 	"lane_subscription",
 	"work_subscription", // r1b2_works — setWorkSubscription (FR-8)
+	// task_context_metric — T-CTX0 계측(CONTEXT_MEMORY 0단계). 동작을 바꾸지 않는 측정 표.
+	"task_context_metric",
 }
 
 // prdEnums pins every state set to the exact PRD labels (task item 2).
