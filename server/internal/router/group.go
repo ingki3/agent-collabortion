@@ -95,7 +95,7 @@ func (s *Service) PostGroup(ctx context.Context, sessionID uuid.UUID, author Aut
 			_ = s.Hub.Publish(ctx, tx, wsID, &sid, "message.created", r.Message)
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := commitGroupTx(ctx, tx); err != nil {
 		return nil, err
 	}
 	for _, r := range out.Parts {
@@ -105,6 +105,30 @@ func (s *Service) PostGroup(ctx context.Context, sessionID uuid.UUID, author Aut
 		}
 	}
 	return out, nil
+}
+
+// commitGroupTx commits a part group. A commit that fails is the one way this
+// path could answer 201 with no row at all (review #374a NN2), so its error is
+// returned — the handler turns it into a 5xx and no part is claimed to exist.
+// `commitGroupFail` is the test seam: the atomicity test sets it to make a
+// healthy commit fail, the way the injection did by hand.
+var commitGroupFail func() error
+
+func commitGroupTx(ctx context.Context, tx pgx.Tx) error {
+	if commitGroupFail != nil {
+		if err := commitGroupFail(); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// SetCommitGroupFailForTest makes the next part-group commits fail, and
+// returns the function that puts it back. Tests only.
+func SetCommitGroupFailForTest(fn func() error) func() {
+	prev := commitGroupFail
+	commitGroupFail = fn
+	return func() { commitGroupFail = prev }
 }
 
 // ValidateParts is the part rules that need no database (422, no row made):

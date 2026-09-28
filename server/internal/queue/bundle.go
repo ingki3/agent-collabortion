@@ -188,6 +188,10 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	var threadRootID string
 	var latest time.Time
 	var triggerMsgs []*messages.Row
+	// One read per group, not per part (review #374a NN3): a turn woken by
+	// several parts of the same message would otherwise list the group once
+	// for each of them.
+	groupRows := map[uuid.UUID][]*messages.Row{}
 	for _, id := range triggerIDs {
 		m, err := messages.Get(ctx, tx, id)
 		if err != nil {
@@ -216,7 +220,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		metric.add("prompt.trigger/detail", td)
 		fmt.Fprintf(&trigger, "<message id=%q author=%q at=%q%s%s>\n%s\n%s</message>\n", m.ID, authorLabel(m), m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"), thread, group, m.Content, td)
 		if m.GroupID != nil {
-			line, err := otherPartsLine(ctx, tx, m, surf)
+			line, err := otherPartsLine(ctx, tx, m, surf, groupRows)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -642,11 +646,17 @@ const historyDetailPreview = 400
 // otherPartsLine is harness v0.9.11's one line after a part's `<message>`:
 // the same group's OTHER parts, recipient and kind only — never their body
 // (the agent is not handed words meant for someone else) — and how to read
-// them whole, in this surface's words.
-func otherPartsLine(ctx context.Context, tx pgx.Tx, m *messages.Row, surf Surface) (string, error) {
-	rows, _, _, _, err := messages.List(ctx, tx, m.SessionID, messages.ListOptions{Group: m.GroupID})
-	if err != nil {
-		return "", err
+// them whole, in this surface's words. `cache` holds each group's rows so a
+// turn woken by several parts reads the group once (review #374a NN3).
+func otherPartsLine(ctx context.Context, tx pgx.Tx, m *messages.Row, surf Surface, cache map[uuid.UUID][]*messages.Row) (string, error) {
+	rows, ok := cache[*m.GroupID]
+	if !ok {
+		var err error
+		rows, _, _, _, err = messages.List(ctx, tx, m.SessionID, messages.ListOptions{Group: m.GroupID})
+		if err != nil {
+			return "", err
+		}
+		cache[*m.GroupID] = rows
 	}
 	var parts []string
 	for _, r := range rows {
