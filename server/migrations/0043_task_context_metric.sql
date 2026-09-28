@@ -13,8 +13,11 @@
 -- 0단계에서는 계측 전용이지만 그 상태로 머물지 않는다: **맥락 1단계 ③(harness
 -- v0.9.14 §6)이 세션 상한 판정에 이 표를 읽는다**(Lead 지시 2026-09-28) — 재개 세션의
 -- 누적 크기가 상한을 넘으면 다음 task 를 계획적 cold start 로 돌리는 판정의 입력이
--- 이 행들이다. 그러므로 이 표의 칸은 한 번 쓰고 버리는 로그가 아니라 읽히는 계약이다.
--- (harness v0.9.14 는 이 커밋 시점의 트리에 아직 없다 — 1단계 ③ 과 함께 들어온다.)
+-- 이 행들이다. 계약이 이름으로 부르는 칸은 **`samples[0]`** 이다: 그 attempt 첫 턴 중
+-- usage 표본의 cache_read + cache_write + input 이 「세션 시작 크기」이고, 이것이
+-- contracts.ResumeSessionMaxTokens(300,000)와 견주어진다. 턴 누적 cache_read 는
+-- 쓰지 않는다(그 턴의 모든 호출이 다시 읽은 양의 합이라 세션 크기가 아니다).
+-- 그러므로 아래 samples 의 자리 순서와 뜻은 한 번 쓰고 버리는 로그가 아니라 계약이다.
 --
 -- 쓰기는 세이브포인트 안이라 실패해도 claim·heartbeat·finish 는 그대로 간다.
 CREATE TABLE task_context_metric (
