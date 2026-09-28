@@ -1252,16 +1252,19 @@ func (e PausedDetailResolveActions) Valid() bool {
 
 // Defines values for QueuedReason.
 const (
-	QueuedReasonAgentGlobal QueuedReason = "agent_global"
-	QueuedReasonRoomLanes   QueuedReason = "room_lanes"
-	QueuedReasonRuntime     QueuedReason = "runtime"
-	QueuedReasonWorkspace   QueuedReason = "workspace"
+	QueuedReasonAgentGlobal     QueuedReason = "agent_global"
+	QueuedReasonApprovalPending QueuedReason = "approval_pending"
+	QueuedReasonRoomLanes       QueuedReason = "room_lanes"
+	QueuedReasonRuntime         QueuedReason = "runtime"
+	QueuedReasonWorkspace       QueuedReason = "workspace"
 )
 
 // Valid indicates whether the value is a known member of the QueuedReason enum.
 func (e QueuedReason) Valid() bool {
 	switch e {
 	case QueuedReasonAgentGlobal:
+		return true
+	case QueuedReasonApprovalPending:
 		return true
 	case QueuedReasonRoomLanes:
 		return true
@@ -2617,6 +2620,9 @@ type CompletionProgress struct {
 	HumanGate *bool `json:"human_gate,omitempty"`
 	Met       int   `json:"met"`
 
+	// PausedAgentTriggers v0.3.9 — 승인 대기(PRD FR-2A.2.3)로 보류된 에이전트 간 트리거(`queued_reason: approval_pending` task) 수. 화면은 `user_approval` 조건 행 아래 한 줄로 보인다. 0 이면 줄 없음.
+	PausedAgentTriggers *int `json:"paused_agent_triggers,omitempty"`
+
 	// Satisfied 트리 전체 판정. true면 `completing`으로 간다.
 	Satisfied bool `json:"satisfied"`
 	Total     int  `json:"total"`
@@ -3578,7 +3584,7 @@ type Problem struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
-// QueuedReason `task.queued_reason` (PRD §3.1) — 큐에 걸린 이유. `agent_global` 은 에이전트 `max_concurrent_tasks` 가 방을 가로질러 찼다(§12.1-5).
+// QueuedReason `task.queued_reason` (PRD §3.1) — 큐에 걸린 이유. `agent_global` 은 에이전트 `max_concurrent_tasks` 가 방을 가로질러 찼다(§12.1-5). v0.3.9 `approval_pending` — 일이 Director 승인만 남아(PRD FR-2A.2.3) 에이전트 메시지의 트리거를 보류 중. 이 task 는 dispatch 되지 않고, 승인되면 `cancelled`, 수정 요청·사람 지시·조건 변경이면 사유가 풀려 차례대로 돈다. FR-2A.2.1 의 「실행·대기 중」에 세지 않는다.
 type QueuedReason string
 
 // ReadableRoom `colab room list` 한 행 — 이 턴이 읽을 수 있는 방만(FR-4.5 두 조건).
