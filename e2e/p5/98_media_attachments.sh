@@ -18,14 +18,14 @@
 #   M9  안전: HTML 을 image/png 라고 올려도 image 로 판정되지 않고 inline 도 안 된다 · SVG 는 inline 이되 sandbox
 #   M10 경계: 다른 방 아티팩트를 attachment_ids 에 → 422 attachment_not_in_room · TaskToken 은 자기 방만
 #   M11 type attachment 는 종료 조건 artifact_submitted 를 채우지 않는다(사람이 올렸어도, 에이전트가 올렸어도)
-# 산출물: out/96-checks.tsv · out/96-*.txt
+# 산출물: out/98-checks.tsv · out/98-*.txt
 source "$(dirname "$0")/lib_i5.sh"
 STAMP="$(date +%s)"
-COOKIE="$OUT/cookies-96.txt"; rm -f "$COOKIE"
+COOKIE="$OUT/cookies-98.txt"; rm -f "$COOKIE"
 CFG="$OUT/daemon-98.json"; WORK="$P5_TMP_ROOT/98/work"; DLOG="$OUT/daemon-98.log"
 TAP="$OUT/tap-98.jsonl"; TAP_PORT="${TAP_PORT_98:-8150}"
-MEDIA="$OUT/96-media"; mkdir -p "$MEDIA"
-g5_chk_init "$OUT/96-checks.tsv"
+MEDIA="$OUT/98-media"; mkdir -p "$MEDIA"
+g5_chk_init "$OUT/98-checks.tsv"
 cleanup() { [ -n "${TAP_PID:-}" ] && kill "$TAP_PID" 2>/dev/null || true; daemon_stop "$OUT/daemon-98.pid"; return 0; }
 trap cleanup EXIT
 
@@ -44,7 +44,7 @@ png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 
 (d / "evil.png").write_bytes(b"<!DOCTYPE html><html><body><script>alert(document.cookie)</script></body></html>")
 (d / "logo.svg").write_bytes(b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><script>alert(1)</script><rect width="8" height="8" fill="red"/></svg>')
 PY
-ls -l "$MEDIA" > "$OUT/96-files.txt"
+ls -l "$MEDIA" > "$OUT/98-files.txt"
 
 step "1. claim 탭 · 계정 · 워크스페이스 · 페어링 (RUNTIME=$RUNTIME)"
 rm -f "$TAP"; : > "$TAP"; : > "$DLOG"
@@ -110,7 +110,7 @@ chk M2b "그 메시지가 에이전트를 깨웠다" yes "$( [ -n "$T_D" ] && [ 
 
 step "6. M3·M4·M5 — 턴 번들(탭)과 대본이 받은 파일"
 WAIT_S=$T_TURN wait_task "$T_D" completed failed cancelled >/dev/null || true
-python3 - "$TAP" "$T_D" "$A_PNG" "$(wc -c < "$MEDIA/ae86.png" | tr -d ' ')" > "$OUT/96-bundle.txt" <<'PY'
+python3 - "$TAP" "$T_D" "$A_PNG" "$(wc -c < "$MEDIA/ae86.png" | tr -d ' ')" > "$OUT/98-bundle.txt" <<'PY'
 import json, sys
 tap, tid, aid, size = sys.argv[1:]
 want_line = f"- ae86.png (attachment, image/png, {round(int(size)/1024)} KB, id {aid})"
@@ -131,7 +131,7 @@ for line in open(tap):
         sys.exit(0)
 print("missing\tmissing\tmissing\tmissing\tmissing")
 PY
-IFS=$'\t' read -r B_HEAD B_LINE B_FETCH B_BRIEF B_SHELL <<<"$(cat "$OUT/96-bundle.txt")"
+IFS=$'\t' read -r B_HEAD B_LINE B_FETCH B_BRIEF B_SHELL <<<"$(cat "$OUT/98-bundle.txt")"
 chk M3a "<trigger> 에 Attachments: 줄" yes "$B_HEAD"
 chk M3b "첨부 한 줄 = 이름 (type, content_type, 크기, id …)" yes "$B_LINE"
 chk M3c "받는 법 한 줄(셸 표면)" yes "$B_FETCH"
