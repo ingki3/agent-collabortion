@@ -1,6 +1,6 @@
-# 05 — 맥락 1단계 성과(재생): 게임 제작 방 (T-CTX1)
+# 06 — 맥락 1단계 성과(재생): 게임 제작 방 (T-CTX1)
 
-작성 2026-09-28 · 정본 `../CONTEXT_MEMORY.md` 1단계 · 계약 harness v0.9.14 · daemon-protocol v0.10.3
+작성 2026-09-28 · 정본 `../CONTEXT_MEMORY.md` 1단계 · 계약 harness v0.9.14 · daemon-protocol v0.10.3 · 선행 `04-baseline.md`(0단계 기준선) · 나란히 `05-hermes-cache.md`(hermes 캐시 조사 — 1단계 ④의 다른 갈래)
 데이터: `live-snapshot5.dump` 를 격리 컨테이너 `colab-pg-ctx1-snap` 에 복원한 **사본**(04-baseline 과 같은 사본·같은 방). 실사용 DB 는 읽지 않았다.
 재현: 옛 규칙 `TestReplayContextMetrics`(#382 브랜치) → `baseline_sessions.py` · 새 규칙 `TestReplayContextStage1`(에이전트별) → `stage1.py`(아래 §5).
 
@@ -43,7 +43,7 @@
 
 - **1단계 성공 기준 「Lead 호출당 cache_read 중앙 −50%」 의 예측: −56%**(호출당 맥락 비 중앙 0.44). 옛 세션은 ~97만 자동 압축에서만 꺾였고, 새 세션은 상한 30만을 넘은 다음 턴에 콜드로 꺾인다(Lead 9회) — 최대가 98만 → 39만.
 - 쓰기 −79% 의 대부분은 ① 이다: 옛 재개 턴 첫 호출이 세션 전체(중앙 55만)를 쓰기로 냈고, 새 규칙에서는 델타 + 직전 턴 꼬리만 쓴다. 계획적 콜드 9 턴의 전체 쓰기(브리프 + 콜드 프롬프트)는 포함했다.
-- hermes(Designer·Developer)는 캐시 쓰기를 보고하지 않고 턴 중 usage 표본이 없어 상한이 걸리지 않는다(계약 §6 「표본 없음 → 재개」). 브리프 고정과 델타는 같이 받는다 — 효과는 계측으로 본다.
+- hermes(Designer·Developer)는 턴 중 usage 표본이 없어(§9 `usage_midturn: false` — claude_code 만 원시 SDK 메시지를 준다) `samples[0]` 이 비고, 계약 §6 대로 상한을 적용하지 않는다. 브리프 고정과 델타는 같이 받는다 — 효과는 계측으로 본다. hermes 는 캐시를 잘 쓰고 있었고(적중률 중앙 91.6%) 우리 데몬이 `inputTokens` 를 잘못 읽어 두 번 청구하던 것을 T-HERMESCACHE(`05-hermes-cache.md`)가 고쳤다 — 이 문서의 claude_code 수치와는 별개다.
 
 ## 4. 회상 문항 (recall-set-v1.json, 04-baseline §5)
 
@@ -62,6 +62,7 @@
 
 - 예측(모델): Lead 호출당 cache_read 중앙 **−56%**, 이 방 claude_code 세 에이전트 읽기+쓰기 비용 **$1,024 → $428(−58%)**. 가정: 턴의 호출 수와 일(W)은 옛 실행과 같다, 턴 안의 맥락은 W/2 만큼 평균으로 더해진다, 캐시 1시간 TTL 단가(04-baseline §3 적합).
 - 모델이 보지 못하는 것: 콜드 턴의 답이 달라지는 효과(더 짧은 세션에서 도구를 더 부를 수도 있다), 첫 표본이 호출 둘 이상을 담아 일찍 콜드로 가는 오차(계약 §6 — 안전한 쪽), hermes.
+- **H2 의 진짜 확증도 여기서 난다**(04-baseline §3 정정 · #382 리뷰 NN1): 기준선의 「브리프 변경이 캐시를 깼다」 는 관찰 자료의 자연 실험 + 기전 + 대조군(브리프 동일 7턴 중 6 적중)이고 A/B 는 아니었다. ① 을 넣은 뒤 **재개 턴 첫 호출의 캐시 적중률**이 실제로 오르는지가 판정이다 — 위 질의의 첫 호출 쓰기 비중(옛 중앙 97.9%)이 바로 그 수치다.
 - 배포 뒤 계측(`task_context_metric`, Lead 가 SQL 한 번): `counts.delta`·`counts.prompt_cold_bytes`·`counts.session_start_tokens`·`counts.session_capped` 가 attempt 마다 남는다. 비교 질의 — 재개 턴 첫 호출 쓰기 비중 `samples->0->>2 / (samples->0->>1 + samples->0->>2)`(옛 중앙 97.9%), 깊이별 시작 크기 `session_depth, samples->0`, 호출당 cache_read `cache_read / tool_calls`(옛 Lead 35.6만).
 
 ## 6. 재현
