@@ -1208,10 +1208,21 @@ func (r *Runner) recordUsage(pr *PromptResult, models []string) {
 	}
 	r.turnCost = nil
 	if pr.Usage != nil {
-		r.usage.InputTokens += pr.Usage.InputTokens
-		r.usage.OutputTokens += pr.Usage.OutputTokens
-		r.usage.CacheReadTokens += pr.Usage.CachedReadTokens
-		r.usage.CacheWriteTokens += pr.Usage.CachedWriteTokens
+		if r.kind() == contracts.RuntimeHermes {
+			// T-HERMESCACHE (hermes_usage.go): hermes' `inputTokens` already
+			// contains the cached tokens and is cumulative over the adapter
+			// session, so the value is TAKEN apart and TAKEN whole — adding
+			// it would charge the cache twice and, on the refusal-retry path
+			// (two prompts in one attempt), count the first turn twice.
+			n := hermesUsage(pr.Usage)
+			r.usage.InputTokens, r.usage.OutputTokens = n.InputTokens, n.OutputTokens
+			r.usage.CacheReadTokens, r.usage.CacheWriteTokens = n.CacheReadTokens, n.CacheWriteTokens
+		} else {
+			r.usage.InputTokens += pr.Usage.InputTokens
+			r.usage.OutputTokens += pr.Usage.OutputTokens
+			r.usage.CacheReadTokens += pr.Usage.CachedReadTokens
+			r.usage.CacheWriteTokens += pr.Usage.CachedWriteTokens
+		}
 	}
 	if cost == nil {
 		// v0.7.1: from here on the total is an estimate AND its number is 0.
