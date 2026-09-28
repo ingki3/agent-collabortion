@@ -244,3 +244,111 @@ func TestLoopReportReturnReportsCountPerHour(t *testing.T) {
 		t.Errorf("agent hops until the trip = %d, want 6 — report hops count toward the hour", agentHops)
 	}
 }
+
+// (5) NN2 (PR #379 review): the report's depth is the REQUESTER's own depth,
+// not the root's. Nested delegation Dir → Lead(1) → R(2) → W(3): W's report to
+// R wakes R at depth 2 — the depth R asked from. The Lead-hub cases above
+// cannot see the difference, because there the requester always happens to sit
+// at depth 1, so "rewound to the requester" and "rewound to the root" give the
+// same 1. Here they differ: 1 would mean the rewind went all the way to the
+// root (chain_depth would stop measuring anything) and 3 would mean it did not
+// happen at all. It must be exactly 2.
+//
+// The case also pins the RESIDUAL the rewind deliberately does not cover, so a
+// future reader does not mistake it for a regression. R's hand-back to Lead
+// mentions an agent, and FR-3.1.3 (v0.19.6 「보고에 대한 보고는 없다」) makes
+// that a `request`, not a report — it has no responds_to, so the rewind's
+// premise (speech = report) does not hold and the chain keeps climbing: 3, then
+// 4 for Lead's next request. Under FR-3.5 as written that is correct — depth
+// counts 「요청이 요청을 낳는 사슬」 and the server calls this message a
+// request — but it means a room with a middle manager still deepens once per
+// round. Whether a hand-back should rewind too is a PRD question (FR-3.5 /
+// FR-3.1.3), not something this fix may decide on its own.
+//
+// Finally it pins the two halves of the mechanism the live replay depends on:
+// the rewound cause is PERSISTED on the hop row (session_hop.cause_hop_id) and
+// a later hop reads it back through causeOfTask, so the rewind PROPAGATES
+// instead of being recomputed from an un-rewound ancestor. Without propagation
+// a hub oscillates at a slowly rising floor instead of 1 ↔ 2 (PR #379 NN1).
+func TestLoopReportReturnNestedDelegationDepths(t *testing.T) {
+	f := newChainFixture(t)
+	ctx := t.Context()
+
+	post := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
+	lead := f.run(t, mustUUID(t, str(post["triggers"].([]any)[0].(map[string]any), "task_id")))
+	r := f.run(t, f.mention(t, f.leadUUID, lead, "R", f.rUUID)) // hop 3, depth 2
+	w := f.run(t, f.mention(t, f.rUUID, r, "W", f.wUUID))       // hop 4, depth 3
+
+	// W → R: the report goes home to R, which asked from depth 2.
+	out, by := f.postFrom(t, f.wUUID, w, router.MentionLink("R", f.rUUID)+" 끝났습니다")
+	if sp, resp := f.speechOf(t, uuid.UUID(out.Message.Id)); sp != "report" || resp == nil {
+		t.Fatalf("W's reply speech = %q responds_to = %v, want report with responds_to", sp, resp)
+	}
+	rAgain, ok := by[f.rUUID]
+	if !ok {
+		t.Fatalf("W's report did not wake R: %+v", by)
+	}
+	rAgain = f.run(t, rAgain)
+	// R → Lead: a hand-back. FR-3.1.3 makes it a `request`, so it does NOT
+	// rewind — the residual this case documents.
+	out2, by := f.postFrom(t, f.rUUID, rAgain, router.MentionLink("Lead", f.leadUUID)+" 정리했습니다")
+	if sp, resp := f.speechOf(t, uuid.UUID(out2.Message.Id)); sp != "request" || resp != nil {
+		t.Fatalf("R's hand-back speech = %q responds_to = %v, want request with no responds_to (FR-3.1.3 「보고에 대한 보고는 없다」) — if this changed, the residual below changed with it",
+			sp, resp)
+	}
+	leadAgain, ok := by[f.leadUUID]
+	if !ok {
+		t.Fatalf("R's hand-back did not wake Lead: %+v", by)
+	}
+	leadAgain = f.run(t, leadAgain)
+	f.mention(t, f.leadUUID, leadAgain, "W", f.wUUID)
+
+	depths := hopDepths(t, ctx, f.p2Fixture)
+	// start, Dir→Lead, Lead→R, R→W, W→R(report: rewound to R's own 2),
+	// R→Lead(request: not rewound → 3), Lead→W(4).
+	want := []int{1, 1, 2, 3, 2, 3, 4}
+	if len(depths) != len(want) {
+		t.Fatalf("hops = %d %v, want %d %v", len(depths), depths, len(want), want)
+	}
+	for i := range want {
+		if depths[i] != want[i] {
+			t.Fatalf("hop %d depth = %d, want %d (all %v) — hop 5 is the rewind: 2 = the requester's own depth, 1 = rewound to the root (chain_depth dies), 3 = no rewind",
+				i+1, depths[i], want[i], depths)
+		}
+	}
+
+	// Persistence + propagation of the rewound cause.
+	rows, err := f.pool.Query(ctx, `SELECT id, cause_hop_id FROM session_hop WHERE session_id = $1 ORDER BY id`, f.sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type hopRow struct {
+		id    int64
+		cause *int64
+	}
+	var hs []hopRow
+	for rows.Next() {
+		var h hopRow
+		if err := rows.Scan(&h.id, &h.cause); err != nil {
+			t.Fatal(err)
+		}
+		hs = append(hs, h)
+	}
+	rows.Close()
+	if len(hs) != 7 {
+		t.Fatalf("hop rows = %d, want 7", len(hs))
+	}
+	// [0] start, [1] Dir→Lead, [2] Lead→R, [3] R→W, [4] W→R report,
+	// [5] R→Lead hand-back, [6] Lead→W.
+	if hs[4].cause == nil || *hs[4].cause != hs[1].id {
+		t.Errorf("W→R report cause = %v, want %d (the cause of the hop that woke R's request-writing turn) — the rewind must be STORED, not recomputed per read",
+			hs[4].cause, hs[1].id)
+	}
+	if hs[5].cause == nil || *hs[5].cause != hs[4].id {
+		t.Errorf("R→Lead cause = %v, want %d (the report hop that woke R) — a later hop must read the STORED, rewound cause, or the rewind does not propagate",
+			hs[5].cause, hs[4].id)
+	}
+	if hs[6].cause == nil || *hs[6].cause != hs[5].id {
+		t.Errorf("Lead→W cause = %v, want %d", hs[6].cause, hs[5].id)
+	}
+}
