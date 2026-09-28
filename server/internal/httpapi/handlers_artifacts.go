@@ -360,6 +360,24 @@ func DownloadWriteBudget(size int64) time.Duration {
 	return 2*time.Minute + time.Duration(size/(64<<10))*time.Second
 }
 
+// previewDisposition is the Content-Disposition rule for a download, in one
+// place so it can be asserted without a server (NN1, 리뷰 #375).
+//
+// Three things must all hold for `inline`: the caller asked, the type is the
+// SERVER's judgment, and that judgment is on the preview list. The middle one
+// carries the weight: a row stored before migration 0042 keeps the uploader's
+// claim until judgeLegacy reads its first bytes, and an unjudged claim of
+// `image/png` over an HTML body must never open as a document. Today every
+// read path judges before reaching here, so dropping the check leaves the
+// tests green — this function exists so the rule is stated where a future
+// path that forgets to judge is still refused.
+func previewDisposition(asked, judged bool, contentType string) string {
+	if asked && judged && artifacts.Previewable(contentType) {
+		return "inline"
+	}
+	return "attachment"
+}
+
 // DownloadArtifact streams the body. Content-Length is declared because the
 // CLI compares it against the bytes it actually wrote (colab-cli README): with
 // a chunked response a truncated download and a complete one look the same,
@@ -391,10 +409,7 @@ func (s *Server) DownloadArtifact(w http.ResponseWriter, r *http.Request, artifa
 		return
 	}
 	defer func() { _ = c.Close() }()
-	disposition := "attachment"
-	if params.Inline != nil && *params.Inline && a.ContentTypeJudged && artifacts.Previewable(c.ContentType) {
-		disposition = "inline"
-	}
+	disposition := previewDisposition(params.Inline != nil && *params.Inline, a.ContentTypeJudged, c.ContentType)
 	h := w.Header()
 	h.Set("Content-Type", c.ContentType)
 	h.Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": c.Name}))
@@ -421,6 +436,14 @@ func (s *Server) DownloadArtifact(w http.ResponseWriter, r *http.Request, artifa
 	// still cut off, and with it the transaction holding the pool connection.
 	// The socket deadline is the OS clock's, not s.Clock (a test's fake clock
 	// would put it in the past and close the connection at once).
+	//
+	// NN2 (리뷰 #375): the budget is `length` — what this response actually
+	// sends — not `c.Size`. A Range request asking 100 bytes of a 50 MB file
+	// gets the 100-byte budget, so a client that stalls mid-preview is cut off
+	// on the same terms as any small response; sizing it by the whole artifact
+	// would hand a seeking player minutes of grace it never needs. The two
+	// agree when there is no Range (length == c.Size), which is why swapping
+	// them leaves every test green — the difference is a time, not a byte.
 	if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(DownloadWriteBudget(length))); err != nil && !errors.Is(err, http.ErrNotSupported) {
 		s.Log.Warn("artifact download write deadline", "artifact", a.ID, "err", err)
 	}

@@ -30453,7 +30453,7 @@
       "name": "S7-CD 방 화면 · 대화 배치 · 다크 · 좁은 화면 (v0.19.4)",
       "clip": true,
       "width": 420,
-      "height": 1739,
+      "height": 1839,
       "fill": "#0F0F11",
       "layout": "vertical",
       "children": [
@@ -31250,7 +31250,7 @@
                       "fill": "#A6A6AE",
                       "textGrowth": "fixed-width",
                       "width": "fill_container",
-                      "content": "↩ @Lead 의 「법 통과 여부 · 시장 규모 전망 · 해외 사례를…」에 대한 보고",
+                      "content": "↩ @Lead의 「법 통과 여부 · 시장 규모 전망 · 해외 사례를…」에 대한 보고",
                       "fontFamily": "$font",
                       "fontSize": 12,
                       "fontWeight": "normal"
@@ -31979,7 +31979,7 @@
                               "fill": "#A6A6AE",
                               "textGrowth": "fixed-width",
                               "width": "fill_container",
-                              "content": "↩ Simplist 의 「커브가 어색해」에 대한 보고",
+                              "content": "↩ Simplist의 「커브가 어색해」에 대한 보고",
                               "fontFamily": "$font",
                               "fontSize": 11,
                               "fontWeight": "normal"
@@ -32598,6 +32598,46 @@
                       ],
                       "children": [
                         {
+                          "type": "frame",
+                          "id": "j8dkp",
+                          "name": "Now line 「지금」 줄 (v0.19.13 · aria-live polite · 두 줄 말줄임)",
+                          "width": "fill_container",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "mdxTE",
+                              "name": "Now label",
+                              "fill": "#A6A6AE",
+                              "content": "지금 ",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "dkgGs",
+                              "name": "Focus text (lane focus.text · ink · body · 500)",
+                              "fill": "#F4F4F5",
+                              "textGrowth": "fixed-width",
+                              "width": 268,
+                              "content": "코너에서 차가 미끄러지는 원인을 찾고 있습니다 — 타이어 접지 한계를 점검하는 중입니다",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "text",
+                              "id": "rM5yF",
+                              "name": "Focus age (ink-2 · meta)",
+                              "fill": "#A6A6AE",
+                              "content": " · 3분 전",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
                           "type": "text",
                           "id": "bBYCE",
                           "name": "Memo line (마지막 문장 — 좁은 화면에선 말줄임)",
@@ -32786,6 +32826,46 @@
                         12
                       ],
                       "children": [
+                        {
+                          "type": "frame",
+                          "id": "KBkri",
+                          "name": "Now line 「지금」 줄 (v0.19.13 · aria-live polite · 두 줄 말줄임)",
+                          "width": "fill_container",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "p5BjTb",
+                              "name": "Now label",
+                              "fill": "#A6A6AE",
+                              "content": "지금 ",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "IgNGE",
+                              "name": "Focus text (focus.source=derived · 대신 문장 · 전체 ink-2)",
+                              "fill": "#A6A6AE",
+                              "textGrowth": "fixed-width",
+                              "width": 278,
+                              "content": "@Lead의 「BGM v2 를 16분음표 격자로」 요청을 처리하고 있습니다",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "e0Px10",
+                              "name": "Focus age (ink-2 · meta)",
+                              "fill": "#A6A6AE",
+                              "content": " · 방금",
+                              "fontFamily": "$font",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
                         {
                           "type": "frame",
                           "id": "KAqyv",
@@ -36231,7 +36311,7 @@
       "name": "S7-C 방 화면 · 대화 배치 (v0.19.4)",
       "clip": true,
       "width": 1440,
-      "height": 1657,
+      "height": 1777,
       "fill": "$bg",
       "children": [
         {
@@ -36979,7 +37059,7 @@
                           "content": "@Lead"
                         },
                         "PDkU3": {
-                          "content": "경쟁사 요율표 정리 중 · 12분 · 미션 없음"
+                          "content": "지금 코너에서 차가 미끄러지는 원인을 찾고 있습니다"
                         }
                       }
                     },
@@ -37783,7 +37863,7 @@
                               "id": "Sj9Vy",
                               "name": "↩ report link",
                               "fill": "$ink-2",
-                              "content": "↩ @Lead 의 「법 통과 여부 · 시장 규모 전망 · 해외 사례를…」에 대한 보고",
+                              "content": "↩ @Lead의 「법 통과 여부 · 시장 규모 전망 · 해외 사례를…」에 대한 보고",
                               "fontFamily": "$font",
                               "fontSize": 12,
                               "fontWeight": "normal"
@@ -38500,7 +38580,7 @@
                                       "id": "V4bey",
                                       "name": "↩ report link",
                                       "fill": "$ink-2",
-                                      "content": "↩ Simplist 의 「커브가 어색해」에 대한 보고",
+                                      "content": "↩ Simplist의 「커브가 어색해」에 대한 보고",
                                       "fontFamily": "$font",
                                       "fontSize": 11,
                                       "fontWeight": "normal"
@@ -38958,6 +39038,18 @@
                       "fontWeight": "normal"
                     },
                     {
+                      "type": "text",
+                      "id": "n36C3W",
+                      "name": "Annotation v0.19.13 지금 줄",
+                      "fill": "$ink-3",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "v0.19.13 — 「지금」 줄: 에이전트가 선언한 지금 하는 일 · 선언 전엔 흐린 대신 문장",
+                      "fontFamily": "$font",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    },
+                    {
                       "type": "frame",
                       "id": "OC4Aw",
                       "name": "Working bubble @Lead (v0.19.10) — 접힘 · 점선 1px $line · 배경 없음",
@@ -39100,6 +39192,46 @@
                                 12
                               ],
                               "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "CGMWw",
+                                  "name": "Now line 「지금」 줄 (v0.19.13 · aria-live polite · 두 줄 말줄임)",
+                                  "width": "fill_container",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "wI0SS",
+                                      "name": "Now label",
+                                      "fill": "$ink-2",
+                                      "content": "지금 ",
+                                      "fontFamily": "$font",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "l2f3l",
+                                      "name": "Focus text (lane focus.text · ink · body · 500)",
+                                      "fill": "$ink",
+                                      "textGrowth": "fixed-width",
+                                      "width": 468,
+                                      "content": "코너에서 차가 미끄러지는 원인을 찾고 있습니다 — 타이어 접지 한계를 점검하는 중입니다",
+                                      "fontFamily": "$font",
+                                      "fontSize": 13,
+                                      "fontWeight": "500"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "S4qZ5",
+                                      "name": "Focus age (ink-2 · meta)",
+                                      "fill": "$ink-2",
+                                      "content": " · 3분 전",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
                                 {
                                   "type": "text",
                                   "id": "CSIeA",
@@ -39287,6 +39419,46 @@
                                 12
                               ],
                               "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "LgIO6",
+                                  "name": "Now line 「지금」 줄 (v0.19.13 · aria-live polite · 두 줄 말줄임)",
+                                  "width": "fill_container",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "z7YDKt",
+                                      "name": "Now label",
+                                      "fill": "$ink-2",
+                                      "content": "지금 ",
+                                      "fontFamily": "$font",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "qCqWl",
+                                      "name": "Focus text (focus.source=derived · 대신 문장 · 전체 ink-2)",
+                                      "fill": "$ink-2",
+                                      "textGrowth": "fixed-width",
+                                      "width": 478,
+                                      "content": "@Lead의 「BGM v2 를 16분음표 격자로」 요청을 처리하고 있습니다",
+                                      "fontFamily": "$font",
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "uRb03",
+                                      "name": "Focus age (ink-2 · meta)",
+                                      "fill": "$ink-2",
+                                      "content": " · 방금",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
                                 {
                                   "type": "frame",
                                   "id": "w7dl3K",

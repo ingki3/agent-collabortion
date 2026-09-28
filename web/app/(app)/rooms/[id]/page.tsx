@@ -871,6 +871,9 @@ export default function RoomPage() {
     return !(tailIdle && memoSegments(m && (m.taskId == null || m.taskId === taskId) ? m : undefined).length === 0);
   });
   const bubbleAgents = new Set(bubbles.map((b) => b.agentId));
+  // 「지금」 줄(PRD FR-3.1.5) — 그 턴이 도는 서브 미션의 lane `focus`. 서버가 턴이 끝나면 비운다.
+  const focusFor = (agentId: string, taskId: string | null) =>
+    shownLanes.find((l) => (taskId ? l.current_task?.id === taskId : l.agent_id === agentId && l.status === "running"))?.focus ?? null;
   const memoFor = (agentId: string, taskId: string | null) => {
     const m = memos[agentId];
     return m && (m.taskId == null || taskId == null || m.taskId === taskId) ? m : undefined;
@@ -1269,6 +1272,8 @@ export default function RoomPage() {
                   taskId={taskId}
                   agentName={agentById.get(agentId)?.name ?? "agent"}
                   summary={taskId ? summarizeProcess(events[taskId], tail) : null}
+                  focus={focusFor(agentId, taskId)}
+                  now={now}
                   memoLine={lastSentence(memo)}
                   memoParas={memoSegments(memo)}
                   open={open}

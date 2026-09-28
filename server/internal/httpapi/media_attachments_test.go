@@ -378,3 +378,42 @@ func TestLegacyContentTypeIsJudgedOnRead(t *testing.T) {
 		t.Fatalf("(legacy) old spoofed row served %q", res.Header.Get("Content-Disposition"))
 	}
 }
+
+// NN1 (리뷰 #375): 「판정 안 된 옛 행은 미리보기 대상이 아니다」를 직접 단정한다.
+//
+// TestLegacyContentTypeIsJudgedOnRead 는 옛 행이 읽힐 때 재판정되는 것을 보지만,
+// 재판정이 끝난 뒤를 보므로 judged 검사 자체를 지워도 초록이었다(주입 M8). 이 표는
+// 서버 없이 그 세 조건을 따로 건드린다 — 특히 판정 안 된 image/png 주장은 부른 쪽이
+// inline 을 요구해도 attachment 다.
+//
+// 회귀 주입: previewDisposition 에서 judged 를 지우면 (unjudged) FAIL;
+// Previewable 검사를 지우면 (html) FAIL; asked 를 무시하면 (not-asked) FAIL.
+func TestPreviewDispositionNeedsTheServersJudgment(t *testing.T) {
+	for _, c := range []struct {
+		name              string
+		asked, judged     bool
+		contentType, want string
+	}{
+		// 판정 안 된 행은 무엇을 주장하든 미리보기가 아니다 — 0042 주석의 그 규칙.
+		{"unjudged image/png claim", true, false, "image/png", "attachment"},
+		{"unjudged audio claim", true, false, "audio/mpeg", "attachment"},
+		// 판정된 값이라야 목록을 본다.
+		{"judged png", true, true, "image/png", "inline"},
+		{"judged mp3", true, true, "audio/mpeg", "inline"},
+		{"judged svg", true, true, "image/svg+xml", "inline"},
+		{"judged html", true, true, "text/html; charset=utf-8", "attachment"},
+		// 부른 쪽이 묻지 않으면 언제나 내려받기다.
+		{"not asked", false, true, "image/png", "attachment"},
+	} {
+		if got := previewDisposition(c.asked, c.judged, c.contentType); got != c.want {
+			label := "(html)"
+			switch {
+			case !c.judged:
+				label = "(unjudged)"
+			case !c.asked:
+				label = "(not-asked)"
+			}
+			t.Errorf("%s %s: previewDisposition(%v, %v, %q) = %q, want %q", label, c.name, c.asked, c.judged, c.contentType, got, c.want)
+		}
+	}
+}

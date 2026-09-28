@@ -67,6 +67,11 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
                              [{"to":["@Simplist"],"body":"…","detail_file":"…"}, …] — each recipient gets
                              only its own part. Not with --body · --detail · --detail-file · --mention
   colab status set working|blocked|done [--note <text>]
+                             working --note "<one sentence>" tells the people what you are doing now —
+                             it is shown in the room as 「지금 …」 until the turn ends. Say it right
+                             after the turn starts and whenever the problem changes, in the room's
+                             language, conversational: what and why (120 chars; longer is cut). Not
+                             after every tool call — declarations inside 60s show only the last one.
                              blocked needs --note (the question); the reply carries turn_end_required
   colab lane delegate --agent <name> --brief <text> [--depends-on <lane_id>] [--profile <name>]
                              always a new lane; the target must already be a room participant

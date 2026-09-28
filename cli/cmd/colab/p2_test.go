@@ -120,6 +120,46 @@ func TestCLIStatusSetWordForms(t *testing.T) {
 	}
 }
 
+// colab-cli v0.9.7: `working --note` is the lane's 「지금」. The CLI sends the
+// sentence exactly as written — the server cuts it at 120 and ignores an
+// empty one (one rule, one place) — and `working` without --note sends no
+// note at all.
+//
+// 회귀 주입: StatusSet 가 note 를 120자로 잘라 보내면 (long) FAIL; 빈 --note 를
+// 거부하면 (empty) FAIL; 도움말에서 「지금」 문장을 지우면 (help) FAIL.
+func TestCLIStatusSetWorkingNote(t *testing.T) {
+	long := strings.Repeat("타이어 접지 한계를 점검하고 있습니다 ", 10)
+	for _, c := range []struct {
+		name string
+		args []string
+		note any
+	}{
+		{"long", []string{"status", "set", "working", "--note", long}, long},
+		{"empty", []string{"status", "set", "working", "--note", ""}, nil},
+		{"none", []string{"status", "set", "working"}, nil},
+	} {
+		s := clienttest.New(t)
+		if code, v, _ := exec(t, s.Env(t.TempDir()), c.args...); code != client.ExitOK {
+			t.Fatalf("(%s) code=%d v=%v", c.name, code, v)
+		}
+		if len(s.StatusCalls) != 1 {
+			t.Fatalf("(%s) status calls = %d", c.name, len(s.StatusCalls))
+		}
+		if got := s.StatusCalls[0].Body["note"]; got != c.note {
+			t.Fatalf("(%s) note sent = %q, want %q", c.name, got, c.note)
+		}
+		if s.StatusCalls[0].Body["status"] != "working" {
+			t.Fatalf("(%s) status = %v", c.name, s.StatusCalls[0].Body["status"])
+		}
+	}
+	// (help) the usage text says what the note is for.
+	for _, w := range []string{"tells the people what you are doing now", "「지금 …」", "120 chars", "declarations inside 60s show only the last one"} {
+		if !strings.Contains(strings.Join(strings.Fields(usageText), " "), w) {
+			t.Errorf("(help) usage lacks %q", w)
+		}
+	}
+}
+
 func TestCLIStatusSetUsage(t *testing.T) {
 	s := clienttest.New(t)
 	env := s.Env(t.TempDir())

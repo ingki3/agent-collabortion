@@ -16,6 +16,7 @@ import (
 	"github.com/ingki3/agent-collabortion/contracts/clock"
 	"github.com/ingki3/agent-collabortion/server/internal/cost"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
+	"github.com/ingki3/agent-collabortion/server/internal/lanefocus"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
 )
@@ -226,6 +227,12 @@ func (s *Service) MarkDispatched(ctx context.Context, tx pgx.Tx, t *Row, runtime
 		return "", fmt.Errorf("tasks: attempt row: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'running', updated_at = $2 WHERE id = $1`, t.LaneID, now); err != nil {
+		return "", err
+	}
+	// PRD FR-3.1.5 item 3: until the agent says what it is doing, the lane's
+	// 「지금」 is the server's sentence built from this turn's trigger
+	// (source = derived) — written here, the one moment a turn starts.
+	if err := lanefocus.Derive(ctx, tx, t.LaneID, t.ID, now); err != nil {
 		return "", err
 	}
 	token, err := s.Tokens.Issue(ctx, tx, tokens.Scope{
@@ -1107,6 +1114,13 @@ func (s *Service) publish(ctx context.Context, q db.DBTX, t *Row) {
 	if s.Hub != nil {
 		sid := t.SessionID
 		_ = s.Hub.Publish(ctx, q, t.WorkspaceID, &sid, "task.updated", ToAPI(t, nil, nil))
+	}
+	// PRD FR-3.1.5 item 2: the turn ended (turn_end · error · cancel ·
+	// finish all pass here) → the lane's 「지금」 goes empty; after the turn
+	// the posted message speaks. ClearIfIdle keeps it while another task of
+	// the lane still runs. Before the frame, so the frame carries the null.
+	if err := lanefocus.ClearIfIdle(ctx, q, t.LaneID); err != nil {
+		slog.Warn("tasks: lane focus clear", "lane", t.LaneID, "err", err)
 	}
 	if s.LanePublish != nil {
 		s.LanePublish(ctx, q, t.LaneID)

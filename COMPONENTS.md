@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 문서 버전 | **v0.19.8** — §9.12 **Media Preview · Attachment Chip**(SCREEN v0.19.12). **v0.19.7** — §9.11 **Part Bubble · Part Head(부분 메시지)**(SCREEN v0.19.11). **v0.19.6** — §9.10 **Working Bubble(「작업 중」 말풍선)**(SCREEN v0.19.10). **v0.19.5** — §9.9 **Inline Title Edit(방 이름 그 자리 편집)**(PRD FR-2.1.2). **v0.19.4** — §9.8 **Addressee Line(보낸 쪽 → 받는 쪽 머리) · Chat Bubble** — 타임라인 대화 배치(PRD FR-3.1.3). **v0.19.3** — §9.6 **Fold Row(작업 내용·작업 과정 접힘 줄)** · §9.7 **Timeline View Toggle(대화만 / 작업 내용 펼침)** — 에이전트 메시지 세 층(PRD FR-3.1.2). **v0.19.2** — 구조 전환(방·미션) 반영 + V19-GAP(PRD #280) 라벨 정정. §1~§7 은 **세션 모델 P0 와이어프레임의 기록**이고, **§8·§9 가 현행 규약이다** |
+| 문서 버전 | **v0.19.9** — §9.10 Working Bubble 에 **「지금」 줄**(SCREEN v0.19.13). **v0.19.8** — §9.12 **Media Preview · Attachment Chip**(SCREEN v0.19.12). **v0.19.7** — §9.11 **Part Bubble · Part Head(부분 메시지)**(SCREEN v0.19.11). **v0.19.6** — §9.10 **Working Bubble(「작업 중」 말풍선)**(SCREEN v0.19.10). **v0.19.5** — §9.9 **Inline Title Edit(방 이름 그 자리 편집)**(PRD FR-2.1.2). **v0.19.4** — §9.8 **Addressee Line(보낸 쪽 → 받는 쪽 머리) · Chat Bubble** — 타임라인 대화 배치(PRD FR-3.1.3). **v0.19.3** — §9.6 **Fold Row(작업 내용·작업 과정 접힘 줄)** · §9.7 **Timeline View Toggle(대화만 / 작업 내용 펼침)** — 에이전트 메시지 세 층(PRD FR-3.1.2). **v0.19.2** — 구조 전환(방·미션) 반영 + V19-GAP(PRD #280) 라벨 정정. §1~§7 은 **세션 모델 P0 와이어프레임의 기록**이고, **§8·§9 가 현행 규약이다** |
 | 대상 | `agent-collaboration.pen` 와이어프레임 **v0.4** (P0, **세션 모델**) + `web/` 구현 |
 | 근거 | `PRD.md` **v0.19** §3.2 화면 용어(정본) · `SCREEN.md` **v0.19.2** §5 공통 컴포넌트, `design/DESIGN_REVIEW_01.md` §6.2 · `design/DESIGN_REVIEW_02.md` §4 (컴포넌트화 요청). 리뷰·후속 조치 이력은 `design/` |
 | 작성일 | 2026-09-04 (v0.19.1: 2026-09-22 — SCREEN 검증 3건 반영 · v0.19.2: 2026-09-23 — `manual` 라벨 「직접 멈춤」, 루프는 방 사유만) |
@@ -534,6 +534,8 @@ S7 방 머리 이름과 S5 방 카드 이름 줄이 **같은 컴포넌트**를 �
 | 끝남 | 같은 자리에서 게시된 Chat Bubble 로 교체(높이 튐 최소 — 교체 전 높이를 min-height 로 한 프레임 유지) |
 
 **Pencil**: `S7-C 방 화면 · 대화 배치` 맨 아래(옛 「Working row @Lead 작업 중 (v0.19.6)」 자리) — 에이전트 둘이 동시에 작업 중인 상태, 펼친 상태, 다크.
+
+**「지금」 줄 (v0.19.9, SCREEN v0.19.13)** — 머리 아래 첫 줄. 「지금 」 `$ink-2` + 문장 `$ink` `--fs-body` 500(대신 문장이면 문장도 `$ink-2`) + 「· n분 전」 `$ink-2` `--fs-meta`, 두 줄 말줄임. 서브 미션 카드(Lane Card)의 상태 문구 자리도 같은 줄(`--fs-sub`).
 
 ### 9.11 Part Bubble · Part Head (부분 메시지) — 신규 (v0.19.7, SCREEN v0.19.11 §4.6 「부분 메시지」 · PRD FR-3.1.4)
 

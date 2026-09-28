@@ -21,7 +21,8 @@ import { Badge } from "./Badge";
 import { LaneTaskHistory } from "./LaneTaskHistory";
 import { durationSince, relativeTime } from "@/lib/time";
 import { failureLabel } from "@/lib/failure";
-import { EMPTY_TURN } from "@/lib/wording";
+import { EMPTY_TURN, FOCUS } from "@/lib/wording";
+import { FocusLine } from "./FocusLine";
 import type { Lane, Task } from "@/lib/api/types";
 
 export type LaneAction = NonNullable<Lane["actions"]>[number];
@@ -92,7 +93,10 @@ export function LaneCard(props: LaneCardProps) {
   const note = laneNote(lane);
   const reason = props.disabledReason ?? "Director·deputy 만 할 수 있습니다";
 
-  const btn = (key: LaneAction, label: string, onClick: (() => void) | undefined, primary = false) => {
+  // 「지금」 줄(SCREEN v0.19.13 · PRD FR-3.1.5) — 실행 중인 카드는 상태 문구 자리에 lane `focus` 한 줄. 없으면(선언 전 대신 문장도 없는
+  // 경우·대기·끝남) 지금 문구 그대로.
+  const focus = lane.status === "running" && lane.focus?.text ? lane.focus : null;
+  const btn = (key: LaneAction, label: string, onClick: (() => void) | undefined, primary = false, title?: string) => {
     const allowed = actions.has(key);
     return (
       <button
@@ -100,7 +104,7 @@ export function LaneCard(props: LaneCardProps) {
         type="button"
         className={`btn btn--sm${primary ? " btn--primary" : ""}`}
         disabled={!allowed || !onClick}
-        title={!allowed ? reason : undefined}
+        title={!allowed ? reason : title}
         onClick={onClick}
         data-testid={`lane-action-${key}`}
       >
@@ -112,7 +116,8 @@ export function LaneCard(props: LaneCardProps) {
   const buttons: React.ReactNode[] = [];
   if (lane.status === "running") {
     buttons.push(btn("restart", "중단하고 다시 지시", props.onRestart && (() => props.onRestart!(lane))));
-    buttons.push(btn("cancel", "중단", props.onCancel && (() => props.onCancel!(lane))));
+    // 「취소는 즉시 가능」은 상태 문구에서 버튼 옆으로(툴팁) — SCREEN v0.19.13.
+    buttons.push(btn("cancel", "중단", props.onCancel && (() => props.onCancel!(lane)), false, FOCUS.cancel_title));
   } else if (lane.status === "blocked") {
     buttons.push(
       <button
@@ -162,6 +167,8 @@ export function LaneCard(props: LaneCardProps) {
       {props.workLabel && <div className="lane__work">{props.workLabel}</div>}
       {props.queuedReason && lane.status === "queued" ? (
         <div className="lane__note" data-testid="lane-queued-reason" data-reason={lane.queued_reason ?? undefined}>{props.queuedReason}</div>
+      ) : focus ? (
+        <FocusLine focus={focus} now={props.now} variant="lane" testId="lane-focus" />
       ) : note ? (
         <div className="lane__note" data-testid="lane-note" data-status={lane.status}>{note}</div>
       ) : null}

@@ -24,6 +24,7 @@ import { ARCHIVE_DIALOG, CREATE_ROOM, DELETE_ROOM_DIALOG, ROOM_BLOCKED_LABEL, RO
 import { BLOCK_DIALOG, ROOM_BANNER, ROOM_CENTER, ROOM_HEAD, ROOM_LEFT, ROOM_NOTICES, ROOM_PANEL, ROOM_TABS, SUMMARIZE_DIALOG, WORK_CHIPS, WORK_PANEL, WORK_PAUSE_LABEL, WORK_SELECTOR } from "@/lib/wording";
 import { MEDIA, MESSAGE_LAYERS, PARTS, PROCESS_ACTION } from "@/lib/wording";
 import { ROOM_RENAME } from "@/lib/wording";
+import { FOCUS } from "@/lib/wording";
 import { FOLDERS_WORDING } from "@/lib/workdir-tree";
 import { CLOSE_WORK_DIALOG } from "@/components/CloseWorkDialog";
 import { BLOCKED_REASON, COMMAND_LABEL, CONDITION_EDITOR, CONDITION_NAME, EMPTY_TURN, FIX_CONDITION, OBSERVATIONS, PROGRESS, ROLE_COMMANDS, ROUTING_PLATFORM_LABEL, ROUTING_RULE_LABEL, conditionName, routingKindLabel } from "@/lib/wording";
@@ -1045,3 +1046,21 @@ describe("v0.19.12 미디어·첨부 — 문구는 표(MEDIA)에서만, SCREEN �
 function inPoolM(file: string, text: string) {
   return POOL.some((v) => v.file === file && v.text.includes(text));
 }
+// ── v0.19.13 「지금」 줄(PRD FR-3.1.5 · SCREEN v0.19.13 · COMPONENTS §9.10) ─────────
+describe("v0.19.13 「지금」 줄 — 머리말·툴팁은 표(FOCUS)에서만, 옛 상태 문구는 없다", () => {
+  const src = (f: string) => readFileSync(join(ROOT, f), "utf8");
+  const code = (f: string) => src(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "").replace(/\s\/\/.*$/gm, "");
+  it("SCREEN 의 말 그대로 — 지금 · 취소는 즉시 가능(버튼 툴팁)", () => {
+    expect(FOCUS.now).toBe("지금");
+    expect(FOCUS.cancel_title).toBe("취소는 즉시 가능");
+    expect(FOCUS.derived_title).toContain("받은 요청으로 만든 문장");
+  });
+  it("컴포넌트는 표를 그린다 — 「지금」·툴팁을 직접 쓰지 않는다", () => {
+    expect(src("components/FocusLine.tsx")).toContain("FOCUS.now");
+    expect(src("components/FocusLine.tsx")).toContain("FOCUS.derived_title");
+    expect(src("components/LaneCard.tsx")).toContain("FOCUS.cancel_title");
+    for (const f of ["components/FocusLine.tsx", "components/LaneCard.tsx", "components/MessageLayers.tsx"]) {
+      expect(code(f), f).not.toMatch(/"지금"|"취소는 즉시 가능"|받은 요청으로 만든/);
+    }
+  });
+});
