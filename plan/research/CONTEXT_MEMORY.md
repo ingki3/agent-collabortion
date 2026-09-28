@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 상태 | **0단계 진행**(Director 승인 2026-09-28). 1단계 이후는 0단계 수치를 보고 정한다 |
-| 근거 | `context-memory/01-graphify.md`(graphify 검토 — 도입 안 함) · `02-memory-directions.md`(방향 조사) · `03-oss-survey.md`(오픈소스 15종 조사: Orca·multica·graphify·Magentic-One·Letta·OpenHands 등) |
+| 근거 | `context-memory/01-graphify.md`(graphify 검토 — 도입 안 함) · `02-memory-directions.md`(방향 조사) · `03-oss-survey.md`(오픈소스 15종 조사: Orca·multica·graphify·Magentic-One·Letta·OpenHands 등) · **`04-baseline.md`(0단계 기준선 — H1 채택·H2 기각, 회상 22/30)** |
 | 계기 | Director: 「키워드 매칭으로는 근본적인 개선이 되기 어렵다」(`colab room search` 안 기각, 2026-09-27) |
 
 ## 1. 문제 (실측, 게임 제작 방 2026-09-27)
