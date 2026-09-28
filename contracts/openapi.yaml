@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Colab Server API
-  version: 0.3.8-draft
+  version: 0.3.9-draft
   summary: Colab 서버 REST API — P1~P3(수직 슬라이스 · 협업 코어 · HITL/재개/예산)에서 웹(W)과 colab CLI(C)가 호출하는 전부.
   description: |
     # 읽는 법
@@ -4841,6 +4841,7 @@ components:
       description: S7 우열 "종료 조건 진행률" — 조건별 충족 여부와 누구 차례인지.
       required: [met, total, satisfied, conditions]
       properties:
+        paused_agent_triggers: { type: integer, minimum: 0, description: 'v0.3.9 — 승인 대기(PRD FR-2A.2.3)로 보류된 에이전트 간 트리거(`queued_reason: approval_pending` task) 수. 화면은 `user_approval` 조건 행 아래 한 줄로 보인다. 0 이면 줄 없음.' }
         met: { type: integer }
         total: { type: integer }
         satisfied: { type: boolean, description: 트리 전체 판정. true면 `completing`으로 간다. }
@@ -5069,7 +5070,7 @@ components:
             type: object
             required: [code, message]
             properties:
-              code: { type: string, description: '`not_participant` · `suppressed_delegator` · `loop_limit_near` · `agent_disabled`.' }
+              code: { type: string, description: '`not_participant` · `suppressed_delegator` · `loop_limit_near` · `agent_disabled` · `approval_pending`(v0.3.9 — 승인 대기로 그 받는 쪽의 트리거를 보류, PRD FR-2A.2.3: `message` 는 harness v0.9.15 문장, `agent_id` 는 보류된 받는 쪽).' }
               message: { type: string }
               agent_id: { type: [string, 'null'], format: uuid }
         work: { oneOf: [{ type: object, required: [id, title], properties: { id: { type: string, format: uuid }, title: { type: string } } }, { type: 'null' }], description: v0.2.0 — 이 메시지가 들어갈 미션. }
@@ -5677,8 +5678,8 @@ components:
       description: '`work_proposal.status` (FR-2A.1). 기한이 없어 `expired` 는 없다.'
     QueuedReason:
       type: string
-      enum: [room_lanes, agent_global, runtime, workspace]
-      description: '`task.queued_reason` (PRD §3.1) — 큐에 걸린 이유. `agent_global` 은 에이전트 `max_concurrent_tasks` 가 방을 가로질러 찼다(§12.1-5).'
+      enum: [room_lanes, agent_global, runtime, workspace, approval_pending]
+      description: '`task.queued_reason` (PRD §3.1) — 큐에 걸린 이유. `agent_global` 은 에이전트 `max_concurrent_tasks` 가 방을 가로질러 찼다(§12.1-5). v0.3.9 `approval_pending` — 일이 Director 승인만 남아(PRD FR-2A.2.3) 에이전트 메시지의 트리거를 보류 중. 이 task 는 dispatch 되지 않고, 승인되면 `cancelled`, 수정 요청·사람 지시·조건 변경이면 사유가 풀려 차례대로 돈다. FR-2A.2.1 의 「실행·대기 중」에 세지 않는다.'
     WorkSource:
       type: string
       enum: [chosen, thread, running_lane, none]

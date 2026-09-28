@@ -22,8 +22,9 @@ import { NAV_ITEMS } from "@/components/AppNav";
 import { BADGE_MAP } from "@/components/badge-map";
 import { ARCHIVE_DIALOG, CREATE_ROOM, DELETE_ROOM_DIALOG, ROOM_BLOCKED_LABEL, ROOM_DELETED_NOTICE, ROOM_LIST, ROOM_MENU, roomDefaultsLine } from "@/lib/wording";
 import { BLOCK_DIALOG, ROOM_BANNER, ROOM_CENTER, ROOM_HEAD, ROOM_LEFT, ROOM_NOTICES, ROOM_PANEL, ROOM_TABS, SUMMARIZE_DIALOG, WORK_CHIPS, WORK_PANEL, WORK_PAUSE_LABEL, WORK_SELECTOR } from "@/lib/wording";
-import { MESSAGE_LAYERS, PARTS, PROCESS_ACTION } from "@/lib/wording";
+import { MEDIA, MESSAGE_LAYERS, PARTS, PROCESS_ACTION } from "@/lib/wording";
 import { ROOM_RENAME } from "@/lib/wording";
+import { FOCUS } from "@/lib/wording";
 import { FOLDERS_WORDING } from "@/lib/workdir-tree";
 import { CLOSE_WORK_DIALOG } from "@/components/CloseWorkDialog";
 import { BLOCKED_REASON, COMMAND_LABEL, CONDITION_EDITOR, CONDITION_NAME, EMPTY_TURN, FIX_CONDITION, OBSERVATIONS, PROGRESS, ROLE_COMMANDS, ROUTING_PLATFORM_LABEL, ROUTING_RULE_LABEL, conditionName, routingKindLabel } from "@/lib/wording";
@@ -1003,5 +1004,63 @@ describe("v0.19.9 [FOLDERS] — 폴더 트리·닫기 확인·S17 none 의 말�
     expect(src("components/CloseWorkDialog.tsx")).toContain("FOLDERS_WORDING.closeLine");
     expect(src("components/RebindDialog.tsx")).toContain("FOLDERS_WORDING.rebind_none_loss");
     expect(src("components/RebindDialog.tsx")).toContain("FOLDERS_WORDING.rebind_none_loss_title");
+  });
+});
+
+// ── v0.19.12 미디어 미리보기 · 파일 붙이기(SCREEN §4.6 · COMPONENTS §9.12 · PRD FR-4.3.1 · FR-3.7) ─────────────
+// 회귀 주입: MEDIA 의 문장 하나를 바꾸면 (table) FAIL; 컴포넌트에 문장을 직접 쓰면 (inline) FAIL.
+describe("v0.19.12 미디어·첨부 — 문구는 표(MEDIA)에서만, SCREEN 의 말 그대로", () => {
+  const src = (f: string) => readFileSync(join(ROOT, f), "utf8");
+  const code = (f: string) => src(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "").replace(/\s\/\/.*$/gm, "");
+  const FILES_M = ["components/MediaPreview.tsx", "components/Composer.tsx", "components/MessageCard.tsx", "lib/media.ts"];
+
+  it("문구가 사는 파일이 풀 범위 안이다", () => {
+    for (const f of FILES_M) expect(FILES).toContain(f);
+  });
+
+  it("(table) SCREEN §4.6 표·COMPONENTS §9.12 의 문장 그대로", () => {
+    expect(MEDIA).toMatchObject({
+      preview_failed: "미리보기를 불러올 수 없습니다 — 내려받아 여세요",
+      attach: "파일 붙이기",
+      drop_here: "여기에 놓으면 붙습니다",
+      uploading_block: "파일을 올리는 중입니다",
+      too_big: "50MB 를 넘습니다",
+      retry: "다시 시도",
+      download: "내려받기",
+      open: "열기",
+    });
+    expect(MEDIA.trigger_files.join("2")).toBe(" · 파일 2개를 함께 받습니다");
+    expect(MEDIA.remove("ae86.jpg")).toBe("ae86.jpg 빼기");
+    expect(MEDIA.play("bgm.mp3")).toBe("bgm.mp3 재생");
+    for (const t of [MEDIA.preview_failed, MEDIA.drop_here, MEDIA.uploading_block, MEDIA.too_big]) expect(inPoolM("lib/wording.ts", t), t).toBe(true);
+  });
+
+  it("(inline) 화면은 표를 그린다 — 컴포넌트에 문장을 직접 쓰지 않는다(주석 밖)", () => {
+    for (const f of FILES_M) expect(code(f), f).not.toMatch(/미리보기를 불러올 수 없습니다|여기에 놓으면 붙습니다|파일을 올리는 중입니다|50MB 를 넘습니다|함께 받습니다/);
+    expect(src("components/MediaPreview.tsx")).toContain("MEDIA.preview_failed");
+    expect(src("components/Composer.tsx")).toMatch(/slotText\(MEDIA\.trigger_files, doneIds\.length\)/);
+    expect(src("components/Composer.tsx")).toMatch(/<Slot text=\{MEDIA\.too_many\} n=\{MAX_ATTACHMENTS\} \/>/);
+  });
+});
+
+function inPoolM(file: string, text: string) {
+  return POOL.some((v) => v.file === file && v.text.includes(text));
+}
+// ── v0.19.13 「지금」 줄(PRD FR-3.1.5 · SCREEN v0.19.13 · COMPONENTS §9.10) ─────────
+describe("v0.19.13 「지금」 줄 — 머리말·툴팁은 표(FOCUS)에서만, 옛 상태 문구는 없다", () => {
+  const src = (f: string) => readFileSync(join(ROOT, f), "utf8");
+  const code = (f: string) => src(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "").replace(/\s\/\/.*$/gm, "");
+  it("SCREEN 의 말 그대로 — 지금 · 취소는 즉시 가능(버튼 툴팁)", () => {
+    expect(FOCUS.now).toBe("지금");
+    expect(FOCUS.cancel_title).toBe("취소는 즉시 가능");
+    expect(FOCUS.derived_title).toContain("받은 요청으로 만든 문장");
+  });
+  it("컴포넌트는 표를 그린다 — 「지금」·툴팁을 직접 쓰지 않는다", () => {
+    expect(src("components/FocusLine.tsx")).toContain("FOCUS.now");
+    expect(src("components/FocusLine.tsx")).toContain("FOCUS.derived_title");
+    expect(src("components/LaneCard.tsx")).toContain("FOCUS.cancel_title");
+    for (const f of ["components/FocusLine.tsx", "components/LaneCard.tsx", "components/MessageLayers.tsx"]) {
+      expect(code(f), f).not.toMatch(/"지금"|"취소는 즉시 가능"|받은 요청으로 만든/);
+    }
   });
 });

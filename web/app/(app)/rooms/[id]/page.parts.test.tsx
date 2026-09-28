@@ -261,3 +261,39 @@ describe("실시간 — 부분이 도착하는 대로 같은 말풍선에 채운
 function EVENTS_POST(i: number): TaskEvent {
   return ev("t1", 10 + i * 0.01, { class: "status", verb: "post_message", object_ref: `p${i}`, seq: 2 ** 30 + i, payload: { command: "message post", result_ref: `p${i}` } });
 }
+
+// v0.19.12 파일 붙이기(PRD FR-3.7 · openapi v0.3.7 MessagePartCreate.attachment_ids) —
+// 부분은 **제 첨부만** 보인다. 한 묶음은 한 목록을 나눠 쓰지 않는다: 받는 쪽마다 다른 말을
+// 하려고 부분으로 쪼갰는데 파일이 전부에게 보이면 쪼갠 뜻이 없어진다.
+//
+// 회귀 주입: PartBubble 의 files 를 지우면 (부분 첨부) FAIL; m.attachments 대신
+// 말풍선 첫 부분의 것을 전부에 쓰면 (안 나눈다) FAIL; MediaPreview 가 종류를 이름으로
+// 정하면 (사칭) FAIL.
+describe("부분 첨부 — 부분마다 제 파일", () => {
+  const png = { artifact_id: "art-png", name: "sprite.png", version: 1, type: "attachment", content_type: "image/png", size_bytes: 12 };
+  const mp3 = { artifact_id: "art-mp3", name: "loop.mp3", version: 2, type: "attachment", content_type: "audio/mpeg", size_bytes: 34 };
+  const html = { artifact_id: "art-html", name: "notes.png", version: 1, type: "attachment", content_type: "text/html; charset=utf-8", size_bytes: 9 };
+
+  it("(부분 첨부)(안 나눈다) 첨부 카드는 그 부분에만 — 다른 부분에는 없다", async () => {
+    MSGS = [order, { ...P0, attachments: [png] } as Message, { ...P1, attachments: [mp3] } as Message, P2];
+    await ready();
+    const [a, b, c] = within(bubblesP()[0]).getAllByTestId("part");
+    expect(within(a).getAllByTestId("part-attachments")).toHaveLength(1);
+    expect(within(a).getByTestId("media-image")).toHaveAttribute("alt", "sprite.png");
+    expect(within(a).queryByTestId("media-audio")).toBeNull();
+    expect(within(b).getByTestId("media-audio")).toBeInTheDocument();
+    expect(within(b).queryByTestId("media-image")).toBeNull();
+    expect(within(c).queryByTestId("part-attachments")).toBeNull();
+    // 버전은 AttachmentRef 그대로(게시 때 가리킨 것).
+    expect(within(b).getByTestId("part-attachments")).toHaveTextContent("v2");
+  });
+
+  it("(사칭) image/png 라고 이름 붙인 HTML 은 부분 안에서도 이미지로 그려지지 않는다", async () => {
+    MSGS = [order, { ...P0, attachments: [html] } as Message, P1, P2];
+    await ready();
+    const [a] = within(bubblesP()[0]).getAllByTestId("part");
+    expect(within(a).queryByTestId("media-image")).toBeNull();
+    expect(within(a).getByTestId("media-preview")).toHaveAttribute("data-kind", "file");
+    expect(within(a).getByTestId("media-open")).toHaveTextContent("열기");
+  });
+});

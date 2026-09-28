@@ -13,6 +13,7 @@ import { Slot } from "@/components/Slot";
 import { DETAIL_WINDOW_CHARS, charCount, countTables, firstLinePreview, formatChars, type ProcessSummary } from "@/lib/message-layers";
 import { MESSAGE_LAYERS as L } from "@/lib/wording";
 import type { Artifact } from "@/lib/api/types";
+import { FocusLine, type LaneFocus } from "./FocusLine";
 
 /** 접힌 줄 한 개 — 글리프 · 굵은 라벨 · 요약(한 줄 말줄임) · 꼬리. 펼친 영역은 `regionId` 로 잇는다(`aria-controls`). */
 function FoldRow({ label, open, onToggle, regionId, testId, children, tail }: {
@@ -129,13 +130,17 @@ export function ProcessFold({ messageId, summary, open, onToggle, children }: {
  *
  *  - 머리: `@이름` · 배지 「작업 중」 · 요약(걸린 시간 · 많은 동작 2개 — 「작업 과정」 접힌 줄과 같은 규칙) · 실패 꼬리 · 「···」.
  *    받는 쪽(→)·말의 종류 배지는 없다 — 아직 누구에게 한 말이 아니다. `role="status"`·`aria-live` 는 **머리에만**.
+ *  - 「지금」 줄(v0.19.13, PRD FR-3.1.5): 말풍선 첫 줄 — lane `focus`(에이전트가 선언한 한 문장, 선언 전엔 흐린 대신 문장) · n분 전.
+ *    `aria-live="polite"` 는 이 줄에도(사람이 가장 알고 싶은 줄). `focus` 가 없으면 줄이 없다.
  *  - 진행 메모 한 줄: 마지막 문장 하나(`aria-live` 밖 — 토큰마다 읽히면 안 된다). 없으면 줄이 없다.
  *  - 「진행 메모 전체 보기」: 조각마다 한 문단 → 그 아래 꼬리 조각의 활동 피드(`children`).
  * 펼침 상태는 부른 쪽이 들고 있다(실시간 갱신에도 유지). 턴이 끝나면 부른 쪽이 그리지 않는다.
  */
-export function WorkingBubble({ agentId, taskId, agentName, summary, memoLine, memoParas, open, onToggle, children, holdRef }: {
+export function WorkingBubble({ agentId, taskId, agentName, summary, memoLine, memoParas, open, onToggle, children, holdRef, focus, now }: {
   agentId: string; taskId: string | null; agentName: string; summary: ProcessSummary | null; memoLine: string | null; memoParas: string[];
   open: boolean; onToggle: () => void; children?: ReactNode; holdRef?: (el: HTMLElement | null) => void;
+  /** 이 턴의 lane `focus`(PRD FR-3.1.5) — 없으면 「지금」 줄이 없다. */
+  focus?: LaneFocus | null; now?: number;
 }) {
   const regionId = `working-${taskId ?? agentId}`;
   const parts: ReactNode[] = [];
@@ -166,6 +171,7 @@ export function WorkingBubble({ agentId, taskId, agentName, summary, memoLine, m
           <span className="wbub__dots" aria-hidden="true" data-testid="working-dots"><span>·</span><span>·</span><span>·</span></span>
         </div>
         <div className="convo__bubble wbub__bubble" data-testid="working-bubble-body">
+          <FocusLine focus={focus} now={now} live variant="bubble" testId="working-focus" />
           {memoLine && (
             <p className="wbub__line" data-testid="working-memo-line" title={memoLine}>
               <span className="wbub__rail" aria-hidden="true">┆</span>
@@ -187,7 +193,10 @@ export function WorkingBubble({ agentId, taskId, agentName, summary, memoLine, m
   );
 }
 
-/** 아티팩트 참조 줄 — 📄 이름 · 아티팩트 · vN · 열기(§4.6 우열 아티팩트와 같은 칸). */
+/**
+ * 아티팩트 참조 줄 — 📄 이름 · 아티팩트 · vN · 열기(§4.6 우열 아티팩트와 같은 칸). v0.19.12: 서버 판정 종류가 이미지·영상·소리면
+ * 방 화면은 이 줄 대신 Media Preview(COMPONENTS §9.12)를 쓴다 — 이 줄은 그 밖 종류(텍스트·diff·zip …)의 카드다.
+ */
 export function ArtifactRef({ artifact }: { artifact: Artifact }) {
   return (
     <div className="artref" data-testid="artifact-ref" data-artifact-id={artifact.id}>

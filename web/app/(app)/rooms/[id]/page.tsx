@@ -22,6 +22,8 @@ import { PartBubble } from "@/components/PartBubble";
 import { boundaryOf, processBoundaries, timelineItems } from "@/lib/parts";
 import { lastSentence, memoEffect, memoSegments, type ProgressMemos } from "@/lib/progress-memo";
 import { Composer, type ComposerAgent, type ComposerInput, type ComposerWarning } from "@/components/Composer";
+import { MediaGroup } from "@/components/MediaPreview";
+import { mediaKind, uploadAttachment } from "@/lib/media";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { LaneBoard } from "@/components/LaneBoard";
 import { HitlCard } from "@/components/HitlCard";
@@ -654,7 +656,7 @@ export default function RoomPage() {
     (input: ComposerInput): Promise<TriggerPreview> =>
       api.post("/rooms/{roomId}/messages/preview", {
         path: { roomId },
-        body: { content: input.content, parent_id: input.parentId, new_lane: input.newLane, suppress_agent_ids: input.suppressAgentIds, ...(input.workId !== undefined ? { work_id: input.workId } : {}) },
+        body: { content: input.content, parent_id: input.parentId, new_lane: input.newLane, suppress_agent_ids: input.suppressAgentIds, ...(input.workId !== undefined ? { work_id: input.workId } : {}), ...(input.attachmentIds.length ? { attachment_ids: input.attachmentIds } : {}) },
       }),
     [roomId],
   );
@@ -670,7 +672,8 @@ export default function RoomPage() {
     const r = await api.post("/rooms/{roomId}/messages", {
       path: { roomId },
       idempotencyKey: newIdempotencyKey(),
-      body: { content: input.content, parent_id: input.parentId, new_lane: input.newLane, suppress_agent_ids: input.suppressAgentIds, ...(input.workId !== undefined ? { work_id: input.workId } : {}) },
+      // v0.19.12 파일 붙이기(openapi v0.3.7 attachment_ids) — 다 올라간 것만, 고른 순서.
+      body: { content: input.content, parent_id: input.parentId, new_lane: input.newLane, suppress_agent_ids: input.suppressAgentIds, ...(input.workId !== undefined ? { work_id: input.workId } : {}), ...(input.attachmentIds.length ? { attachment_ids: input.attachmentIds } : {}) },
     });
     onEvent({ id: "", type: "message.created", at: r.message.created_at, payload: r.message as unknown as Record<string, unknown> });
     setReplyTo(null);
@@ -868,12 +871,30 @@ export default function RoomPage() {
     return !(tailIdle && memoSegments(m && (m.taskId == null || m.taskId === taskId) ? m : undefined).length === 0);
   });
   const bubbleAgents = new Set(bubbles.map((b) => b.agentId));
+  // 「지금」 줄(PRD FR-3.1.5) — 그 턴이 도는 서브 미션의 lane `focus`. 서버가 턴이 끝나면 비운다.
+  const focusFor = (agentId: string, taskId: string | null) =>
+    shownLanes.find((l) => (taskId ? l.current_task?.id === taskId : l.agent_id === agentId && l.status === "running"))?.focus ?? null;
   const memoFor = (agentId: string, taskId: string | null) => {
     const m = memos[agentId];
     return m && (m.taskId == null || taskId == null || m.taskId === taskId) ? m : undefined;
   };
   const typingAgents = Object.entries(typing).filter(([id, v]) => v && !bubbleAgents.has(id)).map(([id]) => agentById.get(id)?.name ?? "agent");
   const sliceOf = (m: Message): ProcessWindow | undefined => (m.source_task_id ? slices.get(m.source_task_id)?.byMessage.get(m.id) : undefined);
+  /**
+   * 그 턴이 낸 아티팩트(artifactsByMessage) — 이미지·영상·소리는 Media Preview(FR-4.3.1), 그 밖은 참조 줄. 메시지가 이미 첨부로
+   * 가리킨 것(`Message.attachments`, 에이전트 `--attach`)은 첨부 카드가 그리므로 여기서 빼 두 번 그리지 않는다.
+   */
+  const renderArtifacts = (m: Message) => {
+    const attached = new Set((m.attachments ?? []).map((a) => a.artifact_id));
+    const arts = (artsByMsg.get(m.id) ?? []).filter((a) => !attached.has(a.id));
+    const media = arts.filter((a) => mediaKind(a.content_type) !== "file");
+    return (
+      <>
+        {media.length > 0 && <MediaGroup items={media} testId="artifact-media" />}
+        {arts.filter((a) => mediaKind(a.content_type) === "file").map((a) => <ArtifactRef key={a.id} artifact={a} />)}
+      </>
+    );
+  };
   /** 메시지(스레드 답글 포함) → 대화 층의 글 + 그 아래 줄들. 세 층이 아닌 메시지는 undefined(본문 그대로). */
   const layersFor = (m: Message, o: { asAnswer: boolean; noProcess?: boolean }): MessageLayerSlots | undefined => {
     if (!isLayered(m, o)) return undefined;
@@ -886,7 +907,7 @@ export default function RoomPage() {
       body: v.conversation,
       below: (
         <>
-          {(artsByMsg.get(m.id) ?? []).map((a) => <ArtifactRef key={a.id} artifact={a} />)}
+          {renderArtifacts(m)}
           {v.work && <DetailFold messageId={m.id} text={v.work.text} auto={v.work.auto} open={detailOpen} onToggle={() => toggleFold(m.id, "detail", detailOpen)} />}
           {tid && !o.noProcess && processFoldOf(m, tid, processOpen)}
         </>
@@ -1251,6 +1272,8 @@ export default function RoomPage() {
                   taskId={taskId}
                   agentName={agentById.get(agentId)?.name ?? "agent"}
                   summary={taskId ? summarizeProcess(events[taskId], tail) : null}
+                  focus={focusFor(agentId, taskId)}
+                  now={now}
                   memoLine={lastSentence(memo)}
                   memoParas={memoSegments(memo)}
                   open={open}
@@ -1286,6 +1309,7 @@ export default function RoomPage() {
               onCancelReply={() => setReplyTo(null)}
               onPreview={restart ? undefined : preview}
               onSubmit={submit}
+              onUpload={restart ? undefined : (file, onProgress) => uploadAttachment(roomId, file, onProgress)}
               draft={draft}
               disabled={!!composerDisabledWhy}
               disabledReason={composerDisabledWhy ?? undefined}

@@ -21,7 +21,17 @@ async function handle(request: Request): Promise<Response> {
   }
   const url = new URL(request.url);
   let body: unknown = undefined;
-  if (request.method !== "GET" && request.method !== "HEAD") {
+  if ((request.headers.get("content-type") ?? "").startsWith("multipart/form-data")) {
+    // submitArtifact(파일 붙이기, PRD FR-3.7) — lib/mock/media.ts 의 MultipartBody 모양으로.
+    const fd = await request.formData();
+    const fields: Record<string, string> = {};
+    let file: { name: string; type: string; bytes: Uint8Array } | undefined;
+    for (const [k, v] of fd.entries()) {
+      if (typeof v === "string") fields[k] = v;
+      else if (k === "file") file = { name: v.name, type: v.type, bytes: new Uint8Array(await v.arrayBuffer()) };
+    }
+    body = { __multipart: true, fields, file };
+  } else if (request.method !== "GET" && request.method !== "HEAD") {
     const text = await request.text();
     if (text) {
       try { body = JSON.parse(text); } catch { body = undefined; }

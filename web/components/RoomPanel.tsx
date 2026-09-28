@@ -7,6 +7,8 @@
  * 최근 5건 + 「더 보기 N」(`lib/room-view.ts` `groupByWork`). 방 누적 비용은 **미션 비용의 합이 아니다** — 그 한 줄이 화면 문자열로 들어간다.
  */
 import { useState } from "react";
+import { MediaGroup } from "@/components/MediaPreview";
+import { mediaKind } from "@/lib/media";
 import Link from "next/link";
 import "./session-aside.css";
 import { Slot } from "./Slot";
@@ -108,6 +110,8 @@ export function RoomPanel(props: RoomPanelProps) {
                     <span className="aside__name">{a.name}</span>
                     <span className="aside__ver" data-testid="artifact-version"> v{a.version}</span>
                     <span className="aside__quiet"> · {a.type} · {a.submitted_by?.agent_name ?? "—"} · {relativeTime(a.created_at)}</span>
+                    {/* v0.19.12 미디어 미리보기(PRD FR-4.3.1) — 우열은 최신 버전만 재생기·썸네일을 단다(이전 버전은 이름 줄만). */}
+                    {a.latest !== false && mediaKind(a.content_type) !== "file" && <MediaGroup items={[a]} bare testId="room-artifact-media" />}
                   </li>
                 )}
               />

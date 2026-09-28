@@ -199,6 +199,63 @@ Gate)
 Asker)
   if [ "$RESUMED" = 1 ] || phas "<hitl_answer"; then post "답을 받았습니다."; done_
   else out="$(colab hitl ask --question "계속할까요" --default 예 --choices 예,아니오 2>&1)"; log "hitl ask → $(printf '%s' "$out" | tr -d '\n' | cut -c1-120)"; fi ;;
+# ── 미디어·첨부 (98_, T-MEDIA) ───────────────────────────────────────────────
+# Designer: <trigger> 의 Attachments 줄에서 id 를 읽어 `artifact get --out` 으로 받고(받은 바이트를 got-*.png 로 남긴다),
+# ARG 폴더의 mp3 를 제출해 `--attach` 로 말에 붙인다. 다른 방 아티팩트를 붙이려는 시도도 한 번 해 흔적을 남긴다
+# (TaskToken 은 자기 방만 — 422 attachment_not_in_room).
+Designer)
+  media="$ARG"
+  ids="$(printf '%s\n' "$TRIG" | sed -n 's/^- .* id \([0-9a-f-]\{36\}\))$/\1/p')"
+  for id in $ids; do
+    out="$(colab artifact get "$id" --out "${FAKE_OUT:-.}/got-$id.png" 2>&1)"
+    log "artifact get $id → $(printf '%s' "$out" | tr -d '\n' | cut -c1-160)"
+  done
+  aid=""
+  if [ -f "$media/bgm.mp3" ]; then aid="$(submit file "$media/bgm.mp3" bgm.mp3)"; fi
+  # 다른 방 아티팩트 첨부 시도 — 거부돼야 한다. 방 목록에서 이 방이 아닌 아티팩트 하나를 고른다.
+  # listReadableRooms 는 `items` 다(openapi). 이 방이 아닌 방 하나 → 그 방의 아티팩트 하나.
+  foreign="$(colab room list 2>/dev/null | jq -r --arg r "${COLAB_ROOM_ID:-}" '[.items[]? | select(.id != $r) | .id] | first // empty' 2>/dev/null)"
+  log "attach-other-room probe: room=${foreign:-none}"
+  if [ -n "$foreign" ]; then
+    other="$(colab room read --room "$foreign" 2>/dev/null | jq -r '[.artifacts[]?.id] | first // empty' 2>/dev/null)"
+    log "attach-other-room probe: artifact=${other:-none}"
+    if [ -n "$other" ]; then
+      out="$(colab message post --body "다른 방 파일을 붙여 봅니다" --attach "$other" 2>&1)"; code=$?
+      [ "$code" = 0 ] && v=accepted || v=refused
+      log "attach-other-room=$v exit=$code $(printf '%s' "$out" | tr -d '\n' | cut -c1-160)"
+      printf 'attach-other-room=%s\n' "$v" >> "${FAKE_OUT:-.}/agent-trace.tsv"
+    fi
+  fi
+  if [ -n "$aid" ]; then
+    out="$(colab message post --body "레퍼런스 확인했습니다. 헤드라이트 시안과 BGM 을 올렸습니다." --attach "$aid" 2>&1)"
+    log "post --attach $aid → $(printf '%s' "$out" | tr -d '\n' | cut -c1-200)"
+    # 부분 메시지에도 부분마다 제 파일(v0.3.7 MessagePartCreate.attachment_ids · colab-cli v0.9.6 parts[].attach):
+    # Dir 에게는 mp3 를, R 에게는 받은 그림 하나를 준다. 받는 쪽은 제 것만 봐야 한다.
+    got="$(ls "${FAKE_OUT:-.}"/got-*.png 2>/dev/null | head -1)"
+    pid=""
+    if [ -n "$got" ]; then pid="$(submit file "$got" ref-copy.png)"; fi
+    # 멘션 링크는 FR-3.2 의 형태로 직접 짓는다 — RoomParticipant 에는 mention_link 가 없고(openapi),
+    # 대본이 보는 턴 프롬프트에는 로스터([5], 시스템 프롬프트)가 없다.
+    rg="$(colab room get 2>/dev/null)"
+    dirlink="$(printf '%s' "$rg" | jq -r '[.participants[]? | select(.kind=="user")] | first | if . then "[@" + (.user.display_name // "사람") + "](mention://user/" + .user.id + ")" else empty end' 2>/dev/null)"
+    rlink="$(printf '%s' "$rg" | jq -r --arg me "${COLAB_AGENT_NAME:-Designer}" '[.participants[]? | select(.kind=="agent") | select(.agent.name != $me)] | first | if . then "[@" + .agent.name + "](mention://agent/" + .agent.id + ")" else empty end' 2>/dev/null)"
+    log "parts links: dir=${dirlink:-none} r=${rlink:-none}"
+    if [ -n "$dirlink" ] && [ -n "$rlink" ] && [ -n "$pid" ]; then
+      pf="${FAKE_OUT:-.}/parts-attach.json"
+      printf '[{"to":["%s"],"body":"BGM 초안입니다.","attach":["%s"]},{"to":["%s"],"body":"시안 사본 보냅니다.","attach":["%s"]}]' \
+        "$dirlink" "$aid" "$rlink" "$pid" > "$pf"
+      out="$(colab message post --parts-file "$pf" 2>&1)"; code=$?
+      log "post --parts-file(attach) exit=$code → $(printf '%s' "$out" | tr -d '\n' | cut -c1-240)"
+      printf 'parts-attach-exit=%s\n' "$code" >> "${FAKE_OUT:-.}/agent-trace.tsv"
+      # --attach 와 --parts-file 은 같이 못 쓴다(첨부는 부분 안에 있다) — exit 2 여야 한다.
+      out2="$(colab message post --parts-file "$pf" --attach "$aid" 2>&1)"; code2=$?
+      log "parts+--attach exit=$code2 → $(printf '%s' "$out2" | tr -d '\n' | cut -c1-160)"
+      printf 'parts-plus-attach-exit=%s\n' "$code2" >> "${FAKE_OUT:-.}/agent-trace.tsv"
+    fi
+  else
+    post "레퍼런스를 확인했습니다."
+  fi
+  done_ ;;
 # ── 성능·보안 (76_·77_) ─────────────────────────────────────────────────────
 Echo)   # 게시 → 답 한 줄 (지연 측정)
   post "echo: $(brief_text | cut -c1-60)"

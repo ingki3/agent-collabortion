@@ -718,6 +718,19 @@ export const BUDGET_CAP = {
 } as const;
 
 /**
+ * 「지금」 줄(PRD FR-3.1.5 · SCREEN v0.19.13 · COMPONENTS §9.10) — 「작업 중」 말풍선 첫 줄과 서브 미션 카드의 상태 문구 자리.
+ * 문장 자체는 서버 lane `focus.text`(에이전트가 선언한 것, 또는 서버가 트리거로 만든 대신 문장)이고, 화면은 머리말·시각·툴팁만 붙인다.
+ */
+export const FOCUS = {
+  /** 「지금 〈문장〉 · n분 전」의 머리말. */
+  now: "지금",
+  /** 대신 문장(focus.source = derived)의 툴팁 — 에이전트가 말한 것과 화면이 만든 것을 구분한다(FR-3.1.2 「자동으로 접음」과 같은 원칙). */
+  derived_title: "에이전트가 아직 지금 하는 일을 말하지 않아, 받은 요청으로 만든 문장입니다",
+  /** 서브 미션 카드 「중단」 버튼의 툴팁 — 옛 상태 문구 「실행 중 — 취소는 즉시 가능」의 뒷부분이 버튼 옆으로 옮겨 왔다(SCREEN v0.19.13). */
+  cancel_title: "취소는 즉시 가능",
+} as const;
+
+/**
  * 에이전트 메시지 세 층(PRD FR-3.1.2 · SCREEN §4.6 「에이전트 메시지 카드」 · COMPONENTS §9.6 Fold Row · §9.7 View Toggle, v0.19.3).
  * 대화(content)는 늘 보이고, 작업 내용(detail)·작업 과정(활동 피드)은 접힌 줄 하나로 시작한다. 수가 드는 말은 두 토막(Slotted)이다.
  */
@@ -754,6 +767,32 @@ export const MESSAGE_LAYERS = {
   working: "작업 중",
   /** 말풍선 안 펼침 — 진행 메모(`message.delta`)를 조각마다 한 문단 + 꼬리 조각의 활동 피드. */
   working_memo_all: "진행 메모 전체 보기",
+} as const;
+
+/**
+ * 미디어 미리보기 · 파일 붙이기(PRD v0.19.10 FR-4.3.1 · FR-3.7 · SCREEN v0.19.12 §4.6 · COMPONENTS §9.12) — 문구 자물쇠 대상.
+ * 수가 드는 말은 두 토막(Slot).
+ */
+export const MEDIA = {
+  preview_failed: "미리보기를 불러올 수 없습니다 — 내려받아 여세요",
+  download: "내려받기",
+  open: "열기",
+  play: (name: string) => `${name} 재생`,
+  enlarge: (name: string) => `${name} 크게 보기`,
+  lightbox: "크게 보기",
+  lightbox_close: "닫기",
+  lightbox_prev: "이전 이미지",
+  lightbox_next: "다음 이미지",
+  attach: "파일 붙이기",
+  drop_here: "여기에 놓으면 붙습니다",
+  remove: (name: string) => `${name} 빼기`,
+  uploading: "올리는 중",
+  uploading_block: "파일을 올리는 중입니다",
+  retry: "다시 시도",
+  too_big: "50MB 를 넘습니다",
+  too_many: ["한 메시지에 파일은 ", "개까지 붙일 수 있습니다"] as Slotted,
+  trigger_files: [" · 파일 ", "개를 함께 받습니다"] as Slotted,
+  attachments_label: "붙인 파일",
 } as const;
 
 /**
