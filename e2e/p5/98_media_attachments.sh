@@ -64,9 +64,13 @@ step "2. Designer(hermes = 셸 표면) · 방 — 대본은 첨부를 받아 mp3
 DESIGNER="$(create_agent_fake "$WS" Designer custom hermes "$LEAD_MODEL" \
   "레퍼런스 이미지를 받아 시안을 만든다. 첨부로 받은 파일은 artifact get 으로 받아 확인하고, 만든 것은 artifact submit 으로 낸다." \
   '시안을 만든다' "$(jq -nc --arg fix "$FIX" --arg m "$MEDIA" '{turns:[{steps:[{exec:("bash "+$fix+"/agent.sh Designer "+$m)}]}]}')")"
-SESSION="$(create_session_p2 "$WS" "게임 제작" "AE86 뒷모습 헤드라이트 시안을 만든다" "$DESIGNER" "$RUNTIME_ID" "$DESIGNER" "$DESIGNER")"
+# 부분 메시지는 받는 쪽이 둘 이상이어야 한다(openapi minItems 2) — Designer 가 Dir 과 R 에게 서로 다른 파일을 준다.
+# R 은 깨어나도 할 일이 없는 대본(아무것도 안 한다)이다: 이 판이 보는 것은 R 의 턴이 아니라 부분마다의 첨부다.
+REVIEWER="$(create_agent_fake "$WS" R reviewer hermes "$LEAD_MODEL" \
+  "받은 시안을 본다." '검토한다' "$(jq -nc '{turns:[{steps:[{text:"확인했습니다."}]}]}')")"
+SESSION="$(create_session_p2 "$WS" "게임 제작" "AE86 뒷모습 헤드라이트 시안을 만든다" "$DESIGNER" "$RUNTIME_ID" "$DESIGNER" "$DESIGNER" "$REVIEWER")"
 OTHER="$(create_session_p2 "$WS" "다른 방" "다른 일" "$DESIGNER" "$RUNTIME_ID" "$DESIGNER" "$DESIGNER")"
-echo "$WS $SESSION $OTHER $DESIGNER $RUNTIME_ID" > "$OUT/98-ids.txt"
+echo "$WS $SESSION $OTHER $DESIGNER $REVIEWER $RUNTIME_ID" > "$OUT/98-ids.txt"
 wait_quiet "$SESSION" "$T_TURN" || true
 
 step "3. M1 — 사람이 이미지를 올린다(작성창이 하는 일: submitArtifact type attachment)"
@@ -141,9 +145,12 @@ step "7. M6 — 에이전트가 낸 mp3 와 --attach 로 붙인 말"
 A_MP3="$(psqlq "select id from artifact where session_id='$SESSION' and name='bgm.mp3' order by created_at desc limit 1")"
 chk M6a "에이전트가 낸 mp3 의 content_type 은 판정값" audio/mpeg \
   "$(psqlq "select content_type from artifact where id='$A_MP3'")"
+# 부분 메시지도 mp3 를 붙이므로(10단계) 「마지막 에이전트 메시지」로 고르면 그때그때 달라진다 —
+# --attach 로 붙인 그 말(group_id 가 없는 에이전트 메시지)을 콕 집는다.
 chk M6b "에이전트 메시지에 그 아티팩트가 첨부로 붙었다(--attach)" "$A_MP3" \
   "$(psqlq "select ma.artifact_id from message_attachment ma join message m on m.id=ma.message_id
-            where m.session_id='$SESSION' and m.author_type='agent' order by m.created_at desc limit 1")"
+            where m.session_id='$SESSION' and m.author_type='agent' and m.group_id is null
+            order by m.created_at desc limit 1")"
 chk M6c "listMessages 의 Message.attachments 가 그 첨부를 싣는다" "bgm.mp3|audio/mpeg" \
   "$(api_ok GET "/rooms/$SESSION/messages?limit=200" | jq -r --arg a "$A_MP3" '[.items[].attachments[]? | select(.artifact_id==$a) | [.name,.content_type]|join("|")]|first // "none"')"
 
@@ -205,6 +212,22 @@ chk M11a "type attachment 는 artifact_submitted 를 채우지 않는다(사람�
 chk M11b "종료 조건 met 은 에이전트의 제출(mp3, type file)만 센다 — artifact_submitted 하나" 1 "${MET:-none}"
 chk M11c "met 에 든 것은 artifact_submitted 뿐(attachment 는 아무것도 채우지 않았다)" artifact_submitted \
   "$(psqlq "select string_agg(k, ',' order by k) from work w, jsonb_object_keys(w.completion_met) k where w.room_id='$SESSION' and w.completion_met->>k = 'true'")"
+
+step "10. M12 — 부분 메시지의 첨부는 부분마다(openapi v0.3.7 MessagePartCreate.attachment_ids)"
+# 대본이 --parts-file 로 두 부분을 냈다: Dir 에게 mp3, R 에게 그림 사본. 같은 group_id 두 행이 서로 다른 파일 하나씩.
+GRP="$(psqlq "select group_id::text from message where session_id='$SESSION' and group_id is not null order by created_at desc limit 1")"
+chk M12a "부분 메시지가 게시됐다(같은 group_id 두 행)" 2 \
+  "$(psqlq "select count(*) from message where session_id='$SESSION' and group_id='${GRP:-00000000-0000-0000-0000-000000000000}'")"
+# 부분마다 첨부 하나씩 — 그리고 두 부분의 파일이 서로 다르다(한 목록을 나눠 쓰지 않는다).
+chk M12b "부분마다 첨부 하나씩" "1|1" \
+  "$(psqlq "select string_agg(c::text, '|' order by gi) from (select m.group_index gi, count(ma.artifact_id) c from message m left join message_attachment ma on ma.message_id = m.id where m.group_id='${GRP:-00000000-0000-0000-0000-000000000000}' group by m.group_index) t")"
+chk M12c "두 부분의 파일이 서로 다르다 — 묶음이 한 목록을 나눠 쓰지 않는다" 2 \
+  "$(psqlq "select count(distinct ma.artifact_id) from message m join message_attachment ma on ma.message_id = m.id where m.group_id='${GRP:-00000000-0000-0000-0000-000000000000}'")"
+chk M12d "부분 게시 exit 0" 0 \
+  "$(grep -ho 'parts-attach-exit=[0-9]*' "$OUT/fake-records/agent-trace.tsv" 2>/dev/null | tail -1 | cut -d= -f2)"
+# --attach 는 --parts-file 과 못 쓴다(첨부는 부분 안에) — exit 2.
+chk M12e "--parts-file 과 --attach 를 같이 주면 exit 2" 2 \
+  "$(grep -ho 'parts-plus-attach-exit=[0-9]*' "$OUT/fake-records/agent-trace.tsv" 2>/dev/null | tail -1 | cut -d= -f2)"
 
 printf '\n98_media_attachments: pass=%s fail=%s (RUNTIME=%s)\n' "$pass" "$fail" "$RUNTIME"
 [ "$fail" = 0 ]
