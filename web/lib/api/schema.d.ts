@@ -3223,6 +3223,8 @@ export interface components {
         };
         /** @description S7 우열 "종료 조건 진행률" — 조건별 충족 여부와 누구 차례인지. */
         CompletionProgress: {
+            /** @description v0.3.9 — 승인 대기(PRD FR-2A.2.3)로 보류된 에이전트 간 트리거(`queued_reason: approval_pending` task) 수. 화면은 `user_approval` 조건 행 아래 한 줄로 보인다. 0 이면 줄 없음. */
+            paused_agent_triggers?: number;
             met: number;
             total: number;
             /** @description 트리 전체 판정. true면 `completing`으로 간다. */
@@ -3488,7 +3490,7 @@ export interface components {
             implicit_routing_suppressed?: boolean;
             triggers: components["schemas"]["TriggerTarget"][];
             warnings: {
-                /** @description `not_participant` · `suppressed_delegator` · `loop_limit_near` · `agent_disabled`. */
+                /** @description `not_participant` · `suppressed_delegator` · `loop_limit_near` · `agent_disabled` · `approval_pending`(v0.3.9 — 승인 대기로 그 받는 쪽의 트리거를 보류, PRD FR-2A.2.3: `message` 는 harness v0.9.15 문장, `agent_id` 는 보류된 받는 쪽). */
                 code: string;
                 message: string;
                 /** Format: uuid */
@@ -4231,10 +4233,10 @@ export interface components {
          */
         WorkProposalStatus: "open" | "accepted" | "rejected";
         /**
-         * @description `task.queued_reason` (PRD §3.1) — 큐에 걸린 이유. `agent_global` 은 에이전트 `max_concurrent_tasks` 가 방을 가로질러 찼다(§12.1-5).
+         * @description `task.queued_reason` (PRD §3.1) — 큐에 걸린 이유. `agent_global` 은 에이전트 `max_concurrent_tasks` 가 방을 가로질러 찼다(§12.1-5). v0.3.9 `approval_pending` — 일이 Director 승인만 남아(PRD FR-2A.2.3) 에이전트 메시지의 트리거를 보류 중. 이 task 는 dispatch 되지 않고, 승인되면 `cancelled`, 수정 요청·사람 지시·조건 변경이면 사유가 풀려 차례대로 돈다. FR-2A.2.1 의 「실행·대기 중」에 세지 않는다.
          * @enum {string}
          */
-        QueuedReason: "room_lanes" | "agent_global" | "runtime" | "workspace";
+        QueuedReason: "room_lanes" | "agent_global" | "runtime" | "workspace" | "approval_pending";
         /**
          * @description 메시지가 미션에 귀속된 규칙(FR-3.1.1 순서 1~4). 판정은 서버가 한다.
          * @enum {string}

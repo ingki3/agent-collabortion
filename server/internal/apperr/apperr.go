@@ -13,6 +13,7 @@ package apperr
 import (
 	"errors"
 	"net/http"
+	"strings"
 )
 
 type Problem struct {
@@ -173,6 +174,65 @@ func JosaRo(word string) string {
 		return word + "로"
 	}
 	return word + "으로"
+}
+
+// JosaSpoken is Josa for a word a sentence quotes rather than names: a
+// person's or agent's name, a quoted request, a number. It picks the particle
+// by how the word is READ ALOUD, so 「@Designer가」·「Simplist가」·「@수아가」
+// come out as a person would say them.
+//
+// It exists next to Josa rather than replacing it because the two answer
+// different questions. Josa writes 「Lead이(가)」 — the honest "I cannot tell"
+// form, right for a system line that names a row of unknown shape, and locked
+// as such by the web mock's parity test (lib/mock/server-wording). A sentence
+// the screen shows as one person's words has no room for a bracket: FR-3.1.5's
+// 「지금」 줄 is read as speech, so it must commit to one particle.
+//
+// The reading rules, for the last syllable that is actually pronounced
+// (trailing brackets · quotes · punctuation are skipped — 「…점검」 is decided
+// by 검, and 「민지(Director)」 by Director):
+//
+//   - Hangul: 받침 as in Josa.
+//   - Latin word: 받침 only when it ends in l · m · n (Bill 빌 · Sam 샘 ·
+//     Simon 사이먼). Everything else is read with a vowel tail — the -er·-or
+//     ending that every agent role here has (Designer 디자이너 · Writer
+//     라이터 · Researcher 리서처) and the 트·드·스 tails (Simplist 심플리스트).
+//   - Digit, read Sino-Korean: 0 영 · 1 일 · 3 삼 · 6 육 · 7 칠 · 8 팔 have a
+//     받침; 2 이 · 4 사 · 5 오 · 9 구 do not.
+//
+// A word with no pronounceable tail at all (emoji, punctuation only) falls
+// back to Josa's bracket form rather than guessing.
+func JosaSpoken(word, with, without string) string {
+	for _, r := range reverseRunes(word) {
+		switch {
+		case r >= 0xAC00 && r <= 0xD7A3:
+			if (r-0xAC00)%28 == 0 {
+				return word + without
+			}
+			return word + with
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+			switch r | 0x20 {
+			case 'l', 'm', 'n':
+				return word + with
+			}
+			return word + without
+		case r >= '0' && r <= '9':
+			if strings.ContainsRune("013678", r) {
+				return word + with
+			}
+			return word + without
+		}
+	}
+	return Josa(word, with, without)
+}
+
+// reverseRunes is JosaSpoken's scan: the word's runes from the end.
+func reverseRunes(s string) []rune {
+	r := []rune(s)
+	for i, j := 0, len(r)-1; i < j; i, j = i+1, j-1 {
+		r[i], r[j] = r[j], r[i]
+	}
+	return r
 }
 
 // StatusLabel is a session or lane status enum in the words of the badges the

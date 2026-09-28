@@ -41,6 +41,52 @@ func TestJosaRo(t *testing.T) {
 	}
 }
 
+// TestJosaSpoken is 리뷰 B1: a sentence the screen reads aloud picks ONE
+// particle, by the word's final SOUND. The rows are the names this workspace
+// actually has (Designer · Researcher · Writer · Simplist · 수아) plus the
+// shapes that decide the rule.
+func TestJosaSpoken(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		// 한글 — Josa 와 같은 받침 규칙.
+		{"기획팀", "기획팀이"},
+		{"수아", "수아가"},
+		{"민지", "민지가"},
+		// 라틴 — l·m·n 으로 끝나면 받침(빌·샘·사이먼), 나머지는 모음 꼬리.
+		{"Designer", "Designer가"},     // 디자이너
+		{"Researcher", "Researcher가"}, // 리서처
+		{"Writer", "Writer가"},         // 라이터
+		{"Simplist", "Simplist가"},     // 심플리스트
+		{"Lead", "Lead가"},             // 리드
+		{"Bill", "Bill이"},             // 빌
+		{"Sam", "Sam이"},               // 샘
+		{"Simon", "Simon이"},           // 사이먼
+		// 꼬리를 괄호·따옴표가 가려도 발음되는 글자로 정한다.
+		{"민지(Director)", "민지(Director)가"},
+		{"「타이어 점검」", "「타이어 점검」이"},
+		{"「자료 정리」", "「자료 정리」가"},
+		// 숫자는 한자음: 1 일 · 3 삼 · 6 육 · 7 칠 · 8 팔 받침, 2 이 · 4 사 · 5 오 · 9 구 없음.
+		{"28", "28이"},
+		{"29", "29가"},
+		{"v2", "v2가"},
+		// 읽을 꼬리가 없으면 Josa 의 괄호 형태로 물러난다.
+		{"…", "…이(가)"},
+		{"", "이(가)"},
+	} {
+		if got := JosaSpoken(c.in, "이", "가"); got != c.want {
+			t.Errorf("JosaSpoken(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+	// 목적격도 같은 판정이다.
+	if got := JosaSpoken("「타이어 점검」", "을", "를"); got != "「타이어 점검」을" {
+		t.Errorf("JosaSpoken 목적격 = %q", got)
+	}
+	// Josa 는 건드리지 않았다 — 시스템 줄은 여전히 「Lead이(가)」로 정직하게 적고,
+	// 웹 목의 대조 테스트(lib/mock/server-wording)가 그 규칙을 잠근다.
+	if got := Josa("Lead", "이", "가"); got != "Lead이(가)" {
+		t.Errorf("Josa 가 바뀌었다: %q", got)
+	}
+}
+
 func TestNotFoundSpeaksTheScreensLanguage(t *testing.T) {
 	p := NotFound("session")
 	if p.Status != http.StatusNotFound || p.Code != "not_found" {

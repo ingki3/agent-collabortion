@@ -129,7 +129,11 @@ type StatusSetResult struct {
 
 // StatusSet — POST /tasks/{T}/status.
 //
-//   - `working` is a feed note, near no-op.
+//   - `working --note` is the lane's 「지금 하는 일」 (colab-cli v0.9.7, PRD
+//     FR-3.1.5): one conversational sentence for the people, shown in the
+//     room until the turn ends. The note goes as written — the SERVER cuts
+//     it at 120 characters and drops an empty one, so the rule lives in one
+//     place. Without --note it is a feed line only.
 //   - `blocked` is the FR-6.2.1 route: the server sets the lane `blocked`,
 //     posts the question card on the lane thread and wakes the delegator
 //     immediately (Director inbox `lane_blocked` when there is none, E3-08).
