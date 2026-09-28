@@ -9,7 +9,7 @@
 #   F2  턴이 도는 동안 listLanes 의 그 lane focus = 에이전트 문장 · source agent (턴 중 폴링으로 잡는다)
 #   F3  lane.updated 가 SSE 로 흘렀다(stream_event 에 focus.source=agent 인 lane.updated)
 #   F4  턴이 끝나면 focus = null (listLanes · DB)
-#   F5  선언 없는 턴(Researcher) 은 도는 동안 source = derived 대신 문장 「Director 의 「…」 요청을 처리하고 있습니다」, 끝나면 null
+#   F5  선언 없는 턴(Researcher) 은 도는 동안 source = derived 대신 문장 「Director의 「…」 요청을 처리하고 있습니다」, 끝나면 null
 #   F6  브리프 [2] 에 「지금 하는 일」 줄(claude_code → mcp 말) — 탭으로 번들을 본다
 #   F7  선언은 활동 피드에 남는다(task_event set_status working)
 # 산출물: out/97-checks.tsv · out/97-*.txt
@@ -67,8 +67,8 @@ lane_focus "$L_W" > "$OUT/97-focus-writer-running.json"
 wait_step F5a "Researcher 턴 중 focus = 대신 문장 · source derived" 60 \
   "[ \"\$(lane_focus $L_R | jq -r '.source // \"\"')\" = derived ]"
 lane_focus "$L_R" > "$OUT/97-focus-researcher-running.json"
-chk F5b "대신 문장 = 「Director 의 「…」 요청을 처리하고 있습니다」" \
-  "Director 의 「커브가 어색해. 원인 찾아서 고쳐 줘.」 요청을 처리하고 있습니다" \
+chk F5b "대신 문장 = 「Director의 「…」 요청을 처리하고 있습니다」(조사 붙여쓰기 — 리뷰 B1)" \
+  "Director의 「커브가 어색해. 원인 찾아서 고쳐 줘.」 요청을 처리하고 있습니다" \
   "$(jq -r '.text' "$OUT/97-focus-researcher-running.json")"
 
 step "4. 턴 끝"

@@ -85,7 +85,7 @@ func TestLaneFocusLifecycle(t *testing.T) {
 	if fo == nil || str(fo, "source") != "derived" {
 		t.Fatalf("(derived) focus after claim = %v", fo)
 	}
-	if want := "Dir 의 「코너에서 차가 미끄러지는 원인을 찾아 주세요」 요청을 처리하고 있습니다"; str(fo, "text") != want {
+	if want := "Dir의 「코너에서 차가 미끄러지는 원인을 찾아 주세요」 요청을 처리하고 있습니다"; str(fo, "text") != want {
 		t.Fatalf("(derived) text = %q, want %q", str(fo, "text"), want)
 	}
 
@@ -206,8 +206,36 @@ func TestLaneFocusDerivedForDelegation(t *testing.T) {
 		t.Fatal("the delegated task was not claimed")
 	}
 	fo := focusOf(f.laneCard(t, uuid.UUID(res.Lane.Id)))
-	if want := "@Lead 가 맡긴 「타이어 접지 한계 공식을 점검」를 하고 있습니다"; str(fo, "text") != want || str(fo, "source") != "derived" {
+	if want := "@Lead가 맡긴 「타이어 접지 한계 공식을 점검」을 하고 있습니다"; str(fo, "text") != want || str(fo, "source") != "derived" {
 		t.Fatalf("focus = %v, want %q", fo, want)
+	}
+}
+
+// NN2: a trigger that is ONLY a mention has nothing to quote, so the turn
+// starts with no 「지금」 줄 rather than an empty 「」 one. The unit table covers
+// Sentence("") but nothing took Derive — the DB path — through it.
+//
+// 회귀 주입: Derive 의 「text == "" 이면 Clear」 분기를 지우면 FAIL(빈 문장이
+// 저장돼 CHECK 위반 500, 또는 「」 만 남은 줄).
+func TestLaneFocusDerivedNeedsSomethingToQuote(t *testing.T) {
+	f := newP2Fixture(t)
+	// 멘션만 있는 지시 — 본문에 인용할 말이 없다.
+	out := f.post(t, map[string]any{"content": router.MentionLink("R", f.rUUID)})
+	tr := out["triggers"].([]any)[0].(map[string]any)
+	taskID, laneID := mustUUID(t, str(tr, "task_id")), mustUUID(t, str(tr, "lane_id"))
+	if _, ok := f.claimAll(t)[taskID.String()]; !ok {
+		t.Fatal("the task was not claimed")
+	}
+	if fo := f.laneCard(t, laneID)["focus"]; fo != nil {
+		t.Fatalf("멘션만 있는 트리거가 문장을 만들었다: %v", fo)
+	}
+	// 그래도 에이전트가 선언하면 그 문장은 선다.
+	f.runTask(t, taskID)
+	if _, err := f.srv.Router.SetAgentStatus(t.Context(), taskID, 1, "working", "커브 자료를 읽고 있습니다"); err != nil {
+		t.Fatal(err)
+	}
+	if got := str(focusOf(f.laneCard(t, laneID)), "text"); got != "커브 자료를 읽고 있습니다" {
+		t.Fatalf("선언이 서지 않았다: %q", got)
 	}
 }
 

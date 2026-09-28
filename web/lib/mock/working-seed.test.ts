@@ -90,7 +90,7 @@ describe("seed-working — 「지금」 줄(PRD FR-3.1.5 · SCREEN v0.19.13)", (
     expect(a.focus?.source).toBe("agent");
     expect(a.focus?.text).toContain("코너에서 차가 미끄러지는 원인을 찾고 있습니다");
     expect(b.focus?.source).toBe("derived");
-    expect(b.focus?.text).toBe("@Lead 의 「BGM v2 를 16분음표 격자로」 요청을 처리하고 있습니다");
+    expect(b.focus?.text).toBe("@Lead의 「BGM v2 를 16분음표 격자로」 요청을 처리하고 있습니다");
     await must("POST", `/__mock/rooms/${room.id}/working-step`, { agent_id: seeded.tasks[0].agent_id, action: "end" });
     const after = await must<Lane[]>("GET", `/rooms/${room.id}/lanes`);
     expect(after.find((l) => l.id === a.id)?.focus).toBeNull();

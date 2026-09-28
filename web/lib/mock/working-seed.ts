@@ -49,7 +49,7 @@ export const WORKING_MEMOS: string[][] = [
 /** 두 에이전트의 「지금」 줄(Pencil S7-C 의 두 문장) — 첫째는 에이전트 선언, 둘째는 서버의 대신 문장. */
 export const WORKING_FOCUS: { source: "agent" | "derived"; minutesAgo: number; text: (lead: string) => string }[] = [
   { source: "agent", minutesAgo: 3, text: () => "코너에서 차가 미끄러지는 원인을 찾고 있습니다 — 타이어 접지 한계를 점검하는 중입니다" },
-  { source: "derived", minutesAgo: 0, text: (lead) => `@${lead} 의 「BGM v2 를 16분음표 격자로」 요청을 처리하고 있습니다` },
+  { source: "derived", minutesAgo: 0, text: (lead) => `@${lead}의 「BGM v2 를 16분음표 격자로」 요청을 처리하고 있습니다` },
 ];
 
 export function registerWorkingSeed(ctx: WorkingSeedCtx): void {

@@ -2,7 +2,11 @@
  * T-FOCUS(PRD FR-3.1.5 · SCREEN v0.19.13 · COMPONENTS §9.10 「지금」 줄) — 방 화면의 두 자리.
  *  1. 「작업 중」 말풍선 **첫 줄**(머리 아래 · 진행 메모 위): 「지금 〈문장〉 · n분 전」, aria-live=polite, 대신 문장(derived)은 흐리게.
  *  2. 서브 미션 카드의 상태 문구 자리: 같은 문장(두 줄 말줄임), 「취소는 즉시 가능」은 「중단」 버튼의 title 로.
- *  - lane.updated 로 문장이 바뀌면 그 자리에서 바뀐다(150ms 페이드 — key 로 다시 그림) · focus 가 null 이면 줄이 없다.
+ *  - lane.updated 로 문장이 바뀌면 그 자리에서 바뀐다(새 노드로 다시 그린다 — 페이드의 **트리거**) · focus 가 null 이면 줄이 없다.
+ *
+ * **여기서 보지 않는 것: 150ms 페이드와 `prefers-reduced-motion`**(리뷰 NN1). 둘 다 CSS 애니메이션이고 jsdom 은 그것을 재지 못한다 —
+ * 규칙을 지워도 이 파일은 초록이다(주입 M15). 이 파일이 잠그는 것은 **페이드가 걸릴 조건**(문장이 바뀌면 `key` 가 바뀌어 새 노드가 된다)
+ * 까지이고, 애니메이션 자체와 reduced-motion 분기는 `components/focus-line.css` 와 스크린샷(`web/e2e/focus-shots.sh`)의 몫이다.
  *
  * 회귀 주입: WorkingBubble 에서 FocusLine 을 빼면 (bubble) FAIL; FocusLine 의 aria-live 를 빼면 (live) FAIL; derived 분기를 지우면
  * (derived) FAIL; LaneCard 의 focus 분기를 지우면 (lane) FAIL; 중단 버튼 title 을 빼면 (cancel title) FAIL; 말풍선 안 순서를 바꾸면
@@ -53,7 +57,7 @@ const room: Room = {
 const NOW = Date.now();
 const ago = (min: number) => new Date(NOW - min * 60_000).toISOString();
 const AGENT_SENTENCE = "코너에서 차가 미끄러지는 원인을 찾고 있습니다 — 타이어 접지 한계를 점검하는 중입니다";
-const DERIVED_SENTENCE = "@Lead 의 「BGM v2 를 16분음표 격자로」 요청을 처리하고 있습니다";
+const DERIVED_SENTENCE = "@Lead의 「BGM v2 를 16분음표 격자로」 요청을 처리하고 있습니다";
 
 let LANES: Lane[] = [];
 const TASKS: Record<string, Task> = {
@@ -140,7 +144,7 @@ describe("「작업 중」 말풍선의 「지금」 줄", () => {
     expect(agent).not.toHaveAttribute("title");
   });
 
-  it("(fade) lane.updated 로 문장이 바뀌면 그 자리에서 — 새 노드로 다시 그려 페이드 · null 이면 줄이 없다", async () => {
+  it("(fade) lane.updated 로 문장이 바뀌면 그 자리에서 — 새 노드로 다시 그린다(페이드 트리거) · null 이면 줄이 없다", async () => {
     await ready();
     const before = within(bubbleOf("a2")).getByTestId("working-focus-text").parentElement;
     send("lane.updated", { ...LANES[1], focus: { text: "BGM 격자를 16분음표로 맞추고 있습니다", at: new Date().toISOString(), source: "agent" } });

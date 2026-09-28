@@ -3,7 +3,7 @@
 # `next build && next start`(목) 로 찍는다 — 개발 오버레이 배지가 없게. bubble-shots.sh 와 같은 구조.
 #
 #   focus-01-light.png          S7 타임라인 — 두 에이전트가 동시에 작업 중. Lead 말풍선 첫 줄 「지금 코너에서 … · 3분 전」(에이전트 선언, $ink 500),
-#                               Researcher 말풍선 첫 줄 「지금 @Lead 의 「BGM v2 …」 요청을 처리하고 있습니다 · 방금」(대신 문장, 흐리게).
+#                               Researcher 말풍선 첫 줄 「지금 @Lead의 「BGM v2 …」 요청을 처리하고 있습니다 · 방금」(대신 문장, 흐리게).
 #   focus-02-dark.png           01 과 같은 상태, 다크(Pencil S7-C 와 같은 테마).
 #   focus-03-derived-light.png  대신 문장 쪽으로 스크롤한 타임라인 — Researcher 말풍선(focus.source = derived, 문장 전체 $ink-2 · 보통 굵기 · 툴팁).
 #   focus-04-lanecard-light.png 좌열 서브 미션 카드 — 상태 문구 자리에 같은 「지금」 줄(두 줄 말줄임), 옛 「실행 중 — 취소는 즉시 가능」 없음,

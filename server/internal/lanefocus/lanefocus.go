@@ -27,6 +27,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 )
 
@@ -50,33 +51,32 @@ const CoalesceWindow = 60 * time.Second
 // this feature, locked by lanefocus_test.go and by internal/wording (the names
 // end in Sentence, so the lock reads them as sentences for a person).
 //
-//	FocusRequestSentence   「〈작성자〉 의 「〈첫 40자〉」 요청을 처리하고 있습니다」
+//	FocusRequestSentence   「〈작성자〉의 「〈첫 40자〉」 요청을 처리하고 있습니다」
 //	FocusDelegateSentence  「〈위임자〉가 맡긴 「〈첫 40자〉」를 하고 있습니다」
 //	FocusNoticeSentence    a system line woke the turn (join bundle, re-entry
-//	                       notice, a question's answer): it has no author, so
+//	                       notice, a question's answer): nobody wrote it, so
 //	                       the notice itself is quoted.
 //
 // 〈작성자〉 is 「@이름」 for an agent and the display name for a person — the
-// timeline's own convention (SCREEN §4.6 머리 「→ Simplist · → @Designer」). The
-// space before 「의」 is the Pencil's (S7-C LgIO6 「@Lead 의 「…」」); the subject
-// particle after the delegator is chosen by its last syllable (Subject).
+// timeline's own convention (SCREEN §4.6 머리 「→ Simplist · → @Designer」).
+//
+// **The particles are attached, not fixed** (PR #380 리뷰 B1, Lead 판정): this
+// is a sentence a person reads as speech, so 「민지의」·「@Designer가」·
+// 「「타이어 점검」을」 — no space before 의, and 이/가 · 을/를 chosen by the
+// preceding word's final sound. The choice is apperr.JosaSpoken's, the one
+// place in this server that knows the rule; the two `%s%s` pairs below are the
+// word and the particle it already carries. The Pencil (S7-C LgIO6 「@Lead 의」)
+// has the same spacing mistake and Lead is fixing it there — the screen is not
+// the authority on Korean grammar.
 const (
-	FocusRequestSentence  = "%s 의 「%s」 요청을 처리하고 있습니다"
-	FocusDelegateSentence = "%s 맡긴 「%s」를 하고 있습니다"
+	FocusRequestSentence  = "%s의 「%s」 요청을 처리하고 있습니다"
+	FocusDelegateSentence = "%s 맡긴 「%s」%s 하고 있습니다"
 	FocusNoticeSentence   = "알림 「%s」에 따라 작업하고 있습니다"
+	// FocusRequestAnonSentence is the request sentence when the author's
+	// display name is missing (NN3) — the request still came from a person
+	// or an agent, so it must not read as a platform notice.
+	FocusRequestAnonSentence = "받은 「%s」 요청을 처리하고 있습니다"
 )
-
-// Subject appends the subject particle: 「이」 after a Hangul syllable with a
-// final consonant, 「가」 otherwise (a Latin name reads 「@Lead 가」).
-func Subject(word string) string {
-	r := []rune(word)
-	if len(r) > 0 {
-		if last := r[len(r)-1]; last >= 0xAC00 && last <= 0xD7A3 && (last-0xAC00)%28 != 0 {
-			return word + "이"
-		}
-	}
-	return word + " 가"
-}
 
 // Truncate cuts s to MaxRunes runes, ending in 「…」 when it cut.
 func Truncate(s string) string {
@@ -129,6 +129,10 @@ type Trigger struct {
 
 // Sentence is FR-3.1.5 item 3's derived sentence for t, or "" when there is
 // nothing to quote (an empty trigger).
+//
+// The particles are attached here, not in the format strings: 「…의」 needs no
+// choice, 「이/가」 follows the author's name and 「을/를」 the quote, both by
+// apperr.JosaSpoken (리뷰 B1).
 func Sentence(t Trigger) string {
 	quote := Quote(t.Content)
 	if quote == "" {
@@ -139,13 +143,27 @@ func Sentence(t Trigger) string {
 		who = "@" + who
 	}
 	switch {
-	case t.AuthorType == "system" || who == "":
+	case t.AuthorType == "system":
 		return Truncate(fmt.Sprintf(FocusNoticeSentence, quote))
+	case who == "":
+		// NN3: a person or agent whose display name we could not read is
+		// still somebody who asked — 「알림」 would file their words under
+		// the platform's own notices. The sentence simply drops the name.
+		return Truncate(fmt.Sprintf(FocusRequestAnonSentence, quote))
 	case t.Delegated:
-		return Truncate(fmt.Sprintf(FocusDelegateSentence, Subject(who), quote))
+		return Truncate(fmt.Sprintf(FocusDelegateSentence,
+			apperr.JosaSpoken(who, "이", "가"), quote, particle(quote, "을", "를")))
 	default:
 		return Truncate(fmt.Sprintf(FocusRequestSentence, who, quote))
 	}
+}
+
+// particle is JosaSpoken's answer without the word — the format strings above
+// put the quote inside 「」 and the particle after the closing bracket, so the
+// two cannot be concatenated. JosaSpoken skips the bracket itself when it
+// reads the tail, so 「타이어 점검」 is decided by 검.
+func particle(word, with, without string) string {
+	return strings.TrimPrefix(apperr.JosaSpoken(word, with, without), word)
 }
 
 // Derive writes the derived sentence for the turn that task taskID is
