@@ -6,6 +6,9 @@ import { clockTime, relativeTime } from "@/lib/time";
 import type { Message } from "@/lib/api/types";
 import { isBubble, type Speech } from "@/lib/conversation";
 import { AddresseeLine, ReportOfLink, speechAria } from "./AddresseeLine";
+import { MediaGroup } from "./MediaPreview";
+import { fromAttachmentRef } from "@/lib/media";
+import { MEDIA } from "@/lib/wording";
 
 /**
  * kind 별 배지(COMPONENTS §2.2 K3). `answer` 는 message_kind 가 아니라 질문 카드(blocked_q) 스레드의 답글이다.
@@ -147,13 +150,20 @@ export function MessageCard(props: MessageCardProps) {
       {tail}
     </div>
   );
+  // v0.19.12 파일 붙이기(PRD FR-3.7 · openapi v0.3.7 Message.attachments) — 게시 때 가리킨 버전 그대로, 말풍선 아래 첨부 카드.
+  const attachments = (m.attachments ?? []).map(fromAttachmentRef);
+  const files = attachments.length > 0 ? <MediaGroup items={attachments} label={MEDIA.attachments_label} testId="message-attachments" /> : null;
   const body = layered ? (
     <>
       {layered.body && <MessageBody content={layered.body} />}
+      {files}
       {layered.below}
     </>
   ) : (
-    <MessageBody content={m.content} />
+    <>
+      <MessageBody content={m.content} />
+      {files}
+    </>
   );
   const actions = (
     <>

@@ -1,0 +1,61 @@
+/* Media Preview · Lightbox · Attachment Chip — COMPONENTS §9.12 (SCREEN v0.19.12 §4.6). 토큰만 쓴다(§8.2·§8.3). */
+.media-group { display: flex; flex-direction: column; gap: 8px; align-self: stretch; max-width: 100%; }
+.media { display: flex; flex-direction: column; gap: 6px; max-width: 480px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.media__head { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-sub); }
+.media__glyph { flex: none; }
+.media__name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.media__meta { color: var(--ink-2); flex: none; font-size: var(--fs-meta); }
+.media__open { color: var(--s-run-text); font-weight: 600; flex: none; margin-left: auto; }
+/* 이미지 — 최대 320×240, 체커 배경(투명 PNG), contain, 모서리 6, 1px 선 */
+.media__thumb {
+  display: inline-flex; align-items: center; justify-content: center; align-self: flex-start;
+  max-width: 320px; max-height: 240px; padding: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; cursor: zoom-in;
+  background-color: var(--bg);
+  background-image: linear-gradient(45deg, var(--surface) 25%, transparent 25%), linear-gradient(-45deg, var(--surface) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--surface) 75%), linear-gradient(-45deg, transparent 75%, var(--surface) 75%);
+  background-size: 16px 16px; background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+.media__thumb img { display: block; max-width: 320px; max-height: 240px; object-fit: contain; }
+.media__thumb:focus-visible { outline: 2px solid var(--s-run); outline-offset: 2px; }
+.media__video { display: block; width: 100%; max-width: 480px; border-radius: 6px; background: var(--media-stage); }
+.media__audio { display: flex; flex-direction: column; gap: 2px; width: 100%; max-width: 480px; }
+.media__audio audio { width: 100%; }
+.media__audio-meta { color: var(--ink-2); font-size: var(--fs-meta); }
+.media__fail { margin: 0; color: var(--ink-2); font-size: var(--fs-sub); }
+@media (max-width: 720px) {
+  .media, .media__video, .media__audio { max-width: 100%; }
+  .media__thumb, .media__thumb img { max-width: 100%; }
+}
+
+/* 라이트박스 */
+.lbox { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; background: var(--media-scrim); }
+.lbox__img { max-width: 90vw; max-height: 90vh; object-fit: contain; }
+.lbox__close { position: absolute; top: 12px; right: 12px; width: 44px; height: 44px; border: 0; border-radius: 22px; background: var(--media-on-soft); color: var(--media-on); font-size: var(--fs-card); cursor: pointer; }
+.lbox__nav { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border: 0; border-radius: 22px; background: var(--media-on-soft); color: var(--media-on); font-size: var(--fs-card); cursor: pointer; }
+.lbox__nav--prev { left: 16px; }
+.lbox__nav--next { right: 16px; }
+.lbox__close:focus-visible, .lbox__nav:focus-visible, .lbox__dl:focus-visible { outline: 2px solid var(--media-on); outline-offset: 2px; }
+.lbox__foot { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; align-items: center; color: var(--media-on); font-size: var(--fs-sub); }
+.lbox__name { font-weight: 600; }
+.lbox__meta { opacity: 0.8; }
+.lbox__dl { color: var(--media-on); font-weight: 600; text-decoration: underline; }
+
+/* 작성창 — 📎 · 끌어다 놓기 · 첨부 칩 */
+.composer[data-dragging="true"] { outline: 2px dashed var(--s-run); outline-offset: -4px; }
+.composer__drop { padding: 6px 10px; color: var(--s-run-text); font-size: var(--fs-sub); font-weight: 600; }
+.composer__attach { flex: none; }
+.attach-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.achip { position: relative; display: inline-flex; align-items: center; gap: 8px; height: 40px; max-width: 240px; padding: 0 30px 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; font-size: var(--fs-sub); }
+.achip--image { height: 64px; padding-left: 0; }
+.achip__thumb { width: 64px; height: 64px; flex: none; object-fit: cover; background: var(--bg); }
+.achip__glyph { flex: none; }
+.achip__text { display: flex; flex-direction: column; min-width: 0; }
+.achip__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.achip__size { color: var(--ink-2); font-size: var(--fs-meta); }
+.achip__err { color: var(--s-fail-text); font-size: var(--fs-meta); }
+.achip__x { position: absolute; top: 2px; right: 2px; width: 24px; height: 24px; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; border-radius: 12px; }
+.achip__x:focus-visible, .achip__retry:focus-visible { outline: 2px solid var(--s-run); }
+.achip__bar { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--s-run); }
+/* 오류 칩은 서버 문장 + 「다시 시도」가 들어가 두세 줄이 된다 — 40px 고정에 overflow:hidden 이면 다시 시도가 잘린다(실측). */
+.achip[data-state="error"] { border-color: var(--s-fail); height: auto; min-height: 40px; padding-top: 6px; padding-bottom: 6px; overflow: visible; }
+.achip__retry { border: 0; background: transparent; padding: 0; color: var(--s-run-text); font: inherit; font-size: var(--fs-meta); font-weight: 600; cursor: pointer; text-align: left; }

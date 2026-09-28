@@ -16,11 +16,15 @@ import (
 // room's people, a mention link as is, `@all`); `body` is what is said to
 // them; `detail` / `detail_file` are that part's work text (optional, not
 // both — `detail_file` follows `--detail-file`'s rules).
+// `attach` is that part's files (v0.9.6): artifact ids of the same room, at
+// most MaxAttach — only that part's recipients see them, so the limit is per
+// part, not per group.
 type PartArg struct {
 	To         []string `json:"to"`
 	Body       string   `json:"body"`
 	Detail     *string  `json:"detail,omitempty"`
 	DetailFile string   `json:"detail_file,omitempty"`
+	Attach     []string `json:"attach,omitempty"`
 }
 
 // Parts limits (openapi v0.3.6 MessageGroupCreate.parts minItems · maxItems).
@@ -51,7 +55,7 @@ func ReadPartsFile(path string) ([]PartArg, error) {
 	dec := json.NewDecoder(strings.NewReader(string(b)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&parts); err != nil {
-		return nil, client.Usage("--parts-file %s: not a JSON array of {\"to\":[\"@Name\"],\"body\":\"…\",\"detail\"?,\"detail_file\"?}: %v", path, err)
+		return nil, client.Usage("--parts-file %s: not a JSON array of {\"to\":[\"@Name\"],\"body\":\"…\",\"detail\"?,\"detail_file\"?,\"attach\"?}: %v", path, err)
 	}
 	return parts, nil
 }
@@ -142,7 +146,12 @@ func MessagePostParts(ctx context.Context, c *client.Client, a MessagePostArgs) 
 			}
 			p.Detail = &d
 		}
-		body.Parts = append(body.Parts, client.MessagePartCreate{Content: p.Body, Detail: p.Detail})
+		// 부분마다 제 첨부 — attachIDs 가 단일 게시와 같은 규칙(uuid·중복 한 번·10개)을 적용한다.
+		att, err := attachIDs(p.Attach)
+		if err != nil {
+			return nil, client.Usage("parts[%d].%s", i, strings.TrimPrefix(err.Error(), "--attach: "))
+		}
+		body.Parts = append(body.Parts, client.MessagePartCreate{Content: p.Body, Detail: p.Detail, AttachmentIDs: att})
 	}
 	if err := c.Allow(ctx, client.CmdMessagePost); err != nil {
 		return nil, err
@@ -185,8 +194,11 @@ func MessagePostParts(ctx context.Context, c *client.Client, a MessagePostArgs) 
 // or one body. Giving both is a usage error (exit 2).
 func Post(ctx context.Context, c *client.Client, a MessagePostArgs) (any, error) {
 	if len(a.Parts) > 0 || a.PartsFile != "" {
-		if strings.TrimSpace(a.Body) != "" || a.Detail != nil || a.DetailFile != "" || len(a.Mention) > 0 {
-			return nil, client.Usage("--parts-file (MCP parts) cannot be combined with --body, --detail, --detail-file or --mention: each part carries its own to, body and detail")
+		// v0.9.6: `attach` joins this list — the message-wide attachment has no
+		// meaning when each recipient is sent a different part, so it belongs
+		// inside a part (parts[].attach), never beside them.
+		if strings.TrimSpace(a.Body) != "" || a.Detail != nil || a.DetailFile != "" || len(a.Mention) > 0 || len(a.Attach) > 0 {
+			return nil, client.Usage("--parts-file (MCP parts) cannot be combined with --body, --detail, --detail-file, --mention or --attach: each part carries its own to, body, detail and attach")
 		}
 		return MessagePostParts(ctx, c, a)
 	}

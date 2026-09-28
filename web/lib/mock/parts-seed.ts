@@ -27,6 +27,10 @@ export interface PartsSeedCtx {
   createTask: (s: Store, sess: Session, agentId: string, triggerId: string | null, opts?: { brief?: string | null }) => MockTask;
   pushEvent: (s: Store, sess: Session, task: MockTask, e: Partial<TaskEvent> & Pick<TaskEvent, "class">) => TaskEvent;
   setLaneStatus: (s: Store, sess: Session, laneId: string, patch: Partial<Lane>) => void;
+  // v0.3.7 — 부분의 attachment_ids 를 AttachmentRef[] 로(같은 방·10개·중복 한 번, 아니면 422).
+  resolveAttachments: (s: Store, sessionId: string, ids: string[] | undefined, Problem: ProblemCtor) => NonNullable<Message["attachments"]>;
+  // 스크린샷·테스트용: base64 본문으로 아티팩트 하나를 저장하고 id 를 준다(종류는 목이 첫 바이트로 판정).
+  seedArtifact: (s: Store, sess: Session, name: string, b64: string) => string;
   parseMentions: (content: string) => Message["mentions"];
 }
 
@@ -37,7 +41,8 @@ export const PART_BODIES = {
   developer: "FX 코드 합쳤습니다 — 부스트 색수차만 절반으로",
 };
 
-interface Pending { groupId: string; sessId: string; taskId: string; next: number; parts: { to: string; content: string; detail?: string; agentId?: string }[] }
+// `attach` 는 그 부분의 아티팩트 id 들(v0.3.7 MessagePartCreate.attachment_ids) — 부분마다 제 것만 가진다.
+interface Pending { groupId: string; sessId: string; taskId: string; next: number; parts: { to: string; content: string; detail?: string; agentId?: string; attach?: string[] }[] }
 const pending = new Map<string, Pending>();
 
 export function registerPartsSeed(ctx: PartsSeedCtx): void {
@@ -51,6 +56,7 @@ export function registerPartsSeed(ctx: PartsSeedCtx): void {
       kind: "text", content: pt.content, mentions: parseMentions(pt.to), detail: pt.detail ?? null,
       source_task_id: task.id, lane_id: task.lane_id,
       group_id: pend.groupId, group_index: i, group_size: pend.parts.length,
+      attachments: ctx.resolveAttachments(s, sess.id, pt.attach, Problem),
     });
     pushEvent(s, sess, task, { class: "status", verb: "post_message", object_ref: m.id, outcome: "ok", payload: { command: "message post", result_ref: m.id } });
     if (pt.agentId) createTask(s, sess, pt.agentId, m.id, { brief: null });
@@ -97,11 +103,17 @@ export function registerPartsSeed(ctx: PartsSeedCtx): void {
     for (let i = 0; i < 35; i++) pushEvent(s, sess, task, { class: "tool", verb: "run_shell", outcome: "ok", payload: { command: "node test/headless.js" }, created_at: at(0.2 + i * 0.4) });
     for (let i = 0; i < 2; i++) pushEvent(s, sess, task, { class: "tool", verb: "read", outcome: "ok", object_ref: "src/physics.ts", created_at: at(14.5 + i * 0.5) });
 
+    // 부분마다 제 첨부(v0.3.7) — Designer 에게만 시안 이미지를 준다. 다른 부분에는 나오지 않는다.
+    const attachBody = (req.body ?? {}) as { attach_png_b64?: string };
+    let designerAttach: string[] | undefined;
+    if (attachBody.attach_png_b64) {
+      designerAttach = [ctx.seedArtifact(s, sess, "ref-sprite.png", attachBody.attach_png_b64)];
+    }
     const pend: Pending = {
       groupId: crypto.randomUUID(), sessId: sess.id, taskId: task.id, next: 0,
       parts: [
         { to: userLink, content: PART_BODIES.report, detail: ["## 1. 코너링 — 근본 원인", "", "| 항목 | v8 | v9 |", "|---|---|---|", "| 횡가속도 상한 | 없음 | 1.2g |"].join("\n") },
-        { to: link(designer), content: PART_BODIES.designer, agentId: designer.id },
+        { to: link(designer), content: PART_BODIES.designer, agentId: designer.id, attach: designerAttach },
         // 본문 속 @Designer 멘션은 칩일 뿐 — 트리거·받는 쪽은 `to`(@Developer)만(FR-3.1.4 3번).
         { to: link(developer), content: `${PART_BODIES.developer} (색은 ${link(designer)} 시안 기준)`, agentId: developer.id },
       ],

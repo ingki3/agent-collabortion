@@ -55,6 +55,11 @@ type Surface struct {
 	// harness v0.9.13: brief [2]'s fixed line on declaring what the agent is
 	// doing now (PRD FR-3.1.5 — the lane's 「지금」).
 	FocusRule string
+	// harness v0.9.12 (PRD FR-4.3.1 · FR-3.7): brief [2]'s fixed media line,
+	// and the one line under a trigger message's `Attachments:` list that
+	// says how to fetch them.
+	MediaRule   string
+	AttachFetch string
 }
 
 // Tool surface values (harness §9 runtime.capabilities[].tool_surface).
@@ -124,6 +129,16 @@ const (
 	FocusRuleMCP = "- Right after your turn starts, and whenever the problem you are working on changes, tell the people what you are doing now with the `colab_status_set` tool (status: working, note: \"<one sentence in the room's language, conversational: what and why>\"). Not after every tool call.\n"
 )
 
+// MediaRule / MediaRuleMCP are harness v0.9.12's brief [2] line — word for
+// word the contract's, per surface. AttachFetch / AttachFetchMCP close a
+// trigger message's `Attachments:` list (how to get a file into the folder).
+const (
+	MediaRule      = "- Images, video and sound that people need to see: submit them with `colab artifact submit` — the room plays them inline. Files left only in your folder cannot be seen by people."
+	MediaRuleMCP   = "- Images, video and sound that people need to see: submit them with the `colab_artifact_submit` tool — the room plays them inline. Files left only in your folder cannot be seen by people."
+	AttachFetch    = "Download one into your folder with `colab artifact get <id> --out <path>`."
+	AttachFetchMCP = "Download one into your folder with the `colab_artifact_get` tool (`artifact`: the id, `out`: a path in your folder)."
+)
+
 const (
 	ThreadReplyInstruction    = "A trigger message with a `thread` attribute was posted in that thread: answer in the thread. `colab message post` replies to that thread by default; add `--top-level` only when the reply belongs on the main timeline."
 	ThreadReplyInstructionMCP = "A trigger message with a `thread` attribute was posted in that thread: answer in the thread. `colab_message_post` replies to that thread by default; set `top_level` only when the reply belongs on the main timeline (or `reply_to` to answer one message)."
@@ -149,6 +164,8 @@ var shellSurface = Surface{
 	PartsRule:       PartsRule,
 	groupRead:       "Read them whole with `colab room messages --group %s`.",
 	FocusRule:       FocusRule,
+	MediaRule:       MediaRule,
+	AttachFetch:     AttachFetch,
 }
 
 var mcpSurface = Surface{
@@ -171,6 +188,8 @@ var mcpSurface = Surface{
 	PartsRule:       PartsRuleMCP,
 	groupRead:       "Read them whole with the `colab_room_messages` tool's `group: \"%s\"`.",
 	FocusRule:       FocusRuleMCP,
+	MediaRule:       MediaRuleMCP,
+	AttachFetch:     AttachFetchMCP,
 }
 
 // SurfaceFor is the text set for a profile's runtime_kind: hermes reads the
@@ -199,6 +218,7 @@ func (s Surface) Section2() string {
 		s.ReadLine +
 		"- " + s.DetailRule + "\n" +
 		"- " + s.Deliverable + "\n" +
+		s.MediaRule + "\n" +
 		s.FoldersRule + "\n" +
 		s.FocusRule +
 		"- Mentioning an agent creates work for it; do not mention agents just to acknowledge.\n" +
