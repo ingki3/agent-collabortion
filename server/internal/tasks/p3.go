@@ -246,6 +246,9 @@ func (s *Service) RecordTurnUsage(ctx context.Context, taskID uuid.UUID, attempt
 			taskID, u.InputTokens, u.OutputTokens, u.CacheReadTokens, reported, u.Estimated, model, now, attempt); err != nil {
 			return fmt.Errorf("tasks: turn usage: %w", err)
 		}
+		// T-CTX0: the heartbeat series of the attempt's context metric
+		// (measurement only; its own savepoint, never fails the heartbeat).
+		recordMetricSample(ctx, tx, taskID, attempt, u, now)
 		if !u.Estimated {
 			// A measured cost is already the number; re-pricing it would
 			// overwrite a measurement with a guess (repriceEstimates only
