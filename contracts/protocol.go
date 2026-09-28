@@ -150,7 +150,19 @@ type Probe struct {
 	WorkdirRoot   string       `json:"workdir_root"`
 	Disk          Disk         `json:"disk"`
 	ColabCLI      ColabCLI     `json:"colab_cli"`
+	// DaemonFeatures — 이 데몬이 아는 번들 칸(daemon-protocol v0.10.3 §3). 서버는 광고가 없는
+	// 런타임에 그 칸에 기대는 번들(예: 델타 prompt + prompt_cold)을 보내지 않는다. 비면 「아는 것 없음」.
+	DaemonFeatures []string `json:"daemon_features,omitempty"`
 }
+
+// DaemonFeaturePromptCold — 데몬이 TaskBundle.PromptCold 를 읽고 새 세션에 그것을 보낸다
+// (daemon-protocol v0.10.3 §3·§4.1).
+const DaemonFeaturePromptCold = "prompt_cold"
+
+// ResumeSessionMaxTokens — 이어받을 런타임 세션의 직전 턴 시작 크기(첫 턴 중 usage 표본의
+// cache_read + cache_write + input)가 이것을 넘으면 서버는 번들 resume 을 비워 계획적 콜드
+// 스타트로 보낸다(harness v0.9.14 §6, daemon-protocol v0.10.3 §4.1). 워크스페이스 설정이 아니다.
+const ResumeSessionMaxTokens = 300_000
 
 type Disk struct {
 	UsedBytes  int64 `json:"used_bytes"`
@@ -159,12 +171,17 @@ type Disk struct {
 
 // TaskBundle — one claimed task attempt (daemon-protocol.md §4.1).
 type TaskBundle struct {
-	Task             BundleTask         `json:"task"`
-	TaskToken        string             `json:"task_token"`
-	Profile          BundleProfile      `json:"profile"`
-	Workdir          BundleWorkdir      `json:"workdir"`
-	Brief            BundleBrief        `json:"brief"`
-	Prompt           string             `json:"prompt"`
+	Task      BundleTask    `json:"task"`
+	TaskToken string        `json:"task_token"`
+	Profile   BundleProfile `json:"profile"`
+	Workdir   BundleWorkdir `json:"workdir"`
+	Brief     BundleBrief   `json:"brief"`
+	Prompt    string        `json:"prompt"`
+	// PromptCold — Resume 이 있고 Prompt 가 재개 델타일 때, 같은 순간의 전체 턴 프롬프트
+	// (daemon-protocol v0.10.3 §4.1, harness v0.9.14 §10). 데몬은 새 세션을 열면(resume_rejected·
+	// D-13 콜드 재시도) 이것을, 비어 있으면 Prompt 를 보낸다.
+	PromptCold string `json:"prompt_cold,omitempty"`
+	// Resume — 서버의 재개 결정. nil 이면 session/load 없이 새 세션(v0.10.3).
 	Resume           *RuntimeSessionRef `json:"resume"`
 	Limits           BundleLimits       `json:"limits"`
 	PostedMessageIDs []string           `json:"posted_message_ids,omitempty"`
