@@ -20,6 +20,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
+	"github.com/ingki3/agent-collabortion/server/internal/quiet"
 	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
 	"github.com/ingki3/agent-collabortion/server/internal/rooms"
 	"github.com/ingki3/agent-collabortion/server/internal/sessions"
@@ -1176,7 +1177,12 @@ func (s *Server) CompleteWork(w http.ResponseWriter, r *http.Request, workId gen
 	}
 	var running int
 	if err := s.DB.QueryRow(r.Context(), `
-		SELECT count(*) FROM lane WHERE work_id = $1 AND status IN ('queued', 'running')`, workId).Scan(&running); err != nil {
+		SELECT count(*) FROM lane l WHERE l.work_id = $1 AND l.status IN ('queued', 'running')
+		   -- T-QUIET: a lane waiting only on a held trigger is not running —
+		   -- ending the mission cancels it, which is what the Director asked.
+		   AND NOT (l.status = 'queued' AND NOT EXISTS (
+		         SELECT 1 FROM task t WHERE t.lane_id = l.id AND t.status <> 'cancelled'
+		            AND t.status NOT IN ('completed', 'failed') AND NOT `+quiet.HeldTaskSQL+`))`, workId).Scan(&running); err != nil {
 		writeErr(w, err)
 		return
 	}

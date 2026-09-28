@@ -1106,7 +1106,8 @@ export default function RoomPage() {
               return {
                 // 미션 라벨은 양방향 — (전체)에서 보이고 칩을 고르면 감춘다(§4.6).
                 workLabel: workLabelOf(l.work_id, "lane-work-label"),
-                queuedReason: !reason ? undefined
+                // T-QUIET: approval_pending 은 카드 머리의 칩이 말한다 — 대기 사유 줄은 두지 않는다.
+                queuedReason: !reason || reason === "approval_pending" ? undefined
                   : reason === "room_lanes" ? (room.limits?.max_parallel_lanes != null ? <Slot text={ROOM_LEFT.queued_room_lanes} n={room.limits.max_parallel_lanes} /> : ROOM_LEFT.queued_room_lanes_plain)
                   : reason === "agent_global" ? (maxConc != null ? <Slot text={ROOM_LEFT.queued_agent_global} n={maxConc} /> : ROOM_LEFT.queued_agent_global_plain)
                   : reason === "runtime" ? (room.isolation?.kind === "worktree" && !room.runtime_id ? ROOM_LEFT.queued_runtime_repo : ROOM_LEFT.queued_runtime)

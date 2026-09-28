@@ -249,6 +249,7 @@ export function WorkPanel(props: WorkPanelProps) {
           nextActor={c.next_actor}
           blockedReason={c.blocked_reason ?? null}
           heldReason={c.held_reason ?? null}
+          pausedAgentTriggers={prog.paused_agent_triggers ?? null}
           hitlRequestId={c.hitl_request_id ?? null}
           onOpenHitl={props.onOpenHitl}
         />

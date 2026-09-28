@@ -21,7 +21,7 @@ import { Badge } from "./Badge";
 import { LaneTaskHistory } from "./LaneTaskHistory";
 import { durationSince, relativeTime } from "@/lib/time";
 import { failureLabel } from "@/lib/failure";
-import { EMPTY_TURN, FOCUS } from "@/lib/wording";
+import { EMPTY_TURN, FOCUS, ROOM_LEFT } from "@/lib/wording";
 import { FocusLine } from "./FocusLine";
 import type { Lane, Task } from "@/lib/api/types";
 
@@ -160,6 +160,12 @@ export function LaneCard(props: LaneCardProps) {
       <div className="lane__head">
         <span className="lane__agent" data-testid="lane-agent">@{lane.agent_name ?? "agent"}</span>
         <Badge kind="lane" value={lane.status} size="sm" />
+        {lane.status === "queued" && lane.queued_reason === "approval_pending" && (
+          // T-QUIET (SCREEN v0.19.14): 승인 대기로 보류된 할 일 — 상태 칩(neutral).
+          <span data-testid="lane-approval-pending">
+            <Badge kind="lane" value="queued" size="sm" tone="neutral" label={ROOM_LEFT.queued_approval_pending} />
+          </span>
+        )}
       </div>
       {lane.brief && lane.status !== "done" && (
         <div className="lane__brief" data-testid="lane-brief">{renderInline(lane.brief)}</div>

@@ -43,6 +43,9 @@ type LaneDelegateResult struct {
 	Lane      json.RawMessage `json:"lane"`
 	Message   *client.Message `json:"message,omitempty"`
 	Task      json.RawMessage `json:"task,omitempty"`
+	// Notice — harness v0.9.15 (T-QUIET): the delegated task was held
+	// because the mission waits for the Director's approval.
+	Notice string `json:"notice,omitempty"`
 }
 
 // NotParticipantHint is the alternative route E15-02 requires the CLI to name
@@ -96,6 +99,9 @@ func LaneDelegate(ctx context.Context, c *client.Client, a LaneDelegateArgs) (*L
 		Lane: res.Lane, Message: res.Message, Task: res.Task,
 	}
 	out.LaneID = rawField(res.Lane, "id")
+	if rawField(res.Task, "queued_reason") == client.QueuedApprovalPending {
+		out.Notice = QuietNotice(p.Name)
+	}
 	if res.Message != nil {
 		out.MessageID = res.Message.ID
 	}

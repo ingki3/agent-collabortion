@@ -9,6 +9,7 @@
  */
 import "./condition-row.css";
 import { BLOCKED_REASON, CONDITION_DESC, PROGRESS, blockedReasonText, conditionName } from "@/lib/wording";
+import { Slot } from "./Slot";
 
 /** 옛 이름 — 호출부 호환(요약·테스트). 새 코드는 `conditionName` 을 쓴다. */
 export { conditionName, CONDITION_DESC };
@@ -29,6 +30,11 @@ export interface ConditionRowProps {
   blockedReason?: string | null;
   /** 계약 `held_reason`(v0.3.3) — `user_approval` 이 작업 중이라 보류됐다. 두 번째 줄이 그 말을 한다(T-APPROVAL). */
   heldReason?: string | null;
+  /**
+   * 계약 `CompletionProgress.paused_agent_triggers`(v0.3.9, T-QUIET) — 승인 대기로 멈춘 에이전트 간 새 작업 수.
+   * `user_approval` 행에서 미충족이고 1 이상일 때만 행 아래 작은 줄(SCREEN v0.19.14).
+   */
+  pausedAgentTriggers?: number | null;
   /** `user_approval` 대기 중인 확인 요청 — 있으면 두 번째 줄이 그 카드로 가는 링크가 된다. */
   hitlRequestId?: string | null;
   onOpenHitl?: (hitlRequestId: string) => void;
@@ -93,6 +99,11 @@ export function ConditionRow(props: ConditionRowProps) {
           </button>
         ) : (
           <span className={`cond__desc${blocked ? " cond__desc--blocked" : ""}`} data-testid="condition-line">{line}</span>
+        )}
+        {variant === "progress" && props.type === "user_approval" && !props.met && (props.pausedAgentTriggers ?? 0) > 0 && (
+          <span className="cond__meta" data-testid="condition-paused-agent-triggers" data-count={props.pausedAgentTriggers!}>
+            <Slot text={PROGRESS.paused_agent_triggers} n={props.pausedAgentTriggers!} />
+          </span>
         )}
       </span>
       {props.children}
