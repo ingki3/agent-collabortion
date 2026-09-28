@@ -216,6 +216,31 @@ apic '(function(){var f=document.querySelector("[data-testid=media-preview][data
 sleep 1
 shot media-07-file-fallback-light
 
+step "08 — 부분 말풍선: 부분마다 제 첨부(PRD FR-3.1.4 + FR-3.7)"
+ab set viewport 1280 1200 >/dev/null
+set_theme light
+PRID=$(apic '
+(async () => {
+  const j = (r) => r.json();
+  const post = (p, b) => fetch(`/api/v1${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b ?? {}) }).then(j);
+  const me = await fetch("/api/v1/me").then(j);
+  const r = await post(`/workspaces/${me.workspaces[0].id}/rooms`, { name: "부분 첨부" });
+  return r.id;
+})()')
+# seed-parts 는 Designer 부분에 그림 하나를 붙인다(attach_png_b64) — 나머지 부분에는 아무것도 없다.
+apic "fetch('/api/v1/__mock/rooms/$PRID/seed-parts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ attach_png_b64: '$(b64of "$ASSETS/headlight-a.png")' }) }).then((r) => r.status)"
+ab open "$BASE_URL/rooms/$PRID" >/dev/null
+ab wait '[data-testid="timeline"]' --timeout 20000 >/dev/null
+sleep 2
+to_bottom
+assert_js 'document.querySelectorAll("[data-testid=part]").length === 3' "부분 셋"
+assert_js 'document.querySelectorAll("[data-testid=part-attachments]").length === 1' "첨부 카드는 한 부분에만 — 묶음이 한 목록을 나눠 쓰지 않는다"
+assert_js '[...document.querySelectorAll("[data-testid=part]")].filter((p) => p.querySelector("[data-testid=part-attachments]")).length === 1' "그 부분 안에 있다"
+assert_js 'document.querySelector("[data-testid=part-attachments] [data-testid=media-image]") !== null' "그림 썸네일"
+apic '(function(){var p=document.querySelector("[data-testid=part-attachments]");if(p)p.scrollIntoView({block:"center"});return "ok"})()' >/dev/null
+sleep 1
+shot media-08-parts-attachments-light
+
 apic "(function(){try{localStorage.removeItem('colab.theme')}catch(e){};return 'ok'})()" >/dev/null
 echo
-echo "== media-shots: 7장 ($SHOT_DIR) =="
+echo "== media-shots: 8장 ($SHOT_DIR) =="
