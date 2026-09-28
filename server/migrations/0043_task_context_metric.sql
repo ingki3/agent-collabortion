@@ -1,7 +1,7 @@
 -- task_context_metric — attempt 마다 한 행: 턴 프롬프트의 모양과 그 턴이 쓴 맥락 (T-CTX0)
 --
--- 번호는 PR 을 올리는 순간 origin/dev 의 마지막 + 1 로 이름만 바뀐다(Lead 규칙) —
--- 이 파일 안이나 코드 어디에서도 번호를 부르지 않는다.
+-- 번호는 머지 순서로 정해진다(Lead 규칙) — #379 → #380(0041) → #375(0042) → 이 PR 이라
+-- 0043 이다. 이 파일 안이나 코드 어디에서도 번호를 부르지 않는다.
 --
 -- plan/research/CONTEXT_MEMORY.md 0단계: 「재개된 런타임 세션에 턴마다 히스토리가
 -- 한 벌씩 쌓인다」는 가설을 판정하고 1단계(수명주기)의 전후를 재려면, attempt 마다
@@ -10,8 +10,13 @@
 -- cache_write 와 도구 호출 수가 한 줄에 있어야 한다. 지금까지는 (3)의 일부만
 -- task_usage 에 있었고 cache_write 는 버려졌다.
 --
--- 계측 전용이다. 이 표를 읽어서 동작을 바꾸는 코드는 없다 — 쓰기가 실패해도 claim·
--- heartbeat·finish 는 그대로 간다(세이브포인트).
+-- 0단계에서는 계측 전용이지만 그 상태로 머물지 않는다: **맥락 1단계 ③(harness
+-- v0.9.14 §6)이 세션 상한 판정에 이 표를 읽는다**(Lead 지시 2026-09-28) — 재개 세션의
+-- 누적 크기가 상한을 넘으면 다음 task 를 계획적 cold start 로 돌리는 판정의 입력이
+-- 이 행들이다. 그러므로 이 표의 칸은 한 번 쓰고 버리는 로그가 아니라 읽히는 계약이다.
+-- (harness v0.9.14 는 이 커밋 시점의 트리에 아직 없다 — 1단계 ③ 과 함께 들어온다.)
+--
+-- 쓰기는 세이브포인트 안이라 실패해도 claim·heartbeat·finish 는 그대로 간다.
 CREATE TABLE task_context_metric (
     task_id          uuid NOT NULL REFERENCES task(id) ON DELETE CASCADE,
     attempt          integer NOT NULL CHECK (attempt >= 1),

@@ -165,7 +165,7 @@ hermes(Designer·Developer) 는 비용이 가장 큰데 캐시 쓰기 보고가 
 
 ## 7. 계측(운영 코드) — 이제 attempt 마다 남는 것
 
-새 표 `task_context_metric`(마이그레이션 `00NN_task_context_metric.sql`, 번호는 PR 직전 dev 마지막 +1). 동작 변경 없음: 쓰기는 세이브포인트 안이고 실패해도 claim·heartbeat·finish 는 그대로(주입으로 증명). 계약 변경 없음(데몬 칸은 기존 finish/heartbeat 의 것만).
+새 표 `task_context_metric`(마이그레이션 `0043_task_context_metric.sql` — 머지 순서 #379 → #380(0041) → #375(0042) → 이 PR). 0단계에서는 **제품 동작 변경 없음**: 쓰기는 세이브포인트 안이고 실패해도 claim·heartbeat·finish 는 그대로(주입으로 증명). 계약 변경 없음(데몬 칸은 기존 finish/heartbeat 의 것만). 다만 이 표는 관측으로만 남지 않는다 — **맥락 1단계 ③(harness v0.9.14 §6)이 세션 상한 판정에 이 행들을 읽는다**(Lead 지시 2026-09-28). 즉 여기의 칸 이름·의미는 1단계가 의존하는 계약이 된다.
 
 | 시점 | 칸 |
 |---|---|
