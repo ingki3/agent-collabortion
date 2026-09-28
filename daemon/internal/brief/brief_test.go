@@ -9,19 +9,23 @@ import (
 	"github.com/ingki3/agent-collabortion/contracts"
 )
 
-func parts(ctx, log string) Parts {
-	return Parts{Identity: "Lead: coordinates", Rules: "@mention; colab message post", Coordination: "lead protocol", Session: "goal: ship", Roster: "@Lead @Dev", Context: ctx, DecisionLog: log}
+func parts() Parts {
+	return Parts{Identity: "Lead: coordinates", Rules: "@mention; colab message post", Coordination: "lead protocol", Session: "goal: ship", Roster: "@Lead @Dev"}
 }
 
-// E12-11 — order fixed, [1]~[5] byte-identical across turns.
+// E12-11 (harness v0.9.14) — order fixed, the whole brief byte-identical
+// across turns, and no [6]·[7] header: artifacts and decisions are turn
+// prompt blocks.
 func TestAssembleOrderAndStablePrefix(t *testing.T) {
-	a := Assemble(parts("turn1 ctx", "d1"))
-	b := Assemble(parts("turn2 ctx (attachments changed)", "d1\nd2"))
-	if StablePrefix(a) != StablePrefix(b) {
-		t.Fatal("[1]~[5] differ between turns")
+	a := Assemble(parts())
+	b := Assemble(parts())
+	if a != b || StablePrefix(a) != a {
+		t.Fatal("brief differs between turns / StablePrefix is not the whole brief")
 	}
-	if a == b {
-		t.Fatal("[6]~[8] should differ")
+	for _, gone := range []string{"[6]", "[7]", "Context", "Decision Log"} {
+		if strings.Contains(a, gone) {
+			t.Fatalf("brief still has %q (harness v0.9.14 moved it to the turn prompt):\n%s", gone, a)
+		}
 	}
 	last := -1
 	for _, h := range headers {

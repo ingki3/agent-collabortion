@@ -29,7 +29,7 @@ import (
 const historyLimit = tasks.DefaultHistoryLimit
 
 // buildBundle assembles the TaskBundle (daemon-protocol §4.1): profile, brief
-// [1]~[8] (PRD §8.4), the turn prompt with history/trigger/<resumed>, limits
+// [1] [2] [3] [4] [5] [8] (PRD §8.4, harness v0.9.14), the turn prompt with history/trigger/<resumed>, limits
 // and posted_message_ids for attempt ≥ 2 (FR-7.1 M5).
 //
 // The returned contextMetric is the size of every section it wrote (T-CTX0,
@@ -146,15 +146,17 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		fmt.Fprintf(&roster, "- %s (person · %s) — mention: %s\n", h.Name, h.Role, router.UserMentionLink(h.Name, h.UserID))
 	}
 
-	// Brief [6] Context and [7] Decision Log (§8.4, S-37). The decision table
-	// and the artifact table were both written from P2 on and nothing read
-	// them back into a prompt, so every turn re-derived what had already been
-	// decided from the raw history.
-	sessionContext, err := briefContext(ctx, tx, t.SessionID, surf)
+	// The old brief [6] Context and [7] Decision Log (§8.4, S-37) are turn
+	// prompt blocks since harness v0.9.14 (맥락 1단계 ①): a new artifact
+	// version or a new decision changed the system prompt, and every resumed
+	// turn re-wrote the whole session as cache (04-baseline §3 — 69 of 70
+	// misses). `<room_decisions>` (loadRoomHistory) carries every decision;
+	// these two carry the artifacts and the reused-session summaries.
+	roomArtifacts, err := renderRoomArtifacts(ctx, tx, t.SessionID, surf)
 	if err != nil {
 		return nil, nil, err
 	}
-	decisionLog, err := briefDecisionLog(ctx, tx, t.SessionID)
+	reusedContext, err := renderReusedContext(ctx, tx, t.SessionID, surf)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -248,15 +250,19 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	}
 	var total int
 	_ = tx.QueryRow(ctx, `SELECT count(*) FROM message WHERE session_id = $1`, t.SessionID).Scan(&total)
-	var hist strings.Builder
-	for _, m := range history {
-		// The id is here so `Messages you already posted` above can be matched
-		// line by line against what the session actually holds (S-36). Only a
-		// trigger whose 작업 내용 went in whole points down to <trigger>; one
-		// demoted by the turn budget reads like any other history line.
-		hd := historyDetail(m, fullDetail[m.ID], surf)
-		metric.add("prompt.history/detail", hd)
-		fmt.Fprintf(&hist, "[%s] %s %s: %s\n%s", m.CreatedAt.UTC().Format("15:04"), m.ID, authorLabel(m), m.Content, hd)
+	// renderHist writes ①'s lines. The id is here so `Messages you already
+	// posted` above can be matched line by line against what the session
+	// actually holds (S-36). Only a trigger whose 작업 내용 went in whole
+	// points down to <trigger>; one demoted by the turn budget reads like any
+	// other history line.
+	renderHist := func(ms []*messages.Row, metric *contextMetric) string {
+		var hist strings.Builder
+		for _, m := range ms {
+			hd := historyDetail(m, fullDetail[m.ID], surf)
+			metric.add("prompt.history/detail", hd)
+			fmt.Fprintf(&hist, "[%s] %s %s: %s\n%s", m.CreatedAt.UTC().Format("15:04"), m.ID, authorLabel(m), m.Content, hd)
+		}
+		return hist.String()
 	}
 
 	// posted is the bundle's `posted_message_ids` (bare ids, §4.1); postedLines
@@ -361,19 +367,28 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	n = brief.Len()
 	fmt.Fprintf(&brief, "[5] Roster\n%s\n", roster.String())
 	metric.wrote("brief.5", &brief, n)
-	n = brief.Len()
-	if sessionContext != "" {
-		fmt.Fprintf(&brief, "[6] Context\n%s\n", sessionContext)
-	}
-	metric.wrote("brief.6", &brief, n)
-	n = brief.Len()
-	if decisionLog != "" {
-		fmt.Fprintf(&brief, "[7] Decision Log\n%s\n", decisionLog)
-	}
-	metric.wrote("brief.7", &brief, n)
+	// [6]·[7] are left empty for good (harness v0.9.14): their content is the
+	// turn prompt's <room_artifacts>·<reused_context>·<room_decisions>, and
+	// the numbers are not reused so an old 「[7]」 never means something else.
 	n = brief.Len()
 	brief.WriteString("[8] Instruction precedence: user instruction > session goal > agent instructions > runtime defaults.\n")
 	metric.wrote("brief.8", &brief, n)
+
+	// harness §6 v0.9.14 (맥락 1단계 ③): whether to resume is the server's
+	// decision. On top of the old conditions (a usable ref, E8-08, a
+	// reported resume_rejected), a session whose last finished turn STARTED
+	// above contracts.ResumeSessionMaxTokens gets a planned cold start. The
+	// lane keeps its ref — this turn's finish overwrites it.
+	refSession := storedRefSessionID(runtimeSessionRef)
+	var sessionTokens int64
+	var sessionSampled, sessionCapped bool
+	if !prevColdStarted && tasks.PlanBundleResume(runtimeSessionRef, runtimeKind) != nil {
+		sessionTokens, sessionSampled = sessionStartTokens(ctx, tx, t.LaneID, refSession)
+		if overSessionCap(sessionTokens, sessionSampled) {
+			sessionCapped = true
+			refSession = ""
+		}
+	}
 
 	// The next attempt's shape — resume vs cold start, `<resumed>`, the history
 	// header, the workdir-check line — is PlanAttempt's decision (FR-5.4,
@@ -381,7 +396,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	plan := tasks.PlanAttempt(tasks.AttemptInput{
 		TaskID: t.ID, Attempt: t.Attempt - 1, MaxAttempts: t.MaxAttempts,
 		TriggerMessageID:   uuidOrNil(t.TriggerMessageID),
-		SessionRef:         storedRefSessionID(runtimeSessionRef),
+		SessionRef:         refSession,
 		RefRuntimeKind:     storedRefKind(runtimeSessionRef),
 		ProfileRuntimeKind: runtimeKind,
 		ResumeRejected:     prevColdStarted,
@@ -391,6 +406,36 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		HistoryTotal:       total, HistoryLimit: historyLimit,
 		NewInstruction: newInstruction,
 	})
+	// daemon-protocol §4.1: `resume` is the lane's stored ref, and only when
+	// the next runtime can load it (E8-08, E8-13) and the session is under
+	// the cap (v0.10.3).
+	var resume *contracts.RuntimeSessionRef
+	if plan.ResumeRef != "" {
+		resume = tasks.PlanBundleResume(runtimeSessionRef, runtimeKind)
+	}
+
+	// harness §10 v0.9.14 (맥락 1단계 ②): this attempt's anchor is recorded
+	// now — the room's latest message as this bundle sees it. A resumed turn
+	// whose session has an anchor, on a daemon that knows prompt_cold, gets
+	// the delta as `prompt` and the whole turn prompt as `prompt_cold`.
+	if _, err := recordContextAnchor(ctx, tx, t.SessionID, t.ID, t.Attempt); err != nil {
+		return nil, nil, err
+	}
+	var anchor *contextAnchor
+	if resume != nil {
+		if anchor, err = laneContextAnchor(ctx, tx, t.LaneID); err != nil {
+			return nil, nil, err
+		}
+		if anchor != nil {
+			knows, err := runtimeKnowsPromptCold(ctx, tx, runtimeID)
+			if err != nil {
+				return nil, nil, err
+			}
+			if !knows {
+				anchor = nil
+			}
+		}
+	}
 
 	// S-53: the rebind instruction, if this session was moved to a new machine
 	// and the diffs have not been replayed yet. It goes FIRST — before
@@ -412,49 +457,124 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		return nil, nil, err
 	}
 
-	// Turn prompt
-	var prompt strings.Builder
-	if rebindPrompt != "" {
-		fmt.Fprintf(&prompt, "<rebind>\n%s</rebind>\n\n", ensureTrailingNewline(rebindPrompt))
+	// Turn prompt — harness §10 v0.9.14's block order: <rebind> → <resumed>
+	// → head lines → ① → ② → ③ → <room_artifacts> → <reused_context> →
+	// <mission_progress> → <roster_status> → <folders> → <trigger> → the
+	// closing instruction. renderPrompt writes it whole (anchor nil) or as
+	// a resumed turn's delta — only the head lines, ① and ② differ.
+	renderPrompt := func(anchor *contextAnchor, metric *contextMetric) (string, error) {
+		hist, h := history, roomHist
+		histTotal, histIncluded, histTruncated := plan.HistoryTotal, plan.HistoryIncluded, plan.HistoryTruncated
+		if anchor != nil {
+			// ① is the latest 50 of the messages after the anchor — which is
+			// `history` (the room's latest 50) with the older ones dropped;
+			// ② is the mission's messages older than that window, also only
+			// after the anchor.
+			hist = nil
+			for _, m := range history {
+				if anchor.after(m) {
+					hist = append(hist, m)
+				}
+			}
+			h.MissionOlder = nil
+			for _, m := range roomHist.MissionOlder {
+				if anchor.after(m) {
+					h.MissionOlder = append(h.MissionOlder, m)
+				}
+			}
+			if err := tx.QueryRow(ctx, `
+				SELECT count(*) FROM message WHERE session_id = $1 AND (created_at, id) > ($2, $3)`,
+				t.SessionID, anchor.At, anchor.ID).Scan(&histTotal); err != nil {
+				return "", fmt.Errorf("queue: delta total: %w", err)
+			}
+			histIncluded = len(hist)
+			histTruncated = histTotal > histIncluded
+		}
+		var prompt strings.Builder
+		if rebindPrompt != "" {
+			fmt.Fprintf(&prompt, "<rebind>\n%s</rebind>\n\n", ensureTrailingNewline(rebindPrompt))
+		}
+		metric.wrote("prompt.rebind", &prompt, 0)
+		n := prompt.Len()
+		renderResumedSection(&prompt, plan, t.Attempt, prevOutcome, postedLines, answered)
+		metric.wrote("prompt.resumed", &prompt, n)
+		// The delta's fixed line, then FR-4.1's truncation line (Lead T-R3b
+		// 판정 3) — both at the head of ①.
+		n = prompt.Len()
+		if anchor != nil {
+			prompt.WriteString(deltaHeadLine(anchor.ID))
+		}
+		metric.wrote("prompt.delta_head", &prompt, n)
+		n = prompt.Len()
+		prompt.WriteString(truncationNote(histTotal-histIncluded, h, missionID != nil, surf))
+		metric.wrote("prompt.truncation_note", &prompt, n)
+		n = prompt.Len()
+		since := ""
+		if anchor != nil {
+			since = fmt.Sprintf(" since=%q", anchor.ID.String())
+		}
+		fmt.Fprintf(&prompt, "<history%s included=%d total=%d truncated=%t>\n%s</history>\n\n",
+			since, histIncluded, histTotal, histTruncated, renderHist(hist, metric))
+		metric.wrote("prompt.history", &prompt, n)
+		renderRoomHistoryTail(&prompt, missionID, h, surf, metric)
+		n = prompt.Len()
+		prompt.WriteString(roomArtifacts)
+		metric.wrote("prompt.room_artifacts", &prompt, n)
+		n = prompt.Len()
+		prompt.WriteString(reusedContext)
+		metric.wrote("prompt.reused_context", &prompt, n)
+		n = prompt.Len()
+		prompt.WriteString(renderMissionProgress(room.Mission, progress.Met, progress.Total, progress.Satisfied))
+		metric.wrote("prompt.mission_progress", &prompt, n)
+		n = prompt.Len()
+		fmt.Fprintf(&prompt, "<roster_status>\n%s</roster_status>\n\n", rosterStatus.String())
+		metric.wrote("prompt.roster_status", &prompt, n)
+		n = prompt.Len()
+		prompt.WriteString(foldersBlock)
+		metric.wrote("prompt.folders", &prompt, n)
+		// A re-instruction's trigger IS the new instruction, and `<resumed>`
+		// is absent above — so the same rendering serves both (§8.4, E8-06).
+		// The trigger is whole even when it sits before the anchor.
+		n = prompt.Len()
+		fmt.Fprintf(&prompt, "<trigger>\n%s</trigger>\n\n", trigger.String())
+		metric.wrote("prompt.trigger", &prompt, n)
+		n = prompt.Len()
+		prompt.WriteString(surf.Respond)
+		if threadRootID != "" {
+			prompt.WriteString(surf.ThreadReply + "\n")
+		}
+		metric.wrote("prompt.respond", &prompt, n)
+		metric.Counts["history"] = histIncluded
+		metric.Counts["history_total"] = histTotal
+		metric.Counts["mission_messages"] = len(h.MissionOlder)
+		return prompt.String(), nil
 	}
-	metric.wrote("prompt.rebind", &prompt, 0)
-	n = prompt.Len()
-	renderResumedSection(&prompt, plan, t.Attempt, prevOutcome, postedLines, answered)
-	metric.wrote("prompt.resumed", &prompt, n)
-	// ① — with FR-4.1's one line at its head when it dropped something (Lead
-	// T-R3b 판정 3) — then ② and ③, then the mission's progress (판정 1).
-	n = prompt.Len()
-	prompt.WriteString(truncationNote(plan.HistoryTotal-plan.HistoryIncluded, roomHist, missionID != nil, surf))
-	metric.wrote("prompt.truncation_note", &prompt, n)
-	n = prompt.Len()
-	fmt.Fprintf(&prompt, "<history included=%d total=%d truncated=%t>\n%s</history>\n\n",
-		plan.HistoryIncluded, plan.HistoryTotal, plan.HistoryTruncated, hist.String())
-	metric.wrote("prompt.history", &prompt, n)
-	renderRoomHistoryTail(&prompt, missionID, roomHist, surf, metric)
-	n = prompt.Len()
-	prompt.WriteString(renderMissionProgress(room.Mission, progress.Met, progress.Total, progress.Satisfied))
-	metric.wrote("prompt.mission_progress", &prompt, n)
-	n = prompt.Len()
-	fmt.Fprintf(&prompt, "<roster_status>\n%s</roster_status>\n\n", rosterStatus.String())
-	metric.wrote("prompt.roster_status", &prompt, n)
-	n = prompt.Len()
-	prompt.WriteString(foldersBlock)
-	metric.wrote("prompt.folders", &prompt, n)
-	// A re-instruction's trigger IS the new instruction, and `<resumed>` is
-	// absent above — so the same rendering serves both (§8.4, E8-06).
-	n = prompt.Len()
-	fmt.Fprintf(&prompt, "<trigger>\n%s</trigger>\n\n", trigger.String())
-	metric.wrote("prompt.trigger", &prompt, n)
-	n = prompt.Len()
-	prompt.WriteString(surf.Respond)
-	if threadRootID != "" {
-		prompt.WriteString(surf.ThreadReply + "\n")
+	// The whole prompt first: it is `prompt` for a cold turn and `prompt_cold`
+	// beside a delta. The metric measures what goes in `prompt`.
+	coldMetric := metric
+	if anchor != nil {
+		coldMetric = newContextMetric()
 	}
-	metric.wrote("prompt.respond", &prompt, n)
-	metric.Brief, metric.Prompt = sizeOf(brief.String()), sizeOf(prompt.String())
-	metric.Counts["history"] = plan.HistoryIncluded
-	metric.Counts["history_total"] = plan.HistoryTotal
-	metric.Counts["mission_messages"] = len(roomHist.MissionOlder)
+	promptText, err := renderPrompt(nil, coldMetric)
+	if err != nil {
+		return nil, nil, err
+	}
+	var promptCold string
+	if anchor != nil {
+		promptCold = promptText
+		if promptText, err = renderPrompt(anchor, metric); err != nil {
+			return nil, nil, err
+		}
+		metric.Counts["delta"] = 1
+		metric.Counts["prompt_cold_bytes"] = len(promptCold)
+	}
+	if sessionSampled {
+		metric.Counts["session_start_tokens"] = int(sessionTokens)
+	}
+	if sessionCapped {
+		metric.Counts["session_capped"] = 1
+	}
+	metric.Brief, metric.Prompt = sizeOf(brief.String()), sizeOf(promptText)
 	metric.Counts["room_decisions"] = len(roomHist.Decisions)
 	metric.Counts["trigger_messages"] = len(triggerMsgs)
 
@@ -463,12 +583,6 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	if contracts.RuntimeKind(runtimeKind) == contracts.RuntimeHermes {
 		transport = contracts.BriefInstructionFile
 		adapterPin = ""
-	}
-	// daemon-protocol §4.1: `resume` is the lane's stored ref, and only when
-	// the next runtime can load it (E8-08, E8-13).
-	var resume *contracts.RuntimeSessionRef
-	if plan.ResumeRef != "" {
-		resume = tasks.PlanBundleResume(runtimeSessionRef, runtimeKind)
 	}
 	// daemon-protocol §4.1·§4.4 v0.7.1: `limits.budget_usd` is the SESSION's
 	// remaining budget, and the task ceiling travels in `task.budget_usd` /
@@ -526,9 +640,10 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 			// agent made (D3 A).
 			Reuse: t.Attempt > 1 || reentry > 0 || !wd.Created,
 		},
-		Brief:  contracts.BundleBrief{Transport: transport, Text: brief.String()},
-		Prompt: prompt.String(),
-		Resume: resume,
+		Brief:      contracts.BundleBrief{Transport: transport, Text: brief.String()},
+		Prompt:     promptText,
+		PromptCold: promptCold,
+		Resume:     resume,
 		Limits: contracts.BundleLimits{BudgetUSD: budget, StallSeconds: int(contracts.StallTimeout.Seconds())},
 	}
 	if t.TriggerMessageID != nil {
@@ -824,69 +939,13 @@ func humanSize(n int64) string {
 	return fmt.Sprintf("%d B", n)
 }
 
-// briefContext is §8.4 [6]: what this session already has attached. The
-// artifacts are named, not inlined — the agent fetches the one it needs with
-// `colab artifact get <id>`, and a brief that carries file bodies stops being
-// cacheable. Each line carries the id (T-AGENTFIX B4): `artifact get` takes
-// an id (colab-cli §2.1), and a list of names only sent a Writer to call it
-// with the name — 422 on the path parameter.
-func briefContext(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID, surf Surface) (string, error) {
-	rows, err := tx.Query(ctx, `
-		SELECT DISTINCT ON (name) id::text, name, type, version, COALESCE(description, '')
-		FROM artifact WHERE session_id = $1
-		ORDER BY name, version DESC`, sessionID)
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-	var b strings.Builder
-	for rows.Next() {
-		var id, name, typ, desc string
-		var version int
-		if err := rows.Scan(&id, &name, &typ, &version, &desc); err != nil {
-			return "", err
-		}
-		fmt.Fprintf(&b, "- %s (%s, v%d, id %s)", name, typ, version, id)
-		if desc != "" {
-			fmt.Fprintf(&b, " — %s", preview(desc, 120))
-		}
-		b.WriteString("\n")
-	}
-	if err := rows.Err(); err != nil {
-		return "", err
-	}
-	// FR-4.4 · §8.4 [6]: what earlier sessions produced, under the workspace's
-	// cap. This is what "이전 세션 요약 (설정 상한 내)" means, and it is why the
-	// wizard offers `type: session` context at all — without it, attaching a
-	// previous session did nothing to the brief.
-	reuse, err := reusedSessionSummaries(ctx, tx, sessionID, surf)
-	if err != nil {
-		return "", err
-	}
-	if b.Len() == 0 && reuse == "" {
-		return "", nil
-	}
-	var out strings.Builder
-	if b.Len() > 0 {
-		out.WriteString(surf.ArtifactsHeader)
-		out.WriteString(b.String())
-	}
-	if reuse != "" {
-		if out.Len() > 0 {
-			out.WriteString("\n")
-		}
-		out.WriteString(reuse)
-	}
-	return out.String(), nil
-}
-
 // reusedSessionSummaries is FR-4.4's context reuse.
 //
 // THE CAP GOVERNS WHAT WE SEND, NOT WHAT WE STORE. The previous session's
 // summary stays whole in its own timeline; only the copy injected here is
 // trimmed, and the trim is DISCLOSED — an agent that does not know it is
 // reading a fragment answers as if it has the whole thing (§8.4's history rule,
-// applied to [6]).
+// applied to <reused_context>).
 //
 // The policy is the session's own override when it has one, else the
 // workspace's (openapi Session.context_reuse_override · WorkspaceSettings).
@@ -959,43 +1018,8 @@ func reusedSessionSummaries(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID,
 	return out.String(), rows.Err()
 }
 
-// briefDecisionLog is §8.4 [7]: FR-4.2's log, in the order it was written.
-// `auto` is kept visible — "nobody answered and we used the proposal" is not
-// the same instruction as "the Director said this" (E7-12).
-func briefDecisionLog(ctx context.Context, tx pgx.Tx, sessionID uuid.UUID) (string, error) {
-	rows, err := tx.Query(ctx, `
-		SELECT summary, COALESCE(rationale, ''), source::text, auto, created_at
-		FROM decision WHERE session_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`, sessionID, decisionLogLimit)
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-	var lines []string
-	for rows.Next() {
-		var summary, rationale, source string
-		var auto bool
-		var at time.Time
-		if err := rows.Scan(&summary, &rationale, &source, &auto, &at); err != nil {
-			return "", err
-		}
-		lines = append(lines, briefDecisionLine(summary, rationale, source, auto, at))
-	}
-	if err := rows.Err(); err != nil {
-		return "", err
-	}
-	if len(lines) == 0 {
-		return "", nil
-	}
-	// Oldest first: the log reads as a sequence, and the newest N are the ones
-	// that survived the LIMIT.
-	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
-		lines[i], lines[j] = lines[j], lines[i]
-	}
-	return strings.Join(lines, "\n") + "\n", nil
-}
-
-// briefDecisionLine is one decision as [7] and the turn prompt's <room_decisions>
-// both write it.
+// briefDecisionLine is one decision as the turn prompt's <room_decisions>
+// writes it — the old brief [7] line, unchanged (harness v0.9.14).
 func briefDecisionLine(summary, rationale, source string, auto bool, at time.Time) string {
 	line := fmt.Sprintf("- [%s] %s (%s", at.UTC().Format("2006-01-02 15:04"), summary, source)
 	if auto {
@@ -1007,10 +1031,6 @@ func briefDecisionLine(summary, rationale, source string, auto bool, at time.Tim
 	}
 	return line
 }
-
-// decisionLogLimit caps §8.4 [7]. The brief is the cacheable prefix (§8.4
-// "캐시 친화적"), so it may not grow without bound.
-const decisionLogLimit = 20
 
 // hitlAnswer is the answered request the next attempt is resuming from.
 type hitlAnswer struct {

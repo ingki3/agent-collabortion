@@ -139,7 +139,7 @@ func TestRestrictCommandsDropsDeniedAliasLines(t *testing.T) {
 
 // Assemble's "## [2] Workspace Rules" header is recognised too.
 func TestRestrictCommandsAssembledBrief(t *testing.T) {
-	got := RestrictCommands(Assemble(parts("c", "d")), reviewer, shell)
+	got := RestrictCommands(Assemble(parts()), reviewer, shell)
 	i, j := strings.Index(got, "## [2]"), strings.Index(got, "## [3]")
 	if i < 0 || j < 0 || !strings.Contains(got[i:j], "쓰지 않는다") {
 		t.Fatalf("assembled [2] not restricted:\n%s", got)

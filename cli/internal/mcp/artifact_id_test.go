@@ -31,7 +31,7 @@ func TestArtifactToolsRefuseANameBeforeAnyRequest(t *testing.T) {
 				t.Fatalf("exit = %v, want 2 (argument error): %v", e["exit"], e)
 			}
 			d, _ := e["detail"].(string)
-			for _, want := range []string{"아티팩트 id(uuid)가 필요합니다 — 받은 값: \"게임 기획서.md\"", "Artifacts 줄에 id 와 함께 있다"} {
+			for _, want := range []string{"아티팩트 id(uuid)가 필요합니다 — 받은 값: \"게임 기획서.md\"", "<room_artifacts> 에 id 와 함께 있다"} {
 				if !strings.Contains(d, want) {
 					t.Errorf("detail %q lacks %q", d, want)
 				}

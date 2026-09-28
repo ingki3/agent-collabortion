@@ -8,8 +8,9 @@
 #       → 진행 중 턴 취소 + **새 task**(`attempt` 1, `restarted_from_task_id` = 이전 task), lane `running` 유지,
 #         프롬프트에 `<resumed>` **없음** · 새 지시만(E8-06)
 #   C3  "중단"(`cancelLane`) → lane `failed(cancelled)`, 활동 피드 "사람이 중단함", 새 task 0
-#   C4  **결정 기록이 콜드 스타트를 넘어 살아남는가**(브리프 [7]) — 결정을 남기고 런타임 transcript 를
-#       지운 뒤 재개시켜, 콜드 스타트한 attempt 의 브리프 [7] 에 그 결정이 실려 있는지 본다
+#   C4  **결정 기록이 콜드 스타트를 넘어 살아남는가**(턴 프롬프트 <room_decisions>, harness v0.9.14) — 결정을
+#       남기고 런타임 transcript 를 지운 뒤 재개시켜, 콜드 스타트한 attempt 가 새 세션에 보내는 턴 프롬프트에
+#       그 결정이 실려 있는지 본다
 #
 # 과제는 저장소 밖의 무해한 주제다(X-2). 수치는 서버 DB 단일 클럭.
 # 산출물: out/52-checks.tsv · out/52.json · out/52-prompt-*.txt · out/52-brief-*.txt
@@ -188,10 +189,10 @@ if [ -n "$T1B" ]; then
   chk_has E3c "그 프롬프트의 trigger 가 새 지시다"          "$OUT/52-prompt-c1-followup.txt" "한국 시장으로 좁혀줘"
 fi
 
-step "7. C4 — 결정 기록이 **콜드 스타트를 넘어** 살아남는가 (브리프 [7])"
+step "7. C4 — 결정 기록이 **콜드 스타트를 넘어** 살아남는가 (턴 프롬프트 <room_decisions>, harness v0.9.14)"
 # `recordDecision` 은 openapi 에서 **TaskToken 전용**이다(사람의 결정은 HITL 응답이 남긴다) — 그래서
 # 결정은 에이전트에게 시켜 남긴다. 그 뒤 런타임 transcript 를 지워 다음 턴을 콜드 스타트로 만들고,
-# 그 attempt 의 **브리프 [7]** 에 결정이 실려 있는지 본다(브리프는 claim 탭의 `brief.text` 로만 보인다).
+# 그 attempt 가 새 세션에 보내는 턴 프롬프트(`prompt_cold`, 없으면 `prompt`)의 <room_decisions> 에 결정이 있는지 본다.
 DEC_SUMMARY="조사 범위를 한국 시장으로 좁힌다"
 post_message "$S1" "$(mention Rsearch1 "$R1") colab_decision_record 를 한 번 불러 summary 를 정확히 \"$DEC_SUMMARY\" 로, rationale 을 \"Director 가 턴 중에 그렇게 지시했다\" 로 기록하라. 다른 일은 하지 마라." >/dev/null
 T1D=""
@@ -224,8 +225,12 @@ if [ -n "$T1C" ]; then
   H3ST="$(WAIT_S=${TURN_WAIT_S:-900} wait_task "$T1C" completed failed cancelled)"
   chk H3b "그 턴이 끝났다" completed "$H3ST"
   tap_brief "$TAP" "$T1C" 1 --last > "$OUT/52-brief-c4.txt"
-  chk_has H4  "브리프에 **[7] Decision Log** 구간이 있다"   "$OUT/52-brief-c4.txt" "[7] Decision Log"
-  chk_has H4b "그 구간에 앞서 남긴 결정이 실려 있다"        "$OUT/52-brief-c4.txt" "$DEC_SUMMARY"
+  # harness v0.9.14: 결정은 브리프가 아니라 턴 프롬프트 <room_decisions> 에 있다. 콜드 스타트는 번들의
+  # `prompt_cold`(없으면 `prompt`)를 새 세션에 보낸다 — 그것을 본다.
+  tap_prompt "$TAP" "$T1C" 1 --last --cold > "$OUT/52-prompt-c4.txt"
+  chk H4  "브리프에 [6]·[7] 이 없다 (harness v0.9.14 — 브리프 고정)" no "$(grep -qE '\[6\]|\[7\]' "$OUT/52-brief-c4.txt" && echo yes || echo no)"
+  chk_has H4a "새 세션이 받는 턴 프롬프트에 <room_decisions> 가 있다" "$OUT/52-prompt-c4.txt" "<room_decisions count="
+  chk_has H4b "거기에 앞서 남긴 결정이 실려 있다"              "$OUT/52-prompt-c4.txt" "$DEC_SUMMARY"
   RES1="$(psqlq "select coalesce(payload->>'outcome','-') from task_event where task_id='$T1C' and class='runtime' and verb='resume' order by seq limit 1")"
   log "C4 재개 판정: ${RES1:--} (transcript 를 지웠으므로 콜드 스타트여야 한다)"
   chk H5 "그 턴은 콜드 스타트다 (resumed 가 아니다)" no "$( [ "$RES1" = resumed ] && echo yes || echo no )"

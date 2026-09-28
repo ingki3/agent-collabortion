@@ -155,10 +155,11 @@ func TestHermesSessionLossColdStartsOnTheWire(t *testing.T) {
 }
 
 // PRD §8.4 / harness §10 — the daemon DELIVERS TaskBundle.brief.text, it does
-// not compose it: [6][7][8] arrive byte-identical in _meta.systemPrompt.append
-// and no brief file is written on the claude_code transport.
+// not compose it: the server's text arrives byte-identical in
+// _meta.systemPrompt.append and no brief file is written on the claude_code
+// transport. (Since harness v0.9.14 the brief has no [6]·[7].)
 func TestBriefTextDeliveredByteIdentical(t *testing.T) {
-	full := brief + "[6] context: previous session summary\n[7] decisions: chose Postgres\n[8] precedence: user > goal > agent\n"
+	full := brief + "[8] precedence: user > goal > agent\n"
 	b := bundle(contracts.RuntimeClaudeCode)
 	b.Brief.Text = full
 	script := acpfake.Script{Turns: []acpfake.Turn{{Steps: []acpfake.Step{{EchoBrief: true}}}}}

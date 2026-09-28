@@ -16,25 +16,31 @@ import (
 )
 
 // contextMetric is one attempt's turn-prompt shape (T-CTX0, plan/research/
-// CONTEXT_MEMORY.md 0단계): the size of each brief section [1]~[8] and each
-// turn-prompt block, as buildBundle wrote them. It is measurement only —
-// nothing reads it back to decide anything, and a failure to store it never
-// fails the claim (storeContextMetric's savepoint).
+// CONTEXT_MEMORY.md 0단계): the size of each brief section and each
+// turn-prompt block, as buildBundle wrote them. Writing it never fails the
+// claim (storeContextMetric's savepoint). Since 맥락 1단계 ③ (harness
+// v0.9.14 §6) the heartbeat half IS read back — sessionStartTokens decides
+// from samples[0] whether the next turn resumes; a missing row or a failed
+// read only means the cap is not applied.
 //
 // Section keys are closed:
 //
-//	brief.1 … brief.8                       the brief's own sections
-//	prompt.rebind · prompt.resumed · prompt.truncation_note
+//	brief.1 … brief.5 · brief.8             the brief's own sections ([6]·[7]
+//	                                        are empty since v0.9.14)
+//	prompt.rebind · prompt.resumed · prompt.delta_head · prompt.truncation_note
 //	prompt.history                          ① the room's latest messages
 //	prompt.mission_messages                 ② the rest of the mission
 //	prompt.room_decisions · prompt.room_summary   ③
+//	prompt.room_artifacts · prompt.reused_context (the old brief [6])
 //	prompt.mission_progress · prompt.roster_status · prompt.folders
 //	prompt.trigger · prompt.respond
 //
 // and the "/" keys are PARTS of the block before the slash (already counted
 // in it): prompt.history/detail, prompt.mission_messages/detail,
-// prompt.trigger/detail — the 작업 내용 each block carries. brief.6 is the
-// attached-artifact lines plus any reused-room summaries (§8.4 [6]).
+// prompt.trigger/detail — the 작업 내용 each block carries. For a resumed
+// turn's delta the sections measure `prompt` (the delta); counts carry
+// delta=1 and prompt_cold_bytes, and session_start_tokens / session_capped
+// record the §6 decision.
 type contextMetric struct {
 	Sections map[string]sectionSize
 	Counts   map[string]int

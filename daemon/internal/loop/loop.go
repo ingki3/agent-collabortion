@@ -1067,6 +1067,11 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		defer func() { _ = toolwrap.Remove(d.Cfg.WorkdirRoot, b.Task.ID, b.Task.Attempt) }()
 		b.Brief.Text = toolwrap.RewriteCLI(b.Brief.Text, wrapper)
 		b.Prompt = toolwrap.RewriteCLI(b.Prompt, wrapper)
+		// harness §10 v0.9.14: prompt_cold gets every rewrite prompt gets, in
+		// the same order — a new session must not read a bare `colab`.
+		if b.PromptCold != "" {
+			b.PromptCold = toolwrap.RewriteCLI(b.PromptCold, wrapper)
+		}
 	}
 
 	// harness §10 v0.8.7: the server writes `{{COLAB_REBIND_DIR}}` where it
@@ -1076,7 +1081,10 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 	vals := d.placeholderValues(b)
 	b.Brief.Text = substitutePlaceholders(b.Brief.Text, vals)
 	b.Prompt = substitutePlaceholders(b.Prompt, vals)
-	if left := leftoverPlaceholders(b.Brief.Text, b.Prompt); len(left) > 0 {
+	if b.PromptCold != "" {
+		b.PromptCold = substitutePlaceholders(b.PromptCold, vals)
+	}
+	if left := leftoverPlaceholders(b.Brief.Text, b.Prompt, b.PromptCold); len(left) > 0 {
 		// §10 v0.8.7: never hand the agent a broken path. `config` because
 		// nothing about this machine can retry it into working — a newer
 		// server is naming a placeholder this daemon does not implement.
@@ -1119,6 +1127,9 @@ func (d *Daemon) runAttempt(ctx context.Context, b contracts.TaskBundle) {
 		// no `colab ` command, and rewriting it would be a no-op that only
 		// risks mangling the path.
 		b.Prompt = brief.PointerTo(prep.Path) + "\n\n" + b.Prompt
+		if b.PromptCold != "" {
+			b.PromptCold = brief.PointerTo(prep.Path) + "\n\n" + b.PromptCold
+		}
 	}
 
 	if !d.taskEnv(b).ColabSurface() {

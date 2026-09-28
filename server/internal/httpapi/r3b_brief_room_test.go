@@ -90,15 +90,10 @@ func section(brief string, n int) string {
 	return brief[i : i+4+j]
 }
 
-// stablePrefix is [1]~[5] (E12-11): everything before [6]/[7]/[8].
+// stablePrefix is the part of the brief E12-11 holds byte-identical — since
+// harness v0.9.14 the whole brief ([6]·[7] are turn prompt blocks now).
 func stablePrefix(brief string) string {
-	j := len(brief)
-	for _, h := range []string{"\n[6] ", "\n[7] ", "\n[8] "} {
-		if x := strings.Index(brief, h); x >= 0 && x < j {
-			j = x + 1
-		}
-	}
-	return brief[:j]
+	return brief
 }
 
 func legacyWork(t *testing.T, f *p2Fixture) string {
@@ -148,13 +143,14 @@ func TestR3bBriefRoomContext(t *testing.T) {
 		t.Errorf("turn prompt lacks the mission's progress:\n%s", b1.Prompt)
 	}
 
-	// Progress moves inside the mission: [1]~[5] must not.
+	// Progress moves inside the mission: the brief must not (E12-11 v0.9.14 —
+	// all of it).
 	if _, err := f.pool.Exec(ctx, `UPDATE work SET completion_met = '{"artifact_submitted": true}' WHERE id = $1`, wA); err != nil {
 		t.Fatal(err)
 	}
 	b2 := f.claimBundle(t, f.mentionTask(t, f.rUUID, "R", wA))
 	if p1, p2 := stablePrefix(b1.Brief.Text), stablePrefix(b2.Brief.Text); p1 != p2 {
-		t.Errorf("[1]~[5] changed between two turns of one mission (E12-11 v0.9.0):\n--- 1\n%s\n--- 2\n%s", p1, p2)
+		t.Errorf("the brief changed between two turns of one mission (E12-11 v0.9.14):\n--- 1\n%s\n--- 2\n%s", p1, p2)
 	}
 	if !strings.Contains(b2.Prompt, "met=1 total=2") || !strings.Contains(b2.Prompt, "- [x] an artifact submitted") {
 		t.Errorf("the second turn's progress did not move:\n%s", b2.Prompt)
@@ -169,7 +165,7 @@ func TestR3bBriefRoomContext(t *testing.T) {
 	if s := section(b3.Brief.Text, 4); !strings.Contains(s, "Mission this turn belongs to: 둘째\nGoal: 둘째 미션\n") || strings.Contains(s, "Goal: g\n") {
 		t.Errorf("[4] of mission B names the wrong mission:\n%s", s)
 	}
-	for _, n := range []int{1, 2, 5} {
+	for _, n := range []int{1, 2, 5, 8} {
 		if section(b3.Brief.Text, n) != section(b2.Brief.Text, n) {
 			t.Errorf("[%d] differs between missions of one room — only [4] should", n)
 		}
@@ -192,7 +188,7 @@ func TestR3bBriefRoomContext(t *testing.T) {
 
 // TestR3bRoomHistoryThreeBundles is PRD FR-4.1 v0.19's three bundles: ① the
 // latest 50 (unchanged <history>), ② the turn's mission messages ① dropped,
-// ③ the decisions [7] did not hold + the latest 「여기까지 정리」, with the one
+// ③ every decision (harness v0.9.14 — no [7] split) + the latest 「여기까지 정리」, with the one
 // truncation line at the head of the history (Lead T-R3b 판정 3·5). Messages
 // from before the agent joined are there like any other (FR-2.2).
 func TestR3bRoomHistoryThreeBundles(t *testing.T) {
@@ -257,12 +253,11 @@ func TestR3bRoomHistoryThreeBundles(t *testing.T) {
 	}
 
 	rd := between(p, "<room_decisions ", "</room_decisions>")
-	if !strings.HasPrefix(rd, "count=3 ") || !strings.Contains(rd, "DECISION-00") || !strings.Contains(rd, "DECISION-02") || strings.Contains(rd, "DECISION-03") {
-		t.Errorf("③ decisions = %q, want the 3 older than [7]'s 20", rd)
+	if !strings.HasPrefix(rd, "count=23>\n") || !strings.Contains(rd, "DECISION-00") || !strings.Contains(rd, "DECISION-22") {
+		t.Errorf("③ decisions = %q, want all 23 (harness v0.9.14)", rd)
 	}
-	seven := section(b.Brief.Text, 7)
-	if !strings.Contains(seven, "DECISION-03") || !strings.Contains(seven, "DECISION-22") || strings.Contains(seven, "DECISION-02") {
-		t.Errorf("[7] is not the newest 20:\n%s", seven)
+	if strings.Contains(b.Brief.Text, "[7]") || strings.Contains(b.Brief.Text, "DECISION-") {
+		t.Errorf("the brief still carries decisions (harness v0.9.14):\n%s", b.Brief.Text)
 	}
 	if rs := between(p, "<room_summary ", "</room_summary>"); !strings.Contains(rs, sum.String()) || !strings.Contains(rs, "결론: B 안") {
 		t.Errorf("③ lacks the latest 「여기까지 정리」: %q", rs)
@@ -311,12 +306,11 @@ func TestR3cBriefMissionOfAnotherRoom(t *testing.T) {
 	}
 }
 
-// TestR3cDecisionBoundaryTies is #323 NN2: [7] (newest 20) and ③
-// <room_decisions> (the rest) split one ordering. Decisions sharing a
-// created_at across the 20 boundary must land in exactly one of the two, and
-// which one is fixed by id DESC — without a named tie-break both queries
-// happen to agree on heap order, which is luck, not a rule.
-func TestR3cDecisionBoundaryTies(t *testing.T) {
+// TestR3cDecisionOrderTies is #323 NN2 after harness v0.9.14: there is no
+// [7]/③ boundary any more, but decisions sharing a created_at must still
+// each appear exactly once in <room_decisions>, in one fixed order (id DESC
+// reversed) — a named tie-break, not heap order.
+func TestR3cDecisionOrderTies(t *testing.T) {
 	f := newP2Fixture(t)
 	ctx := t.Context()
 	wA := legacyWork(t, f)
@@ -329,21 +323,12 @@ func TestR3cDecisionBoundaryTies(t *testing.T) {
 		}
 	}
 	b := f.claimBundle(t, f.mentionTask(t, f.rUUID, "R", wA))
-	seven := section(b.Brief.Text, 7)
 	rd := between(b.Prompt, "<room_decisions ", "</room_decisions>")
-	both, missing := 0, 0
-	for i := 0; i < n; i++ {
-		name := fmt.Sprintf("TIE-%02d", i)
-		in7, in3 := strings.Contains(seven, name), strings.Contains(rd, name)
-		switch {
-		case in7 && in3:
-			both++
-		case !in7 && !in3:
-			missing++
-		}
+	if !strings.HasPrefix(rd, fmt.Sprintf("count=%d>\n", n)) {
+		t.Fatalf("<room_decisions> = %q, want all %d", rd, n)
 	}
-	var newest []string
-	rows, err := f.pool.Query(ctx, `SELECT summary FROM decision WHERE session_id = $1 ORDER BY id DESC LIMIT 20`, f.sessionID)
+	var want []string
+	rows, err := f.pool.Query(ctx, `SELECT summary FROM decision WHERE session_id = $1 ORDER BY id ASC`, f.sessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,16 +337,16 @@ func TestR3cDecisionBoundaryTies(t *testing.T) {
 		if err := rows.Scan(&s); err != nil {
 			t.Fatal(err)
 		}
-		newest = append(newest, s)
+		want = append(want, s)
 	}
 	rows.Close()
-	for _, s := range newest {
-		if !strings.Contains(seven, s) {
-			t.Errorf("[7] lacks %s — the tie at the boundary is not broken by id DESC", s)
+	last := -1
+	for _, s := range want {
+		i := strings.Index(rd, s)
+		if i < 0 || strings.Count(rd, s) != 1 || i < last {
+			t.Fatalf("%s missing, repeated or out of id order in <room_decisions>:\n%s", s, rd)
 		}
-	}
-	if both != 0 || missing != 0 {
-		t.Errorf("tied decisions across the [7]/③ boundary: %d in both, %d in neither (want 0/0)\n[7]:\n%s\n③:\n%s", both, missing, seven, rd)
+		last = i
 	}
 }
 
