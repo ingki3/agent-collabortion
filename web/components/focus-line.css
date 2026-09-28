@@ -1,0 +1,14 @@
+/* 「지금」 줄(COMPONENTS §9.10 v0.19.9 · SCREEN v0.19.13) — 색은 tokens.css 변수만. */
+.focus { margin: 0; min-width: 0; color: var(--ink-2); line-height: 1.45; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.focus--bubble { font-size: var(--fs-body); }
+.focus--lane { font-size: var(--fs-sub); }
+.focus__label { color: var(--ink-2); }
+.focus__text { color: var(--ink); font-weight: 500; }
+/* 대신 문장(focus.source = derived) — 문장 전체 $ink-2, 기울임 없이 흐리게. */
+.focus__text--derived { color: var(--ink-2); font-weight: 400; }
+.focus__age { color: var(--ink-2); font-size: var(--fs-meta); white-space: nowrap; }
+/* 문장이 바뀌면 150ms 페이드 — key 로 다시 그려질 때마다. */
+.focus__fade { animation: focus-in 150ms ease-out; }
+@keyframes focus-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .focus__fade { animation: none; } }

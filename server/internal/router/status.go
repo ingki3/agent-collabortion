@@ -12,6 +12,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
+	"github.com/ingki3/agent-collabortion/server/internal/lanefocus"
 	"github.com/ingki3/agent-collabortion/server/internal/lanestate"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
@@ -81,10 +82,40 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 
 	switch status {
 	case "working":
+		var prev, taskStatus string
+		if err := tx.QueryRow(ctx, `SELECT l.status::text, t.status::text FROM lane l JOIN task t ON t.lane_id = l.id WHERE t.id = $1`, taskID).
+			Scan(&prev, &taskStatus); err != nil {
+			return nil, err
+		}
 		if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'running', updated_at = $2 WHERE id = $1`, laneID, now); err != nil {
 			return nil, err
 		}
-		s.publishLane(ctx, tx, laneID)
+		publish := prev != "running"
+		// PRD FR-3.1.5 · openapi v0.3.8: `working --note` is the lane's
+		// 「지금」 (source = agent). Only while this task's turn runs — the
+		// end of the turn empties it, and a sentence stored after that would
+		// never be emptied. Every declaration is on the feed (above); only the
+		// frames coalesce: the last one inside 60 seconds goes out when the
+		// window closes (flushFocus).
+		if note != "" && (taskStatus == "dispatched" || taskStatus == "preparing" || taskStatus == "running") {
+			d, err := lanefocus.Declare(ctx, tx, laneID, note, now)
+			if err != nil {
+				return nil, err
+			}
+			switch {
+			case d.PublishNow:
+				publish = true
+			case publish:
+				if err := lanefocus.MarkPublished(ctx, tx, laneID, now); err != nil {
+					return nil, err
+				}
+			default:
+				s.scheduleFocusFlush(laneID, d.FlushAt)
+			}
+		}
+		if publish {
+			s.publishLane(ctx, tx, laneID)
+		}
 	case "blocked":
 		delegator, delegatorName, delegatorTask, err := delegatorOfLane(ctx, tx, laneID)
 		if err != nil {
@@ -495,4 +526,35 @@ func (s *Service) recordStatusEvent(ctx context.Context, tx pgx.Tx, taskID uuid.
 		// S-52: closed `status` payload — `--note` is an argument of the command.
 		map[string]any{"command": "status set " + status,
 			"args": map[string]any{"note": note}}, now)
+}
+
+// scheduleFocusFlush publishes the lane when the coalescing window that holds
+// a stored-but-unsent 「지금」 closes (openapi setTaskStatus v0.3.8: 60초 안의
+// 연속 선언은 마지막 것만 lane.updated). One timer per lane at a time; the
+// flush publishes whatever the lane holds then — the LAST declaration.
+func (s *Service) scheduleFocusFlush(laneID uuid.UUID, at time.Time) {
+	if _, busy := s.focusFlush.LoadOrStore(laneID, true); busy {
+		return
+	}
+	wait := s.Clock.After(at.Sub(s.Clock.Now()))
+	go func() {
+		<-wait
+		s.focusFlush.Delete(laneID)
+		s.flushFocus(context.Background(), laneID)
+	}()
+}
+
+// flushFocus is the timer's work, in its own transaction.
+func (s *Service) flushFocus(ctx context.Context, laneID uuid.UUID) {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	due, err := lanefocus.TakePending(ctx, tx, laneID, s.Clock.Now())
+	if err != nil || !due {
+		return
+	}
+	s.publishLane(ctx, tx, laneID)
+	_ = tx.Commit(ctx)
 }

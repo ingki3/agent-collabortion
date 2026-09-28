@@ -5,6 +5,8 @@
  *   - 서브 미션 running + 현재 할 일 running + 활동 기록(과거로 펼친 시각 — 「12분 · 셸 명령 …」이 나오게, 첫째는 실패 2).
  *   - 진행 메모를 데몬과 같은 모양으로 흘린다: `text` 는 **턴 처음부터의 누적 전문**이다. 첫째 에이전트는 새 데몬(`runner.go` `appendSay` — 도구 경계마다
  *     빈 줄), 둘째는 **옛 데몬**(구분자 없이 이어 붙임 — 「…짜고 있습니다.테스트…」)이라 화면이 델타 사이의 도구 이벤트로 문단을 나누는 폴백을 탄다.
+ *   - lane `focus`(PRD FR-3.1.5 「지금」 줄, SCREEN v0.19.13): 첫째는 에이전트가 선언한 문장(source agent, 3분 전), 둘째는 서버의 대신 문장
+ *     (source derived, 방금) — Pencil S7-C `CGMWw`·`LgIO6` 와 같은 두 모양. 본문 `{ focus: false }` 면 싣지 않는다(옛 스크린샷).
  *   델타는 SSE 로만 흐르고 저장되지 않는다 — 방을 **연 뒤에** 부른다. 응답은 `{ tasks: [{agent_id, task_id}] }`.
  *
  * `POST /__mock/rooms/{id}/working-step` `{agent_id, action: "post" | "end"}` — 「post」는 그 에이전트가 메시지를 게시한다(말풍선이 그 자리에서 메시지로),
@@ -44,6 +46,12 @@ export const WORKING_MEMOS: string[][] = [
   ],
 ];
 
+/** 두 에이전트의 「지금」 줄(Pencil S7-C 의 두 문장) — 첫째는 에이전트 선언, 둘째는 서버의 대신 문장. */
+export const WORKING_FOCUS: { source: "agent" | "derived"; minutesAgo: number; text: (lead: string) => string }[] = [
+  { source: "agent", minutesAgo: 3, text: () => "코너에서 차가 미끄러지는 원인을 찾고 있습니다 — 타이어 접지 한계를 점검하는 중입니다" },
+  { source: "derived", minutesAgo: 0, text: (lead) => `@${lead}의 「BGM v2 를 16분음표 격자로」 요청을 처리하고 있습니다` },
+];
+
 export function registerWorkingSeed(ctx: WorkingSeedCtx): void {
   const { on, Problem, sessionOf, requireMember, addMessage, createTask, pushEvent, setLaneStatus, toTask } = ctx;
   const ok = (b: unknown, status = 200): Res => ({ status, body: b });
@@ -53,6 +61,7 @@ export function registerWorkingSeed(ctx: WorkingSeedCtx): void {
     const sess = sessionOf(s, req, p.id);
     requireMember(s, req, sess.workspace_id);
     const agents = (sess.participants ?? []).map((x) => s.agents.get(x.agent_id)).filter((a): a is NonNullable<typeof a> => !!a).slice(0, 2);
+    const withFocus = ((req.body ?? {}) as { focus?: boolean }).focus !== false;
     if (agents.length === 0) throw new Problem(409, "no_agent", "참여 에이전트가 없습니다");
     const out: { agent_id: string; task_id: string }[] = [];
     // 다시 부르면(스크린샷 여러 장) 앞서 이 방에서 돌던 그 에이전트들의 턴을 조용히 끝낸다 — 보드에 도는 줄이 쌓이지 않게.
@@ -60,7 +69,7 @@ export function registerWorkingSeed(ctx: WorkingSeedCtx): void {
       if (t.session_id !== sess.id || t.status !== "running" || !agents.some((a) => a.id === t.agent_id)) continue;
       t.status = "completed";
       t.finished_at = now();
-      setLaneStatus(s, sess, t.lane_id, { status: "done", current_activity: null, finished_at: t.finished_at, brief: null });
+      setLaneStatus(s, sess, t.lane_id, { status: "done", current_activity: null, finished_at: t.finished_at, brief: null, focus: null });
     }
     agents.forEach((agent, ai) => {
       const minutes = ai === 0 ? 12 : 4;
@@ -69,7 +78,11 @@ export function registerWorkingSeed(ctx: WorkingSeedCtx): void {
       const task = createTask(s, sess, agent.id, null, { brief: null });
       task.status = "running";
       task.started_at = at(0);
-      setLaneStatus(s, sess, task.lane_id, { status: "running", current_activity: "셸 명령을 실행하는 중…", has_runtime_session: true });
+      const fx = WORKING_FOCUS[ai];
+      setLaneStatus(s, sess, task.lane_id, {
+        status: "running", current_activity: "셸 명령을 실행하는 중…", has_runtime_session: true,
+        focus: withFocus && fx ? { text: fx.text(agents[0].name), at: new Date(Date.now() - fx.minutesAgo * 60_000).toISOString(), source: fx.source } : null,
+      });
       pushEvent(s, sess, task, { class: "runtime", verb: "start", outcome: "started", payload: { runtime_kind: "claude_code", session_id: `acp-${task.id.slice(0, 8)}` }, created_at: at(0) });
       const memos = WORKING_MEMOS[ai] ?? WORKING_MEMOS[0];
       // 조각 사이의 도구 호출 — 첫째: 셸 명령 36 · 파일 읽기 5 · 실패 2. 둘째: 파일 편집 3 · 셸 명령 6.
@@ -116,7 +129,7 @@ export function registerWorkingSeed(ctx: WorkingSeedCtx): void {
     pushEvent(s, sess, task, { class: "runtime", verb: "turn_end", outcome: "ok", sentence: "턴 종료 → ok" });
     task.status = "completed";
     task.finished_at = now();
-    setLaneStatus(s, sess, task.lane_id, { status: "done", current_activity: null, finished_at: task.finished_at, brief: null });
+    setLaneStatus(s, sess, task.lane_id, { status: "done", current_activity: null, finished_at: task.finished_at, brief: null, focus: null });
     emit(s, sess.workspace_id, "task.updated", toTask(s, task), sess.id);
     return ok({ task_id: task.id }, 200);
   });
