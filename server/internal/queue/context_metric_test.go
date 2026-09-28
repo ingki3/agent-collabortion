@@ -228,7 +228,7 @@ func TestContextMetricFailureDoesNotFailTheTurn(t *testing.T) {
 }
 
 // A long mission room: ① holds the latest 50, ② the rest of the mission,
-// ③ the decisions past [7]'s 20 — each bundle is measured on its own, the
+// ③ every decision (harness v0.9.14) — each bundle is measured on its own, the
 // 작업 내용 parts inside them are measured as parts, and the top-level
 // sections still add up to the prompt exactly.
 func TestContextMetricMeasuresTheThreeHistoryBundles(t *testing.T) {
@@ -272,10 +272,10 @@ func TestContextMetricMeasuresTheThreeHistoryBundles(t *testing.T) {
 	if err := q.DB.QueryRow(ctx, `SELECT count(*) FROM message WHERE session_id = $1`, s.SessionID).Scan(&total); err != nil {
 		t.Fatal(err)
 	}
-	if m.Counts["history"] != 50 || m.Counts["history_total"] != total || m.Counts["mission_messages"] != total-50 || m.Counts["room_decisions"] != 5 {
-		t.Fatalf("counts = %v, want history 50 of %d, mission %d, decisions 5", m.Counts, total, total-50)
+	if m.Counts["history"] != 50 || m.Counts["history_total"] != total || m.Counts["mission_messages"] != total-50 || m.Counts["room_decisions"] != 25 {
+		t.Fatalf("counts = %v, want history 50 of %d, mission %d, decisions 25", m.Counts, total, total-50)
 	}
-	for _, k := range []string{"prompt.truncation_note", "prompt.mission_messages", "prompt.room_decisions", "brief.7",
+	for _, k := range []string{"prompt.truncation_note", "prompt.mission_messages", "prompt.room_decisions",
 		"prompt.history/detail", "prompt.mission_messages/detail"} {
 		if m.Sections[k].Bytes == 0 {
 			t.Errorf("section %s not measured (%v)", k, cm.keys())
@@ -287,7 +287,7 @@ func TestContextMetricMeasuresTheThreeHistoryBundles(t *testing.T) {
 			t.Errorf("%s detail %d bytes is not a part of the block's %d", k, part, whole)
 		}
 	}
-	if !strings.Contains(b.Prompt, "<mission_messages") || !strings.Contains(b.Prompt, "<room_decisions count=5") {
+	if !strings.Contains(b.Prompt, "<mission_messages") || !strings.Contains(b.Prompt, "<room_decisions count=25>") {
 		t.Fatalf("fixture did not render ② and ③")
 	}
 }

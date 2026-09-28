@@ -240,9 +240,9 @@ func atomWhoByPath(tree []byte) map[string]string {
 // roomHistory is the turn prompt's three bundles (PRD FR-4.1 v0.19):
 // ① the room's latest recentMessages (the existing <history>), ② the rest of
 // the turn's mission — its messages older than ①'s window, so the two
-// together are all of it without a line twice (Lead T-R3b 판정 5), ③ the
-// room's decisions older than brief [7]'s newest decisionLogLimit, plus the
-// latest 「여기까지 정리」 summary.
+// together are all of it without a line twice (Lead T-R3b 판정 5), ③ every
+// decision of the room (harness v0.9.14 — the old brief [7] split is gone),
+// plus the latest 「여기까지 정리」 summary.
 type roomHistory struct {
 	MissionOlder []*messages.Row
 	Decisions    []string
@@ -277,7 +277,7 @@ func loadRoomHistory(ctx context.Context, tx pgx.Tx, roomID uuid.UUID, workID *u
 	}
 	rows, err := tx.Query(ctx, `
 		SELECT summary, COALESCE(rationale, ''), source::text, auto, created_at
-		FROM decision WHERE session_id = $1 ORDER BY created_at DESC, id DESC OFFSET $2`, roomID, decisionLogLimit)
+		FROM decision WHERE session_id = $1 ORDER BY created_at DESC, id DESC`, roomID)
 	if err != nil {
 		return h, err
 	}
@@ -320,8 +320,8 @@ func loadRoomHistory(ctx context.Context, tx pgx.Tx, roomID uuid.UUID, workID *u
 }
 
 // truncationNote is the one line FR-4.1 asks for when ① dropped something
-// (Lead T-R3b 판정 3: at the head of the history, not in the brief — [1]~[5]
-// are the cached prefix). It says what the other bundles still carry, so the
+// (Lead T-R3b 판정 3: at the head of the history, not in the brief — the
+// brief is the cached prefix). It says what the other bundles still carry, so the
 // agent knows the gap is chatter and not the mission or a decision.
 func truncationNote(omitted int, h roomHistory, inMission bool, surf Surface) string {
 	if omitted <= 0 {
@@ -331,7 +331,7 @@ func truncationNote(omitted int, h roomHistory, inMission bool, surf Surface) st
 	if inMission {
 		s += fmt.Sprintf(" This mission's %d among them are in <mission_messages>.", len(h.MissionOlder))
 	}
-	s += " Every decision is in [7] or <room_decisions>. Read the rest with " + surf.RoomMessages + " if you need it.\n"
+	s += " Every decision is in <room_decisions>. Read the rest with " + surf.RoomMessages + " if you need it.\n"
 	return s
 }
 
@@ -355,7 +355,7 @@ func renderRoomHistoryTail(b *strings.Builder, workID *uuid.UUID, h roomHistory,
 	metric.wrote("prompt.mission_messages", b, n)
 	n = b.Len()
 	if len(h.Decisions) > 0 {
-		fmt.Fprintf(b, "<room_decisions count=%d note=\"older than the ones in [7]\">\n%s\n</room_decisions>\n\n", len(h.Decisions), strings.Join(h.Decisions, "\n"))
+		fmt.Fprintf(b, "<room_decisions count=%d>\n%s\n</room_decisions>\n\n", len(h.Decisions), strings.Join(h.Decisions, "\n"))
 	}
 	metric.wrote("prompt.room_decisions", b, n)
 	n = b.Len()

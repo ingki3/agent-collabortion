@@ -65,7 +65,11 @@ func Run(ctx context.Context, o Options) contracts.Probe {
 	if o.Hostname == "" {
 		o.Hostname, _ = os.Hostname()
 	}
-	p := contracts.Probe{DaemonVersion: o.DaemonVersion, Hostname: o.Hostname, WorkdirRoot: o.WorkdirRoot, Capabilities: []contracts.Capability{}, Repos: []contracts.Repo{}}
+	p := contracts.Probe{DaemonVersion: o.DaemonVersion, Hostname: o.Hostname, WorkdirRoot: o.WorkdirRoot, Capabilities: []contracts.Capability{}, Repos: []contracts.Repo{},
+		// daemon-protocol §3 v0.10.3: this daemon sends `prompt_cold` to every
+		// new session it opens (acp.Runner.promptFor), so the server may send
+		// it a resumed turn's delta.
+		DaemonFeatures: []string{contracts.DaemonFeaturePromptCold}}
 	for _, kind := range []contracts.RuntimeKind{contracts.RuntimeClaudeCode, contracts.RuntimeHermes} {
 		if len(o.Only) > 0 && !contains(o.Only, kind) {
 			continue

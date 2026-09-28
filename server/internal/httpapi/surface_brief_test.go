@@ -21,8 +21,8 @@ import (
 var shellColab = regexp.MustCompile("`colab [a-z]")
 
 // surfaceBundleText is the brief and the turn prompt of a Lead turn that
-// carries every surface-dependent sentence: [2], [3] (lead), [6] (an
-// artifact), the <history> demotion line (a long detail), and the thread
+// carries every surface-dependent sentence: [2], [3] (lead), <room_artifacts>
+// (an artifact — the old [6], harness v0.9.14), the <history> demotion line (a long detail), and the thread
 // closing line (the trigger is a thread reply).
 func surfaceBundleText(t *testing.T, f *p2Fixture) (brief, prompt string) {
 	t.Helper()
@@ -77,11 +77,12 @@ func TestSurfaceBriefHermesNamesShellOnly(t *testing.T) {
 	}
 }
 
-// T-AGENTFIX B4: the [6] artifact line carries the artifact's id — the only
+// T-AGENTFIX B4: the <room_artifacts> line (the old brief [6], harness
+// v0.9.14) carries the artifact's id — the only
 // thing `artifact get` accepts (colab-cli §2.1). 실측(게임 제작 방): 목록이
 // 이름만 실어 Writer 가 colab_artifact_get 에 이름을 넣고 422 를 받았다.
 //
-// 회귀 주입: bundle.go briefContext 의 줄에서 `, id %s` 를 빼면 FAIL.
+// 회귀 주입: context_stage1.go renderRoomArtifacts 의 줄에서 `, id %s` 를 빼면 FAIL.
 func TestSurfaceBriefArtifactLineCarriesID(t *testing.T) {
 	for _, kind := range []string{"claude_code", "hermes"} {
 		t.Run(kind, func(t *testing.T) {
@@ -89,24 +90,27 @@ func TestSurfaceBriefArtifactLineCarriesID(t *testing.T) {
 			if _, err := f.pool.Exec(t.Context(), `UPDATE agent_profile SET runtime_kind = $2 WHERE agent_id = $1`, f.leadUUID, kind); err != nil {
 				t.Fatal(err)
 			}
-			brief, _ := surfaceBundleText(t, f)
+			brief, prompt := surfaceBundleText(t, f)
 			var id string
 			if err := f.pool.QueryRow(t.Context(), `SELECT id::text FROM artifact WHERE session_id = $1 AND name = 'report.md'`, mustUUID(t, f.sessionID)).Scan(&id); err != nil {
 				t.Fatal(err)
 			}
-			if want := "- report.md (doc, v1, id " + id + ")"; !strings.Contains(brief, want) {
-				t.Fatalf("(%s) [6] lacks %q:\n%s", kind, want, brief)
+			if want := "- report.md (doc, v1, id " + id + ")"; !strings.Contains(between(prompt, "<room_artifacts count=1>\n", "</room_artifacts>"), want) {
+				t.Fatalf("(%s) <room_artifacts> lacks %q:\n%s", kind, want, prompt)
+			}
+			if strings.Contains(brief, "report.md") {
+				t.Fatalf("(%s) the brief still names the artifact (harness v0.9.14):\n%s", kind, brief)
 			}
 		})
 	}
 }
 
-// Same agent, same surface: [1]~[5] byte for byte across two turns (E12-11).
+// Same agent, same surface: the whole brief byte for byte across two turns (E12-11 v0.9.14).
 func TestSurfaceBriefStablePrefix(t *testing.T) {
 	f := newP2Fixture(t)
 	a := f.claimBundle(t, f.triggerTask(t, f.post(t, map[string]any{"content": router.MentionLink("W", f.wUUID) + " 하나"}), f.wUUID))
 	b := f.claimBundle(t, f.triggerTask(t, f.post(t, map[string]any{"content": router.MentionLink("W", f.wUUID) + " 둘"}), f.wUUID))
 	if stablePrefix(a.Brief.Text) != stablePrefix(b.Brief.Text) {
-		t.Fatalf("[1]~[5] changed between two turns of the same agent")
+		t.Fatalf("the brief changed between two turns of the same agent")
 	}
 }

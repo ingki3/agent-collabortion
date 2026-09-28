@@ -185,7 +185,7 @@ type DecisionRecordResult struct {
 }
 
 // DecisionRecord — POST /rooms/{R}/decisions, source=agent, ref_id=task.
-// The record lands in brief [7] (FR-1.9, FR-4.2).
+// The record lands in the turn prompt's <room_decisions> (FR-1.9, FR-4.2, harness v0.9.14).
 //
 // The Decision schema is summary + rationale and nothing else. colab-cli.md
 // v0.3 also listed `--options`/`--chosen`; those flags are gone in v0.4
@@ -422,7 +422,7 @@ func requireArtifactID(cmd, v string) error {
 		return nil
 	}
 	return client.Usage("%s: 아티팩트 id(uuid)가 필요합니다 — 받은 값: %q. 이름이 아니라 id 입니다. "+
-		"방의 아티팩트 목록은 브리프 [6] Context 의 Artifacts 줄에 id 와 함께 있다(각 줄 끝 `id …`)", cmd, v)
+		"방의 아티팩트 목록은 턴 프롬프트 <room_artifacts> 에 id 와 함께 있다(각 줄 끝 `id …`)", cmd, v)
 }
 
 // ArtifactGetArgs — `colab artifact get <id> [--out <path>]`.

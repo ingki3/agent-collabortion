@@ -6,7 +6,7 @@
 #   C1 running 중 `@R …` 메시지 → 진행 중 턴은 계속(kill 0·취소 0), 새 지시는 같은 lane 의 queued task → 이어서 실행
 #   C2 "중단하고 다시 지시"(restartLane) → 취소 + 새 task(attempt 1, restarted_from), lane running 유지, <resumed> 없음
 #   C3 "중단"(cancelLane) → lane failed(cancelled), 피드 "사람이 중단함", 새 task 0
-#   C4 결정 기록이 **콜드 스타트를 넘어** 브리프 [7] 에 실리는가
+#   C4 결정 기록이 **콜드 스타트를 넘어** 턴 프롬프트 <room_decisions> 에 실리는가(harness v0.9.14)
 #
 # 판정은 `e2e/p3/52_scenario_c.sh`(G6) 그대로. 페이크 런타임의 긴 턴은 대본이 다섯 단계를 한 단계씩
 # (단계마다 `PART-N done` 게시 + FAKE_STEP_SLEEP 초) 돌아 개입할 시간을 만든다. C4 의 콜드 스타트는
@@ -137,7 +137,7 @@ if [ -n "$T1B" ]; then
   chk_has E3c "그 프롬프트의 trigger 가 새 지시다" "$OUT/74-prompt-c1-followup.txt" "한국 시장으로 좁혀줘"
 fi
 
-step "7. C4 — 결정 기록이 **콜드 스타트를 넘어** 살아남는가 (브리프 [7])"
+step "7. C4 — 결정 기록이 **콜드 스타트를 넘어** 살아남는가 (턴 프롬프트 <room_decisions>, harness v0.9.14)"
 DEC_SUMMARY="조사 범위를 한국 시장으로 좁힌다"
 post_message "$S1" "$(mention Rsearch1 "$R1") DECISION: $DEC_SUMMARY | RATIONALE: Director 가 턴 중에 그렇게 지시했다" >/dev/null
 T1D=""
@@ -162,8 +162,12 @@ chk H3 "새 task 가 생겼다" yes "$( [ -n "$T1C" ] && echo yes || echo no )"
 if [ -n "$T1C" ]; then
   chk H3b "그 턴이 끝났다" completed "$(WAIT_S=$T_TURN wait_task "$T1C" completed failed cancelled)"
   tap_brief "$TAP" "$T1C" 1 --last > "$OUT/74-brief-c4.txt"
-  chk_has H4  "브리프에 **[7] Decision Log** 구간이 있다" "$OUT/74-brief-c4.txt" "[7] Decision Log"
-  chk_has H4b "그 구간에 앞서 남긴 결정이 실려 있다" "$OUT/74-brief-c4.txt" "$DEC_SUMMARY"
+  # harness v0.9.14: 결정은 브리프가 아니라 턴 프롬프트 <room_decisions> 에 있다. 콜드 스타트는 번들의
+  # `prompt_cold`(없으면 `prompt`)를 새 세션에 보낸다 — 그것을 본다.
+  tap_prompt "$TAP" "$T1C" 1 --last --cold > "$OUT/74-prompt-c4.txt"
+  chk H4  "브리프에 [6]·[7] 이 없다 (harness v0.9.14 — 브리프 고정)" no "$(grep -qE '\[6\]|\[7\]' "$OUT/74-brief-c4.txt" && echo yes || echo no)"
+  chk_has H4a "새 세션이 받는 턴 프롬프트에 <room_decisions> 가 있다" "$OUT/74-prompt-c4.txt" "<room_decisions count="
+  chk_has H4b "거기에 앞서 남긴 결정이 실려 있다"              "$OUT/74-prompt-c4.txt" "$DEC_SUMMARY"
   RES1="$(psqlq "select coalesce(resumed::text,'-') from task_attempt where task_id='$T1C' and attempt=1")"
   chk H5 "그 턴은 콜드 스타트다 (task_attempt.resumed ≠ true, 관측=$RES1)" no "$( [ "$RES1" = true ] && echo yes || echo no )"
   chk H6 "콜드 스타트인데도 턴이 일을 했다 (툴 이벤트 ≥ 1 · note-06.md)" yes \

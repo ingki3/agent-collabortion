@@ -792,7 +792,7 @@ func (f *p2Fixture) claimLimit(t *testing.T, taskID uuid.UUID) *float64 {
 
 // TestP3HitlAnswerReachesTheResumePrompt is E7-07 · E7-17 · PRD §8.4:1162 —
 // "`<resumed>` 구간에 … HITL 답변과 승인 여부". It also holds S-36 (the posted
-// list and the history lines carry ids) and S-37 (brief [7] Decision Log).
+// list and the history lines carry ids) and S-37 (<room_decisions>, the old brief [7]).
 func TestP3HitlAnswerReachesTheResumePrompt(t *testing.T) {
 	f := newP2Fixture(t)
 	tok, taskID := f.agentToken(t, f.sessionID, f.rUUID, "R")
@@ -835,9 +835,10 @@ func TestP3HitlAnswerReachesTheResumePrompt(t *testing.T) {
 	if !strings.Contains(resumed, "초안 1차를 올렸습니다") {
 		t.Errorf("the posted list carries ids only — `id — 앞 80자` is what makes it usable (S-36):\n%s", resumed)
 	}
-	// S-37: the decision the answer produced is in brief [7].
-	if !strings.Contains(brief, "[7] Decision Log") || !strings.Contains(brief, "경영진") {
-		t.Errorf("brief [7] Decision Log missing or empty (S-37, §8.4):\n%s", brief)
+	// S-37: the decision the answer produced is in the turn prompt's
+	// <room_decisions> (harness v0.9.14 — the old brief [7]).
+	if !strings.Contains(prompt, "<room_decisions count=") || !strings.Contains(between(prompt, "<room_decisions", "</room_decisions>"), "경영진") || strings.Contains(brief, "[7]") {
+		t.Errorf("<room_decisions> missing or empty, or the brief still has [7] (S-37, harness v0.9.14):\n%s\n---\n%s", prompt, brief)
 	}
 	// S-36: history lines carry the message id, so the posted list can be
 	// matched line by line.

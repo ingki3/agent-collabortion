@@ -325,3 +325,15 @@ func TestPongMeasuresUsageMidturn(t *testing.T) {
 		})
 	}
 }
+
+// daemon-protocol §3 v0.10.3: every probe advertises prompt_cold — this
+// daemon sends it to every new session it opens (acp.Runner.promptFor), and
+// without the advertisement the server sends no resumed-turn delta at all.
+//
+// 회귀 주입: Run 의 DaemonFeatures 를 지우면 FAIL.
+func TestProbeAdvertisesPromptCold(t *testing.T) {
+	p := Run(context.Background(), Options{DaemonVersion: "t", Only: []contracts.RuntimeKind{"none"}})
+	if len(p.DaemonFeatures) != 1 || p.DaemonFeatures[0] != contracts.DaemonFeaturePromptCold {
+		t.Fatalf("daemon_features = %v, want [prompt_cold]", p.DaemonFeatures)
+	}
+}

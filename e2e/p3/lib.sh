@@ -125,7 +125,7 @@ tap_start() {
 # (p2 의 prompt_of_task.py 는 attempt 를 가리지 않아 attempt 1·2 가 섞인다 — 재개를 재는 T-I3 에서는
 #  그러면 "답변이 프롬프트에 들어갔다"가 항상 참이 된다. 그래서 attempt 를 받는 픽스처를 따로 둔다.)
 tap_prompt() { python3 "$P3_DIR/fixtures/prompt_of.py" "$1" "$2" ${3:+"$3"}; }
-# tap_brief TAPFILE TASK [ATTEMPT] → 브리프 [1]~[8] 전문 (결정 기록 [7] 을 잰다)
+# tap_brief TAPFILE TASK [ATTEMPT] → 브리프 전문 (harness v0.9.14: [6]·[7] 없음 — 결정은 턴 프롬프트 <room_decisions>)
 tap_brief() { python3 "$P3_DIR/fixtures/brief_of.py" "$1" "$2" ${3:+"$3"}; }
 
 # ── 예산 ─────────────────────────────────────────────────────────────────────

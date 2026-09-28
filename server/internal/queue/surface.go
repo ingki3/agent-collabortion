@@ -30,7 +30,8 @@ type Surface struct {
 	Deliverable string
 	// Brief [3] (lead only).
 	HitlAskLine string
-	// Brief [6]: the artifact lines.
+	// The turn prompt's <room_artifacts> header and <reused_context> line (the
+	// old brief [6], harness v0.9.14).
 	ArtifactsHeader string
 	ReuseArtifacts  string // fmt: artifact count
 	// The turn prompt: FR-4.1's truncation line, the closing instruction and

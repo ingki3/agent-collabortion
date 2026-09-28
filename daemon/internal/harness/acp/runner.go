@@ -484,7 +484,7 @@ func (r *Runner) run(ctx context.Context) Result {
 	if r.a.OnRunning != nil {
 		r.a.OnRunning()
 	}
-	pr, perr := r.promptTurn(ctx, sessionID)
+	pr, perr := r.promptTurn(ctx, sessionID, r.promptFor(resumeOutcome))
 	r.mu.Lock()
 	stalled, cancelled, cancelReq := r.stalled, r.intent || r.cancelling, r.cancelReq
 	text, ntools := r.say.String(), len(r.tools)
@@ -532,7 +532,8 @@ func (r *Runner) run(ctx context.Context) Result {
 			return r.fail(contracts.FailConfig, err.Error(), nil)
 		}
 		r.resetTurn()
-		pr, perr = r.promptTurn(ctx, sessionID)
+		// A new session: the whole turn prompt, never the delta (v0.10.3).
+		pr, perr = r.promptTurn(ctx, sessionID, r.promptFor(resumeOutcome))
 		r.mu.Lock()
 		stalled, cancelled, cancelReq = r.stalled, r.intent || r.cancelling, r.cancelReq
 		text, ntools = r.say.String(), len(r.tools)
@@ -651,13 +652,27 @@ func rpcError(e *RPCError) string {
 // refusalAfterResume is the `resume_reason` of a D-13 cold start.
 const refusalAfterResume = "refusal_after_resume"
 
+// promptFor picks the turn prompt for the session the turn runs on
+// (daemon-protocol v0.10.3 §4.1, harness §10 v0.9.14). A resumed session gets
+// `prompt` — a delta when the server sent `prompt_cold` beside it. Any NEW
+// session — no resume, `resume_rejected`, the D-13 cold retry — gets
+// `prompt_cold` when there is one: the delta assumes a session that already
+// holds the room up to the anchor, and a new session holds nothing.
+func (r *Runner) promptFor(resumeOutcome string) string {
+	b := r.a.Bundle
+	if resumeOutcome != "resumed" && b.PromptCold != "" {
+		return b.PromptCold
+	}
+	return b.Prompt
+}
+
 // promptTurn sends one session/prompt under the stall watch, and does the
 // §2.2 Hermes quiet wait. It is called twice at most (D-13).
-func (r *Runner) promptTurn(ctx context.Context, sessionID string) (*PromptResult, error) {
+func (r *Runner) promptTurn(ctx context.Context, sessionID, text string) (*PromptResult, error) {
 	r.touch()
 	stopStall := r.startStallWatch(ctx)
 	done := r.promptDoneCh()
-	pr, perr := r.c.Prompt(ctx, sessionID, r.a.Bundle.Prompt)
+	pr, perr := r.c.Prompt(ctx, sessionID, text)
 	close(done)
 	stopStall()
 	if r.kind() == contracts.RuntimeHermes {

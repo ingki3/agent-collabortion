@@ -267,12 +267,19 @@ func (s *Service) Probe(ctx context.Context, runtimeID uuid.UUID, p contracts.Pr
 	// and being dropped, which is why `worktree` sessions shipped a relative
 	// path and died on the first turn (plan/G7_REPORT.md 차단 ①). NULLIF keeps a
 	// probe that omits it from erasing what the last one told us.
+	// daemon-protocol §3 v0.10.3: the bundle fields this daemon knows. The
+	// LAST probe's list is what counts (an older daemon re-probing after a
+	// downgrade must lose prompt_cold), so it is stored as sent, empty too.
+	features := p.DaemonFeatures
+	if features == nil {
+		features = []string{}
+	}
 	if _, err := s.DB.Exec(ctx, `
 		UPDATE runtime SET capabilities = $2, repos = $3, daemon_version = COALESCE(NULLIF($4, ''), daemon_version),
 		       host = COALESCE(NULLIF($5, ''), host), colab_cli = $7,
-		       workdir_root = COALESCE(NULLIF($8, ''), workdir_root),
+		       workdir_root = COALESCE(NULLIF($8, ''), workdir_root), daemon_features = $9,
 		       last_seen_at = $6, status = 'online', offline_since = NULL, updated_at = $6
-		WHERE id = $1`, runtimeID, caps, repos, p.DaemonVersion, p.Hostname, now, p.ColabCLI, p.WorkdirRoot); err != nil {
+		WHERE id = $1`, runtimeID, caps, repos, p.DaemonVersion, p.Hostname, now, p.ColabCLI, p.WorkdirRoot, features); err != nil {
 		return fmt.Errorf("runtimes: probe: %w", err)
 	}
 	var pid, wsID uuid.UUID

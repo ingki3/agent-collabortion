@@ -54,42 +54,41 @@ const (
 // nothing in this package reads or writes them.
 var InstructionFileNames = []string{"AGENTS.md", "CLAUDE.md"}
 
-// Parts are the eight sections. [1]~[5] must be byte-identical between two
-// turns of the same room and the same mission (cache friendliness, E12-11 ·
-// harness §10 v0.9.0 — another mission changes [4] on purpose); [6]~[8] may
-// vary.
+// Parts are the brief's sections (harness §10 v0.9.14): [1] [2] [3] (lead
+// only) [4] [5] [8]. The numbers [6]·[7] are left empty for good — the old
+// Context (artifacts, previous-session summaries) and Decision Log are turn
+// prompt blocks now (<room_artifacts>·<reused_context>·<room_decisions>), so
+// the WHOLE brief is byte-identical between two turns of the same room,
+// mission, agent and surface (E12-11 v0.9.14 — it was [1]~[5] until v0.9.13;
+// the cache reads the system prompt as one prefix, 04-baseline §3).
 type Parts struct {
 	Identity     string // [1] agent identity + instructions
 	Rules        string // [2] workspace rules + mention syntax + colab CLI/MCP conventions
 	Coordination string // [3] lead only
 	Session      string // [4] 방 맥락: room + the turn's mission (harness §10 v0.9.0)
 	Roster       string // [5] participants
-	Context      string // [6] attachments / previous session summary
-	DecisionLog  string // [7]
 	Precedence   string // [8] instruction precedence; empty → DefaultPrecedence
 }
 
 // DefaultPrecedence is [8] when the server gives none.
 const DefaultPrecedence = "User instructions > session goal > agent instructions > runtime defaults."
 
-var headers = [8]string{
+var headers = [6]string{
 	"[1] Agent Identity",
 	"[2] Workspace Rules",
 	"[3] Coordination Protocol",
 	"[4] Room",
 	"[5] Roster",
-	"[6] Context",
-	"[7] Decision Log",
 	"[8] Instruction Precedence",
 }
 
-// Assemble renders the brief in the fixed [1]~[8] order. Empty [3] (non-lead)
-// is omitted; every other section is always present so offsets are stable.
+// Assemble renders the brief in the fixed order. Empty [3] (non-lead) is
+// omitted; every other section is always present so offsets are stable.
 func Assemble(p Parts) string {
 	if p.Precedence == "" {
 		p.Precedence = DefaultPrecedence
 	}
-	bodies := [8]string{p.Identity, p.Rules, p.Coordination, p.Session, p.Roster, p.Context, p.DecisionLog, p.Precedence}
+	bodies := [6]string{p.Identity, p.Rules, p.Coordination, p.Session, p.Roster, p.Precedence}
 	var b strings.Builder
 	for i, h := range headers {
 		if i == 2 && bodies[i] == "" {
@@ -104,12 +103,10 @@ func Assemble(p Parts) string {
 	return b.String()
 }
 
-// StablePrefix returns the [1]~[5] part of an assembled brief (up to the
-// "[6] Context" header) — the bytes that must not change within a session.
+// StablePrefix returns the part of an assembled brief that must not change
+// within a room·mission·agent·surface — since harness v0.9.14 that is the
+// whole brief ([6]·[7] are gone; [8] is a fixed sentence).
 func StablePrefix(assembled string) string {
-	if i := strings.Index(assembled, "## "+headers[5]); i >= 0 {
-		return assembled[:i]
-	}
 	return assembled
 }
 

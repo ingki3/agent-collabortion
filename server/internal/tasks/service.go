@@ -598,7 +598,16 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			return err
 		}
 		if ref != nil {
-			if _, err := tx.Exec(ctx, `UPDATE lane SET runtime_session_ref = $2, updated_at = $3 WHERE id = $1`, t.LaneID, ref, now); err != nil {
+			// harness §10 v0.9.14: the lane's ref and its 기준점 are one pair —
+			// the anchor of the attempt that just sent its turn prompt to this
+			// session (queue.recordContextAnchor). An attempt without one
+			// (dispatched before the rollout) clears it: no delta then.
+			if _, err := tx.Exec(ctx, `
+				UPDATE lane l SET runtime_session_ref = $2, updated_at = $3,
+				       context_anchor_message_id = ta.context_anchor_message_id, context_anchor_at = ta.context_anchor_at
+				FROM (SELECT $1::uuid AS lane_id) x
+				LEFT JOIN task_attempt ta ON ta.task_id = $4 AND ta.attempt = $5
+				WHERE l.id = x.lane_id`, t.LaneID, ref, now, t.ID, attempt); err != nil {
 				return fmt.Errorf("tasks: runtime_session_ref: %w", err)
 			}
 		}
