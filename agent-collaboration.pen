@@ -31250,7 +31250,7 @@
                       "fill": "#A6A6AE",
                       "textGrowth": "fixed-width",
                       "width": "fill_container",
-                      "content": "↩ @Lead 의 「법 통과 여부 · 시장 규모 전망 · 해외 사례를…」에 대한 보고",
+                      "content": "↩ @Lead의 「법 통과 여부 · 시장 규모 전망 · 해외 사례를…」에 대한 보고",
                       "fontFamily": "$font",
                       "fontSize": 12,
                       "fontWeight": "normal"
@@ -31979,7 +31979,7 @@
                               "fill": "#A6A6AE",
                               "textGrowth": "fixed-width",
                               "width": "fill_container",
-                              "content": "↩ Simplist 의 「커브가 어색해」에 대한 보고",
+                              "content": "↩ Simplist의 「커브가 어색해」에 대한 보고",
                               "fontFamily": "$font",
                               "fontSize": 11,
                               "fontWeight": "normal"
@@ -32849,7 +32849,7 @@
                               "fill": "#A6A6AE",
                               "textGrowth": "fixed-width",
                               "width": 278,
-                              "content": "@Lead 의 「BGM v2 를 16분음표 격자로」 요청을 처리하고 있습니다",
+                              "content": "@Lead의 「BGM v2 를 16분음표 격자로」 요청을 처리하고 있습니다",
                               "fontFamily": "$font",
                               "fontSize": 13,
                               "fontWeight": "normal"
@@ -37863,7 +37863,7 @@
                               "id": "Sj9Vy",
                               "name": "↩ report link",
                               "fill": "$ink-2",
-                              "content": "↩ @Lead 의 「법 통과 여부 · 시장 규모 전망 · 해외 사례를…」에 대한 보고",
+                              "content": "↩ @Lead의 「법 통과 여부 · 시장 규모 전망 · 해외 사례를…」에 대한 보고",
                               "fontFamily": "$font",
                               "fontSize": 12,
                               "fontWeight": "normal"
@@ -38580,7 +38580,7 @@
                                       "id": "V4bey",
                                       "name": "↩ report link",
                                       "fill": "$ink-2",
-                                      "content": "↩ Simplist 의 「커브가 어색해」에 대한 보고",
+                                      "content": "↩ Simplist의 「커브가 어색해」에 대한 보고",
                                       "fontFamily": "$font",
                                       "fontSize": 11,
                                       "fontWeight": "normal"
@@ -39442,7 +39442,7 @@
                                       "fill": "$ink-2",
                                       "textGrowth": "fixed-width",
                                       "width": 478,
-                                      "content": "@Lead 의 「BGM v2 를 16분음표 격자로」 요청을 처리하고 있습니다",
+                                      "content": "@Lead의 「BGM v2 를 16분음표 격자로」 요청을 처리하고 있습니다",
                                       "fontFamily": "$font",
                                       "fontSize": 13,
                                       "fontWeight": "normal"
