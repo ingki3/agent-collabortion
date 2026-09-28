@@ -13,6 +13,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/lanestate"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
+	"github.com/ingki3/agent-collabortion/server/internal/quiet"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -202,6 +203,22 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 	if err := s.recordStatusEvent(ctx, tx, callerTask, callerAttempt, "delegate", in.Brief, now); err != nil {
 		return nil, err
 	}
+	// T-QUIET (FR-2A.2.3): a delegation is an agent's trigger like a mention
+	// — in a mission waiting for approval the lane is made and its task held
+	// (queued_reason approval_pending); the CLI/MCP result says whom it did
+	// not wake from that reason (harness v0.9.15).
+	heldNow := false
+	if hold, closed, err := holdsFor(ctx, tx, callerWork); err != nil {
+		return nil, err
+	} else if hold {
+		if heldNow, err = quiet.Hold(ctx, tx, taskID); err != nil {
+			return nil, err
+		}
+	} else if closed {
+		if err := quiet.CancelClosed(ctx, tx, taskID, now); err != nil {
+			return nil, err
+		}
+	}
 
 	msg, err := messages.Get(ctx, tx, msgID)
 	if err != nil {
@@ -221,6 +238,9 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 		sid := sessionID
 		_ = s.Hub.Publish(ctx, tx, wsID, &sid, "message.created", out.Message)
 		_ = s.Hub.Publish(ctx, tx, wsID, &sid, "lane.updated", out.Lane)
+	}
+	if heldNow {
+		s.publishQuiet(ctx, tx, wsID, sessionID, *callerWork)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err

@@ -66,6 +66,30 @@ func TestLaneDelegate(t *testing.T) {
 	}
 }
 
+// T-QUIET (harness v0.9.15): a delegated task the server held says so in
+// the result; an ordinary one says nothing.
+//
+// 회귀 주입: LaneDelegate 의 queued_reason 줄을 빼면 FAIL.
+func TestLaneDelegateQuietNotice(t *testing.T) {
+	s := clienttest.New(t)
+	res, err := colab.LaneDelegate(context.Background(), newClient(t, s), colab.LaneDelegateArgs{Agent: "@Reviewer", Brief: "각주"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Notice != "" {
+		t.Fatalf("notice on an ordinary delegation: %q", res.Notice)
+	}
+	s.DelegateQueuedReason = "approval_pending"
+	res, err = colab.LaneDelegate(context.Background(), newClient(t, s), colab.LaneDelegateArgs{Agent: "@Reviewer", Brief: "각주"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "This mission is waiting for the Director's approval, so @Reviewer was not woken. If work remains after approval, tell the Director."
+	if res.Notice != want {
+		t.Fatalf("notice = %q\nwant %q", res.Notice, want)
+	}
+}
+
 // E15-02: delegating to a non-participant is refused by the CLI itself
 // (exit 3) and names the alternative route, and no request is sent.
 func TestLaneDelegateNonParticipantExit3(t *testing.T) {

@@ -87,6 +87,11 @@ export const PROGRESS = {
   user_approval_next: "받은 요청에서 승인하세요",
   /** T-APPROVAL(openapi v0.3.3 `held_reason: running_tasks`) — 나머지 조건은 충족, 진행 중인 작업이 끝나면 서버가 승인을 요청한다. */
   held_running_tasks: "조건 충족 — 진행 중인 작업이 끝나면 승인을 요청합니다",
+  /**
+   * T-QUIET(openapi v0.3.9 `paused_agent_triggers`, SCREEN v0.19.14) — 승인 대기로 보류된 에이전트 간 트리거 N건.
+   * 「Director 승인 — 받은 요청에서」 행 아래 작은 줄(`$ink-2`, `--fs-meta`). 0 이면 줄 없음. 문구는 SCREEN 그대로.
+   */
+  paused_agent_triggers: ["에이전트끼리의 새 작업 ", "건을 멈춰 두었습니다 — 승인하면 취소, 수정 요청하면 이어서"] as Slotted,
   /** "Lead 차례" — `next_actor`(또는 지정 에이전트)가 할 일이 남았다. */
   turn: (actor: string) => `${actor} 차례`,
   manual_next: "Director 가 「종료」 로 끝냅니다",
@@ -569,6 +574,8 @@ export const ROOM_LEFT = {
   /** 워크트리 방인데 아직 컴퓨터가 정해지지 않았다(runtime_id null) — 저장소가 있는 컴퓨터가 붙기를 기다린다(T-S-wt #302). */
   queued_runtime_repo: "저장소가 있는 컴퓨터를 기다립니다",
   queued_workspace: "워크스페이스 동시 상한에 닿았습니다",
+  /** T-QUIET(openapi v0.3.9 `queued_reason: approval_pending`, SCREEN v0.19.14) — 서브 미션 카드의 상태 칩(neutral). */
+  queued_approval_pending: "승인 대기로 멈춤",
   /** `paused` 는 어느 층의 예산인가(§4.6 · §5 「멈춘 것은 층을 함께 적는다」). */
   paused_task: "⏸ 일시정지 · 할 일 예산",
   paused_work: "⏸ 일시정지 · 미션 예산",

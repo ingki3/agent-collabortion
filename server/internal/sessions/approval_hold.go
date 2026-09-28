@@ -10,6 +10,7 @@ import (
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
+	"github.com/ingki3/agent-collabortion/server/internal/quiet"
 )
 
 // T-APPROVAL — the platform's user_approval request waits for the mission's
@@ -29,7 +30,8 @@ const HeldRunningTasks = "running_tasks"
 // parked ones (`paused`, `waiting_human`) do not hold the request — a
 // question waiting on the Director must not wait on itself.
 const busyTaskSQL = `EXISTS (SELECT 1 FROM task t WHERE t.work_id = $1
-	AND t.status IN ('queued', 'dispatched', 'preparing', 'running'))`
+	AND t.status IN ('queued', 'dispatched', 'preparing', 'running')
+	AND NOT ` + quiet.HeldTaskSQL + `)`
 
 func missionBusy(ctx context.Context, q db.DBTX, workID uuid.UUID) (bool, error) {
 	var busy bool
@@ -100,4 +102,43 @@ func (s *Service) ReleaseHeldApprovals(ctx context.Context) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+// SettleQuiet is T-QUIET's re-entry (b) (Lead 판정 2026-09-28): a mission a
+// person re-opened (quiet.StateReleased) goes quiet again once its work has
+// settled while the platform's approval request is still open — the round
+// of work the person asked for is over and the card is still the question.
+// Cheap when nothing applies (one indexed read), so the task layer calls it
+// after every task that ends, beside ReleaseHeldApproval.
+func (s *Service) SettleQuiet(ctx context.Context, workID uuid.UUID) (bool, error) {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	var due bool
+	err = tx.QueryRow(ctx, `
+		SELECT approval_quiet = 'released' AND status = 'active' AND NOT `+busyTaskSQL+`
+		   AND EXISTS (SELECT 1 FROM hitl_request h WHERE h.work_id = $1 AND h.source = 'system'
+		                 AND h.purpose = 'user_approval' AND h.status = 'open')
+		FROM work WHERE id = $1`, workID).Scan(&due)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !due) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("sessions: settle quiet: %w", err)
+	}
+	// The room row first — the lock order of every writer of both (router,
+	// ApplyWorkEvent).
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM room WHERE id = (SELECT room_id FROM work WHERE id = $1) FOR UPDATE`, workID); err != nil {
+		return false, err
+	}
+	changed, err := quiet.Enter(ctx, tx, workID, s.Clock.Now())
+	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return changed, nil
 }

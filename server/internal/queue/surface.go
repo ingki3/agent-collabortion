@@ -140,6 +140,12 @@ const (
 	AttachFetchMCP = "Download one into your folder with the `colab_artifact_get` tool (`artifact`: the id, `out`: a path in your folder)."
 )
 
+// QuietRule is harness v0.9.15's brief [2] line (PRD FR-2A.2.3): the
+// contract gives one sentence for both surfaces — it names no command — so
+// both carry the same bytes. Fixed, whatever the mission's state (E12-11:
+// [1]~[8] byte-identical within a room·mission·agent·surface).
+const QuietRule = "- When your mission's only remaining completion condition is the Director's approval, do not wake teammates; report the result to the Director instead.\n"
+
 const (
 	ThreadReplyInstruction    = "A trigger message with a `thread` attribute was posted in that thread: answer in the thread. `colab message post` replies to that thread by default; add `--top-level` only when the reply belongs on the main timeline."
 	ThreadReplyInstructionMCP = "A trigger message with a `thread` attribute was posted in that thread: answer in the thread. `colab_message_post` replies to that thread by default; set `top_level` only when the reply belongs on the main timeline (or `reply_to` to answer one message)."
@@ -223,5 +229,6 @@ func (s Surface) Section2() string {
 		s.FoldersRule + "\n" +
 		s.FocusRule +
 		"- Mentioning an agent creates work for it; do not mention agents just to acknowledge.\n" +
+		QuietRule +
 		"- Your COLAB_TASK_TOKEN is valid for this attempt only; if a call returns token_revoked, stop immediately.\n\n"
 }

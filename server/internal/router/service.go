@@ -23,6 +23,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/lanes"
 	"github.com/ingki3/agent-collabortion/server/internal/lanestate"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
+	"github.com/ingki3/agent-collabortion/server/internal/quiet"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
 	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
@@ -62,6 +63,12 @@ type Service struct {
 	Notifier Notifier
 	// Tasks carries out the consequences of a pause (FR-2.3 drain vs cancel).
 	Tasks *tasks.Service
+
+	// QuietPublish emits `work.completion_progress` for a mission whose
+	// approval-quiet state or held-trigger count just changed (T-QUIET). The
+	// progress read model lives in internal/sessions, which imports this
+	// package — wired in httpapi.NewServer; nil in unit tests.
+	QuietPublish func(ctx context.Context, q db.DBTX, wsID, roomID, workID uuid.UUID)
 
 	// focusFlush holds the lanes with a 「지금」 flush timer pending
 	// (scheduleFocusFlush) — lane id → true.
@@ -270,6 +277,24 @@ func (s *Service) postRow(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.U
 		}
 	}
 
+	// T-QUIET (FR-2A.2.3): the message's effect on its mission's approval
+	// wait — a person re-opens it, an agent's report to a person closes the
+	// round — decided after the speech is stored (the report test reads it).
+	qg, err := gateMessage(ctx, tx, attr.WorkID, author, in.Content, msgID, now)
+	if err != nil {
+		return nil, uuid.Nil, err
+	}
+	for _, l := range qg.released {
+		s.publishLane(ctx, tx, l)
+	}
+	if qg.changed {
+		s.publishQuiet(ctx, tx, wsID, sessionID, *attr.WorkID)
+	}
+	var heldNames []struct {
+		id   uuid.UUID
+		name string
+	}
+
 	result := &gen.MessagePostResult{}
 	result.Triggers = make([]struct {
 		AgentId       openapi_types.UUID           `json:"agent_id"`
@@ -430,6 +455,47 @@ func (s *Service) postRow(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.U
 				return nil, uuid.Nil, fmt.Errorf("router: insert task: %w", err)
 			}
 		}
+		// T-QUIET: an agent's trigger in a mission waiting for approval is
+		// made and held — queued_reason approval_pending, which the claim
+		// passes by. A platform trigger (a reviewer's rejection re-entering
+		// the submitter's lane) is the system's, not an agent's word.
+		if author.Type == "agent" && tr.Rule != RulePlatform {
+			hold, closed, err := holdsFor(ctx, tx, laneWork)
+			if err != nil {
+				return nil, uuid.Nil, err
+			}
+			if closed && !coalesced {
+				if err := quiet.CancelClosed(ctx, tx, taskID, now); err != nil {
+					return nil, uuid.Nil, err
+				}
+				heldNames = append(heldNames, struct {
+					id   uuid.UUID
+					name string
+				}{tr.AgentID, participantName(participants, tr.AgentID)})
+				s.publishLane(ctx, tx, laneID)
+			}
+			if hold {
+				// A new task is held. One this message merged into is held
+				// only if it already was: a queued turn a person's message
+				// made runs, and this message rides along in it.
+				var held bool
+				if coalesced {
+					held, err = quiet.IsHeld(ctx, tx, taskID)
+				} else {
+					held, err = quiet.Hold(ctx, tx, taskID)
+				}
+				if err != nil {
+					return nil, uuid.Nil, err
+				}
+				if held {
+					heldNames = append(heldNames, struct {
+						id   uuid.UUID
+						name string
+					}{tr.AgentID, participantName(participants, tr.AgentID)})
+					s.publishLane(ctx, tx, laneID)
+				}
+			}
+		}
 		result.Triggers = append(result.Triggers, struct {
 			AgentId       openapi_types.UUID           `json:"agent_id"`
 			Coalesced     bool                         `json:"coalesced"`
@@ -442,6 +508,20 @@ func (s *Service) postRow(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.U
 			_ = s.Hub.Publish(ctx, tx, wsID, &sid, "task.updated", tasks.ToAPI(t, nil, nil))
 		}
 		primaryTasks[tr.AgentID] = taskID
+	}
+
+	// harness v0.9.15: the post's result tells the writing turn whom it did
+	// not wake (Lead 판정 2026-09-28 — warnings[] code approval_pending).
+	for _, h := range heldNames {
+		id := h.id
+		result.Warnings = append(result.Warnings, struct {
+			AgentId nullable.Nullable[openapi_types.UUID] `json:"agent_id,omitempty"`
+			Code    string                                `json:"code"`
+			Message string                                `json:"message"`
+		}{AgentId: tasks.NullUUID(&id), Code: quiet.WarningCode, Message: quiet.Notice(h.name)})
+	}
+	if len(heldNames) > 0 && attr.WorkID != nil {
+		s.publishQuiet(ctx, tx, wsID, sessionID, *attr.WorkID)
 	}
 
 	// Rule 7: rule 5 woke somebody other than the assignee, so the assignee

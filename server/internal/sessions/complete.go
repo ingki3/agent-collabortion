@@ -15,6 +15,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
+	"github.com/ingki3/agent-collabortion/server/internal/quiet"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
 	"github.com/ingki3/agent-collabortion/server/internal/workdirs"
@@ -242,6 +243,18 @@ func (s *Service) ApplyWorkEvent(ctx context.Context, workID uuid.UUID, ev Event
 				"work_id": workID, "room_id": sessionID, "status": "completed", "summary_message_id": summaryID,
 			})
 		}
+		// T-QUIET ① (FR-2A.2.3): the held agent-to-agent triggers are
+		// cancelled with the sentence the feed shows — before the bulk cancel
+		// below, which would close them with no reason.
+		note := quiet.ApprovedClosedNote
+		if ev.Kind != "director_approve" {
+			note = quiet.EndedClosedNote
+		}
+		quietLanes, err := quiet.CancelHeld(ctx, tx, workID, note, now)
+		if err != nil {
+			return nil, err
+		}
+		s.publishLanes(ctx, tx, quietLanes)
 		// Queued work is moot once the mission is over; leaving it queued means
 		// a resumed daemon picks it up after the fact. The room's other
 		// missions — and its talk outside any mission — keep theirs.
@@ -312,6 +325,31 @@ func (s *Service) ApplyWorkEvent(ctx context.Context, workID uuid.UUID, ev Event
 			UPDATE work SET approval_held_at = CASE WHEN $2 THEN COALESCE(approval_held_at, $3) END WHERE id = $1`,
 			workID, held, now); err != nil {
 			return nil, fmt.Errorf("sessions: approval hold: %w", err)
+		}
+	}
+	// T-QUIET (PRD FR-2A.2.3) — the ONE place the mission's approval wait is
+	// judged. It is entered when the platform opens its approval request or
+	// holds it for running work (FR-2A.2.1); a Director's change request
+	// re-opens the work (②), and a tree whose other conditions are unmet
+	// again — a condition change (④) — is not waiting for approval at all.
+	if out.SessionState == "active" {
+		switch {
+		case approvalAsk && (out.HitlIssued || held):
+			if _, err := quiet.Enter(ctx, tx, workID, now); err != nil {
+				return nil, err
+			}
+		case ev.Kind == "director_reject":
+			lanes, err := quiet.Release(ctx, tx, workID, quiet.StateReleased, now)
+			if err != nil {
+				return nil, err
+			}
+			s.publishLanes(ctx, tx, lanes)
+		case !needsUserApproval(tree, metAfter(out)):
+			lanes, err := quiet.Release(ctx, tx, workID, quiet.StateNone, now)
+			if err != nil {
+				return nil, err
+			}
+			s.publishLanes(ctx, tx, lanes)
 		}
 	}
 	var hitlID uuid.UUID
@@ -385,7 +423,7 @@ func (s *Service) ApplyWorkEvent(ctx context.Context, workID uuid.UUID, ev Event
 		if err := tx.QueryRow(ctx, `SELECT approval_held_at IS NOT NULL FROM work WHERE id = $1`, workID).Scan(&heldNow); err != nil {
 			return nil, err
 		}
-		prog, err := progressOf(ctx, tx, sessionID, raw, metRaw, assignee, heldNow)
+		prog, err := progressOf(ctx, tx, sessionID, workID, raw, metRaw, assignee, heldNow)
 		if err != nil {
 			return nil, err
 		}
@@ -760,4 +798,23 @@ func budgetLimit(raw []byte) float64 {
 		return 0
 	}
 	return *l.BudgetUsd
+}
+
+// metAfter is the outcome's met atoms as the map needsUserApproval reads.
+func metAfter(o Outcome) map[string]bool {
+	m := make(map[string]bool, len(o.MetAtoms))
+	for _, a := range o.MetAtoms {
+		m[a] = true
+	}
+	return m
+}
+
+// publishLanes sends `lane.updated` for lanes T-QUIET moved.
+func (s *Service) publishLanes(ctx context.Context, q db.DBTX, lanes []uuid.UUID) {
+	if s.Tasks == nil || s.Tasks.LanePublish == nil {
+		return
+	}
+	for _, l := range lanes {
+		s.Tasks.LanePublish(ctx, q, l)
+	}
 }
