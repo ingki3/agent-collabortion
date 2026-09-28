@@ -216,9 +216,16 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		if m.GroupID != nil {
 			group = fmt.Sprintf(" group=%q", *m.GroupID)
 		}
+		// harness v0.9.12: the `Attachments:` list sits between the body and the
+		// detail, and a part carries its own — the group does not share one list.
+		at := triggerAttachments(m, surf)
 		td := triggerDetail(m, fullDetail[m.ID], surf)
+		// T-CTX0: both are PARTS of prompt.trigger (already counted in it) —
+		// 04-baseline §7 said the attachment lines get their own key once
+		// T-MEDIA landed, so that the artifact-heavy turns are visible.
+		metric.add("prompt.trigger/attachments", at)
 		metric.add("prompt.trigger/detail", td)
-		fmt.Fprintf(&trigger, "<message id=%q author=%q at=%q%s%s>\n%s\n%s</message>\n", m.ID, authorLabel(m), m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"), thread, group, m.Content, td)
+		fmt.Fprintf(&trigger, "<message id=%q author=%q at=%q%s%s>\n%s\n%s%s</message>\n", m.ID, authorLabel(m), m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"), thread, group, m.Content, at, td)
 		if m.GroupID != nil {
 			line, err := otherPartsLine(ctx, tx, m, surf, groupRows)
 			if err != nil {
@@ -783,6 +790,38 @@ func preview(content string, n int) string {
 		return line
 	}
 	return string(r[:n]) + "…"
+}
+
+// triggerAttachments is harness v0.9.12's `Attachments:` block under a
+// trigger message (PRD FR-3.7 rule 3): one line per file in the artifact-line
+// shape (B4) plus the server-judged content type and the size, then how to
+// fetch one on this surface. Empty when the message has none.
+func triggerAttachments(m *messages.Row, surf Surface) string {
+	if len(m.Attachments) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Attachments:\n")
+	for _, a := range m.Attachments {
+		ct := "unknown"
+		if a.ContentType != nil && *a.ContentType != "" {
+			ct = *a.ContentType
+		}
+		fmt.Fprintf(&b, "- %s (%s, %s, %s, id %s)\n", a.Name, a.Type, ct, humanSize(a.SizeBytes), a.ArtifactID)
+	}
+	b.WriteString(surf.AttachFetch + "\n")
+	return b.String()
+}
+
+// humanSize is a byte count the way a person reads it (1.5 MB, 820 KB, 12 B).
+func humanSize(n int64) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%d KB", (n+512)>>10)
+	}
+	return fmt.Sprintf("%d B", n)
 }
 
 // briefContext is §8.4 [6]: what this session already has attached. The

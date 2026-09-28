@@ -11,9 +11,12 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./composer.css";
+import "./media-preview.css";
 import { activeMentionQuery, toWire, type MentionTarget } from "@/lib/mentions";
-import { WORK_SELECTOR } from "@/lib/wording";
+import { MEDIA, WORK_SELECTOR } from "@/lib/wording";
 import type { TriggerPreview } from "@/lib/api/types";
+import { Slot, slotText } from "@/components/Slot";
+import { attachmentsOnlyContent, formatBytes, kindGlyph, mediaKind, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS, type UploadResult } from "@/lib/media";
 
 export interface ComposerAgent {
   id: string;
@@ -43,6 +46,22 @@ export interface ComposerInput {
    * 아니라 **규칙 2~4 로 정해 달라**는 것이다(서버 router.attribute — 스레드·실행 중 서브 미션이 자동으로 귀속시킬 수 있다).
    */
   workId?: string | null;
+  /** v0.19.12 파일 붙이기(PRD FR-3.7) — 다 올라간 첨부의 아티팩트 id, 고른 순서. 없으면 빈 배열. */
+  attachmentIds: string[];
+}
+
+/** 작성창 첨부 칩 하나(COMPONENTS §9.12 Attachment Chip). */
+export interface ComposerAttachment {
+  key: string;
+  file: File;
+  state: "uploading" | "done" | "error" | "too_big";
+  progress: number;
+  error?: string;
+  artifactId?: string;
+  /** 서버 판정 종류(올라간 뒤) — 올라가기 전엔 브라우저가 준 file.type 으로 글리프만 고른다. */
+  contentType?: string | null;
+  /** 이미지 칩 썸네일(Object URL) — 칩이 빠지면 해제한다. */
+  thumb?: string;
 }
 
 /** v0.19 방 화면(T-R2-W2) — 미션 선택기(COMPONENTS §9.2). 상태 셋: 열림 · 잠김(스레드) · 자동(규칙 3). 판정은 서버 미리보기가 한다. */
@@ -75,6 +94,11 @@ export interface ComposerProps {
   workSelector?: ComposerWorkSelector;
   /** textarea 에 붙일 ref — 「작성창으로 건너뛰기」·빈 방 「그냥 말 걸기」가 초점을 준다. */
   inputRef?: React.Ref<HTMLTextAreaElement>;
+  /**
+   * v0.19.12 파일 붙이기(PRD FR-3.7 · SCREEN §4.6) — 파일 하나를 사람 아티팩트(type `attachment`)로 올린다. 없으면 📎·끌어다 놓기·붙여넣기를
+   * 그리지 않는다(재지시·테스트 채팅처럼 첨부를 받지 않는 작성창). 권한은 게시와 같다 — `disabled` 면 📎 도 비활성.
+   */
+  onUpload?: (file: File, onProgress: (ratio: number) => void) => Promise<UploadResult>;
 }
 
 /** 규칙 번호 → 사람 문구. 미리보기 칩의 근거를 숨기지 않는다. */
@@ -104,6 +128,11 @@ export function Composer(props: ComposerProps) {
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const [limitNote, setLimitNote] = useState(false);
+  const { onUpload } = props;
 
   const parentId = props.replyTo?.id ?? null;
   const suppressKey = [...suppressed.keys()].sort().join(",");
@@ -127,11 +156,19 @@ export function Composer(props: ComposerProps) {
     ...(props.members ?? []).map((m) => ({ kind: "user" as const, id: m.id, name: m.name })),
   ], [props.agents, props.members]);
   const wire = useMemo(() => toWire(text, mentionTargets), [text, mentionTargets]);
+  // ── 파일 붙이기(FR-3.7) ──
+  const doneIds = attachments.filter((a) => a.state === "done" && a.artifactId).map((a) => a.artifactId!);
+  const doneKey = doneIds.join(",");
+  /** 다 올라가기 전에는 보내기 비활성(SCREEN §4.6) — 실패·50MB 초과 칩도 「올라가지 않은」 칩이다(✕ 로 빼거나 다시 시도). */
+  const pending = attachments.some((a) => a.state !== "done");
+  const uploading = attachments.some((a) => a.state === "uploading");
+  /** 본문 없이 첨부만 보내면 「(파일 N개)」(SCREEN §4.6 「첨부만」). 미리보기와 전송이 같은 글을 본다. */
+  const effective = wire.trim() || (doneIds.length > 0 ? attachmentsOnlyContent(doneIds.length) : "");
 
   // ── 서버 트리거 미리보기(FR-3.6) — 디바운스, 마지막 응답만 채택 ──
   useEffect(() => {
     if (!onPreview) return;
-    const content = wire.trim();
+    const content = effective;
     if (!content) {
       setPreview(null);
       setPreviewError(null);
@@ -140,7 +177,7 @@ export function Composer(props: ComposerProps) {
     let live = true;
     setPreviewing(true);
     const t = setTimeout(() => {
-      onPreview({ content, parentId, newLane, suppressAgentIds: suppressIds, workId })
+      onPreview({ content, parentId, newLane, suppressAgentIds: suppressIds, workId, attachmentIds: doneKey ? doneKey.split(",") : [] })
         .then((p) => {
           if (!live) return;
           setPreview(p);
@@ -159,7 +196,50 @@ export function Composer(props: ComposerProps) {
       live = false;
       clearTimeout(t);
     };
-  }, [wire, parentId, newLane, suppressIds, onPreview, delay, workId]);
+  }, [effective, parentId, newLane, suppressIds, onPreview, delay, workId, doneKey]);
+
+  const startUpload = useCallback((a: ComposerAttachment) => {
+    if (!onUpload) return;
+    const patch = (p: Partial<ComposerAttachment>) => setAttachments((cur) => cur.map((x) => (x.key === a.key ? { ...x, ...p } : x)));
+    onUpload(a.file, (r) => patch({ progress: r }))
+      .then((res) => patch({ state: "done", progress: 1, artifactId: res.id, contentType: res.content_type }))
+      .catch((e) => patch({ state: "error", error: e instanceof Error ? e.message : String(e) }));
+  }, [onUpload]);
+
+  /** 고르는 즉시 올린다(진행 막대). 10개를 넘는 것은 받지 않고 한 줄 알린다. 50MB 넘는 칩은 빨간 줄 — 올리지 않는다. */
+  const addFiles = useCallback((files: FileList | File[] | null) => {
+    if (!files || !onUpload || props.disabled) return;
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    setAttachments((cur) => {
+      const room = MAX_ATTACHMENTS - cur.length;
+      setLimitNote(list.length > room);
+      const next = list.slice(0, Math.max(0, room)).map((file, i): ComposerAttachment => ({
+        key: `${Date.now()}-${cur.length + i}-${file.name}`,
+        file,
+        state: file.size > MAX_ATTACHMENT_BYTES ? "too_big" : "uploading",
+        progress: 0,
+        thumb: file.type.startsWith("image/") && typeof URL.createObjectURL === "function" ? URL.createObjectURL(file) : undefined,
+      }));
+      queueMicrotask(() => next.filter((a) => a.state === "uploading").forEach(startUpload));
+      return [...cur, ...next];
+    });
+  }, [onUpload, props.disabled, startUpload]);
+
+  const removeAttachment = useCallback((key: string) => {
+    setAttachments((cur) => {
+      const gone = cur.find((a) => a.key === key);
+      if (gone?.thumb) URL.revokeObjectURL(gone.thumb);
+      return cur.filter((a) => a.key !== key);
+    });
+    setLimitNote(false);
+  }, []);
+
+  const retryAttachment = useCallback((key: string) => {
+    setAttachments((cur) => cur.map((a) => (a.key === key ? { ...a, state: "uploading", progress: 0, error: undefined } : a)));
+    const a = attachments.find((x) => x.key === key);
+    if (a) startUpload({ ...a, state: "uploading", progress: 0 });
+  }, [attachments, startUpload]);
 
   const query = useMemo(() => activeMentionQuery(text, caret), [text, caret]);
   const candidates = useMemo(() => {
@@ -203,13 +283,16 @@ export function Composer(props: ComposerProps) {
   }, []);
 
   async function submit() {
-    const content = wire.trim();
-    if (!content || busy || props.disabled) return;
+    const content = effective;
+    if (!content || busy || props.disabled || pending) return;
     setBusy(true);
     try {
-      const warnings = await props.onSubmit({ content, parentId, newLane, suppressAgentIds: suppressIds, workId });
+      const warnings = await props.onSubmit({ content, parentId, newLane, suppressAgentIds: suppressIds, workId, attachmentIds: doneIds });
       setServerWarnings(warnings ?? []);
       setText("");
+      attachments.forEach((a) => a.thumb && URL.revokeObjectURL(a.thumb));
+      setAttachments([]);
+      setLimitNote(false);
       setSuppressed(new Map());
       setPreview(null);
       setCaret(0);
@@ -259,8 +342,29 @@ export function Composer(props: ComposerProps) {
   const shown = locked || auto ? attributed!.id : (ws?.value ?? "");
   const lockedHintId = "work-selector-locked";
 
+  const canAttach = !!onUpload;
+  const dropProps = canAttach && !props.disabled ? {
+    onDragOver: (e: React.DragEvent) => {
+      if (![...e.dataTransfer.types].includes("Files")) return;
+      e.preventDefault();
+      setDragging(true);
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+      setDragging(false);
+    },
+    onDrop: (e: React.DragEvent) => {
+      if (!e.dataTransfer.files?.length) return;
+      e.preventDefault();
+      setDragging(false);
+      addFiles(e.dataTransfer.files);
+    },
+  } : {};
+  const filesChip = doneIds.length > 0 ? slotText(MEDIA.trigger_files, doneIds.length) : "";
+
   return (
-    <div className="composer" data-testid="composer">
+    <div className="composer" data-testid="composer" data-dragging={dragging ? "true" : undefined} {...dropProps}>
+      {dragging && <div className="composer__drop" data-testid="composer-drop" aria-hidden="true">{MEDIA.drop_here}</div>}
       {props.notice && (
         <div className="composer__notice" data-testid="composer-notice">
           {props.notice}
@@ -315,7 +419,55 @@ export function Composer(props: ComposerProps) {
         }}
         onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
         onKeyDown={onKeyDown}
+        onPaste={canAttach ? (e) => {
+          const files = e.clipboardData?.files;
+          if (files && files.length > 0) {
+            e.preventDefault();
+            addFiles(files);
+          }
+        } : undefined}
       />
+      {attachments.length > 0 && (
+        <ul className="attach-chips" data-testid="attach-chips" aria-label={MEDIA.attachments_label}>
+          {attachments.map((a) => {
+            const kind = mediaKind(a.contentType ?? a.file.type);
+            const isImage = !!a.thumb && a.state !== "too_big";
+            return (
+              <li key={a.key} className={`achip${isImage ? " achip--image" : ""}`} data-state={a.state === "too_big" ? "error" : a.state} data-testid="attach-chip" data-artifact-id={a.artifactId}>
+                {isImage ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- 로컬 Object URL 썸네일
+                  <img className="achip__thumb" src={a.thumb} alt="" />
+                ) : (
+                  <span className="achip__glyph" aria-hidden="true">{kindGlyph(kind)}</span>
+                )}
+                <span className="achip__text">
+                  <span className="achip__name" title={a.file.name}>{a.file.name || "pasted.png"}</span>
+                  {a.state === "too_big" ? (
+                    <span className="achip__err" data-testid="attach-too-big">{MEDIA.too_big}</span>
+                  ) : a.state === "error" ? (
+                    <>
+                      <span className="achip__err" data-testid="attach-error" title={a.error}>{a.error}</span>
+                      <button type="button" className="achip__retry" onClick={() => retryAttachment(a.key)} data-testid="attach-retry">{MEDIA.retry}</button>
+                    </>
+                  ) : (
+                    <span className="achip__size">
+                      {formatBytes(a.file.size)}
+                      {a.state === "uploading" && <> · {MEDIA.uploading}</>}
+                    </span>
+                  )}
+                </span>
+                {a.state === "uploading" && (
+                  <span className="achip__bar" role="progressbar" aria-label={`${a.file.name} ${MEDIA.uploading}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(a.progress * 100)} style={{ width: `${Math.round(a.progress * 100)}%` }} data-testid="attach-progress" />
+                )}
+                <button type="button" className="achip__x" aria-label={MEDIA.remove(a.file.name || "pasted.png")} onClick={() => removeAttachment(a.key)} data-testid="attach-remove">✕</button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {limitNote && (
+        <div className="composer__notice" role="status" data-testid="attach-limit"><Slot text={MEDIA.too_many} n={MAX_ATTACHMENTS} /></div>
+      )}
       {ws && (
         <div className="composer__work" data-testid="work-selector" data-mode={locked ? "locked" : auto ? "auto" : "open"}>
           <select
@@ -382,6 +534,7 @@ export function Composer(props: ComposerProps) {
               {t.lane.reentry ? " · 재진입" : ""}
               {t.lane.lane_id === null ? " · 새 서브 미션" : ""}
               {t.deferred_until ? " · 5분 뒤 폴백" : ""}
+              {filesChip && <span data-testid="chip-trigger-files">{filesChip}</span>}
             </span>
             <button
               type="button"
@@ -409,6 +562,34 @@ export function Composer(props: ComposerProps) {
         ))}
       </div>
       <div className="composer__foot">
+        {canAttach && (
+          <>
+            <button
+              type="button"
+              className="btn btn--sm composer__attach"
+              aria-label={MEDIA.attach}
+              title={MEDIA.attach}
+              disabled={props.disabled || attachments.length >= MAX_ATTACHMENTS}
+              onClick={() => fileRef.current?.click()}
+              data-testid="composer-attach"
+            >
+              📎
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              hidden
+              tabIndex={-1}
+              aria-hidden="true"
+              data-testid="composer-file-input"
+              onChange={(e) => {
+                addFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </>
+        )}
         <label className="composer__toggle" data-testid="new-lane-toggle-label">
           <input
             type="checkbox"
@@ -429,13 +610,16 @@ export function Composer(props: ComposerProps) {
         <button
           type="button"
           className="btn btn--primary btn--sm"
-          disabled={disabled || !text.trim()}
-          title={props.disabled ? props.disabledReason : undefined}
+          disabled={disabled || !effective || pending}
+          title={props.disabled ? props.disabledReason : uploading ? MEDIA.uploading_block : undefined}
           onClick={() => void submit()}
           data-testid="composer-send"
         >
           {busy ? "전송 중…" : "전송"}
         </button>
+        {uploading && !props.disabled && (
+          <span className="composer__hint" role="status" data-testid="attach-pending">{MEDIA.uploading_block}</span>
+        )}
       </div>
     </div>
   );

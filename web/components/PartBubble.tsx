@@ -16,7 +16,9 @@ import { clockTime, relativeTime } from "@/lib/time";
 import { Badge } from "@/components/Badge";
 import { AddresseeChips, KindChip, ReportOfLink, addresseeName, speechLabel } from "./AddresseeLine";
 import { MessageBody, MessageCard, authorName, type ConversationSlot, type MessageLayerSlots } from "./MessageCard";
-import { PARTS as L } from "@/lib/wording";
+import { MEDIA, PARTS as L } from "@/lib/wording";
+import { MediaGroup } from "./MediaPreview";
+import { fromAttachmentRef } from "@/lib/media";
 import type { Speech } from "@/lib/conversation";
 
 /** 부분 머리 — 「‹종류› → 받는 쪽」(+ 위임 상태 칩). 보는 사람이 받는 쪽이면 그 칩에 「나」 표시. */
@@ -77,6 +79,10 @@ function Part({ message: m, speech, me, layers, replies, onLoadReplies, onReply,
     }
     setOpen((v) => !v);
   }
+  // v0.19.12 파일 붙이기(PRD FR-3.7 · openapi v0.3.7 MessagePartCreate.attachment_ids):
+  // 부분은 제 첨부만 보인다 — 한 묶음의 다른 부분에 붙은 파일은 이 말풍선에 나오지 않는다.
+  const attachments = (m.attachments ?? []).map(fromAttachmentRef);
+  const files = attachments.length > 0 ? <MediaGroup items={attachments} label={MEDIA.attachments_label} testId="part-attachments" /> : null;
   return (
     <section
       className="part"
@@ -92,10 +98,14 @@ function Part({ message: m, speech, me, layers, replies, onLoadReplies, onReply,
       {layers ? (
         <>
           {layers.body && <MessageBody content={layers.body} />}
+          {files}
           {layers.below}
         </>
       ) : (
-        <MessageBody content={m.content} />
+        <>
+          <MessageBody content={m.content} />
+          {files}
+        </>
       )}
       <div className="msg__actions">
         {replyCount > 0 && (

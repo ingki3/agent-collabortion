@@ -26,6 +26,8 @@ export async function installFetchBridge(): Promise<FetchBridge> {
   const orig = globalThis.fetch;
   const fake = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const res = await run(init?.method ?? "GET", String(input), init?.body ? JSON.parse(String(init.body)) : undefined, new Headers(init?.headers as HeadersInit));
+    // 본문이 스트림인 응답(아티팩트 내려받기 · 미디어 미리보기)은 그대로 흘린다 — JSON 으로 바꾸면 바이트가 사라진다.
+    if (res.stream) return new Response(res.stream, { status: res.status, headers: res.headers });
     return new Response(res.status === 204 || res.body === undefined ? null : JSON.stringify(res.body), { status: res.status, headers: res.headers });
   });
   globalThis.fetch = fake as unknown as typeof fetch;

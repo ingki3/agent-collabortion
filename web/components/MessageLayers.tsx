@@ -193,7 +193,10 @@ export function WorkingBubble({ agentId, taskId, agentName, summary, memoLine, m
   );
 }
 
-/** 아티팩트 참조 줄 — 📄 이름 · 아티팩트 · vN · 열기(§4.6 우열 아티팩트와 같은 칸). */
+/**
+ * 아티팩트 참조 줄 — 📄 이름 · 아티팩트 · vN · 열기(§4.6 우열 아티팩트와 같은 칸). v0.19.12: 서버 판정 종류가 이미지·영상·소리면
+ * 방 화면은 이 줄 대신 Media Preview(COMPONENTS §9.12)를 쓴다 — 이 줄은 그 밖 종류(텍스트·diff·zip …)의 카드다.
+ */
 export function ArtifactRef({ artifact }: { artifact: Artifact }) {
   return (
     <div className="artref" data-testid="artifact-ref" data-artifact-id={artifact.id}>

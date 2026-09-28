@@ -56,7 +56,7 @@ const usageText = `colab — agent → platform CLI (contracts/colab-cli.md)
                              --since is sent as the after= query parameter (messages newer than it)
                              --limit is 1..200 (omit for the server default 50)
                              --work keeps one mission's messages; --group one part message's parts
-  colab message post --body <text> [--detail <text> | --detail-file <path>] [--reply-to <msg_id> | --top-level] [--mention @A,@B] [--idempotency-key K] [--json]
+  colab message post --body <text> [--detail <text> | --detail-file <path>] [--reply-to <msg_id> | --top-level] [--mention @A,@B] [--attach <artifact_id>]… [--idempotency-key K] [--json]
                              --body is the conversation (to whom · what · conclusion · next, ~5 lines);
                              findings, full drafts and tables go in --detail (or --detail-file, sent
                              byte for byte). Deliverables are artifact submit
@@ -215,7 +215,7 @@ func newFlagSet(name string, stderr io.Writer) (*flag.FlagSet, *bool) {
 
 func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] != "post" {
-		return usage(stderr, "usage: colab message post --body <text> [--detail <text> | --detail-file <path>] [--reply-to <id> | --top-level] [--mention @A,@B]  |  colab message post --parts-file <json> [--reply-to <id> | --top-level]")
+		return usage(stderr, "usage: colab message post --body <text> [--detail <text> | --detail-file <path>] [--reply-to <id> | --top-level] [--mention @A,@B] [--attach <artifact_id>]…  |  colab message post --parts-file <json> [--reply-to <id> | --top-level]")
 	}
 	fs, _ := newFlagSet("message post", stderr)
 	session := fs.String("session", "", "room id override (default COLAB_ROOM_ID / token scope)")
@@ -226,7 +226,10 @@ func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) i
 	topLevel := fs.Bool("top-level", false, "post to the main timeline even when the turn was asked in a thread")
 	mention := fs.String("mention", "", "comma-separated participant names to mention, e.g. @Reviewer,@Writer — agents first, then the room's people")
 	key := fs.String("idempotency-key", "", "reuse a previous key to retry the same post (default: UUIDv5 of task:<task_id>:<seq>)")
-	partsFile := fs.String("parts-file", "", `one post in parts: a JSON array [{"to":["@Name"],"body":"…","detail_file":"…"}, …] (2~6)`)
+	var attach repeated
+	fs.Var(&attach, "attach", "artifact id (uuid) to show under the message — repeat for several, at most 10 (colab-cli v0.9.6)")
+	// 부분마다 제 첨부를 가진다 — --parts-file 의 각 원소에 "attach": [id…] (colab-cli v0.9.6 · openapi v0.3.7).
+	partsFile := fs.String("parts-file", "", `one post in parts: a JSON array [{"to":["@Name"],"body":"…","detail_file":"…","attach":["<artifact_id>"]}, …] (2~6)`)
 	if err := fs.Parse(args[1:]); err != nil {
 		return client.ExitUsage
 	}
@@ -235,19 +238,22 @@ func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) i
 	}
 	// colab-cli v0.9.5: --parts-file is its own shape — each part carries its
 	// own to · body · detail, so the single-body flags are exit 2 beside it.
+	// v0.9.6 puts `attach` inside each part too, so --attach joins that list:
+	// a whole-message attachment has no meaning when each recipient gets a
+	// different part.
 	partsGiven := false
 	var single []string
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "parts-file":
 			partsGiven = true
-		case "body", "detail", "detail-file", "mention":
+		case "body", "detail", "detail-file", "mention", "attach":
 			single = append(single, "--"+f.Name)
 		}
 	})
 	if partsGiven {
 		if len(single) > 0 {
-			return emit(stdout, stderr, nil, client.Usage("--parts-file cannot be combined with %s: each part carries its own to, body and detail", strings.Join(single, ", ")))
+			return emit(stdout, stderr, nil, client.Usage("--parts-file cannot be combined with %s: each part carries its own to, body, detail and attach", strings.Join(single, ", ")))
 		}
 		if *partsFile == "" {
 			return emit(stdout, stderr, nil, client.Usage("--parts-file is empty: give a path"))
@@ -290,9 +296,15 @@ func runMessage(args []string, getenv client.Getenv, stdout, stderr io.Writer) i
 	}
 	c := client.New(client.FromEnv(getenv))
 	v, err := colab.MessagePost(context.Background(), c, colab.MessagePostArgs{
-		Session: *session, Body: *body, Detail: detailArg, DetailFile: *detailFile, ReplyTo: *replyTo, TopLevel: *topLevel, Mention: mentions, IdempotencyKey: *key})
+		Session: *session, Body: *body, Detail: detailArg, DetailFile: *detailFile, ReplyTo: *replyTo, TopLevel: *topLevel, Mention: mentions, Attach: attach, IdempotencyKey: *key})
 	return emit(stdout, stderr, v, err)
 }
+
+// repeated is a flag that may be given more than once (`--attach A --attach B`).
+type repeated []string
+
+func (r *repeated) String() string     { return strings.Join(*r, ",") }
+func (r *repeated) Set(v string) error { *r = append(*r, v); return nil }
 
 // emit writes the result (or the error object) as JSON to stdout and returns
 // the exit code. Errors also get a one-line human message on stderr.

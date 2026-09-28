@@ -78,7 +78,12 @@ func (s *Service) PostGroup(ctx context.Context, sessionID uuid.UUID, author Aut
 	groupID := uuid.New()
 	out := &gen.MessageGroupPostResult{GroupId: groupID, Parts: make([]gen.MessagePostResult, 0, len(in.Parts))}
 	for i, part := range in.Parts {
-		msg := gen.MessageCreate{Content: part.Content, Detail: part.Detail, ParentId: in.ParentId}
+		// v0.3.7 (FR-3.7): a part's files are the part's own — they ride the
+		// same MessageCreate the single post uses, so NormalizeAttachments
+		// gives the group the identical room·10·dedup·422 rules with no second
+		// copy of them here. A group of 6 may name 10 files each; the limit is
+		// per part because each recipient sees only its own part.
+		msg := gen.MessageCreate{Content: part.Content, Detail: part.Detail, ParentId: in.ParentId, AttachmentIds: part.AttachmentIds}
 		if in.WorkId.IsSpecified() {
 			msg.WorkId = in.WorkId
 		}

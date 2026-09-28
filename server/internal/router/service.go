@@ -224,6 +224,13 @@ func (s *Service) postRow(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.U
 		return nil, uuid.Nil, err
 	}
 
+	// openapi v0.3.7 (FR-3.7): the ids are checked before anything is
+	// written — a bad list refuses the whole post.
+	attachIDs, err := NormalizeAttachments(in.AttachmentIds)
+	if err != nil {
+		return nil, uuid.Nil, err
+	}
+
 	var authorID *uuid.UUID
 	switch author.Type {
 	case "user":
@@ -244,6 +251,9 @@ func (s *Service) postRow(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.U
 		sessionID, author.Type, authorID, parent, in.Content, dec.Mentions, author.TaskID, now, attr.WorkID, in.Detail,
 		groupID, groupIndex, groupSize).Scan(&msgID); err != nil {
 		return nil, uuid.Nil, fmt.Errorf("router: insert message: %w", err)
+	}
+	if err := attach(ctx, tx, sessionID, msgID, attachIDs); err != nil {
+		return nil, uuid.Nil, err
 	}
 	// openapi v0.3.2 (D24, FR-3.1.3): the speech is decided here, in the same
 	// transaction as the insert, so no reader ever sees a message without one.
