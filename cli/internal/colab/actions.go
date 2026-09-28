@@ -6,6 +6,7 @@ package colab
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -110,15 +111,19 @@ func ReadDetailFile(path string) (string, error) {
 // MessagePostResult — colab-cli.md §2.2: `triggered`/`suppressed` are agent
 // names; `triggers`/`warnings` are the raw openapi MessagePostResult fields.
 type MessagePostResult struct {
-	MessageID      string           `json:"message_id"`
-	Message        client.Message   `json:"message"`
-	Triggered      []string         `json:"triggered"`
-	Suppressed     []string         `json:"suppressed"`
-	Triggers       []client.Trigger `json:"triggers"`
-	Warnings       []client.Warning `json:"warnings"`
-	SessionPaused  *string          `json:"session_paused,omitempty"`
-	IdempotencyKey string           `json:"idempotency_key"`
-	Replayed       bool             `json:"replayed"`
+	MessageID     string           `json:"message_id"`
+	Message       client.Message   `json:"message"`
+	Triggered     []string         `json:"triggered"`
+	Suppressed    []string         `json:"suppressed"`
+	Triggers      []client.Trigger `json:"triggers"`
+	Warnings      []client.Warning `json:"warnings"`
+	SessionPaused *string          `json:"session_paused,omitempty"`
+	// Notice is harness v0.9.15's one line when the post's triggers were
+	// held because the mission waits for the Director's approval (T-QUIET):
+	// whom it did not wake, and what to do instead. Empty otherwise.
+	Notice         string `json:"notice,omitempty"`
+	IdempotencyKey string `json:"idempotency_key"`
+	Replayed       bool   `json:"replayed"`
 }
 
 // MessagePost — POST /rooms/{R}/messages. Mentions are resolved to the
@@ -339,6 +344,21 @@ func summarize(res *client.MessagePostResult, key string, replayed bool, names m
 			out.Triggered = append(out.Triggered, label(t.AgentID))
 		}
 	}
+	var held []string
+	for _, w := range res.Warnings {
+		if w.Code != client.WarningApprovalPending {
+			continue
+		}
+		name := ""
+		if w.AgentID != nil {
+			name = label(*w.AgentID)
+		}
+		if name == "" || (w.AgentID != nil && name == *w.AgentID) {
+			name = heldNameFrom(w.Message)
+		}
+		held = append(held, name)
+	}
+	out.Notice = QuietNotice(held...)
 	if res.Suppressed != nil {
 		out.Suppressed = res.Suppressed
 	} else {
@@ -354,6 +374,31 @@ func summarize(res *client.MessagePostResult, key string, replayed bool, names m
 		}
 	}
 	return out
+}
+
+// QuietNotice is harness v0.9.15's line for the held recipients ("" when
+// none). One line for the whole post, several names as "@A, @B".
+func QuietNotice(names ...string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	clean := make([]string, 0, len(names))
+	for _, n := range names {
+		clean = append(clean, strings.TrimPrefix(n, "@"))
+	}
+	return fmt.Sprintf(client.QuietNoticeFormat, strings.Join(clean, ", @"))
+}
+
+// heldNameFrom reads the recipient back out of the server's sentence when
+// the roster is not at hand — "…, so @X was not woken…".
+func heldNameFrom(msg string) string {
+	const head, tail = "so @", " was not woken"
+	i := strings.Index(msg, head)
+	j := strings.Index(msg, tail)
+	if i < 0 || j < i+len(head) {
+		return "?"
+	}
+	return msg[i+len(head) : j]
 }
 
 // ErrorJSON renders an error as the JSON object the CLI/MCP emit.

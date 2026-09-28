@@ -68,6 +68,9 @@ type p2State struct {
 	TurnEndOnWorking bool
 	// NewLaneID is the lane delegateLane creates.
 	NewLaneID string
+	// DelegateQueuedReason is the created task's queued_reason (T-QUIET:
+	// "approval_pending" when the mission waits for approval).
+	DelegateQueuedReason string
 	// ArtifactBytes, when > 0, makes downloadArtifact serve that many bytes
 	// instead of ArtifactBody — for exercising bodies past any client-side
 	// read cap.
@@ -137,7 +140,8 @@ func (s *Server) handleP2(w http.ResponseWriter, r *http.Request, path string) b
 				"state": "posted", "source_task_id": TaskID, "lane_id": LaneID,
 				"created_at": time.Now().UTC().Format(time.RFC3339),
 			},
-			"task": map[string]any{"id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", "lane_id": laneID, "attempt": 1},
+			"task": map[string]any{"id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", "lane_id": laneID, "attempt": 1,
+				"status": "queued", "queued_reason": nullIfEmpty(s.DelegateQueuedReason)},
 		})
 		return true
 
@@ -407,4 +411,11 @@ func mentionOf(agentID string) string {
 		return mention(Delegator, DelegatorID)
 	}
 	return mention(AgentName, AgentID)
+}
+
+func nullIfEmpty(v string) any {
+	if v == "" {
+		return nil
+	}
+	return v
 }

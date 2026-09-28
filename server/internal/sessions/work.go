@@ -179,7 +179,7 @@ func LoadWork(ctx context.Context, q db.DBTX, workID uuid.UUID, viewer uuid.UUID
 	if err != nil {
 		return nil, err
 	}
-	if w.CompletionProgress, err = progressOf(ctx, q, w.RoomId, w.condRaw, w.metRaw, w.assignee, w.approvalHeld); err != nil {
+	if w.CompletionProgress, err = progressOf(ctx, q, w.RoomId, uuid.UUID(w.Id), w.condRaw, w.metRaw, w.assignee, w.approvalHeld); err != nil {
 		return nil, err
 	}
 	if d, err := auth.LoadUser(ctx, q, w.DirectorUserId); err == nil {
@@ -225,7 +225,7 @@ func (w *WorkRow) ListItem(ctx context.Context, q db.DBTX) (gen.WorkListItem, er
 	if w.Limits.BudgetUsd.IsSpecified() && !w.Limits.BudgetUsd.IsNull() {
 		it.BudgetUsd = w.Limits.BudgetUsd
 	}
-	prog, err := progressOf(ctx, q, w.RoomId, w.condRaw, w.metRaw, w.assignee, w.approvalHeld)
+	prog, err := progressOf(ctx, q, w.RoomId, uuid.UUID(w.Id), w.condRaw, w.metRaw, w.assignee, w.approvalHeld)
 	if err != nil {
 		return it, err
 	}

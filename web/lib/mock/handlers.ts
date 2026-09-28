@@ -352,8 +352,13 @@ function validateCondition(cc: CompletionCondition, participantIds: string[]): {
 function heldByRunningTasks(s: Store, sess: Session): boolean {
   return [...s.tasks.values()].some((t) => {
     const l = s.lanes.get(t.lane_id);
-    return !!l && l.session_id === sess.id && ["queued", "dispatched", "preparing", "running"].includes(t.status);
+    // T-QUIET(openapi v0.3.9): 승인 대기로 보류된 에이전트 간 트리거는 「실행·대기 중」에 세지 않는다.
+    return !!l && l.session_id === sess.id && ["queued", "dispatched", "preparing", "running"].includes(t.status) && l.queued_reason !== "approval_pending";
   });
+}
+/** T-QUIET(openapi v0.3.9 `paused_agent_triggers`) — 승인 대기로 멈춘 에이전트 간 새 작업 수. */
+function pausedAgentTriggers(s: Store, sess: Session): number {
+  return [...s.lanes.values()].filter((l) => l.session_id === sess.id && l.status === "queued" && l.queued_reason === "approval_pending").length;
 }
 function computeProgress(s: Store, sess: Session, prev?: CompletionProgress | null): CompletionProgress {
   const cc = sess.completion_condition ?? DEFAULT_CONDITION;
@@ -391,7 +396,8 @@ function computeProgress(s: Store, sess: Session, prev?: CompletionProgress | nu
   const metCount = conditions.filter((c) => c.met).length;
   const satisfied = conditions.length > 0 && (op === "and" ? metCount === conditions.length : metCount > 0);
   const human_gate = conditions.some((c) => c.type === "user_approval" || c.type === "manual");
-  return { met: metCount, total: conditions.length, satisfied, human_gate, conditions };
+  const paused = pausedAgentTriggers(s, sess);
+  return { met: metCount, total: conditions.length, satisfied, human_gate, conditions, ...(paused > 0 ? { paused_agent_triggers: paused } : {}) };
 }
 
 // ── sessions ──

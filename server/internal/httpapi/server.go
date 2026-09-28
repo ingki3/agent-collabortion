@@ -183,6 +183,24 @@ func NewServer(d Deps) *Server {
 		if _, err := srv.Sessions.ReleaseHeldApproval(context.WithoutCancel(ctx), workID); err != nil {
 			d.Log.Warn("release held approval", "err", err, "work", workID)
 		}
+		// T-QUIET (b): a mission a person re-opened goes quiet again once
+		// its work settles with the approval request still open.
+		if _, err := srv.Sessions.SettleQuiet(context.WithoutCancel(ctx), workID); err != nil {
+			d.Log.Warn("settle approval quiet", "err", err, "work", workID)
+		}
+	}
+	// T-QUIET: the progress line 「에이전트끼리의 새 작업 N건을 멈춰 두었습니다」
+	// moves with every hold and release the router makes.
+	rt.QuietPublish = func(ctx context.Context, q db.DBTX, wsID, roomID, workID uuid.UUID) {
+		prog, err := sessions.LoadWorkProgress(ctx, q, workID)
+		if err != nil {
+			d.Log.Warn("quiet progress", "err", err, "work", workID)
+			return
+		}
+		rid := roomID
+		_ = hub.Publish(ctx, q, wsID, &rid, "work.completion_progress", map[string]any{
+			"work_id": workID, "completion_progress": prog,
+		})
 	}
 	return srv
 }

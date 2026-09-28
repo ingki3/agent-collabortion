@@ -8,6 +8,8 @@
 .cond__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .cond__name { font-size: var(--fs-body); }
 .cond__desc { font-size: var(--fs-sub); color: var(--ink-2); }
+/* T-QUIET (SCREEN v0.19.14) — 승인 대기로 멈춘 에이전트 간 작업 N건, 「Director 승인」 행 아래 작은 줄. */
+.cond__meta { display: block; font-size: var(--fs-meta); color: var(--ink-2); }
 .cond[data-met="true"] .cond__check { color: var(--s-done-text); }
 .cond[data-met="true"] .cond__name { color: var(--ink-2); }
 /* T-W15 — 막힌 조건(blocked_reason): ✗ 대신 이유 문장, 주의 색. 링크는 「받은 요청에서 승인하세요」. */

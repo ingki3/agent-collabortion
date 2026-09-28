@@ -174,7 +174,20 @@ const (
 	WarningSuppressedDelegator = "suppressed_delegator" // rule 8
 	WarningLoopLimitNear       = "loop_limit_near"
 	WarningAgentDisabled       = "agent_disabled"
+	// WarningApprovalPending — T-QUIET (PRD FR-2A.2.3, Lead 판정 2026-09-28):
+	// the mission waits for the Director's approval, so the mentioned agent's
+	// trigger was made and held, not woken. `message` is harness v0.9.15's
+	// sentence for that agent.
+	WarningApprovalPending = "approval_pending"
 )
+
+// QuietNoticeFormat is harness v0.9.15's post-result line (표면 공통) — %s is
+// the held recipients' names, "A, @B" for several.
+const QuietNoticeFormat = "This mission is waiting for the Director's approval, so @%s was not woken. If work remains after approval, tell the Director."
+
+// QueuedApprovalPending is openapi v0.3.9 QueuedReason.approval_pending — a
+// delegated task held the same way (lane delegate has no warnings[]).
+const QueuedApprovalPending = "approval_pending"
 
 // Warning — MessagePostResult.warnings[].
 type Warning struct {

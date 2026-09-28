@@ -14,6 +14,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
+	"github.com/ingki3/agent-collabortion/server/internal/quiet"
 )
 
 // S-84 (openapi 0.1.4): a completion condition that names nobody can be
@@ -191,15 +192,16 @@ func LoadProgress(ctx context.Context, q db.DBTX, sessionID uuid.UUID) (gen.Comp
 	var tree, met []byte
 	var assignee *uuid.UUID
 	var held bool
-	err := q.QueryRow(ctx, `SELECT wk.completion_condition, wk.completion_met, wk.assignee_agent_id, wk.approval_held_at IS NOT NULL FROM room s `+LegacyJoin+` WHERE s.id = $1`, sessionID).
-		Scan(&tree, &met, &assignee, &held)
+	var workID uuid.UUID
+	err := q.QueryRow(ctx, `SELECT wk.id, wk.completion_condition, wk.completion_met, wk.assignee_agent_id, wk.approval_held_at IS NOT NULL FROM room s `+LegacyJoin+` WHERE s.id = $1`, sessionID).
+		Scan(&workID, &tree, &met, &assignee, &held)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return gen.CompletionProgress{}, apperr.NotFound("session")
 	}
 	if err != nil {
 		return gen.CompletionProgress{}, err
 	}
-	return progressOf(ctx, q, sessionID, tree, met, assignee, held)
+	return progressOf(ctx, q, sessionID, workID, tree, met, assignee, held)
 }
 
 // LoadWorkProgress is LoadProgress for one mission (Work.completion_progress).
@@ -217,7 +219,7 @@ func LoadWorkProgress(ctx context.Context, q db.DBTX, workID uuid.UUID) (gen.Com
 	if err != nil {
 		return gen.CompletionProgress{}, err
 	}
-	return progressOf(ctx, q, roomID, tree, met, assignee, held)
+	return progressOf(ctx, q, roomID, workID, tree, met, assignee, held)
 }
 
 // progressOf is LoadProgress for a caller that already holds the columns
@@ -225,13 +227,28 @@ func LoadWorkProgress(ctx context.Context, q db.DBTX, workID uuid.UUID) (gen.Com
 //
 // held is work.approval_held_at IS NOT NULL (T-APPROVAL): the user_approval
 // row then says why no request is open yet (held_reason).
-func progressOf(ctx context.Context, q db.DBTX, sessionID uuid.UUID, tree, met []byte, assignee *uuid.UUID, held bool) (gen.CompletionProgress, error) {
+//
+// T-QUIET (openapi v0.3.9): paused_agent_triggers is the mission's held
+// agent-to-agent triggers (quiet.Count) — left out when there are none, so
+// the screen draws no line and a mission that never went quiet reads exactly
+// as before.
+func progressOf(ctx context.Context, q db.DBTX, sessionID, workID uuid.UUID, tree, met []byte, assignee *uuid.UUID, held bool) (gen.CompletionProgress, error) {
 	facts, err := loadCompletionFacts(ctx, q, sessionID, ParseTree(tree), assignee)
 	if err != nil {
 		return gen.CompletionProgress{}, err
 	}
 	facts.ApprovalHeld = held
-	return buildProgress(tree, met, facts), nil
+	p := buildProgress(tree, met, facts)
+	if workID != uuid.Nil {
+		n, err := quiet.Count(ctx, q, workID)
+		if err != nil {
+			return gen.CompletionProgress{}, err
+		}
+		if n > 0 {
+			p.PausedAgentTriggers = &n
+		}
+	}
+	return p, nil
 }
 
 // buildProgress renders the completion tree for S7's right rail. The met

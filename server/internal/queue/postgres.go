@@ -145,6 +145,9 @@ func (p *Postgres) Claim(ctx context.Context, runtimeID string, capacity int, no
 			  -- defaults instead of stopping dispatch altogether.
 			  LEFT JOIN workspace_settings cfg ON cfg.workspace_id = r.workspace_id
 			 WHERE t.status = 'queued'
+			   -- T-QUIET (FR-2A.2.3): a trigger held while its mission waits
+			   -- for approval is not handed out — the one line the hold is.
+			   AND t.queued_reason IS DISTINCT FROM 'approval_pending'
 			   -- FR-2.4: the room gate — the one line §12.1-9 promises.
 			   AND s.status = 'active' AND s.blocked_reason IS NULL AND s.isolation_pending IS NULL
 			   AND (t.work_id IS NULL OR wk.status = 'active')
@@ -322,6 +325,10 @@ const (
 	QueuedAgentGlobal = "agent_global"
 	QueuedRuntime     = "runtime"
 	QueuedWorkspace   = "workspace"
+	// QueuedApprovalPending is T-QUIET's hold (openapi v0.3.9). The claim
+	// never writes it — the router does (quiet.Hold) — and never overwrites
+	// it: a held task is not a candidate.
+	QueuedApprovalPending = "approval_pending"
 )
 
 // QueuedReasonOf maps the claim's layer to the stored reason. `serial` — a
@@ -389,6 +396,7 @@ func (p *Postgres) askIsolation(ctx context.Context, tx pgx.Tx, runtimeID uuid.U
 		   AND jsonb_typeof(r.repos) = 'array' AND jsonb_array_length(r.repos) > 0
 		   AND EXISTS (SELECT 1 FROM task t LEFT JOIN work wk ON wk.id = t.work_id
 		                WHERE t.session_id = s.id AND t.status = 'queued'
+		                  AND t.queued_reason IS DISTINCT FROM 'approval_pending'
 		                  AND (t.work_id IS NULL OR wk.status = 'active')
 		                  AND (t.not_before IS NULL OR t.not_before <= $2))
 		 FOR UPDATE OF s SKIP LOCKED`, runtimeID, now)
@@ -493,7 +501,8 @@ func (p *Postgres) noteWaitingForComputer(ctx context.Context, tx pgx.Tx, roomID
 	rows, err := tx.Query(ctx, `
 		UPDATE task SET queued_reason = 'runtime'
 		 WHERE id IN (SELECT id FROM task WHERE session_id = $1 AND status = 'queued'
-		                 AND queued_reason IS DISTINCT FROM 'runtime' FOR UPDATE SKIP LOCKED)
+		                 AND queued_reason IS DISTINCT FROM 'runtime'
+		                 AND queued_reason IS DISTINCT FROM 'approval_pending' FOR UPDATE SKIP LOCKED)
 		RETURNING lane_id`, roomID)
 	if err != nil {
 		return fmt.Errorf("queue: waiting for a computer: %w", err)
