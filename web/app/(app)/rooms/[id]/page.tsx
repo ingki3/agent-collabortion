@@ -16,18 +16,17 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { MessageCard, authorName, type ConversationSlot, type MessageLayerSlots } from "@/components/MessageCard";
+import { authorName, type ConversationSlot, type MessageLayerSlots } from "@/components/MessageCard";
 import { ArtifactRef, DetailFold, ProcessFold, TimelineViewToggle, WorkingBubble, type TimelineView } from "@/components/MessageLayers";
-import { PartBubble } from "@/components/PartBubble";
-import { boundaryOf, processBoundaries, timelineItems } from "@/lib/parts";
+import { TimelineItemView, timelineItemKey, type TimelineCtx } from "@/components/TimelineItemView";
+import { processBoundaries, timelineItems } from "@/lib/parts";
 import { lastSentence, memoEffect, memoSegments, type ProgressMemos } from "@/lib/progress-memo";
 import { Composer, type ComposerAgent, type ComposerInput, type ComposerWarning } from "@/components/Composer";
 import { MediaGroup } from "@/components/MediaPreview";
 import { mediaKind, uploadAttachment } from "@/lib/media";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { LaneBoard } from "@/components/LaneBoard";
-import { HitlCard } from "@/components/HitlCard";
-import { pairHitl, unpairedHitlCards, upsertHitl } from "@/lib/hitl-pairing";
+import { unpairedHitlCards, upsertHitl } from "@/lib/hitl-pairing";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { RoomParticipantsDialog } from "@/components/RoomParticipantsDialog";
 import { RoomQueryDialogs, useRoomDialogQuery } from "@/components/RoomQueryDialogs";
@@ -46,6 +45,11 @@ import { Slot, slotText } from "@/components/Slot";
 import { api, errorMessage, isApiError, newIdempotencyKey } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
+import { tabKeyTarget } from "@/lib/tabs";
+import {
+  eventsOnAppended, eventsOnSuperseded, eventsOnTask, isRoomDeleted, lanesOnUpdated, messagesOnCreated, messagesOnUpdated, prependById, readsOnRecorded,
+  repliesOnCreated, roomEvent, roomOnCost, roomOnUpdated, typingOn, workCostOf, workOnProgress, worksOnClosed, worksOnDeleted, worksOnProgress, worksOnUpserted,
+} from "@/lib/room-stream";
 import { emptyTurnNote, isEmptyTurn, isTaskLive } from "@/lib/feed";
 import { roomProcessSlices, workingTasks, type ProcessSlices, type ProcessWindow } from "@/lib/process-slice";
 import { useMarkRoomRead } from "@/lib/unread";
@@ -125,8 +129,6 @@ function artifactsByMessage(msgs: Message[], artifacts: Artifact[] | null): Map<
   }
   return out;
 }
-/** `room.updated` 가 싣는 칸(계약 SSE 표 — Room 부분). 보는 사람 모양 칸(my_capabilities 등)은 없다. */
-const ROOM_UPDATED_KEYS = ["name", "description", "status", "visibility", "blocked_reason", "blocked_detail", "last_activity_at"] as const;
 
 export default function RoomPage() {
   const { id: roomId } = useParams<{ id: string }>();
@@ -434,157 +436,115 @@ export default function RoomPage() {
     if (rid && rid !== roomId) return;
     // 진행 메모(SCREEN §4.6 v0.19.10) — 델타·조각 경계·게시·턴 끝을 한 규칙으로(lib/progress-memo `memoEffect`).
     setMemos((d) => memoEffect(d, ev));
-    switch (ev.type) {
+    // payload 는 `roomEvent` 가 유형별 모양으로 읽고, 상태 조각은 lib/room-stream 의 리듀서가 바꾼다(종류 추가 시 고칠 곳은 그 파일 머리 주석).
+    const e = roomEvent(ev);
+    switch (e.type) {
       case "message.created": {
-        const m = ev.payload as unknown as Message;
+        const m = e.payload;
         if (m.session_id !== roomId) return;
         // 게시됐다 — 말풍선이 그 자리에서 메시지로 바뀌는 첫 프레임에 높이를 쥔다(진행 메모 기준점은 `memoEffect`).
         if (m.author_type === "agent" && m.author_id && !m.parent_id) {
           const h = bubbleHeights.current[m.author_id];
           if (h) setHeld((cur) => ({ ...cur, [m.id]: h }));
         }
-        if (m.parent_id) {
-          const root = m.parent_id;
-          setReplies((r) => (r[root] ? { ...r, [root]: r[root].some((x) => x.id === m.id) ? r[root] : [...r[root], m].sort(byTime) } : r));
-          setMessages((ms) => ms.map((x) => (x.id === root ? { ...x, reply_count: (x.reply_count ?? 0) + 1 } : x)));
-        } else if (matchesSel(m.work_id, selRef.current)) {
-          setMessages((ms) => (ms.some((x) => x.id === m.id) ? ms : [...ms, m].sort(byTime)));
-        }
+        if (m.parent_id) setReplies((r) => repliesOnCreated(r, m));
+        setMessages((ms) => messagesOnCreated(ms, m, selRef.current));
         break;
       }
-      case "message.updated": {
-        const m = ev.payload as unknown as Message;
-        setMessages((ms) => ms.map((x) => (x.id === m.id ? { ...x, ...m } : x)));
+      case "message.updated":
+        setMessages((ms) => messagesOnUpdated(ms, e.payload));
         break;
-      }
       case "task_event.appended": {
-        const te = ev.payload as unknown as TaskEvent;
+        const te = e.payload;
         if (isEmptyTurn(te)) setEmptyTurns((m) => (m[te.task_id] ? m : { ...m, [te.task_id]: emptyTurnNote(te) }));
-        setEvents((c) => {
-          const cur = c[te.task_id];
-          if (!cur || cur.events.some((e) => e.id === te.id)) return c;
-          return { ...c, [te.task_id]: { ...cur, events: [...cur.events, te] } };
-        });
+        setEvents((c) => eventsOnAppended(c, te));
         break;
       }
-      case "task.updated": {
-        // 「진행 중…」 판정(T-FEED) — task 가 끝나면 그 피드의 짝 없는 started 줄이 「결과 없음」으로 바뀐다.
-        const t = ev.payload as unknown as Task;
-        setEvents((c) => {
-          const cur = c[t.id];
-          if (!cur) return c;
-          return { ...c, [t.id]: { ...cur, task: { status: t.status, attempt: t.attempt } } };
-        });
+      case "task.updated":
+        setEvents((c) => eventsOnTask(c, e.payload));
         break;
-      }
-      case "task_event.superseded": {
-        const p = ev.payload as { task_id: string; event_id: string; superseded_by: string };
-        setEvents((c) => {
-          const cur = c[p.task_id];
-          if (!cur) return c;
-          return { ...c, [p.task_id]: { ...cur, events: cur.events.map((e) => (e.id === p.event_id ? { ...e, superseded_by: p.superseded_by } : e)) } };
-        });
+      case "task_event.superseded":
+        setEvents((c) => eventsOnSuperseded(c, e.payload));
         break;
-      }
       case "lane.updated": {
-        const l = ev.payload as unknown as Lane;
+        const l = e.payload;
         if (l.session_id !== roomId) return;
-        setLanes((cur) => (cur.some((x) => x.id === l.id) ? cur.map((x) => (x.id === l.id ? { ...x, ...l } : x)) : [...cur, l]));
+        setLanes((cur) => lanesOnUpdated(cur, l));
         refreshRoom();
         break;
       }
       case "hitl.created":
       case "hitl.updated": {
-        const h = ev.payload as unknown as HitlRequest;
+        const h = e.payload;
         if (h.session_id !== roomId) return;
         setHitls((cur) => upsertHitl(cur, h));
         break;
       }
-      case "artifact.created": {
-        const a = ev.payload as unknown as Artifact;
-        setArtifacts((cur) => (cur ? [a, ...cur.filter((x) => x.id !== a.id)] : [a]));
+      case "artifact.created":
+        setArtifacts((cur) => prependById(cur, e.payload));
         break;
-      }
-      case "decision.created": {
-        const d = ev.payload as unknown as Decision;
-        setDecisions((cur) => (cur ? [d, ...cur.filter((x) => x.id !== d.id)] : [d]));
+      case "decision.created":
+        setDecisions((cur) => prependById(cur, e.payload));
         break;
-      }
       case "work.created":
       case "work.updated": {
-        const w = ev.payload as unknown as Partial<WorkListItem> & { id: string };
-        setWorks((cur) => (cur.some((x) => x.id === w.id) ? cur.map((x) => (x.id === w.id ? { ...x, ...w } : x)) : [...cur, w as WorkListItem]));
+        const w = e.payload;
+        setWorks((cur) => worksOnUpserted(cur, w));
         if (w.id === panelRef.current) void loadWork(w.id);
         refreshRoom();
         break;
       }
       case "work.closed": {
-        const p = ev.payload as { work_id: string; status: WorkListItem["status"] };
-        setWorks((cur) => cur.map((x) => (x.id === p.work_id ? { ...x, status: p.status } : x)));
+        const p = e.payload;
+        setWorks((cur) => worksOnClosed(cur, p));
         if (p.work_id === panelRef.current) void loadWork(p.work_id);
         refreshRoom();
         break;
       }
       case "work.deleted": {
-        const p = ev.payload as { work_id: string };
-        setWorks((cur) => cur.filter((x) => x.id !== p.work_id));
+        const p = e.payload;
+        setWorks((cur) => worksOnDeleted(cur, p));
         const s = selRef.current;
         if (s.kind === "work" && s.id === p.work_id) router.replace(`/rooms/${roomId}`);
         break;
       }
       case "work.completion_progress": {
-        const p = ev.payload as { work_id: string; completion_progress?: Work["completion_progress"] };
-        if (!p.completion_progress) return;
-        setWork((w) => (w && w.id === p.work_id ? { ...w, completion_progress: p.completion_progress! } : w));
-        setWorks((cur) => cur.map((x) => (x.id === p.work_id ? { ...x, completion_progress: { met: p.completion_progress!.met, total: p.completion_progress!.total } } : x)));
+        const { work_id: wid, completion_progress: prog } = e.payload;
+        if (!prog) return;
+        setWork((w) => workOnProgress(w, wid, prog));
+        setWorks((cur) => worksOnProgress(cur, wid, prog));
         break;
       }
-      case "room.updated": {
-        const p = ev.payload as Partial<Room>;
-        setRoom((r) => {
-          if (!r) return r;
-          const patch: Partial<Room> = {};
-          for (const k of ROOM_UPDATED_KEYS) if (k in p) (patch as Record<string, unknown>)[k] = p[k];
-          return { ...r, ...patch };
-        });
+      case "room.updated":
+        setRoom((r) => roomOnUpdated(r, e.payload));
         // 멈춤·보관이 바뀌면 권한 칸(my_capabilities)·수도 바뀐다 — 방 행을 다시 읽는다.
         refreshRoom();
         break;
-      }
-      case "room.deleted": {
-        const p = ev.payload as { room_id?: string; session_id?: string };
-        if ((p.room_id ?? p.session_id ?? rid) !== roomId) return;
+      case "room.deleted":
+        if (!isRoomDeleted(roomId, e.payload, rid)) return;
         router.replace(`/rooms?deleted=${encodeURIComponent(nameRef.current)}`);
         break;
-      }
       case "participant.joined":
       case "participant.left":
       case "participant.updated":
         void loadParticipants();
         break;
-      case "room_read.recorded": {
-        const p = ev.payload as { direction?: string };
-        setReads((r) => {
-          const cur = r ?? { out: 0, in: 0 };
-          return p.direction === "read_by" || p.direction === "in" ? { ...cur, in: cur.in + 1 } : { ...cur, out: cur.out + 1 };
-        });
+      case "room_read.recorded":
+        setReads((r) => readsOnRecorded(r, e.payload));
         break;
-      }
       case "cost.updated": {
-        const p = ev.payload as { room_cost_usd?: number; cost_usd?: number; work_id?: string; work_cost_usd?: number; estimated?: boolean };
-        const roomCost = p.room_cost_usd ?? p.cost_usd;
-        if (typeof roomCost === "number") setRoom((r) => (r ? { ...r, cost_usd: roomCost, cost_estimated: p.estimated ?? r.cost_estimated } : r));
-        if (p.work_id && typeof p.work_cost_usd === "number") {
-          setWork((w) => (w && w.id === p.work_id ? { ...w, cost_usd: p.work_cost_usd! } : w));
-          setWorks((cur) => cur.map((x) => (x.id === p.work_id ? { ...x, cost_usd: p.work_cost_usd! } : x)));
+        const p = e.payload;
+        setRoom((r) => roomOnCost(r, p));
+        const wc = workCostOf(p);
+        if (wc) {
+          setWork((w) => (w && w.id === wc.workId ? { ...w, cost_usd: wc.usd } : w));
+          setWorks((cur) => cur.map((x) => (x.id === wc.workId ? { ...x, cost_usd: wc.usd } : x)));
         }
         break;
       }
-      case "agent.typing": {
-        const p = ev.payload as { agent_id: string; typing: boolean };
-        setTyping((t) => ({ ...t, [p.agent_id]: p.typing }));
+      case "agent.typing":
+        setTyping((t) => typingOn(t, e.payload));
         break;
-      }
       default:
         break;
     }
@@ -947,6 +907,32 @@ export default function RoomPage() {
     onJump: jumpOrAnchor,
   });
 
+  /** 타임라인 항목(`components/TimelineItemView`)이 쓰는 이 화면의 상태·동작 — 항목 종류를 더해도 여기는 그대로다. */
+  const timelineCtx: TimelineCtx = {
+    me: meId,
+    now,
+    replies,
+    held,
+    hitls,
+    busy,
+    roomBudget: { current: room.limits?.budget_usd ?? null, spent: room.cost_usd ?? 0 },
+    archived,
+    showWorkLink: sel.kind !== "work",
+    pickButton,
+    conversation: conversationFor,
+    layers: layersFor,
+    groupProcess: (last) => (last.source_task_id ? processFoldOf(last, last.source_task_id, folds[last.id]?.process ?? false) : undefined),
+    taskActivity: (m) => <TaskActivity taskId={m.source_task_id!} cache={events} load={loadEvents} slice={sliceOf(m)} />,
+    onLoadReplies: loadReplies,
+    onReply: (root) => { setRestart(null); setReplyTo({ id: root.id, authorName: authorName(root) }); },
+    workLabel: workLabelOf,
+    workTitle,
+    onToWork: openWorkFrom,
+    onRespondHitl: respondHitl,
+    onOpenWork: (id) => select({ kind: "work", id }),
+    userName: (uid) => members.find((x) => x.user.id === uid)?.user.display_name,
+  };
+
   const toggleBoard = (s: LaneStatus) => setBoardOpen((cur) => {
     const n = new Set(cur);
     if (n.has(s)) n.delete(s);
@@ -1016,8 +1002,7 @@ export default function RoomPage() {
               tabIndex={col === c ? 0 : -1}
               onClick={() => setCol(c)}
               onKeyDown={(e) => {
-                const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
-                const to = e.key === "Home" ? 0 : e.key === "End" ? COLS.length - 1 : step ? (i + step + COLS.length) % COLS.length : -1;
+                const to = tabKeyTarget(e.key, i, COLS.length);
                 if (to < 0) return;
                 e.preventDefault();
                 setCol(COLS[to]);
@@ -1178,89 +1163,7 @@ export default function RoomPage() {
                 )}
               </div>
             )}
-            {timelineItems(messages).map((item) => {
-              // 부분 메시지(PRD FR-3.1.4 · SCREEN §4.6 v0.19.11) — 같은 group_id 행을 말풍선 하나로. 부분이 도착하는 대로 같은 말풍선에 채운다.
-              if (item.kind === "group") {
-                const first = item.parts[0];
-                const last = boundaryOf(item);
-                const tid = last.source_task_id;
-                const processOpen = folds[last.id]?.process ?? false;
-                const toWorkWhy = first.work_id ? ROOM_CENTER.has_work(workTitle(first.work_id)) : archived ? ROOM_HEAD.archived : null;
-                return (
-                  <div key={`group:${item.groupId}`} style={held[first.id] ? { minHeight: held[first.id] } : undefined} data-held={held[first.id] ? "true" : undefined}>
-                    {pickButton(first)}
-                    <PartBubble
-                      parts={item.parts}
-                      size={item.size}
-                      me={meId}
-                      conversation={conversationFor}
-                      partLayers={(m) => layersFor(m, { asAnswer: false, noProcess: true })}
-                      layers={layersFor}
-                      process={tid ? processFoldOf(last, tid, processOpen) : undefined}
-                      replies={replies}
-                      onLoadReplies={loadReplies}
-                      onReply={(root) => { setRestart(null); setReplyTo({ id: root.id, authorName: authorName(root) }); }}
-                      now={now}
-                      workLabel={workLabelOf(first.work_id, "message-work-label")}
-                      menu={<MessageMenu id={first.id} why={toWorkWhy} onToWork={() => openWorkFrom(first)} />}
-                    />
-                  </div>
-                );
-              }
-              const m = item.message;
-              const agentMsg = m.author_type === "agent" && m.source_task_id;
-              const askee = m.kind === "blocked_q" ? m.mentions.find((x) => x.kind === "agent")?.display_name : undefined;
-              // T-APPROVAL: 확인 요청은 대화 배치(T-CONVO)에서도 가운데 전폭 카드다 — 짝을 못 찾았으면 불러오는 중 자리.
-              if (m.kind === "hitl") {
-                const hitl = pairHitl(m, hitls);
-                return (
-                  <div key={m.id} data-message-id={m.id} className="s7__hitl" data-testid="timeline-hitl">
-                    {pickButton(m)}
-                    {hitl ? (
-                      <HitlCard
-                        request={hitl}
-                        onRespond={(body) => respondHitl(hitl.id, body)}
-                        budget={hitl.task_id ? { scope: "task", current: hitl.budget_override_usd, spent: null } : { scope: "session", current: room.limits?.budget_usd ?? null, spent: room.cost_usd ?? 0 }}
-                        busy={busy}
-                        userName={(uid) => members.find((x) => x.user.id === uid)?.user.display_name}
-                      />
-                    ) : (
-                      <article className="hitl hitl--loading" data-testid="hitl-card-loading" aria-busy="true">
-                        <p className="hitl__q">{m.content}</p>
-                        <p className="hitl__gate">확인 요청을 불러오는 중…</p>
-                      </article>
-                    )}
-                  </div>
-                );
-              }
-              const hasWork = !!m.work_id;
-              const toWorkWhy = hasWork ? ROOM_CENTER.has_work(workTitle(m.work_id)) : archived ? ROOM_HEAD.archived : null;
-              return (
-                <div key={m.id} style={held[m.id] ? { minHeight: held[m.id] } : undefined} data-held={held[m.id] ? "true" : undefined}>
-                  {pickButton(m)}
-                  <MessageCard
-                    message={m}
-                    replies={replies[m.id]}
-                    onLoadReplies={loadReplies}
-                    onReply={(root) => { setRestart(null); setReplyTo({ id: root.id, authorName: authorName(root) }); }}
-                    activity={agentMsg && !isLayered(m) ? <TaskActivity taskId={m.source_task_id!} cache={events} load={loadEvents} slice={sliceOf(m)} /> : undefined}
-                    layers={layersFor}
-                    conversation={conversationFor}
-                    askee={askee}
-                    now={now}
-                    workLabel={workLabelOf(m.work_id, "message-work-label")}
-                    menu={m.kind !== "system" && m.kind !== "summary" ? <MessageMenu id={m.id} why={toWorkWhy} onToWork={() => openWorkFrom(m)} /> : undefined}
-                    footer={
-                      m.kind === "summary" ? (
-                        <p className="small muted" data-testid="summary-label">{m.work_id ? ROOM_CENTER.summary_of(workTitle(m.work_id)) : ROOM_CENTER.summary_room}</p>
-                      ) : m.kind === "system" && m.work_id && sel.kind !== "work" ? (
-                        <button type="button" className="msg__link" onClick={() => select({ kind: "work", id: m.work_id! })} data-testid="system-work-link">{ROOM_CENTER.open_work_chip}</button>
-                      ) : undefined
-                    }
-                  />
-                </div>
-              );
-            })}
+            {timelineItems(messages).map((item) => <TimelineItemView key={timelineItemKey(item)} item={item} ctx={timelineCtx} />)}
             {visibleBubbles.map(({ agentId, taskId }) => {
               const tail = taskId ? slices.get(taskId)?.tail ?? null : null;
               const key = `working:${agentId}`;
@@ -1461,27 +1364,5 @@ export default function RoomPage() {
         }
       `}</style>
     </div>
-  );
-}
-
-/** 메시지 「…」 메뉴 — 「이걸 미션으로」(S21 은 W3). 이미 미션에 속한 메시지·보관된 방에서는 비활성 + 사유(버튼 아래 글자). */
-function MessageMenu({ id, why, onToWork }: { id: string; why: string | null; onToWork: () => void }) {
-  const [open, setOpen] = useState(false);
-  const hint = `msg-menu-hint-${id}`;
-  return (
-    <span className="msg-menu" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOpen(false); }}>
-      <button type="button" className="msg__link" aria-haspopup="menu" aria-expanded={open} aria-label={ROOM_CENTER.msg_menu} onClick={() => setOpen((v) => !v)} data-testid="message-menu">
-        …
-      </button>
-      {open && (
-        <span className="card-menu__list msg-menu__list" role="menu" data-testid="message-menu-list">
-          <button type="button" role="menuitem" className="card-menu__item" aria-disabled={!!why || undefined} aria-describedby={why ? hint : undefined}
-            onClick={() => { if (why) return; setOpen(false); onToWork(); }} data-testid="message-to-work">
-            {ROOM_CENTER.to_work}
-          </button>
-          {why && <DisabledHint id={hint}>{why}</DisabledHint>}
-        </span>
-      )}
-    </span>
   );
 }
