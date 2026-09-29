@@ -190,14 +190,12 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 		return nil, err
 	}
 
-	var originator *uuid.UUID
-	_ = tx.QueryRow(ctx, `SELECT originator_user_id FROM task WHERE id = $1`, callerTask).Scan(&originator)
-	var taskID uuid.UUID
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, delegated_from_task_id,
-		                  originator_user_id, status, created_at, updated_at, work_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $8, $9) RETURNING id`,
-		laneID, sessionID, in.AgentID, profileID, msgID, callerTask, originator, now, callerWork).Scan(&taskID); err != nil {
+	originator, _ := taskOriginator(ctx, tx, callerTask)
+	taskID, err := insertQueuedTask(ctx, tx, newQueuedTask{
+		LaneID: laneID, SessionID: sessionID, AgentID: in.AgentID, ProfileID: profileID,
+		TriggerMessageID: msgID, DelegatedFrom: &callerTask, Originator: originator, Work: callerWork, Now: now,
+	})
+	if err != nil {
 		return nil, fmt.Errorf("router: delegate task: %w", err)
 	}
 	if err := s.recordStatusEvent(ctx, tx, callerTask, callerAttempt, "delegate", in.Brief, now); err != nil {

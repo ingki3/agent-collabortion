@@ -324,129 +324,13 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 		}
 		return s.errorResult(client.NotAllowed(role, cmd, s.allow)), nil
 	}
-	var (
-		v   any
-		err error
-	)
-	switch name {
-	case "colab_message_post":
-		var a struct {
-			colab.MessagePostArgs
-			MentionRaw json.RawMessage `json:"mention,omitempty"`
-		}
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		a.Mention = parseMention(a.MentionRaw)
-		// colab-cli v0.9.5: `parts` posts a part message; with `body` (or
-		// detail · detail_file · mention) it is an argument error.
-		v, err = colab.Post(ctx, s.c, a.MessagePostArgs)
-	case "colab_status_set":
-		var a colab.StatusSetArgs
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		v, err = colab.StatusSet(ctx, s.c, a)
-	case "colab_lane_delegate":
-		var a struct {
-			colab.LaneDelegateArgs
-			DependsOnRaw json.RawMessage `json:"depends_on,omitempty"`
-		}
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		a.DependsOn = parseMention(a.DependsOnRaw) // same array-or-CSV shape
-		v, err = colab.LaneDelegate(ctx, s.c, a.LaneDelegateArgs)
-	case "colab_decision_record":
-		var a colab.DecisionRecordArgs
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		v, err = colab.DecisionRecord(ctx, s.c, a)
-	case "colab_artifact_submit":
-		var a colab.ArtifactSubmitArgs
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		v, err = colab.ArtifactSubmit(ctx, s.c, a)
-	case "colab_artifact_get":
-		var a colab.ArtifactGetArgs
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		v, err = colab.ArtifactGet(ctx, s.c, a)
-	case "colab_review_approve":
-		var a colab.ReviewArgs
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		v, err = colab.ReviewApprove(ctx, s.c, a)
-	case "colab_review_reject":
-		var a colab.ReviewArgs
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		v, err = colab.ReviewReject(ctx, s.c, a)
-	case "colab_hitl_ask":
-		var a struct {
-			colab.HitlAskArgs
-			ChoicesRaw json.RawMessage `json:"choices,omitempty"`
-		}
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		a.Choices = parseMention(a.ChoicesRaw) // same array-or-CSV shape
-		v, err = colab.HitlAsk(ctx, s.c, a.HitlAskArgs)
-	case "colab_hitl_approve_request":
-		var a colab.HitlApproveRequestArgs
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		v, err = colab.HitlApproveRequest(ctx, s.c, a)
-	case "colab_hitl_request_info":
-		var a struct {
-			colab.HitlRequestInfoArgs
-			Question string `json:"question,omitempty"` // alias of what, as on the CLI
-		}
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		if a.What == "" {
-			a.What = a.Question
-		}
-		v, err = colab.HitlRequestInfo(ctx, s.c, a.HitlRequestInfoArgs)
-	case "colab_room_list":
-		var a colab.RoomListArgs
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		v, err = colab.RoomList(ctx, s.c, a)
-	case "colab_room_read":
-		var a colab.RoomReadArgs
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		v, err = colab.RoomRead(ctx, s.c, a)
-	case "colab_work_propose":
-		var a colab.WorkProposeArgs
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		v, err = colab.WorkPropose(ctx, s.c, a)
-	case "colab_room_get":
-		var a colab.RoomGetArgs
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		v, err = colab.RoomGet(ctx, s.c, a)
-	case "colab_room_messages":
-		var a colab.RoomMessagesArgs
-		if e := json.Unmarshal(args, &a); e != nil {
-			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}
-		}
-		v, err = colab.RoomMessages(ctx, s.c, a)
-	default:
+	run, ok := toolRuns[name]
+	if !ok {
 		return nil, &rpcError{Code: codeInvalidParams, Message: fmt.Sprintf("unknown tool %q", name)}
+	}
+	v, rerr, err := run(ctx, s.c, args)
+	if rerr != nil {
+		return nil, rerr
 	}
 	if err != nil {
 		return s.errorResult(err), nil
@@ -455,6 +339,88 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 		"content":           []map[string]any{{"type": "text", "text": string(colab.MarshalIndent(v))}},
 		"structuredContent": v,
 	}, nil
+}
+
+// toolRun decodes one tool's arguments and runs its colab action. A decode
+// failure is the protocol error (invalid params); an action failure is the
+// action's error, which callTool turns into an isError result.
+type toolRun func(ctx context.Context, c *client.Client, args json.RawMessage) (v any, rerr *rpcError, err error)
+
+// run is the one decode-and-call body every tool shares (T-RF1: it was 16
+// copies of the same unmarshal/call block). D is the type the arguments are
+// decoded into — the Args type itself, or a wire struct that adds the aliased
+// fields — and conv turns it into the action's Args. D's type name is part of
+// the decode error the model reads, so the wire structs below stay the
+// anonymous struct types they always were (aliases, not new named types).
+func run[D, A, R any](conv func(D) A, call func(context.Context, *client.Client, A) (R, error)) toolRun {
+	return func(ctx context.Context, c *client.Client, args json.RawMessage) (any, *rpcError, error) {
+		var d D
+		if e := json.Unmarshal(args, &d); e != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: e.Error()}, nil
+		}
+		v, err := call(ctx, c, conv(d))
+		return v, nil, err
+	}
+}
+
+// as is conv for a tool whose arguments decode straight into its Args.
+func as[A any](a A) A { return a }
+
+// Wire shapes of the tools with aliased fields (anonymous on purpose — see run).
+type (
+	messagePostWire = struct {
+		colab.MessagePostArgs
+		MentionRaw json.RawMessage `json:"mention,omitempty"`
+	}
+	laneDelegateWire = struct {
+		colab.LaneDelegateArgs
+		DependsOnRaw json.RawMessage `json:"depends_on,omitempty"`
+	}
+	hitlAskWire = struct {
+		colab.HitlAskArgs
+		ChoicesRaw json.RawMessage `json:"choices,omitempty"`
+	}
+	hitlRequestInfoWire = struct {
+		colab.HitlRequestInfoArgs
+		Question string `json:"question,omitempty"` // alias of what, as on the CLI
+	}
+)
+
+// toolRuns is callTool's table: tool name → decode and run. Its keys are
+// exactly Tools' names (TestToolRunsCoverTools).
+var toolRuns = map[string]toolRun{
+	"colab_message_post": run(func(a messagePostWire) colab.MessagePostArgs {
+		a.Mention = parseMention(a.MentionRaw)
+		// colab-cli v0.9.5: `parts` posts a part message; with `body` (or
+		// detail · detail_file · mention) it is an argument error.
+		return a.MessagePostArgs
+	}, colab.Post),
+	"colab_status_set": run(as[colab.StatusSetArgs], colab.StatusSet),
+	"colab_lane_delegate": run(func(a laneDelegateWire) colab.LaneDelegateArgs {
+		a.DependsOn = parseMention(a.DependsOnRaw) // same array-or-CSV shape
+		return a.LaneDelegateArgs
+	}, colab.LaneDelegate),
+	"colab_decision_record": run(as[colab.DecisionRecordArgs], colab.DecisionRecord),
+	"colab_artifact_submit": run(as[colab.ArtifactSubmitArgs], colab.ArtifactSubmit),
+	"colab_artifact_get":    run(as[colab.ArtifactGetArgs], colab.ArtifactGet),
+	"colab_review_approve":  run(as[colab.ReviewArgs], colab.ReviewApprove),
+	"colab_review_reject":   run(as[colab.ReviewArgs], colab.ReviewReject),
+	"colab_hitl_ask": run(func(a hitlAskWire) colab.HitlAskArgs {
+		a.Choices = parseMention(a.ChoicesRaw) // same array-or-CSV shape
+		return a.HitlAskArgs
+	}, colab.HitlAsk),
+	"colab_hitl_approve_request": run(as[colab.HitlApproveRequestArgs], colab.HitlApproveRequest),
+	"colab_hitl_request_info": run(func(a hitlRequestInfoWire) colab.HitlRequestInfoArgs {
+		if a.What == "" {
+			a.What = a.Question
+		}
+		return a.HitlRequestInfoArgs
+	}, colab.HitlRequestInfo),
+	"colab_room_list":     run(as[colab.RoomListArgs], colab.RoomList),
+	"colab_room_read":     run(as[colab.RoomReadArgs], colab.RoomRead),
+	"colab_work_propose":  run(as[colab.WorkProposeArgs], colab.WorkPropose),
+	"colab_room_get":      run(as[colab.RoomGetArgs], colab.RoomGet),
+	"colab_room_messages": run(as[colab.RoomMessagesArgs], colab.RoomMessages),
 }
 
 func (s *Server) registered(name string) bool {

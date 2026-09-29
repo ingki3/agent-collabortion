@@ -290,54 +290,26 @@ func (s *Service) postRow(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.U
 	if qg.changed {
 		s.publishQuiet(ctx, tx, wsID, sessionID, *attr.WorkID)
 	}
-	var heldNames []struct {
-		id   uuid.UUID
-		name string
-	}
+	var held []heldAgent
 
 	result := &gen.MessagePostResult{}
-	result.Triggers = make([]struct {
-		AgentId       openapi_types.UUID           `json:"agent_id"`
-		Coalesced     bool                         `json:"coalesced"`
-		DeferredUntil nullable.Nullable[time.Time] `json:"deferred_until,omitempty"`
-		LaneId        openapi_types.UUID           `json:"lane_id"`
-		TaskId        openapi_types.UUID           `json:"task_id"`
-	}, 0)
-	result.Warnings = make([]struct {
-		AgentId nullable.Nullable[openapi_types.UUID] `json:"agent_id,omitempty"`
-		Code    string                                `json:"code"`
-		Message string                                `json:"message"`
-	}, 0)
+	result.Triggers = make([]postTrigger, 0)
+	result.Warnings = make([]routeWarning, 0)
 	for _, w := range dec.Warnings {
-		result.Warnings = append(result.Warnings, struct {
-			AgentId nullable.Nullable[openapi_types.UUID] `json:"agent_id,omitempty"`
-			Code    string                                `json:"code"`
-			Message string                                `json:"message"`
-		}{AgentId: tasks.NullUUID(w.AgentID), Code: w.Code, Message: w.Message})
+		result.Warnings = append(result.Warnings, warningOf(w.AgentID, w.Code, w.Message))
 	}
 
 	originator := author.UserID
 	if author.Type == "agent" && author.TaskID != nil {
-		_ = tx.QueryRow(ctx, `SELECT originator_user_id FROM task WHERE id = $1`, *author.TaskID).Scan(&originator)
+		if o, ok := taskOriginator(ctx, tx, *author.TaskID); ok {
+			originator = o
+		}
 	}
 	primaryTasks := map[uuid.UUID]uuid.UUID{}
 	// The "새 lane으로 보내기" toggle is per message and never sticks: it lives
 	// in this request body, so the next message starts from rule 3 again
 	// (E2-14). A persisted toggle would silently kill rule 3 for the session.
 	newLane := in.NewLane != nil && *in.NewLane && author.Type == "user"
-
-	// FR-3.5: the three loop limits are checked once per post, against the
-	// session's trigger history. A trigger that trips a limit is not created
-	// and the SESSION pauses (E4-01) — recording the hop anyway keeps the next
-	// decision correct.
-	limits, err := s.loopLimits(ctx, tx, wsID)
-	if err != nil {
-		return nil, uuid.Nil, err
-	}
-	history, err := s.loadHops(ctx, tx, sessionID, now)
-	if err != nil {
-		return nil, uuid.Nil, err
-	}
 
 	// S-78: every trigger of this message shares one cause — the hop that
 	// woke the turn writing it — so a message that mentions three agents is
@@ -352,7 +324,16 @@ func (s *Service) postRow(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.U
 			return nil, uuid.Nil, err
 		}
 	}
+	rc := routeCtx{
+		sessionID: sessionID, wsID: wsID, author: author, th: th, platform: platform,
+		work: attr.WorkID, profiles: profiles, participants: participants,
+		msgID: msgID, originator: originator, newLane: newLane, now: now,
+	}
 	for _, tr := range dec.Triggers {
+		// FR-3.5: every trigger is judged against the room's trigger history
+		// (judgeHop — the same verdict Delegate and wake use). A trigger that
+		// trips a limit is not created and the ROOM pauses (E4-01); the hop is
+		// recorded anyway so the next decision reads a complete history.
 		hopCause := cause
 		if ret.ok && tr.AgentID == ret.requester {
 			// PRD FR-3.5 v0.19.12: a report coming back to the agent that
@@ -365,162 +346,33 @@ func (s *Service) postRow(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.U
 		if author.Type == "agent" && author.AgentID != nil {
 			next.FromAgent = *author.AgentID
 		}
-		v := CheckLoopLimits(history, next, limits, now)
-		if err := s.recordHop(ctx, tx, sessionID, next, msgID, tr.Rule, v.Allowed); err != nil {
+		v, err := s.judgeHop(ctx, tx, sessionID, wsID, next, msgID, tr.Rule, now)
+		if err != nil {
 			return nil, uuid.Nil, err
 		}
-		history = append(history, next)
 		if !v.Allowed {
 			if err := s.pauseForLoop(ctx, tx, sessionID, wsID, v, now); err != nil {
 				return nil, uuid.Nil, err
 			}
-			result.Warnings = append(result.Warnings, struct {
-				AgentId nullable.Nullable[openapi_types.UUID] `json:"agent_id,omitempty"`
-				Code    string                                `json:"code"`
-				Message string                                `json:"message"`
-			}{AgentId: tasks.NullUUID(&tr.AgentID), Code: "loop_limit",
-				Message: v.PausedText()})
+			result.Warnings = append(result.Warnings, warningOf(&tr.AgentID, "loop_limit", v.PausedText()))
 			continue
 		}
-
-		rootLane, topLevel := th.laneFor(tr)
-		opts := laneOpts{
-			threadRootLane: rootLane,
-			topLevelMent:   topLevel,
-			forceNewLane:   newLane,
-			work:           attr.WorkID,
-		}
-		if tr.Rule == RulePlatform && platform != nil && platform.LaneID != uuid.Nil {
-			// 해소 규칙 1 with the lane named outright: the caller knows which
-			// lane the event belongs to (the one that submitted the artifact),
-			// and it must not depend on the reply's thread happening to root
-			// there. Same lane, `reentry_count`+1 — never a new lane.
-			opts.threadRootLane = platform.LaneID
-			opts.forceNewLane = false
-			opts.pinned = true
-		}
-		laneID, _, err := s.resolveLaneFor(ctx, tx, sessionID, tr, profiles[tr.AgentID], opts, now)
+		routed, err := s.routeTrigger(ctx, tx, rc, tr)
 		if err != nil {
 			return nil, uuid.Nil, err
 		}
-		laneWork, err := bindLaneWork(ctx, tx, laneID, attr.WorkID)
-		if err != nil {
-			return nil, uuid.Nil, err
-		}
-		// FR-3.4: a queued task on the lane absorbs this message. PlanArrival
-		// owns the decision (never cancel a running turn, merge per LANE, keep
-		// arrival order); this only reads the lane's queue and writes the answer.
-		var existing uuid.UUID
-		var laneStatus string
-		var queuedMsgs []uuid.UUID
-		err = tx.QueryRow(ctx, `
-			SELECT t.id, t.coalesced_message_ids, l.status::text
-			FROM task t JOIN lane l ON l.id = t.lane_id
-			WHERE t.lane_id = $1 AND t.status = 'queued' ORDER BY t.created_at LIMIT 1 FOR UPDATE OF t`, laneID).
-			Scan(&existing, &queuedMsgs, &laneStatus)
-		coalesced := err == nil
-		if errors.Is(err, pgx.ErrNoRows) {
-			if err := tx.QueryRow(ctx, `SELECT status::text FROM lane WHERE id = $1`, laneID).Scan(&laneStatus); err != nil {
-				return nil, uuid.Nil, err
-			}
-		} else if err != nil {
-			return nil, uuid.Nil, err
-		}
-		arrival := PlanArrival(laneID, laneStatus, queuedMsgs, []uuid.UUID{msgID})
-		if arrival.CancelledRunningTurn {
-			// Unreachable by construction — the invariant is that no message
-			// cancels a turn — but an explicit refusal beats a silent one if
-			// PlanArrival ever changes.
-			return nil, uuid.Nil, fmt.Errorf("router: FR-3.4 invariant: a message may not cancel a running turn")
-		}
-		var taskID uuid.UUID
-		if coalesced {
-			taskID = existing
-			// The absorbing task takes the lane's mission when it had none
-			// (T-R4b): a queued task born mission-less on a lane this post just
-			// bound would otherwise run the mission's turn as "미션 없음" —
-			// brief [4], budget, COLAB_WORK_ID and the reply all read task.work_id.
-			// A task that already has a mission keeps it.
-			if _, err := tx.Exec(ctx, `UPDATE task SET coalesced_message_ids = $2, work_id = COALESCE(work_id, $4), updated_at = $3 WHERE id = $1`,
-				taskID, arrival.CoalescedMessageIDs, now, laneWork); err != nil {
-				return nil, uuid.Nil, err
-			}
-		} else {
-			if err := tx.QueryRow(ctx, `
-				INSERT INTO task (lane_id, session_id, agent_id, profile_id, trigger_message_id, originator_user_id,
-				                  coalesced_message_ids, status, created_at, updated_at, work_id)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $8, $9) RETURNING id`,
-				laneID, sessionID, tr.AgentID, profiles[tr.AgentID], msgID, originator,
-				arrival.CoalescedMessageIDs, now, laneWork).Scan(&taskID); err != nil {
-				return nil, uuid.Nil, fmt.Errorf("router: insert task: %w", err)
-			}
-		}
-		// T-QUIET: an agent's trigger in a mission waiting for approval is
-		// made and held — queued_reason approval_pending, which the claim
-		// passes by. A platform trigger (a reviewer's rejection re-entering
-		// the submitter's lane) is the system's, not an agent's word.
-		if author.Type == "agent" && tr.Rule != RulePlatform {
-			hold, closed, err := holdsFor(ctx, tx, laneWork)
-			if err != nil {
-				return nil, uuid.Nil, err
-			}
-			if closed && !coalesced {
-				if err := quiet.CancelClosed(ctx, tx, taskID, now); err != nil {
-					return nil, uuid.Nil, err
-				}
-				heldNames = append(heldNames, struct {
-					id   uuid.UUID
-					name string
-				}{tr.AgentID, participantName(participants, tr.AgentID)})
-				s.publishLane(ctx, tx, laneID)
-			}
-			if hold {
-				// A new task is held. One this message merged into is held
-				// only if it already was: a queued turn a person's message
-				// made runs, and this message rides along in it.
-				var held bool
-				if coalesced {
-					held, err = quiet.IsHeld(ctx, tx, taskID)
-				} else {
-					held, err = quiet.Hold(ctx, tx, taskID)
-				}
-				if err != nil {
-					return nil, uuid.Nil, err
-				}
-				if held {
-					heldNames = append(heldNames, struct {
-						id   uuid.UUID
-						name string
-					}{tr.AgentID, participantName(participants, tr.AgentID)})
-					s.publishLane(ctx, tx, laneID)
-				}
-			}
-		}
-		result.Triggers = append(result.Triggers, struct {
-			AgentId       openapi_types.UUID           `json:"agent_id"`
-			Coalesced     bool                         `json:"coalesced"`
-			DeferredUntil nullable.Nullable[time.Time] `json:"deferred_until,omitempty"`
-			LaneId        openapi_types.UUID           `json:"lane_id"`
-			TaskId        openapi_types.UUID           `json:"task_id"`
-		}{AgentId: tr.AgentID, Coalesced: coalesced, LaneId: laneID, TaskId: taskID})
-		if t, err := tasks.Get(ctx, tx, taskID); err == nil && s.Hub != nil {
-			sid := sessionID
-			_ = s.Hub.Publish(ctx, tx, wsID, &sid, "task.updated", tasks.ToAPI(t, nil, nil))
-		}
-		primaryTasks[tr.AgentID] = taskID
+		held = append(held, routed.held...)
+		result.Triggers = append(result.Triggers, routed.entry)
+		primaryTasks[tr.AgentID] = uuid.UUID(routed.entry.TaskId)
 	}
 
 	// harness v0.9.15: the post's result tells the writing turn whom it did
 	// not wake (Lead 판정 2026-09-28 — warnings[] code approval_pending).
-	for _, h := range heldNames {
+	for _, h := range held {
 		id := h.id
-		result.Warnings = append(result.Warnings, struct {
-			AgentId nullable.Nullable[openapi_types.UUID] `json:"agent_id,omitempty"`
-			Code    string                                `json:"code"`
-			Message string                                `json:"message"`
-		}{AgentId: tasks.NullUUID(&id), Code: quiet.WarningCode, Message: quiet.Notice(h.name)})
+		result.Warnings = append(result.Warnings, warningOf(&id, quiet.WarningCode, quiet.Notice(h.name)))
 	}
-	if len(heldNames) > 0 && attr.WorkID != nil {
+	if len(held) > 0 && attr.WorkID != nil {
 		s.publishQuiet(ctx, tx, wsID, sessionID, *attr.WorkID)
 	}
 
@@ -539,13 +391,7 @@ func (s *Service) postRow(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.U
 				return nil, uuid.Nil, err
 			}
 			if ok {
-				result.Triggers = append(result.Triggers, struct {
-					AgentId       openapi_types.UUID           `json:"agent_id"`
-					Coalesced     bool                         `json:"coalesced"`
-					DeferredUntil nullable.Nullable[time.Time] `json:"deferred_until,omitempty"`
-					LaneId        openapi_types.UUID           `json:"lane_id"`
-					TaskId        openapi_types.UUID           `json:"task_id"`
-				}{AgentId: fb.AgentID, LaneId: laneID, TaskId: taskID,
+				result.Triggers = append(result.Triggers, postTrigger{AgentId: fb.AgentID, LaneId: laneID, TaskId: taskID,
 					DeferredUntil: nullable.NewNullableWithValue(fb.DueAt)})
 			}
 		}
@@ -587,6 +433,140 @@ func (s *Service) postRow(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.U
 	return result, msgID, nil
 }
 
+// routeCtx is what every trigger of one post shares.
+type routeCtx struct {
+	sessionID, wsID uuid.UUID
+	author          Author
+	th              thread
+	platform        *PlatformTrigger
+	work            *uuid.UUID // the message's mission (attribute)
+	profiles        map[uuid.UUID]uuid.UUID
+	participants    []Participant
+	msgID           uuid.UUID
+	originator      *uuid.UUID
+	newLane         bool
+	now             time.Time
+}
+
+// routed is one trigger's outcome.
+type routed struct {
+	entry postTrigger
+	held  []heldAgent
+}
+
+// routeTrigger carries out one allowed trigger of a post (T-RF1: it was the
+// body of postRow's loop): resolve the lane (FR-3.3 lane rules 1–4), merge
+// into the lane's queued task or make one (FR-3.4), hold it when the mission
+// waits for approval (T-QUIET), and publish task.updated. The loop limit was
+// already judged by the caller.
+func (s *Service) routeTrigger(ctx context.Context, tx pgx.Tx, rc routeCtx, tr Trigger) (routed, error) {
+	var out routed
+	rootLane, topLevel := rc.th.laneFor(tr)
+	opts := laneOpts{
+		threadRootLane: rootLane,
+		topLevelMent:   topLevel,
+		forceNewLane:   rc.newLane,
+		work:           rc.work,
+	}
+	if tr.Rule == RulePlatform && rc.platform != nil && rc.platform.LaneID != uuid.Nil {
+		// 해소 규칙 1 with the lane named outright: the caller knows which
+		// lane the event belongs to (the one that submitted the artifact),
+		// and it must not depend on the reply's thread happening to root
+		// there. Same lane, `reentry_count`+1 — never a new lane.
+		opts.threadRootLane = rc.platform.LaneID
+		opts.forceNewLane = false
+		opts.pinned = true
+	}
+	laneID, _, err := s.resolveLaneFor(ctx, tx, rc.sessionID, tr, rc.profiles[tr.AgentID], opts, rc.now)
+	if err != nil {
+		return out, err
+	}
+	laneWork, err := bindLaneWork(ctx, tx, laneID, rc.work)
+	if err != nil {
+		return out, err
+	}
+	// FR-3.4: a queued task on the lane absorbs this message. PlanArrival
+	// owns the decision (never cancel a running turn, merge per LANE, keep
+	// arrival order); this only reads the lane's queue and writes the answer.
+	queued, coalesced, err := lockQueuedTask(ctx, tx, laneID)
+	if err != nil {
+		return out, err
+	}
+	var laneStatus string
+	if err := tx.QueryRow(ctx, `SELECT status::text FROM lane WHERE id = $1`, laneID).Scan(&laneStatus); err != nil {
+		return out, err
+	}
+	arrival := PlanArrival(laneID, laneStatus, queued.Coalesced, []uuid.UUID{rc.msgID})
+	if arrival.CancelledRunningTurn {
+		// Unreachable by construction — the invariant is that no message
+		// cancels a turn — but an explicit refusal beats a silent one if
+		// PlanArrival ever changes.
+		return out, fmt.Errorf("router: FR-3.4 invariant: a message may not cancel a running turn")
+	}
+	var taskID uuid.UUID
+	if coalesced {
+		taskID = queued.ID
+		// The absorbing task takes the lane's mission when it had none
+		// (T-R4b): a queued task born mission-less on a lane this post just
+		// bound would otherwise run the mission's turn as "미션 없음" —
+		// brief [4], budget, COLAB_WORK_ID and the reply all read task.work_id.
+		// A task that already has a mission keeps it.
+		if _, err := tx.Exec(ctx, `UPDATE task SET coalesced_message_ids = $2, work_id = COALESCE(work_id, $4), updated_at = $3 WHERE id = $1`,
+			taskID, arrival.CoalescedMessageIDs, rc.now, laneWork); err != nil {
+			return out, err
+		}
+	} else {
+		if taskID, err = insertQueuedTask(ctx, tx, newQueuedTask{
+			LaneID: laneID, SessionID: rc.sessionID, AgentID: tr.AgentID, ProfileID: rc.profiles[tr.AgentID],
+			TriggerMessageID: rc.msgID, Originator: rc.originator, Coalesced: arrival.CoalescedMessageIDs,
+			Work: laneWork, Now: rc.now,
+		}); err != nil {
+			return out, fmt.Errorf("router: %w", err)
+		}
+	}
+	// T-QUIET: an agent's trigger in a mission waiting for approval is
+	// made and held — queued_reason approval_pending, which the claim
+	// passes by. A platform trigger (a reviewer's rejection re-entering
+	// the submitter's lane) is the system's, not an agent's word.
+	if rc.author.Type == "agent" && tr.Rule != RulePlatform {
+		hold, closed, err := holdsFor(ctx, tx, laneWork)
+		if err != nil {
+			return out, err
+		}
+		if closed && !coalesced {
+			if err := quiet.CancelClosed(ctx, tx, taskID, rc.now); err != nil {
+				return out, err
+			}
+			out.held = append(out.held, heldAgent{tr.AgentID, participantName(rc.participants, tr.AgentID)})
+			s.publishLane(ctx, tx, laneID)
+		}
+		if hold {
+			// A new task is held. One this message merged into is held
+			// only if it already was: a queued turn a person's message
+			// made runs, and this message rides along in it.
+			var held bool
+			if coalesced {
+				held, err = quiet.IsHeld(ctx, tx, taskID)
+			} else {
+				held, err = quiet.Hold(ctx, tx, taskID)
+			}
+			if err != nil {
+				return out, err
+			}
+			if held {
+				out.held = append(out.held, heldAgent{tr.AgentID, participantName(rc.participants, tr.AgentID)})
+				s.publishLane(ctx, tx, laneID)
+			}
+		}
+	}
+	out.entry = postTrigger{AgentId: tr.AgentID, Coalesced: coalesced, LaneId: laneID, TaskId: taskID}
+	if t, err := tasks.Get(ctx, tx, taskID); err == nil && s.Hub != nil {
+		sid := rc.sessionID
+		_ = s.Hub.Publish(ctx, tx, rc.wsID, &sid, "task.updated", tasks.ToAPI(t, nil, nil))
+	}
+	return out, nil
+}
+
 // laneOpts carries the premises the four lane rules read that the trigger
 // itself does not know.
 type laneOpts struct {
@@ -614,24 +594,10 @@ func (s *Service) resolveLaneFor(ctx context.Context, tx pgx.Tx, sessionID uuid.
 	// message for THAT mission (bindLaneWork keeps a bound lane's mission):
 	// a "미션 없음" chat line queued under a completed mission never ran. In a
 	// one-mission room every lane is that mission's and nothing changes.
-	rows, err := tx.Query(ctx, `
-		SELECT id, agent_id, status::text, reentry_count, GREATEST(created_at, updated_at)
-		FROM lane WHERE session_id = $1 AND agent_id = $2
-		  AND (work_id IS NULL OR work_id IS NOT DISTINCT FROM $3::uuid OR ($4 AND id = $5))
-		ORDER BY created_at`, sessionID, tr.AgentID, o.work, o.pinned, o.threadRootLane)
+	existing, err := laneCandidates(ctx, tx, sessionID, tr.AgentID, &o)
 	if err != nil {
 		return uuid.Nil, false, err
 	}
-	var existing []lanestate.Candidate
-	for rows.Next() {
-		var c lanestate.Candidate
-		if err := rows.Scan(&c.ID, &c.AgentID, &c.Status, &c.ReentryCount, &c.LastUsed); err != nil {
-			rows.Close()
-			return uuid.Nil, false, err
-		}
-		existing = append(existing, c)
-	}
-	rows.Close()
 
 	d := lanestate.Resolve(lanestate.Request{
 		AgentID: tr.AgentID, Existing: existing,
@@ -828,11 +794,14 @@ func returningReport(ctx context.Context, q pgx.Tx, msgID uuid.UUID) (reportRetu
 	return reportReturn{ok: true, requester: *requester, cause: cause}, nil
 }
 
-// judgeHop is FR-3.5's VERDICT for one server-originated trigger: a
-// delegation (delegate.go) or a wake-up the server owes a delegator or an
-// author (status.go wake — join, blocked question, re-entry report). Post
-// runs the same check inline because it gates several triggers against one
-// history.
+// judgeHop is FR-3.5's VERDICT for one trigger: a delegation (delegate.go), a
+// wake-up the server owes a delegator or an author (status.go wake — join,
+// blocked question, re-entry report), and each trigger of a post (postRow).
+// Post used to run a copy of this inline against a history it loaded once and
+// appended to in memory; T-RF1 made it call this per trigger. The history is
+// re-read each time and so includes the sibling hops just recorded — the same
+// rows the in-memory append stood for (a human hop is never limited, so the
+// window re-anchoring on a person's own sibling hop changes no verdict).
 //
 // S-76: neither path used to be gated. `Delegate` recorded its hop and
 // `wake` recorded nothing, so a delegator that re-delegated on every join
