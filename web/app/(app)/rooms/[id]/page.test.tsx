@@ -331,6 +331,41 @@ describe("S7 — 상단 · 배너 · 좁은 화면", () => {
   });
 });
 
+describe("타임라인 항목 — 방 화면이 항목 렌더러(TimelineItemView)에 잇는 것 (T-RF2)", () => {
+  const sys = (id: string, work_id: string | null): Message => ({ ...msg(id, work_id, `시스템 ${id}`), author_type: "system", author_id: null, kind: "system" });
+
+  it("미션에 매인 시스템 줄 — (전체)에서는 「미션 보기」로 그 칩을 고르고, 그 미션을 보는 중이면 없다 · 「…」 메뉴 없음", async () => {
+    get.mockImplementation((path: string, o?: never) => (path === "/rooms/{roomId}/messages" ? Promise.resolve({ items: [...MSGS, sys("4", "w1")], has_more_before: false }) : routes(path, o)));
+    await ready();
+    const card = screen.getAllByTestId("message-card").find((c) => c.getAttribute("data-message-id") === "4")!;
+    expect(within(card).queryByTestId("message-menu")).toBeNull();
+    fireEvent.click(within(card).getByTestId("system-work-link"));
+    expect(replace).toHaveBeenCalledWith("/rooms/r1?work=w1", { scroll: false });
+    cleanup();
+    search = new URLSearchParams("work=w1");
+    await ready();
+    expect(screen.getAllByTestId("message-card").some((c) => c.getAttribute("data-message-id") === "4")).toBe(true);
+    expect(screen.queryByTestId("system-work-link")).toBeNull();
+  });
+
+  it("message.created 답글 — 펼친 스레드에 바로 붙고 뿌리의 답글 수가 오른다", async () => {
+    const r1 = { ...msg("5", "w1", "첫 답글"), parent_id: "1" };
+    const root = { ...msg("1", "w1", "초안 방향"), reply_count: 1 };
+    get.mockImplementation((path: string, o?: { query?: Record<string, unknown> }) => {
+      if (path === "/rooms/{roomId}/messages" && o?.query?.thread) return Promise.resolve({ items: [root, r1], has_more_before: false });
+      if (path === "/rooms/{roomId}/messages") return Promise.resolve({ items: [root, ...MSGS.slice(1)], has_more_before: false });
+      return routes(path, o as never);
+    });
+    await ready();
+    const card = () => screen.getAllByTestId("message-card").find((c) => c.getAttribute("data-message-id") === "1")!;
+    fireEvent.click(within(card()).getByTestId("thread-toggle"));
+    await waitFor(() => expect(within(card()).getByTestId("thread")).toHaveTextContent("첫 답글"));
+    act(() => stream!({ id: "9", type: "message.created", at: "", room_id: "r1", payload: { ...msg("6", "w1", "둘째 답글"), parent_id: "1" } as unknown as Record<string, unknown> }));
+    expect(within(card()).getByTestId("thread")).toHaveTextContent("둘째 답글");
+    expect(within(card()).getByTestId("thread-toggle")).toHaveTextContent("2");
+  });
+});
+
 describe("T-BUDGETCAP — 비용 줄의 상한(없으면 「상한 없음 — [상한 걸기]」, 있으면 「$x / $y (n%)」)", () => {
   const noCapRoom: Room = { ...room, cost_usd: 92.77, limits: { ...room.limits, budget_usd: null } };
   // 펼침은 방마다 기억한다(localStorage) — 앞 테스트가 연 채로 남을 수 있어 「펼치기」는 접혀 있을 때만 누른다.

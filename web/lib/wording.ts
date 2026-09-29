@@ -648,6 +648,8 @@ export const WORK_PANEL = {
   progress: "종료 조건 진행률",
   cost: "미션 비용",
   cost_this: "이 미션 ",
+  /** 미션 칸 탭(T-RF2 틀) — 탭이 하나뿐인 지금은 탭 줄을 그리지 않아 화면에 나오지 않는다. 「분담표」 탭이 들어오면 보인다. */
+  tab_overview: "개요",
   estimated: "추정",
   pause: "일시정지",
   resume: "재개",
