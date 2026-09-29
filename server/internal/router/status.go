@@ -12,6 +12,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
+	"github.com/ingki3/agent-collabortion/server/internal/lanedone"
 	"github.com/ingki3/agent-collabortion/server/internal/lanefocus"
 	"github.com/ingki3/agent-collabortion/server/internal/lanestate"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
@@ -179,15 +180,19 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 			}
 		}
 	case "done":
-		if _, err := tx.Exec(ctx, `
-			UPDATE lane SET status = 'done', finished_at = $2, updated_at = $2 WHERE id = $1`, laneID, now); err != nil {
+		// T-RF1: the one writer of a finished lane (lanedone.MarkDone — the
+		// 작업 카드 gate goes there). The frame goes out before the follow-up,
+		// as it always did.
+		if _, err := lanedone.MarkDone(ctx, tx, lanedone.Request{
+			LaneID: laneID, Cause: lanedone.AgentDone, Now: now,
+			Publish: func(ctx context.Context, tx pgx.Tx, id uuid.UUID) { s.publishLane(ctx, tx, id) },
+			AfterDone: func(ctx context.Context, tx pgx.Tx) error {
+				return s.afterLaneDone(ctx, tx, sessionID, wsID, laneID, agentID, taskID, triggerMsg, reentry, director, now)
+			},
+		}); err != nil {
 			return nil, err
 		}
-		s.publishLane(ctx, tx, laneID)
 		out.TurnEndRequired = true
-		if err := s.afterLaneDone(ctx, tx, sessionID, wsID, laneID, agentID, taskID, triggerMsg, reentry, director, now); err != nil {
-			return nil, err
-		}
 	default:
 		return nil, apperr.Validation(apperr.Field("status", "invalid", "상태는 working · blocked · done 중 하나여야 합니다"))
 	}

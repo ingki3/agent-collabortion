@@ -16,6 +16,7 @@ import (
 	"github.com/ingki3/agent-collabortion/contracts/clock"
 	"github.com/ingki3/agent-collabortion/server/internal/cost"
 	"github.com/ingki3/agent-collabortion/server/internal/db"
+	"github.com/ingki3/agent-collabortion/server/internal/lanedone"
 	"github.com/ingki3/agent-collabortion/server/internal/lanefocus"
 	"github.com/ingki3/agent-collabortion/server/internal/realtime"
 	"github.com/ingki3/agent-collabortion/server/internal/tokens"
@@ -744,14 +745,15 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			if err := s.Tokens.Revoke(ctx, tx, t.ID, attempt, "completed"); err != nil {
 				return err
 			}
-			// lane: another queued task on this lane keeps it queued, else done.
-			// A lane the agent put in `blocked` keeps that status: the turn
-			// ending is exactly what `colab status set blocked` asked for, and
-			// overwriting it with `done` loses the question the delegator has
-			// yet to answer (FR-6.2.1).
-			if _, err := tx.Exec(ctx, `
-				UPDATE lane SET status = CASE WHEN EXISTS (SELECT 1 FROM task WHERE lane_id = $1 AND status = 'queued') THEN 'queued'::lane_status ELSE 'done'::lane_status END,
-				  finished_at = $2, updated_at = $2 WHERE id = $1 AND status <> 'blocked'`, t.LaneID, now); err != nil {
+			// lane: another queued task on this lane keeps it queued, else
+			// done; a `blocked` lane keeps its question (FR-6.2.1). T-RF1: the
+			// one writer of a finished lane is lanedone.MarkDone. The lane
+			// frame goes out below with task.updated (s.publish).
+			//
+			// TODO(T-RF1-B): no follow-up on this path — lanedone.runsFollowUp
+			// says so in one place (the join FR-6.5 and the re-entry report run
+			// for `status set done` only). Kept by Lead's call; see there.
+			if _, err := lanedone.MarkDone(ctx, tx, lanedone.Request{LaneID: t.LaneID, Cause: lanedone.TurnEnd, Now: now}); err != nil {
 				return err
 			}
 			// S-53: a turn that COMPLETED after a rebind has replayed the
