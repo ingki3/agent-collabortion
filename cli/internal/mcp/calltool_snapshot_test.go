@@ -23,6 +23,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -30,6 +31,9 @@ import (
 	"github.com/ingki3/agent-collabortion/cli/internal/client/clienttest"
 	"github.com/ingki3/agent-collabortion/cli/internal/mcp"
 )
+
+// wallClock: clienttest stamps created_at with the wall clock.
+var wallClock = regexp.MustCompile(`\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)`)
 
 var update = flag.Bool("update", false, "rewrite testdata/calltool.golden")
 
@@ -87,7 +91,7 @@ func (c *rawConn) call(label, method string, params any) {
 	if err != nil {
 		c.t.Fatalf("%s: read: %v", label, err)
 	}
-	c.out.WriteString("## " + label + "\n" + c.repl.Replace(line) + "\n")
+	c.out.WriteString("## " + label + "\n" + wallClock.ReplaceAllString(c.repl.Replace(line), "TIME") + "\n")
 }
 
 // snapArgs is each tool's valid argument set (against clienttest), and an
