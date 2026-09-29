@@ -9,6 +9,9 @@
  * 미션 `paused` 해소 배너는 **미션 사유만**(예산·시간·수동) — 방 사유는 전폭 배너로 올라간다(§4.6). 배너는 조용하다(`role="status"`).
  * 편집 동작(T-R2-W4b): 「설정 편집」(S21 폼 편집 모드) · 「Director 교체」 · 막힌 조건의 「조건 고치기」 — 권한은 `lib/work-edit.ts` 한 곳.
  * Director 교체만 층이 다르다(그 미션의 director **또는 ws owner·admin**) — 사유도 따로 선다.
+ *
+ * 탭 틀(T-RF2): 칸 전체가 `PanelTabs` 안에 있고 지금 내용은 「개요」 탭 하나다(`WorkOverview`). 탭이 하나면 탭 줄을 그리지 않는다 —
+ * 화면·DOM 이 틀 도입 전과 같다. 탭을 더할 때는 아래 `tabs` 배열에 한 줄(id · 표의 이름 · 렌더러)을 더한다.
  */
 import { useState } from "react";
 import "./session-aside.css";
@@ -18,6 +21,7 @@ import { ConditionRow } from "./ConditionRow";
 import { Slot } from "./Slot";
 import { BudgetCapLine } from "./BudgetCapLine";
 import { DisabledHint } from "./PageHead";
+import { PanelTabs, type PanelTab } from "./PanelTabs";
 import { metByName } from "./SessionAside";
 import { progressSummary, topOp } from "@/lib/completion";
 import { humanDuration } from "@/lib/time";
@@ -61,6 +65,14 @@ export interface WorkPanelProps {
 const CLOSED = new Set(["completed", "cancelled"]);
 
 export function WorkPanel(props: WorkPanelProps) {
+  const tabs: PanelTab[] = [
+    { id: "overview", label: WORK_PANEL.tab_overview, render: () => <WorkOverview {...props} /> },
+  ];
+  return <PanelTabs label={WORK_PANEL.title} idPrefix="work-panel" tabs={tabs} />;
+}
+
+/** 「개요」 탭 — 미션 칸의 본래 내용(목표 · 종료 조건 진행률 · 비용 · 동작). */
+function WorkOverview(props: WorkPanelProps) {
   const { mode, work } = props;
   const [budget, setBudget] = useState("");
 

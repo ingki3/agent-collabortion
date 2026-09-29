@@ -1,0 +1,5 @@
+/* 패널 안 탭 틀(components/PanelTabs.tsx) — 탭이 둘 이상일 때만 그려진다. 방 화면 좁은 탭(.s7__tab)과 같은 모양. */
+.ptabs { display: flex; flex-direction: column; gap: 8px; }
+.ptabs__list { display: flex; flex-wrap: wrap; gap: 6px; }
+.ptabs__tab { border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 999px; padding: 3px 10px; font-size: var(--fs-body); cursor: pointer; }
+.ptabs__tab--on { border: 2px solid var(--ink); padding: 2px 9px; font-weight: 600; }
