@@ -14,7 +14,6 @@ import (
 
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/lanestate"
-	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
 // Preview answers FR-3.6: "이 메시지는 A, B를 트리거합니다 (프로파일: …)". It
@@ -103,28 +102,16 @@ func (s *Service) Preview(ctx context.Context, sessionID uuid.UUID, author Autho
 	out.ImplicitRoutingSuppressed = &suppressed
 
 	for _, w := range dec.Warnings {
-		out.Warnings = append(out.Warnings, struct {
-			AgentId nullable.Nullable[openapi_types.UUID] `json:"agent_id,omitempty"`
-			Code    string                                `json:"code"`
-			Message string                                `json:"message"`
-		}{AgentId: tasks.NullUUID(w.AgentID), Code: w.Code, Message: w.Message})
+		out.Warnings = append(out.Warnings, warningOf(w.AgentID, w.Code, w.Message))
 	}
 	if out.Warnings == nil {
-		out.Warnings = []struct {
-			AgentId nullable.Nullable[openapi_types.UUID] `json:"agent_id,omitempty"`
-			Code    string                                `json:"code"`
-			Message string                                `json:"message"`
-		}{}
+		out.Warnings = []routeWarning{}
 	}
 	// The delegator the author may not wake is worth showing: the message is
 	// posted, it just carries in the join bundle instead (E1-15).
 	if authorDelegator != nil && !joinFired && mentionsAgent(dec, *authorDelegator) {
-		out.Warnings = append(out.Warnings, struct {
-			AgentId nullable.Nullable[openapi_types.UUID] `json:"agent_id,omitempty"`
-			Code    string                                `json:"code"`
-			Message string                                `json:"message"`
-		}{AgentId: tasks.NullUUID(authorDelegator), Code: "suppressed_delegator",
-			Message: apperr.Josa(names[*authorDelegator], "은", "는") + " 위임한 쪽이라 맡긴 작업이 다 끝날 때 한 번에 전달됩니다"})
+		out.Warnings = append(out.Warnings, warningOf(authorDelegator, "suppressed_delegator",
+			apperr.Josa(names[*authorDelegator], "은", "는")+" 위임한 쪽이라 맡긴 작업이 다 끝날 때 한 번에 전달됩니다"))
 	}
 
 	newLane := in.NewLane != nil && *in.NewLane && author.Type == "user"
@@ -174,22 +161,11 @@ func (s *Service) Preview(ctx context.Context, sessionID uuid.UUID, author Autho
 // resulting lane already has work in flight (so the trigger will queue/merge
 // rather than start, FR-3.4).
 func (s *Service) previewLane(ctx context.Context, q pgx.Tx, sessionID uuid.UUID, tr Trigger, o laneOpts) (lanestate.Decision, bool, error) {
-	rows, err := q.Query(ctx, `
-		SELECT id, agent_id, status::text, reentry_count, GREATEST(created_at, updated_at)
-		FROM lane WHERE session_id = $1 AND agent_id = $2 ORDER BY created_at`, sessionID, tr.AgentID)
+	// TODO(T-RF1-P): nil = no mission filter, unlike Post (laneCandidates).
+	existing, err := laneCandidates(ctx, q, sessionID, tr.AgentID, nil)
 	if err != nil {
 		return lanestate.Decision{}, false, err
 	}
-	var existing []lanestate.Candidate
-	for rows.Next() {
-		var c lanestate.Candidate
-		if err := rows.Scan(&c.ID, &c.AgentID, &c.Status, &c.ReentryCount, &c.LastUsed); err != nil {
-			rows.Close()
-			return lanestate.Decision{}, false, err
-		}
-		existing = append(existing, c)
-	}
-	rows.Close()
 	d := lanestate.Resolve(lanestate.Request{
 		AgentID: tr.AgentID, Existing: existing,
 		ThreadRootLaneID: o.threadRootLane,
