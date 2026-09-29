@@ -657,7 +657,7 @@ describe("v1.1 — 관찰 표·허용 명령·빈 턴의 말은 한곳(lib/wordi
     expect(src("components/ActivityFeed.tsx")).toMatch(/title=\{EMPTY_TURN\.kind\}>\{emptyTurnNote\(e\)\}/);
     expect(src("components/LaneCard.tsx")).toMatch(/title=\{EMPTY_TURN\.kind\}/);
     // 문장을 손으로 다시 적은 자리가 없다.
-    for (const f of ["components/ActivityFeed.tsx", "components/LaneCard.tsx", "lib/feed.ts", "app/(app)/rooms/[id]/page.tsx"]) expect(code(f)).not.toContain("아무것도 하지 않고");
+    for (const f of ["components/ActivityFeed.tsx", "components/LaneCard.tsx", "lib/feed.ts", "app/(app)/rooms/[id]/page.tsx", "components/TimelineItemView.tsx"]) expect(code(f)).not.toContain("아무것도 하지 않고");
     // 정보 카드 — 실패 색·error 클래스를 타지 않는다.
     expect(src("components/activity-feed.css")).toMatch(/\.feed__row\[data-info="true"\] \.feed__glyph \{ color: var\(--ink-2\); \}/);
     expect(src("components/lane-card.css")).toMatch(/\.lane__note--info \{ color: var\(--ink-2\); \}/);
@@ -673,6 +673,8 @@ describe("v0.19 방 — 새 화면의 말은 한곳(lib/wording.ts)에서만 나
     "app/(app)/rooms/RoomsView.tsx", "app/(app)/rooms/[id]/page.tsx", "components/RoomCard.tsx", "components/RoomCardMenu.tsx", "components/RoomSearchBar.tsx", "components/RoomDialogs.tsx", "components/CreateRoomDialog.tsx", "lib/rooms.ts",
     // T-R2-W2 — S7 방 화면 · S22 미션 패널
     "components/RoomHead.tsx", "components/RoomBlockedBanner.tsx", "components/RoomParticipants.tsx", "components/WorkChipRow.tsx", "components/WorkPanel.tsx", "components/RoomPanel.tsx", "lib/room-view.ts",
+    // T-RF2 — 방 화면에서 떼어 낸 타임라인 항목 렌더러(옛 page.tsx 의 map 몸통)
+    "components/TimelineItemView.tsx",
   ];
   /** 표의 문장 전부(함수는 예시 인자로, 슬롯은 두 토막으로). */
   const texts = (o: object, fns = true): string[] =>
@@ -848,7 +850,7 @@ describe("v0.19.3 메시지 세 층 — 접힌 줄·보기 전환의 말은 표(
   const src = (f: string) => readFileSync(join(ROOT, f), "utf8");
   const code = (f: string) => src(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "").replace(/\s\/\/.*$/gm, "");
   const inPool = (file: string, text: string) => POOL.some((v) => v.file === file && v.text.includes(text));
-  const FILES_L = ["components/MessageLayers.tsx", "lib/message-layers.ts", "components/MessageCard.tsx", "app/(app)/rooms/[id]/page.tsx"];
+  const FILES_L = ["components/MessageLayers.tsx", "lib/message-layers.ts", "components/MessageCard.tsx", "app/(app)/rooms/[id]/page.tsx", "components/TimelineItemView.tsx"];
 
   it("문구가 사는 파일이 풀 범위 안이다", () => {
     for (const f of FILES_L) expect(FILES).toContain(f);
@@ -959,7 +961,7 @@ describe("v0.19.10 「작업 중」 말풍선 — 말은 표(MESSAGE_LAYERS)에�
   it("말풍선은 표를 그린다 — 컴포넌트·방 화면 코드에 문장을 직접 쓰지 않는다", () => {
     const comp = src("components/MessageLayers.tsx");
     for (const k of ["working", "working_memo_all", "failures", "process_loading"]) expect(comp, k).toContain(`L.${k}`);
-    for (const f of ["components/MessageLayers.tsx", "app/(app)/rooms/[id]/page.tsx", "lib/progress-memo.ts"]) expect(code(f), f).not.toMatch(/진행 메모 전체 보기|"작업 중"|작성 중…/);
+    for (const f of ["components/MessageLayers.tsx", "app/(app)/rooms/[id]/page.tsx", "components/TimelineItemView.tsx", "lib/progress-memo.ts"]) expect(code(f), f).not.toMatch(/진행 메모 전체 보기|"작업 중"|작성 중…/);
   });
 });
 
