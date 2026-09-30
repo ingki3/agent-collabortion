@@ -23,7 +23,7 @@ import { BADGE_MAP } from "@/components/badge-map";
 import { ARCHIVE_DIALOG, CREATE_ROOM, DELETE_ROOM_DIALOG, ROOM_BLOCKED_LABEL, ROOM_DELETED_NOTICE, ROOM_LIST, ROOM_MENU, roomDefaultsLine } from "@/lib/wording";
 import { BLOCK_DIALOG, ROOM_BANNER, ROOM_CENTER, ROOM_HEAD, ROOM_LEFT, ROOM_NOTICES, ROOM_PANEL, ROOM_TABS, SUMMARIZE_DIALOG, WORK_CHIPS, WORK_PANEL, WORK_PAUSE_LABEL, WORK_SELECTOR } from "@/lib/wording";
 import { MEDIA, MESSAGE_LAYERS, PARTS, PROCESS_ACTION } from "@/lib/wording";
-import { ROOM_RENAME } from "@/lib/wording";
+import { ROOM_RENAME, TASK_CARD } from "@/lib/wording";
 import { FOCUS } from "@/lib/wording";
 import { FOLDERS_WORDING } from "@/lib/workdir-tree";
 import { CLOSE_WORK_DIALOG } from "@/components/CloseWorkDialog";
@@ -586,11 +586,11 @@ describe("v1.1 — 관찰 표·허용 명령·빈 턴의 말은 한곳(lib/wordi
   /** 주석을 뺀 소스 — "손으로 다시 적지 않았다" 는 코드에 대한 말이다(주석이 사건을 설명하는 것은 막지 않는다). */
   const code = (f: string) => src(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-  it("ColabCommand 16개 전부에 사람 말이 있고, 명령 이름(밑줄 표기)은 화면 문자열에 없다", () => {
+  it("ColabCommand 21개 전부에 사람 말이 있고, 명령 이름(밑줄 표기)은 화면 문자열에 없다", () => {
     const openapi = readFileSync(join(ROOT, "..", "contracts", "openapi.yaml"), "utf8");
     const m = openapi.match(/ColabCommand:\n\s+type: string\n[^\n]*\n\s+enum: \[([^\]]+)\]/)!;
     const names = m[1].split(",").map((x) => x.trim());
-    expect(names).toHaveLength(16);
+    expect(names).toHaveLength(21);
     expect(Object.keys(COMMAND_LABEL).sort()).toEqual([...names].sort());
     for (const v of Object.values(COMMAND_LABEL)) expect(inPool("lib/wording.ts", v)).toBe(true);
     // `lane_delegate`·`hitl_ask` 같은 명령 이름은 코드다 — 화면 문자열 풀에 없다.
@@ -1064,5 +1064,44 @@ describe("v0.19.13 「지금」 줄 — 머리말·툴팁은 표(FOCUS)에서만
     for (const f of ["components/FocusLine.tsx", "components/LaneCard.tsx", "components/MessageLayers.tsx"]) {
       expect(code(f), f).not.toMatch(/"지금"|"취소는 즉시 가능"|받은 요청으로 만든/);
     }
+  });
+});
+
+// ── v0.19.15 작업 카드(SCREEN §4.6 「작업 카드」·「분담표」 · COMPONENTS §9.13 · PRD FR-3.8) ─────────────
+// 회귀 주입: TASK_CARD 의 라벨 하나를 바꾸면 (table) FAIL; 말풍선·분담표에 문장을 직접 쓰면 (inline) FAIL; enum 키가 계약과 어긋나면 (enum) FAIL.
+describe("v0.19.15 작업 카드 — 문구는 표(TASK_CARD)에서만, enum 은 계약과 1:1", () => {
+  const src = (f: string) => readFileSync(join(ROOT, f), "utf8");
+  const code = (f: string) => src(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "").replace(/\s\/\/.*$/gm, "");
+  const FILES_C = ["components/TaskCardBubble.tsx", "components/CardBoard.tsx", "lib/cards.ts"];
+
+  it("문구가 사는 파일이 풀 범위 안이다", () => {
+    for (const f of FILES_C) expect(FILES).toContain(f);
+  });
+  it("(table) 확인 방법 5종 · 상태 4종 · 판정 3종 · SCREEN 의 말 그대로", () => {
+    expect(TASK_CARD.method).toEqual({ test: "테스트", artifact: "아티팩트", run: "실행 결과", review: "검토", inspect: "눈으로 확인" });
+    expect(TASK_CARD.status).toEqual({ in_progress: "진행 중", result_submitted: "결과 제출", accepted: "수락", cancelled: "취소" });
+    expect(TASK_CARD.verdict).toEqual({ met: "충족", partial: "부분", unmet: "미충족" });
+    expect(TASK_CARD.judge).toEqual({ pending: "판정 대기", accepted: "수락", revise_requested: "수정 요청" });
+    expect(TASK_CARD.downgraded).toBe("부분 · 근거 없음");
+    expect(TASK_CARD.auto).toBe("자동");
+    expect(TASK_CARD.unaccept).toBe("수락 취소…");
+    expect(TASK_CARD.revise).toBe("수정 요청…");
+    expect(TASK_CARD.board_head(5, 1)).toBe("카드 5 · 판정 대기 1");
+    expect(TASK_CARD.met_count(1, 3)).toBe("기준 1/3 충족");
+    expect(WORK_PANEL.tab_board).toBe("분담표");
+  });
+  it("(enum) 키가 계약(schema.d.ts)의 enum 과 같다", () => {
+    const schema = src("lib/api/schema.d.ts");
+    const en = (name: string) => [...(new RegExp(`\\b${name}: ([^;]+);`).exec(schema)?.[1] ?? "").matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
+    expect(Object.keys(TASK_CARD.status).sort()).toEqual(en("CardStatus"));
+    expect(Object.keys(TASK_CARD.verdict).sort()).toEqual(en("CardVerdict"));
+    expect(Object.keys(TASK_CARD.method).sort()).toEqual(en("CardCriterionMethod"));
+  });
+  it("(inline) 컴포넌트는 표를 그린다 — 문장을 직접 쓰지 않는다", () => {
+    for (const f of FILES_C) expect(code(f), f).not.toMatch(/"(판정 대기|근거 없음|수락 취소|수정 요청|진행 중|분담표|지워진 자료|새 판 보기)/);
+  });
+  it("§8.4 용어 — 옛말(산출물·세션·작업 줄기) 0건", () => {
+    const all = JSON.stringify(TASK_CARD, (_k, v) => (typeof v === "function" ? String(v) : v));
+    expect(all).not.toMatch(/산출물|세션|작업 줄기/);
   });
 });

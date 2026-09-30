@@ -45,7 +45,10 @@ describe("Badge", () => {
     // v0.19 (T-R2-W2) — 미션 상태 6종(계약 WorkStatus enum 그대로)은 `session` 과 같은 말·같은 글리프(COMPONENTS §9.5).
     expect([...badgeValues("work")].sort()).toEqual([...badgeValues("session")].sort());
     for (const v of badgeValues("work")) expect(badgeSpec("work", v)).toEqual(badgeSpec("session", v as BadgeValue<"session">));
-    expect(BADGE_ENTRY_COUNT).toBe(42);
+    // v0.19.15 (T-CARD-W) — 카드 상태 4종(계약 CardStatus enum 그대로) + 결과 카드 판정 칩 3종.
+    expect([...badgeValues("card")].sort()).toEqual(["accepted", "cancelled", "in_progress", "result_submitted"]);
+    expect([...badgeValues("card_judge")].sort()).toEqual(["accepted", "pending", "revise_requested"]);
+    expect(BADGE_ENTRY_COUNT).toBe(49);
   });
 
   it("failed / error / offline 기본 variant 는 solid, 나머지는 soft", () => {

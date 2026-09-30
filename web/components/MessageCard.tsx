@@ -84,6 +84,10 @@ export interface MessageCardProps {
   conversation?: (m: Message, opts: { parent?: Message }) => ConversationSlot | undefined;
   /** 스레드 답글로 렌더 중일 때 그 루트(대화 배치의 「답」·스레드 대상 판정). */
   parent?: Message;
+  /** v0.19.15 작업 카드 — 머리줄 오른쪽(메뉴 앞)의 카드 머리(번호 · 판 · 상태 칩, SCREEN §4.6 「작업 카드」). */
+  headExtra?: React.ReactNode;
+  /** v0.19.15 작업 카드 — `article` 의 aria-label 을 카드 문장으로(「〈작성자〉 · 위임 카드 C-n · …」). */
+  ariaLabel?: string;
 }
 
 export interface ConversationSlot {
@@ -131,6 +135,7 @@ export function MessageCard(props: MessageCardProps) {
   );
   const tail = (
     <>
+      {props.headExtra}
       {props.workLabel}
       {props.menu && <span className="msg__menu">{props.menu}</span>}
     </>
@@ -223,7 +228,7 @@ export function MessageCard(props: MessageCardProps) {
   }
 
   // v0.19.4 대화 배치 — 시스템은 가운데 줄, 말풍선(text)은 사람 오른쪽 · 에이전트 왼쪽, 질문·요약은 전폭 카드. 스레드 안은 좌우를 나누지 않는다.
-  const aria = speechAria(authorName(m), conv.speech);
+  const aria = props.ariaLabel ?? speechAria(authorName(m), conv.speech);
   if (m.kind === "system") {
     return (
       <article className="msg convo convo--system" data-kind={m.kind} data-message-id={m.id} data-testid="message-card" aria-label={aria}>
@@ -243,6 +248,7 @@ export function MessageCard(props: MessageCardProps) {
       data-grouped={conv.grouped ? "true" : undefined}
       data-speech={conv.speech.kind}
       data-message-id={m.id}
+      data-card-role={m.card_role ?? undefined}
       data-testid="message-card"
       aria-label={aria}
     >

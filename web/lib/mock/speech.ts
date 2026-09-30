@@ -3,7 +3,10 @@
  * 화면은 목이든 실서버든 같은 칸을 읽는다(lib/conversation.ts). 목이 판정을 더 잘 해서도, 덜 해서도 안 된다 —
  * 표가 갈리면 목에서만 초록인 화면이 된다.
  *
- * 판정 순서: system → hitl → blocked_q(질문, 멘션 없으면 waiting_for) → summary(요약) → 질문 카드 답글(답) → /note(메모) → 위임 → 보고(요청자 한 명) → 지시 → 요청 → 대화.
+ * 판정 순서: system → hitl → blocked_q(질문, 멘션 없으면 waiting_for) → summary(요약) → 질문 카드 답글(답) → /note(메모) → 위임 → 결과 카드(보고)
+ *   → 질문 task 의 답(v0.3.10) → 보고(요청자 한 명) → 지시 → 질문(에이전트 → 에이전트 멘션, v0.3.10 — 옛 「요청」) → 대화.
+ * v0.3.10(PRD FR-3.8 2): 카드 없이 에이전트가 다른 에이전트를 멘션한 말은 `request` 가 아니라 `question`, 그 질문이 깨운 턴에서 묻는 쪽에게
+ * 한 말은 `answer`. 위임 카드 말풍선은 `delegate`(위임 premise), 결과 카드 말풍선은 `report`(결과 premise — ↩ 위임 카드 말풍선).
  */
 import type { Message } from "@/lib/api/types";
 import type { MockTask, Store } from "./store";
@@ -17,6 +20,8 @@ export interface SpeechPremises {
   delegateTargetName?: string;
   /** 질문 — 멘션이 없는 질문 카드가 기다리는 상대(표 3행 후반, `Lane.waiting_for`). */
   waitingFor?: Addressee;
+  /** v0.3.10 결과 카드 — 받는 쪽은 위임자, ↩ 는 그 판의 위임 카드 말풍선(서버 submitCardResult 가 쓰는 순간 안다). */
+  cardResult?: { respondsTo: string; to: Addressee };
 }
 
 const same = (a: Addressee, b: Addressee) => a.kind === b.kind && (a.id ?? a.name) === (b.id ?? b.name);
@@ -75,8 +80,21 @@ export function applySpeech(s: Store, m: Message, p: SpeechPremises = {}): Messa
       m.delegated_lane_id = p.delegatedLaneId;
       return m;
     }
+    if (p.cardResult) {
+      m.speech = "report";
+      m.addressees = [p.cardResult.to];
+      m.responds_to_message_id = p.cardResult.respondsTo;
+      return m;
+    }
     const trig = triggerOf(s, m);
     const requester = authorTo(s, trig);
+    // v0.3.10 — 질문 task(카드 없는 에이전트 멘션이 깨운 턴)에서 묻는 쪽에게 한 말은 답이다.
+    if (trig?.speech === "question" && trig.author_type === "agent" && requester && requester.id !== m.author_id && (base.length === 0 || base.some((a) => same(a, requester)))) {
+      m.speech = "answer";
+      m.addressees = [requester];
+      m.responds_to_message_id = trig.id;
+      return m;
+    }
     if (trig && requester && requester.id !== m.author_id && (base.length === 0 || base.some((a) => same(a, requester)))) {
       m.speech = "report";
       // 표 7행 받는 쪽 = 요청자 한 명. 같이 부른 다른 에이전트는 트리거만 된다.
@@ -86,7 +104,8 @@ export function applySpeech(s: Store, m: Message, p: SpeechPremises = {}): Messa
     }
   }
   if (mentioned.some((a) => a.kind === "agent")) {
-    m.speech = m.author_type === "user" ? "instruct" : "request";
+    // v0.3.10 — 에이전트가 카드 없이 에이전트를 멘션하면 질문(받는 쪽은 답만 한다). 옛 「요청」은 없어졌다.
+    m.speech = m.author_type === "user" ? "instruct" : "question";
     m.addressees = mentioned;
     return m;
   }

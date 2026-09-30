@@ -1,0 +1,62 @@
+/*
+ * 작업 카드 말풍선(COMPONENTS §9.13 · Pencil `S7-K 작업 카드`) — 에이전트 말풍선(`.convo__bubble`, $surface) 안의 칸 줄.
+ * 토큰만 쓴다(다크는 토큰이 바꾼다). 글자 크기는 계단 토큰(§8.2)만 — px 를 손으로 적지 않는다.
+ */
+.tcard { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.tcard__head { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: var(--fs-meta); color: var(--ink-2); }
+.tcard__no { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink-2); }
+.tcard__ver { color: var(--ink-2); }
+.tcard__auto { display: inline-flex; align-items: center; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--ink-2); font-size: var(--fs-meta); }
+/* 칸 한 줄 — 왼쪽 64px 칸 이름 열 + 값 */
+.tcard__row { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; align-items: start; }
+.tcard__label { font-size: var(--fs-meta); color: var(--ink-2); line-height: 20px; }
+.tcard__val { min-width: 0; font-size: var(--fs-body); line-height: 1.45; }
+.tcard__text { overflow-wrap: anywhere; }
+/* 완료 기준 — ol, 줄 22, 번호 등폭 $ink-2, 오른쪽 확인 방법 칩(높이 20, 모서리 10, 1px $line) */
+.tcard__crit, .tcard__verdicts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.tcard__crit-row { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 6px; align-items: start; line-height: 22px; }
+.tcard__n { color: var(--ink-2); font-size: var(--fs-meta); font-variant-numeric: tabular-nums; line-height: 22px; }
+.tcard__method { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink-2); font-size: var(--fs-meta); white-space: nowrap; }
+/* 하지 않을 것 — 왼쪽 2px $s-wait 막대, 늘 보인다(접지 않는다) */
+.tcard__bound { display: block; border-left: 2px solid var(--s-wait); padding-left: 8px; overflow-wrap: anywhere; }
+/* 참고 칩 — 높이 22, 모서리 11, 글리프 + 이름 말줄임(최대 160px). 지워진 대상은 흐림 */
+.tcard__refs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tcard__ref { display: inline-flex; align-items: center; gap: 2px; height: 22px; max-width: 200px; padding: 0 8px; border-radius: 11px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; font-size: var(--fs-meta); cursor: pointer; }
+.tcard__ref-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tcard__ref:hover { border-color: var(--ink-3); }
+.tcard__ref[data-missing] { opacity: 0.5; cursor: default; text-decoration: line-through; }
+.tcard__revise { margin: 0; font-size: var(--fs-sub); color: var(--s-wait-text); }
+/* 결과 카드 */
+.tcard__back { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; font-size: var(--fs-meta); color: var(--ink-2); cursor: pointer; text-align: left; }
+.tcard__back:hover { text-decoration: underline; }
+.tcard__summary { margin: 0; font-size: var(--fs-body); line-height: 1.5; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.tcard__summary--auto { color: var(--ink-2); border-bottom: 0; padding-bottom: 0; }
+.tcard__verdict { display: grid; grid-template-columns: 16px 12px minmax(0, 1fr) auto; gap: 6px; align-items: start; line-height: 22px; }
+.tcard__glyph { width: 16px; text-align: center; font-weight: 700; }
+.tcard__glyph[data-verdict="met"] { color: var(--s-done-text); }
+.tcard__glyph[data-verdict="partial"] { color: var(--s-wait-text); }
+.tcard__glyph[data-verdict="unmet"] { color: var(--s-fail-text); }
+.tcard__why { display: inline-flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; font-size: var(--fs-meta); color: var(--ink-2); min-width: 0; }
+.tcard__note, .tcard__down { color: var(--ink-2); overflow-wrap: anywhere; }
+.tcard__ev { background: none; border: 0; padding: 0; font: inherit; font-size: var(--fs-meta); color: var(--s-run-text); text-decoration: underline; cursor: pointer; overflow-wrap: anywhere; }
+.tcard__ev--commit { text-decoration: none; cursor: default; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.tcard__verdicts { padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.tcard__list { margin: 0; padding-left: 16px; }
+.tcard__row--warn .tcard__val { color: var(--s-wait-text); }
+.tcard__meta { margin: 0; font-size: var(--fs-meta); color: var(--ink-2); }
+.tcard__judged { margin: 0; padding-top: 8px; border-top: 1px solid var(--line); font-size: var(--fs-meta); color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.tcard__loading { margin: 0; color: var(--ink-2); font-size: var(--fs-sub); }
+.tcard__reason { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px dashed var(--line); }
+/* 카드 머리가 오른쪽 끝을 잡는다 — 메뉴는 그 바로 뒤(둘 다 margin-left:auto 면 가운데로 갈린다) */
+.convo[data-card-role] .tcard__head ~ .msg__menu { margin-left: 0; }
+/* 카드는 말풍선을 넓게 쓴다(칸이 정해진 카드 — 88% 폭은 칸 이름 열을 좁힌다) */
+.convo[data-card-role] .convo__bubble { max-width: 100%; width: 100%; }
+/* 좁은 화면 — 확인 방법 칩·근거 링크가 기준 문장 아래 줄로, 칸 이름이 위 줄로 */
+@media (max-width: 720px) {
+  .tcard__row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .tcard__crit-row { grid-template-columns: 12px minmax(0, 1fr); }
+  .tcard__method { grid-column: 2; justify-self: start; }
+  .tcard__verdict { grid-template-columns: 16px 12px minmax(0, 1fr); }
+  .tcard__why { grid-column: 3; justify-content: flex-start; }
+  .tcard__head { margin-left: 0; flex-basis: 100%; }
+}

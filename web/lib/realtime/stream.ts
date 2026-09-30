@@ -64,6 +64,9 @@ export const STREAM_EVENT_TYPES: readonly StreamEventType[] = [
   "room_link.updated",
   "work_proposal.created",
   "work_proposal.resolved",
+  // v0.3.10 작업 카드(PRD FR-3.8) — 위임·결과·판정·수정 요청·취소. 카드 말풍선 상태 칩·판정 줄 · 우열 분담표.
+  "card.created",
+  "card.updated",
 ];
 
 /** EventSource 를 열고 닫는 함수를 돌려준다. React 밖에서도 쓸 수 있다. */

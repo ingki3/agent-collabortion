@@ -1,0 +1,18 @@
+/* 분담표(COMPONENTS §9.13 Card Board) — 우열 268px 안. 두 줄 행(#397 리뷰 (5)): 1줄 「C-n · 목표」 전폭 말줄임, 2줄 「@담당 · 상태 칩 · k/N · 비용」(--fs-meta). 토큰만. */
+.cboard { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.cboard__row {
+  display: flex; align-items: flex-start; gap: 4px; width: 100%; min-height: 48px; padding: 6px 4px;
+  border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--ink); font: inherit; font-size: var(--fs-sub); text-align: left; cursor: pointer;
+}
+.cboard__row:hover { background: var(--surface); }
+.cboard__row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.cboard__tree { color: var(--ink-3); flex: none; line-height: 1.5; }
+.cboard__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cboard__line1 { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+.cboard__line2 { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: var(--fs-meta); color: var(--ink-2); }
+.cboard__no { flex: none; font-variant-numeric: tabular-nums; font-size: var(--fs-meta); color: var(--ink-2); }
+.cboard__sep { flex: none; color: var(--ink-3); }
+.cboard__goal { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cboard__who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--s-run-text); }
+.cboard__met, .cboard__cost { flex: none; font-variant-numeric: tabular-nums; }
+.cboard__row .badge { flex: none; }
