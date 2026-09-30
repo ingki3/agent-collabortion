@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ingki3/agent-collabortion/contracts"
+
 	"github.com/ingki3/agent-collabortion/server/internal/cards"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/router"
@@ -359,4 +361,63 @@ func TestQuestionLaneEndAndPromotion(t *testing.T) {
 			t.Fatalf("merged task kind = %q, want normal (a person's instruction is not a question)", kind)
 		}
 	})
+}
+
+// 400b NN6: a card turn's follow-up fails for good → lane failed, card
+// cancelled (the join goes on). When the Director restarts that lane the
+// card comes back — same version, in_progress — so the restarted turn is a
+// card turn and its result is accepted.
+// 주입: restartLane 의 cards.ReviveOnLane 을 빼면 FAIL(card_not_open).
+func TestRestartRevivesCancelledCard(t *testing.T) {
+	f := newP2Fixture(t)
+	ctx := t.Context()
+	_, rTask, rLane := f.delegatedChild(t)
+	c := f.taskCard(t, rTask)
+	f.finishNoResult(t, rTask) // → result_card_missing follow-up
+	fu, _, reason := f.queuedOnLane(t, rLane)
+	if reason == nil || *reason != "result_card_missing" {
+		t.Fatalf("no follow-up queued: %v", reason)
+	}
+	f.runTask(t, fu)
+	for {
+		ft, err := f.srv.Tasks.Finish(ctx, fu, currentAttempt(t, f, fu), contracts.Finish{Outcome: "failed", FailureKind: contracts.FailOther})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(ft) != "queued" {
+			break
+		}
+		f.runTask(t, fu) // a retry attempt; fail it too
+	}
+	if st := f.laneStatus(t, rLane); st != "failed" {
+		t.Fatalf("lane = %s, want failed", st)
+	}
+	if got := f.taskCard(t, rTask); got.Status != cards.Cancelled {
+		t.Fatalf("card after the failed follow-up = %s, want cancelled", got.Status)
+	}
+	st, out, _ := f.api.do("POST", f.p+"/lanes/"+rLane.String()+"/restart", map[string]any{"content": "다시 해 주세요"}, "Idempotency-Key", uuid.NewString())
+	if st != 202 {
+		t.Fatalf("restart: %d %v", st, out)
+	}
+	got, err := cards.Get(ctx, f.pool, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != cards.InProgress || got.Version != 1 || got.FollowUps != 0 {
+		t.Fatalf("card after restart: %s v%d follow-ups %d, want in_progress v1 0", got.Status, got.Version, got.FollowUps)
+	}
+	nt, kind, _ := f.queuedOnLane(t, rLane)
+	var cardID *uuid.UUID
+	if err := f.pool.QueryRow(ctx, `SELECT card_id FROM task WHERE id = $1`, nt).Scan(&cardID); err != nil {
+		t.Fatal(err)
+	}
+	if kind != "card" || cardID == nil || *cardID != c.ID {
+		t.Fatalf("restarted task kind %q card %v, want a card task of %s", kind, cardID, c.ID)
+	}
+	f.fake.Advance(time.Minute)
+	f.runTask(t, nt)
+	f.report(t, nt)
+	if got := f.taskCard(t, nt); got.Status != cards.ResultSubmitted {
+		t.Fatalf("result after restart: %s", got.Status)
+	}
 }

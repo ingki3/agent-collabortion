@@ -532,6 +532,28 @@ func Accept(ctx context.Context, tx pgx.Tx, r *Row, byKind string, byID uuid.UUI
 	return err
 }
 
+// ReviveOnLane brings back the lane's card that the lane's failure cancelled
+// when a person restarts the lane (#400 리뷰 400b NN6): the same version,
+// `in_progress`, its follow-up count reset — the restarted turn is a card
+// turn again and can submit its result. A card whose mission is closed stays
+// cancelled (that cancel was the mission's, not the lane's). Returns the card
+// it revived, or uuid.Nil.
+func ReviveOnLane(ctx context.Context, tx pgx.Tx, laneID uuid.UUID, now time.Time) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := tx.QueryRow(ctx, `
+		UPDATE task_card c SET status = 'in_progress', follow_ups = 0, updated_at = $2
+		WHERE c.lane_id = $1 AND c.status = 'cancelled'
+		  AND NOT EXISTS (SELECT 1 FROM work w WHERE w.id = c.work_id AND w.status IN ('completed', 'cancelled'))
+		RETURNING c.id`, laneID, now).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, nil
+	}
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("cards: revive: %w", err)
+	}
+	return id, nil
+}
+
 // CancelWhere cancels the open cards a lane cancel or a mission close leaves
 // behind (PRD FR-3.8 1 「취소(lane 취소·미션 닫힘)」) and returns them for
 // card.updated. Accepted cards stay accepted.
