@@ -63,6 +63,7 @@ type Posted struct {
 type Server struct {
 	*httptest.Server
 	p2State // P2 knobs and captures — see p2.go
+	cardState
 	roomState
 	mu       sync.Mutex
 	Revoked  bool // every authed call → 401 token_revoked
@@ -158,6 +159,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	if s.handleP3(w, r, path) {
 		return
 	}
+	if s.handleCards(w, r, path) {
+		return
+	}
 	if s.handleRooms(w, r, path) {
 		return
 	}
@@ -184,6 +188,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		if s.AllowedCommands != nil {
 			cc["allowed_commands"] = s.AllowedCommands
+		}
+		cc["task_kind"] = "normal"
+		if !s.NotCardTask {
+			cc["task_kind"], cc["card_id"], cc["card_label"] = "card", CardID, "C-1"
 		}
 		writeJSON(w, 200, cc)
 	case r.Method == "GET" && strings.HasPrefix(path, "/rooms/") && strings.HasSuffix(path, "/messages"):

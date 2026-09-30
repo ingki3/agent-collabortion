@@ -43,7 +43,12 @@ type CliContext struct {
 	// §2.5). A pre-v1.1 server omits it (nil) and an empty list means no
 	// restriction — both allow everything (AllowedCommandSet).
 	AllowedCommands []string `json:"allowed_commands,omitempty"`
-	ExpiresAt       string   `json:"expires_at"`
+	// v0.3.10 (PRD FR-3.8): normal · card · question, and the card of a
+	// card task — `colab card report` sends its result there.
+	TaskKind  string  `json:"task_kind,omitempty"`
+	CardID    *string `json:"card_id,omitempty"`
+	CardLabel *string `json:"card_label,omitempty"`
+	ExpiresAt string  `json:"expires_at"`
 }
 
 // Participant — CliContext.participants[].

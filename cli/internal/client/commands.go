@@ -11,7 +11,7 @@ import (
 // MCP tool name without its `colab_` prefix (§3).
 type Command string
 
-// The sixteen ColabCommand values, in openapi.yaml enum order (colab-cli.md
+// The twenty-one ColabCommand values (v0.9.10), in openapi.yaml enum order (colab-cli.md
 // §2, then the v0.8 room commands of §2.4a; v0.9 R4 put room_get ·
 // room_messages in the old session reads' slots). commands_test.go checks
 // this list against the openapi.yaml enum.
@@ -22,7 +22,7 @@ const (
 	CmdMessagePost        Command = "message_post"
 	CmdStatusSet          Command = "status_set"
 	CmdDecisionRecord     Command = "decision_record"
-	CmdLaneDelegate       Command = "lane_delegate"
+	CmdCardDelegate       Command = "card_delegate"
 	CmdArtifactSubmit     Command = "artifact_submit"
 	CmdReviewApprove      Command = "review_approve"
 	CmdReviewReject       Command = "review_reject"
@@ -32,14 +32,21 @@ const (
 	CmdRoomList           Command = "room_list"
 	CmdRoomRead           Command = "room_read"
 	CmdWorkPropose        Command = "work_propose"
+	// v0.9.10 (PRD FR-3.8): the card commands.
+	CmdCardReport Command = "card_report"
+	CmdCardAccept Command = "card_accept"
+	CmdCardRevise Command = "card_revise"
+	CmdCardGet    Command = "card_get"
+	CmdCardList   Command = "card_list"
 )
 
 // AllCommands is the closed ColabCommand set.
 var AllCommands = []Command{
 	CmdRoomGet, CmdRoomMessages, CmdArtifactGet, CmdMessagePost, CmdStatusSet, CmdDecisionRecord,
-	CmdLaneDelegate, CmdArtifactSubmit, CmdReviewApprove, CmdReviewReject,
+	CmdCardDelegate, CmdArtifactSubmit, CmdReviewApprove, CmdReviewReject,
 	CmdHitlAsk, CmdHitlApproveRequest, CmdHitlRequestInfo,
 	CmdRoomList, CmdRoomRead, CmdWorkPropose,
+	CmdCardReport, CmdCardAccept, CmdCardRevise, CmdCardGet, CmdCardList,
 }
 
 // IsCommand reports whether s is one of AllCommands.

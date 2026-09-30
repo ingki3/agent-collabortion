@@ -89,7 +89,7 @@ func section2Of(t *testing.T, text string) string {
 // the shell spelling for hermes (cli_wrapper, later rewritten to the wrapper).
 func assertRestricted(t *testing.T, s2 string, mcp bool) {
 	t.Helper()
-	if strings.Contains(s2, "lane delegate") || strings.Contains(s2, "colab_lane_delegate") {
+	if strings.Contains(s2, "card delegate") || strings.Contains(s2, "colab_card_delegate") {
 		t.Fatalf("[2] names a denied command:\n%s", s2)
 	}
 	if mcp {
@@ -99,7 +99,7 @@ func assertRestricted(t *testing.T, s2 string, mcp bool) {
 	} else if !strings.Contains(s2, "room get`, `") || !strings.Contains(s2, "message post`.\n") {
 		t.Fatalf("[2] does not list the allowed commands:\n%s", s2)
 	}
-	if !strings.Contains(s2, "- 이 역할은 메시지 읽기 · 아티팩트 읽기 · 상태 알리기 · 결정 기록 · 위임 · 아티팩트 제출 · 검토 승인 · 검토 반려 · 사람에게 질문 · 완료 승인 요청 · 사람에게 정보 요청 · 다른 방 목록 · 다른 방 읽기 · 미션 제안을 쓰지 않는다.") {
+	if !strings.Contains(s2, "- 이 역할은 메시지 읽기 · 아티팩트 읽기 · 상태 알리기 · 결정 기록 · 카드로 위임 · 아티팩트 제출 · 검토 승인 · 검토 반려 · 사람에게 질문 · 완료 승인 요청 · 사람에게 정보 요청 · 다른 방 목록 · 다른 방 읽기 · 미션 제안 · 결과 카드 내기 · 결과 수락 · 수정 요청 · 카드 보기 · 분담표 보기를 쓰지 않는다.") {
 		t.Fatalf("[2] has no 'does not use' line:\n%s", s2)
 	}
 }

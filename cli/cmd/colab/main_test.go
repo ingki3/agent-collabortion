@@ -60,7 +60,7 @@ func TestVersionFlag(t *testing.T) {
 
 func TestUsageExit2(t *testing.T) {
 	env := clienttest.New(t).Env(t.TempDir())
-	for _, args := range [][]string{{}, {"bogus"}, {"room"}, {"room", "nope"}, {"message"}, {"message", "post"}, {"message", "post", "--body", ""}, {"room", "get", "extra"}, {"lane", "delegate"}, {"mcp"}, {"room", "messages", "--limit", "0"}, {"room", "messages", "--limit", "201"},
+	for _, args := range [][]string{{}, {"bogus"}, {"room"}, {"room", "nope"}, {"message"}, {"message", "post"}, {"message", "post", "--body", ""}, {"room", "get", "extra"}, {"card", "delegate"}, {"mcp"}, {"room", "messages", "--limit", "0"}, {"room", "messages", "--limit", "201"},
 		// v0.9 (R4): the session group is gone — an unknown command, not an alias.
 		{"session", "get"}, {"session", "messages"}} {
 		code, _, _ := exec(t, env, args...)

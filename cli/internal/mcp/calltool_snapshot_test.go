@@ -101,7 +101,12 @@ var snapArgs = map[string]map[string]any{
 	"colab_room_messages":        {"limit": 5},
 	"colab_message_post":         {"body": "snap", "mention": "@Reviewer,@Lead"},
 	"colab_status_set":           {"status": "working", "note": "보는 중"},
-	"colab_lane_delegate":        {"agent": "Reviewer", "brief": "봐 주세요", "depends_on": "l1,l2"},
+	"colab_card_delegate":        {"agent": "Reviewer", "goal": "봐 주세요", "criteria": []any{map[string]any{"text": "맞다", "method": "review"}}, "boundaries": "고치지 않는다", "depends_on": "l1,l2"},
+	"colab_card_report":          {"summary": "봤다", "verdicts": []any{map[string]any{"criterion": 1, "verdict": "partial", "note": "반만"}}, "confirmed": []any{"읽음"}, "assumed": []any{}},
+	"colab_card_accept":          {"card": "C-1"},
+	"colab_card_revise":          {"card": "C-1", "reason": "근거가 없다", "patch": map[string]any{"goal": "다시"}},
+	"colab_card_get":             {"card": "C-1"},
+	"colab_card_list":            {},
 	"colab_decision_record":      {"summary": "A 로 간다", "rationale": "싸다"},
 	"colab_artifact_submit":      {"type": "doc"},
 	"colab_artifact_get":         {"artifact": "00000000-0000-0000-0000-00000000a001"},
@@ -131,7 +136,7 @@ func TestCallToolSnapshot(t *testing.T) {
 	}
 	// Aliased fields given the wrong type decode through the alias.
 	c.call("post mention=number", "tools/call", map[string]any{"name": "colab_message_post", "arguments": map[string]any{"body": "x", "mention": 5}})
-	c.call("delegate depends_on=object", "tools/call", map[string]any{"name": "colab_lane_delegate", "arguments": map[string]any{"agent": "Reviewer", "brief": "b", "depends_on": map[string]any{}}})
+	c.call("delegate depends_on=object", "tools/call", map[string]any{"name": "colab_card_delegate", "arguments": map[string]any{"agent": "Reviewer", "goal": "b", "criteria": []any{map[string]any{"text": "t", "method": "run"}}, "boundaries": "x", "depends_on": map[string]any{}}})
 	c.call("hitl_ask choices=list", "tools/call", map[string]any{"name": "colab_hitl_ask", "arguments": map[string]any{"question": "q", "default": "B", "choices": []string{"A", "B"}}})
 	c.call("request_info what wins", "tools/call", map[string]any{"name": "colab_hitl_request_info", "arguments": map[string]any{"what": "W", "question": "Q"}})
 	c.call("unknown tool", "tools/call", map[string]any{"name": "colab_room_delete", "arguments": map[string]any{}})

@@ -26,15 +26,27 @@ func exitOf(t *testing.T, err error) int {
 	return client.ExitCode(err)
 }
 
-// ───────────────────────────── lane delegate ─────────────────────────────
+// ───────────────────────────── card delegate ─────────────────────────────
 
-// colab-cli.md §2.3: always a new lane; the CLI resolves --agent (a name) to
-// the roster's agent_id and the server posts the mention message.
-func TestLaneDelegate(t *testing.T) {
+// testCard is a valid card object for `agent`.
+func testCard(agent string) map[string]any {
+	return map[string]any{"agent": agent, "goal": "check the numbers",
+		"criteria":   []any{map[string]any{"text": "numbers add up", "method": "review"}},
+		"boundaries": "do not edit the draft"}
+}
+
+// delegate is CardDelegate with a card for agent (the old LaneDelegate call
+// sites of the gate tests).
+func delegate(ctx context.Context, c *client.Client, agent string) (*colab.CardDelegateResult, error) {
+	return colab.CardDelegate(ctx, c, colab.CardDelegateArgs{Card: testCard(agent)})
+}
+
+// colab-cli v0.9.10: the card goes to delegateLane as {card, depends_on,
+// profile}; `agent` (a name) becomes the roster's agent_id.
+func TestCardDelegate(t *testing.T) {
 	s := clienttest.New(t)
-	res, err := colab.LaneDelegate(context.Background(), newClient(t, s), colab.LaneDelegateArgs{
-		Agent: "@Reviewer", Brief: "check the numbers",
-		DependsOn: []string{"lane-a,lane-b", " lane-c "}, Profile: "careful",
+	res, err := colab.CardDelegate(context.Background(), newClient(t, s), colab.CardDelegateArgs{
+		Card: testCard("@Reviewer"), DependsOn: []string{"lane-a,lane-b", " lane-c "}, Profile: "careful",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -43,36 +55,72 @@ func TestLaneDelegate(t *testing.T) {
 		t.Fatalf("delegations = %d", len(s.Delegations))
 	}
 	body := s.Delegations[0].Body
-	if body["agent_id"] != clienttest.ReviewerID {
-		t.Fatalf("agent_id = %v, want the roster id for @Reviewer", body["agent_id"])
+	card, _ := body["card"].(map[string]any)
+	if card["agent_id"] != clienttest.ReviewerID || card["agent"] != nil {
+		t.Fatalf("card = %v, want agent_id = the roster id for @Reviewer and no `agent`", card)
 	}
-	if body["brief"] != "check the numbers" || body["profile"] != "careful" {
+	if card["goal"] != "check the numbers" || body["profile"] != "careful" || body["brief"] != nil {
 		t.Fatalf("body = %v", body)
 	}
 	dep, _ := body["depends_on"].([]any)
 	if len(dep) != 3 || dep[0] != "lane-a" || dep[2] != "lane-c" {
 		t.Fatalf("depends_on = %v (repeatable + comma-separated, trimmed)", dep)
 	}
-	// The Idempotency-Key is optional and must be absent unless asked for.
 	if s.Delegations[0].Key != "" {
 		t.Fatalf("Idempotency-Key = %q, want none by default", s.Delegations[0].Key)
 	}
-	if res.LaneID == "" || res.AgentID != clienttest.ReviewerID || res.AgentName != "Reviewer" {
+	if res.LaneID == "" || res.CardLabel != "C-1" || res.CardID != clienttest.CardID || res.TaskID == "" || res.AgentName != "Reviewer" {
 		t.Fatalf("res = %+v", res)
-	}
-	if res.MessageID == "" || res.Message == nil ||
-		!strings.Contains(res.Message.Content, clienttest.ReviewerID) {
-		t.Fatalf("auto-posted message = %+v", res.Message)
 	}
 }
 
-// T-QUIET (harness v0.9.15): a delegated task the server held says so in
-// the result; an ordinary one says nothing.
-//
-// 회귀 주입: LaneDelegate 의 queued_reason 줄을 빼면 FAIL.
-func TestLaneDelegateQuietNotice(t *testing.T) {
+// The card file: --file reads it.
+func TestCardDelegateFile(t *testing.T) {
 	s := clienttest.New(t)
-	res, err := colab.LaneDelegate(context.Background(), newClient(t, s), colab.LaneDelegateArgs{Agent: "@Reviewer", Brief: "각주"})
+	f := filepath.Join(t.TempDir(), "card.json")
+	b, _ := json.Marshal(testCard("Reviewer"))
+	if err := os.WriteFile(f, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := colab.CardDelegate(context.Background(), newClient(t, s), colab.CardDelegateArgs{File: f}); err != nil {
+		t.Fatal(err)
+	}
+	if card, _ := s.Delegations[0].Body["card"].(map[string]any); card["agent_id"] != clienttest.ReviewerID {
+		t.Fatalf("card = %v", card)
+	}
+	_, err := colab.CardDelegate(context.Background(), newClient(t, s), colab.CardDelegateArgs{})
+	if got := exitOf(t, err); got != client.ExitUsage {
+		t.Fatalf("no card: exit = %d, want 2", got)
+	}
+}
+
+// card_invalid: exit 3 and every field's reason in errors[] (colab-cli
+// v0.9.10 — the agent reads, fixes, resubmits).
+// 회귀 주입: client.problemError 의 errors 복사를 빼면 FAIL.
+func TestCardDelegateInvalidErrors(t *testing.T) {
+	s := clienttest.New(t)
+	card := testCard("Reviewer")
+	delete(card, "boundaries")
+	card["criteria"] = []any{map[string]any{"text": "x"}}
+	_, err := colab.CardDelegate(context.Background(), newClient(t, s), colab.CardDelegateArgs{Card: card})
+	if got := exitOf(t, err); got != client.ExitRefused {
+		t.Fatalf("exit = %d, want 3", got)
+	}
+	ej := colab.ErrorJSON(err)["error"].(map[string]any)
+	if ej["code"] != "card_invalid" {
+		t.Fatalf("code = %v", ej["code"])
+	}
+	b, _ := json.Marshal(ej["errors"])
+	if !strings.Contains(string(b), "card.criteria[0].method") || !strings.Contains(string(b), "card.boundaries") {
+		t.Fatalf("errors[] = %s, want both fields", b)
+	}
+}
+
+// T-QUIET (harness v0.9.15): a delegated task the server held says so.
+// 회귀 주입: CardDelegate 의 queued_reason 줄을 빼면 FAIL.
+func TestCardDelegateQuietNotice(t *testing.T) {
+	s := clienttest.New(t)
+	res, err := delegate(context.Background(), newClient(t, s), "@Reviewer")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +128,7 @@ func TestLaneDelegateQuietNotice(t *testing.T) {
 		t.Fatalf("notice on an ordinary delegation: %q", res.Notice)
 	}
 	s.DelegateQueuedReason = "approval_pending"
-	res, err = colab.LaneDelegate(context.Background(), newClient(t, s), colab.LaneDelegateArgs{Agent: "@Reviewer", Brief: "각주"})
+	res, err = delegate(context.Background(), newClient(t, s), "@Reviewer")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,55 +138,110 @@ func TestLaneDelegateQuietNotice(t *testing.T) {
 	}
 }
 
-// E15-02: delegating to a non-participant is refused by the CLI itself
-// (exit 3) and names the alternative route, and no request is sent.
-func TestLaneDelegateNonParticipantExit3(t *testing.T) {
+// E15-02: delegating to a non-participant is refused by the CLI itself.
+func TestCardDelegateNonParticipantExit3(t *testing.T) {
 	s := clienttest.New(t)
-	_, err := colab.LaneDelegate(context.Background(), newClient(t, s), colab.LaneDelegateArgs{
-		Agent: "Nobody", Brief: "do a thing"})
+	_, err := delegate(context.Background(), newClient(t, s), "Nobody")
 	if got := exitOf(t, err); got != client.ExitRefused {
 		t.Fatalf("exit = %d, want 3", got)
 	}
 	e := client.AsError(err)
-	if e.Code != "not_participant" {
-		t.Fatalf("code = %q", e.Code)
-	}
-	if !strings.Contains(e.Detail, "hitl ask") || !strings.Contains(e.Detail, "Director") {
-		t.Fatalf("detail must point at `colab hitl ask` to the Director, got %q", e.Detail)
-	}
-	if !strings.Contains(e.Detail, "Reviewer") {
-		t.Fatalf("detail should list the roster, got %q", e.Detail)
+	if e.Code != "not_participant" || !strings.Contains(e.Detail, "hitl ask") || !strings.Contains(e.Detail, "Reviewer") {
+		t.Fatalf("err = %+v", e)
 	}
 	if len(s.Delegations) != 0 {
 		t.Fatalf("nothing may be sent for a non-participant, got %d", len(s.Delegations))
 	}
 }
 
-func TestLaneDelegateArgErrors(t *testing.T) {
-	s := clienttest.New(t)
-	c := newClient(t, s)
-	for name, a := range map[string]colab.LaneDelegateArgs{
-		"no agent": {Brief: "x"},
-		"no brief": {Agent: "Reviewer"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, err := colab.LaneDelegate(context.Background(), c, a)
-			if got := exitOf(t, err); got != client.ExitUsage {
-				t.Fatalf("exit = %d, want 2", got)
-			}
-		})
+// The retired `lane delegate`: exit 3 card_required, nothing sent.
+func TestLaneDelegateRetired(t *testing.T) {
+	err := colab.LaneDelegateRetired()
+	if got := exitOf(t, err); got != client.ExitRefused {
+		t.Fatalf("exit = %d", got)
+	}
+	if e := client.AsError(err); e.Code != "card_required" || e.Detail != colab.CardRequiredSentence {
+		t.Fatalf("err = %+v", e)
 	}
 }
 
-func TestLaneDelegateSendsIdempotencyKeyWhenGiven(t *testing.T) {
+func TestCardDelegateSendsIdempotencyKeyWhenGiven(t *testing.T) {
 	s := clienttest.New(t)
 	key := "00000000-0000-4000-8000-00000000abcd"
-	if _, err := colab.LaneDelegate(context.Background(), newClient(t, s), colab.LaneDelegateArgs{
-		Agent: "Reviewer", Brief: "b", IdempotencyKey: key}); err != nil {
+	if _, err := colab.CardDelegate(context.Background(), newClient(t, s), colab.CardDelegateArgs{Card: testCard("Reviewer"), IdempotencyKey: key}); err != nil {
 		t.Fatal(err)
 	}
 	if s.Delegations[0].Key != key {
-		t.Fatalf("Idempotency-Key = %q, want %q", s.Delegations[0].Key, key)
+		t.Fatalf("key = %q", s.Delegations[0].Key)
+	}
+}
+
+// ───────────────────────────── card report · judge · read ─────────────
+
+// card report: only in a card task (from getCliContext, before the server);
+// the result goes to /cards/{card_id}/result; the notice comes back.
+// 회귀 주입: CardReport 의 CardID 검사를 빼면 (not-card-task) FAIL.
+func TestCardReport(t *testing.T) {
+	s := clienttest.New(t)
+	s.NotCardTask = true
+	result := map[string]any{"summary": "done", "verdicts": []any{map[string]any{"criterion": 1, "verdict": "met"}}, "confirmed": []any{"ran"}, "assumed": []any{}}
+	_, err := colab.CardReport(context.Background(), newClient(t, s), colab.CardReportArgs{Result: result})
+	if e := client.AsError(err); e.Code != "not_card_task" || e.Exit != client.ExitRefused {
+		t.Fatalf("(not-card-task) err = %+v", e)
+	}
+	if len(s.CardCalls) != 0 {
+		t.Fatal("(not-card-task) nothing may be sent")
+	}
+	s.NotCardTask = false
+	s.DowngradeNotice = "Criterion 1 said met without evidence, so it was saved as partial. Add evidence and submit again if it is really met."
+	res, err := colab.CardReport(context.Background(), newClient(t, s), colab.CardReportArgs{Result: result})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.CardCalls) != 1 || s.CardCalls[0].Op != "result" || s.CardCalls[0].Card != clienttest.CardID || s.CardCalls[0].Body["summary"] != "done" {
+		t.Fatalf("calls = %+v", s.CardCalls)
+	}
+	if res.Notice != s.DowngradeNotice {
+		t.Fatalf("notice = %q", res.Notice)
+	}
+	_, err = colab.CardReport(context.Background(), newClient(t, s), colab.CardReportArgs{Result: map[string]any{"summary": "x", "verdicts": []any{}, "confirmed": []any{"a"}, "assumed": []any{}}})
+	if e := client.AsError(err); e.Code != "result_card_incomplete" || e.Extra["errors"] == nil {
+		t.Fatalf("incomplete err = %+v", e)
+	}
+}
+
+// accept · revise · get resolve C-n on the turn's mission board.
+func TestCardJudgeResolvesLabel(t *testing.T) {
+	s := clienttest.New(t)
+	c := newClient(t, s)
+	if _, err := colab.CardAccept(context.Background(), c, colab.CardJudgeArgs{Card: "C-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := colab.CardRevise(context.Background(), c, colab.CardJudgeArgs{Card: "c-1", Reason: "근거가 없다", Patch: map[string]any{"goal": "새 목표"}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.CardCalls) != 2 || s.CardCalls[0].Op != "accept" || s.CardCalls[1].Op != "revise" || s.CardCalls[1].Body["reason"] != "근거가 없다" {
+		t.Fatalf("calls = %+v", s.CardCalls)
+	}
+	if p, _ := s.CardCalls[1].Body["card"].(map[string]any); p["goal"] != "새 목표" {
+		t.Fatalf("revise patch = %v", s.CardCalls[1].Body)
+	}
+	if len(s.CardLists) == 0 || s.CardLists[0] != clienttest.WorkID {
+		t.Fatalf("C-n resolved on work_id %v, want COLAB_WORK_ID", s.CardLists)
+	}
+	_, err := colab.CardAccept(context.Background(), c, colab.CardJudgeArgs{Card: "C-9"})
+	if e := client.AsError(err); e.Exit != client.ExitRefused || e.Code != "not_found" {
+		t.Fatalf("C-9: %+v", e)
+	}
+	_, err = colab.CardRevise(context.Background(), c, colab.CardJudgeArgs{Card: "C-1"})
+	if got := exitOf(t, err); got != client.ExitUsage {
+		t.Fatalf("revise without reason exit = %d", got)
+	}
+	if raw, err := colab.CardGet(context.Background(), c, colab.CardGetArgs{Card: clienttest.CardID}); err != nil || !strings.Contains(string(raw), "C-1") {
+		t.Fatalf("get = %s %v", raw, err)
+	}
+	if raw, err := colab.CardList(context.Background(), c, colab.CardListArgs{}); err != nil || !strings.Contains(string(raw), "items") {
+		t.Fatalf("list = %s %v", raw, err)
 	}
 }
 
@@ -540,7 +643,7 @@ func TestP2ExitCodeConvention(t *testing.T) {
 	dir := t.TempDir()
 	run := map[string]func(*testing.T, *client.Client) error{
 		"lane delegate": func(t *testing.T, c *client.Client) error {
-			_, err := colab.LaneDelegate(context.Background(), c, colab.LaneDelegateArgs{Agent: "Reviewer", Brief: "b"})
+			_, err := delegate(context.Background(), c, "Reviewer")
 			return err
 		},
 		"status set": func(t *testing.T, c *client.Client) error {
@@ -625,7 +728,7 @@ func TestP2DoesNotConsumeClientSeq(t *testing.T) {
 	s := clienttest.New(t)
 	c := newClient(t, s)
 	ctx := context.Background()
-	if _, err := colab.LaneDelegate(ctx, c, colab.LaneDelegateArgs{Agent: "Reviewer", Brief: "b"}); err != nil {
+	if _, err := delegate(ctx, c, "Reviewer"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := colab.DecisionRecord(ctx, c, colab.DecisionRecordArgs{Summary: "s"}); err != nil {
@@ -657,7 +760,7 @@ func TestCliContextFetchedAtMostOncePerProcess(t *testing.T) {
 	delete(env, "COLAB_TASK_ID")
 	c := client.New(client.FromEnv(clienttest.Getenv(env)))
 	ctx := context.Background()
-	if _, err := colab.LaneDelegate(ctx, c, colab.LaneDelegateArgs{Agent: "Reviewer", Brief: "b"}); err != nil {
+	if _, err := delegate(ctx, c, "Reviewer"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := colab.StatusSet(ctx, c, colab.StatusSetArgs{Status: "working"}); err != nil {

@@ -47,7 +47,7 @@ func TestNotAllowedSentenceIsTheContracts(t *testing.T) {
 	if contract != notAllowedFormat {
 		t.Fatalf("contract sentence %q, CLI %q", contract, notAllowedFormat)
 	}
-	if got := NotAllowedSentence("reviewer", CmdLaneDelegate); got != fmt.Sprintf(contract, "reviewer", "lane delegate") {
+	if got := NotAllowedSentence("reviewer", CmdCardDelegate); got != fmt.Sprintf(contract, "reviewer", "card delegate") {
 		t.Fatalf("sentence = %q", got)
 	}
 	if got, want := NotAllowedSentence("", CmdHitlApproveRequest), fmt.Sprintf(noRole, "hitl approve-request"); got != want {
@@ -55,7 +55,7 @@ func TestNotAllowedSentenceIsTheContracts(t *testing.T) {
 	}
 	// Pinned literally too, so a contract edit that changes the sentence
 	// fails here (and is then a deliberate CLI change), not only above.
-	if got := NotAllowedSentence("reviewer", CmdLaneDelegate); got != "이 역할(reviewer)은 lane delegate 를 쓸 수 없습니다" {
+	if got := NotAllowedSentence("reviewer", CmdCardDelegate); got != "이 역할(reviewer)은 card delegate 를 쓸 수 없습니다" {
 		t.Fatalf("sentence = %q", got)
 	}
 	if got := NotAllowedSentence("", CmdHitlApproveRequest); got != "이 역할은 hitl approve-request 를 쓸 수 없습니다" {
@@ -109,10 +109,12 @@ func TestCLIName(t *testing.T) {
 	want := map[Command]string{
 		CmdRoomGet: "room get", CmdRoomMessages: "room messages", CmdArtifactGet: "artifact get",
 		CmdMessagePost: "message post", CmdStatusSet: "status set", CmdDecisionRecord: "decision record",
-		CmdLaneDelegate: "lane delegate", CmdArtifactSubmit: "artifact submit",
+		CmdCardDelegate: "card delegate", CmdArtifactSubmit: "artifact submit",
 		CmdReviewApprove: "review approve", CmdReviewReject: "review reject",
 		CmdHitlAsk: "hitl ask", CmdHitlApproveRequest: "hitl approve-request", CmdHitlRequestInfo: "hitl request-info",
 		CmdRoomList: "room list", CmdRoomRead: "room read", CmdWorkPropose: "work propose",
+		CmdCardReport: "card report", CmdCardAccept: "card accept", CmdCardRevise: "card revise",
+		CmdCardGet: "card get", CmdCardList: "card list",
 	}
 	for _, c := range AllCommands {
 		if c.CLIName() != want[c] {

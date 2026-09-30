@@ -76,12 +76,12 @@ func (s *Server) commandAllowed(r *http.Request, cmd gen.ColabCommand) *Problem 
 	if roles.AllowsFor(gen.AgentRole(role), kind, cmd) {
 		return nil
 	}
-	sentence := fmt.Sprintf("이 역할(%s)은 %s 를 쓸 수 없습니다", role, roles.CLIName(cmd))
-	if roles.Allows(gen.AgentRole(role), cmd) {
-		sentence = cards.QuestionRefusal(roles.CLIName(cmd))
-	}
 	s.recordRefused(r, cmd)
-	p := apperr.Forbidden("command_not_allowed", sentence)
+	p := apperr.Forbidden("command_not_allowed", fmt.Sprintf("이 역할(%s)은 %s 를 쓸 수 없습니다", role, roles.CLIName(cmd)))
+	if roles.Allows(gen.AgentRole(role), cmd) {
+		// The role has it; the question table does not (FR-3.8 2).
+		p = apperr.Forbidden("command_not_allowed", cards.QuestionRefusal(roles.CLIName(cmd)))
+	}
 	p.Extra = map[string]any{"command": string(cmd), "role": role}
 	return p
 }
