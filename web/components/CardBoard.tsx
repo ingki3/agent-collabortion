@@ -34,7 +34,7 @@ export function CardBoard({ board, onOpen }: { board: Board | null; onOpen: (ite
               className="cboard__row"
               style={depth ? { paddingLeft: 4 + depth * 16 } : undefined}
               onClick={() => onOpen(item)}
-              aria-label={L.board_row_aria(item.label, item.goal, item.assignee.name, statusText(chip), met)}
+              aria-label={L.board_row_aria(item.label, item.goal, item.assignee.name, statusText(chip), item.met == null ? null : met)}
               title={L.board_open(item.label)}
               data-testid="card-board-row"
               data-card-id={item.id}

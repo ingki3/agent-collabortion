@@ -12,7 +12,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { TimelineItemView, timelineEntry, type TimelineCtx } from "./TimelineItemView";
+import { TimelineItemView, sameTimelineItem, timelineEntry, type TimelineCtx } from "./TimelineItemView";
 import { cardMenuItems } from "./TaskCardBubble";
 import { timelineItems } from "@/lib/parts";
 import { cardsOnFetched, cardsOnUpserted } from "@/lib/cards";
@@ -180,6 +180,17 @@ describe("TimelineItemView 는 memo (#397 NN4)", () => {
     rerender(<Host c={c1} tick={2} />);
     expect(renders).toBe(first);
     rerender(<Host c={{ ...c1 }} tick={3} />);
+    expect(renders).toBeGreaterThan(first);
+    // NN7 — ctx 가 같아도 알맹이(메시지 · 묶음의 부분)가 바뀌면 다시 그린다(sameTimelineItem 이 유일한 방어가 되는 경로).
+    const before = renders;
+    const HostM = ({ mm }: { mm: Message }) => <TimelineItemView item={timelineItems([mm])[0]} ctx={c1} />;
+    rerender(<HostM mm={m} />);
+    const mid = renders;
+    rerender(<HostM mm={{ ...m }} />);
+    expect(renders).toBeGreaterThan(mid);
+    expect(sameTimelineItem({ kind: "group", groupId: "g", size: 2, parts: [m] }, { kind: "group", groupId: "g", size: 2, parts: [{ ...m }] })).toBe(false);
+    expect(sameTimelineItem({ kind: "group", groupId: "g", size: 2, parts: [m] }, { kind: "group", groupId: "g", size: 2, parts: [m] })).toBe(true);
+    expect(before).toBeGreaterThan(0);
     expect(renders).toBeGreaterThan(first);
   });
 });

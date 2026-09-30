@@ -204,7 +204,11 @@ function TimelineItemViewInner({ item, ctx }: { item: TimelineItem; ctx: Timelin
   return <>{(RENDER[e.kind] as (e: TimelineEntry, ctx: TimelineCtx) => ReactNode)(e, ctx)}</>;
 }
 
-/** 항목이 같은가 — `timelineItems` 는 매번 새 껍데기를 만들므로 알맹이(메시지 참조 · 묶음의 부분 참조)로 잰다. */
+/**
+ * 항목이 같은가 — `timelineItems` 는 매번 새 껍데기를 만들므로 알맹이(메시지 참조 · 묶음의 부분 참조)로 잰다.
+ * 방 화면의 `timelineCtx` deps 에 `messages` 가 있는 동안은 **중복 방어**다(알맹이가 바뀌면 ctx 가 먼저 바뀐다, #397 R1 NN7).
+ * deps 에서 `messages` 를 빼면 이것이 유일한 방어가 된다 — 그 경로는 `TaskCardBubble.test` 「부분 바뀜」이 잰다.
+ */
 export function sameTimelineItem(a: TimelineItem, b: TimelineItem): boolean {
   if (a === b) return true;
   if (a.kind === "message" || b.kind === "message") return a.kind === b.kind && (a as { message: Message }).message === (b as { message: Message }).message;

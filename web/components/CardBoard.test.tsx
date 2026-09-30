@@ -103,7 +103,7 @@ describe("CardBoard — 행 · 트리 · 누르기", () => {
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "c3", latest_message_id: "m3" }));
     // 행 이름은 내용(번호 · 목표 · 담당 · 상태 · k/N) — 「말풍선으로 가기」가 덮지 않는다(#397 NN6).
     expect(rows[2]).toHaveAccessibleName("C-3 · 커브 주행 감각 · @Developer · 판정 대기 · 기준 1/3");
-    expect(rows[1]).toHaveAccessibleName("C-2 · 차량 스프라이트 24방향 · @Designer · 진행 중 · 기준 –");
+    expect(rows[1]).toHaveAccessibleName("C-2 · 차량 스프라이트 24방향 · @Designer · 진행 중 · 기준 결과 없음"); // NN8 — 「기준 –」가 아니다
     expect(rows[2]).toHaveAttribute("title", "C-3 말풍선으로 가기");
   });
   it("읽는 중이면 한 줄", () => {

@@ -916,7 +916,8 @@ export const TASK_CARD = {
   board_none: "–",
   board_open: (label: string) => `${label} 말풍선으로 가기`,
   /** 행 aria-label — 번호 · 목표 · 담당 · 상태 · 기준 충족 수(#397 NN6: 「말풍선으로 가기」가 내용을 덮지 않게 — 그 말은 title 로). */
-  board_row_aria: (label: string, goal: string, who: string, status: string, met: string) => `${label} · ${goal} · @${who} · ${status} · 기준 ${met}`,
+  /** 결과가 없으면(met null) 「기준 결과 없음」 — 「기준 –」는 스크린리더가 「대시」로 읽는다(#397 R1 NN8). */
+  board_row_aria: (label: string, goal: string, who: string, status: string, met: string | null) => `${label} · ${goal} · @${who} · ${status} · ${met == null ? "기준 결과 없음" : `기준 ${met}`}`,
   board_loading: "분담표를 불러오는 중…",
 } as const;
 
