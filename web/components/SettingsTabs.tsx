@@ -8,6 +8,7 @@
  */
 import { useMemo, useState } from "react";
 import { DisabledHint } from "./PageHead";
+import { useFlash } from "@/lib/use-flash";
 import { RoomDefaultsRows, RoomReadRows, SubscriptionsSection } from "./SettingsRoomTabs";
 import {
   daysIso, IMPACT, isoDays, RUNTIME_KIND_LABEL, RUNTIME_KINDS, SETTINGS_DEFAULTS,
@@ -92,6 +93,7 @@ export function WorkspaceSettingsTab({ tab, settings, role, onSave, fieldErrors 
   const [draft, setDraft] = useState<WorkspaceSettings>(settings);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  const flash = useFlash();
   // 탭을 옮기거나 서버가 새 값을 주면 초안을 버린다 — 다른 탭의 미저장 초안이 이 탭의 payload 에 섞이지 않게.
   // **렌더 중에** 되돌린다(React "adjusting state when a prop changes"), useEffect 가 아니다(W-21): 예전에는
   // `useEffect(() => setDraft(settings), [settings, tab])` 였는데, 마운트 직후의 그 effect 는 passive 라 나중에(스케줄러) 돌고,
@@ -113,7 +115,7 @@ export function WorkspaceSettingsTab({ tab, settings, role, onSave, fieldErrors 
       const next = await onSave(patch);
       if (next) {
         setSaved(true);
-        setTimeout(() => setSaved(false), 1500);
+        flash(() => setSaved(false));
       }
     } finally {
       setBusy(false);
@@ -239,6 +241,7 @@ export function NotificationsTab({ settings, onSave, error, workspaceId }: {
   const [draft, setDraft] = useState<NotificationSettings | null>(settings);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  const flash = useFlash();
   // 서버 값이 바뀌면 초안을 버린다 — 워크스페이스 탭과 같은 이유로 렌더 중에(W-21, 위 주석).
   const [base, setBase] = useState(settings);
   if (base !== settings) {
@@ -254,7 +257,7 @@ export function NotificationsTab({ settings, onSave, error, workspaceId }: {
       const next = await onSave(draft);
       if (next) {
         setSaved(true);
-        setTimeout(() => setSaved(false), 1500);
+        flash(() => setSaved(false));
       }
     } finally {
       setBusy(false);

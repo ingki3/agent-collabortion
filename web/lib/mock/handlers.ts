@@ -84,7 +84,7 @@ registerPartsSeed({ on, Problem, sessionOf, addMessage, createTask, pushEvent, s
 registerWorkingSeed({ on, Problem, sessionOf, requireMember, addMessage, createTask, pushEvent, setLaneStatus, toTask });
 // 작업 카드(v0.3.10, PRD FR-3.8) — 카드 op 다섯 · card.* · 시드(`seed-cards`). 본문은 ./cards.ts(등록 한 줄만).
 registerCards({
-  on, Problem, sessionOf, requireUser, addMessage, createTask, setLaneStatus, parseMentions,
+  on, Problem, sessionOf, requireUser, addMessage, createTask, setLaneStatus, parseMentions, toTask,
   workPeople: (s, id) => { const w = workView(s, id); return w ? { director: w.director_user_id, deputy: w.deputy_user_id ?? null, roomId: w.room_id } : null; },
   openWorkOf: (s, roomId) => roomWorks(s, { id: roomId }).find((w) => OPEN_WORK.has(w.status))?.id ?? null,
 });

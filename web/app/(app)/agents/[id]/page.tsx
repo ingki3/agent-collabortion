@@ -21,6 +21,7 @@ import { TestChatPanel } from "@/components/TestChatPanel";
 import { capabilityIndex } from "@/lib/runtime-options";
 import { api, errorMessage } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useFlash } from "@/lib/use-flash";
 import type { Agent, AgentProfile, AgentRole, RespondTo, Runtime, RuntimeKind } from "@/lib/api/types";
 
 const ROLES: AgentRole[] = ["lead", "researcher", "writer", "engineer", "reviewer", "custom"];
@@ -40,6 +41,7 @@ export default function AgentEditPage() {
   const [error, setError] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const flash = useFlash();
   const [busy, setBusy] = useState(false);
   const [confirmKill, setConfirmKill] = useState(false);
 
@@ -89,7 +91,7 @@ export default function AgentEditPage() {
       const a = await api.patch("/agents/{agentId}", { path: { agentId: id }, body });
       setAgent(a);
       setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
+      flash(() => setSaved(false));
       return a;
     } catch (e) {
       setError(errorMessage(e));

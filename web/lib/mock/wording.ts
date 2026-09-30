@@ -297,6 +297,8 @@ export const CARD_MOCK = {
   not_open: "진행 중인 카드에만 결과를 낼 수 있습니다",
   reason_required: "수정 요청에는 사유를 적어 주세요",
   result_incomplete: "위임 카드의 완료 기준을 하나도 빠짐없이 한 번씩 판정해 주세요",
+  /** 서버 cards.CheckResult 의 confirmed 칸 사유(openapi CardResultInput.confirmed minItems 1) — #400 리뷰 400b NN2. */
+  confirmed_required: "직접 확인한 것을 하나 이상 적어 주세요 — 확인하지 않고 가정한 것은 assumed 에 따로",
   downgraded_notice: "근거가 없는 「충족」은 「부분」으로 낮춰 저장했습니다 — 기준 ",
   no_agent: "Lead · Researcher · Designer · Developer · Writer 가 방에 있어야 합니다",
   auto_summary: "결과 카드 없이 끝남",

@@ -111,6 +111,9 @@ describe("작업 카드 목 — seed-cards · op 다섯", () => {
     expect(rv.status).toBe(200);
     expect(rv.body.card.version).toBe(2);
     expect(rv.body.message.card_version).toBe(2);
+    // #400 리뷰 400b NN3: task 는 계약 Task 모양(서버 tasks.ToAPI 와 같은 칸) — id 만이 아니다.
+    expect(rv.body.task).toMatchObject({ id: expect.any(String), lane_id: expect.any(String), agent_id: expect.any(String), status: "queued", attempt: 1 });
+    expect(Object.keys(rv.body.task)).toEqual(expect.arrayContaining(["session_id", "trigger_message_id", "created_at"]));
     const ev = store().events.filter((e) => e.type === "card.updated").at(-1)!;
     expect((ev.payload as TaskCard).actions).toEqual([]);
     expect((ev.payload as TaskCard).versions).toBeUndefined();
@@ -127,6 +130,10 @@ describe("작업 카드 목 — seed-cards · op 다섯", () => {
   it("결과 제출 op — 기준을 빠짐없이(422) · 진행 중이 아니면 409 · 낮춘 번호는 downgraded·notice", async () => {
     const id = seed.cards["C-4"];
     expect((await call("POST", `/cards/${id}/result`, { summary: "x", verdicts: [], confirmed: ["x"], assumed: [] })).status).toBe(422);
+    // #400 리뷰 400b NN2: openapi CardResultInput.confirmed minItems 1 — 서버처럼 422, 칸 confirmed.
+    const noConfirmed = await call("POST", `/cards/${id}/result`, { summary: "했다", verdicts: [{ criterion: 1, verdict: "met" }], confirmed: [], assumed: [] });
+    expect(noConfirmed.status).toBe(422);
+    expect(noConfirmed.body.errors.map((e: { field: string }) => e.field)).toEqual(["confirmed"]);
     const r = await call("POST", `/cards/${id}/result`, { summary: "했다", verdicts: [{ criterion: 1, verdict: "met" }], confirmed: ["봤다"], assumed: [] });
     expect(r.status).toBe(201);
     expect(r.body.downgraded).toEqual([1]);

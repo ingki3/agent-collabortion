@@ -13,7 +13,7 @@
  * C-3 판정 대기 + 「부분 · 근거 없음」(Developer) · └ C-4 하위 카드 진행 중(Developer) · C-5 2판 수정 요청 진행 중(Writer, 지워진 참고 칩) ·
  * 카드 없는 에이전트 멘션 ‹질문›(Writer → Researcher)과 그 ‹답›. 응답 `{ work_id, cards: {C-1: id, …}, messages: {…} }`.
  */
-import type { CardEvidence, Lane, Message, TaskCard, User } from "@/lib/api/types";
+import type { CardEvidence, Lane, Message, Task, TaskCard, User } from "@/lib/api/types";
 import type { Session } from "@/lib/legacy-session";
 import { emit, makeAgent, now, store, uuid, type MockTask, type Store } from "./store";
 import type { Req, Res } from "./handlers";
@@ -31,6 +31,8 @@ export interface CardsCtx {
   requireUser: (s: Store, req: Req) => User;
   addMessage: (s: Store, sess: Session, m: Partial<Message> & Pick<Message, "author_type" | "author_id" | "kind" | "content" | "mentions">, speech?: SpeechPremises) => Message;
   createTask: (s: Store, sess: Session, agentId: string, triggerId: string | null, opts?: { laneId?: string; brief?: string | null; workId?: string | null }) => MockTask;
+  /** 계약 `Task` 모양(서버 tasks.ToAPI 와 같은 칸) — reviseCard 응답의 task(#400 리뷰 400b NN3). */
+  toTask: (s: Store, t: MockTask) => Task;
   setLaneStatus: (s: Store, sess: Session, laneId: string, patch: Partial<Lane>) => void;
   parseMentions: (content: string) => Message["mentions"];
   /** 미션의 Director·deputy(없는 미션이면 null). */
@@ -54,7 +56,7 @@ type Criterion = [text: string, method: string];
 type Agentish = { id: string; name: string; role?: string };
 
 export function registerCards(ctx: CardsCtx): void {
-  const { on, Problem, sessionOf, requireUser, addMessage, createTask, setLaneStatus, parseMentions } = ctx;
+  const { on, Problem, sessionOf, requireUser, addMessage, createTask, setLaneStatus, parseMentions, toTask } = ctx;
   const ok = (b: unknown, status = 200): Res => ({ status, body: b });
   const link = (a: Agentish) => `[@${a.name}](mention://agent/${a.id})`;
 
@@ -252,6 +254,9 @@ export function registerCards(ctx: CardsCtx): void {
     const s = store();
     const { c, sess } = cardOr404(s, req, p.id);
     const b = (req.body ?? {}) as Parameters<typeof report>[4];
+    // openapi CardResultInput.confirmed minItems 1 — 서버처럼 422(#400 리뷰 400b NN2).
+    if (!Array.isArray(b.confirmed) || b.confirmed.filter((x) => String(x ?? "").trim()).length === 0)
+      throw new Problem(422, "result_card_incomplete", VALIDATION_DETAIL, { errors: [{ field: "confirmed", code: "required", message: CARD_MOCK.confirmed_required }] });
     // 목 전용 `?order=card_first` — card.updated 를 결과 말풍선보다 먼저 낸다(두 순서 모두 재현, #397 B1).
     const r = report(s, sess, c, null, { ...b, confirmed: b.confirmed ?? [], assumed: b.assumed ?? [], verdicts: b.verdicts ?? [] }, { cardFirst: req.query.get("order") === "card_first" });
     return ok({ card: out(s, c, null, false), message: r.message, downgraded: r.downgraded, notice: r.downgraded.length ? CARD_MOCK.downgraded_notice + r.downgraded.join(", ") : null }, 201);
@@ -272,7 +277,7 @@ export function registerCards(ctx: CardsCtx): void {
     const reason = String(((req.body ?? {}) as { reason?: string }).reason ?? "").trim();
     if (!reason) throw new Problem(422, "validation_failed", VALIDATION_DETAIL, { errors: [{ field: "reason", code: "required", message: CARD_MOCK.reason_required }] });
     const r = revise(s, sess, c, { kind: "user", id: u.id, name: u.display_name }, reason);
-    return ok({ card: out(s, c, u.id, false), message: r.message, task: { id: r.task.id } });
+    return ok({ card: out(s, c, u.id, false), message: r.message, task: toTask(s, r.task) });
   });
 
   // ── 시드 ──

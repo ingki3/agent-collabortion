@@ -187,8 +187,13 @@ gate_go "$T_LEAD"
 wait_step L12 "Lead 턴 종료(completed) · Idle 빈 턴 종료" "$T_TURN" '[ "$(task_field "'"$T_LEAD"'" status)" = completed ] && [ "$(psqlq "select count(*) from task t join agent a on a.id=t.agent_id where t.session_id='"'"'$S'"'"' and a.name='"'"'Idle'"'"' and t.status='"'"'completed'"'"'")" -ge 1 ]' 0.5 || true
 lanes_dump done-lead
 chk L13 "(f) Lead done → []" "done:" "$(lane_actions done-lead Lead)"
-# T-CARD-S: Idle 은 카드로 받았으므로 빈 턴 뒤 카드 게이트가 result_card_missing 후속을 건다 — 빈 턴 카드는 1행 이상.
-chk L14 "(e) Idle 의 빈 턴 카드 ≥ 1행(status/turn_end/empty_turn/info)" yes "$( [ "$(empty_cards "$S")" -ge 1 ] && echo yes || echo no)"
+# T-CARD-S(#400 리뷰 400b NN4 — 결정적인 값): 빈 턴 카드는 완료 attempt 마다 정확히 1행 — 이 시점의 Idle 완료 턴 수와 같다
+# (카드 게이트의 후속이 이미 돌았든 아니든, 센 시점의 두 수가 같다). 같은 쿼리 한 번으로 둘을 함께 읽어 경합이 없다.
+L14_ROW="$(psqlq "select (select count(*) from task_attempt ta join task t on t.id=ta.task_id join agent a on a.id=t.agent_id
+  where t.session_id='$S' and a.name='Idle' and ta.outcome='completed')||'/'||(select count(*) from task_event e join task t on t.id=e.task_id
+  where t.session_id='$S' and e.class='status' and e.verb='turn_end' and e.object_ref=to_jsonb('empty_turn'::text) and e.outcome='info')")"
+chk L14 "(e) Idle 의 빈 턴 카드 = Idle 완료 턴 수(≥ 1, 완료 attempt 마다 정확히 1행)" "${L14_ROW%%/*}/${L14_ROW%%/*}" "$L14_ROW"
+chk L14b "(e) 그 수가 1 이상" yes "$( [ "${L14_ROW%%/*}" -ge 1 ] && echo yes || echo no)"
 
 step "3. R(reviewer, claude_code — MCP 표면) — (a) argv --allow 12 · tools/list 에 delegate 없음 · (b) 대본 delegate exit 3, 선에 POST /lanes 0 · (c) 토큰 curl 403 + rejected 행"
 A0="$(access_api_lines)"; X0="$(access_count $'GET\t/api/v1/cli/context')"; N0="$(access_count $'POST\t/api/v1/rooms/'"$S"$'/lanes')"
