@@ -35,7 +35,7 @@ role_Lead() {
     fi
   elif [ ! -s "$O/101-lead-delegated" ]; then
     f="$(card_file A "시장 규모를 조사한다" '[]')"
-    out="$(colab card delegate --file "$f" 2>&1)"; rc=$?
+    out="$(colab card delegate --file "$f" 2>/dev/null)"; rc=$?   # stdout 만 — 오류 JSON(stderr 는 사람 한 줄)
     rec lead-invalid "$rc $(ecode "$out" '.error.code // .code // "-"')"
     f="$(card_file A "시장 규모를 조사한다" '[{"text":"규모를 숫자 하나로","method":"review"}]')"
     out="$(colab card delegate --file "$f" 2>&1)"; rec lead-deleg-a "$?"
@@ -68,7 +68,7 @@ role_Asker() {
 role_Q() {
   if has "This is a question from"; then
     printf 'x' > "$O/101-q.txt"
-    out="$(colab artifact submit --type doc --name q.txt --file "$O/101-q.txt" 2>&1)"; rc=$?
+    out="$(colab artifact submit --type doc --name q.txt --file "$O/101-q.txt" 2>/dev/null)"; rc=$?
     rec q-submit "$rc $(ecode "$out" '.error.code // "-"')"
     printf '%s' "$out" | jq -r '.error.detail // empty' 2>/dev/null > "$O/101-q-submit-detail"
     colab message post --body "ANSWER 만 원대입니다" >/dev/null 2>&1; rec q-answered "ok"

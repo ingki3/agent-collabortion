@@ -3,6 +3,7 @@ package client
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -156,4 +157,56 @@ func TestOwnRole(t *testing.T) {
 	if (&CliContext{AgentID: "z"}).OwnRole() != "" {
 		t.Fatal("absent from the roster must be empty, not a guess")
 	}
+}
+
+// The question refusal (colab-cli v0.9.10 §2.5) is the contract's sentence
+// and the server's (server/internal/cards QuestionRefusal) byte for byte.
+func TestQuestionRefusalIsTheContractsAndServers(t *testing.T) {
+	raw, err := os.ReadFile("../../../contracts/colab-cli.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile("질문 task[^\\n]*?거부 문장[^「]*「([^」]*<명령>[^」]*)」").FindStringSubmatch(string(raw))
+	if m == nil {
+		t.Fatal("colab-cli.md §2.5: the question refusal sentence is not where this test expects it")
+	}
+	if want := strings.Replace(m[1], "<명령>", "%s", 1); want != questionRefusalFormat {
+		t.Fatalf("contract %q, CLI %q", want, questionRefusalFormat)
+	}
+	src, err := os.ReadFile("../../../server/internal/cards/rules.go")
+	if err != nil {
+		t.Log("server source not present; the contract comparison stands alone:", err)
+		return
+	}
+	sm := regexp.MustCompile(`return "(이 턴은 질문에 답하는 턴입니다 — )" \+ cliName \+ "( [^"]+)"`).FindStringSubmatch(string(src))
+	if sm == nil {
+		t.Fatal("cards/rules.go: QuestionRefusal is not where this test expects it")
+	}
+	if got := sm[1] + "%s" + sm[2]; got != questionRefusalFormat {
+		t.Fatalf("server %q, CLI %q", got, questionRefusalFormat)
+	}
+	if !reflect.DeepEqual(questionCommandsOfServer(t), questionCommandStrings()) {
+		t.Fatalf("question table drift: server %v, CLI %v", questionCommandsOfServer(t), questionCommandStrings())
+	}
+}
+
+func questionCommandStrings() []string {
+	out := make([]string, len(questionCommands))
+	for i, c := range questionCommands {
+		out[i] = string(c)
+	}
+	return out
+}
+
+func questionCommandsOfServer(t *testing.T) []string {
+	src, _ := os.ReadFile("../../../server/internal/cards/rules.go")
+	m := regexp.MustCompile(`(?s)var QuestionCommands = \[\]string\{(.*?)\}`).FindStringSubmatch(string(src))
+	if m == nil {
+		t.Fatal("cards/rules.go: QuestionCommands not found")
+	}
+	var out []string
+	for _, q := range regexp.MustCompile(`"([a-z_]+)"`).FindAllStringSubmatch(m[1], -1) {
+		out = append(out, q[1])
+	}
+	return out
 }

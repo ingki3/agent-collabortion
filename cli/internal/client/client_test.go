@@ -422,3 +422,34 @@ func TestListMessagesQuery(t *testing.T) {
 		t.Fatalf("limit 500 should be exit 2, got %v", err)
 	}
 }
+
+// T-CARD-S (colab-cli v0.9.10 §2.5): on a question turn the CLI refuses a
+// command outside the question table with the question sentence — the one
+// the server's 403 carries — not the role sentence; a command the role
+// lacks on the same turn keeps the role sentence.
+func TestAllowQuestionTurnSentence(t *testing.T) {
+	s := clienttest.New(t)
+	s.QuestionTask = true
+	s.AllowedCommands = []string{"room_get", "room_messages", "message_post", "status_set", "card_get", "card_list"}
+	c := newClient(t, s, nil)
+	e := client.AsError(c.Allow(context.Background(), client.CmdArtifactSubmit))
+	if e == nil || e.Exit != client.ExitRefused || e.Code != "command_not_allowed" {
+		t.Fatalf("artifact submit on a question turn: %+v", e)
+	}
+	if want := "이 턴은 질문에 답하는 턴입니다 — artifact submit 를 쓸 수 없습니다. 일을 맡기려면 카드로 위임하세요"; e.Detail != want {
+		t.Fatalf("detail = %q, want %q", e.Detail, want)
+	}
+	// hitl_ask is in the question table; its absence is the role's.
+	e = client.AsError(c.Allow(context.Background(), client.CmdHitlAsk))
+	if e == nil || !strings.HasPrefix(e.Detail, "이 역할(") {
+		t.Fatalf("question-table command missing from the list keeps the role sentence: %+v", e)
+	}
+	// A normal turn with the same list: role sentence.
+	s2 := clienttest.New(t)
+	s2.NotCardTask = true
+	s2.AllowedCommands = s.AllowedCommands
+	e = client.AsError(newClient(t, s2, nil).Allow(context.Background(), client.CmdArtifactSubmit))
+	if e == nil || !strings.HasPrefix(e.Detail, "이 역할(") {
+		t.Fatalf("normal turn: %+v", e)
+	}
+}

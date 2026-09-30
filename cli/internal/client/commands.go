@@ -164,8 +164,50 @@ func (c *Client) Allow(ctx context.Context, cmd Command) error {
 			return nil
 		}
 	}
-	return NotAllowed(role, cmd, list)
+	return c.Refusal(role, cmd, list)
 }
+
+// Refusal is the exit 3 `command_not_allowed` error for cmd, the one the CLI
+// gate and the MCP server both return. A question turn narrows the list to
+// role ∩ question table (colab-cli v0.9.10 §2.5): a command outside the
+// question table is refused for the turn, not the role — the server's 403
+// says so too (a question-table command missing from the list is the
+// role's). Only a context read already made tells the kind: a wrapper-given
+// list never costs a round trip for the sentence.
+func (c *Client) Refusal(role string, cmd Command, list []string) *Error {
+	e := NotAllowed(role, cmd, list)
+	if cc := c.CachedContext(); cc != nil && cc.TaskKind == TaskKindQuestion && !inQuestionTable(cmd) {
+		e.Detail = QuestionRefusal(cmd)
+	}
+	return e
+}
+
+// TaskKindQuestion is getCliContext.task_kind of a question task.
+const TaskKindQuestion = "question"
+
+// QuestionRefusal is the question turn's refusal (colab-cli v0.9.10 §2.5),
+// byte-for-byte the server's (server/internal/cards QuestionRefusal).
+func QuestionRefusal(cmd Command) string {
+	return fmt.Sprintf(questionRefusalFormat, cmd.CLIName())
+}
+
+// questionCommands is the question table (colab-cli v0.9.10 §2.5) —
+// server/internal/cards QuestionCommands.
+var questionCommands = []Command{
+	"room_get", "room_messages", "room_list", "room_read", "artifact_get",
+	"card_get", "card_list", "message_post", "status_set", "hitl_ask",
+}
+
+func inQuestionTable(cmd Command) bool {
+	for _, c := range questionCommands {
+		if c == cmd {
+			return true
+		}
+	}
+	return false
+}
+
+const questionRefusalFormat = "이 턴은 질문에 답하는 턴입니다 — %s 를 쓸 수 없습니다. 일을 맡기려면 카드로 위임하세요"
 
 // NotAllowed is the exit 3 `command_not_allowed` error: the sentence in
 // Detail and, for --json, role · command · allowed as top-level keys of the

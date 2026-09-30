@@ -351,7 +351,7 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 		if cc := s.c.CachedContext(); cc != nil {
 			role = cc.OwnRole()
 		}
-		return s.errorResult(client.NotAllowed(role, cmd, s.allow)), nil
+		return s.errorResult(s.c.Refusal(role, cmd, s.allow)), nil
 	}
 	run, ok := toolRuns[name]
 	if !ok {

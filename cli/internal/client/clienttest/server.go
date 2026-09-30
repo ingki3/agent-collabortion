@@ -190,7 +190,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			cc["allowed_commands"] = s.AllowedCommands
 		}
 		cc["task_kind"] = "normal"
-		if !s.NotCardTask {
+		if s.QuestionTask {
+			cc["task_kind"] = "question"
+		} else if !s.NotCardTask {
 			cc["task_kind"], cc["card_id"], cc["card_label"] = "card", CardID, "C-1"
 		}
 		writeJSON(w, 200, cc)

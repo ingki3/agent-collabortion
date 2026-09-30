@@ -24,6 +24,9 @@ type cardState struct {
 	// by default the fake's task is a card task (task_kind card, card_id
 	// CardID) so every command of the gate table reaches the server.
 	NotCardTask bool
+	// QuestionTask makes getCliContext answer a question task (task_kind
+	// question, no card) — T-CARD-S, colab-cli v0.9.10 §2.5.
+	QuestionTask bool
 	// DowngradeNotice is submitCardResult's notice.
 	DowngradeNotice string
 	CardCalls       []CardCall
