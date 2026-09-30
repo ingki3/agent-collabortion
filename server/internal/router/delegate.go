@@ -190,7 +190,10 @@ func (s *Service) Delegate(ctx context.Context, callerTask uuid.UUID, in Delegat
 		return nil, err
 	}
 
-	originator, _ := taskOriginator(ctx, tx, callerTask)
+	originator, _, err := taskOriginator(ctx, tx, callerTask)
+	if err != nil {
+		return nil, err
+	}
 	taskID, err := insertQueuedTask(ctx, tx, newQueuedTask{
 		LaneID: laneID, SessionID: sessionID, AgentID: in.AgentID, ProfileID: profileID,
 		TriggerMessageID: msgID, DelegatedFrom: &callerTask, Originator: originator, Work: callerWork, Now: now,

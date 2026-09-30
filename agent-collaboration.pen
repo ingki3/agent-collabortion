@@ -44425,7 +44425,7 @@
                                   "fill": "$ink-3",
                                   "textGrowth": "fixed-width",
                                   "width": 64,
-                                  "content": "산출물",
+                                  "content": "결과물",
                                   "fontFamily": "$font",
                                   "fontSize": 11,
                                   "fontWeight": "normal"
@@ -45862,7 +45862,7 @@
                   "id": "dcamS",
                   "name": "Lbl",
                   "fill": "$ink-3",
-                  "content": "E · 오른쪽 미션 칸 268px — 분담표 탭 · 행 36px",
+                  "content": "E · 오른쪽 미션 칸 268px — 분담표 탭 · 행 48px 두 줄",
                   "fontFamily": "$font",
                   "fontSize": 11,
                   "fontWeight": "normal"
@@ -46001,105 +46001,123 @@
                           "id": "bBzEA",
                           "name": "Row C-1",
                           "width": "fill_container",
-                          "height": 36,
+                          "height": 48,
                           "stroke": "$line",
                           "strokeWidth": {
                             "bottom": 1
                           },
-                          "gap": 5,
-                          "alignItems": "center",
+                          "layout": "vertical",
+                          "gap": 3,
+                          "justifyContent": "center",
                           "children": [
                             {
                               "type": "text",
-                              "id": "kHDdJ",
-                              "name": "No",
-                              "fill": "$ink-2",
-                              "content": "C-1",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "600"
-                            },
-                            {
-                              "type": "frame",
-                              "id": "aXdX9",
-                              "name": "Agent chip",
-                              "width": 18,
-                              "height": 18,
-                              "fill": "#DCFCE7",
-                              "cornerRadius": 9,
-                              "justifyContent": "center",
-                              "alignItems": "center",
-                              "children": [
-                                {
-                                  "type": "text",
-                                  "id": "V8nM6",
-                                  "name": "T",
-                                  "fill": "$s-done-text",
-                                  "content": "R",
-                                  "fontFamily": "$font",
-                                  "fontSize": 10,
-                                  "fontWeight": "700"
-                                }
-                              ]
-                            },
-                            {
-                              "type": "text",
-                              "id": "OtBgM",
-                              "name": "Goal",
+                              "id": "O0OGY",
+                              "name": "Line 1",
                               "fill": "$ink",
                               "textGrowth": "fixed-width",
                               "width": "fill_container",
-                              "content": "경쟁작 조사",
+                              "content": "C-1 · 경쟁작 조사",
                               "fontFamily": "$font",
-                              "fontSize": 12,
+                              "fontSize": 13,
                               "fontWeight": "normal"
                             },
                             {
                               "type": "frame",
-                              "id": "W3Dn9",
-                              "name": "Chip 수락",
-                              "fill": "#F0FDF4",
-                              "cornerRadius": 999,
-                              "stroke": "#86EFAC",
-                              "strokeWidth": 1,
-                              "gap": 3,
-                              "padding": [
-                                1,
-                                6
-                              ],
+                              "id": "R3CTq",
+                              "name": "Line 2 meta",
+                              "width": "fill_container",
+                              "gap": 5,
                               "alignItems": "center",
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "RRQdm",
-                                  "name": "L",
-                                  "fill": "$s-done-text",
-                                  "content": "수락",
+                                  "id": "hQXIT",
+                                  "name": "Who",
+                                  "fill": "$ink-2",
+                                  "content": "@Researcher",
                                   "fontFamily": "$font",
-                                  "fontSize": 10,
-                                  "fontWeight": "600"
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "vUIV2",
+                                  "name": "Sep",
+                                  "fill": "$ink-3",
+                                  "content": "·",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "W3Dn9",
+                                  "name": "Chip 수락",
+                                  "fill": "#F0FDF4",
+                                  "cornerRadius": 999,
+                                  "stroke": "#86EFAC",
+                                  "strokeWidth": 1,
+                                  "gap": 3,
+                                  "padding": [
+                                    1,
+                                    6
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "RRQdm",
+                                      "name": "L",
+                                      "fill": "$s-done-text",
+                                      "content": "수락",
+                                      "fontFamily": "$font",
+                                      "fontSize": 10,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "Wqpgs",
+                                  "name": "Sep",
+                                  "fill": "$ink-3",
+                                  "content": "·",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "ZiCm7",
+                                  "name": "k/N",
+                                  "fill": "$ink-3",
+                                  "content": "3/3",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "eZDiA",
+                                  "name": "Sep",
+                                  "fill": "$ink-3",
+                                  "content": "·",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "ePK6X",
+                                  "name": "Cost",
+                                  "fill": "$ink-2",
+                                  "content": "$0.80",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
                                 }
                               ]
-                            },
-                            {
-                              "type": "text",
-                              "id": "ZiCm7",
-                              "name": "k/N",
-                              "fill": "$ink-3",
-                              "content": "3/3",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "normal"
-                            },
-                            {
-                              "type": "text",
-                              "id": "ePK6X",
-                              "name": "Cost",
-                              "fill": "$ink-2",
-                              "content": "$0.80",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -46108,105 +46126,123 @@
                           "id": "c0nTQ",
                           "name": "Row C-2",
                           "width": "fill_container",
-                          "height": 36,
+                          "height": 48,
                           "stroke": "$line",
                           "strokeWidth": {
                             "bottom": 1
                           },
-                          "gap": 5,
-                          "alignItems": "center",
+                          "layout": "vertical",
+                          "gap": 3,
+                          "justifyContent": "center",
                           "children": [
                             {
                               "type": "text",
-                              "id": "XRNGa",
-                              "name": "No",
-                              "fill": "$ink-2",
-                              "content": "C-2",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "600"
-                            },
-                            {
-                              "type": "frame",
-                              "id": "ymvQk",
-                              "name": "Agent chip",
-                              "width": 18,
-                              "height": 18,
-                              "fill": "#FCE7F3",
-                              "cornerRadius": 9,
-                              "justifyContent": "center",
-                              "alignItems": "center",
-                              "children": [
-                                {
-                                  "type": "text",
-                                  "id": "d9UAgq",
-                                  "name": "T",
-                                  "fill": "$s-pause-text",
-                                  "content": "D",
-                                  "fontFamily": "$font",
-                                  "fontSize": 10,
-                                  "fontWeight": "700"
-                                }
-                              ]
-                            },
-                            {
-                              "type": "text",
-                              "id": "zuasB",
-                              "name": "Goal",
+                              "id": "xYp2D",
+                              "name": "Line 1",
                               "fill": "$ink",
                               "textGrowth": "fixed-width",
                               "width": "fill_container",
-                              "content": "차량 스프라이트…",
+                              "content": "C-2 · 차량 스프라이트 24방향",
                               "fontFamily": "$font",
-                              "fontSize": 12,
+                              "fontSize": 13,
                               "fontWeight": "normal"
                             },
                             {
                               "type": "frame",
-                              "id": "wxNDg",
-                              "name": "Chip 진행 중",
-                              "fill": "#EFF6FF",
-                              "cornerRadius": 999,
-                              "stroke": "#93C5FD",
-                              "strokeWidth": 1,
-                              "gap": 3,
-                              "padding": [
-                                1,
-                                6
-                              ],
+                              "id": "e5mUQ",
+                              "name": "Line 2 meta",
+                              "width": "fill_container",
+                              "gap": 5,
                               "alignItems": "center",
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "t5SRm",
-                                  "name": "L",
-                                  "fill": "$s-run-text",
-                                  "content": "진행 중",
+                                  "id": "TykgW",
+                                  "name": "Who",
+                                  "fill": "$ink-2",
+                                  "content": "@Designer",
                                   "fontFamily": "$font",
-                                  "fontSize": 10,
-                                  "fontWeight": "600"
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "OcU1z",
+                                  "name": "Sep",
+                                  "fill": "$ink-3",
+                                  "content": "·",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "wxNDg",
+                                  "name": "Chip 진행 중",
+                                  "fill": "#EFF6FF",
+                                  "cornerRadius": 999,
+                                  "stroke": "#93C5FD",
+                                  "strokeWidth": 1,
+                                  "gap": 3,
+                                  "padding": [
+                                    1,
+                                    6
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "t5SRm",
+                                      "name": "L",
+                                      "fill": "$s-run-text",
+                                      "content": "진행 중",
+                                      "fontFamily": "$font",
+                                      "fontSize": 10,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "Uyt2x",
+                                  "name": "Sep",
+                                  "fill": "$ink-3",
+                                  "content": "·",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "OKeTq",
+                                  "name": "k/N",
+                                  "fill": "$ink-3",
+                                  "content": "–",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "fYe3w",
+                                  "name": "Sep",
+                                  "fill": "$ink-3",
+                                  "content": "·",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "uGWgF",
+                                  "name": "Cost",
+                                  "fill": "$ink-2",
+                                  "content": "$1.10",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
                                 }
                               ]
-                            },
-                            {
-                              "type": "text",
-                              "id": "OKeTq",
-                              "name": "k/N",
-                              "fill": "$ink-3",
-                              "content": "–",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "normal"
-                            },
-                            {
-                              "type": "text",
-                              "id": "uGWgF",
-                              "name": "Cost",
-                              "fill": "$ink-2",
-                              "content": "$1.10",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -46215,105 +46251,123 @@
                           "id": "gdzy7",
                           "name": "Row C-3",
                           "width": "fill_container",
-                          "height": 36,
+                          "height": 48,
                           "stroke": "$line",
                           "strokeWidth": {
                             "bottom": 1
                           },
-                          "gap": 5,
-                          "alignItems": "center",
+                          "layout": "vertical",
+                          "gap": 3,
+                          "justifyContent": "center",
                           "children": [
                             {
                               "type": "text",
-                              "id": "sjXkg",
-                              "name": "No",
-                              "fill": "$ink-2",
-                              "content": "C-3",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "600"
-                            },
-                            {
-                              "type": "frame",
-                              "id": "yVudf",
-                              "name": "Agent chip",
-                              "width": 18,
-                              "height": 18,
-                              "fill": "#DBEAFE",
-                              "cornerRadius": 9,
-                              "justifyContent": "center",
-                              "alignItems": "center",
-                              "children": [
-                                {
-                                  "type": "text",
-                                  "id": "AQODi",
-                                  "name": "T",
-                                  "fill": "$s-run-text",
-                                  "content": "D",
-                                  "fontFamily": "$font",
-                                  "fontSize": 10,
-                                  "fontWeight": "700"
-                                }
-                              ]
-                            },
-                            {
-                              "type": "text",
-                              "id": "yrLlG",
-                              "name": "Goal",
+                              "id": "qkXvV",
+                              "name": "Line 1",
                               "fill": "$ink",
                               "textGrowth": "fixed-width",
                               "width": "fill_container",
-                              "content": "커브 주행 감각",
+                              "content": "C-3 · 커브 주행 감각",
                               "fontFamily": "$font",
-                              "fontSize": 12,
+                              "fontSize": 13,
                               "fontWeight": "normal"
                             },
                             {
                               "type": "frame",
-                              "id": "qiL0y",
-                              "name": "Chip 판정 대기",
-                              "fill": "#FFFBEB",
-                              "cornerRadius": 999,
-                              "stroke": "#FCD34D",
-                              "strokeWidth": 1,
-                              "gap": 3,
-                              "padding": [
-                                1,
-                                6
-                              ],
+                              "id": "DXUqc",
+                              "name": "Line 2 meta",
+                              "width": "fill_container",
+                              "gap": 5,
                               "alignItems": "center",
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "qau4n",
-                                  "name": "L",
-                                  "fill": "$s-wait-text",
-                                  "content": "판정 대기",
+                                  "id": "MFYtd",
+                                  "name": "Who",
+                                  "fill": "$ink-2",
+                                  "content": "@Developer",
                                   "fontFamily": "$font",
-                                  "fontSize": 10,
-                                  "fontWeight": "600"
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "TMYaF",
+                                  "name": "Sep",
+                                  "fill": "$ink-3",
+                                  "content": "·",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "qiL0y",
+                                  "name": "Chip 판정 대기",
+                                  "fill": "#FFFBEB",
+                                  "cornerRadius": 999,
+                                  "stroke": "#FCD34D",
+                                  "strokeWidth": 1,
+                                  "gap": 3,
+                                  "padding": [
+                                    1,
+                                    6
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "qau4n",
+                                      "name": "L",
+                                      "fill": "$s-wait-text",
+                                      "content": "판정 대기",
+                                      "fontFamily": "$font",
+                                      "fontSize": 10,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "khEHl",
+                                  "name": "Sep",
+                                  "fill": "$ink-3",
+                                  "content": "·",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "HX5vd",
+                                  "name": "k/N",
+                                  "fill": "$ink-3",
+                                  "content": "1/3",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "Q0896",
+                                  "name": "Sep",
+                                  "fill": "$ink-3",
+                                  "content": "·",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "g5ah7",
+                                  "name": "Cost",
+                                  "fill": "$ink-2",
+                                  "content": "$1.20",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
                                 }
                               ]
-                            },
-                            {
-                              "type": "text",
-                              "id": "HX5vd",
-                              "name": "k/N",
-                              "fill": "$ink-3",
-                              "content": "1/3",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "normal"
-                            },
-                            {
-                              "type": "text",
-                              "id": "g5ah7",
-                              "name": "Cost",
-                              "fill": "$ink-2",
-                              "content": "$1.20",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -46322,121 +46376,129 @@
                           "id": "S7MN0",
                           "name": "Row C-4",
                           "width": "fill_container",
-                          "height": 36,
+                          "height": 48,
                           "stroke": "$line",
                           "strokeWidth": {
                             "bottom": 1
                           },
-                          "gap": 5,
+                          "layout": "vertical",
+                          "gap": 3,
                           "padding": [
                             0,
                             0,
                             0,
                             16
                           ],
-                          "alignItems": "center",
+                          "justifyContent": "center",
                           "children": [
                             {
                               "type": "text",
-                              "id": "JbNNP",
-                              "name": "T",
-                              "fill": "$ink-3",
-                              "content": "└",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "normal"
-                            },
-                            {
-                              "type": "text",
-                              "id": "kHxjr",
-                              "name": "No",
-                              "fill": "$ink-2",
-                              "content": "C-4",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "600"
-                            },
-                            {
-                              "type": "frame",
-                              "id": "WpEUS",
-                              "name": "Agent chip",
-                              "width": 18,
-                              "height": 18,
-                              "fill": "#DBEAFE",
-                              "cornerRadius": 9,
-                              "justifyContent": "center",
-                              "alignItems": "center",
-                              "children": [
-                                {
-                                  "type": "text",
-                                  "id": "X7G6C0",
-                                  "name": "T",
-                                  "fill": "$s-run-text",
-                                  "content": "D",
-                                  "fontFamily": "$font",
-                                  "fontSize": 10,
-                                  "fontWeight": "700"
-                                }
-                              ]
-                            },
-                            {
-                              "type": "text",
-                              "id": "tPON6",
-                              "name": "Goal",
+                              "id": "cloqs",
+                              "name": "Line 1",
                               "fill": "$ink",
                               "textGrowth": "fixed-width",
                               "width": "fill_container",
-                              "content": "대각선 벽…",
+                              "content": "└ C-4 · 대각선 벽 판정",
                               "fontFamily": "$font",
-                              "fontSize": 12,
+                              "fontSize": 13,
                               "fontWeight": "normal"
                             },
                             {
                               "type": "frame",
-                              "id": "aPKJq",
-                              "name": "Chip 진행 중",
-                              "fill": "#EFF6FF",
-                              "cornerRadius": 999,
-                              "stroke": "#93C5FD",
-                              "strokeWidth": 1,
-                              "gap": 3,
-                              "padding": [
-                                1,
-                                6
-                              ],
+                              "id": "qtA6E",
+                              "name": "Line 2 meta",
+                              "width": "fill_container",
+                              "gap": 5,
                               "alignItems": "center",
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "l781v",
-                                  "name": "L",
-                                  "fill": "$s-run-text",
-                                  "content": "진행 중",
+                                  "id": "wgAI3",
+                                  "name": "Who",
+                                  "fill": "$ink-2",
+                                  "content": "@Developer",
                                   "fontFamily": "$font",
-                                  "fontSize": 10,
-                                  "fontWeight": "600"
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "U3usO",
+                                  "name": "Sep",
+                                  "fill": "$ink-3",
+                                  "content": "·",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "aPKJq",
+                                  "name": "Chip 진행 중",
+                                  "fill": "#EFF6FF",
+                                  "cornerRadius": 999,
+                                  "stroke": "#93C5FD",
+                                  "strokeWidth": 1,
+                                  "gap": 3,
+                                  "padding": [
+                                    1,
+                                    6
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "l781v",
+                                      "name": "L",
+                                      "fill": "$s-run-text",
+                                      "content": "진행 중",
+                                      "fontFamily": "$font",
+                                      "fontSize": 10,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "YM8ah",
+                                  "name": "Sep",
+                                  "fill": "$ink-3",
+                                  "content": "·",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "xsNeN",
+                                  "name": "k/N",
+                                  "fill": "$ink-3",
+                                  "content": "–",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "vQJ1A",
+                                  "name": "Sep",
+                                  "fill": "$ink-3",
+                                  "content": "·",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "Ef0cF",
+                                  "name": "Cost",
+                                  "fill": "$ink-2",
+                                  "content": "$0.30",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
                                 }
                               ]
-                            },
-                            {
-                              "type": "text",
-                              "id": "xsNeN",
-                              "name": "k/N",
-                              "fill": "$ink-3",
-                              "content": "–",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "normal"
-                            },
-                            {
-                              "type": "text",
-                              "id": "Ef0cF",
-                              "name": "Cost",
-                              "fill": "$ink-2",
-                              "content": "$0.30",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -46445,105 +46507,123 @@
                           "id": "t2L8M",
                           "name": "Row C-5",
                           "width": "fill_container",
-                          "height": 36,
+                          "height": 48,
                           "stroke": "$line",
                           "strokeWidth": {
                             "bottom": 1
                           },
-                          "gap": 5,
-                          "alignItems": "center",
+                          "layout": "vertical",
+                          "gap": 3,
+                          "justifyContent": "center",
                           "children": [
                             {
                               "type": "text",
-                              "id": "dZwRT",
-                              "name": "No",
-                              "fill": "$ink-2",
-                              "content": "C-5",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "600"
-                            },
-                            {
-                              "type": "frame",
-                              "id": "atMLP",
-                              "name": "Agent chip",
-                              "width": 18,
-                              "height": 18,
-                              "fill": "#FEF3C7",
-                              "cornerRadius": 9,
-                              "justifyContent": "center",
-                              "alignItems": "center",
-                              "children": [
-                                {
-                                  "type": "text",
-                                  "id": "Yo1FI",
-                                  "name": "T",
-                                  "fill": "$s-wait-text",
-                                  "content": "W",
-                                  "fontFamily": "$font",
-                                  "fontSize": 10,
-                                  "fontWeight": "700"
-                                }
-                              ]
-                            },
-                            {
-                              "type": "text",
-                              "id": "f3fUz",
-                              "name": "Goal",
+                              "id": "KDwWB",
+                              "name": "Line 1",
                               "fill": "$ink",
                               "textGrowth": "fixed-width",
                               "width": "fill_container",
-                              "content": "플레이 가이드",
+                              "content": "C-5 · 플레이 가이드",
                               "fontFamily": "$font",
-                              "fontSize": 12,
+                              "fontSize": 13,
                               "fontWeight": "normal"
                             },
                             {
                               "type": "frame",
-                              "id": "LL4oD",
-                              "name": "Chip 취소",
-                              "fill": "$bg",
-                              "cornerRadius": 999,
-                              "stroke": "$line",
-                              "strokeWidth": 1,
-                              "gap": 3,
-                              "padding": [
-                                1,
-                                6
-                              ],
+                              "id": "8QcrI",
+                              "name": "Line 2 meta",
+                              "width": "fill_container",
+                              "gap": 5,
                               "alignItems": "center",
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "pFcvV",
-                                  "name": "L",
+                                  "id": "mbaYO",
+                                  "name": "Who",
                                   "fill": "$ink-2",
-                                  "content": "취소",
+                                  "content": "@Writer",
                                   "fontFamily": "$font",
-                                  "fontSize": 10,
-                                  "fontWeight": "600"
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "2fJnX",
+                                  "name": "Sep",
+                                  "fill": "$ink-3",
+                                  "content": "·",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "LL4oD",
+                                  "name": "Chip 취소",
+                                  "fill": "$bg",
+                                  "cornerRadius": 999,
+                                  "stroke": "$line",
+                                  "strokeWidth": 1,
+                                  "gap": 3,
+                                  "padding": [
+                                    1,
+                                    6
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "pFcvV",
+                                      "name": "L",
+                                      "fill": "$ink-2",
+                                      "content": "취소",
+                                      "fontFamily": "$font",
+                                      "fontSize": 10,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "S5ttS",
+                                  "name": "Sep",
+                                  "fill": "$ink-3",
+                                  "content": "·",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "NEOKd",
+                                  "name": "k/N",
+                                  "fill": "$ink-3",
+                                  "content": "–",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "TdEfU",
+                                  "name": "Sep",
+                                  "fill": "$ink-3",
+                                  "content": "·",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "PVdxe",
+                                  "name": "Cost",
+                                  "fill": "$ink-2",
+                                  "content": "–",
+                                  "fontFamily": "$font",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
                                 }
                               ]
-                            },
-                            {
-                              "type": "text",
-                              "id": "NEOKd",
-                              "name": "k/N",
-                              "fill": "$ink-3",
-                              "content": "–",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "normal"
-                            },
-                            {
-                              "type": "text",
-                              "id": "PVdxe",
-                              "name": "Cost",
-                              "fill": "$ink-2",
-                              "content": "–",
-                              "fontFamily": "$font",
-                              "fontSize": 11,
-                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -47279,7 +47359,7 @@
                                       "fill": "#71717A",
                                       "textGrowth": "fixed-width",
                                       "width": 64,
-                                      "content": "산출물",
+                                      "content": "결과물",
                                       "fontFamily": "$font",
                                       "fontSize": 11,
                                       "fontWeight": "normal"
@@ -48773,7 +48853,7 @@
                                       "fill": "$ink-3",
                                       "textGrowth": "fixed-width",
                                       "width": 64,
-                                      "content": "산출물",
+                                      "content": "결과물",
                                       "fontFamily": "$font",
                                       "fontSize": 11,
                                       "fontWeight": "normal"
