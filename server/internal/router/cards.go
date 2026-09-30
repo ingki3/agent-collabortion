@@ -29,6 +29,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/cards"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
+	"github.com/ingki3/agent-collabortion/server/internal/roomgate"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -476,15 +477,25 @@ func (s *Service) reenterCardLane(ctx context.Context, tx pgx.Tx, c *cards.Row, 
 	})
 }
 
-// ResumeStalledCards re-enters the card lanes a loop pause left without a
-// task (#400 리뷰 400a NN2): a revise over the FR-3.5 limit makes the new
-// version but no task (openapi reviseCard) and the room stops. When the room
-// owner lifts the loop gate, every open card of the room whose lane has no
-// task carrying its current version's delegation bubble gets its card task —
-// otherwise that version would never run and the join above it would wait
-// forever. The originator is the delegator's task's, as for a revise by the
-// delegator. Returns the tasks it queued.
-func (s *Service) ResumeStalledCards(ctx context.Context, tx pgx.Tx, roomID uuid.UUID, now time.Time) ([]uuid.UUID, error) {
+// ResumeStalledCards re-enters the card lanes a stopped room left without a
+// task. A revise over the FR-3.5 limit makes the new version but no task
+// (openapi reviseCard): the loop gate goes up (#400 리뷰 400a NN2) — or, when
+// the room was already stopped for another reason (manual · budget ·
+// runtime_offline), pauseForLoop leaves that gate alone and raises none
+// (400c NN1). Whichever gate comes down, every open card of the room whose
+// lane has no task carrying its current version's delegation bubble gets its
+// card task here — otherwise that version never runs and the join above it
+// waits forever (the lane is `done`, so neither a restart nor a revise can
+// reach it).
+//
+// `reason` is the gate that came down. The loop gate is lifted by the room
+// owner's approval, which already reset the counters (a human hop), so its
+// cards re-enter as they are. Any other gate says nothing about the limit
+// that stopped the revise: each re-entry is judged as the revise's hop again
+// (delegator → assignee), and one still over the limit raises the loop gate
+// now — the owner's approval then brings it back through this same call.
+// Returns the tasks it queued.
+func (s *Service) ResumeStalledCards(ctx context.Context, tx pgx.Tx, roomID uuid.UUID, reason string, now time.Time) ([]uuid.UUID, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT c.id, c.delegate_message_id
 		FROM task_card c JOIN lane l ON l.id = c.lane_id
@@ -511,10 +522,35 @@ func (s *Service) ResumeStalledCards(ctx context.Context, tx pgx.Tx, roomID uuid
 		return nil, err
 	}
 	var out []uuid.UUID
+	if len(list) == 0 {
+		return nil, nil
+	}
+	var wsID uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT workspace_id FROM room WHERE id = $1`, roomID).Scan(&wsID); err != nil {
+		return nil, err
+	}
 	for _, x := range list {
 		c, err := cards.Get(ctx, tx, x.card)
 		if err != nil {
 			return nil, err
+		}
+		if reason != roomgate.ReasonLoop {
+			hop := Hop{ToAgent: c.AssigneeID, At: now}
+			if c.DelegatorTaskID != nil {
+				hop.FromAgent = c.DelegatorID
+				if _, hop.CauseID, err = causeOfTask(ctx, tx, *c.DelegatorTaskID); err != nil {
+					return nil, err
+				}
+			}
+			v, err := s.judgeHop(ctx, tx, roomID, wsID, hop, x.msg, 2, now)
+			if err != nil {
+				return nil, err
+			}
+			if !v.Allowed {
+				// Still over the limit: the loop gate goes up now, and the
+				// rest wait for the owner's approval (reason loop).
+				return out, s.pauseForLoop(ctx, tx, roomID, wsID, v, now)
+			}
 		}
 		taskID, err := s.reenterCardLane(ctx, tx, c, x.msg, Judgement{TaskID: c.DelegatorTaskID}, now)
 		if err != nil {
@@ -524,11 +560,8 @@ func (s *Service) ResumeStalledCards(ctx context.Context, tx pgx.Tx, roomID uuid
 		if s.Hub != nil {
 			if t, err := tasks.Get(ctx, tx, taskID); err == nil {
 				api := tasks.ToAPI(t, nil, nil)
-				var wsID uuid.UUID
-				if err := tx.QueryRow(ctx, `SELECT workspace_id FROM room WHERE id = $1`, roomID).Scan(&wsID); err == nil {
-					room := roomID
-					_ = s.Hub.Publish(ctx, tx, wsID, &room, "task.updated", api)
-				}
+				room := roomID
+				_ = s.Hub.Publish(ctx, tx, wsID, &room, "task.updated", api)
 			}
 		}
 	}

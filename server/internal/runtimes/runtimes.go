@@ -50,6 +50,11 @@ type Service struct {
 	// five-minute timeout. Optional — a Service without it still rebinds, and
 	// says so in the log.
 	Tasks *tasks.Service
+	// ResumeStalledCards is router.Service.ResumeStalledCards (#400 리뷰 400c
+	// NN1): a rebind lifts the runtime_offline gate, and a revise the stop
+	// held back gets its card task. runtimes cannot import router, so the
+	// server wiring hands it over; nil skips it.
+	ResumeStalledCards func(ctx context.Context, tx pgx.Tx, roomID uuid.UUID, reason string, now time.Time) ([]uuid.UUID, error)
 }
 
 // WithLog wires the logger the offline sweep and the GC pass report through.
@@ -58,6 +63,12 @@ func (s *Service) WithLog(l *slog.Logger) *Service { s.Log = l; return s }
 // WithTasks wires the task service (S-60). Set after construction because the
 // two services are built in either order by the server wiring.
 func (s *Service) WithTasks(t *tasks.Service) *Service { s.Tasks = t; return s }
+
+// WithCardResume wires ResumeStalledCards (the router's, #400 리뷰 400c NN1).
+func (s *Service) WithCardResume(f func(context.Context, pgx.Tx, uuid.UUID, string, time.Time) ([]uuid.UUID, error)) *Service {
+	s.ResumeStalledCards = f
+	return s
+}
 
 func New(pool *pgxpool.Pool, c clock.Clock, h *realtime.Hub, serverURL string) *Service {
 	return &Service{DB: pool, Clock: c, Hub: h, ServerURL: serverURL}

@@ -105,6 +105,11 @@ func (s *Server) UnblockRoom(w http.ResponseWriter, r *http.Request, roomId gen.
 		if _, err := roomgate.Unblock(r.Context(), tx, roomId, roomgate.ReasonManual, now); err != nil {
 			return err
 		}
+		// #400 리뷰 400c NN1: a revise over the loop limit while the room was
+		// stopped here raised no loop gate — its version waits for this lift.
+		if _, err := s.Router.ResumeStalledCards(r.Context(), tx, roomId, roomgate.ReasonManual, now); err != nil {
+			return err
+		}
 		by, err := auth.LoadUser(r.Context(), tx, u.Id)
 		if err != nil {
 			return err
@@ -223,6 +228,10 @@ func (s *Server) resumeRoomForBudget(ctx context.Context, roomID uuid.UUID, rais
 		if _, err := roomgate.Unblock(ctx, tx, roomID, roomgate.ReasonBudget, now); err != nil {
 			return err
 		}
+		// #400 리뷰 400c NN1 — see the manual lift.
+		if _, err := s.Router.ResumeStalledCards(ctx, tx, roomID, roomgate.ReasonBudget, now); err != nil {
+			return err
+		}
 		if _, err := s.Tasks.ResumeSessionTasks(ctx, tx, roomID, sessions.PauseBudget, tasks.CauseBudgetApproved, now); err != nil {
 			return err
 		}
@@ -301,7 +310,7 @@ func (s *Server) unblockRoomForLoop(ctx context.Context, roomID uuid.UUID, now t
 		}
 		// #400 리뷰 NN2: a revise the pause stopped left its version without
 		// a task — queue it now, or the join above that card never fires.
-		if _, err := s.Router.ResumeStalledCards(ctx, tx, roomID, now); err != nil {
+		if _, err := s.Router.ResumeStalledCards(ctx, tx, roomID, roomgate.ReasonLoop, now); err != nil {
 			return err
 		}
 		roomgate.PublishUpdated(ctx, s.Hub, tx, roomID)
