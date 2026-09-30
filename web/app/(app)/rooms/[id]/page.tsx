@@ -47,9 +47,11 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useWorkspaceStream } from "@/lib/realtime/StreamContext";
 import { tabKeyTarget } from "@/lib/tabs";
 import {
-  eventsOnAppended, eventsOnSuperseded, eventsOnTask, isRoomDeleted, lanesOnUpdated, messagesOnCreated, messagesOnUpdated, prependById, readsOnRecorded,
-  repliesOnCreated, roomEvent, roomOnCost, roomOnUpdated, typingOn, workCostOf, workOnProgress, worksOnClosed, worksOnDeleted, worksOnProgress, worksOnUpserted,
+  boardOnCard, cardsOnUpserted, eventsOnAppended, eventsOnSuperseded, eventsOnTask, isRoomCard, isRoomDeleted, lanesOnUpdated, messagesOnCreated, messagesOnUpdated,
+  prependById, readsOnRecorded, repliesOnCreated, roomEvent, roomOnCost, roomOnUpdated, typingOn, workCostOf, workOnProgress, worksOnClosed, worksOnDeleted,
+  worksOnProgress, worksOnUpserted,
 } from "@/lib/room-stream";
+import { cardsOnFetched, type CardCache } from "@/lib/cards";
 import { emptyTurnNote, isEmptyTurn, isTaskLive } from "@/lib/feed";
 import { roomProcessSlices, workingTasks, type ProcessSlices, type ProcessWindow } from "@/lib/process-slice";
 import { useMarkRoomRead } from "@/lib/unread";
@@ -63,8 +65,8 @@ import {
   ROOM_CENTER, ROOM_HEAD, ROOM_LEFT, ROOM_NOTICES, ROOM_TABS, SUMMARY_PICK, WORK_CHIPS, WORK_SELECTOR, roomDefaultsLine,
 } from "@/lib/wording";
 import type {
-  Agent, Artifact, Decision, HitlRequest, HitlResponse, Lane, LaneStatus, Member, Message, Room, RoomParticipant, Runtime,
-  StreamEvent, Task, TaskEvent, TriggerPreview, Work, WorkListItem,
+  Agent, Artifact, CardBoard, CardBoardItem, CardRef, Decision, HitlRequest, HitlResponse, Lane, LaneStatus, Member, Message, Room, RoomParticipant, Runtime,
+  StreamEvent, Task, TaskCard, TaskEvent, TriggerPreview, Work, WorkListItem,
 } from "@/lib/api/types";
 
 /** `task` — 「진행 중…」 판정(T-FEED)의 task 상태·attempt. getTask 가 실패하면 null(이벤트만으로 판정), `task.updated` 로 갱신. */
@@ -188,6 +190,10 @@ export default function RoomPage() {
   /** 세 층(FR-3.1.2) — 보기 전환과 카드마다의 펼침. 펼침은 메시지 id 로 여기(방 화면)에 둔다 — 카드가 다시 그려져도 남는다. */
   const [view, setView] = useState<TimelineView>("conversation");
   const [folds, setFolds] = useState<Folds>({});
+  /** 작업 카드(v0.19.15) — 카드 id → TaskCard 캐시 하나(같은 카드의 말풍선 여럿이 이것을 읽는다), 우열 분담표, 미션 칸의 고른 탭(미션을 바꿔도 유지, #392 NN3). */
+  const [cards, setCards] = useState<CardCache>({});
+  const [board, setBoard] = useState<CardBoard | null>(null);
+  const [workTab, setWorkTab] = useState<string>("overview");
   const requestedEvents = useRef(new Set<string>());
   const bottomRef = useRef<HTMLDivElement>(null);
   /** 「작업 중」 말풍선의 마지막 높이(에이전트 id → px) — 게시된 메시지가 그 자리에 서는 첫 프레임에 min-height 로 쓴다(튐 최소, COMPONENTS §9.10). */
@@ -352,6 +358,34 @@ export default function RoomPage() {
     void loadWork(panelWorkId);
   }, [loadWork, panelWorkId]);
 
+  // ── 작업 카드(v0.19.15, PRD FR-3.8) ──
+  // 분담표 — 우열에 실린 미션의 카드(`listRoomCards?work_id=`). 서버가 아직 안 켰으면 null(탭 줄 없음 — 카드 없는 미션과 같다).
+  const loadBoard = useCallback(async (workId: string | null) => {
+    if (!workId) return setBoard(null);
+    const b = await api.get("/rooms/{roomId}/cards", { path: { roomId }, query: { work_id: workId } }).catch(() => null);
+    setBoard(b && (b.work_id ?? null) === workId ? b : b ? { ...b, work_id: workId } : null);
+  }, [roomId]);
+  useEffect(() => {
+    void loadBoard(panelWorkId);
+  }, [loadBoard, panelWorkId]);
+  /** 말풍선이 캐시에 없는 카드(판)를 부탁하면 `getCard` 로 한 번(판 · 종류마다) — 지난 판(`versions`)까지 받아 캐시를 통째로 바꾼다. */
+  const requestedCards = useRef(new Set<string>());
+  useEffect(() => {
+    setCards({});
+    requestedCards.current.clear();
+  }, [roomId]);
+  const fetchCard = useCallback((cardId: string) => {
+    void api.get("/cards/{cardId}", { path: { cardId } })
+      .then((c) => { if (c.room_id === roomId) setCards((cur) => cardsOnFetched(cur, c)); })
+      .catch(() => undefined);
+  }, [roomId]);
+  const needCard = useCallback((cardId: string, version: number | null, want: "card" | "result") => {
+    const k = `${cardId}:${version ?? "cur"}:${want}`;
+    if (requestedCards.current.has(k)) return;
+    requestedCards.current.add(k);
+    fetchCard(cardId);
+  }, [fetchCard]);
+
   const loadReplies = useCallback(async (rootId: string) => {
     const page = await api.get("/rooms/{roomId}/messages", { path: { roomId }, query: { thread: rootId, limit: 200 } });
     setReplies((r) => ({ ...r, [rootId]: page.items.filter((m) => m.id !== rootId).sort(byTime) }));
@@ -430,6 +464,8 @@ export default function RoomPage() {
   selRef.current = sel;
   const panelRef = useRef(panelWorkId);
   panelRef.current = panelWorkId;
+  const cardsRef = useRef(cards);
+  cardsRef.current = cards;
   const onEvent = useCallback((ev: StreamEvent) => {
     // 워크스페이스 전체 스트림 — 다른 방의 프레임은 버린다(§6: 구독 범위는 방, 미션은 클라이언트가 거른다).
     const rid = ev.room_id;
@@ -545,10 +581,21 @@ export default function RoomPage() {
       case "agent.typing":
         setTyping((t) => typingOn(t, e.payload));
         break;
+      // 작업 카드(v0.3.10) — 캐시 하나와 분담표를 제자리에서. 방송의 `actions` 는 보는 사람 모양이 아니라 믿지 않는다 —
+      // 이미 보고 있는 카드면 `getCard` 로 내 동작(수락·수정 요청)을 다시 읽는다(Director 에게 「수락」이 결과 제출 순간 선다).
+      case "card.created":
+      case "card.updated": {
+        const c = e.payload;
+        if (!isRoomCard(roomId, c)) return;
+        setCards((cur) => cardsOnUpserted(cur, c));
+        if (cardsRef.current[c.id]) fetchCard(c.id);
+        if ((c.work_id ?? null) === panelRef.current) setBoard((b) => boardOnCard(b ?? { work_id: c.work_id, items: [], total: 0, pending_judgement: 0 }, c));
+        break;
+      }
       default:
         break;
     }
-  }, [roomId, router, loadWork, loadParticipants, refreshRoom]);
+  }, [roomId, router, loadWork, loadParticipants, refreshRoom, fetchCard]);
   const conn = useWorkspaceStream(workspace?.id, onEvent, { onResync: () => { void load(); void loadSide(); void loadMessages(); } });
 
   // 새 메시지·델타마다 맨 아래로(앵커로 들어왔으면 앵커 자리를 지킨다). 작성창 높이만큼 끝 표식의 scroll-margin 을 둔다(W-18).
@@ -568,7 +615,12 @@ export default function RoomPage() {
   // 앵커(`?around_message_id=`) — 그 메시지를 가운데에.
   useEffect(() => {
     if (!around || !msgLoaded) return;
-    document.querySelector(`[data-message-id="${around}"]`)?.scrollIntoView({ block: "center" });
+    const el = document.querySelector(`[data-message-id="${around}"]`);
+    el?.scrollIntoView({ block: "center" });
+    // 분담표 행 · 참고 자료 칩이 다른 미션의 말풍선으로 보낼 때도 강조가 따라간다.
+    el?.classList.add("msg--flash");
+    const t = setTimeout(() => el?.classList.remove("msg--flash"), 1200);
+    return () => clearTimeout(t);
   }, [around, msgLoaded]);
   // 가운데가 기본이다(SCR-C B) — 방을 열면 포커스는 작성창.
   useEffect(() => {
@@ -682,12 +734,14 @@ export default function RoomPage() {
       void loadRoom();
     });
 
-  function jumpToMessage(messageId: string) {
-    setCol("timeline");
-    const el = document.querySelector(`[data-message-id="${messageId}"]`);
+  function flash(el: Element | null) {
     el?.scrollIntoView({ block: "center" });
     el?.classList.add("msg--flash");
     setTimeout(() => el?.classList.remove("msg--flash"), 1200);
+  }
+  function jumpToMessage(messageId: string) {
+    setCol("timeline");
+    flash(document.querySelector(`[data-message-id="${messageId}"]`));
   }
   function openLaneHitl(lane: Lane) {
     const h = hitls.find((x) => x.id === lane.hitl_request_id) ?? hitls.find((x) => x.lane_id === lane.id && x.status === "open");
@@ -726,6 +780,28 @@ export default function RoomPage() {
 
   /** S19 참여자(T-R2-W3 `RoomParticipantsDialog`) — 초대·퇴장 · 부방장 · 본인 「이 방에서 나가기」가 한 다이얼로그. */
   const openParticipants = () => setShowParticipants(true);
+
+  /**
+   * 타임라인 항목 ctx(#392 리뷰 NN2) — 데이터 칸이 바뀔 때만 새 객체다. 함수 칸은 매 렌더 새로 만드는 방 화면 함수를 `liveCtx` 로 부르는
+   * 안정된 껍데기라, 진행 메모(`message.delta`)·입력 중·작성창·다이얼로그처럼 타임라인 항목과 무관한 상태가 바뀌어도 같은 객체가 간다.
+   * 함수가 읽는 상태(펼침·보기·턴 기록·메시지·서브 미션·아티팩트·집기·멤버·미션)는 deps 에 둔다 — 항목을 memo 로 감싸도 낡지 않게.
+   */
+  const liveCtx = useRef<Omit<TimelineCtx, "me" | "now" | "replies" | "held" | "hitls" | "busy" | "roomBudget" | "archived" | "showWorkLink" | "cards"> | null>(null);
+  const timelineCtx = useMemo<TimelineCtx>(() => {
+    type Fn = (...a: unknown[]) => unknown;
+    const call = <K extends keyof NonNullable<typeof liveCtx.current>>(k: K) => ((...a: unknown[]) => (liveCtx.current![k] as unknown as Fn)(...a)) as unknown as TimelineCtx[K];
+    return {
+      me: meId, now, replies, held, hitls, busy, cards,
+      roomBudget: { current: room?.limits?.budget_usd ?? null, spent: room?.cost_usd ?? 0 },
+      archived: room?.status === "archived",
+      showWorkLink: sel.kind !== "work",
+      pickButton: call("pickButton"), conversation: call("conversation"), layers: call("layers"), groupProcess: call("groupProcess"), taskActivity: call("taskActivity"),
+      onLoadReplies: call("onLoadReplies"), onReply: call("onReply"), workLabel: call("workLabel"), workTitle: call("workTitle"), onToWork: call("onToWork"),
+      onRespondHitl: call("onRespondHitl"), onOpenWork: call("onOpenWork"), userName: call("userName"),
+      needCard, onCardAction: call("onCardAction"), onJump: call("onJump"), onJumpRef: call("onJumpRef"),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 함수 칸이 읽는 상태를 일부러 deps 에 둔다(위 주석).
+  }, [meId, now, replies, held, hitls, busy, cards, room?.limits?.budget_usd, room?.cost_usd, room?.status, sel, needCard, folds, view, events, messages, farMessages, lanes, artifacts, pick, members, works, work]);
 
   // ── 그리기 ──
   if (!workspace) return null;
@@ -907,17 +983,50 @@ export default function RoomPage() {
     onJump: jumpOrAnchor,
   });
 
-  /** 타임라인 항목(`components/TimelineItemView`)이 쓰는 이 화면의 상태·동작 — 항목 종류를 더해도 여기는 그대로다. */
-  const timelineCtx: TimelineCtx = {
-    me: meId,
-    now,
-    replies,
-    held,
-    hitls,
-    busy,
-    roomBudget: { current: room.limits?.budget_usd ?? null, spent: room.cost_usd ?? 0 },
-    archived,
-    showWorkLink: sel.kind !== "work",
+  /** 사람의 되돌리기(카드 「⋯」) — 응답의 카드는 내 호출이라 `actions` 까지 믿는다. 수정 요청이면 새 판 위임 카드 말풍선이 바로 선다. */
+  const cardAction = async (card: TaskCard, action: "accept" | "revise", reason?: string) => {
+    const put = (c: TaskCard) => {
+      setCards((cur) => cardsOnUpserted(cur, c, { trustActions: true }));
+      setBoard((b) => boardOnCard(b, c));
+    };
+    if (action === "accept") {
+      try {
+        put(await api.post("/cards/{cardId}/accept", { path: { cardId: card.id } }));
+      } catch (e) {
+        setError(errorMessage(e));
+      }
+      return;
+    }
+    try {
+      const r = await api.post("/cards/{cardId}/revise", { path: { cardId: card.id }, idempotencyKey: newIdempotencyKey(), body: { reason: reason ?? "" } });
+      put(r.card);
+      onEvent({ id: "", type: "message.created", at: r.message.created_at, room_id: roomId, payload: r.message as unknown as Record<string, unknown> });
+    } catch (e) {
+      throw new Error(errorMessage(e));
+    }
+  };
+  /** 참고 자료 칩 — 메시지는 그 말풍선으로, 아티팩트는 그 턴의 아티팩트 카드(없으면 우열 방 칸의 행), 결정은 우열 방 칸의 행(접혀 있으면 편다). */
+  const jumpRef = (r: CardRef) => {
+    if (r.kind === "message") return jumpOrAnchor(r.id);
+    const sel0 = r.kind === "artifact" ? `.s7__timeline [data-artifact-id="${r.id}"]` : null;
+    const inTimeline = sel0 ? document.querySelector(sel0) : null;
+    if (inTimeline) return flash(inTimeline);
+    setPanelOpen(true);
+    setCol("room");
+    requestAnimationFrame(() => flash(document.querySelector(r.kind === "artifact" ? `[data-testid="artifact-row"][data-artifact-id="${r.id}"]` : `[data-decision-id="${r.id}"]`)));
+  };
+  /** 분담표 행 — 최신 판 말풍선(결과가 있으면 결과 카드)으로. 거르개가 그 미션을 안 보여 주면 그 미션으로 바꾸며 앵커로 연다. */
+  const openCard = (it: CardBoardItem) => {
+    const id = it.latest_message_id;
+    if (!id) return;
+    if (document.querySelector(`[data-message-id="${id}"]`)) return jumpToMessage(id);
+    const wid = board?.work_id;
+    router.replace(`/rooms/${roomId}?${wid ? `work=${encodeURIComponent(wid)}&` : ""}around_message_id=${encodeURIComponent(id)}`, { scroll: false });
+    setCol("timeline");
+  };
+
+  // 타임라인 항목(`components/TimelineItemView`)이 쓰는 함수들 — 매 렌더 새로 만들지만 `timelineCtx`(위 useMemo, #392 NN2)는 이 ref 로 부른다.
+  liveCtx.current = {
     pickButton,
     conversation: conversationFor,
     layers: layersFor,
@@ -931,6 +1040,10 @@ export default function RoomPage() {
     onRespondHitl: respondHitl,
     onOpenWork: (id) => select({ kind: "work", id }),
     userName: (uid) => members.find((x) => x.user.id === uid)?.user.display_name,
+    needCard,
+    onCardAction: cardAction,
+    onJump: jumpOrAnchor,
+    onJumpRef: jumpRef,
   };
 
   const toggleBoard = (s: LaneStatus) => setBoardOpen((cur) => {
@@ -1256,6 +1369,10 @@ export default function RoomPage() {
                 setWork(await api.patch("/works/{workId}", { path: { workId: work.id }, body: { limits: { budget_usd: usd } } }));
                 void loadRoom().catch(() => undefined);
               }}
+              board={board}
+              tab={workTab}
+              onTab={setWorkTab}
+              onOpenCard={openCard}
             />
           </div>
           <div className="s7__room" data-testid="s7-room">

@@ -17,7 +17,7 @@ import { resetStore, store, type Subscriber } from "./store";
 import type { Agent, ColabCommand, Lane, ObservationReport, TaskEvent } from "@/lib/api/types";
 import type { Session } from "@/lib/legacy-session";
 
-const ALL: ColabCommand[] = ["room_get", "room_messages", "artifact_get", "message_post", "status_set", "decision_record", "lane_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info", "room_list", "room_read", "work_propose"];
+const ALL: ColabCommand[] = ["room_get", "room_messages", "artifact_get", "message_post", "status_set", "decision_record", "card_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info", "room_list", "room_read", "work_propose", "card_report", "card_accept", "card_revise", "card_get", "card_list"];
 const ORDER = ["chain_scale", "chain_depth", "join_breadth", "routing_concentration", "empty_turn_rate"];
 
 let cookie = "";
@@ -113,10 +113,10 @@ describe("getWorkspaceObservations — PRD §11 관찰 표 5행, 목표치 없�
 describe("Agent.allowed_commands — role 로 계산한 읽기 전용 파생값(K-19)", () => {
   const byRole: Record<Agent["role"], ColabCommand[]> = {
     lead: ALL,
-    researcher: ALL.filter((c) => !["lane_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose"].includes(c)),
-    writer: ALL.filter((c) => !["lane_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose"].includes(c)),
-    engineer: ALL.filter((c) => !["lane_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose"].includes(c)),
-    reviewer: ALL.filter((c) => !["lane_delegate", "artifact_submit", "hitl_approve_request", "work_propose"].includes(c)),
+    researcher: ALL.filter((c) => !["card_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose", "card_accept", "card_revise"].includes(c)),
+    writer: ALL.filter((c) => !["card_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose", "card_accept", "card_revise"].includes(c)),
+    engineer: ALL.filter((c) => !["card_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose", "card_accept", "card_revise"].includes(c)),
+    reviewer: ALL.filter((c) => !["card_delegate", "artifact_submit", "hitl_approve_request", "work_propose", "card_accept", "card_revise"].includes(c)),
     custom: ALL,
   };
 
@@ -125,7 +125,7 @@ describe("Agent.allowed_commands — role 로 계산한 읽기 전용 파생값(
     const lead = items.find((a) => a.name === "Lead")!, res = items.find((a) => a.name === "Researcher")!;
     expect(lead.allowed_commands).toEqual(byRole.lead);
     expect(res.allowed_commands).toEqual(byRole.researcher);
-    expect(res.allowed_commands).toHaveLength(11);
+    expect(res.allowed_commands).toHaveLength(14);
   });
 
   it.each(Object.keys(byRole) as Agent["role"][])("createAgent(%s) → 그 역할의 목록 · PATCH role 이 바뀌면 다시 계산 · 보내온 allowed_commands 는 무시", async (role) => {
@@ -134,7 +134,7 @@ describe("Agent.allowed_commands — role 로 계산한 읽기 전용 파생값(
     expect(a.allowed_commands).toEqual(byRole[role]);
     expect(await must<Agent>("GET", `/agents/${a.id}`).then((x) => x.allowed_commands)).toEqual(byRole[role]);
     const next: Agent["role"] = role === "reviewer" ? "lead" : "reviewer";
-    const p = await must<Agent>("PATCH", `/agents/${a.id}`, { body: { role: next, allowed_commands: ["lane_delegate"] } });
+    const p = await must<Agent>("PATCH", `/agents/${a.id}`, { body: { role: next, allowed_commands: ["card_delegate"] } });
     expect(p.allowed_commands).toEqual(byRole[next]);
     const same = await must<Agent>("PATCH", `/agents/${a.id}`, { body: { allowed_commands: [] } });
     expect(same.allowed_commands).toEqual(byRole[next]);

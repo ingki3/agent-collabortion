@@ -141,8 +141,8 @@ export const FIX_CONDITION = {
 // ── v1.1 첫 라운드(T-W16) — S14 「관찰」 표(K-18) · S10 역할의 허용 명령(K-19) · 빈 턴 카드(FR-7.2) ──
 
 /**
- * `ColabCommand`(계약 enum 13개, `colab-cli.md` §2) → 사람 말. S10 역할 구역이 "이 에이전트가 할 수 있는 일: …" 로 그린다.
- * 명령 이름은 내부어라 화면에 나오지 않는다 — 이 표만 나온다. 13개 전부를 `lib/wording.test.ts` 가 계약 enum 과 대조한다.
+ * `ColabCommand`(계약 enum 21개, `colab-cli.md` §2) → 사람 말. S10 역할 구역이 "이 에이전트가 할 수 있는 일: …" 로 그린다.
+ * 명령 이름은 내부어라 화면에 나오지 않는다 — 이 표만 나온다. 21개 전부를 `lib/wording.test.ts` 가 계약 enum 과 대조한다.
  */
 export const COMMAND_LABEL = {
   room_get: "방 읽기",
@@ -151,7 +151,7 @@ export const COMMAND_LABEL = {
   message_post: "메시지 게시",
   status_set: "상태 알리기",
   decision_record: "결정 기록",
-  lane_delegate: "위임",
+  card_delegate: "카드로 위임",
   artifact_submit: "아티팩트 제출",
   review_approve: "검토 승인",
   review_reject: "검토 반려",
@@ -161,6 +161,12 @@ export const COMMAND_LABEL = {
   room_list: "다른 방 목록",
   room_read: "다른 방 읽기",
   work_propose: "미션 제안",
+  // v0.9.10(PRD FR-3.8) — 작업 카드.
+  card_report: "결과 카드 내기",
+  card_accept: "결과 수락",
+  card_revise: "수정 요청",
+  card_get: "카드 보기",
+  card_list: "분담표 보기",
 } as const;
 
 /** S10 역할 구역 — 허용 명령 목록의 머리말·"전부"·못 하는 것 한 줄(FR-1.9.1 표의 "막는 것과 이유" 열을 사람 말로). */
@@ -172,8 +178,8 @@ export const ROLE_COMMANDS = {
   all_custom: "역할 대신 지시문이 정합니다",
   /** "<못 하는 것>은 못 합니다 — <이유>" 의 뒤 절. */
   cannot: (denied: string) => `${denied}은 못 합니다`,
-  reason_worker: "위임·검토 승인·완료 승인 요청·미션 제안은 Lead 의 일",
-  reason_reviewer: "위임·완료 승인 요청·미션 제안은 Lead 의 일, 아티팩트 대신 검토 반려 사유를 남깁니다",
+  reason_worker: "위임·결과 판정·검토 승인·완료 승인 요청·미션 제안은 Lead 의 일",
+  reason_reviewer: "위임·결과 판정·완료 승인 요청·미션 제안은 Lead 의 일, 아티팩트 대신 검토 반려 사유를 남깁니다",
   /** 저장 전 미리보기 — 고른 역할이 저장된 역할과 다를 때. */
   preview: "저장하면 이 목록으로 바뀝니다",
   readonly: "역할이 정합니다 — 여기서 고칠 수 없습니다",
@@ -650,6 +656,8 @@ export const WORK_PANEL = {
   cost_this: "이 미션 ",
   /** 미션 칸 탭(T-RF2 틀) — 탭이 하나뿐인 지금은 탭 줄을 그리지 않아 화면에 나오지 않는다. 「분담표」 탭이 들어오면 보인다. */
   tab_overview: "개요",
+  /** v0.19.15 — 카드가 하나라도 있는 미션의 둘째 탭(SCREEN §4.6 (가) 「분담표」). */
+  tab_board: "분담표",
   estimated: "추정",
   pause: "일시정지",
   resume: "재개",
@@ -845,6 +853,69 @@ export const PARTS = {
   replies_show: ["답글 ", "개 보기"] as Slotted,
   replies_hide: ["답글 ", "개 접기"] as Slotted,
   replies_loading: "불러오는 중…",
+} as const;
+
+/**
+ * 작업 카드(PRD FR-3.8 · SCREEN §4.6 「작업 카드」·「분담표」 · COMPONENTS §9.13 · openapi v0.3.10) — 위임 카드·결과 카드 말풍선, 사람의 되돌리기,
+ * 우열 「분담표」 탭의 말. 확인 방법 5종·카드 상태 4종·판정 3종·기준 판정 3종이 계약 enum 과 1:1 이다(`lib/wording.test.ts`).
+ * 「산출물」은 §8.4 용어표가 막는다(Lead 판정 2026-09-30) — 확인 방법 `artifact` 는 「아티팩트」, 칸 `output_format` 은 「결과물」.
+ */
+export const TASK_CARD = {
+  /** `CardStatus` — 위임 카드 머리 칩. 분담표 행은 `result_submitted` 를 「판정 대기」(judge.pending)로 읽는다(SCREEN 분담표 그림). */
+  status: { in_progress: "진행 중", result_submitted: "결과 제출", accepted: "수락", cancelled: "취소" },
+  /** 결과 카드 머리의 판정 칩(판정 대기 · 수락 · 수정 요청). */
+  judge: { pending: "판정 대기", accepted: "수락", revise_requested: "수정 요청" },
+  /** `CardVerdict` — 기준 줄 판정. */
+  verdict: { met: "충족", partial: "부분", unmet: "미충족" },
+  /** `CardCriterionMethod` — 확인 방법 칩. */
+  method: { test: "테스트", artifact: "아티팩트", run: "실행 결과", review: "검토", inspect: "눈으로 확인" },
+  /** 칸 이름(왼쪽 64px 열). */
+  field: {
+    goal: "목표", criteria: "완료 기준", boundaries: "하지 않을 것", refs: "참고", output: "결과물",
+    confirmed: "확인함", assumed: "가정함", deviations: "벗어난 점", open_issues: "남은 문제",
+  },
+  /** 「1판」. */
+  version: ["", "판"] as Slotted,
+  /** 결과물 줄의 「예산 $3」. */
+  budget: ["예산 $", ""] as Slotted,
+  /** 「C-3 결과」. */
+  result_of: "결과",
+  /** 「기준 1/3 충족」. */
+  met_count: (k: number, n: number) => `기준 ${k}/${n} 충족`,
+  /** 서버가 `met` 을 `partial` 로 낮춘 줄 — 에이전트 판정과 서버 판정이 다른 것을 숨기지 않는다. */
+  downgraded: "부분 · 근거 없음",
+  auto: "자동",
+  auto_summary: "결과 카드 없이 끝났습니다 — 모든 기준을 확인하지 못함으로 둡니다",
+  /** 새 판 위임 카드 머리의 「수정 요청 · 〈사유〉」. */
+  revise_head: "수정 요청 · ",
+  ref_missing: "지워진 자료",
+  ref_glyph: { artifact: "📄", decision: "⚖", message: "💬" },
+  evidence_glyph: { artifact: "📄", message: "💬", commit: "⎇" },
+  /** 판정 줄 — 「수락 · @Lead 15:58」 / 「수정 요청 · @Lead — 〈사유〉」 + 「새 판 보기」. */
+  judged_accept: "수락 · ",
+  judged_revise: "수정 요청 · ",
+  new_version: "새 판 보기",
+  /** 비용 · 시간 한 줄의 시간 — 초 · 분 · 시간. */
+  duration: (s: number) => (s < 60 ? `${s}초` : s < 3600 ? `${Math.round(s / 60)}분` : `${Math.floor(s / 3600)}시간 ${Math.round((s % 3600) / 60)}분`),
+  loading: "카드를 불러오는 중…",
+  /** 사람의 되돌리기(「⋯」 메뉴) — 미션 Director·deputy 에게만(`TaskCard.actions`). */
+  menu: "카드 동작",
+  accept: "수락",
+  unaccept: "수락 취소…",
+  revise: "수정 요청…",
+  reason_revise: "무엇이 모자란가요?",
+  reason_unaccept: "왜 수락을 취소하나요? 담당이 이 사유로 다시 합니다",
+  reason_required: "사유를 적어 주세요",
+  send: "보내기",
+  close: "그만두기",
+  /** article aria-label — 「〈작성자〉 · 위임 카드 C-n · 〈담당〉 · 〈상태〉」 / 「〈작성자〉 · 결과 카드 C-n · 기준 k/N 충족」. */
+  aria_delegation: (author: string, label: string, assignee: string, status: string) => `${author} · 위임 카드 ${label} · ${assignee} · ${status}`,
+  aria_result: (author: string, label: string, k: number, n: number) => `${author} · 결과 카드 ${label} · 기준 ${k}/${n} 충족`,
+  /** 분담표 — 탭 줄 오른쪽 머리 · 빈 칸 · 행을 누르면. */
+  board_head: (n: number, pending: number) => `카드 ${n} · 판정 대기 ${pending}`,
+  board_none: "–",
+  board_open: (label: string) => `${label} 말풍선으로 가기`,
+  board_loading: "분담표를 불러오는 중…",
 } as const;
 
 /**

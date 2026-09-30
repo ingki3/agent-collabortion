@@ -38,6 +38,11 @@ function ctx(over: Partial<TimelineCtx> = {}): TimelineCtx {
     onRespondHitl: async () => undefined,
     onOpenWork: () => undefined,
     userName: () => undefined,
+    cards: {},
+    needCard: () => undefined,
+    onCardAction: async () => undefined,
+    onJump: () => undefined,
+    onJumpRef: () => undefined,
     ...over,
   };
 }

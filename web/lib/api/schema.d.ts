@@ -852,6 +852,7 @@ export interface paths {
          * @description 권한: 워크스페이스 멤버(누구나 게시·멘션, FR-5.3) · `TaskToken`(에이전트, 그 task의 방만).
          *     **`Idempotency-Key` 필수.** 사용자는 랜덤 UUID를, CLI는 `UUIDv5(task:<task_id>:<seq>)`(attempt 제외, seq는 `CliContext.last_seq`에서 이어짐 — colab-cli.md §1)를 쓴다(§9 내구성) — 폐기된 토큰은 `401`(E11-04). 서버가 FR-3.3 규칙 1~8과 lane 해소 4규칙을 적용해 task를 만들거나 병합한다(FR-3.4: **어떤 메시지도 진행 중 턴을 취소하지 않는다**). `new_lane: true`는 해소 규칙 3을 건너뛴다(t-2, 사람만). `suppress_agent_ids`는 이번 메시지에서만 트리거를 억제한다(FR-3.6). 비참여 에이전트 멘션은 게시하되 `warnings[]`로 알린다(E1-04). 응답 `triggers[]`는 실제로 만들어진/병합된 task.
          *     `TaskToken`으로 게시할 때 `author_type`은 `agent`, `source_task_id`는 그 task다. 루프 상한 초과면 메시지는 게시되고 방이 `paused(loop)`가 되며 task는 만들지 않는다(E4-01).
+         *     **v0.3.10 (PRD FR-3.8 2)**: 에이전트가 쓴 메시지(`TaskToken`)의 에이전트 멘션이 만드는 task 는 `kind: question`(카드 없는 일 맡김은 없다) — 받는 쪽은 답만 하고 허용 명령은 역할 표 ∩ 질문 표. 사람 메시지·시스템 트리거는 지금과 같다(`normal`). 말의 종류는 `question`.
          */
         post: operations["postMessage"];
         delete?: never;
@@ -947,11 +948,127 @@ export interface paths {
         get: operations["listLanes"];
         put?: never;
         /**
-         * 위임 — 새 lane + 멘션 메시지 자동 작성(`colab lane delegate`)
-         * @description 권한: `TaskToken`(에이전트만 — 사람은 `postMessage`의 `new_lane`을 쓴다).
-         *     해소 규칙 2 — **항상 새 lane**(E2-02·03). `delegated_from_task_id` = 호출 task(합류 그룹 키, FR-6.5). 대상은 방 참여자로 제한 — 아니면 `422 not_participant`와 안내("`hitl ask`로 Director에게 참여자 추가 요청", E15-02). `depends_on`은 같은 방의 lane ids(DAG, 의존 lane이 끝나면 자동 시작). 서버가 `[@대상](mention://agent/<id>)` + brief 메시지를 호출 에이전트 이름으로 게시한다. 방이 `paused`면 lane은 만들되 task는 dispatch되지 않는다.
+         * 위임 — 위임 카드로 새 lane(`colab card delegate`)
+         * @description 권한: `TaskToken`(에이전트만 — 사람은 `postMessage`의 `new_lane`을 쓴다). 명령 `card_delegate` 를 가진 역할(FR-1.9.1).
+         *     **v0.3.10 — 위임은 카드로만(PRD FR-3.8 1).** 본문은 위임 카드(`card`) — 옛 `agent_id`·`brief` 본문은 없어졌다(카드 없이 부르면 `422 card_required`, 사람 말 사유 「위임은 카드로 합니다 — 목표·완료 기준(확인 방법)·하지 않을 것을 적은 카드를 내세요」). 카드 검사를 어기면 `422 card_invalid` + `errors[]`. 해소 규칙 2 — **항상 새 lane**(E2-02·03). `delegated_from_task_id` = 호출 task(합류 그룹 키, FR-6.5). 대상은 방 참여자로 제한 — 아니면 `422 not_participant`와 안내("`hitl ask`로 Director에게 참여자 추가 요청", E15-02). 호출 task 가 카드 task 면 새 카드의 `parent_card_id` = 그 카드. 서버가 카드 번호를 매기고(미션 안 1부터), 위임 카드 말풍선(`speech: delegate`, `card_role: delegation`, 멘션 `[@담당](mention://agent/<id>)`, `content` = 카드를 사람 말로 적은 요약)을 호출 에이전트 이름으로 게시하고, 새 lane 의 첫 task 를 `kind: card` 로 만든다(`lane.brief` = 목표). 방이 `paused`면 lane은 만들되 task는 dispatch되지 않는다. 승인 대기 보류(FR-2A.2.3)·루프 상한은 지금 규칙 그대로.
          */
         post: operations["delegateLane"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 분담표 — 미션의 카드 트리(`colab card list`)
+         * @description 권한: 워크스페이스 멤버(방 읽기 권한) · `TaskToken`(그 방).
+         *     v0.3.10 (PRD FR-3.8 6, SCREEN §4.6 「분담표」). `work_id` 로 한 미션만(`none` = 미션 밖 위임), 없으면 방 전체. 번호순.
+         */
+        get: operations["listRoomCards"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cards/{cardId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cardId: components["parameters"]["CardId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 카드 한 장(지난 판 포함, `colab card get`)
+         * @description 권한: 워크스페이스 멤버(방 읽기 권한) · `TaskToken`(같은 방).
+         *     v0.3.10. `versions` 에 지난 판. CLI 는 `C-3` 같은 표시 번호도 받는다 — `COLAB_WORK_ID` 범위에서 `listRoomCards` 로 풀어 id 로 부른다.
+         */
+        get: operations["getCard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cards/{cardId}/result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cardId: components["parameters"]["CardId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 결과 카드 제출(`colab card report`)
+         * @description 권한: `TaskToken` — 호출 task 가 이 카드의 **카드 task**(`task.kind = card`, `task.card_id` = 이 카드, 현재 판)여야 한다. 아니면 `403 not_card_task`(질문 task·다른 카드·사람 세션 포함).
+         *     v0.3.10 (PRD FR-3.8 3). 카드가 `in_progress` 가 아니면 `409 card_not_open`. 검사(`422 result_card_incomplete` + `errors[]`): 기준 번호가 현재 판의 1..N 을 **각 한 번** 덮지 않음(빠짐·중복·범위 밖) · 근거 참조가 같은 방에 없음. **근거가 하나도 없는 `met` 은 `partial` 로 낮춰 저장**하고 응답 `downgraded[]`(기준 번호)와 `notice` 문장에 적는다(거절하지 않는다). 저장하면 카드 `result_submitted`, 결과 카드 말풍선 게시(`speech: report`, `card_role: result`, `responds_to_message_id` = 이 판의 위임 카드 말풍선), `card.updated`. lane 완료는 지금 규칙 그대로(이 호출은 lane 을 끝내지 않는다 — `status set done` 또는 턴 종료). 같은 판에 두 번 내면 뒤의 것이 이긴다(말풍선은 새로, 앞의 것은 `message.updated` 로 「바뀜」 표시 없이 남는다 — 이력). 멱등키는 `message post` 와 같은 규칙.
+         */
+        post: operations["submitCardResult"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cards/{cardId}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cardId: components["parameters"]["CardId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 결과 수락(`colab card accept`)
+         * @description 권한: `TaskToken`(카드의 **위임자** 에이전트의 task, 같은 방) · 미션 Director·deputy(미션 밖 카드면 방장·부방장). 그 밖 `403 not_card_judge`.
+         *     v0.3.10 (PRD FR-3.8 4). `result_submitted` 에서만(`409 card_not_judgeable`). 카드 `accepted`, `judgement` 기록, 결과 카드 말풍선 판정 줄 갱신(`message.updated`)·`card.updated`. 결정 기록은 만들지 않는다.
+         */
+        post: operations["acceptCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cards/{cardId}/revise": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cardId: components["parameters"]["CardId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 수정 요청 — 같은 lane 재진입, 판 +1(`colab card revise`)
+         * @description 권한: `acceptCard` 와 같다. 에이전트는 `result_submitted` 에서만, 사람은 `result_submitted`·`accepted`(수락 취소)에서(`409 card_not_judgeable`).
+         *     v0.3.10 (PRD FR-3.8 4). `reason` 필수. `card` 를 주면 그 칸만 바꾼 새 판(검사는 위임과 같다, `422 card_invalid`). 카드 `in_progress`·`version` +1·`revise_reason`, 새 판 위임 카드 말풍선 게시(`speech: delegate`, 「수정 요청 · 사유」 머리), 같은 lane 에 카드 task(재진입 — lane 해소 규칙 1 과 같은 lane, `reentry_count` +1). 담당의 다음 턴 `<task_card>` 에 새 판과 사유. 루프 상한(FR-3.5 `max_pair_roundtrips`)은 이 트리거도 센다 — 초과면 카드는 바뀌되 task 는 만들지 않고 방 `loop` 멈춤(지금 규칙).
+         */
+        post: operations["reviseCard"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1135,6 +1252,7 @@ export interface paths {
          *     - `blocked`: **위임자에게 질문하고 턴을 끝내는 경로**(FR-6.2.1). lane `blocked`, workdir 보존. 서버가 그 lane 스레드에 `blocked_q` 질문 카드를 게시하고(`lane.blocked_message_id`, **카드는 위임자를 멘션한다** — K3 배지 `질문 → @위임자`) 위임자를 즉시 깨운다(합류 아님 — 기상 시스템 메시지는 **카드 id·질문 본문을 인용**하고, 답은 그 카드에 스레드 답글로 **자식을 멘션해** 달라고 적는다: FR-3.3 규칙 4 상 멘션 없는 에이전트 답글은 아무도 깨우지 않는다). 위임자가 없으면 Director 인박스 `lane_blocked`(E3-08). 응답 `turn_end_required: true`.
          *     - `done`: lane `done`. 합류 그룹 판정(FR-6.5) 또는 재진입 완료 통보(E3-11~13)를 서버가 수행한다. 응답 `turn_end_required: true`.
          *     `note`는 `blocked`에서 필수(질문 본문).
+         *     **v0.3.10 (PRD FR-3.8)**: 카드 task(`kind: card`)에서 이 판의 결과 카드 없이 `done` 이면 `409 result_card_required`(사람 말 「먼저 결과 카드를 내세요 — colab card report」). 질문 task 는 `working`·`blocked` 만(`done` 이면 `403 command_not_allowed`, 질문 문장). 카드 task 의 턴이 결과 카드 없이 끝나면(데몬 finish) lane 을 done 으로 만들지 않고 같은 lane 에 `trigger_reason: result_card_missing` 후속 task(카드당 두 번), 그 뒤엔 자동 결과 카드(`auto`, 모든 기준 `unmet`)를 쓰고 lane 을 끝낸다 — `lanedone` 한 경로의 카드 게이트. 질문 task 의 턴 종료는 lane 상태를 질문 전으로 되돌린다(재진입으로 세지 않는다).
          */
         post: operations["setTaskStatus"];
         delete?: never;
@@ -2410,10 +2528,10 @@ export interface components {
          */
         AgentRole: "lead" | "researcher" | "writer" | "engineer" | "reviewer" | "custom";
         /**
-         * @description colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19. v0.2.13(R3): room_list · room_read · work_propose. v0.3.0(R4): session_get·session_messages → room_get·room_messages.
+         * @description colab CLI 명령 이름(`colab-cli.md` §2, MCP 툴 이름은 밑줄 표기). v1.1 K-19. v0.2.13(R3): room_list · room_read · work_propose. v0.3.0(R4): session_get·session_messages → room_get·room_messages. v0.3.10(PRD FR-3.8): `lane_delegate` → `card_delegate`(위임은 카드로만), `card_report`·`card_accept`·`card_revise`·`card_get`·`card_list` 추가. 질문 task 는 역할 표 ∩ 질문 표(`room_get`·`room_messages`·`room_list`·`room_read`·`artifact_get`·`card_get`·`card_list`·`message_post`·`status_set`·`hitl_ask`) — colab-cli.md §2.5.
          * @enum {string}
          */
-        ColabCommand: "room_get" | "room_messages" | "artifact_get" | "message_post" | "status_set" | "decision_record" | "lane_delegate" | "artifact_submit" | "review_approve" | "review_reject" | "hitl_ask" | "hitl_approve_request" | "hitl_request_info" | "room_list" | "room_read" | "work_propose";
+        ColabCommand: "room_get" | "room_messages" | "artifact_get" | "message_post" | "status_set" | "decision_record" | "card_delegate" | "artifact_submit" | "review_approve" | "review_reject" | "hitl_ask" | "hitl_approve_request" | "hitl_request_info" | "room_list" | "room_read" | "work_propose" | "card_report" | "card_accept" | "card_revise" | "card_get" | "card_list";
         /**
          * @description `agent_status` — 저장하지 않고 FR-1.3 순서로 파생한다.
          * @enum {string}
@@ -3223,6 +3341,15 @@ export interface components {
         };
         /** @description S7 우열 "종료 조건 진행률" — 조건별 충족 여부와 누구 차례인지. */
         CompletionProgress: {
+            /** @description v0.3.10 — 그 미션의 작업 카드 요약(PRD FR-3.8 4). 완료 승인 요청(FR-2A.2)에 붙는다. 카드 0 이면 null. */
+            cards?: {
+                total: number;
+                accepted: number;
+                pending_judgement: number;
+                in_progress: number;
+                /** @description 수락·판정 대기 카드의 부분·미충족 기준 수. */
+                weak_criteria: number;
+            };
             /** @description v0.3.9 — 승인 대기(PRD FR-2A.2.3)로 보류된 에이전트 간 트리거(`queued_reason: approval_pending` task) 수. 화면은 `user_approval` 조건 행 아래 한 줄로 보인다. 0 이면 줄 없음. */
             paused_agent_triggers?: number;
             met: number;
@@ -3339,7 +3466,7 @@ export interface components {
             /** @description 마크다운. 에이전트 메시지면 **대화** 층(PRD FR-3.1.2). */
             content: string;
             /**
-             * @description v0.3.2 — **말의 종류**(PRD FR-3.1.3). **서버가 판정해 내려준다** — 화면·CLI 가 본문이나 lane 을 읽어 짐작하지 않는다. `delegate` 는 `colab lane delegate` 가 쓴 메시지(서버가 쓰는 순간 안다), `report` 는 에이전트 메시지이고 그 턴을 깨운 메시지의 작성자(요청자)가 받는 쪽에 있거나 받는 쪽이 빈 경우, `instruct` 는 사람이 에이전트를 멘션, `request` 는 에이전트가 다른 에이전트를 멘션(위임·보고 아님), `answer` 는 질문 카드(`blocked_q`) 스레드 답글, `note` 는 `/note`. 판정 순서는 PRD FR-3.1.3 표.
+             * @description v0.3.2 — **말의 종류**(PRD FR-3.1.3). **서버가 판정해 내려준다** — 화면·CLI 가 본문이나 lane 을 읽어 짐작하지 않는다. `delegate` 는 `colab lane delegate` 가 쓴 메시지(서버가 쓰는 순간 안다), `report` 는 에이전트 메시지이고 그 턴을 깨운 메시지의 작성자(요청자)가 받는 쪽에 있거나 받는 쪽이 빈 경우, `instruct` 는 사람이 에이전트를 멘션, `request` 는 에이전트가 다른 에이전트를 멘션(위임·보고 아님), `answer` 는 질문 카드(`blocked_q`) 스레드 답글, `note` 는 `/note`. 판정 순서는 PRD FR-3.1.3 표. **v0.3.10(PRD FR-3.8)**: 카드 없이 에이전트가 다른 에이전트를 멘션한 말은 `request` 가 아니라 `question`(받는 쪽은 질문 task), 질문 task 의 턴에서 묻는 쪽에게 한 말은 `answer`, 위임 카드 말풍선은 `delegate`, 결과 카드 말풍선은 `report`.
              * @enum {string}
              */
             speech?: "system" | "hitl" | "question" | "summary" | "answer" | "delegate" | "report" | "instruct" | "request" | "note" | "chat";
@@ -3401,6 +3528,18 @@ export interface components {
              * @description v0.2.0 — 귀속된 미션(FR-3.1.1).
              */
             work_id?: string | null;
+            /**
+             * Format: uuid
+             * @description v0.3.10 — 작업 카드 말풍선이면 그 카드(PRD FR-3.8). 화면은 `card_role` 로 위임 카드·결과 카드 렌더러를 고르고 `getCard`(또는 `card.*`)로 칸을 채운다.
+             */
+            card_id?: string | null;
+            /**
+             * @description v0.3.10 — `delegation` = 위임 카드(판마다 하나), `result` = 결과 카드. 그 밖 null.
+             * @enum {string|null}
+             */
+            card_role?: "delegation" | "result" | null;
+            /** @description v0.3.10 — 이 말풍선이 그리는 카드의 판. */
+            card_version?: number | null;
         };
         MessagePage: {
             items: components["schemas"]["Message"][];
@@ -3578,6 +3717,249 @@ export interface components {
              */
             source: "agent" | "derived";
         };
+        /**
+         * @description v0.3.10 — task 의 종류(PRD FR-3.8). `card` = 위임 카드로 받은 일(위임 · 수정 요청 재진입 · 결과 카드 후속) — 결과 카드가 lane 을 끝내는 문. `question` = 카드 없이 에이전트가 다른 에이전트를 멘션해 생긴 task — 답만 한다(허용 명령 = 역할 표 ∩ 질문 표, 결과 카드 문 없음, lane 상태를 바꾸지 않는다). `normal` = 그 밖(사람의 지시·시스템 트리거·옛 task).
+         * @enum {string}
+         */
+        TaskKind: "normal" | "card" | "question";
+        /**
+         * @description v0.3.10 — 메시지가 아닌 서버 사건이 만든 task 의 사유. `result_card_missing` = 카드 task 의 턴이 결과 카드 없이 끝나 서버가 건 후속(PRD FR-3.8 3, 카드당 두 번까지).
+         * @enum {string}
+         */
+        TaskTriggerReason: "result_card_missing";
+        /**
+         * @description 완료 기준의 확인 방법 — 테스트 · 산출물 · 실행 결과 · 검토 · 눈으로 확인(화면 라벨은 SCREEN §4.6 「작업 카드」).
+         * @enum {string}
+         */
+        CardCriterionMethod: "test" | "artifact" | "run" | "review" | "inspect";
+        /**
+         * @description 위임 카드 상태. 수정 요청은 상태가 아니라 동작이다 — `in_progress` 로 돌아가고 `version` +1.
+         * @enum {string}
+         */
+        CardStatus: "in_progress" | "result_submitted" | "accepted" | "cancelled";
+        /** @enum {string} */
+        CardVerdict: "met" | "partial" | "unmet";
+        CardRefInput: {
+            /** @enum {string} */
+            kind: "artifact" | "decision" | "message";
+            /**
+             * Format: uuid
+             * @description 같은 방의 것만.
+             */
+            id: string;
+        };
+        CardRef: {
+            /** @enum {string} */
+            kind: "artifact" | "decision" | "message";
+            /** Format: uuid */
+            id: string;
+            /** @description 서버가 채운 표시 이름 — 아티팩트 이름·vN, 결정 요약 첫 40자, 메시지 작성자·시각. */
+            label: string;
+            /** @description 대상이 지워졌다(칩을 흐리게). */
+            missing: boolean;
+        };
+        /** @description v0.3.10 — 위임 카드(PRD FR-3.8 1). 검사를 어기면 `422 card_invalid` + `errors[]`(칸 경로·사람 말 사유) — 에이전트가 읽고 고쳐 다시 낸다. */
+        TaskCardInput: {
+            /**
+             * Format: uuid
+             * @description 담당 — 방 참여자인 에이전트, 자기 자신 아님(`not_participant` · `self_delegation`).
+             */
+            agent_id: string;
+            goal: string;
+            criteria: {
+                text: string;
+                method: components["schemas"]["CardCriterionMethod"];
+            }[];
+            /** @description 하지 않을 것 — 다른 담당과 겹치는 영역·손대지 말 파일. */
+            boundaries: string;
+            /** @default [] */
+            refs?: components["schemas"]["CardRefInput"][];
+            output_format?: string | null;
+            /** @description 그 lane 의 첫 task 예산(FR-7.3 task 예산과 같은 칸). */
+            budget_usd?: number | null;
+        };
+        /** @description 수정 요청 때 고친 카드 — 준 칸만 바꾼다(담당은 못 바꾼다). 검사는 TaskCardInput 과 같다. */
+        TaskCardPatch: {
+            goal?: string;
+            criteria?: {
+                text: string;
+                method: components["schemas"]["CardCriterionMethod"];
+            }[];
+            boundaries?: string;
+            refs?: components["schemas"]["CardRefInput"][];
+            output_format?: string | null;
+            budget_usd?: number | null;
+        };
+        CardEvidence: {
+            /** @enum {string} */
+            kind: "artifact" | "message" | "commit";
+            /** @description artifact·message 면 같은 방의 uuid(존재 검사), commit 이면 해시 7~40자. 로그·스크린샷은 아티팩트로 내고 가리킨다. */
+            ref: string;
+            /** @description 읽기 전용 — 서버가 채운 표시 이름. */
+            label?: string | null;
+        };
+        /** @description v0.3.10 — 결과 카드(PRD FR-3.8 3). 위임 카드의 기준을 **하나도 빠짐없이**(`criterion` 1..N 각 한 번) — 어기면 `422 result_card_incomplete`. */
+        CardResultInput: {
+            summary: string;
+            verdicts: {
+                /** @description 위임 카드 현재 판의 기준 번호. */
+                criterion: number;
+                verdict: components["schemas"]["CardVerdict"];
+                /** @default [] */
+                evidence?: components["schemas"]["CardEvidence"][];
+                /** @description 부분·미충족이면 무엇이 빠졌는지. */
+                note?: string | null;
+            }[];
+            /** @description 직접 확인한 것. */
+            confirmed: string[];
+            /** @description 확인하지 않고 가정한 것 — 없으면 빈 배열. */
+            assumed: string[];
+            deviations?: string | null;
+            open_issues?: string | null;
+        };
+        CardResult: {
+            summary: string;
+            verdicts: {
+                criterion: number;
+                verdict: components["schemas"]["CardVerdict"];
+                stated_verdict: components["schemas"]["CardVerdict"];
+                /** @description 에이전트는 `met` 이라 했지만 근거가 없어 서버가 `partial` 로 낮췄다(화면 「부분 · 근거 없음」). */
+                downgraded?: boolean;
+                evidence: components["schemas"]["CardEvidence"][];
+                note?: string | null;
+            }[];
+            confirmed: string[];
+            assumed: string[];
+            deviations?: string | null;
+            open_issues?: string | null;
+            met_count?: number;
+            /** @description 결과 카드 없이 끝나 서버가 쓴 것(모든 기준 `unmet`). */
+            auto: boolean;
+            /** @description 그 판의 카드 task 들 비용 합. */
+            cost_usd?: number | null;
+            duration_s?: number | null;
+            /**
+             * Format: uuid
+             * @description 결과 카드 말풍선.
+             */
+            message_id: string | null;
+            /** Format: date-time */
+            submitted_at: string;
+        };
+        CardJudgement: {
+            /** @enum {string} */
+            action: "accepted" | "revise_requested";
+            by: {
+                /** @enum {string} */
+                kind: "agent" | "user";
+                /** Format: uuid */
+                id: string;
+                name: string;
+            };
+            /** Format: date-time */
+            at: string;
+            reason?: string | null;
+        };
+        /** @description v0.3.10 — 위임 카드와 그 결과(PRD FR-3.8). 번호는 미션 안에서(미션 밖 위임이면 방 안에서) 1부터. 판(`version`)은 수정 요청마다 +1 — 지난 판은 `versions`(getCard 만). */
+        TaskCard: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            room_id: string;
+            /** Format: uuid */
+            work_id: string | null;
+            number: number;
+            /** @description 「C-3」. */
+            label: string;
+            version: number;
+            status: components["schemas"]["CardStatus"];
+            delegator: {
+                /** Format: uuid */
+                agent_id: string;
+                name: string;
+            };
+            assignee: {
+                /** Format: uuid */
+                agent_id: string;
+                name: string;
+            };
+            /** Format: uuid */
+            lane_id: string;
+            /**
+             * Format: uuid
+             * @description 카드로 받은 일 안에서 다시 위임했으면 그 카드.
+             */
+            parent_card_id: string | null;
+            goal: string;
+            criteria: {
+                n: number;
+                text: string;
+                method: components["schemas"]["CardCriterionMethod"];
+            }[];
+            boundaries: string;
+            refs: components["schemas"]["CardRef"][];
+            output_format: string | null;
+            budget_usd: number | null;
+            /** @description 이 판을 만든 수정 요청 사유(1판이면 null). */
+            revise_reason?: string | null;
+            /**
+             * Format: uuid
+             * @description 이 판의 위임 카드 말풍선.
+             */
+            delegate_message_id: string | null;
+            /** @description 이 판의 결과 카드. */
+            result: components["schemas"]["CardResult"] | null;
+            /** @description 이 판의 마지막 판정. */
+            judgement: components["schemas"]["CardJudgement"] | null;
+            /** @description 이 판에서 건 `result_card_missing` 후속 수. */
+            follow_ups?: number;
+            /** @description getCard 만 — 지난 판(오래된 것부터): version · goal · criteria · boundaries · revise_reason · result · judgement. */
+            versions?: {
+                [key: string]: unknown;
+            }[];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** @description 호출자가 지금 할 수 있는 동작. 에이전트: 위임자만 `result_submitted` 에서 accept·revise. 사람: 미션 Director·deputy 가 `result_submitted` 에서 accept·revise, `accepted` 에서 revise(수락 취소). */
+            actions: ("accept" | "revise")[];
+        };
+        /** @description v0.3.10 — 미션의 분담표(SCREEN §4.6 「분담표」). 번호순, 하위 카드는 `parent_card_id` 로 트리. */
+        CardBoard: {
+            /** Format: uuid */
+            work_id: string | null;
+            total: number;
+            /** @description `result_submitted` 수. */
+            pending_judgement: number;
+            items: {
+                /** Format: uuid */
+                id: string;
+                label: string;
+                number: number;
+                version: number;
+                /** Format: uuid */
+                parent_card_id: string | null;
+                assignee: {
+                    /** Format: uuid */
+                    agent_id: string;
+                    name: string;
+                };
+                goal: string;
+                status: components["schemas"]["CardStatus"];
+                auto_result?: boolean;
+                /** @description 결과가 없으면 null. */
+                met: number | null;
+                total_criteria: number;
+                cost_usd: number | null;
+                /** Format: uuid */
+                lane_id: string;
+                /**
+                 * Format: uuid
+                 * @description 누르면 스크롤할 말풍선(결과 카드가 있으면 그것).
+                 */
+                latest_message_id?: string | null;
+            }[];
+        };
         Lane: {
             /** @description v0.3.8 — 지금 무엇을 풀고 있는지(PRD FR-3.1.5). 도는 턴이 없으면 null(턴이 끝나면 서버가 비운다). */
             focus?: components["schemas"]["LaneFocus"] | null;
@@ -3648,6 +4030,13 @@ export interface components {
             work_title?: string | null;
             /** @description v0.2.0 — 대기 중인 첫 task 의 사유. */
             queued_reason?: components["schemas"]["QueuedReason"] | null;
+            /**
+             * Format: uuid
+             * @description v0.3.10 — 이 lane 을 만든 위임 카드(카드 lane 이면). 서브 미션 카드에 「C-3」.
+             */
+            card_id?: string | null;
+            card_label?: string | null;
+            card_status?: components["schemas"]["CardStatus"] | null;
             /** @description v0.2.9 — 호출자의 서브 미션 알림 켜기/끄기. null 이면 따로 정하지 않았다(미션·방 구독을 따른다). */
             my_subscription?: boolean | null;
         };
@@ -3742,6 +4131,14 @@ export interface components {
             work_id?: string | null;
             /** @description v0.2.0 PRD §3.1. */
             queued_reason?: components["schemas"]["QueuedReason"] | null;
+            kind?: components["schemas"]["TaskKind"];
+            /**
+             * Format: uuid
+             * @description v0.3.10 — `kind: card` 면 그 카드.
+             */
+            card_id?: string | null;
+            /** @description v0.3.10 — 메시지 없는 서버 트리거의 사유. */
+            trigger_reason?: components["schemas"]["TaskTriggerReason"] | null;
         };
         /** @description `task_event` 행. `class` 집합과 `object_ref` 형식은 `contracts/task_event.schema.json`이 정한다 — 여기서는 열어 둔다. */
         TaskEvent: {
@@ -4162,6 +4559,7 @@ export interface components {
          *     | `room_read.recorded` | `{room_id, direction, entry: RoomRead}` | S23 · S7 |
          *     | `room_link.updated` | `{room_id, action: created\|deleted, link: RoomLink}` | S24 |
          *     | `work_proposal.created` · `work_proposal.resolved` | `{room_id, proposal: WorkProposal}` · `{room_id, proposal_id, action, work_id?}` | S26 · S8 |
+         *     | `card.created` · `card.updated` | `TaskCard`(`versions` 없음) — v0.3.10 위임·결과·판정·수정 요청·취소 | S7 카드 말풍선 · 분담표 |
          *
          *     v0.2.0 에서 **확장**되는 것: `lane.updated`(`work_id`·`queued_reason`) · `cost.updated`(`{room_id, room_cost_usd, work_id?, work_cost_usd?, estimated}` — 방 누적과 미션 비용 두 수) · `inbox.item_created`(`work_id`·`lane_id`). 웹 `STREAM_EVENT_TYPES` 는 이 enum 과 **같은 PR 에서** 맞춘다(목록에 없는 타입은 조용히 버려진다).
          */
@@ -4169,7 +4567,7 @@ export interface components {
             /** @description 커서(= SSE id). */
             id: string;
             /** @enum {string} */
-            type: "resync" | "participant.updated" | "lane.updated" | "task.updated" | "task_event.appended" | "task_event.superseded" | "message.created" | "message.updated" | "message.delta" | "agent.typing" | "hitl.created" | "hitl.updated" | "artifact.created" | "decision.created" | "inbox.item_created" | "inbox.item_updated" | "inbox.summary" | "runtime.updated" | "pairing.updated" | "workdir.updated" | "cost.updated" | "test_chat.delta" | "test_chat.turn" | "room.updated" | "room.deleted" | "room.unread" | "work.created" | "work.updated" | "work.closed" | "work.deleted" | "work.completion_progress" | "participant.joined" | "participant.left" | "room_read.recorded" | "room_link.updated" | "work_proposal.created" | "work_proposal.resolved";
+            type: "resync" | "participant.updated" | "lane.updated" | "task.updated" | "task_event.appended" | "task_event.superseded" | "message.created" | "message.updated" | "message.delta" | "agent.typing" | "hitl.created" | "hitl.updated" | "artifact.created" | "decision.created" | "inbox.item_created" | "inbox.item_updated" | "inbox.summary" | "runtime.updated" | "pairing.updated" | "workdir.updated" | "cost.updated" | "test_chat.delta" | "test_chat.turn" | "room.updated" | "room.deleted" | "room.unread" | "work.created" | "work.updated" | "work.closed" | "work.deleted" | "work.completion_progress" | "participant.joined" | "participant.left" | "room_read.recorded" | "room_link.updated" | "work_proposal.created" | "work_proposal.resolved" | "card.created" | "card.updated";
             /** Format: date-time */
             at: string;
             /** Format: uuid */
@@ -4781,7 +5179,14 @@ export interface components {
                 name: string;
                 mention_link: string;
             }[];
-            /** @description 이 task 의 에이전트가 쓸 수 있는 colab 명령(역할 부분집합, v1.1 K-19). CLI 는 이 밖의 명령을 서버에 보내기 전에 exit 3 `command_not_allowed` 로 거부한다. */
+            task_kind?: components["schemas"]["TaskKind"];
+            /**
+             * Format: uuid
+             * @description v0.3.10 — 카드 task 면 그 카드. `colab card report` 가 이 id 로 부른다(없으면 exit 3 `not_card_task`).
+             */
+            card_id?: string | null;
+            card_label?: string | null;
+            /** @description 이 task 의 에이전트가 쓸 수 있는 colab 명령(역할 부분집합, v1.1 K-19; v0.3.10 질문 task 면 역할 표 ∩ 질문 표). CLI 는 이 밖의 명령을 서버에 보내기 전에 exit 3 `command_not_allowed` 로 거부한다. */
             allowed_commands?: components["schemas"]["ColabCommand"][];
             /** Format: date-time */
             expires_at: string;
@@ -4876,6 +5281,7 @@ export interface components {
         RoomLinkId: string;
         ParticipantId: string;
         MessageId: string;
+        CardId: string;
         LaneId: string;
         TaskId: string;
         HitlRequestId: string;
@@ -6471,10 +6877,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** Format: uuid */
-                    agent_id: string;
-                    /** @description 위임 브리프. 턴 프롬프트에 그대로 들어간다. */
-                    brief: string;
+                    card: components["schemas"]["TaskCardInput"];
                     /** @default [] */
                     depends_on?: string[];
                     /** @description 프로파일 **이름**(`--profile`). 비우면 참여자 등록 시 프로파일. */
@@ -6493,11 +6896,174 @@ export interface operations {
                         lane: components["schemas"]["Lane"];
                         message: components["schemas"]["Message"];
                         task?: components["schemas"]["Task"];
+                        card: components["schemas"]["TaskCard"];
                     };
                 };
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    listRoomCards: {
+        parameters: {
+            query?: {
+                work_id?: string;
+            };
+            header?: never;
+            path: {
+                /** @description 방 id — 옛 `session.id` 와 같은 값(PRD §7 이관 규칙). */
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 분담표. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardBoard"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    getCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cardId: components["parameters"]["CardId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 카드. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskCard"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    submitCardResult: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKeyOptional"];
+            };
+            path: {
+                cardId: components["parameters"]["CardId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardResultInput"];
+            };
+        };
+        responses: {
+            /** @description 저장된 카드와 결과 카드 말풍선. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        card: components["schemas"]["TaskCard"];
+                        message: components["schemas"]["Message"];
+                        /** @description 서버가 met→partial 로 낮춘 기준 번호. */
+                        downgraded: number[];
+                        /** @description 사람 말 한 줄(harness §10 문장) — 낮춘 것이 있을 때. CLI stdout·MCP 응답에 그대로. */
+                        notice?: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    acceptCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cardId: components["parameters"]["CardId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 카드. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskCard"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    reviseCard: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 선택. 주면 `IdempotencyKeyRequired`와 같은 규칙. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKeyOptional"];
+            };
+            path: {
+                cardId: components["parameters"]["CardId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                    card?: components["schemas"]["TaskCardPatch"];
+                };
+            };
+        };
+        responses: {
+            /** @description 새 판 카드와 재진입 task. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        card: components["schemas"]["TaskCard"];
+                        message: components["schemas"]["Message"];
+                        task?: components["schemas"]["Task"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
             default: components["responses"]["Problem"];
         };

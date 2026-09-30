@@ -1,7 +1,8 @@
 /**
  * lib/room-stream — 방 화면 실시간 리듀서(T-RF2). 옛 page.tsx `onEvent` 안의 식을 그대로 옮긴 것이라, 여기 단언은 옛 동작의 기록이다.
  * 회귀 주입(PR 표): messagesOnCreated 의 matchesSel 거르기를 빼면 (칩 거르기) FAIL; 같은 id 가드를 빼면 (중복) FAIL;
- * ROOM_UPDATED_KEYS 에 my_capabilities 를 넣으면 (보는 사람 칸) FAIL; readsOnRecorded 의 "in" 을 빼면 (읽음 방향) FAIL.
+ * ROOM_UPDATED_KEYS 에 my_capabilities 를 넣으면 (보는 사람 칸) FAIL; readsOnRecorded 의 "in" 을 빼면 (읽음 방향) FAIL;
+ * STREAM_EVENT_TYPES 에서 card.updated 를 빼면 (card.*) FAIL.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -9,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   ROOM_UPDATED_KEYS, eventsOnAppended, eventsOnSuperseded, eventsOnTask, isRoomDeleted, lanesOnUpdated, messagesOnCreated, messagesOnUpdated, prependById,
   readsOnRecorded, repliesOnCreated, roomEvent, roomOnCost, roomOnUpdated, typingOn, workCostOf, workOnProgress, worksOnClosed, worksOnDeleted, worksOnProgress,
-  worksOnUpserted,
+  worksOnUpserted, boardOnCard, cardsOnUpserted, isRoomCard,
 } from "./room-stream";
 import { STREAM_EVENT_TYPES } from "./realtime/stream";
 import type { Lane, Message, Room, Task, TaskEvent, Work, WorkListItem } from "./api/types";
@@ -146,5 +147,27 @@ describe("방", () => {
   });
   it("입력 중", () => {
     expect(typingOn({ a: true }, { agent_id: "b", typing: true })).toEqual({ a: true, b: true });
+  });
+});
+
+describe("작업 카드(v0.3.10) — card.created · card.updated", () => {
+  const c = { id: "c1", room_id: "r1", work_id: "w1", number: 1, label: "C-1", version: 1, status: "in_progress", criteria: [], goal: "g", assignee: { agent_id: "a", name: "A" }, lane_id: "l1", parent_card_id: null, updated_at: "t1", actions: [] } as never;
+  it("구독 목록에 둘 다 있고 payload 모양이 표에 있다(TaskCard) — 리듀서는 lib/cards 를 다시 내보낸다", () => {
+    expect(STREAM_EVENT_TYPES).toContain("card.created");
+    expect(STREAM_EVENT_TYPES).toContain("card.updated");
+    const e = roomEvent({ id: "e", type: "card.updated", at: "t", room_id: "r1", payload: c });
+    expect(e.type).toBe("card.updated");
+    expect(isRoomCard("r1", e.payload as never)).toBe(true);
+    expect(isRoomCard("r2", e.payload as never)).toBe(false);
+    const cache = cardsOnUpserted({}, c);
+    expect(Object.keys(cache)).toEqual(["c1"]);
+    expect(boardOnCard({ work_id: "w1", items: [], total: 0, pending_judgement: 0 }, c)!.total).toBe(1);
+  });
+  it("방 화면 onEvent 가 card.* 를 캐시·분담표 리듀서에 건다", () => {
+    const page = readFileSync(join(__dirname, "..", "app/(app)/rooms/[id]/page.tsx"), "utf8");
+    const on = page.slice(page.indexOf("const onEvent = useCallback"), page.indexOf("const conn = useWorkspaceStream"));
+    expect(on).toMatch(/case "card\.created":\s*case "card\.updated":/);
+    expect(on).toContain("cardsOnUpserted(cur, c)");
+    expect(on).toContain("boardOnCard(");
   });
 });

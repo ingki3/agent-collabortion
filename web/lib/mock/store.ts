@@ -265,15 +265,17 @@ export function makeRuntime(workspaceId: string, name: string): Runtime {
  */
 const COLAB_COMMANDS: readonly ColabCommand[] = [
   "room_get", "room_messages", "artifact_get", "message_post", "status_set", "decision_record",
-  "lane_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info",
+  "card_delegate", "artifact_submit", "review_approve", "review_reject", "hitl_ask", "hitl_approve_request", "hitl_request_info",
   "room_list", "room_read", "work_propose",
+  "card_report", "card_accept", "card_revise", "card_get", "card_list",
 ];
+// v0.9.10 — 카드 위임·판정(card_delegate·card_accept·card_revise)은 lead·custom 만, 결과·읽기(card_report·card_get·card_list)는 모두.
 const ROLE_DENIED: Record<Agent["role"], readonly ColabCommand[]> = {
   lead: [],
-  researcher: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose"],
-  writer: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose"],
-  engineer: ["lane_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose"],
-  reviewer: ["lane_delegate", "artifact_submit", "hitl_approve_request", "work_propose"],
+  researcher: ["card_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose", "card_accept", "card_revise"],
+  writer: ["card_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose", "card_accept", "card_revise"],
+  engineer: ["card_delegate", "review_approve", "review_reject", "hitl_approve_request", "work_propose", "card_accept", "card_revise"],
+  reviewer: ["card_delegate", "artifact_submit", "hitl_approve_request", "work_propose", "card_accept", "card_revise"],
   custom: [],
 };
 export function allowedCommands(role: Agent["role"]): ColabCommand[] {

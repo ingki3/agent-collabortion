@@ -125,6 +125,21 @@ export type Work = S["Work"];
 export type WorkSource = S["WorkSource"];
 export type RoomParticipant = S["RoomParticipant"];
 export type BlockedDetail = S["BlockedDetail"];
+
+// ── v0.19.15 (T-CARD-W) — 작업 카드(PRD FR-3.8 · openapi v0.3.10) ──
+export type TaskCard = S["TaskCard"];
+export type CardBoard = S["CardBoard"];
+export type CardBoardItem = CardBoard["items"][number];
+export type CardResult = S["CardResult"];
+export type CardVerdictRow = CardResult["verdicts"][number];
+export type CardJudgement = S["CardJudgement"];
+export type CardRef = S["CardRef"];
+export type CardEvidence = S["CardEvidence"];
+export type CardStatus = S["CardStatus"];
+export type CardVerdict = S["CardVerdict"];
+export type CardCriterionMethod = S["CardCriterionMethod"];
+export type CardAction = TaskCard["actions"][number];
+export type CardRole = NonNullable<Message["card_role"]>;
 /**
  * `listRooms`·`listWorks` 는 계약에서 `allOf: [Page, {items: X[]}]` 라 생성 타입의 `items` 가 `unknown[] & X[]` 로 접힌다(`Page.items` 가 `{}`).
  * 봉투의 `items` 를 그 op 의 항목 타입으로 읽는다 — 모양은 계약이 정하고 이 함수는 타입만 좁힌다.

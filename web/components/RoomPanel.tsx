@@ -128,7 +128,7 @@ export function RoomPanel(props: RoomPanelProps) {
                 selected={props.selectedWorkId}
                 testId="room-decision-group"
                 row={(d) => (
-                  <li key={d.id} data-testid="decision-row">
+                  <li key={d.id} data-testid="decision-row" data-decision-id={d.id}>
                     <span className="aside__name">{d.summary}</span>
                     <span className="aside__quiet"> · {d.source === "hitl" ? ROOM_PANEL.from_hitl : ROOM_PANEL.from_agent} · {relativeTime(d.created_at)}</span>
                   </li>

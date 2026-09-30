@@ -16,9 +16,9 @@
  *   여기 적힌 inbox tone 은 기본값일 뿐이고 호출부가 Badge 의 `tone` 으로 덮어쓴다.
  */
 
-import { ROOM_BLOCKED_LABEL } from "@/lib/wording";
+import { ROOM_BLOCKED_LABEL, TASK_CARD } from "@/lib/wording";
 
-export type BadgeKind = "lane" | "task" | "session" | "agent" | "inbox" | "room" | "work";
+export type BadgeKind = "lane" | "task" | "session" | "agent" | "inbox" | "room" | "work" | "card" | "card_judge";
 
 /** 색 토큰 계열. neutral = --ink-3 / --ink-2 (상태색 아님). */
 export type Tone = "run" | "wait" | "block" | "pause" | "done" | "fail" | "neutral";
@@ -108,6 +108,22 @@ export const BADGE_MAP = {
     runtime_offline: spec("⏸\uFE0E", "pause", ROOM_BLOCKED_LABEL.runtime_offline),
     loop: spec("⏸\uFE0E", "pause", ROOM_BLOCKED_LABEL.loop),
     manual: spec("⏸\uFE0E", "pause", ROOM_BLOCKED_LABEL.manual),
+  },
+  /**
+   * v0.19.15 위임 카드 상태 4종(`CardStatus`, COMPONENTS §9.13) — 진행 중 `run` · 결과 제출 `wait` · 수락 `ok`(= done) · 취소 `neutral`.
+   * 수정 요청은 상태가 아니라 동작이다(카드는 `in_progress` 로 돌아가고 판 +1) — 결과 카드의 판정 칩(`card_judge`)이 말한다.
+   */
+  card: {
+    in_progress: spec("●", "run", TASK_CARD.status.in_progress),
+    result_submitted: spec("⏳\uFE0E", "wait", TASK_CARD.status.result_submitted),
+    accepted: spec("✓", "done", TASK_CARD.status.accepted),
+    cancelled: spec("–", "neutral", TASK_CARD.status.cancelled),
+  },
+  /** v0.19.15 결과 카드 머리의 판정 칩 3종 — 판정 대기 `wait` · 수락 `ok` · 수정 요청 `warn`(= wait 계열, ◐ 와 같은 경고색). */
+  card_judge: {
+    pending: spec("⏳\uFE0E", "wait", TASK_CARD.judge.pending),
+    accepted: spec("✓", "done", TASK_CARD.judge.accepted),
+    revise_requested: spec("↺", "wait", TASK_CARD.judge.revise_requested),
   },
 } as const satisfies Record<BadgeKind, Record<string, BadgeSpec>>;
 

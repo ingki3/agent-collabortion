@@ -10,10 +10,11 @@
  *  2. `lib/realtime/stream.ts` 의 `STREAM_EVENT_TYPES` — 목록에 없는 타입은 EventSource 가 **조용히 버린다**.
  *  3. 이 파일: `RoomEventPayloads` 에 payload 모양 한 줄 + (상태를 바꾸면) 리듀서 하나 + 테스트.
  *  4. `page.tsx` `onEvent` 의 `switch (e.type)` 에 case 하나(리듀서를 setState 에 건다).
- *  (진행 메모 `message.delta` 계열은 `lib/progress-memo` `memoEffect` 가 따로 받는다.)
+ *  (진행 메모 `message.delta` 계열은 `lib/progress-memo` `memoEffect` 가 따로 받는다. 작업 카드 `card.*` 는 `lib/cards` 의 리듀서 — 여기서 다시 내보낸다.)
  */
 import { matchesSel, type ChipSel } from "./room-view";
-import type { Artifact, Decision, HitlRequest, Lane, Message, Room, StreamEvent, Task, TaskEvent, Work, WorkListItem } from "./api/types";
+import type { Artifact, Decision, HitlRequest, Lane, Message, Room, StreamEvent, Task, TaskCard, TaskEvent, Work, WorkListItem } from "./api/types";
+export { boardOnCard, cardsOnUpserted } from "./cards";
 
 /** 방 화면이 읽는 이벤트의 payload 모양(계약 SSE 표). 여기 없는 타입은 `roomEvent()` 가 `{ type, payload: unknown }` 으로 넘긴다. */
 export interface RoomEventPayloads {
@@ -37,6 +38,9 @@ export interface RoomEventPayloads {
   "room_read.recorded": { direction?: string };
   "cost.updated": CostPayload;
   "agent.typing": { agent_id: string; typing: boolean };
+  /** v0.3.10 — `TaskCard`(`versions` 없음). 리듀서는 `lib/cards`(`cardsOnUpserted` · `boardOnCard`). */
+  "card.created": TaskCard;
+  "card.updated": TaskCard;
 }
 export type WorkPatch = Partial<WorkListItem> & { id: string };
 export interface CostPayload { room_cost_usd?: number; cost_usd?: number; work_id?: string; work_cost_usd?: number; estimated?: boolean }
@@ -155,4 +159,10 @@ export function workCostOf(p: CostPayload): { workId: string; usd: number } | nu
 // ── 입력 중 ──
 export function typingOn(t: Record<string, boolean>, p: RoomEventPayloads["agent.typing"]): Record<string, boolean> {
   return { ...t, [p.agent_id]: p.typing };
+}
+
+// ── 작업 카드(v0.3.10) ──
+/** `card.*` 가 이 방·이 화면의 것인가 — 봉투의 room_id 가 없을 때 payload 의 room_id 로. */
+export function isRoomCard(roomId: string, card: Pick<TaskCard, "room_id">): boolean {
+  return card.room_id === roomId;
 }
