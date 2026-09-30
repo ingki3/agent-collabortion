@@ -49,14 +49,19 @@ type heldAgent struct {
 }
 
 // taskOriginator reads a task's person originator (PRD FR-4.5). found is
-// false when the task does not exist (or the read failed — both callers
-// always ignored that error, and still do: a post or a delegation is not
-// refused over the originator).
-func taskOriginator(ctx context.Context, tx pgx.Tx, taskID uuid.UUID) (originator *uuid.UUID, found bool) {
-	if err := tx.QueryRow(ctx, `SELECT originator_user_id FROM task WHERE id = $1`, taskID).Scan(&originator); err != nil {
-		return nil, false
+// false when the task does not exist; a failed read is an error, not "not
+// found" (#393 review NN4) — inside a transaction a swallowed error leaves
+// the tx aborted and the next statement fails far from its cause, and a
+// caller that reads only `found` would carry on with a nil originator.
+func taskOriginator(ctx context.Context, tx pgx.Tx, taskID uuid.UUID) (originator *uuid.UUID, found bool, err error) {
+	err = tx.QueryRow(ctx, `SELECT originator_user_id FROM task WHERE id = $1`, taskID).Scan(&originator)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
 	}
-	return originator, true
+	if err != nil {
+		return nil, false, fmt.Errorf("router: task originator: %w", err)
+	}
+	return originator, true, nil
 }
 
 // queuedTask is the lane's oldest queued task, locked (FOR UPDATE) — the task
@@ -115,11 +120,10 @@ func insertQueuedTask(ctx context.Context, tx pgx.Tx, n newQueuedTask) (uuid.UUI
 // so the two cannot read different rows by accident.
 //
 // mission != nil applies T-R1b2's filter: only lanes of the trigger's mission
-// or bound to none, plus the pinned lane. Post always passes it.
-//
-// TODO(T-RF1-P): Preview passes nil and so still reads every lane of the
-// agent — in a room with several missions it can promise a reuse Post will
-// not make. Kept as it was (Lead's call); pinned by TestPreviewLaneParity.
+// or bound to none, plus the pinned lane. Post and Preview both pass it
+// (T-RF1-P: Preview used to pass nil and, in a room with several missions,
+// promised a reuse Post would not make — TestPreviewLaneParity). nil (every
+// lane of the agent) has no production caller left.
 func laneCandidates(ctx context.Context, tx pgx.Tx, sessionID, agentID uuid.UUID, mission *laneOpts) ([]lanestate.Candidate, error) {
 	var rows pgx.Rows
 	var err error

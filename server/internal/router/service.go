@@ -301,7 +301,11 @@ func (s *Service) postRow(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.U
 
 	originator := author.UserID
 	if author.Type == "agent" && author.TaskID != nil {
-		if o, ok := taskOriginator(ctx, tx, *author.TaskID); ok {
+		o, ok, err := taskOriginator(ctx, tx, *author.TaskID)
+		if err != nil {
+			return nil, uuid.Nil, err
+		}
+		if ok {
 			originator = o
 		}
 	}
@@ -802,6 +806,14 @@ func returningReport(ctx context.Context, q pgx.Tx, msgID uuid.UUID) (reportRetu
 // re-read each time and so includes the sibling hops just recorded — the same
 // rows the in-memory append stood for (a human hop is never limited, so the
 // window re-anchoring on a person's own sibling hop changes no verdict).
+//
+// One real difference, and why it changes no verdict (#393 review NN1): the
+// in-memory hop had ID 0, the re-read one its real id, and CheckLoopLimits
+// keys chain depth by hop ID (`depths[h.ID]`, loop.go). A sibling could
+// therefore only matter as another trigger's CAUSE — and within one post it
+// never is: every trigger's cause is `cause`/`ret.cause`, read once before
+// the loop from rows that existed before this post, so the siblings of one
+// post share their cause and none is another's.
 //
 // S-76: neither path used to be gated. `Delegate` recorded its hop and
 // `wake` recorded nothing, so a delegator that re-delegated on every join

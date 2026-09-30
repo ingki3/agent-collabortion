@@ -30,7 +30,9 @@ import (
 //	workdirs → preserved (re-enabling must be able to continue)
 func (s *Server) applyKillSwitch(ctx context.Context, agentID uuid.UUID) error {
 	now := s.Clock.Now()
-	return s.inSessionTx(ctx, func(tx pgx.Tx) error {
+	var cancelled []uuid.UUID
+	err := s.inSessionTx(ctx, func(tx pgx.Tx) error {
+		cancelled = nil
 		var running, queued, waiting, workdirs int
 		if err := tx.QueryRow(ctx, `
 			SELECT count(*) FILTER (WHERE status IN ('dispatched', 'preparing', 'running')),
@@ -61,10 +63,18 @@ func (s *Server) applyKillSwitch(ctx context.Context, agentID uuid.UUID) error {
 				return err
 			}
 		}
+		cancelled = ids
 		// waiting_human tasks and their open requests are deliberately NOT
 		// touched here (M8 표 3행) — nor are the workdirs.
 		return nil
 	})
+	if err == nil {
+		// FR-6.5 (T-FIX-B): a delegated child the switch cancelled at once is
+		// a `failed` sibling the join no longer waits for. In-flight ones end
+		// through their finish, which does the same.
+		s.Tasks.LanesFailed(ctx, cancelled)
+	}
+	return err
 }
 
 // releaseHeldRequeues is the other half of E10-08: the owner re-enables the

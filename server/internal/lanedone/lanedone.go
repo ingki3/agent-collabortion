@@ -4,12 +4,16 @@
 // Two paths end a lane's work, and before T-RF1 each wrote its own UPDATE:
 //
 //   - the agent's `colab status set done` (router.SetAgentStatus) — the lane
-//     is `done` unconditionally, and the after-done follow-up runs: the join
-//     (PRD FR-6.5) or the re-entry report to whoever asked;
+//     is `done` unconditionally;
 //   - the daemon's end of turn (tasks.Finish, outcome completed) — the lane is
 //     `done` unless another task is queued on it (then `queued`) or the agent
-//     put it in `blocked` (kept, FR-6.2.1), and NO follow-up runs
-//     (runsFollowUp, TODO(T-RF1-B); pinned by httpapi/lane_done_path_test.go).
+//     put it in `blocked` (kept, FR-6.2.1).
+//
+// Either way, when the lane actually BECOMES `done` here, the after-done
+// follow-up runs: the join (PRD FR-6.5) or the re-entry report to whoever
+// asked (T-FIX-B — contracts/colab-cli.md §2 「lane 종료 판정은 서버가
+// turn_end 와 함께 한다」). A lane that was already `done` (the agent said
+// `status set done`, then its turn ended) runs nothing a second time.
 //
 // Both now call MarkDone, so the 「작업 카드」 gate (a lane completes only with
 // a result card; without one it waits and the server asks for it) has exactly
@@ -73,9 +77,12 @@ type Request struct {
 	Publish func(ctx context.Context, tx pgx.Tx, laneID uuid.UUID)
 
 	// AfterDone is the follow-up the lane's end owes (router.afterLaneDone:
-	// the join, FR-6.5, or the re-entry report). It runs in the same
-	// transaction, only when the lane actually ended up `done` and the cause
-	// runs one (runsFollowUp). nil = none.
+	// the join, FR-6.5, or the re-entry report). It is called in the same
+	// transaction, only when this call moved the lane to `done`
+	// (Result.Became) and the cause runs one (runsFollowUp). nil = none.
+	// tasks.Finish hands in a closure that only RECORDS the end; the
+	// follow-up itself runs after the finish commits (tasks.LaneEnded — the
+	// finish↔완료 lock-order precedent).
 	AfterDone func(ctx context.Context, tx pgx.Tx) error
 }
 
@@ -84,31 +91,33 @@ type Result struct {
 	// Status is the lane's status after the call: `done`, or for TurnEnd
 	// `queued` (another task waits) or `blocked` (left as it was).
 	Status string
+	// Prev is the lane's status before the call ("" when the lane is gone).
+	Prev string
 }
 
 // Done reports whether the lane is now `done`.
 func (r Result) Done() bool { return r.Status == lanestate.Done }
 
+// Became reports whether THIS call ended the lane: it is `done` now and was
+// not before. The follow-up keys on it, so `status set done` followed by the
+// turn's own end runs the join and the report once — the second call finds
+// the lane already `done`. Both callers hold the task row (FOR UPDATE) and
+// read Prev under the lane's row lock, so a `status set done` racing the
+// finish of the same attempt is serialised and exactly one of them sees the
+// transition.
+func (r Result) Became() bool { return r.Done() && r.Prev != lanestate.Done }
+
 // runsFollowUp is which paths run the after-done follow-up (the join, FR-6.5,
-// and the re-entry report — router.afterLaneDone).
-//
-// TODO(T-RF1-B): the turn's end does NOT. A delegated child that ends its turn
-// without `colab status set done` leaves its lane `done` with the join never
-// asked — when it is the group's last child, the delegator is never woken (the
-// same silent loss as S-31); a lane a person or an agent started gets no
-// report either. Lanes that end `failed` (cancel · fail · sweep, tasks
-// package) do not ask the join either. Reproduced by
-// httpapi/lane_done_path_test.go (B-deleg · B-agent · B-user). Lead's call
-// (T-RF1, 2026-09-29): keep the behaviour in this refactor; the fix is a
-// separate task after the Director confirms. Turning it on is this line
-// (`TurnEnd: true`) plus handing tasks.Finish an AfterDone — it cannot build
-// one itself, router imports tasks — through a hook like tasks.LanePublish.
+// and the re-entry report — router.afterLaneDone). Both do (T-FIX-B, Director
+// 승인 2026-09-30): a delegated child that ends its turn without `colab status
+// set done` used to leave its lane `done` with the join never asked — the
+// group's last such child left the delegator asleep for good (the S-31 loss).
+// What keeps the follow-up to ONE per lane end is not this switch but the
+// transition check in MarkDone (res.Became).
 func runsFollowUp(c Cause) bool {
 	switch c {
-	case AgentDone:
+	case AgentDone, TurnEnd:
 		return true
-	case TurnEnd:
-		return false // TODO(T-RF1-B)
 	}
 	return false
 }
@@ -122,10 +131,23 @@ func MarkDone(ctx context.Context, tx pgx.Tx, req Request) (Result, error) {
 	// would wait as 「결과 카드 대기」 and the server would queue the
 	// follow-up turn that asks for it, instead of completing and running
 	// AfterDone. T-RF1 adds no gate: nothing is checked, nothing changes.
+	// Both paths now owe AfterDone (T-FIX-B), so a gate that turns the lane
+	// to 「결과 카드 대기」 here must also skip it — and router.SetAgentStatus
+	// must stop answering TurnEndRequired unconditionally (see there).
 	// ──────────────────────────────────────────────────────────────────────
 
+	// The lane's status before the write, under its row lock: the follow-up
+	// runs only on the transition into `done` (Result.Became).
+	var prev string
+	err := tx.QueryRow(ctx, `SELECT status::text FROM lane WHERE id = $1 FOR UPDATE`, req.LaneID).Scan(&prev)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Result{}, nil
+	}
+	if err != nil {
+		return Result{}, fmt.Errorf("lanedone: read %s: %w", req.Cause, err)
+	}
+
 	var status string
-	var err error
 	switch req.Cause {
 	case AgentDone:
 		err = tx.QueryRow(ctx, `
@@ -154,11 +176,11 @@ func MarkDone(ctx context.Context, tx pgx.Tx, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("lanedone: mark %s: %w", req.Cause, err)
 	}
-	res := Result{Status: status}
+	res := Result{Status: status, Prev: prev}
 	if req.Publish != nil {
 		req.Publish(ctx, tx, req.LaneID)
 	}
-	if res.Done() && runsFollowUp(req.Cause) && req.AfterDone != nil {
+	if res.Became() && runsFollowUp(req.Cause) && req.AfterDone != nil {
 		if err := req.AfterDone(ctx, tx); err != nil {
 			return res, err
 		}

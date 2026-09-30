@@ -4,19 +4,22 @@ package httpapi
 //
 //	(A) the agent's `colab status set done` → router.SetAgentStatus → lanes.MarkDone
 //	    with the after-done follow-up (join FR-6.5 · re-entry report).
-//	(B) the daemon's end of turn → tasks.Finish(completed) → lanes.MarkDone with
-//	    NO follow-up.
+//	(B) the daemon's end of turn → tasks.Finish(completed) → lanes.MarkDone →
+//	    (lane moved INTO done) tasks.LaneEnded → router.AfterLaneEnded, the same
+//	    follow-up, after the finish commits.
 //
-// These rows pin what each path does TODAY, so the refactor that routes both
-// through lanes.MarkDone can be measured as behaviour-preserving. (B) not
-// firing the join / re-entry report is the current behaviour — whether it is a
-// defect is Lead's decision (T-RF1 PR body, TODO(T-RF1-B)); the rows assert it
-// as it is so a change there is a visible, deliberate diff.
+// T-RF1 pinned (B) running no follow-up (T-RF1-B); T-FIX-B (Director 승인
+// 2026-09-30, PRD FR-6.5 · colab-cli.md §2 「lane 종료 판정은 서버가
+// turn_end 와 함께 한다」) turned the three B rows over. The follow-up runs
+// once per lane end: `status set done` then the turn's end (A→B, the common
+// order) fires nothing twice, and a lane the turn's end leaves `queued` or
+// `blocked` runs nothing.
 //
 // 회귀 주입 (PR 본문 표): MarkDone 의 조건부 CASE 를 무조건 'done' 으로 →
 // (B-queued)·(A→B) FAIL; SetAgentStatus 의 afterLaneDone 호출을 지우면
-// (A-deleg)·(A-agent)·(A-user) FAIL; Finish 쪽 MarkDone 을 afterDone 을 부르게
-// 바꾸면 (B-deleg)·(B-agent)·(B-user) FAIL; blocked 보존 조건을 지우면
+// (A-deleg)·(A-agent)·(A-user) FAIL; runsFollowUp(TurnEnd) 를 false 로(또는
+// LaneEnded 배선을 지우면) (B-deleg)·(B-agent)·(B-user) FAIL; MarkDone 이
+// Became 대신 Done 으로 판정하면 멱등 행 FAIL; blocked 보존 조건을 지우면
 // (B-blocked) FAIL; MarkDone 의 lane.updated 발행을 지우면 (A-deleg) FAIL.
 
 import (
@@ -172,22 +175,23 @@ func TestLaneDonePathAgentDelegated(t *testing.T) {
 	})
 }
 
-// (B-deleg) the turn ends WITHOUT status set done: the lane goes done but the
-// join does not fire and Lead is not woken. TODO(T-RF1-B): current behaviour,
-// pinned as is — see the PR body for the FR-6.5 reading; Lead decides.
+// (B-deleg) the turn ends WITHOUT status set done: the lane goes done and —
+// it being the group's only child — the join fires once and wakes Lead
+// (T-FIX-B; before, joinFired=false · bundles=0 · leadQueued=0).
 func TestLaneDonePathTurnEndDelegated(t *testing.T) {
 	f := newP2Fixture(t)
 	leadTask, rTask, rLane := f.delegatedChild(t)
 	m := f.mark(t)
 	f.finishCompleted(t, rTask)
 	wantObs(t, "B-deleg", f.observe(t, m, rLane, rTask, &leadTask), laneObs{
-		laneStatus: "done", laneFinished: true, joinFired: false, bundles: 0,
-		leadQueued: 0, laneFrames: 1, costFrames: 1, taskStatus: "completed",
+		laneStatus: "done", laneFinished: true, joinFired: true, bundles: 1,
+		leadQueued: 1, laneFrames: 1, costFrames: 1, taskStatus: "completed",
 	})
 }
 
 // (A-agent) a lane an agent's mention made: done tells that agent
-// (「요청하신 작업이 끝났습니다.」, Lead woken). (B-agent) the turn's end does not.
+// (「요청하신 작업이 끝났습니다.」, Lead woken). (B-agent) the turn's end does the
+// same (T-FIX-B). (A→B-agent) both, in the usual order: told once.
 func TestLaneDonePathReentryNotice(t *testing.T) {
 	t.Run("A-agent", func(t *testing.T) {
 		f := newP2Fixture(t)
@@ -207,14 +211,28 @@ func TestLaneDonePathReentryNotice(t *testing.T) {
 		m := f.mark(t)
 		f.finishCompleted(t, rTask)
 		wantObs(t, "B-agent", f.observe(t, m, rLane, rTask, nil), laneObs{
-			laneStatus: "done", laneFinished: true, reentryNotices: 0,
-			leadQueued: 0, laneFrames: 1, costFrames: 1, taskStatus: "completed",
+			laneStatus: "done", laneFinished: true, reentryNotices: 1,
+			leadQueued: 1, laneFrames: 1, costFrames: 1, taskStatus: "completed",
+		})
+	})
+	t.Run("A→B-agent", func(t *testing.T) {
+		f := newP2Fixture(t)
+		rTask, rLane := f.agentTriggered(t)
+		m := f.mark(t)
+		if _, err := f.srv.Router.SetAgentStatus(t.Context(), rTask, 1, "done", ""); err != nil {
+			t.Fatal(err)
+		}
+		f.finishCompleted(t, rTask)
+		wantObs(t, "A→B-agent", f.observe(t, m, rLane, rTask, nil), laneObs{
+			laneStatus: "done", laneFinished: true, reentryNotices: 1,
+			leadQueued: 1, laneFrames: 2, costFrames: 1, taskStatus: "completed",
 		})
 	})
 }
 
 // (A-user) a lane the Director made: done puts a mention item in the
-// Director's inbox. (B-user) the turn's end does not.
+// Director's inbox. (B-user) the turn's end does too (T-FIX-B);
+// (A→B-user) both: one item.
 func TestLaneDonePathUserInbox(t *testing.T) {
 	t.Run("A-user", func(t *testing.T) {
 		f := newP2Fixture(t)
@@ -234,8 +252,21 @@ func TestLaneDonePathUserInbox(t *testing.T) {
 		m := f.mark(t)
 		f.finishCompleted(t, rTask)
 		wantObs(t, "B-user", f.observe(t, m, rLane, rTask, nil), laneObs{
-			laneStatus: "done", laneFinished: true, mentionInbox: 0,
+			laneStatus: "done", laneFinished: true, mentionInbox: 1,
 			leadQueued: 1, laneFrames: 1, costFrames: 1, taskStatus: "completed",
+		})
+	})
+	t.Run("A→B-user", func(t *testing.T) {
+		f := newP2Fixture(t)
+		rTask, rLane := f.userTriggered(t)
+		m := f.mark(t)
+		if _, err := f.srv.Router.SetAgentStatus(t.Context(), rTask, 1, "done", ""); err != nil {
+			t.Fatal(err)
+		}
+		f.finishCompleted(t, rTask)
+		wantObs(t, "A→B-user", f.observe(t, m, rLane, rTask, nil), laneObs{
+			laneStatus: "done", laneFinished: true, mentionInbox: 1,
+			leadQueued: 1, laneFrames: 2, costFrames: 1, taskStatus: "completed",
 		})
 	})
 }
@@ -274,6 +305,11 @@ func TestLaneDonePathQueuedTaskOnLane(t *testing.T) {
 		if o.laneStatus != "queued" {
 			t.Fatalf("(B-queued) lane = %s, want queued — another queued task keeps the lane queued", o.laneStatus)
 		}
+		// Not an end: the next task runs on this lane, so nobody is told the
+		// work is done (T-FIX-B runs the follow-up only on a move INTO done).
+		if o.mentionInbox != 0 || o.reentryNotices != 0 || o.bundles != 0 {
+			t.Fatalf("(B-queued) follow-up ran on a lane left queued: %+v", o)
+		}
 	})
 }
 
@@ -292,8 +328,9 @@ func TestLaneDonePathTurnEndKeepsBlocked(t *testing.T) {
 	}
 	// `blocked` counts as ended for the join (FR-6.2.1) but does not itself
 	// ask whether the group is complete — only `done` does. With the only
-	// child blocked the join has not fired, and the turn's end does not fire
-	// it either. Pinned as is (observed, not changed by T-RF1).
+	// child blocked the join has not fired, and the turn's end — which left
+	// the lane `blocked`, not done — does not fire it either (T-FIX-B keeps
+	// this: no follow-up without a move into done).
 	if o.joinFired || o.bundles != 0 {
 		t.Fatalf("(B-blocked) join fired=%v bundles=%d, want not fired", o.joinFired, o.bundles)
 	}

@@ -118,10 +118,14 @@ func (s *Service) Preview(ctx context.Context, sessionID uuid.UUID, author Autho
 	for _, tr := range dec.Triggers {
 		t := gen.TriggerTarget{AgentId: tr.AgentID, AgentName: names[tr.AgentID], Rule: tr.Rule}
 		rootLane, topLevel := th.laneFor(tr)
+		// T-RF1-P: the mission the post will run the trigger for is the one
+		// attribute() just chose — the same rc.work routeTrigger passes to
+		// resolveLaneFor — so the preview reads the same candidates.
 		d, busy, err := s.previewLane(ctx, tx, sessionID, tr, laneOpts{
 			threadRootLane: rootLane,
 			topLevelMent:   topLevel,
 			forceNewLane:   newLane,
+			work:           attr.WorkID,
 		})
 		if err != nil {
 			return nil, err
@@ -161,8 +165,9 @@ func (s *Service) Preview(ctx context.Context, sessionID uuid.UUID, author Autho
 // resulting lane already has work in flight (so the trigger will queue/merge
 // rather than start, FR-3.4).
 func (s *Service) previewLane(ctx context.Context, q pgx.Tx, sessionID uuid.UUID, tr Trigger, o laneOpts) (lanestate.Decision, bool, error) {
-	// TODO(T-RF1-P): nil = no mission filter, unlike Post (laneCandidates).
-	existing, err := laneCandidates(ctx, q, sessionID, tr.AgentID, nil)
+	// Post's mission filter (T-R1b2) — FR-3.6 「미리보기 = 게시의 답」
+	// (T-RF1-P: this passed nil and read every lane of the agent).
+	existing, err := laneCandidates(ctx, q, sessionID, tr.AgentID, &o)
 	if err != nil {
 		return lanestate.Decision{}, false, err
 	}

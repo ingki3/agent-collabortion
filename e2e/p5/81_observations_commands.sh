@@ -111,11 +111,16 @@ IFS=$'\t' read -r T_W TT_W AC_W <<<"$(run_turn "$S" "$W")"
 chk B.2 201 "$(tok_api "$TT_W" POST "/rooms/$S/messages" '{"content":"안녕하세요"}' | api_code)" "W(writer) 의 message post → 201"
 finish_turn "$T_W"
 obs | jq . > "$OUT/81-obs-session.json"
-chk B.3 "2/1/1/3/2" "$(obs | jq -r '[.rows[].n]|map(tostring)|join("/")')" "n: chain_scale 2(사람 hop: 세션 시작·멘션) · chain_depth 1(세션) · join_breadth 1(그룹) · routing 3(hop: 세션 시작·멘션·위임) · empty_turn 2(완료 attempt)"
-chk B.4 "0.5/0.95" "$(obs_row chain_scale | jq -r '(.median|tostring)+"/"+(.p95|tostring)')" "chain_scale: 세션 시작 hop 뒤 0 · 멘션 뒤 위임 1 → 중앙값 0.5 · p95 0.95"
+# T-FIX-B(#396): W 는 위임 자식이고 `status set done` 없이 finish 로 턴을 끝낸다. 옛 기대값은 이 턴 종료가 합류를
+# 부르지 않던 결함(T-RF1-B)에 기대고 있었다 — 그때는 그룹의 마지막 자식이 끝나도 Lead 가 깨지 않아 hop 이 셋이었다.
+# 이제 턴 종료도 합류(PRD FR-6.5 · colab-cli §2)를 한 번 내므로 hop 이 하나 는다: W → Lead, platform(규칙 9),
+# 「위임한 작업이 모두 끝났습니다」. 세 판정(B.3·B.4·B.7)이 그 한 행에서 산술로 나온다.
+chk B.3 "2/1/1/4/2" "$(obs | jq -r '[.rows[].n]|map(tostring)|join("/")')" "n: chain_scale 2(사람 hop: 세션 시작·멘션) · chain_depth 1(세션) · join_breadth 1(그룹) · routing 4(hop: 세션 시작·멘션·위임·합류) · empty_turn 2(완료 attempt)"
+chk B.4 "1/1.9" "$(obs_row chain_scale | jq -r '(.median|tostring)+"/"+(.p95|tostring)')" "chain_scale: 세션 시작 hop 뒤 0 · 멘션 뒤 위임 + 합류 2 → 중앙값 1 · p95 1.9"
 chk B.5 "2/2" "$(obs_row chain_depth | jq -r '(.median|tostring)+"/"+(.p95|tostring)')" "chain_depth: 사람 → Lead → W = 2"
 chk B.6 "1/1" "$(obs_row join_breadth | jq -r '(.median|tostring)+"/"+(.p95|tostring)')" "join_breadth: Lead 의 위임 그룹 자식 lane 1"
-chk B.7 "2=2,platform=1" "$(obs_row routing_concentration | jq -r '[.breakdown[]|select(.n>0)|.kind+"="+(.n|tostring)]|join(",")')" "routing breakdown: 규칙 2(멘션·위임) 2 · platform(세션 시작 사람 hop) 1"
+chk B.7 "2=2,platform=2" "$(obs_row routing_concentration | jq -r '[.breakdown[]|select(.n>0)|.kind+"="+(.n|tostring)]|join(",")')" "routing breakdown: 규칙 2(멘션·위임) 2 · platform(세션 시작 사람 hop · W 의 턴 종료 합류) 2"
+chk B.7a 1 "$(psqlq "select count(*) from message where session_id='$S' and author_type='system' and content like '위임한 작업이 모두 끝났습니다%'")" "T-FIX-B: W 의 턴 종료가 합류를 정확히 한 번 냈다(중복 없음)"
 chk B.8 0 "$(obs_row routing_concentration | jq -r '.value')" "규칙 6·7 폴백 비율 0"
 chk B.9 0 "$(obs_row empty_turn_rate | jq -r '.value')" "빈 턴 비율 0(두 턴 다 무언가 했다)"
 
