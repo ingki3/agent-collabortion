@@ -16,6 +16,7 @@ import (
 	"github.com/ingki3/agent-collabortion/server/internal/lanefocus"
 	"github.com/ingki3/agent-collabortion/server/internal/lanestate"
 	"github.com/ingki3/agent-collabortion/server/internal/messages"
+	"github.com/ingki3/agent-collabortion/server/internal/quiet"
 	"github.com/ingki3/agent-collabortion/server/internal/tasks"
 )
 
@@ -55,26 +56,12 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
-	var laneID, sessionID, agentID, wsID uuid.UUID
-	var triggerMsg *uuid.UUID
-	var reentry int
-	var director *uuid.UUID
-	err = tx.QueryRow(ctx, `
-		SELECT t.lane_id, t.session_id, t.agent_id, s.workspace_id, t.trigger_message_id, l.reentry_count,
-		       -- FR-6.2.1 v0.19: the lane's OWN mission's Director, and the room
-		       -- owner for a lane outside any mission (V19_R1B_HANDOFF (c)
-		       -- router/status.go:61).
-		       COALESCE(wk.director_user_id, s.owner_user_id)
-		FROM task t JOIN lane l ON l.id = t.lane_id JOIN room s ON s.id = t.session_id
-		LEFT JOIN work wk ON wk.id = COALESCE(l.work_id, t.work_id)
-		WHERE t.id = $1 FOR UPDATE OF t, l`, taskID).
-		Scan(&laneID, &sessionID, &agentID, &wsID, &triggerMsg, &reentry, &director)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, tasks.ErrNotFound
-	}
+	tc, err := lockTaskCtx(ctx, tx, taskID)
 	if err != nil {
 		return nil, err
 	}
+	laneID, sessionID, agentID, wsID := tc.laneID, tc.sessionID, tc.agentID, tc.wsID
+	triggerMsg, reentry, director := tc.triggerMsg, tc.reentry, tc.director
 	out := &StatusResult{TaskID: taskID, LaneID: laneID}
 
 	if err := s.recordStatusEvent(ctx, tx, taskID, attempt, status, note, now); err != nil {
@@ -183,6 +170,9 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 		// T-RF1: the one writer of a finished lane (lanedone.MarkDone — the
 		// 작업 카드 gate goes there). The frame goes out before the follow-up,
 		// as it always did.
+		// AfterDone runs only when this call moves the lane INTO `done`: a
+		// lane the turn's end already closed (tasks.Finish → LaneEnded) has
+		// had its join/report, and a second `status set done` adds nothing.
 		if _, err := lanedone.MarkDone(ctx, tx, lanedone.Request{
 			LaneID: laneID, Cause: lanedone.AgentDone, Now: now,
 			Publish: func(ctx context.Context, tx pgx.Tx, id uuid.UUID) { s.publishLane(ctx, tx, id) },
@@ -192,6 +182,10 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 		}); err != nil {
 			return nil, err
 		}
+		// NN2 (#393 review): unconditional today. When the CARD GATE
+		// (lanedone.MarkDone) can turn the lane to 「결과 카드 대기」 instead of
+		// `done`, this must follow MarkDone's Result — the agent is then owed
+		// the follow-up turn that asks for the card, not "end your turn".
 		out.TurnEndRequired = true
 	default:
 		return nil, apperr.Validation(apperr.Field("status", "invalid", "상태는 working · blocked · done 중 하나여야 합니다"))
@@ -207,6 +201,98 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 		s.Notifier.Notify()
 	}
 	return out, nil
+}
+
+// taskCtx is what a lane's end needs to know about the task that ended it.
+type taskCtx struct {
+	laneID, sessionID, agentID, wsID uuid.UUID
+	triggerMsg                       *uuid.UUID
+	reentry                          int
+	director                         *uuid.UUID
+	laneStatus                       string
+}
+
+// lockTaskCtx reads (and locks: task, then lane — the order SetAgentStatus
+// always took) the task and its lane.
+func lockTaskCtx(ctx context.Context, tx pgx.Tx, taskID uuid.UUID) (taskCtx, error) {
+	var c taskCtx
+	err := tx.QueryRow(ctx, `
+		SELECT t.lane_id, t.session_id, t.agent_id, s.workspace_id, t.trigger_message_id, l.reentry_count,
+		       -- FR-6.2.1 v0.19: the lane's OWN mission's Director, and the room
+		       -- owner for a lane outside any mission (V19_R1B_HANDOFF (c)
+		       -- router/status.go:61).
+		       COALESCE(wk.director_user_id, s.owner_user_id), l.status::text
+		FROM task t JOIN lane l ON l.id = t.lane_id JOIN room s ON s.id = t.session_id
+		LEFT JOIN work wk ON wk.id = COALESCE(l.work_id, t.work_id)
+		WHERE t.id = $1 FOR UPDATE OF t, l`, taskID).
+		Scan(&c.laneID, &c.sessionID, &c.agentID, &c.wsID, &c.triggerMsg, &c.reentry, &c.director, &c.laneStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return c, tasks.ErrNotFound
+	}
+	return c, err
+}
+
+// AfterLaneEnded is tasks.Service.LaneEnded (wired in httpapi.NewServer): the
+// follow-up a lane's end owes when the end was NOT `colab status set done`
+// (T-FIX-B, PRD FR-6.5 · colab-cli.md §2 「lane 종료 판정은 서버가
+// turn_end 와 함께 한다」).
+//
+//   - `done` — the turn's end wrote it (lanedone.TurnEnd moved it INTO done;
+//     a lane the agent had already closed never gets here): afterLaneDone,
+//     exactly what `status set done` runs — the join or the re-entry report.
+//   - `failed` — a cancel, a last failure or the sweep: the join only
+//     (「그룹의 모든 자식 lane이 종료 상태(done 또는 failed)가 되면」). A
+//     failed lane is not a finished piece of work; nobody is told it is done.
+//
+// Its own transaction, after the one that ended the lane committed. The lane
+// is re-read under its lock: a `failed` end whose lane is not `failed` (K-16:
+// a cancel on a lane already `done` keeps it done — its join already ran)
+// does nothing. The join itself is once per group (join_fired_at under the
+// delegating task's lock), so a sibling's `status set done` racing this lands
+// one bundle.
+func (s *Service) AfterLaneEnded(ctx context.Context, e tasks.LaneEnd) error {
+	now := s.Clock.Now()
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	c, err := lockTaskCtx(ctx, tx, e.TaskID)
+	if errors.Is(err, tasks.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	switch e.Status {
+	case lanestate.Done:
+		if err := s.afterLaneDone(ctx, tx, c.sessionID, c.wsID, c.laneID, c.agentID, e.TaskID, c.triggerMsg, c.reentry, c.director, now); err != nil {
+			return err
+		}
+	case lanestate.Failed:
+		if c.laneStatus != lanestate.Failed {
+			return nil
+		}
+		var delegTask *uuid.UUID
+		if err := tx.QueryRow(ctx, `SELECT delegated_from_task_id FROM lane WHERE id = $1`, c.laneID).Scan(&delegTask); err != nil {
+			return err
+		}
+		if delegTask == nil {
+			return nil
+		}
+		if err := s.maybeFireJoin(ctx, tx, c.sessionID, c.wsID, c.director, c.agentID, e.TaskID, *delegTask, now); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("router: lane end %q", e.Status)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if s.Notifier != nil {
+		s.Notifier.Notify()
+	}
+	return nil
 }
 
 // afterLaneDone is FR-6.5. Two different notifications hang off one event, and
@@ -231,7 +317,7 @@ func (s *Service) afterLaneDone(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 		// means QA never learns Frontend produced a new diff (리뷰#04-5).
 		// A lane that is not a delegation has nobody waiting for a bundle
 		// either, so it takes the same path.
-		if err := s.notifyReentry(ctx, tx, sessionID, wsID, agentID, taskID, triggerMsg, director, now); err != nil {
+		if err := s.notifyReentry(ctx, tx, sessionID, wsID, laneID, agentID, taskID, triggerMsg, director, now); err != nil {
 			return err
 		}
 	}
@@ -262,8 +348,11 @@ func (s *Service) maybeFireJoin(ctx context.Context, tx pgx.Tx, sessionID, wsID 
 	if fired != nil {
 		return nil // one bundle per group (E); a re-entry does not re-fire it
 	}
+	// FR-6.5 「실패한 lane은 실패 사유와 함께 묶음에 포함된다」: the reason is
+	// the failure_kind of the lane's newest task.
 	rows, err := tx.Query(ctx, `
-		SELECT l.status::text, a.name, l.blocked_note
+		SELECT l.status::text, a.name, l.blocked_note,
+		       CASE WHEN l.status = 'failed' THEN (SELECT t.failure_kind::text FROM task t WHERE t.lane_id = l.id ORDER BY t.created_at DESC LIMIT 1) END
 		FROM lane l JOIN agent a ON a.id = l.agent_id
 		WHERE l.delegated_from_task_id = $1 ORDER BY l.created_at`, delegTask)
 	if err != nil {
@@ -271,12 +360,12 @@ func (s *Service) maybeFireJoin(ctx context.Context, tx pgx.Tx, sessionID, wsID 
 	}
 	type child struct {
 		status, name string
-		note         *string
+		note, reason *string
 	}
 	var children []child
 	for rows.Next() {
 		var c child
-		if err := rows.Scan(&c.status, &c.name, &c.note); err != nil {
+		if err := rows.Scan(&c.status, &c.name, &c.note, &c.reason); err != nil {
 			rows.Close()
 			return err
 		}
@@ -304,6 +393,9 @@ func (s *Service) maybeFireJoin(ctx context.Context, tx pgx.Tx, sessionID, wsID 
 		if c.note != nil && *c.note != "" {
 			body += " — 질문: " + *c.note
 		}
+		if c.reason != nil && *c.reason != "" {
+			body += " — 사유: " + *c.reason
+		}
 		body += "\n"
 	}
 	if unanswered > 0 {
@@ -319,8 +411,9 @@ func (s *Service) maybeFireJoin(ctx context.Context, tx pgx.Tx, sessionID, wsID 
 }
 
 // notifyReentry tells whoever caused the work that it is finished. A human
-// author gets an inbox item; an agent author gets a task.
-func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID, from, waker uuid.UUID, triggerMsg *uuid.UUID, director *uuid.UUID, now time.Time) error {
+// author gets an inbox item; an agent author gets a task — unless the lane's
+// own messages already woke that agent (requesterAlreadyWoken, T-FIX-B).
+func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID, laneID, from, waker uuid.UUID, triggerMsg *uuid.UUID, director *uuid.UUID, now time.Time) error {
 	if triggerMsg == nil {
 		return nil
 	}
@@ -340,6 +433,11 @@ func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 		if authorTask != nil {
 			requester = *authorTask
 		}
+		if woken, err := requesterAlreadyWoken(ctx, tx, laneID, *authorID, *triggerMsg); err != nil {
+			return err
+		} else if woken {
+			return nil
+		}
 		return s.wake(ctx, tx, sessionID, wsID, director, from, *authorID, waker, requester, *triggerMsg, "요청하신 작업이 끝났습니다.", now)
 	case authorType == "user" && authorID != nil:
 		return insertInbox(ctx, tx, wsID, *authorID, inbox.TypeMention, inbox.Severity(inbox.TypeMention), sessionID, *triggerMsg, now)
@@ -347,6 +445,40 @@ func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 		return insertInbox(ctx, tx, wsID, *director, inbox.TypeMention, inbox.Severity(inbox.TypeMention), sessionID, *triggerMsg, now)
 	}
 	return nil
+}
+
+// requesterAlreadyWoken is the one rule for "the report would be a duplicate
+// wake-up" (T-FIX-B, Lead 결정 B 2026-09-30), used by both ways a lane ends
+// (`status set done` and the turn's end — both reach notifyReentry).
+//
+// The lane's own tasks answering this request — those created at or after the
+// request message — already posted a message that (1) names the requester
+// among its addressees and (2) woke it: a task of the requester has that
+// message as its trigger or merged it (FR-3.4). Then the requester is already
+// coming back with the answer in hand, and 「요청하신 작업이 끝났습니다」 would
+// wake it a second time for nothing (live copy 09-30: 84 of 92 agent-asked
+// turn-end ends, 44 of 49 `status set done` ends).
+//
+// A message that reached the requester but did NOT wake it does not count,
+// and the report goes out: a mention rule 8 or the loop limit suppressed makes
+// no task at all, and a trigger T-QUIET held (queued · approval_pending, or
+// later cancelled · approval_closed) is not a wake-up either.
+func requesterAlreadyWoken(ctx context.Context, tx pgx.Tx, laneID, requester, request uuid.UUID) (bool, error) {
+	var woken bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1
+		  FROM message req, task own JOIN message m ON m.source_task_id = own.id
+		  JOIN task t ON t.agent_id = $2 AND (t.trigger_message_id = m.id OR m.id = ANY (t.coalesced_message_ids))
+		  WHERE req.id = $3 AND own.lane_id = $1 AND own.created_at >= req.created_at
+		    AND m.addressees @> jsonb_build_array(jsonb_build_object('kind', 'agent', 'id', $2::text))
+		    AND NOT `+quiet.HeldTaskSQL+`
+		    AND NOT (t.status = 'cancelled' AND t.stop_reason IS NOT DISTINCT FROM '`+quiet.StopApprovedClosed+`'))`,
+		laneID, requester, request).Scan(&woken)
+	if err != nil {
+		return false, fmt.Errorf("router: requester already woken: %w", err)
+	}
+	return woken, nil
 }
 
 // wake creates a task for one agent on its own lane. It is the server's own

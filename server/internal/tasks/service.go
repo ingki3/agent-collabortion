@@ -60,6 +60,72 @@ type Service struct {
 	// re-read then (sessions.ReleaseHeldApproval). Same hook shape as the two
 	// above — internal/sessions imports this package. nil in unit tests.
 	AfterSettle func(ctx context.Context, workID uuid.UUID)
+
+	// LaneEnded runs after a transaction of this service ended a lane's work
+	// — the turn's end wrote it `done` (Finish, lanedone.TurnEnd), or a
+	// cancel · a last failure · the sweep wrote it `failed` — in its own
+	// transaction, after the commit. It is the join (PRD FR-6.5: 「그룹의 모든
+	// 자식 lane이 종료 상태(done 또는 failed)가 되면 … 한 번」) and, for
+	// `done`, the re-entry report (router.AfterLaneEnded, T-FIX-B). A hook for
+	// the same reason as the three above: router imports this package.
+	//
+	// Its own transaction, not the finish's: the follow-up posts a message and
+	// may pause the room (roomgate — room first, then tasks), while the finish
+	// holds the task row; nesting them is the task→room order the rollup was
+	// moved out of Finish for (sessions.ApplyWorkEvent locks room → tasks).
+	// nil in unit tests with no router.
+	LaneEnded func(ctx context.Context, e LaneEnd) error
+}
+
+// LaneEnd is one lane end LaneEnded is told about.
+type LaneEnd struct {
+	LaneID, TaskID uuid.UUID
+	// Status is what the lane was written: lanestate.Done or lanestate.Failed.
+	Status string
+}
+
+// laneEnded hands the ends a committed transaction made to LaneEnded. A
+// failure is logged, not returned: the transaction that ended the lane is
+// committed, and an error here would make the daemon re-send a finish whose
+// repeat takes the idempotent branch anyway.
+func (s *Service) laneEnded(ctx context.Context, ends []LaneEnd) {
+	if s.LaneEnded == nil {
+		if len(ends) > 0 {
+			warnUnwired("tasks: LaneEnded unwired — the join (FR-6.5) and the re-entry report will not follow a turn's end")
+		}
+		return
+	}
+	for _, e := range ends {
+		if err := s.LaneEnded(ctx, e); err != nil {
+			slog.Warn("tasks: lane end follow-up", "lane", e.LaneID, "task", e.TaskID, "status", e.Status, "err", err)
+		}
+	}
+}
+
+// LanesFailed tells LaneEnded about tasks a caller-owned transaction (the
+// kill switch — CancelForSession) cancelled, after that transaction
+// committed. A task whose lane is not `failed` now (its cancel is still on its
+// way to the daemon, or the lane was already `done`) is skipped by the hook.
+func (s *Service) LanesFailed(ctx context.Context, taskIDs []uuid.UUID) {
+	var ends []LaneEnd
+	for _, id := range taskIDs {
+		var lane uuid.UUID
+		if err := s.DB.QueryRow(ctx, `SELECT lane_id FROM task WHERE id = $1`, id).Scan(&lane); err != nil {
+			continue
+		}
+		ends = append(ends, LaneEnd{LaneID: lane, TaskID: id, Status: "failed"})
+	}
+	s.laneEnded(ctx, ends)
+}
+
+// failedEnd is the LaneEnd a task that just moved from `before` to
+// cancelled/failed owes, or none. Whether the LANE is `failed` (cancelLocked
+// keeps a `done` lane done, K-16) is the hook's to read after the commit.
+func failedEnd(before Status, t *Row) []LaneEnd {
+	if !Terminal(before) && (t.Status == Failed || t.Status == Cancelled) {
+		return []LaneEnd{{LaneID: t.LaneID, TaskID: t.ID, Status: "failed"}}
+	}
+	return nil
 }
 
 // settled calls AfterSettle for a task's mission, if it has one.
@@ -326,15 +392,22 @@ func (s *Service) NotePreviewDrift(ctx context.Context, taskID uuid.UUID, attemp
 // is revoked either way (daemon-protocol §5, §7).
 func (s *Service) Requeue(ctx context.Context, taskID uuid.UUID, reason contracts.FailureKind, notBefore *time.Time, now time.Time) error {
 	var workID *uuid.UUID
+	var ends []LaneEnd
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
 		t, err := lockTask(ctx, tx, taskID)
 		if err != nil {
 			return err
 		}
 		workID = t.WorkID
-		return s.requeueLocked(ctx, tx, t, reason, notBefore, now)
+		before := t.Status
+		if err := s.requeueLocked(ctx, tx, t, reason, notBefore, now); err != nil {
+			return err
+		}
+		ends = failedEnd(before, t)
+		return nil
 	})
 	if err == nil {
+		s.laneEnded(ctx, ends)
 		s.settled(ctx, workID) // a requeue that ran out of attempts failed the task
 	}
 	return err
@@ -426,12 +499,14 @@ func (s *Service) requeueLocked(ctx context.Context, tx pgx.Tx, t *Row, reason c
 func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 	n := 0
 	var works []*uuid.UUID
+	var ends []LaneEnd
 	defer func() {
 		for _, w := range works {
 			s.settled(ctx, w)
 		}
 	}()
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		ends = nil
 		// §4.1: dispatched and preparing are bounded by 5 minutes from dispatch;
 		// preparing is not a heartbeat subject (§4.2 v0.2, N5).
 		ids, err := collectIDs(tx.Query(ctx, `
@@ -445,9 +520,11 @@ func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 			if err != nil {
 				return err
 			}
+			before := t.Status
 			if err := s.applySweep(ctx, tx, t, idleSince(t, now), now); err != nil {
 				return err
 			}
+			ends = append(ends, failedEnd(before, t)...)
 			works = append(works, t.WorkID)
 			n++
 		}
@@ -464,9 +541,11 @@ func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 				return err
 			}
 			rt := t.RuntimeID
+			before := t.Status
 			if err := s.applySweep(ctx, tx, t, idleSince(t, now), now); err != nil {
 				return err
 			}
+			ends = append(ends, failedEnd(before, t)...)
 			works = append(works, t.WorkID)
 			if rt != nil {
 				if _, err := tx.Exec(ctx, `
@@ -494,6 +573,11 @@ func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 			WHERE status = 'online' AND (last_seen_at IS NULL OR last_seen_at < $2)`, now, now.Add(-contracts.HeartbeatExpiry))
 		return err
 	})
+	if err == nil {
+		// A swept task that ran out of attempts leaves its lane `failed`: the
+		// join may be waiting on it (FR-6.5, T-FIX-B).
+		s.laneEnded(ctx, ends)
+	}
 	return n, err
 }
 
@@ -506,12 +590,15 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 	var costed bool
 	var wsID, sessionID uuid.UUID
 	var workID *uuid.UUID
+	var ends []LaneEnd
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		ends = nil
 		t, err := lockTask(ctx, tx, taskID)
 		if err != nil {
 			return err
 		}
 		wsID, sessionID, workID = t.WorkspaceID, t.SessionID, t.WorkID
+		before := t.Status
 		if attempt != t.Attempt {
 			var outcome *string
 			if err := tx.QueryRow(ctx, `SELECT outcome FROM task_attempt WHERE task_id = $1 AND attempt = $2`, t.ID, attempt).Scan(&outcome); err == nil && outcome != nil {
@@ -750,10 +837,19 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			// one writer of a finished lane is lanedone.MarkDone. The lane
 			// frame goes out below with task.updated (s.publish).
 			//
-			// TODO(T-RF1-B): no follow-up on this path — lanedone.runsFollowUp
-			// says so in one place (the join FR-6.5 and the re-entry report run
-			// for `status set done` only). Kept by Lead's call; see there.
-			if _, err := lanedone.MarkDone(ctx, tx, lanedone.Request{LaneID: t.LaneID, Cause: lanedone.TurnEnd, Now: now}); err != nil {
+			// T-FIX-B: a lane this turn's end moved to `done` owes the same
+			// follow-up `status set done` runs — the join (FR-6.5) and the
+			// re-entry report. MarkDone calls AfterDone only on the transition
+			// (a lane the agent already closed runs nothing again); the
+			// closure just records it, and laneEnded runs it after the commit
+			// (LaneEnded — lock order).
+			if _, err := lanedone.MarkDone(ctx, tx, lanedone.Request{
+				LaneID: t.LaneID, Cause: lanedone.TurnEnd, Now: now,
+				AfterDone: func(context.Context, pgx.Tx) error {
+					ends = append(ends, LaneEnd{LaneID: t.LaneID, TaskID: t.ID, Status: "done"})
+					return nil
+				},
+			}); err != nil {
 				return err
 			}
 			// S-53: a turn that COMPLETED after a rebind has replayed the
@@ -773,6 +869,7 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			if err := s.cancelLocked(ctx, tx, t, f.StopReason, now); err != nil {
 				return err
 			}
+			ends = failedEnd(before, t)
 			final = t.Status
 			return nil
 		case "paused_budget":
@@ -809,6 +906,7 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			if err := s.requeueLocked(ctx, tx, t, kind, f.NotBefore, now); err != nil {
 				return err
 			}
+			ends = failedEnd(before, t)
 			final = t.Status
 			return nil
 		}
@@ -816,6 +914,11 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 		final = t.Status
 		return nil
 	})
+	if err == nil {
+		// After the commit, before the roll-up: the join and the report are
+		// what the delegator is waiting on (T-FIX-B, LaneEnded).
+		s.laneEnded(ctx, ends)
+	}
 	if err == nil && costed {
 		// Deliberately its own transaction, AFTER the attempt is committed.
 		// Finish holds task row locks; sessions.ApplyWorkEvent locks the
@@ -1244,6 +1347,9 @@ func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*
 		return nil
 	})
 	if err == nil && immediate && out != nil {
+		// FR-6.5: a cancelled child is a `failed` one, and the group waits
+		// for it no longer (T-FIX-B).
+		s.laneEnded(ctx, []LaneEnd{{LaneID: out.LaneID, TaskID: out.ID, Status: "failed"}})
 		s.settled(ctx, out.WorkID)
 	}
 	return out, immediate, err

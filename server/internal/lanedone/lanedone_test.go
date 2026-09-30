@@ -15,8 +15,9 @@ import (
 // TestMarkDoneTable pins MarkDone's decision per cause and starting state,
 // including whether the follow-up and the publish hook run.
 //
-// 회귀 주입: runsFollowUp 의 TurnEnd 를 true 로 → (TurnEnd·idle) FAIL;
-// AgentDone 을 false 로 → (AgentDone·*) FAIL; TurnEnd CASE 의 queued 가지를
+// 회귀 주입: runsFollowUp 의 TurnEnd 를 false 로 → (TurnEnd·idle) FAIL
+// (T-FIX-B); AgentDone 을 false 로 → (AgentDone·*) FAIL; Became 대신 Done 으로
+// 판정하면 (*·done) FAIL(후속이 두 번); TurnEnd CASE 의 queued 가지를
 // 지우면 (TurnEnd·queued) FAIL; `status <> 'blocked'` 를 지우면
 // (TurnEnd·blocked) FAIL; Publish 호출을 지우면 모든 행 FAIL.
 func TestMarkDoneTable(t *testing.T) {
@@ -36,9 +37,13 @@ func TestMarkDoneTable(t *testing.T) {
 		{"AgentDone·running", lanedone.AgentDone, "running", false, "done", true},
 		{"AgentDone·queued", lanedone.AgentDone, "running", true, "done", true},
 		{"AgentDone·blocked", lanedone.AgentDone, "blocked", false, "done", true},
-		{"TurnEnd·idle", lanedone.TurnEnd, "running", false, "done", false},
+		{"AgentDone·done", lanedone.AgentDone, "done", false, "done", false},
+		{"TurnEnd·idle", lanedone.TurnEnd, "running", false, "done", true},
 		{"TurnEnd·queued", lanedone.TurnEnd, "running", true, "queued", false},
 		{"TurnEnd·blocked", lanedone.TurnEnd, "blocked", false, "blocked", false},
+		// status set done, then the turn's end: the lane is already done —
+		// the follow-up ran with the first, not again (T-FIX-B 멱등).
+		{"TurnEnd·done", lanedone.TurnEnd, "done", false, "done", false},
 	}
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {

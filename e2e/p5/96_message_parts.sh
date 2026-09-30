@@ -53,7 +53,10 @@ jq -nc --arg d "$BODY_D" --arg w "$BODY_W" --arg r "$BODY_R" \
 # 대본은 턴마다 같다(페이크는 턴마다 새 세션이라 늘 첫 턴을 쓴다 — 마지막 턴이 반복된다).
 # 방 시작 턴도 부분을 올리지만(트리거가 시스템 → 보고가 아니다), 판정은 **Director 지시로 깨어난 턴**의 행만 본다:
 # 그래야 첫 부분이 그 지시에 대한 보고(↩)가 된다(FR-3.1.3 표 7행). 멱등키는 task 마다 달라(UUIDv5 task:<id>:<seq>) 두 묶음이 따로 생긴다.
-FAKE_L="$(jq -nc --arg f "$PARTS_FILE" '{turns:[{steps:[{exec:("colab message post --parts-file " + $f)}]}]}')"
+# T-FIX-B: 보고(「요청하신 작업이 끝났습니다」)로 깨어난 턴은 **메시지 없이** 끝낸다(빈 확인 메시지 규약). 옛 대본은 어느 턴에서나
+# 부분 셋을 다시 올렸는데, Writer·Researcher 의 멘션 없는 답(규칙 4 — Lead 를 깨우지 않는다) 뒤에 턴 종료가 보고를 내지 않던
+# 결함에 기대 멈추고 있었다. 턴 종료도 보고를 내자(FR-6.5 · colab-cli §2) 요청 → 보고 → 요청이 되어 방이 loop 상한으로 멈췄다.
+FAKE_L="$(jq -nc --arg f "$PARTS_FILE" '{turns:[{steps:[{exec:("case \"$ACPFAKE_PROMPT\" in *요청하신\\ 작업이\\ 끝났습니다*) exit 0;; esac; colab message post --parts-file " + $f)}]}]}')"
 LEAD="$(create_agent_fake "$WS" Lead lead claude_code "$LEAD_MODEL" "받은 일을 나눠 보고·요청하라." '팀을 이끈다' "$FAKE_L")"
 SESSION="$(create_session_p2 "$WS" "마리오 카트" "커브가 어색한 원인을 찾아 고친다" "$LEAD" "$RUNTIME_ID" "$LEAD" "$LEAD" "$WRITER" "$RESEARCHER")"
 echo "$WS $SESSION $LEAD $WRITER $RESEARCHER $RUNTIME_ID $DIRECTOR_ID" > "$OUT/96-ids.txt"

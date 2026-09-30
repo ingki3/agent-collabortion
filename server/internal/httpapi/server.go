@@ -141,6 +141,10 @@ func NewServer(d Deps) *Server {
 	notifier := queue.NewNotifier()
 	q := queue.NewPostgres(d.DB, d.Clock, tsk, notifier)
 	rt := router.New(d.DB, d.Clock, hub, notifier).WithTasks(tsk)
+	// T-FIX-B: a lane the task layer ends (turn end → done, cancel · last
+	// failure · sweep → failed) owes the join (FR-6.5) and, for done, the
+	// re-entry report — router's, which tasks cannot import.
+	tsk.LaneEnded = rt.AfterLaneEnded
 	tc := testchat.New(d.DB, d.Clock, hub)
 	tc.Log = d.Log
 	// A queued test chat turn wakes the same long-poll a queued task does —
