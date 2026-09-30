@@ -576,6 +576,11 @@ func (s *Service) Rebind(ctx context.Context, wsID, sessionID, targetRuntime uui
 		if _, err := roomgate.Unblock(ctx, tx, sessionID, roomgate.ReasonRuntimeOffline, now); err != nil {
 			return plan, err
 		}
+		if s.ResumeStalledCards != nil {
+			if _, err := s.ResumeStalledCards(ctx, tx, sessionID, roomgate.ReasonRuntimeOffline, now); err != nil {
+				return plan, err
+			}
+		}
 	}
 	if moved {
 		// Unmarked leftovers (the pre-v0.19 sweep's per-mission pause).

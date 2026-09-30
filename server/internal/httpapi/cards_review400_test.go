@@ -421,3 +421,153 @@ func TestRestartRevivesCancelledCard(t *testing.T) {
 		t.Fatalf("result after restart: %s", got.Status)
 	}
 }
+
+// ── #400 재리뷰(review400c) 후속 ─────────────────────────────────────────
+
+// stalledRevise: the room is already stopped for another reason (manual) when
+// the delegator's revise goes over the FR-3.5 limit — pauseForLoop raises no
+// loop gate (one gate per room), so nothing but that gate's lift can bring
+// the version back. Returns the card and its lane's task count.
+func (f *p2Fixture) stalledRevise(t *testing.T) (*cards.Row, int) {
+	t.Helper()
+	ctx := t.Context()
+	leadTask, c1, _ := f.twoChildren(t)
+	f.report(t, c1)
+	f.finishCompleted(t, c1)
+	card := f.taskCard(t, c1)
+	f.api.must(200, "PATCH", f.p+"/workspaces/"+f.wsID+"/settings", map[string]any{
+		"loop_limits": map[string]any{"max_pair_roundtrips": 1, "max_hops_per_hour": 50},
+	})
+	now := time.Now()
+	for i := 0; i < 3; i++ {
+		for _, pair := range [][2]string{{f.lead, f.r}, {f.r, f.lead}} {
+			if _, err := f.pool.Exec(ctx, `INSERT INTO session_hop (session_id, from_agent_id, to_agent_id, rule, created_at) VALUES ($1, $2, $3, 2, $4)`,
+				f.sessionID, pair[0], pair[1], now); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// The manual stop, as the gate's row (the API's block also cancels the
+	// delegator's running turn, whose token the revise below judges with).
+	if _, err := f.pool.Exec(ctx, `UPDATE room SET blocked_reason = 'manual', blocked_detail = '{}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+		t.Fatal(err)
+	}
+	rv, err := f.srv.Router.Revise(ctx, card.ID, router.Judgement{TaskID: &leadTask, Attempt: 1}, "출처를 붙여 주세요", router.Patch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rv.Task != nil {
+		t.Fatal("revise over the loop limit made a task — the limit did not trip")
+	}
+	if n := f.count(t, `SELECT count(*) FROM hitl_request WHERE session_id = $1 AND purpose = 'loop'`, f.sessionID); n != 0 {
+		t.Fatalf("a loop request was raised on an already stopped room: %d", n)
+	}
+	var reason string
+	if err := f.pool.QueryRow(ctx, `SELECT blocked_reason::text FROM room WHERE id = $1`, f.sessionID).Scan(&reason); err != nil || reason != "manual" {
+		t.Fatalf("room gate = %q (%v), want manual", reason, err)
+	}
+	return card, f.count(t, `SELECT count(*) FROM task WHERE lane_id = $1`, card.LaneID)
+}
+
+// 400c NN1: the manual lift brings the stopped version back. With the limit
+// no longer tripped (raised meanwhile) the card task is queued at the lift;
+// still over it, the lift raises the loop gate instead, and the owner's
+// approval then queues it — either way the version runs exactly once.
+// 주입: unblockRoom 의 ResumeStalledCards 호출을 빼면 (lifted) FAIL; 비-loop
+// 사유의 hop 재판정을 빼면 (still over) 가 한도를 넘어 task 를 만들어 FAIL.
+func TestReviseStalledUnderAnotherGate(t *testing.T) {
+	t.Run("lifted", func(t *testing.T) {
+		f := newP2Fixture(t)
+		card, before := f.stalledRevise(t)
+		f.api.must(200, "PATCH", f.p+"/workspaces/"+f.wsID+"/settings", map[string]any{
+			"loop_limits": map[string]any{"max_pair_roundtrips": 20, "max_hops_per_hour": 50},
+		})
+		f.api.must(200, "POST", f.p+"/rooms/"+f.sessionID+"/unblock", nil)
+		if n := f.count(t, `SELECT count(*) FROM task WHERE lane_id = $1 AND kind = 'card' AND card_id = $2 AND status = 'queued'`, card.LaneID, card.ID); n != 1 {
+			t.Fatalf("after the manual lift the card lane has %d queued card tasks, want 1 (lane tasks before %d)", n, before)
+		}
+		// A second lift path (nothing stalled any more) queues nothing more.
+		if _, err := f.pool.Exec(t.Context(), `UPDATE room SET blocked_reason = 'manual', blocked_detail = '{}'::jsonb WHERE id = $1`, f.sessionID); err != nil {
+			t.Fatal(err)
+		}
+		f.api.must(200, "POST", f.p+"/rooms/"+f.sessionID+"/unblock", nil)
+		if n := f.count(t, `SELECT count(*) FROM task WHERE lane_id = $1`, card.LaneID); n != before+1 {
+			t.Fatalf("lane tasks after a second lift = %d, want %d", n, before+1)
+		}
+	})
+	t.Run("still over the limit", func(t *testing.T) {
+		f := newP2Fixture(t)
+		card, before := f.stalledRevise(t)
+		f.api.must(200, "POST", f.p+"/rooms/"+f.sessionID+"/unblock", nil)
+		if n := f.count(t, `SELECT count(*) FROM task WHERE lane_id = $1`, card.LaneID); n != before {
+			t.Fatalf("a lift under a still-tripped limit queued the card (%d → %d)", before, n)
+		}
+		var hitlID string
+		if err := f.pool.QueryRow(t.Context(), `SELECT id::text FROM hitl_request WHERE session_id = $1 AND purpose = 'loop' AND status = 'open'`, f.sessionID).Scan(&hitlID); err != nil {
+			t.Fatalf("the lift did not raise the loop gate: %v", err)
+		}
+		f.api.must(200, "POST", f.p+"/hitl-requests/"+hitlID+"/response", map[string]any{"approved": true}, "Idempotency-Key", uuid.NewString())
+		if n := f.count(t, `SELECT count(*) FROM task WHERE lane_id = $1 AND kind = 'card' AND card_id = $2`, card.LaneID, card.ID); n != 2 {
+			t.Fatalf("card tasks on the lane after the loop approval = %d, want 2 (v1's + the stopped v2's)", n)
+		}
+	})
+}
+
+// 400c NN2: the restart's revival stops at its two edges — a card its
+// closed mission cancelled stays cancelled, and an accepted card stays
+// accepted (the restart's task is then a normal one).
+// 주입: ReviveOnLane 의 닫힌 미션 조건을 빼면 (closed mission) FAIL,
+// status = 'cancelled' 조건을 넓히면 (accepted) FAIL.
+func TestRestartRevivalEdges(t *testing.T) {
+	restart := func(t *testing.T, f *p2Fixture, lane uuid.UUID) {
+		t.Helper()
+		if st, out, _ := f.api.do("POST", f.p+"/lanes/"+lane.String()+"/restart", map[string]any{"content": "다시 해 주세요"}, "Idempotency-Key", uuid.NewString()); st != 202 {
+			t.Fatalf("restart: %d %v", st, out)
+		}
+	}
+	t.Run("closed mission", func(t *testing.T) {
+		f := newP2Fixture(t)
+		ctx := t.Context()
+		_, rTask, rLane := f.delegatedChild(t)
+		c := f.taskCard(t, rTask)
+		// The mission closes (its open cards are cancelled with it) and its
+		// lane failed; a restart of that lane does not bring the card back.
+		if _, err := f.pool.Exec(ctx, `UPDATE task_card SET status = 'cancelled' WHERE work_id = $1`, *c.WorkID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.pool.Exec(ctx, `UPDATE work SET status = 'cancelled' WHERE id = $1`, *c.WorkID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.pool.Exec(ctx, `UPDATE lane SET status = 'failed' WHERE id = $1`, rLane); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.pool.Exec(ctx, `UPDATE task SET status = 'failed' WHERE id = $1`, rTask); err != nil {
+			t.Fatal(err)
+		}
+		restart(t, f, rLane)
+		if got, _ := cards.Get(ctx, f.pool, c.ID); got.Status != cards.Cancelled {
+			t.Fatalf("closed mission's card after restart = %s, want cancelled", got.Status)
+		}
+	})
+	t.Run("accepted", func(t *testing.T) {
+		f := newP2Fixture(t)
+		ctx := t.Context()
+		leadTask, rTask, rLane := f.delegatedChild(t)
+		c := f.taskCard(t, rTask)
+		f.report(t, rTask)
+		f.finishCompleted(t, rTask)
+		if _, err := f.srv.Router.Accept(ctx, c.ID, router.Judgement{TaskID: &leadTask, Attempt: 1}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.pool.Exec(ctx, `UPDATE lane SET status = 'failed' WHERE id = $1`, rLane); err != nil {
+			t.Fatal(err)
+		}
+		restart(t, f, rLane)
+		if got, _ := cards.Get(ctx, f.pool, c.ID); got.Status != cards.Accepted {
+			t.Fatalf("accepted card after restart = %s, want accepted", got.Status)
+		}
+		if _, kind, _ := f.queuedOnLane(t, rLane); kind != "normal" {
+			t.Fatalf("restart task on an accepted card's lane is %q, want normal", kind)
+		}
+	})
+}

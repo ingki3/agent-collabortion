@@ -159,7 +159,7 @@ func NewServer(d Deps) *Server {
 		Auth:      auth.New(d.DB, d.Clock, d.WebURL),
 		Agents:    agents.New(d.DB, d.Clock),
 		Artifacts: arts,
-		Runtimes:  runtimes.New(d.DB, d.Clock, hub, d.ServerURL).WithLog(d.Log).WithTasks(tsk),
+		Runtimes:  runtimes.New(d.DB, d.Clock, hub, d.ServerURL).WithLog(d.Log).WithTasks(tsk).WithCardResume(rt.ResumeStalledCards),
 		// §8.5's platform client is optional on purpose: with no
 		// ANTHROPIC_API_KEY the summary is composed from rows, as it was in P2,
 		// and every other part of the server runs unchanged (llm.FromEnv).

@@ -155,6 +155,10 @@ func (s *Server) liftOfflineGate(ctx context.Context, tx pgx.Tx, roomID uuid.UUI
 	if _, err := roomgate.Unblock(ctx, tx, roomID, roomgate.ReasonRuntimeOffline, now); err != nil {
 		return err
 	}
+	// #400 리뷰 400c NN1 — see the manual lift (handlers_rooms_r1b1).
+	if _, err := s.Router.ResumeStalledCards(ctx, tx, roomID, roomgate.ReasonRuntimeOffline, now); err != nil {
+		return err
+	}
 	var runtimeID *uuid.UUID
 	if err := tx.QueryRow(ctx, `SELECT runtime_id FROM room WHERE id = $1`, roomID).Scan(&runtimeID); err != nil {
 		return err
