@@ -44425,7 +44425,7 @@
                                   "fill": "$ink-3",
                                   "textGrowth": "fixed-width",
                                   "width": 64,
-                                  "content": "산출물",
+                                  "content": "결과물",
                                   "fontFamily": "$font",
                                   "fontSize": 11,
                                   "fontWeight": "normal"
@@ -47279,7 +47279,7 @@
                                       "fill": "#71717A",
                                       "textGrowth": "fixed-width",
                                       "width": 64,
-                                      "content": "산출물",
+                                      "content": "결과물",
                                       "fontFamily": "$font",
                                       "fontSize": 11,
                                       "fontWeight": "normal"
@@ -48773,7 +48773,7 @@
                                       "fill": "$ink-3",
                                       "textGrowth": "fixed-width",
                                       "width": 64,
-                                      "content": "산출물",
+                                      "content": "결과물",
                                       "fontFamily": "$font",
                                       "fontSize": 11,
                                       "fontWeight": "normal"
