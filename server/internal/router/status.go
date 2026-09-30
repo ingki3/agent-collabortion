@@ -326,7 +326,7 @@ func (s *Service) AfterLaneEnded(ctx context.Context, e tasks.LaneEnd) error {
 // lane_end.followup_failed row; a dead process leaves nothing). That is the
 // price of not waking delegators for days-old groups on a deploy; the
 // Director still sees the group ended on the board, and a person's message
-// wakes the delegator. Operations: docs in server/README (복구 창 1시간).
+// wakes the delegator. Operations: README 「합류 복구 창」.
 const (
 	joinRecoverGrace    = 30 * time.Second
 	joinRecoverLookback = time.Hour
