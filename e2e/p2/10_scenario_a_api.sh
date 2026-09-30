@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # e2e/p2/10_scenario_a_api.sh — 시나리오 A 1부(G4)를 **API/CLI 경로**로 끝까지 돌린다.
 #
-#   Lead 가 3항목을 `colab lane delegate` 로 위임 → Researcher lane 3개 **병렬**
+#   Lead 가 3항목을 `colab card delegate` 로 카드 위임(colab-cli v0.9.10) → Researcher lane 3개 **병렬**
 #   → 셋 완료 시 합류 **정확히 1회** → Lead 종합 → Writer 초안 → `artifact submit`.
 #
 # 판정 수치(§2 TASK):

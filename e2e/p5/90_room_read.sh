@@ -45,6 +45,8 @@ curl -fsS "$SERVER_URL/healthz" >/dev/null || die "server not up at $SERVER_URL 
 
 claim() { daemon_api "runtimes/$RID/claim" '{"capacity":10,"wait_ms":0}'; }
 as() { local c="$1"; shift; COOKIE="$c" api "$@"; }
+# T-CARD-S(openapi v0.3.10): 위임 본문은 카드 — card_body AGENT_ID GOAL
+card_body() { jq -nc --arg a "$1" --arg g "$2" '{card:{agent_id:$a,goal:$g,criteria:[{text:($g+" — 결과를 보고한다"),method:"review"}],boundaries:"맡은 것 밖은 건드리지 않는다"}}'; }
 tok_api() { # TOKEN METHOD PATH [JSON] → 본문 + 마지막 줄 코드
   local tok="$1" method="$2" path="$3" body="${4:-}"
   if [ -n "$body" ]; then
@@ -193,8 +195,8 @@ chk D.6 200 "$(read_code "$TOK1" "$B")" "다시 참여하면 다음 read 는 200
 
 # ───────────────────────────── E ─────────────────────────────────────────────
 step "E. originator 승계(NN7) — 위임 자식 · blocked 기상 · 합류 기상 · 재시도 · 재지시 · HITL 재개"
-LR="$(tok_api "$TOK1" POST "/rooms/$A/lanes" "$(jq -nc --arg a "$R" '{agent_id:$a,brief:"조사해 주세요"}')")"
-LW="$(tok_api "$TOK1" POST "/rooms/$A/lanes" "$(jq -nc --arg a "$W" '{agent_id:$a,brief:"초안을 써 주세요"}')")"
+LR="$(tok_api "$TOK1" POST "/rooms/$A/lanes" "$(card_body "$R" "조사해 주세요")")"
+LW="$(tok_api "$TOK1" POST "/rooms/$A/lanes" "$(card_body "$W" "초안을 써 주세요")")"
 chk E.1 "201/201" "$(api_code <<<"$LR")/$(api_code <<<"$LW")" "Lead 가 R·W 에게 위임"
 TR="$(api_body <<<"$LR" | jq -r .task.id)"; TW="$(api_body <<<"$LW" | jq -r .task.id)"
 chk E.2 "$SEOYEON/$SEOYEON" "$(orig_of "$TR")/$(orig_of "$TW")" "위임 자식 task 가 서연을 물려받는다"
@@ -255,7 +257,7 @@ chk F.1 "403/room_read_denied/no_originator" "$(readc "$TOKN" "$D" | code_reason
 chk F.2 "이 턴은 사람의 요청에서 시작하지 않아 다른 방을 읽을 수 없습니다" "$(read_body "$TOKN" "$D" | jq -r .detail)" "PRD FR-4.5 [V19-B] 문장"
 chk F.3 "" "$(readable "$TOKN")" "목록 빈 배열"
 # 사람 없는 사슬의 합류: W 에게 위임(자식도 NULL) → done → 기상 task 도 NULL
-LN="$(tok_api "$TOKN" POST "/rooms/$A/lanes" "$(jq -nc --arg a "$W" '{agent_id:$a,brief:"사람 없는 위임"}')")"
+LN="$(tok_api "$TOKN" POST "/rooms/$A/lanes" "$(card_body "$W" "사람 없는 위임")")"
 TNW="$(api_body <<<"$LN" | jq -r .task.id)"
 chk F.4 "NULL" "$(orig_of "$TNW")" "위임 자식도 없다"
 finish "$TN" "$ATN"

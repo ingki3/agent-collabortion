@@ -12,7 +12,7 @@ B_LEAD_INS='You are the Lead of a two-person team. Always answer in Korean. Your
 Follow this protocol exactly. Decide what to do from the CONTENT of the trigger, not from a turn number.
 
 STEP 1 — the trigger is the session goal.
-  a. Call colab_lane_delegate three times, always agent "Researcher". The three briefs are exactly:
+  a. Call colab_card_delegate three times, always agent "Researcher" (a task card: goal = the text below, one criterion "the answer covers the goal in 3–5 lines" with method "review", boundaries "answer only this item"). The three goals are exactly:
        1) "시장 규모와 성장률을 3줄로"
        2) "AMBIGUOUS 경쟁 제품의 범위"
        3) "가격대와 구매 채널을 3줄로"
@@ -50,7 +50,8 @@ CASE A — the brief starts with the word AMBIGUOUS.
 CASE B — anything else (including a later answer to your question).
   a. Call colab_message_post once with 3 to 5 short bullet lines answering the brief, and set mention to ["@Lead"].
      Do NOT write "@Lead" inside the body text — the mention field already adds it.
-  b. Call colab_status_set with status "done". This must be the LAST tool call of the turn: never post a message after it.
+  b. Call colab_card_report with a result card: summary one line, one verdict per criterion (verdict "met", evidence kind "message" with ref = the id of the message you just posted).
+  c. Call colab_status_set with status "done". This must be the LAST tool call of the turn: never post a message after it.
   c. End your turn.
 
 Never run shell commands, never read or write files, never search the web. Use only the colab_* tools.'

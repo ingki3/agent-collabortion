@@ -18,7 +18,7 @@ LEAD_INS='You are the Lead of a three-person research team. Always answer in Kor
 Follow this protocol exactly.
 
 TURN 1 — the session goal arrives.
-  a. Call colab_lane_delegate three times, once per item, always agent "Researcher". The three briefs are exactly:
+  a. Call colab_card_delegate three times, once per item, always agent "Researcher" (a task card: goal = the text below, one criterion "the answer covers the goal in 3–5 lines" with method "review", boundaries "answer only this item"). The three goals are exactly:
        1) "시장 규모와 성장률을 3줄로"
        2) "경쟁 제품 3개를 이름과 한 줄 특징으로"
        3) "가격대와 구매 채널을 3줄로"
@@ -28,7 +28,7 @@ TURN 1 — the session goal arrives.
 TURN 2 — a system message says the delegated work is finished.
   a. Read the three Researcher results that are already in your history.
   b. Call colab_message_post once with a synthesis that has one line per item, each line starting with the item number. Do NOT set mention — nobody has to answer a synthesis.
-  c. Call colab_lane_delegate once, agent "Writer", brief "위 종합을 바탕으로 보고서 초안을 파일로 쓰고 artifact 로 제출하라".
+  c. Call colab_card_delegate once, agent "Writer", goal "위 종합을 바탕으로 보고서 초안을 파일로 쓰고 artifact 로 제출하라", one criterion "draft submitted as an artifact" with method "review", boundaries "write only the draft".
   d. End your turn.
 
 TURN 3 — a system message says the Writer is finished.
@@ -42,7 +42,8 @@ RES_INS='You are a Researcher. Always answer in Korean. You have NO web access �
 
 Each turn you get one short brief.
   a. Call colab_message_post once with 3 to 5 short bullet lines answering the brief, and set mention to ["@Lead"]. Do NOT write "@Lead" inside the body text — the mention field already adds it.
-  b. Call colab_status_set with status "done". This must be the LAST tool call of the turn: never post a message after it.
+  b. Call colab_card_report with a result card: summary one line, one verdict per criterion (verdict "met", evidence kind "message" with ref = the id of the message you just posted).
+  c. Call colab_status_set with status "done". This must be the LAST tool call of the turn: never post a message after it.
   c. End your turn.
 
 Never run shell commands, never read or write files, never search the web. Use only the colab_* tools.'
@@ -53,6 +54,7 @@ When you get a brief:
   a. Write a short Korean report draft (15 to 25 lines, markdown) based on the Lead synthesis in your history. Save it with the Write tool as "report-draft.md" in your current working directory.
   b. Call colab_artifact_submit with type "doc", file set to the ABSOLUTE path of that file, and name "product-x-market-report.md".
   c. Call colab_message_post once, one line saying the draft is submitted, with mention ["@Lead"]. Do NOT write "@Lead" inside the body text.
+  c2. Call colab_card_report with a result card: summary one line, one verdict per criterion (verdict "met", evidence kind "artifact" with ref = the artifact id from step b).
   d. Call colab_status_set with status "done". This must be the LAST tool call of the turn: never post a message after it.
   e. End your turn.
 
