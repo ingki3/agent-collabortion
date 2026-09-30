@@ -43,7 +43,7 @@ func TestAgentTriggerCarriesOriginator(t *testing.T) {
 		t.Fatalf("(mention) W's task originator = %v, want Lead's %v", got, *want)
 	}
 
-	del, err := f.srv.Router.Delegate(t.Context(), leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "조사"})
+	del, err := f.srv.Router.Delegate(t.Context(), leadTask, testCard(f.rUUID, "조사"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
+	"github.com/ingki3/agent-collabortion/server/internal/cards"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/inbox"
 	"github.com/ingki3/agent-collabortion/server/internal/lanedone"
@@ -70,10 +71,15 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 
 	switch status {
 	case "working":
-		var prev, taskStatus string
-		if err := tx.QueryRow(ctx, `SELECT l.status::text, t.status::text FROM lane l JOIN task t ON t.lane_id = l.id WHERE t.id = $1`, taskID).
-			Scan(&prev, &taskStatus); err != nil {
+		var prev, taskStatus, kind string
+		if err := tx.QueryRow(ctx, `SELECT l.status::text, t.status::text, t.kind FROM lane l JOIN task t ON t.lane_id = l.id WHERE t.id = $1`, taskID).
+			Scan(&prev, &taskStatus, &kind); err != nil {
 			return nil, err
+		}
+		if kind == cards.KindQuestion {
+			// PRD FR-3.8 2: a question's turn does not move its lane. The
+			// declaration is on the feed (above) and nothing else changes.
+			break
 		}
 		if _, err := tx.Exec(ctx, `UPDATE lane SET status = 'running', updated_at = $2 WHERE id = $1`, laneID, now); err != nil {
 			return nil, err
@@ -173,19 +179,30 @@ func (s *Service) SetAgentStatus(ctx context.Context, taskID uuid.UUID, attempt 
 		// AfterDone runs only when this call moves the lane INTO `done`: a
 		// lane the turn's end already closed (tasks.Finish → LaneEnded) has
 		// had its join/report, and a second `status set done` adds nothing.
-		if _, err := lanedone.MarkDone(ctx, tx, lanedone.Request{
-			LaneID: laneID, Cause: lanedone.AgentDone, Now: now,
+		_, err := lanedone.MarkDone(ctx, tx, lanedone.Request{
+			LaneID: laneID, TaskID: taskID, Cause: lanedone.AgentDone, Now: now, Hub: s.Hub,
 			Publish: func(ctx context.Context, tx pgx.Tx, id uuid.UUID) { s.publishLane(ctx, tx, id) },
 			AfterDone: func(ctx context.Context, tx pgx.Tx) error {
 				return s.afterLaneDone(ctx, tx, sessionID, wsID, laneID, agentID, taskID, triggerMsg, reentry, director, now)
 			},
-		}); err != nil {
+		})
+		switch {
+		case errors.Is(err, lanedone.ErrResultCardRequired):
+			// NN2 (#393 review) closed: the CARD GATE refused — nothing was
+			// written and the turn is alive, so the agent is told to submit the
+			// result card, NOT to end its turn (turn_end_required false). The
+			// refusal is on the feed like any other.
+			_ = tx.Rollback(ctx)
+			s.noteRefusedDone(ctx, taskID, attempt, now)
+			p := apperr.Conflict("result_card_required", cards.ResultCardRequiredSentence)
+			p.Extra = map[string]any{"turn_end_required": false}
+			return nil, p
+		case errors.Is(err, lanedone.ErrQuestionDone):
+			_ = tx.Rollback(ctx)
+			return nil, apperr.Forbidden("command_not_allowed", cards.QuestionRefusal("status set done"))
+		case err != nil:
 			return nil, err
 		}
-		// NN2 (#393 review): unconditional today. When the CARD GATE
-		// (lanedone.MarkDone) can turn the lane to 「결과 카드 대기」 instead of
-		// `done`, this must follow MarkDone's Result — the agent is then owed
-		// the follow-up turn that asks for the card, not "end your turn".
 		out.TurnEndRequired = true
 	default:
 		return nil, apperr.Validation(apperr.Field("status", "invalid", "상태는 working · blocked · done 중 하나여야 합니다"))
@@ -280,7 +297,7 @@ func (s *Service) AfterLaneEnded(ctx context.Context, e tasks.LaneEnd) error {
 		if delegTask == nil {
 			return nil
 		}
-		if err := s.maybeFireJoin(ctx, tx, c.sessionID, c.wsID, c.director, c.agentID, e.TaskID, *delegTask, now); err != nil {
+		if _, err := s.maybeFireJoin(ctx, tx, c.sessionID, c.wsID, c.director, c.agentID, e.TaskID, *delegTask, now); err != nil {
 			return err
 		}
 	default:
@@ -302,6 +319,14 @@ func (s *Service) AfterLaneEnded(ctx context.Context, e tasks.LaneEnd) error {
 // and only for joinRecoverLookback: a deploy must not wake delegators for
 // groups that ended days ago under the old code (T-RF1-B left such groups
 // behind on purpose; they are not a lost follow-up).
+//
+// #396 re-review NN3 — the window is also the limit of what is recovered: a
+// server that stays down longer than joinRecoverLookback after a child's last
+// end loses that group's join for good (a hook that errored leaves a
+// lane_end.followup_failed row; a dead process leaves nothing). That is the
+// price of not waking delegators for days-old groups on a deploy; the
+// Director still sees the group ended on the board, and a person's message
+// wakes the delegator. Operations: docs in server/README (복구 창 1시간).
 const (
 	joinRecoverGrace    = 30 * time.Second
 	joinRecoverLookback = time.Hour
@@ -331,15 +356,23 @@ const (
 // (tasks.LaneEndJoinRecovered) — the count of windows that actually opened.
 // Returns how many it fired.
 func (s *Service) RecoverJoins(ctx context.Context, now time.Time) (int, error) {
+	// #396 re-review NN2: start from the window, not from every delegating
+	// task. The candidates are the groups that have a child which ENDED inside
+	// [now-lookback, now-grace] (lane_finished_delegated, migration 0046);
+	// only those are then judged. A pile of old groups whose join_fired_at
+	// stays NULL on purpose (T-RF1-B) no longer costs a scan every 10s.
 	rows, err := s.DB.Query(ctx, `
+		WITH w AS (
+		  SELECT DISTINCT c.delegated_from_task_id AS id FROM lane c
+		  WHERE c.delegated_from_task_id IS NOT NULL
+		    AND c.finished_at BETWEEN $1::timestamptz - $3::interval AND $1::timestamptz - $2::interval)
 		SELECT d.id,
 		       (SELECT t.id FROM lane c JOIN task t ON t.lane_id = c.id
 		         WHERE c.delegated_from_task_id = d.id ORDER BY c.finished_at DESC, t.created_at DESC LIMIT 1)
-		FROM task d
+		FROM w JOIN task d ON d.id = w.id
 		LEFT JOIN work wk ON wk.id = d.work_id
 		WHERE d.join_fired_at IS NULL
 		  AND COALESCE(wk.status::text, 'active') NOT IN ('completed', 'cancelled')
-		  AND EXISTS (SELECT 1 FROM lane c WHERE c.delegated_from_task_id = d.id)
 		  AND NOT EXISTS (SELECT 1 FROM lane c WHERE c.delegated_from_task_id = d.id
 		                    AND (c.status NOT IN ('done', 'failed') OR c.finished_at IS NULL))
 		  AND (SELECT max(c.finished_at) FROM lane c WHERE c.delegated_from_task_id = d.id)
@@ -398,25 +431,21 @@ func (s *Service) recoverJoin(ctx context.Context, delegTask, lastChildTask uuid
 	if err != nil {
 		return false, err
 	}
-	var before *time.Time
-	if err := tx.QueryRow(ctx, `SELECT join_fired_at FROM task WHERE id = $1`, delegTask).Scan(&before); err != nil {
+	// #396 re-review NN1 · NN4: whether THIS call fired is maybeFireJoin's
+	// own answer under the delegating task's FOR UPDATE — not "join_fired_at
+	// is set afterwards", which a sibling's late hook firing between an early
+	// check and the lock also makes true (a false positive in the count and
+	// in join_recovered). No early check is needed for correctness either.
+	fired, err := s.maybeFireJoin(ctx, tx, c.sessionID, c.wsID, c.director, c.agentID, lastChildTask, delegTask, now)
+	if err != nil {
 		return false, err
 	}
-	// An early exit only: the guard that makes a race land one bundle is
-	// maybeFireJoin's own check under the delegating task's FOR UPDATE.
-	if before != nil {
-		return false, nil
+	if !fired {
+		return false, nil // someone else fired it, or a child is no longer ended (re-entered)
 	}
-	if err := s.maybeFireJoin(ctx, tx, c.sessionID, c.wsID, c.director, c.agentID, lastChildTask, delegTask, now); err != nil {
-		return false, err
-	}
-	var after *time.Time
 	var attempt int
-	if err := tx.QueryRow(ctx, `SELECT join_fired_at, attempt FROM task WHERE id = $1`, delegTask).Scan(&after, &attempt); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT attempt FROM task WHERE id = $1`, delegTask).Scan(&attempt); err != nil {
 		return false, err
-	}
-	if after == nil {
-		return false, nil // a child is no longer ended (re-entered): nothing to recover
 	}
 	if attempt < 1 {
 		attempt = 1
@@ -463,10 +492,12 @@ func (s *Service) afterLaneDone(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 	// Both notices can land on the same delegator. That is not two turns:
 	// wake() coalesces onto the lane's queued task (FR-3.4), so the delegator
 	// wakes once with both messages.
-	return s.maybeFireJoin(ctx, tx, sessionID, wsID, director, agentID, taskID, *delegTask, now)
+	_, err := s.maybeFireJoin(ctx, tx, sessionID, wsID, director, agentID, taskID, *delegTask, now)
+	return err
 }
 
-// maybeFireJoin fires the join exactly once per group. `blocked` children count
+// maybeFireJoin fires the join exactly once per group and reports whether THIS
+// call fired it (#396 re-review NN4). `blocked` children count
 // as ended (FR-6.2.1) — treating them as in progress would let one question
 // hold every sibling's result hostage.
 //
@@ -474,15 +505,15 @@ func (s *Service) afterLaneDone(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 // agent→agent hop from that child to the delegator (S-76), and the pair it
 // forms with the delegation that created the child is what
 // max_pair_roundtrips counts.
-func (s *Service) maybeFireJoin(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID, from, waker, delegTask uuid.UUID, now time.Time) error {
+func (s *Service) maybeFireJoin(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID, from, waker, delegTask uuid.UUID, now time.Time) (bool, error) {
 	var delegAgent uuid.UUID
 	var fired *time.Time
 	if err := tx.QueryRow(ctx, `SELECT agent_id, join_fired_at FROM task WHERE id = $1 FOR UPDATE`, delegTask).
 		Scan(&delegAgent, &fired); err != nil {
-		return err
+		return false, err
 	}
 	if fired != nil {
-		return nil // one bundle per group (E); a re-entry does not re-fire it
+		return false, nil // one bundle per group (E); a re-entry does not re-fire it
 	}
 	// FR-6.5 「실패한 lane은 실패 사유와 함께 묶음에 포함된다」: the reason is
 	// the failure_kind of the lane's newest task.
@@ -492,7 +523,7 @@ func (s *Service) maybeFireJoin(ctx context.Context, tx pgx.Tx, sessionID, wsID 
 		FROM lane l JOIN agent a ON a.id = l.agent_id
 		WHERE l.delegated_from_task_id = $1 ORDER BY l.created_at`, delegTask)
 	if err != nil {
-		return err
+		return false, err
 	}
 	type child struct {
 		status, name string
@@ -503,7 +534,7 @@ func (s *Service) maybeFireJoin(ctx context.Context, tx pgx.Tx, sessionID, wsID 
 		var c child
 		if err := rows.Scan(&c.status, &c.name, &c.note, &c.reason); err != nil {
 			rows.Close()
-			return err
+			return false, err
 		}
 		children = append(children, c)
 	}
@@ -511,17 +542,17 @@ func (s *Service) maybeFireJoin(ctx context.Context, tx pgx.Tx, sessionID, wsID 
 	unanswered := 0
 	for _, c := range children {
 		if !lanestate.Terminal(c.status) {
-			return nil // still running, waiting_human or paused — the group waits
+			return false, nil // still running, waiting_human or paused — the group waits
 		}
 		if c.status == lanestate.Blocked {
 			unanswered++
 		}
 	}
 	if len(children) == 0 {
-		return nil
+		return false, nil
 	}
 	if _, err := tx.Exec(ctx, `UPDATE task SET join_fired_at = $2, updated_at = $2 WHERE id = $1`, delegTask, now); err != nil {
-		return err
+		return false, err
 	}
 	body := "위임한 작업이 모두 끝났습니다.\n"
 	for _, c := range children {
@@ -539,11 +570,27 @@ func (s *Service) maybeFireJoin(ctx context.Context, tx pgx.Tx, sessionID, wsID 
 		// just calls `status set done` and the question dies with the group.
 		body += fmt.Sprintf("\n답을 기다리는 자식 %d개가 있습니다. 답하기 전에 작업을 종료하지 마세요.\n", unanswered)
 	}
+	// PRD FR-3.8 4 · FR-6.5 v0.19.15: a card lane's bundle carries its result
+	// card — one line here, the whole card in the delegator's <result_cards>.
+	resultCards, lines, err := groupResultCards(ctx, tx, delegTask)
+	if err != nil {
+		return false, err
+	}
+	if lines != "" {
+		body += "\n결과 카드:\n" + lines
+	}
 	msgID, err := s.SystemPost(ctx, tx, sessionID, body)
 	if err != nil {
-		return err
+		return false, err
 	}
-	return s.wake(ctx, tx, sessionID, wsID, director, from, delegAgent, waker, delegTask, msgID, "", now)
+	woken, err := s.wakeTask(ctx, tx, sessionID, wsID, director, from, delegAgent, waker, delegTask, msgID, "", now)
+	if err != nil {
+		return false, err
+	}
+	if err := attachResultCards(ctx, tx, woken, resultCards); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // notifyReentry tells whoever caused the work that it is finished. A human
@@ -574,7 +621,23 @@ func (s *Service) notifyReentry(ctx context.Context, tx pgx.Tx, sessionID, wsID,
 		} else if woken {
 			return nil
 		}
-		return s.wake(ctx, tx, sessionID, wsID, director, from, *authorID, waker, requester, *triggerMsg, "요청하신 작업이 끝났습니다.", now)
+		prefix := "요청하신 작업이 끝났습니다."
+		var resultCards []uuid.UUID
+		if c, err := cards.OfLane(ctx, tx, laneID); err != nil {
+			return err
+		} else if c != nil && c.Status == cards.ResultSubmitted && c.DelegatorID == *authorID {
+			// A revise's re-entry ended with a new result: the delegator
+			// judges it again (<result_cards>).
+			if res := cards.ParseResult(c.Result); res != nil {
+				prefix += fmt.Sprintf("\n결과 카드: %s v%d — 기준 %d/%d 충족", c.Label(), c.Version, res.MetCount, len(c.Criteria))
+			}
+			resultCards = []uuid.UUID{c.ID}
+		}
+		woken, err := s.wakeTask(ctx, tx, sessionID, wsID, director, from, *authorID, waker, requester, *triggerMsg, prefix, now)
+		if err != nil {
+			return err
+		}
+		return attachResultCards(ctx, tx, woken, resultCards)
 	case authorType == "user" && authorID != nil:
 		return insertInbox(ctx, tx, wsID, *authorID, inbox.TypeMention, inbox.Severity(inbox.TypeMention), sessionID, *triggerMsg, now)
 	case director != nil:
@@ -643,37 +706,46 @@ func requesterAlreadyWoken(ctx context.Context, tx pgx.Tx, laneID, requester, re
 // Never the room owner or the Director — that is the escalation FR-4.5 exists
 // to stop, and a NULL here is answered `no_originator`, not papered over.
 func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID, from, agentID, waker, requester, triggerMsg uuid.UUID, prefix string, now time.Time) error {
+	_, err := s.wakeTask(ctx, tx, sessionID, wsID, director, from, agentID, waker, requester, triggerMsg, prefix, now)
+	return err
+}
+
+// wakeTask is wake, answering the task that will carry the wake-up (the
+// lane's queued task it merged into, or the new one; uuid.Nil when nothing was
+// woken — not a participant, or the loop limit stopped it). The join and the
+// re-entry report hang the result cards on it (<result_cards>, Lead 판정 Q4).
+func (s *Service) wakeTask(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID, director *uuid.UUID, from, agentID, waker, requester, triggerMsg uuid.UUID, prefix string, now time.Time) (uuid.UUID, error) {
 	var profileID uuid.UUID
 	err := tx.QueryRow(ctx, `SELECT profile_id FROM room_participant WHERE room_id = $1 AND agent_id = $2`, sessionID, agentID).Scan(&profileID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil // no longer a participant: nothing to wake
+		return uuid.Nil, nil // no longer a participant: nothing to wake
 	}
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	msg := triggerMsg
 	if prefix != "" {
 		id, err := s.SystemPost(ctx, tx, sessionID, prefix)
 		if err != nil {
-			return err
+			return uuid.Nil, err
 		}
 		msg = id
 	}
 	var cause int64
 	if requester != uuid.Nil {
 		if _, cause, err = causeOfTask(ctx, tx, requester); err != nil {
-			return err
+			return uuid.Nil, err
 		}
 	}
 	v, err := s.judgeHop(ctx, tx, sessionID, wsID, Hop{FromAgent: from, ToAgent: agentID, At: now, CauseID: cause}, msg, RulePlatform, now)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	if !v.Allowed {
 		// The wake-up is dropped and the session stops here; the notice
 		// message stays on the timeline. Nobody is answered with a Problem —
 		// this is the server's own trigger, and the pause's card is the word.
-		return s.pauseForLoop(ctx, tx, sessionID, wsID, v, now)
+		return uuid.Nil, s.pauseForLoop(ctx, tx, sessionID, wsID, v, now)
 	}
 	// FR-3.1.1: the wake-up runs for the mission of the work that asked for
 	// it — the requester's own lane's — and lands on a lane of that mission
@@ -683,25 +755,25 @@ func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID
 		if err := tx.QueryRow(ctx, `
 			SELECT COALESCE(l.work_id, t.work_id) FROM task t JOIN lane l ON l.id = t.lane_id WHERE t.id = $1`, requester).
 			Scan(&requesterWork); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
+			return uuid.Nil, err
 		}
 	}
 	laneID, _, err := s.resolveLaneFor(ctx, tx, sessionID, Trigger{AgentID: agentID, Rule: 0}, profileID,
 		laneOpts{topLevelMent: true, work: requesterWork}, now)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	originator, err := inheritedOriginator(ctx, tx, waker, requester)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	laneWork, err := bindLaneWork(ctx, tx, laneID, requesterWork)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	existing, ok, err := lockQueuedTask(ctx, tx, laneID)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	if ok {
 		// A queued task that absorbs the notice keeps its own originator; one
@@ -712,13 +784,17 @@ func (s *Service) wake(ctx context.Context, tx pgx.Tx, sessionID, wsID uuid.UUID
 			                originator_user_id = COALESCE(originator_user_id, $4),
 			                work_id = COALESCE(work_id, $5), updated_at = $3
 			WHERE id = $1`, existing.ID, msg, now, originator, laneWork)
-		return err
+		if err != nil {
+			return uuid.Nil, err
+		}
+		// A server wake-up is never a question (PRD FR-3.8 2): a queued
+		// question it rides on becomes the lane's own kind.
+		return existing.ID, promoteQueued(ctx, tx, existing.ID, laneID, false)
 	}
-	_, err = insertQueuedTask(ctx, tx, newQueuedTask{
+	return insertQueuedTask(ctx, tx, newQueuedTask{
 		LaneID: laneID, SessionID: sessionID, AgentID: agentID, ProfileID: profileID,
 		TriggerMessageID: msg, Originator: originator, Work: laneWork, Now: now,
 	})
-	return err
 }
 
 // inheritedOriginator is wake()'s NN7 rule: the waker's person originator,
@@ -830,4 +906,78 @@ func (s *Service) flushFocus(ctx context.Context, laneID uuid.UUID) {
 	}
 	s.publishLane(ctx, tx, laneID)
 	_ = tx.Commit(ctx)
+}
+
+// noteRefusedDone writes the refused `status set done` on the feed in its own
+// transaction (the caller's rolled back): colab-cli.md §4, every call shows.
+func (s *Service) noteRefusedDone(ctx context.Context, taskID uuid.UUID, attempt int, now time.Time) {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if attempt < 1 {
+		attempt = 1
+	}
+	if err := tasks.InsertServerEvent(ctx, tx, taskID, attempt, "status", "set_status", "done", "rejected",
+		map[string]any{"command": "status set done", "rejected_reason": "result_card_required"}, now); err != nil {
+		return
+	}
+	_ = tx.Commit(ctx)
+}
+
+// groupResultCards is the result cards of one delegation group's card lanes,
+// in the lanes' order, and their one-line summaries for the join message.
+func groupResultCards(ctx context.Context, tx pgx.Tx, delegTask uuid.UUID) ([]uuid.UUID, string, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT c.id FROM task_card c JOIN lane l ON l.id = c.lane_id
+		WHERE l.delegated_from_task_id = $1 AND c.result IS NOT NULL ORDER BY l.created_at`, delegTask)
+	if err != nil {
+		return nil, "", err
+	}
+	ids, err := collectUUIDs(rows)
+	if err != nil {
+		return nil, "", err
+	}
+	var lines string
+	for _, id := range ids {
+		c, err := cards.Get(ctx, tx, id)
+		if err != nil {
+			return nil, "", err
+		}
+		res := cards.ParseResult(c.Result)
+		if res == nil {
+			continue
+		}
+		auto := ""
+		if res.Auto {
+			auto = " (자동)"
+		}
+		lines += fmt.Sprintf("- %s v%d %s: 기준 %d/%d 충족%s\n", c.Label(), c.Version, c.AssigneeName, res.MetCount, len(c.Criteria), auto)
+	}
+	return ids, lines, nil
+}
+
+// attachResultCards hangs result cards on the task a wake-up landed on — its
+// turn prompt carries them in <result_cards> (harness v0.9.16).
+func attachResultCards(ctx context.Context, tx pgx.Tx, taskID uuid.UUID, ids []uuid.UUID) error {
+	if taskID == uuid.Nil || len(ids) == 0 {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `
+		UPDATE task SET result_card_ids = ARRAY(SELECT DISTINCT unnest(result_card_ids || $2::uuid[])) WHERE id = $1`, taskID, ids)
+	return err
+}
+
+func collectUUIDs(rows pgx.Rows) ([]uuid.UUID, error) {
+	defer rows.Close()
+	var out []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }

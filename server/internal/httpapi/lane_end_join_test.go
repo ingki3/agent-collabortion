@@ -30,7 +30,7 @@ func (f *p2Fixture) twoChildren(t *testing.T) (leadTask, c1, c2 uuid.UUID) {
 	f.runTask(t, leadTask)
 	var ids [2]uuid.UUID
 	for i, brief := range []string{"A 조사", "B 조사"} {
-		res, err := f.srv.Router.Delegate(t.Context(), leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: brief})
+		res, err := f.srv.Router.Delegate(t.Context(), leadTask, testCard(f.rUUID, brief))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -57,7 +57,7 @@ func (f *p2Fixture) leadQueued(t *testing.T) int {
 func TestLaneEndJoinMixed(t *testing.T) {
 	f := newP2Fixture(t)
 	leadTask, c1, c2 := f.twoChildren(t)
-	if _, err := f.srv.Router.SetAgentStatus(t.Context(), c1, 1, "done", ""); err != nil {
+	if _, err := f.setStatus(t.Context(), c1, 1, "done", ""); err != nil {
 		t.Fatal(err)
 	}
 	f.finishCompleted(t, c1)
@@ -104,11 +104,11 @@ func TestLaneEndJoinFailedSibling(t *testing.T) {
 		out := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
 		leadTask := mustUUID(t, str(out["triggers"].([]any)[0].(map[string]any), "task_id"))
 		f.runTask(t, leadTask)
-		r1, err := f.srv.Router.Delegate(t.Context(), leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "A"})
+		r1, err := f.srv.Router.Delegate(t.Context(), leadTask, testCard(f.rUUID, "A"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		r2, err := f.srv.Router.Delegate(t.Context(), leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "B"})
+		r2, err := f.srv.Router.Delegate(t.Context(), leadTask, testCard(f.rUUID, "B"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -172,7 +172,7 @@ func TestLaneEndJoinRace(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			_, err := f.srv.Router.SetAgentStatus(t.Context(), rTask, attempt, "done", "")
+			_, err := f.setStatus(t.Context(), rTask, attempt, "done", "")
 			errs <- err
 		}()
 		go func() {

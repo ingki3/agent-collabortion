@@ -26,8 +26,32 @@ func (unimplemented) UpdateAgent(w http.ResponseWriter, r *http.Request, agentId
 	notImplemented(w, r, "UpdateAgent")
 }
 
+func (unimplemented) CreateAgentProfile(w http.ResponseWriter, r *http.Request, agentId gen.AgentId) {
+	notImplemented(w, r, "CreateAgentProfile")
+}
+
 func (unimplemented) DeleteAgentProfile(w http.ResponseWriter, r *http.Request, agentId gen.AgentId, profileId gen.ProfileId) {
 	notImplemented(w, r, "DeleteAgentProfile")
+}
+
+func (unimplemented) UpdateAgentProfile(w http.ResponseWriter, r *http.Request, agentId gen.AgentId, profileId gen.ProfileId) {
+	notImplemented(w, r, "UpdateAgentProfile")
+}
+
+func (unimplemented) CreateTestChat(w http.ResponseWriter, r *http.Request, agentId gen.AgentId, params gen.CreateTestChatParams) {
+	notImplemented(w, r, "CreateTestChat")
+}
+
+func (unimplemented) GetArtifact(w http.ResponseWriter, r *http.Request, artifactId gen.ArtifactId) {
+	notImplemented(w, r, "GetArtifact")
+}
+
+func (unimplemented) DownloadArtifact(w http.ResponseWriter, r *http.Request, artifactId gen.ArtifactId, params gen.DownloadArtifactParams) {
+	notImplemented(w, r, "DownloadArtifact")
+}
+
+func (unimplemented) ReviewArtifact(w http.ResponseWriter, r *http.Request, artifactId gen.ArtifactId, params gen.ReviewArtifactParams) {
+	notImplemented(w, r, "ReviewArtifact")
 }
 
 func (unimplemented) Login(w http.ResponseWriter, r *http.Request) {
@@ -42,12 +66,40 @@ func (unimplemented) Signup(w http.ResponseWriter, r *http.Request) {
 	notImplemented(w, r, "Signup")
 }
 
+func (unimplemented) GetCard(w http.ResponseWriter, r *http.Request, cardId gen.CardId) {
+	notImplemented(w, r, "GetCard")
+}
+
+func (unimplemented) AcceptCard(w http.ResponseWriter, r *http.Request, cardId gen.CardId) {
+	notImplemented(w, r, "AcceptCard")
+}
+
+func (unimplemented) SubmitCardResult(w http.ResponseWriter, r *http.Request, cardId gen.CardId, params gen.SubmitCardResultParams) {
+	notImplemented(w, r, "SubmitCardResult")
+}
+
+func (unimplemented) ReviseCard(w http.ResponseWriter, r *http.Request, cardId gen.CardId, params gen.ReviseCardParams) {
+	notImplemented(w, r, "ReviseCard")
+}
+
 func (unimplemented) GetCliContext(w http.ResponseWriter, r *http.Request) {
 	notImplemented(w, r, "GetCliContext")
 }
 
+func (unimplemented) ListReadableRooms(w http.ResponseWriter, r *http.Request, params gen.ListReadableRoomsParams) {
+	notImplemented(w, r, "ListReadableRooms")
+}
+
+func (unimplemented) ReadRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ReadRoomParams) {
+	notImplemented(w, r, "ReadRoom")
+}
+
 func (unimplemented) GetHitlRequest(w http.ResponseWriter, r *http.Request, hitlRequestId gen.HitlRequestId) {
 	notImplemented(w, r, "GetHitlRequest")
+}
+
+func (unimplemented) RespondHitlRequest(w http.ResponseWriter, r *http.Request, hitlRequestId gen.HitlRequestId, params gen.RespondHitlRequestParams) {
+	notImplemented(w, r, "RespondHitlRequest")
 }
 
 func (unimplemented) ListInbox(w http.ResponseWriter, r *http.Request, params gen.ListInboxParams) {
@@ -86,12 +138,188 @@ func (unimplemented) RestartLane(w http.ResponseWriter, r *http.Request, laneId 
 	notImplemented(w, r, "RestartLane")
 }
 
+func (unimplemented) SetLaneSubscription(w http.ResponseWriter, r *http.Request, laneId gen.LaneId) {
+	notImplemented(w, r, "SetLaneSubscription")
+}
+
 func (unimplemented) ListLaneTasks(w http.ResponseWriter, r *http.Request, laneId gen.LaneId) {
 	notImplemented(w, r, "ListLaneTasks")
 }
 
 func (unimplemented) GetMe(w http.ResponseWriter, r *http.Request) {
 	notImplemented(w, r, "GetMe")
+}
+
+func (unimplemented) GetNotificationSettings(w http.ResponseWriter, r *http.Request) {
+	notImplemented(w, r, "GetNotificationSettings")
+}
+
+func (unimplemented) UpdateNotificationSettings(w http.ResponseWriter, r *http.Request) {
+	notImplemented(w, r, "UpdateNotificationSettings")
+}
+
+func (unimplemented) GetMessage(w http.ResponseWriter, r *http.Request, messageId gen.MessageId) {
+	notImplemented(w, r, "GetMessage")
+}
+
+func (unimplemented) DeleteRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	notImplemented(w, r, "DeleteRoom")
+}
+
+func (unimplemented) GetRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	notImplemented(w, r, "GetRoom")
+}
+
+func (unimplemented) UpdateRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	notImplemented(w, r, "UpdateRoom")
+}
+
+func (unimplemented) ArchiveRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	notImplemented(w, r, "ArchiveRoom")
+}
+
+func (unimplemented) ListArtifacts(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListArtifactsParams) {
+	notImplemented(w, r, "ListArtifacts")
+}
+
+func (unimplemented) SubmitArtifact(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.SubmitArtifactParams) {
+	notImplemented(w, r, "SubmitArtifact")
+}
+
+func (unimplemented) BlockRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	notImplemented(w, r, "BlockRoom")
+}
+
+func (unimplemented) ListRoomCards(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListRoomCardsParams) {
+	notImplemented(w, r, "ListRoomCards")
+}
+
+func (unimplemented) GetRoomCost(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	notImplemented(w, r, "GetRoomCost")
+}
+
+func (unimplemented) ListDecisions(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	notImplemented(w, r, "ListDecisions")
+}
+
+func (unimplemented) RecordDecision(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.RecordDecisionParams) {
+	notImplemented(w, r, "RecordDecision")
+}
+
+func (unimplemented) SetRoomDeputy(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	notImplemented(w, r, "SetRoomDeputy")
+}
+
+func (unimplemented) ListHitlRequests(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListHitlRequestsParams) {
+	notImplemented(w, r, "ListHitlRequests")
+}
+
+func (unimplemented) CreateHitlRequest(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.CreateHitlRequestParams) {
+	notImplemented(w, r, "CreateHitlRequest")
+}
+
+func (unimplemented) ListLanes(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListLanesParams) {
+	notImplemented(w, r, "ListLanes")
+}
+
+func (unimplemented) DelegateLane(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.DelegateLaneParams) {
+	notImplemented(w, r, "DelegateLane")
+}
+
+func (unimplemented) ListRoomLinks(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	notImplemented(w, r, "ListRoomLinks")
+}
+
+func (unimplemented) CreateRoomLink(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.CreateRoomLinkParams) {
+	notImplemented(w, r, "CreateRoomLink")
+}
+
+func (unimplemented) DeleteRoomLink(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, roomLinkId gen.RoomLinkId) {
+	notImplemented(w, r, "DeleteRoomLink")
+}
+
+func (unimplemented) PostMessageGroup(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.PostMessageGroupParams) {
+	notImplemented(w, r, "PostMessageGroup")
+}
+
+func (unimplemented) ListMessages(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListMessagesParams) {
+	notImplemented(w, r, "ListMessages")
+}
+
+func (unimplemented) PostMessage(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.PostMessageParams) {
+	notImplemented(w, r, "PostMessage")
+}
+
+func (unimplemented) PreviewTriggers(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	notImplemented(w, r, "PreviewTriggers")
+}
+
+func (unimplemented) TransferRoomOwner(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	notImplemented(w, r, "TransferRoomOwner")
+}
+
+func (unimplemented) ListRoomParticipants(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListRoomParticipantsParams) {
+	notImplemented(w, r, "ListRoomParticipants")
+}
+
+func (unimplemented) AddRoomParticipant(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.AddRoomParticipantParams) {
+	notImplemented(w, r, "AddRoomParticipant")
+}
+
+func (unimplemented) RemoveRoomParticipant(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, participantId gen.ParticipantId) {
+	notImplemented(w, r, "RemoveRoomParticipant")
+}
+
+func (unimplemented) UpdateRoomParticipant(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, participantId gen.ParticipantId) {
+	notImplemented(w, r, "UpdateRoomParticipant")
+}
+
+func (unimplemented) MarkRoomRead(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	notImplemented(w, r, "MarkRoomRead")
+}
+
+func (unimplemented) ListRoomReads(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListRoomReadsParams) {
+	notImplemented(w, r, "ListRoomReads")
+}
+
+func (unimplemented) RebindRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	notImplemented(w, r, "RebindRoom")
+}
+
+func (unimplemented) SetRoomSubscription(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	notImplemented(w, r, "SetRoomSubscription")
+}
+
+func (unimplemented) SummarizeRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.SummarizeRoomParams) {
+	notImplemented(w, r, "SummarizeRoom")
+}
+
+func (unimplemented) ListRoomTasks(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListRoomTasksParams) {
+	notImplemented(w, r, "ListRoomTasks")
+}
+
+func (unimplemented) UnarchiveRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	notImplemented(w, r, "UnarchiveRoom")
+}
+
+func (unimplemented) UnblockRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
+	notImplemented(w, r, "UnblockRoom")
+}
+
+func (unimplemented) ListWorkProposals(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListWorkProposalsParams) {
+	notImplemented(w, r, "ListWorkProposals")
+}
+
+func (unimplemented) CreateWorkProposal(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.CreateWorkProposalParams) {
+	notImplemented(w, r, "CreateWorkProposal")
+}
+
+func (unimplemented) ListWorks(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListWorksParams) {
+	notImplemented(w, r, "ListWorks")
+}
+
+func (unimplemented) CreateWork(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.CreateWorkParams) {
+	notImplemented(w, r, "CreateWork")
 }
 
 func (unimplemented) DeleteRuntime(w http.ResponseWriter, r *http.Request, runtimeId gen.RuntimeId) {
@@ -114,38 +342,6 @@ func (unimplemented) ListRuntimeWorkdirs(w http.ResponseWriter, r *http.Request,
 	notImplemented(w, r, "ListRuntimeWorkdirs")
 }
 
-func (unimplemented) GetRoomCost(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
-	notImplemented(w, r, "GetRoomCost")
-}
-
-func (unimplemented) ListHitlRequests(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListHitlRequestsParams) {
-	notImplemented(w, r, "ListHitlRequests")
-}
-
-func (unimplemented) CreateHitlRequest(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.CreateHitlRequestParams) {
-	notImplemented(w, r, "CreateHitlRequest")
-}
-
-func (unimplemented) ListLanes(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListLanesParams) {
-	notImplemented(w, r, "ListLanes")
-}
-
-func (unimplemented) ListMessages(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListMessagesParams) {
-	notImplemented(w, r, "ListMessages")
-}
-
-func (unimplemented) PostMessage(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.PostMessageParams) {
-	notImplemented(w, r, "PostMessage")
-}
-
-func (unimplemented) RebindRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
-	notImplemented(w, r, "RebindRoom")
-}
-
-func (unimplemented) ListRoomTasks(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListRoomTasksParams) {
-	notImplemented(w, r, "ListRoomTasks")
-}
-
 func (unimplemented) GetTask(w http.ResponseWriter, r *http.Request, taskId gen.TaskId) {
 	notImplemented(w, r, "GetTask")
 }
@@ -154,8 +350,68 @@ func (unimplemented) ListTaskEvents(w http.ResponseWriter, r *http.Request, task
 	notImplemented(w, r, "ListTaskEvents")
 }
 
+func (unimplemented) SetTaskStatus(w http.ResponseWriter, r *http.Request, taskId gen.TaskId) {
+	notImplemented(w, r, "SetTaskStatus")
+}
+
+func (unimplemented) GetTestChat(w http.ResponseWriter, r *http.Request, testChatId gen.TestChatId) {
+	notImplemented(w, r, "GetTestChat")
+}
+
+func (unimplemented) CloseTestChat(w http.ResponseWriter, r *http.Request, testChatId gen.TestChatId) {
+	notImplemented(w, r, "CloseTestChat")
+}
+
+func (unimplemented) PostTestChatTurn(w http.ResponseWriter, r *http.Request, testChatId gen.TestChatId, params gen.PostTestChatTurnParams) {
+	notImplemented(w, r, "PostTestChatTurn")
+}
+
+func (unimplemented) GetWorkProposal(w http.ResponseWriter, r *http.Request, workProposalId gen.WorkProposalId) {
+	notImplemented(w, r, "GetWorkProposal")
+}
+
+func (unimplemented) ResolveWorkProposal(w http.ResponseWriter, r *http.Request, workProposalId gen.WorkProposalId, params gen.ResolveWorkProposalParams) {
+	notImplemented(w, r, "ResolveWorkProposal")
+}
+
 func (unimplemented) DeleteWorkdir(w http.ResponseWriter, r *http.Request, workdirId openapi_types.UUID, params gen.DeleteWorkdirParams) {
 	notImplemented(w, r, "DeleteWorkdir")
+}
+
+func (unimplemented) DeleteWork(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
+	notImplemented(w, r, "DeleteWork")
+}
+
+func (unimplemented) GetWork(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
+	notImplemented(w, r, "GetWork")
+}
+
+func (unimplemented) UpdateWork(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
+	notImplemented(w, r, "UpdateWork")
+}
+
+func (unimplemented) CancelWork(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
+	notImplemented(w, r, "CancelWork")
+}
+
+func (unimplemented) CompleteWork(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
+	notImplemented(w, r, "CompleteWork")
+}
+
+func (unimplemented) ChangeWorkDirector(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
+	notImplemented(w, r, "ChangeWorkDirector")
+}
+
+func (unimplemented) PauseWork(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
+	notImplemented(w, r, "PauseWork")
+}
+
+func (unimplemented) ResumeWork(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
+	notImplemented(w, r, "ResumeWork")
+}
+
+func (unimplemented) SetWorkSubscription(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
+	notImplemented(w, r, "SetWorkSubscription")
 }
 
 func (unimplemented) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
@@ -172,6 +428,10 @@ func (unimplemented) GetWorkspace(w http.ResponseWriter, r *http.Request, worksp
 
 func (unimplemented) UpdateWorkspace(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId) {
 	notImplemented(w, r, "UpdateWorkspace")
+}
+
+func (unimplemented) ListActivityLog(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.ListActivityLogParams) {
+	notImplemented(w, r, "ListActivityLog")
 }
 
 func (unimplemented) ListAgentTemplates(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId) {
@@ -210,8 +470,32 @@ func (unimplemented) ListMembers(w http.ResponseWriter, r *http.Request, workspa
 	notImplemented(w, r, "ListMembers")
 }
 
+func (unimplemented) RemoveMember(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, memberId gen.MemberId) {
+	notImplemented(w, r, "RemoveMember")
+}
+
+func (unimplemented) UpdateMemberRole(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, memberId gen.MemberId) {
+	notImplemented(w, r, "UpdateMemberRole")
+}
+
+func (unimplemented) GetWorkspaceMetrics(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.GetWorkspaceMetricsParams) {
+	notImplemented(w, r, "GetWorkspaceMetrics")
+}
+
+func (unimplemented) GetWorkspaceObservations(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.GetWorkspaceObservationsParams) {
+	notImplemented(w, r, "GetWorkspaceObservations")
+}
+
 func (unimplemented) GetOnboardingStatus(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId) {
 	notImplemented(w, r, "GetOnboardingStatus")
+}
+
+func (unimplemented) ListRooms(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.ListRoomsParams) {
+	notImplemented(w, r, "ListRooms")
+}
+
+func (unimplemented) CreateRoom(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.CreateRoomParams) {
+	notImplemented(w, r, "CreateRoom")
 }
 
 func (unimplemented) ListRuntimeCandidates(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.ListRuntimeCandidatesParams) {
@@ -230,172 +514,14 @@ func (unimplemented) GetPairing(w http.ResponseWriter, r *http.Request, workspac
 	notImplemented(w, r, "GetPairing")
 }
 
+func (unimplemented) GetWorkspaceSettings(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId) {
+	notImplemented(w, r, "GetWorkspaceSettings")
+}
+
+func (unimplemented) UpdateWorkspaceSettings(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId) {
+	notImplemented(w, r, "UpdateWorkspaceSettings")
+}
+
 func (unimplemented) StreamEvents(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.StreamEventsParams) {
 	notImplemented(w, r, "StreamEvents")
-}
-
-// v0.2.0 계약(PRD v0.19 R0) — 방·미션 op. R1 서버가 구현한다.
-
-func (unimplemented) ListRooms(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.ListRoomsParams) {
-	notImplemented(w, r, "ListRooms")
-}
-
-func (unimplemented) CreateRoom(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.CreateRoomParams) {
-	notImplemented(w, r, "CreateRoom")
-}
-
-func (unimplemented) GetRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
-	notImplemented(w, r, "GetRoom")
-}
-
-func (unimplemented) UpdateRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
-	notImplemented(w, r, "UpdateRoom")
-}
-
-func (unimplemented) DeleteRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
-	notImplemented(w, r, "DeleteRoom")
-}
-
-func (unimplemented) ArchiveRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
-	notImplemented(w, r, "ArchiveRoom")
-}
-
-func (unimplemented) UnarchiveRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
-	notImplemented(w, r, "UnarchiveRoom")
-}
-
-func (unimplemented) BlockRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
-	notImplemented(w, r, "BlockRoom")
-}
-
-func (unimplemented) UnblockRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
-	notImplemented(w, r, "UnblockRoom")
-}
-
-func (unimplemented) MarkRoomRead(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
-	notImplemented(w, r, "MarkRoomRead")
-}
-
-func (unimplemented) SummarizeRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.SummarizeRoomParams) {
-	notImplemented(w, r, "SummarizeRoom")
-}
-
-func (unimplemented) TransferRoomOwner(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
-	notImplemented(w, r, "TransferRoomOwner")
-}
-
-func (unimplemented) SetRoomDeputy(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
-	notImplemented(w, r, "SetRoomDeputy")
-}
-
-func (unimplemented) ListRoomParticipants(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListRoomParticipantsParams) {
-	notImplemented(w, r, "ListRoomParticipants")
-}
-
-func (unimplemented) AddRoomParticipant(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.AddRoomParticipantParams) {
-	notImplemented(w, r, "AddRoomParticipant")
-}
-
-func (unimplemented) UpdateRoomParticipant(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, participantId gen.ParticipantId) {
-	notImplemented(w, r, "UpdateRoomParticipant")
-}
-
-func (unimplemented) RemoveRoomParticipant(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, participantId gen.ParticipantId) {
-	notImplemented(w, r, "RemoveRoomParticipant")
-}
-
-func (unimplemented) ListRoomLinks(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
-	notImplemented(w, r, "ListRoomLinks")
-}
-
-func (unimplemented) CreateRoomLink(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.CreateRoomLinkParams) {
-	notImplemented(w, r, "CreateRoomLink")
-}
-
-func (unimplemented) DeleteRoomLink(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, roomLinkId gen.RoomLinkId) {
-	notImplemented(w, r, "DeleteRoomLink")
-}
-
-func (unimplemented) ListRoomReads(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListRoomReadsParams) {
-	notImplemented(w, r, "ListRoomReads")
-}
-
-func (unimplemented) ListWorks(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListWorksParams) {
-	notImplemented(w, r, "ListWorks")
-}
-
-func (unimplemented) CreateWork(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.CreateWorkParams) {
-	notImplemented(w, r, "CreateWork")
-}
-
-func (unimplemented) GetWork(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
-	notImplemented(w, r, "GetWork")
-}
-
-func (unimplemented) UpdateWork(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
-	notImplemented(w, r, "UpdateWork")
-}
-
-func (unimplemented) DeleteWork(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
-	notImplemented(w, r, "DeleteWork")
-}
-
-func (unimplemented) PauseWork(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
-	notImplemented(w, r, "PauseWork")
-}
-
-func (unimplemented) ResumeWork(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
-	notImplemented(w, r, "ResumeWork")
-}
-
-func (unimplemented) CompleteWork(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
-	notImplemented(w, r, "CompleteWork")
-}
-
-func (unimplemented) CancelWork(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
-	notImplemented(w, r, "CancelWork")
-}
-
-func (unimplemented) ChangeWorkDirector(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
-	notImplemented(w, r, "ChangeWorkDirector")
-}
-
-func (unimplemented) SetWorkSubscription(w http.ResponseWriter, r *http.Request, workId gen.WorkId) {
-	notImplemented(w, r, "SetWorkSubscription")
-}
-
-func (unimplemented) SetLaneSubscription(w http.ResponseWriter, r *http.Request, laneId gen.LaneId) {
-	notImplemented(w, r, "SetLaneSubscription")
-}
-
-func (unimplemented) ListWorkProposals(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ListWorkProposalsParams) {
-	notImplemented(w, r, "ListWorkProposals")
-}
-
-func (unimplemented) CreateWorkProposal(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.CreateWorkProposalParams) {
-	notImplemented(w, r, "CreateWorkProposal")
-}
-
-func (unimplemented) GetWorkProposal(w http.ResponseWriter, r *http.Request, workProposalId gen.WorkProposalId) {
-	notImplemented(w, r, "GetWorkProposal")
-}
-
-func (unimplemented) ResolveWorkProposal(w http.ResponseWriter, r *http.Request, workProposalId gen.WorkProposalId, params gen.ResolveWorkProposalParams) {
-	notImplemented(w, r, "ResolveWorkProposal")
-}
-
-func (unimplemented) ListActivityLog(w http.ResponseWriter, r *http.Request, workspaceId gen.WorkspaceId, params gen.ListActivityLogParams) {
-	notImplemented(w, r, "ListActivityLog")
-}
-
-func (unimplemented) ListReadableRooms(w http.ResponseWriter, r *http.Request, params gen.ListReadableRoomsParams) {
-	notImplemented(w, r, "ListReadableRooms")
-}
-
-func (unimplemented) ReadRoom(w http.ResponseWriter, r *http.Request, roomId gen.RoomId, params gen.ReadRoomParams) {
-	notImplemented(w, r, "ReadRoom")
-}
-
-func (unimplemented) SetRoomSubscription(w http.ResponseWriter, r *http.Request, roomId gen.RoomId) {
-	notImplemented(w, r, "SetRoomSubscription")
 }

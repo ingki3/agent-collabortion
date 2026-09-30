@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"github.com/ingki3/agent-collabortion/server/internal/cards"
+
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -417,7 +419,8 @@ func (s *Server) GetCliContext(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	allowed := roles.AllowedCommands(gen.AgentRole(role))
+	// PRD FR-3.8 2: a question task's list is already the intersection.
+	allowed := roles.AllowedFor(gen.AgentRole(role), t.Kind)
 	out := gen.CliContext{
 		TaskId: sc.TaskID, LaneId: sc.LaneID, SessionId: sc.SessionID, AgentId: sc.AgentID, WorkspaceId: wsID,
 		Attempt: sc.Attempt, LastSeq: lastSeq, ExpiresAt: sc.ExpiresAt, AllowedCommands: &allowed,
@@ -445,6 +448,20 @@ func (s *Server) GetCliContext(w http.ResponseWriter, r *http.Request) {
 		}{AgentId: p.AgentID, MentionLink: router.MentionLink(p.Name, p.AgentID), Name: p.Name, Role: &role})
 	}
 	out.Participants = &parts
+	// openapi v0.3.10: the task's kind and card (`colab card report` calls
+	// this card; a non-card task gets exit 3 not_card_task in the CLI).
+	if t.Kind != "" {
+		k := gen.TaskKind(t.Kind)
+		out.TaskKind = &k
+	}
+	out.CardId = tasks.NullUUID(t.CardID)
+	out.CardLabel = nullable.NewNullNullable[string]()
+	if t.CardID != nil {
+		var n int
+		if err := s.DB.QueryRow(r.Context(), `SELECT number FROM task_card WHERE id = $1`, *t.CardID).Scan(&n); err == nil {
+			out.CardLabel = nullable.NewNullableWithValue(cards.Label(n))
+		}
+	}
 	// v0.3.5: the room's people, so an agent can mention the Director or the
 	// owner (FR-3.2) — the CLI looked only at agents and refused them
 	// (unknown_mention, 실사용 2026-09-27).
@@ -640,6 +657,10 @@ func (s *Server) SetTaskStatus(w http.ResponseWriter, r *http.Request, taskId ge
 	}
 	if !in.Status.Valid() {
 		writeProblem(w, apperr.Validation(apperr.Field("status", "invalid", "상태는 working · blocked · done 중 하나여야 합니다")))
+		return
+	}
+	if p := s.questionStatusAllowed(r, string(in.Status)); p != nil {
+		writeProblem(w, p)
 		return
 	}
 	note := ""

@@ -22,11 +22,11 @@ func TestP2DelegationJoinAndBlocked(t *testing.T) {
 	post := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
 	leadTask := mustUUID(t, str(post["triggers"].([]any)[0].(map[string]any), "task_id"))
 
-	toR, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "A 조사"})
+	toR, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.rUUID, "A 조사"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	toW, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.wUUID, Brief: "B 초안"})
+	toW, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.wUUID, "B 초안"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestP2DelegationJoinAndBlocked(t *testing.T) {
 		t.Fatal("lane rule 2:每 delegation gets its own lane")
 	}
 	// Same agent, second delegation → a second lane, not a reuse (E2-03).
-	again, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "A2"})
+	again, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.rUUID, "A2"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,8 +49,7 @@ func TestP2DelegationJoinAndBlocked(t *testing.T) {
 		"name": "X", "role": "custom", "role_description": "d", "instructions": "i",
 		"profiles": []map[string]any{{"name": "default", "runtime_kind": "claude_code", "model": "m"}},
 	})
-	if _, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{
-		AgentID: mustUUID(t, str(stranger, "id")), Brief: "몰래"}); err == nil {
+	if _, err := f.srv.Router.Delegate(ctx, leadTask, testCard(mustUUID(t, str(stranger, "id")), "몰래")); err == nil {
 		t.Fatal("delegating to a non-participant must fail — an agent cannot grant itself help")
 	}
 
@@ -79,7 +78,7 @@ func TestP2DelegationJoinAndBlocked(t *testing.T) {
 	}
 
 	// blocked: the child asks anyway, and the delegator is woken immediately.
-	res, err := f.srv.Router.SetAgentStatus(ctx, rTask, 1, "blocked", "범위가 어디까지인가요?")
+	res, err := f.setStatus(ctx, rTask, 1, "blocked", "범위가 어디까지인가요?")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,13 +125,13 @@ func TestP2DelegationJoinAndBlocked(t *testing.T) {
 
 	// The join waits for W and R's second lane; blocked counts as ended.
 	wTask := mustUUID(t, toW.Task.Id.String())
-	if _, err := f.srv.Router.SetAgentStatus(ctx, wTask, 1, "done", ""); err != nil {
+	if _, err := f.setStatus(ctx, wTask, 1, "done", ""); err != nil {
 		t.Fatal(err)
 	}
 	if fired := joinFired(t, f, leadTask); fired {
 		t.Fatal("the join fired while R's second lane is still queued")
 	}
-	if _, err := f.srv.Router.SetAgentStatus(ctx, mustUUID(t, again.Task.Id.String()), 1, "done", ""); err != nil {
+	if _, err := f.setStatus(ctx, mustUUID(t, again.Task.Id.String()), 1, "done", ""); err != nil {
 		t.Fatal(err)
 	}
 	if !joinFired(t, f, leadTask) {
@@ -176,7 +175,7 @@ func TestP2DelegationJoinAndBlocked(t *testing.T) {
 	}
 
 	// One bundle per group: another child finishing does not re-fire it.
-	if _, err := f.srv.Router.SetAgentStatus(ctx, wTask, 1, "done", ""); err != nil {
+	if _, err := f.setStatus(ctx, wTask, 1, "done", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.pool.QueryRow(ctx, `

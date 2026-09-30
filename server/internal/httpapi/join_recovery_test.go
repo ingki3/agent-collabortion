@@ -189,7 +189,7 @@ func TestJoinRecovery(t *testing.T) {
 	t.Run("blocked", func(t *testing.T) {
 		f := newP2Fixture(t)
 		leadTask, rTask, _ := f.delegatedChild(t)
-		if _, err := f.srv.Router.SetAgentStatus(t.Context(), rTask, 1, "blocked", "범위?"); err != nil {
+		if _, err := f.setStatus(t.Context(), rTask, 1, "blocked", "범위?"); err != nil {
 			t.Fatal(err)
 		}
 		f.finishCompleted(t, rTask)

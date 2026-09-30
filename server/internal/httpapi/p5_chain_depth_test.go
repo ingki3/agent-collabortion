@@ -106,7 +106,7 @@ func (f *chainFixture) mention(t *testing.T, from uuid.UUID, task uuid.UUID, nam
 func (f *chainFixture) delegate(t *testing.T, task uuid.UUID, to uuid.UUID) uuid.UUID {
 	t.Helper()
 	f.fake.Advance(time.Second)
-	res, err := f.srv.Router.Delegate(t.Context(), task, router.DelegateInput{AgentID: to, Brief: "맡아 줘"})
+	res, err := f.srv.Router.Delegate(t.Context(), task, testCard(to, "맡아 줘"))
 	if err != nil {
 		t.Fatalf("delegate: %v", err)
 	}
@@ -116,7 +116,7 @@ func (f *chainFixture) delegate(t *testing.T, task uuid.UUID, to uuid.UUID) uuid
 func (f *chainFixture) done(t *testing.T, task uuid.UUID) {
 	t.Helper()
 	f.fake.Advance(time.Second)
-	if _, err := f.srv.Router.SetAgentStatus(t.Context(), task, 1, "done", ""); err != nil {
+	if _, err := f.setStatus(t.Context(), task, 1, "done", ""); err != nil {
 		t.Fatalf("done: %v", err)
 	}
 }
@@ -292,7 +292,7 @@ func TestS78DelegateJoinCycleStopsAtPairRoundtripsUnderDefaults(t *testing.T) {
 	var tripped error
 	for i := 0; i < maxCycles; i++ {
 		f.fake.Advance(time.Second)
-		res, err := f.srv.Router.Delegate(ctx, lead, router.DelegateInput{AgentID: f.rUUID, Brief: "체인 확인"})
+		res, err := f.srv.Router.Delegate(ctx, lead, testCard(f.rUUID, "체인 확인"))
 		if err != nil {
 			tripped = err
 			break

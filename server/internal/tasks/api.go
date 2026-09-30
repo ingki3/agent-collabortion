@@ -52,6 +52,16 @@ func ToAPI(t *Row, attempts []Attempt, usage *Usage) gen.Task {
 	if t.QueuedReason != nil && t.Status == Queued {
 		out.QueuedReason = nullable.NewNullableWithValue(gen.QueuedReason(*t.QueuedReason))
 	}
+	// openapi v0.3.10 (PRD FR-3.8).
+	if t.Kind != "" {
+		k := gen.TaskKind(t.Kind)
+		out.Kind = &k
+	}
+	out.CardId = NullUUID(t.CardID)
+	out.TriggerReason = nullable.NewNullNullable[gen.TaskTriggerReason]()
+	if t.TriggerReason != nil {
+		out.TriggerReason = nullable.NewNullableWithValue(gen.TaskTriggerReason(*t.TriggerReason))
+	}
 	if t.CoalescedMessageIds() == nil {
 		out.CoalescedMessageIds = []openapi_types.UUID{}
 	}

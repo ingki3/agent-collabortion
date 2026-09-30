@@ -88,6 +88,15 @@ func (f *p2Fixture) observe(t *testing.T, m obsMark, laneID, childTask uuid.UUID
 
 func (f *p2Fixture) finishCompleted(t *testing.T, taskID uuid.UUID) {
 	t.Helper()
+	// T-CARD-S: the agent that ends its turn has reported its card (the
+	// turn-end-without-result gate is finishNoResult's, cards_gate_test.go).
+	f.report(t, taskID)
+	f.finishNoResult(t, taskID)
+}
+
+// finishNoResult ends the turn as the daemon reports it, nothing else.
+func (f *p2Fixture) finishNoResult(t *testing.T, taskID uuid.UUID) {
+	t.Helper()
 	if _, err := f.srv.Tasks.Finish(t.Context(), taskID, currentAttempt(t, f, taskID),
 		contracts.Finish{Outcome: "completed", StopReason: "end_turn",
 			Usage: contracts.Usage{InputTokens: 10, OutputTokens: 5, CostUSD: 0.01}}); err != nil {
@@ -102,7 +111,7 @@ func (f *p2Fixture) delegatedChild(t *testing.T) (leadTask, rTask, rLane uuid.UU
 	out := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
 	leadTask = mustUUID(t, str(out["triggers"].([]any)[0].(map[string]any), "task_id"))
 	f.runTask(t, leadTask)
-	res, err := f.srv.Router.Delegate(t.Context(), leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "A 조사"})
+	res, err := f.srv.Router.Delegate(t.Context(), leadTask, testCard(f.rUUID, "A 조사"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +165,7 @@ func TestLaneDonePathAgentDelegated(t *testing.T) {
 	f := newP2Fixture(t)
 	leadTask, rTask, rLane := f.delegatedChild(t)
 	m := f.mark(t)
-	res, err := f.srv.Router.SetAgentStatus(t.Context(), rTask, 1, "done", "")
+	res, err := f.setStatus(t.Context(), rTask, 1, "done", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +206,7 @@ func TestLaneDonePathReentryNotice(t *testing.T) {
 		f := newP2Fixture(t)
 		rTask, rLane := f.agentTriggered(t)
 		m := f.mark(t)
-		if _, err := f.srv.Router.SetAgentStatus(t.Context(), rTask, 1, "done", ""); err != nil {
+		if _, err := f.setStatus(t.Context(), rTask, 1, "done", ""); err != nil {
 			t.Fatal(err)
 		}
 		wantObs(t, "A-agent", f.observe(t, m, rLane, rTask, nil), laneObs{
@@ -219,7 +228,7 @@ func TestLaneDonePathReentryNotice(t *testing.T) {
 		f := newP2Fixture(t)
 		rTask, rLane := f.agentTriggered(t)
 		m := f.mark(t)
-		if _, err := f.srv.Router.SetAgentStatus(t.Context(), rTask, 1, "done", ""); err != nil {
+		if _, err := f.setStatus(t.Context(), rTask, 1, "done", ""); err != nil {
 			t.Fatal(err)
 		}
 		f.finishCompleted(t, rTask)
@@ -238,7 +247,7 @@ func TestLaneDonePathUserInbox(t *testing.T) {
 		f := newP2Fixture(t)
 		rTask, rLane := f.userTriggered(t)
 		m := f.mark(t)
-		if _, err := f.srv.Router.SetAgentStatus(t.Context(), rTask, 1, "done", ""); err != nil {
+		if _, err := f.setStatus(t.Context(), rTask, 1, "done", ""); err != nil {
 			t.Fatal(err)
 		}
 		wantObs(t, "A-user", f.observe(t, m, rLane, rTask, nil), laneObs{
@@ -260,7 +269,7 @@ func TestLaneDonePathUserInbox(t *testing.T) {
 		f := newP2Fixture(t)
 		rTask, rLane := f.userTriggered(t)
 		m := f.mark(t)
-		if _, err := f.srv.Router.SetAgentStatus(t.Context(), rTask, 1, "done", ""); err != nil {
+		if _, err := f.setStatus(t.Context(), rTask, 1, "done", ""); err != nil {
 			t.Fatal(err)
 		}
 		f.finishCompleted(t, rTask)
@@ -289,7 +298,7 @@ func TestLaneDonePathQueuedTaskOnLane(t *testing.T) {
 	t.Run("A-queued", func(t *testing.T) {
 		f, rTask, rLane := setup(t)
 		m := f.mark(t)
-		if _, err := f.srv.Router.SetAgentStatus(t.Context(), rTask, 1, "done", ""); err != nil {
+		if _, err := f.setStatus(t.Context(), rTask, 1, "done", ""); err != nil {
 			t.Fatal(err)
 		}
 		o := f.observe(t, m, rLane, rTask, nil)
@@ -318,7 +327,7 @@ func TestLaneDonePathQueuedTaskOnLane(t *testing.T) {
 func TestLaneDonePathTurnEndKeepsBlocked(t *testing.T) {
 	f := newP2Fixture(t)
 	leadTask, rTask, rLane := f.delegatedChild(t)
-	if _, err := f.srv.Router.SetAgentStatus(t.Context(), rTask, 1, "blocked", "범위?"); err != nil {
+	if _, err := f.setStatus(t.Context(), rTask, 1, "blocked", "범위?"); err != nil {
 		t.Fatal(err)
 	}
 	f.finishCompleted(t, rTask)

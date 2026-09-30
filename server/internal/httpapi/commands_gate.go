@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/ingki3/agent-collabortion/server/internal/apperr"
+	"github.com/ingki3/agent-collabortion/server/internal/cards"
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/roles"
@@ -36,12 +37,16 @@ import (
 // people, who decide whether the mission opens (FR-2A.1).
 var commandVerbs = map[gen.ColabCommand]string{
 	gen.ColabCommandMessagePost: "post_message", gen.ColabCommandStatusSet: "set_status", gen.ColabCommandDecisionRecord: "record_decision",
-	gen.ColabCommandLaneDelegate: "delegate", gen.ColabCommandArtifactSubmit: "submit_artifact",
+	gen.ColabCommandCardDelegate: "delegate", gen.ColabCommandArtifactSubmit: "submit_artifact",
 	gen.ColabCommandReviewApprove: "review", gen.ColabCommandReviewReject: "review",
 	gen.ColabCommandHitlAsk: "hitl", gen.ColabCommandHitlApproveRequest: "hitl", gen.ColabCommandHitlRequestInfo: "hitl",
 	gen.ColabCommandRoomGet: "read", gen.ColabCommandRoomMessages: "read", gen.ColabCommandArtifactGet: "read",
 	gen.ColabCommandRoomList: "read", gen.ColabCommandRoomRead: "read",
 	gen.ColabCommandWorkPropose: "hitl",
+	// v0.9.10 (task_event verb `card`, contract commit fb5ef76): every card
+	// command is one verb; the reads are `read` like the others.
+	gen.ColabCommandCardReport: "card", gen.ColabCommandCardAccept: "card", gen.ColabCommandCardRevise: "card",
+	gen.ColabCommandCardGet: "read", gen.ColabCommandCardList: "read",
 }
 
 // commandAllowed answers nil when the caller may run cmd. For a task token
@@ -61,8 +66,52 @@ func (s *Server) commandAllowed(r *http.Request, cmd gen.ColabCommand) *Problem 
 	if err != nil {
 		return apperr.Internal(err)
 	}
-	if roles.Allows(gen.AgentRole(role), cmd) {
+	kind, err := s.taskKind(r)
+	if err != nil {
+		return apperr.Internal(err)
+	}
+	// PRD FR-3.8 2 (colab-cli.md §2.5 v0.9.10): a question task's commands
+	// are the role's row ∩ the question table — the same table the bundle
+	// and getCliContext hand out (roles.AllowedFor).
+	if roles.AllowsFor(gen.AgentRole(role), kind, cmd) {
 		return nil
+	}
+	sentence := fmt.Sprintf("이 역할(%s)은 %s 를 쓸 수 없습니다", role, roles.CLIName(cmd))
+	if roles.Allows(gen.AgentRole(role), cmd) {
+		sentence = cards.QuestionRefusal(roles.CLIName(cmd))
+	}
+	s.recordRefused(r, cmd)
+	p := apperr.Forbidden("command_not_allowed", sentence)
+	p.Extra = map[string]any{"command": string(cmd), "role": role}
+	return p
+}
+
+// questionStatusAllowed is the question table's value filter on `status set`
+// (working · blocked only): nil when the value is allowed.
+func (s *Server) questionStatusAllowed(r *http.Request, status string) *Problem {
+	pr := principalOf(r)
+	if pr.Task == nil {
+		return nil
+	}
+	kind, err := s.taskKind(r)
+	if err != nil {
+		return apperr.Internal(err)
+	}
+	if kind != cards.KindQuestion || cards.QuestionStatusAllowed(status) {
+		return nil
+	}
+	s.recordRefused(r, gen.ColabCommandStatusSet)
+	p := apperr.Forbidden("command_not_allowed", cards.QuestionRefusal("status set "+status))
+	role, _ := s.agentRole(r)
+	p.Extra = map[string]any{"command": string(gen.ColabCommandStatusSet), "role": role}
+	return p
+}
+
+// recordRefused is §4's feed row for a refused command.
+func (s *Server) recordRefused(r *http.Request, cmd gen.ColabCommand) {
+	sc := principalOf(r).Task
+	if sc == nil {
+		return
 	}
 	if verb, ok := commandVerbs[cmd]; ok {
 		// Its own transaction: the handler has not opened one, and the 403 is
@@ -72,9 +121,24 @@ func (s *Server) commandAllowed(r *http.Request, cmd gen.ColabCommand) *Problem 
 			s.Log.Warn("record refused command", "err", err, "task", sc.TaskID, "command", cmd)
 		}
 	}
-	p := apperr.Forbidden("command_not_allowed", fmt.Sprintf("이 역할(%s)은 %s 를 쓸 수 없습니다", role, roles.CLIName(cmd)))
-	p.Extra = map[string]any{"command": string(cmd), "role": role}
-	return p
+}
+
+// taskKind is the calling task's kind (openapi TaskKind), read once per
+// request like agentRole. "" for a person.
+func (s *Server) taskKind(r *http.Request) (string, error) {
+	pr := principalOf(r)
+	if pr.Task == nil {
+		return "", nil
+	}
+	if pr.taskKind != nil {
+		return *pr.taskKind, nil
+	}
+	var kind string
+	if err := s.DB.QueryRow(r.Context(), `SELECT kind FROM task WHERE id = $1`, pr.Task.TaskID).Scan(&kind); err != nil {
+		return "", err
+	}
+	pr.taskKind = &kind
+	return kind, nil
 }
 
 // agentRole is the calling agent's role, read from the agent row ONCE per

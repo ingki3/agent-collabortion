@@ -36,16 +36,16 @@ func TestG5JoinFiresWhenReenteredLaneEndsLast(t *testing.T) {
 	post := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
 	leadTask := mustUUID(t, str(post["triggers"].([]any)[0].(map[string]any), "task_id"))
 
-	toR, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "A 조사"})
+	toR, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.rUUID, "A 조사"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	toW, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.wUUID, Brief: "B 초안"})
+	toW, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.wUUID, "B 초안"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	rTask := mustUUID(t, toR.Task.Id.String())
-	res, err := f.srv.Router.SetAgentStatus(ctx, rTask, 1, "blocked", "범위가 어디까지인가요?")
+	res, err := f.setStatus(ctx, rTask, 1, "blocked", "범위가 어디까지인가요?")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,14 +77,14 @@ func TestG5JoinFiresWhenReenteredLaneEndsLast(t *testing.T) {
 	reTask := mustUUID(t, reply.Triggers[0].TaskId.String())
 
 	// The sibling ends first; the group is not complete yet.
-	if _, err := f.srv.Router.SetAgentStatus(ctx, mustUUID(t, toW.Task.Id.String()), 1, "done", ""); err != nil {
+	if _, err := f.setStatus(ctx, mustUUID(t, toW.Task.Id.String()), 1, "done", ""); err != nil {
 		t.Fatal(err)
 	}
 	if joinFired(t, f, leadTask) {
 		t.Fatal("the join fired while the re-entered lane is still running")
 	}
 	// …and now the RE-ENTERED lane completes it. This is the whole defect.
-	if _, err := f.srv.Router.SetAgentStatus(ctx, reTask, 1, "done", ""); err != nil {
+	if _, err := f.setStatus(ctx, reTask, 1, "done", ""); err != nil {
 		t.Fatal(err)
 	}
 	if !joinFired(t, f, leadTask) {
@@ -151,14 +151,14 @@ func TestG5BlockedCardMentionAndWakeQuote(t *testing.T) {
 
 	post := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
 	leadTask := mustUUID(t, str(post["triggers"].([]any)[0].(map[string]any), "task_id"))
-	toR, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "A 조사"})
+	toR, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.rUUID, "A 조사"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	before := f.laneTaskCount(t, f.lead)
 
 	const note = "경쟁 제품의 범위가 불명확합니다. 국내만인가요?"
-	res, err := f.srv.Router.SetAgentStatus(ctx, mustUUID(t, toR.Task.Id.String()), 1, "blocked", note)
+	res, err := f.setStatus(ctx, mustUUID(t, toR.Task.Id.String()), 1, "blocked", note)
 	if err != nil {
 		t.Fatal(err)
 	}

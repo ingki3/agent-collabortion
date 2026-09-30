@@ -1,6 +1,8 @@
 package sessions
 
 import (
+	"github.com/ingki3/agent-collabortion/server/internal/cards"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -263,6 +265,15 @@ func (s *Service) ApplyWorkEvent(ctx context.Context, workID uuid.UUID, ev Event
 			WHERE work_id = $1 AND status IN ('queued', 'deferred')`, workID, now); err != nil {
 			return nil, err
 		}
+		// PRD FR-3.8 1 「취소(… 미션 닫힘)」: the mission's open cards close with
+		// it; accepted ones stay accepted.
+		closedCards, err := cards.CancelWhere(ctx, tx, "work_id", workID, now)
+		if err != nil {
+			return nil, err
+		}
+		for _, id := range closedCards {
+			cards.Publish(ctx, s.Hub, tx, id, "card.updated")
+		}
 		if director != nil {
 			if err := s.WorkInbox(ctx, tx, wsID, *director, TypeWorkCompleted, sessionID, workID, now); err != nil {
 				return nil, err
@@ -377,12 +388,25 @@ func (s *Service) ApplyWorkEvent(ctx context.Context, workID uuid.UUID, ev Event
 		// (`ON CONFLICT DO NOTHING` + no row back): another writer got there
 		// between the read above and here, and the Director has the card they
 		// need. One question, answered once.
+		// PRD FR-3.8 4: the completion approval carries the mission's card
+		// summary (수락 n · 판정 대기 n · 부분/미충족 기준 n) in its context.
+		var hitlContext *string
+		if purpose == CondUserApproval {
+			sum, err := cards.Summary(ctx, tx, workID)
+			if err != nil {
+				return nil, err
+			}
+			if sum != nil {
+				line := sum.Line()
+				hitlContext = &line
+			}
+		}
 		err := tx.QueryRow(ctx, `
-			INSERT INTO hitl_request (session_id, task_id, source, type, question, approver_spec, purpose, due_at, created_at, work_id)
-			VALUES ($1, NULL, 'system', 'approval', $2, 'director', $3, $4, $5, $6)
+			INSERT INTO hitl_request (session_id, task_id, source, type, question, approver_spec, purpose, due_at, created_at, work_id, context)
+			VALUES ($1, NULL, 'system', 'approval', $2, 'director', $3, $4, $5, $6, $7)
 			ON CONFLICT DO NOTHING
 			RETURNING id`,
-			sessionID, question, purpose, now.Add(24*time.Hour), now, workID).Scan(&hitlID)
+			sessionID, question, purpose, now.Add(24*time.Hour), now, workID, hitlContext).Scan(&hitlID)
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
 			out.HitlIssued = false

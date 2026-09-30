@@ -176,7 +176,9 @@ func Derive(ctx context.Context, q db.DBTX, laneID, taskID uuid.UUID, now time.T
 		delegatedFrom       *uuid.UUID
 	)
 	err := q.QueryRow(ctx, `
-		SELECT m.author_type::text, m.content,
+		-- PRD FR-3.8: a card task's 「지금」 is the card's goal, not the
+		-- delegation bubble's whole text.
+		SELECT m.author_type::text, COALESCE((SELECT c.goal FROM task_card c WHERE c.id = t.card_id), m.content),
 		       COALESCE(a.name, u.display_name),
 		       t.delegated_from_task_id
 		FROM task t

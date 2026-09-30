@@ -29,7 +29,7 @@ func TestLaneBriefSurvivesDelegate(t *testing.T) {
 	leadTask := mustUUID(t, str(post["triggers"].([]any)[0].(map[string]any), "task_id"))
 
 	const brief = "A 항목을 조사해서 근거 3개와 함께 요약해 주세요"
-	res, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: brief})
+	res, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.rUUID, brief))
 	if err != nil {
 		t.Fatal(err)
 	}

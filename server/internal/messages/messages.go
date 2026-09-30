@@ -73,6 +73,11 @@ type Row struct {
 	// version it pointed to. A part carries its own — the parts of one group
 	// do not share a list. Never nil.
 	Attachments []Attachment
+	// CardID · CardRole · CardVersion are openapi v0.3.10 (PRD FR-3.8): a
+	// work card bubble — `delegation` (one per version) or `result`.
+	CardID      *uuid.UUID
+	CardRole    *string
+	CardVersion *int
 }
 
 // Attachment is one AttachmentRef. ContentType is the server's judgment —
@@ -102,7 +107,8 @@ const selectMessage = `
 	       (SELECT jsonb_agg(jsonb_build_object('artifact_id', ar.id, 'name', ar.name, 'version', ar.version,
 	                 'type', ar.type, 'size_bytes', ar.size_bytes,
 	                 'content_type', CASE WHEN ar.content_type_judged THEN ar.content_type END) ORDER BY ma.position)
-	          FROM message_attachment ma JOIN artifact ar ON ar.id = ma.artifact_id WHERE ma.message_id = m.id)
+	          FROM message_attachment ma JOIN artifact ar ON ar.id = ma.artifact_id WHERE ma.message_id = m.id),
+	       m.card_id, m.card_role, m.card_version
 	FROM message m
 	LEFT JOIN app_user u ON m.author_type = 'user' AND u.id = m.author_id
 	LEFT JOIN agent a ON m.author_type = 'agent' AND a.id = m.author_id
@@ -115,7 +121,7 @@ func scan(row pgx.Row) (*Row, error) {
 	err := row.Scan(&m.ID, &m.SessionID, &m.AuthorType, &m.AuthorID, &m.AuthorName, &m.AuthorAvatar, &role,
 		&m.ParentID, &m.Content, &mentions, &m.SourceTaskID, &m.LaneID, &m.Kind, &m.State, &m.ReplyCount, &m.CreatedAt, &m.EditedAt,
 		&m.WorkID, &m.Detail, &speech, &addressees, &m.RespondsTo, &m.DelegatedLane, &m.HitlRequestID,
-		&m.GroupID, &m.GroupIndex, &m.GroupSize, &attachments)
+		&m.GroupID, &m.GroupIndex, &m.GroupSize, &attachments, &m.CardID, &m.CardRole, &m.CardVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -393,6 +399,14 @@ func ToAPI(m *Row) gen.Message {
 	out.Attachments = &atts
 	out.RespondsToMessageId = nullj.NullUUID(m.RespondsTo)
 	out.DelegatedLaneId = nullj.NullUUID(m.DelegatedLane)
+	// openapi v0.3.10: always sent, null for a message that is not a card.
+	out.CardId = nullj.NullUUID(m.CardID)
+	out.CardRole = nullable.NewNullNullable[gen.MessageCardRole]()
+	out.CardVersion = nullable.NewNullNullable[int]()
+	if m.CardRole != nil && m.CardVersion != nil {
+		out.CardRole = nullable.NewNullableWithValue(gen.MessageCardRole(*m.CardRole))
+		out.CardVersion = nullable.NewNullableWithValue(*m.CardVersion)
+	}
 	// openapi v0.3.6 (D26): always sent, null for an ordinary message.
 	out.GroupId = nullj.NullUUID(m.GroupID)
 	out.GroupIndex = nullable.NewNullNullable[int]()

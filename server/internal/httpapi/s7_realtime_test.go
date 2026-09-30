@@ -89,11 +89,11 @@ func TestSystemMessagesPublish(t *testing.T) {
 
 	// Two children so the group is still open after the first one blocks: the
 	// join fires only when every child has ended.
-	blocked, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "A 조사"})
+	blocked, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.rUUID, "A 조사"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	done, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.wUUID, Brief: "B 정리"})
+	done, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.wUUID, "B 정리"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestSystemMessagesPublish(t *testing.T) {
 	frames, stop := openStream(t, f.api, f.p+"/workspaces/"+f.wsID+"/stream?room_id="+f.sessionID)
 	defer stop()
 
-	if _, err := f.srv.Router.SetAgentStatus(ctx, blocked.Task.Id, 1, "blocked", "예산은 얼마입니까?"); err != nil {
+	if _, err := f.setStatus(ctx, blocked.Task.Id, 1, "blocked", "예산은 얼마입니까?"); err != nil {
 		t.Fatal(err)
 	}
 	card := waitFrame(t, frames, "message.created", func(p json.RawMessage) bool {
@@ -117,7 +117,7 @@ func TestSystemMessagesPublish(t *testing.T) {
 		t.Fatalf("blocked_q frame content = %q, want the delegator mention (S-27)", got)
 	}
 
-	if _, err := f.srv.Router.SetAgentStatus(ctx, done.Task.Id, 1, "done", ""); err != nil {
+	if _, err := f.setStatus(ctx, done.Task.Id, 1, "done", ""); err != nil {
 		t.Fatal(err)
 	}
 	bundle := waitFrame(t, frames, "message.created", func(p json.RawMessage) bool {

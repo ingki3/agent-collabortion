@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ingki3/agent-collabortion/contracts"
+	"github.com/ingki3/agent-collabortion/server/internal/cards"
 	"github.com/ingki3/agent-collabortion/server/internal/hitl"
 	"github.com/ingki3/agent-collabortion/server/internal/httpapi/gen"
 	"github.com/ingki3/agent-collabortion/server/internal/llm"
@@ -350,10 +351,15 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		// §8.4 marks [3] "(lead만)". A researcher handed the coordination
 		// protocol starts handing out work to the roster it can see, which is
 		// how a session grows two coordinators.
+		// harness v0.9.16 (PRD FR-3.8 1): the delegation sentence is the
+		// card's — a mention only asks a question.
+		mcpSurf := surf.Kind == SurfaceMCP
 		brief.WriteString("[3] Coordination Protocol\n" +
-			"- You are the lead. Split the goal into pieces and hand each one to the agent in [5] whose role fits it, by mentioning that agent.\n" +
-			"- One mention is one unit of work: do not mention an agent to acknowledge, and do not mention two agents for the same piece.\n" +
-			"- Wait for a reply before handing out work that depends on it; independent pieces go out together.\n" +
+			"- You are the lead. Split the goal into pieces and hand each one to the agent in [5] whose role fits it.\n" +
+			cards.DelegateRule(mcpSurf) +
+			"- One card is one unit of work: do not delegate the same piece twice, and check <card_board> for overlaps first.\n" +
+			cards.NewWorkRule(mcpSurf) +
+			"- Wait for a result before handing out work that depends on it; independent pieces go out together.\n" +
 			surf.HitlAskLine +
 			"- Report to the Director yourself; the other agents report to you.\n\n")
 	}
@@ -456,6 +462,12 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 	if err != nil {
 		return nil, nil, err
 	}
+	// harness v0.9.16 (PRD FR-3.8 5): the card blocks — whole on a resumed
+	// turn too (they are not history).
+	cb, err := loadCardBlocks(ctx, tx, t, agentRole, surf)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// Turn prompt — harness §10 v0.9.14's block order: <rebind> → <resumed>
 	// → head lines → ① → ② → ③ → <room_artifacts> → <reused_context> →
@@ -527,16 +539,31 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		prompt.WriteString(renderMissionProgress(room.Mission, progress.Met, progress.Total, progress.Satisfied))
 		metric.wrote("prompt.mission_progress", &prompt, n)
 		n = prompt.Len()
+		prompt.WriteString(cb.Board)
+		metric.wrote("prompt.card_board", &prompt, n)
+		n = prompt.Len()
 		fmt.Fprintf(&prompt, "<roster_status>\n%s</roster_status>\n\n", rosterStatus.String())
 		metric.wrote("prompt.roster_status", &prompt, n)
 		n = prompt.Len()
 		prompt.WriteString(foldersBlock)
 		metric.wrote("prompt.folders", &prompt, n)
+		n = prompt.Len()
+		prompt.WriteString(cb.TaskCard)
+		metric.wrote("prompt.task_card", &prompt, n)
+		n = prompt.Len()
+		prompt.WriteString(cb.ResultCards)
+		metric.wrote("prompt.result_cards", &prompt, n)
 		// A re-instruction's trigger IS the new instruction, and `<resumed>`
 		// is absent above — so the same rendering serves both (§8.4, E8-06).
 		// The trigger is whole even when it sits before the anchor.
+		// A result_card_missing follow-up has no message to quote: the
+		// trigger is the harness sentence (v0.9.16).
 		n = prompt.Len()
-		fmt.Fprintf(&prompt, "<trigger>\n%s</trigger>\n\n", trigger.String())
+		if cb.FollowUp != "" {
+			prompt.WriteString(cb.FollowUp)
+		} else {
+			fmt.Fprintf(&prompt, "<trigger>\n%s%s</trigger>\n\n", cb.QuestionHead, trigger.String())
+		}
 		metric.wrote("prompt.trigger", &prompt, n)
 		n = prompt.Len()
 		prompt.WriteString(surf.Respond)
@@ -624,7 +651,8 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 			BudgetUSD: budgetPerTask, BudgetOverrideUSD: override,
 			// K-19: the daemon trims the MCP tool list and the hermes wrapper
 			// to this (daemon-protocol §4.1 v0.8.2, harness §10).
-			AllowedCommands: roles.AllowedCommandStrings(gen.AgentRole(agentRole)),
+			// PRD FR-3.8 2: a question task's list is role ∩ question table.
+			AllowedCommands: roles.AllowedForStrings(gen.AgentRole(agentRole), t.Kind),
 		},
 		TaskToken: token,
 		Profile: contracts.BundleProfile{
@@ -644,7 +672,7 @@ func buildBundle(ctx context.Context, tx pgx.Tx, t *tasks.Row, runtimeID uuid.UU
 		Prompt:     promptText,
 		PromptCold: promptCold,
 		Resume:     resume,
-		Limits: contracts.BundleLimits{BudgetUSD: budget, StallSeconds: int(contracts.StallTimeout.Seconds())},
+		Limits:     contracts.BundleLimits{BudgetUSD: budget, StallSeconds: int(contracts.StallTimeout.Seconds())},
 	}
 	if t.TriggerMessageID != nil {
 		b.Task.TriggerMessageID = t.TriggerMessageID.String()

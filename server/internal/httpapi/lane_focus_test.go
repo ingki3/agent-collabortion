@@ -156,7 +156,7 @@ func TestLaneFocusOnlyWhileRunning(t *testing.T) {
 	}
 	// The token is revoked by the finish; write through the service as a
 	// late call would have reached it just before the revoke landed.
-	if _, err := f.srv.Router.SetAgentStatus(t.Context(), taskID, 1, "working", "늦은 선언"); err != nil {
+	if _, err := f.setStatus(t.Context(), taskID, 1, "working", "늦은 선언"); err != nil {
 		t.Fatal(err)
 	}
 	_ = agent
@@ -198,7 +198,7 @@ func TestLaneFocusClearedOnCancelAndError(t *testing.T) {
 func TestLaneFocusDerivedForDelegation(t *testing.T) {
 	f := newP2Fixture(t)
 	leadTask, _, _ := f.startTurn(t, f.leadUUID, "Lead", "시작")
-	res, err := f.srv.Router.Delegate(t.Context(), leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "타이어 접지 한계 공식을 점검"})
+	res, err := f.srv.Router.Delegate(t.Context(), leadTask, testCard(f.rUUID, "타이어 접지 한계 공식을 점검"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestLaneFocusDerivedNeedsSomethingToQuote(t *testing.T) {
 	}
 	// 그래도 에이전트가 선언하면 그 문장은 선다.
 	f.runTask(t, taskID)
-	if _, err := f.srv.Router.SetAgentStatus(t.Context(), taskID, 1, "working", "커브 자료를 읽고 있습니다"); err != nil {
+	if _, err := f.setStatus(t.Context(), taskID, 1, "working", "커브 자료를 읽고 있습니다"); err != nil {
 		t.Fatal(err)
 	}
 	if got := str(focusOf(f.laneCard(t, laneID)), "text"); got != "커브 자료를 읽고 있습니다" {

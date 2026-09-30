@@ -89,6 +89,23 @@ type SpeechInput struct {
 	UpstreamAuthorType string
 	UpstreamAuthorID   *uuid.UUID
 	UpstreamAuthorName string
+
+	// PRD FR-3.8 (v0.19.15, openapi v0.3.10) premises — set only by the
+	// caller that knows (router.postRow, cards.StoreResult), never read back
+	// from the body. A row written without them classifies as before, which
+	// is what keeps the old backfill's parity (TestConvoSpeech_Backfill…).
+	//
+	// MentionAsks: the agent mentions in this agent message make QUESTION
+	// tasks (no card hands work over) — the speech is `question`, not
+	// `request`.
+	MentionAsks bool
+	// AnswersAsker: this message is written in a question task's turn, and
+	// this is who asked — what it says to them is `answer`.
+	AnswersAsker *Addressee
+	// CardReportTo · CardRespondsTo: a result card bubble — `report` to the
+	// card's delegator, answering the version's delegation bubble.
+	CardReportTo   *Addressee
+	CardRespondsTo *uuid.UUID
 }
 
 // UpstreamMaxSteps is PRD FR-3.1.3 「윗선 지시」's bound: at most this many
@@ -227,6 +244,23 @@ func Classify(in SpeechInput) SpeechOut {
 	if len(base) == 0 && parentAuthor != nil && (in.AuthorID == nil || *parentAuthor.ID != *in.AuthorID) {
 		base = []Addressee{*parentAuthor}
 	}
+	if in.AuthorType == "agent" && in.CardReportTo != nil {
+		// openapi v0.3.10: the result card bubble is a report to the card's
+		// delegator, ↩ the delegation bubble of that version.
+		return SpeechOut{Speech: string(gen.MessageSpeechReport), Addressees: []Addressee{*in.CardReportTo}, RespondsTo: in.CardRespondsTo}
+	}
+	if in.AuthorType == "agent" && in.AnswersAsker != nil && !in.MentionAsks &&
+		(len(base) == 0 || contains(base, *in.AnswersAsker)) {
+		// PRD FR-3.8 2 (Lead 판정 Q2): what a question turn says to the one who
+		// asked is an answer — never a report, never another question.
+		to := []Addressee{*in.AnswersAsker}
+		for _, a := range mentioned {
+			to = appendUniq(to, a)
+		}
+		// responds_to is a report's only (message_responds_to_shape); the
+		// thread or the addressee already says what is answered.
+		return SpeechOut{Speech: string(gen.MessageSpeechAnswer), Addressees: to}
+	}
 	if in.AuthorType == "agent" {
 		if in.DelegatedLaneID != nil && in.DelegateTargetID != nil {
 			to := Addressee{Kind: "agent", ID: in.DelegateTargetID, Name: in.DelegateTargetName}
@@ -245,7 +279,8 @@ func Classify(in SpeechInput) SpeechOut {
 			for _, a := range mentioned {
 				if a.Kind == "agent" {
 					// 에이전트를 멘션 → 요청(10번), 멘션된 쪽에게 (T-AGENTFIX B6).
-					return SpeechOut{Speech: string(gen.MessageSpeechRequest), Addressees: mentioned}
+					// v0.3.10: 카드 없이 에이전트에게 한 말은 질문이다.
+					return SpeechOut{Speech: agentAsk(in), Addressees: mentioned}
 				}
 			}
 			up := authorAsAddressee(in.UpstreamAuthorType, in.UpstreamAuthorID, in.UpstreamAuthorName)
@@ -304,9 +339,19 @@ func Classify(in SpeechInput) SpeechOut {
 		if in.AuthorType == "user" {
 			return SpeechOut{Speech: string(gen.MessageSpeechInstruct), Addressees: mentioned}
 		}
-		return SpeechOut{Speech: string(gen.MessageSpeechRequest), Addressees: mentioned}
+		return SpeechOut{Speech: agentAsk(in), Addressees: mentioned}
 	}
 	return SpeechOut{Speech: string(gen.MessageSpeechChat), Addressees: base}
+}
+
+// agentAsk is the speech of an agent mentioning another agent outside a
+// delegation: `question` when that mention makes a question task (PRD FR-3.8
+// 2 — the caller says so), else the old `request`.
+func agentAsk(in SpeechInput) string {
+	if in.MentionAsks {
+		return string(gen.MessageSpeechQuestion)
+	}
+	return string(gen.MessageSpeechRequest)
 }
 
 // walkUpstream finds PRD FR-3.1.3 「윗선 지시」 with rows, at write time: from
@@ -357,6 +402,11 @@ type StoreOpts struct {
 	DelegatedLaneID    *uuid.UUID
 	DelegateTargetID   *uuid.UUID
 	DelegateTargetName string
+	// PRD FR-3.8 — see SpeechInput.
+	MentionAsks    bool
+	AnswersAsker   *Addressee
+	CardReportTo   *Addressee
+	CardRespondsTo *uuid.UUID
 }
 
 // Store classifies one stored message and writes speech · addressees ·
@@ -397,6 +447,7 @@ func Store(ctx context.Context, q db.DBTX, msgID uuid.UUID, opts StoreOpts) erro
 		}
 	}
 	in.DelegatedLaneID, in.DelegateTargetID, in.DelegateTargetName = opts.DelegatedLaneID, opts.DelegateTargetID, opts.DelegateTargetName
+	in.MentionAsks, in.AnswersAsker, in.CardReportTo, in.CardRespondsTo = opts.MentionAsks, opts.AnswersAsker, opts.CardReportTo, opts.CardRespondsTo
 	if in.Kind == "blocked_q" && len(in.Mentions) == 0 && sourceTask != nil {
 		// 표 3행 후반: 멘션이 없으면 그 lane 이 기다리는 상대. `Lane.waiting_for` 는
 		// 「blocked 면 위임자 이름 또는 Director」(openapi Lane) — 위임자가 있으면

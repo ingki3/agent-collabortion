@@ -344,11 +344,11 @@ func TestWokenTurnInheritsOriginator(t *testing.T) {
 	}
 	post := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
 	leadTask := mustUUID(t, str(post["triggers"].([]any)[0].(map[string]any), "task_id"))
-	toR, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "조사"})
+	toR, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.rUUID, "조사"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	toW, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.wUUID, Brief: "초안"})
+	toW, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.wUUID, "초안"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +372,7 @@ func TestWokenTurnInheritsOriginator(t *testing.T) {
 
 	// blocked question → Lead wakes now.
 	f.fake.Advance(time.Second)
-	if _, err := f.srv.Router.SetAgentStatus(ctx, mustUUID(t, toW.Task.Id.String()), 1, "blocked", "범위는?"); err != nil {
+	if _, err := f.setStatus(ctx, mustUUID(t, toW.Task.Id.String()), 1, "blocked", "범위는?"); err != nil {
 		t.Fatal(err)
 	}
 	q := woken("blocked wake")
@@ -380,7 +380,7 @@ func TestWokenTurnInheritsOriginator(t *testing.T) {
 
 	// join → Lead wakes with the bundle, and that turn can read B.
 	f.fake.Advance(time.Second)
-	if _, err := f.srv.Router.SetAgentStatus(ctx, mustUUID(t, toR.Task.Id.String()), 1, "done", ""); err != nil {
+	if _, err := f.setStatus(ctx, mustUUID(t, toR.Task.Id.String()), 1, "done", ""); err != nil {
 		t.Fatal(err)
 	}
 	joinTask := woken("join wake")
@@ -398,7 +398,7 @@ func TestWokenTurnInheritsOriginator(t *testing.T) {
 	f.exec(t, `UPDATE task SET status = 'completed', finished_at = now() WHERE id = $1`, joinTask)
 	f.exec(t, `UPDATE task SET originator_user_id = NULL WHERE id IN ($1, $2)`, toW.Task.Id, leadTask)
 	f.fake.Advance(time.Second)
-	if _, err := f.srv.Router.SetAgentStatus(ctx, mustUUID(t, toW.Task.Id.String()), 1, "blocked", "다시 질문"); err != nil {
+	if _, err := f.setStatus(ctx, mustUUID(t, toW.Task.Id.String()), 1, "blocked", "다시 질문"); err != nil {
 		t.Fatal(err)
 	}
 	var orphan uuid.UUID

@@ -130,7 +130,7 @@ func TestConvoSpeech_QuestionCardWaitingFor(t *testing.T) {
 	// 사람이 직접 불러 만든 lane — 위임자가 없다.
 	post := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
 	leadTask := mustUUID(t, str(post["triggers"].([]any)[0].(map[string]any), "task_id"))
-	st, err := f.srv.Router.SetAgentStatus(ctx, leadTask, 1, "blocked", "어디까지 할까요?")
+	st, err := f.setStatus(ctx, leadTask, 1, "blocked", "어디까지 할까요?")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,11 +148,11 @@ func TestConvoSpeech_QuestionCardWaitingFor(t *testing.T) {
 	}
 
 	// 위임으로 만든 lane 은 위임자를 멘션하므로 멘션 쪽으로 간다(표 3행 전반).
-	del, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "A 조사"})
+	del, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.rUUID, "A 조사"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	st2, err := f.srv.Router.SetAgentStatus(ctx, mustUUID(t, del.Task.Id.String()), 1, "blocked", "범위는요?")
+	st2, err := f.setStatus(ctx, mustUUID(t, del.Task.Id.String()), 1, "blocked", "범위는요?")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestConvoSpeech_ServerDecidesAtWrite(t *testing.T) {
 	leadTask := mustUUID(t, str(post["triggers"].([]any)[0].(map[string]any), "task_id"))
 
 	// 위임: router.Delegate writes it and knows it.
-	del, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "A 조사"})
+	del, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.rUUID, "A 조사"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func TestConvoSpeech_ServerDecidesAtWrite(t *testing.T) {
 	}
 
 	// 질문: blocked card. 답: a thread reply to it.
-	st, err := f.srv.Router.SetAgentStatus(ctx, rTask, 1, "blocked", "범위가 어디까지인가요?")
+	st, err := f.setStatus(ctx, rTask, 1, "blocked", "범위가 어디까지인가요?")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,13 +362,13 @@ func TestConvoSpeech_BackfillMatchesClassify(t *testing.T) {
 	post := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
 	leadTask := mustUUID(t, str(post["triggers"].([]any)[0].(map[string]any), "task_id"))
 	// (NN3) 위임 없이 사람이 만든 lane 의 질문 카드 — 멘션이 없다.
-	if _, err := f.srv.Router.SetAgentStatus(ctx, leadTask, 1, "blocked", "어디까지 할까요?"); err != nil {
+	if _, err := f.setStatus(ctx, leadTask, 1, "blocked", "어디까지 할까요?"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(ctx, `UPDATE lane SET status = 'running', blocked_message_id = NULL WHERE id = (SELECT lane_id FROM task WHERE id = $1)`, leadTask); err != nil {
 		t.Fatal(err)
 	}
-	del, err := f.srv.Router.Delegate(ctx, leadTask, router.DelegateInput{AgentID: f.rUUID, Brief: "A 조사"})
+	del, err := f.srv.Router.Delegate(ctx, leadTask, testCard(f.rUUID, "A 조사"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +404,7 @@ func TestConvoSpeech_BackfillMatchesClassify(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	st, err := f.srv.Router.SetAgentStatus(ctx, rTask, 1, "blocked", "질문?")
+	st, err := f.setStatus(ctx, rTask, 1, "blocked", "질문?")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -613,7 +613,7 @@ func upstreamRound(t *testing.T, f *p2Fixture, sessionID uuid.UUID) map[uuid.UUI
 	h1 := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " v9 만들어 주세요"})
 	h1ID := mustUUID(t, str(h1["message"].(map[string]any), "id"))
 	turn1 := turnWokenBy(t, f, f.leadUUID, h1ID)
-	d1, err := f.srv.Router.Delegate(ctx, turn1, router.DelegateInput{AgentID: f.rUUID, Brief: "v9 빌드"})
+	d1, err := f.srv.Router.Delegate(ctx, turn1, testCard(f.rUUID, "v9 빌드"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -712,7 +712,7 @@ func upstreamRound(t *testing.T, f *p2Fixture, sessionID uuid.UUID) map[uuid.UUI
 		t.Fatal(err)
 	}
 	sysTurn := turnWokenBy(t, f, f.leadUUID, sysMsg)
-	dSys, err := f.srv.Router.Delegate(ctx, sysTurn, router.DelegateInput{AgentID: f.rUUID, Brief: "시스템이 깨운 턴의 위임"})
+	dSys, err := f.srv.Router.Delegate(ctx, sysTurn, testCard(f.rUUID, "시스템이 깨운 턴의 위임"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -729,7 +729,7 @@ func upstreamRound(t *testing.T, f *p2Fixture, sessionID uuid.UUID) map[uuid.UUI
 	// (#370 리뷰 NN2) 윗선이 **자기 자신**이면 멈춘다 — 사슬이 자기가 쓴 말로 돌아오는
 	// 재위임 모양. q1(Lead 가 쓴 요청)으로 깨운 Lead 턴에서 위임한다.
 	selfTurn := turnWokenBy(t, f, f.leadUUID, q1.Id)
-	dSelf, err := f.srv.Router.Delegate(ctx, selfTurn, router.DelegateInput{AgentID: f.rUUID, Brief: "자기 말로 돌아오는 위임"})
+	dSelf, err := f.srv.Router.Delegate(ctx, selfTurn, testCard(f.rUUID, "자기 말로 돌아오는 위임"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -762,7 +762,7 @@ func TestConvoSpeech_UpstreamStopsAtAHumanWrittenRespondsTo(t *testing.T) {
 	post := f.post(t, map[string]any{"content": router.MentionLink("Lead", f.leadUUID) + " 시작"})
 	h1 := mustUUID(t, str(post["message"].(map[string]any), "id"))
 	turn1 := turnWokenBy(t, f, f.leadUUID, h1)
-	del, err := f.srv.Router.Delegate(ctx, turn1, router.DelegateInput{AgentID: f.rUUID, Brief: "A"})
+	del, err := f.srv.Router.Delegate(ctx, turn1, testCard(f.rUUID, "A"))
 	if err != nil {
 		t.Fatal(err)
 	}
