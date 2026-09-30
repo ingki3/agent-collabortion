@@ -295,6 +295,142 @@ func (s *Service) AfterLaneEnded(ctx context.Context, e tasks.LaneEnd) error {
 	return nil
 }
 
+// Join recovery window (#396 review NN1). A group becomes a candidate only
+// after its last child has been ended for joinRecoverGrace — the lane end's
+// own follow-up runs right after the finish commits and normally fires the
+// join first, so the sweep only speaks for a follow-up that did not happen —
+// and only for joinRecoverLookback: a deploy must not wake delegators for
+// groups that ended days ago under the old code (T-RF1-B left such groups
+// behind on purpose; they are not a lost follow-up).
+const (
+	joinRecoverGrace    = 30 * time.Second
+	joinRecoverLookback = time.Hour
+)
+
+// RecoverJoins is tasks.Service.RecoverJoins (wired in httpapi.NewServer): it
+// fires the join (FR-6.5) of every delegation group whose children have all
+// ended `done` or `failed` but whose join never fired. That is the state a
+// lost lane-end follow-up leaves — LaneEnded returned an error, or the
+// process died between the finish's commit and the hook — and nothing else
+// would ever fire it: a repeat finish takes the idempotent branch and a late
+// `status set done` finds the lane already done (Result.Became is false).
+//
+// Groups with a `blocked` child are left alone. `blocked` does not ask for
+// the join (the delegator was woken at once with the question — FR-6.2.1), and
+// the group completes through the answer's re-entry. Firing it here would be
+// a new behaviour, not a recovery (TestLaneDonePathTurnEndKeepsBlocked).
+//
+// Idempotent and race-safe through the same lock the lane-end path takes:
+// each group is judged in its own transaction by maybeFireJoin, which locks
+// the delegating task FOR UPDATE and returns if join_fired_at is set. A hook
+// that runs late, a second server's sweep, or two sweeps in a row land one
+// bundle. Lock order is the hook's: the last child's task and lane
+// (lockTaskCtx), then the delegating task.
+//
+// Each recovered join writes lane_end.join_recovered on the delegating task
+// (tasks.LaneEndJoinRecovered) — the count of windows that actually opened.
+// Returns how many it fired.
+func (s *Service) RecoverJoins(ctx context.Context, now time.Time) (int, error) {
+	rows, err := s.DB.Query(ctx, `
+		SELECT d.id,
+		       (SELECT t.id FROM lane c JOIN task t ON t.lane_id = c.id
+		         WHERE c.delegated_from_task_id = d.id ORDER BY c.finished_at DESC, t.created_at DESC LIMIT 1)
+		FROM task d
+		LEFT JOIN work wk ON wk.id = d.work_id
+		WHERE d.join_fired_at IS NULL
+		  AND COALESCE(wk.status::text, 'active') NOT IN ('completed', 'cancelled')
+		  AND EXISTS (SELECT 1 FROM lane c WHERE c.delegated_from_task_id = d.id)
+		  AND NOT EXISTS (SELECT 1 FROM lane c WHERE c.delegated_from_task_id = d.id
+		                    AND (c.status NOT IN ('done', 'failed') OR c.finished_at IS NULL))
+		  AND (SELECT max(c.finished_at) FROM lane c WHERE c.delegated_from_task_id = d.id)
+		        BETWEEN $1::timestamptz - $3::interval AND $1::timestamptz - $2::interval
+		ORDER BY d.id`, now, joinRecoverGrace.String(), joinRecoverLookback.String())
+	if err != nil {
+		return 0, fmt.Errorf("router: recover joins: %w", err)
+	}
+	type cand struct{ deleg, last uuid.UUID }
+	var cands []cand
+	for rows.Next() {
+		var c cand
+		var last *uuid.UUID
+		if err := rows.Scan(&c.deleg, &last); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		if last != nil {
+			c.last = *last
+			cands = append(cands, c)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	fired := 0
+	for _, c := range cands {
+		ok, err := s.recoverJoin(ctx, c.deleg, c.last, now)
+		if err != nil {
+			return fired, err
+		}
+		if ok {
+			fired++
+		}
+	}
+	if fired > 0 && s.Notifier != nil {
+		s.Notifier.Notify()
+	}
+	return fired, nil
+}
+
+// recoverJoin is one group of RecoverJoins, in its own transaction. It reports
+// whether THIS call fired the join (false: someone else got there first, or
+// the group is no longer complete).
+func (s *Service) recoverJoin(ctx context.Context, delegTask, lastChildTask uuid.UUID, now time.Time) (bool, error) {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	c, err := lockTaskCtx(ctx, tx, lastChildTask)
+	if errors.Is(err, tasks.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var before *time.Time
+	if err := tx.QueryRow(ctx, `SELECT join_fired_at FROM task WHERE id = $1`, delegTask).Scan(&before); err != nil {
+		return false, err
+	}
+	// An early exit only: the guard that makes a race land one bundle is
+	// maybeFireJoin's own check under the delegating task's FOR UPDATE.
+	if before != nil {
+		return false, nil
+	}
+	if err := s.maybeFireJoin(ctx, tx, c.sessionID, c.wsID, c.director, c.agentID, lastChildTask, delegTask, now); err != nil {
+		return false, err
+	}
+	var after *time.Time
+	var attempt int
+	if err := tx.QueryRow(ctx, `SELECT join_fired_at, attempt FROM task WHERE id = $1`, delegTask).Scan(&after, &attempt); err != nil {
+		return false, err
+	}
+	if after == nil {
+		return false, nil // a child is no longer ended (re-entered): nothing to recover
+	}
+	if attempt < 1 {
+		attempt = 1
+	}
+	if err := tasks.InsertServerEventOnce(ctx, tx, delegTask, attempt, "runtime", "report", tasks.LaneEndJoinRecovered, "info",
+		map[string]any{"detail": "맡긴 서브 미션이 모두 끝났는데 합류가 나가지 않아 서버가 다시 보냈습니다"}, now); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // afterLaneDone is FR-6.5. Two different notifications hang off one event, and
 // they are not interchangeable:
 //

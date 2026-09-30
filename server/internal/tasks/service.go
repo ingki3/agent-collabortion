@@ -75,11 +75,22 @@ type Service struct {
 	// moved out of Finish for (sessions.ApplyWorkEvent locks room → tasks).
 	// nil in unit tests with no router.
 	LaneEnded func(ctx context.Context, e LaneEnd) error
+
+	// RecoverJoins is the join's safety net (#396 review NN1), run by the
+	// scheduler sweep (ExpireStale) after its own transaction: a group whose
+	// children have all ended but whose join never fired — LaneEnded failed,
+	// or the process died between a finish's commit and the hook — gets it
+	// now (router.RecoverJoins). Same hook shape as LaneEnded. nil in unit
+	// tests with no router.
+	RecoverJoins func(ctx context.Context, now time.Time) (int, error)
 }
 
 // LaneEnd is one lane end LaneEnded is told about.
 type LaneEnd struct {
 	LaneID, TaskID uuid.UUID
+	// Attempt is the task's attempt that ended the lane — where a failed
+	// follow-up is noted (NoteLaneEndFailed).
+	Attempt int
 	// Status is what the lane was written: lanestate.Done or lanestate.Failed.
 	Status string
 }
@@ -98,8 +109,46 @@ func (s *Service) laneEnded(ctx context.Context, ends []LaneEnd) {
 	for _, e := range ends {
 		if err := s.LaneEnded(ctx, e); err != nil {
 			slog.Warn("tasks: lane end follow-up", "lane", e.LaneID, "task", e.TaskID, "status", e.Status, "err", err)
+			if nerr := s.NoteLaneEndFailed(ctx, e, err, s.Clock.Now()); nerr != nil {
+				slog.Warn("tasks: note lane end follow-up failure", "task", e.TaskID, "err", nerr)
+			}
 		}
 	}
+}
+
+// Lane-end follow-up records (#396 review NN3). A Warn line alone cannot
+// answer "why did the delegator never wake"; these two rows can, and they are
+// counted with one query over task_event:
+//
+//		SELECT object_ref #>> '{}', count(*) FROM task_event
+//		WHERE class = 'runtime' AND object_ref #>> '{}' LIKE 'lane_end.%' GROUP BY 1
+//
+//	  - lane_end.followup_failed (failed) — on the task whose end was not
+//	    followed up: LaneEnded returned an error. The lane end is committed; the
+//	    join is then owed by the recovery sweep (router.RecoverJoins).
+//	  - lane_end.join_recovered (info) — on the DELEGATING task: the sweep fired
+//	    a join no lane end had fired. Each one is a window that opened — a hook
+//	    that failed, or a process that died between the finish's commit and the
+//	    hook (which leaves no followup_failed row, since nothing ran to write it).
+const (
+	LaneEndFollowupFailed = "lane_end.followup_failed"
+	LaneEndJoinRecovered  = "lane_end.join_recovered"
+)
+
+// NoteLaneEndFailed writes the lane_end.followup_failed row (once per attempt).
+// class=runtime · `detail`: the server reporting on itself (S-52 rule 2), the
+// shape NoteBudgetEnforceFailed uses.
+func (s *Service) NoteLaneEndFailed(ctx context.Context, e LaneEnd, cause error, now time.Time) error {
+	attempt := e.Attempt
+	if attempt < 1 {
+		attempt = 1
+	}
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		return InsertServerEventOnce(ctx, tx, e.TaskID, attempt, "runtime", "error", LaneEndFollowupFailed, "failed",
+			map[string]any{
+				"detail": "서브 미션이 끝난 뒤 합류·보고를 보내지 못했습니다 — 합류는 서버가 다시 확인해 보냅니다: " + cause.Error(),
+			}, now)
+	})
 }
 
 // LanesFailed tells LaneEnded about tasks a caller-owned transaction (the
@@ -110,10 +159,11 @@ func (s *Service) LanesFailed(ctx context.Context, taskIDs []uuid.UUID) {
 	var ends []LaneEnd
 	for _, id := range taskIDs {
 		var lane uuid.UUID
-		if err := s.DB.QueryRow(ctx, `SELECT lane_id FROM task WHERE id = $1`, id).Scan(&lane); err != nil {
+		var attempt int
+		if err := s.DB.QueryRow(ctx, `SELECT lane_id, attempt FROM task WHERE id = $1`, id).Scan(&lane, &attempt); err != nil {
 			continue
 		}
-		ends = append(ends, LaneEnd{LaneID: lane, TaskID: id, Status: "failed"})
+		ends = append(ends, LaneEnd{LaneID: lane, TaskID: id, Attempt: attempt, Status: "failed"})
 	}
 	s.laneEnded(ctx, ends)
 }
@@ -123,7 +173,7 @@ func (s *Service) LanesFailed(ctx context.Context, taskIDs []uuid.UUID) {
 // keeps a `done` lane done, K-16) is the hook's to read after the commit.
 func failedEnd(before Status, t *Row) []LaneEnd {
 	if !Terminal(before) && (t.Status == Failed || t.Status == Cancelled) {
-		return []LaneEnd{{LaneID: t.LaneID, TaskID: t.ID, Status: "failed"}}
+		return []LaneEnd{{LaneID: t.LaneID, TaskID: t.ID, Attempt: t.Attempt, Status: "failed"}}
 	}
 	return nil
 }
@@ -578,6 +628,14 @@ func (s *Service) ExpireStale(ctx context.Context, now time.Time) (int, error) {
 		// join may be waiting on it (FR-6.5, T-FIX-B).
 		s.laneEnded(ctx, ends)
 	}
+	if s.RecoverJoins != nil {
+		// After the sweep's own lane ends: those got their hook just above.
+		if k, rerr := s.RecoverJoins(ctx, now); rerr != nil {
+			slog.Warn("tasks: recover joins", "err", rerr)
+		} else if k > 0 {
+			slog.Info("tasks: recovered lost joins", "n", k)
+		}
+	}
 	return n, err
 }
 
@@ -846,7 +904,7 @@ func (s *Service) Finish(ctx context.Context, taskID uuid.UUID, attempt int, f c
 			if _, err := lanedone.MarkDone(ctx, tx, lanedone.Request{
 				LaneID: t.LaneID, Cause: lanedone.TurnEnd, Now: now,
 				AfterDone: func(context.Context, pgx.Tx) error {
-					ends = append(ends, LaneEnd{LaneID: t.LaneID, TaskID: t.ID, Status: "done"})
+					ends = append(ends, LaneEnd{LaneID: t.LaneID, TaskID: t.ID, Attempt: attempt, Status: "done"})
 					return nil
 				},
 			}); err != nil {
@@ -1349,7 +1407,7 @@ func (s *Service) CancelLane(ctx context.Context, laneID, byUserID uuid.UUID) (*
 	if err == nil && immediate && out != nil {
 		// FR-6.5: a cancelled child is a `failed` one, and the group waits
 		// for it no longer (T-FIX-B).
-		s.laneEnded(ctx, []LaneEnd{{LaneID: out.LaneID, TaskID: out.ID, Status: "failed"}})
+		s.laneEnded(ctx, []LaneEnd{{LaneID: out.LaneID, TaskID: out.ID, Attempt: out.Attempt, Status: "failed"}})
 		s.settled(ctx, out.WorkID)
 	}
 	return out, immediate, err
