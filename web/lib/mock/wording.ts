@@ -71,6 +71,7 @@ export const NOT_FOUND_NOUN: Record<string, string> = {
   runtime: "컴퓨터",
   pairing: "연결 코드",
   lane: "서브 미션",
+  card: "작업 카드",
   task: "할 일",
   inbox_item: "받은 요청",
   hitl_request: "확인 요청",
