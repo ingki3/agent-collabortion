@@ -40,40 +40,43 @@ RUNTIME_ID="$(runtime_of_config "$CFG")"
 script_of() { jq -nc --arg fx "$FIX" --arg r "$1" '{turns:[{steps:[{exec:("bash "+$fx+"/cards_flow.sh "+$r), exec_timeout_ms:60000}]}]}'; }
 mk() { create_agent_fake "$WS" "$1" "$2" claude_code "$LEAD_MODEL" "$1 이다." "$1" "$(script_of "$1")"; }
 recv() { cat "$REC/101-$1" 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
+# q SQL → 값, 표·칸이 없으면(origin/dev 바이너리로 돌린 before) 「-」 — 판정 행이 모두 남게.
+q() { psqlq "$1" 2>/dev/null || echo -; }
 
 step "2. 방 C — Lead·A·B 카드 한 바퀴"
 LEAD="$(mk Lead lead)"; A="$(mk A researcher)"; B="$(mk B researcher)"
 ROOM_C="$(create_session_p2 "$WS" "카드" "시장 조사" "$LEAD" "$RUNTIME_ID" "$LEAD" "$LEAD" "$A" "$B")"
-cards_n() { psqlq "select count(*) from task_card where room_id='$1'"; }
-card_row() { psqlq "select status||' v'||version from task_card where room_id='$ROOM_C' and number=$1"; }
-wait_until "$T_TURN" "[ \"\$(card_row 2)\" = 'accepted v2' ]" || true
+cards_n() { q "select count(*) from task_card where room_id='$1'"; }
+card_row() { q "select status||' v'||version from task_card where room_id='$ROOM_C' and number=$1"; }
+# 끝 = C-2 가 v2 로 수락됐다, 또는(before: 카드가 없는 바이너리) 위임 시도가 끝나고 방이 조용하다.
+wait_until "$T_TURN" "[ \"\$(card_row 2)\" = 'accepted v2' ] || { [ -s \"$REC/101-lead-delegated\" ] && [ \"\$(q \"select count(*) from task where session_id='$ROOM_C' and status in ('queued','dispatched','preparing','running')\")\" = 0 ]; }" || true
 wait_quiet "$ROOM_C" "$T_TURN" || true
 chk C1a "첫 위임(기준 없음) → exit 3 card_invalid" "3 card_invalid" "$(recv lead-invalid)"
-chk C1b "고친 위임 둘 → exit 0 · 카드 번호 1·2 만" "0/0/1,2" "$(recv lead-deleg-a)/$(recv lead-deleg-b)/$(psqlq "select string_agg(number::text, ',' order by number) from task_card where room_id='$ROOM_C'")"
-LANE_B="$(psqlq "select lane_id from task_card where room_id='$ROOM_C' and number=2")"
-chk C2a "B 의 결과 없는 턴 → result_card_missing 후속 task 1" 1 "$(psqlq "select count(*) from task where lane_id='$LANE_B' and trigger_reason='result_card_missing'")"
-chk C2b "후속 턴이 결과 카드를 냈다(자동 결과 아님)" "ok/0" "$(recv b-followup-report)/$(psqlq "select count(*) from message where session_id='$ROOM_C' and card_role='result' and content like '%(자동)%'")"
-chk C3a "합류 묶음 1" 1 "$(psqlq "select count(*) from message where session_id='$ROOM_C' and author_type='system' and content like '%위임한 작업이 모두 끝났습니다%'")"
+chk C1b "고친 위임 둘 → exit 0 · 카드 번호 1·2 만" "0/0/1,2" "$(recv lead-deleg-a)/$(recv lead-deleg-b)/$(q "select string_agg(number::text, ',' order by number) from task_card where room_id='$ROOM_C'")"
+LANE_B="$(q "select lane_id from task_card where room_id='$ROOM_C' and number=2")"
+chk C2a "B 의 결과 없는 턴 → result_card_missing 후속 task 1" 1 "$(q "select count(*) from task where lane_id='$LANE_B' and trigger_reason='result_card_missing'")"
+chk C2b "후속 턴이 결과 카드를 냈다(자동 결과 아님)" "ok/0" "$(recv b-followup-report)/$(q "select count(*) from message where session_id='$ROOM_C' and card_role='result' and content like '%(자동)%'")"
+chk C3a "합류 묶음 1" 1 "$(q "select count(*) from message where session_id='$ROOM_C' and author_type='system' and content like '%위임한 작업이 모두 끝났습니다%'")"
 chk C3b "Lead 가 <result_cards> 로 두 번 판정 · accept/revise/accept exit 0" "2 0/0/0" "$(recv lead-judge | awk '{print $NF}') $(recv lead-accept1)/$(recv lead-revise)/$(recv lead-accept2)"
 chk C4a "C-1 accepted v1 · C-2 accepted v2" "accepted v1/accepted v2" "$(card_row 1)/$(card_row 2)"
-chk C4b "C-2 수정 요청 사유가 지난 판에 남았다" 1 "$(psqlq "select count(*) from task_card where room_id='$ROOM_C' and number=2 and jsonb_array_length(versions) >= 1")"
-chk C4c "위임 말풍선 3(C-1 · C-2 v1 · C-2 v2) · 결과 말풍선 3" "3/3" "$(psqlq "select count(*) from message where session_id='$ROOM_C' and card_role='delegation'")/$(psqlq "select count(*) from message where session_id='$ROOM_C' and card_role='result'")"
-chk C5 "B 의 lane 은 하나(수정 요청은 같은 lane 재진입)" 1 "$(psqlq "select count(*) from lane where session_id='$ROOM_C' and agent_id='$B'")"
-psqlq "select number, version, status, follow_ups from task_card where room_id='$ROOM_C' order by number" > "$OUT/101-cards.txt"
-psqlq "select a.name, t.kind, coalesce(t.trigger_reason,'-'), t.status from task t join agent a on a.id=t.agent_id where t.session_id='$ROOM_C' order by t.created_at" > "$OUT/101-tasks-C.txt"
+chk C4b "C-2 수정 요청 사유가 지난 판에 남았다" 1 "$(q "select count(*) from task_card where room_id='$ROOM_C' and number=2 and jsonb_array_length(versions) >= 1")"
+chk C4c "위임 말풍선 3(C-1 · C-2 v1 · C-2 v2) · 결과 말풍선 3" "3/3" "$(q "select count(*) from message where session_id='$ROOM_C' and card_role='delegation'")/$(q "select count(*) from message where session_id='$ROOM_C' and card_role='result'")"
+chk C5 "B 의 lane 은 하나(수정 요청은 같은 lane 재진입)" 1 "$(q "select count(*) from lane where session_id='$ROOM_C' and agent_id='$B'")"
+q "select number, version, status, follow_ups from task_card where room_id='$ROOM_C' order by number" > "$OUT/101-cards.txt"
+q "select a.name, t.kind, coalesce(t.trigger_reason,'-'), t.status from task t join agent a on a.id=t.agent_id where t.session_id='$ROOM_C' order by t.created_at" > "$OUT/101-tasks-C.txt"
 
 step "3. 방 Q — 에이전트 간 멘션은 질문"
 Q="$(mk Q researcher)"; printf '%s' "$Q" > "$REC/101-q-id"
 ASKER="$(mk Asker researcher)"
 ROOM_Q="$(create_session_p2 "$WS" "질문" "가격대를 묻는다" "$ASKER" "$RUNTIME_ID" "$ASKER" "$ASKER" "$Q")"
-wait_until "$T_TURN" "[ -s \"$REC/101-q-answered\" ]" || true
+wait_until "$T_TURN" "[ -s \"$REC/101-q-answered\" ] || [ \"\$(q \"select count(*) from task where session_id='$ROOM_Q' and status='completed'\")\" -ge 2 ]" || true
 wait_quiet "$ROOM_Q" "$T_TURN" || true
-chk Q1a "Q 의 task kind question 1" 1 "$(psqlq "select count(*) from task where session_id='$ROOM_Q' and agent_id='$Q' and kind='question'")"
-chk Q1b "speech question 1 · answer 1" "1/1" "$(psqlq "select count(*) from message where session_id='$ROOM_Q' and speech='question'")/$(psqlq "select count(*) from message where session_id='$ROOM_Q' and speech='answer'")"
+chk Q1a "Q 의 task kind question 1" 1 "$(q "select count(*) from task where session_id='$ROOM_Q' and agent_id='$Q' and kind='question'")"
+chk Q1b "speech question 1 · answer 1" "1/1" "$(q "select count(*) from message where session_id='$ROOM_Q' and speech='question'")/$(q "select count(*) from message where session_id='$ROOM_Q' and speech='answer'")"
 chk Q2a "질문 턴의 artifact submit → exit 3 command_not_allowed" "3 command_not_allowed" "$(recv q-submit)"
 chk Q2b "거부 문장 = 질문 거부 문장" "이 턴은 질문에 답하는 턴입니다 — artifact submit 를 쓸 수 없습니다. 일을 맡기려면 카드로 위임하세요" "$(cat "$REC/101-q-submit-detail" 2>/dev/null)"
 chk Q3 "질문은 카드를 만들지 않는다" 0 "$(cards_n "$ROOM_Q")"
-psqlq "select a.name, t.kind, t.status from task t join agent a on a.id=t.agent_id where t.session_id='$ROOM_Q' order by t.created_at" > "$OUT/101-tasks-Q.txt"
+q "select a.name, t.kind, t.status from task t join agent a on a.id=t.agent_id where t.session_id='$ROOM_Q' order by t.created_at" > "$OUT/101-tasks-Q.txt"
 echo "$WS $ROOM_C $ROOM_Q $RUNTIME_ID" > "$OUT/101-ids.txt"
 
 printf '\n101_task_cards: pass=%s fail=%s (RUNTIME=%s)\n' "$pass" "$fail" "$RUNTIME"
