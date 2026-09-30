@@ -9,26 +9,37 @@
  */
 import type { CardAction, CardBoard, CardBoardItem, CardJudgement, CardResult, CardStatus, TaskCard } from "./api/types";
 
-export type CardCache = Record<string, TaskCard>;
+/**
+ * 캐시의 카드 — 계약 `TaskCard` + 이 화면만의 표 하나: `actions_trusted` 는 `actions` 를 **믿을 곳**(getCard · 내 accept/revise 응답)에서
+ * 받은 적이 있는가. 방송(`card.*`)으로만 들어온 카드는 false — 말풍선이 그걸 「아직 없음」으로 보고 `getCard` 를 한 번 부른다(#397 B1:
+ * 위임 말풍선이 페이지 밖인 방에서 `card.updated` 가 결과 말풍선보다 먼저 오면 Director 메뉴가 영영 안 서던 것).
+ */
+export type CachedCard = TaskCard & { actions_trusted?: boolean };
+export type CardCache = Record<string, CachedCard>;
 
-/** 한 판의 모양 — 현재 판이면 카드 칸 그대로, 지난 판이면 `versions[]` 의 그 판(없는 칸은 현재 판에서 빌린다). */
+/**
+ * 한 판의 모양 — 현재 판이면 카드 칸 그대로, 지난 판이면 `versions[]` 의 그 판(계약 v0.3.10 #397 B2: 판마다 전체 모양).
+ * 지난 판에 칸이 없으면 **현재 판에서 빌리지 않는다** — null(목록은 빈 목록)로 두고 말풍선은 그 칸을 그리지 않는다.
+ */
 export interface CardVersionView {
   version: number;
   current: boolean;
-  goal: string;
+  goal: string | null;
   criteria: TaskCard["criteria"];
-  boundaries: string;
-  refs: TaskCard["refs"];
+  boundaries: string | null;
+  /** null = 그 판의 참고 자료를 모른다(그리지 않는다). */
+  refs: TaskCard["refs"] | null;
   output_format: string | null;
   budget_usd: number | null;
   revise_reason: string | null;
+  delegate_message_id: string | null;
   result: CardResult | null;
   judgement: CardJudgement | null;
   /** 지난 판은 상태가 없다 — 그 판의 판정(수정 요청)이 말한다. */
   status: CardStatus | null;
 }
 
-type VersionSnap = Partial<Pick<TaskCard, "goal" | "criteria" | "boundaries" | "refs" | "output_format" | "budget_usd" | "revise_reason" | "result" | "judgement">> & { version: number };
+type VersionSnap = Partial<Pick<TaskCard, "goal" | "criteria" | "boundaries" | "refs" | "output_format" | "budget_usd" | "revise_reason" | "delegate_message_id" | "result" | "judgement">> & { version: number };
 
 /** 사람이 지금 할 수 있는 판정이 그 상태에서 말이 되는가(계약 `TaskCard.actions` 설명 — accept 는 결과 제출에서만, revise 는 결과 제출·수락에서). */
 export function actionFits(status: CardStatus, a: CardAction): boolean {
@@ -42,17 +53,26 @@ export function cardVersion(card: TaskCard, version: number | null | undefined):
     return {
       version: v, current: true, goal: card.goal, criteria: card.criteria, boundaries: card.boundaries, refs: card.refs,
       output_format: card.output_format, budget_usd: card.budget_usd, revise_reason: card.revise_reason ?? null,
-      result: card.result ?? null, judgement: card.judgement ?? null, status: card.status,
+      delegate_message_id: card.delegate_message_id ?? null, result: card.result ?? null, judgement: card.judgement ?? null, status: card.status,
     };
   }
   const snap = (card.versions as VersionSnap[] | undefined)?.find((x) => x.version === v);
   if (!snap) return null;
+  // 빌리지 않는다(#397 B2) — 그 판에 없는 칸은 없는 것이다.
   return {
-    version: v, current: false, goal: snap.goal ?? card.goal, criteria: snap.criteria ?? card.criteria, boundaries: snap.boundaries ?? card.boundaries,
-    refs: snap.refs ?? card.refs, output_format: snap.output_format !== undefined ? snap.output_format : card.output_format,
-    budget_usd: snap.budget_usd !== undefined ? snap.budget_usd : card.budget_usd, revise_reason: snap.revise_reason ?? null,
-    result: snap.result ?? null, judgement: snap.judgement ?? null, status: null,
+    version: v, current: false, goal: snap.goal ?? null, criteria: snap.criteria ?? [], boundaries: snap.boundaries ?? null,
+    refs: snap.refs ?? null, output_format: snap.output_format ?? null, budget_usd: snap.budget_usd ?? null, revise_reason: snap.revise_reason ?? null,
+    delegate_message_id: snap.delegate_message_id ?? null, result: snap.result ?? null, judgement: snap.judgement ?? null, status: null,
   };
+}
+
+/** 말풍선이 캐시에 무엇을 더 부탁해야 하나(null = 충분). 판이 없으면 card, 결과 말풍선인데 그 판에 결과가 없으면 result,
+ *  사람이 판정할 수 있는 상태(결과 제출 · 수락)의 현재 판인데 `actions` 를 믿을 곳에서 받은 적이 없으면 actions(#397 B1). */
+export function cardNeed(card: CachedCard | null, view: CardVersionView | null, role: "delegation" | "result"): "card" | "result" | "actions" | null {
+  if (!card || !view) return "card";
+  if (role === "result" && !view.result) return "result";
+  if (view.current && (card.status === "result_submitted" || card.status === "accepted") && !card.actions_trusted) return "actions";
+  return null;
 }
 
 /** 결과 카드 머리의 판정 칩 — 판정이 없으면 판정 대기. */
@@ -71,9 +91,20 @@ export function goalExcerpt(goal: string, max = 20): string {
   return t.length > max ? `${t.slice(0, max).trimEnd()}…` : t;
 }
 
-/** `getCard` 응답을 캐시에 — 지난 판까지 가진 정본이라 통째로 바꾼다. */
+const at = (x: string | undefined) => (x ? Date.parse(x) : 0);
+/** `a` 가 `b` 보다 옛 모양인가 — 판이 낮거나, 같은 판에서 `updated_at` 이 이르다. */
+function older(a: TaskCard, b: TaskCard): boolean {
+  return a.version < b.version || (a.version === b.version && at(a.updated_at) < at(b.updated_at));
+}
+
+/**
+ * `getCard` 응답을 캐시에 — 지난 판까지 가진 정본이라 통째로 바꾸고 `actions` 를 믿는다. 단 캐시가 이미 **더 새것**이면 버린다(#397 NN2:
+ * `card.updated` 마다 getCard 를 부르니 두 이벤트가 한 RTT 안에 오면 늦게 도착한 옛 응답이 새 캐시를 덮던 것).
+ */
 export function cardsOnFetched(cache: CardCache, card: TaskCard): CardCache {
-  return { ...cache, [card.id]: card };
+  const prev = cache[card.id];
+  if (prev && older(card, prev)) return cache;
+  return { ...cache, [card.id]: { ...card, actions_trusted: true } };
 }
 
 /**
@@ -86,17 +117,21 @@ export function cardsOnFetched(cache: CardCache, card: TaskCard): CardCache {
 export function cardsOnUpserted(cache: CardCache, card: TaskCard, o: { trustActions?: boolean } = {}): CardCache {
   const prev = cache[card.id];
   if (!o.trustActions && prev && prev.version === card.version && prev.updated_at === card.updated_at && prev.status === card.status) return cache;
+  // 늦게 도착한 옛 방송(재연결 재생 등)은 버린다 — 판·updated_at 이 캐시보다 이르다.
+  if (!o.trustActions && prev && older(card, prev)) return cache;
   let versions = prev?.versions;
   if (prev && card.version > prev.version) {
     const snap: VersionSnap = {
       version: prev.version, goal: prev.goal, criteria: prev.criteria, boundaries: prev.boundaries, refs: prev.refs, output_format: prev.output_format,
-      budget_usd: prev.budget_usd, revise_reason: prev.revise_reason ?? null, result: prev.result ?? null, judgement: prev.judgement ?? null,
+      budget_usd: prev.budget_usd, revise_reason: prev.revise_reason ?? null, delegate_message_id: prev.delegate_message_id ?? null,
+      result: prev.result ?? null, judgement: prev.judgement ?? null,
     };
     versions = [...((prev.versions as VersionSnap[] | undefined) ?? []).filter((x) => x.version !== prev.version), snap];
   }
   // 방송(SSE)의 actions 는 믿지 않는다 — 처음 보는 카드면 빈 목록(부른 쪽이 getCard 로 채운다). 내 호출의 응답(acceptCard·reviseCard)만 믿는다.
   const actions = o.trustActions ? card.actions ?? [] : (prev?.actions ?? []).filter((a) => actionFits(card.status, a));
-  return { ...cache, [card.id]: { ...card, versions: card.versions ?? versions, actions } };
+  const actions_trusted = o.trustActions ? true : prev?.actions_trusted ?? false;
+  return { ...cache, [card.id]: { ...card, versions: card.versions ?? versions, actions, actions_trusted } };
 }
 
 /** 카드 → 분담표 한 행(계약 `CardBoard.items`). 비용은 결과 카드의 비용(판의 카드 task 합), 없으면 모른다. */
@@ -111,6 +146,7 @@ export function boardItemOf(card: TaskCard, prev?: CardBoardItem): CardBoardItem
 
 /** `card.*` 로 분담표 행을 제자리 갱신 — 그 미션의 카드만(다른 미션 · 읽기 전이면 그대로). 머리 수(카드 N · 판정 대기 N)도 다시 센다. */
 export function boardOnCard(board: CardBoard | null, card: TaskCard): CardBoard | null {
+  // 읽기 전·실패(null)면 그대로 — 이 카드 한 장으로 표를 만들지 않는다(#397 NN6: 「카드 1」 틀린 머리). 부른 쪽이 다시 읽는다.
   if (!board || (board.work_id ?? null) !== (card.work_id ?? null)) return board;
   const prev = board.items.find((x) => x.id === card.id);
   const item = boardItemOf(card, prev);

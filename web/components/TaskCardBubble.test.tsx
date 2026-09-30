@@ -5,7 +5,9 @@
  * 회귀 주입(PR 표): timelineEntry 의 card_role 분기를 빼면 (고르기) FAIL; 위임 카드의 경계 Row 를 빼면 (칸 전부) FAIL; RefChip 의 missing 분기를
  * 빼면 (지워진 자료) FAIL; downgraded 분기를 빼면 (근거 없음) FAIL; 가정함 Row 의 tcard__row--warn 을 빼면 (가정함 경고색) FAIL;
  * cardMenuItems 가 actions 를 안 보면 (권한별 메뉴) FAIL; auto 분기를 빼면 (자동) FAIL; needCard 부탁을 빼면 (캐시에 없음) FAIL;
- * 판 고르기(card_version)를 빼고 현재 판만 그리면 (1판 · 2판) FAIL.
+ * 판 고르기(card_version)를 빼고 현재 판만 그리면 (1판 · 2판) FAIL; cardMenuItems 의 accepted 에서 actions 를 안 보면 (수락됨 · 권한 없음) FAIL(#397 NN1);
+ * cardNeed 의 actions 분기를 빼면 (카드 먼저) FAIL(B1); cardVersion 이 빌리면 (지난 판 빈 칸) FAIL(B2); lane 칩 숨김을 빼면 (칩 하나) FAIL(NN5);
+ * TimelineItemView 의 memo 를 빼면 (렌더 수) FAIL(NN4).
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +15,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { TimelineItemView, timelineEntry, type TimelineCtx } from "./TimelineItemView";
 import { cardMenuItems } from "./TaskCardBubble";
 import { timelineItems } from "@/lib/parts";
+import { cardsOnFetched, cardsOnUpserted } from "@/lib/cards";
 import { TASK_CARD } from "@/lib/wording";
 import type { Message, TaskCard } from "@/lib/api/types";
 
@@ -132,6 +135,55 @@ describe("위임 카드 — 칸 전부", () => {
   });
 });
 
+describe("지난 판 말풍선은 그 판의 칸만 (#397 B2)", () => {
+  it("1판 위임 말풍선 — 1판에 없는 참고·결과물·예산은 그리지 않는다(2판의 지워진 칩·결과물이 1판에 서지 않는다)", () => {
+    const c = card({
+      version: 2, output_format: "새 결과물", budget_usd: 9, refs: [{ kind: "message", id: "gone", label: "x", missing: true }],
+      versions: [{ version: 1, goal: "커브만", criteria: [{ n: 1, text: "코너", method: "test" }], boundaries: "없음" }],
+    });
+    render(<TimelineItemView item={one(delegation())} ctx={ctx({ cards: { c3: c } })} />);
+    expect(screen.getByTestId("card-goal")).toHaveTextContent("커브만");
+    expect(screen.queryByTestId("card-refs")).toBeNull();
+    expect(screen.queryByTestId("card-output")).toBeNull();
+  });
+});
+
+describe("카드 말풍선의 상태 칩은 하나 (#397 NN5)", () => {
+  it("대화 머리의 lane 위임 상태 칩을 숨기고 카드 칩만", () => {
+    const lane = { id: "l3", status: "running" } as never;
+    const conv: TimelineCtx["conversation"] = (m) => ({ speech: { kind: "delegate", to: [{ kind: "agent", id: "a2", name: "Developer" }], lane }, grouped: false, onJump: () => undefined }) as never;
+    render(<TimelineItemView item={one(delegation())} ctx={ctx({ cards: { c3: card() }, conversation: conv })} />);
+    expect(screen.getAllByRole("img", { name: "진행 중" })).toHaveLength(1);
+    expect(screen.queryByRole("img", { name: /실행 중/ })).toBeNull();
+    cleanup();
+    // 보통 위임 말풍선(카드 없음)은 그대로 lane 칩을 그린다.
+    render(<TimelineItemView item={one(msg("plain"))} ctx={ctx({ conversation: conv })} />);
+    expect(screen.getByRole("img", { name: /실행 중/ })).toBeInTheDocument();
+  });
+});
+
+describe("TimelineItemView 는 memo (#397 NN4)", () => {
+  it("같은 ctx · 같은 메시지면 부모가 다시 그려도(새 항목 껍데기) 항목은 다시 안 그린다 · ctx 가 바뀌면 다시 그린다", () => {
+    const m = delegation();
+    let renders = 0;
+    // 항목이 그려질 때마다 부르는 ctx 칸(층 나누기)으로 센다.
+    const c1 = ctx({ cards: { c3: card() }, layers: () => { renders += 1; return undefined; } });
+    const Host = ({ c, tick }: { c: TimelineCtx; tick: number }) => (
+      <div data-tick={tick}>
+        <TimelineItemView item={timelineItems([m])[0]} ctx={c} />
+      </div>
+    );
+    const { rerender } = render(<Host c={c1} tick={0} />);
+    const first = renders;
+    expect(first).toBeGreaterThan(0);
+    rerender(<Host c={c1} tick={1} />);
+    rerender(<Host c={c1} tick={2} />);
+    expect(renders).toBe(first);
+    rerender(<Host c={{ ...c1 }} tick={3} />);
+    expect(renders).toBeGreaterThan(first);
+  });
+});
+
 describe("결과 카드 — 칸 전부 · downgraded · 자동", () => {
   const submitted = () => card({ status: "result_submitted", result: result() });
   it("머리(C-3 결과 · 기준 1/3 충족 · 판정 대기) · ↩ C-3 「목표…」 · 요약 · 기준별 글리프 · 근거 링크 · 사유 · 확인함 · 가정함(경고색) · 벗어난 점 · 남은 문제 · 비용·시간", () => {
@@ -241,6 +293,31 @@ describe("사람의 되돌리기 — 「⋯」 메뉴는 TaskCard.actions 만 �
     render(<TimelineItemView item={one(resultMsg())} ctx={ctx({ cards: { c3: c2 } })} />);
     open();
     expect(screen.queryByTestId("card-menu-accept")).toBeNull();
+  });
+  it("수락됨 + actions 빈 목록(권한 없음) — 「수락 취소…」 없음 (#397 NN1)", () => {
+    render(<TimelineItemView item={one(resultMsg())} ctx={ctx({ cards: { c3: card({ status: "accepted", result: result(), actions: [] }) } })} />);
+    open();
+    expect(screen.queryByTestId("card-menu-unaccept")).toBeNull();
+    expect(screen.queryByTestId("card-menu-revise")).toBeNull();
+    expect(cardMenuItems(card({ status: "accepted", actions: [] }))).toEqual([]);
+  });
+  it("카드 이벤트가 말풍선보다 먼저(처음 보는 카드 · 방송 actions 버림) — 결과 말풍선이 getCard(actions) 를 부탁하고, 받으면 메뉴가 선다 (#397 B1)", () => {
+    const needCard = vi.fn();
+    // ① card.updated(결과 제출) 가 먼저 — 위임 말풍선은 페이지 밖이라 캐시에 없던 카드.
+    const cache1 = cardsOnUpserted({}, card({ status: "result_submitted", result: result(), actions: ["accept", "revise"] }));
+    expect(cache1.c3.actions).toEqual([]);
+    // ② 뒤이어 결과 말풍선 — 판에 결과가 있어도 actions 를 믿은 적 없으니 부탁한다.
+    const { rerender } = render(<TimelineItemView item={one(resultMsg())} ctx={ctx({ cards: cache1, needCard })} />);
+    expect(needCard).toHaveBeenCalledWith("c3", 1, "actions");
+    expect(needCard.mock.calls.every((c) => c[2] === "actions")).toBe(true); // 방 화면이 (카드·판·종류) 로 한 번만 부른다
+    const asked = needCard.mock.calls.length;
+    expect(screen.getByTestId("card-head")).toBeInTheDocument(); // 칸은 이미 그린다
+    // ③ getCard 응답(Director) — 메뉴가 선다.
+    const cache2 = cardsOnFetched(cache1, card({ status: "result_submitted", result: result(), actions: ["accept", "revise"] }));
+    rerender(<TimelineItemView item={one(resultMsg())} ctx={ctx({ cards: cache2, needCard })} />);
+    open();
+    expect(screen.getByTestId("card-menu-accept")).toBeInTheDocument();
+    expect(needCard).toHaveBeenCalledTimes(asked); // 믿을 곳에서 받았으니 더 부탁하지 않는다
   });
   it("cardMenuItems — 상태와 actions 가 둘 다 맞을 때만", () => {
     expect(cardMenuItems(card({ status: "in_progress", actions: ["accept", "revise"] }))).toEqual([]);

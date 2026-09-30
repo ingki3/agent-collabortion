@@ -168,6 +168,10 @@ describe("작업 카드(v0.3.10) — card.created · card.updated", () => {
     const on = page.slice(page.indexOf("const onEvent = useCallback"), page.indexOf("const conn = useWorkspaceStream"));
     expect(on).toMatch(/case "card\.created":\s*case "card\.updated":/);
     expect(on).toContain("cardsOnUpserted(cur, c)");
-    expect(on).toContain("boardOnCard(");
+    expect(on).toContain("boardOnCard(b, c)");
+    // 처음 보는 카드도 판정할 수 있는 상태면 getCard(#397 B1) · 분담표를 못 읽었으면 한 장짜리 표를 만들지 않고 다시 읽는다(NN6).
+    expect(on).toMatch(/c\.status === "result_submitted" \|\| c\.status === "accepted"\) fetchCard\(c\.id\)/);
+    expect(on).not.toContain("items: []");
+    expect(on).toContain("loadBoard(");
   });
 });

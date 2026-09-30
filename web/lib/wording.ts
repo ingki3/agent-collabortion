@@ -915,6 +915,8 @@ export const TASK_CARD = {
   board_head: (n: number, pending: number) => `카드 ${n} · 판정 대기 ${pending}`,
   board_none: "–",
   board_open: (label: string) => `${label} 말풍선으로 가기`,
+  /** 행 aria-label — 번호 · 목표 · 담당 · 상태 · 기준 충족 수(#397 NN6: 「말풍선으로 가기」가 내용을 덮지 않게 — 그 말은 title 로). */
+  board_row_aria: (label: string, goal: string, who: string, status: string, met: string) => `${label} · ${goal} · @${who} · ${status} · 기준 ${met}`,
   board_loading: "분담표를 불러오는 중…",
 } as const;
 

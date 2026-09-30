@@ -379,7 +379,7 @@ export default function RoomPage() {
       .then((c) => { if (c.room_id === roomId) setCards((cur) => cardsOnFetched(cur, c)); })
       .catch(() => undefined);
   }, [roomId]);
-  const needCard = useCallback((cardId: string, version: number | null, want: "card" | "result") => {
+  const needCard = useCallback((cardId: string, version: number | null, want: "card" | "result" | "actions") => {
     const k = `${cardId}:${version ?? "cur"}:${want}`;
     if (requestedCards.current.has(k)) return;
     requestedCards.current.add(k);
@@ -466,6 +466,8 @@ export default function RoomPage() {
   panelRef.current = panelWorkId;
   const cardsRef = useRef(cards);
   cardsRef.current = cards;
+  const boardRef = useRef(board);
+  boardRef.current = board;
   const onEvent = useCallback((ev: StreamEvent) => {
     // 워크스페이스 전체 스트림 — 다른 방의 프레임은 버린다(§6: 구독 범위는 방, 미션은 클라이언트가 거른다).
     const rid = ev.room_id;
@@ -582,20 +584,25 @@ export default function RoomPage() {
         setTyping((t) => typingOn(t, e.payload));
         break;
       // 작업 카드(v0.3.10) — 캐시 하나와 분담표를 제자리에서. 방송의 `actions` 는 보는 사람 모양이 아니라 믿지 않는다 —
-      // 이미 보고 있는 카드면 `getCard` 로 내 동작(수락·수정 요청)을 다시 읽는다(Director 에게 「수락」이 결과 제출 순간 선다).
+      // `getCard` 로 내 동작(수락·수정 요청)을 다시 읽는다: 이미 보고 있는 카드 · 또는 처음 보는 카드라도 사람이 판정할 수 있는 상태(결과 제출 ·
+      // 수락)면(#397 B1 — 위임 말풍선이 페이지 밖인 방에서 card.updated 가 결과 말풍선보다 먼저 오면 Director 메뉴가 영영 안 서던 것).
       case "card.created":
       case "card.updated": {
         const c = e.payload;
         if (!isRoomCard(roomId, c)) return;
         setCards((cur) => cardsOnUpserted(cur, c));
-        if (cardsRef.current[c.id]) fetchCard(c.id);
-        if ((c.work_id ?? null) === panelRef.current) setBoard((b) => boardOnCard(b ?? { work_id: c.work_id, items: [], total: 0, pending_judgement: 0 }, c));
+        if (cardsRef.current[c.id] || c.status === "result_submitted" || c.status === "accepted") fetchCard(c.id);
+        if ((c.work_id ?? null) === panelRef.current) {
+          // 분담표를 아직 못 읽었으면(실패 · 서버 끔) 이 카드 한 장으로 만들지 않고 다시 읽는다(#397 NN6).
+          if (boardRef.current) setBoard((b) => boardOnCard(b, c));
+          else void loadBoard(c.work_id ?? null);
+        }
         break;
       }
       default:
         break;
     }
-  }, [roomId, router, loadWork, loadParticipants, refreshRoom, fetchCard]);
+  }, [roomId, router, loadWork, loadParticipants, refreshRoom, fetchCard, loadBoard]);
   const conn = useWorkspaceStream(workspace?.id, onEvent, { onResync: () => { void load(); void loadSide(); void loadMessages(); } });
 
   // 새 메시지·델타마다 맨 아래로(앵커로 들어왔으면 앵커 자리를 지킨다). 작성창 높이만큼 끝 표식의 scroll-margin 을 둔다(W-18).
@@ -784,7 +791,8 @@ export default function RoomPage() {
   /**
    * 타임라인 항목 ctx(#392 리뷰 NN2) — 데이터 칸이 바뀔 때만 새 객체다. 함수 칸은 매 렌더 새로 만드는 방 화면 함수를 `liveCtx` 로 부르는
    * 안정된 껍데기라, 진행 메모(`message.delta`)·입력 중·작성창·다이얼로그처럼 타임라인 항목과 무관한 상태가 바뀌어도 같은 객체가 간다.
-   * 함수가 읽는 상태(펼침·보기·턴 기록·메시지·서브 미션·아티팩트·집기·멤버·미션)는 deps 에 둔다 — 항목을 memo 로 감싸도 낡지 않게.
+   * 함수가 읽는 상태(펼침·보기·턴 기록·메시지·서브 미션·아티팩트·집기·멤버·미션)는 deps 에 둔다 — 항목은 memo(`TimelineItemView`, #397 NN4)라
+   * 그 상태가 바뀌면 새 ctx 로 다시 그려야 낡지 않는다. 그 밖의 상태(진행 메모 · 입력 중 · 작성창 · 다이얼로그)엔 ctx 가 같아 항목이 다시 안 그린다.
    */
   const liveCtx = useRef<Omit<TimelineCtx, "me" | "now" | "replies" | "held" | "hitls" | "busy" | "roomBudget" | "archived" | "showWorkLink" | "cards"> | null>(null);
   const timelineCtx = useMemo<TimelineCtx>(() => {

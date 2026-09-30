@@ -1,15 +1,18 @@
-/* 분담표(COMPONENTS §9.13 Card Board) — 우열 268px 안. 행 36, 열: 번호 · 담당 칩 · 목표(말줄임) · 상태 칩 · k/N · 비용. 토큰만. */
+/* 분담표(COMPONENTS §9.13 Card Board) — 우열 268px 안. 두 줄 행(#397 리뷰 (5)): 1줄 「C-n · 목표」 전폭 말줄임, 2줄 「@담당 · 상태 칩 · k/N · 비용」(--fs-meta). 토큰만. */
 .cboard { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .cboard__row {
-  display: flex; align-items: center; gap: 6px; width: 100%; min-height: 36px; padding: 0 4px;
+  display: flex; align-items: flex-start; gap: 4px; width: 100%; min-height: 48px; padding: 6px 4px;
   border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--ink); font: inherit; font-size: var(--fs-sub); text-align: left; cursor: pointer;
 }
 .cboard__row:hover { background: var(--surface); }
 .cboard__row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
-.cboard__tree { color: var(--ink-3); flex: none; }
-.cboard__no { flex: none; min-width: 26px; font-variant-numeric: tabular-nums; font-size: var(--fs-meta); color: var(--ink-2); }
-.cboard__who { flex: none; width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-meta); font-weight: 700; color: var(--s-run-text); background: color-mix(in srgb, var(--s-run) var(--soft-alpha), transparent); }
+.cboard__tree { color: var(--ink-3); flex: none; line-height: 1.5; }
+.cboard__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cboard__line1 { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+.cboard__line2 { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: var(--fs-meta); color: var(--ink-2); }
+.cboard__no { flex: none; font-variant-numeric: tabular-nums; font-size: var(--fs-meta); color: var(--ink-2); }
+.cboard__sep { flex: none; color: var(--ink-3); }
 .cboard__goal { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cboard__met { flex: none; min-width: 24px; text-align: right; font-size: var(--fs-meta); color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.cboard__cost { flex: none; min-width: 38px; text-align: right; font-size: var(--fs-meta); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.cboard__who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--s-run-text); }
+.cboard__met, .cboard__cost { flex: none; font-variant-numeric: tabular-nums; }
 .cboard__row .badge { flex: none; }

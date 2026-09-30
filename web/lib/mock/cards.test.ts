@@ -5,7 +5,8 @@
  *  · 권한 — actions 는 미션 Director 에게만(방송은 빈 목록) · Director 아니면 403 · 판정할 때가 아니면 409 · 사유 없으면 422
  *  · card.* 방송 · 수정 요청은 같은 lane 재진입(판 +1)
  * 회귀 주입(PR 표): report 의 downgraded 판정을 빼면 (C-3) FAIL; actionsFor 의 judgeUser 를 빼면 (권한) FAIL; speech 의 question 을 request 로
- * 되돌리면 (질문) FAIL; revise 의 versions.push 를 빼면 (2판) FAIL.
+ * 되돌리면 (질문) FAIL; revise 의 versions.push 를 빼면 (2판) FAIL; versions 에 계약 밖 칸을 넣거나 빼면 (계약 모양) FAIL(#397 B2);
+ * cardFirst 순서를 빼면 (두 순서) FAIL(#397 B1).
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import { dispatch, type Req } from "./handlers";
@@ -89,6 +90,11 @@ describe("작업 카드 목 — seed-cards · op 다섯", () => {
     expect(v1.result.summary).toBeTruthy();
     expect(c.refs.map((r) => r.missing)).toEqual([false, true]);
     expect(store().lanes.get(c.lane_id)!.reentry_count).toBe(1);
+    // 계약 모양 그대로(openapi v0.3.10 #397 B2) — 판마다 전체 모양, 더도 덜도 아닌 키.
+    expect(Object.keys(c.versions![0]).sort()).toEqual(["boundaries", "budget_usd", "criteria", "delegate_message_id", "goal", "judgement", "output_format", "refs", "result", "revise_reason", "version"]);
+    const v1b = c.versions![0] as { refs: { missing: boolean }[]; delegate_message_id: string };
+    expect(v1b.refs.map((r) => r.missing)).toEqual([false]); // 1판의 참고 자료(2판의 지워진 칩이 아님)
+    expect(v1b.delegate_message_id).not.toBe(c.delegate_message_id);
     expect(c.actions).toEqual([]);
   });
 
@@ -126,5 +132,31 @@ describe("작업 카드 목 — seed-cards · op 다섯", () => {
     expect(r.body.downgraded).toEqual([1]);
     expect(r.body.notice).toContain("1");
     expect((await call("POST", `/cards/${id}/result`, { summary: "또", verdicts: [{ criterion: 1, verdict: "met" }], confirmed: ["x"], assumed: [] })).status).toBe(409);
+  });
+});
+
+describe("결과 제출의 두 순서 — 말풍선 먼저(기본) · 카드 먼저(?order=card_first) (#397 B1)", () => {
+  it("두 순서 모두 내고, 카드 먼저면 card.updated 의 result.message_id 가 곧 올 말풍선 id", async () => {
+    resetStore();
+    await login("demo@colab.dev");
+    const me = await call("GET", "/me");
+    const rid = ((await call("POST", `/workspaces/${me.body.workspaces[0].id}/rooms`, { name: "순서" })).body as Room).id;
+    const wid = ((await call("POST", `/rooms/${rid}/works`, { goal: "g" })).body as Work).id;
+    const seed = (await call("POST", `/__mock/rooms/${rid}/seed-cards`, { work_id: wid })).body as { cards: Record<string, string> };
+    const order = (from: number) => store().events.slice(from).filter((e) => e.type === "card.updated" || (e.type === "message.created" && (e.payload as Message).card_role === "result")).map((e) => e.type);
+    const body = { summary: "했다", verdicts: [{ criterion: 1, verdict: "partial", note: "n" }], confirmed: ["봤다"], assumed: [] };
+
+    let from = store().events.length;
+    const a = await call("POST", `/cards/${seed.cards["C-4"]}/result`, body);
+    expect(a.status).toBe(201);
+    expect(order(from)).toEqual(["message.created", "card.updated"]);
+
+    // 둘째 결과를 내려면 진행 중 카드가 하나 더 필요 — C-5(2판 진행 중).
+    from = store().events.length;
+    const b = await call("POST", `/cards/${seed.cards["C-5"]}/result?order=card_first`, { ...body, verdicts: [1, 2, 3].map((n) => ({ criterion: n, verdict: "partial", note: "n" })) });
+    expect(b.status).toBe(201);
+    expect(order(from)).toEqual(["card.updated", "message.created"]);
+    const ev = store().events.slice(from).find((e) => e.type === "card.updated")!;
+    expect((ev.payload as TaskCard).result!.message_id).toBe(b.body.message.id);
   });
 });

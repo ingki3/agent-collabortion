@@ -20,7 +20,7 @@ import { MessageCard, authorName, type ConversationSlot } from "./MessageCard";
 import { Badge } from "./Badge";
 import { Slot } from "./Slot";
 import { clockTime } from "@/lib/time";
-import { cardVersion, goalExcerpt, judgeOf, metCount, type CardVersionView } from "@/lib/cards";
+import { cardNeed, cardVersion, goalExcerpt, judgeOf, metCount, type CachedCard, type CardVersionView } from "@/lib/cards";
 import { TASK_CARD as L } from "@/lib/wording";
 import type { CardAction, CardEvidence, CardRef, Message, TaskCard } from "@/lib/api/types";
 import type { TimelineCtx } from "./TimelineItemView";
@@ -37,16 +37,16 @@ export interface CardBubbleProps {
 }
 
 /** 캐시에서 이 말풍선의 판을 꺼낸다 — 없으면 방 화면에 한 번 부탁한다. */
-function useCardVersion(m: Message, ctx: CardCtx): { card: TaskCard | null; view: CardVersionView | null } {
+function useCardVersion(m: Message, ctx: CardCtx): { card: CachedCard | null; view: CardVersionView | null } {
   const card = m.card_id ? ctx.cards[m.card_id] ?? null : null;
   const view = card ? cardVersion(card, m.card_version) : null;
-  const want = m.card_role === "result" ? "result" : "card";
-  // 결과 말풍선이 먼저 왔는데(card.updated 보다) 캐시의 그 판에 결과가 없으면 — 그것도 없는 것이다.
-  const missing = !!m.card_id && (!view || (want === "result" && !view.result));
+  // 무엇이 모자란가 — 판 없음 · 결과 말풍선인데 그 판에 결과 없음(말풍선이 card.updated 보다 먼저) · 판정할 수 있는 상태인데 `actions` 를
+  // 믿을 곳에서 받은 적 없음(card.updated 가 말풍선보다 먼저 온 처음 보는 카드 — #397 B1). 셋 다 방 화면이 getCard 한 번.
+  const want = m.card_id ? cardNeed(card, view, m.card_role === "result" ? "result" : "delegation") : null;
   const { needCard } = ctx;
   useEffect(() => {
-    if (missing && m.card_id) needCard(m.card_id, m.card_version ?? null, want);
-  }, [missing, m.card_id, m.card_version, want, needCard]);
+    if (want && m.card_id) needCard(m.card_id, m.card_version ?? null, want);
+  }, [want, m.card_id, m.card_version, needCard]);
   return { card, view };
 }
 
@@ -180,8 +180,10 @@ function Bubble({ message: m, ctx, toWork, workLabel, head, body, aria, testId, 
   const current = !!card && (m.card_version ?? card.version) === card.version;
   const conversation = (mm: Message, o: { parent?: Message }): ConversationSlot => {
     const c = ctx.conversation(mm, o);
+    if (mm.id !== m.id) return c;
+    // 카드 말풍선의 상태는 카드 칩 하나다(#397 NN5 · Pencil S7-K A) — 대화 머리의 lane 위임 상태 칩(「● 실행 중」)은 숨긴다.
     // 결과 카드는 카드 안에 「↩ C-n 「목표…」」 를 그린다 — 대화 배치의 「↩ … 에 대한 보고」를 겹쳐 그리지 않는다.
-    return noReportOf && mm.id === m.id ? { ...c, speech: { ...c.speech, reportOf: undefined } } : c;
+    return { ...c, speech: { ...c.speech, lane: undefined, ...(noReportOf ? { reportOf: undefined } : {}) } };
   };
   const layers: TimelineCtx["layers"] = (mm, o) => {
     if (mm.id !== m.id) return ctx.layers(mm, o);
@@ -241,8 +243,8 @@ export function TaskCardBubble(props: CardBubbleProps) {
       {view.revise_reason && (
         <p className="tcard__revise" data-testid="card-revise-reason">{L.revise_head}{view.revise_reason}</p>
       )}
-      <Row label={L.field.goal} testId="card-goal"><span className="tcard__text">{view.goal}</span></Row>
-      <Row label={L.field.criteria} testId="card-criteria">
+      {view.goal != null && <Row label={L.field.goal} testId="card-goal"><span className="tcard__text">{view.goal}</span></Row>}
+      {view.criteria.length > 0 && <Row label={L.field.criteria} testId="card-criteria">
         <ol className="tcard__crit">
           {view.criteria.map((c) => (
             <li key={c.n} className="tcard__crit-row" data-testid="card-criterion" data-n={c.n}>
@@ -252,9 +254,9 @@ export function TaskCardBubble(props: CardBubbleProps) {
             </li>
           ))}
         </ol>
-      </Row>
-      <Row label={L.field.boundaries} testId="card-boundaries"><span className="tcard__bound">{view.boundaries}</span></Row>
-      {view.refs.length > 0 && (
+      </Row>}
+      {view.boundaries != null && <Row label={L.field.boundaries} testId="card-boundaries"><span className="tcard__bound">{view.boundaries}</span></Row>}
+      {view.refs != null && view.refs.length > 0 && (
         <Row label={L.field.refs} testId="card-refs">
           <span className="tcard__refs">{view.refs.map((r) => <RefChip key={`${r.kind}:${r.id}`} r={r} onJump={ctx.onJumpRef} />)}</span>
         </Row>
@@ -298,7 +300,7 @@ export function ResultCardBubble(props: CardBubbleProps) {
   const body = !card || !view || !r ? <Loading m={m} /> : (
     <>
       <button type="button" className="tcard__back" onClick={() => { const id = delegationMessageOf(m, card, view); if (id) ctx.onJump(id); }} data-testid="card-back">
-        ↩ {card.label} 「{goalExcerpt(view.goal)}」
+        ↩ {card.label}{view.goal != null && <> 「{goalExcerpt(view.goal)}」</>}
       </button>
       <p className={`tcard__summary${r.auto ? " tcard__summary--auto" : ""}`} data-testid="card-summary">{r.auto ? L.auto_summary : r.summary}</p>
       <ol className="tcard__verdicts" data-testid="card-verdicts">
@@ -359,5 +361,5 @@ export function ResultCardBubble(props: CardBubbleProps) {
 
 /** 이 판의 위임 카드 말풍선 — 서버가 결과 말풍선에 채운 ↩(`responds_to_message_id` = 그 판의 위임 카드 말풍선), 없으면 현재 판의 것. */
 function delegationMessageOf(m: Message, card: TaskCard, view: CardVersionView): string | null {
-  return m.responds_to_message_id ?? (view.current ? card.delegate_message_id ?? null : null);
+  return m.responds_to_message_id ?? view.delegate_message_id ?? (view.current ? card.delegate_message_id ?? null : null);
 }

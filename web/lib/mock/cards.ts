@@ -122,7 +122,7 @@ export function registerCards(ctx: CardsCtx): void {
   }
 
   /** 결과 카드 — 서버 submitCardResult. 근거 없는 met → partial(downgraded). */
-  function report(s: Store, sess: Session, c: Stored, task: MockTask | null, b: { summary: string; verdicts: { criterion: number; verdict: "met" | "partial" | "unmet"; evidence?: CardEvidence[]; note?: string | null }[]; confirmed: string[]; assumed: string[]; deviations?: string | null; open_issues?: string | null }, extra: { auto?: boolean; cost?: number | null; duration?: number | null } = {}): { message: Message; downgraded: number[] } {
+  function report(s: Store, sess: Session, c: Stored, task: MockTask | null, b: { summary: string; verdicts: { criterion: number; verdict: "met" | "partial" | "unmet"; evidence?: CardEvidence[]; note?: string | null }[]; confirmed: string[]; assumed: string[]; deviations?: string | null; open_issues?: string | null }, extra: { auto?: boolean; cost?: number | null; duration?: number | null; cardFirst?: boolean } = {}): { message: Message; downgraded: number[] } {
     if (c.status !== "in_progress") throw new Problem(409, "card_not_open", CARD_MOCK.not_open);
     const ns = b.verdicts.map((v) => v.criterion).sort((x, y) => x - y);
     if (ns.length !== c.criteria.length || ns.some((n, i) => n !== i + 1)) {
@@ -136,20 +136,33 @@ export function registerCards(ctx: CardsCtx): void {
       return { criterion: v.criterion, verdict: down ? ("partial" as const) : v.verdict, stated_verdict: v.verdict, downgraded: down, evidence: ev, note: v.note ?? null };
     }).sort((x, y) => x.criterion - y.criterion);
     const assignee = { id: c.assignee.agent_id, name: c.assignee.name };
-    const m = addMessage(s, sess, {
-      author_type: "agent", author_id: assignee.id, author: { name: assignee.name, avatar_url: null }, kind: "text",
+    // 계약은 결과 말풍선(`message.created`)과 `card.updated` 의 순서를 정하지 않는다(openapi StreamEvent) — 목은 둘 다 낸다(#397 B1).
+    // 기본은 말풍선 먼저, `extra.cardFirst` 면 카드 먼저(말풍선 id 를 미리 정해 result.message_id 를 채운다).
+    const mid = uuid();
+    const post = () => addMessage(s, sess, {
+      id: mid, author_type: "agent", author_id: assignee.id, author: { name: assignee.name, avatar_url: null }, kind: "text",
       content: `[${c.label} 결과 ${verdicts.filter((v) => v.verdict === "met").length}/${c.criteria.length}] ${extra.auto ? CARD_MOCK.auto_summary : b.summary}`, mentions: [],
       source_task_id: task?.id ?? null, lane_id: c.lane_id, work_id: c.work_id, card_id: c.id, card_role: "result", card_version: c.version,
     }, { cardResult: { respondsTo: c.delegate_message_id ?? "", to: { kind: "agent", id: c.delegator.agent_id, name: c.delegator.name } } });
-    c.result = {
-      summary: b.summary, verdicts, confirmed: b.confirmed, assumed: b.assumed, deviations: b.deviations ?? null, open_issues: b.open_issues ?? null,
-      met_count: verdicts.filter((v) => v.verdict === "met").length, auto: !!extra.auto, cost_usd: extra.cost ?? null, duration_s: extra.duration ?? null,
-      message_id: m.id, submitted_at: m.created_at,
+    const settle = (submittedAt: string) => {
+      c.result = {
+        summary: b.summary, verdicts, confirmed: b.confirmed, assumed: b.assumed, deviations: b.deviations ?? null, open_issues: b.open_issues ?? null,
+        met_count: verdicts.filter((v) => v.verdict === "met").length, auto: !!extra.auto, cost_usd: extra.cost ?? null, duration_s: extra.duration ?? null,
+        message_id: mid, submitted_at: submittedAt,
+      };
+      c.status = "result_submitted";
+      touch(c);
+      syncLane(s, sess, c);
+      broadcast(s, c, "card.updated");
     };
-    c.status = "result_submitted";
-    touch(c);
-    syncLane(s, sess, c);
-    broadcast(s, c, "card.updated");
+    let m: Message;
+    if (extra.cardFirst) {
+      settle(now());
+      m = post();
+    } else {
+      m = post();
+      settle(m.created_at);
+    }
     return { message: m, downgraded };
   }
 
@@ -173,9 +186,11 @@ export function registerCards(ctx: CardsCtx): void {
     const human = by.kind === "user";
     if (!(c.status === "result_submitted" || (human && c.status === "accepted"))) throw new Problem(409, "card_not_judgeable", CARD_MOCK.not_judgeable);
     judge(s, sess, c, by, "revise_requested", reason);
+    // 계약(v0.3.10 #397 B2) — 지난 판은 그 판의 전체 모양: version · goal · criteria · boundaries · refs · output_format · budget_usd ·
+    // revise_reason · delegate_message_id · result · judgement. 이것보다 더도 덜도 넣지 않는다(lib/mock/cards.test 가 키를 잰다).
     c.versions.push({
       version: c.version, goal: c.goal, criteria: c.criteria, boundaries: c.boundaries, refs: refsOut(s, c), output_format: c.output_format, budget_usd: c.budget_usd,
-      revise_reason: c.revise_reason ?? null, result: c.result, judgement: c.judgement,
+      revise_reason: c.revise_reason ?? null, delegate_message_id: c.delegate_message_id, result: c.result, judgement: c.judgement,
     });
     c.version += 1;
     if (patch.goal) c.goal = patch.goal;
@@ -237,7 +252,8 @@ export function registerCards(ctx: CardsCtx): void {
     const s = store();
     const { c, sess } = cardOr404(s, req, p.id);
     const b = (req.body ?? {}) as Parameters<typeof report>[4];
-    const r = report(s, sess, c, null, { ...b, confirmed: b.confirmed ?? [], assumed: b.assumed ?? [], verdicts: b.verdicts ?? [] });
+    // 목 전용 `?order=card_first` — card.updated 를 결과 말풍선보다 먼저 낸다(두 순서 모두 재현, #397 B1).
+    const r = report(s, sess, c, null, { ...b, confirmed: b.confirmed ?? [], assumed: b.assumed ?? [], verdicts: b.verdicts ?? [] }, { cardFirst: req.query.get("order") === "card_first" });
     return ok({ card: out(s, c, null, false), message: r.message, downgraded: r.downgraded, notice: r.downgraded.length ? CARD_MOCK.downgraded_notice + r.downgraded.join(", ") : null }, 201);
   });
   on("POST", "/cards/{id}/accept", (req, p) => {

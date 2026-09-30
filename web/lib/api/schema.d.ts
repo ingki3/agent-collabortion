@@ -3913,7 +3913,7 @@ export interface components {
             judgement: components["schemas"]["CardJudgement"] | null;
             /** @description 이 판에서 건 `result_card_missing` 후속 수. */
             follow_ups?: number;
-            /** @description getCard 만 — 지난 판(오래된 것부터): version · goal · criteria · boundaries · revise_reason · result · judgement. */
+            /** @description getCard 만 — 지난 판(오래된 것부터). 판마다 **그 판의 전체 모양**: version · goal · criteria · boundaries · refs(CardRef) · output_format · budget_usd · revise_reason · delegate_message_id · result · judgement — 화면이 지난 판 말풍선을 현재 판 칸으로 채우지 않게(#397 리뷰 B2). */
             versions?: {
                 [key: string]: unknown;
             }[];

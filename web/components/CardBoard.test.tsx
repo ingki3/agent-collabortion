@@ -1,7 +1,8 @@
 /**
  * 분담표(SCREEN §4.6 (가) 「분담표」 · COMPONENTS §9.13 Card Board) — 우열 미션 칸의 「개요 · 분담표」 탭.
  * 회귀 주입(PR 표): WorkPanel 의 `board.total > 0` 조건을 빼면 (카드 0 — 탭 줄 없음) FAIL; boardTree 를 빼고 items 를 그대로 그리면 (트리 └) FAIL;
- * PanelTabs 의 value 제어를 빼면 (고른 탭 유지) FAIL; boardChip 을 빼면 (판정 대기 칩) FAIL; 머리 aside 를 빼면 (카드 N · 판정 대기 N) FAIL.
+ * PanelTabs 의 value 제어를 빼면 (고른 탭 유지) FAIL; boardChip 을 빼면 (판정 대기 칩) FAIL; 머리 aside 를 빼면 (카드 N · 판정 대기 N) FAIL;
+ * 행 aria-label 을 「말풍선으로 가기」로 되돌리면 (행 이름) FAIL; 담당을 이니셜로 되돌리면 (두 줄 행) FAIL.
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -77,7 +78,7 @@ describe("WorkPanel 탭 — 카드 0 이면 탭 줄 없음(지금 화면 그대�
 });
 
 describe("CardBoard — 행 · 트리 · 누르기", () => {
-  it("번호순 행: 번호 · 담당 · 목표 · 상태 칩 · k/N · 비용 · 하위 카드는 └ 들여쓰기", () => {
+  it("두 줄 행 — 1줄 「C-n · 목표」, 2줄 「@담당 · 상태 칩 · k/N · 비용」(이니셜 칩 대신 이름) · 하위 카드는 └ 들여쓰기", () => {
     const onOpen = vi.fn();
     render(<CardBoard board={BOARD} onOpen={onOpen} />);
     const rows = screen.getAllByTestId("card-board-row");
@@ -90,9 +91,20 @@ describe("CardBoard — 행 · 트리 · 누르기", () => {
     expect(rows.map((r) => within(r).getByTestId("card-board-met").textContent)).toEqual(["3/3", "–", "1/3", "–", "–"]);
     expect(rows.map((r) => within(r).getByTestId("card-board-cost").textContent)).toEqual(["$0.80", "$1.10", "$1.20", "$0.30", "–"]);
     expect(rows[1]).toHaveTextContent("차량 스프라이트 24방향");
+    expect(rows.map((r) => within(r).getByTestId("card-board-who").textContent)).toEqual(["@Researcher", "@Designer", "@Developer", "@Developer", "@Writer"]);
+    for (const r of rows) {
+      const l1 = r.querySelector(".cboard__line1")!, l2 = r.querySelector(".cboard__line2")!;
+      expect(l1).toContainElement(within(r).getByTestId("card-board-goal"));
+      expect(l2).toContainElement(within(r).getByRole("img"));
+      expect(l2).toContainElement(within(r).getByTestId("card-board-met"));
+      expect(l2).toContainElement(within(r).getByTestId("card-board-cost"));
+    }
     fireEvent.click(rows[2]);
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "c3", latest_message_id: "m3" }));
-    expect(rows[2]).toHaveAccessibleName("C-3 말풍선으로 가기");
+    // 행 이름은 내용(번호 · 목표 · 담당 · 상태 · k/N) — 「말풍선으로 가기」가 덮지 않는다(#397 NN6).
+    expect(rows[2]).toHaveAccessibleName("C-3 · 커브 주행 감각 · @Developer · 판정 대기 · 기준 1/3");
+    expect(rows[1]).toHaveAccessibleName("C-2 · 차량 스프라이트 24방향 · @Designer · 진행 중 · 기준 –");
+    expect(rows[2]).toHaveAttribute("title", "C-3 말풍선으로 가기");
   });
   it("읽는 중이면 한 줄", () => {
     render(<CardBoard board={null} onOpen={() => undefined} />);

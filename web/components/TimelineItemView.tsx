@@ -11,7 +11,7 @@
  * 화면이 가진 상태·동작(펼침·답글·고르기·확인 요청 응답 …)은 `TimelineCtx` 한 묶음으로 받는다 — 이 컴포넌트는 상태가 없다
  * (「…」 메뉴의 열림만 `MessageMenu` 가 쥔다).
  */
-import { useState, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import { MessageCard, type ConversationSlot, type MessageLayerSlots } from "./MessageCard";
 import { PartBubble } from "./PartBubble";
 import { HitlCard } from "./HitlCard";
@@ -59,7 +59,7 @@ export interface TimelineCtx {
   /** 방 화면의 카드 캐시(카드 id → TaskCard) — 같은 카드의 말풍선 여럿이 이 한 캐시를 읽는다(lib/cards). */
   cards: CardCache;
   /** 캐시에 그 카드(그 판)가 없거나, 결과 말풍선인데 그 판의 결과가 아직 없다 — 방 화면이 `getCard` 로 한 번 읽는다(판·종류마다 한 번). */
-  needCard: (cardId: string, version: number | null, want: "card" | "result") => void;
+  needCard: (cardId: string, version: number | null, want: "card" | "result" | "actions") => void;
   /** 사람의 되돌리기 — 수락(`acceptCard`) · 수정 요청/수락 취소(`reviseCard`, 사유). 실패는 throw(말풍선의 사유 칸이 보여 준다). */
   onCardAction: (card: TaskCard, action: "accept" | "revise", reason?: string) => Promise<void>;
   /** 메시지로 스크롤·강조(화면 밖이면 앵커). */
@@ -199,10 +199,23 @@ const RENDER: Renderers = {
 };
 
 /** 타임라인 항목 하나를 그린다 — 종류를 고르고(`timelineEntry`) 표(`RENDER`)의 렌더러에 넘긴다. */
-export function TimelineItemView({ item, ctx }: { item: TimelineItem; ctx: TimelineCtx }) {
+function TimelineItemViewInner({ item, ctx }: { item: TimelineItem; ctx: TimelineCtx }) {
   const e = timelineEntry(item);
   return <>{(RENDER[e.kind] as (e: TimelineEntry, ctx: TimelineCtx) => ReactNode)(e, ctx)}</>;
 }
+
+/** 항목이 같은가 — `timelineItems` 는 매번 새 껍데기를 만들므로 알맹이(메시지 참조 · 묶음의 부분 참조)로 잰다. */
+export function sameTimelineItem(a: TimelineItem, b: TimelineItem): boolean {
+  if (a === b) return true;
+  if (a.kind === "message" || b.kind === "message") return a.kind === b.kind && (a as { message: Message }).message === (b as { message: Message }).message;
+  return a.groupId === b.groupId && a.size === b.size && a.parts.length === b.parts.length && a.parts.every((m, i) => m === b.parts[i]);
+}
+
+/**
+ * memo(#397 NN4) — 방 화면의 `timelineCtx`(useMemo, #392 NN2)가 같고 항목 알맹이가 같으면 다시 그리지 않는다. 진행 메모(`message.delta`)·
+ * 입력 중·작성창처럼 타임라인 항목과 무관한 상태가 바뀌면 방 화면만 다시 그리고 항목은 그대로다.
+ */
+export const TimelineItemView = memo(TimelineItemViewInner, (p, n) => p.ctx === n.ctx && sameTimelineItem(p.item, n.item));
 
 /** 「이걸 미션으로」 항목 하나 — 카드 말풍선의 「⋯」 메뉴가 카드 동작 뒤에 둔다(메시지 메뉴와 같은 항목·사유). */
 function ToWorkItem({ m, ctx }: { m: Message; ctx: TimelineCtx }) {
